@@ -246,8 +246,7 @@ proc testNimInAction(r: var TResults, cat: Category, options: string) =
     "niminaction/Chapter6/WikipediaStats/parallel_counts",
     "niminaction/Chapter6/WikipediaStats/race_condition",
     "niminaction/Chapter6/WikipediaStats/sequential_counts",
-    "niminaction/Chapter6/WikipediaStats/unguarded_access",
-    "niminaction/Chapter8/sdl/sdl_test"
+    "niminaction/Chapter6/WikipediaStats/unguarded_access"
     ]
 
   when false:
@@ -291,10 +290,6 @@ proc testNimInAction(r: var TResults, cat: Category, options: string) =
   # Run the tests.
   for testfile in tests:
     test "tests/" & testfile & ".nim"
-  let jsFile = "tests/niminaction/Chapter8/canvas/canvas_test.nim"
-  testJS jsFile
-  let cppFile = "tests/niminaction/Chapter8/sfml/sfml_test.nim"
-  testCPP cppFile
 
 # ------------------------- manyloc -------------------------------------------
 
