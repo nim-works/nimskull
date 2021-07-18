@@ -222,12 +222,6 @@ proc testNimInAction(r: var TResults, cat: Category, options: string) =
   template test(filename: untyped) =
     testSpec r, makeTest(filename, options, cat)
 
-  template testJS(filename: untyped) =
-    testSpec r, makeTest(filename, options, cat), {targetJS}
-
-  template testCPP(filename: untyped) =
-    testSpec r, makeTest(filename, options, cat), {targetCpp}
-
   let tests = [
     "niminaction/Chapter1/various1",
     "niminaction/Chapter2/various2",
@@ -366,13 +360,8 @@ proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
              isNavigatorTest: bool) =
   const
     tooltests = ["compiler/nim.nim"]
-    writeOnly = " --incremental:writeonly "
-    readOnly = " --incremental:readonly "
     incrementalOn = " --incremental:on -d:nimIcIntegrityChecks "
     navTestConfig = " --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off "
-
-  template test(x: untyped) =
-    testSpecWithNimcache(r, makeRawTest(file, x & options, cat), nimcache)
 
   template editedTest(x: untyped) =
     var test = makeTest(file, x & options, cat)
