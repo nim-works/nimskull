@@ -520,7 +520,8 @@ proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
 
 # ----------------------------------------------------------------------------
 
-const AdditionalCategories = ["debugger", "examples", "lib", "ic", "navigator"]
+# const AdditionalCategories = ["debugger", "examples", "lib", "ic", "navigator"]
+const AdditionalCategories = ["debugger", "examples", "lib"]
 const MegaTestCat = "megatest"
 
 proc `&.?`(a, b: string): string =
