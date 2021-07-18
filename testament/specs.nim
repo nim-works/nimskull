@@ -16,15 +16,18 @@ type TestamentData* = ref object
   testamentNumBatch*: int
   testamentBatch*: int
 
+# global mutable state for funsies
+var
+  compilerPrefix* = findExe("nim")
+  skips*: seq[string]
+
 let testamentData0* = TestamentData()
 
-var compilerPrefix* = findExe("nim")
-
-let isTravis* = existsEnv("TRAVIS")
-let isAppVeyor* = existsEnv("APPVEYOR")
-let isAzure* = existsEnv("TF_BUILD")
-
-var skips*: seq[string]
+# environment related predicates
+let
+  isTravis*   = existsEnv("TRAVIS")
+  isAppVeyor* = existsEnv("APPVEYOR")
+  isAzure*    = existsEnv("TF_BUILD")
 
 type
   TTestAction* = enum
@@ -88,8 +91,8 @@ type
     targets*: set[TTarget]
     matrix*: seq[string]
     nimout*: string
-    nimoutFull*: bool # whether nimout is all compiler output or a subset
-    parseErrors*: string            # when the spec definition is invalid, this is not empty.
+    nimoutFull*: bool    # whether nimout is all compiler output or a subset
+    parseErrors*: string # when the spec definition is invalid, this is not empty.
     unjoinable*: bool
     unbatchable*: bool
       # whether this test can be batchable via `NIM_TESTAMENT_BATCH`; only very

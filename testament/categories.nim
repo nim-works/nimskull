@@ -12,9 +12,8 @@
 
 # included from testament.nim
 
-import important_packages
 import std/strformat
-from std/sequtils import filterIt
+import std/private/gitutils
 
 const
   specialCategories = [
@@ -366,104 +365,6 @@ proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
       testObj.spec.action = actionCompile
     testSpec r, testObj
 
-# ----------------------------- nimble ----------------------------------------
-proc listPackagesAll(): seq[NimblePackage] =
-  var nimbleDir = getEnv("NIMBLE_DIR")
-  if nimbleDir.len == 0: nimbleDir = getHomeDir() / ".nimble"
-  let packageIndex = nimbleDir / "packages_official.json"
-  let packageList = parseFile(packageIndex)
-  proc findPackage(name: string): JsonNode =
-    for a in packageList:
-      if a["name"].str == name: return a
-  for pkg in important_packages.packages.items:
-    var pkg = pkg
-    if pkg.url.len == 0:
-      let pkg2 = findPackage(pkg.name)
-      if pkg2 == nil:
-        raise newException(ValueError, "Cannot find package '$#'." % pkg.name)
-      pkg.url = pkg2["url"].str
-    result.add pkg
-
-proc listPackages(packageFilter: string): seq[NimblePackage] =
-  let pkgs = listPackagesAll()
-  if packageFilter.len != 0:
-    # xxx document `packageFilter`, seems like a bad API,
-    # at least should be a regex; a substring match makes no sense.
-    result = pkgs.filterIt(packageFilter in it.name)
-  else:
-    if testamentData0.batchArg == "allowed_failures":
-      result = pkgs.filterIt(it.allowFailure)
-    elif testamentData0.testamentNumBatch == 0:
-      result = pkgs
-    else:
-      let pkgs2 = pkgs.filterIt(not it.allowFailure)
-      for i in 0..<pkgs2.len:
-        if i mod testamentData0.testamentNumBatch == testamentData0.testamentBatch:
-          result.add pkgs2[i]
-
-proc makeSupTest(test, options: string, cat: Category, debugInfo = ""): TTest =
-  result.cat = cat
-  result.name = test
-  result.options = options
-  result.debugInfo = debugInfo
-  result.startTime = epochTime()
-
-import std/private/gitutils
-
-proc testNimblePackages(r: var TResults; cat: Category; packageFilter: string) =
-  let nimbleExe = findExe("nimble")
-  doAssert nimbleExe != "", "Cannot run nimble tests: Nimble binary not found."
-  doAssert execCmd("$# update" % nimbleExe) == 0, "Cannot run nimble tests: Nimble update failed."
-  let packageFileTest = makeSupTest("PackageFileParsed", "", cat)
-  let packagesDir = "pkgstemp"
-  createDir(packagesDir)
-  var errors = 0
-  try:
-    let pkgs = listPackages(packageFilter)
-    for i, pkg in pkgs:
-      inc r.total
-      var test = makeSupTest(pkg.name, "", cat, "[$#/$#] " % [$i, $pkgs.len])
-      let buildPath = packagesDir / pkg.name
-      template tryCommand(cmd: string, workingDir2 = buildPath, reFailed = reInstallFailed, maxRetries = 1): string =
-        var outp: string
-        let ok = retryCall(maxRetry = maxRetries, backoffDuration = 10.0):
-          var status: int
-          (outp, status) = execCmdEx(cmd, workingDir = workingDir2)
-          status == QuitSuccess
-        if not ok:
-          if pkg.allowFailure:
-            inc r.passed
-            inc r.failedButAllowed
-          addResult(r, test, targetC, "", cmd & "\n" & outp, reFailed, allowFailure = pkg.allowFailure)
-          continue
-        outp
-
-      if not dirExists(buildPath):
-        discard tryCommand("git clone $# $#" % [pkg.url.quoteShell, buildPath.quoteShell], workingDir2 = ".", maxRetries = 3)
-        if not pkg.useHead:
-          discard tryCommand("git fetch --tags", maxRetries = 3)
-          let describeOutput = tryCommand("git describe --tags --abbrev=0")
-          discard tryCommand("git checkout $#" % [describeOutput.strip.quoteShell])
-        discard tryCommand("nimble install --depsOnly -y", maxRetries = 3)
-      discard tryCommand(pkg.cmd, reFailed = reBuildFailed)
-      inc r.passed
-      r.addResult(test, targetC, "", "", reSuccess, allowFailure = pkg.allowFailure)
-
-    errors = r.total - r.passed
-    if errors == 0:
-      r.addResult(packageFileTest, targetC, "", "", reSuccess)
-    else:
-      r.addResult(packageFileTest, targetC, "", "", reBuildFailed)
-
-  except JsonParsingError:
-    echo "[Warning] - Cannot run nimble tests: Invalid package file."
-    r.addResult(packageFileTest, targetC, "", "Invalid package file", reBuildFailed)
-  except ValueError:
-    echo "[Warning] - $#" % getCurrentExceptionMsg()
-    r.addResult(packageFileTest, targetC, "", "Unknown package", reBuildFailed)
-  finally:
-    if errors == 0: removeDir(packagesDir)
-
 # ---------------- IC tests ---------------------------------------------
 
 proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
@@ -693,8 +594,6 @@ proc processCategory(r: var TResults, cat: Category,
       compileExample(r, "examples/*.nim", options, cat)
       compileExample(r, "examples/gtk/*.nim", options, cat)
       compileExample(r, "examples/talk/*.nim", options, cat)
-    of "nimble-packages":
-      testNimblePackages(r, cat, options)
     of "niminaction":
       testNimInAction(r, cat, options)
     of "ic":
