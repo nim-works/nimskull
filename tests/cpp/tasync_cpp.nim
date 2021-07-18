@@ -6,7 +6,7 @@ discard """
 
 # bug #3299
 
-import jester
+# import jester # xxx: why the hell are we doing crap like this?
 import asyncdispatch, asyncnet
 
 # bug #5081
