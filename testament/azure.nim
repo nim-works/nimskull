@@ -6,7 +6,7 @@
 #    Look at license.txt for more info.
 #    All rights reserved.
 
-import base64, json, httpclient, os, strutils, uri
+import std/[base64, json, httpclient, os, strutils, uri]
 import specs
 
 const
