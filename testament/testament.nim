@@ -9,10 +9,11 @@
 
 ## This program verifies Nim against the testcases.
 
-import
-  strutils, pegs, os, osproc, streams, json, std/exitprocs,
-  backend, parseopt, specs, htmlgen, browsers, terminal,
-  algorithm, times, md5, azure, intsets, macros
+import std/[
+  strutils, pegs, os, osproc, streams, json, exitprocs, parseopt, browsers,
+  terminal, algorithm, times, md5, intsets, macros
+]
+import backend, azure, htmlgen, specs
 from std/sugar import dup
 import compiler/nodejs
 import lib/stdtest/testutils
@@ -707,11 +708,12 @@ proc main() =
     quit Usage
   var action = p.key.normalize
   p.next()
+  
   var r = initResults()
+
+  # now figure out what we're going to do
   case action
   of "all":
-    #processCategory(r, Category"megatest", p.cmdLineRest, testsDir, runJoinableTests = false)
-
     var myself = quoteShell(getAppFilename())
     if targetsStr.len > 0:
       myself &= " " & quoteShell("--targets:" & targetsStr)
