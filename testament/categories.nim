@@ -248,9 +248,6 @@ proc testNimInAction(r: var TResults, cat: Category, options: string) =
     "niminaction/Chapter6/WikipediaStats/race_condition",
     "niminaction/Chapter6/WikipediaStats/sequential_counts",
     "niminaction/Chapter6/WikipediaStats/unguarded_access",
-    "niminaction/Chapter7/Tweeter/src/tweeter",
-    "niminaction/Chapter7/Tweeter/src/createDatabase",
-    "niminaction/Chapter7/Tweeter/tests/database_test",
     "niminaction/Chapter8/sdl/sdl_test"
     ]
 
