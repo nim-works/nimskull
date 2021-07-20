@@ -209,6 +209,10 @@ proc buildTool(toolname, args: string) =
   nimexec("cc $# $#" % [args, toolname])
   copyFile(dest="bin" / splitFile(toolname).name.exe, source=toolname.exe)
 
+proc buildTester(args: string = "") =
+  ## build the new tester -- faster to test it
+  nimCompileFold("Compile tester", "tester/tester.nim", options = "-d:release " & args)
+
 proc buildTools(args: string = "") =
   bundleNimsuggest(args)
   nimCompileFold("Compile nimgrep", "tools/nimgrep.nim",
@@ -229,6 +233,7 @@ proc buildTools(args: string = "") =
   nimCompileFold("Compile atlas", "tools/atlas/atlas.nim", options = "-d:release " & args,
       outputName = "atlas")
 
+  buildTester(args)
 
 proc nsis(latest: bool; args: string) =
   bundleNimbleExe(latest, args)
@@ -713,6 +718,7 @@ when isMainModule:
       of "tools":
         buildTools(op.cmdLineRest)
         bundleNimbleExe(latest, op.cmdLineRest)
+      of "buildtester": buildTester(op.cmdLineRest)
       of "pushcsource":
         quit "use this instead: https://github.com/nim-lang/csources_v1/blob/master/push_c_code.nim"
       of "valgrind": valgrind(op.cmdLineRest)
