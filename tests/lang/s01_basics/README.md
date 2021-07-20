@@ -1,6 +1,6 @@
 # What Belongs Here?
 
-Here we have tests for the very simply parts of the language, that we often
+Here we have tests for the very simple parts of the language, that we often
 would not think to test. Mostly this captures minor trivia around:
 - comments
 - literals
