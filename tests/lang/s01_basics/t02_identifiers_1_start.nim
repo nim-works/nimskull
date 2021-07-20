@@ -1,7 +1,10 @@
 discard """
-  description: these are all reserved words and shoudl raise an error
+  description: these are all reserved words and should raise an error
   action: reject
 """
+
+# XXX: this test needs to be broken up into individual files per test or write
+#      a new test framework.
 
 var addr = "test" #[tt Error
     ^ identifier expected, but got 'keyword addr']#
