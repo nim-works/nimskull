@@ -126,9 +126,9 @@ static:
   testPattern nnkUInt16Lit(intVal = 42), 42'u16
   testPattern nnkUInt32Lit(intVal = 42), 42'u32
   testPattern nnkUInt64Lit(intVal = 42), 42'u64
-  #testPattern nnkFloat64Lit(floatVal = 42.0), 42.0
+  testPattern nnkFloatLit(floatVal = 42.0), 42.0
   testPattern nnkFloat32Lit(floatVal = 42.0), 42.0'f32
-  #testPattern nnkFloat64Lit(floatVal = 42.0), 42.0'f64
+  testPattern nnkFloat64Lit(floatVal = 42.0), 42.0'f64
   testPattern nnkStrLit(strVal = "abc"), "abc"
   testPattern nnkRStrLit(strVal = "abc"), r"abc"
   testPattern nnkTripleStrLit(strVal = "abc"), """abc"""
