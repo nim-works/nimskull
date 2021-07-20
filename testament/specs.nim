@@ -75,6 +75,7 @@ type
 
   TSpec* = object
     # xxx make sure `isJoinableSpec` takes into account each field here.
+    # description*: string        ## document the purpose of the test
     action*: TTestAction
     file*, cmd*: string
     input*: string
@@ -269,6 +270,11 @@ proc parseSpec*(filename: string): TSpec =
         doAssert key notin flags, $(key, filename)
       flags.incl key
       case key
+      of "description":
+        # XXX: this allows for a 'description' to be provided, need to
+        #      incorporate it into the the actual test runner and output.
+        # result.description = e.value
+        discard
       of "action":
         case e.value.normalize
         of "compile":
