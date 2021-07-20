@@ -34,57 +34,52 @@
 ## * compiler testing survey paper:
 ##  * https://software-lab.org/publications/csur2019_compiler_testing.pdf
 
-# This is the rough spec I'm aiming for, most of it will default away
-# notation:
-#  * [] - are lists
-#  * '' - are strings
-#  * ?  - prefix means implied/default -- wasn't thorough about this
+when false:
+  # This is the rough spec I'm aiming for, most of it will default away
+  discard """
+  version: 1
+  description: 'compiler failure example'
+  action: reject
 
-discard """
-version: 1
-description: ''
-[compile.fail]
-flags: ''
-output: ?match ''
-outputfull: ?match ''
-[error]
-msg: ?equal ''
-line: ?equal 1
-col: ?equal 2
-[ensure]
-timeout: 1.5
-maxcodesize: 666
-"""
+  [compile]
+  flags: ''
+  output: ''
+  outputfull: ''
+  exitCode: 1    # not sure
+  timeout: 1.5
+  maxcodesize: 666
 
-discard """
-version: 1
-description: ''
-[compile]
-flags: ''
-output-?match: ?match ''
-outputfull: ?match ''
-[compile.ensure]
-timeout: 1.5
-maxcodesize: 666
+  [error]
+  msg: ''
+  line: 1
+  col: 2
+  """
 
-[exec]
-args: ''
-input: ''
-sortoutput: true
-[expect]
-exitCode: 0
-output: ?equal ''
-stdout: ?equal ''
-errout: ?equal ''
-[exec.ensure]
-timeout: 0.5
-"""
+  discard """
+  version: 1
+  description: 'run success example'
+  action: run       # default
+
+  [compile]
+  # see example above
+
+  [exec]
+  args: ''
+  input: ''
+  sortoutput: true
+
+  [expect]
+  output: ''
+  exitCode: 0
+  timeout: 0.5
+  """
 
 from std/parseopt import initOptParser, next, CmdLineKind, remainingArgs
-from std/strutils import normalize, count
+from std/strutils import normalize, count, `%`, continuesWith, multiReplace
 from std/os import addFileExt, absolutePath, ExeExt, DirSep, dirExists,
                    walkDir, parentDir, lastPathPart, PathComponent
 from std/re import startsWith, re
+from std/streams import newStringStream, Stream
 
 const Usage = """Usage:
   tester [options] command [arguments]
@@ -110,46 +105,34 @@ type
 
   TestDir* = string  # xxx: considering making narrower set of procs
 
-  StrCheck* = object
-    ## operator and value to check something against
-    op*: StrOp
-    val*: string
-
   ExecutionStatus* {.pure.} = enum
     esNotStarted, esStarted, esRunning, esDone
 
-  CSCompileExpectKind* {.pure.} = enum
-    cscekNoOutput, cscekOutput, cscekOutputFull
-
-  CSCompileExpect* = object
-    errormsg*: StrCheck
-    case kind*: CSCompileExpectKind
-    of cscekOutput:
-      output*: StrCheck
-    of cscekOutputFull:
-      outputfull*: StrCheck
-    of cscekNoOutput:
-      discard
-
   CSCompile* = object
-    withFlags*: seq[string]
-    alsoSortOutput*: bool
-    expect*: CSCompileExpect
-    ensureTimeout*: float
-    ensureMaxCodeSize*: int
+    flags*: string
+    timeout*: float
+    maxcodesize*: int
 
-  CSExecute* = object
-    withArgs*: seq[string]
-    withInput*: seq[string]
-    alsoSortOutput*: bool
-    expect*: CSCExecuteExpect
-    ensureTimeout*: float
+  CSActionKind* = enum
+    csakReject, csakRun
 
   CompilerSpec* = object
     version*: int
     description*: string
     compile*: CSCompile
-    execute*: CSExecute
+    case action*: CSActionKind
+    of csakReject:
+      msg*: string
+      line*: int
+      col*: int
+    of csakRun:
+      args*: string
+      input*: string
+      sortoutput*: bool
+      output*: string
+      exitCode*: int
+      timeout*: float
+
 
   Execution* = object
     ## this is a bag of mutable state while a run is happening, try to keep it
@@ -157,7 +140,7 @@ type
     status*: ExecutionStatus
     testFile*: string
     results*: Results
-    testContent*: string        ## raw contents of this file
+    # testContent*: string        ## raw contents of this file
     compilerSpec*: CompilerSpec
 
   Context* = object
@@ -173,19 +156,89 @@ const
     ## defaults to newtests because keeping the old testament in place for now
   cmdDefault = "all"
 
-# -- more pure code
-
-func processTestCompiler(ctx: var Context, file: string) =
-  ctx.exec.testFile = file
+  inlineErrorMarker = "#[tt."
 
 
-# -- effectful execution machinery
+# -- execution
+
+proc extractErrorMsg(ctx: var Context, s: string; i: int; line: var int; col: var int): int =
+  ## xxx: implement me
+  0
+
+func extractSpec(ctx: var Context, content: string): string =
+  ## lifted from testament/spec
+  const
+    tripleQuote = "\"\"\""
+    startMarker = "discard " & tripleQuote
+    specStartMax = 10
+      ## if it's lower than this, something is likely off
+    notInitialized = -1
+      ## used to compare `specStart` and `specEnd` below
+  
+  var
+    i = 0          ## the index
+    specStart = -1 ## index in string for where the spec starts
+    specEnd = -1   ## index in string for where the spec ends
+    line = 1       ## current line
+    col = 1        ## current column
+  while i < content.len:
+    let
+      startOfFile = i == 0
+      prevNotSpace = not startOfFile and content[i-1] != ' '
+        ## can't use '\n' because files can have a BOM
+        ## (https://en.wikipedia.org/wiki/Byte_order_mark)
+    if (startOfFile or prevNotSpace) and content.continuesWith(startMarker, i):
+      if specStart != notInitialized:
+        raise newException(
+            ValueError,
+            "Spec parsing error, duplicate `specMarker` found: " &
+            $(ctx.exec.testFile, specStart, specEnd, line)
+          )
+      elif line > specStartMax:
+        raise newException(
+            ValueError,
+            "Spec not found within $1 lines or indented; info $2" %
+            [$specStartMax, $(ctx.exec.testFile, specStart, specEnd, line)]
+          )
+      else:
+        i += startMarker.len
+        specStart = i
+    elif specStart != notInitialized and specEnd == notInitialized and
+         content.continuesWith(tripleQuote, i):
+      specEnd = i
+      i += tripleQuote.len
+    elif content[i] == '\n':
+      inc line
+      inc i
+      col = 1
+    elif content.continuesWith(inlineErrorMarker, i):
+      i = extractErrorMsg(ctx, content, i, line, col)
+    else:
+      inc col
+      inc i
+  
+  if specStart >= 0 and specEnd > specStart:
+    result = content.substr(specStart, specEnd - 1).multiReplace({"'''": tripleQuote, "\\31": "\31"})
+  elif specStart >= 0:
+    raise newException(
+        ValueError,
+        "Spec `startMarker` found, but no trailing `tripleQuote`: " &
+          $(ctx.exec.testFile, specStart, specEnd, line)
+      )
+  else:
+    result = ""
+
+proc getSpec(ctx: var Context, content: string): CompilerSpec =
+  discard
 
 proc handleFile(ctx: var Context, file: string) =
    if file.lastPathPart.startsWith(re"tc_"):
       # test we want to keep
       echo "found tests: ", file
-      processTestCompiler(file)
+
+      ctx.exec.testFile = file
+      let testContent = readFile(file)
+      ctx.exec.compilerSpec = ctx.getSpec(testContent)
    else:
       echo "ignoring: ", file
 
