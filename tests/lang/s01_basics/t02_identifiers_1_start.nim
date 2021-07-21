@@ -3,8 +3,9 @@ discard """
   action: reject
 """
 
-# XXX: this test needs to be broken up into individual files per test or write
-#      a new test framework.
+# XXX: this test needs to be broken up into individual files per test or
+#      endeavour to write a new test framework, again. Right now it only tests
+#      the first error (`addr`) and ignores the rest.
 
 var addr = "test" #[tt Error
     ^ identifier expected, but got 'keyword addr']#
