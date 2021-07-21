@@ -36,6 +36,8 @@ doAssert "\a" == "\7", "'alert' or 'bell' is decimal code 7"
 
 doAssert "\b" == "\8", "'backspace' is decimal code 8"
 
+doAssert "\e" == "\27", "'backspace' is decimal code 27"
+
 # hex encoded character escape sequence using `\xHH`
 doAssert "\0"   == "\x00", "hex encoded `\\xHH` control plane start: Null"
 doAssert "\31"  == "\x1F", "hex encoded `\\xHH` control plane end: Unit Sep"
