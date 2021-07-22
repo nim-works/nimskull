@@ -5,7 +5,6 @@ shows nim's partial case sensitivity at play:
 - remaining are not
 - underscores are ignored
 '''
-action: compile
 """
 
 # Nim's identifier match can be understood as:

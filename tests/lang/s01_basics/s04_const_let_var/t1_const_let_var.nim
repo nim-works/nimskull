@@ -1,5 +1,6 @@
 discard """
 description: '''the very basics of const, let, and var'''
+targets: "c cpp js"
 """
 
 # assign a value to `foo`, it's set once at a compile time

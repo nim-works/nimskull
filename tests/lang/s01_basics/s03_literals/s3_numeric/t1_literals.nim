@@ -2,6 +2,7 @@ discard """
 description: '''
 Covers numeric literals, in particular defaults and how suffixes are handled
 '''
+targets: "c cpp js"
 """
 
 # basic int literals
@@ -104,14 +105,16 @@ doAssert 0x7F_FF_FF_FF'i32 == 2_147_483_647,  "int 32 max"
 doAssert 0xFF'u8 == 255, "unsigned int 8 max"
 doAssert 0xFF_FF'u16 == 65_535, "unsigned int 16 max"
 
-# xxx: only 64 bit platforms can do these comparisons and the 64 righthand side
-# overflows, need a better way to specify these. Mostly as a lame frontend
-# backend code gen check.
+const uint32Max = uint32 4_294_967_295
+doAssert 0xFFFF_FFFF'u32 == uint32Max, "unsigned int 32 max"
 
-# doAssert 0xFFFF_FFFF'u32 == 4_294_967_295'u64, "unsigned int 32 max"
-# doAssert 0x8000_0000_0000_0000'i64 == -9_223_372_036_854_775_808, "int 64 min"
-# doAssert 0x7FFF_FFFF_FFFF_FFFF'i64 == -9_223_372_036_854_775_807, "int 64 max"
-# doAssert 0xFFFF_FFFF_FFFF_FFFF'u64 == 18_446_744_073_709_551_615,
-#   "unsigned int 64 max"
+const int64Min = int64 -9_223_372_036_854_775_808
+doAssert 0x8000_0000_0000_0000'i64 == int64Min, "int 64 min"
+
+const int64Max = int64 9_223_372_036_854_775_807
+doAssert 0x7FFF_FFFF_FFFF_FFFF'i64 == int64Max, "int 64 max"
+
+const uint64Max = 18_446_744_073_709_551_615'u64
+doAssert 0xFFFF_FFFF_FFFF_FFFF'u64 == uint64Max, "unsigned int 64 max"
 
 # xxx: revisit floating point related checks
