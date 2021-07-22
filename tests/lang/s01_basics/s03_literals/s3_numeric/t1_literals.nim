@@ -178,47 +178,115 @@ block:
 # low and high on various platforms
 
 block:
+  const
+    vmInt8Min = 0x80'i8
+    vmInt8Max = 0x7F'i8
   let
-    a = 0x80'i8
-    b = 0x7F'i8
-  doAssert a == -128, "int 8 min"
-  doAssert b == 127,  "int 8 max"
+    rtInt8Min = vmInt8Min
+    rtInt8Max = vmInt8Max
+  doAssert rtInt8Min == -128, "int 8 min"
+  doAssert rtInt8Max == 127,  "int 8 max"
+  const
+    sMin = $vmInt8Min
+    sMax = $vmInt8Max
+  doAssert $rtInt8Min == sMin, "string compare int8 min VM vs runtime"
+  doAssert $rtInt8Max == sMax, "string compare int8 max VM vs runtime"
 
 block:
+  const
+    vmInt16Min = 0x80_00'i16
+    vmInt16Max = 0x7F_FF'i16
   let
-    a = 0x80_00'i16
-    b = 0x7F_FF'i16
-  doAssert a == -32_768, "int 16 min"
-  doAssert b == 32_767,  "int 16 max"
+    rtInt16Min = vmInt16Min
+    rtInt16Max = vmInt16Max
+  doAssert rtInt16Min == -32_768, "int 16 min"
+  doAssert rtInt16Max == 32_767,  "int 16 max"
+  const
+    sMin = $vmInt16Min
+    sMax = $vmInt16Max
+  doAssert $rtInt16Min == sMin, "string compare int16 min VM vs runtime"
+  doAssert $rtInt16Max == sMax, "string compare int16 max VM vs runtime"
 
 block:
+  const
+    vmInt32Min = 0x80_00_00_00'i32
+    vmInt32Max = 0x7F_FF_FF_FF'i32
   let
-    a = 0x80_00_00_00'i32
-    b = 0x7F_FF_FF_FF'i32
-  doAssert a == -2_147_483_648, "int 32 min"
-  doAssert b == 2_147_483_647,  "int 32 max"
+    rtInt32Min = vmInt32Min
+    rtInt32Max = vmInt32Max
+  doAssert rtInt32Min == -2_147_483_648, "int 32 min"
+  doAssert rtInt32Max == 2_147_483_647,  "int 32 max"
+  const
+    sMin = $vmInt32Min
+    sMax = $vmInt32Max
+  doAssert $rtInt32Min == sMin, "string compare int32 min VM vs runtime"
+  doAssert $rtInt32Max == sMax, "string compare int32 max VM vs runtime"
 
 block:
+  const
+    vmUint8Max  = 0xFF'u8
+    vmUint16Max = 0xFF_FF'u16
   let
-    a = 0xFF'u8
-    b = 0xFF_FF'u16
-  doAssert a == 255, "unsigned int 8 max"
-  doAssert b == 65_535, "unsigned int 16 max"
+    rtUint8Max  = vmUint8Max
+    rtUint16Max = vmUint16Max
+  doAssert rtUint8Max == 255,     "unsigned int 8 max"
+  doAssert rtUint16Max == 65_535, "unsigned int 16 max"
+  const
+    s8 = $vmUint8Max
+    s16 = $vmUint16Max
+  doAssert $rtUint8Max  == s8,  "string compare uint8 max VM vs runtime"
+  doAssert $rtUint16Max == s16, "string compare uint16 max VM vs runtime"
 
 block:
-  let a = 0xFFFF_FFFF'u32
-  doAssert a == uint32 4_294_967_295, "unsigned int 32 max"
+  const vmUint32Max = 0xFFFF_FFFF'u32
+  let rtUint32Max = vmUint32Max
+  doAssert rtUint32Max == uint32 4_294_967_295, "unsigned int 32 max"
+  const sMax = $vmUint32Max
+  doAssert $rtUint32Max == sMax, "string compare uint32 max VM vs runtime"
 
 block:
-  let a = 0x8000_0000_0000_0000'i64
-  doAssert a == int64 -9_223_372_036_854_775_808, "int 64 min"
+  const vmInt64Min = 0x8000_0000_0000_0000'i64
+  let rtInt64Min = vmInt64Min
+  doAssert rtInt64Min == int64 -9_223_372_036_854_775_808, "int 64 min"
+  const sMin = $vmInt64Min
+  when defined(js):
+    # JS codegen has a bug and Nim emits the raw literal into JS which
+    # then gets approximated as a double, here JS and the VM disagree
+    if $rtInt64Min == sMin:
+      doAssert false, "JS coddegen fixed for int64, congrats, renable this test"
+    else:
+      discard "Javascript code gen is still broken"
+  else:
+    doAssert $rtInt64Min == sMin, "string compare int64 min VM vs runtime"
 
 block:
-  let a = 0x7FFF_FFFF_FFFF_FFFF'i64
-  doAssert a == int64 9_223_372_036_854_775_807, "int 64 max"
+  const vmInt64Max = 0x7FFF_FFFF_FFFF_FFFF'i64
+  let rtInt64Max = vmInt64Max
+  doAssert rtInt64Max == int64 9_223_372_036_854_775_807, "int 64 max"
+  const sMax = $vmInt64Max
+  when defined(js):
+    # JS codegen has a bug and Nim emits the raw literal into JS which
+    # then gets approximated as a double, here JS and the VM disagree
+    if $rtInt64Max == sMax:
+      doAssert false, "JS coddegen fixed for int64, congrats, renable this test"
+    else:
+      discard "Javascript code gen is still broken"
+  else:
+    doAssert $rtInt64Max == sMax, "string compare int64 max VM vs runtime"
 
 block:
-  let a = 0xFFFF_FFFF_FFFF_FFFF'u64
-  doAssert a == 18_446_744_073_709_551_615'u64, "unsigned int 64 max"
+  const vmUint64Max = 0xFFFF_FFFF_FFFF_FFFF'u64
+  let rtUint64Max = vmUint64Max
+  doAssert rtUint64Max == 18_446_744_073_709_551_615'u64, "unsigned int 64 max"
+  const sMax = $vmUint64Max
+  when defined(js):
+    # JS codegen has a bug and Nim emits the raw literal into JS which
+    # then gets approximated as a double, here JS and the VM disagree
+    if $rtUint64max == sMax:
+      doAssert false, "JS coddegen fixed for uint64, congrats, renable this test"
+    else:
+      discard "Javascript code gen is still broken"
+  else:
+    doAssert $rtUint64Max == sMax, "string compare uint64 max VM vs runtime"
 
 # xxx: revisit floating point related checks
