@@ -5,6 +5,7 @@ Triple Quoted string literals:
 - do not need to escape non-consecutive occurences of `"`
 - end when three double quotes are followed by a non-doublequote character
 '''
+targets: "c cpp js"
 """
 
 doAssert """""" == "", "empty string and triplequoted literals are equivalent"

@@ -1,5 +1,4 @@
 discard """
-action: compile
 description: '''
 This tests comments in their various forms
 '''
