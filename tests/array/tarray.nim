@@ -34,6 +34,7 @@ ret:12
 123
 '''
 joinable: false
+target: "c cpp js"
 """
 
 block tarray:
@@ -195,18 +196,6 @@ type ustring = distinct string
 converter toUString(s: string): ustring = ustring(s)
 
 block tarrayindx:
-  proc putEnv(key, val: string) =
-    # XXX: we have to leak memory here, as we cannot
-    # free it before the program ends (says Borland's
-    # documentation)
-    var
-      env: ptr array[0..500000, char]
-    env = cast[ptr array[0..500000, char]](alloc(len(key) + len(val) + 2))
-    for i in 0..len(key)-1: env[i] = key[i]
-    env[len(key)] = '='
-    for i in 0..len(val)-1:
-      env[len(key)+1+i] = val[i]
-
   # bug #7153
   const
     UnsignedConst = 1024'u
@@ -361,8 +350,16 @@ block troofregression:
   echo bug(testStr)
   echo testStr[testStr.len - 8 .. testStr.len - 1] & "__" & testStr[0 .. testStr.len - pred(rot)]
 
+  when defined(js):
+    # js can't `readFile` so we read it into memory and compile it in
+    const instr = readFile(parentDir(currentSourcePath) / "troofregression2.txt").split(',')
+
   var
-    instructions = readFile(parentDir(currentSourcePath) / "troofregression2.txt").split(',')
+    instructions =
+      when defined(js):
+        instr # js cannot read from disk so we do it at compile time, see above
+      else:
+        readFile(parentDir(currentSourcePath) / "troofregression2.txt").split(',')
     programs = "abcdefghijklmnop"
 
   proc dance(dancers: string): string =
@@ -401,13 +398,13 @@ block troofregression:
   echo longDance(programs)
 
 
+when not defined(js):
+  block tunchecked:
+    {.boundchecks: on.}
+    type Unchecked = UncheckedArray[char]
 
-block tunchecked:
-  {.boundchecks: on.}
-  type Unchecked = UncheckedArray[char]
-
-  var x = cast[ptr Unchecked](alloc(100))
-  x[5] = 'x'
+    var x = cast[ptr Unchecked](alloc(100))
+    x[5] = 'x'
 
 
 
@@ -564,21 +561,21 @@ block arrayLiterals:
 
 
 
-# bug #8316
+block t8316:
+  # https://github.com/nim-lang/Nim/issues/8316
+  proc myAppend[T](a:T):string=
+    echo "a:", a
+    return $a
 
-proc myAppend[T](a:T):string=
-  echo "a:", a
-  return $a
+  template append2(args: varargs[string, myAppend]): string =
+    var ret:string
+    for a in args:
+      echo "ret:", ret
+      ret.add(a)
+    ret
 
-template append2*(args: varargs[string, myAppend]): string =
-  var ret:string
-  for a in args:
-    echo "ret:", ret
-    ret.add(a)
-  ret
-
-let foo = append2("1", "2", "3")
-echo foo
+  let foo = append2("1", "2", "3")
+  echo foo
 
 block t12466:
   # https://github.com/nim-lang/Nim/issues/12466
