@@ -1,6 +1,6 @@
 discard """
 description: '''
-Describe the basics of sequences:
+Basics of sequences:
 - dynamically sized list of a single type
 - literals
 - indexing
