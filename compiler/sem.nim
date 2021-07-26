@@ -606,7 +606,12 @@ proc isEmptyTree(n: PNode): bool =
   else: result = false
 
 proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
-  if c.topStmts == 0 and not isImportSystemStmt(c.graph, n):
+  ## given top level statements from a module, carries out semantic analysis:
+  ## - per module, ensure system module is improted first unless in system
+  ## - semantic analysis of the AST and high level optimizations
+  ## - minor module transforms for interactive mode and idetools
+  ## - delegates further semantic analysis to `sempass2`, see sempass2.nim
+  if c.isfirstTopLevelStmt and not isImportSystemStmt(c.graph, n):
     if sfSystemModule notin c.module.flags and not isEmptyTree(n):
       assert c.graph.systemModule != nil
       c.moduleScope.addSym c.graph.systemModule # import the "System" identifier
@@ -614,28 +619,24 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
       inc c.topStmts
   else:
     inc c.topStmts
+
+  # xxx: can noforward be deprecated? might be repurposed for IC, not sure.
   if sfNoForward in c.module.flags:
     result = semAllTypeSections(c, n)
   else:
     result = n
+
   result = semStmt(c, result, {})
-  when false:
-    # Code generators are lazy now and can deal with undeclared procs, so these
-    # steps are not required anymore and actually harmful for the upcoming
-    # destructor support.
-    # BUGFIX: process newly generated generics here, not at the end!
-    if c.lastGenericIdx < c.generics.len:
-      var a = newNodeI(nkStmtList, n.info)
-      addCodeForGenerics(c, a)
-      if a.len > 0:
-        # a generic has been added to `a`:
-        if result.kind != nkEmpty: a.add result
-        result = a
   result = hloStmt(c, result)
-  if c.config.cmd == cmdInteractive and not isEmptyType(result.typ):
-    result = buildEchoStmt(c, result)
-  if c.config.cmd == cmdIdeTools:
+
+  case c.config.cmd
+  of cmdInteractive:
+    if not isEmptyType(result.typ):
+      result = buildEchoStmt(c, result)
+  of cmdIdeTools:
     appendToModule(c.module, result)
+  else:
+    discard
   trackStmt(c, c.module, result, isTopLevel = true)
 
 proc recoverContext(c: PContext) =
@@ -647,6 +648,9 @@ proc recoverContext(c: PContext) =
   while c.p != nil and c.p.owner.kind != skModule: c.p = c.p.next
 
 proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
+  ## Entry point for the semantical analysis pass, the heavy lifting is done by
+  ## `semStmtAndGenerateGenerics`. This will be called with top level nodes
+  ## from a module as it's parsed and uses the context to accumulate data.
   var c = PContext(context)
   # no need for an expensive 'try' if we stop after the first error anyway:
   if c.config.errorMax <= 1:

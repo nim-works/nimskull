@@ -164,6 +164,11 @@ type
 
 template config*(c: PContext): ConfigRef = c.graph.config
 
+func isfirstTopLevelStmt*(c: PContext): bool =
+  ## `true` if this is the first top level statement encountered for this
+  ## module pass.
+  c.topStmts == 0
+
 proc getIntLitType*(c: PContext; literal: PNode): PType =
   # we cache some common integer literal types for performance:
   let value = literal.intVal
