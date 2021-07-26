@@ -286,7 +286,7 @@ proc symNodeFromType(c: PContext, t: PType, info: TLineInfo): PNode =
   result = newSymNode(symFromType(c, t, info), info)
   result.typ = makeTypeDesc(c, t)
 
-when false:
+when false: # xxx: deprecate me
   proc createEvalContext(c: PContext, mode: TEvalMode): PEvalContext =
     result = newEvalContext(c.module, mode)
     result.getType = proc (n: PNode): PNode =
@@ -537,17 +537,84 @@ proc setGenericParamsMisc(c: PContext; n: PNode) =
 
 include semtempl, semgnrc, semstmts, semexprs
 
-proc addCodeForGenerics(c: PContext, n: PNode) =
-  for i in c.lastGenericIdx..<c.generics.len:
-    var prc = c.generics[i].inst.sym
-    if prc.kind in {skProc, skFunc, skMethod, skConverter} and prc.magic == mNone:
-      if prc.ast == nil or prc.ast[bodyPos] == nil:
-        internalError(c.config, prc.info, "no code for " & prc.name.s)
-      else:
-        n.add prc.ast
-  c.lastGenericIdx = c.generics.len
+proc isImportSystemStmt(g: ModuleGraph; n: PNode): bool =
+  ## true if `n` is an import statement referring to the system module
+  if g.systemModule == nil: return false
+  case n.kind
+  of nkImportStmt:
+    for x in n:
+      if x.kind == nkIdent:
+        let f = checkModuleName(g.config, x, false)
+        if f == g.systemModule.info.fileIndex:
+          return true
+  of nkImportExceptStmt, nkFromStmt:
+    if n[0].kind == nkIdent:
+      let f = checkModuleName(g.config, n[0], false)
+      if f == g.systemModule.info.fileIndex:
+        return true
+  else: discard
 
-proc myOpen(graph: ModuleGraph; module: PSym; idgen: IdGenerator): PPassContext {.nosinks.} =
+proc isEmptyTree(n: PNode): bool =
+  ## true if `n` is empty that shouldn't count as a top level statement
+  case n.kind
+  of nkStmtList:
+    for it in n:
+      if not isEmptyTree(it): return false
+    result = true
+  of nkEmpty, nkCommentStmt: result = true
+  else: result = false
+
+proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
+  ## given top level statements from a module, carries out semantic analysis:
+  ## - per module, ensure system module is improted first unless in system
+  ## - semantic analysis of the AST and high level optimizations
+  ## - minor module transforms for interactive mode and idetools
+  ## - delegates further semantic analysis to `sempass2`, see sempass2.nim
+  ##
+  ## the return value is valid AST for further compilation passes on a per top
+  ## level statement basis, with the `PContext` parameter `c` acting as an
+  ## accumulator across the various top level statements, modules, and overall
+  ## program compilation.
+
+  if c.isfirstTopLevelStmt and not isImportSystemStmt(c.graph, n):
+    if sfSystemModule notin c.module.flags and not isEmptyTree(n):
+      assert c.graph.systemModule != nil
+      c.moduleScope.addSym c.graph.systemModule # import the system module
+      importAllSymbols(c, c.graph.systemModule)
+      inc c.topStmts
+    else:
+      # do not increment `c.topStmts`, as we want to ignore empty/trivial nodes
+      # at the start of a module.
+      discard
+  else:
+    inc c.topStmts
+
+  # xxx: can noforward be deprecated? might be repurposed for IC, not sure.
+  if sfNoForward in c.module.flags:
+    result = semAllTypeSections(c, n)
+  else:
+    result = n
+
+  result = semStmt(c, result, {})
+  result = hloStmt(c, result)
+
+  case c.config.cmd
+  of cmdInteractive:
+    if not isEmptyType(result.typ):
+      result = buildEchoStmt(c, result)
+  of cmdIdeTools:
+    appendToModule(c.module, result)
+  else:
+    discard
+  trackStmt(c, c.module, result, isTopLevel = true)
+
+# All the code below here is for the pass machinery, the code above is the
+# actual work.
+
+# -- code-myopen
+
+proc myOpen(graph: ModuleGraph; module: PSym;
+            idgen: IdGenerator): PPassContext {.nosinks.} =
   var c = newContext(graph, module)
   c.idgen = idgen
   c.enforceVoidContext = newType(tyTyped, nextTypeId(idgen), nil)
@@ -580,64 +647,7 @@ proc myOpen(graph: ModuleGraph; module: PSym; idgen: IdGenerator): PPassContext 
   c.topLevelScope = openScope(c)
   result = c
 
-proc isImportSystemStmt(g: ModuleGraph; n: PNode): bool =
-  if g.systemModule == nil: return false
-  case n.kind
-  of nkImportStmt:
-    for x in n:
-      if x.kind == nkIdent:
-        let f = checkModuleName(g.config, x, false)
-        if f == g.systemModule.info.fileIndex:
-          return true
-  of nkImportExceptStmt, nkFromStmt:
-    if n[0].kind == nkIdent:
-      let f = checkModuleName(g.config, n[0], false)
-      if f == g.systemModule.info.fileIndex:
-        return true
-  else: discard
-
-proc isEmptyTree(n: PNode): bool =
-  case n.kind
-  of nkStmtList:
-    for it in n:
-      if not isEmptyTree(it): return false
-    result = true
-  of nkEmpty, nkCommentStmt: result = true
-  else: result = false
-
-proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
-  ## given top level statements from a module, carries out semantic analysis:
-  ## - per module, ensure system module is improted first unless in system
-  ## - semantic analysis of the AST and high level optimizations
-  ## - minor module transforms for interactive mode and idetools
-  ## - delegates further semantic analysis to `sempass2`, see sempass2.nim
-  if c.isfirstTopLevelStmt and not isImportSystemStmt(c.graph, n):
-    if sfSystemModule notin c.module.flags and not isEmptyTree(n):
-      assert c.graph.systemModule != nil
-      c.moduleScope.addSym c.graph.systemModule # import the "System" identifier
-      importAllSymbols(c, c.graph.systemModule)
-      inc c.topStmts
-  else:
-    inc c.topStmts
-
-  # xxx: can noforward be deprecated? might be repurposed for IC, not sure.
-  if sfNoForward in c.module.flags:
-    result = semAllTypeSections(c, n)
-  else:
-    result = n
-
-  result = semStmt(c, result, {})
-  result = hloStmt(c, result)
-
-  case c.config.cmd
-  of cmdInteractive:
-    if not isEmptyType(result.typ):
-      result = buildEchoStmt(c, result)
-  of cmdIdeTools:
-    appendToModule(c.module, result)
-  else:
-    discard
-  trackStmt(c, c.module, result, isTopLevel = true)
+# -- code-myprocess
 
 proc recoverContext(c: PContext) =
   # clean up in case of a semantic error: We clean up the stacks, etc. This is
@@ -648,8 +658,10 @@ proc recoverContext(c: PContext) =
   while c.p != nil and c.p.owner.kind != skModule: c.p = c.p.next
 
 proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
-  ## Entry point for the semantical analysis pass, the heavy lifting is done by
-  ## `semStmtAndGenerateGenerics`. This will be called with top level nodes
+  ## Entry point for the semantic analysis pass, this proc is part of the
+  ## compiler graph `passes` interface. This adapts that interface to the sem
+  ## implementation by wrapping `semStmtAndGenerateGenerics`.
+  ## This will be called with top level nodes
   ## from a module as it's parsed and uses the context to accumulate data.
   var c = PContext(context)
   # no need for an expensive 'try' if we stop after the first error anyway:
@@ -669,13 +681,24 @@ proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
         result = nil
       else:
         result = newNodeI(nkEmpty, n.info)
-      #if c.config.cmd == cmdIdeTools: findSuggest(c, n)
   storeRodNode(c, result)
+
+# -- code-myclose
 
 proc reportUnusedModules(c: PContext) =
   for i in 0..high(c.unusedImports):
     if sfUsed notin c.unusedImports[i][0].flags:
       message(c.config, c.unusedImports[i][1], warnUnusedImportX, c.unusedImports[i][0].name.s)
+
+proc addCodeForGenerics(c: PContext, n: PNode) =
+  for i in c.lastGenericIdx..<c.generics.len:
+    var prc = c.generics[i].inst.sym
+    if prc.kind in {skProc, skFunc, skMethod, skConverter} and prc.magic == mNone:
+      if prc.ast == nil or prc.ast[bodyPos] == nil:
+        internalError(c.config, prc.info, "no code for " & prc.name.s)
+      else:
+        n.add prc.ast
+  c.lastGenericIdx = c.generics.len
 
 proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
   var c = PContext(context)
