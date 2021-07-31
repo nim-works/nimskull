@@ -109,6 +109,17 @@ proc semExprBranchScope(c: PContext, n: PNode): PNode =
   result = semExprBranch(c, n)
   closeScope(c)
 
+proc fixNilType(c: PContext; n: PNode) =
+  if isAtom(n):
+    if n.kind != nkNilLit and n.typ != nil:
+      localError(c.config, n.info, errDiscardValueX % n.typ.typeToString)
+  elif n.kind in {nkStmtList, nkStmtListExpr}:
+    n.transitionSonsKind(nkStmtList)
+    for it in n: fixNilType(c, it)
+  n.typ = nil
+
+# start `discard` check related code
+
 const
   skipForDiscardable = {nkIfStmt, nkIfExpr, nkCaseStmt, nkOfBranch,
     nkElse, nkStmtListExpr, nkTryStmt, nkFinally, nkExceptBranch,
@@ -122,16 +133,9 @@ proc implicitlyDiscardable(n: PNode): bool =
            (isCallExpr(n) and n[0].kind == nkSym and
            sfDiscardable in n[0].sym.flags)
 
-proc fixNilType(c: PContext; n: PNode) =
-  if isAtom(n):
-    if n.kind != nkNilLit and n.typ != nil:
-      localError(c.config, n.info, errDiscardValueX % n.typ.typeToString)
-  elif n.kind in {nkStmtList, nkStmtListExpr}:
-    n.transitionSonsKind(nkStmtList)
-    for it in n: fixNilType(c, it)
-  n.typ = nil
-
 proc discardCheck(c: PContext, result: PNode, flags: TExprFlags) =
+  ## checks to see if an expression, `result`, needs to be consumed as most do
+  ## in the language -- unless a proc is marked with the discardable pragma.
   if c.matchedConcept != nil or efInTypeof in flags: return
 
   if result.typ != nil and result.typ.kind notin {tyTyped, tyVoid}:
@@ -149,6 +153,8 @@ proc discardCheck(c: PContext, result: PNode, flags: TExprFlags) =
       if result.typ.kind == tyProc:
         s.add "; for a function call use ()"
       localError(c.config, n.info, s)
+
+# end `discard` check related code
 
 proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
@@ -445,56 +451,6 @@ proc setVarType(c: PContext; v: PSym, typ: PType) =
         "; new type is: " & typeToString(typ, preferDesc))
   v.typ = typ
 
-proc semLowerLetVarCustomPragma(c: PContext, a: PNode, n: PNode): PNode =
-  var b = a[0]
-  if b.kind == nkPragmaExpr:
-    if b[1].len != 1:
-      # we could in future support pragmas w args e.g.: `var foo {.bar:"goo".} = expr`
-      return nil
-    let nodePragma = b[1][0]
-    # see: `singlePragma`
-
-    var amb = false
-    var sym: PSym = nil
-    case nodePragma.kind
-    of nkIdent, nkAccQuoted:
-      let ident = considerQuotedIdent(c, nodePragma)
-      var userPragma = strTableGet(c.userPragmas, ident)
-      if userPragma != nil: return nil
-      let w = nodePragma.whichPragma
-      if n.kind == nkVarSection and w in varPragmas or
-        n.kind == nkLetSection and w in letPragmas or
-        n.kind == nkConstSection and w in constPragmas:
-        return nil
-      sym = searchInScopes(c, ident, amb)
-      # XXX what if amb is true?
-      # CHECKME: should that test also apply to `nkSym` case?
-      if sym == nil or sfCustomPragma in sym.flags: return nil
-    of nkSym:
-      sym = nodePragma.sym
-    else:
-      return nil
-      # skip if not in scope; skip `template myAttr() {.pragma.}`
-
-    let lhs = b[0]
-    let clash = strTableGet(c.currentScope.symbols, lhs.ident)
-    if clash != nil:
-      # refs https://github.com/nim-lang/Nim/issues/8275
-      wrongRedefinition(c, lhs.info, lhs.ident.s, clash.info)
-
-    result = newTree(nkCall)
-    result.add nodePragma
-    result.add lhs
-    if a[1].kind != nkEmpty:
-      result.add a[1]
-    else:
-      result.add newNodeIT(nkNilLit, a.info, c.graph.sysTypes[tyNil])
-    result.add a[2]
-    result.info = a.info
-    let ret = newNodeI(nkStmtList, a.info)
-    ret.add result
-    result = semExprNoType(c, ret)
-
 proc errorSymChoiceUseQualifier(c: PContext; n: PNode) =
   assert n.kind in nkSymChoices
   var err = "ambiguous identifier: '" & $n[0] & "'"
@@ -508,10 +464,6 @@ proc errorSymChoiceUseQualifier(c: PContext; n: PNode) =
   localError(c.config, n.info, errGenerated, err)
 
 proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
-  if n.len == 1:
-    result = semLowerLetVarCustomPragma(c, n[0], n)
-    if result != nil: return result
-
   var b: PNode
   result = copyNode(n)
   for i in 0..<n.len:
@@ -556,14 +508,6 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
         elif typ.kind == tyProc and def.kind == nkSym and isGenericRoutine(def.sym.ast):
           # tfUnresolved in typ.flags:
           localError(c.config, def.info, errProcHasNoConcreteType % def.renderTree)
-        when false:
-          # XXX This typing rule is neither documented nor complete enough to
-          # justify it. Instead use the newer 'unowned x' until we figured out
-          # a more general solution.
-          if symkind == skVar and typ.kind == tyOwned and def.kind notin nkCallKinds:
-            # special type inference rule: 'var it = ownedPointer' is turned
-            # into an unowned pointer.
-            typ = typ.lastSon
 
     # this can only happen for errornous var statements:
     if typ == nil: continue
@@ -2359,7 +2303,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
       prettybase.replaceComment(result.info)
 
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode =
-  if efInTypeof notin flags:
-    result = semExprNoType(c, n)
-  else:
+  if efInTypeof in flags:
     result = semExpr(c, n, flags)
+  else:
+    result = semExprNoType(c, n)

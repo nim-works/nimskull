@@ -1061,6 +1061,10 @@ proc buildEchoStmt(c: PContext, n: PNode): PNode =
   result = semExpr(c, result)
 
 proc semExprNoType(c: PContext, n: PNode): PNode =
+  ## guess: `n` is likely a statement, and so we expect it to have "no type"
+  ## hence the 'NoType` suffix in the name.
+  ##
+  ## Semantic/type analysis is still done as we perform a check for `discard`.
   let isPush = c.config.hasHint(hintExtendedContext)
   if isPush: pushInfoContext(c.config, n.info)
   result = semExpr(c, n, {efWantStmt})
@@ -2785,9 +2789,9 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     let checks = if efNoEvaluateGeneric in flags:
         {checkUndeclared, checkPureEnumFields}
       elif efInCall in flags:
-        {checkUndeclared, checkModule, checkPureEnumFields}
+        {checkUndeclared, checkPureEnumFields, checkModule}
       else:
-        {checkUndeclared, checkModule, checkAmbiguity, checkPureEnumFields}
+        {checkUndeclared, checkPureEnumFields, checkModule, checkAmbiguity}
     var s = qualifiedLookUp(c, n, checks)
     if c.matchedConcept == nil: semCaptureSym(s, c.p.owner)
     case s.kind
