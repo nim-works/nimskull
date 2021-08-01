@@ -44,7 +44,6 @@
 ## enable SSL, compile with `-d:ssl`.
 
 import net, strutils, strtabs, base64, os, strutils
-import asyncnet, asyncdispatch
 
 export Port
 
@@ -64,14 +63,13 @@ type
     debug: bool
 
   Smtp* = SmtpBase[Socket]
-  AsyncSmtp* = SmtpBase[AsyncSocket]
 
 proc containsNewline(xs: seq[string]): bool =
   for x in xs:
     if x.contains({'\c', '\L'}):
       return true
 
-proc debugSend*(smtp: Smtp | AsyncSmtp, cmd: string) {.multisync.} =
+proc debugSend*(smtp: Smtp, cmd: string) =
   ## Sends `cmd` on the socket connected to the SMTP server.
   ##
   ## If the `smtp` object was created with `debug` enabled,
@@ -84,9 +82,9 @@ proc debugSend*(smtp: Smtp | AsyncSmtp, cmd: string) {.multisync.} =
 
   if smtp.debug:
     echo("C:" & cmd)
-  await smtp.sock.send(cmd)
+  smtp.sock.send(cmd)
 
-proc debugRecv*(smtp: Smtp | AsyncSmtp): Future[string] {.multisync.} =
+proc debugRecv*(smtp: Smtp): string =
   ## Receives a line of data from the socket connected to the
   ## SMTP server.
   ##
@@ -98,10 +96,8 @@ proc debugRecv*(smtp: Smtp | AsyncSmtp): Future[string] {.multisync.} =
   ## would need to call when using this module. One exception to
   ## this is if you are implementing any
   ## `SMTP extensions<https://en.wikipedia.org/wiki/Extended_SMTP>`_.
-  ##
-  ## See `checkReply(reply)<#checkReply,AsyncSmtp,string>`_.
 
-  result = await smtp.sock.recvLine()
+  result = smtp.sock.recvLine()
   if smtp.debug:
     echo("S:" & result)
 
@@ -186,32 +182,8 @@ proc newSmtp*(useSsl = false, debug = false,
     else:
       {.error: "SMTP module compiled without SSL support".}
 
-proc newAsyncSmtp*(useSsl = false, debug = false,
-                   sslContext: SslContext = nil): AsyncSmtp =
-  ## Creates a new `AsyncSmtp` instance.
-  new result
-  result.debug = debug
-
-  result.sock = newAsyncSocket()
-  if useSsl:
-    when compiledWithSsl:
-      if sslContext == nil:
-        getSSLContext().wrapSocket(result.sock)
-      else:
-        sslContext.wrapSocket(result.sock)
-    else:
-      {.error: "SMTP module compiled without SSL support".}
-
-proc quitExcpt(smtp: AsyncSmtp, msg: string): Future[void] =
-  var retFuture = newFuture[void]()
-  var sendFut = smtp.debugSend("QUIT")
-  sendFut.callback =
-    proc () =
-      retFuture.fail(newException(ReplyError, msg))
-  return retFuture
-
-proc checkReply*(smtp: Smtp | AsyncSmtp, reply: string) {.multisync.} =
-  ## Calls `debugRecv<#debugRecv,AsyncSmtp>`_ and checks that the received
+proc checkReply*(smtp: Smtp, reply: string) =
+  ## Calls `debugRecv<#debugRecv,Smtp>`_ and checks that the received
   ## data starts with `reply`. If the received data does not start
   ## with `reply`, then a `QUIT` command will be sent to the SMTP
   ## server and a `ReplyError` exception will be raised.
@@ -221,54 +193,54 @@ proc checkReply*(smtp: Smtp | AsyncSmtp, reply: string) {.multisync.} =
   ## this is if you are implementing any
   ## `SMTP extensions<https://en.wikipedia.org/wiki/Extended_SMTP>`_.
 
-  var line = await smtp.debugRecv()
+  var line = smtp.debugRecv()
   if not line.startsWith(reply):
-    await quitExcpt(smtp, "Expected " & reply & " reply, got: " & line)
+    quitExcpt(smtp, "Expected " & reply & " reply, got: " & line)
 
-proc helo*(smtp: Smtp | AsyncSmtp) {.multisync.} =
+proc helo*(smtp: Smtp) =
   # Sends the HELO request
-  await smtp.debugSend("HELO " & smtp.address & "\c\L")
-  await smtp.checkReply("250")
+  smtp.debugSend("HELO " & smtp.address & "\c\L")
+  smtp.checkReply("250")
 
-proc connect*(smtp: Smtp | AsyncSmtp,
-              address: string, port: Port) {.multisync.} =
+proc connect*(smtp: Smtp,
+              address: string, port: Port) =
   ## Establishes a connection with a SMTP server.
   ## May fail with ReplyError or with a socket error.
   smtp.address = address
-  await smtp.sock.connect(address, port)
-  await smtp.checkReply("220")
-  await smtp.helo()
+  smtp.sock.connect(address, port)
+  smtp.checkReply("220")
+  smtp.helo()
 
-proc startTls*(smtp: Smtp | AsyncSmtp, sslContext: SslContext = nil) {.multisync.} =
+proc startTls*(smtp: Smtp, sslContext: SslContext = nil) =
   ## Put the SMTP connection in TLS (Transport Layer Security) mode.
   ## May fail with ReplyError
-  await smtp.debugSend("STARTTLS\c\L")
-  await smtp.checkReply("220")
+  smtp.debugSend("STARTTLS\c\L")
+  smtp.checkReply("220")
   when compiledWithSsl:
     if sslContext == nil:
       getSSLContext().wrapConnectedSocket(smtp.sock, handshakeAsClient)
     else:
       sslContext.wrapConnectedSocket(smtp.sock, handshakeAsClient)
-    await smtp.helo()
+    smtp.helo()
   else:
     {.error: "SMTP module compiled without SSL support".}
 
-proc auth*(smtp: Smtp | AsyncSmtp, username, password: string) {.multisync.} =
+proc auth*(smtp: Smtp, username, password: string) =
   ## Sends an AUTH command to the server to login as the `username`
   ## using `password`.
   ## May fail with ReplyError.
 
-  await smtp.debugSend("AUTH LOGIN\c\L")
-  await smtp.checkReply("334") # TODO: Check whether it's asking for the "Username:"
+  smtp.debugSend("AUTH LOGIN\c\L")
+  smtp.checkReply("334") # TODO: Check whether it's asking for the "Username:"
                                # i.e "334 VXNlcm5hbWU6"
-  await smtp.debugSend(encode(username) & "\c\L")
-  await smtp.checkReply("334") # TODO: Same as above, only "Password:" (I think?)
+  smtp.debugSend(encode(username) & "\c\L")
+  smtp.checkReply("334") # TODO: Same as above, only "Password:" (I think?)
 
-  await smtp.debugSend(encode(password) & "\c\L")
-  await smtp.checkReply("235") # Check whether the authentication was successful.
+  smtp.debugSend(encode(password) & "\c\L")
+  smtp.checkReply("235") # Check whether the authentication was successful.
 
-proc sendMail*(smtp: Smtp | AsyncSmtp, fromAddr: string,
-               toAddrs: seq[string], msg: string) {.multisync.} =
+proc sendMail*(smtp: Smtp, fromAddr: string,
+               toAddrs: seq[string], msg: string) =
   ## Sends `msg` from `fromAddr` to the addresses specified in `toAddrs`.
   ## Messages may be formed using `createMessage` by converting the
   ## Message into a string.
@@ -278,66 +250,20 @@ proc sendMail*(smtp: Smtp | AsyncSmtp, fromAddr: string,
   doAssert(not (toAddrs.containsNewline() or fromAddr.contains({'\c', '\L'})),
            "'toAddrs' and 'fromAddr' shouldn't contain any newline characters")
 
-  await smtp.debugSend("MAIL FROM:<" & fromAddr & ">\c\L")
-  await smtp.checkReply("250")
+  smtp.debugSend("MAIL FROM:<" & fromAddr & ">\c\L")
+  smtp.checkReply("250")
   for address in items(toAddrs):
-    await smtp.debugSend("RCPT TO:<" & address & ">\c\L")
-    await smtp.checkReply("250")
+    smtp.debugSend("RCPT TO:<" & address & ">\c\L")
+    smtp.checkReply("250")
 
   # Send the message
-  await smtp.debugSend("DATA " & "\c\L")
-  await smtp.checkReply("354")
-  await smtp.sock.send(msg & "\c\L")
-  await smtp.debugSend(".\c\L")
-  await smtp.checkReply("250")
+  smtp.debugSend("DATA " & "\c\L")
+  smtp.checkReply("354")
+  smtp.sock.send(msg & "\c\L")
+  smtp.debugSend(".\c\L")
+  smtp.checkReply("250")
 
-proc close*(smtp: Smtp | AsyncSmtp) {.multisync.} =
+proc close*(smtp: Smtp) =
   ## Disconnects from the SMTP server and closes the socket.
-  await smtp.debugSend("QUIT\c\L")
+  smtp.debugSend("QUIT\c\L")
   smtp.sock.close()
-
-when not defined(testing) and isMainModule:
-  # To test with a real SMTP service, create a smtp.ini file, e.g.:
-  # username = ""
-  # password = ""
-  # smtphost = "smtp.gmail.com"
-  # port = 465
-  # use_tls = true
-  # sender = ""
-  # recipient = ""
-
-  import parsecfg
-
-  proc `[]`(c: Config, key: string): string = c.getSectionValue("", key)
-
-  let
-    conf = loadConfig("smtp.ini")
-    msg = createMessage("Hello from Nim's SMTP!",
-      "Hello!\n Is this awesome or what?", @[conf["recipient"]])
-
-  assert conf["smtphost"] != ""
-
-  proc async_test() {.async.} =
-    let client = newAsyncSmtp(
-      conf["use_tls"].parseBool,
-      debug = true
-    )
-    await client.connect(conf["smtphost"], conf["port"].parseInt.Port)
-    await client.auth(conf["username"], conf["password"])
-    await client.sendMail(conf["sender"], @[conf["recipient"]], $msg)
-    await client.close()
-    echo "async email sent"
-
-  proc sync_test() =
-    var smtpConn = newSmtp(
-      conf["use_tls"].parseBool,
-      debug = true
-    )
-    smtpConn.connect(conf["smtphost"], conf["port"].parseInt.Port)
-    smtpConn.auth(conf["username"], conf["password"])
-    smtpConn.sendMail(conf["sender"], @[conf["recipient"]], $msg)
-    smtpConn.close()
-    echo "sync email sent"
-
-  waitFor async_test()
-  sync_test()
