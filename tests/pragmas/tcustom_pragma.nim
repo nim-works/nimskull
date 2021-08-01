@@ -1,6 +1,6 @@
 {.experimental: "notnil".}
 
-import macros, asyncmacro, asyncfutures
+import macros
 
 block:
   template myAttr() {.pragma.}
@@ -261,6 +261,17 @@ block:
   doAssert(getCustomPragmaVal(e, fooBar).c == 123)
 
 block:
+  type
+    Footure[T] = object
+
+  macro async(n: untyped) =
+    case n.kind
+    of nnkProcTy:
+      n[0][0] = nnkBracketExpr.newTree(ident"Footure", ident"void")
+    else:
+      n.params[0] = nnkBracketExpr.newTree(ident"Footure", ident"void")
+    n
+
   macro expectedAst(expectedRepr: static[string], input: untyped): untyped =
     doAssert input.treeRepr & "\n" == expectedRepr
     return input
@@ -284,15 +295,15 @@ ProcTy
   type
     Foo = proc (x: int) {.expectedAst(procTypeAst), async.}
 
-  static: doAssert Foo is proc(x: int): Future[void]
+  static: doAssert Foo is proc(x: int): Footure[void]
 
   const asyncProcTypeAst = """
-proc (s: string): Future[void] {..}"""
-  # using expectedAst would show `OpenSymChoice` for Future[void], which is fragile.
+proc (s: string): Footure[void] {..}"""
+  # using expectedAst would show `OpenSymChoice` for Footure[void], which is fragile.
   type
     Bar = proc (s: string) {.async, expectedAstRepr(asyncProcTypeAst).}
 
-  static: doAssert Bar is proc(x: string): Future[void]
+  static: doAssert Bar is proc(x: string): Footure[void]
 
   const typeAst = """
 TypeDef

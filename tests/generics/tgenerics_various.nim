@@ -8,7 +8,7 @@ generic
 joinable: false
 """
 
-import algorithm, sugar, sequtils, typetraits, asyncdispatch
+import algorithm, sugar, sequtils, typetraits
 
 block tconfusing_arrow:
   type Deck = object

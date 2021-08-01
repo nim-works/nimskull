@@ -67,5 +67,5 @@ import std/[
   asyncjs, dom, jsconsole, jscore, jsffi,
 
   # Unlisted in lib.html:
-  decls, compilesettings, with, wrapnils
+  compilesettings, with, wrapnils
 ]

@@ -7,7 +7,15 @@ Error: unhandled exception: stack trace produced [ValueError]
   exitcode: 1
 """
 
-import asyncfutures
+proc `$`*(stackTraceEntries: seq[StackTraceEntry]): string =
+  when defined(nimStackTraceOverride):
+    result = """
+begin
+Traceback (most recent call last, using override)
+Error: unhandled exception: stack trace produced [ValueError]
+"""
+  else:
+    result = "something broke"
 
 proc main =
   echo "begin"

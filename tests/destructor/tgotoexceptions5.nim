@@ -37,9 +37,3 @@ try:
   mainB()
 except:
   echo "swallowed B"
-
-# bug #14647
-import httpclient
-
-newAsyncHttpClient().close()
-

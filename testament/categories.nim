@@ -18,7 +18,6 @@ import std/private/gitutils
 const
   specialCategories = [
     "assert",
-    "async",
     "debugger",
     "dll",
     "examples",
@@ -28,7 +27,6 @@ const
     "ic",
     "lib",
     "manyloc",
-    "nimble-packages",
     "niminaction",
     "threads",
     "untestable", # see trunner_special
@@ -177,13 +175,6 @@ proc ioTests(r: var TResults, cat: Category, options: string) =
   # creating complications for batching and megatest logic.
   testSpec r, makeTest("tests/system/tio", options, cat)
 
-# ------------------------- async tests ---------------------------------------
-proc asyncTests(r: var TResults, cat: Category, options: string) =
-  template test(filename: untyped) =
-    testSpec r, makeTest(filename, options, cat)
-  for t in os.walkFiles("tests/async/t*.nim"):
-    test(t)
-
 # ------------------------- debugger tests ------------------------------------
 
 proc debuggerTests(r: var TResults, cat: Category, options: string) =
@@ -210,7 +201,7 @@ proc jsTests(r: var TResults, cat: Category, options: string) =
                    "actiontable/tactiontable", "method/tmultimjs",
                    "varres/tvarres0", "varres/tvarres3", "varres/tvarres4",
                    "varres/tvartup", "misc/tints", "misc/tunsignedinc",
-                   "async/tjsandnativeasync"]:
+                   "js/tjsasync"]:
     test "tests/" & testfile & ".nim"
 
   for testfile in ["strutils", "json", "random", "times", "logging"]:
@@ -231,9 +222,6 @@ proc testNimInAction(r: var TResults, cat: Category, options: string) =
     "niminaction/Chapter2/no_def_eq",
     "niminaction/Chapter2/no_iterator",
     "niminaction/Chapter2/no_seq_type",
-    "niminaction/Chapter3/ChatApp/src/server",
-    "niminaction/Chapter3/ChatApp/src/client",
-    "niminaction/Chapter3/various3",
     "niminaction/Chapter6/WikipediaStats/concurrency_regex",
     "niminaction/Chapter6/WikipediaStats/concurrency",
     "niminaction/Chapter6/WikipediaStats/naive",
@@ -569,8 +557,6 @@ proc processCategory(r: var TResults, cat: Category,
       threadTests r, cat, options & " --threads:on"
     of "io":
       ioTests r, cat, options
-    of "async":
-      asyncTests r, cat, options
     of "lib":
       testStdlib(r, "lib/pure/", options, cat)
       testStdlib(r, "lib/packages/docutils/", options, cat)

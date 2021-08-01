@@ -9,14 +9,6 @@ when defined(linux):
 
 import
   algorithm,
-  asyncdispatch,
-  asyncfile,
-  asyncftpclient,
-  asyncfutures,
-  asynchttpserver,
-  asyncmacro,
-  asyncnet,
-  asyncstreams,
   atomics,
   base64,
   bitops,
@@ -142,7 +134,6 @@ import packages/docutils/[
 
 import std/[
   compilesettings,
-  decls,
   editdistance,
   effecttraits,
   enumerate,

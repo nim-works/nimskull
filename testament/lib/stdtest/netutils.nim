@@ -1,7 +1,6 @@
-import std/[nativesockets, asyncdispatch, os]
+import std/[nativesockets, os]
 
 proc bindAvailablePort*(handle: SocketHandle, port = Port(0)): Port =
-  ## See also `asynchttpserver.getPort`.
   block:
     var name: Sockaddr_in
     name.sin_family = typeof(name.sin_family)(toInt(AF_INET))

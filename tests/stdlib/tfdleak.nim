@@ -5,8 +5,7 @@ discard """
   joinable: false
 """
 
-import os, osproc, strutils, nativesockets, net, selectors, memfiles,
-       asyncdispatch, asyncnet
+import os, osproc, strutils, nativesockets, net, selectors, memfiles
 when defined(windows):
   import winlean
 
@@ -17,7 +16,7 @@ when defined(windows):
 else:
   import posix
 
-proc leakCheck(f: AsyncFD | int | FileHandle | SocketHandle, msg: string,
+proc leakCheck(f: int | FileHandle | SocketHandle, msg: string,
                expectLeak = defined(nimInheritHandles)) =
   var args = @[$f.int, msg, $expectLeak]
 
@@ -26,7 +25,7 @@ proc leakCheck(f: AsyncFD | int | FileHandle | SocketHandle, msg: string,
     # NOTE: This function shouldn't be used to duplicate sockets,
     #       as this function may mess with the socket internal refcounting.
     #       but due to the lack of type segmentation in the stdlib for
-    #       Windows (AsyncFD can be a file or a socket), we will have to
+    #       Windows (can be a file or a socket), we will have to
     #       settle with this.
     #
     #       Now, as a poor solution for the refcounting problem, we just
@@ -101,30 +100,6 @@ proc main() =
       leakCheck(mf.mapHandle, "memfiles.open().mapHandle", false)
     else:
       leakCheck(mf.handle, "memfiles.open().handle", false)
-
-    let sockAsync = createAsyncNativeSocket()
-    defer: closeSocket sockAsync
-    leakCheck(sockAsync, "createAsyncNativeSocket()")
-    if sockAsync.setInheritable(not defined(nimInheritHandles)):
-      leakCheck(sockAsync, "createAsyncNativeSocket()", not defined(nimInheritHandles))
-    else:
-      raiseOSError osLastError()
-
-    let serverAsync = newAsyncSocket()
-    defer: close serverAsync
-    serverAsync.bindAddr(address = "127.0.0.1")
-    serverAsync.listen()
-    let (_, portAsync) = serverAsync.getLocalAddr
-
-    leakCheck(serverAsync.getFd, "newAsyncSocket()")
-
-    let clientAsync = newAsyncSocket()
-    defer: close clientAsync
-    waitFor clientAsync.connect("127.0.0.1", portAsync)
-
-    let inputAsync = waitFor serverAsync.accept()
-
-    leakCheck(inputAsync.getFd, "accept() async")
   else:
     let
       fd = parseInt(paramStr 1)

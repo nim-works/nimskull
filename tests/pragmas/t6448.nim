@@ -4,14 +4,13 @@ discard """
   disabled: "32bit"
 """
 
-import foobar
-import asyncdispatch, macros
+import foobar, barfoo
+import macros
 
 proc bar() {.async.} =
   echo 42
 
 proc foo() {.async.} =
-  await bar()
+  bar()
 
-asyncCheck foo()
-runForever()
+foo()

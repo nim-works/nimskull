@@ -3,7 +3,7 @@ discard """
 """
 
 # bug #9441
-import asyncdispatch, asyncfutures, strtabs
+import strtabs
 
 type
   Request = object
@@ -11,12 +11,15 @@ type
     position: int
     accept: bool
     headers: StringTableRef
+  Future[C] = object of RootObj
+    failed*: bool
+    guts*: C
   Handler = proc (r: ref Request, c: Context): Future[Context]
 
 proc respond(req: Request): Future[void] = discard
 
-proc handle*(h: Handler): auto = # (proc (req: Request): Future[void]) =
-  proc server(req: Request): Future[void] {.async.} =
+proc handle*(h: Handler): auto = # (proc (req: Request): Future) =
+  proc server(req: Request): Future[void] =
     let emptyCtx = Context(
       position: 0,
       accept: true,
@@ -29,14 +32,14 @@ proc handle*(h: Handler): auto = # (proc (req: Request): Future[void]) =
       ctx: Context
     try:
       f = h(reqHeap, emptyCtx)
-      ctx = await f
+      ctx = f.guts
     except:
       discard
     if f.failed:
-      await req.respond()
+      discard req.respond()
     else:
       if not ctx.accept:
-        await req.respond()
+        discard req.respond()
   return server
 
-waitFor handle(nil)(Request())
+discard handle(nil)(Request())
