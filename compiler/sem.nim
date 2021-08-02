@@ -564,6 +564,9 @@ proc isEmptyTree(n: PNode): bool =
   of nkEmpty, nkCommentStmt: result = true
   else: result = false
 
+from ic/ic import initPackedDecoder, LoadedModule, PackedModule, PackedModuleGraph, PackedDecoder, toString, loadNodes
+from ic/packed_ast import NodePos, allNodes, PackedTree
+
 proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   ## given top level statements from a module, carries out semantic analysis:
   ## - per module, ensure system module is improted first unless in system
@@ -594,6 +597,25 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
     result = semAllTypeSections(c, n)
   else:
     result = n
+  
+  if `??`(c.config, n.info, "foo.nim"):
+    let
+      loadedModule = c.graph.packed[c.module.position]
+      packedModule = loadedModule.fromDisk
+    var
+      fullTree = packedModule.topLevel
+      decoder = initPackedDecoder(c.config, c.cache)
+      packedStmtCount = 0
+      pos: NodePos
+    for p in fullTree.allNodes:
+      pos = p
+      inc packedStmtCount
+      if packedStmtCount == c.topStmts:
+        break
+    debugEcho "original:\n"
+    debug(n)
+    debugEcho "\npos: ", pos.int, " packed:\n"
+    debugEcho $loadNodes(decoder, c.graph.packed, c.module.position, fullTree, pos)
 
   result = semStmt(c, result, {})
   result = hloStmt(c, result)
