@@ -130,7 +130,9 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
     let calli = call[i]
     var tupleTypeB = skipTypes(calli.typ, skippedTypesForFields)
     if not sameType(tupleTypeA, tupleTypeB):
-      typeMismatch(c.config, calli.info, tupleTypeA, tupleTypeB, calli)
+      let r = typeMismatch(c.config, calli.info, tupleTypeA, tupleTypeB, calli)
+      if r.kind == nkError:
+        localError(c.config, calli.info, errorToString(c.config, r))
 
   inc(c.p.nestedLoopCounter)
   if tupleTypeA.kind == tyTuple:

@@ -3,6 +3,7 @@ discard """
 true
 true
 '''
+  description: "regression test: check for custom pragma works"
 """
 
 # issue #7615
@@ -19,7 +20,8 @@ type
 echo User.hasCustomPragma(table)
 
 
-## crash: Error: internal error: (filename: "sempass2.nim", line: 560, column: 19)
+## This works now, but it used to crash with:
+## Error: internal error: (filename: "sempass2.nim", line: 560, column: 19)
 macro m1(T: typedesc): untyped =
   getAST hasCustomPragma(T, table)
 echo m1(User) # Oops crash

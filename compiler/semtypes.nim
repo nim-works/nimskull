@@ -83,7 +83,10 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
       if n[i][0].kind == nkPragmaExpr:
         e = newSymS(skEnumField, n[i][0][0], c)
         identToReplace = addr n[i][0][0]
-        pragma(c, e, n[i][0][1], enumFieldPragmas)
+        n[i][0][1] = pragma(c, e, n[i][0][1], enumFieldPragmas)
+        # check if we got any errors and if so report them
+        for e in ifErrorWalkErrors(c.config, n[i][0][1]):
+          messageError(c.config, e)
       else:
         e = newSymS(skEnumField, n[i][0], c)
         identToReplace = addr n[i][0]
@@ -124,7 +127,10 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
       identToReplace = addr n[i]
     of nkPragmaExpr:
       e = newSymS(skEnumField, n[i][0], c)
-      pragma(c, e, n[i][1], enumFieldPragmas)
+      n[i][1] = pragma(c, e, n[i][1], enumFieldPragmas)
+      # check if we got any errors and if so report them
+      for e in ifErrorWalkErrors(c.config, n[i][1]):
+        messageError(c.config, e)
       identToReplace = addr n[i][0]
     else:
       illFormedAst(n[i], c.config)
@@ -243,7 +249,11 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
 
   if not hasUnknownTypes:
     if not sameType(rangeT[0].skipTypes({tyRange}), rangeT[1].skipTypes({tyRange})):
-      typeMismatch(c.config, n.info, rangeT[0], rangeT[1], n)
+      # XXX: should this cascade and what about the follow-on statements like
+      #      the for loop, etc below?
+      let r = typeMismatch(c.config, n.info, rangeT[0], rangeT[1], n)
+      if r.kind == nkError:
+        localError(c.config, n.info, errorToString(c.config, r))
 
     elif not isOrdinalType(rangeT[0]) and rangeT[0].kind notin {tyFloat..tyFloat128} or
         rangeT[0].kind == tyBool:
@@ -512,11 +522,14 @@ proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
     of skType:
       # process pragmas later, because result.typ has not been set yet
       discard
-    of skField: pragma(c, result, n[1], fieldPragmas)
-    of skVar:   pragma(c, result, n[1], varPragmas)
-    of skLet:   pragma(c, result, n[1], letPragmas)
-    of skConst: pragma(c, result, n[1], constPragmas)
+    of skField: n[1] = pragma(c, result, n[1], fieldPragmas)
+    of skVar:   n[1] = pragma(c, result, n[1], varPragmas)
+    of skLet:   n[1] = pragma(c, result, n[1], letPragmas)
+    of skConst: n[1] = pragma(c, result, n[1], constPragmas)
     else: discard
+    # check if we got any errors and if so report them
+    for e in ifErrorWalkErrors(c.config, n[1]):
+      messageError(c.config, e)
   else:
     result = semIdentVis(c, kind, n, allowed)
 
@@ -905,7 +918,10 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
     # dummy symbol for `pragma`:
     var s = newSymS(skType, newIdentNode(getIdent(c.cache, "dummy"), n.info), c)
     s.typ = result
-    pragma(c, s, n[0], typePragmas)
+    n[0] = pragma(c, s, n[0], typePragmas)
+    # check if we got any errors and if so report them
+    for e in ifErrorWalkErrors(c.config, n[0]):
+      messageError(c.config, e)
   if base == nil and tfInheritable notin result.flags:
     incl(result.flags, tfFinal)
   if c.inGenericContext == 0 and computeRequiresInit(c, result):
@@ -1283,6 +1299,12 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
         elif typ.kind == tyStatic:
           def = semConstExpr(c, def)
           def = fitNode(c, typ, def, def.info)
+    
+    if def.isError():
+      # xxx: yet another place where we report errors
+      #      got lazy, but this should propagate
+      for e in walkErrors(c.config, def):
+        messageError(c.config, e)
 
     if not hasType and not hasDefault:
       if isType: localError(c.config, a.info, "':' expected")
@@ -1294,7 +1316,10 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
     for j in 0..<a.len-2:
       var arg = newSymG(skParam, if a[j].kind == nkPragmaExpr: a[j][0] else: a[j], c)
       if a[j].kind == nkPragmaExpr:
-        pragma(c, arg, a[j][1], paramPragmas)
+        a[j][i] = pragma(c, arg, a[j][1], paramPragmas)
+        # check if we got any errors and if so report them
+        for e in ifErrorWalkErrors(c.config, a[i][j]):
+          messageError(c.config, e)
       if not hasType and not hasDefault and kind notin {skTemplate, skMacro}:
         let param = strTableGet(c.signatures, arg.name)
         if param != nil: typ = param.typ
@@ -1651,6 +1676,9 @@ proc applyTypeSectionPragmas(c: PContext; pragmas, operand: PNode): PNode =
           # recursion assures that this works for multiple macro annotations too:
           var r = semOverloadedCall(c, x, x, {skMacro, skTemplate}, {efNoUndeclared})
           if r != nil:
+            if r.kind == nkError:
+              localError(c.config, r.info, errorToString(c.config, r))
+              return
             doAssert r[0].kind == nkSym
             let m = r[0].sym
             case m.kind
@@ -1675,13 +1703,19 @@ proc semProcTypeWithScope(c: PContext, n: PNode,
   var s = newSymS(kind, newIdentNode(getIdent(c.cache, "dummy"), n.info), c)
   s.typ = result
   if n[1].kind != nkEmpty and n[1].len > 0:
-    pragma(c, s, n[1], procTypePragmas)
+    n[1] = pragma(c, s, n[1], procTypePragmas)
+    # check if we got any errors and if so report them
+    for e in ifErrorWalkErrors(c.config, n[1]):
+      messageError(c.config, e)
     when useEffectSystem: setEffectsForProcType(c.graph, result, n[1])
   elif c.optionStack.len > 0 and optNimV1Emulation notin c.config.globalOptions:
     # we construct a fake 'nkProcDef' for the 'mergePragmas' inside 'implicitPragmas'...
     s.ast = newTree(nkProcDef, newNodeI(nkEmpty, n.info), newNodeI(nkEmpty, n.info),
         newNodeI(nkEmpty, n.info), newNodeI(nkEmpty, n.info), newNodeI(nkEmpty, n.info))
-    implicitPragmas(c, s, n.info, {wTags, wRaises})
+    s = implicitPragmas(c, s, n.info, {wTags, wRaises})
+    # check if we got any errors and if so report them
+    for e in ifErrorWalkErrors(c.config, s.ast):
+      messageError(c.config, e)
     when useEffectSystem: setEffectsForProcType(c.graph, result, s.ast[pragmasPos])
   closeScope(c)
 

@@ -396,7 +396,10 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
     addToGenericProcCache(c, fn, entry)
     c.generics.add(makeInstPair(fn, entry))
     if n[pragmasPos].kind != nkEmpty:
-      pragma(c, result, n[pragmasPos], allRoutinePragmas)
+      result.ast[pragmasPos] = pragma(c, result, n[pragmasPos], allRoutinePragmas)
+      # check if we got any errors and if so report them
+      for e in ifErrorWalkErrors(c.config, result.ast[pragmasPos]):
+        messageError(c.config, e)
     if isNil(n[bodyPos]):
       n[bodyPos] = copyTree(getBody(c.graph, fn))
     if c.inGenericContext == 0:

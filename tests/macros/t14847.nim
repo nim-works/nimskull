@@ -1,5 +1,9 @@
 discard """
   output: "98"
+  description: '''
+create new proc with existing proc's body, previously this resulted in an error
+due to stale information.
+'''
 """
 import macros
 

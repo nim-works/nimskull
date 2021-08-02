@@ -97,7 +97,7 @@ type
     nkElifExpr,
     nkElseExpr,
     nkLambda,             # lambda expression
-    nkDo,                 # lambda block appering as trailing proc param
+    nkDo,                 # lambda block appearing as trailing proc param
     nkAccQuoted,          # `a` as a node
 
     nkTableConstr,        # a table constructor {expr: expr}
@@ -221,7 +221,7 @@ type
     nkBreakState,         # special break statement for easier code generation
     nkFuncDef,            # a func
     nkTupleConstr         # a tuple constructor
-    nkError               # erroneous AST node
+    nkError               # erroneous AST node see `errorhandling`
     nkModuleRef           # for .rod file support: A (moduleId, itemId) pair
     nkReplayAction        # for .rod file support: A replay action
     nkNilRodNode          # for .rod file support: a 'nil' PNode
@@ -281,20 +281,20 @@ type
                       # language; for interfacing with Objective C
     sfDiscardable,    # returned value may be discarded implicitly
     sfOverriden,      # proc is overridden
-    sfCallsite        # A flag for template symbols to tell the
+    sfCallsite,       # A flag for template symbols to tell the
                       # compiler it should use line information from
                       # the calling side of the macro, not from the
                       # implementation.
-    sfGenSym          # symbol is 'gensym'ed; do not add to symbol table
-    sfNonReloadable   # symbol will be left as-is when hot code reloading is on -
+    sfGenSym,         # symbol is 'gensym'ed; do not add to symbol table
+    sfNonReloadable,  # symbol will be left as-is when hot code reloading is on -
                       # meaning that it won't be renamed and/or changed in any way
-    sfGeneratedOp     # proc is a generated '='; do not inject destructors in it
+    sfGeneratedOp,    # proc is a generated '='; do not inject destructors in it
                       # variable is generated closure environment; requires early
                       # destruction for --newruntime.
-    sfTemplateParam   # symbol is a template parameter
-    sfCursor          # variable/field is a cursor, see RFC 177 for details
-    sfInjectDestructors # whether the proc needs the 'injectdestructors' transformation
-    sfNeverRaises     # proc can never raise an exception, not even OverflowDefect
+    sfTemplateParam,  # symbol is a template parameter
+    sfCursor,         # variable/field is a cursor, see RFC 177 for details
+    sfInjectDestructors, # whether the proc needs the 'injectdestructors' transformation
+    sfNeverRaises,    # proc can never raise an exception, not even OverflowDefect
                       # or out-of-memory
     sfUsedInFinallyOrExcept  # symbol is used inside an 'except' or 'finally'
     sfSingleUsedTemp  # For temporaries that we know will only be used once
@@ -499,6 +499,13 @@ type
     nfLastRead  # this node is a last read
     nfFirstWrite# this node is a first write
     nfHasComment # node has a comment
+    nfImplicitPragma # node is a "singlePragma" this is a transition flag
+                  # created as part of nkError refactoring for the pragmas
+                  # module. an old proc, `singlePragma` did a lot of side-
+                  # effects and returned a bool signal to callers typically to
+                  # either break a loop and raise an error in
+                  # `pragmas.implicitPragmas` or simply break a loop in
+                  # `pragmas.pragmaRec`.
 
   TNodeFlags* = set[TNodeFlag]
   TTypeFlag* = enum   # keep below 32 for efficiency reasons (now: 43)
@@ -883,6 +890,8 @@ type
                               # for modules, it's a placeholder for compiler
                               # generated code that will be appended to the
                               # module after the sem pass (see appendToModule)
+                              # for skError, starting to migrate this to be the
+                              # nkError node with the necessary error info
     options*: TOptions
     position*: int            # used for many different things:
                               # for enum fields its position;
@@ -1095,6 +1104,95 @@ const
   defaultSize = -1
   defaultAlignment = -1
   defaultOffset* = -1
+
+  nodeKindsProducedByParse* = {
+    nkError, nkEmpty,
+    nkIdent,
+
+    nkCharLit,
+    nkIntLit, nkInt8Lit, nkInt16Lit, nkInt32Lit, nkInt64Lit,
+    nkUIntLit, nkUInt8Lit, nkUInt16Lit, nkUInt32Lit, nkUInt64Lit,
+    nkFloatLit, nkFloat32Lit, nkFloat64Lit, nkFloat128Lit,
+    nkStrLit, nkRStrLit, nkTripleStrLit,
+    nkNilLit,
+
+    nkCall, nkCommand, nkCallStrLit, nkInfix, nkPrefix, nkPostfix,
+
+    nkExprEqExpr, nkExprColonExpr, nkIdentDefs, nkConstDef, nkVarTuple, nkPar,
+    nkBracket, nkCurly, nkTupleConstr, nkObjConstr, nkTableConstr,
+    nkBracketExpr, nkCurlyExpr,
+
+    nkPragmaExpr, nkPragma, nkPragmaBlock,
+
+    nkDotExpr, nkAccQuoted,
+
+    nkIfExpr, nkIfStmt, nkElifBranch, nkElifExpr, nkElse, nkElseExpr,
+    nkCaseStmt, nkOfBranch,
+    nkWhenStmt,
+    
+    nkForStmt, nkWhileStmt,
+    
+    nkBlockExpr, nkBlockStmt,
+    
+    nkDiscardStmt, nkContinueStmt, nkBreakStmt, nkReturnStmt, nkRaiseStmt,
+    nkYieldStmt,
+
+    nkTryStmt, nkExceptBranch, nkFinally,
+
+    nkDefer,
+
+    nkLambda, nkDo,
+
+    nkBind, nkBindStmt, nkMixinStmt,
+
+    nkCast,
+    nkStaticStmt,
+
+    nkAsgn,
+
+    nkGenericParams,
+    nkFormalParams,
+
+    nkStmtList, nkStmtListExpr,
+
+    nkImportStmt, nkImportExceptStmt, nkImportAs, nkFromStmt,
+
+    nkIncludeStmt,
+
+    nkExportStmt, nkExportExceptStmt,
+
+    nkConstSection, nkLetSection, nkVarSection,
+
+    nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef, nkIteratorDef,
+    nkMacroDef, nkTemplateDef,
+
+    nkTypeSection, nkTypeDef,
+
+    nkEnumTy, nkEnumFieldDef,
+
+    nkObjectTy, nkTupleTy, nkProcTy, nkIteratorTy,
+
+    nkRecList, nkRecCase, nkRecWhen,
+
+    nkTypeOfExpr,
+
+    # nkConstTy,
+    nkRefTy, nkVarTy, nkPtrTy, nkStaticTy, nkDistinctTy,
+    nkMutableTy,
+
+    nkTupleClassTy, nkTypeClassTy,
+
+    nkOfInherit,
+
+    nkArgList,
+
+    nkWith, nkWithout,
+
+    nkAsmStmt,
+    nkCommentStmt,
+
+    nkUsingStmt,
+  }
 
 proc getPIdent*(a: PNode): PIdent {.inline.} =
   ## Returns underlying `PIdent` for `{nkSym, nkIdent}`, or `nil`.
@@ -1389,6 +1487,7 @@ proc discardSons*(father: PNode) =
   father.sons = @[]
 
 proc withInfo*(n: PNode, info: TLineInfo): PNode =
+  ## set the line information (`info`) on the node `n`
   n.info = info
   return n
 
@@ -1853,6 +1952,48 @@ proc isGenericParams*(n: PNode): bool {.inline.} =
 
 proc isGenericRoutine*(n: PNode): bool  {.inline.} =
   n != nil and n.kind in callableDefs and n[genericParamsPos].isGenericParams
+
+proc isError*(n: PNode): bool {.inline.} =
+  ## whether the node is an error, strictly checks nkError and is nil safe
+  n != nil and n.kind == nkError
+
+proc isError*(s: PSym): bool {.inline.} =
+  ## whether the symbol is an error, strictly checks skError, an error node
+  ## exists, and is nil safe.
+  s != nil and s.kind == skError and s.ast.isError
+
+proc isError*(t: PType): bool {.inline.} =
+  ## whether the type is an error. useful because of compiler legacy, as
+  ## `tyError` isn't an enum field rather a const refering to `tyProxy`.
+  ##
+  ## xxx: currently we have no way to disambiguate between legacy and new
+  t != nil and t.kind == tyError
+
+proc isErrorLike*(t: PType): bool {.inline.} =
+  ## whether the type is an error. useful because of compiler legacy, as
+  ## `tyError` isn't an enum field rather a const refering to `tyProxy`.
+  ##
+  ## xxx: currently we have no way to disambiguate between legacy and new
+  t != nil and (t.kind == tyError or t.sym.isError)
+
+proc isErrorLike*(s: PSym): bool {.inline.} =
+  ## whether the symbol is an error. useful because of compiler legacy, as
+  ## `skError` isn't an enum field rather a const refering to `skUnkonwn`. we
+  ## disambiguate via the presence of the ast field being non-nil and of kind
+  ## `nkError`
+  s != nil and (s.isError or s.typ.isError)
+
+proc isErrorLike*(n: PNode): bool {.inline.} =
+  ## whether the node is an error, including error symbol, or error type
+  ## xxx: longer term we should probably not produce nodes like these in the
+  ##      first place and mark them as nkErrors with an appropriate error kind.
+  n != nil and (
+      case n.kind
+      of nkError: true
+      of nkSym: n.sym.isErrorLike
+      of nkType: n.typ.isErrorLike
+      else: n.typ.isError # if it has a type, it shouldn't be an error
+    )
 
 proc isGenericRoutineStrict*(s: PSym): bool {.inline.} =
   ## determines if this symbol represents a generic routine

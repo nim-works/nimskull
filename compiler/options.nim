@@ -220,7 +220,11 @@ type
       ## are not anymore.
 
   SymbolFilesOption* = enum
-    disabledSf, writeOnlySf, readOnlySf, v2Sf, stressTest
+    disabledSf,  # disables Rod files and maybe packed AST features
+    writeOnlySf, # not really sure, beyond not reading rod files
+    readOnlySf,  # we only read from rod files
+    v2Sf,        # who knows, probably a bad idea
+    stressTest   # likely more bad ideas
 
   TSystemCC* = enum
     ccNone, ccGcc, ccNintendoSwitch, ccLLVM_Gcc, ccCLang, ccBcc, ccVcc,
@@ -387,7 +391,8 @@ type
     lastLineInfo*: TLineInfo
     writelnHook*: proc (output: string) {.closure.} # cannot make this gcsafe yet because of Nimble
     structuredErrorHook*: proc (config: ConfigRef; info: TLineInfo; msg: string;
-                                severity: Severity) {.closure, gcsafe.}
+                                severity: Severity) {.closure.}
+                                # cannot make this gcsafe yet because of sigmatch diagnostics
     cppCustomNamespace*: string
     vmProfileData*: ProfileData
 

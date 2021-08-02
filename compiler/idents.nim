@@ -25,7 +25,7 @@ type
   IdentCache* = ref object
     buckets: array[0..4096 * 2 - 1, PIdent]
     wordCounter: int
-    idAnon*, idDelegator*, emptyIdent*: PIdent
+    idAnon*, idDelegator*, emptyIdent*, identNotFound: PIdent
 
 proc resetIdentCache*() = discard
 
@@ -100,6 +100,15 @@ proc getIdent*(ic: IdentCache; identifier: string): PIdent =
 proc getIdent*(ic: IdentCache; identifier: string, h: Hash): PIdent =
   result = getIdent(ic, cstring(identifier), identifier.len, h)
 
+proc getNotFoundIdent*(ic: IdentCache): PIdent =
+  ## returns the identifier associated with an error, this will create the
+  ## identifier if it does not already exist in the cache.
+  if ic.identNotFound.isNil:
+    # XXX: rename `<Error>` to `<NotFound>`
+    ic.identNotFound = ic.getIdent("<Error>")
+
+  result = ic.identNotFound
+
 proc newIdentCache*(): IdentCache =
   result = IdentCache()
   result.idAnon = result.getIdent":anonymous"
@@ -114,7 +123,15 @@ proc whichKeyword*(id: PIdent): TSpecialWord =
   if id.id < 0: result = wInvalid
   else: result = TSpecialWord(id.id)
 
-proc hash*(x: PIdent): Hash {.inline.} = x.h
-proc `==`*(a, b: PIdent): bool {.inline.} =
+# hashing and equality related code
+
+func hash*(x: PIdent): Hash {.inline.} = x.h
+  ## don't actually compute, we just access it
+func `==`*(a, b: PIdent): bool {.inline.} =
+  ## identity based (`PIdent.id`) based equality, unless either are nil, then
+  ## resort to reference based equality
   if a.isNil or b.isNil: result = system.`==`(a, b)
   else: result = a.id == b.id
+func isNotFound*(ic: IdentCache, i: PIdent): bool {.inline.} =
+  ## optimization: check against the cached/canonical not found ident entry
+  ic.identNotFound == i

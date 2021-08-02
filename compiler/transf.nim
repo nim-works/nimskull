@@ -22,7 +22,8 @@ import
   options, ast, astalgo, trees, msgs,
   idents, renderer, types, semfold, magicsys, cgmeth,
   lowerings, liftlocals,
-  modulegraphs, lineinfos
+  modulegraphs, lineinfos,
+  errorreporting
 
 proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
 
@@ -933,6 +934,12 @@ proc transform(c: PTransf, n: PNode): PNode =
       oldDeferAnchor = c.deferAnchor
       c.deferAnchor = n
   case n.kind
+  of nkError:
+    # XXX: yet another place to report on nkError
+    let conf = c.graph.config
+    result = n
+    localError(conf, n.info, errorToString(conf, n))
+    return
   of nkSym:
     result = transformSym(c, n)
   of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit, nkComesFrom:
@@ -1137,6 +1144,12 @@ proc transformBody*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; cache: bool):
   elif nfTransf in getBody(g, prc).flags or prc.kind in {skTemplate}:
     result = getBody(g, prc)
   else:
+    if prc.kind == skError:
+      # xxx: wrap this in an nkError for the whole body
+      result = prc.ast
+      assert result != nil and result.kind == nkError,
+        "assume we've populated the nkError here"
+      return
     prc.transformedBody = newNode(nkEmpty) # protects from recursion
     var c = openTransf(g, prc.getModule, "", idgen)
     result = liftLambdas(g, prc, getBody(g, prc), c.tooEarly, c.idgen)

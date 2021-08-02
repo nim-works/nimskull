@@ -17,7 +17,8 @@ import
   intsets, transf, vmdef, vm, aliases, cgmeth, lambdalifting,
   evaltempl, patterns, parampatterns, sempass2, linter, semmacrosanity,
   lowerings, plugins/active, lineinfos, strtabs, int128,
-  isolation_check, typeallowed, modulegraphs, enumtostr, concepts, astmsgs
+  isolation_check, typeallowed, modulegraphs, enumtostr, concepts, astmsgs,
+  errorhandling, errorreporting
 
 when defined(nimfix):
   import nimfix/prettybase
@@ -96,14 +97,17 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
     for ch in arg:
       if sameType(ch.typ, formal):
         return getConstExpr(c.module, ch, c.idgen, c.graph)
-    typeMismatch(c.config, info, formal, arg.typ, arg)
+    # XXX: why don't we set the `typ` field to formal like above and below?
+    result = typeMismatch(c.config, info, formal, arg.typ, arg)
   else:
     result = indexTypesMatch(c, formal, arg.typ, arg)
     if result == nil:
-      typeMismatch(c.config, info, formal, arg.typ, arg)
-      # error correction:
-      result = copyTree(arg)
-      result.typ = formal
+      result = typeMismatch(c.config, info, formal, arg.typ, arg)
+      if result.kind != nkError:
+        # error correction:
+        # XXX: is this "error correction" or actually "fitting" the node?
+        result = copyTree(arg)
+        result.typ = formal
     else:
       result = fitNodePostMatch(c, formal, result)
 

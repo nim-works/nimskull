@@ -1,6 +1,7 @@
 discard """
   errormsg: "illformed AST: "
-  line: 24
+  description: "reject assignments with empty rhs"
+  line: 25
 """
 
 import macros

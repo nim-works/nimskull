@@ -13,7 +13,7 @@
 import
   intsets, ast, astalgo, semdata, types, msgs, renderer, lookups, semtypinst,
   magicsys, idents, lexer, options, parampatterns, strutils, trees,
-  linter, lineinfos, lowerings, modulegraphs, concepts
+  linter, lineinfos, lowerings, modulegraphs, concepts, errorhandling
 
 type
   MismatchKind* = enum
@@ -28,12 +28,21 @@ type
 
   TCandidateState* = enum
     csEmpty, csMatch, csNoMatch
+  
+  CandidateDiagnostic* = PNode
+    ## PNode is only ever an `nkError` kind, often converted to a string for
+    ## display purpopses
+  CandidateDiagnostics* = seq[CandidateDiagnostic]
+    ## list of diagnostics as part of errors or other information for Candidate
+    ## overload resolution and what not
 
   CandidateError* = object
     sym*: PSym
     firstMismatch*: MismatchInfo
-    diagnostics*: seq[string]
-    enabled*: bool
+    diagnostics*: CandidateDiagnostics
+    isDiagnostic*: bool
+      ## is this is a diagnostic (true) or an error (false) that occurred
+      ## xxx: this might be a terrible idea and we could get rid of it
 
   CandidateErrors* = seq[CandidateError]
 
@@ -67,7 +76,7 @@ type
                               # matching. they will be reset if the matching
                               # is not successful. may replace the bindings
                               # table in the future.
-    diagnostics*: seq[string] # \
+    diagnostics*: CandidateDiagnostics # \
                               # when diagnosticsEnabled, the matching process
                               # will collect extra diagnostics that will be
                               # displayed to the user.
@@ -147,7 +156,7 @@ proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
       c.calleeScope = 1
   else:
     c.calleeScope = calleeScope
-  c.diagnostics = @[] # if diagnosticsEnabled: @[] else: nil
+  c.diagnostics = @[]
   c.diagnosticsEnabled = diagnosticsEnabled
   c.magic = c.calleeSym.magic
   initIdTable(c.bindings)
@@ -727,11 +736,10 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
 
   var
     oldWriteHook: typeof(m.c.config.writelnHook)
-    diagnostics: seq[string]
+    diagnostics: CandidateDiagnostics
     errorPrefix: string
     flags: TExprFlags = {}
-    collectDiagnostics = m.diagnosticsEnabled or
-                         sfExplain in typeClass.sym.flags
+  let collectDiagnostics = m.diagnosticsEnabled or sfExplain in typeClass.sym.flags
 
   if collectDiagnostics:
     oldWriteHook = m.c.config.writelnHook
@@ -740,20 +748,30 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
     diagnostics = @[]
     flags = {efExplain}
     m.c.config.writelnHook = proc (s: string) =
-      if errorPrefix.len == 0: errorPrefix = typeClass.sym.name.s & ":"
+      if errorPrefix.len == 0:
+        errorPrefix = typeClass.sym.name.s & ":"
       let msg = s.replace("Error:", errorPrefix)
-      if oldWriteHook != nil: oldWriteHook msg
-      diagnostics.add msg
+      if oldWriteHook != nil:
+        oldWriteHook msg
+      let e = newError(body, msg)
+      diagnostics.add e
 
   var checkedBody = c.semTryExpr(c, body.copyTree, flags)
 
   if collectDiagnostics:
     m.c.config.writelnHook = oldWriteHook
-    for msg in diagnostics:
-      m.diagnostics.add msg
+
+    if checkedBody != nil:
+      for e in m.c.config.walkErrors(checkedBody):
+        m.diagnostics.add e
+        m.diagnosticsEnabled = true
+    for d in diagnostics:
+      m.diagnostics.add d
       m.diagnosticsEnabled = true
 
-  if checkedBody == nil: return nil
+  if checkedBody == nil or checkedBody.kind == nkError:
+    # xxx: return nil on nkError doesn't seem quite right, but this is a type
+    return nil
 
   # The inferrable type params have been identified during the semTryExpr above.
   # We need to put them in the current sigmatch's binding table in order for them
@@ -2010,13 +2028,15 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     if a.kind == tyGenericParam and tfWildcard in a.flags:
       a.assignType(f)
       # put(m.bindings, f, a)
-      return argSemantized
+      result = argSemantized
+      return
 
     if a.kind == tyStatic:
       if m.callee.kind == tyGenericBody and
          a.n == nil and
          tfGenericTypeParam notin a.flags:
-        return newNodeIT(nkType, argOrig.info, makeTypeFromExpr(c, arg))
+        result = newNodeIT(nkType, argOrig.info, makeTypeFromExpr(c, arg))
+        return
     else:
       var evaluated = c.semTryConstExpr(c, arg)
       if evaluated != nil:
@@ -2047,14 +2067,16 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     # XXX: duplicating this is ugly, but we cannot (!) move this
     # directly into typeRel using return-like templates
     incMatches(m, r)
-    if f.kind == tyTyped:
-      return arg
-    elif f.kind == tyTypeDesc:
-      return arg
-    elif f.kind == tyStatic and arg.typ.n != nil:
-      return arg.typ.n
-    else:
-      return argSemantized # argOrig
+    result =
+      if f.kind == tyTyped:
+        arg
+      elif f.kind == tyTypeDesc:
+        arg
+      elif f.kind == tyStatic and arg.typ.n != nil:
+        arg.typ.n
+      else:
+        argSemantized # argOrig
+    return
 
   # If r == isBothMetaConvertible then we rerun typeRel.
   # bothMetaCounter is for safety to avoid any infinite loop,
@@ -2071,7 +2093,8 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     if arg.kind in {nkProcDef, nkFuncDef, nkIteratorDef} + nkLambdaKinds:
       result = c.semInferredLambda(c, m.bindings, arg)
     elif arg.kind != nkSym:
-      return nil
+      result = nil
+      return
     else:
       let inferred = c.semGenerateInstance(c, arg.sym, m.bindings, arg.info)
       result = newSymNode(inferred, arg.info)
@@ -2104,7 +2127,8 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     if arg.kind in {nkProcDef, nkFuncDef, nkIteratorDef} + nkLambdaKinds:
       result = c.semInferredLambda(c, m.bindings, arg)
     elif arg.kind != nkSym:
-      return nil
+      result = nil
+      return
     else:
       let inferred = c.semGenerateInstance(c, arg.sym, m.bindings, arg.info)
       result = newSymNode(inferred, arg.info)
@@ -2144,7 +2168,8 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     if a.kind in {tyProxy, tyUnknown}:
       inc(m.genericMatches)
       m.fauxMatch = a.kind
-      return arg
+      result = arg
+      return
     elif a.kind == tyVoid and f.matchesVoidProc and argOrig.kind == nkStmtList:
       # lift do blocks without params to lambdas
       let p = c.graph
@@ -2155,7 +2180,8 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
         inc m.genericMatches
         put(m, f, lifted.typ)
       inc m.convMatches
-      return implicitConv(nkHiddenStdConv, f, lifted, m, c)
+      result = implicitConv(nkHiddenStdConv, f, lifted, m, c)
+      return
     result = userConvMatch(c, m, f, a, arg)
     # check for a base type match, which supports varargs[T] without []
     # constructor in a call:
@@ -2296,9 +2322,23 @@ proc prepareOperand(c: PContext; a: PNode): PNode =
     considerGenSyms(c, result)
 
 proc prepareNamedParam(a: PNode; c: PContext) =
-  if a[0].kind != nkIdent:
-    var info = a[0].info
-    a[0] = newIdentNode(considerQuotedIdent(c, a[0]), info)
+  ## set the correct ident node, or nkError, in the 0th position for this
+  ## named param
+  if a.isErrorLike: return
+  case a[0].kind
+  of nkIdent, nkError:
+    discard "nothing to do"
+  else:
+    let
+      info = a[0].info
+      (i, err) = considerQuotedIdent2(c, a[0])
+    # a[0] = newIdentNode(considerQuotedIdent(c, a[0]), info)
+    a[0] =
+      if err.isNil():
+        newIdentNode(i, info)
+      else:
+        err
+
 
 proc arrayConstr(c: PContext, n: PNode): PType =
   result = newTypeS(tyArray, c)
@@ -2337,6 +2377,12 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
     m.firstMismatch.arg = a
     m.firstMismatch.formal = formal
     return
+
+  template noMatchDueToError() =
+    ## found an nkError along the way so wrap the call in an error, do not use
+    ## if the legacy `localError`s etc are being used.
+    m.call = wrapErrorInSubTree(m.call)
+    noMatch()
 
   template checkConstraint(n: untyped) {.dirty.} =
     if not formal.constraint.isNil:
@@ -2394,11 +2440,11 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       m.firstMismatch.kind = kUnknownNamedParam
       # check if m.callee has such a param:
       prepareNamedParam(n[a], c)
-      if n[a][0].kind != nkIdent:
+      if n[a].kind == nkError or n[a][0].kind != nkIdent:
         localError(c.config, n[a].info, "named parameter has to be an identifier")
         noMatch()
       formal = getNamedParamFromList(m.callee.n, n[a][0].ident)
-      if formal == nil:
+      if formal == nil or formal.isError:
         # no error message!
         noMatch()
       if containsOrIncl(marker, formal.position):
@@ -2416,8 +2462,10 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       arg = paramTypesMatch(m, formal.typ, n[a].typ,
                                 n[a][1], n[a][1])
       m.firstMismatch.kind = kTypeMismatch
-      if arg == nil:
+      if arg == nil or arg.isErrorLike:
         noMatch()
+      elif n[a][1].isErrorLike:
+        noMatchDueToError()
       checkConstraint(n[a][1])
       if m.baseTypeMatch:
         #assert(container == nil)
@@ -2452,10 +2500,12 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           n[a] = prepareOperand(c, formal.typ, n[a])
           arg = paramTypesMatch(m, formal.typ, n[a].typ,
                                     n[a], nOrig[a])
-          if arg != nil and m.baseTypeMatch and container != nil:
+          if arg != nil and arg.kind != nkError and m.baseTypeMatch and container != nil:
             container.add arg
             incrIndexType(container.typ)
             checkConstraint(n[a])
+          elif n[a].isErrorLike:
+            noMatchDueToError()
           else:
             noMatch()
         else:
@@ -2480,6 +2530,8 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             setSon(m.call, formal.position + 1, container)
           else:
             incrIndexType(container.typ)
+          if n[a].isErrorLike:
+            noMatchDueToError()
           container.add n[a]
         else:
           m.baseTypeMatch = false
@@ -2487,8 +2539,11 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           n[a] = prepareOperand(c, formal.typ, n[a])
           arg = paramTypesMatch(m, formal.typ, n[a].typ,
                                     n[a], nOrig[a])
-          if arg == nil:
+
+          if arg == nil or arg.isErrorLike:
             noMatch()
+          elif n[a].isErrorLike:
+            noMatchDueToError()
           if m.baseTypeMatch:
             assert formal.typ.kind == tyVarargs
             #assert(container == nil)

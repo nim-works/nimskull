@@ -11,7 +11,7 @@
 
 import
   ast, astalgo, msgs, platform, idents,
-  modulegraphs, lineinfos
+  modulegraphs, lineinfos, errorhandling
 
 export createMagic
 
@@ -120,6 +120,17 @@ proc registerNimScriptSymbol*(g: ModuleGraph; s: PSym) =
   else:
     localError(g.config, s.info,
       "symbol conflicts with other .exportNims symbol at: " & g.config$conflict.info)
+
+proc registerNimScriptSymbol2*(g: ModuleGraph; s: PSym): PNode =
+  # Nimscript symbols must be al unique:
+  result = g.emptyNode
+  let conflict = strTableGet(g.exposed, s.name)
+  if conflict == nil:
+    strTableAdd(g.exposed, s)
+  else:
+    result = newError(newSymNode(s),
+                      "symbol conflicts with other .exportNims symbol at: " &
+                        g.config$conflict.info)
 
 proc getNimScriptSymbol*(g: ModuleGraph; name: string): PSym =
   strTableGet(g.exposed, getIdent(g.cache, name))
