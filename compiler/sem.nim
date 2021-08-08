@@ -19,6 +19,8 @@ import
   lowerings, plugins/active, lineinfos, strtabs, int128,
   isolation_check, typeallowed, modulegraphs, enumtostr, concepts, astmsgs
 
+import newast / newast
+
 when defined(nimfix):
   import nimfix/prettybase
 
@@ -598,7 +600,10 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   else:
     result = n
   
+  c.graph.newgraph[c.module.position].legacyAppendPNode(n)
+  
   if `??`(c.config, n.info, "foo.nim"):
+    # foo.nim is a local test file, don't want to pollute git with it
     let
       loadedModule = c.graph.packed[c.module.position]
       packedModule = loadedModule.fromDisk
@@ -614,8 +619,9 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
         break
     debugEcho "original:\n"
     debug(n)
-    debugEcho "\npos: ", pos.int, " packed:\n"
-    debugEcho $loadNodes(decoder, c.graph.packed, c.module.position, fullTree, pos)
+    debugEcho "\npos: ", pos.int
+    debugEcho "\nnewast: ", $c.graph.newgraph[c.module.position]
+    # debugEcho $loadNodes(decoder, c.graph.packed, c.module.position, fullTree, pos)
 
   result = semStmt(c, result, {})
   result = hloStmt(c, result)

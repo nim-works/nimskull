@@ -14,22 +14,28 @@
 import intsets, tables, hashes, md5
 import ast, astalgo, options, lineinfos,idents, btrees, ropes, msgs, pathutils
 import ic / [packed_ast, ic]
+import newast / newast
 
 type
   SigHash* = distinct MD5Digest
 
   LazySym* = object
+    ## represents a symbol that maybe in a module that may be loaded or not
+    ## yet fully defined. This is handy when we want to declare some symbols
+    ## who's definitions refer to each other first and then process the
+    ## definitions with lazy symbol resolution -- as in type sections.
     id*: FullId
     sym*: PSym
 
-  Iface* = object       ## data we don't want to store directly in the
-                        ## ast.PSym type for s.kind == skModule
-    module*: PSym       ## module this "Iface" belongs to
+  Iface* = object
+    ## data we don't want to store directly in the ast.PSym type for
+    ## `s.kind == skModule`
+    module*: PSym             ## module this "Iface" belongs to
     converters*: seq[LazySym]
-    patterns*: seq[LazySym]
+    patterns*: seq[LazySym]   ## patterns for term rewriting macros -- ick
     pureEnums*: seq[LazySym]
     interf: TStrTable
-    interfHidden: TStrTable
+    interfHidden: TStrTable   ## xxx: unexported or internal interface?
     uniqueName*: Rope
 
   Operators* = object
@@ -41,6 +47,10 @@ type
     packed*: PackedItemId
 
   LazyType* = object
+    ## represents a type that maybe in a module that may be loaded or not
+    ## yet fully defined. This is handy when we want to declare some symbols
+    ## who's definitions refer to each other first and then process the
+    ## definitions with lazy type resolution -- as in type sections.
     id*: FullId
     typ*: PType
 
@@ -54,6 +64,9 @@ type
     ifaces*: seq[Iface]  ## indexed by int32 fileIdx
     packed*: PackedModuleGraph
     encoders*: seq[PackedEncoder]
+
+    newgraph*: seq[ModuleAst]
+      ## used for the in memory/faster module graph
 
     typeInstCache*: Table[ItemId, seq[LazyType]] # A symbol's ItemId.
     procInstCache*: Table[ItemId, seq[LazyInstantiation]] # A symbol's ItemId.
@@ -410,6 +423,14 @@ proc registerModule*(g: ModuleGraph; m: PSym) =
 
   g.ifaces[m.position] = Iface(module: m, converters: @[], patterns: @[],
                                uniqueName: rope(uniqueModuleName(g.config, FileIndex(m.position))))
+  
+  # start - hack in the new ast
+  if m.position >= g.newgraph.len:
+    # we have to bump the length, modules get added elsewhere??
+    setLen(g.newgraph, m.position + 1)
+  g.newgraph.add legacyInitModuleAst(m.position)
+  # end - hack in the new ast
+  
   initStrTables(g, m)
 
 proc registerModuleById*(g: ModuleGraph; m: FileIndex) =
@@ -578,7 +599,9 @@ proc moduleFromRodFile*(g: ModuleGraph; fileIdx: FileIndex;
                         cachedModules: var seq[FileIndex]): PSym =
   ## Returns 'nil' if the module needs to be recompiled.
   if g.config.symbolFiles in {readOnlySf, v2Sf, stressTest}:
-    result = moduleFromRodFile(g.packed, g.config, g.cache, fileIdx, cachedModules)
+    result = ic.moduleFromRodFile(g.packed, g.config, g.cache, fileIdx, cachedModules)
+    if result != nil:
+      debugEcho "module wasn't nil: "
 
 proc configComplete*(g: ModuleGraph) =
   rememberStartupConfig(g.startupPackedConfig, g.config)

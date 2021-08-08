@@ -90,12 +90,15 @@ proc compileModule*(graph: ModuleGraph; fileIdx: FileIndex; flags: TSymFlags, fr
   result = graph.getModule(fileIdx)
 
   template processModuleAux(moduleStatus) =
+    ## do the actual processing of a module, outputing whether it's started and
+    ## then doing the actual processing.
     onProcessing(graph, fileIdx, moduleStatus, fromModule = fromModule)
     var s: PLLStream
     if sfMainModule in flags:
       if graph.config.projectIsStdin: s = stdin.llStreamOpen
       elif graph.config.projectIsCmd: s = llStreamOpen(graph.config.cmdInput)
     discard processModule(graph, result, idGeneratorFromModule(result), s)
+
   if result == nil:
     var cachedModules: seq[FileIndex]
     result = moduleFromRodFile(graph, fileIdx, cachedModules)

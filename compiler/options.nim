@@ -220,7 +220,11 @@ type
       ## are not anymore.
 
   SymbolFilesOption* = enum
-    disabledSf, writeOnlySf, readOnlySf, v2Sf, stressTest
+    disabledSf,  # disables Rod files and maybe packed AST features
+    writeOnlySf, # not really sure, beyond not reading rod files
+    readOnlySf,  # we only read from rod files
+    v2Sf,        # who knows, probably a bad idea
+    stressTest   # likely more bad ideas
 
   TSystemCC* = enum
     ccNone, ccGcc, ccNintendoSwitch, ccLLVM_Gcc, ccCLang, ccBcc, ccVcc,
