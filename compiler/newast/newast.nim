@@ -56,7 +56,69 @@ type
 
   AstNodeKind* {.pure.} = enum
     ## discriminant for different types of AST nodes, see `AstNode`
-    ankEmpty
+    
+    ankError,        ## ast error of some sort
+    ankEmpty,        ## empty node, for optional parts of the AST
+
+    ankIdent,        ## identifier of some sort
+
+    # Literals - Begin
+    ankLitChar,      ## character literal `''`, `'a'`, etc
+    
+    # Literals - Int
+    ankLitInt,       ## signed int literal `1`, platform determines bits
+    ankLitInt8,      ## signed 8-bit int literal `1'int8`
+    ankLitInt16,     ## signed 16-bit int literal `1'int16`
+    ankLitInt32,     ## signed 32-bit int literal `1'int32`
+    ankLitInt64,     ## signed 64-bit int literal `1'int64`
+    
+    # Literals - Unsight Int
+    ankLitUInt,      ## unsigned int literal `1`, platform determines bits
+    ankLitUInt8,     ## unsigned 8-bit int literal `1'uint8`
+    ankLitUInt16,    ## unsigned 16-bit int literal `1'uint16`
+    ankLitUInt32,    ## unsigned 32-bit int literal `1'uint32`
+    ankLitUInt64,    ## unsigned 64-bit int literal `1'uint64`
+    
+    # Literals - Float
+    ankLitFloat,     ## signed float literal `1.0`, platform determines bits
+    ankLitFloat32,   ## signed 32-bit float literal `1'float32`
+    ankLitFloat64,   ## signed 64-bit float literal `1'float64`
+    ankLitFloat128,  ## signed 128-bit float literal `1'float128`
+
+    # Literals - String
+    ankLitStr,       ## string literal
+    ankLitRawStr,    ## raw string literal
+    ankLitTripleStr, ## triple quoted string literal """foo"""
+
+    # Literals - Misc
+    nkLitNil,
+    # Literals - Finish
+
+    # Calls - Begin
+
+    # Calls - Command
+    ankCommandZero,
+    ankCommandOne,
+    ankCommandTwo,
+    ankCommandN,
+
+    # Calls - Call
+    ankCallZero,
+    ankCallOne,
+    ankCallTwo,
+    ankCallN,
+
+    # Calls - Call String Literals
+    ankCallStr,
+    ankCallRawStr,
+
+    ankCallInfix,
+    ankCallPrefix,
+    ankCallPostfix,
+
+    # Calls - Finish
+
+    # xxx: keep adding the rest of the nodes
   
   TokenIndex* = distinct int32
     ## used to point to a token from the token list
