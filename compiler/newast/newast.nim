@@ -56,6 +56,13 @@ type
 
   AstNodeKind* {.pure.} = enum
     ## discriminant for different types of AST nodes, see `AstNode`
+    ## Naming conventions:
+    ## - names are composed of words categorizing them from general to specific
+    ##    eg: `ankLitxxx`, the `Lit` is a category. This grouping means we can
+    ##    use ranges of node kinds for easy comparisons
+    ## - suffixes on nodes of `One`, `Two`, `N`, etc... indicate the number of
+    ##    args that are accepted. This allows for simpler interpretation of
+    ##    `left` and `right` fields in an AST node
     
     ankError,        ## ast error of some sort
     ankEmpty,        ## empty node, for optional parts of the AST
@@ -91,31 +98,30 @@ type
     ankLitTripleStr, ## triple quoted string literal """foo"""
 
     # Literals - Misc
-    nkLitNil,
+    nkLitNil,        ## `nil` literal
     # Literals - Finish
 
     # Calls - Begin
 
     # Calls - Command
-    ankCommandZero,
-    ankCommandOne,
-    ankCommandTwo,
-    ankCommandN,
+    ankCallCmdOne,  ## call without parens and one arg `echo foo`
+    ankCallCmdTwo,  ## call without parens and two args `echo foo, bar`
+    ankCallCmdN,    ## call without parens and 3+ args `echo 1, 2, 3`
 
     # Calls - Call
-    ankCallZero,
-    ankCallOne,
-    ankCallTwo,
-    ankCallN,
+    ankCallZero,    ## call with parens and no args `rand()`
+    ankCallOne,     ## call with parens and one arg `sqrt(x)`
+    ankCallTwo,     ## call with parens and two args `+(x, y)`
+    ankCallN,       ## call with parens and 3+ args `sum(x, y, z)`
 
     # Calls - Call String Literals
-    ankCallStr,
-    ankCallRawStr,
+    ankCallRawStr,  ## call with a raw or triple quotes string literal `r"foo"`
+                    ## or `x"""foobar"""`
 
-    ankCallInfix,
-    ankCallPrefix,
-    ankCallPostfix,
-
+    # Calls - Pre/Post/In-fix
+    ankCallInfix,   ## call like `a + b`
+    ankCallPrefix,  ## call like `!p`
+    ankCallPostfix, ## nim lacks post fix operators, used for export marker
     # Calls - Finish
 
     # xxx: keep adding the rest of the nodes
