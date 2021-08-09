@@ -65,9 +65,9 @@ type
     ##    `left` and `right` fields in an AST node
     
     ankError,        ## ast error of some sort
-    ankEmpty,        ## empty node, for optional parts of the AST
+    ankEmpty,        ## for optional parts of the AST, eg: inferred return type
 
-    ankIdent,        ## identifier of some sort
+    ankIdent,        ## identifier of some sort, excluding literals
 
     # Literals - Begin
     ankLitChar,      ## character literal `''`, `'a'`, etc
@@ -98,34 +98,307 @@ type
     ankLitTripleStr, ## triple quoted string literal """foo"""
 
     # Literals - Misc
-    nkLitNil,        ## `nil` literal
+    ankLitNil,       ## `nil` literal
     # Literals - Finish
 
     # Calls - Begin
 
     # Calls - Command
-    ankCallCmdOne,  ## call without parens and one arg `echo foo`
-    ankCallCmdTwo,  ## call without parens and two args `echo foo, bar`
-    ankCallCmdN,    ## call without parens and 3+ args `echo 1, 2, 3`
+    ankCallCmdOne,   ## call without parens and one arg `echo foo`
+    ankCallCmdTwo,   ## call without parens and two args `echo foo, bar`
+    ankCallCmdN,     ## call without parens and 3+ args `echo 1, 2, 3`
 
     # Calls - Call
-    ankCallZero,    ## call with parens and no args `rand()`
-    ankCallOne,     ## call with parens and one arg `sqrt(x)`
-    ankCallTwo,     ## call with parens and two args `+(x, y)`
-    ankCallN,       ## call with parens and 3+ args `sum(x, y, z)`
+    ankCallZero,     ## call with parens and no args `rand()`
+    ankCallOne,      ## call with parens and one arg `sqrt(x)`
+    ankCallTwo,      ## call with parens and two args `+(x, y)`
+    ankCallN,        ## call with parens and 3+ args `sum(x, y, z)`
 
     # Calls - Call String Literals
-    ankCallRawStr,  ## call with a raw or triple quotes string literal `r"foo"`
-                    ## or `x"""foobar"""`
+    ankCallRawStr,   ## call with a raw or triplequoted string literal `r"foo"`
+                     ## or `x"""foobar"""`
 
     # Calls - Pre/Post/In-fix
-    ankCallInfix,   ## call like `a + b`
-    ankCallPrefix,  ## call like `!p`
-    ankCallPostfix, ## nim lacks post fix operators, used for export marker
+    ankCallInfix,    ## call like `a + b`
+    ankCallPrefix,   ## call like `!p`
+    # ankCallPostfix,  ## only postfix operation is on symbols for exports eg:
+    #                  ## `type Point* = ...`
+    #                  ## xxx: bring this back if postfix calls are required
     # Calls - Finish
 
+    # Arguments, Ident Defintions, & Parameters - Begin
+
+    ankExprEqExpr,   ## name arg with equals: `arg = val`
+    ankExprColonExpr,## name arg with colon: `arg: val`, pragma calls, etc
+    ankIdentDefs,    ## identifiers, type, and default value, used in params,
+                     ## const, let, var declarations,
+                     ## eg: `a, b: typeDesc = expr`
+    ankUnpackOne,    ## `let (a,) = expr`, unpack a 1-tuple, const/for/let/var
+    ankUnpackTwo,    ## `const (a, b) = expr`, unpack a pair, const/for/let/var
+    ankUnpackN,      ## `for a, b, c in expr:`, unpack an n > 2 tuple    
+
+    # Arguments, Ident Defintions, & Parameters - Finish
+
+    # Braces, Brackets, Parentheses, and Constructors - Begin
+    ankParZero,      ## empty parens `()`, maybe tuple constructor
+    ankParOne,       ## one child parens `(1)`, maybe tuple constructor
+    ankParTwo,       ## two child parens `(1, b)`, maybe tuple constructor
+    ankParN,         ## 3+ child parens `(1, b, 'c'), maybe tuple constructor
+
+    ankObjConstrZero,## null-ary object constructor: `T()`
+    ankObjConstrOne, ## unary object constructor: `T(a: 1)`
+    ankObjConstrTwo, ## binary object constructor: `T(a: 1, b: 2)`
+    ankObjConstrN,   ## n-ary, n > 2, object constructor: `T(a: 1, b: 2, c: 3)`
+
+    ankCurlyZero,    ## `{}` often a set, empty or zero items
+    ankCurlyOne,     ## `{ankParN}`, often a set, one item
+    ankCurlyTwo,     ## `{ankParN, ankCallN}`, often a set, two items
+    ankCurlyN,       ## `{ankParN, ankCallN, ankCurlyN}`, often a set, 3+ items
+
+    ankCurlyExprZero,## expression `a{}`, zero args
+    ankCurlyExprOne, ## expression `a{i}`, one arg
+    ankCurlyExprTwo, ## expression `a{i, j}`, two args
+    ankCurlyExprN,   ## expression `a{i, j, k}`, 3+ args
+
+    # there is no `ankTblConstrZero` because it is the same as `ankCurlyZero`
+    ankTblConstrZero,## null-ary table constructor: `{:}`
+    ankTblConstrOne, ## unary table constructor: `{a: 1}`
+    ankTblConstrTwo, ## binary table constructor: `{a: 1, b: 2}`
+    ankTblConstrN,   ## n-ary, n > 2, table constructor: `{a: 1, b: 2, c: 3}`
+
+    ankBracketZero,  ## eg: array construct `[]`, zero args
+    ankBracketOne,   ## eg: array construct `[1]`, one arg
+    ankBracketTwo,   ## eg: array construct `[1, 2]`, two args
+    ankBracketN,     ## eg: array construct `[1, 2, 3]`, 3+ args
+
+    ankBracketExprZero,## expression `a[]`, zero args
+    ankBracketExprOne, ## expression `a[i]`, one arg
+    ankBracketExprTwo, ## expression `a[i, j]`, two args
+    ankBracketExprN,   ## expression `a[i, j, k]`, 3+ args
+
+    ankPragmaExprZero,## expression `a{.}`, zero args
+                      ## xxx: `a{..}` is not legal, this is like a lexing bug
+    ankPragmaExprOne,## expression `a{i}`, one arg
+    ankPragmaExprTwo,## expression `a{i, j}`, two args
+    ankPragmaExprN,  ## expression `a{i, j, k}`, 3+ args
+    # Braces, Brackets, Parentheses, and Constructors - Finish
+
+    # names and field access, dot expr, stropped - Begin
+    ankDotExpr,      ## `a.b`
+    ankAccQuoted,    ## '`a`' accent quoted or stropped ident
+    # names and field access, dot expr, stropped - Finish
+
+    # control flow - branch expressions and statements - begin
+    ankIf,           ## an `if` statement or expression
+    ankElif,         ## an `elif` statement or expression
+    ankElse,         ## an `else` statement or expression
+
+    ankCase,         ## a `case` statement or expression
+    ankOf,           ## an `of` branch in a case statement or expression
+
+    ankWhen,         ## a `when` statement or expression
+    # control flow - branch expressions and statements - finish
+
+    # control flow - blocks & loops - begin
+    ankFor,          ## for loop
+    ankWhile,        ## while loop
+
+    # control flow - blocks & loops - finish
+
+    # control flow - pass control - begin
+    ankContinue,     ## `continue`
+
+    ankBreak,        ## `break`
+    ankBreakLabel,   ## break with a expression/label `break foo: ...`
+
+    ankReturn,       ## `return` without any expression
+    ankReturnExpr,   ## `return a` with an expression
+    # control flow - pass control - finish
+
+    # exceptions - begin
+    ankExceptAny,   ## follows try `except:`, no type specified
+    ankExcept,      ## follows try `except IOError:` or `expect IOError as e:`
+    # exceptions - finish
+
+    # lambdas and anonymous procs - begin
+    ankLambda,       ## lambda expression, `proc(): int = 42`
+    ankDo,           ## do expression, lambda block as trailing proc param
+    # lambdas and anonymous procs - finish
+
+    # bind, mixin - begin
+    ankBind,         ## `bind a` statement, only in metaprog/generic context
+    ankMixin,        ## `mixin b` statement, only in metaprog/generic context
+    # bind, mixin - finish
+
+    # cast, static - begin
+    ankCast,         ## type cast, `cast Foo bar`
+    ankStatic,       ## static statement or expression, `static 10`
+    # cast, static - finish
+
+    # assignment - begin
+    ankAssign,       ## assignment `a = b`
+    # assignment - finish
+
+    # params - begin
+    ankParamsGenericZero,## null-ary generic params, etc `[]`
+    ankParamsGenericOne, ## unary generic param, etc `[T]`
+    ankParamsGenericTwo, ## binary generic params, etc `[T, R]`
+    ankParamsGenericN,   ## n-ary, n is 3+, generic params, etc `[T, R, S]`
+
+    ankParamsFormalZero, ## formal params, no return or args `() =`
+    ankParamsFormalOne,  ## formal params, return only, no args `(): int`
+    ankParamsFormalTwo,  ## formal params, return & one arg, `(i: int): int` or
+                         ## `(i: int)` as the return can be empty
+    ankParamsFormalN,    ## formal params, `(i: int, j: int): int` or
+                         ## `(i: int, j: int)` as the return can be empty
+    # params - finish
+
+    # import - begin
+    ankImportAs,     ## `a as b` in an import statement
+    # import - finish
+
+    # routine definitions - begin
+    ankDefProc,      ## procedure definition `proc f() = ...`
+    ankDefFunc,      ## function definition `func f(): int = ...`
+    ankDefMethod,    ## method  definition `method m(i: int) = ...`
+    ankDefConverter, ## converter definition `converter c(i: int): uint = ...`
+    ankDefIterator,  ## iterator definition `iterator i(a: string): int = ...`
+    ankDefMacro,     ## macro definition `macro m(a: string): untyped = ...`
+    ankDefTemplate,  ## template definition `template t() = ...`
+    # routine definitions - end
+
+    # misc - begin
+    ankAsm,
+    # misc - finish
+
     # xxx: keep adding the rest of the nodes
-  
+
+    nkArgList,
+    nkAsmStmt,
+    nkBlockStmt,
+    nkBreakStmt,
+    nkCommentStmt,
+    nkConstDef,
+    nkConstSection,
+    nkContinueStmt,
+    nkDefer,
+    nkDiscardStmt,
+    nkDistinctTy,
+    nkEnumFieldDef,
+    nkEnumTy,
+    nkExceptBranch,
+    nkExportStmt,
+    nkFinally,
+    nkForStmt,
+    nkFromStmt,
+    # nkIfExpr,
+    # nkIfStmt,
+    # nkImportAs,
+    nkImportStmt,
+    nkIncludeStmt,
+    nkIteratorTy,
+    nkLetSection,
+    nkMutableTy,
+    nkObjectTy,
+    nkOfBranch,
+    nkOfInherit,
+    nkPostfix,
+    nkPragma,
+    nkPragmaBlock,
+    nkPragmaExpr,
+    nkPrefix,
+    nkProcTy,
+    nkPtrTy,
+    nkRaiseStmt,
+    nkRecCase,
+    nkRecList,
+    nkRecWhen,
+    nkRefTy,
+    nkReturnStmt,
+    nkStaticTy,
+    nkStmtList,
+    nkStmtListExpr,
+    nkTryStmt,
+    nkTupleClassTy,
+    nkTupleConstr,
+    nkTupleTy,
+    nkTypeClassTy,
+    nkTypeDef,
+    nkTypeOfExpr,
+    nkTypeSection,
+    nkUsingStmt,
+    nkVarSection,
+    nkVarTy,
+    nkWhileStmt,
+    nkWith,
+    nkWithout,
+    nkYieldStmt
+    # nkProcDef,
+    # nkTemplateDef,
+
+    # nkAccQuoted,
+    # nkAsgn,
+    # nkBind,
+    # nkBindStmt,
+    # nkBracket,
+    # nkBracketExpr,
+    # nkCall,
+    # nkCallStrLit,
+    # nkCaseStmt,
+    # nkCast,
+    # nkCharLit,
+    # nkCommand,
+    # nkConverterDef,
+    # nkCurly,
+    # nkCurlyExpr,
+    # nkDo,
+    # nkDotExpr,
+    # nkElifBranch,
+    # nkElifExpr,
+    # nkElse,
+    # nkElseExpr,
+    # nkEmpty,
+    # nkExprColonExpr,
+    # nkExprEqExpr,
+    # nkFloat128Lit,
+    # nkFloat32Lit,
+    # nkFloat64Lit,
+    # nkFloatLit,
+    # nkFormalParams,
+    # nkFuncDef,
+    # nkGenericParams,
+    # nkIdent,
+    # nkIdentDefs,
+    # nkInfix,
+    # nkInt16Lit,
+    # nkInt32Lit,
+    # nkInt64Lit,
+    # nkInt8Lit,
+    # nkIntLit,
+    # nkIteratorDef,
+    # nkLambda,
+    # nkMacroDef,
+    # nkMethodDef,
+    # nkMixinStmt,
+    # nkNilLit,
+    # nkObjConstr,
+    # nkPar,
+    # nkRStrLit,
+    # nkStaticStmt,
+    # nkStrLit,
+    # nkTableConstr,
+    # nkTripleStrLit,
+    # nkUInt16Lit,
+    # nkUInt32Lit,
+    # nkUInt64Lit,
+    # nkUInt8Lit,
+    # nkUIntLit,
+    # nkVarTuple,
+    # nkWhenExpr,
+    # nkWhenStmt,
+    # psuedo elements
+    # nkCallKinds,
+
   TokenIndex* = distinct int32
     ## used to point to a token from the token list
   AstIndex* = distinct int32
