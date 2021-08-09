@@ -27,6 +27,8 @@ type
     nodes: seq[AstNode]
 
   AstNode* = object
+    ## xxx: turn this into struct-of-arrays
+    ##
     ## An AST node in the most generous sense, it does two things:
     ## 1. overlay a tree structure upon sequentially stored nodes
     ## 2. stores indices for lookup into auxiliary information structures
@@ -50,8 +52,8 @@ type
     list: seq[Token]
 
   Token* = object
-    ## xxx: should be a single token in a token list from the tokenization.
-    ##      Presently, shims info between the old `ast.TNode` and the new AST.
+    ## xxx: should be a single token in a token list from tokenization.
+    ##      instead it shims info between the old `ast.TNode` and the new AST.
     node: PNode
 
   AstNodeKind* {.pure.} = enum
@@ -176,11 +178,11 @@ type
     ankBracketExprTwo, ## expression `a[i, j]`, two args
     ankBracketExprN,   ## expression `a[i, j, k]`, 3+ args
 
-    ankPragmaExprZero,## expression `a{.}`, zero args
-                      ## xxx: `a{..}` is not legal, this is like a lexing bug
-    ankPragmaExprOne,## expression `a{i}`, one arg
-    ankPragmaExprTwo,## expression `a{i, j}`, two args
-    ankPragmaExprN,  ## expression `a{i, j, k}`, 3+ args
+    ankPragmaExprZero,## expression `a {.}`, zero args
+                      ## xxx: `a {..}` is not legal, this is like a lexing bug
+    ankPragmaExprOne,## expression `a {.i.}`, one arg
+    ankPragmaExprTwo,## expression `a {.i, j.}`, two args
+    ankPragmaExprN,  ## expression `a {.i, j, k.}`, 3+ args
     # Braces, Brackets, Parentheses, and Constructors - Finish
 
     # names and field access, dot expr, stropped - Begin
@@ -203,21 +205,34 @@ type
     ankFor,          ## for loop
     ankWhile,        ## while loop
 
+    ankBlock,        ## `block: ...` expression or statement
+    ankBlockNamed,   ## `block foo: ...` expression or statement
     # control flow - blocks & loops - finish
 
     # control flow - pass control - begin
-    ankContinue,     ## `continue`
+    ankDiscard,      ## `discard` statement
+    ankDiscardSome,  ## `discard "thing"` discard an expression or statement
+    ankContinue,     ## `continue` the nearest loop
 
-    ankBreak,        ## `break`
+    ankBreak,        ## `break` statement to the nearest loop
     ankBreakLabel,   ## break with a expression/label `break foo: ...`
 
     ankReturn,       ## `return` without any expression
     ankReturnExpr,   ## `return a` with an expression
+
+    ankReRaise,      ## `raise`, re-raise an exception
+    ankRaise,        ## `raise newException(IOError, "e")`, raise an exception
+
+    ankYield,        ## `yield a`, yield statement
     # control flow - pass control - finish
 
     # exceptions - begin
+    ankTry,         ## `try` expression or statement
     ankExceptAny,   ## follows try `except:`, no type specified
     ankExcept,      ## follows try `except IOError:` or `expect IOError as e:`
+    ankFinally,     ## follows try or try/except, expression or statement
+
+    ankDefer,       ## `defer stmt` statement
     # exceptions - finish
 
     # lambdas and anonymous procs - begin
@@ -254,10 +269,26 @@ type
     # params - finish
 
     # import - begin
+    ankImport,       ## `import` statement
     ankImportAs,     ## `a as b` in an import statement
     # import - finish
 
-    # routine definitions - begin
+    # definitions - begin
+    # definitions - variables - begin
+    ankDefConstOne,  ## `const a = 1`, has one identdefs
+    ankDefConstTwo,  ## `const: a = 1, b = 2`, has two identdefs
+    ankDefConstN,    ## const section with n identdefs, where n is 3+
+
+    ankDefLetOne,    ## `let a = 1`, has one identdefs
+    ankDefLetTwo,    ## `let: a = 1, b = 2`, has two identdefs
+    ankDefLetN,      ## let section with n identdefs, where n > 2
+    
+    ankDefVarOne,    ## `var a = 1`, has one identdefs
+    ankDefVarTwo,    ## `var: a = 1, b = 2`, has two identdefs
+    ankDefVarN,      ## var section with n identdefs, where n > 2
+    # definitions - variables - finish
+
+    # definitions - routine - begin
     ankDefProc,      ## procedure definition `proc f() = ...`
     ankDefFunc,      ## function definition `func f(): int = ...`
     ankDefMethod,    ## method  definition `method m(i: int) = ...`
@@ -265,7 +296,11 @@ type
     ankDefIterator,  ## iterator definition `iterator i(a: string): int = ...`
     ankDefMacro,     ## macro definition `macro m(a: string): untyped = ...`
     ankDefTemplate,  ## template definition `template t() = ...`
-    # routine definitions - end
+    # definitions - routine - end
+
+    # definitions - finish
+
+    # definitions - 
 
     # misc - begin
     ankAsm,
@@ -274,47 +309,29 @@ type
     # xxx: keep adding the rest of the nodes
 
     nkArgList,
-    nkAsmStmt,
-    nkBlockStmt,
-    nkBreakStmt,
     nkCommentStmt,
     nkConstDef,
     nkConstSection,
-    nkContinueStmt,
-    nkDefer,
-    nkDiscardStmt,
     nkDistinctTy,
     nkEnumFieldDef,
     nkEnumTy,
-    nkExceptBranch,
     nkExportStmt,
-    nkFinally,
-    nkForStmt,
     nkFromStmt,
-    # nkIfExpr,
-    # nkIfStmt,
-    # nkImportAs,
-    nkImportStmt,
     nkIncludeStmt,
     nkIteratorTy,
     nkLetSection,
     nkMutableTy,
     nkObjectTy,
-    nkOfBranch,
     nkOfInherit,
-    nkPostfix,
     nkPragma,
     nkPragmaBlock,
     nkPragmaExpr,
-    nkPrefix,
     nkProcTy,
     nkPtrTy,
-    nkRaiseStmt,
     nkRecCase,
     nkRecList,
     nkRecWhen,
     nkRefTy,
-    nkReturnStmt,
     nkStaticTy,
     nkStmtList,
     nkStmtListExpr,
@@ -329,15 +346,29 @@ type
     nkUsingStmt,
     nkVarSection,
     nkVarTy,
-    nkWhileStmt,
     nkWith,
     nkWithout,
-    nkYieldStmt
+    # nkBlockStmt,
+    # nkBreakStmt,
+    # nkContinueStmt,
+    # nkDefer,
+    # nkDiscardStmt,
+    # nkExceptBranch,
+    # nkIfExpr,
+    # nkIfStmt,
+    # nkImportAs,
+    # nkImportStmt,
     # nkProcDef,
+    # nkOfBranch,
+    # nkRaiseStmt,
+    # nkReturnStmt,
     # nkTemplateDef,
+    # nkWhileStmt,
+    # nkYieldStmt
 
     # nkAccQuoted,
     # nkAsgn,
+    # nkAsmStmt,
     # nkBind,
     # nkBindStmt,
     # nkBracket,
@@ -360,11 +391,13 @@ type
     # nkEmpty,
     # nkExprColonExpr,
     # nkExprEqExpr,
+    # nkFinally,
     # nkFloat128Lit,
     # nkFloat32Lit,
     # nkFloat64Lit,
     # nkFloatLit,
     # nkFormalParams,
+    # nkForStmt,
     # nkFuncDef,
     # nkGenericParams,
     # nkIdent,
@@ -383,6 +416,8 @@ type
     # nkNilLit,
     # nkObjConstr,
     # nkPar,
+    # nkPostfix,
+    # nkPrefix,
     # nkRStrLit,
     # nkStaticStmt,
     # nkStrLit,
