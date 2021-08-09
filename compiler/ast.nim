@@ -97,7 +97,7 @@ type
     nkElifExpr,
     nkElseExpr,
     nkLambda,             # lambda expression
-    nkDo,                 # lambda block appering as trailing proc param
+    nkDo,                 # lambda block appearing as trailing proc param
     nkAccQuoted,          # `a` as a node
 
     nkTableConstr,        # a table constructor {expr: expr}
