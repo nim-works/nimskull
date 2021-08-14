@@ -17,7 +17,7 @@ from ".." / ast import PNode, safeLen
 
 type
   ModuleAst* = object
-    ## AST for an module
+    ## AST for a module
     id: ModuleId
     ast: Ast
     tokens: TokenList
@@ -105,85 +105,95 @@ type
 
     # Calls - Begin
 
-    # Calls - Command
-    ankCallCmdOne,   ## call without parens and one arg `echo foo`
-    ankCallCmdTwo,   ## call without parens and two args `echo foo, bar`
-    ankCallCmdN,     ## call without parens and 3+ args `echo 1, 2, 3`
-
-    # Calls - Call
-    ankCallZero,     ## call with parens and no args `rand()`
-    ankCallOne,      ## call with parens and one arg `sqrt(x)`
-    ankCallTwo,      ## call with parens and two args `+(x, y)`
-    ankCallN,        ## call with parens and 3+ args `sum(x, y, z)`
-
-    # Calls - Call String Literals
+    # Calls - end
+    ankCall,         ## call with parens and zero or more args `sum(x, y)`
+    ankCallCmd,      ## command without parens and one or more args `echo 1`
     ankCallRawStr,   ## call with a raw or triplequoted string literal `r"foo"`
                      ## or `x"""foobar"""`
-
-    # Calls - Pre/Post/In-fix
-    ankCallInfix,    ## call like `a + b`
-    ankCallPrefix,   ## call like `!p`
-    # ankCallPostfix,  ## only postfix operation is on symbols for exports eg:
-    #                  ## `type Point* = ...`
-    #                  ## xxx: bring this back if postfix calls are required
-    # Calls - Finish
+    ankCallInfix,    ## infix call, eg: `a + b`
+    ankCallPrefix,   ## prefix call `!p`
+    ankCallPostfix,  ## only postfix operation is on symbols for exports eg:
+                     ## `type Point* = ...`
+    # Calls - end
 
     # Arguments, Ident Defintions, & Parameters - Begin
-
     ankExprEqExpr,   ## name arg with equals: `arg = val`
+
     ankExprColonExpr,## name arg with colon: `arg: val`, pragma calls, etc
+
     ankIdentDefs,    ## identifiers, type, and default value, used in params,
                      ## const, let, var declarations,
                      ## eg: `a, b: typeDesc = expr`
-    ankUnpackOne,    ## `let (a,) = expr`, unpack a 1-tuple, const/for/let/var
-    ankUnpackTwo,    ## `const (a, b) = expr`, unpack a pair, const/for/let/var
-    ankUnpackN,      ## `for a, b, c in expr:`, unpack an n > 2 tuple    
 
+    ankUnpack,       ## unpack a tuple, in const, for, let, and var contexts:
+                     ## `let (a,) = expr`, unpack a 1-tuple, const/for/let/var
+                     ## `const (a, b) = expr`, unpack a pair, const/for/let/var
+                     ## `for a, b, c in expr:`, unpack an n > 2 tuple
     # Arguments, Ident Defintions, & Parameters - Finish
 
     # Braces, Brackets, Parentheses, and Constructors - Begin
-    ankParZero,      ## empty parens `()`, maybe tuple constructor
-    ankParOne,       ## one child parens `(1)`, maybe tuple constructor
-    ankParTwo,       ## two child parens `(1, b)`, maybe tuple constructor
-    ankParN,         ## 3+ child parens `(1, b, 'c'), maybe tuple constructor
+    ankPar,          ## parentheses `()` with zero or more args, eg:
+                     ## - empty parens `()`, maybe empty tuple constructor
+                     ## - one child parens `(1)`
+                     ## - two child parens `(1, b)`
+                     ## - etc...
 
-    ankObjConstrZero,## null-ary object constructor: `T()`
-    ankObjConstrOne, ## unary object constructor: `T(a: 1)`
-    ankObjConstrTwo, ## binary object constructor: `T(a: 1, b: 2)`
-    ankObjConstrN,   ## n-ary, n > 2, object constructor: `T(a: 1, b: 2, c: 3)`
+    ankBracket,      ## bracket literal, `[]`, typically an array literal, eg:
+                     ## - array construct `[]`, zero args
+                     ## - array construct `[1]`, one arg
+                     ## - array construct `[1, 2]`, two args
 
-    ankCurlyZero,    ## `{}` often a set, empty or zero items
-    ankCurlyOne,     ## `{ankParN}`, often a set, one item
-    ankCurlyTwo,     ## `{ankParN, ankCallN}`, often a set, two items
-    ankCurlyN,       ## `{ankParN, ankCallN, ankCurlyN}`, often a set, 3+ items
+    ankCurly,        ## braces `{}` with zero or more items often a set:
+                     ## - `{}` often a set, empty or zero items
+                     ## - `{ankParN}`, often a set, one item
+                     ## - `{ankParN, ankCallN}`, often a set, two items
+                     ## - `{ankParN, ankCallN, ankCurlyN}`, often a set
+                     ## - etc...
 
-    ankCurlyExprZero,## expression `a{}`, zero args
-    ankCurlyExprOne, ## expression `a{i}`, one arg
-    ankCurlyExprTwo, ## expression `a{i, j}`, two args
-    ankCurlyExprN,   ## expression `a{i, j, k}`, 3+ args
+    ankTupleConstr,  ## tuple constructor with zero or more args, eg:
+                     ## - `()`
+                     ## - `(1,)` single arg tuple, note trailing comma
+                     ## - `(1, "foo")` two arg tuple, AKA pair
+                     ## - etc...
 
-    # there is no `ankTblConstrZero` because it is the same as `ankCurlyZero`
-    ankTblConstrZero,## null-ary table constructor: `{:}`
-    ankTblConstrOne, ## unary table constructor: `{a: 1}`
-    ankTblConstrTwo, ## binary table constructor: `{a: 1, b: 2}`
-    ankTblConstrN,   ## n-ary, n > 2, table constructor: `{a: 1, b: 2, c: 3}`
+    ankObjConstr,    ## object constructor, eg:
+                     ## - null-ary object constructor: `T()`
+                     ## - unary object constructor: `T(a: 1)`
+                     ## - binary object constructor: `T(a: 1, b: 2)`
+                     ## - n-ary object constructor: `T(a: 1, b: 2, c: 3)`
 
-    ankBracketZero,  ## eg: array construct `[]`, zero args
-    ankBracketOne,   ## eg: array construct `[1]`, one arg
-    ankBracketTwo,   ## eg: array construct `[1, 2]`, two args
-    ankBracketN,     ## eg: array construct `[1, 2, 3]`, 3+ args
+    ankTblConstr,    ## table constructor, very similar to `ankCurly`, has at
+                     ## least one colon separated argument, empty is a
+                     ## `ankCurly`, eg:
+                     ## - null-ary table constructor: `{:}`
+                     ## - unary table constructor: `{a: 1}`
+                     ## - binary table constructor: `{a: 1, b: 2}`
+                     ## - etc...
 
-    ankBracketExprZero,## expression `a[]`, zero args
-    ankBracketExprOne, ## expression `a[i]`, one arg
-    ankBracketExprTwo, ## expression `a[i, j]`, two args
-    ankBracketExprN,   ## expression `a[i, j, k]`, 3+ args
+    ankBracketExpr,  ## bracket expression, like array indexing, eg:
+                     ## - `a[]`, zero args
+                     ## - `a[i]`, one arg
+                     ## - `a[i, j]`, two args
+                     ## - etc...
 
-    ankPragmaExprZero,## expression `a {.}`, zero args
-                      ## xxx: `a {..}` is not legal, this is like a lexing bug
-    ankPragmaExprOne,## expression `a {.i.}`, one arg
-    ankPragmaExprTwo,## expression `a {.i, j.}`, two args
-    ankPragmaExprN,  ## expression `a {.i, j, k.}`, 3+ args
+    ankCurlyExpr,    ## braces used somewhat like bracket indexing `a{}` with
+                     ## zero or more items, eg:
+                     ## - `a{i}`, one arg
+                     ## - `a{i, j}`, two args
+                     ## - etc...
     # Braces, Brackets, Parentheses, and Constructors - Finish
+
+    # Pragma - Begin
+    ankPragmaExpr,   ## pragma expression `a {.i.}`, eg:
+                     ## - `a {.}`, zero args
+                     ## - `a {.i.}`, one arg
+                     ## - `a {.i, j.}`, two args
+                     ## - etc...
+                     ## xxx: `a {..}` is not legal, this should be possible to
+                     ##      disambiguate
+    ankPragmaStmt,   ## `{.emit: """Foo""".}`
+    ankPragmaBlock,  ## `{.cast(gcsafe).}: ...`
+    # Pragma - Finish
 
     # names and field access, dot expr, stropped - Begin
     ankDotExpr,      ## `a.b`
@@ -255,37 +265,55 @@ type
     # assignment - finish
 
     # params - begin
-    ankParamsGenericZero,## null-ary generic params, etc `[]`
-    ankParamsGenericOne, ## unary generic param, etc `[T]`
-    ankParamsGenericTwo, ## binary generic params, etc `[T, R]`
-    ankParamsGenericN,   ## n-ary, n is 3+, generic params, etc `[T, R, S]`
+    ankParamsGeneric,## generic params `[T]`, eg:
+                     ## - null-ary generic params, etc `[]`
+                     ## - unary generic param, etc `[T]`
+                     ## - binary generic params, etc `[T, R]`
+                     ## - etc...
 
-    ankParamsFormalZero, ## formal params, no return or args `() =`
-    ankParamsFormalOne,  ## formal params, return only, no args `(): int`
-    ankParamsFormalTwo,  ## formal params, return & one arg, `(i: int): int` or
-                         ## `(i: int)` as the return can be empty
-    ankParamsFormalN,    ## formal params, `(i: int, j: int): int` or
-                         ## `(i: int, j: int)` as the return can be empty
+    ankParamsFormal, ## formal params, `(i: int): int`, eg:
+                     ## - no return or args `() =`
+                     ## - return only, no args `(): int`
+                     ## - return & one arg, `(i: int): int`
+                     ## - `(i: int, j: string)` as the return can be empty
+                     ## - etc...
     # params - finish
 
-    # import - begin
+    # statements - begin
+    ankStmtList,     ## a list of statements, such as a proc body
+    ankStmtListExpr, ## a list of statements ending in an expression, useful
+                     ## in many places such as the final expression as return
+    # statements - finish
+
+    # import, include, & export - begin
     ankImport,       ## `import` statement
+    ankImportExcept, ## `import` statement with an `except`
     ankImportAs,     ## `a as b` in an import statement
-    # import - finish
+
+    ankImportFrom,   ## `from foo_module import bar`
+
+    ankInclude,      ## `include` statement
+
+    ankExport,       ## `export` statment
+    ankExportExcept, ## `export` statment with an `except`
+    # import, include, & export - finish
 
     # definitions - begin
     # definitions - variables - begin
-    ankDefConstOne,  ## `const a = 1`, has one identdefs
-    ankDefConstTwo,  ## `const: a = 1, b = 2`, has two identdefs
-    ankDefConstN,    ## const section with n identdefs, where n is 3+
+    ankDefConst,     ## const def with n identdefs, eg:
+                     ## - `const a = 1`, has one identdefs
+                     ## - `const: a = 1, b = 2`, has two identdefs
+                     ## - etc...
 
-    ankDefLetOne,    ## `let a = 1`, has one identdefs
-    ankDefLetTwo,    ## `let: a = 1, b = 2`, has two identdefs
-    ankDefLetN,      ## let section with n identdefs, where n > 2
+    ankDefLet,       ## let def with zero or more identdefs, eg:
+                     ## - `let a = 1`, has one identdefs
+                     ## - `let: a = 1, b = 2`, has two identdefs
+                     ## - etc...
     
-    ankDefVarOne,    ## `var a = 1`, has one identdefs
-    ankDefVarTwo,    ## `var: a = 1, b = 2`, has two identdefs
-    ankDefVarN,      ## var section with n identdefs, where n > 2
+    ankDefVar,       ## var def with zero or more identdefs, eg:
+                     ## - `var a = 1`, has one identdefs
+                     ## - `var: a = 1, b = 2`, has two identdefs
+                     ## - etc...
     # definitions - variables - finish
 
     # definitions - routine - begin
@@ -298,141 +326,55 @@ type
     ankDefTemplate,  ## template definition `template t() = ...`
     # definitions - routine - end
 
-    # definitions - finish
+    # definitions - type - begin
+    ankTypeSection,  ## `type ...` type section either as a single line or
+                     ## with indented declarations underneath
+    ankTypeDef,      ## `type Foo = int` the `Foo = int` part is a type def,
+                     ## an analog to `ankIdentDef`
 
-    # definitions - 
+    ankTyEnum,       ## `enum ...body...` or the special type `enum`
+    ankTyEnumField,  ## `enum Foo, Bar`, `Foo` & `Bar` are `ankTyEnumField`s
+
+    ankTyObject,     ## `Foo = object ...` body or special type `object`
+    ankTyTuple,      ## tuple body
+    ankTyProc,       ##  in a type `proc (): int` or special type `proc`
+    ankTyIterator,   ## `iterator` when used as part of a type param
+
+    ankTyRecList,    ## list of object parts
+    ankTyRecCase,    ## case section of object
+    ankTyRecWhen,    ## when section of object
+
+    ankTyConst,      ## `const T`
+    ankTyRef,        ## `ref T`
+    ankTyVar,        ## `var T`
+    ankTyPtr,        ## `ptr T`
+    ankTyStatic,     ## `static T`
+    ankTyDistinct,   ## `distinct T`
+    ankTyMutable,    ## `mutable T` when used for out params?
+                     ## xxx: this is unlikely to be fully implemented
+    
+    ankTyClsTuple,    ## `tuple` type class
+    ankTyClsUser,     ## user-defined type class
+
+    ankInherit,      ## `Foo = object of Bar`, the `of Bar` is inherited
+
+    ankDistinct,     ## `distinct int` create a distinc type or special type
+    
+    ankArgList,      ## argument list to a type class parameter
+
+    ankDefWith,      ## distinct with `foo`
+    ankDefWithout,   ## distinct without `foo`
+    # definitions - type - finish
+
+    # definitions - finish
 
     # misc - begin
     ankAsm,
+    ankCommentStmt,
+
+    ankUsing,        ## allows consuming common parameters from proc defs
+                     ## xxx: this should be removed
     # misc - finish
-
-    # xxx: keep adding the rest of the nodes
-
-    nkArgList,
-    nkCommentStmt,
-    nkConstDef,
-    nkConstSection,
-    nkDistinctTy,
-    nkEnumFieldDef,
-    nkEnumTy,
-    nkExportStmt,
-    nkFromStmt,
-    nkIncludeStmt,
-    nkIteratorTy,
-    nkLetSection,
-    nkMutableTy,
-    nkObjectTy,
-    nkOfInherit,
-    nkPragma,
-    nkPragmaBlock,
-    nkPragmaExpr,
-    nkProcTy,
-    nkPtrTy,
-    nkRecCase,
-    nkRecList,
-    nkRecWhen,
-    nkRefTy,
-    nkStaticTy,
-    nkStmtList,
-    nkStmtListExpr,
-    nkTryStmt,
-    nkTupleClassTy,
-    nkTupleConstr,
-    nkTupleTy,
-    nkTypeClassTy,
-    nkTypeDef,
-    nkTypeOfExpr,
-    nkTypeSection,
-    nkUsingStmt,
-    nkVarSection,
-    nkVarTy,
-    nkWith,
-    nkWithout,
-    # nkBlockStmt,
-    # nkBreakStmt,
-    # nkContinueStmt,
-    # nkDefer,
-    # nkDiscardStmt,
-    # nkExceptBranch,
-    # nkIfExpr,
-    # nkIfStmt,
-    # nkImportAs,
-    # nkImportStmt,
-    # nkProcDef,
-    # nkOfBranch,
-    # nkRaiseStmt,
-    # nkReturnStmt,
-    # nkTemplateDef,
-    # nkWhileStmt,
-    # nkYieldStmt
-
-    # nkAccQuoted,
-    # nkAsgn,
-    # nkAsmStmt,
-    # nkBind,
-    # nkBindStmt,
-    # nkBracket,
-    # nkBracketExpr,
-    # nkCall,
-    # nkCallStrLit,
-    # nkCaseStmt,
-    # nkCast,
-    # nkCharLit,
-    # nkCommand,
-    # nkConverterDef,
-    # nkCurly,
-    # nkCurlyExpr,
-    # nkDo,
-    # nkDotExpr,
-    # nkElifBranch,
-    # nkElifExpr,
-    # nkElse,
-    # nkElseExpr,
-    # nkEmpty,
-    # nkExprColonExpr,
-    # nkExprEqExpr,
-    # nkFinally,
-    # nkFloat128Lit,
-    # nkFloat32Lit,
-    # nkFloat64Lit,
-    # nkFloatLit,
-    # nkFormalParams,
-    # nkForStmt,
-    # nkFuncDef,
-    # nkGenericParams,
-    # nkIdent,
-    # nkIdentDefs,
-    # nkInfix,
-    # nkInt16Lit,
-    # nkInt32Lit,
-    # nkInt64Lit,
-    # nkInt8Lit,
-    # nkIntLit,
-    # nkIteratorDef,
-    # nkLambda,
-    # nkMacroDef,
-    # nkMethodDef,
-    # nkMixinStmt,
-    # nkNilLit,
-    # nkObjConstr,
-    # nkPar,
-    # nkPostfix,
-    # nkPrefix,
-    # nkRStrLit,
-    # nkStaticStmt,
-    # nkStrLit,
-    # nkTableConstr,
-    # nkTripleStrLit,
-    # nkUInt16Lit,
-    # nkUInt32Lit,
-    # nkUInt64Lit,
-    # nkUInt8Lit,
-    # nkUIntLit,
-    # nkVarTuple,
-    # nkWhenExpr,
-    # nkWhenStmt,
-    # psuedo elements
-    # nkCallKinds,
 
   TokenIndex* = distinct int32
     ## used to point to a token from the token list
@@ -445,7 +387,7 @@ type
     ## might be an `AstIndex`, an int value, or interpretted some other way
     ## based on the `AstNode.kind`
   ModuleId* = int32
-    ## id for this module within a compilation
+    ## id for this module within a project compilation
     ## XXX: refactor along with `ModuleAst` as this is mostly to shim with the
     ##      existing compiler instead of properly handling module vs module in
     ##      a package vs during a specific compilation.
