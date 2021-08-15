@@ -13,19 +13,19 @@
 ## Naming Conventions:
 ## * `legacy` related to bridging from old AST to the new one
 
-from ".." / ast import TNodeKind, PNode, safeLen, `[]`, items
+from ".." / ast import TNodeKind, PNode, safeLen, `[]`, pairs
 
 type
   ModuleAst* = object
     ## AST for a module
     id: ModuleId
-    ast: Ast
+    ast*: Ast         # xxx: exported for debugging, remove before merge
     tokens: TokenList
 
   Ast* = object
     ## AST of some source code fragment or possibly entire module
-    nodes: seq[AstNode]
-    extra: AstExtra
+    nodes*: seq[AstNode] # xxx: exported for debugging, remove before merge
+    extra*: AstExtra     # xxx: exported for debugging, remove before merge
 
   AstNode* = object
     ## xxx: turn this into struct-of-arrays
@@ -82,7 +82,10 @@ type
     ## - suffixes on nodes of `One`, `Two`, `N`, etc... indicate the number of
     ##    args that are accepted. This allows for simpler interpretation of
     ##    `left` and `right` fields in an AST node
-    
+
+    # the first kind, AKA `low` needs to be 0, as this is used to detect
+    # uninitialized state -- see `isUninitialized`
+
     ankError,        ## ast error of some sort
     ankEmpty,        ## for optional parts of the AST, eg: inferred return type
 
@@ -408,6 +411,11 @@ proc initAst(hintAstLen = assumedAstLen): Ast =
   ## initialize an `Ast`, pre-allocate storage based on the `hintAstLen`
   Ast(nodes: newSeqOfCap[AstNode](hintAstLen))
 
+proc `[]`(a: var Ast; i: AstIndex): var AstNode =
+  ## get the `AstNode` corresponding to the `AstIndex` `i`.
+  # since `i` is discriminated by type, we know what to index against, fun!
+  a.nodes[i.uint32]
+
 proc initTokenList(hintListLen = assumedAstLen): TokenList =
   ## initialize a `TokenList`, pre-allocate storage based on the 'hintListLen`
   TokenList(list: newSeqOfCap[Token](hintListLen))
@@ -618,45 +626,113 @@ func legacyNodeToAstKind(n: PNode): AstNodeKind =
     else: raise newException(ValueError, "No mapping for: " & $kind)
 
 const
+  emptyAstLeft = AstLeft 0
+    ## empty based on zero initialization of memory
   emptyAstRight = AstRight 0
+    ## empty based on zero initialization of memory
+  unknownAstLeft = emptyAstLeft
+    ## empty and unkonwn are ambiguous, aliased to communicate intent
+  unknownAstRight = emptyAstRight
+    ## empty and unkonwn are ambiguous, aliased to communicate intent
 
 func getNextAstIndex(a: Ast): AstIndex =
   ## gets the `AstIndex` that would be generated if a node was inserted
   AstIndex a.nodes.len
 
-func getNextAndLeftAstIndex(a: Ast): (AstIndex, AstLeft) =
-  ## similar to `getNextAstIndex`, except also provides a left index value
-  ## assuming that it'll be the node immediately following
+proc `$`*(i: AstLeft): string {.borrow.}
+proc `$`*(i: AstRight): string {.borrow.}
+proc `$`*(i: AstIndex): string {.borrow.}
+proc `$`*(i: TokenIndex): string {.borrow.}
+proc `==`(a, b: TokenIndex): bool {.borrow.}
+proc `==`(a, b: AstLeft): bool {.borrow.}
+proc `==`(a, b: AstRight): bool {.borrow.}
 
-proc `$`(i: AstLeft): string {.borrow.}
-proc `$`(i: AstRight): string {.borrow.}
-proc `$`(i: AstIndex): string {.borrow.}
-proc `$`(i: TokenIndex): string {.borrow.}
+func isUninitialized(nodes: seq[AstNode]; idx: AstIndex): bool =
+  ## whether the given position has an existing AstNode or is it set to zero
+  ## values as if freshly zero'd out memory.
+  doAssert idx.uint32 < nodes.len.uint32, "idx is out of range: " & $idx
+  let
+    node = nodes[idx.uint32]
+    kind = node.kind == AstNodeKind.low # `low` will be 0, default init
+    token = node.token == 0.TokenIndex
+    left = node.left == unknownAstLeft
+    right = node.right == unknownAstRight
 
-proc legacyAppendPNode*(m: var ModuleAst; n: PNode) =
+  result = kind and token and left and right
+
+proc reserveAstNode(
+    m: var ModuleAst;
+    kind: AstNodeKind,
+    token: TokenIndex
+  ): AstIndex =
+  ## append an ast node based on `kind` and `token`, with `left` and `right` to
+  ## be updated later, as they're often unknown until further processing and
+  ## addition of ast nodes.
+  
+  m.ast.nodes.add AstNode(
+    kind: kind,
+    token: token,
+    left: emptyAstLeft,
+    right: emptyAstRight
+  )
+
+  result = AstIndex m.ast.nodes.len - 1
+
+type
+  NodeProcessingKind {.pure.} = enum
+    ## xxx: the name leaves much to be desired -- to be renamed.
+    ## The intention is to indicate further processing of child nodes based
+    ## upon the kind. This further processing usually involves extra data, see:
+    ## `Ast.extra` and `AstExtra`
+    npkNoExtraData,
+    npkIndexAllButFirstChild
+
+proc legacyAppendPNode*(m: var ModuleAst; n: PNode): AstIndex =
   ## take `n` the `PNode`, from parsing, and append it to `m` the `ModuleAst`.
+  ## tracks the `AstIndex` of various nodes being appended, this allows to have
+  ## a depth first construction of the AST -- when traversed linearly.
+
   let
     kind = legacyNodeToAstKind(n)
     token = m.tokens.legacyAdd(n)
-    (nextAstIdx, leftAstIdx) = m.ast.getNextAndLeftAstIndex()
-    (left, right) = case kind
-      of ankStmtList: (leftAstIdx, emptyAstRight)
-      of ankCallCmd: (leftAstIdx, AstRight n.safeLen - 1)
+    nodeIdx = reserveAstNode(m, kind, token)
+    leftAstIdx = AstLeft m.ast.getNextAstIndex()
+    (left, right, extraProcessing) = case kind
+      of ankStmtList: (leftAstIdx, emptyAstRight, npkNoExtraData)
+      of ankCallCmd:
+        # Q: Why don't we store the callee's index?
+        # A: command node is immediately followed by the callee ast node, we
+        #    assume the next idx to be left and don't need to encode it, as
+        #    it's implied by the `kind`
+        let
+          extraDataStart = m.ast.extra.len # where we start insert indices
+          childCount = n.safeLen           # callee and then one or more args
+          argsCount = childCount - 1       # total ast indices in extra data
+
+        (AstLeft extraDataStart, AstRight argsCount, npkIndexAllButFirstChild)
       else:
-        (AstLeft 1, AstRight 2)
+        (emptyAstLeft, emptyAstRight, npkNoExtraData)
 
-  # xxx: need to rethink the traversal that should be supported on the consumer
-  #      end, breadth or depth first -- likely depth. Based on that determine
-  #      how to handle indexing, insertion, etc, such that it's correct.
-  #      Mostly being picky in that I don't want to have a bunch of `var`s and
-  #      stick to using `let`s.
+  m.ast[nodeIdx].left = left
+  m.ast[nodeIdx].right = right
 
-  m.ast.nodes.add AstNode(
-    kind:  kind,
-    token: token,
-    left:  left,
-    right: right
-  )
+  for i, child in n.pairs:
+    let
+      firstChild = i == 0
+      idx = m.legacyAppendPNode(child) # append the node
 
-  for child in n.items:
-    legacyAppendPNode(m, child)
+    # if we have to do extra process like remember extra data, do that here
+    case extraProcessing
+    of npkNoExtraData:
+      # we already appended it, ignore everything else
+      discard
+    of npkIndexAllButFirstChild:
+      # this is for cases like `ankCallCmd` where the first child is
+      # immediately following and doesn't need to be indexed, but the args are
+      # varying distances apart and indexed as extra data.
+      if not firstChild:
+        m.ast.extra.add idx
+
+  result = nodeIdx
+
+
