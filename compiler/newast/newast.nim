@@ -13,7 +13,7 @@
 ## Naming Conventions:
 ## * `legacy` related to bridging from old AST to the new one
 
-from ".." / ast import TNodeKind, PNode, safeLen, `[]`
+from ".." / ast import TNodeKind, PNode, safeLen, `[]`, items
 
 type
   ModuleAst* = object
@@ -25,6 +25,7 @@ type
   Ast* = object
     ## AST of some source code fragment or possibly entire module
     nodes: seq[AstNode]
+    extra: AstExtra
 
   AstNode* = object
     ## xxx: turn this into struct-of-arrays
@@ -46,6 +47,22 @@ type
     right: AstRight
       ## interpretation depends upon `kind`, typically this is an index for
       ## looking up the right child index in the list of `AstNode`.
+
+  AstExtra* = seq[AstIndex]
+    ## this sequence is used by `Ast` to lookup extra data that do not fit into
+    ## `AstNode`'s `left` and `right` properties. Instead the `kind` tag on the
+    ## `AstNode` will determine two things:
+    ##   1. how to interpret `left` or `right` is an index into this sequence
+    ##   2. how many nodes in this sequence to traverse
+    ##
+    ## For example a proc definition requires an index into the AST for the
+    ## name, generic params, formal params, pragmas, and body. In this case
+    ## we'd expect to read 5 AstIndex items in the corresponding order.
+    ##
+    ## Lastly, an AstIndex of `0`, as it travels backwards, will be treated as
+    ## an empty/special value, determined by the `kind`. Given the previous
+    ## example, a proc definition without any generic parameters might indicate
+    ## a generic parameter position of 0.
 
   TokenList* = object
     ## list of tokens, typically for an entire module or fragment of code
@@ -371,7 +388,7 @@ type
 
   TokenIndex* = distinct int32
     ## used to point to a token from the token list
-  AstIndex* = distinct int32
+  AstIndex* = distinct uint32
     ## used to point to additional information for an AST node
   AstLeft* = distinct uint32
     ## might be an `AstIndex`, an int value, or interpretted some other way
@@ -440,6 +457,7 @@ func legacyNodeToAstKind(n: PNode): AstNodeKind =
     of nkUInt32Lit:    ankLitUInt32
     of nkUInt64Lit:    ankLitUInt64
 
+    of nkFloatLit:     ankLitFloat
     of nkFloat32Lit:   ankLitFloat32
     of nkFloat64Lit:   ankLitFloat64
     of nkFloat128Lit:  ankLitFloat128
@@ -599,17 +617,46 @@ func legacyNodeToAstKind(n: PNode): AstNodeKind =
     of nkUsingStmt:       ankUsing
     else: raise newException(ValueError, "No mapping for: " & $kind)
 
+const
+  emptyAstRight = AstRight 0
+
+func getNextAstIndex(a: Ast): AstIndex =
+  ## gets the `AstIndex` that would be generated if a node was inserted
+  AstIndex a.nodes.len
+
+func getNextAndLeftAstIndex(a: Ast): (AstIndex, AstLeft) =
+  ## similar to `getNextAstIndex`, except also provides a left index value
+  ## assuming that it'll be the node immediately following
+
+proc `$`(i: AstLeft): string {.borrow.}
+proc `$`(i: AstRight): string {.borrow.}
+proc `$`(i: AstIndex): string {.borrow.}
+proc `$`(i: TokenIndex): string {.borrow.}
+
 proc legacyAppendPNode*(m: var ModuleAst; n: PNode) =
   ## take `n` the `PNode`, from parsing, and append it to `m` the `ModuleAst`.
   let
     kind = legacyNodeToAstKind(n)
     token = m.tokens.legacyAdd(n)
+    (nextAstIdx, leftAstIdx) = m.ast.getNextAndLeftAstIndex()
+    (left, right) = case kind
+      of ankStmtList: (leftAstIdx, emptyAstRight)
+      of ankCallCmd: (leftAstIdx, AstRight n.safeLen - 1)
+      else:
+        (AstLeft 1, AstRight 2)
 
-  # xxx: implement left and right properly, see below
+  # xxx: need to rethink the traversal that should be supported on the consumer
+  #      end, breadth or depth first -- likely depth. Based on that determine
+  #      how to handle indexing, insertion, etc, such that it's correct.
+  #      Mostly being picky in that I don't want to have a bunch of `var`s and
+  #      stick to using `let`s.
 
   m.ast.nodes.add AstNode(
-    kind: kind,
+    kind:  kind,
     token: token,
-    left: AstLeft 1,
-    right: AstRight 2
+    left:  left,
+    right: right
   )
+
+  for child in n.items:
+    legacyAppendPNode(m, child)
