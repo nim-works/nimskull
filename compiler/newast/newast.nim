@@ -13,7 +13,7 @@
 ## Naming Conventions:
 ## * `legacy` related to bridging from old AST to the new one
 
-from ".." / ast import PNode, safeLen
+from ".." / ast import TNodeKind, PNode, safeLen, `[]`
 
 type
   ModuleAst* = object
@@ -74,32 +74,27 @@ type
     # Literals - Begin
     ankLitChar,      ## character literal `''`, `'a'`, etc
     
-    # Literals - Int
     ankLitInt,       ## signed int literal `1`, platform determines bits
     ankLitInt8,      ## signed 8-bit int literal `1'int8`
     ankLitInt16,     ## signed 16-bit int literal `1'int16`
     ankLitInt32,     ## signed 32-bit int literal `1'int32`
     ankLitInt64,     ## signed 64-bit int literal `1'int64`
     
-    # Literals - Unsight Int
     ankLitUInt,      ## unsigned int literal `1`, platform determines bits
     ankLitUInt8,     ## unsigned 8-bit int literal `1'uint8`
     ankLitUInt16,    ## unsigned 16-bit int literal `1'uint16`
     ankLitUInt32,    ## unsigned 32-bit int literal `1'uint32`
     ankLitUInt64,    ## unsigned 64-bit int literal `1'uint64`
     
-    # Literals - Float
     ankLitFloat,     ## signed float literal `1.0`, platform determines bits
     ankLitFloat32,   ## signed 32-bit float literal `1'float32`
     ankLitFloat64,   ## signed 64-bit float literal `1'float64`
     ankLitFloat128,  ## signed 128-bit float literal `1'float128`
 
-    # Literals - String
     ankLitStr,       ## string literal
     ankLitRawStr,    ## raw string literal
     ankLitTripleStr, ## triple quoted string literal """foo"""
 
-    # Literals - Misc
     ankLitNil,       ## `nil` literal
     # Literals - Finish
 
@@ -299,22 +294,22 @@ type
     # import, include, & export - finish
 
     # definitions - begin
-    # definitions - variables - begin
-    ankDefConst,     ## const def with n identdefs, eg:
+    # definitions - variable sections - begin
+    ankSecConst,     ## const section with n identdefs, eg:
                      ## - `const a = 1`, has one identdefs
                      ## - `const: a = 1, b = 2`, has two identdefs
                      ## - etc...
 
-    ankDefLet,       ## let def with zero or more identdefs, eg:
+    ankSecLet,       ## let section with one or more identdefs, eg:
                      ## - `let a = 1`, has one identdefs
                      ## - `let: a = 1, b = 2`, has two identdefs
                      ## - etc...
     
-    ankDefVar,       ## var def with zero or more identdefs, eg:
+    ankSecVar,       ## var section with one or more identdefs, eg:
                      ## - `var a = 1`, has one identdefs
                      ## - `var: a = 1, b = 2`, has two identdefs
                      ## - etc...
-    # definitions - variables - finish
+    # definitions - variable sections - finish
 
     # definitions - routine - begin
     ankDefProc,      ## procedure definition `proc f() = ...`
@@ -327,13 +322,13 @@ type
     # definitions - routine - end
 
     # definitions - type - begin
-    ankTypeSection,  ## `type ...` type section either as a single line or
+    ankSecType,      ## `type ...` type section either as a single line or
                      ## with indented declarations underneath
-    ankTypeDef,      ## `type Foo = int` the `Foo = int` part is a type def,
-                     ## an analog to `ankIdentDef`
+    ankDefType,      ## `type Foo = int` the `Foo = int` part is a type def,
+                     ## an analog to `ankIdentDefs`
 
     ankTyEnum,       ## `enum ...body...` or the special type `enum`
-    ankTyEnumField,  ## `enum Foo, Bar`, `Foo` & `Bar` are `ankTyEnumField`s
+    ankDefEnumField, ## `enum Foo, Bar`, `Foo` & `Bar` are `ankTyEnumField`s
 
     ankTyObject,     ## `Foo = object ...` body or special type `object`
     ankTyTuple,      ## tuple body
@@ -358,8 +353,6 @@ type
 
     ankInherit,      ## `Foo = object of Bar`, the `of Bar` is inherited
 
-    ankDistinct,     ## `distinct int` create a distinc type or special type
-    
     ankArgList,      ## argument list to a type class parameter
 
     ankDefWith,      ## distinct with `foo`
@@ -370,7 +363,7 @@ type
 
     # misc - begin
     ankAsm,
-    ankCommentStmt,
+    ankComment,
 
     ankUsing,        ## allows consuming common parameters from proc defs
                      ## xxx: this should be removed
@@ -427,7 +420,184 @@ func legacyNodeToAstKind(n: PNode): AstNodeKind =
     kind = n.kind
     childCount = n.safeLen
   
-  result = ankEmpty
+  result = case kind
+    of nkError:        ankError
+    of nkEmpty:        ankEmpty
+
+    of nkIdent:        ankIdent
+
+    of nkCharLit:      ankLitChar
+
+    of nkIntLit:       ankLitInt
+    of nkInt8Lit:      ankLitInt8
+    of nkInt16Lit:     ankLitInt16
+    of nkInt32Lit:     ankLitInt32
+    of nkInt64Lit:     ankLitInt64
+
+    of nkUIntLit:      ankLitUInt
+    of nkUInt8Lit:     ankLitUInt8
+    of nkUInt16Lit:    ankLitUInt16
+    of nkUInt32Lit:    ankLitUInt32
+    of nkUInt64Lit:    ankLitUInt64
+
+    of nkFloat32Lit:   ankLitFloat32
+    of nkFloat64Lit:   ankLitFloat64
+    of nkFloat128Lit:  ankLitFloat128
+
+    of nkStrLit:       ankLitStr
+    of nkRStrLit:      ankLitRawStr
+    of nkTripleStrLit: ankLitTripleStr
+
+    of nkNilLit:       ankLitNil
+
+    of nkCall:         ankCall
+    of nkCommand:      ankCallCmd
+    of nkCallStrLit:   ankCallRawStr
+    of nkInfix:        ankCallInfix
+    of nkPrefix:       ankCallPrefix
+    of nkPostfix:      ankCallPostfix
+
+    of nkExprEqExpr:   ankExprEqExpr
+    of nkExprColonExpr:ankExprColonExpr
+    of nkIdentDefs, nkConstDef:
+      # not much point differentiating between the two right now
+      ankIdentDefs
+    of nkVarTuple:     ankUnpack
+    of nkPar:          ankPar
+    of nkBracket:      ankBracket
+    of nkCurly:        ankCurly
+    of nkTupleConstr:  ankTupleConstr
+    of nkObjConstr:    ankObjConstr
+    of nkTableConstr:  ankTblConstr
+    of nkBracketExpr:  ankBracketExpr
+    of nkCurlyExpr:    ankCurlyExpr
+
+    of nkPragmaExpr:   ankPragmaExpr
+    of nkPragma:       ankPragmaStmt
+    of nkPragmaBlock:  ankPragmaBlock
+
+    of nkDotExpr:      ankDotExpr
+    of nkAccQuoted:    ankAccQuoted
+
+    of nkIfExpr, nkIfStmt:       ankIf
+    of nkElifBranch, nkElifExpr: ankElif
+    of nkElse, nkElseExpr:       ankElse
+
+    of nkCaseStmt:     ankCase
+    of nkOfBranch:     ankOf
+
+    of nkWhenStmt:     ankWhen
+
+    of nkForStmt:      ankFor
+    of nkWhileStmt:    ankWhile
+
+    of nkBlockExpr, nkBlockStmt:
+      let
+        namePos = 0
+        hasName = n[namePos].kind != nkEmpty
+      if hasName: ankBlockNamed else: ankBlock
+    
+    of nkDiscardStmt:
+      if childCount > 0: ankDiscardSome else: ankDiscard
+    
+    of nkContinueStmt: ankContinue
+
+    of nkBreakStmt:
+      if childCount > 0: ankBreakLabel else: ankBreak
+    
+    of nkReturnStmt:
+      if childCount > 0: ankReturnExpr else: ankReturn
+    
+    of nkRaiseStmt:
+      # no child means just a `raise`, which raises the current exception
+      if childCount == 0: ankReRaise else: ankRaise
+    
+    of nkYieldStmt:    ankYield
+
+    of nkTryStmt:      ankTry
+    of nkExceptBranch:
+      if childCount > 0: ankExcept else: ankExceptAny
+    of nkFinally:      ankFinally
+
+    of nkDefer:        ankDefer
+
+    of nkLambda:       ankLambda
+    of nkDo:           ankDo
+
+    of nkBind, nkBindStmt: ankBind
+    of nkMixinStmt:        ankMixin
+
+    of nkCast:         ankCast
+    of nkStaticStmt:   ankStatic
+
+    of nkAsgn:         ankAssign
+
+    of nkGenericParams:ankParamsGeneric
+    of nkFormalParams: ankParamsFormal
+
+    of nkStmtList:     ankStmtList
+    of nkStmtListExpr: ankStmtListExpr
+
+    of nkImportStmt:      ankImport
+    of nkImportExceptStmt:ankImportExcept
+    of nkImportAs:        ankImportAs
+    of nkFromStmt:        ankImportFrom
+
+    of nkIncludeStmt:     ankInclude
+    
+    of nkExportStmt:      ankExport
+    of nkExportExceptStmt:ankExportExcept
+
+    of nkConstSection:    ankSecConst
+    of nkLetSection:      ankSecLet
+    of nkVarSection:      ankSecVar
+
+    of nkProcDef:         ankDefProc
+    of nkFuncDef:         ankDefFunc
+    of nkMethodDef:       ankDefMethod
+    of nkConverterDef:    ankDefConverter
+    of nkIteratorDef:     ankDefIterator
+    of nkMacroDef:        ankDefMacro
+    of nkTemplateDef:     ankDefTemplate
+
+    of nkTypeSection:     ankSecType
+    of nkTypeDef:         ankDefType
+
+    of nkEnumTy:          ankTyEnum
+    of nkEnumFieldDef:    ankDefEnumField
+
+    of nkObjectTy:        ankTyObject
+    of nkTupleTy:         ankTyTuple
+    of nkProcTy:          ankTyProc
+    of nkIteratorTy:      ankTyIterator
+
+    of nkRecList:         ankTyRecList
+    of nkRecCase:         ankTyRecCase
+    of nkRecWhen:         ankTyRecWhen
+
+    of nkConstTy:         ankTyConst
+    of nkRefTy:           ankTyRef
+    of nkVarTy:           ankTyVar
+    of nkPtrTy:           ankTyPtr
+    of nkStaticTy:        ankTyStatic
+    of nkDistinctTy:      ankTyDistinct
+    of nkMutableTy:       ankTyMutable
+
+    of nkTupleClassTy:    ankTyClsTuple
+    of nkTypeClassTy:     ankTyClsUser
+
+    of nkOfInherit:       ankInherit
+
+    of nkArgList:         ankArgList
+
+    of nkWith:            ankDefWith
+    of nkWithout:         ankDefWithout
+
+    of nkAsmStmt:         ankAsm
+    of nkCommentStmt:     ankComment
+
+    of nkUsingStmt:       ankUsing
+    else: raise newException(ValueError, "No mapping for: " & $kind)
 
 proc legacyAppendPNode*(m: var ModuleAst; n: PNode) =
   ## take `n` the `PNode`, from parsing, and append it to `m` the `ModuleAst`.
