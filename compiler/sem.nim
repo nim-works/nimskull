@@ -591,7 +591,7 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   else:
     result = n
   
-  c.graph.newgraph[c.module.position].legacyAppendPNode(n)
+  discard c.graph.newgraph[c.module.position].legacyAppendPNode(n)
   
   if `??`(c.config, n.info, "foo.nim"):
     # foo.nim is a local test file, don't want to pollute git with it
@@ -612,6 +612,8 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
     debug(n)
     debugEcho "\npos: ", pos.int
     debugEcho "\nnewast: ", $c.graph.newgraph[c.module.position]
+    debugEcho "\nnodes: ", $c.graph.newgraph[c.module.position].ast.nodes
+    debugEcho "\nextra: ", $c.graph.newgraph[c.module.position].ast.extra
     # debugEcho $loadNodes(decoder, c.graph.packed, c.module.position, fullTree, pos)
 
   result = semStmt(c, result, {})
