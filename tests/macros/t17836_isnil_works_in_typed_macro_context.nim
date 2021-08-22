@@ -1,6 +1,10 @@
-import macros
+discard """
+description: '''
+Ensure that `isNil` works in the typed macro context when passed procs.
+'''
+"""
 
-# Ensure that `isNil` works in the typed macro context when pass procs.
+import macros
 
 type
   O = object
