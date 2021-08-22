@@ -2,6 +2,7 @@ discard """
   matrix: "--hint:SuccessX:off --hint:Link:off --hint:Conf:off --hint:CC:off --hint:XDeclaredButNotUsed:on"
   nimout: '''
 '''
+description: "Don't report unused hints for consumed AST"
 nimoutFull: true
 action: compile
 """
