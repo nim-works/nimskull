@@ -243,7 +243,7 @@ var stats: Stats = newTable[RoutineName, seq[RoutineStat]]()
 
 handleDir(stats, getCurrentDir())
 
-proc print(stats: Stats) =
+proc quickAndDirtyReport(stats: Stats) {.used.} =
   let cwdLen = getCurrentDir().len
 
   var
@@ -283,5 +283,19 @@ proc print(stats: Stats) =
        "\nTemplate Count: ", templateCount,
        "\nNo argument macros: ", noArgMacros,
        "\nNo argument templates: ", noArgTemplates
-    
+
+proc print(stats: Stats) =
+  let cwdLen = getCurrentDir().len
+  # print the header
+  echo "routine\tkind\texported\targ types\tfile\tline\tcolumn"
+  for name, routines in stats.pairs:
+    for r in routines:
+      echo name, "\t",
+           r.kind, "\t",
+           r.exported, "\t",
+           "(", r.argTypes.join(", "), ")", "\t",
+           r.file, "\t",
+           r.info.line, "\t",
+           r.info.col
+
 print stats
