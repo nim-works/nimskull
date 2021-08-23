@@ -287,7 +287,7 @@ proc quickAndDirtyReport(stats: Stats) {.used.} =
 proc print(stats: Stats) =
   let cwdLen = getCurrentDir().len
   # print the header
-  echo "routine\tkind\texported\targ types\tfile\tline\tcolumn"
+  echo "routine\tkind\texported\targ types\tfile\tline"
   for name, routines in stats.pairs:
     if routines.anyIt(it.kind in {rkMacro, rkTemplate}):
       for r in routines:
@@ -296,7 +296,6 @@ proc print(stats: Stats) =
             r.exported, "\t",
             "(", r.argTypes.join(", "), ")", "\t",
             r.file.substr(cwdLen), "\t",
-            r.info.line, "\t",
-            r.info.col
+            r.info.line
 
 print stats
