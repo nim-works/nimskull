@@ -237,8 +237,18 @@ handleDir(stats, getCurrentDir())
 
 proc print(stats: Stats) =
   let cwdLen = getCurrentDir().len
+
+  var
+    overloadInstances = 0
+    macroCount = 0
+    templateCount = 0
+    noArgMacros = 0
+    noArgTemplates = 0
+
   for name, routines in stats.pairs:
     # ignore the stats for any that don't include a macro or template
+    if routines.len > 1:
+      inc overloadInstances
     if routines.anyIt(it.kind in {rkMacro, rkTemplate}):
       echo "routine: ", name, " count: ", routines.len
       for r in routines.items:
@@ -246,7 +256,24 @@ proc print(stats: Stats) =
              ", kind: ", r.kind,
              ", arg types: (", r.argTypes.join(", "), ")",
              ", file: ", r.file.substr(cwdLen)
-    # else:
-    #   echo "skipping: ", name
-
+      
+        case r.kind
+        of rkMacro:
+          inc macroCount
+          if r.argTypes.len == 0:
+            inc noArgMacros
+        of rkTemplate:
+          inc templateCount
+          if r.argTypes.len == 0:
+            inc noArgTemplates
+        else:
+          discard
+  
+  echo "Summary:",
+       "\nOverloads: ", overloadInstances,
+       "\nMacro Count: ", macroCount,
+       "\nTemplate Count: ", templateCount,
+       "\nNo argument macros: ", noArgMacros,
+       "\nNo argument templates: ", noArgTemplates
+    
 print stats
