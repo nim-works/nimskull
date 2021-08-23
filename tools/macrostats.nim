@@ -289,13 +289,14 @@ proc print(stats: Stats) =
   # print the header
   echo "routine\tkind\texported\targ types\tfile\tline\tcolumn"
   for name, routines in stats.pairs:
-    for r in routines:
-      echo name, "\t",
-           r.kind, "\t",
-           r.exported, "\t",
-           "(", r.argTypes.join(", "), ")", "\t",
-           r.file, "\t",
-           r.info.line, "\t",
-           r.info.col
+    if routines.anyIt(it.kind in {rkMacro, rkTemplate}):
+      for r in routines:
+        echo name, "\t",
+            r.kind, "\t",
+            r.exported, "\t",
+            "(", r.argTypes.join(", "), ")", "\t",
+            r.file.substr(cwdLen), "\t",
+            r.info.line, "\t",
+            r.info.col
 
 print stats
