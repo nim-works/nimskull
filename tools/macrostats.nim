@@ -41,6 +41,7 @@ type
     file: string
     info: TLineInfo
     kind: RoutineKind
+    exported: bool
     name: string
     argNames: seq[string]
     argTypes: seq[string]
@@ -125,7 +126,13 @@ proc collectStats(stats: Stats, file: string, info: TLineInfo, n: PNode) =
       collectStats(stats, file, child.info, child)
   of routineDefs:
     let
-      name = $n[namePos]
+      nameNode = n[namePos]
+      (name, exported) =
+        case nameNode.kind
+        of nkPostfix:
+          ($nameNode[1], true)
+        else:
+          ($nameNode, false)
       argsNode = n[paramsPos]
       genericArgsNode = n[genericParamsPos]
       (argNames, argTypes, argDefaults) =
@@ -187,6 +194,7 @@ proc collectStats(stats: Stats, file: string, info: TLineInfo, n: PNode) =
         info: info,
         kind: n.kind.toRoutineKind,
         name: name,
+        exported: exported,
         argNames: argNames,
         argTypes: argTypes,
         argDefaults: argDefaults,
@@ -252,8 +260,8 @@ proc print(stats: Stats) =
     if routines.anyIt(it.kind in {rkMacro, rkTemplate}):
       echo "routine: ", name, " count: ", routines.len
       for r in routines.items:
-        echo "\tname: ", r.name,
-             ", kind: ", r.kind,
+        echo "\tkind: ", r.kind,
+             ", exported: ", r.exported,
              ", arg types: (", r.argTypes.join(", "), ")",
              ", file: ", r.file.substr(cwdLen)
       
