@@ -1302,11 +1302,15 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
     onUse(n.info, s)
     result = newSymNode(s, n.info)
   else:
-    let info = getCallLineInfo(n)
-    #if efInCall notin flags:
-    markUsed(c, info, s)
-    onUse(info, s)
-    result = newSymNode(s, info)
+    if s.kind == skError and not s.ast.isNil and s.ast.kind == nkError:
+      # XXX: at the time or writing only `lookups.qualifiedLookUp2` setup the
+      #      PSym so the error is in the ast field
+      result = s.ast
+    else:
+      let info = getCallLineInfo(n)
+      markUsed(c, info, s)
+      onUse(info, s)
+      result = newSymNode(s, info)
 
 proc tryReadingGenericParam(c: PContext, n: PNode, i: PIdent, t: PType): PNode =
   case t.kind
@@ -2754,22 +2758,33 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   if nfSem in n.flags: return
   case n.kind
   of nkIdent, nkAccQuoted:
+    # analyse _usage_ of identifiers (`nkIdent` and `nkAccQuoted`), this is not
+    # meant to be used for identifiers appearing in a definition position.
+    # 
+    # usage vs definition by example:
+    # - given: `var foo = bar`
+    # - `foo` is being defined -- not applicable
+    # - `bar` is being used -- applicable
+    # 
+    # This example uses a var definition, but the name of a proc, param, etc...
+    # are all definitions (nkIdentDefs is a good hint), which are handled
+    # elsewhere.
+
+    # query
     let checks = if efNoEvaluateGeneric in flags:
         {checkUndeclared, checkPureEnumFields}
       elif efInCall in flags:
         {checkUndeclared, checkPureEnumFields, checkModule}
       else:
         {checkUndeclared, checkPureEnumFields, checkModule, checkAmbiguity}
-    var s = qualifiedLookUp(c, n, checks)
-    if c.matchedConcept == nil: semCaptureSym(s, c.p.owner)
+    var s = qualifiedLookUp2(c, n, checks) # query & production (errors)
+
+    # production (outside of errors above)
     case s.kind
     of skProc, skFunc, skMethod, skConverter, skIterator:
-      #performProcvarCheck(c, n, s)
       result = symChoice(c, n, s, scClosed)
       if result.kind == nkSym:
         markIndirect(c, result.sym)
-        # if isGenericRoutine(result.sym):
-        #   localError(c.config, n.info, errInstantiateXExplicitly, s.name.s)
       # "procs literals" are 'owned'
       if optOwnedRefs in c.config.globalOptions:
         result.typ = makeVarType(c, result.typ, tyOwned)
@@ -2778,8 +2793,15 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
         result = enumFieldSymChoice(c, n, s)
       else:
         result = semSym(c, n, s, flags)
+    of skError:
+      result = semSym(c, s.ast, s, flags)
     else:
       result = semSym(c, n, s, flags)
+
+    if c.matchedConcept == nil:
+      # XXX: concepts has a "pre-pass", so we need to guard the symbol capture
+      #      for lambda lifting probably because it would mess something up?
+      semCaptureSym(s, c.p.owner)
   of nkSym:
     # because of the changed symbol binding, this does not mean that we
     # don't have to check the symbol for semantics here again!
@@ -3048,3 +3070,59 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     localError(c.config, n.info, "invalid expression: " &
                renderTree(n, {renderNoComments}))
   if result != nil: incl(result.flags, nfSem)
+
+# proc semIdentUse(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode {.inline.} = 
+#   ## analyse _usage_ of identifiers (`nkIdent` and `nkAccQuoted`), this is not
+#   ## meant to be used for identifiers appearing in a definition position.
+#   ## 
+#   ## usage vs definition by example:
+#   ## - given: `var foo = bar`
+#   ## - `foo` is being defined -- not applicable
+#   ## - `bar` is being used -- applicable
+#   ## 
+#   ## This example uses a var definition, but the name of a proc, param, etc...
+#   ## are all definitions (nkIdentDefs is a good hint), which are handled
+#   ## elsewhere.
+#   result = n
+#   if c.matchedConcept == nil: semCaptureSym(s, c.p.owner)
+#   case s.kind
+#   of skProc, skFunc, skMethod, skConverter, skIterator:
+#     result = symChoice(c, n, s, scClosed)
+#     if result.kind == nkSymc:
+#       markIndirect(c, result.sym)
+
+
+# proc parsedSemExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
+#   ## take a parsed ast `n` and proceed with semantic analysis
+#   doAssert(
+#     n.kind in nodeKindsProducedByParse,
+#     $n.kind & " - not in expected output: " & `$`(c.config, n.info)
+#   )
+#   when defined(nimCompilerStacktraceHints):
+#     setFrameMsg c.config$n.info & " " & $n.kind
+  
+#   result = n
+#   if c.config.cmd == cmdIdeTools: suggestExpr(c, n)
+#   # XXX: purposefully not checking nfSem flag, this could be a mistake
+#   #if nfSem in n.flags: return
+#   case n.kind
+#   of nkIdent, nkAccQuoted:
+#     let checks = if efNoEvaluateGeneric in flags:
+#         {checkUndeclared, checkPureEnumFields}
+#       elif efInCall in flags:
+#         {checkUndeclared, checkPureEnumFields, checkModule}
+#       else:
+#         {checkUndeclared, checkPureEnumFields, checkModule, checkAmbiguity}
+#     var s = qualifiedLookUp(c, n, checks)
+    
+
+# proc parsedSemExprNoType(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
+#   ## guess: `n` is likely a statement, and so we expect it to have "no type"
+#   ## hence the 'NoType` suffix in the name.
+#   ##
+#   ## Semantic/type analysis is still done as we perform a check for `discard`.
+#   let isPush = c.config.hasHint(hintExtendedContext)
+#   if isPush: pushInfoContext(c.config, n.info)
+#   result = semExpr(c, n, {efWantStmt})
+#   discardCheck(c, result, {})
+#   if isPush: popInfoContext(c.config)

@@ -281,24 +281,24 @@ type
                       # language; for interfacing with Objective C
     sfDiscardable,    # returned value may be discarded implicitly
     sfOverriden,      # proc is overridden
-    sfCallsite        # A flag for template symbols to tell the
+    sfCallsite,       # A flag for template symbols to tell the
                       # compiler it should use line information from
                       # the calling side of the macro, not from the
                       # implementation.
-    sfGenSym          # symbol is 'gensym'ed; do not add to symbol table
-    sfNonReloadable   # symbol will be left as-is when hot code reloading is on -
+    sfGenSym,         # symbol is 'gensym'ed; do not add to symbol table
+    sfNonReloadable,  # symbol will be left as-is when hot code reloading is on -
                       # meaning that it won't be renamed and/or changed in any way
-    sfGeneratedOp     # proc is a generated '='; do not inject destructors in it
+    sfGeneratedOp,    # proc is a generated '='; do not inject destructors in it
                       # variable is generated closure environment; requires early
                       # destruction for --newruntime.
-    sfTemplateParam   # symbol is a template parameter
-    sfCursor          # variable/field is a cursor, see RFC 177 for details
-    sfInjectDestructors # whether the proc needs the 'injectdestructors' transformation
-    sfNeverRaises     # proc can never raise an exception, not even OverflowDefect
+    sfTemplateParam,  # symbol is a template parameter
+    sfCursor,         # variable/field is a cursor, see RFC 177 for details
+    sfInjectDestructors, # whether the proc needs the 'injectdestructors' transformation
+    sfNeverRaises,    # proc can never raise an exception, not even OverflowDefect
                       # or out-of-memory
-    sfUsedInFinallyOrExcept  # symbol is used inside an 'except' or 'finally'
-    sfSingleUsedTemp  # For temporaries that we know will only be used once
-    sfNoalias         # 'noalias' annotation, means C's 'restrict'
+    sfUsedInFinallyOrExcept, # symbol is used inside an 'except' or 'finally'
+    sfSingleUsedTemp, # For temporaries that we know will only be used once
+    sfNoalias,        # 'noalias' annotation, means C's 'restrict'
 
   TSymFlags* = set[TSymFlag]
 
@@ -877,6 +877,8 @@ type
                               # for modules, it's a placeholder for compiler
                               # generated code that will be appended to the
                               # module after the sem pass (see appendToModule)
+                              # for skError, starting to migrate this to be the
+                              # nkError node with the necessary error info
     options*: TOptions
     position*: int            # used for many different things:
                               # for enum fields its position;
@@ -1057,6 +1059,95 @@ const
   defaultSize = -1
   defaultAlignment = -1
   defaultOffset* = -1
+
+  nodeKindsProducedByParse* = {
+    nkError, nkEmpty,
+    nkIdent,
+
+    nkCharLit,
+    nkIntLit, nkInt8Lit, nkInt16Lit, nkInt32Lit, nkInt64Lit,
+    nkUIntLit, nkUInt8Lit, nkUInt16Lit, nkUInt32Lit, nkUInt64Lit,
+    nkFloatLit, nkFloat32Lit, nkFloat64Lit, nkFloat128Lit,
+    nkStrLit, nkRStrLit, nkTripleStrLit,
+    nkNilLit,
+
+    nkCall, nkCommand, nkCallStrLit, nkInfix, nkPrefix, nkPostfix,
+
+    nkExprEqExpr, nkExprColonExpr, nkIdentDefs, nkConstDef, nkVarTuple, nkPar,
+    nkBracket, nkCurly, nkTupleConstr, nkObjConstr, nkTableConstr,
+    nkBracketExpr, nkCurlyExpr,
+
+    nkPragmaExpr, nkPragma, nkPragmaBlock,
+
+    nkDotExpr, nkAccQuoted,
+
+    nkIfExpr, nkIfStmt, nkElifBranch, nkElifExpr, nkElse, nkElseExpr,
+    nkCaseStmt, nkOfBranch,
+    nkWhenStmt,
+    
+    nkForStmt, nkWhileStmt,
+    
+    nkBlockExpr, nkBlockStmt,
+    
+    nkDiscardStmt, nkContinueStmt, nkBreakStmt, nkReturnStmt, nkRaiseStmt,
+    nkYieldStmt,
+
+    nkTryStmt, nkExceptBranch, nkFinally,
+
+    nkDefer,
+
+    nkLambda, nkDo,
+
+    nkBind, nkBindStmt, nkMixinStmt,
+
+    nkCast,
+    nkStaticStmt,
+
+    nkAsgn,
+
+    nkGenericParams,
+    nkFormalParams,
+
+    nkStmtList, nkStmtListExpr,
+
+    nkImportStmt, nkImportExceptStmt, nkImportAs, nkFromStmt,
+
+    nkIncludeStmt,
+
+    nkExportStmt, nkExportExceptStmt,
+
+    nkConstSection, nkLetSection, nkVarSection,
+
+    nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef, nkIteratorDef,
+    nkMacroDef, nkTemplateDef,
+
+    nkTypeSection, nkTypeDef,
+
+    nkEnumTy, nkEnumFieldDef,
+
+    nkObjectTy, nkTupleTy, nkProcTy, nkIteratorTy,
+
+    nkRecList, nkRecCase, nkRecWhen,
+
+    nkTypeOfExpr,
+
+    # nkConstTy,
+    nkRefTy, nkVarTy, nkPtrTy, nkStaticTy, nkDistinctTy,
+    nkMutableTy,
+
+    nkTupleClassTy, nkTypeClassTy,
+
+    nkOfInherit,
+
+    nkArgList,
+
+    nkWith, nkWithout,
+
+    nkAsmStmt,
+    nkCommentStmt,
+
+    nkUsingStmt,
+  }
 
 proc getPIdent*(a: PNode): PIdent {.inline.} =
   ## Returns underlying `PIdent` for `{nkSym, nkIdent}`, or `nil`.

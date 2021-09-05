@@ -19,6 +19,8 @@ type
     CustomError
     WrongNumberOfArguments
     AmbiguousCall
+    ExpectedIdentifier
+    ExpectedIdentifierInExpr
 
 proc errorSubNode*(n: PNode): PNode =
   case n.kind
@@ -33,6 +35,7 @@ proc errorSubNode*(n: PNode): PNode =
       if result != nil: break
 
 proc newError*(wrongNode: PNode; k: ErrorKind; args: varargs[PNode]): PNode =
+  ## create an `nkError` node with error `k`, with additional error `args`
   assert wrongNode.kind != nkError
   let innerError = errorSubNode(wrongNode)
   if innerError != nil:
@@ -43,6 +46,7 @@ proc newError*(wrongNode: PNode; k: ErrorKind; args: varargs[PNode]): PNode =
   for a in args: result.add a
 
 proc newError*(wrongNode: PNode; msg: string): PNode =
+  ## create an `nkError` node with a `CustomError` message `msg`
   assert wrongNode.kind != nkError
   let innerError = errorSubNode(wrongNode)
   if innerError != nil:
@@ -65,6 +69,13 @@ proc errorToString*(config: ConfigRef; n: PNode): string =
     result = n[2].strVal
   of WrongNumberOfArguments:
     result = "wrong number of arguments"
+  of ExpectedIdentifier:
+    result = "identifier expected, but found '$1'" % wrongNode.renderTree
+  of ExpectedIdentifierInExpr:
+    result = "in expression '$1': identifier expected, but found '$2'" % [
+      n[2].renderTree,
+      wrongNode.renderTree
+    ]
   of AmbiguousCall:
     let a = n[2].sym
     let b = n[3].sym
