@@ -336,6 +336,8 @@ type
     # definitions - routine - end
 
     # definitions - type - begin
+    ankTypeOf,       ## `type T`, gets the type of a type expression `T`
+
     ankSecType,      ## `type ...` type section either as a single line or
                      ## with indented declarations underneath
     ankDefType,      ## `type Foo = int` the `Foo = int` part is a type def,
@@ -578,6 +580,8 @@ func legacyNodeToAstKind*(n: PNode): AstNodeKind =
     of nkIteratorDef:     ankDefIterator
     of nkMacroDef:        ankDefMacro
     of nkTemplateDef:     ankDefTemplate
+
+    of nkTypeOfExpr:      ankTypeOf
 
     of nkTypeSection:     ankSecType
     of nkTypeDef:         ankDefType
