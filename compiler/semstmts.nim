@@ -15,7 +15,7 @@ const
   errDiscardValueX = "value of type '$1' has to be used (or discarded)"
   errInvalidDiscard = "statement returns no value that can be discarded"
   errInvalidControlFlowX = "invalid control flow: $1"
-  errSelectorMustBeOfCertainTypes = "selector must be of an ordinal type, float or string"
+  errSelectorMustBeOfCertainTypes = "selector must be of an ordinal type, float, or string"
   errExprCannotBeRaised = "only a 'ref object' can be raised"
   errBreakOnlyInLoop = "'break' only allowed in loop construct"
   errExceptionAlreadyHandled = "exception already handled"
@@ -935,7 +935,7 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
       result = handleCaseStmtMacro(c, n, flags)
       if result != nil:
         return result
-    localError(c.config, n[0].info, errSelectorMustBeOfCertainTypes)
+    result[0] = newError(n[0], errSelectorMustBeOfCertainTypes)
     return
   for i in 1..<n.len:
     setCaseContextIdx(c, i)

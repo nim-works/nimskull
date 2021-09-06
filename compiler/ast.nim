@@ -221,7 +221,7 @@ type
     nkBreakState,         # special break statement for easier code generation
     nkFuncDef,            # a func
     nkTupleConstr         # a tuple constructor
-    nkError               # erroneous AST node
+    nkError               # erroneous AST node see `errorhandling`
     nkModuleRef           # for .rod file support: A (moduleId, itemId) pair
     nkReplayAction        # for .rod file support: A replay action
     nkNilRodNode          # for .rod file support: a 'nil' PNode
@@ -1439,6 +1439,7 @@ proc discardSons*(father: PNode) =
   father.sons = @[]
 
 proc withInfo*(n: PNode, info: TLineInfo): PNode =
+  ## set the line information (`info`) on the node `n`
   n.info = info
   return n
 
