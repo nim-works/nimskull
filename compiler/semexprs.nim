@@ -71,9 +71,10 @@ proc semExprCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   let
     isEmpty = result.kind == nkEmpty
+    isError = result.kind == nkError
     isTypeError = result.typ != nil and result.typ.kind == tyError
 
-  if isEmpty or isTypeError:
+  if isEmpty or (isTypeError and not isError):
     # bug #12741, redundant error messages are the lesser evil here:
     localError(c.config, n.info, errExprXHasNoType %
                 renderTree(result, {renderNoComments}))
@@ -1786,6 +1787,8 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
   else:
     a = semExprWithType(c, a, {efLValue})
   n[0] = a
+  
+  if a.kind != nkError:
   # a = b # both are vars, means: a[] = b[]
   # a = b # b no 'var T' means: a = addr(b)
   var le = a.typ
@@ -2827,6 +2830,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
         result = semSym(c, n, s, flags)
     of skError:
       result = semSym(c, s.ast, s, flags)
+      result.typ = s.typ
     else:
       result = semSym(c, n, s, flags)
 

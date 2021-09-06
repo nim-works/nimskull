@@ -1253,7 +1253,8 @@ proc track(tracked: PEffects, n: PNode) =
     for i in 1 ..< n.len: track(tracked, n[i])
     inc tracked.leftPartOfAsgn
   of nkError:
-    localError(tracked.config, n.info, errorToString(tracked.config, n))
+    for e in walkErrors(tracked.config, n):
+      localError(tracked.config, e.info, errorToString(tracked.config, e))
   else:
     for i in 0..<n.safeLen: track(tracked, n[i])
 

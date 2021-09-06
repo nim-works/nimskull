@@ -28,11 +28,6 @@ proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
   ## If none found, returns a `idents.IdentCache.identNotFound`
   let ic = c.cache
 
-  template success(i: PIdent, e: PNode = nil) =
-    (ident: i, errNode: e)
-  template notFound(e: PNode) =
-    (ident: ic.getNotFoundIdent(), errNode: e)
-
   result =
     case n.kind
     of nkIdent: (ident: n.ident, errNode: nil)
@@ -677,7 +672,11 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
           ## expression within which the error occurred
         errorExpectedIdentifier(c, ident, errNode, errExprCtx)
       elif checkModule in flags:
-        searchInScopes(c, ident, amb).skipAlias(n, c.config)
+        result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
+        # search in scopes can return an skError
+        if not result.isNil and result.kind == skError:
+          result.ast = n
+        result
       else:
         let
           scopeResults = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
@@ -717,7 +716,7 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         amb = false
       else:
         result = errorAmbiguousUseQualifier(c, ident, n, candidates)
-        
+
     c.isAmbiguous = amb
   of nkSym:
     result = n.sym
