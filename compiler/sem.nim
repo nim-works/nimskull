@@ -20,8 +20,6 @@ import
   isolation_check, typeallowed, modulegraphs, enumtostr, concepts, astmsgs,
   errorhandling
 
-import newast / newast
-
 when defined(nimfix):
   import nimfix/prettybase
 
@@ -567,11 +565,6 @@ proc isEmptyTree(n: PNode): bool =
   of nkEmpty, nkCommentStmt: result = true
   else: result = false
 
-proc checkParseOutput(c: PContext, n: PNode) =
-  doAssert n.kind in nodeKindsProducedByParse, $n.kind & " - not in expected output: " & `$`(c.config, n.info)
-  for i in n.items:
-    checkParseOutput(c, i)
-
 proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   ## given top level statements from a module, carries out semantic analysis:
   ## - per module, ensure system module is improted first unless in system
@@ -597,24 +590,11 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   else:
     inc c.topStmts
 
-  checkParseOutput(c, n)
-
   # xxx: can noforward be deprecated? might be repurposed for IC, not sure.
   if sfNoForward in c.module.flags:
     result = semAllTypeSections(c, n)
   else:
     result = n
-  
-  # discard c.graph.newgraph[c.module.position].legacyAppendPNode(n)
-  
-  # if `??`(c.config, n.info, "foo.nim"):
-    # foo.nim is a local test file, don't want to pollute git with it
-    # debugEcho "original:\n"
-    # debug(n)
-    # debugEcho "\npos: ", c.module.position
-    # debugEcho "\nnewast: ", $c.graph.newgraph[c.module.position]
-    # debugEcho "\nnodes: ", $c.graph.newgraph[c.module.position].ast.nodes
-    # debugEcho "\nextra: ", $c.graph.newgraph[c.module.position].ast.extra
 
   result = semStmt(c, result, {})
   result = hloStmt(c, result)

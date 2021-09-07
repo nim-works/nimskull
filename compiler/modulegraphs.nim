@@ -14,7 +14,6 @@
 import intsets, tables, hashes, md5
 import ast, astalgo, options, lineinfos,idents, btrees, ropes, msgs, pathutils
 import ic / [packed_ast, ic]
-import newast / newast
 
 type
   SigHash* = distinct MD5Digest
@@ -64,9 +63,6 @@ type
     ifaces*: seq[Iface]  ## indexed by int32 fileIdx
     packed*: PackedModuleGraph
     encoders*: seq[PackedEncoder]
-
-    newgraph*: seq[ModuleAst]
-      ## used for the in memory/faster module graph
 
     typeInstCache*: Table[ItemId, seq[LazyType]] # A symbol's ItemId.
     procInstCache*: Table[ItemId, seq[LazyInstantiation]] # A symbol's ItemId.
@@ -424,13 +420,6 @@ proc registerModule*(g: ModuleGraph; m: PSym) =
   g.ifaces[m.position] = Iface(module: m, converters: @[], patterns: @[],
                                uniqueName: rope(uniqueModuleName(g.config, FileIndex(m.position))))
   
-  # start - hack in the new ast
-  if m.position >= g.newgraph.len:
-    # we have to bump the length, modules get added elsewhere??
-    setLen(g.newgraph, m.position + 1)
-  g.newgraph.add legacyInitModuleAst(m.position)
-  # end - hack in the new ast
-  
   initStrTables(g, m)
 
 proc registerModuleById*(g: ModuleGraph; m: FileIndex) =
@@ -600,8 +589,6 @@ proc moduleFromRodFile*(g: ModuleGraph; fileIdx: FileIndex;
   ## Returns 'nil' if the module needs to be recompiled.
   if g.config.symbolFiles in {readOnlySf, v2Sf, stressTest}:
     result = ic.moduleFromRodFile(g.packed, g.config, g.cache, fileIdx, cachedModules)
-    if result != nil:
-      debugEcho "module wasn't nil: "
 
 proc configComplete*(g: ModuleGraph) =
   rememberStartupConfig(g.startupPackedConfig, g.config)

@@ -655,12 +655,29 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
   ## reports errors based on the `flags` configuration (allow ambiguity, etc).
   ## 
   ## this new version returns an error symbol rather than issuing errors
-  ## directly.
+  ## directly. The symbol's `ast` field will contain an nkError, and the `typ`
+  ## field on the symbol will be the errorType
   ## 
   ## XXX: currently skError is just a const for skUnknown which has many uses,
   ##      once things are cleaner, create a proper skError and use that instead
   ##      of a tuple return.
   const allExceptModule = {low(TSymKind)..high(TSymKind)} - {skModule, skPackage}
+  
+  proc symFromCandidates(
+    c: PContext, candidates: seq[PSym], ident: PIdent, n: PNode,
+    flags: set[TLookupFlag], amb: var bool
+  ): PSym =
+    ## helper to find a sym in `candidates` from a scope or enums search
+    case candidates.len
+    of 0: nil
+    of 1: candidates[0]
+    else:
+      amb = true
+      if checkAmbiguity in flags:
+        errorAmbiguousUseQualifier(c, ident, n, candidates)
+      else:
+        candidates[0]
+  
   case n.kind
   of nkIdent, nkAccQuoted:
     var
@@ -678,22 +695,15 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
           result.ast = n
         result
       else:
-        let
-          scopeResults = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
-          candidates =
-            if scopeResults.len > 0:
-              scopeResults
-            else:
-              allPureEnumFields(c, ident)
-        case candidates.len
-        of 0: nil
-        of 1: candidates[0]
-        else:
-          amb = true
-          if checkAmbiguity in flags:
-            errorAmbiguousUseQualifier(c, ident, n, candidates)
-          else:
-            candidates[0]
+        let candidates = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
+        symFromCandidates(c, candidates, ident, n, flags, amb)
+
+    if result.isNil:
+      # XXX: this might be a bug in that we only do this search if there are no
+      #      results in scopes, but there could well be ambiguity across the
+      #      two searches
+      let candidates = allPureEnumFields(c, ident)
+      result = symFromCandidates(c, candidates, ident, n, flags, amb)
 
     if result.isNil and checkUndeclared in flags:
       var extra = ""
@@ -716,6 +726,10 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         amb = false
       else:
         result = errorAmbiguousUseQualifier(c, ident, n, candidates)
+
+    # XXX: legacy calls above can return an `skError` without the `typ` set
+    if result.kind == skError and result.typ.isNil:
+      result.typ = c.errorType
 
     c.isAmbiguous = amb
   of nkSym:
@@ -745,7 +759,6 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       elif checkUndeclared in flags and
           n[1].kind notin {nkOpenSymChoice, nkClosedSymChoice}:
         result = errorSym2(c, n[1], newError(n[1], ExpectedIdentifier))
-
   else:
     result = nil
   when false:

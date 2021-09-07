@@ -17,8 +17,6 @@ import
 
 import ic / ic
 
-import newast / newast # new ast, migrate all the things
-
 type
   TOptionEntry* = object      # entries to put on a stack for pragma parsing
     options*: TOptions
@@ -94,7 +92,6 @@ type
       # enforceVoidContext != nil
     voidType*: PType # for typeof(stmt)
     module*: PSym              # the module sym belonging to the context
-    newAstModule*: ModuleAst   # module ast based on `newast.ModuleAst`
     currentScope*: PScope      # current scope
     moduleScope*: PScope       # scope for modules
     imports*: seq[ImportedModule] # scope for all imported symbols

@@ -1319,6 +1319,8 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
       #      PSym so the error is in the ast field
       result = s.ast
     else:
+      # if `??`(c.config, s.info, "tundeclared_routine.nim"):
+      #   debug s
       let info = getCallLineInfo(n)
       markUsed(c, info, s)
       onUse(info, s)
@@ -1789,42 +1791,42 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
   n[0] = a
   
   if a.kind != nkError:
-  # a = b # both are vars, means: a[] = b[]
-  # a = b # b no 'var T' means: a = addr(b)
-  var le = a.typ
-  if le == nil:
-    localError(c.config, a.info, "expression has no type")
-  elif (skipTypes(le, {tyGenericInst, tyAlias, tySink}).kind notin {tyVar} and
-        isAssignable(c, a) in {arNone, arLentValue}) or (
-      skipTypes(le, abstractVar).kind in {tyOpenArray, tyVarargs} and views notin c.features):
-    # Direct assignment to a discriminant is allowed!
-    localError(c.config, a.info, errXCannotBeAssignedTo %
-               renderTree(a, {renderNoComments}))
-  else:
-    let lhs = n[0]
-    let rhs = semExprWithType(c, n[1], {})
-    if lhs.kind == nkSym and lhs.sym.kind == skResult:
-      n.typ = c.enforceVoidContext
-      if c.p.owner.kind != skMacro and resultTypeIsInferrable(lhs.sym.typ):
-        var rhsTyp = rhs.typ
-        if rhsTyp.kind in tyUserTypeClasses and rhsTyp.isResolvedUserTypeClass:
-          rhsTyp = rhsTyp.lastSon
-        if cmpTypes(c, lhs.typ, rhsTyp) in {isGeneric, isEqual}:
-          internalAssert c.config, c.p.resultSym != nil
-          # Make sure the type is valid for the result variable
-          typeAllowedCheck(c, n.info, rhsTyp, skResult)
-          lhs.typ = rhsTyp
-          c.p.resultSym.typ = rhsTyp
-          c.p.owner.typ[0] = rhsTyp
-        else:
-          typeMismatch(c.config, n.info, lhs.typ, rhsTyp, rhs)
-    borrowCheck(c, n, lhs, rhs)
+    # a = b # both are vars, means: a[] = b[]
+    # a = b # b no 'var T' means: a = addr(b)
+    var le = a.typ
+    if le == nil:
+      localError(c.config, a.info, "expression has no type")
+    elif (skipTypes(le, {tyGenericInst, tyAlias, tySink}).kind notin {tyVar} and
+          isAssignable(c, a) in {arNone, arLentValue}) or (
+        skipTypes(le, abstractVar).kind in {tyOpenArray, tyVarargs} and views notin c.features):
+      # Direct assignment to a discriminant is allowed!
+      localError(c.config, a.info, errXCannotBeAssignedTo %
+                renderTree(a, {renderNoComments}))
+    else:
+      let lhs = n[0]
+      let rhs = semExprWithType(c, n[1], {})
+      if lhs.kind == nkSym and lhs.sym.kind == skResult:
+        n.typ = c.enforceVoidContext
+        if c.p.owner.kind != skMacro and resultTypeIsInferrable(lhs.sym.typ):
+          var rhsTyp = rhs.typ
+          if rhsTyp.kind in tyUserTypeClasses and rhsTyp.isResolvedUserTypeClass:
+            rhsTyp = rhsTyp.lastSon
+          if cmpTypes(c, lhs.typ, rhsTyp) in {isGeneric, isEqual}:
+            internalAssert c.config, c.p.resultSym != nil
+            # Make sure the type is valid for the result variable
+            typeAllowedCheck(c, n.info, rhsTyp, skResult)
+            lhs.typ = rhsTyp
+            c.p.resultSym.typ = rhsTyp
+            c.p.owner.typ[0] = rhsTyp
+          else:
+            typeMismatch(c.config, n.info, lhs.typ, rhsTyp, rhs)
+      borrowCheck(c, n, lhs, rhs)
 
-    n[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))
-    when false: liftTypeBoundOps(c, lhs.typ, lhs.info)
+      n[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))
+      when false: liftTypeBoundOps(c, lhs.typ, lhs.info)
 
-    fixAbstractType(c, n)
-    asgnToResultVar(c, n, n[0], n[1])
+      fixAbstractType(c, n)
+      asgnToResultVar(c, n, n[0], n[1])
   result = n
 
 proc semReturn(c: PContext, n: PNode): PNode =
@@ -2830,6 +2832,8 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
         result = semSym(c, n, s, flags)
     of skError:
       result = semSym(c, s.ast, s, flags)
+      # XXX: propogate the error type as it might not have been set, this
+      #      should not be required.
       result.typ = s.typ
     else:
       result = semSym(c, n, s, flags)
@@ -3106,59 +3110,3 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     localError(c.config, n.info, "invalid expression: " &
                renderTree(n, {renderNoComments}))
   if result != nil: incl(result.flags, nfSem)
-
-# proc semIdentUse(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode {.inline.} = 
-#   ## analyse _usage_ of identifiers (`nkIdent` and `nkAccQuoted`), this is not
-#   ## meant to be used for identifiers appearing in a definition position.
-#   ## 
-#   ## usage vs definition by example:
-#   ## - given: `var foo = bar`
-#   ## - `foo` is being defined -- not applicable
-#   ## - `bar` is being used -- applicable
-#   ## 
-#   ## This example uses a var definition, but the name of a proc, param, etc...
-#   ## are all definitions (nkIdentDefs is a good hint), which are handled
-#   ## elsewhere.
-#   result = n
-#   if c.matchedConcept == nil: semCaptureSym(s, c.p.owner)
-#   case s.kind
-#   of skProc, skFunc, skMethod, skConverter, skIterator:
-#     result = symChoice(c, n, s, scClosed)
-#     if result.kind == nkSymc:
-#       markIndirect(c, result.sym)
-
-
-# proc parsedSemExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
-#   ## take a parsed ast `n` and proceed with semantic analysis
-#   doAssert(
-#     n.kind in nodeKindsProducedByParse,
-#     $n.kind & " - not in expected output: " & `$`(c.config, n.info)
-#   )
-#   when defined(nimCompilerStacktraceHints):
-#     setFrameMsg c.config$n.info & " " & $n.kind
-  
-#   result = n
-#   if c.config.cmd == cmdIdeTools: suggestExpr(c, n)
-#   # XXX: purposefully not checking nfSem flag, this could be a mistake
-#   #if nfSem in n.flags: return
-#   case n.kind
-#   of nkIdent, nkAccQuoted:
-#     let checks = if efNoEvaluateGeneric in flags:
-#         {checkUndeclared, checkPureEnumFields}
-#       elif efInCall in flags:
-#         {checkUndeclared, checkPureEnumFields, checkModule}
-#       else:
-#         {checkUndeclared, checkPureEnumFields, checkModule, checkAmbiguity}
-#     var s = qualifiedLookUp(c, n, checks)
-    
-
-# proc parsedSemExprNoType(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
-#   ## guess: `n` is likely a statement, and so we expect it to have "no type"
-#   ## hence the 'NoType` suffix in the name.
-#   ##
-#   ## Semantic/type analysis is still done as we perform a check for `discard`.
-#   let isPush = c.config.hasHint(hintExtendedContext)
-#   if isPush: pushInfoContext(c.config, n.info)
-#   result = semExpr(c, n, {efWantStmt})
-#   discardCheck(c, result, {})
-#   if isPush: popInfoContext(c.config)

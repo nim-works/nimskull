@@ -86,7 +86,7 @@ proc newError*(wrongNode: PNode; msg: string): PNode =
 proc errorToString*(
     config: ConfigRef; n: PNode, rf = {renderWithoutErrorPrefix}
   ): string =
-  assert n.kind == nkError
+  assert n.kind == nkError, "not an error '$1'" % n.renderTree(rf)
   assert n.len > 1
   let wrongNode = n[wrongNodePos]
 
@@ -120,10 +120,17 @@ proc errorToString*(
       args]
 
 iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
-  ## traverses previous errors and yields errors from outermost to innermost.
+  ## traverses previous errors and yields errors from  innermost to outermost.
   ## this is a linear traversal and two, or more, sibling errors will result in
-  ## only the first error (per `PNode.sons`) will be yielded.
-  var errNode = n # last one is the real wrongNode
-  while errNode != noPrevError:
-    yield errNode
-    errNode = errNode[prevErrorPos]
+  ## only the first error (per `PNode.sons`) being yielded.
+  
+  # first collect all the nodes by depth
+  var errNodes = @[n]
+  while errNodes[^1][prevErrorPos].kind != nkEmpty:
+    # check nkEmpty and not noPrevNode because tree copies break references
+    errNodes.add errNodes[^1][prevErrorPos]
+  
+  # report from last to first (deepest in tree to highest)
+  for i in 1..errNodes.len:
+    # reverse index so we go from the innermost to outermost
+    yield errNodes[^i]
