@@ -527,9 +527,12 @@ template localErrorNode*(c: PContext, n: PNode, msg: TMsgKind, arg: string): PNo
   errorNode(c, n2)
 
 template localErrorNode*(c: PContext, n: PNode, arg: string): PNode =
-  let n2 = n
-  liMessage(c.config, n2.info, errGenerated, arg, doNothing, instLoc())
-  errorNode(c, n2)
+  let e = newError(n, arg)
+  e.typ = c.errorType
+  e
+  # let n2 = n
+  # liMessage(c.config, n2.info, errGenerated, arg, doNothing, instLoc())
+  # errorNode(c, n2)
 
 proc fillTypeS*(dest: PType, kind: TTypeKind, c: PContext) =
   dest.kind = kind

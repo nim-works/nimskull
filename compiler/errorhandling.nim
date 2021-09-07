@@ -22,18 +22,33 @@
 ## 
 ## The rest of the compiler should watch for nkErrors and mostly no-op or wrap
 ## further errors as needed.
+## 
+## # Future Considerations/Improvements:
+## * accomodate for compiler related information like site of node creation to
+##   make it easier to debug the compiler itself, so we know where a node was
+##   created
 
 import ast, renderer, options, strutils, types
 
 type
-  ErrorKind* = enum ## expand as you need.
-    RawTypeMismatchError
-    ExpressionCannotBeCalled
+  ErrorKind* {.pure.} = enum ## expand as you need.
     CustomError
+    RawTypeMismatchError
+
+    # Call
+    ExpressionCannotBeCalled
     WrongNumberOfArguments
     AmbiguousCall
+
+    # Identifier Lookup
     ExpectedIdentifier
     ExpectedIdentifierInExpr
+
+    # Object and Object Construction
+    FieldNotAccessible 
+      ## object field is not accessible
+    FieldAssignmentInvalid
+      ## object field assignment errors
 
 proc errorSubNode*(n: PNode): PNode =
   case n.kind
@@ -91,21 +106,14 @@ proc errorToString*(
   let wrongNode = n[wrongNodePos]
 
   case ErrorKind(n[errorKindPos].intVal)
+  of CustomError:
+    result = n[firstArgPos].strVal
   of RawTypeMismatchError:
     result = "type mismatch"
   of ExpressionCannotBeCalled:
     result = "expression '$1' cannot be called" % wrongNode[0].renderTree(rf)
-  of CustomError:
-    result = n[firstArgPos].strVal
   of WrongNumberOfArguments:
     result = "wrong number of arguments"
-  of ExpectedIdentifier:
-    result = "identifier expected, but found '$1'" % wrongNode.renderTree(rf)
-  of ExpectedIdentifierInExpr:
-    result = "in expression '$1': identifier expected, but found '$2'" % [
-      n[firstArgPos].renderTree(rf),
-      wrongNode.renderTree(rf)
-    ]
   of AmbiguousCall:
     let a = n[firstArgPos].sym
     let b = n[firstArgPos + 1].sym
@@ -118,6 +126,20 @@ proc errorToString*(
       getProcHeader(config, a),
       getProcHeader(config, b),
       args]
+  of ExpectedIdentifier:
+    result = "identifier expected, but found '$1'" % wrongNode.renderTree(rf)
+  of ExpectedIdentifierInExpr:
+    result = "in expression '$1': identifier expected, but found '$2'" % [
+      n[firstArgPos].renderTree(rf),
+      wrongNode.renderTree(rf)
+    ]
+  of FieldNotAccessible:
+    result = "the field '$1' is not accessible." % n[firstArgPos].sym.name.s
+  of FieldAssignmentInvalid:
+    result = "Invalid field assignment '$1' in expression '$2'" % [
+      wrongNode.renderTree(rf),
+      n[firstArgPos].renderTree(rf),
+    ]
 
 iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   ## traverses previous errors and yields errors from  innermost to outermost.

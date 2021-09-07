@@ -77,7 +77,7 @@ proc semExprCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
   if isEmpty or (isTypeError and not isError):
     # bug #12741, redundant error messages are the lesser evil here:
     localError(c.config, n.info, errExprXHasNoType %
-                renderTree(result, {renderNoComments}))
+                renderTree(n, {renderNoComments}) & " semExprCheck")
 
   if isEmpty:
     # do not produce another redundant error message:
@@ -89,7 +89,7 @@ proc semExprWithType(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     result.typ = c.voidType
   elif result.typ == nil or result.typ == c.enforceVoidContext:
     localError(c.config, n.info, errExprXHasNoType %
-                renderTree(result, {renderNoComments}))
+                renderTree(result, {renderNoComments}) & " semExprWithType")
     result.typ = errorType(c)
   elif result.typ.kind == tyError:
     # associates the type error to the current owner

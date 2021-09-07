@@ -8,6 +8,10 @@
 #
 
 ## This module implements Nim's object construction rules.
+##
+## # Future Considerations/Improvements:
+## * The return nil pattern leads to a lot of boilerplate, most of this is for
+##   `PNode`s which can be converted to use nkEmpty and/or optional.
 
 # included from sem.nim
 
@@ -28,6 +32,7 @@ type
     initPartial  # Some of the fields have been initialized
     initNone     # None of the fields have been initialized
     initConflict # Fields from different branches have been initialized
+    initError    # Some or all fields had errors during initialization
 
 proc mergeInitStatus(existing: var InitStatus, newStatus: InitStatus) =
   case newStatus
@@ -46,38 +51,86 @@ proc mergeInitStatus(existing: var InitStatus, newStatus: InitStatus) =
       existing = initFull
     elif existing == initNone:
       existing = initPartial
+  of initError:
+    existing = initError
   of initUnknown:
     discard
 
-proc invalidObjConstr(c: PContext, n: PNode) =
+proc invalidObjConstr(c: PContext, n: PNode): PNode =
   if n.kind == nkInfix and n[0].kind == nkIdent and n[0].ident.s[0] == ':':
-    localError(c.config, n.info, "incorrect object construction syntax; use a space after the colon")
+    localErrorNode(c, n, "incorrect object construction syntax; use a space after the colon")
   else:
-    localError(c.config, n.info, "incorrect object construction syntax")
+    localErrorNode(c, n, "incorrect object construction syntax")
 
 proc locateFieldInInitExpr(c: PContext, field: PSym, initExpr: PNode): PNode =
   # Returns the assignment nkExprColonExpr node or nil
   let fieldId = field.name.id
   for i in 1..<initExpr.len:
-    let assignment = initExpr[i]
-    if assignment.kind != nkExprColonExpr:
-      invalidObjConstr(c, assignment)
-      continue
+    # let assignment = initExpr[i]
+    # if assignment.kind != nkExprColonExpr:
+    #   invalidObjConstr(c, assignment)
+    #   continue
 
-    if fieldId == considerQuotedIdent(c, assignment[0]).id:
+    # if fieldId == considerQuotedIdent(c, assignment[0]).id:
+    #   return assignment
+
+    let
+      assignment = initExpr[i]
+      valid = assignment.kind == nkExprColonExpr
+      match = valid and fieldId == considerQuotedIdent(c, assignment[0]).id
+
+    if match: # found it!
       return assignment
+    elif not valid:
+      return invalidObjConstr(c, assignment)
 
 proc semConstrField(c: PContext, flags: TExprFlags,
                     field: PSym, initExpr: PNode): PNode =
+  # let assignment = locateFieldInInitExpr(c, field, initExpr)
+  # if assignment != nil:
+  #   if nfSem in assignment.flags: return assignment[1]
+  #   if not fieldVisible(c, field):
+  #     localError(c.config, initExpr.info,
+  #       "the field '$1' is not accessible." % [field.name.s])
+  #     return
+  #   if assignment.kind == nkError:
+  #     localError(c.config, assignment.info,
+  #                errorToString(c.config, assignment))
+  #     # debug assignment
+  #     return
+
+  #   var initValue = semExprFlagDispatched(c, assignment[1], flags)
+  #   if initValue != nil:
+  #     initValue = 
+  #       if initValue.kind != nkError:
+  #         fitNode(c, field.typ, initValue, assignment.info)
+  #       else:
+  #         newError(assignment, "")
+  #   assignment[0] = newSymNode(field)
+  #   assignment[1] = initValue
+  #   assignment.flags.incl nfSem
+  #   if `??`(c.config, assignment.info, "t17437.nim"):
+  #     debug assignment
+  #   return initValue
+
   let assignment = locateFieldInInitExpr(c, field, initExpr)
   if assignment != nil:
-    if nfSem in assignment.flags: return assignment[1]
+    result = assignment
+    if nfSem in result.flags:
+      return
     if not fieldVisible(c, field):
-      localError(c.config, initExpr.info,
-        "the field '$1' is not accessible." % [field.name.s])
+      # localError(c.config, initExpr.info,
+      #   "the field '$1' is not accessible." % [field.name.s])
+      result = newError(initExpr, FieldNotAccessible, newSymNode(field))
+      result.typ = errorType(c)
+      return
+    if result.kind == nkError:
+      result = localErrorNode(c, assignment,
+                 errorToString(c.config, assignment))
+      result.typ = errorType(c)
       return
 
-    var initValue = semExprFlagDispatched(c, assignment[1], flags)
+    var initValue = semExprFlagDispatched(c, result[1], flags)
     if initValue != nil:
       initValue = fitNodeConsiderViewType(c, field.typ, initValue, assignment.info)
     assignment[0] = newSymNode(field)
@@ -225,9 +278,14 @@ proc semConstructFields(c: PContext, n: PNode,
 
       let branchNode = n[selectedBranch]
       let flags = {efPreferStatic, efPreferNilResult}
-      var discriminatorVal = semConstrField(c, flags,
-                                            discriminator.sym,
-                                            constrCtx.initExpr)
+      let discrimAssign = semConstrField(c, flags,
+                                         discriminator.sym,
+                                         constrCtx.initExpr)
+      if discrimAssign != nil and discrimAssign.kind == nkError:
+        mergeInitStatus(result, initError)
+        return
+      var discriminatorVal = if discrimAssign.isNil: nil else: discrimAssign[1]
+
       if discriminatorVal != nil:
         discriminatorVal = discriminatorVal.skipHidden
         if discriminatorVal.kind notin nkLiterals and (
@@ -296,9 +354,14 @@ proc semConstructFields(c: PContext, n: PNode,
 
     else:
       result = initNone
-      let discriminatorVal = semConstrField(c, flags + {efPreferStatic},
-                                            discriminator.sym,
-                                            constrCtx.initExpr)
+      let discrimAssign = semConstrField(c, flags + {efPreferStatic},
+                                         discriminator.sym,
+                                         constrCtx.initExpr)
+      if discrimAssign != nil and discrimAssign.kind == nkError:
+        mergeInitStatus(result, initError)
+        return
+
+      let discriminatorVal = if discrimAssign.isNil: nil else: discrimAssign[1]
       if discriminatorVal == nil:
         # None of the branches were explicitly selected by the user and no
         # value was given to the discrimator. We can assume that it will be
@@ -321,8 +384,20 @@ proc semConstructFields(c: PContext, n: PNode,
 
   of nkSym:
     let field = n.sym
-    let e = semConstrField(c, flags, field, constrCtx.initExpr)
-    result = if e != nil: initFull else: initNone
+    let assignment = semConstrField(c, flags, field, constrCtx.initExpr)
+    result =
+      if assignment != nil:
+        if assignment.kind == nkError:
+          initError
+        else:
+          let initVal = assignment[1]
+          if initVal != nil:
+            # assignment should cover all error cases already
+            initFull
+          else:
+            initNone
+      else:
+        initNone
 
   else:
     internalAssert c.config, false
@@ -418,7 +493,8 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     let field = result[i]
     if nfSem notin field.flags:
       if field.kind != nkExprColonExpr:
-        invalidObjConstr(c, field)
+        let e = invalidObjConstr(c, field)
+        localError(c.config, field.info, errorToString(c.config, e))
         hasError = true
         continue
       let id = considerQuotedIdent(c, field[0])
