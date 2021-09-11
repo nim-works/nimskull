@@ -58,85 +58,50 @@ proc mergeInitStatus(existing: var InitStatus, newStatus: InitStatus) =
 
 proc invalidObjConstr(c: PContext, n: PNode): PNode =
   if n.kind == nkInfix and n[0].kind == nkIdent and n[0].ident.s[0] == ':':
-    localErrorNode(c, n, "incorrect object construction syntax; use a space after the colon")
+    newError(c, n, FieldAssignmentInvalid,
+             newStrNode("use a space after the colon", n.info))
   else:
-    localErrorNode(c, n, "incorrect object construction syntax")
+    newError(c, n, FieldAssignmentInvalid)
 
 proc locateFieldInInitExpr(c: PContext, field: PSym, initExpr: PNode): PNode =
-  # Returns the assignment nkExprColonExpr node or nil
+  ## Returns the assignment nkExprColonExpr node, nkError if malformed, or nil
   let fieldId = field.name.id
   for i in 1..<initExpr.len:
-    # let assignment = initExpr[i]
-    # if assignment.kind != nkExprColonExpr:
-    #   invalidObjConstr(c, assignment)
-    #   continue
-
-    # if fieldId == considerQuotedIdent(c, assignment[0]).id:
-    #   return assignment
-
     let
       assignment = initExpr[i]
       valid = assignment.kind == nkExprColonExpr
-      match = valid and fieldId == considerQuotedIdent(c, assignment[0]).id
+      match = valid and fieldId == considerQuotedIdent(c, assignment[0], assignment).id
 
     if match: # found it!
       return assignment
     elif not valid:
       return invalidObjConstr(c, assignment)
+    else:
+      discard # keep looking
 
 proc semConstrField(c: PContext, flags: TExprFlags,
                     field: PSym, initExpr: PNode): PNode =
-  # let assignment = locateFieldInInitExpr(c, field, initExpr)
-  # if assignment != nil:
-  #   if nfSem in assignment.flags: return assignment[1]
-  #   if not fieldVisible(c, field):
-  #     localError(c.config, initExpr.info,
-  #       "the field '$1' is not accessible." % [field.name.s])
-  #     return
-  #   if assignment.kind == nkError:
-  #     localError(c.config, assignment.info,
-  #                errorToString(c.config, assignment))
-  #     # debug assignment
-  #     return
-
-  #   var initValue = semExprFlagDispatched(c, assignment[1], flags)
-  #   if initValue != nil:
-  #     initValue = 
-  #       if initValue.kind != nkError:
-  #         fitNode(c, field.typ, initValue, assignment.info)
-  #       else:
-  #         newError(assignment, "")
-  #   assignment[0] = newSymNode(field)
-  #   assignment[1] = initValue
-  #   assignment.flags.incl nfSem
-  #   if `??`(c.config, assignment.info, "t17437.nim"):
-  #     debug assignment
-  #   return initValue
-
   let assignment = locateFieldInInitExpr(c, field, initExpr)
   if assignment != nil:
     result = assignment
     if nfSem in result.flags:
       return
     if not fieldVisible(c, field):
-      # localError(c.config, initExpr.info,
-      #   "the field '$1' is not accessible." % [field.name.s])
       result = newError(initExpr, FieldNotAccessible, newSymNode(field))
       result.typ = errorType(c)
       return
     if result.kind == nkError:
-      result = localErrorNode(c, assignment,
-                 errorToString(c.config, assignment))
-      result.typ = errorType(c)
-      return
+      return # result is the assignment error
 
     var initValue = semExprFlagDispatched(c, result[1], flags)
     if initValue != nil:
-      initValue = fitNodeConsiderViewType(c, field.typ, initValue, assignment.info)
-    assignment[0] = newSymNode(field)
-    assignment[1] = initValue
-    assignment.flags.incl nfSem
-    return initValue
+      initValue = fitNodeConsiderViewType(c, field.typ, initValue, result.info)
+    result[0] = newSymNode(field)
+    result[1] = initValue
+    result.flags.incl nfSem
+    if initValue != nil and initValue.kind == nkError:
+      result = newError(result, FieldAssignmentInvalid)
+      result.typ = errorType(c)
 
 proc caseBranchMatchesExpr(branch, matched: PNode): bool =
   for i in 0..<branch.len-1:
@@ -194,9 +159,17 @@ template quoteStr(s: string): string = "'" & s & "'"
 proc fieldsPresentInInitExpr(c: PContext, fieldsRecList, initExpr: PNode): string =
   result = ""
   for field in directFieldsInRecList(fieldsRecList):
-    if locateFieldInInitExpr(c, field.sym, initExpr) != nil:
-      if result.len != 0: result.add ", "
-      result.add field.sym.name.s.quoteStr
+    let
+      assignment = locateFieldInInitExpr(c, field.sym, initExpr)
+      found = assignment != nil
+    if found:
+      if result.len != 0: result.add ", " # separate by comma
+      case assignment.kind:
+      of nkError:
+        discard # XXX: figure out whether errors should be represented and how
+      else:
+        # more than just nkExprColonExpr is handled by this
+        result.add field.sym.name.s.quoteStr
 
 proc collectMissingFields(c: PContext, fieldsRecList: PNode,
                           constrCtx: var ObjConstrContext) =
@@ -205,9 +178,8 @@ proc collectMissingFields(c: PContext, fieldsRecList: PNode,
        sfRequiresInit in r.sym.flags or
        r.sym.typ.requiresInit:
       let assignment = locateFieldInInitExpr(c, r.sym, constrCtx.initExpr)
-      if assignment == nil:
+      if assignment == nil or assignment.kind == nkError:
         constrCtx.missingFields.add r.sym
-
 
 proc semConstructFields(c: PContext, n: PNode,
                         constrCtx: var ObjConstrContext,
@@ -422,10 +394,15 @@ proc semConstructTypeAux(c: PContext,
       return
     constrCtx.needsFullInit = constrCtx.needsFullInit or
                               tfNeedsFullInit in t.flags
+  if result == initError:
+    constrCtx.initExpr = newError(c, constrCtx.initExpr, ObjectConstructorIncorrect)
 
 proc initConstrContext(t: PType, initExpr: PNode): ObjConstrContext =
-  ObjConstrContext(typ: t, initExpr: initExpr,
-                   needsFullInit: tfNeedsFullInit in t.flags)
+  ObjConstrContext(
+    typ: t,
+    initExpr: initExpr,
+    needsFullInit: tfNeedsFullInit in t.flags
+  )
 
 proc computeRequiresInit(c: PContext, t: PType): bool =
   assert t.kind == tyObject
@@ -475,16 +452,23 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # field (if this is a case object, initialized fields in two different
   # branches will be reported as an error):
   var constrCtx = initConstrContext(t, result)
-  let initResult = semConstructTypeAux(c, constrCtx, flags)
-  var hasError = false # needed to split error detect/report for better msgs
+  let
+    initResult = semConstructTypeAux(c, constrCtx, flags)
+    missedFields = constrCtx.missingFields.len > 0
+    constructionError = initResult == initError
+  var hasError = constructionError or missedFields
+    ## needed to split error detect/report for better msgs
 
   # It's possible that the object was not fully initialized while
   # specifying a .requiresInit. pragma:
-  if constrCtx.missingFields.len > 0:
-    hasError = true
+  if missedFields:
     localError(c.config, result.info,
       "The $1 type requires the following fields to be initialized: $2." %
       [t.sym.name.s, listSymbolNames(constrCtx.missingFields)])
+
+  if constructionError:
+    result = constrCtx.initExpr
+    return
 
   # Since we were traversing the object fields, it's possible that
   # not all of the fields specified in the constructor was visited.
@@ -492,11 +476,20 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   for i in 1..<result.len:
     let field = result[i]
     if nfSem notin field.flags:
-      if field.kind != nkExprColonExpr:
+      # handle various error cases first
+      case field.kind
+      of nkError:
+        # skip nkError so we report it later
+        continue
+      of nkExprColonExpr:
+        # process later in the loop
+        discard
+      else:
         let e = invalidObjConstr(c, field)
         localError(c.config, field.info, errorToString(c.config, e))
         hasError = true
         continue
+      
       let id = considerQuotedIdent(c, field[0])
       # This node was not processed. There are two possible reasons:
       # 1) It was shadowed by a field with the same name on the left
@@ -516,4 +509,6 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     incl result.flags, nfAllFieldsSet
 
   # wrap in an error see #17437
-  if hasError: result = errorNode(c, result)
+  if hasError:
+    result = newError(result, ObjectConstructorIncorrect)
+    result.typ = errorType(c)

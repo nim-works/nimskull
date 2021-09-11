@@ -27,6 +27,8 @@
 ## * accomodate for compiler related information like site of node creation to
 ##   make it easier to debug the compiler itself, so we know where a node was
 ##   created
+## * rework internals to store actual error information in a lookup data
+##   structure on the side instead of directly in the node
 
 import ast, renderer, options, strutils, types
 
@@ -48,7 +50,13 @@ type
     FieldNotAccessible 
       ## object field is not accessible
     FieldAssignmentInvalid
-      ## object field assignment errors
+      ## object field assignment invalid syntax
+    ObjectConstructorIncorrect
+      ## one or more issues encountered with object constructor
+    
+    # General Type Checks
+    ExpressionHasNoType 
+      ## an expression has not type or is ambiguous
 
 proc errorSubNode*(n: PNode): PNode =
   case n.kind
@@ -98,6 +106,13 @@ proc newError*(wrongNode: PNode; msg: string): PNode =
   ## create an `nkError` node with a `CustomError` message `msg`
   result = newError(wrongNode, CustomError, newStrNode(msg, wrongNode.info))
 
+func errorKind*(e: PNode): ErrorKind {.inline.} =
+  ## property to retrieve the error kind
+  assert e != nil, "can't have a nil error node"
+  assert e.kind == nkError, "must be an error node to have an ErrorKind"
+
+  result = ErrorKind(e[errorKindPos].intVal)
+
 proc errorToString*(
     config: ConfigRef; n: PNode, rf = {renderWithoutErrorPrefix}
   ): string =
@@ -136,10 +151,19 @@ proc errorToString*(
   of FieldNotAccessible:
     result = "the field '$1' is not accessible." % n[firstArgPos].sym.name.s
   of FieldAssignmentInvalid:
-    result = "Invalid field assignment '$1' in expression '$2'" % [
+    let
+      hasHint = n.len > firstArgPos
+      hint = if hasHint: "; " & n[firstArgPos].renderTree(rf) else: ""
+    result = "Invalid field assignment '$1'$2" % [
       wrongNode.renderTree(rf),
-      n[firstArgPos].renderTree(rf),
+      hint,
     ]
+  of ObjectConstructorIncorrect:
+    result = "Invalid object constructor: '$1'" % wrongNode.renderTree(rf)
+  of ExpressionHasNoType:
+    result = "expression '$1' has no type (or is ambiguous)" % [
+        n[firstArgPos].renderTree(rf)
+      ]
 
 iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   ## traverses previous errors and yields errors from  innermost to outermost.

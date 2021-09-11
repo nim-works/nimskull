@@ -13,7 +13,8 @@ import tables
 
 import
   intsets, options, ast, astalgo, msgs, idents, renderer,
-  magicsys, vmdef, modulegraphs, lineinfos, sets, pathutils
+  magicsys, vmdef, modulegraphs, lineinfos, sets, pathutils,
+  errorhandling
 
 import ic / ic
 
@@ -512,6 +513,12 @@ proc errorNode*(c: PContext, n: PNode): PNode =
   result = newNodeI(nkEmpty, n.info)
   result.typ = errorType(c)
 
+proc newError*(c: PContext; wrongNode: PNode, k: ErrorKind; args: varargs[PNode]): PNode =
+  ## create an `nkError` node with error `k`, with additional error `args`, and
+  ## a type of error type associated to the current `PContext.owner`
+  result = errorhandling.newError(wrongNode, k, args)
+  result.typ = errorType(c)
+
 # These mimic localError
 template localErrorNode*(c: PContext, n: PNode, info: TLineInfo, msg: TMsgKind, arg: string): PNode =
   liMessage(c.config, info, msg, arg, doNothing, instLoc())
@@ -527,12 +534,7 @@ template localErrorNode*(c: PContext, n: PNode, msg: TMsgKind, arg: string): PNo
   errorNode(c, n2)
 
 template localErrorNode*(c: PContext, n: PNode, arg: string): PNode =
-  let e = newError(n, arg)
-  e.typ = c.errorType
-  e
-  # let n2 = n
-  # liMessage(c.config, n2.info, errGenerated, arg, doNothing, instLoc())
-  # errorNode(c, n2)
+  newError(c, n, CustomError, newStrNode(arg, n.info))
 
 proc fillTypeS*(dest: PType, kind: TTypeKind, c: PContext) =
   dest.kind = kind
