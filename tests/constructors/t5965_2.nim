@@ -1,5 +1,5 @@
 discard """
-  errormsg: "incorrect object construction syntax"
+  errormsg: "Invalid field assignment '2'"
   file: "t5965_2.nim"
   line: 10
 """

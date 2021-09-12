@@ -15,12 +15,12 @@ proc e(o: ExplainedConcept): int
 texplain.nim(128, 6) ExplainedConcept: undeclared field: 'foo'
 texplain.nim(128, 6) ExplainedConcept: undeclared field: '.'
 texplain.nim(128, 6) ExplainedConcept: expression '.' cannot be called
-texplain.nim(128, 6) ExplainedConcept: expression '' has no type (or is ambiguous)
+texplain.nim(128, 6) ExplainedConcept: expression 'o.foo' has no type (or is ambiguous)
 texplain.nim(128, 5) ExplainedConcept: concept predicate failed
 texplain.nim(129, 6) ExplainedConcept: undeclared field: 'bar'
 texplain.nim(129, 6) ExplainedConcept: undeclared field: '.'
 texplain.nim(129, 6) ExplainedConcept: expression '.' cannot be called
-texplain.nim(129, 6) ExplainedConcept: expression '' has no type (or is ambiguous)
+texplain.nim(129, 6) ExplainedConcept: expression 'o.bar' has no type (or is ambiguous)
 texplain.nim(128, 5) ExplainedConcept: concept predicate failed
 
 texplain.nim(168, 10) Hint: Non-matching candidates for e(10)
@@ -31,12 +31,12 @@ proc e(o: ExplainedConcept): int
 texplain.nim(128, 6) ExplainedConcept: undeclared field: 'foo'
 texplain.nim(128, 6) ExplainedConcept: undeclared field: '.'
 texplain.nim(128, 6) ExplainedConcept: expression '.' cannot be called
-texplain.nim(128, 6) ExplainedConcept: expression '' has no type (or is ambiguous)
+texplain.nim(128, 6) ExplainedConcept: expression 'o.foo' has no type (or is ambiguous)
 texplain.nim(128, 5) ExplainedConcept: concept predicate failed
 texplain.nim(129, 6) ExplainedConcept: undeclared field: 'bar'
 texplain.nim(129, 6) ExplainedConcept: undeclared field: '.'
 texplain.nim(129, 6) ExplainedConcept: expression '.' cannot be called
-texplain.nim(129, 6) ExplainedConcept: expression '' has no type (or is ambiguous)
+texplain.nim(129, 6) ExplainedConcept: expression 'o.bar' has no type (or is ambiguous)
 texplain.nim(128, 5) ExplainedConcept: concept predicate failed
 
 texplain.nim(172, 20) Error: type mismatch: got <NonMatchingType>
@@ -90,12 +90,12 @@ proc f(o: NestedConcept)
 texplain.nim(132, 6) RegularConcept: undeclared field: 'foo'
 texplain.nim(132, 6) RegularConcept: undeclared field: '.'
 texplain.nim(132, 6) RegularConcept: expression '.' cannot be called
-texplain.nim(132, 6) RegularConcept: expression '' has no type (or is ambiguous)
+texplain.nim(132, 6) RegularConcept: expression 'o.foo' has no type (or is ambiguous)
 texplain.nim(132, 5) RegularConcept: concept predicate failed
 texplain.nim(133, 6) RegularConcept: undeclared field: 'bar'
 texplain.nim(133, 6) RegularConcept: undeclared field: '.'
 texplain.nim(133, 6) RegularConcept: expression '.' cannot be called
-texplain.nim(133, 6) RegularConcept: expression '' has no type (or is ambiguous)
+texplain.nim(133, 6) RegularConcept: expression 'o.bar' has no type (or is ambiguous)
 texplain.nim(132, 5) RegularConcept: concept predicate failed
 texplain.nim(136, 5) NestedConcept: concept predicate failed
 

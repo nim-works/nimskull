@@ -724,6 +724,8 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       if ignoredModules == i-1: # left with exactly one unignored module
         # we're down to one, so we recovered from the error
         amb = false
+      elif candidates.len == 0:
+        discard
       else:
         result = errorAmbiguousUseQualifier(c, ident, n, candidates)
 
