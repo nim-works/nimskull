@@ -737,7 +737,6 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
   of nkSym:
     result = n.sym
   of nkDotExpr:
-    # XXX: everything below here hasn't been refactored
     result = nil
     var m = qualifiedLookUp2(c, n[0], (flags * {checkUndeclared}) + {checkModule})
     if m != nil and m.kind == skModule:
