@@ -68,14 +68,27 @@ proc locateFieldInInitExpr(c: PContext, field: PSym, initExpr: PNode): PNode =
   let fieldId = field.name.id
   for i in 1..<initExpr.len:
     let
-      assignment = initExpr[i]
-      valid = assignment.kind == nkExprColonExpr
-      match = valid and fieldId == considerQuotedIdent(c, assignment[0], assignment).id
+      e = initExpr[i]
+      valid = e.kind == nkExprColonExpr
+      partiallyValid = e.kind == nkError and
+                       e.errorKind == FieldOkButAssignedValueInvalid
+      atLeastPartiallyValid = valid or partiallyValid
+      assignment = if partiallyValid: e[wrongNodePos] else: e
+      match =
+        if atLeastPartiallyValid:
+          let
+            (ident, errNode) = considerQuotedIdent2(c, assignment[0])
+            validIdent = errNode.isNil
+          validIdent and fieldId == ident.id
+        else:
+          false
 
     if match: # found it!
-      return assignment
-    elif not valid:
-      return invalidObjConstr(c, assignment)
+      return e # return the error so we can handle it later
+    elif not atLeastPartiallyValid:
+      result = invalidObjConstr(c, assignment)
+      initExpr[i] = result # remember the error and bail early
+      return
     else:
       discard # keep looking
 
@@ -90,7 +103,7 @@ proc semConstrField(c: PContext, flags: TExprFlags,
       result = newError(initExpr, FieldNotAccessible, newSymNode(field))
       result.typ = errorType(c)
       return
-    if result.kind == nkError:
+    if result.kind == nkError and result.errorKind != FieldOkButAssignedValueInvalid:
       return # result is the assignment error
 
     var initValue = semExprFlagDispatched(c, result[1], flags)
@@ -100,8 +113,7 @@ proc semConstrField(c: PContext, flags: TExprFlags,
     result[1] = initValue
     result.flags.incl nfSem
     if initValue != nil and initValue.kind == nkError:
-      result = newError(result, FieldAssignmentInvalid)
-      result.typ = errorType(c)
+      result = newError(c, result, FieldOkButAssignedValueInvalid)
 
 proc caseBranchMatchesExpr(branch, matched: PNode): bool =
   for i in 0..<branch.len-1:
@@ -178,7 +190,9 @@ proc collectMissingFields(c: PContext, fieldsRecList: PNode,
        sfRequiresInit in r.sym.flags or
        r.sym.typ.requiresInit:
       let assignment = locateFieldInInitExpr(c, r.sym, constrCtx.initExpr)
-      if assignment == nil or assignment.kind == nkError:
+      if assignment == nil or
+         assignment.kind == nkError and
+         assignment.errorKind != FieldOkButAssignedValueInvalid:
         constrCtx.missingFields.add r.sym
 
 proc semConstructFields(c: PContext, n: PNode,

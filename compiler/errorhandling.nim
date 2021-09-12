@@ -51,6 +51,8 @@ type
       ## object field is not accessible
     FieldAssignmentInvalid
       ## object field assignment invalid syntax
+    FieldOkButAssignedValueInvalid
+      ## object field assignment, where the field name is ok, but value is not
     ObjectConstructorIncorrect
       ## one or more issues encountered with object constructor
     
@@ -74,7 +76,7 @@ let noPrevError = newNode(nkEmpty)
   ## sentinil value to mark no previous errors
 
 const
-  wrongNodePos = 0
+  wrongNodePos* = 0
   prevErrorPos = 1
   errorKindPos = 2
   firstArgPos  = 3
@@ -150,7 +152,7 @@ proc errorToString*(
     ]
   of FieldNotAccessible:
     result = "the field '$1' is not accessible." % n[firstArgPos].sym.name.s
-  of FieldAssignmentInvalid:
+  of FieldAssignmentInvalid, FieldOkButAssignedValueInvalid:
     let
       hasHint = n.len > firstArgPos
       hint = if hasHint: "; " & n[firstArgPos].renderTree(rf) else: ""

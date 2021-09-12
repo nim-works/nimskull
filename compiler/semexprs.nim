@@ -3110,6 +3110,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     else:
       localError(c.config, n.info, "invalid context for 'bind' statement: " &
                 renderTree(n, {renderNoComments}))
+  of nkError: discard "ignore errors for now"
   else:
     localError(c.config, n.info, "invalid expression: " &
                renderTree(n, {renderNoComments}))
