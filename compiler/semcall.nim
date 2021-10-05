@@ -280,25 +280,29 @@ const
   errBadRoutine = "attempting to call routine: '$1'$2"
   errAmbiguousCallXYZ = "ambiguous call; both $1 and $2 match for: $3"
 
-proc notFoundError*(c: PContext, n: PNode, errors: CandidateErrors) =
-  # Gives a detailed error message; this is separated from semOverloadedCall,
-  # as semOverloadedCall is already pretty slow (and we need this information
-  # only in case of an error).
+proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
+  ## Gives a detailed error message; this is separated from semOverloadedCall,
+  ## as semOverloadedCall is already pretty slow (and we need this information
+  ## only in case of an error).
+  ## returns an nkError
   if c.config.m.errorOutputs == {}:
     # fail fast:
     globalError(c.config, n.info, "type mismatch")
+    result = newError(n, "type mismatch")
     return
   if errors.len == 0:
     localError(c.config, n.info, "expression '$1' cannot be called" % n[0].renderTree)
+    result = newError(n, "expression '$1' cannot be called" % n[0].renderTree)
     return
 
   let (prefer, candidates) = presentFailedCandidates(c, n, errors)
-  var result = errTypeMismatch
-  result.add(describeArgs(c, n, 1, prefer))
-  result.add('>')
+  var msg = errTypeMismatch
+  msg.add(describeArgs(c, n, 1, prefer))
+  msg.add('>')
   if candidates != "":
-    result.add("\n" & errButExpected & "\n" & candidates)
-  localError(c.config, n.info, result & "\nexpression: " & $n)
+    msg.add("\n" & errButExpected & "\n" & candidates)
+  result = newError(n, msg & "\nexpression: " & $n)
+  # localError(c.config, n.info, msg & "\nexpression: " & $n)
 
 proc bracketNotFoundError(c: PContext; n: PNode) =
   var errors: CandidateErrors = @[]
@@ -315,7 +319,10 @@ proc bracketNotFoundError(c: PContext; n: PNode) =
   if errors.len == 0:
     localError(c.config, n.info, "could not resolve: " & $n)
   else:
-    notFoundError(c, n, errors)
+    # XXX: cascade nkError node through the return value,
+    # XXX: can't report here because generating and reporting are separate
+    for e in walkErrors(c.config, notFoundError(c, n, errors)):
+      localError(c.config, e.info, errorToString(c.config, e))
 
 proc getMsgDiagnostic(c: PContext, flags: TExprFlags, n, f: PNode): string =
   if c.compilesContextId > 0:
@@ -608,20 +615,19 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
     else:
       # get rid of the deref again for a better error message:
       n[1] = n[1][0]
-      #notFoundError(c, n, errors)
       if efExplain notin flags:
         # repeat the overload resolution,
         # this time enabling all the diagnostic output (this should fail again)
-        discard semOverloadedCall(c, n, nOrig, filter, flags + {efExplain})
+        result = semOverloadedCall(c, n, nOrig, filter, flags + {efExplain})
       elif efNoUndeclared notin flags:
-        notFoundError(c, n, errors)
+        result = notFoundError(c, n, errors)
   else:
     if efExplain notin flags:
       # repeat the overload resolution,
       # this time enabling all the diagnostic output (this should fail again)
-      discard semOverloadedCall(c, n, nOrig, filter, flags + {efExplain})
+      result = semOverloadedCall(c, n, nOrig, filter, flags + {efExplain})
     elif efNoUndeclared notin flags:
-      notFoundError(c, n, errors)
+      result = notFoundError(c, n, errors)
 
 proc explicitGenericInstError(c: PContext; n: PNode): PNode =
   localError(c.config, getCallLineInfo(n), errCannotInstantiateX % renderTree(n))

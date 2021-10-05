@@ -500,6 +500,8 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
         discard
       else:
         let e = invalidObjConstr(c, field)
+        # XXX: can't report errors here, since creating and reporting split
+        #      need to cascade an nkError instead
         localError(c.config, field.info, errorToString(c.config, e))
         hasError = true
         continue

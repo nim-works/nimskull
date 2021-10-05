@@ -243,6 +243,8 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
 
   if not hasUnknownTypes:
     if not sameType(rangeT[0].skipTypes({tyRange}), rangeT[1].skipTypes({tyRange})):
+      # XXX: should this cascade and what about the follow-on statements like
+      #      the for loop, etc below?
       typeMismatch(c.config, n.info, rangeT[0], rangeT[1], n)
 
     elif not isOrdinalType(rangeT[0]) and rangeT[0].kind notin {tyFloat..tyFloat128} or

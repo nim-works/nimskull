@@ -883,7 +883,7 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode, nOrig: PNode,
     result = semOverloadedCall(c, n, nOrig,
       {skProc, skFunc, skMethod, skConverter, skMacro, skTemplate}, flags)
 
-  if result != nil:
+  if result != nil and result.kind != nkError:
     if result[0].kind != nkSym:
       internalError(c.config, "semOverloadedCallAnalyseEffects")
       return
@@ -927,7 +927,11 @@ proc setGenericParams(c: PContext, n: PNode) =
 
 proc afterCallActions(c: PContext; n, orig: PNode, flags: TExprFlags): PNode =
   if efNoSemCheck notin flags and n.typ != nil and n.typ.kind == tyError:
-    return errorNode(c, n)
+    if n.kind == nkError:
+      return n
+    else:
+      # XXX: legacy path, remove once nkError is everywhere
+      return errorNode(c, n)
 
   result = n
   let callee = result[0].sym
@@ -991,29 +995,40 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
         return c.graph.emptyNode
       else:
         var hasErrorType = false
-        var msg = "type mismatch: got <"
         for i in 1..<n.len:
-          if i > 1: msg.add(", ")
-          let nt = n[i].typ
-          msg.add(typeToString(nt))
-          if nt.kind == tyError:
+          if n[i].typ.kind == tyError:
             hasErrorType = true
             break
-        if not hasErrorType:
-          let typ = n[0].typ
-          msg.add(">\nbut expected one of:\n" &
-              typeToString(typ))
-          # prefer notin preferToResolveSymbols
-          # t.sym != nil
-          # sfAnon notin t.sym.flags
-          # t.kind != tySequence(It is tyProc)
-          if typ.sym != nil and sfAnon notin typ.sym.flags and
-                                typ.kind == tyProc:
-            # when can `typ.sym != nil` ever happen?
-            msg.add(" = " & typeToString(typ, preferDesc))
-          msg.addDeclaredLocMaybe(c.config, typ)
-          localError(c.config, n.info, msg)
-        return errorNode(c, n)
+        result =
+          if not hasErrorType:
+            newError(n, CallTypeMismatch)
+          else:
+            # XXX: legacy path, consolidate with nkError
+            errorNode(c, n)
+        return
+        # var msg = "type mismatch: got <"
+        # for i in 1..<n.len:
+        #   if i > 1: msg.add(", ")
+        #   let nt = n[i].typ
+        #   msg.add(typeToString(nt))
+        #   if nt.kind == tyError:
+        #     hasErrorType = true
+        #     break
+        # if not hasErrorType:
+        #   let typ = n[0].typ
+        #   msg.add(">\nbut expected one of:\n" &
+        #       typeToString(typ))
+        #   # prefer notin preferToResolveSymbols
+        #   # t.sym != nil
+        #   # sfAnon notin t.sym.flags
+        #   # t.kind != tySequence(It is tyProc)
+        #   if typ.sym != nil and sfAnon notin typ.sym.flags and
+        #                         typ.kind == tyProc:
+        #     # when can `typ.sym != nil` ever happen?
+        #     msg.add(" = " & typeToString(typ, preferDesc))
+        #   msg.addDeclaredLocMaybe(c.config, typ)
+        #   localError(c.config, n.info, msg)
+        # return errorNode(c, n)
       result = nil
     else:
       result = m.call
@@ -1823,6 +1838,8 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
             c.p.resultSym.typ = rhsTyp
             c.p.owner.typ[0] = rhsTyp
           else:
+            # XXX: if this is an nkError, should we modify the rhs and the
+            #      overall assignment and return that, cascading upward?
             typeMismatch(c.config, n.info, lhs.typ, rhsTyp, rhs)
       borrowCheck(c, n, lhs, rhs)
 

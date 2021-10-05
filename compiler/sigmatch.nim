@@ -2483,7 +2483,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           n[a] = prepareOperand(c, formal.typ, n[a])
           arg = paramTypesMatch(m, formal.typ, n[a].typ,
                                     n[a], nOrig[a])
-          if arg == nil:
+          if arg == nil or arg.kind == nkError:
             noMatch()
           if m.baseTypeMatch:
             assert formal.typ.kind == tyVarargs
