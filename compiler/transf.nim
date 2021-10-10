@@ -22,7 +22,8 @@ import
   options, ast, astalgo, trees, msgs,
   idents, renderer, types, semfold, magicsys, cgmeth,
   lowerings, liftlocals,
-  modulegraphs, lineinfos
+  modulegraphs, lineinfos,
+  errorreporting
 
 proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
 
@@ -925,6 +926,9 @@ proc transform(c: PTransf, n: PNode): PNode =
       oldDeferAnchor = c.deferAnchor
       c.deferAnchor = n
   case n.kind
+  of nkError:
+    let conf = c.graph.config
+    internalError(conf, n.info, "Found nkError:\n" & errorToString(conf, n))
   of nkSym:
     result = transformSym(c, n)
   of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit, nkComesFrom:

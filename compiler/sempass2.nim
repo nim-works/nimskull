@@ -10,7 +10,7 @@
 import
   intsets, ast, astalgo, msgs, renderer, magicsys, types, idents, trees,
   wordrecg, strutils, options, guards, lineinfos, semfold, semdata,
-  modulegraphs, varpartitions, typeallowed, nilcheck, errorhandling, tables
+  modulegraphs, varpartitions, typeallowed, nilcheck, errorreporting, tables
 
 when defined(useDfa):
   import dfa

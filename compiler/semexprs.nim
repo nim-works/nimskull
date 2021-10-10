@@ -23,7 +23,6 @@ const
   errNamedExprExpected = "named expression expected"
   errNamedExprNotAllowed = "named expression not allowed here"
   errFieldInitTwice = "field initialized twice: '$1'"
-  errUndeclaredFieldX = "undeclared field: '$1'"
 
 proc semTemplateExpr(c: PContext, n: PNode, s: PSym,
                      flags: TExprFlags = {}): PNode =
@@ -1840,7 +1839,9 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
           else:
             # XXX: if this is an nkError, should we modify the rhs and the
             #      overall assignment and return that, cascading upward?
-            typeMismatch(c.config, n.info, lhs.typ, rhsTyp, rhs)
+            let r = typeMismatch(c.config, n.info, lhs.typ, rhsTyp, rhs)
+            if r.kind == nkError:
+              localError(c.config, n.info, errorToString(c.config, r))
       borrowCheck(c, n, lhs, rhs)
 
       n[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))

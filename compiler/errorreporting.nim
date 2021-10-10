@@ -1,6 +1,6 @@
 # module handles reporting errors
 
-import errorhandling, strutils, astmsgs, types, options
+import ast, errorhandling, renderer, strutils, astmsgs, types, options
 
 proc errorToString*(
     config: ConfigRef; n: PNode, rf = {renderWithoutErrorPrefix}

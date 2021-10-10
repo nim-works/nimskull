@@ -30,7 +30,7 @@
 ## * rework internals to store actual error information in a lookup data
 ##   structure on the side instead of directly in the node
 
-import ast, renderer
+import ast
 
 type
   ErrorKind* {.pure.} = enum ## expand as you need.
@@ -81,9 +81,9 @@ let noPrevError = newNode(nkEmpty)
 
 const
   wrongNodePos* = 0
-  prevErrorPos = 1
-  errorKindPos = 2
-  firstArgPos  = 3
+  prevErrorPos* = 1
+  errorKindPos* = 2
+  firstArgPos*  = 3
 
 proc newError*(wrongNode: PNode; k: ErrorKind; args: varargs[PNode]): PNode =
   ## create an `nkError` node with error `k`, with additional error `args`
