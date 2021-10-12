@@ -1508,6 +1508,12 @@ proc semProcAnnotation(c: PContext, prc: PNode;
       # be a .pragma. template instead
       continue
 
+    # XXX: temporarily handle nkError here, rather than proper propagation.
+    #      this should be refactored over time.
+    if r.kind == nkError:
+      localError(c.config, r.info, errorToString(c.config, r))
+      return # the rest is likely too broken, don't bother continuing
+
     doAssert r[0].kind == nkSym
     let m = r[0].sym
     case m.kind

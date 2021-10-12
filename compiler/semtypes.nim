@@ -1655,6 +1655,9 @@ proc applyTypeSectionPragmas(c: PContext; pragmas, operand: PNode): PNode =
           # recursion assures that this works for multiple macro annotations too:
           var r = semOverloadedCall(c, x, x, {skMacro, skTemplate}, {efNoUndeclared})
           if r != nil:
+            if r.kind == nkError:
+              localError(c.config, r.info, errorToString(c.config, r))
+              return
             doAssert r[0].kind == nkSym
             let m = r[0].sym
             case m.kind

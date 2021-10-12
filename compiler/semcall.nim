@@ -287,11 +287,11 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
   ## returns an nkError
   if c.config.m.errorOutputs == {}:
     # fail fast:
-    globalError(c.config, n.info, "type mismatch")
-    result = newError(n, "type mismatch")
+    # globalError(c.config, n.info, "type mismatch")
+    result = newError(n, RawTypeMismatchError)
     return
   if errors.len == 0:
-    localError(c.config, n.info, "expression '$1' cannot be called" % n[0].renderTree)
+    # localError(c.config, n.info, "expression '$1' cannot be called" % n[0].renderTree)
     result = newError(n, "expression '$1' cannot be called" % n[0].renderTree)
     return
 
@@ -321,8 +321,12 @@ proc bracketNotFoundError(c: PContext; n: PNode) =
   else:
     # XXX: cascade nkError node through the return value,
     # XXX: can't report here because generating and reporting are separate
-    for e in walkErrors(c.config, notFoundError(c, n, errors)):
-      localError(c.config, e.info, errorToString(c.config, e))
+    # notFoundError(c, n, errors)
+    # for e in walkErrors(c.config, notFoundError(c, n, errors)):
+    #   localError(c.config, e.info, errorToString(c.config, e))
+    
+    let e = notFoundError(c, n, errors)
+    localError(c.config, e.info, errorToString(c.config, e))
 
 proc getMsgDiagnostic(c: PContext, flags: TExprFlags, n, f: PNode): string =
   if c.compilesContextId > 0:
@@ -397,23 +401,23 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
 
     if nfDotField in n.flags:
       internalAssert c.config, f.kind == nkIdent and n.len >= 2
+      if f.ident.s notin [".", ".()"]: # a dot call on a dot call is invalid
+        # leave the op head symbol empty,
+        # we are going to try multiple variants
+        n.sons[0..1] = [nil, n[1], f]
+        orig.sons[0..1] = [nil, orig[1], f]
 
-      # leave the op head symbol empty,
-      # we are going to try multiple variants
-      n.sons[0..1] = [nil, n[1], f]
-      orig.sons[0..1] = [nil, orig[1], f]
+        template tryOp(x) =
+          let op = newIdentNode(getIdent(c.cache, x), n.info)
+          n[0] = op
+          orig[0] = op
+          pickBest(op)
 
-      template tryOp(x) =
-        let op = newIdentNode(getIdent(c.cache, x), n.info)
-        n[0] = op
-        orig[0] = op
-        pickBest(op)
+        if nfExplicitCall in n.flags:
+          tryOp ".()"
 
-      if nfExplicitCall in n.flags:
-        tryOp ".()"
-
-      if result.state in {csEmpty, csNoMatch}:
-        tryOp "."
+        if result.state in {csEmpty, csNoMatch}:
+          tryOp "."
 
     elif nfDotSetter in n.flags and f.kind == nkIdent and n.len == 3:
       # we need to strip away the trailing '=' here:
@@ -424,11 +428,12 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
       pickBest(callOp)
 
     if overloadsState == csEmpty and result.state == csEmpty:
-      if efNoUndeclared notin flags: # for tests/pragmas/tcustom_pragma.nim
+      if errorsEnabled and
+         efNoUndeclared notin flags: # for tests/pragmas/tcustom_pragma.nim
         template impl() =
           # xxx adapt/use errorUndeclaredIdentifierHint(c, n, f.ident)
           localError(c.config, n.info, getMsgDiagnostic(c, flags, n, f))
-        if n[0].kind == nkIdent and n[0].ident.s == ".=" and n[2].kind == nkIdent:
+        if n[0] != nil and n[0].kind == nkIdent and n[0].ident.s in [".", ".="] and n[2].kind == nkIdent:
           let sym = n[1].typ.sym
           if sym == nil:
             impl()
@@ -441,8 +446,9 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
       return
     elif result.state != csMatch:
       if nfExprCall in n.flags:
-        localError(c.config, n.info, "expression '$1' cannot be called" %
-                   renderTree(n, {renderNoComments}))
+        if errorsEnabled:
+          localError(c.config, n.info, "expression '$1' cannot be called" %
+                     renderTree(n, {renderNoComments}))
       else:
         if {nfDotField, nfDotSetter} * n.flags != {}:
           # clean up the inserted ops
@@ -619,14 +625,32 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
       if efExplain notin flags:
         # repeat the overload resolution,
         # this time enabling all the diagnostic output (this should fail again)
+        # XXX: refactoring in progress: previously we discarded
+        #      semOverloadedCall's result, because we just wanted it to output
+        #      errors, now some errors are returned as nkError nodes, so we
+        #      handle those here.
         result = semOverloadedCall(c, n, nOrig, filter, flags + {efExplain})
+        if result != nil and result.kind != nkError:
+          # reset to nil otherwise we'll end up with broken ast, because we
+          # speculatively try different ops to see what works `tryOp '.'` in
+          # `resolveOverloads`
+          result = nil
       elif efNoUndeclared notin flags:
         result = notFoundError(c, n, errors)
   else:
     if efExplain notin flags:
       # repeat the overload resolution,
       # this time enabling all the diagnostic output (this should fail again)
+      # XXX: refactoring in progress: previously we discarded
+      #      semOverloadedCall's result, because we just wanted it to output
+      #      errors, now some errors are returned as nkError nodes, so we
+      #      handle those here.
       result = semOverloadedCall(c, n, nOrig, filter, flags + {efExplain})
+      if result != nil and result.kind != nkError:
+        # reset to nil otherwise we'll end up with broken ast, because we
+        # speculatively try different ops to see what works `tryOp '.'` in
+        # `resolveOverloads`
+        result = nil
     elif efNoUndeclared notin flags:
       result = notFoundError(c, n, errors)
 
@@ -723,6 +747,8 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
     let filter = if fn.kind in {skProc, skFunc}: {skProc, skFunc} else: {fn.kind}
     var resolved = semOverloadedCall(c, call, call, filter, {})
     if resolved != nil:
+      if resolved.kind == nkError:
+        localError(c.config, resolved.info, errorToString(c.config, resolved))
       result = resolved[0].sym
       if not compareTypes(result.typ[0], fn.typ[0], dcEqIgnoreDistinct):
         result = nil

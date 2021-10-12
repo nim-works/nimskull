@@ -2,6 +2,11 @@
 
 import ast, errorhandling, renderer, strutils, astmsgs, types, options
 
+export compilerInstInfo
+# export because keeping the declaration in `errorhandling` acts as a reminder
+# of what the contract is with the subtleties around line and column info
+# overloading
+
 proc errorToString*(
     config: ConfigRef; n: PNode, rf = {renderWithoutErrorPrefix}
   ): string =

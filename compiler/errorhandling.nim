@@ -64,6 +64,11 @@ type
     ExpressionHasNoType 
       ## an expression has not type or is ambiguous
 
+type InstantiationInfo* = typeof(instantiationInfo())
+  ## type alias for instantiation information
+template instLoc(): InstantiationInfo = instantiationInfo(-2, fullPaths = true)
+  ## grabs where in the compiler an error was instanced to ease debugging
+
 proc errorSubNode*(n: PNode): PNode =
   case n.kind
   of nkEmpty..nkNilLit:
@@ -72,24 +77,49 @@ proc errorSubNode*(n: PNode): PNode =
     result = n
   else:
     result = nil
-    for i in 0..<n.len:
-      result = errorSubNode(n[i])
+    for s in n.items:
+      if s.isNil: continue
+      result = errorSubNode(s)
       if result != nil: break
 
 let noPrevError = newNode(nkEmpty)
   ## sentinil value to mark no previous errors
 
 const
-  wrongNodePos* = 0
-  prevErrorPos* = 1
-  errorKindPos* = 2
-  firstArgPos*  = 3
+  wrongNodePos*    = 0
+  prevErrorPos*    = 1
+  errorKindPos*    = 2
+  compilerInfoPos* = 3
+  firstArgPos*     = 4
 
-proc newError*(wrongNode: PNode; k: ErrorKind; args: varargs[PNode]): PNode =
-  ## create an `nkError` node with error `k`, with additional error `args`
+func errorKind*(e: PNode): ErrorKind {.inline.} =
+  ## property to retrieve the error kind
+  assert e != nil, "can't have a nil error node"
+  assert e.kind == nkError, "must be an error node to have an ErrorKind"
+
+  result = ErrorKind(e[errorKindPos].intVal)
+
+func compilerInstInfo*(e: PNode): InstantiationInfo {.inline.} =
+  ## return where the error was instantiated in the compiler
+  let i = e[compilerInfoPos]
+  assert i != nil, "we should always have compiler diagnositics"
+  (filename: i.strVal, line: i.info.line.int, column: i.info.col.int)
+
+proc newErrorAux(
+    wrongNode: PNode;
+    k: ErrorKind;
+    inst: InstantiationInfo;
+    args: varargs[PNode]
+  ): PNode =
+  ## create an `nkError` node with error `k`, with additional error `args` and
+  ## given `inst` as to where it was instanced int he compiler.
   assert wrongNode != nil, "can't have a nil node for `wrongNode`"
 
-  result = newNodeIT(nkError, wrongNode.info, newType(tyError, ItemId(module: -1, item: -1), nil))
+  let inst = instLoc()
+  result = newNodeIT(nkError, wrongNode.info,
+                     newType(tyError, ItemId(module: -2, item: -1), nil))
+
+  # this if/else branch needs to set `wrongNodePos` and `prevErroPos`
   if wrongNode.kind == nkError:
     # wrapping an error in another error
     result.add wrongNode[wrongNodePos] # fetch the real one from the previous
@@ -105,16 +135,24 @@ proc newError*(wrongNode: PNode; k: ErrorKind; args: varargs[PNode]): PNode =
         noPrevError
       else:
         prevError
-  result.add newIntNode(nkIntLit, ord(k))
+  result.add newIntNode(nkIntLit, ord(k)) # errorKindPos
+  result.add newStrNode(inst.filename, wrongNode.info) # compilerInfoPos
+
+  # save the compiler's line and column information here for reporting
+  result[compilerInfoPos].info.line = uint16 inst.line 
+  result[compilerInfoPos].info.col = int16 inst.column
+
   for a in args: result.add a
+
+proc newError*(wrongNode: PNode; k: ErrorKind; args: varargs[PNode]): PNode =
+  ## create an `nkError` node with error `k`, with additional error `args` and
+  ## given `inst` as to where it was instanced int he compiler.
+  assert wrongNode != nil, "can't have a nil node for `wrongNode`"
+
+  let inst = instLoc()
+  result = newErrorAux(wrongNode, k, inst, args)
 
 proc newError*(wrongNode: PNode; msg: string): PNode =
   ## create an `nkError` node with a `CustomError` message `msg`
-  result = newError(wrongNode, CustomError, newStrNode(msg, wrongNode.info))
-
-func errorKind*(e: PNode): ErrorKind {.inline.} =
-  ## property to retrieve the error kind
-  assert e != nil, "can't have a nil error node"
-  assert e.kind == nkError, "must be an error node to have an ErrorKind"
-
-  result = ErrorKind(e[errorKindPos].intVal)
+  newErrorAux(
+    wrongNode, CustomError, instLoc(), newStrNode(msg, wrongNode.info))

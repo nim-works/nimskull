@@ -927,6 +927,7 @@ proc transform(c: PTransf, n: PNode): PNode =
       c.deferAnchor = n
   case n.kind
   of nkError:
+    # XXX: yet another place to report on nkError
     let conf = c.graph.config
     internalError(conf, n.info, "Found nkError:\n" & errorToString(conf, n))
   of nkSym:
