@@ -16,12 +16,12 @@ proc semAddrArg(c: PContext; n: PNode; isUnsafeAddr = false): PNode =
   let x = semExprWithType(c, n)
   if x.kind == nkSym:
     x.sym.flags.incl(sfAddrTaken)
-  if isAssignable(c, x, isUnsafeAddr) notin {arLValue, arLocalLValue}:
+  if isAssignable(c, x, true) notin {arLValue, arLocalLValue}:
     # Do not suggest the use of unsafeAddr if this expression already is a
     # unsafeAddr
     localReport(c.config, n.info) do:
       reportSem(rsemExprHasNoAddress).withIt do:
-        it.isUnsafeAddr = isUnsafeAddr
+        it.isUnsafeAddr = true
 
   result = x
 

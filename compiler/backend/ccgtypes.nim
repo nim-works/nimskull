@@ -39,7 +39,7 @@ proc mangleName(m: BModule; s: PSym): Rope =
   result = s.loc.r
   if result == nil:
     result = s.name.s.mangle.rope
-    result.add "_"
+    result.add "__"
     result.add m.g.graph.ifaces[s.itemId.module].uniqueName
     result.add "_"
     result.add rope s.itemId.item
@@ -582,7 +582,7 @@ proc getRecordDesc(m: BModule, typ: PType, name: Rope,
 
   if typ.kind == tyObject:
     if typ[0] == nil:
-      if (typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags:
+      if lacksMTypeField(typ):
         appcg(m, result, " {$n", [])
       else:
         if optTinyRtti in m.config.globalOptions:

@@ -1009,10 +1009,9 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   else:
     popCaseContext(c)
     closeScope(c)
-    if caseStmtMacros in c.features:
-      result = handleCaseStmtMacro(c, n, flags)
-      if result != nil:
-        return result
+    result = handleCaseStmtMacro(c, n, flags)
+    if result != nil:
+      return result
     result[0] = c.config.newError(n[0], reportSem rsemSelectorMustBeOfCertainTypes)
     return
   for i in 1..<n.len:

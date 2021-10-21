@@ -605,10 +605,10 @@ proc parsePar(p: var Parser): PNode =
   #|         | 'finally' | 'except' | 'for' | 'block' | 'const' | 'let'
   #|         | 'when' | 'var' | 'mixin'
   #| par = '(' optInd
-  #|           ( &parKeyw (ifExpr \ complexOrSimpleStmt) ^+ ';'
-  #|           | ';' (ifExpr \ complexOrSimpleStmt) ^+ ';'
+  #|           ( &parKeyw (ifExpr / complexOrSimpleStmt) ^+ ';'
+  #|           | ';' (ifExpr / complexOrSimpleStmt) ^+ ';'
   #|           | pragmaStmt
-  #|           | simpleExpr ( ('=' expr (';' (ifExpr \ complexOrSimpleStmt) ^+ ';' )? )
+  #|           | simpleExpr ( ('=' expr (';' (ifExpr / complexOrSimpleStmt) ^+ ';' )? )
   #|                        | (':' expr (',' exprColonEqExpr     ^+ ',' )? ) ) )
   #|           optPar ')'
   #
@@ -1136,11 +1136,14 @@ proc optPragmas(p: var Parser): PNode =
 
 proc parseDoBlock(p: var Parser; info: TLineInfo): PNode =
   #| doBlock = 'do' paramListArrow pragma? colcom stmt
-  let params = parseParamList(p, retColon=false)
+  var params = parseParamList(p, retColon=false)
   let pragmas = optPragmas(p)
   colcom(p, result)
   result = parseStmt(p)
-  if params.kind != nkEmpty:
+  if params.kind != nkEmpty or pragmas.kind != nkEmpty:
+    if params.kind == nkEmpty:
+      params = newNodeP(nkFormalParams, p)
+      params.add(p.emptyNode) # return type
     result = newProcNode(nkDo, info,
       body = result, params = params, name = p.emptyNode, pattern = p.emptyNode,
       genericParams = p.emptyNode, pragmas = pragmas, exceptions = p.emptyNode)
@@ -1407,7 +1410,10 @@ proc postExprBlocks(p: var Parser, x: PNode): PNode =
       if stmtList[0].kind == nkStmtList: stmtList = stmtList[0]
 
       stmtList.flags.incl nfBlockArg
-      if openingParams.kind != nkEmpty:
+      if openingParams.kind != nkEmpty or openingPragmas.kind != nkEmpty:
+        if openingParams.kind == nkEmpty:
+          openingParams = newNodeP(nkFormalParams, p)
+          openingParams.add(p.emptyNode) # return type
         result.add newProcNode(nkDo, stmtList.info, body = stmtList,
                                params = openingParams,
                                name = p.emptyNode, pattern = p.emptyNode,
@@ -1910,7 +1916,7 @@ proc parseEnum(p: var Parser): PNode =
 
     var symPragma = a
     var pragma: PNode
-    if p.tok.tokType == tkCurlyDotLe:
+    if (p.tok.indent < 0 or p.tok.indent >= p.currInd) and p.tok.tokType == tkCurlyDotLe:
       pragma = optPragmas(p)
       symPragma = newNodeP(nkPragmaExpr, p)
       symPragma.add(a)
