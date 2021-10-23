@@ -929,7 +929,9 @@ proc transform(c: PTransf, n: PNode): PNode =
   of nkError:
     # XXX: yet another place to report on nkError
     let conf = c.graph.config
-    internalError(conf, n.info, "Found nkError:\n" & errorToString(conf, n))
+    result = n
+    localError(conf, n.info, errorToString(conf, n))
+    return
   of nkSym:
     result = transformSym(c, n)
   of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit, nkComesFrom:

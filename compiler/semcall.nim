@@ -328,7 +328,14 @@ proc bracketNotFoundError(c: PContext; n: PNode) =
     let e = notFoundError(c, n, errors)
     localError(c.config, e.info, errorToString(c.config, e))
 
-proc getMsgDiagnostic(c: PContext, flags: TExprFlags, n, f: PNode): string =
+proc getMsgDiagnostic(c: PContext, flags: TExprFlags, n, origF: PNode): string =
+  # for dotField calls, eg: `foo.bar()`, set f for nicer messages
+  let f =
+    if {nfDotField} <= n.flags and n.safeLen >= 3:
+      n[2]
+    else:
+      origF
+
   if c.compilesContextId > 0:
     # we avoid running more diagnostic when inside a `compiles(expr)`, to
     # errors while running diagnostic (see test D20180828T234921), and
@@ -421,7 +428,7 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
 
     elif nfDotSetter in n.flags and f.kind == nkIdent and n.len == 3:
       # we need to strip away the trailing '=' here:
-      let calleeName = newIdentNode(getIdent(c.cache, f.ident.s[0..^2]), n.info)
+      let calleeName = newIdentNode(getIdent(c.cache, f.ident.s[0..^2]), f.info)
       let callOp = newIdentNode(getIdent(c.cache, ".="), n.info)
       n.sons[0..1] = [callOp, n[1], calleeName]
       orig.sons[0..1] = [callOp, orig[1], calleeName]
@@ -434,7 +441,7 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
           # xxx adapt/use errorUndeclaredIdentifierHint(c, n, f.ident)
           localError(c.config, n.info, getMsgDiagnostic(c, flags, n, f))
         if n[0] != nil and n[0].kind == nkIdent and n[0].ident.s in [".", ".="] and n[2].kind == nkIdent:
-          let sym = n[1].typ.sym
+          let sym = n[1].typ.typSym
           if sym == nil:
             impl()
           else:

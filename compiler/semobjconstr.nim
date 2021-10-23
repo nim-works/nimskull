@@ -499,7 +499,11 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
         # process later in the loop
         discard
       else:
-        let e = invalidObjConstr(c, field)
+        let e =
+          if field.kind == nkError:
+            field
+          else:
+            invalidObjConstr(c, field)
         # XXX: can't report errors here, since creating and reporting split
         #      need to cascade an nkError instead
         localError(c.config, e.info, errorToString(c.config, e))
@@ -517,7 +521,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
           break
       # 2) No such field exists in the constructed type
       let msg = errUndeclaredField % id.s & " for type " & getProcHeader(c.config, t.sym)
-      localError(c.config, field.info, msg)
+      localError(c.config, field[0].info, msg)
       hasError = true
       break
 

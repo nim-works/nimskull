@@ -925,12 +925,11 @@ proc setGenericParams(c: PContext, n: PNode) =
     n[i].typ = semTypeNode(c, n[i], nil)
 
 proc afterCallActions(c: PContext; n, orig: PNode, flags: TExprFlags): PNode =
+  if n.kind == nkError:
+    return n
   if efNoSemCheck notin flags and n.typ != nil and n.typ.kind == tyError:
-    if n.kind == nkError:
-      return n
-    else:
-      # XXX: legacy path, remove once nkError is everywhere
-      return errorNode(c, n)
+    # XXX: legacy path, remove once nkError is everywhere
+    return errorNode(c, n)
 
   result = n
   let callee = result[0].sym
@@ -1055,6 +1054,8 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
   #result = afterCallActions(c, result, nOrig, flags)
   if result[0].kind == nkSym:
     result = afterCallActions(c, result, nOrig, flags)
+  elif result.kind == nkError:
+    return # we're done; return the error and move on
   else:
     fixAbstractType(c, result)
     analyseIfAddressTakenInCall(c, result)
@@ -1064,7 +1065,10 @@ proc semDirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
   let nOrig = n.copyTree
   #semLazyOpAux(c, n)
   result = semOverloadedCallAnalyseEffects(c, n, nOrig, flags)
-  if result != nil: result = afterCallActions(c, result, nOrig, flags)
+  if result != nil:
+    if result.kind == nkError:
+      return
+    result = afterCallActions(c, result, nOrig, flags)
   else: result = errorNode(c, n)
 
 proc buildEchoStmt(c: PContext, n: PNode): PNode =
@@ -1650,7 +1654,7 @@ proc semArrayAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
 proc propertyWriteAccess(c: PContext, n, nOrig, a: PNode): PNode =
   var id = considerQuotedIdent(c, a[1], a)
-  var setterId = newIdentNode(getIdent(c.cache, id.s & '='), n.info)
+  var setterId = newIdentNode(getIdent(c.cache, id.s & '='), a[1].info)
   # a[0] is already checked for semantics, that does ``builtinFieldAccess``
   # this is ugly. XXX Semantic checking should use the ``nfSem`` flag for
   # nodes?
