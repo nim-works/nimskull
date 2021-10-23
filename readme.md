@@ -1,4 +1,4 @@
-# <img src="https://raw.githubusercontent.com/nim-lang/assets/master/Art/logo-crown.png" height="28px"/> Nim
+# <img src="https://raw.githubusercontent.com/nim-lang/assets/master/Art/logo-crown.png" height="28px"/> Nimskull
 
 The Nim-Works compiler, stdlib, tools, and documentation repository. Nim-Works
 is presently a derivative of [Nim][nim-site]. Its intention best described by:
@@ -11,6 +11,8 @@ is presently a derivative of [Nim][nim-site]. Its intention best described by:
 Ultimately this will mean a different community, language, standard library,
 and much more. For now it's closer to an alternative with most deviations
 appearing in the standard library to begin with.
+
+PS. the name `Nimskull` is temporary
 
 ## Direction
 
@@ -177,12 +179,7 @@ running specific tests should be harmless.
 Integration tests should go in ``tests/untestable``.
 
 ## License
-The compiler and the standard library are licensed under the MIT license, except
-for some modules which explicitly state otherwise. As a result, you may use any
-compatible license (essentially any license) for your own programs developed with
-Nim. You are explicitly permitted to develop commercial applications using Nim.
-
-Please read the [copying.txt](copying.txt) file for more details.
+MIT
 
 [nim-site]: https://nim-lang.org
 [csources-v1-repo]: https://github.com/nim-lang/csources_v1
