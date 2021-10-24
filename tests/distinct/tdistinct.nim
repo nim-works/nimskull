@@ -141,7 +141,7 @@ block tRequiresInit:
     let s = "test"
     doAssert s == "test"
 
-block: #17322
+block: # tests generic conversion with procedure calls
   type
     A[T] = distinct string
 

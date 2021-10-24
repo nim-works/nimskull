@@ -1427,6 +1427,10 @@ proc skipTypes*(t: PType, kinds: TTypeKinds): PType =
   result = t
   while result.kind in kinds: result = lastSon(result)
 
+proc skipDistincts*(t: PType): PType {.inline.} =
+  ## Skips over all possible distinct instantiations, getting base.
+  skipTypes(t, {tyAlias, tyGenericInst, tyDistinct})
+
 proc newIntTypeNode*(intVal: BiggestInt, typ: PType): PNode =
   let kind = skipTypes(typ, abstractVarRange).kind
   case kind

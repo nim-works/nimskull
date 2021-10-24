@@ -1121,11 +1121,11 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
     case c.cmp
     of dcEq: return false
     of dcEqIgnoreDistinct:
-      a = a.skipTypes({tyDistinct, tyGenericInst})
-      b = b.skipTypes({tyDistinct, tyGenericInst})
+      a = a.skipDistincts()
+      b = b.skipDistincts()
       if a.kind != b.kind: return false
     of dcEqOrDistinctOf:
-      a = a.skipTypes({tyDistinct, tyGenericInst})
+      a = a.skipDistincts()
       if a.kind != b.kind: return false
 
   # this is required by tunique_type but makes no sense really:

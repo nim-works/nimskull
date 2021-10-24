@@ -1289,6 +1289,9 @@ template isIndirect(x: PSym): bool =
                   skConst, skTemp, skLet})
 
 proc genSymAddr(p: PProc, n: PNode, typ: PType, r: var TCompRes) = 
+  ## Generates a dereferenced symbol,
+  ## as many things in the JS gen'd code
+  ## are stored in an arrays they have different dereference methods.
   let s = n.sym
   if s.loc.r == nil: internalError(p.config, n.info, "genAddr: 3")
   case s.kind

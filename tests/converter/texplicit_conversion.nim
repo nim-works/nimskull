@@ -12,7 +12,9 @@ converter toInt(s: string): int =
 let x = (int)"234"
 echo x
 
-block: # Test for nkconv
+block: # test of nkConv
+  # int(a) is a l-value so should emit an nkConv for transf.
+  # test will show regressions on code generators
   proc foo(o: var int) =
     assert o == 0
   var a = 0
