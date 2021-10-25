@@ -3,17 +3,17 @@ type
   Bar[N: static[int]] = distinct seq[int]
   Baz = distinct Bar[10]
 
-proc newSeq(s: var Foo, n: Natural) {.borrow.}
-proc newSeq(s: var Bar, n: Natural) {.borrow.}
-proc newSeq(s: var Baz, n: Natural) {.borrow.}
+proc newSeq(s: var Foo, n: Natural) {.borrow.} # Tests `var Distinct` -> Base
+proc newSeq(s: var Bar, n: Natural) {.borrow.} # Tests `var Typeclass` -> Distinct -> Base
+proc newSeq(s: var Baz, n: Natural) {.borrow.} # Tests `var Distinct` -> GenericDistinct -> Distinct -> Base
 
 
-proc `$`(s: Foo): string {.borrow.}
-proc `$`(s: Bar): string {.borrow.}
-proc `$`(s: Baz): string {.borrow.}
+proc `$`(s: Foo): string {.borrow.} # Tests Distinct -> Base
+proc `$`(s: Bar): string {.borrow.} # Tests Typeclass -> Distinct -> Base
+proc `$`(s: Baz): string {.borrow.} # Tests Distinct -> GenericDistinct -> Distinct -> Base
 
 proc doThing(b: Bar) = discard
-proc doThing(b: Baz) {.borrow.}
+proc doThing(b: Baz) {.borrow.} # Tests Distinct -> GenericDistinct borrow
 
 var
   foo: Foo
