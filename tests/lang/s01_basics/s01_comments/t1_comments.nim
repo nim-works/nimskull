@@ -88,3 +88,34 @@ yeaaaaaaah
 echo baz
 
 echo 13
+
+proc doStuff = 
+  ## Doc comments are valid ast so procs with them are valid!
+  ## This is an alternative to `discard`, giving the block a statement to parse
+proc doOtherStuff = 
+  ##[
+    Even mul-
+    tiline
+      blocks
+  ]##
+
+block someBlock: 
+  ## Even inside block statements
+block someBlock: 
+  ##[
+    Even inside block statements
+  ]##
+
+for i in 0..10:
+  ## Here too!
+for i in 0..10:
+  ##[
+    also here.
+  ]## 
+
+while true: 
+  ## Inside while aswell
+while true: 
+  ##[
+    Here aswell!
+  ]##
