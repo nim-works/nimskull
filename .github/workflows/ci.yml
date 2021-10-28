@@ -33,8 +33,7 @@ jobs:
           # Skip newer runs with the same content
           concurrent_skipping: same_content_newer
           # Do not skip on push, dispatched or cron
-          do_not_skip: <
-            ["push", "workflow_dispatch", "schedule"]
+          do_not_skip: '["push", "workflow_dispatch", "schedule"]'
 
   bootstrap:
     name: Bootstrap the compiler
