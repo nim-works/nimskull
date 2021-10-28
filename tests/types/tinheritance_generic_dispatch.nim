@@ -9,6 +9,7 @@ proc test(u: Union[string, RootObj])
   first type mismatch at position: 1
   required type for u: Union[system.string, system.RootObj]
   but expression 'U()' is of type: U
+
 expression: test(U())
 tinheritance_generic_dispatch.nim(45, 6) Error: type mismatch: got <T>
 but expected one of:
@@ -16,6 +17,7 @@ proc test2(u: Union[int, float])
   first type mismatch at position: 1
   required type for u: Union[system.int, system.float]
   but expression 'T()' is of type: T
+
 expression: test2(T())
 tinheritance_generic_dispatch.nim(47, 6) Error: type mismatch: got <Union[system.string, system.RootObj]>
 but expected one of:
@@ -23,6 +25,7 @@ proc test2(u: Union[int, float])
   first type mismatch at position: 1
   required type for u: Union[system.int, system.float]
   but expression 'Union[string, RootObj]()' is of type: Union[system.string, system.RootObj]
+
 expression: test2(Union[string, RootObj]())
 '''
 """
