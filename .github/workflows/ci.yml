@@ -2,6 +2,10 @@ name: Build and test
 on:
   push:
     # Empty configuration means use default (ie. test all branches)
+    branches-ignore:
+      - staging.tmp
+      - trying.tmp
+      - staging-squash-merge.tmp
 
   pull_request:
     # Only take PRs to devel
