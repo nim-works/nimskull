@@ -96,8 +96,9 @@ jobs:
         #
         # This feature allow us to parallelize testing.
         batch: [0, 1]
-        # This tells testament how many batches are used.
-        total_batch: 2
+        # This tells testament how many batches are used. Have to be placed in
+        # an array due to how Github Actions process matrices.
+        total_batch: [2]
 
     name: 'Test the compiler and stdlib (batch #${{ matrix.batch }})'
 
