@@ -21,6 +21,8 @@ jobs:
           cancel_others: true
           # Skip when a duplicated run (ie. from a PR) is done
           skip_after_successful_duplicate: true
+          # Skip newer runs with the same content
+          concurrent_skipping: same_content_newer
 
   bootstrap:
     name: Bootstrap the compiler
