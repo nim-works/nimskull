@@ -7,3 +7,6 @@ status = [
 #
 # Ideally we set this to some light checks. Is not set for now.
 # pr_status = []
+
+# Produce squash commits instead of merge commits
+use_squash_commits = true
