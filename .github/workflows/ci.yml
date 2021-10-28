@@ -66,10 +66,15 @@ jobs:
         run: |
           python -c 'import os; print(os.path.abspath("bin"))' > "$GITHUB_PATH"
 
+      - name: Build koch
+        run: nim c koch.nim
+
+      # Enable annotations after koch to avoid false-positive due to csources being old
+      - name: Enable annotations
+        run: echo "::add-matcher::.github/nim-problem-matcher.json"
+
       - name: Build compiler
         run: |
-          nim c koch.nim
-
           ./koch boot -d:release
 
           # Remove csources to save space
@@ -112,6 +117,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install "${deps[@]}"
 
+      - name: Enable annotations
+        run: echo "::add-matcher::.github/nim-problem-matcher.json"
+
       - name: Run tester
         run: ./koch test all
 
@@ -125,6 +133,9 @@ jobs:
       - uses: actions/checkout@v2.3.5
 
       - uses: ./.github/actions/download-compiler
+
+      - name: Enable annotations
+        run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
       - name: Test ORC bootstrap
         run: ./koch boot -d:release --gc:orc
@@ -140,6 +151,9 @@ jobs:
 
       - uses: ./.github/actions/download-compiler
 
+      - name: Enable annotations
+        run: echo "::add-matcher::.github/nim-problem-matcher.json"
+
       - name: Test tooling
         run: ./koch testTools
 
@@ -153,6 +167,9 @@ jobs:
       - uses: actions/checkout@v2.3.5
 
       - uses: ./.github/actions/download-compiler
+
+      - name: Enable annotations
+        run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
       - name: Build docs
         run: |
