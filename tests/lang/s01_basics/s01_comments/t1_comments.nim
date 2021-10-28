@@ -33,7 +33,7 @@ echo 3 # this is a comment after the code
 # empty comments like below are fine
 #
 # or with trailing white spaces
-#   
+#
 
 echo 4
 
@@ -73,13 +73,13 @@ let bar = 11
   ## all the importan things
   ##
   ## and what not
-  ## 
+  ##
   ## :)
 
 echo 11 # we can't document this guy, it's an oddball statement, hmmm :thinking_face:
 
 let baz = 12
-  ##[ or we can 
+  ##[ or we can
                 get
         really
             creative
@@ -89,19 +89,19 @@ echo baz
 
 echo 13
 
-proc doStuff = 
+proc doStuff =
   ## Doc comments are valid ast so procs with them are valid!
   ## This is an alternative to `discard`, giving the block a statement to parse
-proc doOtherStuff = 
+proc doOtherStuff =
   ##[
     Even mul-
     tiline
       blocks
   ]##
 
-block someBlock: 
+block someBlock:
   ## Even inside block statements
-block someBlock: 
+block someBlock:
   ##[
     Even inside block statements
   ]##
@@ -111,11 +111,11 @@ for i in 0..10:
 for i in 0..10:
   ##[
     also here.
-  ]## 
+  ]##
 
-while true: 
+while false:
   ## Inside while aswell
-while true: 
+while false:
   ##[
     Here aswell!
   ]##
