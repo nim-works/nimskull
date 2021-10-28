@@ -177,7 +177,7 @@ jobs:
   passed:
     name: All check passed
     needs: [bootstrap, test, tooling, doc, orc]
-    if: always()
+    if: always() && !cancelled()
     runs-on: ubuntu-latest
 
     steps:
