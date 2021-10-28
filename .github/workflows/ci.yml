@@ -84,8 +84,22 @@ jobs:
         uses: ./.github/actions/upload-compiler
 
   test:
-    name: Test the compiler and stdlib
     needs: [bootstrap]
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        # This controls the testament "batch" feature.
+        #
+        # If any additional batches are added, increment `total_batch` as well.
+        #
+        # This feature allow us to parallelize testing.
+        batch: [0, 1]
+        # This tells testament how many batches are used.
+        total_batch: 2
+
+    name: 'Test the compiler and stdlib (batch #${{ matrix.batch }})'
 
     runs-on: ubuntu-20.04
 
@@ -118,7 +132,7 @@ jobs:
           sudo apt-get install "${deps[@]}"
 
       - name: Run tester
-        run: ./koch test all
+        run: ./koch test all --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}'
 
       - name: Print all test errors
         if: failure()
