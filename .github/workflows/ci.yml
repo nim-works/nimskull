@@ -117,11 +117,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install "${deps[@]}"
 
-      - name: Enable annotations
-        run: echo "::add-matcher::.github/nim-problem-matcher.json"
-
       - name: Run tester
         run: ./koch test all
+
+      - name: Print all test errors
+        if: failure()
+        run: nim r tools/ci_testresults
 
   orc:
     name: Test build compiler with ORC
