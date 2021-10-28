@@ -2093,18 +2093,6 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       while typ.kind == tyTypeDesc and typ.len > 0: typ = typ[0]
       createStr regs[ra]
       regs[ra].node.strVal = typ.typeToString(preferExported)
-    of opcMarshalLoad:
-      let ra = instr.regA
-      let rb = instr.regB
-      inc pc
-      let typ = c.types[c.code[pc].regBx - wordExcess]
-      putIntoReg(regs[ra], loadAny(regs[rb].node.strVal, typ, c.cache, c.config, c.idgen))
-    of opcMarshalStore:
-      decodeB(rkNode)
-      inc pc
-      let typ = c.types[c.code[pc].regBx - wordExcess]
-      createStrKeepNode(regs[ra])
-      storeAny(regs[ra].node.strVal, typ, regs[rb].regToNode, c.config)
 
     c.profiler.leave(c)
 
@@ -2264,7 +2252,6 @@ proc setupMacroParam(x: PNode, typ: PType): TFullReg =
   else:
     var n = x
     if n.kind in {nkHiddenSubConv, nkHiddenStdConv}: n = n[1]
-    n = n.canonValue
     n.flags.incl nfIsRef
     n.typ = x.typ
     result = TFullReg(kind: rkNode, node: n)
