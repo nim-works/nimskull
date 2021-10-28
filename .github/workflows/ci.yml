@@ -1,0 +1,189 @@
+name: Build and test
+on: [push, pull_request]
+
+# Run every script actions in bash
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  pre_run:
+    name: Provide additional context for the workflow
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.run_cond.outputs.should_skip }}
+
+    steps:
+      - id: run_cond
+        uses: fkirc/skip-duplicate-actions@v3.4.1
+        with:
+          # Cancel CI on outdated commits
+          cancel_others: true
+          # Skip when a duplicated run (ie. from a PR) is done
+          skip_after_successful_duplicate: true
+
+  bootstrap:
+    name: Bootstrap the compiler
+    needs: [pre_run]
+    if: needs.pre_run.outputs.skip != 'true'
+
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2.3.5
+
+      - id: build-config
+        name: Obtain build configuration
+        run: |
+          while IFS='=' read -r key val; do
+            case $key in
+            nim_csourcesUrl)
+              # Remove the github prefix and .git to get an owner/name pair
+              val=${val#https://github.com/}
+              val=${val%.git}
+
+              echo "::set-output name=csources-repo::$val"
+              ;;
+            nim_csourcesHash)
+              echo "::set-output name=csources-hash::$val"
+              ;;
+            esac
+          done < config/build_config.txt
+
+      - name: Download csources
+        uses: actions/checkout@v2.3.5
+        with:
+          repository: '${{ steps.build-config.outputs.csources-repo }}'
+          ref: '${{ steps.build-config.outputs.csources-hash }}'
+          path: csources
+
+      - name: Build csources
+        run: |
+          cores=$(python -c 'import multiprocessing; print(multiprocessing.cpu_count())' || echo 1)
+          make -C csources -j${cores}
+
+      - name: Add built binaries to PATH
+        run: |
+          python -c 'import os; print(os.path.abspath("bin"))' > "$GITHUB_PATH"
+
+      - name: Build compiler
+        run: |
+          nim c koch.nim
+
+          ./koch boot -d:release
+
+          # Remove csources to save space
+          rm -rf csources
+
+      - name: Upload compiler to artifacts
+        uses: ./.github/actions/upload-compiler
+
+  test:
+    name: Test the compiler and stdlib
+    needs: [bootstrap]
+
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2.3.5
+
+      - uses: ./.github/actions/download-compiler
+
+      - name: Install NodeJS
+        uses: actions/setup-node@v2.4.1
+        with:
+          node-version: '16'
+
+      - name: Install dependencies
+        run: |
+          deps=(
+            # Needed by boehm gc tests
+            libgc-dev
+
+            # Required by Nim in Action tests
+            libsdl1.2-dev
+            libsfml-dev
+
+            # Required by ARC/ORC memory leak tests (only enabled on linux x64)
+            libc6-dbg
+            valgrind
+          )
+
+          sudo apt-get update
+          sudo apt-get install "${deps[@]}"
+
+      - name: Run tester
+        run: ./koch test all
+
+
+  orc:
+    name: Test build compiler with ORC
+    needs: [bootstrap]
+
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2.3.5
+
+      - uses: ./.github/actions/download-compiler
+
+      - name: Test ORC bootstrap
+        run: ./koch boot -d:release --gc:orc
+
+  tooling:
+    name: Build and test tooling
+    needs: [bootstrap]
+
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2.3.5
+
+      - uses: ./.github/actions/download-compiler
+
+      - name: Test tooling
+        run: ./koch testTools
+
+  doc:
+    name: Build HTML documentation
+    needs: [bootstrap]
+
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v2.3.5
+
+      - uses: ./.github/actions/download-compiler
+
+      - name: Build docs
+        run: |
+          branch=${{ github.ref }}
+          # Remove refs/heads/ prefix
+          branch=${branch##*/}
+
+          ./koch doc \
+            --git.url:'https://github.com/${{ github.repository }}' \
+            --git.commit:'${{ github.sha }}' \
+            --git.devel:"$branch"
+
+      - name: Publish
+        if: |
+          github.event_name == 'push' && github.ref == 'refs/heads/devel'
+        uses: crazy-max/ghaction-github-pages@v2.5.0
+        with:
+          build_dir: doc/html
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  passed:
+    name: All check passed
+    needs: [bootstrap, test, tooling, doc]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Raise failure
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::There are failing required jobs"
+          exit 1
