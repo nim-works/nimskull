@@ -154,6 +154,9 @@ jobs:
       - name: Enable annotations
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
+      - name: Build tooling
+        run: ./koch tools -d:release
+
       - name: Test tooling
         run: ./koch testTools
 
