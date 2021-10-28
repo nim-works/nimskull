@@ -1,3 +1,7 @@
+discard """
+  disabled: true
+"""
+
 ##[
 tests for misc pragmas that don't need a separate file
 ]##
