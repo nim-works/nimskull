@@ -1,0 +1,9 @@
+# Checks that has to pass before merge to devel can be done
+status = [
+  "All check passed"
+]
+
+# Checks that has to pass before bors will process the PR
+#
+# Ideally we set this to some light checks. Is not set for now.
+# pr_status = []

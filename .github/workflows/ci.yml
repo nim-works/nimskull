@@ -1,5 +1,12 @@
 name: Build and test
-on: [push, pull_request]
+on:
+  push:
+    # Empty configuration means use default (ie. test all branches)
+
+  pull_request:
+    # Only take PRs to devel
+    branches:
+      - devel
 
 # Run every script actions in bash
 defaults:
