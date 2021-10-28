@@ -306,6 +306,11 @@ proc boot(args: string) =
       extraOption.add " --skipUserCfg --skipParentCfg -d:nimKochBootstrap"
         # The configs are skipped for bootstrap
         # (1st iteration) to prevent newer flags from breaking bootstrap phase.
+
+      # Older bootstrapping compiler might not support magics used in the
+      # newer stdlib, so disable those warnings.
+      extraOption.add " --warning[UnknownMagic]:off"
+
       let ret = execCmdEx(nimStart & " --version")
       doAssert ret.exitCode == 0
       let version = ret.output.splitLines[0]
