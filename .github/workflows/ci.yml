@@ -26,8 +26,10 @@ jobs:
         with:
           # Cancel CI on outdated commits
           cancel_others: true
-          # Skip when a duplicated run (ie. from a PR) is done
-          skip_after_successful_duplicate: true
+          # Don't skip when a duplicated run (ie. from a PR) is done.
+          #
+          # Only CI in upstream has docs publishing rights.
+          skip_after_successful_duplicate: false
           # Skip newer runs with the same content
           concurrent_skipping: same_content_newer
 
