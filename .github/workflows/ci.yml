@@ -115,7 +115,6 @@ jobs:
       - name: Run tester
         run: ./koch test all
 
-
   orc:
     name: Test build compiler with ORC
     needs: [bootstrap]
@@ -177,7 +176,7 @@ jobs:
 
   passed:
     name: All check passed
-    needs: [bootstrap, test, tooling, doc]
+    needs: [bootstrap, test, tooling, doc, orc]
     if: always()
     runs-on: ubuntu-latest
 
