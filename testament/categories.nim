@@ -491,6 +491,22 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
   let megatestFile = testsDir / "megatest.nim" # so it uses testsDir / "config.nims"
   writeFile(megatestFile, megatest)
 
+  template backendErrorLogger(res: TResultEnum, errorOutput: string) =
+    ## Helper to log megatest failure output to test results
+    ##
+    ## We expect the program to exit soon after
+    if backendLogging:
+      backend.writeTestResult(name = MegaTestCat,
+                              category = MegaTestCat,
+                              target = "c",
+                              action = "run",
+                              result = $res,
+                              expected = "",
+                              given = errorOutput)
+
+      # Flush all buffers
+      backend.close()
+
   let root = getCurrentDir()
 
   var args = @["c", "--nimCache:" & outDir, "-d:testing", "-d:nimMegatest", "--listCmd",
@@ -499,11 +515,13 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
   args.add megatestFile
   var (cmdLine, buf, exitCode) = execCmdEx2(command = compilerPrefix, args = args, input = "")
   if exitCode != 0:
+    backendErrorLogger(reNimcCrash, buf)
     echo "$ " & cmdLine & "\n" & buf
     quit(failString & "megatest compilation failed")
 
   (buf, exitCode) = execCmdEx(megatestFile.changeFileExt(ExeExt).dup normalizeExe)
   if exitCode != 0:
+    backendErrorLogger(reOutputsDiffer, buf)
     echo buf
     quit(failString & "megatest execution failed")
 
@@ -520,7 +538,9 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
 
   if buf != outputExpected:
     writeFile(outputExceptedFile, outputExpected)
-    echo diffFiles(outputGottenFile, outputExceptedFile).output
+    let diff = diffFiles(outputGottenFile, outputExceptedFile).output
+    backendErrorLogger(reOutputsDiffer, diff)
+    echo diff
     echo failString & "megatest output different, see $1 vs $2" % [outputGottenFile, outputExceptedFile]
     # outputGottenFile, outputExceptedFile not removed on purpose for debugging.
     quit 1

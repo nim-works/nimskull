@@ -81,6 +81,7 @@ Commands for core developers:
   tests [options]          run the testsuite (run a subset of tests by
                            specifying a category, e.g. `tests cat async`)
   temp options             creates a temporary compiler for testing
+  testTools                run tooling testsuite
 Web options:
   --googleAnalytics:UA-... add the given google analytics code to the docs. To
                            build the official docs, use UA-48159761-1
@@ -305,6 +306,11 @@ proc boot(args: string) =
       extraOption.add " --skipUserCfg --skipParentCfg -d:nimKochBootstrap"
         # The configs are skipped for bootstrap
         # (1st iteration) to prevent newer flags from breaking bootstrap phase.
+
+      # Older bootstrapping compiler might not support magics used in the
+      # newer stdlib, so disable those warnings.
+      extraOption.add " --warning[UnknownMagic]:off"
+
       let ret = execCmdEx(nimStart & " --version")
       doAssert ret.exitCode == 0
       let version = ret.output.splitLines[0]
@@ -523,6 +529,18 @@ proc installDeps(dep: string, commit = "") =
   else: doAssert false, "unsupported: " & dep
   # xxx: also add linenoise, niminst etc, refs https://github.com/nim-lang/RFCs/issues/206
 
+proc testTools(cmd: string) =
+  execFold("Run nimdoc tests", "nim r nimdoc/tester")
+  execFold("Run rst2html tests", "nim r nimdoc/rsttester")
+  execFold("Run nimpretty tests", "nim r nimpretty/tester.nim")
+  # refs #18385, build with -d:release instead of -d:danger for testing
+  # We could also skip building nimsuggest in buildTools, or build it with -d:release
+  # in bundleNimsuggest depending on some environment variable when we are in CI. One advantage
+  # of rebuilding is this won't affect bin/nimsuggest when running runCI locally
+  execFold("build nimsuggest_testing", "nim c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest")
+  execFold("Run nimsuggest tests", "nim r nimsuggest/tester")
+  execFold("Run atlas tests", "nim c -r -d:atlasTests tools/atlas/atlas.nim clone https://github.com/disruptek/balls")
+
 proc runCI(cmd: string) =
   doAssert cmd.len == 0, cmd # avoid silently ignoring
   echo "runCI: ", cmd
@@ -544,17 +562,7 @@ proc runCI(cmd: string) =
   # BUG: with initOptParser, `--batch:'' all` interprets `all` as the argument of --batch, pending bug #14343
   execFold("Run tester", "nim c -r --putenv:NIM_TESTAMENT_REMOTE_NETWORKING:1 -d:nimStrictMode testament/testament $# all -d:nimCoroutines" % batchParam)
 
-  execFold("Run nimdoc tests", "nim r nimdoc/tester")
-  execFold("Run rst2html tests", "nim r nimdoc/rsttester")
-  execFold("Run nimpretty tests", "nim r nimpretty/tester.nim")
-  when defined(posix):
-    # refs #18385, build with -d:release instead of -d:danger for testing
-    # We could also skip building nimsuggest in buildTools, or build it with -d:release
-    # in bundleNimsuggest depending on some environment variable when we are in CI. One advantage
-    # of rebuilding is this won't affect bin/nimsuggest when running runCI locally
-    execFold("build nimsuggest_testing", "nim c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest")
-    execFold("Run nimsuggest tests", "nim r nimsuggest/tester")
-  execFold("Run atlas tests", "nim c -r -d:atlasTests tools/atlas/atlas.nim clone https://github.com/disruptek/balls")
+  testTools(cmd)
 
   when not defined(bsd):
     if not doUseCpp:
@@ -664,6 +672,7 @@ when isMainModule:
       of "installdeps": installDeps(op.cmdLineRest)
       of "runci": runCI(op.cmdLineRest)
       of "test", "tests": tests(op.cmdLineRest)
+      of "testtools": testTools(op.cmdLineRest)
       of "temp": temp(op.cmdLineRest)
       of "xtemp": xtemp(op.cmdLineRest)
       of "wintools": bundleWinTools(op.cmdLineRest)

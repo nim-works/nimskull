@@ -1,0 +1,23 @@
+name: Upload the compiler workspace
+description: Upload the built compiler for re-use by other jobs
+inputs:
+  workspace:
+    description: What to upload
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Package workspace
+      run: |
+        # Package new and changed files
+        readarray -d '' diff < <(git ls-files -zmo)
+        tar cf '${{ runner.temp }}/compiler.tar' "${diff[@]}"
+      shell: bash
+      working-directory: '${{ inputs.source }}'
+
+    - uses: actions/upload-artifact@v2.2.4
+      with:
+        name: compiler ${{ runner.os }}
+        path: '${{ runner.temp }}/compiler.tar'

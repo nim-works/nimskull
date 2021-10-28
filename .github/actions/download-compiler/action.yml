@@ -1,0 +1,23 @@
+name: Download compiler workspace
+description: Download the compiler uploaded by upload-compiler
+inputs:
+  workspace:
+    description: Where to extract the compiler
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/download-artifact@v2.0.10
+      with:
+        name: compiler ${{ runner.os }}
+        path: '${{ runner.temp }}'
+
+    - name: Extract and add binaries to PATH
+      run: |
+        tar xf '${{ runner.temp }}/compiler.tar'
+
+        python -c 'import os; print(os.path.abspath("bin"))' > "$GITHUB_PATH"
+      shell: bash
+      working-directory: '${{ inputs.workspace }}'
