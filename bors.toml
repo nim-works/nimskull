@@ -4,6 +4,6 @@ status = [
 ]
 
 # Checks that has to pass before bors will process the PR
-#
-# Ideally we set this to some light checks. Is not set for now.
-# pr_status = []
+pr_status = [
+  "PR has only one commit"
+]
