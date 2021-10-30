@@ -52,6 +52,8 @@ and community.
 
 ## Near-Term Development
 
+![](./doc/fixup_roadmap.png)
+
 The current and key areas of development are as follows:
 1. spec - clarify the language specification and memorialize it in tests
 2. nkError - replace `localError` etc approach with an AST (`nkError`) one
