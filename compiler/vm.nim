@@ -1044,7 +1044,12 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
                                      strictSymEquality=true))
     of opcSameNodeType:
       decodeBC(rkInt)
-      regs[ra].intVal = ord(regs[rb].node.typ.sameTypeOrNil regs[rc].node.typ)
+      let
+        aTyp = regs[rb].node.typ.skipTypes({tyGenericInst, tyAlias}) # Skip over generic aliases
+        bTyp = regs[rc].node.typ.skipTypes({tyGenericInst, tyAlias})
+      regs[ra].intVal = ord(aTyp.sameTypeOrNil(bTyp, {ExactTypeDescValues, ExactGenericParams}))
+      # The types should exactly match which is why we pass `{ExactTypeDescValues, ExactGenericParams}`.
+      # This solves checks with generics.
     of opcXor:
       decodeBC(rkInt)
       regs[ra].intVal = ord(regs[rb].intVal != regs[rc].intVal)
