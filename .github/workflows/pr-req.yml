@@ -12,6 +12,9 @@ defaults:
 
 jobs:
   handle_pr:
+    # Don't run when its a draft PR
+    if: '!github.event.pull_request.draft'
+
     name: PR has only one commit
 
     runs-on: ubuntu-latest
