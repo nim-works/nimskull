@@ -510,7 +510,7 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
   let root = getCurrentDir()
 
   var args = @["c", "--nimCache:" & outDir, "-d:testing", "-d:nimMegatest", "--listCmd",
-              "--path:" & root]
+               "--listFullPaths:on", "--path:" & root]
   args.add options.parseCmdLine
   args.add megatestFile
   var (cmdLine, buf, exitCode) = execCmdEx2(command = compilerPrefix, args = args, input = "")
