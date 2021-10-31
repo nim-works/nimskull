@@ -3,14 +3,18 @@
 The Nim-Works compiler, stdlib, tools, and documentation repository. Nim-Works
 is presently a derivative of [Nim][nim-site]. Its intention best described by:
 
-> Remake make not what was or is; but rather discover the language we believe
-> it to be and the promise within. That discovery is a slowly evolving
-> conversation with and among ourselves, and with the code as it is today and
-> as it evolves.
+> Nimskull is not an alternative implementation; it's a reimaging of the language
+> that aims for a community where if one uses the language then they also
+> contribute directly to the language. This is a community effort with a strong
+> emphasis on sustainability, the contributor community comes first.
+> 
+> As to why this fork exists, it's a matter of taste and this would not exist
+> if governance, language design, type system, implementation choices, standard
+> library, package management, and more had an acceptable trajectory.
 
 Ultimately this will mean a different community, language, standard library,
 and much more. For now it's closer to an alternative with most deviations
-appearing in the standard library to begin with.
+appearing in the standard library, mostly in the form of deleting much of it.
 
 PS. the name `Nimskull` is temporary
 
