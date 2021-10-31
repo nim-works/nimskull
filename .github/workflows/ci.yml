@@ -12,6 +12,13 @@ on:
     branches:
       - devel
 
+    # Type of events to run CI on
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
 # Run every script actions in bash
 defaults:
   run:
@@ -22,7 +29,7 @@ jobs:
     name: Provide additional context for the workflow
     runs-on: ubuntu-latest
     outputs:
-      skip: ${{ steps.run_cond.outputs.should_skip }}
+      skip: ${{ steps.skip_result.outputs.result }}
 
     steps:
       - id: run_cond
@@ -38,6 +45,18 @@ jobs:
           concurrent_skipping: same_content_newer
           # Do not skip on push, dispatched or cron
           do_not_skip: '["push", "workflow_dispatch", "schedule"]'
+
+      - id: skip_result
+        name: Whether to skip checks
+        run: |
+          if [[ '${{ steps.run_cond.outputs.should_skip }}' == true ]]; then
+            echo "::set-output name=result::true"
+          elif [[ '${{ github.event.pull_request.draft }}' == true ]]; then
+            echo "Pull request is in draft state, skipping"
+            echo "::set-output name=result::true"
+          else
+            echo "::set-output name=result::false"
+          fi
 
   bootstrap:
     name: Bootstrap the compiler
