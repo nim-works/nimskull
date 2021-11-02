@@ -1,0 +1,257 @@
+name: Action for squashing a PR
+on:
+  # Temporary for testing
+  pull_request:
+
+  issue_comment:
+    types: [created]
+
+# Run every script actions in bash
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  squash:
+    # Only run on comments to pull requests
+    #if: 'github.event.issue.pull_request'
+
+    name: Squash PR into one commit
+
+    runs-on: ubuntu-latest
+
+    steps:
+      # Same thing but in JS and purely based on Github's API
+      - uses: actions/github-script@v5.0.0
+        with:
+          script: |
+            // Function to access an object value given a path
+            function get(obj, path) {
+              return path.split('.').reduce((a, b) => a[b], obj);
+            }
+
+            // Function to facilitate pagination for graphql queries
+            async function paginate(query, vars, pageInfoPath) {
+              let result = [];
+
+              vars = vars || {};
+              vars.endCursor = vars.endCursor || "";
+              while (true) {
+                const queryRes = await github.graphql(query, vars);
+                const { endCursor, hasNextPage } = get(queryRes, pageInfoPath);
+                vars.endCursor = endCursor;
+                result.push(queryRes);
+
+                if (!hasNextPage) break;
+              }
+
+              return result;
+            }
+
+            const pr = (await github.graphql(`
+              query pr($owner: String!, $repo: String!, $pr: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $pr) {
+                    author { ...authorData }
+
+                    # Needed for squash commit
+                    title
+                    body
+
+                    # Needed for pushing the squashed commit to Github
+                    headRef {
+                      id
+                    }
+                    headRepository {
+                      name
+                      owner {
+                        login
+                      }
+                    }
+
+                    # Needed to use as parent of the squashed commit
+                    baseRefOid
+                  }
+                }
+              }
+
+              # The data required to construct a git author
+              fragment authorData on Actor {
+                login
+
+                ... on User {
+                  databaseId
+                  name
+                  email
+                }
+
+                ... on Bot {
+                  databaseId
+                }
+              }
+              `,
+              {
+                ...context.repo,
+                pr: context.issue.number
+              }
+            )).repository.pullRequest;
+
+            const authorDataFrag = `
+              fragment authorData on GitActorConnection {
+                nodes {
+                  name
+                  email
+                  user {
+                    login
+                  }
+                }
+              }
+            `;
+
+            let commits = await paginate(`
+              query commitInfo($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $pr) {
+                    commits(after: $endCursor, first: 20) {
+                      nodes {
+                        commit {
+                          # Get the ID in case there are more than 5 authors in a commit
+                          id
+
+                          # Get the tree ID in order to construct the squash
+                          tree {
+                            oid
+                          }
+
+                          authors(first: 5) {
+                            ...authorData
+
+                            pageInfo {
+                              endCursor
+                              hasNextPage
+                            }
+                          }
+                        }
+                      }
+
+                      pageInfo {
+                        endCursor
+                        hasNextPage
+                      }
+                    }
+                  }
+                }
+              }
+
+              ${ authorDataFrag }
+              `,
+              {
+                ...context.repo,
+                pr: context.issue.number
+              },
+              "repository.pullRequest.commits.pageInfo"
+            )
+
+            // Get into the commit nodes, and merge the nodes arrays as well
+            commits = commits.flatMap((x) => x.repository.pullRequest.commits.nodes)
+            // Unwrap the commit nodes
+            commits = commits.map((x) => x.commit)
+            // Unwrap authors into nodes, while performing pagination if necessary
+            async function authorsFromCommit(x) {
+              let result = x.authors.nodes;
+
+              if (x.authors.pageInfo.hasNextPage) {
+                const authors = await paginate(`
+                  query authors($id: ID!, $endCursor: String) {
+                    node(id: $id) {
+                      ... on Commit {
+                        authors(after: $endCursor, first: 5) {
+                          ...authorData
+
+                          pageInfo {
+                            endCursor
+                            hasNextPage
+                          }
+                        }
+                      }
+                    }
+                  }
+
+                  ${ authorDataFrag }
+                  `,
+                  {
+                    id: x.id,
+                    endCursor: x.authors.pageInfo.endCursor
+                  },
+                  "node.authors.pageInfo"
+                );
+
+                result = result.concat(authors.flatMap((x) => x.node.authors.nodes));
+              }
+
+              return result;
+            }
+            let authors = (await Promise.all(commits.map(authorsFromCommit))).flat();
+
+            // Get the first author object where the commit user is the PR author
+            let isPrAuthor = (x) => x.user && x.user.login == pr.author.login;
+
+            function identityFromActor({ name, email }) {
+              return { name: name, email: email };
+            }
+
+            function identityFromPr({ author }) {
+              const name = (author.name && author.name.length > 0) ? author.name : author.login;
+              const email = (author.email && author.email.length > 0) ? author.email :
+                // This is the email format used for Github's noreply mails
+                `${author.databaseId}+${author.login}@users.noreply.github.com`;
+
+              return { name: name, email: email };
+            }
+
+            function coAuthorFromIdentity({ name, email }) {
+              return `Co-authored-by: ${name} <${email}>`;
+            }
+
+            const firstAuthor = identityFromActor(authors.find(isPrAuthor)) || identityFromPr(pr);
+            authors = authors.filter((x) => !isPrAuthor(x));
+            authors = authors.map(coAuthorFromIdentity).join('\n');
+
+            // Create the commit
+            function createMessage({ title, body }, coauthors) {
+              return `${title}
+
+            ${body}
+
+
+            ${coauthors}`;
+            }
+            // The "squashed" tree is simply the tree of the latest commit
+            const squashedTree = commits[commits.length - 1].tree.oid;
+            const { data: { sha: squashedSha, html_url: url } } = await github.rest.git.createCommit({
+              owner: pr.headRepository.owner.login,
+              repo: pr.headRepository.name,
+              author: firstAuthor,
+              message: createMessage(pr, authors),
+              tree: squashedTree,
+              parents: [pr.baseRefOid]
+            });
+
+            core.info(`Created squashed commit ${squashedSha}: ${url}`);
+
+            core.info(`Force-pushing commit ${squashedSha} to HEAD`);
+            await github.graphql(`
+              mutation ($ref: UpdateRefInput!) {
+                updateRef(input: $ref) {
+                  clientMutationId
+                }
+              }
+              `,
+              {
+                ref: {
+                  force: true,
+                  oid: squashedSha,
+                  refId: pr.headRef.id
+                }
+              }
+            )
