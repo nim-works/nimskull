@@ -1,7 +1,8 @@
 discard """
 description: '''
-By default object's fields are initialized to default values. To requires explicit
-initialization of a particular field it can be annotated with `{.requiresinit.}`
+By default an object's field(s) are initialized to default values. To require
+explicit initialization of a particular field it can be annotated with
+`{.requiresinit.}`
 '''
 
 errormsg: "The Object type requires the following fields to be initialized: field2."
@@ -36,6 +37,12 @@ block has_required_field:
   ## No value assigned on the field on construction - compilation fails
   let it2 = Object(field1: 2)
 
+block embedded_required_field:
+  type
+    Object =  object
+      field1: int
+      field2 {.requiresinit.}: int
+      field3: int
 
   ## Note that `requiresinit` annotation will propagate - for example
   type

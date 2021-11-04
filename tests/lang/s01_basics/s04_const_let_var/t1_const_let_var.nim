@@ -1,15 +1,20 @@
 discard """
-description: '''the very basics of const, let, and var'''
+description: '''
+The very basics of const, let, and var
+'''
 targets: "c cpp js"
 """
 
 # assign a value to `foo`, it's set once at a compile time
+# and is therefore immutable
 const foo = 1
 
 # assign a value to `bar`, it's set once at runtime
+# and is therefore immutable
 let bar = 2
 
-# assign a value to `baz`, it's can be changed at runtime
+# assign a value to `baz`, it can be changed at runtime
+# and is therefore mutable
 var baz = 2
 baz = 3
 

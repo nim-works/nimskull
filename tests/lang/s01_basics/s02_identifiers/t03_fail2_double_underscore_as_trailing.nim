@@ -1,6 +1,6 @@
 discard """
 description: '''
-two consecutive underscores are considered a break in an identifier, or a
+Two consecutive underscores are considered a break in an identifier, or a
 trailing underscore per the error.
 '''
 action: reject

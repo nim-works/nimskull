@@ -59,6 +59,7 @@ echo #[since they're terminated we can sneak them in]# 7
 ]#
 
 let foo = 9
+  ## Double hashes indicate documentation comments.
   ## while we're here let's document this
   ## we're gonna echo with it later
   ## ok, maybe now... (see below)
@@ -78,8 +79,11 @@ let bar = 11
 
 echo 11 # we can't document this guy, it's an oddball statement, hmmm :thinking_face:
 
+# We can use the same bracket notation as multiline comments to
+# create multiline documentation as below.
 let baz = 12
-  ##[ or we can
+  ##[ Check out this multi-line documentation-
+    or we can
                 get
         really
             creative

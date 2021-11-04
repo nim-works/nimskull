@@ -1,7 +1,8 @@
 discard """
 description: '''
-It is possible for objects to inherit fields from another. Each
-object has at most one parent type.
+It is possible for objects to inherit fields from another object. Each
+object has at most one parent type. This practice is common in Object
+Orientated Programming.
 '''
 """
 
@@ -14,7 +15,7 @@ block derive_from_root_obj:
     Derived = object of Base
       field3: int
 
-  ## `Derived` type has all newly declared fields as well as all types
+  ## `Derived` type has all new declared fields as well as all fields
   ## declared in parent objects.
   discard Derived(field3: 3, field2: 2, field1: 1)
 
@@ -27,7 +28,7 @@ block derive_from_root_obj:
 
 
 block derive_from_ref_root_obj:
-  ## While it is possible to derive regular object, usually inheritance is
+  ## While it is possible to inherit from regular objects, usually inheritance is
   ## used with `ref object` types.
   type
     Base = ref object of RootObj
@@ -43,16 +44,16 @@ block derive_from_ref_root_obj:
   ## Or storing multuple derived objects in the same sequence
   let baseSeq: seq[Base] = @[Base(), Derived()]
 
-  ## To check whether based object is a subtype you can use built-in `of`
-  ## operator
+  ## To check whether the base object is a subtype, you can use the built-in
+  ## `of` operator
   doAssert baseSeq[1] of Derived
   doAssert not(baseSeq[0] of Derived)
 
-  ## To convert base type back to derived you can use object conversion
+  ## To convert base type back to derived, you can use object conversion
   doAssert Derived(base).f2 == 12
 
-  ## If expressions cannot be converted to the derived type it will
-  ## result in `ObjectConversionDefect` begin raised
+  ## If expressions cannot be converted to the derived type, it will
+  ## result in an `ObjectConversionDefect` begin raised
   try:
     discard Derived(Base())
     doAssert false, "Had to raise defect"

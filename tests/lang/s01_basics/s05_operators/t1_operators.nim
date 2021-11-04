@@ -1,11 +1,11 @@
 discard """
 description:'''
-operators and tokens in the language:
+Operators and tokens in the language:
 - precedence is fixed
 - some keywords are operators as well
 - other tokens, not considered operators
 
-to be covered elsewhere:
+To be covered elsewhere:
 - operator overloading is allowed (to be covered laters/elsewhere)
   - though not all operators are available for overload
   - user defined operators one or a a combination of tokens

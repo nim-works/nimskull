@@ -1,6 +1,7 @@
 discard """
 description: '''
-Stropping, or how you can escape reserved/keywords and use them as identifiers
+Stropping; how you can escape reserved/keywords and use them as identifiers
+using backticks
 '''
 """
 

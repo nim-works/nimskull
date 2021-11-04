@@ -1,6 +1,6 @@
 discard """
 description: '''
-Different ways of passing arguments to procedures.
+Covers the multitude of ways you can pass arguments to procedures.
 '''
 """
 
@@ -8,7 +8,7 @@ Different ways of passing arguments to procedures.
 
 
 block different_number_of_arguments:
-  ## Procedure can accept zero or more arguments.
+  ## Procedures can accept zero or more arguments.
   proc zero(): int = 1
 
   doAssert zero() == 1
@@ -46,22 +46,23 @@ block command_syntax:
 
   command 12
 
-  ## Note that due to UFCS whitespace separating function name from the
-  ## arguments is important. In this case we have two procedures - one that
-  ## accepts tuple, and other for two arguments.
+  ## Note that due to UFCS whitespace, separating a procedure name from the
+  ## arguments changes behaviour. In this case we have two procedures - one that
+  ## accepts a tuple, and the other accepts two arguments.
   proc takesTuple(arg: (int, int)) = discard
   proc takesTwoArguments(arg1, arg2: int) = discard
 
-  ## Adding whitespace before parens will be considered calling proc via
-  ## command syntax and passing tuple as an argument.
+  ## Adding whitespace before the parenthesis will be considered calling the
+  ## procedure/function via command syntax; therefore, we are passing the tuple
+  ## as an argument.
   takesTuple (1, 2)
 
   ## No leading whitespace in this case will be considered a call with
-  ## regular syntax
+  ## regular syntax; therefore, we are passing two separate arguments.
   takesTwoArguments(1, 2)
 
 block block_syntax:
-  ## If needed, expression for arguments can be placed on the
+  ## If needed, expressions for arguments can be placed on
   ## multiple lines using block call syntax.
   proc blockProc(arg: int) = discard
 
@@ -76,7 +77,7 @@ block block_syntax:
   proc blockReturn(arg: int): int = arg
 
   ## Block syntax for procedure calls can also be used as an expression,
-  ## although no in the infix expressions (like `doAseert 12 == <block here>`)
+  ## although not in infix expressions (like `doAssert 12 == <block here>`)
   block:
     let res = blockReturn():
       12
@@ -90,8 +91,8 @@ block block_syntax:
     doAssert res == 12
 
 block block_syntax_do:
-  ## If there are multiple arguments that have to be placed on the
-  ## separate lines this can be achieved using `do:` for
+  ## If there are multiple arguments that have to be placed on
+  ## separate lines then you can use `do:` notation for
   ## the arguments.
   proc blockProc(arg1: int, arg2: int): (int, int) = (arg1, arg2)
 
@@ -113,8 +114,8 @@ block block_syntax_do:
 
     doAssert (12, 20) == res
 
-  ## Procedures called with block syntax as also be called using regular
-  ## command or parenthised syntax.
+  ## Procedures called with block syntax can also be called using regular
+  ## command or parenthesis syntax.
   doAssert (1, 2) == blockProc(1, 2)
 
   ## It is also possible to supply only certain arguments.
@@ -155,8 +156,8 @@ block default_argument:
 
 
 block named_argument_with_default:
-  ## It is possible to call procedure with default argument value
-  ## using named argument passing even regular ordering would've
+  ## It is possible to call procedures with default argument values
+  ## using named argument passing; even regular ordering would've
   ## prevented this
 
 
@@ -247,8 +248,8 @@ block varargs_arguments_no_converter:
       # Right nor results in `(@[1, 2, 0], @[true, false, false])`
       doAssert impl(1, 2, false) == (@[1, 2], @[false])
 
-    ## It is not possible to entirely omit leading varargs arguments, but it
-    ## is possible to explicitly pas values to the other varargs if present
+    ## It is not possible to entirely omit leading varargs arguments; however, it
+    ## is possible to explicitly pass values to the other varargs (if present)
     doAssert impl(va2 = true) == (newSeq[int](), @[true])
 
 
@@ -266,8 +267,8 @@ block varargs_arguments_no_converter:
       doAssert val == @[1,2,3]
 
     block:
-      ## When used without any arguments in the `let val = vaProc`
-      ## expressions, procedure itself gets assigned to the variable.
+      ## When used without any arguments/parenthesis in a an assignment
+      ## expression, then the procedure itself gets assigned to the variable.
       let val = vaProc
       doAssert val is proc
 

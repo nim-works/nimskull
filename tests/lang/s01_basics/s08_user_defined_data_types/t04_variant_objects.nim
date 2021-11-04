@@ -1,6 +1,6 @@
 discard """
 description: '''
-Test declaration, field access (checked and unchecked) for variant objects.
+Test declaration and field access (checked and unchecked) for variant objects.
 '''
 """
 
@@ -122,4 +122,3 @@ block unchecked_assign:
   doAssert it.fTrue == 0
 
 {.pop.}
-

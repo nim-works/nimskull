@@ -1,5 +1,7 @@
 discard """
-description: "basics of boolean types"
+description: '''
+Basics of boolean types
+'''
 target: "c cpp js"
 """
 
