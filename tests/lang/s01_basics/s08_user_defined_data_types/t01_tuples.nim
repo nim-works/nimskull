@@ -1,8 +1,8 @@
 discard """
 description: '''
-Tuples refer to a broadset of types, each of which has zero or more fields but
+Tuples refer to a broadset of types, each of which has zero or more fields; however,
 the total fields and their order, names, and individual types are fixed at time
-of definition. Tuples are structurally matched, meaning two tuple types that
+of definition. Tuples are structurally matched; two tuple types that
 have the same fields (in order, name, and type) are considered the same.
 
 Covers:

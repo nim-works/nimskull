@@ -1,6 +1,9 @@
 discard """
 description: '''
-Test procedure definition, return values, forward declarations
+Covers:
+- procedure definition
+- return values
+- forward declarations
 '''
 """
 
@@ -44,7 +47,8 @@ block t_return_tuple:
   doAssert returnNamedTuple().name1 == 13
   doAssert returnNamedTuple().name2 == 12
 
-  ## When returned from procedure named tuples still support all regular tuple operations,
+  ## When returned from a procedure, named tuples
+  ## still support all regular tuple operations
   let named = returnNamedTuple()
 
   ## Such as index-based access
@@ -65,8 +69,9 @@ block t_return_tuple:
   doAssert unpack2 == 12
 
 block t_accept_argument:
-  ## Procedure can accept one or more argument. For more tests/texamples with different
-  ## modess of argument passing see `t02_argument_passing.nim`.
+  ## Procedure can be defined with different argument numbers and requirements.
+  ## For more tests/examples with different
+  ## modes of argument passing see `t02_argument_passing.nim`.
   proc acceptArgument(arg: int): int =
 
     ## Passed arguments can be accessed directly within a procedure body.
@@ -86,7 +91,6 @@ block forward_declare:
 
   doAssert forward() == 12
   doAssert callsForward() == 12
-
 
 block declare_nested:
   proc main(): int =

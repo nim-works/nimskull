@@ -1,32 +1,42 @@
 discard """
 description: '''
-Covers basic features of objects - definition, construction, field access, field
-modification, copying.
+Covers basic features of objects:
+- definition
+- construction
+- field access
+- field modification
+- field copying
 '''
 """
 
+block inlineSimpleObject:
+  type SimpleInline = object
+    field1: int
+    field2: int
+
 block simple_object:
-  ## Object can be defined in a `type` section, using `TypeName = object`
-  ## and then listing all fields
+  ## Object can be defined in a `type` section using `TypeName = object`
+  ## followed by listing all fields
   type
     Simple = object
       field1: int
       field2: int
 
-  ## Object can be constructed using `TypeName(field: value, ...)` syntax.
+  ## Object can be constructed/instantiated using `TypeName(field: value, ...)` syntax.
   ## Fields that were not explicitly listed are set to their default values.
-  ## To assert that particular field is explicitly initialized in constructor
+  ## To require that a particular field is explicitly initialized when instantiated
   ## you can annotate it with `{.requiresinit.}` (for example of this see
   ## `t02_plain_object_requiresinit.nim`)
   let it = Simple(field1: 12)
 
-  ## To get value of a particular field use `value.field` syntax
+  ## To get the value of a particular field, use `value.field` syntax
   let field1Value = it.field1
 
   doAssert field1Value == 12
   doAssert it.field1 == 12
 
-  ## Fields that were not explicitly listed are set to the default values
+  ## Fields that were not explicitly listed are set to their default values (depends
+  ## on types default value)
   doAssert it.field2 == 0
 
   ## Order of field initialization is not important
@@ -70,7 +80,7 @@ block no_fields:
   let it = NoFields()
 
 block order_agnostic_declarations:
-  ## It is possible to define multiple objects in the same type section.
+  ## It is possible to define multiple objects in the same `type` section.
   type
     OtherPre = object
       field1: int
@@ -94,7 +104,7 @@ block order_agnostic_declarations:
       field2: int
 
 block mutating_instances:
-  ## After construction object's field can be modified
+  ## After construction, an object's field(s) can be modified
   type
     Object = object
       field: int
@@ -107,7 +117,7 @@ block mutating_instances:
   doAssert it.field == 228
 
 block ref_object:
-  ## If particular type is almost always used as a reference (`ref T`) it is
+  ## If a particular type is almost always used as a reference (`ref T`) it is
   ## possible to declare it as `ref object`.
   type
     Object = ref object
@@ -130,7 +140,7 @@ block ref_object:
   ## Defaults to nil
   doAssert isNil(defaulted)
 
-  ## To create new object use `new` proc. Constructed object will have all
+  ## To create new `ref object` use `new` proc. Constructed object will have all
   ## fields initialied to default values
   new(defaulted)
 

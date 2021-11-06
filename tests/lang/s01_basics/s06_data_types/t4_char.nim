@@ -1,4 +1,6 @@
 discard """
 disabled: true
-description: "placeholder file just in case, covered elsehwere"
+description: '''
+Placeholder file just in case, covered elsehwere
+'''
 """

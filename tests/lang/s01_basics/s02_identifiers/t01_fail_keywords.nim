@@ -1,6 +1,8 @@
 discard """
-  description: these are all reserved words and should raise an error
-  action: reject
+description: '''
+These are all reserved words and should raise an error
+'''
+action: reject
 """
 
 # XXX: this test needs to be broken up into individual files per test or

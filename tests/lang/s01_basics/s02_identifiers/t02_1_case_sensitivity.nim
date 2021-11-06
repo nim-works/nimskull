@@ -1,6 +1,6 @@
 discard """
 description: '''
-shows nim's partial case sensitivity at play:
+Shows nim's partial case sensitivity at play:
 - first letter of an identifier is matched as case sensitive
 - remaining are not
 - underscores are ignored
@@ -16,4 +16,3 @@ shows nim's partial case sensitivity at play:
 
 doAssert true and true == tRuE an_D t_rue,
   "after first character casing changes and adding underscores (`_`) works"
-
