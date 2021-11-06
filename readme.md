@@ -273,7 +273,7 @@ Generally? No. There will likely be exceptions to this. Our current focus remain
 
 <details>
 <summary class="blue">Can I help somehow?</summary>
-Presently we're very interested in people contributing than to growing our community; so if you would like to contribute, a good start is to help the ["language spec as tests" effort which is being led by @haxscramper](https://github.com/nim-works/nimskull/issues/10). If you're willing to drive deeper into the compiler then see the [nkError refactor to make the compiler approachable](https://github.com/nim-works/nimskull/projects) project.
+Presently we're very interested in people contributing than to growing our community; so if you would like to contribute, a good start is to help the <a href="https://github.com/nim-works/nimskull/issues/10">"language spec as tests" effort which is being led by @haxscramper</a>. If you're willing to drive deeper into the compiler then see the <a href="https://github.com/nim-works/nimskull/projects">"nkError refactor to make the compiler approachable"</a> project.
 </details>
 
 <details>
