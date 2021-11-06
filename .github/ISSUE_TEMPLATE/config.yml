@@ -1,10 +1,4 @@
 contact_links:
-  - name: Forum
-    url: https://forum.nim-lang.org
-    about: Please ask and answer questions here.
-  - name: Discord
-    url: https://discord.gg/nim
-    about: Please ask and answer questions here.
-  - name: Stack Overflow
-    url: https://stackoverflow.com/questions/tagged/nim-lang
+  - name: Github Discussions
+    url: https://github.com/nim-works/nimskull/discussions
     about: Please ask and answer questions here.
