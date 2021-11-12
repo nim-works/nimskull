@@ -47,21 +47,11 @@ type
     freedObjects: int        # max entries in cycle table
 
   GcStack {.final, pure.} = object
-    when nimCoroutines:
-      prev: ptr GcStack
-      next: ptr GcStack
-      maxStackSize: int      # Used to track statistics because we can not use
-                             # GcStat.maxStackSize when multiple stacks exist.
     bottom: pointer
-
-    when nimCoroutines:
-      pos: pointer
 
   GcHeap = object            # this contains the zero count and
                              # non-zero count table
     stack: GcStack
-    when nimCoroutines:
-      activeStack: ptr GcStack    # current executing coroutine stack.
     cycleThreshold: int
     when useCellIds:
       idGenerator: int
@@ -457,8 +447,7 @@ proc markStackAndRegisters(gch: var GcHeap) {.noinline, cdecl.} =
   forEachStackSlot(gch, gcMark)
 
 proc collectCTBody(gch: var GcHeap) =
-  when not nimCoroutines:
-    gch.stat.maxStackSize = max(gch.stat.maxStackSize, stackSize())
+  gch.stat.maxStackSize = max(gch.stat.maxStackSize, stackSize())
   when defined(nimTracing):
     if gch.tracing:
       c_fprintf(stdout, "------- stack marking phase:\n")
@@ -516,11 +505,6 @@ when not defined(useNimRtl):
              "[GC] collections: " & $gch.stat.collections & "\n" &
              "[GC] max threshold: " & $gch.stat.maxThreshold & "\n" &
              "[GC] freed objects: " & $gch.stat.freedObjects & "\n"
-    when nimCoroutines:
-      result.add "[GC] number of stacks: " & $gch.stack.len & "\n"
-      for stack in items(gch.stack):
-        result.add "[GC]   stack " & stack.bottom.repr & "[GC]     max stack size " & $stack.maxStackSize & "\n"
-    else:
-      result.add "[GC] max stack size: " & $gch.stat.maxStackSize & "\n"
+    result.add "[GC] max stack size: " & $gch.stat.maxStackSize & "\n"
 
 {.pop.}

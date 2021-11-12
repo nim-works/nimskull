@@ -1899,8 +1899,6 @@ include "system/gc_interface"
 # we have to compute this here before turning it off in except.nim anyway ...
 const NimStackTrace = compileOption("stacktrace")
 
-import system/coro_detection
-
 {.push checks: off.}
 # obviously we cannot generate checking operations here :-)
 # because it would yield into an endless recursion

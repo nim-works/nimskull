@@ -465,9 +465,6 @@ Miscellaneous
 * `colors <colors.html>`_
   This module implements color handling for Nim.
 
-* `coro <coro.html>`_
-  This module implements experimental coroutines in Nim.
-
 * `enumerate <enumerate.html>`_
   This module implements `enumerate` syntactic sugar based on Nim's macro system.
 

@@ -60,7 +60,7 @@ import std/[
 
   # Miscellaneous:
   colors, logging, sugar, unittest, varints,
-  # fails: browsers, coro
+  # fails: browsers
   # works but shouldn't: segfaults
 
   # Modules for JS backend:

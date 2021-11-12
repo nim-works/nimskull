@@ -62,7 +62,7 @@ import std/[
 
   # Miscellaneous:
   colors, sugar, varints,
-  # fails: browsers, coro, logging (times), segfaults, unittest (uses methods)
+  # fails: browsers, logging (times), segfaults, unittest (uses methods)
 
   # Modules for JS backend:
   # fails: asyncjs, dom, jsconsole, jscore, jsffi,

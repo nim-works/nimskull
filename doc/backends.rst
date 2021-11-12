@@ -84,7 +84,7 @@ available. This includes:
 * casting and other unsafe operations (`cast` operator, `zeroMem`, etc.)
 * file management
 * OS-specific operations
-* threading, coroutines
+* threading
 * some modules of the standard library
 * proper 64-bit integer arithmetic
 

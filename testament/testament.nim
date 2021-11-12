@@ -619,14 +619,9 @@ const disabledFilesDefault = @[
   "ioselectors_select.nim",
 ]
 
-when defined(windows):
-  const
-    # array of modules disabled from compilation test of stdlib.
-    disabledFiles = disabledFilesDefault & @["coro.nim"]
-else:
-  const
-    # array of modules disabled from compilation test of stdlib.
-    disabledFiles = disabledFilesDefault
+const
+  # array of modules disabled from compilation test of stdlib.
+  disabledFiles = disabledFilesDefault
 
 include categories
 
