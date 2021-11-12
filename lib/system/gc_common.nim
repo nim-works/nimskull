@@ -108,56 +108,9 @@ proc isNotForeign*(x: ForeignCell): bool =
   ## No deep copy has to be performed then.
   x.owner == addr(gch)
 
-when nimCoroutines:
-  iterator items(first: var GcStack): ptr GcStack =
-    var item = addr(first)
-    while true:
-      yield item
-      item = item.next
-      if item == addr(first):
-        break
-
-  proc append(first: var GcStack, stack: ptr GcStack) =
-    ## Append stack to the ring of stacks.
-    first.prev.next = stack
-    stack.prev = first.prev
-    first.prev = stack
-    stack.next = addr(first)
-
-  proc append(first: var GcStack): ptr GcStack =
-    ## Allocate new GcStack object, append it to the ring of stacks and return it.
-    result = cast[ptr GcStack](alloc0(sizeof(GcStack)))
-    first.append(result)
-
-  proc remove(first: var GcStack, stack: ptr GcStack) =
-    ## Remove stack from ring of stacks.
-    gcAssert(addr(first) != stack, "Main application stack can not be removed")
-    if addr(first) == stack or stack == nil:
-      return
-    stack.prev.next = stack.next
-    stack.next.prev = stack.prev
-    dealloc(stack)
-
-  proc remove(stack: ptr GcStack) =
-    gch.stack.remove(stack)
-
-  proc find(first: var GcStack, bottom: pointer): ptr GcStack =
-    ## Find stack struct based on bottom pointer. If `bottom` is nil then main
-    ## thread stack is is returned.
-    if bottom == nil:
-      return addr(gch.stack)
-
-    for stack in first.items():
-      if stack.bottom == bottom:
-        return stack
-
-  proc len(stack: var GcStack): int =
-    for _ in stack.items():
-      result = result + 1
-else:
-  # This iterator gets optimized out in forEachStackSlot().
-  iterator items(first: var GcStack): ptr GcStack = yield addr(first)
-  proc len(stack: var GcStack): int = 1
+# This iterator gets optimized out in forEachStackSlot().
+iterator items(first: var GcStack): ptr GcStack = yield addr(first)
+proc len(stack: var GcStack): int = 1
 
 when defined(nimdoc):
   proc setupForeignThreadGc*() {.gcsafe.} =
@@ -214,11 +167,8 @@ else:
   const stackIncreases = false
 
 proc stackSize(stack: ptr GcStack): int {.noinline.} =
-  when nimCoroutines:
-    var pos = stack.pos
-  else:
-    var pos {.volatile, noinit.}: pointer
-    pos = addr(pos)
+  var pos {.volatile, noinit.}: pointer
+  pos = addr(pos)
 
   if pos != nil:
     when stackIncreases:
@@ -233,60 +183,18 @@ proc stackSize(): int {.noinline.} =
   for stack in gch.stack.items():
     result = result + stack.stackSize()
 
-when nimCoroutines:
-  proc setPosition(stack: ptr GcStack, position: pointer) =
-    stack.pos = position
-    stack.maxStackSize = max(stack.maxStackSize, stack.stackSize())
-
-  proc setPosition(stack: var GcStack, position: pointer) =
-    setPosition(addr(stack), position)
-
-  proc getActiveStack(gch: var GcHeap): ptr GcStack =
-    return gch.activeStack
-
-  proc isActiveStack(stack: ptr GcStack): bool =
-    return gch.activeStack == stack
-else:
-  # Stack positions do not need to be tracked if coroutines are not used.
-  proc setPosition(stack: ptr GcStack, position: pointer) = discard
-  proc setPosition(stack: var GcStack, position: pointer) = discard
-  # There is just one stack - main stack of the thread. It is active always.
-  proc getActiveStack(gch: var GcHeap): ptr GcStack = addr(gch.stack)
-  proc isActiveStack(stack: ptr GcStack): bool = true
+# Stack positions do not need to be tracked if coroutines are not used.
+proc setPosition(stack: ptr GcStack, position: pointer) = discard
+proc setPosition(stack: var GcStack, position: pointer) = discard
+# There is just one stack - main stack of the thread. It is active always.
+proc getActiveStack(gch: var GcHeap): ptr GcStack = addr(gch.stack)
+proc isActiveStack(stack: ptr GcStack): bool = true
 
 {.push stack_trace: off.}
-when nimCoroutines:
-  proc GC_addStack(bottom: pointer) {.cdecl, dynlib, exportc.} =
-    # c_fprintf(stdout, "GC_addStack: %p;\n", bottom)
-    var stack = gch.stack.append()
-    stack.bottom = bottom
-    stack.setPosition(bottom)
-
-  proc GC_removeStack(bottom: pointer) {.cdecl, dynlib, exportc.} =
-    # c_fprintf(stdout, "GC_removeStack: %p;\n", bottom)
-    gch.stack.find(bottom).remove()
-
-  proc GC_setActiveStack(bottom: pointer) {.cdecl, dynlib, exportc.} =
-    ## Sets active stack and updates current stack position.
-    # c_fprintf(stdout, "GC_setActiveStack: %p;\n", bottom)
-    var sp {.volatile.}: pointer
-    gch.activeStack = gch.stack.find(bottom)
-    gch.activeStack.setPosition(addr(sp))
-
-  proc GC_getActiveStack() : pointer {.cdecl, exportc.} =
-    return gch.activeStack.bottom
 
 when not defined(useNimRtl):
   proc nimGC_setStackBottom(theStackBottom: pointer) =
     # Initializes main stack of the thread.
-    when nimCoroutines:
-      if gch.stack.next == nil:
-        # Main stack was not initialized yet
-        gch.stack.next = addr(gch.stack)
-        gch.stack.prev = addr(gch.stack)
-        gch.stack.bottom = theStackBottom
-        gch.stack.maxStackSize = 0
-        gch.activeStack = addr(gch.stack)
 
     if gch.stack.bottom == nil:
       # This branch will not be called when -d:nimCoroutines - it is fine,
@@ -303,9 +211,6 @@ when not defined(useNimRtl):
       else:
         gch.stack.bottom = cast[pointer](max(a, b))
 
-    when nimCoroutines:
-      if theStackBottom != nil: gch.stack.bottom = theStackBottom
-
     gch.stack.setPosition(theStackBottom)
 {.pop.}
 
@@ -320,9 +225,6 @@ proc isOnStack(p: pointer): bool =
   result = a <=% x and x <=% b
 
 when defined(sparc): # For SPARC architecture.
-  when nimCoroutines:
-    {.error: "Nim coroutines are not supported on this platform."}
-
   template forEachStackSlot(gch, gcMark: untyped) {.dirty.} =
     when defined(sparcv9):
       asm  """"flushw \n" """

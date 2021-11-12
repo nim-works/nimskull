@@ -108,14 +108,9 @@ type
     maxPause: int64          # max measured GC pause in nanoseconds
 
   GcStack {.final, pure.} = object
-    when nimCoroutines:
-      prev: ptr GcStack
-      next: ptr GcStack
-      maxStackSize: int      # Used to track statistics because we can not use
-                             # GcStat.maxStackSize when multiple stacks exist.
     bottom: pointer
 
-    when withRealTime or nimCoroutines:
+    when withRealTime:
       pos: pointer           # Used with `withRealTime` only for code clarity, see GC_Step().
     when withRealTime:
       bottomSaved: pointer
@@ -123,8 +118,6 @@ type
   GcHeap {.final, pure.} = object # this contains the zero count and
                                   # non-zero count table
     stack: GcStack
-    when nimCoroutines:
-      activeStack: ptr GcStack    # current executing coroutine stack.
     cycleThreshold: int
     zctThreshold: int
     when useCellIds:
@@ -805,11 +798,7 @@ proc collectCTBody(gch: var GcHeap) {.raises: [].} =
     let t0 = getticks()
   sysAssert(allocInv(gch.region), "collectCT: begin")
 
-  when nimCoroutines:
-    for stack in gch.stack.items():
-      gch.stat.maxStackSize = max(gch.stat.maxStackSize, stack.stackSize())
-  else:
-    gch.stat.maxStackSize = max(gch.stat.maxStackSize, stackSize())
+  gch.stat.maxStackSize = max(gch.stat.maxStackSize, stackSize())
   sysAssert(gch.decStack.len == 0, "collectCT")
   prepareForInteriorPointerChecking(gch.region)
   markStackAndRegisters(gch)
@@ -922,15 +911,11 @@ when not defined(useNimRtl):
              "[GC] zct capacity: " & $gch.zct.cap & "\n" &
              "[GC] max cycle table size: " & $gch.stat.cycleTableSize & "\n" &
              "[GC] max pause time [ms]: " & $(gch.stat.maxPause div 1000_000) & "\n"
-    when nimCoroutines:
-      result.add "[GC] number of stacks: " & $gch.stack.len & "\n"
-      for stack in items(gch.stack):
-        result.add "[GC]   stack " & stack.bottom.repr & "[GC]     max stack size " & cast[pointer](stack.maxStackSize).repr & "\n"
-    else:
-      # this caused memory leaks, see #10488 ; find a way without `repr`
-      # maybe using a local copy of strutils.toHex or snprintf
-      when defined(logGC):
-        result.add "[GC] stack bottom: " & gch.stack.bottom.repr
-      result.add "[GC] max stack size: " & $gch.stat.maxStackSize & "\n"
+
+    # this caused memory leaks, see #10488 ; find a way without `repr`
+    # maybe using a local copy of strutils.toHex or snprintf
+    when defined(logGC):
+      result.add "[GC] stack bottom: " & gch.stack.bottom.repr
+    result.add "[GC] max stack size: " & $gch.stat.maxStackSize & "\n"
 
 {.pop.} # profiler: off, stackTrace: off

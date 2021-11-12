@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim $target $options --hints:on --experimental:strictFuncs --experimental:views --threads:on -d:ssl -d:nimCoroutines $file"
+  cmd: "nim $target $options --hints:on --experimental:strictFuncs --experimental:views --threads:on -d:ssl $file"
   targets: "c"
 """
 {.warning[UnusedImport]: off.}
@@ -18,7 +18,6 @@ import
   colors,
   complex,
   cookies,
-  coro,
   cpuinfo,
   cpuload,
   critbits,

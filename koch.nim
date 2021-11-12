@@ -555,12 +555,12 @@ proc runCI(cmd: string) =
   ## run tests
   execFold("Test nimscript", "nim e tests/test_nimscript.nims")
   when defined(windows):
-    execFold("Compile tester", "nim c --usenimcache -d:nimCoroutines --os:genode -d:posix --compileOnly testament/testament")
+    execFold("Compile tester", "nim c --usenimcache --os:genode -d:posix --compileOnly testament/testament")
 
   # main bottleneck here
   # xxx: even though this is the main bottleneck, we could speedup the rest via batching with `--batch`.
   # BUG: with initOptParser, `--batch:'' all` interprets `all` as the argument of --batch, pending bug #14343
-  execFold("Run tester", "nim c -r --putenv:NIM_TESTAMENT_REMOTE_NETWORKING:1 -d:nimStrictMode testament/testament $# all -d:nimCoroutines" % batchParam)
+  execFold("Run tester", "nim c -r --putenv:NIM_TESTAMENT_REMOTE_NETWORKING:1 -d:nimStrictMode testament/testament $# all" % batchParam)
 
   testTools(cmd)
 

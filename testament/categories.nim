@@ -32,7 +32,6 @@ const
     "untestable", # see trunner_special
     "testdata",
     "nimcache",
-    "coroutines",
     "osproc",
     "shouldfail",
     "destructor"

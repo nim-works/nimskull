@@ -74,14 +74,9 @@ type
     maxPause: int64          # max measured GC pause in nanoseconds
 
   GcStack {.final, pure.} = object
-    when nimCoroutines:
-      prev: ptr GcStack
-      next: ptr GcStack
-      maxStackSize: int      # Used to track statistics because we can not use
-                             # GcStat.maxStackSize when multiple stacks exist.
     bottom: pointer
 
-    when withRealTime or nimCoroutines:
+    when withRealTime:
       pos: pointer           # Used with `withRealTime` only for code clarity, see GC_Step().
     when withRealTime:
       bottomSaved: pointer
@@ -90,8 +85,6 @@ type
                   # non-zero count table
     black, red: int # either 0 or 1.
     stack: GcStack
-    when nimCoroutines:
-      activeStack: ptr GcStack    # current executing coroutine stack.
     phase: Phase
     cycleThreshold: int
     when useCellIds:
@@ -642,8 +635,7 @@ proc collectCTBody(gch: var GcHeap) =
     let t0 = getticks()
   sysAssert(allocInv(gch.region), "collectCT: begin")
 
-  when not nimCoroutines:
-    gch.stat.maxStackSize = max(gch.stat.maxStackSize, stackSize())
+  gch.stat.maxStackSize = max(gch.stat.maxStackSize, stackSize())
   #gch.stat.maxStackCells = max(gch.stat.maxStackCells, gch.decStack.len)
   if collectALittle(gch):
     gch.cycleThreshold = max(InitialCycleThreshold, getOccupiedMem() *
@@ -657,19 +649,11 @@ proc collectCTBody(gch: var GcHeap) =
       if gch.maxPause > 0 and duration > gch.maxPause:
         c_fprintf(stdout, "[GC] missed deadline: %ld\n", duration)
 
-when nimCoroutines:
-  proc currentStackSizes(): int =
-    for stack in items(gch.stack):
-      result = result + stack.stackSize()
-
 proc collectCT(gch: var GcHeap) =
   # stackMarkCosts prevents some pathological behaviour: Stack marking
   # becomes more expensive with large stacks and large stacks mean that
   # cells with RC=0 are more likely to be kept alive by the stack.
-  when nimCoroutines:
-    let stackMarkCosts = max(currentStackSizes() div (16*sizeof(int)), ZctThreshold)
-  else:
-    let stackMarkCosts = max(stackSize() div (16*sizeof(int)), ZctThreshold)
+  let stackMarkCosts = max(stackSize() div (16*sizeof(int)), ZctThreshold)
   if (gch.greyStack.len >= stackMarkCosts or (cycleGC and
       getOccupiedMem(gch.region)>=gch.cycleThreshold) or alwaysGC) and
       gch.recGcLock == 0:
@@ -738,12 +722,7 @@ when not defined(useNimRtl):
              "[GC] grey stack capacity: " & $gch.greyStack.cap & "\n" &
              "[GC] max cycle table size: " & $gch.stat.cycleTableSize & "\n" &
              "[GC] max pause time [ms]: " & $(gch.stat.maxPause div 1000_000) & "\n"
-    when nimCoroutines:
-      result.add "[GC] number of stacks: " & $gch.stack.len & "\n"
-      for stack in items(gch.stack):
-        result.add "[GC]   stack " & stack.bottom.repr & "[GC]     max stack size " & $stack.maxStackSize & "\n"
-    else:
-      result.add "[GC] max stack size: " & $gch.stat.maxStackSize & "\n"
+    result.add "[GC] max stack size: " & $gch.stat.maxStackSize & "\n"
     GC_enable()
 
 {.pop.}
