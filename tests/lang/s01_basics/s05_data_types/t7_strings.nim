@@ -41,10 +41,10 @@ block string_concatenation:
   # indexing, assignment as copy, and mutation
   var strA = "abd"
   let strB = strA
-  
+
   doAssert strA == strB,   "strings should start out the same"
   doAssert strA[2] == 'd', "indexing into a string"
-  strA[2] = 'c' # change the last letter, strA and strB are no longer equal  
+  strA[2] = 'c' # change the last letter, strA and strB are no longer equal
   doAssert strA != strB,   "strings copy on assignment, therefore not equal"
   doAssert strA == "abc",  "after changing strings are lexographically equal"
 
@@ -56,5 +56,5 @@ block string_unicode_handling:
 block string_copy_on_assignment:
   # indexing, assignment as copy, and mutation
   let strA = "ab" & "c"
-  
+
   doAssert strA == "abc", "strings are concatenated and equal"

@@ -89,6 +89,20 @@ block unpacking_tuples:
 
   doAssert asgn1 == 12
   doAssert asgn2 == "123"
+
+  ## It is also possible to unpack tuples from `if` expressions
+  let (if1, if2) = if true: (1, 2) else: (3, 4)
+
+  doAssert if1 == 1
+  doAssert if2 == 2
+
+  
+  let (case1, case2) = 
+    case 1:
+      of 0: ("name1", "name2")
+      of 1: ("name3", "name3")
+      of 2: ("name4", "name5")
+      else: ("default", "xxx")
   
 
 block unpack_to_mutable:
