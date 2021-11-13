@@ -50,7 +50,9 @@ See the [FAQ](#FAQ).
 ![](./doc/fixup_roadmap.png)
 
 The current and key areas of development are as follows:
-1. spec - clarify the language specification and memorialize it in tests
+1. improve tests - clarify the language specification and memorialize it in tests. 
+   Reorganize existsing tests. [Project](https://github.com/nim-works/nimskull/projects/2)
+   to track progress.
 2. nkError - replace `localError` etc approach with an AST (`nkError`) one
 3. comments - incrementally document compiler source for easier learning
 
