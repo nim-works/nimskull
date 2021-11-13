@@ -2,11 +2,16 @@
 
 Here we have tests for the very simple parts of the language, that we often
 would not think to test. Mostly this captures minor trivia around:
+
 - comments
 - literals
-- if statements
-- etc
+- if, while and case statements
+- code block and scopes
+- primitive expressions
+- Pure-nim user-defined types, without going into details about interfacing
+  with C and C++ objects, pragmas and any other complications.
 
-Things that we barely think about -- if it fits better somewhere else put it
-there. This is a a place for the things too small, rather than too big and fit
-nowhere else.
+Tests in this section are mostly used to document how most basic interactions
+are done - stuff you would find in almost any regular imperative programming 
+language. Things that are more nim-specific should be placed in `s02_core` or
+other sections.

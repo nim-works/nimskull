@@ -45,11 +45,19 @@ Actual error message
 ## Detailed! explanation for the error cause and possible solutions to it.
 
 block working_example:
-  
+
 # One or more examples of working code
 
 block failing_example:
 
 # Example of the failing code
-    
+
 ```
+
+
+## File naming
+
+- `t01_feature_name.nim` - start file name with number to explicitly order features.
+- `t01_feature_name_run_fail.nim` - show example of the runtime failure
+- `t01_feature_name_comp_fail.nim` - show compilation error related to the feature
+- `t01_feature_name_warning.nim` - show compilation warning related to the feature
