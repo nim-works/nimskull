@@ -63,6 +63,7 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
                        errors: var CandidateErrors,
                        diagnosticsFlag: bool,
                        errorsEnabled: bool, flags: TExprFlags) =
+  assert efExplain in flags == diagnosticsFlag, "why do you not match"
   var o: TOverloadIter
   var sym = initOverloadIter(o, c, headSymbol)
   var scope = o.lastOverloadScope
@@ -107,10 +108,14 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
           if cmp < 0: best = z   # x is better than the best so far
           elif cmp == 0: alt = z # x is as good as the best so far
       elif errorsEnabled or z.diagnosticsEnabled:
+        # XXX: Collect diagnostics for matching, but not winning overloads too?
         errors.add(CandidateError(
           sym: sym,
           firstMismatch: z.firstMismatch,
-          diagnostics: z.diagnostics))
+          diagnostics: z.diagnostics,
+          isDiagnostic: z.diagnosticsEnabled or efExplain in flags
+          ))
+
     else:
       # Symbol table has been modified. Restart and pre-calculate all syms
       # before any further candidate init and compare. SLOW, but rare case.
@@ -199,11 +204,11 @@ proc presentFailedCandidates(c: PContext, n: PNode, errors: CandidateErrors):
         filterOnlyFirst = true
         break
 
-  var maybeWrongSpace = false
-
-  var candidatesAll: seq[string]
-  var candidates = ""
-  var skipped = 0
+  var
+    maybeWrongSpace = false
+    candidatesAll: seq[string]
+    candidates = ""
+    skipped = 0
   for err in errors:
     candidates.setLen 0
     if filterOnlyFirst and err.firstMismatch.arg == 1:
@@ -260,7 +265,7 @@ proc presentFailedCandidates(c: PContext, n: PNode, errors: CandidateErrors):
           n.kind == nkCommand:
         maybeWrongSpace = true
     for diag in err.diagnostics:
-      candidates.add(diag & "\n")
+      candidates.add(errorToString(c.config, diag) & "\n")
     candidatesAll.add candidates
   candidatesAll.sort # fix #13538
   candidates = join(candidatesAll)
@@ -280,27 +285,37 @@ const
   errBadRoutine = "attempting to call routine: '$1'$2"
   errAmbiguousCallXYZ = "ambiguous call; both $1 and $2 match for: $3"
 
-proc notFoundError*(c: PContext, n: PNode, errors: CandidateErrors) =
-  # Gives a detailed error message; this is separated from semOverloadedCall,
-  # as semOverloadedCall is already pretty slow (and we need this information
-  # only in case of an error).
+proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
+  ## Gives a detailed error message; this is separated from semOverloadedCall,
+  ## as semOverloadedCall is already pretty slow (and we need this information
+  ## only in case of an error).
+  ## returns an nkError
   if c.config.m.errorOutputs == {}:
+    # xxx: this is a hack to detect we're evaluating a constant expression or
+    #      some other vm code, it seems
     # fail fast:
-    globalError(c.config, n.info, "type mismatch")
-    return
+    result = newError(n, RawTypeMismatchError)
+    return # xxx: under the legacy error scheme, this was a `msgs.globalError`,
+           #      which means `doRaise`, but that made sense because we did a
+           #      double pass, now we simply return for fast exit.
   if errors.len == 0:
-    localError(c.config, n.info, "expression '$1' cannot be called" % n[0].renderTree)
+    # no further explanation available for reporting
+    result = newError(n, ExpressionCannotBeCalled)
     return
 
   let (prefer, candidates) = presentFailedCandidates(c, n, errors)
-  var result = errTypeMismatch
-  result.add(describeArgs(c, n, 1, prefer))
-  result.add('>')
+  var msg = errTypeMismatch
+  msg.add(describeArgs(c, n, 1, prefer))
+  msg.add('>')
   if candidates != "":
-    result.add("\n" & errButExpected & "\n" & candidates)
-  localError(c.config, n.info, result & "\nexpression: " & $n)
+    msg.add("\n" & errButExpected & "\n" & candidates)
+  result =
+    newError(
+      n,
+      msg & "\nexpression: " & n.renderTree({renderWithoutErrorPrefix})
+    )
 
-proc bracketNotFoundError(c: PContext; n: PNode) =
+proc bracketNotFoundError(c: PContext; n: PNode): PNode =
   var errors: CandidateErrors = @[]
   var o: TOverloadIter
   let headSymbol = n[0]
@@ -309,15 +324,22 @@ proc bracketNotFoundError(c: PContext; n: PNode) =
     if symx.kind in routineKinds:
       errors.add(CandidateError(sym: symx,
                                 firstMismatch: MismatchInfo(),
-                                diagnostics: @[],
-                                enabled: false))
+                                diagnostics: @[]))
     symx = nextOverloadIter(o, c, headSymbol)
-  if errors.len == 0:
-    localError(c.config, n.info, "could not resolve: " & $n)
-  else:
-    notFoundError(c, n, errors)
+  result =
+    if errors.len == 0:
+      newCustomErrorMsgAndNode(n, "could not resolve: ")
+    else:
+      notFoundError(c, n, errors)
 
-proc getMsgDiagnostic(c: PContext, flags: TExprFlags, n, f: PNode): string =
+proc getMsgDiagnostic(c: PContext, flags: TExprFlags, n, origF: PNode): string =
+  # for dotField calls, eg: `foo.bar()`, set f for nicer messages
+  let f =
+    if {nfDotField} <= n.flags and n.safeLen >= 3:
+      n[2]
+    else:
+      origF
+
   if c.compilesContextId > 0:
     # we avoid running more diagnostic when inside a `compiles(expr)`, to
     # errors while running diagnostic (see test D20180828T234921), and
@@ -352,7 +374,7 @@ proc getMsgDiagnostic(c: PContext, flags: TExprFlags, n, f: PNode): string =
 proc resolveOverloads(c: PContext, n, orig: PNode,
                       filter: TSymKinds, flags: TExprFlags,
                       errors: var CandidateErrors,
-                      errorsEnabled: bool): TCandidate =
+                      errorsEnabled: bool = true): TCandidate =
   var initialBinding: PNode
   var alt: TCandidate
   var f = n[0]
@@ -390,27 +412,27 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
 
     if nfDotField in n.flags:
       internalAssert c.config, f.kind == nkIdent and n.len >= 2
+      if f.ident.s notin [".", ".()"]: # a dot call on a dot call is invalid
+        # leave the op head symbol empty,
+        # we are going to try multiple variants
+        n.sons[0..1] = [nil, n[1], f]
+        orig.sons[0..1] = [nil, orig[1], f]
 
-      # leave the op head symbol empty,
-      # we are going to try multiple variants
-      n.sons[0..1] = [nil, n[1], f]
-      orig.sons[0..1] = [nil, orig[1], f]
+        template tryOp(x) =
+          let op = newIdentNode(getIdent(c.cache, x), n.info)
+          n[0] = op
+          orig[0] = op
+          pickBest(op)
 
-      template tryOp(x) =
-        let op = newIdentNode(getIdent(c.cache, x), n.info)
-        n[0] = op
-        orig[0] = op
-        pickBest(op)
+        if nfExplicitCall in n.flags:
+          tryOp ".()"
 
-      if nfExplicitCall in n.flags:
-        tryOp ".()"
-
-      if result.state in {csEmpty, csNoMatch}:
-        tryOp "."
+        if result.state in {csEmpty, csNoMatch}:
+          tryOp "."
 
     elif nfDotSetter in n.flags and f.kind == nkIdent and n.len == 3:
       # we need to strip away the trailing '=' here:
-      let calleeName = newIdentNode(getIdent(c.cache, f.ident.s[0..^2]), n.info)
+      let calleeName = newIdentNode(getIdent(c.cache, f.ident.s[0..^2]), f.info)
       let callOp = newIdentNode(getIdent(c.cache, ".="), n.info)
       n.sons[0..1] = [callOp, n[1], calleeName]
       orig.sons[0..1] = [callOp, orig[1], calleeName]
@@ -418,24 +440,25 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
 
     if overloadsState == csEmpty and result.state == csEmpty:
       if efNoUndeclared notin flags: # for tests/pragmas/tcustom_pragma.nim
-        template impl() =
-          # xxx adapt/use errorUndeclaredIdentifierHint(c, n, f.ident)
-          localError(c.config, n.info, getMsgDiagnostic(c, flags, n, f))
-        if n[0].kind == nkIdent and n[0].ident.s == ".=" and n[2].kind == nkIdent:
-          let sym = n[1].typ.sym
+        if n[0] != nil and n[0].kind == nkIdent and n[0].ident.s in [".", ".="] and n[2].kind == nkIdent:
+          let sym = n[1].typ.typSym
           if sym == nil:
-            impl()
+            # xxx adapt/use errorUndeclaredIdentifierHint(c, n, f.ident)
+            let msg = getMsgDiagnostic(c, flags, n, f)
+            result.call = newError(n, msg)
           else:
             let field = n[2].ident.s
             let msg = errUndeclaredField % field & " for type " & getProcHeader(c.config, sym)
-            localError(c.config, orig[2].info, msg)
+            n[2] = newError(n[2], msg)
+            result.call = wrapErrorInSubTree(n)
         else:
-          impl()
+          # xxx adapt/use errorUndeclaredIdentifierHint(c, n, f.ident)
+          let msg = getMsgDiagnostic(c, flags, n, f)
+          result.call = newError(n, msg)
       return
     elif result.state != csMatch:
       if nfExprCall in n.flags:
-        localError(c.config, n.info, "expression '$1' cannot be called" %
-                   renderTree(n, {renderNoComments}))
+        result.call = newError(n, ExpressionCannotBeCalled)
       else:
         if {nfDotField, nfDotSetter} * n.flags != {}:
           # clean up the inserted ops
@@ -499,10 +522,11 @@ proc inferWithMetatype(c: PContext, formal: PType,
     result.typ = generateTypeInstance(c, m.bindings, arg.info,
                                       formal.skipTypes({tyCompositeTypeClass}))
   else:
-    typeMismatch(c.config, arg.info, formal, arg.typ, arg)
-    # error correction:
-    result = copyTree(arg)
-    result.typ = formal
+    result = typeMismatch(c.config, arg.info, formal, arg.typ, arg)
+    if result.kind != nkError:
+      # error correction:
+      result = copyTree(arg)
+      result.typ = formal
 
 proc updateDefaultParams(call: PNode) =
   # In generic procs, the default parameter may be unique for each
@@ -584,44 +608,34 @@ proc tryDeref(n: PNode): PNode =
 
 proc semOverloadedCall(c: PContext, n, nOrig: PNode,
                        filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
-  var errors: CandidateErrors = @[] # if efExplain in flags: @[] else: nil
-  var r = resolveOverloads(c, n, nOrig, filter, flags, errors, efExplain in flags)
+  var errors: CandidateErrors = @[]
+
+  var r = resolveOverloads(c, n, nOrig, filter, flags, errors)
+  if r.state != csMatch and implicitDeref in c.features and canDeref(n):
+    # try to deref the first argument and then try overloading resolution again:
+    #
+    # XXX: why is this here?
+    #      it could be added to the long list of alternatives tried
+    #      inside `resolveOverloads` or it could be moved all the way
+    #      into sigmatch with hidden conversion produced there
+
+    n[1] = n[1].tryDeref
+    r = resolveOverloads(c, n, nOrig, filter, flags, errors)
+
   if r.state == csMatch:
     # this may be triggered, when the explain pragma is used
-    if errors.len > 0:
+    if (r.diagnosticsEnabled or efExplain in flags) and errors.len > 0:
       let (_, candidates) = presentFailedCandidates(c, n, errors)
       message(c.config, n.info, hintUserRaw,
               "Non-matching candidates for " & renderTree(n) & "\n" &
               candidates)
     result = semResolvedCall(c, r, n, flags)
-  elif implicitDeref in c.features and canDeref(n):
-    # try to deref the first argument and then try overloading resolution again:
-    #
-    # XXX: why is this here?
-    # it could be added to the long list of alternatives tried
-    # inside `resolveOverloads` or it could be moved all the way
-    # into sigmatch with hidden conversion produced there
-    #
-    n[1] = n[1].tryDeref
-    var r = resolveOverloads(c, n, nOrig, filter, flags, errors, efExplain in flags)
-    if r.state == csMatch: result = semResolvedCall(c, r, n, flags)
-    else:
-      # get rid of the deref again for a better error message:
-      n[1] = n[1][0]
-      #notFoundError(c, n, errors)
-      if efExplain notin flags:
-        # repeat the overload resolution,
-        # this time enabling all the diagnostic output (this should fail again)
-        discard semOverloadedCall(c, n, nOrig, filter, flags + {efExplain})
-      elif efNoUndeclared notin flags:
-        notFoundError(c, n, errors)
+  elif r.call != nil and r.call.kind == nkError:
+    result = r.call
+  elif efNoUndeclared notin flags:
+    result = notFoundError(c, n, errors)
   else:
-    if efExplain notin flags:
-      # repeat the overload resolution,
-      # this time enabling all the diagnostic output (this should fail again)
-      discard semOverloadedCall(c, n, nOrig, filter, flags + {efExplain})
-    elif efNoUndeclared notin flags:
-      notFoundError(c, n, errors)
+    result = r.call
 
 proc explicitGenericInstError(c: PContext; n: PNode): PNode =
   localError(c.config, getCallLineInfo(n), errCannotInstantiateX % renderTree(n))
@@ -725,6 +739,8 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
     let filter = if fn.kind in {skProc, skFunc}: {skProc, skFunc} else: {fn.kind}
     var resolved = semOverloadedCall(c, call, call, filter, {})
     if resolved != nil:
+      if resolved.kind == nkError:
+        localError(c.config, resolved.info, errorToString(c.config, resolved))
       result = resolved[0].sym
       if not compareTypes(result.typ[0], fn.typ[0], dcEqIgnoreDistinct):
         result = nil

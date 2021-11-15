@@ -19,17 +19,22 @@ type
   SigHash* = distinct MD5Digest
 
   LazySym* = object
+    ## represents a symbol that maybe in a module that may be loaded or not
+    ## yet fully defined. This is handy when we want to declare some symbols
+    ## who's definitions refer to each other first and then process the
+    ## definitions with lazy symbol resolution -- as in type sections.
     id*: FullId
     sym*: PSym
 
-  Iface* = object       ## data we don't want to store directly in the
-                        ## ast.PSym type for s.kind == skModule
-    module*: PSym       ## module this "Iface" belongs to
+  Iface* = object
+    ## data we don't want to store directly in the ast.PSym type for
+    ## `s.kind == skModule`
+    module*: PSym             ## module this "Iface" belongs to
     converters*: seq[LazySym]
-    patterns*: seq[LazySym]
+    patterns*: seq[LazySym]   ## patterns for term rewriting macros -- ick
     pureEnums*: seq[LazySym]
     interf: TStrTable
-    interfHidden: TStrTable
+    interfHidden: TStrTable   ## xxx: unexported or internal interface?
     uniqueName*: Rope
 
   Operators* = object
@@ -41,6 +46,10 @@ type
     packed*: PackedItemId
 
   LazyType* = object
+    ## represents a type that maybe in a module that may be loaded or not
+    ## yet fully defined. This is handy when we want to declare some symbols
+    ## who's definitions refer to each other first and then process the
+    ## definitions with lazy type resolution -- as in type sections.
     id*: FullId
     typ*: PType
 
@@ -410,6 +419,7 @@ proc registerModule*(g: ModuleGraph; m: PSym) =
 
   g.ifaces[m.position] = Iface(module: m, converters: @[], patterns: @[],
                                uniqueName: rope(uniqueModuleName(g.config, FileIndex(m.position))))
+  
   initStrTables(g, m)
 
 proc registerModuleById*(g: ModuleGraph; m: FileIndex) =
@@ -568,17 +578,22 @@ proc isDirty*(g: ModuleGraph; m: PSym): bool =
   result = g.suggestMode and sfDirty in m.flags
 
 proc getBody*(g: ModuleGraph; s: PSym): PNode {.inline.} =
-  result = s.ast[bodyPos]
-  if result == nil and g.config.symbolFiles in {readOnlySf, v2Sf, stressTest}:
-    result = loadProcBody(g.config, g.cache, g.packed, s)
-    s.ast[bodyPos] = result
+  if s.kind == skError:
+    result = s.ast
+    assert result != nil and result.kind == nkError,
+      "assume we've populated the nkError here"
+  else:
+    result = s.ast[bodyPos]
+    if result == nil and g.config.symbolFiles in {readOnlySf, v2Sf, stressTest}:
+      result = loadProcBody(g.config, g.cache, g.packed, s)
+      s.ast[bodyPos] = result
   assert result != nil
 
 proc moduleFromRodFile*(g: ModuleGraph; fileIdx: FileIndex;
                         cachedModules: var seq[FileIndex]): PSym =
   ## Returns 'nil' if the module needs to be recompiled.
   if g.config.symbolFiles in {readOnlySf, v2Sf, stressTest}:
-    result = moduleFromRodFile(g.packed, g.config, g.cache, fileIdx, cachedModules)
+    result = ic.moduleFromRodFile(g.packed, g.config, g.cache, fileIdx, cachedModules)
 
 proc configComplete*(g: ModuleGraph) =
   rememberStartupConfig(g.startupPackedConfig, g.config)

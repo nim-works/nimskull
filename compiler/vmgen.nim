@@ -664,6 +664,9 @@ proc genAsgnPatch(c: PCtx; le: PNode, value: TRegister) =
       let dest = c.genx(le, {gfNodeAddr})
       c.gABC(le, opcWrDeref, dest, 0, value)
       c.freeTemp(dest)
+  of nkError:
+    # XXX: do a better job with error generation
+    globalError(c.config, le.info, "cannot generate code for: " & $le)
   else:
     discard
 
@@ -1392,6 +1395,7 @@ proc canElimAddr(n: PNode): PNode =
       # addr ( nkConv ( deref ( x ) ) ) --> nkConv(x)
       result = copyNode(n[0])
       result.add m[0]
+  of nkError: result = nil
   else:
     if n[0].kind in {nkDerefExpr, nkHiddenDeref}:
       # addr ( deref ( x )) --> x
@@ -1504,6 +1508,9 @@ proc preventFalseAlias(c: PCtx; n: PNode; opc: TOpcode;
 
 proc genAsgn(c: PCtx; le, ri: PNode; requiresCopy: bool) =
   case le.kind
+  of nkError:
+    # XXX: do a better job with error generation
+    globalError(c.config, le.info, "cannot generate code for: " & $le)
   of nkBracketExpr:
     let dest = c.genx(le[0], {gfNode})
     let idx = c.genIndex(le[1], le[0].typ)
@@ -1984,6 +1991,9 @@ proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
   when defined(nimCompilerStacktraceHints):
     setFrameMsg c.config$n.info & " " & $n.kind & " " & $flags
   case n.kind
+  of nkError:
+    # XXX: do a better job with error generation
+    globalError(c.config, n.info, "cannot generate code for: " & $n)
   of nkSym:
     let s = n.sym
     checkCanEval(c, n)

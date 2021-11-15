@@ -625,8 +625,15 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
   pushOwner(c, s)
   openScope(c)
   n[namePos] = newSymNode(s)
-  pragmaCallable(c, s, n, templatePragmas)
-  implicitPragmas(c, s, n.info, templatePragmas)
+  result = pragmaCallable(c, s, n, templatePragmas)
+  if result.kind != nkError:
+    s = implicitPragmas(c, s, n.info, templatePragmas)
+  
+  # check if we got any errors and if so report them
+  if s != nil and s.kind == skError:
+    result = s.ast
+  for e in ifErrorWalkErrors(c.config, result):
+    messageError(c.config, e)
 
   setGenericParamsMisc(c, n)
   # process parameters:

@@ -1,10 +1,11 @@
 discard """
   cmd: "nim check $file"
-  errormsg: "selector must be of an ordinal type, float or string"
+  errormsg: "selector must be of an ordinal type, float, or string"
   nimout: '''
-t10735.nim(38, 5) Error: 'let' symbol requires an initialization
-t10735.nim(39, 10) Error: undeclared identifier: 'pos'
-t10735.nim(39, 9) Error: type mismatch: got <cstring, >
+t10735.nim(40, 5) Error: 'let' symbol requires an initialization
+t10735.nim(41, 10) Error: undeclared identifier: 'pos'
+t10735.nim(41, 10) Error: expression 'pos' has no type (or is ambiguous)
+t10735.nim(41, 9) Error: type mismatch: got <cstring, >
 but expected one of:
 proc `[]`(s: string; i: BackwardsIndex): char
   first type mismatch at position: 0
@@ -30,7 +31,8 @@ template `[]`(s: string; i: int): char
   first type mismatch at position: 0
 
 expression: `[]`(buf, pos)
-t10735.nim(39, 9) Error: selector must be of an ordinal type, float or string
+t10735.nim(41, 9) Error: expression 'buf[pos]' has no type (or is ambiguous)
+t10735.nim(41, 9) Error: selector must be of an ordinal type, float, or string
 '''
   joinable: false
 """

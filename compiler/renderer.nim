@@ -21,7 +21,8 @@ type
   TRenderFlag* = enum
     renderNone, renderNoBody, renderNoComments, renderDocComments,
     renderNoPragmas, renderIds, renderNoProcDefs, renderSyms, renderRunnableExamples,
-    renderIr
+    renderIr,
+    renderWithoutErrorPrefix # do not prefix error nodes with 'error '
   TRenderFlags* = set[TRenderFlag]
   TRenderTok* = object
     kind*: TokType
@@ -1694,7 +1695,8 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
   of nkTypeClassTy:
     gTypeClassTy(g, n)
   of nkError:
-    putWithSpace(g, tkSymbol, "error")
+    if renderWithoutErrorPrefix notin g.flags:
+      putWithSpace(g, tkSymbol, "error")
     #gcomma(g, n, c)
     gsub(g, n[0], c)
   else:

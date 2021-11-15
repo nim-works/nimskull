@@ -640,17 +640,17 @@ proc suggestExprNoCheck*(c: PContext, n: PNode) =
     if n.kind in nkCallKinds:
       var a = copyNode(n)
       var x = safeSemExpr(c, n[0])
-      if x.kind == nkEmpty or x.typ == nil: x = n[0]
+      if x.kind == nkEmpty or x.typ == nil or x.isErrorLike: x = n[0]
       a.add x
       for i in 1..<n.len:
         # use as many typed arguments as possible:
         var x = safeSemExpr(c, n[i])
-        if x.kind == nkEmpty or x.typ == nil: break
+        if x.kind == nkEmpty or x.typ == nil or x.isErrorLike: break
         a.add x
       suggestCall(c, a, n, outputs)
     elif n.kind in nkIdentKinds:
       var x = safeSemExpr(c, n)
-      if x.kind == nkEmpty or x.typ == nil: x = n
+      if x.kind == nkEmpty or x.typ == nil or x.isErrorLike: x = n
       suggestVar(c, x, outputs)
 
   dec(c.compilesContextId)

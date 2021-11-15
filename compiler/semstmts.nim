@@ -15,7 +15,7 @@ const
   errDiscardValueX = "value of type '$1' has to be used (or discarded)"
   errInvalidDiscard = "statement returns no value that can be discarded"
   errInvalidControlFlowX = "invalid control flow: $1"
-  errSelectorMustBeOfCertainTypes = "selector must be of an ordinal type, float or string"
+  errSelectorMustBeOfCertainTypes = "selector must be of an ordinal type, float, or string"
   errExprCannotBeRaised = "only a 'ref object' can be raised"
   errBreakOnlyInLoop = "'break' only allowed in loop construct"
   errExceptionAlreadyHandled = "exception already handled"
@@ -465,6 +465,10 @@ proc errorSymChoiceUseQualifier(c: PContext; n: PNode) =
 
 proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
   var b: PNode
+  var hasError = false
+    ## not fully converted to using nkError, so track this flag and then wrap
+    ## the result if true in an nkError.
+    ## xxx: this should be replaced once nkError is more pervasive
   result = copyNode(n)
   for i in 0..<n.len:
     var a = n[i]
@@ -482,6 +486,7 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
     var def: PNode = c.graph.emptyNode
     if a[^1].kind != nkEmpty:
       def = semExprWithType(c, a[^1], {})
+      hasError = def.isErrorLike
 
       if def.kind in nkSymChoices and def[0].typ.skipTypes(abstractInst).kind == tyEnum:
         errorSymChoiceUseQualifier(c, def)
@@ -603,6 +608,11 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
         vm.setupCompileTimeVar(c.module, c.idgen, c.graph, x)
       if v.flags * {sfGlobal, sfThread} == {sfGlobal}:
         message(c.config, v.info, hintGlobalVar)
+  if hasError:
+    # xxx: hasError is tricky, because we checked it with `isErrorLike`,
+    #      meaning we might not actually have an nkError node in there. so we
+    #      use this conditional wrapping.
+    result = wrapIfErrorInSubTree(result)
 
 proc semConst(c: PContext, n: PNode): PNode =
   result = copyNode(n)
@@ -691,7 +701,10 @@ proc symForVar(c: PContext, n: PNode): PSym =
   styleCheckDef(c.config, result)
   onDef(n.info, result)
   if n.kind == nkPragmaExpr:
-    pragma(c, result, n[1], forVarPragmas)
+    n[1] = pragma(c, result, n[1], forVarPragmas)
+    # check if we got any errors and if so report them
+    for e in ifErrorWalkErrors(c.config, n[1]):
+      messageError(c.config, e)
 
 proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
@@ -862,6 +875,9 @@ proc handleCaseStmtMacro(c: PContext; n: PNode; flags: TExprFlags): PNode =
     of skMacro: result = semMacroExpr(c, toExpand, toExpand, match, flags)
     of skTemplate: result = semTemplateExpr(c, toExpand, match, flags)
     else: result = nil
+  else:
+    assert r.call.kind == nkError
+    result = r.call # xxx: hope this is nkError
   # this would be the perfectly consistent solution with 'for loop macros',
   # but it kinda sucks for pattern matching as the matcher is not attached to
   # a type then:
@@ -926,7 +942,8 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   of tyRange:
     if skipTypes(caseTyp[0], abstractInst).kind in shouldChckCovered:
       chckCovered = true
-  of tyFloat..tyFloat128, tyString, tyError:
+  of tyFloat..tyFloat128, tyString:
+    # xxx: possible case statement macro bug, as it'll be skipped here
     discard
   else:
     popCaseContext(c)
@@ -935,7 +952,7 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
       result = handleCaseStmtMacro(c, n, flags)
       if result != nil:
         return result
-    localError(c.config, n[0].info, errSelectorMustBeOfCertainTypes)
+    result[0] = newError(n[0], errSelectorMustBeOfCertainTypes)
     return
   for i in 1..<n.len:
     setCaseContextIdx(c, i)
@@ -1059,7 +1076,10 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
         typeSection[i] = rewritten
         typeDefLeftSidePass(c, typeSection, i)
         return
-      pragma(c, s, name[1], typePragmas)
+      name[1] = pragma(c, s, name[1], typePragmas)
+      # check if we got any errors and if so report them
+      for e in ifErrorWalkErrors(c.config, name[1]):
+        messageError(c.config, e)
     if sfForward in s.flags:
       # check if the symbol already exists:
       let pkg = c.module.owner
@@ -1230,7 +1250,6 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       elif t != s.typ and (s.typ == nil or s.typ.kind != tyAlias):
         # this can happen for e.g. tcan_alias_specialised_generic:
         assignType(s.typ, t)
-        #debug s.typ
       s.ast = a
       popOwner(c)
       # If the right hand side expression was a macro call we replace it with
@@ -1508,6 +1527,12 @@ proc semProcAnnotation(c: PContext, prc: PNode;
       # be a .pragma. template instead
       continue
 
+    # XXX: temporarily handle nkError here, rather than proper propagation.
+    #      this should be refactored over time.
+    if r.kind == nkError:
+      localError(c.config, r.info, errorToString(c.config, r))
+      return # the rest is likely too broken, don't bother continuing
+
     doAssert r[0].kind == nkSym
     let m = r[0].sym
     case m.kind
@@ -1523,7 +1548,11 @@ proc semProcAnnotation(c: PContext, prc: PNode;
     # This is required for SqueakNim-like export pragmas.
     if result.kind in procDefs and result[namePos].kind == nkSym and
         result[pragmasPos].kind != nkEmpty:
-      pragma(c, result[namePos].sym, result[pragmasPos], validPragmas)
+      result[pragmasPos] = pragma(c, result[namePos].sym, result[pragmasPos],
+                                  validPragmas)
+      # check if we got any errors and if so report them
+      for e in ifErrorWalkErrors(c.config, result[pragmasPos]):
+        messageError(c.config, e)
 
     return
 
@@ -1897,9 +1926,17 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     else:
       addInterfaceDeclAt(c, declarationScope, s)
 
-  pragmaCallable(c, s, n, validPragmas)
-  if not hasProto:
-    implicitPragmas(c, s, n.info, validPragmas)
+  result = pragmaCallable(c, s, n, validPragmas)
+  if not result.isErrorLike and not hasProto:
+    s = implicitPragmas(c, s, n.info, validPragmas)
+  
+  # check if we got any errors and if so report them
+  if s != nil and s.kind == skError:
+    result = s.ast
+  if result.isErrorLike:
+    closeScope(c)
+    popOwner(c)
+    return wrapErrorInSubTree(result)
 
   if n[pragmasPos].kind != nkEmpty and sfBorrow notin s.flags:
     setEffectsForProcType(c.graph, s.typ, n[pragmasPos], s)
@@ -2169,19 +2206,31 @@ proc setLine(n: PNode, info: TLineInfo) =
 
 proc semPragmaBlock(c: PContext, n: PNode): PNode =
   checkSonsLen(n, 2, c.config)
-  let pragmaList = n[0]
-  pragma(c, nil, pragmaList, exprPragmas, isStatement = true)
+  let pragmaList = pragma(c, nil, n[0], exprPragmas, isStatement = true)
+  
+  if pragmaList != nil and pragmaList.kind == nkError:
+    n[0] = pragmaList
+    result = wrapErrorInSubTree(n)
+    return
 
   var inUncheckedAssignSection = 0
-  for p in pragmaList:
-    if whichPragma(p) == wCast:
+  for i, p in pragmaList.pairs:
+    if p.kind == nkError:
+      n[0] = pragmaList
+      result = wrapErrorInSubTree(n)
+      return
+    elif whichPragma(p) == wCast:
       case whichPragma(p[1])
       of wGcSafe, wNoSideEffect, wTags, wRaises:
         discard "handled in sempass2"
       of wUncheckedAssign:
         inUncheckedAssignSection = 1
       else:
-        localError(c.config, p.info, "invalid pragma block: " & $p)
+        let e = newError(p, "invalid pragma block: " & $p)
+        pragmaList[i] = e
+        n[0] = pragmaList
+        result = wrapErrorInSubTree(n)
+        return
 
   inc c.inUncheckedAssignSection, inUncheckedAssignSection
   n[1] = semExpr(c, n[1])
@@ -2236,8 +2285,10 @@ proc inferConceptStaticParam(c: PContext, inferred, n: PNode) =
 proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
   result = n
   result.transitionSonsKind(nkStmtList)
-  var voidContext = false
-  var last = n.len-1
+  var
+    voidContext = false
+    last = n.len-1
+    hasError = false
   # by not allowing for nkCommentStmt etc. we ensure nkStmtListExpr actually
   # really *ends* in the expression that produces the type: The compiler now
   # relies on this fact and it's too much effort to change that. And arguably
@@ -2248,6 +2299,8 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
   for i in 0..<n.len:
     var x = semExpr(c, n[i], flags)
     n[i] = x
+    if efNoSemCheck notin flags and x.kind == nkError:
+      hasError = true
     if c.matchedConcept != nil and x.typ != nil and
         (nfFromTemplate notin n.flags or i != last):
       case x.typ.kind
@@ -2301,6 +2354,9 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
         not (result.comment[0] == '#' and result.comment[1] == '#'):
       # it is an old-style comment statement: we replace it with 'discard ""':
       prettybase.replaceComment(result.info)
+
+  if hasError:
+    result = wrapErrorInSubTree(result)
 
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if efInTypeof in flags:

@@ -4,8 +4,8 @@ import options, ast, msgs
 
 proc typSym*(t: PType): PSym =
   result = t.sym
-  if result == nil and t.kind == tyGenericInst: # this might need to be refined
-    result = t[0].sym
+  if result == nil: # this might need to be refined
+    result = t.skipTypes({tyGenericInst}).sym
 
 proc addDeclaredLoc*(result: var string, conf: ConfigRef; sym: PSym) =
   result.add " [$1 declared in $2]" % [sym.kind.toHumanStr, toFileLineCol(conf, sym.info)]

@@ -11,7 +11,7 @@
 
 import
   intsets, ast, astalgo, trees, msgs, strutils, platform, renderer, options,
-  lineinfos, int128, modulegraphs, astmsgs
+  lineinfos, int128, modulegraphs, astmsgs, errorhandling
 
 type
   TPreferedDesc* = enum
@@ -1584,7 +1584,8 @@ proc addPragmaAndCallConvMismatch*(message: var string, formal, actual: PType, c
     message.add "\n  Pragma mismatch: got '{.$1.}', but expected '{.$2.}'." % [gotPragmas, expectedPragmas]
 
 
-proc typeMismatch*(conf: ConfigRef; info: TLineInfo, formal, actual: PType, n: PNode) =
+proc typeMismatch*(conf: ConfigRef; info: TLineInfo, formal, actual: PType, n: PNode): PNode =
+  result = n
   if formal.kind != tyError and actual.kind != tyError:
     let actualStr = typeToString(actual)
     let formalStr = typeToString(formal)
@@ -1619,7 +1620,9 @@ proc typeMismatch*(conf: ConfigRef; info: TLineInfo, formal, actual: PType, n: P
         msg.add "\nlock levels differ"
       of efEffectsDelayed:
         msg.add "\n.effectsOf annotations differ"
-    localError(conf, info, msg)
+    # localError(conf, info, msg)
+    result = newError(n, msg)
+    result.info = info
 
 proc isTupleRecursive(t: PType, cycleDetector: var IntSet): bool =
   if t == nil:

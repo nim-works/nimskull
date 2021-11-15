@@ -8,6 +8,7 @@ discard """
 import mambsym1, times
 
 var
-  v = mDec #ERROR_MSG ambiguous identifier
+  v = mDec #[tt Error
+      ^ ambiguous identifier]#
 
 writeLine(stdout, ord(v))

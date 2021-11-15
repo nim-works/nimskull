@@ -1,3 +1,9 @@
+discard """
+description: '''
+ensure proc annotation typed macros do not leak symbols across modules.
+'''
+"""
+
 import m18235
 
 # this must error out because it was never actually exported
