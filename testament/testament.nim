@@ -79,10 +79,12 @@ proc isNimRepoTests(): bool =
 
 type
   Category = distinct string
+  
   TResults = object
     total, passed, failedButAllowed, skipped: int
       ## xxx rename passed to passedOrAllowedFailure
     data: string
+  
   TTest = object
     name: string
     cat: Category
@@ -161,7 +163,7 @@ proc prepareTestCmd(cmdTemplate, filename, options, nimcache: string,
   if nimcache.len > 0: options.add(" --nimCache:$#" % nimcache.quoteShell)
   options.add ' ' & extraOptions
   # we avoid using `parseCmdLine` which is buggy, refs bug #14343
-  result = cmdTemplate % ["target", targetToCmd[target],
+  result = cmdTemplate % ["target", target.cmd,
                       "options", options, "file", filename.quoteShell,
                       "filedir", filename.getFileDir(), "nim", compilerPrefix]
 
@@ -405,7 +407,7 @@ proc generatedFile(test: TTest, target: TTarget): string =
     result = test.name.changeFileExt("js")
   else:
     let (_, name, _) = test.name.splitFile
-    let ext = targetToExt[target]
+    let ext = target.ext
     result = nimcacheDir(test.name, test.options, target) / "@m" & name.changeFileExt(ext)
 
 proc needsCodegenCheck(spec: TSpec): bool =

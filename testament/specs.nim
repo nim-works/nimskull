@@ -111,11 +111,23 @@ proc getCmd*(s: TSpec): string =
   else:
     result = s.cmd
 
-const
-  targetToExt*: array[TTarget, string] = ["nim.c", "nim.cpp", "nim.m", "js"]
-  targetToCmd*: array[TTarget, string] = ["c", "cpp", "objc", "js"]
+func ext*(t: TTarget): string {.inline.} =
+  ## read-only field providing the extension string for the given target
+  case t:
+    of targetC:    "nim.c"
+    of targetCpp:  "nim.cpp"
+    of targetObjC: "nim.m"
+    of targetJS:   "js"
 
-proc defaultOptions*(a: TTarget): string =
+func cmd*(t: TTarget): string {.inline.} =
+  ## read-only field providing the command string for the given target
+  case t:
+    of targetC:    "c"
+    of targetCpp:  "cpp"
+    of targetObjC: "objc"
+    of targetJS:   "js"
+
+func defaultOptions*(a: TTarget): string {.inline.} =
   case a
   of targetJS: "-d:nodejs"
     # once we start testing for `nim js -d:nimbrowser` (eg selenium or similar),
@@ -263,10 +275,10 @@ proc parseSpec*(filename: string): TSpec =
     case e.kind
     of cfgKeyValuePair:
       let key = e.key.normalize
-      const whiteListMulti = ["disabled", "ccodecheck"]
+      const allowMultipleOccurences = ["disabled", "ccodecheck"]
         ## list of flags that are correctly handled when passed multiple times
         ## (instead of being overwritten)
-      if key notin whiteListMulti:
+      if key notin allowMultipleOccurences:
         doAssert key notin flags, $(key, filename)
       flags.incl key
       case key
