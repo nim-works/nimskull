@@ -10,11 +10,13 @@
 import sequtils, parseutils, strutils, os, streams, parsecfg,
   tables, hashes, sets
 
-type TestamentData* = ref object
-  # better to group globals under 1 object; could group the other ones here too
-  batchArg*: string
-  testamentNumBatch*: int
-  testamentBatch*: int
+type
+  TestamentData* = ref object
+    # xxx: better to group globals under 1 object; could group the other ones
+    #      here too
+    batchArg*: string
+    testamentNumBatch*: int
+    testamentBatch*: int
 
 # global mutable state for funsies
 var
