@@ -15,7 +15,7 @@ import
   std/[strutils, tables, parseutils],
   msgs, vmdef, vmgen, nimsets, types, passes,
   parser, vmdeps, idents, trees, renderer, options, transf,
-  vmmarshal, gorgeimpl, lineinfos, btrees, macrocacheimpl,
+  gorgeimpl, lineinfos, btrees, macrocacheimpl,
   modulegraphs, sighashes, int128, vmprofiler
 
 import ast except getstr
