@@ -1044,10 +1044,17 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
                                      strictSymEquality=true))
     of opcSameNodeType:
       decodeBC(rkInt)
-      let
-        aTyp = regs[rb].node.typ.skipTypesOrNil({tyGenericInst, tyAlias}) # Skip over generic aliases
-        bTyp = regs[rc].node.typ.skipTypesOrNil({tyGenericInst, tyAlias})
-      regs[ra].intVal = ord(aTyp.sameTypeOrNil(bTyp, {ExactTypeDescValues, ExactGenericParams}))
+      # TODO: Look into me!
+      #[
+        Thanks to @Elegantbeef for being a bro and figuring out what this should be...
+        This is the VM instruction for sameType and there is a bug where:
+          `type A[T] = int sameType(A[int], int) != sameType(int, A[int])`
+        Generic aliases are only done for generic -> generic
+        There is no logic for generic into non generic
+        Skipping over generic insts results in some generics failing
+        Realistically we need a tyGenericAlias instead of using tyGenericInst then reasoning into it
+      ]#
+      regs[ra].intVal = ord(regs[rb].node.typ.sameTypeOrNil(regs[rc].node.typ, {ExactTypeDescValues, ExactGenericParams}))
       # The types should exactly match which is why we pass `{ExactTypeDescValues, ExactGenericParams}`.
       # This solves checks with generics.
     of opcXor:
