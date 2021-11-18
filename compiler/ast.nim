@@ -60,8 +60,8 @@ type
     nkTripleStrLit,       # a triple string literal """
     nkNilLit,             # the nil literal
                           # end of atoms
-    nkComesFrom,          # "comes from" template/macro information for
                           # better stack trace generation
+    nkComesFrom,          # "comes from" template/macro information for
     nkDotCall,            # used to temporarily flag a nkCall node;
                           # this is used
                           # for transforming ``s.len`` to ``len(s)``
@@ -2246,3 +2246,11 @@ proc skipAddr*(n: PNode): PNode {.inline.} =
 proc isNewStyleConcept*(n: PNode): bool {.inline.} =
   assert n.kind == nkTypeClassTy
   result = n[0].kind == nkEmpty
+
+const
+  nodesToIgnoreSet* = {nkNone..pred(nkSym), succ(nkSym)..nkNilLit,
+    nkTypeSection, nkProcDef, nkConverterDef,
+    nkMethodDef, nkIteratorDef, nkMacroDef, nkTemplateDef, nkLambda, nkDo,
+    nkFuncDef, nkConstSection, nkConstDef, nkIncludeStmt, nkImportStmt,
+    nkExportStmt, nkPragma, nkCommentStmt, nkBreakState,
+    nkTypeOfExpr, nkMixinStmt, nkBindStmt}

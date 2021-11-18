@@ -77,6 +77,17 @@ proc canAlias*(arg, ret: PType): bool =
     var marker = initIntSet()
     result = canAlias(arg, ret, marker)
 
+proc containsVariable(n: PNode): bool =
+  case n.kind
+  of nodesToIgnoreSet:
+    result = false
+  of nkSym:
+    result = n.sym.kind in {skForVar, skParam, skVar, skLet, skConst, skResult, skTemp}
+  else:
+    for ch in n:
+      if containsVariable(ch): return true
+    result = false
+
 proc checkIsolate*(n: PNode): bool =
   if types.containsTyRef(n.typ):
     # XXX Maybe require that 'n.typ' is acyclic. This is not much
