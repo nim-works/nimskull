@@ -249,7 +249,7 @@ jobs:
   passed:
     name: All check passed
     needs: [bootstrap, test, tooling, doc, orc]
-    if: always() && !cancelled()
+    if: always()
     runs-on: ubuntu-latest
 
     steps:
