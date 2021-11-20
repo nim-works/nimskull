@@ -58,6 +58,7 @@ type
     reInstallFailed    # package installation failed
     reBuildFailed      # package building failed
     reDisabled,        # test is disabled
+    reKnownIssue,      # test failure doesn't fail the build due to a known issue(s)
     reJoined,          # test is disabled because it was joined into the megatest
     reSuccess          # test was successful
     reInvalidSpec      # test had problems to parse the spec
@@ -95,6 +96,7 @@ type
     ## searched for in the generated code. Used for backend code testing.
     maxCodeSize*: int ## Maximum allowed code size (in bytes) for the test.
     err*: TResultEnum
+    knownIssues*: seq[string] ## run the test, but do not count as failure
     inCurrentBatch*: bool
     targets*: set[TTarget]
     matrix*: seq[string]
@@ -321,7 +323,7 @@ proc parseSpec*(filename: string): TSpec =
     case e.kind
     of cfgKeyValuePair:
       let key = e.key.normalize
-      const allowMultipleOccurences = ["disabled", "ccodecheck" , "knownissue"]
+      const allowMultipleOccurences = ["disabled", "ccodecheck", "knownissue"]
         ## list of flags that are correctly handled when passed multiple times
         ## (instead of being overwritten)
       if key notin allowMultipleOccurences:
@@ -406,6 +408,16 @@ proc parseSpec*(filename: string): TSpec =
           # Windows lacks valgrind. Silly OS.
           # Valgrind only supports OSX <= 17.x
           result.useValgrind = disabled
+      of "knownissue":
+        case e.value.normalize:
+          of "y", "yes", "true", "1", "on":
+            result.err = reKnownIssue
+            result.knownIssues.add "Unknown"
+          of "n", "no", "false", "0", "off":
+            discard
+          else:
+            result.err = reKnownIssue
+            result.knownIssues.add e.value # add to the list 
       of "disabled":
         case e.value.normalize
         of "y", "yes", "true", "1", "on": result.err = reDisabled
