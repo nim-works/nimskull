@@ -104,6 +104,7 @@ type
                       # but don't rely on much precision
     inlineErrors*: seq[InlineError] # line information to error message
     debugInfo*: string # debug info to give more context
+    knownIssues*: seq[string] ## known issues to be fixed
 
 proc getCmd*(s: TSpec): string =
   if s.cmd.len == 0:
@@ -275,7 +276,7 @@ proc parseSpec*(filename: string): TSpec =
     case e.kind
     of cfgKeyValuePair:
       let key = e.key.normalize
-      const allowMultipleOccurences = ["disabled", "ccodecheck"]
+      const allowMultipleOccurences = ["disabled", "ccodecheck" , "knownissue"]
         ## list of flags that are correctly handled when passed multiple times
         ## (instead of being overwritten)
       if key notin allowMultipleOccurences:
@@ -385,7 +386,7 @@ proc parseSpec*(filename: string): TSpec =
         of "netbsd":
           when defined(netbsd): result.err = reDisabled
         else:
-          result.parseErrors.addLine "cannot interpret as a bool: ", e.value
+          result.parseErrors.addLine "cannot interpret as a bool or platform name: ", e.value
       of "cmd":
         if e.value.startsWith("nim "):
           result.cmd = compilerPrefix & e.value[3..^1]
@@ -408,6 +409,12 @@ proc parseSpec*(filename: string): TSpec =
       of "matrix":
         for v in e.value.split(';'):
           result.matrix.add(v.strip)
+      of "knownissue":
+        case e.value.normalize
+        of "n", "no", "false", "0": discard
+        else: 
+            result.knownIssues.add e.value
+            result.err = reDisabled
       else:
         result.parseErrors.addLine "invalid key for test spec: ", e.key
 

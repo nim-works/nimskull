@@ -1,7 +1,8 @@
 discard """
   errormsg: "instantiate 'notConcrete' explicitly"
   line: 12
-  disabled: "true"
+  knownIssue: "https://github.com/nim-lang/Nim/issues/1708"
+  knownIssue: "https://github.com/nim-lang/Nim/issues/871"
 """
 
 proc wrap[T]() =

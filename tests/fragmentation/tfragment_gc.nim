@@ -1,7 +1,9 @@
 discard """
   output: '''occupied ok: true
 total ok: true'''
-  disabled: "true"
+knownIssue: "https://github.com/nim-lang/Nim/issues/8509"
+knownIssue: "https://github.com/nim-lang/Nim/issues/7120"
+knownIssue: "https://github.com/nim-lang/Nim/issues/9421"
 """
 
 import strutils, data

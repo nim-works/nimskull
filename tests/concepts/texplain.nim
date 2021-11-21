@@ -1,6 +1,6 @@
 discard """
   cmd: "nim c --verbosity:0 --colors:off $file"
-  disabled: "true"
+  knownIssue: "https://github.com/nim-works/nimskull/pull/27"
   description: "explain reporting isn't working during the transition to nkError; revise and ressurrect once fixed"
   nimout: '''
 texplain.nim(144, 10) Hint: Non-matching candidates for e(y)

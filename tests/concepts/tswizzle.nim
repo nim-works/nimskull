@@ -3,7 +3,7 @@ discard """
 [1, 3]
 [2, 1, 2]
 '''
-  disabled: "true"
+  knownIssue: "https://github.com/nim-lang/Nim/issues/2346"
 """
 
 import macros, strutils

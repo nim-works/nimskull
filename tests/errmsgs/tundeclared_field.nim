@@ -1,5 +1,5 @@
 discard """
-disabled: "true"
+knownIssue: "https://github.com/nim-works/nimskull/pull/27"
 description: '''
 disabled this test because the ast is being screwed up and we get gensyms when we shouldn't
 

@@ -6,7 +6,7 @@ discard """
 128
 192
 '''
-  disabled: "true"
+  knownIssue: "https://github.com/nim-lang/Nim/issues/1838"
 """
 
 # This all relies on non-documented and questionable features.

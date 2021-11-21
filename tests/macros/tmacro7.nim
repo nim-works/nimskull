@@ -3,7 +3,7 @@ output: '''
 calling!stuff
 calling!stuff
 '''
-disabled: true
+knownIssue: "https://github.com/nim-lang/Nim/issues/11883"
 """
 
 # this test modifies an already semchecked ast (bad things happen)

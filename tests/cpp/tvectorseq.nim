@@ -2,7 +2,7 @@ discard """
   targets: "cpp"
   output: '''(x: 1.0)
 (x: 0.0)'''
-  disabled: "true"
+  knownIssue: "https://github.com/nim-lang/Nim/issues/2536"
 """
 
 # This cannot work yet because we omit type information for importcpp'ed types.
