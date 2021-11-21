@@ -886,8 +886,9 @@ type
     ## information. Used in `ccgstmts.genStmts()` and
     ## `semexprs.semExprNoType()`
     rsemImplicitObjConv = "ImplicitObjConv"
-    # end
 
+    rsemDiagnostics
+    # end
 
     #------------------------  Command report kinds  -------------------------#
     # errors
@@ -1115,7 +1116,7 @@ const
   }
 
 type
-  SemReportKind* = range[rsemFatalError .. rsemImplicitObjConv]
+  SemReportKind* = range[rsemFatalError .. rsemDiagnostics]
   SemReportErrorKind* = range[rsemUserError .. rsemWrappedError]
 
   SemGcUnsafetyKind* = enum
@@ -1135,6 +1136,10 @@ type
     formalTypeKind*: set[TTypeKind]
     actualType*, formalType*: PType
 
+  SemDiagnostics* = object
+    diagnosticsTarget*: PSym ## The concept sym that didn't match
+    reports*: seq[SemReport] ## The reports that explain why the concept didn't match
+
   SemCallMismatch* = object
     ## Description of the single candidate mismatch. This type is later
     ## used to construct meaningful type mismatch message, and must contain
@@ -1149,12 +1154,12 @@ type
     ## target argument symbol.
     targetArg*: PSym ## parameter that mismatches against provided
     ## argument its position can differ from `arg` because of varargs
-    diagnostics*: seq[SemReport]
     arguments*: seq[PNode]
     case kind*: MismatchKind
       of kTypeMismatch, kVarNeeded:
         typeMismatch*: SemTypeMismatch ## Argument type mismatch
                                        ## elaboration
+        diag*: SemDiagnostics
 
       of kPositionalAlreadyGiven, kUnknownNamedParam,
          kAlreadyGiven, kMissingParam:
@@ -1343,6 +1348,9 @@ type
         info*: TLineInfo
         linterFail*: tuple[wanted, got: string]
 
+      of rsemDiagnostics:
+        diag*: SemDiagnostics
+
       else:
         discard
 
@@ -1350,7 +1358,7 @@ const
   repSemKinds* = {low(SemReportKind) .. high(SemReportKind)}
   rsemErrorKinds* = {rsemUserError .. rsemEmptyAsm}
   rsemWarningKinds* = {rsemUserWarning .. rsemUseOfGc}
-  rsemHintKinds* = {rsemUserHint .. rsemImplicitObjConv}
+  rsemHintKinds* = {rsemUserHint .. rsemDiagnostics}
 
   # Separated into standalone set to reuse in the `options.severity`
   # checking - `--styleCheck=error` is set up as a global option.

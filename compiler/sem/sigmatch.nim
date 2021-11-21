@@ -53,18 +53,16 @@ type
     formal*: PSym       ## parameter that mismatches against provided argument
                         ## its position can differ from `arg` because of varargs
 
-  TCandidateState* = enum
-    csEmpty, csMatch, csNoMatch
-
   CandidateError* = object
     sym*: PSym
-    firstMismatch*: MismatchInfo
-    diagnostics*: seq[SemReport]
-    isDiagnostic*: bool
-      ## is this is a diagnostic (true) or an error (false) that occurred
-      ## xxx: this might be a terrible idea and we could get rid of it
+    firstMismatch*: MismatchInfo ## mismatch info for better error messages
+    diag*: SemDiagnostics
+    diagnosticsEnabled*: bool ## Set by sfExplain. efExplain or notFoundError ignore this
 
   CandidateErrors* = seq[CandidateError]
+
+  TCandidateState* = enum
+    csEmpty, csMatch, csNoMatch
 
   TCandidate* = object
     c*: PContext
@@ -96,13 +94,8 @@ type
                               ## matching. they will be reset if the matching
                               ## is not successful. may replace the bindings
                               ## table in the future.
-    diagnostics*: seq[SemReport] ## The matching process (for concepts)
-    ## will collect extra diagnostics that will be displayed to the user.
-    ## triggered when overload resolution fails or when the explain pragma
-    ## is used.
     inheritancePenalty: int   ## to prefer closest father object type
-    firstMismatch*: MismatchInfo ## mismatch info for better error messages
-    diagnosticsEnabled*: bool
+    error*: CandidateError
 
   TTypeRelFlag* = enum
     trDontBind
@@ -120,27 +113,6 @@ proc markOwnerModuleAsUsed*(c: PContext; s: PSym)
 
 template hasFauxMatch*(c: TCandidate): bool = c.fauxMatch != tyNone
 
-proc initCandidateAux(ctx: PContext,
-                      c: var TCandidate, callee: PType) {.inline.} =
-  c.c = ctx
-  c.exactMatches = 0
-  c.subtypeMatches = 0
-  c.convMatches = 0
-  c.intConvMatches = 0
-  c.genericMatches = 0
-  c.state = csEmpty
-  c.firstMismatch = MismatchInfo()
-  c.callee = callee
-  c.call = nil
-  c.baseTypeMatch = false
-  c.genericConverter = false
-  c.inheritancePenalty = 0
-
-proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PType) =
-  initCandidateAux(ctx, c, callee)
-  c.calleeSym = nil
-  initIdTable(c.bindings)
-
 proc put(c: var TCandidate, key, val: PType) {.inline.} =
   ## Given: proc foo[T](x: T); foo(4)
   ## key: 'T'
@@ -155,10 +127,26 @@ proc put(c: var TCandidate, key, val: PType) {.inline.} =
       echo "binding ", key, " -> ", val
   idTablePut(c.bindings, key, val.skipIntLit(c.c.idgen))
 
+proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PType) =
+  c.c = ctx
+  c.exactMatches = 0
+  c.subtypeMatches = 0
+  c.convMatches = 0
+  c.intConvMatches = 0
+  c.genericMatches = 0
+  c.state = csEmpty
+  c.callee = callee
+  c.calleeSym = nil
+  c.call = nil
+  c.baseTypeMatch = false
+  c.genericConverter = false
+  c.inheritancePenalty = 0
+  c.error = CandidateError()
+  initIdTable(c.bindings)
+
 proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
-                    binding: PNode, calleeScope = -1,
-                    diagnosticsEnabled = false) =
-  initCandidateAux(ctx, c, callee.typ)
+                    binding: PNode, calleeScope = -1) =
+  initCandidate(ctx, c, callee.typ)
   c.calleeSym = callee
   if callee.kind in skProcKinds and calleeScope == -1:
     if callee.originatingModule == ctx.module:
@@ -172,10 +160,7 @@ proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
       c.calleeScope = 1
   else:
     c.calleeScope = calleeScope
-  c.diagnostics = @[]
-  c.diagnosticsEnabled = diagnosticsEnabled
   c.magic = c.calleeSym.magic
-  initIdTable(c.bindings)
   if binding != nil and callee.kind in routineKinds:
     var typeParams = callee.ast[genericParamsPos]
     for i in 1..min(typeParams.len, binding.len-1):
@@ -720,46 +705,39 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
 
       addDecl(c, param)
 
-  var
-    flags: TExprFlags = {}
-    diagnostics: seq[SemReport]
+  # When concept substitution is performed we sem a fake body.
+  # Reports are collected in `diagnostics` for type mismatch errors,
+  # `{.explain.}` or `--explain`.
 
-  # When concept substitution is performed fake body is supplied and then
-  # semantic analysis is ran. All errors during matching are ignored unless
-  # `{.explain.}` annotation is added to the concept, or `--explain` fiag
-  # is used.
+  if sfExplain in typeClass.sym.flags:
+    m.error.diagnosticsEnabled = true
 
-  let
-    storeDiagnostics = m.diagnosticsEnabled or sfExplain in typeClass.sym.flags
-    tmpHook = c.config.getReportHook()
+  var diagnostics: seq[SemReport]
 
-  if storeDiagnostics:
-    # If concept need to be explained, all sem errors are temporarily
-    # captured for error reporting, and then fully written out
-    flags = {efExplain}
-    c.config.setReportHook(
-      proc(conf: ConfigRef, report: Report): TErrorHandling =
-        if report.category == repSem and conf.isCodeError(report):
-          diagnostics.add report.semReport
-    )
+  # REFACTOR(nkError) Until nkError reporting is fully implemented in the
+  # `sigmatch.matches` we need to rely on the report writer hack that is
+  # modified during `semTryExpr`, and then moved over to the candidate
+  # match data. When nkError is implemented this needs to be removed.
+  let tmpHook = c.config.getReportHook()
+  c.config.setReportHook(
+    proc(conf: ConfigRef, report: Report): TErrorHandling =
+      if report.category == repSem:
+        diagnostics.add report.semReport
+  )
 
-  var checkedBody = c.semTryExpr(c, body.copyTree, flags)
+  var checkedBody = c.semTryExpr(c, body.copyTree, {efExplain})
 
-  if storeDiagnostics:
-    c.config.setReportHook(tmpHook)
+  c.config.setReportHook(tmpHook)
 
-    if checkedBody != nil:
-      for e in m.c.config.walkErrors(checkedBody):
-        m.diagnostics.add c.config.getReport(e).semReport
-        m.diagnosticsEnabled = true
+  # This is disabled because semTryExpr also runs sempass2
+  # which will add the error via the report hook
+  # if checkedBody != nil:
+  #   for e in m.c.config.walkErrors(checkedBody):
+  #     diagnostics.add c.config.getReport(e).semReport
 
-    # REFACTOR(nkError) Until nkError reporting is fully implemented in the
-    # `sigmatch.matches` we need to rely on the report writer hack that is
-    # modified during `semTryExpr`, and then moved over to the candidate
-    # match data. When nkError is implemented this needs to be removed.
-    for d in diagnostics:
-      m.diagnostics.add d
-      m.diagnosticsEnabled = true
+  m.error.diag = SemDiagnostics(
+    diagnosticsTarget: typeClass.sym,
+    reports: diagnostics)
 
   if checkedBody == nil or checkedBody.kind == nkError:
     # xxx: return nil on nkError doesn't seem quite right, but this is a type
@@ -2398,8 +2376,8 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
   template noMatch() =
     c.mergeShadowScope #merge so that we don't have to resem for later overloads
     m.state = csNoMatch
-    m.firstMismatch.arg = a
-    m.firstMismatch.formal = formal
+    m.error.firstMismatch.arg = a
+    m.error.firstMismatch.formal = formal
     return
 
   template noMatchDueToError() =
@@ -2420,14 +2398,14 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
       let argConverter = if arg.kind == nkHiddenDeref: arg[0] else: arg
       if argConverter.kind == nkHiddenCallConv:
         if argConverter.typ.kind notin {tyVar}:
-          m.firstMismatch.kind = kVarNeeded
+          m.error.firstMismatch.kind = kVarNeeded
           noMatch()
       elif not isLValue(c, n):
-        m.firstMismatch.kind = kVarNeeded
+        m.error.firstMismatch.kind = kVarNeeded
         noMatch()
 
   m.state = csMatch # until proven otherwise
-  m.firstMismatch = MismatchInfo()
+  m.error.firstMismatch = MismatchInfo()
   m.call = newNodeIT(n.kind, n.info, m.callee.base)
   m.call.add n[0]
 
@@ -2461,7 +2439,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
         container.add n[a]
     elif n[a].kind == nkExprEqExpr:
       # named param
-      m.firstMismatch.kind = kUnknownNamedParam
+      m.error.firstMismatch.kind = kUnknownNamedParam
       # check if m.callee has such a param:
       prepareNamedParam(n[a], c)
       if n[a].kind == nkError or n[a][0].kind != nkIdent:
@@ -2476,7 +2454,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
         # no error message!
         noMatch()
       if containsOrIncl(marker, formal.position):
-        m.firstMismatch.kind = kAlreadyGiven
+        m.error.firstMismatch.kind = kAlreadyGiven
         # already in namedParams, so no match
         # we used to produce 'errCannotBindXTwice' here but see
         # bug #3836 of why that is not sound (other overload with
@@ -2487,9 +2465,8 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
       m.typedescMatched = false
       n[a][1] = prepareOperand(c, formal.typ, n[a][1])
       n[a].typ = n[a][1].typ
-      arg = paramTypesMatch(m, formal.typ, n[a].typ,
-                                n[a][1])
-      m.firstMismatch.kind = kTypeMismatch
+      arg = paramTypesMatch(m, formal.typ, n[a].typ, n[a][1])
+      m.error.firstMismatch.kind = kTypeMismatch
       if arg == nil or arg.isErrorLike:
         noMatch()
       elif n[a][1].isErrorLike:
@@ -2519,7 +2496,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
           else:
             m.call.add copyTree(n[a])
         elif formal != nil and formal.typ.kind == tyVarargs:
-          m.firstMismatch.kind = kTypeMismatch
+          m.error.firstMismatch.kind = kTypeMismatch
           # beware of the side-effects in 'prepareOperand'! So only do it for
           # varargs matching. See tests/metatype/tstatic_overloading.
           m.baseTypeMatch = false
@@ -2537,7 +2514,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
           else:
             noMatch()
         else:
-          m.firstMismatch.kind = kExtraArg
+          m.error.firstMismatch.kind = kExtraArg
           noMatch()
       else:
         if m.callee.n[f].kind != nkSym:
@@ -2545,9 +2522,9 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
           noMatch()
         if a >= firstArgBlock: f = max(f, m.callee.n.len - (n.len - a))
         formal = m.callee.n[f].sym
-        m.firstMismatch.kind = kTypeMismatch
+        m.error.firstMismatch.kind = kTypeMismatch
         if containsOrIncl(marker, formal.position) and container.isNil:
-          m.firstMismatch.kind = kPositionalAlreadyGiven
+          m.error.firstMismatch.kind = kPositionalAlreadyGiven
           # positional param already in namedParams: (see above remark)
           when false: localReport(n[a].info, errCannotBindXTwice, formal.name.s)
           noMatch()
@@ -2558,8 +2535,6 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
             setSon(m.call, formal.position + 1, container)
           else:
             incrIndexType(container.typ)
-          if n[a].isErrorLike:
-            noMatchDueToError()
           container.add n[a]
         else:
           m.baseTypeMatch = false
@@ -2613,8 +2588,8 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
 
     inc a
   # for some edge cases (see tdont_return_unowned_from_owned test case)
-  m.firstMismatch.arg = a
-  m.firstMismatch.formal = formal
+  m.error.firstMismatch.arg = a
+  m.error.firstMismatch.formal = formal
 
 proc semFinishOperands*(c: PContext, n: PNode) =
   # this needs to be called to ensure that after overloading resolution every
@@ -2656,8 +2631,8 @@ proc matches*(c: PContext, n: PNode, m: var TCandidate) =
         else:
           # no default value
           m.state = csNoMatch
-          m.firstMismatch.kind = kMissingParam
-          m.firstMismatch.formal = formal
+          m.error.firstMismatch.kind = kMissingParam
+          m.error.firstMismatch.formal = formal
           break
       else:
         if formal.ast.kind == nkEmpty:

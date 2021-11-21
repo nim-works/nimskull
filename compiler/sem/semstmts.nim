@@ -912,8 +912,7 @@ proc handleCaseStmtMacro(c: PContext; n: PNode; flags: TExprFlags): PNode =
   toResolve.add n[0]
 
   var errors: CandidateErrors
-  var r = resolveOverloads(c, toResolve, {skTemplate, skMacro}, {},
-                           errors, false)
+  var r = resolveOverloads(c, toResolve, {skTemplate, skMacro}, {}, errors)
   if r.state == csMatch:
     var match = r.calleeSym
     markUsed(c, n[0].info, match)
@@ -2449,6 +2448,8 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
       hasError = true
     if c.matchedConcept != nil and x.typ != nil and
         (nfFromTemplate notin n.flags or i != last):
+      if x.isError:
+        n[i] = newError(c.config, n[i], reportSem rsemConceptPredicateFailed)
       case x.typ.kind
       of tyBool:
         if x.kind == nkInfix and
@@ -2463,21 +2464,18 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
         let verdict = semConstExpr(c, n[i])
         if verdict == nil or verdict.kind != nkIntLit or verdict.intVal == 0:
-          localReport(c.config, result, reportSem rsemConceptPredicateFailed)
+          n[i] = newError(c.config, n[i], reportSem rsemConceptPredicateFailed)
 
       of tyUnknown: continue
       else: discard
     if n[i].typ == c.enforceVoidContext: #or usesResult(n[i]):
       voidContext = true
       n.typ = c.enforceVoidContext
-    if i == last and (n.len == 1 or ({efWantValue, efInTypeof} * flags != {})):
+    if i == last and (n.len == 1 or ({efWantValue, efInTypeof} * flags != {}) or not voidContext):
       n.typ = n[i].typ
       if not isEmptyType(n.typ): n.transitionSonsKind(nkStmtListExpr)
-    elif i != last or voidContext:
-      discardCheck(c, n[i], flags)
     else:
-      n.typ = n[i].typ
-      if not isEmptyType(n.typ): n.transitionSonsKind(nkStmtListExpr)
+      discardCheck(c, n[i], flags)
     if n[i].kind in nkLastBlockStmts or
         n[i].kind in nkCallKinds and n[i][0].kind == nkSym and
         sfNoReturn in n[i][0].sym.flags:
@@ -2486,8 +2484,6 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
         of nkPragma, nkCommentStmt, nkNilLit, nkEmpty, nkState: discard
         else:
           localReport(c.config, n[j].info, SemReport(kind: rsemUnreachableCode))
-
-    else: discard
 
   if result.len == 1 and
      # concept bodies should be preserved as a stmt list:

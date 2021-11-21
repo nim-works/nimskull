@@ -39,8 +39,7 @@ proc initCandidateSymbols(c: PContext, headSymbol: PNode,
                           initialBinding: PNode,
                           filter: TSymKinds,
                           best, alt: var TCandidate,
-                          o: var TOverloadIter,
-                          diagnostics: bool): seq[tuple[s: PSym, scope: int]] =
+                          o: var TOverloadIter): seq[tuple[s: PSym, scope: int]] =
   result = @[]
   var symx = initOverloadIter(o, c, headSymbol)
   while symx != nil:
@@ -49,9 +48,9 @@ proc initCandidateSymbols(c: PContext, headSymbol: PNode,
     symx = nextOverloadIter(o, c, headSymbol)
   if result.len > 0:
     initCandidate(c, best, result[0].s, initialBinding,
-                  result[0].scope, diagnostics)
+                  result[0].scope)
     initCandidate(c, alt, result[0].s, initialBinding,
-                  result[0].scope, diagnostics)
+                  result[0].scope)
     best.state = csNoMatch
 
 proc pickBestCandidate(c: PContext, headSymbol: PNode,
@@ -60,9 +59,7 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
                        filter: TSymKinds,
                        best, alt: var TCandidate,
                        errors: var CandidateErrors,
-                       diagnosticsFlag: bool,
-                       errorsEnabled: bool, flags: TExprFlags) =
-  assert efExplain in flags == diagnosticsFlag, "why do you not match"
+                       flags: TExprFlags) =
   var o: TOverloadIter
   var sym = initOverloadIter(o, c, headSymbol)
   var scope = o.lastOverloadScope
@@ -76,8 +73,8 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
   while sym != nil:
     if sym.kind in filter:
       # Initialise 'best' and 'alt' with the first available symbol
-      initCandidate(c, best, sym, initialBinding, scope, diagnosticsFlag)
-      initCandidate(c, alt, sym, initialBinding, scope, diagnosticsFlag)
+      initCandidate(c, best, sym, initialBinding, scope)
+      initCandidate(c, alt, sym, initialBinding, scope)
       best.state = csNoMatch
       break
     else:
@@ -90,7 +87,7 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
       scope = o.lastOverloadScope
       continue
     determineType(c, sym)
-    initCandidate(c, z, sym, initialBinding, scope, diagnosticsFlag)
+    initCandidate(c, z, sym, initialBinding, scope)
     if c.currentScope.symbols.counter == counterInitial or syms.len != 0:
       matches(c, n, z)
       if z.state == csMatch:
@@ -106,20 +103,17 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
           var cmp = cmpCandidates(best, z)
           if cmp < 0: best = z   # x is better than the best so far
           elif cmp == 0: alt = z # x is as good as the best so far
-      elif errorsEnabled or z.diagnosticsEnabled:
+      else:
         # XXX: Collect diagnostics for matching, but not winning overloads too?
-        errors.add(CandidateError(
-          sym: sym,
-          firstMismatch: z.firstMismatch,
-          diagnostics: z.diagnostics,
-          isDiagnostic: z.diagnosticsEnabled or efExplain in flags
-          ))
+        var err = z.error
+        err.sym = sym
+        errors.add err
 
     else:
       # Symbol table has been modified. Restart and pre-calculate all syms
       # before any further candidate init and compare. SLOW, but rare case.
       syms = initCandidateSymbols(c, headSymbol, initialBinding, filter,
-                                  best, alt, o, diagnosticsFlag)
+                                  best, alt, o)
       noSyms = false
     if noSyms:
       sym = nextOverloadIter(o, c, headSymbol)
@@ -163,33 +157,21 @@ proc maybeResemArgs*(c: PContext, n: PNode, startIdx: int = 1): seq[PNode] =
 
     result.add arg
 
-proc presentFailedCandidates(
+proc collectMismatches(
   c: PContext, n: PNode, errors: CandidateErrors): seq[SemCallMismatch] =
   ## Construct list of type mismatch descriptions for subsequent reporting.
   ## This procedure simply repacks the data from CandidateErrors into
   ## `SemCallMismatch` - discard unnecessary data, pull important elements
   ## into the result. No actual formatting is done here.
-
-
-  var candidates: seq[SemCallMismatch]
   for err in errors:
     var cand = SemCallMismatch(
       kind: err.firstMismatch.kind,
       expression: n,
-      arguments: maybeResemArgs(c, n, 1)
+      arguments: maybeResemArgs(c, n, 1),
+      target: err.sym,
+      targetArg: err.firstMismatch.formal,
+      arg: err.firstMismatch.arg,
     )
-
-    cand.target = err.sym
-    cand.arg = err.firstMismatch.arg
-
-    let nArg =
-      if err.firstMismatch.arg < n.len:
-        n[err.firstMismatch.arg]
-      else:
-        nil
-
-    cand.targetArg = err.firstMismatch.formal
-    cand.diagnostics = err.diagnostics
 
     if n.len > 1:
       case cand.kind:
@@ -198,25 +180,25 @@ proc presentFailedCandidates(
            kPositionalAlreadyGiven,
            kExtraArg,
            kMissingParam:
-         # Additional metadata only contains `targetArg` that is
-         # unconditionally assigned from `err.formal`
+          # Additional metadata only contains `targetArg` that is
+          # unconditionally assigned from `err.formal`
           discard
 
         of kTypeMismatch, kVarNeeded:
+          let nArg = n[err.firstMismatch.arg]
           assert nArg != nil
           assert cand.targetArg != nil
           assert cand.targetArg.typ != nil
           assert nArg.typ != nil
           cand.typeMismatch = c.config.typeMismatch(
             err.firstMismatch.formal.typ, nArg.typ)
+          cand.diag = err.diag
 
         of kUnknown:
           # do not break 'nim check'
           discard
 
-    candidates.add cand
-
-  result = candidates
+    result.add cand
 
 proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
   ## Gives a detailed error message; this is separated from semOverloadedCall,
@@ -253,21 +235,19 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
   report.spellingCandidates = fixSpelling(
     c, tern(f.kind == nkSym, f.sym.name, f.ident))
 
-  report.callMismatches = presentFailedCandidates(c, n, errors)
+  report.callMismatches = collectMismatches(c, n, errors)
 
   result = newError(c.config, n, report)
 
 
 proc bracketNotFoundError(c: PContext; n: PNode): PNode =
-  var errors: CandidateErrors = @[]
+  var errors: CandidateErrors
   var o: TOverloadIter
   let headSymbol = n[0]
   var symx = initOverloadIter(o, c, headSymbol)
   while symx != nil:
     if symx.kind in routineKinds:
-      errors.add(CandidateError(sym: symx,
-                                firstMismatch: MismatchInfo(),
-                                diagnostics: @[]))
+      errors.add CandidateError(sym: symx, firstMismatch: MismatchInfo())
     symx = nextOverloadIter(o, c, headSymbol)
 
   result = notFoundError(c, n, errors)
@@ -290,7 +270,7 @@ proc getMsgDiagnostic(
   # found' error.
   discard considerQuotedIdent(c, f, n)
 
-  if c.compilesContextId > 0:
+  if c.compilesContextId > 0 and efExplain notin flags:
     # we avoid running more diagnostic when inside a `compiles(expr)`, to
     # errors while running diagnostic (see test D20180828T234921), and
     # also avoid slowdowns in evaluating `compiles(expr)`.
@@ -313,7 +293,6 @@ proc getMsgDiagnostic(
         explicitCall: true,
         kind: rsemCallNotAProcOrField)
 
-
     # store list of potenttial overload candidates that might be misuesd -
     # for example `obj.iterator()` call outside of the for loop.
     var sym = initOverloadIter(o, c, f)
@@ -327,11 +306,9 @@ proc getMsgDiagnostic(
       # +2`, so command is not always an identifier.
       result.spellingCandidates = fixSpelling(c, f.ident)
 
-
 proc resolveOverloads(c: PContext, n: PNode,
                       filter: TSymKinds, flags: TExprFlags,
-                      errors: var CandidateErrors,
-                      errorsEnabled: bool = true): TCandidate =
+                      errors: var CandidateErrors): TCandidate =
   var initialBinding: PNode
   var alt: TCandidate
   var f = n[0]
@@ -345,8 +322,7 @@ proc resolveOverloads(c: PContext, n: PNode,
 
   template pickBest(headSymbol) =
     pickBestCandidate(c, headSymbol, n, initialBinding,
-                      filter, result, alt, errors, efExplain in flags,
-                      errorsEnabled, flags)
+                      filter, result, alt, errors, flags)
   pickBest(f)
 
   let overloadsState = result.state
@@ -408,6 +384,7 @@ proc resolveOverloads(c: PContext, n: PNode,
           # xxx adapt/use errorUndeclaredIdentifierHint(c, n, f.ident)
           let msg = getMsgDiagnostic(c, flags, n, f)
           result.call = c.config.newError(n, msg)
+
       return
     elif result.state != csMatch:
       if nfExprCall in n.flags:
@@ -562,7 +539,7 @@ proc tryDeref(n: PNode): PNode =
 proc semOverloadedCall(c: PContext, n: PNode,
                        filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
   addInNimDebugUtils(c.config, "semOverloadedCall")
-  var errors: CandidateErrors = @[]
+  var errors: CandidateErrors
 
   var r = resolveOverloads(c, n, filter, flags, errors)
 
@@ -579,12 +556,23 @@ proc semOverloadedCall(c: PContext, n: PNode,
 
   if r.state == csMatch:
     # this may be triggered, when the explain pragma is used
-    if (r.diagnosticsEnabled or efExplain in flags) and errors.len > 0:
-      localReport(c.config, n.info, SemReport(
-        ast: n,
-        kind: rsemNonMatchingCandidates,
-        callMismatches: presentFailedCandidates(c, n, errors)
-      ))
+    if errors.len > 0:
+      let errorsToReport =
+        if efExplain in flags: # output everything
+          errors
+        else: # only report non-matching candidates that have sfExplain
+          var filteredErrors: CandidateErrors
+          for e in errors:
+            if e.diagnosticsEnabled and e.sym != r.calleeSym:
+              filteredErrors.add e
+          filteredErrors
+
+      if errorsToReport.len > 0:
+        localReport(c.config, n.info, SemReport(
+          ast: n,
+          kind: rsemNonMatchingCandidates,
+          callMismatches: collectMismatches(c, n, errorsToReport)
+        ))
 
     result = semResolvedCall(c, r, n, flags)
 

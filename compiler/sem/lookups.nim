@@ -661,7 +661,7 @@ proc errorExpectedIdentifier(
 
   result = newQualifiedLookUpError(c, ident, n.info, ast)
 
-proc errorSym2*(c: PContext, n, err: PNode): PSym =
+proc errorSym2(c: PContext, n, err: PNode): PSym =
   ## creates an error symbol to avoid cascading errors (for IDE support), with
   ## `n` as the node with the error and `err` with the desired `nkError`
   var m = n
@@ -713,11 +713,11 @@ type
   TLookupFlag* = enum
     checkAmbiguity, checkUndeclared, checkModule, checkPureEnumFields
 
-proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
-  ## updated version of `qualifiedLookUp`, takes an identifier (ident, accent
-  ## quoted, dot expression qualified, etc), finds the associated symbol or
-  ## reports errors based on the `flags` configuration (allow ambiguity, etc).
-  ##
+proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
+  ## takes an identifier (ident, accent quoted, dot expression qualified, etc),
+  ## finds the associated symbol or reports errors based on the `flags`
+  ## configuration (allow ambiguity, etc).
+  ## 
   ## this new version returns an error symbol rather than issuing errors
   ## directly. The symbol's `ast` field will contain an nkError, and the `typ`
   ## field on the symbol will be the errorType
@@ -751,18 +751,19 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
     var
       amb = false
       (ident, errNode) = considerQuotedIdent2(c, n)
-    if not errNode.isNil:
+    if isNotFound(c.cache, ident):
       let errExprCtx = if errNode != n: n else: nil
         ## expression within which the error occurred
       result = errorExpectedIdentifier(c, ident, errNode, errExprCtx)
     elif checkModule in flags:
       result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
-      # search in scopes can return an skError
-      if not result.isNil and result.kind == skError and not amb:
+      # xxx: search in scopes can return an skError -- this happens because
+      # skError is a const referring to skUnknown, which gets used in resolving
+      # `result`, which starts off as undeclared/unknown.
+      if result.isError and not amb and checkUndeclared in flags:
         var rep = reportStr(rsemUndeclaredIdentifier, ident.s)
         rep.spellingCandidates = c.fixSpelling(ident)
         result.ast = c.config.newError(n, rep)
-
     else:
       let candidates = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
       result = symFromCandidates(c, candidates, ident, n, flags, amb)
@@ -815,7 +816,7 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
     result = n.sym
   of nkDotExpr:
     result = nil
-    var m = qualifiedLookUp2(c, n[0], (flags * {checkUndeclared}) + {checkModule})
+    var m = qualifiedLookUp(c, n[0], (flags * {checkUndeclared}) + {checkModule})
     if m != nil and m.kind == skModule:
       var
         ident: PIdent = nil
@@ -842,70 +843,12 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         result = errorSym2(c, n[1],
           c.config.newError(
             n[1], reportSem(rsemExpectedIdentifier)))
-  else:
-    result = nil
-  when false:
-    if result != nil and result.kind == skStub: loadStub(result)
-
-proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
-  ## updated version of `qualifiedLookUp`, takes an identifier (ident, accent
-  ## quoted, dot expression qualified, etc), finds the associated symbol or
-  ## reports errors based on the `flags` configuration (allow ambiguity, etc).
-  ##
-  ## XXX: legacy, deprecate and replace with `qualifiedLookup2`
-  const allExceptModule = {low(TSymKind)..high(TSymKind)} - {skModule, skPackage}
-  case n.kind
-  of nkIdent, nkAccQuoted:
-    var amb = false
-    var ident = considerQuotedIdent(c, n)
-    if checkModule in flags:
-      result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
-    else:
-      let candidates = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
-      if candidates.len > 0:
-        result = candidates[0]
-        amb = candidates.len > 1
-        if amb and checkAmbiguity in flags:
-          errorUseQualifier(c, n.info, candidates)
-    if result == nil:
-      let candidates = allPureEnumFields(c, ident)
-      if candidates.len > 0:
-        result = candidates[0]
-        amb = candidates.len > 1
-        if amb and checkAmbiguity in flags:
-          errorUseQualifier(c, n.info, candidates)
-
-    if result == nil and checkUndeclared in flags:
-      result = errorUndeclaredIdentifierHint(c, n, ident)
-    elif checkAmbiguity in flags and result != nil and amb:
-      result = errorUseQualifier(c, n.info, result, amb)
-    c.isAmbiguous = amb
-  of nkSym:
-    result = n.sym
-  of nkDotExpr:
-    result = nil
-    var m = qualifiedLookUp(c, n[0], (flags * {checkUndeclared}) + {checkModule})
-    if m != nil and m.kind == skModule:
-      var ident: PIdent = nil
-      if n[1].kind == nkIdent:
-        ident = n[1].ident
-      elif n[1].kind == nkAccQuoted:
-        ident = considerQuotedIdent(c, n[1])
-      if ident != nil:
-        if m == c.module:
-          result = strTableGet(c.topLevelScope.symbols, ident).skipAlias(n, c.config)
-        else:
-          result = someSym(c.graph, m, ident).skipAlias(n, c.config)
-        if result == nil and checkUndeclared in flags:
-          result = errorUndeclaredIdentifierHint(c, n[1], ident)
-      elif n[1].kind == nkSym:
-        result = n[1].sym
-      elif checkUndeclared in flags and
-           n[1].kind notin {nkOpenSymChoice, nkClosedSymChoice}:
-        c.config.localReport(n[1].info, reportAst(
-          rsemExpectedIdentifier, n[1]))
-
-        result = errorSym(c, n[1])
+    elif m.isError:
+      # create a copy of n with the error from `m`'s lookup
+      var err = copyTreeWithoutNode(n, n[0])
+      err[0] = m.ast
+      err = wrapErrorInSubTree(c.config, err)
+      result = errorSym2(c, n, err)
   else:
     result = nil
   when false:
@@ -941,7 +884,10 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
   of nkDotExpr:
     o.mode = oimOtherModule
     o.m = qualifiedLookUp(c, n[0], {checkUndeclared, checkModule})
-    if o.m != nil and o.m.kind == skModule:
+    if o.m.isError:
+      # XXX: move to propagating nkError, skError, and tyError
+      localReport(c.config, o.m.ast)
+    elif o.m != nil and o.m.kind == skModule:
       var ident: PIdent = nil
       if n[1].kind == nkIdent:
         ident = n[1].ident
@@ -956,8 +902,8 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
         else:
           result = initModuleIter(o.mit, c.graph, o.m, ident).skipAlias(n, c.config)
       else:
-        noidentError(c.config, n[1], n)
-        result = errorSym(c, n[1])
+        let err = noidentError2(c.config, n[1], n)
+        result = errorSym2(c, n[1], err)
   of nkClosedSymChoice, nkOpenSymChoice:
     o.mode = oimSymChoice
     if n[0].kind == nkSym:

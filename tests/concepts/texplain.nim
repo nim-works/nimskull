@@ -1,34 +1,36 @@
 discard """
-  cmd: "nim c --verbosity:0 --colors:off $file"
-  knownIssue: "https://github.com/nim-works/nimskull/pull/27"
-  description: "explain reporting isn't working during the transition to nkError; revise and ressurrect once fixed"
+  description: "Tests {.explain.} attached to concept types, to expressions, and diagnostics reporting on failed overload resolution"
   nimout: '''
 texplain.nim(144, 10) Hint: Non-matching candidates for e(y)
 proc e(i: int): int
   first type mismatch at position: 1
   required type for i: int
   but expression 'y' is of type: MatchingType
-
+ [rsemNonMatchingCandidates]
 texplain.nim(147, 7) Hint: Non-matching candidates for e(10)
 proc e(o: ExplainedConcept): int
   first type mismatch at position: 1
   required type for o: ExplainedConcept
   but expression '10' is of type: int literal(10)
 texplain.nim(110, 6) ExplainedConcept: undeclared field: 'foo'
-texplain.nim(110, 5) ExplainedConcept: concept predicate failed
+texplain.nim(110, 6) ExplainedConcept: expression has no type: `.`(o, foo)
+texplain.nim(110, 11) ExplainedConcept: concept predicate failed
 texplain.nim(111, 6) ExplainedConcept: undeclared field: 'bar'
-texplain.nim(110, 5) ExplainedConcept: concept predicate failed
-
+texplain.nim(111, 6) ExplainedConcept: expression has no type: `.`(o, bar)
+texplain.nim(111, 11) ExplainedConcept: concept predicate failed
+ [rsemNonMatchingCandidates]
 texplain.nim(150, 10) Hint: Non-matching candidates for e(10)
 proc e(o: ExplainedConcept): int
   first type mismatch at position: 1
   required type for o: ExplainedConcept
   but expression '10' is of type: int literal(10)
 texplain.nim(110, 6) ExplainedConcept: undeclared field: 'foo'
-texplain.nim(110, 5) ExplainedConcept: concept predicate failed
+texplain.nim(110, 6) ExplainedConcept: expression has no type: `.`(o, foo)
+texplain.nim(110, 11) ExplainedConcept: concept predicate failed
 texplain.nim(111, 6) ExplainedConcept: undeclared field: 'bar'
-texplain.nim(110, 5) ExplainedConcept: concept predicate failed
-
+texplain.nim(111, 6) ExplainedConcept: expression has no type: `.`(o, bar)
+texplain.nim(111, 11) ExplainedConcept: concept predicate failed
+ [rsemNonMatchingCandidates]
 texplain.nim(154, 20) Error: type mismatch: got <NonMatchingType>
 but expected one of:
 proc e(i: int): int
@@ -40,7 +42,7 @@ proc e(o: ExplainedConcept): int
   required type for o: ExplainedConcept
   but expression 'n' is of type: NonMatchingType
 texplain.nim(154, 9) template/generic instantiation of `assert` from here
-texplain.nim(110, 5) ExplainedConcept: concept predicate failed
+texplain.nim(111, 11) ExplainedConcept: concept predicate failed
 
 expression: e(n)
 texplain.nim(155, 20) Error: type mismatch: got <NonMatchingType>
@@ -54,7 +56,7 @@ proc r(o: RegularConcept): int
   required type for o: RegularConcept
   but expression 'n' is of type: NonMatchingType
 texplain.nim(155, 9) template/generic instantiation of `assert` from here
-texplain.nim(114, 5) RegularConcept: concept predicate failed
+texplain.nim(115, 11) RegularConcept: concept predicate failed
 proc r[T](a: SomeNumber; b: T; c: auto)
   first type mismatch at position: 1
   required type for a: SomeNumber
@@ -70,7 +72,7 @@ proc r[T](a: SomeNumber; b: T; c: auto)
   first type mismatch at position: 1
   required type for a: SomeNumber
   but expression 'y' is of type: MatchingType
-
+ [rsemNonMatchingCandidates]
 texplain.nim(164, 2) Error: type mismatch: got <MatchingType>
 but expected one of:
 proc f(o: NestedConcept)
@@ -78,10 +80,12 @@ proc f(o: NestedConcept)
   required type for o: NestedConcept
   but expression 'y' is of type: MatchingType
 texplain.nim(114, 6) RegularConcept: undeclared field: 'foo'
-texplain.nim(114, 5) RegularConcept: concept predicate failed
+texplain.nim(114, 6) RegularConcept: expression has no type: `.`(o, foo)
+texplain.nim(114, 11) RegularConcept: concept predicate failed
 texplain.nim(115, 6) RegularConcept: undeclared field: 'bar'
-texplain.nim(114, 5) RegularConcept: concept predicate failed
-texplain.nim(118, 5) NestedConcept: concept predicate failed
+texplain.nim(115, 6) RegularConcept: expression has no type: `.`(o, bar)
+texplain.nim(115, 11) RegularConcept: concept predicate failed
+texplain.nim(118, 11) NestedConcept: concept predicate failed
 
 expression: f(y)'''
   errormsg: "type mismatch: got <MatchingType>"
@@ -89,17 +93,11 @@ expression: f(y)'''
 
 
 
+
+
 # proc r[T](a: SomeNumber; b: T; c: auto)
 # proc r(i: string): int
 # proc r(o: RegularConcept): int
-
-
-
-
-
-
-
-
 
 
 
@@ -139,7 +137,7 @@ proc f(o: NestedConcept) = discard
 var n = NonMatchingType(foo: 10, bar: 20)
 var y = MatchingType(foo: 10, bar: "bar")
 
-# no diagnostic here:
+# no diagnostic here (because the {.explain.} tagged concept *does* match)
 discard e(y)
 
 # explain that e(int) doesn't match

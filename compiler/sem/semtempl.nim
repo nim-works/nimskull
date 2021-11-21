@@ -92,7 +92,10 @@ proc semBindStmt(c: PContext, n: PNode, toBind: var IntSet): PNode =
     # This is however not true anymore for hygienic templates as semantic
     # processing for them changes the symbol table...
     let s = qualifiedLookUp(c, a, {checkUndeclared})
-    if s != nil:
+    if s.isError:
+      # XXX: move to propagating nkError, skError, and tyError
+      localReport(c.config, s.ast)
+    elif s != nil:
       # we need to mark all symbols:
       let sc = symChoice(c, n, s, scClosed)
       if sc.kind == nkSym:
@@ -141,7 +144,10 @@ proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
   of nkIdent:
     result = n
     let s = qualifiedLookUp(c.c, n, {})
-    if s != nil:
+    if s.isError:
+      # XXX: move to propagating nkError, skError, and tyError
+      localReport(c.c.config, s.ast)
+    elif s != nil:
       if s.owner == c.owner and s.kind == skParam:
         result = newSymNode(s, n.info)
   of nkAccQuoted, nkSym: result = n
@@ -172,7 +178,10 @@ proc onlyReplaceParams(c: var TemplCtx, n: PNode): PNode =
   result = n
   if n.kind == nkIdent:
     let s = qualifiedLookUp(c.c, n, {})
-    if s != nil:
+    if s.isError:
+      # XXX: move to propagating nkError, skError, and tyError
+      localReport(c.c.config, s.ast)
+    elif s != nil:
       if s.owner == c.owner and s.kind == skParam:
         incl(s.flags, sfUsed)
         result = newSymNode(s, n.info)
@@ -279,7 +288,10 @@ proc semRoutineInTemplName(c: var TemplCtx, n: PNode): PNode =
   result = n
   if n.kind == nkIdent:
     let s = qualifiedLookUp(c.c, n, {})
-    if s != nil:
+    if s.isError:
+      # XXX: move to propagating nkError, skError, and tyError
+      localReport(c.c.config, s.ast)
+    elif s != nil:
       if s.owner == c.owner and (s.kind == skParam or sfGenSym in s.flags):
         incl(s.flags, sfUsed)
         result = newSymNode(s, n.info)
@@ -360,7 +372,10 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
   of nkIdent:
     if n.ident.id in c.toInject: return n
     let s = qualifiedLookUp(c.c, n, {})
-    if s != nil:
+    if s.isError:
+      # XXX: move to propagating nkError, skError, and tyError
+      localReport(c.c.config, s.ast)
+    elif s != nil:
       if s.owner == c.owner and s.kind == skParam and sfTemplateParam in s.flags:
         incl(s.flags, sfUsed)
         result = newSymNode(s, n.info)
@@ -545,7 +560,10 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     # dotExpr is ambiguous: note that we explicitly allow 'x.TemplateParam',
     # so we use the generic code for nkDotExpr too
     let s = qualifiedLookUp(c.c, n, {})
-    if s != nil:
+    if s.isError:
+      # XXX: move to propagating nkError, skError, and tyError
+      localReport(c.c.config, s.ast)
+    elif s != nil:
       # do not symchoice a quoted template parameter (bug #2390):
       if s.owner == c.owner and s.kind == skParam and
           n.kind == nkAccQuoted and n.len == 1:
@@ -587,7 +605,10 @@ proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode =
   case n.kind
   of nkIdent:
     let s = qualifiedLookUp(c.c, n, {})
-    if s != nil:
+    if s.isError:
+      # XXX: move to propagating nkError, skError, and tyError
+      localReport(c.c.config, s.ast)
+    elif s != nil:
       if s.owner == c.owner and s.kind == skParam:
         result = newSymNode(s, n.info)
       elif contains(c.toBind, s.id):
@@ -603,7 +624,10 @@ proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode =
     # so we use the generic code for nkDotExpr too
     if n.kind == nkDotExpr or n.kind == nkAccQuoted:
       let s = qualifiedLookUp(c.c, n, {})
-      if s != nil and contains(c.toBind, s.id):
+      if s.isError:
+        # XXX: move to propagating nkError, skError, and tyError
+        localReport(c.c.config, s.ast)
+      elif s != nil and contains(c.toBind, s.id):
         return symChoice(c.c, n, s, scClosed)
     result = n
     for i in 0..<n.len:
@@ -724,7 +748,10 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
 
   proc handleSym(c: var TemplCtx, n: PNode, s: PSym): PNode =
     result = n
-    if s != nil:
+    if s.isError:
+      # XXX: move to propagating nkError, skError, and tyError
+      localReport(c.c.config, s.ast)
+    elif s != nil:
       if s.owner == c.owner and s.kind == skParam:
         result = newParam(c, n, s)
       elif contains(c.toBind, s.id):
@@ -741,6 +768,9 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
     if s != nil and s.owner == c.owner and s.kind == skParam:
       result = newParam(c, n, s)
     else:
+      if s.isError:
+        # XXX: move to propagating nkError, skError, and tyError
+        localReport(c.c.config, s.ast)
       localReport(c.c.config, n, reportSem rsemInvalidExpression)
       result = n
 
@@ -779,7 +809,10 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
         result[i] = semPatternBody(c, n[i])
   of nkCallKinds:
     let s = qualifiedLookUp(c.c, n[0], {})
-    if s != nil:
+    if s.isError:
+      # XXX: move to propagating nkError, skError, and tyError
+      localReport(c.c.config, s.ast)
+    elif s != nil:
       if s.owner == c.owner and s.kind == skParam: discard
       elif contains(c.toBind, s.id): discard
       elif templToExpand(s):
@@ -816,7 +849,10 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
     case n.kind
     of nkDotExpr, nkAccQuoted:
       let s = qualifiedLookUp(c.c, n, {})
-      if s != nil:
+      if s.isError:
+        # XXX: move to propagating nkError, skError, and tyError
+        localReport(c.c.config, s.ast)
+      elif s != nil:
         if contains(c.toBind, s.id):
           return symChoice(c.c, n, s, scClosed)
         else:
