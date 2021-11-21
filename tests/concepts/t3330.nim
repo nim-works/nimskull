@@ -1,5 +1,5 @@
 discard """
-disabled: "true"
+knownIssue: "https://github.com/nim-works/nimskull/pull/27"
 description: "explain reporting isn't working during the transition to nkError; revise and ressurrect once fixed"
 errormsg: "type mismatch: got <Bar[system.int]>"
 nimout: '''

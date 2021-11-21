@@ -2,7 +2,8 @@ discard """
   output: '''(kind: 2.0, twoStr: "TWO STR")
 (kind: 1.0)
 '''
-disabled: "true"
+knownIssue: "https://github.com/nim-lang/Nim/issues/12379"
+knownIssue: "https://github.com/nim-lang/Nim/issues/12591"
 """
 type
   FloatRange = range[1.0..3.0]

@@ -1,5 +1,5 @@
 discard """
-  disabled: "true"
+  knownIssue: "https://github.com/nim-works/nimskull/pull/27"
   description: "concept error reporting isn't working during the transition to nkError; revise and ressurrect once fixed"
   errormsg: "type mismatch: got <string>"
   nimout: "twrapconcept.nim(11, 5) Foo: concept predicate failed"
