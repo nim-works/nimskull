@@ -262,7 +262,9 @@ proc genGenericAsgn(p: BProc, dest, src: TLoc, flags: TAssignmentFlags) =
   # tfShallow flag for the built-in string type too! So we check only
   # here for this flag, where it is reasonably safe to do so
   # (for objects, etc.):
-  if optSeqDestructors in p.config.globalOptions:
+  if optSeqDestructors in p.config.globalOptions or src.lode.kind in {nkObjUpConv, nkObjDownConv}:
+    # If it's an up/down conv it's an non-ref -> non-ref inheritance which is a copy or assignment.
+    # As such the assignment is direct, semantic analysis should handle any errors statically.
     linefmt(p, cpsStmts,
         "$1 = $2;$n",
         [rdLoc(dest), rdLoc(src)])
@@ -2604,11 +2606,12 @@ proc upConv(p: BProc, n: PNode, d: var TLoc) =
                    else:
                      genTypeInfoV1(p.module, dest, n.info)
     if nilCheck != nil:
+      # We only need to do a conversion check if it's a ref object.
+      # Since with non refs either a copy is done or a ptr to the element is passed,
+      # there is nothing dynamic with them and the compiler knows the error happens at semantic analysis.
       linefmt(p, cpsStmts, "if ($1 && !#isObj($2, $3)){ #raiseObjectConversionError(); $4}$n",
               [nilCheck, r, checkFor, raiseInstr(p)])
-    else:
-      linefmt(p, cpsStmts, "if (!#isObj($1, $2)){ #raiseObjectConversionError(); $3}$n",
-              [r, checkFor, raiseInstr(p)])
+
   if n[0].typ.kind != tyObject:
     if n.isLValue:
       putIntoDest(p, d, n,

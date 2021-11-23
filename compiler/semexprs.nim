@@ -633,7 +633,12 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
       let xx = semExprWithType(c, x, {})
       result.add xx
-      typ = commonType(c, typ, xx.typ)
+      if {xx.typ.kind, typ.kind} == {tyObject} and typ != xx.typ:
+        # Check if both are objects before getting common type,
+        # this prevents `[Derived(), Parent(), Derived()]` from working for non ref objects.
+        result[i] = typeMismatch(c.config, x.info, typ, xx.typ, x)
+      else:
+        typ = commonType(c, typ, xx.typ)
       #n[i] = semExprWithType(c, x, {})
       #result.add fitNode(c, typ, n[i])
       inc(lastIndex)
