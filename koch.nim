@@ -207,7 +207,7 @@ proc buildTools(args: string = "") =
   # `-d:debug` should be changed to a flag that doesn't require re-compiling nim
   # `--opt:speed` is a sensible default even for a debug build, it doesn't affect nim stacktraces
   nimCompileFold("Compile nim_dbg", "compiler/nim.nim", options =
-      "--opt:speed --stacktrace -d:debug --stacktraceMsgs -d:nimCompilerStacktraceHints " & args,
+      "--opt:speed --stacktrace -d:debug --stacktraceMsgs -d:nimCompilerStacktraceHints --excessiveStackTrace:off " & args,
       outputName = "nim_dbg")
 
   nimCompileFold("Compile atlas", "tools/atlas/atlas.nim", options = "-d:release " & args,
