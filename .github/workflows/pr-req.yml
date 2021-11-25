@@ -4,6 +4,12 @@ on:
     # Only take PRs to devel
     branches:
       - devel
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - converted_to_draft
+      - ready_for_review
 
 # Run every script actions in bash
 defaults:
