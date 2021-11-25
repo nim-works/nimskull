@@ -115,8 +115,11 @@ type
 
 type InstantiationInfo* = typeof(instantiationInfo())
   ## type alias for instantiation information
-template instLoc(): InstantiationInfo = instantiationInfo(-2, fullPaths = true)
-  ## grabs where in the compiler an error was instanced to ease debugging
+template instLoc(depth = -2): InstantiationInfo =
+  ## grabs where in the compiler an error was instanced to ease debugging.
+  ##
+  ## whether to use full paths depends on --excessiveStackTrace compiler option.
+  instantiationInfo(depth, fullPaths = compileOption"excessiveStackTrace")
 
 proc errorSubNode*(n: PNode): PNode =
   ## find the first error node, or nil, under `n` using a depth first traversal
@@ -200,7 +203,7 @@ template newError*(wrongNode: PNode; k: ErrorKind; args: varargs[PNode]): PNode 
   ## given `inst` as to where it was instanced int he compiler.
   assert k != FatalError,
     "use semdata.fatal(config:ConfigRef, err: PNode) instead"
-  newErrorActual(wrongNode, k, instantiationInfo(-1, fullPaths = true), args)
+  newErrorActual(wrongNode, k, instLoc(-1), args)
 
 template newFatal*(wrongNode: PNode; args: varargs[PNode]): PNode
   {.deprecated: "rework to remove the need for this awkward fatal handling".} =
@@ -208,18 +211,18 @@ template newFatal*(wrongNode: PNode; args: varargs[PNode]): PNode
   ## modules that know to appropriately use `msgs.fatal(ConfigRef, PNode)` as
   ## the next call.
   newErrorActual(wrongNode, FatalError,
-                 instantiationInfo(-1, fullPaths = true), args)
+                 instLoc(-1), args)
 
 template newError*(wrongNode: PNode; msg: string): PNode =
   ## create an `nkError` node with a `CustomError` message `msg`
-  newErrorActual(wrongNode, msg, instantiationInfo(-1, fullPaths = true))
+  newErrorActual(wrongNode, msg, instLoc(-1))
 
 template newCustomErrorMsgAndNode*(wrongNode: PNode; msg: string): PNode =
   ## create an `nkError` node with a `CustomMsgError` message `msg`
   newErrorActual(
     wrongNode,
     CustomPrintMsgAndNodeError,
-    instantiationInfo(-1, fullPaths = true),
+    instLoc(-1),
     newStrNode(msg, wrongNode.info)
   )
 

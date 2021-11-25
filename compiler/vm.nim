@@ -74,7 +74,7 @@ proc stackTraceImpl(c: PCtx, tos: PStackFrame, pc: int,
 
 template stackTrace(c: PCtx, tos: PStackFrame, pc: int,
                     msg: string, lineInfo: TLineInfo = TLineInfo.default) =
-  stackTraceImpl(c, tos, pc, msg, lineInfo, instantiationInfo(-2, fullPaths = true))
+  stackTraceImpl(c, tos, pc, msg, lineInfo, instantiationInfo(-2, fullPaths = compileOption"excessiveStackTrace"))
   return
 
 proc bailOut(c: PCtx; tos: PStackFrame) =

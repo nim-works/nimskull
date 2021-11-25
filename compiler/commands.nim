@@ -43,8 +43,9 @@ type
 
 const
   HelpMessage = "Nim Compiler Version $1 [$2: $3]\n" &
-      "Compiled at $4\n" &
       "Copyright (c) 2006-" & copyrightYear & " by Andreas Rumpf\n"
+  CommitMessage = "Source hash: $1\n" &
+    "Source date: $2\n"
 
 proc genFeatureDesc[T: enum](t: typedesc[T]): string {.compileTime.} =
   result = ""
@@ -84,17 +85,28 @@ proc writeFullhelp(conf: ConfigRef; pass: TCmdLinePass) =
                {msgStdout})
     msgQuit(0)
 
+proc getNimSourceData(): tuple[hash, date: string] {.compileTime.} =
+  ## Retrieve metadata about the compiler source code.
+  let hashCall = gorgeEx("git rev-parse --verify HEAD")
+  let dateCall = gorgeEx("git log -1 --format=%cs HEAD")
+  if hashCall.exitCode == 0 and dateCall.exitCode == 0:
+    result = (hashCall.output, dateCall.output)
+
 proc writeVersionInfo(conf: ConfigRef; pass: TCmdLinePass) =
   if pass == passCmd1:
-    msgWriteln(conf, `%`(HelpMessage, [VersionAsString,
-                                 platform.OS[conf.target.hostOS].name,
-                                 CPU[conf.target.hostCPU].name, CompileDate]),
-               {msgStdout})
+    msgWriteln(
+      conf,
+      HelpMessage % [
+        VersionAsString, platform.OS[conf.target.hostOS].name,
+        CPU[conf.target.hostCPU].name
+      ],
+      {msgStdout}
+    )
 
-    const gitHash {.strdefine.} = gorge("git log -n 1 --format=%H").strip
-      # xxx move this logic to std/private/gitutils
-    when gitHash.len == 40:
-      msgWriteln(conf, "git hash: " & gitHash, {msgStdout})
+    const (sourceHash, sourceDate) = getNimSourceData()
+
+    when sourceHash != "":
+      msgWriteln(conf, CommitMessage % [sourceHash, sourceDate], {msgStdout})
 
     msgWriteln(conf, "active boot switches:" & usedRelease & usedDanger &
       usedTinyC & useLinenoise &
