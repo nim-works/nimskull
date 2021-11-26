@@ -110,3 +110,7 @@ htmldocs
 nimdoc.out.css
 # except here:
 !/nimdoc/testproject/expected/*
+
+# For anyone who wants to make a workspace out of nimskull repo
+*.code-workspace
+.vscode
