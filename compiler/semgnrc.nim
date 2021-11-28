@@ -192,6 +192,8 @@ proc semGenericStmt(c: PContext, n: PNode,
   #if conf.cmd == cmdIdeTools: suggestStmt(c, n)
   semIdeForTemplateOrGenericCheck(c.config, n, ctx.cursorInBody)
 
+  addInNimDebugUtils(c.config, "semGenericStmt", n, result)
+
   case n.kind
   of nkIdent, nkAccQuoted:
     result = lookup(c, n, flags, ctx)

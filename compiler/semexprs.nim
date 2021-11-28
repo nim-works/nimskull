@@ -2816,12 +2816,7 @@ proc enumFieldSymChoice(c: PContext, n: PNode, s: PSym): PNode =
 proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   when defined(nimCompilerStacktraceHints):
     setFrameMsg c.config$n.info & " " & $n.kind
-  when false: # see `tdebugutils`
-    if isCompilerDebug():
-      echo (">", c.config$n.info, n, flags, n.kind)
-    defer:
-      if isCompilerDebug():
-        echo ("<", c.config$n.info, n, ?.result.typ)
+  addInNimDebugUtils(c.config, "semExpr", n, result, flags)
 
   result = n
   if c.config.cmd == cmdIdeTools: suggestExpr(c, n)
