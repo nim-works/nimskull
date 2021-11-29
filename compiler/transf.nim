@@ -569,10 +569,17 @@ proc transformConv(c: PTransf, n: PNode): PNode =
       result = transformSons(c, n)
   of tyObject:
     var diff = inheritanceDiff(dest, source)
+    template convHint =
+      if n.kind == nkHiddenSubConv and n.typ.kind notin abstractVarRange:
+        # Creates hint on converstion to parent type where information is lost,
+        # presently hints on `proc(thing)` where thing converts to non var base.
+        rawMessage(c.graph.config, hintImplicitObjConv, [typeToString(source), typeToString(dest), toFileLineCol(c.graph.config, n[1].info)])
     if diff < 0:
+      convHint()
       result = newTransNode(nkObjUpConv, n, 1)
       result[0] = transform(c, n[1])
     elif diff > 0 and diff != high(int):
+      convHint()
       result = newTransNode(nkObjDownConv, n, 1)
       result[0] = transform(c, n[1])
     else:

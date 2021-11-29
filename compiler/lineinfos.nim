@@ -93,6 +93,7 @@ type
     hintUser = "User", hintUserRaw = "UserRaw", hintExtendedContext = "ExtendedContext",
     hintMsgOrigin = "MsgOrigin", # since 1.3.5
     hintDeclaredLoc = "DeclaredLoc", # since 1.5.1
+    hintImplicitObjConv = "ImplicitObjConv"
 
 const
   MsgKindToStr*: array[TMsgKind, string] = [
@@ -202,6 +203,7 @@ const
     hintExtendedContext: "$1",
     hintMsgOrigin: "$1",
     hintDeclaredLoc: "$1",
+    hintImplicitObjConv: "Implicit conversion: Receiver '$2' will not receive fields of sub-type '$1' [$3]"
   ]
 
 const
