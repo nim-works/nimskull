@@ -59,6 +59,185 @@ proc isArrayConstr(n: PNode): bool {.inline.} =
   result = n.kind == nkBracket and
     n.typ.skipTypes(abstractInst).kind == tyArray
 
+proc deltaTrace(stopProc, indent: string, entries: seq[StackTraceEntry])
+  {.inline.} =
+  # find the actual StackTraceEntry index based on the name
+  let endsWith = entries.len - 1
+  var startFrom = 0
+  for i in countdown(endsWith, 0):
+    let e = entries[i]
+    if i != endsWith and $e.procname == stopProc: # found the previous
+      startFrom = i + 1
+      break                                       # skip the rest
+
+  # print the trace oldest (startFrom) to newest (endsWith)
+  for i in startFrom..endsWith:
+    let e = entries[i]
+    echo:
+      "$1| $2 $3($4)" % [indent, $e.procname, $e.filename, $e.line]
+
+template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
+                                enterMsg, leaveMsg, getInfo: untyped) =
+  ## used by one of the dedicated templates in order to output compiler trace
+  ## data, use a dedicated template (see below) for actual output. this is a
+  ## helper that takes three templates, `enterMsg`, `leaveMsg`, and `getInfo`
+  ## that will emit a message when entering and leaving a proc, and getting
+  ## the string out of some lineinfo, respectively.
+  ## 
+  ## The dedicate templates take specific parameters and pass in the above
+  ## templates with the following signatures:
+  ## * enterMsg: indent: string -> string
+  ## * leaveMsg: indent: string -> string
+  ## * getInfo: void -> string
+  ##
+  ## once a specialized template exists, again see below, use at the start of a
+  ## proc, typically a high traffic one such as `semExpr` and then this will
+  ## output partial traces through the compiler.
+  ##
+  ## The output is roughly:
+  ## 1. begin message with starting location
+  ##    a.  a full stacktrace for context
+  ## 2. for each proc (nests):
+  ##    a. `>prcname plus useful info...`
+  ##    b. delta stack trace `| procname filepath(line, col)`
+  ##    c. `<prcname plus useful change info...`
+  ## 3. end message
+
+  # xxx: as this template develops, eventually all the delta traces will be
+  #      replaced with useful debugging output from here so we can inspect
+  #      what the compiler is doing. eventually, even that should be superceded
+  #      as that sort of transformation and observability should be first class
+
+  when defined(nimDebugUtils): # see `debugutils`
+
+    # do all this at the start of any proc we're debugging
+    let
+      isDebug = conf.isCompilerDebug()
+        ## see if we're in compiler debug mode and also use the fact that we know
+        ## this early to see if we just entered or just left
+
+      # determine indentitation levels for output
+      indentString = "  "
+      indentLevel = conf.debugUtilsStack.len
+      indent = indentString.repeat(indentLevel)
+      info = getInfo()
+
+    if isDebug:
+      conf.debugUtilsStack.add prcname # use this to track deltas 
+      echo enterMsg(indent)
+      if indentLevel != 0: # print a delta stack
+        # try to print only the part of the stacktrace since the last time,
+        # this is done by looking for any previous calls in `debugUtilsStack`
+        {.line.}: # stops the template showing up in the StackTraceEntries
+          let
+            stopProc =
+              if indentLevel == 1: prcname  # we're the only ones
+              else: conf.debugUtilsStack[^2] # the one before us
+            entries = getStackTraceEntries()
+            endsWith = entries.len - 1
+
+        # find the actual StackTraceEntry index based on the name
+        var startFrom = 0
+        for i in countdown(endsWith, 0):
+          let e = entries[i]
+          if i != endsWith and $e.procname == stopProc: # found the previous
+            startFrom = i + 1
+            break                                       # skip the rest
+
+        # print the trace oldest (startFrom) to newest (endsWith)
+        for i in startFrom..endsWith:
+          let e = entries[i]
+          echo:
+            "$1| $2 $3($4)" % [indent, $e.procname, $e.filename, $e.line]
+
+    # upon leaving the proc being debugged (`defer`), let's see what changed
+    defer:
+      if not isDebug and conf.isCompilerDebug():
+        # meaning we just analysed a `{.define(nimCompilerDebug).}`
+        # it started of as false, now after the proc's work (`semExpr`) this
+        # `defer`red logic is seeing `true`, so we must have just started.
+        echo "compiler debug start at (initial stacktrace follows): ", info
+        {.line.}:           # don't let the template show up in the StackTrace
+          writeStackTrace() # gives context to the rest of the partial traces
+                            # we do a full one instead
+      elif isDebug and not conf.isCompilerDebug():
+        # meaning we just analysed an `{.undef(nimCompilerDebug).}`
+        # it started of as true, now in the `defer` it's false
+        discard conf.debugUtilsStack.pop()
+        echo "compiler debug end: ", info
+      elif isDebug:
+        discard conf.debugUtilsStack.pop()
+        echo leaveMsg(indent)
+  else:
+    discard # noop if undefined
+
+template addInNimDebugUtils(c: ConfigRef; name: string; n, r: PNode;
+                            flags: TExprFlags) =
+  ## add tracing to procs that are primarily `PNode -> PNode`, with expr flags
+  ## and can determine the type
+  template enterMsg(indent: string): string =
+    "$1>$2: $3, $4, $5" % [indent, name, $n.kind, c$n.info, $flags]
+  template leaveMsg(indent: string): string =
+    "$1<$2: $3, $4, $5" %
+      [indent, name, $r.kind, c$r.info, if r != nil: $r.typ else: ""]
+  template getInfo(): string =
+    c$n.info
+
+  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
+
+template addInNimDebugUtils(c: ConfigRef; name: string; n, r: PNode) =
+  ## add tracing to procs that are primarily `PNode -> PNode`, and can
+  ## determine the type
+  
+  template enterMsg(indent: string): string =
+    "$1>$2: $3, $4" % [indent, name, $n.kind, c$n.info]
+  template leaveMsg(indent: string): string =
+    "$1<$2: $3, $4, $5" %
+      [indent, name, $r.kind, c$r.info, if r != nil: $r.typ else: ""]
+  template getInfo(): string =
+    c$n.info
+
+  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
+
+template addInNimDebugUtils(c: ConfigRef; name: string; n: PNode;
+                            prev, r: PType) =
+  ## add tracing to procs that are primarily `PNode, PType|nil -> PType`,
+  ## determining a type node, with a possible previous type.
+  template enterMsg(indent: string): string =
+    "$1>$2: $3, $4, prev: $5" %
+      [indent, name, $n.kind, c$n.info, $prev]
+  template leaveMsg(indent: string): string =
+    "$1<$2: $3, $4, $5, %6, prev: $7" %
+      [indent, name, $n.kind, c$n.info, $n.typ, $r, $prev]
+  template getInfo(): string =
+    c$n.info
+  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
+
+template addInNimDebugUtils(c: ConfigRef; name: string; x: PType; n: PNode;
+                            r: PType) =
+  ## add tracing to procs that are primarily `PType, PNode -> PType`, looking
+  ## for a common type
+  template enterMsg(indent: string): string =
+    "$1>$2: $3, $4, $5, $6" %
+      [indent, name, $x.kind, c$n.info, $n.kind, $n.typ]
+  template leaveMsg(indent: string): string =
+    "$1<$2: $3, $4, $5, %6, $7" %
+      [indent, name, $x.kind, c$n.info, $x, $r, $n.typ]
+  template getInfo(): string =
+    c$n.info
+  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
+
+template addInNimDebugUtils(c: ConfigRef; name: string; x, y, r: PType) =
+  ## add tracing to procs that are primarily `PType, PType -> PType`, looking
+  ## for a common type
+  template enterMsg(indent: string): string =
+    "$1>$2: $3, $4" % [indent, name, $x.kind, $y.kind]
+  template leaveMsg(indent: string): string =
+    "$1<$2: $3, $4, $5, $6" % [indent, name, $x.kind, $x, $y, $r]
+  template getInfo(): string =
+    ""
+  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
+
 template semIdeForTemplateOrGenericCheck(conf, n, requiresCheck) =
   # we check quickly if the node is where the cursor is
   when defined(nimsuggest):
@@ -129,6 +308,7 @@ template commonTypeBegin*(): PType = PType(kind: tyUntyped)
 proc commonType*(c: PContext; x, y: PType): PType =
   # new type relation that is used for array constructors,
   # if expressions, etc.:
+  addInNimDebugUtils(c.config, "commonType", x, y, result)
   if x == nil: return x
   if y == nil: return y
   var a = skipTypes(x, {tyGenericInst, tyAlias, tySink})
@@ -216,8 +396,10 @@ proc endsInNoReturn(n: PNode): bool =
 
 proc commonType*(c: PContext; x: PType, y: PNode): PType =
   # ignore exception raising branches in case/if expressions
-  if endsInNoReturn(y): return x
-  commonType(c, x, y.typ)
+  addInNimDebugUtils(c.config, "commonType", x, y, result)
+  result = x
+  if endsInNoReturn(y): return
+  result = commonType(c, x, y.typ)
 
 proc newSymS(kind: TSymKind, n: PNode, c: PContext): PSym =
   result = newSym(kind, considerQuotedIdent(c, n), nextSymId c.idgen, getCurrOwner(c), n.info)

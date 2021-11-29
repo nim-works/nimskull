@@ -396,6 +396,10 @@ type
     cppCustomNamespace*: string
     vmProfileData*: ProfileData
 
+    when defined(nimDebugUtils):
+      debugUtilsStack*: seq[string] ## which proc name to stop trace output
+                                    ## len is also used for output indent level
+
 proc parseNimVersion*(a: string): NimVer =
   # could be moved somewhere reusable
   if a.len > 0:
@@ -499,6 +503,7 @@ when defined(nimDebugUtils):
   export debugutils
 
 proc initConfigRefCommon(conf: ConfigRef) =
+  conf.symbols = newStringTable(modeStyleInsensitive)
   conf.selectedGC = gcRefc
   conf.verbosity = 1
   conf.hintProcessingDots = true
@@ -508,6 +513,11 @@ proc initConfigRefCommon(conf: ConfigRef) =
   conf.foreignPackageNotes = foreignPackageNotesDefault
   conf.notes = NotesVerbosity[1]
   conf.mainPackageNotes = NotesVerbosity[1]
+  when defined(nimDebugUtils):
+    # ensures that `nimDebugUtils` is defined for the compiled code so it can
+    # access the `system.nimCompilerDebugRegion` template
+    if not conf.symbols.hasKey("nimDebugUtils"):
+      conf.symbols["nimDebugUtils"] = ""
 
 proc newConfigRef*(): ConfigRef =
   result = ConfigRef(
@@ -518,7 +528,6 @@ proc newConfigRef*(): ConfigRef =
     cppDefines: initHashSet[string](),
     headerFile: "", features: {}, legacyFeatures: {},
     configVars: newStringTable(modeStyleInsensitive),
-    symbols: newStringTable(modeStyleInsensitive),
     packageCache: newPackageCache(),
     searchPaths: @[],
     lazyPaths: @[],
@@ -563,16 +572,11 @@ proc newConfigRef*(): ConfigRef =
   # enable colors by default on terminals
   if terminal.isatty(stderr):
     incl(result.globalOptions, optUseColors)
-  when defined(nimDebugUtils):
-    onNewConfigRef(result)
 
 proc newPartialConfigRef*(): ConfigRef =
   ## create a new ConfigRef that is only good enough for error reporting.
-  when defined(nimDebugUtils):
-    result = getConfigRef()
-  else:
-    result = ConfigRef()
-    initConfigRefCommon(result)
+  result = ConfigRef()
+  initConfigRefCommon(result)
 
 proc cppDefine*(c: ConfigRef; define: string) =
   c.cppDefines.incl define

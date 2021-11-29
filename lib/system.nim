@@ -3145,3 +3145,13 @@ when notJSnotNims and not defined(nimSeqsV2):
       moveMem(addr y[0], addr x[0], x.len)
       assert y == "abcgh"
     discard
+
+when defined(nimDebugUtils):
+  # used debug the compiler, see `compiler/debugutils`
+  template nimCompilerDebugRegion*(n: untyped)
+    {.deprecated: "debug code, likely forgot to remove".} =
+    ## convenience template to wrap `n` within `define` and `undef` pragmas of
+    ## `nimCompilerDebug`.
+    {.define(nimCompilerDebug).}
+    n
+    {.undef(nimCompilerDebug).}
