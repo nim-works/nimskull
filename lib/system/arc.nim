@@ -116,15 +116,30 @@ proc nimNewObjUninit(size, alignment: int): pointer {.compilerRtl.} =
     cprintf("[Allocated] %p result: %p\n", result -! sizeof(RefHeader), result)
 
 proc nimDecWeakRef(p: pointer) {.compilerRtl, inl.} =
-  dec head(p).rc, rcIncrement
+  # We want to use atomic operations when threading is on
+  # We will only use non-atomic operations if user 'owns' the ref - which implies
+  # that no other thread is handling the ref anymore.
+  template decOpr(x,y: untyped): untyped =
+    when hasThreadSupport:
+      atomicDec(x, y)
+    else:
+      dec(x, y)
+  
+  decOpr(head(p).rc, rcIncrement)
 
 proc nimIncRef(p: pointer) {.compilerRtl, inl.} =
+  template incOpr(x,y: untyped): untyped =
+    when hasThreadSupport:
+      atomicInc(x, y)
+    else:
+      inc(x, y)
+
   when defined(nimArcDebug):
     if head(p).refId == traceId:
       writeStackTrace()
       cfprintf(cstderr, "[IncRef] %p %ld\n", p, head(p).rc shr rcShift)
 
-  inc head(p).rc, rcIncrement
+  incOpr(head(p).rc, rcIncrement)
   when traceCollector:
     cprintf("[INCREF] %p\n", head(p))
 
@@ -187,20 +202,31 @@ when defined(gcOrc):
     #include cyclecollector
 
 proc nimDecRefIsLast(p: pointer): bool {.compilerRtl, inl.} =
+  template loadOpr(x: untyped): untyped =
+    when hasThreadSupport:
+      atomicLoadN(x.addr, ATOMIC_RELAXED)
+    else:
+      x
+  template decOpr(x, y: untyped): untyped =
+    when hasThreadSupport:
+      atomicDec(x, y)
+    else:
+      dec(x, y)
+
   if p != nil:
     var cell = head(p)
 
     when defined(nimArcDebug):
       if cell.refId == traceId:
         writeStackTrace()
-        cfprintf(cstderr, "[DecRef] %p %ld\n", p, cell.rc shr rcShift)
+        cfprintf(cstderr, "[DecRef] %p %ld\n", p, cell.rc.loadOpr() shr rcShift)
 
-    if (cell.rc and not rcMask) == 0:
+    if (cell.rc.loadOpr() and not rcMask) == 0:
       result = true
       when traceCollector:
         cprintf("[ABOUT TO DESTROY] %p\n", cell)
     else:
-      dec cell.rc, rcIncrement
+      decOpr(cell.rc, rcIncrement)
       # According to Lins it's correct to do nothing else here.
       when traceCollector:
         cprintf("[DeCREF] %p\n", cell)
