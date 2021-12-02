@@ -90,7 +90,7 @@ proc getNimSourceData(): tuple[hash, date: string] {.compileTime.} =
   let hashCall = gorgeEx("git rev-parse --verify HEAD")
   let dateCall = gorgeEx("git log -1 --format=%cs HEAD")
   if hashCall.exitCode == 0 and dateCall.exitCode == 0:
-    result = (hashCall.output, dateCall.output)
+    result = (hashCall.output.strip(), dateCall.output.strip())
 
 proc writeVersionInfo(conf: ConfigRef; pass: TCmdLinePass) =
   if pass == passCmd1:
