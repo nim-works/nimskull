@@ -31,74 +31,74 @@ type                          # please make sure we have under 32 options
     optNaNCheck, optInfCheck, optStaticBoundsCheck, optStyleCheck,
     optAssert, optLineDir, optWarns, optHints,
     optOptimizeSpeed, optOptimizeSize,
-    optStackTrace, # stack tracing support
-    optStackTraceMsgs, # enable custom runtime msgs via `setFrameMsg`
-    optLineTrace,             # line tracing support (includes stack tracing)
-    optByRef,                 # use pass by ref for objects
-                              # (for interfacing with C)
-    optProfiler,              # profiler turned on
-    optImplicitStatic,        # optimization: implicit at compile time
-                              # evaluation
-    optTrMacros,              # en/disable pattern matching
+    optStackTrace, ## stack tracing support
+    optStackTraceMsgs, ## enable custom runtime msgs via `setFrameMsg`
+    optLineTrace,             ## line tracing support (includes stack tracing)
+    optByRef,                 ## use pass by ref for objects
+                              ## (for interfacing with C)
+    optProfiler,              ## profiler turned on
+    optImplicitStatic,        ## optimization: implicit at compile time
+                              ## evaluation
+    optTrMacros,              ## en/disable pattern matching
     optMemTracker,
-    optSinkInference          # 'sink T' inference
+    optSinkInference          ## 'sink T' inference
     optCursorInference
     optImportHidden
 
   TOptions* = set[TOption]
   TGlobalOption* = enum
     gloptNone, optForceFullMake,
-    optWasNimscript,          # redundant with `cmdNimscript`, could be removed
+    optWasNimscript,          ## redundant with `cmdNimscript`, could be removed
     optListCmd, optCompileOnly, optNoLinking,
-    optCDebug,                # turn on debugging information
-    optGenDynLib,             # generate a dynamic library
-    optGenStaticLib,          # generate a static library
-    optGenGuiApp,             # generate a GUI application
-    optGenScript,             # generate a script file to compile the *.c files
-    optGenMapping,            # generate a mapping file
-    optRun,                   # run the compiled project
-    optUseNimcache,           # save artifacts (including binary) in $nimcache
-    optStyleHint,             # check that the names adhere to NEP-1
-    optStyleError,            # enforce that the names adhere to NEP-1
-    optStyleUsages,           # only enforce consistent **usages** of the symbol
-    optSkipSystemConfigFile,  # skip the system's cfg/nims config file
-    optSkipProjConfigFile,    # skip the project's cfg/nims config file
-    optSkipUserConfigFile,    # skip the users's cfg/nims config file
-    optSkipParentConfigFiles, # skip parent dir's cfg/nims config files
-    optNoMain,                # do not generate a "main" proc
-    optUseColors,             # use colors for hints, warnings, and errors
-    optThreads,               # support for multi-threading
-    optStdout,                # output to stdout
-    optThreadAnalysis,        # thread analysis pass
-    optTlsEmulation,          # thread var emulation turned on
-    optGenIndex               # generate index file for documentation;
-    optEmbedOrigSrc           # embed the original source in the generated code
-                              # also: generate header file
-    optIdeDebug               # idetools: debug mode
-    optIdeTerse               # idetools: use terse descriptions
-    optExcessiveStackTrace    # fully qualified module filenames
-    optShowAllMismatches      # show all overloading resolution candidates
-    optWholeProject           # for 'doc': output any dependency
-    optDocInternal            # generate documentation for non-exported symbols
-    optMixedMode              # true if some module triggered C++ codegen
-    optDeclaredLocs           # show declaration locations in messages
+    optCDebug,                ## turn on debugging information
+    optGenDynLib,             ## generate a dynamic library
+    optGenStaticLib,          ## generate a static library
+    optGenGuiApp,             ## generate a GUI application
+    optGenScript,             ## generate a script file to compile the *.c files
+    optGenMapping,            ## generate a mapping file
+    optRun,                   ## run the compiled project
+    optUseNimcache,           ## save artifacts (including binary) in $nimcache
+    optStyleHint,             ## check that the names adhere to NEP-1
+    optStyleError,            ## enforce that the names adhere to NEP-1
+    optStyleUsages,           ## only enforce consistent **usages** of the symbol
+    optSkipSystemConfigFile,  ## skip the system's cfg/nims config file
+    optSkipProjConfigFile,    ## skip the project's cfg/nims config file
+    optSkipUserConfigFile,    ## skip the users's cfg/nims config file
+    optSkipParentConfigFiles, ## skip parent dir's cfg/nims config files
+    optNoMain,                ## do not generate a "main" proc
+    optUseColors,             ## use colors for hints, warnings, and errors
+    optThreads,               ## support for multi-threading
+    optStdout,                ## output to stdout
+    optThreadAnalysis,        ## thread analysis pass
+    optTlsEmulation,          ## thread var emulation turned on
+    optGenIndex               ## generate index file for documentation;
+    optEmbedOrigSrc           ## embed the original source in the generated code
+                              ## also: generate header file
+    optIdeDebug               ## idetools: debug mode
+    optIdeTerse               ## idetools: use terse descriptions
+    optExcessiveStackTrace    ## fully qualified module filenames
+    optShowAllMismatches      ## show all overloading resolution candidates
+    optWholeProject           ## for 'doc': output any dependency
+    optDocInternal            ## generate documentation for non-exported symbols
+    optMixedMode              ## true if some module triggered C++ codegen
+    optDeclaredLocs           ## show declaration locations in messages
     optNoNimblePath
     optHotCodeReloading
     optDynlibOverrideAll
-    optSeqDestructors         # active if the implementation uses the new
-                              # string/seq implementation based on destructors
-    optTinyRtti               # active if we use the new "tiny RTTI"
-                              # implementation
-    optOwnedRefs              # active if the Nim compiler knows about 'owned'.
+    optSeqDestructors         ## active if the implementation uses the new
+                              ## string/seq implementation based on destructors
+    optTinyRtti               ## active if we use the new "tiny RTTI"
+                              ## implementation
+    optOwnedRefs              ## active if the Nim compiler knows about 'owned'.
     optMultiMethods
-    optBenchmarkVM            # Enables cpuTime() in the VM
-    optProduceAsm             # produce assembler code
-    optPanics                 # turn panics (sysFatal) into a process termination
-    optNimV1Emulation         # emulate Nim v1.0
-    optNimV12Emulation        # emulate Nim v1.2
+    optBenchmarkVM            ## Enables cpuTime() in the VM
+    optProduceAsm             ## produce assembler code
+    optPanics                 ## turn panics (sysFatal) into a process termination
+    optNimV1Emulation         ## emulate Nim v1.0
+    optNimV12Emulation        ## emulate Nim v1.2
     optSourcemap
-    optProfileVM              # enable VM profiler
-    optEnableDeepCopy         # ORC specific: enable 'deepcopy' for all types.
+    optProfileVM              ## enable VM profiler
+    optEnableDeepCopy         ## ORC specific: enable 'deepcopy' for all types.
 
   TGlobalOptions* = set[TGlobalOption]
 
@@ -132,30 +132,30 @@ type
     # backendLlvm = "llvm" # probably not well supported; was cmdCompileToLLVM
 
   Command* = enum  ## Nim's commands
-    cmdNone # not yet processed command
-    cmdUnknown # command unmapped
+    cmdNone        ## not yet processed command
+    cmdUnknown     ## command unmapped
     cmdCompileToC, cmdCompileToCpp, cmdCompileToOC, cmdCompileToJS
-    cmdCrun # compile and run in nimache
-    cmdTcc # run the project via TCC backend
-    cmdCheck # semantic checking for whole project
-    cmdParse # parse a single file (for debugging)
-    cmdRod # .rod to some text representation (for debugging)
-    cmdIdeTools # ide tools (e.g. nimsuggest)
-    cmdNimscript # evaluate nimscript
+    cmdCrun        ## compile and run in nimache
+    cmdTcc         ## run the project via TCC backend
+    cmdCheck       ## semantic checking for whole project
+    cmdParse       ## parse a single file (for debugging)
+    cmdRod         ## .rod to some text representation (for debugging)
+    cmdIdeTools    ## ide tools (e.g. nimsuggest)
+    cmdNimscript   ## evaluate nimscript
     cmdDoc0
-    cmdDoc      # convert .nim doc comments to HTML
-    cmdDoc2tex  # convert .nim doc comments to LaTeX
-    cmdRst2html # convert a reStructuredText file to HTML
-    cmdRst2tex # convert a reStructuredText file to TeX
+    cmdDoc         ## convert .nim doc comments to HTML
+    cmdDoc2tex     ## convert .nim doc comments to LaTeX
+    cmdRst2html    ## convert a reStructuredText file to HTML
+    cmdRst2tex     ## convert a reStructuredText file to TeX
     cmdJsondoc0
     cmdJsondoc
     cmdCtags
     cmdBuildindex
     cmdGendepend
     cmdDump
-    cmdInteractive # start interactive session
+    cmdInteractive ## start interactive session
     cmdNop
-    cmdJsonscript # compile a .json build file
+    cmdJsonscript  ## compile a .json build file
     cmdNimfix
     # old unused: cmdInterpret, cmdDef: def feature (find definition for IDEs)
 
@@ -220,22 +220,22 @@ type
       ## are not anymore.
 
   SymbolFilesOption* = enum
-    disabledSf,  # disables Rod files and maybe packed AST features
-    writeOnlySf, # not really sure, beyond not reading rod files
-    readOnlySf,  # we only read from rod files
-    v2Sf,        # who knows, probably a bad idea
-    stressTest   # likely more bad ideas
+    disabledSf,  ## disables Rod files and maybe packed AST features
+    writeOnlySf, ## not really sure, beyond not reading rod files
+    readOnlySf,  ## we only read from rod files
+    v2Sf,        ## who knows, probably a bad idea
+    stressTest   ## likely more bad ideas
 
   TSystemCC* = enum
     ccNone, ccGcc, ccNintendoSwitch, ccLLVM_Gcc, ccCLang, ccBcc, ccVcc,
     ccTcc, ccEnv, ccIcl, ccIcc, ccClangCl
 
   ExceptionSystem* = enum
-    excNone,   # no exception system selected yet
-    excSetjmp, # setjmp based exception handling
-    excCpp,    # use C++'s native exception handling
-    excGoto,   # exception handling based on goto (should become the new default for C)
-    excQuirky  # quirky exception handling
+    excNone,   ## no exception system selected yet
+    excSetjmp, ## setjmp based exception handling
+    excCpp,    ## use C++'s native exception handling
+    excGoto,   ## exception handling based on goto (should become the new default for C)
+    excQuirky  ## quirky exception handling
 
   CfileFlag* {.pure.} = enum
     Cached,    ## no need to recompile this time
@@ -251,16 +251,16 @@ type
   Suggest* = ref object
     section*: IdeCmd
     qualifiedPath*: seq[string]
-    name*: ptr string         # not used beyond sorting purposes; name is also
-                              # part of 'qualifiedPath'
+    name*: ptr string         ## not used beyond sorting purposes; name is also
+                              ## part of 'qualifiedPath'
     filePath*: string
-    line*: int                   # Starts at 1
-    column*: int                 # Starts at 0
-    doc*: string           # Not escaped (yet)
-    forth*: string               # type
-    quality*: range[0..100]   # matching quality
-    isGlobal*: bool # is a global variable
-    contextFits*: bool # type/non-type context matches
+    line*: int                   ## Starts at 1
+    column*: int                 ## Starts at 0
+    doc*: string           ## Unescaped documentation string
+    forth*: string               ## type
+    quality*: range[0..100]   ## matching quality
+    isGlobal*: bool ## is a global variable
+    contextFits*: bool ## type/non-type context matches
     prefix*: PrefixMatch
     symkind*: byte
     scope*, localUsages*, globalUsages*: int # more usages is better
@@ -280,12 +280,12 @@ type
     stdOrrStderr
 
   FilenameOption* = enum
-    foAbs # absolute path, e.g.: /pathto/bar/foo.nim
-    foRelProject # relative to project path, e.g.: ../foo.nim
-    foCanonical # canonical module name
-    foLegacyRelProj # legacy, shortest of (foAbs, foRelProject)
-    foName # lastPathPart, e.g.: foo.nim
-    foStacktrace # if optExcessiveStackTrace: foAbs else: foName
+    foAbs           ## absolute path, e.g.: /pathto/bar/foo.nim
+    foRelProject    ## relative to project path, e.g.: ../foo.nim
+    foCanonical     ## canonical module name
+    foLegacyRelProj ## legacy, shortest of (foAbs, foRelProject)
+    foName          ## lastPathPart, e.g.: foo.nim
+    foStacktrace    ## if optExcessiveStackTrace: foAbs else: foName
 
   ConfigRef* {.acyclic.} = ref object ## every global configuration
                           ## fields marked with '*' are subject to
@@ -304,18 +304,18 @@ type
     evalTemplateCounter*: int
     evalMacroCounter*: int
     exitcode*: int8
-    cmd*: Command  # raw command parsed as enum
-    cmdInput*: string  # input command
-    projectIsCmd*: bool # whether we're compiling from a command input
-    implicitCmd*: bool # whether some flag triggered an implicit `command`
-    selectedGC*: TGCMode       # the selected GC (+)
+    cmd*: Command        ## raw command parsed as enum
+    cmdInput*: string    ## input command
+    projectIsCmd*: bool  ## whether we're compiling from a command input
+    implicitCmd*: bool   ## whether some flag triggered an implicit `command`
+    selectedGC*: TGCMode ## the selected GC (+)
     exc*: ExceptionSystem
-    hintProcessingDots*: bool # true for dots, false for filenames
-    verbosity*: int            # how verbose the compiler is
-    numberOfProcessors*: int   # number of processors
-    lastCmdTime*: float        # when caas is enabled, we measure each command
+    hintProcessingDots*: bool ## true for dots, false for filenames
+    verbosity*: int           ## how verbose the compiler is
+    numberOfProcessors*: int  ## number of processors
+    lastCmdTime*: float       ## when caas is enabled, we measure each command
     symbolFiles*: SymbolFilesOption
-    spellSuggestMax*: int # max number of spelling suggestions for typos
+    spellSuggestMax*: int ## max number of spelling suggestions for typos
 
     cppDefines*: HashSet[string] # (*)
     headerFile*: string
@@ -325,11 +325,11 @@ type
                        ## should be run
     ideCmd*: IdeCmd
     oldNewlines*: bool
-    cCompiler*: TSystemCC # the used compiler
-    modifiedyNotes*: TNoteKinds # notes that have been set/unset from either cmdline/configs
-    cmdlineNotes*: TNoteKinds # notes that have been set/unset from cmdline
+    cCompiler*: TSystemCC ## the used compiler
+    modifiedyNotes*: TNoteKinds ## notes that have been set/unset from either cmdline/configs
+    cmdlineNotes*: TNoteKinds ## notes that have been set/unset from cmdline
     foreignPackageNotes*: TNoteKinds
-    notes*: TNoteKinds # notes after resolving all logic(defaults, verbosity)/cmdline/configs
+    notes*: TNoteKinds ## notes after resolving all logic(defaults, verbosity)/cmdline/configs
     warningAsErrors*: TNoteKinds
     mainPackageNotes*: TNoteKinds
     mainPackageId*: int
@@ -353,32 +353,34 @@ type
     prefixDir*, libpath*, nimcacheDir*: AbsoluteDir
     nimStdlibVersion*: NimVer
     dllOverrides, moduleOverrides*, cfileSpecificOptions*: StringTableRef
-    projectName*: string # holds a name like 'nim'
-    projectPath*: AbsoluteDir # holds a path like /home/alice/projects/nim/compiler/
-    projectFull*: AbsoluteFile # projectPath/projectName
-    projectIsStdin*: bool # whether we're compiling from stdin
-    lastMsgWasDot*: set[StdOrrKind] # the last compiler message was a single '.'
-    projectMainIdx*: FileIndex # the canonical path id of the main module
-    projectMainIdx2*: FileIndex # consider merging with projectMainIdx
-    command*: string # the main command (e.g. cc, check, scan, etc)
-    commandArgs*: seq[string] # any arguments after the main command
+    projectName*: string            ## holds a name like 'nim'
+    projectPath*: AbsoluteDir       ## holds a path like /home/alice/projects/nim/compiler/
+    projectFull*: AbsoluteFile      ## projectPath/projectName
+    projectIsStdin*: bool           ## whether we're compiling from stdin
+    lastMsgWasDot*: set[StdOrrKind] ## the last compiler message was a single '.'
+    projectMainIdx*: FileIndex      ## the canonical path id of the main module
+    projectMainIdx2*: FileIndex     ## consider merging with projectMainIdx
+    command*: string                ## the main command (e.g. cc, check, scan, etc)
+    commandArgs*: seq[string]       ## any arguments after the main command
     commandLine*: string
-    extraCmds*: seq[string] # for writeJsonBuildInstructions
-    keepComments*: bool # whether the parser needs to keep comments
-    implicitImports*: seq[string] # modules that are to be implicitly imported
-    implicitIncludes*: seq[string] # modules that are to be implicitly included
-    docSeeSrcUrl*: string # if empty, no seeSrc will be generated. \
-    # The string uses the formatting variables `path` and `line`.
+    extraCmds*: seq[string]        ## for writeJsonBuildInstructions
+    keepComments*: bool            ## whether the parser needs to keep comments
+    implicitImports*: seq[string]  ## modules that are to be implicitly imported
+    implicitIncludes*: seq[string] ## modules that are to be implicitly included
+    docSeeSrcUrl*: string          ## if empty, no seeSrc will be
+                                   ## generated. \ The string uses the
+                                   ## formatting variables `path` and
+                                   ## `line`.
     docRoot*: string ## see nim --fullhelp for --docRoot
     docCmd*: string ## see nim --fullhelp for --docCmd
 
-    configFiles*: seq[AbsoluteFile]     # config files (cfg,nims)
-    cIncludes*: seq[AbsoluteDir]  # directories to search for included files
-    cLibs*: seq[AbsoluteDir]      # directories to search for lib files
-    cLinkedLibs*: seq[string]     # libraries to link
+    configFiles*: seq[AbsoluteFile] ## config files (cfg,nims)
+    cIncludes*: seq[AbsoluteDir]  ## directories to search for included files
+    cLibs*: seq[AbsoluteDir]      ## directories to search for lib files
+    cLinkedLibs*: seq[string]     ## libraries to link
 
-    externalToLink*: seq[string]  # files to link in addition to the file
-                                  # we compiled (*)
+    externalToLink*: seq[string]  ## files to link in addition to the file
+                                  ## we compiled (*)
     linkOptionsCmd*: string
     compileOptionsCmd*: seq[string]
     linkOptions*: string          # (*)
@@ -426,7 +428,7 @@ proc setNoteDefaults*(conf: ConfigRef, note: TNoteKind, enabled = true) =
   if enabled: fun(incl) else: fun(excl)
 
 proc setNote*(conf: ConfigRef, note: TNoteKind, enabled = true) =
-  # see also `prepareConfigNotes` which sets notes
+  ## see also `prepareConfigNotes` which sets notes
   if note notin conf.cmdlineNotes:
     if enabled: incl(conf.notes, note) else: excl(conf.notes, note)
 
@@ -701,7 +703,7 @@ proc getPrefixDir*(conf: ConfigRef): AbsoluteDir =
   else: result = AbsoluteDir splitPath(getAppDir()).head
 
 proc setDefaultLibpath*(conf: ConfigRef) =
-  # set default value (can be overwritten):
+  ## set default value (can be overwritten):
   if conf.libpath.isEmpty:
     # choose default libpath:
     var prefix = getPrefixDir(conf)
