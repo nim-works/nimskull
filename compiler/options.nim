@@ -9,7 +9,8 @@
 
 import
   os, strutils, strtabs, sets, lineinfos, platform,
-  prefixmatches, pathutils, nimpaths, tables
+  prefixmatches, pathutils, nimpaths, tables, reports
+
 
 from terminal import isatty
 from times import utc, fromUnix, local, getTime, format, DateTime
@@ -291,7 +292,7 @@ type
                           ## fields marked with '*' are subject to
                           ## the incremental compilation mechanisms
                           ## (+) means "part of the dependency"
-    backend*: TBackend # set via `nim x` or `nim --backend:x`
+    backend*: TBackend ## set via `nim x` or `nim --backend:x`
     target*: Target       # (+)
     linesCompiled*: int   # all lines that have been compiled
     options*: TOptions    # (+)
