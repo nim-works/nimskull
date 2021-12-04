@@ -236,32 +236,32 @@ const
 
 type
   TFileInfo* = object
-    fullPath*: AbsoluteFile    # This is a canonical full filesystem path
-    projPath*: RelativeFile    # This is relative to the project's root
-    shortName*: string         # short name of the module
-    quotedName*: Rope          # cached quoted short name for codegen
-                               # purposes
-    quotedFullName*: Rope      # cached quoted full name for codegen
-                               # purposes
+    fullPath*: AbsoluteFile    ## This is a canonical full filesystem path
+    projPath*: RelativeFile    ## This is relative to the project's root
+    shortName*: string         ## short name of the module
+    quotedName*: Rope          ## cached quoted short name for codegen
+                               ## purposes
+    quotedFullName*: Rope      ## cached quoted full name for codegen
+                               ## purposes
 
-    lines*: seq[string]        # the source code of the module
-                               #   used for better error messages and
-                               #   embedding the original source in the
-                               #   generated code
-    dirtyFile*: AbsoluteFile   # the file that is actually read into memory
-                               # and parsed; usually "" but is used
-                               # for 'nimsuggest'
-    hash*: string              # the checksum of the file
-    dirty*: bool               # for 'nimfix' / 'nimpretty' like tooling
+    lines*: seq[string]        ## the source code of the module
+                               ##   used for better error messages and
+                               ##   embedding the original source in the
+                               ##   generated code
+    dirtyFile*: AbsoluteFile   ## the file that is actually read into memory
+                               ## and parsed; usually "" but is used
+                               ## for 'nimsuggest'
+    hash*: string              ## the checksum of the file
+    dirty*: bool               ## for 'nimfix' / 'nimpretty' like tooling
     when defined(nimpretty):
       fullContent*: string
   FileIndex* = distinct int32
-  TLineInfo* = object          # This is designed to be as small as possible,
-                               # because it is used
-                               # in syntax nodes. We save space here by using
-                               # two int16 and an int32.
-                               # On 64 bit and on 32 bit systems this is
-                               # only 8 bytes.
+  TLineInfo* = object          ## This is designed to be as small as possible,
+                               ## because it is used
+                               ## in syntax nodes. We save space here by using
+                               ## two int16 and an int32.
+                               ## On 64 bit and on 32 bit systems this is
+                               ## only 8 bytes.
     line*: uint16
     col*: int16
     fileIndex*: FileIndex
@@ -295,8 +295,8 @@ type
     Hint, Warning, Error
 
 const
-  trackPosInvalidFileIdx* = FileIndex(-2) # special marker so that no suggestions
-                                          # are produced within comments and string literals
+  trackPosInvalidFileIdx* = FileIndex(-2) ## special marker so that no suggestions
+                                          ## are produced within comments and string literals
   commandLineIdx* = FileIndex(-3)
 
 type
@@ -306,10 +306,14 @@ type
                             ## some close token.
 
     errorOutputs*: TErrorOutputs
-    msgContext*: seq[tuple[info: TLineInfo, detail: string]]
+    msgContext*: seq[tuple[info: TLineInfo, detail: string]] ## Contextual
+    ## information about instantiation stack - "template/generic
+    ## instantiation of" message is constructed from this field.
     lastError*: TLineInfo
     filenameToIndexTbl*: Table[string, FileIndex]
-    fileInfos*: seq[TFileInfo]
+    fileInfos*: seq[TFileInfo] ## Information about all known source files
+    ## is stored in this field - full/relative paths, list of line etc.
+    ## (For full list see `TFileInfo`)
     systemFileIdx*: FileIndex
 
 
