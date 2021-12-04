@@ -278,7 +278,19 @@ proc toFileLineCol(info: InstantiationInfo): string {.inline.} =
   result.toLocation(info.filename, info.line, info.column + ColOffset)
 
 proc toFileLineCol*(conf: ConfigRef; info: TLineInfo): string {.inline.} =
-  result.toLocation(toMsgFilename(conf, info), info.line.int, info.col.int + ColOffset)
+  ## Construct `file(line, col)` string from report location information
+  result.toLocation(
+    toMsgFilename(conf, info), info.line.int, info.col.int + ColOffset)
+
+proc toReportLocation*(
+  conf: ConfigRef; info: TLineInfo): ReportLineInfo {.inline.} =
+  ## Construct report location instance based on the information from
+  ## `info`
+
+  ReportLineInfo(
+    file: toMsgFilename(conf, info),
+    line: info.line.int,
+    column: info.col.int + ColOffset)
 
 proc `$`*(conf: ConfigRef; info: TLineInfo): string = toFileLineCol(conf, info)
 
@@ -430,23 +442,32 @@ proc `==`*(a, b: TLineInfo): bool =
 proc exactEquals*(a, b: TLineInfo): bool =
   result = a.fileIndex == b.fileIndex and a.line == b.line and a.col == b.col
 
-proc writeContext(conf: ConfigRef; lastinfo: TLineInfo) =
+proc getContext(conf: ConfigRef; lastinfo: TLineInfo): seq[SemContext] =
+  ## Get list of context context entries from the current message context
+  ## information. Context messages can later be used in the
   const instantiationFrom = "template/generic instantiation from here"
   const instantiationOfFrom = "template/generic instantiation of `$1` from here"
   var info = lastinfo
-  for i in 0..<conf.m.msgContext.len:
+  for i in 0 ..< conf.m.msgContext.len:
     let context = conf.m.msgContext[i]
     if context.info != lastinfo and context.info != info:
       if conf.structuredErrorHook != nil:
         conf.structuredErrorHook(conf, context.info, instantiationFrom,
                                  Severity.Hint)
       else:
-        let message =
-          if context.detail == "":
-            instantiationFrom
-          else:
+        if context.detail == "":
+          result.add SemContext(
+            kind: sckInstantiationFrom,
+            location: conf.toFileLineCol(context.info))
+
+        else:
+          result.add SemContext(
+          )
             instantiationOfFrom.format(context.detail)
         styledMsgWriteln(styleBright, conf.toFileLineCol(context.info), " ", resetStyle, message)
+        result.add SemContext(
+        )
+
     info = context.info
 
 proc ignoreMsgBecauseOfIdeTools(conf: ConfigRef; msg: TMsgKind): bool =

@@ -41,12 +41,38 @@ type
 
 
 type
-  ReportLineInfo* = object
+  ReportLineRange* = object
+    ## Report location expressed as a span of lines in the file
+    file*: string
+    startLine*, endline*: int
+    startColumn*, endColumn*: int
+
+  ReportLinePoint* = object
+    ## Location expressed in terms of a single point in the file
     file*: string
     line*: int
     column*: int
 
-  ReportBase* = object
+  ReportLineInfo* = object
+    case isRange*: bool
+      of true:
+        lrange*: ReportLineRange
+
+      of false:
+        rpoint*: ReportLinePoint
+
+  ReportSeverity* = enum
+    rsevDebug ## Internal compiler debug information
+
+    rsevHint ## User-targeted hint
+    rsevWarning ## User-targeted warnings
+    rsevError ## User-targeted error
+
+    rsevTrace ## Additional information about compiler actions - external
+              ## commands mostly.
+
+
+  ReportBase* = object of RootObj
     location*: Option[ReportLineInfo] ## Location associated with report.
     ## Some reports do not have any locations associated with them (most
     ## (but not all, due to `gorge`) of the external command executions,
@@ -73,6 +99,41 @@ type
 type
   SemReportKind* = enum
     rsemTest
+
+
+  SemReportEntryKind* = enum
+    srekProc
+    srekTemplate
+    srekMacro
+    srekMethod
+    srekConverter
+
+    srekEnum
+    srekObject
+    srekAlias
+    srekTypeclass
+
+  SemReportEntry* = object
+    ## Entry mentioned in the sem report - type or procedure definition,
+    ## macros, template or any similar construct. Used in reports like
+    ## overload failures, "template/generic instantiation of" and such, to
+    ## store information about entry referred to.
+    declaredIn*: ReportLineInfo ## Location of the entry declaration
+    kind*: SemReportEntryKind
+
+  SemRef* = object
+
+  SemContextKind* = enum
+    sckInstantiationOf
+    sckInstantiationFrom
+
+  SemContext* = object
+    case kind*: SemContextKind
+      of sckInstantiationOf:
+        entry*: SemReportEntry
+
+      of sckInstantiationFrom:
+        location*:
 
   SemReport* = object of ReportBase
 
