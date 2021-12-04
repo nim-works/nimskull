@@ -14,6 +14,7 @@
 ## reused by external tooling - custom error pretty-printers, test runners
 ## and so on.
 
+import std/[options]
 
 type
   ReportKind* = enum
@@ -40,34 +41,52 @@ type
 
 
 type
+  ReportLineInfo* = object
+    file*: string
+    line*: int
+    column*: int
+
+  ReportBase* = object
+    location*: Option[ReportLineInfo] ## Location associated with report.
+    ## Some reports do not have any locations associated with them (most
+    ## (but not all, due to `gorge`) of the external command executions,
+    ## sem tracing etc). Some reports might have additional associated
+    ## location information (view type sealing reasons) - those are handled
+    ## on the per-report-kind basis.
+
+    reportInst*: ReportLineInfo ## Information about instantiation location
+    ## of the reports - present for all reports in order to track their
+    ## origins.
+
+type
   LexerReportKind* = enum
     rlexTest
 
-  LexerReport* = object
+  LexerReport* = object of ReportBase
 
 type
   ParserReportKind* = enum
     rparTest
 
-  ParserReport* = object
+  ParserReport* = object of ReportBase
 
 type
   SemReportKind* = enum
     rsemTest
 
-  SemReport* = object
+  SemReport* = object of ReportBase
 
 type
   CmdReportKind* = enum
     rcmdTest
 
-  CmdReport* = object
+  CmdReport* = object of ReportBase
 
 type
   DebugReportKind* = enum
     rdbgTest
 
-  DebugReport = object
+  DebugReport = object of ReportBase
 
 type
   Report* = object

@@ -393,9 +393,7 @@ type
     suggestMaxResults*: int
     lastLineInfo*: TLineInfo
     writelnHook*: proc (output: string) {.closure.} # cannot make this gcsafe yet because of Nimble
-    structuredErrorHook*: proc (config: ConfigRef; info: TLineInfo; msg: string;
-                                severity: Severity) {.closure.}
-                                # cannot make this gcsafe yet because of sigmatch diagnostics
+    structuredErrorHook*: proc (report: Report) {.closure.}
     cppCustomNamespace*: string
     vmProfileData*: ProfileData
 
