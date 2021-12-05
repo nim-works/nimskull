@@ -350,12 +350,15 @@ type
     ## `.detail` field is only used in the `sem.semMacroExpr()`,
     ## `seminst.generateInstance()` and `semexprs.semTemplateExpr()`. In
     ## all other cases this field is left empty (SemReport is `skUnknown`)
+    reports*: ReportList ## Intermediate storage for the
     lastError*: TLineInfo
     filenameToIndexTbl*: Table[string, FileIndex]
     fileInfos*: seq[TFileInfo] ## Information about all known source files
     ## is stored in this field - full/relative paths, list of line etc.
     ## (For full list see `TFileInfo`)
     systemFileIdx*: FileIndex
+
+proc addReport*(config: var MsgConfig, report: Report): MsgReportId =
 
 
 proc initMsgConfig*(): MsgConfig =

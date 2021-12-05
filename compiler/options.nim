@@ -404,13 +404,56 @@ type
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
                                     ## len is also used for output indent level
 
+proc report*[R: ReportTypes](
+    conf: ConfigRef,
+    report: sink R,
+    iinfo: (string, int, int),
+    location: Option[ReportLineInfo] = none ReportLineInfo
+  )
+  ## Write out new report passed as argument.
+
+  var tmp = report
+  tmp.reportInst = toReportLinePoint()
+  if isSome(location):
+    tmp.location = location
+
+  conf.structuredErrorHook(wrap(tmp))
+
+proc report*(conf: ConfigRef, id: ReportId) =
+  ## Write out existing stored report
+  conf.structuredErrorHook(conf.m.reports.getReport(id))
+
 template report*[R: ReportTypes](conf: ConfigRef, report: R) =
   ## Pass structured report object into `conf.structuredErrorHook`,
   ## converting to `Report` variant and updaing instantiation info.
-  block:
-    var tmp = report
-    tmp.reportInst = toReportLinePoint(instantiationInfo())
-    conf.structuredErrorHook(wrap(tmp))
+  report(conf, report, instantiationInfo(fullPaths = true))
+
+template report*[R: ReportTypes](
+    conf: ConfigRef, tinfo: TLineInfo, report: R) =
+  ## Write out new report, updating it's location info using `tinfo` and
+  ## it's instantiation info with `instantiationInfo()` of the template.
+  report(conf, report,
+    instantiationInfo(fullPaths = true),
+    some ReportLineInfo(
+      isRange: false, rpoint: conf.toReportPoint(tinfo))):
+
+proc store*[R: ReportTypes](
+    conf: ConfigRef,
+    report: sink R,
+    iinfo: (string, int, int),
+    location: Option[ReportLineInfo] = none ReportLineInfo
+  ): ReportId =
+  ## Store new report in the message context list. Returned ID can be later
+  ## used to write out the report via structured error hook.
+
+  var tmp = report
+  tmp.reportInst = toReportLinePoint()
+  if isSome(location):
+    tmp.location = location
+
+  result = conf.m.reports.addReport(tmp)
+
+
 
 func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
   ## Check if report stores fatal compilation error
@@ -516,8 +559,11 @@ template newPackageCache*(): untyped =
 proc newProfileData(): ProfileData =
   ProfileData(data: newTable[TLineInfo, ProfileInfo]())
 
-const foreignPackageNotesDefault* = {
-  hintProcessing, warnUnknownMagic, hintQuitCalled, hintExecuting, hintUser, warnUser}
+const
+  foreignPackageNotesDefault* = toReportKindSet({
+    rsemProcessing, rsemQuitCalled, rsemUserHint,
+    rsemUserWarning, rsemUser, rsemUnknownMagic
+  })
 
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 

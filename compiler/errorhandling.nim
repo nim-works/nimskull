@@ -13,17 +13,17 @@
 ## An nkError node is used where an error occurs within the AST. Wrap the ast
 ## node with `newError` and typically take over the position of the wrapped
 ## node in whatever AST it was in.
-## 
+##
 ## Internally an nkError node stores these children:
 ## * 0 - wraps an AST node that has the error
 ## * 1 - nkIntLit with a value corresponding to `ord(ErrorKind)`
 ## * 2 - compiler instantiation location info
 ## * 3 - first argument position, assuming one was provided
 ## * _ - zero or more nodes with data for the error message
-## 
+##
 ## The rest of the compiler should watch for nkErrors and mostly no-op or wrap
 ## further errors as needed.
-## 
+##
 ## # Future Considerations/Improvements:
 ## * accomodate for compiler related information like site of node creation to
 ##   make it easier to debug the compiler itself, so we know where a node was
@@ -32,86 +32,7 @@
 ##   structure on the side instead of directly in the node
 
 import ast
-from options import ConfigRef
-
-type
-  ErrorKind* {.pure.} = enum ## expand as you need.
-    CustomError
-    CustomPrintMsgAndNodeError
-      ## just like custom error, prints a message and renders wrongNode
-    RawTypeMismatchError
-
-    CustomUserError
-      ## just like customer error, but reported as a errUser in msgs
-
-    # Global Errors
-    CustomGlobalError
-      ## just like custom error, but treat it like a "raise" and fast track the
-      ## "graceful" abort of this compilation run, used by `errorreporting` to
-      ## bridge into the existing `msgs.liMessage` and `msgs.handleError`.
-
-    # Fatal Errors
-    FatalError
-      ## treat as a fatal error, meaning we do a less (?) "graceful" abort,
-      ## used by `errorreporting` to bridge into the existing `msgs.liMessage`
-      ## and `msgs.handleError`.
-      ## xxx: with the curren way the errorreporting module works, these must
-      ##      be created via msgs.fatal 
-
-    # Call
-    CallTypeMismatch
-    ExpressionCannotBeCalled
-    WrongNumberOfArguments
-    AmbiguousCall
-    CallingConventionMismatch
-
-    # ParameterTypeMismatch
-
-    # Identifier Lookup
-    UndeclaredIdentifier
-    ExpectedIdentifier
-    ExpectedIdentifierInExpr
-
-    # Object and Object Construction
-    FieldNotAccessible 
-      ## object field is not accessible
-    FieldAssignmentInvalid
-      ## object field assignment invalid syntax
-    FieldOkButAssignedValueInvalid
-      ## object field assignment, where the field name is ok, but value is not
-    ObjectConstructorIncorrect
-      ## one or more issues encountered with object constructor
-    
-    # General Type Checks
-    ExpressionHasNoType
-      ## an expression has not type or is ambiguous
-    
-    # Literals
-    IntLiteralExpected
-      ## int literal node was expected, but got something else
-    StringLiteralExpected
-      ## string literal node was expected, but got something else
-
-    # Pragma
-    InvalidPragma
-      ## suplied pragma is invalid
-    IllegalCustomPragma
-      ## supplied pragma is not a legal custom pragma, and cannot be attached
-    NoReturnHasReturn
-      ## a routine marked as no return, has a return type
-    ImplicitPragmaError
-      ## a symbol encountered an error when processing implicit pragmas, this
-      ## should be applied to symbols and treated as a wrapper for the purposes
-      ## of reporting. the original symbol is stored as the first argument
-    PragmaDynlibRequiresExportc
-      ## much the same as `ImplicitPragmaError`, except it's a special case
-      ## where dynlib pragma requires an importc pragma to exist on the same
-      ## symbol
-      ## xxx: pragmas shouldn't require each other, that's just bad design
-
-    WrappedError
-      ## there is no meaningful error to construct, but there is an error
-      ## further down the AST that invalidates the whole
+from options import ConfigRef, store
 
 type InstantiationInfo* = typeof(instantiationInfo())
   ## type alias for instantiation information
@@ -154,77 +75,26 @@ func compilerInstInfo*(e: PNode): InstantiationInfo {.inline.} =
   assert i != nil, "we should always have compiler diagnositics"
   (filename: i.strVal, line: i.info.line.int, column: i.info.col.int)
 
-proc newErrorAux(
+proc newError*(
     wrongNode: PNode;
-    k: ErrorKind;
-    inst: InstantiationInfo;
+    report: ReportId
     args: varargs[PNode]
   ): PNode =
-  ## create an `nkError` node with error `k`, with additional error `args` and
-  ## given `inst` as to where it was instanced int he compiler.
+  ## Create `nkError` node with with given error report and additional
+  ## subnodes.
   assert wrongNode != nil, "can't have a nil node for `wrongNode`"
 
-  result = newNodeIT(nkError, wrongNode.info,
-                     newType(tyError, ItemId(module: -2, item: -1), nil))
+  result = newNodeIT(
+    nkError,
+    wrongNode.info,
+    newType(tyError, ItemId(module: -2, item: -1), nil))
+
+  result.reportId = report
 
   result.add wrongNode
-  result.add newIntNode(nkIntLit, ord(k)) # errorKindPos
-  result.add newStrNode(inst.filename, wrongNode.info) # compilerInfoPos
 
-  # save the compiler's line and column information here for reporting
-  result[compilerInfoPos].info.line = uint16 inst.line 
-  result[compilerInfoPos].info.col = int16 inst.column
-
-  for a in args: result.add a
-
-proc newErrorActual(
-    wrongNode: PNode;
-    k: ErrorKind;
-    inst: InstantiationInfo,
-    args: varargs[PNode]
-  ): PNode =
-  ## create an `nkError` node with error `k`, with additional error `args` and
-  ## given `inst` as to where it was instanced in the compiler.
-  assert wrongNode != nil, "can't have a nil node for `wrongNode`"
-
-  result = newErrorAux(wrongNode, k, inst, args)
-
-proc newErrorActual(
-    wrongNode: PNode;
-    msg: string,
-    inst: InstantiationInfo
-  ): PNode =
-  ## create an `nkError` node with a `CustomError` message `msg`
-  newErrorAux(
-    wrongNode, CustomError, inst, newStrNode(msg, wrongNode.info))
-
-template newError*(wrongNode: PNode; k: ErrorKind; args: varargs[PNode]): PNode =
-  ## create an `nkError` node with error `k`, with additional error `args` and
-  ## given `inst` as to where it was instanced int he compiler.
-  assert k != FatalError,
-    "use semdata.fatal(config:ConfigRef, err: PNode) instead"
-  newErrorActual(wrongNode, k, instLoc(-1), args)
-
-template newFatal*(wrongNode: PNode; args: varargs[PNode]): PNode
-  {.deprecated: "rework to remove the need for this awkward fatal handling".} =
-  ## just like `newError`, only meant to be used by `semDdta` an and other
-  ## modules that know to appropriately use `msgs.fatal(ConfigRef, PNode)` as
-  ## the next call.
-  newErrorActual(wrongNode, FatalError,
-                 instLoc(-1), args)
-
-template newError*(wrongNode: PNode; msg: string): PNode =
-  ## create an `nkError` node with a `CustomError` message `msg`
-  newErrorActual(wrongNode, msg, instLoc(-1))
-
-template newCustomErrorMsgAndNode*(wrongNode: PNode; msg: string): PNode =
-  ## create an `nkError` node with a `CustomMsgError` message `msg`
-  newErrorActual(
-    wrongNode,
-    CustomPrintMsgAndNodeError,
-    instLoc(-1),
-    newStrNode(msg, wrongNode.info)
-  )
+  for a in args:
+    result.add a
 
 proc wrapErrorInSubTree*(wrongNodeContainer: PNode): PNode =
   ## `wrongNodeContainer` doesn't directly have an error but one exists further
@@ -232,9 +102,9 @@ proc wrapErrorInSubTree*(wrongNodeContainer: PNode): PNode =
   ## node but no message will be reported for it.
   var e = errorSubNode(wrongNodeContainer)
   assert e != nil, "there must be an error node within"
-  result = newErrorAux(wrongNodeContainer, WrappedError, instLoc())
+  result = newError(wrongNodeContainer, WrappedError, instLoc())
 
-proc wrapIfErrorInSubTree*(wrongNodeContainer: PNode): PNode
+proc wrapIfErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode
   {.deprecated: "transition proc, remove usage as soon as possible".} =
   ## `wrongNodeContainer` doesn't directly have an error but one may exist
   ## further down the tree. If an error does exist it will wrap
@@ -246,7 +116,8 @@ proc wrapIfErrorInSubTree*(wrongNodeContainer: PNode): PNode
     if e.isNil:
       wrongNodeContainer
     else:
-      newErrorAux(wrongNodeContainer, WrappedError, instLoc())
+      newErrorAux(
+        wrongNodeContainer, conf.store SemReport(kind: rsemWrappedError))
 
 proc buildErrorList(n: PNode, errs: var seq[PNode]) =
   ## creates a list (`errs` seq) from least specific to most specific
@@ -267,7 +138,7 @@ iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   assert n != nil
   var errNodes: seq[PNode] = @[]
   buildErrorList(n, errNodes)
-  
+
   # report from last to first (deepest in tree to highest)
   for i in 1..errNodes.len:
     # reverse index so we go from the innermost to outermost

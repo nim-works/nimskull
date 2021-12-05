@@ -266,8 +266,10 @@ proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
   if arg.typ.isNil:
-    localError(c.config, arg.info, "expression has no type: " &
-               renderTree(arg, {renderNoComments}))
+    c.config.report(arg.info, SemReport(
+      kind: rsemExpressionHasNoType
+      expression: renderTree(arg, {renderNoComments})))
+
     # error correction:
     result = copyTree(arg)
     result.typ = formal
@@ -276,8 +278,10 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
     for ch in arg:
       if sameType(ch.typ, formal):
         return getConstExpr(c.module, ch, c.idgen, c.graph)
+
     # XXX: why don't we set the `typ` field to formal like above and below?
     result = typeMismatch(c.config, info, formal, arg.typ, arg)
+
   else:
     result = indexTypesMatch(c, formal, arg.typ, arg)
     if result == nil:

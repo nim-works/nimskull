@@ -734,6 +734,7 @@ type
     typ*: PType
     info*: TLineInfo
     flags*: TNodeFlags
+    reportId*: ReportId
     case kind*: TNodeKind
     of nkCharLit..nkUInt64Lit:
       intVal*: BiggestInt

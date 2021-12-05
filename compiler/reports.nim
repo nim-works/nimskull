@@ -139,6 +139,12 @@ type
     declaredIn*: ReportLinePoint ## Location of the entry declaration
     kind*: TSymKind ## Kind of the reported entry
 
+  SemReportType* = object
+    typeStr*: string
+    declaredIn*: ReportLinePoint
+    lockLevel*: Option[int] ## Lock level of the procedure types
+    callConv*: Option[TCallingConvention]
+
   SemRef* = object
 
   SemContextKind* = enum
@@ -231,6 +237,75 @@ type
     # Semantic errors begin
     rsemUserError = "UserError" ## `{.error: }`
 
+    rsemCustomError
+    rsemCustomPrintMsgAndNodeError
+      ## just like custom error, prints a message and renders wrongNode
+    rsemRawTypeMismatchError
+
+    rsemCustomUserError
+      ## just like customer error, but reported as a errUser in msgs
+
+    # Global Errors
+    rsemCustomGlobalError
+      ## just like custom error, but treat it like a "raise" and fast track the
+      ## "graceful" abort of this compilation run, used by `errorreporting` to
+      ## bridge into the existing `msgs.liMessage` and `msgs.handleError`.
+
+    # Call
+    rsemCallTypeMismatch
+    rsemExpressionCannotBeCalled
+    rsemWrongNumberOfArguments
+    rsemAmbiguousCall
+    rsemCallingConventionMismatch
+
+    # ParameterTypeMismatch
+
+    # Identifier Lookup
+    rsemUndeclaredIdentifier
+    rsemExpectedIdentifier
+    rsemExpectedIdentifierInExpr
+
+    # Object and Object Construction
+    rsemFieldNotAccessible
+      ## object field is not accessible
+    rsemFieldAssignmentInvalid
+      ## object field assignment invalid syntax
+    rsemFieldOkButAssignedValueInvalid
+      ## object field assignment, where the field name is ok, but value is not
+    rsemObjectConstructorIncorrect
+      ## one or more issues encountered with object constructor
+
+    # General Type Checks
+    rsemExpressionHasNoType
+      ## an expression has not type or is ambiguous
+
+    # Literals
+    rsemIntLiteralExpected
+      ## int literal node was expected, but got something else
+    rsemStringLiteralExpected
+      ## string literal node was expected, but got something else
+
+    # Pragma
+    rsemInvalidPragma
+      ## suplied pragma is invalid
+    rsemIllegalCustomPragma
+      ## supplied pragma is not a legal custom pragma, and cannot be attached
+    rsemNoReturnHasReturn
+      ## a routine marked as no return, has a return type
+    rsemImplicitPragmaError
+      ## a symbol encountered an error when processing implicit pragmas, this
+      ## should be applied to symbols and treated as a wrapper for the purposes
+      ## of reporting. the original symbol is stored as the first argument
+    rsemPragmaDynlibRequiresExportc
+      ## much the same as `ImplicitPragmaError`, except it's a special case
+      ## where dynlib pragma requires an importc pragma to exist on the same
+      ## symbol
+      ## xxx: pragmas shouldn't require each other, that's just bad design
+
+    rsemWrappedError
+      ## there is no meaningful error to construct, but there is an error
+      ## further down the AST that invalidates the whole
+
     # end
 
     # Semantic warnings begin
@@ -277,13 +352,21 @@ type
 
   SemReport* = object of ReportBase
     context*: seq[SemContext]
+    expression*: Option[string] ## Rendered string representation of the
+                                ## expression in the report.
     case kind*: SemReportKind
       of rsemExpandMacro, rsemPattern:
-        originalExpr*, expandedExpr*: string # REVIEW right now I simply
-        # store result of the `renderTree` in these fields, which is
-        # probably acceptable for now, but maybe it would make sense to
-        # store the whole AST directly? Expand macros might also dump in
-        # different formats (like lisp, tree or json).
+        originalExpr*: string # REVIEW right now I simply store result of
+        # the `renderTree` in these fields, which is probably acceptable
+        # for now, but maybe it would make sense to store the whole AST
+        # directly? Expand macros might also dump in different formats
+        # (like lisp, tree or json).
+
+      of rsemTypeMismatch:
+        actualType*, wantedType*: SemReportType
+        descriptionStr*: string
+        procEffectsCompat*: EffectsCompat
+        procCallMismatch*: set[ProcConvMismatch]
 
       else:
         discard
@@ -443,9 +526,12 @@ func contains*(rset: ReportKindSet, report: Report): bool =
     of repBackend:  report.backendReport.kind in rset.backend
 
 template wrapSet(kind, field: untyped): untyped =
-  func incl*(rset: var ReportKindSet, rep: kind) = rset.field.incl rep
-  func excl*(rset: var ReportKindSet, rep: kind) = rset.field.excl rep
+  func incl*(rset: var ReportKindSet, rep: kind | set[kind]) = rset.field.incl rep
+  func excl*(rset: var ReportKindSet, rep: kind | set[kind]) = rset.field.excl rep
   func contains*(rset: ReportKindSet, rep: kind): bool = rep in rset.field
+  func toReportKindSet*(rset: set[kind]): ReportKindSet =
+    ReportKindSet(field: rset)
+
 
 wrapSet(LexerReportKind, lex)
 wrapSet(ParserReportKind, parser)
@@ -454,6 +540,8 @@ wrapSet(CmdReportKind, cmd)
 wrapSet(DebugReportKind, debug)
 wrapSet(InternalReportKind, internal)
 wrapSet(BackendReportKind, backend)
+
+func toReportKindSet*(sets: varargs[])
 
 func severity*(
     report: Report,
@@ -480,6 +568,14 @@ func severity*(
 func toReportLinePoint*(iinfo: (string, int, int)): ReportLinePoint =
   ReportLinePoint(file: iinfo[0], line: iinfo[1], column: iinfo[2])
 
+template reportHere*[R: ReportTypes](report: R): R =
+  block:
+    var tmp = report
+    tmp.reportInsta = toReportLinePoint(
+      instantiationInfo(fullPaths = true))
+
+    tmp
+
 func wrap*(rep: sink LexerReport): Report =
   Report(kind: repLexer, lexReport: rep)
 
@@ -497,3 +593,24 @@ func wrap*(rep: sink DebugReport): Report =
 
 func wrap*(rep: sink InternalReport): Report =
   Report(kind: repInternal, internalReport: rep)
+
+
+type
+  ReportId* = distinct uint32 ## Id of the report in the report list
+  ReportList* = object
+    ## List of the accumulated reports. Used for various `sem*` reporting
+    ## mostly, and in other places where report might be *generated*, but
+    ## not guaranteed to be printed out.
+    list: seq[Report]
+
+func addReport*(list: var ReportList, report: Report): ReportId =
+  ## Add report to the report list
+  list.list.add report
+  result = ReportId(uint32(list.list.len))
+
+func addReport*[R: ReportTypes](list: var ReportList, report: R): ReportId =
+  addReport(list, wrap(report))
+
+func getReport*(list: ReportList, id: ReportId): Report =
+  ## Get report from the report list using it's id
+  list.list[int(uint32(id) - 1)]
