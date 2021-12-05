@@ -16,20 +16,27 @@ proc evalPattern(c: PContext, n, orig: PNode): PNode =
   # we need to ensure that the resulting AST is semchecked. However, it's
   # awful to semcheck before macro invocation, so we don't and treat
   # templates and macros as immediate in this context.
-  var rule: string
+  var original: string
   if c.config.hasHint(hintPattern):
-    rule = renderTree(n, {renderNoComments})
+    original = renderTree(n, {renderNoComments})
+
   let s = n[0].sym
   case s.kind
   of skMacro:
     result = semMacroExpr(c, n, orig, s)
+
   of skTemplate:
     result = semTemplateExpr(c, n, s, {efFromHlo})
+
   else:
     result = semDirectOp(c, n, {})
+
   if c.config.hasHint(hintPattern):
-    message(c.config, orig.info, hintPattern, rule & " --> '" &
-      renderTree(result, {renderNoComments}) & "'")
+    c.config.report(SemReport(
+      kind: rsemPattern,
+      originalExpr: original,
+      expandedExpr: renderTree(result, {renderNoComments}),
+      location: c.config.toReportPoint(orig.info)))
 
 proc applyPatterns(c: PContext, n: PNode): PNode =
   result = n

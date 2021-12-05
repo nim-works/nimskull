@@ -10,7 +10,7 @@
 ## This module contains the ``TMsgKind`` enum as well as the
 ## ``TLineInfo`` object.
 
-import ropes, tables, pathutils, hashes
+import ropes, tables, pathutils, hashes, reports
 
 const
   explanationsBaseUrl* = "https://nim-lang.github.io/Nim"
@@ -30,7 +30,8 @@ type
     # fatal errors
     errUnknown, errFatal, errInternal,
     # non-fatal errors
-    errIllFormedAstX, errCannotOpenFile,
+    errIllFormedAstX,
+    errCannotOpenFile,
     errXExpected,
     errRstGridTableNotImplemented,
     errRstMarkdownIllformedTable,
@@ -43,11 +44,15 @@ type
     errGenerated,
     errUser,
     # warnings
-    warnCannotOpenFile = "CannotOpenFile", warnOctalEscape = "OctalEscape",
-    warnXIsNeverRead = "XIsNeverRead", warnXmightNotBeenInit = "XmightNotBeenInit",
-    warnDeprecated = "Deprecated", warnConfigDeprecated = "ConfigDeprecated",
+    warnCannotOpenFile = "CannotOpenFile",
+    warnOctalEscape = "OctalEscape",
+    warnXIsNeverRead = "XIsNeverRead",
+    warnXmightNotBeenInit = "XmightNotBeenInit",
+    warnDeprecated = "Deprecated",
+    warnConfigDeprecated = "ConfigDeprecated",
     warnDotLikeOps = "DotLikeOps",
-    warnSmallLshouldNotBeUsed = "SmallLshouldNotBeUsed", warnUnknownMagic = "UnknownMagic",
+    warnSmallLshouldNotBeUsed = "SmallLshouldNotBeUsed",
+    warnUnknownMagic = "UnknownMagic",
     warnRstRedefinitionOfLabel = "RedefinitionOfLabel",
     warnRstUnknownSubstitutionX = "UnknownSubstitutionX",
     warnRstBrokenLink = "BrokenLink",
@@ -56,17 +61,31 @@ type
     warnRstStyle = "warnRstStyle",
     warnCommentXIgnored = "CommentXIgnored",
     warnTypelessParam = "TypelessParam",
-    warnUseBase = "UseBase", warnWriteToForeignHeap = "WriteToForeignHeap",
-    warnUnsafeCode = "UnsafeCode", warnUnusedImportX = "UnusedImport",
-    warnInheritFromException = "InheritFromException", warnEachIdentIsTuple = "EachIdentIsTuple",
-    warnUnsafeSetLen = "UnsafeSetLen", warnUnsafeDefault = "UnsafeDefault",
-    warnProveInit = "ProveInit", warnProveField = "ProveField", warnProveIndex = "ProveIndex",
-    warnUnreachableElse = "UnreachableElse", warnUnreachableCode = "UnreachableCode",
-    warnStaticIndexCheck = "IndexCheck", warnGcUnsafe = "GcUnsafe", warnGcUnsafe2 = "GcUnsafe2",
-    warnUninit = "Uninit", warnGcMem = "GcMem", warnDestructor = "Destructor",
-    warnLockLevel = "LockLevel", warnResultShadowed = "ResultShadowed",
-    warnInconsistentSpacing = "Spacing",  warnCaseTransition = "CaseTransition",
-    warnCycleCreated = "CycleCreated", warnObservableStores = "ObservableStores",
+    warnUseBase = "UseBase",
+    warnWriteToForeignHeap = "WriteToForeignHeap",
+    warnUnsafeCode = "UnsafeCode",
+    warnUnusedImportX = "UnusedImport",
+    warnInheritFromException = "InheritFromException",
+    warnEachIdentIsTuple = "EachIdentIsTuple",
+    warnUnsafeSetLen = "UnsafeSetLen",
+    warnUnsafeDefault = "UnsafeDefault",
+    warnProveInit = "ProveInit",
+    warnProveField = "ProveField",
+    warnProveIndex = "ProveIndex",
+    warnUnreachableElse = "UnreachableElse",
+    warnUnreachableCode = "UnreachableCode",
+    warnStaticIndexCheck = "IndexCheck",
+    warnGcUnsafe = "GcUnsafe",
+    warnGcUnsafe2 = "GcUnsafe2",
+    warnUninit = "Uninit",
+    warnGcMem = "GcMem",
+    warnDestructor = "Destructor",
+    warnLockLevel = "LockLevel",
+    warnResultShadowed = "ResultShadowed",
+    warnInconsistentSpacing = "Spacing",
+    warnCaseTransition = "CaseTransition",
+    warnCycleCreated = "CycleCreated",
+    warnObservableStores = "ObservableStores",
     warnStrictNotNil = "StrictNotNil",
     warnResultUsed = "ResultUsed",
     warnCannotOpen = "CannotOpen",
@@ -78,19 +97,39 @@ type
     warnEffect = "Effect",
     warnUser = "User",
     # hints
-    hintSuccess = "Success", hintSuccessX = "SuccessX",
+    hintSuccess = "Success",
+    hintSuccessX = "SuccessX",
     hintCC = "CC",
     hintLineTooLong = "LineTooLong",
-    hintXDeclaredButNotUsed = "XDeclaredButNotUsed", hintDuplicateModuleImport = "DuplicateModuleImport",
-    hintXCannotRaiseY = "XCannotRaiseY", hintConvToBaseNotNeeded = "ConvToBaseNotNeeded",
-    hintConvFromXtoItselfNotNeeded = "ConvFromXtoItselfNotNeeded", hintExprAlwaysX = "ExprAlwaysX",
-    hintQuitCalled = "QuitCalled", hintProcessing = "Processing", hintProcessingStmt = "ProcessingStmt", hintCodeBegin = "CodeBegin",
-    hintCodeEnd = "CodeEnd", hintConf = "Conf", hintPath = "Path",
-    hintConditionAlwaysTrue = "CondTrue", hintConditionAlwaysFalse = "CondFalse", hintName = "Name",
-    hintPattern = "Pattern", hintExecuting = "Exec", hintLinking = "Link", hintDependency = "Dependency",
-    hintSource = "Source", hintPerformance = "Performance", hintStackTrace = "StackTrace",
-    hintGCStats = "GCStats", hintGlobalVar = "GlobalVar", hintExpandMacro = "ExpandMacro",
-    hintUser = "User", hintUserRaw = "UserRaw", hintExtendedContext = "ExtendedContext",
+    hintXDeclaredButNotUsed = "XDeclaredButNotUsed",
+    hintDuplicateModuleImport = "DuplicateModuleImport",
+    hintXCannotRaiseY = "XCannotRaiseY",
+    hintConvToBaseNotNeeded = "ConvToBaseNotNeeded",
+    hintConvFromXtoItselfNotNeeded = "ConvFromXtoItselfNotNeeded",
+    hintExprAlwaysX = "ExprAlwaysX",
+    hintQuitCalled = "QuitCalled",
+    hintProcessing = "Processing",
+    hintProcessingStmt = "ProcessingStmt",
+    hintCodeBegin = "CodeBegin",
+    hintCodeEnd = "CodeEnd",
+    hintConf = "Conf",
+    hintPath = "Path",
+    hintConditionAlwaysTrue = "CondTrue",
+    hintConditionAlwaysFalse = "CondFalse",
+    hintName = "Name",
+    hintPattern = "Pattern",
+    hintExecuting = "Exec",
+    hintLinking = "Link",
+    hintDependency = "Dependency",
+    hintSource = "Source",
+    hintPerformance = "Performance",
+    hintStackTrace = "StackTrace",
+    hintGCStats = "GCStats",
+    hintGlobalVar = "GlobalVar",
+    hintExpandMacro = "ExpandMacro",
+    hintUser = "User",
+    hintUserRaw = "UserRaw",
+    hintExtendedContext = "ExtendedContext",
     hintMsgOrigin = "MsgOrigin", # since 1.3.5
     hintDeclaredLoc = "DeclaredLoc", # since 1.5.1
     hintImplicitObjConv = "ImplicitObjConv"
@@ -244,10 +283,10 @@ type
     quotedFullName*: Rope      ## cached quoted full name for codegen
                                ## purposes
 
-    lines*: seq[string]        ## the source code of the module
-                               ##   used for better error messages and
-                               ##   embedding the original source in the
-                               ##   generated code
+    lines*: seq[string]        ## the source code of the module used for
+                               ## better error messages and embedding the
+                               ## original source in the generated code
+
     dirtyFile*: AbsoluteFile   ## the file that is actually read into memory
                                ## and parsed; usually "" but is used
                                ## for 'nimsuggest'
@@ -256,12 +295,11 @@ type
     when defined(nimpretty):
       fullContent*: string
   FileIndex* = distinct int32
-  TLineInfo* = object          ## This is designed to be as small as possible,
-                               ## because it is used
-                               ## in syntax nodes. We save space here by using
-                               ## two int16 and an int32.
-                               ## On 64 bit and on 32 bit systems this is
-                               ## only 8 bytes.
+  TLineInfo* = object          ## This is designed to be as small as
+    ## possible, because it is used in syntax nodes. We save space here by
+    ## using two int16 and an int32. On 64 bit and on 32 bit systems this
+    ## is only 8 bytes.
+
     line*: uint16
     col*: int16
     fileIndex*: FileIndex
@@ -306,9 +344,12 @@ type
                             ## some close token.
 
     errorOutputs*: TErrorOutputs
-    msgContext*: seq[tuple[info: TLineInfo, detail: string]] ## Contextual
-    ## information about instantiation stack - "template/generic
-    ## instantiation of" message is constructed from this field.
+    msgContext*: seq[tuple[info: TLineInfo, detail: SemReportEntry]] ## \
+    ## Contextual information about instantiation stack - "template/generic
+    ## instantiation of" message is constructed from this field. Right now
+    ## `.detail` field is only used in the `sem.semMacroExpr()`,
+    ## `seminst.generateInstance()` and `semexprs.semTemplateExpr()`. In
+    ## all other cases this field is left empty (SemReport is `skUnknown`)
     lastError*: TLineInfo
     filenameToIndexTbl*: Table[string, FileIndex]
     fileInfos*: seq[TFileInfo] ## Information about all known source files

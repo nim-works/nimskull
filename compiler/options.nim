@@ -401,6 +401,24 @@ type
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
                                     ## len is also used for output indent level
 
+template report*[R: ReportTypes](conf: ConfigRef, report: R) =
+  ## Pass structured report object into `conf.structuredErrorHook`,
+  ## converting to `Report` variant and updaing instantiation info.
+  block:
+    var tmp = report
+    tmp.reportInst = toReportLinePoint(instantiationInfo())
+    conf.structuredErrorHook(wrap(tmp))
+
+func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
+  ## Check if report stores fatal compilation error
+  report.kind == repInternal and
+  report.internalReport.severity() == rsevFatal
+
+func isCompilerError*(conf: ConfigRef, report: Report): bool =
+  ## Check if report stores a regular code error, or warning/hint that has
+  ## been configured to be treated as error under "warningAsError"
+  report.severity(conf.asError, conf.asWarning) == rsevError
+
 proc parseNimVersion*(a: string): NimVer =
   # could be moved somewhere reusable
   if a.len > 0:

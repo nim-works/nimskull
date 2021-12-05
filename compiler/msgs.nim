@@ -9,8 +9,12 @@
 
 import
   std/[strutils, os, tables, terminal, macros, times],
-  std/private/miscdollars,
-  options, ropes, lineinfos, pathutils, strutils2
+  std/private/miscdollars
+
+import
+  options, ropes, lineinfos, pathutils, strutils2, reports
+
+
 
 type InstantiationInfo* = typeof(instantiationInfo())
 template instLoc*(): InstantiationInfo = instantiationInfo(-2, fullPaths = compileOption"excessiveStackTrace")
@@ -179,16 +183,30 @@ const
 proc getInfoContextLen*(conf: ConfigRef): int = return conf.m.msgContext.len
 proc setInfoContextLen*(conf: ConfigRef; L: int) = setLen(conf.m.msgContext, L)
 
-proc pushInfoContext*(conf: ConfigRef; info: TLineInfo; detail: string = "") =
+proc pushInfoContext*(
+    conf: ConfigRef;
+    info: TLineInfo,
+    detail: SemReportEntry = default(SemReportEntry)
+  ) =
+  ## Add entry to the message context information stack.
   conf.m.msgContext.add((info, detail))
 
 proc popInfoContext*(conf: ConfigRef) =
+  ## Remove one entry from the message context information stack
   setLen(conf.m.msgContext, conf.m.msgContext.len - 1)
 
 proc getInfoContext*(conf: ConfigRef; index: int): TLineInfo =
-  let i = if index < 0: conf.m.msgContext.len + index else: index
-  if i >=% conf.m.msgContext.len: result = unknownLineInfo
-  else: result = conf.m.msgContext[i].info
+  let i =
+    if index < 0:
+      conf.m.msgContext.len + index
+    else:
+      index
+
+  if i >=% conf.m.msgContext.len:
+    result = unknownLineInfo
+
+  else:
+    result = conf.m.msgContext[i].info
 
 template toFilename*(conf: ConfigRef; fileIdx: FileIndex): string =
   if fileIdx.int32 < 0 or conf == nil:
@@ -282,12 +300,12 @@ proc toFileLineCol*(conf: ConfigRef; info: TLineInfo): string {.inline.} =
   result.toLocation(
     toMsgFilename(conf, info), info.line.int, info.col.int + ColOffset)
 
-proc toReportLocation*(
-  conf: ConfigRef; info: TLineInfo): ReportLineInfo {.inline.} =
+proc toReportPoint*(
+  conf: ConfigRef; info: TLineInfo): ReportLinePoint {.inline.} =
   ## Construct report location instance based on the information from
   ## `info`
 
-  ReportLineInfo(
+  ReportLinePoint(
     file: toMsgFilename(conf, info),
     line: info.line.int,
     column: info.col.int + ColOffset)
@@ -406,33 +424,43 @@ proc log*(s: string) =
     f.writeLine(s)
     close(f)
 
-proc quit(conf: ConfigRef; msg: TMsgKind) {.gcsafe.} =
-  if conf.isDefined("nimDebug"): quitOrRaise(conf, $msg)
-  elif defined(debug) or msg == errInternal or conf.hasHint(hintStackTrace):
+proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
+  if conf.isDefined("nimDebug"):
+    quitOrRaise(conf)
+
+  elif defined(debug) or withTrace or conf.hasHint(hintStackTrace):
     {.gcsafe.}:
       if stackTraceAvailable() and isNil(conf.writelnHook):
-        writeStackTrace()
+        conf.report(InternalReport(
+          kind: rintStackTrace,
+          trace: getStackTraceEntries()))
+
       else:
-        styledMsgWriteln(fgRed, """
-No stack traceback available
-To create a stacktrace, rerun compilation with './koch temp $1 <file>', see $2 for details""" %
-          [conf.command, "intern.html#debugging-the-compiler".createDocLink], conf.unitSep)
+        conf.report(InternalReport(kind: rintMissingStackTrace))
+
   quit 1
 
-proc handleError(conf: ConfigRef; msg: TMsgKind, eh: TErrorHandling, s: string) =
-  if msg in fatalMsgs:
-    if conf.cmd == cmdIdeTools: log(s)
-    quit(conf, msg)
-  if msg >= errMin and msg <= errMax or
-      (msg in warnMin..hintMax and msg in conf.warningAsErrors):
+proc handleError(
+    conf: ConfigRef; report: Report, eh: TErrorHandling) =
+  ## Raise, quit or do nothing to handle error report. Specific action is
+  ## chosen based on the :arg:`eh` and current error counter.
+
+  if conf.isCompilerFatal(report):
+    # Fatal message such as ICE (internal compiler), errFatal,
+    quit(conf, withTrace = true)
+
+  elif conf.isCodeError(report):
+    # Regular code error
     inc(conf.errorCounter)
     conf.exitcode = 1'i8
-    if conf.errorCounter >= conf.errorMax:
+    if conf.errorMax <= conf.errorCounter:
       # only really quit when we're not in the new 'nim check --def' mode:
       if conf.ideCmd == ideNone:
-        quit(conf, msg)
+        quit(conf, withTrace = false)
+
     elif eh == doAbort and conf.cmd != cmdIdeTools:
-      quit(conf, msg)
+      quit(conf, withTrace = false)
+
     elif eh == doRaise:
       raiseRecoverableError(s)
 
@@ -442,30 +470,24 @@ proc `==`*(a, b: TLineInfo): bool =
 proc exactEquals*(a, b: TLineInfo): bool =
   result = a.fileIndex == b.fileIndex and a.line == b.line and a.col == b.col
 
-proc getContext(conf: ConfigRef; lastinfo: TLineInfo): seq[SemContext] =
+proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[SemContext] =
   ## Get list of context context entries from the current message context
   ## information. Context messages can later be used in the
-  const instantiationFrom = "template/generic instantiation from here"
-  const instantiationOfFrom = "template/generic instantiation of `$1` from here"
+  ## `SemReport.context` field
   var info = lastinfo
   for i in 0 ..< conf.m.msgContext.len:
     let context = conf.m.msgContext[i]
     if context.info != lastinfo and context.info != info:
-      if conf.structuredErrorHook != nil:
-        conf.structuredErrorHook(conf, context.info, instantiationFrom,
-                                 Severity.Hint)
-      else:
-        if context.detail == "":
-          result.add SemContext(
-            kind: sckInstantiationFrom,
-            location: conf.toFileLineCol(context.info))
-
-        else:
-          result.add SemContext(
-          )
-            instantiationOfFrom.format(context.detail)
-        styledMsgWriteln(styleBright, conf.toFileLineCol(context.info), " ", resetStyle, message)
+      if context.detail.kind == skUnknown:
         result.add SemContext(
+          kind: sckInstantiationFrom,
+          location: conf.toReportPoint(context.info))
+
+      else:
+        result.add SemContext(
+          kind: sckInstantiationOf,
+          location: conf.toReportPoint(context.info),
+          entry: context.detail
         )
 
     info = context.info
@@ -512,77 +534,10 @@ proc formatMsg*(conf: ConfigRef; info: TLineInfo, msg: TMsgKind, arg: string): s
               else: ErrorTitle
   conf.toFileLineCol(info) & " " & title & getMessageStr(msg, arg)
 
-proc liMessage*(conf: ConfigRef; info: TLineInfo, msg: TMsgKind, arg: string,
-               eh: TErrorHandling, info2: InstantiationInfo, isRaw = false) {.noinline.} =
-  var
-    title: string
-    color: ForegroundColor
-    ignoreMsg = false
-    sev: Severity
-  let errorOutputsOld = conf.m.errorOutputs
-  if msg in fatalMsgs:
-    # don't gag, refs bug #7080, bug #18278; this can happen with `{.fatal.}`
-    # or inside a `tryConstExpr`.
-    conf.m.errorOutputs = {eStdOut, eStdErr}
-
-  let kind = if msg in warnMin..hintMax and msg != hintUserRaw: $msg else: "" # xxx not sure why hintUserRaw is special
-  case msg
-  of errMin..errMax:
-    sev = Severity.Error
-    writeContext(conf, info)
-    title = ErrorTitle
-    color = ErrorColor
-    when false:
-      # we try to filter error messages so that not two error message
-      # in the same file and line are produced:
-      # xxx `lastError` is only used in this disabled code; but could be useful to revive
-      ignoreMsg = conf.m.lastError == info and info != unknownLineInfo and eh != doAbort
-    if info != unknownLineInfo: conf.m.lastError = info
-  of warnMin..warnMax:
-    sev = Severity.Warning
-    ignoreMsg = not conf.hasWarn(msg)
-    if msg in conf.warningAsErrors:
-      ignoreMsg = false
-      title = ErrorTitle
-    else:
-      title = WarningTitle
-    if not ignoreMsg: writeContext(conf, info)
-    color = WarningColor
-    inc(conf.warnCounter)
-  of hintMin..hintMax:
-    sev = Severity.Hint
-    ignoreMsg = not conf.hasHint(msg)
-    if msg in conf.warningAsErrors:
-      ignoreMsg = false
-      title = ErrorTitle
-    else:
-      title = HintTitle
-    color = HintColor
-    inc(conf.hintCounter)
-
-  let s = if isRaw: arg else: getMessageStr(msg, arg)
-  if not ignoreMsg:
-    let loc = if info != unknownLineInfo: conf.toFileLineCol(info) & " " else: ""
-    # we could also show `conf.cmdInput` here for `projectIsCmd`
-    var kindmsg = if kind.len > 0: KindFormat % kind else: ""
-    if conf.structuredErrorHook != nil:
-      conf.structuredErrorHook(conf, info, s & kindmsg, sev)
-    if not ignoreMsgBecauseOfIdeTools(conf, msg):
-      if msg == hintProcessing and conf.hintProcessingDots:
-        msgWrite(conf, ".")
-      else:
-        styledMsgWriteln(styleBright, loc, resetStyle, color, title, resetStyle, s, KindColor, kindmsg,
-                         resetStyle, conf.getSurroundingSrc(info), conf.unitSep)
-        if hintMsgOrigin in conf.mainPackageNotes:
-          # xxx needs a bit of refactoring to honor `conf.filenameOption`
-          styledMsgWriteln(styleBright, toFileLineCol(info2), resetStyle,
-            " compiler msg initiated here", KindColor,
-            KindFormat % $hintMsgOrigin,
-            resetStyle, conf.unitSep)
-  handleError(conf, msg, eh, s)
-  if msg in fatalMsgs:
-    # most likely would have died here but just in case, we restore state
-    conf.m.errorOutputs = errorOutputsOld
+proc liMessage*(
+    conf: ConfigRef, report: Report, eh: TErrorHandling) {.noinline.} =
+  conf.structuredErrorHook(report)
+  handleError(conf, report, eh)
 
 template rawMessage*(conf: ConfigRef; msg: TMsgKind, args: openArray[string]) =
   let arg = msgKindToString(msg) % args

@@ -83,7 +83,7 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
   ## helper that takes three templates, `enterMsg`, `leaveMsg`, and `getInfo`
   ## that will emit a message when entering and leaving a proc, and getting
   ## the string out of some lineinfo, respectively.
-  ## 
+  ##
   ## The dedicate templates take specific parameters and pass in the above
   ## templates with the following signatures:
   ## * enterMsg: indent: string -> string
@@ -123,7 +123,7 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
       info = getInfo()
 
     if isDebug:
-      conf.debugUtilsStack.add prcname # use this to track deltas 
+      conf.debugUtilsStack.add prcname # use this to track deltas
       echo enterMsg(indent)
       if indentLevel != 0: # print a delta stack
         # try to print only the part of the stacktrace since the last time,
@@ -188,7 +188,7 @@ template addInNimDebugUtils(c: ConfigRef; name: string; n, r: PNode;
 template addInNimDebugUtils(c: ConfigRef; name: string; n, r: PNode) =
   ## add tracing to procs that are primarily `PNode -> PNode`, and can
   ## determine the type
-  
+
   template enterMsg(indent: string): string =
     "$1>$2: $3, $4" % [indent, name, $n.kind, c$n.info]
   template leaveMsg(indent: string): string =
@@ -676,15 +676,28 @@ proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
   let suppliedParams = max(n.safeLen - 1, 0)
 
   if suppliedParams < genericParams:
-    globalError(c.config, info, errMissingGenericParamsForTemplate % n.renderTree)
+    globalError(
+      c.config, info, errMissingGenericParamsForTemplate % n.renderTree)
 
-  #if c.evalContext == nil:
-  #  c.evalContext = c.createEvalContext(emStatic)
-  result = evalMacroCall(c.module, c.idgen, c.graph, c.templInstCounter, n, nOrig, sym)
+  let reportTraceExpand = c.config.macrosToExpand.hasKey(sym.name.s)
+  var original: string
+  if reportTraceExpand:
+    original = renderTree(n)
+
+  result = evalMacroCall(
+    c.module, c.idgen, c.graph, c.templInstCounter, n, nOrig, sym)
+
   if efNoSemCheck notin flags:
     result = semAfterMacroCall(c, n, result, sym, flags)
-  if c.config.macrosToExpand.hasKey(sym.name.s):
-    message(c.config, nOrig.info, hintExpandMacro, renderTree(result))
+
+  if reportTraceExpand:
+    c.config.report(SemReport(
+      kind: rsemExpandMacro,
+      location: some toReportLinePoint(nOrig.info),
+      originalExpr: original,
+      expandedExpr: renderTree(result)
+    ))
+
   result = wrapInComesFrom(nOrig.info, sym, result)
   popInfoContext(c.config)
 
