@@ -14,10 +14,7 @@ runs:
         name: compiler ${{ runner.os }}
         path: '${{ runner.temp }}'
 
-    - name: Extract and add binaries to PATH
-      run: |
-        tar xf '${{ runner.temp }}/compiler.tar'
-
-        python -c 'import os; print(os.path.abspath("bin"))' > "$GITHUB_PATH"
+    - name: Unpack the workspace
+      run: tar xf '${{ runner.temp }}/compiler.tar'
       shell: bash
       working-directory: '${{ inputs.workspace }}'

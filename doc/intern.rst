@@ -38,46 +38,28 @@ Path           Purpose
 Bootstrapping the compiler
 ==========================
 
-**Note**: Add ``.`` to your PATH so that `koch`:cmd: can be used without the ``./``.
-
 Compiling the compiler is a simple matter of running:
 
 .. code:: cmd
 
-  nim c koch.nim
-  koch boot -d:release
+  ./koch.py boot -d:release
 
 For a debug version use:
 
 .. code:: cmd
 
-  nim c koch.nim
-  koch boot
-
+  ./koch.py boot
 
 And for a debug version compatible with GDB:
 
 .. code:: cmd
 
-  nim c koch.nim
-  koch boot --debuginfo --linedir:on
+  ./koch.py boot --debuginfo --linedir:on
 
 The `koch`:cmd: program is Nim's maintenance script. It is a replacement for
 make and shell scripting with the advantage that it is much more portable.
 More information about its options can be found in the `koch <koch.html>`_
 documentation.
-
-
-Reproducible builds
--------------------
-
-Set the compilation timestamp with the `SOURCE_DATE_EPOCH` environment variable.
-
-.. code:: cmd
-
-  export SOURCE_DATE_EPOCH=$(git log -n 1 --format=%at)
-  koch boot # or `./build_all.sh`
-
 
 Developing the compiler
 =======================
@@ -86,9 +68,9 @@ To create a new compiler for each run, use `koch temp`:cmd:\:
 
 .. code:: cmd
 
-  koch temp c test.nim
+  ./koch.py temp c test.nim
 
-`koch temp`:cmd: creates a debug build of the compiler, which is useful
+`./koch.py temp`:cmd: creates a debug build of the compiler, which is useful
 to create stacktraces for compiler debugging.
 
 You can of course use GDB or Visual Studio to debug the
@@ -155,18 +137,18 @@ examples how the AST represents each syntactic structure.
 Bisecting for regressions
 =========================
 
-`koch temp`:cmd: returns 125 as the exit code in case the compiler
+`./koch.py temp`:cmd: returns 125 as the exit code in case the compiler
 compilation fails. This exit code tells `git bisect`:cmd: to skip the
 current commit:
 
 .. code:: cmd
 
   git bisect start bad-commit good-commit
-  git bisect run ./koch temp -r c test-source.nim
+  git bisect run ./koch.py temp -r c test-source.nim
 
 You can also bisect using custom options to build the compiler, for example if
 you don't need a debug version of the compiler (which runs slower), you can replace
-`./koch temp`:cmd: by explicit compilation command, see `Rebuilding the compiler`_.
+`./koch.py temp`:cmd: by explicit compilation command, see `Rebuilding the compiler`_.
 
 
 Runtimes

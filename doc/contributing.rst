@@ -129,13 +129,13 @@ You can run the tests with
 
 .. code-block:: cmd
 
-  ./koch tests
+  ./koch.py tests
 
 which will run a good subset of tests. Some tests may fail. If you
 only want to see the output of failing tests, go for
 
 ```cmd
-  ./koch tests --failing all
+  ./koch.py tests --failing all
 ```
 
 You can also run only a single category of tests. A category is a subdirectory
@@ -144,21 +144,21 @@ list of these, see ``testament/categories.nim``, at the bottom.
 
 .. code:: cmd
 
-  ./koch tests c lib # compiles / runs stdlib modules, including `isMainModule` tests
-  ./koch tests c megatest # runs a set of tests that can be combined into 1
+  ./koch.py tests c lib # compiles / runs stdlib modules, including `isMainModule` tests
+  ./koch.py tests c megatest # runs a set of tests that can be combined into 1
 
 To run a single test:
 
 .. code:: cmd
 
-  ./koch test run <category>/<name>    # e.g.: tuples/ttuples_issues
-  ./koch test run tests/stdlib/tos.nim # can also provide relative path
+  ./koch.py test run <category>/<name>    # e.g.: tuples/ttuples_issues
+  ./koch.py test run tests/stdlib/tos.nim # can also provide relative path
 
 For reproducible tests (to reproduce an environment more similar to the one
 run by Continuous Integration on github actions/azure pipelines), you may want to disable your
 local configuration (e.g. in ``~/.config/nim/nim.cfg``) which may affect some
 tests; this can also be achieved by using
-`export XDG_CONFIG_HOME=pathtoAlternateConfig`:cmd: before running `./koch`:cmd:
+`export XDG_CONFIG_HOME=pathtoAlternateConfig`:cmd: before running `./koch.py`:cmd:
 commands.
 
 
@@ -175,21 +175,21 @@ the tester needs to know in order to compare the two.
 
   git checkout devel
   DEVEL_COMMIT=$(git rev-parse HEAD)
-  ./koch tests
+  ./koch.py tests
 
 Then switch over to your changes and run the tester again.
 
 .. code:: cmd
 
   git checkout your-changes
-  ./koch tests
+  ./koch.py tests
 
 Then you can ask the tester to create a ``testresults.html`` which will
 tell you if any new tests passed/failed.
 
 .. code:: cmd
 
-  ./koch tests --print html $DEVEL_COMMIT
+  ./koch.py tests --print html $DEVEL_COMMIT
 
 
 Deprecation
