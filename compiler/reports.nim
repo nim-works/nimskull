@@ -47,6 +47,8 @@ type
                 ## since they always exist - ICE, internal fatal errors
                 ## etc.
 
+    repBackend ## Backend-specific reports.
+
 
   ReportLineRange* = object
     ## Report location expressed as a span of lines in the file
@@ -75,6 +77,7 @@ type
     rsevWarning ## User-targeted warnings
     rsevError ## User-targeted error
 
+    rsevFatal
     rsevTrace ## Additional information about compiler actions - external
               ## commands mostly.
 
@@ -93,18 +96,40 @@ type
 
 type
   LexerReportKind* = enum
-    rlexTest
+    rlexLineTooLong
+
+    # ???? `syntaxes.nim` uses it
+    rlexCodeBegin = "CodeBegin"
+    rlexCodeEnd = "CodeEnd"
+
 
   LexerReport* = object of ReportBase
+    kind*: LexerReportKind
+
+const
+  rlexHintKinds*: set[LexerReportKind] = {rlexLineTooLong}
+
+func severity*(rep: LexerReport): ReportSeverity =
+  case rep.kind:
+    of rlexHintKinds: rsevHint
+    else: rsevTrace
 
 type
   ParserReportKind* = enum
-    rparTest
+    rparName = "Name" ## Linter report about used identifier
 
   ParserReport* = object of ReportBase
+    kind*: ParserReportKind
+
+const
+  rparHintKinds: set[ParserReportKind] = {rparName}
+
+func severity*(parser: ParserReport): ReportSeverity =
+  case parser.kind:
+    of rparHintKinds: rsevHint
+    else: rsevTrace
 
 type
-
   SemReportEntry* = object
     ## Entry mentioned in the sem report - type or procedure definition,
     ## macros, template or any similar construct. Used in reports like
@@ -129,7 +154,7 @@ type
       of sckInstantiationFrom:
         discard
 
-  SemReportKind* = enum
+  #[
     errIllFormedAstX
     errCannotOpenFile
     errXExpected
@@ -141,7 +166,6 @@ type
     errRstInvalidField
     errRstFootnoteMismatch
     errProveInit  # deadcode
-    errGenerated
     errUser
     # warnings
     warnCannotOpenFile = "CannotOpenFile"
@@ -201,29 +225,34 @@ type
     hintSuccessX = "SuccessX"
     hintCC = "CC"
     hintLineTooLong = "LineTooLong"
-    hintXDeclaredButNotUsed = "XDeclaredButNotUsed"
-    hintDuplicateModuleImport = "DuplicateModuleImport"
-    hintXCannotRaiseY = "XCannotRaiseY"
-    hintConvToBaseNotNeeded = "ConvToBaseNotNeeded"
-    hintConvFromXtoItselfNotNeeded = "ConvFromXtoItselfNotNeeded"
-    hintExprAlwaysX = "ExprAlwaysX"
-    hintQuitCalled = "QuitCalled"
-    hintProcessing = "Processing"
-    hintProcessingStmt = "ProcessingStmt"
-    hintCodeBegin = "CodeBegin"
-    hintCodeEnd = "CodeEnd"
-    hintConf = "Conf"
-    hintPath = "Path"
-    hintConditionAlwaysTrue = "CondTrue"
-    hintConditionAlwaysFalse = "CondFalse"
-    hintName = "Name"
-    rsemPattern = "Pattern" ## Term rewriting pattern has been triggered
-    hintExecuting = "Exec"
-    hintLinking = "Link"
-    hintDependency = "Dependency"
-    hintSource = "Source"
-    hintPerformance = "Performance"
+  ]#
 
+  SemReportKind* = enum
+    # Semantic errors begin
+    rsemUserError = "UserError" ## `{.error: }`
+
+    # end
+
+    # Semantic warnings begin
+    rsemUserWarning = "UserWarning" ## `{.warning: }`
+    # end
+
+    # Semantic hints begin
+    rsemUserHint = "UserHint" ## `{.hint: .}` pragma encountereed
+    rsemXDeclaredButNotUsed = "XDeclaredButNotUsed"
+    rsemDuplicateModuleImport = "DuplicateModuleImport"
+    rsemXCannotRaiseY = "XCannotRaiseY"
+    rsemConvToBaseNotNeeded = "ConvToBaseNotNeeded"
+    rsemConvFromXtoItselfNotNeeded = "ConvFromXtoItselfNotNeeded"
+
+    rsemProcessing = "Processing" ## Processing module
+    rsemProcessingStmt = "ProcessingStmt" ## Processing toplevel statement
+
+    rsemExprAlwaysX = "ExprAlwaysX" ## Expression always evaluates to "X"
+    rsemConditionAlwaysTrue = "CondTrue" ## Condition is always true
+    rsemConditionAlwaysFalse = "CondFalse" ## Condition is always false
+
+    rsemPattern = "Pattern" ## Term rewriting pattern has been triggered
     rsemCannotMakeSink ## Argument could not be turned into a sink
                        ## parameter. Generated once in the whole compiler
                        ## `sinkparameter_inference.nim`
@@ -234,9 +263,6 @@ type
 
     rsemExpandMacro = "ExpandMacro" ## Trace macro expansion progress
 
-    rsemUserHint = "UserHint" ## `{.hint: .}` pragma encountereed
-    rsemUserWarning = "UserWarning" ## `{.warning: }`
-    rsemUserError = "UserError" ## `{.error: }`
 
     rsemUserRaw = "UserRaw" # REVIEW - Used in
     # `semcall.semOverloadedCall()` and `extccomp.getCompileCFileCmd()`.
@@ -247,6 +273,7 @@ type
     ## information. Used in `ccgstmts.genStmts()` and
     ## `semexprs.semExprNoType()`
     rsemImplicitObjConv = "ImplicitObjConv"
+    # end
 
   SemReport* = object of ReportBase
     context*: seq[SemContext]
@@ -262,39 +289,57 @@ type
         discard
 
 const
-  rsemErrorKinds* = {}
-  rsemWarningKinds* = {}
-  rsemHintKinds* = {}
+  rsemErrorKinds*: set[SemReportKind] = {rsemUserError}
+  rsemWarningKinds* = {rsemUserWarning}
+  rsemHintKinds* = {rsemUserHint .. rsemImplicitObjConv}
 
-static:
-  let all = (rsemErrorKinds = rsemWarningKinds + rsemHintKinds)
-  doAssert all == {low(SemReportKind) .. high(SemReportKind)},
-    "Not all sem report kinds are covered in the error/warning/hint groupings - " &
-      $(all - {low(SemReportKind) .. high(SemReportKind)}), " is missing"
+# static:
+#   let all = (rsemErrorKinds + rsemWarningKinds + rsemHintKinds)
+#   doAssert all == {low(SemReportKind) .. high(SemReportKind)},
+#     "Not all sem report kinds are covered in the error/warning/hint groupings - " &
+#       $(all - {low(SemReportKind) .. high(SemReportKind)}), " is missing"
 
-func severity*(
-    report: SemReport,
-    asWarning, asError: set[SemReportKind]
-  ): ReportSeverity =
-
-  if report.kind in asError: rsevError
-  elif report.kind in asWarning: rsevWarning
-  else:
-    case report.kind:
-      of
-
+func severity*(report: SemReport): ReportSeverity =
+  case report.kind:
+    of rsemErrorKinds: rsevError
+    of rsemWarningKinds: rsevWarning
+    of rsemHintKinds: rsevHint
 
 type
   CmdReportKind* = enum
     rcmdTest
 
   CmdReport* = object of ReportBase
+    kind*: CmdReportKind
+
+func severity*(report: CmdReport): ReportSeverity =
+  rsevTrace
 
 type
   DebugReportKind* = enum
     rdbgTest
 
   DebugReport* = object of ReportBase
+    kind*: DebugReportKind
+
+func severity*(report: DebugReport): ReportSeverity =
+  rsevDebug
+
+type
+  BackendReportKind* = enum
+    rbackLinking
+    rbackCompilingExtraFile ## Compiling file specified in the
+    ## `{.compile:.}` pragma
+
+    rbackUseDynLib ## Use of the dynamic library for cgen. Used in the
+    ## `cgen.loadDynamicLib`
+
+
+  BackendReport* = object
+    kind*: BackendReportKind
+
+func severity*(report: BackendReport): ReportSeverity =
+  rsevTrace
 
 type
   InternalReportKind* = enum
@@ -304,9 +349,15 @@ type
     rintIce ## Internal compilation error
     # end
 
-    rintStackTrace = "StackTrace" ## Stack trace during internal compilation error handling and similar
-    rintMissingStackTrace ## Stack trace would've been generated in the debug compiler build
+    rintStackTrace = "StackTrace" ## Stack trace during internal
+    ## compilation error handling and similar
+    rintMissingStackTrace ## Stack trace would've been generated in the
+    ## debug compiler build
     rintGCStats = "GCStats" ## Print GC statistics for the compiler run
+    rintQuitCalled = "QuitCalled" ## `quit()` called by the macro code
+
+    rintConf = "Conf" ## Processing user configutation file
+    rintPath = "Path" ## Add nimble path
 
 
   InternalReport* = object of ReportBase
@@ -319,31 +370,43 @@ type
         discard
 
 const
-  rintFatalKinds* = {rintUnknown .. rintIce} ## Fatal internal compilation reports
+  rintFatalKinds*: set[InternalReportKind] = {rintUnknown .. rintIce} ## Fatal internal compilation reports
 
 func severity*(report: InternalReport): ReportSeverity =
   case report.kind:
-    of rintFatalKind: rsevFatal
+    of rintFatalKinds: rsevFatal
     else: rsevTrace
 
 
 type
   ReportTypes* =
-    LexerReport  |
-    ParserReport |
-    SemReport    |
-    CmdReport    |
-    DebugReport  |
-    InternalReport
+    LexerReport    |
+    ParserReport   |
+    SemReport      |
+    CmdReport      |
+    DebugReport    |
+    InternalReport |
+    BackendReport
+
+
+  ReportKindTypes* =
+    LexerReportKind    |
+    ParserReportKind   |
+    SemReportKind      |
+    CmdReportKind      |
+    DebugReportKind    |
+    InternalReportKind |
+    BackendReportKind
 
   ReportKindSet* = object
     ## Group report kind categories into a single object.
-    lex*: set[LexerReportKind]
-    parser*: set[ParserReportKind]
-    sem*: set[SemReportKind]
-    cmd*: set[CmdReportKind]
-    debug*: set[DebugReportKind]
+    lex*:      set[LexerReportKind]
+    parser*:   set[ParserReportKind]
+    sem*:      set[SemReportKind]
+    cmd*:      set[CmdReportKind]
+    debug*:    set[DebugReportKind]
     internal*: set[InternalReportKind]
+    backend*:  set[BackendReportKind]
 
   Report* = object
     ## Toplevel wrapper type for the compiler report
@@ -366,13 +429,31 @@ type
       of repInternal:
         internalReport*: InternalReport
 
+      of repBackend:
+        backendReport*: BackendReport
+
 func contains*(rset: ReportKindSet, report: Report): bool =
   case report.kind:
     of repLexer:    report.lexReport.kind in rset.lex
     of repParser:   report.parserReport.kind in rset.parser
     of repCmd:      report.cmdReport.kind in rset.cmd
+    of repSem:      report.semReport.kind in rset.sem
     of repDebug:    report.debugReport.kind in rset.debug
     of repInternal: report.internalReport.kind in rset.internal
+    of repBackend:  report.backendReport.kind in rset.backend
+
+template wrapSet(kind, field: untyped): untyped =
+  func incl*(rset: var ReportKindSet, rep: kind) = rset.field.incl rep
+  func excl*(rset: var ReportKindSet, rep: kind) = rset.field.excl rep
+  func contains*(rset: ReportKindSet, rep: kind): bool = rep in rset.field
+
+wrapSet(LexerReportKind, lex)
+wrapSet(ParserReportKind, parser)
+wrapSet(SemReportKind, sem)
+wrapSet(CmdReportKind, cmd)
+wrapSet(DebugReportKind, debug)
+wrapSet(InternalReportKind, internal)
+wrapSet(BackendReportKind, backend)
 
 func severity*(
     report: Report,
@@ -391,6 +472,8 @@ func severity*(
       of repSem:      report.semReport.severity()
       of repCmd:      report.cmdReport.severity()
       of repInternal: report.internalReport.severity()
+      of repBackend:  report.backendReport.severity()
+      of repDebug:    report.debugReport.severity()
 
 
 

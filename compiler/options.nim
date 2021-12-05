@@ -327,12 +327,15 @@ type
     ideCmd*: IdeCmd
     oldNewlines*: bool
     cCompiler*: TSystemCC ## the used compiler
-    modifiedyNotes*: TNoteKinds ## notes that have been set/unset from either cmdline/configs
-    cmdlineNotes*: TNoteKinds ## notes that have been set/unset from cmdline
-    foreignPackageNotes*: TNoteKinds
-    notes*: TNoteKinds ## notes after resolving all logic(defaults, verbosity)/cmdline/configs
-    warningAsErrors*: TNoteKinds
-    mainPackageNotes*: TNoteKinds
+    modifiedyNotes*: ReportKindSet ## notes that have been set/unset from
+                                   ## either cmdline/configs
+    cmdlineNotes*: ReportKindSet ## notes that have been set/unset from
+                                 ## cmdline
+    foreignPackageNotes*: ReportKindSet
+    notes*: ReportKindSet ## notes after resolving all logic(defaults,
+                       ## verbosity)/cmdline/configs
+    warningAsErrors*: ReportKindSet
+    mainPackageNotes*: ReportKindSet
     mainPackageId*: int
     errorCounter*: int
     hintCounter*: int
@@ -417,7 +420,7 @@ func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
 func isCompilerError*(conf: ConfigRef, report: Report): bool =
   ## Check if report stores a regular code error, or warning/hint that has
   ## been configured to be treated as error under "warningAsError"
-  report.severity(conf.asError, conf.asWarning) == rsevError
+  report.severity(conf.warningAsErrors) == rsevError
 
 proc parseNimVersion*(a: string): NimVer =
   # could be moved somewhere reusable
@@ -437,31 +440,34 @@ template setErrorMaxHighMaybe*(conf: ConfigRef) =
   ## do not stop after first error (but honor --errorMax if provided)
   assignIfDefault(conf.errorMax, high(int))
 
-proc setNoteDefaults*(conf: ConfigRef, note: TNoteKind, enabled = true) =
+proc setNoteDefaults*(conf: ConfigRef, note: ReportKindTypes, enabled = true) =
   template fun(op) =
     conf.notes.op note
     conf.mainPackageNotes.op note
     conf.foreignPackageNotes.op note
   if enabled: fun(incl) else: fun(excl)
 
-proc setNote*(conf: ConfigRef, note: TNoteKind, enabled = true) =
+proc setNote*(conf: ConfigRef, note: ReportKindTypes, enabled = true) =
   ## see also `prepareConfigNotes` which sets notes
   if note notin conf.cmdlineNotes:
     if enabled: incl(conf.notes, note) else: excl(conf.notes, note)
 
-proc hasHint*(conf: ConfigRef, note: TNoteKind): bool =
+proc hasHint*(conf: ConfigRef, note: ReportKindTypes): bool =
   # ternary states instead of binary states would simplify logic
   if optHints notin conf.options: false
   elif note in {hintConf, hintProcessing}:
     # could add here other special notes like hintSource
     # these notes apply globally.
     note in conf.mainPackageNotes
-  else: note in conf.notes
 
-proc hasWarn*(conf: ConfigRef, note: TNoteKind): bool {.inline.} =
+  else:
+    note in conf.notes
+
+proc hasWarn*(conf: ConfigRef, note: ReportKindTypes): bool {.inline.} =
   optWarns in conf.options and note in conf.notes
 
-proc hcrOn*(conf: ConfigRef): bool = return optHotCodeReloading in conf.globalOptions
+proc hcrOn*(conf: ConfigRef): bool =
+  return optHotCodeReloading in conf.globalOptions
 
 when false:
   template depConfigFields*(fn) {.dirty.} = # deadcode

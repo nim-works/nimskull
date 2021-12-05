@@ -695,8 +695,7 @@ proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
       kind: rsemExpandMacro,
       location: some toReportLinePoint(nOrig.info),
       originalExpr: original,
-      expandedExpr: renderTree(result)
-    ))
+      expandedExpr: renderTree(result)))
 
   result = wrapInComesFrom(nOrig.info, sym, result)
   popInfoContext(c.config)
