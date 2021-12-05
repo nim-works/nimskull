@@ -1,9 +1,8 @@
 =========================================
-    Internals of the Nim Compiler
+    Internals of the |NimSkull| Compiler
 =========================================
 
 
-:Author: Andreas Rumpf
 :Version: |nimversion|
 
 .. default-role:: code
@@ -16,23 +15,39 @@
 Directory structure
 ===================
 
-The Nim project's directory structure is:
+The |NimSkull| project's directory structure is:
 
 ============   ===================================================
 Path           Purpose
 ============   ===================================================
 `bin`          generated binary files
 `build`        generated C code for the installation
-`compiler`     the Nim compiler itself; note that this
+`compiler`     the |NimSkull| compiler itself; note that this
                code has been translated from a bootstrapping
                version written in Pascal, so the code is **not**
-               a poster child of good Nim code
-`config`       configuration files for Nim
+               a poster child of good |NimSkull| code
+`config`       configuration files for |NimSkull|
 `dist`         additional packages for the distribution
 `doc`          the documentation; it is a bunch of
                reStructuredText files
-`lib`          the Nim library
+`lib`          the |NimSkull| library
+`tests`        the tests for |NimSkull|, including the language
+               specification under `tests/lang`
 ============   ===================================================
+
+
+Language Specification
+======================
+
+The official language specification is written as a growing set of tests within
+the `tests/lang` directory. Otherwise, the next best thing is the manual with
+the caveat that as any human language document that isn't executable it's often
+the source of language design flaws and features that don't compose well.
+
+In spirit the manual is correct, but it is superseded by the spec and as the
+spec grows and forces reconciliation of various design decisions the manual
+may diverge further. Of course, we want to keep it upto date and attempt to do
+so, if you find issues please help us fix it.
 
 
 Bootstrapping the compiler
@@ -56,10 +71,11 @@ And for a debug version compatible with GDB:
 
   ./koch.py boot --debuginfo --linedir:on
 
-The `koch`:cmd: program is Nim's maintenance script. It is a replacement for
+The `koch`:cmd: program is |NimSkull|'s maintenance script. It is a replacement for
 make and shell scripting with the advantage that it is much more portable.
 More information about its options can be found in the `koch <koch.html>`_
 documentation.
+
 
 Developing the compiler
 =======================
@@ -92,7 +108,7 @@ are also lots of procs that aid in debugging:
   echo symbol.name.s
   debug(symbol)
 
-  # pretty prints the Nim ast, but annotates symbol IDs:
+  # pretty prints the |NimSkull| ast, but annotates symbol IDs:
   echo renderTree(someNode, {renderIds})
   if `??`(conf, n.info, "temp.nim"):
     # only output when it comes from "temp.nim"
@@ -114,7 +130,7 @@ You can import them directly for debugging:
 The compiler's architecture
 ===========================
 
-Nim uses the classic compiler architecture: A lexer/scanner feeds tokens to a
+|NimSkull|'s current compiler architecture: A lexer/scanner feeds tokens to a
 parser. The parser builds a syntax tree that is used by the code generators.
 This syntax tree is the interface between the parser and the code generator.
 It is essential to understand most of the compiler's code.
@@ -132,6 +148,21 @@ may contain cycles. The AST changes its shape after semantic checking. This
 is needed to make life easier for the code generators. See the "ast" module
 for the type definitions. The `macros <macros.html>`_ module contains many
 examples how the AST represents each syntactic structure.
+
+
+Errors (nkError)
+----------------
+Errors are now stored within the AST itself via `nkError` nodes, see the
+`compiler/errorhandling` module for more details. At the time of writing this
+is an ongoing `refactoring project <https://github.com/nim-works/nimskull/projects/1>` _.
+
+The legacy way of error reporting and handling is done via a set of `template`s
+and `proc`s within the `msgs` module. This complects control flow, as by
+default it aborts compilation on error and reporting itself. Additionally,
+it lead to complexity at the time of reporting as a significant amount of
+contextual information is required, in what is typically a local part of the
+AST being examined. Please help refactor accordingly if you encounter the
+legacy method.
 
 
 Bisecting for regressions
@@ -154,7 +185,7 @@ you don't need a debug version of the compiler (which runs slower), you can repl
 Runtimes
 ========
 
-Nim has two different runtimes, the "old runtime" and the "new runtime". The old
+|NimSkull| has two different runtimes, the "old runtime" and the "new runtime". The old
 runtime supports the old GCs (markAndSweep, refc, Boehm), the new runtime supports
 ARC/ORC. The new runtime is active `when defined(nimV2)`.
 
@@ -162,7 +193,7 @@ ARC/ORC. The new runtime is active `when defined(nimV2)`.
 Coding Guidelines
 =================
 
-* We follow Nim's official style guide, see `<nep1.html>`_.
+* We follow |NimSkull|'s official style guide, see `<nep1.html>`_.
 * Max line length is 100 characters.
 * Provide spaces around binary operators if that enhances readability.
 * Use a space after a colon, but not before it.
@@ -175,13 +206,13 @@ See also the `API naming design <apis.html>`_ document.
 Porting to new platforms
 ========================
 
-Porting Nim to a new architecture is pretty easy, since C is the most
-portable programming language (within certain limits) and Nim generates
+Porting |NimSkull| to a new architecture is pretty easy, since C is the most
+portable programming language (within certain limits) and |NimSkull| generates
 C code, porting the code generator is not necessary.
 
 POSIX-compliant systems on conventional hardware are usually pretty easy to
 port: Add the platform to `platform` (if it is not already listed there),
-check that the OS, System modules work and recompile Nim.
+check that the OS, System modules work and recompile |NimSkull|.
 
 The only case where things aren't as easy is when old runtime's garbage
 collectors need some assembler tweaking to work. The default
@@ -195,16 +226,16 @@ Runtime type information
 
 **Note**: This section describes the "old runtime".
 
-*Runtime type information* (RTTI) is needed for several aspects of the Nim
+*Runtime type information* (RTTI) is needed for several aspects of the |NimSkull|
 programming language:
 
 Garbage collection
-  The old GCs use the RTTI for traversing abitrary Nim types, but usually
+  The old GCs use the RTTI for traversing abitrary |NimSkull| types, but usually
   only the `marker` field which contains a proc that does the traversal.
 
 Complex assignments
   Sequences and strings are implemented as
-  pointers to resizeable buffers, but Nim requires copying for
+  pointers to resizeable buffers, but |NimSkull| requires copying for
   assignments. Apart from RTTI the compiler also generates copy procedures
   as a specialization.
 
@@ -236,7 +267,7 @@ Code generation for closures is implemented by `lambda lifting`:idx:.
 Design
 ------
 
-A `closure` proc var can call ordinary procs of the default Nim calling
+A `closure` proc var can call ordinary procs of the default |NimSkull| calling
 convention. But not the other way round! A closure is implemented as a
 `tuple[prc, env]`. `env` can be nil implying a call without a closure.
 This means that a call through a closure generates an `if` but the
@@ -386,7 +417,7 @@ To be expanded.
 Integer literals
 ----------------
 
-In Nim, there is a redundant way to specify the type of an
+In |NimSkull|, there is a redundant way to specify the type of an
 integer literal. First of all, it should be unsurprising that every
 node has a node kind. The node of an integer literal can be any of the
 following values::
@@ -459,7 +490,7 @@ literal types.
 
 Other literal types, such as `uint literal(123)` that would
 automatically convert to other integer types, but prefers to
-become a `uint` are not part of the Nim language.
+become a `uint` are not part of the |NimSkull| language.
 
 In an unchecked AST, the `typ` field is nil. The type checker will set
 the `typ` field accordingly to the node kind. Nodes of kind `nkIntLit`

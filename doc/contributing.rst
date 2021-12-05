@@ -7,64 +7,104 @@ Contributing
 
 .. contents::
 
+If you're looking to make larger changes and even if not, please read this
+short blurb on `the direction <https://github.com/nim-works/nimskull#direction>`_
+of the language.
 
-Contributing happens via "Pull requests" (PR) on github. Every PR needs to be
-reviewed before it can be merged and the Continuous Integration should be green.
+Specifically, we value |sustainability|. This means that the way we work
+together, our customs and practices, the design and development of the language
+and associated libraries, tools and so on, all work towards this goal.
 
-The PR has to be approved by two core developers or by Araq.
+Getting Context
+===============
+
+Not everything is being worked on and somethings may in fact be up for removal
+outright. It's a big code base and not always easy to see where things are
+headed or whether your change will be accepted. What trade-offs to make and all
+sorts of questions that arise during software development.
+
+For a very small change (typos, fixes, etc) please, open up a PR with tests and
+a fix, with help from the rest of this guide this will be quick and easy.
+
+For more impactful or sweeping changes or you'd like to do things work on
+things more regularly, then please gain context through some of these suggested 
+activities:
+* check the `current near-term development plan <https://github.com/nim-works/nimskull#near-term-development>` _
+* see current efforts by reading the last `~10 commits messages <https://github.com/nim-works/nimskull/commits/devel>` _
+* to understand the current broader ideas, `see recent discussions <https://github.com/nim-works/nimskull/discussions>` _
+* join our chat (comming soon)
+
+With that said, contributing happens via "Pull requests" (PR) on github. Every
+PR needs to be reviewed before it can be merged and the Continuous Integration
+should be green.
+
+The PR has to be approved by at least one core developer, if a breaking change
+then mulitple core developers must weigh in.
 
 
 
 Writing tests
 =============
 
-There are 4 types of tests:
+We recommend starting with tests, in fact one of our goals, and that is key to
+|sustainability| is writing the language specification as tests. You can learn
+more about the `spec here <intern.html#>` _.
 
-1. `runnableExamples` documentation comment tests, ran by `nim doc mymod.nim`:cmd:
+Types of testing approaches, in order of preference. Where marked as
+deprecated these are to be converted where possible and not used going
+forward:
+
+1. separate test files, e.g.: ``tests/stdlib/tos.nim``.
+   In |NimSkull| repo, `testament`:cmd: (see below) runs all
+   ``$nim/tests/*/t*.nim`` test files
+
+2. `runnableExamples` documentation comment tests, ran by `nim doc mymod.nim`:cmd:
    These end up in documentation and ensure documentation stays in sync with code.
 
-2. separate test files, e.g.: ``tests/stdlib/tos.nim``.
-   In nim repo, `testament`:cmd: (see below) runs all
-   ``$nim/tests/*/t*.nim`` test files;
-   for nimble packages, see https://github.com/nim-lang/nimble#tests.
-
 3. (deprecated) tests in `when isMainModule:` block, ran by `nim r mymod.nim`:cmd:.
-   `nimble test`:cmd: can run those in nimble packages when specified in a
-   `task "test"`.
 
-4. (not preferred) ``.. code-block:: nim`` RST snippets;
+4. (deprecated) ``.. code-block:: nim`` RST snippets;
    these should only be used in rst sources,
    in nim sources `runnableExamples` should now always be preferred to those for
    several reasons (cleaner syntax, syntax highlights, batched testing, and
    parameter `rdoccmd` allows customization).
 
 Not all the tests follow the convention here, feel free to change the ones
-that don't. Always leave the code cleaner than you found it.
+that don't. Always leave the code cleaner than you found it. Usage of
+deprecated tests styles is almost guaranteed to lead to PR rejection.
 
 Stdlib
 ------
 
 Each stdlib module (anything under ``lib/``, e.g. ``lib/pure/os.nim``) should
-preferably have a corresponding separate test file, e.g. ``tests/stdlib/tos.nim``.
-The old convention was to add a `when isMainModule:` block in the source file,
-which only gets executed when the tester is building the file.
+have a corresponding separate tests folder and files, e.g.
+``tests/stdOs/tos.nim``.
 
 Each test should be in a separate `block:` statement, such that
 each has its own scope. Use boolean conditions and `doAssert` for the
 testing by itself, don't rely on echo statements or similar; in particular, avoid
-things like `echo "done"`. Don't use `unittest.suite` and `unittest.test`.
+things like `echo "done"`.
+
+A few notes on things to watch out for and not repeat. An old convention was to
+add a `when isMainModule:` block in the source file, which only gets executed
+when the tester is building the file. Don't use `unittest.suite` and
+`unittest.test`.
+
+Please replace this if you're making changes associated to the module.
 
 Sample test:
 
 .. code-block:: nim
 
-  block: # foo
+  block foo_multiplies_by_10:
     doAssert foo(1) == 10
 
-  block: # bug #1234
-    static: doAssert 1+1 == 2
+  block int_constant_expression_evaluation:
+    ## encountered a regressions with integer constant expression evaluation
+    ## see bug #1234
+    static: doAssert 1+1 == 2, "int constant expression evaluation regression"
 
-  block: # bug #1235
+  block structural_comparison_of_nested_seqs:
     var seq2D = newSeqWith(4, newSeq[bool](2))
     seq2D[0][0] = true
     seq2D[1][0] = true
@@ -96,6 +136,7 @@ to create a file for import into another test only, use the prefix `m`.
 At the beginning of every test is the expected behavior of the test.
 Possible keys are:
 
+- `description`: Description for the overall goal of tests within this file
 - `cmd`: A compilation command template e.g. `nim $target --threads:on $options $file`:cmd:
 - `output`: The expected output (stdout + stderr), most likely via `echo`
 - `exitcode`: Exit code of the test (via `exit(number)`)
@@ -110,6 +151,7 @@ An example of a test:
 .. code-block:: nim
 
   discard """
+    description: "parameter type mismatch results in an error"
     errormsg: "type mismatch: got (PTest)"
   """
 
@@ -240,7 +282,7 @@ as well as `testament`:cmd: and guarantee they stay in sync.
 
 See `parentDir <os.html#parentDir,string>`_ example.
 
-The RestructuredText Nim uses has a special syntax for including code snippets
+The RestructuredText |NimSkull| uses has a special syntax for including code snippets
 embedded in documentation; these are not run by `nim doc`:cmd: and therefore are
 not guaranteed to stay in sync, so `runnableExamples` is almost always preferred:
 
@@ -291,22 +333,22 @@ the first is preferred.
 When you specify an *RST role* (highlighting/interpretation marker) do it
 in the postfix form for uniformity, that is after \`text in backticks\`.
 For example an ``:idx:`` role for referencing a topic ("SQLite" in the
-example below) from `Nim Index`_ can be used in doc comment this way:
+example below) from `NimSkull Index`_ can be used in doc comment this way:
 
 .. code-block:: nim
   ## A higher level `SQLite`:idx: database wrapper.
 
-.. _`Nim Index`: https://nim-lang.org/docs/theindex.html
+.. _`NimSkull Index`: https://nim-works.github.io/nimskull/theindex.html
 
 Inline monospaced text can be input using \`single backticks\` or
 \`\`double backticks\`\`. The former are syntactically highlighted,
 the latter are not.
 To avoid accidental highlighting follow this rule in ``*.nim`` files:
 
-* use single backticks for fragments of code in Nim and other
+* use single backticks for fragments of code in |NimSkull| and other
   programming languages, including identifiers, in ``*.nim`` files.
 
-  For languages other than Nim add a role after final backtick,
+  For languages other than |NimSkull| add a role after final backtick,
   e.g. for C++ inline highlighting::
 
     `#include <stdio.h>`:cpp:
@@ -460,7 +502,7 @@ General commit rules
 2. If you introduce changes which affect backward compatibility,
    make breaking changes, or have PR which is tagged as ``[feature]``,
    the changes should be mentioned in `the changelog
-   <https://github.com/nim-lang/Nim/blob/devel/changelog.md>`_.
+   <https://github.com/nim-works/nimskull/blob/devel/changelog.md>`_.
 
 3. All changes introduced by the commit (diff lines) must be related to the
    subject of the commit.
@@ -521,9 +563,9 @@ Continuous Integration (CI)
    `Appveyor <https://www.appveyor.com/docs/how-to/filtering-commits/#skip-directive-in-commit-message>`_
    and `Travis <https://docs.travis-ci.com/user/customizing-the-build/#skipping-a-build>`_.
 
-2. Consider enabling CI (azure, GitHub actions and builds.sr.ht) in your own Nim fork, and
+2. Consider enabling CI (azure, GitHub actions and builds.sr.ht) in your own |NimSkull| fork, and
    waiting for CI to be green in that fork (fixing bugs as needed) before
-   opening your PR in the original Nim repo, so as to reduce CI congestion. Same
+   opening your PR in the original |NimSkull| repo, so as to reduce CI congestion. Same
    applies for updates on a PR: you can test commits on a separate private
    branch before updating the main PR.
 
@@ -540,7 +582,7 @@ Debugging CI failures, flaky tests, etc
 
    * Azure: if on your own fork, it's possible from inside azure console
      (e.g. ``dev.azure.com/username/username/_build/results?buildId=1430&view=results``) via ``rerun failed jobs`` on top.
-     If either on you own fork or in Nim repo, it's possible from inside GitHub UI
+     If either on you own fork or in |NimSkull| repo, it's possible from inside GitHub UI
      under checks tab, see https://github.com/timotheecour/Nim/issues/211#issuecomment-629751569
    * GitHub actions: under "Checks" tab, click "Re-run jobs" in the right.
    * builds.sr.ht: create a sourcehut account so you can restart a PR job as illustrated.
@@ -612,7 +654,7 @@ Existing, battle-tested modules stay
 ------------------------------------
 
 Reason: There is no benefit in moving them around just to fullfill some design
-fashion as in "Nim's core MUST BE SMALL". If you don't like an existing module,
+fashion as in "|NimSkull|'s core MUST BE SMALL". If you don't like an existing module,
 don't import it. If a compilation target (e.g. JS) cannot support a module,
 document this limitation.
 
@@ -628,7 +670,7 @@ to enough users so that we can see if the shortcuts provide enough benefit
 or not. Many programmers avoid external dependencies, even moreso for
 "tiny syntactic improvements". However, this is only true for really good
 syntactic improvements that have the potential to clean up other parts of
-the Nim library substantially. If in doubt, new stdlib modules should start
+the |NimSkull| library substantially. If in doubt, new stdlib modules should start
 as external, successful Nimble packages.
 
 
@@ -646,11 +688,11 @@ Little additions are acceptable
 As long as they are documented and tested well, adding little helpers
 to existing modules is acceptable. For two reasons:
 
-1. It makes Nim easier to learn and use in the long run.
+1. It makes |NimSkull| easier to learn and use in the long run.
    ("Why does sequtils lack a `countIt`?
    Because version 1.0 happens to have lacked it? Silly...")
 2. To encourage contributions. Contributors often start with PRs that
-   add simple things and then they stay and also fix bugs. Nim is an
+   add simple things and then they stay and also fix bugs. |NimSkull| is an
    open source project and lives from people's contributions and involvement.
    Newly introduced issues have to be balanced against motivating new people. We know where
    to find perfectly designed pieces of software that have no bugs -- these are the systems
@@ -678,7 +720,7 @@ Breaking Changes
 
 Introducing breaking changes, no matter how well intentioned,
 creates long-term problems for the community, in particular those looking to promote
-reusable Nim code in libraries: In the Nim distribution, critical security and bugfixes,
+reusable |NimSkull| code in libraries: In the |NimSkull| distribution, critical security and bugfixes,
 language changes and community improvements are bundled in a single distribution - it is
 difficult to make partial upgrades with only benign changes. When one library depends on
 a legacy behavior, it can no longer be used together with another library that does not,
@@ -692,7 +734,7 @@ changes.
 Run-time breaking changes
 -------------------------
 
-Run-time breaking changes are to be avoided at almost all costs: Nim is used for
+Run-time breaking changes are to be avoided at almost all costs: |NimSkull| is used for
 mission critical applications which depend on behaviours that
 are not covered by the test suite. As such, it's important that changes to the
 *stable* parts of the standard library are made avoiding changing the existing
@@ -708,8 +750,8 @@ Examples of run-time breaking changes:
 
 - Changing behavior of existing functions like:
 
-  * "Nim's path handling procs like `getXDir` now consistently lack the trailing slash"
-  * "Nim's strformat implementation is now more consistent with Python"
+  * "|NimSkull|'s path handling procs like `getXDir` now consistently lack the trailing slash"
+  * "|NimSkull|'s strformat implementation is now more consistent with Python"
 
 Instead write new code that explicitly announces the feature you think we announced but
 didn't. For example, `strformat` does not say "it's compatible with Python", it
@@ -722,7 +764,7 @@ a string represenation that doesn't. These run-time breaking changes must start 
 state "opt-in" via a new `-d:nimPreviewX` or command line flag and then should become
 the new default later, in follow-up versions. This way users can track
 regressions more easily. ("git bisect" is not an acceptable alternative, that's for
-Nim compiler developers, not for Nim users.)
+Nim compiler developers, not for |NimSkull| users.)
 
 Above all else, additive approaches that don't change existing behaviors
 should be preferred.
@@ -732,17 +774,17 @@ Compile-time breaking changes
 -----------------------------
 
 Compile-time breaking changes are usually easier to handle, but for large code bases
-it can also be much work and it can hinder the adoption of a new Nim release.
+it can also be much work and it can hinder the adoption of a new |NimSkull| release.
 Additive approaches are to be preferred here as well.
 
 Examples of compile-time breaking changes include (but are not limited to):
 
 * Renaming functions and modules, or moving things. Instead of a direct rename,
   deprecate the old name and introduce a new one.
-* Renaming the parameter names: Thanks to Nim's "named parameter" calling syntax
+* Renaming the parameter names: Thanks to |NimSkull|'s "named parameter" calling syntax
   like `f(x = 0, y = 1)` this is a breaking change. Instead live with the existing
   parameter names.
-* Adding an enum value to an existing enum. Nim's exhaustive case statements stop
+* Adding an enum value to an existing enum. |NimSkull|'s exhaustive case statements stop
   compiling after such a change. Instead consider to introduce new `bool`
   fields/parameters. This can be impractical though, so we use good judgement
   and our list of "important packages" to see if it doesn't break too much code
@@ -775,7 +817,7 @@ Examples of changes that are considered non-breaking (or acceptable breaking cha
 * Creating a new module.
 * Adding an overload to an already overloaded proc.
 * Adding new default parameters to an existing proc. It is assumed that you do not
-  use Nim's stdlib procs's addresses (that you don't use them as first class entities).
+  use |NimSkull|'s stdlib procs's addresses (that you don't use them as first class entities).
 * Changing the calling convention from `nimcall` to `inline`
   (but first RFC https://github.com/nim-lang/RFCs/issues/396 needs to be implemented).
 * Changing the behavior from "crashing" into some other, well documented result (including
