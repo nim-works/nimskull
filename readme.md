@@ -171,9 +171,11 @@ following repository structure:
 >    dependencies written in other languages.
 >    * ``wrappers/`` - modules that wrap dependencies written in other languages.
 >* ``tests/`` - contains categorized tests for the compiler and standard library.
->* ``tools/`` - the tools including ``niminst`` and ``nimweb`` (mostly invoked via
+>* ``tools/`` - the tools including ``koch``, ``niminst`` and ``nimweb`` (mostly invoked via
 >  ``koch``).
->* ``koch.nim`` - the tool used to bootstrap Nim, generate C sources, build the >website, and generate the documentation.
+>* ``tools/koch/koch.nim`` - the tool used to bootstrap Nim, generate C sources, build the 
+>  website, and generate the documentation.
+>* ``koch.py`` - the script to bootstrap and launch ``koch.nim``.
 ></details>
 >
 >Ideally, you should make sure that all tests pass before submitting a pull request.
@@ -240,9 +242,9 @@ be used to run the Nim test suite.
 <summary>Show</summary>
 
 Assuming that you added Nim's ``bin`` directory to your PATH, you may execute
-the tests using ``./koch tests``. The tests take a while to run, but you
+the tests using ``./koch.py tests``. The tests take a while to run, but you
 can run a subset of tests by specifying a category (for example
-``./koch tests cat async``).
+``./koch.py tests cat async``).
 
 For more information on the ``koch`` build tool please see the documentation
 within the [doc/koch.rst](doc/koch.rst) file.

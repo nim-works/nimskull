@@ -29,8 +29,8 @@ import std/[os, strutils, parseopt, osproc]
   # If this fails with: `Error: cannot open file: std/os`, see
   # https://github.com/nim-lang/Nim/pull/14291 for explanation + how to fix.
 
-import tools / kochdocs
-import tools / deps
+import kochdocs
+import deps
 
 const VersionAsString = system.NimVersion
 
@@ -41,17 +41,18 @@ const
 |             Version $1|
 |             (c) 2017 Andreas Rumpf                              |
 +-----------------------------------------------------------------+
-Build time: $2, $3
 
 Usage:
   koch [options] command [options for command]
+
 Options:
   --help, -h               shows this help and quits
   --latest                 bundle the installers with bleeding edge versions of
                            external components.
   --stable                 bundle the installers with stable versions of
                            external components (default).
-  --nim:path               use specified path for nim binary
+  --nim:path               use specified path for nim binary. This can also be used to
+                           override the bootstrapping compiler.
   --localdocs[:path]       only build local documentations. If a path is not
                            specified (or empty), the default is used.
 Possible Commands:
@@ -87,8 +88,17 @@ Web options:
                            build the official docs, use UA-48159761-1
 """
 
-let kochExe* = when isMainModule: os.getAppFilename() # always correct when koch is main program, even if `koch` exe renamed e.g.: `nim c -o:koch_debug koch.nim`
-               else: getAppDir() / "koch".exe # works for winrelease
+let
+  nimSource = getEnv("KOCH_NIM_SOURCE")
+    ## The Nim source code location as given by `koch.py`
+
+  kochExe =
+    when defined(windows):
+      # Use the `cmd` wrapper for Windows to automate finding Python
+      nimSource / "koch.cmd"
+    else:
+      nimSource / "koch.py"
+    ## The path to `koch`'s launcher
 
 proc kochExec*(cmd: string) =
   exec kochExe.quoteShell & " " & cmd
@@ -105,7 +115,9 @@ template withDir(dir, body) =
     setCurrentDir(old)
 
 let origDir = getCurrentDir()
-setCurrentDir(getAppDir())
+if nimSource == "":
+  quit "This program is not meant to be executed directly, please use koch.py"
+setCurrentDir(nimSource)
 
 proc tryExec(cmd: string): bool =
   echo(cmd)
@@ -251,21 +263,26 @@ when false:
 # -------------- boot ---------------------------------------------------------
 
 proc findStartNim: string =
-  # we try several things before giving up:
-  # * nimExe
-  # * bin/nim
-  # * $PATH/nim
-  # If these fail, we try to build nim with the "build.(sh|bat)" script.
-  let (nim, ok) = findNimImpl()
-  if ok: return nim
+  # Try "bin/nim-boot", which is built by `koch.sh`.
+  #
+  # The compiler specified by "--nim" is preferred over this.
+  #
+  # If that fails, we try to build nim with the "build.(sh|bat)" script.
+  if nimExe.len > 0:
+    return nimExe
+
+  const nimBoot = "bin" / "nim-boot".exe
+  if fileExists(nimBoot):
+    return nimBoot
+
   when defined(posix):
     const buildScript = "build.sh"
     if fileExists(buildScript):
-      if tryExec("./" & buildScript): return "bin" / nim
+      if tryExec("./" & buildScript): return "bin" / "nim".exe
   else:
     const buildScript = "build.bat"
     if fileExists(buildScript):
-      if tryExec(buildScript): return "bin" / nim
+      if tryExec(buildScript): return "bin" / "nim".exe
 
   echo("Found no nim compiler and every attempt to build one failed!")
   quit("FAILURE")
@@ -301,6 +318,7 @@ proc boot(args: string) =
     echo "iteration: ", i+1
     var extraOption = ""
     var nimi = i.thVersion
+    var smartNimcache = smartNimcache
     if i == 0:
       nimi = nimStart
       extraOption.add " --skipUserCfg --skipParentCfg -d:nimKochBootstrap"
@@ -310,6 +328,10 @@ proc boot(args: string) =
       # Older bootstrapping compiler might not support magics used in the
       # newer stdlib, so disable those warnings.
       extraOption.add " --warning[UnknownMagic]:off"
+
+      # Use a separate cache for bootstrapping, as the bootstrap compiler is
+      # (usually) an older version
+      smartNimcache.add "_boot"
 
       let ret = execCmdEx(nimStart & " --version")
       doAssert ret.exitCode == 0
@@ -322,8 +344,8 @@ proc boot(args: string) =
     # jsonbuild then uses the $project.json file to build the Nim binary.
     exec "$# $# $# --nimcache:$# $# --compileOnly compiler" / "nim.nim" %
       [nimi, bootOptions, extraOption, smartNimcache, args]
-    exec "$# jsonscript --nimcache:$# $# compiler" / "nim.nim" %
-      [nimi, smartNimcache, args]
+    exec "$# jsonscript $# --nimcache:$# $# compiler" / "nim.nim" %
+      [nimi, extraOption, smartNimcache, args]
 
     if sameFileContent(output, i.thVersion):
       copyExe(output, finalDest)
@@ -449,9 +471,8 @@ proc temp(args: string) =
       result[1].add " " & quoteShell(args[i])
       inc i
 
-  let d = getAppDir()
-  let output = d / "compiler" / "nim".exe
-  let finalDest = d / "bin" / "nim_temp".exe
+  let output = nimSource / "compiler" / "nim".exe
+  let finalDest = nimSource / "bin" / "nim_temp".exe
   # 125 is the magic number to tell git bisect to skip the current commit.
   var (bootArgs, programArgs) = splitArgs(args)
   if "doc" notin programArgs and
@@ -459,27 +480,26 @@ proc temp(args: string) =
       "js" notin programArgs and "rst2html" notin programArgs:
     bootArgs = " -d:leanCompiler" & bootArgs
   let nimexec = findNim().quoteShell()
-  exec(nimexec & " c -d:debug --debugger:native -d:nimBetterRun " & bootArgs & " " & (d / "compiler" / "nim"), 125)
+  exec(nimexec & " c -d:debug --debugger:native -d:nimBetterRun " & bootArgs & " " & (nimSource / "compiler" / "nim"), 125)
   copyExe(output, finalDest)
   setCurrentDir(origDir)
   if programArgs.len > 0: exec(finalDest & " " & programArgs)
 
 proc xtemp(cmd: string) =
-  let d = getAppDir()
-  copyExe(d / "bin" / "nim".exe, d / "bin" / "nim_backup".exe)
+  copyExe(nimSource / "bin" / "nim".exe, nimSource / "bin" / "nim_backup".exe)
   try:
-    withDir(d):
+    withDir(nimSource):
       temp""
-    copyExe(d / "bin" / "nim_temp".exe, d / "bin" / "nim".exe)
+    copyExe(nimSource / "bin" / "nim_temp".exe, nimSource / "bin" / "nim".exe)
     exec(cmd)
   finally:
-    copyExe(d / "bin" / "nim_backup".exe, d / "bin" / "nim".exe)
+    copyExe(nimSource / "bin" / "nim_backup".exe, nimSource / "bin" / "nim".exe)
 
 proc icTest(args: string) =
   temp("")
   let inp = os.parseCmdLine(args)[0]
   let content = readFile(inp)
-  let nimExe = getAppDir() / "bin" / "nim_temp".exe
+  let nimExe = nimSource / "bin" / "nim_temp".exe
   var i = 0
   for fragment in content.split("#!EDIT!#"):
     let file = inp.replace(".nim", "_temp.nim")
@@ -498,7 +518,7 @@ proc buildDrNim(args: string) =
     if not dirExists("dist/dlls"):
       exec("git clone -q https://github.com/nim-lang/dlls.git dist/dlls")
     copyExe("dist/dlls/libz3.dll", "bin/libz3.dll")
-    execFold("build drnim", "nim c -o:$1 $2 drnim/drnim" % ["bin/drnim".exe, args])
+    nimexecFold("build drnim", "c -o:$1 $2 drnim/drnim" % ["bin/drnim".exe, args])
   else:
     if not dirExists("dist/z3"):
       exec("git clone -q https://github.com/Z3Prover/z3.git dist/z3")
@@ -509,7 +529,7 @@ proc buildDrNim(args: string) =
         withDir("build"):
           exec("""cmake -DZ3_BUILD_LIBZ3_SHARED=FALSE -G "Unix Makefiles" ../""")
           exec("make -j4")
-    execFold("build drnim", "nim cpp --dynlibOverride=libz3 -o:$1 $2 drnim/drnim" % ["bin/drnim".exe, args])
+    nimexecFold("build drnim", "cpp --dynlibOverride=libz3 -o:$1 $2 drnim/drnim" % ["bin/drnim".exe, args])
   # always run the tests for now:
   exec("testament/testament".exe & " --nim:" & "drnim".exe & " pat drnim/tests")
 
@@ -530,16 +550,16 @@ proc installDeps(dep: string, commit = "") =
   # xxx: also add linenoise, niminst etc, refs https://github.com/nim-lang/RFCs/issues/206
 
 proc testTools(cmd: string) =
-  execFold("Run nimdoc tests", "nim r nimdoc/tester")
-  execFold("Run rst2html tests", "nim r nimdoc/rsttester")
-  execFold("Run nimpretty tests", "nim r nimpretty/tester.nim")
+  nimexecFold("Run nimdoc tests", "r nimdoc/tester")
+  nimexecFold("Run rst2html tests", "r nimdoc/rsttester")
+  nimexecFold("Run nimpretty tests", "r nimpretty/tester.nim")
   # refs #18385, build with -d:release instead of -d:danger for testing
   # We could also skip building nimsuggest in buildTools, or build it with -d:release
   # in bundleNimsuggest depending on some environment variable when we are in CI. One advantage
   # of rebuilding is this won't affect bin/nimsuggest when running runCI locally
-  execFold("build nimsuggest_testing", "nim c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest")
-  execFold("Run nimsuggest tests", "nim r nimsuggest/tester")
-  execFold("Run atlas tests", "nim c -r -d:atlasTests tools/atlas/atlas.nim clone https://github.com/disruptek/balls")
+  nimexecFold("build nimsuggest_testing", "c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest")
+  nimexecFold("Run nimsuggest tests", "r nimsuggest/tester")
+  nimexecFold("Run atlas tests", "c -r -d:atlasTests tools/atlas/atlas.nim clone https://github.com/disruptek/balls")
 
 proc runCI(cmd: string) =
   doAssert cmd.len == 0, cmd # avoid silently ignoring
@@ -553,14 +573,14 @@ proc runCI(cmd: string) =
   let batchParam = "--batch:$1" % "NIM_TESTAMENT_BATCH".getEnv("_")
   buildTools()
   ## run tests
-  execFold("Test nimscript", "nim e tests/test_nimscript.nims")
+  nimexecFold("Test nimscript", "e tests/test_nimscript.nims")
   when defined(windows):
-    execFold("Compile tester", "nim c --usenimcache --os:genode -d:posix --compileOnly testament/testament")
+    nimexecFold("Compile tester", "c --usenimcache --os:genode -d:posix --compileOnly testament/testament")
 
   # main bottleneck here
   # xxx: even though this is the main bottleneck, we could speedup the rest via batching with `--batch`.
   # BUG: with initOptParser, `--batch:'' all` interprets `all` as the argument of --batch, pending bug #14343
-  execFold("Run tester", "nim c -r --putenv:NIM_TESTAMENT_REMOTE_NETWORKING:1 -d:nimStrictMode testament/testament $# all" % batchParam)
+  nimexecFold("Run tester", "c -r --putenv:NIM_TESTAMENT_REMOTE_NETWORKING:1 -d:nimStrictMode testament/testament $# all" % batchParam)
 
   testTools(cmd)
 
@@ -617,13 +637,13 @@ proc valgrind(cmd: string) =
     else:
       nimcmd.add ' '
       nimcmd.add a
-  exec("nim c" & nimcmd)
-  let supp = getAppDir() / "tools" / "nimgrind.supp"
+  nimexec("c" & nimcmd)
+  let supp = nimSource / "tools" / "nimgrind.supp"
   exec("valgrind --suppressions=" & supp & valcmd)
 
 proc showHelp(success: bool) =
-  quit(HelpText % [VersionAsString & spaces(44-len(VersionAsString)),
-                   CompileDate, CompileTime], if success: QuitSuccess else: QuitFailure)
+  quit(HelpText % [VersionAsString & spaces(44-len(VersionAsString))]):
+    if success: QuitSuccess else: QuitFailure
 
 proc branchDone() =
   let thisBranch = execProcess("git symbolic-ref --short HEAD").strip()

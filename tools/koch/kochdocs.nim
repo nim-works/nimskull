@@ -96,6 +96,11 @@ proc nimexec*(cmd: string) =
   # Consider using `nimCompile` instead
   exec findNim().quoteShell() & " " & cmd
 
+proc nimexecFold*(desc, cmd: string) =
+  # nimexec but with execFold
+  execFold desc:
+    findNim().quoteShell() & " " & cmd
+
 proc nimCompile*(input: string, outputDir = "bin", mode = "c", options = "") =
   let output = outputDir / input.splitFile.name.exe
   let cmd = findNim().quoteShell() & " " & mode & " -o:" & output & " " & options & " " & input
