@@ -10,13 +10,13 @@
 import sequtils, parseutils, strutils, os, streams, parsecfg,
   tables, hashes, sets
 
-type
-  TestamentData* = ref object
-    # xxx: better to group globals under 1 object; could group the other ones
-    #      here too
-    batchArg*: string
-    testamentNumBatch*: int
-    testamentBatch*: int
+type TestamentData* = ref object
+  # better to group globals under 1 object; could group the other ones here too
+  batchArg*: string
+  testamentNumBatch*: int
+  testamentBatch*: int
+  includeKnownIssues*: bool
+    ## whether to run knownIssues as part of this test run
 
 # global mutable state for funsies
 var
@@ -44,24 +44,27 @@ type
     ocSubstr = "substr"
 
   TResultEnum* = enum
-    reNimcCrash,       # nim compiler seems to have crashed
-    reMsgsDiffer,      # error messages differ
-    reFilesDiffer,     # expected and given filenames differ
-    reLinesDiffer,     # expected and given line numbers differ
+    reNimcCrash,       ## nim compiler seems to have crashed
+    reMsgsDiffer,      ## error messages differ
+    reFilesDiffer,     ## expected and given filenames differ
+    reLinesDiffer,     ## expected and given line numbers differ
     reOutputsDiffer,
-    reExitcodesDiffer, # exit codes of program or of valgrind differ
+    reExitcodesDiffer, ## exit codes of program or of valgrind differ
     reTimeout,
     reInvalidPeg,
     reCodegenFailure,
     reCodeNotFound,
     reExeNotFound,
-    reInstallFailed    # package installation failed
-    reBuildFailed      # package building failed
-    reDisabled,        # test is disabled
-    reKnownIssue,      # test failure doesn't fail the build due to a known issue(s)
-    reJoined,          # test is disabled because it was joined into the megatest
-    reSuccess          # test was successful
-    reInvalidSpec      # test had problems to parse the spec
+    reInstallFailed    ## package installation failed
+    reBuildFailed      ## package building failed
+    reDisabled,        ## test is disabled
+    reKnownIssue,
+      ## test is either not run or assumed to not match expected condition, in
+      ## CI this should cause a "failure" so the test can be updated and marked
+      ## as working
+    reJoined,          ## disabled test because it was joined into megatest
+    reSuccess          ## test was successful
+    reInvalidSpec      ## test had problems to parse the spec
 
   TTarget* = enum
     targetC = "c"
@@ -96,7 +99,6 @@ type
     ## searched for in the generated code. Used for backend code testing.
     maxCodeSize*: int ## Maximum allowed code size (in bytes) for the test.
     err*: TResultEnum
-    knownIssues*: seq[string] ## run the test, but do not count as failure
     inCurrentBatch*: bool
     targets*: set[TTarget]
     matrix*: seq[string]
@@ -408,16 +410,6 @@ proc parseSpec*(filename: string): TSpec =
           # Windows lacks valgrind. Silly OS.
           # Valgrind only supports OSX <= 17.x
           result.useValgrind = disabled
-      of "knownissue":
-        case e.value.normalize:
-          of "y", "yes", "true", "1", "on":
-            result.err = reKnownIssue
-            result.knownIssues.add "Unknown"
-          of "n", "no", "false", "0", "off":
-            discard
-          else:
-            result.err = reKnownIssue
-            result.knownIssues.add e.value # add to the list 
       of "disabled":
         case e.value.normalize
         of "y", "yes", "true", "1", "on": result.err = reDisabled
@@ -482,7 +474,14 @@ proc parseSpec*(filename: string): TSpec =
         of "n", "no", "false", "0": discard
         else:
             result.knownIssues.add e.value
-            result.err = reDisabled
+            # choose here whether we'll run known issues or not
+            # xxx: better option would be to defer this decisions but this code
+            #      is so far from something so nice.
+            result.err =
+              if testamentData0.includeKnownIssues:
+                reKnownIssue
+              else:
+                reDisabled
       else:
         result.parseErrors.addLine "invalid key for test spec: ", e.key
 

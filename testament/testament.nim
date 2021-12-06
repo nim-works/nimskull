@@ -155,7 +155,11 @@ proc verboseCmd(cmd: string) =
     msg Undefined: "executing: " & cmd
 
 const
-  failString* = "FAIL: " # ensures all failures can be searched with 1 keyword in CI logs
+  failString* = "FAIL: "
+    ## ensures all failures can be searched with 1 keyword in CI logs
+  knownIssueSuccessString* = "KNOWNISSUE: "
+    ## ensures all now succeeding known issues can be searched with 1 keyword
+    ## in CI logs
   testsDir = "tests" & DirSep
   resultsFile = "testresults.html"
   Usage = """Usage:
@@ -181,7 +185,8 @@ Options:
   --colors:on|off           Turn messages coloring on|off.
   --backendLogging:on|off   Disable or enable backend logging. By default turned on.
   --megatest:on|off         Enable or disable megatest. Default is on.
-  --skipFrom:file           Read tests to skip from `file` - one test per line, # comments ignored
+  --skipFrom:file           Read tests to skip from `file` - one test per line, # comments ignored.
+  --includeKnownIssues      runs tests that are marked as known issues
 
 On Azure Pipelines, testament will also publish test results via Azure Pipelines' Test Management API
 provided that System.AccessToken is made available via the environment variable SYSTEM_ACCESSTOKEN.
@@ -201,8 +206,7 @@ type
   Category = distinct string
 
   TResults = object
-    total, passed, failedButAllowed, skipped: int
-      ## xxx rename passed to passedOrAllowedFailure
+    total, passed, knownIssuesSucceeded, skipped: int
     data: string
 
   TTest = object
@@ -353,7 +357,7 @@ proc callNimCompiler(cmdTemplate, filename, options, nimcache: string,
 proc initResults: TResults =
   result.total = 0
   result.passed = 0
-  result.failedButAllowed = 0
+  result.knownIssuesSucceeded = 0
   result.skipped = 0
   result.data = ""
 
@@ -382,10 +386,10 @@ template maybeStyledEcho(args: varargs[untyped]): untyped =
 
 proc `$`(x: TResults): string =
   result = """
-Tests passed or allowed to fail: $2 / $1 <br />
-Tests failed and allowed to fail: $3 / $1 <br />
+Tests passed: $2 / $1 <br />
+Tests known issues succeeded: $3 / $1 <br />
 Tests skipped: $4 / $1 <br />
-""" % [$x.total, $x.passed, $x.failedButAllowed, $x.skipped]
+""" % [$x.total, $x.passed, $x.knownIssuesSucceeded, $x.skipped]
 
 proc getName(test: TTest, target: TTarget, allowFailure: bool): string =
   var name = test.name.replace(DirSep, '/')
@@ -1108,6 +1112,12 @@ proc main() =
           quit Usage
       of "skipfrom":
         skipFrom = p.val
+      of "includeKnownIssues":
+        testamentData0.includeKnownIssues =
+          case p.val
+          of "on":  true
+          of "off": false
+          else: quit Usage
       of "retry":
         retryContainer.retry = true
         (retryContainer.cats, retryContainer.names) = backend.getRetries()

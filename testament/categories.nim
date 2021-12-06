@@ -370,7 +370,7 @@ proc isJoinableSpec(spec: TSpec): bool =
     not fileExists(parentDir(spec.file) / "nim.cfg") and
     not fileExists(parentDir(spec.file) / "config.nims") and
     spec.cmd.len == 0 and
-    spec.err != reDisabled and
+    (spec.err != reDisabled) and
     not spec.unjoinable and
     spec.exitCode == 0 and
     spec.input.len == 0 and
