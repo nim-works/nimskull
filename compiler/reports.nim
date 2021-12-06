@@ -145,6 +145,13 @@ type
     lockLevel*: Option[int] ## Lock level of the procedure types
     callConv*: Option[TCallingConvention]
 
+  SemAst* = object
+    # REVIEW right now I simply store result of the `renderTree` in these
+    # fields, which is probably acceptable for now, but maybe it would make
+    # sense to store the whole AST directly? Expand macros might also dump
+    # in different formats (like lisp, tree or json).
+    astStr*: string
+
   SemRef* = object
 
   SemContextKind* = enum
@@ -350,23 +357,44 @@ type
     rsemImplicitObjConv = "ImplicitObjConv"
     # end
 
+  SemTypeMismatch* = object
+    actualType*, wantedType*: SemReportType
+    descriptionStr*: string
+    procEffectsCompat*: EffectsCompat
+    procCallMismatch*: set[ProcConvMismatch]
+
+  SemCallMismatch* = object
+    ## Description of the single candidate mismatch. This type is later
+    ## used to construct meaningful type mismatch message, and must contain
+    ## all the necessary information to provide meaningful sorting,
+    ## collapse and other operations.
+    target*: SemReportEntry
+    expression*: Option[SemAst]
+    case kind*: MismatchKind
+      of kTypeMismatch:
+        typeMismatch*: SemTypeMismatch
+
+      of kPositionalAlreadyGiven, kUnknownNamedParam, kAlreadyGiven:
+        providedName*: string
+
+      else:
+        discard
+
+
   SemReport* = object of ReportBase
     context*: seq[SemContext]
-    expression*: Option[string] ## Rendered string representation of the
+    expression*: Option[SemAst] ## Rendered string representation of the
                                 ## expression in the report.
     case kind*: SemReportKind
       of rsemExpandMacro, rsemPattern:
-        originalExpr*: string # REVIEW right now I simply store result of
-        # the `renderTree` in these fields, which is probably acceptable
-        # for now, but maybe it would make sense to store the whole AST
-        # directly? Expand macros might also dump in different formats
-        # (like lisp, tree or json).
+        originalExpr*: SemAst
 
       of rsemTypeMismatch:
-        actualType*, wantedType*: SemReportType
-        descriptionStr*: string
-        procEffectsCompat*: EffectsCompat
-        procCallMismatch*: set[ProcConvMismatch]
+        typeMismatch*: SemTypeMismatch
+
+      of rsemCallMismatch:
+        callMismatches*: seq[SemCallMismatch] ## Description of all the
+        ## failed candidates.
 
       else:
         discard

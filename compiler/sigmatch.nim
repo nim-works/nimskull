@@ -16,10 +16,6 @@ import
   linter, lineinfos, lowerings, modulegraphs, concepts, errorhandling
 
 type
-  MismatchKind* = enum
-    kUnknown, kAlreadyGiven, kUnknownNamedParam, kTypeMismatch, kVarNeeded,
-    kMissingParam, kExtraArg, kPositionalAlreadyGiven
-
   MismatchInfo* = object
     kind*: MismatchKind # reason for mismatch
     arg*: int           # position of provided arguments that mismatches
@@ -28,7 +24,7 @@ type
 
   TCandidateState* = enum
     csEmpty, csMatch, csNoMatch
-  
+
   CandidateDiagnostic* = PNode
     ## PNode is only ever an `nkError` kind, often converted to a string for
     ## display purpopses

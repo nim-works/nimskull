@@ -50,6 +50,18 @@ type
     efLockLevelsDiffer
     efEffectsDelayed
 
+  MismatchKind* = enum
+    ## Procedure call argument mismatch reason
+    kUnknown
+    kAlreadyGiven           ## Named argument already given
+    kUnknownNamedParam      ## No such named parameter
+    kTypeMismatch           ## Parameter type mismatch
+    kVarNeeded              ## Parameter should be mutable
+    kMissingParam           ## Missing procedure parameter
+    kExtraArg               ## Too many arguments for a procedure call
+    kPositionalAlreadyGiven ## Positional parameter has already been givend
+    ## as a named parameter
+
   TTypeRelation* = enum      ## order is important!
     isNone
     isConvertible
