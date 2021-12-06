@@ -708,10 +708,8 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
     errorUndeclaredIdentifier(c, n[0].info, typ.sym.name.s)
   elif not isOrdinalType(typ):
     localError(c.config, n[0].info, "selector must be of an ordinal type, float")
-  if firstOrd(c.config, typ) != 0:
-    localError(c.config, n.info, "low(" & $a[0].sym.name.s &
-                                     ") must be 0 for discriminant")
-  elif lengthOrd(c.config, typ) > 0x00007FFF:
+
+  if lengthOrd(c.config, typ) > 0x00007FFF:
     localError(c.config, n.info, "len($1) must be less than 32768" % a[0].sym.name.s)
 
   for i in 1..<n.len:
@@ -1299,7 +1297,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
         elif typ.kind == tyStatic:
           def = semConstExpr(c, def)
           def = fitNode(c, typ, def, def.info)
-    
+
     if def.isError():
       # xxx: yet another place where we report errors
       #      got lazy, but this should propagate
