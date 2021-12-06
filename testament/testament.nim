@@ -30,10 +30,28 @@ var backendLogging = true
 var simulate = false
 var optVerbose = false
 var useMegatest = true
+var optFailing = false
+
+## Blanket method to encaptsulate all echos while testament is detangled.
+## Using this means echo cannot be called with separation of args and must instead
+## pass a single concatenated string so that optional paramters can be
+## included
+type
+  MessageType = enum
+    Undefined,
+    Progress,
+    ProcessCmdCall
+
+proc msg(msgType: MessageType; parts: varargs[string, `$`]) =
+  if optFailing and not optVerbose and msgType == ProcessCmdCall:
+    return
+  stdout.writeLine parts
+  flushFile stdout
+
 
 proc verboseCmd(cmd: string) =
   if optVerbose:
-    echo "executing: ", cmd
+    msg Undefined: "executing: " & cmd
 
 const
   failString* = "FAIL: " # ensures all failures can be searched with 1 keyword in CI logs
@@ -51,6 +69,7 @@ Command:
 Arguments:
   arguments are passed to the compiler
 Options:
+  --retry                   runs tests that failed the last run
   --print                   print results to the console
   --verbose                 print commands (compiling and running tests)
   --simulate                see what tests would be run but don't run them (for debugging)
@@ -288,9 +307,11 @@ proc addResult(r: var TResults, test: TTest, target: TTarget,
                             given = given)
   r.data.addf("$#\t$#\t$#\t$#", name, expected, given, $success)
   template dispNonSkipped(color, outcome) =
-    maybeStyledEcho color, outcome, fgCyan, test.debugInfo, alignLeft(name, 60), fgBlue, " (", durationStr, " sec)"
+    if not optFailing or color == fgRed:
+      maybeStyledEcho color, outcome, fgCyan, test.debugInfo, alignLeft(name, 60), fgBlue, " (", durationStr, " sec)"
   template disp(msg) =
-    maybeStyledEcho styleDim, fgYellow, msg & ' ', styleBright, fgCyan, name
+    if not optFailing:
+      maybeStyledEcho styleDim, fgYellow, msg & ' ', styleBright, fgCyan, name
   if success == reSuccess:
     dispNonSkipped(fgGreen, "PASS: ")
   elif success == reDisabled:
@@ -302,16 +323,16 @@ proc addResult(r: var TResults, test: TTest, target: TTarget,
     maybeStyledEcho styleBright, fgCyan, "Test \"", test.name, "\"", " in category \"", test.cat.string, "\""
     maybeStyledEcho styleBright, fgRed, "Failure: ", $success
     if givenSpec != nil and givenSpec.debugInfo.len > 0:
-      echo "debugInfo: " & givenSpec.debugInfo
+      msg Undefined: "debugInfo: " & givenSpec.debugInfo
     if success in {reBuildFailed, reNimcCrash, reInstallFailed}:
       # expected is empty, no reason to print it.
-      echo given
+      msg Undefined: given
     else:
       maybeStyledEcho fgYellow, "Expected:"
       maybeStyledEcho styleBright, expected, "\n"
       maybeStyledEcho fgYellow, "Gotten:"
       maybeStyledEcho styleBright, given, "\n"
-      echo diffStrings(expected, given).output
+      msg Undefined: diffStrings(expected, given).output
 
   if backendLogging and (isAppVeyor or isAzure):
     let (outcome, msg) =
@@ -432,10 +453,10 @@ proc codegenCheck(test: TTest, target: TTarget, spec: TSpec, expectedMsg: var st
       expectedMsg = "max allowed size: " & $spec.maxCodeSize
   except ValueError:
     given.err = reInvalidPeg
-    echo getCurrentExceptionMsg()
+    msg Undefined: getCurrentExceptionMsg()
   except IOError:
     given.err = reCodeNotFound
-    echo getCurrentExceptionMsg()
+    msg Undefined: getCurrentExceptionMsg()
 
 proc compilerOutputTests(test: TTest, target: TTarget, given: var TSpec,
                          expected: TSpec; r: var TResults) =
@@ -552,7 +573,7 @@ proc targetHelper(r: var TResults, test: TTest, expected: TSpec, extraOptions = 
       inc(r.skipped)
     elif simulate:
       inc count
-      echo "testSpec count: ", count, " expected: ", expected
+      msg Undefined: "testSpec count: " & $count & " expected: " & $expected
     else:
       let nimcache = nimcacheDir(test.name, test.options, target)
       var testClone = test
@@ -637,156 +658,196 @@ proc loadSkipFrom(name: string): seq[string] =
       result.add sline
 
 proc main() =
+  ## Define CLI Options/Args Parsing loops
+  template parseOptions(p: var OptParser): untyped =
+    while p.kind in {cmdLongOption, cmdShortOption}:
+      # read options agnostic of casing
+      case p.key.normalize
+      of "print": optPrintResults = true
+      of "verbose": optVerbose = true
+      of "failing": optFailing = true
+      of "pedantic": discard # deadcode refs https://github.com/nim-lang/Nim/issues/16731
+      of "targets":
+        targetsStr = p.val
+        gTargets = parseTargets(targetsStr)
+        targetsSet = true
+      of "nim":
+        compilerPrefix = addFileExt(p.val.absolutePath, ExeExt)
+      of "directory":
+        setCurrentDir(p.val)
+      of "colors":
+        case p.val:
+        of "on":
+          useColors = true
+        of "off":
+          useColors = false
+        else:
+          quit Usage
+      of "batch":
+        testamentData0.batchArg = p.val
+        if p.val != "_" and p.val.len > 0 and p.val[0] in {'0'..'9'}:
+          let s = p.val.split("_")
+          doAssert s.len == 2, $(p.val, s)
+          testamentData0.testamentBatch = s[0].parseInt
+          testamentData0.testamentNumBatch = s[1].parseInt
+          doAssert testamentData0.testamentNumBatch > 0
+          doAssert testamentData0.testamentBatch >= 0 and testamentData0.testamentBatch < testamentData0.testamentNumBatch
+      of "simulate":
+        simulate = true
+      of "megatest":
+        case p.val:
+        of "on":
+          useMegatest = true
+        of "off":
+          useMegatest = false
+        else:
+          quit Usage
+      of "backendlogging":
+        case p.val:
+        of "on":
+          backendLogging = true
+        of "off":
+          backendLogging = false
+        else:
+          quit Usage
+      of "skipfrom":
+        skipFrom = p.val
+      of "retry":
+        retryContainer.retry = true
+        (retryContainer.cats, retryContainer.names) = backend.getRetries()
+      else:
+        quit Usage
+      p.next()
+  template parseArgs(p: var OptParser): untyped =
+    if p.kind != cmdArgument:
+      quit Usage
+    action = p.key.normalize
+    p.next()
+  ## Main procedure
   azure.init()
   backend.open()
+  ## Cli options and misc
   var optPrintResults = false
-  var optFailing = false
-  var targetsStr = ""
-  var isMainProcess = true
-  var skipFrom = ""
+  var targetsStr      = ""
+  var isMainProcess   = true
+  var skipFrom        = ""
+  # Init cli parser
+  var p               = initOptParser()
+  p.next()
+  ## First parse options
+  parseOptions(p)
+  # template will complete with next option loaded
+  # Next option should be cmdarg
+  var action: string
+  parseArgs(p)
+  # template will complete with next option loaded
 
-  var p = initOptParser()
-  p.next()
-  while p.kind in {cmdLongOption, cmdShortOption}:
-    case p.key.normalize
-    of "print": optPrintResults = true
-    of "verbose": optVerbose = true
-    of "failing": optFailing = true
-    of "pedantic": discard # deadcode refs https://github.com/nim-lang/Nim/issues/16731
-    of "targets":
-      targetsStr = p.val
-      gTargets = parseTargets(targetsStr)
-      targetsSet = true
-    of "nim":
-      compilerPrefix = addFileExt(p.val.absolutePath, ExeExt)
-    of "directory":
-      setCurrentDir(p.val)
-    of "colors":
-      case p.val:
-      of "on":
-        useColors = true
-      of "off":
-        useColors = false
-      else:
-        quit Usage
-    of "batch":
-      testamentData0.batchArg = p.val
-      if p.val != "_" and p.val.len > 0 and p.val[0] in {'0'..'9'}:
-        let s = p.val.split("_")
-        doAssert s.len == 2, $(p.val, s)
-        testamentData0.testamentBatch = s[0].parseInt
-        testamentData0.testamentNumBatch = s[1].parseInt
-        doAssert testamentData0.testamentNumBatch > 0
-        doAssert testamentData0.testamentBatch >= 0 and testamentData0.testamentBatch < testamentData0.testamentNumBatch
-    of "simulate":
-      simulate = true
-    of "megatest":
-      case p.val:
-      of "on":
-        useMegatest = true
-      of "off":
-        useMegatest = false
-      else:
-        quit Usage
-    of "backendlogging":
-      case p.val:
-      of "on":
-        backendLogging = true
-      of "off":
-        backendLogging = false
-      else:
-        quit Usage
-    of "skipfrom":
-      skipFrom = p.val
-    else:
-      quit Usage
-    p.next()
-  if p.kind != cmdArgument:
-    quit Usage
-  var action = p.key.normalize
-  p.next()
-  
+  ## Options have all been parsed; we now act on parsed actions
+  # Prepare the results container
   var r = initResults()
 
-  # now figure out what we're going to do
   case action
-  of "all":
-    var myself = quoteShell(getAppFilename())
-    if targetsStr.len > 0:
-      myself &= " " & quoteShell("--targets:" & targetsStr)
-
-    myself &= " " & quoteShell("--nim:" & compilerPrefix)
-    if testamentData0.batchArg.len > 0:
-      myself &= " --batch:" & testamentData0.batchArg
-
-    if skipFrom.len > 0:
-      myself &= " " & quoteShell("--skipFrom:" & skipFrom)
-
+  of "all": # Run all tests
     var cats: seq[string]
+    var cmds: seq[string]
+    ## def qol procedure
+    proc progressStatus(idx: int) =
+      msg Progress:
+        "progress[all]: $1/$2 starting: cat: $3" % [$idx, $cats.len, cats[idx]]
+    # Prepare myself
+    var myself = quoteShell(getAppFilename())
+    block prepare_myself:
+      if optFailing:
+        myself &= " " & quoteShell("--failing")
+      if retryContainer.retry:
+        myself &= " " & quoteShell("--retry")
+      if targetsStr.len > 0:
+        myself &= " " & quoteShell("--targets:" & targetsStr)
+      myself &= " " & quoteShell("--nim:" & compilerPrefix)
+      if testamentData0.batchArg.len > 0:
+        myself &= " --batch:" & testamentData0.batchArg
+      if skipFrom.len > 0:
+        myself &= " " & quoteShell("--skipFrom:" & skipFrom)
+
     let rest = if p.cmdLineRest.len > 0: " " & p.cmdLineRest else: ""
+    # Traverse the test directory
     for kind, dir in walkDir(testsDir):
       assert testsDir.startsWith(testsDir)
+      # The category name is extracted from the directory
+      # eg: 'tests/compiler' -> 'compiler'
       let cat = dir[testsDir.len .. ^1]
+      if retryContainer.retry and cat notin retryContainer.cats:
+        continue
       if kind == pcDir and cat notin ["testdata", "nimcache"]:
         cats.add cat
     if isNimRepoTests():
       cats.add AdditionalCategories
+    # User may pass an option to skip the megatest category, default is useMegaTest
     if useMegatest: cats.add MegaTestCat
+    # We now prepare the command line arguments for our child processes
 
-    var cmds: seq[string]
     for cat in cats:
+      # Remember that if we are performing the megatest category, then
+      # all joinable tests will be covered in that, so we use the parallel cat
+      # action
       let runtype = if useMegatest: " pcat " else: " cat "
       cmds.add(myself & runtype & quoteShell(cat) & rest)
-
-    proc progressStatus(idx: int) =
-      echo "progress[all]: $1/$2 starting: cat: $3" % [$idx, $cats.len, cats[idx]]
-
-    if simulate:
+      
+    if simulate: # 'see what tests would be run but don't run them (for debugging)'
       skips = loadSkipFrom(skipFrom)
       for i, cati in cats:
         progressStatus(i)
         processCategory(r, Category(cati), p.cmdLineRest, testsDir, runJoinableTests = false)
     else:
       addExitProc azure.finalize
-      quit osproc.execProcesses(cmds, {poEchoCmd, poStdErrToStdOut, poUsePath, poParentStreams}, beforeRunEvent = progressStatus)
-  of "c", "cat", "category":
+      let processOpts =
+        if optFailing and not optVerbose:
+          {poStdErrToStdOut, poUsePath, poParentStreams}
+        else:
+          {poEchoCmd, poStdErrToStdOut, poUsePath, poParentStreams}
+      let qval = osproc.execProcesses(cmds, processOpts, beforeRunEvent = progressStatus)
+      if backendLogging:
+        backend.cacheResults()
+      quit qval
+
+  of "c", "cat", "category": # Run all tests of a certain category
     skips = loadSkipFrom(skipFrom)
     var cat = Category(p.key)
     processCategory(r, cat, p.cmdLineRest, testsDir, runJoinableTests = true)
-  of "pcat":
+  of "pcat": # Run cat in parallel
+    # Run all tests of a certain category in parallel; does not include joinable
+    # tests which are covered in the 'megatest' category.
     skips = loadSkipFrom(skipFrom)
-    # 'pcat' is used for running a category in parallel. Currently the only
-    # difference is that we don't want to run joinable tests here as they
-    # are covered by the 'megatest' category.
     isMainProcess = false
     var cat = Category(p.key)
     p.next
     processCategory(r, cat, p.cmdLineRest, testsDir, runJoinableTests = false)
-  of "p", "pat", "pattern":
+  of "p", "pat", "pattern": # Run all tests matching the given pattern  
     skips = loadSkipFrom(skipFrom)
     let pattern = p.key
     p.next
     processPattern(r, pattern, p.cmdLineRest, simulate)
-  of "r", "run":
+  of "r", "run": # Run single test file
     let (cat, path) = splitTestFile(p.key)
     processSingleTest(r, cat.Category, p.cmdLineRest, path, gTargets, targetsSet)
-  of "html":
+  of "html": # Generate html from the database
     generateHtml(resultsFile, optFailing)
   else:
+    # Invalid action
     quit Usage
 
   if optPrintResults:
     if action == "html": openDefaultBrowser(resultsFile)
-    else: echo r, r.data
+    else: msg Undefined: $r & r.data
   azure.finalize()
   backend.close()
   var failed = r.total - r.passed - r.skipped
   if failed != 0:
-    echo "FAILURE! total: ", r.total, " passed: ", r.passed, " skipped: ",
-      r.skipped, " failed: ", failed
+    msg Undefined: "FAILURE! total: " & $r.total & " passed: " & $r.passed & " skipped: " &
+      $r.skipped & " failed: " & $failed
     quit(QuitFailure)
   if isMainProcess:
-    echo "Used ", compilerPrefix, " to run the tests. Use --nim to override."
+    msg Undefined: "Used " & compilerPrefix & " to run the tests. Use --nim to override."
 
 if paramCount() == 0:
   quit Usage

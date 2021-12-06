@@ -458,19 +458,19 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
           except ValueError:
             # e.g. for `tests/navigator/tincludefile.nim` which have multiple
             # specs; this will be handled elsewhere
-            echo "parseSpec raised ValueError for: '$1', assuming this will be handled outside of megatest" % file
+            msg Undefined: "parseSpec raised ValueError for: '$1', assuming this will be handled outside of megatest" % file
             continue
           if isJoinableSpec(spec):
             specs.add spec
 
   proc cmp(a: TSpec, b: TSpec): auto = cmp(a.file, b.file)
   sort(specs, cmp = cmp) # reproducible order
-  echo "joinable specs: ", specs.len
+  msg Undefined: "joinable specs: " & $specs.len
 
   if simulate:
     var s = "runJoinedTest: "
     for a in specs: s.add a.file & " "
-    echo s
+    msg Undefined: s
     return
 
   var megatest: string
@@ -515,13 +515,13 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
   var (cmdLine, buf, exitCode) = execCmdEx2(command = compilerPrefix, args = args, input = "")
   if exitCode != 0:
     backendErrorLogger(reNimcCrash, buf)
-    echo "$ " & cmdLine & "\n" & buf
+    msg Undefined: "$ " & cmdLine & "\n" & buf
     quit(failString & "megatest compilation failed")
 
   (buf, exitCode) = execCmdEx(megatestFile.changeFileExt(ExeExt).dup normalizeExe)
   if exitCode != 0:
     backendErrorLogger(reOutputsDiffer, buf)
-    echo buf
+    msg Undefined: buf
     quit(failString & "megatest execution failed")
 
   const outputExceptedFile = "outputExpected.txt"
@@ -539,12 +539,12 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
     writeFile(outputExceptedFile, outputExpected)
     let diff = diffFiles(outputGottenFile, outputExceptedFile).output
     backendErrorLogger(reOutputsDiffer, diff)
-    echo diff
-    echo failString & "megatest output different, see $1 vs $2" % [outputGottenFile, outputExceptedFile]
+    msg Undefined: diff
+    msg Undefined: failString & "megatest output different, see $1 vs $2" % [outputGottenFile, outputExceptedFile]
     # outputGottenFile, outputExceptedFile not removed on purpose for debugging.
     quit 1
   else:
-    echo "megatest output OK"
+    msg Undefined: "megatest output OK"
 
 
 # ---------------------------------------------------------------------------
@@ -626,7 +626,7 @@ proc processPattern(r: var TResults, pattern, options: string; simulate: bool) =
     for k, name in walkDir(pattern):
       if k in {pcFile, pcLinkToFile} and name.endsWith(".nim"):
         if simulate:
-          echo "Detected test: ", name
+          msg Undefined: "Detected test: " & name
         else:
           var test = makeTest(name, options, Category"pattern")
           testSpec r, test
@@ -634,10 +634,10 @@ proc processPattern(r: var TResults, pattern, options: string; simulate: bool) =
   else:
     for name in walkPattern(pattern):
       if simulate:
-        echo "Detected test: ", name
+        msg Undefined: "Detected test: " & name
       else:
         var test = makeTest(name, options, Category"pattern")
         testSpec r, test
       inc testsRun
   if testsRun == 0:
-    echo "no tests were found for pattern: ", pattern
+    msg Undefined: "no tests were found for pattern: " & pattern

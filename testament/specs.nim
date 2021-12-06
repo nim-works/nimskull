@@ -21,6 +21,7 @@ var
   compilerPrefix* = findExe("nim")
   skips*: seq[string]
 
+
 let testamentData0* = TestamentData()
 
 # environment related predicates
@@ -105,6 +106,16 @@ type
     inlineErrors*: seq[InlineError] # line information to error message
     debugInfo*: string # debug info to give more context
     knownIssues*: seq[string] ## known issues to be fixed
+
+  RetryContainer* = object
+    ## Global object which contains information related to the --retry flag.
+    ## See `var retryContainer`.
+    retry*: bool  # true when --retry flag has been passed
+    cats*: seq[string] # contains categories with failed tests
+    names*: seq[(string, string)] # contains pair of failed test name and its target
+
+# Exported global RetryContainer object.
+var retryContainer* = RetryContainer(retry: false)
 
 proc getCmd*(s: TSpec): string =
   if s.cmd.len == 0:
@@ -265,6 +276,15 @@ proc isCurrentBatch*(testamentData: TestamentData; filename: string): bool =
 
 proc parseSpec*(filename: string): TSpec =
   result.file = filename
+
+  when defined(windows):
+    let cmpString = result.file.replace(r"\", r"/")
+  else:
+    let cmpString = result.file
+  if retryContainer.retry and not retryContainer.names.anyIt(cmpString == it[0]):
+    result.err = reDisabled
+    return result
+
   let specStr = extractSpec(filename, result)
   var ss = newStringStream(specStr)
   var p: CfgParser
@@ -430,7 +450,6 @@ proc parseSpec*(filename: string): TSpec =
 
   if skips.anyIt(it in result.file):
     result.err = reDisabled
-
   if nimoutFound and result.nimout.len == 0 and not result.nimoutFull:
     result.parseErrors.addLine "empty `nimout` is vacuously true, use `nimoutFull:true` if intentional"
 
