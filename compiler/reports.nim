@@ -19,6 +19,8 @@ import std/[options]
 import ast_types
 export ast_types, options.some
 
+type InstantiationInfo* = typeof(instantiationInfo())
+
 type
   ReportCategory* = enum
     ## Kinds of the toplevel reports. Only dispatches on report topics,
@@ -47,6 +49,7 @@ type
     ## always exist - ICE, internal fatal errors etc.
 
     repBackend ## Backend-specific reports.
+
 
   ReportKind* = enum
     ## Toplevel enum for different categories. Order of definitions is
@@ -83,6 +86,7 @@ type
                           # not a hint.
     rintConf = "Conf" ## Processing user configutation file
     rintPath = "Path" ## Add nimble path
+    rintSuccessX ## Succesfull compilation
     # internal reports end
 
     #----------------------------  Lexer reports  ----------------------------#
@@ -231,21 +235,19 @@ type
     rbackUseDynLib ## Use of the dynamic library for cgen. Used in the
     ## `cgen.loadDynamicLib`
 
-
-
+  ReportKinds* = set[ReportKind]
 
 type
   ReportLineRange* = object
     ## Report location expressed as a span of lines in the file
     file*: FileIndex
     startLine*, endline*: int
-    startColumn*, endColumn*: int
+    startCol*, endCol*: int
 
   ReportLinePoint* = object
     ## Location expressed in terms of a single point in the file
-    file*: FileIndex
-    line*: int
-    column*: int
+    file*: string
+    line*, col*: int
 
   ReportLineInfo* = object
     case isRange*: bool
@@ -266,8 +268,23 @@ type
     rsevTrace ## Additional information about compiler actions - external
               ## commands mostly.
 
+  ReportContextKind* = enum
+    sckInstantiationOf
+    sckInstantiationFrom
+
+
+  ReportContext* = object
+    location*: ReportLinePoint
+    case kind*: ReportContextKind
+      of sckInstantiationOf:
+        entry*: PSym
+
+      of sckInstantiationFrom:
+        discard
 
   ReportBase* = object of RootObj
+    context*: seq[ReportContext]
+
     location*: Option[ReportLineInfo] ## Location associated with report.
     ## Some reports do not have any locations associated with them (most
     ## (but not all, due to `gorge`) of the external command executions,
@@ -298,7 +315,8 @@ type
     kind*: ParserReportKind
 
 const
-  rparHintKinds: set[ParserReportKind] = {rparName}
+  rparHintKinds* = {rparName}
+  rparErrorKinds* = {rparInvalidIndentation}
 
 func severity*(parser: ParserReport): ReportSeverity =
   case parser.kind:
@@ -308,18 +326,7 @@ func severity*(parser: ParserReport): ReportSeverity =
 type
   SemRef* = object
 
-  SemContextKind* = enum
-    sckInstantiationOf
-    sckInstantiationFrom
 
-  SemContext* = object
-    location*: ReportLinePoint
-    case kind*: SemContextKind
-      of sckInstantiationOf:
-        entry*: PSym
-
-      of sckInstantiationFrom:
-        discard
 
   #[
     errIllFormedAstX
@@ -422,7 +429,6 @@ type
 
 
   SemReport* = object of ReportBase
-    context*: seq[SemContext]
     expression*: Option[PNode] ## Rendered string representation of the
                                 ## expression in the report.
     case kind*: SemReportKind
@@ -440,7 +446,7 @@ type
         discard
 
 const
-  rsemErrorKinds*: set[SemReportKind] = {rsemUserError .. rsemWrappedError}
+  rsemErrorKinds* = {rsemUserError .. rsemWrappedError}
   rsemWarningKinds* = {rsemUserWarning .. rsemUnknownMagic}
   rsemHintKinds* = {rsemUserHint .. rsemImplicitObjConv}
 
@@ -477,12 +483,39 @@ func severity*(report: BackendReport): ReportSeverity =
 
 type
   InternalReportKind* = range[rintUnknown .. rintPath]
+
+  UsedBuildParams* = object
+    project*: string
+    output*: string
+    mem*: int
+    isMaxMem*: bool
+    sec*: float
+    case isCompilation*: bool
+      of true:
+        threads*: bool
+        backend*: string
+        buildMode*: string
+        optimize*: string
+        gc*: string
+
+      of false:
+        discard
+
+
+
+
   InternalReport* = object of ReportBase
     ## Report generated for the internal compiler workings
     msg*: string
     case kind*: InternalReportKind
       of rintStackTrace:
         trace*: seq[StackTraceEntry] ## Generated stack trace entries
+
+      of rintAssert:
+        expression*: string
+
+      of rintSuccessX:
+        buildParams*: UsedBuildParams
 
       else:
         discard
@@ -495,6 +528,12 @@ func severity*(report: InternalReport): ReportSeverity =
     of rintFatalKinds: rsevFatal
     else: rsevTrace
 
+const
+  repWarnings*: ReportKinds = rsemWarningKinds # IMPLEMENT add missing
+  # report kinds for all other cateogires.
+  repHints*: ReportKinds    = rsemHintKinds
+  repErrors*: ReportKinds   = rsemErrorKinds + rparErrorKinds
+
 
 type
   ReportTypes* =
@@ -506,7 +545,6 @@ type
     InternalReport |
     BackendReport
 
-  ReportKinds* = set[ReportKind]
   Report* = object
     ## Toplevel wrapper type for the compiler report
     case category*: ReportCategory
@@ -561,10 +599,8 @@ func severity*(
       of repBackend:  report.backendReport.severity()
       of repDebug:    report.debugReport.severity()
 
-
-
-func toReportLinePoint*(iinfo: (string, int, int)): ReportLinePoint =
-  ReportLinePoint(file: iinfo[0], line: iinfo[1], column: iinfo[2])
+func toReportLinePoint*(iinfo: InstantiationInfo): ReportLinePoint =
+  ReportLinePoint(file: iinfo[0], line: iinfo[1], col: iinfo[2])
 
 template reportHere*[R: ReportTypes](report: R): R =
   block:
@@ -591,6 +627,18 @@ func wrap*(rep: sink DebugReport): Report =
 
 func wrap*(rep: sink InternalReport): Report =
   Report(category: repInternal, internalReport: rep)
+
+func wrap*[R: ReportTypes](rep: sink R, iinfo: InstantiationInfo): Report =
+  var tmp = rep
+  tmp.reportInst = toReportLinePoint(iinfo)
+  return wrap(tmp)
+
+func wrap*[R: ReportTypes](
+    rep: sink R, iinfo: InstantiationInfo, point: ReportLinePoint): Report =
+  var tmp = rep
+  tmp.reportInst = toReportLinePoint(iinfo)
+  tmp.location = some point
+  return wrap(tmp)
 
 
 type

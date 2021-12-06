@@ -385,38 +385,24 @@ type
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
       ## len is also used for output indent level
 
-proc report*[R: ReportTypes](
-    conf: ConfigRef,
-    report: sink R,
-    iinfo: InstantiationInfo,
-    location: Option[ReportLineInfo] = none ReportLineInfo
-  ) =
-  ## Write out new report passed as argument.
-
-  var tmp = report
-  tmp.reportInst = toReportLinePoint(iinfo)
-  if isSome(location):
-    tmp.location = location
-
-  conf.structuredErrorHook(wrap(tmp))
-
 proc report*(conf: ConfigRef, id: ReportId) =
   ## Write out existing stored report
   conf.structuredErrorHook(conf.m.reports.getReport(id))
 
+proc report*(conf: ConfigRef, inReport: Report) =
+  ## Write `inReport`
+  report(conf, inReport)
+
 template report*[R: ReportTypes](conf: ConfigRef, inReport: R) =
   ## Pass structured report object into `conf.structuredErrorHook`,
   ## converting to `Report` variant and updaing instantiation info.
-  report(conf, inReport, instLoc())
+  report(conf, wrap(inReport, instLoc()))
 
 template report*[R: ReportTypes](
     conf: ConfigRef, tinfo: TLineInfo, inReport: R) =
   ## Write out new report, updating it's location info using `tinfo` and
   ## it's instantiation info with `instantiationInfo()` of the template.
-  report(conf, inReport,
-    instLoc(),
-    some ReportLineInfo(
-      isRange: false, rpoint: conf.toReportPoint(tinfo)))
+  report(conf, wrap(inReport, instLoc(), tinfo))
 
 proc store*[R: ReportTypes](
     conf: ConfigRef,

@@ -311,7 +311,7 @@ proc toReportPoint*(
   ReportLinePoint(
     file: toMsgFilename(conf, info),
     line: info.line.int,
-    column: info.col.int + ColOffset)
+    col: info.col.int + ColOffset)
 
 proc `$`*(conf: ConfigRef; info: TLineInfo): string = toFileLineCol(conf, info)
 
@@ -474,7 +474,7 @@ proc `==`*(a, b: TLineInfo): bool =
 proc exactEquals*(a, b: TLineInfo): bool =
   result = a.fileIndex == b.fileIndex and a.line == b.line and a.col == b.col
 
-proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[SemContext] =
+proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
   ## Get list of context context entries from the current message context
   ## information. Context messages can later be used in the
   ## `SemReport.context` field
@@ -483,16 +483,15 @@ proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[SemContext] =
     let context = conf.m.msgContext[i]
     if context.info != lastinfo and context.info != info:
       if context.detail.kind == skUnknown:
-        result.add SemContext(
+        result.add ReportContext(
           kind: sckInstantiationFrom,
           location: conf.toReportPoint(context.info))
 
       else:
-        result.add SemContext(
+        result.add ReportContext(
           kind: sckInstantiationOf,
           location: conf.toReportPoint(context.info),
-          entry: context.detail
-        )
+          entry: context.detail)
 
     info = context.info
 
@@ -538,66 +537,41 @@ proc formatMsg*(conf: ConfigRef; info: TLineInfo, msg: TMsgKind, arg: string): s
               else: ErrorTitle
   conf.toFileLineCol(info) & " " & title & getMessageStr(msg, arg)
 
-proc liMessage*(
+proc handleReport*(
     conf: ConfigRef, report: Report, eh: TErrorHandling) {.noinline.} =
   conf.structuredErrorHook(report)
   handleError(conf, report, eh)
 
-template rawMessage*(conf: ConfigRef; msg: TMsgKind, args: openArray[string]) =
-  let arg = msgKindToString(msg) % args
-  liMessage(conf, unknownLineInfo, msg, arg, eh = doAbort, instLoc(), isRaw = true)
-
-template rawMessage*(conf: ConfigRef; msg: TMsgKind, arg: string) =
-  liMessage(conf, unknownLineInfo, msg, arg, eh = doAbort, instLoc())
-
-template fatal*(conf: ConfigRef; info: TLineInfo, arg = "", msg = errFatal) =
-  liMessage(conf, info, msg, arg, doAbort, instLoc())
-
-template globalAssert*(conf: ConfigRef; cond: untyped, info: TLineInfo = unknownLineInfo, arg = "") =
+template globalAssert*(
+    conf: ConfigRef;
+    cond: untyped, info: TLineInfo = unknownLineInfo, arg = "") =
   ## avoids boilerplate
   if not cond:
     var arg2 = "'$1' failed" % [astToStr(cond)]
     if arg.len > 0: arg2.add "; " & astToStr(arg) & ": " & arg
-    liMessage(conf, info, errGenerated, arg2, doRaise, instLoc())
+    handleReport(conf, info, errGenerated, arg2, doRaise, instLoc())
 
-template globalError*(conf: ConfigRef; info: TLineInfo, msg: TMsgKind, arg = "") =
-  ## `local` means compilation keeps going until errorMax is reached (via `doNothing`),
-  ## `global` means it stops.
-  liMessage(conf, info, msg, arg, doRaise, instLoc())
+template globalError*(
+  conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
+  ## `local` means compilation keeps going until errorMax is reached (via
+  ## `doNothing`), `global` means it stops.
+  handleReport(conf, wrap(report, instLoc(), info), doNothing)
 
 template globalError*(conf: ConfigRef; info: TLineInfo, arg: string) =
-  liMessage(conf, info, errGenerated, arg, doRaise, instLoc())
+  handleReport(conf, wrap(report, instLoc(), info), doRaise)
 
-template localError*(conf: ConfigRef; info: TLineInfo, msg: TMsgKind, arg = "") =
-  liMessage(conf, info, msg, arg, doNothing, instLoc())
+template localError*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
+  handleReport(conf, wrap(report, instLoc(), info), doNothing)
 
-template localError*(conf: ConfigRef; info: TLineInfo, arg: string) =
-  liMessage(conf, info, errGenerated, arg, doNothing, instLoc())
-
-template message*(conf: ConfigRef; info: TLineInfo, msg: TMsgKind, arg = "") =
-  liMessage(conf, info, msg, arg, doNothing, instLoc())
-
-# proc internalErrorImpl(conf: ConfigRef; info: TLineInfo, errMsg: string, info2: InstantiationInfo) =
-#   if conf.cmd == cmdIdeTools and conf.structuredErrorHook.isNil: return
-#   writeContext(conf, info)
-#   liMessage(conf, info, errInternal, errMsg, doAbort, info2)
-
-# template internalError*(conf: ConfigRef; info: TLineInfo, errMsg: string) =
-#   internalErrorImpl(conf, info, errMsg, instLoc())
-
-# template internalError*(conf: ConfigRef; errMsg: string) =
-#   internalErrorImpl(conf, unknownLineInfo, errMsg, instLoc())
+template localError*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
+  handleReport(conf, wrap(report, instLoc(), info), doNothing)
 
 template internalAssert*(conf: ConfigRef, e: bool, failMsg: string) =
-  ##
   if not e:
-    conf.report(InternalReport(
-      kind: rintAssert, msg: failMsg), instLoc())
-
-template lintReport*(conf: ConfigRef; info: TLineInfo, beau, got: string, forceHint = false, extraMsg = "") =
-  let m = "'$1' should be: '$2'$3" % [got, beau, extraMsg]
-  let msg = if optStyleError in conf.globalOptions and not forceHint: errGenerated else: hintName
-  liMessage(conf, info, msg, m, doNothing, instLoc())
+    conf.report(wrap(
+      InternalReport(
+        context: conf.getContext(),
+        kind: rintAssert, msg: failMsg), instLoc()))
 
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
   if i.fileIndex.int32 < 0:
@@ -611,8 +585,8 @@ template listMsg(title, r) =
   msgWriteln(conf, title, {msgNoUnitSep})
   for a in r: msgWriteln(conf, "  [$1] $2" % [if a in conf.notes: "x" else: " ", $a], {msgNoUnitSep})
 
-proc listWarnings*(conf: ConfigRef) = listMsg("Warnings:", warnMin..warnMax)
-proc listHints*(conf: ConfigRef) = listMsg("Hints:", hintMin..hintMax)
+proc listWarnings*(conf: ConfigRef) = listMsg("Warnings:", repWarnings)
+proc listHints*(conf: ConfigRef) = listMsg("Hints:", repHints)
 
 proc uniqueModuleName*(conf: ConfigRef; fid: FileIndex): string =
   ## The unique module name is guaranteed to only contain {'A'..'Z', 'a'..'z', '0'..'9', '_'}
@@ -640,52 +614,53 @@ proc uniqueModuleName*(conf: ConfigRef; fid: FileIndex): string =
       result.addInt ord(c)
 
 proc genSuccessX*(conf: ConfigRef) =
-  let mem =
-    when declared(system.getMaxMem): formatSize(getMaxMem()) & " peakmem"
-    else: formatSize(getTotalMem()) & " totmem"
+  ## Generate and write report for the successful compilation parameters
   let loc = $conf.linesCompiled
-  var build = ""
-  var flags = ""
-  const debugModeHints = "none (DEBUG BUILD, `-d:release` generates faster code)"
+
+  var params: UsedBuildParams
   if conf.cmd in cmdBackends:
-    if conf.backend != backendJs:
-      build.add "gc: $#; " % $conf.selectedGC
-      if optThreads in conf.globalOptions: build.add "threads: on; "
-      build.add "opt: "
-      if optOptimizeSpeed in conf.options: build.add "speed"
-      elif optOptimizeSize in conf.options: build.add "size"
-      else: build.add debugModeHints
-        # pending https://github.com/timotheecour/Nim/issues/752, point to optimization.html
-      if isDefined(conf, "danger"): flags.add " -d:danger"
-      elif isDefined(conf, "release"): flags.add " -d:release"
+    params = UsedBuildParams(
+      isCompilation: true,
+      gc: $conf.selectedGC,
+      threads: optThreads in conf.globalOptions,
+      optimize:
+        if optOptimizeSpeed in conf.options: "speed"
+        elif optOptimizeSize in conf.options: "size"
+        else: "debug",
+      buildMode:
+        if isDefined(conf, "danger"): "danger"
+        elif isDefined(conf, "release"): "release"
+        else: "debug"
+    )
+
+  params.sec = epochTime() - conf.lastCmdTime
+
+  params.project =
+    if conf.filenameOption == foAbs:
+      $conf.projectFull
+
     else:
-      build.add "opt: "
-      if isDefined(conf, "danger"):
-        build.add "speed"
-        flags.add " -d:danger"
-      elif isDefined(conf, "release"):
-        build.add "speed"
-        flags.add " -d:release"
-      else: build.add debugModeHints
-    if flags.len > 0: build.add "; options:" & flags
-  let sec = formatFloat(epochTime() - conf.lastCmdTime, ffDecimal, 3)
-  let project = if conf.filenameOption == foAbs: $conf.projectFull else: $conf.projectName
-    # xxx honor conf.filenameOption more accurately
-  var output: string
+      $conf.projectName
+
   if optCompileOnly in conf.globalOptions and conf.cmd != cmdJsonscript:
-    output = $conf.jsonBuildFile
+    params.output = $conf.jsonBuildFile
+
   elif conf.outFile.isEmpty and conf.cmd notin {cmdJsonscript} + cmdDocLike + cmdBackends:
     # for some cmd we expect a valid absOutFile
-    output = "unknownOutput"
+    params.output = "unknownOutput"
+
   else:
-    output = $conf.absOutFile
-  if conf.filenameOption != foAbs: output = output.AbsoluteFile.extractFilename
-    # xxx honor filenameOption more accurately
-  rawMessage(conf, hintSuccessX, [
-    "build", build,
-    "loc", loc,
-    "sec", sec,
-    "mem", mem,
-    "project", project,
-    "output", output,
-    ])
+    params.output = $conf.absOutFile
+
+  when declared(system.getMaxMem):
+    params.mem = getMaxMem()
+    params.isMaxMem = true
+
+  else:
+    params.mem = getTotalMem()
+
+  if conf.filenameOption != foAbs:
+    params.output = params.output.AbsoluteFile.extractFilename
+
+  conf.report(InternalReport(
+    kind: rintSuccessX, buildParams: params))
