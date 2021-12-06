@@ -16,7 +16,7 @@
 
 import std/[options]
 
-import ast_enums
+import ast_enums, ast
 export ast_enums, options.some
 
 type
@@ -138,19 +138,6 @@ type
     name*: string ## Name of the reported entry
     declaredIn*: ReportLinePoint ## Location of the entry declaration
     kind*: TSymKind ## Kind of the reported entry
-
-  SemReportType* = object
-    typeStr*: string
-    declaredIn*: ReportLinePoint
-    lockLevel*: Option[int] ## Lock level of the procedure types
-    callConv*: Option[TCallingConvention]
-
-  SemAst* = object
-    # REVIEW right now I simply store result of the `renderTree` in these
-    # fields, which is probably acceptable for now, but maybe it would make
-    # sense to store the whole AST directly? Expand macros might also dump
-    # in different formats (like lisp, tree or json).
-    astStr*: string
 
   SemRef* = object
 
@@ -358,7 +345,7 @@ type
     # end
 
   SemTypeMismatch* = object
-    actualType*, wantedType*: SemReportType
+    actualType*, wantedType*: PType
     descriptionStr*: string
     procEffectsCompat*: EffectsCompat
     procCallMismatch*: set[ProcConvMismatch]
@@ -369,7 +356,8 @@ type
     ## all the necessary information to provide meaningful sorting,
     ## collapse and other operations.
     target*: SemReportEntry
-    expression*: Option[SemAst]
+    expression*: Option[PNode]
+    arg*: int
     case kind*: MismatchKind
       of kTypeMismatch:
         typeMismatch*: SemTypeMismatch
@@ -383,11 +371,11 @@ type
 
   SemReport* = object of ReportBase
     context*: seq[SemContext]
-    expression*: Option[SemAst] ## Rendered string representation of the
+    expression*: Option[PNode] ## Rendered string representation of the
                                 ## expression in the report.
     case kind*: SemReportKind
       of rsemExpandMacro, rsemPattern:
-        originalExpr*: SemAst
+        originalExpr*: PNode
 
       of rsemTypeMismatch:
         typeMismatch*: SemTypeMismatch
@@ -624,7 +612,6 @@ func wrap*(rep: sink InternalReport): Report =
 
 
 type
-  ReportId* = distinct uint32 ## Id of the report in the report list
   ReportList* = object
     ## List of the accumulated reports. Used for various `sem*` reporting
     ## mostly, and in other places where report might be *generated*, but

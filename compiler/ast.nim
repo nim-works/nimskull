@@ -728,6 +728,12 @@ type
   TNodeSeq* = seq[PNode]
   PType* = ref TType
   PSym* = ref TSym
+  ReportId* = distinct uint32 ## Id of the report in the report list.
+  ## Report itself is defined in the `reports.nim` which imports `ast.nim`,
+  ## so id type is 'forward'-declared here to avoid cyclic dependencies.
+  ## Main type definitions are in the `reports.nim`, storage of the reports
+  ## list (that report id indexes into)
+
   TNode*{.final, acyclic.} = object # on a 32bit machine, this takes 32 bytes
     when defined(useNodeIds):
       id*: int
@@ -826,6 +832,44 @@ type
     allowPrivateAccess*: seq[PSym] #  # enable access to private fields
 
   PScope* = ref TScope
+
+type
+  TSymKind* = enum
+    ## the different symbols (start with the prefix sk);
+    ## order is important for the documentation generator!
+    skUnknown             ## unknown symbol: used for parsing assembler blocks
+                          ## and first phase symbol lookup in generics
+    skConditional         ## symbol for the preprocessor (may become obsolete)
+    skDynLib              ## symbol represents a dynamic library; this is used
+                          ## internally; it does not exist in Nim code
+    skParam               ## a parameter
+    skGenericParam        ## a generic parameter; eq in ``proc x[eq=`==`]()``
+    skTemp                ## a temporary variable (introduced by compiler)
+    skModule              ## module identifier
+    skType                ## a type
+    skVar                 ## a variable
+    skLet                 ## a 'let' symbol
+    skConst               ## a constant
+    skResult              ## special 'result' variable
+    skProc                ## a proc
+    skFunc                ## a func
+    skMethod              ## a method
+    skIterator            ## an iterator
+    skConverter           ## a type converter
+    skMacro               ## a macro
+    skTemplate            ## a template; currently also misused for
+                          ## user-defined pragmas
+    skField               ## a field in a record or object
+    skEnumField           ## an identifier in an enum
+    skForVar              ## a for loop variable
+    skLabel               ## a label (for block statement)
+    skStub                ## symbol is a stub and not yet loaded from the ROD
+                          ## file (it is loaded on demand, which may
+                          ## mean: never)
+    skPackage             ## symbol is a package (used for canonicalization)
+    skAlias               ## an alias (needs to be resolved immediately)
+  TSymKinds* = set[TSymKind]
+
 
   PLib* = ref TLib
   TSym* {.acyclic.} = object of TIdObj # Keep in sync with PackedSym
