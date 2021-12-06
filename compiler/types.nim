@@ -1558,6 +1558,18 @@ proc getProcConvMismatch*(c: ConfigRef, f, a: PType, rel = isNone): (set[ProcCon
        # but it's a pragma mismatch reason which is why it's here
        result[0].incl pcmLockDifference
 
+proc typeMismatch*(formal, actual: PType): SemTypeMismatch =
+  result = SemTypeMismatch(
+    actualType: actual,
+    wantedType: formal,
+    descriptionStr: descriptionStr: typeToString(formal, preferDesc)
+  )
+
+  if formal.kind == tyProc and actual.kind == tyProc:
+    result.procCallMismatch = getProcConvMismatch(conf, formal, actual)[0]
+    result.procEffectsCompat = compatibleEffects(formal, actual)
+
+
 proc typeMismatch*(
     conf: ConfigRef; info: TLineInfo, formal, actual: PType, n: PNode): PNode =
   ## If formal and actual types are not `tyError`, create a new wrapper
@@ -1566,14 +1578,7 @@ proc typeMismatch*(
   if formal.kind != tyError and actual.kind != tyError:
     var rep = SemReport(
       kind: rsemTypeMismatch,
-      actualType: conf.toSemReportType(actual),
-      wantedType: conf.toSemReportType(formal)
-      descriptionStr: typeToString(formal, preferDesc)
-    )
-
-    if formal.kind == tyProc and actual.kind == tyProc:
-      rep.procCallMismatch = getProcConvMismatch(conf, formal, actual)[0]
-      rep.procEffectsCompat = compatibleEffects(formal, actual)
+      typeMismatch: typeMismach(formal, actual))
 
     result = newError(n, conf.store(info, rep))
     result.info = info

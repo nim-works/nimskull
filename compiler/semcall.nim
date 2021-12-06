@@ -173,46 +173,17 @@ proc renderNotLValue(n: PNode): string =
 
 proc presentFailedCandidates(
   c: PContext, n: PNode, errors: CandidateErrors): (TPreferedDesc, seq[SemCallMismatch]) =
+  ## Construct list of type mismatch descriptions for subsequent reporting.
+  ## This procedure simply repacks the data from CandidateErrors into
+  ## `SemCallMismatch` - discard unnecessary data, pull important elements
+  ## into the result. No actual formatting is done here.
 
   var prefer = preferName
-  # to avoid confusing errors like:
-  #   got (SslPtr, SocketHandle)
-  #   but expected one of:
-  #   openssl.SSL_set_fd(ssl: SslPtr, fd: SocketHandle): cint
-  # we do a pre-analysis. If all types produce the same string, we will add
-  # module information.
-  let proto = describeArgs(c, n, 1, preferName)
-  for err in errors:
-    var errProto = ""
-    let n = err.sym.typ.n
-    for i in 1..<n.len:
-      var p = n[i]
-      if p.kind == nkSym:
-        errProto.add(typeToString(p.sym.typ, preferName))
-        if i != n.len-1: errProto.add(", ")
-      # else: ignore internal error as we're already in error handling mode
-    if errProto == proto:
-      prefer = preferModuleInfo
-      break
-
-  # we pretend procs are attached to the type of the first
-  # argument in order to remove plenty of candidates. This is
-  # comparable to what C# does and C# is doing fine.
-  var filterOnlyFirst = false
-  if optShowAllMismatches notin c.config.globalOptions:
-    for err in errors:
-      if err.firstMismatch.arg > 1:
-        filterOnlyFirst = true
-        break
-
-  var maybeWrongSpace = false
-
-  var candidatesAll: seq[string]
-  var skipped = 0
   var candidates: seq[SemCallMismatch]
   for err in errors:
     var cand: SemCallMismatch(kind: err.firstMismatch.kind)
-    cand.target = conf.toSemReportEntry(err.sym)
+    cand.target = err.sym
+    cand.arg = err.firstMismatch.arg
 
     let nArg =
       if err.firstMismatch.arg < n.len:
@@ -221,47 +192,30 @@ proc presentFailedCandidates(
         nil
 
     let nameParam =
-      if err.firstMismatch.formal != nil:
-        err.firstMismatch.formal.name.s
-      else:
+      if err.firstMismatch.formal.isNil:
         ""
+      else:
+        err.firstMismatch.formal.name.s
 
     if n.len > 1:
       candidates.add("  first type mismatch at position: " & $err.firstMismatch.arg)
-      # candidates.add "\n  reason: " & $err.firstMismatch.kind # for debugging
       case cand.kind:
         of kUnknownNamedParam, kAlreadyGiven:
           cand.providedName = $nArg[0]
 
-        of kPositionalAlreadyGiven:
+        of kPositionalAlreadyGiven, kExtraArg, kMissingParam:
           discard
 
-        of kExtraArg: candidates.add("\n  extra argument given")
-        of kMissingParam: candidates.add("\n  missing parameter: " & nameParam)
         of kTypeMismatch, kVarNeeded:
           doAssert nArg != nil
-          let wanted = err.firstMismatch.formal.typ
           doAssert err.firstMismatch.formal != nil
-          candidates.add("\n  required type for " & nameParam &  ": ")
-          candidates.addTypeDeclVerboseMaybe(c.config, wanted)
-          candidates.add "\n  but expression '"
-          if err.firstMismatch.kind == kVarNeeded:
-            candidates.add renderNotLValue(nArg)
-            candidates.add "' is immutable, not 'var'"
-          else:
-            candidates.add renderTree(nArg)
-            candidates.add "' is of type: "
-            let got = nArg.typ
-            candidates.addTypeDeclVerboseMaybe(c.config, got)
-            doAssert wanted != nil
-            if got != nil:
-              if got.kind == tyProc and wanted.kind == tyProc:
-                # These are proc mismatches so,
-                # add the extra explict detail of the mismatch
-                candidates.addPragmaAndCallConvMismatch(wanted, got, c.config)
-              effectProblem(wanted, got, candidates, c)
 
-        of kUnknown: discard "do not break 'nim check'"
+          cand.expression = some nArg
+          cand.typeMismatch = typeMismatch(wanted, nArg.typ)
+
+        of kUnknown:
+          # do not break 'nim check'
+          discard
 
     candidates.add cand
 

@@ -11,6 +11,10 @@ import
   os, strutils, strtabs, sets, lineinfos, platform,
   prefixmatches, pathutils, nimpaths, tables, reports
 
+import std/options as sopt
+
+from ast_types import TOption, TOptions
+export TOption, TOptions
 
 from terminal import isatty
 from times import utc, fromUnix, local, getTime, format, DateTime
@@ -24,29 +28,7 @@ const
 
   nimEnableCovariance* = defined(nimEnableCovariance)
 
-type                          # please make sure we have under 32 options
-                              # (improves code efficiency a lot!)
-  TOption* = enum             # **keep binary compatible**
-    optNone, optObjCheck, optFieldCheck, optRangeCheck, optBoundsCheck,
-    optOverflowCheck, optRefCheck,
-    optNaNCheck, optInfCheck, optStaticBoundsCheck, optStyleCheck,
-    optAssert, optLineDir, optWarns, optHints,
-    optOptimizeSpeed, optOptimizeSize,
-    optStackTrace, ## stack tracing support
-    optStackTraceMsgs, ## enable custom runtime msgs via `setFrameMsg`
-    optLineTrace,             ## line tracing support (includes stack tracing)
-    optByRef,                 ## use pass by ref for objects
-                              ## (for interfacing with C)
-    optProfiler,              ## profiler turned on
-    optImplicitStatic,        ## optimization: implicit at compile time
-                              ## evaluation
-    optTrMacros,              ## en/disable pattern matching
-    optMemTracker,
-    optSinkInference          ## 'sink T' inference
-    optCursorInference
-    optImportHidden
-
-  TOptions* = set[TOption]
+type
   TGlobalOption* = enum
     gloptNone, optForceFullMake,
     optWasNimscript,          ## redundant with `cmdNimscript`, could be removed
@@ -409,11 +391,11 @@ proc report*[R: ReportTypes](
     report: sink R,
     iinfo: (string, int, int),
     location: Option[ReportLineInfo] = none ReportLineInfo
-  )
+  ) =
   ## Write out new report passed as argument.
 
   var tmp = report
-  tmp.reportInst = toReportLinePoint()
+  tmp.reportInst = toReportLinePoint(iinfo)
   if isSome(location):
     tmp.location = location
 
@@ -423,19 +405,19 @@ proc report*(conf: ConfigRef, id: ReportId) =
   ## Write out existing stored report
   conf.structuredErrorHook(conf.m.reports.getReport(id))
 
-template report*[R: ReportTypes](conf: ConfigRef, report: R) =
+template report*[R: ReportTypes](conf: ConfigRef, inReport: R) =
   ## Pass structured report object into `conf.structuredErrorHook`,
   ## converting to `Report` variant and updaing instantiation info.
-  report(conf, report, instantiationInfo(fullPaths = true))
+  report(conf, inReport, instantiationInfo(fullPaths = true))
 
 template report*[R: ReportTypes](
-    conf: ConfigRef, tinfo: TLineInfo, report: R) =
+    conf: ConfigRef, tinfo: TLineInfo, inReport: R) =
   ## Write out new report, updating it's location info using `tinfo` and
   ## it's instantiation info with `instantiationInfo()` of the template.
-  report(conf, report,
+  report(conf, inReport,
     instantiationInfo(fullPaths = true),
     some ReportLineInfo(
-      isRange: false, rpoint: conf.toReportPoint(tinfo))):
+      isRange: false, rpoint: conf.toReportPoint(tinfo)))
 
 proc store*[R: ReportTypes](
     conf: ConfigRef,
@@ -560,10 +542,11 @@ proc newProfileData(): ProfileData =
   ProfileData(data: newTable[TLineInfo, ProfileInfo]())
 
 const
-  foreignPackageNotesDefault* = toReportKindSet({
-    rsemProcessing, rsemQuitCalled, rsemUserHint,
-    rsemUserWarning, rsemUser, rsemUnknownMagic
-  })
+  foreignPackageNotesDefault* = mergeReportKindSet({
+    rsemProcessing, rsemUserHint,
+    rsemUserWarning, rsemUserHint, rsemUserWarning,
+    rsemUserError, rsemUnknownMagic
+  }, {rintQuitCalled})
 
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 

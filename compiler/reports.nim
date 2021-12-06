@@ -16,11 +16,11 @@
 
 import std/[options]
 
-import ast_enums, ast
-export ast_enums, options.some
+import ast_types
+export ast_types, options.some
 
 type
-  ReportKind* = enum
+  ReportCategory* = enum
     ## Kinds of the toplevel reports. Only dispatches on report topics,
     ## such as sem, parse, macro (for `echo` in compile-time code) and so
     ## on. Subdivision is based on different phases of the compiler
@@ -49,192 +49,57 @@ type
 
     repBackend ## Backend-specific reports.
 
+  ReportKind* = enum
+    ## Toplevel enum for different categories. Order of definitions is
+    ## really important - elements are first separated into categories
+    ## (internal reports, backend reports and so on) and can be further
+    ## split into severity levels.
+    ##
+    ## Different naming scheme is used for a reports with different
+    ## categories - this enum exists only to make it easier to work with
+    ## different report kinds, without having to manage seven different
+    ## enum types.
 
-  ReportLineRange* = object
-    ## Report location expressed as a span of lines in the file
-    file*: string
-    startLine*, endline*: int
-    startColumn*, endColumn*: int
+    #--------------------------  Internal reports  ---------------------------#
+    # Internal reports being
+    # fatal errors begin
+    rintUnknown ## Unknown internal report kind
+    rintFatal ## Explicitly fatal compiler error
+    rintIce ## Internal compilation error
+    # fatal end
 
-  ReportLinePoint* = object
-    ## Location expressed in terms of a single point in the file
-    file*: string
-    line*: int
-    column*: int
+    rintStackTrace = "StackTrace" ## Stack trace during internal
+    ## compilation error handling and similar
+    rintMissingStackTrace ## Stack trace would've been generated in the
+    ## debug compiler build
+    rintGCStats = "GCStats" ## Print GC statistics for the compiler run
+    rintQuitCalled = "QuitCalled" ## `quit()` called by the macro code
 
-  ReportLineInfo* = object
-    case isRange*: bool
-      of true:
-        lrange*: ReportLineRange
+    rintConf = "Conf" ## Processing user configutation file
+    rintPath = "Path" ## Add nimble path
+    # internal reports end
 
-      of false:
-        rpoint*: ReportLinePoint
-
-  ReportSeverity* = enum
-    rsevDebug ## Internal compiler debug information
-
-    rsevHint ## User-targeted hint
-    rsevWarning ## User-targeted warnings
-    rsevError ## User-targeted error
-
-    rsevFatal
-    rsevTrace ## Additional information about compiler actions - external
-              ## commands mostly.
-
-
-  ReportBase* = object of RootObj
-    location*: Option[ReportLineInfo] ## Location associated with report.
-    ## Some reports do not have any locations associated with them (most
-    ## (but not all, due to `gorge`) of the external command executions,
-    ## sem tracing etc). Some reports might have additional associated
-    ## location information (view type sealing reasons) - those are handled
-    ## on the per-report-kind basis.
-
-    reportInst*: ReportLinePoint ## Information about instantiation location
-    ## of the reports - present for all reports in order to track their
-    ## origins.
-
-type
-  LexerReportKind* = enum
+    #----------------------------  Lexer reports  ----------------------------#
+    # Lexer report begin
     rlexLineTooLong
 
     # ???? `syntaxes.nim` uses it
     rlexCodeBegin = "CodeBegin"
     rlexCodeEnd = "CodeEnd"
+    # Lexer report end
 
-
-  LexerReport* = object of ReportBase
-    kind*: LexerReportKind
-
-const
-  rlexHintKinds*: set[LexerReportKind] = {rlexLineTooLong}
-
-func severity*(rep: LexerReport): ReportSeverity =
-  case rep.kind:
-    of rlexHintKinds: rsevHint
-    else: rsevTrace
-
-type
-  ParserReportKind* = enum
+    #---------------------------  Parser reports  ----------------------------#
+    rparInvalidIndentation
     rparName = "Name" ## Linter report about used identifier
 
-  ParserReport* = object of ReportBase
-    kind*: ParserReportKind
-
-const
-  rparHintKinds: set[ParserReportKind] = {rparName}
-
-func severity*(parser: ParserReport): ReportSeverity =
-  case parser.kind:
-    of rparHintKinds: rsevHint
-    else: rsevTrace
-
-type
-  SemReportEntry* = object
-    ## Entry mentioned in the sem report - type or procedure definition,
-    ## macros, template or any similar construct. Used in reports like
-    ## overload failures, "template/generic instantiation of" and such, to
-    ## store information about entry referred to.
-    name*: string ## Name of the reported entry
-    declaredIn*: ReportLinePoint ## Location of the entry declaration
-    kind*: TSymKind ## Kind of the reported entry
-
-  SemRef* = object
-
-  SemContextKind* = enum
-    sckInstantiationOf
-    sckInstantiationFrom
-
-  SemContext* = object
-    location*: ReportLinePoint
-    case kind*: SemContextKind
-      of sckInstantiationOf:
-        entry*: SemReportEntry
-
-      of sckInstantiationFrom:
-        discard
-
-  #[
-    errIllFormedAstX
-    errCannotOpenFile
-    errXExpected
-    errRstGridTableNotImplemented
-    errRstMarkdownIllformedTable
-    errRstNewSectionExpected
-    errRstGeneralParseError
-    errRstInvalidDirectiveX
-    errRstInvalidField
-    errRstFootnoteMismatch
-    errProveInit  # deadcode
-    errUser
-    # warnings
-    warnCannotOpenFile = "CannotOpenFile"
-    warnOctalEscape = "OctalEscape"
-    warnXIsNeverRead = "XIsNeverRead"
-    warnXmightNotBeenInit = "XmightNotBeenInit"
-    warnDeprecated = "Deprecated"
-    warnConfigDeprecated = "ConfigDeprecated"
-    warnDotLikeOps = "DotLikeOps"
-    warnSmallLshouldNotBeUsed = "SmallLshouldNotBeUsed"
-    warnUnknownMagic = "UnknownMagic"
-    warnRstRedefinitionOfLabel = "RedefinitionOfLabel"
-    warnRstUnknownSubstitutionX = "UnknownSubstitutionX"
-    warnRstBrokenLink = "BrokenLink"
-    warnRstLanguageXNotSupported = "LanguageXNotSupported"
-    warnRstFieldXNotSupported = "FieldXNotSupported"
-    warnRstStyle = "warnRstStyle"
-    warnCommentXIgnored = "CommentXIgnored"
-    warnTypelessParam = "TypelessParam"
-    warnUseBase = "UseBase"
-    warnWriteToForeignHeap = "WriteToForeignHeap"
-    warnUnsafeCode = "UnsafeCode"
-    warnUnusedImportX = "UnusedImport"
-    warnInheritFromException = "InheritFromException"
-    warnEachIdentIsTuple = "EachIdentIsTuple"
-    warnUnsafeSetLen = "UnsafeSetLen"
-    warnUnsafeDefault = "UnsafeDefault"
-    warnProveInit = "ProveInit"
-    warnProveField = "ProveField"
-    warnProveIndex = "ProveIndex"
-    warnUnreachableElse = "UnreachableElse"
-    warnUnreachableCode = "UnreachableCode"
-    warnStaticIndexCheck = "IndexCheck"
-    warnGcUnsafe = "GcUnsafe"
-    warnGcUnsafe2 = "GcUnsafe2"
-    warnUninit = "Uninit"
-    warnGcMem = "GcMem"
-    warnDestructor = "Destructor"
-    warnLockLevel = "LockLevel"
-    warnResultShadowed = "ResultShadowed"
-    warnInconsistentSpacing = "Spacing"
-    warnCaseTransition = "CaseTransition"
-    warnCycleCreated = "CycleCreated"
-    warnObservableStores = "ObservableStores"
-    warnStrictNotNil = "StrictNotNil"
-    warnResultUsed = "ResultUsed"
-    warnCannotOpen = "CannotOpen"
-    warnFileChanged = "FileChanged"
-    warnSuspiciousEnumConv = "EnumConv"
-    warnAnyEnumConv = "AnyEnumConv"
-    warnHoleEnumConv = "HoleEnumConv"
-    warnCstringConv = "CStringConv"
-    warnEffect = "Effect"
-    warnUser = "User"
-    # hints
-    hintSuccess = "Success"
-    hintSuccessX = "SuccessX"
-    hintCC = "CC"
-    hintLineTooLong = "LineTooLong"
-  ]#
-
-  SemReportKind* = enum
+    #-----------------------------  Sem reports  -----------------------------#
     # Semantic errors begin
     rsemUserError = "UserError" ## `{.error: }`
 
     rsemCustomError
     rsemCustomPrintMsgAndNodeError
       ## just like custom error, prints a message and renders wrongNode
-    rsemRawTypeMismatchError
+    rsemTypeMismatch
 
     rsemCustomUserError
       ## just like customer error, but reported as a errUser in msgs
@@ -300,10 +165,12 @@ type
       ## there is no meaningful error to construct, but there is an error
       ## further down the AST that invalidates the whole
 
+
     # end
 
     # Semantic warnings begin
     rsemUserWarning = "UserWarning" ## `{.warning: }`
+    rsemUnknownMagic = "UnknownMagic"
     # end
 
     # Semantic hints begin
@@ -344,6 +211,184 @@ type
     rsemImplicitObjConv = "ImplicitObjConv"
     # end
 
+    #------------------------  Command report kinds  -------------------------#
+    rcmdTest
+
+    #----------------------------  Debug reports  ----------------------------#
+    rdbgTest
+
+    #---------------------------  Backend reports  ---------------------------#
+    rbackLinking
+    rbackCompilingExtraFile ## Compiling file specified in the
+    ## `{.compile:.}` pragma
+
+    rbackUseDynLib ## Use of the dynamic library for cgen. Used in the
+    ## `cgen.loadDynamicLib`
+
+
+
+
+type
+  ReportLineRange* = object
+    ## Report location expressed as a span of lines in the file
+    file*: string
+    startLine*, endline*: int
+    startColumn*, endColumn*: int
+
+  ReportLinePoint* = object
+    ## Location expressed in terms of a single point in the file
+    file*: string
+    line*: int
+    column*: int
+
+  ReportLineInfo* = object
+    case isRange*: bool
+      of true:
+        lrange*: ReportLineRange
+
+      of false:
+        rpoint*: ReportLinePoint
+
+  ReportSeverity* = enum
+    rsevDebug ## Internal compiler debug information
+
+    rsevHint ## User-targeted hint
+    rsevWarning ## User-targeted warnings
+    rsevError ## User-targeted error
+
+    rsevFatal
+    rsevTrace ## Additional information about compiler actions - external
+              ## commands mostly.
+
+
+  ReportBase* = object of RootObj
+    location*: Option[ReportLineInfo] ## Location associated with report.
+    ## Some reports do not have any locations associated with them (most
+    ## (but not all, due to `gorge`) of the external command executions,
+    ## sem tracing etc). Some reports might have additional associated
+    ## location information (view type sealing reasons) - those are handled
+    ## on the per-report-kind basis.
+
+    reportInst*: ReportLinePoint ## Information about instantiation location
+    ## of the reports - present for all reports in order to track their
+    ## origins.
+
+type
+  LexerReportKind* = range[rlexLineTooLong .. rlexCodeEnd]
+  LexerReport* = object of ReportBase
+    kind*: LexerReportKind
+
+const
+  rlexHintKinds*: set[LexerReportKind] = {rlexLineTooLong}
+
+func severity*(rep: LexerReport): ReportSeverity =
+  case rep.kind:
+    of rlexHintKinds: rsevHint
+    else: rsevTrace
+
+type
+  ParserReportKind* = range[rparInvalidIndentation .. rparName]
+  ParserReport* = object of ReportBase
+    kind*: ParserReportKind
+
+const
+  rparHintKinds: set[ParserReportKind] = {rparName}
+
+func severity*(parser: ParserReport): ReportSeverity =
+  case parser.kind:
+    of rparHintKinds: rsevHint
+    else: rsevTrace
+
+type
+  SemRef* = object
+
+  SemContextKind* = enum
+    sckInstantiationOf
+    sckInstantiationFrom
+
+  SemContext* = object
+    location*: ReportLinePoint
+    case kind*: SemContextKind
+      of sckInstantiationOf:
+        entry*: PSym
+
+      of sckInstantiationFrom:
+        discard
+
+  #[
+    errIllFormedAstX
+    errCannotOpenFile
+    errXExpected
+    errRstGridTableNotImplemented
+    errRstMarkdownIllformedTable
+    errRstNewSectionExpected
+    errRstGeneralParseError
+    errRstInvalidDirectiveX
+    errRstInvalidField
+    errRstFootnoteMismatch
+    errProveInit  # deadcode
+    errUser
+    # warnings
+    warnCannotOpenFile = "CannotOpenFile"
+    warnOctalEscape = "OctalEscape"
+    warnXIsNeverRead = "XIsNeverRead"
+    warnXmightNotBeenInit = "XmightNotBeenInit"
+    warnDeprecated = "Deprecated"
+    warnConfigDeprecated = "ConfigDeprecated"
+    warnDotLikeOps = "DotLikeOps"
+    warnSmallLshouldNotBeUsed = "SmallLshouldNotBeUsed"
+    warnRstRedefinitionOfLabel = "RedefinitionOfLabel"
+    warnRstUnknownSubstitutionX = "UnknownSubstitutionX"
+    warnRstBrokenLink = "BrokenLink"
+    warnRstLanguageXNotSupported = "LanguageXNotSupported"
+    warnRstFieldXNotSupported = "FieldXNotSupported"
+    warnRstStyle = "warnRstStyle"
+    warnCommentXIgnored = "CommentXIgnored"
+    warnTypelessParam = "TypelessParam"
+    warnUseBase = "UseBase"
+    warnWriteToForeignHeap = "WriteToForeignHeap"
+    warnUnsafeCode = "UnsafeCode"
+    warnUnusedImportX = "UnusedImport"
+    warnInheritFromException = "InheritFromException"
+    warnEachIdentIsTuple = "EachIdentIsTuple"
+    warnUnsafeSetLen = "UnsafeSetLen"
+    warnUnsafeDefault = "UnsafeDefault"
+    warnProveInit = "ProveInit"
+    warnProveField = "ProveField"
+    warnProveIndex = "ProveIndex"
+    warnUnreachableElse = "UnreachableElse"
+    warnUnreachableCode = "UnreachableCode"
+    warnStaticIndexCheck = "IndexCheck"
+    warnGcUnsafe = "GcUnsafe"
+    warnGcUnsafe2 = "GcUnsafe2"
+    warnUninit = "Uninit"
+    warnGcMem = "GcMem"
+    warnDestructor = "Destructor"
+    warnLockLevel = "LockLevel"
+    warnResultShadowed = "ResultShadowed"
+    warnInconsistentSpacing = "Spacing"
+    warnCaseTransition = "CaseTransition"
+    warnCycleCreated = "CycleCreated"
+    warnObservableStores = "ObservableStores"
+    warnStrictNotNil = "StrictNotNil"
+    warnResultUsed = "ResultUsed"
+    warnCannotOpen = "CannotOpen"
+    warnFileChanged = "FileChanged"
+    warnSuspiciousEnumConv = "EnumConv"
+    warnAnyEnumConv = "AnyEnumConv"
+    warnHoleEnumConv = "HoleEnumConv"
+    warnCstringConv = "CStringConv"
+    warnEffect = "Effect"
+    warnUser = "User"
+    # hints
+    hintSuccess = "Success"
+    hintSuccessX = "SuccessX"
+    hintCC = "CC"
+    hintLineTooLong = "LineTooLong"
+  ]#
+
+  SemReportKind* = range[rsemUserError .. rsemImplicitObjConv]
+
   SemTypeMismatch* = object
     actualType*, wantedType*: PType
     descriptionStr*: string
@@ -355,15 +400,16 @@ type
     ## used to construct meaningful type mismatch message, and must contain
     ## all the necessary information to provide meaningful sorting,
     ## collapse and other operations.
-    target*: SemReportEntry
+    target*: PSym
     expression*: Option[PNode]
     arg*: int
     case kind*: MismatchKind
       of kTypeMismatch:
         typeMismatch*: SemTypeMismatch
 
-      of kPositionalAlreadyGiven, kUnknownNamedParam, kAlreadyGiven:
-        providedName*: string
+      of kPositionalAlreadyGiven, kUnknownNamedParam,
+         kAlreadyGiven, kMissingParam:
+        nameParam*: string
 
       else:
         discard
@@ -380,7 +426,7 @@ type
       of rsemTypeMismatch:
         typeMismatch*: SemTypeMismatch
 
-      of rsemCallMismatch:
+      of rsemCallTypeMismatch:
         callMismatches*: seq[SemCallMismatch] ## Description of all the
         ## failed candidates.
 
@@ -388,15 +434,9 @@ type
         discard
 
 const
-  rsemErrorKinds*: set[SemReportKind] = {rsemUserError}
-  rsemWarningKinds* = {rsemUserWarning}
+  rsemErrorKinds*: set[SemReportKind] = {rsemUserError .. rsemWrappedError}
+  rsemWarningKinds* = {rsemUserWarning .. rsemUnknownMagic}
   rsemHintKinds* = {rsemUserHint .. rsemImplicitObjConv}
-
-# static:
-#   let all = (rsemErrorKinds + rsemWarningKinds + rsemHintKinds)
-#   doAssert all == {low(SemReportKind) .. high(SemReportKind)},
-#     "Not all sem report kinds are covered in the error/warning/hint groupings - " &
-#       $(all - {low(SemReportKind) .. high(SemReportKind)}), " is missing"
 
 func severity*(report: SemReport): ReportSeverity =
   case report.kind:
@@ -405,9 +445,7 @@ func severity*(report: SemReport): ReportSeverity =
     of rsemHintKinds: rsevHint
 
 type
-  CmdReportKind* = enum
-    rcmdTest
-
+  CmdReportKind* = range[rcmdTest .. rcmdTest]
   CmdReport* = object of ReportBase
     kind*: CmdReportKind
 
@@ -415,8 +453,7 @@ func severity*(report: CmdReport): ReportSeverity =
   rsevTrace
 
 type
-  DebugReportKind* = enum
-    rdbgTest
+  DebugReportKind* = range[rdbgTest .. rdbgTest]
 
   DebugReport* = object of ReportBase
     kind*: DebugReportKind
@@ -425,15 +462,7 @@ func severity*(report: DebugReport): ReportSeverity =
   rsevDebug
 
 type
-  BackendReportKind* = enum
-    rbackLinking
-    rbackCompilingExtraFile ## Compiling file specified in the
-    ## `{.compile:.}` pragma
-
-    rbackUseDynLib ## Use of the dynamic library for cgen. Used in the
-    ## `cgen.loadDynamicLib`
-
-
+  BackendReportKind* = range[rbackLinking .. rbackUseDynlib]
   BackendReport* = object
     kind*: BackendReportKind
 
@@ -441,24 +470,7 @@ func severity*(report: BackendReport): ReportSeverity =
   rsevTrace
 
 type
-  InternalReportKind* = enum
-    # Fatal internal compilation errors begin
-    rintUnknown ## Unknown internal report kind
-    rintFatal ## Explicitly fatal compiler error
-    rintIce ## Internal compilation error
-    # end
-
-    rintStackTrace = "StackTrace" ## Stack trace during internal
-    ## compilation error handling and similar
-    rintMissingStackTrace ## Stack trace would've been generated in the
-    ## debug compiler build
-    rintGCStats = "GCStats" ## Print GC statistics for the compiler run
-    rintQuitCalled = "QuitCalled" ## `quit()` called by the macro code
-
-    rintConf = "Conf" ## Processing user configutation file
-    rintPath = "Path" ## Add nimble path
-
-
+  InternalReportKind* = range[rintUnknown .. rintPath]
   InternalReport* = object of ReportBase
     ## Report generated for the internal compiler workings
     case kind*: InternalReportKind
@@ -497,19 +509,10 @@ type
     InternalReportKind |
     BackendReportKind
 
-  ReportKindSet* = object
-    ## Group report kind categories into a single object.
-    lex*:      set[LexerReportKind]
-    parser*:   set[ParserReportKind]
-    sem*:      set[SemReportKind]
-    cmd*:      set[CmdReportKind]
-    debug*:    set[DebugReportKind]
-    internal*: set[InternalReportKind]
-    backend*:  set[BackendReportKind]
-
+  ReportKinds* = set[ReportKind]
   Report* = object
     ## Toplevel wrapper type for the compiler report
-    case kind*: ReportKind
+    case category*: ReportCategory
       of repLexer:
         lexReport*: LexerReport
 
@@ -531,38 +534,20 @@ type
       of repBackend:
         backendReport*: BackendReport
 
-func contains*(rset: ReportKindSet, report: Report): bool =
-  case report.kind:
-    of repLexer:    report.lexReport.kind in rset.lex
-    of repParser:   report.parserReport.kind in rset.parser
-    of repCmd:      report.cmdReport.kind in rset.cmd
-    of repSem:      report.semReport.kind in rset.sem
-    of repDebug:    report.debugReport.kind in rset.debug
-    of repInternal: report.internalReport.kind in rset.internal
-    of repBackend:  report.backendReport.kind in rset.backend
-
-template wrapSet(kind, field: untyped): untyped =
-  func incl*(rset: var ReportKindSet, rep: kind | set[kind]) = rset.field.incl rep
-  func excl*(rset: var ReportKindSet, rep: kind | set[kind]) = rset.field.excl rep
-  func contains*(rset: ReportKindSet, rep: kind): bool = rep in rset.field
-  func toReportKindSet*(rset: set[kind]): ReportKindSet =
-    ReportKindSet(field: rset)
-
-
-wrapSet(LexerReportKind, lex)
-wrapSet(ParserReportKind, parser)
-wrapSet(SemReportKind, sem)
-wrapSet(CmdReportKind, cmd)
-wrapSet(DebugReportKind, debug)
-wrapSet(InternalReportKind, internal)
-wrapSet(BackendReportKind, backend)
-
-func toReportKindSet*(sets: varargs[])
+func contains*(rset: ReportKinds, report: Report): bool =
+  case report.category:
+    of repLexer:    report.lexReport.kind in rset
+    of repParser:   report.parserReport.kind in rset
+    of repCmd:      report.cmdReport.kind in rset
+    of repSem:      report.semReport.kind in rset
+    of repDebug:    report.debugReport.kind in rset
+    of repInternal: report.internalReport.kind in rset
+    of repBackend:  report.backendReport.kind in rset
 
 func severity*(
     report: Report,
-    asError: ReportKindSet = default(ReportKindSet),
-    asWarning: ReportKindSet = default(ReportKindSet)
+    asError: ReportKinds = default(ReportKinds),
+    asWarning: ReportKinds = default(ReportKinds)
   ): ReportSeverity =
   ## Return report severity accounting for 'asError' and 'asWarning'
   ## mapping sets.
@@ -570,7 +555,7 @@ func severity*(
   if report in asError: rsevError
   elif report in asWarning: rsevWarning
   else:
-    case report.kind:
+    case report.category:
       of repLexer:    report.lexReport.severity()
       of repParser:   report.parserReport.severity()
       of repSem:      report.semReport.severity()
@@ -593,22 +578,22 @@ template reportHere*[R: ReportTypes](report: R): R =
     tmp
 
 func wrap*(rep: sink LexerReport): Report =
-  Report(kind: repLexer, lexReport: rep)
+  Report(category: repLexer, lexReport: rep)
 
 func wrap*(rep: sink ParserReport): Report =
-  Report(kind: repParser, parserReport: rep)
+  Report(category: repParser, parserReport: rep)
 
 func wrap*(rep: sink SemReport): Report =
-  Report(kind: repSem, semReport: rep)
+  Report(category: repSem, semReport: rep)
 
 func wrap*(rep: sink CmdReport): Report =
-  Report(kind: repCmd, cmdReport: rep)
+  Report(category: repCmd, cmdReport: rep)
 
 func wrap*(rep: sink DebugReport): Report =
-  Report(kind: repDebug, debugreport: rep)
+  Report(category: repDebug, debugreport: rep)
 
 func wrap*(rep: sink InternalReport): Report =
-  Report(kind: repInternal, internalReport: rep)
+  Report(category: repInternal, internalReport: rep)
 
 
 type

@@ -14,7 +14,7 @@ import
 import
   options, ropes, lineinfos, pathutils, strutils2, reports
 
-
+from ast_types import PSym
 
 type InstantiationInfo* = typeof(instantiationInfo())
 template instLoc*(): InstantiationInfo = instantiationInfo(-2, fullPaths = compileOption"excessiveStackTrace")
@@ -186,7 +186,7 @@ proc setInfoContextLen*(conf: ConfigRef; L: int) = setLen(conf.m.msgContext, L)
 proc pushInfoContext*(
     conf: ConfigRef;
     info: TLineInfo,
-    detail: SemReportEntry = default(SemReportEntry)
+    detail: PSym = nil
   ) =
   ## Add entry to the message context information stack.
   conf.m.msgContext.add((info, detail))
@@ -428,7 +428,7 @@ proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
   if conf.isDefined("nimDebug"):
     quitOrRaise(conf)
 
-  elif defined(debug) or withTrace or conf.hasHint(hintStackTrace):
+  elif defined(debug) or withTrace or conf.hasHint(rintStackTrace):
     {.gcsafe.}:
       if stackTraceAvailable() and isNil(conf.writelnHook):
         conf.report(InternalReport(

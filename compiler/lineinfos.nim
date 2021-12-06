@@ -10,7 +10,17 @@
 ## This module contains the ``TMsgKind`` enum as well as the
 ## ``TLineInfo`` object.
 
-import ropes, tables, pathutils, hashes, reports
+import ropes, tables, pathutils, hashes
+
+from ast_types import
+  PSym,     # Contextual details of the instantnation stack optionally refer to
+            # the used symbol
+  TLineInfo,
+  FileIndex # Forward-declared to avoid cyclic dependencies
+
+export FileIndex
+
+import reports
 
 const
   explanationsBaseUrl* = "https://nim-lang.github.io/Nim"
@@ -259,19 +269,22 @@ type
   TNoteKind* = range[warnMin..hintMax] # "notes" are warnings or hints
   TNoteKinds* = set[TNoteKind]
 
-proc computeNotesVerbosity(): array[0..3, TNoteKinds] =
-  result[3] = {low(TNoteKind)..high(TNoteKind)} - {warnObservableStores, warnResultUsed, warnAnyEnumConv}
-  result[2] = result[3] - {hintStackTrace, warnUninit, hintExtendedContext, hintDeclaredLoc, hintProcessingStmt}
-  result[1] = result[2] - {warnProveField, warnProveIndex,
-    warnGcUnsafe, hintPath, hintDependency, hintCodeBegin, hintCodeEnd,
-    hintSource, hintGlobalVar, hintGCStats, hintMsgOrigin, hintPerformance}
-  result[0] = result[1] - {hintSuccessX, hintSuccess, hintConf,
-    hintProcessing, hintPattern, hintExecuting, hintLinking, hintCC}
+proc computeNotesVerbosity(): array[0..3, ReportKindSet] =
+  when false:
+    {.warning: "[FIXME] temporarily commented out, enable later, or roll back to the single-enum case".}
+    result[3] = {low(TNoteKind)..high(TNoteKind)} - {warnObservableStores, warnResultUsed, warnAnyEnumConv}
+    result[2] = result[3] - {hintStackTrace, warnUninit, hintExtendedContext, hintDeclaredLoc, hintProcessingStmt}
+    result[1] = result[2] - {warnProveField, warnProveIndex,
+      warnGcUnsafe, hintPath, hintDependency, hintCodeBegin, hintCodeEnd,
+      hintSource, hintGlobalVar, hintGCStats, hintMsgOrigin, hintPerformance}
+    result[0] = result[1] - {hintSuccessX, hintSuccess, hintConf,
+      hintProcessing, hintPattern, hintExecuting, hintLinking, hintCC}
 
 const
   NotesVerbosity* = computeNotesVerbosity()
   errXMustBeCompileTime* = "'$1' can only be used in compile-time context"
   errArgsNeedRunOption* = "arguments can only be given if the '--run' option is selected"
+
 
 type
   TFileInfo* = object
@@ -294,18 +307,6 @@ type
     dirty*: bool               ## for 'nimfix' / 'nimpretty' like tooling
     when defined(nimpretty):
       fullContent*: string
-  FileIndex* = distinct int32
-  TLineInfo* = object          ## This is designed to be as small as
-    ## possible, because it is used in syntax nodes. We save space here by
-    ## using two int16 and an int32. On 64 bit and on 32 bit systems this
-    ## is only 8 bytes.
-
-    line*: uint16
-    col*: int16
-    fileIndex*: FileIndex
-    when defined(nimpretty):
-      offsetA*, offsetB*: int
-      commentOffsetA*, commentOffsetB*: int
 
   TErrorOutput* = enum
     eStdOut
@@ -333,8 +334,8 @@ type
     Hint, Warning, Error
 
 const
-  trackPosInvalidFileIdx* = FileIndex(-2) ## special marker so that no suggestions
-                                          ## are produced within comments and string literals
+  trackPosInvalidFileIdx* = FileIndex(-2) ## special marker so that no
+  ## suggestions are produced within comments and string literals
   commandLineIdx* = FileIndex(-3)
 
 type
@@ -344,8 +345,8 @@ type
                             ## some close token.
 
     errorOutputs*: TErrorOutputs
-    msgContext*: seq[tuple[info: TLineInfo, detail: SemReportEntry]] ## \
-    ## Contextual information about instantiation stack - "template/generic
+    msgContext*: seq[tuple[info: TLineInfo, detail: PSym]] ## \ Contextual
+    ## information about instantiation stack - "template/generic
     ## instantiation of" message is constructed from this field. Right now
     ## `.detail` field is only used in the `sem.semMacroExpr()`,
     ## `seminst.generateInstance()` and `semexprs.semTemplateExpr()`. In
@@ -357,9 +358,6 @@ type
     ## is stored in this field - full/relative paths, list of line etc.
     ## (For full list see `TFileInfo`)
     systemFileIdx*: FileIndex
-
-proc addReport*(config: var MsgConfig, report: Report): MsgReportId =
-
 
 proc initMsgConfig*(): MsgConfig =
   result.msgContext = @[]
