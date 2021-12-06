@@ -254,10 +254,20 @@ const
   errInvalidExceptionSystem = "'goto', 'setjump', 'cpp' or 'quirky' expected, but '$1' found"
 
 template warningOptionNoop(switch: string) =
-  warningDeprecated(conf, info, "'$#' is deprecated, now a noop" % switch)
+  conf.report(
+    InternalReport(
+      kind: rintDeprecated,
+      msg: "'$#' is deprecated, now a noop" % switch),
+    instantiationInfo(fullPaths = true),
+    location = some toReportLinePoint(info))
 
 template deprecatedAlias(oldName, newName: string) =
-  warningDeprecated(conf, info, "'$#' is a deprecated alias for '$#'" % [oldName, newName])
+  conf.report(
+    InternalReport(
+      kind: rintDeprecated,
+      msg: "'$#' is a deprecated alias for '$#'" % [oldName, newName]),
+    instantiationInfo(fullPaths = true),
+    location = some toReportLinePoint(info))
 
 proc testCompileOptionArg*(conf: ConfigRef; switch, arg: string, info: TLineInfo): bool =
   case switch.normalize

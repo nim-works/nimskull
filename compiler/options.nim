@@ -309,15 +309,15 @@ type
     ideCmd*: IdeCmd
     oldNewlines*: bool
     cCompiler*: TSystemCC ## the used compiler
-    modifiedyNotes*: ReportKindSet ## notes that have been set/unset from
-                                   ## either cmdline/configs
-    cmdlineNotes*: ReportKindSet ## notes that have been set/unset from
-                                 ## cmdline
-    foreignPackageNotes*: ReportKindSet
-    notes*: ReportKindSet ## notes after resolving all logic(defaults,
-                       ## verbosity)/cmdline/configs
-    warningAsErrors*: ReportKindSet
-    mainPackageNotes*: ReportKindSet
+    modifiedyNotes*: ReportKinds ## notes that have been set/unset from
+    ## either cmdline/configs
+    cmdlineNotes*: ReportKinds ## notes that have been set/unset from
+    ## cmdline
+    foreignPackageNotes*: ReportKinds
+    notes*: ReportKinds ## notes after resolving all logic(defaults,
+    ## verbosity)/cmdline/configs
+    warningAsErrors*: ReportKinds
+    mainPackageNotes*: ReportKinds
     mainPackageId*: int
     errorCounter*: int
     hintCounter*: int
@@ -326,9 +326,9 @@ type
     maxLoopIterationsVM*: int ## VM: max iterations of all loops
     isVmTrace*: bool
     configVars*: StringTableRef
-    symbols*: StringTableRef ## We need to use a StringTableRef here as defined
-                             ## symbols are always guaranteed to be style
-                             ## insensitive. Otherwise hell would break lose.
+    symbols*: StringTableRef ## We need to use a StringTableRef here as
+    ## defined symbols are always guaranteed to be style insensitive.
+    ## Otherwise hell would break lose.
     packageCache*: StringTableRef
     nimblePaths*: seq[AbsoluteDir]
     searchPaths*: seq[AbsoluteDir]
@@ -354,9 +354,8 @@ type
     implicitImports*: seq[string]  ## modules that are to be implicitly imported
     implicitIncludes*: seq[string] ## modules that are to be implicitly included
     docSeeSrcUrl*: string          ## if empty, no seeSrc will be
-                                   ## generated. \ The string uses the
-                                   ## formatting variables `path` and
-                                   ## `line`.
+    ## generated. The string uses the formatting variables `path` and
+    ## `line`.
     docRoot*: string ## see nim --fullhelp for --docRoot
     docCmd*: string ## see nim --fullhelp for --docCmd
 
@@ -384,12 +383,12 @@ type
 
     when defined(nimDebugUtils):
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
-                                    ## len is also used for output indent level
+      ## len is also used for output indent level
 
 proc report*[R: ReportTypes](
     conf: ConfigRef,
     report: sink R,
-    iinfo: (string, int, int),
+    iinfo: InstantiationInfo,
     location: Option[ReportLineInfo] = none ReportLineInfo
   ) =
   ## Write out new report passed as argument.
@@ -408,21 +407,21 @@ proc report*(conf: ConfigRef, id: ReportId) =
 template report*[R: ReportTypes](conf: ConfigRef, inReport: R) =
   ## Pass structured report object into `conf.structuredErrorHook`,
   ## converting to `Report` variant and updaing instantiation info.
-  report(conf, inReport, instantiationInfo(fullPaths = true))
+  report(conf, inReport, instLoc())
 
 template report*[R: ReportTypes](
     conf: ConfigRef, tinfo: TLineInfo, inReport: R) =
   ## Write out new report, updating it's location info using `tinfo` and
   ## it's instantiation info with `instantiationInfo()` of the template.
   report(conf, inReport,
-    instantiationInfo(fullPaths = true),
+    instLoc(),
     some ReportLineInfo(
       isRange: false, rpoint: conf.toReportPoint(tinfo)))
 
 proc store*[R: ReportTypes](
     conf: ConfigRef,
     report: sink R,
-    iinfo: (string, int, int),
+    iinfo: InstantiationInfo,
     location: Option[ReportLineInfo] = none ReportLineInfo
   ): ReportId =
   ## Store new report in the message context list. Returned ID can be later
@@ -439,10 +438,10 @@ proc store*[R: ReportTypes](
 
 func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
   ## Check if report stores fatal compilation error
-  report.kind == repInternal and
+  report.category == repInternal and
   report.internalReport.severity() == rsevFatal
 
-func isCompilerError*(conf: ConfigRef, report: Report): bool =
+func isCodeError*(conf: ConfigRef, report: Report): bool =
   ## Check if report stores a regular code error, or warning/hint that has
   ## been configured to be treated as error under "warningAsError"
   report.severity(conf.warningAsErrors) == rsevError
@@ -465,22 +464,24 @@ template setErrorMaxHighMaybe*(conf: ConfigRef) =
   ## do not stop after first error (but honor --errorMax if provided)
   assignIfDefault(conf.errorMax, high(int))
 
-proc setNoteDefaults*(conf: ConfigRef, note: ReportKindTypes, enabled = true) =
+proc setNoteDefaults*(conf: ConfigRef, note: ReportKind, enabled = true) =
   template fun(op) =
     conf.notes.op note
     conf.mainPackageNotes.op note
     conf.foreignPackageNotes.op note
   if enabled: fun(incl) else: fun(excl)
 
-proc setNote*(conf: ConfigRef, note: ReportKindTypes, enabled = true) =
+proc setNote*(conf: ConfigRef, note: ReportKind, enabled = true) =
   ## see also `prepareConfigNotes` which sets notes
   if note notin conf.cmdlineNotes:
     if enabled: incl(conf.notes, note) else: excl(conf.notes, note)
 
-proc hasHint*(conf: ConfigRef, note: ReportKindTypes): bool =
+proc hasHint*(conf: ConfigRef, note: ReportKind): bool =
   # ternary states instead of binary states would simplify logic
-  if optHints notin conf.options: false
-  elif note in {hintConf, hintProcessing}:
+  if optHints notin conf.options:
+    false
+
+  elif note in {rintConf, rsemProcessing}:
     # could add here other special notes like hintSource
     # these notes apply globally.
     note in conf.mainPackageNotes
@@ -488,7 +489,7 @@ proc hasHint*(conf: ConfigRef, note: ReportKindTypes): bool =
   else:
     note in conf.notes
 
-proc hasWarn*(conf: ConfigRef, note: ReportKindTypes): bool {.inline.} =
+proc hasWarn*(conf: ConfigRef, note: ReportKind): bool {.inline.} =
   optWarns in conf.options and note in conf.notes
 
 proc hcrOn*(conf: ConfigRef): bool =
@@ -542,11 +543,12 @@ proc newProfileData(): ProfileData =
   ProfileData(data: newTable[TLineInfo, ProfileInfo]())
 
 const
-  foreignPackageNotesDefault* = mergeReportKindSet({
+  foreignPackageNotesDefault* = {
     rsemProcessing, rsemUserHint,
     rsemUserWarning, rsemUserHint, rsemUserWarning,
-    rsemUserError, rsemUnknownMagic
-  }, {rintQuitCalled})
+    rsemUserError, rsemUnknownMagic,
+    rintQuitCalled
+  }
 
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 

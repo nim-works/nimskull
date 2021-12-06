@@ -17,7 +17,10 @@ import
 from ast_types import PSym
 
 type InstantiationInfo* = typeof(instantiationInfo())
-template instLoc*(): InstantiationInfo = instantiationInfo(-2, fullPaths = compileOption"excessiveStackTrace")
+
+template instLoc*(): InstantiationInfo =
+  ## Genereate instantiation info location information
+  instantiationInfo(-2, fullPaths = compileOption"excessiveStackTrace")
 
 template toStdOrrKind(stdOrr): untyped =
   if stdOrr == stdout: stdOrrStdout else: stdOrrStderr
@@ -462,7 +465,8 @@ proc handleError(
       quit(conf, withTrace = false)
 
     elif eh == doRaise:
-      raiseRecoverableError(s)
+      {.warning: "[IMPLEMENT] Convert report to string message ?".}
+      raiseRecoverableError("report")
 
 proc `==`*(a, b: TLineInfo): bool =
   result = a.line == b.line and a.fileIndex == b.fileIndex
@@ -521,7 +525,7 @@ proc sourceLine*(conf: ConfigRef; i: TLineInfo): string =
   result = conf.m.fileInfos[i.fileIndex.int32].lines[i.line.int-1]
 
 proc getSurroundingSrc(conf: ConfigRef; info: TLineInfo): string =
-  if conf.hasHint(hintSource) and info != unknownLineInfo:
+  if conf.hasHint(rintSource) and info != unknownLineInfo:
     const indent = "  "
     result = "\n" & indent & $sourceLine(conf, info)
     if info.col >= 0:
@@ -573,26 +577,22 @@ template localError*(conf: ConfigRef; info: TLineInfo, arg: string) =
 template message*(conf: ConfigRef; info: TLineInfo, msg: TMsgKind, arg = "") =
   liMessage(conf, info, msg, arg, doNothing, instLoc())
 
-proc warningDeprecated*(conf: ConfigRef, info: TLineInfo = gCmdLineInfo, msg = "") {.inline.} =
-  message(conf, info, warnDeprecated, msg)
+# proc internalErrorImpl(conf: ConfigRef; info: TLineInfo, errMsg: string, info2: InstantiationInfo) =
+#   if conf.cmd == cmdIdeTools and conf.structuredErrorHook.isNil: return
+#   writeContext(conf, info)
+#   liMessage(conf, info, errInternal, errMsg, doAbort, info2)
 
-proc internalErrorImpl(conf: ConfigRef; info: TLineInfo, errMsg: string, info2: InstantiationInfo) =
-  if conf.cmd == cmdIdeTools and conf.structuredErrorHook.isNil: return
-  writeContext(conf, info)
-  liMessage(conf, info, errInternal, errMsg, doAbort, info2)
+# template internalError*(conf: ConfigRef; info: TLineInfo, errMsg: string) =
+#   internalErrorImpl(conf, info, errMsg, instLoc())
 
-template internalError*(conf: ConfigRef; info: TLineInfo, errMsg: string) =
-  internalErrorImpl(conf, info, errMsg, instLoc())
+# template internalError*(conf: ConfigRef; errMsg: string) =
+#   internalErrorImpl(conf, unknownLineInfo, errMsg, instLoc())
 
-template internalError*(conf: ConfigRef; errMsg: string) =
-  internalErrorImpl(conf, unknownLineInfo, errMsg, instLoc())
-
-template internalAssert*(conf: ConfigRef, e: bool) =
-  # xxx merge with `globalAssert`
+template internalAssert*(conf: ConfigRef, e: bool, failMsg: string) =
+  ##
   if not e:
-    const info2 = instLoc()
-    let arg = info2.toFileLineCol
-    internalErrorImpl(conf, unknownLineInfo, arg, info2)
+    conf.report(InternalReport(
+      kind: rintAssert, msg: failMsg), instLoc())
 
 template lintReport*(conf: ConfigRef; info: TLineInfo, beau, got: string, forceHint = false, extraMsg = "") =
   let m = "'$1' should be: '$2'$3" % [got, beau, extraMsg]
