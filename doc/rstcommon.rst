@@ -18,6 +18,22 @@
      .. include:: rstcommon.rst
      .. default-role:: code
 
+.. Substitutions for key concepts or phrases, to allow linking later
+
+.. |sustainability| replace:: sustainability
+
+.. Substitutions for language rename, please always use |NimSkull| or |Nim| if you must
+
+.. |Nim| replace:: NimSkull
+.. |NimSkull| replace:: NimSkull
+
+.. Substitutions for tools rename, please use them instead of the normal word
+
+.. |nim| replace:: nim
+.. |nimskull| replace:: nimskull
+.. |nimsuggest| replace:: nimsuggest
+.. |drnim| replace:: drnim
+
 .. define language roles explicitly (for compatibility with rst2html.py):
 
 .. role:: nim(code)
