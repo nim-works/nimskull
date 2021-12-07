@@ -10,12 +10,7 @@ const
 var
   failures = 0
 
-when defined(develop):
-  const nimp = "bin" / "nimpretty".addFileExt(ExeExt)
-  if execShellCmd("nim c -o:$# nimpretty/nimpretty.nim" % [nimp]) != 0:
-    quit("FAILURE: compilation of nimpretty failed")
-else:
-  const nimp = "nimpretty"
+const nimp = "bin" / "nimpretty".addFileExt(ExeExt)
 
 proc test(infile, ext: string) =
   if execShellCmd("$# -o:$# --backup:off $#" % [nimp, infile.changeFileExt(ext), infile]) != 0:
