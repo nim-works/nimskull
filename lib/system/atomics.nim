@@ -225,17 +225,19 @@ else:
     inc(p[], val)
     result = p[]
 
-proc atomicInc*(memLoc: var int, x: int = 1; order: AtomMemModel = ATOMIC_RELAXED): int =
+proc atomicInc*(memLoc: var int, x: int = 1; order: AtomMemModel = ATOMIC_RELAXED): int
+                {.inline, discardable, benign.} =
   when someGcc and hasThreadSupport:
     result = atomicAddFetch(memLoc.addr, x, order)
   elif someVcc and hasThreadSupport:
-    result = addAndFetch(memLoc.addr, x)
+    result = addAndFetch(memLoc.addr, x)  
     inc(result, x)
   else:
     inc(memLoc, x)
     result = memLoc
 
-proc atomicDec*(memLoc: var int, x: int = 1; order: AtomMemModel = ATOMIC_RELAXED): int =
+proc atomicDec*(memLoc: var int, x: int = 1; order: AtomMemModel = ATOMIC_RELAXED): int
+                {.inline, discardable, benign.} =
   when someGcc and hasThreadSupport:
     when declared(atomicSubFetch):
       result = atomicSubFetch(memLoc.addr, x, order)
