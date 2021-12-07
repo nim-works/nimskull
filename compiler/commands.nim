@@ -59,7 +59,7 @@ const
 
 proc getCommandLineDesc(conf: ConfigRef): string =
   result = (HelpMessage % [VersionAsString, platform.OS[conf.target.hostOS].name,
-                           CPU[conf.target.hostCPU].name, CompileDate]) &
+                           CPU[conf.target.hostCPU].name]) &
                            Usage
 
 proc helpOnError(conf: ConfigRef; pass: TCmdLinePass) =
@@ -71,7 +71,7 @@ proc writeAdvancedUsage(conf: ConfigRef; pass: TCmdLinePass) =
   if pass == passCmd1:
     msgWriteln(conf, (HelpMessage % [VersionAsString,
                                  platform.OS[conf.target.hostOS].name,
-                                 CPU[conf.target.hostCPU].name, CompileDate]) &
+                                 CPU[conf.target.hostCPU].name]) &
                                  AdvancedUsage,
                {msgStdout})
     msgQuit(0)
@@ -80,7 +80,7 @@ proc writeFullhelp(conf: ConfigRef; pass: TCmdLinePass) =
   if pass == passCmd1:
     msgWriteln(conf, `%`(HelpMessage, [VersionAsString,
                                  platform.OS[conf.target.hostOS].name,
-                                 CPU[conf.target.hostCPU].name, CompileDate]) &
+                                 CPU[conf.target.hostCPU].name]) &
                                  Usage & AdvancedUsage,
                {msgStdout})
     msgQuit(0)
