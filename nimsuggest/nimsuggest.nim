@@ -632,8 +632,15 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
   if gMode != mstdin:
     conf.writelnHook = proc (msg: string) = discard
   # Find Nim's prefix dir.
-  let binaryPath = findExe("nim")
-  if binaryPath == "":
+  #
+  # TODO: Standardize this process.
+  #
+  # Check if nimsuggest is shipped as a bundle with nim
+  var binaryPath = getAppDir() / "nim".addFileExt(ExeExt)
+  if not fileExists(binaryPath):
+    # If not then find `nim` in `PATH`
+    binaryPath = findExe("nim")
+  if not fileExists(binaryPath):
     raise newException(IOError,
         "Cannot find Nim standard library: Nim compiler not in PATH")
   conf.prefixDir = AbsoluteDir binaryPath.splitPath().head.parentDir()
