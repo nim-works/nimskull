@@ -316,14 +316,13 @@ proc boot(args: string) =
     let defaultCommand = if useCpp and i > 0: "cpp" else: "c"
     let bootOptions = if args.len == 0 or args.startsWith("-"): defaultCommand else: ""
     echo "iteration: ", i+1
-    var extraOption = ""
+    # The configs are skipped for bootstrap
+    var extraOption = " --skipUserCfg --skipParentCfg"
     var nimi = i.thVersion
     var smartNimcache = smartNimcache
     if i == 0:
       nimi = nimStart
-      extraOption.add " --skipUserCfg --skipParentCfg -d:nimKochBootstrap"
-        # The configs are skipped for bootstrap
-        # (1st iteration) to prevent newer flags from breaking bootstrap phase.
+      extraOption.add " -d:nimKochBootstrap"
 
       # Older bootstrapping compiler might not support magics used in the
       # newer stdlib, so disable those warnings.
