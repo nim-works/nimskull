@@ -1,0 +1,3 @@
+# consider adding behaviorbot (https://github.com/behaviorbot/request-info) etc
+# see what the jupyter folks are doing: https://github.com/jupyterhub/.github/blob/master/.github/config.yml
+# also support request via issues handling https://github.com/jupyterhub/.github/blob/master/.github/support.yml

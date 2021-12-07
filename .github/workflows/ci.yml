@@ -68,53 +68,11 @@ jobs:
     steps:
       - uses: actions/checkout@v2.4.0
 
-      - id: build-config
-        name: Obtain build configuration
-        run: |
-          while IFS='=' read -r key val; do
-            case $key in
-            nim_csourcesUrl)
-              # Remove the github prefix and .git to get an owner/name pair
-              val=${val#https://github.com/}
-              val=${val%.git}
-
-              echo "::set-output name=csources-repo::$val"
-              ;;
-            nim_csourcesHash)
-              echo "::set-output name=csources-hash::$val"
-              ;;
-            esac
-          done < config/build_config.txt
-
-      - name: Download csources
-        uses: actions/checkout@v2.4.0
-        with:
-          repository: '${{ steps.build-config.outputs.csources-repo }}'
-          ref: '${{ steps.build-config.outputs.csources-hash }}'
-          path: csources
-
-      - name: Build csources
-        run: |
-          cores=$(python -c 'import multiprocessing; print(multiprocessing.cpu_count())' || echo 1)
-          make -C csources -j${cores}
-
-      - name: Add built binaries to PATH
-        run: |
-          python -c 'import os; print(os.path.abspath("bin"))' > "$GITHUB_PATH"
-
-      - name: Build koch
-        run: nim c koch.nim
-
-      # Enable annotations after koch to avoid false-positive due to csources being old
       - name: Enable annotations
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
       - name: Build compiler
-        run: |
-          ./koch boot -d:release
-
-          # Remove csources to save space
-          rm -rf csources
+        run: ./koch.py boot -d:release
 
       - name: Upload compiler to artifacts
         uses: ./.github/actions/upload-compiler
@@ -169,11 +127,16 @@ jobs:
           sudo apt-get install "${deps[@]}"
 
       - name: Run tester
-        run: ./koch test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' all
+        run: |
+          # The tester requires `nim` to be in `PATH`
+          nim_bin_dir=$(python -c 'import os; print(os.path.abspath("bin"))')
+          export PATH=$nim_bin_dir:$PATH
+
+          ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' all
 
       - name: Print all test errors
         if: failure()
-        run: nim r tools/ci_testresults
+        run: bin/nim r tools/ci_testresults
 
   orc:
     name: Test build compiler with ORC
@@ -190,7 +153,7 @@ jobs:
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
       - name: Test ORC bootstrap
-        run: ./koch boot -d:release --gc:orc
+        run: ./koch.py --nim:bin/nim boot -d:release --gc:orc
 
   tooling:
     name: Build and test tooling
@@ -207,10 +170,15 @@ jobs:
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
       - name: Build tooling
-        run: ./koch tools -d:release
+        run: ./koch.py tools -d:release
 
       - name: Test tooling
-        run: ./koch testTools
+        run: |
+          # The tester requires `bin` to be in `PATH`
+          nim_bin_dir=$(python -c 'import os; print(os.path.abspath("bin"))')
+          export PATH=$nim_bin_dir:$PATH
+
+          ./koch.py testTools
 
   doc:
     name: Build HTML documentation
@@ -232,7 +200,7 @@ jobs:
           # Remove refs/heads/ prefix
           branch=${branch##*/}
 
-          ./koch doc \
+          ./koch.py doc \
             --git.url:'https://github.com/${{ github.repository }}' \
             --git.commit:'${{ github.sha }}' \
             --git.devel:"$branch"

@@ -6,12 +6,12 @@
 .. include:: rstcommon.rst
 .. contents::
 
-Testament is an advanced automatic unittests runner for Nim tests, is used for the development of Nim itself,
-offers process isolation for your tests, it can generate statistics about test cases,
+Testament is a test runner for running tests in the development of |NimSkull| itself.
+It offers process isolation for tests, it can generate statistics about test cases,
 supports multiple targets (C, C++, ObjectiveC, JavaScript, etc),
 simulated `Dry-Runs <https://en.wikipedia.org/wiki/Dry_run_(testing)>`_,
 has logging, can generate HTML reports, skip tests from a file, and more,
-so can be useful to run your tests, even the most complex ones.
+so can be useful to run tests, even the most complex ones.
 
 
 Test files location
@@ -80,7 +80,7 @@ To search for tests deeper in a directory, use
 HTML Reports
 ============
 
-Generate HTML Reports ``testresults.html`` from unittests,
+Generate HTML Reports ``testresults.html`` from tests,
 you have to run at least 1 test *before* generating a report:
 
 .. code:: console
@@ -88,10 +88,10 @@ you have to run at least 1 test *before* generating a report:
   $ testament html
 
 
-Writing Unitests
-================
+Writing Tests
+=============
 
-Example "template" **to edit** and write a Testament unittest:
+Example "template" **to edit** and write a Testament unit:
 
 .. code-block:: nim
 
@@ -112,7 +112,7 @@ Example "template" **to edit** and write a Testament unittest:
     exitcode: 0
 
     # Provide an `output` string to assert that the test prints to standard out
-    # exatly the expected string. Provide an `outputsub` string to assert that
+    # exactly the expected string. Provide an `outputsub` string to assert that
     # the string given here is a substring of the standard out output of the
     # test.
     output: ""
@@ -186,14 +186,14 @@ Example "template" **to edit** and write a Testament unittest:
 
 * As you can see the "Spec" is just a `discard """ """`.
 * Spec has sane defaults, so you don't need to provide them all, any simple assert will work just fine.
-* `This is not the full spec of Testament, check the Testament Spec on GitHub, see parseSpec(). <https://github.com/nim-lang/Nim/blob/devel/testament/specs.nim#L238>`_
-* `Nim itself uses Testament, so there are plenty of test examples. <https://github.com/nim-lang/Nim/tree/devel/tests>`_
+* `This is not the full spec of Testament, check the Testament Spec on GitHub, see parseSpec(). <https://github.com/nim-works/nimskull/blob/devel/testament/specs.nim#L238>`_
+* `Nim itself uses Testament, so there are plenty of test examples. <https://github.com/nim-works/nimskull/tree/devel/tests>`_
 * Has some built-in CI compatibility, like Azure Pipelines, etc.
-* `Testament supports inlined error messages on Unittests, basically comments with the expected error directly on the code. <https://github.com/nim-lang/Nim/blob/9a110047cbe2826b1d4afe63e3a1f5a08422b73f/tests/effects/teffects1.nim>`_
+* `Testament supports inlined error messages on tests, basically comments with the expected error directly on the code. <https://github.com/nim-works/nimskull/blob/9a110047cbe2826b1d4afe63e3a1f5a08422b73f/tests/effects/teffects1.nim>`_
 
 
-Unitests Examples
-=================
+Test Examples
+==============
 
 Expected to fail:
 
