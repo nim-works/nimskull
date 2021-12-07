@@ -14,7 +14,6 @@ import
   bitops,
   browsers,
   cgi,
-  chains,
   colors,
   complex,
   cookies,
