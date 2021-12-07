@@ -7,12 +7,15 @@
 #    distribution, for details about the copyright.
 #
 
-# Identifier handling
-# An identifier is a shared immutable string that can be compared by its
-# id. This module is essential for the compiler's performance.
+## Identifier handling
+##
+## An identifier is a shared immutable string that can be compared by its
+## id. This module is essential for the compiler's performance.
 
 import
   hashes, wordrecg
+
+import ast_types
 
 type
   IdentCache* = ref object
@@ -120,11 +123,17 @@ proc whichKeyword*(id: PIdent): TSpecialWord =
 
 func hash*(x: PIdent): Hash {.inline.} = x.h
   ## don't actually compute, we just access it
+
 func `==`*(a, b: PIdent): bool {.inline.} =
   ## identity based (`PIdent.id`) based equality, unless either are nil, then
   ## resort to reference based equality
-  if a.isNil or b.isNil: result = system.`==`(a, b)
-  else: result = a.id == b.id
+  if a.isNil or b.isNil:
+    result = system.`==`(a, b)
+
+  else:
+    result = a.id == b.id
+
+
 func isNotFound*(ic: IdentCache, i: PIdent): bool {.inline.} =
   ## optimization: check against the cached/canonical not found ident entry
   ic.identNotFound == i

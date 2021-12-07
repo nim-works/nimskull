@@ -27,11 +27,11 @@ bootSwitch(usedNoGC, defined(nogc), "--gc:none")
 import std/[setutils, os, strutils, parseutils, parseopt, sequtils, strtabs]
 import
   msgs, options, nversion, condsyms, extccomp, platform,
-  wordrecg, nimblecmd, lineinfos, pathutils, pathnorm
+  wordrecg, nimblecmd, lineinfos, pathutils, pathnorm,
+  reports
 
 from ast import setUseIc, eqTypeFlags, tfGcSafe, tfNoSideEffect
 
-# but some have deps to imported modules. Yay.
 bootSwitch(usedTinyC, hasTinyCBackend, "-d:tinyc")
 bootSwitch(usedFFI, hasFFI, "-d:nimHasLibFFI")
 
@@ -129,8 +129,8 @@ const
   errOffHintsError = "'off', 'hint' or 'error' expected, but '$1' found"
 
 proc invalidCmdLineOption(conf: ConfigRef; pass: TCmdLinePass, switch: string, info: TLineInfo) =
-  if switch == " ": localError(conf, info, errInvalidCmdLineOption % "-")
-  else: localError(conf, info, errInvalidCmdLineOption % addPrefix(switch))
+  conf.localError(info, ExternalReport(
+    kind: rextInvalidCommandLineOption, cmdlineProvided: switch))
 
 proc splitSwitch(conf: ConfigRef; switch: string, cmd, arg: var string, pass: TCmdLinePass,
                  info: TLineInfo) =
@@ -156,45 +156,57 @@ template switchOn(arg: string): bool =
   of "", "on": true
   of "off": false
   else:
-    localError(conf, info, errOnOrOffExpectedButXFound % arg)
+    conf.localError ExternalReport(
+      kind: rextExpectedOnOrOff, cmdlineProvided: arg)
+
     false
 
-proc processOnOffSwitch(conf: ConfigRef; op: TOptions, arg: string, pass: TCmdLinePass,
-                        info: TLineInfo) =
+proc processOnOffSwitch(
+    conf: ConfigRef; op: TOptions, arg: string, pass: TCmdLinePass,
+    info: TLineInfo, switch: string
+  ) =
   case arg.normalize
   of "", "on": conf.options.incl op
   of "off": conf.options.excl op
-  else: localError(conf, info, errOnOrOffExpectedButXFound % arg)
+  else:
+    conf.localError(info, ExternalReport(
+      kind: rextExpectedOnOrOff, cmdlineProvided: arg))
 
 proc processOnOffSwitchOrList(conf: ConfigRef; op: TOptions, arg: string, pass: TCmdLinePass,
-                              info: TLineInfo): bool =
+                              info: TLineInfo, switch: string): bool =
   result = false
   case arg.normalize
   of "on": conf.options.incl op
   of "off": conf.options.excl op
   of "list": result = true
-  else: localError(conf, info, errOnOffOrListExpectedButXFound % arg)
+  else:
+    conf.localError ExternalReport(
+      kind: rextExpectedOnOrOffOrList, cmdlineProvided: arg, cmdlineSwitch: switch)
 
 proc processOnOffSwitchG(conf: ConfigRef; op: TGlobalOptions, arg: string, pass: TCmdLinePass,
-                         info: TLineInfo) =
+                         info: TLineInfo, switch: string) =
   case arg.normalize
   of "", "on": conf.globalOptions.incl op
   of "off": conf.globalOptions.excl op
-  else: localError(conf, info, errOnOrOffExpectedButXFound % arg)
+  else:
+    conf.localError ExternalReport(
+      kind: rextExpectedOnOrOff, cmdlineProvided: arg, cmdlineSwitch: switch)
 
 proc expectArg(conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, info: TLineInfo) =
   if arg == "":
-    localError(conf, info, "argument for command line option expected: '$1'" % addPrefix(switch))
+    conf.localError ExternalReport(
+      kind: rextExpectedCmdArgument, cmdlineProvided: switch, cmdlineSwitch: switch)
 
 proc expectNoArg(conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, info: TLineInfo) =
   if arg != "":
-    localError(conf, info, "invalid argument for command line option: '$1'" % addPrefix(switch))
+    conf.localError ExternalReport(
+      kind: rextExpectedNoCmdArgument, cmdlineProvided: switch, cmdlineSwitch: switch)
 
 proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
                          info: TLineInfo; orig: string; conf: ConfigRef) =
   var id = ""  # arg = key or [key] or key:val or [key]:val;  with val=on|off
   var i = 0
-  var notes: set[TMsgKind]
+  var notes: ReportKinds
   var isBracket = false
   if i < arg.len and arg[i] == '[':
     isBracket = true
@@ -211,26 +223,44 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
   else: invalidCmdLineOption(conf, pass, orig, info)
 
   let isSomeHint = state in {wHint, wHintAsError}
-  template findNote(noteMin, noteMax, name) =
+  template findNote(noteSet: ReportKinds, name: string, onFail: ReportKind) =
     # unfortunately, hintUser and warningUser clash, otherwise implementation would simplify a bit
-    let x = findStr(noteMin, noteMax, id, errUnknown)
-    if x != errUnknown: notes = {TNoteKind(x)}
-    else: localError(conf, info, "unknown $#: $#" % [name, id])
-  case id.normalize
-  of "all": # other note groups would be easy to support via additional cases
-    notes = if isSomeHint: {hintMin..hintMax} else: {warnMin..warnMax}
-  elif isSomeHint: findNote(hintMin, hintMax, "hint")
-  else: findNote(warnMin, warnMax, "warning")
+    let x: ReportKind = findStr(noteSet, id, onFail)
+    if x != onFail:
+      notes = {ReportKind(x)}
+
+    else:
+      conf.localError ExternalReport(
+        kind: onFail, cmdlineProvided: id)
+
+  case id.normalize:
+    of "all": # other note groups would be easy to support via additional cases
+      if isSomeHint:
+        notes = repHints
+
+      else:
+        notes = repWarnings
+
+    elif isSomeHint:
+      findNote(repHints, "hint", rextInvalidHint)
+
+    else:
+      findNote(repWarnings, "warning", rextInvalidWarning)
+
   var val = substr(arg, i).normalize
-  if val == "": val = "on"
+  if val == "":
+    val = "on"
+
   if val notin ["on", "off"]:
     # xxx in future work we should also allow users to have control over `foreignPackageNotes`
     # so that they can enable `hints|warnings|warningAsErrors` for all the code they depend on.
-    localError(conf, info, errOnOrOffExpectedButXFound % arg)
+    conf.localError ExternalReport(kind: rextExpectedOnOrOff, cmdlineProvided: arg)
+
   else:
     let isOn = val == "on"
     if isOn and id.normalize == "all":
-      localError(conf, info, "only 'all:off' is supported")
+      conf.localError ExternalReport(kind: rextOnlyAllOffSupported)
+
     for n in notes:
       if n notin conf.cmdlineNotes or pass == passCmd1:
         if pass == passCmd1: incl(conf.cmdlineNotes, n)
@@ -254,20 +284,17 @@ const
   errInvalidExceptionSystem = "'goto', 'setjump', 'cpp' or 'quirky' expected, but '$1' found"
 
 template warningOptionNoop(switch: string) =
-  conf.report(
+  conf.localReport(info,
     InternalReport(
-      kind: rintDeprecated,
-      msg: "'$#' is deprecated, now a noop" % switch),
-    instantiationInfo(fullPaths = true),
-    location = some toReportLinePoint(info))
+      kind: rextDeprecated,
+      msg: "'$#' is deprecated, now a noop" % switch))
 
 template deprecatedAlias(oldName, newName: string) =
-  conf.report(
+  conf.localReport(
+    info,
     InternalReport(
-      kind: rintDeprecated,
-      msg: "'$#' is a deprecated alias for '$#'" % [oldName, newName]),
-    instantiationInfo(fullPaths = true),
-    location = some toReportLinePoint(info))
+      kind: rextDeprecated,
+      msg: "'$#' is a deprecated alias for '$#'" % [oldName, newName]))
 
 proc testCompileOptionArg*(conf: ConfigRef; switch, arg: string, info: TLineInfo): bool =
   case switch.normalize
@@ -283,13 +310,27 @@ proc testCompileOptionArg*(conf: ConfigRef; switch, arg: string, info: TLineInfo
     of "none": result = conf.selectedGC == gcNone
     of "stack", "regions": result = conf.selectedGC == gcRegions
     of "v2", "generational": warningOptionNoop(arg)
-    else: localError(conf, info, errNoneBoehmRefcExpectedButXFound % arg)
+    else:
+      conf.localError(info, ExternalReport(
+        kind: rextUnexpectedValue,
+        cmdlineProvided: arg,
+        cmdlineSwitch: "gc",
+        cmdlineAllowed: @[
+          "boehm", "refc", "markandsweep", "destructors", "arc", "orc",
+          "hooks", "go", "none", "stack", "regision", "v2", "generational"]))
+
   of "opt":
     case arg.normalize
     of "speed": result = contains(conf.options, optOptimizeSpeed)
     of "size": result = contains(conf.options, optOptimizeSize)
     of "none": result = conf.options * {optOptimizeSpeed, optOptimizeSize} == {}
-    else: localError(conf, info, errNoneSpeedOrSizeExpectedButXFound % arg)
+    else:
+      conf.localError(info, ExternalReport(
+        kind: rextUnexpectedValue,
+        cmdlineSwitch: "opt",
+        cmdlineProvided: arg,
+        cmdlineAllowed: @["speed", "size", "none"]))
+
   of "verbosity": result = $conf.verbosity == arg
   of "app":
     case arg.normalize
@@ -299,7 +340,13 @@ proc testCompileOptionArg*(conf: ConfigRef; switch, arg: string, info: TLineInfo
                       not contains(conf.globalOptions, optGenGuiApp)
     of "staticlib": result = contains(conf.globalOptions, optGenStaticLib) and
                       not contains(conf.globalOptions, optGenGuiApp)
-    else: localError(conf, info, errGuiConsoleOrLibExpectedButXFound % arg)
+    else:
+      conf.localError(info, ExternalReport(
+        kind: rextUnexpectedValue,
+        cmdlineSwitch: "app",
+        cmdlineProvided: arg,
+        cmdlineAllowed: @["gui", "console", "lib", "staticlib"]))
+
   of "dynliboverride":
     result = isDynlibOverride(conf, arg)
   of "exceptions":
@@ -308,7 +355,13 @@ proc testCompileOptionArg*(conf: ConfigRef; switch, arg: string, info: TLineInfo
     of "setjmp": result = conf.exc == excSetjmp
     of "quirky": result = conf.exc == excQuirky
     of "goto": result = conf.exc == excGoto
-    else: localError(conf, info, errInvalidExceptionSystem % arg)
+    else:
+      conf.localError(info, ExternalReport(
+        kind: rextUnexpectedValue,
+        cmdlineSwitch: "exceptions",
+        cmdlineProvided: arg,
+        cmdlineAllowed: @["cpp", "setjmp", "quirky", "goto"]))
+
   else: invalidCmdLineOption(conf, passCmd1, switch, info)
 
 proc testCompileOption*(conf: ConfigRef; switch: string, info: TLineInfo): bool =
@@ -337,7 +390,8 @@ proc testCompileOption*(conf: ConfigRef; switch: string, info: TLineInfo): bool 
   of "rangechecks": result = contains(conf.options, optRangeCheck)
   of "boundchecks": result = contains(conf.options, optBoundsCheck)
   of "refchecks":
-    warningDeprecated(conf, info, "refchecks is deprecated!")
+    conf.localReport ExternalReport(
+      kind: rextDeprecated, msg: "refchecks option is deprecated")
     result = contains(conf.options, optRefCheck)
   of "overflowchecks": result = contains(conf.options, optOverflowCheck)
   of "staticboundchecks": result = contains(conf.options, optStaticBoundsCheck)
@@ -606,19 +660,19 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     if pass in {passCmd2, passPP}:
       addExternalFileToLink(conf, AbsoluteFile arg)
   of "debuginfo":
-    processOnOffSwitchG(conf, {optCDebug}, arg, pass, info)
+    processOnOffSwitchG(conf, {optCDebug}, arg, pass, info, switch)
   of "embedsrc":
-    processOnOffSwitchG(conf, {optEmbedOrigSrc}, arg, pass, info)
+    processOnOffSwitchG(conf, {optEmbedOrigSrc}, arg, pass, info, switch)
   of "compileonly", "c":
-    processOnOffSwitchG(conf, {optCompileOnly}, arg, pass, info)
+    processOnOffSwitchG(conf, {optCompileOnly}, arg, pass, info, switch)
   of "nolinking":
-    processOnOffSwitchG(conf, {optNoLinking}, arg, pass, info)
+    processOnOffSwitchG(conf, {optNoLinking}, arg, pass, info, switch)
   of "nomain":
-    processOnOffSwitchG(conf, {optNoMain}, arg, pass, info)
+    processOnOffSwitchG(conf, {optNoMain}, arg, pass, info, switch)
   of "forcebuild", "f":
-    processOnOffSwitchG(conf, {optForceFullMake}, arg, pass, info)
+    processOnOffSwitchG(conf, {optForceFullMake}, arg, pass, info, switch)
   of "project":
-    processOnOffSwitchG(conf, {optWholeProject, optGenIndex}, arg, pass, info)
+    processOnOffSwitchG(conf, {optWholeProject, optGenIndex}, arg, pass, info, switch)
   of "gc":
     if conf.backend == backendJs: return # for: bug #16033
     expectArg(conf, switch, arg, pass, info)
@@ -674,20 +728,22 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       of "v2": warningOptionNoop(arg)
       else: localError(conf, info, errNoneBoehmRefcExpectedButXFound % arg)
   of "warnings", "w":
-    if processOnOffSwitchOrList(conf, {optWarns}, arg, pass, info): listWarnings(conf)
+    if processOnOffSwitchOrList(conf, {optWarns}, arg, pass, info, switch): 
+      listWarnings(conf)
   of "warning": processSpecificNote(arg, wWarning, pass, info, switch, conf)
   of "hint": processSpecificNote(arg, wHint, pass, info, switch, conf)
   of "warningaserror": processSpecificNote(arg, wWarningAsError, pass, info, switch, conf)
   of "hintaserror": processSpecificNote(arg, wHintAsError, pass, info, switch, conf)
   of "hints":
-    if processOnOffSwitchOrList(conf, {optHints}, arg, pass, info): listHints(conf)
+    if processOnOffSwitchOrList(conf, {optHints}, arg, pass, info, switch): 
+      listHints(conf)
   of "threadanalysis":
     if conf.backend == backendJs: discard
-    else: processOnOffSwitchG(conf, {optThreadAnalysis}, arg, pass, info)
-  of "stacktrace": processOnOffSwitch(conf, {optStackTrace}, arg, pass, info)
-  of "stacktracemsgs": processOnOffSwitch(conf, {optStackTraceMsgs}, arg, pass, info)
-  of "excessivestacktrace": processOnOffSwitchG(conf, {optExcessiveStackTrace}, arg, pass, info)
-  of "linetrace": processOnOffSwitch(conf, {optLineTrace}, arg, pass, info)
+    else: processOnOffSwitchG(conf, {optThreadAnalysis}, arg, pass, info, switch)
+  of "stacktrace": processOnOffSwitch(conf, {optStackTrace}, arg, pass, info, switch)
+  of "stacktracemsgs": processOnOffSwitch(conf, {optStackTraceMsgs}, arg, pass, info, switch)
+  of "excessivestacktrace": processOnOffSwitchG(conf, {optExcessiveStackTrace}, arg, pass, info, switch)
+  of "linetrace": processOnOffSwitch(conf, {optLineTrace}, arg, pass, info, switch)
   of "debugger":
     case arg.normalize
     of "on", "native", "gdb":
@@ -703,15 +759,15 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     conf.options.incl optLineDir
     #defineSymbol(conf.symbols, "nimTypeNames") # type names are used in gdb pretty printing
   of "profiler":
-    processOnOffSwitch(conf, {optProfiler}, arg, pass, info)
+    processOnOffSwitch(conf, {optProfiler}, arg, pass, info, switch)
     if optProfiler in conf.options: defineSymbol(conf.symbols, "profiler")
     else: undefSymbol(conf.symbols, "profiler")
   of "memtracker":
-    processOnOffSwitch(conf, {optMemTracker}, arg, pass, info)
+    processOnOffSwitch(conf, {optMemTracker}, arg, pass, info, switch)
     if optMemTracker in conf.options: defineSymbol(conf.symbols, "memtracker")
     else: undefSymbol(conf.symbols, "memtracker")
   of "hotcodereloading":
-    processOnOffSwitchG(conf, {optHotCodeReloading}, arg, pass, info)
+    processOnOffSwitchG(conf, {optHotCodeReloading}, arg, pass, info, switch)
     if conf.hcrOn:
       defineSymbol(conf.symbols, "hotcodereloading")
       defineSymbol(conf.symbols, "useNimRtl")
@@ -724,28 +780,28 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       undefSymbol(conf.symbols, "useNimRtl")
   of "checks", "x": processOnOffSwitch(conf, ChecksOptions, arg, pass, info)
   of "floatchecks":
-    processOnOffSwitch(conf, {optNaNCheck, optInfCheck}, arg, pass, info)
-  of "infchecks": processOnOffSwitch(conf, {optInfCheck}, arg, pass, info)
-  of "nanchecks": processOnOffSwitch(conf, {optNaNCheck}, arg, pass, info)
-  of "objchecks": processOnOffSwitch(conf, {optObjCheck}, arg, pass, info)
-  of "fieldchecks": processOnOffSwitch(conf, {optFieldCheck}, arg, pass, info)
-  of "rangechecks": processOnOffSwitch(conf, {optRangeCheck}, arg, pass, info)
-  of "boundchecks": processOnOffSwitch(conf, {optBoundsCheck}, arg, pass, info)
+    processOnOffSwitch(conf, {optNaNCheck, optInfCheck}, arg, pass, info, switch)
+  of "infchecks": processOnOffSwitch(conf, {optInfCheck}, arg, pass, info, switch)
+  of "nanchecks": processOnOffSwitch(conf, {optNaNCheck}, arg, pass, info, switch)
+  of "objchecks": processOnOffSwitch(conf, {optObjCheck}, arg, pass, info, switch)
+  of "fieldchecks": processOnOffSwitch(conf, {optFieldCheck}, arg, pass, info, switch)
+  of "rangechecks": processOnOffSwitch(conf, {optRangeCheck}, arg, pass, info, switch)
+  of "boundchecks": processOnOffSwitch(conf, {optBoundsCheck}, arg, pass, info, switch)
   of "refchecks":
     warningDeprecated(conf, info, "refchecks is deprecated!")
-    processOnOffSwitch(conf, {optRefCheck}, arg, pass, info)
-  of "overflowchecks": processOnOffSwitch(conf, {optOverflowCheck}, arg, pass, info)
-  of "staticboundchecks": processOnOffSwitch(conf, {optStaticBoundsCheck}, arg, pass, info)
-  of "stylechecks": processOnOffSwitch(conf, {optStyleCheck}, arg, pass, info)
-  of "linedir": processOnOffSwitch(conf, {optLineDir}, arg, pass, info)
-  of "assertions", "a": processOnOffSwitch(conf, {optAssert}, arg, pass, info)
+    processOnOffSwitch(conf, {optRefCheck}, arg, pass, info, switch)
+  of "overflowchecks": processOnOffSwitch(conf, {optOverflowCheck}, arg, pass, info, switch)
+  of "staticboundchecks": processOnOffSwitch(conf, {optStaticBoundsCheck}, arg, pass, info, switch)
+  of "stylechecks": processOnOffSwitch(conf, {optStyleCheck}, arg, pass, info, switch)
+  of "linedir": processOnOffSwitch(conf, {optLineDir}, arg, pass, info, switch)
+  of "assertions", "a": processOnOffSwitch(conf, {optAssert}, arg, pass, info, switch)
   of "threads":
     if conf.backend == backendJs: discard
-    else: processOnOffSwitchG(conf, {optThreads}, arg, pass, info)
+    else: processOnOffSwitchG(conf, {optThreads}, arg, pass, info, switch)
     #if optThreads in conf.globalOptions: conf.setNote(warnGcUnsafe)
-  of "tlsemulation": processOnOffSwitchG(conf, {optTlsEmulation}, arg, pass, info)
+  of "tlsemulation": processOnOffSwitchG(conf, {optTlsEmulation}, arg, pass, info, switch)
   of "implicitstatic":
-    processOnOffSwitch(conf, {optImplicitStatic}, arg, pass, info)
+    processOnOffSwitch(conf, {optImplicitStatic}, arg, pass, info, switch)
   of "patterns", "trmacros":
     if switch.normalize == "patterns": deprecatedAlias(switch, "trmacros")
     processOnOffSwitch(conf, {optTrMacros}, arg, pass, info)
@@ -823,20 +879,27 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     expectArg(conf, switch, arg, pass, info)
     let theOS = platform.nameToOS(arg)
     if theOS == osNone:
-      let osList = platform.listOSnames().join(", ")
-      localError(conf, info, "unknown OS: '$1'. Available options are: $2" % [arg, $osList])
+      conf.localError(info, ExternalReport(
+        kind: rextUnexpectedValue,
+        cmdlineProvided: arg,
+        cmdlineSwitch: "os",
+        cmdlineAllowed: platform.listOSnames()))
     else:
       setTarget(conf.target, theOS, conf.target.targetCPU)
   of "cpu":
     expectArg(conf, switch, arg, pass, info)
     let cpu = platform.nameToCPU(arg)
     if cpu == cpuNone:
-      let cpuList = platform.listCPUnames().join(", ")
-      localError(conf, info, "unknown CPU: '$1'. Available options are: $2" % [ arg, cpuList])
+      conf.localError(info, ExternalReport(
+        kind: rextUnexpectedValue,
+        cmdlineProvided: arg,
+        cmdlineSwitch: "cpu",
+        cmdlineAllowed: platform.listCPUnames()))
+
     else:
       setTarget(conf.target, conf.target.targetOS, cpu)
   of "run", "r":
-    processOnOffSwitchG(conf, {optRun}, arg, pass, info)
+    processOnOffSwitchG(conf, {optRun}, arg, pass, info, switch)
   of "maxloopiterationsvm":
     expectArg(conf, switch, arg, pass, info)
     conf.maxLoopIterationsVM = parseInt(arg)
@@ -852,7 +915,12 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     expectArg(conf, switch, arg, pass, info)
     let verbosity = parseInt(arg)
     if verbosity notin {0..3}:
-      localError(conf, info, "invalid verbosity level: '$1'" % arg)
+      conf.localError(info, ExternalReport(
+        kind: rextUnexpectedValue,
+        cmdlineProvided: arg,
+        cmdlineSwitch: "verbosity",
+        cmdlineAllowed: @["0", "1", "2", "3"]))
+
     conf.verbosity = verbosity
     var verb = NotesVerbosity[conf.verbosity]
     ## We override the default `verb` by explicitly modified (set/unset) notes.

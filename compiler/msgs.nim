@@ -228,6 +228,11 @@ proc toFullPath*(conf: ConfigRef; fileIdx: FileIndex): string =
   else:
     result = conf.m.fileInfos[fileIdx.int32].fullPath.string
 
+proc toReportLinePoint*(conf: ConfigRef, info: TLineInfo): ReportLinePoint =
+  ReportLinePoint(
+    file: conf.toFullPath(info.fileIndex),
+     line: info.line.int, col: info.col.int)
+
 proc setDirtyFile*(conf: ConfigRef; fileIdx: FileIndex; filename: AbsoluteFile) =
   assert fileIdx.int32 >= 0
   conf.m.fileInfos[fileIdx.int32].dirtyFile = filename
@@ -555,22 +560,29 @@ template globalError*(
   conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   ## `local` means compilation keeps going until errorMax is reached (via
   ## `doNothing`), `global` means it stops.
-  handleReport(conf, wrap(report, instLoc(), info), doNothing)
+  handleReport(
+    conf, wrap(report, instLoc(), conf.toReportLineInfo(info)), doNothing)
 
 template globalError*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doRaise)
 
 template localError*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
-  handleReport(conf, wrap(report, instLoc(), info), doNothing)
+  handleReport(
+    conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
 
 template localError*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
-  handleReport(conf, wrap(report, instLoc(), info), doNothing)
+  handleReport(
+    conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
 
 template localError*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doNothing)
 
 template localReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doNothing)
+
+template localReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
+  handleReport(
+    conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
 
 template internalAssert*(conf: ConfigRef, e: bool, failMsg: string) =
   if not e:

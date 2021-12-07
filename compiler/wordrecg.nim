@@ -7,11 +7,10 @@
 #    distribution, for details about the copyright.
 #
 
-# This module contains a word recognizer, i.e. a simple
-# procedure which maps special words to an enumeration.
-# It is primarily needed because Pascal's case statement
-# does not support strings. Without this the code would
-# be slow and unreadable.
+## This module contains a word recognizer, i.e. a simple procedure which
+## maps special words to an enumeration. It is primarily needed because
+## Pascal's case statement does not support strings. Without this the code
+## would be slow and unreadable.
 
 type
   TSpecialWord* = enum
@@ -146,3 +145,10 @@ else:
       if cmpIgnoreStyle($i, s) == 0:
         return i
     result = default
+
+from strutils import cmpIgnoreStyle
+proc findStr*[T: enum](values: set[T], s: string, default: T): T {.deprecated.} =
+  for i in items(values):
+    if cmpIgnoreStyle($i, s) == 0:
+      return i
+  result = default

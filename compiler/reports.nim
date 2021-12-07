@@ -81,9 +81,6 @@ type
     rintQuitCalled = "QuitCalled" ## `quit()` called by the macro code
 
     rintAssert ## Failed internal assert in the compiler
-    rintDeprecated ## Report about use of the deprecated feature that is
-                   ## not in the semantic pass. Things like deprecated
-                   ## flags, compiler commands and so on.
     rintSource = "Source" ## Show source in the report
                           # REFACTOR this is a global configuration option,
                           # not a hint.
@@ -94,6 +91,30 @@ type
     # External reports
 
     rextUnknownCCompiler
+    rextInvalidCommandLineOption ## Invalid command-line option passed to
+                                 ## the compiler
+    rextInvalidHint
+    rextInvalidWarning
+
+    rextOnlyAllOffSupported ## Only `all:off` is supported for mass
+    ## hint/warning modification. Separate diagnostics must be enabled on
+    ## one-by-one basis.
+    rextExpectedOnOrOff ## Command-line option expected 'on' or 'off' value
+    rextExpectedOnOrOffOrList ## Command-line option expected 'on', 'off'
+    ## or 'list' value.
+    rextExpectedCmdArgument ## Command-line option expected argument
+    rextExpectedNoCmdArgument ## Command-line option expected no arguments
+    rextInvalidPackageName ## When adding packages from the `--nimbleDir`
+    ## (or it's default value), names are validated. This error is
+    ## generated if package name is not correct.
+    rextUnexpectedValue ## Command-line argument had value, but it did not
+    ## match with any expected.
+
+    rextDeprecated ## Report about use of the deprecated feature that is
+    ## not in the semantic pass. Things like deprecated flags, compiler
+    ## commands and so on.
+
+
     rextConf = "Conf" ## Processing user configutation file
     rextPath = "Path" ## Add nimble path
 
@@ -283,7 +304,7 @@ type
         lrange*: ReportLineRange
 
       of false:
-        rpoint*: ReportLinePoint
+        lpoint*: ReportLinePoint
 
   ReportSeverity* = enum
     rsevDebug ## Internal compiler debug information
@@ -551,6 +572,27 @@ type
         knownCompilers*: string
         passedCompiler*: string
 
+      of rextInvalidCommandLineOption,
+         rextExpectedOnOrOff,
+         rextInvalidHint,
+         rextExpectedOnOrOffOrList,
+         rextExpectedCmdArgument,
+         rextExpectedNoCmdArgument,
+         rextInvalidWarning,
+         rextUnexpectedValue:
+        cmdlineSwitch*: string ## Switch in processing
+        cmdlineProvided*: string ## Value passed to the command-line
+        cmdlineAllowed*: seq[string] ## Allowed command-line values
+
+      of rextDeprecated:
+        msg*: string
+
+      of rextInvalidPackageName:
+        packageName*: string
+
+      of rextPath:
+        packagePath*: string
+
       else:
         discard
 
@@ -731,7 +773,7 @@ func wrap*[R: ReportTypes](
     rep: sink R, iinfo: InstantiationInfo, point: ReportLinePoint): Report =
   var tmp = rep
   tmp.reportInst = toReportLinePoint(iinfo)
-  tmp.location = some point
+  tmp.location = some(ReportLineInfo(isRange: false, lpoint: point))
   return wrap(tmp)
 
 

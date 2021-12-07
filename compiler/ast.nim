@@ -1191,13 +1191,6 @@ template typeCompleted*(s: PSym) =
 template detailedInfo*(sym: PSym): string =
   sym.name.s
 
-proc toSemReportEntry*(conf: ConfigRef, sym: PSym): SemReportEntry =
-  ## Generate sem report entry from the symbol
-  result = SemReportEntry(
-    kind: sym.kind,
-    declaredIn: conf.toReportPoint(sym.info),
-    name: sym.name.s)
-
 proc isInlineIterator*(typ: PType): bool {.inline.} =
   typ.kind == tyProc and tfIterator in typ.flags and typ.callConv != ccClosure
 
