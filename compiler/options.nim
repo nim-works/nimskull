@@ -467,7 +467,7 @@ proc hasHint*(conf: ConfigRef, note: ReportKind): bool =
   if optHints notin conf.options:
     false
 
-  elif note in {rintConf, rsemProcessing}:
+  elif note in {rextConf, rsemProcessing}:
     # could add here other special notes like hintSource
     # these notes apply globally.
     note in conf.mainPackageNotes
@@ -488,7 +488,8 @@ when false:
     fn(globalOptions)
     fn(selectedGC)
 
-const oldExperimentalFeatures* = {implicitDeref, dotOperators, callOperator, parallel}
+const oldExperimentalFeatures* = {
+  implicitDeref, dotOperators, callOperator, parallel}
 
 const
   ChecksOptions* = {optObjCheck, optFieldCheck, optRangeCheck,

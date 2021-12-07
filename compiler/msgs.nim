@@ -557,14 +557,20 @@ template globalError*(
   ## `doNothing`), `global` means it stops.
   handleReport(conf, wrap(report, instLoc(), info), doNothing)
 
-template globalError*(conf: ConfigRef; info: TLineInfo, arg: string) =
-  handleReport(conf, wrap(report, instLoc(), info), doRaise)
+template globalError*(conf: ConfigRef, report: ReportTypes) =
+  handleReport(conf, wrap(report, instLoc()), doRaise)
 
 template localError*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc(), info), doNothing)
 
 template localError*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc(), info), doNothing)
+
+template localError*(conf: ConfigRef, report: ReportTypes) =
+  handleReport(conf, wrap(report, instLoc()), doNothing)
+
+template localReport*(conf: ConfigRef, report: ReportTypes) =
+  handleReport(conf, wrap(report, instLoc()), doNothing)
 
 template internalAssert*(conf: ConfigRef, e: bool, failMsg: string) =
   if not e:
@@ -576,8 +582,10 @@ template internalAssert*(conf: ConfigRef, e: bool, failMsg: string) =
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
   if i.fileIndex.int32 < 0:
     result = makeCString "???"
+
   elif optExcessiveStackTrace in conf.globalOptions:
     result = conf.m.fileInfos[i.fileIndex.int32].quotedFullName
+
   else:
     result = conf.m.fileInfos[i.fileIndex.int32].quotedName
 
@@ -597,6 +605,7 @@ proc uniqueModuleName*(conf: ConfigRef; fid: FileIndex): string =
       relativeTo(path, conf.libpath).string
     else:
       relativeTo(path, conf.projectPath).string
+
   let trunc = if rel.endsWith(".nim"): rel.len - len(".nim") else: rel.len
   result = newStringOfCap(trunc)
   for i in 0..<trunc:

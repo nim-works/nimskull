@@ -50,6 +50,9 @@ type
 
     repBackend ## Backend-specific reports.
 
+    repExternal ## Report constructed during handling of the external
+    ## configuration, command-line flags, packages, modules.
+
 
   ReportKind* = enum
     ## Toplevel enum for different categories. Order of definitions is
@@ -84,10 +87,18 @@ type
     rintSource = "Source" ## Show source in the report
                           # REFACTOR this is a global configuration option,
                           # not a hint.
-    rintConf = "Conf" ## Processing user configutation file
-    rintPath = "Path" ## Add nimble path
     rintSuccessX ## Succesfull compilation
     # internal reports end
+
+    #--------------------------  External reports  ---------------------------#
+    # External reports
+
+    rextUnknownCCompiler
+    rextConf = "Conf" ## Processing user configutation file
+    rextPath = "Path" ## Add nimble path
+
+
+    # external reports end
 
     #----------------------------  Lexer reports  ----------------------------#
     # Lexer report begin
@@ -222,18 +233,35 @@ type
     # end
 
     #------------------------  Command report kinds  -------------------------#
-    rcmdTest
+    rcmdExecuting
+    rcmdFailedExecution
+    rcmdCC
 
     #----------------------------  Debug reports  ----------------------------#
     rdbgTest
 
     #---------------------------  Backend reports  ---------------------------#
+    # errors start
+    rbackCannotWriteScript ## Cannot write build script to a cache file
+    rbackCannotWriteMappingFile ## Canot write module compilation mapping
+    ## file to cache directory
+    rbackTargetNotSupported ## C compiler does not support requested target
+    rbackJsonScriptMismatch # ??? used in `extccomp.nim`, TODO figure out
+    # what the original mesage was responsible for exactly
+    rbackCannotProduceAssembly
+    # errors end
+
+    # hints start
+    rbackProducedAssembly
+
     rbackLinking
     rbackCompilingExtraFile ## Compiling file specified in the
     ## `{.compile:.}` pragma
 
+
     rbackUseDynLib ## Use of the dynamic library for cgen. Used in the
     ## `cgen.loadDynamicLib`
+    # hints end
 
   ReportKinds* = set[ReportKind]
 
@@ -458,9 +486,20 @@ func severity*(report: SemReport): ReportSeverity =
     else: assert false
 
 type
-  CmdReportKind* = range[rcmdTest .. rcmdTest]
+  CmdReportKind* = range[rcmdExecuting .. rcmdFailedExecution]
   CmdReport* = object of ReportBase
-    kind*: ReportKind
+    cmd*: string
+    msg*: string
+    code*: int
+    case kind*: ReportKind
+      of rcmdFailedExecution:
+        exitOut*, exitErr*: string
+
+      of rcmdCC:
+        packageName*: string
+
+      else:
+        discard
 
 func severity*(report: CmdReport): ReportSeverity =
   rsevTrace
@@ -475,15 +514,52 @@ func severity*(report: DebugReport): ReportSeverity =
   rsevDebug
 
 type
-  BackendReportKind* = range[rbackLinking .. rbackUseDynLib]
-  BackendReport* = object
-    kind*: ReportKind
+  BackendReportKind* = range[rbackCannotWriteScript .. rbackUseDynLib]
+  BackendReport* = object of ReportBase
+    usedCompiler*: string
+    case kind*: ReportKind
+      of rbackCannotWriteScript,
+         rbackProducedAssembly,
+         rbackCannotWriteMappingFile:
+        filename*: string
+
+      of rbackTargetNotSupported:
+        requestedTarget*: string
+
+      of rbackJsonScriptMismatch:
+        jsonScriptParams*: tuple[
+          outputCurrent, output, jsonFile: string]
+
+      else:
+        discard
+
+const
+  rbackErrorKinds* = {rbackCannotWriteScript}
 
 func severity*(report: BackendReport): ReportSeverity =
+  case report.kind:
+    of rbackErrorKinds: rsevError
+    else: rsevTrace
+
+type
+  ExternalReportKind* = range[rextUnknownCCompiler .. rextPath]
+  ExternalReport* = object of ReportBase
+    ## Report about external environment reads, passed configuration
+    ## options etc.
+    case kind*: ReportKind
+      of rextUnknownCCompiler:
+        knownCompilers*: string
+        passedCompiler*: string
+
+      else:
+        discard
+
+
+func severity*(report: ExternalReport): ReportSeverity =
   rsevTrace
 
 type
-  InternalReportKind* = range[rintUnknown .. rintPath]
+  InternalReportKind* = range[rintUnknown .. rintSuccessX]
 
   UsedBuildParams* = object
     project*: string
@@ -501,9 +577,6 @@ type
 
       of false:
         discard
-
-
-
 
   InternalReport* = object of ReportBase
     ## Report generated for the internal compiler workings
@@ -544,7 +617,8 @@ type
     CmdReport      |
     DebugReport    |
     InternalReport |
-    BackendReport
+    BackendReport  |
+    ExternalReport
 
   Report* = object
     ## Toplevel wrapper type for the compiler report
@@ -570,15 +644,19 @@ type
       of repBackend:
         backendReport*: BackendReport
 
-func contains*(rset: ReportKinds, report: Report): bool =
+      of repExternal:
+        externalReport*: ExternalReport
+
+func kind*(report: Report): ReportKind =
   case report.category:
-    of repLexer:    report.lexReport.kind in rset
-    of repParser:   report.parserReport.kind in rset
-    of repCmd:      report.cmdReport.kind in rset
-    of repSem:      report.semReport.kind in rset
-    of repDebug:    report.debugReport.kind in rset
-    of repInternal: report.internalReport.kind in rset
-    of repBackend:  report.backendReport.kind in rset
+    of repLexer:    report.lexReport.kind
+    of repParser:   report.parserReport.kind
+    of repCmd:      report.cmdReport.kind
+    of repSem:      report.semReport.kind
+    of repDebug:    report.debugReport.kind
+    of repInternal: report.internalReport.kind
+    of repBackend:  report.backendReport.kind
+    of repExternal: report.externalReport.kind
 
 func severity*(
     report: Report,
@@ -588,8 +666,8 @@ func severity*(
   ## Return report severity accounting for 'asError' and 'asWarning'
   ## mapping sets.
 
-  if report in asError: rsevError
-  elif report in asWarning: rsevWarning
+  if report.kind in asError: rsevError
+  elif report.kind in asWarning: rsevWarning
   else:
     case report.category:
       of repLexer:    report.lexReport.severity()
@@ -599,6 +677,7 @@ func severity*(
       of repInternal: report.internalReport.severity()
       of repBackend:  report.backendReport.severity()
       of repDebug:    report.debugReport.severity()
+      of repExternal: report.externalReport.severity()
 
 func toReportLinePoint*(iinfo: InstantiationInfo): ReportLinePoint =
   ReportLinePoint(file: iinfo[0], line: iinfo[1], col: iinfo[2])
@@ -623,6 +702,10 @@ func wrap*(rep: sink SemReport): Report =
   assert rep.kind in {low(SemReportKind) .. high(SemReportKind)}
   Report(category: repSem, semReport: rep)
 
+func wrap*(rep: sink BackendReport): Report =
+  assert rep.kind in {low(BackendReportKind) .. high(BackendReportKind)}
+  Report(category: repBackend, backendReport: rep)
+
 func wrap*(rep: sink CmdReport): Report =
   assert rep.kind in {low(CmdReportKind) .. high(CmdReportKind)}
   Report(category: repCmd, cmdReport: rep)
@@ -634,6 +717,10 @@ func wrap*(rep: sink DebugReport): Report =
 func wrap*(rep: sink InternalReport): Report =
   assert rep.kind in {low(InternalReportKind) .. high(InternalReportKind)}
   Report(category: repInternal, internalReport: rep)
+
+func wrap*(rep: sink ExternalReport): Report =
+  assert rep.kind in {low(ExternalReportKind) .. high(ExternalReportKind)}
+  Report(category: repExternal, externalReport: rep)
 
 func wrap*[R: ReportTypes](rep: sink R, iinfo: InstantiationInfo): Report =
   var tmp = rep
