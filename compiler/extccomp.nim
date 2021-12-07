@@ -17,40 +17,41 @@ import ropes, platform, condsyms, options, msgs, lineinfos, pathutils
 import std/[os, strutils, osproc, sha1, streams, sequtils, times, strtabs, json, jsonutils, sugar]
 
 type
-  TInfoCCProp* = enum         # properties of the C compiler:
-    hasSwitchRange,           # CC allows ranges in switch statements (GNU C)
-    hasComputedGoto,          # CC has computed goto (GNU C extension)
-    hasCpp,                   # CC is/contains a C++ compiler
-    hasAssume,                # CC has __assume (Visual C extension)
-    hasGcGuard,               # CC supports GC_GUARD to keep stack roots
-    hasGnuAsm,                # CC's asm uses the absurd GNU assembler syntax
-    hasDeclspec,              # CC has __declspec(X)
-    hasAttribute,             # CC has __attribute__((X))
+  TInfoCCProp* = enum         ## properties of the C compiler:
+    hasSwitchRange            ## CC allows ranges in switch statements (GNU C)
+    hasComputedGoto           ## CC has computed goto (GNU C extension)
+    hasCpp                    ## CC is/contains a C++ compiler
+    hasAssume                 ## CC has `__assume` (Visual C extension)
+    hasGcGuard                ## CC supports GC_GUARD to keep stack roots
+    hasGnuAsm                 ## CC's asm uses the absurd GNU assembler syntax
+    hasDeclspec               ## CC has `__declspec(X)`
+    hasAttribute              ## CC has `__attribute__((X))`
+
   TInfoCCProps* = set[TInfoCCProp]
-  TInfoCC* = tuple[
-    name: string,        # the short name of the compiler
-    objExt: string,      # the compiler's object file extension
-    optSpeed: string,    # the options for optimization for speed
-    optSize: string,     # the options for optimization for size
-    compilerExe: string, # the compiler's executable
-    cppCompiler: string, # name of the C++ compiler's executable (if supported)
-    compileTmpl: string, # the compile command template
-    buildGui: string,    # command to build a GUI application
-    buildDll: string,    # command to build a shared library
-    buildLib: string,    # command to build a static library
-    linkerExe: string,   # the linker's executable (if not matching compiler's)
-    linkTmpl: string,    # command to link files to produce an exe
-    includeCmd: string,  # command to add an include dir
-    linkDirCmd: string,  # command to add a lib dir
-    linkLibCmd: string,  # command to link an external library
-    debug: string,       # flags for debug build
-    pic: string,         # command for position independent code
-                         # used on some platforms
-    asmStmtFrmt: string, # format of ASM statement
-    structStmtFmt: string, # Format for struct statement
-    produceAsm: string,  # Format how to produce assembler listings
-    cppXsupport: string, # what to do to enable C++X support
-    props: TInfoCCProps] # properties of the C compiler
+  TInfoCC* = object
+    name*: string           ## the short name of the compiler
+    objExt*: string         ## the compiler's object file extension
+    optSpeed*: string       ## the options for optimization for speed
+    optSize*: string        ## the options for optimization for size
+    compilerExe*: string    ## the compiler's executable
+    cppCompiler*: string    ## name of the C++ compiler's executable (if supported)
+    compileTmpl*: string    ## the compile command template
+    buildGui*: string       ## command to build a GUI application
+    buildDll*: string       ## command to build a shared library
+    buildLib*: string       ## command to build a static library
+    linkerExe*: string      ## the linker's executable (if not matching compiler's)
+    linkTmpl*: string       ## command to link files to produce an exe
+    includeCmd*: string     ## command to add an include dir
+    linkDirCmd*: string     ## command to add a lib dir
+    linkLibCmd*: string     ## command to link an external library
+    debug*: string          ## flags for debug build
+    pic*: string            ## command for position independent code
+                           ## used on some platforms
+    asmStmtFrmt*: string    ## format of ASM statement
+    structStmtFmt*: string  ## Format for struct statement
+    produceAsm*: string     ## Format how to produce assembler listings
+    cppXsupport*: string    ## what to do to enable C++X support
+    props*: TInfoCCProps    ## properties of the C compiler
 
 
 # Configuration settings for various compilers.
@@ -65,7 +66,7 @@ const
 
 # GNU C and C++ Compiler
 compiler gcc:
-  result = (
+  result = TInfoCC(
     name: "gcc",
     objExt: "o",
     optSpeed: " -O3 -fno-ident",
@@ -92,7 +93,7 @@ compiler gcc:
 
 # GNU C and C++ Compiler
 compiler nintendoSwitchGCC:
-  result = (
+  result = TInfoCC(
     name: "switch_gcc",
     objExt: "o",
     optSpeed: " -O3 ",
@@ -140,7 +141,7 @@ compiler clang:
 
 # Microsoft Visual C/C++ Compiler
 compiler vcc:
-  result = (
+  result = TInfoCC(
     name: "vcc",
     objExt: "obj",
     optSpeed: " /Ogityb2 ",
@@ -188,7 +189,7 @@ compiler icc:
 
 # Borland C Compiler
 compiler bcc:
-  result = (
+  result = TInfoCC(
     name: "bcc",
     objExt: "obj",
     optSpeed: " -O3 -6 ",
@@ -215,7 +216,7 @@ compiler bcc:
 
 # Tiny C Compiler
 compiler tcc:
-  result = (
+  result = TInfoCC(
     name: "tcc",
     objExt: "o",
     optSpeed: "",
@@ -241,7 +242,7 @@ compiler tcc:
 
 # Your C Compiler
 compiler envcc:
-  result = (
+  result = TInfoCC(
     name: "env",
     objExt: "o",
     optSpeed: " -O3 ",

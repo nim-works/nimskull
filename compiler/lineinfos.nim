@@ -18,7 +18,7 @@ from ast_types import
   TLineInfo,
   FileIndex # Forward-declared to avoid cyclic dependencies
 
-export FileIndex
+export FileIndex, TLineInfo
 
 import reports
 

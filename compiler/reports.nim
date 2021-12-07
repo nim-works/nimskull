@@ -299,7 +299,7 @@ type
 type
   LexerReportKind* = range[rlexLineTooLong .. rlexCodeEnd]
   LexerReport* = object of ReportBase
-    kind*: LexerReportKind
+    kind*: ReportKind
 
 const
   rlexHintKinds*: set[LexerReportKind] = {rlexLineTooLong}
@@ -312,7 +312,7 @@ func severity*(rep: LexerReport): ReportSeverity =
 type
   ParserReportKind* = range[rparInvalidIndentation .. rparName]
   ParserReport* = object of ReportBase
-    kind*: ParserReportKind
+    kind*: ReportKind
 
 const
   rparHintKinds* = {rparName}
@@ -431,7 +431,7 @@ type
   SemReport* = object of ReportBase
     expression*: Option[PNode] ## Rendered string representation of the
                                 ## expression in the report.
-    case kind*: SemReportKind
+    case kind*: ReportKind
       of rsemExpandMacro, rsemPattern:
         originalExpr*: PNode
 
@@ -452,14 +452,15 @@ const
 
 func severity*(report: SemReport): ReportSeverity =
   case report.kind:
-    of rsemErrorKinds: rsevError
-    of rsemWarningKinds: rsevWarning
-    of rsemHintKinds: rsevHint
+    of rsemErrorKinds: result = rsevError
+    of rsemWarningKinds: result = rsevWarning
+    of rsemHintKinds: result = rsevHint
+    else: assert false
 
 type
   CmdReportKind* = range[rcmdTest .. rcmdTest]
   CmdReport* = object of ReportBase
-    kind*: CmdReportKind
+    kind*: ReportKind
 
 func severity*(report: CmdReport): ReportSeverity =
   rsevTrace
@@ -468,7 +469,7 @@ type
   DebugReportKind* = range[rdbgTest .. rdbgTest]
 
   DebugReport* = object of ReportBase
-    kind*: DebugReportKind
+    kind*: ReportKind
 
 func severity*(report: DebugReport): ReportSeverity =
   rsevDebug
@@ -476,7 +477,7 @@ func severity*(report: DebugReport): ReportSeverity =
 type
   BackendReportKind* = range[rbackLinking .. rbackUseDynLib]
   BackendReport* = object
-    kind*: BackendReportKind
+    kind*: ReportKind
 
 func severity*(report: BackendReport): ReportSeverity =
   rsevTrace
@@ -507,7 +508,7 @@ type
   InternalReport* = object of ReportBase
     ## Report generated for the internal compiler workings
     msg*: string
-    case kind*: InternalReportKind
+    case kind*: ReportKind
       of rintStackTrace:
         trace*: seq[StackTraceEntry] ## Generated stack trace entries
 
@@ -611,21 +612,27 @@ template reportHere*[R: ReportTypes](report: R): R =
     tmp
 
 func wrap*(rep: sink LexerReport): Report =
+  assert rep.kind in {low(LexerReportKind) .. high(LexerReportKind)}
   Report(category: repLexer, lexReport: rep)
 
 func wrap*(rep: sink ParserReport): Report =
+  assert rep.kind in {low(ParserReportKind) .. high(ParserReportKind)}
   Report(category: repParser, parserReport: rep)
 
 func wrap*(rep: sink SemReport): Report =
+  assert rep.kind in {low(SemReportKind) .. high(SemReportKind)}
   Report(category: repSem, semReport: rep)
 
 func wrap*(rep: sink CmdReport): Report =
+  assert rep.kind in {low(CmdReportKind) .. high(CmdReportKind)}
   Report(category: repCmd, cmdReport: rep)
 
 func wrap*(rep: sink DebugReport): Report =
+  assert rep.kind in {low(DebugReportKind) .. high(DebugReportKind)}
   Report(category: repDebug, debugreport: rep)
 
 func wrap*(rep: sink InternalReport): Report =
+  assert rep.kind in {low(InternalReportKind) .. high(InternalReportKind)}
   Report(category: repInternal, internalReport: rep)
 
 func wrap*[R: ReportTypes](rep: sink R, iinfo: InstantiationInfo): Report =
