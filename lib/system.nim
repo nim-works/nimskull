@@ -1805,13 +1805,14 @@ when not declared(sysFatal):
 when not defined(nimscript):
   {.push stackTrace: off, profiler: off.}
 
-  proc atomicInc*(memLoc: var int, x: int = 1): int {.inline,
-    discardable, benign.}
-    ## Atomic increment of `memLoc`. Returns the value after the operation.
+  
+  # proc atomicInc*(memLoc: var int, x: int = 1; order: AtomMemModel = ATOMIC_RELAXED): int {.inline,
+  #   discardable, benign.}
+  #   ## Atomic increment of `memLoc`. Returns the value after the operation.
 
-  proc atomicDec*(memLoc: var int, x: int = 1): int {.inline,
-    discardable, benign.}
-    ## Atomic decrement of `memLoc`. Returns the value after the operation.
+  # proc atomicDec*(memLoc: var int, x: int = 1; order: AtomMemModel = ATOMIC_RELAXED): int {.inline,
+  #   discardable, benign.}
+  #   ## Atomic decrement of `memLoc`. Returns the value after the operation.
 
   include "system/atomics"
 

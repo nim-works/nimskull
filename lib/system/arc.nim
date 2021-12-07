@@ -121,7 +121,7 @@ proc nimDecWeakRef(p: pointer) {.compilerRtl, inl.} =
   # that no other thread is handling the ref anymore.
   template decOpr(x,y: untyped): untyped =
     when hasThreadSupport:
-      atomicDec(x, y)
+      atomicDec(x, y, ATOMIC_ACQ_REL)
     else:
       dec(x, y)
   
@@ -130,7 +130,7 @@ proc nimDecWeakRef(p: pointer) {.compilerRtl, inl.} =
 proc nimIncRef(p: pointer) {.compilerRtl, inl.} =
   template incOpr(x,y: untyped): untyped =
     when hasThreadSupport:
-      atomicInc(x, y)
+      atomicInc(x, y, ATOMIC_ACQ_REL)
     else:
       inc(x, y)
 
@@ -204,12 +204,12 @@ when defined(gcOrc):
 proc nimDecRefIsLast(p: pointer): bool {.compilerRtl, inl.} =
   template loadOpr(x: untyped): untyped =
     when hasThreadSupport:
-      atomicLoadN(x.addr, ATOMIC_RELAXED)
+      atomicLoadN(x.addr, ATOMIC_ACQUIRE)
     else:
       x
   template decOpr(x, y: untyped): untyped =
     when hasThreadSupport:
-      atomicDec(x, y)
+      atomicDec(x, y, ATOMIC_RELEASE)
     else:
       dec(x, y)
 
