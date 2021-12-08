@@ -4,16 +4,19 @@ joinable: false
 
 #[
 joinable: false
-because it'd need cleanup up stdout
+because it has to execute itself
 
 see also: tests/osproc/*.nim; consider merging those into a single test here
 (easier to factor and test more things as a single self contained test)
 ]#
 
-when defined(case_testfile): # compiled test file for child process
-  from posix import exitnow
+import stdtest/[specialpaths, unittest_light]
+import std/[os, osproc, streams, strtabs, strutils]
+from posix import exitnow
+
+proc exitTest(args: openArray[string]) =
+  ## Test various process exit methods?
   proc c_exit2(code: c_int): void {.importc: "_exit", header: "<unistd.h>".}
-  import os
   var a = 0
   proc fun(b = 0) =
     a.inc
@@ -21,43 +24,40 @@ when defined(case_testfile): # compiled test file for child process
       echo a
     fun(b+1)
 
-  proc main() =
-    let args = commandLineParams()
-    echo (msg: "child binary", pid: getCurrentProcessId())
-    let arg = args[0]
-    echo (arg: arg)
-    case arg
-    of "exit_0":
-      if true: quit(0)
-    of "exitnow_139":
-      if true: exitnow(139)
-    of "c_exit2_139":
-      if true: c_exit2(139)
-    of "quit_139":
-      # `exitStatusLikeShell` doesn't distinguish between a process that
-      # exit(139) and a process that gets killed with `SIGSEGV` because
-      # 139 = 11 + 128 = SIGSEGV + 128.
-      # However, as #10249 shows, this leads to bad debugging experience
-      # when a child process dies with SIGSEGV, leaving no trace of why it
-      # failed. The shell (and lldb debugger) solves that by inserting a
-      # helpful msg: `segmentation fault` when it detects a signal killed
-      # the child.
-      # todo: expose an API that will show more diagnostic, returning
-      # (exitCode, signal) instead of just `shellExitCode`.
-      if true: quit(139)
-    of "exit_recursion": # stack overflow by infinite recursion
-      fun()
-      echo a
-    of "exit_array": # bad array access
-      echo args[1]
-  main()
+  echo (msg: "child binary", pid: getCurrentProcessId())
+  let arg = args[0]
+  echo (arg: arg)
+  case arg
+  of "exit_0":
+    if true: quit(0)
+  of "exitnow_139":
+    if true: exitnow(139)
+  of "c_exit2_139":
+    if true: c_exit2(139)
+  of "quit_139":
+    # `exitStatusLikeShell` doesn't distinguish between a process that
+    # exit(139) and a process that gets killed with `SIGSEGV` because
+    # 139 = 11 + 128 = SIGSEGV + 128.
+    # However, as nim-lang/Nim#10249 shows, this leads to bad debugging
+    # experience when a child process dies with SIGSEGV, leaving no trace of
+    # why it failed. The shell (and lldb debugger) solves that by inserting a
+    # helpful msg: `segmentation fault` when it detects a signal killed the
+    # child.
+    # todo: expose an API that will show more diagnostic, returning
+    # (exitCode, signal) instead of just `shellExitCode`.
+    if true: quit(139)
+  of "exit_recursion": # stack overflow by infinite recursion
+    fun()
+    echo a
+  of "exit_array": # bad array access
+    echo args[1]
 
-elif defined(case_testfile2):
-  import strutils
+proc inputTest() =
+  ## Test input?
   let x = stdin.readLine()
   echo x.parseInt + 5
 
-elif defined(case_testfile3):
+proc outputTest() =
   echo "start ta_out"
   stdout.writeLine("to stdout")
   stdout.flushFile()
@@ -75,69 +75,69 @@ elif defined(case_testfile3):
   stdout.flushFile()
   echo "end ta_out"
 
-elif defined(case_testfile4):
-  import system # we could remove that
+proc exitFailTest() =
   quit(QuitFailure)
 
-else: # main driver
-  import stdtest/[specialpaths, unittest_light]
-  import os, osproc, strutils
-  const nim = getCurrentCompilerExe()
-  const sourcePath = currentSourcePath()
-  let dir = getCurrentDir() / "tests" / "osproc"
+proc printParamsTest() =
+  ## This test prints the current directory and all parameters
+  ##
+  ## Originally known as tests/stdlib/osproctest.nim
+  echo getCurrentDir()
 
-  template deferScoped(cleanup, body) =
-    # pending https://github.com/nim-lang/RFCs/issues/236#issuecomment-646855314
-    # xxx move to std/sugar or (preferably) some low level module
-    try: body
-    finally: cleanup
+  # Skip the first parameter, which is the dispatch
+  for i in 2..paramCount():
+    echo paramStr(i)
 
-  # we're testing `execShellCmd` so don't rely on it to compile test file
-  # note: this should be exported in posix.nim
-  proc c_system(cmd: cstring): cint {.importc: "system", header: "<stdlib.h>".}
+proc readAllTest() =
+  ## Reads everything from stdin then send it back to stdout.
+  ##
+  ## This test will block until stdin is closed.
+  let input = stdin.readAll()
+  stdout.write input
 
-  proc compileNimProg(opt: string, name: string): string =
-    result = buildDir / name.addFileExt(ExeExt)
-    let cmd = "$# c -o:$# --hints:off $# $#" % [nim.quoteShell, result.quoteShell, opt, sourcePath.quoteShell]
-    doAssert c_system(cmd) == 0, $cmd
-    doAssert result.fileExists
+const sourcePath = currentSourcePath()
+let dir = getCurrentDir() / "tests" / "osproc"
 
+template deferScoped(cleanup, body) =
+  # pending https://github.com/nim-lang/RFCs/issues/236#issuecomment-646855314
+  # xxx move to std/sugar or (preferably) some low level module
+  try: body
+  finally: cleanup
+
+proc default() =
+  ## The default behavior, which is to run the test
   block execShellCmdTest:
-    let output = compileNimProg("-d:release -d:case_testfile", "D20190111T024543")
-
-    ## use it
     template runTest(arg: string, expected: int) =
       echo (arg2: arg, expected2: expected)
-      assertEquals execShellCmd(output & " " & arg), expected
+      assertEquals execShellCmd(getAppFilename() & " exitTest " & arg), expected
 
     runTest("exit_0", 0)
     runTest("exitnow_139", 139)
     runTest("c_exit2_139", 139)
     runTest("quit_139", 139)
 
-  import std/streams
-
   block execProcessTest:
     let dir = sourcePath.parentDir
-    let (_, err) = execCmdEx(nim & " c " & quoteShell(dir / "osproctest.nim"))
-    doAssert err == 0
-    let exePath = dir / addFileExt("osproctest", ExeExt)
-    let outStr1 = execProcess(exePath, workingDir = dir, args = ["foo",
-        "b A r"], options = {})
+    let outStr1 = execProcess(getAppFilename(),
+                              workingDir = dir,
+                              args = ["printParamsTest", "foo", "b A r"],
+                              options = {})
     doAssert outStr1 == dir & "\nfoo\nb A r\n"
 
     const testDir = "t e st"
     createDir(testDir)
     doAssert dirExists(testDir)
-    let outStr2 = execProcess(exePath, workingDir = testDir, args = ["x yz"],
-        options = {})
+    let outStr2 = execProcess(getAppFilename(),
+                              workingDir = testDir,
+                              args = ["printParamsTest", "x yz"],
+                              options = {})
     doAssert outStr2 == absolutePath(testDir) & "\nx yz\n"
 
     removeDir(testDir)
 
     # test for PipeOutStream
     var
-      p = startProcess(exePath, args = ["abcdefghi", "foo", "bar", "0123456"])
+      p = startProcess(getAppFilename(), args = ["printParamsTest", "abcdefghi", "foo", "bar", "0123456"])
       outStrm = p.peekableOutputStream
 
     var tmp: string
@@ -172,7 +172,7 @@ else: # main driver
     doAssert tmp == "56\n2"
     p.close
 
-    p = startProcess(exePath, args = ["123"])
+    p = startProcess(getAppFilename(), args = ["printParamsTest", "123"])
     outStrm = p.peekableOutputStream
     let c = outStrm.peekChar
     doAssert outStrm.readLine(tmp)
@@ -185,11 +185,6 @@ else: # main driver
     doAssert outStrm.readData(addr tmp[0], 7) == 4
     doAssert tmp[0..3] == "123\n"
     p.close
-
-    try:
-      removeFile(exePath)
-    except OSError:
-      discard
 
   block: # test for startProcess (more tests needed)
     # bugfix: windows stdin.close was a noop and led to blocking reads
@@ -213,12 +208,11 @@ else: # main driver
           if result[1] != -1: break
       close(p)
 
-    var result = startProcessTest("nim r --hints:off -", options = {}, input = "echo 3*4")
-    doAssert result == ("12\n", 0)
+    var result = startProcessTest(quoteShellCommand([getAppFilename(), "readAllTest"]), options = {}, input = "echo 3*4\n")
+    doAssert result == ("echo 3*4\n", 0)
 
   block: # startProcess stdin (replaces old test `tstdin` + `ta_in`)
-    let output = compileNimProg("-d:case_testfile2", "D20200626T215919")
-    var p = startProcess(output, dir) # dir not needed though
+    var p = startProcess(getAppFilename(), args = ["inputTest"])
     p.inputStream.write("5\n")
     p.inputStream.flush()
     var line = ""
@@ -228,17 +222,16 @@ else: # main driver
     doAssert s == @["10"]
 
   block:
-    let output = compileNimProg("-d:case_testfile3", "D20200626T221233")
     var x = newStringOfCap(120)
     block: # startProcess stdout poStdErrToStdOut (replaces old test `tstdout` + `ta_out`)
-      var p = startProcess(output, dir, options={poStdErrToStdOut})
+      var p = startProcess(getAppFilename(), args=["outputTest"], options={poStdErrToStdOut})
       deferScoped: p.close()
       do:
         var sout: seq[string]
         while p.outputStream.readLine(x): sout.add x
         doAssert sout == @["start ta_out", "to stdout", "to stdout", "to stderr", "to stderr", "to stdout", "to stdout", "end ta_out"]
     block: # startProcess stderr (replaces old test `tstderr` + `ta_out`)
-      var p = startProcess(output, dir, options={})
+      var p = startProcess(getAppFilename(), args=["outputTest"], options={})
       deferScoped: p.close()
       do:
         var serr, sout: seq[string]
@@ -248,10 +241,9 @@ else: # main driver
         doAssert sout == @["start ta_out", "to stdout", "to stdout", "to stdout", "to stdout", "end ta_out"]
 
   block: # startProcess exit code (replaces old test `texitcode` + `tafalse`)
-    let output = compileNimProg("-d:case_testfile4", "D20200626T224758")
-    var p = startProcess(output, dir)
+    var p = startProcess(getAppFilename(), args=["exitFailTest"])
     doAssert waitForExit(p) == QuitFailure
-    p = startProcess(output, dir)
+    p = startProcess(getAppFilename(), args=["exitFailTest"])
     var running = true
     while running:
       # xxx: avoid busyloop?
@@ -259,18 +251,17 @@ else: # main driver
     doAssert waitForExit(p) == QuitFailure
 
     # make sure that first call to running() after process exit returns false
-    p = startProcess(output, dir)
+    p = startProcess(getAppFilename(), args=["exitFailTest"])
     for j in 0..<30: # refs #13449
       os.sleep(50)
       if not running(p): break
     doAssert not running(p)
     doAssert waitForExit(p) == QuitFailure # avoid zombies
 
-  import std/strtabs
   block execProcessTest:
-    var result = execCmdEx("nim r --hints:off -", options = {}, input = "echo 3*4")
+    var result = execCmdEx(quoteShellCommand([getAppFilename(), "readAllTest"]), options = {}, input = "echo 3*4\n")
     stripLineEnd(result[0])
-    doAssert result == ("12", 0)
+    doAssert result == ("echo 3*4", 0)
     when not defined(windows):
       doAssert execCmdEx("ls --nonexistent").exitCode != 0
     when false:
@@ -281,8 +272,7 @@ else: # main driver
       doAssert execCmdEx("echo $PWD", workingDir = "/") == ("/\n", 0)
 
   block: # bug #17749
-    let output = compileNimProg("-d:case_testfile4", "D20210417T011153")
-    var p = startProcess(output, dir)
+    var p = startProcess(getAppFilename(), args=["exitFailTest"])
     let inp = p.inputStream
     var count = 0
     when defined(windows):
@@ -298,3 +288,30 @@ else: # main driver
     doAssert count >= 100
     doAssert waitForExit(p) == QuitFailure
     close(p) # xxx isn't that missing in other places?
+
+proc main() =
+  ## Dispatches based on arguments passed to this program
+
+  let args = commandLineParams()
+
+  template shiftedArgs: untyped =
+    ## The argument list without the first argument, which is the dispatch
+    ## target
+    args.toOpenArray(1, args.len - 1)
+
+  # Execute the test runner as the default case
+  if args.len == 0:
+    default()
+  else:
+    let target = args[0] # The test program to run
+    case target
+    of "exitTest": exitTest(shiftedArgs)
+    of "inputTest": inputTest()
+    of "outputTest": outputTest()
+    of "exitFailTest": exitFailTest()
+    of "printParamsTest": printParamsTest()
+    of "readAllTest": readAllTest()
+    else:
+      doAssert false, "invalid dispatching target: " & target
+
+main()
