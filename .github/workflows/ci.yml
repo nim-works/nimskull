@@ -171,12 +171,7 @@ jobs:
         run: ./koch.py tools -d:release
 
       - name: Test tooling
-        run: |
-          # The tester requires `bin` to be in `PATH`
-          nim_bin_dir=$(python -c 'import os; print(os.path.abspath("bin"))')
-          export PATH=$nim_bin_dir:$PATH
-
-          ./koch.py testTools
+        run: ./koch.py testTools
 
   doc:
     name: Build HTML documentation
