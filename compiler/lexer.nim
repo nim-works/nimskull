@@ -7,17 +7,18 @@
 #    distribution, for details about the copyright.
 #
 
-# This lexer is handwritten for efficiency. I used an elegant buffering
-# scheme which I have not seen anywhere else:
-# We guarantee that a whole line is in the buffer. Thus only when scanning
-# the \n or \r character we have to check whether we need to read in the next
-# chunk. (\n or \r already need special handling for incrementing the line
-# counter; choosing both \n and \r allows the lexer to properly read Unix,
-# DOS or Macintosh text files, even when it is not the native format.
+## This lexer is handwritten for efficiency. I used an elegant buffering
+## scheme which I have not seen anywhere else: We guarantee that a whole
+## line is in the buffer. Thus only when scanning the `\n` or `\r`
+## character we have to check whether we need to read in the next chunk.
+## (`\n` or `\r` already need special handling for incrementing the line
+## counter; choosing both `\n` and `\r` allows the lexer to properly read
+## Unix, DOS or Macintosh text files, even when it is not the native
+## format.
 
 import
   hashes, options, msgs, strutils, platform, idents, nimlexbase, llstream,
-  wordrecg, lineinfos, pathutils, parseutils
+  wordrecg, lineinfos, pathutils, parseutils, reports
 
 const
   MaxLineLength* = 80         # lines longer than this lead to a warning
@@ -86,35 +87,35 @@ const
 
 type
   NumericalBase* = enum
-    base10,                   # base10 is listed as the first element,
-                              # so that it is the correct default value
+    base10,                   ## base10 is listed as the first element,
+                              ## so that it is the correct default value
     base2, base8, base16
 
-  Token* = object             # a Nim token
-    tokType*: TokType         # the type of the token
-    indent*: int              # the indentation; != -1 if the token has been
-                              # preceded with indentation
-    ident*: PIdent            # the parsed identifier
-    iNumber*: BiggestInt      # the parsed integer literal
-    fNumber*: BiggestFloat    # the parsed floating point literal
-    base*: NumericalBase      # the numerical base; only valid for int
-                              # or float literals
-    strongSpaceA*: int8       # leading spaces of an operator
-    strongSpaceB*: int8       # trailing spaces of an operator
-    literal*: string          # the parsed (string) literal; and
-                              # documentation comments are here too
+  Token* = object             ## a Nim token
+    tokType*: TokType         ## the type of the token
+    indent*: int              ## the indentation; != -1 if the token has been
+                              ## preceded with indentation
+    ident*: PIdent            ## the parsed identifier
+    iNumber*: BiggestInt      ## the parsed integer literal
+    fNumber*: BiggestFloat    ## the parsed floating point literal
+    base*: NumericalBase      ## the numerical base; only valid for int
+                              ## or float literals
+    strongSpaceA*: int8       ## leading spaces of an operator
+    strongSpaceB*: int8       ## trailing spaces of an operator
+    literal*: string          ## the parsed (string) literal; and
+                              ## documentation comments are here too
     line*, col*: int
     when defined(nimpretty):
-      offsetA*, offsetB*: int # used for pretty printing so that literals
-                              # like 0b01 or  r"\L" are unaffected
+      offsetA*, offsetB*: int ## used for pretty printing so that literals
+                              ## like 0b01 or  r"\L" are unaffected
       commentOffsetA*, commentOffsetB*: int
 
   ErrorHandler* = proc (conf: ConfigRef; info: TLineInfo; msg: TMsgKind; arg: string)
   Lexer* = object of TBaseLexer
     fileIdx*: FileIndex
-    indentAhead*: int         # if > 0 an indentation has already been read
-                              # this is needed because scanning comments
-                              # needs so much look-ahead
+    indentAhead*: int         ## if > 0 an indentation has already been read
+                              ## this is needed because scanning comments
+                              ## needs so much look-ahead
     currLineIndent*: int
     strongSpaces*, allowTabs*: bool
     errorHandler*: ErrorHandler
@@ -216,23 +217,6 @@ proc closeLexer*(lex: var Lexer) =
 proc getLineInfo(L: Lexer): TLineInfo =
   result = newLineInfo(L.fileIdx, L.lineNumber, getColNumber(L, L.bufpos))
 
-proc dispMessage(L: Lexer; info: TLineInfo; msg: TMsgKind; arg: string) =
-  if L.errorHandler.isNil:
-    msgs.message(L.config, info, msg, arg)
-  else:
-    L.errorHandler(L.config, info, msg, arg)
-
-proc lexMessage*(L: Lexer, msg: TMsgKind, arg = "") =
-  L.dispMessage(getLineInfo(L), msg, arg)
-
-proc lexMessageTok*(L: Lexer, msg: TMsgKind, tok: Token, arg = "") =
-  var info = newLineInfo(L.fileIdx, tok.line, tok.col)
-  L.dispMessage(info, msg, arg)
-
-proc lexMessagePos(L: var Lexer, msg: TMsgKind, pos: int, arg = "") =
-  var info = newLineInfo(L.fileIdx, L.lineNumber, pos - L.lineStart)
-  L.dispMessage(info, msg, arg)
-
 proc matchTwoChars(L: Lexer, first: char, second: set[char]): bool =
   result = (L.buf[L.bufpos] == first) and (L.buf[L.bufpos + 1] in second)
 
@@ -298,9 +282,8 @@ proc getNumber(L: var Lexer, result: var Token) =
         break
       if L.buf[pos] == '_':
         if L.buf[pos+1] notin chars:
-          lexMessage(L, errGenerated,
-            "only single underscores may occur in a token and token may not " &
-            "end with an underscore: e.g. '1__1' and '1_' are invalid")
+          L.config.localError(getLineInfo(L),
+            LexerReport(kind: rlexMalformedUnderscores))
           break
         tok.literal.add('_')
         inc(pos)
@@ -313,7 +296,7 @@ proc getNumber(L: var Lexer, result: var Token) =
       inc(pos)
     L.bufpos = pos
 
-  proc lexMessageLitNum(L: var Lexer, msg: string, startpos: int, msgKind = errGenerated) =
+  proc lexMessageLitNum(L: var Lexer, msg: string, startpos: int, msgKind: LexerReportKind) =
     # Used to get slightly human friendlier err messages.
     const literalishChars = {'A'..'Z', 'a'..'z', '0'..'9', '_', '.', '\''}
     var msgPos = L.bufpos
@@ -332,7 +315,8 @@ proc getNumber(L: var Lexer, result: var Token) =
       inc(L.bufpos)
       matchChars(L, t, {'0'..'9'})
     L.bufpos = msgPos
-    lexMessage(L, msgKind, msg % t.literal)
+    L.config.localError(getLineInfo(L),
+      LexerReport(kind: rlexMalformedUnderscores, msg: msg % t.literal))
 
   var
     xi: BiggestInt
@@ -369,12 +353,12 @@ proc getNumber(L: var Lexer, result: var Token) =
                        "$1 will soon be invalid for oct literals; Use '0o' " &
                        "for octals. 'c', 'C' prefix",
                        startpos,
-                       warnDeprecated)
+                       rlexDeprecatedOctalPrefix)
       eatChar(L, result, 'c')
       numDigits = matchUnderscoreChars(L, result, {'0'..'7'})
     of 'O':
       lexMessageLitNum(L, "$1 is an invalid int literal; For octal literals " &
-                          "use the '0o' prefix.", startpos)
+                          "use the '0o' prefix.", startpos, rlexInvalidIntegerPrefix)
     of 'x', 'X':
       eatChar(L, result, 'x')
       numDigits = matchUnderscoreChars(L, result, {'0'..'9', 'a'..'f', 'A'..'F'})
@@ -385,9 +369,9 @@ proc getNumber(L: var Lexer, result: var Token) =
       eatChar(L, result, 'b')
       numDigits = matchUnderscoreChars(L, result, {'0'..'1'})
     else:
-      internalError(L.config, getLineInfo(L), "getNumber")
+      L.config.internalError(getLineInfo(L), rintIce, "getNumber")
     if numDigits == 0:
-      lexMessageLitNum(L, "invalid number: '$1'", startpos)
+      lexMessageLitNum(L, "invalid number: '$1'", startpos, rlexInvalidIntegerLiteral)
   else:
     discard matchUnderscoreChars(L, result, {'0'..'9'})
     if (L.buf[L.bufpos] == '.') and (L.buf[L.bufpos + 1] in {'0'..'9'}):
@@ -440,14 +424,14 @@ proc getNumber(L: var Lexer, result: var Token) =
         result.literal.add suffix
         result.tokType = tkCustomLit
       else:
-        lexMessageLitNum(L, "invalid number suffix: '$1'", errPos)
+        lexMessageLitNum(L, "invalid number suffix: '$1'", errPos, rlexInvalidIntegerSuffix)
     else:
-      lexMessageLitNum(L, "invalid number suffix: '$1'", errPos)
+      lexMessageLitNum(L, "invalid number suffix: '$1'", errPos, rlexInvalidIntegerSuffix)
 
   # Is there still a literalish char awaiting? Then it's an error!
   if  L.buf[postPos] in literalishChars or
      (L.buf[postPos] == '.' and L.buf[postPos + 1] in {'0'..'9'}):
-    lexMessageLitNum(L, "invalid number: '$1'", startpos)
+    lexMessageLitNum(L, "invalid number: '$1'", startpos, rlexInvalidIntegerLiteral)
 
   if result.tokType != tkCustomLit:
     # Third stage, extract actual number
@@ -490,7 +474,7 @@ proc getNumber(L: var Lexer, result: var Token) =
             else:
               break
         else:
-          internalError(L.config, getLineInfo(L), "getNumber")
+          L.config.internalError(getLineInfo(L), rintIce, "getNumber")
 
         case result.tokType
         of tkIntLit, tkInt64Lit: setNumber result.iNumber, xi
@@ -507,7 +491,8 @@ proc getNumber(L: var Lexer, result: var Token) =
           # XXX: Test this on big endian machine!
         of tkFloat64Lit, tkFloatLit:
           setNumber result.fNumber, (cast[PFloat64](addr(xi)))[]
-        else: internalError(L.config, getLineInfo(L), "getNumber")
+        else:
+          L.config.internalError(getLineInfo(L), rintIce, "getNumber")
 
         # Bounds checks. Non decimal literals are allowed to overflow the range of
         # the datatype as long as their pattern don't overflow _bitwise_, hence
@@ -524,7 +509,8 @@ proc getNumber(L: var Lexer, result: var Token) =
 
           if outOfRange:
             #echo "out of range num: ", result.iNumber, " vs ", xi
-            lexMessageLitNum(L, "number out of range: '$1'", startpos)
+            lexMessageLitNum(
+              L, "number out of range: '$1'", startpos, rlexNumberNotInRange)
 
       else:
         case result.tokType
@@ -563,7 +549,7 @@ proc getNumber(L: var Lexer, result: var Token) =
           else: false
 
         if outOfRange:
-          lexMessageLitNum(L, "number out of range: '$1'", startpos)
+          lexMessageLitNum(L, "number out of range: '$1'", startpos, rlexNumberNotInRange)
 
       # Promote int literal to int64? Not always necessary, but more consistent
       if result.tokType == tkIntLit:
@@ -571,9 +557,9 @@ proc getNumber(L: var Lexer, result: var Token) =
           result.tokType = tkInt64Lit
 
     except ValueError:
-      lexMessageLitNum(L, "invalid number: '$1'", startpos)
+      lexMessageLitNum(L, "invalid number: '$1'", startpos, rlexInvalidIntegerLiteral)
     except OverflowDefect, RangeDefect:
-      lexMessageLitNum(L, "number out of range: '$1'", startpos)
+      lexMessageLitNum(L, "number out of range: '$1'", startpos, rlexNumberNotInRange)
   tokenEnd(result, postPos-1)
   L.bufpos = postPos
 

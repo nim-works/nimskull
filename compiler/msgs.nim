@@ -588,8 +588,21 @@ template internalAssert*(conf: ConfigRef, e: bool, failMsg: string) =
   if not e:
     conf.report(wrap(
       InternalReport(
-        context: conf.getContext(),
+        context: conf.getContext(unknownLineInfo),
         kind: rintAssert, msg: failMsg), instLoc()))
+
+template internalError*(
+    conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
+  conf.report(wrap(InternalReport(
+    context: conf.getContext(unknownLineInfo),
+    kind: repKind, msg: fail), instLoc()))
+
+template internalError*(
+    conf: ConfigRef, info: TLineInfo,
+    repKind: InternalReportKind, fail: string): untyped =
+  conf.report(wrap(InternalReport(
+    context: conf.getContext(unknownLineInfo),
+    kind: repKind, msg: fail), instLoc(), conf.toReportLinePoint(info)))
 
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
   if i.fileIndex.int32 < 0:

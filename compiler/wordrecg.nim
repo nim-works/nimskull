@@ -146,6 +146,10 @@ else:
         return i
     result = default
 
+func getEnumNames*[E: enum](values: set[E]): seq[string] =
+  for name in items(values):
+    result.add $name
+
 from strutils import cmpIgnoreStyle
 proc findStr*[T: enum](values: set[T], s: string, default: T): T {.deprecated.} =
   for i in items(values):

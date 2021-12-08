@@ -16,6 +16,7 @@ import
   hashes, wordrecg
 
 import ast_types
+export PIdent
 
 type
   IdentCache* = ref object

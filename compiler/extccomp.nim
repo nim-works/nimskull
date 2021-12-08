@@ -296,10 +296,8 @@ proc nameToCC*(name: string): TSystemCC =
       return i
   result = ccNone
 
-proc listCCnames(): string =
-  result = ""
+proc listCCnames(): seq[string] =
   for i in succ(ccNone)..high(TSystemCC):
-    if i > succ(ccNone): result.add ", "
     result.add CC[i].name
 
 proc isVSCompatible*(conf: ConfigRef): bool =

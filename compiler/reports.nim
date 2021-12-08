@@ -89,13 +89,13 @@ type
 
     #--------------------------  External reports  ---------------------------#
     # External reports
-
     rextUnknownCCompiler
-    rextInvalidCommandLineOption ## Invalid command-line option passed to
-                                 ## the compiler
+
+    # malformed cmdline parameters begin
     rextInvalidHint
     rextInvalidWarning
-
+    rextInvalidCommandLineOption ## Invalid command-line option passed to
+                                 ## the compiler
     rextOnlyAllOffSupported ## Only `all:off` is supported for mass
     ## hint/warning modification. Separate diagnostics must be enabled on
     ## one-by-one basis.
@@ -104,11 +104,16 @@ type
     ## or 'list' value.
     rextExpectedCmdArgument ## Command-line option expected argument
     rextExpectedNoCmdArgument ## Command-line option expected no arguments
+    rextInvalidNumber ## Command-line switch expected a number
+    rextInvalidValue
+    rextUnexpectedValue ## Command-line argument had value, but it did not
+    ## match with any expected.
+    rextInvalidPath ## Invalid path for a command-line argument
+    # end
+
     rextInvalidPackageName ## When adding packages from the `--nimbleDir`
     ## (or it's default value), names are validated. This error is
     ## generated if package name is not correct.
-    rextUnexpectedValue ## Command-line argument had value, but it did not
-    ## match with any expected.
 
     rextDeprecated ## Report about use of the deprecated feature that is
     ## not in the semantic pass. Things like deprecated flags, compiler
@@ -123,6 +128,16 @@ type
 
     #----------------------------  Lexer reports  ----------------------------#
     # Lexer report begin
+    # errors begin
+    rlexMalformedUnderscores
+    rlexInvalidIntegerPrefix
+    rlexInvalidIntegerSuffix
+    rlexNumberNotInRange
+    rlexInvalidIntegerLiteral
+    # errors end
+
+    rlexDeprecatedOctalPrefix
+
     rlexLineTooLong
 
     # ???? `syntaxes.nim` uses it
@@ -348,6 +363,7 @@ type
 type
   LexerReportKind* = range[rlexLineTooLong .. rlexCodeEnd]
   LexerReport* = object of ReportBase
+    msg*: string
     kind*: ReportKind
 
 const
@@ -568,21 +584,15 @@ type
     ## Report about external environment reads, passed configuration
     ## options etc.
     case kind*: ReportKind
-      of rextUnknownCCompiler:
-        knownCompilers*: string
-        passedCompiler*: string
-
-      of rextInvalidCommandLineOption,
-         rextExpectedOnOrOff,
-         rextInvalidHint,
-         rextExpectedOnOrOffOrList,
-         rextExpectedCmdArgument,
-         rextExpectedNoCmdArgument,
-         rextInvalidWarning,
-         rextUnexpectedValue:
+      of rextInvalidHint .. rextInvalidPath:
         cmdlineSwitch*: string ## Switch in processing
         cmdlineProvided*: string ## Value passed to the command-line
         cmdlineAllowed*: seq[string] ## Allowed command-line values
+        cmdlineError*: string ## Textual description of the cmdline failure
+
+      of rextUnknownCCompiler:
+        knownCompilers*: seq[string]
+        passedCompiler*: string
 
       of rextDeprecated:
         msg*: string
