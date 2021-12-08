@@ -8,7 +8,7 @@ block: # bug #15526
       x2: int
     let f2 = Foo(x2: 2)
 
-block: # ditto
+block: # bug #15526
   template fn() =
     block:
       type Foo = ref object
@@ -39,7 +39,7 @@ block: # bug #17162
   static: fn() # ok
   fn() # was bug
 
-block: # ditto
+block:
   proc fn =
     var ret: string
     block:
@@ -65,7 +65,7 @@ block: # bug #5170
       x2: int
     let f2 = Foo(x2: 2)
 
-block: # ditto
+block:
   block:
     type Foo = object
       bar: bool
@@ -92,7 +92,7 @@ block: # ditto
     static: fn()
     fn()
 
-when true: # ditto, refs https://github.com/nim-lang/Nim/issues/5170#issuecomment-582712132
+when true: # refs https://github.com/nim-lang/Nim/issues/5170#issuecomment-582712132
   type Foo1 = object # at top level
     bar: bool
   var f1: Foo1

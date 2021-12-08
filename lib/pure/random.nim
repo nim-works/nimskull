@@ -145,7 +145,7 @@ proc next*(r: var Rand): uint64 =
   runnableExamples("-r:off"):
     var r = initRand(2019)
     assert r.next() == 13223559681708962501'u64 # implementation defined
-    assert r.next() == 7229677234260823147'u64 # ditto
+    assert r.next() == 7229677234260823147'u64 # implementation defined
 
   let s0 = r.a0
   var s1 = r.a1

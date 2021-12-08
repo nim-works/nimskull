@@ -39,7 +39,7 @@ proc fun*() =
       defer: echo "foo3"
 
   runnableExamples:
-    # ditto
+
     proc fun*()=echo "foo5"
     fun()
 

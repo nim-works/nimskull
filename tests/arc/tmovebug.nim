@@ -716,8 +716,8 @@ proc partToWholeSeq =
   t = t.children[0] # This should be sunk, but with the special transform (tmp = t.children[0]; wasMoved(0); `=sink`(t, tmp))
 
   var tc = TreeDefaultHooks(children: @[TreeDefaultHooks()])
-  tc = tc.children[0] # Ditto; if this were sunk with the normal transform (`=sink`(t, t.children[0]); wasMoved(t.children[0]))
-  echo tc             #        then it would crash because t.children[0] does not exist after the call to `=sink`
+  tc = tc.children[0] # if this were sunk with the normal transform (`=sink`(t, t.children[0]); wasMoved(t.children[0]))
+  echo tc             # then it would crash because t.children[0] does not exist after the call to `=sink`
 
 partToWholeSeq()
 

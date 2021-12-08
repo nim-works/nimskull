@@ -3034,7 +3034,7 @@ Example:
     echo "permission denied"
   of "go-for-a-walk":     echo "please yourself"
   elif line.len == 0:     echo "empty" # optional, must come after `of` branches
-  else:                   echo "unknown command" # ditto
+  else:                   echo "unknown command" # optional, must come after `of` and `elif` branches
 
   # indentation of the branches is also allowed; and so is an optional colon
   # after the selecting expression:
