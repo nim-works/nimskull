@@ -15,11 +15,13 @@ import
 import std/private/decode_helpers
 
 type
-  SexpEventKind* = enum  ## enumeration of all events that may occur when parsing
+  SexpEventKind* = enum  ## enumeration of all events that may occur when
+                         ## parsing
     sexpError,           ## an error occurred during parsing
     sexpEof,             ## end of file reached
     sexpString,          ## a string literal
     sexpSymbol,          ## a symbol
+    sexpKeyword,         ## `:keyword` event
     sexpInt,             ## an integer literal
     sexpFloat,           ## a float literal
     sexpNil,             ## the value ``nil``
@@ -32,6 +34,7 @@ type
     tkEof,
     tkString,
     tkSymbol,
+    tkKeyword,
     tkInt,
     tkFloat,
     tkNil,
@@ -66,6 +69,7 @@ const
     "EOF",
     "string literal",
     "symbol",
+    "keyword",
     "int literal",
     "float literal",
     "nil",
@@ -113,7 +117,8 @@ proc errorMsg*(my: SexpParser): string =
 proc errorMsgExpected*(my: SexpParser, e: string): string =
   ## returns an error message "`e` expected" in the same format as the
   ## other error messages
-  result = "($1, $2) Error: $3" % [$getLine(my), $getColumn(my), e & " expected"]
+  result = "($1, $2) Error: $3, but found '$4' ($5)" % [
+    $getLine(my), $getColumn(my), e & " expected", $my.a, $my.tok]
 
 proc parseString(my: var SexpParser): TTokKind =
   result = tkString
@@ -201,11 +206,12 @@ proc parseNumber(my: var SexpParser) =
   my.bufpos = pos
 
 proc parseSymbol(my: var SexpParser) =
+  # Using symbol definition from
+  # http://www.lispworks.com/documentation/HyperSpec/Body/02_cd.htm
   var pos = my.bufpos
-  if my.buf[pos] in IdentStartChars:
-    while my.buf[pos] in IdentChars:
-      add(my.a, my.buf[pos])
-      inc(pos)
+  while my.buf[pos] notin Whitespace + {')', '('}:
+    add(my.a, my.buf[pos])
+    inc(pos)
   my.bufpos = pos
 
 proc getTok(my: var SexpParser): TTokKind =
@@ -228,21 +234,26 @@ proc getTok(my: var SexpParser): TTokKind =
     result = tkParensRi
   of '\0':
     result = tkEof
-  of 'a'..'z', 'A'..'Z', '_':
+  of ':':
+    parseSymbol(my)
+    result = tkKeyword
+  of {'\x01' .. '\x1F'} - Whitespace:
+    inc(my.bufpos)
+    result = tkError
+  of Whitespace:
+    result = tkSpace
+    inc(my.bufpos)
+    while my.bufpos < my.buf.len and my.buf[my.bufpos] in Whitespace:
+      inc my.bufpos
+  of '.':
+    result = tkDot
+    inc(my.bufpos)
+  else:
     parseSymbol(my)
     if my.a == "nil":
       result = tkNil
     else:
       result = tkSymbol
-  of ' ':
-    result = tkSpace
-    inc(my.bufpos)
-  of '.':
-    result = tkDot
-    inc(my.bufpos)
-  else:
-    inc(my.bufpos)
-    result = tkError
   my.tok = result
 
 # ------------- higher level interface ---------------------------------------
@@ -254,6 +265,7 @@ type
     SFloat,
     SString,
     SSymbol,
+    SKeyword,
     SList,
     SCons
 
@@ -270,6 +282,9 @@ type
       fnum*: float
     of SList:
       elems*: seq[SexpNode]
+    of SKeyword:
+      key*: string
+      value*: SexpNode
     of SCons:
       car: SexpNode
       cdr: SexpNode
@@ -307,6 +322,10 @@ proc newSNil*(): SexpNode =
 proc newSCons*(car, cdr: SexpNode): SexpNode =
   ## Creates a new `SCons SexpNode`
   result = SexpNode(kind: SCons, car: car, cdr: cdr)
+
+proc newSKeyword*(key: string, value: SexpNode): SexpNode =
+  ## Create new `SKeyword` node with `key` and `value` specified
+  result = SexpNode(kind: SKeyword, key: key, value: value)
 
 proc newSList*(): SexpNode =
   ## Creates a new `SList SexpNode`
@@ -367,6 +386,10 @@ proc sexp*(s: string): SexpNode =
   ## Generic constructor for SEXP data. Creates a new `SString SexpNode`.
   result = SexpNode(kind: SString, str: s)
 
+proc sexp*(keyword: (string, SexpNode)): SexpNode =
+  ## Generic constructor for SEXP data. Creates a new `SKeyword SexpNode`.
+  result = SexpNode(kind: SKeyword, key: keyword[0], value: keyword[1])
+
 proc sexp*(n: BiggestInt): SexpNode =
   ## Generic constructor for SEXP data. Creates a new `SInt SexpNode`.
   result = SexpNode(kind: SInt, num: n)
@@ -399,10 +422,14 @@ proc toSexp(x: NimNode): NimNode {.compileTime.} =
     for i in 0 ..< x.len:
       result.add(toSexp(x[i]))
 
-  else:
-    result = x
+    result = prefix(result, "sexp")
 
-  result = prefix(result, "sexp")
+  of nnkExprEqExpr:
+    result = prefix(nnkPar.newTree(
+      newLit(x[0].strVal()), toSexp(x[1])), "sexp")
+
+  else:
+    result = prefix(x, "sexp")
 
 macro convertSexp*(x: untyped): untyped =
   ## Convert an expression to a SexpNode directly, without having to specify
@@ -430,6 +457,8 @@ proc `==`* (a,b: SexpNode): bool =
       a.elems == b.elems
     of SSymbol:
       a.symbol == b.symbol
+    of SKeyword:
+      a.key == b.key and a.value == b.value
     of SCons:
       a.car == b.car and a.cdr == b.cdr
 
@@ -448,6 +477,8 @@ proc hash* (n:SexpNode): Hash =
     result = hash(0)
   of SSymbol:
     result = hash(n.symbol)
+  of SKeyword:
+    result = hash(n.key) !& hash(n.value)
   of SCons:
     result = hash(n.car) !& hash(n.cdr)
 
@@ -517,6 +548,8 @@ proc copy*(p: SexpNode): SexpNode =
     result = newSList()
     for i in items(p.elems):
       result.elems.add(copy(i))
+  of SKeyword:
+    result = newSKeyword(p.key, copy(p.value))
   of SCons:
     result = newSCons(copy(p.car), copy(p.cdr))
 
@@ -553,6 +586,13 @@ proc toPretty(result: var string, node: SexpNode, indent = 2, ml = true,
       result.indent(currIndent)
       result.add(")")
     else: result.add("nil")
+  of SKeyword:
+    if lstArr: result.indent(currIndent)
+    result.add ":"
+    result.add node.key
+    result.add " "
+    toPretty(result, node.value, indent, ml,
+        true, newIndent(currIndent, indent, ml))
   of SCons:
     if lstArr: result.indent(currIndent)
     result.add("(")
@@ -612,6 +652,7 @@ proc parseSexp(p: var SexpParser): SexpNode =
     result = newSSymbolMove(p.a)
     p.a = ""
     discard getTok(p)
+
   of tkParensLe:
     result = newSList()
     discard getTok(p)
@@ -625,6 +666,14 @@ proc parseSexp(p: var SexpParser): SexpNode =
       result.add(parseSexp(p))
       result = newSCons(result[0], result[1])
     eat(p, tkParensRi)
+
+  of tkKeyword:
+    # `:key (value)`
+    let key = p.a[1 .. ^1]
+    discard getTok(p)
+    eat(p, tkSpace)
+    result = newSKeyword(key, parseSexp(p))
+
   of tkSpace, tkDot, tkError, tkParensRi, tkEof:
     raiseParseErr(p, "(")
 
@@ -647,18 +696,29 @@ proc parseSexp*(buffer: string): SexpNode =
   result = parseSexp(newStringStream(buffer))
 
 when isMainModule:
+  discard parseSexp("(\"foo\")")
   let testSexp = parseSexp("""(1 (98 2) nil (2) foobar "foo" 9.234)""")
-  assert(testSexp[0].getNum == 1)
-  assert(testSexp[1][0].getNum == 98)
-  assert(testSexp[2].getElems == @[])
-  assert(testSexp[4].getSymbol == "foobar")
-  assert(testSexp[5].getStr == "foo")
+  doAssert testSexp[0].getNum == 1
+  doAssert testSexp[1][0].getNum == 98
+  doAssert testSexp[2].getElems == @[]
+  doAssert testSexp[4].getSymbol == "foobar"
+  doAssert testSexp[5].getStr == "foo"
 
   let alist = parseSexp("""((1 . 2) (2 . "foo"))""")
-  assert(alist[0].getCons.car.getNum == 1)
-  assert(alist[0].getCons.cdr.getNum == 2)
-  assert(alist[1].getCons.cdr.getStr == "foo")
+  doAssert alist[0].getCons.car.getNum == 1
+  doAssert alist[0].getCons.cdr.getNum == 2
+  doAssert alist[1].getCons.cdr.getStr == "foo"
 
   # Generator:
   var j = convertSexp([true, false, "foobar", [1, 2, "baz"]])
-  assert($j == """(t nil "foobar" (1 2 "baz"))""")
+  doAssert $j == """(t nil "foobar" (1 2 "baz"))"""
+
+  doAssert $convertSexp([key = "value"]) == "(:key \"value\")"
+  doAssert $convertSexp([k1 = 1, k2 = 3, "k3"]) == "(:k1 1 :k2 3 \"k3\")"
+  doAssert $parseSexp("(:key val)") == "(:key val)"
+  doAssert $parseSexp("(:key\n\n\nval)") == "(:key val)"
+  doAssert $parseSexp("(:key\n\n\nval  )") == "(:key val)"
+  doAssert $parseSexp("(Sem:ExpandMacro :expression (___) :original (___))") ==
+    "(Sem:ExpandMacro :expression (___) :original (___))"
+
+  doAssert $parseSexp("(> 12 2)") == "(> 12 2)"
