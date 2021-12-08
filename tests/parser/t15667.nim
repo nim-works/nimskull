@@ -33,7 +33,7 @@ block:
     discard
 
 block: # complex example
-  proc asdfasdfsd() {. exportc, 
+  proc asdfasdfsd() {. exportc,
       inline
          .}     # foo
     #[
@@ -46,7 +46,7 @@ block: # xxx this doesn't work yet (only a bare `invalid indentation` error)
     ##
     discard
 
-block: # ditto
+block:
   proc fn6*()
     ## foo bar
     runnableExamples: discard

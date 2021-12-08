@@ -217,8 +217,8 @@ block: # bug #15595
     var a3: proc()
     var a4: proc()
     doAssert a0 == fn0 # bugfix
-    doAssert a1 == fn1 # ditto
-    doAssert a2 == fn2 # ditto
+    doAssert a1 == fn1
+    doAssert a2 == fn2
 
     doAssert fn0 != fn1
 
@@ -290,10 +290,10 @@ block: # bug #10815
 
   const a = P()
   doAssert $a == ""
-  
+
 when defined osx: # xxx bug https://github.com/nim-lang/Nim/issues/10815#issuecomment-476380734
   block:
-    type CharSet {.union.} = object 
+    type CharSet {.union.} = object
       cs: set[char]
       vs: array[4, uint64]
     const a = Charset(cs: {'a'..'z'})
@@ -416,7 +416,7 @@ block: # VM wrong register free causes errors in unrelated code
       processAux(bar(globOpt()))
     static: main()
 
-  block: # ditto
+  block:
     # D20201024T133245
     type Deque = object
     proc initDeque2(initialSize: int = 4): Deque = Deque()

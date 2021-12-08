@@ -27,7 +27,7 @@ template testMitems() =
         if bi == 'b': bi = 'B'
         bi
     whenRuntimeJs:
-      discard # ditto
+      discard
     do:
       doAssert s == @['a', 'B', 'c']
 

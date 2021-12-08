@@ -36,7 +36,7 @@ except AssertionDefect as e:
 
 try:
   let a = 1
-  doAssert a+a==1 # ditto with `doAssert` and no parens
+  doAssert a+a==1 # the same with `doAssert` and no parens
 except AssertionDefect as e:
   assert e.msg.endsWith "`a + a == 1` "
 

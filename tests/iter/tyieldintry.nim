@@ -459,7 +459,7 @@ block: #9716
     var a = 0
     for i in 1 .. 3:
       var a: int # Make sure the "local" var is reset
-      var b: string # ditto
+      var b: string
       yield 1
       a += 5
       b &= "hello"

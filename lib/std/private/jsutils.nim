@@ -56,7 +56,7 @@ when defined(js):
       assert (a: 1).toJs.getProtoName == "[object Object]"
       assert A.default.toJs.getProtoName == "[object Null]"
       assert [1].toJs.getProtoName == "[object Int32Array]" # implementation defined
-      assert @[1].toJs.getProtoName == "[object Array]" # ditto
+      assert @[1].toJs.getProtoName == "[object Array]" # implementation defined
 
   const maxSafeInteger* = 9007199254740991
     ## The same as `Number.MAX_SAFE_INTEGER` or `2^53 - 1`.

@@ -735,7 +735,7 @@ proc len*(x: cstring): int {.magic: "LengthStr", noSideEffect.} =
   runnableExamples:
     doAssert len(cstring"abc") == 3
     doAssert len(cstring r"ab\0c") == 5 # \0 is escaped
-    doAssert len(cstring"ab\0c") == 5 # ditto
+    doAssert len(cstring"ab\0c") == 5 # \0 is escaped
     var a: cstring = "ab\0c"
     when defined(js): doAssert a.len == 4 # len ignores \0 for js
     else: doAssert a.len == 2 # \0 is a null terminator

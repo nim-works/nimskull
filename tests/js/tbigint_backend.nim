@@ -35,9 +35,9 @@ block:
     doAssert $z == "0"
     doAssert z.jsTypeOf == "bigint" # would fail without codegen change
     doAssert z != big(1)
-    doAssert z == big"0" # ditto
+    doAssert z == big"0"
 
-  # ditto below
+
   block:
     let z: JsBigInt = big"1"
     doAssert $z == "1"

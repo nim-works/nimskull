@@ -19,7 +19,7 @@ when declared(math.copySign):
   from std/math as math2 import copySign
 
 when declared(math.signbit):
-  # ditto
+
   from std/math as math3 import signbit
 
 from std/os import getEnv, existsEnv, delEnv, putEnv, envPairs,

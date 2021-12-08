@@ -47,8 +47,8 @@ block: # (partial fix) bug #15920
     when false: # bug
       template fun3(): int {.since3: (1, 3).} = 12
 
-  block: # ditto, w
-    # case with overload
+  block:
+
     template since2(version: (int, int), body: untyped) {.dirty.} =
       when (NimMajor, NimMinor) >= version:
         body

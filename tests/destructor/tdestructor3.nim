@@ -144,16 +144,16 @@ when true: # D20200607T202043
 
   proc initFoo2(x: int): Foo2 = Foo2(x: x)
 
-  proc add2(v: var Vec, a: Foo2) = # ditto with `a: sink Foo2`
+  proc add2(v: var Vec, a: Foo2) = # with `a: sink Foo2`
     v.vals.add a
 
-  proc add3(v: var Vec, a: Foo2) = # ditto with `a: sink Foo2`
+  proc add3(v: var Vec, a: Foo2) = # with `a: sink Foo2`
     v.vals = @[a]
 
-  proc add4(v: var Vec, a: sink Foo2) = # ditto with `a: sink Foo2`
+  proc add4(v: var Vec, a: sink Foo2) = # with `a: sink Foo2`
     v.vals.add a
 
-  proc add5(v: var Vec, a: sink Foo2) = # ditto with `a: sink Foo2`
+  proc add5(v: var Vec, a: sink Foo2) = # with `a: sink Foo2`
     v.vals = @[a]
 
   proc main2()=

@@ -70,7 +70,7 @@ template fromUtilsGen*(): untyped =
   ## should be shown in utils.html only
   runnableExamples:
     discard "should be in utils.html only, not in module that calls fromUtilsGen"
-  ## ditto
+
 
   iterator fromUtils1*(): int =
     runnableExamples:
