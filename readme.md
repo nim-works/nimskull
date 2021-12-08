@@ -241,9 +241,8 @@ be used to run the Nim test suite.
 <details>
 <summary>Show</summary>
 
-Assuming that you added Nim's ``bin`` directory to your PATH, you may execute
-the tests using ``./koch.py tests``. The tests take a while to run, but you
-can run a subset of tests by specifying a category (for example
+You may execute the tests using ``./koch.py tests``. The tests take a while to
+run, but you can run a subset of tests by specifying a category (for example
 ``./koch.py tests cat async``).
 
 For more information on the ``koch`` build tool please see the documentation

@@ -125,12 +125,7 @@ jobs:
           sudo apt-get install "${deps[@]}"
 
       - name: Run tester
-        run: |
-          # The tester requires `nim` to be in `PATH`
-          nim_bin_dir=$(python -c 'import os; print(os.path.abspath("bin"))')
-          export PATH=$nim_bin_dir:$PATH
-
-          ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' all
+        run: ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' all
 
       - name: Print all test errors
         if: failure()
