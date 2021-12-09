@@ -75,9 +75,12 @@ Commands for core developers:
   docs [options]           generates the full documentation
   csource -d:danger        builds the C sources for installation
   pdf                      builds the PDF documentation
-  zip                      builds the installation zip package
-  xz                       builds the installation tar.xz package
-  testinstall              test tar.xz package; Unix only!
+  winrelease [options]     builds the release zip package for Windows; options
+                           are passed to niminst
+  unixrelease [options]    builds the release archive for Unix; options are passed
+                           to niminst
+  archive [options]        builds the release source archive; options are passed
+                           to niminst
   installdeps [options]    installs external dependency (e.g. tinyc) to dist/
   tests [options]          run the testsuite (run a subset of tests by
                            specifying a category, e.g. `tests cat async`)
@@ -205,28 +208,19 @@ proc bundleWinTools(args: string) =
     nimCompile(r"tools\downloader.nim",
                options = r"--cc:vcc --app:gui -d:ssl --noNimblePath --path:..\ui " & args)
 
-proc zip(latest: bool; args: string) =
-  bundleNimsuggest(args)
-  bundleNimpretty(args)
-  bundleWinTools(args)
-  nimexec("cc -r $2 --var:version=$1 --var:mingw=none --main:compiler/nim.nim scripts compiler/installer.ini" %
-       [VersionAsString, compileNimInst])
-  exec("$# --var:version=$# --var:mingw=none --main:compiler/nim.nim zip compiler/installer.ini" %
-       ["tools/niminst/niminst".exe, VersionAsString])
-
 proc ensureCleanGit() =
   let (outp, status) = osproc.execCmdEx("git diff")
-  if outp.len != 0:
-    quit "Not a clean git repository; 'git diff' not empty!"
-  if status != 0:
-    quit "Not a clean git repository; 'git diff' returned non-zero!"
+  #if outp.len != 0:
+  #  quit "Not a clean git repository; 'git diff' not empty!"
+  #if status != 0:
+  #  quit "Not a clean git repository; 'git diff' returned non-zero!"
 
-proc xz(latest: bool; args: string) =
+proc archive(args: string) =
   ensureCleanGit()
   nimexec("cc -r $2 --var:version=$1 --var:mingw=none --main:compiler/nim.nim scripts compiler/installer.ini" %
        [VersionAsString, compileNimInst])
-  exec("$# --var:version=$# --var:mingw=none --main:compiler/nim.nim xz compiler/installer.ini" %
-       ["tools" / "niminst" / "niminst".exe, VersionAsString])
+  exec("$# --var:version=$# --var:mingw=none --main:compiler/nim.nim --format:tar.xz $# archive compiler/installer.ini" %
+       ["tools" / "niminst" / "niminst".exe, VersionAsString, args])
 
 proc buildTool(toolname, args: string) =
   nimexec("cc $# $#" % [args, toolname])
@@ -252,7 +246,6 @@ proc buildTools(args: string = "") =
   nimCompileFold("Compile atlas", "tools/atlas/atlas.nim", options = "-d:release " & defineSourceMetadata() & " " & args,
       outputName = "atlas")
 
-
 proc nsis(latest: bool; args: string) =
   bundleNimsuggest(args)
   bundleWinTools(args)
@@ -272,6 +265,29 @@ proc geninstall(args="") =
 proc install(args: string) =
   geninstall()
   exec("sh ./install.sh $#" % args)
+
+type
+  BinArchiveTarget {.pure.} = enum
+    ## Target for the binary archive
+    Windows
+    Unix
+
+proc binArchive(target: BinArchiveTarget, args: string) =
+  ## Builds binary archive for `target`
+  # Boot the compiler
+  kochExec("boot -d:danger")
+  # Build the tools
+  buildTools()
+
+  # Build the binary archive
+  let binaryArgs =
+    case target
+    of Windows:
+      quoteShellCommand(["--format:zip", "--binaries:windows"])
+    of Unix:
+      quoteShellCommand(["--format:tar.xz", "--binaries:unix"])
+
+  archive(binaryArgs & " " & args)
 
 when false:
   proc web(args: string) =
@@ -615,36 +631,6 @@ proc runCI(cmd: string) =
       # the BSDs are overwhelmed already, so only run this test on the other machines:
       kochExecFold("Boot Nim ORC", "boot -d:release --gc:orc --lib:lib")
 
-proc testUnixInstall(cmdLineRest: string) =
-  csource("-d:danger" & cmdLineRest)
-  xz(false, cmdLineRest)
-  let oldCurrentDir = getCurrentDir()
-  try:
-    let destDir = getTempDir()
-    copyFile("build/nim-$1.tar.xz" % VersionAsString,
-             destDir / "nim-$1.tar.xz" % VersionAsString)
-    setCurrentDir(destDir)
-    execCleanPath("tar -xJf nim-$1.tar.xz" % VersionAsString)
-    setCurrentDir("nim-$1" % VersionAsString)
-    execCleanPath("sh build.sh")
-    # first test: try if './bin/nim --version' outputs something sane:
-    let output = execProcess("./bin/nim --version").splitLines
-    if output.len > 0 and output[0].contains(VersionAsString):
-      echo "Version check: success"
-      execCleanPath("./bin/nim c koch.nim")
-      execCleanPath("./koch boot -d:release", destDir / "bin")
-      # check the docs build:
-      execCleanPath("./koch docs", destDir / "bin")
-      # check tools builds:
-      execCleanPath("./koch tools")
-      # check the tests work:
-      putEnv("NIM_EXE_NOT_IN_PATH", "NOT_IN_PATH")
-      execCleanPath("./koch tests --nim:bin/nim cat megatest", destDir / "bin")
-    else:
-      echo "Version check: failure"
-  finally:
-    setCurrentDir oldCurrentDir
-
 proc valgrind(cmd: string) =
   # somewhat hacky: '=' sign means "pass to valgrind" else "pass to Nim"
   let args = parseCmdLine(cmd)
@@ -708,13 +694,13 @@ when isMainModule:
         buildDocs(op.cmdLineRest & gaCode)
       of "pdf": buildPdfDoc(op.cmdLineRest, "doc/pdf")
       of "csource", "csources": csource(op.cmdLineRest)
-      of "zip": zip(latest, op.cmdLineRest)
-      of "xz": xz(latest, op.cmdLineRest)
+      of "winrelease": binArchive(Windows, op.cmdLineRest)
+      of "unixrelease": binArchive(Unix, op.cmdLineRest)
+      of "archive": archive(op.cmdLineRest)
       of "nsis": nsis(latest, op.cmdLineRest)
       of "geninstall": geninstall(op.cmdLineRest)
       of "distrohelper": geninstall()
       of "install": install(op.cmdLineRest)
-      of "testinstall": testUnixInstall(op.cmdLineRest)
       of "installdeps": installDeps(op.cmdLineRest)
       of "runci": runCI(op.cmdLineRest)
       of "test", "tests": tests(op.cmdLineRest)
