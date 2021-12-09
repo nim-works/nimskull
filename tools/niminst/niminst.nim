@@ -60,6 +60,7 @@ type
     explicitPlatforms: bool
     vars: StringTableRef
     app: AppType
+    nimExe: string
     nimArgs: string
     debOpts: TDebOptions
     nimblePkgName: string
@@ -149,6 +150,7 @@ Options:
   -m, --main:file     set the main nim file, by default ini-file with .nim
                       extension
   --var:name=value    set the value of a variable
+  --nim:exe           the nim compiler to use
   -h, --help          shows this help
   -v, --version       shows the version
 Compile_options:
@@ -193,10 +195,14 @@ proc parseCmdLine(c: var ConfigData) =
         var idx = val.find('=')
         if idx < 0: quit("invalid command line")
         c.vars[substr(val, 0, idx-1)] = substr(val, idx+1)
+      of "nim":
+        c.nimExe = val
       else: quit(Usage)
     of cmdEnd: break
   if c.infile.len == 0: quit(Usage)
   if c.mainfile.len == 0: c.mainfile = changeFileExt(c.infile, "nim")
+  # Defaults to `nim` in `PATH` if nothing is specified
+  if c.nimExe.len == 0: c.nimExe = "nim"
 
 proc eqT(a, b: string; t: proc (a: char): char{.nimcall.}): bool =
   ## equality under a transformation ``t``. candidate for the stdlib?
@@ -526,10 +532,10 @@ proc srcdist(c: var ConfigData) =
       var dir = getOutputDir(c) / buildDir(osA, cpuA)
       if dirExists(dir): removeDir(dir)
       createDir(dir)
-      var cmd = ("nim compile -f --symbolfiles:off --compileonly " &
+      var cmd = ("$# compile -f --symbolfiles:off --compileonly " &
                  "--gen_mapping --cc:gcc --skipUserCfg" &
                  " --os:$# --cpu:$# $# $#") %
-                 [osname, cpuname, c.nimArgs, c.mainfile]
+                 [quoteShell(c.nimExe), osname, cpuname, c.nimArgs, c.mainfile]
       echo(cmd)
       if execShellCmd(cmd) != 0:
         quit("Error: call to nim compiler failed")
