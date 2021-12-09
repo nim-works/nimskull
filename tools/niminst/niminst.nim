@@ -8,7 +8,7 @@
 #
 
 import
-  os, strutils, parseopt, parsecfg, strtabs, streams, debcreation,
+  os, osproc, strutils, parseopt, parsecfg, strtabs, streams, debcreation,
   std / sha1
 
 const
@@ -427,9 +427,18 @@ proc parseIniFile(c: var ConfigData) =
 
 # ------------------------- generate source based installation ---------------
 
+func buildDir(os, cpu: int): string =
+  "c_code" / ($os & "_" & $cpu)
+
+func cacheDir(os, cpu: int): string =
+  "c_code_nimcache" / ($os & "_" & $cpu)
+
+func getOutputDir(c: ConfigData): string =
+  if c.outdir.len > 0: c.outdir else: "build"
+
 proc readCFiles(c: var ConfigData, osA, cpuA: int) =
   var p: CfgParser
-  var f = splitFile(c.infile).dir / "mapping.txt"
+  var f = getOutputDir(c) / cacheDir(osA, cpuA) / "mapping.txt"
   c.cfiles[osA][cpuA] = @[]
   var input = newFileStream(f, fmRead)
   var section = ""
@@ -461,12 +470,6 @@ proc readCFiles(c: var ConfigData, osA, cpuA: int) =
     close(p)
   else:
     quit("Cannot open: " & f)
-
-func buildDir(os, cpu: int): string =
-  "c_code" / ($os & "_" & $cpu)
-
-func getOutputDir(c: var ConfigData): string =
-  if c.outdir.len > 0: c.outdir else: "build"
 
 proc writeFile(filename, content, newline: string) =
   var f: File
@@ -521,30 +524,66 @@ proc srcdist(c: var ConfigData) =
   var winIndex = -1
   var intel32Index = -1
   var intel64Index = -1
-  for osA in 1..c.oses.len:
-    let osname = c.oses[osA-1]
-    if osname.cmpIgnoreStyle("windows") == 0: winIndex = osA
-    for cpuA in 1..c.cpus.len:
-      if c.explicitPlatforms and not c.platforms[osA][cpuA]: continue
-      let cpuname = c.cpus[cpuA-1]
-      if cpuname.cmpIgnoreStyle("i386") == 0: intel32Index = cpuA
-      elif cpuname.cmpIgnoreStyle("amd64") == 0: intel64Index = cpuA
-      var dir = getOutputDir(c) / buildDir(osA, cpuA)
-      if dirExists(dir): removeDir(dir)
-      createDir(dir)
-      var cmd = ("$# compile -f --symbolfiles:off --compileonly " &
-                 "--gen_mapping --cc:gcc --skipUserCfg" &
-                 " --os:$# --cpu:$# $# $#") %
-                 [quoteShell(c.nimExe), osname, cpuname, c.nimArgs, c.mainfile]
-      echo(cmd)
-      if execShellCmd(cmd) != 0:
-        quit("Error: call to nim compiler failed")
-      readCFiles(c, osA, cpuA)
-      for i in 0 .. c.cfiles[osA][cpuA].len-1:
-        let dest = dir / extractFilename(c.cfiles[osA][cpuA][i])
-        let relDest = buildDir(osA, cpuA) / extractFilename(c.cfiles[osA][cpuA][i])
-        copyFile(dest=dest, source=c.cfiles[osA][cpuA][i])
-        c.cfiles[osA][cpuA][i] = relDest
+
+  iterator platforms(c: ConfigData): tuple[os, cpu: int] =
+    ## Iterate through all platforms, have side-effects but nothing too harmful
+    # TODO: Figure out what does this thing even do
+    for osA in 1..c.oses.len:
+      let osname = c.oses[osA-1]
+      if osname.cmpIgnoreStyle("windows") == 0: winIndex = osA
+      for cpuA in 1..c.cpus.len:
+        if c.explicitPlatforms and not c.platforms[osA][cpuA]: continue
+        let cpuname = c.cpus[cpuA-1]
+        if cpuname.cmpIgnoreStyle("i386") == 0: intel32Index = cpuA
+        elif cpuname.cmpIgnoreStyle("amd64") == 0: intel64Index = cpuA
+
+        yield (osA, cpuA)
+
+  # Nim commands to generate C files, can be run in parallel
+  var cGenerators: seq[string]
+
+  # Generate C generator commands
+  for osA, cpuA in platforms(c):
+    let osname = c.oses[osA - 1]
+    let cpuname = c.cpus[cpuA - 1]
+
+    let cacheDir = getOutputDir(c) / cacheDir(osA, cpuA)
+    let nimcacheArg = quoteShell("--nimcache:" & cacheDir)
+    # Remove the cache if it exist so we get fresh files and avoid any bugs in
+    # the caching system
+    removeDir(cacheDir)
+    var cmd = ("$# compile -f --symbolfiles:off --compileonly " &
+               "--gen_mapping --cc:gcc --skipUserCfg" &
+               # Silence the compiler to the best of our abilities, or it would
+               # be a mess since we are running in parallel
+               " --hints:off --warnings:off" &
+               " --os:$# --cpu:$# $# $# $#") %
+               [quoteShell(c.nimExe), osname, cpuname, c.nimArgs, nimcacheArg, c.mainfile]
+    cGenerators.add cmd
+
+  # Run the generators in parallel
+  let maxExitCode = execProcesses(
+    cGenerators, options = {poStdErrToStdOut, poParentStreams, poEchoCmd}
+  )
+
+  if maxExitCode != 0:
+    quit("Error: one or more calls to nim compiler failed")
+
+  # Collect generated C files
+  for osA, cpuA in platforms(c):
+    # Where to put the C files
+    let dir = getOutputDir(c) / buildDir(osA, cpuA)
+    # Clear out the directory before proceeding
+    removeDir(dir)
+    createDir(dir)
+
+    readCFiles(c, osA, cpuA)
+    for i in 0 .. c.cfiles[osA][cpuA].len-1:
+      let dest = dir / extractFilename(c.cfiles[osA][cpuA][i])
+      let relDest = buildDir(osA, cpuA) / extractFilename(c.cfiles[osA][cpuA][i])
+      copyFile(dest=dest, source=c.cfiles[osA][cpuA][i])
+      c.cfiles[osA][cpuA][i] = relDest
+
   # second pass: remove duplicate files
   deduplicateFiles(c)
   writeFile(getOutputDir(c) / buildShFile, generateBuildShellScript(c), "\10")
