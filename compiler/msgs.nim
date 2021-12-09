@@ -448,7 +448,7 @@ proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
 
   quit 1
 
-proc handleError(
+proc handleError*(
     conf: ConfigRef; report: Report, eh: TErrorHandling) =
   ## Raise, quit or do nothing to handle error report. Specific action is
   ## chosen based on the :arg:`eh` and current error counter.

@@ -7,11 +7,11 @@
 #    distribution, for details about the copyright.
 #
 
-# This module implements Nim's standard template filter.
+## This module implements Nim's standard template filter.
 
 import
   llstream, strutils, ast, msgs, options,
-  filters, lineinfos, pathutils
+  filters, lineinfos, pathutils, reports
 
 type
   TParseState = enum
@@ -21,8 +21,8 @@ type
     state: TParseState
     info: TLineInfo
     indent, emitPar: int
-    x: string                # the current input line
-    outp: PLLStream          # the output will be parsed by parser
+    x: string                ## the current input line
+    outp: PLLStream          ## the output will be parsed by parser
     subsChar, nimDirective: char
     emit, conc, toStr: string
     curly, bracket, par: int
@@ -86,7 +86,7 @@ proc parseLine(p: var TTmplParser) =
         dec(p.indent, 2)
       else:
         p.info.col = int16(j)
-        localError(p.config, p.info, "'end' does not close a control flow construct")
+        p.config.localError(p.info, ParserReport(kind: rparTemplMissingEndClose))
       llStreamWrite(p.outp, spaces(p.indent))
       llStreamWrite(p.outp, "#end")
     of "if", "when", "try", "while", "for", "block", "case", "proc", "iterator",
@@ -171,7 +171,8 @@ proc parseLine(p: var TTmplParser) =
                 llStreamWrite(p.outp, p.x[j])
                 inc(j)
             if curly > 0:
-              localError(p.config, p.info, "expected closing '}'")
+              p.config.localReport(p.info, ParserReport(
+                kind: rparMissingToken, expected: @["}"]))
               break
             llStreamWrite(p.outp, ')')
             llStreamWrite(p.outp, p.conc)
@@ -193,7 +194,8 @@ proc parseLine(p: var TTmplParser) =
               inc(j)
             else:
               p.info.col = int16(j)
-              localError(p.config, p.info, "invalid expression")
+              p.config.localError(p.info, ParserReport(
+                kind: rparTemplInvalidExpression))
         else:
           llStreamWrite(p.outp, p.x[j])
           inc(j)

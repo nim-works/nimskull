@@ -73,6 +73,7 @@ type
     rintIce ## Internal compilation error
     # fatal end
 
+    rintCannotOpenFile
     rintStackTrace = "StackTrace" ## Stack trace during internal
     ## compilation error handling and similar
     rintMissingStackTrace ## Stack trace would've been generated in the
@@ -80,6 +81,7 @@ type
     rintGCStats = "GCStats" ## Print GC statistics for the compiler run
     rintQuitCalled = "QuitCalled" ## `quit()` called by the macro code
 
+    rintUnreachable
     rintAssert ## Failed internal assert in the compiler
     rintSource = "Source" ## Show source in the report
                           # REFACTOR this is a global configuration option,
@@ -130,23 +132,80 @@ type
     # Lexer report begin
     # errors begin
     rlexMalformedUnderscores
+    rlexMalformedTrailingUnderscre
+    rlexInvalidToken
+    rlexNoTabs
+
+    # numbers
     rlexInvalidIntegerPrefix
     rlexInvalidIntegerSuffix
     rlexNumberNotInRange
+    rlexExpectedHex
     rlexInvalidIntegerLiteral
+
+    # char
+    rlexInvalidCharLiteral
+    rlexMissingClosingApostrophe
+    rlexInvalidUnicodeCodepoint
+
+    # string
+    rlexUnclosedTripleString
+    rlexUnclosedSingleString
+
+    # comments
+    rlexUnclosedComment
+
     # errors end
 
+    # warnings begin
     rlexDeprecatedOctalPrefix
+    rlexLinterReport
+    # warnings end
 
+    # hints begin
     rlexLineTooLong
 
-    # ???? `syntaxes.nim` uses it
-    rlexCodeBegin = "CodeBegin"
-    rlexCodeEnd = "CodeEnd"
+    rlexSyntaxesCode
+    # hints end
+
     # Lexer report end
 
     #---------------------------  Parser reports  ----------------------------#
+    # errors begin
+    # regular nim parser
     rparInvalidIndentation
+    rparNestableRequiresIndentation
+
+    rparIdentExpected
+    rparIdentOrKwdExpected
+    rparExprExpected
+    rparMissingToken
+    rparUnexpectedToken
+    rparUnexpectedTokenKind
+
+    rparFuncNotAllowed
+    rparTupleTypeWithPar
+    rparMisplacedParameterVar
+    rparConceptNotinType
+    rparRotineExpected
+    rparPragmaAlreadyPresent
+    rparMisplacedExport
+
+    # template parser `filter_tmpl.nim`
+    rparTemplMissingEndClose
+    rparTemplInvalidExpression
+
+    rparInvalidFilter
+
+    # erorrs end
+
+    # warnings begin
+    rparInconsistentSpacing
+    rparEnablePreviewDotOps
+    rparPragmaNotFollowingTypeName
+    rparPragmaBeforeGenericParameters
+    # warnings end
+
     rparName = "Name" ## Linter report about used identifier
 
     #-----------------------------  Sem reports  -----------------------------#
@@ -160,6 +219,9 @@ type
 
     rsemCustomUserError
       ## just like customer error, but reported as a errUser in msgs
+
+    rsemNodeNotAllowed
+      ## Generated in `filters.nim`
 
     # Global Errors
     rsemCustomGlobalError
@@ -361,10 +423,17 @@ type
     ## origins.
 
 type
-  LexerReportKind* = range[rlexLineTooLong .. rlexCodeEnd]
+  LexerReportKind* = range[rlexMalformedUnderscores .. rlexSyntaxesCode]
   LexerReport* = object of ReportBase
     msg*: string
-    kind*: ReportKind
+    case kind*: ReportKind
+      of rlexLinterReport:
+        wanted*: string
+        got*: string
+
+      else:
+        discard
+
 
 const
   rlexHintKinds*: set[LexerReportKind] = {rlexLineTooLong}
@@ -377,7 +446,19 @@ func severity*(rep: LexerReport): ReportSeverity =
 type
   ParserReportKind* = range[rparInvalidIndentation .. rparName]
   ParserReport* = object of ReportBase
-    kind*: ReportKind
+    msg*: string
+    found*: string
+    case kind*: ReportKind
+      of rparIdentExpected .. rparUnexpectedToken:
+        expected*: seq[string]
+
+      of rparInvalidFilter:
+        node*: PNode
+
+      else:
+        discard
+
+
 
 const
   rparHintKinds* = {rparName}
@@ -494,8 +575,8 @@ type
 
 
   SemReport* = object of ReportBase
-    expression*: Option[PNode] ## Rendered string representation of the
-                                ## expression in the report.
+    expression*: PNode ## Rendered string representation of the expression
+    ## in the report.
     case kind*: ReportKind
       of rsemExpandMacro, rsemPattern:
         originalExpr*: PNode
@@ -642,6 +723,9 @@ type
 
       of rintSuccessX:
         buildParams*: UsedBuildParams
+
+      of rintCannotOpenFile:
+        file*: string
 
       else:
         discard
