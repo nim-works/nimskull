@@ -493,7 +493,8 @@ template foldOffsetOf*(conf: ConfigRef; n: PNode; fallback: PNode): PNode =
     elif node[1].kind == nkCheckedFieldExpr:
       dotExpr = node[1][0]
     else:
-      localError(config, node.info, "can't compute offsetof on this ast")
+      config.localError(node.info, SemReport(
+        kind: rsemCantComputeOffsetof, expression: n))
 
   assert dotExpr != nil
   let value = dotExpr[0]

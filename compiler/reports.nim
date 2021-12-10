@@ -233,6 +233,24 @@ type
       ## "graceful" abort of this compilation run, used by `errorreporting` to
       ## bridge into the existing `msgs.liMessage` and `msgs.handleError`.
 
+    rsemSystemNeeds
+    rsemConflictingExportnims
+    rsemNoMagicEqualsForType
+    rsemCantConvertLiteralToType
+    rsemCantConvertLiteralToRange
+    rsemCantComputeOffsetof
+    rsemStaticOutOfBounds ## Error generated when semfold or static bound
+    ## checking sees and out-of-bounds index error.
+    rsemStaticFieldNotFound # TODO DOC generated in `semfold.nim`, need
+    # better documentation, right now I don't know what exactly this error
+    # means and how to reproduce it in the example code.
+    rsemSemfoldOverflow
+    rsemSemfoldDivByZero
+    rsemSemfoldInvalidConversion
+    rsemInvalidIntdefine
+    rsemInvalidBooldefine
+
+
     # Type definitions
     rsemCaseInUnion ## `{.union.}` type cannot use `case:` statements
     rsemOffsetInUnion ## `{.union.}` type cannot use inheritance and any
@@ -510,18 +528,25 @@ type
 
 
   SemReport* = object of ReportBase
-    expression*: PNode ## Rendered string representation of the expression
-    ## in the report.
+    expression*: PNode
+    expressionStr*: string ## In some cases error reporting is done deep
+    ## enough after processing and only string version of the expression
+    ## might be generated. Most prominent example is a `.booldefine.` and
+    ## `.intdefine.` error generation.
+    rtype*: PType
     case kind*: ReportKind
       of rsemExpandMacro, rsemPattern:
         originalExpr*: PNode
 
-      of rsemTypeMismatch:
+      of rsemTypeMismatch, rsemSemfoldInvalidConversion:
         typeMismatch*: SemTypeMismatch
 
       of rsemCallTypeMismatch:
         callMismatches*: seq[SemCallMismatch] ## Description of all the
         ## failed candidates.
+
+      of rsemStaticOutOfBounds:
+        indexSpec*: tuple[maxIdx, usedIdx: int64]
 
       of rsemProcessing:
         processing*: tuple[
@@ -531,6 +556,12 @@ type
           isToplevel: bool,
           moduleStatus, path: string
         ]
+
+      of rsemSystemNeeds, rsemStaticFieldNotFound:
+        missingSymbol*: string
+
+      of rsemConflictingExportnims:
+        conflictingExports*: (PSym, PSym)
 
       else:
         discard

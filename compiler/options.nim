@@ -404,12 +404,15 @@ template report*[R: ReportTypes](
   ## it's instantiation info with `instantiationInfo()` of the template.
   report(conf, wrap(inReport, instLoc(), tinfo))
 
+proc addReport*(conf: ConfigRef, report: Report): ReportId =
+  conf.m.reports.addReport(report)
+
 template store*(conf: ConfigRef, report: ReportTypes): untyped =
-  conf.m.reports.addReport(wrap(report, instLoc()))
+  conf.addReport(wrap(report, instLoc()))
 
 template store*(
     conf: ConfigRef, linfo: TLineInfo, report: ReportTypes): untyped =
-  conf.m.reports.addReport(
+  conf.addReport(
     wrap(report, instLoc(), conf.toReportLinePoint(linfo)))
 
 

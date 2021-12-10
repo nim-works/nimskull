@@ -561,7 +561,7 @@ template globalError*(
   ## `local` means compilation keeps going until errorMax is reached (via
   ## `doNothing`), `global` means it stops.
   handleReport(
-    conf, wrap(report, instLoc(), conf.toReportLineInfo(info)), doNothing)
+    conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
 
 template globalError*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doRaise)

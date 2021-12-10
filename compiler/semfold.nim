@@ -7,13 +7,14 @@
 #    distribution, for details about the copyright.
 #
 
-# this module folds constants; used by semantic checking phase
-# and evaluation phase
+## this module folds constants; used by semantic checking phase
+## and evaluation phase
 
 import
   strutils, options, ast, trees, nimsets,
   platform, math, msgs, idents, renderer, types,
-  commands, magicsys, modulegraphs, strtabs, lineinfos
+  commands, magicsys, modulegraphs, strtabs, lineinfos,
+  reports
 
 from system/memory import nimCStrLen
 
@@ -93,16 +94,18 @@ proc ordinalValToString*(a: PNode; g: ModuleGraph): string =
   of tyEnum:
     var n = t.n
     for i in 0..<n.len:
-      if n[i].kind != nkSym: internalError(g.config, a.info, "ordinalValToString")
+      if n[i].kind != nkSym:
+        g.config.internalError(
+          rintUnreachable, "ordinalValToString")
       var field = n[i].sym
       if field.position == x:
         if field.ast == nil:
           return field.name.s
         else:
           return field.ast.strVal
-    localError(g.config, a.info,
-      "Cannot convert int literal to $1. The value is invalid." %
-        [typeToString(t)])
+
+    g.config.localError(a.info, SemReport(
+      kind: rsemCantConvertLiteralToType, rtype: t))
   else:
     result = $x
 
@@ -183,7 +186,8 @@ proc evalOp(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): P
         result = newIntNodeT(toInt128(toUInt32(getInt(a)) shl toInt64(getInt(b))), n, idgen, g)
       else:
         result = newIntNodeT(toInt128(toUInt64(getInt(a)) shl toInt64(getInt(b))), n, idgen, g)
-    else: internalError(g.config, n.info, "constant folding for shl")
+    else:
+      g.config.internalError(rintUnreachable, "constant folding for shl")
   of mShrI:
     var a = cast[uint64](getInt(a))
     let b = cast[uint64](getInt(b))
@@ -211,7 +215,8 @@ proc evalOp(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): P
     of tyInt32: result = newIntNodeT(toInt128(ashr(toInt32(getInt(a)), toInt32(getInt(b)))), n, idgen, g)
     of tyInt64, tyInt:
       result = newIntNodeT(toInt128(ashr(toInt64(getInt(a)), toInt64(getInt(b)))), n, idgen, g)
-    else: internalError(g.config, n.info, "constant folding for ashr")
+    else:
+      g.config.internalError(rintUnreachable, "constant folding for ashr")
   of mDivI:
     let argA = getInt(a)
     let argB = getInt(b)
@@ -327,7 +332,8 @@ proc getConstIfExpr(c: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNod
           if result == nil: return
     elif it.len == 1:
       if result == nil: result = getConstExpr(c, it[0], idgen, g)
-    else: internalError(g.config, it.info, "getConstIfExpr()")
+    else:
+      g.config.internalError(rintUnreachable, "getConstIfExpr()")
 
 proc leValueConv*(a, b: PNode): bool =
   result = false
@@ -371,8 +377,11 @@ proc getAppType(n: PNode; g: ModuleGraph): PNode =
 
 proc rangeCheck(n: PNode, value: Int128; g: ModuleGraph) =
   if value < firstOrd(g.config, n.typ) or value > lastOrd(g.config, n.typ):
-    localError(g.config, n.info, "cannot convert " & $value &
-                                    " to " & typeToString(n.typ))
+    g.config.localReport(n.info, SemReport(
+      kind: rsemCantConvertLiteralToRange,
+      expressionStr: $value,
+      rtype: n.typ
+    ))
 
 proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph; check = false): PNode =
   let dstTyp = skipTypes(n.typ, abstractRange - {tyTypeDesc})
@@ -445,18 +454,29 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
       result = x.sons[idx]
       if result.kind == nkExprColonExpr: result = result[1]
     else:
-      localError(g.config, n.info, formatErrorIndexBound(idx, x.len-1) & $n)
+      g.config.localError(n.info, SemReport(
+        kind: rsemStaticOutOfBounds,
+        expression: n,
+        indexSpec: (idx, int64(x.len - 1))))
   of nkBracket:
     idx -= toInt64(firstOrd(g.config, x.typ))
     if idx >= 0 and idx < x.len: result = x[int(idx)]
-    else: localError(g.config, n.info, formatErrorIndexBound(idx, x.len-1) & $n)
+    else:
+      g.config.localError(n.info, SemReport(
+        kind: rsemStaticOutOfBounds,
+        expression: n,
+        indexSpec: (idx, int64(x.len - 1))))
   of nkStrLit..nkTripleStrLit:
     result = newNodeIT(nkCharLit, x.info, n.typ)
     if idx >= 0 and idx < x.strVal.len:
       result.intVal = ord(x.strVal[int(idx)])
     else:
-      localError(g.config, n.info, formatErrorIndexBound(idx, x.strVal.len-1) & $n)
-  else: discard
+      g.config.localError(n.info, SemReport(
+        kind: rsemStaticOutOfBounds,
+        expression: n,
+        indexSpec: (idx, int64(x.len - 1))))
+  else:
+    discard
 
 proc foldFieldAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
   # a real field access; proc calls have already been transformed
@@ -474,7 +494,12 @@ proc foldFieldAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
     if it[0].sym.name.id == field.name.id:
       result = x[i][1]
       return
-  localError(g.config, n.info, "field not found: " & field.name.s)
+
+  g.config.localError(n.info, SemReport(
+    expression: n,
+    kind: rsemStaticFieldNotFound,
+    missingSymbol: field.name.s))
+
 
 proc foldConStrStr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
   result = newNodeIT(nkStrLit, n.info, n.typ)
@@ -516,9 +541,8 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
           try:
             result = newIntNodeT(toInt128(g.config.symbols[s.name.s].parseInt), n, idgen, g)
           except ValueError:
-            localError(g.config, s.info,
-              "{.intdefine.} const was set to an invalid integer: '" &
-                g.config.symbols[s.name.s] & "'")
+            g.config.localError SemReport(
+              kind: rsemInvalidIntdefine, expressionStr: g.config.symbols[s.name.s])
         else:
           result = copyTree(s.ast)
       of mStrDefine:
@@ -531,9 +555,8 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
           try:
             result = newIntNodeT(toInt128(g.config.symbols[s.name.s].parseBool.int), n, idgen, g)
           except ValueError:
-            localError(g.config, s.info,
-              "{.booldefine.} const was set to an invalid bool: '" &
-                g.config.symbols[s.name.s] & "'")
+            g.config.localError SemReport(
+              kind: rsemInvalidBooldefine, expressionStr: g.config.symbols[s.name.s])
         else:
           result = copyTree(s.ast)
       else:
@@ -616,9 +639,11 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
       else:
         result = magicCall(m, n, idgen, g)
     except OverflowDefect:
-      localError(g.config, n.info, "over- or underflow")
+      g.config.localError(n.info, SemReport(
+        kind: rsemSemfoldOverflow, expression: n))
     except DivByZeroDefect:
-      localError(g.config, n.info, "division by zero")
+      g.config.localError(n.info, SemReport(
+        kind: rsemSemfoldDivByZero, expression: n))
   of nkAddr:
     var a = getConstExpr(m, n[0], idgen, g)
     if a != nil:
@@ -670,9 +695,11 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
       result = a              # a <= x and x <= b
       result.typ = n.typ
     else:
-      localError(g.config, n.info,
-        "conversion from $1 to $2 is invalid" %
-          [typeToString(n[0].typ), typeToString(n.typ)])
+      g.config.localReport(n.info, SemReport(
+        kind: rsemSemfoldInvalidConversion,
+        typeMismatch: SemTypeMismatch(
+          actualType: n[0].typ,
+          wantedType: n.typ)))
   of nkStringToCString, nkCStringToString:
     var a = getConstExpr(m, n[0], idgen, g)
     if a == nil: return

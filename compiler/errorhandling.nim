@@ -33,6 +33,7 @@
 
 import ast
 from options import ConfigRef, store
+from lineinfos import unknownLineInfo
 import reports
 
 type InstantiationInfo* = typeof(instantiationInfo())
@@ -99,6 +100,17 @@ proc newError*(
 
   for a in args:
     result.add a
+
+template newError*(
+    conf: ConfigRef, wrongNode: PNode,
+    report: SemReport,
+    args: seq[PNode] = @[],
+    info: TLineInfo = unknownLineInfo,
+  ): untyped =
+
+  let tmp = wrap(report, instLoc(), conf.toReportLinePoint(info))
+  let id = conf.addReport(tmp)
+  newError(wrongNode, tmp.semReport.kind, id, instLoc(), args)
 
 proc wrapErrorInSubTree*(wrongNodeContainer: PNode): PNode =
   ## `wrongNodeContainer` doesn't directly have an error but one exists further
