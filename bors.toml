@@ -1,6 +1,7 @@
 # Checks that has to pass before merge to devel can be done
 status = [
-  "All check passed"
+  "All check passed",
+  "Reproducibility tests"
 ]
 
 # Checks that has to pass before bors will process the PR
