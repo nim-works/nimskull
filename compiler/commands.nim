@@ -87,10 +87,11 @@ proc writeFullhelp(conf: ConfigRef; pass: TCmdLinePass) =
 
 proc getNimSourceData(): tuple[hash, date: string] {.compileTime.} =
   ## Retrieve metadata about the compiler source code.
-  let hashCall = gorgeEx("git rev-parse --verify HEAD")
-  let dateCall = gorgeEx("git log -1 --format=%cs HEAD")
-  if hashCall.exitCode == 0 and dateCall.exitCode == 0:
-    result = (hashCall.output.strip(), dateCall.output.strip())
+  const
+    # These are defined by koch
+    nimSourceHash {.strdefine.} = ""
+    nimSourceDate {.strdefine.} = ""
+  result = (nimSourceHash, nimSourceDate)
 
 proc writeVersionInfo(conf: ConfigRef; pass: TCmdLinePass) =
   if pass == passCmd1:

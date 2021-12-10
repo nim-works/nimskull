@@ -123,6 +123,33 @@ proc tryExec(cmd: string): bool =
   echo(cmd)
   result = execShellCmd(cmd) == 0
 
+proc getSourceMetadata(): tuple[hash, date: string] =
+  ## Returns the metadata about Nim's source code
+  ##
+  ## Empty strings are returned if this information is not available
+  # Since obtaining this data requires external calls, we cache them
+  var hash {.global.}: string
+  var date {.global.}: string
+
+  if hash == "":
+    let hashCall = execCmdEx("git -C " & quoteShell(nimSource) & " rev-parse --verify HEAD")
+    if hashCall.exitCode == 0:
+      hash = hashCall.output.strip()
+
+  if date == "":
+    let dateCall = execCmdEx("git -C " & quoteShell(nimSource) & " log -1 --format=%cs HEAD")
+    if dateCall.exitCode == 0:
+      date = dateCall.output.strip()
+
+  result = (hash, date)
+
+proc defineSourceMetadata(): string =
+  ## Produce arguments to pass to the compiler to embed source metadata in the
+  ## built compiler
+  let (hash, date) = getSourceMetadata()
+  if hash != "" and date != "":
+    result = quoteShellCommand(["-d:nimSourceHash=" & hash, "-d:nimSourceDate=" & date])
+
 proc safeRemove(filename: string) =
   if fileExists(filename): removeFile(filename)
 
@@ -151,7 +178,7 @@ proc bundleC2nim(args: string) =
 
 proc bundleNimsuggest(args: string) =
   nimCompileFold("Compile nimsuggest", "nimsuggest/nimsuggest.nim",
-                 options = "-d:danger " & args)
+                 options = "-d:danger " & defineSourceMetadata() & " " & args)
 
 proc buildVccTool(args: string) =
   let input = "tools/vccexe/vccexe.nim"
@@ -164,7 +191,7 @@ proc buildVccTool(args: string) =
 
 proc bundleNimpretty(args: string) =
   nimCompileFold("Compile nimpretty", "nimpretty/nimpretty.nim",
-                 options = "-d:release " & args)
+                 options = "-d:release " & defineSourceMetadata() & " " & args)
 
 proc bundleWinTools(args: string) =
   nimCompile("tools/finish.nim", outputDir = "", options = args)
@@ -208,10 +235,10 @@ proc buildTool(toolname, args: string) =
 proc buildTools(args: string = "") =
   bundleNimsuggest(args)
   nimCompileFold("Compile nimgrep", "tools/nimgrep.nim",
-                 options = "-d:release " & args)
+                 options = "-d:release " & defineSourceMetadata() & " " & args)
   when defined(windows): buildVccTool(args)
   bundleNimpretty(args)
-  nimCompileFold("Compile testament", "testament/testament.nim", options = "-d:release " & args)
+  nimCompileFold("Compile testament", "testament/testament.nim", options = "-d:release " & defineSourceMetadata() & " " & args)
 
   # pre-packages a debug version of nim which can help in many cases investigate issuses
   # withouth having to rebuild compiler.
@@ -219,10 +246,10 @@ proc buildTools(args: string = "") =
   # `-d:debug` should be changed to a flag that doesn't require re-compiling nim
   # `--opt:speed` is a sensible default even for a debug build, it doesn't affect nim stacktraces
   nimCompileFold("Compile nim_dbg", "compiler/nim.nim", options =
-      "--opt:speed --stacktrace -d:debug --stacktraceMsgs -d:nimCompilerStacktraceHints --excessiveStackTrace:off " & args,
+      "--opt:speed --stacktrace -d:debug --stacktraceMsgs -d:nimCompilerStacktraceHints --excessiveStackTrace:off " & defineSourceMetadata() & " " & args,
       outputName = "nim_dbg")
 
-  nimCompileFold("Compile atlas", "tools/atlas/atlas.nim", options = "-d:release " & args,
+  nimCompileFold("Compile atlas", "tools/atlas/atlas.nim", options = "-d:release " & defineSourceMetadata() & " " & args,
       outputName = "atlas")
 
 
@@ -317,7 +344,7 @@ proc boot(args: string) =
     let bootOptions = if args.len == 0 or args.startsWith("-"): defaultCommand else: ""
     echo "iteration: ", i+1
     # The configs are skipped for bootstrap
-    var extraOption = " --skipUserCfg --skipParentCfg"
+    var extraOption = " --skipUserCfg --skipParentCfg" & " " & defineSourceMetadata()
     var nimi = i.thVersion
     var smartNimcache = smartNimcache
     if i == 0:
