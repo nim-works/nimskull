@@ -404,22 +404,13 @@ template report*[R: ReportTypes](
   ## it's instantiation info with `instantiationInfo()` of the template.
   report(conf, wrap(inReport, instLoc(), tinfo))
 
-proc store*[R: ReportTypes](
-    conf: ConfigRef,
-    report: sink R,
-    iinfo: InstantiationInfo,
-    location: Option[ReportLineInfo] = none ReportLineInfo
-  ): ReportId =
-  ## Store new report in the message context list. Returned ID can be later
-  ## used to write out the report via structured error hook.
+template store*(conf: ConfigRef, report: ReportTypes): untyped =
+  conf.m.reports.addReport(wrap(report, instLoc()))
 
-  var tmp = report
-  tmp.reportInst = toReportLinePoint()
-  if isSome(location):
-    tmp.location = location
-
-  result = conf.m.reports.addReport(tmp)
-
+template store*(
+    conf: ConfigRef, linfo: TLineInfo, report: ReportTypes): untyped =
+  conf.m.reports.addReport(
+    wrap(report, instLoc(), conf.toReportLinePoint(linfo)))
 
 
 func isCompilerFatal*(conf: ConfigRef, report: Report): bool =

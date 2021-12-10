@@ -28,30 +28,6 @@ type
       # most useful, shows: symbol + resolved symbols if it differs, e.g.:
       # tuple[a: MyInt{int}, b: float]
 
-  TTypeRelation* = enum      ## order is important!
-    isNone
-    isConvertible
-    isIntConv
-    isSubtype
-    isSubrange               ## subrange of the wanted type; no type conversion
-                             ## but apart from that counts as ``isSubtype``
-    isBothMetaConvertible    ## generic proc parameter was matched against
-                             ## generic type, e.g., map(mySeq, x=>x+1),
-                             ## maybe recoverable by rerun if the parameter is
-                             ## the proc's return value
-    isInferred               ## generic proc was matched against a concrete type
-    isInferredConvertible    ## same as above, but requiring proc CC conversion
-    isGeneric
-    isFromIntLit             ## conversion *from* int literal; proven safe
-    isEqual
-
-  ProcConvMismatch* = enum
-    pcmNoSideEffect
-    pcmNotGcSafe
-    pcmLockDifference
-    pcmNotIterator
-    pcmDifferentCallConv
-
 proc typeToString*(typ: PType; prefer: TPreferedDesc = preferName): string
 
 proc addTypeDeclVerboseMaybe*(result: var string, conf: ConfigRef; typ: PType) =
@@ -776,11 +752,17 @@ proc firstOrd*(conf: ConfigRef; t: PType): Int128 =
     result = firstOrd(conf, lastSon(t))
   of tyOrdinal:
     if t.len > 0: result = firstOrd(conf, lastSon(t))
-    else: internalError(conf, "invalid kind for firstOrd(" & $t.kind & ')')
+    else:
+      conf.localError InternalReport(
+        kind: rintUnreachable,
+        msg: "invalid kind for firstOrd(" & $t.kind & ')')
+
   of tyUncheckedArray, tyCstring:
     result = Zero
   else:
-    internalError(conf, "invalid kind for firstOrd(" & $t.kind & ')')
+    conf.localError InternalReport(
+      kind: rintUnreachable,
+      msg: "invalid kind for firstOrd(" & $t.kind & ')')
     result = Zero
 
 proc firstFloat*(t: PType): BiggestFloat =
@@ -795,7 +777,9 @@ proc firstFloat*(t: PType): BiggestFloat =
      tyStatic, tyInferred, tyUserTypeClasses:
     firstFloat(lastSon(t))
   else:
-    internalError(newPartialConfigRef(), "invalid kind for firstFloat(" & $t.kind & ')')
+    newPartialConfigRef().localError InternalReport(
+      kind: rintUnreachable,
+      msg: "invalid kind for firstFloat(" & $t.kind & ')')
     NaN
 
 proc lastOrd*(conf: ConfigRef; t: PType): Int128 =
@@ -835,11 +819,16 @@ proc lastOrd*(conf: ConfigRef; t: PType): Int128 =
   of tyProxy: result = Zero
   of tyOrdinal:
     if t.len > 0: result = lastOrd(conf, lastSon(t))
-    else: internalError(conf, "invalid kind for lastOrd(" & $t.kind & ')')
+    else:
+      conf.localError InternalReport(
+        kind: rintUnreachable,
+        msg: "invalid kind for firstOrd(" & $t.kind & ')')
   of tyUncheckedArray:
     result = Zero
   else:
-    internalError(conf, "invalid kind for lastOrd(" & $t.kind & ')')
+    conf.localError InternalReport(
+      kind: rintUnreachable,
+      msg: "invalid kind for firstOrd(" & $t.kind & ')')
     result = Zero
 
 proc lastFloat*(t: PType): BiggestFloat =
@@ -854,7 +843,9 @@ proc lastFloat*(t: PType): BiggestFloat =
      tyStatic, tyInferred, tyUserTypeClasses:
     lastFloat(lastSon(t))
   else:
-    internalError(newPartialConfigRef(), "invalid kind for lastFloat(" & $t.kind & ')')
+    newPartialConfigRef().localError InternalReport(
+      kind: rintUnreachable,
+      msg: "invalid kind for firstFloat(" & $t.kind & ')')
     NaN
 
 proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
@@ -871,7 +862,9 @@ proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
      tyStatic, tyInferred, tyUserTypeClasses:
     floatRangeCheck(x, lastSon(t))
   else:
-    internalError(newPartialConfigRef(), "invalid kind for floatRangeCheck:" & $t.kind)
+    newPartialConfigRef().localError InternalReport(
+      kind: rintUnreachable,
+      msg: "invalid kind for floatRangeCheck(" & $t.kind & ')')
     false
 
 proc lengthOrd*(conf: ConfigRef; t: PType): Int128 =
@@ -1558,11 +1551,11 @@ proc getProcConvMismatch*(c: ConfigRef, f, a: PType, rel = isNone): (set[ProcCon
        # but it's a pragma mismatch reason which is why it's here
        result[0].incl pcmLockDifference
 
-proc typeMismatch*(formal, actual: PType): SemTypeMismatch =
+proc typeMismatch*(conf: ConfigRef, formal, actual: PType): SemTypeMismatch =
   result = SemTypeMismatch(
     actualType: actual,
     wantedType: formal,
-    descriptionStr: descriptionStr: typeToString(formal, preferDesc)
+    descriptionStr: typeToString(formal, preferDesc)
   )
 
   if formal.kind == tyProc and actual.kind == tyProc:
@@ -1578,9 +1571,9 @@ proc typeMismatch*(
   if formal.kind != tyError and actual.kind != tyError:
     var rep = SemReport(
       kind: rsemTypeMismatch,
-      typeMismatch: typeMismach(formal, actual))
+      typeMismatch: typeMismatch(conf, formal, actual))
 
-    result = newError(n, conf.store(info, rep))
+    result = newError(n, rsemTypeMismatch, conf.store(info, rep), instLoc())
     result.info = info
 
 proc isTupleRecursive(t: PType, cycleDetector: var IntSet): bool =

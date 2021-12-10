@@ -21,6 +21,8 @@ export ast_types, options.some
 
 type InstantiationInfo* = typeof(instantiationInfo())
 
+const emptyReportId* = ReportId(0)
+
 type
   ReportCategory* = enum
     ## Kinds of the toplevel reports. Only dispatches on report topics,
@@ -74,6 +76,8 @@ type
     # fatal end
 
     rintCannotOpenFile
+    rintWarnCannotOpenFile
+    rintWarnFileChanged
     rintStackTrace = "StackTrace" ## Stack trace during internal
     ## compilation error handling and similar
     rintMissingStackTrace ## Stack trace would've been generated in the
@@ -81,7 +85,7 @@ type
     rintGCStats = "GCStats" ## Print GC statistics for the compiler run
     rintQuitCalled = "QuitCalled" ## `quit()` called by the macro code
 
-    rintUnreachable
+    rintUnreachable ## State in the compiler code that must not be reached
     rintAssert ## Failed internal assert in the compiler
     rintSource = "Source" ## Show source in the report
                           # REFACTOR this is a global configuration option,
@@ -228,6 +232,12 @@ type
       ## just like custom error, but treat it like a "raise" and fast track the
       ## "graceful" abort of this compilation run, used by `errorreporting` to
       ## bridge into the existing `msgs.liMessage` and `msgs.handleError`.
+
+    # Type definitions
+    rsemCaseInUnion ## `{.union.}` type cannot use `case:` statements
+    rsemOffsetInUnion ## `{.union.}` type cannot use inheritance and any
+    ## other features that add implicit chunk of data before the actually
+    ## listed fields.
 
     # Call
     rsemCallTypeMismatch
@@ -470,83 +480,8 @@ func severity*(parser: ParserReport): ReportSeverity =
     else: rsevTrace
 
 type
-  SemRef* = object
-
-
-
-  #[
-    errIllFormedAstX
-    errCannotOpenFile
-    errXExpected
-    errRstGridTableNotImplemented
-    errRstMarkdownIllformedTable
-    errRstNewSectionExpected
-    errRstGeneralParseError
-    errRstInvalidDirectiveX
-    errRstInvalidField
-    errRstFootnoteMismatch
-    errProveInit  # deadcode
-    errUser
-    # warnings
-    warnCannotOpenFile = "CannotOpenFile"
-    warnOctalEscape = "OctalEscape"
-    warnXIsNeverRead = "XIsNeverRead"
-    warnXmightNotBeenInit = "XmightNotBeenInit"
-    warnDeprecated = "Deprecated"
-    warnConfigDeprecated = "ConfigDeprecated"
-    warnDotLikeOps = "DotLikeOps"
-    warnSmallLshouldNotBeUsed = "SmallLshouldNotBeUsed"
-    warnRstRedefinitionOfLabel = "RedefinitionOfLabel"
-    warnRstUnknownSubstitutionX = "UnknownSubstitutionX"
-    warnRstBrokenLink = "BrokenLink"
-    warnRstLanguageXNotSupported = "LanguageXNotSupported"
-    warnRstFieldXNotSupported = "FieldXNotSupported"
-    warnRstStyle = "warnRstStyle"
-    warnCommentXIgnored = "CommentXIgnored"
-    warnTypelessParam = "TypelessParam"
-    warnUseBase = "UseBase"
-    warnWriteToForeignHeap = "WriteToForeignHeap"
-    warnUnsafeCode = "UnsafeCode"
-    warnUnusedImportX = "UnusedImport"
-    warnInheritFromException = "InheritFromException"
-    warnEachIdentIsTuple = "EachIdentIsTuple"
-    warnUnsafeSetLen = "UnsafeSetLen"
-    warnUnsafeDefault = "UnsafeDefault"
-    warnProveInit = "ProveInit"
-    warnProveField = "ProveField"
-    warnProveIndex = "ProveIndex"
-    warnUnreachableElse = "UnreachableElse"
-    warnUnreachableCode = "UnreachableCode"
-    warnStaticIndexCheck = "IndexCheck"
-    warnGcUnsafe = "GcUnsafe"
-    warnGcUnsafe2 = "GcUnsafe2"
-    warnUninit = "Uninit"
-    warnGcMem = "GcMem"
-    warnDestructor = "Destructor"
-    warnLockLevel = "LockLevel"
-    warnResultShadowed = "ResultShadowed"
-    warnInconsistentSpacing = "Spacing"
-    warnCaseTransition = "CaseTransition"
-    warnCycleCreated = "CycleCreated"
-    warnObservableStores = "ObservableStores"
-    warnStrictNotNil = "StrictNotNil"
-    warnResultUsed = "ResultUsed"
-    warnCannotOpen = "CannotOpen"
-    warnFileChanged = "FileChanged"
-    warnSuspiciousEnumConv = "EnumConv"
-    warnAnyEnumConv = "AnyEnumConv"
-    warnHoleEnumConv = "HoleEnumConv"
-    warnCstringConv = "CStringConv"
-    warnEffect = "Effect"
-    warnUser = "User"
-    # hints
-    hintSuccess = "Success"
-    hintSuccessX = "SuccessX"
-    hintCC = "CC"
-    hintLineTooLong = "LineTooLong"
-  ]#
-
   SemReportKind* = range[rsemUserError .. rsemImplicitObjConv]
+  SemReportErrorKind* = range[rsemUserError .. rsemWrappedError]
 
   SemTypeMismatch* = object
     actualType*, wantedType*: PType
@@ -587,6 +522,15 @@ type
       of rsemCallTypeMismatch:
         callMismatches*: seq[SemCallMismatch] ## Description of all the
         ## failed candidates.
+
+      of rsemProcessing:
+        processing*: tuple[
+          isNimscript: bool,
+          importStackLen: int,
+          fromModule: string,
+          isToplevel: bool,
+          moduleStatus, path: string
+        ]
 
       else:
         discard
@@ -724,7 +668,7 @@ type
       of rintSuccessX:
         buildParams*: UsedBuildParams
 
-      of rintCannotOpenFile:
+      of rintCannotOpenFile .. rintWarnFileChanged:
         file*: string
 
       else:

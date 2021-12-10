@@ -122,7 +122,8 @@ proc setupParser*(p: var Parser; fileIdx: FileIndex; cache: IdentCache;
   let filename = toFullPathConsiderDirty(config, fileIdx)
   var f: File
   if not open(f, filename.string):
-    rawMessage(config, errGenerated, "cannot open file: " & filename.string)
+    config.localError InternalReport(
+      kind: rintCannotOpenFile, file: filename.string)
     return false
   openParser(p, fileIdx, llStreamOpen(f), cache, config)
   result = true

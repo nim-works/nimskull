@@ -12,7 +12,8 @@
 ## or stored in a rod-file.
 
 import intsets, tables, hashes, md5
-import ast, astalgo, options, lineinfos,idents, btrees, ropes, msgs, pathutils
+import ast, astalgo, options, lineinfos,idents,
+       btrees, ropes, msgs, pathutils, reports
 import ic / [packed_ast, ic]
 
 type
@@ -419,7 +420,7 @@ proc registerModule*(g: ModuleGraph; m: PSym) =
 
   g.ifaces[m.position] = Iface(module: m, converters: @[], patterns: @[],
                                uniqueName: rope(uniqueModuleName(g.config, FileIndex(m.position))))
-  
+
   initStrTables(g, m)
 
 proc registerModuleById*(g: ModuleGraph; m: FileIndex) =
@@ -603,9 +604,14 @@ from std/strutils import repeat, `%`
 proc onProcessing*(graph: ModuleGraph, fileIdx: FileIndex, moduleStatus: string, fromModule: PSym, ) =
   let conf = graph.config
   let isNimscript = conf.isDefined("nimscript")
-  if (not isNimscript) or hintProcessing in conf.cmdlineNotes:
+  if (not isNimscript) or rsemProcessing in conf.cmdlineNotes:
     let path = toFilenameOption(conf, fileIdx, conf.filenameOption)
-    let indent = ">".repeat(graph.importStack.len)
-    let fromModule2 = if fromModule != nil: $fromModule.name.s else: "(toplevel)"
-    let mode = if isNimscript: "(nims) " else: ""
-    rawMessage(conf, hintProcessing, "$#$# $#: $#: $#" % [mode, indent, fromModule2, moduleStatus, path])
+    conf.localReport SemReport(
+      kind: rsemProcessing,
+      processing: (
+        isNimscript: isNimscript,
+        importStackLen: graph.importStack.len,
+        fromModule: if fromModule != nil: $fromModule.name.s else: "",
+        isToplevel: fromModule == nil,
+        moduleStatus: moduleStatus,
+        path: path))

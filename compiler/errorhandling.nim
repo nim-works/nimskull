@@ -33,6 +33,7 @@
 
 import ast
 from options import ConfigRef, store
+import reports
 
 type InstantiationInfo* = typeof(instantiationInfo())
   ## type alias for instantiation information
@@ -62,12 +63,12 @@ const
   compilerInfoPos* = 2 ## compiler source file as strlit, line & col on info
   firstArgPos*     = 3 ## first 0..n additional nodes depends on error kind
 
-func errorKind*(e: PNode): ErrorKind {.inline.} =
+func errorKind*(e: PNode): SemReportErrorKind {.inline.} =
   ## property to retrieve the error kind
   assert e != nil, "can't have a nil error node"
   assert e.kind == nkError, "must be an error node to have an ErrorKind"
 
-  result = ErrorKind(e[errorKindPos].intVal)
+  result = SemReportErrorKind(e[errorKindPos].intVal)
 
 func compilerInstInfo*(e: PNode): InstantiationInfo {.inline.} =
   ## return where the error was instantiated in the compiler
@@ -77,7 +78,9 @@ func compilerInstInfo*(e: PNode): InstantiationInfo {.inline.} =
 
 proc newError*(
     wrongNode: PNode;
-    report: ReportId
+    errorKind: SemReportErrorKind,
+    report: ReportId,
+    inst: InstantiationInfo,
     args: varargs[PNode]
   ): PNode =
   ## Create `nkError` node with with given error report and additional
@@ -90,8 +93,9 @@ proc newError*(
     newType(tyError, ItemId(module: -2, item: -1), nil))
 
   result.reportId = report
-
   result.add wrongNode
+  result.add newIntNode(nkIntLit, ord(errorKind)) # errorKindPos
+  result.add newStrNode(inst.filename, wrongNode.info) # compilerInfoPos
 
   for a in args:
     result.add a
@@ -102,7 +106,8 @@ proc wrapErrorInSubTree*(wrongNodeContainer: PNode): PNode =
   ## node but no message will be reported for it.
   var e = errorSubNode(wrongNodeContainer)
   assert e != nil, "there must be an error node within"
-  result = newError(wrongNodeContainer, WrappedError, instLoc())
+  result = newError(
+    wrongNodeContainer, rsemWrappedError, emptyReportId, instLoc())
 
 proc wrapIfErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode
   {.deprecated: "transition proc, remove usage as soon as possible".} =
@@ -116,8 +121,11 @@ proc wrapIfErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode
     if e.isNil:
       wrongNodeContainer
     else:
-      newErrorAux(
-        wrongNodeContainer, conf.store SemReport(kind: rsemWrappedError))
+      newError(
+        wrongNodeContainer,
+        rsemWrappedError,
+        conf.store SemReport(kind: rsemWrappedError),
+        instLoc())
 
 proc buildErrorList(n: PNode, errs: var seq[PNode]) =
   ## creates a list (`errs` seq) from least specific to most specific
@@ -143,7 +151,9 @@ iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   for i in 1..errNodes.len:
     # reverse index so we go from the innermost to outermost
     let e = errNodes[^i]
-    if e.errorKind == WrappedError: continue
+    if e.errorKind == rsemWrappedError:
+      continue
+
     yield e
 
 iterator ifErrorWalkErrors*(config: ConfigRef; n: PNode): PNode =
