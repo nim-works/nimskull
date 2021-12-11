@@ -69,36 +69,55 @@ class Bootstrap:
     # The bootstrap compiler binary store location
     Binaries: ClassVar = Source / "bin"
 
-    # The location of
+    # The location of build configuration
     ConfigPath: ClassVar = NimSource / "config" / "build_config.txt"
+
+    # The location of bootstrap source release file
+    SourceReleasePath: ClassVar = Source / "csources-release"
 
     def __init__(self) -> None:
         """Load configuration and initialize the object"""
 
         self.sourceUrl = ""
         self.sourceCommit = ""
+        self.sourceRelease = ""
 
-        with open(Bootstrap.ConfigPath) as config:
-            for line in config:
-                (key, _, value) = line.rstrip().partition("=")
+        # The tag used for the versioned bootstrap compiler
+        versioned_bin_tag = ""
 
-                if key == "nim_csourcesUrl":
-                    self.sourceUrl = value
-                elif key == "nim_csourcesHash":
-                    self.sourceCommit = value
+        try:
+            with open(Bootstrap.SourceReleasePath) as releaseFile:
+                self.sourceRelease = releaseFile.read().strip()
+                versioned_bin_tag = self.sourceRelease
+        except OSError:
+            # There are no release csources bundled
+            pass
 
-        if self.sourceUrl == "":
-            raise RuntimeError(
-                "Could not find the configuration for bootstrap source URL"
-            )
+        # Read build configuration if there are no release csources bundled
+        if self.sourceRelease == "":
+            with open(Bootstrap.ConfigPath) as config:
+                for line in config:
+                    (key, _, value) = line.rstrip().partition("=")
 
-        if self.sourceCommit == "":
-            raise RuntimeError(
-                "Could not find the configuration for bootstrap source commit"
-            )
+                    if key == "nim_csourcesUrl":
+                        self.sourceUrl = value
+                    elif key == "nim_csourcesHash":
+                        self.sourceCommit = value
+
+            if self.sourceUrl == "":
+                raise RuntimeError(
+                    "Could not find the configuration for bootstrap source URL"
+                )
+
+            if self.sourceCommit == "":
+                raise RuntimeError(
+                    "Could not find the configuration for bootstrap source commit"
+                )
+
+            versioned_bin_tag = self.sourceCommit
 
         # The name of the compiler binary in the store
-        self.versioned_bin = exe(Bootstrap.Binaries / ("nim" + "-" + self.sourceCommit))
+        self.versioned_bin = exe(Bootstrap.Binaries / ("nim" + "-" + versioned_bin_tag))
 
     def is_built(self) -> bool:
         """Returns whether the bootstrap exist in the store"""
@@ -116,6 +135,10 @@ class Bootstrap:
 
     def fetch(self) -> None:
         """Download the bootstrap compiler source if needed"""
+        # There is no need to fetch if the release source is used
+        if self.sourceRelease != "":
+            return
+
         localSourceUrl = Bootstrap._git_capture(
             "remote", "get-url", "origin"
         ).stdout.rstrip()
