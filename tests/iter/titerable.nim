@@ -6,7 +6,7 @@ discard """
 8
 12
 '''
-  disabled: "true"
+    knownIssue: "lambda lifting support for iterToProc plugin; lambda lifting and iterators are likley to go through a bit spec definition and this will either get folded in and its a good signal to know whether we fixed something by happenstance or not."
 """
 
 # Will eventually fix it...

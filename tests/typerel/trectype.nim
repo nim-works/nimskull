@@ -1,6 +1,6 @@
 discard """
-  errormsg: "internal error: cannot generate C type for: PA"
-  disabled: true
+  errormsg: "illegal recursion in type 'PA'"
+
 """
 # Test recursive type descriptions
 # (mainly for the C code generator)
