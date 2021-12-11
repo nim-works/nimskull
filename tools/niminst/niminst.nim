@@ -26,14 +26,18 @@ const
 type
   AppType = enum appConsole, appGUI
   Action = enum
-    actionNone,   # action not yet known
+    actionNone    # action not yet known
     actionCSource # action: create C sources
-    actionInno,   # action: create Inno Setup installer
-    actionNsis,   # action: create NSIS installer
+    actionInno    # action: create Inno Setup installer
+    actionNsis    # action: create NSIS installer
     actionScripts # action: create install and deinstall scripts
-    actionZip     # action: create zip file
-    actionXz,     # action: create xz file
+    actionArchive # action: create a release archive
     actionDeb     # action: prepare deb package
+
+  ArchiveFormat {.pure.} = enum
+    Zip = "zip" ## A zip archive
+    Tar = "tar" ## An uncompressed tarball
+    TarXz = "tar.xz" ## A tarball compressed with xz
 
   FileCategory = enum
     fcWinBin,     # binaries for Windows
@@ -65,8 +69,12 @@ type
     nimArgs: string
     debOpts: TDebOptions
     nimblePkgName: string
+    binCat: set[FileCategory] ## Extra binary categories to pack into the archive
+    format: ArchiveFormat
 
 const
+  tarFormats = {Tar..TarXz}
+    ## Archive formats based on tar
   unixDirVars: array[fcConfig..fcLib, string] = [
     "$configdir", "$datadir", "$docdir", "$libdir"
   ]
@@ -142,7 +150,8 @@ Usage:
 Command:
   csource             build C source code for source based installations
   scripts             build install and deinstall scripts
-  zip                 build the ZIP file
+  archive             build the source release archive; csources must be built
+                      beforehand
   inno                build the Inno Setup installer
   nsis                build the NSIS Setup installer
   deb                 create files for debhelper
@@ -152,6 +161,11 @@ Options:
                       extension
   --var:name=value    set the value of a variable
   --nim:exe           the nim compiler to use
+  --format:value      the archive format to use, defaults to zip, use "list"
+                      to get a list of supported formats
+  --binaries:type     when creating an archive, include binaries of the
+                      specified types (supports: unix, windows) and omit
+                      csources as well as files not necessary for the target
   -h, --help          shows this help
   -v, --version       shows the version
 Compile_options:
@@ -172,8 +186,7 @@ proc parseCmdLine(c: var ConfigData) =
           case a
           of "csource": incl(c.actions, actionCSource)
           of "scripts": incl(c.actions, actionScripts)
-          of "zip": incl(c.actions, actionZip)
-          of "xz": incl(c.actions, actionXz)
+          of "archive": incl(c.actions, actionArchive)
           of "inno": incl(c.actions, actionInno)
           of "nsis": incl(c.actions, actionNsis)
           of "deb": incl(c.actions, actionDeb)
@@ -198,6 +211,27 @@ proc parseCmdLine(c: var ConfigData) =
         c.vars[substr(val, 0, idx-1)] = substr(val, idx+1)
       of "nim":
         c.nimExe = val
+      of "format":
+        try:
+          c.format = parseEnum[ArchiveFormat](val)
+        except ValueError:
+          if val != "list":
+            echo "Invalid format: ", val, "\p"
+
+          echo "Supported archive formats:"
+          for format in ArchiveFormat.items:
+            echo "* ", format
+
+          quit:
+            if val == "list":
+              QuitSuccess
+            else:
+              QuitFailure
+      of "binaries":
+        case normalize(val)
+        of "unix": c.binCat.incl fcUnixBin
+        of "windows": c.binCat.incl fcWinBin
+        else: quit(Usage)
       else: quit(Usage)
     of cmdEnd: break
   if c.infile.len == 0: quit(Usage)
@@ -634,7 +668,8 @@ proc setupDist2(c: var ConfigData) =
     else:
       quit("External program failed")
 
-proc xzDist(c: var ConfigData; windowsZip=false) =
+proc archiveDist(c: var ConfigData) =
+  ## Create the archive distribution
   let proj = toLowerAscii(c.name) & "-" & c.version
   let tmpDir = if c.outdir.len == 0: "build" else: c.outdir
 
@@ -647,11 +682,12 @@ proc xzDist(c: var ConfigData; windowsZip=false) =
     if not dirExists(destDir): createDir(destDir)
     copyFileWithPermissions(src, dest)
 
-  if not windowsZip and not fileExists("build" / buildBatFile):
-    quit("No C sources found in ./build/, please build by running " &
-         "./koch csource -d:danger.")
+  if c.binCat == {}:
+    if not fileExists("build" / buildBatFile):
+      quit("No C sources found in ./build/, please build by running " &
+           "./koch csource -d:danger.")
 
-  if not windowsZip:
+  if c.binCat == {}:
     # Store csources in the location koch.py expects
     let bootstrapDist = proj / "build" / "csources"
     processFile(bootstrapDist / buildBatFile, "build" / buildBatFile)
@@ -674,13 +710,22 @@ proc xzDist(c: var ConfigData; windowsZip=false) =
         for k, f in walkDir("build" / dir):
           if k == pcFile:
             processFile(bootstrapDist / dir / extractFilename(f), f)
-  else:
-    for f in items(c.cat[fcWinBin]):
-      let filename = f.extractFilename
-      processFile(proj / "bin" / filename, f)
 
-  let osSpecific = if windowsZip: fcWindows else: fcUnix
-  for cat in items({fcConfig..fcOther, osSpecific, fcNimble}):
+  var extraCat = c.binCat
+  # When building a source archive, pack all OS-specific files
+  if extraCat == {}:
+    extraCat.incl {fcUnix, fcWindows}
+
+  else:
+    # Pack Windows specific files when building Windows binary archive
+    if fcWinBin in extraCat:
+      extraCat.incl fcWindows
+
+    # Pack Unix specific files when building Unix binary archive
+    if fcUnixBin in c.binCat:
+      extraCat.incl fcUnix
+
+  for cat in items({fcConfig..fcOther, fcNimble} + extraCat):
     echo("Current category: ", cat)
     for f in items(c.cat[cat]): processFile(proj / f, f)
 
@@ -688,32 +733,30 @@ proc xzDist(c: var ConfigData; windowsZip=false) =
   let nimbleFile = c.nimblePkgName & ".nimble"
   processFile(proj / nimbleFile, nimbleFile)
 
-  when true:
-    let oldDir = getCurrentDir()
-    setCurrentDir(tmpDir)
-    try:
-      if windowsZip:
-        if execShellCmd("7z a -tzip $1.zip $1" % proj) != 0:
-          echo("External program failed (zip)")
-        when false:
-          writeFile("config.txt", """;!@Install@!UTF-8!
-Title="Nim v$1"
-BeginPrompt="Do you want to configure Nim v$1?"
-RunProgram="tools\downloader.exe"
-;!@InstallEnd@!""" % NimVersion)
-          if execShellCmd("7z a -sfx7zS2.sfx -t7z $1.exe $1" % proj) != 0:
-            echo("External program failed (7z)")
-      else:
-        if execShellCmd("gtar cf $1.tar --exclude=.DS_Store $1" %
-                        proj) != 0:
-          # try old 'tar' without --exclude feature:
-          if execShellCmd("tar cf $1.tar $1" % proj) != 0:
-            echo("External program failed")
+  let oldDir = getCurrentDir()
+  setCurrentDir(tmpDir)
+  try:
+    case c.format
+    of Zip:
+      if execShellCmd("7z a -tzip $1.zip $1" % proj) != 0:
+        echo("External program failed (zip)")
 
+    of tarFormats:
+      if execShellCmd("gtar cf $1.tar --exclude=.DS_Store $1" %
+                      proj) != 0:
+        # try old 'tar' without --exclude feature:
+        if execShellCmd("tar cf $1.tar $1" % proj) != 0:
+          echo("External program failed")
+
+      case c.format
+      of TarXz:
         if execShellCmd("xz -9f $1.tar" % proj) != 0:
           echo("External program failed")
-    finally:
-      setCurrentDir(oldDir)
+      else:
+        discard
+
+  finally:
+    setCurrentDir(oldDir)
 
 # -- prepare build files for .deb creation
 
@@ -776,10 +819,8 @@ proc main() =
     srcdist(c)
   if actionScripts in c.actions:
     writeInstallScripts(c)
-  if actionZip in c.actions:
-    xzDist(c, true)
-  if actionXz in c.actions:
-    xzDist(c)
+  if actionArchive in c.actions:
+    archiveDist(c)
   if actionDeb in c.actions:
     debDist(c)
 
