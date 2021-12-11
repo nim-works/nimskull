@@ -5,11 +5,10 @@
 #
 #    See the file "copying.txt", included in this
 #    distribution, for details about the copyright.
-#
 
 import
   os, osproc, strutils, parseopt, parsecfg, strtabs, streams, debcreation,
-  std / sha1
+  std / sha1, json
 
 const
   maxOS = 20 # max number of OSes
@@ -22,6 +21,7 @@ const
   installShFile = "install.sh"
   deinstallShFile = "deinstall.sh"
   csourcesReleaseFile = "csources-release"
+  releaseFile = "release.json"
 
 type
   AppType = enum appConsole, appGUI
@@ -59,7 +59,7 @@ type
     cfiles: array[1..maxOS, array[1..maxCPU, seq[string]]]
     platforms: array[1..maxOS, array[1..maxCPU, bool]]
     ccompiler, linker, innosetup, nsisSetup: tuple[path, flags: string]
-    name, displayName, version, description, license, infile, outdir: string
+    name, displayName, version, description, license, infile, outdir, commit, commitdate: string
     mainfile, libpath: string
     innoSetupFlag, installScript, uninstallScript: bool
     explicitPlatforms: bool
@@ -382,6 +382,10 @@ proc parseIniFile(c: var ConfigData) =
             of "gui": c.app = appGUI
             else: quit(errorStr(p, "expected: console or gui"))
           of "license": c.license = unixToNativePath(k.value)
+          of "commit":
+            c.commit = v
+          of "commitdate":
+            c.commitdate = v
           else: quit(errorStr(p, "unknown variable: " & k.key))
         of "var": discard
         of "winbin": filesOnly(p, k.key, v, c.cat[fcWinBin])
@@ -732,6 +736,15 @@ proc archiveDist(c: var ConfigData) =
   # Copy the .nimble file over
   let nimbleFile = c.nimblePkgName & ".nimble"
   processFile(proj / nimbleFile, nimbleFile)
+
+  # Store release metadata
+  writeFile(tmpDir / releaseFile):
+    $ %*{
+      "version": c.version,
+      "commit": c.commit,
+      "commit_date": c.commitdate
+    }
+  processFile(proj / releaseFile, tmpDir / releaseFile)
 
   let oldDir = getCurrentDir()
   setCurrentDir(tmpDir)
