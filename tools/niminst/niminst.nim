@@ -21,6 +21,7 @@ const
   makeFile = "makefile"
   installShFile = "install.sh"
   deinstallShFile = "deinstall.sh"
+  csourcesReleaseFile = "csources-release"
 
 type
   AppType = enum appConsole, appGUI
@@ -612,20 +613,28 @@ proc xzDist(c: var ConfigData; windowsZip=false) =
          "./koch csource -d:danger.")
 
   if not windowsZip:
-    processFile(proj / buildBatFile, "build" / buildBatFile)
-    processFile(proj / buildBatFile32, "build" / buildBatFile32)
-    processFile(proj / buildBatFile64, "build" / buildBatFile64)
-    processFile(proj / buildShFile, "build" / buildShFile)
-    processFile(proj / makeFile, "build" / makeFile)
+    # Store csources in the location koch.py expects
+    let bootstrapDist = proj / "build" / "csources"
+    processFile(bootstrapDist / buildBatFile, "build" / buildBatFile)
+    processFile(bootstrapDist / buildBatFile32, "build" / buildBatFile32)
+    processFile(bootstrapDist / buildBatFile64, "build" / buildBatFile64)
+    processFile(bootstrapDist / buildShFile, "build" / buildShFile)
+    processFile(bootstrapDist / makeFile, "build" / makeFile)
+
+    # Tag the source so koch.py knows to use it instead of cloning a fresh copy
+    writeFile(tmpDir / csourcesReleaseFile, c.version)
+    processFile(bootstrapDist / csourcesReleaseFile, tmpDir / csourcesReleaseFile)
+
     processFile(proj / installShFile, installShFile)
     processFile(proj / deinstallShFile, deinstallShFile)
     template processFileAux(src, dst) = processFile(dst, src)
-    gatherFiles(processFileAux, c.libpath, proj / "c_code")
+    gatherFiles(processFileAux, c.libpath, bootstrapDist / "c_code")
     for osA in 1..c.oses.len:
       for cpuA in 1..c.cpus.len:
         var dir = buildDir(osA, cpuA)
         for k, f in walkDir("build" / dir):
-          if k == pcFile: processFile(proj / dir / extractFilename(f), f)
+          if k == pcFile:
+            processFile(bootstrapDist / dir / extractFilename(f), f)
   else:
     for f in items(c.cat[fcWinBin]):
       let filename = f.extractFilename
