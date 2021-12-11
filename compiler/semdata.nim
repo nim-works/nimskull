@@ -14,7 +14,7 @@ import tables
 import
   intsets, options, ast, astalgo, msgs, idents, renderer,
   magicsys, vmdef, modulegraphs, lineinfos, sets, pathutils,
-  errorhandling, errorreporting
+  errorhandling, errorreporting, reports
 
 import ic / ic
 
@@ -23,10 +23,10 @@ type
     options*: TOptions
     defaultCC*: TCallingConvention
     dynlib*: PLib
-    notes*: TNoteKinds
+    notes*: ReportKinds
     features*: set[Feature]
     otherPragmas*: PNode      # every pragma can be pushed
-    warningAsErrors*: TNoteKinds
+    warningAsErrors*: ReportKinds
 
   POptionEntry* = ref TOptionEntry
   PProcCon* = ref TProcCon
@@ -212,7 +212,8 @@ proc setIntLitType*(c: PContext; result: PNode) =
     else:
       result.typ = getSysType(c.graph, result.info, tyInt64)
   else:
-    internalError(c.config, result.info, "invalid int size")
+    c.config.internalError(
+      result.info, rintUnreachable, "invalid int size")
 
 proc makeInstPair*(s: PSym, inst: PInstantiation): TInstantiationPair =
   result.genericSym = s
@@ -237,8 +238,11 @@ proc pushOwner*(c: PContext; owner: PSym) =
   c.graph.owners.add(owner)
 
 proc popOwner*(c: PContext) =
-  if c.graph.owners.len > 0: setLen(c.graph.owners, c.graph.owners.len - 1)
-  else: internalError(c.config, "popOwner")
+  if c.graph.owners.len > 0:
+    setLen(c.graph.owners, c.graph.owners.len - 1)
+
+  else:
+    internalError(c.config, rintUnreachable, "popOwner")
 
 proc lastOptionEntry*(c: PContext): POptionEntry =
   result = c.optionStack[^1]
@@ -429,7 +433,7 @@ proc makeVarType*(owner: PSym, baseType: PType; idgen: IdGenerator; kind = tyVar
 proc makeTypeSymNode*(c: PContext, typ: PType, info: TLineInfo): PNode =
   let typedesc = newTypeS(tyTypeDesc, c)
   incl typedesc.flags, tfCheckedForDestructor
-  internalAssert(c.config, typ != nil)
+  internalAssert(c.config, typ != nil, "[FIXME]")
   typedesc.addSonSkipIntLit(typ, c.idgen)
   let sym = newSym(skType, c.cache.idAnon, nextSymId(c.idgen), getCurrOwner(c), info,
                    c.config.options).linkTo(typedesc)

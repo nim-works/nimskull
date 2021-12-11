@@ -8,7 +8,7 @@
 #
 
 import ast, renderer, strutils, msgs, options, idents, os, lineinfos,
-  pathutils
+  pathutils, reports
 
 when false:
   const
@@ -113,7 +113,9 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
     try:
       result = pathSubs(conf, n.strVal, toFullPath(conf, n.info).splitFile().dir)
     except ValueError:
-      localError(conf, n.info, "invalid path: " & n.strVal)
+      conf.localError(n.info, SemReport(
+        expression: n, kind: rsemInvalidModulePath))
+
       result = n.strVal
   of nkIdent:
     result = n.ident.s
@@ -144,12 +146,13 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
     # hacky way to implement 'x / y /../ z':
     result = renderTree(n, {renderNoComments}).replace(" ")
   of nkDotExpr:
-    localError(conf, n.info, warnDeprecated, "using '.' instead of '/' in import paths is deprecated")
+    conf.localError(n.info, SemReport(expression: n, kind: rsemDotForModuleImport))
     result = renderTree(n, {renderNoComments}).replace(".", "/")
   of nkImportAs:
     result = getModuleName(conf, n[0])
   else:
-    localError(conf, n.info, "invalid module name: '$1'" % n.renderTree)
+    conf.localError(n.info, SemReport(
+      expression: n, kind: rsemInvalidModulePath))
     result = ""
 
 proc checkModuleName*(conf: ConfigRef; n: PNode; doLocalError=true): FileIndex =
@@ -159,7 +162,8 @@ proc checkModuleName*(conf: ConfigRef; n: PNode; doLocalError=true): FileIndex =
   if fullPath.isEmpty:
     if doLocalError:
       let m = if modulename.len > 0: modulename else: $n
-      localError(conf, n.info, "cannot open file: " & m)
+      conf.localError(n.info, InternalReport(
+        kind: rintCannotOpenFile, file: m))
     result = InvalidFileIdx
   else:
     result = fileInfoIdx(conf, fullPath)

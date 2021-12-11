@@ -36,8 +36,6 @@ from options import ConfigRef, store
 from lineinfos import unknownLineInfo
 import reports
 
-type InstantiationInfo* = typeof(instantiationInfo())
-  ## type alias for instantiation information
 template instLoc(depth = -2): InstantiationInfo =
   ## grabs where in the compiler an error was instanced to ease debugging.
   ##

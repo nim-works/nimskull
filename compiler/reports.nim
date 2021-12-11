@@ -213,6 +213,10 @@ type
     rparName = "Name" ## Linter report about used identifier
 
     #-----------------------------  Sem reports  -----------------------------#
+    # semantic fatal
+    rsemFatalError
+    # end
+
     # Semantic errors begin
     rsemUserError = "UserError" ## `{.error: }`
 
@@ -233,7 +237,11 @@ type
       ## "graceful" abort of this compilation run, used by `errorreporting` to
       ## bridge into the existing `msgs.liMessage` and `msgs.handleError`.
 
+    # Module errors
     rsemSystemNeeds
+    rsemInvalidModulePath
+
+    # ..
     rsemConflictingExportnims
     rsemNoMagicEqualsForType
     rsemCantConvertLiteralToType
@@ -318,6 +326,7 @@ type
     # Semantic warnings begin
     rsemUserWarning = "UserWarning" ## `{.warning: }`
     rsemUnknownMagic = "UnknownMagic"
+    rsemDotForModuleImport
     # end
 
     # Semantic hints begin
