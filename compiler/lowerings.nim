@@ -13,7 +13,7 @@ const
   genPrefix* = ":tmp"         # prefix for generated names
 
 import ast, astalgo, types, idents, magicsys, msgs, options, modulegraphs,
-  lineinfos
+  lineinfos, reports
 
 proc newDeref*(n: PNode): PNode {.inline.} =
   result = newNodeIT(nkHiddenDeref, n.info, n.typ[0])
@@ -340,7 +340,9 @@ proc callCodegenProc*(g: ModuleGraph; name: string;
   result = newNodeI(nkCall, info)
   let sym = magicsys.getCompilerProc(g, name)
   if sym == nil:
-    localError(g.config, info, "system module needs: " & name)
+    g.config.localError(info, SemReport(
+      kind: rsemSystemNeeds, missingSymbol: name))
+
   else:
     result.add newSymNode(sym)
     if arg1 != nil: result.add arg1
@@ -372,4 +374,3 @@ proc genLen*(g: ModuleGraph; n: PNode): PNode =
     result.typ = getSysType(g, n.info, tyInt)
     result[0] = newSymNode(getSysMagic(g, n.info, "len", mLengthSeq))
     result[1] = n
-

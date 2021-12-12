@@ -219,6 +219,7 @@ type
 
     # Semantic errors begin
     rsemUserError = "UserError" ## `{.error: }`
+    rsemUsageIsError
 
     rsemCustomError
     rsemCustomPrintMsgAndNodeError
@@ -265,7 +266,9 @@ type
     ## other features that add implicit chunk of data before the actually
     ## listed fields.
     rsemUnexpectedInNewConcept
+    rsemTooNestedConcept
     rsemIllegalRecursion
+    rsemCannotInferStaticValue
 
     rsemVarVarNotAllowed ## `var lent`, `var var` etc. are not allowed in
     ## types
@@ -275,9 +278,10 @@ type
 
 
 
-    # Procedure definition
+    # Procedure definition and instantiation
     rsemImplementationExpected
     rsemRedefinitionOf
+    rsemDefaultParamIsIncompatible
 
     # Call
     rsemCallTypeMismatch
@@ -306,6 +310,8 @@ type
     # General Type Checks
     rsemExpressionHasNoType
       ## an expression has not type or is ambiguous
+
+    rsemCannotConvertTypes
 
     # Literals
     rsemIntLiteralExpected
@@ -577,7 +583,9 @@ type
       of rsemExpandMacro, rsemPattern:
         originalExpr*: PNode
 
-      of rsemTypeMismatch, rsemSemfoldInvalidConversion:
+      of rsemTypeMismatch,
+         rsemSemfoldInvalidConversion,
+         rsemCannotConvertTypes:
         typeMismatch*: SemTypeMismatch
 
       of rsemDeprecated, rsemRedefinitionOf:

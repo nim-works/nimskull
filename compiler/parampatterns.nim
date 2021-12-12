@@ -71,17 +71,27 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
         compileConstraints(p[2], result, conf)
         result.add(ppAnd)
       else:
-        patternError(p, conf)
+        conf.localError(p.info, SemReport(
+          kind: rsemIllformedAst, expression: p,
+          msg: "Expected any of '|', 'or', '&', 'and' for TRM pattern, but found '$1' ($2)" % [
+            $op.s, $op.id]))
     elif p.len == 2 and (op.s == "~" or op.id == ord(wNot)):
       compileConstraints(p[1], result, conf)
       result.add(ppNot)
     else:
-      patternError(p, conf)
+      conf.localError(p.info, SemReport(
+        kind: rsemIllformedAst, expression: p,
+        msg: "Unexpected trm patern - wanted negation or and/or infix"))
+
   of nkAccQuoted, nkPar:
     if p.len == 1:
       compileConstraints(p[0], result, conf)
     else:
-      patternError(p, conf)
+      conf.localError(p.info, SemReport(
+        kind: rsemIllformedAst, expression: p,
+        msg: "Unexpected number of nodes for node - " &
+          "wanted $1, but found $2" % [$1, $p.len]))
+
   of nkIdent:
     let spec = p.ident.s.normalize
     case spec
@@ -98,22 +108,22 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
     of "nosideeffect": result.add(ppNoSideEffect)
     else:
       # check all symkinds:
-      internalAssert conf, int(high(TSymKind)) < 255
+      internalAssert conf, int(high(TSymKind)) < 255, "[FIXME]"
       for i in TSymKind:
         if cmpIgnoreStyle(i.toHumanStr, spec) == 0:
           result.add(ppSymKind)
           result.add(chr(i.ord))
           return
       # check all nodekinds:
-      internalAssert conf, int(high(TNodeKind)) < 255
+      internalAssert conf, int(high(TNodeKind)) < 255, "[FIXME]"
       for i in TNodeKind:
         if cmpIgnoreStyle($i, spec) == 0:
           result.add(ppNodeKind)
           result.add(chr(i.ord))
           return
-      patternError(p, conf)
+      conf.localError(p.info, SemReport(kind: rsemIllformedAst, expression: p))
   else:
-    patternError(p, conf)
+    conf.localError(p.info, SemReport(kind: rsemIllformedAst, expression: p))
 
 proc semNodeKindConstraints*(n: PNode; conf: ConfigRef; start: Natural): PNode =
   ## does semantic checking for a node kind pattern and compiles it into an
@@ -124,10 +134,12 @@ proc semNodeKindConstraints*(n: PNode; conf: ConfigRef; start: Natural): PNode =
   if n.len >= 2:
     for i in start..<n.len:
       compileConstraints(n[i], result.strVal, conf)
-    if result.strVal.len > MaxStackSize-1:
-      internalError(conf, n.info, "parameter pattern too complex")
+
+    if result.strVal.len > MaxStackSize - 1:
+      conf.internalUnreachable("parameter pattern too complex", n.info)
+
   else:
-    patternError(n, conf)
+    conf.localError(n.info, SemReport(kind: rsemIllformedAst, expression: n))
   result.strVal.add(ppEof)
 
 type

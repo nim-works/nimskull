@@ -13,7 +13,8 @@
 import
   intsets, ast, astalgo, semdata, types, msgs, renderer, lookups, semtypinst,
   magicsys, idents, lexer, options, parampatterns, strutils, trees,
-  linter, lineinfos, lowerings, modulegraphs, concepts, errorhandling
+  linter, lineinfos, lowerings, modulegraphs, concepts, errorhandling,
+  reports
 
 type
   MismatchInfo* = object
@@ -672,7 +673,9 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
     matchedConceptContext.prev = prevMatchedConcept
     matchedConceptContext.depth = prevMatchedConcept.depth + 1
     if prevMatchedConcept.depth > 4:
-      localError(m.c.graph.config, body.info, $body & " too nested for type matching")
+      localError(m.c.graph.config, body.info, SemReport(
+        kind: rsemTooNestedConcept, expression: body))
+
       return nil
 
   openScope(c)
@@ -744,13 +747,14 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
     diagnostics = @[]
     flags = {efExplain}
     m.c.config.writelnHook = proc (s: string) =
-      if errorPrefix.len == 0:
-        errorPrefix = typeClass.sym.name.s & ":"
-      let msg = s.replace("Error:", errorPrefix)
-      if oldWriteHook != nil:
-        oldWriteHook msg
-      let e = newError(body, msg)
-      diagnostics.add e
+      assert false, "Find a way to mitigate this garbage"
+      # if errorPrefix.len == 0:
+      #   errorPrefix = typeClass.sym.name.s & ":"
+      # let msg = s.replace("Error:", errorPrefix)
+      # if oldWriteHook != nil:
+      #   oldWriteHook msg
+      # let e = m.c.graph.config.newError(body, msg)
+      # diagnostics.add e
 
   var checkedBody = c.semTryExpr(c, body.copyTree, flags)
 
@@ -895,9 +899,9 @@ proc inferStaticParam*(c: var TCandidate, lhs: PNode, rhs: BiggestInt): bool =
 
 proc failureToInferStaticParam(conf: ConfigRef; n: PNode) =
   let staticParam = n.findUnresolvedStatic
-  let name = if staticParam != nil: staticParam.sym.name.s
-             else: "unknown"
-  localError(conf, n.info, "cannot infer the value of the static param '" & name & "'")
+  conf.localError(n.info, SemReport(
+    kind: rsemCannotInferStaticValue,
+    psym: if staticParam != nil: staticParam.sym else: nil))
 
 proc inferStaticsInRange(c: var TCandidate,
                          inferred, concrete: PType): TTypeRelation =
@@ -1526,10 +1530,12 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
           x.len - 1 == f.len:
       for i in 1..<f.len:
         if x[i].kind == tyGenericParam:
-          internalError(c.c.graph.config, "wrong instantiated type!")
+          c.c.graph.config.internalUnreachable("wrong instantiated type!")
+
         elif typeRel(c, f[i], x[i], flags) <= isSubtype:
           # Workaround for regression #4589
           if f[i].kind != tyTypeDesc: return
+
       result = isGeneric
     elif x.kind == tyGenericInst and concpt.kind == tyConcept:
       result = if concepts.conceptMatch(c.c, concpt, x, c.bindings, f): isGeneric
@@ -1560,7 +1566,7 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
           if x == nil:
             discard "maybe fine (for e.g. a==tyNil)"
           elif x.kind in {tyGenericInvocation, tyGenericParam}:
-            internalError(c.c.graph.config, "wrong instantiated type!")
+            internalUnreachable(c.c.graph.config, "wrong instantiated type!")
           else:
             let key = f[i]
             let old = PType(idTableGet(c.bindings, key))
@@ -1692,7 +1698,7 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
           if f.len == 0:
             result = isGeneric
           else:
-            internalAssert c.c.graph.config, a.len > 0
+            internalAssert c.c.graph.config, a.len > 0, "[FIXME]"
             c.typedescMatched = true
             var aa = a
             while aa.kind in {tyTypeDesc, tyGenericParam} and aa.len > 0:
@@ -1853,7 +1859,7 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
   of tyNone:
     if a.kind == tyNone: result = isEqual
   else:
-    internalError c.c.graph.config, " unknown type kind " & $f.kind
+    internalUnreachable c.c.graph.config, " unknown type kind " & $f.kind
 
 when false:
   var nowDebug = false
@@ -1880,7 +1886,7 @@ proc getInstantiatedType(c: PContext, arg: PNode, m: TCandidate,
   if result == nil:
     result = generateTypeInstance(c, m.bindings, arg, f)
   if result == nil:
-    internalError(c.graph.config, arg.info, "getInstantiatedType")
+    internalUnreachable(c.graph.config, "getInstantiatedType", arg.info)
     result = errorType(c)
 
 proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
@@ -1893,7 +1899,10 @@ proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
       result.typ = errorType(c)
   else:
     result.typ = f.skipTypes({tySink})
-  if result.typ == nil: internalError(c.graph.config, arg.info, "implicitConv")
+
+  if result.typ == nil:
+    internalUnreachable(c.graph.config, "implicitConv", arg.info)
+
   result.add c.graph.emptyNode
   result.add arg
 
@@ -2260,7 +2269,7 @@ proc paramTypesMatch*(m: var TCandidate, f, a: PType,
       result = nil
     elif y.state == csMatch and cmpCandidates(x, y) == 0:
       if x.state != csMatch:
-        internalError(m.c.graph.config, arg.info, "x.state is not csMatch")
+        internalUnreachable(m.c.graph.config, "x.state is not csMatch", arg.info)
       # ambiguous: more than one symbol fits!
       # See tsymchoice_for_expr as an example. 'f.kind == tyUntyped' should match
       # anyway:
@@ -2437,7 +2446,12 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       # check if m.callee has such a param:
       prepareNamedParam(n[a], c)
       if n[a].kind == nkError or n[a][0].kind != nkIdent:
-        localError(c.config, n[a].info, "named parameter has to be an identifier")
+        localError(c.config, n[a].info, SemReport(
+          kind: rsemExpectedIdentifier,
+          expression: n[a],
+          msg: "named parameter has to be an identifier"
+        ))
+
         noMatch()
       formal = getNamedParamFromList(m.callee.n, n[a][0].ident)
       if formal == nil or formal.isError:
@@ -2509,7 +2523,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           noMatch()
       else:
         if m.callee.n[f].kind != nkSym:
-          internalError(c.config, n[a].info, "matches")
+          internalUnreachable(c.config, "matches", n[a].info)
           noMatch()
         if a >= firstArgBlock: f = max(f, m.callee.n.len - (n.len - a))
         formal = m.callee.n[f].sym
@@ -2565,8 +2579,11 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             # a container
             #assert arg.kind == nkHiddenStdConv # for 'nim check'
             # this assertion can be off
-            localError(c.config, n[a].info, "cannot convert $1 to $2" % [
-              typeToString(n[a].typ), typeToString(formal.typ) ])
+            localError(c.config, n[a].info,
+              SemReport(
+                kind: rsemCannotConvertTypes,
+                typeMismatch: c.config.typeMismatch(formal.typ, n[a].typ)))
+
             noMatch()
         checkConstraint(n[a])
 
@@ -2627,10 +2644,10 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
           # The default param value is set to empty in `instantiateProcType`
           # when the type of the default expression doesn't match the type
           # of the instantiated proc param:
-          localError(c.config, m.call.info,
-                     ("The default parameter '$1' has incompatible type " &
-                      "with the explicitly requested proc instantiation") %
-                      formal.name.s)
+          localError(c.config, m.call.info, SemReport(
+            kind: rsemDefaultParamIsIncompatible,
+            psym: formal))
+
         if nfDefaultRefsParam in formal.ast.flags:
           m.call.flags.incl nfDefaultRefsParam
         var defaultValue = copyTree(formal.ast)
@@ -2669,7 +2686,7 @@ proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
                       op: TTypeAttachedOp; col: int): PSym {.nosinks.} =
   var m = newCandidate(c, dc.typ)
   if col >= dc.typ.len:
-    localError(c.config, info, "cannot instantiate: '" & dc.name.s & "'")
+    localError(c.config, info, SemReport(kind: rsemCannotInstantiate, psym: dc))
     return nil
   var f = dc.typ[col]
 
@@ -2678,7 +2695,7 @@ proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
   else:
     if f.kind in {tyVar}: f = f.lastSon
   if typeRel(m, f, t) == isNone:
-    localError(c.config, info, "cannot instantiate: '" & dc.name.s & "'")
+    localError(c.config, info, SemReport(kind: rsemCannotInstantiate, psym: dc))
   else:
     result = c.semGenerateInstance(c, dc, m.bindings, info)
     if op == attachedDeepCopy:

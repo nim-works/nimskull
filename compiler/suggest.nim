@@ -424,7 +424,7 @@ proc suggestFieldAccess(c: PContext, n, field: PNode, outputs: var Suggestions) 
         t = skipTypes(t[0], skipPtrs)
     elif typ.kind == tyTuple and typ.n != nil:
       suggestSymList(c, typ.n, field, n.info, outputs)
-    
+
     suggestOperations(c, n, field, orig, outputs)
     if typ != orig:
       suggestOperations(c, n, field, typ, outputs)
@@ -540,29 +540,26 @@ proc extractPragma(s: PSym): PNode =
 proc warnAboutDeprecated(conf: ConfigRef; info: TLineInfo; s: PSym) =
   var pragmaNode: PNode
   pragmaNode = if s.kind == skEnumField: extractPragma(s.owner) else: extractPragma(s)
-  let name =
-    if s.kind == skEnumField and sfDeprecated notin s.flags: "enum '" & s.owner.name.s & "' which contains field '" & s.name.s & "'"
-    else: s.name.s
   if pragmaNode != nil:
     for it in pragmaNode:
       if whichPragma(it) == wDeprecated and it.safeLen == 2 and
           it[1].kind in {nkStrLit..nkTripleStrLit}:
-        message(conf, info, warnDeprecated, it[1].strVal & "; " & name & " is deprecated")
+        localError(conf, info, SemReport(
+          kind: rsemDeprecated, msg: it[1].strVal, psym: s))
         return
-  message(conf, info, warnDeprecated, name & " is deprecated")
+  localError(conf, info, SemReport(kind: rsemDeprecated, psym: s))
 
 proc userError(conf: ConfigRef; info: TLineInfo; s: PSym) =
   let pragmaNode = extractPragma(s)
-  template bail(prefix: string) =
-    localError(conf, info, "$1usage of '$2' is an {.error.} defined at $3" %
-      [prefix, s.name.s, toFileLineCol(conf, s.ast.info)])
   if pragmaNode != nil:
     for it in pragmaNode:
       if whichPragma(it) == wError and it.safeLen == 2 and
           it[1].kind in {nkStrLit..nkTripleStrLit}:
-        bail(it[1].strVal & "; ")
+        localError(conf, info, SemReport(
+          kind: rsemUsageIsError, psym: s, msg: it[1].strVal))
         return
-  bail("")
+
+  localError(conf, info, SemReport(kind: rsemUsageIsError, psym: s))
 
 proc markOwnerModuleAsUsed(c: PContext; s: PSym) =
   var module = s
