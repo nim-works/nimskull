@@ -12,7 +12,8 @@
 import
   intsets, ast, astalgo, msgs, options, idents, lookups,
   semdata, modulepaths, sigmatch, lineinfos, sets,
-  modulegraphs, wordrecg, tables
+  modulegraphs, wordrecg, tables, reports
+
 from strutils import `%`
 
 proc readExceptSet*(c: PContext, n: PNode): IntSet =
@@ -54,7 +55,7 @@ proc importPureEnumFields(c: PContext; s: PSym; etyp: PType) =
   for j in 0..<etyp.n.len:
     var e = etyp.n[j].sym
     if e.kind != skEnumField:
-      internalError(c.config, s.info, "rawImportSymbol")
+      internalUnreachable(c.config, "rawImportSymbol", s.info)
       # BUGFIX: because of aliases for enums the symbol may already
       # have been put into the symbol table
       # BUGFIX: but only iff they are the same symbols!
@@ -89,7 +90,7 @@ proc rawImportSymbol(c: PContext, s, origin: PSym; importSet: var IntSet) =
       for j in 0..<etyp.n.len:
         var e = etyp.n[j].sym
         if e.kind != skEnumField:
-          internalError(c.config, s.info, "rawImportSymbol")
+          internalUnreachable(c.config, "rawImportSymbol", s.info)
           # BUGFIX: because of aliases for enums the symbol may already
           # have been put into the symbol table
           # BUGFIX: but only iff they are the same symbols!
@@ -109,14 +110,19 @@ proc rawImportSymbol(c: PContext, s, origin: PSym; importSet: var IntSet) =
     c.exportIndirections.incl((origin.id, s.id))
 
 proc splitPragmas(c: PContext, n: PNode): (PNode, seq[TSpecialWord]) =
-  template bail = globalError(c.config, n.info, "invalid pragma")
   if n.kind == nkPragmaExpr:
     if n.len == 2 and n[1].kind == nkPragma:
       result[0] = n[0]
       for ni in n[1]:
-        if ni.kind == nkIdent: result[1].add whichKeyword(ni.ident)
-        else: bail()
-    else: bail()
+        if ni.kind == nkIdent:
+          result[1].add whichKeyword(ni.ident)
+
+        else:
+          globalError(c.config, n.info, SemReport(kind: rsemInvalidPragma))
+
+    else:
+      globalError(c.config, n.info, SemReport(kind: rsemInvalidPragma))
+
   else:
     result[0] = n
     if result[0].safeLen > 0:
@@ -125,7 +131,7 @@ proc splitPragmas(c: PContext, n: PNode): (PNode, seq[TSpecialWord]) =
 proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
   let (n, kws) = splitPragmas(c, n)
   if kws.len > 0:
-    globalError(c.config, n.info, "unexpected pragma")
+    globalError(c.config, n.info, SemReport(kind: rsemUnexpectedPragma))
 
   let ident = lookups.considerQuotedIdent(c, n)
   let s = someSym(c.graph, fromMod, ident)
@@ -141,7 +147,9 @@ proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
       var it: ModuleIter
       var e = initModuleIter(it, c.graph, fromMod, s.name)
       while e != nil:
-        if e.name.id != s.name.id: internalError(c.config, n.info, "importSymbol: 3")
+        if e.name.id != s.name.id:
+          internalUnreachable(c.config, "importSymbol: 3", n.info)
+
         if s.kind in ExportableSymKinds:
           rawImportSymbol(c, e, fromMod, importSet)
         e = nextModuleIter(it, c.graph)
@@ -218,7 +226,8 @@ proc importForwarded(c: PContext, n: PNode, exceptSet: IntSet; fromMod: PSym; im
       elif exceptSet.isNil or s.name.id notin exceptSet:
         rawImportSymbol(c, s, fromMod, importSet)
   of nkExportExceptStmt:
-    localError(c.config, n.info, "'export except' not implemented")
+    localError(c.config, n.info, InternalReport(
+      kind: rintNotImplemented, msg: "'export except' not implemented"))
   else:
     for i in 0..n.safeLen-1:
       importForwarded(c, n[i], exceptSet, fromMod, importSet)
@@ -227,9 +236,16 @@ proc importModuleAs(c: PContext; n: PNode, realModule: PSym, importHidden: bool)
   result = realModule
   template createModuleAliasImpl(ident): untyped =
     createModuleAlias(realModule, nextSymId c.idgen, ident, n.info, c.config.options)
-  if n.kind != nkImportAs: discard
+  if n.kind != nkImportAs:
+    discard
   elif n.len != 2 or n[1].kind != nkIdent:
-    localError(c.config, n.info, "module alias must be an identifier")
+    localError(
+      c.config, n.info,
+      SemReport(
+        kind: rsemExpectedIdentifier,
+        expression: n[1],
+        msg: "module alias must be an identifier"))
+
   elif n[1].ident.id != realModule.name.id:
     # some misguided guy will write 'import abc.foo as foo' ...
     result = createModuleAliasImpl(n[1].ident)
@@ -248,8 +264,13 @@ proc transformImportAs(c: PContext; n: PNode): tuple[node: PNode, importHidden: 
     result = result2
     for ai in kws:
       case ai
-      of wImportHidden: ret.importHidden = true
-      else: globalError(c.config, n.info, "invalid pragma, expected: " & ${wImportHidden})
+      of wImportHidden:
+        ret.importHidden = true
+      else:
+        globalError(c.config, n.info, SemReport(
+          kind: rsemInvalidPragma,
+          expression: n2,
+          msg: "invalid pragma, expected: " & ${wImportHidden}))
 
   if n.kind == nkInfix and considerQuotedIdent(c, n[0]).s == "as":
     ret.node = newNodeI(nkImportAs, n.info)
@@ -288,11 +309,13 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
     # we cannot perform this check reliably because of
     # test: modules/import_in_config) # xxx is that still true?
     if realModule == c.module:
-      localError(c.config, n.info, "module '$1' cannot import itself" % realModule.name.s)
+      localError(c.config, n.info, SemReport(
+        kind: rsemCannotImportItself, psym: realModule))
+
     if sfDeprecated in realModule.flags:
-      var prefix = ""
-      if realModule.constraint != nil: prefix = realModule.constraint.strVal & "; "
-      message(c.config, n.info, warnDeprecated, prefix & realModule.name.s & " is deprecated")
+      localError(c.config, n.info, SemReport(
+        kind: rsemDeprecated, psym: realModule))
+
     suggestSym(c.graph, n.info, result, c.graph.usageSym, false)
     importStmtResult.add newSymNode(result, n.info)
     #newStrNode(toFullPath(c.config, f), n.info)
@@ -316,7 +339,7 @@ proc impMod(c: PContext; it: PNode; importStmtResult: PNode) =
 
 proc evalImport*(c: PContext, n: PNode): PNode =
   result = newNodeI(nkImportStmt, n.info)
-  for i in 0..<n.len:
+  for i in 0 ..< n.len:
     let it = n[i]
     if it.kind == nkInfix and it.len == 3 and it[2].kind == nkBracket:
       let sep = it[0]

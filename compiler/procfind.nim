@@ -11,7 +11,8 @@
 # This is needed for proper handling of forward declarations.
 
 import
-  ast, astalgo, msgs, semdata, types, trees, strutils, lookups
+  ast, astalgo, msgs, semdata, types, trees, strutils, lookups,
+  reports
 
 proc equalGenericParams(procA, procB: PNode): bool =
   if procA.len != procB.len: return false
@@ -38,13 +39,13 @@ proc searchForProcAux(c: PContext, scope: PScope, fn: PSym): PSym =
       case equalParams(result.typ.n, fn.typ.n)
       of paramsEqual:
         if (sfExported notin result.flags) and (sfExported in fn.flags):
-          let message = ("public implementation '$1' has non-public " &
-                         "forward declaration at $2") %
-                        [getProcHeader(c.config, result, getDeclarationPath = false), c.config$result.info]
-          localError(c.config, fn.info, message)
+          localError(c.config, fn.info, SemReport(
+            kind: rsemDeclarationVisibilityMismatch, psym: result))
         return
       of paramsIncompatible:
-        localError(c.config, fn.info, "overloaded '$1' leads to ambiguous calls" % fn.name.s)
+        localError(c.config, fn.info, SemReport(
+          kind: rsemAmbiguousCall, psym: fn))
+
         return
       of paramsNotEqual:
         discard

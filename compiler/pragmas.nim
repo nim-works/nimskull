@@ -12,7 +12,7 @@
 import
   os, condsyms, ast, astalgo, idents, semdata, msgs, renderer,
   wordrecg, ropes, options, strutils, extccomp, math, magicsys, trees,
-  types, lookups, lineinfos, pathutils, linter, errorhandling
+  types, lookups, lineinfos, pathutils, linter, errorhandling, reports
 
 from ic / ic import addCompilerProc
 
@@ -107,16 +107,24 @@ const
   errIntLiteralExpected = "integer literal expected"
 
 proc invalidPragma*(c: PContext; n: PNode) =
-  localError(c.config, n.info, "invalid pragma: " & renderTree(n, {renderNoComments}))
+  localError(c.config, n.info, SemReport(kind: rsemInvalidPragma, expression: n))
+
 proc illegalCustomPragma*(c: PContext, n: PNode, s: PSym) =
-  localError(c.config, n.info, "cannot attach a custom pragma to '" & s.name.s & "'")
+  localError(c.config, n.info, SemReport(
+    kind: rsemCannotAttachPragma, psym: s, expression: n))
 
 proc newInvalidPragmaNode*(c: PContext; n: PNode): PNode =
   ## create an error node (`nkError`) for an invalid pragma error
-  newError(n, InvalidPragma)
+  c.config.newError(n, SemReport(kind: rsemInvalidPragma))
+
 proc newIllegalCustomPragmaNode*(c: PContext; n: PNode, s: PSym): PNode =
   ## create an error node (`nkError`) for an illegal custom pragma error
-  newError(n, IllegalCustomPragma, newSymNode(s))
+  c.config.newError(
+    n,
+    SemReport(kind: rsemIllegalCustomPragma, psym: s, expression: n),
+    @[newSymNode(s)],
+    n.info
+  )
 
 proc pragmaProposition(c: PContext, n: PNode): PNode =
   ## drnim - `ensures` pragma,  must be a callable with single arg predicate,
@@ -125,7 +133,7 @@ proc pragmaProposition(c: PContext, n: PNode): PNode =
   ##    analysed
   ## 2. nkError node over `n`, when a callable unary proposition isn't provided
   if n.kind notin nkPragmaCallKinds or n.len != 2:
-    result = newError(n, "proposition expected")
+    result = c.config.newError(n, SemReport(kind: rsemPropositionExpected))
   else:
     n[1] = c.semExpr(c, n[1])
 
@@ -136,7 +144,7 @@ proc pragmaEnsures(c: PContext, n: PNode): PNode =
   ##    analysed, and if the current owner is a routineKind adds a `result`
   ##    symbol.
   ## 2. nkError node over `n`, when a callable unary proposition isn't provided
-  ## 
+  ##
   ## xxx: 1. the implementation is unclear, we create a `result` symbol for
   ##      routines, adding it to the a sub-scope with the routine as owner, but
   ##      won't that potentially create a duplicate `result` symbol? or does
@@ -145,7 +153,7 @@ proc pragmaEnsures(c: PContext, n: PNode): PNode =
   ##      as well?
   result = n
   if n.kind notin nkPragmaCallKinds or n.len != 2:
-    result = newError(n, "proposition expected")
+    result = c.config.newError(n, SemReport(kind: rsemPropositionExpected))
   else:
     openScope(c)
     let o = getCurrOwner(c)
@@ -266,7 +274,7 @@ proc newEmptyStrNode(c: PContext; n: PNode): PNode {.noinline.} =
 proc getStrLitNode(c: PContext, n: PNode): PNode =
   ## returns a PNode that's either an error or a string literal node
   if n.kind notin nkPragmaCallKinds or n.len != 2:
-    newError(n, StringLiteralExpected)
+    c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
   else:
     n[1] = c.semConstExpr(c, n[1])
     case n[1].kind
@@ -276,8 +284,8 @@ proc getStrLitNode(c: PContext, n: PNode): PNode =
       # xxx: this is a potential bug, but requires a lot more tests in place
       #      for pragmas prior to changing, but we're meant to return n[1], yet
       #      on error we return a wrapped `n`, that's the wrong level of AST.
-      newError(n, StringLiteralExpected)
-      
+      c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
+
 
 proc strLitToStrOrErr(c: PContext, n: PNode): (string, PNode) =
   ## extracts the string from an string literal, or errors if it's not a string
@@ -288,21 +296,21 @@ proc strLitToStrOrErr(c: PContext, n: PNode): (string, PNode) =
     (r.strVal, nil)
   of nkError:
     ("", r)
-  else: 
-    ("", newError(n, errStringLiteralExpected))
+  else:
+    ("", c.config.newError(n, SemReport(kind: rsemStringLiteralExpected)))
 
 proc intLitToIntOrErr(c: PContext, n: PNode): (int, PNode) =
   ## extracts the int from an int literal, or errors if it's not an int
   ## literal or doesn't evaluate to one
   if n.kind notin nkPragmaCallKinds or n.len != 2:
-    (-1, newError(n, errIntLiteralExpected))
+    (-1, c.config.newError(n, SemReport(kind: rsemIntLiteralExpected)))
   else:
     n[1] = c.semConstExpr(c, n[1])
     case n[1].kind
     of nkIntLit..nkInt64Lit:
       (int(n[1].intVal), nil)
     else:
-      (-1, newError(n, errIntLiteralExpected))
+      (-1, c.config.newError(n, SemReport(kind: rsemIntLiteralExpected)))
 
 proc getOptionalStrLit(c: PContext, n: PNode, defaultStr: string): PNode =
   ## gets an optional strlit node, used for optional arguments to pragmas,
@@ -322,7 +330,7 @@ proc processMagic(c: PContext, n: PNode, s: PSym): PNode =
   ## the `magic` field with the name of the magic in `n` as a string literal.
   result = n
   if n.kind notin nkPragmaCallKinds or n.len != 2:
-    result = newError(n, errStringLiteralExpected)
+    result = c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
   else:
     var v: string
     if n[1].kind == nkIdent:
@@ -339,7 +347,7 @@ proc processMagic(c: PContext, n: PNode, s: PSym): PNode =
         s.magic = m
         break
     if s.magic == mNone:
-      message(c.config, n.info, warnUnknownMagic, v)
+      c.config.localError(n.info, SemReport(msg: v, kind: rsemUnknownMagic))
 
 proc wordToCallConv(sw: TSpecialWord): TCallingConvention =
   # this assumes that the order of special words and calling conventions is
@@ -354,9 +362,9 @@ proc isTurnedOn(c: PContext, n: PNode): (bool, PNode) =
     if x.kind == nkIntLit:
       (x.intVal != 0, nil)
     else:
-      (false, newError(n, "'on' or 'off' expected"))
-  else:  
-    (false, newError(n, "'on' or 'off' expected"))
+      (false, c.config.newError(n, SemReport(kind: rsemOnOrOffExpected)))
+  else:
+    (false, c.config.newError(n, SemReport(kind: rsemOnOrOffExpected)))
 
 proc onOff(c: PContext, n: PNode, op: TOptions, resOptions: var TOptions): PNode =
   ## produces an error, or toggles the setting in `resOptions` param
@@ -382,11 +390,6 @@ proc pragmaNoForward(c: PContext, n: PNode; flag=sfNoForward): PNode =
     else:
       err
 
-  # deprecated as of 0.18.1
-  message(c.config, n.info, warnDeprecated,
-          "use {.experimental: \"codeReordering\".} instead; " &
-          (if flag == sfNoForward: "{.noForward.}" else: "{.reorder.}") & " is deprecated")
-
 proc processCallConv(c: PContext, n: PNode): PNode =
   ## sets the calling convention on the the `c`ontext's option stack, and upon
   ## failure, eg: lack of calling convention, produces an error over `n`.
@@ -397,9 +400,9 @@ proc processCallConv(c: PContext, n: PNode): PNode =
     of FirstCallConv..LastCallConv:
       c.optionStack[^1].defaultCC = wordToCallConv(sw)
     else:
-      result = newError(n, "calling convention expected")
+      result = c.config.newError(n, SemReport(kind: rsemCallconvExpected))
   else:
-    result = newError(n, "calling convention expected")
+    result = c.config.newError(n, SemReport(kind: rsemCallconvExpected))
 
 proc getLib(c: PContext, kind: TLibKind, path: PNode): PLib =
   for it in c.libs:
@@ -416,7 +419,7 @@ proc expectDynlibNode(c: PContext, n: PNode): PNode =
   ## `n` must be a callable, this will produce the ast for the callable or
   ## produce a `StringLiteralExpected` error node.
   if n.kind notin nkPragmaCallKinds or n.len != 2:
-    result = newError(n, StringLiteralExpected)
+    result = c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
   else:
     # For the OpenGL wrapper we support:
     # {.dynlib: myGetProcAddr(...).}
@@ -424,7 +427,7 @@ proc expectDynlibNode(c: PContext, n: PNode): PNode =
     if result.kind == nkSym and result.sym.kind == skConst:
       result = result.sym.ast # look it up
     if result.typ == nil or result.typ.kind notin {tyPointer, tyString, tyProc}:
-      result = newError(n, StringLiteralExpected)
+      result = c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
 
 proc processDynLib(c: PContext, n: PNode, sym: PSym): PNode =
   ## produces (mutates) the `sym` with all the dynamic libraries specified in
@@ -468,13 +471,13 @@ proc processNote(c: PContext, n: PNode): PNode =
     of errUnknown:
       newInvalidPragmaNode(c, n)
     else:
-      nk = TNoteKind(x)
+      nk = ReportKind(x)
       let x = c.semConstBoolExpr(c, n[1])
       n[1] = x
       if x.kind == nkIntLit and x.intVal != 0: incl(notes, nk)
       else: excl(notes, nk)
       n
-  
+
   let
     validPragma = n.kind in nkPragmaCallKinds and n.len == 2
     exp =
@@ -485,10 +488,10 @@ proc processNote(c: PContext, n: PNode): PNode =
     bracketExpr =
       if useExp: exp
       else:      newInvalidPragmaNode(c, n)
-  
+
   result =
     if isBracketExpr:
-      var nk: TNoteKind
+      var nk: ReportKind
       case whichKeyword(n[0][0].ident)
       of wHint: handleNote(hintMin .. hintMax, c.config.notes)
       of wWarning: handleNote(warnMin .. warnMax, c.config.notes)
@@ -542,15 +545,17 @@ proc processExperimental(c: PContext; n: PNode): PNode =
         c.features.incl feature
         if feature == codeReordering:
           if not isTopLevel(c):
-            result = newError(n, "Code reordering experimental pragma only valid at toplevel")
+            result = c.config.newError(n, SemReport(kind: rsemInnerCodeReordering))
           c.module.flags.incl sfReorder
       except ValueError:
-        n[1] = newError(n[1], "unknown experimental feature")
+        n[1] = c.config.newError(
+          n[1], SemReport(kind: rsemUnknownExperimental, expression: n[1]))
+
         result = wrapErrorInSubTree(n)
     of nkError:
       result = wrapErrorInSubTree(n)
     else:
-      result = newError(n, StringLiteralExpected)
+      result = c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
 
 proc tryProcessOption(c: PContext, n: PNode, resOptions: var TOptions): (bool, PNode) =
   ## try to process callable pragmas that are also compiler options, the value
@@ -694,7 +699,7 @@ proc relativeFile(c: PContext; name: string, info: TLineInfo;
 proc processCompile(c: PContext, n: PNode): PNode =
   ## compile pragma
   ## produces (mutates) `n`, which must be a callable, analysing its arg, or returning
-  ## `n` wrapped in an error. 
+  ## `n` wrapped in an error.
   result = n
   proc docompile(c: PContext; it: PNode; src, dest: AbsoluteFile; customArgs: string) =
     var cf = Cfile(nimname: splitFile(src).name,
@@ -1109,7 +1114,7 @@ proc prepareSinglePragma(
   ): PNode =
   ## given a `sym`bol with pragmas `n`, check and prepare `i`'th pragma, if
   ## it's a single valid pragma, where valid is a kind within `validPragmas`.
-  ## 
+  ##
   ## With special handling for:
   ## * comes from a push
   ## * whether it's `isStatement`
@@ -1185,7 +1190,7 @@ proc prepareSinglePragma(
         if extLit.kind == nkError:
           result = it
         else:
-          let ext = extLit.strVal         
+          let ext = extLit.strVal
           case makeExternExport(c, sym, ext)
           of ExternNameSet:
             if k == wExportCpp:
@@ -1410,7 +1415,7 @@ proc prepareSinglePragma(
         incl(sym.flags, sfGeneratedOp)
       of wNosinks:
         result = noVal(c, it)
-        incl(sym.flags, sfWasForwarded) 
+        incl(sym.flags, sfWasForwarded)
       of wDynlib:
         result = processDynLib(c, it, sym)
       of wCompilerProc, wCore:
@@ -1497,7 +1502,7 @@ proc prepareSinglePragma(
           if sym.kind != skType: incl(sym.flags, sfThread)
           if sym.typ != nil:
             incl(sym.typ.flags, tfGcSafe)
-          else: 
+          else:
             result = newInvalidPragmaNode(c, it)
         else:
           discard "no checking if used as a code block"
@@ -1562,7 +1567,7 @@ proc prepareSinglePragma(
         result =
           if err.isNil:
             extccomp.addLinkOption(c.config, s)
-            recordPragma(c, it, "passl", s) 
+            recordPragma(c, it, "passl", s)
             it
           else:
             err
@@ -1783,7 +1788,7 @@ proc prepareSinglePragma(
         result = pragmaEnsures(c, it)
       of wEnforceNoRaises:
         sym.flags.incl sfNeverRaises
-      else: 
+      else:
         result = newInvalidPragmaNode(c, it)
     elif comesFromPush and whichKeyword(ident) != wInvalid:
       discard "ignore the .push pragma; it doesn't apply"

@@ -78,6 +78,7 @@ type
     rintCannotOpenFile
     rintWarnCannotOpenFile
     rintWarnFileChanged
+    rintNotImplemented
     rintStackTrace = "StackTrace" ## Stack trace during internal
     ## compilation error handling and similar
     rintMissingStackTrace ## Stack trace would've been generated in the
@@ -225,6 +226,7 @@ type
     rsemCustomPrintMsgAndNodeError
       ## just like custom error, prints a message and renders wrongNode
     rsemTypeMismatch
+    rsemAmbiguous
 
     rsemCustomUserError
       ## just like customer error, but reported as a errUser in msgs
@@ -241,6 +243,7 @@ type
     # Module errors
     rsemSystemNeeds
     rsemInvalidModulePath
+    rsemCannotImportItself
 
     # ..
     rsemConflictingExportnims
@@ -282,12 +285,13 @@ type
     rsemImplementationExpected
     rsemRedefinitionOf
     rsemDefaultParamIsIncompatible
+    rsemDeclarationVisibilityMismatch
 
     # Call
     rsemCallTypeMismatch
     rsemExpressionCannotBeCalled
     rsemWrongNumberOfArguments
-    rsemAmbiguous
+    rsemAmbiguousCall
     rsemCallingConventionMismatch
 
     # ParameterTypeMismatch
@@ -319,9 +323,17 @@ type
     rsemStringLiteralExpected
       ## string literal node was expected, but got something else
 
+    rsemOnOrOffExpected
+    rsemCallconvExpected
+    rsemInnerCodeReordering
+    rsemUnknownExperimental
+
     # Pragma
     rsemInvalidPragma
       ## suplied pragma is invalid
+    rsemCannotAttachPragma
+    rsemUnexpectedPragma
+    rsemPropositionExpected
     rsemIllegalCustomPragma
       ## supplied pragma is not a legal custom pragma, and cannot be attached
     rsemNoReturnHasReturn
