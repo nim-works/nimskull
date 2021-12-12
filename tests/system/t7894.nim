@@ -1,5 +1,5 @@
 discard """
-disabled: true
+    disabled: true
 """
 
 # CI integration servers are out of memory for this test

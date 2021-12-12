@@ -1,5 +1,5 @@
 discard """
-disabled: true
+    knownIssue: "Design of parse options is dumb. The noise and fielding PRs in that way is more work than it's worth right now. - Ghani, Saem"
 """
 
 # this file has a type in the name, and it does not really test

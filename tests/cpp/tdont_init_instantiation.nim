@@ -1,7 +1,7 @@
 discard """
   targets: "cpp"
   output: ''''''
-  disabled: true
+    knownIssue: "https://github.com/nim-lang/Nim/issues/5140"
 """
 
 # bug #5140
