@@ -1,8 +1,10 @@
 discard """
 description: '''
-Generic constraints fail to resolve if explicit parameter is used.
+Generic constraints for enum and tuple fail to resolve (ambigouus call)
+if explicit generic parameter is used. When called without explicit parameter
+(type inferred from the argument), code compiles correctly.
 '''
-knownIssue: "enum+tuple generic constraints don't work"
+knownIssue: "enum/tuple generic constraint fails to resolve (ambiguous)"
 errormsg: "ambiguous call; both t04_generics_typeclass_overload_bug1.store(target: T: enum) [proc declared in t04_generics_typeclass_overload_bug1.nim(9, 6)] and t04_generics_typeclass_overload_bug1.store(target: T: tuple) [proc declared in t04_generics_typeclass_overload_bug1.nim(10, 6)] match for: ((int, int))"
 """
 

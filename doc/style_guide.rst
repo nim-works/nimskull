@@ -1,9 +1,7 @@
-==========================================================
-Nim Enhancement Proposal #1 - Standard Library Style Guide
-==========================================================
+=====================
+Nimskull coding style
+=====================
 
-:Author: Clay Sweetser, Dominik Picheta
-:Version: |nimversion|
 
 .. default-role:: code
 .. include:: rstcommon.rst
@@ -12,25 +10,26 @@ Nim Enhancement Proposal #1 - Standard Library Style Guide
 
 Introduction
 ============
+
 Although Nim supports a variety of code and formatting styles, it is
 nevertheless beneficial that certain community efforts, such as the standard
 library, should follow a consistent set of style guidelines when suitable.
 This enhancement proposal aims to list a series of guidelines that the standard
 library should follow.
 
-Note that there can be exceptions to these rules. Nim being as flexible as it
-is, there will be parts of this style guide that don't make sense in certain
-contexts. Furthermore, just as
-`Python's style guide<http://legacy.python.org/dev/peps/pep-0008/>`_ changes
-over time, this style guide will too.
+Note that there can be exceptions to these rules. Nim being as flexible as
+it is, there will be parts of this style guide that don't make sense in
+certain contexts. Furthermore, just as `Python's style
+guide<http://legacy.python.org/dev/peps/pep-0008/>`_ changes over time,
+this style guide will too.
 
-These rules will only be enforced for contributions to the Nim
-codebase and official projects, such as the Nim compiler, the standard library,
-and the various official tools such as C2Nim.
+These rules will only be enforced for contributions to the |nimskull|
+codebase and official projects, such as the |nimskull| compiler, the
+standard library, and the various official tools.
 
-----------------
 Style Guidelines
-----------------
+================
+
 
 Spacing and Whitespace Conventions
 -----------------------------------
@@ -61,6 +60,38 @@ Spacing and Whitespace Conventions
       LongLong*    = int64
       LongLongPtr* = ptr LongLong
 
+Control flow constructs
+-----------------------
+
+General rule for spacing out control flow constructs and similar elements
+is to not try and needlessly cram all constructs into a single chunk of
+code. Adding more spacing in the code (to a reasonable degree of course)
+increases readability. There is no need to pack as much actions as possible
+into as little space as possible. Utility of code like this is questionable
+at best.
+
+Code like this is noticeably harder to read than one that is spaced out
+more.
+
+.. code-block:: nim
+
+  if i == arg.len: discard
+  elif i < arg.len and (arg[i] in {':', '='}): inc(i)
+  else: invalidCmdLineOption(conf, pass, orig, info)
+
+.. code-block:: nim
+
+  if i == arg.len:
+    discard
+
+  elif i < arg.len and (arg[i] in {':', '='}):
+    inc(i)
+
+  else:
+    invalidCmdLineOption(conf, pass, orig, info)
+
+- Avoid using single-line `if` and `elif` unless it is a small inline expression
+
 
 Naming Conventions
 ------------------
@@ -80,8 +111,8 @@ Naming Conventions
     type
       FooBar = object
 
-  For constants coming from a C/C++ wrapper, ALL_UPPERCASE are allowed, but ugly.
-  (Why shout CONSTANT? Constants do no harm, variables do!)
+  For constants coming from a C/C++ wrapper, `ALL_UPPERCASE` are allowed,
+  but ugly. (Why shout `CONSTANT`? Constants do no harm, variables do!)
 
 - When naming types that come in value, pointer, and reference varieties, use a
   regular name for the variety that is to be used the most, and add a "Obj",
@@ -237,8 +268,10 @@ Coding Conventions
       for i in 0..x:
         result.add($i)
 
-- Use a proc when possible, only using the more powerful facilities of macros,
-  templates, iterators, and converters when necessary.
+- Ideally implementation should start with `func`, since it does not allow
+  side effects. If you have some sort of side effect use `proc`, and
+  consider using the more powerful facilities of macros, templates,
+  iterators, and converters only when necessary.
 
 - Use the `let` statement (not the `var` statement) when declaring variables that
   do not change within their scope. Using the `let` statement ensures that
@@ -311,3 +344,119 @@ Miscellaneous
 
 - Likewise with a setter API, replacing `foo` with `foo=` and `getFoo` with `setFoo`
   in the above text.
+
+Best practices
+==============
+
+Note: these are general guidelines, not hard rules; there are always exceptions.
+Code reviews can just point to a specific section here to save time and
+propagate best practices.
+
+Avoid primitive types for an API
+--------------------------------
+
+Prefer using semantically meaningful types for return values instead of
+booleans or integer codes. Prefer named types (enums, objects).
+
+When returning tuples do name fields, especially if meaning of the each one
+is not obvious from the procedure name itself.
+
+Define needs prefix
+-------------------
+
+New `defined(foo)` symbols need to be prefixed by the nimble package name, or
+by `nim` for symbols in nim sources (e.g. compiler, standard library). This is
+to avoid name conflicts across packages.
+
+.. code-block:: nim
+
+  # if in nim sources
+  when defined(allocStats): discard # bad, can cause conflicts
+  when defined(nimAllocStats): discard # preferred
+  # if in a package `cligen`:
+  when defined(debug): discard # bad, can cause conflicts
+  when defined(cligenDebug): discard # preferred
+
+No implicit bool
+----------------
+
+Take advantage of no implicit bool conversion
+
+.. code-block:: nim
+
+  doAssert isValid() == true
+  doAssert isValid() # preferred
+
+Desing for method call syntax
+-----------------------------
+
+Design with method call syntax chaining in mind
+
+.. code-block:: nim
+
+  proc foo(cond: bool, lines: seq[string]) # bad
+  proc foo(lines: seq[string], cond: bool) # preferred
+  # can be called as: `getLines().foo(false)`
+
+Avoid quit
+----------
+
+Use exceptions (including `assert` / `doAssert`) instead of `quit`
+
+.. code-block:: nim
+
+  quit() # bad in almost all cases
+  doAssert() # preferred
+
+Use ``doAssert`` in tests
+-------------------------
+
+Use `doAssert` (or `unittest.check`, `unittest.require`), not `assert` in all
+tests so they'll be enabled even with `--assertions:off`:option:.
+
+.. code-block:: nim
+
+  block: # foo
+    assert foo() # bad
+    doAssert foo() # preferred
+
+Use assert in runnable examples
+-------------------------------
+
+An exception to the above rule is `runnableExamples` and ``code-block`` rst blocks
+intended to be used as `runnableExamples`, which for brevity use `assert`
+instead of `doAssert`. Note that `nim doc -d:danger main`:cmd: won't pass `-d:danger`:option: to the
+`runnableExamples`, but `nim doc --doccmd:-d:danger main`:cmd: would, and so would the
+second example below:
+
+.. code-block:: nim
+
+  runnableExamples:
+    doAssert foo() # bad
+    assert foo() # preferred
+
+  runnableExamples("-d:danger"):
+    doAssert foo() # `assert` would be disabled here, so `doAssert` makes more sense
+
+Delegate printing
+-----------------
+
+Delegate printing to caller: return `string` instead of calling `echo`
+rationale: it's more flexible (e.g. allows the caller to call custom printing,
+including prepending location info, writing to log files, etc).
+
+.. code-block:: nim
+
+  proc foo() = echo "bar" # bad
+  proc foo(): string = "bar" # preferred (usually)
+
+Use ``Option``
+--------------
+
+Consider using Option instead of return bool + var argument,
+unless stack allocation is needed (e.g. for efficiency).
+
+.. code-block:: nim
+
+  proc foo(a: var Bar): bool
+  proc foo(): Option[Bar]
