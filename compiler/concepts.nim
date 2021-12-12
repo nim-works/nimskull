@@ -11,7 +11,8 @@
 ## for details. Note this is a first implementation and only the "Concept matching"
 ## section has been implemented.
 
-import ast, astalgo, semdata, lookups, lineinfos, idents, msgs, renderer, types, intsets
+import ast, astalgo, semdata, lookups, lineinfos, idents,
+       msgs, renderer, types, intsets, reports
 
 from magicsys import addSonSkipIntLit
 
@@ -59,7 +60,8 @@ proc semConceptDecl(c: PContext; n: PNode): PNode =
       result[i] = n[i]
     result[^1] = semConceptDecl(c, n[^1])
   else:
-    localError(c.config, n.info, "unexpected construct in the new-styled concept: " & renderTree(n))
+    c.config.localError(n.info, SemReport(
+      kind: rsemUnexpectedInNewConcept, expression: n))
     result = n
 
 proc semConceptDeclaration*(c: PContext; n: PNode): PNode =

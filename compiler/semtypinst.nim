@@ -10,7 +10,7 @@
 # This module does the instantiation of generic types.
 
 import ast, astalgo, msgs, types, magicsys, semdata, renderer, options,
-  lineinfos, modulegraphs
+  lineinfos, modulegraphs, reports, strutils
 
 from concepts import makeTypeDesc
 
@@ -18,15 +18,19 @@ const tfInstClearedFlags = {tfHasMeta, tfUnresolved}
 
 proc checkPartialConstructedType(conf: ConfigRef; info: TLineInfo, t: PType) =
   if t.kind in {tyVar, tyLent} and t[0].kind in {tyVar, tyLent}:
-    localError(conf, info, "type 'var var' is not allowed")
+    conf.localError(info, SemReport(kind: rsemVarVarNotAllowed, rtype: t))
 
 proc checkConstructedType*(conf: ConfigRef; info: TLineInfo, typ: PType) =
   var t = typ.skipTypes({tyDistinct})
-  if t.kind in tyTypeClasses: discard
+  if t.kind in tyTypeClasses:
+    discard
+
   elif t.kind in {tyVar, tyLent} and t[0].kind in {tyVar, tyLent}:
-    localError(conf, info, "type 'var var' is not allowed")
+    conf.localError(info, SemReport(kind: rsemVarVarNotAllowed, rtype: t))
+
   elif computeSize(conf, t) == szIllegalRecursion or isTupleRecursive(t):
-    localError(conf, info, "illegal recursion in type '" & typeToString(t) & "'")
+    conf.localError(info, SemReport(kind: rsemIllegalRecursion, rtype: t))
+
   when false:
     if t.kind == tyObject and t[0] != nil:
       if t[0].kind != tyObject or tfFinal in t[0].flags:
@@ -167,21 +171,35 @@ proc replaceObjBranches(cl: TReplTypeVars, n: PNode): PNode =
     discard
   of nkRecWhen:
     var branch: PNode = nil              # the branch to take
-    for i in 0..<n.len:
+    for i in 0 ..< n.len:
       var it = n[i]
-      if it == nil: illFormedAst(n, cl.c.config)
+      if it == nil:
+        cl.c.config.globalError(SemReport(
+          kind: rsemIllformedAst,
+          expression: n,
+          msg: "subnode at idx $1 is 'nil'" % [$i]
+        ))
+
       case it.kind
       of nkElifBranch:
         checkSonsLen(it, 2, cl.c.config)
         var cond = it[0]
         var e = cl.c.semConstExpr(cl.c, cond)
         if e.kind != nkIntLit:
-          internalError(cl.c.config, e.info, "ReplaceTypeVarsN: when condition not a bool")
+          cl.c.config.internalUnreachable(
+            "ReplaceTypeVarsN: when condition not a bool", e.info)
+
         if e.intVal != 0 and branch == nil: branch = it[1]
       of nkElse:
         checkSonsLen(it, 1, cl.c.config)
-        if branch == nil: branch = it[0]
-      else: illFormedAst(n, cl.c.config)
+        if branch == nil:
+          branch = it[0]
+      else:
+        cl.c.config.globalError(SemReport(
+          kind: rsemIllformedAst,
+          expression: n,
+          msg: "Expected else or elif for subnode at idx $1, but found $2" % [
+            $i, $it.kind]))
     if branch != nil:
       result = replaceObjBranches(cl, branch)
     else:
@@ -209,19 +227,29 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
     var branch: PNode = nil              # the branch to take
     for i in 0..<n.len:
       var it = n[i]
-      if it == nil: illFormedAst(n, cl.c.config)
+      if it == nil:
+        cl.c.config.globalError(SemReport(
+          kind: rsemIllformedAst,
+          expression: n,
+          msg: "subnode at idx $1 is 'nil'" % [$i]))
       case it.kind
       of nkElifBranch:
         checkSonsLen(it, 2, cl.c.config)
         var cond = prepareNode(cl, it[0])
         var e = cl.c.semConstExpr(cl.c, cond)
         if e.kind != nkIntLit:
-          internalError(cl.c.config, e.info, "ReplaceTypeVarsN: when condition not a bool")
+          cl.c.config.internalUnreachable(
+            "ReplaceTypeVarsN: when condition not a bool", e.info)
         if e.intVal != 0 and branch == nil: branch = it[1]
       of nkElse:
         checkSonsLen(it, 1, cl.c.config)
         if branch == nil: branch = it[0]
-      else: illFormedAst(n, cl.c.config)
+      else:
+        cl.c.config.globalError(SemReport(
+          kind: rsemIllformedAst,
+          expression: n,
+          msg: "Expected else or elif for subnode at idx $1, but found $2" % [
+            $i, $it.kind]))
     if branch != nil:
       result = replaceTypeVarsN(cl, branch)
     else:
@@ -290,14 +318,15 @@ proc lookupTypeVar(cl: var TReplTypeVars, t: PType): PType =
   result = cl.typeMap.lookup(t)
   if result == nil:
     if cl.allowMetaTypes or tfRetType in t.flags: return
-    localError(cl.c.config, t.sym.info, "cannot instantiate: '" & typeToString(t) & "'")
+    cl.c.config.localError(t.sym.info, SemReport(
+      kind: rsemCannotInstantiate, rtype: t))
     result = errorType(cl.c)
     # In order to prevent endless recursions, we must remember
     # this bad lookup and replace it with errorType everywhere.
     # These code paths are only active in "nim check"
     cl.typeMap.put(t, result)
   elif result.kind == tyGenericParam and not cl.allowMetaTypes:
-    internalError(cl.c.config, cl.info, "substitution with generic parameter")
+    cl.c.config.internalUnreachable("substitution with generic parameter")
 
 proc instCopyType*(cl: var TReplTypeVars, t: PType): PType =
   # XXX: relying on allowMetaTypes is a kludge
@@ -326,7 +355,7 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   # is difficult to handle:
   var body = t[0]
   if body.kind != tyGenericBody:
-    internalError(cl.c.config, cl.info, "no generic body")
+    cl.c.config.internalUnreachable("no generic body", cl.info)
   var header = t
   # search for some instantiation here:
   if cl.allowMetaTypes:
@@ -522,12 +551,9 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
       result.kind = tyUserTypeClassInst
 
   of tyGenericBody:
-    localError(
-      cl.c.config,
+    cl.c.config.localError(
       cl.info,
-      "cannot instantiate: '" &
-      typeToString(t, preferDesc) &
-      "'; Maybe generic arguments are missing?")
+      SemReport(kind: rsemCannotInstantiate, rtype: t))
     result = errorType(cl.c)
     #result = replaceTypeVarsT(cl, lastSon(t))
 
@@ -596,11 +622,11 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
       for i in 0..<result.len:
         if result[i] != nil:
           if result[i].kind == tyGenericBody:
-            localError(cl.c.config, if t.sym != nil: t.sym.info else: cl.info,
-              "cannot instantiate '" &
-              typeToString(result[i], preferDesc) &
-              "' inside of type definition: '" &
-              t.owner.name.s & "'; Maybe generic arguments are missing?")
+            localError(
+              cl.c.config,
+              if t.sym != nil: t.sym.info else: cl.info,
+              SemReport(kind: rsemCannotInstantiate, rtype: result[i]))
+
           var r = replaceTypeVarsT(cl, result[i])
           if result.kind == tyObject:
             # carefully coded to not skip the precious tyGenericInst:
@@ -615,7 +641,7 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
       case result.kind
       of tyArray:
         let idx = result[0]
-        internalAssert cl.c.config, idx.kind != tyStatic
+        internalAssert(cl.c.config, idx.kind != tyStatic, "[FIXME]")
 
       of tyObject, tyTuple:
         propagateFieldFlags(result, result.n)

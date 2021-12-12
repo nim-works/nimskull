@@ -12,7 +12,7 @@ import std/[algorithm, strutils]
 import
   intsets, ast, astalgo, idents, semdata, types, msgs, options,
   renderer, nimfix/prettybase, lineinfos, modulegraphs, astmsgs,
-  errorhandling
+  errorhandling, reports
 
 proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope)
 
@@ -27,11 +27,13 @@ proc noidentError2(conf: ConfigRef; n, origin: PNode): PNode =
   ## the the expression within which `n` resides, if `origin` is the same then
   ## a simplified error is generated.
   assert n != nil, "`n` must be provided"
-  var m = ""
-  if origin != n:
-    m.add "in expression '" & origin.renderTree & "': "
-  m.add "identifier expected, but found '" & n.renderTree & "'"
-  newError(if origin.isNil: n else: origin, m)
+
+  let bad = if origin.isNil: n else: origin
+  conf.newError(bad, SemReport(
+    kind: rsemIdentExpected,
+    expression: bad
+  ))
+
 
 proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
   ## Retrieve a PIdent from a PNode, taking into account accent nodes.
@@ -71,17 +73,17 @@ proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
         (ident: ic.getNotFoundIdent(), errNode: n)
     else:
       (ident: ic.getNotFoundIdent(), errNode: n)
-  
+
   # this handles the case where in an `nkAccQuoted` node we "dig"
   if result[1] != nil:
     result[1] = noidentError2(c.config, result[1], n)
 
 proc noidentError(conf: ConfigRef; n, origin: PNode) =
-  var m = ""
-  if origin != nil:
-    m.add "in expression '" & origin.renderTree & "': "
-  m.add "identifier expected, but found '" & n.renderTree & "'"
-  localError(conf, n.info, m)
+  let bad = if origin.isNil: n else: origin
+  conf.localError(n.info, SemReport(
+    kind: rsemIdentExpected,
+    expression: bad
+  ))
 
 proc considerQuotedIdent*(c: PContext; n: PNode, origin: PNode = nil): PIdent =
   ## Retrieve a PIdent from a PNode, taking into account accent nodes.
@@ -156,8 +158,8 @@ proc skipAlias*(s: PSym; n: PNode; conf: ConfigRef): PSym =
     if conf.cmd == cmdNimfix:
       prettybase.replaceDeprecated(conf, n.info, s, result)
     else:
-      message(conf, n.info, warnDeprecated, "use " & result.name.s & " instead; " &
-              s.name.s & " is deprecated")
+      conf.localError(n.info, SemReport(
+        kind: rsemDeprecated, psym: s, alternative: result))
 
 proc isShadowScope*(s: PScope): bool {.inline.} =
   s.parent != nil and s.parent.depthLevel == s.depthLevel
@@ -342,8 +344,9 @@ proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope) =
       # too many 'implementation of X' errors are annoying
       # and slow 'suggest' down:
       if missingImpls == 0:
-        localError(c.config, s.info, "implementation of '$1' expected" %
-            getSymRepr(c.config, s, getDeclarationPath=false))
+        c.config.localError(s.info, SemReport(
+          kind: rsemImplementationExpected, psym: s))
+
       inc missingImpls
     elif {sfUsed, sfExported} * s.flags == {}:
       if s.kind notin {skForVar, skParam, skMethod, skUnknown, skGenericParam, skEnumField}:
@@ -354,15 +357,16 @@ proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope) =
           unusedSyms.add (s, toFileLineCol(c.config, s.info))
     s = nextIter(it, scope.symbols)
   for (s, _) in sortedByIt(unusedSyms, it.key):
-    message(c.config, s.info, hintXDeclaredButNotUsed, s.name.s)
+    c.config.localError(s.info, SemReport(
+      kind: rsemXDeclaredButNotUsed, psym: s))
 
-proc wrongRedefinition*(c: PContext; info: TLineInfo, s: string;
-                        conflictsWith: TLineInfo, note = errGenerated) =
+proc wrongRedefinition*(
+    c: PContext; info: TLineInfo, s: PSym;
+                        conflictsWith: PSym) =
   ## Emit a redefinition error if in non-interactive mode
   if c.config.cmd != cmdInteractive:
-    localError(c.config, info, note,
-      "redefinition of '$1'; previous declaration here: $2" %
-      [s, c.config $ conflictsWith])
+    c.config.localError(info, SemReport(
+      kind: rsemRedefinitionOf, psym: s, alternative: conflictsWith))
 
 # xxx pending bootstrap >= 1.4, replace all those overloads with a single one:
 # proc addDecl*(c: PContext, sym: PSym, info = sym.info, scope = c.currentScope) {.inline.} =
@@ -373,11 +377,12 @@ proc addDeclAt*(c: PContext; scope: PScope, sym: PSym, info: TLineInfo) =
       # e.g.: import foo; import foo
       # xxx we could refine this by issuing a different hint for the case
       # where a duplicate import happens inside an include.
-      localError(c.config, info, hintDuplicateModuleImport,
-        "duplicate import of '$1'; previous import here: $2" %
-        [sym.name.s, c.config $ conflict.info])
+      c.config.localError(info, SemReport(
+        kind: rsemDuplicateModuleImport,
+        psym: sym,
+        previous: c.config.toReportLinePoint(conflict.info)))
     else:
-      wrongRedefinition(c, info, sym.name.s, conflict.info, errGenerated)
+      wrongRedefinition(c, info, sym, conflict)
 
 proc addDeclAt*(c: PContext; scope: PScope, sym: PSym) {.inline.} =
   addDeclAt(c, scope, sym, sym.info)
@@ -397,8 +402,11 @@ proc addInterfaceDeclAux(c: PContext, sym: PSym) =
   ## adds symbol to the module for either private or public access.
   if sfExported in sym.flags:
     # add to interface:
-    if c.module != nil: exportSym(c, sym)
-    else: internalError(c.config, sym.info, "addInterfaceDeclAux")
+    if c.module != nil:
+      exportSym(c, sym)
+    else:
+      c.config.internalUnreachable("addInterfaceDeclAux")
+
   elif sym.kind in ExportableSymKinds and c.module != nil and isTopLevelInsideDeclaration(c, sym):
     strTableAdd(semtabAll(c.graph, c.module), sym)
     if c.config.symbolFiles != disabledSf:
@@ -419,11 +427,11 @@ proc addOverloadableSymAt*(c: PContext; scope: PScope, fn: PSym) =
   ## adds an symbol to the given scope, will check for and raise errors if it's
   ## a redefinition as opposed to an overload.
   if fn.kind notin OverloadableSyms:
-    internalError(c.config, fn.info, "addOverloadableSymAt")
+    c.config.internalUnreachable("addOverloadableSymAt", fn.info)
     return
   let check = strTableGet(scope.symbols, fn.name)
   if check != nil and check.kind notin OverloadableSyms:
-    wrongRedefinition(c, fn.info, fn.name.s, check.info)
+    wrongRedefinition(c, fn.info, fn, check)
   else:
     scope.addSym(fn)
 
@@ -526,21 +534,21 @@ proc fixSpelling(c: PContext, n: PNode, ident: PIdent, result: var string) =
     count.inc
 
 proc errorUseQualifier(c: PContext; info: TLineInfo; s: PSym; amb: var bool): PSym =
-  var err = "ambiguous identifier: '" & s.name.s & "'"
-  var i = 0
-  var ignoredModules = 0
+  var
+    i = 0
+    ignoredModules = 0
+    rep = SemReport(kind: rsemAmbiguous, psym: s)
+
   for candidate in importedItems(c, s.name):
-    if i == 0: err.add " -- use one of the following:\n"
-    else: err.add "\n"
-    err.add "  " & candidate.owner.name.s & "." & candidate.name.s
-    err.add ": " & typeToString(candidate.typ)
+    rep.candidates.add candidate
     if candidate.kind == skModule:
       inc ignoredModules
     else:
       result = candidate
     inc i
-  if ignoredModules != i-1:
-    localError(c.config, info, errGenerated, err)
+
+  if ignoredModules != i - 1:
+    c.config.localError(info, rep)
     result = nil
   else:
     amb = false
@@ -550,24 +558,26 @@ proc errorUseQualifier*(c: PContext; info: TLineInfo; s: PSym) =
   discard errorUseQualifier(c, info, s, amb)
 
 proc errorUseQualifier(c: PContext; info: TLineInfo; candidates: seq[PSym]) =
-  var err = "ambiguous identifier: '" & candidates[0].name.s & "'"
-  var i = 0
+  var
+    i = 0
+    rep = SemReport(kind: rsemAmbiguous, psym: candidates[0])
+
   for candidate in candidates:
-    if i == 0: err.add " -- use one of the following:\n"
-    else: err.add "\n"
-    err.add "  " & candidate.owner.name.s & "." & candidate.name.s
-    err.add ": " & typeToString(candidate.typ)
+    rep.candidates.add candidate
     inc i
-  localError(c.config, info, errGenerated, err)
+
+  c.config.localError(info, rep)
 
 proc errorUndeclaredIdentifier*(c: PContext; info: TLineInfo; name: string, extra = "") =
-  var err = "undeclared identifier: '" & name & "'" & extra
+  c.config.localError(info, SemReport(
+    kind: rsemUndeclaredIdentifier,
+    wantedIdent: name,
+    potentiallyRecursive: c.recursiveDep.len > 0
+  ))
+
   if c.recursiveDep.len > 0:
-    err.add "\nThis might be caused by a recursive module dependency:\n"
-    err.add c.recursiveDep
     # prevent excessive errors for 'nim check'
     c.recursiveDep = ""
-  localError(c.config, info, errGenerated, err)
 
 proc errorUndeclaredIdentifierHint*(c: PContext; n: PNode, ident: PIdent): PSym =
   var extra = ""
@@ -589,7 +599,7 @@ proc lookUp*(c: PContext, n: PNode): PSym =
     result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
     if result == nil: result = errorUndeclaredIdentifierHint(c, n, ident)
   else:
-    internalError(c.config, n.info, "lookUp")
+    c.config.internalUnreachable("lookUp")
     return
   if amb:
     #contains(c.ambiguousSymbols, result.id):
@@ -612,9 +622,11 @@ proc errorExpectedIdentifier(
   ## expression (`exp`). non-nil `exp` leads to better error messages.
   let ast =
     if exp.isNil:
-      newError(n, ExpectedIdentifier)
+      c.config.newError(n, SemReport(kind: rsemExpectedIdentifier))
     else:
-      newError(n, ExpectedIdentifierInExpr, exp)
+      c.config.newError(n, SemReport(
+        kind: rsemExpectedIdentifierInExpr, expression: exp))
+
   result = newQualifiedLookUpError(c, ident, n.info, ast)
 
 proc errorSym2*(c: PContext, n, err: PNode): PSym =
@@ -645,21 +657,22 @@ proc errorUndeclaredIdentifierWithHint(
     err.add c.recursiveDep
     # prevent excessive errors for 'nim check'
     c.recursiveDep = ""
-  result = errorSym2(c, n, newError(n, UndeclaredIdentifier, newStrNode(name, n.info),
-                                    newStrNode(err, n.info)))
+  result = errorSym2(c, n, c.config.newError(
+    n,
+    SemReport(kind: rsemUndeclaredIdentifier),
+    @[newStrNode(name, n.info), newStrNode(err, n.info)]
+  ))
 
 proc errorAmbiguousUseQualifier(
     c: PContext; ident: PIdent, n: PNode, candidates: seq[PSym]
   ): PSym =
   ## create an error symbol for an ambiguous unqualified lookup
-  var err = "ambiguous identifier: '" & candidates[0].name.s & "'"
+  var rep = SemReport(kind: rsemAmbiguous, psym: candidates[0])
   for i, candidate in candidates.pairs:
-    if i == 0: err.add " -- use one of the following:\n"
-    else: err.add "\n"
-    err.add "  " & candidate.owner.name.s & "." & candidate.name.s
-    err.add ": " & typeToString(candidate.typ)
-  let ast = newError(n, err)
-  newQualifiedLookUpError(c, ident, n.info, ast)
+    rep.candidates.add candidate
+
+  newQualifiedLookUpError(
+    c, ident, n.info, c.config.newError(n, rep))
 
 type
   TLookupFlag* = enum
@@ -669,19 +682,19 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
   ## updated version of `qualifiedLookUp`, takes an identifier (ident, accent
   ## quoted, dot expression qualified, etc), finds the associated symbol or
   ## reports errors based on the `flags` configuration (allow ambiguity, etc).
-  ## 
+  ##
   ## this new version returns an error symbol rather than issuing errors
   ## directly. The symbol's `ast` field will contain an nkError, and the `typ`
   ## field on the symbol will be the errorType
-  ## 
+  ##
   ## XXX: currently skError is just a const for skUnknown which has many uses,
   ##      once things are cleaner, create a proper skError and use that instead
   ##      of a tuple return.
-  ## 
+  ##
   ## XXX: maybe remove the flags for ambiguity and undeclared and let the call
   ##      sites figure it out instead?
   const allExceptModule = {low(TSymKind)..high(TSymKind)} - {skModule, skPackage}
-  
+
   proc symFromCandidates(
     c: PContext, candidates: seq[PSym], ident: PIdent, n: PNode,
     flags: set[TLookupFlag], amb: var bool
@@ -696,7 +709,7 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         errorAmbiguousUseQualifier(c, ident, n, candidates)
       else:
         candidates[0]
-  
+
   case n.kind
   of nkIdent, nkAccQuoted:
     var
@@ -710,8 +723,10 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
       # search in scopes can return an skError
       if not result.isNil and result.kind == skError and not amb:
-        result.ast = newError(n, UndeclaredIdentifier,
-                              newStrNode(ident.s, n.info))
+        result.ast = c.config.newError(
+          n,
+          SemReport(kind: rsemUndeclaredIdentifier),
+          @[newStrNode(ident.s, n.info)])
     else:
       let candidates = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
       result = symFromCandidates(c, candidates, ident, n, flags, amb)
@@ -782,7 +797,9 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         result = n[1].sym
       elif checkUndeclared in flags and
           n[1].kind notin {nkOpenSymChoice, nkClosedSymChoice}:
-        result = errorSym2(c, n[1], newError(n[1], ExpectedIdentifier))
+        result = errorSym2(c, n[1],
+          c.config.newError(
+            n[1], SemReport(kind: rsemExpectedIdentifier)))
   else:
     result = nil
   when false:
@@ -792,7 +809,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
   ## updated version of `qualifiedLookUp`, takes an identifier (ident, accent
   ## quoted, dot expression qualified, etc), finds the associated symbol or
   ## reports errors based on the `flags` configuration (allow ambiguity, etc).
-  ## 
+  ##
   ## XXX: legacy, deprecate and replace with `qualifiedLookup2`
   const allExceptModule = {low(TSymKind)..high(TSymKind)} - {skModule, skPackage}
   case n.kind
@@ -843,8 +860,9 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         result = n[1].sym
       elif checkUndeclared in flags and
            n[1].kind notin {nkOpenSymChoice, nkClosedSymChoice}:
-        localError(c.config, n[1].info, "identifier expected, but got: " &
-                   renderTree(n[1]))
+        c.config.localError(n[1].info, SemReport(
+          kind: rsemExpectedIdentifier, expression: n[1]))
+
         result = errorSym(c, n[1])
   else:
     result = nil
@@ -1033,4 +1051,3 @@ proc pickSym*(c: PContext, n: PNode; kinds: set[TSymKind];
       if result == nil: result = a
       else: return nil # ambiguous
     a = nextOverloadIter(o, c, n)
-

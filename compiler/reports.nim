@@ -264,12 +264,26 @@ type
     rsemOffsetInUnion ## `{.union.}` type cannot use inheritance and any
     ## other features that add implicit chunk of data before the actually
     ## listed fields.
+    rsemUnexpectedInNewConcept
+    rsemIllegalRecursion
+
+    rsemVarVarNotAllowed ## `var lent`, `var var` etc. are not allowed in
+    ## types
+
+    rsemCannotInstantiate
+
+
+
+
+    # Procedure definition
+    rsemImplementationExpected
+    rsemRedefinitionOf
 
     # Call
     rsemCallTypeMismatch
     rsemExpressionCannotBeCalled
     rsemWrongNumberOfArguments
-    rsemAmbiguousCall
+    rsemAmbiguous
     rsemCallingConventionMismatch
 
     # ParameterTypeMismatch
@@ -320,13 +334,17 @@ type
       ## there is no meaningful error to construct, but there is an error
       ## further down the AST that invalidates the whole
 
+    rsemIllformedAst
+    rsemIdentExpected
 
     # end
 
     # Semantic warnings begin
     rsemUserWarning = "UserWarning" ## `{.warning: }`
     rsemUnknownMagic = "UnknownMagic"
+    rsemDeprecated
     rsemDotForModuleImport
+    rsemLinterReport
     # end
 
     # Semantic hints begin
@@ -543,12 +561,27 @@ type
     ## might be generated. Most prominent example is a `.booldefine.` and
     ## `.intdefine.` error generation.
     rtype*: PType
+    psym*: PSym
+    msg*: string
     case kind*: ReportKind
+      of rsemDuplicateModuleImport:
+        previous*: ReportLinePoint
+
+      of rsemUndeclaredIdentifier:
+        wantedIdent*: string
+        potentiallyRecursive*: bool
+
+      of rsemAmbiguous:
+        candidates*: seq[PSym]
+
       of rsemExpandMacro, rsemPattern:
         originalExpr*: PNode
 
       of rsemTypeMismatch, rsemSemfoldInvalidConversion:
         typeMismatch*: SemTypeMismatch
+
+      of rsemDeprecated, rsemRedefinitionOf:
+        alternative*: PSym
 
       of rsemCallTypeMismatch:
         callMismatches*: seq[SemCallMismatch] ## Description of all the
@@ -571,6 +604,9 @@ type
 
       of rsemConflictingExportnims:
         conflictingExports*: (PSym, PSym)
+
+      of rsemLinterReport:
+        linterFail*: tuple[wanted, got: string]
 
       else:
         discard

@@ -16,6 +16,8 @@ import
   magicsys, vmdef, modulegraphs, lineinfos, sets, pathutils,
   errorhandling, errorreporting, reports
 
+import std/strutils
+
 import ic / ic
 
 type
@@ -517,35 +519,6 @@ proc errorNode*(c: PContext, n: PNode): PNode =
   result = newNodeI(nkEmpty, n.info)
   result.typ = errorType(c)
 
-proc newError*(c: PContext; wrongNode: PNode, k: ErrorKind; args: varargs[PNode]): PNode =
-  ## create an `nkError` node with error `k`, with additional error `args`, and
-  ## a type of error type associated to the current `PContext.owner`
-  case k:
-    of FatalError:
-      # in case we don't abort, ide tools, we set the result
-      result = errorhandling.newFatal(wrongNode, args) # this is an audited use
-      messageError(c.config, result)
-    else:
-      result = errorhandling.newError(wrongNode, k, args)
-      result.typ = errorType(c)
-
-# These mimic localError
-template localErrorNode*(c: PContext, n: PNode, info: TLineInfo, msg: TMsgKind, arg: string): PNode =
-  liMessage(c.config, info, msg, arg, doNothing, instLoc())
-  errorNode(c, n)
-
-template localErrorNode*(c: PContext, n: PNode, info: TLineInfo, arg: string): PNode =
-  liMessage(c.config, info, errGenerated, arg, doNothing, instLoc())
-  errorNode(c, n)
-
-template localErrorNode*(c: PContext, n: PNode, msg: TMsgKind, arg: string): PNode =
-  let n2 = n
-  liMessage(c.config, n2.info, msg, arg, doNothing, instLoc())
-  errorNode(c, n2)
-
-template localErrorNode*(c: PContext, n: PNode, arg: string): PNode =
-  newError(c, n, CustomError, newStrNode(arg, n.info))
-
 proc fillTypeS*(dest: PType, kind: TTypeKind, c: PContext) =
   dest.kind = kind
   dest.owner = getCurrOwner(c)
@@ -566,17 +539,19 @@ proc markIndirect*(c: PContext, s: PSym) {.inline.} =
     incl(s.flags, sfAddrTaken)
     # XXX add to 'c' for global analysis
 
-proc illFormedAst*(n: PNode; conf: ConfigRef) =
-  globalError(conf, n.info, errIllFormedAstX, renderTree(n, {renderNoComments}))
-
-proc illFormedAstLocal*(n: PNode; conf: ConfigRef) =
-  localError(conf, n.info, errIllFormedAstX, renderTree(n, {renderNoComments}))
-
 proc checkSonsLen*(n: PNode, length: int; conf: ConfigRef) =
-  if n.len != length: illFormedAst(n, conf)
+  if n.len != length:
+    conf.globalError(n.info, SemReport(
+      kind: rsemIllformedAst,
+      expression: n,
+      msg: "Expected $1 elements, but found $2" % [$length, $n.len]))
 
 proc checkMinSonsLen*(n: PNode, length: int; conf: ConfigRef) =
-  if n.len < length: illFormedAst(n, conf)
+  if n.len < length:
+    conf.globalError(n.info, SemReport(
+      kind: rsemIllformedAst,
+      expression: n,
+      msg: "Expected at least $1 elements, but found $2" % [$length, $n.len]))
 
 proc isTopLevel*(c: PContext): bool {.inline.} =
   result = c.currentScope.depthLevel <= 2

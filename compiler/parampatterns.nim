@@ -11,7 +11,7 @@
 ## macro support.
 
 import strutils, ast, types, msgs, idents, renderer, wordrecg, trees,
-  options
+  options, reports
 
 # we precompile the pattern here for efficiency into some internal
 # stack based VM :-) Why? Because it's fun; I did no benchmarks to see if that
@@ -42,9 +42,6 @@ type
 const
   MaxStackSize* = 64 ## max required stack size by the VM
 
-proc patternError(n: PNode; conf: ConfigRef) =
-  localError(conf, n.info, "illformed AST: " & renderTree(n, {renderNoComments}))
-
 proc add(code: var TPatternCode, op: TOpcode) {.inline.} =
   code.add chr(ord(op))
 
@@ -58,7 +55,10 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
   case p.kind
   of nkCallKinds:
     if p[0].kind != nkIdent:
-      patternError(p[0], conf)
+      conf.localError(p[0].info, SemReport(
+        kind: rsemIllformedAst,
+        expression: p,
+        msg: "Expected ident for a first subnode, but found '$1'" % [$p[0].kind]))
       return
     let op = p[0].ident
     if p.len == 3:
@@ -342,4 +342,3 @@ proc matchNodeKinds*(p, n: PNode): bool =
     of ppNoSideEffect: push checkForSideEffects(n) != seSideEffect
     inc pc
   result = stack[sp-1]
-

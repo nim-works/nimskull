@@ -604,6 +604,17 @@ template internalError*(
     context: conf.getContext(unknownLineInfo),
     kind: repKind, msg: fail), instLoc(), conf.toReportLinePoint(info)))
 
+template internalUnreachable*(
+    conf: ConfigRef,
+    fail: string,
+    info: TLineInfo = unknownLineInfo
+  ): untyped =
+
+  conf.report(wrap(
+    InternalReport(kind: rintUnreachable, msg: fail),
+    instLoc(),
+    conf.toReportLinePoint(info)))
+
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
   if i.fileIndex.int32 < 0:
     result = makeCString "???"

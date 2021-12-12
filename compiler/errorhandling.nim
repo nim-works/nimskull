@@ -100,10 +100,11 @@ proc newError*(
     result.add a
 
 template newError*(
-    conf: ConfigRef, wrongNode: PNode,
+    conf: ConfigRef,
+    wrongNode: PNode,
     report: SemReport,
     args: seq[PNode] = @[],
-    info: TLineInfo = unknownLineInfo,
+    info: TLineInfo = wrongNode.info,
   ): untyped =
 
   let tmp = wrap(report, instLoc(), conf.toReportLinePoint(info))
