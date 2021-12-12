@@ -595,8 +595,10 @@ Procedures
 
 To define new commands like `echo <system.html#echo,varargs[typed,]>`_
 and `readLine <io.html#readLine,File>`_ in the examples, the concept of a
-*procedure* is needed. (Some languages call them *methods* or *functions*.)
-In Nim new procedures are defined with the `proc` keyword:
+*procedure* is needed. You might be used to them being called *methods* or
+*functions* in other languages, but |NimSkull|
+`differentiates these concepts <tut1.html#procedures-funcs-and-methods>`_. In
+|NimSkull|, new procedures are defined with the `proc` keyword:
 
 .. code-block:: nim
     :test: "nim c $1"
@@ -873,6 +875,41 @@ declarations.
 The example also shows that a proc's body can consist of a single expression
 whose value is then returned implicitly.
 
+
+Funcs and methods
+-----------------
+
+As mentioned in the introduction, |NimSkull| differentiates between procedures,
+functions, and methods, defined by the `proc`, `func`, and `method` keywords
+respectively. In some ways, |NimSkull| is a bit more pedantic in its definitions
+than other languages.
+
+Functions are essentially procedures with additional limitations set on them:
+they can't access global state (except `const`) and can't produce side-effects.
+This puts |NimSkull| functions closer to the concept of a mathematical function,
+which might be familiar to you if you've ever done functional programming. The
+main benefit of the imposed limits is that it's much easier to reason about the
+code with minimized interdependence of its various parts, as data flows directly
+through a function from its arguments to its output. The other notable advantage
+is that the self-contained nature of a function makes it inherently more
+portable and easier to test.
+
+Even though these benefits apply to |NimSkull| functions, it's important to keep
+in mind that a `func` can still change its mutable arguments: those marked as
+`var` along with `ref` objects (which possess interior mutability). This still
+allows functions to have additional outputs beside the return value, making them
+not as "pure" as their mathematical counterparts.
+
+Technically, the `func` keyword is a shorthand alias for `proc` tagged with
+`{.noSideEffects.}`.
+
+Unlike procedures, methods are dynamically dispatched. This sounds a bit
+complicated, but it is a concept closely related to inheritance and object oriented
+programming. If you overload a procedure (two procedures with the same name but
+of different types or with different sets of arguments are said to be overloaded),
+the procedure to use is determined at compile-time. Methods, on the other hand,
+depend on objects that inherit from the `RootObj`. This is something that is covered
+in much greater depth in the `second part of the tutorial<tut2.html#object-oriented-programming-dynamic-dispatch>`_.
 
 Iterators
 =========
