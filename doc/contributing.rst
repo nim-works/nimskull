@@ -27,11 +27,14 @@ For a very small change (typos, fixes, etc) please, open up a PR with tests and
 a fix, with help from the rest of this guide this will be quick and easy.
 
 For more impactful or sweeping changes or you'd like to do things work on
-things more regularly, then please gain context through some of these suggested 
+things more regularly, then please gain context through some of these suggested
 activities:
-* check the `current near-term development plan <https://github.com/nim-works/nimskull#near-term-development>` _
-* see current efforts by reading the last `~10 commits messages <https://github.com/nim-works/nimskull/commits/devel>` _
-* to understand the current broader ideas, `see recent discussions <https://github.com/nim-works/nimskull/discussions>` _
+* check the `current near-term development plan
+  <https://github.com/nim-works/nimskull#near-term-development>` _
+* see current efforts by reading the last `~10 commits messages
+  <https://github.com/nim-works/nimskull/commits/devel>` _
+* to understand the current broader ideas, `see recent discussions
+  <https://github.com/nim-works/nimskull/discussions>` _
 * join our chat (comming soon)
 
 With that said, contributing happens via "Pull requests" (PR) on github. Every
@@ -43,12 +46,14 @@ then mulitple core developers must weigh in.
 
 
 
-Writing tests
-=============
+Writing or improving tests
+==========================
 
-We recommend starting with tests, in fact one of our goals, and that is key to
-|sustainability| is writing the language specification as tests. You can learn
-more about the `spec here <intern.html#>` _.
+We recommend starting with tests, in fact one of our goals, and that is key
+to |sustainability| is writing the language specification as tests. Getting
+comprehensive specification is one of the main goals of the |nimskull| at
+the moment - contributions are more than welcome. You can learn more
+details about the spec structure `here <spec.html#>`_.
 
 Types of testing approaches, in order of preference. Where marked as
 deprecated these are to be converted where possible and not used going
@@ -58,20 +63,44 @@ forward:
    In |NimSkull| repo, `testament`:cmd: (see below) runs all
    ``$nim/tests/*/t*.nim`` test files
 
+   - Usage of ``echo`` in tests is discouraged and should be replaced with
+     ``doAssert`` when possible. Assertion-based tests are easier to read
+     (condition for test pass is written in the test itself) and move
+     around when needed (for running single piece of code for debugging, or
+     moving whole test into another file)
+
+   - Don't forget to add `description:` field to the testament specification
+   - Also comment on the test's parts. Well-written test with careful
+     explanation of what is going on, or why particular element is tested
+     in this manner can serve as a powerful teaching tool.
+
 2. `runnableExamples` documentation comment tests, ran by `nim doc mymod.nim`:cmd:
    These end up in documentation and ensure documentation stays in sync with code.
 
-3. (deprecated) tests in `when isMainModule:` block, ran by `nim r mymod.nim`:cmd:.
+.. note:: Not all the tests follow the convention here, feel free to change
+          the ones that don't. Always leave the code cleaner than you found
+          it. Usage of deprecated tests styles is almost guaranteed to lead
+          to PR rejection.
 
-4. (deprecated) ``.. code-block:: nim`` RST snippets;
-   these should only be used in rst sources,
-   in nim sources `runnableExamples` should now always be preferred to those for
-   several reasons (cleaner syntax, syntax highlights, batched testing, and
-   parameter `rdoccmd` allows customization).
+.. note:: Progress of the test suite improvements is tracked in the github
+          `project <https://github.com/nim-works/nimskull/projects/2>`_.
 
-Not all the tests follow the convention here, feel free to change the ones
-that don't. Always leave the code cleaner than you found it. Usage of
-deprecated tests styles is almost guaranteed to lead to PR rejection.
+Cleaning up existing tests
+--------------------------
+
+Original collection of tests in the test suite contained a lot of files
+that did not conform to the requirements listed above, and should
+eventually be fixed. See `Clean up and reorder tests #41
+<https://github.com/nim-works/nimskull/issues/41>`_ issue on github for
+more context and relevant discussion.
+
+Improving Language specification
+--------------------------------
+
+In order to have the confidence in the compiler implementation and it's
+behaviour we must provide a comprehensive suite of checks for the compiler
+behavior. This is a complex undertaking as a whole, but it can be easily
+split in a smaller contributions.
 
 Stdlib
 ------
@@ -382,108 +411,6 @@ To avoid accidental highlighting follow this rule in ``*.nim`` files:
 
           .. [*] this is fulfilled when ``doc/rstcommon.rst`` is included.
 
-Best practices
-==============
-
-Note: these are general guidelines, not hard rules; there are always exceptions.
-Code reviews can just point to a specific section here to save time and
-propagate best practices.
-
-.. _define_needs_prefix:
-New `defined(foo)` symbols need to be prefixed by the nimble package name, or
-by `nim` for symbols in nim sources (e.g. compiler, standard library). This is
-to avoid name conflicts across packages.
-
-.. code-block:: nim
-
-  # if in nim sources
-  when defined(allocStats): discard # bad, can cause conflicts
-  when defined(nimAllocStats): discard # preferred
-  # if in a package `cligen`:
-  when defined(debug): discard # bad, can cause conflicts
-  when defined(cligenDebug): discard # preferred
-
-.. _noimplicitbool:
-Take advantage of no implicit bool conversion
-
-.. code-block:: nim
-
-  doAssert isValid() == true
-  doAssert isValid() # preferred
-
-.. _design_for_mcs:
-Design with method call syntax chaining in mind
-
-.. code-block:: nim
-
-  proc foo(cond: bool, lines: seq[string]) # bad
-  proc foo(lines: seq[string], cond: bool) # preferred
-  # can be called as: `getLines().foo(false)`
-
-.. _avoid_quit:
-Use exceptions (including `assert` / `doAssert`) instead of `quit`
-rationale: https://forum.nim-lang.org/t/4089
-
-.. code-block:: nim
-
-  quit() # bad in almost all cases
-  doAssert() # preferred
-
-.. _tests_use_doAssert:
-Use `doAssert` (or `unittest.check`, `unittest.require`), not `assert` in all
-tests so they'll be enabled even with `--assertions:off`:option:.
-
-.. code-block:: nim
-
-  block: # foo
-    assert foo() # bad
-    doAssert foo() # preferred
-
-.. _runnableExamples_use_assert:
-An exception to the above rule is `runnableExamples` and ``code-block`` rst blocks
-intended to be used as `runnableExamples`, which for brevity use `assert`
-instead of `doAssert`. Note that `nim doc -d:danger main`:cmd: won't pass `-d:danger`:option: to the
-`runnableExamples`, but `nim doc --doccmd:-d:danger main`:cmd: would, and so would the
-second example below:
-
-.. code-block:: nim
-
-  runnableExamples:
-    doAssert foo() # bad
-    assert foo() # preferred
-
-  runnableExamples("-d:danger"):
-    doAssert foo() # `assert` would be disabled here, so `doAssert` makes more sense
-
-.. _delegate_printing:
-Delegate printing to caller: return `string` instead of calling `echo`
-rationale: it's more flexible (e.g. allows the caller to call custom printing,
-including prepending location info, writing to log files, etc).
-
-.. code-block:: nim
-
-  proc foo() = echo "bar" # bad
-  proc foo(): string = "bar" # preferred (usually)
-
-.. _use_Option:
-[Ongoing debate] Consider using Option instead of return bool + var argument,
-unless stack allocation is needed (e.g. for efficiency).
-
-.. code-block:: nim
-
-  proc foo(a: var Bar): bool
-  proc foo(): Option[Bar]
-
-.. _use_doAssert_not_echo:
-Tests (including in testament) should always prefer assertions over `echo`,
-except when that's not possible. It's more precise, easier for readers and
-maintainers to where expected values refer to. See for example
-https://github.com/nim-lang/Nim/pull/9335 and https://forum.nim-lang.org/t/4089
-
-.. code-block:: nim
-
-  echo foo() # adds a line for testament in `output:` block inside `discard`.
-  doAssert foo() == [1, 2] # preferred, except when not possible to do so.
 
 
 The `git`:cmd: stuff
@@ -492,19 +419,12 @@ The `git`:cmd: stuff
 General commit rules
 --------------------
 
-1. Important, critical bugfixes that have a tiny chance of breaking
-   somebody's code should be backported to the latest stable release
-   branch (currently 1.4.x) and maybe also all the way back to the 1.0.x branch.
-   The commit message should contain the tag ``[backport]`` for "backport to the latest
-   stable release" and the tag ``[backport:$VERSION]`` for backporting back to the
-   given $VERSION (and all newer releases).
-
-2. If you introduce changes which affect backward compatibility,
+1. If you introduce changes which affect backward compatibility,
    make breaking changes, or have PR which is tagged as ``[feature]``,
    the changes should be mentioned in `the changelog
    <https://github.com/nim-works/nimskull/blob/devel/changelog.md>`_.
 
-3. All changes introduced by the commit (diff lines) must be related to the
+2. All changes introduced by the commit (diff lines) must be related to the
    subject of the commit.
 
    If you change something unrelated to the subject parts of the file, because
@@ -514,7 +434,7 @@ General commit rules
    *Tip:* Never commit everything as is using `git commit -a`:cmd:, but review
    carefully your changes with `git add -p`:cmd:.
 
-4. Changes should not introduce any trailing whitespace.
+3. Changes should not introduce any trailing whitespace.
 
    Always check your changes for whitespace errors using `git diff --check`:cmd:
    or add the following ``pre-commit`` hook:
@@ -523,22 +443,55 @@ General commit rules
 
       #!/bin/sh
       git diff --check --cached || exit $?
-5. Describe your commit and use your common sense.
-   Example commit message::
+4. Commit message should contain enough information in order for end user
+   to understand what is going on by looking at the github log.
+
+   Example of bad commit message::
 
      Fixes #123; refs #124
 
-   indicates that issue ``#123`` is completely fixed (GitHub may automatically
-   close it when the PR is committed), wheres issue ``#124`` is referenced
-   (e.g.: partially fixed) and won't close the issue when committed.
+   indicates that issue ``#123`` is completely fixed (GitHub may
+   automatically close it when the PR is committed), wheres issue ``#124``
+   is referenced (e.g.: partially fixed) and won't close the issue when
+   committed. This tells reader **nothing** about what the commit did,
+   requires going into two separate github pages and reading through
+   multiple comments in order to figure out what was *wrong* - not what
+   *changed* in the commit.
 
-6. PR body (not just PR title) should contain references to fixed/referenced github
-   issues, e.g.: ``fix #123`` or ``refs #123``. This is so that you get proper cross
-   referencing from linked issue to the PR (github won't make those links with just
-   PR title, and commit messages aren't always sufficient to ensure that, e.g.
-   can't be changed after a PR is merged).
+   Instead, commit title should contain a human-readable text (we are
+   optimizing for humans after all)
 
-7. Commits should be always be rebased against devel (so a fast forward
+   - Keep the title length to 50 characters, and commit message body to 72
+     characters.
+   - If you want to use automatic "fixes" feature of the github, please
+     supply full URL in the body instead, it makes it much easier to
+     copy-paste and see (with pure hash you first need to understand
+     whether change was in ``issues/`` or ``pull/``, then open random
+     PR/issue and replace hash URL).
+   - Consider using "Fixes" for commits that fix bugs, and "Closes" for
+     commits that implement features.
+   - Most of the points on this list were derived from `How To Write a Good
+     Commit Message
+     <https://api.coala.io/en/latest/Developers/Writing_Good_Commits.html>`_ -
+     we suggest reading it as well.
+
+   When writing commit message consider who are you writing this message
+   for:
+
+
+   - you or someone else in the far future found a big and stumbled upon
+     this in a git bisect
+   - you or someone else is going through recent commits trying to write a
+     changelog
+   - you or someone else is trying to find a bigt that can't be replicated
+     reliably so they're reading commits seeing which might be related
+   - someone new to the code base is trying to learn bits and pieces about
+     what's being worked on and what types of things are changing
+   - you or someone else is sorting out documentation or test gaps, or
+     seeing if old issues can be closed with recent changes
+
+
+5. Commits should be always be rebased against devel (so a fast forward
    merge can happen)
 
    e.g.: use `git pull --rebase origin devel`:cmd:. This is to avoid messing up
@@ -547,7 +500,7 @@ General commit rules
    squash all commits using the script shown in
    https://github.com/nim-lang/Nim/pull/9356
 
-8. Do not mix pure formatting changes (e.g. whitespace changes, nimpretty) or
+6. Do not mix pure formatting changes (e.g. whitespace changes, nimpretty) or
    automated changes (e.g. nimfix) with other code changes: these should be in
    separate commits (and the merge on GitHub should not squash these into 1).
 
@@ -592,43 +545,193 @@ Debugging CI failures, flaky tests, etc
      https://man.sr.ht/tutorials/set-up-account-and-git.md to generate and upload ssh keys.
 
 
-Code reviews
-------------
-
-1. Whenever possible, use GitHub's new 'Suggested change' in code reviews, which
-   saves time explaining the change or applying it; see also
-   https://forum.nim-lang.org/t/4317
-
-2. When reviewing large diffs that may involve code moving around, GitHub's interface
-   doesn't help much as it doesn't highlight moves. Instead, you can use something
-   like this, see visual results `here <https://github.com/nim-lang/Nim/pull/10431#issuecomment-456968196>`_:
-
-   .. code:: cmd
-
-      git fetch origin pull/10431/head && git checkout FETCH_HEAD
-      git diff --color-moved-ws=allow-indentation-change --color-moved=blocks HEAD^
-
-3. In addition, you can view GitHub-like diffs locally to identify what was changed
-   within a code block using `diff-highlight`:cmd: or `diff-so-fancy`:cmd:, e.g.:
-
-   ::
-
-      # put this in ~/.gitconfig:
-      [core]
-        pager = "diff-so-fancy | less -R" # or: use: `diff-highlight`
 
 
+Documentation Style
+===================
 
-.. include:: docstyle.rst
+General Guidelines
+------------------
+
+* See also `nep1<https://nim-lang.github.io/Nim/nep1.html>`_.
+* Authors should document anything that is exported; documentation for
+  private procs can be useful too (visible via `nim doc --docInternal
+  foo.nim`:cmd:).
+* Within documentation, a period (`.`) should follow each sentence (or
+  sentence fragment) in a comment block. The documentation may be limited
+  to one sentence fragment, but if multiple sentences are within the
+  documentation, each sentence after the first should be complete and in
+  present tense.
+* Documentation is parsed as a custom ReStructuredText (RST) with partial
+  markdown support.
+* In nim sources, prefer single backticks to double backticks since it's
+  simpler and `nim doc`:cmd: supports it. Likewise with ``rst`` files: `nim
+  rst2html`:cmd: will render those as monospace, and adding ``..
+  default-role:: code`` to an ``rst`` file will also make those render as
+  monospace when rendered directly in tools such as github.
+
+.. code-block:: nim
+
+  proc someproc*(s: string, foo: int) =
+    ## Use single backticks for inline code, e.g.: `s` or `someExpr(true)`.
+    ## Use a backlash to follow with alphanumeric char: `int8`\s are great.
+
+
+Module-level documentation
+--------------------------
+
+Documentation of a module is placed at the top of the module itself. Each
+line of documentation begins with double hashes (`##`). Sometimes `##[
+multiline docs containing code ]##` is preferable, see
+``lib/pure/times.nim``. Code samples are encouraged, and should follow the
+general RST syntax:
+
+.. code-block:: Nim
+
+  ## The `universe` module computes the answer to life, the universe, and everything.
+  ##
+  ## .. code-block::
+  ##  doAssert computeAnswerString() == 42
+
+
+Within this top-level comment, you can indicate the authorship and
+copyright of the code, which will be featured in the produced
+documentation.
+
+.. code-block:: Nim
+
+  ## This is the best module ever. It provides answers to everything!
+  ##
+  ## :Author: Steve McQueen
+  ## :Copyright: 1965
+  ##
+
+Leave a space between the last line of top-level documentation and the
+beginning of |NimSkull| code (the imports, etc.).
+
+Procs, Templates, Macros, Converters, and Iterators
+---------------------------------------------------
+
+The documentation of a procedure should begin with a capital letter and
+should be in present tense. Variables referenced in the documentation
+should be surrounded by single tick marks:
+
+.. code-block:: Nim
+
+  proc example1*(x: int) =
+    ## Prints the value of `x`.
+    echo x
+
+Whenever an example of usage would be helpful to the user, you should
+include one within the documentation in RST format as below.
+
+.. code-block:: Nim
+
+  proc addThree*(x, y, z: int8): int =
+    ## Adds three `int8` values, treating them as unsigned and
+    ## truncating the result.
+    ##
+    ## .. code-block::
+    ##  # things that aren't suitable for a `runnableExamples` go in code-block:
+    ##  echo execCmdEx("git pull")
+    ##  drawOnScreen()
+    runnableExamples:
+      # `runnableExamples` is usually preferred to ``code-block``, when possible.
+      doAssert addThree(3, 125, 6) == -122
+    result = x +% y +% z
+
+The command `nim doc`:cmd: will then correctly syntax highlight the |NimSkull|
+code within the documentation.
+
+Types
+-----
+
+Exported types should also be documented. This documentation can also
+contain code samples, but those are better placed with the functions to
+which they refer.
+
+.. code-block:: Nim
+
+  type
+    NamedQueue*[T] = object ## Provides a linked data structure with names
+                            ## throughout. It is named for convenience. I'm making
+                            ## this comment long to show how you can, too.
+      name*: string ## The name of the item
+      val*: T ## Its value
+      next*: ref NamedQueue[T] ## The next item in the queue
+
+
+You have some flexibility when placing the documentation:
+
+.. code-block:: Nim
+
+  type
+    NamedQueue*[T] = object
+      ## Provides a linked data structure with names
+      ## throughout. It is named for convenience. I'm making
+      ## this comment long to show how you can, too.
+      name*: string ## The name of the item
+      val*: T ## Its value
+      next*: ref NamedQueue[T] ## The next item in the queue
+
+Make sure to place the documentation beside or within the object.
+
+.. code-block:: Nim
+
+  type
+    ## Bad: this documentation disappears because it annotates the `type` keyword
+    ## above, not `NamedQueue`.
+    NamedQueue*[T] = object
+      name*: string ## This becomes the main documentation for the object, which
+                    ## is not what we want.
+      val*: T ## Its value
+      next*: ref NamedQueue[T] ## The next item in the queue
+
+Var, Let, and Const
+-------------------
+
+When declaring module-wide constants and values, documentation is
+encouraged. The placement of doc comments is similar to the `type`
+sections.
+
+.. code-block:: Nim
+
+  const
+    X* = 42 ## An awesome number.
+    SpreadArray* = [
+      [1,2,3],
+      [2,3,1],
+      [3,1,2],
+    ] ## Doc comment for `SpreadArray`.
+
+Placement of comments in other areas is usually allowed, but will not
+become part of the documentation output and should therefore be prefaced by
+a single hash (`#`).
+
+.. code-block:: Nim
+
+  const
+    BadMathVals* = [
+      3.14, # pi
+      2.72, # e
+      0.58, # gamma
+    ] ## A bunch of badly rounded values.
+
+|NimSkull| supports Unicode in comments, so the above can be replaced with
+the following:
+
+.. code-block:: Nim
+
+  const
+    BadMathVals* = [
+      3.14, # π
+      2.72, # e
+      0.58, # γ
+    ] ## A bunch of badly rounded values.
 
 
 Evolving the stdlib
 ===================
-
-As outlined in https://github.com/nim-lang/RFCs/issues/173 there are a couple
-of guidelines about what should go into the stdlib, what should be added and
-what eventually should be removed.
-
 
 What the compiler itself needs must be part of the stdlib
 ---------------------------------------------------------

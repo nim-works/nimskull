@@ -1,12 +1,10 @@
+.. include:: rstcommon.rst
+
 =========================================
     Internals of the |NimSkull| Compiler
 =========================================
 
-
-:Version: |nimversion|
-
 .. default-role:: code
-.. include:: rstcommon.rst
 .. contents::
 
   "Abstraction is layering ignorance on top of reality." -- Richard Gabriel
@@ -15,39 +13,32 @@
 Directory structure
 ===================
 
-The |NimSkull| project's directory structure is:
+The |nimskull| project's directory structure is:
 
-============   ===================================================
-Path           Purpose
-============   ===================================================
-`bin`          generated binary files
-`build`        generated C code for the installation
-`compiler`     the |NimSkull| compiler itself; note that this
-               code has been translated from a bootstrapping
-               version written in Pascal, so the code is **not**
-               a poster child of good |NimSkull| code
-`config`       configuration files for |NimSkull|
-`dist`         additional packages for the distribution
-`doc`          the documentation; it is a bunch of
-               reStructuredText files
-`lib`          the |NimSkull| library
-`tests`        the tests for |NimSkull|, including the language
-               specification under `tests/lang`
-============   ===================================================
-
-
-Language Specification
-======================
-
-The official language specification is written as a growing set of tests within
-the `tests/lang` directory. Otherwise, the next best thing is the manual with
-the caveat that as any human language document that isn't executable it's often
-the source of language design flaws and features that don't compose well.
-
-In spirit the manual is correct, but it is superseded by the spec and as the
-spec grows and forces reconciliation of various design decisions the manual
-may diverge further. Of course, we want to keep it upto date and attempt to do
-so, if you find issues please help us fix it.
+- ``bin/``, ``build/`` - these directories are empty, but are used when |nimskull|
+  is built.
+- ``compiler/`` - the compiler source code. Also includes nimfix, and
+  plugins within ``compiler/nimfix`` and ``compiler/plugins`` respectively.
+- ``nimsuggest`` - the nimsuggest tool.
+- ``config/`` - the configuration for the compiler and documentation
+  generator.
+- ``dist`` - additional packages for distribution
+- ``doc/`` - the documentation files in reStructuredText format.
+- ``lib/`` - the standard library, including:
+    - ``pure/`` - modules in the standard library written in pure
+      |nimskull|.
+    - ``impure/`` - modules in the standard library written in pure
+    |nimskull| with dependencies written in other languages.
+    - ``wrappers/`` - modules that wrap dependencies written in other
+      languages.
+- ``tests/`` - contains categorized tests for the compiler and standard
+  library.
+  - ``tests/lang`` - tests containing language specification
+- ``tools/`` - the tools including ``koch``, ``niminst`` and ``nimweb``
+  (mostly invoked via ``koch``).
+- ``tools/koch/koch.nim`` - the tool used to bootstrap |nimskull|, generate C
+  sources, build the website, and generate the documentation.
+- ``koch.py`` - the script to bootstrap and launch ``koch.nim``.
 
 
 Bootstrapping the compiler

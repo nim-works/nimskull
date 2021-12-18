@@ -29,7 +29,7 @@ is presently a derivative of [Nim][nim-site]. Its intention best described by:
 > that aims for a community where if one uses the language then they also
 > contribute directly to the language. This is a community effort with a strong
 > emphasis on sustainability, the contributor community comes first.
-> 
+>
 > As to why this fork exists, it's a matter of taste and this would not exist
 > if governance, language design, type system, implementation choices, standard
 > library, package management, and more had an acceptable trajectory.
@@ -50,7 +50,7 @@ See the [FAQ](#FAQ).
 ![](./doc/fixup_roadmap.png)
 
 The current and key areas of development are as follows:
-1. improve tests - clarify the language specification and memorialize it in tests. 
+1. improve tests - clarify the language specification and memorialize it in tests.
    Reorganize existsing tests. [Project](https://github.com/nim-works/nimskull/projects/2)
    to track progress.
 2. nkError - replace `localError` etc approach with an AST (`nkError`) one
@@ -150,42 +150,7 @@ should add the ``bin`` directory to your PATH.
 
 ## Contributing
 
-**NB: This has not been updated from the original Nim section. See the [FAQ](#FAQ)**
-
->Before you start contributing, you should familiarize yourself with the
-following repository structure:
->
-><details>
->  <summary>Show structure</summary>
->  <br />
->
->* ``bin/``, ``build/`` - these directories are empty, but are used when Nim is >built.
->* ``compiler/`` - the compiler source code. Also includes nimfix, and plugins within
->  ``compiler/nimfix`` and ``compiler/plugins`` respectively.
->* ``nimsuggest`` - the nimsuggest tool.
->* ``config/`` - the configuration for the compiler and documentation generator.
->* ``doc/`` - the documentation files in reStructuredText format.
->* ``lib/`` - the standard library, including:
->    * ``pure/`` - modules in the standard library written in pure Nim.
->    * ``impure/`` - modules in the standard library written in pure Nim with
->    dependencies written in other languages.
->    * ``wrappers/`` - modules that wrap dependencies written in other languages.
->* ``tests/`` - contains categorized tests for the compiler and standard library.
->* ``tools/`` - the tools including ``koch``, ``niminst`` and ``nimweb`` (mostly invoked via
->  ``koch``).
->* ``tools/koch/koch.nim`` - the tool used to bootstrap Nim, generate C sources, build the 
->  website, and generate the documentation.
->* ``koch.py`` - the script to bootstrap and launch ``koch.nim``.
-></details>
->
->Ideally, you should make sure that all tests pass before submitting a pull request.
-However, if you are short on time, you can just run the tests specific to your
-changes by only running the corresponding categories of tests. Travis CI verifies
-that all tests pass before allowing the pull request to be accepted, so only
-running specific tests should be harmless.
-Integration tests should go in ``tests/untestable``.
-
-<p align="right">(<a href="#top">back to top</a>)</p>
+For contribution guide see
 
 ## Direction
 

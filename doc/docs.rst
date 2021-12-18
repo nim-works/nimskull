@@ -34,5 +34,8 @@ The documentation consists of several documents:
   | The internal documentation describes how the compiler is implemented. Read
     this if you want to hack the compiler.
 
+- | `Language specification <spec.html>`_
+  | Description of the language specification purpose and structure.
+
 - | `Index <theindex.html>`_
-  | The generated index. **Index + (Ctrl+F) == Joy**
+  | The generated index.
