@@ -354,6 +354,37 @@ type
 
     rsemIllformedAst
     rsemIdentExpected
+    rsemWrongIdent
+    rsemPragmaOptionExpected
+    rsemUnexpectedPushArgument
+    rsemCannotPushCast
+    rsemCastRequiresStatement
+    rsemExportcppRequiresCpp
+    rsemDynlibRequiresExportc
+    rsemImportjsRequiresJs
+    rsemImportjsRequiresPattern
+    rsemBitsizeRequires1248
+    rsemBitsizeRequiresPositive
+    rsemAlignRequiresPowerOfTwo
+    rsemPragmaRecursiveDependency
+    rsemMisplacedDeprecation
+    rsemNoUnionForJs
+
+    rsemThisPragmaRequires01Args
+    rsemMisplacedExperimental
+    rsemMismatchedPopPush
+    rsemExcessiveCompilePragmaArgs
+    rsemLinePragmaExpectsTuple
+    rsemRaisesPragmaExpectsObject
+    rsemLocksPragmaExpectsList
+    rsemLocksPragmaBadLevel
+    rsemBorrowPragmaNonDot
+    rsemInvalidExtern
+    rsemBadDeprecatedArgs
+    rsemMisplacedEffectsOf
+    rsemMissingPragmaArg
+    rsemEmptyAsm
+
 
     # end
 
@@ -584,6 +615,12 @@ type
     case kind*: ReportKind
       of rsemDuplicateModuleImport:
         previous*: ReportLinePoint
+
+      of rsemInvalidExtern:
+        externName*: string
+
+      of rsemWrongIdent:
+        expectedIdents*: seq[string]
 
       of rsemUndeclaredIdentifier:
         wantedIdent*: string

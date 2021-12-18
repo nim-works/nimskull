@@ -107,9 +107,31 @@ template newError*(
     info: TLineInfo = wrongNode.info,
   ): untyped =
 
-  let tmp = wrap(report, instLoc(), conf.toReportLinePoint(info))
+  var rep = report
+  if isNil(rep.expression):
+    rep.expression = wrongNode
+
+  let tmp = wrap(rep, instLoc(), conf.toReportLinePoint(info))
   let id = conf.addReport(tmp)
   newError(wrongNode, tmp.semReport.kind, id, instLoc(), args)
+
+template newError*(
+    conf: ConfigRef,
+    node: PNode,
+    reportKind: SemReportKind,
+    sym: PSym = nil,
+    errMsg: string = "",
+    args: seq[PNode] = @[]
+  ): untyped =
+  newError(
+    node,
+    reportKind,
+    conf.addReport(wrap(
+      SemReport(expression: node, psym: sym, kind: reportKind, msg: errMsg),
+      instLoc(),
+      conf.toReportLinePoint(node.info))),
+    instLoc(),
+    args)
 
 proc wrapErrorInSubTree*(wrongNodeContainer: PNode): PNode =
   ## `wrongNodeContainer` doesn't directly have an error but one exists further
