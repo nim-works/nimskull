@@ -16,7 +16,7 @@
 
 import std/[options]
 
-import ast_types
+import ast_types, nilcheck_enums
 export ast_types, options.some
 
 type InstantiationInfo* = typeof(instantiationInfo())
@@ -244,6 +244,8 @@ type
     rsemSystemNeeds
     rsemInvalidModulePath
     rsemCannotImportItself
+    rsemRecursiveInclude
+    rsemCannotOpenFile
 
     # ..
     rsemConflictingExportnims
@@ -277,6 +279,7 @@ type
     ## types
 
     rsemCannotInstantiate
+    rsemCannotGenerateGenericDestructor
 
 
 
@@ -327,6 +330,16 @@ type
     rsemCallconvExpected
     rsemInnerCodeReordering
     rsemUnknownExperimental
+
+    # view types
+    rsemExpressionIsNotAPath
+    rsemResultMustBorrowFirst
+    rsemCannotDetermineBorrowTarget # TODO DOC need better explanation for
+    # reasons of this error, right now it looks like a hacked-in check.
+    rsemCannotBorrow
+    rsemBorrowOutlivesSource
+    rsemImmutableBorrowMutation
+
 
     # Pragma
     rsemInvalidPragma
@@ -393,6 +406,10 @@ type
     rsemUnknownMagic = "UnknownMagic"
     rsemDeprecated
     rsemDotForModuleImport
+    rsemReorderingFail
+    rsemProveField
+    rsemStrictNotNil
+
     rsemLinterReport
     # end
 
@@ -615,6 +632,22 @@ type
     case kind*: ReportKind
       of rsemDuplicateModuleImport:
         previous*: ReportLinePoint
+
+      of rsemCannotBorrow:
+        borrowPair*: tuple[mutatedHere, connectedVia: ReportLinePoint]
+
+      of rsemBorrowOutlivesSource, rsemImmutableBorrowMutation:
+        borrowsFrom*: PSym
+
+      of rsemStrictNotNil:
+        nilIssue*: Nilability
+        nilHistory*: seq[tuple[
+          node: PNode,
+          nilability: Nilability,
+          info: ReportLinePoint,
+          transition: NilTransition
+        ]]
+
 
       of rsemInvalidExtern:
         externName*: string

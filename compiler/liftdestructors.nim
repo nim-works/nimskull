@@ -11,7 +11,8 @@
 ## (``=sink``, ``=``, ``=destroy``, ``=deepCopy``).
 
 import modulegraphs, lineinfos, idents, ast, renderer, semdata,
-  sighashes, lowerings, options, types, msgs, magicsys, tables, ccgutils
+  sighashes, lowerings, options, types, msgs, magicsys, tables, ccgutils,
+  reports
 
 from trees import isCaseObj
 
@@ -199,9 +200,14 @@ proc fillBodyObj(c: var TLiftCtx; n, body, x, y: PNode; enforceDefaultOp: bool) 
       fillBodyObj(c, n[0], body, x, y, enforceDefaultOp = false)
     c.filterDiscriminator = oldfilterDiscriminator
   of nkRecList:
-    for t in items(n): fillBodyObj(c, t, body, x, y, enforceDefaultOp)
+    for t in items(n):
+      fillBodyObj(c, t, body, x, y, enforceDefaultOp)
   else:
-    illFormedAstLocal(n, c.g.config)
+    c.g.config.localError(n.info, SemReport(
+      kind: rsemIllformedAst,
+      expression: n,
+      msg: "Unexpected node kind for 'fillBodyObj' - " &
+        "wanted Sym, NilLit, RecList or RecCase, but found " & $n.kind))
 
 proc fillBodyObjTImpl(c: var TLiftCtx; t: PType, body, x, y: PNode) =
   if t.len > 0 and t[0] != nil:
@@ -325,8 +331,11 @@ proc instantiateGeneric(c: var TLiftCtx; op: PSym; t, typeInst: PType): PSym =
   if c.c != nil and typeInst != nil:
     result = c.c.instTypeBoundOp(c.c, op, typeInst, c.info, attachedAsgn, 1)
   else:
-    localError(c.g.config, c.info,
-      "cannot generate destructor for generic type: " & typeToString(t))
+    localError(
+      c.g.config,
+      c.info,
+      SemReport(kind: rsemCannotGenerateGenericDestructor, rtype: t))
+
     result = nil
 
 proc considerAsgnOrSink(c: var TLiftCtx; t: PType; body, x, y: PNode;
@@ -397,8 +406,8 @@ proc addDestructorCall(c: var TLiftCtx; orig: PType; body, x: PNode) =
     onUse(c.info, op)
     body.add destructorCall(c, op, x)
   elif useNoGc(c, t):
-    internalError(c.g.config, c.info,
-      "type-bound operator could not be resolved")
+    internalUnreachable(
+      c.g.config, "type-bound operator could not be resolved", c.info)
 
 proc considerUserDefinedOp(c: var TLiftCtx; t: PType; body, x, y: PNode): bool =
   case c.kind
@@ -1020,9 +1029,9 @@ proc patchBody(g: ModuleGraph; c: PContext; n: PNode; info: TLineInfo; idgen: Id
       let op = getAttachedOp(g, t, attachedDestructor)
       if op != nil:
         if op.ast.isGenericRoutine:
-          internalError(g.config, info, "resolved destructor is generic")
+          internalUnreachable(g.config, "resolved destructor is generic", info)
         if op.magic == mDestroy:
-          internalError(g.config, info, "patching mDestroy with mDestroy?")
+          internalUnreachable(g.config, "patching mDestroy with mDestroy?", info)
         n[0] = newSymNode(op)
   for x in n: patchBody(g, c, x, info, idgen)
 
@@ -1043,7 +1052,7 @@ proc inst(g: ModuleGraph; c: PContext; t: PType; kind: TTypeAttachedOp; idgen: I
         patchBody(g, c, opInst.ast, info, a.idgen)
       setAttachedOp(g, idgen.module, t, kind, opInst)
     else:
-      localError(g.config, info, "unresolved generic parameter")
+      localUnreachable(g.config, "unresolved generic parameter", info)
 
 proc isTrival(s: PSym): bool {.inline.} =
   s == nil or (s.ast != nil and s.ast[bodyPos].len == 0)

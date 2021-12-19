@@ -28,7 +28,8 @@
 ## See https://nim-lang.github.io/Nim/manual_experimental.html#view-types-algorithm
 ## for a high-level description of how borrow checking works.
 
-import ast, types, lineinfos, options, msgs, renderer, typeallowed, modulegraphs
+import ast, types, lineinfos, options, msgs, renderer, typeallowed, modulegraphs,
+       reports
 from trees import getMagic, isNoSideEffectPragma, stupidStmtListExpr
 from isolation_check import canAlias
 
@@ -525,16 +526,15 @@ proc toString(n: PNode): string =
   else: result = $n
 
 proc borrowFrom(c: var Partitions; dest: PSym; src: PNode) =
-  const
-    url = "see https://nim-lang.github.io/Nim/manual_experimental.html#view-types-algorithm-path-expressions for details"
-
   let s = pathExpr(src, c.owner)
   if s == nil:
-    localError(c.g.config, src.info, "cannot borrow from " & src.toString & ", it is not a path expression; " & url)
+    localError(c.g.config, src.info, SemReport(kind: rsemExpressionIsNotAPath, expression: src))
   elif s.kind == nkSym:
     if dest.kind == skResult:
       if s.sym.kind != skParam or s.sym.position != 0:
-        localError(c.g.config, src.info, "'result' must borrow from the first parameter")
+        localError(
+          c.g.config, src.info,
+          SemReport(kind: rsemResultMustBorrowFirst, psym: s.sym, expression: src))
 
     let vid = variableId(c, dest)
     if vid >= 0:
@@ -566,7 +566,9 @@ proc borrowingCall(c: var Partitions; destType: PType; n: PNode; i: int) =
       if getMagic(n[j]) == mSlice:
         borrowFrom(c, v.sym, n[j])
   else:
-    localError(c.g.config, n[i].info, "cannot determine the target of the borrow")
+    localError(
+      c.g.config, n[i].info,
+      SemReport(kind: rsemCannotDetermineBorrowTarget))
 
 proc borrowingAsgn(c: var Partitions; dest, src: PNode) =
   proc mutableParameter(n: PNode): bool {.inline.} =
@@ -887,18 +889,12 @@ proc dangerousMutation(g: MutationInfo; v: VarIndex): bool =
   return false
 
 proc cannotBorrow(config: ConfigRef; s: PSym; g: MutationInfo) =
-  var m = "cannot borrow " & s.name.s &
-    "; what it borrows from is potentially mutated"
-
-  if g.mutatedHere != unknownLineInfo:
-    m.add "\n"
-    m.add config $ g.mutatedHere
-    m.add " the mutation is here"
-  if g.connectedVia != unknownLineInfo:
-    m.add "\n"
-    m.add config $ g.connectedVia
-    m.add " is the statement that connected the mutation to the parameter"
-  localError(config, s.info, m)
+  localError(config, s.info, SemReport(
+    kind: rsemCannotBorrow,
+    psym: s,
+    borrowPair: (
+      mutatedHere: config.toReportLinePoint(g.mutatedHere),
+      connectedVia: config.toReportLinePoint(g.connectedVia))))
 
 proc checkBorrowedLocations*(par: var Partitions; body: PNode; config: ConfigRef) =
   for i in 0 ..< par.s.len:
@@ -910,21 +906,30 @@ proc checkBorrowedLocations*(par: var Partitions; body: PNode; config: ConfigRef
         for b in par.s[rid].borrowsFrom:
           let sid = root(par, b)
           if sid >= 0:
-            if par.s[sid].con.kind == isRootOf and dangerousMutation(par.graphs[par.s[sid].con.graphIndex], par.s[i]):
+            if par.s[sid].con.kind == isRootOf and
+               dangerousMutation(par.graphs[par.s[sid].con.graphIndex], par.s[i]):
               cannotBorrow(config, v, par.graphs[par.s[sid].con.graphIndex])
             if par.s[sid].sym.kind != skParam and par.s[sid].aliveEnd < par.s[rid].aliveEnd:
-              localError(config, v.info, "'" & v.name.s & "' borrows from location '" & par.s[sid].sym.name.s &
-                "' which does not live long enough")
+              localError(config, v.info, SemReport(
+                kind: rsemBorrowOutlivesSource,
+                psym: v,
+                borrowsFrom: par.s[sid].sym))
+
             if viewDoesMutate in par.s[rid].flags and isConstSym(par.s[sid].sym):
-              localError(config, v.info, "'" & v.name.s & "' borrows from the immutable location '" &
-                par.s[sid].sym.name.s & "' and attempts to mutate it")
+              localError(config, v.info, SemReport(
+                kind: rsemImmutableBorrowMutation,
+                psym: v,
+                borrowsFrom: par.s[sid].sym))
+
               constViolation = true
-        if {viewDoesMutate, viewBorrowsFromConst} * par.s[rid].flags == {viewDoesMutate, viewBorrowsFromConst} and
+        if {viewDoesMutate, viewBorrowsFromConst} * par.s[rid].flags == {
+            viewDoesMutate, viewBorrowsFromConst} and
             not constViolation:
           # we do not track the constant expressions we allow to borrow from so
           # we can only produce a more generic error message:
-          localError(config, v.info, "'" & v.name.s &
-              "' borrows from an immutable location and attempts to mutate it")
+          localError(config, v.info, SemReport(
+            kind: rsemImmutableBorrowMutation,
+            psym: v))
 
       #if par.s[rid].con.kind == isRootOf and dangerousMutation(par.graphs[par.s[rid].con.graphIndex], par.s[i]):
       #  cannotBorrow(config, s, par.graphs[par.s[rid].con.graphIndex])

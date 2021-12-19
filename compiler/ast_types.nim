@@ -81,194 +81,194 @@ type
     ## order is important, because ranges are used to check whether a node
     ## belongs to a certain class
 
-    nkNone,               ## unknown node kind: indicates an error
+    nkNone                ## unknown node kind: indicates an error
                           ## Expressions:
                           ## Atoms:
-    nkEmpty,              ## the node is empty
-    nkIdent,              ## node is an identifier
-    nkSym,                ## node is a symbol
-    nkType,               ## node is used for its typ field
+    nkEmpty               ## the node is empty
+    nkIdent               ## node is an identifier
+    nkSym                 ## node is a symbol
+    nkType                ## node is used for its typ field
 
-    nkCharLit,            ## a character literal ''
-    nkIntLit,             ## an integer literal
-    nkInt8Lit,
-    nkInt16Lit,
-    nkInt32Lit,
-    nkInt64Lit,
-    nkUIntLit,            ## an unsigned integer literal
-    nkUInt8Lit,
-    nkUInt16Lit,
-    nkUInt32Lit,
-    nkUInt64Lit,
-    nkFloatLit,           ## a floating point literal
-    nkFloat32Lit,
-    nkFloat64Lit,
-    nkFloat128Lit,
-    nkStrLit,             ## a string literal ""
-    nkRStrLit,            ## a raw string literal r""
-    nkTripleStrLit,       ## a triple string literal """
-    nkNilLit,             ## the nil literal
+    nkCharLit             ## a character literal ''
+    nkIntLit              ## an integer literal
+    nkInt8Lit
+    nkInt16Lit
+    nkInt32Lit
+    nkInt64Lit
+    nkUIntLit             ## an unsigned integer literal
+    nkUInt8Lit
+    nkUInt16Lit
+    nkUInt32Lit
+    nkUInt64Lit
+    nkFloatLit            ## a floating point literal
+    nkFloat32Lit
+    nkFloat64Lit
+    nkFloat128Lit
+    nkStrLit              ## a string literal ""
+    nkRStrLit             ## a raw string literal r""
+    nkTripleStrLit        ## a triple string literal """
+    nkNilLit              ## the nil literal
                           ## end of atoms
-    nkComesFrom,          ## "comes from" template/macro information for
+    nkComesFrom           ## "comes from" template/macro information for
                           ## better stack trace generation
-    nkDotCall,            ## used to temporarily flag a nkCall node;
+    nkDotCall             ## used to temporarily flag a nkCall node;
                           ## this is used
                           ## for transforming ``s.len`` to ``len(s)``
 
-    nkCommand,            ## a call like ``p 2, 4`` without parenthesis
-    nkCall,               ## a call like p(x, y) or an operation like +(a, b)
-    nkCallStrLit,         ## a call with a string literal
+    nkCommand             ## a call like ``p 2, 4`` without parenthesis
+    nkCall                ## a call like p(x, y) or an operation like +(a, b)
+    nkCallStrLit          ## a call with a string literal
                           ## x"abc" has two sons: nkIdent, nkRStrLit
                           ## x"""abc""" has two sons: nkIdent, nkTripleStrLit
-    nkInfix,              ## a call like (a + b)
-    nkPrefix,             ## a call like !a
-    nkPostfix,            ## something like a! (also used for visibility)
-    nkHiddenCallConv,     ## an implicit type conversion via a type converter
+    nkInfix               ## a call like (a + b)
+    nkPrefix              ## a call like !a
+    nkPostfix             ## something like a! (also used for visibility)
+    nkHiddenCallConv      ## an implicit type conversion via a type converter
 
-    nkExprEqExpr,         ## a named parameter with equals: ''expr = expr''
-    nkExprColonExpr,      ## a named parameter with colon: ''expr: expr''
-    nkIdentDefs,          ## a definition like `a, b: typeDesc = expr`
+    nkExprEqExpr          ## a named parameter with equals: ''expr = expr''
+    nkExprColonExpr       ## a named parameter with colon: ''expr: expr''
+    nkIdentDefs           ## a definition like `a, b: typeDesc = expr`
                           ## either typeDesc or expr may be nil; used in
                           ## formal parameters, var statements, etc.
-    nkVarTuple,           ## a ``var (a, b) = expr`` construct
-    nkPar,                ## syntactic (); may be a tuple constructor
-    nkObjConstr,          ## object constructor: T(a: 1, b: 2)
-    nkCurly,              ## syntactic {}
-    nkCurlyExpr,          ## an expression like a{i}
-    nkBracket,            ## syntactic []
-    nkBracketExpr,        ## an expression like a[i..j, k]
-    nkPragmaExpr,         ## an expression like a{.pragmas.}
-    nkRange,              ## an expression like i..j
-    nkDotExpr,            ## a.b
-    nkCheckedFieldExpr,   ## a.b, but b is a field that needs to be checked
-    nkDerefExpr,          ## a^
-    nkIfExpr,             ## if as an expression
-    nkElifExpr,
-    nkElseExpr,
-    nkLambda,             ## lambda expression
-    nkDo,                 ## lambda block appearing as trailing proc param
-    nkAccQuoted,          ## `a` as a node
+    nkVarTuple            ## a ``var (a, b) = expr`` construct
+    nkPar                 ## syntactic (); may be a tuple constructor
+    nkObjConstr           ## object constructor: T(a: 1, b: 2)
+    nkCurly               ## syntactic {}
+    nkCurlyExpr           ## an expression like a{i}
+    nkBracket             ## syntactic []
+    nkBracketExpr         ## an expression like a[i..j, k]
+    nkPragmaExpr          ## an expression like a{.pragmas.}
+    nkRange               ## an expression like i..j
+    nkDotExpr             ## a.b
+    nkCheckedFieldExpr    ## a.b, but b is a field that needs to be checked
+    nkDerefExpr           ## a^
+    nkIfExpr              ## if as an expression
+    nkElifExpr
+    nkElseExpr
+    nkLambda              ## lambda expression
+    nkDo                  ## lambda block appearing as trailing proc param
+    nkAccQuoted           ## `a` as a node
 
-    nkTableConstr,        ## a table constructor {expr: expr}
-    nkBind,               ## ``bind expr`` node
-    nkClosedSymChoice,    ## symbol choice node; a list of nkSyms (closed)
-    nkOpenSymChoice,      ## symbol choice node; a list of nkSyms (open)
-    nkHiddenStdConv,      ## an implicit standard type conversion
-    nkHiddenSubConv,      ## an implicit type conversion from a subtype
+    nkTableConstr         ## a table constructor {expr: expr}
+    nkBind                ## ``bind expr`` node
+    nkClosedSymChoice     ## symbol choice node; a list of nkSyms (closed)
+    nkOpenSymChoice       ## symbol choice node; a list of nkSyms (open)
+    nkHiddenStdConv       ## an implicit standard type conversion
+    nkHiddenSubConv       ## an implicit type conversion from a subtype
                           ## to a supertype
-    nkConv,               ## a type conversion
-    nkCast,               ## a type cast
-    nkStaticExpr,         ## a static expr
-    nkAddr,               ## a addr expression
-    nkHiddenAddr,         ## implicit address operator
-    nkHiddenDeref,        ## implicit ^ operator
-    nkObjDownConv,        ## down conversion between object types
-    nkObjUpConv,          ## up conversion between object types
-    nkChckRangeF,         ## range check for floats
-    nkChckRange64,        ## range check for 64 bit ints
-    nkChckRange,          ## range check for ints
-    nkStringToCString,    ## string to cstring
-    nkCStringToString,    ## cstring to string
+    nkConv                ## a type conversion
+    nkCast                ## a type cast
+    nkStaticExpr          ## a static expr
+    nkAddr                ## a addr expression
+    nkHiddenAddr          ## implicit address operator
+    nkHiddenDeref         ## implicit ^ operator
+    nkObjDownConv         ## down conversion between object types
+    nkObjUpConv           ## up conversion between object types
+    nkChckRangeF          ## range check for floats
+    nkChckRange64         ## range check for 64 bit ints
+    nkChckRange           ## range check for ints
+    nkStringToCString     ## string to cstring
+    nkCStringToString     ## cstring to string
                           ## end of expressions
 
-    nkAsgn,               ## a = b
-    nkFastAsgn,           ## internal node for a fast ``a = b``
+    nkAsgn                ## a = b
+    nkFastAsgn            ## internal node for a fast ``a = b``
                           ## (no string copy)
-    nkGenericParams,      ## generic parameters
-    nkFormalParams,       ## formal parameters
-    nkOfInherit,          ## inherited from symbol
+    nkGenericParams       ## generic parameters
+    nkFormalParams        ## formal parameters
+    nkOfInherit           ## inherited from symbol
 
-    nkImportAs,           ## a 'as' b in an import statement
-    nkProcDef,            ## a proc
-    nkMethodDef,          ## a method
-    nkConverterDef,       ## a converter
-    nkMacroDef,           ## a macro
-    nkTemplateDef,        ## a template
-    nkIteratorDef,        ## an iterator
+    nkImportAs            ## a 'as' b in an import statement
+    nkProcDef             ## a proc
+    nkMethodDef           ## a method
+    nkConverterDef        ## a converter
+    nkMacroDef            ## a macro
+    nkTemplateDef         ## a template
+    nkIteratorDef         ## an iterator
 
-    nkOfBranch,           ## used inside case statements
+    nkOfBranch            ## used inside case statements
                           ## for (cond, action)-pairs
-    nkElifBranch,         ## used in if statements
-    nkExceptBranch,       ## an except section
-    nkElse,               ## an else part
-    nkAsmStmt,            ## an assembler block
-    nkPragma,             ## a pragma statement
-    nkPragmaBlock,        ## a pragma with a block
-    nkIfStmt,             ## an if statement
-    nkWhenStmt,           ## a when expression or statement
-    nkForStmt,            ## a for statement
-    nkParForStmt,         ## a parallel for statement
-    nkWhileStmt,          ## a while statement
-    nkCaseStmt,           ## a case statement
-    nkTypeSection,        ## a type section (consists of type definitions)
-    nkVarSection,         ## a var section
-    nkLetSection,         ## a let section
-    nkConstSection,       ## a const section
-    nkConstDef,           ## a const definition
-    nkTypeDef,            ## a type definition
-    nkYieldStmt,          ## the yield statement as a tree
-    nkDefer,              ## the 'defer' statement
-    nkTryStmt,            ## a try statement
-    nkFinally,            ## a finally section
-    nkRaiseStmt,          ## a raise statement
-    nkReturnStmt,         ## a return statement
-    nkBreakStmt,          ## a break statement
-    nkContinueStmt,       ## a continue statement
-    nkBlockStmt,          ## a block statement
-    nkStaticStmt,         ## a static statement
-    nkDiscardStmt,        ## a discard statement
-    nkStmtList,           ## a list of statements
-    nkImportStmt,         ## an import statement
-    nkImportExceptStmt,   ## an import x except a statement
-    nkExportStmt,         ## an export statement
-    nkExportExceptStmt,   ## an 'export except' statement
-    nkFromStmt,           ## a from * import statement
-    nkIncludeStmt,        ## an include statement
-    nkBindStmt,           ## a bind statement
-    nkMixinStmt,          ## a mixin statement
-    nkUsingStmt,          ## an using statement
-    nkCommentStmt,        ## a comment statement
-    nkStmtListExpr,       ## a statement list followed by an expr; this is used
+    nkElifBranch          ## used in if statements
+    nkExceptBranch        ## an except section
+    nkElse                ## an else part
+    nkAsmStmt             ## an assembler block
+    nkPragma              ## a pragma statement
+    nkPragmaBlock         ## a pragma with a block
+    nkIfStmt              ## an if statement
+    nkWhenStmt            ## a when expression or statement
+    nkForStmt             ## a for statement
+    nkParForStmt          ## a parallel for statement
+    nkWhileStmt           ## a while statement
+    nkCaseStmt            ## a case statement
+    nkTypeSection         ## a type section (consists of type definitions)
+    nkVarSection          ## a var section
+    nkLetSection          ## a let section
+    nkConstSection        ## a const section
+    nkConstDef            ## a const definition
+    nkTypeDef             ## a type definition
+    nkYieldStmt           ## the yield statement as a tree
+    nkDefer               ## the 'defer' statement
+    nkTryStmt             ## a try statement
+    nkFinally             ## a finally section
+    nkRaiseStmt           ## a raise statement
+    nkReturnStmt          ## a return statement
+    nkBreakStmt           ## a break statement
+    nkContinueStmt        ## a continue statement
+    nkBlockStmt           ## a block statement
+    nkStaticStmt          ## a static statement
+    nkDiscardStmt         ## a discard statement
+    nkStmtList            ## a list of statements
+    nkImportStmt          ## an import statement
+    nkImportExceptStmt    ## an import x except a statement
+    nkExportStmt          ## an export statement
+    nkExportExceptStmt    ## an 'export except' statement
+    nkFromStmt            ## a from * import statement
+    nkIncludeStmt         ## an include statement
+    nkBindStmt            ## a bind statement
+    nkMixinStmt           ## a mixin statement
+    nkUsingStmt           ## an using statement
+    nkCommentStmt         ## a comment statement
+    nkStmtListExpr        ## a statement list followed by an expr; this is used
                           ## to allow powerful multi-line templates
-    nkBlockExpr,          ## a statement block ending in an expr; this is used
+    nkBlockExpr           ## a statement block ending in an expr; this is used
                           ## to allow powerful multi-line templates that open a
                           ## temporary scope
-    nkStmtListType,       ## a statement list ending in a type; for macros
-    nkBlockType,          ## a statement block ending in a type; for macros
+    nkStmtListType        ## a statement list ending in a type; for macros
+    nkBlockType           ## a statement block ending in a type; for macros
                           ## types as syntactic trees:
 
-    nkWith,               ## distinct with `foo`
-    nkWithout,            ## distinct without `foo`
+    nkWith                ## distinct with `foo`
+    nkWithout             ## distinct without `foo`
 
-    nkTypeOfExpr,         ## type(1+2)
-    nkObjectTy,           ## object body
-    nkTupleTy,            ## tuple body
-    nkTupleClassTy,       ## tuple type class
-    nkTypeClassTy,        ## user-defined type class
-    nkStaticTy,           ## ``static[T]``
-    nkRecList,            ## list of object parts
-    nkRecCase,            ## case section of object
-    nkRecWhen,            ## when section of object
-    nkRefTy,              ## ``ref T``
-    nkPtrTy,              ## ``ptr T``
-    nkVarTy,              ## ``var T``
-    nkConstTy,            ## ``const T``
-    nkMutableTy,          ## ``mutable T``
-    nkDistinctTy,         ## distinct type
-    nkProcTy,             ## proc type
-    nkIteratorTy,         ## iterator type
-    nkSharedTy,           ## 'shared T'
+    nkTypeOfExpr          ## type(1+2)
+    nkObjectTy            ## object body
+    nkTupleTy             ## tuple body
+    nkTupleClassTy        ## tuple type class
+    nkTypeClassTy         ## user-defined type class
+    nkStaticTy            ## ``static[T]``
+    nkRecList             ## list of object parts
+    nkRecCase             ## case section of object
+    nkRecWhen             ## when section of object
+    nkRefTy               ## ``ref T``
+    nkPtrTy               ## ``ptr T``
+    nkVarTy               ## ``var T``
+    nkConstTy             ## ``const T``
+    nkMutableTy           ## ``mutable T``
+    nkDistinctTy          ## distinct type
+    nkProcTy              ## proc type
+    nkIteratorTy          ## iterator type
+    nkSharedTy            ## 'shared T'
                           ## we use 'nkPostFix' for the 'not nil' addition
-    nkEnumTy,             ## enum body
-    nkEnumFieldDef,       ## `ident = expr` in an enumeration
-    nkArgList,            ## argument list
-    nkPattern,            ## a special pattern; used for matching
-    nkHiddenTryStmt,      ## a hidden try statement
-    nkClosure,            ## (prc, env)-pair (internally used for code gen)
-    nkGotoState,          ## used for the state machine (for iterators)
-    nkState,              ## give a label to a code section (for iterators)
-    nkBreakState,         ## special break statement for easier code generation
-    nkFuncDef,            ## a func
+    nkEnumTy              ## enum body
+    nkEnumFieldDef        ## `ident = expr` in an enumeration
+    nkArgList             ## argument list
+    nkPattern             ## a special pattern; used for matching
+    nkHiddenTryStmt       ## a hidden try statement
+    nkClosure             ## (prc, env)-pair (internally used for code gen)
+    nkGotoState           ## used for the state machine (for iterators)
+    nkState               ## give a label to a code section (for iterators)
+    nkBreakState          ## special break statement for easier code generation
+    nkFuncDef             ## a func
     nkTupleConstr         ## a tuple constructor
     nkError               ## erroneous AST node see `errorhandling`
     nkModuleRef           ## for .rod file support: A (moduleId, itemId) pair
@@ -279,72 +279,75 @@ type
 
 type
   TSymFlag* = enum    # 48 flags!
-    sfUsed,           ## read access of sym (for warnings) or simply used
-    sfExported,       ## symbol is exported from module
-    sfFromGeneric,    ## symbol is instantiation of a generic; this is needed
+    sfUsed            ## read access of sym (for warnings) or simply used
+    sfExported        ## symbol is exported from module
+    sfFromGeneric     ## symbol is instantiation of a generic; this is needed
                       ## for symbol file generation; such symbols should always
                       ## be written into the ROD file
-    sfGlobal,         ## symbol is at global scope
+    sfGlobal          ## symbol is at global scope
 
-    sfForward,        ## symbol is forward declared
-    sfWasForwarded,   ## symbol had a forward declaration
+    sfForward         ## symbol is forward declared
+    sfWasForwarded    ## symbol had a forward declaration
                       ## (implies it's too dangerous to patch its type signature)
-    sfImportc,        ## symbol is external; imported
-    sfExportc,        ## symbol is exported (under a specified name)
-    sfMangleCpp,      ## mangle as cpp (combines with `sfExportc`)
-    sfVolatile,       ## variable is volatile
-    sfRegister,       ## variable should be placed in a register
-    sfPure,           ## object is "pure" that means it has no type-information
+    sfImportc         ## symbol is external; imported
+    sfExportc         ## symbol is exported (under a specified name)
+    sfMangleCpp       ## mangle as cpp (combines with `sfExportc`)
+    sfVolatile        ## variable is volatile
+    sfRegister        ## variable should be placed in a register
+    sfPure            ## object is "pure" that means it has no type-information
                       ## enum is "pure", its values need qualified access
                       ## variable is "pure"; it's an explicit "global"
-    sfNoSideEffect,   ## proc has no side effects
-    sfSideEffect,     ## proc may have side effects; cannot prove it has none
-    sfMainModule,     ## module is the main module
-    sfSystemModule,   ## module is the system module
-    sfNoReturn,       ## proc never returns (an exit proc)
-    sfAddrTaken,      ## the variable's address is taken (ex- or implicitly);
+    sfNoSideEffect    ## proc has no side effects
+    sfSideEffect      ## proc may have side effects; cannot prove it has none
+    sfMainModule      ## module is the main module
+    sfSystemModule    ## module is the system module
+    sfNoReturn        ## proc never returns (an exit proc)
+    sfAddrTaken       ## the variable's address is taken (ex- or implicitly);
                       ## *OR*: a proc is indirectly called (used as first class)
-    sfCompilerProc,   ## proc is a compiler proc, that is a C proc that is
+    sfCompilerProc    ## proc is a compiler proc, that is a C proc that is
                       ## needed for the code generator
-    sfProcvar,        ## proc can be passed to a proc var
-    sfDiscriminant,   ## field is a discriminant in a record/object
-    sfRequiresInit,   ## field must be initialized during construction
-    sfDeprecated,     ## symbol is deprecated
-    sfExplain,        ## provide more diagnostics when this symbol is used
-    sfError,          ## usage of symbol should trigger a compile-time error
-    sfShadowed,       ## a symbol that was shadowed in some inner scope
-    sfThread,         ## proc will run as a thread
+    sfProcvar         ## proc can be passed to a proc var
+    sfDiscriminant    ## field is a discriminant in a record/object
+    sfRequiresInit    ## field must be initialized during construction
+    sfDeprecated      ## symbol is deprecated
+    sfExplain         ## provide more diagnostics when this symbol is used
+    sfError           ## usage of symbol should trigger a compile-time error
+    sfShadowed        ## a symbol that was shadowed in some inner scope
+    sfThread          ## proc will run as a thread
                       ## variable is a thread variable
-    sfCppNonPod,      ## tells compiler to treat such types as non-pod's, so that
-                      ## `thread_local` is used instead of `__thread` for
-                      ## {.threadvar.} + `--threads`. Only makes sense for importcpp types.
-                      ## This has a performance impact so isn't set by default.
-    sfCompileTime,    ## proc can be evaluated at compile time
-    sfConstructor,    ## proc is a C++ constructor
-    sfDispatcher,     ## copied method symbol is the dispatcher
+    sfCppNonPod       ## tells compiler to treat such types as non-pod's,
+                      ## so that `thread_local` is used instead of
+                      ## `__thread` for {.threadvar.} + `--threads`. Only
+                      ## makes sense for importcpp types. This has a
+                      ## performance impact so isn't set by default.
+    sfCompileTime     ## proc can be evaluated at compile time
+    sfConstructor     ## proc is a C++ constructor
+    sfDispatcher      ## copied method symbol is the dispatcher
                       ## deprecated and unused, except for the con
-    sfBorrow,         ## proc is borrowed
-    sfInfixCall,      ## symbol needs infix call syntax in target language;
+    sfBorrow          ## proc is borrowed
+    sfInfixCall       ## symbol needs infix call syntax in target language;
                       ## for interfacing with C++, JS
-    sfNamedParamCall, ## symbol needs named parameter call syntax in target
+    sfNamedParamCall  ## symbol needs named parameter call syntax in target
                       ## language; for interfacing with Objective C
-    sfDiscardable,    ## returned value may be discarded implicitly
-    sfOverriden,      ## proc is overridden
-    sfCallsite,       ## A flag for template symbols to tell the
+    sfDiscardable     ## returned value may be discarded implicitly
+    sfOverriden       ## proc is overridden
+    sfCallsite        ## A flag for template symbols to tell the
                       ## compiler it should use line information from
                       ## the calling side of the macro, not from the
                       ## implementation.
-    sfGenSym,         ## symbol is 'gensym'ed; do not add to symbol table
-    sfNonReloadable,  ## symbol will be left as-is when hot code reloading is on -
-                      ## meaning that it won't be renamed and/or changed in any way
-    sfGeneratedOp,    ## proc is a generated '='; do not inject destructors in it
-                      ## variable is generated closure environment; requires early
-                      ## destruction for --newruntime.
-    sfTemplateParam,  ## symbol is a template parameter
-    sfCursor,         ## variable/field is a cursor, see RFC 177 for details
-    sfInjectDestructors, ## whether the proc needs the 'injectdestructors' transformation
-    sfNeverRaises,    ## proc can never raise an exception, not even OverflowDefect
-                      ## or out-of-memory
+    sfGenSym          ## symbol is 'gensym'ed; do not add to symbol table
+    sfNonReloadable   ## symbol will be left as-is when hot code reloading
+                      ## is on - meaning that it won't be renamed and/or
+                      ## changed in any way
+    sfGeneratedOp     ## proc is a generated '='; do not inject destructors
+                      ## in it variable is generated closure environment;
+                      ## requires early destruction for --newruntime.
+    sfTemplateParam   ## symbol is a template parameter
+    sfCursor          ## variable/field is a cursor, see RFC 177 for details
+    sfInjectDestructors  ## whether the proc needs the 'injectdestructors'
+                         ## transformation
+    sfNeverRaises     ## proc can never raise an exception, not even
+                      ## OverflowDefect or out-of-memory
     sfUsedInFinallyOrExcept  ## symbol is used inside an 'except' or 'finally'
     sfSingleUsedTemp  ## For temporaries that we know will only be used once
     sfNoalias         ## 'noalias' annotation, means C's 'restrict'

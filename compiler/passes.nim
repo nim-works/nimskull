@@ -14,7 +14,8 @@ import
   options, ast, llstream, msgs,
   idents,
   syntaxes, modulegraphs, reorder,
-  lineinfos, pathutils
+  lineinfos, pathutils,
+  reports
 
 type
   TPassData* = tuple[input: PNode, closeOutput: PNode]
@@ -48,7 +49,11 @@ proc clearPasses*(g: ModuleGraph) =
   g.passes.setLen(0)
 
 proc registerPass*(g: ModuleGraph; p: TPass) =
-  internalAssert g.config, g.passes.len < maxPasses
+  internalAssert(
+    g.config,
+    g.passes.len < maxPasses,
+    "Cannot register more than " & $maxPasses & " passes")
+
   g.passes.add(p)
 
 proc openPasses(g: ModuleGraph; a: var TPassContextArray;
@@ -131,7 +136,10 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
     let filename = toFullPathConsiderDirty(graph.config, fileIdx)
     s = llStreamOpen(filename, fmRead)
     if s == nil:
-      rawMessage(graph.config, errCannotOpenFile, filename.string)
+      localError(
+        graph.config,
+        SemReport(kind: rsemCannotOpenFile, msg: filename.string))
+
       return false
   else:
     s = stream

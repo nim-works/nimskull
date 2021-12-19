@@ -2,7 +2,7 @@
 import
   intsets, ast, idents, algorithm, renderer, strutils,
   msgs, modulegraphs, syntaxes, options, modulepaths,
-  lineinfos
+  lineinfos, reports
 
 type
   DepN = ref object
@@ -129,8 +129,13 @@ proc expandIncludes(graph: ModuleGraph, module: PSym, n: PNode,
         var f = checkModuleName(graph.config, a[i])
         if f != InvalidFileIdx:
           if containsOrIncl(includedFiles, f.int):
-            localError(graph.config, a.info, "recursive dependency: '$1'" %
-              toMsgFilename(graph.config, f))
+            localError(
+              graph.config,
+              a.info,
+              SemReport(
+                kind: rsemRecursiveInclude,
+                msg: toMsgFilename(graph.config, f)))
+
           else:
             let nn = includeModule(graph, module, f)
             let nnn = expandIncludes(graph, module, nn, modulePath,
@@ -205,7 +210,7 @@ proc mergeSections(conf: ConfigRef; comps: seq[seq[DepN]], res: PNode) =
                 wmsg &= "line " & $cs[^1].pnode.info.line &
                   " depends on line " & $cs[j].pnode.info.line &
                   ": " & cs[^1].expls[ci] & "\n"
-        message(conf, cs[0].pnode.info, warnUser, wmsg)
+        localReport(conf, cs[0].pnode.info, SemReport(kind: rsemReorderingFail))
 
         var i = 0
         while i < cs.len:
