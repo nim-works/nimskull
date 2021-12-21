@@ -574,8 +574,18 @@ template localError*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   handleReport(
     conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
 
+template localError*(conf: ConfigRef, node: PNode, reportKind: SemReportKind) =
+  handleReport(
+    conf,
+    wrap(
+      SemReport(expression: node, kind: reportKind),
+      instLoc(),
+      conf.toReportLinePoint(node.info)),
+    doNothing)
+
 template localError*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doNothing)
+
 
 template localReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doNothing)

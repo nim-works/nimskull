@@ -1052,7 +1052,7 @@ proc inst(g: ModuleGraph; c: PContext; t: PType; kind: TTypeAttachedOp; idgen: I
         patchBody(g, c, opInst.ast, info, a.idgen)
       setAttachedOp(g, idgen.module, t, kind, opInst)
     else:
-      localUnreachable(g.config, "unresolved generic parameter", info)
+      localError(g.config, info, SemReport(kind: rsemUnresolvedGenericParameter))
 
 proc isTrival(s: PSym): bool {.inline.} =
   s == nil or (s.ast != nil and s.ast[bodyPos].len == 0)

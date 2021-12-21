@@ -234,6 +234,9 @@ type
     rsemNodeNotAllowed
       ## Generated in `filters.nim`
 
+    rsemCannotProveNotNil
+    rsemProvablyNil
+
     # Global Errors
     rsemCustomGlobalError
       ## just like custom error, but treat it like a "raise" and fast track the
@@ -290,12 +293,18 @@ type
     rsemDefaultParamIsIncompatible
     rsemDeclarationVisibilityMismatch
 
-    # Call
+    # Call and procedures
     rsemCallTypeMismatch
     rsemExpressionCannotBeCalled
     rsemWrongNumberOfArguments
     rsemAmbiguousCall
     rsemCallingConventionMismatch
+    rsemHasSideEffects
+    rsemCanHaveSideEffects
+    rsemCantPassProcvar
+    rsemUnlistedRaises
+    rsemOverrideSafetyMismatch
+    rsemOverrideLockMismatch
 
     # ParameterTypeMismatch
 
@@ -319,6 +328,7 @@ type
       ## an expression has not type or is ambiguous
 
     rsemCannotConvertTypes
+    rsemUnresolvedGenericParameter
 
     # Literals
     rsemIntLiteralExpected
@@ -389,13 +399,28 @@ type
     rsemExcessiveCompilePragmaArgs
     rsemLinePragmaExpectsTuple
     rsemRaisesPragmaExpectsObject
+
+    # -- locking
     rsemLocksPragmaExpectsList
     rsemLocksPragmaBadLevel
+    rsemLocksRequiresArgs
+    rsemMultilockRequiresSameLevel
+    rsemInvalidNestedLocking
+    rsemUnguardedAccess
+    rsemInvalidGuardField
+    rsemLockLevelMismatch
+
+    rsemDrNimRequiresUsesMissingResult
+    rsemDrnimCannotProveLeq
+    rsemDrnimCannotPorveGe
+
     rsemBorrowPragmaNonDot
     rsemInvalidExtern
+    rsemInvalidPragmaBlock
     rsemBadDeprecatedArgs
     rsemMisplacedEffectsOf
     rsemMissingPragmaArg
+    rsemErrGcUnsafe
     rsemEmptyAsm
 
 
@@ -409,6 +434,15 @@ type
     rsemReorderingFail
     rsemProveField
     rsemStrictNotNil
+    rsemWarnGcUnsafe
+    rsemGcUnsafeListing
+    rsemProveInit
+    rsemUninit
+    rsemWarnUnsafeCode
+    rsemImplicitCstringConvert
+    rsemHoleEnumConvert
+    rsemAnyEnumConvert
+    rsemUnusedRaises
 
     rsemLinterReport
     # end
@@ -437,6 +471,7 @@ type
 
     hintGlobalVar = "GlobalVar" ## Track global variable declarations?
 
+    rsemEffectsListingHint
     rsemExpandMacro = "ExpandMacro" ## Trace macro expansion progress
 
 
@@ -594,6 +629,19 @@ type
   SemReportKind* = range[rsemUserError .. rsemImplicitObjConv]
   SemReportErrorKind* = range[rsemUserError .. rsemWrappedError]
 
+  SemGcUnsafetyKind* = enum
+    sgcuCallsUnsafe
+    sgcuAccessesGcGlobal
+    sgcuIndirectCallVia
+    sgcuIndirectCallHere
+
+  SemSideEffectCallKind* = enum
+    ssefUsesGlobalState
+    ssefCallsSideEffect
+    ssefCallsViaHiddenIndirection
+    ssefCallsViaIndirection
+    ssefParameterMutation
+
   SemTypeMismatch* = object
     actualType*, wantedType*: PType
     descriptionStr*: string
@@ -636,8 +684,14 @@ type
       of rsemCannotBorrow:
         borrowPair*: tuple[mutatedHere, connectedVia: ReportLinePoint]
 
-      of rsemBorrowOutlivesSource, rsemImmutableBorrowMutation:
+      of rsemBorrowOutlivesSource,
+         rsemImmutableBorrowMutation,
+         rsemOverrideSafetyMismatch,
+         rsemOverrideLockMismatch:
         borrowsFrom*: PSym
+
+      of rsemXCannotRaiseY:
+        raisesList*: PNode
 
       of rsemStrictNotNil:
         nilIssue*: Nilability
@@ -648,12 +702,32 @@ type
           transition: NilTransition
         ]]
 
+      of rsemGcUnsafeListing:
+        gcUnsafeTrace*: seq[tuple[
+          isUnsafe: PSym,
+          unsafeVia: PSym,
+          unsafeRelation: SemGcUnsafetyKind,
+          location: ReportLinePoint
+        ]]
+
+      of rsemHasSideEffects:
+        sideEffectTrace*: seq[tuple[
+          isUnsafe: PSym,
+          unsafeVia: PSym,
+          trace: SemSideEffectCallKind,
+          location: ReportLinePoint
+        ]]
+
+        sideEffectMutateConnection*: ReportLinePoint
 
       of rsemInvalidExtern:
         externName*: string
 
       of rsemWrongIdent:
         expectedIdents*: seq[string]
+
+      of rsemDrnimCannotProveLeq, rsemDrnimCannotPorveGe:
+        drnimExpressions*: tuple[a, b: PNode]
 
       of rsemUndeclaredIdentifier:
         wantedIdent*: string
@@ -664,6 +738,9 @@ type
 
       of rsemExpandMacro, rsemPattern:
         originalExpr*: PNode
+
+      of rsemLockLevelMismatch:
+        lockMismatch*: tuple[expected, got: string]
 
       of rsemTypeMismatch,
          rsemSemfoldInvalidConversion,

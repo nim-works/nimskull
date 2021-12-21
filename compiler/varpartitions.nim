@@ -84,7 +84,7 @@ type
 
   MutationInfo* = object
     param: PSym
-    mutatedHere, connectedVia: TLineInfo
+    mutatedHere*, connectedVia*: TLineInfo
     flags: set[SubgraphFlag]
     maxMutation, minConnection: AbstractTime
     mutations: seq[AbstractTime]
