@@ -243,8 +243,6 @@ proc buildTools(args: string = "") =
       "--opt:speed --stacktrace -d:debug --stacktraceMsgs -d:nimCompilerStacktraceHints --excessiveStackTrace:off " & defineSourceMetadata() & " " & args,
       outputName = "nim_dbg")
 
-  nimCompileFold("Compile atlas", "tools/atlas/atlas.nim", options = "-d:release " & defineSourceMetadata() & " " & args,
-      outputName = "atlas")
 
 proc nsis(latest: bool; args: string) =
   bundleNimsuggest(args)
@@ -601,7 +599,7 @@ proc testTools(cmd: string) =
   # of rebuilding is this won't affect bin/nimsuggest when running runCI locally
   nimexecFold("build nimsuggest_testing", "c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest")
   nimexecFold("Run nimsuggest tests", "r nimsuggest/tester")
-  nimexecFold("Run atlas tests", "c -r -d:atlasTests tools/atlas/atlas.nim clone https://github.com/disruptek/balls")
+
 
 proc runCI(cmd: string) =
   doAssert cmd.len == 0, cmd # avoid silently ignoring
