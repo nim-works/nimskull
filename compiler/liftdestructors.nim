@@ -407,7 +407,7 @@ proc addDestructorCall(c: var TLiftCtx; orig: PType; body, x: PNode) =
     body.add destructorCall(c, op, x)
   elif useNoGc(c, t):
     internalUnreachable(
-      c.g.config, "type-bound operator could not be resolved", c.info)
+      c.g.config, c.info, "type-bound operator could not be resolved")
 
 proc considerUserDefinedOp(c: var TLiftCtx; t: PType; body, x, y: PNode): bool =
   case c.kind
@@ -1029,9 +1029,9 @@ proc patchBody(g: ModuleGraph; c: PContext; n: PNode; info: TLineInfo; idgen: Id
       let op = getAttachedOp(g, t, attachedDestructor)
       if op != nil:
         if op.ast.isGenericRoutine:
-          internalUnreachable(g.config, "resolved destructor is generic", info)
+          internalUnreachable(g.config, info, "resolved destructor is generic")
         if op.magic == mDestroy:
-          internalUnreachable(g.config, "patching mDestroy with mDestroy?", info)
+          internalUnreachable(g.config, info, "patching mDestroy with mDestroy?")
         n[0] = newSymNode(op)
   for x in n: patchBody(g, c, x, info, idgen)
 

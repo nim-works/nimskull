@@ -307,11 +307,16 @@ type
     rsemOverrideLockMismatch
     rsemMissingMethodDispatcher
     rsemNotABaseMethod
+    rsemIllegalCallconvCapture
+    rsemIllegalMemoryCapture
+    rsemIgnoreInvalidForLoop
 
     rsemInvalidMethodDeclarationOrder # Right now I have no idea what this
     # error means exactly. It /does/ have a 'sort of' reproducible example
     # - https://github.com/nim-lang/Nim/issues/5325. No real tests for this
     # one of course, I mean who needs this, right?
+    rsemIsNotParameterOf
+    rsemParameterNotPointerToPartial
 
 
     # ParameterTypeMismatch
@@ -756,8 +761,12 @@ type
 
       of rsemTypeMismatch,
          rsemSemfoldInvalidConversion,
-         rsemCannotConvertTypes:
+         rsemCannotConvertTypes,
+         rsemImplicitObjConv:
         typeMismatch*: SemTypeMismatch
+
+      of rsemIllegalCallconvCapture, rsemIllegalMemoryCapture:
+        captured*: PSym
 
       of rsemDeprecated, rsemRedefinitionOf,
          rsemInvalidMethodDeclarationOrder:

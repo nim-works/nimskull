@@ -427,7 +427,7 @@ proc addOverloadableSymAt*(c: PContext; scope: PScope, fn: PSym) =
   ## adds an symbol to the given scope, will check for and raise errors if it's
   ## a redefinition as opposed to an overload.
   if fn.kind notin OverloadableSyms:
-    c.config.internalUnreachable("addOverloadableSymAt", fn.info)
+    c.config.internalUnreachable(fn.info, "addOverloadableSymAt")
     return
   let check = strTableGet(scope.symbols, fn.name)
   if check != nil and check.kind notin OverloadableSyms:

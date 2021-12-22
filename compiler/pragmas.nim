@@ -1906,7 +1906,7 @@ proc implicitPragmas*(c: PContext, sym: PSym, info: TLineInfo,
               p, rsemImplicitPragmaError, args = @[newSymNode(sym)])
             return
           if nfImplicitPragma in p.flags:
-            internalUnreachable(c.config, "implicitPragmas", info)
+            internalUnreachable(c.config, info, "implicitPragmas")
           inc i
         popInfoContext(c.config)
         if sym.kind in routineKinds and sym.ast != nil:

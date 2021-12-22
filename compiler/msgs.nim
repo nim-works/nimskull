@@ -583,6 +583,9 @@ template localError*(conf: ConfigRef, node: PNode, reportKind: SemReportKind) =
       conf.toReportLinePoint(node.info)),
     doNothing)
 
+proc temporaryStringError*(conf: ConfigRef, info: TLineInfo, text: string) =
+  assert false
+
 template localError*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doNothing)
 
@@ -616,14 +619,23 @@ template internalError*(
 
 template internalUnreachable*(
     conf: ConfigRef,
+    info: TLineInfo,
     fail: string,
-    info: TLineInfo = unknownLineInfo
   ): untyped =
 
   conf.report(wrap(
     InternalReport(kind: rintUnreachable, msg: fail),
     instLoc(),
     conf.toReportLinePoint(info)))
+
+
+template internalUnreachable*(
+    conf: ConfigRef,
+    fail: string
+  ): untyped =
+
+  conf.report(wrap(InternalReport(kind: rintUnreachable, msg: fail), instLoc()))
+
 
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
   if i.fileIndex.int32 < 0:
