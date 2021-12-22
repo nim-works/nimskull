@@ -31,7 +31,7 @@ const
     wAsmNoStackFrame, wDiscardable, wNoInit, wCodegenDecl,
     wGensym, wInject, wRaises, wEffectsOf, wTags, wLocks, wDelegator, wGcSafe,
     wConstructor, wLiftLocals, wStackTrace, wLineTrace, wNoDestroy,
-    wRequires, wEnsures, wEnforceNoRaises}
+    wEnforceNoRaises}
   converterPragmas* = procPragmas
   methodPragmas* = procPragmas+{wBase}-{wImportCpp}
   templatePragmas* = {wDeprecated, wError, wGensym, wInject, wDirty,
@@ -42,7 +42,7 @@ const
   iteratorPragmas* = declPragmas + {FirstCallConv..LastCallConv, wNoSideEffect, wSideEffect,
     wMagic, wBorrow,
     wDiscardable, wGensym, wInject, wRaises, wEffectsOf,
-    wTags, wLocks, wGcSafe, wRequires, wEnsures}
+    wTags, wLocks, wGcSafe}
   exprPragmas* = {wLine, wLocks, wNoRewrite, wGcSafe, wNoSideEffect}
   stmtPragmas* = {wChecks, wObjChecks, wFieldChecks, wRangeChecks,
     wBoundChecks, wOverflowChecks, wNilChecks, wStaticBoundchecks,
@@ -55,11 +55,11 @@ const
     wDeprecated,
     wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit, wUnroll,
     wLinearScanEnd, wPatterns, wTrMacros, wEffects, wNoForward, wReorder, wComputedGoto,
-    wExperimental, wThis, wUsed, wInvariant, wAssume, wAssert}
+    wExperimental, wThis, wUsed}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
     wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
     wThread, wAsmNoStackFrame,
-    wRaises, wLocks, wTags, wRequires, wEnsures, wEffectsOf,
+    wRaises, wLocks, wTags, wEffectsOf,
     wGcSafe, wCodegenDecl, wNoInit, wCompileTime}
   typePragmas* = declPragmas + {wMagic, wAcyclic,
     wPure, wHeader, wCompilerProc, wCore, wFinal, wSize, wShallow,
@@ -79,8 +79,7 @@ const
   paramPragmas* = {wNoalias, wInject, wGensym}
   letPragmas* = varPragmas
   procTypePragmas* = {FirstCallConv..LastCallConv, wVarargs, wNoSideEffect,
-                      wThread, wRaises, wEffectsOf, wLocks, wTags, wGcSafe,
-                      wRequires, wEnsures}
+                      wThread, wRaises, wEffectsOf, wLocks, wTags, wGcSafe}
   forVarPragmas* = {wInject, wGensym}
   allRoutinePragmas* = methodPragmas + iteratorPragmas + lambdaPragmas
   enumFieldPragmas* = {wDeprecated}
@@ -117,45 +116,6 @@ proc newInvalidPragmaNode*(c: PContext; n: PNode): PNode =
 proc newIllegalCustomPragmaNode*(c: PContext; n: PNode, s: PSym): PNode =
   ## create an error node (`nkError`) for an illegal custom pragma error
   newError(n, IllegalCustomPragma, newSymNode(s))
-
-proc pragmaProposition(c: PContext, n: PNode): PNode =
-  ## drnim - `ensures` pragma,  must be a callable with single arg predicate,
-  ## producing either:
-  ## 1. mutated `n` with the the proposition (2nd child) semantically checked
-  ##    analysed
-  ## 2. nkError node over `n`, when a callable unary proposition isn't provided
-  if n.kind notin nkPragmaCallKinds or n.len != 2:
-    result = newError(n, "proposition expected")
-  else:
-    n[1] = c.semExpr(c, n[1])
-
-proc pragmaEnsures(c: PContext, n: PNode): PNode =
-  ## drnim - `ensures` pragma, must be a callable with single arg predicate,
-  ## producing either:
-  ## 1. mutated `n` with the the proposition (2nd child) semantically checked
-  ##    analysed, and if the current owner is a routineKind adds a `result`
-  ##    symbol.
-  ## 2. nkError node over `n`, when a callable unary proposition isn't provided
-  ## 
-  ## xxx: 1. the implementation is unclear, we create a `result` symbol for
-  ##      routines, adding it to the a sub-scope with the routine as owner, but
-  ##      won't that potentially create a duplicate `result` symbol? or does
-  ##      that get resolved later?
-  ##      2. `routineKinds` includes template, so is that potentially an issue
-  ##      as well?
-  result = n
-  if n.kind notin nkPragmaCallKinds or n.len != 2:
-    result = newError(n, "proposition expected")
-  else:
-    openScope(c)
-    let o = getCurrOwner(c)
-    if o.kind in routineKinds and o.typ != nil and o.typ.sons[0] != nil:
-      var s = newSym(skResult, getIdent(c.cache, "result"), nextSymId(c.idgen), o, n.info)
-      s.typ = o.typ.sons[0]
-      incl(s.flags, sfUsed)
-      addDecl(c, s)
-    n[1] = c.semExpr(c, n[1])
-    closeScope(c)
 
 proc pragmaAsm*(c: PContext, n: PNode): char =
   result = '\0'
@@ -277,7 +237,7 @@ proc getStrLitNode(c: PContext, n: PNode): PNode =
       #      for pragmas prior to changing, but we're meant to return n[1], yet
       #      on error we return a wrapped `n`, that's the wrong level of AST.
       newError(n, StringLiteralExpected)
-      
+
 
 proc strLitToStrOrErr(c: PContext, n: PNode): (string, PNode) =
   ## extracts the string from an string literal, or errors if it's not a string
@@ -288,7 +248,7 @@ proc strLitToStrOrErr(c: PContext, n: PNode): (string, PNode) =
     (r.strVal, nil)
   of nkError:
     ("", r)
-  else: 
+  else:
     ("", newError(n, errStringLiteralExpected))
 
 proc intLitToIntOrErr(c: PContext, n: PNode): (int, PNode) =
@@ -355,7 +315,7 @@ proc isTurnedOn(c: PContext, n: PNode): (bool, PNode) =
       (x.intVal != 0, nil)
     else:
       (false, newError(n, "'on' or 'off' expected"))
-  else:  
+  else:
     (false, newError(n, "'on' or 'off' expected"))
 
 proc onOff(c: PContext, n: PNode, op: TOptions, resOptions: var TOptions): PNode =
@@ -474,7 +434,7 @@ proc processNote(c: PContext, n: PNode): PNode =
       if x.kind == nkIntLit and x.intVal != 0: incl(notes, nk)
       else: excl(notes, nk)
       n
-  
+
   let
     validPragma = n.kind in nkPragmaCallKinds and n.len == 2
     exp =
@@ -485,7 +445,7 @@ proc processNote(c: PContext, n: PNode): PNode =
     bracketExpr =
       if useExp: exp
       else:      newInvalidPragmaNode(c, n)
-  
+
   result =
     if isBracketExpr:
       var nk: TNoteKind
@@ -694,7 +654,7 @@ proc relativeFile(c: PContext; name: string, info: TLineInfo;
 proc processCompile(c: PContext, n: PNode): PNode =
   ## compile pragma
   ## produces (mutates) `n`, which must be a callable, analysing its arg, or returning
-  ## `n` wrapped in an error. 
+  ## `n` wrapped in an error.
   result = n
   proc docompile(c: PContext; it: PNode; src, dest: AbsoluteFile; customArgs: string) =
     var cf = Cfile(nimname: splitFile(src).name,
@@ -1109,7 +1069,7 @@ proc prepareSinglePragma(
   ): PNode =
   ## given a `sym`bol with pragmas `n`, check and prepare `i`'th pragma, if
   ## it's a single valid pragma, where valid is a kind within `validPragmas`.
-  ## 
+  ##
   ## With special handling for:
   ## * comes from a push
   ## * whether it's `isStatement`
@@ -1185,7 +1145,7 @@ proc prepareSinglePragma(
         if extLit.kind == nkError:
           result = it
         else:
-          let ext = extLit.strVal         
+          let ext = extLit.strVal
           case makeExternExport(c, sym, ext)
           of ExternNameSet:
             if k == wExportCpp:
@@ -1410,7 +1370,7 @@ proc prepareSinglePragma(
         incl(sym.flags, sfGeneratedOp)
       of wNosinks:
         result = noVal(c, it)
-        incl(sym.flags, sfWasForwarded) 
+        incl(sym.flags, sfWasForwarded)
       of wDynlib:
         result = processDynLib(c, it, sym)
       of wCompilerProc, wCore:
@@ -1497,7 +1457,7 @@ proc prepareSinglePragma(
           if sym.kind != skType: incl(sym.flags, sfThread)
           if sym.typ != nil:
             incl(sym.typ.flags, tfGcSafe)
-          else: 
+          else:
             result = newInvalidPragmaNode(c, it)
         else:
           discard "no checking if used as a code block"
@@ -1562,7 +1522,7 @@ proc prepareSinglePragma(
         result =
           if err.isNil:
             extccomp.addLinkOption(c.config, s)
-            recordPragma(c, it, "passl", s) 
+            recordPragma(c, it, "passl", s)
             it
           else:
             err
@@ -1777,13 +1737,9 @@ proc prepareSinglePragma(
           sym.flags.incl sfUsed
       of wLiftLocals:
         result = it
-      of wRequires, wInvariant, wAssume, wAssert:
-        result = pragmaProposition(c, it)
-      of wEnsures:
-        result = pragmaEnsures(c, it)
       of wEnforceNoRaises:
         sym.flags.incl sfNeverRaises
-      else: 
+      else:
         result = newInvalidPragmaNode(c, it)
     elif comesFromPush and whichKeyword(ident) != wInvalid:
       discard "ignore the .push pragma; it doesn't apply"

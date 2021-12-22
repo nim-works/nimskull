@@ -1310,10 +1310,6 @@ proc checkMethodEffects*(g: ModuleGraph; disp, branch: PSym) =
   if sfThread in disp.flags and notGcSafe(branch.typ):
     localError(g.config, branch.info, "base method is GC-safe, but '$1' is not" %
                                 branch.name.s)
-  when defined(drnim):
-    if not g.compatibleProps(g, disp.typ, branch.typ):
-      localError(g.config, branch.info, "for method '" & branch.name.s &
-        "' the `.requires` or `.ensures` properties are incompatible.")
 
   if branch.typ.lockLevel > disp.typ.lockLevel:
     when true:
@@ -1344,13 +1340,6 @@ proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
     elif s != nil and (s.magic != mNone or {sfImportc, sfExportc} * s.flags == {sfImportc}):
       effects[tagEffects] = newNodeI(nkArgList, effects.info)
 
-    let requiresSpec = propSpec(n, wRequires)
-    if not isNil(requiresSpec):
-      effects[requiresEffects] = requiresSpec
-    let ensuresSpec = propSpec(n, wEnsures)
-    if not isNil(ensuresSpec):
-      effects[ensuresEffects] = ensuresSpec
-
     effects[pragmasEffects] = n
   if s != nil and s.magic != mNone:
     if s.magic != mEcho:
@@ -1374,10 +1363,7 @@ proc initEffects(g: ModuleGraph; effects: PNode; s: PSym; t: var TEffects; c: PC
   t.init = @[]
   t.guards.s = @[]
   t.guards.g = g
-  when defined(drnim):
-    t.currOptions = g.config.options + s.options - {optStaticBoundsCheck}
-  else:
-    t.currOptions = g.config.options + s.options
+  t.currOptions = g.config.options + s.options
   t.guards.beSmart = optStaticBoundsCheck in t.currOptions
   t.locked = @[]
   t.graph = g
@@ -1443,14 +1429,6 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
   else:
     effects[tagEffects] = t.tags
 
-  let requiresSpec = propSpec(p, wRequires)
-  if not isNil(requiresSpec):
-    effects[requiresEffects] = requiresSpec
-  let ensuresSpec = propSpec(p, wEnsures)
-  if not isNil(ensuresSpec):
-    patchResult(t, ensuresSpec)
-    effects[ensuresEffects] = ensuresSpec
-
   var mutationInfo = MutationInfo()
   var hasMutationSideEffect = false
   if {strictFuncs, views} * c.features != {}:
@@ -1494,8 +1472,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
     message(g.config, s.info, warnLockLevel,
       "declared lock level is $1, but real lock level is $2" %
         [$s.typ.lockLevel, $t.maxLockLevel])
-  when defined(drnim):
-    if c.graph.strongSemCheck != nil: c.graph.strongSemCheck(c.graph, s, body)
+
   when defined(useDfa):
     if s.name.s == "testp":
       dataflowAnalysis(s, body)
@@ -1514,5 +1491,3 @@ proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =
   initEffects(g, effects, module, t, c)
   t.isTopLevel = isTopLevel
   track(t, n)
-  when defined(drnim):
-    if c.graph.strongSemCheck != nil: c.graph.strongSemCheck(c.graph, module, n)

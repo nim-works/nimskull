@@ -419,7 +419,7 @@ proc registerModule*(g: ModuleGraph; m: PSym) =
 
   g.ifaces[m.position] = Iface(module: m, converters: @[], patterns: @[],
                                uniqueName: rope(uniqueModuleName(g.config, FileIndex(m.position))))
-  
+
   initStrTables(g, m)
 
 proc registerModuleById*(g: ModuleGraph; m: FileIndex) =
@@ -427,7 +427,7 @@ proc registerModuleById*(g: ModuleGraph; m: FileIndex) =
 
 proc initOperators*(g: ModuleGraph): Operators =
   # These are safe for IC.
-  # Public because it's used by DrNim.
+
   result.opLe = createMagic(g, "<=", mLeI)
   result.opLt = createMagic(g, "<", mLtI)
   result.opAnd = createMagic(g, "and", mAnd)

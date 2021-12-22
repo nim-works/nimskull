@@ -28,7 +28,7 @@ type
 
   TCandidateState* = enum
     csEmpty, csMatch, csNoMatch
-  
+
   CandidateDiagnostic* = PNode
     ## PNode is only ever an `nkError` kind, often converted to a string for
     ## display purpopses
@@ -638,8 +638,6 @@ proc procTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
 
     when useEffectSystem:
       if compatibleEffects(f, a) != efCompat: return isNone
-    when defined(drnim):
-      if not c.c.graph.compatibleProps(c.c.graph, f, a): return isNone
 
   of tyNil:
     result = f.allowsNil
