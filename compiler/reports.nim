@@ -305,6 +305,14 @@ type
     rsemUnlistedRaises
     rsemOverrideSafetyMismatch
     rsemOverrideLockMismatch
+    rsemMissingMethodDispatcher
+    rsemNotABaseMethod
+
+    rsemInvalidMethodDeclarationOrder # Right now I have no idea what this
+    # error means exactly. It /does/ have a 'sort of' reproducible example
+    # - https://github.com/nim-lang/Nim/issues/5325. No real tests for this
+    # one of course, I mean who needs this, right?
+
 
     # ParameterTypeMismatch
 
@@ -443,6 +451,9 @@ type
     rsemHoleEnumConvert
     rsemAnyEnumConvert
     rsemUnusedRaises
+    rsemMethodLockMismatch
+    rsemUseBase
+
 
     rsemLinterReport
     # end
@@ -739,7 +750,8 @@ type
       of rsemExpandMacro, rsemPattern:
         originalExpr*: PNode
 
-      of rsemLockLevelMismatch:
+      of rsemLockLevelMismatch, rsemMethodLockMismatch:
+        anotherMethod*: PSym
         lockMismatch*: tuple[expected, got: string]
 
       of rsemTypeMismatch,
@@ -747,7 +759,8 @@ type
          rsemCannotConvertTypes:
         typeMismatch*: SemTypeMismatch
 
-      of rsemDeprecated, rsemRedefinitionOf:
+      of rsemDeprecated, rsemRedefinitionOf,
+         rsemInvalidMethodDeclarationOrder:
         alternative*: PSym
 
       of rsemCallTypeMismatch:
