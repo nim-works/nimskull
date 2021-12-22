@@ -319,9 +319,6 @@ proc buildPdfDoc*(nimArgs, destPath: string) =
 
 proc buildJS(): string =
   let nim = findNim()
-  exec("$# js -d:release --out:$# tools/nimblepkglist.nim" %
-      [nim.quoteShell(), webUploadOutput / "nimblepkglist.js"])
-      # xxx deadcode? and why is it only for webUploadOutput, not for local docs?
   result = getDocHacksJs(nimr = getCurrentDir(), nim)
 
 proc buildDocsDir*(args: string, dir: string) =
