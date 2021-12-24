@@ -1,5 +1,11 @@
 The documentation consists of several documents:
 
+For users
+=========
+
+- | `Language specification <spec.html>`_
+  | Description of the language specification purpose and structure.
+
 - | `Tutorial (part I) <tut1.html>`_
   | The Nim tutorial part one deals with the basics.
 
@@ -30,12 +36,21 @@ The documentation consists of several documents:
   | The Nim compiler supports source code filters as a simple yet powerful
     builtin templating system.
 
+- | `Index <theindex.html>`_
+  | The generated index.
+
+For developers and contributors
+===============================
+
 - | `Internal documentation <intern.html>`_
   | The internal documentation describes how the compiler is implemented. Read
     this if you want to hack the compiler.
 
-- | `Language specification <spec.html>`_
-  | Description of the language specification purpose and structure.
+- | `Contribution guide <contributing.html>`_
+  | Contribution guide for |nimskull| projects
 
-- | `Index <theindex.html>`_
-  | The generated index.
+- | `Moderation guidelines <moderation.html>`_
+  | Rules of moderation for |nimskull| projects.
+
+- | `Style guide <style_guide.html>`_
+  | Stanard library and compiler style guide

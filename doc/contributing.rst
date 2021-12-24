@@ -412,12 +412,135 @@ To avoid accidental highlighting follow this rule in ``*.nim`` files:
           .. [*] this is fulfilled when ``doc/rstcommon.rst`` is included.
 
 
+Pr and commit message guidelines
+================================
 
-The `git`:cmd: stuff
-====================
+Commit message guidelines
+-------------------------
 
-General commit rules
---------------------
+One of the key goals of the |nimskull| project is sustainability. Writing
+good commit messages is important, since future contributors need to have a
+way to reason about decitions made in the past.
+
+It should be clear as to *"what"* change was made. Additional details like
+high-level oviewview of *"how"* and *"why"* are also welcome, but should go
+into commit body. Of course *"what"* can be contiued in the body as well.
+
+.. code::
+
+   where: what? 50 chars or less
+
+   *why*? format to 72 chars width
+
+   Also consider writing about "how?" and/or more elaborate explanation of
+   "what?"
+
+- `"where"` is optional, but recommended. It can be a specific file, or a
+  subsystem (like `sem` (semantic analysis in compiler), `lexer` (compiler
+  lexer), `stdlib` (standard library), `tests`, `spec` (for language
+  specification improvements) and so on)
+
+- `"what"` implementation details. Unless the commit is trivial (e.g. test
+  added, dead code removed), it is better to document what exactly
+  changed - you already know it, and it might save a *huge* amount of time
+  to the next contributor.
+
+- `"why"` each change has a reason, however trivial it might be. Those
+  reasons **must** be documented in a way that would allow future
+  contributors to understand problems that you were trying to solve.
+
+
+Rules
+<<<<<
+
+Commit message should contain enough information in order for end user to
+understand what is going on by looking at the git log.
+
+Example of bad commit message::
+
+  Fixes #123; refs #124
+
+indicates that issue ``#123`` is completely fixed (GitHub may automatically
+close it when the PR is committed), wheres issue ``#124`` is referenced
+(e.g.: partially fixed) and won't close the issue when committed. This
+tells reader **nothing** about what the commit did, requires going into two
+separate github pages and reading through multiple comments in order to
+figure out what was *wrong* - not what *changed* in the commit.
+
+Instead, commit title should contain a human-readable text (we are
+optimizing for humans after all)
+
+- Keep the title length to 50 characters, and commit message body to 72
+  characters.
+- If you want to use automatic "fixes" feature of the github, please supply
+  full URL in the body instead, it makes it much easier to copy-paste and
+  see (with pure hash you first need to understand whether change was in
+  ``issues/`` or ``pull/``, then open random PR/issue and replace hash
+  URL).
+- Consider using "Fixes" for commits that fix bugs, and "Closes" for
+  commits that implement features.
+- Most of the points on this list were derived from `How To Write a Good
+  Commit Message
+  <https://api.coala.io/en/latest/Developers/Writing_Good_Commits.html>`_ -
+  we suggest reading it as well.
+
+Crafting good commit title might be hard at first. Some simple rules to
+look out for:
+
+- Avoid using phrases like ``"minor fixes for XXX"``, ``"various
+  improvements"``, ``"tiny patch"`` - they don't add any substantial
+  information and only clutter the title.
+- No bare github hashes in the title. Things like ``fix #19193 (#19195)
+  [backport:1.2]`` are absolutely illegible.
+
+When writing commit message consider who are you writing this message
+for:
+
+- you or someone else in the far future found a bug and stumbled upon
+  this in a git bisect
+- you or someone else is going through recent commits trying to write a
+  changelog
+- you or someone else is trying to find a bug that can't be replicated
+  reliably so they're reading commits seeing which might be related
+- someone new to the code base is trying to learn bits and pieces about
+  what's being worked on and what types of things are changing
+- you or someone else is sorting out documentation or test gaps, or
+  seeing if old issues can be closed with recent changes
+
+
+Message examples
+<<<<<<<<<<<<<<<<
+
+This section is build in a do-don't manner.
+
+- Implementation details of a particular commit can go into the body, title
+  should only contain *what?*
+  - ``fixes #9456 by only calling c_fclose if non nil`` -> ``Fix crash when
+    closing an unopened file on debian``
+    - Implementation details of the commit can be put in the commit body
+  - ``Deprecate 'c', 'C' prefix for octal literals, fixes #8082 (#8178)``
+    - Good, but commit hash should preferrably be replaced with a url.
+  - ``fixes #12015 by also checking kind of typeNode`` -> ``Fix unmarshal
+    of aliased tuple field using json.to``
+    - Again, implementation details go into commit body
+- No bare commit hashes:
+  - ``fixes #19051 [backport:1.6] (#19133)`` -> ``Fix gcc codegen of `type
+    G[T] = int``` or ``Fix gcc codegen of generic int alias``. Pr **body**
+    should be
+
+    .. code::
+
+       Fixes https://github.com/nim-lang/Nim/issues/19051
+
+  - ``update manual (#19130) [backport]`` -> ``Add InstantiationInfo and
+    EAssertionFailed to manual`` (new title message is 52 characters long,
+    but in this case it is acceptable to go two characters over limit)
+
+
+
+
+Additional considerations
+<<<<<<<<<<<<<<<<<<<<<<<<<
 
 1. If you introduce changes which affect backward compatibility,
    make breaking changes, or have PR which is tagged as ``[feature]``,
@@ -443,55 +566,8 @@ General commit rules
 
       #!/bin/sh
       git diff --check --cached || exit $?
-4. Commit message should contain enough information in order for end user
-   to understand what is going on by looking at the github log.
 
-   Example of bad commit message::
-
-     Fixes #123; refs #124
-
-   indicates that issue ``#123`` is completely fixed (GitHub may
-   automatically close it when the PR is committed), wheres issue ``#124``
-   is referenced (e.g.: partially fixed) and won't close the issue when
-   committed. This tells reader **nothing** about what the commit did,
-   requires going into two separate github pages and reading through
-   multiple comments in order to figure out what was *wrong* - not what
-   *changed* in the commit.
-
-   Instead, commit title should contain a human-readable text (we are
-   optimizing for humans after all)
-
-   - Keep the title length to 50 characters, and commit message body to 72
-     characters.
-   - If you want to use automatic "fixes" feature of the github, please
-     supply full URL in the body instead, it makes it much easier to
-     copy-paste and see (with pure hash you first need to understand
-     whether change was in ``issues/`` or ``pull/``, then open random
-     PR/issue and replace hash URL).
-   - Consider using "Fixes" for commits that fix bugs, and "Closes" for
-     commits that implement features.
-   - Most of the points on this list were derived from `How To Write a Good
-     Commit Message
-     <https://api.coala.io/en/latest/Developers/Writing_Good_Commits.html>`_ -
-     we suggest reading it as well.
-
-   When writing commit message consider who are you writing this message
-   for:
-
-
-   - you or someone else in the far future found a big and stumbled upon
-     this in a git bisect
-   - you or someone else is going through recent commits trying to write a
-     changelog
-   - you or someone else is trying to find a bigt that can't be replicated
-     reliably so they're reading commits seeing which might be related
-   - someone new to the code base is trying to learn bits and pieces about
-     what's being worked on and what types of things are changing
-   - you or someone else is sorting out documentation or test gaps, or
-     seeing if old issues can be closed with recent changes
-
-
-5. Commits should be always be rebased against devel (so a fast forward
+4. Commits should be always be rebased against devel (so a fast forward
    merge can happen)
 
    e.g.: use `git pull --rebase origin devel`:cmd:. This is to avoid messing up
@@ -500,9 +576,61 @@ General commit rules
    squash all commits using the script shown in
    https://github.com/nim-lang/Nim/pull/9356
 
-6. Do not mix pure formatting changes (e.g. whitespace changes, nimpretty) or
+5. Do not mix pure formatting changes (e.g. whitespace changes, nimpretty) or
    automated changes (e.g. nimfix) with other code changes: these should be in
    separate commits (and the merge on GitHub should not squash these into 1).
+
+
+Pull requests message
+---------------------
+
+Pull request description and title generally follow the same guidelines as
+commit messages.
+
+
+The `git`:cmd: stuff
+====================
+
+PR should contain a single commit
+---------------------------------
+
+Pull request should contain a single **passing** commit. This is necessary
+to ensure clean git history that is not cluttered by a partially working,
+failing and outright failing to compile states.
+
+To achieve this you can do either of the following:
+
+- If the change fits into a single commit you don't need to do anything
+- If you need to made some additional modifications (review requested) you
+  can amend the commit and force-push it (`git commit --amend
+  --no-edit`:cmd: and `git push --force <remote> <your branch>`:cmd:)
+- Create multiple commits and then squash them when your pull request is
+  approved.
+  1. Create multiple commits
+  2. Create new branch based on `devel` (`git checkout devel`:cmd: and `git
+     checkout <branch>-squashed`:cmd:)
+  3. Squash merge your original branch into a new one - `git merge --squash
+     <branch>`:cmd:
+  4. Commit your squashed branch using `git commit`:cmd:
+
+     .. note::
+
+        By default you will get pre-filled commit message which contains
+        pretty verbose "sqash of the following" message - those are not
+        going to be accepted by the PR reviewers, and need to be edited
+        into human-readable error message according to the commit message
+        guidelines.
+
+     .. tip::
+
+        You can write a commit message as a PR description and then
+        copy-paste it when you are done with the implementation.
+
+  5. Force-push your squashed branch using `git push --force <remote>
+     HEAD:<branch>`:cmd:
+
+
+
 
 
 Continuous Integration (CI)

@@ -8,10 +8,10 @@ Moderation
 .. contents::
 
 This document covers main rules that concern moderation of the various
-nimskull projects and public spaces. This is an initial version, and it is
-mostly concerned with establishing rules of interactions when it comes to
-accepting and reviewing pull requests, managing github labels, explaining
-current project goals and so on.
+|nimskull| projects and public spaces. This is an initial version, and it
+is mostly concerned with establishing rules of interactions when it comes
+to accepting and reviewing pull requests, managing github labels,
+explaining current project goals and so on.
 
 Helping newcomers
 =================
@@ -44,6 +44,29 @@ Code reviews
 
 When reviewing code it is highly recommended to check whether it complies
 with official style guide and point out mismatches.
+
+Prepared replies
+----------------
+
+Here is a collection of prepared replies that you can use for point out
+common mistakes. They make it easier to include necessary pointers in the
+reply (such as link to the necessary parts of the contribution or style
+guides), but should not be used as a sole body of the reponse: provided
+additional required context.
+
+.. warning::
+
+   Explain what exactly is missing, at least briefly. without elaboration
+   it is just an "error. you are wrong" reply that can seem harsh.
+
+
+.. code::
+
+   Please follow the pr
+   [template](https://github.com/nim-works/nimskull/blob/devel/.github/pull_request_template.md?plain=1)
+   and commit message
+   [guidelines](https://nim-works.github.io/nimskull/contributing.html#commit-message-guidelines-rules).
+
 
 Examining the changes
 ---------------------
