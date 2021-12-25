@@ -187,7 +187,7 @@ proc replaceObjBranches(cl: TReplTypeVars, n: PNode): PNode =
         var e = cl.c.semConstExpr(cl.c, cond)
         if e.kind != nkIntLit:
           cl.c.config.internalUnreachable(
-            "ReplaceTypeVarsN: when condition not a bool", e.info)
+            e.info, "ReplaceTypeVarsN: when condition not a bool")
 
         if e.intVal != 0 and branch == nil: branch = it[1]
       of nkElse:
@@ -239,7 +239,7 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
         var e = cl.c.semConstExpr(cl.c, cond)
         if e.kind != nkIntLit:
           cl.c.config.internalUnreachable(
-            "ReplaceTypeVarsN: when condition not a bool", e.info)
+             e.info, "ReplaceTypeVarsN: when condition not a bool")
         if e.intVal != 0 and branch == nil: branch = it[1]
       of nkElse:
         checkSonsLen(it, 1, cl.c.config)
@@ -355,7 +355,7 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   # is difficult to handle:
   var body = t[0]
   if body.kind != tyGenericBody:
-    cl.c.config.internalUnreachable("no generic body", cl.info)
+    cl.c.config.internalUnreachable(cl.info, "no generic body")
   var header = t
   # search for some instantiation here:
   if cl.allowMetaTypes:

@@ -1886,7 +1886,7 @@ proc getInstantiatedType(c: PContext, arg: PNode, m: TCandidate,
   if result == nil:
     result = generateTypeInstance(c, m.bindings, arg, f)
   if result == nil:
-    internalUnreachable(c.graph.config, "getInstantiatedType", arg.info)
+    internalUnreachable(c.graph.config, arg.info, "getInstantiatedType")
     result = errorType(c)
 
 proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
@@ -1901,7 +1901,7 @@ proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
     result.typ = f.skipTypes({tySink})
 
   if result.typ == nil:
-    internalUnreachable(c.graph.config, "implicitConv", arg.info)
+    internalUnreachable(c.graph.config, arg.info, "implicitConv")
 
   result.add c.graph.emptyNode
   result.add arg
@@ -2269,7 +2269,7 @@ proc paramTypesMatch*(m: var TCandidate, f, a: PType,
       result = nil
     elif y.state == csMatch and cmpCandidates(x, y) == 0:
       if x.state != csMatch:
-        internalUnreachable(m.c.graph.config, "x.state is not csMatch", arg.info)
+        internalUnreachable(m.c.graph.config, arg.info, "x.state is not csMatch")
       # ambiguous: more than one symbol fits!
       # See tsymchoice_for_expr as an example. 'f.kind == tyUntyped' should match
       # anyway:
@@ -2523,7 +2523,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           noMatch()
       else:
         if m.callee.n[f].kind != nkSym:
-          internalUnreachable(c.config, "matches", n[a].info)
+          internalUnreachable(c.config, n[a].info, "matches")
           noMatch()
         if a >= firstArgBlock: f = max(f, m.callee.n.len - (n.len - a))
         formal = m.callee.n[f].sym

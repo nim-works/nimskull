@@ -589,6 +589,8 @@ proc temporaryStringError*(conf: ConfigRef, info: TLineInfo, text: string) =
 template localError*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doNothing)
 
+proc localError*(conf: ConfigRef, node: PNode) =
+  handleReport(conf, conf.m.reports.getReport(node.reportId), doNothing)
 
 template localReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doNothing)

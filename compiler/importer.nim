@@ -55,7 +55,7 @@ proc importPureEnumFields(c: PContext; s: PSym; etyp: PType) =
   for j in 0..<etyp.n.len:
     var e = etyp.n[j].sym
     if e.kind != skEnumField:
-      internalUnreachable(c.config, "rawImportSymbol", s.info)
+      internalUnreachable(c.config, s.info, "rawImportSymbol")
       # BUGFIX: because of aliases for enums the symbol may already
       # have been put into the symbol table
       # BUGFIX: but only iff they are the same symbols!
@@ -90,7 +90,7 @@ proc rawImportSymbol(c: PContext, s, origin: PSym; importSet: var IntSet) =
       for j in 0..<etyp.n.len:
         var e = etyp.n[j].sym
         if e.kind != skEnumField:
-          internalUnreachable(c.config, "rawImportSymbol", s.info)
+          internalUnreachable(c.config, s.info, "rawImportSymbol")
           # BUGFIX: because of aliases for enums the symbol may already
           # have been put into the symbol table
           # BUGFIX: but only iff they are the same symbols!
@@ -148,7 +148,7 @@ proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
       var e = initModuleIter(it, c.graph, fromMod, s.name)
       while e != nil:
         if e.name.id != s.name.id:
-          internalUnreachable(c.config, "importSymbol: 3", n.info)
+          internalUnreachable(c.config, n.info, "importSymbol: 3")
 
         if s.kind in ExportableSymKinds:
           rawImportSymbol(c, e, fromMod, importSet)

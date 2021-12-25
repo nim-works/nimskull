@@ -363,6 +363,26 @@ type
     rsemBorrowOutlivesSource
     rsemImmutableBorrowMutation
 
+    # VM
+    rsemTooManyRegistersRequired
+    rsemVmCannotFindBreakTarget
+    rsemVmNotUnused
+    rsemNotAFieldSymbol
+    rsemVmTooLargetOffset
+    rsemVmCannotGenerateCode
+    rsemVmCannotCast
+    rsemVmInvalidBindSym
+    rsemVmBadExpandToAst
+    rsemVmCannotEvaluateAtComptime
+    rsemVmCannotImportc
+    rsemVmEnableFFIToImportc
+    rsemVmCannotCreateNullElement
+    rsemVmInvalidObjectConstructor
+    rsemVmNoClosureIterators
+    rsemVmCannotCallMethod
+
+
+    rsemMissingImportcCompleteStruct
 
     # Pragma
     rsemInvalidPragma
@@ -762,7 +782,8 @@ type
       of rsemTypeMismatch,
          rsemSemfoldInvalidConversion,
          rsemCannotConvertTypes,
-         rsemImplicitObjConv:
+         rsemImplicitObjConv,
+         rsemVmCannotCast:
         typeMismatch*: SemTypeMismatch
 
       of rsemIllegalCallconvCapture, rsemIllegalMemoryCapture:

@@ -30,7 +30,7 @@
 import tables
 
 import
-  strutils, ast, types, msgs, renderer, vmdef,
+  strutils, ast, types, msgs, renderer, vmdef, reports,
   intsets, magicsys, options, lowerings, lineinfos, transf, astmsgs
 
 from modulegraphs import getBody
@@ -139,7 +139,7 @@ proc gABI(c: PCtx; n: PNode; opc: TOpcode; a, b: TRegister; imm: BiggestInt) =
     c.code.add(ins)
     c.debug.add(n.info)
   else:
-    localError(c.config, n.info,
+    internalUnreachable(c.config, n.info,
       "VM: immediate value does not fit into an int8")
 
 proc gABx(c: PCtx; n: PNode; opc: TOpcode; a: TRegister = 0; bx: int) =
@@ -156,7 +156,7 @@ proc gABx(c: PCtx; n: PNode; opc: TOpcode; a: TRegister = 0; bx: int) =
     c.code.add(ins)
     c.debug.add(n.info)
   else:
-    localError(c.config, n.info,
+    internalUnreachable(c.config, n.info,
       "VM: immediate value does not fit into regBx")
 
 proc xjmp(c: PCtx; n: PNode; opc: TOpcode; a: TRegister = 0): TPosition =
@@ -170,7 +170,7 @@ proc genLabel(c: PCtx): TPosition =
 
 proc jmpBack(c: PCtx, n: PNode, p = TPosition(0)) =
   let dist = p.int - c.code.len
-  internalAssert(c.config, regBxMin < dist and dist < regBxMax)
+  internalAssert(c.config, regBxMin < dist and dist < regBxMax, "")
   gABx(c, n, opcJmpBack, 0, dist)
 
 proc patch(c: PCtx, p: TPosition) =
@@ -178,7 +178,7 @@ proc patch(c: PCtx, p: TPosition) =
   let p = p.int
   let diff = c.code.len - p
   #c.jumpTargets.incl(c.code.len)
-  internalAssert(c.config, regBxMin < diff and diff < regBxMax)
+  internalAssert(c.config, regBxMin < diff and diff < regBxMax, "")
   let oldInstr = c.code[p]
   # opcode and regA stay the same:
   c.code[p] = ((oldInstr.TInstrType and regBxMask).TInstrType or
@@ -221,7 +221,9 @@ proc getFreeRegister(cc: PCtx; k: TSlotKind; start: int): TRegister =
         c.regInfo[i] = (inUse: true, kind: k)
         return TRegister(i)
   if c.regInfo.len >= high(TRegister):
-    globalError(cc.config, cc.bestEffort, "VM problem: too many registers required")
+    globalError(cc.config, cc.bestEffort, SemReport(
+      kind: rsemTooManyRegistersRequired))
+
   result = TRegister(max(c.regInfo.len, start))
   c.regInfo.setLen int(result)+1
   c.regInfo[result] = (inUse: true, kind: k)
@@ -261,7 +263,7 @@ proc getTempRange(cc: PCtx; n: int; kind: TSlotKind): TRegister =
           for k in result..result+n-1: c.regInfo[k] = (inUse: true, kind: kind)
           return
   if c.regInfo.len+n >= high(TRegister):
-    globalError(cc.config, cc.bestEffort, "VM problem: too many registers required")
+    globalError(cc.config, cc.bestEffort, SemReport(kind: rsemTooManyRegistersRequired))
   result = TRegister(c.regInfo.len)
   setLen c.regInfo, c.regInfo.len+n
   for k in result..result+n-1: c.regInfo[k] = (inUse: true, kind: kind)
@@ -374,7 +376,7 @@ proc genBreak(c: PCtx; n: PNode) =
       if c.prc.blocks[i].label == n[0].sym:
         c.prc.blocks[i].fixups.add lab1
         return
-    globalError(c.config, n.info, "VM problem: cannot find 'break' target")
+    globalError(c.config, n.info, SemReport(kind: rsemVmCannotFindBreakTarget))
   else:
     c.prc.blocks[c.prc.blocks.high].fixups.add lab1
 
@@ -442,7 +444,7 @@ proc rawGenLiteral(c: PCtx; n: PNode): int =
   #assert(n.kind != nkCall)
   n.flags.incl nfAllConst
   c.constants.add n
-  internalAssert c.config, result < regBxMax
+  internalAssert c.config, result < regBxMax, ""
 
 proc sameConstant*(a, b: PNode): bool =
   result = false
@@ -476,8 +478,8 @@ proc genLiteral(c: PCtx; n: PNode): int =
 
 proc unused(c: PCtx; n: PNode; x: TDest) {.inline.} =
   if x >= 0:
-    #debug(n)
-    globalError(c.config, n.info, "not unused")
+    globalError(c.config, n.info, SemReport(
+      kind: rsemVmNotUnused, expression: n))
 
 proc genCase(c: PCtx; n: PNode; dest: var TDest) =
   #  if (!expr1) goto lab1;
@@ -523,7 +525,7 @@ proc genType(c: PCtx; typ: PType): int =
     if sameType(t, typ): return i
   result = c.types.len
   c.types.add(typ)
-  internalAssert(c.config, result <= regBxMax)
+  internalAssert(c.config, result <= regBxMax, "")
 
 proc genTry(c: PCtx; n: PNode; dest: var TDest) =
   if dest < 0 and not isEmptyType(n.typ): dest = getTemp(c, n.typ)
@@ -599,7 +601,7 @@ proc genCall(c: PCtx; n: PNode; dest: var TDest) =
     var r: TRegister = x+i
     c.gen(n[i], r, {gfIsParam})
     if i >= fntyp.len:
-      internalAssert c.config, tfVarargs in fntyp.flags
+      internalAssert(c.config, tfVarargs in fntyp.flags, "")
       c.gABx(n, opcSetType, r, c.genType(n[i].typ))
   if dest < 0:
     c.gABC(n, opcIndCall, 0, x, n.len)
@@ -616,11 +618,13 @@ proc needsAsgnPatch(n: PNode): bool =
 
 proc genField(c: PCtx; n: PNode): TRegister =
   if n.kind != nkSym or n.sym.kind != skField:
-    globalError(c.config, n.info, "no field symbol")
+    globalError(c.config, n.info, SemReport(
+      kind: rsemNotAFieldSymbol, expression: n))
+
   let s = n.sym
   if s.position > high(typeof(result)):
-    globalError(c.config, n.info,
-        "too large offset! cannot generate code for: " & s.name.s)
+    globalError(c.config, n.info, SemReport(kind: rsemVmTooLargetOffset, psym: s))
+
   result = s.position
 
 proc genIndex(c: PCtx; n: PNode; arr: PType): TRegister =
@@ -666,7 +670,9 @@ proc genAsgnPatch(c: PCtx; le: PNode, value: TRegister) =
       c.freeTemp(dest)
   of nkError:
     # XXX: do a better job with error generation
-    globalError(c.config, le.info, "cannot generate code for: " & $le)
+    globalError(c.config, le.info, SemReport(
+      kind: rsemVmCannotGenerateCode, expression: le))
+
   else:
     discard
 
@@ -929,7 +935,9 @@ proc genCastIntFloat(c: PCtx; n: PNode; dest: var TDest) =
     genLit(c, n[1], dest)
   else:
     # todo: support cast from tyInt to tyRef
-    globalError(c.config, n.info, "VM does not support 'cast' from " & $src.kind & " to " & $dst.kind)
+    globalError(c.config, n.info, SemReport(
+      kind: rsemVmCannotCast,
+      typeMismatch: c.config.typeMismatch(dst, src)))
 
 proc genVoidABC(c: PCtx, n: PNode, dest: TDest, opcode: TOpcode) =
   unused(c, n, dest)
@@ -953,7 +961,9 @@ proc genBindSym(c: PCtx; n: PNode; dest: var TDest) =
       if dest < 0: dest = c.getTemp(n.typ)
       c.gABx(n, opcNBindSym, dest, idx)
     else:
-      localError(c.config, n.info, "invalid bindSym usage")
+      localError(c.config, n.info, SemReport(
+        kind: rsemVmInvalidBindSym, expression: n))
+
   else:
     # experimental bindSym
     if dest < 0: dest = c.getTemp(n.typ)
@@ -1312,10 +1322,13 @@ proc genMagic(c: PCtx; n: PNode; dest: var TDest; m: TMagic) =
     of "getLine": genUnaryABI(c, n, dest, opcNGetLineInfo, 1)
     of "getColumn": genUnaryABI(c, n, dest, opcNGetLineInfo, 2)
     of "copyLineInfo":
-      internalAssert c.config, n.len == 3
+      internalAssert(c.config, n.len == 3, "Line info expects tuple with three elements")
       unused(c, n, dest)
       genBinaryStmt(c, n, opcNSetLineInfo)
-    else: internalAssert c.config, false
+    else:
+      internalAssert(
+        c.config, false, "Unexpected mNLineInfo symbol name - " & n[0].sym.name.s)
+
   of mNHint:
     unused(c, n, dest)
     genBinaryStmt(c, n, opcNHint)
@@ -1338,7 +1351,9 @@ proc genMagic(c: PCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genCall(n, dest)
   of mExpandToAst:
     if n.len != 2:
-      globalError(c.config, n.info, "expandToAst requires 1 argument")
+      globalError(c.config, n.info, SemReport(
+        kind: rsemVmBadExpandToAst, msg: "expandToAst requires 1 argument"))
+
     let arg = n[1]
     if arg.kind in nkCallKinds:
       #if arg[0].kind != nkSym or arg[0].sym.kind notin {skTemplate, skMacro}:
@@ -1348,13 +1363,21 @@ proc genMagic(c: PCtx; n: PNode; dest: var TDest; m: TMagic) =
       # do not call clearDest(n, dest) here as getAst has a meta-type as such
       # produces a value
     else:
-      globalError(c.config, n.info, "expandToAst requires a call expression")
+      globalError(c.config, n.info, SemReport(
+        kind: rsemVmBadExpandToAst, msg: "expandToAst requires a call expression"))
+
   of mSizeOf:
-    globalError(c.config, n.info, sizeOfLikeMsg("sizeof"))
+    globalError(c.config, n.info, SemReport(
+      kind: rsemMissingImportcCompleteStruct, msg: "sizeof"))
+
   of mAlignOf:
-    globalError(c.config, n.info, sizeOfLikeMsg("alignof"))
+    globalError(c.config, n.info, SemReport(
+      kind: rsemMissingImportcCompleteStruct, msg: "alignof"))
+
   of mOffsetOf:
-    globalError(c.config, n.info, sizeOfLikeMsg("offsetof"))
+    globalError(c.config, n.info, SemReport(
+      kind: rsemMissingImportcCompleteStruct, msg: "offsetof"))
+
   of mRunnableExamples:
     discard "just ignore any call to runnableExamples"
   of mDestroy, mTrace: discard "ignore calls to the default destructor"
@@ -1373,7 +1396,9 @@ proc genMagic(c: PCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genUnaryABC(n, dest, opcNodeId)
   else:
     # mGCref, mGCunref,
-    globalError(c.config, n.info, "cannot generate code for: " & $m)
+    globalError(c.config, n.info, SemReport(
+      kind: rsemVmCannotGenerateCode, msg: $m))
+
 
 proc unneededIndirection(n: PNode): bool =
   n.typ.skipTypes(abstractInstOwned-{tyTypeDesc}).kind == tyRef
@@ -1451,8 +1476,8 @@ proc setSlot(c: PCtx; v: PSym) =
     v.position = getFreeRegister(c, if v.kind == skLet: slotFixedLet else: slotFixedVar, start = 1)
 
 proc cannotEval(c: PCtx; n: PNode) {.noinline.} =
-  globalError(c.config, n.info, "cannot evaluate at compile time: " &
-    n.renderTree)
+  globalError(c.config, n.info, SemReport(
+    kind: rsemVmCannotEvaluateAtComptime, expression: n))
 
 proc isOwnedBy(a, b: PSym): bool =
   var a = a.owner
@@ -1510,7 +1535,9 @@ proc genAsgn(c: PCtx; le, ri: PNode; requiresCopy: bool) =
   case le.kind
   of nkError:
     # XXX: do a better job with error generation
-    globalError(c.config, le.info, "cannot generate code for: " & $le)
+    globalError(c.config, le.info, SemReport(
+      kind: rsemVmCannotGenerateCode, expression: le))
+
   of nkBracketExpr:
     let dest = c.genx(le[0], {gfNode})
     let idx = c.genIndex(le[1], le[0].typ)
@@ -1557,8 +1584,11 @@ proc genAsgn(c: PCtx; le, ri: PNode; requiresCopy: bool) =
         c.freeTemp(val)
     else:
       if s.kind == skForVar: c.setSlot s
-      internalAssert c.config, s.position > 0 or (s.position == 0 and
-                                        s.kind in {skParam, skResult})
+      internalAssert(
+        c.config,
+        s.position > 0 or (s.position == 0 and s.kind in {skParam, skResult}),
+        "")
+
       var dest: TRegister = s.position + ord(s.kind == skParam)
       assert le.typ != nil
       if needsAdditionalCopy(le) and s.kind in {skResult, skVar, skParam}:
@@ -1591,10 +1621,10 @@ proc importcSym(c: PCtx; info: TLineInfo; s: PSym) =
       s.position = c.globals.len
     else:
       localError(c.config, info,
-        "VM is not allowed to 'importc' without --experimental:compiletimeFFI")
+        SemReport(kind: rsemVmEnableFFIToImportc, psym: s))
   else:
     localError(c.config, info,
-               "cannot 'importc' variable at compile time; " & s.name.s)
+               SemReport(kind: rsemVmCannotImportc, psym: s))
 
 proc getNullValue*(typ: PType, info: TLineInfo; conf: ConfigRef): PNode
 
@@ -1648,7 +1678,7 @@ proc genRdVar(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
                           s.kind in {skParam, skResult}):
       if dest < 0:
         dest = s.position + ord(s.kind == skParam)
-        internalAssert(c.config, c.prc.regInfo[dest].kind < slotSomeTemp)
+        internalAssert(c.config, c.prc.regInfo[dest].kind < slotSomeTemp, "")
       else:
         # we need to generate an assignment:
         let requiresCopy = c.prc.regInfo[dest].kind >= slotSomeTemp and
@@ -1697,7 +1727,11 @@ proc genObjAccess(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
   c.freeTemp(a)
 
 proc genCheckedObjAccessAux(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
-  internalAssert c.config, n.kind == nkCheckedFieldExpr
+  internalAssert(
+    c.config,
+    n.kind == nkCheckedFieldExpr,
+    "genCheckedObjAccessAux requires checked field node")
+
   # nkDotExpr to access the requested field
   let accessExpr = n[0]
   # nkCall to check if the discriminant is valid
@@ -1709,7 +1743,8 @@ proc genCheckedObjAccessAux(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags
 
   # Discriminant symbol
   let disc = checkExpr[2]
-  internalAssert c.config, disc.sym.kind == skField
+  internalAssert(
+    c.config, disc.sym.kind == skField, "Discriminant symbol must be a field")
 
   # Load the object in `dest`
   c.gen(accessExpr[0], dest, flags)
@@ -1743,7 +1778,10 @@ proc genCheckedObjAccess(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
   let accessExpr = n[0]
   # Field symbol
   var field = accessExpr[1]
-  internalAssert c.config, field.sym.kind == skField
+  internalAssert(
+    c.config,
+    field.sym.kind == skField,
+    "Access expression must be a field, but found " & $field.sym.kind)
 
   # Load the content now
   if dest < 0: dest = c.getTemp(n.typ)
@@ -1790,7 +1828,9 @@ proc getNullValueAux(t: PType; obj: PNode, result: PNode; conf: ConfigRef; currP
     result.add field
     doAssert obj.sym.position == currPosition
     inc currPosition
-  else: globalError(conf, result.info, "cannot create null element for: " & $obj)
+  else:
+    globalError(conf, result.info, SemReport(
+      kind: rsemVmCannotCreateNullElement, expression: obj))
 
 proc getNullValue(typ: PType, info: TLineInfo; conf: ConfigRef): PNode =
   var t = skipTypes(typ, abstractRange+{tyStatic, tyOwned}-{tyTypeDesc})
@@ -1833,7 +1873,9 @@ proc getNullValue(typ: PType, info: TLineInfo; conf: ConfigRef): PNode =
   of tySequence, tyOpenArray:
     result = newNodeIT(nkBracket, info, t)
   else:
-    globalError(conf, info, "cannot create null element for: " & $t.kind)
+    globalError(conf, info, SemReport(
+      kind: rsemVmCannotCreateNullElement, rtype: t))
+
     result = newNodeI(nkEmpty, info)
 
 proc genVarSection(c: PCtx; n: PNode) =
@@ -1945,7 +1987,8 @@ proc genObjConstr(c: PCtx, n: PNode, dest: var TDest) =
                           dest, idx, tmp)
       c.freeTemp(tmp)
     else:
-      globalError(c.config, n.info, "invalid object constructor")
+      globalError(c.config, n.info, SemReport(
+        kind: rsemVmInvalidObjectConstructor, expression: it))
 
 proc genTupleConstr(c: PCtx, n: PNode, dest: var TDest) =
   if dest < 0: dest = c.getTemp(n.typ)
@@ -1993,7 +2036,9 @@ proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
   case n.kind
   of nkError:
     # XXX: do a better job with error generation
-    globalError(c.config, n.info, "cannot generate code for: " & $n)
+    globalError(c.config, n.info, SemReport(
+      kind: rsemVmCannotGenerateCode, expression: n))
+
   of nkSym:
     let s = n.sym
     checkCanEval(c, n)
@@ -2003,7 +2048,7 @@ proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     of skProc, skFunc, skConverter, skMacro, skTemplate, skMethod, skIterator:
       # 'skTemplate' is only allowed for 'getAst' support:
       if s.kind == skIterator and s.typ.callConv == TCallingConvention.ccClosure:
-        globalError(c.config, n.info, "Closure iterators are not supported by VM!")
+        globalError(c.config, n.info, SemReport(kind: rsemVmNoClosureIterators, psym: s))
       if procIsCallback(c, s): discard
       elif importcCond(c, s): c.importcSym(n.info, s)
       genLit(c, n, dest)
@@ -2026,17 +2071,20 @@ proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       if c.prc.sym != nil and c.prc.sym.kind == skMacro:
         genRdVar(c, n, dest, flags)
       else:
-        globalError(c.config, n.info, "cannot generate code for: " & s.name.s)
+        globalError(c.config, n.info, SemReport(
+          kind: rsemVmCannotGenerateCode, psym: s))
+
     else:
-      globalError(c.config, n.info, "cannot generate code for: " & s.name.s)
+      globalError(c.config, n.info, SemReport(
+        kind: rsemVmCannotGenerateCode, psym: s))
   of nkCallKinds:
     if n[0].kind == nkSym:
       let s = n[0].sym
       if s.magic != mNone:
         genMagic(c, n, dest, s.magic)
       elif s.kind == skMethod:
-        localError(c.config, n.info, "cannot call method " & s.name.s &
-          " at compile time")
+        localError(c.config, n.info, SemReport(
+          kind: rsemVmCannotCallMethod, psym: s))
       else:
         genCall(c, n, dest)
         clearDest(c, n, dest)
@@ -2140,7 +2188,8 @@ proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     if n.typ != nil and n.typ.isCompileTimeOnly:
       genTypeLit(c, n.typ, dest)
     else:
-      globalError(c.config, n.info, "cannot generate VM code for " & $n)
+      globalError(c.config, n.info, SemReport(
+        kind: rsemVmCannotGenerateCode, expression: n))
 
 proc removeLastEof(c: PCtx) =
   let last = c.code.len-1
@@ -2157,7 +2206,7 @@ proc genStmt*(c: PCtx; n: PNode): int =
   c.gen(n, d)
   c.gABC(n, opcEof)
   if d >= 0:
-    globalError(c.config, n.info, "VM problem: dest register is set")
+    internalUnreachable(c.config, n.info, "VM problem: dest register is set")
 
 proc genExpr*(c: PCtx; n: PNode, requiresValue = true): int =
   c.removeLastEof
@@ -2166,7 +2215,8 @@ proc genExpr*(c: PCtx; n: PNode, requiresValue = true): int =
   c.gen(n, d)
   if d < 0:
     if requiresValue:
-      globalError(c.config, n.info, "VM problem: dest register is not set")
+      internalUnreachable(c.config, n.info, "VM problem: dest register is not set")
+
     d = 0
   c.gABC(n, opcEof, d)
 
@@ -2181,7 +2231,12 @@ proc genParams(c: PCtx; params: PNode) =
     c.prc.regInfo[i] = (inUse: true, kind: slotFixedLet)
 
 proc finalJumpTarget(c: PCtx; pc, diff: int) =
-  internalAssert(c.config, regBxMin < diff and diff < regBxMax)
+  internalAssert(
+    c.config,
+    regBxMin < diff and diff < regBxMax,
+    "Jump target is not in range of min/max registers - $1 < $2 < $3 failed" % [
+      $regBxMin, $diff, $regBxMax])
+
   let oldInstr = c.code[pc]
   # opcode and regA stay the same:
   c.code[pc] = ((oldInstr.TInstrType and ((regOMask shl regOShift) or (regAMask shl regAShift))).TInstrType or

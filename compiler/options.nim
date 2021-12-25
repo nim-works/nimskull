@@ -389,6 +389,11 @@ proc report*(conf: ConfigRef, id: ReportId) =
   ## Write out existing stored report
   conf.structuredErrorHook(conf.m.reports.getReport(id))
 
+proc report*(conf: ConfigRef, node: PNode) =
+  ## Write out report from the nkError node
+  assert node.kind == nkError
+  conf.report(node.reportId)
+
 proc report*(conf: ConfigRef, inReport: Report) =
   ## Write `inReport`
   report(conf, inReport)

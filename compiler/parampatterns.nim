@@ -136,7 +136,7 @@ proc semNodeKindConstraints*(n: PNode; conf: ConfigRef; start: Natural): PNode =
       compileConstraints(n[i], result.strVal, conf)
 
     if result.strVal.len > MaxStackSize - 1:
-      conf.internalUnreachable("parameter pattern too complex", n.info)
+      conf.internalUnreachable(n.info, "parameter pattern too complex")
 
   else:
     conf.localError(n.info, SemReport(kind: rsemIllformedAst, expression: n))
