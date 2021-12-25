@@ -12,7 +12,6 @@
 
 import
   options, ast, llstream, msgs,
-  idents,
   syntaxes, modulegraphs, reorder,
   lineinfos, pathutils,
   reports

@@ -18,7 +18,7 @@ import
   evaltempl, patterns, parampatterns, sempass2, linter, semmacrosanity,
   lowerings, plugins/active, lineinfos, strtabs, int128,
   isolation_check, typeallowed, modulegraphs, enumtostr, concepts, astmsgs,
-  errorhandling, errorreporting
+  errorhandling, errorreporting, reports
 
 when defined(nimfix):
   import nimfix/prettybase
@@ -266,9 +266,8 @@ proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
   if arg.typ.isNil:
-    c.config.report(arg.info, SemReport(
-      kind: rsemExpressionHasNoType
-      expression: renderTree(arg, {renderNoComments})))
+    c.config.localError(arg.info, SemReport(
+      kind: rsemExpressionHasNoType, expression: arg))
 
     # error correction:
     result = copyTree(arg)
@@ -416,8 +415,11 @@ proc newSymG*(kind: TSymKind, n: PNode, c: PContext): PSym =
     # and sfGenSym in n.sym.flags:
     result = n.sym
     if result.kind notin {kind, skTemp}:
-      localError(c.config, n.info, "cannot use symbol of kind '$1' as a '$2'" %
-        [result.kind.toHumanStr, kind.toHumanStr])
+      localError(c.config, n.info, SemReport(
+        kind: rsemSymbolKindMismatch,
+        psym: result,
+        expectedSymbolKind: {kind}))
+
     when false:
       if sfGenSym in result.flags and result.kind notin {skTemplate, skMacro, skParam}:
         # declarative context, so produce a fresh gensym:
@@ -445,15 +447,22 @@ proc typeAllowedCheck(c: PContext; info: TLineInfo; typ: PType; kind: TSymKind;
                       flags: TTypeAllowedFlags = {}) =
   let t = typeAllowed(typ, kind, c, flags)
   if t != nil:
-    var err: string
-    if t == typ:
-      err = "invalid type: '$1' for $2" % [typeToString(typ), toHumanStr(kind)]
-      if kind in {skVar, skLet, skConst} and taIsTemplateOrMacro in flags:
-        err &= ". Did you mean to call the $1 with '()'?" % [toHumanStr(typ.owner.kind)]
-    else:
-      err = "invalid type: '$1' in this context: '$2' for $3" % [typeToString(t),
-              typeToString(typ), toHumanStr(kind)]
-    localError(c.config, info, err)
+    # var err: string
+    # if t == typ:
+    #   err = "invalid type: '$1' for $2" % [typeToString(typ), toHumanStr(kind)]
+    #   if kind in {skVar, skLet, skConst} and taIsTemplateOrMacro in flags:
+    #     err &= ". Did you mean to call the $1 with '()'?" % [toHumanStr(typ.owner.kind)]
+    # else:
+    #   err = "invalid type: '$1' in this context: '$2' for $3" % [typeToString(t),
+    #           typeToString(typ), toHumanStr(kind)]
+
+    localError(c.config, info, SemReport(
+      kind: rsemTypeNotAllowed,
+      allowedType: (
+        allowed: t,
+        actual: typ,
+        kind: kind,
+        allowedFlags: flags)))
 
 proc paramsTypeCheck(c: PContext, typ: PType) {.inline.} =
   typeAllowedCheck(c, typ.n.info, typ, skProc)
@@ -509,7 +518,7 @@ proc fixupTypeAfterEval(c: PContext, evaluated, eOrig: PNode): PNode =
       result = evaluated
       let expectedType = eOrig.typ.skipTypes({tyStatic})
       if hasCycle(result):
-        result = localErrorNode(c, eOrig, "the resulting AST is cyclic and cannot be processed further")
+        result = newError(c.config, eOrig, SemReport(kind: rsemCyclicTree))
       else:
         semmacrosanity.annotateType(result, expectedType, c.config)
   else:
@@ -558,7 +567,9 @@ const
 proc semConstExpr(c: PContext, n: PNode): PNode =
   var e = semExprWithType(c, n)
   if e == nil:
-    localError(c.config, n.info, errConstExprExpected)
+    localError(c.config, n.info, SemReport(
+      kind: rsemConstExprExpected, expression: n))
+
     return n
   if e.kind in nkSymChoices and e[0].typ.skipTypes(abstractInst).kind == tyEnum:
     return e
@@ -569,10 +580,10 @@ proc semConstExpr(c: PContext, n: PNode): PNode =
     if result == nil or result.kind == nkEmpty:
       if e.info != n.info:
         pushInfoContext(c.config, n.info)
-        localError(c.config, e.info, errConstExprExpected)
+        localError(c.config, e.info, SemReport(kind: rsemConstExprExpected))
         popInfoContext(c.config)
       else:
-        localError(c.config, e.info, errConstExprExpected)
+        localError(c.config, e.info, SemReport(kind: rsemConstExprExpected))
       # error correction:
       result = e
     else:
@@ -612,7 +623,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
   ## contains.
   inc(c.config.evalTemplateCounter)
   if c.config.evalTemplateCounter > evalTemplateLimit:
-    globalError(c.config, s.info, "template instantiation too nested")
+    globalError(c.config, s.info, SemReport(kind: rsemTemplateInstantiationTooNested))
   c.friendModules.add(s.owner.getModule)
   result = macroResult
   resetSemFlag result
@@ -636,8 +647,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListType)
       var typ = semTypeNode(c, result, nil)
       if typ == nil:
-        localError(c.config, result.info, "expression has no type: " &
-                   renderTree(result, {renderNoComments}))
+        localError(c.config, result, rsemExpressionHasNoType)
         result = newSymNode(errorSym(c, result))
       else:
         result.typ = makeTypeDesc(c, typ)
@@ -668,25 +678,27 @@ const
 proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
                   flags: TExprFlags = {}): PNode =
   rememberExpansion(c, nOrig.info, sym)
-  pushInfoContext(c.config, nOrig.info, sym.detailedInfo)
+  pushInfoContext(c.config, nOrig.info, sym)
 
   let info = getCallLineInfo(n)
   markUsed(c, info, sym)
   onUse(info, sym)
   if sym == c.p.owner:
-    globalError(c.config, info, "recursive dependency: '$1'" % sym.name.s)
+    globalError(c.config, info, SemReport(
+      kind: rsemCyclicDependency, psym: sym))
 
   let genericParams = sym.ast[genericParamsPos].len
   let suppliedParams = max(n.safeLen - 1, 0)
 
   if suppliedParams < genericParams:
     globalError(
-      c.config, info, errMissingGenericParamsForTemplate % n.renderTree)
+      c.config, info, SemReport(
+        kind: rsemMissingGenericParamsForTemplate, expression: n))
 
   let reportTraceExpand = c.config.macrosToExpand.hasKey(sym.name.s)
-  var original: string
+  var original: PNode
   if reportTraceExpand:
-    original = renderTree(n)
+    original = n
 
   result = evalMacroCall(
     c.module, c.idgen, c.graph, c.templInstCounter, n, nOrig, sym)
@@ -695,11 +707,10 @@ proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
     result = semAfterMacroCall(c, n, result, sym, flags)
 
   if reportTraceExpand:
-    c.config.report(SemReport(
+    c.config.localReport(nOrig.info, SemReport(
       kind: rsemExpandMacro,
-      location: some toReportLinePoint(nOrig.info),
-      originalExpr: original,
-      expandedExpr: renderTree(result)))
+      expression: original,
+      expandedExpr: result))
 
   result = wrapInComesFrom(nOrig.info, sym, result)
   popInfoContext(c.config)
@@ -711,7 +722,7 @@ proc forceBool(c: PContext, n: PNode): PNode =
 proc semConstBoolExpr(c: PContext, n: PNode): PNode =
   result = forceBool(c, semConstExpr(c, n))
   if result.kind != nkIntLit:
-    localError(c.config, n.info, errConstExprExpected)
+    localError(c.config, n, rsemConstExprExpected)
 
 proc semGenericStmt(c: PContext, n: PNode): PNode
 proc semConceptBody(c: PContext, n: PNode): PNode

@@ -139,7 +139,7 @@ when enumUtilsExist:
 
 else:
   from strutils import cmpIgnoreStyle
-  proc findStr*[T: enum](a, b: static[T], s: string, default: T): T {.deprecated.} =
+  proc findStr*[T: enum](a, b: static[T], s: string, default: T): T =
     # used for compiler bootstrapping only
     for i in a..b:
       if cmpIgnoreStyle($i, s) == 0:
@@ -151,7 +151,7 @@ func getEnumNames*[E: enum](values: set[E]): seq[string] =
     result.add $name
 
 from strutils import cmpIgnoreStyle
-proc findStr*[T: enum](values: set[T], s: string, default: T): T {.deprecated.} =
+proc findStr*[T: enum](values: set[T], s: string, default: T): T =
   for i in items(values):
     if cmpIgnoreStyle($i, s) == 0:
       return i

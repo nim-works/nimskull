@@ -1,6 +1,6 @@
 
 import
-  intsets, ast, idents, algorithm, renderer, strutils,
+  intsets, ast, idents, algorithm, renderer, 
   msgs, modulegraphs, syntaxes, options, modulepaths,
   lineinfos, reports
 

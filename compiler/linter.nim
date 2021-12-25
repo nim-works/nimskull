@@ -10,9 +10,7 @@
 ## This module implements the style checker.
 
 import std/strutils
-from std/sugar import dup
-
-import options, ast, msgs, idents, lineinfos, wordrecg, astmsgs, reports
+import options, ast, msgs, lineinfos, wordrecg, reports
 
 const
   Letters* = {'a'..'z', 'A'..'Z', '0'..'9', '\x80'..'\xFF', '_'}

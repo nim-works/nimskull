@@ -10,7 +10,7 @@
 ## Template evaluation engine. Now hygienic.
 
 import
-  strutils, options, ast, astalgo, msgs, renderer, lineinfos, idents,
+  options, ast, astalgo, msgs, renderer, lineinfos, idents,
   reports
 
 type
@@ -206,7 +206,7 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
     else:
       localError(conf, result.info, SemReport(
         kind: rsemIllformedAst,
-        msg: "Expected single subnode, but found "& $result.len,
+        msg: "Expected single subnode, but found " & $result.len,
         expression: result))
 
   else:

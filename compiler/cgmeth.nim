@@ -10,8 +10,8 @@
 ## This module implements code generation for methods.
 
 import
-  intsets, options, ast, msgs, idents, renderer, types, magicsys,
-  sempass2, strutils, modulegraphs, lineinfos, reports
+  intsets, options, ast, msgs, renderer, types, magicsys,
+  sempass2, modulegraphs, lineinfos, reports
 
 proc genConv(n: PNode, d: PType, downcast: bool; conf: ConfigRef): PNode =
   var dest = skipTypes(d, abstractPtrs)

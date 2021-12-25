@@ -13,7 +13,7 @@
 ## * write an error reporting proc that handles string conversion and also
 ##   determines which error handling strategy to use doNothing, raise, etc.
 
-import ast, errorhandling, renderer, strutils, astmsgs, types, options, reports
+import ast, errorhandling, renderer, reports
 from msgs import TErrorHandling
 
 export compilerInstInfo, walkErrors, errorKind

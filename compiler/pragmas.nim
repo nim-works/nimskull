@@ -466,12 +466,12 @@ proc processNote(c: PContext, n: PNode): PNode =
   ## process a single pragma "note" `n`
   ## xxx: document this better, this is awful
   template handleNote(enumVals, notes): PNode =
-    let x = findStr(enumVals.a, enumVals.b, n[0][1].ident.s, errUnknown)
+    let x = findStr(enumVals, n[0][1].ident.s, repNone)
     case x
-    of errUnknown:
+    of repNone:
       newInvalidPragmaNode(c, n)
     else:
-      nk = ReportKind(x)
+      nk = x
       let x = c.semConstBoolExpr(c, n[1])
       n[1] = x
       if x.kind == nkIntLit and x.intVal != 0: incl(notes, nk)
@@ -493,10 +493,10 @@ proc processNote(c: PContext, n: PNode): PNode =
     if isBracketExpr:
       var nk: ReportKind
       case whichKeyword(n[0][0].ident)
-      of wHint: handleNote(hintMin .. hintMax, c.config.notes)
-      of wWarning: handleNote(warnMin .. warnMax, c.config.notes)
-      of wWarningAsError: handleNote(warnMin .. warnMax, c.config.warningAsErrors)
-      of wHintAsError: handleNote(hintMin .. hintMax, c.config.warningAsErrors)
+      of wHint: handleNote(repHints, c.config.notes)
+      of wWarning: handleNote(repWarnings, c.config.notes)
+      of wWarningAsError: handleNote(repWarnings, c.config.warningAsErrors)
+      of wHintAsError: handleNote(repHints, c.config.warningAsErrors)
       else: newInvalidPragmaNode(c, n)
     else:
       bracketExpr

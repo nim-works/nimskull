@@ -1114,3 +1114,15 @@ type
     pcmLockDifference
     pcmNotIterator
     pcmDifferentCallConv
+
+type
+  TTypeAllowedFlag* = enum
+    taField,
+    taHeap,
+    taConcept,
+    taIsOpenArray,
+    taNoUntyped
+    taIsTemplateOrMacro
+    taProcContextIsNotMacro
+
+  TTypeAllowedFlags* = set[TTypeAllowedFlag]

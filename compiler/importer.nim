@@ -14,8 +14,6 @@ import
   semdata, modulepaths, sigmatch, lineinfos, sets,
   modulegraphs, wordrecg, tables, reports
 
-from strutils import `%`
-
 proc readExceptSet*(c: PContext, n: PNode): IntSet =
   assert n.kind in {nkImportExceptStmt, nkExportExceptStmt}
   result = initIntSet()

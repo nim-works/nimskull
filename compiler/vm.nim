@@ -2147,7 +2147,9 @@ proc execProc*(c: PCtx; sym: PSym; args: openArray[PNode]): PNode =
       localError(c.config, sym.info, SemReport(
         kind: rsemWrongNumberOfArguments,
         psym: sym,
-        countMismatch: (expected: sym.typ.len - 1, got: args.len)))
+        countMismatch: (
+          expected: toInt128(sym.typ.len - 1),
+          got: toInt128(args.len))))
 
     else:
       let start = genProc(c, sym)
@@ -2327,7 +2329,9 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
     globalError(g.config, n.info, SemReport(
       kind: rsemWrongNumberOfArguments,
       expression: n,
-      countMismatch: (sym.typ.len - 1, n.safeLen - 1)))
+      countMismatch: (
+        expected: toInt128(sym.typ.len - 1),
+        got: toInt128(n.safeLen - 1))))
 
   setupGlobalCtx(module, g, idgen)
   var c = PCtx g.vm
@@ -2365,7 +2369,9 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
       c.callsite = nil
       localError(c.config, n.info, SemReport(
         kind: rsemWrongNumberOfGenericParams,
-        countMismatch: (gp.len, idx)))
+        countMismatch: (
+          expected: toInt128(gp.len),
+          got: toInt128(idx))))
 
   # temporary storage:
   #for i in L..<maxSlots: tos.slots[i] = newNode(nkEmpty)

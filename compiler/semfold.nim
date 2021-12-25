@@ -12,7 +12,7 @@
 
 import
   strutils, options, ast, trees, nimsets,
-  platform, math, msgs, idents, renderer, types,
+  platform, math, msgs, renderer, types,
   commands, magicsys, modulegraphs, strtabs, lineinfos,
   reports
 

@@ -575,6 +575,7 @@ template localError*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
     conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
 
 template localError*(conf: ConfigRef, node: PNode, reportKind: SemReportKind) =
+  ## Write out new sem report using `node`'s positional information
   handleReport(
     conf,
     wrap(
@@ -590,10 +591,28 @@ template localError*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doNothing)
 
 proc localError*(conf: ConfigRef, node: PNode) =
+  ## Write out existing sem report that is stored in the nkError node
   handleReport(conf, conf.m.reports.getReport(node.reportId), doNothing)
 
 template localReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doNothing)
+
+proc semReportCountMismatch*(
+    kind: ReportKind, expected, got: distinct SomeInteger): SemReport =
+
+  result = SemReport(kind: kind)
+  result.countMismatch = (toInt128(expected), toInt128(got))
+
+template semReportIllformedAst*(
+    conf: ConfigRef, node: PNode, explain: string): untyped =
+
+  handleError(
+    conf,
+    wrap(
+      SemReport(kind: rsemIllformedAst, expression: node ),
+      instLoc(),
+      conf.toReportLinePoint(node.info)),
+    doNothing)
 
 template localReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
   handleReport(

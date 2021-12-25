@@ -9,25 +9,42 @@
 
 ## Plugin to transform an inline iterator into a data structure.
 
-import ".." / [ast, modulegraphs, lookups, semdata, lambdalifting, msgs]
+import ".." / [
+  ast, modulegraphs, lookups, semdata, lambdalifting, msgs, reports]
 
 proc iterToProcImpl*(c: PContext, n: PNode): PNode =
   result = newNodeI(nkStmtList, n.info)
   let iter = n[1]
   if iter.kind != nkSym or iter.sym.kind != skIterator:
-    localError(c.config, iter.info, "first argument needs to be an iterator")
+    localError(c.config, iter.info, SemReport(
+      kind: rsemIllformedAst,
+      expression: iter,
+      msg: "first argument needs to be an iterator"))
+
     return
   if n[2].typ.isNil:
-    localError(c.config, n[2].info, "second argument needs to be a type")
+    localError(c.config, n[2].info, SemReport(
+      kind: rsemIllformedAst,
+      expression: n,
+      msg: "second argument needs to be a type"))
+
     return
   if n[3].kind != nkIdent:
-    localError(c.config, n[3].info, "third argument needs to be an identifier")
+    localError(c.config, n[3].info, SemReport(
+      kind: rsemIllformedAst,
+      expression: n,
+      msg: "third argument needs to be an identifier"))
+
     return
 
   let t = n[2].typ.skipTypes({tyTypeDesc, tyGenericInst})
   if t.kind notin {tyRef, tyPtr} or t.lastSon.kind != tyObject:
     localError(c.config, n[2].info,
-        "type must be a non-generic ref|ptr to object with state field")
+        SemReport(
+          kind: rsemIllformedAst,
+          expression: n[2],
+          msg: "type must be a non-generic ref|ptr to object with state field"))
+
     return
   let body = liftIterToProc(c.graph, iter.sym, getBody(c.graph, iter.sym), t, c.idgen)
 

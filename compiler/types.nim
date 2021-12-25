@@ -1562,6 +1562,10 @@ proc typeMismatch*(conf: ConfigRef, formal, actual: PType): SemTypeMismatch =
     result.procCallMismatch = getProcConvMismatch(conf, formal, actual)[0]
     result.procEffectsCompat = compatibleEffects(formal, actual)
 
+proc typeMismatch*(
+  conf: ConfigRef, actual: PType, wanted: set[TTypeKind]): SemTypeMismatch =
+
+  SemTypeMismatch(actualType: actual, wantedTypeKind: wanted)
 
 proc typeMismatch*(
     conf: ConfigRef; info: TLineInfo, formal, actual: PType, n: PNode): PNode =

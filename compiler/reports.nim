@@ -16,8 +16,14 @@
 
 import std/[options]
 
-import ast_types, nilcheck_enums
-export ast_types, options.some, options.none, options.Option
+import ast_types, nilcheck_enums, int128
+
+export
+  ast_types,
+  options.some,
+  options.none,
+  options.Option,
+  int128.toInt128
 
 type InstantiationInfo* = typeof(instantiationInfo())
 
@@ -228,6 +234,7 @@ type
     rsemCustomPrintMsgAndNodeError
       ## just like custom error, prints a message and renders wrongNode
     rsemTypeMismatch
+    rsemTypeKindMismatch
     rsemAmbiguous
 
     rsemCustomUserError
@@ -251,6 +258,8 @@ type
     rsemCannotImportItself
     rsemRecursiveInclude
     rsemCannotOpenFile
+    rsemExportRequiresToplevel
+    rsemInvalidVisibility
 
     # ..
     rsemConflictingExportnims
@@ -282,12 +291,30 @@ type
 
     rsemVarVarNotAllowed ## `var lent`, `var var` etc. are not allowed in
     ## types
+    rsemInvalidOrderInEnum
+    rsemSetTooBig
+    rsemTIsNotAConcreteType
+    rsemRangeIsEmpty
 
     rsemCannotInstantiate
     rsemCannotGenerateGenericDestructor
-
-
-
+    rsemUndeclaredField
+    rsemInheritanceOnlyWorksWithAnEnum # I have **//ABSOLUTELY NO IDEA//**
+    # what this error means. I think I might need to add something like
+    # `rsemWTF`
+    rsemExpectedOrdinal
+    rsemExpectedOrdinalOrFloat
+    rsemExpectedUnholyEnum # yes
+    rsemExpectedLow0Discriminant
+    rsemExpectedHighCappedDiscriminant
+    rsemUnreachableElse
+    rsemMissingCaseBranches
+    rsemRangeDoesNotSupportNan
+    rsemRangeRequiresDotDot
+    rsemExpectedRange
+    rsemArrayExpectsPositiveRange
+    rsemExpectObjectForBase
+    rsemExpectNonFinalForBase
 
     # Procedure definition and instantiation
     rsemImplementationExpected
@@ -297,8 +324,10 @@ type
 
     # Call and procedures
     rsemCallTypeMismatch
+    rsemCallNotAProcOrField
     rsemExpressionCannotBeCalled
     rsemWrongNumberOfArguments
+    rsemWrongNumberOfVariables
     rsemWrongNumberOfGenericParams
     rsemAmbiguousCall
     rsemCallingConventionMismatch
@@ -314,9 +343,20 @@ type
     rsemIllegalMemoryCapture
     rsemIgnoreInvalidForLoop
     rsemMissingGenericParamsForTemplate
+
     rsemTemplateInstantiationTooNested
     rsemMacroInstantiationTooNested
+    rsemGenericInstantiationTooNested # TODO write out list of generic,
+    # macro or template instantiations. There is a `pushOwner` called for
+    # each generic instantiation - can this be reused?
 
+    rsemCannotSpawnProcWithVar
+    rsemCannotSpawnMagicProc
+    rsemCannotDiscardSpawn
+    rsemSpawnRequiresCall
+    rsemSpawnRequiresGcSafe
+    rsemSpawnForbidsClosure
+    rsemSpawnForbidsIterator
 
     rsemInvalidMethodDeclarationOrder # Right now I have no idea what this
     # error means exactly. It /does/ have a 'sort of' reproducible example
@@ -325,8 +365,6 @@ type
     rsemIsNotParameterOf
     rsemParameterNotPointerToPartial
 
-
-    # ParameterTypeMismatch
 
     # Identifier Lookup
     rsemUndeclaredIdentifier
@@ -347,8 +385,12 @@ type
     rsemExpressionHasNoType
       ## an expression has not type or is ambiguous
 
+    rsemRawTypeMismatch
+
     rsemCannotConvertTypes
     rsemUnresolvedGenericParameter
+    rsemCannotCreateFlowVarOfType
+    rsemTypeNotAllowed
 
     # Literals
     rsemIntLiteralExpected
@@ -360,6 +402,7 @@ type
     rsemCallconvExpected
     rsemInnerCodeReordering
     rsemUnknownExperimental
+    rsemDuplicateCaseLabel
 
     # view types
     rsemExpressionIsNotAPath
@@ -395,6 +438,8 @@ type
     rsemMissingImportcCompleteStruct
 
     rsemCyclicTree
+    rsemCyclicDependency
+    rsemConstExprExpected
 
     # Pragma
     rsemInvalidPragma
@@ -420,8 +465,11 @@ type
       ## there is no meaningful error to construct, but there is an error
       ## further down the AST that invalidates the whole
 
+    rsemSymbolKindMismatch
     rsemIllformedAst
+    rsemInitHereNotAllowed
     rsemIdentExpected
+    rsemTypeExpected
     rsemWrongIdent
     rsemPragmaOptionExpected
     rsemUnexpectedPushArgument
@@ -490,6 +538,7 @@ type
     rsemUnusedRaises
     rsemMethodLockMismatch
     rsemUseBase
+    rsemInheritFromException
 
 
     rsemLinterReport
@@ -523,6 +572,7 @@ type
     rsemExpandMacro = "ExpandMacro" ## Trace macro expansion progress
 
 
+    rsemNonMatchingCandidates
     rsemUserRaw = "UserRaw" # REVIEW - Used in
     # `semcall.semOverloadedCall()` and `extccomp.getCompileCFileCmd()`.
     # Seems like this one should be removed, it spans multiple compiler
@@ -566,6 +616,12 @@ type
     # hints end
 
   ReportKinds* = set[ReportKind]
+
+static:
+  echo(
+    "Nimskull compiler outputs ",
+    ord(high(ReportKind)),
+    " different kinds of diagnostics")
 
 type
   ReportLineRange* = object
@@ -691,6 +747,7 @@ type
     ssefParameterMutation
 
   SemTypeMismatch* = object
+    wantedTypeKind*: set[TTypeKind]
     actualType*, wantedType*: PType
     descriptionStr*: string
     procEffectsCompat*: EffectsCompat
@@ -702,7 +759,7 @@ type
     ## all the necessary information to provide meaningful sorting,
     ## collapse and other operations.
     target*: PSym
-    expression*: Option[PNode]
+    expression*: PNode
     arg*: int
     case kind*: MismatchKind
       of kTypeMismatch:
@@ -729,6 +786,9 @@ type
       of rsemDuplicateModuleImport:
         previous*: ReportLinePoint
 
+      of rsemDuplicateCaseLabel:
+        overlappingGroup*: PNode
+
       of rsemCannotBorrow:
         borrowPair*: tuple[mutatedHere, connectedVia: ReportLinePoint]
 
@@ -740,6 +800,9 @@ type
 
       of rsemXCannotRaiseY:
         raisesList*: PNode
+
+      of rsemMissingCaseBranches:
+        missingBranches*: seq[PNode]
 
       of rsemStrictNotNil:
         nilIssue*: Nilability
@@ -776,8 +839,13 @@ type
         ]]
 
       of rsemWrongNumberOfArguments,
-         rsemWrongNumberOfGenericParams:
-        countMismatch*: tuple[expected, got: int]
+         rsemWrongNumberOfGenericParams,
+         rsemInvalidOrderInEnum,
+         rsemSetTooBig,
+         rsemArrayExpectsPositiveRange,
+         rsemExpectedLow0Discriminant,
+         rsemExpectedHighCappedDiscriminant:
+        countMismatch*: tuple[expected, got: Int128]
 
 
       of rsemInvalidExtern:
@@ -793,22 +861,34 @@ type
         wantedIdent*: string
         potentiallyRecursive*: bool
 
-      of rsemAmbiguous:
+      of rsemAmbiguous, rsemCallNotAProcOrField:
         candidates*: seq[PSym]
 
       of rsemExpandMacro, rsemPattern:
-        originalExpr*: PNode
+        expandedExpr*: PNode
 
       of rsemLockLevelMismatch, rsemMethodLockMismatch:
         anotherMethod*: PSym
         lockMismatch*: tuple[expected, got: string]
 
       of rsemTypeMismatch,
+         rsemTypeKindMismatch,
          rsemSemfoldInvalidConversion,
          rsemCannotConvertTypes,
          rsemImplicitObjConv,
          rsemVmCannotCast:
         typeMismatch*: SemTypeMismatch
+
+      of rsemSymbolKindMismatch:
+        expectedSymbolKind*: set[TSymKind]
+
+      of rsemTypeNotAllowed:
+        allowedType*: tuple[
+          allowed: PType,
+          actual: PType,
+          kind: TSymKind,
+          allowedFlags: TTypeAllowedFlags
+        ]
 
       of rsemIllegalCallconvCapture, rsemIllegalMemoryCapture:
         captured*: PSym
@@ -817,7 +897,7 @@ type
          rsemInvalidMethodDeclarationOrder:
         alternative*: PSym
 
-      of rsemCallTypeMismatch:
+      of rsemCallTypeMismatch, rsemNonMatchingCandidates:
         callMismatches*: seq[SemCallMismatch] ## Description of all the
         ## failed candidates.
 

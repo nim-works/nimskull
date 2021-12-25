@@ -11,7 +11,7 @@
 # This is needed for proper handling of forward declarations.
 
 import
-  ast, astalgo, msgs, semdata, types, trees, strutils, lookups,
+  ast, astalgo, msgs, semdata, types, trees, lookups,
   reports
 
 proc equalGenericParams(procA, procB: PNode): bool =

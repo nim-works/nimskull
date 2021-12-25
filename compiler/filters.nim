@@ -10,7 +10,7 @@
 ## This module implements Nim's simple filters and helpers for filters.
 
 import
-  llstream, idents, strutils, ast, msgs, options,
+  llstream, strutils, ast, msgs, options,
   renderer, pathutils, reports
 
 proc invalidPragma(conf: ConfigRef; n: PNode) =

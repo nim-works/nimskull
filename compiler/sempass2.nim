@@ -1314,9 +1314,7 @@ proc track(tracked: PEffects, n: PNode) =
     inc tracked.leftPartOfAsgn
   of nkError:
     for e in walkErrors(tracked.config, n):
-      {.warning: "[\e[31mFIXME IMPLEMENT\e[39m] listing of the local errors"}
-      assert false
-      # localError(tracked.config, e)
+      localError(tracked.config, e)
   else:
     for i in 0..<n.safeLen: track(tracked, n[i])
 
@@ -1562,9 +1560,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
         listSideEffects(report, s, g.config, t.c)
         localReport(g.config, s.info, report)
       else:
-        {.warning: "[FIXME IMPLEMENT] Generate proper error message"}
-        assert false
-        # localError(g.config, s.info, "") # simple error for `system.compiles` context
+        localError(g.config, s.info, SemReport(kind: repNone)) # simple error for `system.compiles` context
 
   if not t.gcUnsafe:
     s.typ.flags.incl tfGcSafe

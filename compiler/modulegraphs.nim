@@ -599,8 +599,6 @@ proc moduleFromRodFile*(g: ModuleGraph; fileIdx: FileIndex;
 proc configComplete*(g: ModuleGraph) =
   rememberStartupConfig(g.startupPackedConfig, g.config)
 
-from std/strutils import repeat, `%`
-
 proc onProcessing*(graph: ModuleGraph, fileIdx: FileIndex, moduleStatus: string, fromModule: PSym, ) =
   let conf = graph.config
   let isNimscript = conf.isDefined("nimscript")

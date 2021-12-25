@@ -14,7 +14,7 @@ import tables
 import
   intsets, options, ast, astalgo, msgs, idents, renderer,
   magicsys, vmdef, modulegraphs, lineinfos, sets, pathutils,
-  errorhandling, errorreporting, reports
+  reports
 
 import std/strutils
 
