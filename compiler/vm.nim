@@ -13,7 +13,7 @@
 
 import
   std/[strutils, tables, parseutils],
-  msgs, vmdef, vmgen, nimsets, types, passes,
+  msgs, vmdef, vmgen, nimsets, types, passes, reports,
   parser, vmdeps, idents, trees, renderer, options, transf,
   gorgeimpl, lineinfos, btrees, macrocacheimpl,
   modulegraphs, sighashes, int128, vmprofiler
@@ -30,51 +30,66 @@ when hasFFI:
   import evalffi
 
 
-proc stackTraceAux(c: PCtx; x: PStackFrame; pc: int; recursionLimit=100) =
-  if x != nil:
-    if recursionLimit == 0:
-      var calls = 0
-      var x = x
-      while x != nil:
-        inc calls
-        x = x.next
-      msgWriteln(c.config, $calls & " calls omitted\n", {msgNoUnitSep})
-      return
-    stackTraceAux(c, x.next, x.comesFrom, recursionLimit-1)
-    var info = c.debug[pc]
-    # we now use a format similar to the one in lib/system/excpt.nim
-    var s = ""
-    # todo: factor with quotedFilename
-    if optExcessiveStackTrace in c.config.globalOptions:
-      s = toFullPath(c.config, info)
-    else:
-      s = toFilename(c.config, info)
-    var line = toLinenumber(info)
-    var col = toColumn(info)
-    if line > 0:
-      s.add('(')
-      s.add($line)
-      s.add(", ")
-      s.add($(col + ColOffset))
-      s.add(')')
-    if x.prc != nil:
-      for k in 1..max(1, 25-s.len): s.add(' ')
-      s.add(x.prc.name.s)
-    msgWriteln(c.config, s, {msgNoUnitSep})
+proc stackTraceAux(
+    c: PCtx; x: PStackFrame;
+    pc: int,
+    traceReason: ReportKind = repNone,
+    recursionLimit: int = 100
+  ): SemReport =
 
-proc stackTraceImpl(c: PCtx, tos: PStackFrame, pc: int,
-  msg: string, lineInfo: TLineInfo, infoOrigin: InstantiationInfo) {.noinline.} =
-  # noinline to avoid code bloat
-  msgWriteln(c.config, "stack trace: (most recent call last)", {msgNoUnitSep})
-  stackTraceAux(c, tos, pc)
+  result = SemReport(kind: rsemVmStackTrace, traceReason: traceReason)
+  proc aux(x: PStackFrame, pc, depth: int) =
+    if x != nil:
+      if recursionLimit < depth:
+        var calls = 0
+        var x = x
+        while x != nil:
+          inc calls
+          x = x.next
+
+        # msgWriteln(c.config, $calls & " calls omitted\n", {msgNoUnitSep})
+
+        return
+
+      aux(x.next, x.comesFrom, depth + 1)
+
+      result.stacktrace.add((
+        sym: x.prc,
+        location: c.config.toReportLinePoint(c.debug[pc])
+      ))
+
+  aux(x, pc, 0)
+
+proc stackTraceImpl(
+    c: PCtx,
+    tos: PStackFrame,
+    pc: int,
+    msg: string,
+    lineInfo: TLineInfo,
+    infoOrigin: InstantiationInfo
+  ) =
+
   let action = if c.mode == emRepl: doRaise else: doNothing
-    # XXX test if we want 'globalError' for every mode
-  let lineInfo = if lineInfo == TLineInfo.default: c.debug[pc] else: lineInfo
-  liMessage(c.config, lineInfo, errGenerated, msg, action, infoOrigin)
+
+  let lineInfo =
+    if lineInfo == TLineInfo.default:
+      c.debug[pc]
+    else:
+      lineInfo
+
+  let report = wrap(
+    stackTraceAux(c, tos, pc),
+    toReportLinePoint(infoOrigin),
+    c.config.toReportLinePoint(lineInfo))
+
+  c.config.handleReport(report, action)
 
 template stackTrace(c: PCtx, tos: PStackFrame, pc: int,
                     msg: string, lineInfo: TLineInfo = TLineInfo.default) =
-  stackTraceImpl(c, tos, pc, msg, lineInfo, instantiationInfo(-2, fullPaths = compileOption"excessiveStackTrace"))
+  stackTraceImpl(
+    c, tos, pc, msg, lineInfo,
+    instantiationInfo(-2, fullPaths = compileOption"excessiveStackTrace"))
+
   return
 
 proc bailOut(c: PCtx; tos: PStackFrame) =
@@ -384,7 +399,9 @@ proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType):
         dest.node.strVal = if f.ast.isNil: f.name.s else: f.ast.strVal
       else:
         for i in 0..<n.len:
-          if n[i].kind != nkSym: internalError(c.config, "opConv for enum")
+          if n[i].kind != nkSym:
+            internalUnreachable(c.config, "opConv for enum")
+
           let f = n[i].sym
           if f.position == x:
             dest.node.strVal = if f.ast.isNil: f.name.s else: f.ast.strVal
@@ -414,7 +431,7 @@ proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType):
     of tyChar:
       dest.node.strVal = $chr(src.intVal)
     else:
-      internalError(c.config, "cannot convert to string " & desttyp.typeToString)
+      internalUnreachable(c.config, "cannot convert to string " & desttyp.typeToString)
   else:
     let desttyp = skipTypes(desttyp, abstractVarRange)
     case desttyp.kind
@@ -455,7 +472,7 @@ proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType):
         dest.floatVal = src.floatVal
     of tyObject:
       if srctyp.skipTypes(abstractVarRange).kind != tyObject:
-        internalError(c.config, "invalid object-to-object conversion")
+        internalUnreachable(c.config, "invalid object-to-object conversion")
       # A object-to-object conversion is essentially a no-op
       moveConst(dest, src)
     else:
@@ -471,9 +488,9 @@ template handleJmpBack() {.dirty.} =
     if allowInfiniteLoops in c.features:
       c.loopIterations = c.config.maxLoopIterationsVM
     else:
-      msgWriteln(c.config, "stack trace: (most recent call last)", {msgNoUnitSep})
-      stackTraceAux(c, tos, pc)
-      globalError(c.config, c.debug[pc], errTooManyIterations % $c.config.maxLoopIterationsVM)
+      globalError(c.config, c.debug[pc], stackTraceAux(
+        c, tos, pc, rsemTooManyIterations))
+
   dec(c.loopIterations)
 
 proc recSetFlagIsRef(arg: PNode) =
@@ -1231,13 +1248,14 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
                  currentLineInfo: c.debug[pc]))
       elif importcCond(c, prc):
         if compiletimeFFI notin c.config.features:
-          globalError(c.config, c.debug[pc], "VM not allowed to do FFI, see `compiletimeFFI`")
+          globalError(c.config, c.debug[pc], SemReport(kind: rsemVmEnableFFIToImportc))
         # we pass 'tos.slots' instead of 'regs' so that the compiler can keep
         # 'regs' in a register:
         when hasFFI:
           if prc.position - 1 < 0:
-            globalError(c.config, c.debug[pc],
+            internalUnreachable(c.config, c.debug[pc],
               "VM call invalid: prc.position: " & $prc.position)
+
           let prcValue = c.globals[prc.position-1]
           if prcValue.kind == nkEmpty:
             globalError(c.config, c.debug[pc], "cannot run " & prc.name.s)
@@ -1251,7 +1269,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
             assert instr.opcode == opcIndCallAsgn
             putIntoReg(regs[ra], newValue)
         else:
-          globalError(c.config, c.debug[pc], "VM not built with FFI support")
+          globalError(c.config, c.debug[pc], SemReport(kind: rsemVmCannotImportc))
       elif prc.kind != skTemplate:
         let newPc = compile(c, prc)
         # tricky: a recursion is also a jump back, so we use the same
@@ -1479,7 +1497,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       regs[ra].node.strVal = renderTree(regs[rb].regToNode, {renderNoComments, renderDocComments})
     of opcQuit:
       if c.mode in {emRepl, emStaticExpr, emStaticStmt}:
-        message(c.config, c.debug[pc], hintQuitCalled)
+        localReport(c.config, c.debug[pc], SemReport(kind: rintQuitCalled))
         msgQuit(int8(toInt(getOrdValue(regs[ra].regToNode, onError = toInt128(1)))))
       else:
         return TFullReg(kind: rkNone)
@@ -1755,9 +1773,9 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if instr.opcode == opcNError:
         stackTrace(c, tos, pc, a.strVal, info)
       elif instr.opcode == opcNWarning:
-        message(c.config, info, warnUser, a.strVal)
+        localReport(c.config, info, SemReport(kind: rsemUserWarning, msg: a.strVal))
       elif instr.opcode == opcNHint:
-        message(c.config, info, hintUser, a.strVal)
+        localReport(c.config, info, SemReport(kind: rsemUserHint, msg: a.strVal))
     of opcParseExprToAst:
       decodeB(rkNode)
       # c.debug[pc].line.int - countLines(regs[rb].strVal) ?
@@ -1805,7 +1823,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       of 2: # getColumn
         regs[ra].node = newIntNode(nkIntLit, n.info.col)
       else:
-        internalAssert c.config, false
+        internalAssert(c.config, false, "Unexpected opcNGetLineInfo action code")
+
       regs[ra].node.info = n.info
       regs[ra].node.typ = n.typ
     of opcNSetLineInfo:
@@ -1902,7 +1921,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         # asgnRef(regs[ra], dest)
         putIntoReg(regs[ra], dest)
       else:
-        globalError(c.config, c.debug[pc], "cannot evaluate cast")
+        globalError(c.config, c.debug[pc], SemReport(kind: rsemVmCannotCast))
     of opcNSetIntVal:
       decodeB(rkNode)
       var dest = regs[ra].node
@@ -1938,8 +1957,14 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
     of opcNSetType:
       decodeB(rkNode)
       let b = regs[rb].node
-      internalAssert c.config, b.kind == nkSym and b.sym.kind == skType
-      internalAssert c.config, regs[ra].node != nil
+      internalAssert(
+        c.config,
+        b.kind == nkSym and b.sym.kind == skType,
+        "Canot set type to a non-skType symbol")
+
+      internalAssert(
+        c.config, regs[ra].node != nil, "Target node must not be nil")
+
       regs[ra].node.typ = b.sym.typ
     of opcNSetStrVal:
       decodeB(rkNode)
@@ -1955,7 +1980,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       decodeBC(rkNode)
       var k = regs[rb].intVal
       if k < 0 or k > ord(high(TNodeKind)):
-        internalError(c.config, c.debug[pc],
+        internalUnreachable(c.config, c.debug[pc],
           "request to create a NimNode of invalid kind")
       let cc = regs[rc].node
 
@@ -1989,7 +2014,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       let name = if regs[rc].node.strVal.len == 0: ":tmp"
                  else: regs[rc].node.strVal
       if k < 0 or k > ord(high(TSymKind)):
-        internalError(c.config, c.debug[pc], "request to create symbol of invalid kind")
+        internalUnreachable(c.config, c.debug[pc], "request to create symbol of invalid kind")
       var sym = newSym(k.TSymKind, getIdent(c.cache, name), nextSymId c.idgen, c.module.owner, c.debug[pc])
       incl(sym.flags, sfGenSym)
       regs[ra].node = newSymNode(sym)
@@ -2101,7 +2126,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       # type trait operation
       decodeB(rkNode)
       var typ = regs[rb].node.typ
-      internalAssert c.config, typ != nil
+      internalAssert(c.config, typ != nil, "")
       while typ.kind == tyTypeDesc and typ.len > 0: typ = typ[0]
       createStr regs[ra]
       regs[ra].node.strVal = typ.typeToString(preferExported)
@@ -2119,9 +2144,11 @@ proc execProc*(c: PCtx; sym: PSym; args: openArray[PNode]): PNode =
   c.loopIterations = c.config.maxLoopIterationsVM
   if sym.kind in routineKinds:
     if sym.typ.len-1 != args.len:
-      localError(c.config, sym.info,
-        "NimScript: expected $# arguments, but got $#" % [
-        $(sym.typ.len-1), $args.len])
+      localError(c.config, sym.info, SemReport(
+        kind: rsemWrongNumberOfArguments,
+        psym: sym,
+        countMismatch: (expected: sym.typ.len - 1, got: args.len)))
+
     else:
       let start = genProc(c, sym)
 
@@ -2138,8 +2165,8 @@ proc execProc*(c: PCtx; sym: PSym; args: openArray[PNode]): PNode =
 
       result = rawExecute(c, start, tos).regToNode
   else:
-    localError(c.config, sym.info,
-      "NimScript: attempt to call non-routine: " & sym.name.s)
+    localError(c.config, sym.info, SemReport(
+      kind: rsemVmCallingNonRoutine, psym: sym))
 
 proc evalStmt*(c: PCtx, n: PNode) =
   let n = transformExpr(c.graph, c.idgen, c.module, n)
@@ -2159,12 +2186,12 @@ proc evalExpr*(c: PCtx, n: PNode): PNode =
   result = execute(c, start)
 
 proc getGlobalValue*(c: PCtx; s: PSym): PNode =
-  internalAssert c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags
+  internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags, "")
   result = c.globals[s.position-1]
 
 proc setGlobalValue*(c: PCtx; s: PSym, val: PNode) =
   ## Does not do type checking so ensure the `val` matches the `s.typ`
-  internalAssert c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags
+  internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags, "")
   c.globals[s.position-1] = val
 
 include vmops
@@ -2291,13 +2318,16 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
   # XXX globalError() is ugly here, but I don't know a better solution for now
   inc(g.config.evalMacroCounter)
   if g.config.evalMacroCounter > evalMacroLimit:
-    globalError(g.config, n.info, "macro instantiation too nested")
+    globalError(g.config, n.info, SemReport(
+      kind: rsemMacroInstantiationTooNested, expression: n))
 
   # immediate macros can bypass any type and arity checking so we check the
   # arity here too:
   if sym.typ.len > n.safeLen and sym.typ.len > 1:
-    globalError(g.config, n.info, "in call '$#' got $#, but expected $# argument(s)" % [
-        n.renderTree, $(n.safeLen-1), $(sym.typ.len-1)])
+    globalError(g.config, n.info, SemReport(
+      kind: rsemWrongNumberOfArguments,
+      expression: n,
+      countMismatch: (sym.typ.len - 1, n.safeLen - 1)))
 
   setupGlobalCtx(module, g, idgen)
   var c = PCtx g.vm
@@ -2333,13 +2363,17 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
     else:
       dec(g.config.evalMacroCounter)
       c.callsite = nil
-      localError(c.config, n.info, "expected " & $gp.len &
-                 " generic parameter(s)")
+      localError(c.config, n.info, SemReport(
+        kind: rsemWrongNumberOfGenericParams,
+        countMismatch: (gp.len, idx)))
+
   # temporary storage:
   #for i in L..<maxSlots: tos.slots[i] = newNode(nkEmpty)
   result = rawExecute(c, start, tos).regToNode
   if result.info.line < 0: result.info = n.info
-  if cyclicTree(result): globalError(c.config, n.info, "macro produced a cyclic tree")
+  if cyclicTree(result):
+    globalError(c.config, n.info, SemReport(kind: rsemCyclicTree, expression: n))
+
   dec(g.config.evalMacroCounter)
   c.callsite = nil
   c.mode = oldMode

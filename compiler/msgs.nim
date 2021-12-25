@@ -16,7 +16,7 @@ import
 
 from ast_types import PSym
 
-type InstantiationInfo* = typeof(instantiationInfo())
+export InstantiationInfo
 
 template instLoc*(): InstantiationInfo =
   ## Genereate instantiation info location information

@@ -10,7 +10,8 @@
 ## Template evaluation engine. Now hygienic.
 
 import
-  strutils, options, ast, astalgo, msgs, renderer, lineinfos, idents
+  strutils, options, ast, astalgo, msgs, renderer, lineinfos, idents,
+  reports
 
 type
   TemplCtx = object
@@ -46,7 +47,7 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
            s.kind == skType and s.typ != nil and s.typ.kind == tyGenericParam):
         handleParam actual[s.owner.typ.len + s.position - 1]
       else:
-        internalAssert c.config, sfGenSym in s.flags or s.kind == skType
+        internalAssert(c.config, sfGenSym in s.flags or s.kind == skType, "")
         var x = PSym(idTableGet(c.mapping, s))
         if x == nil:
           x = copySym(s, nextSymId(c.idgen))
@@ -121,11 +122,12 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
   if givenRegularParams < 0: givenRegularParams = 0
 
   if totalParams > expectedRegularParams + genericParams:
-    globalError(conf, n.info, errWrongNumberOfArguments)
+    globalError(conf, n.info, SemReport(
+      kind: rsemWrongNumberOfArguments, expression: n))
 
   if totalParams < genericParams:
-    globalError(conf, n.info, errMissingGenericParamsForTemplate %
-                n.renderTree)
+    globalError(conf, n.info, SemReport(
+      kind: rsemMissingGenericParamsForTemplate, expression: n))
 
   result = newNodeI(nkArgList, n.info)
   for i in 1..givenRegularParams:
@@ -136,7 +138,7 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
   for i in givenRegularParams+1..expectedRegularParams:
     let default = s.typ.n[i].sym.ast
     if default.isNil or default.kind == nkEmpty:
-      localError(conf, n.info, errWrongNumberOfArguments)
+      localError(conf, n, rsemWrongNumberOfArguments)
       result.add newNodeI(nkEmpty, n.info)
     else:
       result.add default.copyTree
@@ -177,7 +179,9 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
                    fromHlo=false): PNode =
   inc(conf.evalTemplateCounter)
   if conf.evalTemplateCounter > evalTemplateLimit:
-    globalError(conf, n.info, errTemplateInstantiationTooNested)
+    globalError(conf, n.info, SemReport(
+      kind: rsemTemplateInstantiationTooNested))
+
     result = n
 
   # replace each param by the corresponding node:
@@ -196,10 +200,15 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
   if isAtom(body):
     result = newNodeI(nkPar, body.info)
     evalTemplateAux(body, args, ctx, result)
-    if result.len == 1: result = result[0]
+    if result.len == 1:
+      result = result[0]
+
     else:
-      localError(conf, result.info, "illformed AST: " &
-                  renderTree(result, {renderNoComments}))
+      localError(conf, result.info, SemReport(
+        kind: rsemIllformedAst,
+        msg: "Expected single subnode, but found "& $result.len,
+        expression: result))
+
   else:
     result = copyNode(body)
     ctx.instLines = sfCallsite in tmpl.flags

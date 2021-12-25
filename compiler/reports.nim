@@ -17,7 +17,7 @@
 import std/[options]
 
 import ast_types, nilcheck_enums
-export ast_types, options.some
+export ast_types, options.some, options.none, options.Option
 
 type InstantiationInfo* = typeof(instantiationInfo())
 
@@ -66,6 +66,8 @@ type
     ## categories - this enum exists only to make it easier to work with
     ## different report kinds, without having to manage seven different
     ## enum types.
+
+    repNone
 
     #--------------------------  Internal reports  ---------------------------#
     # Internal reports being
@@ -297,6 +299,7 @@ type
     rsemCallTypeMismatch
     rsemExpressionCannotBeCalled
     rsemWrongNumberOfArguments
+    rsemWrongNumberOfGenericParams
     rsemAmbiguousCall
     rsemCallingConventionMismatch
     rsemHasSideEffects
@@ -310,6 +313,10 @@ type
     rsemIllegalCallconvCapture
     rsemIllegalMemoryCapture
     rsemIgnoreInvalidForLoop
+    rsemMissingGenericParamsForTemplate
+    rsemTemplateInstantiationTooNested
+    rsemMacroInstantiationTooNested
+
 
     rsemInvalidMethodDeclarationOrder # Right now I have no idea what this
     # error means exactly. It /does/ have a 'sort of' reproducible example
@@ -380,9 +387,14 @@ type
     rsemVmInvalidObjectConstructor
     rsemVmNoClosureIterators
     rsemVmCannotCallMethod
+    rsemVmCallingNonRoutine
 
+    rsemVmStackTrace
+    rsemTooManyIterations
 
     rsemMissingImportcCompleteStruct
+
+    rsemCyclicTree
 
     # Pragma
     rsemInvalidPragma
@@ -756,6 +768,18 @@ type
 
         sideEffectMutateConnection*: ReportLinePoint
 
+      of rsemVmStackTrace:
+        traceReason*: ReportKind
+        stacktrace*: seq[tuple[
+          sym: PSym,
+          location: ReportLinePoint
+        ]]
+
+      of rsemWrongNumberOfArguments,
+         rsemWrongNumberOfGenericParams:
+        countMismatch*: tuple[expected, got: int]
+
+
       of rsemInvalidExtern:
         externName*: string
 
@@ -799,6 +823,8 @@ type
 
       of rsemStaticOutOfBounds:
         indexSpec*: tuple[maxIdx, usedIdx: int64]
+
+
 
       of rsemProcessing:
         processing*: tuple[
@@ -1093,12 +1119,17 @@ func wrap*[R: ReportTypes](rep: sink R, iinfo: InstantiationInfo): Report =
   tmp.reportInst = toReportLinePoint(iinfo)
   return wrap(tmp)
 
+
 func wrap*[R: ReportTypes](
-    rep: sink R, iinfo: InstantiationInfo, point: ReportLinePoint): Report =
+    rep: sink R, iinfo, point: ReportLinePoint): Report =
   var tmp = rep
-  tmp.reportInst = toReportLinePoint(iinfo)
+  tmp.reportInst = iinfo
   tmp.location = some(ReportLineInfo(isRange: false, lpoint: point))
   return wrap(tmp)
+
+func wrap*[R: ReportTypes](
+    rep: sink R, iinfo: InstantiationInfo, point: ReportLinePoint): Report =
+  wrap(rep, toReportLinePoint(iinfo), point)
 
 
 type
