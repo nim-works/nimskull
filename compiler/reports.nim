@@ -259,6 +259,7 @@ type
     rsemRecursiveInclude
     rsemCannotOpenFile
     rsemExportRequiresToplevel
+    rsemUsingRequiresToplevel
     rsemInvalidVisibility
 
     # ..
@@ -382,6 +383,30 @@ type
     rsemIsNotParameterOf
     rsemParameterNotPointerToPartial
 
+    # Statements
+    rsemDiscardingVoid
+    rsemDiscardingProc
+    rsemInvalidControlFlow
+    rsemContinueCannotHaveLabel
+    rsemUseOrDiscard
+    rsemCannotBeRaised
+    rsemExceptionAlreadyHandled
+    rsemCannotExceptNativeAndImported
+    rsemExpectedSingleFinally
+    rsemExpectedSingleGeneralExcept
+    rsemCannotConvertToRange
+    rsemUsingRequiresType
+    rsemUsingDisallowsAssign
+    rsemDifferentTypeForReintroducedSymbol
+    rsemImplicitFieldConstructinoRequiresPartial
+    rsemCannotInferTypeOfLiteral
+    rsemProcHasNoConcreteType
+    rsemThreadvarCannotInit
+    rsemLetNeedsInit
+    rsemConstExpressionExpected
+    rsemFieldsIteratorCannotContinue
+    rsemParallelFieldsDisallowsCase
+    rsemNoObjectOrTupleType
 
     # Identifier Lookup
     rsemUndeclaredIdentifier
@@ -559,7 +584,8 @@ type
     rsemInheritFromException
     rsemPtrRegionIsDeprecated
     rsemTypedReturnDeprecated
-
+    rsemEachIdentIsTuple
+    rsemResultShadowed
 
     rsemLinterReport
     # end
@@ -586,7 +612,7 @@ type
     rsemCopiesToSink ## Passing data to the `sink` parameter still copies
                      ## due to control flow in the code
 
-    hintGlobalVar = "GlobalVar" ## Track global variable declarations?
+    rsemGlobalVar = "GlobalVar" ## Track global variable declarations?
 
     rsemEffectsListingHint
     rsemExpandMacro = "ExpandMacro" ## Trace macro expansion progress
@@ -897,8 +923,8 @@ type
          rsemCannotConvertTypes,
          rsemImplicitObjConv,
          rsemVmCannotCast,
-         rsemCannotInstantiateWithParameter
-           :
+         rsemCannotInstantiateWithParameter,
+         rsemDifferentTypeForReintroducedSymbol:
         typeMismatch*: seq[SemTypeMismatch]
 
       of rsemSymbolKindMismatch:

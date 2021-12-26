@@ -1563,9 +1563,9 @@ proc typeMismatch*(conf: ConfigRef, formal, actual: PType): SemTypeMismatch =
     result.procEffectsCompat = compatibleEffects(formal, actual)
 
 proc typeMismatch*(
-  conf: ConfigRef, actual: PType, wanted: set[TTypeKind]): SemTypeMismatch =
+  conf: ConfigRef, actual: PType, formal: set[TTypeKind]): SemTypeMismatch =
 
-  SemTypeMismatch(actualType: actual, wantedTypeKind: wanted)
+  SemTypeMismatch(actualType: actual, wantedTypeKind: formal)
 
 proc typeMismatch*(
     conf: ConfigRef; info: TLineInfo, formal, actual: PType, n: PNode): PNode =
@@ -1579,6 +1579,20 @@ proc typeMismatch*(
 
     result = newError(n, rsemTypeMismatch, conf.store(info, rep), instLoc())
     result.info = info
+
+proc semReportTypeMismatch*(
+    conf: ConfigRef,
+    node: PNode,
+    formal: PType | set[TTypeKind],
+    actual: PType
+  ): SemReport =
+
+  result = SemReport(
+    kind: when formal is PType: rsemTypeMismatch else: rsemTypeKindMismatch,
+    expression: node,
+    typeMismatch: @[typeMismatch(
+      conf, formal = formal, actual = actual)]
+  )
 
 proc isTupleRecursive(t: PType, cycleDetector: var IntSet): bool =
   if t == nil:

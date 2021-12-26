@@ -45,10 +45,10 @@ proc semDiscard(c: PContext, n: PNode): PNode =
     let sonType = n[0].typ
     let sonKind = n[0].kind
     if isEmptyType(sonType) or sonType.kind in {tyNone, tyTypeDesc} or sonKind == nkTypeOfExpr:
-      localError(c.config, n.info, errInvalidDiscard)
+      localError(c.config, n, rsemDiscardingVoid)
     if sonType.kind == tyProc and sonKind notin nkCallKinds:
       # tyProc is disallowed to prevent ``discard foo`` to be valid, when ``discard foo()`` is meant.
-      localError(c.config, n.info, "illegal discard proc, did you mean: " & $n[0] & "()")
+      localError(c.config, n, rsemDiscardingProc)
 
 proc semBreakOrContinue(c: PContext, n: PNode): PNode =
   result = n
@@ -56,10 +56,12 @@ proc semBreakOrContinue(c: PContext, n: PNode): PNode =
   if n[0].kind != nkEmpty:
     if n.kind != nkContinueStmt:
       var s: PSym
-      case n[0].kind
-      of nkIdent: s = lookUp(c, n[0])
-      of nkSym: s = n[0].sym
-      else: illFormedAst(n, c.config)
+      case n[0].kind:
+        of nkIdent: s = lookUp(c, n[0])
+        of nkSym: s = n[0].sym
+        else:
+          semReportIllformedAst(c.config, n, {nkIdent, nkSym})
+
       s = getGenSym(c, s)
       if s.kind == skLabel and s.owner.id == c.p.owner.id:
         var x = newSymNode(s)
@@ -69,12 +71,15 @@ proc semBreakOrContinue(c: PContext, n: PNode): PNode =
         suggestSym(c.graph, x.info, s, c.graph.usageSym)
         onUse(x.info, s)
       else:
-        localError(c.config, n.info, errInvalidControlFlowX % s.name.s)
+        localError(c.config, n.info, SemReport(
+          kind: rsemInvalidControlFlow, psym: s))
+
     else:
-      localError(c.config, n.info, errGenerated, "'continue' cannot have a label")
-  elif (c.p.nestedLoopCounter <= 0) and ((c.p.nestedBlockCounter <= 0) or n.kind == nkContinueStmt):
-    localError(c.config, n.info, errInvalidControlFlowX %
-               renderTree(n, {renderNoComments}))
+      localError(c.config, n, rsemContinueCannotHaveLabel)
+  elif (c.p.nestedLoopCounter <= 0) and
+       ((c.p.nestedBlockCounter <= 0) or n.kind == nkContinueStmt):
+
+    localError(c.config, n, rsemInvalidControlFlow)
 
 proc semAsm(c: PContext, n: PNode): PNode =
   checkSonsLen(n, 2, c.config)
@@ -112,10 +117,12 @@ proc semExprBranchScope(c: PContext, n: PNode): PNode =
 proc fixNilType(c: PContext; n: PNode) =
   if isAtom(n):
     if n.kind != nkNilLit and n.typ != nil:
-      localError(c.config, n.info, errDiscardValueX % n.typ.typeToString)
+      localError(c.config, n, rsemUseOrDiscard)
   elif n.kind in {nkStmtList, nkStmtListExpr}:
     n.transitionSonsKind(nkStmtList)
-    for it in n: fixNilType(c, it)
+    for it in n:
+      fixNilType(c, it)
+
   n.typ = nil
 
 # start `discard` check related code
@@ -144,15 +151,10 @@ proc discardCheck(c: PContext, result: PNode, flags: TExprFlags) =
       n[0] = result
     elif result.typ.kind != tyError and c.config.cmd != cmdInteractive:
       var n = result
-      while n.kind in skipForDiscardable: n = n.lastSon
-      var s = "expression '" & $n & "' is of type '" &
-          result.typ.typeToString & "' and has to be used (or discarded)"
-      if result.info.line != n.info.line or
-          result.info.fileIndex != n.info.fileIndex:
-        s.add "; start of expression here: " & c.config$result.info
-      if result.typ.kind == tyProc:
-        s.add "; for a function call use ()"
-      localError(c.config, n.info, s)
+      while n.kind in skipForDiscardable:
+        n = n.lastSon
+
+      localError(c.config, n, rsemUseOrDiscard)
 
 # end `discard` check related code
 
@@ -172,7 +174,11 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
       hasElse = true
       it[0] = semExprBranchScope(c, it[0])
       typ = commonType(c, typ, it[0])
-    else: illFormedAst(it, c.config)
+    else:
+      semReportIllformedAst(
+        c.config, it,
+        "Expected one or two subnodes for if statement, but found " & $it.len)
+
   if isEmptyType(typ) or typ.kind in {tyNil, tyUntyped} or
       (not hasElse and efInTypeof notin flags):
     for it in n: discardCheck(c, it.lastSon, flags)
@@ -196,10 +202,13 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
     if isImportedException(typ, c.config):
       isImported = true
     elif not isException(typ):
-      localError(c.config, typeNode.info, errExprCannotBeRaised)
+      localError(c.config, typeNode.info, SemReport(
+        kind: rsemCannotBeRaised, rtype: typ, expression: typeNode))
 
     if containsOrIncl(check, typ.id):
-      localError(c.config, typeNode.info, errExceptionAlreadyHandled)
+      localError(c.config, typeNode.info, SemReport(
+        kind: rsemExceptionAlreadyHandled, rtype: typ))
+
     typeNode = newNodeIT(nkType, typeNode.info, typ)
     isImported
 
@@ -244,35 +253,43 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
           # cannot be followed by a ``except KeyError, ... : body`` block
           inc catchAllExcepts
         var isNative, isImported: bool
-        for j in 0..<a.len-1:
+        for j in 0 ..< a.len-1:
           let tmp = semExceptBranchType(a[j])
           if tmp: isImported = true
           else: isNative = true
 
         if isNative and isImported:
-          localError(c.config, a[0].info, "Mix of imported and native exception types is not allowed in one except branch")
+          localError(c.config, a[0].info, SemReport(
+            kind: rsemCannotExceptNativeAndImported,
+            expression: a))
 
     elif a.kind == nkFinally:
-      if i != n.len-1:
-        localError(c.config, a.info, "Only one finally is allowed after all other branches")
+      if i != n.len - 1:
+        localError(c.config, a, rsemExpectedSingleFinally)
 
     else:
-      illFormedAst(n, c.config)
+      semReportIllformedAst(c.config, n, "?")
 
     if catchAllExcepts > 1:
       # if number of ``except: body`` blocks is greater than 1
       # or more specific exception follows a general except block, it is invalid
-      localError(c.config, a.info, "Only one general except clause is allowed after more specific exceptions")
+      localError(c.config, a, rsemExpectedSingleGeneralExcept)
 
     # last child of an nkExcept/nkFinally branch is a statement:
     a[^1] = semExprBranchScope(c, a[^1])
-    if a.kind != nkFinally: typ = commonType(c, typ, a[^1])
-    else: dec last
+    if a.kind != nkFinally:
+      typ = commonType(c, typ, a[^1])
+
+    else:
+      dec last
+
     closeScope(c)
 
   if isEmptyType(typ) or typ.kind in {tyNil, tyUntyped}:
     discardCheck(c, n[0], flags)
-    for i in 1..<n.len: discardCheck(c, n[i].lastSon, flags)
+    for i in 1 ..< n.len:
+      discardCheck(c, n[i].lastSon, flags)
+
     if typ == c.enforceVoidContext:
       result.typ = c.enforceVoidContext
   else:
@@ -289,12 +306,15 @@ proc fitRemoveHiddenConv(c: PContext, typ: PType, n: PNode): PNode =
   result = fitNode(c, typ, n, n.info)
   if result.kind in {nkHiddenStdConv, nkHiddenSubConv}:
     let r1 = result[1]
-    if r1.kind in {nkCharLit..nkUInt64Lit} and typ.skipTypes(abstractRange).kind in {tyFloat..tyFloat128}:
+    if r1.kind in {nkCharLit..nkUInt64Lit} and
+       typ.skipTypes(abstractRange).kind in {tyFloat..tyFloat128}:
       result = newFloatNode(nkFloatLit, BiggestFloat r1.intVal)
       result.info = n.info
       result.typ = typ
       if not floatRangeCheck(result.floatVal, typ):
-        localError(c.config, n.info, errFloatToString % [$result.floatVal, typeToString(typ)])
+        localError(c.config, n.info, SemReport(
+          kind: rsemCannotConvertToRange, expression: result, rtype: typ))
+
     else:
       changeType(c, r1, typ, check=true)
       result = r1
@@ -341,9 +361,12 @@ proc semIdentDef(c: PContext, n: PNode, kind: TSymKind): PSym =
 proc checkNilable(c: PContext; v: PSym) =
   if {sfGlobal, sfImportc} * v.flags == {sfGlobal} and v.typ.requiresInit:
     if v.astdef.isNil:
-      message(c.config, v.info, warnProveInit, v.name.s)
-    elif tfNotNil in v.typ.flags and not v.astdef.typ.isNil and tfNotNil notin v.astdef.typ.flags:
-      message(c.config, v.info, warnProveInit, v.name.s)
+      localReport(c.config, v.info, SemReport(kind: rsemProveInit, psym: v))
+
+    elif tfNotNil in v.typ.flags and
+         not v.astdef.typ.isNil and
+         tfNotNil notin v.astdef.typ.flags:
+      localReport(c.config, v.info, SemReport(kind: rsemProveInit, psym: v))
 
 #include liftdestructors
 
@@ -363,26 +386,30 @@ proc isDiscardUnderscore(v: PSym): bool =
 
 proc semUsing(c: PContext; n: PNode): PNode =
   result = c.graph.emptyNode
-  if not isTopLevel(c): localError(c.config, n.info, errXOnlyAtModuleScope % "using")
+  if not isTopLevel(c):
+    localError(c.config, n, rsemUsingRequiresToplevel)
+
   for i in 0..<n.len:
     var a = n[i]
     if c.config.cmd == cmdIdeTools: suggestStmt(c, a)
     if a.kind == nkCommentStmt: continue
-    if a.kind notin {nkIdentDefs, nkVarTuple, nkConstDef}: illFormedAst(a, c.config)
+    if a.kind notin {nkIdentDefs, nkVarTuple, nkConstDef}:
+      semReportIllformedAst(c.config, a, {nkIdentDefs, nkVarTuple, nkConstDef})
+
     checkMinSonsLen(a, 3, c.config)
     if a[^2].kind != nkEmpty:
       let typ = semTypeNode(c, a[^2], nil)
-      for j in 0..<a.len-2:
+      for j in 0 ..< a.len - 2:
         let v = semIdentDef(c, a[j], skParam)
         styleCheckDef(c.config, v)
         onDef(a[j].info, v)
         v.typ = typ
         strTableIncl(c.signatures, v)
     else:
-      localError(c.config, a.info, "'using' section must have a type")
+      localError(c.config, a, rsemUsingRequiresType)
     var def: PNode
     if a[^1].kind != nkEmpty:
-      localError(c.config, a.info, "'using' sections cannot contain assignments")
+      localError(c.config, a, rsemUsingDisallowsAssign)
 
 proc hasEmpty(typ: PType): bool =
   if typ.kind in {tySequence, tyArray, tySet}:
@@ -439,29 +466,33 @@ proc fillPartialObject(c: PContext; n: PNode; typ: PType) =
       n[1] = newSymNode(field)
       n.typ = field.typ
     else:
-      localError(c.config, n.info, "implicit object field construction " &
-        "requires a .partial object, but got " & typeToString(obj))
+      localError(c.config, n.info, SemReport(
+        kind: rsemImplicitFieldConstructinoRequiresPartial,
+        rtype: obj))
+
   else:
-    localError(c.config, n.info, "nkDotNode requires 2 children")
+    semReportIllformedAst(
+      c.config, n, "nkDotNode requires 2 children")
 
 proc setVarType(c: PContext; v: PSym, typ: PType) =
   if v.typ != nil and not sameTypeOrNil(v.typ, typ):
-    localError(c.config, v.info, "inconsistent typing for reintroduced symbol '" &
-        v.name.s & "': previous type was: " & typeToString(v.typ, preferDesc) &
-        "; new type is: " & typeToString(typ, preferDesc))
+    localError(
+      c.config, v.info,
+      SemReport(
+        kind: rsemDifferentTypeForReintroducedSymbol,
+        psym: v,
+        typeMismatch: @[c.config.typeMismatch(
+          actual = typ, formal = v.typ)]))
+
   v.typ = typ
 
 proc errorSymChoiceUseQualifier(c: PContext; n: PNode) =
   assert n.kind in nkSymChoices
-  var err = "ambiguous identifier: '" & $n[0] & "'"
-  var i = 0
+  var rep = SemReport(kind: rsemAmbiguous, expression: n)
   for child in n:
-    let candidate = child.sym
-    if i == 0: err.add " -- use one of the following:\n"
-    else: err.add "\n"
-    err.add "  " & candidate.owner.name.s & "." & candidate.name.s
-    inc i
-  localError(c.config, n.info, errGenerated, err)
+    rep.candidates.add child.sym
+
+  localError(c.config, n.info, rep)
 
 proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
   var b: PNode
@@ -474,7 +505,9 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
     var a = n[i]
     if c.config.cmd == cmdIdeTools: suggestStmt(c, a)
     if a.kind == nkCommentStmt: continue
-    if a.kind notin {nkIdentDefs, nkVarTuple}: illFormedAst(a, c.config)
+    if a.kind notin {nkIdentDefs, nkVarTuple}:
+      semReportIllformedAst(c.config, a, {nkIdentDefs, nkVarTuple})
+
     checkMinSonsLen(a, 3, c.config)
 
     var typ: PType = nil
@@ -509,10 +542,14 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
         if typ.kind in tyUserTypeClasses and typ.isResolvedUserTypeClass:
           typ = typ.lastSon
         if hasEmpty(typ):
-          localError(c.config, def.info, errCannotInferTypeOfTheLiteral % typ.kind.toHumanStr)
-        elif typ.kind == tyProc and def.kind == nkSym and isGenericRoutine(def.sym.ast):
+          localError(c.config, def.info, SemReport(
+            kind: rsemCannotInferTypeOfLiteral, rtype: typ))
+
+        elif typ.kind == tyProc and
+             def.kind == nkSym and
+             isGenericRoutine(def.sym.ast):
           # tfUnresolved in typ.flags:
-          localError(c.config, def.info, errProcHasNoConcreteType % def.renderTree)
+          localError(c.config, def, rsemProcHasNoConcreteType)
 
     # this can only happen for errornous var statements:
     if typ == nil: continue
@@ -524,9 +561,17 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
     var tup = skipTypes(typ, {tyGenericInst, tyAlias, tySink})
     if a.kind == nkVarTuple:
       if tup.kind != tyTuple:
-        localError(c.config, a.info, errXExpected, "tuple")
-      elif a.len-2 != tup.len:
-        localError(c.config, a.info, errWrongNumberOfVariables)
+        localError(c.config, a.info, SemReport(
+          kind: rsemTypeKindMismatch,
+          typeMismatch: @[c.config.typeMismatch(tup, {tyTuple})]))
+
+      elif a.len - 2 != tup.len:
+        var rep = semReportCountMismatch(
+          rsemWrongNumberOfVariables, expected = a.len - 2, got = tup.len)
+        rep.expression = a
+
+        localError(c.config, a.info, rep)
+
       b = newNodeI(nkVarTuple, a.info)
       newSons(b, a.len)
       # keep type desc for doc generator
@@ -536,7 +581,7 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
       addToVarSection(c, result, n, b)
     elif tup.kind == tyTuple and def.kind in {nkPar, nkTupleConstr} and
         a.kind == nkIdentDefs and a.len > 3:
-      message(c.config, a.info, warnEachIdentIsTuple)
+      localReport(c.config, a.info, SemReport(kind: rsemEachIdentIsTuple))
 
     for j in 0..<a.len-2:
       if a[j].kind == nkDotExpr:
@@ -558,10 +603,11 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
           if shadowed != nil:
             shadowed.flags.incl(sfShadowed)
             if shadowed.kind == skResult and sfGenSym notin v.flags:
-              message(c.config, a.info, warnResultShadowed)
+              localReport(c.config, a.info, SemReport(kind: rsemResultShadowed))
       if a.kind != nkVarTuple:
         if def.kind != nkEmpty:
-          if sfThread in v.flags: localError(c.config, def.info, errThreadvarCannotInit)
+          if sfThread in v.flags:
+            localError(c.config, def, rsemThreadvarCannotInit)
         setVarType(c, v, typ)
         b = newNodeI(nkIdentDefs, a.info)
         if importantComments(c.config):
@@ -601,18 +647,21 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
           checkNilable(c, v)
         # allow let to not be initialised if imported from C:
         if v.kind == skLet and sfImportc notin v.flags:
-          localError(c.config, a.info, errLetNeedsInit)
+          localError(c.config, a, rsemLetNeedsInit)
       if sfCompileTime in v.flags:
         var x = newNodeI(result.kind, v.info)
         x.add result[i]
         vm.setupCompileTimeVar(c.module, c.idgen, c.graph, x)
+
       if v.flags * {sfGlobal, sfThread} == {sfGlobal}:
-        message(c.config, v.info, hintGlobalVar)
+        localReport(c.config, v.info, SemReport(
+          kind: rsemGlobalVar, psym: v))
+
   if hasError:
     # xxx: hasError is tricky, because we checked it with `isErrorLike`,
     #      meaning we might not actually have an nkError node in there. so we
     #      use this conditional wrapping.
-    result = wrapIfErrorInSubTree(result)
+    result = c.config.wrapIfErrorInSubTree(result)
 
 proc semConst(c: PContext, n: PNode): PNode =
   result = copyNode(n)
@@ -621,7 +670,9 @@ proc semConst(c: PContext, n: PNode): PNode =
     var a = n[i]
     if c.config.cmd == cmdIdeTools: suggestStmt(c, a)
     if a.kind == nkCommentStmt: continue
-    if a.kind notin {nkConstDef, nkVarTuple}: illFormedAst(a, c.config)
+    if a.kind notin {nkConstDef, nkVarTuple}:
+      semReportIllformedAst(c.config, a, {nkConstDef, nkVarTuple})
+
     checkMinSonsLen(a, 3, c.config)
 
     var typ: PType = nil
@@ -651,7 +702,7 @@ proc semConst(c: PContext, n: PNode): PNode =
     # evaluate the node
     def = semConstExpr(c, def)
     if def == nil:
-      localError(c.config, a[^1].info, errConstExprExpected)
+      localError(c.config, a[^1], rsemConstExpressionExpected)
       continue
     if def.kind != nkNilLit:
       if c.matchedConcept != nil:
@@ -661,9 +712,14 @@ proc semConst(c: PContext, n: PNode): PNode =
     var b: PNode
     if a.kind == nkVarTuple:
       if typ.kind != tyTuple:
-        localError(c.config, a.info, errXExpected, "tuple")
-      elif a.len-2 != typ.len:
-        localError(c.config, a.info, errWrongNumberOfVariables)
+        localError(c.config, a.info, c.config.semReportTypeMismatch(
+          a, {tyTuple}, typ))
+
+      elif a.len - 2 != typ.len:
+        localError(c.config, a.info, semReportCountMismatch(
+          rsemWrongNumberOfVariables, expected = typ.len, got = a.len - 2, a))
+
+
       b = newNodeI(nkVarTuple, a.info)
       newSons(b, a.len)
       b[^2] = a[^2]
@@ -704,7 +760,7 @@ proc symForVar(c: PContext, n: PNode): PSym =
     n[1] = pragma(c, result, n[1], forVarPragmas)
     # check if we got any errors and if so report them
     for e in ifErrorWalkErrors(c.config, n[1]):
-      messageError(c.config, e)
+      localError(c.config, e)
 
 proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
@@ -716,23 +772,36 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if iterAfterVarLent.kind != tyTuple or n.len == 3:
     if n.len == 3:
       if n[0].kind == nkVarTuple:
-        if n[0].len-1 != iterAfterVarLent.len:
-          return localErrorNode(c, n, n[0].info, errWrongNumberOfVariables)
+        if n[0].len - 1 != iterAfterVarLent.len:
+          return newError(c.config, n, semReportCountMismatch(
+            rsemWrongNumberOfVariables,
+            expected = iterAfterVarLent.len,
+            got = n[0].len - 1))
 
         for i in 0..<n[0].len-1:
           var v = symForVar(c, n[0][i])
-          if getCurrOwner(c).kind == skModule: incl(v.flags, sfGlobal)
-          case iter.kind
-          of tyVar, tyLent:
-            v.typ = newTypeS(iter.kind, c)
-            v.typ.add iterAfterVarLent[i]
-            if tfVarIsPtr in iter.flags:
-              v.typ.flags.incl tfVarIsPtr
-          else:
-            v.typ = iter[i]
+          if getCurrOwner(c).kind == skModule:
+            incl(v.flags, sfGlobal)
+
+          case iter.kind:
+            of tyVar, tyLent:
+              v.typ = newTypeS(iter.kind, c)
+              v.typ.add iterAfterVarLent[i]
+
+              if tfVarIsPtr in iter.flags:
+                v.typ.flags.incl tfVarIsPtr
+
+            else:
+              v.typ = iter[i]
+
           n[0][i] = newSymNode(v)
-          if sfGenSym notin v.flags and not isDiscardUnderscore(v): addDecl(c, v)
-          elif v.owner == nil: v.owner = getCurrOwner(c)
+
+          if sfGenSym notin v.flags and not isDiscardUnderscore(v):
+            addDecl(c, v)
+
+          elif v.owner == nil:
+            v.owner = getCurrOwner(c)
+
       else:
         var v = symForVar(c, n[0])
         if getCurrOwner(c).kind == skModule: incl(v.flags, sfGlobal)
@@ -744,9 +813,16 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
         if sfGenSym notin v.flags and not isDiscardUnderscore(v): addDecl(c, v)
         elif v.owner == nil: v.owner = getCurrOwner(c)
     else:
-      localError(c.config, n.info, errWrongNumberOfVariables)
-  elif n.len-2 != iterAfterVarLent.len:
-    localError(c.config, n.info, errWrongNumberOfVariables)
+      localError(c.config, n.info, semReportCountMismatch(
+        rsemWrongNumberOfVariables, expected = 3, got = n.len, n))
+
+  elif n.len - 2 != iterAfterVarLent.len:
+    localError(c.config, n.info, semReportCountMismatch(
+      rsemWrongNumberOfVariables,
+      expected = iterAfterVarLent.len,
+      got = n.len - 2,
+      n))
+
   else:
     for i in 0..<n.len - 2:
       if n[i].kind == nkVarTuple:
@@ -1929,7 +2005,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
   result = pragmaCallable(c, s, n, validPragmas)
   if not result.isErrorLike and not hasProto:
     s = implicitPragmas(c, s, n.info, validPragmas)
-  
+
   # check if we got any errors and if so report them
   if s != nil and s.kind == skError:
     result = s.ast
@@ -2207,7 +2283,7 @@ proc setLine(n: PNode, info: TLineInfo) =
 proc semPragmaBlock(c: PContext, n: PNode): PNode =
   checkSonsLen(n, 2, c.config)
   let pragmaList = pragma(c, nil, n[0], exprPragmas, isStatement = true)
-  
+
   if pragmaList != nil and pragmaList.kind == nkError:
     n[0] = pragmaList
     result = wrapErrorInSubTree(n)

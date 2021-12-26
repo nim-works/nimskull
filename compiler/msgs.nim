@@ -584,6 +584,16 @@ template localError*(conf: ConfigRef, node: PNode, reportKind: SemReportKind) =
       conf.toReportLinePoint(node.info)),
     doNothing)
 
+template localReport*(conf: ConfigRef, node: PNode, reportKind: SemReportKind) =
+  ## Write out new sem report using `node`'s positional information
+  handleReport(
+    conf,
+    wrap(
+      SemReport(expression: node, kind: reportKind),
+      instLoc(),
+      conf.toReportLinePoint(node.info)),
+    doNothing)
+
 proc temporaryStringError*(conf: ConfigRef, info: TLineInfo, text: string) =
   assert false
 
@@ -598,9 +608,12 @@ template localReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doNothing)
 
 proc semReportCountMismatch*(
-    kind: ReportKind, expected, got: distinct SomeInteger): SemReport =
+    kind: ReportKind,
+    expected, got: distinct SomeInteger,
+    node: PNode = nil,
+  ): SemReport =
 
-  result = SemReport(kind: kind)
+  result = SemReport(kind: kind, expression: node)
   result.countMismatch = (toInt128(expected), toInt128(got))
 
 template semReportIllformedAst*(
