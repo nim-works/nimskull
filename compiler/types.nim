@@ -1575,7 +1575,7 @@ proc typeMismatch*(
   if formal.kind != tyError and actual.kind != tyError:
     var rep = SemReport(
       kind: rsemTypeMismatch,
-      typeMismatch: typeMismatch(conf, formal, actual))
+      typeMismatch: @[typeMismatch(conf, formal, actual)])
 
     result = newError(n, rsemTypeMismatch, conf.store(info, rep), instLoc())
     result.info = info

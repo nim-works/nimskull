@@ -297,6 +297,7 @@ type
     rsemRangeIsEmpty
 
     rsemCannotInstantiate
+    rsemCannotInstantiateWithParameter
     rsemCannotGenerateGenericDestructor
     rsemUndeclaredField
     rsemInheritanceOnlyWorksWithAnEnum # I have **//ABSOLUTELY NO IDEA//**
@@ -316,7 +317,16 @@ type
     rsemExpectObjectForBase
     rsemExpectNonFinalForBase
 
+    rsemTVoidNotAllowed
+    rsemExpectedObjectForRegion
+    rsemMacroBodyDependsOnGenericTypes
+    rsemMalformedNotNilType
+    rsemEnableNotNilExperimental
+    rsemExpectedObjectType
+    rsemExpectedImportedType
+
     # Procedure definition and instantiation
+    rsemImplementationNotAllowed
     rsemImplementationExpected
     rsemRedefinitionOf
     rsemDefaultParamIsIncompatible
@@ -329,6 +339,7 @@ type
     rsemWrongNumberOfArguments
     rsemWrongNumberOfVariables
     rsemWrongNumberOfGenericParams
+    rsemNoGenericParamsAllowed
     rsemAmbiguousCall
     rsemCallingConventionMismatch
     rsemHasSideEffects
@@ -343,6 +354,12 @@ type
     rsemIllegalMemoryCapture
     rsemIgnoreInvalidForLoop
     rsemMissingGenericParamsForTemplate
+    rsemMisplacedMagicType
+    rsemCannotInferParameterType
+    rsemParameterRequiresAType
+    rsemParameterRedefinition
+    rsemInvalidExpression
+    rsemExpectedNonemptyPattern
 
     rsemTemplateInstantiationTooNested
     rsemMacroInstantiationTooNested
@@ -470,6 +487,7 @@ type
     rsemInitHereNotAllowed
     rsemIdentExpected
     rsemTypeExpected
+    rsemTypeInvalid
     rsemWrongIdent
     rsemPragmaOptionExpected
     rsemUnexpectedPushArgument
@@ -539,6 +557,8 @@ type
     rsemMethodLockMismatch
     rsemUseBase
     rsemInheritFromException
+    rsemPtrRegionIsDeprecated
+    rsemTypedReturnDeprecated
 
 
     rsemLinterReport
@@ -876,8 +896,10 @@ type
          rsemSemfoldInvalidConversion,
          rsemCannotConvertTypes,
          rsemImplicitObjConv,
-         rsemVmCannotCast:
-        typeMismatch*: SemTypeMismatch
+         rsemVmCannotCast,
+         rsemCannotInstantiateWithParameter
+           :
+        typeMismatch*: seq[SemTypeMismatch]
 
       of rsemSymbolKindMismatch:
         expectedSymbolKind*: set[TSymKind]

@@ -106,7 +106,7 @@ proc semBindStmt(c: PContext, n: PNode, toBind: var IntSet): PNode =
           toBind.incl(x.sym.id)
           result.add x
     else:
-      illFormedAst(a, c.config)
+      semReportIllformedAst(c.config, a, "")
 
 proc semMixinStmt(c: PContext, n: PNode, toMixin: var IntSet): PNode =
   result = copyNode(n)
@@ -124,7 +124,8 @@ proc replaceIdentBySym(c: PContext; n: var PNode, s: PNode) =
   of nkPostfix: replaceIdentBySym(c, n[1], s)
   of nkPragmaExpr: replaceIdentBySym(c, n[0], s)
   of nkIdent, nkAccQuoted, nkSym: n = s
-  else: illFormedAst(n, c.config)
+  else: semReportIllformedAst(
+    c.config, n, "Expected postfix, pragma or indent, but found " & $n.kind)
 
 type
   TemplCtx = object
@@ -148,7 +149,9 @@ proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
         result = newSymNode(s, n.info)
   of nkAccQuoted, nkSym: result = n
   else:
-    illFormedAst(n, c.c.config)
+    semReportIllformedAst(c.c.config, n, {
+      nkPostfix, nkPragmaExpr, nkIdent, nkAccQuoted})
+
     result = n
 
 proc isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
@@ -203,7 +206,9 @@ proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
         n = onlyReplaceParams(c, n)
         return
       else:
-        illFormedAst(x, c.c.config)
+        semReportIllformedAst(c.c.config, x, {
+          nkPostfix, nkPragmaExpr, nkIdent, nkAccQuoted})
+
     let ident = getIdentNode(c, x)
     if not isTemplParam(c, ident):
       c.toInject.incl(x.ident.id)
@@ -340,7 +345,8 @@ proc semTemplSomeDecl(c: var TemplCtx, n: PNode, symKind: TSymKind; start = 0) =
       for j in 0..<a.len-2:
         addLocalDecl(c, a[j], symKind)
     else:
-      illFormedAst(a, c.c.config)
+      semReportIllformedAst(c.c.config, a, {
+        nkCommentStmt, nkIdentDefs, nkVarTuple, nkConstDef})
 
 
 proc semPattern(c: PContext, n: PNode; s: PSym): PNode
@@ -461,13 +467,17 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     for i in 0..<n.len:
       var a = n[i]
       if a.kind == nkCommentStmt: continue
-      if (a.kind != nkTypeDef): illFormedAst(a, c.c.config)
+      if (a.kind != nkTypeDef):
+        semReportIllformedAst(c.c.config, a, {nkTypeDef})
+
       checkSonsLen(a, 3, c.c.config)
       addLocalDecl(c, a[0], skType)
     for i in 0..<n.len:
       var a = n[i]
       if a.kind == nkCommentStmt: continue
-      if (a.kind != nkTypeDef): illFormedAst(a, c.c.config)
+      if (a.kind != nkTypeDef):
+        semReportIllformedAst(c.c.config, a, {nkTypeDef})
+
       checkSonsLen(a, 3, c.c.config)
       if a[1].kind != nkEmpty:
         openScope(c)
@@ -628,12 +638,12 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
   result = pragmaCallable(c, s, n, templatePragmas)
   if result.kind != nkError:
     s = implicitPragmas(c, s, n.info, templatePragmas)
-  
+
   # check if we got any errors and if so report them
   if s != nil and s.kind == skError:
     result = s.ast
   for e in ifErrorWalkErrors(c.config, result):
-    messageError(c.config, e)
+    localError(c.config, e)
 
   setGenericParamsMisc(c, n)
   # process parameters:
@@ -685,9 +695,13 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
 
   if sfCustomPragma in s.flags:
     if n[bodyPos].kind != nkEmpty:
-      localError(c.config, n[bodyPos].info, errImplOfXNotAllowed % s.name.s)
+      localError(c.config, n[bodyPos].info, SemReport(
+        kind: rsemImplementationNotAllowed, psym: s))
+
   elif n[bodyPos].kind == nkEmpty:
-    localError(c.config, n.info, "implementation of '$1' expected" % s.name.s)
+    localError(c.config, n.info, SemReport(
+      kind: rsemImplementationExpected, psym: s))
+
   var (proto, comesFromShadowscope) = searchForProc(c, c.currentScope, s)
   if proto == nil:
     addInterfaceOverloadableSymAt(c, c.currentScope, s)
@@ -730,7 +744,7 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
     if s != nil and s.owner == c.owner and s.kind == skParam:
       result = newParam(c, n, s)
     else:
-      localError(c.c.config, n.info, "invalid expression")
+      localError(c.c.config, n, rsemInvalidExpression)
       result = n
 
   result = n
@@ -745,7 +759,7 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
     # we support '(pattern){x}' to bind a subpattern to a parameter 'x';
     # '(pattern){|x}' does the same but the matches will be gathered in 'x'
     if n.len != 2:
-      localError(c.c.config, n.info, "invalid expression")
+      localError(c.c.config, n, rsemInvalidExpression)
     elif n[1].kind == nkIdent:
       n[0] = semPatternBody(c, n[0])
       n[1] = expectParam(c, n[1])
@@ -755,9 +769,11 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
         n[0] = semPatternBody(c, n[0])
         n[1][1] = expectParam(c, n[1][1])
       else:
-        localError(c.c.config, n.info, "invalid expression")
+        localError(c.c.config, n, rsemInvalidExpression)
+
     else:
-      localError(c.c.config, n.info, "invalid expression")
+      localError(c.c.config, n, rsemInvalidExpression)
+
   of nkStmtList, nkStmtListExpr:
     if stupidStmtListExpr(n):
       result = semPatternBody(c, n.lastSon)
@@ -827,6 +843,6 @@ proc semPattern(c: PContext, n: PNode; s: PSym): PNode =
     if result.len == 1:
       result = result[0]
     elif result.len == 0:
-      localError(c.config, n.info, "a pattern cannot be empty")
+      localError(c.config, n, rsemExpectedNonemptyPattern)
   closeScope(c)
   addPattern(c, LazySym(sym: s))

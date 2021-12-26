@@ -51,7 +51,7 @@ proc annotateType*(n: PNode, t: PType; conf: ConfigRef) =
   proc malformedType(msg: string, expected: set[TTypeKind]) =
     globalError(conf, n.info, SemReport(
       kind: rsemTypeKindMismatch,
-      typeMismatch: conf.typeMismatch(n.typ, expected),
+      typeMismatch: @[conf.typeMismatch(n.typ, expected)],
       expression: n,
       msg: msg))
 

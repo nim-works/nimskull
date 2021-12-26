@@ -697,9 +697,10 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
     else:
       g.config.localReport(n.info, SemReport(
         kind: rsemSemfoldInvalidConversion,
-        typeMismatch: SemTypeMismatch(
+        typeMismatch: @[SemTypeMismatch(
           actualType: n[0].typ,
-          wantedType: n.typ)))
+          wantedType: n.typ)]))
+
   of nkStringToCString, nkCStringToString:
     var a = getConstExpr(m, n[0], idgen, g)
     if a == nil: return
