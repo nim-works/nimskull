@@ -17,6 +17,7 @@ type TestamentData* = ref object
   testamentBatch*: int
   includeKnownIssues*: bool
     ## whether to run knownIssues as part of this test run
+  withMegaTestRun*: bool
 
 # global mutable state for funsies
 var

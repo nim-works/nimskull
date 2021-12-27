@@ -26,12 +26,13 @@ proc trimUnitSep(x: var string) =
   if L > 0 and x[^1] == '\31':
     setLen x, L-1
 
-var useColors = true
-var backendLogging = true
-var simulate = false
-var optVerbose = false
-var useMegatest = true
-var optFailing = false
+var
+  useColors = true
+  backendLogging = true
+  simulate = false
+  optVerbose = false
+  useMegatest = true
+  optFailing = false
 
 import std/sugar
 
@@ -149,7 +150,6 @@ proc msg(msgType: MessageType; parts: varargs[string, `$`]) =
   stdout.writeLine parts
   flushFile stdout
 
-
 proc verboseCmd(cmd: string) =
   if optVerbose:
     msg Undefined: "executing: " & cmd
@@ -226,8 +226,9 @@ let
   pegOtherError = peg"'Error:' \s* {.*}"
   pegOfInterest = pegLineError / pegOtherError
 
-var gTargets = {low(TTarget)..high(TTarget)}
-var targetsSet = false
+var
+  gTargets = {low(TTarget)..high(TTarget)}
+  targetsSet = false
 
 proc isSuccess(input: string): bool =
   # not clear how to do the equivalent of pkg/regex's: re"FOO(.*?)BAR" in
@@ -1066,7 +1067,6 @@ proc main() =
       of "print": optPrintResults = true
       of "verbose": optVerbose = true
       of "failing": optFailing = true
-      of "pedantic": discard # deadcode refs https://github.com/nim-lang/Nim/issues/16731
       of "targets":
         targetsStr = p.val
         gTargets = parseTargets(targetsStr)
@@ -1083,6 +1083,11 @@ proc main() =
           useColors = false
         else:
           quit Usage
+      of "withMegaTestRun":
+        # if megatest was included, then all parallel invocations of testatment
+        # need to know, this way we can tell if pcat should run joinable tests
+        # or not
+        testamentData0.withMegaTestRun = true
       of "batch":
         testamentData0.batchArg = p.val
         if p.val != "_" and p.val.len > 0 and p.val[0] in {'0'..'9'}:
@@ -1098,6 +1103,7 @@ proc main() =
         case p.val:
         of "on":
           useMegatest = true
+          testamentData0.withMegaTestRun = true
         of "off":
           useMegatest = false
         else:
@@ -1133,16 +1139,17 @@ proc main() =
   azure.init()
   backend.open()
   ## Cli options and misc
-  var optPrintResults = false
-  var targetsStr      = ""
-  var isMainProcess   = true
-  var skipFrom        = ""
-  # Init cli parser
-  var p               = initOptParser()
+  var
+    optPrintResults = false
+    targetsStr      = ""
+    isMainProcess   = true
+    skipFrom        = ""
+    p               = initOptParser() # Init cli parser
   p.next()
   ## First parse options
   parseOptions(p)
   # template will complete with next option loaded
+  
   # Next option should be cmdarg
   var action: string
   parseArgs(p)
@@ -1189,14 +1196,15 @@ proc main() =
     if isNimRepoTests():
       cats.add AdditionalCategories
     # User may pass an option to skip the megatest category, default is useMegaTest
-    if useMegatest: cats.add MegaTestCat
+    if useMegatest:
+      cats.add MegaTestCat
     # We now prepare the command line arguments for our child processes
 
     for cat in cats:
       # Remember that if we are performing the megatest category, then
       # all joinable tests will be covered in that, so we use the parallel cat
       # action
-      let runtype = if useMegatest: " pcat " else: " cat "
+      let runtype = if useMegatest: " --withMegaTestRun pcat " else: " cat "
       cmds.add(myself & runtype & quoteShell(cat) & rest)
 
     if simulate: # 'see what tests would be run but don't run them (for debugging)'
@@ -1218,17 +1226,20 @@ proc main() =
 
   of "c", "cat", "category": # Run all tests of a certain category
     skips = loadSkipFrom(skipFrom)
-    var cat = Category(p.key)
+    let cat = Category(p.key)
     processCategory(r, cat, p.cmdLineRest, testsDir, runJoinableTests = true)
   of "pcat": # Run cat in parallel
     # Run all tests of a certain category in parallel; does not include joinable
     # tests which are covered in the 'megatest' category.
     skips = loadSkipFrom(skipFrom)
     isMainProcess = false
-    var cat = Category(p.key)
+    let
+      cat = Category(p.key)
+      withMegaTestRun = testamentData0.withMegaTestRun
     p.next
-    processCategory(r, cat, p.cmdLineRest, testsDir, runJoinableTests = false)
-  of "p", "pat", "pattern": # Run all tests matching the given pattern
+    processCategory(r, cat, p.cmdLineRest, testsDir,
+                    runJoinableTests = not withMegaTestRun)
+  of "p", "pat", "pattern": # Run all tests matching the given pattern  
     skips = loadSkipFrom(skipFrom)
     let pattern = p.key
     p.next
@@ -1257,4 +1268,437 @@ proc main() =
 
 if paramCount() == 0:
   quit Usage
-main()
+# main()
+
+import std/tables
+
+type
+  Categories = seq[Category]
+
+  GlobPattern = string
+
+  TestFilterKind {.pure.} = enum
+    tfkAll,        ## all tests
+    tfkCategories, ## one or more categories
+    tfkGlob,       ## glob file pattern
+    tfkSingle      ## single test
+
+  TestFilter = object
+    restOfCmdLine: string
+    case kind: TestFilterKind
+    of tfkAll:
+      discard
+    of tfkCategories:
+      # xxx: currently multiple categories are unsupported
+      cats: Categories
+    of tfkGlob:
+      pattern: GlobPattern
+    of tfkSingle:
+      test: string
+  
+  TestId = int         # xxx: make this a distinct
+  RunId = int          ## test run's id/index # xxx: make this a distinct
+  EntryId = int        ## matrix entry index # xxx: make this a distinct
+  ActionId = int       ## a test action's id # xxx: make this a distinct
+  TestTarget = TTarget # xxx: renamed because I dislike the TXxx convention
+  TestFile = string    # xxx: make this a distinct
+
+  RetryInfo = object
+    test: TestId       ## which test failed
+    target: TestTarget ## the specific target
+
+  ExecutionFlag = enum
+    outputColour,      ## colour the output
+    outputResults,     ## print results to the console
+    outputFailureOnly, ## only output failures
+    outputVerbose,     ## increase output verbosity
+    logBackend         ## enable backend logging
+    dryRun,            ## do not run the tests, only indicate which would run
+    rerunFailed,       ## only run tests failed in the previous run
+    runKnownIssues     ## also execute tests marked as known issues
+
+  ExecutionFlags = set[ExecutionFlag]
+    ## track the option flags that got set for an execution
+
+  RetryList = OrderedTable[TestId, RetryInfo]
+      ## record failures in here so the user can choose to retry them
+
+  TestTargets = set[TestTarget]
+
+  DebugInfo = OrderedTable[ActionId, string]
+
+  RunTime = object
+    compileStart: float      ## when the compile process start
+    compileEnd: float        ## when the compile process ends
+    checkStart: float        ## for run or compiles, check output start
+    checkEnd: float          ## for run or compiles, check output end
+    runStart: float          ## for run, start of execution
+    runEnd: float            ## for run, end of execution
+
+  TestRun = object
+    testId: TestId           ## test id for which this belongs
+    target: TestTarget       ## which target to run for
+    matrixEntry: EntryId     ## which item from the matrix was used
+    runtime: RunTime         ## time tracking for test activities
+
+  TestAction = object
+    runId: RunId
+    case kind: TTestAction
+    of actionReject, actionRun:
+      discard
+    of actionCompile:
+      partOfRun: bool
+
+  Execution = object
+    # user and execution inputs
+    filter: TestFilter       ## filter that was configured
+    flags: ExecutionFlags    ## various options set by the user
+    targets: TestTargets     ## specified targets or `noTargetsSpecified`
+    workingDir: string       ## working directory to begin execution in
+    nimSpecified: bool       ## whether the user specified the nim
+    testArgs: string         ## arguments passed to tests by the user
+
+    # environment input / setup
+    compilerPath: string     ## compiler command to use
+    testsDir: string         ## where to look for tests
+
+    # test discovery data
+    testCats:  Categories    ## categories discovered, for this execution
+    testFiles: seq[TestFile] ## files for this execution
+    testSpecs: seq[TSpec]    ## spec for each file
+
+    # test execution data
+    testRuns: seq[TestRun]   ## a test run: reject, compile, or compile + run
+    actions: seq[TestAction] ## test actions for each run, phases of a run
+    debugInfo: DebugInfo     ## debug info related to actions run for tests
+
+    # test execution related data
+    retryList: RetryList     ## list of failures to potentially retry later
+
+  ParseCliResult = enum
+    parseSuccess       ## successfully parsed cli params
+    parseQuitWithUsage ## parsing failed, quit with usage message
+
+const
+  testResultsDir = "testresults"
+  cacheResultsDir = testResultsDir / "cacheresults"
+  noTargetsSpecified: TestTargets = {}
+  defaultExecFlags = {outputColour}
+  defaultBatchSize = 10
+  noMatrixEntry: EntryId = -1
+
+proc parseOpts(execState: var Execution, p: var OptParser): ParseCliResult =
+  # xxx: create a narrower type to disallow mutation elsewhere
+  result = parseSuccess
+  p.next()
+  while p.kind in {cmdLongOption, cmdShortOption}:
+    # read options agnostic of casing
+    case p.key.normalize
+    of "print": execState.flags.incl outputResults
+    of "verbose": execState.flags.incl outputVerbose
+    of "failing": execState.flags.incl outputFailureOnly
+    of "targets":
+      var targetStr = p.val
+      execState.targets = parseTargets(targetStr)
+    of "nim", "compiler":
+      execState.compilerPath = addFileExt(p.val.absolutePath, ExeExt)
+    of "directory":
+      execState.workingDir = p.val
+    of "colors", "colours":
+      case p.val:
+      of "on": execState.flags.incl outputColour
+      of "off": execState.flags.excl outputColour
+      else: return parseQuitWithUsage
+    of "simulate":
+      execState.flags.incl dryRun
+    of "backendlogging":
+      case p.val:
+      of "on": execState.flags.incl logBackend
+      of "off": execState.flags.excl logBackend
+      else: return parseQuitWithUsage
+    of "includeknownissues":
+      case p.val:
+      of "on": execState.flags.incl runKnownIssues
+      of "off": execState.flags.excl runKnownIssues
+      else: return parseQuitWithUsage
+    of "retry":
+      execState.flags.incl rerunFailed
+    else:
+      return parseQuitWithUsage
+    p.next()
+
+proc parseArg(execState: var Execution, p: var OptParser): ParseCliResult =
+  # xxx: create types to avoid accidental mutation
+  # next part should be the the filter action, eg: cat, r, etc...
+  result = parseSuccess
+
+  var filterAction: string
+  if p.kind != cmdArgument:
+    quit Usage
+  filterAction = p.key.normalize
+  p.next()
+
+  case filterAction
+  of "all":
+    # filter nothing, run everything
+    execState.filter = TestFilter(kind: tfkAll, restOfCmdLine: p.cmdLineRest)
+  of "c", "cat", "category":
+    # only specified category
+    execState.filter = TestFilter(
+        kind: tfkCategories,
+        cats: @[Category(p.key)],
+        restOfCmdLine: p.cmdLineRest
+      )
+  of "pcat":
+    # run category's tests in parallel
+    # xxx: consider removing pcat concept, shouldn't be needed
+    execState.filter = TestFilter(
+        kind: tfkCategories,
+        cats: @[Category(p.key)],
+        restOfCmdLine: p.cmdLineRest
+      )
+  of "p", "pat", "pattern":
+    # tests files matching the given pattern
+    execState.filter = TestFilter(
+        kind: tfkGlob,
+        pattern: p.key,
+        restOfCmdLine: p.cmdLineRest
+      )
+  of "r", "run":
+    # single test
+    execState.filter = TestFilter(
+        kind: tfkSingle,
+        test: p.key,
+        restOfCmdLine: p.cmdLineRest
+      )
+  else: return parseQuitWithUsage
+
+func requestedTargets(execState: Execution): set[TTarget] =
+  ## get the requested targets by the user or the defaults
+  if execState.targets == noTargetsSpecified:
+    {targetC, targetJS}
+  else:
+    execState.targets
+
+proc runTests(execState: var Execution) =
+  # xxx: create specific type to avoid accidental mutation
+  
+  template testFilesFromCat(execState: var Execution, cat: Category) =
+    let testsDir = execState.testsDir
+    if cat.string notin ["testdata", "nimcache"]:
+      execState.testCats.add cat
+
+      for file in walkDirRec(testsDir & cat.string):
+        if file.isTestFile:
+          execState.testFiles.add file
+
+  # use let to avoid mutating data until types improve
+  let filter = execState.filter
+
+  case filter.kind
+  of tfkAll:
+    let testsDir = execState.testsDir
+    for kind, dir in walkDir(testsDir):
+      if kind == pcDir:
+        # The category name is extracted from the directory
+        # eg: 'tests/compiler' -> 'compiler'
+        let cat = dir[testsDir.len .. ^1]
+        testFilesFromCat(execState, Category(cat))
+  of tfkCategories:
+    for cat in filter.cats:
+      testFilesFromCat(execState, cat)
+  of tfkGlob:
+    let pattern = filter.pattern
+    if dirExists(pattern):
+      for kind, name in walkDir(pattern):
+        if kind in {pcFile, pcLinkToFile} and name.endsWith(".nim"):
+          execState.testFiles.add name
+    else:
+      for name in walkPattern(pattern):
+        execState.testFiles.add name
+  of tfkSingle:
+    let test = filter.test
+    # xxx: replace with proper error handling
+    doAssert fileExists(test), test & " test does not exist"
+    if isTestFile(test):
+      execState.testFiles.add test
+
+  execState.testFiles.sort # ensures we have a reproducible ordering
+
+  # parse all specs
+  for test in execState.testFiles:
+    execState.testSpecs.add parseSpec(addFileExt(test, ".nim"))
+
+  # create a list of necessary testRuns
+  for testId, spec in execState.testSpecs.pairs:
+    let
+      specTargets =
+        if spec.targets == noTargetsSpecified:
+          {targetC, targetCpp, targetJs}
+        else:
+          spec.targets
+      targetsToRun = specTargets * execState.requestedTargets
+
+    for target in targetsToRun:
+      case spec.matrix.len
+      of 0: # no tests to run
+        execState.testRuns.add:
+          TestRun(testId: testId, target: target, matrixEntry: noMatrixEntry)
+      else:
+        for entryId, _ in spec.matrix.pairs:
+          execState.testRuns.add:
+            TestRun(testId: testId, target: target, matrixEntry: entryId)
+
+  # create a list of necessary test actions
+  for runId, run in execState.testRuns.pairs:
+    let actionKind = execState.testSpecs[run.testId].action
+    case actionKind
+    of actionReject, actionCompile:
+      execState.actions.add:
+        TestAction(runId: runId, kind: actionKind)
+    of actionRun:
+      execState.actions.add:
+        TestAction(runId: runId, kind: actionCompile, partOfRun: true)
+      execState.actions.add:
+        TestAction(runId: runId, kind: actionRun)
+
+  # execute test runs in batches of test actions
+  let
+    testRuns = execState.testRuns   ## immutable view of test runs
+    testActions = execState.actions ## immutable view of test actions
+    batchSize = defaultBatchSize    ## parallel processes to execute
+                                    # xxx: use processor count
+    testArgs = execState.testArgs   ## arguments from the cli for each test
+
+  # test commands and a mapping for command id (`osproc.execProcesses`) to
+  # actionId, along with a pair of `next` ones so we can serialize the compile
+  # and execute phase of compile program then run compiled program.
+  var
+    testCmds = newSeqOfCap[string](batchSize)
+    cmdIdToActId = newSeqOfCap[int](batchSize)
+    nextTestCmds = newSeqOfCap[string](batchSize)
+    nextCmdIdToActId = newSeqOfCap[int](batchSize)
+
+  proc onTestRunStart(id: int) =
+    execState.testRuns[cmdIdToActId[id]].runtime.compileStart = epochTime()
+
+  proc onTestRunComplete(id: int, p: Process) =
+    execState.testRuns[cmdIdToActId[id]].runtime.compileEnd = epochTime()
+    # xxx: read the output
+  
+  var batches = 0
+
+  for actionId, action in testActions:
+    let
+      testRun = testRuns[action.runId]
+      testId = testRun.testId
+      spec = execState.testSpecs[testId]
+      testFile = execState.testFiles[testId]
+      matrixOptions =
+        if not testRun.matrixEntry == noMatrixEntry:
+          spec.matrix[testRun.matrixEntry]
+        else:
+          ""
+      target = testRun.target
+      nimcache = nimcacheDir(testFile, testArgs, testRun.target)
+      cmd = prepareTestCmd(spec.getCmd, testFile, testArgs, nimcache, target, matrixOptions)
+
+    case action.kind
+    of actionRun:
+      if testCmds.len == 0: # we've already processed its dependency
+        testCmds.add cmd
+        cmdIdToActId.add actionId
+      else: # dependency is in the current batch, add to the next
+        nextTestCmds.add cmd
+        nextCmdIdToActId.add actionId
+    of actionCompile, actionReject:
+      # add to this batch
+      testCmds.add cmd
+      cmdIdToActId.add actionId
+
+    let
+      lastActionId = testActions.len - 1
+      lastAction = actionId == lastActionId
+      currBatchFull = testCmds.len == batchSize
+      nextBatchFull = nextTestCmds.len == batchSize
+      processOpts = {poStdErrToStdOut, poUsePath}
+
+    if currBatchFull or lastAction:
+      # run code
+      # let qval = osproc.execProcesses(
+      #     testCmds,
+      #     processOpts,
+      #     batchSize,
+      #     onTestRunStart,
+      #     onTestRunComplete
+      #   )
+      inc batches
+      #echo "execProcesses with: ", testCmds, processOpts, batchSize #, " and map: ", cmdIdToActId
+
+      # clear old batch information
+      testCmds.setLen(0)
+      cmdIdToActId.setLen(0)
+      
+      # copy next cmds and cmd id to run id map to current
+      testCmds = nextTestCmds
+      cmdIdToActId = nextCmdIdToActId
+      
+      # clear old next batch information
+      nextTestCmds.setLen(0)
+      nextCmdIdToActId.setLen(0)
+
+    if nextBatchFull or lastAction:
+      #echo "execProcesses with: ", testCmds, processOpts, batchSize #, " and map: ", cmdIdToActId
+      inc batches
+      discard
+  
+  echo "requested targets: $1, specs: $2, runs: $3, actions: $4, batches: $5" % [
+      $execState.requestedTargets,
+      $execState.testSpecs.len,
+      $execState.testRuns.len,
+      $execState.actions.len,
+      $batches
+    ]
+      
+
+proc main2() =
+  azure.init()
+  backend.open()
+
+  var
+    p         = initOptParser() # cli parser
+    execState = Execution(
+      flags: defaultExecFlags,
+      testsDir: "tests" & DirSep
+    )
+
+  case parseOpts(execState, p)
+  of parseQuitWithUsage: quit Usage
+  of parseSuccess:       discard
+
+  # next part should be the the filter action, eg: cat, r, etc...
+  case parseArg(execState, p)
+  of parseQuitWithUsage: quit Usage
+  of parseSuccess:       discard
+
+  # Options have all been parsed; we now act on parsed actions
+  # Prepare the results container
+  var r = initResults()
+
+  # if optPrintResults:
+  #   if action == "html": openDefaultBrowser(resultsFile)
+  #   else: msg Undefined: $r & r.data
+  azure.finalize()
+  addExitProc azure.finalize
+
+  runTests(execState)
+  
+  backend.close()
+  # var failed = r.total - r.passed - r.skipped
+  # if failed != 0:
+  #   msg Undefined: "FAILURE! total: " & $r.total & " passed: " & $r.passed & " skipped: " &
+  #     $r.skipped & " failed: " & $failed
+  #   quit(QuitFailure)
+
+
+main2()
