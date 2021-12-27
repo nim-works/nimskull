@@ -12,13 +12,17 @@
     The Nim-Works compiler, stdlib, tools, and documentation repository.
     <br />
     <br />
-    <!-- <a href="https://github.com/nim-works/nimskull/issues">Report Bug</a>
+    <a href="https://github.com/nim-works/nimskull/blob/devel/CODE_OF_CONDUCT.md">Code of Conduct</a>
     ·
-    <a href="https://github.com/nim-works/nimskull/issues">Request Feature</a> -->
+    <a href="https://github.com/nim-works/nimskull/blob/devel/ETHOS.md">Code of Ethics</a>
   </p>
+
+[![Matrix](https://img.shields.io/badge/matrix-nim--works-success?style=flat&logo=matrix)][nim-works-matrix]
+
 </div>
 
 <br />
+
 
 ## About the Project
 
@@ -74,9 +78,7 @@ intention is to create a virtuous cycle, examples:
 
 ## Community
 
-<!-- Join us on [matrix/irc][matrix-channel]! -->
-
-Currently, this repository is our primary community hub; however, we'll introduce something more interactive as things grow. At this time our community is small but
+Currently, this repository and our [matrix/irc][nim-works-matrix] are our primary community hubs; we'll introduce more as things grow. At this time our community is small but
 passionate and close. We welcome any who are able and eager to collaborate on improving the compiler and associated tools.
 
 Check the [FAQ](#FAQ), or [Project Board](https://github.com/nim-works/nimskull/projects) for an idea of where to help.
@@ -221,38 +223,50 @@ within the [doc/koch.rst](doc/koch.rst) file.
 
 ## FAQ
 <details>
-<summary class="blue">What's the rational for this fork?</summary>
+<summary class="blue">What's the rationale for this fork?</summary>
+</br>
 We love the original vision behind nim-lang; we believe that an element of the
 vision was lost. We simply believe a different development process was needed to that which was being used and decided that the best way to see this vision materialize was to enforce that process ourselves.
 </details>
 
 <details>
 <summary class="blue">What are you going to do now?</summary>
+</br>
+
 For the moment, please see our [projects board](https://github.com/nim-works/nimskull/projects) and [direction](#direction) for more information. We envisage great things; however, all great things come with time, and we have a large foundation that was never properly solidified.
+
 </details>
 
 <details>
 <summary class="blue">Will this break my Nim code?</summary>
+</br>
 Maybe. Many experienced users will know that a lot of current code 'works' because of various hacks, or create hacks themselves to make code work. See <a href="https://github.com/nim-works/nimskull/issues/8">#8</a> and the <a href="https://github.com/nim-works/nimskull#direction">direction</a> for more on this.
 </details>
 
 <details>
 <summary class="blue">Will you plan to merge Nim upstream changes?</summary>
+</br>
+</br>
 Generally? No. There will likely be exceptions to this. Our current focus remains on solidifying the foundations before moving forward.
 </details>
 
 <details>
 <summary class="blue">Can I help somehow?</summary>
-Presently we're very interested in people contributing than to growing our community; so if you would like to contribute, a good start is to help the <a href="https://github.com/nim-works/nimskull/projects/2">"language spec as tests" effort which is being led by @haxscramper</a>. If you're willing to drive deeper into the compiler then see the <a href="https://github.com/nim-works/nimskull/projects">"nkError refactor to make the compiler approachable"</a> project.
+</br>
+Presently we're very interested in people contributing; a good start is to help the <a href="https://github.com/nim-works/nimskull/projects/2">"language spec as tests" effort which is being led by @haxscramper</a>. If you're willing to dive deeper into the compiler then see the <a href="https://github.com/nim-works/nimskull/projects">"nkError refactor to make the compiler approachable"</a> project.
 </details>
 
 <details>
 <summary class="blue">Any chat room on matrix/irc/discord?</summary>
-Not presently, however this will likely change sometime soon/later
+</br>
+
+Yes! Feel free to join us on our [nim-works channel!][nim-works-matrix] Please have a read of our [Code of Conduct](https://github.com/nim-works/nimskull/blob/devel/CODE_OF_CONDUCT.md)
+
 </details>
 
 <details>
 <summary class="blue">So the aim isn't just for a different compiler, but a new language?</summary>
+</br>
 For the moment, we are aiming for a more well-defined spec through excessive testing which might lead to slight language changes to make it more correct.
 </details>
 <p align="right">(<a href="#top">back to top</a>)</p>
@@ -262,3 +276,4 @@ MIT
 
 [nim-site]: https://nim-lang.org
 [csources-v1-repo]: https://github.com/nim-lang/csources_v1
+[nim-works-matrix]: https://matrix.to/#/#nimworks:envs.net
