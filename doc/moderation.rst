@@ -22,6 +22,27 @@ Helping newcomers
   people who are willing contribute, but not everyone has time to figure
   out what needs to be done from scratch"
 
+"PRs are welcome"
+=================
+
+It is implied that we welcome all and every contributor, but it is highly
+discouraged to tell people that "PRs are welcome" *without any
+further elaboration*.
+
+It might
+seem dismissive and counterproductive - instead of telling the person asking for a
+fix or improvement to "do it yourself" you should elaborate on
+
+- Why we are unable to do this ourselves at the moment (most likely it is caused
+  by the lack of manpower and time)
+- How this feature can or should be implemented. Maybe someone is willing to
+  provide help, but is intimidated by the compiler codebase and uncertain how to even
+  approach the problem.
+- Why something cannot be implemented or fixed. It might be due to lack of concrete
+  details in the original question, clash with other design elements and so on.
+
+All responses should follow the spirit of cooperation instead of dismissing
+other's concerns.
 
 Managing github labels
 ======================
