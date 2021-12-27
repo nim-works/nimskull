@@ -29,6 +29,7 @@ import std/[os, strutils, parseopt, osproc]
   # If this fails with: `Error: cannot open file: std/os`, see
   # https://github.com/nim-lang/Nim/pull/14291 for explanation + how to fix.
 
+import builder
 import kochdocs
 import deps
 
@@ -58,9 +59,6 @@ Options:
 Possible Commands:
   boot [options]           bootstraps with given command line options
   distrohelper [bindir]    helper for distro packagers
-  tools                    builds Nim related tools
-  toolsNoExternal          builds Nim related tools (except external tools)
-                           doesn't require network connectivity
 
 Boot options:
   -d:release               produce a release version of the compiler
@@ -75,12 +73,6 @@ Commands for core developers:
   docs [options]           generates the full documentation
   csource -d:danger        builds the C sources for installation
   pdf                      builds the PDF documentation
-  winrelease [options]     builds the release zip package for Windows; options
-                           are passed to niminst
-  unixrelease [options]    builds the release archive for Unix; options are passed
-                           to niminst
-  archive [options]        builds the release source archive; options are passed
-                           to niminst
   installdeps [options]    installs external dependency (e.g. tinyc) to dist/
   tests [options]          run the testsuite (run a subset of tests by
                            specifying a category, e.g. `tests cat async`)
@@ -146,12 +138,17 @@ proc getSourceMetadata(): tuple[hash, date: string] =
 
   result = (hash, date)
 
+proc defineSourceMetadataArgs(): seq[string] =
+  ## Produce arguments to pass to the compiler to embed source metadata in the
+  ## built compiler, as a seq
+  let (hash, date) = getSourceMetadata()
+  if hash != "" and date != "":
+    result = @["-d:nimSourceHash=" & hash, "-d:nimSourceDate=" & date]
+
 proc defineSourceMetadata(): string =
   ## Produce arguments to pass to the compiler to embed source metadata in the
   ## built compiler
-  let (hash, date) = getSourceMetadata()
-  if hash != "" and date != "":
-    result = quoteShellCommand(["-d:nimSourceHash=" & hash, "-d:nimSourceDate=" & date])
+  quoteShellCommand(defineSourceMetadataArgs())
 
 proc safeRemove(filename: string) =
   if fileExists(filename): removeFile(filename)
@@ -243,6 +240,15 @@ proc buildTools(args: string = "") =
       "--opt:speed --stacktrace -d:debug --stacktraceMsgs -d:nimCompilerStacktraceHints --excessiveStackTrace:off " & defineSourceMetadata() & " " & args,
       outputName = "nim_dbg")
 
+proc addTools(b: var Builder) =
+  let tools = [
+    Target b.addExecutable("nimsuggest", "nimsuggest/nimsuggest.nim", "-d:danger"),
+    b.addExecutable("nimgrep", "tools/nimgrep.nim", "-d:release"),
+    b.addExecutable("nimpretty", "nimpretty/nimpretty.nim", "-d:release"),
+    b.addExecutable("testament", "testament/testament.nim", "-d:release"),
+    b.addExecutable("nim_dbg", "compiler/nim.nim", "--opt:speed", "--stacktrace", "-d:debug", "--stacktraceMsgs", "-d:nimCompilerStacktraceHints", "--excessiveStackTrace:off")
+  ]
+  discard b.addAlias("tools", tools)
 
 proc nsis(latest: bool; args: string) =
   bundleNimsuggest(args)
@@ -286,6 +292,24 @@ proc binArchive(target: BinArchiveTarget, args: string) =
       quoteShellCommand(["--format:tar.xz", "--binaries:unix"])
 
   archive(binaryArgs & " " & args)
+
+proc addArchive(b: var Builder) =
+  let
+    niminst = b.addExecutable("niminst", "tools/niminst/niminst.nim")
+
+  let
+    defaultArgs = [
+      "--var:version=" & VersionAsString,
+      "--var:mingw=none",
+      "--main:" & (nimSource / "compiler" / "nim.nim")
+    ]
+
+  let compilerManifest = nimSource / "compiler" / "installer.ini"
+
+  let buildScript: Target = b.addRun("installscripts", niminst, @defaultArgs & @["scripts", compilerManifest])
+  discard b.addRun("archive", niminst, @defaultArgs & @["--format:tar.xz", "archive", compilerManifest], dependsOn = {buildScript})
+  discard b.addRun("winrelease", niminst, @defaultArgs & @["--format:zip", "--binaries:windows", "archive", compilerManifest], dependsOn = {buildScript})
+  discard b.addRun("unixrelease", niminst, @defaultArgs & @["--format:tar.xz", "--binaries:unix", "archive", compilerManifest], dependsOn = {buildScript})
 
 when false:
   proc web(args: string) =
@@ -487,14 +511,19 @@ proc winRelease*() =
 
 template `|`(a, b): string = (if a.len > 0: a else: b)
 
-proc tests(args: string) =
-  nimexec "cc --opt:speed testament/testament"
-  var testCmd = quoteShell(getCurrentDir() / "testament/testament".exe)
-  testCmd.add " " & quoteShell("--nim:" & findNim())
-  testCmd.add " " & (args|"all")
-  let success = tryExec testCmd
-  if not success:
-    quit("tests failed", QuitFailure)
+proc tests(b: var Builder, args: openArray[string]) =
+  let testament = b.fromName[:Executable]("testament")
+
+  # Add the test target depending on testament then build it immediately
+  b.build:
+    let defaultArgs = @["--nim:" & findNim()]
+    let args =
+      if args.len > 0:
+        defaultArgs & @args
+      else:
+        defaultArgs & "all"
+
+    b.addRun("tests", testament, args)
 
 proc temp(args: string) =
   proc splitArgs(a: string): (string, string) =
@@ -600,7 +629,6 @@ proc testTools(cmd: string) =
   nimexecFold("build nimsuggest_testing", "c -o:bin/nimsuggest_testing -d:release nimsuggest/nimsuggest")
   nimexecFold("Run nimsuggest tests", "r nimsuggest/tester")
 
-
 proc runCI(cmd: string) =
   doAssert cmd.len == 0, cmd # avoid silently ignoring
   echo "runCI: ", cmd
@@ -651,8 +679,15 @@ proc valgrind(cmd: string) =
   let supp = nimSource / "tools" / "nimgrind.supp"
   exec("valgrind --suppressions=" & supp & valcmd)
 
-proc showHelp(success: bool) =
-  quit(HelpText % [VersionAsString & spaces(44-len(VersionAsString))]):
+proc showHelp(b: Builder, success: bool) =
+  var help = HelpText % [VersionAsString & spaces(44-len(VersionAsString))]
+
+  help.add "Builder targets:\p"
+  for _, targetName in b.targets:
+    help.add:
+      "  " & targetName & "\p"
+
+  quit(help):
     if success: QuitSuccess else: QuitFailure
 
 proc branchDone() =
@@ -668,20 +703,27 @@ when isMainModule:
     latest = false
     localDocsOnly = false
     localDocsOut = ""
+    bld = initBuilder(nimSource, nimSource / "build", findNim())
+
+  bld.addDefaultCompilerArgs(defineSourceMetadataArgs())
+  bld.addTools()
+  bld.addArchive()
   while true:
     op.next()
     case op.kind
     of cmdLongOption, cmdShortOption:
       case normalize(op.key)
-      of "help", "h": showHelp(success = true)
+      of "help", "h": showHelp(bld, success = true)
       of "latest": latest = true
       of "stable": latest = false
-      of "nim": nimExe = op.val.absolutePath # absolute so still works with changeDir
+      of "nim":
+        nimExe = op.val.absolutePath # absolute so still works with changeDir
+        bld.setCompiler(nimExe)
       of "localdocs":
         localDocsOnly = true
         if op.val.len > 0:
           localDocsOut = op.val.absolutePath
-      else: showHelp(success = false)
+      else: showHelp(bld, success = false)
     of cmdArgument:
       case normalize(op.key)
       of "boot": boot(op.cmdLineRest)
@@ -692,26 +734,17 @@ when isMainModule:
         buildDocs(op.cmdLineRest & gaCode)
       of "pdf": buildPdfDoc(op.cmdLineRest, "doc/pdf")
       of "csource", "csources": csource(op.cmdLineRest)
-      of "winrelease": binArchive(Windows, op.cmdLineRest)
-      of "unixrelease": binArchive(Unix, op.cmdLineRest)
-      of "archive": archive(op.cmdLineRest)
       of "nsis": nsis(latest, op.cmdLineRest)
       of "geninstall": geninstall(op.cmdLineRest)
       of "distrohelper": geninstall()
       of "install": install(op.cmdLineRest)
       of "installdeps": installDeps(op.cmdLineRest)
       of "runci": runCI(op.cmdLineRest)
-      of "test", "tests": tests(op.cmdLineRest)
+      of "test", "tests": tests(bld, op.remainingArgs)
       of "testtools": testTools(op.cmdLineRest)
       of "temp": temp(op.cmdLineRest)
       of "xtemp": xtemp(op.cmdLineRest)
       of "wintools": bundleWinTools(op.cmdLineRest)
-      of "nimsuggest": bundleNimsuggest(op.cmdLineRest)
-      # toolsNoNimble is kept for backward compatibility with build scripts
-      of "toolsnonimble", "toolsnoexternal":
-        buildTools(op.cmdLineRest)
-      of "tools":
-        buildTools(op.cmdLineRest)
       of "pushcsource":
         quit "use this instead: https://github.com/nim-lang/csources_v1/blob/master/push_c_code.nim"
       of "valgrind": valgrind(op.cmdLineRest)
@@ -719,7 +752,12 @@ when isMainModule:
       of "drnim": buildDrNim(op.cmdLineRest)
       of "ic": icTest(op.cmdLineRest)
       of "branchdone": branchDone()
-      else: showHelp(success = false)
+      else:
+        if op.key in bld:
+          bld.addDefaultCompilerArgs(op.remainingArgs)
+          bld.build(op.key)
+        else:
+          showHelp(bld, success = false)
       break
     of cmdEnd:
-      showHelp(success = false)
+      showHelp(bld, success = false)
