@@ -257,10 +257,16 @@ type
     rsemInvalidModulePath
     rsemCannotImportItself
     rsemRecursiveInclude
+    rsemRecursiveImport
     rsemCannotOpenFile
     rsemExportRequiresToplevel
+    rsemMethodRequiresToplevel
+    rsemPackageRequiresToplevel
+    rsemConverterRequiresToplevel
     rsemUsingRequiresToplevel
     rsemInvalidVisibility
+    rsemUnknownPackageName
+    rsemUnexpectedInfixInInclude
 
     # ..
     rsemConflictingExportnims
@@ -295,6 +301,7 @@ type
     rsemInvalidOrderInEnum
     rsemSetTooBig
     rsemTIsNotAConcreteType
+    rsemProcIsNotAConcreteType
     rsemRangeIsEmpty
 
     rsemCannotInstantiate
@@ -309,7 +316,6 @@ type
     rsemExpectedUnholyEnum # yes
     rsemExpectedLow0Discriminant
     rsemExpectedHighCappedDiscriminant
-    rsemUnreachableElse
     rsemMissingCaseBranches
     rsemRangeDoesNotSupportNan
     rsemRangeRequiresDotDot
@@ -323,8 +329,15 @@ type
     rsemMacroBodyDependsOnGenericTypes
     rsemMalformedNotNilType
     rsemEnableNotNilExperimental
+    rsemEnableDotOperatorsExperimental
+    rsemEnableCallOperatorExperimental
     rsemExpectedObjectType
     rsemExpectedImportedType
+    rsemUnexpectedExportcInAlias
+    rsemExpectedDistinctForBorrow
+    rsemBorrowTargetNotFound
+    rsemConceptInferenceFailed
+    rsemConceptPredicateFailed
 
     # Procedure definition and instantiation
     rsemImplementationNotAllowed
@@ -332,6 +345,12 @@ type
     rsemRedefinitionOf
     rsemDefaultParamIsIncompatible
     rsemDeclarationVisibilityMismatch
+    rsemGenericLambdaNowAllowed
+    rsemUnexpectedAutoInForwardDeclaration
+    rsemUnexpectedClosureOnToplevelProc
+    rsemExpectedReturnTypeForIterator
+    rsemExpectedReturnTypeForConverter
+    rsemExpectedOneArgumentForConverter
 
     # Call and procedures
     rsemCallTypeMismatch
@@ -390,6 +409,7 @@ type
     rsemContinueCannotHaveLabel
     rsemUseOrDiscard
     rsemCannotBeRaised
+    rsemCannotRaiseNonException
     rsemExceptionAlreadyHandled
     rsemCannotExceptNativeAndImported
     rsemExpectedSingleFinally
@@ -400,6 +420,7 @@ type
     rsemDifferentTypeForReintroducedSymbol
     rsemImplicitFieldConstructinoRequiresPartial
     rsemCannotInferTypeOfLiteral
+    rsemCannotInferTypeOfParameter
     rsemProcHasNoConcreteType
     rsemThreadvarCannotInit
     rsemLetNeedsInit
@@ -407,6 +428,24 @@ type
     rsemFieldsIteratorCannotContinue
     rsemParallelFieldsDisallowsCase
     rsemNoObjectOrTupleType
+    rsemForExpectsIterator
+    rsemSelectorMustBeOfCertainTypes
+    rsemTypeCannotBeForwarded
+    rsemDoubleCompletionOf
+    rsemExpectedInvariantParam
+    rsemCovariantUsedAsNonCovariant
+    rsemContravariantUsedAsNonCovariant
+    rsemNonInvariantCannotBeUsedWith
+    rsemNonInvariantCnnnotBeUsedInConcepts
+    rsemIncorrectResultProcSymbol
+    rsemRebidingImplicitDestructor
+    rsemRebidingDestructor
+    rsemRebidingDeepCopy
+    rsemInseparableTypeBoundOp
+    rsemUnexpectedTypeBoundOpSignature
+    rsemExpectedDestroyOrDeepCopyForOverride
+    rsemExpectedObjectForMethod
+    rsemUnexpectedPragmaInDefinitionOf
 
     # Identifier Lookup
     rsemUndeclaredIdentifier
@@ -581,11 +620,14 @@ type
     rsemUnusedRaises
     rsemMethodLockMismatch
     rsemUseBase
+    rsemUnreachableElse
+    rsemUnreachableCode
     rsemInheritFromException
     rsemPtrRegionIsDeprecated
     rsemTypedReturnDeprecated
     rsemEachIdentIsTuple
     rsemResultShadowed
+    rsemGenericMethodsDeprecated
 
     rsemLinterReport
     # end
@@ -923,6 +965,7 @@ type
          rsemCannotConvertTypes,
          rsemImplicitObjConv,
          rsemVmCannotCast,
+         rsemConceptInferenceFailed,
          rsemCannotInstantiateWithParameter,
          rsemDifferentTypeForReintroducedSymbol:
         typeMismatch*: seq[SemTypeMismatch]
@@ -941,7 +984,10 @@ type
       of rsemIllegalCallconvCapture, rsemIllegalMemoryCapture:
         captured*: PSym
 
-      of rsemDeprecated, rsemRedefinitionOf,
+      of rsemDeprecated,
+         rsemRedefinitionOf,
+         rsemUnexpectedPragmaInDefinitionOf,
+         rsemDoubleCompletionOf,
          rsemInvalidMethodDeclarationOrder:
         alternative*: PSym
 
