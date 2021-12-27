@@ -833,7 +833,9 @@ proc myOpen(graph: ModuleGraph; module: PSym;
   c.enforceVoidContext = newType(tyTyped, nextTypeId(idgen), nil)
   c.voidType = newType(tyVoid, nextTypeId(idgen), nil)
 
-  if c.p != nil: internalError(graph.config, module.info, "sem.myOpen")
+  if c.p != nil:
+    internalUnreachable(graph.config, module.info, "sem.myOpen")
+
   c.semConstExpr = semConstExpr
   c.semExpr = semExpr
   c.semTryExpr = tryExpr
@@ -901,14 +903,16 @@ proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
 proc reportUnusedModules(c: PContext) =
   for i in 0..high(c.unusedImports):
     if sfUsed notin c.unusedImports[i][0].flags:
-      message(c.config, c.unusedImports[i][1], warnUnusedImportX, c.unusedImports[i][0].name.s)
+      localReport(c.config, c.unusedImports[i][1], SemReport(
+        kind: rsemUnusedImport, psym: c.unusedImports[i][0]))
 
 proc addCodeForGenerics(c: PContext, n: PNode) =
   for i in c.lastGenericIdx..<c.generics.len:
     var prc = c.generics[i].inst.sym
     if prc.kind in {skProc, skFunc, skMethod, skConverter} and prc.magic == mNone:
       if prc.ast == nil or prc.ast[bodyPos] == nil:
-        internalError(c.config, prc.info, "no code for " & prc.name.s)
+        internalUnreachable(c.config, prc.info, "no code for " & prc.name.s)
+
       else:
         n.add prc.ast
   c.lastGenericIdx = c.generics.len
@@ -922,7 +926,7 @@ proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
   reportUnusedModules(c)
   result = newNode(nkStmtList)
   if n != nil:
-    internalError(c.config, n.info, "n is not nil") #result := n;
+    internalUnreachable(c.config, n.info, "n is not nil") #result := n;
   addCodeForGenerics(c, result)
   if c.module.ast != nil:
     result.add(c.module.ast)

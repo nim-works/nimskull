@@ -121,7 +121,8 @@ template newError*(
     reportKind: SemReportKind,
     sym: PSym = nil,
     errMsg: string = "",
-    args: seq[PNode] = @[]
+    args: seq[PNode] = @[],
+    posInfo: TLineInfo = unknownLineInfo
   ): untyped =
   newError(
     node,
@@ -129,7 +130,8 @@ template newError*(
     conf.addReport(wrap(
       SemReport(expression: node, psym: sym, kind: reportKind, msg: errMsg),
       instLoc(),
-      conf.toReportLinePoint(node.info))),
+      conf.toReportLinePoint(
+        if posInfo == unknownLineInfo: node.info else: posInfo))),
     instLoc(),
     args)
 

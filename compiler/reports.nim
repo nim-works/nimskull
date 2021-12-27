@@ -263,6 +263,8 @@ type
     rsemMethodRequiresToplevel
     rsemPackageRequiresToplevel
     rsemConverterRequiresToplevel
+    rsemImportRequiresToplevel
+    rsemUnexpectedToplevelDefer
     rsemUsingRequiresToplevel
     rsemInvalidVisibility
     rsemUnknownPackageName
@@ -447,6 +449,77 @@ type
     rsemExpectedObjectForMethod
     rsemUnexpectedPragmaInDefinitionOf
 
+    # Expressions
+    rsemConstantOfTypeHasNoValue
+    rsemTypeConversionArgumentMismatch
+    rsemUnexpectedEqInObjectConstructor
+    rsemIllegalConversion
+    rsemCannotBeConvertedTo
+    rsemCannotCastToNonConcrete
+    rsemCannotCastTypes
+    rsemExpectedTypeOrValue
+    rsemInvalidArgumentFor
+    rsemNoTupleTypeForConstructor
+    rsemInvalidTupleConstructor
+    rsemUnknownIdentifier
+    rsemIndexOutOfBounds
+    rsemInvalidOrderInArrayConstructor
+    rsemVarForOutParamNeeded
+    rsemStackEscape
+    rsemExprHasNoAddress
+    rsemUnknownTrait
+    rsemStringOrIdentNodeExpected
+    rsemExpectedObjectForOf
+    rsemCannotBeOfSubtype
+    rsemQuantifierInRangeExpected
+    rsemOldTakesParameterName
+    rsemOldDoesNotBelongTo
+    rsemCannotFindPlugin
+    rsemExpectedProcReferenceForFinalizer
+    rsemCannotIsolate
+    rsemCannotInterpretNode
+    rsemRecursiveDependencyIterator
+    rsemIllegalNimvmContext
+    rsemDisallowedNilDeref
+    rsemInvalidTupleSubscript
+    rsemLocalEscapesStackFrame
+    rsemImplicitAddrIsNotFirstParam
+    rsemExpectedOwnerReturn
+    rsemExpectedUnownedRef
+    rsemCannotAssignTo
+    rsemNoReturnTypeDeclared
+    rsemReturnNotAllowed
+    rsemCannotInferReturnType
+    rsemExpectedValueForYield
+    rsemUnexpectedYield
+    rsemCannotReturnTypeless
+    rsemExpectedMacroOrTemplate
+    rsemAmbiguousGetAst
+    rsemExpectedTemplateWithNArgs
+    rsemExpectedCallForGetAst
+    rsemWrongNumberOfQuoteArguments
+    rsemEnableExperimentalParallel
+    rsemBuildCompilerWithSpawn
+    rsemExpectedExpressionForSpawn
+    rsemNamedExprExpected
+    rsemNamedExprNotAllowed
+    rsemFieldInitTwice
+    rsemDisallowedTypedescForTupleField
+    rsemDisjointFields
+    rsemUnsafeRuntimeDiscriminantInit
+    rsemConflictingDiscriminantInit
+    rsemConflictingDiscriminantValues
+    rsemRuntimeDiscriminantInitCap
+    rsemRuntimeDiscriminantMustBeImmutable
+    rsemRuntimeDiscriminantRequiresElif
+    rsemObjectRequiresFieldInit
+    rsemDistinctDoesNotHaveDefaultValue
+    rsemExpectedModuleNameForImportExcept
+    rsemCannotExport
+    rsemCannotMixTypesAndValuesInTuple
+    rsemExpectedTypelessDeferBody
+    rsemInvalidBindContext
+
     # Identifier Lookup
     rsemUndeclaredIdentifier
     rsemExpectedIdentifier
@@ -551,6 +624,7 @@ type
     rsemInitHereNotAllowed
     rsemIdentExpected
     rsemTypeExpected
+    rsemGenericTypeExpected
     rsemTypeInvalid
     rsemWrongIdent
     rsemPragmaOptionExpected
@@ -604,6 +678,7 @@ type
     # Semantic warnings begin
     rsemUserWarning = "UserWarning" ## `{.warning: }`
     rsemUnknownMagic = "UnknownMagic"
+    rsemUnusedImport
     rsemDeprecated
     rsemDotForModuleImport
     rsemReorderingFail
@@ -627,7 +702,12 @@ type
     rsemTypedReturnDeprecated
     rsemEachIdentIsTuple
     rsemResultShadowed
+    rsemResultUsed
     rsemGenericMethodsDeprecated
+    rsemSuspiciousEnumConv
+    rsemUnsafeSetLen
+    rsemUnsafeDefault
+    rsemBindDeprecated
 
     rsemLinterReport
     # end
@@ -932,9 +1012,20 @@ type
          rsemSetTooBig,
          rsemArrayExpectsPositiveRange,
          rsemExpectedLow0Discriminant,
+         rsemInvalidOrderInArrayConstructor,
+         rsemTypeConversionArgumentMismatch,
+         rsemInvalidTupleSubscript,
+         rsemExpectedTemplateWithNArgs,
+         rsemWrongNumberOfQuoteArguments,
          rsemExpectedHighCappedDiscriminant:
         countMismatch*: tuple[expected, got: Int128]
 
+
+      of rsemDisjointFields,
+         rsemUnsafeRuntimeDiscriminantInit,
+         rsemConflictingDiscriminantInit,
+         rsemConflictingDiscriminantValues:
+        fieldMismatches*: tuple[first, second: seq[PSym]]
 
       of rsemInvalidExtern:
         externName*: string
@@ -949,7 +1040,9 @@ type
         wantedIdent*: string
         potentiallyRecursive*: bool
 
-      of rsemAmbiguous, rsemCallNotAProcOrField:
+      of rsemAmbiguous,
+         rsemCallNotAProcOrField,
+         rsemObjectRequiresFieldInit:
         candidates*: seq[PSym]
 
       of rsemExpandMacro, rsemPattern:
@@ -960,13 +1053,18 @@ type
         lockMismatch*: tuple[expected, got: string]
 
       of rsemTypeMismatch,
+         rsemSuspiciousEnumConv,
          rsemTypeKindMismatch,
          rsemSemfoldInvalidConversion,
          rsemCannotConvertTypes,
          rsemImplicitObjConv,
          rsemVmCannotCast,
+         rsemIllegalConversion,
          rsemConceptInferenceFailed,
          rsemCannotInstantiateWithParameter,
+         rsemCannotCastTypes,
+         rsemGenericTypeExpected,
+         rsemCannotBeOfSubtype,
          rsemDifferentTypeForReintroducedSymbol:
         typeMismatch*: seq[SemTypeMismatch]
 
