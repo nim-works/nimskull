@@ -2467,7 +2467,7 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   of mSpawn:
     markUsed(c, n.info, s)
     when defined(leanCompiler):
-      result = localErrorNode(c, n, rsemBuildCompilerWithSpawn)
+      result = newError(c.config, n, rsemBuildCompilerWithSpawn)
     else:
       result = setMs(n, s)
       for i in 1..<n.len:

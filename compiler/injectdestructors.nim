@@ -17,7 +17,7 @@ import
   intsets, strtabs, ast, astalgo, msgs, renderer, magicsys, types, idents,
   strutils, options, dfa, lowerings, tables, modulegraphs,
   lineinfos, parampatterns, sighashes, liftdestructors, optimizer,
-  varpartitions
+  varpartitions, reports
 
 from trees import exprStructuralEquivalent, getRoot
 
@@ -281,11 +281,15 @@ proc genOp(c: var Con; t: PType; kind: TTypeAttachedOp; dest, ri: PNode): PNode 
       op = getAttachedOp(c.graph, canon, kind)
   if op == nil:
     #echo dest.typ.id
-    globalError(c.graph.config, dest.info, "internal error: '" & AttachedOpToStr[kind] &
-      "' operator not found for type " & typeToString(t))
+    internalUnreachable(
+      c.graph.config, dest.info, "internal error: '" & AttachedOpToStr[kind] &
+        "' operator not found for type " & typeToString(t))
+
   elif op.ast.isGenericRoutine:
-    globalError(c.graph.config, dest.info, "internal error: '" & AttachedOpToStr[kind] &
-      "' operator is generic")
+    internalUnreachable(
+      c.graph.config, dest.info, "internal error: '" & AttachedOpToStr[kind] &
+        "' operator is generic")
+
   dbg:
     if kind == attachedDestructor:
       echo "destructor is ", op.id, " ", op.ast
@@ -903,7 +907,7 @@ proc p(n: PNode; c: var Con; s: var Scope; mode: ProcessMode): PNode =
     of nkRaiseStmt:
       result = pRaiseStmt(n, c, s)
     of nkWhileStmt:
-      internalError(c.graph.config, n.info, "nkWhileStmt should have been handled earlier")
+      internalUnreachable(c.graph.config, n.info, "nkWhileStmt should have been handled earlier")
       result = n
     of nkNone..nkNilLit, nkTypeSection, nkProcDef, nkConverterDef,
        nkMethodDef, nkIteratorDef, nkMacroDef, nkTemplateDef, nkLambda, nkDo,
@@ -990,7 +994,7 @@ proc p(n: PNode; c: var Con; s: var Scope; mode: ProcessMode): PNode =
     of nkGotoState, nkState, nkAsmStmt:
       result = n
     else:
-      internalError(c.graph.config, n.info, "cannot inject destructors to node kind: " & $n.kind)
+      internalUnreachable(c.graph.config, n.info, "cannot inject destructors to node kind: " & $n.kind)
 
 proc sameLocation*(a, b: PNode): bool =
   proc sameConstant(a, b: PNode): bool =
