@@ -1098,7 +1098,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     of "setjmp": conf.exc = excSetjmp
     of "quirky": conf.exc = excQuirky
     of "goto": conf.exc = excGoto
-    else: 
+    else:
       conf.localError(info, invalidSwitchValue @["cpp", "setjmp", "quirky", "goto"])
   of "cppdefine":
     expectArg(conf, switch, arg, pass, info)
@@ -1127,7 +1127,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     of "hint": conf.globalOptions = conf.globalOptions + {optStyleHint} - {optStyleError}
     of "error": conf.globalOptions = conf.globalOptions + {optStyleError}
     of "usages": conf.globalOptions.incl optStyleUsages
-    else: 
+    else:
       conf.localError(info, invalidSwitchValue @["off", "hint", "error", "usages"])
   of "showallmismatches":
     processOnOffSwitchG(conf, {optShowAllMismatches}, arg, pass, info, switch)
@@ -1188,7 +1188,9 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     processOnOffSwitchG(conf, {optEnableDeepCopy}, arg, pass, info, switch)
   of "": # comes from "-" in for example: `nim c -r -` (gets stripped from -)
     handleStdinInput(conf)
-  of "nilseqs", "nilchecks", "mainmodule", "m", "symbol", "taintmode", "cs", "deadcodeelim": warningOptionNoop(switch)
+  of "nilseqs", "nilchecks", "mainmodule", "m", "symbol", "taintmode",
+     "cs", "deadcodeelim":
+    warningOptionNoop(switch)
   else:
     if strutils.find(switch, '.') >= 0: options.setConfigVar(conf, switch, arg)
     else: invalidCmdLineOption(conf, pass, switch, info)

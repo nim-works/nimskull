@@ -819,6 +819,7 @@ type
     ## file to cache directory
     rbackTargetNotSupported ## C compiler does not support requested target
     rbackJsTooCaseTooLarge
+    rbackJsNotCompiledIn
     rbackJsUnsupportedClosureIter
     rbackJsonScriptMismatch # ??? used in `extccomp.nim`, TODO figure out
     # what the original mesage was responsible for exactly
@@ -1500,11 +1501,22 @@ type
 func addReport*(list: var ReportList, report: Report): ReportId =
   ## Add report to the report list
   list.list.add report
-  result = ReportId(uint32(list.list.len))
+  result = ReportId(uint32(list.list.high) + 1)
 
 func addReport*[R: ReportTypes](list: var ReportList, report: R): ReportId =
   addReport(list, wrap(report))
 
+func `==`*(id1, id2: ReportId): bool = uint32(id1) == uint32(id2)
+
+func isEmpty*(id: ReportId): bool = id == emptyReportId
+
+func `$`*(id: ReportId): string =
+  if id.isEmpty:
+    "<empty report id>"
+
+  else:
+    "<report-id-" & $uint32(id) & ">"
+
 func getReport*(list: ReportList, id: ReportId): Report =
   ## Get report from the report list using it's id
-  list.list[int(uint32(id) - 1)]
+  list.list[int(uint32(id)) - 1]

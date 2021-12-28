@@ -125,7 +125,9 @@ proc commandJsonScript(graph: ModuleGraph) =
 proc commandCompileToJS(graph: ModuleGraph) =
   let conf = graph.config
   when defined(leanCompiler):
-    globalError(conf, unknownLineInfo, "compiler wasn't built with JS code generator")
+    globalError(conf, unknownLineInfo, InternalReport(
+      kind: rbackJsNotCompiledIn))
+
   else:
     conf.exc = excCpp
     setTarget(conf.target, osJS, cpuJS)
@@ -209,6 +211,7 @@ proc setOutFile*(conf: ConfigRef) =
     conf.outFile = RelativeFile targetName
 
 proc mainCommand*(graph: ModuleGraph) =
+  ## Execute main compiler command
   let conf = graph.config
   let cache = graph.cache
 

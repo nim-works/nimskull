@@ -1040,7 +1040,7 @@ proc deprecatedStmt(c: PContext; outerPragma: PNode): PNode =
         result = err
         return
     else:
-      result = c.config.newError(pragma, SemReport(
+      result = c.config.newError(n, SemReport(
         kind: rsemBadDeprecatedArgs,
         msg: "key:value pair expected"))
       return
@@ -1863,13 +1863,17 @@ proc mergePragmas(n, pragmas: PNode) =
 proc pragmaRec(c: PContext, sym: PSym, n: PNode, validPragmas: TSpecialWords;
                isStatement: bool): PNode =
   result = n
+  assert not cyclicTree(n)
   if n == nil: return
   var i = 0
   while i < n.len:
     let p = prepareSinglePragma(c, sym, n, i, validPragmas, false, isStatement)
+    assert not cyclicTree(p)
 
     if p.isErrorLike:
+      assert not cyclicTree(result)
       result[i] = p
+      assert not cyclicTree(result)
       result = wrapErrorInSubTree(result)
       return
     elif p != nil and nfImplicitPragma in p.flags:

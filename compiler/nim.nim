@@ -25,7 +25,7 @@ when defined(windows) and not defined(nimKochBootstrap):
 
 import
   commands, options, msgs, extccomp, main, idents, cmdlinehelper,
-  pathutils, modulegraphs, reports
+  pathutils, modulegraphs, reports, cli_reporter
 
 from browsers import openDefaultBrowser
 from nodejs import findNodeJs
@@ -38,6 +38,7 @@ when defined(profiler) or defined(memProfiler):
   import nimprof
 
 proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
+  ## Process input command-line parameters into `config` settings
   var p = parseopt.initOptParser(cmd)
   var argsCount = 0
 
@@ -58,13 +59,21 @@ proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
 
       if p.key == "": # `-` was passed to indicate main project is stdin
         p.key = "-"
-        if processArgument(pass, p, argsCount, config): break
+        if processArgument(pass, p, argsCount, config):
+          break
+
       else:
+        # Main part of the configuration processing -
+        # `commands.processSwitch` processes input switches a second time
+        # and puts them in necessary configuration fields.
         processSwitch(pass, p, config)
+
     of cmdArgument:
       config.commandLine.add " "
       config.commandLine.add p.key.quoteShell
-      if processArgument(pass, p, argsCount, config): break
+      if processArgument(pass, p, argsCount, config):
+        break
+
   if pass == passCmd2:
     if {optRun, optWasNimscript} * config.globalOptions == {} and
         config.arguments.len > 0 and config.cmd notin {cmdTcc, cmdNimscript, cmdCrun}:
@@ -78,6 +87,9 @@ proc getNimRunExe(conf: ConfigRef): string =
     elif conf.isDefined("amd64"): result = "wine64"
 
 proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
+  ## Main entry point to the compiler - dispatches command-line commands
+  ## into different subsystems, sets up configuration options for the
+  ## `conf`:arg: and so on.
   let self = NimProg(
     supportsStdinFile: true,
     processCmdLine: processCmdLine
@@ -138,7 +150,10 @@ when compileOption("gc", "refc"):
   GC_disableMarkAndSweep()
 
 when not defined(selftest):
-  let conf = newConfigRef()
+  var conf = newConfigRef()
+
+  conf.structuredErrorHook = cli_reporter.reportHook
+
   handleCmdLine(newIdentCache(), conf)
   when declared(GC_setMaxPause):
     echo GC_getStatistics()

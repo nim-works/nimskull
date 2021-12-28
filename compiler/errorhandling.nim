@@ -34,6 +34,8 @@
 import ast
 from options import ConfigRef, store
 from lineinfos import unknownLineInfo
+from astalgo import debug
+from trees import cyclicTree
 import reports
 
 template instLoc(depth = -2): InstantiationInfo =
@@ -92,12 +94,16 @@ proc newError*(
     newType(tyError, ItemId(module: -2, item: -1), nil))
 
   result.reportId = report
-  result.add wrongNode
-  result.add newIntNode(nkIntLit, ord(errorKind)) # errorKindPos
-  result.add newStrNode(inst.filename, wrongNode.info) # compilerInfoPos
+  result.add #[ 0 ]# wrongNode # wrapped wrong node
+  result.add #[ 1 ]# newIntNode(nkIntLit, ord(errorKind)) # errorKindPos
+  result.add #[ 2 ]# newStrNode(inst.filename, wrongNode.info) # compilerInfoPos
+
+  assert not cyclicTree(wrongNode)
 
   for a in args:
-    result.add a
+    result.add #[ 3+ ]# a
+
+  assert not cyclicTree(result)
 
 template newError*(
     conf: ConfigRef,
@@ -141,7 +147,9 @@ proc wrapErrorInSubTree*(wrongNodeContainer: PNode): PNode =
   ## `wrongNodeContainer` doesn't directly have an error but one exists further
   ## down the tree, this is used to wrap the `wrongNodeContainer` in an nkError
   ## node but no message will be reported for it.
+  assert not cyclicTree(wrongNodeContainer)
   var e = errorSubNode(wrongNodeContainer)
+  assert not cyclicTree(e)
   assert e != nil, "there must be an error node within"
   result = newError(
     wrongNodeContainer, rsemWrappedError, emptyReportId, instLoc())
@@ -153,7 +161,9 @@ proc wrapIfErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode
   ## `wrongNodeContainer` in an nkError node but no message will be reported
   ## for this wrapping. If there is no error, the `wrongNodeContainer` will be
   ## returned as is.
+  assert not cyclicTree(wrongNodeContainer)
   var e = errorSubNode(wrongNodeContainer)
+  assert not cyclicTree(e)
   result =
     if e.isNil:
       wrongNodeContainer
@@ -164,17 +174,17 @@ proc wrapIfErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode
         conf.store SemReport(kind: rsemWrappedError),
         instLoc())
 
-proc buildErrorList(n: PNode, errs: var seq[PNode]) =
+proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
   ## creates a list (`errs` seq) from least specific to most specific
   case n.kind
-  of nkEmpty..nkNilLit:
+  of nkEmpty .. nkNilLit:
     discard
   of nkError:
     errs.add n
-    buildErrorList(n[wrongNodePos], errs)
+    buildErrorList(config, n[wrongNodePos], errs)
   else:
     for i in countdown(n.len - 1, 0):
-      buildErrorList(n[i], errs)
+      buildErrorList(config, n[i], errs)
 
 iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   ## traverses the ast and yields errors from innermost to outermost. this is a
@@ -182,7 +192,7 @@ iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   ## first error (per `PNode.sons`) being yielded.
   assert n != nil
   var errNodes: seq[PNode] = @[]
-  buildErrorList(n, errNodes)
+  buildErrorList(config, n, errNodes)
 
   # report from last to first (deepest in tree to highest)
   for i in 1..errNodes.len:

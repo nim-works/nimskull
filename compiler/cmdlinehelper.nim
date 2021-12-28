@@ -51,6 +51,8 @@ proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef) =
 
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph): bool =
+  ## Load all the necessary configuration files and command-line options.
+  ## Main entry point for configuration processing.
   if self.suggestMode:
     conf.setCmd cmdIdeTools
   if conf.cmd == cmdNimscript:
