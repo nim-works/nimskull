@@ -24,7 +24,7 @@ when defined(amd64) and defined(windows) and defined(vcc):
 when defined(i386) and defined(windows) and defined(vcc):
   {.link: "icons/koch-i386-windows-vcc.res".}
 
-import std/[os, strutils, parseopt, osproc]
+import std/[json, os, strutils, parseopt, osproc]
   # Using `std/os` instead of `os` to fail early if config isn't set up properly.
   # If this fails with: `Error: cannot open file: std/os`, see
   # https://github.com/nim-lang/Nim/pull/14291 for explanation + how to fix.
@@ -134,15 +134,21 @@ proc getSourceMetadata(): tuple[hash, date: string] =
   var hash {.global.}: string
   var date {.global.}: string
 
-  if hash == "":
-    let hashCall = execCmdEx("git -C " & quoteShell(nimSource) & " rev-parse --verify HEAD")
-    if hashCall.exitCode == 0:
-      hash = hashCall.output.strip()
+  if hash == "" or date == "":
+    try:
+      let releaseMetadata = parseFile(nimSource / "release.json")
+      hash = getStr releaseMetadata["commit"]
+      date = getStr releaseMetadata["commit_date"]
+    except OSError, IOError:
+      # If the file does not exist, then this is not a release tarball, try
+      # obtaining the data from git instead
+      let hashCall = execCmdEx("git -C " & quoteShell(nimSource) & " rev-parse --verify HEAD")
+      if hashCall.exitCode == 0:
+        hash = hashCall.output.strip()
 
-  if date == "":
-    let dateCall = execCmdEx("git -C " & quoteShell(nimSource) & " log -1 --format=%cs HEAD")
-    if dateCall.exitCode == 0:
-      date = dateCall.output.strip()
+      let dateCall = execCmdEx("git -C " & quoteShell(nimSource) & " log -1 --format=%cs HEAD")
+      if dateCall.exitCode == 0:
+        date = dateCall.output.strip()
 
   result = (hash, date)
 
@@ -219,8 +225,9 @@ proc archive(args: string) =
   ensureCleanGit()
   nimexec("cc -r $2 --var:version=$1 --var:mingw=none --main:compiler/nim.nim scripts compiler/installer.ini" %
        [VersionAsString, compileNimInst])
-  exec("$# --var:version=$# --var:mingw=none --main:compiler/nim.nim --format:tar.xz $# archive compiler/installer.ini" %
-       ["tools" / "niminst" / "niminst".exe, VersionAsString, args])
+  let (commit, date) = getSourceMetadata()
+  exec("$# --var:version=$# --var:mingw=none --var:commit=$# --var:commitdate=$# --main:compiler/nim.nim --format:tar.xz $# archive compiler/installer.ini" %
+       ["tools" / "niminst" / "niminst".exe, VersionAsString, quoteShell(commit), quoteShell(date), args])
 
 proc buildTool(toolname, args: string) =
   nimexec("cc $# $#" % [args, toolname])
