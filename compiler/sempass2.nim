@@ -756,8 +756,6 @@ proc patchResult(c: PEffects; n: PNode) =
     let fn = c.owner
     if fn != nil and fn.kind in routineKinds and fn.ast != nil and resultPos < fn.ast.len:
       n.sym = fn.ast[resultPos].sym
-    else:
-      localError(c.config, n.info, "routine has no return type, but .requires contains 'result'")
   else:
     for i in 0..<safeLen(n):
       patchResult(c, n[i])
