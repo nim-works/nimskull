@@ -205,34 +205,6 @@ proc jsTests(r: var TResults, cat: Category, options: string) =
   for testfile in ["strutils", "json", "random", "times", "logging"]:
     test "lib/pure/" & testfile & ".nim"
 
-# ------------------------- nim in action -----------
-
-proc testNimInAction(r: var TResults, cat: Category, options: string) =
-  template test(filename: untyped) =
-    testSpec r, makeTest(filename, options, cat)
-
-  let tests = [
-    "niminaction/Chapter1/various1",
-    "niminaction/Chapter2/various2",
-    "niminaction/Chapter2/resultaccept",
-    "niminaction/Chapter2/resultreject",
-    "niminaction/Chapter2/explicit_discard",
-    "niminaction/Chapter2/no_def_eq",
-    "niminaction/Chapter2/no_iterator",
-    "niminaction/Chapter2/no_seq_type",
-    "niminaction/Chapter6/WikipediaStats/concurrency_regex",
-    "niminaction/Chapter6/WikipediaStats/concurrency",
-    "niminaction/Chapter6/WikipediaStats/naive",
-    "niminaction/Chapter6/WikipediaStats/parallel_counts",
-    "niminaction/Chapter6/WikipediaStats/race_condition",
-    "niminaction/Chapter6/WikipediaStats/sequential_counts",
-    "niminaction/Chapter6/WikipediaStats/unguarded_access"
-    ]
-
-  # Run the tests.
-  for testfile in tests:
-    test "tests/" & testfile & ".nim"
-
 # ------------------------- manyloc -------------------------------------------
 
 proc findMainFile(dir: string): string =
@@ -474,8 +446,6 @@ proc processCategory(r: var TResults, cat: Category,
       ioTests r, cat, options
     of "lib":
       testStdlib(r, "lib/pure/", options, cat)
-    of "niminaction":
-      testNimInAction(r, cat, options)
     of "untestable":
       # These require special treatment e.g. because they depend on a third party
       # dependency; see `trunner_special` which runs some of those.
