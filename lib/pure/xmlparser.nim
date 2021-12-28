@@ -147,27 +147,16 @@ proc loadXml*(path: string, options: set[XmlParseOption] = {reportComments}): Xm
   if errors.len > 0: raiseInvalidXml(errors)
 
 when isMainModule:
-  when not defined(testing):
-    import os
+  import os
 
-    var errors: seq[string] = @[]
-    var x = loadXml(paramStr(1), errors)
-    for e in items(errors): echo e
+  var
+    errors: seq[string] = @[]
+    x = loadXml(paramStr(1), errors)
+  for e in items(errors): echo e
 
-    var f: File
-    if open(f, "xmltest.txt", fmWrite):
-      f.write($x)
-      f.close()
-    else:
-      quit("cannot write test.txt")
+  var f: File
+  if open(f, "xmltest.txt", fmWrite):
+    f.write($x)
+    f.close()
   else:
-    block: # correctly parse ../../tests/testdata/doc1.xml
-      let filePath = "tests/testdata/doc1.xml"
-      var errors: seq[string] = @[]
-      var xml = loadXml(filePath, errors)
-      assert(errors.len == 0, "The file tests/testdata/doc1.xml should be parsed without errors.")
-
-    block bug1518:
-      var err: seq[string] = @[]
-      assert $parsexml(newStringStream"<tag>One &amp; two</tag>", "temp.xml",
-          err) == "<tag>One &amp; two</tag>"
+    quit("cannot write test.txt")

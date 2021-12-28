@@ -327,18 +327,8 @@ proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
 
   files.sort # reproducible order
   for testFile in files:
-    let contents = readFile(testFile)
     var testObj = makeTest(testFile, options, cat)
-    #[
-    todo:
-    this logic is fragile:
-    false positives (if appears in a comment), or false negatives, e.g.
-    `when defined(osx) and isMainModule`.
-    Instead of fixing this, see https://github.com/nim-lang/Nim/issues/10045
-    for a much better way.
-    ]#
-    if "when isMainModule" notin contents:
-      testObj.spec.action = actionCompile
+    testObj.spec.action = actionCompile
     testSpec r, testObj
 
 # ---------------- IC tests ---------------------------------------------
@@ -578,7 +568,6 @@ proc processCategory(r: var TResults, cat: Category,
       ioTests r, cat, options
     of "lib":
       testStdlib(r, "lib/pure/", options, cat)
-      testStdlib(r, "lib/packages/docutils/", options, cat)
     of "examples":
       compileExample(r, "examples/*.nim", options, cat)
       compileExample(r, "examples/gtk/*.nim", options, cat)
