@@ -39,7 +39,7 @@ proc genObjectFields(p: PProc, typ: PType, n: PNode): Rope =
                    [mangleName(p.module, field), s,
                     makeJSString(field.name.s)]
   of nkRecCase:
-    if (n[0].kind != nkSym): internalError(p.config, n.info, "genObjectFields")
+    if (n[0].kind != nkSym): internalUnreachable(p.config, n.info, "genObjectFields")
     field = n[0].sym
     s = genTypeInfo(p, field.typ)
     for i in 1..<n.len:
@@ -48,7 +48,7 @@ proc genObjectFields(p: PProc, typ: PType, n: PNode): Rope =
       case b.kind
       of nkOfBranch:
         if b.len < 2:
-          internalError(p.config, b.info, "genObjectFields; nkOfBranch broken")
+          internalUnreachable(p.config, b.info, "genObjectFields; nkOfBranch broken")
         for j in 0..<b.len - 1:
           if u != nil: u.add(", ")
           if b[j].kind == nkRange:
@@ -58,7 +58,9 @@ proc genObjectFields(p: PProc, typ: PType, n: PNode): Rope =
             u.add(rope(getOrdValue(b[j])))
       of nkElse:
         u = rope(lengthOrd(p.config, field.typ))
-      else: internalError(p.config, n.info, "genObjectFields(nkRecCase)")
+      else:
+        internalUnreachable(p.config, n.info, "genObjectFields(nkRecCase)")
+
       if result != nil: result.add(", \L")
       result.addf("[setConstr($1), $2]",
            [u, genObjectFields(p, typ, lastSon(b))])
@@ -66,7 +68,7 @@ proc genObjectFields(p: PProc, typ: PType, n: PNode): Rope =
         "typ: $2, name: $4, sons: [$5]}") % [
         mangleName(p.module, field), s,
         rope(lengthOrd(p.config, field.typ)), makeJSString(field.name.s), result]
-  else: internalError(p.config, n.info, "genObjectFields")
+  else: internalUnreachable(p.config, n.info, "genObjectFields")
 
 proc objHasTypeField(t: PType): bool {.inline.} =
   tfInheritable in t.flags or t[0] != nil
@@ -104,7 +106,7 @@ proc genTupleInfo(p: PProc, typ: PType, name: Rope) =
 proc genEnumInfo(p: PProc, typ: PType, name: Rope) =
   var s: Rope = nil
   for i in 0..<typ.n.len:
-    if (typ.n[i].kind != nkSym): internalError(p.config, typ.n.info, "genEnumInfo")
+    if (typ.n[i].kind != nkSym): internalUnreachable(p.config, typ.n.info, "genEnumInfo")
     let field = typ.n[i].sym
     if i > 0: s.add(", \L")
     let extName = if field.ast == nil: field.name.s else: field.ast.strVal
@@ -152,5 +154,5 @@ proc genTypeInfo(p: PProc, typ: PType): Rope =
   of tyTuple: genTupleInfo(p, t, result)
   of tyStatic:
     if t.n != nil: result = genTypeInfo(p, lastSon t)
-    else: internalError(p.config, "genTypeInfo(" & $t.kind & ')')
-  else: internalError(p.config, "genTypeInfo(" & $t.kind & ')')
+    else: internalUnreachable(p.config, "genTypeInfo(" & $t.kind & ')')
+  else: internalUnreachable(p.config, "genTypeInfo(" & $t.kind & ')')

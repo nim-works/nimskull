@@ -269,7 +269,7 @@ template eatChar(L: var Lexer, t: var Token) =
   t.literal.add(L.buf[L.bufpos])
   inc(L.bufpos)
 
-template localError(L: Lexer, report: ReportTypes): untyped =
+template localError*(L: Lexer, report: ReportTypes): untyped =
   L.config.handleError(
     wrap(
       report,

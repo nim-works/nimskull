@@ -12,7 +12,7 @@
 import
   ast, astalgo, magicsys, msgs, options,
   idents, lexer, passes, syntaxes, llstream, modulegraphs,
-  lineinfos, pathutils, tables
+  lineinfos, pathutils, tables, reports
 
 import ic / replayer
 
@@ -80,7 +80,9 @@ proc newModule(graph: ModuleGraph; fileIdx: FileIndex): PSym =
                 name: getModuleIdent(graph, filename),
                 info: newLineInfo(fileIdx, 1, 1))
   if not isNimIdentifier(result.name.s):
-    rawMessage(graph.config, errGenerated, "invalid module name: " & result.name.s)
+    localError(graph.config, SemReport(
+      kind: rsemInvalidModuleName, psym: result))
+
   partialInitModule(result, graph, fileIdx, filename)
   graph.registerModule(result)
 
@@ -157,7 +159,8 @@ proc compileSystemModule*(graph: ModuleGraph) =
 
 proc wantMainModule*(conf: ConfigRef) =
   if conf.projectFull.isEmpty:
-    fatal(conf, gCmdLineInfo, "command expects a filename")
+    localError(conf, gCmdLineInfo, ExternalReport(kind: rextInvalidPath))
+
   conf.projectMainIdx = fileInfoIdx(conf, addFileExt(conf.projectFull, NimExt))
 
 proc compileProject*(graph: ModuleGraph; projectFileIdx = InvalidFileIdx) =

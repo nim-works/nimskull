@@ -20,6 +20,7 @@ import
   cgen, nversion,
   platform, nimconf, passaux, depends, vm,
   modules,
+  reports,
   modulegraphs, lineinfos, pathutils, vmprofiler
 
 import ic / [cbackend, integrity, navigator]
@@ -172,7 +173,8 @@ proc commandScan(cache: IdentCache, config: ConfigRef) =
       if tok.tokType == tkEof: break
     closeLexer(L)
   else:
-    rawMessage(config, errGenerated, "cannot open file: " & f.string)
+    localError(config, InternalReport(
+      kind: rintCannotOpenFile, msg: f.string))
 
 proc commandView(graph: ModuleGraph) =
   let f = toAbsolute(mainCommandArg(graph.config), AbsoluteDir getCurrentDir()).addFileExt(RodExt)
@@ -277,15 +279,19 @@ proc mainCommand*(graph: ModuleGraph) =
     when hasTinyCBackend:
       extccomp.setCC(conf, "tcc", unknownLineInfo)
       if conf.backend != backendC:
-        rawMessage(conf, errGenerated, "'run' requires c backend, got: '$1'" % $conf.backend)
+        globalError(conf, ExternalReport(
+          kind: rextExpectedCbackednForRun, usedCompiler: $conf.backend))
+
       compileToBackend()
     else:
-      rawMessage(conf, errGenerated, "'run' command not available; rebuild with -d:tinyc")
+      globalError(conf, ExternalReport(
+        kind: rextExpectedTinyCForRun))
+
   of cmdDoc0: docLikeCmd commandDoc(cache, conf)
   of cmdDoc:
     docLikeCmd():
-      conf.setNoteDefaults(warnLockLevel, false) # issue #13218
-      conf.setNoteDefaults(warnRstRedefinitionOfLabel, false) # issue #13218
+      conf.setNoteDefaults(rsemLockLevelMismatch, false) # issue #13218
+      conf.setNoteDefaults(rbackRstRedefinitionOfLabel, false) # issue #13218
         # because currently generates lots of false positives due to conflation
         # of labels links in doc comments, e.g. for random.rand:
         #  ## * `rand proc<#rand,Rand,Natural>`_ that returns an integer
@@ -297,7 +303,7 @@ proc mainCommand*(graph: ModuleGraph) =
     # XXX: why are warnings disabled by default for rst2html and rst2tex?
     for warn in rstWarnings:
       conf.setNoteDefaults(warn, true)
-    conf.setNoteDefaults(warnRstRedefinitionOfLabel, false) # similar to issue #13218
+    conf.setNoteDefaults(rbackRstRedefinitionOfLabel, false) # similar to issue #13218
     when defined(leanCompiler):
       conf.quitOrRaise "compiler wasn't built with documentation generator"
     else:
@@ -332,10 +338,11 @@ proc mainCommand*(graph: ModuleGraph) =
       for dir in conf.lazyPaths: lazyPaths.elems.add(%dir.string)
 
       var hints = newJObject() # consider factoring with `listHints`
-      for a in hintMin..hintMax:
+      for a in repHints:
         hints[$a] = %(a in conf.notes)
+
       var warnings = newJObject()
-      for a in warnMin..warnMax:
+      for a in repWarnings:
         warnings[$a] = %(a in conf.notes)
 
       var dumpdata = %[
@@ -375,14 +382,17 @@ proc mainCommand*(graph: ModuleGraph) =
   of cmdNimscript:
     if conf.projectIsCmd or conf.projectIsStdin: discard
     elif not fileExists(conf.projectFull):
-      rawMessage(conf, errGenerated, "NimScript file does not exist: " & conf.projectFull.string)
+      localError(conf, InternalReport(
+        kind: rintCannotOpenFile, msg: conf.projectFull.string))
+
     # main NimScript logic handled in `loadConfigs`.
   of cmdNop: discard
   of cmdJsonscript:
     setOutFile(graph.config)
     commandJsonScript(graph)
   of cmdUnknown, cmdNone, cmdIdeTools, cmdNimfix:
-    rawMessage(conf, errGenerated, "invalid command: " & conf.command)
+    localReport(conf, ExternalReport(
+      msg: conf.command, kind: rextInvalidCommand))
 
   if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
     if optProfileVM in conf.globalOptions:

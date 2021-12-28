@@ -123,6 +123,15 @@ type
     rextInvalidValue
     rextUnexpectedValue ## Command-line argument had value, but it did not
     ## match with any expected.
+
+    rextIcUnknownFileName
+    rextIcNoSymbolAtPosition
+
+    rextExpectedTinyCForRun
+    rextInvalidCommand
+    rextCommandMissing
+    rextExpectedRunOptForArgs
+    rextUnexpectedRunOpt
     rextInvalidPath ## Invalid path for a command-line argument
     # end
 
@@ -164,6 +173,9 @@ type
     # string
     rlexUnclosedTripleString
     rlexUnclosedSingleString
+
+    rlexExpectedToken
+    rlexCfgInvalidDirective
 
     # comments
     rlexUnclosedComment
@@ -255,6 +267,7 @@ type
     # Module errors
     rsemSystemNeeds
     rsemInvalidModulePath
+    rsemInvalidModuleName
     rsemCannotImportItself
     rsemRecursiveInclude
     rsemRecursiveImport
@@ -329,6 +342,7 @@ type
     rsemTVoidNotAllowed
     rsemExpectedObjectForRegion
     rsemUnexpectedVoidType
+    rsemUnexpectedArrayAssignForCstring
     rsemMacroBodyDependsOnGenericTypes
     rsemMalformedNotNilType
     rsemEnableNotNilExperimental
@@ -449,6 +463,7 @@ type
     rsemExpectedDestroyOrDeepCopyForOverride
     rsemExpectedObjectForMethod
     rsemUnexpectedPragmaInDefinitionOf
+    rsemMisplacedRunnableExample
 
     # Expressions
     rsemConstantOfTypeHasNoValue
@@ -615,6 +630,7 @@ type
     rsemExpectedCaseForComputedGoto
     rsemDisallowedRangeForComputedGoto
     rsemExpectedCallForCxxPattern
+    rsemExpectedParameterForCxxPattern
     rsemExpectedLiteralForGoto
     rsemRequiresDeepCopyEnabled
     rsemDisallowedOfForPureObjects
@@ -789,6 +805,7 @@ type
     #------------------------  Command report kinds  -------------------------#
     rcmdExecuting
     rcmdFailedExecution
+    rcmdRunnableExamplesSuccess
     rcmdCC
 
     #----------------------------  Debug reports  ----------------------------#
@@ -797,13 +814,38 @@ type
     #---------------------------  Backend reports  ---------------------------#
     # errors start
     rbackCannotWriteScript ## Cannot write build script to a cache file
+    rextExpectedCbackendForRun
     rbackCannotWriteMappingFile ## Canot write module compilation mapping
     ## file to cache directory
     rbackTargetNotSupported ## C compiler does not support requested target
+    rbackJsTooCaseTooLarge
+    rbackJsUnsupportedClosureIter
     rbackJsonScriptMismatch # ??? used in `extccomp.nim`, TODO figure out
     # what the original mesage was responsible for exactly
+
+    rbackRstCannotOpenFile
+    rbackRstExpected
+    rbackRstGridTableNotImplemented
+    rbackRstMarkdownIllformedTable
+    rbackRstNewSectionExpected
+    rbackRstGeneralParseError
+    rbackRstInvalidDirective
+    rbackRstInvalidField
+    rbackRstFootnoteMismatch
+
     rbackCannotProduceAssembly
     # errors end
+
+    # warnings start
+    rbackRstTestUnsupported
+    rbackRstRedefinitionOfLabel
+    rbackRstUnknownSubstitution
+    rbackRstBrokenLink
+    rbackRstUnsupportedLanguage
+    rbackRstUnsupportedField
+    rbackRstRstStyle
+
+    # warnings end
 
     # hints start
     rbackProducedAssembly
@@ -818,6 +860,8 @@ type
     # hints end
 
   ReportKinds* = set[ReportKind]
+
+const rstWarnings* = {rbackRstTestUnsupported .. rbackRstRstStyle}
 
 static:
   echo(
@@ -1056,6 +1100,7 @@ type
          rsemTypeConversionArgumentMismatch,
          rsemInvalidTupleSubscript,
          rsemExpectedTemplateWithNArgs,
+         rsemExpectedParameterForCxxPattern,
          rsemWrongNumberOfQuoteArguments,
          rsemExpectedHighCappedDiscriminant:
         countMismatch*: tuple[expected, got: Int128]
@@ -1202,10 +1247,12 @@ func severity*(report: DebugReport): ReportSeverity =
 type
   BackendReportKind* = range[rbackCannotWriteScript .. rbackUseDynLib]
   BackendReport* = object of ReportBase
+    msg*: string
     usedCompiler*: string
     case kind*: ReportKind
       of rbackCannotWriteScript,
          rbackProducedAssembly,
+         rextExpectedCbackendForRun,
          rbackCannotWriteMappingFile:
         filename*: string
 
@@ -1232,6 +1279,8 @@ type
   ExternalReport* = object of ReportBase
     ## Report about external environment reads, passed configuration
     ## options etc.
+    msg*: string
+
     case kind*: ReportKind
       of rextInvalidHint .. rextInvalidPath:
         cmdlineSwitch*: string ## Switch in processing
@@ -1242,9 +1291,6 @@ type
       of rextUnknownCCompiler:
         knownCompilers*: seq[string]
         passedCompiler*: string
-
-      of rextDeprecated:
-        msg*: string
 
       of rextInvalidPackageName:
         packageName*: string

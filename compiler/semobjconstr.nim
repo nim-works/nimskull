@@ -15,8 +15,6 @@
 
 # included from sem.nim
 
-from sugar import dup
-
 type
   ObjConstrContext = object
     typ: PType               # The constructed type
@@ -207,7 +205,7 @@ proc semConstructFields(c: PContext, n: PNode,
       mergeInitStatus(result, status)
 
   of nkRecCase:
-    proc fieldsPresentInBranch(branchIdx: int): seq[PSym] =
+    template fieldsPresentInBranch(branchIdx: int): seq[PSym] =
       let branch = n[branchIdx]
       let fields = branch[^1]
       fieldsPresentInInitExpr(c, fields, constrCtx.initExpr)

@@ -23,7 +23,7 @@
 
 import
   ast, astalgo, idents, lowerings, magicsys, guards, msgs,
-  renderer, types, modulegraphs, options, spawn, lineinfos,
+  renderer, types, modulegraphs, options, spawn,
   reports
 
 from trees import getMagic, isTrue, getRoot

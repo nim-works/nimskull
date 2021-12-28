@@ -37,8 +37,7 @@ proc stackTraceAux(
     recursionLimit: int = 100
   ): SemReport =
 
-  result = SemReport(kind: rsemVmStackTrace, traceReason: traceReason)
-  proc aux(x: PStackFrame, pc, depth: int) =
+  proc aux(x: PStackFrame, pc, depth: int, res: var SemReport) =
     if x != nil:
       if recursionLimit < depth:
         var calls = 0
@@ -51,14 +50,15 @@ proc stackTraceAux(
 
         return
 
-      aux(x.next, x.comesFrom, depth + 1)
+      aux(x.next, x.comesFrom, depth + 1, res)
 
-      result.stacktrace.add((
+      res.stacktrace.add((
         sym: x.prc,
         location: c.config.toReportLinePoint(c.debug[pc])
       ))
 
-  aux(x, pc, 0)
+  result = SemReport(kind: rsemVmStackTrace, traceReason: traceReason)
+  aux(x, pc, 0, result)
 
 proc stackTraceImpl(
     c: PCtx,

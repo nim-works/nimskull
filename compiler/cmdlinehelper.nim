@@ -11,7 +11,8 @@
 
 import
   options, idents, nimconf, extccomp, commands, msgs,
-  lineinfos, modulegraphs, condsyms, os, pathutils, parseopt
+  reports,
+  modulegraphs, condsyms, os, pathutils, parseopt
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
   when defined(unix):
@@ -67,11 +68,13 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
   extccomp.initVars(conf)
   self.processCmdLine(passCmd2, "", conf)
   if conf.cmd == cmdNone:
-    rawMessage(conf, errGenerated, "command missing")
+    localError(conf, ExternalReport(kind: rextCommandMissing))
 
   graph.suggestMode = self.suggestMode
   return true
 
-proc loadConfigsAndRunMainCommand*(self: NimProg, cache: IdentCache; conf: ConfigRef; graph: ModuleGraph): bool =
+proc loadConfigsAndRunMainCommand*(
+    self: NimProg, cache: IdentCache; conf: ConfigRef; graph: ModuleGraph): bool =
+
   ## Alias for loadConfigsAndProcessCmdLine, here for backwards compatibility
   loadConfigsAndProcessCmdLine(self, cache, conf, graph)

@@ -77,7 +77,7 @@ func compilerInstInfo*(e: PNode): InstantiationInfo {.inline.} =
 
 proc newError*(
     wrongNode: PNode;
-    errorKind: SemReportErrorKind,
+    errorKind: ReportKind,
     report: ReportId,
     inst: InstantiationInfo,
     args: varargs[PNode]
@@ -104,14 +104,16 @@ template newError*(
     wrongNode: PNode,
     report: SemReport,
     args: seq[PNode] = @[],
-    info: TLineInfo = wrongNode.info,
+    posInfo: TLineInfo = unknownLineInfo,
   ): untyped =
 
   var rep = report
   if isNil(rep.expression):
     rep.expression = wrongNode
 
-  let tmp = wrap(rep, instLoc(), conf.toReportLinePoint(info))
+  let tmp = wrap(rep, instLoc(), conf.toReportLinePoint(
+    if posInfo == unknownLineInfo: wrongNode.info  else: posInfo))
+
   let id = conf.addReport(tmp)
   newError(wrongNode, tmp.semReport.kind, id, instLoc(), args)
 

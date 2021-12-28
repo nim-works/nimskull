@@ -16,7 +16,7 @@ import sets
 from os import nil
 from std/private/miscdollars import toLocation
 
-import ".." / [ast, modulegraphs, msgs, options]
+import ".." / [ast, modulegraphs, msgs, options, reports]
 import packed_ast, bitabs, ic
 
 type
@@ -119,13 +119,15 @@ proc nav(g: ModuleGraph) =
     mid = searchForIncludeFile(g, fullPath)
 
   if mid < 0:
-    localError(g.config, unpacked, "unknown file name: " & fullPath)
+    localError(g.config, unpacked, SemReport(
+      kind: rextIcUnknownFileName, msg: fullPath))
+
     return
 
   let fileId = g.packed[mid].fromDisk.strings.getKeyId(fullPath)
 
   if fileId == LitId(0):
-    internalError(g.config, unpacked, "cannot find a valid file ID")
+    internalUnreachable(g.config, unpacked, "cannot find a valid file ID")
     return
 
   var c = NavContext(
@@ -139,7 +141,9 @@ proc nav(g: ModuleGraph) =
     symId = search(c, g.packed[mid].fromDisk.bodies)
 
   if symId == EmptyItemId:
-    localError(g.config, unpacked, "no symbol at this position")
+    localError(g.config, unpacked, SemReport(
+      kind: rextIcNoSymbolAtPosition))
+
     return
 
   for i in 0..high(g.packed):

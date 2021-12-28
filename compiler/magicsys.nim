@@ -144,7 +144,7 @@ proc registerNimScriptSymbol2*(g: ModuleGraph; s: PSym): PNode =
     result = g.config.newError(
       newSymNode(s),
       SemReport(kind: rsemConflictingExportnims, conflictingExports: (s, conflict)),
-      info = s.info)
+      posInfo = s.info)
 
 proc getNimScriptSymbol*(g: ModuleGraph; name: string): PSym =
   strTableGet(g.exposed, getIdent(g.cache, name))

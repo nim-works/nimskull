@@ -10,7 +10,6 @@
 ## This module implements semantic checking for calls.
 # included from sem.nim
 
-from algorithm import sort
 
 proc sameMethodDispatcher(a, b: PSym): bool =
   result = false

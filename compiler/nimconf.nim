@@ -10,7 +10,7 @@
 # This module handles the reading of the config file.
 
 import
-  llstream, commands, os, strutils, msgs, lexer, ast,
+  llstream, commands, os, strutils, msgs, lexer, ast, reports,
   options, idents, wordrecg, strtabs, lineinfos, pathutils, scriptconfig
 
 # ---------------- configuration file parser -----------------------------
@@ -26,8 +26,11 @@ proc parseAtom(L: var Lexer, tok: var Token; config: ConfigRef): bool =
   if tok.tokType == tkParLe:
     ppGetTok(L, tok)
     result = parseExpr(L, tok, config)
-    if tok.tokType == tkParRi: ppGetTok(L, tok)
-    else: lexMessage(L, errGenerated, "expected closing ')'")
+    if tok.tokType == tkParRi:
+      ppGetTok(L, tok)
+    else:
+      localError(L, LexerReport(kind: rlexExpectedToken, msg: ")"))
+
   elif tok.tokType == tkNot:
     ppGetTok(L, tok)
     result = not parseAtom(L, tok, config)
@@ -52,13 +55,18 @@ proc parseExpr(L: var Lexer, tok: var Token; config: ConfigRef): bool =
 proc evalppIf(L: var Lexer, tok: var Token; config: ConfigRef): bool =
   ppGetTok(L, tok)            # skip 'if' or 'elif'
   result = parseExpr(L, tok, config)
-  if tok.tokType == tkColon: ppGetTok(L, tok)
-  else: lexMessage(L, errGenerated, "expected ':'")
+  if tok.tokType == tkColon:
+    ppGetTok(L, tok)
+
+  else:
+    localError(L, LexerReport(kind: rlexExpectedToken, msg: ":"))
 
 #var condStack: seq[bool] = @[]
 
 proc doEnd(L: var Lexer, tok: var Token; condStack: var seq[bool]) =
-  if high(condStack) < 0: lexMessage(L, errGenerated, "expected @if")
+  if high(condStack) < 0:
+    localError(L, LexerReport(kind: rlexExpectedToken, msg: "@if"))
+
   ppGetTok(L, tok)            # skip 'end'
   setLen(condStack, high(condStack))
 
@@ -69,16 +77,26 @@ type
 proc jumpToDirective(L: var Lexer, tok: var Token, dest: TJumpDest; config: ConfigRef;
                      condStack: var seq[bool])
 proc doElse(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq[bool]) =
-  if high(condStack) < 0: lexMessage(L, errGenerated, "expected @if")
+  if high(condStack) < 0:
+    localError(L, LexerReport(kind: rlexExpectedToken, msg: "@if"))
+
   ppGetTok(L, tok)
-  if tok.tokType == tkColon: ppGetTok(L, tok)
-  if condStack[high(condStack)]: jumpToDirective(L, tok, jdEndif, config, condStack)
+  if tok.tokType == tkColon:
+    ppGetTok(L, tok)
+
+  if condStack[high(condStack)]:
+    jumpToDirective(L, tok, jdEndif, config, condStack)
 
 proc doElif(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq[bool]) =
-  if high(condStack) < 0: lexMessage(L, errGenerated, "expected @if")
+  if high(condStack) < 0:
+    localError(L, LexerReport(kind: rlexExpectedToken, msg: "@if"))
+
   var res = evalppIf(L, tok, config)
-  if condStack[high(condStack)] or not res: jumpToDirective(L, tok, jdElseEndif, config, condStack)
-  else: condStack[high(condStack)] = true
+  if condStack[high(condStack)] or not res:
+    jumpToDirective(L, tok, jdElseEndif, config, condStack)
+
+  else:
+    condStack[high(condStack)] = true
 
 proc jumpToDirective(L: var Lexer, tok: var Token, dest: TJumpDest; config: ConfigRef;
                      condStack: var seq[bool]) =
@@ -106,7 +124,7 @@ proc jumpToDirective(L: var Lexer, tok: var Token, dest: TJumpDest; config: Conf
         discard
       ppGetTok(L, tok)
     elif tok.tokType == tkEof:
-      lexMessage(L, errGenerated, "expected @end")
+      localError(L, LexerReport(kind: rlexExpectedToken, msg: "@end"))
     else:
       ppGetTok(L, tok)
 
@@ -147,7 +165,7 @@ proc parseDirective(L: var Lexer, tok: var Token; config: ConfigRef; condStack: 
       os.putEnv(key, os.getEnv(key) & $tok)
       ppGetTok(L, tok)
     else:
-      lexMessage(L, errGenerated, "invalid directive: '$1'" % $tok)
+      localError(L, LexerReport(kind: rlexCfgInvalidDirective, msg: $tok))
 
 proc confTok(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq[bool]) =
   ppGetTok(L, tok)
@@ -156,7 +174,7 @@ proc confTok(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq
 
 proc checkSymbol(L: Lexer, tok: Token) =
   if tok.tokType notin {tkSymbol..tkInt64Lit, tkStrLit..tkTripleStrLit}:
-    lexMessage(L, errGenerated, "expected identifier, but got: " & $tok)
+    localError(L, ParserReport(kind: rparIdentExpected, msg: $tok))
 
 proc parseAssignment(L: var Lexer, tok: var Token;
                      config: ConfigRef; condStack: var seq[bool]) =
@@ -181,8 +199,12 @@ proc parseAssignment(L: var Lexer, tok: var Token;
     val.add('[')
     val.add($tok)
     confTok(L, tok, config, condStack)
-    if tok.tokType == tkBracketRi: confTok(L, tok, config, condStack)
-    else: lexMessage(L, errGenerated, "expected closing ']'")
+    if tok.tokType == tkBracketRi:
+      confTok(L, tok, config, condStack)
+
+    else:
+      localError(L, LexerReport(kind: rlexExpectedToken, msg: "]"))
+
     val.add(']')
   let percent = tok.ident != nil and tok.ident.s == "%="
   if tok.tokType in {tkColon, tkEquals} or percent:
@@ -222,7 +244,8 @@ proc readConfigFile*(filename: AbsoluteFile; cache: IdentCache;
     var condStack: seq[bool] = @[]
     confTok(L, tok, config, condStack)           # read in the first token
     while tok.tokType != tkEof: parseAssignment(L, tok, config, condStack)
-    if condStack.len > 0: lexMessage(L, errGenerated, "expected @end")
+    if condStack.len > 0:
+      localError(L, LexerReport(kind: rlexExpectedToken, msg: "@end"))
     closeLexer(L)
     return true
 
@@ -294,7 +317,7 @@ proc loadConfigs*(cfg: RelativeFile; cache: IdentCache; conf: ConfigRef; idgen: 
   template showHintConf =
     for filename in conf.configFiles:
       # delayed to here so that `hintConf` is honored
-      rawMessage(conf, hintConf, filename.string)
+      localReport(conf, ExternalReport(kind: rextConf, msg: filename.string))
   if conf.cmd == cmdNimscript:
     showHintConf()
     conf.configFiles.setLen 0

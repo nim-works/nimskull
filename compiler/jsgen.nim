@@ -33,7 +33,7 @@ import
   nversion, msgs, idents, types,
   ropes, passes, ccgutils, wordrecg, renderer,
   cgmeth, lowerings, sighashes, modulegraphs, lineinfos, rodutils,
-  transf, injectdestructors, sourcemap, astmsgs
+  transf, injectdestructors, sourcemap, astmsgs, reports
 
 import json, sets, math, tables, intsets, strutils
 
@@ -304,9 +304,12 @@ proc useMagic(p: PProc, name: string) =
       p.g.constants.add(code)
   else:
     if p.prc != nil:
-      globalError(p.config, p.prc.info, "system module needs: " & name)
+      globalError(p.config, p.prc.info, SemReport(
+        kind: rsemSystemNeeds, msg: name))
+
     else:
-      rawMessage(p.config, errGenerated, "system module needs: " & name)
+      localError(p.config, SemReport(
+        kind: rsemSystemNeeds, msg: name))
 
 proc isSimpleExpr(p: PProc; n: PNode): bool =
   # calls all the way down --> can stay expression based
@@ -808,7 +811,7 @@ proc genTry(p: PProc, n: PNode, r: var TCompRes) =
         elif it.kind == nkType:
           throwObj = it
         else:
-          internalError(p.config, n.info, "genTryStmt")
+          internalUnreachable(p.config, n.info, "genTryStmt")
 
         if orExpr != nil: orExpr.add("||")
         # Generate the correct type checking code depending on whether this is a
@@ -884,8 +887,8 @@ proc genCaseJS(p: PProc, n: PNode, r: var TCompRes) =
           var v = copyNode(e[0])
           inc(totalRange, int(e[1].intVal - v.intVal))
           if totalRange > 65535:
-            localError(p.config, n.info,
-                       "Your case statement contains too many branches, consider using if/else instead!")
+            localError(p.config, n.info, BackendReport(kind: rbackJsTooCaseTooLarge))
+
           while v.intVal <= e[1].intVal:
             gen(p, v, cond)
             lineF(p, "case $1:$n", [cond.rdLoc])
@@ -895,7 +898,7 @@ proc genCaseJS(p: PProc, n: PNode, r: var TCompRes) =
             case e.kind
             of nkStrLit..nkTripleStrLit: lineF(p, "case $1:$n",
                 [makeJSString(e.strVal, false)])
-            else: internalError(p.config, e.info, "jsgen.genCaseStmt: 2")
+            else: internalUnreachable(p.config, e.info, "jsgen.genCaseStmt: 2")
           else:
             gen(p, e, cond)
             lineF(p, "case $1:$n", [cond.rdLoc])
@@ -909,7 +912,7 @@ proc genCaseJS(p: PProc, n: PNode, r: var TCompRes) =
         gen(p, it[0], stmt)
         moveInto(p, stmt, r)
         lineF(p, "break;$n", [])
-    else: internalError(p.config, it.info, "jsgen.genCaseStmt")
+    else: internalUnreachable(p.config, it.info, "jsgen.genCaseStmt")
   lineF(p, "}$n", [])
 
 proc genBlock(p: PProc, n: PNode, r: var TCompRes) =
@@ -917,7 +920,7 @@ proc genBlock(p: PProc, n: PNode, r: var TCompRes) =
   let idx = p.blocks.len
   if n[0].kind != nkEmpty:
     # named block?
-    if (n[0].kind != nkSym): internalError(p.config, n.info, "genBlock")
+    if (n[0].kind != nkSym): internalUnreachable(p.config, n.info, "genBlock")
     var sym = n[0].sym
     sym.loc.k = locOther
     sym.position = idx+1
@@ -943,7 +946,7 @@ proc genBreakStmt(p: PProc, n: PNode) =
     idx = p.blocks.len - 1
     while idx >= 0 and not p.blocks[idx].isLoop: dec idx
     if idx < 0 or not p.blocks[idx].isLoop:
-      internalError(p.config, n.info, "no loop to break")
+      internalUnreachable(p.config, n.info, "no loop to break")
   p.blocks[idx].id = abs(p.blocks[idx].id) # label is used
   lineF(p, "break Label$1;$n", [rope(p.blocks[idx].id)])
 
@@ -1048,7 +1051,7 @@ proc genAsgnAux(p: PProc, x, y: PNode, noCopyNeeded: bool) =
 
   # disable `[]=` for cstring
   if x.kind == nkBracketExpr and x.len >= 2 and x[0].typ.skipTypes(abstractInst).kind == tyCstring:
-    localError(p.config, x.info, "cstring doesn't support `[]=` operator")
+    localError(p.config, x, rsemUnexpectedArrayAssignForCstring)
 
   gen(p, x, a)
   genLineDir(p, y)
@@ -1093,7 +1096,7 @@ proc genAsgnAux(p: PProc, x, y: PNode, noCopyNeeded: bool) =
         lineF(p, "$1 = $2;$n", [a.address, b.res])
         lineF(p, "$1 = $2;$n", [a.rdLoc, b.rdLoc])
       else:
-        internalError(p.config, x.info, $("genAsgn", b.typ, a.typ))
+        internalUnreachable(p.config, x.info, $("genAsgn", b.typ, a.typ))
     else:
       lineF(p, "$1 = $2; $3 = $4;$n", [a.address, b.address, a.res, b.res])
   else:
@@ -1121,7 +1124,7 @@ proc genSwap(p: PProc, n: PNode) =
   if mapType(p, skipTypes(n[1].typ, abstractVar)) == etyBaseIndex:
     let tmp2 = p.getTemp(false)
     if a.typ != etyBaseIndex or b.typ != etyBaseIndex:
-      internalError(p.config, n.info, "genSwap")
+      internalUnreachable(p.config, n.info, "genSwap")
     lineF(p, "var $1 = $2; $2 = $3; $3 = $1;$n",
              [tmp, a.address, b.address])
     tmp = tmp2
@@ -1132,7 +1135,7 @@ proc getFieldPosition(p: PProc; f: PNode): int =
   case f.kind
   of nkIntLit..nkUInt64Lit: result = int(f.intVal)
   of nkSym: result = f.sym.position
-  else: internalError(p.config, f.info, "genFieldPosition")
+  else: internalUnreachable(p.config, f.info, "genFieldPosition")
 
 proc genFieldAddr(p: PProc, n: PNode, r: var TCompRes) =
   var a: TCompRes
@@ -1142,7 +1145,7 @@ proc genFieldAddr(p: PProc, n: PNode, r: var TCompRes) =
   if skipTypes(b[0].typ, abstractVarRange).kind == tyTuple:
     r.res = makeJSString("Field" & $getFieldPosition(p, b[1]))
   else:
-    if b[1].kind != nkSym: internalError(p.config, b[1].info, "genFieldAddr")
+    if b[1].kind != nkSym: internalUnreachable(p.config, b[1].info, "genFieldAddr")
     var f = b[1].sym
     if f.loc.r == nil: f.loc.r = mangleName(p.module, f)
     r.res = makeJSString($f.loc.r)
@@ -1170,7 +1173,7 @@ proc genFieldAccess(p: PProc, n: PNode, r: var TCompRes) =
         [r.res, getFieldPosition(p, n[1]).rope]
     mkTemp(0)
   else:
-    if n[1].kind != nkSym: internalError(p.config, n[1].info, "genFieldAccess")
+    if n[1].kind != nkSym: internalUnreachable(p.config, n[1].info, "genFieldAccess")
     var f = n[1].sym
     if f.loc.r == nil: f.loc.r = mangleName(p.module, f)
     r.res = "$1.$2" % [r.res, f.loc.r]
@@ -1261,9 +1264,9 @@ proc genArrayAccess(p: PProc, n: PNode, r: var TCompRes) =
     genArrayAddr(p, n, r)
   of tyTuple:
     genFieldAddr(p, n, r)
-  else: internalError(p.config, n.info, "expr(nkBracketExpr, " & $ty.kind & ')')
+  else: internalUnreachable(p.config, n.info, "expr(nkBracketExpr, " & $ty.kind & ')')
   r.typ = mapType(n.typ)
-  if r.res == nil: internalError(p.config, n.info, "genArrayAccess")
+  if r.res == nil: internalUnreachable(p.config, n.info, "genArrayAccess")
   if ty.kind == tyCstring:
     r.res = "$1.charCodeAt($2)" % [r.address, r.res]
   elif r.typ == etyBaseIndex:
@@ -1288,12 +1291,12 @@ template isIndirect(x: PSym): bool =
     v.kind notin {skProc, skFunc, skConverter, skMethod, skIterator,
                   skConst, skTemp, skLet})
 
-proc genSymAddr(p: PProc, n: PNode, typ: PType, r: var TCompRes) = 
+proc genSymAddr(p: PProc, n: PNode, typ: PType, r: var TCompRes) =
   ## Generates a dereferenced symbol,
   ## as many things in the JS gen'd code
   ## are stored in an arrays they have different dereference methods.
   let s = n.sym
-  if s.loc.r == nil: internalError(p.config, n.info, "genAddr: 3")
+  if s.loc.r == nil: internalUnreachable(p.config, n.info, "genAddr: 3")
   case s.kind
   of skParam:
     r.res = s.loc.r
@@ -1323,8 +1326,8 @@ proc genSymAddr(p: PProc, n: PNode, typ: PType, r: var TCompRes) =
     else:
       # 'var openArray' for instance produces an 'addr' but this is harmless:
       gen(p, n, r)
-      #internalError(p.config, n.info, "genAddr: 4 " & renderTree(n))
-  else: internalError(p.config, n.info, $("genAddr: 2", s.kind))
+      #internalUnreachable(p.config, n.info, "genAddr: 4 " & renderTree(n))
+  else: internalUnreachable(p.config, n.info, $("genAddr: 2", s.kind))
 
 proc genAddr(p: PProc, n: PNode, r: var TCompRes) =
   if n.kind == nkSym:
@@ -1353,7 +1356,7 @@ proc genAddr(p: PProc, n: PNode, r: var TCompRes) =
           genFieldAddr(p, n[0], r)
         of tyGenericBody:
           genAddr(p, n[^1], r)
-        else: internalError(p.config, n[0].info, "expr(nkBracketExpr, " & $kindOfIndexedExpr & ')')
+        else: internalUnreachable(p.config, n[0].info, "expr(nkBracketExpr, " & $kindOfIndexedExpr & ')')
     of nkObjDownConv:
       gen(p, n[0], r)
     of nkHiddenDeref:
@@ -1364,16 +1367,16 @@ proc genAddr(p: PProc, n: PNode, r: var TCompRes) =
       genAddr(p, n[0], r)
     of nkStmtListExpr:
       if n.len == 1: gen(p, n[0], r)
-      else: internalError(p.config, n[0].info, "genAddr for complex nkStmtListExpr")
+      else: internalUnreachable(p.config, n[0].info, "genAddr for complex nkStmtListExpr")
     of nkCallKinds:
       if n[0].typ.kind == tyOpenArray:
         # 'var openArray' for instance produces an 'addr' but this is harmless:
         # namely toOpenArray(a, 1, 3)
         gen(p, n[0], r)
       else:
-        internalError(p.config, n[0].info, "genAddr: " & $n[0].kind)
+        internalUnreachable(p.config, n[0].info, "genAddr: " & $n[0].kind)
     else:
-      internalError(p.config, n[0].info, "genAddr: " & $n[0].kind)
+      internalUnreachable(p.config, n[0].info, "genAddr: " & $n[0].kind)
 
 proc attachProc(p: PProc; content: Rope; s: PSym) =
   p.g.code.add(content)
@@ -1398,7 +1401,7 @@ proc genCopyForParamIfNeeded(p: PProc, n: PNode) =
   var owner = p.up
   while true:
     if owner == nil:
-      internalError(p.config, n.info, "couldn't find the owner proc of the closed over param: " & s.name.s)
+      internalUnreachable(p.config, n.info, "couldn't find the owner proc of the closed over param: " & s.name.s)
     if owner.prc == s.owner:
       if not owner.generatedParamCopies.containsOrIncl(s.id):
         let copy = "$1 = nimCopy(null, $1, $2);$n" % [s.loc.r, genTypeInfo(p, s.typ)]
@@ -1413,7 +1416,7 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
   case s.kind
   of skVar, skLet, skParam, skTemp, skResult, skForVar:
     if s.loc.r == nil:
-      internalError(p.config, n.info, "symbol has no generated name: " & s.name.s)
+      internalUnreachable(p.config, n.info, "symbol has no generated name: " & s.name.s)
     if sfCompileTime in s.flags:
       genVarInit(p, s, if s.ast != nil: s.ast else: newNodeI(nkEmpty, s.info))
     if s.kind == skParam:
@@ -1438,12 +1441,13 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
   of skConst:
     genConstant(p, s)
     if s.loc.r == nil:
-      internalError(p.config, n.info, "symbol has no generated name: " & s.name.s)
+      internalUnreachable(p.config, n.info, "symbol has no generated name: " & s.name.s)
     r.res = s.loc.r
   of skProc, skFunc, skConverter, skMethod:
     if sfCompileTime in s.flags:
-      localError(p.config, n.info, "request to generate code for .compileTime proc: " &
-          s.name.s)
+      localError(p.config, n.info,  SemReport(
+        kind: rsemCannotCodegenCompiletimeProc, psym: s))
+
     discard mangleName(p.module, s)
     r.res = s.loc.r
     if lfNoDecl in s.loc.flags or s.magic notin {mNone, mIsolate} or
@@ -1458,7 +1462,7 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
       genProcForSymIfNeeded(p, s)
   else:
     if s.loc.r == nil:
-      internalError(p.config, n.info, "symbol has no generated name: " & s.name.s)
+      internalUnreachable(p.config, n.info, "symbol has no generated name: " & s.name.s)
     r.res = s.loc.r
   r.kind = resVal
 
@@ -1482,7 +1486,7 @@ proc genDeref(p: PProc, n: PNode, r: var TCompRes) =
         r.tmpLoc = a.tmpLoc
       r.res = a.rdLoc
     else:
-      internalError(p.config, n.info, "genDeref")
+      internalUnreachable(p.config, n.info, "genDeref")
 
 proc genArgNoParam(p: PProc, n: PNode, r: var TCompRes) =
   var a: TCompRes
@@ -1550,8 +1554,12 @@ proc genArgs(p: PProc, n: PNode, r: var TCompRes; start=1) =
 proc genOtherArg(p: PProc; n: PNode; i: int; typ: PType;
                  generated: var int; r: var TCompRes) =
   if i >= n.len:
-    globalError(p.config, n.info, "wrong importcpp pattern; expected parameter at position " & $i &
-        " but got only: " & $(n.len-1))
+    globalError(p.config, n.info, semReportCountMismatch(
+      rsemExpectedParameterForCxxPattern,
+      expected = i,
+      got = n.len - 1,
+      node = n))
+
   let it = n[i]
   var paramType: PNode = nil
   if i < typ.len:
@@ -1614,7 +1622,7 @@ proc genInfixCall(p: PProc, n: PNode, r: var TCompRes) =
     gen(p, n[1], r)
     if r.typ == etyBaseIndex:
       if r.address == nil:
-        globalError(p.config, n.info, "cannot invoke with infix syntax")
+        internalUnreachable(p.config, n.info, "cannot invoke with infix syntax")
       r.res = "$1[$2]" % [r.address, r.res]
       r.address = nil
       r.typ = etyNone
@@ -1671,7 +1679,7 @@ proc createRecordVarAux(p: PProc, rec: PNode, excludedFieldIDs: IntSet, output: 
       if output.len > 0: output.add(", ")
       output.addf("$#: ", [mangleName(p.module, rec.sym)])
       output.add(createVar(p, rec.sym.typ, false))
-  else: internalError(p.config, rec.info, "createRecordVarAux")
+  else: internalUnreachable(p.config, rec.info, "createRecordVarAux")
 
 proc createObjInitList(p: PProc, typ: PType, excludedFieldIDs: IntSet, output: var Rope) =
   var t = typ
@@ -1761,10 +1769,10 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
     if t.n != nil:
       result = createVar(p, lastSon t, indirect)
     else:
-      internalError(p.config, "createVar: " & $t.kind)
+      internalUnreachable(p.config, "createVar: " & $t.kind)
       result = nil
   else:
-    internalError(p.config, "createVar: " & $t.kind)
+    internalUnreachable(p.config, "createVar: " & $t.kind)
     result = nil
 
 template returnType: untyped = ~""
@@ -1895,7 +1903,7 @@ proc genOrd(p: PProc, n: PNode, r: var TCompRes) =
   case skipTypes(n[1].typ, abstractVar + abstractRange).kind
   of tyEnum, tyInt..tyUInt64, tyChar: gen(p, n[1], r)
   of tyBool: unaryExpr(p, n, r, "", "($1 ? 1 : 0)")
-  else: internalError(p.config, n.info, "genOrd")
+  else: internalUnreachable(p.config, n.info, "genOrd")
 
 proc genConStrStr(p: PProc, n: PNode, r: var TCompRes) =
   var a: TCompRes
@@ -1960,7 +1968,7 @@ proc genRepr(p: PProc, n: PNode, r: var TCompRes) =
   of tySet:
     genReprAux(p, n, r, "reprSet", genTypeInfo(p, t))
   of tyEmpty, tyVoid:
-    localError(p.config, n.info, "'repr' doesn't support 'void' type")
+    localError(p.config, n, rsemUnexpectedVoidType)
   of tyPointer:
     genReprAux(p, n, r, "reprPointer")
   of tyOpenArray, tyVarargs:
@@ -2155,7 +2163,9 @@ proc genMagic(p: PProc, n: PNode, r: var TCompRes) =
   of mReset, mWasMoved: genReset(p, n)
   of mEcho: genEcho(p, n, r)
   of mNLen..mNError, mSlurp, mStaticExec:
-    localError(p.config, n.info, errXMustBeCompileTime % n[0].sym.name.s)
+    localError(p.config, n.info, SemReport(
+      kind: rsemConstExpressionExpected, psym: n[0].sym))
+
   of mNewString: unaryExpr(p, n, r, "mnewString", "mnewString($1)")
   of mNewStringOfCap:
     unaryExpr(p, n, r, "mnewString", "mnewString(0)")
@@ -2177,7 +2187,7 @@ proc genMagic(p: PProc, n: PNode, r: var TCompRes) =
     genMove(p, n, r)
   else:
     genCall(p, n, r)
-    #else internalError(p.config, e.info, 'genMagic: ' + magicToStr[op]);
+    #else internalUnreachable(p.config, e.info, 'genMagic: ' + magicToStr[op]);
 
 proc genSetConstr(p: PProc, n: PNode, r: var TCompRes) =
   var
@@ -2321,7 +2331,7 @@ proc convStrToCStr(p: PProc, n: PNode, r: var TCompRes) =
     gen(p, n[0][0], r)
   else:
     gen(p, n[0], r)
-    if r.res == nil: internalError(p.config, n.info, "convStrToCStr")
+    if r.res == nil: internalUnreachable(p.config, n.info, "convStrToCStr")
     useMagic(p, "toJSStr")
     r.res = "toJSStr($1)" % [r.res]
     r.kind = resExpr
@@ -2333,13 +2343,13 @@ proc convCStrToStr(p: PProc, n: PNode, r: var TCompRes) =
     gen(p, n[0][0], r)
   else:
     gen(p, n[0], r)
-    if r.res == nil: internalError(p.config, n.info, "convCStrToStr")
+    if r.res == nil: internalUnreachable(p.config, n.info, "convCStrToStr")
     useMagic(p, "cstrToNimstr")
     r.res = "cstrToNimstr($1)" % [r.res]
     r.kind = resExpr
 
 proc genReturnStmt(p: PProc, n: PNode) =
-  if p.procDef == nil: internalError(p.config, n.info, "genReturnStmt")
+  if p.procDef == nil: internalUnreachable(p.config, n.info, "genReturnStmt")
   p.beforeRetNeeded = true
   if n[0].kind != nkEmpty:
     genStmt(p, n[0])
@@ -2621,7 +2631,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkVarSection, nkLetSection: genVarStmt(p, n)
   of nkConstSection: discard
   of nkForStmt, nkParForStmt:
-    internalError(p.config, n.info, "for statement not eliminated")
+    internalUnreachable(p.config, n.info, "for statement not eliminated")
   of nkCaseStmt: genCaseJS(p, n, r)
   of nkReturnStmt: genReturnStmt(p, n)
   of nkBreakStmt: genBreakStmt(p, n)
@@ -2641,7 +2651,9 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
      nkMixinStmt, nkBindStmt: discard
   of nkIteratorDef:
     if n[0].sym.typ.callConv == TCallingConvention.ccClosure:
-      globalError(p.config, n.info, "Closure iterators are not supported by JS backend!")
+      globalError(p.config, n.info, BackendReport(
+        kind: rbackJsUnsupportedClosureIter))
+
   of nkPragma: genPragma(p, n)
   of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:
     var s = n[namePos].sym
@@ -2649,11 +2661,13 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       genSym(p, n[namePos], r)
       r.res = nil
   of nkGotoState, nkState:
-    globalError(p.config, n.info, "First class iterators not implemented")
+    globalError(p.config, n.info, BackendReport(
+      kind: rbackJsUnsupportedClosureIter))
+
   of nkPragmaBlock: gen(p, n.lastSon, r)
   of nkComesFrom:
     discard "XXX to implement for better stack traces"
-  else: internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
+  else: internalUnreachable(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule(g: ModuleGraph; module: PSym): BModule =
   new(result)
@@ -2728,7 +2742,7 @@ proc myProcess(b: PPassContext, n: PNode): PNode =
   result = n
   let m = BModule(b)
   if passes.skipCodegen(m.config, n): return n
-  if m.module == nil: internalError(m.config, n.info, "myProcess")
+  if m.module == nil: internalUnreachable(m.config, n.info, "myProcess")
   let globals = PGlobals(m.graph.backend)
   var p = newInitProc(globals, m)
   p.unique = globals.unique
