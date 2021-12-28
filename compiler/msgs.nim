@@ -662,7 +662,9 @@ template localReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
   handleReport(
     conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
 
-template internalAssert*(conf: ConfigRef, e: bool, failMsg: string) =
+template internalAssert*(
+    conf: ConfigRef, e: bool, failMsg: string = "") =
+
   if not e:
     conf.report(wrap(
       InternalReport(

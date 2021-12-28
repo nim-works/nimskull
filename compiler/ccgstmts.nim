@@ -61,7 +61,7 @@ proc endBlock(p: BProc)
 
 proc genVarTuple(p: BProc, n: PNode) =
   var tup, field: TLoc
-  if n.kind != nkVarTuple: internalError(p.config, n.info, "genVarTuple")
+  if n.kind != nkVarTuple: internalUnreachable(p.config, n.info, "genVarTuple")
 
   # if we have a something that's been captured, use the lowering instead:
   for i in 0..<n.len-2:
@@ -104,7 +104,7 @@ proc genVarTuple(p: BProc, n: PNode) =
     if t.kind == tyTuple:
       field.r = "$1.Field$2" % [rdLoc(tup), rope(i)]
     else:
-      if t.n[i].kind != nkSym: internalError(p.config, n.info, "genVarTuple")
+      if t.n[i].kind != nkSym: internalUnreachable(p.config, n.info, "genVarTuple")
       field.r = "$1.$2" % [rdLoc(tup), mangleRecFieldName(p.module, t.n[i].sym)]
     putLocIntoDest(p, v.loc, field)
     if forHcr or isGlobalInBlock:
@@ -268,7 +268,8 @@ proc genBreakState(p: BProc, n: PNode, d: var TLoc) =
 
 proc genGotoVar(p: BProc; value: PNode) =
   if value.kind notin {nkCharLit..nkUInt64Lit}:
-    localError(p.config, value.info, "'goto' target must be a literal value")
+    localError(p.config, value, rsemExpectedLiteralForGoto)
+
   else:
     lineF(p, cpsStmts, "goto NIMSTATE_$#;$n", [value.intVal.rope])
 
@@ -457,7 +458,7 @@ proc genIf(p: BProc, n: PNode, d: var TLoc) =
       startBlock(p)
       expr(p, it[0], d)
       endBlock(p)
-    else: internalError(p.config, n.info, "genIf()")
+    else: internalUnreachable(p.config, n.info, "genIf()")
   if n.len > 1: fixLabel(p, lend)
 
 proc genReturnStmt(p: BProc, t: PNode) =
@@ -481,7 +482,7 @@ proc genGotoForCase(p: BProc; caseStmt: PNode) =
     let it = caseStmt[i]
     for j in 0..<it.len-1:
       if it[j].kind == nkRange:
-        localError(p.config, it.info, "range notation not available for computed goto")
+        localError(p.config, it, rsemDisallowedRangeForComputedGoto)
         return
       let val = getOrdValue(it[j])
       lineF(p, cpsStmts, "NIMSTATE_$#:$n", [val.rope])
@@ -510,22 +511,28 @@ proc genComputedGoto(p: BProc; n: PNode) =
     let it = n[i]
     if it.kind == nkCaseStmt:
       if lastSon(it).kind != nkOfBranch:
-        localError(p.config, it.info,
-            "case statement must be exhaustive for computed goto"); return
+        localError(p.config, it, rsemExpectedExhaustiveCaseForComputedGoto)
+        return
+
       casePos = i
       if enumHasHoles(it[0].typ):
-        localError(p.config, it.info,
-            "case statement cannot work on enums with holes for computed goto"); return
+        localError(p.config, it, rsemExpectedUnholyEnumForComputedGoto)
+        return
+
       let aSize = lengthOrd(p.config, it[0].typ)
       if aSize > 10_000:
-        localError(p.config, it.info,
-            "case statement has too many cases for computed goto"); return
+        localError(p.config, it, rsemTooManyEntriesForComputedGoto)
+        return
+
       arraySize = toInt(aSize)
       if firstOrd(p.config, it[0].typ) != 0:
-        localError(p.config, it.info,
-            "case statement has to start at 0 for computed goto"); return
+        localError(p.config, it, rsemExpectedLow0ForComputedGoto)
+        return
+
   if casePos < 0:
-    localError(p.config, n.info, "no case statement found for computed goto"); return
+    localError(p.config, n, rsemExpectedCaseForComputedGoto)
+    return
+
   var id = p.labels+1
   inc p.labels, arraySize+1
   let tmp = "TMP$1_" % [id.rope]
@@ -549,7 +556,7 @@ proc genComputedGoto(p: BProc; n: PNode) =
     let it = caseStmt[i]
     for j in 0..<it.len-1:
       if it[j].kind == nkRange:
-        localError(p.config, it.info, "range notation not available for computed goto")
+        localError(p.config, it, rsemDisallowedRangeForComputedGoto)
         return
 
       let val = getOrdValue(it[j])
@@ -694,7 +701,7 @@ proc genBreakStmt(p: BProc, t: PNode) =
     # an unnamed 'break' can only break a loop after 'transf' pass:
     while idx >= 0 and not p.blocks[idx].isLoop: dec idx
     if idx < 0 or not p.blocks[idx].isLoop:
-      internalError(p.config, t.info, "no loop to break")
+      internalUnreachable(p.config, t.info, "no loop to break")
   let label = assignLabel(p.blocks[idx])
   blockLeaveActions(p,
     p.nestedTryStmts.len - p.blocks[idx].nestedTryStmts,
@@ -1551,7 +1558,7 @@ proc asgnFieldDiscriminant(p: BProc, e: PNode) =
   if optTinyRtti notin p.config.globalOptions:
     let field = dotExpr[1].sym
     genDiscriminantCheck(p, a, tmp, dotExpr[0].typ, field)
-    message(p.config, e.info, warnCaseTransition)
+    localError(p.config, e, rsemCaseTransition)
   genAssignment(p, a, tmp, {})
 
 proc genAsgn(p: BProc, e: PNode, fastAsgn: bool) =
@@ -1579,7 +1586,7 @@ proc genAsgn(p: BProc, e: PNode, fastAsgn: bool) =
 proc genStmts(p: BProc, t: PNode) =
   var a: TLoc
 
-  let isPush = p.config.hasHint(hintExtendedContext)
+  let isPush = p.config.hasHint(rsemExtendedContext)
   if isPush: pushInfoContext(p.config, t.info)
   expr(p, t, a)
   if isPush: popInfoContext(p.config)

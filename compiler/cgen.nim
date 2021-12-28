@@ -13,7 +13,7 @@ import
   ast, astalgo, hashes, trees, platform, magicsys, extccomp, options, intsets,
   nversion, nimsets, msgs, bitsets, idents, types,
   ccgutils, os, ropes, math, passes, wordrecg, treetab, cgmeth,
-  rodutils, renderer, cgendata, aliases,
+  rodutils, renderer, cgendata, aliases, reports,
   lowerings, tables, sets, ndi, lineinfos, pathutils, transf,
   injectdestructors, astmsgs
 
@@ -551,7 +551,7 @@ proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
     else:
       s.loc.r = mangleDynLibProc(s)
     if value != nil:
-      internalError(p.config, n.info, ".dynlib variables cannot have a value")
+      internalUnreachable(p.config, n.info, ".dynlib variables cannot have a value")
     return
   useHeader(p.module, s)
   if lfNoDecl in s.loc.flags: return
@@ -559,7 +559,7 @@ proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
     if sfThread in s.flags:
       declareThreadVar(p.module, s, sfImportc in s.flags)
       if value != nil:
-        internalError(p.config, n.info, ".threadvar variables cannot have a value")
+        internalUnreachable(p.config, n.info, ".threadvar variables cannot have a value")
     else:
       var decl: Rope = nil
       var td = getTypeDesc(p.module, s.loc.t, skVar)
@@ -689,7 +689,9 @@ proc loadDynamicLib(m: BModule, lib: PLib) =
     if lib.path.kind in {nkStrLit..nkTripleStrLit}:
       var s: TStringSeq = @[]
       libCandidates(lib.path.strVal, s)
-      rawMessage(m.config, hintDependency, lib.path.strVal)
+      localReport(m.config, SemReport(
+        kind: rsemHintLibDependeny, msg: lib.path.strVal))
+
       var loadlib: Rope = nil
       for i in 0..high(s):
         inc(m.labels)
@@ -719,7 +721,7 @@ proc loadDynamicLib(m: BModule, lib: PLib) =
            "if (!($1 = #nimLoadLibrary($2))) #nimLoadLibraryError($2);$n",
            [tmp, rdLoc(dest)])
 
-  if lib.name == nil: internalError(m.config, "loadDynamicLib")
+  if lib.name == nil: internalUnreachable(m.config, "loadDynamicLib")
 
 proc mangleDynLibProc(sym: PSym): Rope =
   # we have to build this as a single rope in order not to trip the
@@ -759,7 +761,7 @@ proc symInDynamicLib(m: BModule, sym: PSym) =
     elif idx.len == 1 and idx[0] in {'0'..'9'}:
       m.extensionLoaders[idx[0]].add(load)
     else:
-      internalError(m.config, sym.info, "wrong index: " & idx)
+      internalUnreachable(m.config, sym.info, "wrong index: " & idx)
   else:
     appcg(m, m.s[cfsDynLibInit],
         "\t$1 = ($2) #nimGetProcAddr($3, $4);$n",
@@ -791,12 +793,14 @@ proc cgsym(m: BModule, name: string): Rope =
     of skProc, skFunc, skMethod, skConverter, skIterator: genProc(m, sym)
     of skVar, skResult, skLet: genVarPrototype(m, newSymNode sym)
     of skType: discard getTypeDesc(m, sym.typ)
-    else: internalError(m.config, "cgsym: " & name & ": " & $sym.kind)
+    else: internalUnreachable(m.config, "cgsym: " & name & ": " & $sym.kind)
   else:
     # we used to exclude the system module from this check, but for DLL
     # generation support this sloppyness leads to hard to detect bugs, so
     # we're picky here for the system module too:
-    rawMessage(m.config, errGenerated, "system module needs: " & name)
+    localReport(m.config, SemReport(
+      kind: rsemSystemNeeds, msg: name))
+
   result = sym.loc.r
   if m.hcrOn and sym != nil and sym.kind in {skProc..skIterator}:
     result.addActualSuffixForHCR(m.module, sym)
@@ -839,7 +843,7 @@ proc closureSetup(p: BProc, prc: PSym) =
   # prc.ast[paramsPos].last contains the type we're after:
   var ls = lastSon(prc.ast[paramsPos])
   if ls.kind != nkSym:
-    internalError(p.config, prc.info, "closure generation failed")
+    internalUnreachable(p.config, prc.info, "closure generation failed")
   var env = ls.sym
   #echo "created environment: ", env.id, " for ", prc.name.s
   assignLocalVar(p, ls)
@@ -1019,7 +1023,7 @@ proc genProcAux(m: BModule, prc: PSym) =
 
   if sfPure notin prc.flags and prc.typ[0] != nil:
     if resultPos >= prc.ast.len:
-      internalError(m.config, prc.info, "proc has no result symbol")
+      internalUnreachable(m.config, prc.info, "proc has no result symbol")
     let resNode = prc.ast[resultPos]
     let res = resNode.sym # get result symbol
     if not isInvalidReturnType(m.config, prc.typ[0]):
@@ -1882,7 +1886,8 @@ proc writeHeader(m: BModule) =
   if m.config.cppCustomNamespace.len > 0: result.add closeNamespaceNim()
   result.addf("#endif /* $1 */$n", [guard])
   if not writeRope(result, m.filename):
-    rawMessage(m.config, errCannotOpenFile, m.filename.string)
+    localError(m.config, SemReport(
+      kind: rsemCannotOpenFile, msg: m.filename.string))
 
 proc getCFile(m: BModule): AbsoluteFile =
   let ext =
@@ -1951,7 +1956,9 @@ proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
         else:
           echo "new file ", cfile.cname.string
       if not writeRope(code, cfile.cname):
-        rawMessage(m.config, errCannotOpenFile, cfile.cname.string)
+        localError(m.config, SemReport(
+          kind: rsemCannotOpenFile, msg: cfile.cname.string))
+
       result = true
     elif fileExists(cfile.obj) and os.fileNewer(cfile.obj.string, cfile.cname.string):
       result = false
@@ -1959,7 +1966,9 @@ proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
       result = true
   else:
     if not writeRope(code, cfile.cname):
-      rawMessage(m.config, errCannotOpenFile, cfile.cname.string)
+      localError(m.config, SemReport(
+        kind: rsemCannotOpenFile, msg: cfile.cname.string))
+
     result = true
 
 # We need 2 different logics here: pending modules (including
@@ -1990,7 +1999,9 @@ proc writeModule(m: BModule, pending: bool) =
         onExit()
         return
 
-    if not shouldRecompile(m, code, cf): cf.flags = {CfileFlag.Cached}
+    if not shouldRecompile(m, code, cf):
+      cf.flags = {CfileFlag.Cached}
+
     addFileToCompile(m.config, cf)
   onExit()
 
@@ -2070,7 +2081,7 @@ proc genForwardedProcs(g: BModuleList) =
       prc = g.forwardedProcs.pop()
       m = g.modules[prc.itemId.module]
     if sfForward in prc.flags:
-      internalError(m.config, prc.info, "still forwarded: " & prc.name.s)
+      internalUnreachable(m.config, prc.info, "still forwarded: " & prc.name.s)
 
     genProcNoForward(m, prc)
 

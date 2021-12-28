@@ -246,21 +246,23 @@ template isUnpackedTuple(n: PNode): bool =
   (n.kind == nkSym and n.sym.kind == skTemp and n.sym.typ.kind == tyTuple)
 
 proc checkForErrorPragma(c: Con; t: PType; ri: PNode; opname: string) =
-  var m = "'" & opname & "' is not available for type <" & typeToString(t) & ">"
+  var rep = SemReport(
+    kind: rsemUnavailableTypeBound,
+    rtype: t,
+    msg: opname,
+    expression: ri,
+    psym: c.owner
+  )
+
   if (opname == "=" or opname == "=copy") and ri != nil:
-    m.add "; requires a copy because it's not the last read of '"
-    m.add renderTree(ri)
-    m.add '\''
     if ri.comment.startsWith('\n'):
-      m.add "; another read is done here: "
-      m.add c.graph.config $ c.g[parseInt(ri.comment[1..^1])].n.info
+      rep.missingTypeBoundElaboration.anotherRead = some c.graph.config.toReportLinePoint(
+        c.g[parseInt(ri.comment[1..^1])].n.info)
+
     elif ri.kind == nkSym and ri.sym.kind == skParam and not isSinkType(ri.sym.typ):
-      m.add "; try to make "
-      m.add renderTree(ri)
-      m.add " a 'sink' parameter"
-  m.add "; routine: "
-  m.add c.owner.name.s
-  localError(c.graph.config, ri.info, errGenerated, m)
+      rep.missingTypeBoundElaboration.tryMakeSinkParam = true
+
+  localError(c.graph.config, ri.info, rep)
 
 proc makePtrType(c: var Con, baseType: PType): PType =
   result = newType(tyPtr, nextTypeId c.idgen, c.owner)
@@ -394,8 +396,7 @@ proc genDiscriminantAsgn(c: var Con; s: var Scope; n: PNode): PNode =
   if hasDestructor(c, objType):
     if getAttachedOp(c.graph, objType, attachedDestructor) != nil and
         sfOverriden in getAttachedOp(c.graph, objType, attachedDestructor).flags:
-      localError(c.graph.config, n.info, errGenerated, """Assignment to discriminant for objects with user defined destructor is not supported, object must have default destructor.
-It is best to factor out piece of object that needs custom destructor into separate object or not use discriminator assignment""")
+      localError(c.graph.config, n, rsemCannotAssignToDiscriminantWithCustomDestructor)
       result.add newTree(nkFastAsgn, le, tmp)
       return
 
@@ -462,15 +463,22 @@ proc passCopyToSink(n: PNode; c: var Con; s: var Scope): PNode =
     m.add p(n, c, s, normal)
     c.finishCopy(m, n, isFromSink = true)
     result.add m
-    if isLValue(n) and not isCapturedVar(n) and n.typ.skipTypes(abstractInst).kind != tyRef and c.inSpawn == 0:
-      message(c.graph.config, n.info, hintPerformance,
-        ("passing '$1' to a sink parameter introduces an implicit copy; " &
-        "if possible, rearrange your program's control flow to prevent it") % $n)
+    if isLValue(n) and
+       not isCapturedVar(n) and
+       n.typ.skipTypes(abstractInst).kind != tyRef and
+       c.inSpawn == 0:
+
+      localReport(c.graph.config, n, rsemCopiesToSink)
+
   else:
     if c.graph.config.selectedGC in {gcArc, gcOrc}:
       assert(not containsManagedMemory(n.typ))
+
     if n.typ.skipTypes(abstractInst).kind in {tyOpenArray, tyVarargs}:
-      localError(c.graph.config, n.info, "cannot create an implicit openArray copy to be passed to a sink parameter")
+      localError(c.graph.config, n.info, SemReport(
+        kind: rsemCannotCreateImplicitOpenarray,
+        expression: n))
+
     result.add newTree(nkAsgn, tmp, p(n, c, s, normal))
   # Since we know somebody will take over the produced copy, there is
   # no need to destroy it.
@@ -531,12 +539,10 @@ proc cycleCheck(n: PNode; c: var Con) =
     else:
       break
     if exprStructuralEquivalent(x, value, strictSymEquality = true):
-      let msg =
-        if field != nil:
-          "'$#' creates an uncollectable ref cycle; annotate '$#' with .cursor" % [$n, $field]
-        else:
-          "'$#' creates an uncollectable ref cycle" % [$n]
-      message(c.graph.config, n.info, warnCycleCreated, msg)
+      localReport(c.graph.config, n.info, SemReport(
+        kind: rsemUncollectableRefCycle,
+        expression: field))
+
       break
 
 proc pVarTopLevel(v: PNode; c: var Con; s: var Scope; res: PNode) =

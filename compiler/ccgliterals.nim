@@ -100,7 +100,8 @@ proc genStringLiteralDataOnly(m: BModule; s: string; info: TLineInfo;
     result = getTempName(m)
     genStringLiteralDataOnlyV2(m, s, result, isConst)
   else:
-    localError(m.config, info, "cannot determine how to produce code for string literal")
+    internalUnreachable(
+      m.config, info, "cannot determine how to produce code for string literal")
 
 proc genNilStringLiteral(m: BModule; info: TLineInfo): Rope =
   result = ropecg(m, "((#NimStringDesc*) NIM_NIL)", [])
@@ -110,4 +111,5 @@ proc genStringLiteral(m: BModule; n: PNode): Rope =
   of 0, 1: result = genStringLiteralV1(m, n)
   of 2: result = genStringLiteralV2(m, n, isConst = true)
   else:
-    localError(m.config, n.info, "cannot determine how to produce code for string literal")
+    internalUnreachable(
+      m.config, n.info, "cannot determine how to produce code for string literal")

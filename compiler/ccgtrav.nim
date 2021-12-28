@@ -31,12 +31,12 @@ proc genTraverseProc(c: TTraversalClosure, accessor: Rope, n: PNode;
     for i in 0..<n.len:
       genTraverseProc(c, accessor, n[i], typ)
   of nkRecCase:
-    if (n[0].kind != nkSym): internalError(c.p.config, n.info, "genTraverseProc")
+    if (n[0].kind != nkSym): internalUnreachable(c.p.config, n.info, "genTraverseProc")
     var p = c.p
     let disc = n[0].sym
     if disc.loc.r == nil: fillObjectFields(c.p.module, typ)
     if disc.loc.t == nil:
-      internalError(c.p.config, n.info, "genTraverseProc()")
+      internalUnreachable(c.p.config, n.info, "genTraverseProc()")
     lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, disc.loc.r])
     for i in 1..<n.len:
       let branch = n[i]
@@ -53,9 +53,9 @@ proc genTraverseProc(c: TTraversalClosure, accessor: Rope, n: PNode;
     if field.typ.kind == tyVoid: return
     if field.loc.r == nil: fillObjectFields(c.p.module, typ)
     if field.loc.t == nil:
-      internalError(c.p.config, n.info, "genTraverseProc()")
+      internalUnreachable(c.p.config, n.info, "genTraverseProc()")
     genTraverseProc(c, "$1.$2" % [accessor, field.loc.r], field.loc.t)
-  else: internalError(c.p.config, n.info, "genTraverseProc()")
+  else: internalUnreachable(c.p.config, n.info, "genTraverseProc()")
 
 proc parentObj(accessor: Rope; m: BModule): Rope {.inline.} =
   if not m.compileToCpp:

@@ -53,7 +53,7 @@ proc preventNrvo(p: BProc; le, ri: PNode): bool =
     # annoying warnings, see #14514
     if canRaise(ri[0]) and
         locationEscapes(p, le, p.nestedTryStmts.len > 0):
-      message(p.config, le.info, warnObservableStores, $le)
+      localReport(p.config, le, rsemObservableStores)
 
 proc hasNoInit(call: PNode): bool {.inline.} =
   result = call[0].kind == nkSym and sfNoInit in call[0].sym.flags
@@ -193,7 +193,7 @@ proc genOpenArraySlice(p: BProc; q: PNode; formalType, destType: PType): (Rope, 
       result = ("($4*)$1$3+($2)" % [rdLoc(a), rdLoc(b), dataField(p), dest],
                 lengthExpr)
   else:
-    internalError(p.config, "openArrayLoc: " & typeToString(a.t))
+    internalUnreachable(p.config, "openArrayLoc: " & typeToString(a.t))
 
 proc openArrayLoc(p: BProc, formalType: PType, n: PNode): Rope =
   var q = skipConv(n)
@@ -245,8 +245,8 @@ proc openArrayLoc(p: BProc, formalType: PType, n: PNode): Rope =
       of tyArray:
         result = "$1, $2" % [rdLoc(a), rope(lengthOrd(p.config, lastSon(a.t)))]
       else:
-        internalError(p.config, "openArrayLoc: " & typeToString(a.t))
-    else: internalError(p.config, "openArrayLoc: " & typeToString(a.t))
+        internalUnreachable(p.config, "openArrayLoc: " & typeToString(a.t))
+    else: internalUnreachable(p.config, "openArrayLoc: " & typeToString(a.t))
 
 proc withTmpIfNeeded(p: BProc, a: TLoc, needsTmp: bool): TLoc =
   # Bug https://github.com/status-im/nimbus-eth2/issues/1549
@@ -500,7 +500,9 @@ proc genOtherArg(p: BProc; ri: PNode; i: int; typ: PType): Rope =
       result = genArgNoParam(p, ri[i]) #, typ.n[i].sym)
   else:
     if tfVarargs notin typ.flags:
-      localError(p.config, ri.info, "wrong argument count")
+      localError(p.config, ri.info, semReportCountMismatch(
+        rsemWrongNumberOfArguments, expected = 1, got = 0, node = ri))
+
       result = nil
     else:
       result = genArgNoParam(p, ri[i])
@@ -624,7 +626,7 @@ proc genPatternCall(p: BProc; ri: PNode; pat: string; typ: PType): Rope =
             result.add genOtherArg(p, ri, k, typ)
           result.add(~")")
         else:
-          localError(p.config, ri.info, "call expression expected for C++ pattern")
+          localError(p.config, ri, rsemExpectedCallForCxxPattern)
         inc i
       elif i+1 < pat.len and pat[i+1] == '.':
         result.add genThisArg(p, ri, j, typ)
@@ -729,7 +731,7 @@ proc genNamedParamCall(p: BProc, ri: PNode, d: var TLoc) =
   for i in start..<ri.len:
     assert(typ.len == typ.n.len)
     if i >= typ.len:
-      internalError(p.config, ri.info, "varargs for objective C method?")
+      internalUnreachable(p.config, ri.info, "varargs for objective C method?")
     assert(typ.n[i].kind == nkSym)
     var param = typ.n[i].sym
     pl.add(~" ")

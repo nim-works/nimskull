@@ -457,7 +457,7 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
       g.config.localError(n.info, SemReport(
         kind: rsemStaticOutOfBounds,
         expression: n,
-        indexSpec: (idx, int64(x.len - 1))))
+        indexSpec: (toInt128(idx), toInt128(x.len - 1))))
   of nkBracket:
     idx -= toInt64(firstOrd(g.config, x.typ))
     if idx >= 0 and idx < x.len: result = x[int(idx)]
@@ -465,7 +465,7 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
       g.config.localError(n.info, SemReport(
         kind: rsemStaticOutOfBounds,
         expression: n,
-        indexSpec: (idx, int64(x.len - 1))))
+        indexSpec: (toInt128(idx), toInt128(x.len - 1))))
   of nkStrLit..nkTripleStrLit:
     result = newNodeIT(nkCharLit, x.info, n.typ)
     if idx >= 0 and idx < x.strVal.len:
@@ -474,7 +474,7 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
       g.config.localError(n.info, SemReport(
         kind: rsemStaticOutOfBounds,
         expression: n,
-        indexSpec: (idx, int64(x.len - 1))))
+        indexSpec: (toInt128(idx), toInt128(x.len - 1))))
   else:
     discard
 

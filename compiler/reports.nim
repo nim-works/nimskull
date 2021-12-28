@@ -328,6 +328,7 @@ type
 
     rsemTVoidNotAllowed
     rsemExpectedObjectForRegion
+    rsemUnexpectedVoidType
     rsemMacroBodyDependsOnGenericTypes
     rsemMalformedNotNilType
     rsemEnableNotNilExperimental
@@ -519,6 +520,15 @@ type
     rsemCannotMixTypesAndValuesInTuple
     rsemExpectedTypelessDeferBody
     rsemInvalidBindContext
+    rsemCannotCreateImplicitOpenarray
+    rsemCannotAssignToDiscriminantWithCustomDestructor
+    rsemUnavailableTypeBound
+
+    rsemParallelInvalidControlFlow
+    rsemParallelCannotProveDisjoint
+    rsemParallelCounterAfterIncrement
+    rsemParallelWithoutSpawn
+    rsemSpawnInvalidContext
 
     # Identifier Lookup
     rsemUndeclaredIdentifier
@@ -594,6 +604,22 @@ type
     rsemCyclicTree
     rsemCyclicDependency
     rsemConstExprExpected
+
+    # Codegen
+    rsemRttiRequestForIncompleteObject
+    rsemExpectedNimcallProc
+    rsemExpectedExhaustiveCaseForComputedGoto
+    rsemExpectedUnholyEnumForComputedGoto
+    rsemTooManyEntriesForComputedGoto
+    rsemExpectedLow0ForComputedGoto
+    rsemExpectedCaseForComputedGoto
+    rsemDisallowedRangeForComputedGoto
+    rsemExpectedCallForCxxPattern
+    rsemExpectedLiteralForGoto
+    rsemRequiresDeepCopyEnabled
+    rsemDisallowedOfForPureObjects
+    rsemDisallowedReprForNewruntime
+    rsemCannotCodegenCompiletimeProc
 
     # Pragma
     rsemInvalidPragma
@@ -708,12 +734,20 @@ type
     rsemUnsafeSetLen
     rsemUnsafeDefault
     rsemBindDeprecated
+    rsemUncollectableRefCycle
+    rsemParallelWarnCannotProve
+    rsemParallelWarnCanProve
+    rsemParallelWarnNotDisjoint
+    rsemObservableStores
+    rsemCaseTransition
+    rsemUseOfGc
 
     rsemLinterReport
     # end
 
     # Semantic hints begin
     rsemUserHint = "UserHint" ## `{.hint: .}` pragma encountereed
+    rsemHintLibDependeny
     rsemXDeclaredButNotUsed = "XDeclaredButNotUsed"
     rsemDuplicateModuleImport = "DuplicateModuleImport"
     rsemXCannotRaiseY = "XCannotRaiseY"
@@ -954,6 +988,12 @@ type
       of rsemDuplicateModuleImport:
         previous*: ReportLinePoint
 
+      of rsemUnavailableTypeBound:
+        missingTypeBoundElaboration*: tuple[
+          anotherRead: Option[ReportLinePoint],
+          tryMakeSinkParam: bool
+        ]
+
       of rsemDuplicateCaseLabel:
         overlappingGroup*: PNode
 
@@ -1094,7 +1134,7 @@ type
         ## failed candidates.
 
       of rsemStaticOutOfBounds:
-        indexSpec*: tuple[maxIdx, usedIdx: int64]
+        indexSpec*: tuple[maxIdx, usedIdx: Int128]
 
 
 
