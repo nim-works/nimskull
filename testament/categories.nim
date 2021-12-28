@@ -20,7 +20,6 @@ const
     "assert",
     "debugger",
     "dll",
-    "examples",
     "gc",
     "io",
     "js",
@@ -262,12 +261,6 @@ proc manyLoc(r: var TResults, cat: Category, options: string) =
         test.spec.action = actionCompile
         testSpec r, test
 
-proc compileExample(r: var TResults, pattern, options: string, cat: Category) =
-  for test in os.walkFiles(pattern):
-    var test = makeTest(test, options, cat)
-    test.spec.action = actionCompile
-    testSpec r, test
-
 proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
   var files: seq[string]
 
@@ -296,7 +289,7 @@ proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
 # ----------------------------------------------------------------------------
 
 const
-  AdditionalCategories = ["debugger", "examples", "lib"]
+  AdditionalCategories = ["debugger", "lib"]
   MegaTestCat = "megatest"
 
 proc `&.?`(a, b: string): string =
@@ -481,10 +474,6 @@ proc processCategory(r: var TResults, cat: Category,
       ioTests r, cat, options
     of "lib":
       testStdlib(r, "lib/pure/", options, cat)
-    of "examples":
-      compileExample(r, "examples/*.nim", options, cat)
-      compileExample(r, "examples/gtk/*.nim", options, cat)
-      compileExample(r, "examples/talk/*.nim", options, cat)
     of "niminaction":
       testNimInAction(r, cat, options)
     of "untestable":

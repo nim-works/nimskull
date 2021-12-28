@@ -1270,7 +1270,7 @@ if paramCount() == 0:
   quit Usage
 # main()
 
-import std/tables
+import std/tables, std/streams
 
 type
   Categories = seq[Category]
@@ -1578,15 +1578,32 @@ proc runTests(execState: var Execution) =
     cmdIdToActId = newSeqOfCap[int](batchSize)
     nextTestCmds = newSeqOfCap[string](batchSize)
     nextCmdIdToActId = newSeqOfCap[int](batchSize)
+    exitCodes {.threadvar.}: seq[int]
+    outputs {.threadvar.}: seq[string]
+    startTimes {.threadvar.}: seq[float]
+    endTimes {.threadvar.}: seq[float]
+    batches = 0
+
+  exitCodes = newSeq[int](batchSize)
+  outputs = newSeq[string](batchSize)
+  startTimes = newSeq[float](batchSize)
+  endTimes = newSeq[float](batchSize)
 
   proc onTestRunStart(id: int) =
-    execState.testRuns[cmdIdToActId[id]].runtime.compileStart = epochTime()
+    startTimes[id] = epochTime()
+    # reset
+    exitCodes[id] = 0
+    outputs[id] = ""
+    endTimes[id] = 0.0
+    # execState.testRuns[cmdIdToActId[id]].runtime.compileStart = epochTime()
 
   proc onTestRunComplete(id: int, p: Process) =
-    execState.testRuns[cmdIdToActId[id]].runtime.compileEnd = epochTime()
+    # let actionId = cmdIdToActId[id]
+    # execState.testRuns[actionId].runtime.compileEnd = epochTime()
+    endTimes[id] = epochTime()
+    exitCodes[id] = p.peekExitCode()
+    outputs[id] = p.outputStream.readAll
     # xxx: read the output
-  
-  var batches = 0
 
   for actionId, action in testActions:
     let
@@ -1606,14 +1623,17 @@ proc runTests(execState: var Execution) =
     case action.kind
     of actionRun:
       if testCmds.len == 0: # we've already processed its dependency
-        testCmds.add cmd
+        testCmds.add "echo '$1'" % quoteShell(cmd)
+        # testCmds.add cmd
         cmdIdToActId.add actionId
       else: # dependency is in the current batch, add to the next
-        nextTestCmds.add cmd
+        nextTestCmds.add "echo '$1'" % quoteShell(cmd)
+        # nextTestCmds.add cmd
         nextCmdIdToActId.add actionId
     of actionCompile, actionReject:
       # add to this batch
-      testCmds.add cmd
+      testCmds.add "echo '$1'" % quoteShell(cmd)
+      # testCmds.add cmd
       cmdIdToActId.add actionId
 
     let
@@ -1624,16 +1644,27 @@ proc runTests(execState: var Execution) =
       processOpts = {poStdErrToStdOut, poUsePath}
 
     if currBatchFull or lastAction:
-      # run code
-      # let qval = osproc.execProcesses(
-      #     testCmds,
-      #     processOpts,
-      #     batchSize,
-      #     onTestRunStart,
-      #     onTestRunComplete
-      #   )
       inc batches
+
+      # run actions
       #echo "execProcesses with: ", testCmds, processOpts, batchSize #, " and map: ", cmdIdToActId
+      discard osproc.execProcesses(
+          testCmds,
+          processOpts,
+          batchSize,
+          onTestRunStart,
+          onTestRunComplete
+        )
+
+      for id in 0..<cmdIdToActId.len:
+        let
+          actionId = cmdIdToActId[id]
+          action = execState.actions[actionId]
+          runId = action.runId
+        execState.testRuns[runId].runtime.compileStart = startTimes[id]
+        execState.testRuns[runId].runtime.compileEnd = endTimes[id]
+        echo outputs[id]
+        # xxx: exitcode and outputs
 
       # clear old batch information
       testCmds.setLen(0)
@@ -1648,8 +1679,31 @@ proc runTests(execState: var Execution) =
       nextCmdIdToActId.setLen(0)
 
     if nextBatchFull or lastAction:
-      #echo "execProcesses with: ", testCmds, processOpts, batchSize #, " and map: ", cmdIdToActId
       inc batches
+      
+      # run actions
+      #echo "execProcesses with: ", testCmds, processOpts, batchSize #, " and map: ", cmdIdToActId
+      discard osproc.execProcesses(
+          testCmds,
+          processOpts,
+          batchSize,
+          onTestRunStart,
+          onTestRunComplete
+        )
+
+      for id in 0..<cmdIdToActId.len:
+        let
+          actionId = cmdIdToActId[id]
+          action = execState.actions[actionId]
+          runId = action.runId
+        execState.testRuns[runId].runtime.compileStart = startTimes[id]
+        execState.testRuns[runId].runtime.compileEnd = endTimes[id]
+        echo outputs[id]
+        # xxx: exitcode and outputs
+
+      # clear old batch information
+      testCmds.setLen(0)
+      cmdIdToActId.setLen(0)
       discard
   
   echo "requested targets: $1, specs: $2, runs: $3, actions: $4, batches: $5" % [
@@ -1659,7 +1713,6 @@ proc runTests(execState: var Execution) =
       $execState.actions.len,
       $batches
     ]
-      
 
 proc main2() =
   azure.init()
