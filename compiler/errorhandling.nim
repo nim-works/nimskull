@@ -58,12 +58,6 @@ proc errorSubNode*(n: PNode): PNode =
       result = errorSubNode(s)
       if result != nil: break
 
-const
-  wrongNodePos*    = 0 ## the ast node we swapped
-  errorKindPos*    = 1 ## the enum as an intlit
-  compilerInfoPos* = 2 ## compiler source file as strlit, line & col on info
-  firstArgPos*     = 3 ## first 0..n additional nodes depends on error kind
-
 func errorKind*(e: PNode): SemReportErrorKind {.inline.} =
   ## property to retrieve the error kind
   assert e != nil, "can't have a nil error node"
@@ -96,9 +90,8 @@ proc newError*(
   result.reportId = report
   result.add #[ 0 ]# wrongNode # wrapped wrong node
   result.add #[ 1 ]# newIntNode(nkIntLit, ord(errorKind)) # errorKindPos
-  result.add #[ 2 ]# newStrNode(inst.filename, wrongNode.info) # compilerInfoPos
-
-  assert not cyclicTree(wrongNode)
+  result.add #[ 2 ]# newStrNode(inst.filename, TLineInfo(
+    line: uint16(inst.line), col: int16(inst.column))) # compilerInfoPos
 
   for a in args:
     result.add #[ 3+ ]# a
@@ -112,7 +105,6 @@ template newError*(
     args: seq[PNode] = @[],
     posInfo: TLineInfo = unknownLineInfo,
   ): untyped =
-
   var rep = report
   if isNil(rep.expression):
     rep.expression = wrongNode
@@ -143,16 +135,13 @@ template newError*(
     instLoc(),
     args)
 
-proc wrapErrorInSubTree*(wrongNodeContainer: PNode): PNode =
+template wrapErrorInSubTree*(wrongNodeContainer: PNode): PNode =
   ## `wrongNodeContainer` doesn't directly have an error but one exists further
   ## down the tree, this is used to wrap the `wrongNodeContainer` in an nkError
   ## node but no message will be reported for it.
-  assert not cyclicTree(wrongNodeContainer)
   var e = errorSubNode(wrongNodeContainer)
-  assert not cyclicTree(e)
   assert e != nil, "there must be an error node within"
-  result = newError(
-    wrongNodeContainer, rsemWrappedError, emptyReportId, instLoc())
+  newError(wrongNodeContainer, rsemWrappedError, emptyReportId, instLoc())
 
 proc wrapIfErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode
   {.deprecated: "transition proc, remove usage as soon as possible".} =
@@ -161,9 +150,7 @@ proc wrapIfErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode
   ## `wrongNodeContainer` in an nkError node but no message will be reported
   ## for this wrapping. If there is no error, the `wrongNodeContainer` will be
   ## returned as is.
-  assert not cyclicTree(wrongNodeContainer)
   var e = errorSubNode(wrongNodeContainer)
-  assert not cyclicTree(e)
   result =
     if e.isNil:
       wrongNodeContainer

@@ -317,6 +317,7 @@ type
     notes*: ReportKinds ## notes after resolving all logic(defaults,
     ## verbosity)/cmdline/configs
     warningAsErrors*: ReportKinds
+    hintsAsErrors*: ReportKinds
     mainPackageNotes*: ReportKinds
     mainPackageId*: int
     errorCounter*: int
@@ -385,18 +386,20 @@ type
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
       ## len is also used for output indent level
 
+proc report*(conf: ConfigRef, inReport: Report) =
+  ## Write `inReport`
+  conf.structuredErrorHook(inReport)
+
+
 proc report*(conf: ConfigRef, id: ReportId) =
   ## Write out existing stored report
-  conf.structuredErrorHook(conf.m.reports.getReport(id))
+  conf.report(conf.m.reports.getReport(id))
 
 proc report*(conf: ConfigRef, node: PNode) =
   ## Write out report from the nkError node
   assert node.kind == nkError
   conf.report(node.reportId)
 
-proc report*(conf: ConfigRef, inReport: Report) =
-  ## Write `inReport`
-  report(conf, inReport)
 
 template report*[R: ReportTypes](conf: ConfigRef, inReport: R) =
   ## Pass structured report object into `conf.structuredErrorHook`,

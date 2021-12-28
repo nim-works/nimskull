@@ -96,6 +96,14 @@ const
   resultPos*        = 7
   dispatcherPos*    = 8
 
+  wrongNodePos*     = 0 ## Error the ast node we swapped
+  errorKindPos*     = 1 ## Error kind enum as an intlit
+  compilerInfoPos*  = 2 ## Error compiler source file as strlit, line & col
+                        ## on info
+  firstArgPos*      = 3 ## Error first 0..n additional nodes depends on
+                        ## error kind
+
+
   nfAllFieldsSet* = nfBase2
 
   nkCallKinds* = {nkCall, nkInfix, nkPrefix, nkPostfix,
