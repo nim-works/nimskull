@@ -97,7 +97,7 @@ const
     "Other"]
 
   # The following list comes from doc/keywords.txt, make sure it is
-  # synchronized with this array by running the module itself as a test case.
+  # synchronized with this array -- a check exists within `koch/kochdocs`.
   nimKeywords = ["addr", "and", "as", "asm", "bind", "block",
     "break", "case", "cast", "concept", "const", "continue", "converter",
     "defer", "discard", "distinct", "div", "do",
@@ -1016,17 +1016,13 @@ proc tokenize*(text: string, lang: SourceLanguage): seq[(string, TokenClass)] =
     result.add (s, g.kind)
     prevPos = g.pos
 
-when isMainModule:
-  var keywords: seq[string]
-  # Try to work running in both the subdir or at the root.
-  for filename in ["doc/keywords.txt", "../../../doc/keywords.txt"]:
-    try:
-      let input = readFile(filename)
-      keywords = input.splitWhitespace()
-      break
-    except:
-      echo filename, " not found"
-  doAssert(keywords.len > 0, "Couldn't read any keywords.txt file!")
+proc nimKeywordsSynchronizationCheck*(keywordFileContent: string) =
+  ## used to ensure that keywords are synchronized between this module and
+  ## wherever the keywords content resides for docs.
+  ## 
+  ## at time of writing this was `docs/keywords.txt`
+  let keywords = keywordFileContent.splitWhitespace()
+  doAssert(keywords.len > 0, "Empty keywords content!")
   for i in 0..min(keywords.len, nimKeywords.len)-1:
     doAssert keywords[i] == nimKeywords[i], "Unexpected keyword"
   doAssert keywords.len == nimKeywords.len, "No matching lengths"

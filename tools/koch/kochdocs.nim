@@ -5,6 +5,7 @@ import os, strutils, osproc, sets, pathnorm, sequtils
 when defined(nimHasCastPragmaBlocks):
   import std/pegs
 from std/private/globs import nativeToUnixPath, walkDirRecFilter, PathEntry
+from packages/docutils/highlite import nimKeywordsSynchronizationCheck
 import "../compiler/nimpaths"
 
 const
@@ -305,8 +306,14 @@ proc nim2pdf(src: string, dst: string, nimArgs: string) =
     exec(cmd) # on error, user can inspect `xelatexLog`
   moveFile(texFile.changeFileExt("pdf"), dst)
 
+proc nimKeywordsBuildCheck() =
+  ## check to see if `highlite` and `docs/keywords.txt` are in sync as part of
+  ## the build.
+  nimKeywordsSynchronizationCheck(readFile("doc/keywords.txt"))
+
 proc buildPdfDoc*(nimArgs, destPath: string) =
   var pdfList: seq[string]
+  nimKeywordsBuildCheck()
   createDir(destPath)
   if os.execShellCmd("xelatex -version") != 0:
     doAssert false, "xelatex not found" # or, raise an exception
@@ -328,6 +335,7 @@ proc buildDocsDir*(args: string, dir: string) =
   let args = nimArgs & " " & args
   let docHackJsSource = buildJS()
   createDir(dir)
+  nimKeywordsBuildCheck()
   buildDocSamples(args, dir)
   buildDoc(args, dir) # bottleneck
   copyFile(dir / "overview.html", dir / "index.html")
@@ -340,6 +348,8 @@ proc buildDocs*(args: string, localOnly = false, localOutDir = "") =
       docHtmlOutput
     else:
       localOutDir
+
+  nimKeywordsBuildCheck()
 
   var args = args
 
