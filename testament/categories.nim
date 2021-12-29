@@ -26,7 +26,6 @@ const
     "ic",
     "lib",
     "manyloc",
-    "niminaction",
     "threads",
     "untestable", # see trunner_special
     "testdata",
