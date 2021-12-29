@@ -7,8 +7,8 @@
 #    distribution, for details about the copyright.
 
 import
-  os, osproc, strutils, parseopt, parsecfg, strtabs, streams, debcreation,
-  std / sha1, json
+  algorithm, os, osproc, strutils, parseopt, parsecfg, strtabs, streams,
+  debcreation, std / sha1, json, times, sequtils
 
 const
   maxOS = 20 # max number of OSes
@@ -284,6 +284,10 @@ proc walkDirRecursively(s: var seq[string], root, explicit: string,
         walkDirRecursively(s, f, explicit, allowHtml)
       of pcLinkToDir: discard
 
+  # Sort alphabetically to make sure that the file system ordering has no
+  # bearing on our generators
+  s.sort()
+
 proc addFiles(s: var seq[string], patterns: seq[string]) =
   for p in items(patterns):
     if dirExists(p):
@@ -297,6 +301,10 @@ proc addFiles(s: var seq[string], patterns: seq[string]) =
           add(s, unixToNativePath(f))
           inc(i)
       if i == 0: echo("[Warning] No file found that matches: " & p)
+
+  # Sort alphabetically to make sure that the file system ordering has no
+  # bearing on our generators
+  s.sort()
 
 proc pathFlags(p: var CfgParser, k, v: string,
                t: var tuple[path, flags: string]) =
@@ -672,6 +680,94 @@ proc setupDist2(c: var ConfigData) =
     else:
       quit("External program failed")
 
+type
+  TarKind {.pure.} = enum
+    ## The type of the `tar` tool
+    Invalid    ## Not a tool that is supported
+    GNU        ## GNU tar
+    Libarchive ## libarchive-based tar utility
+
+  ExternalProgramError = object of CatchableError
+    ## The error used when an external program returned a non-zero exit code
+    exitCode: int
+
+func newExternalProgramError(exitCode: int): ref ExternalProgramError =
+  result = newException(ExternalProgramError):
+    "External program exited with exit code: " & $exitCode
+  result.exitCode = exitCode
+
+proc detectTar(): (string, TarKind) =
+  ## Detect the tar utility and its type
+  const Candidates = [
+    "gtar",  # GNU tar on BSD-like platform
+    "tar",   # The regular name for the tar utility, type depends on platform
+    "bsdtar" # The libarchive tar utility
+  ]
+
+  for candidate in Candidates.items:
+    try:
+      let output = execProcess(candidate, args = ["--version"], options = {poUsePath})
+      if output.len > 0:
+        if "GNU tar" in output:
+          return (candidate, GNU)
+
+        if "libarchive" in output:
+          return (candidate, Libarchive)
+    except OSError:
+      discard "Ignore errors when the tool is not available"
+
+proc verboseExec(args: varargs[string]): int =
+  ## Print and execute command formed by `args`
+  if args.len == 0:
+    raise newException(ValueError):
+      "No command was provided for execution"
+
+  const ProcessOpts = {poUsePath, poParentStreams, poEchoCmd}
+
+  let p =
+    if args.len > 1:
+      startProcess(
+        args[0],
+        args = args.toOpenArray(1, args.len - 1),
+        options = ProcessOpts
+      )
+    else:
+      startProcess(
+        args[0],
+        options = ProcessOpts
+      )
+
+  defer: close p
+
+  result = p.waitForExit()
+
+proc shellExec(cmd: string): int =
+  ## Print and execute shell command `cmd`
+  if cmd.len == 0:
+    raise newException(ValueError):
+      "No command was provided for execution"
+
+  let p = startProcess(cmd,
+                       options = {poParentStreams, poEchoCmd, poEvalCommand})
+
+  defer: close p
+
+  result = p.waitForExit()
+
+proc checkedExec(args: varargs[string]) =
+  ## Same as `verboseExec`, but raise `ExternalProgramError` if the external
+  ## program fails.
+  let exitCode = verboseExec(args)
+  if exitCode != 0:
+    raise newExternalProgramError(exitCode)
+
+proc checkedShellExec(cmd: string) =
+  ## Same as `shellExec`, but raise `ExternalProgramError` if the external
+  ## program fails.
+  let exitCode = shellExec(cmd)
+  if exitCode != 0:
+    raise newExternalProgramError(exitCode)
+
 proc archiveDist(c: var ConfigData) =
   ## Create the archive distribution
   let proj = toLowerAscii(c.name) & "-" & c.version
@@ -749,22 +845,104 @@ proc archiveDist(c: var ConfigData) =
   let oldDir = getCurrentDir()
   setCurrentDir(tmpDir)
   try:
+    # Timestamp to set the files to. This make sure that the created archive
+    # is deterministic with regards to creation time.
+    let timestamp =
+      try:
+        parse(c.commitdate, "yyyy-MM-dd", utc()).toTime()
+      except TimeParseError:
+        # If no time is provided, use epoch 0
+        fromUnix(0)
+
+    const
+      AvoidFragments = [
+        DirSep & ".DS_Store", # macOS directory metadata
+        DirSep & "__MACOSX"   # macOS resource forks
+      ]
+        ## Path fragments to avoid packaging
+
+      DefaultPermission = {fpUserRead, fpUserWrite, fpGroupRead, fpOthersRead}
+        ## Permissions applied to files
+
+      ExecutablePermission = DefaultPermission + {fpUserExec, fpGroupExec, fpOthersExec}
+        ## Permissions applied to executables/directories
+
+    var paths: seq[string]
+    for path in walkDirRec(proj, {pcFile, pcDir}, checkDir = true):
+      if AvoidFragments.allIt(it notin path):
+        # Normalize permissions so that a reasonably stricter/laxer umask won't
+        # cause nondeterminism
+        setFilePermissions(path):
+          if fpUserExec in getFilePermissions(path):
+            ExecutablePermission
+          else:
+            DefaultPermission
+
+        # Set the time of every file/directories to be archived to the
+        # deterministic timestamp
+        setLastModificationTime(path, timestamp)
+
+        # Collect this path to archive
+        paths.add path
+
+    # Sort the list alphabetically. This ensure that the file system ordering
+    # has no bearing on the creation of the archive.
+    paths.sort()
+
     case c.format
     of Zip:
-      if execShellCmd("7z a -tzip $1.zip $1" % proj) != 0:
-        echo("External program failed (zip)")
+      # Write the list into a file then supply that file to archival programs to
+      # avoid exceeding command line capacity
+      let fileList = proj & ".files.txt"
+      writeFile(fileList, paths.join("\n"))
+
+      # Set timezone to UTC so that timestamp recorded in the zip file is not
+      # affected by the timezone.
+      putEnv("TZ", "UTC")
+
+      # TODO: Get rid of this hack once osproc gain the ability to modify just
+      # one portion of the child standard I/O.
+      checkedShellExec:
+        "zip -nw -X -@ $1 < $2" % [quoteShell(proj & ".zip"), quoteShell(fileList)]
 
     of tarFormats:
-      if execShellCmd("gtar cf $1.tar --exclude=.DS_Store $1" %
-                      proj) != 0:
-        # try old 'tar' without --exclude feature:
-        if execShellCmd("tar cf $1.tar $1" % proj) != 0:
-          echo("External program failed")
+      # Write the list into a file then supply that file to archival programs to
+      # avoid exceeding command line capacity
+      let fileList = proj & ".files.txt"
+      writeFile(fileList, paths.join("\0"))
+
+      let (tar, kind) = detectTar()
+
+      # The command to create a tar archive
+      var tarCmd = @[tar]
+
+      tarCmd.add:
+        # The parameters to make tar generates deterministic archives, per
+        #
+        # https://reproducible-builds.org/docs/archives/
+        case kind
+        of Invalid:
+          raise newException(CatchableError):
+            "The tar utility does not exist or is a version not supported by this utility"
+        of GNU:
+          @["--owner=0", "--group=0", "--numeric-owner", "--format=gnu"]
+        of Libarchive:
+          @["--uid=0", "--gid=0", "--numeric-owner", "--format=gnutar"]
+
+      # Add creation action
+      tarCmd.add "-cf"
+
+      # Add target file name
+      tarCmd.add proj & ".tar"
+
+      # Add the list of files
+      tarCmd.add ["--no-recursion", "--null", "-T", fileList]
+
+      checkedExec(tarCmd)
 
       case c.format
       of TarXz:
-        if execShellCmd("xz -9f $1.tar" % proj) != 0:
-          echo("External program failed")
+        checkedExec("xz", "-9f", proj & ".tar")
       else:
         discard
 
