@@ -24,8 +24,9 @@ when defined(windows) and not defined(nimKochBootstrap):
     {.link: "../icons/nim-i386-windows-vcc.res".}
 
 import
+  cli_reporter,
   commands, options, msgs, extccomp, main, idents, cmdlinehelper,
-  pathutils, modulegraphs, reports, cli_reporter
+  pathutils, modulegraphs, reports
 
 from browsers import openDefaultBrowser
 from nodejs import findNodeJs

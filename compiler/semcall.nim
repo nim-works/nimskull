@@ -565,10 +565,13 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
         callMismatches: candidates))
 
     result = semResolvedCall(c, r, n, flags)
+
   elif r.call != nil and r.call.kind == nkError:
     result = r.call
+
   elif efNoUndeclared notin flags:
-    result = notFoundError(c, n, errors)
+    result = notFoundError(c, nOrig, errors)
+
   else:
     result = r.call
 
