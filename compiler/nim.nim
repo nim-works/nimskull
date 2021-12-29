@@ -152,7 +152,7 @@ when compileOption("gc", "refc"):
 when not defined(selftest):
   var conf = newConfigRef()
 
-  conf.structuredErrorHook = cli_reporter.reportHook
+  conf.structuredReportHook = cli_reporter.reportHook
 
   handleCmdLine(newIdentCache(), conf)
   when declared(GC_setMaxPause):

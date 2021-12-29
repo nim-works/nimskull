@@ -236,16 +236,16 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
   case id.normalize:
     of "all": # other note groups would be easy to support via additional cases
       if isSomeHint:
-        notes = repHints
+        notes = repHintKinds
 
       else:
-        notes = repWarnings
+        notes = repWarningKinds
 
     elif isSomeHint:
-      findNote(repHints, "hint", rextInvalidHint)
+      findNote(repHintKinds, "hint", rextInvalidHint)
 
     else:
-      findNote(repWarnings, "warning", rextInvalidWarning)
+      findNote(repWarningKinds, "warning", rextInvalidWarning)
 
   var val = substr(arg, i).normalize
   if val == "":
@@ -571,9 +571,9 @@ proc setCommandEarly*(conf: ConfigRef, command: string) =
   # must be handled here to honor subsequent `--hint:x:on|off`
   case conf.cmd
   of cmdRst2html, cmdRst2tex: # xxx see whether to add others: cmdGendepend, etc.
-    conf.foreignPackageNotes = {rintSuccessX}
+    conf.foreignPackageNotes = NotesVerbosity.base + {rintSuccessX}
   else:
-    conf.foreignPackageNotes = foreignPackageNotesDefault
+    conf.foreignPackageNotes = NotesVerbosity.foreign
 
 proc specialDefine(conf: ConfigRef, key: string; pass: TCmdLinePass) =
   # Keep this syncronized with the default config/nim.cfg!
@@ -954,7 +954,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       conf.localReport(
         info, invalidSwitchValue @["0", "1", "2", "3"])
     conf.verbosity = verbosity
-    var verb = NotesVerbosity[conf.verbosity]
+    var verb = NotesVerbosity.main[conf.verbosity]
     ## We override the default `verb` by explicitly modified (set/unset) notes.
     conf.notes = (conf.modifiedyNotes * conf.notes + verb) -
       (conf.modifiedyNotes * verb - conf.notes)

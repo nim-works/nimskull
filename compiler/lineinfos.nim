@@ -268,13 +268,28 @@ type
   TNoteKind* = range[warnMin..hintMax] # "notes" are warnings or hints
   TNoteKinds* = set[TNoteKind]
 
-proc computeNotesVerbosity(): array[0..3, ReportKinds] =
-  result[3] = (repWarnings + repHints) - {
+proc computeNotesVerbosity(): tuple[
+    main: array[0..3, ReportKinds],
+    foreign: ReportKinds,
+    base: ReportKinds
+  ] =
+  ## Create configuration sets for the default compilation report verbosity
+
+  result.base = (repErrorKinds + repInternalKinds)
+  # Mandatory reports - cannot be turned off, present in all verbosity
+  # settings
+
+  when defined(debugOptions):
+    # debug report for transition of the configuration options
+    result.base.incl {rdbgOptionsPush, rdbgOptionsPop}
+
+  result.main[3] = result.base + repWarningKinds + repHintKinds - {
     rsemObservableStores, rsemResultUsed, rsemAnyEnumConvert}
-  result[2] = result[3] - {
+
+  result.main[2] = result.main[3] - {
     rsemVmStackTrace, rsemUninit, rsemExtendedContext, rsemProcessingStmt}
 
-  result[1] = result[2] - {
+  result.main[1] = result.main[2] - {
     rsemProveField,
     rsemErrGcUnsafe,
     rextPath,
@@ -283,13 +298,23 @@ proc computeNotesVerbosity(): array[0..3, ReportKinds] =
     rintGCStats
   }
 
-  result[0] = result[1] - {
+  result.main[0] = result.main[1] - {
     rintSuccessX,
     rextConf,
     rsemProcessing,
     rsemPattern,
     rcmdExecuting,
     rbackLinking
+  }
+
+  result.foreign = result.base + {
+    rsemProcessing,
+    rsemUserHint,
+    rsemUserWarning,
+    rsemUserHint,
+    rsemUserWarning,
+    rsemUserError,
+    rintQuitCalled
   }
 
 const

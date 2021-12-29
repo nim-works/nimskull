@@ -341,11 +341,11 @@ proc mainCommand*(graph: ModuleGraph) =
       for dir in conf.lazyPaths: lazyPaths.elems.add(%dir.string)
 
       var hints = newJObject() # consider factoring with `listHints`
-      for a in repHints:
+      for a in repHintKinds:
         hints[$a] = %(a in conf.notes)
 
       var warnings = newJObject()
-      for a in repWarnings:
+      for a in repWarningKinds:
         warnings[$a] = %(a in conf.notes)
 
       var dumpdata = %[

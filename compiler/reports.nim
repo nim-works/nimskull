@@ -840,6 +840,8 @@ type
 
     #----------------------------  Debug reports  ----------------------------#
     rdbgTest
+    rdbgOptionsPush
+    rdbgOptionsPop
 
     #---------------------------  Backend reports  ---------------------------#
     # errors start
@@ -1281,10 +1283,15 @@ func severity*(report: CmdReport): ReportSeverity =
   rsevTrace
 
 type
-  DebugReportKind* = range[rdbgTest .. rdbgTest]
+  DebugReportKind* = range[rdbgTest .. rdbgOptionsPop]
 
   DebugReport* = object of ReportBase
-    kind*: ReportKind
+    case kind*: ReportKind
+      of rdbgOptionsPush, rdbgOptionsPop:
+        optionsNow*: TOptions
+
+      else:
+        discard
 
 func severity*(report: DebugReport): ReportSeverity =
   rsevDebug
@@ -1398,7 +1405,11 @@ type
         discard
 
 const
-  rintFatalKinds* = {rintUnknown .. rintIce} ## Fatal internal compilation reports
+  repInternalKinds*: ReportKinds = {
+    low(InternalReportKind) .. high(InternalReportKind)}
+
+  rintFatalKinds* = {rintUnknown .. rintIce} ## Fatal internal compilation
+                                             ## reports
   rintErrorKinds* = {rintCannotOpenFile .. rintNotImplemented}
   rintWarningKinds* = {rintWarnCannotOpenFile .. rintWarnFileChanged}
   rintHintKinds* = {rintSource .. rintSuccessX}
@@ -1409,7 +1420,7 @@ func severity*(report: InternalReport): ReportSeverity =
     else: rsevTrace
 
 const
-  repWarnings*: ReportKinds =
+  repWarningKinds*: ReportKinds =
     rsemWarningKinds +
       rlexWarningKinds +
       rparWarningKinds +
@@ -1417,7 +1428,7 @@ const
       rcmdWarningKinds +
       rintWarningKinds
 
-  repHints*: ReportKinds    =
+  repHintKinds*: ReportKinds    =
     rsemHintKinds +
       rlexHintKinds +
       rparHintKinds +
@@ -1425,7 +1436,7 @@ const
       rcmdHintKinds +
       rintHintKinds
 
-  repErrors*: ReportKinds   =
+  repErrorKinds*: ReportKinds   =
     rsemErrorKinds +
       rlexErrorKinds +
       rparErrorKinds +

@@ -499,10 +499,10 @@ proc processNote(c: PContext, n: PNode): PNode =
       var nk: ReportKind
       let cw = whichKeyword(n[0][0].ident)
       case cw:
-        of wHint:           handleNote(repHints,    c.config.notes)
-        of wWarning:        handleNote(repWarnings, c.config.notes)
-        of wWarningAsError: handleNote(repWarnings, c.config.warningAsErrors)
-        of wHintAsError:    handleNote(repHints,    c.config.hintsAsErrors)
+        of wHint:           handleNote(repHintKinds,    c.config.notes)
+        of wWarning:        handleNote(repWarningKinds, c.config.notes)
+        of wWarningAsError: handleNote(repWarningKinds, c.config.warningAsErrors)
+        of wHintAsError:    handleNote(repHintKinds,    c.config.hintsAsErrors)
         else: newInvalidPragmaNode(c, n)
     else:
       bracketExpr
@@ -658,8 +658,9 @@ proc processPush(c: PContext, n: PNode, start: int): PNode =
   # If stacktrace is disabled globally we should not enable it
   if optStackTrace notin c.optionStack[0].options:
     c.config.options.excl(optStackTrace)
-  when defined(debugOptions):
-    echo c.config $ n.info, " PUSH config is now ", c.config.options
+
+  c.config.localReport(n.info, DebugReport(
+    kind: rdbgOptionsPush, optionsNow: c.config.options))
 
 proc processPop(c: PContext, n: PNode): PNode =
   # process a pop pragma, produces (mutates) `n` or an error wrapping `n`
@@ -668,8 +669,9 @@ proc processPop(c: PContext, n: PNode): PNode =
     result = c.config.newError(n, SemReport(kind: rsemMismatchedPopPush))
   else:
     popOptionEntry(c)
-  when defined(debugOptions):
-    echo c.config $ n.info, " POP config is now ", c.config.options
+
+  c.config.localReport(n.info, DebugReport(
+    kind: rdbgOptionsPop, optionsNow: c.config.options))
 
 proc processDefine(c: PContext, n: PNode): PNode =
   ## processes pragma defines

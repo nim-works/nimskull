@@ -138,8 +138,13 @@ proc importModule*(graph: ModuleGraph; s: PSym, fileIdx: FileIndex): PSym =
   #  localReport(result.info, errAttemptToRedefine, result.name.s)
   # restore the notes for outer module:
   graph.config.notes =
-    if s.getnimblePkgId == graph.config.mainPackageId or isDefined(graph.config, "booting"): graph.config.mainPackageNotes
-    else: graph.config.foreignPackageNotes
+    if s.getnimblePkgId == graph.config.mainPackageId or
+       isDefined(graph.config, "booting"):
+      graph.config.mainPackageNotes
+
+    else:
+      graph.config.foreignPackageNotes
+
 
 proc includeModule*(graph: ModuleGraph; s: PSym, fileIdx: FileIndex): PNode =
   result = syntaxes.parseFile(fileIdx, graph.cache, graph.config)

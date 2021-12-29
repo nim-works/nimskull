@@ -378,7 +378,7 @@ type
     suggestMaxResults*: int
     lastLineInfo*: TLineInfo
     writelnHook*: proc (output: string) {.closure.} # cannot make this gcsafe yet because of Nimble
-    structuredErrorHook*: proc (conf: ConfigRef, report: Report) {.closure.}
+    structuredReportHook*: proc (conf: ConfigRef, report: Report) {.closure.}
     cppCustomNamespace*: string
     vmProfileData*: ProfileData
 
@@ -388,7 +388,7 @@ type
 
 proc report*(conf: ConfigRef, inReport: Report) =
   ## Write `inReport`
-  conf.structuredErrorHook(conf, inReport)
+  conf.structuredReportHook(conf, inReport)
 
 
 proc report*(conf: ConfigRef, id: ReportId) =
@@ -402,7 +402,7 @@ proc report*(conf: ConfigRef, node: PNode) =
 
 
 template report*[R: ReportTypes](conf: ConfigRef, inReport: R) =
-  ## Pass structured report object into `conf.structuredErrorHook`,
+  ## Pass structured report object into `conf.structuredReportHook`,
   ## converting to `Report` variant and updaing instantiation info.
   report(conf, wrap(inReport, instLoc()))
 
@@ -438,7 +438,7 @@ func isCodeError*(conf: ConfigRef, report: Report): bool =
   conf.severity(report) == rsevError
 
 func isEnabled*(conf: ConfigRef, report: Report): bool =
-  report.kind in conf.notes
+  (report.kind in conf.notes)
 
 proc parseNimVersion*(a: string): NimVer =
   # could be moved somewhere reusable
@@ -537,13 +537,6 @@ template newPackageCache*(): untyped =
 proc newProfileData(): ProfileData =
   ProfileData(data: newTable[TLineInfo, ProfileInfo]())
 
-const
-  foreignPackageNotesDefault* = {
-    rsemProcessing, rsemUserHint,
-    rsemUserWarning, rsemUserHint, rsemUserWarning,
-    rsemUserError, rsemUnknownMagic,
-    rintQuitCalled
-  }
 
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 
@@ -561,9 +554,9 @@ proc initConfigRefCommon(conf: ConfigRef) =
   conf.options = DefaultOptions
   conf.globalOptions = DefaultGlobalOptions
   conf.filenameOption = foAbs
-  conf.foreignPackageNotes = foreignPackageNotesDefault
-  conf.notes = NotesVerbosity[1]
-  conf.mainPackageNotes = NotesVerbosity[1]
+  conf.foreignPackageNotes = NotesVerbosity.foreign
+  conf.notes = NotesVerbosity.main[1]
+  conf.mainPackageNotes = NotesVerbosity.main[1]
   when defined(nimDebugUtils):
     # ensures that `nimDebugUtils` is defined for the compiled code so it can
     # access the `system.nimCompilerDebugRegion` template

@@ -707,8 +707,8 @@ template listMsg(title, r) =
   msgWriteln(conf, title, {msgNoUnitSep})
   for a in r: msgWriteln(conf, "  [$1] $2" % [if a in conf.notes: "x" else: " ", $a], {msgNoUnitSep})
 
-proc listWarnings*(conf: ConfigRef) = listMsg("Warnings:", repWarnings)
-proc listHints*(conf: ConfigRef) = listMsg("Hints:", repHints)
+proc listWarnings*(conf: ConfigRef) = listMsg("Warnings:", repWarningKinds)
+proc listHints*(conf: ConfigRef) = listMsg("Hints:", repHintKinds)
 
 proc uniqueModuleName*(conf: ConfigRef; fid: FileIndex): string =
   ## The unique module name is guaranteed to only contain {'A'..'Z', 'a'..'z', '0'..'9', '_'}

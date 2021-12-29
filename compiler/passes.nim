@@ -107,8 +107,11 @@ proc prepareConfigNotes(graph: ModuleGraph; module: PSym) =
   # don't be verbose unless the module belongs to the main package:
   if module.getnimblePkgId == graph.config.mainPackageId:
     graph.config.notes = graph.config.mainPackageNotes
+
   else:
-    if graph.config.mainPackageNotes == {}: graph.config.mainPackageNotes = graph.config.notes
+    if graph.config.mainPackageNotes == {}:
+      graph.config.mainPackageNotes = graph.config.notes
+
     graph.config.notes = graph.config.foreignPackageNotes
 
 proc moduleHasChanged*(graph: ModuleGraph; module: PSym): bool {.inline.} =
@@ -151,8 +154,10 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
       # in ROD files. I think we should enable this feature only
       # for the interactive mode.
       if module.name.s != "nimscriptapi":
-        processImplicits graph, graph.config.implicitImports, nkImportStmt, a, module
-        processImplicits graph, graph.config.implicitIncludes, nkIncludeStmt, a, module
+        processImplicits(
+          graph, graph.config.implicitImports, nkImportStmt, a, module)
+        processImplicits(
+          graph, graph.config.implicitIncludes, nkIncludeStmt, a, module)
 
     while true:
       if graph.stopCompile(): break
@@ -168,7 +173,8 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
           var n = parseTopLevelStmt(p)
           if n.kind == nkEmpty: break
           sl.add n
-        if sfReorder in module.flags or codeReordering in graph.config.features:
+        if sfReorder in module.flags or
+           codeReordering in graph.config.features:
           sl = reorder(graph, sl, module)
         discard processTopLevelStmt(graph, sl, a)
         break
