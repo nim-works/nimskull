@@ -150,7 +150,7 @@ proc msg(msgType: MessageType; parts: varargs[string, `$`]) =
   stdout.writeLine parts
   flushFile stdout
 
-proc verboseCmd(cmd: string) =
+proc verboseCmd(cmd: string) {.inline.} =
   if optVerbose:
     msg Undefined: "executing: " & cmd
 
@@ -1328,18 +1328,42 @@ type
   DebugInfo = OrderedTable[ActionId, string]
 
   RunTime = object
+    ## time tracking for test run activities
     compileStart: float      ## when the compile process start
     compileEnd: float        ## when the compile process ends
-    checkStart: float        ## for run or compiles, check output start
-    checkEnd: float          ## for run or compiles, check output end
+    compileCheckStart: float ## when compile output check started
+    compileCheckEnd: float   ## when compile output check finished
     runStart: float          ## for run, start of execution
     runEnd: float            ## for run, end of execution
+    runCheckStart: float     ## start of run output check
+    runCheckEnd: float       ## end of run output check
 
   TestRun = object
     testId: TestId           ## test id for which this belongs
     target: TestTarget       ## which target to run for
     matrixEntry: EntryId     ## which item from the matrix was used
-    runtime: RunTime         ## time tracking for test activities
+
+  CompileStatus = enum
+    CompileCrashed           ## assume that it crashed in test scenarios
+    CompileSuccessful        ## exit code was 0 and no error messages
+
+  RunActual = object
+    ## actual data for a run
+    nimout: string           ## nimout from compile, empty if not required
+    nimExit: int             ## exit code produced by the compiler
+    nimMsg: string           ## last message, if any, from the compiler
+    nimLine: int             ## line from last compiler message, if present
+    nimColumn: int           ## colunn from last compiler message, if present
+    nimStatus: CompileStatus ## compilation state based on exit code and msgs
+
+  RunActuals = seq[RunActual]
+
+  # xxx: add 'check' to remove `cmd: "nim check"...` from tests
+  TestActionKind = enum
+    testActionSkip           ## skip this test; check the spec for why
+    testActionReject,        ## reject the compilation
+    testActionCompile,       ## compile some source
+    testActionRun            ## run the compiled program
 
   TestAction = object
     runId: RunId
@@ -1369,6 +1393,10 @@ type
 
     # test execution data
     testRuns: seq[TestRun]   ## a test run: reject, compile, or compile + run
+                             ## along with time to check
+    runTimes: seq[RunTime]   ## run timing information for each test
+    runActuals: RunActuals   ## actual information for a given run
+
     actions: seq[TestAction] ## test actions for each run, phases of a run
     debugInfo: DebugInfo     ## debug info related to actions run for tests
 
@@ -1402,6 +1430,8 @@ proc parseOpts(execState: var Execution, p: var OptParser): ParseCliResult =
       execState.targets = parseTargets(targetStr)
     of "nim", "compiler":
       execState.compilerPath = addFileExt(p.val.absolutePath, ExeExt)
+      # xxx: legacy, remove once `prepareTestCmd`, etc are ported
+      compilerPrefix = execState.compilerPath
     of "directory":
       execState.workingDir = p.val
     of "colors", "colours":
@@ -1451,7 +1481,7 @@ proc parseArg(execState: var Execution, p: var OptParser): ParseCliResult =
       )
   of "pcat":
     # run category's tests in parallel
-    # xxx: consider removing pcat concept, shouldn't be needed
+    # xxx: consider removing pcat concept or make parallel the default
     execState.filter = TestFilter(
         kind: tfkCategories,
         cats: @[Category(p.key)],
@@ -1480,11 +1510,16 @@ func requestedTargets(execState: Execution): set[TTarget] =
   else:
     execState.targets
 
-proc runTests(execState: var Execution) =
+proc prepareTestFilesAndSpecs(execState: var Execution) =
+  ## for the filters specified load all the specs
   # xxx: create specific type to avoid accidental mutation
   
+  # xxx: read-only state in let to avoid mutation, put into types
+  let
+    testsDir = execState.testsDir
+    filter = execState.filter
+  
   template testFilesFromCat(execState: var Execution, cat: Category) =
-    let testsDir = execState.testsDir
     if cat.string notin ["testdata", "nimcache"]:
       execState.testCats.add cat
 
@@ -1492,12 +1527,9 @@ proc runTests(execState: var Execution) =
         if file.isTestFile:
           execState.testFiles.add file
 
-  # use let to avoid mutating data until types improve
-  let filter = execState.filter
-
   case filter.kind
   of tfkAll:
-    let testsDir = execState.testsDir
+    let testsDir = testsDir
     for kind, dir in walkDir(testsDir):
       if kind == pcDir:
         # The category name is extracted from the directory
@@ -1529,8 +1561,14 @@ proc runTests(execState: var Execution) =
   for test in execState.testFiles:
     execState.testSpecs.add parseSpec(addFileExt(test, ".nim"))
 
-  # create a list of necessary testRuns
-  for testId, spec in execState.testSpecs.pairs:
+proc prepareTestRuns(execState: var Execution) =
+  ## create a list of necessary testRuns
+  # xxx: create specific type to avoid accidental mutation
+  
+  # xxx: read-only items; only testRuns are read
+  let testSpecs = execState.testSpecs
+
+  for testId, spec in testSpecs.pairs:
     let
       specTargets =
         if spec.targets == noTargetsSpecified:
@@ -1544,14 +1582,29 @@ proc runTests(execState: var Execution) =
       of 0: # no tests to run
         execState.testRuns.add:
           TestRun(testId: testId, target: target, matrixEntry: noMatrixEntry)
+        execState.runTimes.add RunTime()
+        execState.runActuals.add RunActual()
       else:
         for entryId, _ in spec.matrix.pairs:
           execState.testRuns.add:
             TestRun(testId: testId, target: target, matrixEntry: entryId)
+          execState.runTimes.add RunTime()
+          execState.runActuals.add RunActual()
 
-  # create a list of necessary test actions
-  for runId, run in execState.testRuns.pairs:
-    let actionKind = execState.testSpecs[run.testId].action
+proc prepareTestActions(execState: var Execution) =
+  ## create a list of necessary test actions
+  # xxx: create specific type to avoid accidental mutation
+  
+  # xxx: these are what are read, so a dedicate type would offer a read-only
+  #      view of those, but allow actions mutation
+  let
+    testRuns = execState.testRuns
+    testSpecs = execState.testSpecs
+
+  # TODO: handle disabled and known issue
+
+  for runId, run in testRuns.pairs:
+    let actionKind = testSpecs[run.testId].action
     case actionKind
     of actionReject, actionCompile:
       execState.actions.add:
@@ -1562,13 +1615,17 @@ proc runTests(execState: var Execution) =
       execState.actions.add:
         TestAction(runId: runId, kind: actionRun)
 
-  # execute test runs in batches of test actions
+proc runTests(execState: var Execution) =
+  ## execute test runs in batches of test actions
+  # xxx: create specific type to avoid accidental mutation
+
   let
     testRuns = execState.testRuns   ## immutable view of test runs
     testActions = execState.actions ## immutable view of test actions
     batchSize = defaultBatchSize    ## parallel processes to execute
                                     # xxx: use processor count
     testArgs = execState.testArgs   ## arguments from the cli for each test
+    verbose = outputVerbose in execState.flags
 
   # test commands and a mapping for command id (`osproc.execProcesses`) to
   # actionId, along with a pair of `next` ones so we can serialize the compile
@@ -1590,20 +1647,19 @@ proc runTests(execState: var Execution) =
   endTimes = newSeq[float](batchSize)
 
   proc onTestRunStart(id: int) =
+    if verbose:
+      msg Undefined: "executing: " & testCmds[id]
+
     startTimes[id] = epochTime()
     # reset
     exitCodes[id] = 0
     outputs[id] = ""
     endTimes[id] = 0.0
-    # execState.testRuns[cmdIdToActId[id]].runtime.compileStart = epochTime()
 
   proc onTestRunComplete(id: int, p: Process) =
-    # let actionId = cmdIdToActId[id]
-    # execState.testRuns[actionId].runtime.compileEnd = epochTime()
     endTimes[id] = epochTime()
     exitCodes[id] = p.peekExitCode()
     outputs[id] = p.outputStream.readAll
-    # xxx: read the output
 
   for actionId, action in testActions:
     let
@@ -1623,27 +1679,20 @@ proc runTests(execState: var Execution) =
     case action.kind
     of actionRun:
       if testCmds.len == 0: # we've already processed its dependency
-        testCmds.add "echo '$1'" % quoteShell(cmd)
-        # testCmds.add cmd
+        # testCmds.add "echo '$1'" % quoteShell(cmd)
+        testCmds.add "echo 'running'"
         cmdIdToActId.add actionId
       else: # dependency is in the current batch, add to the next
-        nextTestCmds.add "echo '$1'" % quoteShell(cmd)
-        # nextTestCmds.add cmd
+        # nextTestCmds.add "echo '$1'" % quoteShell(cmd)
+        nextTestCmds.add cmd
         nextCmdIdToActId.add actionId
     of actionCompile, actionReject:
       # add to this batch
-      testCmds.add "echo '$1'" % quoteShell(cmd)
-      # testCmds.add cmd
+      # testCmds.add "echo '$1'" % quoteShell(cmd)
+      testCmds.add cmd
       cmdIdToActId.add actionId
 
-    let
-      lastActionId = testActions.len - 1
-      lastAction = actionId == lastActionId
-      currBatchFull = testCmds.len == batchSize
-      nextBatchFull = nextTestCmds.len == batchSize
-      processOpts = {poStdErrToStdOut, poUsePath}
-
-    if currBatchFull or lastAction:
+    template runTestBatch() {.dirty.} =
       inc batches
 
       # run actions
@@ -1661,14 +1710,34 @@ proc runTests(execState: var Execution) =
           actionId = cmdIdToActId[id]
           action = execState.actions[actionId]
           runId = action.runId
-        execState.testRuns[runId].runtime.compileStart = startTimes[id]
-        execState.testRuns[runId].runtime.compileEnd = endTimes[id]
-        echo outputs[id]
+          duration = endTimes[id] - startTimes[id]
+          durationStr = duration.formatFloat(ffDecimal, precision = 2).align(5)
+        case action.kind
+        of actionRun:
+          execState.runTimes[runId].runStart = startTimes[id]
+          execState.runTimes[runId].runEnd = endTimes[id]
+        else:
+          execState.runTimes[runId].compileStart = startTimes[id]
+          execState.runTimes[runId].compileEnd = endTimes[id]
+          echo "batch: ", batches, ", runId: ", runId, ", actionId: ", actionId, ", duration: ", durationStr, ", cmd: ", testCmds[id]
+        # echo "batch: ", batches, ", runId: ", runId, ", actionId: ", actionId,
+        #       ", duration: ", durationStr, " sec"
+        # echo outputs[id]
         # xxx: exitcode and outputs
 
       # clear old batch information
       testCmds.setLen(0)
       cmdIdToActId.setLen(0)
+
+    let
+      lastActionId = testActions.len - 1
+      lastAction = actionId == lastActionId
+      currBatchFull = testCmds.len == batchSize
+      nextBatchFull = nextTestCmds.len == batchSize
+      processOpts = {poStdErrToStdOut, poUsePath}
+
+    if currBatchFull or lastAction:
+      runTestBatch()
       
       # copy next cmds and cmd id to run id map to current
       testCmds = nextTestCmds
@@ -1679,39 +1748,41 @@ proc runTests(execState: var Execution) =
       nextCmdIdToActId.setLen(0)
 
     if nextBatchFull or lastAction:
-      inc batches
-      
-      # run actions
-      #echo "execProcesses with: ", testCmds, processOpts, batchSize #, " and map: ", cmdIdToActId
-      discard osproc.execProcesses(
-          testCmds,
-          processOpts,
-          batchSize,
-          onTestRunStart,
-          onTestRunComplete
-        )
-
-      for id in 0..<cmdIdToActId.len:
-        let
-          actionId = cmdIdToActId[id]
-          action = execState.actions[actionId]
-          runId = action.runId
-        execState.testRuns[runId].runtime.compileStart = startTimes[id]
-        execState.testRuns[runId].runtime.compileEnd = endTimes[id]
-        echo outputs[id]
-        # xxx: exitcode and outputs
-
-      # clear old batch information
-      testCmds.setLen(0)
-      cmdIdToActId.setLen(0)
-      discard
+      runTestBatch()
   
-  echo "requested targets: $1, specs: $2, runs: $3, actions: $4, batches: $5" % [
+  var
+    earliest = epochTime() # will get minimized in the loop below
+    latest: float
+    effort: float
+    compEffortTotal: float
+    compDurLow = epochTime()   # will get minimized in the loop below
+    compDurHigh: float
+  
+  for rt in execState.runTimes:
+    earliest = min(rt.compileStart, earliest)
+    latest = max(max(rt.runEnd, rt.compileEnd), latest)
+    let compEffort = rt.compileEnd - rt.compileStart
+    compEffortTotal = compEffortTotal + compEffort
+    effort = effort + compEffort + rt.runEnd - rt.runStart
+    compDurLow = min(compDurLow, compEffort)
+    compDurHigh = max(compDurHigh, compEffort)
+
+  let
+    elapsed = latest - earliest
+    avgCompTime = compEffortTotal / float execState.runTimes.len
+
+  echo "requested targets: $1, specs: $2, runs: $3, actions: $4, batches: $5, elapsed: $6, effort: $7, compEffort: $8, averageCompTime: $9, compLow: $10, compHigh: $11" % [
       $execState.requestedTargets,
       $execState.testSpecs.len,
       $execState.testRuns.len,
       $execState.actions.len,
-      $batches
+      $batches,
+      elapsed.formatFloat(ffDecimal, precision = 2).align(5),
+      effort.formatFloat(ffDecimal, precision = 2).align(5),
+      compEffortTotal.formatFloat(ffDecimal, precision = 2).align(5),
+      avgCompTime.formatFloat(ffDecimal, precision = 2).align(5),
+      compDurLow.formatFloat(ffDecimal, precision = 2).align(5),
+      compDurHigh.formatFloat(ffDecimal, precision = 2).align(5)
     ]
 
 proc main2() =
@@ -1744,6 +1815,9 @@ proc main2() =
   azure.finalize()
   addExitProc azure.finalize
 
+  prepareTestFilesAndSpecs(execState)
+  prepareTestRuns(execState)
+  prepareTestActions(execState)
   runTests(execState)
   
   backend.close()
