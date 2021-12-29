@@ -289,12 +289,11 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
     c.graph.importStack.add f
     #echo "adding ", toFullPath(f), " at ", L+1
     if recursion >= 0:
-      var err = ""
-      for i in recursion..<L:
-        if i > recursion: err.add "\n"
-        err.add toFullPath(c.config, c.graph.importStack[i]) & " imports " &
-                toFullPath(c.config, c.graph.importStack[i+1])
-      c.recursiveDep = err
+      for i in recursion ..< L:
+        c.recursiveDep.add((
+          importer: toFullPath(c.config, c.graph.importStack[i]),
+          importee: toFullPath(c.config, c.graph.importStack[i + 1])
+        ))
 
     var realModule: PSym
     discard pushOptionEntry(c)

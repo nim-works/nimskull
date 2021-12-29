@@ -153,7 +153,7 @@ type
     cache*: IdentCache
     graph*: ModuleGraph
     signatures*: TStrTable
-    recursiveDep*: string
+    recursiveDep*: seq[tuple[importer, importee: string]]
     suggestionsMade*: bool
     isAmbiguous*: bool # little hack
     features*: set[Feature]

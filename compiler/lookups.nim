@@ -578,7 +578,7 @@ proc errorUndeclaredIdentifier*(
 
   if c.recursiveDep.len > 0:
     # prevent excessive errors for 'nim check'
-    c.recursiveDep = ""
+    c.recursiveDep.setLen 0
 
 proc errorUndeclaredIdentifierHint*(c: PContext; n: PNode, ident: PIdent): PSym =
   var candidates: seq[SemSpellCandidate]
@@ -665,7 +665,7 @@ proc errorUndeclaredIdentifierWithHint(
       msg: name)))
 
   if c.recursiveDep.len > 0:
-    c.recursiveDep = ""
+    c.recursiveDep.setLen 0
 
 proc errorAmbiguousUseQualifier(
     c: PContext; ident: PIdent, n: PNode, candidates: seq[PSym]
