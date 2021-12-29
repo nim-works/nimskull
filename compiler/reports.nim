@@ -1012,6 +1012,32 @@ func severity*(parser: ParserReport): ReportSeverity =
     of rparHintKinds: rsevHint
     else: rsevTrace
 
+const
+  rsemReportTwoSym* = {
+    rsemConflictingExportnims,
+  }
+
+  rsemReportOneSym* = {
+    rsemDeprecated,
+    rsemRedefinitionOf,
+    rsemUnexpectedPragmaInDefinitionOf,
+    rsemDoubleCompletionOf,
+    rsemInvalidMethodDeclarationOrder,
+
+    rsemIllegalCallconvCapture,
+    rsemIllegalMemoryCapture,
+    rsemBorrowOutlivesSource,
+    rsemImmutableBorrowMutation,
+    rsemOverrideSafetyMismatch,
+    rsemOverrideLockMismatch
+  }
+
+  rsemReportListSym* = {
+    rsemAmbiguous,
+    rsemCallNotAProcOrField,
+    rsemObjectRequiresFieldInit
+  }
+
 type
   SemReportKind* = range[rsemUserError .. rsemImplicitObjConv]
   SemReportErrorKind* = range[rsemUserError .. rsemWrappedError]
@@ -1086,12 +1112,6 @@ type
       of rsemCannotBorrow:
         borrowPair*: tuple[mutatedHere, connectedVia: ReportLinePoint]
 
-      of rsemBorrowOutlivesSource,
-         rsemImmutableBorrowMutation,
-         rsemOverrideSafetyMismatch,
-         rsemOverrideLockMismatch:
-        borrowsFrom*: PSym
-
       of rsemXCannotRaiseY:
         raisesList*: PNode
 
@@ -1147,13 +1167,6 @@ type
          rsemExpectedHighCappedDiscriminant:
         countMismatch*: tuple[expected, got: Int128]
 
-
-      of rsemDisjointFields,
-         rsemUnsafeRuntimeDiscriminantInit,
-         rsemConflictingDiscriminantInit,
-         rsemConflictingDiscriminantValues:
-        fieldMismatches*: tuple[first, second: seq[PSym]]
-
       of rsemInvalidExtern:
         externName*: string
 
@@ -1167,10 +1180,14 @@ type
         potentiallyRecursive*: bool
         spellingCandidates*: seq[SemSpellCandidate]
 
-      of rsemAmbiguous,
-         rsemCallNotAProcOrField,
-         rsemObjectRequiresFieldInit:
-        candidates*: seq[PSym]
+      of rsemDisjointFields,
+         rsemUnsafeRuntimeDiscriminantInit,
+         rsemConflictingDiscriminantInit,
+         rsemConflictingDiscriminantValues:
+        fieldMismatches*: tuple[first, second: seq[PSym]]
+
+      of rsemReportTwoSym + rsemReportOneSym + rsemReportListSym:
+        symbols*: seq[PSym]
 
       of rsemExpandMacro, rsemPattern:
         expandedExpr*: PNode
@@ -1206,16 +1223,6 @@ type
           allowedFlags: TTypeAllowedFlags
         ]
 
-      of rsemIllegalCallconvCapture, rsemIllegalMemoryCapture:
-        captured*: PSym
-
-      of rsemDeprecated,
-         rsemRedefinitionOf,
-         rsemUnexpectedPragmaInDefinitionOf,
-         rsemDoubleCompletionOf,
-         rsemInvalidMethodDeclarationOrder:
-        alternative*: PSym
-
       of rsemCallTypeMismatch, rsemNonMatchingCandidates:
         callMismatches*: seq[SemCallMismatch] ## Description of all the
         ## failed candidates.
@@ -1237,9 +1244,6 @@ type
       of rsemSystemNeeds, rsemStaticFieldNotFound:
         missingSymbol*: string
 
-      of rsemConflictingExportnims:
-        conflictingExports*: (PSym, PSym)
-
       of rsemLinterReport:
         linterFail*: tuple[wanted, got: string]
 
@@ -1257,6 +1261,38 @@ func severity*(report: SemReport): ReportSeverity =
     of rsemWarningKinds: result = rsevWarning
     of rsemHintKinds: result = rsevHint
     else: assert false
+
+func reportSymbols*(
+    kind: ReportKind,
+    symbols: seq[PSym],
+    rtype: PType = nil
+  ): SemReport =
+  case kind:
+    of rsemReportTwoSym: assert symbols.len == 2
+    of rsemReportOneSym: assert symbols.len == 1
+    of rsemReportListSym: discard
+    else: assert false, $kind
+
+  result = SemReport(kind: kind)
+  result.symbols = symbols
+  result.rtype = rtype
+
+func reportNode*(
+    kind: ReportKind,
+    node: PNode,
+    str: string = "",
+    rtype: PType = nil,
+    psym: PSym = nil
+  ): SemReport =
+
+  SemReport(
+    kind: kind, expression: node, msg: str, rtype: rtype, psym: psym)
+
+template withIt*(expr: untyped, body: untyped): untyped =
+  block:
+    var it {.inject.} = expr
+    body
+    it
 
 type
   CmdReportKind* = range[rcmdFailedExecution .. rcmdRunnableExamplesSuccess]

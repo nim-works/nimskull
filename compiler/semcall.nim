@@ -295,7 +295,7 @@ proc getMsgDiagnostic(
 
     var sym = initOverloadIter(o, c, f)
     while sym != nil:
-      result.candidates.add(sym)
+      result.symbols.add(sym)
       sym = nextOverloadIter(o, c, f)
 
 
@@ -413,9 +413,8 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
         args.add(typeToString(n[i].typ))
       args.add(")")
 
-      localReport(c.config, n.info, SemReport(kind: rsemAmbiguous, candidates: @[
-        result.calleeSym,
-        alt.calleeSym]))
+      localReport(c.config, n.info, reportSymbols(
+        rsemAmbiguous, @[result.calleeSym, alt.calleeSym]))
 
 proc instGenericConvertersArg*(c: PContext, a: PNode, x: TCandidate) =
   let a = if a.kind == nkHiddenDeref: a[0] else: a

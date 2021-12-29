@@ -292,21 +292,16 @@ proc freshVarForClosureIter*(g: ModuleGraph; s: PSym; idgen: IdGenerator; owner:
 proc markAsClosure(g: ModuleGraph; owner: PSym; n: PNode) =
   let s = n.sym
   if illegalCapture(s):
-    localReport(g.config, n.info, SemReport(
-      captured: s,
-      psym: owner,
-      kind: rsemIllegalMemoryCapture))
+    localReport(g.config, n.info, reportSymbols(
+      rsemIllegalMemoryCapture, @[s, owner]))
 
   elif not (
     owner.typ.callConv == ccClosure or
     owner.typ.callConv == ccNimCall and
     tfExplicitCallConv notin owner.typ.flags
   ):
-    localReport(g.config, n.info, SemReport(
-      kind: rsemIllegalCallconvCapture,
-      psym: owner,
-      captured: s
-    ))
+    localReport(g.config, n.info, reportSymbols(
+      rsemIllegalCallconvCapture, @[s, owner]))
 
   incl(owner.typ.flags, tfCapturesEnv)
   owner.typ.callConv = ccClosure

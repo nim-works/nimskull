@@ -158,8 +158,8 @@ proc skipAlias*(s: PSym; n: PNode; conf: ConfigRef): PSym =
     if conf.cmd == cmdNimfix:
       prettybase.replaceDeprecated(conf, n.info, s, result)
     else:
-      conf.localReport(n.info, SemReport(
-        kind: rsemDeprecated, psym: s, alternative: result))
+      conf.localReport(
+        n.info, reportSymbols(rsemDeprecated, @[s, result]))
 
 proc isShadowScope*(s: PScope): bool {.inline.} =
   s.parent != nil and s.parent.depthLevel == s.depthLevel
@@ -365,8 +365,8 @@ proc wrongRedefinition*(
                         conflictsWith: PSym) =
   ## Emit a redefinition error if in non-interactive mode
   if c.config.cmd != cmdInteractive:
-    c.config.localReport(info, SemReport(
-      kind: rsemRedefinitionOf, psym: s, alternative: conflictsWith))
+    c.config.localReport(info, reportSymbols(
+      rsemRedefinitionOf, @[s, conflictsWith]))
 
 # xxx pending bootstrap >= 1.4, replace all those overloads with a single one:
 # proc addDecl*(c: PContext, sym: PSym, info = sym.info, scope = c.currentScope) {.inline.} =
@@ -536,7 +536,7 @@ proc errorUseQualifier(
     rep = SemReport(kind: rsemAmbiguous, psym: s)
 
   for candidate in importedItems(c, s.name):
-    rep.candidates.add candidate
+    rep.symbols.add candidate
     if candidate.kind == skModule:
       inc ignoredModules
     else:
@@ -556,10 +556,10 @@ proc errorUseQualifier*(c: PContext; info: TLineInfo; s: PSym) =
 proc errorUseQualifier(c: PContext; info: TLineInfo; candidates: seq[PSym]) =
   var
     i = 0
-    rep = SemReport(kind: rsemAmbiguous, psym: candidates[0])
+    rep = SemReport(kind: rsemAmbiguous, msg: candidates[0].name.s)
 
   for candidate in candidates:
-    rep.candidates.add candidate
+    rep.symbols.add candidate
     inc i
 
   c.config.localReport(info, rep)
@@ -671,9 +671,9 @@ proc errorAmbiguousUseQualifier(
     c: PContext; ident: PIdent, n: PNode, candidates: seq[PSym]
   ): PSym =
   ## create an error symbol for an ambiguous unqualified lookup
-  var rep = SemReport(kind: rsemAmbiguous, psym: candidates[0])
+  var rep = SemReport(kind: rsemAmbiguous, msg: candidates[0].name.s)
   for i, candidate in candidates.pairs:
-    rep.candidates.add candidate
+    rep.symbols.add candidate
 
   newQualifiedLookUpError(
     c, ident, n.info, c.config.newError(n, rep))

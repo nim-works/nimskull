@@ -189,8 +189,8 @@ proc methodDef*(g: ModuleGraph; idgen: IdGenerator; s: PSym) =
   g.methods.add((methods: @[s], dispatcher: createDispatcher(s, g, idgen)))
   #echo "adding ", s.info
   if witness != nil:
-    localReport(g.config, s.info, SemReport(
-      kind: rsemInvalidMethodDeclarationOrder, psym: s, alternative: witness))
+    localReport(g.config, s.info, reportSymbols(
+      rsemInvalidMethodDeclarationOrder, @[s, witness]))
 
   elif sfBase notin s.flags:
     localReport(g.config, s.info, SemReport(kind: rsemUseBase))

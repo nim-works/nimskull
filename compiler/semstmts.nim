@@ -490,7 +490,7 @@ proc errorSymChoiceUseQualifier(c: PContext; n: PNode) =
   assert n.kind in nkSymChoices
   var rep = SemReport(kind: rsemAmbiguous, expression: n)
   for child in n:
-    rep.candidates.add child.sym
+    rep.symbols.add child.sym
 
   localReport(c.config, n.info, rep)
 
@@ -916,10 +916,11 @@ proc handleStmtMacro(c: PContext; n, selector: PNode; magicType: string;
           if match == nil:
             match = symx
           else:
-            localReport(c.config, n.info, SemReport(
-              kind: rsemAmbiguous,
-              expression: selector,
-              candidates: @[match, symx]))
+            localReport(
+              c.config, n.info,
+              reportSymbols(rsemAmbiguous, @[match, symx]).withIt do:
+                it.expression = selector
+            )
 
       symx = nextOverloadIter(o, c, headSymbol)
 
@@ -1198,15 +1199,16 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
             typeCompleted(typsym)
             typsym.info = s.info
           else:
-            localReport(c.config, name.info, SemReport(
-              kind: rsemDoubleCompletionOf,
-              psym: typsym,
-              alternative: s))
+            localReport(c.config, name.info, reportSymbols(
+              rsemDoubleCompletionOf, @[typsym, s]))
 
           s = typsym
     # add it here, so that recursive types are possible:
-    if sfGenSym notin s.flags: addInterfaceDecl(c, s)
-    elif s.owner == nil: s.owner = getCurrOwner(c)
+    if sfGenSym notin s.flags:
+      addInterfaceDecl(c, s)
+
+    elif s.owner == nil:
+      s.owner = getCurrOwner(c)
 
   if name.kind == nkPragmaExpr:
     typeDef[0][0] = newSymNode(s)
@@ -2102,8 +2104,8 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       tfExplicitCallConv in s.typ.flags and proto.typ.callConv != s.typ.callConv or
       # implementation has additional pragmas
       proto.typ.flags < s.typ.flags):
-    localReport(c.config, n[pragmasPos].info, SemReport(
-      kind: rsemUnexpectedPragmaInDefinitionOf, alternative: proto, psym: s))
+    localReport(c.config, n[pragmasPos].info, reportSymbols(
+      rsemUnexpectedPragmaInDefinitionOf, @[proto, s]))
 
   styleCheckDef(c.config, s)
   if hasProto:

@@ -130,9 +130,8 @@ proc registerNimScriptSymbol*(g: ModuleGraph; s: PSym) =
   if conflict == nil:
     strTableAdd(g.exposed, s)
   else:
-    g.config.localReport(s.info, SemReport(
-      kind: rsemConflictingExportnims,
-      conflictingExports: (s, conflict)))
+    g.config.localReport(s.info, reportSymbols(
+      rsemConflictingExportnims, @[s, conflict]))
 
 proc registerNimScriptSymbol2*(g: ModuleGraph; s: PSym): PNode =
   # Nimscript symbols must be al unique:
@@ -143,7 +142,7 @@ proc registerNimScriptSymbol2*(g: ModuleGraph; s: PSym): PNode =
   else:
     result = g.config.newError(
       newSymNode(s),
-      SemReport(kind: rsemConflictingExportnims, conflictingExports: (s, conflict)),
+      reportSymbols(rsemConflictingExportnims, @[s, conflict]),
       posInfo = s.info)
 
 proc getNimScriptSymbol*(g: ModuleGraph; name: string): PSym =

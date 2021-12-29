@@ -436,10 +436,10 @@ proc defaultConstructionError(c: PContext, t: PType, info: TLineInfo) =
     var constrCtx = initConstrContext(objType, newNodeI(nkObjConstr, info))
     let initResult = semConstructTypeAux(c, constrCtx, {})
     assert constrCtx.missingFields.len > 0
-    localReport(c.config, info, SemReport(
-      kind: rsemObjectRequiresFieldInit,
-      rtype: t,
-      candidates: constrCtx.missingFields))
+    localReport(
+      c.config, info,
+      reportSymbols(
+        rsemObjectRequiresFieldInit, constrCtx.missingFields, rtype = t))
 
   elif objType.kind == tyDistinct:
     localReport(c.config, info, SemReport(
@@ -482,10 +482,10 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # It's possible that the object was not fully initialized while
   # specifying a .requiresInit. pragma:
   if missedFields:
-    localReport(c.config, result.info, SemReport(
-      kind: rsemObjectRequiresFieldInit,
-      rtype: t,
-      candidates: constrCtx.missingFields))
+    localReport(c.config, result.info, reportSymbols(
+      rsemObjectRequiresFieldInit,
+      constrCtx.missingFields,
+      rtype = t))
 
   if constructionError:
     result = constrCtx.initExpr
@@ -523,16 +523,15 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
       for j in 1..<i:
         let prevId = considerQuotedIdent(c, result[j][0])
         if prevId.id == id.id:
-          localReport(c.config, field.info, SemReport(
-            kind: rsemFieldInitTwice, expression: result[j][0]))
+          localReport(c.config, field.info, reportNode(
+            rsemFieldInitTwice, result[j][0]))
 
           hasError = true
           break
       # 2) No such field exists in the constructed type
 
-      localReport(c.config, field[0].info, SemReport(
-        kind: rsemUndeclaredField,
-        expression: field[0], rtype: t))
+      localReport(c.config, field[0].info, reportNode(
+        rsemUndeclaredField, field[0], rtype = t))
 
       hasError = true
       break

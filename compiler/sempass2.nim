@@ -1372,8 +1372,8 @@ proc checkMethodEffects*(g: ModuleGraph; disp, branch: PSym) =
     checkRaisesSpec(g, false, tagsSpec, actual[tagEffects],
       "can have an unlisted effect: ", hints=off, subtypeRelation)
   if sfThread in disp.flags and notGcSafe(branch.typ):
-    localReport(g.config, branch.info, SemReport(
-      kind: rsemOverrideSafetyMismatch, psym: disp, borrowsFrom: branch))
+    localReport(g.config, branch.info, reportSymbols(
+      rsemOverrideSafetyMismatch, @[disp, branch]))
 
   when defined(drnim):
     if not g.compatibleProps(g, disp.typ, branch.typ):
@@ -1382,8 +1382,8 @@ proc checkMethodEffects*(g: ModuleGraph; disp, branch: PSym) =
 
   if branch.typ.lockLevel > disp.typ.lockLevel:
     when true:
-      localReport(g.config, branch.info, SemReport(
-        kind: rsemOverrideLockMismatch, psym: disp, borrowsFrom: branch))
+      localReport(g.config, branch.info, reportSymbols(
+        rsemOverrideLockMismatch, @[disp, branch]))
 
     else:
       # XXX make this an error after bigbreak has been released:

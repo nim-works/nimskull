@@ -910,16 +910,12 @@ proc checkBorrowedLocations*(par: var Partitions; body: PNode; config: ConfigRef
                dangerousMutation(par.graphs[par.s[sid].con.graphIndex], par.s[i]):
               cannotBorrow(config, v, par.graphs[par.s[sid].con.graphIndex])
             if par.s[sid].sym.kind != skParam and par.s[sid].aliveEnd < par.s[rid].aliveEnd:
-              localReport(config, v.info, SemReport(
-                kind: rsemBorrowOutlivesSource,
-                psym: v,
-                borrowsFrom: par.s[sid].sym))
+              localReport(config, v.info, reportSymbols(
+                rsemBorrowOutlivesSource, @[v, par.s[sid].sym]))
 
             if viewDoesMutate in par.s[rid].flags and isConstSym(par.s[sid].sym):
-              localReport(config, v.info, SemReport(
-                kind: rsemImmutableBorrowMutation,
-                psym: v,
-                borrowsFrom: par.s[sid].sym))
+              localReport(config, v.info, reportSymbols(
+                rsemImmutableBorrowMutation, @[v, par.s[sid].sym]))
 
               constViolation = true
         if {viewDoesMutate, viewBorrowsFromConst} * par.s[rid].flags == {
