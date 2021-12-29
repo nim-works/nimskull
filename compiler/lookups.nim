@@ -80,7 +80,7 @@ proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
 
 proc noidentError(conf: ConfigRef; n, origin: PNode) =
   let bad = if origin.isNil: n else: origin
-  conf.localError(n.info, SemReport(
+  conf.localReport(n.info, SemReport(
     kind: rsemIdentExpected,
     expression: bad
   ))
@@ -158,7 +158,7 @@ proc skipAlias*(s: PSym; n: PNode; conf: ConfigRef): PSym =
     if conf.cmd == cmdNimfix:
       prettybase.replaceDeprecated(conf, n.info, s, result)
     else:
-      conf.localError(n.info, SemReport(
+      conf.localReport(n.info, SemReport(
         kind: rsemDeprecated, psym: s, alternative: result))
 
 proc isShadowScope*(s: PScope): bool {.inline.} =
@@ -344,7 +344,7 @@ proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope) =
       # too many 'implementation of X' errors are annoying
       # and slow 'suggest' down:
       if missingImpls == 0:
-        c.config.localError(s.info, SemReport(
+        c.config.localReport(s.info, SemReport(
           kind: rsemImplementationExpected, psym: s))
 
       inc missingImpls
@@ -357,7 +357,7 @@ proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope) =
           unusedSyms.add (s, toFileLineCol(c.config, s.info))
     s = nextIter(it, scope.symbols)
   for (s, _) in sortedByIt(unusedSyms, it.key):
-    c.config.localError(s.info, SemReport(
+    c.config.localReport(s.info, SemReport(
       kind: rsemXDeclaredButNotUsed, psym: s))
 
 proc wrongRedefinition*(
@@ -365,7 +365,7 @@ proc wrongRedefinition*(
                         conflictsWith: PSym) =
   ## Emit a redefinition error if in non-interactive mode
   if c.config.cmd != cmdInteractive:
-    c.config.localError(info, SemReport(
+    c.config.localReport(info, SemReport(
       kind: rsemRedefinitionOf, psym: s, alternative: conflictsWith))
 
 # xxx pending bootstrap >= 1.4, replace all those overloads with a single one:
@@ -377,7 +377,7 @@ proc addDeclAt*(c: PContext; scope: PScope, sym: PSym, info: TLineInfo) =
       # e.g.: import foo; import foo
       # xxx we could refine this by issuing a different hint for the case
       # where a duplicate import happens inside an include.
-      c.config.localError(info, SemReport(
+      c.config.localReport(info, SemReport(
         kind: rsemDuplicateModuleImport,
         psym: sym,
         previous: c.config.toReportLinePoint(conflict.info)))
@@ -544,7 +544,7 @@ proc errorUseQualifier(
     inc i
 
   if ignoredModules != i - 1:
-    c.config.localError(info, rep)
+    c.config.localReport(info, rep)
     result = nil
   else:
     amb = false
@@ -562,14 +562,14 @@ proc errorUseQualifier(c: PContext; info: TLineInfo; candidates: seq[PSym]) =
     rep.candidates.add candidate
     inc i
 
-  c.config.localError(info, rep)
+  c.config.localReport(info, rep)
 
 proc errorUndeclaredIdentifier*(
     c: PContext; info: TLineInfo; name: string,
     candidates: seq[SemSpellCandidate] = @[]
   ) =
 
-  c.config.localError(info, SemReport(
+  c.config.localReport(info, SemReport(
     kind: rsemUndeclaredIdentifier,
     msg: name,
     spellingCandidates: candidates,
@@ -870,7 +870,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         result = n[1].sym
       elif checkUndeclared in flags and
            n[1].kind notin {nkOpenSymChoice, nkClosedSymChoice}:
-        c.config.localError(n[1].info, SemReport(
+        c.config.localReport(n[1].info, SemReport(
           kind: rsemExpectedIdentifier, expression: n[1]))
 
         result = errorSym(c, n[1])

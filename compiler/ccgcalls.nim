@@ -500,7 +500,7 @@ proc genOtherArg(p: BProc; ri: PNode; i: int; typ: PType): Rope =
       result = genArgNoParam(p, ri[i]) #, typ.n[i].sym)
   else:
     if tfVarargs notin typ.flags:
-      localError(p.config, ri.info, semReportCountMismatch(
+      localReport(p.config, ri.info, semReportCountMismatch(
         rsemWrongNumberOfArguments, expected = 1, got = 0, node = ri))
 
       result = nil
@@ -626,7 +626,7 @@ proc genPatternCall(p: BProc; ri: PNode; pat: string; typ: PType): Rope =
             result.add genOtherArg(p, ri, k, typ)
           result.add(~")")
         else:
-          localError(p.config, ri, rsemExpectedCallForCxxPattern)
+          localReport(p.config, ri, rsemExpectedCallForCxxPattern)
         inc i
       elif i+1 < pat.len and pat[i+1] == '.':
         result.add genThisArg(p, ri, j, typ)

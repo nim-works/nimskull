@@ -39,11 +39,11 @@ proc searchForProcAux(c: PContext, scope: PScope, fn: PSym): PSym =
       case equalParams(result.typ.n, fn.typ.n)
       of paramsEqual:
         if (sfExported notin result.flags) and (sfExported in fn.flags):
-          localError(c.config, fn.info, SemReport(
+          localReport(c.config, fn.info, SemReport(
             kind: rsemDeclarationVisibilityMismatch, psym: result))
         return
       of paramsIncompatible:
-        localError(c.config, fn.info, SemReport(
+        localReport(c.config, fn.info, SemReport(
           kind: rsemAmbiguousCall, psym: fn))
 
         return

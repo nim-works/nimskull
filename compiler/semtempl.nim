@@ -643,7 +643,7 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
   if s != nil and s.kind == skError:
     result = s.ast
   for e in ifErrorWalkErrors(c.config, result):
-    localError(c.config, e)
+    localReport(c.config, e)
 
   setGenericParamsMisc(c, n)
   # process parameters:
@@ -695,11 +695,11 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
 
   if sfCustomPragma in s.flags:
     if n[bodyPos].kind != nkEmpty:
-      localError(c.config, n[bodyPos].info, SemReport(
+      localReport(c.config, n[bodyPos].info, SemReport(
         kind: rsemImplementationNotAllowed, psym: s))
 
   elif n[bodyPos].kind == nkEmpty:
-    localError(c.config, n.info, SemReport(
+    localReport(c.config, n.info, SemReport(
       kind: rsemImplementationExpected, psym: s))
 
   var (proto, comesFromShadowscope) = searchForProc(c, c.currentScope, s)
@@ -744,7 +744,7 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
     if s != nil and s.owner == c.owner and s.kind == skParam:
       result = newParam(c, n, s)
     else:
-      localError(c.c.config, n, rsemInvalidExpression)
+      localReport(c.c.config, n, rsemInvalidExpression)
       result = n
 
   result = n
@@ -759,7 +759,7 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
     # we support '(pattern){x}' to bind a subpattern to a parameter 'x';
     # '(pattern){|x}' does the same but the matches will be gathered in 'x'
     if n.len != 2:
-      localError(c.c.config, n, rsemInvalidExpression)
+      localReport(c.c.config, n, rsemInvalidExpression)
     elif n[1].kind == nkIdent:
       n[0] = semPatternBody(c, n[0])
       n[1] = expectParam(c, n[1])
@@ -769,10 +769,10 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
         n[0] = semPatternBody(c, n[0])
         n[1][1] = expectParam(c, n[1][1])
       else:
-        localError(c.c.config, n, rsemInvalidExpression)
+        localReport(c.c.config, n, rsemInvalidExpression)
 
     else:
-      localError(c.c.config, n, rsemInvalidExpression)
+      localReport(c.c.config, n, rsemInvalidExpression)
 
   of nkStmtList, nkStmtListExpr:
     if stupidStmtListExpr(n):
@@ -843,6 +843,6 @@ proc semPattern(c: PContext, n: PNode; s: PSym): PNode =
     if result.len == 1:
       result = result[0]
     elif result.len == 0:
-      localError(c.config, n, rsemExpectedNonemptyPattern)
+      localReport(c.config, n, rsemExpectedNonemptyPattern)
   closeScope(c)
   addPattern(c, LazySym(sym: s))

@@ -113,24 +113,24 @@ proc getLockLevel(t: PType): TLockLevel =
 
 proc lockLocations(a: PEffects; pragma: PNode) =
   if pragma.kind != nkExprColonExpr:
-    localError(a.config, pragma.info, SemReport(kind: rsemLocksRequiresArgs))
+    localReport(a.config, pragma.info, SemReport(kind: rsemLocksRequiresArgs))
     return
   var firstLL = TLockLevel(-1'i16)
   for x in pragma[1]:
     let thisLL = getLockLevel(x.typ)
     if thisLL != 0.TLockLevel:
       if thisLL < 0.TLockLevel or thisLL > MaxLockLevel.TLockLevel:
-        localError(a.config, x.info, SemReport(
+        localReport(a.config, x.info, SemReport(
           kind: rsemLocksPragmaBadLevel, msg: $thisLL))
 
       elif firstLL < 0.TLockLevel: firstLL = thisLL
       elif firstLL != thisLL:
-        localError(a.config, x.info, SemReport(kind: rsemMultilockRequiresSameLevel))
+        localReport(a.config, x.info, SemReport(kind: rsemMultilockRequiresSameLevel))
       a.maxLockLevel = max(a.maxLockLevel, firstLL)
     a.locked.add x
   if firstLL >= 0.TLockLevel and firstLL != a.currLockLevel:
     if a.currLockLevel > 0.TLockLevel and a.currLockLevel <= firstLL:
-      localError(a.config, pragma.info, SemReport(kind: rsemInvalidNestedLocking))
+      localReport(a.config, pragma.info, SemReport(kind: rsemInvalidNestedLocking))
     a.currLockLevel = firstLL
 
 proc guardGlobal(a: PEffects; n: PNode; guard: PSym) =
@@ -143,7 +143,7 @@ proc guardGlobal(a: PEffects; n: PNode; guard: PSym) =
   #  message(a.config, n.info, warnUnguardedAccess, renderTree(n))
   #else:
   if not a.isTopLevel:
-    localError(
+    localReport(
       a.config, n.info, SemReport(kind: rsemUnguardedAccess, expression: n))
 
 # 'guard*' are checks which are concerned with 'guard' annotations
@@ -167,7 +167,7 @@ proc guardDotAccess(a: PEffects; n: PNode) =
         if ty == nil: break
         ty = ty.skipTypes(skipPtrs)
     if field == nil:
-      localError(a.config, n.info, SemReport(kind: rsemInvalidGuardField, psym: g))
+      localReport(a.config, n.info, SemReport(kind: rsemInvalidGuardField, psym: g))
       return
     g = field
     #ri.sym.guard = field
@@ -180,7 +180,7 @@ proc guardDotAccess(a: PEffects; n: PNode) =
     for L in a.locked:
       #if a.guards.sameSubexprs(dot, L): return
       if guards.sameTree(dot, L): return
-    localError(
+    localReport(
       a.config, n.info, SemReport(kind: rsemUnguardedAccess, expression: n))
 
   else:
@@ -560,7 +560,7 @@ proc mergeLockLevels(tracked: PEffects, n: PNode, lockLevel: TLockLevel) =
   if lockLevel >= tracked.currLockLevel:
     # if in lock section:
     if tracked.currLockLevel > 0.TLockLevel:
-      localError(tracked.config, n.info,
+      localReport(tracked.config, n.info,
         SemReport(
           kind: rsemLockLevelMismatch,
           lockMismatch: ($tracked.currLockLevel, $lockLevel)))
@@ -590,7 +590,7 @@ proc procVarCheck(n: PNode; conf: ConfigRef) =
       procVarCheck(x, conf)
 
   elif n.kind == nkSym and n.sym.magic != mNone and n.sym.kind in routineKinds:
-    localError(conf, n.info, SemReport(kind: rsemCantPassProcvar, psym: n.sym))
+    localReport(conf, n.info, SemReport(kind: rsemCantPassProcvar, psym: n.sym))
 
 proc notNilCheck(tracked: PEffects, n: PNode, paramType: PType) =
   let n = n.skipConv
@@ -613,11 +613,11 @@ proc notNilCheck(tracked: PEffects, n: PNode, paramType: PType) =
         return
       case impliesNotNil(tracked.guards, n)
       of impUnknown:
-        localError(tracked.config, n.info, SemReport(
+        localReport(tracked.config, n.info, SemReport(
           kind: rsemCannotProveNotNil, expression: n))
 
       of impNo:
-        localError(tracked.config, n.info, SemReport(
+        localReport(tracked.config, n.info, SemReport(
           kind: rsemProvablyNil, expression: n))
 
       of impYes:
@@ -704,7 +704,7 @@ proc trackOperandForIndirectCall(tracked: PEffects, n: PNode, formals: PType; ar
     # XXX figure out why this can be a non tyProc here. See httpclient.nim for an
     # example that triggers it.
     if argtype.kind == tyProc and notGcSafe(argtype) and not tracked.inEnforcedGcSafe:
-      localError(tracked.config, n.info, SemReport(kind: rsemErrGcUnsafe, expression: n))
+      localReport(tracked.config, n.info, SemReport(kind: rsemErrGcUnsafe, expression: n))
   notNilCheck(tracked, n, paramType)
 
 proc breaksBlock(n: PNode): bool =
@@ -798,7 +798,7 @@ proc trackBlock(tracked: PEffects, n: PNode) =
 proc cstringCheck(tracked: PEffects; n: PNode) =
   if n[0].typ.kind == tyCstring and (let a = skipConv(n[1]);
       a.typ.kind == tyString and a.kind notin {nkStrLit..nkTripleStrLit}):
-    localError(tracked.config, n.info, SemReport(
+    localReport(tracked.config, n.info, SemReport(
       kind: rsemWarnUnsafeCode, expression: n))
 
 proc patchResult(c: PEffects; n: PNode) =
@@ -807,7 +807,7 @@ proc patchResult(c: PEffects; n: PNode) =
     if fn != nil and fn.kind in routineKinds and fn.ast != nil and resultPos < fn.ast.len:
       n.sym = fn.ast[resultPos].sym
     else:
-      localError(c.config, n.info, SemReport(kind: rsemDrNimRequiresUsesMissingResult))
+      localReport(c.config, n.info, SemReport(kind: rsemDrNimRequiresUsesMissingResult))
   else:
     for i in 0..<safeLen(n):
       patchResult(c, n[i])
@@ -817,7 +817,7 @@ proc checkLe(c: PEffects; a, b: PNode) =
   of impUnknown:
     #for g in c.guards.s:
     #  if g != nil: echo "I Know ", g
-    localError(
+    localReport(
       c.config, a.info,
       SemReport(
         kind: rsemDrnimCannotProveLeq,
@@ -826,7 +826,7 @@ proc checkLe(c: PEffects; a, b: PNode) =
   of impYes:
     discard
   of impNo:
-    localError(
+    localReport(
       c.config, a.info,
       SemReport(
         kind: rsemDrnimCannotPorveGe,
@@ -1030,7 +1030,7 @@ proc castBlock(tracked: PEffects, pragma: PNode, bc: var PragmaBlockContext) =
   of wUncheckedAssign:
     discard "handled in sempass1"
   else:
-    localError(tracked.config, pragma.info, SemReport(
+    localReport(tracked.config, pragma.info, SemReport(
       kind: rsemInvalidPragmaBlock, expression: pragma))
 
 proc trackInnerProc(tracked: PEffects, n: PNode) =
@@ -1276,9 +1276,9 @@ proc track(tracked: PEffects, n: PNode) =
     let t = n.typ.skipTypes(abstractInst)
     if t.kind == tyEnum:
       if tfEnumHasHoles in t.flags:
-        localError(tracked.config, n, rsemHoleEnumConvert)
+        localReport(tracked.config, n, rsemHoleEnumConvert)
       else:
-        localError(tracked.config, n, rsemAnyEnumConvert)
+        localReport(tracked.config, n, rsemAnyEnumConvert)
 
     if n.len == 2:
       track(tracked, n[1])
@@ -1314,7 +1314,7 @@ proc track(tracked: PEffects, n: PNode) =
     inc tracked.leftPartOfAsgn
   of nkError:
     for e in walkErrors(tracked.config, n):
-      localError(tracked.config, e)
+      localReport(tracked.config, e)
   else:
     for i in 0..<n.safeLen: track(tracked, n[i])
 
@@ -1372,22 +1372,22 @@ proc checkMethodEffects*(g: ModuleGraph; disp, branch: PSym) =
     checkRaisesSpec(g, false, tagsSpec, actual[tagEffects],
       "can have an unlisted effect: ", hints=off, subtypeRelation)
   if sfThread in disp.flags and notGcSafe(branch.typ):
-    localError(g.config, branch.info, SemReport(
+    localReport(g.config, branch.info, SemReport(
       kind: rsemOverrideSafetyMismatch, psym: disp, borrowsFrom: branch))
 
   when defined(drnim):
     if not g.compatibleProps(g, disp.typ, branch.typ):
-      localError(g.config, branch.info, "for method '" & branch.name.s &
+      localReport(g.config, branch.info, "for method '" & branch.name.s &
         "' the `.requires` or `.ensures` properties are incompatible.")
 
   if branch.typ.lockLevel > disp.typ.lockLevel:
     when true:
-      localError(g.config, branch.info, SemReport(
+      localReport(g.config, branch.info, SemReport(
         kind: rsemOverrideLockMismatch, psym: disp, borrowsFrom: branch))
 
     else:
       # XXX make this an error after bigbreak has been released:
-      localError(g.config, branch.info,
+      localReport(g.config, branch.info,
         "base method has lock level $1, but dispatcher has $2" %
           [$branch.typ.lockLevel, $disp.typ.lockLevel])
 
@@ -1532,11 +1532,11 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
 
   if sfThread in s.flags and t.gcUnsafe:
     if optThreads in g.config.globalOptions and optThreadAnalysis in g.config.globalOptions:
-      #localError(s.info, "'$1' is not GC-safe" % s.name.s)
+      #localReport(s.info, "'$1' is not GC-safe" % s.name.s)
       listGcUnsafety(s, onlyWarning=false, g.config)
     else:
       listGcUnsafety(s, onlyWarning=true, g.config)
-      #localError(s.info, warnGcUnsafe2, s.name.s)
+      #localReport(s.info, warnGcUnsafe2, s.name.s)
   if sfNoSideEffect in s.flags and t.hasSideEffect:
     when false:
       listGcUnsafety(s, onlyWarning=false, g.config)
@@ -1554,13 +1554,13 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
         report.sideEffectMutateConnection = g.config.toReportLinePoint(
           mutationInfo.connectedVia)
 
-        localError(g.config, s.info, report)
+        localReport(g.config, s.info, report)
       elif c.compilesContextId == 0: # don't render extended diagnostic messages in `system.compiles` context
         var report = SemReport(kind: rsemHasSideEffects)
         listSideEffects(report, s, g.config, t.c)
         localReport(g.config, s.info, report)
       else:
-        localError(g.config, s.info, SemReport(kind: repNone)) # simple error for `system.compiles` context
+        localReport(g.config, s.info, SemReport(kind: repNone)) # simple error for `system.compiles` context
 
   if not t.gcUnsafe:
     s.typ.flags.incl tfGcSafe
@@ -1569,7 +1569,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
   if s.typ.lockLevel == UnspecifiedLockLevel:
     s.typ.lockLevel = t.maxLockLevel
   elif t.maxLockLevel > s.typ.lockLevel:
-    localError(g.config, s.info, SemReport(
+    localReport(g.config, s.info, SemReport(
       kind: rsemLockLevelMismatch,
       lockMismatch: ($s.typ.lockLevel, $t.maxLockLevel)))
 

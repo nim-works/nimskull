@@ -116,10 +116,10 @@ proc splitPragmas(c: PContext, n: PNode): (PNode, seq[TSpecialWord]) =
           result[1].add whichKeyword(ni.ident)
 
         else:
-          globalError(c.config, n.info, SemReport(kind: rsemInvalidPragma))
+          globalReport(c.config, n.info, SemReport(kind: rsemInvalidPragma))
 
     else:
-      globalError(c.config, n.info, SemReport(kind: rsemInvalidPragma))
+      globalReport(c.config, n.info, SemReport(kind: rsemInvalidPragma))
 
   else:
     result[0] = n
@@ -129,7 +129,7 @@ proc splitPragmas(c: PContext, n: PNode): (PNode, seq[TSpecialWord]) =
 proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
   let (n, kws) = splitPragmas(c, n)
   if kws.len > 0:
-    globalError(c.config, n.info, SemReport(kind: rsemUnexpectedPragma))
+    globalReport(c.config, n.info, SemReport(kind: rsemUnexpectedPragma))
 
   let ident = lookups.considerQuotedIdent(c, n)
   let s = someSym(c.graph, fromMod, ident)
@@ -224,7 +224,7 @@ proc importForwarded(c: PContext, n: PNode, exceptSet: IntSet; fromMod: PSym; im
       elif exceptSet.isNil or s.name.id notin exceptSet:
         rawImportSymbol(c, s, fromMod, importSet)
   of nkExportExceptStmt:
-    localError(c.config, n.info, InternalReport(
+    localReport(c.config, n.info, InternalReport(
       kind: rintNotImplemented, msg: "'export except' not implemented"))
   else:
     for i in 0..n.safeLen-1:
@@ -237,7 +237,7 @@ proc importModuleAs(c: PContext; n: PNode, realModule: PSym, importHidden: bool)
   if n.kind != nkImportAs:
     discard
   elif n.len != 2 or n[1].kind != nkIdent:
-    localError(
+    localReport(
       c.config, n.info,
       SemReport(
         kind: rsemExpectedIdentifier,
@@ -265,7 +265,7 @@ proc transformImportAs(c: PContext; n: PNode): tuple[node: PNode, importHidden: 
       of wImportHidden:
         ret.importHidden = true
       else:
-        globalError(c.config, n.info, SemReport(
+        globalReport(c.config, n.info, SemReport(
           kind: rsemInvalidPragma,
           expression: n2,
           msg: "invalid pragma, expected: " & ${wImportHidden}))
@@ -306,11 +306,11 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
     # we cannot perform this check reliably because of
     # test: modules/import_in_config) # xxx is that still true?
     if realModule == c.module:
-      localError(c.config, n.info, SemReport(
+      localReport(c.config, n.info, SemReport(
         kind: rsemCannotImportItself, psym: realModule))
 
     if sfDeprecated in realModule.flags:
-      localError(c.config, n.info, SemReport(
+      localReport(c.config, n.info, SemReport(
         kind: rsemDeprecated, psym: realModule))
 
     suggestSym(c.graph, n.info, result, c.graph.usageSym, false)

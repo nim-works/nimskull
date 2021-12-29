@@ -104,7 +104,7 @@ proc ordinalValToString*(a: PNode; g: ModuleGraph): string =
         else:
           return field.ast.strVal
 
-    g.config.localError(a.info, SemReport(
+    g.config.localReport(a.info, SemReport(
       kind: rsemCantConvertLiteralToType, rtype: t))
   else:
     result = $x
@@ -454,7 +454,7 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
       result = x.sons[idx]
       if result.kind == nkExprColonExpr: result = result[1]
     else:
-      g.config.localError(n.info, SemReport(
+      g.config.localReport(n.info, SemReport(
         kind: rsemStaticOutOfBounds,
         expression: n,
         indexSpec: (toInt128(idx), toInt128(x.len - 1))))
@@ -462,7 +462,7 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
     idx -= toInt64(firstOrd(g.config, x.typ))
     if idx >= 0 and idx < x.len: result = x[int(idx)]
     else:
-      g.config.localError(n.info, SemReport(
+      g.config.localReport(n.info, SemReport(
         kind: rsemStaticOutOfBounds,
         expression: n,
         indexSpec: (toInt128(idx), toInt128(x.len - 1))))
@@ -471,7 +471,7 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
     if idx >= 0 and idx < x.strVal.len:
       result.intVal = ord(x.strVal[int(idx)])
     else:
-      g.config.localError(n.info, SemReport(
+      g.config.localReport(n.info, SemReport(
         kind: rsemStaticOutOfBounds,
         expression: n,
         indexSpec: (toInt128(idx), toInt128(x.len - 1))))
@@ -495,7 +495,7 @@ proc foldFieldAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
       result = x[i][1]
       return
 
-  g.config.localError(n.info, SemReport(
+  g.config.localReport(n.info, SemReport(
     expression: n,
     kind: rsemStaticFieldNotFound,
     missingSymbol: field.name.s))
@@ -541,7 +541,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
           try:
             result = newIntNodeT(toInt128(g.config.symbols[s.name.s].parseInt), n, idgen, g)
           except ValueError:
-            g.config.localError SemReport(
+            g.config.localReport SemReport(
               kind: rsemInvalidIntdefine, expressionStr: g.config.symbols[s.name.s])
         else:
           result = copyTree(s.ast)
@@ -555,7 +555,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
           try:
             result = newIntNodeT(toInt128(g.config.symbols[s.name.s].parseBool.int), n, idgen, g)
           except ValueError:
-            g.config.localError SemReport(
+            g.config.localReport SemReport(
               kind: rsemInvalidBooldefine, expressionStr: g.config.symbols[s.name.s])
         else:
           result = copyTree(s.ast)
@@ -639,10 +639,10 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
       else:
         result = magicCall(m, n, idgen, g)
     except OverflowDefect:
-      g.config.localError(n.info, SemReport(
+      g.config.localReport(n.info, SemReport(
         kind: rsemSemfoldOverflow, expression: n))
     except DivByZeroDefect:
-      g.config.localError(n.info, SemReport(
+      g.config.localReport(n.info, SemReport(
         kind: rsemSemfoldDivByZero, expression: n))
   of nkAddr:
     var a = getConstExpr(m, n[0], idgen, g)
@@ -714,7 +714,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
     let a = getConstExpr(m, n[0], idgen, g)
     if a != nil and a.kind == nkNilLit:
       result = nil
-      #localError(g.config, n.info, "nil dereference is not allowed")
+      #localReport(g.config, n.info, "nil dereference is not allowed")
   of nkCast:
     var a = getConstExpr(m, n[1], idgen, g)
     if a == nil: return

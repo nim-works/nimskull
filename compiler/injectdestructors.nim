@@ -262,7 +262,7 @@ proc checkForErrorPragma(c: Con; t: PType; ri: PNode; opname: string) =
     elif ri.kind == nkSym and ri.sym.kind == skParam and not isSinkType(ri.sym.typ):
       rep.missingTypeBoundElaboration.tryMakeSinkParam = true
 
-  localError(c.graph.config, ri.info, rep)
+  localReport(c.graph.config, ri.info, rep)
 
 proc makePtrType(c: var Con, baseType: PType): PType =
   result = newType(tyPtr, nextTypeId c.idgen, c.owner)
@@ -396,7 +396,7 @@ proc genDiscriminantAsgn(c: var Con; s: var Scope; n: PNode): PNode =
   if hasDestructor(c, objType):
     if getAttachedOp(c.graph, objType, attachedDestructor) != nil and
         sfOverriden in getAttachedOp(c.graph, objType, attachedDestructor).flags:
-      localError(c.graph.config, n, rsemCannotAssignToDiscriminantWithCustomDestructor)
+      localReport(c.graph.config, n, rsemCannotAssignToDiscriminantWithCustomDestructor)
       result.add newTree(nkFastAsgn, le, tmp)
       return
 
@@ -475,7 +475,7 @@ proc passCopyToSink(n: PNode; c: var Con; s: var Scope): PNode =
       assert(not containsManagedMemory(n.typ))
 
     if n.typ.skipTypes(abstractInst).kind in {tyOpenArray, tyVarargs}:
-      localError(c.graph.config, n.info, SemReport(
+      localReport(c.graph.config, n.info, SemReport(
         kind: rsemCannotCreateImplicitOpenarray,
         expression: n))
 

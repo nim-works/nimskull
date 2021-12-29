@@ -541,14 +541,14 @@ proc storeExpansion*(c: var PackedEncoder; m: var PackedModule; info: TLineInfo;
 proc loadError(err: RodFileError; filename: AbsoluteFile; config: ConfigRef;) =
   case err
   of cannotOpen:
-    config.localError InternalReport(
+    config.localReport InternalReport(
       kind: rintWarnCannotOpenFile, file: filename.string)
 
   of includeFileChanged:
-    config.localError InternalReport(
+    config.localReport InternalReport(
       kind: rintWarnFileChanged, file: filename.string)
   else:
-    config.localError InternalReport(
+    config.localReport InternalReport(
       kind: rintCannotOpenFile, file: filename.string, msg: $err)
 
 proc loadRodFile*(filename: AbsoluteFile; m: var PackedModule; config: ConfigRef;

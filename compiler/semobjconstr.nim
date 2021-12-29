@@ -227,7 +227,7 @@ proc semConstructFields(c: PContext, n: PNode,
       if status notin {initNone, initUnknown}:
         mergeInitStatus(result, status)
         if selectedBranch != -1:
-          localError(c.config, constrCtx.initExpr.info, SemReport(
+          localReport(c.config, constrCtx.initExpr.info, SemReport(
             kind: rsemDisjointFields,
             fieldMismatches: (
               first: fieldsPresentInBranch(selectedBranch),
@@ -241,7 +241,7 @@ proc semConstructFields(c: PContext, n: PNode,
       template badDiscriminatorError =
         if c.inUncheckedAssignSection == 0:
           let fields = fieldsPresentInBranch(selectedBranch)
-          localError(c.config, constrCtx.initExpr.info, SemReport(
+          localReport(c.config, constrCtx.initExpr.info, SemReport(
             kind: rsemUnsafeRuntimeDiscriminantInit,
             fieldMismatches: (
               first: fields,
@@ -252,7 +252,7 @@ proc semConstructFields(c: PContext, n: PNode,
       template wrongBranchError(i) =
         if c.inUncheckedAssignSection == 0:
           let fields = fieldsPresentInBranch(i)
-          localError(c.config, constrCtx.initExpr.info,  SemReport(
+          localReport(c.config, constrCtx.initExpr.info,  SemReport(
             kind: rsemConflictingDiscriminantInit,
             expression: discriminatorVal,
             fieldMismatches: (
@@ -260,7 +260,7 @@ proc semConstructFields(c: PContext, n: PNode,
               second: @[discriminator.sym])))
 
       template valuesInConflictError(valsDiff) =
-        localError(c.config, discriminatorVal.info, SemReport(
+        localReport(c.config, discriminatorVal.info, SemReport(
           kind: rsemConflictingDiscriminantValues,
           rtype: n[0].typ,
           expression: n[selectedBranch]))
@@ -281,7 +281,7 @@ proc semConstructFields(c: PContext, n: PNode,
             not isOrdinalType(discriminatorVal.typ, true) or
             lengthOrd(c.config, discriminatorVal.typ) > MaxSetElements or
             lengthOrd(c.config, n[0].typ) > MaxSetElements):
-          localError(c.config, discriminatorVal.info, SemReport(
+          localReport(c.config, discriminatorVal.info, SemReport(
             kind: rsemRuntimeDiscriminantInitCap))
 
       if discriminatorVal == nil:
@@ -300,11 +300,11 @@ proc semConstructFields(c: PContext, n: PNode,
         elif discriminatorVal.sym.kind notin {skLet, skParam} or
             discriminatorVal.sym.typ.kind in {tyVar}:
           if c.inUncheckedAssignSection == 0:
-            localError(c.config, discriminatorVal.info, SemReport(
+            localReport(c.config, discriminatorVal.info, SemReport(
               kind: rsemRuntimeDiscriminantMustBeImmutable))
 
         elif ctorCase[ctorIdx].kind == nkElifBranch:
-          localError(c.config, discriminatorVal.info, SemReport(
+          localReport(c.config, discriminatorVal.info, SemReport(
             kind: rsemRuntimeDiscriminantRequiresElif))
 
         else:
@@ -436,13 +436,13 @@ proc defaultConstructionError(c: PContext, t: PType, info: TLineInfo) =
     var constrCtx = initConstrContext(objType, newNodeI(nkObjConstr, info))
     let initResult = semConstructTypeAux(c, constrCtx, {})
     assert constrCtx.missingFields.len > 0
-    localError(c.config, info, SemReport(
+    localReport(c.config, info, SemReport(
       kind: rsemObjectRequiresFieldInit,
       rtype: t,
       candidates: constrCtx.missingFields))
 
   elif objType.kind == tyDistinct:
-    localError(c.config, info, SemReport(
+    localReport(c.config, info, SemReport(
       kind: rsemDistinctDoesNotHaveDefaultValue, rtype: t))
 
   else:
@@ -482,7 +482,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # It's possible that the object was not fully initialized while
   # specifying a .requiresInit. pragma:
   if missedFields:
-    localError(c.config, result.info, SemReport(
+    localReport(c.config, result.info, SemReport(
       kind: rsemObjectRequiresFieldInit,
       rtype: t,
       candidates: constrCtx.missingFields))
@@ -513,7 +513,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
             invalidObjConstr(c, field)
         # XXX: shouldn't report errors here, since creating and reporting split
         #      need to cascade an nkError instead
-        localError(c.config, e)
+        localReport(c.config, e)
         hasError = true
         continue
 
@@ -523,14 +523,14 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
       for j in 1..<i:
         let prevId = considerQuotedIdent(c, result[j][0])
         if prevId.id == id.id:
-          localError(c.config, field.info, SemReport(
+          localReport(c.config, field.info, SemReport(
             kind: rsemFieldInitTwice, expression: result[j][0]))
 
           hasError = true
           break
       # 2) No such field exists in the constructed type
 
-      localError(c.config, field[0].info, SemReport(
+      localReport(c.config, field[0].info, SemReport(
         kind: rsemUndeclaredField,
         expression: field[0], rtype: t))
 

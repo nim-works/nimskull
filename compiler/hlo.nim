@@ -57,7 +57,7 @@ proc applyPatterns(c: PContext, n: PNode): PNode =
         # better be safe than sorry, so check evalTemplateCounter too:
         inc(c.config.evalTemplateCounter)
         if c.config.evalTemplateCounter > evalTemplateLimit:
-          globalError(c.config, n.info, SemReport(
+          globalReport(c.config, n.info, SemReport(
             kind: rsemTemplateInstantiationTooNested))
 
         # deactivate this pattern:

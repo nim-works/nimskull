@@ -266,7 +266,7 @@ proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
   if arg.typ.isNil:
-    c.config.localError(arg.info, SemReport(
+    c.config.localReport(arg.info, SemReport(
       kind: rsemExpressionHasNoType, expression: arg))
 
     # error correction:
@@ -415,7 +415,7 @@ proc newSymG*(kind: TSymKind, n: PNode, c: PContext): PSym =
     # and sfGenSym in n.sym.flags:
     result = n.sym
     if result.kind notin {kind, skTemp}:
-      localError(c.config, n.info, SemReport(
+      localReport(c.config, n.info, SemReport(
         kind: rsemSymbolKindMismatch,
         psym: result,
         expectedSymbolKind: {kind}))
@@ -456,7 +456,7 @@ proc typeAllowedCheck(c: PContext; info: TLineInfo; typ: PType; kind: TSymKind;
     #   err = "invalid type: '$1' in this context: '$2' for $3" % [typeToString(t),
     #           typeToString(typ), toHumanStr(kind)]
 
-    localError(c.config, info, SemReport(
+    localReport(c.config, info, SemReport(
       kind: rsemTypeNotAllowed,
       allowedType: (
         allowed: t,
@@ -567,7 +567,7 @@ const
 proc semConstExpr(c: PContext, n: PNode): PNode =
   var e = semExprWithType(c, n)
   if e == nil:
-    localError(c.config, n.info, SemReport(
+    localReport(c.config, n.info, SemReport(
       kind: rsemConstExprExpected, expression: n))
 
     return n
@@ -575,15 +575,15 @@ proc semConstExpr(c: PContext, n: PNode): PNode =
     return e
   result = getConstExpr(c.module, e, c.idgen, c.graph)
   if result == nil:
-    #if e.kind == nkEmpty: globalError(n.info, errConstExprExpected)
+    #if e.kind == nkEmpty: globalReport(n.info, errConstExprExpected)
     result = evalConstExpr(c.module, c.idgen, c.graph, e)
     if result == nil or result.kind == nkEmpty:
       if e.info != n.info:
         pushInfoContext(c.config, n.info)
-        localError(c.config, e.info, SemReport(kind: rsemConstExprExpected))
+        localReport(c.config, e.info, SemReport(kind: rsemConstExprExpected))
         popInfoContext(c.config)
       else:
-        localError(c.config, e.info, SemReport(kind: rsemConstExprExpected))
+        localReport(c.config, e.info, SemReport(kind: rsemConstExprExpected))
       # error correction:
       result = e
     else:
@@ -623,7 +623,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
   ## contains.
   inc(c.config.evalTemplateCounter)
   if c.config.evalTemplateCounter > evalTemplateLimit:
-    globalError(c.config, s.info, SemReport(kind: rsemTemplateInstantiationTooNested))
+    globalReport(c.config, s.info, SemReport(kind: rsemTemplateInstantiationTooNested))
   c.friendModules.add(s.owner.getModule)
   result = macroResult
   resetSemFlag result
@@ -647,7 +647,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListType)
       var typ = semTypeNode(c, result, nil)
       if typ == nil:
-        localError(c.config, result, rsemExpressionHasNoType)
+        localReport(c.config, result, rsemExpressionHasNoType)
         result = newSymNode(errorSym(c, result))
       else:
         result.typ = makeTypeDesc(c, typ)
@@ -667,7 +667,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
 
       result = semExpr(c, result, flags)
       result = fitNode(c, retType, result, result.info)
-      #globalError(s.info, errInvalidParamKindX, typeToString(s.typ[0]))
+      #globalReport(s.info, errInvalidParamKindX, typeToString(s.typ[0]))
   dec(c.config.evalTemplateCounter)
   discard c.friendModules.pop()
 
@@ -684,14 +684,14 @@ proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
   markUsed(c, info, sym)
   onUse(info, sym)
   if sym == c.p.owner:
-    globalError(c.config, info, SemReport(
+    globalReport(c.config, info, SemReport(
       kind: rsemCyclicDependency, psym: sym))
 
   let genericParams = sym.ast[genericParamsPos].len
   let suppliedParams = max(n.safeLen - 1, 0)
 
   if suppliedParams < genericParams:
-    globalError(
+    globalReport(
       c.config, info, SemReport(
         kind: rsemMissingGenericParamsForTemplate, expression: n))
 
@@ -722,7 +722,7 @@ proc forceBool(c: PContext, n: PNode): PNode =
 proc semConstBoolExpr(c: PContext, n: PNode): PNode =
   result = forceBool(c, semConstExpr(c, n))
   if result.kind != nkIntLit:
-    localError(c.config, n, rsemConstExprExpected)
+    localReport(c.config, n, rsemConstExprExpected)
 
 proc semGenericStmt(c: PContext, n: PNode): PNode
 proc semConceptBody(c: PContext, n: PNode): PNode

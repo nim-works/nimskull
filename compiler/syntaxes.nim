@@ -71,7 +71,7 @@ proc getCallee(conf: ConfigRef; n: PNode): PIdent =
   elif n.kind == nkIdent:
     result = n.ident
   else:
-    conf.localError(n.info, ParserReport(kind: rparInvalidFilter, node: n))
+    conf.localReport(n.info, ParserReport(kind: rparInvalidFilter, node: n))
 
 proc applyFilter(p: var Parser, n: PNode, filename: AbsoluteFile,
                  stdin: PLLStream): PLLStream =
@@ -122,7 +122,7 @@ proc setupParser*(p: var Parser; fileIdx: FileIndex; cache: IdentCache;
   let filename = toFullPathConsiderDirty(config, fileIdx)
   var f: File
   if not open(f, filename.string):
-    config.localError InternalReport(
+    config.localReport InternalReport(
       kind: rintCannotOpenFile, file: filename.string)
     return false
   openParser(p, fileIdx, llStreamOpen(f), cache, config)

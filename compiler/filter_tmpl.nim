@@ -86,7 +86,7 @@ proc parseLine(p: var TTmplParser) =
         dec(p.indent, 2)
       else:
         p.info.col = int16(j)
-        p.config.localError(p.info, ParserReport(kind: rparTemplMissingEndClose))
+        p.config.localReport(p.info, ParserReport(kind: rparTemplMissingEndClose))
       llStreamWrite(p.outp, spaces(p.indent))
       llStreamWrite(p.outp, "#end")
     of "if", "when", "try", "while", "for", "block", "case", "proc", "iterator",
@@ -194,7 +194,7 @@ proc parseLine(p: var TTmplParser) =
               inc(j)
             else:
               p.info.col = int16(j)
-              p.config.localError(p.info, ParserReport(
+              p.config.localReport(p.info, ParserReport(
                 kind: rparTemplInvalidExpression))
         else:
           llStreamWrite(p.outp, p.x[j])

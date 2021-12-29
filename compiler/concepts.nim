@@ -60,7 +60,7 @@ proc semConceptDecl(c: PContext; n: PNode): PNode =
       result[i] = n[i]
     result[^1] = semConceptDecl(c, n[^1])
   else:
-    c.config.localError(n.info, SemReport(
+    c.config.localReport(n.info, SemReport(
       kind: rsemUnexpectedInNewConcept, expression: n))
     result = n
 

@@ -221,7 +221,7 @@ proc getFreeRegister(cc: PCtx; k: TSlotKind; start: int): TRegister =
         c.regInfo[i] = (inUse: true, kind: k)
         return TRegister(i)
   if c.regInfo.len >= high(TRegister):
-    globalError(cc.config, cc.bestEffort, SemReport(
+    globalReport(cc.config, cc.bestEffort, SemReport(
       kind: rsemTooManyRegistersRequired))
 
   result = TRegister(max(c.regInfo.len, start))
@@ -263,7 +263,7 @@ proc getTempRange(cc: PCtx; n: int; kind: TSlotKind): TRegister =
           for k in result..result+n-1: c.regInfo[k] = (inUse: true, kind: kind)
           return
   if c.regInfo.len+n >= high(TRegister):
-    globalError(cc.config, cc.bestEffort, SemReport(kind: rsemTooManyRegistersRequired))
+    globalReport(cc.config, cc.bestEffort, SemReport(kind: rsemTooManyRegistersRequired))
   result = TRegister(c.regInfo.len)
   setLen c.regInfo, c.regInfo.len+n
   for k in result..result+n-1: c.regInfo[k] = (inUse: true, kind: kind)
@@ -376,7 +376,7 @@ proc genBreak(c: PCtx; n: PNode) =
       if c.prc.blocks[i].label == n[0].sym:
         c.prc.blocks[i].fixups.add lab1
         return
-    globalError(c.config, n.info, SemReport(kind: rsemVmCannotFindBreakTarget))
+    globalReport(c.config, n.info, SemReport(kind: rsemVmCannotFindBreakTarget))
   else:
     c.prc.blocks[c.prc.blocks.high].fixups.add lab1
 
@@ -478,7 +478,7 @@ proc genLiteral(c: PCtx; n: PNode): int =
 
 proc unused(c: PCtx; n: PNode; x: TDest) {.inline.} =
   if x >= 0:
-    globalError(c.config, n.info, SemReport(
+    globalReport(c.config, n.info, SemReport(
       kind: rsemVmNotUnused, expression: n))
 
 proc genCase(c: PCtx; n: PNode; dest: var TDest) =
@@ -618,12 +618,12 @@ proc needsAsgnPatch(n: PNode): bool =
 
 proc genField(c: PCtx; n: PNode): TRegister =
   if n.kind != nkSym or n.sym.kind != skField:
-    globalError(c.config, n.info, SemReport(
+    globalReport(c.config, n.info, SemReport(
       kind: rsemNotAFieldSymbol, expression: n))
 
   let s = n.sym
   if s.position > high(typeof(result)):
-    globalError(c.config, n.info, SemReport(kind: rsemVmTooLargetOffset, psym: s))
+    globalReport(c.config, n.info, SemReport(kind: rsemVmTooLargetOffset, psym: s))
 
   result = s.position
 
@@ -670,7 +670,7 @@ proc genAsgnPatch(c: PCtx; le: PNode, value: TRegister) =
       c.freeTemp(dest)
   of nkError:
     # XXX: do a better job with error generation
-    globalError(c.config, le.info, SemReport(
+    globalReport(c.config, le.info, SemReport(
       kind: rsemVmCannotGenerateCode, expression: le))
 
   else:
@@ -935,7 +935,7 @@ proc genCastIntFloat(c: PCtx; n: PNode; dest: var TDest) =
     genLit(c, n[1], dest)
   else:
     # todo: support cast from tyInt to tyRef
-    globalError(c.config, n.info, SemReport(
+    globalReport(c.config, n.info, SemReport(
       kind: rsemVmCannotCast,
       typeMismatch: @[c.config.typeMismatch(dst, src)]))
 
@@ -961,7 +961,7 @@ proc genBindSym(c: PCtx; n: PNode; dest: var TDest) =
       if dest < 0: dest = c.getTemp(n.typ)
       c.gABx(n, opcNBindSym, dest, idx)
     else:
-      localError(c.config, n.info, SemReport(
+      localReport(c.config, n.info, SemReport(
         kind: rsemVmInvalidBindSym, expression: n))
 
   else:
@@ -1351,7 +1351,7 @@ proc genMagic(c: PCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genCall(n, dest)
   of mExpandToAst:
     if n.len != 2:
-      globalError(c.config, n.info, SemReport(
+      globalReport(c.config, n.info, SemReport(
         kind: rsemVmBadExpandToAst, msg: "expandToAst requires 1 argument"))
 
     let arg = n[1]
@@ -1363,19 +1363,19 @@ proc genMagic(c: PCtx; n: PNode; dest: var TDest; m: TMagic) =
       # do not call clearDest(n, dest) here as getAst has a meta-type as such
       # produces a value
     else:
-      globalError(c.config, n.info, SemReport(
+      globalReport(c.config, n.info, SemReport(
         kind: rsemVmBadExpandToAst, msg: "expandToAst requires a call expression"))
 
   of mSizeOf:
-    globalError(c.config, n.info, SemReport(
+    globalReport(c.config, n.info, SemReport(
       kind: rsemMissingImportcCompleteStruct, msg: "sizeof"))
 
   of mAlignOf:
-    globalError(c.config, n.info, SemReport(
+    globalReport(c.config, n.info, SemReport(
       kind: rsemMissingImportcCompleteStruct, msg: "alignof"))
 
   of mOffsetOf:
-    globalError(c.config, n.info, SemReport(
+    globalReport(c.config, n.info, SemReport(
       kind: rsemMissingImportcCompleteStruct, msg: "offsetof"))
 
   of mRunnableExamples:
@@ -1396,7 +1396,7 @@ proc genMagic(c: PCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genUnaryABC(n, dest, opcNodeId)
   else:
     # mGCref, mGCunref,
-    globalError(c.config, n.info, SemReport(
+    globalReport(c.config, n.info, SemReport(
       kind: rsemVmCannotGenerateCode, msg: $m))
 
 
@@ -1476,7 +1476,7 @@ proc setSlot(c: PCtx; v: PSym) =
     v.position = getFreeRegister(c, if v.kind == skLet: slotFixedLet else: slotFixedVar, start = 1)
 
 proc cannotEval(c: PCtx; n: PNode) {.noinline.} =
-  globalError(c.config, n.info, SemReport(
+  globalReport(c.config, n.info, SemReport(
     kind: rsemVmCannotEvaluateAtComptime, expression: n))
 
 proc isOwnedBy(a, b: PSym): bool =
@@ -1535,7 +1535,7 @@ proc genAsgn(c: PCtx; le, ri: PNode; requiresCopy: bool) =
   case le.kind
   of nkError:
     # XXX: do a better job with error generation
-    globalError(c.config, le.info, SemReport(
+    globalReport(c.config, le.info, SemReport(
       kind: rsemVmCannotGenerateCode, expression: le))
 
   of nkBracketExpr:
@@ -1620,10 +1620,10 @@ proc importcSym(c: PCtx; info: TLineInfo; s: PSym) =
       c.globals.add(importcSymbol(c.config, s))
       s.position = c.globals.len
     else:
-      localError(c.config, info,
+      localReport(c.config, info,
         SemReport(kind: rsemVmEnableFFIToImportc, psym: s))
   else:
-    localError(c.config, info,
+    localReport(c.config, info,
                SemReport(kind: rsemVmCannotImportc, psym: s))
 
 proc getNullValue*(typ: PType, info: TLineInfo; conf: ConfigRef): PNode
@@ -1829,7 +1829,7 @@ proc getNullValueAux(t: PType; obj: PNode, result: PNode; conf: ConfigRef; currP
     doAssert obj.sym.position == currPosition
     inc currPosition
   else:
-    globalError(conf, result.info, SemReport(
+    globalReport(conf, result.info, SemReport(
       kind: rsemVmCannotCreateNullElement, expression: obj))
 
 proc getNullValue(typ: PType, info: TLineInfo; conf: ConfigRef): PNode =
@@ -1873,7 +1873,7 @@ proc getNullValue(typ: PType, info: TLineInfo; conf: ConfigRef): PNode =
   of tySequence, tyOpenArray:
     result = newNodeIT(nkBracket, info, t)
   else:
-    globalError(conf, info, SemReport(
+    globalReport(conf, info, SemReport(
       kind: rsemVmCannotCreateNullElement, rtype: t))
 
     result = newNodeI(nkEmpty, info)
@@ -1987,7 +1987,7 @@ proc genObjConstr(c: PCtx, n: PNode, dest: var TDest) =
                           dest, idx, tmp)
       c.freeTemp(tmp)
     else:
-      globalError(c.config, n.info, SemReport(
+      globalReport(c.config, n.info, SemReport(
         kind: rsemVmInvalidObjectConstructor, expression: it))
 
 proc genTupleConstr(c: PCtx, n: PNode, dest: var TDest) =
@@ -2036,7 +2036,7 @@ proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
   case n.kind
   of nkError:
     # XXX: do a better job with error generation
-    globalError(c.config, n.info, SemReport(
+    globalReport(c.config, n.info, SemReport(
       kind: rsemVmCannotGenerateCode, expression: n))
 
   of nkSym:
@@ -2048,7 +2048,7 @@ proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     of skProc, skFunc, skConverter, skMacro, skTemplate, skMethod, skIterator:
       # 'skTemplate' is only allowed for 'getAst' support:
       if s.kind == skIterator and s.typ.callConv == TCallingConvention.ccClosure:
-        globalError(c.config, n.info, SemReport(kind: rsemVmNoClosureIterators, psym: s))
+        globalReport(c.config, n.info, SemReport(kind: rsemVmNoClosureIterators, psym: s))
       if procIsCallback(c, s): discard
       elif importcCond(c, s): c.importcSym(n.info, s)
       genLit(c, n, dest)
@@ -2071,11 +2071,11 @@ proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       if c.prc.sym != nil and c.prc.sym.kind == skMacro:
         genRdVar(c, n, dest, flags)
       else:
-        globalError(c.config, n.info, SemReport(
+        globalReport(c.config, n.info, SemReport(
           kind: rsemVmCannotGenerateCode, psym: s))
 
     else:
-      globalError(c.config, n.info, SemReport(
+      globalReport(c.config, n.info, SemReport(
         kind: rsemVmCannotGenerateCode, psym: s))
   of nkCallKinds:
     if n[0].kind == nkSym:
@@ -2083,7 +2083,7 @@ proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       if s.magic != mNone:
         genMagic(c, n, dest, s.magic)
       elif s.kind == skMethod:
-        localError(c.config, n.info, SemReport(
+        localReport(c.config, n.info, SemReport(
           kind: rsemVmCannotCallMethod, psym: s))
       else:
         genCall(c, n, dest)
@@ -2188,7 +2188,7 @@ proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     if n.typ != nil and n.typ.isCompileTimeOnly:
       genTypeLit(c, n.typ, dest)
     else:
-      globalError(c.config, n.info, SemReport(
+      globalReport(c.config, n.info, SemReport(
         kind: rsemVmCannotGenerateCode, expression: n))
 
 proc removeLastEof(c: PCtx) =

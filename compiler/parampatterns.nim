@@ -55,7 +55,7 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
   case p.kind
   of nkCallKinds:
     if p[0].kind != nkIdent:
-      conf.localError(p[0].info, SemReport(
+      conf.localReport(p[0].info, SemReport(
         kind: rsemIllformedAst,
         expression: p,
         msg: "Expected ident for a first subnode, but found '$1'" % [$p[0].kind]))
@@ -71,7 +71,7 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
         compileConstraints(p[2], result, conf)
         result.add(ppAnd)
       else:
-        conf.localError(p.info, SemReport(
+        conf.localReport(p.info, SemReport(
           kind: rsemIllformedAst, expression: p,
           msg: "Expected any of '|', 'or', '&', 'and' for TRM pattern, but found '$1' ($2)" % [
             $op.s, $op.id]))
@@ -79,7 +79,7 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
       compileConstraints(p[1], result, conf)
       result.add(ppNot)
     else:
-      conf.localError(p.info, SemReport(
+      conf.localReport(p.info, SemReport(
         kind: rsemIllformedAst, expression: p,
         msg: "Unexpected trm patern - wanted negation or and/or infix"))
 
@@ -87,7 +87,7 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
     if p.len == 1:
       compileConstraints(p[0], result, conf)
     else:
-      conf.localError(p.info, SemReport(
+      conf.localReport(p.info, SemReport(
         kind: rsemIllformedAst, expression: p,
         msg: "Unexpected number of nodes for node - " &
           "wanted $1, but found $2" % [$1, $p.len]))
@@ -121,9 +121,9 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
           result.add(ppNodeKind)
           result.add(chr(i.ord))
           return
-      conf.localError(p.info, SemReport(kind: rsemIllformedAst, expression: p))
+      conf.localReport(p.info, SemReport(kind: rsemIllformedAst, expression: p))
   else:
-    conf.localError(p.info, SemReport(kind: rsemIllformedAst, expression: p))
+    conf.localReport(p.info, SemReport(kind: rsemIllformedAst, expression: p))
 
 proc semNodeKindConstraints*(n: PNode; conf: ConfigRef; start: Natural): PNode =
   ## does semantic checking for a node kind pattern and compiles it into an
@@ -139,7 +139,7 @@ proc semNodeKindConstraints*(n: PNode; conf: ConfigRef; start: Natural): PNode =
       conf.internalUnreachable(n.info, "parameter pattern too complex")
 
   else:
-    conf.localError(n.info, SemReport(kind: rsemIllformedAst, expression: n))
+    conf.localReport(n.info, SemReport(kind: rsemIllformedAst, expression: n))
   result.strVal.add(ppEof)
 
 type

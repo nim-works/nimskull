@@ -1148,7 +1148,7 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
 proc genObjectInfo(m: BModule, typ, origType: PType, name: Rope; info: TLineInfo) =
   if typ.kind == tyObject:
     if incompleteType(typ):
-      localError(m.config, info, SemReport(
+      localReport(m.config, info, SemReport(
         kind: rsemRttiRequestForIncompleteObject, rtype: typ))
 
     genTypeInfoAux(m, typ, origType, name, info)
@@ -1294,7 +1294,7 @@ proc genHook(m: BModule; t: PType; info: TLineInfo; op: TTypeAttachedOp): Rope =
     # finalizer is: ``proc (x: ref T) {.nimcall.}``. We need to check the calling
     # convention at least:
     if theProc.typ == nil or theProc.typ.callConv != ccNimCall:
-      localError(m.config, info, SemReport(
+      localReport(m.config, info, SemReport(
         kind: rsemExpectedNimcallProc, psym: theProc))
 
     genProc(m, theProc)
@@ -1316,7 +1316,7 @@ proc genTypeInfoV2Impl(m: BModule, t, origType: PType, name: Rope; info: TLineIn
   var typeName: Rope
   if t.kind in {tyObject, tyDistinct}:
     if incompleteType(t):
-      localError(m.config, info, SemReport(
+      localReport(m.config, info, SemReport(
         kind: rsemRttiRequestForIncompleteObject, rtype: t))
 
     typeName = genTypeInfo2Name(m, t)

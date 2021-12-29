@@ -961,7 +961,7 @@ proc transform(c: PTransf, n: PNode): PNode =
     # XXX: yet another place to report on nkError
     let conf = c.graph.config
     result = n
-    localError(conf, n)
+    localReport(conf, n)
     return
   of nkSym:
     result = transformSym(c, n)

@@ -753,14 +753,14 @@ proc firstOrd*(conf: ConfigRef; t: PType): Int128 =
   of tyOrdinal:
     if t.len > 0: result = firstOrd(conf, lastSon(t))
     else:
-      conf.localError InternalReport(
+      conf.localReport InternalReport(
         kind: rintUnreachable,
         msg: "invalid kind for firstOrd(" & $t.kind & ')')
 
   of tyUncheckedArray, tyCstring:
     result = Zero
   else:
-    conf.localError InternalReport(
+    conf.localReport InternalReport(
       kind: rintUnreachable,
       msg: "invalid kind for firstOrd(" & $t.kind & ')')
     result = Zero
@@ -777,7 +777,7 @@ proc firstFloat*(t: PType): BiggestFloat =
      tyStatic, tyInferred, tyUserTypeClasses:
     firstFloat(lastSon(t))
   else:
-    newPartialConfigRef().localError InternalReport(
+    newPartialConfigRef().localReport InternalReport(
       kind: rintUnreachable,
       msg: "invalid kind for firstFloat(" & $t.kind & ')')
     NaN
@@ -820,13 +820,13 @@ proc lastOrd*(conf: ConfigRef; t: PType): Int128 =
   of tyOrdinal:
     if t.len > 0: result = lastOrd(conf, lastSon(t))
     else:
-      conf.localError InternalReport(
+      conf.localReport InternalReport(
         kind: rintUnreachable,
         msg: "invalid kind for firstOrd(" & $t.kind & ')')
   of tyUncheckedArray:
     result = Zero
   else:
-    conf.localError InternalReport(
+    conf.localReport InternalReport(
       kind: rintUnreachable,
       msg: "invalid kind for firstOrd(" & $t.kind & ')')
     result = Zero
@@ -843,7 +843,7 @@ proc lastFloat*(t: PType): BiggestFloat =
      tyStatic, tyInferred, tyUserTypeClasses:
     lastFloat(lastSon(t))
   else:
-    newPartialConfigRef().localError InternalReport(
+    newPartialConfigRef().localReport InternalReport(
       kind: rintUnreachable,
       msg: "invalid kind for firstFloat(" & $t.kind & ')')
     NaN
@@ -862,7 +862,7 @@ proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
      tyStatic, tyInferred, tyUserTypeClasses:
     floatRangeCheck(x, lastSon(t))
   else:
-    newPartialConfigRef().localError InternalReport(
+    newPartialConfigRef().localReport InternalReport(
       kind: rintUnreachable,
       msg: "invalid kind for floatRangeCheck(" & $t.kind & ')')
     false

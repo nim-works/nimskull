@@ -1886,7 +1886,7 @@ proc writeHeader(m: BModule) =
   if m.config.cppCustomNamespace.len > 0: result.add closeNamespaceNim()
   result.addf("#endif /* $1 */$n", [guard])
   if not writeRope(result, m.filename):
-    localError(m.config, SemReport(
+    localReport(m.config, SemReport(
       kind: rsemCannotOpenFile, msg: m.filename.string))
 
 proc getCFile(m: BModule): AbsoluteFile =
@@ -1956,7 +1956,7 @@ proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
         else:
           echo "new file ", cfile.cname.string
       if not writeRope(code, cfile.cname):
-        localError(m.config, SemReport(
+        localReport(m.config, SemReport(
           kind: rsemCannotOpenFile, msg: cfile.cname.string))
 
       result = true
@@ -1966,7 +1966,7 @@ proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
       result = true
   else:
     if not writeRope(code, cfile.cname):
-      localError(m.config, SemReport(
+      localReport(m.config, SemReport(
         kind: rsemCannotOpenFile, msg: cfile.cname.string))
 
     result = true

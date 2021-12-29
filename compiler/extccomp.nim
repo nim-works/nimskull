@@ -332,7 +332,7 @@ proc getConfigVar(conf: ConfigRef; c: TSystemCC, suffix: string): string =
 proc setCC*(conf: ConfigRef; ccname: string; info: TLineInfo) =
   conf.cCompiler = nameToCC(ccname)
   if conf.cCompiler == ccNone:
-    conf.localError(ExternalReport(
+    conf.localReport(ExternalReport(
       kind: rextUnknownCCompiler,
       knownCompilers: listCCnames(),
       passedCompiler: ccname))
@@ -408,7 +408,7 @@ proc execWithEcho(conf: ConfigRef; cmd: string, msg = hintExecuting): int =
 
 proc execExternalProgram*(conf: ConfigRef; cmd: string, msg = hintExecuting) =
   if execWithEcho(conf, cmd, msg) != 0:
-    conf.localError CmdReport(kind: rcmdFailedExecution, cmd: cmd)
+    conf.localReport CmdReport(kind: rcmdFailedExecution, cmd: cmd)
     # rawMessage(conf, errGenerated, "execution of an external program failed: '$1'" % cmd)
 
 proc generateScript(conf: ConfigRef; script: Rope) =
@@ -416,7 +416,7 @@ proc generateScript(conf: ConfigRef; script: Rope) =
   let filename = getNimcacheDir(conf) / RelativeFile(addFileExt("compile_" & name,
                                      platform.OS[conf.target.targetOS].scriptExt))
   if not writeRope(script, filename):
-    conf.globalError BackendReport(
+    conf.globalReport BackendReport(
       kind: rbackCannotWriteScript,
       filename: filename.string)
 
@@ -519,7 +519,7 @@ proc getCompilerExe(conf: ConfigRef; compiler: TSystemCC; cfile: AbsoluteFile): 
                CC[compiler].compilerExe
 
   if result.len == 0:
-    conf.globalError BackendReport(
+    conf.globalReport BackendReport(
       kind: rbackTargetNotSupported,
       requestedTarget: target,
       usedCompiler:  CC[compiler].name)
@@ -1042,7 +1042,7 @@ proc runJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
   createDir output.parentDir
   let outputCurrent = $conf.absOutFile
   if output != outputCurrent or bcache.cacheVersion != cacheVersion:
-    conf.globalError BackendReport(
+    conf.globalReport BackendReport(
       kind: rbackJsonScriptMismatch,
       jsonScriptParams: (outputCurrent, output, jsonFile.string))
 

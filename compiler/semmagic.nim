@@ -17,7 +17,7 @@ proc semAddrArg(c: PContext; n: PNode; isUnsafeAddr = false): PNode =
   if isAssignable(c, x, isUnsafeAddr) notin {arLValue, arLocalLValue}:
     # Do not suggest the use of unsafeAddr if this expression already is a
     # unsafeAddr
-    localError(c.config, n, rsemExprHasNoAddress)
+    localReport(c.config, n, rsemExprHasNoAddress)
 
   result = x
 
@@ -26,7 +26,7 @@ proc semTypeOf(c: PContext; n: PNode): PNode =
   if n.len == 3:
     let mode = semConstExpr(c, n[2])
     if mode.kind != nkIntLit:
-      localError(c.config, n, rsemVmCannotEvaluateAtComptime)
+      localReport(c.config, n, rsemVmCannotEvaluateAtComptime)
     else:
       m = mode.intVal
   result = newNodeI(nkTypeOfExpr, n.info)
@@ -73,7 +73,7 @@ proc expectIntLit(c: PContext, n: PNode): int =
   let x = c.semConstExpr(c, n)
   case x.kind
   of nkIntLit..nkInt64Lit: result = int(x.intVal)
-  else: localError(c.config, n, rsemIntLiteralExpected)
+  else: localReport(c.config, n, rsemIntLiteralExpected)
 
 proc semInstantiationInfo(c: PContext, n: PNode): PNode =
   result = newNodeIT(nkTupleConstr, n.info, n.typ)
@@ -167,7 +167,7 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
     #   var resType = newType(tySequence, operand.owner)
     #   result = toNode(resType, traitCall.info) # doesn't work yet
     else:
-      localError(
+      localReport(
         c.config,
         traitCall.info,
         SemReport(
@@ -198,7 +198,7 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
       if not rec: break
     result = getTypeDescNode(c, arg, operand.owner, traitCall.info)
   else:
-    localError(c.config, traitCall.info, SemReport(
+    localReport(c.config, traitCall.info, SemReport(
       kind: rsemUnknownTrait, psym: trait.sym))
 
     result = newNodeI(nkEmpty, traitCall.info)
@@ -325,9 +325,9 @@ proc semOf(c: PContext, n: PNode): PNode =
     let y = skipTypes(n[2].typ, abstractPtrs-{tyTypeDesc})
 
     if x.kind == tyTypeDesc or y.kind != tyTypeDesc:
-      localError(c.config, n, rsemExpectedObjectForOf)
+      localReport(c.config, n, rsemExpectedObjectForOf)
     elif b.kind != tyObject or a.kind != tyObject:
-      localError(c.config, n, rsemExpectedObjectForOf)
+      localReport(c.config, n, rsemExpectedObjectForOf)
     else:
       let diff = inheritanceDiff(a, b)
       # | returns: 0 iff `a` == `b`
@@ -343,7 +343,7 @@ proc semOf(c: PContext, n: PNode): PNode =
         return result
       elif diff == high(int):
         if commonSuperclass(a, b) == nil:
-          localError(c.config, n.info, SemReport(
+          localReport(c.config, n.info, SemReport(
             kind: rsemCannotBeOfSubtype,
             typeMismatch: @[c.config.typeMismatch(a, b)]))
 
@@ -353,7 +353,7 @@ proc semOf(c: PContext, n: PNode): PNode =
           result.info = n.info
           result.typ = getSysType(c.graph, n.info, tyBool)
   else:
-    localError(c.config, n.info, semReportCountMismatch(
+    localReport(c.config, n.info, semReportCountMismatch(
       rsemWrongNumberOfArguments, expected = 2, got = n.len - 1, node = n))
 
   n.typ = getSysType(c.graph, n.info, tyBool)
@@ -452,7 +452,7 @@ proc semQuantifier(c: PContext; n: PNode): PNode =
         addDecl(c, v)
         result.add newTree(nkInfix, it[0], newSymNode(v), domain)
     if not valid:
-      localError(c.config, n, rsemQuantifierInRangeExpected)
+      localReport(c.config, n, rsemQuantifierInRangeExpected)
   result.add forceBool(c, semExprWithType(c, args[^1]))
   closeScope(c)
 
@@ -461,10 +461,10 @@ proc semOld(c: PContext; n: PNode): PNode =
     n[1] = n[1][0]
 
   if n[1].kind != nkSym or n[1].sym.kind != skParam:
-    localError(c.config, n[1], rsemOldTakesParameterName)
+    localReport(c.config, n[1], rsemOldTakesParameterName)
 
   elif n[1].sym.owner != getCurrOwner(c):
-    localError(c.config, n[1].info, SemReport(
+    localReport(c.config, n[1].info, SemReport(
       kind: rsemOldDoesNotBelongTo,
       expression: n[1], psym: getCurrOwner(c)))
 
@@ -529,7 +529,7 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   of mPlugin:
     let plugin = getPlugin(c.cache, n[0].sym)
     if plugin.isNil:
-      localError(c.config, n.info, SemReport(
+      localReport(c.config, n.info, SemReport(
         kind: rsemCannotFindPlugin, psym: n[0].sym))
 
       result = n
@@ -538,19 +538,19 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   of mNewFinalize:
     # Make sure the finalizer procedure refers to a procedure
     if n[^1].kind == nkSym and n[^1].sym.kind notin {skProc, skFunc}:
-      localError(c.config, n, rsemExpectedProcReferenceForFinalizer)
+      localReport(c.config, n, rsemExpectedProcReferenceForFinalizer)
     elif optTinyRtti in c.config.globalOptions:
       let nfin = skipConvCastAndClosure(n[^1])
       let fin = case nfin.kind
         of nkSym: nfin.sym
         of nkLambda, nkDo: nfin[namePos].sym
         else:
-          localError(c.config, n, rsemExpectedProcReferenceForFinalizer)
+          localReport(c.config, n, rsemExpectedProcReferenceForFinalizer)
           nil
       if fin != nil:
         if fin.kind notin {skProc, skFunc}:
           # calling convention is checked in codegen
-          localError(c.config, n, rsemExpectedProcReferenceForFinalizer)
+          localReport(c.config, n, rsemExpectedProcReferenceForFinalizer)
 
         # check if we converted this finalizer into a destructor already:
         let t = whereToBindTypeHook(c, fin.typ[1].skipTypes(abstractInst+{tyRef}))
@@ -597,7 +597,7 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
 
   of mIsolate:
     if not checkIsolate(n[1]):
-      localError(c.config, n.info, SemReport(
+      localReport(c.config, n.info, SemReport(
         kind: rsemCannotIsolate, expression: n[1]))
 
     result = n

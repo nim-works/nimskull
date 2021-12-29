@@ -49,7 +49,7 @@ proc annotateType*(n: PNode, t: PType; conf: ConfigRef) =
   # to not to skip tyGenericInst
 
   proc malformedType(msg: string, expected: set[TTypeKind]) =
-    globalError(conf, n.info, SemReport(
+    globalReport(conf, n.info, SemReport(
       kind: rsemTypeKindMismatch,
       typeMismatch: @[conf.typeMismatch(n.typ, expected)],
       expression: n,
@@ -63,7 +63,7 @@ proc annotateType*(n: PNode, t: PType; conf: ConfigRef) =
       var j = i-1
       let field = x.ithField(j)
       if field.isNil:
-        globalError(conf, n.info, SemReport(
+        globalReport(conf, n.info, SemReport(
           kind: rsemIllformedAst,
           expression: n,
           msg: "'nil' field at index" & $i))
@@ -81,7 +81,7 @@ proc annotateType*(n: PNode, t: PType; conf: ConfigRef) =
       n.typ = t
       for i in 0..<n.len:
         if i >= x.len:
-          globalError(conf, n.info, SemReport(
+          globalReport(conf, n.info, SemReport(
             kind: rsemIllformedAst,
             expression: n,
             msg: "Unexpected field at index $1 - type $2 is expected to have $3 fields." % [

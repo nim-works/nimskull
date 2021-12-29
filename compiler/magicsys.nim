@@ -25,7 +25,7 @@ proc newSysType(g: ModuleGraph; kind: TTypeKind, size: int): PType =
 proc getSysSym*(g: ModuleGraph; info: TLineInfo; name: string): PSym =
   result = systemModuleSym(g, getIdent(g.cache, name))
   if result == nil:
-    g.config.localError(info, SemReport(
+    g.config.localReport(info, SemReport(
       kind: rsemSystemNeeds, missingSymbol: name))
 
     result = newSym(
@@ -41,7 +41,7 @@ proc getSysMagic*(g: ModuleGraph; info: TLineInfo; name: string, m: TMagic): PSy
       if r.typ[0] != nil and r.typ[0].kind == tyInt: return r
       result = r
   if result != nil: return result
-  g.config.localError(info, SemReport(
+  g.config.localReport(info, SemReport(
     kind: rsemSystemNeeds, missingSymbol: name))
 
   result = newSym(skError, id, nextSymId(g.idgen), g.systemModule, g.systemModule.info, {})
@@ -77,17 +77,17 @@ proc getSysType*(g: ModuleGraph; info: TLineInfo; kind: TTypeKind): PType =
     of tyPointer: result = sysTypeFromName("pointer")
     of tyNil: result = newSysType(g, tyNil, g.config.target.ptrSize)
     else:
-      g.config.localError InternalReport(
+      g.config.localReport InternalReport(
         kind: rintUnreachable, msg: "request for typekind: " & $kind)
     g.sysTypes[kind] = result
   if result.kind != kind:
     if kind == tyFloat64 and result.kind == tyFloat: discard # because of aliasing
     else:
-      g.config.localError InternalReport(
+      g.config.localReport InternalReport(
         kind: rintUnreachable,
         msg: "wanted: " & $kind & " got: " & $result.kind)
   if result == nil:
-    g.config.localError InternalReport(
+    g.config.localReport InternalReport(
       kind: rintUnreachable,
       msg: "type not found: " & $kind)
 
@@ -130,7 +130,7 @@ proc registerNimScriptSymbol*(g: ModuleGraph; s: PSym) =
   if conflict == nil:
     strTableAdd(g.exposed, s)
   else:
-    g.config.localError(s.info, SemReport(
+    g.config.localReport(s.info, SemReport(
       kind: rsemConflictingExportnims,
       conflictingExports: (s, conflict)))
 
@@ -171,5 +171,5 @@ proc getMagicEqSymForType*(g: ModuleGraph; t: PType; info: TLineInfo): PSym =
   of tyProc:
     result = getSysMagic(g, info, "==", mEqProc)
   else:
-    g.config.globalError(info, SemReport(
+    g.config.globalReport(info, SemReport(
       kind: rsemNoMagicEqualsForType, rtype: t))

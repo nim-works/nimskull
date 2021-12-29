@@ -673,7 +673,7 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
     matchedConceptContext.prev = prevMatchedConcept
     matchedConceptContext.depth = prevMatchedConcept.depth + 1
     if prevMatchedConcept.depth > 4:
-      localError(m.c.graph.config, body.info, SemReport(
+      localReport(m.c.graph.config, body.info, SemReport(
         kind: rsemTooNestedConcept, expression: body))
 
       return nil
@@ -899,7 +899,7 @@ proc inferStaticParam*(c: var TCandidate, lhs: PNode, rhs: BiggestInt): bool =
 
 proc failureToInferStaticParam(conf: ConfigRef; n: PNode) =
   let staticParam = n.findUnresolvedStatic
-  conf.localError(n.info, SemReport(
+  conf.localReport(n.info, SemReport(
     kind: rsemCannotInferStaticValue,
     psym: if staticParam != nil: staticParam.sym else: nil))
 
@@ -1039,7 +1039,7 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
           candidate = computedType
         else:
           # XXX What is this non-sense? Error reporting in signature matching?
-          discard "localError(f.n.info, errTypeExpected)"
+          discard "localReport(f.n.info, errTypeExpected)"
       else:
         discard
 
@@ -2385,7 +2385,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
   template noMatchDueToError() =
     ## found an nkError along the way so wrap the call in an error, do not use
-    ## if the legacy `localError`s etc are being used.
+    ## if the legacy `localReport`s etc are being used.
     m.call = wrapErrorInSubTree(m.call)
     noMatch()
 
@@ -2446,7 +2446,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       # check if m.callee has such a param:
       prepareNamedParam(n[a], c)
       if n[a].kind == nkError or n[a][0].kind != nkIdent:
-        localError(c.config, n[a].info, SemReport(
+        localReport(c.config, n[a].info, SemReport(
           kind: rsemExpectedIdentifier,
           expression: n[a],
           msg: "named parameter has to be an identifier"
@@ -2463,7 +2463,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         # we used to produce 'errCannotBindXTwice' here but see
         # bug #3836 of why that is not sound (other overload with
         # different parameter names could match later on):
-        when false: localError(n[a].info, errCannotBindXTwice, formal.name.s)
+        when false: localReport(n[a].info, errCannotBindXTwice, formal.name.s)
         noMatch()
       m.baseTypeMatch = false
       m.typedescMatched = false
@@ -2531,7 +2531,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         if containsOrIncl(marker, formal.position) and container.isNil:
           m.firstMismatch.kind = kPositionalAlreadyGiven
           # positional param already in namedParams: (see above remark)
-          when false: localError(n[a].info, errCannotBindXTwice, formal.name.s)
+          when false: localReport(n[a].info, errCannotBindXTwice, formal.name.s)
           noMatch()
 
         if formal.typ.isVarargsUntyped:
@@ -2579,7 +2579,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             # a container
             #assert arg.kind == nkHiddenStdConv # for 'nim check'
             # this assertion can be off
-            localError(c.config, n[a].info,
+            localReport(c.config, n[a].info,
               SemReport(
                 kind: rsemCannotConvertTypes,
                 typeMismatch: @[c.config.typeMismatch(formal.typ, n[a].typ)]))
@@ -2644,7 +2644,7 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
           # The default param value is set to empty in `instantiateProcType`
           # when the type of the default expression doesn't match the type
           # of the instantiated proc param:
-          localError(c.config, m.call.info, SemReport(
+          localReport(c.config, m.call.info, SemReport(
             kind: rsemDefaultParamIsIncompatible,
             psym: formal))
 
@@ -2686,7 +2686,7 @@ proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
                       op: TTypeAttachedOp; col: int): PSym {.nosinks.} =
   var m = newCandidate(c, dc.typ)
   if col >= dc.typ.len:
-    localError(c.config, info, SemReport(kind: rsemCannotInstantiate, psym: dc))
+    localReport(c.config, info, SemReport(kind: rsemCannotInstantiate, psym: dc))
     return nil
   var f = dc.typ[col]
 
@@ -2695,7 +2695,7 @@ proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
   else:
     if f.kind in {tyVar}: f = f.lastSon
   if typeRel(m, f, t) == isNone:
-    localError(c.config, info, SemReport(kind: rsemCannotInstantiate, psym: dc))
+    localReport(c.config, info, SemReport(kind: rsemCannotInstantiate, psym: dc))
   else:
     result = c.semGenerateInstance(c, dc, m.bindings, info)
     if op == attachedDeepCopy:

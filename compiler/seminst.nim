@@ -81,12 +81,12 @@ iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable): PSym 
           # later by semAsgn in return type inference scenario
           t = q.typ
         else:
-          localError(c.config, a.info, SemReport(
+          localReport(c.config, a.info, SemReport(
             kind: rsemCannotInstantiate, psym: s))
 
           t = errorType(c)
       elif t.kind in {tyGenericParam, tyConcept}:
-        localError(c.config, a.info, SemReport(
+        localReport(c.config, a.info, SemReport(
             kind: rsemCannotInstantiate, psym: q))
 
         t = errorType(c)
@@ -186,7 +186,7 @@ proc sideEffectsCheck(c: PContext, s: PSym) =
   when false:
     if {sfNoSideEffect, sfSideEffect} * s.flags ==
         {sfNoSideEffect, sfSideEffect}:
-      localError(s.info, errXhasSideEffects, s.name.s)
+      localReport(s.info, errXhasSideEffects, s.name.s)
 
 proc instGenericContainer(c: PContext, info: TLineInfo, header: PType,
                           allowMetaTypes = false): PType =
@@ -362,7 +362,7 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
 
   # generates an instantiated proc
   if c.instCounter > 50:
-    globalError(c.config, info, SemReport(
+    globalReport(c.config, info, SemReport(
       kind: rsemGenericInstantiationTooNested))
 
   inc(c.instCounter)
@@ -428,7 +428,7 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
       result.ast[pragmasPos] = pragma(c, result, n[pragmasPos], allRoutinePragmas)
       # check if we got any errors and if so report them
       for e in ifErrorWalkErrors(c.config, result.ast[pragmasPos]):
-        localError(c.config, e)
+        localReport(c.config, e)
 
     if isNil(n[bodyPos]):
       n[bodyPos] = copyTree(getBody(c.graph, fn))

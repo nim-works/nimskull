@@ -238,7 +238,7 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
     #      some other vm code, it seems
     # fail fast:
     result = c.config.newError(n, rsemRawTypeMismatch)
-    return # xxx: under the legacy error scheme, this was a `msgs.globalError`,
+    return # xxx: under the legacy error scheme, this was a `msgs.globalReport`,
            #      which means `doRaise`, but that made sense because we did a
            #      double pass, now we simply return for fast exit.
   if errors.len == 0:
@@ -403,7 +403,7 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
     #writeMatches(alt)
     if c.config.m.errorOutputs == {}:
       # quick error message for performance of 'compiles' built-in:
-      globalError(c.config, n.info, SemReport(kind: rsemAmbiguous))
+      globalReport(c.config, n.info, SemReport(kind: rsemAmbiguous))
 
     elif c.config.errorCounter == 0:
       # don't cascade errors
@@ -413,7 +413,7 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
         args.add(typeToString(n[i].typ))
       args.add(")")
 
-      localError(c.config, n.info, SemReport(kind: rsemAmbiguous, candidates: @[
+      localReport(c.config, n.info, SemReport(kind: rsemAmbiguous, candidates: @[
         result.calleeSym,
         alt.calleeSym]))
 
@@ -574,7 +574,7 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
     result = r.call
 
 proc explicitGenericInstError(c: PContext; n: PNode): PNode =
-  localError(c.config, getCallLineInfo(n), SemReport(
+  localReport(c.config, getCallLineInfo(n), SemReport(
     kind: rsemCannotInstantiate, expression: n))
 
   result = n
@@ -618,7 +618,7 @@ proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
     # number of generic type parameters:
     if s.ast[genericParamsPos].safeLen != n.len-1:
       let expected = s.ast[genericParamsPos].safeLen
-      localError(c.config, getCallLineInfo(n), SemReport(
+      localReport(c.config, getCallLineInfo(n), SemReport(
         kind: rsemWrongNumberOfGenericParams,
         expression: n,
         countMismatch: (
@@ -683,7 +683,7 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
     var resolved = semOverloadedCall(c, call, call, filter, {})
     if resolved != nil:
       if resolved.kind == nkError:
-        localError(c.config, resolved)
+        localReport(c.config, resolved)
 
       result = resolved[0].sym
       if not compareTypes(result.typ[0], fn.typ[0], dcEqIgnoreDistinct):

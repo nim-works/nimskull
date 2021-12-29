@@ -53,7 +53,7 @@ proc methodCall*(n: PNode; conf: ConfigRef): PNode =
     for i in 1..<result.len:
       result[i] = genConv(result[i], disp.typ[i], true, conf)
   else:
-    localError(conf, n.info, SemReport(
+    localReport(conf, n.info, SemReport(
       kind: rsemMissingMethodDispatcher, expression: result[0]))
 
 type
@@ -180,7 +180,7 @@ proc methodDef*(g: ModuleGraph; idgen: IdGenerator; s: PSym) =
       if {sfBase, sfFromGeneric} * s.flags == {sfBase} and
            g.methods[i].methods[0] != s:
         # already exists due to forwarding definition?
-        localError(g.config, s.info, SemReport(kind: rsemNotABaseMethod, psym: s))
+        localReport(g.config, s.info, SemReport(kind: rsemNotABaseMethod, psym: s))
       return
     of No: discard
     of Invalid:
@@ -189,7 +189,7 @@ proc methodDef*(g: ModuleGraph; idgen: IdGenerator; s: PSym) =
   g.methods.add((methods: @[s], dispatcher: createDispatcher(s, g, idgen)))
   #echo "adding ", s.info
   if witness != nil:
-    localError(g.config, s.info, SemReport(
+    localReport(g.config, s.info, SemReport(
       kind: rsemInvalidMethodDeclarationOrder, psym: s, alternative: witness))
 
   elif sfBase notin s.flags:

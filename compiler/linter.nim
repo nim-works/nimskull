@@ -91,7 +91,7 @@ proc nep1CheckDefImpl(conf: ConfigRef; info: TLineInfo; s: PSym; k: TSymKind) =
   if optStyleCheck notin s.options: return
   let wanted = beautifyName(s.name.s, k)
   if s.name.s != wanted:
-    conf.localError(info, SemReport(
+    conf.localReport(info, SemReport(
       psym: s,
       kind: rsemLinterReport,
       linterFail: (wanted, s.name.s)))
@@ -133,7 +133,7 @@ proc styleCheckUse*(conf: ConfigRef; info: TLineInfo; s: PSym) =
     let forceHint =
       (badName == "nnkArgList" and newName == "nnkArglist") or
       (badName == "nnkArglist" and newName == "nnkArgList")
-    conf.localError(info, SemReport(
+    conf.localReport(info, SemReport(
       psym: s,
       kind: rsemLinterReport,
       linterFail: (badName, newName)

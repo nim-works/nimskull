@@ -35,7 +35,7 @@ proc replayStateChanges*(module: PSym; g: ModuleGraph) =
       of "warning": localReport(g.config, n.info, SemReport(
         kind: rsemUserWarning, msg: n[1].strVal))
 
-      of "error": localError(g.config, n.info, SemReport(
+      of "error": localReport(g.config, n.info, SemReport(
         kind: rsemUserError, msg: n[1].strVal))
 
       of "compile":

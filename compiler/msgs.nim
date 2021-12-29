@@ -558,33 +558,23 @@ template globalAssert*(
     if arg.len > 0: arg2.add "; " & astToStr(arg) & ": " & arg
     handleReport(conf, info, errGenerated, arg2, doRaise, instLoc())
 
-template globalError*(
+template globalReport*(
   conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   ## `local` means compilation keeps going until errorMax is reached (via
   ## `doNothing`), `global` means it stops.
   handleReport(
     conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
 
-template globalError*(conf: ConfigRef, report: ReportTypes) =
+template globalReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doRaise)
 
-template localError*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
+template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   handleReport(
     conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
 
-template localError*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
+template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   handleReport(
     conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
-
-template localError*(conf: ConfigRef, node: PNode, reportKind: SemReportKind) =
-  ## Write out new sem report using `node`'s positional information
-  handleReport(
-    conf,
-    wrap(
-      SemReport(expression: node, kind: reportKind),
-      instLoc(),
-      conf.toReportLinePoint(node.info)),
-    doNothing)
 
 template localReport*(conf: ConfigRef, node: PNode, reportKind: SemReportKind) =
   ## Write out new sem report using `node`'s positional information
@@ -599,15 +589,12 @@ template localReport*(conf: ConfigRef, node: PNode, reportKind: SemReportKind) =
 proc temporaryStringError*(conf: ConfigRef, info: TLineInfo, text: string) =
   assert false
 
-template localError*(conf: ConfigRef, report: ReportTypes) =
-  handleReport(conf, wrap(report, instLoc()), doNothing)
-
-proc localError*(conf: ConfigRef, node: PNode) =
-  ## Write out existing sem report that is stored in the nkError node
-  handleReport(conf, conf.m.reports.getReport(node.reportId), doNothing)
-
 template localReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doNothing)
+
+proc localReport*(conf: ConfigRef, node: PNode) =
+  ## Write out existing sem report that is stored in the nkError node
+  handleReport(conf, conf.m.reports.getReport(node.reportId), doNothing)
 
 proc semReportCountMismatch*(
     kind: ReportKind,

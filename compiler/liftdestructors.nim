@@ -203,7 +203,7 @@ proc fillBodyObj(c: var TLiftCtx; n, body, x, y: PNode; enforceDefaultOp: bool) 
     for t in items(n):
       fillBodyObj(c, t, body, x, y, enforceDefaultOp)
   else:
-    c.g.config.localError(n.info, SemReport(
+    c.g.config.localReport(n.info, SemReport(
       kind: rsemIllformedAst,
       expression: n,
       msg: "Unexpected node kind for 'fillBodyObj' - " &
@@ -286,7 +286,7 @@ proc getCycleParam(c: TLiftCtx): PNode =
 
 proc newHookCall(c: var TLiftCtx; op: PSym; x, y: PNode): PNode =
   #if sfError in op.flags:
-  #  localError(c.config, x.info, "usage of '$1' is a user-defined error" % op.name.s)
+  #  localReport(c.config, x.info, "usage of '$1' is a user-defined error" % op.name.s)
   result = newNodeI(nkCall, x.info)
   result.add newSymNode(op)
   if sfNeverRaises notin op.flags:
@@ -331,7 +331,7 @@ proc instantiateGeneric(c: var TLiftCtx; op: PSym; t, typeInst: PType): PSym =
   if c.c != nil and typeInst != nil:
     result = c.c.instTypeBoundOp(c.c, op, typeInst, c.info, attachedAsgn, 1)
   else:
-    localError(
+    localReport(
       c.g.config,
       c.info,
       SemReport(kind: rsemCannotGenerateGenericDestructor, rtype: t))
@@ -1052,7 +1052,7 @@ proc inst(g: ModuleGraph; c: PContext; t: PType; kind: TTypeAttachedOp; idgen: I
         patchBody(g, c, opInst.ast, info, a.idgen)
       setAttachedOp(g, idgen.module, t, kind, opInst)
     else:
-      localError(g.config, info, SemReport(kind: rsemUnresolvedGenericParameter))
+      localReport(g.config, info, SemReport(kind: rsemUnresolvedGenericParameter))
 
 proc isTrival(s: PSym): bool {.inline.} =
   s == nil or (s.ast != nil and s.ast[bodyPos].len == 0)

@@ -125,7 +125,7 @@ proc commandJsonScript(graph: ModuleGraph) =
 proc commandCompileToJS(graph: ModuleGraph) =
   let conf = graph.config
   when defined(leanCompiler):
-    globalError(conf, unknownLineInfo, InternalReport(
+    globalReport(conf, unknownLineInfo, InternalReport(
       kind: rbackJsNotCompiledIn))
 
   else:
@@ -175,7 +175,7 @@ proc commandScan(cache: IdentCache, config: ConfigRef) =
       if tok.tokType == tkEof: break
     closeLexer(L)
   else:
-    localError(config, InternalReport(
+    localReport(config, InternalReport(
       kind: rintCannotOpenFile, msg: f.string))
 
 proc commandView(graph: ModuleGraph) =
@@ -282,12 +282,12 @@ proc mainCommand*(graph: ModuleGraph) =
     when hasTinyCBackend:
       extccomp.setCC(conf, "tcc", unknownLineInfo)
       if conf.backend != backendC:
-        globalError(conf, ExternalReport(
+        globalReport(conf, ExternalReport(
           kind: rextExpectedCbackednForRun, usedCompiler: $conf.backend))
 
       compileToBackend()
     else:
-      globalError(conf, ExternalReport(
+      globalReport(conf, ExternalReport(
         kind: rextExpectedTinyCForRun))
 
   of cmdDoc0: docLikeCmd commandDoc(cache, conf)
@@ -385,7 +385,7 @@ proc mainCommand*(graph: ModuleGraph) =
   of cmdNimscript:
     if conf.projectIsCmd or conf.projectIsStdin: discard
     elif not fileExists(conf.projectFull):
-      localError(conf, InternalReport(
+      localReport(conf, InternalReport(
         kind: rintCannotOpenFile, msg: conf.projectFull.string))
 
     # main NimScript logic handled in `loadConfigs`.

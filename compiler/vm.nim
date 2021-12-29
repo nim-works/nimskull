@@ -488,7 +488,7 @@ template handleJmpBack() {.dirty.} =
     if allowInfiniteLoops in c.features:
       c.loopIterations = c.config.maxLoopIterationsVM
     else:
-      globalError(c.config, c.debug[pc], stackTraceAux(
+      globalReport(c.config, c.debug[pc], stackTraceAux(
         c, tos, pc, rsemTooManyIterations))
 
   dec(c.loopIterations)
@@ -1253,7 +1253,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
                  currentLineInfo: c.debug[pc]))
       elif importcCond(c, prc):
         if compiletimeFFI notin c.config.features:
-          globalError(c.config, c.debug[pc], SemReport(kind: rsemVmEnableFFIToImportc))
+          globalReport(c.config, c.debug[pc], SemReport(kind: rsemVmEnableFFIToImportc))
         # we pass 'tos.slots' instead of 'regs' so that the compiler can keep
         # 'regs' in a register:
         when hasFFI:
@@ -1263,7 +1263,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
 
           let prcValue = c.globals[prc.position-1]
           if prcValue.kind == nkEmpty:
-            globalError(c.config, c.debug[pc], "cannot run " & prc.name.s)
+            globalReport(c.config, c.debug[pc], "cannot run " & prc.name.s)
           var slots2: TNodeSeq
           slots2.setLen(tos.slots.len)
           for i in 0..<tos.slots.len:
@@ -1274,7 +1274,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
             assert instr.opcode == opcIndCallAsgn
             putIntoReg(regs[ra], newValue)
         else:
-          globalError(c.config, c.debug[pc], SemReport(kind: rsemVmCannotImportc))
+          globalReport(c.config, c.debug[pc], SemReport(kind: rsemVmCannotImportc))
       elif prc.kind != skTemplate:
         let newPc = compile(c, prc)
         # tricky: a recursion is also a jump back, so we use the same
@@ -1769,7 +1769,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
                                         c.debug[pc], c.config)[0]
         else:
           regs[ra].node.strVal = ""
-          globalError(c.config, c.debug[pc], "VM is not built with 'gorge' support")
+          globalReport(c.config, c.debug[pc], "VM is not built with 'gorge' support")
     of opcNError, opcNWarning, opcNHint:
       decodeB(rkNode)
       let a = regs[ra].node
@@ -1926,7 +1926,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         # asgnRef(regs[ra], dest)
         putIntoReg(regs[ra], dest)
       else:
-        globalError(c.config, c.debug[pc], SemReport(kind: rsemVmCannotCast))
+        globalReport(c.config, c.debug[pc], SemReport(kind: rsemVmCannotCast))
     of opcNSetIntVal:
       decodeB(rkNode)
       var dest = regs[ra].node
@@ -2149,7 +2149,7 @@ proc execProc*(c: PCtx; sym: PSym; args: openArray[PNode]): PNode =
   c.loopIterations = c.config.maxLoopIterationsVM
   if sym.kind in routineKinds:
     if sym.typ.len-1 != args.len:
-      localError(c.config, sym.info, SemReport(
+      localReport(c.config, sym.info, SemReport(
         kind: rsemWrongNumberOfArguments,
         psym: sym,
         countMismatch: (
@@ -2172,7 +2172,7 @@ proc execProc*(c: PCtx; sym: PSym; args: openArray[PNode]): PNode =
 
       result = rawExecute(c, start, tos).regToNode
   else:
-    localError(c.config, sym.info, SemReport(
+    localReport(c.config, sym.info, SemReport(
       kind: rsemVmCallingNonRoutine, psym: sym))
 
 proc evalStmt*(c: PCtx, n: PNode) =
@@ -2322,16 +2322,16 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
                     n, nOrig: PNode, sym: PSym): PNode =
   #if g.config.errorCounter > 0: return errorNode(idgen, module, n)
 
-  # XXX globalError() is ugly here, but I don't know a better solution for now
+  # XXX globalReport() is ugly here, but I don't know a better solution for now
   inc(g.config.evalMacroCounter)
   if g.config.evalMacroCounter > evalMacroLimit:
-    globalError(g.config, n.info, SemReport(
+    globalReport(g.config, n.info, SemReport(
       kind: rsemMacroInstantiationTooNested, expression: n))
 
   # immediate macros can bypass any type and arity checking so we check the
   # arity here too:
   if sym.typ.len > n.safeLen and sym.typ.len > 1:
-    globalError(g.config, n.info, SemReport(
+    globalReport(g.config, n.info, SemReport(
       kind: rsemWrongNumberOfArguments,
       expression: n,
       countMismatch: (
@@ -2372,7 +2372,7 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
     else:
       dec(g.config.evalMacroCounter)
       c.callsite = nil
-      localError(c.config, n.info, SemReport(
+      localReport(c.config, n.info, SemReport(
         kind: rsemWrongNumberOfGenericParams,
         countMismatch: (
           expected: toInt128(gp.len),
@@ -2383,7 +2383,8 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
   result = rawExecute(c, start, tos).regToNode
   if result.info.line < 0: result.info = n.info
   if cyclicTree(result):
-    globalError(c.config, n.info, SemReport(kind: rsemCyclicTree, expression: n))
+    globalReport(c.config, n.info, SemReport(
+      kind: rsemCyclicTree, expression: n))
 
   dec(g.config.evalMacroCounter)
   c.callsite = nil

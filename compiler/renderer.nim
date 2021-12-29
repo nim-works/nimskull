@@ -411,7 +411,7 @@ proc atom(g: TSrcGen; n: PNode): string =
     if (n.typ != nil) and (n.typ.sym != nil): result = n.typ.sym.name.s
     else: result = "[type node]"
   else:
-    g.config.localError InternalReport(
+    g.config.localReport InternalReport(
       kind: rintUnreachable, msg: "renderer.atom " & $n.kind)
     result = ""
 
@@ -1702,7 +1702,7 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
     gsub(g, n[0], c)
   else:
     #nkNone, nkExplicitTypeListCall:
-    g.config.localError InternalReport(
+    g.config.localReport InternalReport(
       kind: rintUnreachable, msg: "renderer.gsub(" & $n.kind & ')')
 
 proc renderTree*(n: PNode, renderFlags: TRenderFlags = {}): string =
@@ -1741,7 +1741,7 @@ proc renderModule*(n: PNode, outfile: string,
     write(f, g.buf)
     close(f)
   else:
-    g.config.localError InternalReport(
+    g.config.localReport InternalReport(
       kind: rintCannotOpenFile, file: outfile)
 
 proc initTokRender*(r: var TSrcGen, n: PNode, renderFlags: TRenderFlags = {}) =

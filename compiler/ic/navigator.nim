@@ -119,7 +119,7 @@ proc nav(g: ModuleGraph) =
     mid = searchForIncludeFile(g, fullPath)
 
   if mid < 0:
-    localError(g.config, unpacked, SemReport(
+    localReport(g.config, unpacked, SemReport(
       kind: rextIcUnknownFileName, msg: fullPath))
 
     return
@@ -141,7 +141,7 @@ proc nav(g: ModuleGraph) =
     symId = search(c, g.packed[mid].fromDisk.bodies)
 
   if symId == EmptyItemId:
-    localError(g.config, unpacked, SemReport(
+    localReport(g.config, unpacked, SemReport(
       kind: rextIcNoSymbolAtPosition))
 
     return

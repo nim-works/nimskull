@@ -135,7 +135,7 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
     let filename = toFullPathConsiderDirty(graph.config, fileIdx)
     s = llStreamOpen(filename, fmRead)
     if s == nil:
-      localError(
+      localReport(
         graph.config,
         SemReport(kind: rsemCannotOpenFile, msg: filename.string))
 

@@ -101,7 +101,7 @@ when false:
     of nkIdent:
       result = scriptableImport(pkg.ident.s, sub, pkg.info)
     else:
-      localError(pkg.info, "package name must be an identifier or string literal")
+      localReport(pkg.info, "package name must be an identifier or string literal")
       result = ""
 
 proc getModuleName*(conf: ConfigRef; n: PNode): string =
@@ -113,7 +113,7 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
     try:
       result = pathSubs(conf, n.strVal, toFullPath(conf, n.info).splitFile().dir)
     except ValueError:
-      conf.localError(n.info, SemReport(
+      conf.localReport(n.info, SemReport(
         expression: n, kind: rsemInvalidModulePath))
 
       result = n.strVal
@@ -129,7 +129,7 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
         if n0.kind == nkIdent and n0.ident.s == "/":
           result = lookupPackage(n1[1], n[2])
         else:
-          localError(n.info, "only '/' supported with $package notation")
+          localReport(n.info, "only '/' supported with $package notation")
           result = ""
     else:
       let modname = getModuleName(conf, n[2])
@@ -146,12 +146,12 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
     # hacky way to implement 'x / y /../ z':
     result = renderTree(n, {renderNoComments}).replace(" ")
   of nkDotExpr:
-    conf.localError(n.info, SemReport(expression: n, kind: rsemDotForModuleImport))
+    conf.localReport(n.info, SemReport(expression: n, kind: rsemDotForModuleImport))
     result = renderTree(n, {renderNoComments}).replace(".", "/")
   of nkImportAs:
     result = getModuleName(conf, n[0])
   else:
-    conf.localError(n.info, SemReport(
+    conf.localReport(n.info, SemReport(
       expression: n, kind: rsemInvalidModulePath))
     result = ""
 
@@ -162,7 +162,7 @@ proc checkModuleName*(conf: ConfigRef; n: PNode; doLocalError=true): FileIndex =
   if fullPath.isEmpty:
     if doLocalError:
       let m = if modulename.len > 0: modulename else: $n
-      conf.localError(n.info, InternalReport(
+      conf.localReport(n.info, InternalReport(
         kind: rintCannotOpenFile, file: m))
     result = InvalidFileIdx
   else:

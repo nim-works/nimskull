@@ -107,10 +107,10 @@ const
   errIntLiteralExpected = "integer literal expected"
 
 proc invalidPragma*(c: PContext; n: PNode) =
-  localError(c.config, n.info, SemReport(kind: rsemInvalidPragma, expression: n))
+  localReport(c.config, n.info, SemReport(kind: rsemInvalidPragma, expression: n))
 
 proc illegalCustomPragma*(c: PContext, n: PNode, s: PSym) =
-  localError(c.config, n.info, SemReport(
+  localReport(c.config, n.info, SemReport(
     kind: rsemCannotAttachPragma, psym: s, expression: n))
 
 proc newInvalidPragmaNode*(c: PContext; n: PNode): PNode =
@@ -347,7 +347,7 @@ proc processMagic(c: PContext, n: PNode, s: PSym): PNode =
         s.magic = m
         break
     if s.magic == mNone:
-      c.config.localError(n.info, SemReport(msg: v, kind: rsemUnknownMagic))
+      c.config.localReport(n.info, SemReport(msg: v, kind: rsemUnknownMagic))
 
 proc wordToCallConv(sw: TSpecialWord): TCallingConvention =
   # this assumes that the order of special words and calling conventions is
@@ -795,7 +795,7 @@ proc semAsmOrEmit*(con: PContext, n: PNode, marker: char): PNode =
     result = newNodeI(if n.kind == nkAsmStmt: nkAsmStmt else: nkArgList, n.info)
     var str = n[1].strVal
     if str == "":
-      localError(con.config, n.info, SemReport(kind: rsemEmptyAsm))
+      localReport(con.config, n.info, SemReport(kind: rsemEmptyAsm))
       return
     # now parse the string literal and substitute symbols:
     var a = 0
@@ -822,7 +822,7 @@ proc semAsmOrEmit*(con: PContext, n: PNode, marker: char): PNode =
       if c < 0: break
       a = c + 1
   else:
-    con.config.localError(n.info, SemReport(
+    con.config.localReport(n.info, SemReport(
       expression: n,
       kind: rsemIllformedAst,
       msg: "Expected string string literal for asm/emit statement [1] " &
@@ -1032,7 +1032,7 @@ proc deprecatedStmt(c: PContext; outerPragma: PNode): PNode =
       if dest == nil or dest.kind in routineKinds or dest.kind == skError:
         # xxx: warnings need to be figured out, also this is just silly, why
         #      are they unreliable?
-        localError(c.config, n.info, SemReport(kind: rsemUserWarning))
+        localReport(c.config, n.info, SemReport(kind: rsemUserWarning))
       let (src, err) = considerQuotedIdent2(c, n[0])
       if err.isNil:
         let alias = newSym(skAlias, src, nextSymId(c.idgen), dest, n[0].info, c.config.options)
@@ -1156,7 +1156,7 @@ proc prepareSinglePragma(
   ##
   ## what this does:
   ## * return an nkError if `invalidPragma` would have been called
-  ## * all the localErrors and what not should be nkErrors
+  ## * all the localReports and what not should be nkErrors
   ## * flag with nfImplicitPragma if it's an implcit pragma :D
   ## * return the pragma after prep and it's good to go
   var
@@ -1208,7 +1208,7 @@ proc prepareSinglePragma(
         errmsg = "recursive dependency: " & userPragma.name.s)
 
       return # xxx: under the legacy error scheme, this was a
-             #      `msgs.globalError`, which means `doRaise`, or throw an
+             #      `msgs.globalReport`, which means `doRaise`, or throw an
              #      exception on error, so we return. The rest of the code will
              #      have to respsect this somewhat.
 

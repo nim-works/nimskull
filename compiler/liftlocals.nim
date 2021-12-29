@@ -60,7 +60,7 @@ proc liftLocalsIfRequested*(prc: PSym; n: PNode; cache: IdentCache; conf: Config
   if liftDest == nil: return n
   let partialParam = lookupParam(prc.typ.n, liftDest)
   if partialParam.isNil:
-    localError(conf, liftDest.info, SemReport(
+    localReport(conf, liftDest.info, SemReport(
       kind: rsemIsNotParameterOf,
       expression: liftDest,
       psym: prc))
@@ -68,7 +68,7 @@ proc liftLocalsIfRequested*(prc: PSym; n: PNode; cache: IdentCache; conf: Config
     return n
   let objType = partialParam.typ.skipTypes(abstractPtrs)
   if objType.kind != tyObject or tfPartial notin objType.flags:
-    localError(conf, liftDest.info, SemReport(
+    localReport(conf, liftDest.info, SemReport(
       kind: rsemParameterNotPointerToPartial,
       expression: liftDest))
     return n

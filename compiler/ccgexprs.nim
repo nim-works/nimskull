@@ -962,7 +962,7 @@ proc genArrayElem(p: BProc, n, x, y: PNode, d: var TLoc) =
     else:
       let idx = getOrdValue(y)
       if idx < firstOrd(p.config, ty) or idx > lastOrd(p.config, ty):
-        localError(
+        localReport(
           p.config, x.info, SemReport(
             kind: rsemStaticOutOfBounds,
             indexSpec: (firstOrd(p.config, ty), lastOrd(p.config, ty)),
@@ -1338,7 +1338,7 @@ proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool) =
       # finalizer is: ``proc (x: ref T) {.nimcall.}``. We need to check the calling
       # convention at least:
       if op.typ == nil or op.typ.callConv != ccNimCall:
-        localError(p.module.config, a.lode, rsemExpectedNimcallProc)
+        localReport(p.module.config, a.lode, rsemExpectedNimcallProc)
       var f: TLoc
       initLocExpr(p, newSymNode(op), f)
       p.module.s[cfsTypeInit3].addf("$1->finalizer = (void*)$2;$n", [ti, rdLoc(f)])
@@ -1652,7 +1652,7 @@ proc genOf(p: BProc, x: PNode, typ: PType, d: var TLoc) =
       t = skipTypes(t[0], skipPtrs)
 
   if isObjLackingTypeField(t):
-    localError(p.config, x, rsemDisallowedOfForPureObjects)
+    localReport(p.config, x, rsemDisallowedOfForPureObjects)
 
   if nilCheck != nil:
     r = ropecg(p.module, "(($1) && ($2))", [nilCheck, genOfHelper(p, dest, r, x.info)])
@@ -1665,7 +1665,7 @@ proc genOf(p: BProc, n: PNode, d: var TLoc) =
 
 proc genRepr(p: BProc, e: PNode, d: var TLoc) =
   if optTinyRtti in p.config.globalOptions:
-    localError(p.config, e, rsemDisallowedReprForNewruntime)
+    localReport(p.config, e, rsemDisallowedReprForNewruntime)
   var a: TLoc
   initLocExpr(p, e[1], a)
   var t = skipTypes(e[1].typ, abstractVarRange)
@@ -1708,7 +1708,7 @@ proc genRepr(p: BProc, e: PNode, d: var TLoc) =
                 ropecg(p.module, "#reprAny($1, $2)", [
                 rdLoc(a), genTypeInfoV1(p.module, t, e.info)]), a.storage)
   of tyEmpty, tyVoid:
-    localError(p.config, e, rsemUnexpectedVoidType)
+    localReport(p.config, e, rsemUnexpectedVoidType)
   else:
     putIntoDest(p, d, e, ropecg(p.module, "#reprAny($1, $2)",
                               [addrLoc(p.config, a), genTypeInfoV1(p.module, t, e.info)]),
@@ -2266,7 +2266,7 @@ proc genSlice(p: BProc; e: PNode; d: var TLoc) =
   if d.k == locNone: getTemp(p, e.typ, d)
   linefmt(p, cpsStmts, "$1.Field0 = $2; $1.Field1 = $3;$n", [rdLoc(d), x, y])
   when false:
-    localError(p.config, e.info, "invalid context for 'toOpenArray'; " &
+    localReport(p.config, e.info, "invalid context for 'toOpenArray'; " &
       "'toOpenArray' is only valid within a call expression")
 
 proc genEnumToStr(p: BProc, e: PNode, d: var TLoc) =
@@ -2430,7 +2430,7 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
   of mEcho: genEcho(p, e[1].skipConv)
   of mArrToSeq: genArrToSeq(p, e, d)
   of mNLen..mNError, mSlurp..mQuoteAst:
-    localError(p.config, e.info, SemReport(
+    localReport(p.config, e.info, SemReport(
       kind: rsemConstExpressionExpected, psym: e[0].sym))
 
   of mSpawn:
@@ -2448,7 +2448,7 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
       expr(p, n, d)
   of mDeepCopy:
     if p.config.selectedGC in {gcArc, gcOrc} and optEnableDeepCopy notin p.config.globalOptions:
-      localError(p.config, e, rsemRequiresDeepCopyEnabled)
+      localReport(p.config, e, rsemRequiresDeepCopyEnabled)
 
     var a, b: TLoc
     let x = if e[1].kind in {nkAddr, nkHiddenAddr}: e[1][0] else: e[1]
@@ -2755,7 +2755,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
       #if sym.kind == skIterator:
       #  echo renderTree(sym.getBody, {renderIds})
       if sfCompileTime in sym.flags:
-        localError(p.config, n.info, SemReport(
+        localReport(p.config, n.info, SemReport(
           kind: rsemCannotCodegenCompiletimeProc, psym: sym))
 
       if useAliveDataFromDce in p.module.flags and sym.typ.callConv != ccInline:

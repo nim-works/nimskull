@@ -292,7 +292,7 @@ proc freshVarForClosureIter*(g: ModuleGraph; s: PSym; idgen: IdGenerator; owner:
 proc markAsClosure(g: ModuleGraph; owner: PSym; n: PNode) =
   let s = n.sym
   if illegalCapture(s):
-    localError(g.config, n.info, SemReport(
+    localReport(g.config, n.info, SemReport(
       captured: s,
       psym: owner,
       kind: rsemIllegalMemoryCapture))
@@ -302,7 +302,7 @@ proc markAsClosure(g: ModuleGraph; owner: PSym; n: PNode) =
     owner.typ.callConv == ccNimCall and
     tfExplicitCallConv notin owner.typ.flags
   ):
-    localError(g.config, n.info, SemReport(
+    localReport(g.config, n.info, SemReport(
       kind: rsemIllegalCallconvCapture,
       psym: owner,
       captured: s
@@ -778,7 +778,7 @@ proc liftCapturedVars(n: PNode; owner: PSym; d: var DetectionPass;
       n[0] = liftCapturedVars(n[0], owner, d, c)
       let x = n[0].skipConv
       if x.kind == nkClosure:
-        #localError(n.info, "internal error: closure to closure created")
+        #localReport(n.info, "internal error: closure to closure created")
         # now we know better, so patch it:
         n[0] = x[0]
         n[1] = x[1]
@@ -942,7 +942,7 @@ proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator; owner: PSym):
     """
   if liftingHarmful(g.config, owner): return body
   if not (body.kind == nkForStmt and body[^2].kind in nkCallKinds):
-    localError(g.config, body, rsemIgnoreInvalidForLoop)
+    localReport(g.config, body, rsemIgnoreInvalidForLoop)
     return body
   var call = body[^2]
 

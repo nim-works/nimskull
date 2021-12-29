@@ -544,10 +544,10 @@ proc warnAboutDeprecated(conf: ConfigRef; info: TLineInfo; s: PSym) =
     for it in pragmaNode:
       if whichPragma(it) == wDeprecated and it.safeLen == 2 and
           it[1].kind in {nkStrLit..nkTripleStrLit}:
-        localError(conf, info, SemReport(
+        localReport(conf, info, SemReport(
           kind: rsemDeprecated, msg: it[1].strVal, psym: s))
         return
-  localError(conf, info, SemReport(kind: rsemDeprecated, psym: s))
+  localReport(conf, info, SemReport(kind: rsemDeprecated, psym: s))
 
 proc userError(conf: ConfigRef; info: TLineInfo; s: PSym) =
   let pragmaNode = extractPragma(s)
@@ -555,11 +555,11 @@ proc userError(conf: ConfigRef; info: TLineInfo; s: PSym) =
     for it in pragmaNode:
       if whichPragma(it) == wError and it.safeLen == 2 and
           it[1].kind in {nkStrLit..nkTripleStrLit}:
-        localError(conf, info, SemReport(
+        localReport(conf, info, SemReport(
           kind: rsemUsageIsError, psym: s, msg: it[1].strVal))
         return
 
-  localError(conf, info, SemReport(kind: rsemUsageIsError, psym: s))
+  localReport(conf, info, SemReport(kind: rsemUsageIsError, psym: s))
 
 proc markOwnerModuleAsUsed(c: PContext; s: PSym) =
   var module = s

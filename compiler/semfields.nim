@@ -50,7 +50,7 @@ proc instFieldLoopBody(c: TFieldInstCtx, n: PNode, forLoop: PNode): PNode =
         break
   else:
     if n.kind == nkContinueStmt:
-      localError(c.c.config, n, rsemFieldsIteratorCannotContinue)
+      localReport(c.c.config, n, rsemFieldsIteratorCannotContinue)
     result = shallowCopy(n)
     for i in 0..<n.len:
       result[i] = instFieldLoopBody(c, n[i], forLoop)
@@ -77,7 +77,7 @@ proc semForObjectFields(c: TFieldsCtx, typ, forLoop, father: PNode) =
   of nkRecCase:
     let call = forLoop[^2]
     if call.len > 2:
-      localError(c.c.config, forLoop.info, SemReport(
+      localReport(c.c.config, forLoop.info, SemReport(
         kind: rsemParallelFieldsDisallowsCase,
         expression: call))
 
@@ -112,7 +112,7 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
   result = newNodeI(nkWhileStmt, n.info, 2)
   var trueSymbol = systemModuleSym(c.graph, getIdent(c.cache, "true"))
   if trueSymbol == nil:
-    localError(c.config, n.info, SemReport(
+    localReport(c.config, n.info, SemReport(
       kind: rsemSystemNeeds, missingSymbol: "true"))
 
     trueSymbol = newSym(skUnknown, getIdent(c.cache, "true"), nextSymId c.idgen, getCurrOwner(c), n.info)
@@ -124,7 +124,7 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
 
   var call = n[^2]
   if n.len-2 != call.len - 1 + ord(m == mFieldPairs):
-    localError(c.config, n.info, semReportCountMismatch(
+    localReport(c.config, n.info, semReportCountMismatch(
       rsemWrongNumberOfVariables,
       expected = call.len - 1 + ord(m == mFieldPairs),
       got = n.len - 2))
@@ -134,7 +134,7 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
   const skippedTypesForFields = abstractVar - {tyTypeDesc} + tyUserTypeClasses
   var tupleTypeA = skipTypes(call[1].typ, skippedTypesForFields)
   if tupleTypeA.kind notin {tyTuple, tyObject}:
-    localError(c.config, n.info, SemReport(
+    localReport(c.config, n.info, SemReport(
       kind: rsemNoObjectOrTupleType))
 
     return result
@@ -144,7 +144,7 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
     if not sameType(tupleTypeA, tupleTypeB):
       let r = typeMismatch(c.config, calli.info, tupleTypeA, tupleTypeB, calli)
       if r.kind == nkError:
-        localError(c.config, r)
+        localReport(c.config, r)
 
   inc(c.p.nestedLoopCounter)
   if tupleTypeA.kind == tyTuple:

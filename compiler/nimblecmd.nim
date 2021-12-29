@@ -112,7 +112,7 @@ proc addPackage*(conf: ConfigRef; packages: var PackageInfo, p: string;
       else:
         packages[name] = ($version, "")
   else:
-    conf.localError ExternalReport(
+    conf.localReport ExternalReport(
       kind: rextInvalidPackageName, packageName: p)
 
 iterator chosen(packages: PackageInfo): string =

@@ -122,11 +122,11 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
   if givenRegularParams < 0: givenRegularParams = 0
 
   if totalParams > expectedRegularParams + genericParams:
-    globalError(conf, n.info, SemReport(
+    globalReport(conf, n.info, SemReport(
       kind: rsemWrongNumberOfArguments, expression: n))
 
   if totalParams < genericParams:
-    globalError(conf, n.info, SemReport(
+    globalReport(conf, n.info, SemReport(
       kind: rsemMissingGenericParamsForTemplate, expression: n))
 
   result = newNodeI(nkArgList, n.info)
@@ -138,7 +138,7 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
   for i in givenRegularParams+1..expectedRegularParams:
     let default = s.typ.n[i].sym.ast
     if default.isNil or default.kind == nkEmpty:
-      localError(conf, n, rsemWrongNumberOfArguments)
+      localReport(conf, n, rsemWrongNumberOfArguments)
       result.add newNodeI(nkEmpty, n.info)
     else:
       result.add default.copyTree
@@ -179,7 +179,7 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
                    fromHlo=false): PNode =
   inc(conf.evalTemplateCounter)
   if conf.evalTemplateCounter > evalTemplateLimit:
-    globalError(conf, n.info, SemReport(
+    globalReport(conf, n.info, SemReport(
       kind: rsemTemplateInstantiationTooNested))
 
     result = n
@@ -204,7 +204,7 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
       result = result[0]
 
     else:
-      localError(conf, result.info, SemReport(
+      localReport(conf, result.info, SemReport(
         kind: rsemIllformedAst,
         msg: "Expected single subnode, but found " & $result.len,
         expression: result))

@@ -1,6 +1,6 @@
 
 import
-  intsets, ast, idents, algorithm, renderer, 
+  intsets, ast, idents, algorithm, renderer,
   msgs, modulegraphs, syntaxes, options, modulepaths,
   lineinfos, reports
 
@@ -129,7 +129,7 @@ proc expandIncludes(graph: ModuleGraph, module: PSym, n: PNode,
         var f = checkModuleName(graph.config, a[i])
         if f != InvalidFileIdx:
           if containsOrIncl(includedFiles, f.int):
-            localError(
+            localReport(
               graph.config,
               a.info,
               SemReport(

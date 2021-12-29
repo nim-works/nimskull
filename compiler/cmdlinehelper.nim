@@ -70,7 +70,7 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
   extccomp.initVars(conf)
   self.processCmdLine(passCmd2, "", conf)
   if conf.cmd == cmdNone:
-    localError(conf, ExternalReport(kind: rextCommandMissing))
+    localReport(conf, ExternalReport(kind: rextCommandMissing))
 
   graph.suggestMode = self.suggestMode
   return true

@@ -528,11 +528,11 @@ proc toString(n: PNode): string =
 proc borrowFrom(c: var Partitions; dest: PSym; src: PNode) =
   let s = pathExpr(src, c.owner)
   if s == nil:
-    localError(c.g.config, src.info, SemReport(kind: rsemExpressionIsNotAPath, expression: src))
+    localReport(c.g.config, src.info, SemReport(kind: rsemExpressionIsNotAPath, expression: src))
   elif s.kind == nkSym:
     if dest.kind == skResult:
       if s.sym.kind != skParam or s.sym.position != 0:
-        localError(
+        localReport(
           c.g.config, src.info,
           SemReport(kind: rsemResultMustBorrowFirst, psym: s.sym, expression: src))
 
@@ -560,13 +560,13 @@ proc borrowingCall(c: var Partitions; destType: PType; n: PNode; i: int) =
     when false:
       let isView = directViewType(destType) == immutableView
       if n[0].kind == nkSym and n[0].sym.name.s == "[]=":
-        localError(c.g.config, n[i].info, "attempt to mutate an immutable view")
+        localReport(c.g.config, n[i].info, "attempt to mutate an immutable view")
 
     for j in i+1..<n.len:
       if getMagic(n[j]) == mSlice:
         borrowFrom(c, v.sym, n[j])
   else:
-    localError(
+    localReport(
       c.g.config, n[i].info,
       SemReport(kind: rsemCannotDetermineBorrowTarget))
 
@@ -592,7 +592,7 @@ proc borrowingAsgn(c: var Partitions; dest, src: PNode) =
           mutableParameter(dest[0][0]):
         discard "remains a mutable location anyhow"
       else:
-        localError(c.g.config, dest.info, "attempt to mutate a borrowed location from an immutable view")
+        localReport(c.g.config, dest.info, "attempt to mutate a borrowed location from an immutable view")
         ]#
     of noView: discard "nothing to do"
 
@@ -889,7 +889,7 @@ proc dangerousMutation(g: MutationInfo; v: VarIndex): bool =
   return false
 
 proc cannotBorrow(config: ConfigRef; s: PSym; g: MutationInfo) =
-  localError(config, s.info, SemReport(
+  localReport(config, s.info, SemReport(
     kind: rsemCannotBorrow,
     psym: s,
     borrowPair: (
@@ -910,13 +910,13 @@ proc checkBorrowedLocations*(par: var Partitions; body: PNode; config: ConfigRef
                dangerousMutation(par.graphs[par.s[sid].con.graphIndex], par.s[i]):
               cannotBorrow(config, v, par.graphs[par.s[sid].con.graphIndex])
             if par.s[sid].sym.kind != skParam and par.s[sid].aliveEnd < par.s[rid].aliveEnd:
-              localError(config, v.info, SemReport(
+              localReport(config, v.info, SemReport(
                 kind: rsemBorrowOutlivesSource,
                 psym: v,
                 borrowsFrom: par.s[sid].sym))
 
             if viewDoesMutate in par.s[rid].flags and isConstSym(par.s[sid].sym):
-              localError(config, v.info, SemReport(
+              localReport(config, v.info, SemReport(
                 kind: rsemImmutableBorrowMutation,
                 psym: v,
                 borrowsFrom: par.s[sid].sym))
@@ -927,7 +927,7 @@ proc checkBorrowedLocations*(par: var Partitions; body: PNode; config: ConfigRef
             not constViolation:
           # we do not track the constant expressions we allow to borrow from so
           # we can only produce a more generic error message:
-          localError(config, v.info, SemReport(
+          localReport(config, v.info, SemReport(
             kind: rsemImmutableBorrowMutation,
             psym: v))
 
@@ -943,7 +943,8 @@ proc computeCursors*(s: PSym; n: PNode; g: ModuleGraph) =
         v.sym.flags * {sfThread, sfGlobal} == {} and hasDestructor(v.sym.typ) and
         v.sym.typ.skipTypes({tyGenericInst, tyAlias}).kind != tyOwned:
       let rid = root(par, i)
-      if par.s[rid].con.kind == isRootOf and dangerousMutation(par.graphs[par.s[rid].con.graphIndex], par.s[i]):
+      if par.s[rid].con.kind == isRootOf and
+         dangerousMutation(par.graphs[par.s[rid].con.graphIndex], par.s[i]):
         discard "cannot cursor into a graph that is mutated"
       else:
         v.sym.flags.incl sfCursor
