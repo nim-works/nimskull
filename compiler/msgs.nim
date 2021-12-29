@@ -338,9 +338,11 @@ proc msgWriteln*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
   ## If ``--stdout`` option is given, writes to stdout instead. If message hook
   ## is present, then it is used to output message rather than stderr/stdout.
   ## This behavior can be altered by given optional flags.
-
+  ##
   ## This is used for 'nim dump' etc. where we don't have nimsuggest
   ## support.
+  ##
+  ## Use this procedure when implementing compiler diagnostics output.
   #if conf.cmd == cmdIdeTools and optCDebug notin gGlobalOptions: return
   let sep = if msgNoUnitSep notin flags: conf.unitSep else: ""
   if not isNil(conf.writelnHook) and msgSkipHook notin flags:
@@ -387,8 +389,8 @@ macro callStyledWriteLineStderr(args: varargs[typed]): untyped =
     # not needed because styledWriteLine already ends with resetAttributes
     result = newStmtList(result, newCall(bindSym"resetAttributes", bindSym"stderr"))
 
-template callWritelnHook(args: varargs[string, `$`]) =
-  conf.writelnHook concat(args)
+# template callWritelnHook(args: varargs[string, `$`]) =
+#   conf.writelnHook concat(args)
 
 proc msgWrite(conf: ConfigRef; s: string) =
   if conf.m.errorOutputs != {}:
@@ -401,23 +403,23 @@ proc msgWrite(conf: ConfigRef; s: string) =
     flushFile(stdOrr)
     conf.lastMsgWasDot.incl stdOrr.toStdOrrKind() # subsequent writes need `flushDot`
 
-template styledMsgWriteln(args: varargs[typed]) =
-  if not isNil(conf.writelnHook):
-    callIgnoringStyle(callWritelnHook, nil, args)
-  elif optStdout in conf.globalOptions:
-    if eStdOut in conf.m.errorOutputs:
-      flushDot(conf)
-      callIgnoringStyle(writeLine, stdout, args)
-      flushFile(stdout)
-  elif eStdErr in conf.m.errorOutputs:
-    flushDot(conf)
-    if optUseColors in conf.globalOptions:
-      callStyledWriteLineStderr(args)
-    else:
-      callIgnoringStyle(writeLine, stderr, args)
-    # On Windows stderr is fully-buffered when piped, regardless of C std.
-    when defined(windows):
-      flushFile(stderr)
+# template styledMsgWriteln(args: varargs[typed]) =
+#   if not isNil(conf.writelnHook):
+#     callIgnoringStyle(callWritelnHook, nil, args)
+#   elif optStdout in conf.globalOptions:
+#     if eStdOut in conf.m.errorOutputs:
+#       flushDot(conf)
+#       callIgnoringStyle(writeLine, stdout, args)
+#       flushFile(stdout)
+#   elif eStdErr in conf.m.errorOutputs:
+#     flushDot(conf)
+#     if optUseColors in conf.globalOptions:
+#       callStyledWriteLineStderr(args)
+#     else:
+#       callIgnoringStyle(writeLine, stderr, args)
+#     # On Windows stderr is fully-buffered when piped, regardless of C std.
+#     when defined(windows):
+#       flushFile(stderr)
 
 proc msgKindToString*(kind: TMsgKind): string = MsgKindToStr[kind]
   # later versions may provide translated error messages

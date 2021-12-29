@@ -114,6 +114,10 @@ type
 
     rintSuccessX ## Succesfull compilation
     # hints end
+
+    rintNimconfWrite
+    rintEchoMessage # last !
+
     # internal reports end
 
     #--------------------------  External reports  ---------------------------#
@@ -1355,7 +1359,7 @@ func severity*(report: ExternalReport): ReportSeverity =
     else: rsevTrace
 
 type
-  InternalReportKind* = range[rintUnknown .. rintSuccessX]
+  InternalReportKind* = range[rintUnknown .. rintEchoMessage]
 
   UsedBuildParams* = object
     project*: string

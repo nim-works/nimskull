@@ -141,8 +141,10 @@ proc parseDirective(L: var Lexer, tok: var Token; config: ConfigRef; condStack: 
   of wEnd: doEnd(L, tok, condStack)
   of wWrite:
     ppGetTok(L, tok)
-    msgs.msgWriteln(config, strtabs.`%`($tok, config.configVars,
-                                {useEnvironment, useKey}))
+    L.localError(InternalReport(
+      kind: rintNimconfWrite,
+      msg: strtabs.`%`($tok, config.configVars, {useEnvironment, useKey})))
+
     ppGetTok(L, tok)
   else:
     case tok.ident.s.normalize
