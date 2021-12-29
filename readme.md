@@ -131,17 +131,12 @@ Nim from source using ``gcc``, ``git``, and the ``koch`` build tool.
 
 **Note: The following commands are for the development version of the compiler.**
 
-First, get the compiler from github:
-
-```
+```bash
 git clone https://github.com/nim-works/nimskull.git
 cd nimskull
+./koch.py boot -d:release
+./koch.py tools -d:release
 ```
-
-Next, run the appropriate build shell script for your platform:
-
-* `build_all.sh` (Linux, Mac)
-* `build_all.bat` (Windows)
 
 Finally, once you have finished the build steps (on Windows, Mac, or Linux) you
 should add the ``bin`` directory to your PATH.
