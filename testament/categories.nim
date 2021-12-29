@@ -148,6 +148,65 @@ proc gcTests(r: var TResults, cat: Category, options: string) =
   test "cyclecollector"
   testWithoutBoehm "trace_globals"
 
+type
+  GcTestKinds = enum
+    gcOther,
+    gcMarkSweep,
+    gcBoehm
+
+proc setupGcTests(execState: var Execution, cat: Category) =
+  ## setup tests for the gc category, requires special handling due to
+  ## testament limitations.
+
+  const
+    withoutMs = {gcOther}
+    withoutBoehm = {gcOther, gcMarkSweep}
+    noConditions = {gcOther, gcMarkSweep, gcBoehm}
+
+  let testData = [
+    ("foreign_thr", withoutBoehm),
+    ("gcemscripten", noConditions),
+    ("growobjcrash", noConditions),
+    ("gcbench", noConditions),
+    ("gcleak", noConditions),
+    ("gcleak2", noConditions),
+    ("gctest", withoutBoehm),
+    ("gcleak3", noConditions),
+    ("gcleak4", noConditions),
+    ("weakrefs", withoutBoehm),
+    ("cycleleak", noConditions),
+    ("closureleak", withoutBoehm),
+    ("refarrayleak", withoutMs),
+    ("tlists", withoutBoehm),
+    ("thavlak", withoutBoehm),
+    ("stackrefleak", noConditions),
+    ("cyclecollector", noConditions),
+    ("trace_globals", withoutBoehm)
+  ]
+
+  for (testFile, gcConditions) in testData:
+    let testId: TestId = execState.testFiles.len
+    execState.testFiles.add "tests/gc" / testFile
+    execState.testOpts[testId] = TestOptionData()
+
+    if gcMarkSweep in gcConditions:
+      execState.testOpts[testId].optMatrix.add "" # run the test as is
+      execState.testOpts[testId].optMatrix.add " -d:release --gc:useRealtimeGC"
+      if testFile != "gctest":
+        execState.testOpts[testId].optMatrix.add " --gc:orc"
+        execState.testOpts[testId].optMatrix.add " -d:release --gc:orc"
+
+    if gcMarkSweep in gcConditions:
+      execState.testOpts[testId].optMatrix.add " --gc:markAndSweep"
+      execState.testOpts[testId].optMatrix.add " -d:release --gc:markAndSweep"
+
+    if gcBoehm in gcConditions:
+      when not defined(windows) and not defined(android):
+        # cannot find any boehm.dll on the net, right now, so disabled for
+        # windows:
+        execState.testOpts[testId].optMatrix.add " --gc:boehm"
+        execState.testOpts[testId].optMatrix.add " -d:release --gc:boehm"
+
 # ------------------------- threading tests -----------------------------------
 
 proc threadTests(r: var TResults, cat: Category, options: string) =

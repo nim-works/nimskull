@@ -1047,6 +1047,154 @@ const
   # array of modules disabled from compilation test of stdlib.
   disabledFiles = disabledFilesDefault
 
+import std/tables
+
+type
+  Categories = seq[Category]
+
+  GlobPattern = string
+
+  TestFilterKind {.pure.} = enum
+    tfkAll,        ## all tests
+    tfkCategories, ## one or more categories
+    tfkGlob,       ## glob file pattern
+    tfkSingle      ## single test
+
+  TestFilter = object
+    restOfCmdLine: string
+    case kind: TestFilterKind
+    of tfkAll:
+      discard
+    of tfkCategories:
+      # xxx: currently multiple categories are unsupported
+      cats: Categories
+    of tfkGlob:
+      pattern: GlobPattern
+    of tfkSingle:
+      test: string
+  
+  TestId = int         # xxx: make this a distinct
+  RunId = int          ## test run's id/index # xxx: make this a distinct
+  EntryId = int        ## matrix entry index # xxx: make this a distinct
+  ActionId = int       ## a test action's id # xxx: make this a distinct
+  TestTarget = TTarget # xxx: renamed because I dislike the TXxx convention
+  TestFile = string    # xxx: make this a distinct
+
+  RetryInfo = object
+    test: TestId       ## which test failed
+    target: TestTarget ## the specific target
+
+  ExecutionFlag = enum
+    outputColour,      ## colour the output
+    outputResults,     ## print results to the console
+    outputFailureOnly, ## only output failures
+    outputVerbose,     ## increase output verbosity
+    logBackend         ## enable backend logging
+    dryRun,            ## do not run the tests, only indicate which would run
+    rerunFailed,       ## only run tests failed in the previous run
+    runKnownIssues     ## also execute tests marked as known issues
+
+  ExecutionFlags = set[ExecutionFlag]
+    ## track the option flags that got set for an execution
+
+  RetryList = OrderedTable[TestId, RetryInfo]
+      ## record failures in here so the user can choose to retry them
+
+  TestTargets = set[TestTarget]
+
+  DebugInfo = OrderedTable[ActionId, string]
+
+  RunTime = object
+    ## time tracking for test run activities
+    compileStart: float      ## when the compile process start
+    compileEnd: float        ## when the compile process ends
+    compileCheckStart: float ## when compile output check started
+    compileCheckEnd: float   ## when compile output check finished
+    runStart: float          ## for run, start of execution
+    runEnd: float            ## for run, end of execution
+    runCheckStart: float     ## start of run output check
+    runCheckEnd: float       ## end of run output check
+
+  TestRun = object
+    testId: TestId           ## test id for which this belongs
+    target: TestTarget       ## which target to run for
+    matrixEntry: EntryId     ## which item from the matrix was used
+
+  CompileStatus = enum
+    CompileCrashed           ## assume that it crashed in test scenarios
+    CompileSuccessful        ## exit code was 0 and no error messages
+
+  RunActual = object
+    ## actual data for a run
+    nimout: string           ## nimout from compile, empty if not required
+    nimExit: int             ## exit code produced by the compiler
+    nimMsg: string           ## last message, if any, from the compiler
+    nimLine: int             ## line from last compiler message, if present
+    nimColumn: int           ## colunn from last compiler message, if present
+    nimStatus: CompileStatus ## compilation state based on exit code and msgs
+
+  RunActuals = seq[RunActual]
+
+  # xxx: add 'check' to remove `cmd: "nim check"...` from tests
+  TestActionKind = enum
+    testActionSkip           ## skip this test; check the spec for why
+    testActionReject,        ## reject the compilation
+    testActionCompile,       ## compile some source
+    testActionRun            ## run the compiled program
+
+  TestAction = object
+    runId: RunId
+    case kind: TTestAction
+    of actionReject, actionRun:
+      discard
+    of actionCompile:
+      partOfRun: bool
+
+  TestOptionData = object
+    optMatrix: seq[string]   ## matrix of cli options for this test
+
+  TestOptions = OrderedTable[TestId, TestOptionData]
+    ## for legacy reasons (eg: `dllTests`) we need to be able to set per test
+    ## options, ideally this would be done with `matrix`, but it's not
+    ## sophisticated enough to support spare configuration like this needs
+
+  Execution = object
+    # user and execution inputs
+    filter: TestFilter       ## filter that was configured
+    flags: ExecutionFlags    ## various options set by the user
+    targets: TestTargets     ## specified targets or `noTargetsSpecified`
+    workingDir: string       ## working directory to begin execution in
+    nimSpecified: bool       ## whether the user specified the nim
+    testArgs: string         ## arguments passed to tests by the user
+    isCompilerRepo: bool     ## whether this is the compiler repository, used
+                             ## to legacy to handle `AdditionalCategories`
+
+    # environment input / setup
+    compilerPath: string     ## compiler command to use
+    testsDir: string         ## where to look for tests
+
+    # test discovery data
+    testCats:  Categories    ## categories discovered, for this execution
+    testFiles: seq[TestFile] ## files for this execution
+    testSpecs: seq[TSpec]    ## spec for each file
+    testOpts:  TestOptions   ## per test options, because legacy (`dllTests`)
+
+    # test execution data
+    testRuns: seq[TestRun]   ## a test run: reject, compile, or compile + run
+                             ## along with time to check
+    runTimes: seq[RunTime]   ## run timing information for each test
+    runActuals: RunActuals   ## actual information for a given run
+
+    actions: seq[TestAction] ## test actions for each run, phases of a run
+    debugInfo: DebugInfo     ## debug info related to actions run for tests
+
+    # test execution related data
+    retryList: RetryList     ## list of failures to potentially retry later
+
+  ParseCliResult = enum
+    parseSuccess       ## successfully parsed cli params
+    parseQuitWithUsage ## parsing failed, quit with usage message
+
 include categories
 
 proc loadSkipFrom(name: string): seq[string] =
@@ -1270,143 +1418,6 @@ if paramCount() == 0:
   quit Usage
 # main()
 
-import std/tables, std/streams
-
-type
-  Categories = seq[Category]
-
-  GlobPattern = string
-
-  TestFilterKind {.pure.} = enum
-    tfkAll,        ## all tests
-    tfkCategories, ## one or more categories
-    tfkGlob,       ## glob file pattern
-    tfkSingle      ## single test
-
-  TestFilter = object
-    restOfCmdLine: string
-    case kind: TestFilterKind
-    of tfkAll:
-      discard
-    of tfkCategories:
-      # xxx: currently multiple categories are unsupported
-      cats: Categories
-    of tfkGlob:
-      pattern: GlobPattern
-    of tfkSingle:
-      test: string
-  
-  TestId = int         # xxx: make this a distinct
-  RunId = int          ## test run's id/index # xxx: make this a distinct
-  EntryId = int        ## matrix entry index # xxx: make this a distinct
-  ActionId = int       ## a test action's id # xxx: make this a distinct
-  TestTarget = TTarget # xxx: renamed because I dislike the TXxx convention
-  TestFile = string    # xxx: make this a distinct
-
-  RetryInfo = object
-    test: TestId       ## which test failed
-    target: TestTarget ## the specific target
-
-  ExecutionFlag = enum
-    outputColour,      ## colour the output
-    outputResults,     ## print results to the console
-    outputFailureOnly, ## only output failures
-    outputVerbose,     ## increase output verbosity
-    logBackend         ## enable backend logging
-    dryRun,            ## do not run the tests, only indicate which would run
-    rerunFailed,       ## only run tests failed in the previous run
-    runKnownIssues     ## also execute tests marked as known issues
-
-  ExecutionFlags = set[ExecutionFlag]
-    ## track the option flags that got set for an execution
-
-  RetryList = OrderedTable[TestId, RetryInfo]
-      ## record failures in here so the user can choose to retry them
-
-  TestTargets = set[TestTarget]
-
-  DebugInfo = OrderedTable[ActionId, string]
-
-  RunTime = object
-    ## time tracking for test run activities
-    compileStart: float      ## when the compile process start
-    compileEnd: float        ## when the compile process ends
-    compileCheckStart: float ## when compile output check started
-    compileCheckEnd: float   ## when compile output check finished
-    runStart: float          ## for run, start of execution
-    runEnd: float            ## for run, end of execution
-    runCheckStart: float     ## start of run output check
-    runCheckEnd: float       ## end of run output check
-
-  TestRun = object
-    testId: TestId           ## test id for which this belongs
-    target: TestTarget       ## which target to run for
-    matrixEntry: EntryId     ## which item from the matrix was used
-
-  CompileStatus = enum
-    CompileCrashed           ## assume that it crashed in test scenarios
-    CompileSuccessful        ## exit code was 0 and no error messages
-
-  RunActual = object
-    ## actual data for a run
-    nimout: string           ## nimout from compile, empty if not required
-    nimExit: int             ## exit code produced by the compiler
-    nimMsg: string           ## last message, if any, from the compiler
-    nimLine: int             ## line from last compiler message, if present
-    nimColumn: int           ## colunn from last compiler message, if present
-    nimStatus: CompileStatus ## compilation state based on exit code and msgs
-
-  RunActuals = seq[RunActual]
-
-  # xxx: add 'check' to remove `cmd: "nim check"...` from tests
-  TestActionKind = enum
-    testActionSkip           ## skip this test; check the spec for why
-    testActionReject,        ## reject the compilation
-    testActionCompile,       ## compile some source
-    testActionRun            ## run the compiled program
-
-  TestAction = object
-    runId: RunId
-    case kind: TTestAction
-    of actionReject, actionRun:
-      discard
-    of actionCompile:
-      partOfRun: bool
-
-  Execution = object
-    # user and execution inputs
-    filter: TestFilter       ## filter that was configured
-    flags: ExecutionFlags    ## various options set by the user
-    targets: TestTargets     ## specified targets or `noTargetsSpecified`
-    workingDir: string       ## working directory to begin execution in
-    nimSpecified: bool       ## whether the user specified the nim
-    testArgs: string         ## arguments passed to tests by the user
-
-    # environment input / setup
-    compilerPath: string     ## compiler command to use
-    testsDir: string         ## where to look for tests
-
-    # test discovery data
-    testCats:  Categories    ## categories discovered, for this execution
-    testFiles: seq[TestFile] ## files for this execution
-    testSpecs: seq[TSpec]    ## spec for each file
-
-    # test execution data
-    testRuns: seq[TestRun]   ## a test run: reject, compile, or compile + run
-                             ## along with time to check
-    runTimes: seq[RunTime]   ## run timing information for each test
-    runActuals: RunActuals   ## actual information for a given run
-
-    actions: seq[TestAction] ## test actions for each run, phases of a run
-    debugInfo: DebugInfo     ## debug info related to actions run for tests
-
-    # test execution related data
-    retryList: RetryList     ## list of failures to potentially retry later
-
-  ParseCliResult = enum
-    parseSuccess       ## successfully parsed cli params
-    parseQuitWithUsage ## parsing failed, quit with usage message
-
 const
   testResultsDir = "testresults"
   cacheResultsDir = testResultsDir / "cacheresults"
@@ -1518,14 +1529,26 @@ proc prepareTestFilesAndSpecs(execState: var Execution) =
   let
     testsDir = execState.testsDir
     filter = execState.filter
+    isCompilerRepo = execState.isCompilerRepo
   
   template testFilesFromCat(execState: var Execution, cat: Category) =
     if cat.string notin ["testdata", "nimcache"]:
       execState.testCats.add cat
 
-      for file in walkDirRec(testsDir & cat.string):
-        if file.isTestFile:
-          execState.testFiles.add file
+      var handled = true
+      
+      let normCat = cat.string.normalize
+      if isCompilerRepo:
+        case normCat
+        of "gc":
+          setupGcTests(execState, cat)
+        else:
+          handled = false
+      
+      if not handled:
+        for file in walkDirRec(testsDir & cat.string):
+          if file.isTestFile:
+            execState.testFiles.add file
 
   case filter.kind
   of tfkAll:
@@ -1535,6 +1558,9 @@ proc prepareTestFilesAndSpecs(execState: var Execution) =
         # The category name is extracted from the directory
         # eg: 'tests/compiler' -> 'compiler'
         let cat = dir[testsDir.len .. ^1]
+        testFilesFromCat(execState, Category(cat))
+    if isCompilerRepo: # handle `AdditionalCategories`
+      for cat in AdditionalCategories:
         testFilesFromCat(execState, Category(cat))
   of tfkCategories:
     for cat in filter.cats:
@@ -1558,7 +1584,7 @@ proc prepareTestFilesAndSpecs(execState: var Execution) =
   execState.testFiles.sort # ensures we have a reproducible ordering
 
   # parse all specs
-  for test in execState.testFiles:
+  for testId, test in execState.testFiles.pairs:
     execState.testSpecs.add parseSpec(addFileExt(test, ".nim"))
 
 proc prepareTestRuns(execState: var Execution) =
@@ -1578,6 +1604,8 @@ proc prepareTestRuns(execState: var Execution) =
       targetsToRun = specTargets * execState.requestedTargets
 
     for target in targetsToRun:
+      # TODO: create a "target matrix" to cover both js release vs non-release
+      # TODO: handle testOpts.matrix
       case spec.matrix.len
       of 0: # no tests to run
         execState.testRuns.add:
@@ -1793,7 +1821,8 @@ proc main2() =
     p         = initOptParser() # cli parser
     execState = Execution(
       flags: defaultExecFlags,
-      testsDir: "tests" & DirSep
+      testsDir: "tests" & DirSep,
+      isCompilerRepo: isNimRepoTests() # legacy for `AdditionalCategories`
     )
 
   case parseOpts(execState, p)
