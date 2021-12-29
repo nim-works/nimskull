@@ -703,16 +703,20 @@ proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
   else:
     result = conf.m.fileInfos[i.fileIndex.int32].quotedName
 
-template listMsg(title, r) =
-  msgWriteln(conf, title, {msgNoUnitSep})
-  for a in r: msgWriteln(conf, "  [$1] $2" % [if a in conf.notes: "x" else: " ", $a], {msgNoUnitSep})
+proc listWarnings*(conf: ConfigRef) =
+  conf.localReport(InternalReport(
+    kind: rintListWarnings,
+    enabledOptions: repWarningKinds * conf.notes))
 
-proc listWarnings*(conf: ConfigRef) = listMsg("Warnings:", repWarningKinds)
-proc listHints*(conf: ConfigRef) = listMsg("Hints:", repHintKinds)
+proc listHints*(conf: ConfigRef) =
+  conf.localReport(InternalReport(
+    kind: rintListHints,
+    enabledOptions: repHintKinds * conf.notes))
 
 proc uniqueModuleName*(conf: ConfigRef; fid: FileIndex): string =
-  ## The unique module name is guaranteed to only contain {'A'..'Z', 'a'..'z', '0'..'9', '_'}
-  ## so that it is useful as a C identifier snippet.
+  ## The unique module name is guaranteed to only contain {'A'..'Z',
+  ## 'a'..'z', '0'..'9', '_'} so that it is useful as a C identifier
+  ## snippet.
   let path = AbsoluteFile toFullPath(conf, fid)
   let rel =
     if path.string.startsWith(conf.libpath.string):

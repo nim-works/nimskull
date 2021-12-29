@@ -87,8 +87,8 @@ proc sexp*(t: PSym): SexpNode = newSSymbol("<sym>")
 
 proc reportHook*(conf: ConfigRef, r: Report) =
   if not conf.isEnabled(r):
-    if r.kind notin {rsemProcessingStmt}:
-      echo r.kind, " is disabled", defined(debugOptions)
+    if r.kind notin {rsemProcessingStmt, rsemXDeclaredButNotUsed}:
+      echo r.kind, " is disabled"
 
 
     return

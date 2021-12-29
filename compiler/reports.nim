@@ -116,6 +116,8 @@ type
     # hints end
 
     rintNimconfWrite
+    rintListWarnings
+    rintListHints
     rintEchoMessage # last !
 
     # internal reports end
@@ -1436,6 +1438,9 @@ type
 
       of rintCannotOpenFile .. rintWarnFileChanged:
         file*: string
+
+      of rintListWarnings, rintListHints:
+        enabledOptions*: set[ReportKind]
 
       else:
         discard
