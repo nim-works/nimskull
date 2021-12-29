@@ -480,60 +480,56 @@ when false:
 
 import std/editdistance, heapqueue
 
-type SpellCandidate = object
-  dist: int
-  depth: int
-  msg: string
-  sym: PSym
-
-template toOrderTup(a: SpellCandidate): auto =
-  # `dist` is first, to favor nearby matches
-  # `depth` is next, to favor nearby enclosing scopes among ties
-  # `sym.name.s` is last, to make the list ordered and deterministic among ties
-  (a.dist, a.depth, a.msg)
-
-proc `<`(a, b: SpellCandidate): bool =
-  a.toOrderTup < b.toOrderTup
+func `<`(a, b: SemSpellCandidate): bool =
+  a.dist < b.dist and a.depth < b.depth and a.sym.name.s < b.sym.name.s
 
 proc mustFixSpelling(c: PContext): bool {.inline.} =
   result = c.config.spellSuggestMax != 0 and c.compilesContextId == 0
     # don't slowdown inside compiles()
 
-proc fixSpelling(c: PContext, n: PNode, ident: PIdent, result: var string) =
+proc fixSpelling(
+    c: PContext, n: PNode, ident: PIdent): seq[SemSpellCandidate] =
   ## when we cannot find the identifier, suggest nearby spellings
-  var list = initHeapQueue[SpellCandidate]()
+  var list = initHeapQueue[SemSpellCandidate]()
   let name0 = ident.s.nimIdentNormalize
 
   for (sym, depth, isLocal) in allSyms(c):
     let depth = -depth - 1
     let dist = editDistance(name0, sym.name.s.nimIdentNormalize)
-    var msg: string
-    msg.add "\n ($1, $2): '$3'" % [$dist, $depth, sym.name.s]
-    addDeclaredLoc(msg, c.config, sym) # `msg` needed for deterministic ordering.
-    list.push SpellCandidate(dist: dist, depth: depth, msg: msg, sym: sym)
+    list.push SemSpellCandidate(
+      dist: dist, depth: depth, sym: sym, isLocal: isLocal)
 
-  if list.len == 0: return
+  if list.len == 0:
+    return
+
   let e0 = list[0]
   var count = 0
   while true:
-    # pending https://github.com/timotheecour/Nim/issues/373 use more efficient `itemsSorted`.
-    if list.len == 0: break
+    if list.len == 0:
+      break
+
     let e = list.pop()
     if c.config.spellSuggestMax == spellSuggestSecretSauce:
       const
         smallThres = 2
         maxCountForSmall = 4
-        # avoids ton of operator matches when mis-matching short symbols such as `i`
-        # other heuristics could be devised, such as only suggesting operators if `name0`
-        # is an operator (likewise with non-operators).
-      if e.dist > e0.dist or (name0.len <= smallThres and count >= maxCountForSmall): break
-    elif count >= c.config.spellSuggestMax: break
-    if count == 0:
-      result.add "\ncandidates (edit distance, scope distance); see '--spellSuggest': "
-    result.add e.msg
-    count.inc
+        # avoids ton of operator matches when mis-matching short symbols
+        # such as `i` other heuristics could be devised, such as only
+        # suggesting operators if `name0` is an operator (likewise with
+        # non-operators).
 
-proc errorUseQualifier(c: PContext; info: TLineInfo; s: PSym; amb: var bool): PSym =
+      if e.dist > e0.dist or
+         (name0.len <= smallThres and count >= maxCountForSmall):
+        break
+
+    elif count >= c.config.spellSuggestMax:
+      break
+
+    result.add e
+    inc count
+
+proc errorUseQualifier(
+    c: PContext; info: TLineInfo; s: PSym; amb: var bool): PSym =
   var
     i = 0
     ignoredModules = 0
@@ -568,10 +564,15 @@ proc errorUseQualifier(c: PContext; info: TLineInfo; candidates: seq[PSym]) =
 
   c.config.localError(info, rep)
 
-proc errorUndeclaredIdentifier*(c: PContext; info: TLineInfo; name: string, extra = "") =
+proc errorUndeclaredIdentifier*(
+    c: PContext; info: TLineInfo; name: string,
+    candidates: seq[SemSpellCandidate] = @[]
+  ) =
+
   c.config.localError(info, SemReport(
     kind: rsemUndeclaredIdentifier,
-    wantedIdent: name,
+    msg: name,
+    spellingCandidates: candidates,
     potentiallyRecursive: c.recursiveDep.len > 0
   ))
 
@@ -580,9 +581,12 @@ proc errorUndeclaredIdentifier*(c: PContext; info: TLineInfo; name: string, extr
     c.recursiveDep = ""
 
 proc errorUndeclaredIdentifierHint*(c: PContext; n: PNode, ident: PIdent): PSym =
-  var extra = ""
-  if c.mustFixSpelling: fixSpelling(c, n, ident, extra)
-  errorUndeclaredIdentifier(c, n.info, ident.s, extra)
+  var candidates: seq[SemSpellCandidate]
+  if c.mustFixSpelling:
+    candidates = fixSpelling(c, n, ident)
+
+  errorUndeclaredIdentifier(c, n.info, ident.s, candidates)
+
   result = errorSym(c, n)
 
 proc lookUp*(c: PContext, n: PNode): PSym =
@@ -647,21 +651,21 @@ proc errorSym2*(c: PContext, n, err: PNode): PSym =
     c.moduleScope.addSym(result)
 
 proc errorUndeclaredIdentifierWithHint(
-    c: PContext; n: PNode; name: string, extra = ""
+    c: PContext; n: PNode; name: string,
+    candidates: seq[SemSpellCandidate] = @[]
   ): PSym =
   ## creates an error symbol with hints as to what it might be eg: recursive
   ## imports
-  var err = extra
-  if c.recursiveDep.len > 0:
-    err.add "\nThis might be caused by a recursive module dependency:\n"
-    err.add c.recursiveDep
-    # prevent excessive errors for 'nim check'
-    c.recursiveDep = ""
   result = errorSym2(c, n, c.config.newError(
     n,
-    SemReport(kind: rsemUndeclaredIdentifier),
-    @[newStrNode(name, n.info), newStrNode(err, n.info)]
-  ))
+    SemReport(
+      kind: rsemUndeclaredIdentifier,
+      potentiallyRecursive: c.recursiveDep.len > 0,
+      spellingCandidates: candidates,
+      msg: name)))
+
+  if c.recursiveDep.len > 0:
+    c.recursiveDep = ""
 
 proc errorAmbiguousUseQualifier(
     c: PContext; ident: PIdent, n: PNode, candidates: seq[PSym]
@@ -739,9 +743,12 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       result = symFromCandidates(c, candidates, ident, n, flags, amb)
 
     if result.isNil and checkUndeclared in flags:
-      var extra = ""
-      if c.mustFixSpelling: fixSpelling(c, n, ident, extra)
-      result = errorUndeclaredIdentifierWithHint(c, n, ident.s, extra)
+      var candidates: seq[SemSpellCandidate]
+      if c.mustFixSpelling:
+        candidates = fixSpelling(c, n, ident)
+
+      result = errorUndeclaredIdentifierWithHint(c, n, ident.s, candidates)
+
     elif checkAmbiguity in flags and result != nil and amb:
       var
         i = 0
@@ -764,7 +771,7 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
 
     if result == nil:
       if checkUndeclared in flags:
-        result = errorUndeclaredIdentifierWithHint(c, n, ident.s)
+        result = errorUndeclaredIdentifierWithHint(c, n, ident.s, @[])
       else:
         discard
     elif result.kind == skError and result.typ.isNil:
@@ -789,10 +796,13 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       if ident != nil and errNode.isNil:
         if m == c.module:
           result = strTableGet(c.topLevelScope.symbols, ident).skipAlias(n, c.config)
+
         else:
           result = someSym(c.graph, m, ident).skipAlias(n, c.config)
+
         if result == nil and checkUndeclared in flags:
-          result = errorUndeclaredIdentifierWithHint(c, n[1], ident.s)
+          result = errorUndeclaredIdentifierWithHint(c, n[1], ident.s, @[])
+
       elif n[1].kind == nkSym:
         result = n[1].sym
       elif checkUndeclared in flags and

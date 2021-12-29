@@ -781,7 +781,7 @@ type
 
     # Semantic hints begin
     rsemUserHint = "UserHint" ## `{.hint: .}` pragma encountereed
-    rsemHintLibDependeny
+    rsemHintLibDependency
     rsemXDeclaredButNotUsed = "XDeclaredButNotUsed"
     rsemDuplicateModuleImport = "DuplicateModuleImport"
     rsemXCannotRaiseY = "XCannotRaiseY"
@@ -805,6 +805,8 @@ type
     rsemGlobalVar = "GlobalVar" ## Track global variable declarations?
 
     rsemEffectsListingHint
+    rsemPreExpandMacro
+    rsemPostExpandMacro
     rsemExpandMacro = "ExpandMacro" ## Trace macro expansion progress
 
 
@@ -915,15 +917,15 @@ type
         lpoint*: ReportLinePoint
 
   ReportSeverity* = enum
-    rsevDebug ## Internal compiler debug information
+    rsevDebug = "Debug" ## Internal compiler debug information
 
-    rsevHint ## User-targeted hint
-    rsevWarning ## User-targeted warnings
-    rsevError ## User-targeted error
+    rsevHint = "Hint" ## User-targeted hint
+    rsevWarning = "Warning" ## User-targeted warnings
+    rsevError = "Error" ## User-targeted error
 
-    rsevFatal
-    rsevTrace ## Additional information about compiler actions - external
-              ## commands mostly.
+    rsevFatal = "Fatal"
+    rsevTrace = "Trace" ## Additional information about compiler actions -
+    ## external commands mostly.
 
   ReportContextKind* = enum
     sckInstantiationOf
@@ -1047,6 +1049,11 @@ type
       else:
         discard
 
+  SemSpellCandidate* = object
+    dist*: int
+    depth*: int
+    sym*: PSym
+    isLocal*: bool
 
   SemReport* = object of ReportBase
     expression*: PNode
@@ -1151,8 +1158,8 @@ type
         drnimExpressions*: tuple[a, b: PNode]
 
       of rsemUndeclaredIdentifier:
-        wantedIdent*: string
         potentiallyRecursive*: bool
+        spellingCandidates*: seq[SemSpellCandidate]
 
       of rsemAmbiguous,
          rsemCallNotAProcOrField,

@@ -378,7 +378,7 @@ type
     suggestMaxResults*: int
     lastLineInfo*: TLineInfo
     writelnHook*: proc (output: string) {.closure.} # cannot make this gcsafe yet because of Nimble
-    structuredErrorHook*: proc (report: Report) {.closure.}
+    structuredErrorHook*: proc (conf: ConfigRef, report: Report) {.closure.}
     cppCustomNamespace*: string
     vmProfileData*: ProfileData
 
@@ -388,7 +388,7 @@ type
 
 proc report*(conf: ConfigRef, inReport: Report) =
   ## Write `inReport`
-  conf.structuredErrorHook(inReport)
+  conf.structuredErrorHook(conf, inReport)
 
 
 proc report*(conf: ConfigRef, id: ReportId) =
@@ -429,10 +429,16 @@ func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
   report.category == repInternal and
   report.internalReport.severity() == rsevFatal
 
+func severity*(conf: ConfigRef, report: Report): ReportSeverity =
+  report.severity(conf.warningAsErrors + conf.hintsAsErrors)
+
 func isCodeError*(conf: ConfigRef, report: Report): bool =
   ## Check if report stores a regular code error, or warning/hint that has
   ## been configured to be treated as error under "warningAsError"
-  report.severity(conf.warningAsErrors) == rsevError
+  conf.severity(report) == rsevError
+
+func isEnabled*(conf: ConfigRef, report: Report): bool =
+  report.kind in conf.notes
 
 proc parseNimVersion*(a: string): NimVer =
   # could be moved somewhere reusable

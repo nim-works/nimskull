@@ -690,7 +690,7 @@ proc loadDynamicLib(m: BModule, lib: PLib) =
       var s: TStringSeq = @[]
       libCandidates(lib.path.strVal, s)
       localReport(m.config, SemReport(
-        kind: rsemHintLibDependeny, msg: lib.path.strVal))
+        kind: rsemHintLibDependency, msg: lib.path.strVal))
 
       var loadlib: Rope = nil
       for i in 0..high(s):

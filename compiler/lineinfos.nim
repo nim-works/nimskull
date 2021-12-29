@@ -269,15 +269,28 @@ type
   TNoteKinds* = set[TNoteKind]
 
 proc computeNotesVerbosity(): array[0..3, ReportKinds] =
-  when false:
-    {.warning: "[FIXME] temporarily commented out, enable later when enums are stabilized".}
-    result[3] = {low(TNoteKind)..high(TNoteKind)} - {warnObservableStores, warnResultUsed, warnAnyEnumConv}
-    result[2] = result[3] - {hintStackTrace, warnUninit, hintExtendedContext, hintDeclaredLoc, hintProcessingStmt}
-    result[1] = result[2] - {warnProveField, warnProveIndex,
-      warnGcUnsafe, hintPath, hintDependency, hintCodeBegin, hintCodeEnd,
-      hintSource, hintGlobalVar, hintGCStats, hintMsgOrigin, hintPerformance}
-    result[0] = result[1] - {hintSuccessX, hintSuccess, hintConf,
-      hintProcessing, hintPattern, hintExecuting, hintLinking, hintCC}
+  result[3] = (repWarnings + repHints) - {
+    rsemObservableStores, rsemResultUsed, rsemAnyEnumConvert}
+  result[2] = result[3] - {
+    rsemVmStackTrace, rsemUninit, rsemExtendedContext, rsemProcessingStmt}
+
+  result[1] = result[2] - {
+    rsemProveField,
+    rsemErrGcUnsafe,
+    rextPath,
+    rsemHintLibDependency,
+    rsemGlobalVar,
+    rintGCStats
+  }
+
+  result[0] = result[1] - {
+    rintSuccessX,
+    rextConf,
+    rsemProcessing,
+    rsemPattern,
+    rcmdExecuting,
+    rbackLinking
+  }
 
 const
   NotesVerbosity* = computeNotesVerbosity()

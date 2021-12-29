@@ -1,4 +1,5 @@
 import reports
+import ./options as compiler_options
 import std/[strformat, strutils, options, parseutils]
 
 import nimsuggest/sexp
@@ -72,9 +73,9 @@ proc sexp*(node: PNode): SexpNode =
   result = newSList()
   result.add newSSymbol(($node.kind)[2 ..^ 1])
   case node.kind:
-    of nkCharLit..nkUInt64Lit:    result.add sexp(node.strVal)
+    of nkCharLit..nkUInt64Lit:    result.add sexp(node.intVal)
     of nkFloatLit..nkFloat128Lit: result.add sexp(node.floatVal)
-    of nkStrLit..nkTripleStrLit:  result.add sexp(node.intVal)
+    of nkStrLit..nkTripleStrLit:  result.add sexp(node.strVal)
     of nkSym:                     result.add newSSymbol(node.sym.name.s)
     of nkIdent:                   result.add newSSymbol(node.ident.s)
     else:
@@ -84,10 +85,16 @@ proc sexp*(node: PNode): SexpNode =
 proc sexp*(t: PType): SexpNode = newSSymbol("<type>")
 proc sexp*(t: PSym): SexpNode = newSSymbol("<sym>")
 
-proc reportHook*(r: Report) =
+proc reportHook*(conf: ConfigRef, r: Report) =
+  if not conf.isEnabled(r):
+    echo r.kind, " is disabled"
+    return
+
   let k = $r.kind
   var s = newSList()
   s.add newSSymbol($r.category & "-" & k)
+  s.add newSSymbol(":severity")
+  s.add sexp(conf.severity(r))
   case r.category:
     of repLexer:    s.addFields(r.lexReport)
     of repParser:   s.addFields(r.parserReport)

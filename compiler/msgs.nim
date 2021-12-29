@@ -544,7 +544,7 @@ proc formatMsg*(conf: ConfigRef; info: TLineInfo, msg: TMsgKind, arg: string): s
 
 proc handleReport*(
     conf: ConfigRef, report: Report, eh: TErrorHandling) {.noinline.} =
-  conf.structuredErrorHook(report)
+  conf.report(report)
   handleError(conf, report, eh)
 
 template globalAssert*(
