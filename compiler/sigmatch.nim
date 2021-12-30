@@ -26,17 +26,10 @@ type
   TCandidateState* = enum
     csEmpty, csMatch, csNoMatch
 
-  CandidateDiagnostic* = PNode
-    ## PNode is only ever an `nkError` kind, often converted to a string for
-    ## display purpopses
-  CandidateDiagnostics* = seq[CandidateDiagnostic]
-    ## list of diagnostics as part of errors or other information for Candidate
-    ## overload resolution and what not
-
   CandidateError* = object
     sym*: PSym
     firstMismatch*: MismatchInfo
-    diagnostics*: CandidateDiagnostics
+    diagnostics*: seq[SemCallDiagnostics]
     isDiagnostic*: bool
       ## is this is a diagnostic (true) or an error (false) that occurred
       ## xxx: this might be a terrible idea and we could get rid of it
@@ -73,14 +66,11 @@ type
                               # matching. they will be reset if the matching
                               # is not successful. may replace the bindings
                               # table in the future.
-    diagnostics*: CandidateDiagnostics # \
-                              # when diagnosticsEnabled, the matching process
-                              # will collect extra diagnostics that will be
-                              # displayed to the user.
-                              # triggered when overload resolution fails
-                              # or when the explain pragma is used. may be
-                              # triggered with an idetools command in the
-                              # future.
+    diagnostics*: seq[SemCallDiagnostics] ## when diagnosticsEnabled, the
+    ## matching process will collect extra diagnostics that will be
+    ## displayed to the user. triggered when overload resolution fails or
+    ## when the explain pragma is used. may be triggered with an idetools
+    ## command in the future.
     inheritancePenalty: int   # to prefer closest father object type
     firstMismatch*: MismatchInfo # mismatch info for better error messages
     diagnosticsEnabled*: bool
@@ -733,41 +723,25 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
 
       addDecl(c, param)
 
-  var
-    oldWriteHook: typeof(m.c.config.writelnHook)
-    diagnostics: CandidateDiagnostics
-    errorPrefix: string
-    flags: TExprFlags = {}
+  var flags: TExprFlags = {}
+
   let collectDiagnostics = m.diagnosticsEnabled or sfExplain in typeClass.sym.flags
 
   if collectDiagnostics:
-    oldWriteHook = m.c.config.writelnHook
-    # XXX: we can't write to m.diagnostics directly, because
-    # Nim doesn't support capturing var params in closures
-    diagnostics = @[]
     flags = {efExplain}
-    m.c.config.writelnHook = proc (s: string) =
-      assert false, "Find a way to mitigate this garbage"
-      # if errorPrefix.len == 0:
-      #   errorPrefix = typeClass.sym.name.s & ":"
-      # let msg = s.replace("Error:", errorPrefix)
-      # if oldWriteHook != nil:
-      #   oldWriteHook msg
-      # let e = m.c.graph.config.newError(body, msg)
-      # diagnostics.add e
 
   var checkedBody = c.semTryExpr(c, body.copyTree, flags)
 
   if collectDiagnostics:
-    m.c.config.writelnHook = oldWriteHook
-
-    if checkedBody != nil:
-      for e in m.c.config.walkErrors(checkedBody):
-        m.diagnostics.add e
-        m.diagnosticsEnabled = true
-    for d in diagnostics:
+    # REFACTOR(nkError) Until nkError reporting is fully implemented in the
+    # `sigmatch.matches` we need to rely on the global-ish list of
+    # diagnostics that is modified during `semTryExpr`, and then moved over
+    # to the candidate match data.
+    for d in m.c.config.callDiagnostics:
       m.diagnostics.add d
       m.diagnosticsEnabled = true
+
+    m.c.config.callDiagnostics = @[]
 
   if checkedBody == nil or checkedBody.kind == nkError:
     # xxx: return nil on nkError doesn't seem quite right, but this is a type
@@ -2644,9 +2618,8 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
           # The default param value is set to empty in `instantiateProcType`
           # when the type of the default expression doesn't match the type
           # of the instantiated proc param:
-          localReport(c.config, m.call.info, SemReport(
-            kind: rsemDefaultParamIsIncompatible,
-            psym: formal))
+          c.config.callDiagnostics.add SemCallDiagnostics(
+            kind: scalldDefaultParamIsIncompatible, param: formal)
 
         if nfDefaultRefsParam in formal.ast.flags:
           m.call.flags.incl nfDefaultRefsParam

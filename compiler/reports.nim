@@ -908,7 +908,7 @@ static:
 type
   ReportLineRange* = object
     ## Report location expressed as a span of lines in the file
-    file*: FileIndex
+    file*: string
     startLine*, endline*: int
     startCol*, endCol*: int
 
@@ -942,10 +942,10 @@ type
 
 
   ReportContext* = object
-    location*: ReportLinePoint
+    location*: ReportLinePoint ## Report context instantiation
     case kind*: ReportContextKind
       of sckInstantiationOf:
-        entry*: PSym
+        entry*: PSym ## Instantiated entry symbol
 
       of sckInstantiationFrom:
         discard
@@ -1065,21 +1065,38 @@ type
     procEffectsCompat*: EffectsCompat
     procCallMismatch*: set[ProcConvMismatch]
 
+  SemCallDiagnosticsKind* = enum
+    scalldDefaultParamIsIncompatible
+
+  SemCallDiagnostics* = object
+    case kind*: SemCallDiagnosticsKind
+      of scalldDefaultParamIsIncompatible:
+        param*: PSym
+
   SemCallMismatch* = object
     ## Description of the single candidate mismatch. This type is later
     ## used to construct meaningful type mismatch message, and must contain
     ## all the necessary information to provide meaningful sorting,
     ## collapse and other operations.
-    target*: PSym
-    expression*: PNode
-    arg*: int
+    target*: PSym ## Procedure that was tried for an overload resolution
+    expression*: PNode ## Full typed expression that was used as a
+    ## procedure call
+    arg*: int ## Mismatched argument index. This corresponds to the
+    ## *expression* subnode index - due to varargs actual *target
+    ## parameter* index might differe. See `.formal` field for the actual
+    ## target argument symbol.
+    targetArg*: PSym ## parameter that mismatches against provided
+    ## argument its position can differ from `arg` because of varargs
+    diagnostics*: seq[SemCallDiagnostics]
     case kind*: MismatchKind
       of kTypeMismatch:
-        typeMismatch*: SemTypeMismatch
+        typeMismatch*: SemTypeMismatch ## Argument type mismatch
+                                       ## elaboration
 
       of kPositionalAlreadyGiven, kUnknownNamedParam,
          kAlreadyGiven, kMissingParam:
-        nameParam*: string
+        ## Parameter name (if used) is stored in the `.targetArg` symbol
+        discard
 
       else:
         discard
@@ -1545,6 +1562,23 @@ func kind*(report: Report): ReportKind =
   eachCategory(report, kind)
 
 func severity*(
+    report: ReportTypes,
+    asError: ReportKinds,
+    asWarning: ReportKinds = default(ReportKinds)
+  ): ReportSeverity =
+
+  if report.kind in asError:
+    rsevError
+
+  elif report.kind in asWarning:
+    rsevWarning
+
+  else:
+    severity(report)
+
+
+
+func severity*(
     report: Report,
     asError: ReportKinds = default(ReportKinds),
     asWarning: ReportKinds = default(ReportKinds)
@@ -1629,7 +1663,14 @@ template wrap*(rep: ReportTypes): Report =
   wrap(rep, toReportLineInfo(instLoc()))
 
 func `$`*(point: ReportLinePoint): string =
-  point.file & ":" & $point.line & ":" & $point.col
+  point.file & "(" & $point.line & ", " & $point.col & ")"
+
+func `$`*(lrange: ReportLineRange): string =
+  lrange.file & "(" & $lrange.startLine & ", " & $lrange.startCol &
+    ")-" & $lrange.endLine & ", " & $lrange.endCol
+
+func `$`*(linfo: ReportLineInfo): string =
+  if linfo.isRange: $linfo.lrange else: $linfo.lpoint
 
 
 type

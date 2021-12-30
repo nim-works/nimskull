@@ -377,7 +377,7 @@ type
     suggestVersion*: int
     suggestMaxResults*: int
     lastLineInfo*: TLineInfo
-    writelnHook*: proc (output: string) {.closure.} # cannot make this gcsafe yet because of Nimble
+    writelnHook*: proc (output: string) {.closure.}
     structuredReportHook*: proc (conf: ConfigRef, report: Report) {.closure.}
     cppCustomNamespace*: string
     vmProfileData*: ProfileData
@@ -385,6 +385,10 @@ type
     when defined(nimDebugUtils):
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
       ## len is also used for output indent level
+
+    callDiagnostics*: seq[SemCallDiagnostics] ## Additional call resolution
+    ## diagnostics that are used to provide more detailed error messages in
+    ## case of the compilation failure. Populated in the `sigcall.matches`
 
 proc report*(conf: ConfigRef, inReport: Report) =
   ## Write `inReport`
@@ -428,6 +432,10 @@ func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
   ## Check if report stores fatal compilation error
   report.category == repInternal and
   report.internalReport.severity() == rsevFatal
+
+
+func severity*(conf: ConfigRef, report: ReportTypes): ReportSeverity =
+  report.severity(conf.warningAsErrors + conf.hintsAsErrors)
 
 func severity*(conf: ConfigRef, report: Report): ReportSeverity =
   report.severity(conf.warningAsErrors + conf.hintsAsErrors)

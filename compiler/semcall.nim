@@ -180,7 +180,11 @@ proc presentFailedCandidates(
 
   var candidates: seq[SemCallMismatch]
   for err in errors:
-    var cand = SemCallMismatch(kind: err.firstMismatch.kind)
+    var cand = SemCallMismatch(
+      kind: err.firstMismatch.kind,
+      expression: n
+    )
+
     cand.target = err.sym
     cand.arg = err.firstMismatch.arg
 
@@ -190,26 +194,25 @@ proc presentFailedCandidates(
       else:
         nil
 
-    let nameParam =
-      if err.firstMismatch.formal.isNil:
-        ""
-      else:
-        err.firstMismatch.formal.name.s
+    cand.targetArg = err.firstMismatch.formal
+    cand.diagnostics = err.diagnostics
 
     if n.len > 1:
       case cand.kind:
-        of kUnknownNamedParam, kAlreadyGiven:
-          cand.nameParam = $nArg[0]
-
-        of kPositionalAlreadyGiven, kExtraArg, kMissingParam:
+        of kUnknownNamedParam,
+           kAlreadyGiven,
+           kPositionalAlreadyGiven,
+           kExtraArg,
+           kMissingParam:
+         # Additional metadata only contains `targetArg` that is
+         # unconditionally assigned from `err.formal`
           discard
 
         of kTypeMismatch, kVarNeeded:
           assert nArg != nil
-          assert err.firstMismatch.formal != nil
-          assert err.firstMismatch.formal.typ != nil
+          assert cand.targetArg != nil
+          assert cand.targetArg.typ != nil
           assert nArg.typ != nil
-          cand.expression = nArg
           cand.typeMismatch = c.config.typeMismatch(
             err.firstMismatch.formal.typ, nArg.typ)
 
