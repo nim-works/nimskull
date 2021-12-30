@@ -29,13 +29,12 @@ a fix, with help from the rest of this guide this will be quick and easy.
 For more impactful or sweeping changes or you'd like to do things work on
 things more regularly, then please gain context through some of these suggested
 activities:
-* check the `current near-term development plan
-  <https://github.com/nim-works/nimskull#near-term-development>` _
-* see current efforts by reading the last `~10 commits messages
-  <https://github.com/nim-works/nimskull/commits/devel>` _
-* to understand the current broader ideas, `see recent discussions
-  <https://github.com/nim-works/nimskull/discussions>` _
-* join our chat (comming soon)
+
+- check the `current near-term development plan <https://github.com/nim-works/nimskull#near-term-development>`_
+- see current efforts by reading the last `~10 commits messages <https://github.com/nim-works/nimskull/commits/devel>`_
+- to understand the current broader ideas, `see recent discussions <https://github.com/nim-works/nimskull/discussions>`_
+- check out roadmap progression `thread <https://github.com/nim-works/nimskull/discussions/142>`_ for a high-level overview
+- join our `matrix chat <https://matrix.to/#/#nimworks:envs.net>`_
 
 With that said, contributing happens via "Pull requests" (PR) on github. Every
 PR needs to be reviewed before it can be merged and the Continuous Integration
