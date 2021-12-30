@@ -25,7 +25,7 @@ type
     ## An operand
 
   Instruction {.pure.} = enum
-    ## How to run the builder
+    ## Instruction for a target recipe step, each value describes operand interpretation.
     Noop ## Don't do anything
 
     Build ##\
@@ -43,14 +43,15 @@ type
     ## number of arguments
 
   TargetRecipe = object
-    ## The recipe for the target
+    ## Every target is built via a recipe, which forms a small build language.
     instr: Instruction ## The instruction of the target, how operands are
                        ## interpreted depends on this
-    a: Operand ## First operand
-    b: Operand ## Second operand
+    a: Operand ## First operand, see `Instruction`
+    b: Operand ## Second operand, see `Instruction`
 
   Builder* = object
-    ## The builder
+    ## The builder holds all the necessary state for building a compiler managing source,
+    ## targets, dependencies, inputes, and the recipies that combine them.
     sourceRoot: string ## The root directory of the source code
     buildDir: string ## The directory to store build artifacts
 
@@ -150,7 +151,7 @@ func addInputs(b: var Builder, inputs: varargs[string]): Input =
 
 func addExtraOperands(b: var Builder, operands: varargs[Operand]): Operand =
   ## Add `operands` to the list of extra operands and return the index of the
-  ## first operand added as an operand
+  ## first operand added
   if b.extraOperands.high + operands.len > high(Operand).int:
     raise newException(ValueError):
       "Adding operands will exceed the maximum capacity of " & $high(Operand)
