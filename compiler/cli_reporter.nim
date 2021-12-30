@@ -1,4 +1,4 @@
-import reports, ast
+import reports, ast, types
 import ./options as compiler_options
 import std/[strformat, strutils, options,
             parseutils, algorithm, sequtils]
@@ -126,6 +126,8 @@ type
     nested: seq[ArgCompare]
 
 func rankMismatch(wanted, found: Arg): ArgCompare =
+  assert not isNil(wanted.typ)
+  assert not isNil(found.typ)
   ArgCompare(wanted: wanted.typ, found: found.typ)
 
 import astalgo
@@ -173,11 +175,48 @@ proc toRanked(
     result.add RankedCallMismatch(sem: m)
     result[^1].updateRank(args)
 
+proc typeHeadName(t: PType, withModule: bool = false): string =
+  case t.kind:
+    of tyGenericBody:
+      result = t.lastSon.typeToString()
+
+    else:
+      result = $t.kind
+
 proc format(target: PType, other: PType = nil): ColoredText =
   coloredResult()
 
   proc aux(target, other: PType) =
-    add treeRepr(target.n)
+    # if target.isNil:
+    #   add typeToString(target)
+    #   return
+
+    if other.isNil:
+      add typeToString(target)
+      return
+
+    else:
+      var tname = target.typeHeadName()
+      var oname = other.typeHeadName()
+      if tname == oname:
+        add tname
+
+      else:
+        add tname + fgGreen
+        add " != "
+        add oname + fgRed
+
+    case target.kind:
+      of tyGenericBody, tyBuiltinTypeClass:
+        add "["
+        for idx in 0 ..< len(target):
+          if idx > 0: add ", "
+          aux(target[idx], other[idx])
+
+        add "]"
+
+      else:
+        discard
 
   aux(target, other)
 
@@ -202,6 +241,8 @@ proc formatProc(p: PSym): ColoredText =
 
 
 proc format(arg: ArgCompare): ColoredText =
+  assert not isNil(arg.wanted)
+  assert not isNil(arg.found)
   result.add format(arg.wanted, arg.found)
 
 proc format(mis: RankedCallMismatch): ColoredText =
@@ -258,8 +299,7 @@ proc reportCallMismatch(conf: ConfigRef, r: SemReport) =
     # Convert each group's items into ranked nodes and sort candidates
     # within the byType using more advanced heuristics.
     let expr = group[0].expression
-    echo "but expression is of type"
-    echo treeRepr(expr)
+    echo "Expression for argument is of type ", expr.typ.format()
     for mis in group.toRanked(args).sortedByIt(-it.rank):
       echo mis.format()
 

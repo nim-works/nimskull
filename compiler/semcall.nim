@@ -171,13 +171,13 @@ proc renderNotLValue(n: PNode): string =
     result = typeToString(n.typ.skipTypes(abstractVar)) & "(" & result & ")"
 
 proc presentFailedCandidates(
-  c: PContext, n: PNode, errors: CandidateErrors): (TPreferedDesc, seq[SemCallMismatch]) =
+  c: PContext, n: PNode, errors: CandidateErrors): seq[SemCallMismatch] =
   ## Construct list of type mismatch descriptions for subsequent reporting.
   ## This procedure simply repacks the data from CandidateErrors into
   ## `SemCallMismatch` - discard unnecessary data, pull important elements
   ## into the result. No actual formatting is done here.
 
-  var prefer = preferName
+
   var candidates: seq[SemCallMismatch]
   for err in errors:
     var cand = SemCallMismatch(kind: err.firstMismatch.kind)
@@ -207,7 +207,8 @@ proc presentFailedCandidates(
         of kTypeMismatch, kVarNeeded:
           assert nArg != nil
           assert err.firstMismatch.formal != nil
-
+          assert err.firstMismatch.formal.typ != nil
+          assert nArg.typ != nil
           cand.expression = nArg
           cand.typeMismatch = c.config.typeMismatch(
             err.firstMismatch.formal.typ, nArg.typ)
@@ -218,15 +219,7 @@ proc presentFailedCandidates(
 
     candidates.add cand
 
-  result = (prefer, candidates)
-
-const
-  errTypeMismatch = "type mismatch: got <"
-  errButExpected = "but expected one of:"
-  errUndeclaredField = "undeclared field: '$1'"
-  errUndeclaredRoutine = "attempting to call undeclared routine: '$1'"
-  errBadRoutine = "attempting to call routine: '$1'$2"
-  errAmbiguousCallXYZ = "ambiguous call; both $1 and $2 match for: $3"
+  result = candidates
 
 proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
   ## Gives a detailed error message; this is separated from semOverloadedCall,
@@ -246,12 +239,10 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
     result = c.config.newError(n, rsemExpressionCannotBeCalled)
     return
 
-  let (prefer, candidates) = presentFailedCandidates(c, n, errors)
-
   result = newError(c.config, n, SemReport(
     kind: rsemCallTypeMismatch,
     expression: n,
-    callMismatches: candidates
+    callMismatches: presentFailedCandidates(c, n, errors)
   ))
 
 proc bracketNotFoundError(c: PContext; n: PNode): PNode =
@@ -544,6 +535,7 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
   var errors: CandidateErrors = @[]
 
   var r = resolveOverloads(c, n, nOrig, filter, flags, errors)
+
   if r.state != csMatch and implicitDeref in c.features and canDeref(n):
     # try to deref the first argument and then try overloading resolution again:
     #
@@ -558,11 +550,11 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
   if r.state == csMatch:
     # this may be triggered, when the explain pragma is used
     if (r.diagnosticsEnabled or efExplain in flags) and errors.len > 0:
-      let (_, candidates) = presentFailedCandidates(c, n, errors)
       localReport(c.config, n.info, SemReport(
         expression: n,
         kind: rsemNonMatchingCandidates,
-        callMismatches: candidates))
+        callMismatches: presentFailedCandidates(c, n, errors)
+      ))
 
     result = semResolvedCall(c, r, n, flags)
 
@@ -570,7 +562,7 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
     result = r.call
 
   elif efNoUndeclared notin flags:
-    result = notFoundError(c, nOrig, errors)
+    result = notFoundError(c, n, errors)
 
   else:
     result = r.call
