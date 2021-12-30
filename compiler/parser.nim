@@ -185,11 +185,6 @@ proc skipComment(p: var Parser, node: PNode) =
 proc flexComment(p: var Parser, node: PNode) =
   if p.tok.indent < 0 or realInd(p): rawSkipComment(p, node)
 
-const
-  errInvalidIndentation = "invalid indentation"
-  errIdentifierExpected = "identifier expected, but got '$1'"
-  errExprExpected = "expression expected, but found '$1'"
-
 proc skipInd(p: var Parser) =
   if p.tok.indent >= 0:
     if not realInd(p):
@@ -2431,8 +2426,7 @@ proc parseTopLevelStmt(p: var Parser): PNode =
       break
 
 proc parseString*(s: string; cache: IdentCache; config: ConfigRef;
-                  filename: string = ""; line: int = 0;
-                  errorHandler: ErrorHandler = nil): PNode =
+                  filename: string = ""; line: int = 0): PNode =
   ## Parses a string into an AST, returning the top node.
   ## `filename` and `line`, although optional, provide info so that the
   ## compiler can generate correct error messages referring to the original
@@ -2441,7 +2435,6 @@ proc parseString*(s: string; cache: IdentCache; config: ConfigRef;
   stream.lineOffset = line
 
   var parser: Parser
-  parser.lex.errorHandler = errorHandler
   openParser(parser, AbsoluteFile filename, stream, cache, config)
 
   result = parser.parseAll

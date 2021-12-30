@@ -10,34 +10,6 @@
 # this module does the semantic checking of type declarations
 # included from sem.nim
 
-const
-  errStringOrIdentNodeExpected = "string or ident node expected"
-  errStringLiteralExpected = "string literal expected"
-  errIntLiteralExpected = "integer literal expected"
-  errWrongNumberOfVariables = "wrong number of variables"
-  errInvalidOrderInEnumX = "invalid order in enum '$1'"
-  errOrdinalTypeExpected = "ordinal type expected"
-  errSetTooBig = "set is too large"
-  errBaseTypeMustBeOrdinal = "base type of a set must be an ordinal"
-  errInheritanceOnlyWithNonFinalObjects = "inheritance only works with non-final objects"
-  errXExpectsOneTypeParam = "'$1' expects one type parameter"
-  errArrayExpectsTwoTypeParams = "array expects two type parameters"
-  errInvalidVisibilityX = "invalid visibility: '$1'"
-  errInitHereNotAllowed = "initialization not allowed here"
-  errXCannotBeAssignedTo = "'$1' cannot be assigned to"
-  errIteratorNotAllowed = "iterators can only be defined at the module's top level"
-  errXNeedsReturnType = "$1 needs a return type"
-  errNoReturnTypeDeclared = "no return type declared"
-  errTIsNotAConcreteType = "'$1' is not a concrete type"
-  errTypeExpected = "type expected"
-  errXOnlyAtModuleScope = "'$1' is only allowed at top level"
-  errDuplicateCaseLabel = "duplicate case label"
-  errMacroBodyDependsOnGenericTypes = "the macro body cannot be compiled, " &
-    "because the parameter '$1' has a generic type"
-  errIllegalRecursionInTypeX = "illegal recursion in type '$1'"
-  errNoGenericParamsAllowedForX = "no generic parameters allowed for $1"
-  errInOutFlagNotExtern = "the '$1' modifier can be used only with imported types"
-
 proc newOrPrevType(kind: TTypeKind, prev: PType, c: PContext): PType =
   if prev == nil:
     result = newTypeS(kind, c)

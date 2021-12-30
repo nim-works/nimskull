@@ -13,17 +13,6 @@
 when defined(nimCompilerStacktraceHints):
   import std/stackframes
 
-const
-  errExprXHasNoType = "expression '$1' has no type (or is ambiguous)"
-  errXExpectsTypeOrValue = "'$1' expects a type or value"
-  errVarForOutParamNeededX = "for a 'var' type a variable needs to be passed; but '$1' is immutable"
-  errXStackEscape = "address of '$1' may not escape its stack frame"
-  errExprHasNoAddress = "expression has no address"
-  errCannotInterpretNodeX = "cannot evaluate '$1'"
-  errNamedExprExpected = "named expression expected"
-  errNamedExprNotAllowed = "named expression not allowed here"
-  errFieldInitTwice = "field initialized twice: '$1'"
-
 proc semTemplateExpr(c: PContext, n: PNode, s: PSym,
                      flags: TExprFlags = {}): PNode =
   rememberExpansion(c, n.info, s)

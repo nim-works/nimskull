@@ -254,7 +254,6 @@ proc listGcUnsafety(s: PSym; onlyWarning: bool; cycleCheck: var IntSet; conf: Co
 
     let u = s.gcUnsafetyReason
     if u != nil and not cycleCheck.containsOrIncl(u.id):
-      let msgKind = if onlyWarning: warnGcUnsafe2 else: errGenerated
       var reason: SemGcUnsafetyKind
       case u.kind
       of skLet, skVar:

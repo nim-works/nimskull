@@ -166,17 +166,7 @@ proc msgQuit*(x: string) = quit x
 proc suggestQuit*() =
   raise newException(ESuggestDone, "suggest done")
 
-# this format is understood by many text editors: it is the same that
-# Borland and Freepascal use
 const
-  KindFormat   = " [$1]"
-  KindColor    = fgCyan
-  ErrorTitle   = "Error: "
-  ErrorColor   = fgRed
-  WarningTitle = "Warning: "
-  WarningColor = fgYellow
-  HintTitle    = "Hint: "
-  HintColor    = fgGreen
   # NOTE: currently line info line numbers start with 1,
   # but column numbers start with 0, however most editors expect
   # first column to be 1, so we need to +1 here
@@ -421,11 +411,6 @@ proc msgWrite(conf: ConfigRef; s: string) =
 #     when defined(windows):
 #       flushFile(stderr)
 
-proc msgKindToString*(kind: TMsgKind): string = MsgKindToStr[kind]
-  # later versions may provide translated error messages
-
-proc getMessageStr(msg: TMsgKind, arg: string): string = msgKindToString(msg) % [arg]
-
 type TErrorHandling* = enum doNothing, doAbort, doRaise
 
 proc log*(s: string) =
@@ -502,9 +487,6 @@ proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
 
     info = context.info
 
-proc ignoreMsgBecauseOfIdeTools(conf: ConfigRef; msg: TMsgKind): bool =
-  msg >= errGenerated and conf.cmd == cmdIdeTools and optIdeDebug notin conf.globalOptions
-
 proc addSourceLine(conf: ConfigRef; fileIdx: FileIndex, line: string) =
   conf.m.fileInfos[fileIdx.int32].lines.add line
 
@@ -536,13 +518,6 @@ proc getSurroundingSrc(conf: ConfigRef; info: TLineInfo): string =
     result = "\n" & indent & $sourceLine(conf, info)
     if info.col >= 0:
       result.add "\n" & indent & spaces(info.col) & '^'
-
-proc formatMsg*(conf: ConfigRef; info: TLineInfo, msg: TMsgKind, arg: string): string =
-  let title = case msg
-              of warnMin..warnMax: WarningTitle
-              of hintMin..hintMax: HintTitle
-              else: ErrorTitle
-  conf.toFileLineCol(info) & " " & title & getMessageStr(msg, arg)
 
 proc handleReport*(
     conf: ConfigRef, report: Report, eh: TErrorHandling) {.noinline.} =

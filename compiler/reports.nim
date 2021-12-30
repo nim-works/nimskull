@@ -616,6 +616,7 @@ type
     rsemImmutableBorrowMutation
 
     # VM
+    rsemVmOpcParseExpectedExpression
     rsemTooManyRegistersRequired
     rsemVmCannotFindBreakTarget
     rsemVmNotUnused
@@ -1524,6 +1525,11 @@ type
       of repExternal:
         externalReport*: ExternalReport
 
+let reportEmpty* = Report(
+  category: repInternal,
+  internalReport: InternalReport(kind: repNone))
+
+
 template eachCategory*(report: Report, field: untyped): untyped =
   case report.category:
     of repLexer:    report.lexReport.field
@@ -1618,6 +1624,9 @@ func wrap*[R: ReportTypes](
 func wrap*[R: ReportTypes](
     rep: sink R, iinfo: InstantiationInfo, point: ReportLinePoint): Report =
   wrap(rep, toReportLinePoint(iinfo), point)
+
+template wrap*(rep: ReportTypes): Report =
+  wrap(rep, toReportLineInfo(instLoc()))
 
 func `$`*(point: ReportLinePoint): string =
   point.file & ":" & $point.line & ":" & $point.col

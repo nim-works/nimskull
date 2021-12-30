@@ -29,6 +29,14 @@ const
 when hasFFI:
   import evalffi
 
+const
+  errNilAccess = "attempt to access a nil address"
+  errOverOrUnderflow = "over- or underflow"
+  errConstantDivisionByZero = "division by zero"
+  errIllegalConvFromXtoY = "illegal conversion from '$1' to '$2'"
+  errTooManyIterations = "interpretation requires too many iterations; " &
+    "if you are sure this is not a bug in your code, compile with `--maxLoopIterationsVM:number` (current value: $1)"
+  errFieldXNotFound = "node lacks field: "
 
 proc stackTraceAux(
     c: PCtx; x: PStackFrame;
@@ -507,16 +515,6 @@ proc setLenSeq(c: PCtx; node: PNode; newLen: int; info: TLineInfo) =
     for i in oldLen..<newLen:
       node[i] = getNullValue(typ[0], info, c.config)
 
-const
-  errNilAccess = "attempt to access a nil address"
-  errOverOrUnderflow = "over- or underflow"
-  errConstantDivisionByZero = "division by zero"
-  errIllegalConvFromXtoY = "illegal conversion from '$1' to '$2'"
-  errTooManyIterations = "interpretation requires too many iterations; " &
-    "if you are sure this is not a bug in your code, compile with `--maxLoopIterationsVM:number` (current value: $1)"
-  errFieldXNotFound = "node lacks field: "
-
-
 template maybeHandlePtr(node2: PNode, reg: TFullReg, isAssign2: bool): bool =
   let node = node2 # prevent double evaluation
   if node.kind == nkNilLit:
@@ -745,7 +743,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         # for nkPtrLit, this could be supported in the future, use something like:
         # derefPtrToReg(src.intVal + offsetof(src.typ, rc), typ_field, regs[ra], isAssign = false)
         # where we compute the offset in bytes for field rc
-        stackTrace(c, tos, pc, errNilAccess & " " & $("kind", src.kind, "typ", typeToString(src.typ), "rc", rc))
+        stackTrace(c, tos, pc, errNilAccess & " " & $(
+          "kind", src.kind, "typ", typeToString(src.typ), "rc", rc))
       of nkObjConstr:
         let n = src[rc + 1].skipColon
         regs[ra].node = n
@@ -1784,35 +1783,51 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
     of opcParseExprToAst:
       decodeB(rkNode)
       # c.debug[pc].line.int - countLines(regs[rb].strVal) ?
-      var error: string
-      let ast = parseString(regs[rb].node.strVal, c.cache, c.config,
-                            toFullPath(c.config, c.debug[pc]), c.debug[pc].line.int,
-                            proc (conf: ConfigRef; info: TLineInfo; msg: TMsgKind; arg: string) {.nosinks.} =
-                              if error.len == 0 and msg <= errMax:
-                                error = formatMsg(conf, info, msg, arg))
-      if error.len > 0:
+      var error = reportEmpty
+      let ast = parseString(
+        regs[rb].node.strVal,
+        c.cache,
+        c.config,
+        toFullPath(c.config, c.debug[pc]),
+        c.debug[pc].line.int
+        # proc (conf: ConfigRef; info: TLineInfo; msg: TMsgKind; arg: string) {.nosinks.} =
+        #   if error.len == 0 and msg <= errMax:
+        #     error = formatMsg(conf, info, msg, arg)
+      )
+
+      if error.kind > repNone:
         c.errorFlag = error
+
       elif ast.len != 1:
-        c.errorFlag = formatMsg(c.config, c.debug[pc], errGenerated,
-          "expected expression, but got multiple statements")
+        c.errorFlag = SemReport(kind: rsemVmOpcParseExpectedExpression).wrap()
+
       else:
         regs[ra].node = ast[0]
+
     of opcParseStmtToAst:
       decodeB(rkNode)
-      var error: string
-      let ast = parseString(regs[rb].node.strVal, c.cache, c.config,
-                            toFullPath(c.config, c.debug[pc]), c.debug[pc].line.int,
-                            proc (conf: ConfigRef; info: TLineInfo; msg: TMsgKind; arg: string) {.nosinks.} =
-                              if error.len == 0 and msg <= errMax:
-                                error = formatMsg(conf, info, msg, arg))
-      if error.len > 0:
+      var error = reportEmpty
+      let ast = parseString(
+        regs[rb].node.strVal,
+        c.cache,
+        c.config,
+        toFullPath(c.config, c.debug[pc]),
+        c.debug[pc].line.int,
+        # proc (conf: ConfigRef; info: TLineInfo; msg: TMsgKind; arg: string) {.nosinks.} =
+        #   if error.len == 0 and msg <= errMax:
+        #     error = formatMsg(conf, info, msg, arg)
+      )
+
+      if error.kind != repNone:
         c.errorFlag = error
+
       else:
         regs[ra].node = ast
+
     of opcQueryErrorFlag:
       createStr regs[ra]
-      regs[ra].node.strVal = c.errorFlag
-      c.errorFlag.setLen 0
+      regs[ra].node.strVal = $c.errorFlag
+      c.errorFlag = reportEmpty
     of opcCallSite:
       ensureKind(rkNode)
       if c.callsite != nil: regs[ra].node = c.callsite

@@ -561,9 +561,6 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
   c.config.errorMax = oldErrorMax
   c.config.m.errorOutputs = oldErrorOutputs
 
-const
-  errConstExprExpected = "constant expression expected"
-
 proc semConstExpr(c: PContext, n: PNode): PNode =
   var e = semExprWithType(c, n)
   if e == nil:
@@ -670,10 +667,6 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       #globalReport(s.info, errInvalidParamKindX, typeToString(s.typ[0]))
   dec(c.config.evalTemplateCounter)
   discard c.friendModules.pop()
-
-const
-  errMissingGenericParamsForTemplate = "'$1' has unspecified generic parameters"
-  errFloatToString = "cannot convert '$1' to '$2'"
 
 proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
                   flags: TExprFlags = {}): PNode =

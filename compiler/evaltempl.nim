@@ -94,11 +94,6 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
       result.add res
     if isDeclarative: c.isDeclarative = false
 
-const
-  errWrongNumberOfArguments = "wrong number of arguments"
-  errMissingGenericParamsForTemplate = "'$1' has unspecified generic parameters"
-  errTemplateInstantiationTooNested = "template instantiation too nested"
-
 proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode =
   # if the template has zero arguments, it can be called without ``()``
   # `n` is then a nkSym or something similar

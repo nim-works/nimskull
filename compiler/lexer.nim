@@ -110,7 +110,6 @@ type
                               ## like 0b01 or  r"\L" are unaffected
       commentOffsetA*, commentOffsetB*: int
 
-  ErrorHandler* = proc (conf: ConfigRef; info: TLineInfo; msg: TMsgKind; arg: string)
   Lexer* = object of TBaseLexer
     fileIdx*: FileIndex
     indentAhead*: int         ## if > 0 an indentation has already been read
@@ -118,7 +117,6 @@ type
                               ## needs so much look-ahead
     currLineIndent*: int
     strongSpaces*, allowTabs*: bool
-    errorHandler*: ErrorHandler
     cache*: IdentCache
     when defined(nimsuggest):
       previousToken: TLineInfo

@@ -401,15 +401,13 @@ proc resetCompilationLists*(conf: ConfigRef) =
 proc addExternalFileToLink*(conf: ConfigRef; filename: AbsoluteFile) =
   conf.externalToLink.insert(filename.string, 0)
 
-proc execWithEcho(conf: ConfigRef; cmd: string, msg = hintExecuting): int =
+proc execWithEcho(conf: ConfigRef; cmd: string): int =
   conf.localReport(CmdReport(kind: rcmdExecuting, cmd: cmd))
-  # rawMessage(conf, msg, if msg == hintLinking and not(optListCmd in conf.globalOptions or conf.verbosity > 1): "" else: cmd)
   result = execCmd(cmd)
 
-proc execExternalProgram*(conf: ConfigRef; cmd: string, msg = hintExecuting) =
-  if execWithEcho(conf, cmd, msg) != 0:
+proc execExternalProgram*(conf: ConfigRef; cmd: string) =
+  if execWithEcho(conf, cmd) != 0:
     conf.localReport CmdReport(kind: rcmdFailedExecution, cmd: cmd)
-    # rawMessage(conf, errGenerated, "execution of an external program failed: '$1'" % cmd)
 
 proc generateScript(conf: ConfigRef; script: Rope) =
   let (_, name, _) = splitFile(conf.outFile.string)
@@ -794,7 +792,7 @@ proc getExtraCmds(conf: ConfigRef; output: AbsoluteFile): seq[string] =
 
 proc execLinkCmd(conf: ConfigRef; linkCmd: string) =
   tryExceptOSErrorMessage(conf, "invocation of external linker program failed."):
-    execExternalProgram(conf, linkCmd, hintLinking)
+    execExternalProgram(conf, linkCmd)
 
 proc execCmdsInParallel(conf: ConfigRef; cmds: seq[string]; prettyCb: proc (idx: int)) =
   let runCb = proc (idx: int, p: Process) =
@@ -952,7 +950,7 @@ proc callCCompiler*(conf: ConfigRef) =
         else:
           execLinkCmd(conf, linkCmd)
         for cmd in extraCmds:
-          execExternalProgram(conf, cmd, hintExecuting)
+          execExternalProgram(conf, cmd)
   else:
     linkCmd = ""
   if optGenScript in conf.globalOptions:
@@ -1056,7 +1054,7 @@ proc runJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
   execLinkCmd(conf, bcache.linkcmd)
 
   for cmd in bcache.extraCmds:
-    execExternalProgram(conf, cmd, hintExecuting)
+    execExternalProgram(conf, cmd)
 
 proc genMappingFiles(conf: ConfigRef; list: CfileList): Rope =
   for it in list:

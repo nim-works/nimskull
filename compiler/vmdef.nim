@@ -12,7 +12,7 @@
 
 import tables
 
-import ast, idents, options, modulegraphs, lineinfos
+import ast, idents, options, modulegraphs, lineinfos, reports
 
 type TInstrType* = uint64
 
@@ -258,7 +258,7 @@ type
     loopIterations*: int
     comesFromHeuristic*: TLineInfo # Heuristic for better macro stack traces
     callbacks*: seq[tuple[key: string, value: VmCallback]]
-    errorFlag*: string
+    errorFlag*: Report
     cache*: IdentCache
     config*: ConfigRef
     graph*: ModuleGraph
@@ -287,11 +287,23 @@ type
   PEvalContext* = PCtx
 
 proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph; idgen: IdGenerator): PCtx =
-  PCtx(code: @[], debug: @[],
-    globals: newNode(nkStmtListExpr), constants: newNode(nkStmtList), types: @[],
-    prc: PProc(blocks: @[]), module: module, loopIterations: g.config.maxLoopIterationsVM,
-    comesFromHeuristic: unknownLineInfo, callbacks: @[], errorFlag: "",
-    cache: cache, config: g.config, graph: g, idgen: idgen)
+  PCtx(
+    code: @[],
+    debug: @[],
+    globals: newNode(nkStmtListExpr),
+    constants: newNode(nkStmtList),
+    types: @[],
+    prc: PProc(blocks: @[]),
+    module: module,
+    loopIterations: g.config.maxLoopIterationsVM,
+    comesFromHeuristic: unknownLineInfo,
+    callbacks: @[],
+    errorFlag: reportEmpty,
+    cache: cache,
+    config: g.config,
+    graph: g,
+    idgen: idgen
+  )
 
 proc refresh*(c: PCtx, module: PSym; idgen: IdGenerator) =
   c.module = module

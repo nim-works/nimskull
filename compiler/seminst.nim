@@ -54,9 +54,6 @@ proc pushProcCon*(c: PContext; owner: PSym) =
   rawPushProcCon(c, owner)
   rawHandleSelf(c, owner)
 
-const
-  errCannotInstantiateX = "cannot instantiate: '$1'"
-
 iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable): PSym =
   internalAssert(
     c.config,

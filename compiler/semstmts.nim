@@ -10,33 +10,6 @@
 ## this module does the semantic checking of statements
 #  included from sem.nim
 
-const
-  errNoSymbolToBorrowFromFound = "no symbol to borrow from found"
-  errDiscardValueX = "value of type '$1' has to be used (or discarded)"
-  errInvalidDiscard = "statement returns no value that can be discarded"
-  errInvalidControlFlowX = "invalid control flow: $1"
-  errSelectorMustBeOfCertainTypes = "selector must be of an ordinal type, float, or string"
-  errExprCannotBeRaised = "only a 'ref object' can be raised"
-  errBreakOnlyInLoop = "'break' only allowed in loop construct"
-  errExceptionAlreadyHandled = "exception already handled"
-  errYieldNotAllowedHere = "'yield' only allowed in an iterator"
-  errYieldNotAllowedInTryStmt = "'yield' cannot be used within 'try' in a non-inlined iterator"
-  errInvalidNumberOfYieldExpr = "invalid number of 'yield' expressions"
-  errCannotReturnExpr = "current routine cannot return an expression"
-  errGenericLambdaNotAllowed = "A nested proc can have generic parameters only when " &
-    "it is used as an operand to another routine and the types " &
-    "of the generic paramers can be inferred from the expected signature."
-  errCannotInferTypeOfTheLiteral = "cannot infer the type of the $1"
-  errCannotInferReturnType = "cannot infer the return type of '$1'"
-  errCannotInferStaticParam = "cannot infer the value of the static param '$1'"
-  errProcHasNoConcreteType = "'$1' doesn't have a concrete type, due to unspecified generic parameters."
-  errLetNeedsInit = "'let' symbol requires an initialization"
-  errThreadvarCannotInit = "a thread var cannot be initialized explicitly; this would only run for the main thread"
-  errImplOfXexpected = "implementation of '$1' expected"
-  errRecursiveDependencyX = "recursive dependency: '$1'"
-  errRecursiveDependencyIteratorX = "recursion is not supported in iterators: '$1'"
-  errPragmaOnlyInHeaderOfProcX = "pragmas are only allowed in the header of a proc; redefinition of $1"
-
 proc semDiscard(c: PContext, n: PNode): PNode =
   result = n
   checkSonsLen(n, 1, c.config)

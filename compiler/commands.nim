@@ -122,12 +122,6 @@ proc addPrefix(switch: string): string =
   if switch.len <= 1: result = "-" & switch
   else: result = "--" & switch
 
-const
-  errInvalidCmdLineOption = "invalid command line option: '$1'"
-  errOnOrOffExpectedButXFound = "'on' or 'off' expected, but '$1' found"
-  errOnOffOrListExpectedButXFound = "'on', 'off' or 'list' expected, but '$1' found"
-  errOffHintsError = "'off', 'hint' or 'error' expected, but '$1' found"
-
 proc invalidCmdLineOption(conf: ConfigRef; pass: TCmdLinePass, switch: string, info: TLineInfo) =
   conf.localReport(info, ExternalReport(
     kind: rextInvalidCommandLineOption, cmdlineProvided: switch))
@@ -276,12 +270,6 @@ proc processCompile(conf: ConfigRef; filename: string) =
   var found = findFile(conf, filename)
   if found.isEmpty: found = AbsoluteFile filename
   extccomp.addExternalFileToCompile(conf, found)
-
-const
-  errNoneBoehmRefcExpectedButXFound = "'arc', 'orc', 'markAndSweep', 'boehm', 'go', 'none', 'regions', or 'refc' expected, but '$1' found"
-  errNoneSpeedOrSizeExpectedButXFound = "'none', 'speed' or 'size' expected, but '$1' found"
-  errGuiConsoleOrLibExpectedButXFound = "'gui', 'console' or 'lib' expected, but '$1' found"
-  errInvalidExceptionSystem = "'goto', 'setjump', 'cpp' or 'quirky' expected, but '$1' found"
 
 template warningOptionNoop(switch: string) =
   conf.localReport(info,

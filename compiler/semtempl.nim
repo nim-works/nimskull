@@ -26,9 +26,6 @@ discard """
   a way to achieve lexical scoping at compile time.
 """
 
-const
-  errImplOfXNotAllowed = "implementation of '$1' is not allowed"
-
 type
   TSymBinding = enum
     spNone, spGenSym, spInject

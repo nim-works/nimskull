@@ -102,10 +102,6 @@ proc recordPragma(c: PContext; n: PNode; args: varargs[string]) =
     recorded.add newStrNode(args[i], n.info)
   addPragmaComputation(c, recorded)
 
-const
-  errStringLiteralExpected = "string literal expected"
-  errIntLiteralExpected = "integer literal expected"
-
 proc invalidPragma*(c: PContext; n: PNode) =
   localReport(c.config, n.info, SemReport(kind: rsemInvalidPragma, expression: n))
 
