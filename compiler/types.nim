@@ -1514,7 +1514,9 @@ proc skipHiddenSubConv*(n: PNode; g: ModuleGraph; idgen: IdGenerator): PNode =
   else:
     result = n
 
-proc getProcConvMismatch*(c: ConfigRef, f, a: PType, rel = isNone): (set[ProcConvMismatch], TTypeRelation) =
+proc getProcConvMismatch*(
+    c: ConfigRef, f, a: PType, rel = isNone
+  ): (set[ProcConvMismatch], TTypeRelation) =
   ## Returns a set of the reason of mismatch, and the relation for conversion.
   result[1] = rel
   if tfNoSideEffect in f.flags and tfNoSideEffect notin a.flags:
@@ -1557,10 +1559,6 @@ proc typeMismatch*(conf: ConfigRef, formal, actual: PType): SemTypeMismatch =
     wantedType: formal,
     descriptionStr: typeToString(formal, preferDesc)
   )
-
-  if formal.kind == tyProc and actual.kind == tyProc:
-    result.procCallMismatch = getProcConvMismatch(conf, formal, actual)[0]
-    result.procEffectsCompat = compatibleEffects(formal, actual)
 
 proc typeMismatch*(
   conf: ConfigRef, actual: PType, formal: set[TTypeKind]): SemTypeMismatch =

@@ -1062,8 +1062,6 @@ type
     wantedTypeKind*: set[TTypeKind]
     actualType*, wantedType*: PType
     descriptionStr*: string
-    procEffectsCompat*: EffectsCompat
-    procCallMismatch*: set[ProcConvMismatch]
 
   SemCallDiagnosticsKind* = enum
     scalldDefaultParamIsIncompatible

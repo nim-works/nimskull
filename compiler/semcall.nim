@@ -132,43 +132,7 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
     else:
       break
 
-proc effectProblem(f, a: PType; result: var string; c: PContext) =
-  if f.kind == tyProc and a.kind == tyProc:
-    if tfThread in f.flags and tfThread notin a.flags:
-      result.add "\n  This expression is not GC-safe. Annotate the " &
-          "proc with {.gcsafe.} to get extended error information."
-    elif tfNoSideEffect in f.flags and tfNoSideEffect notin a.flags:
-      result.add "\n  This expression can have side effects. Annotate the " &
-          "proc with {.noSideEffect.} to get extended error information."
-    else:
-      case compatibleEffects(f, a)
-      of efCompat: discard
-      of efRaisesDiffer:
-        result.add "\n  The `.raises` requirements differ."
-      of efRaisesUnknown:
-        result.add "\n  The `.raises` requirements differ. Annotate the " &
-            "proc with {.raises: [].} to get extended error information."
-      of efTagsDiffer:
-        result.add "\n  The `.tags` requirements differ."
-      of efTagsUnknown:
-        result.add "\n  The `.tags` requirements differ. Annotate the " &
-            "proc with {.tags: [].} to get extended error information."
-      of efLockLevelsDiffer:
-        result.add "\n  The `.locks` requirements differ. Annotate the " &
-            "proc with {.locks: 0.} to get extended error information."
-      of efEffectsDelayed:
-        result.add "\n  The `.effectsOf` annotations differ."
-      when defined(drnim):
-        if not c.graph.compatibleProps(c.graph, f, a):
-          result.add "\n  The `.requires` or `.ensures` properties are incompatible."
 
-proc renderNotLValue(n: PNode): string =
-  result = $n
-  let n = if n.kind == nkHiddenDeref: n[0] else: n
-  if n.kind == nkHiddenCallConv and n.len > 1:
-    result = $n[0] & "(" & result & ")"
-  elif n.kind in {nkHiddenStdConv, nkHiddenSubConv} and n.len == 2:
-    result = typeToString(n.typ.skipTypes(abstractVar)) & "(" & result & ")"
 
 proc presentFailedCandidates(
   c: PContext, n: PNode, errors: CandidateErrors): seq[SemCallMismatch] =
