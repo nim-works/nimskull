@@ -1292,7 +1292,8 @@ func severity*(report: SemReport): ReportSeverity =
 func reportSymbols*(
     kind: ReportKind,
     symbols: seq[PSym],
-    rtype: PType = nil
+    rtype: PType = nil,
+    ast: PNode = nil
   ): SemReport =
   case kind:
     of rsemReportTwoSym: assert symbols.len == 2
@@ -1300,7 +1301,7 @@ func reportSymbols*(
     of rsemReportListSym: discard
     else: assert false, $kind
 
-  result = SemReport(kind: kind)
+  result = SemReport(kind: kind, expression: ast)
   result.symbols = symbols
   result.rtype = rtype
 

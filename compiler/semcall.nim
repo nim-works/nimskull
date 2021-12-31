@@ -381,15 +381,11 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
       globalReport(c.config, n.info, SemReport(kind: rsemAmbiguous))
 
     elif c.config.errorCounter == 0:
-      # don't cascade errors
-      var args = "("
-      for i in 1..<n.len:
-        if i > 1: args.add(", ")
-        args.add(typeToString(n[i].typ))
-      args.add(")")
-
       localReport(c.config, n.info, reportSymbols(
-        rsemAmbiguous, @[result.calleeSym, alt.calleeSym]))
+        rsemAmbiguous,
+        @[result.calleeSym, alt.calleeSym],
+        ast = n
+      ))
 
 proc instGenericConvertersArg*(c: PContext, a: PNode, x: TCandidate) =
   let a = if a.kind == nkHiddenDeref: a[0] else: a

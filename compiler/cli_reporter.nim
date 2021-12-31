@@ -439,6 +439,24 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
         result = "undeclared field: '$1'" % r.msg & typeHint & suffix
 
+    of rsemUndeclaredField:
+      result =  "undeclared field: '$1' for type $2" % [
+        $r.expression.ident.s, $getProcHeader(conf, r.psym)]
+
+    of rsemAmbiguous:
+      var args = "("
+      for i in 1 ..< r.expression.len:
+        if i > 1:
+          args.add(", ")
+        args.add(typeToString(r.expression[i].typ))
+      args.add(")")
+
+
+      result = "ambiguous call; both $1 and $2 match for: $3" % [
+        getProcHeader(conf, r.symbols[0]),
+        getProcHeader(conf, r.symbols[1])
+      ]
+
     else:
       return $r
 
