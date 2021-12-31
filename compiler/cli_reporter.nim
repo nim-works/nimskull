@@ -312,7 +312,7 @@ proc describeArgs(conf: ConfigRef, n: PNode, startIdx = 1; prefer = preferName):
 
 
 proc toStr(conf: ConfigRef, r: SemReport): string =
-  case r.kind:
+  case SemReportKind(r.kind):
     of rsemCallTypeMismatch:
       let (prefer, candidates) = presentFailedCandidates(
         conf, r.expression, r.callMismatches)
@@ -323,8 +323,102 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       if candidates != "":
         result.add "\nbut expected one of:\n" & candidates
 
-    else:
-      return $r
+    of rsemPragmaRecursiveDependency:
+      result.add "recursive dependency: "
+      result.add r.psym.name.s
+
+    of rsemMisplacedDeprecation:
+      result = "annotation to deprecated not supported here"
+
+    of rsemNoUnionForJs:
+      result = "`{.union.}` is not implemented for js backend."
+
+    of rsemBitsizeRequiresPositive:
+      result = "bitsize needs to be positive"
+
+    of rsemExperimentalRequiresToplevel:
+      result = "'experimental' pragma only valid as toplevel " &
+        "statement or in a 'push' environment"
+
+    of rsemDeprecated:
+      result = r.msg
+
+    of rsemThisPragmaRequires01Args:
+      # FIXME remove this report kind, reuse "wrong number of arguments"
+      result = "'this' pragma is allowed to have zero or one arguments"
+
+    of rsemTooManyRegistersRequired:
+      result = "VM problem: too many registers required"
+
+    of rsemVmCannotFindBreakTarget:
+      result = "VM problem: cannot find 'break' target"
+
+    of rsemVmNotUnused:
+      result = "not unused"
+
+    of rsemVmTooLargetOffset:
+      result = "too large offset! cannot generate code for: " &
+        r.psym.name.s
+
+    of rsemVmCannotGenerateCode:
+      result = "cannot generate code for: " &
+        $r.expression
+
+    of rsemVmCannotCast:
+      let mis = r.typeMismatch[0]
+      result = "VM does not support 'cast' from " &
+        $mis.actualType.kind & " to " & $mis.wantedType.kind
+
+    of rsemVmInvalidBindSym:
+      result = "invalid bindSym usage"
+
+    of rsemExpressionHasNoType:
+      result = "expression has no type: " & $r.expression
+
+    of rsemSymbolKindMismatch:
+      result = "cannot use symbol of kind '$1' as a '$2'" %
+        [$r.psym.kind, $r.expectedSymbolKind]
+
+    of rsemTypeNotAllowed:
+      let (t, typ, kind) = (
+        r.allowedType.allowed, r.allowedType.actual, r.allowedType.kind)
+
+      if t == typ:
+        result = "invalid type: '$1' for $2" % [
+          typeToString(typ), toHumanStr(kind)]
+
+        if kind in {skVar, skLet, skConst} and taIsTemplateOrMacro in flags:
+          result &= ". Did you mean to call the $1 with '()'?" % [
+            toHumanStr(typ.owner.kind)]
+
+      else:
+        result = "invalid type: '$1' in this context: '$2' for $3" % [
+          typeToString(t), typeToString(typ), toHumanStr(kind)]
+
+    of rsemCyclicTree:
+      result = "the resulting AST is cyclic and cannot be processed further"
+
+    of rsemConstExprExpected:
+      result = "constant expression expected"
+
+    of rsemTemplateInstantiationTooNested:
+      result = "template instantiation too nested"
+
+    of rsemExpressionHasNoType:
+      result = "expression has no type: " & renderTree(r.expression, {renderNoComments})
+
+    of rsemMissingGenericParamsForTemplate:
+      result = "'$1' has unspecified generic parameters" % r.psym.name.s
+
+    of rsemExpandMacro:
+      result = r.expandedExpr.renderTree()
+
+    of rsemUnusedImport:
+      result = "imported and not used: '$1'" % r.psym.name.s
+
+
+    # else:
+    #   return $r
 
 proc toStr(conf: ConfigRef, loc: ReportLineInfo): string = $loc
 

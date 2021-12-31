@@ -1201,9 +1201,7 @@ proc prepareSinglePragma(
     inc c.instCounter
     if c.instCounter > 100:
       result = c.config.newError(
-        it,
-        rsemPragmaRecursiveDependency,
-        errmsg = "recursive dependency: " & userPragma.name.s)
+        it, reportSym(rsemPragmaRecursiveDependency, userPragma))
 
       return # xxx: under the legacy error scheme, this was a
              #      `msgs.globalReport`, which means `doRaise`, or throw an
@@ -1791,7 +1789,7 @@ proc prepareSinglePragma(
             result = it
       of wExperimental:
         if not isTopLevel(c):
-          result = c.config.newError(it, rsemMisplacedExperimental)
+          result = c.config.newError(it, rsemExperimentalRequiresToplevel)
         result = processExperimental(c, it)
       of wThis:
         if it.kind in nkPragmaCallKinds and it.len == 2:

@@ -297,6 +297,7 @@ type
     rsemRecursiveImport
     rsemCannotOpenFile
     rsemExportRequiresToplevel
+    rsemExperimentalRequiresToplevel
     rsemMethodRequiresToplevel
     rsemPackageRequiresToplevel
     rsemConverterRequiresToplevel
@@ -710,7 +711,6 @@ type
     rsemNoUnionForJs
 
     rsemThisPragmaRequires01Args
-    rsemMisplacedExperimental
     rsemMismatchedPopPush
     rsemExcessiveCompilePragmaArgs
     rsemLinePragmaExpectsTuple
@@ -1307,6 +1307,17 @@ func reportNode*(
   SemReport(
     kind: kind, expression: node, msg: str, rtype: rtype, psym: psym)
 
+func reportSym*(
+    kind: ReportKind,
+    psym: PSym,
+    node: PNode = nil,
+    str: string = "",
+    rtype: PType = nil,
+  ): SemReport =
+
+  SemReport(
+    kind: kind, expression: node, msg: str, rtype: rtype, psym: psym)
+
 template withIt*(expr: untyped, body: untyped): untyped =
   block:
     var it {.inject.} = expr
@@ -1519,6 +1530,8 @@ const
       rextErrorKinds +
       rcmdErrorKinds +
       rintErrorKinds
+
+  repFatalKinds*: ReportKinds = rintFatalKinds
 
 
 type

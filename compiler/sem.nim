@@ -266,8 +266,7 @@ proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
   if arg.typ.isNil:
-    c.config.localReport(arg.info, SemReport(
-      kind: rsemExpressionHasNoType, expression: arg))
+    c.config.localReport(arg.info, reportNode(rsemExpressionHasNoType, arg))
 
     # error correction:
     result = copyTree(arg)

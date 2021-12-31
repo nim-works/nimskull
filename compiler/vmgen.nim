@@ -623,7 +623,7 @@ proc genField(c: PCtx; n: PNode): TRegister =
 
   let s = n.sym
   if s.position > high(typeof(result)):
-    globalReport(c.config, n.info, SemReport(kind: rsemVmTooLargetOffset, psym: s))
+    globalReport(c.config, n.info, reportSym(rsemVmTooLargetOffset, s))
 
   result = s.position
 
