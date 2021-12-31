@@ -113,7 +113,7 @@ proc swapArgs(fact: PNode, newOp: PSym): PNode =
   result[2] = fact[1]
 
 proc neg(n: PNode; o: Operators): PNode =
-  if n == nil: return nil
+  if n == nil: return nilPNode
   case n.getMagic
   of mNot:
     result = n[1]
@@ -123,7 +123,7 @@ proc neg(n: PNode; o: Operators): PNode =
   of someLe:
     result = swapArgs(n, o.opLt)
   of mInSet:
-    if n[1].kind != nkCurly: return nil
+    if n[1].kind != nkCurly: return nilPNode
     let t = n[2].typ.skipTypes(abstractInst)
     result = newNodeI(nkCall, n.info, 3)
     result[0] = n[0]
@@ -139,7 +139,7 @@ proc neg(n: PNode; o: Operators): PNode =
     else:
       # not ({2, 3, 4}.contains(x))   x != 2 and x != 3 and x != 4
       # XXX todo
-      result = nil
+      result = nilPNode
   of mOr:
     # not (a or b) --> not a and not b
     let
@@ -304,7 +304,7 @@ proc canon*(n: PNode; o: Operators): PNode =
                            reassociation(o.opAdd.buildCall(y, x[2]), o))
       of someAdd:
         # Rule A:
-        let plus = negate(y, x[2], nil, o).reassociation(o)
+        let plus = negate(y, x[2], nilPNode, o).reassociation(o)
         if plus != nil: result = buildCall(result[0].sym, x[1], plus)
       else: discard
     elif y.kind in nkCallKinds and y.len == 3 and y[2].isValue and
@@ -315,7 +315,7 @@ proc canon*(n: PNode; o: Operators): PNode =
         result = buildCall(result[0].sym, y[1],
                            reassociation(o.opAdd.buildCall(x, y[2]), o))
       of someAdd:
-        let plus = negate(x, y[2], nil, o).reassociation(o)
+        let plus = negate(x, y[2], nilPNode, o).reassociation(o)
         # ensure that Rule A will not trigger afterwards with the
         # additional 'not isLetLocation' constraint:
         if plus != nil and not isLetLocation(x, true):
@@ -898,7 +898,7 @@ proc pleViaModelRec(m: var TModel; a, b: PNode): TImplication =
     let fact = m.s[i]
     if fact != nil and fact.getMagic in someLe:
       # mark as used:
-      m.s[i] = nil
+      m.s[i] = nilPNode
       # i <= len-100
       # i <=? len-1
       # --> true  if  (len-100) <= (len-1)

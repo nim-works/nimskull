@@ -897,7 +897,7 @@ proc handleStmtMacro(c: PContext; n, selector: PNode; magicType: string;
     case match.kind
     of skMacro: result = semMacroExpr(c, callExpr, match, flags)
     of skTemplate: result = semTemplateExpr(c, callExpr, match, flags)
-    else: result = nil
+    else: result = nilPNode
 
 proc handleForLoopMacro(c: PContext; n: PNode; flags: TExprFlags): PNode =
   result = handleStmtMacro(c, n, n[^2], "ForLoopStmt", flags)
@@ -923,7 +923,7 @@ proc handleCaseStmtMacro(c: PContext; n: PNode; flags: TExprFlags): PNode =
     case match.kind
     of skMacro: result = semMacroExpr(c, toExpand, match, flags)
     of skTemplate: result = semTemplateExpr(c, toExpand, match, flags)
-    else: result = nil
+    else: result = nilPNode
   else:
     assert r.call.kind == nkError
     result = r.call # xxx: hope this is nkError
@@ -2136,6 +2136,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
         maybeAddResult(c, s, n)
         # semantic checking also needed with importc in case used in VM
         s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
+
         # unfortunately we cannot skip this step when in 'system.compiles'
         # context as it may even be evaluated in 'system.compiles':
         trackProc(c, s, s.ast[bodyPos])

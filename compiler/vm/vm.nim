@@ -45,7 +45,8 @@ import
     debugutils,
     int128,
     btrees,
-    bitsets
+    bitsets,
+    astrepr
   ],
   compiler/sem/[
     sighashes,
@@ -81,6 +82,7 @@ from std/math import round
 
 const
   traceCode = defined(nimVMDebugExecute)
+  debugEchoCode* = defined(nimVMDebugGenerate)
 
 const
   errIllegalConvFromXtoY = "illegal conversion from '$1' to '$2'"
@@ -101,8 +103,8 @@ proc createStackTrace(
 
   result = SemReport(kind: rsemVmStackTrace)
   # Just leave the exceptions empty, they aren't used anyways
-  result.currentExceptionA = nil
-  result.currentExceptionB = nil
+  result.currentExceptionA = nilPNode
+  result.currentExceptionB = nilPNode
 
   block:
     var i = sframe
@@ -419,7 +421,6 @@ proc writeLoc(h: LocHandle, x: TFullReg, mm: var VmMemoryManager) =
   of rkNimNode:
     assert h.typ.kind == akPNode
     setNodeValue(h, x.nimNode)
-
   of rkRegAddr:
     # The following code won't work in the vm (until rkRegAddr replaced)
     # .. code-block:: nim
@@ -730,7 +731,7 @@ proc compile(c: var TCtx, s: PSym): int =
   result = r.start
 
   when debugEchoCode:
-    c.codeListing(s, nil, start = result)
+    c.codeListing(s, nilPNode, start = result)
 
 template handleJmpBack() {.dirty.} =
   if c.loopIterations <= 0:
@@ -973,8 +974,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
   #echo "NEW RUN ------------------------"
   while true:
     #{.computedGoto.}
-    let instr = c.code[pc]
-    let ra = instr.regA
+    let
+      instr = c.code[pc]
+      ra = instr.regA
 
     when traceCode:
       template regDescr(r): TRegisterKind =
@@ -2588,7 +2590,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         rc = instr.regC
         idx = int(regs[rb+rc-1].intVal)
         callback = c.callbacks[idx].value
-        args = VmArgs(ra: ra, rb: rb, rc: rc, slots: cast[ptr UncheckedArray[TFullReg]](addr regs[0]),
+        args = VmArgs(
+                ra: ra, rb: rb, rc: rc,
+                slots: cast[ptr UncheckedArray[TFullReg]](addr regs[0]),
                 currentException: c.currentExceptionA,
                 currentLineInfo: c.debug[pc],
                 typeCache: addr c.typeInfoCache,
@@ -2679,7 +2683,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       else: raiseVmError(reportStr(rsemVmFieldNotFound, "floatVal"))
     of opcNodeId:
       decodeB(rkInt)
-      regs[ra].intVal = regs[rb].nimNode.id
+      regs[ra].intVal = regs[rb].nimNode.id.int
     of opcNGetType:
       let rb = instr.regB
       let rc = instr.regC
@@ -3350,7 +3354,7 @@ proc unpackResult(r: sink VmGenResult, conf: ConfigRef, node: PNode, start: var 
   ## new `nkError` wrapping `node`. Otherwise, sets `start` to the instruction
   ## offset given by the result and returns `nil`
   if r.success:
-    result = nil
+    result = nilPNode
     start = r.start
   else:
     let kind = r.report.kind
@@ -3374,10 +3378,10 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
 
     else:
       var start: int
-      result = genProc(c, sym).unpackResult(c.config, nil, start)
+      result = genProc(c, sym).unpackResult(c.config, nilPNode, start)
       if unlikely(result != nil):
         localReport(c.config, result)
-        return nil
+        return nilPNode
 
       var tos = TStackFrame(prc: sym, comesFrom: 0, next: -1)
       let maxSlots = sym.offset
@@ -3402,7 +3406,7 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
           mkCallback(c, r): newNodeI(nkEmpty, sym.info)
 
       let r = execute(c, start, tos, cb)
-      result = r.unpackResult(c.config, nil, wrap = false)
+      result = r.unpackResult(c.config, nilPNode, wrap = false)
   else:
     localReport(c.config, sym.info, reportSym(rsemVmCallingNonRoutine, sym))
 
@@ -3417,7 +3421,7 @@ proc evalStmt(c: var TCtx, n: PNode) =
   # execute new instructions; this redundant opcEof check saves us lots
   # of allocations in 'execute':
   if c.code[start].opcode != opcEof:
-    discard execute(c, start).unpackResult(c.config, nil, wrap = false)
+    discard execute(c, start).unpackResult(c.config, nilPNode, wrap = false)
 
 proc evalExpr*(c: var TCtx, n: PNode): PNode =
   # deadcode
@@ -3630,7 +3634,7 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
       # TODO: the decrement here is wrong, but the else branch is likely
       #       currently not reached anyway
       dec(g.config.evalMacroCounter)
-      c.callsite = nil
+      c.callsite = nilPNode
       localReport(c.config, n.info, SemReport(
         kind: rsemWrongNumberOfGenericParams,
         countMismatch: (
@@ -3649,5 +3653,5 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
     globalReport(c.config, n.info, reportAst(rsemCyclicTree, n, sym = sym))
 
   dec(g.config.evalMacroCounter)
-  c.callsite = nil
+  c.callsite = nilPNode
   c.mode = oldMode

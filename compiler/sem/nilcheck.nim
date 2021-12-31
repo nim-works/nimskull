@@ -392,7 +392,6 @@ proc aliasSet(ctx: NilCheckerContext, map: NilMap, index: ExprIndex): IntSet =
   result = map.sets[map.setIndices[index]]
 
 
-
 proc store(
     map: NilMap,
     ctx: NilCheckerContext,
@@ -400,9 +399,8 @@ proc store(
     value: Nilability,
     kind: NilTransition,
     info: TLineInfo,
-    node: PNode = nil
+    node: PNode = nilPNode
   ) =
-
   if index == noExprIndex:
     return
   map.expressions[index] = value

@@ -268,7 +268,7 @@ proc genDispatcher(g: ModuleGraph; methods: seq[PSym], relevantCols: IntSet): PS
             newSymNode(getCompilerProc(g, "chckNilDisp")), newSymNode(param))
   for meth in 0..high(methods):
     var curr = methods[meth]      # generate condition:
-    var cond: PNode = nil
+    var cond: PNode = nilPNode
     for col in 1..<paramLen:
       if contains(relevantCols, col):
         var isn = newNodeIT(nkCall, base.info, boolType)

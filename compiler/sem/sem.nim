@@ -447,7 +447,7 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
 
   result = evalConstExpr(c.module, c.idgen, c.graph, e)
   if result == nil or result.kind in {nkEmpty, nkError}:
-    result = nil
+    result = nilPNode
   else:
     result = fixupTypeAfterEval(c, result, e)
 
@@ -781,7 +781,7 @@ proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
       msgs.setInfoContextLen(c.config, oldContextLen)
       if getCurrentException() of ESuggestDone:
         c.suggestionsMade = true
-        result = nil
+        result = nilPNode
       else:
         result = newNodeI(nkEmpty, n.info)
   storeRodNode(c, result)

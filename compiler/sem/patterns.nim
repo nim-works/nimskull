@@ -258,7 +258,7 @@ proc applyRule*(c: PContext, s: PSym, n: PNode): PNode =
   ctx.c = c
   ctx.formals = s.typ.len-1
   var m = matchStmtList(ctx, s.ast[patternPos], n)
-  if isNil(m): return nil
+  if isNil(m): return nilPNode
   # each parameter should have been bound; we simply setup a call and
   # let semantic checking deal with the rest :-)
   result = newNodeI(nkCall, n.info)
@@ -272,7 +272,7 @@ proc applyRule*(c: PContext, s: PSym, n: PNode): PNode =
     let param = params[i].sym
     let x = getLazy(ctx, param)
     # couldn't bind parameter:
-    if isNil(x): return nil
+    if isNil(x): return nilPNode
     result.add(x)
     if requiresAA: addToArgList(args, x)
   # perform alias analysis here:
@@ -290,7 +290,7 @@ proc applyRule*(c: PContext, s: PSym, n: PNode): PNode =
             ok = true
             break
         # constraint not fulfilled:
-        if not ok: return nil
+        if not ok: return nilPNode
       of aqNoAlias:
         # it MUST not alias with any other param:
         var ok = true
@@ -299,7 +299,7 @@ proc applyRule*(c: PContext, s: PSym, n: PNode): PNode =
             ok = false
             break
         # constraint not fulfilled:
-        if not ok: return nil
+        if not ok: return nilPNode
 
   markUsed(c, n.info, s)
   if ctx.subMatch:

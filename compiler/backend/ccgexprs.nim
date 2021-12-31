@@ -2593,7 +2593,7 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
       p.config.quitOrRaise "compiler built without support for the 'spawn' statement"
     else:
       let n = spawn.wrapProcForSpawn(
-        p.module.g.graph, p.module.idgen, p.module.module, e, e.typ, nil, nil)
+        p.module.g.graph, p.module.idgen, p.module.module, e, e.typ, nilPNode, nilPNode)
       expr(p, n, d)
   of mParallel:
     when defined(leanCompiler):
@@ -3129,7 +3129,7 @@ proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =
   of tyObject:
     var count = 0
     result.add "{"
-    getNullValueAuxT(p, t, t, t.n, nil, result, count, true, info)
+    getNullValueAuxT(p, t, t, t.n, nilPNode, result, count, true, info)
     result.add "}"
   of tyTuple:
     result = rope"{"

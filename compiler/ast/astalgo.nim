@@ -89,7 +89,7 @@ proc sameValue*(a, b: PNode): bool =
     #InternalError(a.info, "SameValue")
     discard
 
-proc leValue*(a, b: PNode): bool =
+func leValue*(a, b: PNode): bool =
   # a <= b?
   result = false
   case a.kind
@@ -501,7 +501,7 @@ proc idNodeTableGet(t: TIdNodeTable, key: PIdObj): PNode =
   var index: int
   index = idNodeTableRawGet(t, key)
   if index >= 0: result = t.data[index].val
-  else: result = nil
+  else: result = nilPNode
 
 proc idNodeTableRawInsert(data: var TIdNodePairSeq, key: PIdObj, val: PNode) =
   var h: Hash

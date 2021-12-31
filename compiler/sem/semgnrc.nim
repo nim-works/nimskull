@@ -59,7 +59,7 @@ template macroToExpandSym(s): untyped =
   sfCustomPragma notin s.flags and s.kind in {skMacro, skTemplate} and
     (s.typ.len == 1) and not fromDotExpr
 
-template isMixedIn(sym): bool =
+template isMixedIn(sym: PSym, flags: TSemGenericFlags): bool =
   let s = sym
   s.name.id in ctx.toMixin or (withinConcept in flags and
                                s.magic == mNone and
@@ -135,7 +135,7 @@ proc lookup(c: PContext, n: PNode, flags: TSemGenericFlags,
   else:
     if withinBind in flags or s.id in ctx.toBind:
       result = symChoice(c, n, s, scClosed)
-    elif s.isMixedIn:
+    elif s.isMixedIn(flags):
       result = symChoice(c, n, s, scForceOpen)
     else:
       result = semGenericStmtSymbol(c, n, s, ctx, flags)
@@ -171,7 +171,7 @@ proc fuzzyLookup(c: PContext, n: PNode, flags: TSemGenericFlags,
       isMacro = s.kind in {skTemplate, skMacro}
       if withinBind in flags or s.id in ctx.toBind:
         result = newDot(result, symChoice(c, n, s, scClosed))
-      elif s.isMixedIn:
+      elif s.isMixedIn(flags):
         result = newDot(result, symChoice(c, n, s, scForceOpen))
       else:
         let syms = semGenericStmtSymbol(c, n, s, ctx, flags, fromDotExpr=true)
@@ -246,7 +246,7 @@ proc semGenericStmt(c: PContext, n: PNode,
       incl(s.flags, sfUsed)
       mixinContext = s.magic in {mDefined, mDeclared, mDeclaredInScope, mCompiles, mAstToStr}
       let whichChoice = if s.id in ctx.toBind: scClosed
-                        elif s.isMixedIn: scForceOpen
+                        elif s.isMixedIn(flags): scForceOpen
                         else: scOpen
       let sc = symChoice(c, fn, s, whichChoice)
       case s.kind

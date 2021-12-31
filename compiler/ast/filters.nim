@@ -32,7 +32,7 @@ proc invalidPragma(conf: ConfigRef; n: PNode) =
   conf.localReport(n.info, reportAst(rsemNodeNotAllowed, n))
 
 proc getArg(conf: ConfigRef; n: PNode, name: string, pos: int): PNode =
-  result = nil
+  result = nilPNode
   if n.kind in {nkEmpty..nkNilLit}: return
   for i in 1..<n.len:
     if n[i].kind == nkExprEqExpr:

@@ -104,7 +104,7 @@ proc moveOrCopy(dest, ri: PNode; c: var Con; s: var Scope; isDecl = false): PNod
 
 import sets, hashes
 
-proc hash(n: PNode): Hash = hash(cast[pointer](n))
+proc hash(n: PNode): Hash = hash(n.id)
 
 proc aliasesCached(cache: var Table[(PNode, PNode), AliasKind], obj, field: PNode): AliasKind =
   let key = (obj, field)
@@ -327,7 +327,7 @@ proc genOp(c: var Con; t: PType; kind: TTypeAttachedOp; dest, ri: PNode): PNode 
 
 proc genDestroy(c: var Con; dest: PNode): PNode =
   let t = dest.typ.skipTypes({tyGenericInst, tyAlias, tySink})
-  result = c.genOp(t, attachedDestructor, dest, nil)
+  result = c.genOp(t, attachedDestructor, dest, nilPNode)
 
 proc canBeMoved(c: Con; t: PType): bool {.inline.} =
   let t = t.skipTypes({tyGenericInst, tyAlias, tySink})
@@ -545,7 +545,7 @@ proc cycleCheck(n: PNode; c: var Con) =
     return
 
   var x = n[0]
-  var field: PNode = nil
+  var field: PNode = nilPNode
   while true:
     if x.kind == nkDotExpr:
       field = x[1]

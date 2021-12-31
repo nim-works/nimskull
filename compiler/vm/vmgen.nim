@@ -99,7 +99,7 @@ func raiseVmGenError(
 func fail(
   info: TLineInfo,
   kind: ReportKind,
-  ast:  PNode = nil,
+  ast:  PNode = nilPNode,
   sym:  PSym = nil,
   str:  string = "",
   loc:  InstantiationInfo = instLoc()
@@ -1817,7 +1817,7 @@ proc canElimAddr(n: PNode): PNode =
     # XXX: for simplicity always take the address of objects values.
     #      While not producing wrong behaviour, in some cases (e.g. var
     #      params) the handle should be passed instead
-    return nil#n[0]
+    return nilPNode#n[0]
   case n[0].kind
   of nkObjUpConv, nkObjDownConv, nkChckRange, nkChckRangeF, nkChckRange64:
     var m = n[0][0]
@@ -1831,7 +1831,7 @@ proc canElimAddr(n: PNode): PNode =
       # addr ( nkConv ( deref ( x ) ) ) --> nkConv(x)
       result = copyNode(n[0])
       result.add m[0]
-  of nkError: result = nil
+  of nkError: result = nilPNode
   else:
     if n[0].kind in {nkDerefExpr, nkHiddenDeref}:
       # addr ( deref ( x )) --> x
@@ -2178,7 +2178,7 @@ proc genRdVar(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
       # see tests/t99bott for an example that triggers it:
       cannotEval(c, n)
 
-template needsRegLoad(): untyped =
+template needsRegLoad(flags: TGenFlags): untyped =
   {gfNode, gfNodeAddr} * flags == {} and
     fitsRegister(n.typ.skipTypes({tyVar, tyLent, tyStatic}))
 
@@ -2195,7 +2195,7 @@ proc genArrAccessOpcode(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode;
     c.gABC(n, opc, dest, a, b)
   elif opc == opcLdStrIdx:
     c.gABC(n, opc, dest, a, b)
-  elif needsRegLoad():
+  elif needsRegLoad(flags):
     var cc = c.getTemp(n.typ)
     c.gABC(n, opc, cc, a, b)
     c.genRegLoad(n, dest, cc)
@@ -2215,7 +2215,7 @@ proc genObjAccess(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
   if dest.isUnset: dest = c.getTemp(n.typ)
   if {gfNodeAddr} * flags != {}:
     c.gABC(n, opcLdObjAddr, dest, a, b)
-  elif needsRegLoad():
+  elif needsRegLoad(flags):
     var cc = c.getTemp(n.typ)
     c.gABC(n, opcLdObj, cc, a, b)
     c.genRegLoad(n, dest, cc)
@@ -2297,7 +2297,7 @@ proc genCheckedObjAccess(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlag
 
   if {gfNodeAddr} * flags != {}:
     c.gABC(n, opcLdObjAddr, dest, objR, fieldPos)
-  elif needsRegLoad():
+  elif needsRegLoad(flags):
     var cc = c.getTemp(accessExpr.typ)
     c.gABC(n, opcLdObj, cc, objR, fieldPos)
     c.genRegLoad(n, dest, cc)
@@ -2321,7 +2321,7 @@ proc genArrAccess(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
     if dest.isUnset: dest = c.getTemp(n.typ)
     if gfNodeAddr in flags:
       c.gABC(n, opcLdObjAddr, dest, a, b)
-    elif needsRegLoad():
+    elif needsRegLoad(flags):
       let temp = c.getTemp(n.typ)
       c.gABC(n, opcLdObj, temp, a, b)
       c.genRegLoad(n, dest, temp)

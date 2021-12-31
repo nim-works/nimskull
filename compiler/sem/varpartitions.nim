@@ -324,7 +324,7 @@ proc pathExpr(node: PNode; owner: PSym): PNode =
   if it is not a valid path expression.
   ]#
   var n = node
-  result = nil
+  result = nilPNode
   while true:
     case n.kind
     of nkSym:

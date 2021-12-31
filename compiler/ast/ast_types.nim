@@ -768,13 +768,81 @@ proc hash*(x: ItemId): Hash =
   h = h !& hash(x.item)
   result = !$h
 
+import std/tables # for DOD ast
 
 type
   TIdObj* {.acyclic.} = object of RootObj
     itemId*: ItemId
   PIdObj* = ref TIdObj
 
-  PNode* = ref TNode
+  #----------------------------------------------------------------------------
+  # DOD AST Draft - Start
+  #----------------------------------------------------------------------------
+
+  # Actually implementing, would go something like:
+  # 1. repeat this pattern for P/TSym and P/TType
+  # 2. drop old P/TNode, P/TSym, and P/TType
+  # 3. implement inline accessors to replace fields
+  #    a. bash compiler until it compiles
+  # 5. discover zany uses of the P/TNode and friends...
+  #    a. bash compiler until it compiles
+  # 6. run all the tests
+  #    a. bash compiler until tests pass
+
+  PNode* = object
+    ## initial conversion point of AST to a data oriented design; rename to
+    ## `PNode` and swap out the old `PNode` for this
+    id*: NodeId
+
+  NodeData* = object
+    ## bare minimum data we need to know about every node
+    kind*: TNodeKind    ## presently the same as the nim node
+    extra*: ExtraDataId ## id into extra data about this node, depends on
+                        ## `kind`, for lookup of literal, sym, ident, etc
+
+  State* = ref object
+    nodeList*: NodeList        ## each node, NodeId is their sequence index
+    nodeFlag*: seq[TNodeFlags] ## flags for each node, rarely accessed bloat
+
+    nodeInf*: seq[TLineInfo]   ## info on a per node basis
+
+    # astData*: AstTree          ## actual tree structure for the various AST
+
+    # sparse data, not all nodes have these
+    nodeTyp*: OrderedTable[NodeId, PType]    ## types
+    nodeRpt*: OrderedTable[NodeId, ReportId] ## report id
+
+    # all indexed by the extra data field
+    nodeSym*: seq[PSym]         ## symbols
+    nodeIdt*: seq[PIdent]       ## identifiers
+    nodeInt*: seq[BiggestInt]   ## int literals
+    nodeFlt*: seq[BiggestFloat] ## float literals
+    nodeStr*: seq[string]       ## string literals
+    astData*: seq[TNodeSeq]     ## the sons for ast nodes
+
+  ExtraDataKind* {.pure.} = enum
+    ExtraDataNone,
+    ExtraDataInt,
+    ExtraDataFloat,
+    ExtraDataString,
+    ExtraDataSymbol,
+    ExtraDataIdentifier,
+    ExtraDataAst
+
+  # IDs
+  # xxx: disabled distincts until the basics work
+  NodeId* = distinct int      ## the minimum amount of data identifying a node
+  ExtraDataId* = distinct int ## id to extra information for some nodes
+  InfoId* = #[distinct]# int       ## used by Nodes & Symbols for line info
+                              ## an index into the info sequence
+
+  NodeList* = seq[NodeData]
+
+  #----------------------------------------------------------------------------
+  # DOD AST Draft - End
+  #----------------------------------------------------------------------------
+
+  # PNode* = ref TNode
   TNodeSeq* = seq[PNode]
   PType* = ref TType
   PSym* = ref TSym
@@ -888,8 +956,6 @@ type
     allowPrivateAccess*: seq[PSym] #  # enable access to private fields
 
   PScope* = ref TScope
-
-
 
   PLib* = ref TLib
   TSym* {.acyclic.} = object of TIdObj # Keep in sync with PackedSym
@@ -1030,7 +1096,215 @@ type
   TImplication* = enum
     impUnknown, impNo, impYes
 
+const emptyReportId* = ReportId(0)
 
+func `==`*(id1, id2: ReportId): bool = uint32(id1) == uint32(id2)
+func `<`*(id1, id2: ReportId): bool = uint32(id1) < uint32(id2)
+
+func isEmpty*(id: ReportId): bool = id == emptyReportId
+
+func `$`*(id: ReportId): string =
+  if id.isEmpty:
+    "<empty report id>"
+
+  else:
+    "<report-id-" & $uint32(id) & ">"
+
+#------------------------------------------------------------------------------
+# DOD AST Draft - Start
+#------------------------------------------------------------------------------
+
+# xxx: need this stuff for distincts
+proc hash*(n: NodeId): Hash {.borrow.}
+proc `==`*(a, b: NodeId): bool {.borrow.}
+proc cmp*(a, b: NodeId): int = cmp(a.int, b.int)
+proc `$`*(n: NodeId): string {.inline.} = $(int(n))
+# proc hash*(n: InfoId): Hash {.borrow.}
+# proc `==`*(a, b: InfoId): bool {.borrow.}
+# proc cmp*(a, b: InfoId): int = cmp(a.int, b.int)
+proc cmp*(a, b: PSym): int = cmp(cast[int](a), cast[int](b))
+proc `==`*(a, b: ExtraDataId): bool {.borrow.}
+
+func extraDataKind*(k: TNodeKind): ExtraDataKind {.inline.} =
+  case k
+  of nkCharLit..nkUInt64Lit:    ExtraDataInt
+  of nkFloatLit..nkFloat128Lit: ExtraDataFloat
+  of nkStrLit..nkTripleStrLit:  ExtraDataString
+  of nkSym:                     ExtraDataSymbol
+  of nkIdent:                   ExtraDataIdentifier
+  else:                         ExtraDataAst
+
+const
+  # unknownLineInfoId = InfoId 0
+  nilNodeId* = NodeId 0
+  nilExtraDataId* = ExtraDataId 0
+
+const nilPNode* = PNode(id: nilNodeId)
+
+func `==`*(a, b: PNode): bool {.inline.} =
+  a.id == b.id
+func `==`*(a: PNode, b: typeof(nil)): bool {.inline.} =
+  a.id == nilNodeId
+func `==`*(a: typeof(nil), b: PNode): bool {.inline.} =
+  b.id == nilNodeId
+func isNil*(a: PNode): bool {.inline.} =
+  a.id == nilNodeId
+
+var state* = State(
+    # xxx: set good default capacity based on the system lib alone
+  )
+
+func isBad*(n: PNode): bool {.inline, deprecated: "for debugging".} =
+  return n.id != nilNodeId
+func isNilOrBad*(n: PNode): bool {.inline, deprecated: "for debugging".} =
+  return n.id != nilNodeId
+
+proc nextNodeId*(s: State): NodeId {.inline.} =
+  NodeId state.nodeList.len + 1
+
+func idx*(n: NodeId): int {.inline.} =
+  ## internal NodeId to node index
+  # assert n != nilNodeId, "attempting to get an idx of a nil node"
+  n.int - 1
+func idx*(n: PNode): int {.inline.} = n.id.idx
+  ## internal PNode to node index
+
+proc extraId*(n: PNode): ExtraDataId {.inline.} =
+  ## quick access to the ExtraDataId for a node
+  state.nodeList[n.idx].extra
+func idx*(e: ExtraDataId): int {.inline.} =
+  ## internal ExtraDataId to node extra data index
+  # assert e != nilExtraDataId, "attempting to get an idx of a nil extra data id"
+  e.int - 1
+proc extraIdx*(n: PNode): int {.inline.} = n.extraId.idx
+  ## quick access to the extra data index for a node
+
+func id*(n: PNode): NodeId {.inline.} = n.id
+
+proc kind*(n: PNode): TNodeKind =
+  {.cast(noSideEffect).}:
+    result = state.nodeList[n.idx].kind
+
+proc typ*(n: PNode): PType {.inline.} =
+  {.cast(noSideEffect).}:
+    result = state.nodeTyp.getOrDefault(n.id, nil)
+proc `typ=`*(n: PNode, t: PType) {.inline.} =
+  state.nodeTyp[n.id] = t
+
+proc info*(n: PNode): var TLineInfo {.inline.} =
+  {.cast(noSideEffect).}:
+    result = state.nodeInf[n.idx]
+proc `info=`*(n: PNode, info: TLineInfo) {.inline.} =
+  state.nodeInf[n.idx] = info
+
+proc flags*(n: PNode): var TNodeFlags {.inline.} =
+  state.nodeFlag[n.idx]
+proc `flags=`*(n: PNode, flags: TNodeFlags) {.inline.} =
+  state.nodeFlag[n.idx] = flags
+
+proc intVal*(n: PNode): var BiggestInt {.inline.} =
+  # assert n.kind in {nkCharLit..nkUInt64Lit}, "not an integer, id: " & $n.id
+  {.cast(noSideEffect).}:
+    result = state.nodeInt[n.extraIdx]
+proc `intVal=`*(n: PNode, v: BiggestInt) {.inline.} =
+  # assert n.kind in {nkCharLit..nkUInt64Lit}, "not an integer, id: " & $n.id
+  if n.extraId == nilExtraDataId:
+    state.nodeInt.add v
+    state.nodeList[n.idx].extra = ExtraDataId state.nodeInt.len
+  else:
+    state.nodeInt[n.extraId.idx] = v
+
+proc floatVal*(n: PNode): var BiggestFloat {.inline.} =
+  # assert n.kind in {nkFloatLit..nkFloat128Lit}, "not a float, id: " & $n.id
+  {.cast(noSideEffect).}:
+    result = state.nodeFlt[n.extraId.idx]
+proc `floatVal=`*(n: PNode, v: BiggestFloat) {.inline.} =
+  # assert n.kind in {nkFloatLit..nkFloat128Lit}, "not a float, id: " & $n.id
+  if n.extraId == nilExtraDataId:
+    state.nodeFlt.add v
+    state.nodeList[n.idx].extra = ExtraDataId state.nodeFlt.len
+  else:
+    state.nodeFlt[n.extraId.idx] = v
+
+proc strVal*(n: PNode): var string {.inline.} =
+  # assert n.kind in {nkStrLit..nkTripleStrLit}, "not a string, id: " & $n.id
+  {.cast(noSideEffect).}:
+    result = state.nodeStr[n.extraId.idx]
+proc `strVal=`*(n: PNode, v: string) {.inline.} =
+  # assert n.kind in {nkStrLit..nkTripleStrLit}, "not a string, id: " & $n.id
+  if n.extraId == nilExtraDataId:
+    state.nodeStr.add v
+    state.nodeList[n.idx].extra = ExtraDataId state.nodeStr.len
+  else:
+    state.nodeStr[n.extraId.idx] = v
+
+proc sym*(n: PNode): PSym {.inline.} =
+  # assert n.kind == nkSym, "not a symbol, id: " & $n.id & " and kind: " & $n.kind
+  {.cast(noSideEffect).}:
+    result = state.nodeSym[n.extraId.idx]
+proc `sym=`*(n: PNode, sym: PSym) {.inline.} =
+  # assert n.kind == nkSym, "not a symbol, id: " & $n.id
+  {.cast(noSideEffect).}:
+    if n.extraId == nilExtraDataId:
+      state.nodeSym.add sym
+      state.nodeList[n.idx].extra = ExtraDataId state.nodeSym.len
+    else:
+      state.nodeSym[n.extraId.idx] = sym
+
+proc ident*(n: PNode): PIdent {.inline.} =
+  assert n.kind == nkIdent, "not an ident, id: " & $n.id
+  {.cast(noSideEffect).}:
+    result = state.nodeIdt[n.extraId.idx]
+proc `ident=`*(n: PNode, ident: PIdent) {.inline.} =
+  assert n.kind == nkIdent, "not an ident, id: " & $n.id
+  {.cast(noSideEffect).}:
+    if n.extraId == nilExtraDataId:
+      state.nodeIdt.add ident
+      state.nodeList[n.idx].extra = ExtraDataId state.nodeIdt.len
+    else:
+      state.nodeIdt[n.extraId.idx] = ident
+
+const haveNoSons = {
+    nkCharLit..nkUInt64Lit,
+    nkFloatLit..nkFloat128Lit,
+    nkStrLit..nkTripleStrLit,
+    nkSym,
+    nkIdent
+  }
+
+proc initSons*(n: PNode) {.inline.} =
+  ## reset sons storage, this shouldn't be needed if lifetimes were clarified
+  ## and the VM didn't abuse nodes as it does.
+  if n.extraId == nilExtraDataId:
+      state.astData.add @[]
+      state.nodeList[n.idx].extra = ExtraDataId state.astData.len
+
+proc sons*(n: PNode): var TNodeSeq {.inline.} =
+  # assert n.kind notin haveNoSons, "not a parent, id: " & $n.id
+  {.cast(noSideEffect).}:
+    # assert n.id.int <= state.nodeList.len, "invalid node id: " & $n.id.int
+    initSons(n)
+    result = state.astData[n.extraId.idx]
+proc `sons=`*(n: PNode, sons: TNodeSeq) =
+  # assert n.kind notin haveNoSons, "not a parent, id: " & $n.id
+  # assert n.id.int <= state.nodeList.len, "invalid node id: " & $n.id.int
+  {.cast(noSideEffect).}:
+    state.astData[n.extraIdx] = sons
+
+proc reportId*(n: PNode): ReportId {.inline.} =
+  state.nodeRpt.getOrDefault(n.id, emptyReportId)
+proc `reportId=`*(n: PNode, id: ReportId) {.inline.} =
+  state.nodeRpt[n.id] = id
+
+proc idToNode*(id: NodeId): PNode {.inline.} =
+  # assert id.int <= state.nodeList.len, "invalid node id: " & $id.int
+  case id
+  of nilNodeId: nilPNode
+  else: PNode(id: id)
+
+#------------------------------------------------------------------------------
+# DOD AST Draft - End
+#------------------------------------------------------------------------------
 
 type
   EffectsCompat* = enum
@@ -1113,18 +1387,3 @@ type
       # overload resolution.
 
   TExprFlags* = set[TExprFlag]
-
-
-const emptyReportId* = ReportId(0)
-
-func `==`*(id1, id2: ReportId): bool = uint32(id1) == uint32(id2)
-func `<`*(id1, id2: ReportId): bool = uint32(id1) < uint32(id2)
-
-func isEmpty*(id: ReportId): bool = id == emptyReportId
-
-func `$`*(id: ReportId): string =
-  if id.isEmpty:
-    "<empty report id>"
-
-  else:
-    "<report-id-" & $uint32(id) & ">"

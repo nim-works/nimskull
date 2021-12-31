@@ -99,6 +99,27 @@ proc markOwnerModuleAsUsed*(c: PContext; s: PSym)
 
 template hasFauxMatch*(c: TCandidate): bool = c.fauxMatch != tyNone
 
+proc initCandidateAux(ctx: PContext,
+                      c: var TCandidate, callee: PType) {.inline.} =
+  c.c = ctx
+  c.exactMatches = 0
+  c.subtypeMatches = 0
+  c.convMatches = 0
+  c.intConvMatches = 0
+  c.genericMatches = 0
+  c.state = csEmpty
+  c.callee = callee
+  c.call = nilPNode
+  c.baseTypeMatch = false
+  c.genericConverter = false
+  c.inheritancePenalty = 0
+  c.error = SemCallMismatch()
+
+proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PType) =
+  initCandidateAux(ctx, c, callee)
+  c.calleeSym = nil
+  initIdTable(c.bindings)
+
 proc put(c: var TCandidate, key, val: PType) {.inline.} =
   ## Given: proc foo[T](x: T); foo(4)
   ## key: 'T'
@@ -112,23 +133,6 @@ proc put(c: var TCandidate, key, val: PType) {.inline.} =
     if c.c.module.name.s == "temp3":
       echo "binding ", key, " -> ", val
   idTablePut(c.bindings, key, val.skipIntLit(c.c.idgen))
-
-proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PType) =
-  c.c = ctx
-  c.exactMatches = 0
-  c.subtypeMatches = 0
-  c.convMatches = 0
-  c.intConvMatches = 0
-  c.genericMatches = 0
-  c.state = csEmpty
-  c.callee = callee
-  c.calleeSym = nil
-  c.call = nil
-  c.baseTypeMatch = false
-  c.genericConverter = false
-  c.inheritancePenalty = 0
-  c.error = SemCallMismatch()
-  initIdTable(c.bindings)
 
 proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
                     binding: PNode, calleeScope = -1) =
@@ -1899,7 +1903,7 @@ proc isLValue(c: PContext; n: PNode): bool {.inline.} =
 
 proc userConvMatch(c: PContext, m: var TCandidate, f, a: PType,
                    arg: PNode): PNode =
-  result = nil
+  result = nilPNode
   for i in 0..<c.converters.len:
     var src = c.converters[i].typ[1]
     var dest = c.converters[i].typ[0]
@@ -1930,7 +1934,7 @@ proc userConvMatch(c: PContext, m: var TCandidate, f, a: PType,
       # We build the call expression by ourselves in order to avoid passing this
       # expression trough the semantic check phase once again so let's make sure
       # it is correct
-      var param: PNode = nil
+      var param: PNode = nilPNode
       if srca == isSubtype:
         param = implicitConv(nkHiddenSubConv, src, copyTree(arg), m, c)
       elif src.kind in {tyVar}:
@@ -1953,7 +1957,7 @@ proc userConvMatch(c: PContext, m: var TCandidate, f, a: PType,
 proc localConvMatch(c: PContext, m: var TCandidate, f, a: PType,
                     arg: PNode): PNode =
   # arg.typ can be nil in 'suggest':
-  if isNil(arg.typ): return nil
+  if isNil(arg.typ): return nilPNode
 
   # sem'checking for 'echo' needs to be re-entrant:
   # XXX we will revisit this issue after 0.10.2 is released
@@ -1967,13 +1971,14 @@ proc localConvMatch(c: PContext, m: var TCandidate, f, a: PType,
   result = c.semTryExpr(c, call, {efNoSem2Check})
 
   if result != nil:
-    if result.typ == nil: return nil
+    if result.typ == nil: return nilPNode
     # bug #13378, ensure we produce a real generic instantiation:
     result = c.semExpr(c, call)
     # resulting type must be consistent with the other arguments:
     var r = typeRel(m, f[0], result.typ)
-    if r < isGeneric: return nil
-    if result.kind == nkCall: result.transitionSonsKind(nkHiddenCallConv)
+    if r < isGeneric: return nilPNode
+    if result.kind == nkCall:
+      result.transitionSonsKind(nkHiddenCallConv)
     inc(m.convMatches)
     if r == isGeneric:
       result.typ = getInstantiatedType(c, arg, m, base(f))
@@ -2079,7 +2084,7 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     if arg.kind in {nkProcDef, nkFuncDef, nkIteratorDef} + nkLambdaKinds:
       result = c.semInferredLambda(c, m.bindings, arg)
     elif arg.kind != nkSym:
-      result = nil
+      result = nilPNode
       return
     else:
       let inferred = c.semGenerateInstance(c, arg.sym, m.bindings, arg.info)
@@ -2113,7 +2118,7 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     if arg.kind in {nkProcDef, nkFuncDef, nkIteratorDef} + nkLambdaKinds:
       result = c.semInferredLambda(c, m.bindings, arg)
     elif arg.kind != nkSym:
-      result = nil
+      result = nilPNode
       return
     else:
       let inferred = c.semGenerateInstance(c, arg.sym, m.bindings, arg.info)
@@ -2137,7 +2142,7 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       result = arg
   of isBothMetaConvertible:
     # This is the result for the 101th time.
-    result = nil
+    result = nilPNode
   of isFromIntLit:
     # too lazy to introduce another ``*matches`` field, so we conflate
     # ``isIntConv`` and ``isIntLit`` here:
@@ -2247,14 +2252,14 @@ proc paramTypesMatch*(m: var TCandidate, f, a: PType,
               y = z           # z is as good as x
 
     if x.state == csEmpty:
-      result = nil
+      result = nilPNode
     elif y.state == csMatch and cmpCandidates(x, y) == 0:
       m.c.graph.config.internalAssert(x.state == csMatch, arg.info, "x.state is not csMatch")
       # ambiguous: more than one symbol fits!
       # See tsymchoice_for_expr as an example. 'f.kind == tyUntyped' should match
       # anyway:
       if f.kind in {tyUntyped, tyTyped}: result = arg
-      else: result = nil
+      else: result = nilPNode
     else:
       # only one valid interpretation found:
       markUsed(m.c, arg.info, arg[best].sym)
@@ -2400,7 +2405,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
     arg: PNode # current prepared argument
     formalLen = m.callee.n.len
     formal = if formalLen > 1: m.callee.n[1].sym else: nil # current routine parameter
-    container: PNode = nil # constructed container
+    container: PNode = nilPNode # constructed container
   let firstArgBlock = findFirstArgBlock(m, n)
   while a < n.len:
     c.openShadowScope
@@ -2461,7 +2466,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
         container = newNodeIT(nkBracket, n[a].info, arrayConstr(c, arg))
         container.add arg
         setSon(m.call, formal.position + 1, container)
-        if f != formalLen - 1: container = nil
+        if f != formalLen - 1: container = nilPNode
       else:
         setSon(m.call, formal.position + 1, arg)
       inc f
@@ -2547,7 +2552,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
           elif formal.typ.kind != tyVarargs or container == nil:
             setSon(m.call, formal.position + 1, arg)
             inc f
-            container = nil
+            container = nilPNode
           else:
             # we end up here if the argument can be converted into the varargs
             # formal (e.g. seq[T] -> varargs[T]) but we have already instantiated

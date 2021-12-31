@@ -61,7 +61,7 @@ proc followLater(c: var AliveContext; g: PackedModuleGraph; module: int; item: i
     if body != emptyNodeId:
       let opt = g[module].fromDisk.syms[item].options
       if g[module].fromDisk.syms[item].kind in routineKinds:
-        body = NodeId ithSon(g[module].fromDisk.bodies, NodePos body, bodyPos)
+        body = packed_ast.NodeId ithSon(g[module].fromDisk.bodies, NodePos body, bodyPos)
       c.stack.add((module, opt, NodePos(body)))
 
     when false:

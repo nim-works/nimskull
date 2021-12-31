@@ -448,7 +448,7 @@ proc exprList(p: var Parser, endTok: TokType, result: PNode) =
   when defined(nimpretty):
     dec p.em.doIndentMore
 
-proc exprColonEqExprListAux(p: var Parser, endTok: TokType, result: PNode) =
+proc exprColonEqExprListAux(p: var Parser, endTok: TokType, result: var PNode) =
   assert(endTok in {tkCurlyRi, tkCurlyDotRi, tkBracketRi, tkParRi})
   getTok(p)
   flexComment(p, result)
@@ -518,7 +518,8 @@ proc setOrTableConstr(p: var Parser): PNode =
     # progress guaranteed
     while p.tok.tokType notin {tkCurlyRi, tkEof}:
       var a = exprColonEqExpr(p)
-      if a.kind == nkExprColonExpr: result.transitionSonsKind(nkTableConstr)
+      if a.kind == nkExprColonExpr:
+        result.transitionSonsKind(nkTableConstr)
       result.add(a)
       if p.tok.tokType != tkComma: break
       getTok(p)
@@ -1709,7 +1710,7 @@ proc parseTry(p: var Parser; isExpr: bool): PNode =
   getTok(p)
   colcom(p, result)
   result.add(parseStmt(p))
-  var b: PNode = nil
+  var b: PNode = nilPNode
   while sameOrNoInd(p) or isExpr:
     case p.tok.tokType
     of tkExcept:

@@ -68,8 +68,8 @@ proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
 
   result =
     case n.kind
-    of nkIdent: (ident: n.ident, errNode: nil)
-    of nkSym: (ident: n.sym.name, errNode: nil)
+    of nkIdent: (ident: n.ident, errNode: nilPNode)
+    of nkSym: (ident: n.sym.name, errNode: nilPNode)
     of nkAccQuoted:
       case n.len
       of 0: (ident: ic.getNotFoundIdent(), errNode: n)
@@ -90,10 +90,10 @@ proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
         if error:
           (ident: ic.getNotFoundIdent(), errNode: n)
         else:
-          (ident: getIdent(c.cache, id), errNode: nil)
+          (ident: getIdent(c.cache, id), errNode: nilPNode)
     of nkOpenSymChoice, nkClosedSymChoice:
       if n[0].kind == nkSym:
-        (ident: n[0].sym.name, errNode: nil)
+        (ident: n[0].sym.name, errNode: nilPNode)
       else:
         (ident: ic.getNotFoundIdent(), errNode: n)
     else:
@@ -110,7 +110,7 @@ proc noidentError(conf: ConfigRef; n, origin: PNode) =
     wrongNode: origin
   ))
 
-proc considerQuotedIdent*(c: PContext; n: PNode, origin: PNode = nil): PIdent =
+proc considerQuotedIdent*(c: PContext; n: PNode, origin: PNode = nilPNode): PIdent =
   ## Retrieve a PIdent from a PNode, taking into account accent nodes.
   ## ``origin`` can be nil. If it is not nil, it is used for a better
   ## error message.
@@ -642,7 +642,7 @@ proc newQualifiedLookUpError(c: PContext, ident: PIdent, info: TLineInfo, err: P
   result.ast = err
 
 proc errorExpectedIdentifier(
-    c: PContext, ident: PIdent, n: PNode, exp: PNode = nil
+    c: PContext, ident: PIdent, n: PNode, exp: PNode = nilPNode
   ): PSym {.inline.} =
   ## create an error symbol for non-identifier in identifier position within an
   ## expression (`exp`). non-nil `exp` leads to better error messages.
@@ -748,7 +748,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       amb = false
       (ident, errNode) = considerQuotedIdent2(c, n)
     if isNotFound(c.cache, ident):
-      let errExprCtx = if errNode != n: n else: nil
+      let errExprCtx = if errNode != n: n else: nilPNode
         ## expression within which the error occurred
       result = errorExpectedIdentifier(c, ident, errNode, errExprCtx)
     elif checkModule in flags:
@@ -816,7 +816,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
     if m != nil and m.kind == skModule:
       var
         ident: PIdent = nil
-        errNode: PNode = nil
+        errNode: PNode = nilPNode
       if n[1].kind == nkIdent:
         ident = n[1].ident
       elif n[1].kind == nkAccQuoted:

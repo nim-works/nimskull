@@ -369,7 +369,7 @@ proc reportSymbols*(
     kind: ReportKind,
     symbols: seq[PSym],
     typ: PType = nil,
-    ast: PNode = nil
+    ast: PNode = nilPNode
   ): SemReport =
   case kind:
     of rsemReportTwoSym: assert symbols.len == 2
@@ -392,20 +392,20 @@ func reportAst*(
 
 func reportTyp*(
     kind: ReportKind,
-    typ: PType, ast: PNode = nil, sym: PSym = nil, str: string = ""
+    typ: PType, ast: PNode = nilPNode, sym: PSym = nil, str: string = ""
   ): SemReport =
   SemReport(kind: kind, typ: typ, ast: ast, sym: sym, str: str)
 
 func reportStr*(
     kind: ReportKind,
-    str: string, ast: PNode = nil, typ: PType = nil, sym: PSym = nil
+    str: string, ast: PNode = nilPNode, typ: PType = nil, sym: PSym = nil
   ): SemReport =
 
   SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
 
 func reportSym*(
     kind: ReportKind,
-    sym: PSym, ast: PNode = nil, str: string = "", typ: PType = nil,
+    sym: PSym, ast: PNode = nilPNode, str: string = "", typ: PType = nil,
   ): SemReport =
 
   SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)

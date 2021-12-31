@@ -468,7 +468,7 @@ proc transformSpawnSons(g: ModuleGraph; idgen: IdGenerator; owner: PSym; n, barr
 proc transformSpawn(g: ModuleGraph; idgen: IdGenerator; owner: PSym; n, barrier: PNode): PNode =
   case n.kind
   of nkVarSection, nkLetSection:
-    result = nil
+    result = nilPNode
     for it in n:
       let b = it.lastSon
       if getMagic(b) == mSpawn:
@@ -484,7 +484,7 @@ proc transformSpawn(g: ModuleGraph; idgen: IdGenerator; owner: PSym; n, barrier:
           result.add wrapProcForSpawn(g, idgen, owner, m, b.typ, barrier, it[0])
           it[^1] = newNodeI(nkEmpty, it.info)
         else:
-          it[^1] = wrapProcForSpawn(g, idgen, owner, m, b.typ, barrier, nil)
+          it[^1] = wrapProcForSpawn(g, idgen, owner, m, b.typ, barrier, nilPNode)
     if result.isNil: result = n
   of nkAsgn, nkFastAsgn:
     let b = n[1]
@@ -496,7 +496,7 @@ proc transformSpawn(g: ModuleGraph; idgen: IdGenerator; owner: PSym; n, barrier:
   of nkCallKinds:
     if getMagic(n) == mSpawn:
       result = transformSlices(g, idgen, n)
-      return wrapProcForSpawn(g, idgen, owner, result, n.typ, barrier, nil)
+      return wrapProcForSpawn(g, idgen, owner, result, n.typ, barrier, nilPNode)
     result = transformSpawnSons(g, idgen, owner, n, barrier)
   elif n.safeLen > 0:
     result = transformSpawnSons(g, idgen, owner, n, barrier)

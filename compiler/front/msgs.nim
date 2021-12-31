@@ -567,7 +567,7 @@ template localReport*(conf: ConfigRef, report: Report) =
 proc semReportCountMismatch*(
     kind: ReportKind,
     expected, got: distinct SomeInteger,
-    node: PNode = nil,
+    node: PNode = nilPNode,
   ): SemReport =
   result = SemReport(kind: kind, ast: node)
   result.countMismatch = (toInt128(expected), toInt128(got))

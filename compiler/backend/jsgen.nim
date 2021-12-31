@@ -206,7 +206,7 @@ proc initProcOptions(module: BModule): TOptions =
     result.excl(optStackTrace)
 
 proc newInitProc(globals: PGlobals, module: BModule): PProc =
-  result = newProc(globals, module, nil, initProcOptions(module))
+  result = newProc(globals, module, nilPNode, initProcOptions(module))
 
 proc declareGlobal(p: PProc; id: int; r: Rope) =
   if p.prc != nil and not p.declaredGlobals.containsOrIncl(id):
@@ -835,7 +835,7 @@ proc genTry(p: PProc, n: PNode, r: var TCompRes) =
       if i > 1: lineF(p, "}$n", [])
     else:
       var orExpr: Rope = nil
-      var excAlias: PNode = nil
+      var excAlias: PNode = nilPNode
 
       useMagic(p, "isObj")
       for j in 0..<n[i].len - 1:
@@ -1574,7 +1574,7 @@ proc genArgs(p: PProc, n: PNode, r: var TCompRes; start=1) =
 
   for i in start..<n.len:
     let it = n[i]
-    var paramType: PNode = nil
+    var paramType: PNode = nilPNode
     if i < typ.len:
       assert(typ.n[i].kind == nkSym)
       paramType = typ.n[i]
@@ -1606,7 +1606,7 @@ proc genOtherArg(p: PProc; n: PNode; i: int; typ: PType;
       node = n))
 
   let it = n[i]
-  var paramType: PNode = nil
+  var paramType: PNode = nilPNode
   if i < typ.len:
     assert(typ.n[i].kind == nkSym)
     paramType = typ.n[i]
