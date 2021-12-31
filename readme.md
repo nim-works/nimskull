@@ -19,7 +19,7 @@
 
 [![Matrix](https://img.shields.io/badge/matrix-nim--works-success?style=flat&logo=matrix)][nim-works-matrix]
 [![IRC](https://img.shields.io/badge/chat-%23nimworks%20on%20libera.chat-brightgreen?style=flat)](https://web.libera.chat/#nimworks)
-[![IRC](https://img.shields.io/badge/chat-%23nimworks-dev%20on%20libera.chat-brightgreen?style=flat)](https://web.libera.chat/#nimworks-dev)
+[![IRC #nimworks-dev](https://img.shields.io/badge/chat-%23nimworks--dev%20on%20libera.chat-brightgreen?style=flat)](https://web.libera.chat/#nimworks-dev)
 
 </div>
 
