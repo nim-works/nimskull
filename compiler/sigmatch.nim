@@ -632,8 +632,8 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
     matchedConceptContext.prev = prevMatchedConcept
     matchedConceptContext.depth = prevMatchedConcept.depth + 1
     if prevMatchedConcept.depth > 4:
-      localReport(m.c.graph.config, body.info, SemReport(
-        kind: rsemTooNestedConcept, expression: body))
+      localReport(m.c.graph.config, body.info, reportAst(
+        rsemTooNestedConcept, body))
 
       return nil
 
@@ -842,9 +842,9 @@ proc inferStaticParam*(c: var TCandidate, lhs: PNode, rhs: BiggestInt): bool =
 
 proc failureToInferStaticParam(conf: ConfigRef; n: PNode) =
   let staticParam = n.findUnresolvedStatic
-  conf.localReport(n.info, SemReport(
-    kind: rsemCannotInferStaticValue,
-    psym: if staticParam != nil: staticParam.sym else: nil))
+  conf.localReport(n.info, reportSym(
+    rsemCannotInferStaticValue,
+    if staticParam != nil: staticParam.sym else: nil))
 
 proc inferStaticsInRange(c: var TCandidate,
                          inferred, concrete: PType): TTypeRelation =
@@ -2389,10 +2389,9 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       # check if m.callee has such a param:
       prepareNamedParam(n[a], c)
       if n[a].kind == nkError or n[a][0].kind != nkIdent:
-        localReport(c.config, n[a].info, SemReport(
-          kind: rsemExpectedIdentifier,
-          expression: n[a],
-          msg: "named parameter has to be an identifier"
+        localReport(c.config, n[a].info, reportAst(
+          rsemExpectedIdentifier, n[a],
+          str = "named parameter has to be an identifier"
         ))
 
         noMatch()
@@ -2628,7 +2627,7 @@ proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
                       op: TTypeAttachedOp; col: int): PSym {.nosinks.} =
   var m = newCandidate(c, dc.typ)
   if col >= dc.typ.len:
-    localReport(c.config, info, SemReport(kind: rsemCannotInstantiate, psym: dc))
+    localReport(c.config, info, reportSym(rsemCannotInstantiate, dc))
     return nil
   var f = dc.typ[col]
 
@@ -2637,7 +2636,7 @@ proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
   else:
     if f.kind in {tyVar}: f = f.lastSon
   if typeRel(m, f, t) == isNone:
-    localReport(c.config, info, SemReport(kind: rsemCannotInstantiate, psym: dc))
+    localReport(c.config, info, reportSym(rsemCannotInstantiate, dc))
   else:
     result = c.semGenerateInstance(c, dc, m.bindings, info)
     if op == attachedDeepCopy:

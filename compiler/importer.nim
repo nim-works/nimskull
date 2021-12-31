@@ -239,10 +239,9 @@ proc importModuleAs(c: PContext; n: PNode, realModule: PSym, importHidden: bool)
   elif n.len != 2 or n[1].kind != nkIdent:
     localReport(
       c.config, n.info,
-      SemReport(
-        kind: rsemExpectedIdentifier,
-        expression: n[1],
-        msg: "module alias must be an identifier"))
+      reportAst(
+        rsemExpectedIdentifier, n[1],
+        str = "module alias must be an identifier"))
 
   elif n[1].ident.id != realModule.name.id:
     # some misguided guy will write 'import abc.foo as foo' ...
@@ -265,10 +264,9 @@ proc transformImportAs(c: PContext; n: PNode): tuple[node: PNode, importHidden: 
       of wImportHidden:
         ret.importHidden = true
       else:
-        globalReport(c.config, n.info, SemReport(
-          kind: rsemInvalidPragma,
-          expression: n2,
-          msg: "invalid pragma, expected: " & ${wImportHidden}))
+        globalReport(c.config, n.info, reportAst(
+          rsemInvalidPragma, n2,
+          str = "invalid pragma, expected: " & ${wImportHidden}))
 
   if n.kind == nkInfix and considerQuotedIdent(c, n[0]).s == "as":
     ret.node = newNodeI(nkImportAs, n.info)
@@ -306,12 +304,11 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
     # we cannot perform this check reliably because of
     # test: modules/import_in_config) # xxx is that still true?
     if realModule == c.module:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemCannotImportItself, psym: realModule))
+      localReport(c.config, n.info, reportSym(
+        rsemCannotImportItself, realModule))
 
     if sfDeprecated in realModule.flags:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemDeprecated, psym: realModule))
+      localReport(c.config, n.info, reportSym(rsemDeprecated, realModule))
 
     suggestSym(c.graph, n.info, result, c.graph.usageSym, false)
     importStmtResult.add newSymNode(result, n.info)

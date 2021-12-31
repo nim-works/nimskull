@@ -104,8 +104,7 @@ proc ordinalValToString*(a: PNode; g: ModuleGraph): string =
         else:
           return field.ast.strVal
 
-    g.config.localReport(a.info, SemReport(
-      kind: rsemCantConvertLiteralToType, rtype: t))
+    g.config.localReport(a.info, reportTyp(rsemCantConvertLiteralToType, t))
   else:
     result = $x
 
@@ -378,10 +377,7 @@ proc getAppType(n: PNode; g: ModuleGraph): PNode =
 proc rangeCheck(n: PNode, value: Int128; g: ModuleGraph) =
   if value < firstOrd(g.config, n.typ) or value > lastOrd(g.config, n.typ):
     g.config.localReport(n.info, SemReport(
-      kind: rsemCantConvertLiteralToRange,
-      expressionStr: $value,
-      rtype: n.typ
-    ))
+      kind: rsemCantConvertLiteralToRange, expressionStr: $value, typ: n.typ))
 
 proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph; check = false): PNode =
   let dstTyp = skipTypes(n.typ, abstractRange - {tyTypeDesc})
@@ -456,7 +452,7 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
     else:
       g.config.localReport(n.info, SemReport(
         kind: rsemStaticOutOfBounds,
-        expression: n,
+        ast: n,
         indexSpec: (toInt128(idx), toInt128(x.len - 1))))
   of nkBracket:
     idx -= toInt64(firstOrd(g.config, x.typ))
@@ -464,7 +460,7 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
     else:
       g.config.localReport(n.info, SemReport(
         kind: rsemStaticOutOfBounds,
-        expression: n,
+        ast: n,
         indexSpec: (toInt128(idx), toInt128(x.len - 1))))
   of nkStrLit..nkTripleStrLit:
     result = newNodeIT(nkCharLit, x.info, n.typ)
@@ -473,7 +469,7 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
     else:
       g.config.localReport(n.info, SemReport(
         kind: rsemStaticOutOfBounds,
-        expression: n,
+        ast: n,
         indexSpec: (toInt128(idx), toInt128(x.len - 1))))
   else:
     discard
@@ -496,7 +492,7 @@ proc foldFieldAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
       return
 
   g.config.localReport(n.info, SemReport(
-    expression: n,
+    ast: n,
     kind: rsemStaticFieldNotFound,
     missingSymbol: field.name.s))
 
@@ -639,11 +635,9 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
       else:
         result = magicCall(m, n, idgen, g)
     except OverflowDefect:
-      g.config.localReport(n.info, SemReport(
-        kind: rsemSemfoldOverflow, expression: n))
+      g.config.localReport(n.info, reportAst(rsemSemfoldOverflow, n))
     except DivByZeroDefect:
-      g.config.localReport(n.info, SemReport(
-        kind: rsemSemfoldDivByZero, expression: n))
+      g.config.localReport(n.info, reportAst(rsemSemfoldDivByZero, n))
   of nkAddr:
     var a = getConstExpr(m, n[0], idgen, g)
     if a != nil:

@@ -315,17 +315,17 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
   case SemReportKind(r.kind):
     of rsemCallTypeMismatch:
       let (prefer, candidates) = presentFailedCandidates(
-        conf, r.expression, r.callMismatches)
+        conf, r.ast, r.callMismatches)
 
       result.add "type mismatch: got <"
-      result.add conf.describeArgs(r.expression, 1, prefer)
+      result.add conf.describeArgs(r.ast, 1, prefer)
       result.add ">"
       if candidates != "":
         result.add "\nbut expected one of:\n" & candidates
 
     of rsemPragmaRecursiveDependency:
       result.add "recursive dependency: "
-      result.add r.psym.name.s
+      result.add r.sym.name.s
 
     of rsemMisplacedDeprecation:
       result = "annotation to deprecated not supported here"
@@ -341,7 +341,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         "statement or in a 'push' environment"
 
     of rsemDeprecated:
-      result = r.msg
+      result = r.str
 
     of rsemThisPragmaRequires01Args:
       # FIXME remove this report kind, reuse "wrong number of arguments"
@@ -358,11 +358,11 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
     of rsemVmTooLargetOffset:
       result = "too large offset! cannot generate code for: " &
-        r.psym.name.s
+        r.sym.name.s
 
     of rsemVmCannotGenerateCode:
       result = "cannot generate code for: " &
-        $r.expression
+        $r.ast
 
     of rsemVmCannotCast:
       let mis = r.typeMismatch[0]
@@ -374,7 +374,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
     of rsemSymbolKindMismatch:
       result = "cannot use symbol of kind '$1' as a '$2'" %
-        [$r.psym.kind, $r.expectedSymbolKind]
+        [$r.sym.kind, $r.expectedSymbolKind]
 
     of rsemTypeNotAllowed:
       let (t, typ, kind) = (
@@ -404,26 +404,26 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "template instantiation too nested"
 
     of rsemExpressionHasNoType:
-      result = "expression has no type: " & renderTree(r.expression, {renderNoComments})
+      result = "expression has no type: " & renderTree(r.ast, {renderNoComments})
 
     of rsemMissingGenericParamsForTemplate:
-      result = "'$1' has unspecified generic parameters" % r.psym.name.s
+      result = "'$1' has unspecified generic parameters" % r.sym.name.s
 
     of rsemExpandMacro:
       result = r.expandedExpr.renderTree()
 
     of rsemUnusedImport:
-      result = "imported and not used: '$1'" % r.psym.name.s
+      result = "imported and not used: '$1'" % r.sym.name.s
 
     of rsemCallNotAProcOrField:
       if r.explicitCall:
         if result.len == 0:
-          result = "attempting to call undeclared routine: '$1'" % $r.msg
+          result = "attempting to call undeclared routine: '$1'" % $r.str
         else:
-          result = "attempting to call routine: '$1'$2" % [$r.msg, $result]
+          result = "attempting to call routine: '$1'$2" % [$r.str, $result]
 
       else:
-        let sym = r.rtype.typSym
+        let sym = r.typ.typSym
         var typeHint = ""
         if sym == nil:
           # Perhaps we're in a `compiles(foo.bar)` expression, or
@@ -437,18 +437,18 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
         let suffix = if result.len > 0: " " & result else: ""
 
-        result = "undeclared field: '$1'" % r.msg & typeHint & suffix
+        result = "undeclared field: '$1'" % r.str & typeHint & suffix
 
     of rsemUndeclaredField:
       result =  "undeclared field: '$1' for type $2" % [
-        $r.expression.ident.s, $getProcHeader(conf, r.psym)]
+        $r.ast.ident.s, $getProcHeader(conf, r.sym)]
 
     of rsemAmbiguous:
       var args = "("
-      for i in 1 ..< r.expression.len:
+      for i in 1 ..< r.ast.len:
         if i > 1:
           args.add(", ")
-        args.add(typeToString(r.expression[i].typ))
+        args.add(typeToString(r.ast[i].typ))
       args.add(")")
 
 

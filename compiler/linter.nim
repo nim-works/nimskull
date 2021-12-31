@@ -92,7 +92,7 @@ proc nep1CheckDefImpl(conf: ConfigRef; info: TLineInfo; s: PSym; k: TSymKind) =
   let wanted = beautifyName(s.name.s, k)
   if s.name.s != wanted:
     conf.localReport(info, SemReport(
-      psym: s,
+      sym: s,
       kind: rsemLinterReport,
       linterFail: (wanted, s.name.s)))
 
@@ -134,7 +134,7 @@ proc styleCheckUse*(conf: ConfigRef; info: TLineInfo; s: PSym) =
       (badName == "nnkArgList" and newName == "nnkArglist") or
       (badName == "nnkArglist" and newName == "nnkArgList")
     conf.localReport(info, SemReport(
-      psym: s,
+      sym: s,
       kind: rsemLinterReport,
       linterFail: (badName, newName)
     ))

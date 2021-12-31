@@ -170,5 +170,4 @@ proc getMagicEqSymForType*(g: ModuleGraph; t: PType; info: TLineInfo): PSym =
   of tyProc:
     result = getSysMagic(g, info, "==", mEqProc)
   else:
-    g.config.globalReport(info, SemReport(
-      kind: rsemNoMagicEqualsForType, rtype: t))
+    g.config.globalReport(info, reportTyp(rsemNoMagicEqualsForType, t))

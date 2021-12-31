@@ -18,7 +18,7 @@ const tfInstClearedFlags = {tfHasMeta, tfUnresolved}
 
 proc checkPartialConstructedType(conf: ConfigRef; info: TLineInfo, t: PType) =
   if t.kind in {tyVar, tyLent} and t[0].kind in {tyVar, tyLent}:
-    conf.localReport(info, SemReport(kind: rsemVarVarNotAllowed, rtype: t))
+    conf.localReport(info, reportTyp(rsemVarVarNotAllowed, t))
 
 proc checkConstructedType*(conf: ConfigRef; info: TLineInfo, typ: PType) =
   var t = typ.skipTypes({tyDistinct})
@@ -26,10 +26,10 @@ proc checkConstructedType*(conf: ConfigRef; info: TLineInfo, typ: PType) =
     discard
 
   elif t.kind in {tyVar, tyLent} and t[0].kind in {tyVar, tyLent}:
-    conf.localReport(info, SemReport(kind: rsemVarVarNotAllowed, rtype: t))
+    conf.localReport(info, reportTyp(rsemVarVarNotAllowed, t))
 
   elif computeSize(conf, t) == szIllegalRecursion or isTupleRecursive(t):
-    conf.localReport(info, SemReport(kind: rsemIllegalRecursion, rtype: t))
+    conf.localReport(info, reportTyp(rsemIllegalRecursion, t))
 
   when false:
     if t.kind == tyObject and t[0] != nil:
@@ -174,11 +174,8 @@ proc replaceObjBranches(cl: TReplTypeVars, n: PNode): PNode =
     for i in 0 ..< n.len:
       var it = n[i]
       if it == nil:
-        cl.c.config.globalReport(SemReport(
-          kind: rsemIllformedAst,
-          expression: n,
-          msg: "subnode at idx $1 is 'nil'" % [$i]
-        ))
+        cl.c.config.globalReport(reportAst(
+          rsemIllformedAst, n, str = "subnode at idx $1 is 'nil'" % [$i]))
 
       case it.kind
       of nkElifBranch:
@@ -195,10 +192,9 @@ proc replaceObjBranches(cl: TReplTypeVars, n: PNode): PNode =
         if branch == nil:
           branch = it[0]
       else:
-        cl.c.config.globalReport(SemReport(
-          kind: rsemIllformedAst,
-          expression: n,
-          msg: "Expected else or elif for subnode at idx $1, but found $2" % [
+        cl.c.config.globalReport(reportAst(
+          rsemIllformedAst,  n,
+          str = "Expected else or elif for subnode at idx $1, but found $2" % [
             $i, $it.kind]))
     if branch != nil:
       result = replaceObjBranches(cl, branch)
@@ -228,10 +224,9 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
     for i in 0..<n.len:
       var it = n[i]
       if it == nil:
-        cl.c.config.globalReport(SemReport(
-          kind: rsemIllformedAst,
-          expression: n,
-          msg: "subnode at idx $1 is 'nil'" % [$i]))
+        cl.c.config.globalReport(reportAst(
+          rsemIllformedAst, n,
+          str = "subnode at idx $1 is 'nil'" % [$i]))
       case it.kind
       of nkElifBranch:
         checkSonsLen(it, 2, cl.c.config)
@@ -245,10 +240,9 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
         checkSonsLen(it, 1, cl.c.config)
         if branch == nil: branch = it[0]
       else:
-        cl.c.config.globalReport(SemReport(
-          kind: rsemIllformedAst,
-          expression: n,
-          msg: "Expected else or elif for subnode at idx $1, but found $2" % [
+        cl.c.config.globalReport(reportAst(
+          rsemIllformedAst, n,
+          str = "Expected else or elif for subnode at idx $1, but found $2" % [
             $i, $it.kind]))
     if branch != nil:
       result = replaceTypeVarsN(cl, branch)
@@ -318,8 +312,7 @@ proc lookupTypeVar(cl: var TReplTypeVars, t: PType): PType =
   result = cl.typeMap.lookup(t)
   if result == nil:
     if cl.allowMetaTypes or tfRetType in t.flags: return
-    cl.c.config.localReport(t.sym.info, SemReport(
-      kind: rsemCannotInstantiate, rtype: t))
+    cl.c.config.localReport(t.sym.info, reportTyp(rsemCannotInstantiate, t))
     result = errorType(cl.c)
     # In order to prevent endless recursions, we must remember
     # this bad lookup and replace it with errorType everywhere.
@@ -551,9 +544,8 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
       result.kind = tyUserTypeClassInst
 
   of tyGenericBody:
-    cl.c.config.localReport(
-      cl.info,
-      SemReport(kind: rsemCannotInstantiate, rtype: t))
+    cl.c.config.localReport(cl.info, reportTyp(rsemCannotInstantiate,t))
+
     result = errorType(cl.c)
     #result = replaceTypeVarsT(cl, lastSon(t))
 
@@ -625,7 +617,7 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
             localReport(
               cl.c.config,
               if t.sym != nil: t.sym.info else: cl.info,
-              SemReport(kind: rsemCannotInstantiate, rtype: result[i]))
+              reportTyp(rsemCannotInstantiate, result[i]))
 
           var r = replaceTypeVarsT(cl, result[i])
           if result.kind == tyObject:

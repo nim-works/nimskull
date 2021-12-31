@@ -113,10 +113,9 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
     try:
       result = pathSubs(conf, n.strVal, toFullPath(conf, n.info).splitFile().dir)
     except ValueError:
-      conf.localReport(n.info, SemReport(
-        expression: n, kind: rsemInvalidModulePath))
-
+      conf.localReport(n.info, reportAst(rsemInvalidModulePath, n))
       result = n.strVal
+
   of nkIdent:
     result = n.ident.s
   of nkSym:
@@ -146,13 +145,12 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
     # hacky way to implement 'x / y /../ z':
     result = renderTree(n, {renderNoComments}).replace(" ")
   of nkDotExpr:
-    conf.localReport(n.info, SemReport(expression: n, kind: rsemDotForModuleImport))
+    conf.localReport(n.info, reportAst(rsemDotForModuleImport, n))
     result = renderTree(n, {renderNoComments}).replace(".", "/")
   of nkImportAs:
     result = getModuleName(conf, n[0])
   else:
-    conf.localReport(n.info, SemReport(
-      expression: n, kind: rsemInvalidModulePath))
+    conf.localReport(n.info, reportAst(rsemInvalidModulePath, n))
     result = ""
 
 proc checkModuleName*(conf: ConfigRef; n: PNode; doLocalError=true): FileIndex =

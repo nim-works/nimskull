@@ -14,7 +14,7 @@ import
   renderer, pathutils, reports
 
 proc invalidPragma(conf: ConfigRef; n: PNode) =
-  conf.localReport(n.info, SemReport(kind: rsemNodeNotAllowed, expression: n))
+  conf.localReport(n.info, reportAst(rsemNodeNotAllowed, n))
 
 proc getArg(conf: ConfigRef; n: PNode, name: string, pos: int): PNode =
   result = nil

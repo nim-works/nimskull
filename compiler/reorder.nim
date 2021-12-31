@@ -132,9 +132,9 @@ proc expandIncludes(graph: ModuleGraph, module: PSym, n: PNode,
             localReport(
               graph.config,
               a.info,
-              SemReport(
-                kind: rsemRecursiveInclude,
-                msg: toMsgFilename(graph.config, f)))
+              reportStr(
+                rsemRecursiveInclude,
+                toMsgFilename(graph.config, f)))
 
           else:
             let nn = includeModule(graph, module, f)

@@ -29,10 +29,7 @@ proc noidentError2(conf: ConfigRef; n, origin: PNode): PNode =
   assert n != nil, "`n` must be provided"
 
   let bad = if origin.isNil: n else: origin
-  conf.newError(bad, SemReport(
-    kind: rsemIdentExpected,
-    expression: bad
-  ))
+  conf.newError(bad, SemReport(kind: rsemIdentExpected, ast: bad))
 
 
 proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
@@ -80,10 +77,7 @@ proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
 
 proc noidentError(conf: ConfigRef; n, origin: PNode) =
   let bad = if origin.isNil: n else: origin
-  conf.localReport(n.info, SemReport(
-    kind: rsemIdentExpected,
-    expression: bad
-  ))
+  conf.localReport(n.info, SemReport(kind: rsemIdentExpected, ast: bad))
 
 proc considerQuotedIdent*(c: PContext; n: PNode, origin: PNode = nil): PIdent =
   ## Retrieve a PIdent from a PNode, taking into account accent nodes.
@@ -344,8 +338,8 @@ proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope) =
       # too many 'implementation of X' errors are annoying
       # and slow 'suggest' down:
       if missingImpls == 0:
-        c.config.localReport(s.info, SemReport(
-          kind: rsemImplementationExpected, psym: s))
+        c.config.localReport(s.info, reportSym(
+          rsemImplementationExpected, s))
 
       inc missingImpls
     elif {sfUsed, sfExported} * s.flags == {}:
@@ -357,8 +351,7 @@ proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope) =
           unusedSyms.add (s, toFileLineCol(c.config, s.info))
     s = nextIter(it, scope.symbols)
   for (s, _) in sortedByIt(unusedSyms, it.key):
-    c.config.localReport(s.info, SemReport(
-      kind: rsemXDeclaredButNotUsed, psym: s))
+    c.config.localReport(s.info, reportSym(rsemXDeclaredButNotUsed, s))
 
 proc wrongRedefinition*(
     c: PContext; info: TLineInfo, s: PSym;
@@ -379,7 +372,7 @@ proc addDeclAt*(c: PContext; scope: PScope, sym: PSym, info: TLineInfo) =
       # where a duplicate import happens inside an include.
       c.config.localReport(info, SemReport(
         kind: rsemDuplicateModuleImport,
-        psym: sym,
+        sym: sym,
         previous: c.config.toReportLinePoint(conflict.info)))
     else:
       wrongRedefinition(c, info, sym, conflict)
@@ -532,7 +525,7 @@ proc errorUseQualifier(
   var
     i = 0
     ignoredModules = 0
-    rep = SemReport(kind: rsemAmbiguous, psym: s)
+    rep = SemReport(kind: rsemAmbiguous, sym: s)
 
   for candidate in importedItems(c, s.name):
     rep.symbols.add candidate
@@ -555,7 +548,7 @@ proc errorUseQualifier*(c: PContext; info: TLineInfo; s: PSym) =
 proc errorUseQualifier(c: PContext; info: TLineInfo; candidates: seq[PSym]) =
   var
     i = 0
-    rep = SemReport(kind: rsemAmbiguous, msg: candidates[0].name.s)
+    rep = SemReport(kind: rsemAmbiguous, str: candidates[0].name.s)
 
   for candidate in candidates:
     rep.symbols.add candidate
@@ -570,7 +563,7 @@ proc errorUndeclaredIdentifier*(
 
   c.config.localReport(info, SemReport(
     kind: rsemUndeclaredIdentifier,
-    msg: name,
+    str: name,
     spellingCandidates: candidates,
     potentiallyRecursive: c.recursiveDep.len > 0
   ))
@@ -628,8 +621,7 @@ proc errorExpectedIdentifier(
     if exp.isNil:
       c.config.newError(n, SemReport(kind: rsemExpectedIdentifier))
     else:
-      c.config.newError(n, SemReport(
-        kind: rsemExpectedIdentifierInExpr, expression: exp))
+      c.config.newError(n, reportAst(rsemExpectedIdentifierInExpr, exp))
 
   result = newQualifiedLookUpError(c, ident, n.info, ast)
 
@@ -662,7 +654,7 @@ proc errorUndeclaredIdentifierWithHint(
       kind: rsemUndeclaredIdentifier,
       potentiallyRecursive: c.recursiveDep.len > 0,
       spellingCandidates: candidates,
-      msg: name)))
+      str: name)))
 
   if c.recursiveDep.len > 0:
     c.recursiveDep.setLen 0
@@ -671,7 +663,7 @@ proc errorAmbiguousUseQualifier(
     c: PContext; ident: PIdent, n: PNode, candidates: seq[PSym]
   ): PSym =
   ## create an error symbol for an ambiguous unqualified lookup
-  var rep = SemReport(kind: rsemAmbiguous, msg: candidates[0].name.s)
+  var rep = SemReport(kind: rsemAmbiguous, str: candidates[0].name.s)
   for i, candidate in candidates.pairs:
     rep.symbols.add candidate
 
@@ -870,8 +862,8 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         result = n[1].sym
       elif checkUndeclared in flags and
            n[1].kind notin {nkOpenSymChoice, nkClosedSymChoice}:
-        c.config.localReport(n[1].info, SemReport(
-          kind: rsemExpectedIdentifier, expression: n[1]))
+        c.config.localReport(n[1].info, reportAst(
+          rsemExpectedIdentifier, n[1]))
 
         result = errorSym(c, n[1])
   else:

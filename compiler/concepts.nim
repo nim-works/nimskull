@@ -60,8 +60,8 @@ proc semConceptDecl(c: PContext; n: PNode): PNode =
       result[i] = n[i]
     result[^1] = semConceptDecl(c, n[^1])
   else:
-    c.config.localReport(n.info, SemReport(
-      kind: rsemUnexpectedInNewConcept, expression: n))
+    c.config.localReport(n.info, reportAst(
+      rsemUnexpectedInNewConcept, n))
     result = n
 
 proc semConceptDeclaration*(c: PContext; n: PNode): PNode =

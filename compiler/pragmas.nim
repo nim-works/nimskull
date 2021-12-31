@@ -103,11 +103,11 @@ proc recordPragma(c: PContext; n: PNode; args: varargs[string]) =
   addPragmaComputation(c, recorded)
 
 proc invalidPragma*(c: PContext; n: PNode) =
-  localReport(c.config, n.info, SemReport(kind: rsemInvalidPragma, expression: n))
+  localReport(c.config, n.info, reportAst(rsemInvalidPragma, n))
 
 proc illegalCustomPragma*(c: PContext, n: PNode, s: PSym) =
-  localReport(c.config, n.info, SemReport(
-    kind: rsemCannotAttachPragma, psym: s, expression: n))
+  localReport(c.config, n.info, reportSym(
+    rsemCannotAttachPragma, s, ast = n))
 
 proc newInvalidPragmaNode*(c: PContext; n: PNode): PNode =
   ## create an error node (`nkError`) for an invalid pragma error
@@ -117,7 +117,7 @@ proc newIllegalCustomPragmaNode*(c: PContext; n: PNode, s: PSym): PNode =
   ## create an error node (`nkError`) for an illegal custom pragma error
   c.config.newError(
     n,
-    SemReport(kind: rsemIllegalCustomPragma, psym: s, expression: n),
+    reportSym(rsemIllegalCustomPragma, s, ast = n),
     @[newSymNode(s)],
     n.info
   )
@@ -343,7 +343,7 @@ proc processMagic(c: PContext, n: PNode, s: PSym): PNode =
         s.magic = m
         break
     if s.magic == mNone:
-      c.config.localReport(n.info, SemReport(msg: v, kind: rsemUnknownMagic))
+      c.config.localReport(n.info, reportStr(rsemUnknownMagic, v))
 
 proc wordToCallConv(sw: TSpecialWord): TCallingConvention =
   # this assumes that the order of special words and calling conventions is
@@ -551,7 +551,7 @@ proc processExperimental(c: PContext; n: PNode): PNode =
           c.module.flags.incl sfReorder
       except ValueError:
         n[1] = c.config.newError(
-          n[1], SemReport(kind: rsemUnknownExperimental, expression: n[1]))
+          n[1], reportAst(rsemUnknownExperimental, n[1]))
 
         result = wrapErrorInSubTree(n)
     of nkError:
@@ -821,9 +821,9 @@ proc semAsmOrEmit*(con: PContext, n: PNode, marker: char): PNode =
       a = c + 1
   else:
     con.config.localReport(n.info, SemReport(
-      expression: n,
+      ast: n,
       kind: rsemIllformedAst,
-      msg: "Expected string string literal for asm/emit statement [1] " &
+      str: "Expected string string literal for asm/emit statement [1] " &
         "but AST contains '$1'" % [$n[1].kind]))
 
     result = newNodeI(nkAsmStmt, n.info)
@@ -888,7 +888,7 @@ proc pragmaLine(c: PContext, n: PNode): PNode =
         n.info.line = uint16(y.intVal)
     else:
       result = c.config.newError(
-        n, SemReport(kind: rsemLinePragmaExpectsTuple, expression: n))
+        n, reportAst(rsemLinePragmaExpectsTuple, n))
   else:
     # sensible default:
     n.info = getInfoContext(c.config, -1)
@@ -918,8 +918,8 @@ proc pragmaRaisesOrTags(c: PContext, n: PNode): PNode =
       var t = skipTypes(c.semTypeNode(c, x, nil), skipPtrs)
       if t.kind != tyObject and not t.isMetaType:
         # xxx: was errGenerated
-        result = c.config.newError(x, SemReport(
-          rtype: t, kind: rsemRaisesPragmaExpectsObject))
+        result = c.config.newError(x, reportTyp(
+          rsemRaisesPragmaExpectsObject, t))
 
         return
       x.typ = t
@@ -964,17 +964,17 @@ proc pragmaLocks(c: PContext, it: PNode): (TLockLevel, PNode) =
       if it[1].strVal == "unknown":
         result = (UnknownLockLevel, nil)
       else:
-        it[1] = c.config.newError(it[1], SemReport(
-          kind: rsemLocksPragmaBadLevel,
-          msg: "invalid string literal for locks pragma (only allowed string is \"unknown\")"))
+        it[1] = c.config.newError(it[1], reportStr(
+          rsemLocksPragmaBadLevel,
+          "invalid string literal for locks pragma (only allowed string is \"unknown\")"))
         result = (UnknownLockLevel, wrapErrorInSubTree(it))
     else:
       let (x, err) = intLitToIntOrErr(c, it)
       if err.isNil:
         if x < 0 or x > MaxLockLevel:
-          it[1] = c.config.newError(it[1], SemReport(
-            kind: rsemLocksPragmaBadLevel,
-            msg: "integer must be within 0.." & $MaxLockLevel))
+          it[1] = c.config.newError(it[1], reportStr(
+            rsemLocksPragmaBadLevel,
+            "integer must be within 0.." & $MaxLockLevel))
           result = (UnknownLockLevel, wrapErrorInSubTree(it))
         else:
           result = (TLockLevel(x), nil)
@@ -1002,7 +1002,7 @@ proc markCompilerProc(c: PContext; s: PSym): PNode =
     of ExternNameSetFailed:
       result = c.config.newError(
         newSymNode(s),
-        SemReport(kind: rsemInvalidExtern, psym: s, externName: name))
+        SemReport(kind: rsemInvalidExtern, sym: s, externName: name))
 
   incl(s.flags, sfCompilerProc)
   incl(s.flags, sfUsed)
@@ -1020,9 +1020,8 @@ proc deprecatedStmt(c: PContext; outerPragma: PNode): PNode =
       result = wrapErrorInSubTree(outerPragma)
     return
   elif pragma.kind != nkBracket:
-    result = c.config.newError(pragma, SemReport(
-      kind: rsemBadDeprecatedArgs,
-      msg: "list of key:value pairs expected"))
+    result = c.config.newError(pragma, reportStr(
+      rsemBadDeprecatedArgs, "list of key:value pairs expected"))
     return
   for n in pragma:
     if n.kind in nkPragmaCallKinds and n.len == 2:
@@ -1046,9 +1045,8 @@ proc deprecatedStmt(c: PContext; outerPragma: PNode): PNode =
         result = err
         return
     else:
-      result = c.config.newError(n, SemReport(
-        kind: rsemBadDeprecatedArgs,
-        msg: "key:value pair expected"))
+      result = c.config.newError(n, reportStr(
+        rsemBadDeprecatedArgs, "key:value pair expected"))
       return
 
 proc pragmaGuard(c: PContext; it: PNode; kind: TSymKind): PSym =
@@ -1120,17 +1118,14 @@ proc processEffectsOf(c: PContext, n: PNode; owner: PSym): PNode =
           n
         else:
           # xxx: was errGenerated for error handling
-          c.config.newError(
-            n, SemReport(kind: rsemMisplacedEffectsOf, expression: n))
+          c.config.newError(n, reportAst(rsemMisplacedEffectsOf, n))
       else:
         # xxx: was errGenerated for error handling
-        c.config.newError(
-          n, SemReport(kind: rsemMissingPragmaArg, expression: n))
+        c.config.newError(n, reportAst(rsemMissingPragmaArg, n))
 
   if n.kind notin nkPragmaCallKinds or n.len != 2:
     # xxx: was errGenerated for error handling
-    result = c.config.newError(
-      n, SemReport(kind: rsemMissingPragmaArg, expression: n))
+    result = c.config.newError(n, reportAst(rsemMissingPragmaArg, n))
   else:
     let it = n[1]
     if it.kind in {nkCurly, nkBracket}:
@@ -1168,9 +1163,9 @@ proc prepareSinglePragma(
   of nkCast:
     result =
       if comesFromPush:
-        c.config.newError(n, rsemCannotPushCast)
+        c.config.newError(n, reportAst(rsemCannotPushCast, nil))
       elif not isStatement:
-        c.config.newError(n, rsemCastRequiresStatement)
+        c.config.newError(n, reportAst(rsemCastRequiresStatement, nil))
       elif whichPragma(key[1]) in {wRaises, wTags}:
         pragmaRaisesOrTags(c, key[1])
       else:
@@ -1560,7 +1555,7 @@ proc prepareSinglePragma(
         result =
           if err.isNil:
             recordPragma(c, it, "hint", s)
-            c.config.localReport(it.info, SemReport(kind: rsemUserHint, msg: s))
+            c.config.localReport(it.info, reportStr(rsemUserHint, s))
             it
           else:
             err
@@ -1569,7 +1564,7 @@ proc prepareSinglePragma(
         result =
           if err.isNil:
             recordPragma(c, it, "warning", s)
-            c.config.localReport(it.info, SemReport(kind: rsemUserWarning, msg: s))
+            c.config.localReport(it.info, reportStr(rsemUserWarning, s))
             it
           else:
             err
@@ -1798,7 +1793,7 @@ proc prepareSinglePragma(
             result = it
             localReport(
               c.config, n.info,
-              SemReport(kind: rsemDeprecated, msg: "'.this' pragma is deprecated"))
+              reportStr(rsemDeprecated, "'.this' pragma is deprecated"))
           else:
             it[1] = result # we retrieved it above from `it[1]`, so making sure return the same node
             result = wrapErrorInSubTree(it)
@@ -1806,7 +1801,7 @@ proc prepareSinglePragma(
           c.selfName = getIdent(c.cache, "self")
           localReport(
             c.config, n.info,
-            SemReport(kind: rsemDeprecated, msg: "'.this' pragma is deprecated"))
+            reportStr(rsemDeprecated, "'.this' pragma is deprecated"))
         else:
           result = c.config.newError(it, rsemThisPragmaRequires01Args)
       of wNoRewrite:

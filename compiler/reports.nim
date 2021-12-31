@@ -1107,14 +1107,14 @@ type
     isLocal*: bool
 
   SemReport* = object of ReportBase
-    expression*: PNode
+    ast*: PNode
     expressionStr*: string ## In some cases error reporting is done deep
     ## enough after processing and only string version of the expression
     ## might be generated. Most prominent example is a `.booldefine.` and
     ## `.intdefine.` error generation.
-    rtype*: PType
-    psym*: PSym
-    msg*: string
+    typ*: PType
+    sym*: PSym
+    str*: string
     spellingCandidates*: seq[SemSpellCandidate]
     case kind*: ReportKind
       of rsemDuplicateModuleImport:
@@ -1292,7 +1292,7 @@ func severity*(report: SemReport): ReportSeverity =
 func reportSymbols*(
     kind: ReportKind,
     symbols: seq[PSym],
-    rtype: PType = nil,
+    typ: PType = nil,
     ast: PNode = nil
   ): SemReport =
   case kind:
@@ -1301,31 +1301,36 @@ func reportSymbols*(
     of rsemReportListSym: discard
     else: assert false, $kind
 
-  result = SemReport(kind: kind, expression: ast)
+  result = SemReport(kind: kind, ast: ast)
   result.symbols = symbols
-  result.rtype = rtype
+  result.typ = typ
 
-func reportNode*(
+func reportAst*(
     kind: ReportKind,
-    node: PNode,
-    str: string = "",
-    rtype: PType = nil,
-    psym: PSym = nil
+    ast: PNode, str: string = "", typ: PType = nil, sym: PSym = nil
   ): SemReport =
 
-  SemReport(
-    kind: kind, expression: node, msg: str, rtype: rtype, psym: psym)
+  SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
+
+func reportTyp*(
+    kind: ReportKind,
+    typ: PType, ast: PNode = nil, sym: PSym = nil, str: string = ""
+  ): SemReport =
+  SemReport(kind: kind, typ: typ, ast: ast, sym: sym, str: str)
+
+func reportStr*(
+    kind: ReportKind,
+    str: string, ast: PNode = nil, typ: PType = nil, sym: PSym = nil
+  ): SemReport =
+
+  SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
 
 func reportSym*(
     kind: ReportKind,
-    psym: PSym,
-    node: PNode = nil,
-    str: string = "",
-    rtype: PType = nil,
+    sym: PSym, ast: PNode = nil, str: string = "", typ: PType = nil,
   ): SemReport =
 
-  SemReport(
-    kind: kind, expression: node, msg: str, rtype: rtype, psym: psym)
+  SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
 
 template withIt*(expr: untyped, body: untyped): untyped =
   block:

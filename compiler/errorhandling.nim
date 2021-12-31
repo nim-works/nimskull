@@ -106,8 +106,8 @@ template newError*(
     posInfo: TLineInfo = unknownLineInfo,
   ): untyped =
   var rep = report
-  if isNil(rep.expression):
-    rep.expression = wrongNode
+  if isNil(rep.ast):
+    rep.ast = wrongNode
 
   let tmp = wrap(rep, instLoc(), conf.toReportLinePoint(
     if posInfo == unknownLineInfo: wrongNode.info  else: posInfo))
@@ -119,7 +119,7 @@ template newError*(
     conf: ConfigRef,
     node: PNode,
     reportKind: SemReportKind,
-    sym: PSym = nil,
+    psym: PSym = nil,
     errMsg: string = "",
     args: seq[PNode] = @[],
     posInfo: TLineInfo = unknownLineInfo
@@ -128,7 +128,7 @@ template newError*(
     node,
     reportKind,
     conf.addReport(wrap(
-      SemReport(expression: node, psym: sym, kind: reportKind, msg: errMsg),
+      SemReport(ast: node, sym: psym, kind: reportKind, str: errMsg),
       instLoc(),
       conf.toReportLinePoint(
         if posInfo == unknownLineInfo: node.info else: posInfo))),
