@@ -85,6 +85,8 @@ type
 
   TGlobalOptions* = set[TGlobalOption]
 
+
+
 const
   harmlessOptions* = {optForceFullMake, optNoLinking, optRun, optUseColors, optStdout}
   genSubDir* = RelativeDir"nimcache"
@@ -270,6 +272,11 @@ type
     foName          ## lastPathPart, e.g.: foo.nim
     foStacktrace    ## if optExcessiveStackTrace: foAbs else: foName
 
+  MsgFlag* = enum  ## flags altering msgWriteln behavior
+    msgStdout,     ## force writing to stdout, even stderr is default
+    msgNoUnitSep  ## the message is a complete "paragraph".
+  MsgFlags* = set[MsgFlag]
+
   ConfigRef* {.acyclic.} = ref object ## every global configuration
                           ## fields marked with '*' are subject to
                           ## the incremental compilation mechanisms
@@ -377,7 +384,12 @@ type
     suggestVersion*: int
     suggestMaxResults*: int
     lastLineInfo*: TLineInfo
-    writelnHook*: proc (output: string) {.closure.}
+    writeHook*: proc(
+      conf: ConfigRef,
+      output: string,
+      flags: MsgFlags
+    ) {.closure.} ## All
+    ## textual output from the compiler goes through this callback.
     structuredReportHook*: proc (conf: ConfigRef, report: Report) {.closure.}
     cppCustomNamespace*: string
     vmProfileData*: ProfileData
@@ -389,6 +401,19 @@ type
     callDiagnostics*: seq[SemCallDiagnostics] ## Additional call resolution
     ## diagnostics that are used to provide more detailed error messages in
     ## case of the compilation failure. Populated in the `sigcall.matches`
+
+proc writelnHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
+  conf.writeHook(conf, msg & "\n", flags)
+
+proc writeHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
+  conf.writeHook(conf, msg, flags)
+
+proc writeln*(conf: ConfigRef, args: varargs[string, `$`]) =
+  writeLnHook(conf, args.join(""))
+
+proc write*(conf: ConfigRef, args: varargs[string, `$`]) =
+  writeHook(conf, args.join(""))
+
 
 proc report*(conf: ConfigRef, inReport: Report) =
   ## Write `inReport`

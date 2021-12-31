@@ -303,38 +303,7 @@ proc cmpCandidates*(a, b: TCandidate): int =
   if result != 0: return
   result = a.calleeScope - b.calleeScope
 
-proc argTypeToString(arg: PNode; prefer: TPreferedDesc): string =
-  if arg.kind in nkSymChoices:
-    result = typeToString(arg[0].typ, prefer)
-    for i in 1..<arg.len:
-      result.add(" | ")
-      result.add typeToString(arg[i].typ, prefer)
-  elif arg.typ == nil:
-    result = "void"
-  else:
-    result = arg.typ.typeToString(prefer)
 
-proc describeArgs*(c: PContext, n: PNode, startIdx = 1; prefer = preferName): string =
-  result = ""
-  for i in startIdx..<n.len:
-    var arg = n[i]
-    if n[i].kind == nkExprEqExpr:
-      result.add renderTree(n[i][0])
-      result.add ": "
-      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
-        # XXX we really need to 'tryExpr' here!
-        arg = c.semOperand(c, n[i][1])
-        n[i].typ = arg.typ
-        n[i][1] = arg
-    else:
-      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo, nkElse,
-                                           nkOfBranch, nkElifBranch,
-                                           nkExceptBranch}:
-        arg = c.semOperand(c, n[i])
-        n[i] = arg
-    if arg.typ != nil and arg.typ.kind == tyError: return
-    result.add argTypeToString(arg, prefer)
-    if i != n.len - 1: result.add ", "
 
 proc concreteType(c: TCandidate, t: PType; f: PType = nil): PType =
   case t.kind

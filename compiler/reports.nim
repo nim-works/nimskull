@@ -118,6 +118,7 @@ type
     rintNimconfWrite
     rintListWarnings
     rintListHints
+    rintDumpState
     rintEchoMessage # last !
 
     # internal reports end
@@ -1439,12 +1440,30 @@ type
       of false:
         discard
 
+  InternalStateDump* = ref object
+    version*: string
+    nimExe*: string
+    prefixdir*: string
+    libpath*: string
+    project_path*: string
+    defined_symbols*: seq[string]
+    lib_paths*: seq[string]
+    lazyPaths*: seq[string]
+    nimbleDir*: string
+    outdir*: string
+    `out`*: string
+    nimcache*: string
+    hints*, warnings*: seq[tuple[name: string, enabled: bool]]
+
   InternalReport* = object of ReportBase
     ## Report generated for the internal compiler workings
     msg*: string
     case kind*: ReportKind
       of rintStackTrace:
         trace*: seq[StackTraceEntry] ## Generated stack trace entries
+
+      of rintDumpState:
+        stateDump*: InternalStateDump
 
       of rintAssert:
         expression*: string

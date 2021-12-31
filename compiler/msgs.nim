@@ -154,7 +154,7 @@ proc concat(strings: openArray[string]): string =
 
 proc suggestWriteln*(conf: ConfigRef; s: string) =
   if eStdOut in conf.m.errorOutputs:
-    if isNil(conf.writelnHook):
+    if isNil(conf.writeHook):
       writeLine(stdout, s)
       flushFile(stdout)
     else:
@@ -316,14 +316,7 @@ proc `??`* (conf: ConfigRef; info: TLineInfo, filename: string): bool =
   # only for debugging purposes
   result = filename in toFilename(conf, info)
 
-type
-  MsgFlag* = enum  ## flags altering msgWriteln behavior
-    msgStdout,     ## force writing to stdout, even stderr is default
-    msgSkipHook    ## skip message hook even if it is present
-    msgNoUnitSep  ## the message is a complete "paragraph".
-  MsgFlags* = set[MsgFlag]
-
-proc msgWriteln*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
+proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
   ## Writes given message string to stderr by default.
   ## If ``--stdout`` option is given, writes to stdout instead. If message hook
   ## is present, then it is used to output message rather than stderr/stdout.
@@ -332,22 +325,21 @@ proc msgWriteln*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
   ## This is used for 'nim dump' etc. where we don't have nimsuggest
   ## support.
   ##
-  ## Use this procedure when implementing compiler diagnostics output.
-  #if conf.cmd == cmdIdeTools and optCDebug notin gGlobalOptions: return
+  ## This procedure is used as a default implementation of the
+  ## `ConfigRef.writeHook`.
   let sep = if msgNoUnitSep notin flags: conf.unitSep else: ""
-  if not isNil(conf.writelnHook) and msgSkipHook notin flags:
-    conf.writelnHook(s & sep)
-  elif optStdout in conf.globalOptions or msgStdout in flags:
+
+  if optStdout in conf.globalOptions or msgStdout in flags:
     if eStdOut in conf.m.errorOutputs:
-      flushDot(conf)
-      write stdout, s
-      writeLine(stdout, sep)
+      write(stdout, s)
+      write(stdout, sep)
       flushFile(stdout)
+
   else:
     if eStdErr in conf.m.errorOutputs:
-      flushDot(conf)
-      write stderr, s
-      writeLine(stderr, sep)
+      write(stderr, s)
+      write(stderr, sep)
+
       # On Windows stderr is fully-buffered when piped, regardless of C std.
       when defined(windows):
         flushFile(stderr)
@@ -425,7 +417,7 @@ proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
 
   elif defined(debug) or withTrace or conf.hasHint(rintStackTrace):
     {.gcsafe.}:
-      if stackTraceAvailable() and isNil(conf.writelnHook):
+      if stackTraceAvailable():
         conf.report(InternalReport(
           kind: rintStackTrace,
           trace: getStackTraceEntries()))

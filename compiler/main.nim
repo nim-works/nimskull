@@ -329,54 +329,41 @@ proc mainCommand*(graph: ModuleGraph) =
   of cmdBuildindex: docLikeCmd commandBuildIndex(conf, $conf.projectFull, conf.outFile)
   of cmdGendepend: commandGenDepend(graph)
   of cmdDump:
-    if getConfigVar(conf, "dump.format") == "json":
-      wantMainModule(conf)
+    wantMainModule(conf)
+    var state = InternalStateDump()
+    for s in definedSymbolNames(conf.symbols):
+      state.defined_symbols.add $s
 
-      var definedSymbols = newJArray()
-      for s in definedSymbolNames(conf.symbols): definedSymbols.elems.add(%s)
+    for dir in conf.searchPaths:
+      state.lib_paths.add(dir.string)
 
-      var libpaths = newJArray()
-      var lazyPaths = newJArray()
-      for dir in conf.searchPaths: libpaths.elems.add(%dir.string)
-      for dir in conf.lazyPaths: lazyPaths.elems.add(%dir.string)
+    for dir in conf.lazyPaths:
+      state.lazyPaths.add(dir.string)
 
-      var hints = newJObject() # consider factoring with `listHints`
-      for a in repHintKinds:
-        hints[$a] = %(a in conf.notes)
+    for a in repHintKinds:
+      state.hints.add(($a, a in conf.notes))
 
-      var warnings = newJObject()
-      for a in repWarningKinds:
-        warnings[$a] = %(a in conf.notes)
+    for a in repWarningKinds:
+      state.warnings.add(($a, a in conf.notes))
 
-      var dumpdata = %[
-        (key: "version", val: %VersionAsString),
-        (key: "nimExe", val: %(getAppFilename())),
-        (key: "prefixdir", val: %conf.getPrefixDir().string),
-        (key: "libpath", val: %conf.libpath.string),
-        (key: "project_path", val: %conf.projectFull.string),
-        (key: "defined_symbols", val: definedSymbols),
-        (key: "lib_paths", val: %libpaths),
-        (key: "lazyPaths", val: %lazyPaths),
-        (key: "outdir", val: %conf.outDir.string),
-        (key: "out", val: %conf.outFile.string),
-        (key: "nimcache", val: %getNimcacheDir(conf).string),
-        (key: "hints", val: hints),
-        (key: "warnings", val: warnings),
-      ]
+    state.version         = VersionAsString
+    state.nimExe          = getAppFilename()
+    state.prefixdir       = conf.getPrefixDir().string
+    state.libpath         = conf.libpath.string
+    state.project_path    = conf.projectFull.string
+    state.outdir          = conf.outDir.string
+    state.`out`           = conf.outFile.string
+    state.nimcache        = getNimcacheDir(conf).string
 
-      msgWriteln(conf, $dumpdata, {msgStdout, msgSkipHook, msgNoUnitSep})
-        # `msgNoUnitSep` to avoid generating invalid json, refs bug #17853
-    else:
-      msgWriteln(conf, "-- list of currently defined symbols --",
-                 {msgStdout, msgSkipHook, msgNoUnitSep})
-      for s in definedSymbolNames(conf.symbols): msgWriteln(conf, s, {msgStdout, msgSkipHook, msgNoUnitSep})
-      msgWriteln(conf, "-- end of list --", {msgStdout, msgSkipHook})
+    conf.localReport(InternalReport(kind: rintDumpState, stateDump: state))
 
-      for it in conf.searchPaths: msgWriteln(conf, it.string)
-  of cmdCheck: commandCheck(graph)
+  of cmdCheck:
+    commandCheck(graph)
+
   of cmdParse:
     wantMainModule(conf)
     discard parseFile(conf.projectMainIdx, cache, conf)
+
   of cmdRod:
     wantMainModule(conf)
     commandView(graph)

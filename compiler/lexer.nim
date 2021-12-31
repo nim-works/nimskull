@@ -163,7 +163,7 @@ proc prettyTok*(tok: Token): string =
 
 proc printTok*(conf: ConfigRef; tok: Token) =
   # xxx factor with toLocation
-  msgWriteln(conf, $tok.line & ":" & $tok.col & "\t" & $tok.tokType & " " & $tok)
+  conf.writeln($tok.line & ":" & $tok.col & "\t" & $tok.tokType & " " & $tok)
 
 proc initToken*(L: var Token) =
   L.tokType = tkInvalid

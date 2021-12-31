@@ -1,9 +1,7 @@
-import reports, ast, types, renderer, astmsgs
+import reports, ast, types, renderer, astmsgs, astalgo
 import options as compiler_options
 import std/[strutils, terminal, options, algorithm]
 
-proc msg(conf: ConfigRef, args: varargs[string, `$`]) =
-  echo args.join("")
 
 func wrap(str: string, color: ForegroundColor): string =
   result.add "\e["
@@ -25,13 +23,13 @@ proc writeContext*(conf: ConfigRef, ctx: seq[ReportContext]) =
   for ctx in items(ctx):
     case ctx.kind:
       of sckInstantiationOf:
-        conf.msg(
+        conf.writeln(
           "template/generic instantiation of `",
           ctx.entry.name.s,
           "` from here")
 
       of sckInstantiationFrom:
-        conf.msg("template/generic instantiation from here")
+        conf.writeln("template/generic instantiation from here")
 
 proc renderNotLValue(n: PNode): string =
   result = $n
@@ -252,13 +250,78 @@ proc presentFailedCandidates(
 
   result = (prefer, candidates)
 
+proc argTypeToString(arg: PNode; prefer: TPreferedDesc): string =
+  if arg.kind in nkSymChoices:
+    result = typeToString(arg[0].typ, prefer)
+    for i in 1 ..< arg.len:
+      result.add(" | ")
+      result.add typeToString(arg[i].typ, prefer)
+
+  elif arg.typ == nil:
+    result = "void"
+
+  else:
+    result = arg.typ.typeToString(prefer)
+
+
+proc describeArgs(conf: ConfigRef, n: PNode, startIdx = 1; prefer = preferName): string =
+  result = ""
+  for i in startIdx ..< n.len:
+    var arg = n[i]
+    if n[i].kind == nkExprEqExpr:
+      result.add renderTree(n[i][0])
+      result.add ": "
+      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
+        # XXX we really need to 'tryExpr' here!
+
+        when false:
+          # HACK original implementation of the `describeArgs` used
+          # `semOperand` here, but until there is a clear understanding
+          # /why/ is it necessary to additionall call sem on the arguments
+          # I will leave this as it is now. This was introduced in commit
+          # 5b0d8246f79730a473a869792f12938089ecced6 that "made some tests
+          # green" (+98/-77)
+          arg = c.semOperand(c, n[i][1])
+          arg = n[i][1]
+          n[i].typ = arg.typ
+          n[i][1] = arg
+
+        else:
+          debug arg
+
+    else:
+      if arg.typ.isNil and arg.kind notin {
+           nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch
+         }:
+
+        when false:
+          # HACK same as comment above
+          arg = c.semOperand(c, n[i])
+          n[i] = arg
+
+        else:
+          debug arg
+
+
+    if arg.typ != nil and arg.typ.kind == tyError:
+      return
+
+    result.add argTypeToString(arg, prefer)
+    if i != n.len - 1:
+      result.add ", "
+
+
 proc toStr(conf: ConfigRef, r: SemReport): string =
   case r.kind:
     of rsemCallTypeMismatch:
       let (prefer, candidates) = presentFailedCandidates(
         conf, r.expression, r.callMismatches)
 
-      echo candidates
+      result.add "type mismatch: got <"
+      result.add conf.describeArgs(r.expression, 1, prefer)
+      result.add ">"
+      if candidates != "":
+        result.add "\nbut expected one of:\n" & candidates
 
     else:
       return $r
@@ -267,10 +330,15 @@ proc toStr(conf: ConfigRef, loc: ReportLineInfo): string = $loc
 
 proc report(conf: ConfigRef, r: SemReport)      =
   let sev = conf.severity(r)
+
+  if r.kind == rsemProcessing and conf.hintProcessingDots:
+    conf.write "."
+    return
+
   if sev == rsevError:
     conf.writeContext(r.context)
 
-  conf.msg(
+  conf.writeln(
     # Optional report location
     if r.location.isSome():
       conf.toStr(r.location.get()) & " "
@@ -284,7 +352,7 @@ proc report(conf: ConfigRef, r: SemReport)      =
     toStr(conf, r),
 
     # Trailing report message - `[GcMem]`
-    if sev in {rsevError, rsevWarning}:
+    if sev in {rsevHint, rsevWarning}:
       wrap(" [" & $r.kind & "]", fgCyan)
 
     else:

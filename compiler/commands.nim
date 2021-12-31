@@ -64,25 +64,28 @@ proc getCommandLineDesc(conf: ConfigRef): string =
 
 proc helpOnError(conf: ConfigRef; pass: TCmdLinePass) =
   if pass == passCmd1:
-    msgWriteln(conf, getCommandLineDesc(conf), {msgStdout})
+    conf.writeln(getCommandLineDesc(conf), {msgStdout})
     msgQuit(0)
 
 proc writeAdvancedUsage(conf: ConfigRef; pass: TCmdLinePass) =
   if pass == passCmd1:
-    msgWriteln(conf, (HelpMessage % [VersionAsString,
-                                 platform.OS[conf.target.hostOS].name,
-                                 CPU[conf.target.hostCPU].name]) &
-                                 AdvancedUsage,
-               {msgStdout})
+    conf.writeln((
+      HelpMessage % [
+        VersionAsString,
+        platform.OS[conf.target.hostOS].name,
+        CPU[conf.target.hostCPU].name
+    ]) & AdvancedUsage, {msgStdout})
+
     msgQuit(0)
 
 proc writeFullhelp(conf: ConfigRef; pass: TCmdLinePass) =
   if pass == passCmd1:
-    msgWriteln(conf, `%`(HelpMessage, [VersionAsString,
-                                 platform.OS[conf.target.hostOS].name,
-                                 CPU[conf.target.hostCPU].name]) &
-                                 Usage & AdvancedUsage,
-               {msgStdout})
+    conf.writeln((HelpMessage % [
+      VersionAsString,
+      platform.OS[conf.target.hostOS].name,
+      CPU[conf.target.hostCPU].name
+    ]) & Usage & AdvancedUsage, {msgStdout})
+
     msgQuit(0)
 
 proc getNimSourceData(): tuple[hash, date: string] {.compileTime.} =
@@ -95,7 +98,7 @@ proc getNimSourceData(): tuple[hash, date: string] {.compileTime.} =
 
 proc writeVersionInfo(conf: ConfigRef; pass: TCmdLinePass) =
   if pass == passCmd1:
-    msgWriteln(
+    writeln(
       conf,
       HelpMessage % [
         VersionAsString, platform.OS[conf.target.hostOS].name,
@@ -107,16 +110,16 @@ proc writeVersionInfo(conf: ConfigRef; pass: TCmdLinePass) =
     const (sourceHash, sourceDate) = getNimSourceData()
 
     when sourceHash != "":
-      msgWriteln(conf, CommitMessage % [sourceHash, sourceDate], {msgStdout})
+      writeln(conf, CommitMessage % [sourceHash, sourceDate], {msgStdout})
 
-    msgWriteln(conf, "active boot switches:" & usedRelease & usedDanger &
+    writeln(conf, "active boot switches:" & usedRelease & usedDanger &
       usedTinyC & useLinenoise &
       usedFFI & usedBoehm & usedMarkAndSweep & usedGoGC & usedNoGC,
                {msgStdout})
     msgQuit(0)
 
 proc writeCommandLineUsage*(conf: ConfigRef) =
-  msgWriteln(conf, getCommandLineDesc(conf), {msgStdout})
+  writeln(conf, getCommandLineDesc(conf), {msgStdout})
 
 proc addPrefix(switch: string): string =
   if switch.len <= 1: result = "-" & switch
