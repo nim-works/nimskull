@@ -33,7 +33,7 @@ activities:
 - check the `current near-term development plan <https://github.com/nim-works/nimskull#near-term-development>`_
 - see current efforts by reading the last `~10 commits messages <https://github.com/nim-works/nimskull/commits/devel>`_
 - to understand the current broader ideas, `see recent discussions <https://github.com/nim-works/nimskull/discussions>`_
-- check out roadmap progression `thread <https://github.com/nim-works/nimskull/discussions/142>`_ for a high-level overview
+- check out roadmap progression `thread <https://github.com/nim-works/nimskull/discussions/142?sort=new>`_ for a high-level overview
 - join our `matrix chat <https://matrix.to/#/#nimworks:envs.net>`_
 
 With that said, contributing happens via "Pull requests" (PR) on github. Every

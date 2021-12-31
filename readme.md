@@ -18,6 +18,8 @@
   </p>
 
 [![Matrix](https://img.shields.io/badge/matrix-nim--works-success?style=flat&logo=matrix)][nim-works-matrix]
+[![IRC](https://img.shields.io/badge/chat-%23nimworks%20on%20libera.chat-brightgreen?style=flat)](https://web.libera.chat/#nimworks)
+[![IRC](https://img.shields.io/badge/chat-%23nimworks-dev%20on%20libera.chat-brightgreen?style=flat)](https://web.libera.chat/#nimworks-dev)
 
 </div>
 
@@ -50,12 +52,14 @@ See the [FAQ](#FAQ).
 
 ## Near-Term Development
 
-
 ![](./doc/fixup_roadmap.png)
 
+For updates on the progress see the roadmap progress [thread](https://github.com/nim-works/nimskull/discussions/142?sort=new)
+
 The current and key areas of development are as follows:
+
 1. improve tests - clarify the language specification and memorialize it in tests.
-   Reorganize existsing tests. [Project](https://github.com/nim-works/nimskull/projects/2)
+   Reorganize existing tests. [Project](https://github.com/nim-works/nimskull/projects/2)
    to track progress.
 2. nkError - replace `localError` etc approach with an AST (`nkError`) one
 3. comments - incrementally document compiler source for easier learning
