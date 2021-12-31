@@ -372,9 +372,6 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
     of rsemVmInvalidBindSym:
       result = "invalid bindSym usage"
 
-    of rsemExpressionHasNoType:
-      result = "expression has no type: " & $r.expression
-
     of rsemSymbolKindMismatch:
       result = "cannot use symbol of kind '$1' as a '$2'" %
         [$r.psym.kind, $r.expectedSymbolKind]
@@ -387,7 +384,9 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         result = "invalid type: '$1' for $2" % [
           typeToString(typ), toHumanStr(kind)]
 
-        if kind in {skVar, skLet, skConst} and taIsTemplateOrMacro in flags:
+        if kind in {skVar, skLet, skConst} and
+           taIsTemplateOrMacro in r.allowedType.allowedFlags:
+
           result &= ". Did you mean to call the $1 with '()'?" % [
             toHumanStr(typ.owner.kind)]
 
@@ -416,9 +415,32 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
     of rsemUnusedImport:
       result = "imported and not used: '$1'" % r.psym.name.s
 
+    of rsemCallNotAProcOrField:
+      if r.explicitCall:
+        if result.len == 0:
+          result = "attempting to call undeclared routine: '$1'" % $r.msg
+        else:
+          result = "attempting to call routine: '$1'$2" % [$r.msg, $result]
 
-    # else:
-    #   return $r
+      else:
+        let sym = r.rtype.typSym
+        var typeHint = ""
+        if sym == nil:
+          # Perhaps we're in a `compiles(foo.bar)` expression, or
+          # in a concept, e.g.:
+          #   ExplainedConcept {.explain.} = concept x
+          #     x.foo is int
+          discard
+        else:
+
+          typeHint = " for type " & getProcHeader(conf, sym)
+
+        let suffix = if result.len > 0: " " & result else: ""
+
+        result = "undeclared field: '$1'" % r.msg & typeHint & suffix
+
+    else:
+      return $r
 
 proc toStr(conf: ConfigRef, loc: ReportLineInfo): string = $loc
 

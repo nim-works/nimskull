@@ -203,12 +203,20 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
            #      double pass, now we simply return for fast exit.
   if errors.len == 0:
     # no further explanation available for reporting
+    #
+    # QUESTION I wonder if it makes sense to still attempt spelling
+    # correction here.
     result = c.config.newError(n, rsemExpressionCannotBeCalled)
     return
+
+  var f = n[0]
+  if f.kind == nkBracketExpr:
+    f = f[0]
 
   result = newError(c.config, n, SemReport(
     kind: rsemCallTypeMismatch,
     expression: n,
+    spellingCandidates: fixSpelling(c, f.ident),
     callMismatches: presentFailedCandidates(c, n, errors)
   ))
 
@@ -248,13 +256,22 @@ proc getMsgDiagnostic(
     var o: TOverloadIter
     result = SemReport(
       rtype: n[1].typ,
+      msg: f.ident.s,
       expression: n,
+      # `arg.call()`
+      explicitCall: len({nfDotField, nfExplicitCall} * n.flags) == 2,
       kind: rsemCallNotAProcOrField)
 
+    # store list of potenttial overload candidates that might be misuesd -
+    # for example `obj.iterator()` call outside of the for loop.
     var sym = initOverloadIter(o, c, f)
     while sym != nil:
-      result.symbols.add(sym)
+      result.unexpectedCandidate.add(sym)
       sym = nextOverloadIter(o, c, f)
+
+    # Throw in potential typos - `obj.cull()` or `obj.lenghh` might
+    # potentially be caused by this.
+    result.spellingCandidates = fixSpelling(c, f.ident)
 
 
 proc resolveOverloads(c: PContext, n, orig: PNode,

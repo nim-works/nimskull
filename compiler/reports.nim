@@ -396,7 +396,8 @@ type
 
     # Call and procedures
     rsemCallTypeMismatch
-    rsemCallNotAProcOrField
+    rsemCallNotAProcOrField ## unknown or semantically invalid `obj.field`,
+    ## `obj.call()`
     rsemExpressionCannotBeCalled
     rsemWrongNumberOfArguments
     rsemWrongNumberOfVariables
@@ -1038,7 +1039,6 @@ const
 
   rsemReportListSym* = {
     rsemAmbiguous,
-    rsemCallNotAProcOrField,
     rsemObjectRequiresFieldInit
   }
 
@@ -1115,6 +1115,7 @@ type
     rtype*: PType
     psym*: PSym
     msg*: string
+    spellingCandidates*: seq[SemSpellCandidate]
     case kind*: ReportKind
       of rsemDuplicateModuleImport:
         previous*: ReportLinePoint
@@ -1195,9 +1196,16 @@ type
       of rsemDrnimCannotProveLeq, rsemDrnimCannotPorveGe:
         drnimExpressions*: tuple[a, b: PNode]
 
-      of rsemUndeclaredIdentifier:
+      of rsemUndeclaredIdentifier,
+         rsemCallNotAProcOrField,
+           :
         potentiallyRecursive*: bool
-        spellingCandidates*: seq[SemSpellCandidate]
+
+        explicitCall*: bool ## Whether `rsemCallNotAProcOrField` error was
+        ## caused by expression with explicit dot call: `obj.cal()`
+        unexpectedCandidate*: seq[PSym] ## Symbols that are syntactically
+        ## valid in this context, but semantically are not allowed - for
+        ## example `object.iterator()` call outside of the `for` loop.
 
       of rsemDisjointFields,
          rsemUnsafeRuntimeDiscriminantInit,
@@ -1571,6 +1579,10 @@ type
 
       of repExternal:
         externalReport*: ExternalReport
+
+static:
+  echo "Size of the report object is ", sizeof(Report)
+  echo "Sem report: ", sizeof(SemReport)
 
 let reportEmpty* = Report(
   category: repInternal,

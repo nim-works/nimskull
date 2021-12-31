@@ -487,8 +487,7 @@ proc mustFixSpelling(c: PContext): bool {.inline.} =
   result = c.config.spellSuggestMax != 0 and c.compilesContextId == 0
     # don't slowdown inside compiles()
 
-proc fixSpelling(
-    c: PContext, n: PNode, ident: PIdent): seq[SemSpellCandidate] =
+proc fixSpelling*(c: PContext, ident: PIdent): seq[SemSpellCandidate] =
   ## when we cannot find the identifier, suggest nearby spellings
   var list = initHeapQueue[SemSpellCandidate]()
   let name0 = ident.s.nimIdentNormalize
@@ -580,10 +579,11 @@ proc errorUndeclaredIdentifier*(
     # prevent excessive errors for 'nim check'
     c.recursiveDep.setLen 0
 
-proc errorUndeclaredIdentifierHint*(c: PContext; n: PNode, ident: PIdent): PSym =
+proc errorUndeclaredIdentifierHint*(
+    c: PContext; n: PNode, ident: PIdent): PSym =
   var candidates: seq[SemSpellCandidate]
   if c.mustFixSpelling:
-    candidates = fixSpelling(c, n, ident)
+    candidates = fixSpelling(c, ident)
 
   errorUndeclaredIdentifier(c, n.info, ident.s, candidates)
 
@@ -745,7 +745,7 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
     if result.isNil and checkUndeclared in flags:
       var candidates: seq[SemSpellCandidate]
       if c.mustFixSpelling:
-        candidates = fixSpelling(c, n, ident)
+        candidates = fixSpelling(c, ident)
 
       result = errorUndeclaredIdentifierWithHint(c, n, ident.s, candidates)
 
