@@ -1378,6 +1378,76 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
     of rsemCantConvertLiteralToRange:
       result = "cannot convert " & $r.str & " to " & r.typ.render
 
+    of rsemCantComputeOffsetof:
+      result = "can't compute offsetof on this ast"
+
+    of rsemExpectObjectForBase:
+      result = "cannot inherit from a type that is not an object type"
+
+    of rsemExpectNonFinalForBase:
+      result = "inheritance only works with non-final objects; " &
+        "for " & r.typ.render & " to be inheritable it must be " &
+        "'object of RootObj' instead of 'object'"
+
+    of rsemTVoidNotAllowed:
+      result = "type '$1 void' is not allowed" % r.typ.kind.toHumanStr
+
+    of rsemExpectedObjectForRegion:
+      result = "region needs to be an object type"
+
+    of rsemPtrRegionIsDeprecated:
+      result = "region for pointer types is deprecated"
+
+    of rsemMacroBodyDependsOnGenericTypes:
+      result = "the macro body cannot be compiled, " &
+        "because the parameter '$1' has a generic type" % r.str
+
+    of rsemUnexpectedVoidType:
+      result = "'repr' doesn't support 'void' type"
+
+    of rsemUnexpectedArrayAssignForCstring:
+      result = "cstring doesn't support `[]=` operator"
+
+    of rsemMalformedNotNilType:
+      result = "Invalid syntax. When used with a type, 'not' can be followed only by 'nil'"
+
+    of rsemEnableNotNilExperimental:
+      result = "enable the 'not nil' annotation with {.experimental: \"notnil\".} or " &
+        "  the `strict not nil` annotation with {.experimental: \"strictNotNil\".} " &
+        "  the \"notnil\" one is going to be deprecated, so please use \"strictNotNil\""
+
+    of rsemEnableDotOperatorsExperimental:
+      result =  "the overloaded " & r.symstr &
+        " operator has to be enabled with {.experimental: \"dotOperators\".}"
+
+    of rsemEnableCallOperatorExperimental:
+      result = "the overloaded " & r.symstr &
+        " operator has to be enabled with {.experimental: \"callOperator\".}"
+
+    of rsemExpectedImportedType:
+      result = "the '$1' modifier can be used only with imported types" % r.ast.render
+
+    of rsemExpectedDistinctForBorrow:
+      result = "only a 'distinct' type can borrow `.`"
+
+    of rsemRedefinitionOf:
+      result = "attempt to redefine: '" & r.symstr & "'"
+
+    of rsemDefaultParamIsIncompatible:
+      assert false, "REMOVE"
+
+    of rsemExpressionCannotBeCalled:
+      result = "expression cannot be called"
+
+    of rsemWrongNumberOfGenericParams:
+      result = ""
+
+    of rsemNoGenericParamsAllowed:
+      result = "no generic parameters allowed for $1" % r.symstr
+
+    of rsemCallingConventionMismatch:
+      assert false, "REMOVE"
+
     else:
       result = $r
 

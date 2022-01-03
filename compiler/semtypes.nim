@@ -1202,7 +1202,8 @@ proc liftParamType(c: PContext, procKind: TSymKind, genericParams: PNode,
     let lifted = recurse(paramType.base)
     let base = (if lifted != nil: lifted else: paramType.base)
     if base.isMetaType and procKind == skMacro:
-      localReport(c.config, info, SemReport(kind: rsemMacroBodyDependsOnGenericTypes))
+      localReport(c.config, info, reportStr(
+        rsemMacroBodyDependsOnGenericTypes, paramName, typ = paramType))
 
     result = addImplicitGeneric(c, c.newTypeWithSons(tyStatic, @[base]),
         paramTypId, info, genericParams, paramName)
