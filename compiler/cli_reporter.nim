@@ -1448,6 +1448,12 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
     of rsemCallingConventionMismatch:
       assert false, "REMOVE"
 
+    of rsemParallelCounterAfterIncrement:
+      result = "invalid usage of counter after increment"
+
+    of rsemUndeclaredIdentifier:
+      result = "undeclared identifier: '" & r.str & "'"
+
     else:
       result = $r
 

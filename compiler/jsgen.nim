@@ -304,12 +304,10 @@ proc useMagic(p: PProc, name: string) =
       p.g.constants.add(code)
   else:
     if p.prc != nil:
-      globalError(p.config, p.prc.info, SemReport(
-        kind: rsemSystemNeeds, msg: name))
+      globalReport(p.config, p.prc.info, reportStr(rsemSystemNeeds, name))
 
     else:
-      localError(p.config, SemReport(
-        kind: rsemSystemNeeds, msg: name))
+      localReport(p.config, reportStr(rsemSystemNeeds, name))
 
 proc isSimpleExpr(p: PProc; n: PNode): bool =
   # calls all the way down --> can stay expression based
@@ -887,7 +885,7 @@ proc genCaseJS(p: PProc, n: PNode, r: var TCompRes) =
           var v = copyNode(e[0])
           inc(totalRange, int(e[1].intVal - v.intVal))
           if totalRange > 65535:
-            localError(p.config, n.info, BackendReport(kind: rbackJsTooCaseTooLarge))
+            localReport(p.config, n.info, BackendReport(kind: rbackJsTooCaseTooLarge))
 
           while v.intVal <= e[1].intVal:
             gen(p, v, cond)
@@ -1051,7 +1049,7 @@ proc genAsgnAux(p: PProc, x, y: PNode, noCopyNeeded: bool) =
 
   # disable `[]=` for cstring
   if x.kind == nkBracketExpr and x.len >= 2 and x[0].typ.skipTypes(abstractInst).kind == tyCstring:
-    localError(p.config, x, rsemUnexpectedArrayAssignForCstring)
+    localReport(p.config, x, reportSem rsemUnexpectedArrayAssignForCstring)
 
   gen(p, x, a)
   genLineDir(p, y)
@@ -1445,8 +1443,8 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
     r.res = s.loc.r
   of skProc, skFunc, skConverter, skMethod:
     if sfCompileTime in s.flags:
-      localError(p.config, n.info,  SemReport(
-        kind: rsemCannotCodegenCompiletimeProc, psym: s))
+      localReport(p.config, n.info, reportSym(
+        rsemCannotCodegenCompiletimeProc, s))
 
     discard mangleName(p.module, s)
     r.res = s.loc.r
@@ -1547,14 +1545,14 @@ proc genArgs(p: PProc, n: PNode, r: var TCompRes; start=1) =
     # XXX look into this:
     let jsp = countJsParams(typ)
     if emitted != jsp and tfVarargs notin typ.flags:
-      localError(p.config, n.info, "wrong number of parameters emitted; expected: " & $jsp &
+      localReport(p.config, n.info, "wrong number of parameters emitted; expected: " & $jsp &
         " but got: " & $emitted)
   r.kind = resExpr
 
 proc genOtherArg(p: PProc; n: PNode; i: int; typ: PType;
                  generated: var int; r: var TCompRes) =
   if i >= n.len:
-    globalError(p.config, n.info, semReportCountMismatch(
+    globalReport(p.config, n.info, semReportCountMismatch(
       rsemExpectedParameterForCxxPattern,
       expected = i,
       got = n.len - 1,
@@ -1968,7 +1966,7 @@ proc genRepr(p: PProc, n: PNode, r: var TCompRes) =
   of tySet:
     genReprAux(p, n, r, "reprSet", genTypeInfo(p, t))
   of tyEmpty, tyVoid:
-    localError(p.config, n, rsemUnexpectedVoidType)
+    localReport(p.config, n, reportSem rsemUnexpectedVoidType)
   of tyPointer:
     genReprAux(p, n, r, "reprPointer")
   of tyOpenArray, tyVarargs:
@@ -2163,8 +2161,8 @@ proc genMagic(p: PProc, n: PNode, r: var TCompRes) =
   of mReset, mWasMoved: genReset(p, n)
   of mEcho: genEcho(p, n, r)
   of mNLen..mNError, mSlurp, mStaticExec:
-    localError(p.config, n.info, SemReport(
-      kind: rsemConstExpressionExpected, psym: n[0].sym))
+    localReport(p.config, n.info, reportSym(
+      rsemConstExpressionExpected, n[0].sym))
 
   of mNewString: unaryExpr(p, n, r, "mnewString", "mnewString($1)")
   of mNewStringOfCap:
@@ -2651,7 +2649,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
      nkMixinStmt, nkBindStmt: discard
   of nkIteratorDef:
     if n[0].sym.typ.callConv == TCallingConvention.ccClosure:
-      globalError(p.config, n.info, BackendReport(
+      globalReport(p.config, n.info, BackendReport(
         kind: rbackJsUnsupportedClosureIter))
 
   of nkPragma: genPragma(p, n)
@@ -2661,7 +2659,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       genSym(p, n[namePos], r)
       r.res = nil
   of nkGotoState, nkState:
-    globalError(p.config, n.info, BackendReport(
+    globalReport(p.config, n.info, BackendReport(
       kind: rbackJsUnsupportedClosureIter))
 
   of nkPragmaBlock: gen(p, n.lastSon, r)

@@ -720,9 +720,8 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       # search in scopes can return an skError
       if not result.isNil and result.kind == skError and not amb:
         result.ast = c.config.newError(
-          n,
-          reportSem(rsemUndeclaredIdentifier),
-          @[newStrNode(ident.s, n.info)])
+          n, reportStr(rsemUndeclaredIdentifier, ident.s))
+
     else:
       let candidates = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
       result = symFromCandidates(c, candidates, ident, n, flags, amb)

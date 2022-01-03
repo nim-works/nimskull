@@ -214,7 +214,7 @@ template declareClosures =
     ) {.gcsafe.} =
     # translate msg kind:
     {.gcsafe.}:
-      globalError(conf, newLineInfo(
+      globalReport(conf, newLineInfo(
         conf, AbsoluteFile filename, line, col), BackendReport(
           msg: arg,
           kind: case msgKind:
@@ -548,8 +548,8 @@ proc prepareExample(d: PDoc; n: PNode, topLevel: bool): tuple[rdoccmd: string, c
     let n1 = n[1]
     # xxx this should be evaluated during sempass
     if n1.kind notin nkStrKinds:
-      globalError(d.conf, n1.info, SemReport(
-        kind: rsemStringLiteralExpected, expression: n1))
+      globalReport(d.conf, n1.info, reportAst(
+        rsemStringLiteralExpected, n1))
 
     rdoccmd = n1.strVal
 
@@ -674,8 +674,8 @@ proc getAllRunnableExamplesImpl(d: PDoc; n: PNode, dest: var ItemPre,
         dest.add(d.config.getOrDefault"doc.listing_end" % id)
         return rsRunnable
       else:
-        localError(d.conf, n.info, SemReport(
-          kind: rsemMisplacedRunnableExample, expression: n))
+        localReport(d.conf, n.info, reportAst(
+          rsemMisplacedRunnableExample, n))
 
   else: discard
   return rsDone
@@ -1456,7 +1456,7 @@ proc writeOutput*(d: PDoc, useWarning = false, groupedToc = false) =
     try:
       writeFile(outfile, content)
     except IOError:
-      localError(d.conf, InternalReport(
+      localReport(d.conf, InternalReport(
         kind: rintCannotOpenFile, msg: outfile.string))
 
     if not d.wroteSupportFiles: # nimdoc.css + dochack.js
@@ -1485,7 +1485,7 @@ proc writeOutputJson*(d: PDoc, useWarning = false) =
       close(f)
       updateOutfile(d, d.destFile.AbsoluteFile)
     else:
-      localError(
+      localReport(
         d.conf,
         newLineInfo(d.conf, AbsoluteFile d.filename, -1, -1),
         InternalReport(kind: rintCannotOpenFile, msg: d.destFile))
@@ -1534,7 +1534,7 @@ proc commandJson*(cache: IdentCache, conf: ConfigRef) =
   var d = newDocumentor(conf.projectFull, cache, conf)
   d.onTestSnippet = proc (d: var RstGenerator; filename, cmd: string;
                           status: int; content: string) =
-    localError(conf, newLineInfo(conf, AbsoluteFile d.filename, -1, -1),
+    localReport(conf, newLineInfo(conf, AbsoluteFile d.filename, -1, -1),
                BackendReport(kind: rbackRstTestUnsupported))
 
   d.hasToc = true
@@ -1560,7 +1560,7 @@ proc commandTags*(cache: IdentCache, conf: ConfigRef) =
   var d = newDocumentor(conf.projectFull, cache, conf)
   d.onTestSnippet = proc (d: var RstGenerator; filename, cmd: string;
                           status: int; content: string) =
-    localError(conf, newLineInfo(conf, AbsoluteFile d.filename, -1, -1),
+    localReport(conf, newLineInfo(conf, AbsoluteFile d.filename, -1, -1),
                BackendReport(kind: rbackRstTestUnsupported))
   d.hasToc = true
   var
@@ -1575,7 +1575,7 @@ proc commandTags*(cache: IdentCache, conf: ConfigRef) =
     try:
       writeFile(filename, content)
     except:
-      localError(conf, InternalReport(
+      localReport(conf, InternalReport(
         kind: rintCannotOpenFile, msg: filename.string))
 
 proc commandBuildIndex*(conf: ConfigRef, dir: string, outFile = RelativeFile"") =
@@ -1597,5 +1597,5 @@ proc commandBuildIndex*(conf: ConfigRef, dir: string, outFile = RelativeFile"") 
   try:
     writeFile(filename, code)
   except:
-    localError(conf, InternalReport(
+    localReport(conf, InternalReport(
       kind: rintCannotOpenFile, msg: filename.string))
