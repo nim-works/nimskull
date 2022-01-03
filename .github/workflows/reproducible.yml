@@ -25,14 +25,35 @@ jobs:
     #               figure out what of their changes caused the build to
     #               varies based on outside environment.
 
-    name: Reproducibility tests
+    strategy:
+      fail-fast: false
 
+      matrix:
+        test:
+          - name: Source archive
+            command: './koch.py boot -d:danger && ./koch.py csource -d:danger && ./koch.py archive'
+            pattern: 'build/*.tar.xz'
+
+          - name: Unix binary archive
+            command: './koch.py unixrelease'
+            pattern: 'build/*.tar.xz'
+
+          # Note: this tests the zip generation and not exe generation determinism.
+          #
+          # Testing exe generation will be done when cross-bootstrap is possible.
+          - name: Windows binary archive
+            command: './koch.py winrelease'
+            pattern: 'build/*.zip'
+
+    name: '${{ matrix.test.name }} reproducibility tests'
     runs-on: ubuntu-latest
 
     steps:
       - name: Install reprotest
         run: |
           sudo apt-get update -qq
+          # This tool is required for archive generation
+          sudo apt-get install -yqq libarchive-tools
           # Diffoscope have a /lot/ of optional dependencies, but we don't need
           # all of them
           sudo apt-get install -yqq --no-install-recommends diffoscope
@@ -68,6 +89,18 @@ jobs:
             --vary=user_group.available+=guest-builder:guest-builder \
             --vary=-kernel \
             'export XDG_CACHE_HOME=$PWD/build/nimcache \
-              && ./koch.py boot -d:release \
-              && ./koch.py tools -d:release' \
-            'bin/*'
+              && ${{ matrix.test.command }}' \
+            '${{ matrix.test.pattern }}'
+
+  passed:
+    name: All reproducibility tests passed
+    needs: [reprotest]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Raise failure
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::There are failing required jobs"
+          exit 1
