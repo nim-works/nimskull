@@ -1464,6 +1464,17 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
 proc toStr(conf: ConfigRef, loc: ReportLineInfo): string = $loc
 
+proc prefix(conf: ConfigRef, r: ReportTypes): string =
+  let sev = conf.severity(r)
+  if r.location.isSome():
+    # Optional report location
+    result.add conf.toStr(r.location.get()) & " "
+
+  # `Hint: `, `Error: ` etc.
+  result.add wrap(reportTitles[sev], reportColors[sev])
+
+
+
 proc report(conf: ConfigRef, r: SemReport)      =
   let sev = conf.severity(r)
 
@@ -1475,15 +1486,8 @@ proc report(conf: ConfigRef, r: SemReport)      =
     conf.writeContext(r.context)
 
   conf.writeln(
-    # Optional report location
-    if r.location.isSome():
-      conf.toStr(r.location.get()) & " "
-    else:
-      "",
-
-    # `Hint: `, `Error: ` etc.
-    wrap(reportTitles[sev], reportColors[sev]),
-
+    # `file(line, col) Error: ` prefix
+    conf.prefix(r),
     # Message body
     toStr(conf, r),
 
@@ -1495,10 +1499,104 @@ proc report(conf: ConfigRef, r: SemReport)      =
       ""
   )
 
+proc toStr(conf: ConfigRef, r: ParserReport): string =
+  case ParserReportKind(r.kind):
+    of rparInvalidIndentation:
+       result = r.msg
 
-proc report(conf: ConfigRef, r: ParserReport)   = echo r
+    of rparNestableRequiresIndentation:
+       result = "nestable statement requires indentation"
+
+    of rparIdentExpected:
+      result = "identifier expected, but got '$1'"
+
+
+    of rparIdentOrKwdExpected:
+      result = "identifier expected, but got '$1'"
+
+    of rparExprExpected:
+      result = "expression expected, but found '$1'"
+
+    of rparMissingToken:
+      result = "expected " & r.expected
+
+
+    of rparUnexpectedToken:
+      result = "expected: '" & $r.expected[0] & "', but got: '" & r.found & "'"
+
+
+    of rparUnexpectedTokenKind:
+      result = r.msg
+
+    of rparFuncNotAllowed:
+      result = "func keyword is not allowed in type descriptions, use proc with {.noSideEffect.} pragma instead"
+
+
+    of rparTupleTypeWithPar:
+      result = "the syntax for tuple types is 'tuple[...]', not 'tuple(...)'"
+
+
+    of rparMisplacedParameterVar:
+      result = "the syntax is 'parameter: var T', not 'var parameter: T'"
+
+
+    of rparConceptNotinType:
+      result = "the 'concept' keyword is only valid in 'type' sections"
+
+
+    of rparRotineExpected:
+      result = r.msg
+
+
+    of rparPragmaAlreadyPresent:
+      result = "pragma already present"
+
+
+    of rparMisplacedExport:
+      result = "invalid indentation; an export marker '*' follows the declared identifier"
+
+    of rparTemplMissingEndClose:
+      result = "?"
+
+    of rparTemplInvalidExpression:
+      result = "?"
+
+    of rparInconsistentSpacing:
+      result = "Number of spaces around '$#' is not consistent"
+
+    of rparEnablePreviewDotOps:
+      result = "?"
+
+    of rparPragmaNotFollowingTypeName:
+      result = "?"
+
+    of rparPragmaBeforeGenericParameters:
+      result = "?"
+
+    of rparName:
+      result = "?"
+
+
+
+proc report(conf: ConfigRef, r: ParserReport)   =
+  conf.writeln(conf.prefix(r), conf.toStr(r))
+
+
 proc report(conf: ConfigRef, r: LexerReport)    = echo r
-proc report(conf: ConfigRef, r: InternalReport) = echo r
+proc report(conf: ConfigRef, r: InternalReport) =
+  case r.kind:
+    of rintStackTrace:
+      conf.writeln $r.trace
+
+    of rintMissingStackTrace:
+      conf.writeln """
+No stack traceback available
+To create a stacktrace, rerun compilation with './koch temp $1 <file>'
+      """
+
+    else:
+      conf.writeln $r
+
 proc report(conf: ConfigRef, r: ExternalReport) = echo r
 proc report(conf: ConfigRef, r: DebugReport)    = echo r
 proc report(conf: ConfigRef, r: BackendReport)  = echo r
