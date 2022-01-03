@@ -56,10 +56,10 @@ proc mergeInitStatus(existing: var InitStatus, newStatus: InitStatus) =
 
 proc invalidObjConstr(c: PContext, n: PNode): PNode =
   if n.kind == nkInfix and n[0].kind == nkIdent and n[0].ident.s[0] == ':':
-    newError(c.config, n, rsemFieldAssignmentInvalid)
+    newError(c.config, n, reportSem rsemFieldAssignmentInvalid)
 
   else:
-    newError(c.config, n, rsemFieldAssignmentInvalid)
+    newError(c.config, n, reportSem rsemFieldAssignmentInvalid)
 
 proc locateFieldInInitExpr(c: PContext, field: PSym, initExpr: PNode): PNode =
   ## Returns the assignment nkExprColonExpr node, nkError if malformed, or nil
@@ -98,8 +98,9 @@ proc semConstrField(c: PContext, flags: TExprFlags,
     if nfSem in result.flags:
       return
     if not fieldVisible(c, field):
-      result = newError(c.config, initExpr, rsemFieldNotAccessible, args = @[
-        newSymNode(field)])
+      result = newError(
+        c.config, initExpr, reportSem rsemFieldNotAccessible,
+        args = @[newSymNode(field)])
 
       result.typ = errorType(c)
       return
@@ -113,7 +114,8 @@ proc semConstrField(c: PContext, flags: TExprFlags,
     result[1] = initValue
     result.flags.incl nfSem
     if initValue != nil and initValue.kind == nkError:
-      result = newError(c.config, result, rsemFieldOkButAssignedValueInvalid)
+      result = newError(
+        c.config, result, reportSem rsemFieldOkButAssignedValueInvalid)
 
 proc caseBranchMatchesExpr(branch, matched: PNode): bool =
   for i in 0..<branch.len-1:
@@ -411,7 +413,8 @@ proc semConstructTypeAux(c: PContext,
                               tfNeedsFullInit in t.flags
   if result == initError:
     constrCtx.initExpr = newError(
-      c.config, constrCtx.initExpr, rsemObjectConstructorIncorrect)
+      c.config, constrCtx.initExpr,
+      reportSem rsemObjectConstructorIncorrect)
 
 proc initConstrContext(t: PType, initExpr: PNode): ObjConstrContext =
   ObjConstrContext(
@@ -453,7 +456,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   for child in n: result.add child
 
   if t == nil:
-    return newError(c.config, result, rsemExpectedObjectType)
+    return newError(c.config, result, reportSem rsemExpectedObjectType)
 
   t = skipTypes(t, {tyGenericInst, tyAlias, tySink, tyOwned})
   if t.kind == tyRef:
@@ -539,5 +542,5 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   # wrap in an error see #17437
   if hasError:
-    result = newError(c.config, result, rsemObjectConstructorIncorrect)
+    result = newError(c.config, result, reportSem rsemObjectConstructorIncorrect)
     result.typ = errorType(c)

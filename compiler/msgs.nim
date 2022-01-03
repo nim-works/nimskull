@@ -543,15 +543,21 @@ template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   handleReport(
     conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
 
-template localReport*(conf: ConfigRef, node: PNode, reportKind: SemReportKind) =
-  ## Write out new sem report using `node`'s positional information
+template localReport*(conf: ConfigRef; node: PNode, report: SemReport) =
+  var tmp = report
+  if isNil(tmp.ast): tmp.ast = node
   handleReport(
-    conf,
-    wrap(
-      SemReport(kind: reportKind, ast: node),
-      instLoc(),
-      conf.toReportLinePoint(node.info)),
-    doNothing)
+    conf, wrap(tmp, instLoc(), conf.toReportLinePoint(node.info)), doNothing)
+
+# template localReport*(conf: ConfigRef, node: PNode, reportKind: SemReportKind) =
+#   ## Write out new sem report using `node`'s positional information
+#   handleReport(
+#     conf,
+#     wrap(
+#       SemReport(kind: reportKind, ast: node),
+#       instLoc(),
+#       conf.toReportLinePoint(node.info)),
+#     doNothing)
 
 proc temporaryStringError*(conf: ConfigRef, info: TLineInfo, text: string) =
   assert false

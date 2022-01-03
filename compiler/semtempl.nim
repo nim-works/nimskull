@@ -741,7 +741,7 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
     if s != nil and s.owner == c.owner and s.kind == skParam:
       result = newParam(c, n, s)
     else:
-      localReport(c.c.config, n, rsemInvalidExpression)
+      localReport(c.c.config, n, reportSem rsemInvalidExpression)
       result = n
 
   result = n
@@ -756,7 +756,7 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
     # we support '(pattern){x}' to bind a subpattern to a parameter 'x';
     # '(pattern){|x}' does the same but the matches will be gathered in 'x'
     if n.len != 2:
-      localReport(c.c.config, n, rsemInvalidExpression)
+      localReport(c.c.config, n, reportSem rsemInvalidExpression)
     elif n[1].kind == nkIdent:
       n[0] = semPatternBody(c, n[0])
       n[1] = expectParam(c, n[1])
@@ -766,10 +766,10 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
         n[0] = semPatternBody(c, n[0])
         n[1][1] = expectParam(c, n[1][1])
       else:
-        localReport(c.c.config, n, rsemInvalidExpression)
+        localReport(c.c.config, n, reportSem rsemInvalidExpression)
 
     else:
-      localReport(c.c.config, n, rsemInvalidExpression)
+      localReport(c.c.config, n, reportSem rsemInvalidExpression)
 
   of nkStmtList, nkStmtListExpr:
     if stupidStmtListExpr(n):
@@ -840,6 +840,6 @@ proc semPattern(c: PContext, n: PNode; s: PSym): PNode =
     if result.len == 1:
       result = result[0]
     elif result.len == 0:
-      localReport(c.config, n, rsemExpectedNonemptyPattern)
+      localReport(c.config, n, reportSem rsemExpectedNonemptyPattern)
   closeScope(c)
   addPattern(c, LazySym(sym: s))

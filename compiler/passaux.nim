@@ -26,6 +26,6 @@ proc verboseProcess(context: PPassContext, n: PNode): PNode =
   # called from `process` in `processTopLevelStmt`.
   result = n
   let v = VerboseRef(context)
-  localReport(v.config, n, rsemProcessingStmt)
+  localReport(v.config, n, reportSem rsemProcessingStmt)
 
 const verbosePass* = makePass(open = verboseOpen, process = verboseProcess)

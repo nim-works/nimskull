@@ -45,7 +45,7 @@ proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     # XXX tyGenericInst here?
     if result.typ.kind == tyProc and hasUnresolvedParams(result, {efOperand}):
       #and tfUnresolved in result.typ.flags:
-      localReport(c.config, n, rsemProcHasNoConcreteType)
+      localReport(c.config, n, reportSem rsemProcHasNoConcreteType)
 
     if result.typ.kind in {tyVar, tyLent}:
       result = newDeref(result)
@@ -70,11 +70,11 @@ proc semExprCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   if isEmpty or (isTypeError and not isError):
     # bug #12741, redundant error messages are the lesser evil here:
-    localReport(c.config, n, rsemExpressionHasNoType)
+    localReport(c.config, n, reportSem rsemExpressionHasNoType)
 
   if isError and isTypeError:
     # newer code paths propagate nkError nodes
-    result = c.config.newError(result, rsemExpressionHasNoType, args = @[n])
+    result = c.config.newError(result, reportSem rsemExpressionHasNoType, args = @[n])
 
   if isEmpty:
     # do not produce another redundant error message:
@@ -317,7 +317,7 @@ proc semConv(c: PContext, n: PNode): PNode =
   # special case to make MyObject(x = 3) produce a nicer error message:
   if n[1].kind == nkExprEqExpr and
       targetType.skipTypes(abstractPtrs).kind == tyObject:
-    localReport(c.config, n, rsemUnexpectedEqInObjectConstructor)
+    localReport(c.config, n, reportSem rsemUnexpectedEqInObjectConstructor)
 
   var op = semExprWithType(c, n[1])
   if targetType.kind != tyGenericParam and targetType.isMetaType:
@@ -640,7 +640,7 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     if x.kind == nkExprColonExpr and x.len == 2:
       var idx = semConstExpr(c, x[0])
       if not isOrdinalType(idx.typ):
-        localReport(c.config, idx, rsemExpectedOrdinal)
+        localReport(c.config, idx, reportSem rsemExpectedOrdinal)
 
       else:
         firstIndex = getOrdValue(idx)
@@ -924,7 +924,7 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
   if a.findUnresolvedStatic != nil: return a
   result = evalStaticExpr(c.module, c.idgen, c.graph, a, c.p.owner)
   if result.isNil:
-    localReport(c.config, n, rsemCannotInterpretNode)
+    localReport(c.config, n, reportSem rsemCannotInterpretNode)
     result = c.graph.emptyNode
   else:
     result = fixupTypeAfterEval(c, result, a)
@@ -1070,7 +1070,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
             break
         result =
           if not hasErrorType:
-            c.config.newError(n, rsemCallTypeMismatch)
+            c.config.newError(n, reportSem rsemCallTypeMismatch)
           else:
             # XXX: legacy path, consolidate with nkError
             errorNode(c, n)
@@ -1333,7 +1333,7 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
     result = newSymNode(s, n.info)
   of skVar, skLet, skResult, skForVar:
     if s.magic == mNimvm:
-      localReport(c.config, n, rsemIllegalNimvmContext)
+      localReport(c.config, n, reportSem rsemIllegalNimvmContext)
 
     markUsed(c, n.info, s)
     onUse(n.info, s)
@@ -1343,7 +1343,7 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
     # var len = 0 # but won't be called
     # genericThatUsesLen(x) # marked as taking a closure?
     if hasWarn(c.config, rsemResultUsed):
-      localReport(c.config, n, rsemResultUsed)
+      localReport(c.config, n, reportSem rsemResultUsed)
 
   of skGenericParam:
     onUse(n.info, s)
@@ -1577,7 +1577,7 @@ proc semDeref(c: PContext, n: PNode): PNode =
   let a = getConstExpr(c.module, n[0], c.idgen, c.graph)
   if a != nil:
     if a.kind == nkNilLit:
-      localReport(c.config, n, rsemDisallowedNilDeref)
+      localReport(c.config, n, reportSem rsemDisallowedNilDeref)
     n[0] = a
   result = n
   var t = skipTypes(n[0].typ, {tyGenericInst, tyVar, tyLent, tyAlias, tySink, tyOwned})
@@ -1763,9 +1763,9 @@ proc takeImplicitAddr(c: PContext, n: PNode; isLent: bool): PNode =
   let valid = isAssignable(c, n, isLent)
   if valid != arLValue:
     if valid == arLocalLValue:
-      localReport(c.config, n, rsemLocalEscapesStackFrame)
+      localReport(c.config, n, reportSem rsemLocalEscapesStackFrame)
     else:
-      localReport(c.config, n, rsemExprHasNoAddress)
+      localReport(c.config, n, reportSem rsemExprHasNoAddress)
   result = newNodeIT(nkHiddenAddr, n.info, if n.typ.kind in {tyVar, tyLent}: n.typ else: makePtrType(c, n.typ))
   result.add(n)
 
@@ -1822,7 +1822,7 @@ proc borrowCheck(c: PContext, n, le, ri: PNode) =
         rsemExpectedOwnerReturn, le.typ))
 
     elif escapes(c, le):
-      localReport(c.config, n, rsemExpectedUnownedRef)
+      localReport(c.config, n, reportSem rsemExpectedUnownedRef)
 
 template resultTypeIsInferrable(typ: PType): untyped =
   typ.isMetaType and typ.kind != tyTypeDesc
@@ -1886,7 +1886,7 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
     # a = b # b no 'var T' means: a = addr(b)
     var le = a.typ
     if le == nil:
-      localReport(c.config, a, rsemExpressionHasNoType)
+      localReport(c.config, a, reportSem rsemExpressionHasNoType)
     elif (skipTypes(le, {tyGenericInst, tyAlias, tySink}).kind notin {tyVar} and
           isAssignable(c, a) in {arNone, arLentValue}) or (
         skipTypes(le, abstractVar).kind in {tyOpenArray, tyVarargs} and views notin c.features):
@@ -1940,14 +1940,14 @@ proc semReturn(c: PContext, n: PNode): PNode =
         a.add n[0]
         n[0] = a
       else:
-        localReport(c.config, n, rsemNoReturnTypeDeclared)
+        localReport(c.config, n, reportSem rsemNoReturnTypeDeclared)
         return
       result[0] = semAsgn(c, n[0])
       # optimize away ``result = result``:
       if result[0][1].kind == nkSym and result[0][1].sym == c.p.resultSym:
         result[0] = c.graph.emptyNode
   else:
-    localReport(c.config, n, rsemReturnNotAllowed)
+    localReport(c.config, n, reportSem rsemReturnNotAllowed)
 
 proc semProcBody(c: PContext, n: PNode): PNode =
   openScope(c)
@@ -2019,7 +2019,7 @@ proc semYield(c: PContext, n: PNode): PNode =
   result = n
   checkSonsLen(n, 1, c.config)
   if c.p.owner == nil or c.p.owner.kind != skIterator:
-    localReport(c.config, n, rsemUnexpectedYield)
+    localReport(c.config, n, reportSem rsemUnexpectedYield)
   elif n[0].kind != nkEmpty:
     n[0] = semExprWithType(c, n[0]) # check for type compatibility:
     var iterType = c.p.owner.typ
@@ -2038,10 +2038,10 @@ proc semYield(c: PContext, n: PNode): PNode =
 
       semYieldVarResult(c, n, restype)
     else:
-      localReport(c.config, n, rsemCannotReturnTypeless)
+      localReport(c.config, n, reportSem rsemCannotReturnTypeless)
 
   elif c.p.owner.typ[0] != nil:
-    localReport(c.config, n, rsemExpectedValueForYield)
+    localReport(c.config, n, reportSem rsemExpectedValueForYield)
 
 proc semDefined(c: PContext, n: PNode): PNode =
   checkSonsLen(n, 2, c.config)
@@ -2076,7 +2076,7 @@ proc lookUpForDeclared(c: PContext, n: PNode, onlyCurrentScope: bool): PSym =
   of nkOpenSymChoice, nkClosedSymChoice:
     result = n[0].sym
   else:
-    localReport(c.config, n, rsemExpectedIdentifier)
+    localReport(c.config, n, reportSem rsemExpectedIdentifier)
     result = nil
 
 proc semDeclared(c: PContext, n: PNode, onlyCurrentScope: bool): PNode =
@@ -2104,7 +2104,7 @@ proc expectMacroOrTemplateCall(c: PContext, n: PNode): PSym =
 
     result = expandedSym
   else:
-    localReport(c.config, n, rsemExpectedMacroOrTemplate)
+    localReport(c.config, n, reportSem rsemExpectedMacroOrTemplate)
 
     result = errorSym(c, n)
 
@@ -2113,7 +2113,7 @@ proc expectString(c: PContext, n: PNode): string =
   if n.kind in nkStrKinds:
     return n.strVal
   else:
-    localReport(c.config, n, rsemStringLiteralExpected)
+    localReport(c.config, n, reportSem rsemStringLiteralExpected)
 
 proc newAnonSym(c: PContext; kind: TSymKind, info: TLineInfo): PSym =
   result = newSym(kind, c.cache.idAnon, nextSymId c.idgen, getCurrOwner(c), info)
@@ -2160,7 +2160,7 @@ proc semExpandToAst(c: PContext, n: PNode): PNode =
     # we just perform overloading resolution here:
     #n[1] = semOverloadedCall(c, macroCall, macroCall, {skTemplate, skMacro})
   else:
-    localReport(c.config, n, rsemExpectedCallForGetAst)
+    localReport(c.config, n, reportSem rsemExpectedCallForGetAst)
   # Preserve the magic symbol in order to be handled in evals.nim
   internalAssert(c.config, n[0].sym.magic == mExpandToAst, "")
   #n.typ = getSysSym("NimNode").typ # expandedSym.getReturnType
@@ -2387,7 +2387,7 @@ proc setMs(n: PNode, s: PSym): PNode =
 
 proc semSizeof(c: PContext, n: PNode): PNode =
   if n.len != 2:
-    localReport(c.config, n, rsemExpectedTypeOrValue)
+    localReport(c.config, n, reportSem rsemExpectedTypeOrValue)
 
   else:
     n[1] = semExprWithType(c, n[1], {efDetermineType})
@@ -2440,7 +2440,7 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   of mParallel:
     markUsed(c, n.info, s)
     if parallel notin c.features:
-      localReport(c.config, n, rsemEnableExperimentalParallel)
+      localReport(c.config, n, reportSem rsemEnableExperimentalParallel)
     result = setMs(n, s)
     var x = n.lastSon
     if x.kind == nkDo: x = x[bodyPos]
@@ -2450,14 +2450,14 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   of mSpawn:
     markUsed(c, n.info, s)
     when defined(leanCompiler):
-      result = newError(c.config, n, rsemBuildCompilerWithSpawn)
+      result = newError(c.config, n, reportSem rsemBuildCompilerWithSpawn)
     else:
       result = setMs(n, s)
       for i in 1..<n.len:
         result[i] = semExpr(c, n[i])
 
       if n.len > 1 and n[1].kind notin nkCallKinds:
-        return newError(c.config, n, rsemExpectedExpressionForSpawn)
+        return newError(c.config, n, reportSem rsemExpectedExpressionForSpawn)
 
       let typ = result[^1].typ
       if not typ.isEmptyType:
@@ -2603,7 +2603,7 @@ proc semSetConstr(c: PContext, n: PNode): PNode =
         if typ == nil:
           typ = skipTypes(n[i].typ, {tyGenericInst, tyVar, tyLent, tyOrdinal, tyAlias, tySink})
     if not isOrdinalType(typ, allowEnumWithHoles=true):
-      localReport(c.config, n, rsemExpectedOrdinal)
+      localReport(c.config, n, reportSem rsemExpectedOrdinal)
       typ = makeRangeType(c, 0, MaxSetElements - 1, n.info)
 
     elif lengthOrd(c.config, typ) > MaxSetElements:
@@ -2670,11 +2670,11 @@ proc checkPar(c: PContext; n: PNode): TParKind =
       if result == paTupleFields:
         if (n[i].kind != nkExprColonExpr) or
             n[i][0].kind notin {nkSym, nkIdent, nkAccQuoted}:
-          localReport(c.config, n[i], rsemNamedExprExpected)
+          localReport(c.config, n[i], reportSem rsemNamedExprExpected)
           return paNone
       else:
         if n[i].kind == nkExprColonExpr:
-          localReport(c.config, n[i], rsemNamedExprNotAllowed)
+          localReport(c.config, n[i], reportSem rsemNamedExprNotAllowed)
           return paNone
 
 proc semTupleFieldsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
@@ -2688,12 +2688,12 @@ proc semTupleFieldsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
     let id = considerQuotedIdent(c, n[i][0])
     if containsOrIncl(ids, id.id):
-      localReport(c.config, n[i], rsemFieldInitTwice)
+      localReport(c.config, n[i], reportSem rsemFieldInitTwice)
 
     n[i][1] = semExprWithType(c, n[i][1], {})
 
     if n[i][1].typ.kind == tyTypeDesc:
-      localReport(c.config, n[i][1], rsemDisallowedTypedescForTupleField)
+      localReport(c.config, n[i][1], reportSem rsemDisallowedTypedescForTupleField)
       n[i][1].typ = errorType(c)
 
     var f = newSymS(skField, n[i][0], c)
@@ -2741,7 +2741,7 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
 proc semExportExcept(c: PContext, n: PNode): PNode =
   let moduleName = semExpr(c, n[0])
   if moduleName.kind != nkSym or moduleName.sym.kind != skModule:
-    localReport(c.config, n, rsemExpectedModuleNameForImportExcept)
+    localReport(c.config, n, reportSem rsemExpectedModuleNameForImportExcept)
     return n
   let exceptSet = readExceptSet(c, n)
   let exported = moduleName.sym
@@ -2766,7 +2766,7 @@ proc semExport(c: PContext, n: PNode): PNode =
     var o: TOverloadIter
     var s = initOverloadIter(o, c, a)
     if s == nil:
-      localReport(c.config, a, rsemCannotExport)
+      localReport(c.config, a, reportSem rsemCannotExport)
 
     elif s.kind == skModule:
       # forward everything from that module:
@@ -2807,7 +2807,7 @@ proc semTupleConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     for i in 1..<tupexp.len:
       if isTupleType != (tupexp[i].typ.kind == tyTypeDesc):
         return newError(
-          c.config, n, rsemCannotMixTypesAndValuesInTuple,
+          c.config, n, reportSem rsemCannotMixTypesAndValuesInTuple,
           posInfo = tupexp[i].info)
 
   if isTupleType: # expressions as ``(int, string)`` are reinterpret as type expressions
@@ -3024,7 +3024,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
       result.transitionSonsKind(nkCall)
       result = semExpr(c, result, flags)
   of nkBind:
-    localReport(c.config, n, rsemBindDeprecated)
+    localReport(c.config, n, reportSem rsemBindDeprecated)
     result = semExpr(c, n[0], flags)
 
   of nkTypeOfExpr, nkTupleTy, nkTupleClassTy, nkRefTy..nkEnumTy, nkStaticTy:
@@ -3204,23 +3204,28 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     #
     # works:
     if c.currentScope.depthLevel > 2 + c.compilesContextId:
-      localReport(c.config, n, rsemImportRequiresToplevel)
+      localReport(c.config, n, reportSem rsemImportRequiresToplevel)
 
     result = evalImport(c, n)
   of nkImportExceptStmt:
-    if not isTopLevel(c): localReport(c.config, n, rsemImportRequiresToplevel)
+    if not isTopLevel(c): localReport(
+      c.config, n, reportSem rsemImportRequiresToplevel)
+
     result = evalImportExcept(c, n)
   of nkFromStmt:
-    if not isTopLevel(c): localReport(c.config, n, rsemImportRequiresToplevel)
+    if not isTopLevel(c): localReport(
+      c.config, n, reportSem rsemImportRequiresToplevel)
     result = evalFrom(c, n)
   of nkIncludeStmt:
     #if not isTopLevel(c): localReport(c.config, n.info, errXOnlyAtModuleScope % "include")
     result = evalInclude(c, n)
   of nkExportStmt:
-    if not isTopLevel(c): localReport(c.config, n, rsemExportRequiresToplevel)
+    if not isTopLevel(c): localReport(
+      c.config, n, reportSem rsemExportRequiresToplevel)
     result = semExport(c, n)
   of nkExportExceptStmt:
-    if not isTopLevel(c): localReport(c.config, n, rsemExportRequiresToplevel)
+    if not isTopLevel(c): localReport(
+      c.config, n, reportSem rsemExportRequiresToplevel)
     result = semExportExcept(c, n)
   of nkPragmaBlock:
     result = semPragmaBlock(c, n)
@@ -3228,10 +3233,10 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     result = semStaticStmt(c, n)
   of nkDefer:
     if c.currentScope == c.topLevelScope:
-      localReport(c.config, n, rsemUnexpectedToplevelDefer)
+      localReport(c.config, n, reportSem rsemUnexpectedToplevelDefer)
     n[0] = semExpr(c, n[0])
     if not n[0].typ.isEmptyType and not implicitlyDiscardable(n[0]):
-      localReport(c.config, n, rsemExpectedTypelessDeferBody)
+      localReport(c.config, n, reportSem rsemExpectedTypelessDeferBody)
     #localReport(c.config, n.info, errGenerated, "'defer' not allowed in this context")
   of nkGotoState, nkState:
     if n.len != 1 and n.len != 2:
@@ -3246,8 +3251,8 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
       if n.len > 0 and n[0].kind == nkSym:
         c.p.localBindStmts.add n
     else:
-      localReport(c.config, n, rsemInvalidBindContext)
+      localReport(c.config, n, reportSem rsemInvalidBindContext)
   of nkError: discard "ignore errors for now"
   else:
-    localReport(c.config, n, rsemInvalidExpression)
+    localReport(c.config, n, reportSem rsemInvalidExpression)
   if result != nil: incl(result.flags, nfSem)

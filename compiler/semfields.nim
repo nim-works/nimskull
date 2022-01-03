@@ -50,7 +50,7 @@ proc instFieldLoopBody(c: TFieldInstCtx, n: PNode, forLoop: PNode): PNode =
         break
   else:
     if n.kind == nkContinueStmt:
-      localReport(c.c.config, n, rsemFieldsIteratorCannotContinue)
+      localReport(c.c.config, n, reportSem rsemFieldsIteratorCannotContinue)
     result = shallowCopy(n)
     for i in 0..<n.len:
       result[i] = instFieldLoopBody(c, n[i], forLoop)

@@ -34,7 +34,6 @@
 import ast
 from options import ConfigRef, store
 from lineinfos import unknownLineInfo
-from astalgo import debug
 from trees import cyclicTree
 import reports
 
@@ -115,25 +114,25 @@ template newError*(
   let id = conf.addReport(tmp)
   newError(wrongNode, tmp.semReport.kind, id, instLoc(), args)
 
-template newError*(
-    conf: ConfigRef,
-    node: PNode,
-    reportKind: SemReportKind,
-    psym: PSym = nil,
-    errMsg: string = "",
-    args: seq[PNode] = @[],
-    posInfo: TLineInfo = unknownLineInfo
-  ): untyped =
-  newError(
-    node,
-    reportKind,
-    conf.addReport(wrap(
-      SemReport(ast: node, sym: psym, kind: reportKind, str: errMsg),
-      instLoc(),
-      conf.toReportLinePoint(
-        if posInfo == unknownLineInfo: node.info else: posInfo))),
-    instLoc(),
-    args)
+# template newError*(
+#     conf: ConfigRef,
+#     node: PNode,
+#     reportKind: SemReportKind,
+#     psym: PSym = nil,
+#     errMsg: string = "",
+#     args: seq[PNode] = @[],
+#     posInfo: TLineInfo = unknownLineInfo
+#   ): untyped {.deprecated: "Use `newError` that accepts full report object".} =
+#   newError(
+#     node,
+#     reportKind,
+#     conf.addReport(wrap(
+#       SemReport(ast: node, sym: psym, kind: reportKind, str: errMsg),
+#       instLoc(),
+#       conf.toReportLinePoint(
+#         if posInfo == unknownLineInfo: node.info else: posInfo))),
+#     instLoc(),
+#     args)
 
 template wrapErrorInSubTree*(wrongNodeContainer: PNode): PNode =
   ## `wrongNodeContainer` doesn't directly have an error but one exists further

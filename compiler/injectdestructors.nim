@@ -396,7 +396,7 @@ proc genDiscriminantAsgn(c: var Con; s: var Scope; n: PNode): PNode =
   if hasDestructor(c, objType):
     if getAttachedOp(c.graph, objType, attachedDestructor) != nil and
         sfOverriden in getAttachedOp(c.graph, objType, attachedDestructor).flags:
-      localReport(c.graph.config, n, rsemCannotAssignToDiscriminantWithCustomDestructor)
+      localReport(c.graph.config, n, reportSem rsemCannotAssignToDiscriminantWithCustomDestructor)
       result.add newTree(nkFastAsgn, le, tmp)
       return
 
@@ -468,7 +468,7 @@ proc passCopyToSink(n: PNode; c: var Con; s: var Scope): PNode =
        n.typ.skipTypes(abstractInst).kind != tyRef and
        c.inSpawn == 0:
 
-      localReport(c.graph.config, n, rsemCopiesToSink)
+      localReport(c.graph.config, n, reportSem rsemCopiesToSink)
 
   else:
     if c.graph.config.selectedGC in {gcArc, gcOrc}:

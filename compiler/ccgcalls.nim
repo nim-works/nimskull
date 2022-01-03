@@ -53,7 +53,7 @@ proc preventNrvo(p: BProc; le, ri: PNode): bool =
     # annoying warnings, see #14514
     if canRaise(ri[0]) and
         locationEscapes(p, le, p.nestedTryStmts.len > 0):
-      localReport(p.config, le, rsemObservableStores)
+      localReport(p.config, le, reportSem rsemObservableStores)
 
 proc hasNoInit(call: PNode): bool {.inline.} =
   result = call[0].kind == nkSym and sfNoInit in call[0].sym.flags
@@ -626,7 +626,7 @@ proc genPatternCall(p: BProc; ri: PNode; pat: string; typ: PType): Rope =
             result.add genOtherArg(p, ri, k, typ)
           result.add(~")")
         else:
-          localReport(p.config, ri, rsemExpectedCallForCxxPattern)
+          localReport(p.config, ri, reportSem rsemExpectedCallForCxxPattern)
         inc i
       elif i+1 < pat.len and pat[i+1] == '.':
         result.add genThisArg(p, ri, j, typ)

@@ -268,7 +268,7 @@ proc genBreakState(p: BProc, n: PNode, d: var TLoc) =
 
 proc genGotoVar(p: BProc; value: PNode) =
   if value.kind notin {nkCharLit..nkUInt64Lit}:
-    localReport(p.config, value, rsemExpectedLiteralForGoto)
+    localReport(p.config, value, reportSem rsemExpectedLiteralForGoto)
 
   else:
     lineF(p, cpsStmts, "goto NIMSTATE_$#;$n", [value.intVal.rope])
@@ -482,7 +482,7 @@ proc genGotoForCase(p: BProc; caseStmt: PNode) =
     let it = caseStmt[i]
     for j in 0..<it.len-1:
       if it[j].kind == nkRange:
-        localReport(p.config, it, rsemDisallowedRangeForComputedGoto)
+        localReport(p.config, it, reportSem rsemDisallowedRangeForComputedGoto)
         return
       let val = getOrdValue(it[j])
       lineF(p, cpsStmts, "NIMSTATE_$#:$n", [val.rope])
@@ -511,26 +511,26 @@ proc genComputedGoto(p: BProc; n: PNode) =
     let it = n[i]
     if it.kind == nkCaseStmt:
       if lastSon(it).kind != nkOfBranch:
-        localReport(p.config, it, rsemExpectedExhaustiveCaseForComputedGoto)
+        localReport(p.config, it, reportSem rsemExpectedExhaustiveCaseForComputedGoto)
         return
 
       casePos = i
       if enumHasHoles(it[0].typ):
-        localReport(p.config, it, rsemExpectedUnholyEnumForComputedGoto)
+        localReport(p.config, it, reportSem rsemExpectedUnholyEnumForComputedGoto)
         return
 
       let aSize = lengthOrd(p.config, it[0].typ)
       if aSize > 10_000:
-        localReport(p.config, it, rsemTooManyEntriesForComputedGoto)
+        localReport(p.config, it, reportSem rsemTooManyEntriesForComputedGoto)
         return
 
       arraySize = toInt(aSize)
       if firstOrd(p.config, it[0].typ) != 0:
-        localReport(p.config, it, rsemExpectedLow0ForComputedGoto)
+        localReport(p.config, it, reportSem rsemExpectedLow0ForComputedGoto)
         return
 
   if casePos < 0:
-    localReport(p.config, n, rsemExpectedCaseForComputedGoto)
+    localReport(p.config, n, reportSem rsemExpectedCaseForComputedGoto)
     return
 
   var id = p.labels+1
@@ -556,7 +556,7 @@ proc genComputedGoto(p: BProc; n: PNode) =
     let it = caseStmt[i]
     for j in 0..<it.len-1:
       if it[j].kind == nkRange:
-        localReport(p.config, it, rsemDisallowedRangeForComputedGoto)
+        localReport(p.config, it, reportSem rsemDisallowedRangeForComputedGoto)
         return
 
       let val = getOrdValue(it[j])
@@ -1558,7 +1558,7 @@ proc asgnFieldDiscriminant(p: BProc, e: PNode) =
   if optTinyRtti notin p.config.globalOptions:
     let field = dotExpr[1].sym
     genDiscriminantCheck(p, a, tmp, dotExpr[0].typ, field)
-    localReport(p.config, e, rsemCaseTransition)
+    localReport(p.config, e, reportSem rsemCaseTransition)
   genAssignment(p, a, tmp, {})
 
 proc genAsgn(p: BProc, e: PNode, fastAsgn: bool) =

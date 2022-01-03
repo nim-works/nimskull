@@ -132,7 +132,7 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
   for i in givenRegularParams+1..expectedRegularParams:
     let default = s.typ.n[i].sym.ast
     if default.isNil or default.kind == nkEmpty:
-      localReport(conf, n, rsemWrongNumberOfArguments)
+      localReport(conf, n, reportSem rsemWrongNumberOfArguments)
       result.add newNodeI(nkEmpty, n.info)
     else:
       result.add default.copyTree

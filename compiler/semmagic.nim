@@ -28,7 +28,7 @@ proc semTypeOf(c: PContext; n: PNode): PNode =
   if n.len == 3:
     let mode = semConstExpr(c, n[2])
     if mode.kind != nkIntLit:
-      localReport(c.config, n, rsemVmCannotEvaluateAtComptime)
+      localReport(c.config, n, reportSem rsemVmCannotEvaluateAtComptime)
     else:
       m = mode.intVal
   result = newNodeI(nkTypeOfExpr, n.info)
@@ -75,7 +75,7 @@ proc expectIntLit(c: PContext, n: PNode): int =
   let x = c.semConstExpr(c, n)
   case x.kind
   of nkIntLit..nkInt64Lit: result = int(x.intVal)
-  else: localReport(c.config, n, rsemIntLiteralExpected)
+  else: localReport(c.config, n, reportSem rsemIntLiteralExpected)
 
 proc semInstantiationInfo(c: PContext, n: PNode): PNode =
   result = newNodeIT(nkTupleConstr, n.info, n.typ)
@@ -233,12 +233,12 @@ proc semBindSym(c: PContext, n: PNode): PNode =
 
   let sl = semConstExpr(c, n[1])
   if sl.kind notin {nkStrLit, nkRStrLit, nkTripleStrLit}:
-    return newError(c.config, n, rsemStringLiteralExpected)
+    return newError(c.config, n, reportSem rsemStringLiteralExpected)
 
   let isMixin = semConstExpr(c, n[2])
   if isMixin.kind != nkIntLit or isMixin.intVal < 0 or
       isMixin.intVal > high(TSymChoiceRule).int:
-    return newError(c.config, n, rsemConstExprExpected)
+    return newError(c.config, n, reportSem rsemConstExprExpected)
 
   let id = newIdentNode(getIdent(c.cache, sl.strVal), n.info)
   let s = qualifiedLookUp(c, id, {checkUndeclared})
@@ -255,10 +255,10 @@ proc semBindSym(c: PContext, n: PNode): PNode =
 
 proc opBindSym(c: PContext, scope: PScope, n: PNode, isMixin: int, info: PNode): PNode =
   if n.kind notin {nkStrLit, nkRStrLit, nkTripleStrLit, nkIdent}:
-    return newError(c.config, n, rsemStringOrIdentNodeExpected, posInfo = info.info)
+    return newError(c.config, n, reportSem rsemStringOrIdentNodeExpected, posInfo = info.info)
 
   if isMixin < 0 or isMixin > high(TSymChoiceRule).int:
-    return newError(c.config, n, rsemConstExprExpected, posInfo = info.info)
+    return newError(c.config, n, reportSem rsemConstExprExpected, posInfo = info.info)
 
   let id = if n.kind == nkIdent: n
     else: newIdentNode(getIdent(c.cache, n.strVal), info.info)
@@ -326,9 +326,9 @@ proc semOf(c: PContext, n: PNode): PNode =
     let y = skipTypes(n[2].typ, abstractPtrs-{tyTypeDesc})
 
     if x.kind == tyTypeDesc or y.kind != tyTypeDesc:
-      localReport(c.config, n, rsemExpectedObjectForOf)
+      localReport(c.config, n, reportSem rsemExpectedObjectForOf)
     elif b.kind != tyObject or a.kind != tyObject:
-      localReport(c.config, n, rsemExpectedObjectForOf)
+      localReport(c.config, n, reportSem rsemExpectedObjectForOf)
     else:
       let diff = inheritanceDiff(a, b)
       # | returns: 0 iff `a` == `b`
@@ -337,7 +337,7 @@ proc semOf(c: PContext, n: PNode): PNode =
       # | returns: `maxint` iff `a` and `b` are not compatible at all
       if diff <= 0:
         # optimize to true:
-        localReport(c.config, n, rsemConditionAlwaysTrue)
+        localReport(c.config, n, reportSem rsemConditionAlwaysTrue)
         result = newIntNode(nkIntLit, 1)
         result.info = n.info
         result.typ = getSysType(c.graph, n.info, tyBool)
@@ -349,7 +349,7 @@ proc semOf(c: PContext, n: PNode): PNode =
             typeMismatch: @[c.config.typeMismatch(a, b)]))
 
         else:
-          localReport(c.config, n, rsemConditionAlwaysFalse)
+          localReport(c.config, n, reportSem rsemConditionAlwaysFalse)
           result = newIntNode(nkIntLit, 0)
           result.info = n.info
           result.typ = getSysType(c.graph, n.info, tyBool)
@@ -453,7 +453,7 @@ proc semQuantifier(c: PContext; n: PNode): PNode =
         addDecl(c, v)
         result.add newTree(nkInfix, it[0], newSymNode(v), domain)
     if not valid:
-      localReport(c.config, n, rsemQuantifierInRangeExpected)
+      localReport(c.config, n, reportSem rsemQuantifierInRangeExpected)
   result.add forceBool(c, semExprWithType(c, args[^1]))
   closeScope(c)
 
@@ -462,7 +462,7 @@ proc semOld(c: PContext; n: PNode): PNode =
     n[1] = n[1][0]
 
   if n[1].kind != nkSym or n[1].sym.kind != skParam:
-    localReport(c.config, n[1], rsemOldTakesParameterName)
+    localReport(c.config, n[1], reportSem rsemOldTakesParameterName)
 
   elif n[1].sym.owner != getCurrOwner(c):
     localReport(c.config, n[1].info, reportAst(
@@ -538,19 +538,19 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   of mNewFinalize:
     # Make sure the finalizer procedure refers to a procedure
     if n[^1].kind == nkSym and n[^1].sym.kind notin {skProc, skFunc}:
-      localReport(c.config, n, rsemExpectedProcReferenceForFinalizer)
+      localReport(c.config, n, reportSem rsemExpectedProcReferenceForFinalizer)
     elif optTinyRtti in c.config.globalOptions:
       let nfin = skipConvCastAndClosure(n[^1])
       let fin = case nfin.kind
         of nkSym: nfin.sym
         of nkLambda, nkDo: nfin[namePos].sym
         else:
-          localReport(c.config, n, rsemExpectedProcReferenceForFinalizer)
+          localReport(c.config, n, reportSem rsemExpectedProcReferenceForFinalizer)
           nil
       if fin != nil:
         if fin.kind notin {skProc, skFunc}:
           # calling convention is checked in codegen
-          localReport(c.config, n, rsemExpectedProcReferenceForFinalizer)
+          localReport(c.config, n, reportSem rsemExpectedProcReferenceForFinalizer)
 
         # check if we converted this finalizer into a destructor already:
         let t = whereToBindTypeHook(c, fin.typ[1].skipTypes(abstractInst+{tyRef}))

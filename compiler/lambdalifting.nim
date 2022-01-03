@@ -937,7 +937,7 @@ proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator; owner: PSym):
     """
   if liftingHarmful(g.config, owner): return body
   if not (body.kind == nkForStmt and body[^2].kind in nkCallKinds):
-    localReport(g.config, body, rsemIgnoreInvalidForLoop)
+    localReport(g.config, body, reportSem rsemIgnoreInvalidForLoop)
     return body
   var call = body[^2]
 

@@ -642,7 +642,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListType)
       var typ = semTypeNode(c, result, nil)
       if typ == nil:
-        localReport(c.config, result, rsemExpressionHasNoType)
+        localReport(c.config, result, reportSem rsemExpressionHasNoType)
         result = newSymNode(errorSym(c, result))
       else:
         result.typ = makeTypeDesc(c, typ)
@@ -711,7 +711,7 @@ proc forceBool(c: PContext, n: PNode): PNode =
 proc semConstBoolExpr(c: PContext, n: PNode): PNode =
   result = forceBool(c, semConstExpr(c, n))
   if result.kind != nkIntLit:
-    localReport(c.config, n, rsemConstExprExpected)
+    localReport(c.config, n, reportSem rsemConstExprExpected)
 
 proc semGenericStmt(c: PContext, n: PNode): PNode
 proc semConceptBody(c: PContext, n: PNode): PNode

@@ -1225,7 +1225,7 @@ proc prepareSinglePragma(
           of ExternNameSet:
             if k == wExportCpp:
               if c.config.backend != backendCpp:
-                result = c.config.newError(it, rsemExportcppRequiresCpp)
+                result = c.config.newError(it, reportSem rsemExportcppRequiresCpp)
                 return
               else:
                 incl(sym.flags, sfMangleCpp)
@@ -1312,9 +1312,9 @@ proc prepareSinglePragma(
           let name = nameLit.strVal
           result =
             if c.config.backend != backendJs:
-              c.config.newError(it, rsemImportjsRequiresJs)
+              c.config.newError(it, reportSem rsemImportjsRequiresJs)
             elif sym.kind in skProcKinds and {'(', '#', '@'} notin name:
-              c.config.newError(it, rsemImportjsRequiresPattern)
+              c.config.newError(it, reportSem rsemImportjsRequiresPattern)
             else:
               incl(sym.flags, sfImportc)
               incl(sym.flags, sfInfixCall)
@@ -1358,7 +1358,7 @@ proc prepareSinglePragma(
             sym.typ.align = floatInt64Align(c.config)
             it
           else:
-            c.config.newError(it, rsemBitsizeRequires1248)
+            c.config.newError(it, reportSem rsemBitsizeRequires1248)
       of wAlign:
         let (alignment, err) = intLitToIntOrErr(c, it)
         result =
@@ -1366,12 +1366,12 @@ proc prepareSinglePragma(
           of -1:
             err
           of 0:
-            c.config.newError(it, rsemAlignRequiresPowerOfTwo)
+            c.config.newError(it, reportSem rsemAlignRequiresPowerOfTwo)
           elif isPowerOfTwo(alignment):
             sym.alignment = max(sym.alignment, alignment)
             it
           else:
-            c.config.newError(it, rsemAlignRequiresPowerOfTwo)
+            c.config.newError(it, reportSem rsemAlignRequiresPowerOfTwo)
       of wNodecl:
         result = noVal(c, it)
         incl(sym.loc.flags, lfNoDecl)
@@ -1447,7 +1447,7 @@ proc prepareSinglePragma(
           incl(sym.flags, sfNoReturn)
         if sym.typ[0] != nil:
           # xxx: the info for this node used to be: sym.ast[paramsPos][0].info
-          result = c.config.newError(it, rsemNoReturnHasReturn)
+          result = c.config.newError(it, reportSem rsemNoReturnHasReturn)
       of wNoDestroy:
         result = noVal(c, it)
         incl(sym.flags, sfGeneratedOp)
@@ -1482,7 +1482,7 @@ proc prepareSinglePragma(
         elif sym != nil and sym.kind != skModule:
           # We don't support the extra annotation field
           if it.kind in nkPragmaCallKinds:
-            result = c.config.newError(it, rsemMisplacedDeprecation)
+            result = c.config.newError(it, reportSem rsemMisplacedDeprecation)
           incl(sym.flags, sfDeprecated)
           # At this point we're quite sure this is a statement and applies to the
           # whole module
@@ -1588,7 +1588,8 @@ proc prepareSinglePragma(
               result = s # err
             else:
               recordPragma(c, it, "error", s.strVal)
-              result = c.config.newError(it, rsemCustomUserError, errmsg = s.strVal)
+              result = c.config.newError(
+                it, reportStr(rsemCustomUserError, s.strVal))
       of wFatal:
         result = c.config.newError(
           it, SemReport(kind: rsemFatalError), args = @[getStrLitNode(c, it)])
@@ -1699,7 +1700,7 @@ proc prepareSinglePragma(
           sym.typ.kind = tyUncheckedArray
       of wUnion:
         if c.config.backend == backendJs:
-          result = c.config.newError(it, rsemNoUnionForJs)
+          result = c.config.newError(it, reportSem rsemNoUnionForJs)
         else:
           result = noVal(c, it)
           if sym.typ == nil:
@@ -1757,7 +1758,7 @@ proc prepareSinglePragma(
           (sym.bitsize, result) = intLitToIntOrErr(c, it)
           if result.isNil: result = it
           if sym.bitsize <= 0:
-            result = c.config.newError(it, rsemBitsizeRequiresPositive)
+            result = c.config.newError(it, reportSem rsemBitsizeRequiresPositive)
       of wGuard:
         result = it
         if sym == nil or sym.kind notin {skVar, skLet, skField}:
@@ -1784,7 +1785,7 @@ proc prepareSinglePragma(
             result = it
       of wExperimental:
         if not isTopLevel(c):
-          result = c.config.newError(it, rsemExperimentalRequiresToplevel)
+          result = c.config.newError(it, reportSem rsemExperimentalRequiresToplevel)
         result = processExperimental(c, it)
       of wThis:
         if it.kind in nkPragmaCallKinds and it.len == 2:
@@ -1803,7 +1804,7 @@ proc prepareSinglePragma(
             c.config, n.info,
             reportStr(rsemDeprecated, "'.this' pragma is deprecated"))
         else:
-          result = c.config.newError(it, rsemThisPragmaRequires01Args)
+          result = c.config.newError(it, reportSem rsemThisPragmaRequires01Args)
       of wNoRewrite:
         result = noVal(c, it)
       of wBase:
@@ -1906,7 +1907,7 @@ proc implicitPragmas*(c: PContext, sym: PSym, info: TLineInfo,
             result = newSym(skError, sym.name, nextSymId(c.idgen), sym.owner, sym.info)
             result.typ = c.errorType
             result.ast = c.config.newError(
-              p, rsemImplicitPragmaError, args = @[newSymNode(sym)])
+              p, reportSem rsemImplicitPragmaError, args = @[newSymNode(sym)])
             return
           if nfImplicitPragma in p.flags:
             internalError(c.config, info, "implicitPragmas")
@@ -1918,7 +1919,7 @@ proc implicitPragmas*(c: PContext, sym: PSym, info: TLineInfo,
     if lfExportLib in sym.loc.flags and sfExportc notin sym.flags:
       result = newSym(skError, sym.name, nextSymId(c.idgen), sym.owner, sym.info)
       result.typ = c.errorType
-      result.ast = c.config.newError(newSymNode(sym), rsemPragmaDynlibRequiresExportc)
+      result.ast = c.config.newError(newSymNode(sym), reportSem rsemPragmaDynlibRequiresExportc)
       return
     var lib = c.optionStack[^1].dynlib
     if {lfDynamicLib, lfHeader} * sym.loc.flags == {} and

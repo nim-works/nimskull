@@ -1271,9 +1271,9 @@ proc track(tracked: PEffects, n: PNode) =
     let t = n.typ.skipTypes(abstractInst)
     if t.kind == tyEnum:
       if tfEnumHasHoles in t.flags:
-        localReport(tracked.config, n, rsemHoleEnumConvert)
+        localReport(tracked.config, n, reportSem rsemHoleEnumConvert)
       else:
-        localReport(tracked.config, n, rsemAnyEnumConvert)
+        localReport(tracked.config, n, reportSem rsemAnyEnumConvert)
 
     if n.len == 2:
       track(tracked, n[1])

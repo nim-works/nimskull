@@ -1176,7 +1176,7 @@ proc genEcho(p: BProc, n: PNode) =
 
 proc gcUsage(conf: ConfigRef; n: PNode) =
   if conf.selectedGC == gcNone:
-    localReport(conf, n, rsemUseOfGc)
+    localReport(conf, n, reportSem rsemUseOfGc)
 
 proc strLoc(p: BProc; d: TLoc): Rope =
   if optSeqDestructors in p.config.globalOptions:
@@ -1341,7 +1341,7 @@ proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool) =
       # finalizer is: ``proc (x: ref T) {.nimcall.}``. We need to check the calling
       # convention at least:
       if op.typ == nil or op.typ.callConv != ccNimCall:
-        localReport(p.module.config, a.lode, rsemExpectedNimcallProc)
+        localReport(p.module.config, a.lode, reportSem rsemExpectedNimcallProc)
       var f: TLoc
       initLocExpr(p, newSymNode(op), f)
       p.module.s[cfsTypeInit3].addf("$1->finalizer = (void*)$2;$n", [ti, rdLoc(f)])
@@ -1655,7 +1655,7 @@ proc genOf(p: BProc, x: PNode, typ: PType, d: var TLoc) =
       t = skipTypes(t[0], skipPtrs)
 
   if isObjLackingTypeField(t):
-    localReport(p.config, x, rsemDisallowedOfForPureObjects)
+    localReport(p.config, x, reportSem rsemDisallowedOfForPureObjects)
 
   if nilCheck != nil:
     r = ropecg(p.module, "(($1) && ($2))", [nilCheck, genOfHelper(p, dest, r, x.info)])
@@ -1668,7 +1668,7 @@ proc genOf(p: BProc, n: PNode, d: var TLoc) =
 
 proc genRepr(p: BProc, e: PNode, d: var TLoc) =
   if optTinyRtti in p.config.globalOptions:
-    localReport(p.config, e, rsemDisallowedReprForNewruntime)
+    localReport(p.config, e, reportSem rsemDisallowedReprForNewruntime)
   var a: TLoc
   initLocExpr(p, e[1], a)
   var t = skipTypes(e[1].typ, abstractVarRange)
@@ -1711,7 +1711,7 @@ proc genRepr(p: BProc, e: PNode, d: var TLoc) =
                 ropecg(p.module, "#reprAny($1, $2)", [
                 rdLoc(a), genTypeInfoV1(p.module, t, e.info)]), a.storage)
   of tyEmpty, tyVoid:
-    localReport(p.config, e, rsemUnexpectedVoidType)
+    localReport(p.config, e, reportSem rsemUnexpectedVoidType)
   else:
     putIntoDest(p, d, e, ropecg(p.module, "#reprAny($1, $2)",
                               [addrLoc(p.config, a), genTypeInfoV1(p.module, t, e.info)]),
@@ -2451,7 +2451,7 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
       expr(p, n, d)
   of mDeepCopy:
     if p.config.selectedGC in {gcArc, gcOrc} and optEnableDeepCopy notin p.config.globalOptions:
-      localReport(p.config, e, rsemRequiresDeepCopyEnabled)
+      localReport(p.config, e, reportSem rsemRequiresDeepCopyEnabled)
 
     var a, b: TLoc
     let x = if e[1].kind in {nkAddr, nkHiddenAddr}: e[1][0] else: e[1]

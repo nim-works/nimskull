@@ -197,7 +197,7 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
     # xxx: this is a hack to detect we're evaluating a constant expression or
     #      some other vm code, it seems
     # fail fast:
-    result = c.config.newError(n, rsemRawTypeMismatch)
+    result = c.config.newError(n, reportSem rsemRawTypeMismatch)
     return # xxx: under the legacy error scheme, this was a `msgs.globalReport`,
            #      which means `doRaise`, but that made sense because we did a
            #      double pass, now we simply return for fast exit.
@@ -206,7 +206,7 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
     #
     # QUESTION I wonder if it makes sense to still attempt spelling
     # correction here.
-    result = c.config.newError(n, rsemExpressionCannotBeCalled)
+    result = c.config.newError(n, reportSem rsemExpressionCannotBeCalled)
     return
 
   var f = n[0]

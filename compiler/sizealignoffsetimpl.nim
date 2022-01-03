@@ -174,7 +174,7 @@ proc computeUnionObjectOffsetsFoldFunction(conf: ConfigRef; n: PNode; packed: bo
   of nkRecCase:
     accum.offset = szUnknownSize
     accum.maxAlign = szUnknownSize
-    conf.localReport(n.info, reportSem(rsemCaseInUnion))
+    conf.localReport(n, reportSem(rsemCaseInUnion))
   of nkRecList:
     let accumRoot = accum # copy, because each branch should start af the same offset
     for child in n.sons:
