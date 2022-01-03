@@ -126,7 +126,7 @@ proc nav(g: ModuleGraph) =
   let fileId = g.packed[mid].fromDisk.strings.getKeyId(fullPath)
 
   if fileId == LitId(0):
-    internalUnreachable(g.config, unpacked, "cannot find a valid file ID")
+    internalError(g.config, unpacked, "cannot find a valid file ID")
     return
 
   var c = NavContext(

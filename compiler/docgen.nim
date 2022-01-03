@@ -542,7 +542,7 @@ proc prepareExample(d: PDoc; n: PNode, topLevel: bool): tuple[rdoccmd: string, c
   ## returns `rdoccmd` and source code for this runnableExamples
   var rdoccmd = ""
   if n.len < 2 or 3 < n.len:
-    internalUnreachable(d.conf, n.info, "runnableExamples invalid")
+    internalError(d.conf, n.info, "runnableExamples invalid")
 
   if n.len == 3:
     let n1 = n[1]

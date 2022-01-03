@@ -1109,14 +1109,11 @@ type
 
   SemReport* = object of ReportBase
     ast*: PNode
-    expressionStr*: string ## In some cases error reporting is done deep
-    ## enough after processing and only string version of the expression
-    ## might be generated. Most prominent example is a `.booldefine.` and
-    ## `.intdefine.` error generation.
     typ*: PType
     sym*: PSym
     str*: string
     spellingCandidates*: seq[SemSpellCandidate]
+
     case kind*: ReportKind
       of rsemDuplicateModuleImport:
         previous*: ReportLinePoint
@@ -1197,6 +1194,9 @@ type
       of rsemDrnimCannotProveLeq, rsemDrnimCannotPorveGe:
         drnimExpressions*: tuple[a, b: PNode]
 
+      of rsemExprHasNoAddress:
+        isUnsafeAddr*: bool
+
       of rsemUndeclaredIdentifier,
          rsemCallNotAProcOrField,
            :
@@ -1256,7 +1256,7 @@ type
         ## failed candidates.
 
       of rsemStaticOutOfBounds:
-        indexSpec*: tuple[maxIdx, usedIdx: Int128]
+        indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
 
 
 
@@ -1268,9 +1268,6 @@ type
           isToplevel: bool,
           moduleStatus, path: string
         ]
-
-      of rsemSystemNeeds, rsemStaticFieldNotFound:
-        missingSymbol*: string
 
       of rsemLinterReport:
         linterFail*: tuple[wanted, got: string]
@@ -1305,6 +1302,8 @@ func reportSymbols*(
   result = SemReport(kind: kind, ast: ast)
   result.symbols = symbols
   result.typ = typ
+
+func reportSem*(kind: ReportKind): SemReport = SemReport(kind: kind)
 
 func reportAst*(
     kind: ReportKind,

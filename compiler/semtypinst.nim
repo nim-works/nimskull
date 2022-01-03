@@ -183,7 +183,7 @@ proc replaceObjBranches(cl: TReplTypeVars, n: PNode): PNode =
         var cond = it[0]
         var e = cl.c.semConstExpr(cl.c, cond)
         if e.kind != nkIntLit:
-          cl.c.config.internalUnreachable(
+          cl.c.config.internalError(
             e.info, "ReplaceTypeVarsN: when condition not a bool")
 
         if e.intVal != 0 and branch == nil: branch = it[1]
@@ -233,7 +233,7 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
         var cond = prepareNode(cl, it[0])
         var e = cl.c.semConstExpr(cl.c, cond)
         if e.kind != nkIntLit:
-          cl.c.config.internalUnreachable(
+          cl.c.config.internalError(
              e.info, "ReplaceTypeVarsN: when condition not a bool")
         if e.intVal != 0 and branch == nil: branch = it[1]
       of nkElse:
@@ -319,7 +319,7 @@ proc lookupTypeVar(cl: var TReplTypeVars, t: PType): PType =
     # These code paths are only active in "nim check"
     cl.typeMap.put(t, result)
   elif result.kind == tyGenericParam and not cl.allowMetaTypes:
-    cl.c.config.internalUnreachable("substitution with generic parameter")
+    cl.c.config.internalError("substitution with generic parameter")
 
 proc instCopyType*(cl: var TReplTypeVars, t: PType): PType =
   # XXX: relying on allowMetaTypes is a kludge
@@ -348,7 +348,7 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   # is difficult to handle:
   var body = t[0]
   if body.kind != tyGenericBody:
-    cl.c.config.internalUnreachable(cl.info, "no generic body")
+    cl.c.config.internalError(cl.info, "no generic body")
   var header = t
   # search for some instantiation here:
   if cl.allowMetaTypes:

@@ -175,7 +175,7 @@ proc getHiddenParam(g: ModuleGraph; routine: PSym): PSym =
     assert sfFromGeneric in result.flags
   else:
     # writeStackTrace()
-    internalUnreachable(
+    internalError(
       g.config,
       routine.info,
       "internal error: could not find env param for " & routine.name.s)
@@ -218,7 +218,7 @@ proc makeClosure*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; env: PNode; inf
     result.add(newNodeIT(nkNilLit, info, getSysType(g, info, tyNil)))
   else:
     if env.skipConv.kind == nkClosure:
-      internalUnreachable(g.config, info, "taking closure of closure")
+      internalError(g.config, info, "taking closure of closure")
     result.add(env)
   #if isClosureIterator(result.typ):
   createTypeBoundOps(g, nil, result.typ, info, idgen)
@@ -284,7 +284,7 @@ proc freshVarForClosureIter*(g: ModuleGraph; s: PSym; idgen: IdGenerator; owner:
   if field != nil:
     result = rawIndirectAccess(access, field, s.info)
   else:
-    internalUnreachable(g.config, s.info, "internal error: cannot generate fresh variable")
+    internalError(g.config, s.info, "internal error: cannot generate fresh variable")
     result = access
 
 # ------------------ new stuff -------------------------------------------
@@ -369,13 +369,13 @@ proc createUpField(c: var DetectionPass; dest, dep: PSym; info: TLineInfo) =
                   else:
                     c.getEnvTypeForOwner(dep, info)
   if refObj == fieldType:
-    internalUnreachable(c.graph.config, dep.info, "internal error: invalid up reference computed")
+    internalError(c.graph.config, dep.info, "internal error: invalid up reference computed")
 
   let upIdent = getIdent(c.graph.cache, upName)
   let upField = lookupInRecord(obj.n, upIdent)
   if upField != nil:
     if upField.typ.skipTypes({tyOwned, tyRef, tyPtr}) != fieldType.skipTypes({tyOwned, tyRef, tyPtr}):
-      internalUnreachable(c.graph.config, dep.info, "internal error: up references do not agree")
+      internalError(c.graph.config, dep.info, "internal error: up references do not agree")
 
     when false:
       if c.graph.config.selectedGC == gcDestructors and sfCursor notin upField.flags:
@@ -424,7 +424,7 @@ proc addClosureParam(c: var DetectionPass; fn: PSym; info: TLineInfo) =
     cp.typ = t
     addHiddenParam(fn, cp)
   elif cp.typ != t and fn.kind != skIterator:
-    internalUnreachable(c.graph.config, fn.info, "internal error: inconsistent environment type")
+    internalError(c.graph.config, fn.info, "internal error: inconsistent environment type")
   #echo "adding closure to ", fn.name.s
 
 proc detectCapturedVars(n: PNode; owner: PSym; c: var DetectionPass) =
@@ -542,7 +542,7 @@ proc accessViaEnvParam(g: ModuleGraph; n: PNode; owner: PSym): PNode =
       let upField = lookupInRecord(obj.n, getIdent(g.cache, upName))
       if upField == nil: break
       access = rawIndirectAccess(access, upField, n.info)
-  internalUnreachable(g.config, n.info, "internal error: environment misses: " & s.name.s)
+  internalError(g.config, n.info, "internal error: environment misses: " & s.name.s)
   result = n
 
 proc newEnvVar(cache: IdentCache; owner: PSym; typ: PType; info: TLineInfo; idgen: IdGenerator): PNode =
@@ -566,7 +566,7 @@ proc setupEnvVar(owner: PSym; d: var DetectionPass;
   if result.isNil:
     let envVarType = d.ownerToType.getOrDefault(owner.id)
     if envVarType.isNil:
-      internalUnreachable(
+      internalError(
         d.graph.config, owner.info, "internal error: could not determine closure type")
     result = newEnvVar(d.graph.cache, owner, asOwnedRef(d, envVarType), info, d.idgen)
     c.envVars[owner.id] = result
@@ -582,7 +582,7 @@ proc getUpViaParam(g: ModuleGraph; owner: PSym): PNode =
   if owner.isIterator:
     let upField = lookupInRecord(p.typ.skipTypes({tyOwned, tyRef, tyPtr}).n, getIdent(g.cache, upName))
     if upField == nil:
-      internalUnreachable(g.config, owner.info, "could not find up reference for closure iter")
+      internalError(g.config, owner.info, "could not find up reference for closure iter")
     else:
       result = rawIndirectAccess(result, upField, p.info)
 
@@ -641,7 +641,7 @@ proc rawClosureCreation(owner: PSym;
     #  result.add(newAsgnStmt(rawIndirectAccess(env, upField, env.info),
     #             oldenv, env.info))
     else:
-      internalUnreachable(d.graph.config, env.info, "internal error: cannot create up reference")
+      internalError(d.graph.config, env.info, "internal error: cannot create up reference")
   # we are not in the sem'check phase anymore! so pass 'nil' for the PContext
   # and hope for the best:
   createTypeBoundOpsLL(d.graph, env.typ, owner.info, d.idgen, owner)
@@ -682,7 +682,7 @@ proc closureCreationForIter(iter: PNode;
       result.add(newAsgnStmt(rawIndirectAccess(vnode, upField, iter.info),
                  u, iter.info))
     else:
-      internalUnreachable(
+      internalError(
         d.graph.config, iter.info, "internal error: cannot create up reference for iter")
   result.add makeClosure(d.graph, d.idgen, iter.sym, vnode, iter.info)
 
@@ -696,7 +696,7 @@ proc accessViaEnvVar(n: PNode; owner: PSym; d: var DetectionPass;
   if field != nil:
     result = rawIndirectAccess(access, field, n.info)
   else:
-    internalUnreachable(
+    internalError(
       d.graph.config, n.info, "internal error: not part of closure object type")
     result = n
 
@@ -729,7 +729,7 @@ proc symToClosure(n: PNode; owner: PSym; d: var DetectionPass;
       let obj = access.typ.skipTypes({tyOwned, tyRef, tyPtr})
       let upField = lookupInRecord(obj.n, getIdent(d.graph.cache, upName))
       if upField == nil:
-        internalUnreachable(d.graph.config, n.info, "internal error: no environment found")
+        internalError(d.graph.config, n.info, "internal error: no environment found")
         return n
       access = rawIndirectAccess(access, upField, n.info)
 

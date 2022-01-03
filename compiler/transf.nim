@@ -78,7 +78,7 @@ proc pushTransCon(c: PTransf, t: PTransCon) =
 
 proc popTransCon(c: PTransf) =
   if (c.transCon == nil):
-    internalUnreachable(c.graph.config, "popTransCon")
+    internalError(c.graph.config, "popTransCon")
 
   c.transCon = c.transCon.next
 
@@ -136,7 +136,7 @@ proc transformSymAux(c: PTransf, n: PNode): PNode =
         break
     b = getBody(c.graph, s)
     if b.kind != nkSym:
-      internalUnreachable(c.graph.config, n.info, "wrong AST for borrowed symbol")
+      internalError(c.graph.config, n.info, "wrong AST for borrowed symbol")
 
     b = newSymNode(b.sym, n.info)
   elif c.inlining > 0:
@@ -205,7 +205,7 @@ proc transformVarSection(c: PTransf, v: PNode): PNode =
         result[i] = transform(c, it)
     else:
       if it.kind != nkVarTuple:
-        internalUnreachable(c.graph.config, it.info, "transformVarSection: not nkVarTuple")
+        internalError(c.graph.config, it.info, "transformVarSection: not nkVarTuple")
 
       var defs = newTransNode(it.kind, it.info, it.len)
       for j in 0..<it.len-2:
@@ -230,11 +230,11 @@ proc transformConstSection(c: PTransf, v: PNode): PNode =
         result[i] = it
       else:
         if it.kind != nkConstDef:
-          internalUnreachable(c.graph.config, it.info, "transformConstSection")
+          internalError(c.graph.config, it.info, "transformConstSection")
 
         if it[0].kind != nkSym:
           debug it[0]
-          internalUnreachable(c.graph.config, it.info, "transformConstSection")
+          internalError(c.graph.config, it.info, "transformConstSection")
 
         result[i] = it
 
@@ -505,7 +505,7 @@ proc generateThunk(c: PTransf; prc: PNode, dest: PType): PNode =
   conv.add(newNodeI(nkEmpty, prc.info))
   conv.add(prc)
   if prc.kind == nkClosure:
-    internalUnreachable(c.graph.config, prc.info, "closure to closure created")
+    internalError(c.graph.config, prc.info, "closure to closure created")
 
   result.add(conv)
   result.add(newNodeIT(nkNilLit, prc.info, getSysType(c.graph, prc.info, tyNil)))
@@ -653,7 +653,7 @@ proc findWrongOwners(c: PTransf, n: PNode) =
   if n.kind == nkVarSection:
     let x = n[0][0]
     if x.kind == nkSym and x.sym.owner != getCurrOwner(c):
-      internalUnreachable(c.graph.config, x.info, "bah " & x.sym.name.s & " " &
+      internalError(c.graph.config, x.info, "bah " & x.sym.name.s & " " &
         x.sym.owner.name.s & " " & getCurrOwner(c).name.s)
   else:
     for i in 0..<n.safeLen: findWrongOwners(c, n[i])
@@ -680,7 +680,7 @@ proc transformFor(c: PTransf, n: PNode): PNode =
   # generate access statements for the parameters (unless they are constant)
   # put mapping from formal parameters to actual parameters
   if n.kind != nkForStmt:
-    internalUnreachable(c.graph.config, n.info, "transformFor")
+    internalError(c.graph.config, n.info, "transformFor")
 
   var call = n[^2]
 

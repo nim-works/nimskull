@@ -376,8 +376,8 @@ proc getAppType(n: PNode; g: ModuleGraph): PNode =
 
 proc rangeCheck(n: PNode, value: Int128; g: ModuleGraph) =
   if value < firstOrd(g.config, n.typ) or value > lastOrd(g.config, n.typ):
-    g.config.localReport(n.info, SemReport(
-      kind: rsemCantConvertLiteralToRange, expressionStr: $value, typ: n.typ))
+    g.config.localReport(n.info, reportStr(
+      rsemCantConvertLiteralToRange, $value, typ = n.typ))
 
 proc foldConv(n, a: PNode; idgen: IdGenerator; g: ModuleGraph; check = false): PNode =
   let dstTyp = skipTypes(n.typ, abstractRange - {tyTypeDesc})
@@ -443,34 +443,39 @@ proc foldArrayAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
   var y = getConstExpr(m, n[1], idgen, g)
   if y == nil: return
 
+  proc outOfBounds(idx: int64): SemReport =
+    SemReport(
+      kind: rsemStaticOutOfBounds,
+      ast: n,
+      indexSpec: (
+        usedIdx: toInt128(idx),
+        minIdx: toInt128(0),
+        maxIdx: toInt128(x.len - 1)))
+
   var idx = toInt64(getOrdValue(y))
   case x.kind
   of nkPar, nkTupleConstr:
-    if idx >= 0 and idx < x.len:
+    if 0 <= idx and idx < x.len:
       result = x.sons[idx]
       if result.kind == nkExprColonExpr: result = result[1]
     else:
-      g.config.localReport(n.info, SemReport(
-        kind: rsemStaticOutOfBounds,
-        ast: n,
-        indexSpec: (toInt128(idx), toInt128(x.len - 1))))
+      g.config.localReport(n.info, outOfBounds(idx))
+
   of nkBracket:
     idx -= toInt64(firstOrd(g.config, x.typ))
-    if idx >= 0 and idx < x.len: result = x[int(idx)]
+    if 0 <= idx and idx < x.len:
+      result = x[int(idx)]
+
     else:
-      g.config.localReport(n.info, SemReport(
-        kind: rsemStaticOutOfBounds,
-        ast: n,
-        indexSpec: (toInt128(idx), toInt128(x.len - 1))))
+      g.config.localReport(n.info, outOfBounds(idx))
+
   of nkStrLit..nkTripleStrLit:
     result = newNodeIT(nkCharLit, x.info, n.typ)
-    if idx >= 0 and idx < x.strVal.len:
+    if 0 <= idx and idx < x.strVal.len:
       result.intVal = ord(x.strVal[int(idx)])
     else:
-      g.config.localReport(n.info, SemReport(
-        kind: rsemStaticOutOfBounds,
-        ast: n,
-        indexSpec: (toInt128(idx), toInt128(x.len - 1))))
+      g.config.localReport(n.info, outOfBounds(idx))
+
   else:
     discard
 
@@ -491,10 +496,8 @@ proc foldFieldAccess(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNo
       result = x[i][1]
       return
 
-  g.config.localReport(n.info, SemReport(
-    ast: n,
-    kind: rsemStaticFieldNotFound,
-    missingSymbol: field.name.s))
+  g.config.localReport(n.info, reportAst(
+    rsemStaticFieldNotFound, n, sym = field))
 
 
 proc foldConStrStr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode =
@@ -537,8 +540,9 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
           try:
             result = newIntNodeT(toInt128(g.config.symbols[s.name.s].parseInt), n, idgen, g)
           except ValueError:
-            g.config.localReport SemReport(
-              kind: rsemInvalidIntdefine, expressionStr: g.config.symbols[s.name.s])
+            g.config.localReport reportStr(
+              rsemInvalidIntdefine, g.config.symbols[s.name.s])
+
         else:
           result = copyTree(s.ast)
       of mStrDefine:
@@ -551,8 +555,9 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
           try:
             result = newIntNodeT(toInt128(g.config.symbols[s.name.s].parseBool.int), n, idgen, g)
           except ValueError:
-            g.config.localReport SemReport(
-              kind: rsemInvalidBooldefine, expressionStr: g.config.symbols[s.name.s])
+            g.config.localReport reportStr(
+              rsemInvalidBooldefine, g.config.symbols[s.name.s])
+
         else:
           result = copyTree(s.ast)
       else:

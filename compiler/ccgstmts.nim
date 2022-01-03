@@ -61,7 +61,7 @@ proc endBlock(p: BProc)
 
 proc genVarTuple(p: BProc, n: PNode) =
   var tup, field: TLoc
-  if n.kind != nkVarTuple: internalUnreachable(p.config, n.info, "genVarTuple")
+  if n.kind != nkVarTuple: internalError(p.config, n.info, "genVarTuple")
 
   # if we have a something that's been captured, use the lowering instead:
   for i in 0..<n.len-2:
@@ -104,7 +104,7 @@ proc genVarTuple(p: BProc, n: PNode) =
     if t.kind == tyTuple:
       field.r = "$1.Field$2" % [rdLoc(tup), rope(i)]
     else:
-      if t.n[i].kind != nkSym: internalUnreachable(p.config, n.info, "genVarTuple")
+      if t.n[i].kind != nkSym: internalError(p.config, n.info, "genVarTuple")
       field.r = "$1.$2" % [rdLoc(tup), mangleRecFieldName(p.module, t.n[i].sym)]
     putLocIntoDest(p, v.loc, field)
     if forHcr or isGlobalInBlock:
@@ -458,7 +458,7 @@ proc genIf(p: BProc, n: PNode, d: var TLoc) =
       startBlock(p)
       expr(p, it[0], d)
       endBlock(p)
-    else: internalUnreachable(p.config, n.info, "genIf()")
+    else: internalError(p.config, n.info, "genIf()")
   if n.len > 1: fixLabel(p, lend)
 
 proc genReturnStmt(p: BProc, t: PNode) =
@@ -701,7 +701,7 @@ proc genBreakStmt(p: BProc, t: PNode) =
     # an unnamed 'break' can only break a loop after 'transf' pass:
     while idx >= 0 and not p.blocks[idx].isLoop: dec idx
     if idx < 0 or not p.blocks[idx].isLoop:
-      internalUnreachable(p.config, t.info, "no loop to break")
+      internalError(p.config, t.info, "no loop to break")
   let label = assignLabel(p.blocks[idx])
   blockLeaveActions(p,
     p.nestedTryStmts.len - p.blocks[idx].nestedTryStmts,

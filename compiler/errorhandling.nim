@@ -158,7 +158,7 @@ proc wrapIfErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode
       newError(
         wrongNodeContainer,
         rsemWrappedError,
-        conf.store SemReport(kind: rsemWrappedError),
+        conf.store reportSem(rsemWrappedError),
         instLoc())
 
 proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =

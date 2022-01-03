@@ -71,7 +71,7 @@ proc replayStateChanges*(module: PSym; g: ModuleGraph) =
         if not contains(g.cacheTables[destKey], key):
           g.cacheTables[destKey].add(key, val)
         else:
-          internalUnreachable(g.config, n.info, "key already exists: " & key)
+          internalError(g.config, n.info, "key already exists: " & key)
       of "incl":
         let destKey = n[1].strVal
         let val = n[2]

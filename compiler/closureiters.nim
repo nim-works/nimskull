@@ -466,7 +466,7 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
 
       result = newNodeI(nkStmtListExpr, n.info)
       if n.typ.isNil:
-        internalUnreachable(ctx.g.config, "lowerStmtListExprs: constr typ.isNil")
+        internalError(ctx.g.config, "lowerStmtListExprs: constr typ.isNil")
 
       result.typ = n.typ
 
@@ -545,7 +545,7 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
             newBranch[1] = branchBody
 
         else:
-          internalUnreachable(ctx.g.config, "lowerStmtListExpr(nkIf): " & $branch.kind)
+          internalError(ctx.g.config, "lowerStmtListExpr(nkIf): " & $branch.kind)
 
       if isExpr: result.add(ctx.newEnvVarAccess(tmp))
 
@@ -575,7 +575,7 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
           of nkFinally:
             discard
           else:
-            internalUnreachable(
+            internalError(
               ctx.g.config, "lowerStmtListExpr(nkTryStmt): " & $branch.kind)
 
         result.add(n)
@@ -609,7 +609,7 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
           of nkElse:
             branch[0] = ctx.convertExprBodyToAsgn(branch[0], tmp)
           else:
-            internalUnreachable(ctx.g.config, "lowerStmtListExpr(nkCaseStmt): " & $branch.kind)
+            internalError(ctx.g.config, "lowerStmtListExpr(nkCaseStmt): " & $branch.kind)
         result.add(n)
         result.add(ctx.newEnvVarAccess(tmp))
       elif n[0].kind == nkStmtListExpr:
@@ -889,7 +889,7 @@ proc transformClosureIteratorBody(ctx: var Ctx, n: PNode, gotoOut: PNode): PNode
         n.sons.setLen(i + 1)
         discard ctx.newState(s, go)
         if ctx.transformClosureIteratorBody(s, gotoOut) != s:
-          internalUnreachable(ctx.g.config, "transformClosureIteratorBody != s")
+          internalError(ctx.g.config, "transformClosureIteratorBody != s")
         break
 
   of nkYieldStmt:
@@ -998,24 +998,24 @@ proc transformClosureIteratorBody(ctx: var Ctx, n: PNode, gotoOut: PNode): PNode
       ctx.curExcHandlingState = exceptIdx
 
       if ctx.transformReturnsInTry(tryBody) != tryBody:
-        internalUnreachable(ctx.g.config, "transformReturnsInTry != tryBody")
+        internalError(ctx.g.config, "transformReturnsInTry != tryBody")
       if ctx.transformClosureIteratorBody(tryBody, outToFinally) != tryBody:
-        internalUnreachable(ctx.g.config, "transformClosureIteratorBody != tryBody")
+        internalError(ctx.g.config, "transformClosureIteratorBody != tryBody")
 
       ctx.curExcHandlingState = finallyIdx
       ctx.addElseToExcept(exceptBody)
       if ctx.transformReturnsInTry(exceptBody) != exceptBody:
-        internalUnreachable(ctx.g.config, "transformReturnsInTry != exceptBody")
+        internalError(ctx.g.config, "transformReturnsInTry != exceptBody")
       if ctx.transformClosureIteratorBody(exceptBody, outToFinally) != exceptBody:
-        internalUnreachable(ctx.g.config, "transformClosureIteratorBody != exceptBody")
+        internalError(ctx.g.config, "transformClosureIteratorBody != exceptBody")
 
       ctx.curExcHandlingState = oldExcHandlingState
       ctx.nearestFinally = oldNearestFinally
       if ctx.transformClosureIteratorBody(finallyBody, gotoOut) != finallyBody:
-        internalUnreachable(ctx.g.config, "transformClosureIteratorBody != finallyBody")
+        internalError(ctx.g.config, "transformClosureIteratorBody != finallyBody")
 
   of nkGotoState, nkForStmt:
-    internalUnreachable(ctx.g.config, "closure iter " & $n.kind)
+    internalError(ctx.g.config, "closure iter " & $n.kind)
 
   else:
     for i in 0..<n.len:
@@ -1423,7 +1423,7 @@ proc transformClosureIterator*(g: ModuleGraph; idgen: IdGenerator; fn: PSym, n: 
   n = ctx.lowerStmtListExprs(n, ns)
 
   if n.hasYieldsInExpressions():
-    internalUnreachable(ctx.g.config, "yield in expr not lowered")
+    internalError(ctx.g.config, "yield in expr not lowered")
 
   # Splitting transformation
   discard ctx.transformClosureIteratorBody(n, gotoOut)

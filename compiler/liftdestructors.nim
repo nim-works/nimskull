@@ -405,7 +405,7 @@ proc addDestructorCall(c: var TLiftCtx; orig: PType; body, x: PNode) =
     onUse(c.info, op)
     body.add destructorCall(c, op, x)
   elif useNoGc(c, t):
-    internalUnreachable(
+    internalError(
       c.g.config, c.info, "type-bound operator could not be resolved")
 
 proc considerUserDefinedOp(c: var TLiftCtx; t: PType; body, x, y: PNode): bool =
@@ -1028,9 +1028,9 @@ proc patchBody(g: ModuleGraph; c: PContext; n: PNode; info: TLineInfo; idgen: Id
       let op = getAttachedOp(g, t, attachedDestructor)
       if op != nil:
         if op.ast.isGenericRoutine:
-          internalUnreachable(g.config, info, "resolved destructor is generic")
+          internalError(g.config, info, "resolved destructor is generic")
         if op.magic == mDestroy:
-          internalUnreachable(g.config, info, "patching mDestroy with mDestroy?")
+          internalError(g.config, info, "patching mDestroy with mDestroy?")
         n[0] = newSymNode(op)
   for x in n: patchBody(g, c, x, info, idgen)
 
@@ -1051,7 +1051,7 @@ proc inst(g: ModuleGraph; c: PContext; t: PType; kind: TTypeAttachedOp; idgen: I
         patchBody(g, c, opInst.ast, info, a.idgen)
       setAttachedOp(g, idgen.module, t, kind, opInst)
     else:
-      localReport(g.config, info, SemReport(kind: rsemUnresolvedGenericParameter))
+      localReport(g.config, info, reportSem(rsemUnresolvedGenericParameter))
 
 proc isTrival(s: PSym): bool {.inline.} =
   s == nil or (s.ast != nil and s.ast[bodyPos].len == 0)

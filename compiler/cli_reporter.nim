@@ -457,6 +457,62 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         getProcHeader(conf, r.symbols[1])
       ]
 
+    of rsemStaticOutOfBounds:
+      let (i, a, b) = r.indexSpec
+      if b < a:
+        result = "index out of bounds, the container is empty"
+      else:
+        result = "index " & $i & " not in " & $a & " .. " & $b
+
+    of rsemStaticFieldNotFound:
+      result = "field not found: " & r.sym.name.s
+
+    of rsemInvalidIntdefine:
+      result = "{.intdefine.} const was set to an invalid integer: '" & r.str & "'"
+
+    of rsemInvalidBooldefine:
+      result = "{.booldefine.} const was set to an invalid bool: '" & r.str & "'"
+
+    of rsemSemfoldInvalidConversion:
+      let mis = r.typeMismatch[0]
+      result = "conversion from $1 to $2 is invalid" % [
+        typeToString(mis.actualType), typeToString(mis.wantedType)]
+
+    of rsemIllformedAst:
+      result = "ilformed ast: " & renderTree(r.ast)
+
+    of rsemCannotInstantiate:
+      result = "cannot instantiate: '$1'" % r.sym.name.s
+
+    of rsemTypeKindMismatch:
+      result = r.str
+
+    of rsemExprHasNoAddress:
+      result = "expression has no address"
+      if r.isUnsafeAddr:
+        result.add "; maybe use 'unsafeAddr'"
+
+    of rsemVmCannotEvaluateAtComptime:
+      result = "typeof: cannot evaluate 'mode' parameter at compile-time"
+
+    of rsemIntLiteralExpected:
+      result = "integer literal expected"
+
+    of rsemGenericTypeExpected:
+      let mis = r.typeMismatch[0]
+      result = "expected generic type, got: type $2 of kind $1" % [
+        mis.actualType.kind.toHumanStr,
+        typeToString(mis.actualType)]
+
+    of rsemUnknownTrait:
+      result = "unknown trait: " & r.sym.name.s
+
+    of rsemExpectedOrdinal:
+      result = "ordinal type expected"
+
+    of rsemStringLiteralExpected:
+      result = "string literal expected"
+
     else:
       return $r
 

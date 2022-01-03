@@ -136,7 +136,7 @@ proc getTypeName(m: BModule; typ: PType; sig: SigHash): Rope =
       # check consistency:
       assert($typ.loc.r == $(typ.typeName & $sig))
   result = typ.loc.r
-  if result == nil: internalUnreachable(m.config, "getTypeName: " & $typ.kind)
+  if result == nil: internalError(m.config, "getTypeName: " & $typ.kind)
 
 proc mapSetType(conf: ConfigRef; typ: PType): TCTypeKind =
   case int(getSize(conf, typ))
@@ -298,7 +298,7 @@ proc getSimpleTypeDesc(m: BModule, typ: PType): Rope =
   of tyDistinct, tyRange, tyOrdinal: result = getSimpleTypeDesc(m, typ[0])
   of tyStatic:
     if typ.n != nil: result = getSimpleTypeDesc(m, lastSon typ)
-    else: internalUnreachable(m.config, "tyStatic for getSimpleTypeDesc")
+    else: internalError(m.config, "tyStatic for getSimpleTypeDesc")
   of tyGenericInst, tyAlias, tySink, tyOwned:
     result = getSimpleTypeDesc(m, lastSon typ)
   else: result = nil
@@ -352,7 +352,7 @@ proc getTypeForward(m: BModule, typ: PType; sig: SigHash): Rope =
     else:
       pushType(m, concrete)
     doAssert m.forwTypeCache[sig] == result
-  else: internalUnreachable(m.config, "getTypeForward(" & $typ.kind & ')')
+  else: internalError(m.config, "getTypeForward(" & $typ.kind & ')')
 
 proc getTypeDescWeak(m: BModule; t: PType; check: var IntSet; kind: TSymKind): Rope =
   ## like getTypeDescAux but creates only a *weak* dependency. In other words
@@ -370,7 +370,7 @@ proc getTypeDescWeak(m: BModule; t: PType; check: var IntSet; kind: TSymKind): R
     let sig = hashType(t)
     if optSeqDestructors in m.config.globalOptions:
       if skipTypes(etB[0], typedescInst).kind == tyEmpty:
-        internalUnreachable(m.config, "cannot map the empty seq type to a C type")
+        internalError(m.config, "cannot map the empty seq type to a C type")
 
       result = cacheGetType(m.forwTypeCache, sig)
       if result == nil:
@@ -430,7 +430,7 @@ proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
   else:
     rettype = getTypeDescAux(m, t[0], check, skResult)
   for i in 1..<t.n.len:
-    if t.n[i].kind != nkSym: internalUnreachable(m.config, t.n.info, "genProcParams")
+    if t.n[i].kind != nkSym: internalError(m.config, t.n.info, "genProcParams")
     var param = t.n[i].sym
     if isCompileTimeOnly(param.typ): continue
     if params != nil: params.add(~", ")
@@ -484,7 +484,7 @@ proc mangleRecFieldName(m: BModule; field: PSym): Rope =
     result = field.loc.r
   else:
     result = rope(mangleField(m, field.name))
-  if result == nil: internalUnreachable(m.config, field.info, "mangleRecFieldName")
+  if result == nil: internalError(m.config, field.info, "mangleRecFieldName")
 
 proc genRecordFieldsAux(m: BModule, n: PNode,
                         rectype: PType,
@@ -495,7 +495,7 @@ proc genRecordFieldsAux(m: BModule, n: PNode,
     for i in 0..<n.len:
       result.add(genRecordFieldsAux(m, n[i], rectype, check, unionPrefix))
   of nkRecCase:
-    if n[0].kind != nkSym: internalUnreachable(m.config, n.info, "genRecordFieldsAux")
+    if n[0].kind != nkSym: internalError(m.config, n.info, "genRecordFieldsAux")
     result.add(genRecordFieldsAux(m, n[0], rectype, check, unionPrefix))
     # prefix mangled name with "_U" to avoid clashes with other field names,
     # since identifiers are not allowed to start with '_'
@@ -521,7 +521,7 @@ proc genRecordFieldsAux(m: BModule, n: PNode,
               unionBody.addf("#pragma pack(pop)$n", [])
         else:
           unionBody.add(genRecordFieldsAux(m, k, rectype, check, unionPrefix))
-      else: internalUnreachable(m.config, "genRecordFieldsAux(record case branch)")
+      else: internalError(m.config, "genRecordFieldsAux(record case branch)")
     if unionBody != nil:
       result.addf("union{$n$1};$n", [unionBody])
   of nkSym:
@@ -551,7 +551,7 @@ proc genRecordFieldsAux(m: BModule, n: PNode,
         # don't use fieldType here because we need the
         # tyGenericInst for C++ template support
         result.addf("$1$3 $2;$n", [getTypeDescAux(m, field.loc.t, check, skField), sname, noAlias])
-  else: internalUnreachable(m.config, n.info, "genRecordFieldsAux()")
+  else: internalError(m.config, n.info, "genRecordFieldsAux()")
 
 proc getRecordFields(m: BModule, typ: PType, check: var IntSet): Rope =
   result = genRecordFieldsAux(m, typ.n, typ, check)
@@ -678,7 +678,7 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKin
   var t = origTyp.skipTypes(irrelevantForBackend-{tyOwned})
   if containsOrIncl(check, t.id):
     if not (isImportedCppType(origTyp) or isImportedCppType(t)):
-      internalUnreachable(m.config, "cannot generate C type for: " & typeToString(origTyp))
+      internalError(m.config, "cannot generate C type for: " & typeToString(origTyp))
     # XXX: this BUG is hard to fix -> we need to introduce helper structs,
     # but determining when this needs to be done is hard. We should split
     # C type generation into an analysis and a code generation phase somehow.
@@ -750,7 +750,7 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKin
           of 2: m.s[cfsTypes].addf("typedef NU16 $1;$n", [result])
           of 4: m.s[cfsTypes].addf("typedef NI32 $1;$n", [result])
           of 8: m.s[cfsTypes].addf("typedef NI64 $1;$n", [result])
-          else: internalUnreachable(m.config, t.sym.info, "getTypeDescAux: enum")
+          else: internalError(m.config, t.sym.info, "getTypeDescAux: enum")
         when false:
           let owner = hashOwner(t.sym)
           if not gDebugInfo.hasEnum(t.sym.name.s, t.sym.info.line, owner):
@@ -897,7 +897,7 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKin
      tyUserTypeClass, tyUserTypeClassInst, tyInferred:
     result = getTypeDescAux(m, lastSon(t), check, kind)
   else:
-    internalUnreachable(m.config, "getTypeDescAux(" & $t.kind & ')')
+    internalError(m.config, "getTypeDescAux(" & $t.kind & ')')
     result = nil
   # fixes bug #145:
   excl(check, t.id)
@@ -1057,7 +1057,7 @@ proc discriminatorTableName(m: BModule, objtype: PType, d: PSym): Rope =
   while lookupInRecord(objtype.n, d.name) == nil:
     objtype = objtype[0].skipTypes(abstractPtrs)
   if objtype.sym == nil:
-    internalUnreachable(m.config, d.info, "anonymous obj with discriminator")
+    internalError(m.config, d.info, "anonymous obj with discriminator")
   result = "NimDT_$1_$2" % [rope($hashType(objtype)), rope(d.name.s.mangle)]
 
 proc rope(arg: Int128): Rope = rope($arg)
@@ -1100,7 +1100,7 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
     assert L > 0
     if field.loc.r == nil: fillObjectFields(m, typ)
     if field.loc.t == nil:
-      internalUnreachable(m.config, n.info, "genObjectFields")
+      internalError(m.config, n.info, "genObjectFields")
     m.s[cfsTypeInit3].addf("$1.kind = 3;$n" &
         "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
         "$1.name = $5;$n" & "$1.sons = &$6[0];$n" &
@@ -1116,7 +1116,7 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
       case b.kind
       of nkOfBranch:
         if b.len < 2:
-          internalUnreachable(m.config, b.info, "genObjectFields; nkOfBranch broken")
+          internalError(m.config, b.info, "genObjectFields; nkOfBranch broken")
         for j in 0..<b.len - 1:
           if b[j].kind == nkRange:
             var x = toInt(getOrdValue(b[j][0]))
@@ -1130,7 +1130,7 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
       of nkElse:
         m.s[cfsTypeInit3].addf("$1[$2] = &$3;$n",
              [tmp, rope(L), tmp2])
-      else: internalUnreachable(m.config, n.info, "genObjectFields(nkRecCase)")
+      else: internalError(m.config, n.info, "genObjectFields(nkRecCase)")
   of nkSym:
     var field = n.sym
     # Do not produce code for void types
@@ -1138,12 +1138,12 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
     if field.bitsize == 0:
       if field.loc.r == nil: fillObjectFields(m, typ)
       if field.loc.t == nil:
-        internalUnreachable(m.config, n.info, "genObjectFields")
+        internalError(m.config, n.info, "genObjectFields")
       m.s[cfsTypeInit3].addf("$1.kind = 1;$n" &
           "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
           "$1.name = $5;$n", [expr, getTypeDesc(m, origType, skVar),
           field.loc.r, genTypeInfoV1(m, field.typ, info), makeCString(field.name.s)])
-  else: internalUnreachable(m.config, n.info, "genObjectFields")
+  else: internalError(m.config, n.info, "genObjectFields")
 
 proc genObjectInfo(m: BModule, typ, origType: PType, name: Rope; info: TLineInfo) =
   if typ.kind == tyObject:
@@ -1309,7 +1309,7 @@ proc genHook(m: BModule; t: PType; info: TLineInfo; op: TTypeAttachedOp): Rope =
           containsGarbageCollectedRef(t):
         # unfortunately this check is wrong for an object type that only contains
         # .cursor fields like 'Node' inside 'cycleleak'.
-        internalUnreachable(m.config, info, "no attached trace proc found")
+        internalError(m.config, info, "no attached trace proc found")
     result = rope("NIM_NIL")
 
 proc genTypeInfoV2Impl(m: BModule, t, origType: PType, name: Rope; info: TLineInfo) =
@@ -1461,7 +1461,7 @@ proc genTypeInfoV1(m: BModule, t: PType; info: TLineInfo): Rope =
     genTypeInfoAuxBase(m, t, t, result, rope"0", info)
   of tyStatic:
     if t.n != nil: result = genTypeInfoV1(m, lastSon t, info)
-    else: internalUnreachable(m.config, "genTypeInfoV1(" & $t.kind & ')')
+    else: internalError(m.config, "genTypeInfoV1(" & $t.kind & ')')
   of tyUserTypeClasses:
     internalAssert(m.config, t.isResolvedUserTypeClass, "")
     return genTypeInfoV1(m, t.lastSon, info)
@@ -1496,7 +1496,7 @@ proc genTypeInfoV1(m: BModule, t: PType; info: TLineInfo): Rope =
   of tyOpenArray:
     let x = openArrayToTuple(m, t)
     genTupleInfo(m, x, origType, result, info)
-  else: internalUnreachable(m.config, "genTypeInfoV1(" & $t.kind & ')')
+  else: internalError(m.config, "genTypeInfoV1(" & $t.kind & ')')
 
   var op = getAttachedOp(m.g.graph, t, attachedDeepCopy)
   if op == nil:

@@ -1473,7 +1473,7 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
           x.len - 1 == f.len:
       for i in 1..<f.len:
         if x[i].kind == tyGenericParam:
-          c.c.graph.config.internalUnreachable("wrong instantiated type!")
+          c.c.graph.config.internalError("wrong instantiated type!")
 
         elif typeRel(c, f[i], x[i], flags) <= isSubtype:
           # Workaround for regression #4589
@@ -1509,7 +1509,7 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
           if x == nil:
             discard "maybe fine (for e.g. a==tyNil)"
           elif x.kind in {tyGenericInvocation, tyGenericParam}:
-            internalUnreachable(c.c.graph.config, "wrong instantiated type!")
+            internalError(c.c.graph.config, "wrong instantiated type!")
           else:
             let key = f[i]
             let old = PType(idTableGet(c.bindings, key))
@@ -1802,7 +1802,7 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
   of tyNone:
     if a.kind == tyNone: result = isEqual
   else:
-    internalUnreachable c.c.graph.config, " unknown type kind " & $f.kind
+    internalError c.c.graph.config, " unknown type kind " & $f.kind
 
 when false:
   var nowDebug = false
@@ -1829,7 +1829,7 @@ proc getInstantiatedType(c: PContext, arg: PNode, m: TCandidate,
   if result == nil:
     result = generateTypeInstance(c, m.bindings, arg, f)
   if result == nil:
-    internalUnreachable(c.graph.config, arg.info, "getInstantiatedType")
+    internalError(c.graph.config, arg.info, "getInstantiatedType")
     result = errorType(c)
 
 proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
@@ -1844,7 +1844,7 @@ proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
     result.typ = f.skipTypes({tySink})
 
   if result.typ == nil:
-    internalUnreachable(c.graph.config, arg.info, "implicitConv")
+    internalError(c.graph.config, arg.info, "implicitConv")
 
   result.add c.graph.emptyNode
   result.add arg
@@ -2212,7 +2212,7 @@ proc paramTypesMatch*(m: var TCandidate, f, a: PType,
       result = nil
     elif y.state == csMatch and cmpCandidates(x, y) == 0:
       if x.state != csMatch:
-        internalUnreachable(m.c.graph.config, arg.info, "x.state is not csMatch")
+        internalError(m.c.graph.config, arg.info, "x.state is not csMatch")
       # ambiguous: more than one symbol fits!
       # See tsymchoice_for_expr as an example. 'f.kind == tyUntyped' should match
       # anyway:
@@ -2465,7 +2465,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           noMatch()
       else:
         if m.callee.n[f].kind != nkSym:
-          internalUnreachable(c.config, n[a].info, "matches")
+          internalError(c.config, n[a].info, "matches")
           noMatch()
         if a >= firstArgBlock: f = max(f, m.callee.n.len - (n.len - a))
         formal = m.callee.n[f].sym

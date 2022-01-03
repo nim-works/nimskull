@@ -53,7 +53,7 @@ proc importPureEnumFields(c: PContext; s: PSym; etyp: PType) =
   for j in 0..<etyp.n.len:
     var e = etyp.n[j].sym
     if e.kind != skEnumField:
-      internalUnreachable(c.config, s.info, "rawImportSymbol")
+      internalError(c.config, s.info, "rawImportSymbol")
       # BUGFIX: because of aliases for enums the symbol may already
       # have been put into the symbol table
       # BUGFIX: but only iff they are the same symbols!
@@ -88,7 +88,7 @@ proc rawImportSymbol(c: PContext, s, origin: PSym; importSet: var IntSet) =
       for j in 0..<etyp.n.len:
         var e = etyp.n[j].sym
         if e.kind != skEnumField:
-          internalUnreachable(c.config, s.info, "rawImportSymbol")
+          internalError(c.config, s.info, "rawImportSymbol")
           # BUGFIX: because of aliases for enums the symbol may already
           # have been put into the symbol table
           # BUGFIX: but only iff they are the same symbols!
@@ -116,10 +116,10 @@ proc splitPragmas(c: PContext, n: PNode): (PNode, seq[TSpecialWord]) =
           result[1].add whichKeyword(ni.ident)
 
         else:
-          globalReport(c.config, n.info, SemReport(kind: rsemInvalidPragma))
+          globalReport(c.config, n.info, reportSem(rsemInvalidPragma))
 
     else:
-      globalReport(c.config, n.info, SemReport(kind: rsemInvalidPragma))
+      globalReport(c.config, n.info, reportSem(rsemInvalidPragma))
 
   else:
     result[0] = n
@@ -129,7 +129,7 @@ proc splitPragmas(c: PContext, n: PNode): (PNode, seq[TSpecialWord]) =
 proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
   let (n, kws) = splitPragmas(c, n)
   if kws.len > 0:
-    globalReport(c.config, n.info, SemReport(kind: rsemUnexpectedPragma))
+    globalReport(c.config, n.info, reportSem(rsemUnexpectedPragma))
 
   let ident = lookups.considerQuotedIdent(c, n)
   let s = someSym(c.graph, fromMod, ident)
@@ -146,7 +146,7 @@ proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
       var e = initModuleIter(it, c.graph, fromMod, s.name)
       while e != nil:
         if e.name.id != s.name.id:
-          internalUnreachable(c.config, n.info, "importSymbol: 3")
+          internalError(c.config, n.info, "importSymbol: 3")
 
         if s.kind in ExportableSymKinds:
           rawImportSymbol(c, e, fromMod, importSet)

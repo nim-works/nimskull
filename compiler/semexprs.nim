@@ -767,7 +767,7 @@ proc analyseIfAddressTaken(c: PContext, n: PNode): PNode =
   of nkDotExpr:
     checkSonsLen(n, 2, c.config)
     if n[1].kind != nkSym:
-      internalUnreachable(c.config, n.info, "analyseIfAddressTaken")
+      internalError(c.config, n.info, "analyseIfAddressTaken")
 
       return
     if skipTypes(n[1].sym.typ, abstractInst-{tyTypeDesc}).kind notin {tyVar, tyLent}:
@@ -944,7 +944,7 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode, nOrig: PNode,
 
   if result != nil and result.kind != nkError:
     if result[0].kind != nkSym:
-      internalUnreachable(c.config, "semOverloadedCallAnalyseEffects")
+      internalError(c.config, "semOverloadedCallAnalyseEffects")
       return
     let callee = result[0].sym
     case callee.kind
@@ -2028,7 +2028,7 @@ proc semYield(c: PContext, n: PNode): PNode =
       if restype.kind != tyUntyped:
         n[0] = fitNode(c, restype, n[0], n.info)
       if n[0].typ == nil:
-        internalUnreachable(c.config, n.info, "semYield")
+        internalError(c.config, n.info, "semYield")
 
       if resultTypeIsInferrable(restype):
         let inferred = n[0].typ
@@ -2793,7 +2793,7 @@ proc semExport(c: PContext, n: PNode): PNode =
               for j in 0..<etyp.n.len:
                 var e = etyp.n[j].sym
                 if e.kind != skEnumField:
-                  internalUnreachable(c.config, s.info, "rawImportSymbol")
+                  internalError(c.config, s.info, "rawImportSymbol")
                 reexportSym(c, e)
 
         s = nextOverloadIter(o, c, a)

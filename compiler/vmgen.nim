@@ -139,7 +139,7 @@ proc gABI(c: PCtx; n: PNode; opc: TOpcode; a, b: TRegister; imm: BiggestInt) =
     c.code.add(ins)
     c.debug.add(n.info)
   else:
-    internalUnreachable(c.config, n.info,
+    internalError(c.config, n.info,
       "VM: immediate value does not fit into an int8")
 
 proc gABx(c: PCtx; n: PNode; opc: TOpcode; a: TRegister = 0; bx: int) =
@@ -156,7 +156,7 @@ proc gABx(c: PCtx; n: PNode; opc: TOpcode; a: TRegister = 0; bx: int) =
     c.code.add(ins)
     c.debug.add(n.info)
   else:
-    internalUnreachable(c.config, n.info,
+    internalError(c.config, n.info,
       "VM: immediate value does not fit into regBx")
 
 proc xjmp(c: PCtx; n: PNode; opc: TOpcode; a: TRegister = 0): TPosition =
@@ -263,7 +263,7 @@ proc getTempRange(cc: PCtx; n: int; kind: TSlotKind): TRegister =
           for k in result..result+n-1: c.regInfo[k] = (inUse: true, kind: kind)
           return
   if c.regInfo.len+n >= high(TRegister):
-    globalReport(cc.config, cc.bestEffort, SemReport(kind: rsemTooManyRegistersRequired))
+    globalReport(cc.config, cc.bestEffort, reportSem(rsemTooManyRegistersRequired))
   result = TRegister(c.regInfo.len)
   setLen c.regInfo, c.regInfo.len+n
   for k in result..result+n-1: c.regInfo[k] = (inUse: true, kind: kind)
@@ -376,7 +376,7 @@ proc genBreak(c: PCtx; n: PNode) =
       if c.prc.blocks[i].label == n[0].sym:
         c.prc.blocks[i].fixups.add lab1
         return
-    globalReport(c.config, n.info, SemReport(kind: rsemVmCannotFindBreakTarget))
+    globalReport(c.config, n.info, reportSem(rsemVmCannotFindBreakTarget))
   else:
     c.prc.blocks[c.prc.blocks.high].fixups.add lab1
 
@@ -2192,7 +2192,7 @@ proc genStmt*(c: PCtx; n: PNode): int =
   c.gen(n, d)
   c.gABC(n, opcEof)
   if d >= 0:
-    internalUnreachable(c.config, n.info, "VM problem: dest register is set")
+    internalError(c.config, n.info, "VM problem: dest register is set")
 
 proc genExpr*(c: PCtx; n: PNode, requiresValue = true): int =
   c.removeLastEof
@@ -2201,7 +2201,7 @@ proc genExpr*(c: PCtx; n: PNode, requiresValue = true): int =
   c.gen(n, d)
   if d < 0:
     if requiresValue:
-      internalUnreachable(c.config, n.info, "VM problem: dest register is not set")
+      internalError(c.config, n.info, "VM problem: dest register is not set")
 
     d = 0
   c.gABC(n, opcEof, d)

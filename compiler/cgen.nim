@@ -551,7 +551,7 @@ proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
     else:
       s.loc.r = mangleDynLibProc(s)
     if value != nil:
-      internalUnreachable(p.config, n.info, ".dynlib variables cannot have a value")
+      internalError(p.config, n.info, ".dynlib variables cannot have a value")
     return
   useHeader(p.module, s)
   if lfNoDecl in s.loc.flags: return
@@ -559,7 +559,7 @@ proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
     if sfThread in s.flags:
       declareThreadVar(p.module, s, sfImportc in s.flags)
       if value != nil:
-        internalUnreachable(p.config, n.info, ".threadvar variables cannot have a value")
+        internalError(p.config, n.info, ".threadvar variables cannot have a value")
     else:
       var decl: Rope = nil
       var td = getTypeDesc(p.module, s.loc.t, skVar)
@@ -721,7 +721,7 @@ proc loadDynamicLib(m: BModule, lib: PLib) =
            "if (!($1 = #nimLoadLibrary($2))) #nimLoadLibraryError($2);$n",
            [tmp, rdLoc(dest)])
 
-  if lib.name == nil: internalUnreachable(m.config, "loadDynamicLib")
+  if lib.name == nil: internalError(m.config, "loadDynamicLib")
 
 proc mangleDynLibProc(sym: PSym): Rope =
   # we have to build this as a single rope in order not to trip the
@@ -761,7 +761,7 @@ proc symInDynamicLib(m: BModule, sym: PSym) =
     elif idx.len == 1 and idx[0] in {'0'..'9'}:
       m.extensionLoaders[idx[0]].add(load)
     else:
-      internalUnreachable(m.config, sym.info, "wrong index: " & idx)
+      internalError(m.config, sym.info, "wrong index: " & idx)
   else:
     appcg(m, m.s[cfsDynLibInit],
         "\t$1 = ($2) #nimGetProcAddr($3, $4);$n",
@@ -793,7 +793,7 @@ proc cgsym(m: BModule, name: string): Rope =
     of skProc, skFunc, skMethod, skConverter, skIterator: genProc(m, sym)
     of skVar, skResult, skLet: genVarPrototype(m, newSymNode sym)
     of skType: discard getTypeDesc(m, sym.typ)
-    else: internalUnreachable(m.config, "cgsym: " & name & ": " & $sym.kind)
+    else: internalError(m.config, "cgsym: " & name & ": " & $sym.kind)
   else:
     # we used to exclude the system module from this check, but for DLL
     # generation support this sloppyness leads to hard to detect bugs, so
@@ -842,7 +842,7 @@ proc closureSetup(p: BProc, prc: PSym) =
   # prc.ast[paramsPos].last contains the type we're after:
   var ls = lastSon(prc.ast[paramsPos])
   if ls.kind != nkSym:
-    internalUnreachable(p.config, prc.info, "closure generation failed")
+    internalError(p.config, prc.info, "closure generation failed")
   var env = ls.sym
   #echo "created environment: ", env.id, " for ", prc.name.s
   assignLocalVar(p, ls)
@@ -1022,7 +1022,7 @@ proc genProcAux(m: BModule, prc: PSym) =
 
   if sfPure notin prc.flags and prc.typ[0] != nil:
     if resultPos >= prc.ast.len:
-      internalUnreachable(m.config, prc.info, "proc has no result symbol")
+      internalError(m.config, prc.info, "proc has no result symbol")
     let resNode = prc.ast[resultPos]
     let res = resNode.sym # get result symbol
     if not isInvalidReturnType(m.config, prc.typ[0]):
@@ -2077,7 +2077,7 @@ proc genForwardedProcs(g: BModuleList) =
       prc = g.forwardedProcs.pop()
       m = g.modules[prc.itemId.module]
     if sfForward in prc.flags:
-      internalUnreachable(m.config, prc.info, "still forwarded: " & prc.name.s)
+      internalError(m.config, prc.info, "still forwarded: " & prc.name.s)
 
     genProcNoForward(m, prc)
 

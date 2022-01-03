@@ -29,7 +29,7 @@ proc noidentError2(conf: ConfigRef; n, origin: PNode): PNode =
   assert n != nil, "`n` must be provided"
 
   let bad = if origin.isNil: n else: origin
-  conf.newError(bad, SemReport(kind: rsemIdentExpected, ast: bad))
+  conf.newError(bad, reportAst(rsemIdentExpected, bad))
 
 
 proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
@@ -398,7 +398,7 @@ proc addInterfaceDeclAux(c: PContext, sym: PSym) =
     if c.module != nil:
       exportSym(c, sym)
     else:
-      c.config.internalUnreachable("addInterfaceDeclAux")
+      c.config.internalError("addInterfaceDeclAux")
 
   elif sym.kind in ExportableSymKinds and c.module != nil and isTopLevelInsideDeclaration(c, sym):
     strTableAdd(semtabAll(c.graph, c.module), sym)
@@ -420,7 +420,7 @@ proc addOverloadableSymAt*(c: PContext; scope: PScope, fn: PSym) =
   ## adds an symbol to the given scope, will check for and raise errors if it's
   ## a redefinition as opposed to an overload.
   if fn.kind notin OverloadableSyms:
-    c.config.internalUnreachable(fn.info, "addOverloadableSymAt")
+    c.config.internalError(fn.info, "addOverloadableSymAt")
     return
   let check = strTableGet(scope.symbols, fn.name)
   if check != nil and check.kind notin OverloadableSyms:
@@ -596,7 +596,7 @@ proc lookUp*(c: PContext, n: PNode): PSym =
     result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
     if result == nil: result = errorUndeclaredIdentifierHint(c, n, ident)
   else:
-    c.config.internalUnreachable("lookUp")
+    c.config.internalError("lookUp")
     return
   if amb:
     #contains(c.ambiguousSymbols, result.id):
@@ -721,7 +721,7 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       if not result.isNil and result.kind == skError and not amb:
         result.ast = c.config.newError(
           n,
-          SemReport(kind: rsemUndeclaredIdentifier),
+          reportSem(rsemUndeclaredIdentifier),
           @[newStrNode(ident.s, n.info)])
     else:
       let candidates = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
@@ -801,7 +801,7 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
           n[1].kind notin {nkOpenSymChoice, nkClosedSymChoice}:
         result = errorSym2(c, n[1],
           c.config.newError(
-            n[1], SemReport(kind: rsemExpectedIdentifier)))
+            n[1], reportSem(rsemExpectedIdentifier)))
   else:
     result = nil
   when false:

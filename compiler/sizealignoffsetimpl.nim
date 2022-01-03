@@ -174,7 +174,7 @@ proc computeUnionObjectOffsetsFoldFunction(conf: ConfigRef; n: PNode; packed: bo
   of nkRecCase:
     accum.offset = szUnknownSize
     accum.maxAlign = szUnknownSize
-    conf.localReport(n.info, SemReport(kind: rsemCaseInUnion))
+    conf.localReport(n.info, reportSem(rsemCaseInUnion))
   of nkRecList:
     let accumRoot = accum # copy, because each branch should start af the same offset
     for child in n.sons:
@@ -376,7 +376,7 @@ proc computeSizeAlign(conf: ConfigRef; typ: PType) =
       if tfUnion in typ.flags:
         if accum.offset != 0:
           let info = if typ.sym != nil: typ.sym.info else: unknownLineInfo
-          conf.localReport(info, SemReport(kind: rsemOffsetInUnion))
+          conf.localReport(info, reportSem(rsemOffsetInUnion))
           accum = OffsetAccum(offset: szUnknownSize, maxAlign: szUnknownSize)
         elif tfPacked in typ.flags:
           computeUnionObjectOffsetsFoldFunction(conf, typ.n, true, accum)

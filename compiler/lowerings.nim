@@ -340,8 +340,7 @@ proc callCodegenProc*(g: ModuleGraph; name: string;
   result = newNodeI(nkCall, info)
   let sym = magicsys.getCompilerProc(g, name)
   if sym == nil:
-    g.config.localReport(info, SemReport(
-      kind: rsemSystemNeeds, missingSymbol: name))
+    g.config.localReport(info, reportStr(rsemSystemNeeds, name))
 
   else:
     result.add newSymNode(sym)

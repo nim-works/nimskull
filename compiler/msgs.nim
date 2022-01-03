@@ -640,7 +640,7 @@ template internalError*(
     context: conf.getContext(unknownLineInfo),
     kind: repKind, msg: fail), instLoc(), conf.toReportLinePoint(info)))
 
-template internalUnreachable*(
+template internalError*(
     conf: ConfigRef,
     info: TLineInfo,
     fail: string,
@@ -652,7 +652,7 @@ template internalUnreachable*(
     conf.toReportLinePoint(info)))
 
 
-template internalUnreachable*(
+template internalError*(
     conf: ConfigRef,
     fail: string
   ): untyped =

@@ -391,7 +391,7 @@ proc analyse(c: var AnalysisCtx; n: PNode) =
               slot.lower = value
 
             else:
-              internalUnreachable(c.graph.config, it.info, "slot already has a lower bound")
+              internalError(c.graph.config, it.info, "slot already has a lower bound")
 
         if not isSpawned:
           analyse(c, value)

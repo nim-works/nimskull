@@ -747,7 +747,7 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
   checkMinSonsLen(n, 2, c.config)
   semRecordNodeAux(c, n[0], check, pos, a, rectype, hasCaseFields = true)
   if a[0].kind != nkSym:
-    internalUnreachable(c.config, "semRecordCase: discriminant is no symbol")
+    internalError(c.config, "semRecordCase: discriminant is no symbol")
     return
   incl(a[0].sym.flags, sfDiscriminant)
   var covered = toInt128(0)
@@ -936,7 +936,7 @@ proc addInheritedFieldsAux(c: PContext, check: var IntSet, pos: var int,
   case n.kind
   of nkRecCase:
     if (n[0].kind != nkSym):
-      internalUnreachable(c.config, n.info, "addInheritedFieldsAux")
+      internalError(c.config, n.info, "addInheritedFieldsAux")
 
     addInheritedFieldsAux(c, check, pos, n[0])
     for i in 1..<n.len:
@@ -944,7 +944,7 @@ proc addInheritedFieldsAux(c: PContext, check: var IntSet, pos: var int,
       of nkOfBranch, nkElse:
         addInheritedFieldsAux(c, check, pos, lastSon(n[i]))
       else:
-        internalUnreachable(c.config, n.info, "addInheritedFieldsAux(record case branch)")
+        internalError(c.config, n.info, "addInheritedFieldsAux(record case branch)")
 
   of nkRecList, nkRecWhen, nkElifBranch, nkElse:
     for i in int(n.kind == nkElifBranch)..<n.len:
@@ -953,7 +953,7 @@ proc addInheritedFieldsAux(c: PContext, check: var IntSet, pos: var int,
     incl(check, n.sym.name.id)
     inc(pos)
   else:
-    internalUnreachable(c.config, n.info, "addInheritedFieldsAux()")
+    internalError(c.config, n.info, "addInheritedFieldsAux()")
 
 proc skipGenericInvocation(t: PType): PType {.inline.} =
   result = t
@@ -994,7 +994,7 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
         if concreteBase.kind == tyObject:
           if concreteBase.sym != nil and concreteBase.sym.magic == mException and
               sfSystemModule notin c.module.flags:
-            localReport(c.config, n.info, SemReport(kind: rsemInheritFromException))
+            localReport(c.config, n.info, reportSem(rsemInheritFromException))
 
           addInheritedFields(c, check, pos, concreteBase)
       else:
@@ -1004,7 +1004,7 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
 
         base = nil
         realBase = nil
-  if n.kind != nkObjectTy: internalUnreachable(c.config, n.info, "semObjectNode")
+  if n.kind != nkObjectTy: internalError(c.config, n.info, "semObjectNode")
   result = newOrPrevType(tyObject, prev, c)
   rawAddSon(result, realBase)
   if realBase == nil and tfInheritable in flags:
@@ -1067,7 +1067,7 @@ proc semAnyRef(c: PContext; n: PNode; kind: TTypeKind; prev: PType): PType =
           addSonSkipIntLit(result, region, c.idgen)
 
         else:
-          localReport(c.config, n.info, SemReport(kind: rsemPtrRegionIsDeprecated))
+          localReport(c.config, n.info, reportSem(rsemPtrRegionIsDeprecated))
           addSonSkipIntLit(result, region, c.idgen)
 
     addSonSkipIntLit(result, t, c.idgen)
@@ -1421,7 +1421,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
         localReport(c.config, e)
 
     if not hasType and not hasDefault:
-      if isType: internalUnreachable(c.config, a.info, "':' expected")
+      if isType: internalError(c.config, a.info, "':' expected")
       if kind in {skTemplate, skMacro}:
         typ = newTypeS(tyUntyped, c)
     elif skipTypes(typ, {tyGenericInst, tyAlias, tySink}).kind == tyVoid:
@@ -1473,7 +1473,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
     # delete this entire if block. The rest is (at least at time of
     # writing this comment) already implemented.
     let info = n[0].info
-    localReport(c.config, info, SemReport(kind: rsemTypedReturnDeprecated))
+    localReport(c.config, info, reportSem(rsemTypedReturnDeprecated))
     r = nil
 
   if r != nil:

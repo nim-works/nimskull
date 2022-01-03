@@ -111,10 +111,11 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
   result = newNodeI(nkWhileStmt, n.info, 2)
   var trueSymbol = systemModuleSym(c.graph, getIdent(c.cache, "true"))
   if trueSymbol == nil:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemSystemNeeds, missingSymbol: "true"))
+    localReport(c.config, n.info, reportStr(rsemSystemNeeds, "true"))
 
-    trueSymbol = newSym(skUnknown, getIdent(c.cache, "true"), nextSymId c.idgen, getCurrOwner(c), n.info)
+    trueSymbol = newSym(
+      skUnknown, getIdent(c.cache, "true"),
+      nextSymId c.idgen, getCurrOwner(c), n.info)
     trueSymbol.typ = getSysType(c.graph, n.info, tyBool)
 
   result[0] = newSymNode(trueSymbol, n.info)
@@ -133,8 +134,7 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
   const skippedTypesForFields = abstractVar - {tyTypeDesc} + tyUserTypeClasses
   var tupleTypeA = skipTypes(call[1].typ, skippedTypesForFields)
   if tupleTypeA.kind notin {tyTuple, tyObject}:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemNoObjectOrTupleType))
+    localReport(c.config, n.info, reportSem(rsemNoObjectOrTupleType))
 
     return result
   for i in 1..<call.len:

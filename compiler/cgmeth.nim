@@ -25,13 +25,13 @@ proc genConv(n: PNode, d: PType, downcast: bool; conf: ConfigRef): PNode =
       result = newNodeIT(nkObjUpConv, n.info, d)
       result.add n
       if downcast:
-        internalUnreachable(conf, n.info, "cgmeth.genConv: no upcast allowed")
+        internalError(conf, n.info, "cgmeth.genConv: no upcast allowed")
 
     elif diff > 0:
       result = newNodeIT(nkObjDownConv, n.info, d)
       result.add n
       if not downcast:
-        internalUnreachable(conf, n.info, "cgmeth.genConv: no downcast allowed")
+        internalError(conf, n.info, "cgmeth.genConv: no downcast allowed")
     else:
       result = n
   else:
@@ -193,7 +193,7 @@ proc methodDef*(g: ModuleGraph; idgen: IdGenerator; s: PSym) =
       rsemInvalidMethodDeclarationOrder, @[s, witness]))
 
   elif sfBase notin s.flags:
-    localReport(g.config, s.info, SemReport(kind: rsemUseBase))
+    localReport(g.config, s.info, reportSem(rsemUseBase))
 
 proc relevantCol(methods: seq[PSym], col: int): bool =
   # returns true iff the position is relevant

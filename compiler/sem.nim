@@ -823,7 +823,7 @@ proc myOpen(graph: ModuleGraph; module: PSym;
   c.voidType = newType(tyVoid, nextTypeId(idgen), nil)
 
   if c.p != nil:
-    internalUnreachable(graph.config, module.info, "sem.myOpen")
+    internalError(graph.config, module.info, "sem.myOpen")
 
   c.semConstExpr = semConstExpr
   c.semExpr = semExpr
@@ -900,7 +900,7 @@ proc addCodeForGenerics(c: PContext, n: PNode) =
     var prc = c.generics[i].inst.sym
     if prc.kind in {skProc, skFunc, skMethod, skConverter} and prc.magic == mNone:
       if prc.ast == nil or prc.ast[bodyPos] == nil:
-        internalUnreachable(c.config, prc.info, "no code for " & prc.name.s)
+        internalError(c.config, prc.info, "no code for " & prc.name.s)
 
       else:
         n.add prc.ast
@@ -915,7 +915,7 @@ proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
   reportUnusedModules(c)
   result = newNode(nkStmtList)
   if n != nil:
-    internalUnreachable(c.config, n.info, "n is not nil") #result := n;
+    internalError(c.config, n.info, "n is not nil") #result := n;
   addCodeForGenerics(c, result)
   if c.module.ast != nil:
     result.add(c.module.ast)

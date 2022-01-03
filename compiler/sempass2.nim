@@ -803,7 +803,7 @@ proc patchResult(c: PEffects; n: PNode) =
     if fn != nil and fn.kind in routineKinds and fn.ast != nil and resultPos < fn.ast.len:
       n.sym = fn.ast[resultPos].sym
     else:
-      localReport(c.config, n.info, SemReport(kind: rsemDrNimRequiresUsesMissingResult))
+      localReport(c.config, n.info, reportSem(rsemDrNimRequiresUsesMissingResult))
   else:
     for i in 0..<safeLen(n):
       patchResult(c, n[i])
@@ -1551,11 +1551,11 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
 
         localReport(g.config, s.info, report)
       elif c.compilesContextId == 0: # don't render extended diagnostic messages in `system.compiles` context
-        var report = SemReport(kind: rsemHasSideEffects)
+        var report = reportSem(rsemHasSideEffects)
         listSideEffects(report, s, g.config, t.c)
         localReport(g.config, s.info, report)
       else:
-        localReport(g.config, s.info, SemReport(kind: repNone)) # simple error for `system.compiles` context
+        localReport(g.config, s.info, reportSem(repNone)) # simple error for `system.compiles` context
 
   if not t.gcUnsafe:
     s.typ.flags.incl tfGcSafe

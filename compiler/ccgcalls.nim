@@ -193,7 +193,7 @@ proc genOpenArraySlice(p: BProc; q: PNode; formalType, destType: PType): (Rope, 
       result = ("($4*)$1$3+($2)" % [rdLoc(a), rdLoc(b), dataField(p), dest],
                 lengthExpr)
   else:
-    internalUnreachable(p.config, "openArrayLoc: " & typeToString(a.t))
+    internalError(p.config, "openArrayLoc: " & typeToString(a.t))
 
 proc openArrayLoc(p: BProc, formalType: PType, n: PNode): Rope =
   var q = skipConv(n)
@@ -245,8 +245,8 @@ proc openArrayLoc(p: BProc, formalType: PType, n: PNode): Rope =
       of tyArray:
         result = "$1, $2" % [rdLoc(a), rope(lengthOrd(p.config, lastSon(a.t)))]
       else:
-        internalUnreachable(p.config, "openArrayLoc: " & typeToString(a.t))
-    else: internalUnreachable(p.config, "openArrayLoc: " & typeToString(a.t))
+        internalError(p.config, "openArrayLoc: " & typeToString(a.t))
+    else: internalError(p.config, "openArrayLoc: " & typeToString(a.t))
 
 proc withTmpIfNeeded(p: BProc, a: TLoc, needsTmp: bool): TLoc =
   # Bug https://github.com/status-im/nimbus-eth2/issues/1549
@@ -731,7 +731,7 @@ proc genNamedParamCall(p: BProc, ri: PNode, d: var TLoc) =
   for i in start..<ri.len:
     assert(typ.len == typ.n.len)
     if i >= typ.len:
-      internalUnreachable(p.config, ri.info, "varargs for objective C method?")
+      internalError(p.config, ri.info, "varargs for objective C method?")
     assert(typ.n[i].kind == nkSym)
     var param = typ.n[i].sym
     pl.add(~" ")

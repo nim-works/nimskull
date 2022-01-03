@@ -408,7 +408,7 @@ proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType):
       else:
         for i in 0..<n.len:
           if n[i].kind != nkSym:
-            internalUnreachable(c.config, "opConv for enum")
+            internalError(c.config, "opConv for enum")
 
           let f = n[i].sym
           if f.position == x:
@@ -439,7 +439,7 @@ proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType):
     of tyChar:
       dest.node.strVal = $chr(src.intVal)
     else:
-      internalUnreachable(c.config, "cannot convert to string " & desttyp.typeToString)
+      internalError(c.config, "cannot convert to string " & desttyp.typeToString)
   else:
     let desttyp = skipTypes(desttyp, abstractVarRange)
     case desttyp.kind
@@ -480,7 +480,7 @@ proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType):
         dest.floatVal = src.floatVal
     of tyObject:
       if srctyp.skipTypes(abstractVarRange).kind != tyObject:
-        internalUnreachable(c.config, "invalid object-to-object conversion")
+        internalError(c.config, "invalid object-to-object conversion")
       # A object-to-object conversion is essentially a no-op
       moveConst(dest, src)
     else:
@@ -1257,7 +1257,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         # 'regs' in a register:
         when hasFFI:
           if prc.position - 1 < 0:
-            internalUnreachable(c.config, c.debug[pc],
+            internalError(c.config, c.debug[pc],
               "VM call invalid: prc.position: " & $prc.position)
 
           let prcValue = c.globals[prc.position-1]
@@ -2000,7 +2000,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       decodeBC(rkNode)
       var k = regs[rb].intVal
       if k < 0 or k > ord(high(TNodeKind)):
-        internalUnreachable(c.config, c.debug[pc],
+        internalError(c.config, c.debug[pc],
           "request to create a NimNode of invalid kind")
       let cc = regs[rc].node
 
@@ -2034,7 +2034,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       let name = if regs[rc].node.strVal.len == 0: ":tmp"
                  else: regs[rc].node.strVal
       if k < 0 or k > ord(high(TSymKind)):
-        internalUnreachable(c.config, c.debug[pc], "request to create symbol of invalid kind")
+        internalError(c.config, c.debug[pc], "request to create symbol of invalid kind")
       var sym = newSym(k.TSymKind, getIdent(c.cache, name), nextSymId c.idgen, c.module.owner, c.debug[pc])
       incl(sym.flags, sfGenSym)
       regs[ra].node = newSymNode(sym)

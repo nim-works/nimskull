@@ -573,7 +573,7 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
           if shadowed != nil:
             shadowed.flags.incl(sfShadowed)
             if shadowed.kind == skResult and sfGenSym notin v.flags:
-              localReport(c.config, a.info, SemReport(kind: rsemResultShadowed))
+              localReport(c.config, a.info, reportSem(rsemResultShadowed))
       if a.kind != nkVarTuple:
         if def.kind != nkEmpty:
           if sfThread in v.flags:
@@ -1270,7 +1270,7 @@ proc checkCovariantParamsUsages(c: PContext; genericType: PType) =
       return traverseSubTypes(c, t.lastSon)
 
     of tyGenericInst:
-      internalUnreachable(c.config, "???")
+      internalError(c.config, "???")
 
     else:
       discard
@@ -2098,7 +2098,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     n[paramsPos] = proto.ast[paramsPos]
     n[pragmasPos] = proto.ast[pragmasPos]
     if n[namePos].kind != nkSym:
-      internalUnreachable(c.config, n.info, "semProcAux")
+      internalError(c.config, n.info, "semProcAux")
 
     n[namePos].sym = proto
     if importantComments(c.config) and proto.ast.comment.len > 0:

@@ -17,7 +17,9 @@ proc semAddrArg(c: PContext; n: PNode; isUnsafeAddr = false): PNode =
   if isAssignable(c, x, isUnsafeAddr) notin {arLValue, arLocalLValue}:
     # Do not suggest the use of unsafeAddr if this expression already is a
     # unsafeAddr
-    localReport(c.config, n, rsemExprHasNoAddress)
+    localReport(c.config, n.info) do:
+      reportSem(rsemExprHasNoAddress).withIt do:
+        it.isUnsafeAddr = isUnsafeAddr
 
   result = x
 

@@ -378,7 +378,7 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
     #writeMatches(alt)
     if c.config.m.errorOutputs == {}:
       # quick error message for performance of 'compiles' built-in:
-      globalReport(c.config, n.info, SemReport(kind: rsemAmbiguous))
+      globalReport(c.config, n.info, reportSem(rsemAmbiguous))
 
     elif c.config.errorCounter == 0:
       localReport(c.config, n.info, reportSymbols(
