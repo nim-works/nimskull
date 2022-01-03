@@ -589,21 +589,27 @@ template semReportIllformedAst*(
       conf.toReportLinePoint(node.info)),
     doNothing)
 
-proc joinAnyOf*[T](values: seq[T]): string =
+proc joinAnyOf*[T](values: seq[T], quote: bool = false): string =
+  proc q(s: string): string =
+    if quote:
+      "'" & s & "'"
+    else:
+      s
+
   if len(values) == 1:
-    result.add $values[0]
+    result.add q($values[0])
 
   elif len(values) == 2:
-    result.add $values[0] & " or " & $values[1]
+    result.add q($values[0]) & " or " & q($values[1])
 
   else:
     for idx in 0 ..< len(values) - 1:
       if idx > 0:
         result.add ", "
-      result.add $values[idx]
+      result.add q($values[idx])
 
     result.add " or "
-    result.add $values[^1]
+    result.add q($values[^1])
 
 
 

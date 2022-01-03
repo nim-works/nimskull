@@ -531,8 +531,8 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
           break
       # 2) No such field exists in the constructed type
 
-      localReport(c.config, field[0].info, reportAst(
-        rsemUndeclaredField, field[0], typ = t))
+      localReport(c.config, field[0], reportStr(
+        rsemUndeclaredField, id.s, typ = t))
 
       hasError = true
       break
@@ -542,5 +542,6 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   # wrap in an error see #17437
   if hasError:
-    result = newError(c.config, result, reportSem rsemObjectConstructorIncorrect)
+    result = newError(
+      c.config, result, reportSem rsemObjectConstructorIncorrect)
     result.typ = errorType(c)

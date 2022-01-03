@@ -1163,6 +1163,9 @@ type
 
         sideEffectMutateConnection*: ReportLinePoint
 
+      of rsemEffectsListingHint:
+        effectListing*: tuple[tags, exceptions: seq[PType]]
+
       of rsemVmStackTrace:
         traceReason*: ReportKind
         stacktrace*: seq[tuple[

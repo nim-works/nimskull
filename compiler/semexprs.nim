@@ -2387,7 +2387,8 @@ proc setMs(n: PNode, s: PSym): PNode =
 
 proc semSizeof(c: PContext, n: PNode): PNode =
   if n.len != 2:
-    localReport(c.config, n, reportSem rsemExpectedTypeOrValue)
+    localReport(c.config, n, reportStr(
+      rsemExpectedTypeOrValue, "sizeof"))
 
   else:
     n[1] = semExprWithType(c, n[1], {efDetermineType})
@@ -2688,12 +2689,13 @@ proc semTupleFieldsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
     let id = considerQuotedIdent(c, n[i][0])
     if containsOrIncl(ids, id.id):
-      localReport(c.config, n[i], reportSem rsemFieldInitTwice)
+      localReport(c.config, n[i], reportStr(rsemFieldInitTwice, id.s))
 
     n[i][1] = semExprWithType(c, n[i][1], {})
 
     if n[i][1].typ.kind == tyTypeDesc:
-      localReport(c.config, n[i][1], reportSem rsemDisallowedTypedescForTupleField)
+      localReport(
+        c.config, n[i][1], reportSem rsemDisallowedTypedescForTupleField)
       n[i][1].typ = errorType(c)
 
     var f = newSymS(skField, n[i][0], c)

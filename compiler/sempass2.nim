@@ -424,13 +424,15 @@ proc mergeTags(a: PEffects, b, comesFrom: PNode) =
     for effect in items(b): addTag(a, effect, comesFrom)
 
 proc listEffects(a: PEffects) =
+  var report = reportSem(rsemEffectsListingHint)
   for e in items(a.exc):
-    localReport(a.config, e.info, reportTyp(
-      rsemEffectsListingHint, e.typ))
+    report.effectListing.exceptions.add e.typ
 
   for e in items(a.tags):
-    localReport(a.config, e.info, reportTyp(
-      rsemEffectsListingHint, e.typ))
+    report.effectListing.tags.add e.typ
+
+  a.config.localReport(report)
+
 
   #if a.maxLockLevel != 0:
   #  message(e.info, hintUser, "lockLevel: " & a.maxLockLevel)

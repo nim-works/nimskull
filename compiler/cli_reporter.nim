@@ -1,6 +1,6 @@
-import reports, ast, types, renderer, astmsgs, astalgo
+import reports, ast, types, renderer, astmsgs, astalgo, msgs
 import options as compiler_options
-import std/[strutils, terminal, options, algorithm]
+import std/[strutils, terminal, options, algorithm, sequtils]
 
 
 func wrap(str: string, color: ForegroundColor): string =
@@ -312,6 +312,9 @@ proc describeArgs(conf: ConfigRef, n: PNode, startIdx = 1; prefer = preferName):
 
 
 proc toStr(conf: ConfigRef, r: SemReport): string =
+  proc render(n: PNode): string = renderTree(n, {renderNoComments})
+  proc render(t: PType): string = typeToString(t)
+
   case SemReportKind(r.kind):
     of rsemCallTypeMismatch:
       let (prefer, candidates) = presentFailedCandidates(
@@ -403,13 +406,13 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "template instantiation too nested"
 
     of rsemExpressionHasNoType:
-      result = "expression has no type: " & renderTree(r.ast, {renderNoComments})
+      result = "expression has no type: " & render(r.ast)
 
     of rsemMissingGenericParamsForTemplate:
       result = "'$1' has unspecified generic parameters" % r.sym.name.s
 
     of rsemExpandMacro:
-      result = r.expandedAst.renderTree()
+      result = r.expandedAst.render()
 
     of rsemUnusedImport:
       result = "imported and not used: '$1'" % r.sym.name.s
@@ -477,7 +480,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         typeToString(r.actualType()), typeToString(r.formalType())]
 
     of rsemIllformedAst:
-      result = "ilformed ast: " & renderTree(r.ast)
+      result = "ilformed ast: " & render(r.ast)
 
     of rsemCannotInstantiate:
       result = "cannot instantiate: '$1'" % r.sym.name.s
@@ -511,10 +514,10 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "string literal expected"
 
     of rsemConditionAlwaysTrue:
-      result = "condition is always true: '$1'" % renderTree(r.ast)
+      result = "condition is always true: '$1'" % render(r.ast)
 
     of rsemConditionAlwaysFalse:
-      result = "condition is always false: '$1'" % renderTree(r.ast)
+      result = "condition is always false: '$1'" % render(r.ast)
 
     of rsemWrongNumberOfArguments:
       result = "wrong number of arguments"
@@ -522,8 +525,380 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
     of rsemCannotBeOfSubtype:
       result = "'$1' cannot be of this subtype" % typeToString(r.actualType())
 
-    else:
-      return $r
+    of rsemQuantifierInRangeExpected:
+      result = "<quantifier> 'in' <range> expected"
+
+    of rsemOldTakesParameterName:
+      result = "'old' takes a parameter name"
+
+    of rsemOldDoesNotBelongTo:
+      result = r.ast.sym.name.s & " does not belong to " & r.symstr
+
+    of rsemCannotFindPlugin:
+      result = "cannot find plugin " & r.symstr
+
+    of rsemExpectedProcReferenceForFinalizer:
+      result = "finalizer must be a direct reference to a proc"
+
+    of rsemUnsafeSetLen:
+      result = "setLen can potentially expand the sequence, " &
+        "but the element type '$1' doesn't have a valid default value" %
+        typeToString(r.typ)
+
+    of rsemUnsafeDefault:
+      result = "The '$1' type doesn't have a valid default value" %
+        typeToString(r.typ)
+
+    of rsemCannotIsolate:
+      result = "expression cannot be isolated: " & render(r.ast)
+
+    of rsemInnerCodeReordering:
+      result = "Code reordering experimental pragma only valid at toplevel"
+
+    of rsemUnknownExperimental:
+      result = "unknown experimental feature"
+
+    of rsemWrongIdent:
+      result = joinAnyOf(r.expectedIdents, quote = true) & " expected"
+
+    of rsemPragmaOptionExpected:
+      result = "option expected"
+
+    of rsemUnexpectedPushArgument:
+      result = "'push' cannot have arguments"
+
+    of rsemExcessiveCompilePragmaArgs:
+      result = "'.compile' pragma takes up 2 arguments"
+
+    of rsemEmptyAsm:
+      result = "empty 'asm' statement"
+
+    of rsemLinePragmaExpectsTuple:
+      result = "tuple expected"
+
+    of rsemRaisesPragmaExpectsObject:
+      result = "invalid type for raises/tags list"
+
+    of rsemLocksPragmaExpectsList:
+      result = "locks pragma takes a list of expressions"
+
+    of rsemLocksPragmaBadLevel:
+      result = r.str
+
+    of rsemBorrowPragmaNonDot:
+      result = "a type can only borrow `.` for now"
+
+    of rsemInvalidExtern:
+      result = "invalid extern name: '" & r.externName & "'. (Forgot to escape '$'?)"
+
+    of rsemBadDeprecatedArgs:
+      result = r.str
+
+    of rsemInvalidPragma:
+      result = "invalid pragma"
+
+    of rsemMisplacedEffectsOf:
+      result = "parameter cannot be declared as .effectsOf"
+
+    of rsemMissingPragmaArg:
+      result = "parameter name expected"
+
+    of rsemCannotPushCast:
+      result = "a 'cast' pragma cannot be pushed"
+
+    of rsemCastRequiresStatement:
+      result = "'cast' pragma only allowed in statement context"
+
+    of rsemImplicitObjConv:
+      result = "Implicit conversion: Receiver '$2' will not receive fields of sub-type '$1' [$3]" % [
+        typeToString(r.formalType),
+        typeToString(r.actualType)
+      ]
+
+    of rsemExtendedContext:
+      assert false, "This is a configuration hint"
+
+    of rsemUserRaw:
+      assert false, "Appears to be unused"
+
+    of rsemNonMatchingCandidates:
+      let (_, candidates) = presentFailedCandidates(conf, r.ast, r.callMismatches)
+      result = "Non-matching candidates for " & render(r.ast) & "\n" &
+              candidates
+
+    of rsemEffectsListingHint:
+      for tag in r.effectListing.exceptions & r.effectListing.tags:
+        result.add typeToString(tag)
+        result.add "\n"
+
+    of rsemLockLevelMismatch:
+      result = "expected lock level < " & $r.lockMismatch.expected &
+        " but got lock level " & $r.lockMismatch.got
+
+    of rsemCantPassProcvar:
+      result = "'$1' cannot be passed to a procvar" % r.symstr
+
+    of rsemCannotProveNotNil:
+      result = "cannot prove '$1' is not nil" % render(r.ast)
+
+    of rsemProvablyNil:
+      result = "'$1' is provably nil" % render(r.ast)
+
+    of rsemInvalidBindContext:
+      result = "invalid context for 'bind' statement: " & render(r.ast)
+
+    of rsemExpectedTypelessDeferBody:
+      result = "'defer' takes a 'void' expression"
+
+    of rsemUnexpectedToplevelDefer:
+      result = "defer statement not supported at top level"
+
+    of rsemExportRequiresToplevel:
+      result = "export is only allowed at top level"
+
+    of rsemImportRequiresToplevel:
+      result = "import is only allowed at top level"
+
+    of rsemBindDeprecated:
+      result = "bind is deprecated"
+
+    of rsemCannotMixTypesAndValuesInTuple:
+      result = "Mixing types and values in tuples is not allowed."
+
+    of rsemCannotExport:
+      result = "cannot export: " & render(r.ast)
+      if r.sym.kind == skEnumField:
+        result.add "; enum field cannot be exported individually"
+
+    of rsemExpectedModuleNameForImportExcept:
+      result = "The export/except syntax expects a module name"
+
+    of rsemDisallowedTypedescForTupleField:
+      result = "typedesc not allowed as tuple field."
+
+    of rsemFieldInitTwice:
+      result = "field initialized twice: '$1'" % r.str
+
+    of rsemNamedExprNotAllowed:
+      result = "named expression not allowed here"
+
+    of rsemNamedExprExpected:
+      result = "named expression expected"
+
+    of rsemExpectedExpressionForSpawn:
+      result =  "'spawn' takes a call expression; got: " & render(r.ast)
+
+    of rsemBuildCompilerWithSpawn:
+      result = "compiler was built without 'spawn' support"
+
+    of rsemEnableExperimentalParallel:
+      result = "use the {.experimental.} pragma to enable 'parallel'"
+
+    of rsemExpectedTypeOrValue:
+      result = "'$1' expects a type or value" % r.str
+
+    of rsemSystemNeeds:
+      result = "system needs: '$1'" % r.str
+
+    of rsemCovariantUsedAsNonCovariant:
+      result = "covariant param '" & r.symstr & "' used in a non-covariant position"
+
+    of rsemContravariantUsedAsNonCovariant:
+      result = "contravariant param '" & r.symstr & "' used in a non-contravariant position"
+
+    of rsemExpectedInvariantParam:
+      result = "non-invariant type param used in a proc type: " & $r.typ
+
+    of rsemNonInvariantCannotBeUsedWith:
+      result = "non-invariant type parameters cannot be used with types such '" & $r.typ & "'"
+
+    of rsemNonInvariantCnnnotBeUsedInConcepts:
+      result = "non-invariant type parameters are not supported in concepts"
+
+    of rsemImplementationExpected:
+      result = "implementation of '$1' expected" % r.symstr
+
+    of rsemUnexpectedExportcInAlias:
+      result = "{.exportc.} not allowed for type aliases"
+
+    of rsemCannotCreateFlowVarOfType:
+      result = "cannot create a flowVar of type: " & typeToString(r.typ)
+
+    of rsemCannotSpawnMagicProc:
+      result = "'spawn'ed function cannot have a 'typed' or 'untyped' parameter"
+
+    of rsemCannotSpawnProcWithVar:
+      result = "'spawn'ed function cannot have a 'var' parameter"
+
+    of rsemCannotDiscardSpawn:
+      result = "'spawn' must not be discarded"
+
+    of rsemSpawnRequiresCall:
+      "'spawn' takes a call expression; got: " & render(r.ast)
+
+    of rsemSpawnRequiresGcSafe:
+      result = "'spawn' takes a GC safe call expression"
+
+    of rsemSpawnForbidsClosure:
+      result = "closure in spawn environment is not allowed"
+
+    of rsemSpawnForbidsIterator:
+      result =  "iterator in spawn environment is not allowed"
+
+    of rsemUnexpectedClosureOnToplevelProc:
+      result = "'.closure' calling convention for top level routines is invalid"
+
+    of rsemExpectedReturnTypeForIterator:
+      result = "iterator needs a return type"
+
+    of rsemUsageIsError:
+      result = "$1usage of '$2' is an {.error.} defined at $3" %
+      [r.str, r.symstr, toFileLineCol(conf, r.sym.ast.info)]
+
+    of rsemCustomError, rsemCustomPrintMsgAndNodeError:
+      assert false, $r.kind & " appears to be unused"
+
+    of rsemTypeMismatch:
+      let (actual, formal) = (r.actualType, r.formalType)
+      let actualStr = typeToString(actual)
+      let formalStr = typeToString(formal)
+      let desc = typeToString(formal, preferDesc)
+
+      let x = if formalStr == desc: formalStr else: formalStr & " = " & desc
+
+      let verbose = actualStr == formalStr or optDeclaredLocs in conf.globalOptions
+      result = "type mismatch:"
+      if verbose:
+        result.add "\n"
+
+      if conf.isDefined("nimLegacyTypeMismatch"):
+        result.add  " got <$1>" % actualStr
+
+      else:
+        result.add  " got '$1' for '$2'" % [actualStr, r.ast.renderTree]
+
+      if verbose:
+        result.addDeclaredLoc(conf, actual)
+        result.add "\n"
+
+      result.add " but expected '$1'" % x
+
+      if verbose:
+        result.addDeclaredLoc(conf, formal)
+
+      if formal.kind == tyProc and actual.kind == tyProc:
+        result.addPragmaAndCallConvMismatch(formal, actual, conf)
+        case compatibleEffects(formal, actual):
+          of efCompat:
+            discard
+
+          of efRaisesDiffer:
+            result.add "\n.raise effects differ"
+
+          of efRaisesUnknown:
+            result.add "\n.raise effect is 'can raise any'"
+
+          of efTagsDiffer:
+            result.add "\n.tag effects differ"
+
+          of efTagsUnknown:
+            result.add "\n.tag effect is 'any tag allowed'"
+
+          of efLockLevelsDiffer:
+            result.add "\nlock levels differ"
+
+          of efEffectsDelayed:
+            result.add "\n.effectsOf annotations differ"
+
+    of rsemConverterRequiresToplevel:
+      result = "converter is only allowed at top level"
+
+    of rsemUsingRequiresToplevel:
+      result = "using is only allowed at top level"
+
+    of rsemInvalidVisibility:
+      result = "invalid visibility: '$1'" % r.ast.render
+
+    of rsemUnknownPackageName:
+      result = "unknown package name: " % r.str
+
+    of rsemTypeCannotBeForwarded:
+      result = r.symstr & " is not a type that can be forwarded"
+
+    of rsemPackageRequiresToplevel:
+      result = "only top level types in a package can be 'package'"
+
+    of rsemDoubleCompletionOf:
+      result = "cannot complete type '" &
+        r.symbols[1].name.s &
+        "' twice; " &
+        "previous type completion was here: " &
+        (conf $ r.symbols[0].info)
+
+    of rsemInheritanceOnlyWorksWithAnEnum:
+      result = "inheritance only works with an enum"
+
+    of rsemWrongNumberOfVariables:
+      result = "wrong number of variables"
+
+    of rsemInvalidOrderInEnum:
+      result = "invalid order in enum '$1'" & $r.symstr
+
+    of rsemSetTooBig:
+      result = "set is too large"
+
+    of rsemTIsNotAConcreteType:
+      result = "'$1' is not a concrete type" & r.typ.render()
+
+    of rsemVarVarNotAllowed:
+      result = "type 'var var' is not allowed"
+
+    of rsemRangeIsEmpty:
+      result = "range is empty"
+
+    of rsemExpectedOrdinalOrFloat:
+      result = "ordinal or float type expected"
+
+    of rsemExpectedUnholyEnum:
+      result = "enum '$1' has holes" % r.typ.render()
+
+    of rsemRangeDoesNotSupportNan:
+      result = "NaN is not a valid start or end for a range"
+
+    of rsemRangeRequiresDotDot:
+      result = "range types need to be constructed with '..', '..<' is not supported"
+
+    of rsemExpectedRange:
+      result = "expected range"
+
+    of rsemArrayExpectsPositiveRange:
+      result = "Array length can't be negative, but was " & $r.countMismatch.got
+
+    of rsemDistinctDoesNotHaveDefaultValue:
+      result = "The $1 distinct type doesn't have a default value." % r.typ.render
+
+    of rsemObjectRequiresFieldInit:
+      result = "The $1 type doesn't have a default value. The following fields must " &
+      "be initialized: $2." % [r.typ.render, r.symbols.mapIt(it.name.s).join(", ")]
+
+    of rsemExpectedObjectType:
+      result = "object constructor needs an object type"
+
+    of rsemAmbiguousCall:
+      result = "overloaded '$1' leads to ambiguous calls" % r.symstr
+
+    of rsemDeclarationVisibilityMismatch:
+      result = (
+        "public implementation '$1' has non-public forward declaration at $2"
+      ) % [getProcHeader(conf, r.sym, getDeclarationPath = false), conf $ r.sym.info]
+
+    of rsemVmInvalidObjectConstructor:
+      result = "invalid object constructor"
+
+    # of rsemExpectedInvariantParam:
+    #   result = "non-invariant type param used in a proc type: " & r.typ.render()
+    # else:
+    #   return $r
 
 proc toStr(conf: ConfigRef, loc: ReportLineInfo): string = $loc
 

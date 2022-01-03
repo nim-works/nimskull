@@ -587,7 +587,8 @@ proc transformConv(c: PTransf, n: PNode): PNode =
         # presently hints on `proc(thing)` where thing converts to non var base.
         localReport(c.graph.config, SemReport(
           kind: rsemImplicitObjConv,
-          typeMismatch: @[c.graph.config.typeMismatch(dest, source)]))
+          typeMismatch: @[c.graph.config.typeMismatch(
+            formal = dest, actual = source)]))
 
     if diff < 0:
       convHint()

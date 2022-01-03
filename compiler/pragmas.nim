@@ -880,9 +880,9 @@ proc pragmaLine(c: PContext, n: PNode): PNode =
       if x.kind == nkExprColonExpr: x = x[1]
       if y.kind == nkExprColonExpr: y = y[1]
       if x.kind != nkStrLit:
-        result = c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
+        result = c.config.newError(n, reportSem(rsemStringLiteralExpected))
       elif y.kind != nkIntLit:
-        result = c.config.newError(n, SemReport(kind: rsemIntLiteralExpected))
+        result = c.config.newError(n, reportSem(rsemIntLiteralExpected))
       else:
         n.info.fileIndex = fileInfoIdx(c.config, AbsoluteFile(x.strVal))
         n.info.line = uint16(y.intVal)
@@ -949,7 +949,7 @@ proc pragmaLockStmt(c: PContext; it: PNode): PNode =
     let n = it[1]
     if n.kind != nkBracket:
       # xxx: was errGenerated
-      it[1] = c.config.newError(n, SemReport(kind: rsemLocksPragmaExpectsList))
+      it[1] = c.config.newError(n, reportSem(rsemLocksPragmaExpectsList))
       result = wrapErrorInSubTree(it)
     else:
       for i in 0..<n.len:
