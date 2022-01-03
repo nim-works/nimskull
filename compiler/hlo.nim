@@ -40,8 +40,8 @@ proc evalPattern(c: PContext, n, orig: PNode): PNode =
   if c.config.hasHint(rsemPattern):
     c.config.localReport(orig.info, SemReport(
       kind: rsemPattern,
-      expression: original,
-      expandedExpr: result))
+      ast: original,
+      expandedAst: result))
 
 proc applyPatterns(c: PContext, n: PNode): PNode =
   result = n

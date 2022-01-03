@@ -547,7 +547,7 @@ proc derefWarning(n, ctx, map; kind: Nilability) =
   ctx.warningLocations.incl(n.info)
   var a: seq[History]
   var rep = SemReport(
-    kind: rsemStrictNotNil, nilIssue: kind, expression: n)
+    kind: rsemStrictNotNil, nilIssue: kind, ast: n)
 
   if n.kind == nkSym:
     for part in history(map, ctx.index(n)):

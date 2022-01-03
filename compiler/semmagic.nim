@@ -198,8 +198,8 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
       if not rec: break
     result = getTypeDescNode(c, arg, operand.owner, traitCall.info)
   else:
-    localReport(c.config, traitCall.info, SemReport(
-      kind: rsemUnknownTrait, psym: trait.sym))
+    localReport(c.config, traitCall.info, reportSym(
+      rsemUnknownTrait, trait.sym))
 
     result = newNodeI(nkEmpty, traitCall.info)
 
@@ -221,8 +221,7 @@ proc semOrd(c: PContext, n: PNode): PNode =
   if isOrdinalType(parType, allowEnumWithHoles=true):
     discard
   else:
-    result = c.config.newError(n, SemReport(
-      kind: rsemExpectedOrdinal, rtype: parType))
+    result = c.config.newError(n, reportTyp(rsemExpectedOrdinal, parType))
 
     result.typ = errorType(c)
 
@@ -464,9 +463,8 @@ proc semOld(c: PContext; n: PNode): PNode =
     localReport(c.config, n[1], rsemOldTakesParameterName)
 
   elif n[1].sym.owner != getCurrOwner(c):
-    localReport(c.config, n[1].info, SemReport(
-      kind: rsemOldDoesNotBelongTo,
-      expression: n[1], psym: getCurrOwner(c)))
+    localReport(c.config, n[1].info, reportAst(
+      rsemOldDoesNotBelongTo, n[1], sym = getCurrOwner(c)))
 
   result = n
 
@@ -529,8 +527,8 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   of mPlugin:
     let plugin = getPlugin(c.cache, n[0].sym)
     if plugin.isNil:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemCannotFindPlugin, psym: n[0].sym))
+      localReport(c.config, n.info, reportSym(
+        rsemCannotFindPlugin, sym = n[0].sym))
 
       result = n
     else:
@@ -584,21 +582,20 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
                                            tyVar, tyGenericInst, tyOwned, tySink,
                                            tyAlias, tyUserTypeClassInst})
     if seqType.kind == tySequence and seqType.base.requiresInit:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemUnsafeSetLen, rtype: seqType.base))
+      localReport(c.config, n.info, reportTyp(
+        rsemUnsafeSetLen, seqType.base))
 
   of mDefault:
     result = n
     c.config.internalAssert(result[1].typ.kind == tyTypeDesc, "")
     let constructed = result[1].typ.base
     if constructed.requiresInit:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemUnsafeDefault, rtype: constructed))
+      localReport(c.config, n.info, reportTyp(
+        rsemUnsafeDefault, constructed))
 
   of mIsolate:
     if not checkIsolate(n[1]):
-      localReport(c.config, n.info, SemReport(
-        kind: rsemCannotIsolate, expression: n[1]))
+      localReport(c.config, n.info, reportAst(rsemCannotIsolate, n[1]))
 
     result = n
   of mPred:

@@ -77,9 +77,8 @@ proc semForObjectFields(c: TFieldsCtx, typ, forLoop, father: PNode) =
   of nkRecCase:
     let call = forLoop[^2]
     if call.len > 2:
-      localReport(c.c.config, forLoop.info, SemReport(
-        kind: rsemParallelFieldsDisallowsCase,
-        expression: call))
+      localReport(c.c.config, forLoop.info, reportAst(
+        rsemParallelFieldsDisallowsCase, call))
 
       return
     # iterate over the selector:

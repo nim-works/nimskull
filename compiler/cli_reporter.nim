@@ -410,7 +410,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "'$1' has unspecified generic parameters" % r.sym.name.s
 
     of rsemExpandMacro:
-      result = r.expandedExpr.renderTree()
+      result = r.expandedAst.renderTree()
 
     of rsemUnusedImport:
       result = "imported and not used: '$1'" % r.sym.name.s

@@ -528,13 +528,13 @@ proc toString(n: PNode): string =
 proc borrowFrom(c: var Partitions; dest: PSym; src: PNode) =
   let s = pathExpr(src, c.owner)
   if s == nil:
-    localReport(c.g.config, src.info, SemReport(kind: rsemExpressionIsNotAPath, expression: src))
+    localReport(c.g.config, src.info, reportAst(rsemExpressionIsNotAPath, src))
   elif s.kind == nkSym:
     if dest.kind == skResult:
       if s.sym.kind != skParam or s.sym.position != 0:
         localReport(
           c.g.config, src.info,
-          SemReport(kind: rsemResultMustBorrowFirst, psym: s.sym, expression: src))
+          reportSym(rsemResultMustBorrowFirst, s.sym, ast = src))
 
     let vid = variableId(c, dest)
     if vid >= 0:
@@ -891,7 +891,7 @@ proc dangerousMutation(g: MutationInfo; v: VarIndex): bool =
 proc cannotBorrow(config: ConfigRef; s: PSym; g: MutationInfo) =
   localReport(config, s.info, SemReport(
     kind: rsemCannotBorrow,
-    psym: s,
+    sym: s,
     borrowPair: (
       mutatedHere: config.toReportLinePoint(g.mutatedHere),
       connectedVia: config.toReportLinePoint(g.connectedVia))))
@@ -923,9 +923,7 @@ proc checkBorrowedLocations*(par: var Partitions; body: PNode; config: ConfigRef
             not constViolation:
           # we do not track the constant expressions we allow to borrow from so
           # we can only produce a more generic error message:
-          localReport(config, v.info, SemReport(
-            kind: rsemImmutableBorrowMutation,
-            psym: v))
+          localReport(config, v.info, reportSym(rsemImmutableBorrowMutation, v))
 
       #if par.s[rid].con.kind == isRootOf and dangerousMutation(par.graphs[par.s[rid].con.graphIndex], par.s[i]):
       #  cannotBorrow(config, s, par.graphs[par.s[rid].con.graphIndex])

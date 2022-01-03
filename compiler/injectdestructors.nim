@@ -248,10 +248,10 @@ template isUnpackedTuple(n: PNode): bool =
 proc checkForErrorPragma(c: Con; t: PType; ri: PNode; opname: string) =
   var rep = SemReport(
     kind: rsemUnavailableTypeBound,
-    rtype: t,
-    msg: opname,
-    expression: ri,
-    psym: c.owner
+    typ: t,
+    str: opname,
+    ast: ri,
+    sym: c.owner
   )
 
   if (opname == "=" or opname == "=copy") and ri != nil:
@@ -475,9 +475,8 @@ proc passCopyToSink(n: PNode; c: var Con; s: var Scope): PNode =
       assert(not containsManagedMemory(n.typ))
 
     if n.typ.skipTypes(abstractInst).kind in {tyOpenArray, tyVarargs}:
-      localReport(c.graph.config, n.info, SemReport(
-        kind: rsemCannotCreateImplicitOpenarray,
-        expression: n))
+      localReport(c.graph.config, n.info, reportAst(
+        rsemCannotCreateImplicitOpenarray, n))
 
     result.add newTree(nkAsgn, tmp, p(n, c, s, normal))
   # Since we know somebody will take over the produced copy, there is
@@ -539,9 +538,8 @@ proc cycleCheck(n: PNode; c: var Con) =
     else:
       break
     if exprStructuralEquivalent(x, value, strictSymEquality = true):
-      localReport(c.graph.config, n.info, SemReport(
-        kind: rsemUncollectableRefCycle,
-        expression: field))
+      localReport(c.graph.config, n.info, reportAst(
+        rsemUncollectableRefCycle, field))
 
       break
 
@@ -1161,6 +1159,9 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; n: 
     echo renderTree(result, {renderIds})
 
   if g.config.arcToExpand.hasKey(owner.name.s):
-    echo "--expandArc: ", owner.name.s
-    echo renderTree(result, {renderIr, renderNoComments})
-    echo "-- end of expandArc ------------------------"
+    g.config.localReport(SemReport(
+      kind: rsemExpandArc,
+      ast: n,
+      sym: owner,
+      expandedAst: result
+    ))

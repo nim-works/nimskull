@@ -1055,7 +1055,5 @@ proc checkFieldAccess*(m: TModel, n: PNode; conf: ConfigRef) =
   for i in 1..<n.len:
     let check = buildProperFieldCheck(n[0], n[i], m.g.operators)
     if check != nil and m.doesImply(check) != impYes:
-      localReport(
-        conf, n.info,
-        SemReport(kind: rsemProveField, expression: n[0]))
+      localReport(conf, n.info, reportAst(rsemProveField, n[0]))
       break

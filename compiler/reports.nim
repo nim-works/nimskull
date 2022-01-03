@@ -817,6 +817,7 @@ type
     rsemPreExpandMacro
     rsemPostExpandMacro
     rsemExpandMacro = "ExpandMacro" ## Trace macro expansion progress
+    rsemExpandArc = "ExpandArc"
 
 
     rsemNonMatchingCandidates
@@ -1216,8 +1217,8 @@ type
       of rsemReportTwoSym + rsemReportOneSym + rsemReportListSym:
         symbols*: seq[PSym]
 
-      of rsemExpandMacro, rsemPattern:
-        expandedExpr*: PNode
+      of rsemExpandMacro, rsemPattern, rsemExpandArc:
+        expandedAst*: PNode
 
       of rsemLockLevelMismatch, rsemMethodLockMismatch:
         anotherMethod*: PSym

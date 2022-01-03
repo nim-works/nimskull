@@ -53,8 +53,8 @@ proc methodCall*(n: PNode; conf: ConfigRef): PNode =
     for i in 1..<result.len:
       result[i] = genConv(result[i], disp.typ[i], true, conf)
   else:
-    localReport(conf, n.info, SemReport(
-      kind: rsemMissingMethodDispatcher, expression: result[0]))
+    localReport(conf, n.info, reportAst(
+      rsemMissingMethodDispatcher, result[0]))
 
 type
   MethodResult = enum No, Invalid, Yes
@@ -158,7 +158,7 @@ proc fixupDispatcher(meth, disp: PSym; conf: ConfigRef) =
       localReport(conf, meth.info, SemReport(
         kind: rsemMethodLockMismatch,
         anotherMethod: meth,
-        psym: disp,
+        sym: disp,
         lockMismatch: ($meth.typ.lockLevel, $disp.typ.lockLevel)))
 
       # XXX The following code silences a duplicate warning in
@@ -180,7 +180,7 @@ proc methodDef*(g: ModuleGraph; idgen: IdGenerator; s: PSym) =
       if {sfBase, sfFromGeneric} * s.flags == {sfBase} and
            g.methods[i].methods[0] != s:
         # already exists due to forwarding definition?
-        localReport(g.config, s.info, SemReport(kind: rsemNotABaseMethod, psym: s))
+        localReport(g.config, s.info, reportSym(rsemNotABaseMethod, s))
       return
     of No: discard
     of Invalid:

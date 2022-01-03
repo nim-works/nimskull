@@ -254,16 +254,15 @@ proc semConstructFields(c: PContext, n: PNode,
           let fields = fieldsPresentInBranch(i)
           localReport(c.config, constrCtx.initExpr.info,  SemReport(
             kind: rsemConflictingDiscriminantInit,
-            expression: discriminatorVal,
+            ast: discriminatorVal,
             fieldMismatches: (
               first: fields,
               second: @[discriminator.sym])))
 
       template valuesInConflictError(valsDiff) =
-        localReport(c.config, discriminatorVal.info, SemReport(
-          kind: rsemConflictingDiscriminantValues,
-          rtype: n[0].typ,
-          expression: n[selectedBranch]))
+        localReport(c.config, discriminatorVal.info, reportTyp(
+          rsemConflictingDiscriminantValues, n[0].typ,
+          ast = n[selectedBranch]))
 
       let branchNode = n[selectedBranch]
       let flags = {efPreferStatic, efPreferNilResult}
@@ -439,11 +438,11 @@ proc defaultConstructionError(c: PContext, t: PType, info: TLineInfo) =
     localReport(
       c.config, info,
       reportSymbols(
-        rsemObjectRequiresFieldInit, constrCtx.missingFields, rtype = t))
+        rsemObjectRequiresFieldInit, constrCtx.missingFields, typ = t))
 
   elif objType.kind == tyDistinct:
-    localReport(c.config, info, SemReport(
-      kind: rsemDistinctDoesNotHaveDefaultValue, rtype: t))
+    localReport(c.config, info, reportTyp(
+      rsemDistinctDoesNotHaveDefaultValue, t))
 
   else:
     assert false, "Must not enter here."
@@ -465,8 +464,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
       # multiple times as long as they don't have closures.
       result.typ.flags.incl tfHasOwned
   if t.kind != tyObject:
-    return newError(c.config, result, SemReport(
-      kind: rsemExpectedObjectType, rtype: t))
+    return newError(c.config, result, reportTyp(rsemExpectedObjectType, t))
 
   # Check if the object is fully initialized by recursively testing each
   # field (if this is a case object, initialized fields in two different
@@ -485,7 +483,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     localReport(c.config, result.info, reportSymbols(
       rsemObjectRequiresFieldInit,
       constrCtx.missingFields,
-      rtype = t))
+      typ = t))
 
   if constructionError:
     result = constrCtx.initExpr
@@ -523,15 +521,15 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
       for j in 1..<i:
         let prevId = considerQuotedIdent(c, result[j][0])
         if prevId.id == id.id:
-          localReport(c.config, field.info, reportNode(
+          localReport(c.config, field.info, reportAst(
             rsemFieldInitTwice, result[j][0]))
 
           hasError = true
           break
       # 2) No such field exists in the constructed type
 
-      localReport(c.config, field[0].info, reportNode(
-        rsemUndeclaredField, field[0], rtype = t))
+      localReport(c.config, field[0].info, reportAst(
+        rsemUndeclaredField, field[0], typ = t))
 
       hasError = true
       break

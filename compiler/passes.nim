@@ -140,7 +140,7 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
     if s == nil:
       localReport(
         graph.config,
-        SemReport(kind: rsemCannotOpenFile, msg: filename.string))
+        reportStr(rsemCannotOpenFile, filename.string))
 
       return false
   else:

@@ -52,8 +52,8 @@ proc annotateType*(n: PNode, t: PType; conf: ConfigRef) =
     globalReport(conf, n.info, SemReport(
       kind: rsemTypeKindMismatch,
       typeMismatch: @[conf.typeMismatch(n.typ, expected)],
-      expression: n,
-      msg: msg))
+      ast: n,
+      str: msg))
 
   case n.kind
   of nkObjConstr:
@@ -63,10 +63,9 @@ proc annotateType*(n: PNode, t: PType; conf: ConfigRef) =
       var j = i-1
       let field = x.ithField(j)
       if field.isNil:
-        globalReport(conf, n.info, SemReport(
-          kind: rsemIllformedAst,
-          expression: n,
-          msg: "'nil' field at index" & $i))
+        globalReport(conf, n.info, reportAst(
+          rsemIllformedAst, n,
+          str = "'nil' field at index" & $i))
 
       else:
         internalAssert(
@@ -81,10 +80,9 @@ proc annotateType*(n: PNode, t: PType; conf: ConfigRef) =
       n.typ = t
       for i in 0..<n.len:
         if i >= x.len:
-          globalReport(conf, n.info, SemReport(
-            kind: rsemIllformedAst,
-            expression: n,
-            msg: "Unexpected field at index $1 - type $2 is expected to have $3 fields." % [
+          globalReport(conf, n.info, reportAst(
+            rsemIllformedAst, n,
+            str = "Unexpected field at index $1 - type $2 is expected to have $3 fields." % [
               $i, $x, $x.len]))
 
         else:

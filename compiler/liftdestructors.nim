@@ -203,10 +203,9 @@ proc fillBodyObj(c: var TLiftCtx; n, body, x, y: PNode; enforceDefaultOp: bool) 
     for t in items(n):
       fillBodyObj(c, t, body, x, y, enforceDefaultOp)
   else:
-    c.g.config.localReport(n.info, SemReport(
-      kind: rsemIllformedAst,
-      expression: n,
-      msg: "Unexpected node kind for 'fillBodyObj' - " &
+    c.g.config.localReport(n.info, reportAst(
+      rsemIllformedAst, n,
+      str = "Unexpected node kind for 'fillBodyObj' - " &
         "wanted Sym, NilLit, RecList or RecCase, but found " & $n.kind))
 
 proc fillBodyObjTImpl(c: var TLiftCtx; t: PType, body, x, y: PNode) =
@@ -334,7 +333,7 @@ proc instantiateGeneric(c: var TLiftCtx; op: PSym; t, typeInst: PType): PSym =
     localReport(
       c.g.config,
       c.info,
-      SemReport(kind: rsemCannotGenerateGenericDestructor, rtype: t))
+      reportTyp(rsemCannotGenerateGenericDestructor, t))
 
     result = nil
 

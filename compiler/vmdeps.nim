@@ -21,7 +21,7 @@ proc opSlurp*(file: string, info: TLineInfo, module: PSym; conf: ConfigRef): str
     discard conf.fileInfoIdx(AbsoluteFile filename)
     appendToModule(module, newTreeI(nkIncludeStmt, info, newStrNode(nkStrLit, filename)))
   except IOError:
-    localReport(conf, info, SemReport(kind: rsemCannotOpenFile, msg: file))
+    localReport(conf, info, reportStr(rsemCannotOpenFile, file))
     result = ""
 
 proc atomicTypeX(cache: IdentCache; name: string; m: TMagic; t: PType; info: TLineInfo;

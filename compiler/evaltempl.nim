@@ -117,12 +117,11 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
   if givenRegularParams < 0: givenRegularParams = 0
 
   if totalParams > expectedRegularParams + genericParams:
-    globalReport(conf, n.info, SemReport(
-      kind: rsemWrongNumberOfArguments, expression: n))
+    globalReport(conf, n.info, reportAst(rsemWrongNumberOfArguments, n))
 
   if totalParams < genericParams:
-    globalReport(conf, n.info, SemReport(
-      kind: rsemMissingGenericParamsForTemplate, expression: n))
+    globalReport(conf, n.info, reportAst(
+      rsemMissingGenericParamsForTemplate, n))
 
   result = newNodeI(nkArgList, n.info)
   for i in 1..givenRegularParams:
@@ -199,10 +198,9 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
       result = result[0]
 
     else:
-      localReport(conf, result.info, SemReport(
-        kind: rsemIllformedAst,
-        msg: "Expected single subnode, but found " & $result.len,
-        expression: result))
+      localReport(conf, result.info, reportAst(
+        rsemIllformedAst, result,
+        str = "Expected single subnode, but found " & $result.len))
 
   else:
     result = copyNode(body)

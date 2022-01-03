@@ -266,7 +266,7 @@ proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
   if arg.typ.isNil:
-    c.config.localReport(arg.info, reportNode(rsemExpressionHasNoType, arg))
+    c.config.localReport(arg.info, reportAst(rsemExpressionHasNoType, arg))
 
     # error correction:
     result = copyTree(arg)
@@ -416,7 +416,7 @@ proc newSymG*(kind: TSymKind, n: PNode, c: PContext): PSym =
     if result.kind notin {kind, skTemp}:
       localReport(c.config, n.info, SemReport(
         kind: rsemSymbolKindMismatch,
-        psym: result,
+        sym: result,
         expectedSymbolKind: {kind}))
 
     when false:
@@ -563,8 +563,7 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
 proc semConstExpr(c: PContext, n: PNode): PNode =
   var e = semExprWithType(c, n)
   if e == nil:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemConstExprExpected, expression: n))
+    localReport(c.config, n.info, reportAst(rsemConstExprExpected, n))
 
     return n
   if e.kind in nkSymChoices and e[0].typ.skipTypes(abstractInst).kind == tyEnum:
@@ -676,16 +675,14 @@ proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
   markUsed(c, info, sym)
   onUse(info, sym)
   if sym == c.p.owner:
-    globalReport(c.config, info, SemReport(
-      kind: rsemCyclicDependency, psym: sym))
+    globalReport(c.config, info, reportSym(rsemCyclicDependency, sym))
 
   let genericParams = sym.ast[genericParamsPos].len
   let suppliedParams = max(n.safeLen - 1, 0)
 
   if suppliedParams < genericParams:
     globalReport(
-      c.config, info, SemReport(
-        kind: rsemMissingGenericParamsForTemplate, expression: n))
+      c.config, info, reportAst(rsemMissingGenericParamsForTemplate, n))
 
   let reportTraceExpand = c.config.macrosToExpand.hasKey(sym.name.s)
   var original: PNode
@@ -701,8 +698,8 @@ proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
   if reportTraceExpand:
     c.config.localReport(nOrig.info, SemReport(
       kind: rsemExpandMacro,
-      expression: original,
-      expandedExpr: result))
+      ast: original,
+      expandedAst: result))
 
   result = wrapInComesFrom(nOrig.info, sym, result)
   popInfoContext(c.config)
@@ -895,8 +892,8 @@ proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
 proc reportUnusedModules(c: PContext) =
   for i in 0..high(c.unusedImports):
     if sfUsed notin c.unusedImports[i][0].flags:
-      localReport(c.config, c.unusedImports[i][1], SemReport(
-        kind: rsemUnusedImport, psym: c.unusedImports[i][0]))
+      localReport(c.config, c.unusedImports[i][1], reportSym(
+        rsemUnusedImport, c.unusedImports[i][0]))
 
 proc addCodeForGenerics(c: PContext, n: PNode) =
   for i in c.lastGenericIdx..<c.generics.len:

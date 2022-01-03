@@ -215,7 +215,7 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
 
   result = newError(c.config, n, SemReport(
     kind: rsemCallTypeMismatch,
-    expression: n,
+    ast: n,
     spellingCandidates: fixSpelling(c, f.ident),
     callMismatches: presentFailedCandidates(c, n, errors)
   ))
@@ -255,9 +255,9 @@ proc getMsgDiagnostic(
   else:
     var o: TOverloadIter
     result = SemReport(
-      rtype: n[1].typ,
-      msg: f.ident.s,
-      expression: n,
+      typ: n[1].typ,
+      str: f.ident.s,
+      ast: n,
       # `arg.call()`
       explicitCall: len({nfDotField, nfExplicitCall} * n.flags) == 2,
       kind: rsemCallNotAProcOrField)
@@ -352,7 +352,7 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
             result.call = c.config.newError(n, msg)
           else:
             n[2] = c.config.newError(n[2], SemReport(
-              kind: rsemUndeclaredField, expression: n[2], psym: sym, rtype: sym.typ))
+              kind: rsemUndeclaredField, ast: n[2], sym: sym, typ: sym.typ))
 
             result.call = wrapErrorInSubTree(n)
         else:
@@ -363,7 +363,7 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
     elif result.state != csMatch:
       if nfExprCall in n.flags:
         result.call = c.config.newError(
-          n, SemReport(kind: rsemExpressionCannotBeCalled, expression: n))
+          n, reportAst(rsemExpressionCannotBeCalled, n))
 
       else:
         if {nfDotField, nfDotSetter} * n.flags != {}:
@@ -531,7 +531,7 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
     # this may be triggered, when the explain pragma is used
     if (r.diagnosticsEnabled or efExplain in flags) and errors.len > 0:
       localReport(c.config, n.info, SemReport(
-        expression: n,
+        ast: n,
         kind: rsemNonMatchingCandidates,
         callMismatches: presentFailedCandidates(c, n, errors)
       ))
@@ -548,8 +548,7 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
     result = r.call
 
 proc explicitGenericInstError(c: PContext; n: PNode): PNode =
-  localReport(c.config, getCallLineInfo(n), SemReport(
-    kind: rsemCannotInstantiate, expression: n))
+  localReport(c.config, getCallLineInfo(n), reportAst(rsemCannotInstantiate, n))
 
   result = n
 
@@ -594,7 +593,7 @@ proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
       let expected = s.ast[genericParamsPos].safeLen
       localReport(c.config, getCallLineInfo(n), SemReport(
         kind: rsemWrongNumberOfGenericParams,
-        expression: n,
+        ast: n,
         countMismatch: (
           expected: toInt128(expected),
           got: toInt128(n.len - 1))))

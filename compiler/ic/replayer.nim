@@ -29,14 +29,14 @@ proc replayStateChanges*(module: PSym; g: ModuleGraph) =
     if n.len >= 2:
       internalAssert g.config, n[0].kind == nkStrLit and n[1].kind == nkStrLit
       case n[0].strVal
-      of "hint": localReport(g.config, n.info, SemReport(
-        kind: rsemUserHint, msg: n[1].strVal))
+      of "hint": localReport(g.config, n.info, reportStr(
+        rsemUserHint, n[1].strVal))
 
-      of "warning": localReport(g.config, n.info, SemReport(
-        kind: rsemUserWarning, msg: n[1].strVal))
+      of "warning": localReport(g.config, n.info, reportStr(
+        rsemUserWarning, n[1].strVal))
 
-      of "error": localReport(g.config, n.info, SemReport(
-        kind: rsemUserError, msg: n[1].strVal))
+      of "error": localReport(g.config, n.info, reportStr(
+        rsemUserError, n[1].strVal))
 
       of "compile":
         internalAssert g.config, n.len == 4 and n[2].kind == nkStrLit

@@ -60,17 +60,14 @@ proc liftLocalsIfRequested*(prc: PSym; n: PNode; cache: IdentCache; conf: Config
   if liftDest == nil: return n
   let partialParam = lookupParam(prc.typ.n, liftDest)
   if partialParam.isNil:
-    localReport(conf, liftDest.info, SemReport(
-      kind: rsemIsNotParameterOf,
-      expression: liftDest,
-      psym: prc))
+    localReport(conf, liftDest.info, reportAst(
+      rsemIsNotParameterOf, liftDest, sym = prc))
 
     return n
   let objType = partialParam.typ.skipTypes(abstractPtrs)
   if objType.kind != tyObject or tfPartial notin objType.flags:
-    localReport(conf, liftDest.info, SemReport(
-      kind: rsemParameterNotPointerToPartial,
-      expression: liftDest))
+    localReport(conf, liftDest.info, reportAst(
+      rsemParameterNotPointerToPartial, liftDest))
     return n
   var c = Ctx(partialParam: partialParam, objType: objType, cache: cache, idgen: idgen)
   let w = newTree(nkStmtList, n)

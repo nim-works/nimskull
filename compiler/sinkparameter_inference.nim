@@ -47,7 +47,7 @@ proc checkForSink*(config: ConfigRef; idgen: IdGenerator; owner: PSym; arg: PNod
       elif sfWasForwarded notin arg.sym.flags:
         # we only report every potential 'sink' parameter only once:
         incl arg.sym.flags, sfWasForwarded
-        localReport(config, arg.info, SemReport(kind: rsemCannotMakeSink, psym: arg.sym))
+        localReport(config, arg.info, reportSym(rsemCannotMakeSink, arg.sym))
       #echo config $ arg.info, " candidate for a sink parameter here"
   of nkStmtList, nkStmtListExpr, nkBlockStmt, nkBlockExpr:
     if not isEmptyType(arg.typ):

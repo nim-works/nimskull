@@ -692,12 +692,12 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
 
   if sfCustomPragma in s.flags:
     if n[bodyPos].kind != nkEmpty:
-      localReport(c.config, n[bodyPos].info, SemReport(
-        kind: rsemImplementationNotAllowed, psym: s))
+      localReport(c.config, n[bodyPos].info, reportSym(
+        rsemImplementationNotAllowed, s))
 
   elif n[bodyPos].kind == nkEmpty:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemImplementationExpected, psym: s))
+    localReport(c.config, n.info, reportSym(
+      rsemImplementationExpected, s))
 
   var (proto, comesFromShadowscope) = searchForProc(c, c.currentScope, s)
   if proto == nil:

@@ -78,13 +78,11 @@ iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable): PSym 
           # later by semAsgn in return type inference scenario
           t = q.typ
         else:
-          localReport(c.config, a.info, SemReport(
-            kind: rsemCannotInstantiate, psym: s))
+          localReport(c.config, a.info, reportSym(rsemCannotInstantiate, s))
 
           t = errorType(c)
       elif t.kind in {tyGenericParam, tyConcept}:
-        localReport(c.config, a.info, SemReport(
-            kind: rsemCannotInstantiate, psym: q))
+        localReport(c.config, a.info, reportSym(rsemCannotInstantiate, q))
 
         t = errorType(c)
       elif t.kind == tyGenericInvocation:

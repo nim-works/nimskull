@@ -689,8 +689,8 @@ proc loadDynamicLib(m: BModule, lib: PLib) =
     if lib.path.kind in {nkStrLit..nkTripleStrLit}:
       var s: TStringSeq = @[]
       libCandidates(lib.path.strVal, s)
-      localReport(m.config, SemReport(
-        kind: rsemHintLibDependency, msg: lib.path.strVal))
+      localReport(m.config, reportStr(
+        rsemHintLibDependency, lib.path.strVal))
 
       var loadlib: Rope = nil
       for i in 0..high(s):
@@ -798,8 +798,7 @@ proc cgsym(m: BModule, name: string): Rope =
     # we used to exclude the system module from this check, but for DLL
     # generation support this sloppyness leads to hard to detect bugs, so
     # we're picky here for the system module too:
-    localReport(m.config, SemReport(
-      kind: rsemSystemNeeds, msg: name))
+    localReport(m.config, reportStr(rsemSystemNeeds, name))
 
   result = sym.loc.r
   if m.hcrOn and sym != nil and sym.kind in {skProc..skIterator}:
@@ -1886,8 +1885,7 @@ proc writeHeader(m: BModule) =
   if m.config.cppCustomNamespace.len > 0: result.add closeNamespaceNim()
   result.addf("#endif /* $1 */$n", [guard])
   if not writeRope(result, m.filename):
-    localReport(m.config, SemReport(
-      kind: rsemCannotOpenFile, msg: m.filename.string))
+    localReport(m.config, reportStr(rsemCannotOpenFile, m.filename.string))
 
 proc getCFile(m: BModule): AbsoluteFile =
   let ext =
@@ -1956,8 +1954,7 @@ proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
         else:
           echo "new file ", cfile.cname.string
       if not writeRope(code, cfile.cname):
-        localReport(m.config, SemReport(
-          kind: rsemCannotOpenFile, msg: cfile.cname.string))
+        localReport(m.config, reportStr(rsemCannotOpenFile, cfile.cname.string))
 
       result = true
     elif fileExists(cfile.obj) and os.fileNewer(cfile.obj.string, cfile.cname.string):
@@ -1966,8 +1963,7 @@ proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
       result = true
   else:
     if not writeRope(code, cfile.cname):
-      localReport(m.config, SemReport(
-        kind: rsemCannotOpenFile, msg: cfile.cname.string))
+      localReport(m.config, reportStr(rsemCannotOpenFile, cfile.cname.string))
 
     result = true
 

@@ -54,8 +54,8 @@ proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     result.typ = newTypeS(tyVoid, c)
 
   else:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemExpressionHasNoType, expression: result))
+    localReport(c.config, n.info, reportAst(
+      rsemExpressionHasNoType, result))
 
     result.typ = errorType(c)
 
@@ -85,8 +85,8 @@ proc semExprWithType(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   if result.typ == nil and efInTypeof in flags:
     result.typ = c.voidType
   elif result.typ == nil or result.typ == c.enforceVoidContext:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemExpressionHasNoType, expression: result))
+    localReport(c.config, n.info, reportAst(
+      rsemExpressionHasNoType, result))
 
     result.typ = errorType(c)
   elif result.typ.kind == tyError:
@@ -98,8 +98,8 @@ proc semExprWithType(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
 proc semExprNoDeref(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   result = semExprCheck(c, n, flags)
   if result.typ == nil:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemExpressionHasNoType, expression: result))
+    localReport(c.config, n.info, reportAst(
+      rsemExpressionHasNoType, result))
 
     result.typ = errorType(c)
 
@@ -109,8 +109,8 @@ proc semSymGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
 proc inlineConst(c: PContext, n: PNode, s: PSym): PNode {.inline.} =
   result = copyTree(s.ast)
   if result.isNil:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemConstantOfTypeHasNoValue, psym: s))
+    localReport(c.config, n.info, reportSym(
+      rsemConstantOfTypeHasNoValue, s))
 
     result = newSymNode(s)
   else:
@@ -172,7 +172,7 @@ proc checkConvertible(c: PContext, targetTyp: PType, src: PNode): TConvStatus =
     if targetTyp.kind == tyEnum and srcBaseTyp.kind == tyEnum:
       localReport(c.config, src.info, SemReport(
         kind: rsemSuspiciousEnumConv,
-        expression: src,
+        ast: src,
         typeMismatch: @[
           c.config.typeMismatch(formal = targetTyp, actual = srcBaseTyp)]))
 
@@ -345,8 +345,8 @@ proc semConv(c: PContext, n: PNode): PNode =
       elif op.kind in {nkPar, nkTupleConstr} and targetType.kind == tyTuple:
         op = fitNode(c, targetType, op, result.info)
     of convNotNeedeed:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemConvFromXtoItselfNotNeeded, rtype: result.typ, expression: result))
+      localReport(c.config, n.info, reportTyp(
+        rsemConvFromXtoItselfNotNeeded, result.typ, ast = result))
 
     of convNotLegal:
       result = fitNode(c, result.typ, result[1], result.info)
@@ -357,10 +357,8 @@ proc semConv(c: PContext, n: PNode): PNode =
             c.config.typeMismatch(formal = result.typ, actual = op.typ)]))
 
     of convNotInRange:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemCannotBeConvertedTo,
-        expression: op,
-        rtype: result.typ))
+      localReport(c.config, n.info, reportAst(
+        rsemCannotBeConvertedTo, op, typ = result.typ))
 
   else:
     for i in 0..<op.len:
@@ -379,8 +377,8 @@ proc semCast(c: PContext, n: PNode): PNode =
   let targetType = semTypeNode(c, n[0], nil)
   let castedExpr = semExprWithType(c, n[1])
   if tfHasMeta in targetType.flags:
-    localReport(c.config, n[0].info, SemReport(
-      kind: rsemCannotCastToNonConcrete, rtype: targetType))
+    localReport(c.config, n[0].info, reportTyp(
+      rsemCannotCastToNonConcrete, targetType))
 
   if not isCastable(c, targetType, castedExpr.typ):
     localReport(c.config, n.info, SemReport(
@@ -397,8 +395,8 @@ proc semLowHigh(c: PContext, n: PNode, m: TMagic): PNode =
   const
     opToStr: array[mLow..mHigh, string] = ["low", "high"]
   if n.len != 2:
-    localReport(c.config, n.info, SemReport(
-      kind: rsemExpectedTypeOrValue, msg: opToStr[m]))
+    localReport(c.config, n.info, reportStr(
+      rsemExpectedTypeOrValue, opToStr[m]))
 
   else:
     n[1] = semExprWithType(c, n[1], {efDetermineType})
@@ -418,8 +416,8 @@ proc semLowHigh(c: PContext, n: PNode, m: TMagic): PNode =
       # that could easily turn into an infinite recursion in semtypinst
       n.typ = makeTypeFromExpr(c, n.copyTree)
     else:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemInvalidArgumentFor, rtype: typ, msg: opToStr[m]))
+      localReport(c.config, n.info, reportTyp(
+        rsemInvalidArgumentFor, typ, str = opToStr[m]))
 
   result = n
 
@@ -567,8 +565,8 @@ proc changeType(c: PContext; n: PNode, newType: PType, check: bool) =
       if tup.kind == tyObject:
         return
 
-      globalReport(c.config, n.info, SemReport(
-        kind: rsemNoTupleTypeForConstructor, expression: n))
+      globalReport(c.config, n.info, reportAst(
+        rsemNoTupleTypeForConstructor, ast = n))
 
     elif n.len > 0 and n[0].kind == nkExprColonExpr:
       # named tuple?
@@ -582,8 +580,8 @@ proc changeType(c: PContext; n: PNode, newType: PType, check: bool) =
         if tup.n != nil:
           var f = getSymFromList(tup.n, m.sym.name)
           if f == nil:
-            globalReport(c.config, m.info, SemReport(
-              kind: rsemUnknownIdentifier, psym: m.sym))
+            globalReport(c.config, m.info, reportSym(
+              rsemUnknownIdentifier, m.sym))
 
             return
           changeType(c, n[i][1], f.typ, check)
@@ -602,14 +600,13 @@ proc changeType(c: PContext; n: PNode, newType: PType, check: bool) =
     if check and n.kind != nkUInt64Lit and not sameType(n.typ, newType):
       let value = n.intVal
       if value < firstOrd(c.config, newType) or value > lastOrd(c.config, newType):
-        localReport(c.config, n.info, SemReport(
-          kind: rsemCannotBeConvertedTo,
-          expression: n, rtype: newType))
+        localReport(c.config, n.info, reportAst(
+          rsemCannotBeConvertedTo, n, typ = newType))
 
   of nkFloatLit..nkFloat64Lit:
     if check and not floatRangeCheck(n.floatVal, newType):
-      localReport(c.config, n.info, SemReport(
-        kind: rsemCannotBeConvertedTo, expression: n, rtype: newType))
+      localReport(c.config, n.info, reportAst(
+        rsemCannotBeConvertedTo, ast = n, typ = newType))
 
   else:
     discard
@@ -660,9 +657,8 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
       if lastIndex == lastValidIndex:
         let validIndex = makeRangeType(c, toInt64(firstIndex), toInt64(lastValidIndex), n.info,
                                        indexType)
-        localReport(c.config, n.info, SemReport(
-          kind: rsemIndexOutOfBounds,
-          rtype: validIndex, expression: n))
+        localReport(c.config, n.info, reportTyp(
+          rsemIndexOutOfBounds, validIndex, ast = n))
 
       x = n[i]
       if x.kind == nkExprColonExpr and x.len == 2:
@@ -671,8 +667,8 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
         if lastIndex + 1 != getOrdValue(idx):
           localReport(c.config, x.info, SemReport(
             kind: rsemInvalidOrderInArrayConstructor,
-            expression: x,
-            rtype: idx.typ,
+            ast: x,
+            typ: idx.typ,
             countMismatch: (
               expected: lastIndex + 1,
               got: getOrdValue(idx))))
@@ -757,8 +753,7 @@ proc newHiddenAddrTaken(c: PContext, n: PNode): PNode =
       if aa == arDiscriminant and c.inUncheckedAssignSection > 0:
         discard "allow access within a cast(unsafeAssign) section"
       else:
-        localReport(c.config, n.info, SemReport(
-          kind: rsemVarForOutParamNeeded, expression: n))
+        localReport(c.config, n.info, reportAst(rsemVarForOutParamNeeded, n))
 
 proc analyseIfAddressTaken(c: PContext, n: PNode): PNode =
   result = n
@@ -811,8 +806,8 @@ proc analyseIfAddressTakenInCall(c: PContext, n: PNode) =
             if aa == arDiscriminant and c.inUncheckedAssignSection > 0:
               discard "allow access within a cast(unsafeAssign) section"
             else:
-              localReport(c.config, it.info, SemReport(
-                kind: rsemVarForOutParamNeeded, expression: it))
+              localReport(c.config, it.info, reportAst(
+                rsemVarForOutParamNeeded, it))
 
     # bug #5113: disallow newSeq(result) where result is a 'var T':
     if n[0].sym.magic in {mNew, mNewFinalize, mNewSeq}:
@@ -820,8 +815,7 @@ proc analyseIfAddressTakenInCall(c: PContext, n: PNode) =
       if arg.kind == nkHiddenDeref: arg = arg[0]
       if arg.kind == nkSym and arg.sym.kind == skResult and
           arg.typ.skipTypes(abstractInst).kind in {tyVar, tyLent}:
-        localReport(c.config, n.info, SemReport(
-          kind: rsemStackEscape, expression: n[1]))
+        localReport(c.config, n.info, reportAst(rsemStackEscape, n[1]))
 
     return
   for i in 1 ..< n.len:
@@ -904,8 +898,8 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
       if sfCompileTime in callee.flags:
         result = evalStaticExpr(c.module, c.idgen, c.graph, call, c.p.owner)
         if result.isNil:
-          localReport(c.config, n.info, SemReport(
-            kind: rsemCannotInterpretNode, expression: call))
+          localReport(c.config, n.info, reportAst(
+            rsemCannotInterpretNode, call))
 
         else:
           result = fixupTypeAfterEval(c, result, n)
@@ -957,8 +951,8 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode, nOrig: PNode,
     of skMacro, skTemplate: discard
     else:
       if callee.kind == skIterator and callee.id == c.p.owner.id:
-        localReport(c.config, n.info, SemReport(
-          kind: rsemRecursiveDependencyIterator, psym: callee))
+        localReport(c.config, n.info, reportSym(
+          rsemRecursiveDependencyIterator, callee))
 
         # error correction, prevents endless for loop elimination in transf.
         # See bug #2051:
@@ -1136,8 +1130,7 @@ proc buildEchoStmt(c: PContext, n: PNode): PNode =
   if e != nil:
     result.add(newSymNode(e))
   else:
-    result.add newError(c.config, n, SemReport(
-      kind: rsemSystemNeeds, msg: "echo"))
+    result.add newError(c.config, n, reportStr(rsemSystemNeeds, "echo"))
 
   result.add(n)
   result.add(newStrNode(nkStrLit, ": " & n.typ.typeToString))
@@ -1685,7 +1678,7 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
       else:
         localReport(c.config, n.info, SemReport(
           kind: rsemInvalidTupleSubscript,
-          expression: n[1],
+          ast: n[1],
           countMismatch: (expected: toInt128(arr.len - 1), got: idx)))
 
       result = n
@@ -1750,12 +1743,12 @@ proc takeImplicitAddr(c: PContext, n: PNode; isLent: bool): PNode =
   if root != nil and root.owner == c.p.owner:
     template url: string = "var_t_return.html".createDocLink
     if root.kind in {skLet, skVar, skTemp} and sfGlobal notin root.flags:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemLocalEscapesStackFrame, psym: root, expression: n))
+      localReport(c.config, n.info, reportSym(
+        rsemLocalEscapesStackFrame, root, ast = n))
 
     elif root.kind == skParam and root.position != 0:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemImplicitAddrIsNotFirstParam, psym: root, expression: n))
+      localReport(c.config, n.info, reportSym(
+        rsemImplicitAddrIsNotFirstParam, root, ast = n))
 
   case n.kind
   of nkHiddenAddr, nkAddr: return n
@@ -1825,8 +1818,8 @@ proc borrowCheck(c: PContext, n, le, ri: PNode) =
       le.typ != nil and le.typ.skipTypes(absInst).kind != tyOwned and
       scopedLifetime(c, ri):
     if le.kind == nkSym and le.sym.kind == skResult:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemExpectedOwnerReturn, rtype: le.typ))
+      localReport(c.config, n.info, reportTyp(
+        rsemExpectedOwnerReturn, le.typ))
 
     elif escapes(c, le):
       localReport(c.config, n, rsemExpectedUnownedRef)
@@ -1898,8 +1891,8 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
           isAssignable(c, a) in {arNone, arLentValue}) or (
         skipTypes(le, abstractVar).kind in {tyOpenArray, tyVarargs} and views notin c.features):
       # Direct assignment to a discriminant is allowed!
-      localReport(c.config, a.info, SemReport(
-        kind: rsemCannotAssignTo, expression: a, rtype: le))
+      localReport(c.config, a.info, reportAst(
+        rsemCannotAssignTo, a, typ = le))
 
     else:
       let lhs = n[0]
@@ -1985,13 +1978,13 @@ proc semProcBody(c: PContext, n: PNode): PNode =
       c.p.resultSym.typ = errorType(c)
       c.p.owner.typ[0] = nil
     else:
-      localReport(c.config, c.p.resultSym.info, SemReport(
-        kind: rsemCannotInferReturnType, psym: c.p.owner))
+      localReport(c.config, c.p.resultSym.info, reportSym(
+        rsemCannotInferReturnType, c.p.owner))
 
   if isInlineIterator(c.p.owner.typ) and c.p.owner.typ[0] != nil and
       c.p.owner.typ[0].kind == tyUntyped:
-    localReport(c.config, c.p.owner.info, SemReport(
-        kind: rsemCannotInferReturnType, psym: c.p.owner))
+    localReport(c.config, c.p.owner.info, reportSym(
+        rsemCannotInferReturnType, c.p.owner))
 
   closeScope(c)
 
@@ -2104,8 +2097,9 @@ proc expectMacroOrTemplateCall(c: PContext, n: PNode): PSym =
       return errorSym(c, n[0])
 
     if expandedSym.kind notin {skMacro, skTemplate}:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemExpectedMacroOrTemplate, psym: expandedSym))
+      localReport(c.config, n.info, reportSym(
+        rsemExpectedMacroOrTemplate, expandedSym))
+
       return errorSym(c, n[0])
 
     result = expandedSym
@@ -2155,8 +2149,8 @@ proc semExpandToAst(c: PContext, n: PNode): PNode =
         rsemExpectedTemplateWithNArgs, macroCall.len - 1, 0, macroCall))
 
     elif cands >= 2:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemAmbiguousGetAst, expression: macroCall))
+      localReport(c.config, n.info, reportAst(
+        rsemAmbiguousGetAst, macroCall))
     else:
       let info = macroCall[0].info
       macroCall[0] = newSymNode(cand, info)
@@ -2373,8 +2367,8 @@ proc instantiateCreateFlowVarCall(c: PContext; t: PType;
                                   info: TLineInfo): PSym =
   let sym = magicsys.getCompilerProc(c.graph, "nimCreateFlowVar")
   if sym == nil:
-    localReport(c.config, info, SemReport(
-      kind: rsemSystemNeeds, msg: "nimCreateFlowVar"))
+    localReport(c.config, info, reportStr(
+      rsemSystemNeeds, "nimCreateFlowVar"))
 
   var bindings: TIdTable
   initIdTable(bindings)
@@ -2786,8 +2780,7 @@ proc semExport(c: PContext, n: PNode): PNode =
     else:
       while s != nil:
         if s.kind == skEnumField:
-          localReport(c.config, a.info, SemReport(
-            kind: rsemCannotExport, psym: s))
+          localReport(c.config, a.info, reportSym(rsemCannotExport, s))
 
         if s.kind in ExportableSymKinds+{skModule} and sfError notin s.flags:
           result.add(newSymNode(s, a.info))

@@ -548,7 +548,7 @@ template localReport*(conf: ConfigRef, node: PNode, reportKind: SemReportKind) =
   handleReport(
     conf,
     wrap(
-      SemReport(expression: node, kind: reportKind),
+      SemReport(kind: reportKind, ast: node),
       instLoc(),
       conf.toReportLinePoint(node.info)),
     doNothing)
@@ -569,7 +569,7 @@ proc semReportCountMismatch*(
     node: PNode = nil,
   ): SemReport =
 
-  result = SemReport(kind: kind, expression: node)
+  result = SemReport(kind: kind, ast: node)
   result.countMismatch = (toInt128(expected), toInt128(got))
 
 template semReportIllformedAst*(
@@ -578,7 +578,7 @@ template semReportIllformedAst*(
   handleError(
     conf,
     wrap(
-      SemReport(kind: rsemIllformedAst, expression: node ),
+      SemReport(kind: rsemIllformedAst, ast: node ),
       instLoc(),
       conf.toReportLinePoint(node.info)),
     doNothing)

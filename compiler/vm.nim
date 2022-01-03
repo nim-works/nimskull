@@ -1777,9 +1777,9 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if instr.opcode == opcNError:
         stackTrace(c, tos, pc, a.strVal, info)
       elif instr.opcode == opcNWarning:
-        localReport(c.config, info, SemReport(kind: rsemUserWarning, msg: a.strVal))
+        localReport(c.config, info, reportStr(rsemUserWarning, a.strVal))
       elif instr.opcode == opcNHint:
-        localReport(c.config, info, SemReport(kind: rsemUserHint, msg: a.strVal))
+        localReport(c.config, info, reportStr(rsemUserHint, a.strVal))
     of opcParseExprToAst:
       decodeB(rkNode)
       # c.debug[pc].line.int - countLines(regs[rb].strVal) ?
@@ -2166,7 +2166,7 @@ proc execProc*(c: PCtx; sym: PSym; args: openArray[PNode]): PNode =
     if sym.typ.len-1 != args.len:
       localReport(c.config, sym.info, SemReport(
         kind: rsemWrongNumberOfArguments,
-        psym: sym,
+        sym: sym,
         countMismatch: (
           expected: toInt128(sym.typ.len - 1),
           got: toInt128(args.len))))
@@ -2187,8 +2187,7 @@ proc execProc*(c: PCtx; sym: PSym; args: openArray[PNode]): PNode =
 
       result = rawExecute(c, start, tos).regToNode
   else:
-    localReport(c.config, sym.info, SemReport(
-      kind: rsemVmCallingNonRoutine, psym: sym))
+    localReport(c.config, sym.info, reportSym(rsemVmCallingNonRoutine, sym))
 
 proc evalStmt*(c: PCtx, n: PNode) =
   let n = transformExpr(c.graph, c.idgen, c.module, n)
@@ -2340,15 +2339,15 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
   # XXX globalReport() is ugly here, but I don't know a better solution for now
   inc(g.config.evalMacroCounter)
   if g.config.evalMacroCounter > evalMacroLimit:
-    globalReport(g.config, n.info, SemReport(
-      kind: rsemMacroInstantiationTooNested, expression: n))
+    globalReport(g.config, n.info, reportAst(
+      rsemMacroInstantiationTooNested, n))
 
   # immediate macros can bypass any type and arity checking so we check the
   # arity here too:
   if sym.typ.len > n.safeLen and sym.typ.len > 1:
     globalReport(g.config, n.info, SemReport(
       kind: rsemWrongNumberOfArguments,
-      expression: n,
+      ast: n,
       countMismatch: (
         expected: toInt128(sym.typ.len - 1),
         got: toInt128(n.safeLen - 1))))
@@ -2398,8 +2397,7 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
   result = rawExecute(c, start, tos).regToNode
   if result.info.line < 0: result.info = n.info
   if cyclicTree(result):
-    globalReport(c.config, n.info, SemReport(
-      kind: rsemCyclicTree, expression: n))
+    globalReport(c.config, n.info, reportAst(rsemCyclicTree, n))
 
   dec(g.config.evalMacroCounter)
   c.callsite = nil

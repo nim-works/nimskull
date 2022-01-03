@@ -1587,7 +1587,7 @@ proc semReportTypeMismatch*(
 
   result = SemReport(
     kind: when formal is PType: rsemTypeMismatch else: rsemTypeKindMismatch,
-    expression: node,
+    ast: node,
     typeMismatch: @[typeMismatch(
       conf, formal = formal, actual = actual)]
   )

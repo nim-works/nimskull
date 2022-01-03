@@ -966,7 +966,7 @@ proc genArrayElem(p: BProc, n, x, y: PNode, d: var TLoc) =
           p.config, x.info, SemReport(
             kind: rsemStaticOutOfBounds,
             indexSpec: (firstOrd(p.config, ty), lastOrd(p.config, ty)),
-            expression: y))
+            ast: y))
 
   d.inheritLocation(a)
   putIntoDest(p, d, n,
@@ -2430,8 +2430,8 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
   of mEcho: genEcho(p, e[1].skipConv)
   of mArrToSeq: genArrToSeq(p, e, d)
   of mNLen..mNError, mSlurp..mQuoteAst:
-    localReport(p.config, e.info, SemReport(
-      kind: rsemConstExpressionExpected, psym: e[0].sym))
+    localReport(p.config, e.info, reportSym(
+      rsemConstExpressionExpected, e[0].sym))
 
   of mSpawn:
     when defined(leanCompiler):
@@ -2755,8 +2755,8 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
       #if sym.kind == skIterator:
       #  echo renderTree(sym.getBody, {renderIds})
       if sfCompileTime in sym.flags:
-        localReport(p.config, n.info, SemReport(
-          kind: rsemCannotCodegenCompiletimeProc, psym: sym))
+        localReport(p.config, n.info, reportSym(
+          rsemCannotCodegenCompiletimeProc, sym))
 
       if useAliveDataFromDce in p.module.flags and sym.typ.callConv != ccInline:
         fillProcLoc(p.module, n)
