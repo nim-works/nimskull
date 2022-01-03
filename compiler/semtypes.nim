@@ -1615,7 +1615,8 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
       for idx in 0 ..< max(len(n), len(t.n)):
         let actual = if idx < len(n): n[idx].typ else: nil
         let formal = if idx < len(n): t.n[idx].typ else: nil
-        mismatches.add c.config.typeMismatch(actual, formal)
+        mismatches.add c.config.typeMismatch(
+          actual = actual, formal = formal)
 
       localReport(c.config, n.info, SemReport(
         kind: rsemCannotInstantiateWithParameter,

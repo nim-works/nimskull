@@ -2524,7 +2524,8 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             localReport(c.config, n[a].info,
               SemReport(
                 kind: rsemCannotConvertTypes,
-                typeMismatch: @[c.config.typeMismatch(formal.typ, n[a].typ)]))
+                typeMismatch: @[c.config.typeMismatch(
+                  formal = formal.typ, actual = n[a].typ)]))
 
             noMatch()
         checkConstraint(n[a])

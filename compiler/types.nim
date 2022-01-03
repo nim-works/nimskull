@@ -1553,17 +1553,19 @@ proc getProcConvMismatch*(
        # but it's a pragma mismatch reason which is why it's here
        result[0].incl pcmLockDifference
 
-proc typeMismatch*(conf: ConfigRef, formal, actual: PType): SemTypeMismatch =
+proc typeMismatch*(
+  conf: ConfigRef, formal, actual: PType): SemTypeMismatch =
+
   result = SemTypeMismatch(
     actualType: actual,
-    wantedType: formal,
+    formalType: formal,
     descriptionStr: typeToString(formal, preferDesc)
   )
 
 proc typeMismatch*(
-  conf: ConfigRef, actual: PType, formal: set[TTypeKind]): SemTypeMismatch =
+  conf: ConfigRef, formal: set[TTypeKind], actual: PType): SemTypeMismatch =
 
-  SemTypeMismatch(actualType: actual, wantedTypeKind: formal)
+  SemTypeMismatch(actualType: actual, formalTypeKind: formal)
 
 proc typeMismatch*(
     conf: ConfigRef; info: TLineInfo, formal, actual: PType, n: PNode): PNode =

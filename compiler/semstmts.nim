@@ -533,7 +533,8 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
       if tup.kind != tyTuple:
         localReport(c.config, a.info, SemReport(
           kind: rsemTypeKindMismatch,
-          typeMismatch: @[c.config.typeMismatch(tup, {tyTuple})]))
+          typeMismatch: @[c.config.typeMismatch(
+            formal = {tyTuple}, actual = tup)]))
 
       elif a.len - 2 != tup.len:
         localReport(
@@ -2427,7 +2428,8 @@ proc inferConceptStaticParam(c: PContext, inferred, n: PNode) =
     localReport(c.config, n.info, SemReport(
       kind: rsemConceptInferenceFailed,
       ast: inferred,
-      typeMismatch: @[c.config.typeMismatch(res.typ, typ.base)]))
+      typeMismatch: @[c.config.typeMismatch(
+        actual = res.typ, formal = typ.base)]))
 
   typ.n = res
 

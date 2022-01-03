@@ -365,9 +365,8 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         $r.ast
 
     of rsemVmCannotCast:
-      let mis = r.typeMismatch[0]
       result = "VM does not support 'cast' from " &
-        $mis.actualType.kind & " to " & $mis.wantedType.kind
+        $r.actualType.kind & " to " & $r.formalType.kind
 
     of rsemVmInvalidBindSym:
       result = "invalid bindSym usage"
@@ -474,9 +473,8 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "{.booldefine.} const was set to an invalid bool: '" & r.str & "'"
 
     of rsemSemfoldInvalidConversion:
-      let mis = r.typeMismatch[0]
       result = "conversion from $1 to $2 is invalid" % [
-        typeToString(mis.actualType), typeToString(mis.wantedType)]
+        typeToString(r.actualType()), typeToString(r.formalType())]
 
     of rsemIllformedAst:
       result = "ilformed ast: " & renderTree(r.ast)
@@ -499,10 +497,9 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "integer literal expected"
 
     of rsemGenericTypeExpected:
-      let mis = r.typeMismatch[0]
       result = "expected generic type, got: type $2 of kind $1" % [
-        mis.actualType.kind.toHumanStr,
-        typeToString(mis.actualType)]
+        r.actualType.kind.toHumanStr,
+        typeToString(r.actualType)]
 
     of rsemUnknownTrait:
       result = "unknown trait: " & r.sym.name.s
@@ -512,6 +509,18 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
     of rsemStringLiteralExpected:
       result = "string literal expected"
+
+    of rsemConditionAlwaysTrue:
+      result = "condition is always true: '$1'" % renderTree(r.ast)
+
+    of rsemConditionAlwaysFalse:
+      result = "condition is always false: '$1'" % renderTree(r.ast)
+
+    of rsemWrongNumberOfArguments:
+      result = "wrong number of arguments"
+
+    of rsemCannotBeOfSubtype:
+      result = "'$1' cannot be of this subtype" % typeToString(r.actualType())
 
     else:
       return $r

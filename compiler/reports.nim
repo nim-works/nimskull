@@ -1061,8 +1061,8 @@ type
     ssefParameterMutation
 
   SemTypeMismatch* = object
-    wantedTypeKind*: set[TTypeKind]
-    actualType*, wantedType*: PType
+    formalTypeKind*: set[TTypeKind]
+    actualType*, formalType*: PType
     descriptionStr*: string
 
   SemCallDiagnosticsKind* = enum
@@ -1750,3 +1750,8 @@ func `$`*(id: ReportId): string =
 func getReport*(list: ReportList, id: ReportId): Report =
   ## Get report from the report list using it's id
   list.list[int(uint32(id)) - 1]
+
+
+func actualType*(r: SemReport): PType = r.typeMismatch[0].actualType
+func formalType*(r: SemReport): PType = r.typeMismatch[0].formalType
+func symstr*(r: SemReport): string = r.sym.name.s

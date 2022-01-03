@@ -934,7 +934,8 @@ proc genCastIntFloat(c: PCtx; n: PNode; dest: var TDest) =
     # todo: support cast from tyInt to tyRef
     globalReport(c.config, n.info, SemReport(
       kind: rsemVmCannotCast,
-      typeMismatch: @[c.config.typeMismatch(dst, src)]))
+      typeMismatch: @[c.config.typeMismatch(
+        actual = dst, formal = src)]))
 
 proc genVoidABC(c: PCtx, n: PNode, dest: TDest, opcode: TOpcode) =
   unused(c, n, dest)

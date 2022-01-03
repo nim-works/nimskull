@@ -174,7 +174,7 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
         traitCall.info,
         SemReport(
           kind: rsemGenericTypeExpected,
-          typeMismatch: @[c.config.typeMismatch(arg, {tyGenericInst})]))
+          typeMismatch: @[c.config.typeMismatch({tyGenericInst}, arg)]))
 
       result = newType(tyError, nextTypeId c.idgen, context).toNode(traitCall.info)
   of "stripGenericParams":
@@ -346,7 +346,7 @@ proc semOf(c: PContext, n: PNode): PNode =
         if commonSuperclass(a, b) == nil:
           localReport(c.config, n.info, SemReport(
             kind: rsemCannotBeOfSubtype,
-            typeMismatch: @[c.config.typeMismatch(a, b)]))
+            typeMismatch: @[c.config.typeMismatch(actual = a, formal = b)]))
 
         else:
           localReport(c.config, n, reportSem rsemConditionAlwaysFalse)
