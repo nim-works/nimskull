@@ -458,7 +458,7 @@ proc setVarType(c: PContext; v: PSym, typ: PType) =
 
 proc errorSymChoiceUseQualifier(c: PContext; n: PNode) =
   assert n.kind in nkSymChoices
-  var rep = reportAst(rsemAmbiguous, n)
+  var rep = reportAst(rsemAmbiguousIdent, n, str = $n[0])
   for child in n:
     rep.symbols.add child.sym
 
@@ -1046,10 +1046,8 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
     if covered == toCover(c, n[0].typ):
       hasElse = true
     elif n[0].typ.skipTypes(abstractRange).kind in {tyEnum, tyChar}:
-      localReport(c.config, n.info, SemReport(
-        kind: rsemMissingCaseBranches,
-        missingBranches: formatMissingEnums(c, n)
-      ))
+      localReport(c.config, n.info, reportSymbols(
+        rsemMissingCaseBranches, formatMissingEnums(c, n)))
 
     else:
       localReport(c.config, n, reportSem rsemMissingCaseBranches)

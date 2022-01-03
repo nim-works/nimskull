@@ -843,8 +843,7 @@ proc inferStaticParam*(c: var TCandidate, lhs: PNode, rhs: BiggestInt): bool =
 proc failureToInferStaticParam(conf: ConfigRef; n: PNode) =
   let staticParam = n.findUnresolvedStatic
   conf.localReport(n.info, reportSym(
-    rsemCannotInferStaticValue,
-    if staticParam != nil: staticParam.sym else: nil))
+    rsemCannotInferStaticValue, staticParam.sym, str = "unknown"))
 
 proc inferStaticsInRange(c: var TCandidate,
                          inferred, concrete: PType): TTypeRelation =

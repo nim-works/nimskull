@@ -655,10 +655,16 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     #var typ = skipTypes(result[0].typ, {tyGenericInst, tyVar, tyLent, tyOrdinal})
     for i in 1..<n.len:
       if lastIndex == lastValidIndex:
-        let validIndex = makeRangeType(c, toInt64(firstIndex), toInt64(lastValidIndex), n.info,
-                                       indexType)
-        localReport(c.config, n.info, reportTyp(
-          rsemIndexOutOfBounds, validIndex, ast = n))
+        let validIndex = makeRangeType(
+          c, toInt64(firstIndex),
+          toInt64(lastValidIndex), n.info, indexType)
+
+        localReport(c.config, n.info, SemReport(
+          kind: rsemIndexOutOfBounds,
+          typ: validIndex,
+          ast: n,
+          countMismatch: (expected: lastIndex, got: toInt128(n.len))
+        ))
 
       x = n[i]
       if x.kind == nkExprColonExpr and x.len == 2:

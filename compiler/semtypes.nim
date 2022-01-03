@@ -708,8 +708,33 @@ iterator processBranchVals(b: PNode): int =
         for i in b[i][0].intVal..b[i][1].intVal:
           yield i.int
 
-proc toNodes(vals: IntSet, t: PType): seq[PNode] =
-  {.warning: "[TODO] generate list of the nodes, mirroring 'renderAsType'"}
+proc toLiterals(vals: IntSet, t: PType): seq[PNode] =
+  let t = t.skipTypes(abstractRange)
+
+  var enumSymOffset = 0
+  for val in vals:
+    case t.kind:
+      of tyEnum, tyBool:
+        while t.n[enumSymOffset].sym.position < val:
+          inc(enumSymOffset)
+
+        result &= t.n[enumSymOffset]
+
+      of tyChar:
+        result.add newIntNode(nkCharLit, BiggestInt(val))
+
+      else:
+        result.add newIntNode(nkIntLit, BiggestInt(val))
+
+
+proc toEnumFields(vals: IntSet, t: PType): seq[PSym] =
+  block:
+    let t = t.skipTypes(abstractRange)
+    assert(t.kind in {tyEnum, tyBool}, $t.kind)
+
+  for node in toLiterals(vals, t):
+    result.add node.sym
+
 
 proc renderAsType(vals: IntSet, t: PType): string =
   result = "{"
@@ -734,12 +759,14 @@ proc renderAsType(vals: IntSet, t: PType): string =
     inc(i)
   result &= "}"
 
-proc formatMissingEnums(c: PContext, n: PNode): seq[PNode] =
+proc formatMissingEnums(c: PContext, n: PNode): seq[PSym] =
   var coveredCases = initIntSet()
   for i in 1..<n.len:
     for val in processBranchVals(n[i]):
       coveredCases.incl val
-  result = (c.getIntSetOfType(n[0].typ) - coveredCases).toNodes(n[0].typ)
+
+  result = toEnumFields(
+    c.getIntSetOfType(n[0].typ) - coveredCases, n[0].typ)
 
 proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
                    father: PNode, rectype: PType) =
@@ -781,7 +808,7 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
 
   elif lengthOrd(c.config, typ) > 0x00007FFF:
     var rep = SemReport(
-      kind: rsemExpectedLow0Discriminant,
+      kind: rsemExpectedHighCappedDiscriminant,
       countMismatch: (
         expected: toInt128(32768),
         got: firstOrd(c.config, typ)),
@@ -810,9 +837,8 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
     semRecordNodeAux(c, lastSon(n[i]), check, pos, b, rectype, hasCaseFields = true)
   if chckCovered and covered != toCover(c, a[0].typ):
     if a[0].typ.skipTypes(abstractRange).kind == tyEnum:
-      localReport(c.config, a.info, SemReport(
-        kind: rsemMissingCaseBranches,
-        missingBranches: formatMissingEnums(c, a)))
+      localReport(c.config, a.info, reportSymbols(
+        rsemMissingCaseBranches, formatMissingEnums(c, a)))
 
     else:
       localReport(c.config, a, reportSem rsemMissingCaseBranches)

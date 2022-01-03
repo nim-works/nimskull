@@ -19,6 +19,9 @@ const
     fgDefault, fgGreen, fgYellow, fgRed, fgRed, fgCyan
   ]
 
+proc csvList(syms: seq[PSym]): string =
+  syms.mapIt(it.name.s).join(", ")
+
 proc writeContext*(conf: ConfigRef, ctx: seq[ReportContext]) =
   for ctx in items(ctx):
     case ctx.kind:
@@ -459,6 +462,17 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         getProcHeader(conf, r.symbols[1])
       ]
 
+    of rsemAmbiguousIdent:
+      result = "ambiguous identifier: '" & r.str & "' -- use one of the following:\n"
+      var i = 0
+      for sym in r.symbols:
+        if 0 < i:
+          result.add "\n"
+
+        result.add "  " & sym.owner.name.s & "." & sym.name.s
+        inc i
+
+
     of rsemStaticOutOfBounds:
       let (i, a, b) = r.indexSpec
       if b < a:
@@ -734,7 +748,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "'spawn' must not be discarded"
 
     of rsemSpawnRequiresCall:
-      "'spawn' takes a call expression; got: " & render(r.ast)
+      result = "'spawn' takes a call expression; got: " & render(r.ast)
 
     of rsemSpawnRequiresGcSafe:
       result = "'spawn' takes a GC safe call expression"
@@ -879,7 +893,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
     of rsemObjectRequiresFieldInit:
       result = "The $1 type doesn't have a default value. The following fields must " &
-      "be initialized: $2." % [r.typ.render, r.symbols.mapIt(it.name.s).join(", ")]
+      "be initialized: $2." % [r.typ.render, r.symbols.csvList()]
 
     of rsemExpectedObjectType:
       result = "object constructor needs an object type"
@@ -894,6 +908,478 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
     of rsemVmInvalidObjectConstructor:
       result = "invalid object constructor"
+
+    of rsemImplementationNotAllowed:
+      result = "implementation of '$1' is not allowed" % r.symstr
+
+    of rsemGenericLambdaNowAllowed:
+      result = "A nested proc can have generic parameters only when " &
+        "it is used as an operand to another routine and the types " &
+        "of the generic paramers can be inferred from the expected signature."
+
+    of rsemUnexpectedAutoInForwardDeclaration:
+      result = "return type 'auto' cannot be used in forward declarations"
+
+    of rsemInvalidControlFlow:
+      result = "invalid control flow: $1" % [
+        if r.sym.isNil: r.ast.render else: r.symstr
+      ]
+
+    of rsemContinueCannotHaveLabel:
+      result = "'continue' cannot have a label"
+
+    of rsemUseOrDiscard:
+      result = "value of type '$1' has to be used (or discarded)" % r.typ.render
+
+    of rsemCannotBeRaised:
+      result = "only a 'ref object' can be raised"
+
+    of rsemExceptionAlreadyHandled:
+      result = "exception already handled"
+
+    of rsemCannotExceptNativeAndImported:
+      result = "Mix of imported and native exception types is not allowed in one except branch"
+
+    of rsemExpectedSingleFinally:
+      result = "Only one finally is allowed after all other branches"
+
+    of rsemExpectedSingleGeneralExcept:
+      result = "Only one general except clause is allowed after more specific exceptions"
+
+    of rsemCannotConvertToRange:
+      result = "cannot convert '$1' to '$2'" % [$r.ast.floatVal, typeToString(r.typ)]
+
+    of rsemProveInit:
+      result = "Cannot prove that '$1' is initialized. This will become a compile time error in the future." %
+        r.symstr
+
+    of rsemUsingRequiresType:
+      result = "'using' section must have a type"
+
+    of rsemUsingDisallowsAssign:
+      result = "'using' sections cannot contain assignments"
+
+    of rsemImplicitFieldConstructinoRequiresPartial:
+      result = "implicit object field construction " &
+        "requires a .partial object, but got " & r.typ.render
+
+    of rsemDifferentTypeForReintroducedSymbol:
+      result = "inconsistent typing for reintroduced symbol '" &
+        r.symstr & "': previous type was: " & r.formalType.render() &
+        "; new type is: " & r.actualType.render()
+
+
+    of rsemCannotInferTypeOfLiteral:
+      result = "cannot infer the type of the $1" % r.typ.render
+
+    of rsemProcHasNoConcreteType:
+      result = "'$1' doesn't have a concrete type, due to unspecified generic parameters." %
+        r.ast.render
+
+    of rsemEachIdentIsTuple:
+      result = "each identifier is a tuple"
+
+    of rsemResultShadowed:
+      result = "Special variable 'result' is shadowed."
+
+    of rsemThreadvarCannotInit:
+      result = "a thread var cannot be initialized explicitly; this would only run for the main thread"
+
+    of rsemLetNeedsInit:
+      result = "'let' symbol requires an initialization"
+
+    of rsemGlobalVar:
+      result = "global variable declared here"
+
+    of rsemForExpectsIterator:
+      result = "iterator within for loop context expected"
+
+    of rsemSelectorMustBeOfCertainTypes:
+      result = "selector must be of an ordinal type, float, or string"
+
+    of rsemUnreachableElse:
+      result = "unreachable else, all cases are already covered"
+
+    of rsemMissingCaseBranches:
+      result = "not all cases are covered"
+      if 0 < r.symbols.len:
+        result.add "; missing: {$1}" % r.symbols.csvList()
+
+    of rsemCannotRaiseNonException:
+      result = "raised object of type $1 does not inherit from Exception" & r.typ.render
+
+    of rsemUnexpectedEqInObjectConstructor:
+      result = "object construction uses ':', not '='"
+
+    of rsemConvFromXtoItselfNotNeeded:
+      result = "conversion from $1 to itself is pointless" % r.typ.render
+
+    of rsemIllegalConversion:
+      result = "illegal conversion from '$1' to '$2'" % [
+        r.actualType.render, r.formalType.render
+      ]
+
+    of rsemCannotBeConvertedTo:
+      let value = if r.ast.kind in {nkCharLit..nkUInt64Lit}: $r.ast.getInt else: $r.ast.getFloat
+      result = value & " can't be converted to " & r.typ.render
+
+    of rsemCannotCastToNonConcrete:
+      result = "cannot cast to a non concrete type: '$1'" % r.typ.render
+
+    of rsemCannotCastTypes:
+      let tar = $r.formalType
+      let alt = typeToString(r.formalType, preferDesc)
+      let msg = if tar != alt: tar & "=" & alt else: tar
+      result = "expression cannot be cast to " & msg
+
+    of rsemInvalidArgumentFor:
+      result = "invalid argument for: " & r.str
+
+    of rsemNoTupleTypeForConstructor:
+      result = "no tuple type for constructor"
+
+    of rsemInvalidTupleConstructor:
+      result = "invalid tuple constructor"
+
+    of rsemUnknownIdentifier:
+      result = "unknown identifier: " & r.symstr
+
+    of rsemIndexOutOfBounds:
+      result = "size of array exceeds range of index type '$1' by $2 elements" % [
+        typeToString(r.typ), $(r.countMismatch.got - r.countMismatch.expected)]
+
+    of rsemVarForOutParamNeeded:
+      result = "for a 'var' type a variable needs to be passed; but '$1' is immutable" %
+        r.ast.render
+
+    of rsemStackEscape:
+      result = "address of '$1' may not escape its stack frame" % r.ast.render
+
+    of rsemCannotInterpretNode:
+      result = "cannot evaluate '$1'" % r.ast.render
+
+    of rsemRecursiveDependencyIterator:
+      result = "recursion is not supported in iterators: '$1'" % r.symstr
+
+    of rsemDisallowedNilDeref:
+      result = "nil dereference is not allowed"
+
+    of rsemInvalidTupleSubscript:
+      result = "invalid index value for tuple subscript"
+
+    of rsemLocalEscapesStackFrame:
+      result = "'$1' escapes its stack frame; context: '$2'" % [r.symstr, r.ast.render]
+
+    of rsemImplicitAddrIsNotFirstParam:
+      result = "'$1' is not the first parameter; context: '$2'" % [r.symstr, r.ast.render]
+
+    of rsemExpectedOwnerReturn:
+      result = "cannot return an owned pointer as an unowned pointer; " &
+        "use 'owned(" & r.typ.render & ")' as the return type"
+
+    of rsemExpectedUnownedRef:
+      result = "assignment produces a dangling ref: the unowned ref lives longer than the owned ref"
+
+    of rsemCannotAssignTo:
+      result = "'$1' cannot be assigned to" % r.ast.render
+
+    of rsemNoReturnTypeDeclared:
+      result = "no return type declared"
+
+    of rsemReturnNotAllowed:
+      result = "'return' not allowed here"
+
+    of rsemCannotInferReturnType:
+      result = "cannot infer the return type of '$1'" % r.symstr
+
+    of rsemUnexpectedYield:
+      result = "'yield' only allowed in an iterator"
+
+    of rsemCannotReturnTypeless:
+      result = "current routine cannot return an expression"
+
+    of rsemExpectedValueForYield:
+      result = "yield statement must yield a value"
+
+    of rsemExpectedIdentifier:
+      result = "identifier expected, but got: " & r.ast.render
+
+    of rsemExpectedMacroOrTemplate:
+      result = "'$1' is not a macro or template" % (
+        if r.sym.isNil: r.ast.render else: r.symstr)
+
+    of rsemExpectedTemplateWithNArgs:
+      result = "expected a template that takes " & $(r.countMismatch.expected) & " arguments"
+
+    of rsemAmbiguousGetAst:
+      result = "ambiguous symbol in 'getAst' context: " & r.ast.render
+
+    of rsemExpectedCallForGetAst:
+      result = "getAst takes a call, but got " & r.ast.render
+
+    of rsemSuspiciousEnumConv:
+      result = "suspicious code: enum to enum conversion"
+
+    of rsemStringOrIdentNodeExpected:
+      result = "string or ident node expected"
+
+    of rsemExpectedObjectForOf:
+      result = "'of' takes object types"
+
+    of rsemSemfoldDivByZero:
+      result = "over- or underflow"
+
+    of rsemRuntimeDiscriminantRequiresElif:
+      result = "branch initialization with a runtime discriminator only " &
+        "supports ordinal types with 2^16 elements or less."
+
+    of rsemRuntimeDiscriminantMustBeImmutable:
+      result = "runtime discriminator must be immutable if branch fields are " &
+        "initialized, a 'let' binding is required."
+
+    of rsemObjectConstructorIncorrect:
+      assert false, "TODO"
+
+    of rsemVmBadExpandToAst:
+      result = "expandToAst requires 1 argument"
+
+    of rsemMissingImportcCompleteStruct:
+      result = "'$1' requires '.importc' types to be '.completeStruct'" % r.str
+
+    of rsemVmEnableFFIToImportc:
+      result = "VM is not allowed to 'importc' without --experimental:compiletimeFFI"
+
+    of rsemVmCannotImportc:
+      result = "cannot 'importc' variable at compile time; " & r.symstr
+
+    of rsemVmCannotCreateNullElement:
+      result = "cannot create null element for: " & r.typ.render
+
+    of rsemVmNoClosureIterators:
+      result = "Closure iterators are not supported by VM!"
+
+    of rsemVmCannotCallMethod:
+      result = "cannot call method " & r.symstr & " at compile time"
+
+    of rsemBorrowTargetNotFound:
+      result = "no symbol to borrow from found"
+
+    of rsemIncorrectResultProcSymbol:
+      result = "incorrect result proc symbol"
+
+    of rsemCannotInferTypeOfParameter:
+      result = "cannot infer type of parameter: " & r.symstr
+
+    of rsemRebidingImplicitDestructor:
+      result = "cannot bind another '" & r.symstr & "' to: " & r.typ.render
+      result.add "; previous declaration was constructed here implicitly: " & (conf $ r.sym.info)
+
+    of rsemRebidingDestructor:
+      result = "cannot bind another '" & r.symstr & "' to: " & r.typ.render
+      result.add "; previous declaration was here: " & (conf $ r.sym.info)
+
+    of rsemInseparableTypeBoundOp:
+      result = "type bound operation `" & r.symstr &
+        "` can be defined only in the same module with its type (" & r.typ.render & ")"
+
+    of rsemUnexpectedTypeBoundOpSignature:
+      result = "signature for '" & r.symstr & "' must be proc[T: object](x: var T)"
+
+    of rsemRebidingDeepCopy:
+      result = "cannot bind another 'deepCopy' to: " & r.typ.render
+
+    of rsemExpectedDestroyOrDeepCopyForOverride:
+      result = "'destroy' or 'deepCopy' expected for 'override'"
+
+    of rsemGenericMethodsDeprecated:
+      result = "generic methods are deprecated"
+
+    of rsemExpectedObjectForMethod:
+      result = "'method' needs a parameter that has an object type"
+
+    of rsemUnexpectedPragmaInDefinitionOf:
+      let proto = r.symbols[0]
+      let s = r.symbols[1]
+      result = "pragmas are only allowed in the header of a proc; redefinition of $1" %
+        ("'" & proto.name.s & "' from " & conf $ proto.info &
+        " '" & s.name.s & "' from " & conf $ s.info)
+
+    of rsemParallelCannotProveDisjoint:
+      result = r.str
+
+    of rsemParallelInvalidControlFlow:
+      result = "invalid control flow for 'parallel'"
+
+    of rsemSpawnInvalidContext:
+      result = "invalid context for 'spawn'"
+
+    of rsemParallelWithoutSpawn:
+      result = "'parallel' section without 'spawn'"
+
+    of rsemDisjointFields:
+      result = ("The fields '$1' and '$2' cannot be initialized together, " &
+        "because they are from conflicting branches in the case object.") %
+        [r.fieldMismatches.first.csvList(), r.fieldMismatches.second.csvList()]
+
+    of rsemUnsafeRuntimeDiscriminantInit:
+      result = ("cannot prove that it's safe to initialize $1 with " &
+        "the runtime value for the discriminator '$2' ") %
+        [r.fieldMismatches.first.csvList(), r.fieldMismatches.second.csvList()]
+
+    of rsemConflictingDiscriminantInit:
+      result = ("a case selecting discriminator '$1' with value '$2' " &
+        "appears in the object construction, but the field(s) $3 " &
+        "are in conflict with this value.") %
+        [r.fieldMismatches.first.csvList(), r.ast.render, r.fieldMismatches.second.csvList()]
+
+    of rsemConflictingDiscriminantValues:
+      result = ("possible values " &
+        "$2 are in conflict with discriminator values for " &
+        "selected object branch $1.") % [r.ast.render, r.typ.render]
+
+    of rsemRuntimeDiscriminantInitCap:
+      result = "branch initialization with a runtime discriminator only " &
+        "supports ordinal types with 2^16 elements or less."
+
+    of rsemBitsizeRequires1248:
+      result = "size may only be 1, 2, 4 or 8"
+
+    of rsemAlignRequiresPowerOfTwo:
+      result = "power of two expected"
+
+    of rsemNoReturnHasReturn:
+      result = "???"
+
+    of rsemUserHint:
+      result = r.str
+
+    of rsemUserWarning:
+      result = r.str
+
+    of rsemUserError:
+      result = r.str
+
+    of rsemCustomUserError:
+      result = r.str
+
+    of rsemImplicitPragmaError:
+      result = "???"
+
+    of rsemInvalidModulePath:
+      result = "invalid path: " & r.str
+
+    of rsemDotForModuleImport:
+      result = "using '.' instead of '/' in import paths is deprecated"
+
+    of rsemInvalidModuleName:
+      result = "invalid module name: '$1'" % r.ast.render
+
+    of rsemInvalidMethodDeclarationOrder:
+      result = "invalid declaration order; cannot attach '" & r.symbols[0].name.s &
+        "' to method defined here: " & conf$r.symbols[1].info
+
+    of rsemRecursiveInclude:
+      result = "recursive dependency: '$1'" % r.str
+
+    of rsemUnexpectedInfixInInclude:
+      result = "Cannot use '" & r.str & "' in 'include'."
+
+    of rsemInvalidPragmaBlock:
+      result = "invalid pragma block: " & $r.ast.render
+
+    of rsemConceptInferenceFailed:
+      result = "cannot infer the concept parameter '%s', due to a type mismatch. " &
+        "attempt to equate '%s' and '%s'." % [
+          r.ast.render, r.actualType.render, r.formalType.render]
+
+    of rsemConceptPredicateFailed:
+      result = "concept predicate failed"
+
+    of rsemUnreachableCode:
+      result = "unreachable code after 'return' statement or '{.noReturn.}' proc"
+
+    of rsemNoMagicEqualsForType:
+      result = "can't find magic equals operator for type kind " & $r.typ.kind
+
+    of rsemConflictingExportnims:
+      result = "symbol conflicts with other .exportNims symbol at: " &
+        conf $ r.symbols[1].info
+
+    of rsemCantConvertLiteralToType:
+      result =  "Cannot convert int literal to $1. The value is invalid." %
+        r.typ.render
+
+    of rsemNodeNotAllowed:
+      result = "'$1' not allowed here" % r.ast.render
+
+    of rsemCustomGlobalError:
+      result = r.str
+
+    of rsemCannotImportItself:
+      result = "module '$1' cannot import itself" % r.symstr
+
+    of rsemRecursiveImport:
+      result = "recursive dependency: '$1'" % r.str
+
+    of rsemCannotOpenFile:
+      result = "cannot open '$1'" % r.str
+
+    of rsemMethodRequiresToplevel:
+      result = "'method' is only allowed at top level"
+
+    of rsemExpectedReturnTypeForConverter:
+      result = "converter needs a return type"
+
+    of rsemExpectedOneArgumentForConverter:
+      result = "a converter takes exactly one argument"
+
+    of rsemSemfoldOverflow:
+      result = "over- or underflow"
+
+    of rsemCaseInUnion:
+      result = "Illegal use of ``case`` in union type."
+
+    of rsemOffsetInUnion:
+      result = "union type may not have an object header"
+
+    of rsemUnexpectedInNewConcept:
+      result =  "unexpected construct in the new-styled concept: " & r.ast.render
+
+    of rsemTooNestedConcept:
+      result = r.ast.render & " too nested for type matching"
+
+    of rsemIllegalRecursion:
+      result = "illegal recursion in type '$1'" % r.typ.render
+
+    of rsemCannotInferStaticValue:
+      result = "cannot infer the value of the static param '" & (
+        if r.sym.isNil: r.str else: r.symstr
+      ) & "'"
+
+    of rsemProcIsNotAConcreteType:
+      result = ("'$1' is not a concrete type; " &
+        "for a callback without parameters use 'proc()'") % r.typ.render
+
+    of rsemCannotInstantiateWithParameter:
+      result = "cannot instantiate "
+      result.addTypeHeader(conf, r.typ)
+      result.add "\ngot: <$1>\nbut expected: <$2>" % [
+        describeArgs(conf, r.typ.n), describeArgs(conf, r.ast, 0)]
+
+    of rsemCannotGenerateGenericDestructor:
+      result = "cannot generate destructor for generic type: " & r.typ.render
+
+    of rsemExpectedLow0Discriminant:
+      result =  "low(" & r.symstr & ") must be 0 for discriminant"
+
+    of rsemExpectedHighCappedDiscriminant:
+      result = "len($1) must be less than 32768" % r.symstr
+
+    of rsemCantConvertLiteralToRange:
+      result = "cannot convert " & $r.str & " to " & r.typ.render
+
+    else:
+      result = $r
 
     # of rsemExpectedInvariantParam:
     #   result = "non-invariant type param used in a proc type: " & r.typ.render()

@@ -272,6 +272,7 @@ type
     rsemTypeMismatch
     rsemTypeKindMismatch
     rsemAmbiguous
+    rsemAmbiguousIdent
 
     rsemCustomUserError
       ## just like customer error, but reported as a errUser in msgs
@@ -1040,7 +1041,26 @@ const
 
   rsemReportListSym* = {
     rsemAmbiguous,
+    rsemAmbiguousIdent,
+    rsemMissingCaseBranches,
     rsemObjectRequiresFieldInit
+  }
+
+  rsemReportCountMismatch* = {
+    rsemWrongNumberOfArguments,
+    rsemWrongNumberOfGenericParams,
+    rsemInvalidOrderInEnum,
+    rsemSetTooBig,
+    rsemArrayExpectsPositiveRange,
+    rsemExpectedLow0Discriminant,
+    rsemInvalidOrderInArrayConstructor,
+    rsemTypeConversionArgumentMismatch,
+    rsemInvalidTupleSubscript,
+    rsemExpectedTemplateWithNArgs,
+    rsemExpectedParameterForCxxPattern,
+    rsemWrongNumberOfQuoteArguments,
+    rsemIndexOutOfBounds,
+    rsemExpectedHighCappedDiscriminant
   }
 
 type
@@ -1133,9 +1153,6 @@ type
       of rsemXCannotRaiseY:
         raisesList*: PNode
 
-      of rsemMissingCaseBranches:
-        missingBranches*: seq[PNode]
-
       of rsemStrictNotNil:
         nilIssue*: Nilability
         nilHistory*: seq[tuple[
@@ -1173,19 +1190,7 @@ type
           location: ReportLinePoint
         ]]
 
-      of rsemWrongNumberOfArguments,
-         rsemWrongNumberOfGenericParams,
-         rsemInvalidOrderInEnum,
-         rsemSetTooBig,
-         rsemArrayExpectsPositiveRange,
-         rsemExpectedLow0Discriminant,
-         rsemInvalidOrderInArrayConstructor,
-         rsemTypeConversionArgumentMismatch,
-         rsemInvalidTupleSubscript,
-         rsemExpectedTemplateWithNArgs,
-         rsemExpectedParameterForCxxPattern,
-         rsemWrongNumberOfQuoteArguments,
-         rsemExpectedHighCappedDiscriminant:
+      of rsemReportCountMismatch:
         countMismatch*: tuple[expected, got: Int128]
 
       of rsemInvalidExtern:

@@ -150,7 +150,7 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
   of nkImportAs:
     result = getModuleName(conf, n[0])
   else:
-    conf.localReport(n.info, reportAst(rsemInvalidModulePath, n))
+    conf.localReport(n.info, reportAst(rsemInvalidModuleName, n))
     result = ""
 
 proc checkModuleName*(conf: ConfigRef; n: PNode; doLocalError=true): FileIndex =
