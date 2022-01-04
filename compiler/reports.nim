@@ -1025,6 +1025,8 @@ const
 func severity*(parser: ParserReport): ReportSeverity =
   case parser.kind:
     of rparHintKinds: rsevHint
+    of rparWarningKinds: rsevWarning
+    of rparErrorKinds: rsevError
     else: rsevTrace
 
 const

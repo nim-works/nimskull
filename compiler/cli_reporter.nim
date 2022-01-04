@@ -1,4 +1,4 @@
-import reports, ast, types, renderer, astmsgs, astalgo, msgs
+import reports, ast, types, renderer, astmsgs, astalgo, msgs, astmsgs
 import options as compiler_options
 import std/[strutils, terminal, options, algorithm, sequtils]
 
@@ -335,6 +335,18 @@ proc describeArgs(conf: ConfigRef, n: PNode, startIdx = 1; prefer = preferName):
     if i != n.len - 1:
       result.add ", "
 
+proc presentSpellingCandidates*(
+  conf: ConfigRef, candidates: seq[SemSpellCandidate]): string =
+
+  result = "candidates (edit distance, scope distance); see '--spellSuggest':"
+  for candidate in candidates:
+    result.add "\n ($1, $2): '$3'" % [
+      $candidate.dist,
+      $candidate.depth,
+      $candidate.sym.name.s
+    ]
+
+    result.addDeclaredLoc(conf, candidate.sym)
 
 proc toStr(conf: ConfigRef, r: SemReport): string =
   proc render(n: PNode): string = renderTree(n, {renderNoComments})
@@ -1474,7 +1486,9 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "invalid usage of counter after increment"
 
     of rsemUndeclaredIdentifier:
-      result = "undeclared identifier: '" & r.str & "'"
+      result = "undeclared identifier: '" & r.str & "'\n"
+      result.add presentSpellingCandidates(
+        conf, r.spellingCandidates)
 
     of rsemXDeclaredButNotUsed:
       result = "'$1' is declared but not used " & r.symstr
@@ -1611,9 +1625,7 @@ proc toStr(conf: ConfigRef, r: ParserReport): string =
 
 
 proc report(conf: ConfigRef, r: ParserReport): string =
-  result = conf.prefix(r) & conf.toStr(r)
-
-
+  result = conf.prefix(r) & conf.toStr(r) & conf.suffix(r)
 
 proc report(conf: ConfigRef, r: InternalReport): string =
   case r.kind:
@@ -1640,65 +1652,65 @@ proc report(conf: ConfigRef, r: LexerReport): string    =
       result.add "invalid token: trailing underscore"
 
     of rlexMalformedUnderscores:
-      result = "only single underscores may occur in a token and token may not " &
+      result.add "only single underscores may occur in a token and token may not " &
         "end with an underscore: e.g. '1__1' and '1_' are invalid"
 
     of rlexInvalidToken:
-      result = r.msg
+      result.add r.msg
 
     of rlexNoTabs:
-      result = "tabs are not allowed, use spaces instead"
+      result.add "tabs are not allowed, use spaces instead"
 
     of rlexInvalidIntegerPrefix:
-      result = r.msg
+      result.add r.msg
 
     of rlexInvalidIntegerSuffix:
-      result = r.msg
+      result.add r.msg
 
     of rlexNumberNotInRange:
-      result = r.msg
+      result.add r.msg
 
     of rlexExpectedHex:
-      result = r.msg
+      result.add r.msg
 
     of rlexInvalidIntegerLiteral:
-      result = r.msg
+      result.add r.msg
 
     of rlexInvalidCharLiteral:
-      result = r.msg
+      result.add r.msg
 
     of rlexMissingClosingApostrophe:
-      result = "missing closing ' for character literal"
+      result.add "missing closing ' for character literal"
 
     of rlexInvalidUnicodeCodepoint:
-      result = r.msg
+      result.add r.msg
 
     of rlexUnclosedTripleString:
-      result = "closing \"\"\" expected, but end of file reached"
+      result.add "closing \"\"\" expected, but end of file reached"
 
     of rlexUnclosedSingleString:
-      result = "closing \" expected"
+      result.add "closing \" expected"
 
     of rlexExpectedToken:
       assert false
 
     of rlexCfgInvalidDirective:
-      result = "?"
+      result.add "?"
 
     of rlexUnclosedComment:
-      result = "end of multiline comment expected"
+      result.add "end of multiline comment expected"
 
     of rlexDeprecatedOctalPrefix:
-      result = r.msg
+      result.add r.msg
 
     of rlexLinterReport:
-      result = "?"
+      result.add "?"
 
     of rlexLineTooLong:
-      result = "line too long"
+      result.add "line too long"
 
     of rlexSyntaxesCode:
-      result = "?"
+      result.add "?"
 
 
 

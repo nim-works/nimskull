@@ -473,8 +473,16 @@ when false:
 
 import std/editdistance, heapqueue
 
+template toOrderTup(a: SemSpellCandidate): auto =
+  # `dist` is first, to favor nearby matches
+  # `depth` is next, to favor nearby enclosing scopes among ties
+  # `sym.name.s` is last, to make the list ordered and deterministic among ties
+  (a.dist, a.depth, a.sym.name.s)
+
 func `<`(a, b: SemSpellCandidate): bool =
-  a.dist < b.dist and a.depth < b.depth and a.sym.name.s < b.sym.name.s
+  # QUESTION this is /not/ the same as `a.dist < b.dist and ...`. So how in
+  # the world this code even works?
+  toOrderTup(a) < toOrderTup(b)
 
 proc mustFixSpelling(c: PContext): bool {.inline.} =
   result = c.config.spellSuggestMax != 0 and c.compilesContextId == 0
@@ -519,6 +527,7 @@ proc fixSpelling*(c: PContext, ident: PIdent): seq[SemSpellCandidate] =
 
     result.add e
     inc count
+
 
 proc errorUseQualifier(
     c: PContext; info: TLineInfo; s: PSym; amb: var bool): PSym =
@@ -719,8 +728,9 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
       # search in scopes can return an skError
       if not result.isNil and result.kind == skError and not amb:
-        result.ast = c.config.newError(
-          n, reportStr(rsemUndeclaredIdentifier, ident.s))
+        result.ast = c.config.newError(n):
+          reportStr(rsemUndeclaredIdentifier, ident.s).withIt do:
+            it.spellingCandidates = c.fixSpelling(ident)
 
     else:
       let candidates = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
