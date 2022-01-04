@@ -51,9 +51,16 @@ proc commandGenDepend(graph: ModuleGraph) =
   let project = graph.config.projectFull
   writeDepsFile(graph)
   generateDot(graph, project)
-  execExternalProgram(graph.config, "dot -Tpng -o" &
-      changeFileExt(project, "png").string &
-      ' ' & changeFileExt(project, "dot").string)
+  execExternalProgram(
+    graph.config,
+    (
+      "dot -Tpng -o" &
+        changeFileExt(project, "png").string &
+        ' ' &
+        changeFileExt(project, "dot").string
+    ),
+    rcmdExecuting
+  )
 
 proc commandCheck(graph: ModuleGraph) =
   let conf = graph.config

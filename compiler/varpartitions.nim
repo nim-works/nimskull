@@ -909,7 +909,9 @@ proc checkBorrowedLocations*(par: var Partitions; body: PNode; config: ConfigRef
             if par.s[sid].con.kind == isRootOf and
                dangerousMutation(par.graphs[par.s[sid].con.graphIndex], par.s[i]):
               cannotBorrow(config, v, par.graphs[par.s[sid].con.graphIndex])
-            if par.s[sid].sym.kind != skParam and par.s[sid].aliveEnd < par.s[rid].aliveEnd:
+
+            if par.s[sid].sym.kind != skParam and
+               par.s[sid].aliveEnd < par.s[rid].aliveEnd:
               localReport(config, v.info, reportSymbols(
                 rsemBorrowOutlivesSource, @[v, par.s[sid].sym]))
 

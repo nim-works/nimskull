@@ -846,7 +846,8 @@ type
     # errors end
 
     # hints
-    rcmdCC
+    rcmdCompiling = "CC"
+    rcmdLinking = "Link"
     rcmdExecuting
     rcmdRunnableExamplesSuccess
     # hints end
@@ -1032,6 +1033,8 @@ func severity*(parser: ParserReport): ReportSeverity =
 const
   rsemReportTwoSym* = {
     rsemConflictingExportnims,
+    rsemBorrowOutlivesSource,
+    rsemImmutableBorrowMutation,
   }
 
   rsemReportOneSym* = {
@@ -1043,8 +1046,6 @@ const
 
     rsemIllegalCallconvCapture,
     rsemIllegalMemoryCapture,
-    rsemBorrowOutlivesSource,
-    rsemImmutableBorrowMutation,
     rsemOverrideSafetyMismatch,
     rsemOverrideLockMismatch
   }
@@ -1366,19 +1367,20 @@ type
       of rcmdFailedExecution:
         exitOut*, exitErr*: string
 
-      of rcmdCC:
-        packageName*: string
-
       else:
         discard
 
 const
   rcmdErrorKinds* = {rcmdFailedExecution}
   rcmdWarningKinds* = default(set[ReportKind])
-  rcmdHintKinds* = {rcmdCC .. rcmdRunnableExamplesSuccess}
+  rcmdHintKinds* = {rcmdCompiling .. rcmdRunnableExamplesSuccess}
 
 func severity*(report: CmdReport): ReportSeverity =
-  rsevTrace
+  case report.kind:
+    of rcmdHintKinds: rsevHint
+    of rcmdWarningKinds: rsevWarning
+    of rcmdErrorKinds: rsevError
+    else: rsevTrace
 
 type
   DebugReportKind* = range[rdbgTest .. rdbgOptionsPop]
@@ -1469,6 +1471,7 @@ type
   UsedBuildParams* = object
     project*: string
     output*: string
+    linesCompiled*: int
     mem*: int
     isMaxMem*: bool
     sec*: float
@@ -1669,6 +1672,9 @@ func severity*(
 func toReportLinePoint*(iinfo: InstantiationInfo): ReportLinePoint =
   ReportLinePoint(file: iinfo[0], line: iinfo[1], col: iinfo[2])
 
+func isValid*(point: ReportLinePoint): bool =
+  0 < point.file.len and point.file != "???"
+
 template reportHere*[R: ReportTypes](report: R): R =
   block:
     var tmp = report
@@ -1676,6 +1682,7 @@ template reportHere*[R: ReportTypes](report: R): R =
       instantiationInfo(fullPaths = true))
 
     tmp
+
 
 func wrap*(rep: sink LexerReport): Report =
   assert rep.kind in {low(LexerReportKind) .. high(LexerReportKind)}

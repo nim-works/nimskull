@@ -401,18 +401,19 @@ proc resetCompilationLists*(conf: ConfigRef) =
 proc addExternalFileToLink*(conf: ConfigRef; filename: AbsoluteFile) =
   conf.externalToLink.insert(filename.string, 0)
 
-proc execWithEcho(conf: ConfigRef; cmd: string): int =
-  conf.localReport(CmdReport(kind: rcmdExecuting, cmd: cmd))
+proc execWithEcho(conf: ConfigRef; cmd: string, execKind: ReportKind): int =
+  conf.localReport(CmdReport(kind: execKind, cmd: cmd))
   result = execCmd(cmd)
 
-proc execExternalProgram*(conf: ConfigRef; cmd: string) =
-  if execWithEcho(conf, cmd) != 0:
+proc execExternalProgram*(conf: ConfigRef; cmd: string, kind: ReportKind) =
+  if execWithEcho(conf, cmd, kind) != 0:
     conf.localReport CmdReport(kind: rcmdFailedExecution, cmd: cmd)
 
 proc generateScript(conf: ConfigRef; script: Rope) =
   let (_, name, _) = splitFile(conf.outFile.string)
-  let filename = getNimcacheDir(conf) / RelativeFile(addFileExt("compile_" & name,
-                                     platform.OS[conf.target.targetOS].scriptExt))
+  let filename = getNimcacheDir(conf) / RelativeFile(
+    addFileExt("compile_" & name, platform.OS[conf.target.targetOS].scriptExt))
+
   if not writeRope(script, filename):
     conf.globalReport BackendReport(
       kind: rbackCannotWriteScript,
@@ -792,7 +793,7 @@ proc getExtraCmds(conf: ConfigRef; output: AbsoluteFile): seq[string] =
 
 proc execLinkCmd(conf: ConfigRef; linkCmd: string) =
   tryExceptOSErrorMessage(conf, "invocation of external linker program failed."):
-    execExternalProgram(conf, linkCmd)
+    execExternalProgram(conf, linkCmd, rcmdLinking)
 
 proc execCmdsInParallel(conf: ConfigRef; cmds: seq[string]; prettyCb: proc (idx: int)) =
   let runCb = proc (idx: int, p: Process) =
@@ -808,7 +809,7 @@ proc execCmdsInParallel(conf: ConfigRef; cmds: seq[string]; prettyCb: proc (idx:
   if conf.numberOfProcessors <= 1:
     for i in 0..high(cmds):
       tryExceptOSErrorMessage(conf, "invocation of external compiler program failed."):
-        res = execWithEcho(conf, cmds[i])
+        res = execWithEcho(conf, cmds[i], rcmdExecuting)
 
       if res != 0:
         conf.localReport CmdReport(
@@ -860,10 +861,11 @@ proc hcrLinkTargetName(conf: ConfigRef, objFile: string, isMain = false): Absolu
   result = conf.getNimcacheDir / RelativeFile(targetName)
 
 proc displayProgressCC(conf: ConfigRef, path, compileCmd: string): string =
-  if conf.hasHint(rcmdCC):
+  if conf.hasHint(rcmdCompiling):
     conf.localReport CmdReport(
-      kind: rcmdCC, cmd: compileCmd,
-      packageName: demanglePackageName(path.splitFile.name))
+      kind: rcmdCompiling,
+      cmd: compileCmd,
+      msg: demanglePackageName(path.splitFile.name))
 
 proc callCCompiler*(conf: ConfigRef) =
   var
@@ -950,7 +952,7 @@ proc callCCompiler*(conf: ConfigRef) =
         else:
           execLinkCmd(conf, linkCmd)
         for cmd in extraCmds:
-          execExternalProgram(conf, cmd)
+          execExternalProgram(conf, cmd, rcmdExecuting)
   else:
     linkCmd = ""
   if optGenScript in conf.globalOptions:
@@ -1054,7 +1056,7 @@ proc runJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
   execLinkCmd(conf, bcache.linkcmd)
 
   for cmd in bcache.extraCmds:
-    execExternalProgram(conf, cmd)
+    execExternalProgram(conf, cmd, rcmdExecuting)
 
 proc genMappingFiles(conf: ConfigRef; list: CfileList): Rope =
   for it in list:

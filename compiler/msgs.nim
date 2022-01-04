@@ -695,9 +695,7 @@ proc uniqueModuleName*(conf: ConfigRef; fid: FileIndex): string =
 
 proc genSuccessX*(conf: ConfigRef) =
   ## Generate and write report for the successful compilation parameters
-  let loc = $conf.linesCompiled
-
-  var params: UsedBuildParams
+  var params = UsedBuildParams(linesCompiled: conf.linesCompiled)
   if conf.cmd in cmdBackends:
     params = UsedBuildParams(
       isCompilation: true,

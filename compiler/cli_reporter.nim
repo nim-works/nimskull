@@ -1,6 +1,6 @@
 import reports, ast, types, renderer, astmsgs, astalgo, msgs, astmsgs
 import options as compiler_options
-import std/[strutils, terminal, options, algorithm, sequtils]
+import std/[strutils, terminal, options, algorithm, sequtils, strformat]
 
 func add(target: var string, other: varargs[string, `$`]) =
   for item in other:
@@ -365,6 +365,40 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
       result.add "\nexpression: "
       result.add r.ast.render
+
+    of rsemCannotBorrow:
+      result.add(
+        "cannot borrow ",
+        r.symstr,
+        "; what it borrows from is potentially mutated"
+      )
+
+      if r.borrowPair.mutatedHere.isValid():
+        result.add("\n", $r.borrowPair.mutatedHere, " the mutation is here")
+
+      if r.borrowPair.connectedVia.isValid():
+        result.add(
+          "\n",
+          $r.borrowPair.connectedVia,
+          " is the statement that connected the mutation to the parameter")
+
+    of rsemBorrowOutlivesSource:
+      result.add(
+        "'",
+        r.symbols[0].name.s,
+        "' borrows from location '",
+        r.symbols[1].name.s,
+        "' which does not live long enough"
+      )
+
+    of rsemImmutableBorrowMutation:
+      result.add(
+        "'",
+        r.symbols[0].name.s,
+        "' borrows from the immutable location '",
+        r.symbols[1].name.s,
+        "' and attempts to mutate it"
+      )
 
     of rsemPragmaRecursiveDependency:
       result.add "recursive dependency: "
@@ -1516,13 +1550,16 @@ proc prefix(conf: ConfigRef, r: ReportTypes): string =
   # `Hint: `, `Error: ` etc.
   result.add conf.wrap(reportTitles[sev], reportColors[sev])
 
-proc suffix(conf: ConfigRef, r: ReportTypes): string =
+proc suffix(conf: ConfigRef, r: ReportTypes, withKind: bool = false): string =
+  if withKind:
+    result.add conf.wrap(" [" & $r.kind & "]", fgCyan)
+
   if conf.hasHint(rintMsgOrigin):
     result.add(
       "\n",
-      conf.tostr(r.reportInst),
+      conf.toStr(r.reportInst),
       " compiler msg instantiated here ",
-      wrap("[MsgOrigin]", fgCyan)
+      conf.wrap("[MsgOrigin]", fgCyan)
     )
 
 
@@ -1540,15 +1577,7 @@ proc report(conf: ConfigRef, r: SemReport): string =
     conf.prefix(r),
     # Message body
     toStr(conf, r),
-
-    # Trailing report message - `[GcMem]`
-    if sev in {rsevHint, rsevWarning}:
-      wrap(" [" & $r.kind & "]", fgCyan)
-
-    else:
-      "",
-
-    conf.suffix(r)
+    conf.suffix(r, withKind = r.severity in {rsevWarning, rsevHint})
   )
 
 proc toStr(conf: ConfigRef, r: ParserReport): string =
@@ -1632,6 +1661,31 @@ proc report(conf: ConfigRef, r: InternalReport): string =
     of rintStackTrace:
       for entry in r.trace:
         result.add(entry.filename, "(", entry.line, ") ", entry.procname, "\n")
+
+    of rintSuccessX:
+      var build = ""
+      let par = r.buildParams
+      if conf.cmd in cmdBackends:
+        build.add "gc: $#; " % par.gc
+
+        if par.threads:
+          build.add "threads: on; "
+
+        build.add par.optimize
+        build.add "; "
+        build.add par.buildMode
+
+      let mem =
+        if par.isMaxMem:
+          formatSize(par.mem) & " peakmem"
+
+        else:
+          formatSize(par.mem) & " totmem"
+
+      result = &"""
+"{build}
+${par.linesCompiled} lines; {par.sec}s; {mem}; proj: {par.project}; out: {par.output}"
+"""
 
     of rintUsingLeanCompiler:
       result = r.msg
@@ -1719,8 +1773,19 @@ proc report(conf: ConfigRef, r: LexerReport): string    =
 
 proc report(conf: ConfigRef, r: ExternalReport): string = $r
 proc report(conf: ConfigRef, r: DebugReport): string    = $r
-proc report(conf: ConfigRef, r: BackendReport): string  = $r
-proc report(conf: ConfigRef, r: CmdReport): string      = $r
+proc report(conf: ConfigRef, r: BackendReport): string  =
+  result = $r
+
+proc report(conf: ConfigRef, r: CmdReport): string =
+  case r.kind:
+    of rcmdCompiling:
+      result = "CC: " & r.msg
+
+    of rcmdLinking:
+      result = conf.prefix(r) & conf.suffix(r, true)
+
+    else:
+      result = $r
 
 proc toStr*(conf: ConfigRef, r: Report): string =
   case r.category:
