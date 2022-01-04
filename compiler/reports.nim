@@ -156,6 +156,9 @@ type
     rextUnexpectedRunOpt
     rextInvalidPath ## Invalid path for a command-line argument
 
+    rextNimbleInvalidManifest
+    rextNimbleInvalidSrcDir
+
     rextInvalidPackageName ## When adding packages from the `--nimbleDir`
     ## (or it's default value), names are validated. This error is
     ## generated if package name is not correct.
@@ -282,6 +285,9 @@ type
 
     rsemCannotProveNotNil
     rsemProvablyNil
+
+    # nimsuggest
+    rsemSugNoSymbolAtPosition
 
     # Global Errors
     rsemCustomGlobalError
@@ -1614,8 +1620,9 @@ template eachCategory*(report: Report, field: untyped): untyped =
     of repBackend:  report.backendReport.field
     of repExternal: report.externalReport.field
 
-func kind*(report: Report): ReportKind =
-  eachCategory(report, kind)
+func kind*(report: Report): ReportKind = eachCategory(report, kind)
+func location*(report: Report): Option[ReportLineInfo] = eachCategory(report, location)
+func reportInst*(report: Report): ReportLinePoint = eachCategory(report, reportInst)
 
 func severity*(
     report: ReportTypes,

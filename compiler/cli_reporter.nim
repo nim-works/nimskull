@@ -10,6 +10,10 @@ func wrap(str: string, color: ForegroundColor): string =
   result.add str
   result.add "\e[0m"
 
+func add(target: var string, other: varargs[string, `$`]) =
+  for item in other:
+    target.add item
+
 const
   reportTitles: array[ReportSeverity, string] = [
     "Debug: ", "Hint: ", "Warning: ", "Error: ", "Fatal: ", "Trace: "
@@ -22,17 +26,17 @@ const
 proc csvList(syms: seq[PSym]): string =
   syms.mapIt(it.name.s).join(", ")
 
-proc writeContext*(conf: ConfigRef, ctx: seq[ReportContext]) =
+proc writeContext*(conf: ConfigRef, ctx: seq[ReportContext]): string =
   for ctx in items(ctx):
     case ctx.kind:
       of sckInstantiationOf:
-        conf.writeln(
+        result.add(
           "template/generic instantiation of `",
           ctx.entry.name.s,
-          "` from here")
+          "` from here\n")
 
       of sckInstantiationFrom:
-        conf.writeln("template/generic instantiation from here")
+        result.add("template/generic instantiation from here\n")
 
 proc renderNotLValue(n: PNode): string =
   result = $n
@@ -1475,17 +1479,16 @@ proc prefix(conf: ConfigRef, r: ReportTypes): string =
 
 
 
-proc report(conf: ConfigRef, r: SemReport)      =
+proc report(conf: ConfigRef, r: SemReport): string =
   let sev = conf.severity(r)
 
   if r.kind == rsemProcessing and conf.hintProcessingDots:
-    conf.write "."
-    return
+    return "."
 
   if sev == rsevError:
-    conf.writeContext(r.context)
+    result.add conf.writeContext(r.context)
 
-  conf.writeln(
+  result.add(
     # `file(line, col) Error: ` prefix
     conf.prefix(r),
     # Message body
@@ -1510,7 +1513,6 @@ proc toStr(conf: ConfigRef, r: ParserReport): string =
     of rparIdentExpected:
       result = "identifier expected, but got '$1'"
 
-
     of rparIdentOrKwdExpected:
       result = "identifier expected, but got '$1'"
 
@@ -1520,10 +1522,8 @@ proc toStr(conf: ConfigRef, r: ParserReport): string =
     of rparMissingToken:
       result = "expected " & r.expected[0]
 
-
     of rparUnexpectedToken:
       result = "expected: '" & $r.expected[0] & "', but got: '" & r.found & "'"
-
 
     of rparUnexpectedTokenKind:
       result = r.msg
@@ -1531,18 +1531,14 @@ proc toStr(conf: ConfigRef, r: ParserReport): string =
     of rparFuncNotAllowed:
       result = "func keyword is not allowed in type descriptions, use proc with {.noSideEffect.} pragma instead"
 
-
     of rparTupleTypeWithPar:
       result = "the syntax for tuple types is 'tuple[...]', not 'tuple(...)'"
-
 
     of rparMisplacedParameterVar:
       result = "the syntax is 'parameter: var T', not 'var parameter: T'"
 
-
     of rparConceptNotinType:
       result = "the 'concept' keyword is only valid in 'type' sections"
-
 
     of rparRotineExpected:
       result = r.msg
@@ -1579,39 +1575,48 @@ proc toStr(conf: ConfigRef, r: ParserReport): string =
 
 
 
-proc report(conf: ConfigRef, r: ParserReport)   =
-  conf.writeln(conf.prefix(r), conf.toStr(r))
+proc report(conf: ConfigRef, r: ParserReport): string =
+  result = conf.prefix(r) & conf.toStr(r)
 
 
-proc report(conf: ConfigRef, r: LexerReport)    = echo r
-proc report(conf: ConfigRef, r: InternalReport) =
+
+proc report(conf: ConfigRef, r: InternalReport): string =
   case r.kind:
     of rintStackTrace:
-      conf.writeln $r.trace
+      result = $r.trace
 
     of rintMissingStackTrace:
-      conf.writeln """
+      result = """
 No stack traceback available
 To create a stacktrace, rerun compilation with './koch temp $1 <file>'
       """
 
     else:
-      conf.writeln $r
+      result = $r
 
-proc report(conf: ConfigRef, r: ExternalReport) = echo r
-proc report(conf: ConfigRef, r: DebugReport)    = echo r
-proc report(conf: ConfigRef, r: BackendReport)  = echo r
-proc report(conf: ConfigRef, r: CmdReport)      = echo r
+proc report(conf: ConfigRef, r: LexerReport): string    = $r
+proc report(conf: ConfigRef, r: ExternalReport): string = $r
+proc report(conf: ConfigRef, r: DebugReport): string    = $r
+proc report(conf: ConfigRef, r: BackendReport): string  = $r
+proc report(conf: ConfigRef, r: CmdReport): string      = $r
 
-proc reportHook*(conf: ConfigRef, r: Report) =
+proc toStr*(conf: ConfigRef, r: Report): string =
   if not conf.isEnabled(r): return
 
   case r.category:
-    of repLexer:    conf.report(r.lexReport)
-    of repParser:   conf.report(r.parserReport)
-    of repCmd:      conf.report(r.cmdReport)
-    of repSem:      conf.report(r.semReport)
-    of repDebug:    conf.report(r.debugReport)
-    of repInternal: conf.report(r.internalReport)
-    of repBackend:  conf.report(r.backendReport)
-    of repExternal: conf.report(r.externalReport)
+    of repLexer:    result = conf.report(r.lexReport)
+    of repParser:   result = conf.report(r.parserReport)
+    of repCmd:      result = conf.report(r.cmdReport)
+    of repSem:      result = conf.report(r.semReport)
+    of repDebug:    result = conf.report(r.debugReport)
+    of repInternal: result = conf.report(r.internalReport)
+    of repBackend:  result = conf.report(r.backendReport)
+    of repExternal: result = conf.report(r.externalReport)
+
+
+proc reportHook*(conf: ConfigRef, r: Report) =
+  if r.kind == rsemProcessing and conf.hintProcessingDots:
+    conf.write(".")
+
+  else:
+    conf.writeln(conf.toStr(r))

@@ -384,12 +384,14 @@ type
     suggestVersion*: int
     suggestMaxResults*: int
     lastLineInfo*: TLineInfo
-    writeHook*: proc(
+    writelnHook*: proc(
       conf: ConfigRef,
       output: string,
       flags: MsgFlags
     ) {.closure.} ## All
     ## textual output from the compiler goes through this callback.
+    writeHook*: proc(conf: ConfigRef, output: string, flags: MsgFlags) {.closure.}
+
     structuredReportHook*: proc (conf: ConfigRef, report: Report) {.closure.}
     cppCustomNamespace*: string
     vmProfileData*: ProfileData
@@ -403,7 +405,7 @@ type
     ## case of the compilation failure. Populated in the `sigcall.matches`
 
 proc writelnHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
-  conf.writeHook(conf, msg & "\n", flags)
+  conf.writeLnHook(conf, msg, flags)
 
 proc writeHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
   conf.writeHook(conf, msg, flags)

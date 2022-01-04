@@ -154,11 +154,7 @@ proc concat(strings: openArray[string]): string =
 
 proc suggestWriteln*(conf: ConfigRef; s: string) =
   if eStdOut in conf.m.errorOutputs:
-    if isNil(conf.writeHook):
-      writeLine(stdout, s)
-      flushFile(stdout)
-    else:
-      conf.writelnHook(s)
+    writelnHook(conf, s)
 
 proc msgQuit*(x: int8) = quit x
 proc msgQuit*(x: string) = quit x
