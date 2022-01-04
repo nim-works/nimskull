@@ -1518,7 +1518,7 @@ proc toStr(conf: ConfigRef, r: ParserReport): string =
       result = "expression expected, but found '$1'"
 
     of rparMissingToken:
-      result = "expected " & r.expected
+      result = "expected " & r.expected[0]
 
 
     of rparUnexpectedToken:
@@ -1547,10 +1547,8 @@ proc toStr(conf: ConfigRef, r: ParserReport): string =
     of rparRotineExpected:
       result = r.msg
 
-
     of rparPragmaAlreadyPresent:
       result = "pragma already present"
-
 
     of rparMisplacedExport:
       result = "invalid indentation; an export marker '*' follows the declared identifier"
@@ -1574,6 +1572,9 @@ proc toStr(conf: ConfigRef, r: ParserReport): string =
       result = "?"
 
     of rparName:
+      result = "?"
+
+    of rparInvalidFilter:
       result = "?"
 
 
