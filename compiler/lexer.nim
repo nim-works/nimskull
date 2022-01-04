@@ -267,13 +267,12 @@ template eatChar(L: var Lexer, t: var Token) =
   t.literal.add(L.buf[L.bufpos])
   inc(L.bufpos)
 
-template localError*(L: Lexer, report: ReportTypes): untyped =
-  L.config.handleError(
+template localReport*(L: Lexer, report: ReportTypes): untyped =
+  L.config.handleReport(
     wrap(
       report,
       instLoc(),
-      L.config.toReportLinePoint(getLineInfo(L))),
-    doNothing)
+      L.config.toReportLinePoint(getLineInfo(L))))
 
 proc getNumber(L: var Lexer, result: var Token) =
   proc matchUnderscoreChars(L: var Lexer, tok: var Token, chars: set[char]): Natural =
@@ -288,7 +287,7 @@ proc getNumber(L: var Lexer, result: var Token) =
         break
       if L.buf[pos] == '_':
         if L.buf[pos+1] notin chars:
-          L.localError(LexerReport(kind: rlexMalformedUnderscores))
+          L.localReport(LexerReport(kind: rlexMalformedUnderscores))
           break
         tok.literal.add('_')
         inc(pos)
@@ -320,7 +319,7 @@ proc getNumber(L: var Lexer, result: var Token) =
       inc(L.bufpos)
       matchChars(L, t, {'0'..'9'})
     L.bufpos = msgPos
-    L.localError(LexerReport(
+    L.localReport(LexerReport(
       kind: rlexMalformedUnderscores, msg: msg % t.literal))
 
   var
@@ -570,7 +569,7 @@ proc getNumber(L: var Lexer, result: var Token) =
 
 proc handleHexChar(L: var Lexer, xi: var int; position: range[0..4]) =
   template invalid() =
-    L.localError(LexerReport(
+    L.localReport(LexerReport(
       kind: rlexExpectedHex,
       msg: "expected a hex digit, but found: " & L.buf[L.bufpos] &
         "; maybe prepend with 0"))
@@ -645,7 +644,7 @@ proc getEscapedChar(L: var Lexer, tok: var Token) =
     inc(L.bufpos)
   of 'p', 'P':
     if tok.tokType == tkCharLit:
-      L.localError(LexerReport(
+      L.localReport(LexerReport(
         kind: rlexInvalidCharLiteral,
         msg: "\\p not allowed in character literal"))
 
@@ -689,7 +688,7 @@ proc getEscapedChar(L: var Lexer, tok: var Token) =
     tok.literal.add(chr(xi))
   of 'u', 'U':
     if tok.tokType == tkCharLit:
-      L.localError(LexerReport(
+      L.localReport(LexerReport(
         kind: rlexInvalidCharLiteral,
         msg: "\\u not allowed in character literal"))
     inc(L.bufpos)
@@ -700,13 +699,13 @@ proc getEscapedChar(L: var Lexer, tok: var Token) =
       while L.buf[L.bufpos] != '}':
         handleHexChar(L, xi, 0)
       if start == L.bufpos:
-        L.localError(LexerReport(
+        L.localReport(LexerReport(
           kind: rlexInvalidUnicodeCodepoint,
           msg: "Unicode codepoint cannot be empty"))
       inc(L.bufpos)
       if xi > 0x10FFFF:
         let hex = ($L.buf)[start..L.bufpos-2]
-        L.localError(LexerReport(
+        L.localReport(LexerReport(
           kind: rlexInvalidUnicodeCodepoint,
           msg: "Unicode codepoint must be lower than 0x10FFFF, but was: " & hex))
     else:
@@ -717,15 +716,15 @@ proc getEscapedChar(L: var Lexer, tok: var Token) =
     addUnicodeCodePoint(tok.literal, xi)
   of '0'..'9':
     if matchTwoChars(L, '0', {'0'..'9'}):
-      L.localError(LexerReport(kind: rlexDeprecatedOctalPrefix))
+      L.localReport(LexerReport(kind: rlexDeprecatedOctalPrefix))
     var xi = 0
     handleDecChars(L, xi)
     if (xi <= 255):
       tok.literal.add(chr(xi))
     else:
-      L.localError(LexerReport(kind: rlexInvalidCharLiteral))
+      L.localReport(LexerReport(kind: rlexInvalidCharLiteral))
   else:
-    L.localError(LexerReport(kind: rlexInvalidCharLiteral))
+    L.localReport(LexerReport(kind: rlexInvalidCharLiteral))
 
 proc handleCRLF(L: var Lexer, pos: int): int =
   template registerLine =
@@ -733,7 +732,7 @@ proc handleCRLF(L: var Lexer, pos: int): int =
 
     when not defined(nimpretty):
       if col > MaxLineLength:
-        L.localError(LexerReport(kind: rlexLineTooLong))
+        L.localReport(LexerReport(kind: rlexLineTooLong))
 
   case L.buf[pos]
   of CR:
@@ -782,7 +781,7 @@ proc getString(L: var Lexer, tok: var Token, mode: StringMode) =
         tokenEndIgnore(tok, pos)
         var line2 = L.lineNumber
         L.lineNumber = line
-        L.localError LexerReport(kind: rlexUnclosedTripleString)
+        L.localReport LexerReport(kind: rlexUnclosedTripleString)
         L.lineNumber = line2
         L.bufpos = pos
         break
@@ -805,7 +804,7 @@ proc getString(L: var Lexer, tok: var Token, mode: StringMode) =
           break
       elif c in {CR, LF, nimlexbase.EndOfFile}:
         tokenEndIgnore(tok, pos)
-        L.localError LexerReport(kind: rlexUnclosedSingleString)
+        L.localReport LexerReport(kind: rlexUnclosedSingleString)
         break
       elif (c == '\\') and mode == normal:
         L.bufpos = pos
@@ -823,7 +822,7 @@ proc getCharacter(L: var Lexer; tok: var Token) =
   var c = L.buf[L.bufpos]
   case c
   of '\0'..pred(' '), '\'':
-    L.localError LexerReport(kind: rlexInvalidCharLiteral)
+    L.localReport LexerReport(kind: rlexInvalidCharLiteral)
     tok.literal = $c
   of '\\': getEscapedChar(L, tok)
   else:
@@ -837,7 +836,7 @@ proc getCharacter(L: var Lexer; tok: var Token) =
       tok.literal = "'"
       L.bufpos = startPos+1
     else:
-      L.localError LexerReport(kind: rlexMissingClosingApostrophe)
+      L.localReport LexerReport(kind: rlexMissingClosingApostrophe)
     tokenEndIgnore(tok, L.bufpos)
 
 const
@@ -901,7 +900,7 @@ proc getSymbol(L: var Lexer, tok: var Token) =
       suspicious = true
     of '_':
       if L.buf[pos+1] notin SymChars:
-        L.localError LexerReport(kind: rlexMalformedTrailingUnderscre)
+        L.localReport LexerReport(kind: rlexMalformedTrailingUnderscre)
         break
       inc(pos)
       suspicious = true
@@ -923,7 +922,7 @@ proc getSymbol(L: var Lexer, tok: var Token) =
   else:
     tok.tokType = TokType(tok.ident.id + ord(tkSymbol))
     if suspicious and {optStyleHint, optStyleError} * L.config.globalOptions != {}:
-      L.localError LexerReport(
+      L.localReport LexerReport(
         kind: rlexLinterReport,
         wanted: tok.ident.s.normalize,
         got: tok.ident.s)
@@ -1082,7 +1081,7 @@ proc skipMultiLineComment(L: var Lexer; tok: var Token; start: int;
           dec c
     of nimlexbase.EndOfFile:
       tokenEndIgnore(tok, pos)
-      L.localError LexerReport(kind: rlexUnclosedComment)
+      L.localReport LexerReport(kind: rlexUnclosedComment)
       break
     else:
       if isDoc or defined(nimpretty): tok.literal.add L.buf[pos]
@@ -1165,7 +1164,7 @@ proc skip(L: var Lexer, tok: var Token) =
       inc(tok.strongSpaceA)
     of '\t':
       if not L.allowTabs:
-        L.localError LexerReport(kind: rlexNoTabs)
+        L.localReport LexerReport(kind: rlexNoTabs)
 
       inc(pos)
     of CR, LF:
@@ -1346,7 +1345,7 @@ proc rawGetTok*(L: var Lexer, tok: var Token) =
       else:
         tok.literal = $c
         tok.tokType = tkInvalid
-        L.localError LexerReport(
+        L.localReport LexerReport(
           kind: rlexInvalidToken,
           msg: "invalid token: " & c & " (\\" & $(ord(c)) & ')')
     of '\"':
@@ -1369,7 +1368,7 @@ proc rawGetTok*(L: var Lexer, tok: var Token) =
             unicodeOprLen(L.buf, L.bufpos)[0] != 0:
           discard
         else:
-          L.localError LexerReport(
+          L.localReport LexerReport(
             kind: rlexInvalidToken,
             msg: "invalid token: no whitespace between number and identifier")
     of '-':
@@ -1386,7 +1385,7 @@ proc rawGetTok*(L: var Lexer, tok: var Token) =
               unicodeOprLen(L.buf, L.bufpos)[0] != 0:
             discard
           else:
-            L.localError LexerReport(
+            L.localReport LexerReport(
               kind: rlexInvalidToken,
               msg: "invalid token: no whitespace between number and identifier")
       else:
@@ -1400,7 +1399,7 @@ proc rawGetTok*(L: var Lexer, tok: var Token) =
       else:
         tok.literal = $c
         tok.tokType = tkInvalid
-        L.localError LexerReport(
+        L.localReport LexerReport(
           kind: rlexInvalidToken,
           msg: "invalid token: " & c & " (\\" & $(ord(c)) & ')')
         inc(L.bufpos)

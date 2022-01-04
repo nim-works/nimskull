@@ -139,12 +139,11 @@ proc closeParser(p: var Parser) =
 
 
 template localError(p: Parser, report: ReportTypes): untyped =
-  p.lex.config.handleError(
+  p.lex.config.handleReport(
     wrap(
       report,
       instLoc(),
-      p.lex.config.toReportLinePoint(getLineInfo(p.lex, p.tok))),
-    doNothing)
+      p.lex.config.toReportLinePoint(getLineInfo(p.lex, p.tok))))
 
 template withInd(p, body: untyped) =
   let oldInd = p.currInd

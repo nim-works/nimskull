@@ -1633,7 +1633,78 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
     else:
       result = $r
 
-proc report(conf: ConfigRef, r: LexerReport): string    = $r
+proc report(conf: ConfigRef, r: LexerReport): string    =
+  result.add prefix(conf, r)
+  case LexerReportKind(r.kind):
+    of rlexMalformedTrailingUnderscre:
+      result.add "invalid token: trailing underscore"
+
+    of rlexMalformedUnderscores:
+      result = "only single underscores may occur in a token and token may not " &
+        "end with an underscore: e.g. '1__1' and '1_' are invalid"
+
+    of rlexInvalidToken:
+      result = r.msg
+
+    of rlexNoTabs:
+      result = "tabs are not allowed, use spaces instead"
+
+    of rlexInvalidIntegerPrefix:
+      result = r.msg
+
+    of rlexInvalidIntegerSuffix:
+      result = r.msg
+
+    of rlexNumberNotInRange:
+      result = r.msg
+
+    of rlexExpectedHex:
+      result = r.msg
+
+    of rlexInvalidIntegerLiteral:
+      result = r.msg
+
+    of rlexInvalidCharLiteral:
+      result = r.msg
+
+    of rlexMissingClosingApostrophe:
+      result = "missing closing ' for character literal"
+
+    of rlexInvalidUnicodeCodepoint:
+      result = r.msg
+
+    of rlexUnclosedTripleString:
+      result = "closing \"\"\" expected, but end of file reached"
+
+    of rlexUnclosedSingleString:
+      result = "closing \" expected"
+
+    of rlexExpectedToken:
+      assert false
+
+    of rlexCfgInvalidDirective:
+      result = "?"
+
+    of rlexUnclosedComment:
+      result = "end of multiline comment expected"
+
+    of rlexDeprecatedOctalPrefix:
+      result = r.msg
+
+    of rlexLinterReport:
+      result = "?"
+
+    of rlexLineTooLong:
+      result = "line too long"
+
+    of rlexSyntaxesCode:
+      result = "?"
+
+
+
+  result.add suffix(conf, r)
+
+
 proc report(conf: ConfigRef, r: ExternalReport): string = $r
 proc report(conf: ConfigRef, r: DebugReport): string    = $r
 proc report(conf: ConfigRef, r: BackendReport): string  = $r

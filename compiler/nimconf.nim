@@ -29,7 +29,7 @@ proc parseAtom(L: var Lexer, tok: var Token; config: ConfigRef): bool =
     if tok.tokType == tkParRi:
       ppGetTok(L, tok)
     else:
-      localError(L, LexerReport(kind: rlexExpectedToken, msg: ")"))
+      localReport(L, LexerReport(kind: rlexExpectedToken, msg: ")"))
 
   elif tok.tokType == tkNot:
     ppGetTok(L, tok)
@@ -59,13 +59,13 @@ proc evalppIf(L: var Lexer, tok: var Token; config: ConfigRef): bool =
     ppGetTok(L, tok)
 
   else:
-    localError(L, LexerReport(kind: rlexExpectedToken, msg: ":"))
+    localReport(L, LexerReport(kind: rlexExpectedToken, msg: ":"))
 
 #var condStack: seq[bool] = @[]
 
 proc doEnd(L: var Lexer, tok: var Token; condStack: var seq[bool]) =
   if high(condStack) < 0:
-    localError(L, LexerReport(kind: rlexExpectedToken, msg: "@if"))
+    localReport(L, LexerReport(kind: rlexExpectedToken, msg: "@if"))
 
   ppGetTok(L, tok)            # skip 'end'
   setLen(condStack, high(condStack))
@@ -78,7 +78,7 @@ proc jumpToDirective(L: var Lexer, tok: var Token, dest: TJumpDest; config: Conf
                      condStack: var seq[bool])
 proc doElse(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq[bool]) =
   if high(condStack) < 0:
-    localError(L, LexerReport(kind: rlexExpectedToken, msg: "@if"))
+    localReport(L, LexerReport(kind: rlexExpectedToken, msg: "@if"))
 
   ppGetTok(L, tok)
   if tok.tokType == tkColon:
@@ -89,7 +89,7 @@ proc doElse(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq[
 
 proc doElif(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq[bool]) =
   if high(condStack) < 0:
-    localError(L, LexerReport(kind: rlexExpectedToken, msg: "@if"))
+    localReport(L, LexerReport(kind: rlexExpectedToken, msg: "@if"))
 
   var res = evalppIf(L, tok, config)
   if condStack[high(condStack)] or not res:
@@ -124,7 +124,7 @@ proc jumpToDirective(L: var Lexer, tok: var Token, dest: TJumpDest; config: Conf
         discard
       ppGetTok(L, tok)
     elif tok.tokType == tkEof:
-      localError(L, LexerReport(kind: rlexExpectedToken, msg: "@end"))
+      localReport(L, LexerReport(kind: rlexExpectedToken, msg: "@end"))
     else:
       ppGetTok(L, tok)
 
@@ -141,7 +141,7 @@ proc parseDirective(L: var Lexer, tok: var Token; config: ConfigRef; condStack: 
   of wEnd: doEnd(L, tok, condStack)
   of wWrite:
     ppGetTok(L, tok)
-    L.localError(InternalReport(
+    L.localReport(InternalReport(
       kind: rintNimconfWrite,
       msg: strtabs.`%`($tok, config.configVars, {useEnvironment, useKey})))
 
@@ -167,7 +167,7 @@ proc parseDirective(L: var Lexer, tok: var Token; config: ConfigRef; condStack: 
       os.putEnv(key, os.getEnv(key) & $tok)
       ppGetTok(L, tok)
     else:
-      localError(L, LexerReport(kind: rlexCfgInvalidDirective, msg: $tok))
+      localReport(L, LexerReport(kind: rlexCfgInvalidDirective, msg: $tok))
 
 proc confTok(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq[bool]) =
   ppGetTok(L, tok)
@@ -176,7 +176,7 @@ proc confTok(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq
 
 proc checkSymbol(L: Lexer, tok: Token) =
   if tok.tokType notin {tkSymbol..tkInt64Lit, tkStrLit..tkTripleStrLit}:
-    localError(L, ParserReport(kind: rparIdentExpected, msg: $tok))
+    localReport(L, ParserReport(kind: rparIdentExpected, msg: $tok))
 
 proc parseAssignment(L: var Lexer, tok: var Token;
                      config: ConfigRef; condStack: var seq[bool]) =
@@ -205,7 +205,7 @@ proc parseAssignment(L: var Lexer, tok: var Token;
       confTok(L, tok, config, condStack)
 
     else:
-      localError(L, LexerReport(kind: rlexExpectedToken, msg: "]"))
+      localReport(L, LexerReport(kind: rlexExpectedToken, msg: "]"))
 
     val.add(']')
   let percent = tok.ident != nil and tok.ident.s == "%="
@@ -247,7 +247,7 @@ proc readConfigFile*(filename: AbsoluteFile; cache: IdentCache;
     confTok(L, tok, config, condStack)           # read in the first token
     while tok.tokType != tkEof: parseAssignment(L, tok, config, condStack)
     if condStack.len > 0:
-      localError(L, LexerReport(kind: rlexExpectedToken, msg: "@end"))
+      localReport(L, LexerReport(kind: rlexExpectedToken, msg: "@end"))
     closeLexer(L)
     return true
 

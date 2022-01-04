@@ -995,6 +995,8 @@ const
 func severity*(rep: LexerReport): ReportSeverity =
   case rep.kind:
     of rlexHintKinds: rsevHint
+    of rlexErrorKinds: rsevError
+    of rlexWarningKinds: rsevWarning
     else: rsevTrace
 
 type

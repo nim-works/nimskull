@@ -391,14 +391,13 @@ proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
 
   quit 1
 
-proc handleError*(
-    conf: ConfigRef; report: Report, eh: TErrorHandling) =
-  ## Raise, quit or do nothing to handle error report. Specific action is
-  ## chosen based on the :arg:`eh` and current error counter.
+proc errorActions(
+    conf: ConfigRef, report: Report, eh: TErrorHandling
+  ): tuple[action: TErrorHandling, withTrace: bool] =
 
   if conf.isCompilerFatal(report):
     # Fatal message such as ICE (internal compiler), errFatal,
-    quit(conf, withTrace = true)
+    return (doAbort, true)
 
   elif conf.isCodeError(report):
     # Regular code error
@@ -407,14 +406,16 @@ proc handleError*(
     if conf.errorMax <= conf.errorCounter:
       # only really quit when we're not in the new 'nim check --def' mode:
       if conf.ideCmd == ideNone:
-        quit(conf, withTrace = false)
+        return (doAbort, false)
 
     elif eh == doAbort and conf.cmd != cmdIdeTools:
-      quit(conf, withTrace = false)
+      return (doAbort, false)
 
     elif eh == doRaise:
       {.warning: "[IMPLEMENT] Convert report to string message ?".}
-      raiseRecoverableError("report")
+      return (doRaise, false)
+
+  return (doNothing, false)
 
 proc `==`*(a, b: TLineInfo): bool =
   result = a.line == b.line and a.fileIndex == b.fileIndex
@@ -476,9 +477,18 @@ proc getSurroundingSrc(conf: ConfigRef; info: TLineInfo): string =
       result.add "\n" & indent & spaces(info.col) & '^'
 
 proc handleReport*(
-    conf: ConfigRef, report: Report, eh: TErrorHandling) {.noinline.} =
+    conf: ConfigRef,
+    report: Report,
+    eh: TErrorHandling = doNothing
+  ) {.noinline.} =
+
   conf.report(report)
-  handleError(conf, report, eh)
+
+  let (action, trace) = errorActions(conf, report, eh)
+  case action:
+    of doAbort: quit(conf, trace)
+    of doRaise: raiseRecoverableError("report")
+    of doNothing: discard
 
 template globalAssert*(
     conf: ConfigRef;
@@ -545,7 +555,7 @@ proc semReportCountMismatch*(
 template semReportIllformedAst*(
     conf: ConfigRef, node: PNode, explain: string): untyped =
 
-  handleError(
+  handleReport(
     conf,
     wrap(
       SemReport(kind: rsemIllformedAst, ast: node ),
