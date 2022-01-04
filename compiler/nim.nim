@@ -154,7 +154,13 @@ when not defined(selftest):
   var conf = newConfigRef()
 
   conf.structuredReportHook = cli_reporter.reportHook
-  conf.writeHook = msgs.msgWrite
+  conf.writeHook =
+    proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
+      msgs.msgWrite(conf, msg, flags)
+
+  conf.writelnHook =
+    proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
+      conf.writeHook(conf, msg & "\n", flags)
 
   handleCmdLine(newIdentCache(), conf)
   when declared(GC_setMaxPause):

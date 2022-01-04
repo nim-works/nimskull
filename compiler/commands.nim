@@ -227,8 +227,11 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
       notes = {ReportKind(x)}
 
     else:
-      conf.localReport ExternalReport(
-        kind: onFail, cmdlineProvided: id)
+      var r = ExternalReport(kind: onFail, cmdlineProvided: id)
+      for kind in noteSet:
+        r.cmdlineAllowed.add $kind
+
+      conf.localReport r
 
   case id.normalize:
     of "all": # other note groups would be easy to support via additional cases

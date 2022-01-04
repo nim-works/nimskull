@@ -2,17 +2,35 @@ import reports, ast, types, renderer, astmsgs, astalgo, msgs
 import options as compiler_options
 import std/[strutils, terminal, options, algorithm, sequtils]
 
-
-func wrap(str: string, color: ForegroundColor): string =
-  result.add "\e["
-  result.add $color.int
-  result.add "m"
-  result.add str
-  result.add "\e[0m"
-
 func add(target: var string, other: varargs[string, `$`]) =
   for item in other:
     target.add item
+
+func wrap(
+    str: string,
+    color: ForegroundColor,
+    style: set[Style] = {}
+  ): string =
+
+  result.add("\e[", color.int, "m")
+  for s in style:
+    result.add("\e[", s.int, "m")
+
+  result.add str
+  result.add "\e[0m"
+
+func wrap*(
+    conf: ConfigRef,
+    str: string,
+    color: ForegroundColor,
+    style: set[Style] = {}
+  ): string =
+
+  if conf.useColor:
+    result = wrap(str, color, style)
+
+  else:
+    result = str
 
 const
   reportTitles: array[ReportSeverity, string] = [
@@ -26,7 +44,7 @@ const
 proc csvList(syms: seq[PSym]): string =
   syms.mapIt(it.name.s).join(", ")
 
-proc writeContext*(conf: ConfigRef, ctx: seq[ReportContext]): string =
+proc getContext(conf: ConfigRef, ctx: seq[ReportContext]): string =
   for ctx in items(ctx):
     case ctx.kind:
       of sckInstantiationOf:
@@ -333,6 +351,9 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       if candidates != "":
         result.add "\nbut expected one of:\n" & candidates
 
+      result.add "\nexpression: "
+      result.add r.ast.render
+
     of rsemPragmaRecursiveDependency:
       result.add "recursive dependency: "
       result.add r.sym.name.s
@@ -628,7 +649,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "'cast' pragma only allowed in statement context"
 
     of rsemImplicitObjConv:
-      result = "Implicit conversion: Receiver '$2' will not receive fields of sub-type '$1' [$3]" % [
+      result = "Implicit conversion: Receiver '$2' will not receive fields of sub-type '$1'" % [
         typeToString(r.formalType),
         typeToString(r.actualType)
       ]
@@ -705,9 +726,6 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
     of rsemExpectedExpressionForSpawn:
       result =  "'spawn' takes a call expression; got: " & render(r.ast)
-
-    of rsemBuildCompilerWithSpawn:
-      result = "compiler was built without 'spawn' support"
 
     of rsemEnableExperimentalParallel:
       result = "use the {.experimental.} pragma to enable 'parallel'"
@@ -1458,6 +1476,9 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
     of rsemUndeclaredIdentifier:
       result = "undeclared identifier: '" & r.str & "'"
 
+    of rsemXDeclaredButNotUsed:
+      result = "'$1' is declared but not used " & r.symstr
+
     else:
       result = $r
 
@@ -1466,7 +1487,11 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
     # else:
     #   return $r
 
-proc toStr(conf: ConfigRef, loc: ReportLineInfo): string = $loc
+proc toStr(conf: ConfigRef, loc: ReportLineInfo): string =
+  conf.wrap($loc, fgDefault, {styleBright})
+
+proc toStr(conf: ConfigRef, loc: ReportLinePoint): string =
+  conf.wrap($loc, fgDefault, {styleBright})
 
 proc prefix(conf: ConfigRef, r: ReportTypes): string =
   let sev = conf.severity(r)
@@ -1475,8 +1500,16 @@ proc prefix(conf: ConfigRef, r: ReportTypes): string =
     result.add conf.toStr(r.location.get()) & " "
 
   # `Hint: `, `Error: ` etc.
-  result.add wrap(reportTitles[sev], reportColors[sev])
+  result.add conf.wrap(reportTitles[sev], reportColors[sev])
 
+proc suffix(conf: ConfigRef, r: ReportTypes): string =
+  if conf.hasHint(rintMsgOrigin):
+    result.add(
+      "\n",
+      conf.tostr(r.reportInst),
+      " compiler msg instantiated here ",
+      wrap("[MsgOrigin]", fgCyan)
+    )
 
 
 proc report(conf: ConfigRef, r: SemReport): string =
@@ -1486,7 +1519,7 @@ proc report(conf: ConfigRef, r: SemReport): string =
     return "."
 
   if sev == rsevError:
-    result.add conf.writeContext(r.context)
+    result.add conf.getContext(r.context)
 
   result.add(
     # `file(line, col) Error: ` prefix
@@ -1499,7 +1532,9 @@ proc report(conf: ConfigRef, r: SemReport): string =
       wrap(" [" & $r.kind & "]", fgCyan)
 
     else:
-      ""
+      "",
+
+    conf.suffix(r)
   )
 
 proc toStr(conf: ConfigRef, r: ParserReport): string =
@@ -1583,7 +1618,11 @@ proc report(conf: ConfigRef, r: ParserReport): string =
 proc report(conf: ConfigRef, r: InternalReport): string =
   case r.kind:
     of rintStackTrace:
-      result = $r.trace
+      for entry in r.trace:
+        result.add(entry.filename, "(", entry.line, ") ", entry.procname, "\n")
+
+    of rintUsingLeanCompiler:
+      result = r.msg
 
     of rintMissingStackTrace:
       result = """
@@ -1601,8 +1640,6 @@ proc report(conf: ConfigRef, r: BackendReport): string  = $r
 proc report(conf: ConfigRef, r: CmdReport): string      = $r
 
 proc toStr*(conf: ConfigRef, r: Report): string =
-  if not conf.isEnabled(r): return
-
   case r.category:
     of repLexer:    result = conf.report(r.lexReport)
     of repParser:   result = conf.report(r.parserReport)
@@ -1613,10 +1650,18 @@ proc toStr*(conf: ConfigRef, r: Report): string =
     of repBackend:  result = conf.report(r.backendReport)
     of repExternal: result = conf.report(r.externalReport)
 
-
 proc reportHook*(conf: ConfigRef, r: Report) =
-  if r.kind == rsemProcessing and conf.hintProcessingDots:
+  var lastDot {.global.}: bool
+
+  if not conf.isEnabled(r):
+    return
+
+  elif r.kind == rsemProcessing and conf.hintProcessingDots:
     conf.write(".")
+    lastDot = true
 
   else:
+    if lastDot:
+      conf.write("\n")
+    lastDot = false
     conf.writeln(conf.toStr(r))

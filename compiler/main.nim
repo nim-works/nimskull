@@ -126,7 +126,8 @@ proc commandCompileToJS(graph: ModuleGraph) =
   let conf = graph.config
   when defined(leanCompiler):
     globalReport(conf, unknownLineInfo, InternalReport(
-      kind: rbackJsNotCompiledIn))
+      kind: rintUsingLeanCompiler,
+      msg: "Compiler was not build with js support"))
 
   else:
     conf.exc = excCpp

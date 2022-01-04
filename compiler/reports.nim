@@ -90,6 +90,7 @@ type
 
     # errors being
     rintCannotOpenFile
+    rintUsingLeanCompiler
     rintNotImplemented
     # errors end
 
@@ -110,6 +111,7 @@ type
     ## compilation error handling and similar
     rintMissingStackTrace ## Stack trace would've been generated in the
     ## debug compiler build
+    rintMsgOrigin = "MsgOrigin"
 
 
     rintSuccessX ## Succesfull compilation
@@ -548,7 +550,6 @@ type
     rsemExpectedCallForGetAst
     rsemWrongNumberOfQuoteArguments
     rsemEnableExperimentalParallel
-    rsemBuildCompilerWithSpawn
     rsemExpectedExpressionForSpawn
     rsemNamedExprExpected
     rsemNamedExprNotAllowed
@@ -864,7 +865,6 @@ type
     ## file to cache directory
     rbackTargetNotSupported ## C compiler does not support requested target
     rbackJsTooCaseTooLarge
-    rbackJsNotCompiledIn
     rbackJsUnsupportedClosureIter
     rbackJsonScriptMismatch # ??? used in `extccomp.nim`, TODO figure out
     # what the original mesage was responsible for exactly
