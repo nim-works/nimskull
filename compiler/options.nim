@@ -405,13 +405,13 @@ type
     ## case of the compilation failure. Populated in the `sigcall.matches`
 
 proc writelnHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
-  conf.writeLnHook(conf, msg, flags)
+  conf.writelnHook(conf, msg, flags)
 
 proc writeHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
   conf.writeHook(conf, msg, flags)
 
 proc writeln*(conf: ConfigRef, args: varargs[string, `$`]) =
-  writeLnHook(conf, args.join(""))
+  writelnHook(conf, args.join(""))
 
 proc write*(conf: ConfigRef, args: varargs[string, `$`]) =
   writeHook(conf, args.join(""))

@@ -340,10 +340,10 @@ proc mainCommand*(graph: ModuleGraph) =
     wantMainModule(conf)
     var state = InternalStateDump()
     for s in definedSymbolNames(conf.symbols):
-      state.defined_symbols.add $s
+      state.definedSymbols.add $s
 
     for dir in conf.searchPaths:
-      state.lib_paths.add(dir.string)
+      state.libPaths.add(dir.string)
 
     for dir in conf.lazyPaths:
       state.lazyPaths.add(dir.string)
@@ -354,14 +354,14 @@ proc mainCommand*(graph: ModuleGraph) =
     for a in repWarningKinds:
       state.warnings.add(($a, a in conf.notes))
 
-    state.version         = VersionAsString
-    state.nimExe          = getAppFilename()
-    state.prefixdir       = conf.getPrefixDir().string
-    state.libpath         = conf.libpath.string
-    state.project_path    = conf.projectFull.string
-    state.outdir          = conf.outDir.string
-    state.`out`           = conf.outFile.string
-    state.nimcache        = getNimcacheDir(conf).string
+    state.version     = VersionAsString
+    state.nimExe      = getAppFilename()
+    state.prefixdir   = conf.getPrefixDir().string
+    state.libpath     = conf.libpath.string
+    state.projectPath = conf.projectFull.string
+    state.outdir      = conf.outDir.string
+    state.`out`       = conf.outFile.string
+    state.nimcache    = getNimcacheDir(conf).string
 
     conf.localReport(InternalReport(kind: rintDumpState, stateDump: state))
 

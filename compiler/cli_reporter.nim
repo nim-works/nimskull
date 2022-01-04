@@ -1,4 +1,4 @@
-import reports, ast, types, renderer, astmsgs, astalgo, msgs, astmsgs
+import reports, ast, types, renderer, astmsgs, astalgo, msgs
 import options as compiler_options
 import std/[strutils, terminal, options, algorithm, sequtils, strformat]
 
@@ -1525,7 +1525,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         conf, r.spellingCandidates)
 
     of rsemXDeclaredButNotUsed:
-      result = "'$1' is declared but not used " & r.symstr
+      result = "'$1' is declared but not used " % r.symstr
 
     else:
       result = $r
@@ -1671,9 +1671,14 @@ proc report(conf: ConfigRef, r: InternalReport): string =
         if par.threads:
           build.add "threads: on; "
 
-        build.add par.optimize
-        build.add "; "
-        build.add par.buildMode
+        build.add "opt: "
+        if par.optimize == "debug":
+          build.add "none (DEBUG BUILD, `-d:release` generates faster code)"
+
+        else:
+          build.add par.optimize
+          build.add "; "
+          build.add par.buildMode
 
       let mem =
         if par.isMaxMem:
@@ -1683,9 +1688,11 @@ proc report(conf: ConfigRef, r: InternalReport): string =
           formatSize(par.mem) & " totmem"
 
       result = &"""
-"{build}
-${par.linesCompiled} lines; {par.sec}s; {mem}; proj: {par.project}; out: {par.output}"
+{conf.prefix(r)}{build}
+{par.linesCompiled} lines; {par.sec:.3f}s; {mem}; proj: {par.project}; out: {par.output}"
 """
+
+      result.add conf.suffix(r)
 
     of rintUsingLeanCompiler:
       result = r.msg

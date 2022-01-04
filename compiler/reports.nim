@@ -920,7 +920,7 @@ type
   ReportLineRange* = object
     ## Report location expressed as a span of lines in the file
     file*: string
-    startLine*, endline*: int
+    startLine*, endLine*: int
     startCol*, endCol*: int
 
   ReportLinePoint* = object
@@ -1201,7 +1201,8 @@ type
           location: ReportLinePoint
         ]]
 
-      of rsemReportCountMismatch:
+      of rsemReportCountMismatch,
+         rsemWrongNumberOfVariables:
         countMismatch*: tuple[expected, got: Int128]
 
       of rsemInvalidExtern:
@@ -1491,9 +1492,9 @@ type
     nimExe*: string
     prefixdir*: string
     libpath*: string
-    project_path*: string
-    defined_symbols*: seq[string]
-    lib_paths*: seq[string]
+    projectPath*: string
+    definedSymbols*: seq[string]
+    libPaths*: seq[string]
     lazyPaths*: seq[string]
     nimbleDir*: string
     outdir*: string
@@ -1539,6 +1540,9 @@ const
 func severity*(report: InternalReport): ReportSeverity =
   case report.kind:
     of rintFatalKinds: rsevFatal
+    of rintHintKinds: rsevHint
+    of rintWarningKinds: rsevWarning
+    of rintErrorKinds: rsevWarning
     else: rsevTrace
 
 const
@@ -1606,10 +1610,6 @@ type
 
       of repExternal:
         externalReport*: ExternalReport
-
-static:
-  echo "Size of the report object is ", sizeof(Report)
-  echo "Sem report: ", sizeof(SemReport)
 
 let reportEmpty* = Report(
   category: repInternal,
