@@ -42,26 +42,42 @@ proc computeNotesVerbosity(): tuple[
   ] =
   ## Create configuration sets for the default compilation report verbosity
 
-  result.base = (repErrorKinds + repInternalKinds)
   # Mandatory reports - cannot be turned off, present in all verbosity
   # settings
+  result.base = (repErrorKinds + repInternalKinds)
+
+  # Somewhat awkward handing - stack trace report cannot be error (because
+  # actual error report must follow), so it is a hint-level report (can't
+  # be debug because it is a user-facing, can't be "trace" because it is
+  # not for compiler developers use only)
+  result.base.incl {rsemVmStackTraceUser, rsemVmStackTraceInternal}
 
   when defined(debugOptions):
     # debug report for transition of the configuration options
     result.base.incl {rdbgOptionsPush, rdbgOptionsPop}
 
   when defined(nimVMDebug):
-    result.base.incl {rdbgVmExecTraceFull, rdbgVmCodeListing}
+    result.base.incl {
+      rdbgVmExecTraceFull, # execution of the generated code listings
+      rdbgVmCodeListing    # immediately generated code listings
+    }
 
   when defined(nimDebugUtils):
     result.base.incl {
-      rdbgTraceStart, rdbgTraceStep, rdbgTraceLine, rdbgTraceEnd}
+      rdbgTraceStart, # Begin report
+      rdbgTraceStep, # in/out
+      rdbgTraceLine,
+      rdbgTraceEnd # End report
+    }
 
   result.main[3] = result.base + repWarningKinds + repHintKinds - {
     rsemObservableStores, rsemResultUsed, rsemAnyEnumConvert}
 
   result.main[2] = result.main[3] - {
-    rsemVmStackTrace, rsemUninit, rsemExtendedContext, rsemProcessingStmt}
+    rsemUninit,
+    rsemExtendedContext,
+    rsemProcessingStmt
+  }
 
   result.main[1] = result.main[2] - {
     rsemProveField,
@@ -91,6 +107,16 @@ proc computeNotesVerbosity(): tuple[
     rsemUserError,
     rintQuitCalled
   }
+
+  for idx, n in @[
+    result.foreign,
+    result.base,
+    result.main[3],
+    result.main[2],
+    result.main[1],
+    result.main[0],
+  ]:
+    assert len(n * {rsemVmStackTraceUser, rsemVmStackTraceInternal}) == 2, $idx
 
 
 const

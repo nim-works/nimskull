@@ -100,6 +100,7 @@ type
 
     # warnings begin
     rintWarnCannotOpenFile
+    rintUnexpected
     rintWarnFileChanged
     # warnings end
 
@@ -637,6 +638,7 @@ type
     rsemVmNotUnused
     rsemNotAFieldSymbol
     rsemVmTooLargetOffset
+    rsemVmUnhandledException
     rsemVmCannotGenerateCode
     rsemVmCannotCast
     rsemVmInvalidBindSym
@@ -650,7 +652,6 @@ type
     rsemVmCannotCallMethod
     rsemVmCallingNonRoutine
 
-    rsemVmStackTrace
     rsemTooManyIterations
 
     rsemMissingImportcCompleteStruct
@@ -831,7 +832,8 @@ type
     rsemExpandMacro = "ExpandMacro" ## Trace macro expansion progress
     rsemExpandArc = "ExpandArc"
 
-
+    rsemVmStackTraceUser
+    rsemVmStackTraceInternal
     rsemCompilesDummyReport
     rsemNonMatchingCandidates
     rsemUserRaw = "UserRaw" # REVIEW - Used in
@@ -1212,7 +1214,8 @@ type
       of rsemEffectsListingHint:
         effectListing*: tuple[tags, exceptions: seq[PType]]
 
-      of rsemVmStackTrace:
+      of rsemVmStackTraceUser, rsemVmStackTraceInternal:
+        currentExceptionA*, currentExceptionB*: PNode
         traceReason*: ReportKind
         stacktrace*: seq[tuple[
           sym: PSym,

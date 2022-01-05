@@ -366,6 +366,11 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result.add "\nexpression: "
       result.add r.ast.render
 
+    of rsemVmStackTraceUser:
+      result = "stack trace: (most recent call last)\n"
+      for (sym, loc) in r.stacktrace:
+        result.add(loc, " ", sym.name.s, "\n")
+
     of rsemExpandArc:
       result.add(
         "--expandArc: ",
@@ -1558,12 +1563,19 @@ proc toStr(conf: ConfigRef, loc: ReportLineInfo): string =
 proc toStr(conf: ConfigRef, loc: ReportLinePoint): string =
   conf.wrap($loc, fgDefault, {styleBright})
 
-const repWithPrefix = repAllKinds - {rsemExpandArc}
-const repWithSuffix = repWarningKinds + repHintKinds - {rsemExpandArc}
+const standalone = {
+  rsemExpandArc, # Original compiler did not consider it as a hint
+  rsemVmStackTraceUser, # Always associated with extra report
+  rsemVmStackTraceInternal
+}
+
+const repWithPrefix = repAllKinds - standalone
+const repWithSuffix = repWarningKinds + repHintKinds - standalone
+const repWithLocation = repAllKinds - standalone
 
 proc prefix(conf: ConfigRef, r: ReportTypes): string =
   let sev = conf.severity(r)
-  if r.location.isSome():
+  if r.location.isSome() and r.kind in repWithLocation:
     # Optional report location
     result.add conf.toStr(r.location.get()) & " "
 
@@ -1744,6 +1756,9 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
         "(", r.msg, ") should never be called."
       )
 
+    of rintEchoMessage:
+      result = r.msg
+
     else:
       result = $r
 
@@ -1863,9 +1878,9 @@ proc toStr*(conf: ConfigRef, r: Report): string =
     of repBackend:  result = conf.report(r.backendReport)
     of repExternal: result = conf.report(r.externalReport)
 
-proc reportHook*(conf: ConfigRef, r: Report) =
-  var lastDot {.global.}: bool
+var lastDot: bool = false
 
+proc reportHook*(conf: ConfigRef, r: Report) =
   if not conf.isEnabled(r):
     return
 
@@ -1876,5 +1891,6 @@ proc reportHook*(conf: ConfigRef, r: Report) =
   else:
     if lastDot:
       conf.write("\n")
-    lastDot = false
+      lastDot = false
+
     conf.writeln(conf.toStr(r))

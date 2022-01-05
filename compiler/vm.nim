@@ -38,46 +38,46 @@ const
     "if you are sure this is not a bug in your code, compile with `--maxLoopIterationsVM:number` (current value: $1)"
   errFieldXNotFound = "node lacks field: "
 
-proc stackTraceAux(
-    c: PCtx; x: PStackFrame;
-    pc: int,
-    traceReason: ReportKind = repNone,
+proc stackTraceImpl(
+    c:          PCtx,
+    sframe:     PStackFrame,
+    pc:         int,
+    str:        string,
+    user:       bool,
+    lineInfo:   TLineInfo,
+    infoOrigin: InstantiationInfo,
     recursionLimit: int = 100
-  ): SemReport =
+  ) =
 
-  proc aux(x: PStackFrame, pc, depth: int, res: var SemReport) =
-    if x != nil:
+  proc aux(sframe: PStackFrame, pc, depth: int, res: var SemReport) =
+    if sframe != nil:
       if recursionLimit < depth:
         var calls = 0
-        var x = x
-        while x != nil:
+        var sframe = sframe
+        while sframe != nil:
           inc calls
-          x = x.next
-
-        # msgWriteln(c.config, $calls & " calls omitted\n", {msgNoUnitSep})
+          sframe = sframe.next
 
         return
 
-      aux(x.next, x.comesFrom, depth + 1, res)
+      aux(sframe.next, sframe.comesFrom, depth + 1, res)
 
       res.stacktrace.add((
-        sym: x.prc,
+        sym: sframe.prc,
         location: c.config.toReportLinePoint(c.debug[pc])
       ))
 
-  result = SemReport(kind: rsemVmStackTrace, traceReason: traceReason)
-  aux(x, pc, 0, result)
+  var res: SemReport
+  if user:
+    res = SemReport(kind: rsemVmStackTraceUser)
 
-proc stackTraceImpl(
-    c: PCtx,
-    tos: PStackFrame,
-    pc: int,
-    msg: string,
-    lineInfo: TLineInfo,
-    infoOrigin: InstantiationInfo
-  ) =
+  else:
+    res = SemReport(kind: rsemVmStackTraceInternal)
 
-  let action = if c.mode == emRepl: doRaise else: doNothing
+  res.currentExceptionA = c.currentExceptionA
+  res.currentExceptionB = c.currentExceptionB
+
+  aux(sframe, pc, 0, res)
 
   let lineInfo =
     if lineInfo == TLineInfo.default:
@@ -85,25 +85,35 @@ proc stackTraceImpl(
     else:
       lineInfo
 
+  let action = if c.mode == emRepl: doRaise else: doNothing
+
   let report = wrap(
-    stackTraceAux(c, tos, pc),
+    res,
     toReportLinePoint(infoOrigin),
     c.config.toReportLinePoint(lineInfo))
 
   c.config.handleReport(report, action)
 
-template stackTrace(c: PCtx, tos: PStackFrame, pc: int,
-                    msg: string, lineInfo: TLineInfo = TLineInfo.default) =
-  stackTraceImpl(
-    c, tos, pc, msg, lineInfo,
-    instantiationInfo(-2, fullPaths = compileOption"excessiveStackTrace"))
-
+template stackTrace(
+    c: PCtx,
+    tos: PStackFrame,
+    pc: int,
+    sem: ReportTypes,
+    lineInfo: TLineInfo = TLineInfo.default
+  ) =
+  stackTraceImpl(c, tos, pc, "", true, lineInfo, instLoc())
+  localReport(c.config, lineInfo, sem)
   return
 
-proc bailOut(c: PCtx; tos: PStackFrame) =
-  stackTrace(c, tos, c.exceptionInstr, "unhandled exception: " &
-             c.currentExceptionA[3].skipColon.strVal &
-             " [" & c.currentExceptionA[2].skipColon.strVal & "]")
+template stackTrace(
+    c: PCtx, tos: PStackFrame,
+    pc: int,
+    str: string,
+    lineInfo: TLineInfo = TLineInfo.default
+  ) =
+  stackTraceImpl(c, tos, pc, str, false, lineInfo, instLoc())
+  localReport(c.config, lineInfo, InternalReport(kind: rintUnexpected))
+  return
 
 when not defined(nimComputedGoto):
   {.pragma: computedGoto.}
@@ -496,8 +506,11 @@ template handleJmpBack() {.dirty.} =
     if allowInfiniteLoops in c.features:
       c.loopIterations = c.config.maxLoopIterationsVM
     else:
-      globalReport(c.config, c.debug[pc], stackTraceAux(
-        c, tos, pc, rsemTooManyIterations))
+      stackTraceImpl(
+        c, tos, pc, str = "", user = false, c.debug[pc], instLoc())
+
+      globalReport(
+        c.config, c.debug[pc], reportSem(rsemTooManyIterations))
 
   dec(c.loopIterations)
 
@@ -635,7 +648,11 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         of rkNodeAddr:
           regs[ra].intVal = cast[int](regs[rb].nodeAddr)
         else:
-          stackTrace(c, tos, pc, "opcCastPtrToInt: got " & $regs[rb].kind)
+          stackTrace(
+            c, tos, pc,
+            "opcCastPtrToInt: got " & $regs[rb].kind,
+          )
+
       of 2: # tyRef
         regs[ra].intVal = cast[int](regs[rb].node)
       else: assert false, $imm
@@ -1413,7 +1430,10 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
           updateRegsAlias
       of ExceptionGotoUnhandled:
         # Nobody handled this exception, error out.
-        bailOut(c, tos)
+        stackTrace(
+          c, tos, c.exceptionInstr,
+          reportAst(rsemVmUnhandledException, raised))
+
     of opcNew:
       ensureKind(rkNode)
       let typ = c.types[instr.regBx - wordExcess]
@@ -1784,12 +1804,20 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       let a = regs[ra].node
       let b = regs[rb].node
       let info = if b.kind == nkNilLit: c.debug[pc] else: b.info
-      if instr.opcode == opcNError:
-        stackTrace(c, tos, pc, a.strVal, info)
-      elif instr.opcode == opcNWarning:
-        localReport(c.config, info, reportStr(rsemUserWarning, a.strVal))
-      elif instr.opcode == opcNHint:
-        localReport(c.config, info, reportStr(rsemUserHint, a.strVal))
+      case instr.opcode:
+        of opcNError:
+          stackTrace(
+            c, tos, pc, reportStr(rsemUserError, a.strVal), info)
+
+        of opcNWarning:
+          localReport(c.config, info, reportStr(rsemUserWarning, a.strVal))
+
+        of opcNHint:
+          localReport(c.config, info, reportStr(rsemUserHint, a.strVal))
+
+        else:
+          discard
+
     of opcParseExprToAst:
       decodeB(rkNode)
       # c.debug[pc].line.int - countLines(regs[rb].strVal) ?

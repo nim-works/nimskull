@@ -11,7 +11,7 @@
 
 import
   llstream, commands, os, strutils, msgs, lexer, ast, reports,
-  options, idents, wordrecg, strtabs, lineinfos, pathutils, scriptconfig
+  options, idents, wordrecg, strtabs, pathutils, scriptconfig
 
 # ---------------- configuration file parser -----------------------------
 # we use Nim's lexer here to save space and work
