@@ -557,7 +557,7 @@ proc errorUseQualifier*(c: PContext; info: TLineInfo; s: PSym) =
 proc errorUseQualifier(c: PContext; info: TLineInfo; candidates: seq[PSym]) =
   var
     i = 0
-    rep = SemReport(kind: rsemAmbiguous, str: candidates[0].name.s)
+    rep = SemReport(kind: rsemAmbiguousIdent, str: candidates[0].name.s)
 
   for candidate in candidates:
     rep.symbols.add candidate

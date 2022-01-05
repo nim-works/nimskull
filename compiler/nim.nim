@@ -102,6 +102,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
 
   self.processCmdLineAndProjectPath(conf)
   var graph = newModuleGraph(cache, conf)
+
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
     return
   mainCommand(graph)

@@ -366,6 +366,16 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result.add "\nexpression: "
       result.add r.ast.render
 
+    of rsemExpandArc:
+      result.add(
+        "--expandArc: ",
+        r.symstr,
+        "\n",
+        r.expandedAst.render,
+        "\n",
+        "-- end of expandArc ------------------------"
+      )
+
     of rsemCannotBorrow:
       result.add(
         "cannot borrow ",
@@ -532,6 +542,13 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         getProcHeader(conf, r.symbols[0]),
         getProcHeader(conf, r.symbols[1])
       ]
+
+    of rsemCopiesToSink:
+      result = (
+        "passing '$1' to a sink parameter introduces an implicit copy; " &
+          "if possible, rearrange your program's control flow to prevent it") % [
+          r.ast.render]
+
 
     of rsemAmbiguousIdent:
       result = "ambiguous identifier: '" & r.str & "' -- use one of the following:\n"
@@ -1541,21 +1558,24 @@ proc toStr(conf: ConfigRef, loc: ReportLineInfo): string =
 proc toStr(conf: ConfigRef, loc: ReportLinePoint): string =
   conf.wrap($loc, fgDefault, {styleBright})
 
+const repWithPrefix = repAllKinds - {rsemExpandArc}
+const repWithSuffix = repWarningKinds + repHintKinds - {rsemExpandArc}
+
 proc prefix(conf: ConfigRef, r: ReportTypes): string =
   let sev = conf.severity(r)
   if r.location.isSome():
     # Optional report location
     result.add conf.toStr(r.location.get()) & " "
 
-  # `Hint: `, `Error: ` etc.
-  result.add conf.wrap(reportTitles[sev], reportColors[sev])
+  if r.kind in repWithPrefix:
+    # `Hint: `, `Error: ` etc.
+    result.add conf.wrap(reportTitles[sev], reportColors[sev])
 
 proc suffix(
     conf: ConfigRef,
-    r: ReportTypes,
-    withKind: bool = false
+    r: ReportTypes
   ): string =
-  if withKind:
+  if r.kind in repWithSuffix:
     result.add conf.wrap(" [" & $r.kind & "]", fgCyan)
 
   if conf.hasHint(rintMsgOrigin):
@@ -1581,7 +1601,7 @@ proc report(conf: ConfigRef, r: SemReport): string =
     conf.prefix(r),
     # Message body
     toStr(conf, r),
-    conf.suffix(r, withKind = r.severity in {rsevWarning, rsevHint})
+    conf.suffix(r)
   )
 
 proc toStr(conf: ConfigRef, r: ParserReport): string =
@@ -1799,7 +1819,24 @@ proc report(conf: ConfigRef, r: LexerReport): string    =
   result.add suffix(conf, r)
 
 
-proc report(conf: ConfigRef, r: ExternalReport): string = $r
+proc report(conf: ConfigRef, r: ExternalReport): string =
+  case r.kind:
+    of rextConf:
+      result.add(
+        conf.prefix(r),
+        "used config file '$1'" % r.msg,
+        conf.suffix(r)
+      )
+
+    of rextInvalidHint:
+      result.add("Invalid hint - ", r.cmdlineProvided)
+
+    of rextInvalidWarning:
+      result.add("Invalid warning - ", r.cmdlineProvided)
+
+    else:
+      result = $r
+
 proc report(conf: ConfigRef, r: DebugReport): string    = $r
 proc report(conf: ConfigRef, r: BackendReport): string  =
   result = $r
@@ -1810,7 +1847,7 @@ proc report(conf: ConfigRef, r: CmdReport): string =
       result = "CC: " & r.msg
 
     of rcmdLinking:
-      result = conf.prefix(r) & conf.suffix(r, true)
+      result = conf.prefix(r) & conf.suffix(r)
 
     else:
       result = $r

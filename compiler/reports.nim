@@ -1319,6 +1319,10 @@ const
   rsemWarningKinds* = {rsemUserWarning .. rsemLinterReport}
   rsemHintKinds* = {rsemUserHint .. rsemImplicitObjConv}
 
+  rsemMultiHint* = @{
+    "Performance": {rsemCopiesToSink, rsemCannotMakeSink}
+  }
+
 func severity*(report: SemReport): ReportSeverity =
   case report.kind:
     of rsemErrorKinds: result = rsevError
@@ -1667,6 +1671,7 @@ const
       rintErrorKinds
 
   repFatalKinds*: ReportKinds = rintFatalKinds
+  repAllKinds* = {low(ReportKind) .. high(ReportKind)}
 
 
 

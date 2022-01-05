@@ -57,6 +57,7 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
     conf.setCmd cmdIdeTools
   if conf.cmd == cmdNimscript:
     incl(conf.globalOptions, optWasNimscript)
+
   loadConfigs(DefaultConfig, cache, conf, graph.idgen) # load all config files
 
   if not self.suggestMode:

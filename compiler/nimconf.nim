@@ -263,23 +263,35 @@ proc getSystemConfigPath*(conf: ConfigRef; filename: RelativeFile): AbsoluteFile
     if not fileExists(result): result = p / RelativeDir"etc/nim" / filename
     if not fileExists(result): result = AbsoluteDir"/etc/nim" / filename
 
-proc loadConfigs*(cfg: RelativeFile; cache: IdentCache; conf: ConfigRef; idgen: IdGenerator) =
+proc loadConfigs*(
+    cfg: RelativeFile; cache: IdentCache;
+    conf: ConfigRef; idgen: IdGenerator
+  ) =
+
+
   setDefaultLibpath(conf)
-  template readConfigFile(path) =
+  proc readConfigFile(path: AbsoluteFile) =
     let configPath = path
     if readConfigFile(configPath, cache, conf):
       conf.configFiles.add(configPath)
 
-  template runNimScriptIfExists(path: AbsoluteFile, isMain = false) =
+  proc runNimScriptIfExists(path: AbsoluteFile, isMain = false) =
     let p = path # eval once
     var s: PLLStream
     if isMain and optWasNimscript in conf.globalOptions:
-      if conf.projectIsStdin: s = stdin.llStreamOpen
-      elif conf.projectIsCmd: s = llStreamOpen(conf.cmdInput)
-    if s == nil and fileExists(p): s = llStreamOpen(p, fmRead)
+      if conf.projectIsStdin:
+        s = stdin.llStreamOpen
+
+      elif conf.projectIsCmd:
+        s = llStreamOpen(conf.cmdInput)
+
+    if s == nil and fileExists(p):
+      s = llStreamOpen(p, fmRead)
+
     if s != nil:
       conf.configFiles.add(p)
       runNimScript(cache, p, idgen, freshDefines = false, conf, s)
+
 
   if optSkipSystemConfigFile notin conf.globalOptions:
     readConfigFile(getSystemConfigPath(conf, cfg))
@@ -287,13 +299,19 @@ proc loadConfigs*(cfg: RelativeFile; cache: IdentCache; conf: ConfigRef; idgen: 
     if cfg == DefaultConfig:
       runNimScriptIfExists(getSystemConfigPath(conf, DefaultConfigNims))
 
+
   if optSkipUserConfigFile notin conf.globalOptions:
     readConfigFile(getUserConfigPath(cfg))
 
     if cfg == DefaultConfig:
       runNimScriptIfExists(getUserConfigPath(DefaultConfigNims))
 
-  let pd = if not conf.projectPath.isEmpty: conf.projectPath else: AbsoluteDir(getCurrentDir())
+  let pd = if not conf.projectPath.isEmpty:
+             conf.projectPath
+           else:
+             AbsoluteDir(getCurrentDir())
+
+
   if optSkipParentConfigFiles notin conf.globalOptions:
     for dir in parentDirs(pd.string, fromRoot=true, inclusive=false):
       readConfigFile(AbsoluteDir(dir) / cfg)

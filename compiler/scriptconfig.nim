@@ -14,7 +14,7 @@ import
   ast, modules, idents, passes, condsyms,
   options, sem, llstream, vm, vmdef, commands,
   os, times, osproc, wordrecg, strtabs, modulegraphs,
-  pathutils
+  pathutils, reports
 
 # we support 'cmpIgnoreStyle' natively for efficiency:
 from strutils import cmpIgnoreStyle, contains

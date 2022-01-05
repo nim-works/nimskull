@@ -220,14 +220,28 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
   else: invalidCmdLineOption(conf, pass, orig, info)
 
   let isSomeHint = state in {wHint, wHintAsError}
-  template findNote(noteSet: ReportKinds, name: string, onFail: ReportKind) =
+  proc findNote(
+      noteSet: ReportKinds, 
+      name: string,
+      onFail: ReportKind,
+      multinote: seq[tuple[name: string, flags: set[ReportKind]]] = @[]
+  ) =
     # unfortunately, hintUser and warningUser clash, otherwise implementation would simplify a bit
-    let x: ReportKind = findStr(noteSet, id, onFail)
+    var x: ReportKind = findStr(noteSet, id, onFail)
     if x != onFail:
       notes = {ReportKind(x)}
 
     else:
-      var r = ExternalReport(kind: onFail, cmdlineProvided: id)
+      # HACK first added in order to support `--hint[Performance]` - very
+      # vague term that maps onto multiple report kinds, such as "copies to
+      # sink".
+      for (name, flags) in multinote:
+        if cmpIgnoreStyle(name, id) == 0:
+          notes = flags
+          return
+
+      var r = ExternalReport(kind: onFail)
+      r.cmdlineProvided = id
       for kind in noteSet:
         r.cmdlineAllowed.add $kind
 
@@ -242,7 +256,7 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
         notes = repWarningKinds
 
     elif isSomeHint:
-      findNote(repHintKinds, "hint", rextInvalidHint)
+      findNote(repHintKinds, "hint", rextInvalidHint, rsemMultiHint)
 
     else:
       findNote(repWarningKinds, "warning", rextInvalidWarning)

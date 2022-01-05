@@ -109,6 +109,11 @@ proc prepareConfigNotes(graph: ModuleGraph; module: PSym) =
     graph.config.notes = graph.config.mainPackageNotes
 
   else:
+    # QUESTION what are the exact conditions that lead to this branch being
+    # executed? For example, if I compile `tests/arc/thard_alignment.nim`,
+    # this sets configuration entries to the 'foreign' state after
+    # compilation has finished. This tests (despite being quite large) does
+    # not do any imports.
     if graph.config.mainPackageNotes == {}:
       graph.config.mainPackageNotes = graph.config.notes
 
@@ -132,6 +137,7 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
     a: TPassContextArray
     s: PLLStream
     fileIdx = module.fileIdx
+
   prepareConfigNotes(graph, module)
   openPasses(graph, a, module, idgen)
   if stream == nil:

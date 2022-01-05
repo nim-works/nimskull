@@ -50,7 +50,6 @@ proc computeNotesVerbosity(): tuple[
     # debug report for transition of the configuration options
     result.base.incl {rdbgOptionsPush, rdbgOptionsPop}
 
-
   when defined(nimVMDebug):
     result.base.incl {rdbgVmExecTraceFull, rdbgVmCodeListing}
 
@@ -84,6 +83,7 @@ proc computeNotesVerbosity(): tuple[
 
   result.foreign = result.base + {
     rsemProcessing,
+    rextConf,
     rsemUserHint,
     rsemUserWarning,
     rsemUserHint,
@@ -91,6 +91,7 @@ proc computeNotesVerbosity(): tuple[
     rsemUserError,
     rintQuitCalled
   }
+
 
 const
   NotesVerbosity* = computeNotesVerbosity()
