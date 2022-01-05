@@ -77,7 +77,7 @@ proc deltaTrace(stopProc, indent: string, entries: seq[StackTraceEntry])
       "$1| $2 $3($4)" % [indent, $e.procname, $e.filename, $e.line]
 
 template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
-                                enterMsg, leaveMsg, getInfo: untyped) =
+                                enterMsg, leaveMsg) =
   ## used by one of the dedicated templates in order to output compiler trace
   ## data, use a dedicated template (see below) for actual output. this is a
   ## helper that takes three templates, `enterMsg`, `leaveMsg`, and `getInfo`
@@ -88,7 +88,6 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
   ## templates with the following signatures:
   ## * enterMsg: indent: string -> string
   ## * leaveMsg: indent: string -> string
-  ## * getInfo: void -> string
   ##
   ## once a specialized template exists, again see below, use at the start of a
   ## proc, typically a high traffic one such as `semExpr` and then this will
@@ -119,12 +118,10 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
       # determine indentitation levels for output
       indentString = "  "
       indentLevel = conf.debugUtilsStack.len
-      indent = indentString.repeat(indentLevel)
-      info = getInfo()
 
     if isDebug:
       conf.debugUtilsStack.add prcname # use this to track deltas
-      echo enterMsg(indent)
+      enterMsg(indentLevel)
       if indentLevel != 0: # print a delta stack
         # try to print only the part of the stacktrace since the last time,
         # this is done by looking for any previous calls in `debugUtilsStack`
@@ -145,10 +142,12 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
             break                                       # skip the rest
 
         # print the trace oldest (startFrom) to newest (endsWith)
-        for i in startFrom..endsWith:
-          let e = entries[i]
-          echo:
-            "$1| $2 $3($4)" % [indent, $e.procname, $e.filename, $e.line]
+        var rep = DebugReport(kind: rdbgTraceLine)
+        rep.ctraceData.level = indentLevel
+        for i in startFrom .. endsWith:
+          rep.ctraceData.entries.add entries[i]
+
+        conf.localReport(rep)
 
     # upon leaving the proc being debugged (`defer`), let's see what changed
     defer:
@@ -156,7 +155,7 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
         # meaning we just analysed a `{.define(nimCompilerDebug).}`
         # it started of as false, now after the proc's work (`semExpr`) this
         # `defer`red logic is seeing `true`, so we must have just started.
-        echo "compiler debug start at (initial stacktrace follows): ", info
+        conf.localReport(DebugReport(kind: rdbgTraceStart))
         {.line.}:           # don't let the template show up in the StackTrace
           writeStackTrace() # gives context to the rest of the partial traces
                             # we do a full one instead
@@ -164,79 +163,123 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
         # meaning we just analysed an `{.undef(nimCompilerDebug).}`
         # it started of as true, now in the `defer` it's false
         discard conf.debugUtilsStack.pop()
-        echo "compiler debug end: ", info
+        conf.localReport(DebugReport(kind: rdbgTraceEnd))
       elif isDebug:
         discard conf.debugUtilsStack.pop()
-        echo leaveMsg(indent)
+        leaveMsg(indentLevel)
   else:
     discard # noop if undefined
 
-template addInNimDebugUtils(c: ConfigRef; name: string; n, r: PNode;
+template addInNimDebugUtils(c: ConfigRef; action: string; n, r: PNode;
                             flags: TExprFlags) =
   ## add tracing to procs that are primarily `PNode -> PNode`, with expr flags
   ## and can determine the type
-  template enterMsg(indent: string): string =
-    "$1>$2: $3, $4, $5" % [indent, name, $n.kind, c$n.info, $flags]
-  template leaveMsg(indent: string): string =
-    "$1<$2: $3, $4, $5" %
-      [indent, name, $r.kind, c$r.info, if r != nil: $r.typ else: ""]
+  template enterMsg(indentLevel: int) =
+    localReport(c, DebugReport(
+      kind: rdbgTraceStep,
+      semstep: DebugSemStep(
+        direction: semstepEnter,
+        level: indentLevel,
+        name: action,
+        node: r,
+        kind: stepNodeFlagsToNode,
+        flags: flags)))
+
+  template leaveMsg(indentLevel: int) =
+    localReport(c, DebugReport(
+      kind: rdbgTraceStep,
+      semstep: DebugSemStep(
+        direction: semstepLeave,
+        level: indentLevel,
+        name: action,
+        node: r,
+        kind: stepNodeFlagsToNode,
+        flags: flags)))
+
   template getInfo(): string =
     c$n.info
 
-  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
+  addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
-template addInNimDebugUtils(c: ConfigRef; name: string; n, r: PNode) =
+template addInNimDebugUtils(c: ConfigRef; action: string; n, r: PNode) =
   ## add tracing to procs that are primarily `PNode -> PNode`, and can
   ## determine the type
 
-  template enterMsg(indent: string): string =
-    "$1>$2: $3, $4" % [indent, name, $n.kind, c$n.info]
-  template leaveMsg(indent: string): string =
-    "$1<$2: $3, $4, $5" %
-      [indent, name, $r.kind, c$r.info, if r != nil: $r.typ else: ""]
-  template getInfo(): string =
-    c$n.info
+  template enterMsg(indentLevel: int) =
+    localReport(c, DebugReport(
+      kind: rdbgTraceStep,
+      semstep: DebugSemStep(
+        direction: semstepEnter,
+        level: indentLevel,
+        name: action,
+        node: n,
+        kind: stepNodeToNode)))
 
-  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
+  template leaveMsg(indentLevel: int) =
+    localReport(c, DebugReport(
+      kind: rdbgTraceStep,
+      semstep: DebugSemStep(
+        direction: semstepLeave,
+        level: indentLevel,
+        name: action,
+        node: r,
+        kind: stepNodeToNode)))
 
-template addInNimDebugUtils(c: ConfigRef; name: string; n: PNode;
+  addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
+
+template addInNimDebugUtils(c: ConfigRef; action: string; n: PNode;
                             prev, r: PType) =
   ## add tracing to procs that are primarily `PNode, PType|nil -> PType`,
   ## determining a type node, with a possible previous type.
-  template enterMsg(indent: string): string =
-    "$1>$2: $3, $4, prev: $5" %
-      [indent, name, $n.kind, c$n.info, $prev]
-  template leaveMsg(indent: string): string =
-    "$1<$2: $3, $4, $5, %6, prev: $7" %
-      [indent, name, $n.kind, c$n.info, $n.typ, $r, $prev]
-  template getInfo(): string =
-    c$n.info
-  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
+  template enterMsg(indentLevel: int) =
+    localReport(c, DebugReport(
+      kind: rdbgTraceStep,
+      semstep: DebugSemStep(
+        direction: semstepEnter,
+        level: indentLevel,
+        name: action,
+        node: n,
+        typ: prev,
+        kind: stepNodeTypeToNode)))
 
-template addInNimDebugUtils(c: ConfigRef; name: string; x: PType; n: PNode;
-                            r: PType) =
-  ## add tracing to procs that are primarily `PType, PNode -> PType`, looking
-  ## for a common type
-  template enterMsg(indent: string): string =
-    "$1>$2: $3, $4, $5, $6" %
-      [indent, name, $x.kind, c$n.info, $n.kind, $n.typ]
-  template leaveMsg(indent: string): string =
-    "$1<$2: $3, $4, $5, %6, $7" %
-      [indent, name, $x.kind, c$n.info, $x, $r, $n.typ]
-  template getInfo(): string =
-    c$n.info
-  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
+  template leaveMsg(indentLevel: int) =
+    localReport(c, DebugReport(
+      kind: rdbgTraceStep,
+      semstep: DebugSemStep(
+        direction: semstepLeave,
+        level: indentLevel,
+        name: action,
+        node: n,
+        typ: r,
+        kind: stepNodeTypeToNode)))
 
-template addInNimDebugUtils(c: ConfigRef; name: string; x, y, r: PType) =
+  addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
+
+template addInNimDebugUtils(c: ConfigRef; action: string; x, y, r: PType) =
   ## add tracing to procs that are primarily `PType, PType -> PType`, looking
   ## for a common type
-  template enterMsg(indent: string): string =
-    "$1>$2: $3, $4" % [indent, name, $x.kind, $y.kind]
-  template leaveMsg(indent: string): string =
-    "$1<$2: $3, $4, $5, $6" % [indent, name, $x.kind, $x, $y, $r]
-  template getInfo(): string =
-    ""
-  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
+  template enterMsg(indentLevel: int) =
+    localReport(c, DebugReport(
+      kind: rdbgTraceStep,
+      semstep: DebugSemStep(
+        direction: semstepEnter,
+        level: indentLevel,
+        name: action,
+        typ: x,
+        typ1: y,
+        kind: stepTypeTypeToType)))
+
+  template leaveMsg(indentLevel: int) =
+    localReport(c, DebugReport(
+      kind: rdbgTraceStep,
+      semstep: DebugSemStep(
+        direction: semstepLeave,
+        level: indentLevel,
+        name: action,
+        typ: r,
+        kind: stepTypeTypeToType)))
+
+  addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
 template semIdeForTemplateOrGenericCheck(conf, n, requiresCheck) =
   # we check quickly if the node is where the cursor is
@@ -398,7 +441,7 @@ proc endsInNoReturn(n: PNode): bool =
 
 proc commonType*(c: PContext; x: PType, y: PNode): PType =
   # ignore exception raising branches in case/if expressions
-  addInNimDebugUtils(c.config, "commonType", x, y, result)
+  addInNimDebugUtils(c.config, "commonType", y, x, result)
   result = x
   if endsInNoReturn(y): return
   result = commonType(c, x, y.typ)

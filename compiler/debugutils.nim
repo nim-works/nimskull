@@ -10,9 +10,6 @@ useful debugging flags:
 --stacktrace -d:debug -d:nimDebugUtils
  nim c -o:bin/nim_temp --stacktrace -d:debug -d:nimDebugUtils compiler/nim
 
-## future work
-* expose and improve astalgo.debug, replacing it by std/prettyprints,
-  refs https://github.com/nim-lang/RFCs/issues/385
 ]#
 
 when not defined(nimDebugUtils):

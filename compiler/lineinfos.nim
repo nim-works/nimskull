@@ -50,6 +50,14 @@ proc computeNotesVerbosity(): tuple[
     # debug report for transition of the configuration options
     result.base.incl {rdbgOptionsPush, rdbgOptionsPop}
 
+
+  when defined(nimVMDebug):
+    result.base.incl {rdbgVmExecTraceFull, rdbgVmCodeListing}
+
+  when defined(nimDebugUtils):
+    result.base.incl {
+      rdbgTraceStart, rdbgTraceStep, rdbgTraceLine, rdbgTraceEnd}
+
   result.main[3] = result.base + repWarningKinds + repHintKinds - {
     rsemObservableStores, rsemResultUsed, rsemAnyEnumConvert}
 

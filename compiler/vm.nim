@@ -488,8 +488,8 @@ proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType):
 
 proc compile(c: PCtx, s: PSym): int =
   result = vmgen.genProc(c, s)
-  when debugEchoCode: c.echoCode result
-  #c.echoCode
+  when debugEchoCode:
+    c.codeListing(s, nil, start = result)
 
 template handleJmpBack() {.dirty.} =
   if c.loopIterations <= 0:
@@ -555,19 +555,29 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
     let ra = instr.regA
 
     when traceCode:
-      template regDescr(name, r): string =
-        let kind = if r < regs.len: $regs[r].kind else: ""
-        let ret = name & ": " & $r & " " & $kind
-        alignLeft(ret, 15)
-      echo "PC:$pc $opcode $ra $rb $rc" % [
-        "pc", $pc, "opcode", alignLeft($c.code[pc].opcode, 15),
-        "ra", regDescr("ra", ra), "rb", regDescr("rb", instr.regB),
-        "rc", regDescr("rc", instr.regC)]
+      template regDescr(r): TRegisterKind =
+        if r < regs.len: regs[r].kind else: rkNone
+
+      c.config.localReport(DebugReport(
+        kind: rdbgVmExecTraceFull,
+        vmgenExecFull: (
+          pc: pc,
+          opc: c.code[pc].opcode,
+          info: c.debug[pc],
+          ra: regDescr(instr.regA),
+          rb: regDescr(instr.regB),
+          rc: regDescr(instr.regC)
+      )))
+
     if c.config.isVmTrace:
       # unlike nimVMDebug, this doesn't require re-compiling nim and is controlled by user code
-      let info = c.debug[pc]
-      # other useful variables: c.loopIterations
-      echo "$# [$#] $#" % [c.config$info, $instr.opcode, c.config.sourceLine(info)]
+      c.config.localReport(DebugReport(
+        kind: rdbgVmExecTraceMinimal,
+        vmgenExecMinimal: (
+          info: c.debug[pc],
+          opc: instr.opcode
+      )))
+
     c.profiler.enter(c, tos)
     case instr.opcode
     of opcEof: return regs[ra]
@@ -2260,7 +2270,9 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
   let start = genExpr(c, n, requiresValue = mode!=emStaticStmt)
   if c.code[start].opcode == opcEof: return newNodeI(nkEmpty, n.info)
   assert c.code[start].opcode != opcEof
-  when debugEchoCode: c.echoCode start
+  when debugEchoCode:
+    c.codeListing(prc, n)
+
   var tos = PStackFrame(prc: prc, comesFrom: 0, next: nil)
   newSeq(tos.slots, c.prc.regInfo.len)
   #for i in 0..<c.prc.regInfo.len: tos.slots[i] = newNode(nkEmpty)

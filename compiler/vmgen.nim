@@ -41,8 +41,6 @@ when defined(nimCompilerStacktraceHints):
 const
   debugEchoCode* = defined(nimVMDebug)
 
-when debugEchoCode:
-  import std/private/asciitables
 when hasFFI:
   import evalffi
 
@@ -56,7 +54,7 @@ type
 proc debugInfo(c: PCtx; info: TLineInfo): string =
   result = toFileLineCol(c.config, info)
 
-proc codeListing(c: PCtx, result: var string, start=0; last = -1) =
+proc codeListing*(c: PCtx, prc: PSym, ast: PNode, start=0; last = -1) =
   ## for debugging purposes
   # first iteration: compute all necessary labels:
   var jumpTargets = initIntSet()
@@ -66,52 +64,40 @@ proc codeListing(c: PCtx, result: var string, start=0; last = -1) =
     if x.opcode in relativeJumps:
       jumpTargets.incl(i+x.regBx-wordExcess)
 
-  template toStr(opc: TOpcode): string = ($opc).substr(3)
+  var rep = DebugReport(kind: rdbgVmCodeListing)
+  rep.vmgenListing.sym = prc
+  rep.vmgenListing.ast = ast
 
-  result.add "code listing:\n"
   var i = start
   while i <= last:
-    if i in jumpTargets: result.addf("L$1:\n", i)
     let x = c.code[i]
-
-    result.add($i)
     let opc = opcode(x)
-    if opc in {opcIndCall, opcIndCallAsgn}:
-      result.addf("\t$#\tr$#, r$#, nargs:$#", opc.toStr, x.regA,
-                  x.regB, x.regC)
-    elif opc in {opcConv, opcCast}:
-      let y = c.code[i+1]
-      let z = c.code[i+2]
-      result.addf("\t$#\tr$#, r$#, $#, $#", opc.toStr, x.regA, x.regB,
-        c.types[y.regBx-wordExcess].typeToString,
-        c.types[z.regBx-wordExcess].typeToString)
-      inc i, 2
-    elif opc < firstABxInstr:
-      result.addf("\t$#\tr$#, r$#, r$#", opc.toStr, x.regA,
-                  x.regB, x.regC)
-    elif opc in relativeJumps + {opcTry}:
-      result.addf("\t$#\tr$#, L$#", opc.toStr, x.regA,
-                  i+x.regBx-wordExcess)
-    elif opc in {opcExcept}:
-      let idx = x.regBx-wordExcess
-      result.addf("\t$#\t$#, $#", opc.toStr, x.regA, $idx)
-    elif opc in {opcLdConst, opcAsgnConst}:
-      let idx = x.regBx-wordExcess
-      result.addf("\t$#\tr$#, $# ($#)", opc.toStr, x.regA,
-        c.constants[idx].renderTree, $idx)
-    else:
-      result.addf("\t$#\tr$#, $#", opc.toStr, x.regA, x.regBx-wordExcess)
-    result.add("\t# ")
-    result.add(debugInfo(c, c.debug[i]))
-    result.add("\n")
-    inc i
-  when debugEchoCode:
-    result = result.alignTable
+    var code = DebugVmCodeEntry(
+      pc: i, opc: opc, ra: x.regA, rb: x.regB, rc: x.regC)
 
-proc echoCode*(c: PCtx; start=0; last = -1) {.deprecated.} =
-  var buf = ""
-  codeListing(c, buf, start, last)
-  echo buf
+    code.isTarget = i in jumpTargets
+
+    case opc:
+      of {opcConv, opcCast}:
+        let y = c.code[i + 1]
+        let z = c.code[i + 2]
+        code.types = (c.types[y.regBx-wordExcess], c.types[z.regBx-wordExcess])
+        inc i, 2
+
+      of {opcLdConst, opcAsgnConst}:
+        code.idx = x.regBx - wordExcess
+        code.ast = c.constants[code.idx]
+
+      else:
+        discard
+
+
+    code.info = c.debug[i]
+    rep.vmgenListing.entries.add code
+    inc i
+
+  c.config.localReport(rep)
+
 
 proc gABC(ctx: PCtx; n: PNode; opc: TOpcode; a, b, c: TRegister = 0) =
   ## Takes the registers `b` and `c`, applies the operation `opc` to them, and
@@ -2036,6 +2022,7 @@ proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     case s.kind
     of skVar, skForVar, skTemp, skLet, skParam, skResult:
       genRdVar(c, n, dest, flags)
+
     of skProc, skFunc, skConverter, skMacro, skTemplate, skMethod, skIterator:
       # 'skTemplate' is only allowed for 'getAst' support:
       if s.kind == skIterator and s.typ.callConv == TCallingConvention.ccClosure:

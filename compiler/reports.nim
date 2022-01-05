@@ -16,7 +16,11 @@
 
 import std/[options]
 
-import ast_types, nilcheck_enums, int128
+import
+  ast_types,
+  vm_enums,
+  nilcheck_enums,
+  int128
 
 export
   ast_types,
@@ -856,6 +860,16 @@ type
 
     #----------------------------  Debug reports  ----------------------------#
     rdbgTest
+    rdbgVmExecTraceFull
+    rdbgVmExecTraceMinimal
+    rdbgVmCodeListing
+
+    rdbgTraceStart
+    rdbgTraceStep
+    rdbgTraceLine
+    rdbgTraceEnd
+
+
     rdbgOptionsPush
     rdbgOptionsPop
 
@@ -1392,10 +1406,81 @@ func severity*(report: CmdReport): ReportSeverity =
 type
   DebugReportKind* = range[rdbgTest .. rdbgOptionsPop]
 
+  DebugSemStepDirection* = enum semstepEnter, semstepLeave
+  DebugSemStepKind* = enum
+    stepNodeToNode
+    stepNodeFlagsToNode
+    stepNodeTypeToNode
+    stepTypeTypeToType
+
+
+  DebugSemStep* = object
+    direction*: DebugSemStepDirection
+    level*: int
+    name*: string
+    node*: PNode
+    case kind*: DebugSemStepKind
+      of stepNodeToNode:
+        discard
+
+      of stepNodeTypeToNode, stepTypeTypeToType:
+        typ*: PType
+        typ1*: PType
+
+      of stepNodeFlagsToNode:
+        flags*: TExprFlags
+
+  DebugVmCodeEntry* = object
+    isTarget*: bool
+    info*: TLineInfo
+    pc*: int
+    case opc*: TOpcode:
+      of opcConv, opcCast:
+        types*: tuple[tfrom, tto: PType]
+
+      of opcLdConst, opcAsgnConst:
+        ast*: PNode
+        idx*: int
+
+      else:
+        discard
+
+    ra*: int
+    rb*: int
+    rc*: int
+
+
   DebugReport* = object of ReportBase
     case kind*: ReportKind
       of rdbgOptionsPush, rdbgOptionsPop:
         optionsNow*: TOptions
+
+      of rdbgVmExecTraceFull:
+        vmgenExecFull*: tuple[
+          pc: int,
+          opc: TOpcode,
+          info: TLineInfo,
+          ra, rb, rc: TRegisterKind
+        ]
+
+      of rdbgTraceStep:
+        semstep*: DebugSemStep
+
+      of rdbgTraceLine:
+        ctraceData*: tuple[level: int, entries: seq[StackTraceEntry]]
+
+      of rdbgVmCodeListing:
+        vmgenListing*: tuple[
+          sym: PSym,
+          ast: PNode,
+          entries: seq[DebugVmCodeEntry]
+        ]
+
+      of rdbgVmExecTraceMinimal:
+        vmgenExecMinimal*: tuple[
+          info: TLineInfo,
+          opc: TOpcode
+        ]
 
       else:
         discard

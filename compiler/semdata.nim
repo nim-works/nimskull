@@ -16,6 +16,8 @@ import
   magicsys, vmdef, modulegraphs, lineinfos, sets, pathutils,
   reports
 
+export TExprFlag, TExprFlags
+
 import std/strutils
 
 import ic / ic
@@ -54,27 +56,6 @@ type
     genericSym*: PSym
     inst*: PInstantiation
 
-  TExprFlag* = enum
-    efLValue, efWantIterator, efWantIterable, efInTypeof,
-    efNeedStatic,
-      # Use this in contexts where a static value is mandatory
-    efPreferStatic,
-      # Use this in contexts where a static value could bring more
-      # information, but it's not strictly mandatory. This may become
-      # the default with implicit statics in the future.
-    efPreferNilResult,
-      # Use this if you want a certain result (e.g. static value),
-      # but you don't want to trigger a hard error. For example,
-      # you may be in position to supply a better error message
-      # to the user.
-    efWantStmt, efAllowStmt, efDetermineType, efExplain,
-    efWantValue, efOperand, efNoSemCheck,
-    efNoEvaluateGeneric, efInCall, efFromHlo, efNoSem2Check,
-    efNoUndeclared
-      # Use this if undeclared identifiers should not raise an error during
-      # overload resolution.
-
-  TExprFlags* = set[TExprFlag]
 
   ImportMode* = enum
     importAll, importSet, importExcept
