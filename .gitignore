@@ -116,4 +116,5 @@ nimdoc.out.css
 .vscode
 
 file.nim
-haxdoc/*
+build.sh
+**/haxdoc/*

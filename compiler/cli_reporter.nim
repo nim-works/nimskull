@@ -1550,7 +1550,11 @@ proc prefix(conf: ConfigRef, r: ReportTypes): string =
   # `Hint: `, `Error: ` etc.
   result.add conf.wrap(reportTitles[sev], reportColors[sev])
 
-proc suffix(conf: ConfigRef, r: ReportTypes, withKind: bool = false): string =
+proc suffix(
+    conf: ConfigRef,
+    r: ReportTypes,
+    withKind: bool = false
+  ): string =
   if withKind:
     result.add conf.wrap(" [" & $r.kind & "]", fgCyan)
 
@@ -1702,6 +1706,23 @@ proc report(conf: ConfigRef, r: InternalReport): string =
 No stack traceback available
 To create a stacktrace, rerun compilation with './koch temp $1 <file>'
       """
+
+    of rintAssert:
+      result.add(
+        conf.prefix(r),
+        "Internal assert '",
+        r.expression,
+        "' failed in ",
+        conf.toStr(r.reportInst)
+      )
+
+    of rintUnreachable:
+      result.add(
+        conf.prefix(r),
+        "Internal unreachable code executed - ",
+        conf.toStr(r.reportInst),
+        "(", r.msg, ") should never be called."
+      )
 
     else:
       result = $r

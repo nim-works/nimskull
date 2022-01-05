@@ -19,7 +19,9 @@ from ast_types import PSym
 export InstantiationInfo
 
 template instLoc*(): InstantiationInfo =
-  ## Genereate instantiation info location information
+  ## grabs where in the compiler an error was instanced to ease debugging.
+  ##
+  ## whether to use full paths depends on --excessiveStackTrace compiler option.
   instantiationInfo(-2, fullPaths = compileOption"excessiveStackTrace")
 
 template toStdOrrKind(stdOrr): untyped =
@@ -217,7 +219,7 @@ proc toFullPath*(conf: ConfigRef; fileIdx: FileIndex): string =
 proc toReportLinePoint*(conf: ConfigRef, info: TLineInfo): ReportLinePoint =
   ReportLinePoint(
     file: conf.toFullPath(info.fileIndex),
-     line: info.line.int, col: info.col.int)
+     line: info.line, col: info.col)
 
 proc setDirtyFile*(conf: ConfigRef; fileIdx: FileIndex; filename: AbsoluteFile) =
   assert fileIdx.int32 >= 0
@@ -301,8 +303,8 @@ proc toReportPoint*(
 
   ReportLinePoint(
     file: toMsgFilename(conf, info),
-    line: info.line.int,
-    col: info.col.int + ColOffset)
+    line: info.line,
+    col: info.col + ColOffset)
 
 proc `$`*(conf: ConfigRef; info: TLineInfo): string = toFileLineCol(conf, info)
 

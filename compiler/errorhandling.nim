@@ -31,17 +31,10 @@
 ## * rework internals to store actual error information in a lookup data
 ##   structure on the side instead of directly in the node
 
-import ast
-from options import ConfigRef, store
+import ast, msgs, options
 from lineinfos import unknownLineInfo
 from trees import cyclicTree
 import reports
-
-template instLoc(depth = -2): InstantiationInfo =
-  ## grabs where in the compiler an error was instanced to ease debugging.
-  ##
-  ## whether to use full paths depends on --excessiveStackTrace compiler option.
-  instantiationInfo(depth, fullPaths = compileOption"excessiveStackTrace")
 
 proc errorSubNode*(n: PNode): PNode =
   ## find the first error node, or nil, under `n` using a depth first traversal
@@ -57,12 +50,12 @@ proc errorSubNode*(n: PNode): PNode =
       result = errorSubNode(s)
       if result != nil: break
 
-func errorKind*(e: PNode): SemReportErrorKind {.inline.} =
+func errorKind*(e: PNode): SemReportKind {.inline.} =
   ## property to retrieve the error kind
   assert e != nil, "can't have a nil error node"
   assert e.kind == nkError, "must be an error node to have an ErrorKind"
 
-  result = SemReportErrorKind(e[errorKindPos].intVal)
+  result = SemReportKind(e[errorKindPos].intVal)
 
 func compilerInstInfo*(e: PNode): InstantiationInfo {.inline.} =
   ## return where the error was instantiated in the compiler
@@ -79,6 +72,7 @@ proc newError*(
   ): PNode =
   ## Create `nkError` node with with given error report and additional
   ## subnodes.
+  assert errorKind in repSemKinds
   assert wrongNode != nil, "can't have a nil node for `wrongNode`"
 
   result = newNodeIT(
@@ -97,6 +91,25 @@ proc newError*(
 
   assert not cyclicTree(result)
 
+proc newError*(
+    conf: ConfigRef,
+    wrongNode: PNode,
+    report: SemReport,
+    inst: InstantiationInfo,
+    args: seq[PNode] = @[],
+    posInfo: TLineInfo = unknownLineInfo,
+  ): PNode =
+
+  var rep = report
+  if isNil(rep.ast):
+    rep.ast = wrongNode
+
+  let tmp = wrap(rep, inst, conf.toReportLinePoint(
+    if posInfo == unknownLineInfo: wrongNode.info  else: posInfo))
+
+  let id = conf.addReport(tmp)
+  newError(wrongNode, tmp.semReport.kind, id, inst, args)
+
 template newError*(
     conf: ConfigRef,
     wrongNode: PNode,
@@ -104,35 +117,7 @@ template newError*(
     args: seq[PNode] = @[],
     posInfo: TLineInfo = unknownLineInfo,
   ): untyped =
-  var rep = report
-  if isNil(rep.ast):
-    rep.ast = wrongNode
-
-  let tmp = wrap(rep, instLoc(), conf.toReportLinePoint(
-    if posInfo == unknownLineInfo: wrongNode.info  else: posInfo))
-
-  let id = conf.addReport(tmp)
-  newError(wrongNode, tmp.semReport.kind, id, instLoc(), args)
-
-# template newError*(
-#     conf: ConfigRef,
-#     node: PNode,
-#     reportKind: SemReportKind,
-#     psym: PSym = nil,
-#     errMsg: string = "",
-#     args: seq[PNode] = @[],
-#     posInfo: TLineInfo = unknownLineInfo
-#   ): untyped {.deprecated: "Use `newError` that accepts full report object".} =
-#   newError(
-#     node,
-#     reportKind,
-#     conf.addReport(wrap(
-#       SemReport(ast: node, sym: psym, kind: reportKind, str: errMsg),
-#       instLoc(),
-#       conf.toReportLinePoint(
-#         if posInfo == unknownLineInfo: node.info else: posInfo))),
-#     instLoc(),
-#     args)
+  newError(conf, wrongNode, report, instLoc(), args, posInfo)
 
 template wrapErrorInSubTree*(wrongNodeContainer: PNode): PNode =
   ## `wrongNodeContainer` doesn't directly have an error but one exists further

@@ -1671,7 +1671,7 @@ proc genRdVar(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
                           s.kind in {skParam, skResult}):
       if dest < 0:
         dest = s.position + ord(s.kind == skParam)
-        internalAssert(c.config, c.prc.regInfo[dest].kind < slotSomeTemp, "")
+        internalAssert(c.config, c.prc.regInfo[dest].kind < slotSomeTemp)
       else:
         # we need to generate an assignment:
         let requiresCopy = c.prc.regInfo[dest].kind >= slotSomeTemp and

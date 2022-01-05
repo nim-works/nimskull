@@ -251,7 +251,7 @@ proc getMsgDiagnostic(
     # we avoid running more diagnostic when inside a `compiles(expr)`, to
     # errors while running diagnostic (see test D20180828T234921), and
     # also avoid slowdowns in evaluating `compiles(expr)`.
-    discard
+    result = SemReport(kind: rsemCompilesDummyReport)
   else:
     var o: TOverloadIter
     result = SemReport(

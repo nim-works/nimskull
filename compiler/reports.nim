@@ -828,6 +828,7 @@ type
     rsemExpandArc = "ExpandArc"
 
 
+    rsemCompilesDummyReport
     rsemNonMatchingCandidates
     rsemUserRaw = "UserRaw" # REVIEW - Used in
     # `semcall.semOverloadedCall()` and `extccomp.getCompileCFileCmd()`.
@@ -920,13 +921,14 @@ type
   ReportLineRange* = object
     ## Report location expressed as a span of lines in the file
     file*: string
-    startLine*, endLine*: int
-    startCol*, endCol*: int
+    startLine*, endLine*: uint16
+    startCol*, endCol*: int16
 
   ReportLinePoint* = object
     ## Location expressed in terms of a single point in the file
     file*: string
-    line*, col*: int
+    line*: uint16
+    col*: int16
 
   ReportLineInfo* = object
     case isRange*: bool
@@ -989,6 +991,7 @@ type
 
 
 const
+  repLexerKinds*    = {low(LexerReportKind) .. high(LexerReportKind)}
   rlexHintKinds*    = {rlexLineTooLong .. rlexSyntaxesCode}
   rlexWarningKinds* = {rlexDeprecatedOctalPrefix .. rlexLinterReport}
   rlexErrorKinds*   = {rlexMalformedUnderscores .. rlexUnclosedComment}
@@ -1018,6 +1021,7 @@ type
 
 
 const
+  repParserKinds* = {low(ParserReportKind) .. high(ParserReportKind)}
   rparHintKinds*    = {rparName}
   rparErrorKinds*   = {rparInvalidIndentation .. rparInvalidFilter}
   rparWarningKinds* = {
@@ -1296,6 +1300,7 @@ type
         discard
 
 const
+  repSemKinds* = {low(SemReportKind) .. high(SemReportKind)}
   rsemErrorKinds* = {rsemUserError .. rsemEmptyAsm}
   rsemWarningKinds* = {rsemUserWarning .. rsemLinterReport}
   rsemHintKinds* = {rsemUserHint .. rsemImplicitObjConv}
@@ -1372,6 +1377,7 @@ type
         discard
 
 const
+  repCmdKinds* = {low(CmdReportKind) .. high(CmdReportKind)}
   rcmdErrorKinds* = {rcmdFailedExecution}
   rcmdWarningKinds* = default(set[ReportKind])
   rcmdHintKinds* = {rcmdCompiling .. rcmdRunnableExamplesSuccess}
@@ -1393,6 +1399,9 @@ type
 
       else:
         discard
+
+const
+  rebDebugKinds* = {low(DebugReportKind) .. high(DebugReportKind)}
 
 func severity*(report: DebugReport): ReportSeverity =
   rsevDebug
@@ -1420,6 +1429,7 @@ type
         discard
 
 const
+  repBackendKinds* = {low(BackendReportKind) .. high(BackendReportKind)}
   rbackErrorKinds* = {rbackCannotWriteScript}
 
 func severity*(report: BackendReport): ReportSeverity =
@@ -1455,6 +1465,7 @@ type
         discard
 
 const
+  repExternalKinds* = {low(ExternalReportKind) .. high(ExternalReportKind)}
   rextErrorKinds* = {rextUnknownCCompiler .. rextInvalidPackageName}
   rextWarningKinds* = {rextDeprecated}
   rextHintKinds* = {rextConf .. rextPath}
@@ -1573,6 +1584,7 @@ const
   repFatalKinds*: ReportKinds = rintFatalKinds
 
 
+
 type
   ReportTypes* =
     LexerReport    |
@@ -1610,6 +1622,22 @@ type
 
       of repExternal:
         externalReport*: ExternalReport
+
+static:
+  echo "size of ReportBase     ", sizeof(ReportBase)
+  echo "size of LexerReport    ", sizeof(LexerReport)
+  echo "size of ParserReport   ", sizeof(ParserReport)
+  echo "size of SemReport      ", sizeof(SemReport)
+  echo "size of CmdReport      ", sizeof(CmdReport)
+  echo "size of DebugReport    ", sizeof(DebugReport)
+  echo "size of InternalReport ", sizeof(InternalReport)
+  echo "size of BackendReport  ", sizeof(BackendReport)
+  echo "size of ExternalReport ", sizeof(ExternalReport)
+  echo "size of Report         ", sizeof(Report)
+  echo "sem reports      = ", len(repSemKinds)
+  echo "lexer reports    = ", len(repLexerKinds)
+  echo "parser reports   = ", len(repParserKinds)
+  echo "internal reports = ", len(repInternalKinds)
 
 let reportEmpty* = Report(
   category: repInternal,
@@ -1670,7 +1698,7 @@ func severity*(
       of repExternal: report.externalReport.severity()
 
 func toReportLinePoint*(iinfo: InstantiationInfo): ReportLinePoint =
-  ReportLinePoint(file: iinfo[0], line: iinfo[1], col: iinfo[2])
+  ReportLinePoint(file: iinfo[0], line: uint16(iinfo[1]), col: int16(iinfo[2]))
 
 func isValid*(point: ReportLinePoint): bool =
   0 < point.file.len and point.file != "???"
@@ -1683,37 +1711,36 @@ template reportHere*[R: ReportTypes](report: R): R =
 
     tmp
 
-
 func wrap*(rep: sink LexerReport): Report =
-  assert rep.kind in {low(LexerReportKind) .. high(LexerReportKind)}
+  assert rep.kind in repLexerKinds, $rep.kind
   Report(category: repLexer, lexReport: rep)
 
 func wrap*(rep: sink ParserReport): Report =
-  assert rep.kind in {low(ParserReportKind) .. high(ParserReportKind)}
+  assert rep.kind in repParserKinds, $rep.kind
   Report(category: repParser, parserReport: rep)
 
 func wrap*(rep: sink SemReport): Report =
-  assert rep.kind in {low(SemReportKind) .. high(SemReportKind)}
+  assert rep.kind in repSemKinds, $rep.kind
   Report(category: repSem, semReport: rep)
 
 func wrap*(rep: sink BackendReport): Report =
-  assert rep.kind in {low(BackendReportKind) .. high(BackendReportKind)}
+  assert rep.kind in repBackendKinds, $rep.kind
   Report(category: repBackend, backendReport: rep)
 
 func wrap*(rep: sink CmdReport): Report =
-  assert rep.kind in {low(CmdReportKind) .. high(CmdReportKind)}
+  assert rep.kind in repCmdKinds, $rep.kind
   Report(category: repCmd, cmdReport: rep)
 
 func wrap*(rep: sink DebugReport): Report =
-  assert rep.kind in {low(DebugReportKind) .. high(DebugReportKind)}
+  assert rep.kind in rebDebugKinds, $rep.kind
   Report(category: repDebug, debugreport: rep)
 
 func wrap*(rep: sink InternalReport): Report =
-  assert rep.kind in {low(InternalReportKind) .. high(InternalReportKind)}
+  assert rep.kind in repInternalKinds, $rep.kind
   Report(category: repInternal, internalReport: rep)
 
 func wrap*(rep: sink ExternalReport): Report =
-  assert rep.kind in {low(ExternalReportKind) .. high(ExternalReportKind)}
+  assert rep.kind in repExternalKinds, $rep.kind
   Report(category: repExternal, externalReport: rep)
 
 func wrap*[R: ReportTypes](rep: sink R, iinfo: InstantiationInfo): Report =

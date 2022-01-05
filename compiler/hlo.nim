@@ -9,8 +9,6 @@
 
 # This include implements the high level optimization pass.
 
-import reports
-
 proc hlo(c: PContext, n: PNode): PNode
 
 proc evalPattern(c: PContext, n, orig: PNode): PNode =
