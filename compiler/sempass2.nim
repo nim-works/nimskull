@@ -278,7 +278,7 @@ proc listGcUnsafety(s: PSym; onlyWarning: bool; cycleCheck: var IntSet; conf: Co
         isUnsafe: s,
         unsafeVia: u,
         unsafeRelation: reason,
-        location: conf.toReportLinePoint(s.info)
+        location: s.info
       ))
 
 

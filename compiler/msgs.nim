@@ -216,8 +216,8 @@ proc toFullPath*(conf: ConfigRef; fileIdx: FileIndex): string =
   else:
     result = conf.m.fileInfos[fileIdx.int32].fullPath.string
 
-proc toReportLinePoint*(conf: ConfigRef, info: TLineInfo): ReportLinePoint =
-  ReportLinePoint(
+proc toReportLineInfo*(conf: ConfigRef, info: TLineInfo): ReportLineInfo =
+  ReportLineInfo(
     file: conf.toFullPath(info.fileIndex),
      line: info.line, col: info.col)
 
@@ -297,11 +297,11 @@ proc toFileLineCol*(conf: ConfigRef; info: TLineInfo): string {.inline.} =
     toMsgFilename(conf, info), info.line.int, info.col.int + ColOffset)
 
 proc toReportPoint*(
-  conf: ConfigRef; info: TLineInfo): ReportLinePoint {.inline.} =
+  conf: ConfigRef; info: TLineInfo): ReportLineInfo {.inline.} =
   ## Construct report location instance based on the information from
   ## `info`
 
-  ReportLinePoint(
+  ReportLineInfo(
     file: toMsgFilename(conf, info),
     line: info.line,
     col: info.col + ColOffset)

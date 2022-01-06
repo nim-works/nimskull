@@ -52,31 +52,11 @@ proc toStr(conf: ConfigRef, loc: TLineInfo): string =
     fgDefault,
     {styleBright})
 
-proc toStr(conf: ConfigRef, loc: ReportLinePoint): string =
+proc toStr(conf: ConfigRef, loc: ReportLineInfo): string =
   conf.wrap(
     "$1($2, $3)" % [conf.formatPath(loc.file), $loc.line, $loc.col],
     fgDefault,
     {styleBright})
-
-proc toStr(conf: ConfigRef, loc: ReportLineRange): string =
-  conf.wrap(
-    "$1($2, $3):($3, $4)" % [
-      conf.formatPath(loc.file),
-      $loc.startLine,
-      $loc.startCol,
-      $loc.endLine,
-      $loc.endCol
-    ],
-    fgDefault,
-    {styleBright})
-
-proc toStr(conf: ConfigRef, info: ReportLineInfo): string =
-  if info.isRange:
-    conf.toStr(info.lrange)
-
-  else:
-    conf.toStr(info.lpoint)
-
 
 const
   reportTitles: array[ReportSeverity, string] = [

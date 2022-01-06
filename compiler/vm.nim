@@ -83,7 +83,7 @@ proc stackTraceImpl(
 
   let action = if c.mode == emRepl: doRaise else: doNothing
 
-  let report = wrap(res, toReportLinePoint(infoOrigin), lineInfo)
+  let report = wrap(res, infoOrigin, lineInfo)
 
   c.config.handleReport(report, action)
 

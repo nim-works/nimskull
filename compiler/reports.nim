@@ -937,25 +937,11 @@ static:
     " different kinds of diagnostics")
 
 type
-  ReportLineRange* = object
-    ## Report location expressed as a span of lines in the file
-    file*: string
-    startLine*, endLine*: uint16
-    startCol*, endCol*: int16
-
-  ReportLinePoint* = object
+  ReportLineInfo* = object
     ## Location expressed in terms of a single point in the file
     file*: string
     line*: uint16
     col*: int16
-
-  ReportLineInfo* = object
-    case isRange*: bool
-      of true:
-        lrange*: ReportLineRange
-
-      of false:
-        lpoint*: ReportLinePoint
 
   ReportSeverity* = enum
     rsevDebug = "Debug" ## Internal compiler debug information
@@ -974,7 +960,7 @@ type
 
 
   ReportContext* = object
-    location*: ReportLinePoint ## Report context instantiation
+    location*: ReportLineInfo ## Report context instantiation
     case kind*: ReportContextKind
       of sckInstantiationOf:
         entry*: PSym ## Instantiated entry symbol
@@ -992,7 +978,7 @@ type
     ## information (view type sealing reasons) - those are handled on the
     ## per-report-kind basis.
 
-    reportInst*: ReportLinePoint ## Information about instantiation location
+    reportInst*: ReportLineInfo ## Information about instantiation location
     ## of the reports - present for all reports in order to track their
     ## origins.
 
@@ -1204,7 +1190,7 @@ type
           isUnsafe: PSym,
           unsafeVia: PSym,
           unsafeRelation: SemGcUnsafetyKind,
-          location: ReportLinePoint
+          location: TLineInfo
         ]]
 
       of rsemHasSideEffects:
@@ -1753,7 +1739,7 @@ template eachCategory*(report: Report, field: untyped): untyped =
 
 func kind*(report: Report): ReportKind = eachCategory(report, kind)
 func location*(report: Report): Option[TLineInfo] = eachCategory(report, location)
-func reportInst*(report: Report): ReportLinePoint = eachCategory(report, reportInst)
+func reportInst*(report: Report): ReportLineInfo = eachCategory(report, reportInst)
 
 func severity*(
     report: ReportTypes,
@@ -1793,16 +1779,16 @@ func severity*(
       of repDebug:    report.debugReport.severity()
       of repExternal: report.externalReport.severity()
 
-func toReportLinePoint*(iinfo: InstantiationInfo): ReportLinePoint =
-  ReportLinePoint(file: iinfo[0], line: uint16(iinfo[1]), col: int16(iinfo[2]))
+func toReportLineInfo*(iinfo: InstantiationInfo): ReportLineInfo =
+  ReportLineInfo(file: iinfo[0], line: uint16(iinfo[1]), col: int16(iinfo[2]))
 
-func isValid*(point: ReportLinePoint): bool =
+func isValid*(point: ReportLineInfo): bool =
   0 < point.file.len and point.file != "???"
 
 template reportHere*[R: ReportTypes](report: R): R =
   block:
     var tmp = report
-    tmp.reportInsta = toReportLinePoint(
+    tmp.reportInsta = toReportLineInfo(
       instantiationInfo(fullPaths = true))
 
     tmp
@@ -1841,12 +1827,12 @@ func wrap*(rep: sink ExternalReport): Report =
 
 func wrap*[R: ReportTypes](rep: sink R, iinfo: InstantiationInfo): Report =
   var tmp = rep
-  tmp.reportInst = toReportLinePoint(iinfo)
+  tmp.reportInst = toReportLineInfo(iinfo)
   return wrap(tmp)
 
 
 func wrap*[R: ReportTypes](
-    rep: sink R, iinfo: ReportLinePoint, point: TLineInfo): Report =
+    rep: sink R, iinfo: ReportLineInfo, point: TLineInfo): Report =
   var tmp = rep
   tmp.reportInst = iinfo
   tmp.location = some point
@@ -1854,20 +1840,13 @@ func wrap*[R: ReportTypes](
 
 func wrap*[R: ReportTypes](
     rep: sink R, iinfo: InstantiationInfo, point: TLineInfo): Report =
-  wrap(rep, toReportLinePoint(iinfo), point)
+  wrap(rep, toReportLineInfo(iinfo), point)
 
 template wrap*(rep: ReportTypes): Report =
   wrap(rep, toReportLineInfo(instLoc()))
 
-func `$`*(point: ReportLinePoint): string =
+func `$`*(point: ReportLineInfo): string =
   point.file & "(" & $point.line & ", " & $point.col & ")"
-
-func `$`*(lrange: ReportLineRange): string =
-  lrange.file & "(" & $lrange.startLine & ", " & $lrange.startCol &
-    ")-" & $lrange.endLine & ", " & $lrange.endCol
-
-func `$`*(linfo: ReportLineInfo): string =
-  if linfo.isRange: $linfo.lrange else: $linfo.lpoint
 
 
 type
