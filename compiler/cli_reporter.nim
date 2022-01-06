@@ -1870,7 +1870,7 @@ proc report(conf: ConfigRef, r: InternalReport): string =
 
       result = &"""
 {conf.prefix(r)}{build}
-{par.linesCompiled} lines; {par.sec:.3f}s; {mem}; proj: {par.project}; out: {par.output}"
+{par.linesCompiled} lines; {par.sec:.3f}s; {mem}; proj: {par.project}; out: {par.output}
 """
 
       result.add conf.suffix(r)
@@ -1993,6 +1993,9 @@ proc report(conf: ConfigRef, r: ExternalReport): string =
 
     of rextInvalidWarning:
       result.add("Invalid warning - ", r.cmdlineProvided)
+
+    of rextInvalidCommand:
+       result.add("Invalid command - ", r.cmdlineProvided)
 
     of rextInvalidCommandLineOption:
       result.add("Invalid command line option - ", r.cmdlineProvided)

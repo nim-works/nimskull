@@ -1307,13 +1307,16 @@ proc track(tracked: PEffects, n: PNode) =
         checkBounds(tracked, n[0], n[1])
     track(tracked, n[0])
     dec tracked.leftPartOfAsgn
-    for i in 1 ..< n.len: track(tracked, n[i])
+    for i in 1 ..< n.len:
+      track(tracked, n[i])
+
     inc tracked.leftPartOfAsgn
   of nkError:
     for e in walkErrors(tracked.config, n):
       localReport(tracked.config, e)
   else:
-    for i in 0..<n.safeLen: track(tracked, n[i])
+    for i in 0 ..< n.safeLen:
+      track(tracked, n[i])
 
 proc subtypeRelation(g: ModuleGraph; spec, real: PNode): bool =
   if spec.typ.kind == tyOr:

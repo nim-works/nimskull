@@ -830,7 +830,7 @@ type
     typ*: PType
     info*: TLineInfo
     flags*: TNodeFlags
-    reportId*: ReportId
+    reportId*:  ReportId
     case kind*: TNodeKind
     of nkCharLit..nkUInt64Lit:
       intVal*: BiggestInt
@@ -1150,3 +1150,17 @@ type
       # overload resolution.
 
   TExprFlags* = set[TExprFlag]
+
+
+const emptyReportId* = ReportId(0)
+
+func `==`*(id1, id2: ReportId): bool = uint32(id1) == uint32(id2)
+
+func isEmpty*(id: ReportId): bool = id == emptyReportId
+
+func `$`*(id: ReportId): string =
+  if id.isEmpty:
+    "<empty report id>"
+
+  else:
+    "<report-id-" & $uint32(id) & ">"

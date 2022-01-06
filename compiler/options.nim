@@ -445,6 +445,11 @@ template report*[R: ReportTypes](
 
 proc addReport*(conf: ConfigRef, report: Report): ReportId =
   result = conf.m.reports.addReport(report)
+  assert not result.isEmpty(), $result
+
+proc getReport*(conf: ConfigRef, report: ReportId): Report =
+  assert not report.isEmpty(), $result
+  result = conf.m.reports.getReport(report)
 
 template store*(conf: ConfigRef, report: ReportTypes): untyped =
   conf.addReport(wrap(report, instLoc()))

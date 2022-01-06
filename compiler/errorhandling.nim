@@ -76,12 +76,13 @@ proc newError*(
   assert wrongNode != nil, "can't have a nil node for `wrongNode`"
   assert not report.isEmpty(), $report
 
-  result = newNodeIT(
-    nkError,
-    wrongNode.info,
-    newType(tyError, ItemId(module: -2, item: -1), nil))
+  result = PNode(
+    kind: nkError,
+    info: wrongNode.info,
+    typ: newType(tyError, ItemId(module: -2, item: -1), nil),
+    reportId: report
+  )
 
-  result.reportId = report
   result.add #[ 0 ]# wrongNode # wrapped wrong node
   result.add #[ 1 ]# newIntNode(nkIntLit, ord(errorKind)) # errorKindPos
   result.add #[ 2 ]# newStrNode(inst.filename, TLineInfo(
@@ -111,6 +112,8 @@ proc newError*(
     if posInfo == unknownLineInfo: wrongNode.info else: posInfo)
 
   let id = conf.addReport(tmp)
+  let r = conf.getReport(id)
+  assert not id.isEmpty(), $id
   newError(wrongNode, tmp.semReport.kind, id, inst, args)
 
 template newError*(
@@ -178,6 +181,11 @@ iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
     let e = errNodes[^i]
     if e.errorKind == rsemWrappedError:
       continue
+
+    assert(
+      not e.reportId.isEmpty(),
+      "Error node of kind" & $e.errorKind & "created in " &
+        $n.compilerInstInfo() & " has empty report id")
 
     yield e
 

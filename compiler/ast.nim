@@ -372,7 +372,7 @@ when defined(useNodeIds):
   var gNodeId: int
 
 template newNodeImpl(info2) =
-  result = PNode(kind: kind, info: info2)
+  result = PNode(kind: kind, info: info2, reportId: emptyReportId)
   when false:
     # this would add overhead, so we skip it; it results in a small amount of leaked entries
     # for old PNode that gets re-allocated at the same address as a PNode that
@@ -864,6 +864,7 @@ template copyNodeImpl(dst, src, processSonsStmt) =
   dst.typ = src.typ
   dst.flags = src.flags * PersistentNodeFlags
   dst.comment = src.comment
+  dst.reportId = src.reportId
   when defined(useNodeIds):
     if dst.id == nodeIdToDebug:
       echo "COMES FROM ", src.id
