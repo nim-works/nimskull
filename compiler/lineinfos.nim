@@ -99,7 +99,6 @@ proc computeNotesVerbosity(): tuple[
 
   result.foreign = result.base + {
     rsemProcessing,
-    rextConf,
     rsemUserHint,
     rsemUserWarning,
     rsemUserHint,

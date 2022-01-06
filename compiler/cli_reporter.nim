@@ -1,6 +1,6 @@
-import reports, ast, types, renderer, astmsgs, astalgo, msgs
+import reports, ast, types, renderer, astmsgs, astalgo, msgs, lineinfos
 import options as compiler_options
-import std/[strutils, terminal, options, algorithm, sequtils, strformat]
+import std/[strutils, terminal, options, algorithm, sequtils, strformat, tables]
 
 func add(target: var string, other: varargs[string, `$`]) =
   for item in other:
@@ -31,6 +31,43 @@ func wrap*(
 
   else:
     result = str
+
+proc formatPath(conf: ConfigRef, path: string): string =
+  if path in conf.m.filenameToIndexTbl:
+    let id = conf.m.filenameToIndexTbl[path]
+    result = toFilenameOption(conf, id, conf.filenameOption)
+
+  else:
+    # Path not registered in the filename table - most likely an
+    # instantiation info reprt location
+    result = path
+
+
+proc toStr(conf: ConfigRef, loc: ReportLinePoint): string =
+  conf.wrap(
+    "$1($2, $3)" % [conf.formatPath(loc.file), $loc.line, $loc.col],
+    fgDefault,
+    {styleBright})
+
+proc toStr(conf: ConfigRef, loc: ReportLineRange): string =
+  conf.wrap(
+    "$1($2, $3):($3, $4)" % [
+      conf.formatPath(loc.file),
+      $loc.startLine,
+      $loc.startCol,
+      $loc.endLine,
+      $loc.endCol
+    ],
+    fgDefault,
+    {styleBright})
+
+proc toStr(conf: ConfigRef, info: ReportLineInfo): string =
+  if info.isRange:
+    conf.toStr(info.lrange)
+
+  else:
+    conf.toStr(info.lpoint)
+
 
 const
   reportTitles: array[ReportSeverity, string] = [
@@ -358,6 +395,47 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         "Cannot report wrapped sem error - use `walkErrors` in " &
           "order to write out all accumulated reports")
 
+    of rsemIllegalMemoryCapture:
+      let s = r.symbols[0]
+      result = (
+        "'$1' is of type <$2> which cannot be captured as it would violate memory" &
+          " safety, declared here: $3; using '-d:nimNoLentIterators' helps in some cases"
+      ) % [s.name.s, typeToString(s.typ), conf $ s.info]
+
+    of rsemUnavailableTypeBound:
+      result.add(
+        "'",
+        r.str,
+        "' is not available for type <",
+        r.typ.render,
+        ">"
+      )
+
+      if r.str in ["=", "=copy"]:
+        result.add(
+          "; requires a copy because it's not the last read of '",
+          r.ast.render,
+          "'"
+        )
+
+        if r.missingTypeBoundElaboration.anotherRead.isSome():
+          let read = r.missingTypeBoundElaboration.anotherRead.get()
+          result.add(
+            "; another read is done here: ",
+            $read
+          )
+
+        elif r.missingTypeBoundElaboration.tryMakeSinkParam:
+          result.add("; try to make", r.ast.render, "a 'sink' parameter")
+
+      result.add("; routine: ", r.symstr)
+
+    of rsemIllegalCallconvCapture:
+      let s = r.symbols[0]
+      let owner = r.symbols[1]
+      result = "illegal capture '$1' because '$2' has the calling convention: <$3>" % [
+        s.name.s, owner.name.s, $owner.typ.callConv]
+
     of rsemCallTypeMismatch:
       let (prefer, candidates) = presentFailedCandidates(
         conf, r.ast, r.callMismatches)
@@ -373,8 +451,13 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
     of rsemVmStackTraceUser:
       result = "stack trace: (most recent call last)\n"
-      for (sym, loc) in r.stacktrace:
-        result.add(loc, " ", sym.name.s, "\n")
+      for idx, (sym, loc) in r.stacktrace:
+        result.add(
+          loc,
+          " ",
+          sym.name.s,
+          if idx == r.stacktrace.high: "" else: "\n"
+        )
 
     of rsemExpandArc:
       result.add(
@@ -595,7 +678,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "ilformed ast: " & render(r.ast)
 
     of rsemCannotInstantiate:
-      result = "cannot instantiate: '$1'" % r.sym.name.s
+      result = "cannot instantiate: '$1'" % r.ast.render
 
     of rsemTypeKindMismatch:
       result = r.str
@@ -1026,8 +1109,81 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
     of rsemUseOrDiscard:
       result = "value of type '$1' has to be used (or discarded)" % r.typ.render
 
+    of rsemUseOrDiscardExpr:
+      var n = r.ast
+      while n.kind in skipForDiscardable: n = n.lastSon
+      result.add(
+        "expression '",
+        n.render,
+        "' is of type '",
+        n.typ.render,
+        "' and has to be used (or discarded)"
+      )
+
+      if r.ast.info.line != n.info.line or
+         r.ast.info.fileIndex != n.info.fileIndex:
+
+        result.add "; start of expression here: " & conf$r.ast.info
+
+      if r.ast.typ.kind == tyProc:
+        result.add "; for a function call use ()"
+
+    of rsemHasSideEffects:
+      if r.sideEffectTrace[0].trace == ssefParameterMutation:
+        result = "'$1' can have side effects$2" % [r.symstr, conf.toStr(
+          r.sideEffectTrace[0].location)]
+
+      else:
+        result = "'$1' can have side effects\n" % r.symstr
+        var level = 1
+        template addHint(msg: string, lineInfo: ReportLinePoint, sym: string) =
+          result.addf(
+            "$# $# $#'$#' $#\n",
+            repeat(">", level),
+            conf.toStr(lineInfo),
+            conf.wrap(reportTitles[rsevHint], reportColors[rsevHint]),
+            sym,
+            msg
+          )
+
+        for part in r.sideEffectTrace:
+          let s = part.isUnsafe
+          let u = part.unsafeVia
+          let useLineInfo = part.location
+
+          case part.trace:
+            of ssefUsesGlobalState:
+              addHint("accesses global state '$#'" % u.name.s, useLineInfo, s.name.s)
+              inc level
+              addHint("accessed by '$#'" % s.name.s, conf.toReportLinePoint(u.info), u.name.s)
+
+            of ssefCallsSideEffect:
+              addHint("calls `.sideEffect` '$#'" % u.name.s, useLineInfo, s.name.s)
+              inc level
+              addHint("called by '$#'" % s.name.s, conf.toReportLinePoint(u.info), u.name.s)
+
+            of ssefCallsViaIndirection:
+              addHint("calls routine via hidden pointer indirection", useLineInfo, s.name.s)
+
+            else:
+              addHint("calls routine via pointer indirection", useLineInfo, s.name.s)
+
+          inc level
+
     of rsemCannotBeRaised:
       result = "only a 'ref object' can be raised"
+
+    of rsemXCannotRaiseY:
+      result = "'$1' cannot raise '$2'" % [r.ast.render, r.raisesList.render]
+
+    of rsemUnlistedRaises:
+      result.add(r.ast.render, " can raise an unlisted exception: ", r.typ.render)
+
+    of rsemUnlistedEffects:
+      result.add(r.ast.render, "can have an unlisted effect: ", r.typ.render)
+
+    of rsemWarnGcUnsafe:
+      result = "not GC-safe: '$1'" % r.ast.render
 
     of rsemExceptionAlreadyHandled:
       result = "exception already handled"
@@ -1562,11 +1718,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
     # else:
     #   return $r
 
-proc toStr(conf: ConfigRef, loc: ReportLineInfo): string =
-  conf.wrap($loc, fgDefault, {styleBright})
 
-proc toStr(conf: ConfigRef, loc: ReportLinePoint): string =
-  conf.wrap($loc, fgDefault, {styleBright})
 
 const standalone = {
   rsemExpandArc, # Original compiler did not consider it as a hint
@@ -1624,7 +1776,8 @@ proc report(conf: ConfigRef, r: SemReport): string =
 proc toStr(conf: ConfigRef, r: ParserReport): string =
   case ParserReportKind(r.kind):
     of rparInvalidIndentation:
-       result = r.msg
+       result = "invalid indentation"
+       result.add r.msg
 
     of rparNestableRequiresIndentation:
        result = "nestable statement requires indentation"
@@ -1889,7 +2042,11 @@ proc toStr*(conf: ConfigRef, r: Report): string =
 var lastDot: bool = false
 
 proc reportHook*(conf: ConfigRef, r: Report) =
-  if not conf.isEnabled(r) or conf.m.errorOutputs != {}:
+  if not conf.isEnabled(r) or
+     # NOTE this check is an absolute hack, `errorOutputs` need to be
+     # removed. For more details see `lineinfos.MsgConfig.errorOutputs`
+     # comment
+     conf.m.errorOutputs == {}:
     return
 
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
@@ -1899,6 +2056,6 @@ proc reportHook*(conf: ConfigRef, r: Report) =
   else:
     if lastDot:
       conf.writeln("")
-      lastDot = true
+      lastDot = false
 
     conf.writeln(conf.toStr(r))

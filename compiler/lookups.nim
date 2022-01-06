@@ -672,7 +672,7 @@ proc errorAmbiguousUseQualifier(
     c: PContext; ident: PIdent, n: PNode, candidates: seq[PSym]
   ): PSym =
   ## create an error symbol for an ambiguous unqualified lookup
-  var rep = SemReport(kind: rsemAmbiguous, str: candidates[0].name.s)
+  var rep = SemReport(kind: rsemAmbiguousIdent, str: candidates[0].name.s)
   for i, candidate in candidates.pairs:
     rep.symbols.add candidate
 

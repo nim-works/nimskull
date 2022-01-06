@@ -60,6 +60,12 @@ const
   OverloadableSyms* = {skProc, skFunc, skMethod, skIterator,
     skConverter, skModule, skTemplate, skMacro, skEnumField}
 
+  skipForDiscardable* = {nkIfStmt, nkIfExpr, nkCaseStmt, nkOfBranch,
+    nkElse, nkStmtListExpr, nkTryStmt, nkFinally, nkExceptBranch,
+    nkElifBranch, nkElifExpr, nkElseExpr, nkBlockStmt, nkBlockExpr,
+    nkHiddenStdConv, nkHiddenDeref}
+
+
   GenericTypes*: TTypeKinds = {tyGenericInvocation, tyGenericBody,
     tyGenericParam}
 

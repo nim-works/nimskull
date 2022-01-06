@@ -235,7 +235,7 @@ proc indAndComment(p: var Parser, n: PNode, maybeMissEquals = false) =
       var info = newLineInfo(p.lex.fileIdx, p.lineNumberPrevious, col)
       p.localError ParserReport(
         kind: rparInvalidIndentation,
-        msg: "invalid indentation, maybe you forgot a '=' at $1 ?" % [p.lex.config$info])
+        msg: ", maybe you forgot a '=' at $1 ?" % [p.lex.config$info])
 
     else:
       p.localError ParserReport(kind: rparInvalidIndentation)

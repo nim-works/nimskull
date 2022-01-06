@@ -1323,9 +1323,14 @@ proc subtypeRelation(g: ModuleGraph; spec, real: PNode): bool =
   else:
     return safeInheritanceDiff(g.excType(real), spec.typ) <= 0
 
-proc checkRaisesSpec(g: ModuleGraph; emitWarnings: bool; spec, real: PNode, msg: string, hints: bool;
-                     effectPredicate: proc (g: ModuleGraph; a, b: PNode): bool {.nimcall.};
-                     hintsArg: PNode = nil) =
+proc checkRaisesSpec(
+    g: ModuleGraph,
+    onFail: ReportKind,
+    spec, real: PNode,
+    hints: bool,
+    effectPredicate: proc (g: ModuleGraph; a, b: PNode): bool {.nimcall.},
+    hintsArg: PNode = nil
+  ) =
   # check that any real exception is listed in 'spec'; mark those as used;
   # report any unused exception
   var used = initIntSet()
@@ -1342,9 +1347,7 @@ proc checkRaisesSpec(g: ModuleGraph; emitWarnings: bool; spec, real: PNode, msg:
         rr = rr.lastSon
 
       localReport(g.config, r.info, reportAst(
-        if emitWarnings: rsemUnusedRaises else: rsemUnlistedRaises,
-        rr,
-        typ = r.typ))
+        onFail, rr, typ = r.typ))
 
       popInfoContext(g.config)
   # hint about unnecessarily listed exception types:
@@ -1362,12 +1365,24 @@ proc checkMethodEffects*(g: ModuleGraph; disp, branch: PSym) =
   let p = disp.ast[pragmasPos]
   let raisesSpec = effectSpec(p, wRaises)
   if not isNil(raisesSpec):
-    checkRaisesSpec(g, false, raisesSpec, actual[exceptionEffects],
-      "can raise an unlisted exception: ", hints=off, subtypeRelation)
+    checkRaisesSpec(
+      g,
+      rsemUnlistedRaises,
+      raisesSpec,
+      actual[exceptionEffects],
+      hints = off,
+      subtypeRelation)
+
   let tagsSpec = effectSpec(p, wTags)
   if not isNil(tagsSpec):
-    checkRaisesSpec(g, false, tagsSpec, actual[tagEffects],
-      "can have an unlisted effect: ", hints=off, subtypeRelation)
+    checkRaisesSpec(
+      g,
+      rsemUnlistedEffects,
+      tagsSpec,
+      actual[tagEffects],
+      hints = off,
+      subtypeRelation)
+
   if sfThread in disp.flags and notGcSafe(branch.typ):
     localReport(g.config, branch.info, reportSymbols(
       rsemOverrideSafetyMismatch, @[disp, branch]))
@@ -1490,7 +1505,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
   let p = s.ast[pragmasPos]
   let raisesSpec = effectSpec(p, wRaises)
   if not isNil(raisesSpec):
-    checkRaisesSpec(g, false, raisesSpec, t.exc, "can raise an unlisted exception: ",
+    checkRaisesSpec(g, rsemUnlistedRaises, raisesSpec, t.exc,
                     hints=on, subtypeRelation, hintsArg=s.ast[0])
     # after the check, use the formal spec:
     effects[exceptionEffects] = raisesSpec
@@ -1499,7 +1514,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
 
   let tagsSpec = effectSpec(p, wTags)
   if not isNil(tagsSpec):
-    checkRaisesSpec(g, false, tagsSpec, t.tags, "can have an unlisted effect: ",
+    checkRaisesSpec(g, rsemUnlistedEffects, tagsSpec, t.tags,
                     hints=off, subtypeRelation)
     # after the check, use the formal spec:
     effects[tagEffects] = tagsSpec

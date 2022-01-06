@@ -99,12 +99,6 @@ proc fixNilType(c: PContext; n: PNode) =
 
 # start `discard` check related code
 
-const
-  skipForDiscardable = {nkIfStmt, nkIfExpr, nkCaseStmt, nkOfBranch,
-    nkElse, nkStmtListExpr, nkTryStmt, nkFinally, nkExceptBranch,
-    nkElifBranch, nkElifExpr, nkElseExpr, nkBlockStmt, nkBlockExpr,
-    nkHiddenStdConv, nkHiddenDeref}
-
 proc implicitlyDiscardable(n: PNode): bool =
   var n = n
   while n.kind in skipForDiscardable: n = n.lastSon
@@ -123,10 +117,7 @@ proc discardCheck(c: PContext, result: PNode, flags: TExprFlags) =
       n[0] = result
     elif result.typ.kind != tyError and c.config.cmd != cmdInteractive:
       var n = result
-      while n.kind in skipForDiscardable:
-        n = n.lastSon
-
-      localReport(c.config, n, reportSem rsemUseOrDiscard)
+      localReport(c.config, result, reportSem rsemUseOrDiscardExpr)
 
 # end `discard` check related code
 

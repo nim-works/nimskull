@@ -423,6 +423,7 @@ type
     rsemCanHaveSideEffects
     rsemCantPassProcvar
     rsemUnlistedRaises
+    rsemUnlistedEffects
     rsemOverrideSafetyMismatch
     rsemOverrideLockMismatch
     rsemMissingMethodDispatcher
@@ -465,6 +466,7 @@ type
     rsemInvalidControlFlow
     rsemContinueCannotHaveLabel
     rsemUseOrDiscard
+    rsemUseOrDiscardExpr
     rsemCannotBeRaised
     rsemCannotRaiseNonException
     rsemExceptionAlreadyHandled
@@ -775,6 +777,7 @@ type
     rsemHoleEnumConvert        = "HoleEnumConv"
     rsemAnyEnumConvert         = "AnyEnumConv"
     rsemUnusedRaises           = "Effect"
+    rsemUnusedEffects
     rsemMethodLockMismatch
     rsemUseBase                = "UseBase"
     rsemUnreachableElse        = "UnreachableElse"
@@ -1055,6 +1058,7 @@ const
     rsemConflictingExportnims,
     rsemBorrowOutlivesSource,
     rsemImmutableBorrowMutation,
+    rsemIllegalCallconvCapture, # [symbol, owner]
   }
 
   rsemReportOneSym* = {
@@ -1064,7 +1068,6 @@ const
     rsemDoubleCompletionOf,
     rsemInvalidMethodDeclarationOrder,
 
-    rsemIllegalCallconvCapture,
     rsemIllegalMemoryCapture,
     rsemOverrideSafetyMismatch,
     rsemOverrideLockMismatch
