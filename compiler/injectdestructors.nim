@@ -256,10 +256,12 @@ proc checkForErrorPragma(c: Con; t: PType; ri: PNode; opname: string) =
 
   if (opname == "=" or opname == "=copy") and ri != nil:
     if ri.comment.startsWith('\n'):
-      rep.missingTypeBoundElaboration.anotherRead = some c.graph.config.toReportLinePoint(
-        c.g[parseInt(ri.comment[1..^1])].n.info)
+      rep.missingTypeBoundElaboration.anotherRead = some(
+        c.g[parseInt(ri.comment[1..^1])].n.info )
 
-    elif ri.kind == nkSym and ri.sym.kind == skParam and not isSinkType(ri.sym.typ):
+    elif ri.kind == nkSym and
+         ri.sym.kind == skParam and
+         not isSinkType(ri.sym.typ):
       rep.missingTypeBoundElaboration.tryMakeSinkParam = true
 
   localReport(c.graph.config, ri.info, rep)

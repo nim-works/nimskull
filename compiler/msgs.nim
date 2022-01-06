@@ -505,35 +505,21 @@ template globalReport*(
   conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   ## `local` means compilation keeps going until errorMax is reached (via
   ## `doNothing`), `global` means it stops.
-  handleReport(
-    conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
+  handleReport(conf, wrap(report, instLoc(), info), doNothing)
 
 template globalReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doRaise)
 
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
-  handleReport(
-    conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
+  handleReport(conf, wrap(report, instLoc(), info), doNothing)
 
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
-  handleReport(
-    conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
+  handleReport(conf, wrap(report, instLoc(), info), doNothing)
 
 template localReport*(conf: ConfigRef; node: PNode, report: SemReport) =
   var tmp = report
   if isNil(tmp.ast): tmp.ast = node
-  handleReport(
-    conf, wrap(tmp, instLoc(), conf.toReportLinePoint(node.info)), doNothing)
-
-# template localReport*(conf: ConfigRef, node: PNode, reportKind: SemReportKind) =
-#   ## Write out new sem report using `node`'s positional information
-#   handleReport(
-#     conf,
-#     wrap(
-#       SemReport(kind: reportKind, ast: node),
-#       instLoc(),
-#       conf.toReportLinePoint(node.info)),
-#     doNothing)
+  handleReport(conf, wrap(tmp, instLoc(), node.info), doNothing)
 
 proc temporaryStringError*(conf: ConfigRef, info: TLineInfo, text: string) =
   assert false
@@ -559,7 +545,7 @@ template semReportIllformedAst*(
     wrap(
       SemReport(kind: rsemIllformedAst, ast: node ),
       instLoc(),
-      conf.toReportLinePoint(node.info)),
+      node.info),
     doNothing)
 
 proc joinAnyOf*[T](values: seq[T], quote: bool = false): string =
@@ -600,8 +586,7 @@ template semReportIllformedAst*(
   semReportIllformedAst(conf, node, msg)
 
 template localReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
-  handleReport(
-    conf, wrap(report, instLoc(), conf.toReportLinePoint(info)), doNothing)
+  handleReport(conf, wrap(report, instLoc(), info), doNothing)
 
 template internalAssert*(
     conf: ConfigRef, e: bool, failMsg: string = "") =
@@ -623,7 +608,7 @@ template internalError*(
     repKind: InternalReportKind, fail: string): untyped =
   conf.report(wrap(InternalReport(
     context: conf.getContext(unknownLineInfo),
-    kind: repKind, msg: fail), instLoc(), conf.toReportLinePoint(info)))
+    kind: repKind, msg: fail), instLoc(), info))
 
 template internalError*(
     conf: ConfigRef,
@@ -633,8 +618,7 @@ template internalError*(
 
   conf.report(wrap(
     InternalReport(kind: rintUnreachable, msg: fail),
-    instLoc(),
-    conf.toReportLinePoint(info)))
+    instLoc(), info))
 
 
 template internalError*(

@@ -893,8 +893,8 @@ proc cannotBorrow(config: ConfigRef; s: PSym; g: MutationInfo) =
     kind: rsemCannotBorrow,
     sym: s,
     borrowPair: (
-      mutatedHere: config.toReportLinePoint(g.mutatedHere),
-      connectedVia: config.toReportLinePoint(g.connectedVia))))
+      mutatedHere: g.mutatedHere,
+      connectedVia: g.connectedVia)))
 
 proc checkBorrowedLocations*(par: var Partitions; body: PNode; config: ConfigRef) =
   for i in 0 ..< par.s.len:

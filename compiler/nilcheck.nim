@@ -9,6 +9,7 @@
 
 import ast, renderer, intsets, tables, msgs, options, lineinfos,
        strformat, idents, treetab, hashes, reports, nilcheck_enums
+
 import sequtils, strutils, sets
 
 # IMPORTANT: notes not up to date, i'll update this comment again
@@ -118,13 +119,6 @@ type
   SetIndex = distinct int
 
 
-  History = object
-    ## keep history for each transition
-    info: TLineInfo ## the location
-    nilability: Nilability ## the nilability
-    kind: NilTransition ## what kind of transition was that
-    node: PNode ## the node of the expression
-
   NilCheckerContext = ref object
     ## the context for the checker: an instance for each procedure
     # abstractTime: AbstractTime
@@ -144,7 +138,7 @@ type
     ## and is pointing optionally to a parent map: they make a stack of maps
     expressions:  SeqOfDistinct[ExprIndex, Nilability] ## the expressions
     ## with the same order as in NilCheckerContext
-    history:  SeqOfDistinct[ExprIndex, seq[History]] ## history for each of them
+    history:  SeqOfDistinct[ExprIndex, seq[SemNilHistory]] ## history for each of them
     # what about gc and refs?
     setIndices: SeqOfDistinct[ExprIndex, SetIndex] ## set indices for each expression
     sets:     SeqOfDistinct[SetIndex, IntSet] ## disjoint sets with the aliased expressions
@@ -214,7 +208,7 @@ proc newNilMap(parent: NilMap = nil, count: int = -1): NilMap =
     expressionsCount = parent.expressions.len.int
   result = NilMap(
     expressions: newSeqOfDistinct[ExprIndex, Nilability](expressionsCount),
-    history: newSeqOfDistinct[ExprIndex, seq[History]](expressionsCount),
+    history: newSeqOfDistinct[ExprIndex, seq[SemNilHistory]](expressionsCount),
     setIndices: newSeqOfDistinct[ExprIndex, SetIndex](expressionsCount),
     parent: parent)
   if parent.isNil:
@@ -246,7 +240,7 @@ proc `[]`(map: NilMap, index: ExprIndex): Nilability =
     now = now.parent
   return MaybeNil
 
-proc history(map: NilMap, index: ExprIndex): seq[History] =
+proc history(map: NilMap, index: ExprIndex): seq[SemNilHistory] =
   if index < map.expressions.len:
     map.history[index]
   else:
@@ -387,7 +381,7 @@ proc store(
   if index == noExprIndex:
     return
   map.expressions[index] = value
-  map.history[index].add(History(info: info, kind: kind, node: node, nilability: value))
+  map.history[index].add(SemNilHistory(info: info, kind: kind, node: node, nilability: value))
   #echo node, " ", index, " ", value
   #echo ctx.namedMapAndSetsDebugInfo(map)
   #for a, b in map.sets:
@@ -403,7 +397,7 @@ proc store(
         map.history[a.ExprIndex] = @[]
       else:
         map.history[a.ExprIndex].add(
-          History(info: info, kind: TPotentialAlias, node: node, nilability: value))
+          SemNilHistory(info: info, kind: TPotentialAlias, node: node, nilability: value))
 
 proc moveOut(ctx: NilCheckerContext, map: NilMap, target: PNode) =
   #echo "move out ", target
@@ -545,17 +539,12 @@ proc derefWarning(n, ctx, map; kind: Nilability) =
   if n.info in ctx.warningLocations:
     return
   ctx.warningLocations.incl(n.info)
-  var a: seq[History]
+  var a: seq[SemNilHistory]
   var rep = SemReport(
     kind: rsemStrictNotNil, nilIssue: kind, ast: n)
 
   if n.kind == nkSym:
-    for part in history(map, ctx.index(n)):
-      rep.nilHistory.add((
-        node: part.node,
-        nilability: part.nilability,
-        info: ctx.config.toReportLinePoint(part.info),
-        transition: part.kind))
+    rep.nilHistory = history(map, ctx.index(n))
 
   localReport(ctx.config, n.info, rep)
 

@@ -451,8 +451,7 @@ template store*(conf: ConfigRef, report: ReportTypes): untyped =
 
 template store*(
     conf: ConfigRef, linfo: TLineInfo, report: ReportTypes): untyped =
-  conf.addReport(
-    wrap(report, instLoc(), conf.toReportLinePoint(linfo)))
+  conf.addReport(wrap(report, instLoc(), linfo))
 
 
 func isCompilerFatal*(conf: ConfigRef, report: Report): bool =

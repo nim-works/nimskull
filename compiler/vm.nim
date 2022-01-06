@@ -61,11 +61,7 @@ proc stackTraceImpl(
         return
 
       aux(sframe.next, sframe.comesFrom, depth + 1, res)
-
-      res.stacktrace.add((
-        sym: sframe.prc,
-        location: c.config.toReportLinePoint(c.debug[pc])
-      ))
+      res.stacktrace.add((sym: sframe.prc, location: c.debug[pc]))
 
   var res: SemReport
   if user:
@@ -87,10 +83,7 @@ proc stackTraceImpl(
 
   let action = if c.mode == emRepl: doRaise else: doNothing
 
-  let report = wrap(
-    res,
-    toReportLinePoint(infoOrigin),
-    c.config.toReportLinePoint(lineInfo))
+  let report = wrap(res, toReportLinePoint(infoOrigin), lineInfo)
 
   c.config.handleReport(report, action)
 

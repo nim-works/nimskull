@@ -985,12 +985,12 @@ type
   ReportBase* = object of RootObj
     context*: seq[ReportContext]
 
-    location*: Option[ReportLineInfo] ## Location associated with report.
-    ## Some reports do not have any locations associated with them (most
-    ## (but not all, due to `gorge`) of the external command executions,
-    ## sem tracing etc). Some reports might have additional associated
-    ## location information (view type sealing reasons) - those are handled
-    ## on the per-report-kind basis.
+    location*: Option[TLineInfo] ## Location associated with report. Some
+    ## reports do not have any locations associated with them (most (but
+    ## not all, due to `gorge`) of the external command executions, sem
+    ## tracing etc). Some reports might have additional associated location
+    ## information (view type sealing reasons) - those are handled on the
+    ## per-report-kind basis.
 
     reportInst*: ReportLinePoint ## Information about instantiation location
     ## of the reports - present for all reports in order to track their
@@ -1161,6 +1161,14 @@ type
     sym*: PSym
     isLocal*: bool
 
+  SemNilHistory* = object
+    ## keep history for each transition
+    info*: TLineInfo ## the location
+    nilability*: Nilability ## the nilability
+    kind*: NilTransition ## what kind of transition was that
+    node*: PNode ## the node of the expression
+
+
   SemReport* = object of ReportBase
     ast*: PNode
     typ*: PType
@@ -1170,11 +1178,11 @@ type
 
     case kind*: ReportKind
       of rsemDuplicateModuleImport:
-        previous*: ReportLinePoint
+        previous*: PSym
 
       of rsemUnavailableTypeBound:
         missingTypeBoundElaboration*: tuple[
-          anotherRead: Option[ReportLinePoint],
+          anotherRead: Option[TLineInfo],
           tryMakeSinkParam: bool
         ]
 
@@ -1182,19 +1190,14 @@ type
         overlappingGroup*: PNode
 
       of rsemCannotBorrow:
-        borrowPair*: tuple[mutatedHere, connectedVia: ReportLinePoint]
+        borrowPair*: tuple[mutatedHere, connectedVia: TLineInfo]
 
       of rsemXCannotRaiseY:
         raisesList*: PNode
 
       of rsemStrictNotNil:
         nilIssue*: Nilability
-        nilHistory*: seq[tuple[
-          node: PNode,
-          nilability: Nilability,
-          info: ReportLinePoint,
-          transition: NilTransition
-        ]]
+        nilHistory*: seq[SemNilHistory]
 
       of rsemGcUnsafeListing:
         gcUnsafeTrace*: seq[tuple[
@@ -1209,10 +1212,10 @@ type
           isUnsafe: PSym,
           unsafeVia: PSym,
           trace: SemSideEffectCallKind,
-          location: ReportLinePoint
+          location: TLineInfo
         ]]
 
-        sideEffectMutateConnection*: ReportLinePoint
+        sideEffectMutateConnection*: TLineInfo
 
       of rsemEffectsListingHint:
         effectListing*: tuple[tags, exceptions: seq[PType]]
@@ -1220,10 +1223,7 @@ type
       of rsemVmStackTraceUser, rsemVmStackTraceInternal:
         currentExceptionA*, currentExceptionB*: PNode
         traceReason*: ReportKind
-        stacktrace*: seq[tuple[
-          sym: PSym,
-          location: ReportLinePoint
-        ]]
+        stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
 
       of rsemReportCountMismatch,
          rsemWrongNumberOfVariables:
@@ -1752,7 +1752,7 @@ template eachCategory*(report: Report, field: untyped): untyped =
     of repExternal: report.externalReport.field
 
 func kind*(report: Report): ReportKind = eachCategory(report, kind)
-func location*(report: Report): Option[ReportLineInfo] = eachCategory(report, location)
+func location*(report: Report): Option[TLineInfo] = eachCategory(report, location)
 func reportInst*(report: Report): ReportLinePoint = eachCategory(report, reportInst)
 
 func severity*(
@@ -1846,14 +1846,14 @@ func wrap*[R: ReportTypes](rep: sink R, iinfo: InstantiationInfo): Report =
 
 
 func wrap*[R: ReportTypes](
-    rep: sink R, iinfo, point: ReportLinePoint): Report =
+    rep: sink R, iinfo: ReportLinePoint, point: TLineInfo): Report =
   var tmp = rep
   tmp.reportInst = iinfo
-  tmp.location = some(ReportLineInfo(isRange: false, lpoint: point))
+  tmp.location = some point
   return wrap(tmp)
 
 func wrap*[R: ReportTypes](
-    rep: sink R, iinfo: InstantiationInfo, point: ReportLinePoint): Report =
+    rep: sink R, iinfo: InstantiationInfo, point: TLineInfo): Report =
   wrap(rep, toReportLinePoint(iinfo), point)
 
 template wrap*(rep: ReportTypes): Report =

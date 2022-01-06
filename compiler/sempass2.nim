@@ -311,7 +311,7 @@ proc listSideEffects(result: var SemReport; s: PSym; cycleCheck: var IntSet;
           isUnsafe: s,
           unsafeVia: u,
           trace: trace,
-          location: conf.toReportLinePoint(useLineInfo)
+          location: useLineInfo
         ))
 
         if u.kind in routineKinds:
@@ -1560,11 +1560,10 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
           isUnsafe: s,
           unsafeVia: nil,
           trace: ssefParameterMutation,
-          location: g.config.toReportLinePoint(mutationInfo.mutatedHere)
+          location: mutationInfo.mutatedHere
         ))
 
-        report.sideEffectMutateConnection = g.config.toReportLinePoint(
-          mutationInfo.connectedVia)
+        report.sideEffectMutateConnection = mutationInfo.connectedVia
 
         localReport(g.config, s.info, report)
       elif c.compilesContextId == 0:

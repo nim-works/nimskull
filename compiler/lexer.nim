@@ -268,11 +268,7 @@ template eatChar(L: var Lexer, t: var Token) =
   inc(L.bufpos)
 
 template localReport*(L: Lexer, report: ReportTypes): untyped =
-  L.config.handleReport(
-    wrap(
-      report,
-      instLoc(),
-      L.config.toReportLinePoint(getLineInfo(L))))
+  L.config.handleReport(wrap(report, instLoc(), getLineInfo(L)))
 
 proc getNumber(L: var Lexer, result: var Token) =
   proc matchUnderscoreChars(L: var Lexer, tok: var Token, chars: set[char]): Natural =

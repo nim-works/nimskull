@@ -366,14 +366,16 @@ proc wrongRedefinition*(
 proc addDeclAt*(c: PContext; scope: PScope, sym: PSym, info: TLineInfo) =
   let conflict = scope.addUniqueSym(sym)
   if conflict != nil:
-    if sym.kind == skModule and conflict.kind == skModule and sym.owner == conflict.owner:
+    if sym.kind == skModule and
+       conflict.kind == skModule and
+       sym.owner == conflict.owner:
       # e.g.: import foo; import foo
       # xxx we could refine this by issuing a different hint for the case
       # where a duplicate import happens inside an include.
       c.config.localReport(info, SemReport(
         kind: rsemDuplicateModuleImport,
         sym: sym,
-        previous: c.config.toReportLinePoint(conflict.info)))
+        previous: conflict))
     else:
       wrongRedefinition(c, info, sym, conflict)
 

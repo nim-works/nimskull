@@ -105,8 +105,10 @@ proc newError*(
   if isNil(rep.ast):
     rep.ast = wrongNode
 
-  let tmp = wrap(rep, inst, conf.toReportLinePoint(
-    if posInfo == unknownLineInfo: wrongNode.info  else: posInfo))
+  let tmp = wrap(
+    rep,
+    inst,
+    if posInfo == unknownLineInfo: wrongNode.info else: posInfo)
 
   let id = conf.addReport(tmp)
   newError(wrongNode, tmp.semReport.kind, id, inst, args)

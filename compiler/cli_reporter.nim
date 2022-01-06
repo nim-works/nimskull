@@ -42,6 +42,15 @@ proc formatPath(conf: ConfigRef, path: string): string =
     # instantiation info reprt location
     result = path
 
+proc toStr(conf: ConfigRef, loc: TLineInfo): string =
+  conf.wrap(
+    "$1($2, $3)" % [
+      toFilenameOption(conf, loc.fileIndex, conf.filenameOption),
+      $loc.line,
+      $loc.col
+    ],
+    fgDefault,
+    {styleBright})
 
 proc toStr(conf: ConfigRef, loc: ReportLinePoint): string =
   conf.wrap(
@@ -419,11 +428,9 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         )
 
         if r.missingTypeBoundElaboration.anotherRead.isSome():
-          let read = r.missingTypeBoundElaboration.anotherRead.get()
           result.add(
             "; another read is done here: ",
-            $read
-          )
+            conf.toStr(r.missingTypeBoundElaboration.anotherRead.get()))
 
         elif r.missingTypeBoundElaboration.tryMakeSinkParam:
           result.add("; try to make", r.ast.render, "a 'sink' parameter")
@@ -453,7 +460,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "stack trace: (most recent call last)\n"
       for idx, (sym, loc) in r.stacktrace:
         result.add(
-          loc,
+          conf.toStr(loc),
           " ",
           sym.name.s,
           if idx == r.stacktrace.high: "" else: "\n"
@@ -476,13 +483,13 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         "; what it borrows from is potentially mutated"
       )
 
-      if r.borrowPair.mutatedHere.isValid():
-        result.add("\n", $r.borrowPair.mutatedHere, " the mutation is here")
+      if r.borrowPair.mutatedHere.isKnown():
+        result.add("\n", conf.toStr(r.borrowPair.mutatedHere), " the mutation is here")
 
-      if r.borrowPair.connectedVia.isValid():
+      if r.borrowPair.connectedVia.isKnown():
         result.add(
           "\n",
-          $r.borrowPair.connectedVia,
+          conf.toStr(r.borrowPair.connectedVia),
           " is the statement that connected the mutation to the parameter")
 
     of rsemBorrowOutlivesSource:
@@ -1136,7 +1143,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       else:
         result = "'$1' can have side effects\n" % r.symstr
         var level = 1
-        template addHint(msg: string, lineInfo: ReportLinePoint, sym: string) =
+        template addHint(msg: string, lineInfo: TLineInfo, sym: string) =
           result.addf(
             "$# $# $#'$#' $#\n",
             repeat(">", level),
@@ -1155,12 +1162,12 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
             of ssefUsesGlobalState:
               addHint("accesses global state '$#'" % u.name.s, useLineInfo, s.name.s)
               inc level
-              addHint("accessed by '$#'" % s.name.s, conf.toReportLinePoint(u.info), u.name.s)
+              addHint("accessed by '$#'" % s.name.s, u.info, u.name.s)
 
             of ssefCallsSideEffect:
               addHint("calls `.sideEffect` '$#'" % u.name.s, useLineInfo, s.name.s)
               inc level
-              addHint("called by '$#'" % s.name.s, conf.toReportLinePoint(u.info), u.name.s)
+              addHint("called by '$#'" % s.name.s, u.info, u.name.s)
 
             of ssefCallsViaIndirection:
               addHint("calls routine via hidden pointer indirection", useLineInfo, s.name.s)

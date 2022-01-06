@@ -167,6 +167,10 @@ const
   InvalidFileIdx* = FileIndex(-1)
   unknownLineInfo* = TLineInfo(line: 0, col: -1, fileIndex: InvalidFileIdx)
 
+func isKnown*(info: TLineInfo): bool =
+  ## Check if `info` represents valid source file location
+  info != unknownLineInfo
+
 type
   Severity* {.pure.} = enum ## VS Code only supports these three
     Hint, Warning, Error
