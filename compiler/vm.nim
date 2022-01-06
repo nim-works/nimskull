@@ -16,7 +16,8 @@ import
   msgs, vmdef, vmgen, nimsets, types, passes, reports,
   parser, vmdeps, idents, trees, renderer, options, transf,
   gorgeimpl, lineinfos, btrees, macrocacheimpl,
-  modulegraphs, sighashes, int128, vmprofiler
+  modulegraphs, sighashes, int128, vmprofiler,
+  debugutils, astalgo
 
 import ast except getstr
 from semfold import leValueConv, ordinalValToString
@@ -2249,6 +2250,7 @@ proc setGlobalValue*(c: PCtx; s: PSym, val: PNode) =
 include vmops
 
 proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
+  addInNimDebugUtils(graph.config, "setupGlobalCtx")
   if graph.vm.isNil:
     graph.vm = newCtx(module, graph.cache, graph, idgen)
     registerAdditionalOps(PCtx graph.vm)
@@ -2282,6 +2284,7 @@ const evalPass* = makePass(myOpen, myProcess, myClose)
 proc evalConstExprAux(module: PSym; idgen: IdGenerator;
                       g: ModuleGraph; prc: PSym, n: PNode,
                       mode: TEvalMode): PNode =
+  addInNimDebugUtils(g.config, "evalConstExprAux")
   #if g.config.errorCounter > 0: return n
   let n = transformExpr(g, idgen, module, n)
   setupGlobalCtx(module, g, idgen)
@@ -2430,7 +2433,7 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
   result = rawExecute(c, start, tos).regToNode
   if result.info.line < 0: result.info = n.info
   if cyclicTree(result):
-    globalReport(c.config, n.info, reportAst(rsemCyclicTree, n))
+    globalReport(c.config, n.info, reportAst(rsemCyclicTree, n, sym = sym))
 
   dec(g.config.evalMacroCounter)
   c.callsite = nil

@@ -32,7 +32,7 @@ func wrap*(
   else:
     result = str
 
-import std/[compilesettings, os]
+import std/[os]
 
 proc formatPath(conf: ConfigRef, path: string): string =
   if path in conf.m.filenameToIndexTbl:
@@ -40,7 +40,7 @@ proc formatPath(conf: ConfigRef, path: string): string =
     result = toFilenameOption(conf, id, conf.filenameOption)
 
   else:
-    const compilerRoot = querySetting(projectFull).parentDir()
+    const compilerRoot = currentSourcePath().parentDir()
     # Path not registered in the filename table - most likely an
     # instantiation info report location
     if conf.filenameOption == foCanonical and
@@ -49,6 +49,32 @@ proc formatPath(conf: ConfigRef, path: string): string =
 
     else:
       result = path
+
+template tern*(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
+  ## Shorthand for inline if/else. Allows use of conditions in strformat,
+  ## simplifies use in expressions. Less picky with formatting
+  {.line: instantiationInfo(fullPaths = true).}:
+    block:
+      if predicate: tBranch else: fBranch
+
+
+
+proc formatTrace*(conf: ConfigRef, trace: seq[StackTraceEntry]): string =
+  var paths: seq[string]
+  var width = 0
+  for entry in trace:
+    paths.add "$1($2)" % [
+      formatPath(conf, $entry.filename), $entry.line]
+
+    width = max(paths[^1].len, width)
+
+  for idx, entry in trace:
+    result.add(
+      alignLeft(paths[idx], width + 1),
+      entry.procname,
+      tern(idx < trace.high, "\n", "")
+    )
+
 
 proc toStr(conf: ConfigRef, loc: TLineInfo): string =
   conf.wrap(
@@ -1848,8 +1874,7 @@ proc report(conf: ConfigRef, r: ParserReport): string =
 proc report(conf: ConfigRef, r: InternalReport): string =
   case r.kind:
     of rintStackTrace:
-      for entry in r.trace:
-        result.add(entry.filename, "(", entry.line, ") ", entry.procname, "\n")
+      result = conf.formatTrace(r.trace)
 
     of rintSuccessX:
       var build = ""
@@ -2011,13 +2036,6 @@ proc report(conf: ConfigRef, r: ExternalReport): string =
     else:
       result = $r
 
-template tern*(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
-  ## Shorthand for inline if/else. Allows use of conditions in strformat,
-  ## simplifies use in expressions. Less picky with formatting
-  {.line: instantiationInfo(fullPaths = true).}:
-    block:
-      if predicate: tBranch else: fBranch
-
 proc report(conf: ConfigRef, r: DebugReport): string    =
   case DebugReportKind(r.kind):
     of rdbgTraceStep:
@@ -2042,9 +2060,15 @@ proc report(conf: ConfigRef, r: DebugReport): string    =
         result.add(
           ind, " | ",
           alignLeft(paths[idx], width + 1),
-          entry.procname,
+          conf.wrap($entry.procname, fgGreen),
           tern(idx < r.ctraceData.entries.high, "\n", "")
         )
+
+    of rdbgTraceStart:
+      result = "trace start"
+
+    of rdbgTraceEnd:
+      result = "trace end"
 
     else:
       result = $r
@@ -2078,11 +2102,21 @@ proc toStr*(conf: ConfigRef, r: Report): string =
 var lastDot: bool = false
 
 proc reportHook*(conf: ConfigRef, r: Report) =
-  if not conf.isEnabled(r) or
-     # NOTE this check is an absolute hack, `errorOutputs` need to be
-     # removed. For more details see `lineinfos.MsgConfig.errorOutputs`
-     # comment
-     conf.m.errorOutputs == {}:
+  let tryhack = conf.m.errorOutputs == {}
+  # REFACTOR this check is an absolute hack, `errorOutputs` need to be
+  # removed. For more details see `lineinfos.MsgConfig.errorOutputs`
+  # comment
+
+
+  if conf.isEnabled(r) and r.category == repDebug and tryhack:
+    # Force write of the report messages using regular stdout if tryhack is
+    # enabled
+    if lastDot:
+      conf.writeln("")
+      lastDot = false
+    echo conf.toStr(r)
+
+  elif not conf.isEnabled(r) or tryhack:
     return
 
   elif r.kind == rsemProcessing and conf.hintProcessingDots:

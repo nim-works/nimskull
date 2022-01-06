@@ -12,7 +12,8 @@
 
 import tables
 
-import ast, idents, options, modulegraphs, lineinfos, reports
+import ast, idents, options, modulegraphs,
+       lineinfos, reports, debugutils, msgs
 
 import vm_enums
 export vm_enums
@@ -175,6 +176,7 @@ proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph; idgen: IdGenerator
   )
 
 proc refresh*(c: PCtx, module: PSym; idgen: IdGenerator) =
+  addInNimDebugUtils(c.config, "refresh")
   c.module = module
   c.prc = PProc(blocks: @[])
   c.loopIterations = c.config.maxLoopIterationsVM

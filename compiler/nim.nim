@@ -150,7 +150,7 @@ when declared(GC_setMaxPause):
   GC_setMaxPause 2_000
 
 when compileOption("gc", "refc"):
-  # the new correct mark&sweet collector is too slow :-/
+  # the new correct mark&sweep collector is too slow :-/
   GC_disableMarkAndSweep()
 
 when not defined(selftest):
@@ -165,7 +165,14 @@ when not defined(selftest):
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       conf.writeHook(conf, msg & "\n", flags)
 
-  handleCmdLine(newIdentCache(), conf)
-  when declared(GC_setMaxPause):
-    echo GC_getStatistics()
-  msgQuit(int8(conf.errorCounter > 0))
+  try:
+    handleCmdLine(newIdentCache(), conf)
+    when declared(GC_setMaxPause):
+      echo GC_getStatistics()
+
+  except:
+    echo conf.formatTrace(
+      getCurrentException().getStackTraceEntries())
+
+  finally:
+    msgQuit(int8(conf.errorCounter > 0))

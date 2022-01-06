@@ -1407,6 +1407,7 @@ type
     stepNodeFlagsToNode
     stepNodeTypeToNode
     stepTypeTypeToType
+    stepTrack
 
 
   DebugSemStep* = object
@@ -1415,7 +1416,7 @@ type
     name*: string
     node*: PNode
     case kind*: DebugSemStepKind
-      of stepNodeToNode:
+      of stepNodeToNode, stepTrack:
         discard
 
       of stepNodeTypeToNode, stepTypeTypeToType:
@@ -1461,7 +1462,7 @@ type
       of rdbgTraceStep:
         semstep*: DebugSemStep
 
-      of rdbgTraceLine:
+      of rdbgTraceLine, rdbgTraceStart:
         ctraceData*: tuple[level: int, entries: seq[StackTraceEntry]]
 
       of rdbgVmCodeListing:

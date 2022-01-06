@@ -31,7 +31,8 @@ import tables
 
 import
   strutils, ast, types, msgs, renderer, vmdef, reports,
-  intsets, magicsys, options, lowerings, lineinfos, transf, astmsgs
+  intsets, magicsys, options, lowerings, lineinfos, transf, astmsgs,
+  debugutils, astalgo
 
 from modulegraphs import getBody
 
@@ -2009,6 +2010,7 @@ proc procIsCallback(c: PCtx; s: PSym): bool =
     dec i
 
 proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
+  addInNimDebugUtils(c.config, "genExpr(PNode/TDest)")
   when defined(nimCompilerStacktraceHints):
     setFrameMsg c.config$n.info & " " & $n.kind & " " & $flags
   case n.kind
@@ -2183,6 +2185,7 @@ proc genStmt*(c: PCtx; n: PNode): int =
     internalError(c.config, n.info, "VM problem: dest register is set")
 
 proc genExpr*(c: PCtx; n: PNode, requiresValue = true): int =
+  addInNimDebugUtils(c.config, "genExpr", n, nil)
   c.removeLastEof
   result = c.code.len
   var d: TDest = -1
@@ -2198,6 +2201,7 @@ proc genExpr*(c: PCtx; n: PNode, requiresValue = true): int =
   #c.echoCode(result)
 
 proc genParams(c: PCtx; params: PNode) =
+  addInNimDebugUtils(c.config, "genParams")
   # res.sym.position is already 0
   setLen(c.prc.regInfo, max(params.len, 1))
   c.prc.regInfo[0] = (inUse: true, kind: slotFixedVar)
@@ -2213,7 +2217,9 @@ proc finalJumpTarget(c: PCtx; pc, diff: int) =
 
   let oldInstr = c.code[pc]
   # opcode and regA stay the same:
-  c.code[pc] = ((oldInstr.TInstrType and ((regOMask shl regOShift) or (regAMask shl regAShift))).TInstrType or
+  c.code[pc] = ((
+    oldInstr.TInstrType and
+    ((regOMask shl regOShift) or (regAMask shl regAShift))).TInstrType or
                 TInstrType(diff+wordExcess) shl regBxShift).TInstr
 
 proc genGenericParams(c: PCtx; gp: PNode) =
@@ -2266,6 +2272,7 @@ proc optimizeJumps(c: PCtx; start: int) =
     else: discard
 
 proc genProc(c: PCtx; s: PSym): int =
+  addInNimDebugUtils(c.config, "genProc")
   let
     pos = c.procToCodePos.getOrDefault(s.id)
     wasNotGenProcBefore = pos == 0
@@ -2276,8 +2283,6 @@ proc genProc(c: PCtx; s: PSym): int =
     #      but it doesn't have offsets for register allocations see:
     #      https://github.com/nim-lang/Nim/issues/18385
     #      Improvements and further use of IC should remove the need for this.
-    #if s.name.s == "outterMacro" or s.name.s == "innerProc":
-    #  echo "GENERATING CODE FOR ", s.name.s
     let last = c.code.len-1
     var eofInstr: TInstr
     if last >= 0 and c.code[last].opcode == opcEof:
