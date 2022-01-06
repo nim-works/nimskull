@@ -2291,10 +2291,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     inc c.compilesContextIdGenerator
     c.compilesContextId = c.compilesContextIdGenerator
 
-  let oldInTryExpr = c.config.inTryExpr
-
   c.config.errorMax = high(int) # `setErrorMaxHighMaybe` not appropriate here
-  c.config.inTryExpr = true
 
   # open a scope for temporary symbol inclusions:
   let oldScope = c.currentScope
@@ -2334,7 +2331,6 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   c.currentScope = oldScope
   c.config.m.errorOutputs = oldErrorOutputs
   c.config.errorCounter = oldErrorCount
-  c.config.inTryExpr = oldInTryExpr
   c.config.errorMax = oldErrorMax
   when defined(nimsuggest):
     # Restore the error hook

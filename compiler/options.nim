@@ -331,9 +331,6 @@ type
     hintCounter*: int
     warnCounter*: int
     errorMax*: int
-    inTryExpr*: bool ## Are we in `compiles()` evaluation? Set and unset in
-                     ## the `semexprs.tryExpr` call and should be used only
-                     ## for the final report hooks implementation.
     maxLoopIterationsVM*: int ## VM: max iterations of all loops
     isVmTrace*: bool
     configVars*: StringTableRef

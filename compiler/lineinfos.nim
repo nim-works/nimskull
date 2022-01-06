@@ -183,7 +183,13 @@ type
     trackPosAttached*: bool ## whether the tracking position was attached to
                             ## some close token.
 
-    errorOutputs*: TErrorOutputs
+    errorOutputs*: TErrorOutputs ## Allowed output streams for messages.
+    # REFACTOR this field is mostly touched in sem for 'performance'
+    # reasons - don't write out error messages when compilation failed,
+    # don't generate list of call candidates when `compiles()` fails and so
+    # on. This should be replaced with `.inTryExpr` or something similar,
+    # and let the reporting hook deal with all the associated heuristics.
+
     msgContext*: seq[tuple[info: TLineInfo, detail: PSym]] ## \ Contextual
     ## information about instantiation stack - "template/generic
     ## instantiation of" message is constructed from this field. Right now

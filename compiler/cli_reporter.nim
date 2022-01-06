@@ -1889,7 +1889,7 @@ proc toStr*(conf: ConfigRef, r: Report): string =
 var lastDot: bool = false
 
 proc reportHook*(conf: ConfigRef, r: Report) =
-  if not conf.isEnabled(r) or conf.inTryExpr:
+  if not conf.isEnabled(r) or conf.m.errorOutputs != {}:
     return
 
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
