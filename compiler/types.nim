@@ -1575,8 +1575,10 @@ proc typeMismatch*(
   if formal.kind != tyError and actual.kind != tyError:
     var rep = SemReport(
       kind: rsemTypeMismatch,
+      ast: n,
       typeMismatch: @[typeMismatch(conf, formal, actual)])
 
+    assert not n.isNil, "Type mismatch requires non-nil AST for expression"
     result = newError(n, rsemTypeMismatch, conf.store(info, rep), instLoc())
     result.info = info
 

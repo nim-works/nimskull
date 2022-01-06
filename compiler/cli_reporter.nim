@@ -32,15 +32,23 @@ func wrap*(
   else:
     result = str
 
+import std/[compilesettings, os]
+
 proc formatPath(conf: ConfigRef, path: string): string =
   if path in conf.m.filenameToIndexTbl:
     let id = conf.m.filenameToIndexTbl[path]
     result = toFilenameOption(conf, id, conf.filenameOption)
 
   else:
+    const compilerRoot = querySetting(projectFull).parentDir()
     # Path not registered in the filename table - most likely an
-    # instantiation info reprt location
-    result = path
+    # instantiation info report location
+    if conf.filenameOption == foCanonical and
+       path.startsWith(compilerRoot):
+      result = path[(compilerRoot.len + 1) .. ^1]
+
+    else:
+      result = path
 
 proc toStr(conf: ConfigRef, loc: TLineInfo): string =
   conf.wrap(
@@ -2003,7 +2011,45 @@ proc report(conf: ConfigRef, r: ExternalReport): string =
     else:
       result = $r
 
-proc report(conf: ConfigRef, r: DebugReport): string    = $r
+template tern*(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
+  ## Shorthand for inline if/else. Allows use of conditions in strformat,
+  ## simplifies use in expressions. Less picky with formatting
+  {.line: instantiationInfo(fullPaths = true).}:
+    block:
+      if predicate: tBranch else: fBranch
+
+proc report(conf: ConfigRef, r: DebugReport): string    =
+  case DebugReportKind(r.kind):
+    of rdbgTraceStep:
+      let s = r.semstep
+      result.add(
+        repeat("  ", s.level),
+        tern(s.direction == semstepEnter, "> ", "< "),
+        s.name
+      )
+
+    of rdbgTraceLine:
+      let ind = repeat("  ", r.ctraceData.level)
+      var paths: seq[string]
+      var width = 0
+      for entry in r.ctraceData.entries:
+        paths.add "$1($2)" % [
+          formatPath(conf, $entry.filename), $entry.line]
+
+        width = max(paths[^1].len, width)
+
+      for idx, entry in r.ctraceData.entries:
+        result.add(
+          ind, " | ",
+          alignLeft(paths[idx], width + 1),
+          entry.procname,
+          tern(idx < r.ctraceData.entries.high, "\n", "")
+        )
+
+    else:
+      result = $r
+
+
 proc report(conf: ConfigRef, r: BackendReport): string  =
   result = $r
 
