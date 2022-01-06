@@ -541,9 +541,6 @@ proc temporaryStringError*(conf: ConfigRef, info: TLineInfo, text: string) =
 template localReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doNothing)
 
-proc localReport*(conf: ConfigRef, node: PNode) =
-  ## Write out existing sem report that is stored in the nkError node
-  handleReport(conf, conf.m.reports.getReport(node.reportId), doNothing)
 
 proc semReportCountMismatch*(
     kind: ReportKind,

@@ -125,9 +125,48 @@ proc addPrefix(switch: string): string =
   if switch.len <= 1: result = "-" & switch
   else: result = "--" & switch
 
+# Full list of all the command line options. Necessary to provide "invalid
+# command line options - did you mean ...?". In theory generation of this
+# list could be automated by maintaining a `{.compiletime.}` variable that
+# is populated by macro which scans every `case` used, but for the time
+# being it is easier to manually keep this list up-to-date.
+const optNames = @[
+  # processSwitch
+  "eval", "path", "p", "nimblepath", "babelpath", "nonimblepath",
+  "nobabelpath", "clearnimblepath", "excludepath", "nimcache", "out", "o",
+  "outdir", "usenimcache", "docseesrcurl", "docroot", "backend", "b",
+  "doccmd", "define", "d", "undef", "u", "compile", "link", "debuginfo",
+  "embedsrc", "compileonly", "c", "nolinking", "nomain", "forcebuild", "f",
+  "project", "warnings", "w", "warning", "hint", "warningaserror",
+  "hintaserror", "hints", "threadanalysis", "stacktrace",
+  "stacktracemsgs", "excessivestacktrace", "linetrace",
+  "debugger", "g", "profiler", "memtracker", "hotcodereloading", "checks",
+  "floatchecks", "infchecks", "nanchecks", "objchecks", "fieldchecks",
+  "rangechecks", "boundchecks", "refchecks", "overflowchecks",
+  "staticboundchecks", "stylechecks", "linedir", "assertions", "threads",
+  "tlsemulation", "implicitstatic", "patterns", "opt", "app", "passc",
+  "passl", "cincludes", "clibdir", "clib", "header", "index", "import",
+  "include", "listcmd", "asm", "genmapping", "os", "cpu", "run",
+  "maxloopiterationsvm", "errormax", "verbosity", "parallelbuild",
+  "version", "advanced", "fullhelp", "help", "symbolfiles", "skipcfg",
+  "skipprojcfg", "skipusercfg", "skipparentcfg", "genscript", "colors",
+  "lib", "putenv", "cc", "track", "trackdirty", "suggest", "def",
+  "context", "usages", "defusages", "stdout", "filenames", "processing",
+  "unitsep", "listfullpaths", "spellsuggest", "declaredlocs",
+  "dynliboverride", "dynliboverrideall", "experimental", "legacy",
+  "nocppexceptions", "exceptions", "cppdefine", "newruntime", "seqsv2",
+  "stylecheck", "showallmismatches", "cppcompiletonamespace",
+  "docinternal", "multimethods", "expandmacro", "expandarc", "useversion",
+  "benchmarkvm", "profilevm", "sinkinference", "cursorinference", "panics",
+  "sourcemap", "deepcopy", "nilseqs",
+]
+
 proc invalidCmdLineOption(conf: ConfigRef; pass: TCmdLinePass, switch: string, info: TLineInfo) =
   conf.localReport(info, ExternalReport(
-    kind: rextInvalidCommandLineOption, cmdlineProvided: switch))
+    kind: rextInvalidCommandLineOption,
+    cmdlineProvided: switch,
+    cmdlineAllowed: optNames
+  ))
 
 proc splitSwitch(conf: ConfigRef; switch: string, cmd, arg: var string, pass: TCmdLinePass,
                  info: TLineInfo) =
@@ -221,7 +260,7 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
 
   let isSomeHint = state in {wHint, wHintAsError}
   proc findNote(
-      noteSet: ReportKinds, 
+      noteSet: ReportKinds,
       name: string,
       onFail: ReportKind,
       multinote: seq[tuple[name: string, flags: set[ReportKind]]] = @[]
@@ -310,6 +349,16 @@ template deprecatedAlias(oldName, newName: string) =
 const gcNames = @[
   "boehm", "refc", "markandsweep", "destructors", "arc", "orc",
   "hooks", "go", "none", "stack", "regision", "v2", "generational"]
+
+
+const cmdNames = @[
+  "c", "cc", "compile", "compiletoc", "cpp", "compiletocpp", "objc",
+  "compiletooc", "js", "compiletojs", "r", "run", "check", "e", "doc0",
+  "doc2", "doc", "doc2tex", "rst2html", "rst2tex", "jsondoc0", "jsondoc2",
+  "jsondoc", "ctags", "buildindex", "gendepend", "dump", "parse", "rod",
+  "secret", "nop", "help", "jsonscript",
+]
+
 
 proc testCompileOptionArg*(conf: ConfigRef; switch, arg: string, info: TLineInfo): bool =
   case switch.normalize
@@ -454,9 +503,6 @@ proc processCfgPath(conf: ConfigRef; path: string, info: TLineInfo, switch: stri
       kind: rextInvalidPath, cmdlineProvided: p, cmdlineSwitch: switch))
     result = AbsoluteDir p
 
-const
-  errInvalidNumber = "$1 is not a valid number"
-
 proc makeAbsolute(s: string): AbsoluteFile =
   if isAbsolute(s):
     AbsoluteFile pathnorm.normalizePath(s)
@@ -534,6 +580,7 @@ proc handleCmdInput*(conf: ConfigRef) =
   handleStdinOrCmdInput()
 
 proc parseCommand*(command: string): Command =
+  # NOTE when adding elements to this list, sync with `cmdNames` const
   case command.normalize
   of "c", "cc", "compile", "compiletoc": cmdCompileToC
   of "cpp", "compiletocpp": cmdCompileToCpp

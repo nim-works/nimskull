@@ -2051,7 +2051,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
   if result.isErrorLike:
     closeScope(c)
     popOwner(c)
-    return wrapErrorInSubTree(result)
+    return wrapErrorInSubTree(c.config, result)
 
   if n[pragmasPos].kind != nkEmpty and sfBorrow notin s.flags:
     setEffectsForProcType(c.graph, s.typ, n[pragmasPos], s)
@@ -2356,14 +2356,14 @@ proc semPragmaBlock(c: PContext, n: PNode): PNode =
 
   if pragmaList != nil and pragmaList.kind == nkError:
     n[0] = pragmaList
-    result = wrapErrorInSubTree(n)
+    result = wrapErrorInSubTree(c.config, n)
     return
 
   var inUncheckedAssignSection = 0
   for i, p in pragmaList.pairs:
     if p.kind == nkError:
       n[0] = pragmaList
-      result = wrapErrorInSubTree(n)
+      result = wrapErrorInSubTree(c.config, n)
       return
     elif whichPragma(p) == wCast:
       case whichPragma(p[1])
@@ -2375,7 +2375,7 @@ proc semPragmaBlock(c: PContext, n: PNode): PNode =
         let e = c.config.newError(p, reportSem rsemInvalidPragmaBlock)
         pragmaList[i] = e
         n[0] = pragmaList
-        result = wrapErrorInSubTree(n)
+        result = wrapErrorInSubTree(c.config, n)
         return
 
   inc c.inUncheckedAssignSection, inUncheckedAssignSection
@@ -2508,7 +2508,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
       prettybase.replaceComment(result.info)
 
   if hasError:
-    result = wrapErrorInSubTree(result)
+    result = wrapErrorInSubTree(c.config, result)
 
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if efInTypeof in flags:

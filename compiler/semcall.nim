@@ -354,7 +354,7 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
             n[2] = c.config.newError(n[2], SemReport(
               kind: rsemUndeclaredField, ast: n[2], sym: sym, typ: sym.typ))
 
-            result.call = wrapErrorInSubTree(n)
+            result.call = wrapErrorInSubTree(c.config, n)
         else:
           # xxx adapt/use errorUndeclaredIdentifierHint(c, n, f.ident)
           let msg = getMsgDiagnostic(c, flags, n, f)

@@ -74,6 +74,7 @@ proc newError*(
   ## subnodes.
   assert errorKind in repSemKinds
   assert wrongNode != nil, "can't have a nil node for `wrongNode`"
+  assert not report.isEmpty(), $report
 
   result = newNodeIT(
     nkError,
@@ -119,13 +120,17 @@ template newError*(
   ): untyped =
   newError(conf, wrongNode, report, instLoc(), args, posInfo)
 
-template wrapErrorInSubTree*(wrongNodeContainer: PNode): PNode =
+template wrapErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode =
   ## `wrongNodeContainer` doesn't directly have an error but one exists further
   ## down the tree, this is used to wrap the `wrongNodeContainer` in an nkError
   ## node but no message will be reported for it.
   var e = errorSubNode(wrongNodeContainer)
   assert e != nil, "there must be an error node within"
-  newError(wrongNodeContainer, rsemWrappedError, emptyReportId, instLoc())
+  newError(
+    wrongNodeContainer,
+    rsemWrappedError,
+    conf.store reportSem(rsemWrappedError),
+    instLoc())
 
 proc wrapIfErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode
   {.deprecated: "transition proc, remove usage as soon as possible".} =
@@ -187,3 +192,9 @@ iterator anyErrorsWalk*(config: ConfigRef; n: PNode
   if n != nil:
     for e in walkErrors(config, n):
       yield e
+
+proc localReport*(conf: ConfigRef, node: PNode) =
+  ## Write out existing sem report that is stored in the nkError node
+  assert node.kind == nkError, $node.kind
+  for err in walkErrors(conf, node):
+    handleReport(conf, conf.m.reports.getReport(err.reportId), doNothing)

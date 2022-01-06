@@ -24,13 +24,15 @@ proc newSysType(g: ModuleGraph; kind: TTypeKind, size: int): PType =
 
 proc getSysSym*(g: ModuleGraph; info: TLineInfo; name: string): PSym =
   result = systemModuleSym(g, getIdent(g.cache, name))
-  if result == nil:
+  if result.isNil:
     g.config.localReport(info, reportStr(rsemSystemNeeds, name))
 
     result = newSym(
       skError, getIdent(g.cache, name), nextSymId(g.idgen), g.systemModule, g.systemModule.info, {})
     result.typ = newType(tyError, nextTypeId(g.idgen), g.systemModule)
-  if result.kind == skAlias: result = result.owner
+  if result.kind == skAlias:
+    result = result.owner
+
 
 proc getSysMagic*(g: ModuleGraph; info: TLineInfo; name: string, m: TMagic): PSym =
   let id = getIdent(g.cache, name)

@@ -353,6 +353,11 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
   proc render(t: PType): string = typeToString(t)
 
   case SemReportKind(r.kind):
+    of rsemWrappedError:
+      assert false, (
+        "Cannot report wrapped sem error - use `walkErrors` in " &
+          "order to write out all accumulated reports")
+
     of rsemCallTypeMismatch:
       let (prefer, candidates) = presentFailedCandidates(
         conf, r.ast, r.callMismatches)
@@ -1848,6 +1853,9 @@ proc report(conf: ConfigRef, r: ExternalReport): string =
 
     of rextInvalidWarning:
       result.add("Invalid warning - ", r.cmdlineProvided)
+
+    of rextInvalidCommandLineOption:
+      result.add("Invalid command line option - ", r.cmdlineProvided)
 
     else:
       result = $r

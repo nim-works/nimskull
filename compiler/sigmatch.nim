@@ -2328,7 +2328,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
   template noMatchDueToError() =
     ## found an nkError along the way so wrap the call in an error, do not use
     ## if the legacy `localReport`s etc are being used.
-    m.call = wrapErrorInSubTree(m.call)
+    m.call = wrapErrorInSubTree(c.config, m.call)
     noMatch()
 
   template checkConstraint(n: untyped) {.dirty.} =

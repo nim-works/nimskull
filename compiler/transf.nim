@@ -22,7 +22,8 @@ import
   options, ast, astalgo, trees, msgs, reports,
   idents, renderer, types, semfold, magicsys, cgmeth,
   lowerings, liftlocals,
-  modulegraphs, lineinfos
+  modulegraphs, lineinfos,
+  errorhandling
 
 proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
 

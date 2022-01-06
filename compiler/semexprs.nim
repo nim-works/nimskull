@@ -1038,13 +1038,13 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
     of nkError:
       result = n
       result[0] = n0
-      return wrapErrorInSubTree(result)
+      return wrapErrorInSubTree(c.config, result)
     else:
       n[0] = n0
   else:
     n[0] = semExpr(c, n[0], {efInCall})
     if n[0] != nil and n[0].isErrorLike:
-      result = wrapErrorInSubTree(n)
+      result = wrapErrorInSubTree(c.config, n)
       return
     let t = n[0].typ
     if t != nil and t.kind in {tyVar, tyLent}:
@@ -1111,7 +1111,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
   elif result[0].kind == nkSym:
     result =
       if result[0].sym.isError:
-        wrapErrorInSubTree(result)
+        wrapErrorInSubTree(c.config, result)
       else:
         afterCallActions(c, result, nOrig, flags)
   else:

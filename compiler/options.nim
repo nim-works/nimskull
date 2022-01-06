@@ -444,7 +444,7 @@ template report*[R: ReportTypes](
   report(conf, wrap(inReport, instLoc(), tinfo))
 
 proc addReport*(conf: ConfigRef, report: Report): ReportId =
-  conf.m.reports.addReport(report)
+  result = conf.m.reports.addReport(report)
 
 template store*(conf: ConfigRef, report: ReportTypes): untyped =
   conf.addReport(wrap(report, instLoc()))
