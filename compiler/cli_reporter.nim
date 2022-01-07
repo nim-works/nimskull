@@ -208,52 +208,33 @@ proc argTypeToString(arg: PNode; prefer: TPreferedDesc): string =
     result = arg.typ.typeToString(prefer)
 
 
-proc describeArgs(conf: ConfigRef, n: PNode, startIdx = 1; prefer = preferName): string =
-  echo prefer
-  for i in startIdx ..< n.len:
-    var arg = n[i]
-    if n[i].kind == nkExprEqExpr:
-      result.add renderTree(n[i][0])
+
+proc describeArgs(conf: ConfigRef, args: seq[PNode]; prefer = preferName): string =
+  for idx, arg in args:
+    if arg.kind == nkExprEqExpr:
+      result.add renderTree(arg[0])
       result.add ": "
       if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
-        # XXX we really need to 'tryExpr' here!
-
-        when false:
-          # HACK original implementation of the `describeArgs` used
-          # `semOperand` here, but until there is a clear understanding
-          # /why/ is it necessary to additionall call sem on the arguments
-          # I will leave this as it is now. This was introduced in commit
-          # 5b0d8246f79730a473a869792f12938089ecced6 that "made some tests
-          # green" (+98/-77)
-          arg = c.semOperand(c, n[i][1])
-          arg = n[i][1]
-          n[i].typ = arg.typ
-          n[i][1] = arg
-
-        else:
-          debug arg
+        assert false, (
+          "call `semcall.maybeResemArgs` on report construciton site - " &
+            "this is a temporary hack that is necessary to actually provide " &
+            "proper types for error reports.")
 
     else:
       if arg.typ.isNil and arg.kind notin {
            nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch
-         }:
-
-        when false:
-          # HACK same as comment above
-          arg = c.semOperand(c, n[i])
-          n[i] = arg
-
-        else:
-          debug arg
-
+      }:
+        assert false, "call `semcall.maybeResemArgs` on report construction site"
 
     if arg.typ != nil and arg.typ.kind == tyError:
       return
 
     result.add argTypeToString(arg, prefer)
-    if i != n.len - 1:
+    if idx != args.len - 1:
       result.add ", "
 
+proc describeArgs(conf: ConfigRef, n: PNode, startIdx = 1; prefer = preferName): string =
+  describeArgs(conf, toSeq(n.sons[startIdx .. ^1]), prefer)
 
 proc presentFailedCandidates(
     conf: ConfigRef,
@@ -279,7 +260,6 @@ proc presentFailedCandidates(
         if i != n.len - 1:
           errProto.add(", ")
 
-    echo errProto, " ==? ", proto
     if errProto == proto:
       prefer = preferModuleInfo
       break
@@ -477,6 +457,18 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result.add "\nexpression: "
       result.add r.ast.render
 
+    of rsemCallIndirectTypeMismatch:
+      result.addf(
+        "type mismatch: got <$1>\nbut expected one of:\n$2",
+        conf.describeArgs(r.ast, 1),
+        r.typ.render)
+
+      if r.typ.sym != nil and
+         sfAnon notin r.typ.sym.flags and
+         r.typ.kind == tyProc:
+        result.add(" = ", typeToString(r.typ, preferDesc))
+
+
     of rsemVmStackTrace:
       result = "stack trace: (most recent call last)\n"
       for idx, (sym, loc) in r.stacktrace:
@@ -486,6 +478,9 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
           sym.name.s,
           if idx == r.stacktrace.high: "" else: "\n"
         )
+
+    of rsemVmUnhandledException:
+      result = "unhandled exception:"
 
     of rsemExpandArc:
       result.add(
@@ -547,7 +542,25 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = r.str
 
     of rsemVmFieldNotFound:
-      result = "field not found " & r.str
+      result = "node lacks field: " & r.str
+
+    of rsemVmNodeNotAFieldSymbol:
+      result = "symbol is not a field (nskField)"
+
+    of rsemVmCannotSetChild:
+      result = "cannot set child of node kind: n" & $r.ast.kind
+
+    of rsemVmCannotAddChild:
+      result = "cannot add to node kind: n" & $r.ast.kind
+
+    of rsemVmCannotGetChild:
+      result = "cannot get child of node kind: n" & $r.ast.kind
+
+    of rsemVmMissingCacheKey:
+      result = "key does not exist: " & r.str
+
+    of rsemVmCacheKeyAlreadyExists:
+      result = "key already exists: " & r.str
 
     of rsemVmFieldInavailable:
       result = r.str
@@ -588,7 +601,38 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         "statement or in a 'push' environment"
 
     of rsemDeprecated:
-      result = r.str
+      if r.symbols.len == 2:
+        # symbols and it's alternative
+        result.add(
+          "use ",
+          r.symbols[1].name.s,
+          " instead; ",
+          r.symbols[0].name.s,
+          " is deprecated"
+        )
+
+      else:
+        result = r.str
+        if not r.sym.isNil:
+          let s = r.sym
+          if 0 < r.str.len:
+            result.add("; ")
+
+          # Depreaction was added for a whole enum, not a specific field
+          if s.kind == skEnumField and sfDeprecated notin s.flags:
+            result.addf(
+              "enum '$1' which contains field '$2' is deprecated",
+              s.owner.name.s,
+              s.name.s,
+            )
+
+          elif s.kind == skModule and not s.constraint.isNil():
+            result.addf("$1; $2 is deprecated", s.constraint.strVal, s.name.s)
+
+          else:
+            result.add(s.name.s, " is deprecated")
+
+
 
     of rsemThisPragmaRequires01Args:
       # FIXME remove this report kind, reuse "wrong number of arguments"
@@ -656,7 +700,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "'$1' has unspecified generic parameters" % r.sym.name.s
 
     of rsemExpandMacro:
-      result = r.expandedAst.render()
+      result = "expanded macro:\n" & r.expandedAst.render()
 
     of rsemUnusedImport:
       result = "imported and not used: '$1'" % r.sym.name.s
@@ -689,6 +733,12 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result =  "undeclared field: '$1' for type $2" % [
         $r.ast.ident.s, $getProcHeader(conf, r.sym)]
 
+    of rsemCannotCodegenCompiletimeProc:
+      result = "request to generate code for .compileTime proc: " & r.symstr
+
+    of rsemFieldAssignmentInvalid:
+      result = "Invalid field assignment '$1'" % r.ast.render
+
     of rsemAmbiguous:
       var args = "("
       for i in 1 ..< r.ast.len:
@@ -714,14 +764,20 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "ambiguous identifier: '" & r.str & "' -- use one of the following:\n"
       var i = 0
       for sym in r.symbols:
-        if 0 < i:
-          result.add "\n"
+        result.add(
+          tern(0 < i, "\n", ""),
+          "  ",
+          sym.owner.name.s,
+          ".",
+          sym.name.s,
+          ": ",
+          sym.typ.render()
+        )
 
-        result.add "  " & sym.owner.name.s & "." & sym.name.s
         inc i
 
 
-    of rsemStaticOutOfBounds:
+    of rsemStaticOutOfBounds, rsemVmIndexError:
       let (i, a, b) = r.indexSpec
       if b < a:
         result = "index out of bounds, the container is empty"
@@ -1187,14 +1243,19 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
     of rsemUseOrDiscard:
       result = "value of type '$1' has to be used (or discarded)" % r.typ.render
 
+    of rsemDiscardingProc:
+      result = "illegal discard"
+
     of rsemUseOrDiscardExpr:
       var n = r.ast
-      while n.kind in skipForDiscardable: n = n.lastSon
+      while n.kind in skipForDiscardable:
+        n = n.lastSon
+
       result.add(
         "expression '",
         n.render,
         "' is of type '",
-        n.typ.render,
+        n.typ.skipTypes({tyVar}).render,
         "' and has to be used (or discarded)"
       )
 
@@ -1774,6 +1835,9 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
     of rsemNoGenericParamsAllowed:
       result = "no generic parameters allowed for $1" % r.symstr
 
+    of rsemIllegalCustomPragma:
+      result = "cannot attach a custom pragma to '$1'" % r.symstr
+
     of rsemCallingConventionMismatch:
       assert false, "REMOVE"
 
@@ -1824,7 +1888,9 @@ proc suffix(
   if r.kind in repWithSuffix:
     result.add conf.wrap(" [" & $r.kind & "]", fgCyan)
 
-  if conf.hasHint(rintMsgOrigin):
+  if conf.hasHint(rintMsgOrigin) or (
+    defined(nimDebugMsgOrigin) and rintMsgOrigin in conf.notes
+  ):
     result.add(
       "\n",
       conf.toStr(r.reportInst),
@@ -1860,7 +1926,7 @@ proc toStr(conf: ConfigRef, r: ParserReport): string =
        result = "nestable statement requires indentation"
 
     of rparIdentExpected:
-      result = "identifier expected, but got '$1'"
+      result = "identifier expected, but got '$1'" % r.found
 
     of rparIdentOrKwdExpected:
       result = "identifier expected, but got '$1'"

@@ -449,7 +449,7 @@ proc addReport*(conf: ConfigRef, report: Report): ReportId =
   assert not result.isEmpty(), $result
 
 proc getReport*(conf: ConfigRef, report: ReportId): Report =
-  assert not report.isEmpty(), $result
+  assert not report.isEmpty(), $report
   result = conf.m.reports.getReport(report)
 
 template store*(conf: ConfigRef, report: ReportTypes): untyped =

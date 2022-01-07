@@ -134,6 +134,35 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
 
 
 
+proc maybeResemArgs*(c: PContext, n: PNode, startIdx: int = 1): seq[PNode] =
+  # HACK original implementation of the `describeArgs` used `semOperand`
+  # here, but until there is a clear understanding /why/ is it necessary to
+  # additionall call sem on the arguments I will leave this as it is now.
+  # This was introduced in commit 5b0d8246f79730a473a869792f12938089ecced6
+  # that "made some tests green" (+98/-77)
+  for i in startIdx ..< n.len:
+    var arg = n[i]
+    if n[i].kind == nkExprEqExpr:
+      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
+        # XXX we really need to 'tryExpr' here!
+        arg = c.semOperand(c, n[i][1])
+        arg = n[i][1]
+        n[i].typ = arg.typ
+        n[i][1] = arg
+
+    else:
+      if arg.typ.isNil and arg.kind notin {
+           nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch
+         }:
+
+        arg = c.semOperand(c, n[i])
+        n[i] = arg
+
+    if arg.typ != nil and arg.typ.kind == tyError:
+      return
+
+    result.add arg
+
 proc presentFailedCandidates(
   c: PContext, n: PNode, errors: CandidateErrors): seq[SemCallMismatch] =
   ## Construct list of type mismatch descriptions for subsequent reporting.
@@ -146,7 +175,8 @@ proc presentFailedCandidates(
   for err in errors:
     var cand = SemCallMismatch(
       kind: err.firstMismatch.kind,
-      expression: n
+      expression: n,
+      arguments: maybeResemArgs(c, n, 1)
     )
 
     cand.target = err.sym

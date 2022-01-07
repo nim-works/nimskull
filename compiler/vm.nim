@@ -31,13 +31,7 @@ when hasFFI:
   import evalffi
 
 const
-  errNilAccess = "attempt to access a nil address"
-  errOverOrUnderflow = "over- or underflow"
-  errConstantDivisionByZero = "division by zero"
   errIllegalConvFromXtoY = "illegal conversion from '$1' to '$2'"
-  errTooManyIterations = "interpretation requires too many iterations; " &
-    "if you are sure this is not a bug in your code, compile with `--maxLoopIterationsVM:number` (current value: $1)"
-  errFieldXNotFound = "node lacks field: "
 
 proc stackTraceImpl(
     c:          PCtx,

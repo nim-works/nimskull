@@ -410,6 +410,7 @@ type
 
     # Call and procedures
     rsemCallTypeMismatch
+    rsemCallIndirectTypeMismatch
     rsemCallNotAProcOrField ## unknown or semantically invalid `obj.field`,
     ## `obj.call()`
     rsemExpressionCannotBeCalled
@@ -666,6 +667,7 @@ type
     rsemVmDivisionByConstZero
     rsemVmNodeNotASymbol
     rsemVmNodeNotAProcSymbol
+    rsemVmNodeNotAFieldSymbol
     rsemVmIllegalConv
     rsemVmMissingCacheKey
     rsemVmCacheKeyAlreadyExists
@@ -1067,10 +1069,10 @@ const
     rsemBorrowOutlivesSource,
     rsemImmutableBorrowMutation,
     rsemIllegalCallconvCapture, # [symbol, owner]
+    rsemDeprecated # [symbol, use-instead]
   }
 
   rsemReportOneSym* = {
-    rsemDeprecated,
     rsemRedefinitionOf,
     rsemUnexpectedPragmaInDefinitionOf,
     rsemDoubleCompletionOf,
@@ -1150,6 +1152,7 @@ type
     targetArg*: PSym ## parameter that mismatches against provided
     ## argument its position can differ from `arg` because of varargs
     diagnostics*: seq[SemCallDiagnostics]
+    arguments*: seq[PNode]
     case kind*: MismatchKind
       of kTypeMismatch:
         typeMismatch*: SemTypeMismatch ## Argument type mismatch

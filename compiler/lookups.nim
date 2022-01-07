@@ -536,7 +536,7 @@ proc errorUseQualifier(
   var
     i = 0
     ignoredModules = 0
-    rep = SemReport(kind: rsemAmbiguous, sym: s)
+    rep = SemReport(kind: rsemAmbiguousIdent, sym: s)
 
   for candidate in importedItems(c, s.name):
     rep.symbols.add candidate

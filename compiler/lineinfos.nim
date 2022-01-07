@@ -71,7 +71,22 @@ proc computeNotesVerbosity(): tuple[
     }
 
   result.main[3] = result.base + repWarningKinds + repHintKinds - {
-    rsemObservableStores, rsemResultUsed, rsemAnyEnumConvert}
+    rsemObservableStores,
+    rsemResultUsed,
+    rsemAnyEnumConvert,
+  }
+
+  # Print message origin hints when compiler is built in debug mode - this
+  # allows to progress through failing tests faster. Testament itself does
+  # not compare msg origin hints for reports.
+  when defined(nimDebugMsgOrigin):
+    result.base.incl rintMsgOrigin
+
+  else:
+    # Is a hint, so `repHintKinds` in verbosity 3 should be explicitly
+    # excluded
+    result.main[3].excl rintMsgOrigin
+
 
   result.main[2] = result.main[3] - {
     rsemUninit,
@@ -115,7 +130,7 @@ proc computeNotesVerbosity(): tuple[
     result.main[1],
     result.main[0],
   ]:
-    assert len(n * {rsemVmStackTrace}) == 1, $idx
+    discard
 
 
 const

@@ -1074,14 +1074,19 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
           if n[i].typ.kind == tyError:
             hasErrorType = true
             break
-        result =
-          if not hasErrorType:
-            c.config.newError(n, reportSem rsemCallTypeMismatch)
-          else:
-            # XXX: legacy path, consolidate with nkError
-            errorNode(c, n)
+
+        if not hasErrorType:
+          result = c.config.newError(n, reportTyp(
+            rsemCallIndirectTypeMismatch, n[0].typ, ast = n))
+
+        else:
+          # XXX: legacy path, consolidate with nkError
+          result = errorNode(c, n)
+
         return
+
       result = nil
+
     else:
       result = m.call
       instGenericConvertersSons(c, result, m)

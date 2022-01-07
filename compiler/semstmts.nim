@@ -115,9 +115,14 @@ proc discardCheck(c: PContext, result: PNode, flags: TExprFlags) =
     if implicitlyDiscardable(result):
       var n = newNodeI(nkDiscardStmt, result.info, 1)
       n[0] = result
+
     elif result.typ.kind != tyError and c.config.cmd != cmdInteractive:
       var n = result
-      localReport(c.config, result, reportSem rsemUseOrDiscardExpr)
+      while n.kind in skipForDiscardable:
+        n = n.lastSon
+
+      localReport(
+        c.config, n.info, reportAst(rsemUseOrDiscardExpr, result))
 
 # end `discard` check related code
 
