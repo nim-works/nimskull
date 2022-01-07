@@ -50,7 +50,7 @@ proc computeNotesVerbosity(): tuple[
   # actual error report must follow), so it is a hint-level report (can't
   # be debug because it is a user-facing, can't be "trace" because it is
   # not for compiler developers use only)
-  result.base.incl {rsemVmStackTraceUser, rsemVmStackTraceInternal}
+  result.base.incl {rsemVmStackTrace}
 
   when defined(debugOptions):
     # debug report for transition of the configuration options
@@ -115,7 +115,7 @@ proc computeNotesVerbosity(): tuple[
     result.main[1],
     result.main[0],
   ]:
-    assert len(n * {rsemVmStackTraceUser, rsemVmStackTraceInternal}) == 2, $idx
+    assert len(n * {rsemVmStackTrace}) == 1, $idx
 
 
 const

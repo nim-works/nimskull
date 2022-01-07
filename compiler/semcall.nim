@@ -213,12 +213,18 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
   if f.kind == nkBracketExpr:
     f = f[0]
 
-  result = newError(c.config, n, SemReport(
-    kind: rsemCallTypeMismatch,
-    ast: n,
-    spellingCandidates: fixSpelling(c, f.ident),
-    callMismatches: presentFailedCandidates(c, n, errors)
-  ))
+  if f.kind in {nkOpenSymChoice, nkClosedSymChoice}:
+    f = f[0]
+
+  assert f.kind in {nkSym, nkIdent}
+
+  var report = reportAst(rsemCallTypeMismatch, n)
+  report.spellingCandidates = fixSpelling(
+    c, tern(f.kind == nkSym, f.sym.name, f.ident))
+
+  report.callMismatches = presentFailedCandidates(c, n, errors)
+
+  result = newError(c.config, n, report)
 
 proc bracketNotFoundError(c: PContext; n: PNode): PNode =
   var errors: CandidateErrors = @[]

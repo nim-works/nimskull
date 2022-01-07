@@ -315,8 +315,7 @@ proc getNumber(L: var Lexer, result: var Token) =
       inc(L.bufpos)
       matchChars(L, t, {'0'..'9'})
     L.bufpos = msgPos
-    L.localReport(LexerReport(
-      kind: rlexMalformedUnderscores, msg: msg % t.literal))
+    L.localReport(LexerReport(kind: msgKind, msg: msg % t.literal))
 
   var
     xi: BiggestInt

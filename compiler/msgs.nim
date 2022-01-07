@@ -505,7 +505,7 @@ template globalReport*(
   conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   ## `local` means compilation keeps going until errorMax is reached (via
   ## `doNothing`), `global` means it stops.
-  handleReport(conf, wrap(report, instLoc(), info), doNothing)
+  handleReport(conf, wrap(report, instLoc(), info), doRaise)
 
 template globalReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doRaise)
@@ -592,23 +592,31 @@ template internalAssert*(
     conf: ConfigRef, e: bool, failMsg: string = "") =
 
   if not e:
-    conf.report(wrap(
-      InternalReport(
+    handleReport(
+      conf,
+      wrap(InternalReport(
         context: conf.getContext(unknownLineInfo),
-        kind: rintAssert, msg: failMsg), instLoc()))
+        kind: rintAssert, msg: failMsg), instLoc()),
+      doAbort
+    )
 
 template internalError*(
     conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
-  conf.report(wrap(InternalReport(
-    context: conf.getContext(unknownLineInfo),
-    kind: repKind, msg: fail), instLoc()))
+  conf.handleReport(
+    wrap(InternalReport(
+      context: conf.getContext(unknownLineInfo),
+      kind: repKind,
+      msg: fail),
+         instLoc()),
+    doAbort
+  )
 
 template internalError*(
     conf: ConfigRef, info: TLineInfo,
     repKind: InternalReportKind, fail: string): untyped =
-  conf.report(wrap(InternalReport(
+  conf.handleReport(wrap(InternalReport(
     context: conf.getContext(unknownLineInfo),
-    kind: repKind, msg: fail), instLoc(), info))
+    kind: repKind, msg: fail), instLoc(), info), doAbort)
 
 template internalError*(
     conf: ConfigRef,
@@ -616,9 +624,9 @@ template internalError*(
     fail: string,
   ): untyped =
 
-  conf.report(wrap(
+  conf.handleReport(wrap(
     InternalReport(kind: rintUnreachable, msg: fail),
-    instLoc(), info))
+    instLoc(), info), doAbort)
 
 
 template internalError*(
@@ -626,7 +634,8 @@ template internalError*(
     fail: string
   ): untyped =
 
-  conf.report(wrap(InternalReport(kind: rintUnreachable, msg: fail), instLoc()))
+  conf.handleReport(wrap(InternalReport(
+    kind: rintUnreachable, msg: fail), instLoc()), doAbort)
 
 
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =

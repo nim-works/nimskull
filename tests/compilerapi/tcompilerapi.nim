@@ -13,7 +13,7 @@ raising VMQuit
 ## Example program that demonstrates how to use the
 ## compiler as an API to embed into your own projects.
 
-import "../../compiler" / [ast, vmdef, vm, nimeval, llstream, lineinfos, options]
+import "../../compiler" / [ast, vmdef, vm, nimeval, llstream, lineinfos, options, reports]
 import std / [os]
 
 proc initInterpreter(script: string): Interpreter =
@@ -61,9 +61,10 @@ block error_hook:
   type VMQuit = object of CatchableError
 
   let i = initInterpreter("invalid.nim")
-  i.registerErrorHook proc(config: ConfigRef; info: TLineInfo; msg: string;
-                           severity: Severity) {.gcsafe.} =
-    if severity == Error and config.errorCounter >= config.errorMax:
+  i.registerErrorHook proc(config: ConfigRef, report: Report) {.gcsafe.} =
+    if config.severity(report) == rsevError and
+       config.errorCounter >= config.errorMax:
+
       echo "raising VMQuit"
       raise newException(VMQuit, "Script error")
 

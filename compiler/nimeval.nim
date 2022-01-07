@@ -12,7 +12,8 @@ import
   ast, astalgo, modules, passes, condsyms,
   options, sem, llstream, lineinfos, vm,
   vmdef, modulegraphs, idents, os, pathutils,
-  passaux, scriptconfig, std/compilesettings
+  passaux, scriptconfig, std/compilesettings,
+  reports
 
 type
   Interpreter* = ref object ## Use Nim as an interpreter with this object
@@ -136,10 +137,11 @@ proc destroyInterpreter*(i: Interpreter) =
   ## destructor.
   discard "currently nothing to do."
 
-proc registerErrorHook*(i: Interpreter, hook:
-                        proc (config: ConfigRef; info: TLineInfo; msg: string;
-                              severity: Severity) {.gcsafe.}) =
-  i.graph.config.structuredErrorHook = hook
+proc registerErrorHook*(
+    i: Interpreter,
+    hook: proc (config: ConfigRef, report: Report) {.gcsafe.}
+  ) =
+  i.graph.config.structuredReportHook = hook
 
 proc runRepl*(r: TLLRepl;
               searchPaths: openArray[string];

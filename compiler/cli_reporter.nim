@@ -50,12 +50,6 @@ proc formatPath(conf: ConfigRef, path: string): string =
     else:
       result = path
 
-template tern*(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
-  ## Shorthand for inline if/else. Allows use of conditions in strformat,
-  ## simplifies use in expressions. Less picky with formatting
-  {.line: instantiationInfo(fullPaths = true).}:
-    block:
-      if predicate: tBranch else: fBranch
 
 
 
@@ -81,14 +75,18 @@ proc toStr(conf: ConfigRef, loc: TLineInfo): string =
     "$1($2, $3)" % [
       toFilenameOption(conf, loc.fileIndex, conf.filenameOption),
       $loc.line,
-      $loc.col
+      $(loc.col + ColOffset)
     ],
     fgDefault,
     {styleBright})
 
 proc toStr(conf: ConfigRef, loc: ReportLineInfo): string =
   conf.wrap(
-    "$1($2, $3)" % [conf.formatPath(loc.file), $loc.line, $loc.col],
+    "$1($2, $3)" % [
+      conf.formatPath(loc.file),
+      $loc.line,
+      $(loc.col + ColOffset)
+    ],
     fgDefault,
     {styleBright})
 
@@ -196,6 +194,65 @@ proc format(diag: SemCallDiagnostics): string =
       return "The default parameter '" & diag.param.name.s &
         "' has incompatible type with the explicitly requested proc instantiation"
 
+proc argTypeToString(arg: PNode; prefer: TPreferedDesc): string =
+  if arg.kind in nkSymChoices:
+    result = typeToString(arg[0].typ, prefer)
+    for i in 1 ..< arg.len:
+      result.add(" | ")
+      result.add typeToString(arg[i].typ, prefer)
+
+  elif arg.typ == nil:
+    result = "void"
+
+  else:
+    result = arg.typ.typeToString(prefer)
+
+
+proc describeArgs(conf: ConfigRef, n: PNode, startIdx = 1; prefer = preferName): string =
+  echo prefer
+  for i in startIdx ..< n.len:
+    var arg = n[i]
+    if n[i].kind == nkExprEqExpr:
+      result.add renderTree(n[i][0])
+      result.add ": "
+      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
+        # XXX we really need to 'tryExpr' here!
+
+        when false:
+          # HACK original implementation of the `describeArgs` used
+          # `semOperand` here, but until there is a clear understanding
+          # /why/ is it necessary to additionall call sem on the arguments
+          # I will leave this as it is now. This was introduced in commit
+          # 5b0d8246f79730a473a869792f12938089ecced6 that "made some tests
+          # green" (+98/-77)
+          arg = c.semOperand(c, n[i][1])
+          arg = n[i][1]
+          n[i].typ = arg.typ
+          n[i][1] = arg
+
+        else:
+          debug arg
+
+    else:
+      if arg.typ.isNil and arg.kind notin {
+           nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch
+         }:
+
+        when false:
+          # HACK same as comment above
+          arg = c.semOperand(c, n[i])
+          n[i] = arg
+
+        else:
+          debug arg
+
+
+    if arg.typ != nil and arg.typ.kind == tyError:
+      return
+
+    result.add argTypeToString(arg, prefer)
+    if i != n.len - 1:
+      result.add ", "
 
 
 proc presentFailedCandidates(
@@ -211,7 +268,7 @@ proc presentFailedCandidates(
   #   openssl.SSL_set_fd(ssl: SslPtr, fd: SocketHandle): cint
   # we do a pre-analysis. If all types produce the same string, we will add
   # module information.
-  let proto = "" # describeArgs(c, n, 1, preferName)
+  let proto = describeArgs(conf, n, 1, preferName)
   for err in errors:
     var errProto = ""
     let n = err.target.typ.n
@@ -222,6 +279,7 @@ proc presentFailedCandidates(
         if i != n.len - 1:
           errProto.add(", ")
 
+    echo errProto, " ==? ", proto
     if errProto == proto:
       prefer = preferModuleInfo
       break
@@ -335,65 +393,8 @@ proc presentFailedCandidates(
 
   result = (prefer, candidates)
 
-proc argTypeToString(arg: PNode; prefer: TPreferedDesc): string =
-  if arg.kind in nkSymChoices:
-    result = typeToString(arg[0].typ, prefer)
-    for i in 1 ..< arg.len:
-      result.add(" | ")
-      result.add typeToString(arg[i].typ, prefer)
-
-  elif arg.typ == nil:
-    result = "void"
-
-  else:
-    result = arg.typ.typeToString(prefer)
 
 
-proc describeArgs(conf: ConfigRef, n: PNode, startIdx = 1; prefer = preferName): string =
-  result = ""
-  for i in startIdx ..< n.len:
-    var arg = n[i]
-    if n[i].kind == nkExprEqExpr:
-      result.add renderTree(n[i][0])
-      result.add ": "
-      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
-        # XXX we really need to 'tryExpr' here!
-
-        when false:
-          # HACK original implementation of the `describeArgs` used
-          # `semOperand` here, but until there is a clear understanding
-          # /why/ is it necessary to additionall call sem on the arguments
-          # I will leave this as it is now. This was introduced in commit
-          # 5b0d8246f79730a473a869792f12938089ecced6 that "made some tests
-          # green" (+98/-77)
-          arg = c.semOperand(c, n[i][1])
-          arg = n[i][1]
-          n[i].typ = arg.typ
-          n[i][1] = arg
-
-        else:
-          debug arg
-
-    else:
-      if arg.typ.isNil and arg.kind notin {
-           nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch
-         }:
-
-        when false:
-          # HACK same as comment above
-          arg = c.semOperand(c, n[i])
-          n[i] = arg
-
-        else:
-          debug arg
-
-
-    if arg.typ != nil and arg.typ.kind == tyError:
-      return
-
-    result.add argTypeToString(arg, prefer)
-    if i != n.len - 1:
-      result.add ", "
 
 proc presentSpellingCandidates*(
   conf: ConfigRef, candidates: seq[SemSpellCandidate]): string =
@@ -417,6 +418,12 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       assert false, (
         "Cannot report wrapped sem error - use `walkErrors` in " &
           "order to write out all accumulated reports")
+
+    of rsemUninit:
+      result = "use explicit initialization of '$1' for clarity" % r.symstr
+
+    of rsemDuplicateCaseLabel:
+      result = "duplicate case label"
 
     of rsemIllegalMemoryCapture:
       let s = r.symbols[0]
@@ -470,7 +477,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result.add "\nexpression: "
       result.add r.ast.render
 
-    of rsemVmStackTraceUser:
+    of rsemVmStackTrace:
       result = "stack trace: (most recent call last)\n"
       for idx, (sym, loc) in r.stacktrace:
         result.add(
@@ -485,7 +492,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         "--expandArc: ",
         r.symstr,
         "\n",
-        r.expandedAst.render,
+        r.expandedAst.renderTree({renderIr, renderNoComments}),
         "\n",
         "-- end of expandArc ------------------------"
       )
@@ -505,6 +512,45 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
           "\n",
           conf.toStr(r.borrowPair.connectedVia),
           " is the statement that connected the mutation to the parameter")
+
+    of rsemVmNodeNotASymbol:
+      result = "node is not a symbol"
+
+    of rsemVmNodeNotAProcSymbol:
+      result = "node is not a proc symbol"
+
+    of rsemVmDerefUnsupportedPtr:
+      result = "deref unsupported ptr type: $1 $2" % [r.typ.render, $r.typ.kind]
+
+    of rsemVmNilAccess:
+      result = "attempt to access a nil address"
+
+    of rsemVmOverOrUnderflow:
+      result = "over- or underflow"
+
+    of rsemVmDivisionByConstZero:
+      result = "division by zero"
+
+    of rsemVmTooManyIterations:
+      result = "interpretation requires too many iterations; " &
+        "if you are sure this is not a bug in your code, compile " &
+        "with `--maxLoopIterationsVM:number` (current value: $1)" %
+        $conf.maxLoopIterationsVM
+
+    of rsemVmCannotModifyTypechecked:
+      result = "typechecked nodes may not be modified"
+
+    of rsemVmNoType:
+      result = "node has no type"
+
+    of rsemVmIllegalConv:
+      result = r.str
+
+    of rsemVmFieldNotFound:
+      result = "field not found " & r.str
+
+    of rsemVmFieldInavailable:
+      result = r.str
 
     of rsemBorrowOutlivesSource:
       result.add(
@@ -696,7 +742,18 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         typeToString(r.actualType()), typeToString(r.formalType())]
 
     of rsemIllformedAst:
-      result = "ilformed ast: " & render(r.ast)
+      result = "illformed AST: " & render(r.ast)
+
+    of rsemTypeExpected:
+      if r.sym.typ.isNil:
+        result = "type expected, but symbol '$1' has no type." % r.symstr
+
+      else:
+        result = "type expected, but got symbol '$1' of kind '$2'" %
+          [r.sym.name.s, r.sym.kind.toHumanStr]
+
+    of rsemCyclicDependency:
+      result = "recursive dependency: '$1'" % r.sym.name.s
 
     of rsemCannotInstantiate:
       result = "cannot instantiate: '$1'" % r.ast.render
@@ -1743,8 +1800,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
 const standalone = {
   rsemExpandArc, # Original compiler did not consider it as a hint
-  rsemVmStackTraceUser, # Always associated with extra report
-  rsemVmStackTraceInternal
+  rsemVmStackTrace, # Always associated with extra report
 }
 
 const repWithPrefix = repAllKinds - standalone
@@ -1931,7 +1987,7 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
         conf.prefix(r),
         "Internal unreachable code executed - ",
         conf.toStr(r.reportInst),
-        "(", r.msg, ") should never be called."
+        " (", r.msg, ") should never be called."
       )
 
     of rintEchoMessage:

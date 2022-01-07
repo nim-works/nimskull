@@ -18,7 +18,7 @@ import
   evaltempl, patterns, parampatterns, sempass2, linter, semmacrosanity,
   lowerings, plugins/active, lineinfos, strtabs, int128,
   isolation_check, typeallowed, modulegraphs, enumtostr, concepts, astmsgs,
-  errorhandling, errorreporting, reports
+  errorhandling, errorreporting, reports, debugutils
 
 when defined(nimfix):
   import nimfix/prettybase

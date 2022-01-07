@@ -1461,6 +1461,17 @@ proc setSlot(c: PCtx; v: PSym) =
 
 proc cannotEval(c: PCtx; n: PNode) {.noinline.} =
   globalReport(c.config, n.info, reportAst(rsemVmCannotEvaluateAtComptime, n))
+  # HACK REFACTOR FIXME With current compiler 'arhitecture' this call
+  # MUST raise an exception that is captured by `sem.tryConstExpr` in sem. In
+  # the future this needs to be removed, `checkCanEval` must return a
+  # `true/false` bool.
+  #
+  # For more elaborate explanation of the related code see the comment
+  # https://github.com/nim-works/nimskull/pull/94#issuecomment-1006927599
+  #
+  # This code must not be reached
+  doAssert false
+
 
 proc isOwnedBy(a, b: PSym): bool =
   var a = a.owner
@@ -1623,6 +1634,7 @@ proc genGlobalInit(c: PCtx; n: PNode; s: PSym) =
     c.freeTemp(tmp)
 
 proc genRdVar(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
+  addInNimDebugUtils(c.config, "genRdVar")
   # gfNodeAddr and gfNode are mutually exclusive
   assert card(flags * {gfNodeAddr, gfNode}) < 2
   let s = n.sym
@@ -2051,10 +2063,16 @@ proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       if c.prc.sym != nil and c.prc.sym.kind == skMacro:
         genRdVar(c, n, dest, flags)
       else:
-        globalReport(c.config, n.info, reportSym(rsemVmCannotGenerateCode, s))
+        globalReport(c.config, n.info, reportSym(
+          rsemVmCannotGenerateCode, s,
+          str = "Attempt to generate VM code for generic parameter in non-macro proc"
+        ))
 
     else:
-      globalReport(c.config, n.info, reportSym(rsemVmCannotGenerateCode, s))
+      globalReport(c.config, n.info, reportSym(
+        rsemVmCannotGenerateCode, s,
+        str = "Unexpected symbol for VM code - " & $s.kind
+      ))
   of nkCallKinds:
     if n[0].kind == nkSym:
       let s = n[0].sym
@@ -2185,7 +2203,7 @@ proc genStmt*(c: PCtx; n: PNode): int =
     internalError(c.config, n.info, "VM problem: dest register is set")
 
 proc genExpr*(c: PCtx; n: PNode, requiresValue = true): int =
-  addInNimDebugUtils(c.config, "genExpr", n, nil)
+  addInNimDebugUtils(c.config, "genExpr")
   c.removeLastEof
   result = c.code.len
   var d: TDest = -1

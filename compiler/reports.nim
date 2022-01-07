@@ -94,6 +94,7 @@ type
     # errors being
     rintCannotOpenFile
     rintUsingLeanCompiler
+    rintNotUsingNimcore
     rintNotImplemented
     # errors end
 
@@ -118,7 +119,7 @@ type
     rintMsgOrigin = "MsgOrigin"
 
 
-    rintSuccessX ## Succesfull compilation
+    rintSuccessX = "SuccessX" ## Succesfull compilation
     # hints end
 
     rintNimconfWrite
@@ -642,6 +643,9 @@ type
     rsemVmUnhandledException
     rsemVmCannotGenerateCode
     rsemVmCannotCast
+    rsemVmGlobalError ## Error report that was declared as 'global' in the
+    ## VM - with current 'globalError-is-a-control-flow-mechanism' approach
+    ## this report is largely meaningless, and used only to raise exception.
     rsemVmInvalidBindSym
     rsemVmBadExpandToAst
     rsemVmCannotEvaluateAtComptime
@@ -652,8 +656,28 @@ type
     rsemVmNoClosureIterators
     rsemVmCannotCallMethod
     rsemVmCallingNonRoutine
+    rsemVmCannotModifyTypechecked
+    rsemVmNilAccess
+    rsemVmDerefUnsupportedPtr
+    rsemVmErrInternal
+    rsemVmIndexError
+    rsemVmOutOfRange
+    rsemVmOverOrUnderflow
+    rsemVmDivisionByConstZero
+    rsemVmNodeNotASymbol
+    rsemVmNodeNotAProcSymbol
+    rsemVmIllegalConv
+    rsemVmMissingCacheKey
+    rsemVmCacheKeyAlreadyExists
+    rsemVmFieldNotFound
+    rsemVmFieldInavailable
+    rsemVmCannotSetChild
+    rsemVmCannotAddChild
+    rsemVmCannotGetChild
+    rsemVmNoType
+    rsemVmNotAField
 
-    rsemTooManyIterations
+    rsemVmTooManyIterations
 
     rsemMissingImportcCompleteStruct
 
@@ -804,7 +828,7 @@ type
     # end
 
     # Semantic hints begin
-    rsemUserHint = "UserHint" ## `{.hint: .}` pragma encountereed
+    rsemUserHint = "User" ## `{.hint: .}` pragma encountereed
     rsemHintLibDependency
     rsemXDeclaredButNotUsed = "XDeclaredButNotUsed"
     rsemDuplicateModuleImport = "DuplicateModuleImport"
@@ -834,8 +858,7 @@ type
     rsemExpandMacro = "ExpandMacro" ## Trace macro expansion progress
     rsemExpandArc = "ExpandArc"
 
-    rsemVmStackTraceUser
-    rsemVmStackTraceInternal
+    rsemVmStackTrace
     rsemCompilesDummyReport
     rsemNonMatchingCandidates
     rsemUserRaw = "UserRaw" # REVIEW - Used in
@@ -1205,7 +1228,7 @@ type
       of rsemEffectsListingHint:
         effectListing*: tuple[tags, exceptions: seq[PType]]
 
-      of rsemVmStackTraceUser, rsemVmStackTraceInternal:
+      of rsemVmStackTrace:
         currentExceptionA*, currentExceptionB*: PNode
         traceReason*: ReportKind
         stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
@@ -1269,6 +1292,7 @@ type
          rsemDifferentTypeForReintroducedSymbol:
         typeMismatch*: seq[SemTypeMismatch]
 
+
       of rsemSymbolKindMismatch:
         expectedSymbolKind*: set[TSymKind]
 
@@ -1284,7 +1308,7 @@ type
         callMismatches*: seq[SemCallMismatch] ## Description of all the
         ## failed candidates.
 
-      of rsemStaticOutOfBounds:
+      of rsemStaticOutOfBounds, rsemVmIndexError:
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
 
 
@@ -1371,6 +1395,14 @@ template withIt*(expr: untyped, body: untyped): untyped =
     var it {.inject.} = expr
     body
     it
+
+template tern*(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
+  ## Shorthand for inline if/else. Allows use of conditions in strformat,
+  ## simplifies use in expressions. Less picky with formatting
+  {.line: instantiationInfo(fullPaths = true).}:
+    block:
+      if predicate: tBranch else: fBranch
+
 
 type
   CmdReportKind* = range[rcmdFailedExecution .. rcmdRunnableExamplesSuccess]
@@ -1511,11 +1543,17 @@ type
 
 const
   repBackendKinds* = {low(BackendReportKind) .. high(BackendReportKind)}
-  rbackErrorKinds* = {rbackCannotWriteScript}
+  rbackErrorKinds* = {rbackCannotWriteScript .. rbackCannotProduceAssembly}
+  rbackWarningKinds* = {rbackRstTestUnsupported .. rbackRstRstStyle}
+  rbackHintKinds* = {rbackProducedAssembly .. rbackUseDynLib}
+
+
 
 func severity*(report: BackendReport): ReportSeverity =
   case report.kind:
     of rbackErrorKinds: rsevError
+    of rbackHintKinds: rsevHint
+    of rbackWarningKinds: rsevWarning
     else: rsevTrace
 
 type
@@ -1706,20 +1744,21 @@ type
         externalReport*: ExternalReport
 
 static:
-  echo "size of ReportBase     ", sizeof(ReportBase)
-  echo "size of LexerReport    ", sizeof(LexerReport)
-  echo "size of ParserReport   ", sizeof(ParserReport)
-  echo "size of SemReport      ", sizeof(SemReport)
-  echo "size of CmdReport      ", sizeof(CmdReport)
-  echo "size of DebugReport    ", sizeof(DebugReport)
-  echo "size of InternalReport ", sizeof(InternalReport)
-  echo "size of BackendReport  ", sizeof(BackendReport)
-  echo "size of ExternalReport ", sizeof(ExternalReport)
-  echo "size of Report         ", sizeof(Report)
-  echo "sem reports      = ", len(repSemKinds)
-  echo "lexer reports    = ", len(repLexerKinds)
-  echo "parser reports   = ", len(repParserKinds)
-  echo "internal reports = ", len(repInternalKinds)
+  when false:
+    echo "size of ReportBase     ", sizeof(ReportBase)
+    echo "size of LexerReport    ", sizeof(LexerReport)
+    echo "size of ParserReport   ", sizeof(ParserReport)
+    echo "size of SemReport      ", sizeof(SemReport)
+    echo "size of CmdReport      ", sizeof(CmdReport)
+    echo "size of DebugReport    ", sizeof(DebugReport)
+    echo "size of InternalReport ", sizeof(InternalReport)
+    echo "size of BackendReport  ", sizeof(BackendReport)
+    echo "size of ExternalReport ", sizeof(ExternalReport)
+    echo "size of Report         ", sizeof(Report)
+    echo "sem reports      = ", len(repSemKinds)
+    echo "lexer reports    = ", len(repLexerKinds)
+    echo "parser reports   = ", len(repParserKinds)
+    echo "internal reports = ", len(repInternalKinds)
 
 let reportEmpty* = Report(
   category: repInternal,

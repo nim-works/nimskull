@@ -165,14 +165,8 @@ when not defined(selftest):
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       conf.writeHook(conf, msg & "\n", flags)
 
-  try:
-    handleCmdLine(newIdentCache(), conf)
-    when declared(GC_setMaxPause):
-      echo GC_getStatistics()
+  handleCmdLine(newIdentCache(), conf)
+  when declared(GC_setMaxPause):
+    echo GC_getStatistics()
 
-  except:
-    echo conf.formatTrace(
-      getCurrentException().getStackTraceEntries())
-
-  finally:
-    msgQuit(int8(conf.errorCounter > 0))
+  msgQuit(int8(conf.errorCounter > 0))

@@ -419,6 +419,7 @@ proc write*(conf: ConfigRef, args: varargs[string, `$`]) =
 
 proc report*(conf: ConfigRef, inReport: Report) =
   ## Write `inReport`
+  assert inReport.kind != repNone, "Cannot write out empty report"
   conf.structuredReportHook(conf, inReport)
 
 
