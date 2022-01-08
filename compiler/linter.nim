@@ -135,7 +135,8 @@ proc styleCheckUse*(conf: ConfigRef; info: TLineInfo; s: PSym) =
       (badName == "nnkArglist" and newName == "nnkArgList")
     conf.localReport(info, SemReport(
       sym: s,
-      kind: rsemLinterReport,
+      info: info,
+      kind: rsemLinterReportUse,
       linterFail: (badName, newName)
     ))
 
@@ -144,5 +145,5 @@ proc checkPragmaUse*(conf: ConfigRef; info: TLineInfo; w: TSpecialWord; pragmaNa
   if pragmaName != wanted:
     conf.localReport(info, SemReport(
       kind: rsemLinterReport,
-      linterFail: (wanted, wanted)
+      linterFail: (wanted: wanted, got: pragmaName)
     ))

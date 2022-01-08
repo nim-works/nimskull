@@ -156,15 +156,13 @@ type
     rextIcUnknownFileName
     rextIcNoSymbolAtPosition
 
+    rextExpectedCbackendForRun
     rextExpectedTinyCForRun
     rextInvalidCommand
     rextCommandMissing
     rextExpectedRunOptForArgs
     rextUnexpectedRunOpt
     rextInvalidPath ## Invalid path for a command-line argument
-
-    rextNimbleInvalidManifest
-    rextNimbleInvalidSrcDir
 
     rextInvalidPackageName ## When adding packages from the `--nimbleDir`
     ## (or it's default value), names are validated. This error is
@@ -218,7 +216,7 @@ type
 
     # warnings begin
     rlexDeprecatedOctalPrefix = "OctalEscape"
-    rlexLinterReport
+    rlexLinterReport = "Name"
     # warnings end
 
     # hints begin
@@ -421,7 +419,6 @@ type
     rsemAmbiguousCall
     rsemCallingConventionMismatch
     rsemHasSideEffects
-    rsemCanHaveSideEffects
     rsemCantPassProcvar
     rsemUnlistedRaises
     rsemUnlistedEffects
@@ -802,8 +799,6 @@ type
     rsemImplicitCstringConvert = "CStringConv"
     rsemHoleEnumConvert        = "HoleEnumConv"
     rsemAnyEnumConvert         = "AnyEnumConv"
-    rsemUnusedRaises           = "Effect"
-    rsemUnusedEffects
     rsemMethodLockMismatch
     rsemUseBase                = "UseBase"
     rsemUnreachableElse        = "UnreachableElse"
@@ -825,13 +820,13 @@ type
     rsemParallelWarnNotDisjoint
     rsemObservableStores       = "ObservableStores"
     rsemCaseTransition         = "CaseTransition"
-    rsemUseOfGc                = "GcMem"
-
-    rsemLinterReport # last !
+    rsemUseOfGc                = "GcMem" # last !
     # end
 
     # Semantic hints begin
     rsemUserHint = "User" ## `{.hint: .}` pragma encountereed
+    rsemLinterReport  = "Name"
+    rsemLinterReportUse = "Name"
     rsemHintLibDependency
     rsemXDeclaredButNotUsed = "XDeclaredButNotUsed"
     rsemDuplicateModuleImport = "DuplicateModuleImport"
@@ -856,8 +851,6 @@ type
     rsemGlobalVar = "GlobalVar" ## Track global variable declarations?
 
     rsemEffectsListingHint
-    rsemPreExpandMacro
-    rsemPostExpandMacro
     rsemExpandMacro = "ExpandMacro" ## Trace macro expansion progress
     rsemExpandArc = "ExpandArc"
 
@@ -883,7 +876,7 @@ type
     # hints
     rcmdCompiling = "CC"
     rcmdLinking = "Link"
-    rcmdExecuting
+    rcmdExecuting = "Exec"
     rcmdRunnableExamplesSuccess
     # hints end
 
@@ -906,7 +899,6 @@ type
     #---------------------------  Backend reports  ---------------------------#
     # errors start
     rbackCannotWriteScript ## Cannot write build script to a cache file
-    rextExpectedCbackendForRun
     rbackCannotWriteMappingFile ## Canot write module compilation mapping
     ## file to cache directory
     rbackTargetNotSupported ## C compiler does not support requested target
@@ -941,14 +933,7 @@ type
 
     # hints start
     rbackProducedAssembly
-
     rbackLinking
-    rbackCompilingExtraFile ## Compiling file specified in the
-    ## `{.compile:.}` pragma
-
-
-    rbackUseDynLib ## Use of the dynamic library for cgen. Used in the
-    ## `cgen.loadDynamicLib`
     # hints end
 
   ReportKinds* = set[ReportKind]
@@ -1069,12 +1054,12 @@ const
     rsemConflictingExportnims,
     rsemBorrowOutlivesSource,
     rsemImmutableBorrowMutation,
+    rsemRedefinitionOf,
     rsemIllegalCallconvCapture, # [symbol, owner]
     rsemDeprecated # [symbol, use-instead]
   }
 
   rsemReportOneSym* = {
-    rsemRedefinitionOf,
     rsemUnexpectedPragmaInDefinitionOf,
     rsemDoubleCompletionOf,
     rsemInvalidMethodDeclarationOrder,
@@ -1109,7 +1094,7 @@ const
   }
 
 type
-  SemReportKind* = range[rsemUserError .. rsemImplicitObjConv]
+  SemReportKind* = range[rsemFatalError .. rsemImplicitObjConv]
   SemReportErrorKind* = range[rsemUserError .. rsemWrappedError]
 
   SemGcUnsafetyKind* = enum
@@ -1155,7 +1140,7 @@ type
     diagnostics*: seq[SemCallDiagnostics]
     arguments*: seq[PNode]
     case kind*: MismatchKind
-      of kTypeMismatch:
+      of kTypeMismatch, kVarNeeded:
         typeMismatch*: SemTypeMismatch ## Argument type mismatch
                                        ## elaboration
 
@@ -1213,6 +1198,10 @@ type
       of rsemStrictNotNil:
         nilIssue*: Nilability
         nilHistory*: seq[SemNilHistory]
+
+      of rsemExpectedIdentifierInExpr,
+         rsemFieldOkButAssignedValueInvalid:
+        wrongNode*: PNode
 
       of rsemGcUnsafeListing:
         gcUnsafeTrace*: seq[tuple[
@@ -1329,7 +1318,8 @@ type
           fileIdx: FileIndex
         ]
 
-      of rsemLinterReport:
+      of rsemLinterReport, rsemLinterReportUse:
+        info*: TLineInfo
         linterFail*: tuple[wanted, got: string]
 
       else:
@@ -1338,11 +1328,12 @@ type
 const
   repSemKinds* = {low(SemReportKind) .. high(SemReportKind)}
   rsemErrorKinds* = {rsemUserError .. rsemEmptyAsm}
-  rsemWarningKinds* = {rsemUserWarning .. rsemLinterReport}
+  rsemWarningKinds* = {rsemUserWarning .. rsemUseOfGc}
   rsemHintKinds* = {rsemUserHint .. rsemImplicitObjConv}
 
   rsemMultiHint* = @{
-    "Performance": {rsemCopiesToSink, rsemCannotMakeSink}
+    "Performance": {rsemCopiesToSink, rsemCannotMakeSink},
+    "Name": {rlexLinterReport, rsemLinterReport, rsemLinterReportUse}
   }
 
 func severity*(report: SemReport): ReportSeverity =
@@ -1521,20 +1512,19 @@ type
         discard
 
 const
-  rebDebugKinds* = {low(DebugReportKind) .. high(DebugReportKind)}
+  repDebugKinds* = {low(DebugReportKind) .. high(DebugReportKind)}
 
 func severity*(report: DebugReport): ReportSeverity =
   rsevDebug
 
 type
-  BackendReportKind* = range[rbackCannotWriteScript .. rbackUseDynLib]
+  BackendReportKind* = range[rbackCannotWriteScript .. rbackLinking]
   BackendReport* = object of ReportBase
     msg*: string
     usedCompiler*: string
     case kind*: ReportKind
       of rbackCannotWriteScript,
          rbackProducedAssembly,
-         rextExpectedCbackendForRun,
          rbackCannotWriteMappingFile:
         filename*: string
 
@@ -1552,7 +1542,7 @@ const
   repBackendKinds* = {low(BackendReportKind) .. high(BackendReportKind)}
   rbackErrorKinds* = {rbackCannotWriteScript .. rbackCannotProduceAssembly}
   rbackWarningKinds* = {rbackRstTestUnsupported .. rbackRstRstStyle}
-  rbackHintKinds* = {rbackProducedAssembly .. rbackUseDynLib}
+  rbackHintKinds* = {rbackProducedAssembly .. rbackLinking}
 
 
 
@@ -1787,6 +1777,20 @@ func kind*(report: Report): ReportKind = eachCategory(report, kind)
 func location*(report: Report): Option[TLineInfo] = eachCategory(report, location)
 func reportInst*(report: Report): ReportLineInfo = eachCategory(report, reportInst)
 
+func category*(kind: ReportKind): ReportCategory =
+  case kind:
+    of repDebugKinds:    result = repDebug
+    of repInternalKinds: result = repInternal
+    of repExternalKinds: result = repExternal
+    of repCmdKinds:      result = repCmd
+
+    of repLexerKinds:    result = repLexer
+    of repParserKinds:   result = repParser
+    of repSemKinds:      result = repSem
+    of repBackendKinds:  result = repBackend
+
+    of repNone: assert false, "'none' report does not have category"
+
 func severity*(
     report: ReportTypes,
     asError: ReportKinds,
@@ -1860,7 +1864,7 @@ func wrap*(rep: sink CmdReport): Report =
   Report(category: repCmd, cmdReport: rep)
 
 func wrap*(rep: sink DebugReport): Report =
-  assert rep.kind in rebDebugKinds, $rep.kind
+  assert rep.kind in repDebugKinds, $rep.kind
   Report(category: repDebug, debugreport: rep)
 
 func wrap*(rep: sink InternalReport): Report =

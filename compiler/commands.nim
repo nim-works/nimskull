@@ -247,7 +247,8 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
   if i < arg.len and arg[i] == '[':
     isBracket = true
     inc(i)
-  while i < arg.len and (arg[i] notin {':', '=', ']'}):
+  while i < arg.len and (
+      arg[i] notin {':', '=', ']'}):
     id.add(arg[i])
     inc(i)
   if isBracket:
@@ -261,24 +262,26 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
   let isSomeHint = state in {wHint, wHintAsError}
   proc findNote(
       noteSet: ReportKinds,
-      name: string,
       onFail: ReportKind,
       multinote: seq[tuple[name: string, flags: set[ReportKind]]] = @[]
   ) =
-    # unfortunately, hintUser and warningUser clash, otherwise implementation would simplify a bit
+    # HACK first added in order to support `--hint[Performance]` - very
+    # vague term that maps onto multiple report kinds, such as "copies to
+    # sink". Checked here earlier, because multinote reports have the same
+    # stirng values (`rlexLinterReport = "Name"`, `rsemLinterReport =
+    # "Name"`)
+    for (multiName , flags) in multinote:
+      if cmpIgnoreStyle(multiName , id) == 0:
+        notes = flags
+        return
+
+    # unfortunately, hintUser and warningUser clash, otherwise
+    # implementation would simplify a bit
     var x: ReportKind = findStr(noteSet, id, onFail)
     if x != onFail:
       notes = {ReportKind(x)}
 
     else:
-      # HACK first added in order to support `--hint[Performance]` - very
-      # vague term that maps onto multiple report kinds, such as "copies to
-      # sink".
-      for (name, flags) in multinote:
-        if cmpIgnoreStyle(name, id) == 0:
-          notes = flags
-          return
-
       var r = ExternalReport(kind: onFail)
       r.cmdlineProvided = id
       for kind in noteSet:
@@ -295,19 +298,21 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
         notes = repWarningKinds
 
     elif isSomeHint:
-      findNote(repHintKinds, "hint", rextInvalidHint, rsemMultiHint)
+      findNote(repHintKinds, rextInvalidHint, rsemMultiHint)
 
     else:
-      findNote(repWarningKinds, "warning", rextInvalidWarning)
+      findNote(repWarningKinds, rextInvalidWarning)
 
   var val = substr(arg, i).normalize
   if val == "":
     val = "on"
 
   if val notin ["on", "off"]:
-    # xxx in future work we should also allow users to have control over `foreignPackageNotes`
-    # so that they can enable `hints|warnings|warningAsErrors` for all the code they depend on.
-    conf.localReport ExternalReport(kind: rextExpectedOnOrOff, cmdlineProvided: arg)
+    # xxx in future work we should also allow users to have control over
+    # `foreignPackageNotes` so that they can enable
+    # `hints|warnings|warningAsErrors` for all the code they depend on.
+    conf.localReport ExternalReport(
+      kind: rextExpectedOnOrOff, cmdlineProvided: arg)
 
   else:
     let isOn = val == "on"
@@ -316,14 +321,21 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
 
     for n in notes:
       if n notin conf.cmdlineNotes or pass == passCmd1:
-        if pass == passCmd1: incl(conf.cmdlineNotes, n)
+        if pass == passCmd1:
+          incl(conf.cmdlineNotes, n)
+
         incl(conf.modifiedyNotes, n)
+
         if state in {wWarningAsError, wHintAsError}:
-          conf.warningAsErrors[n] = isOn # xxx rename warningAsErrors to noteAsErrors
+          # xxx rename warningAsErrors to noteAsErrors
+          conf.warningAsErrors[n] = isOn
+
         else:
           conf.notes[n] = isOn
           conf.mainPackageNotes[n] = isOn
-        if not isOn: excl(conf.foreignPackageNotes, n)
+
+        if not isOn:
+          excl(conf.foreignPackageNotes, n)
 
 proc processCompile(conf: ConfigRef; filename: string) =
   var found = findFile(conf, filename)

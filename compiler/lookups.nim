@@ -10,8 +10,8 @@
 # This module implements lookup helpers.
 import std/[algorithm, strutils]
 import
-  intsets, ast, astalgo, idents, semdata, types, msgs, options,
-  renderer, nimfix/prettybase, lineinfos, modulegraphs, astmsgs,
+  intsets, ast, astalgo, idents, semdata, msgs, options,
+  renderer, nimfix/prettybase, lineinfos, modulegraphs,
   errorhandling, reports
 
 proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope)
@@ -318,15 +318,6 @@ type
     importIdx: int
     marked: IntSet
 
-proc getSymRepr*(conf: ConfigRef; s: PSym, getDeclarationPath = true): string =
-  case s.kind
-  of routineKinds, skType:
-    result = getProcHeader(conf, s, getDeclarationPath = getDeclarationPath)
-  else:
-    result = "'$1'" % s.name.s
-    if getDeclarationPath:
-      result.addDeclaredLoc(conf, s)
-
 proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope) =
   # check if all symbols have been used and defined:
   var it: TTabIter
@@ -628,11 +619,14 @@ proc errorExpectedIdentifier(
   ): PSym {.inline.} =
   ## create an error symbol for non-identifier in identifier position within an
   ## expression (`exp`). non-nil `exp` leads to better error messages.
+  echo "Error expected identifier"
   let ast =
     if exp.isNil:
       c.config.newError(n, SemReport(kind: rsemExpectedIdentifier))
     else:
-      c.config.newError(n, reportAst(rsemExpectedIdentifierInExpr, exp))
+      c.config.newError(n):
+        reportAst(rsemExpectedIdentifierInExpr, exp).withIt do:
+          it.wrongNode = n
 
   result = newQualifiedLookUpError(c, ident, n.info, ast)
 

@@ -119,7 +119,8 @@ proc nav(g: ModuleGraph) =
     mid = searchForIncludeFile(g, fullPath)
 
   if mid < 0:
-    localReport(g.config, unpacked, reportStr(rextIcUnknownFileName, fullPath))
+    localReport(g.config, unpacked, ExternalReport(
+      kind: rextIcUnknownFileName, msg: fullPath))
 
     return
 

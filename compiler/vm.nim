@@ -550,7 +550,10 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
   proc reportVmIdx(usedIdx, maxIdx: SomeInteger): SemReport =
     SemReport(
       kind: rsemVmIndexError,
-      indexSpec: (toInt128(0), toInt128(usedIdx), toInt128(maxIdx)))
+      indexSpec: (
+        usedIdx: toInt128(usedIdx),
+        minIdx: toInt128(0),
+        maxIdx: toInt128(maxIdx)))
 
   #echo "NEW RUN ------------------------"
   while true:
@@ -1641,7 +1644,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if src.kind in {nkEmpty..nkNilLit}:
         stackTrace(c, tos, pc, reportAst(rsemVmCannotGetChild, src))
       elif idx >=% src.len:
-        stackTrace(c, tos, pc, reportVmIdx(idx, src.len-1))
+        stackTrace(c, tos, pc, reportVmIdx(idx, src.len - 1))
       else:
         regs[ra].node = src[idx]
     of opcNSetChild:

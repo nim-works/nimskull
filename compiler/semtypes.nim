@@ -1049,7 +1049,9 @@ proc semAnyRef(c: PContext; n: PNode; kind: TTypeKind; prev: PType): PType =
     if t.kind == tyTypeDesc and tfUnresolved notin t.flags:
       t = t.base
     if t.kind == tyVoid:
-      localReport(c.config, n.info, reportTyp(rsemTVoidNotAllowed, t))
+      localReport(c.config, n.info, reportTyp(
+        rsemTVoidNotAllowed, t, str = kind.toHumanStr))
+
 
     result = newOrPrevType(kind, prev, c)
     var isNilable = false
@@ -1619,18 +1621,8 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
     matches(c, n, copyTree(n), m)
 
     if m.state != csMatch:
-      var mismatches: seq[SemTypeMismatch]
-      for idx in 0 ..< max(len(n), len(t.n)):
-        let actual = if idx < len(n): n[idx].typ else: nil
-        let formal = if idx < len(n): t.n[idx].typ else: nil
-        mismatches.add c.config.typeMismatch(
-          actual = actual, formal = formal)
-
-      localReport(c.config, n.info, SemReport(
-        kind: rsemCannotInstantiateWithParameter,
-        typ: t,
-        ast: n,
-        typeMismatch: mismatches))
+      localReport(c.config, n.info, reportTyp(
+        rsemCannotInstantiateWithParameter, t, ast = n))
 
       return newOrPrevType(tyError, prev, c)
 

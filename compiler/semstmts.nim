@@ -963,8 +963,7 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
     elif n.len == 4:
       n[^2] = implicitIterator(c, "pairs", n[^2])
     else:
-      localReport(c.config, n[^2].info, reportSym(
-        rsemForExpectsIterator, call[0].sym))
+      localReport(c.config, n[^2], reportSem(rsemForExpectsIterator))
 
     result = semForVars(c, n, flags)
   else:

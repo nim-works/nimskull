@@ -74,7 +74,9 @@ proc computeNotesVerbosity(): tuple[
     rsemObservableStores,
     rsemResultUsed,
     rsemAnyEnumConvert,
+    rbackLinking
   }
+
 
   # Print message origin hints when compiler is built in debug mode - this
   # allows to progress through failing tests faster. Testament itself does

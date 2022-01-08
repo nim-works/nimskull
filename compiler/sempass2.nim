@@ -577,10 +577,9 @@ proc propagateEffects(tracked: PEffects, n: PNode, s: PSym) =
   mergeTags(tracked, tagSpec, n)
 
   if notGcSafe(s.typ) and sfImportc notin s.flags:
-    if tracked.config.hasWarn(rsemWarnGcUnsafe):
-      warnAboutGcUnsafe(n, tracked.config)
-
+    warnAboutGcUnsafe(n, tracked.config)
     markGcUnsafe(tracked, s)
+
   if tfNoSideEffect notin s.typ.flags:
     markSideEffect(tracked, s, n.info)
   mergeLockLevels(tracked, n, s.getLockLevel)
@@ -678,8 +677,7 @@ proc trackOperandForIndirectCall(tracked: PEffects, n: PNode, formals: PType; ar
         assumeTheWorst(tracked, n, op)
       # assume GcUnsafe unless in its type; 'forward' does not matter:
       if notGcSafe(op) and not isOwnedProcVar(tracked, a):
-        if tracked.config.hasWarn(rsemWarnGcUnsafe):
-          warnAboutGcUnsafe(n, tracked.config)
+        warnAboutGcUnsafe(n, tracked.config)
         markGcUnsafe(tracked, a)
       elif tfNoSideEffect notin op.flags and not isOwnedProcVar(tracked, a):
         markSideEffect(tracked, a, n.info)
@@ -687,10 +685,9 @@ proc trackOperandForIndirectCall(tracked: PEffects, n: PNode, formals: PType; ar
       mergeRaises(tracked, effectList[exceptionEffects], n)
       mergeTags(tracked, effectList[tagEffects], n)
       if notGcSafe(op):
-        if tracked.config.hasWarn(rsemWarnGcUnsafe):
-          warnAboutGcUnsafe(n, tracked.config)
-
+        warnAboutGcUnsafe(n, tracked.config)
         markGcUnsafe(tracked, a)
+
       elif tfNoSideEffect notin op.flags:
         markSideEffect(tracked, a, n.info)
   let paramType = if formals != nil and argIndex < formals.len: formals[argIndex] else: nil
@@ -844,34 +841,14 @@ proc checkRange(c: PEffects; value: PNode; typ: PType) =
     checkLe(c, lowBound, value)
     checkLe(c, value, highBound)
 
-#[
-proc passedToEffectsDelayedParam(tracked: PEffects; n: PNode) =
-  let t = n.typ.skipTypes(abstractInst)
-  if t.kind == tyProc:
-    if n.kind == nkSym and tracked.owner == n.sym.owner and sfEffectsDelayed in n.sym.flags:
-      discard "the arg is itself a delayed parameter, so do nothing"
-    else:
-      var effectList = t.n[0]
-      if effectList.len == effectListLen:
-        mergeRaises(tracked, effectList[exceptionEffects], n)
-        mergeTags(tracked, effectList[tagEffects], n)
-      if not importedFromC(n):
-        if notGcSafe(t):
-          if tracked.config.hasWarn(warnGcUnsafe): warnAboutGcUnsafe(n, tracked.config)
-          markGcUnsafe(tracked, n)
-        if tfNoSideEffect notin t.flags:
-          markSideEffect(tracked, n, n.info)
-]#
-
 proc trackCall(tracked: PEffects; n: PNode) =
   template gcsafeAndSideeffectCheck() =
     if notGcSafe(op) and not importedFromC(a):
       # and it's not a recursive call:
       if not (a.kind == nkSym and a.sym == tracked.owner):
-        if tracked.config.hasWarn(rsemWarnGcUnsafe):
-          warnAboutGcUnsafe(n, tracked.config)
-
+        warnAboutGcUnsafe(n, tracked.config)
         markGcUnsafe(tracked, a)
+
     if tfNoSideEffect notin op.flags and not importedFromC(a):
       # and it's not a recursive call:
       if not (a.kind == nkSym and a.sym == tracked.owner):
@@ -1557,7 +1534,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
       listGcUnsafety(s, onlyWarning=false, g.config)
     else:
       if hasMutationSideEffect:
-        var report = reportSym(rsemCanHaveSideEffects, s)
+        var report = reportSym(rsemHasSideEffects, s)
 
         report.sideEffectTrace.add((
           isUnsafe: s,

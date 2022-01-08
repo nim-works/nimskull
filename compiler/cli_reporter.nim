@@ -1,4 +1,5 @@
-import reports, ast, types, renderer, astmsgs, astalgo, msgs, lineinfos
+import reports, ast, types, renderer, astmsgs, astalgo, msgs, lineinfos, nilcheck_enums
+
 import options as compiler_options
 import std/[
   strutils, terminal, options, algorithm,
@@ -277,6 +278,14 @@ proc renderAsType*(vals: IntSet, t: PType): string =
     inc(i)
   result &= "}"
 
+proc getSymRepr*(conf: ConfigRef; s: PSym, getDeclarationPath = true): string =
+  case s.kind
+  of routineKinds, skType:
+    result = getProcHeader(conf, s, getDeclarationPath = getDeclarationPath)
+  else:
+    result = "'$1'" % s.name.s
+    if getDeclarationPath:
+      result.addDeclaredLoc(conf, s)
 
 
 proc presentFailedCandidates(
@@ -437,6 +446,13 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
   proc render(t: PType): string = typeToString(t)
 
   case SemReportKind(r.kind):
+    of rsemLinterReport:
+      result.addf("'$1' should be: '$2'", r.linterFail.got, r.linterFail.wanted)
+
+    of rsemLinterReportUse:
+      result.addf("'$1' should be: '$2'", r.linterFail.got, r.linterFail.wanted)
+      result.addDeclaredLoc(conf, r.sym)
+
     of rsemWrappedError:
       assert false, (
         "Cannot report wrapped sem error - use `walkErrors` in " &
@@ -444,7 +460,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemCannotConvertTypes:
       result = "cannot convert $1 to $2" % [
-        r.formalType.render, r.actualType.render]
+        r.actualType.render, r.formalType.render]
 
     of rsemProveField:
       result = "cannot prove that field '$1' is accessible" % r.ast.render
@@ -756,13 +772,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "imported and not used: '$1'" % r.sym.name.s
 
     of rsemCallNotAProcOrField:
-      if r.explicitCall:
-        if result.len == 0:
-          result = "attempting to call undeclared routine: '$1'" % $r.str
-        else:
-          result = "attempting to call routine: '$1'$2" % [$r.str, $result]
+      for sym in r.unexpectedCandidate:
+        result.addf("\n  found $1", getSymRepr(conf, sym))
 
-      else:
+      if r.explicitCall:
         let sym = r.typ.typSym
         var typeHint = ""
         if sym == nil:
@@ -778,6 +791,13 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         let suffix = if result.len > 0: " " & result else: ""
 
         result = "undeclared field: '$1'" % r.str & typeHint & suffix
+
+      else:
+        if result.len == 0:
+          result = "attempting to call undeclared routine: '$1'" % $r.str
+        else:
+          result = "attempting to call routine: '$1'$2" % [$r.str, $result]
+
 
     of rsemUndeclaredField:
       result =  "undeclared field: '$1' for type $2" % [
@@ -989,7 +1009,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "'cast' pragma only allowed in statement context"
 
     of rsemImplicitObjConv:
-      result = "Implicit conversion: Receiver '$2' will not receive fields of sub-type '$1'" % [
+      result = "Implicit conversion: Receiver '$1' will not receive fields of sub-type '$2'" % [
         typeToString(r.formalType),
         typeToString(r.actualType)
       ]
@@ -1811,7 +1831,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "cannot instantiate "
       result.addTypeHeader(conf, r.typ)
       result.add "\ngot: <$1>\nbut expected: <$2>" % [
-        describeArgs(conf, r.typ.n), describeArgs(conf, r.ast, 0)]
+        describeArgs(conf, r.ast), describeArgs(conf, r.typ.n, 0)]
 
     of rsemCannotGenerateGenericDestructor:
       result = "cannot generate destructor for generic type: " & r.typ.render
@@ -1837,7 +1857,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         "'object of RootObj' instead of 'object'"
 
     of rsemTVoidNotAllowed:
-      result = "type '$1 void' is not allowed" % r.typ.kind.toHumanStr
+      result = "type '$1 void' is not allowed" % r.str
 
     of rsemExpectedObjectForRegion:
       result = "region needs to be an object type"
@@ -1878,7 +1898,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "only a 'distinct' type can borrow `.`"
 
     of rsemRedefinitionOf:
-      result = "attempt to redefine: '" & r.symstr & "'"
+      if r.sym.isNil:
+        result = "redefinition of '$1'" % r.symbols[0].name.s
+
+      else:
+        result = "attempt to redefine: '" & r.symstr & "'"
 
     of rsemDefaultParamIsIncompatible:
       assert false, "REMOVE"
@@ -2215,14 +2239,88 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemMissingMethodDispatcher:
       result = "'" & r.ast.render & "' lacks a dispatcher"
 
-    else:
-      result = $r
+    of rsemWarnUnsafeCode:
+      result = "not GC-safe: '$1'" % r.ast.render
 
-    # of rsemExpectedInvariantParam:
-    #   result = "non-invariant type param used in a proc type: " & r.typ.render()
-    # else:
-    #   return $r
+    of rsemImplicitCstringConvert:
+      result = "implicit conversion to 'cstring' from a non-const location: " &
+        ("$1; this will become a compile time error in the future" % r.ast.render)
 
+    of rsemHoleEnumConvert:
+      result = "conversion to enum with holes is unsafe: $1" % r.ast.render
+
+
+    of rsemAnyEnumConvert:
+      result = "enum conversion: $1" % r.ast.render
+
+    of rsemUseOfGc:
+      result = "'$1' uses GC'ed memory" % r.ast.render
+
+
+    of rsemPattern:
+      result = r.ast.render
+
+    of rsemFatalError:
+      result = r.str
+
+    of rsemSugNoSymbolAtPosition:
+      result = "found no symbol at position"
+
+    of rsemOverrideSafetyMismatch:
+      result = "base method is GC-safe, but '$1' is not" % r.symbols[1].name.s
+
+    of rsemOverrideLockMismatch:
+      result = "base method has lock level $1, but dispatcher has $2" % [
+        $r.symbols[1].typ.lockLevel,
+        $r.symbols[0].typ.lockLevel
+      ]
+
+    of rsemExpectedIdentifierInExpr:
+      result = "in expression '$1': identifier expected, but found '$2'" % [
+        r.ast.render(), r.wrongNode.render()
+      ]
+
+    of rsemFieldNotAccessible:
+      result = "the field '$1' is not accessible." % r.symstr
+
+    of rsemFieldOkButAssignedValueInvalid:
+      result = "Invalid field assignment '$1'$2" % [
+        r.wrongNode.render,
+        tern(r.ast.isNil, "", "; " & r.ast.render)
+      ]
+
+    of rsemStrictNotNil:
+      case r.nilIssue:
+        of Nil:
+          result = "return value is nil"
+        of MaybeNil:
+          result = "return value might be nil"
+        of Unreachable:
+          result = "return value is unreachable"
+        of Safe, Parent:
+          discard
+
+    of rsemGcUnsafeListing:
+      for idx, trace in r.gcUnsafeTrace:
+        if 0 < idx: result.add("\n")
+        let (s, u) = (trace.isUnsafe.name.s, trace.unsafeVia.name.s)
+        case trace.unsafeRelation:
+          of sgcuCallsUnsafe:
+            result.addf("'$#' is not GC-safe as it calls '$#'", s, u)
+
+          of sgcuAccessesGcGlobal:
+            result.addf(
+              "'$#' is not GC-safe as it accesses '$#' which is a global using GC'ed memory",
+              s, u)
+
+          of sgcuIndirectCallVia:
+
+            result.addf(
+              "'$#' is not GC-safe as it performs an indirect call via '$#'", s, u)
+
+          of sgcuIndirectCallHere:
+            result.addf(
+              "'$#' is not GC-safe as it performs an indirect call here", s)
 
 
 const standalone = {
@@ -2365,6 +2463,18 @@ proc reportBody*(conf: ConfigRef, r: InternalReport): string =
     of rintStackTrace:
       result = conf.formatTrace(r.trace)
 
+    of rintListWarnings:
+      result = "Warnings:"
+      for kind in repWarningKinds:
+        result.addf("\n  [$1] $2", tern(
+          kind in r.enabledOptions, "X", " "), $kind)
+
+    of rintListHints:
+      result = "Hints:"
+      for kind in repHintKinds:
+        result.addf("\n  [$1] $2", tern(
+          kind in r.enabledOptions, "X", " "), $kind)
+
     of rintSuccessX:
       var build = ""
       let par = r.buildParams
@@ -2492,7 +2602,7 @@ proc reportBody*(conf: ConfigRef, r: LexerReport): string =
       result.add r.msg
 
     of rlexLinterReport:
-      result.add "?"
+      result.addf("'$1' should be: '$2'", r.got, r.wanted)
 
     of rlexLineTooLong:
       result.add "line too long"
@@ -2507,13 +2617,16 @@ proc reportFull*(conf: ConfigRef, r: LexerReport): string    =
 
 proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
   assertKind r
-  case r.kind:
+  case ExternalReportKind(r.kind):
     of rextConf:
       result.add(
         conf.prefix(r),
         "used config file '$1'" % r.msg,
         conf.suffix(r)
       )
+
+    of rextCommandMissing:
+      result.add("Command missing")
 
     of rextInvalidHint:
       result.add("Invalid hint - ", r.cmdlineProvided)
@@ -2527,8 +2640,71 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
     of rextInvalidCommandLineOption:
       result.add("Invalid command line option - ", r.cmdlineProvided)
 
-    else:
-      result = $r
+    of rextUnknownCCompiler:
+      result = "unknown C compiler: '$1'. Available options are: $2" % [
+        r.passedCompiler,
+        r.knownCompilers.join(", ")
+      ]
+
+    of rextOnlyAllOffSupported:
+      result = "only 'all:off' is supported"
+
+    of rextExpectedOnOrOff:
+      result = "'on' or 'off' expected, but '$1' found" % r.cmdlineProvided
+
+    of rextExpectedOnOrOffOrList:
+      result = "'on', 'off' or 'list' expected, but '$1' found" % r.cmdlineProvided
+
+    of rextExpectedCmdArgument:
+      result = "argument for command line option expected: '$1'" % r.cmdlineSwitch
+
+    of rextExpectedNoCmdArgument:
+      result = "invalid argument for command line option: '$1'" % r.cmdlineSwitch
+
+    of rextInvalidNumber:
+      result = "$1 is not a valid number" % r.cmdlineProvided
+
+    of rextInvalidValue:
+      result = r.cmdlineError
+
+    of rextUnexpectedValue:
+      result = "Unexpected value for $1. Expected one of $2" % [
+        r.cmdlineSwitch, r.cmdlineAllowed.join(", ")
+      ]
+
+    of rextIcUnknownFileName:
+      result = "unknown file name: " & r.msg
+
+    of rextIcNoSymbolAtPosition:
+      result = "no symbol at this position"
+
+    of rextExpectedTinyCForRun:
+      result = "'run' command not available; rebuild with -d:tinyc"
+
+    of rextExpectedCbackendForRun:
+      result = "'run' requires c backend, got: '$1'" % $conf.backend
+
+    of rextExpectedRunOptForArgs:
+      result = "arguments can only be given if the '--run' option is selected"
+
+    of rextUnexpectedRunOpt:
+      result = "'$1 cannot handle --run" % r.cmdlineProvided
+
+    of rextInvalidPath:
+      result = "invalid path: " & r.cmdlineProvided
+
+    of rextInvalidPackageName:
+      result = "invalid package name: " & r.packageName
+
+    of rextDeprecated:
+      result = r.msg
+
+    of rextPath:
+      result = "added path: '$1'" % r.packagePath
+
+
+
+
 
 proc reportFull*(conf: ConfigRef, r: ExternalReport): string =
   assertKind r
@@ -2579,7 +2755,87 @@ proc reportFull*(conf: ConfigRef, r: DebugReport): string =
 
 proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
   assertKind r
-  result = $r
+  case BackendReportKind(r.kind):
+    of rbackJsUnsupportedClosureIter:
+      result = "Closure iterators are not supported by JS backend!"
+
+    of rbackJsTooCaseTooLarge:
+      result = "Your case statement contains too many branches, consider using if/else instead!"
+
+    of rbackCannotWriteScript, rbackCannotWriteMappingFile:
+      result = "could not write to file: " & r.filename
+
+    of rbackTargetNotSupported:
+      result = "Compiler '$1' doesn't support the requested target" % r.usedCompiler
+
+    of rbackJsonScriptMismatch:
+      result = (
+        "jsonscript command outputFile '$1' must " &
+          "match '$2' which was specified during --compileOnly, see \"outputFile\" entry in '$3' "
+      ) % [
+        r.jsonScriptParams[0],
+        r.jsonScriptParams[1],
+        r.jsonScriptParams[2],
+      ]
+
+    of rbackRstCannotOpenFile:
+      result = "cannot open '$1'" % r.msg
+
+    of rbackRstExpected:
+      result = "'$1' expected" % r.msg
+
+    of rbackRstGridTableNotImplemented:
+      result = "grid table is not implemented"
+
+    of rbackRstMarkdownIllformedTable:
+      result = "illformed delimiter row of a Markdown table"
+
+    of rbackRstNewSectionExpected:
+      result = "new section expected $1" % r.msg
+
+    of rbackRstGeneralParseError:
+      result = "general parse error" % r.msg
+
+    of rbackRstInvalidDirective:
+      result = "invalid directive: '$1'" % r.msg
+
+    of rbackRstInvalidField:
+      result = "invalid field: $1" % r.msg
+
+    of rbackRstFootnoteMismatch:
+      result = "mismatch in number of footnotes and their refs: $1" % r.msg
+
+    of rbackCannotProduceAssembly:
+      result = "Couldn't produce assembler listing " &
+        "for the selected C compiler: " & r.usedCompiler
+
+    of rbackRstTestUnsupported:
+      result = "the ':test:' attribute is not supported by this backend"
+
+    of rbackRstRedefinitionOfLabel:
+      result = "redefinition of label '$1'" % r.msg
+
+    of rbackRstUnknownSubstitution:
+      result = "unknown substitution '$1'" % r.msg
+
+    of rbackRstBrokenLink:
+      result = "unknown substitution '$1'" % r.msg
+
+    of rbackRstUnsupportedLanguage:
+      result = "language '$1' not supported" % r.msg
+
+    of rbackRstUnsupportedField:
+      result = "field '$1' not supported" % r.msg
+
+    of rbackRstRstStyle:
+      result = "RST style: $1" % r.msg
+
+    of rbackProducedAssembly:
+      result = "Produced assembler here: " & r.filename
+
+    of rbackLinking:
+      result = ""
+
 
 proc reportFull*(conf: ConfigRef, r: BackendReport): string =
   assertKind r
@@ -2587,15 +2843,24 @@ proc reportFull*(conf: ConfigRef, r: BackendReport): string =
 
 proc reportBody*(conf: ConfigRef, r: CmdReport): string =
   assertKind r
-  case r.kind:
+  case CmdReportKind(r.kind):
     of rcmdCompiling:
       result = "CC: " & r.msg
 
     of rcmdLinking:
       result = conf.prefix(r) & conf.suffix(r)
 
-    else:
-      result = $r
+    of rcmdFailedExecution:
+      result = "execution of an external program failed: '$1 $2'" % [
+        $r.msg, $r.code
+      ]
+
+    of rcmdExecuting:
+      result = r.cmd
+
+    of rcmdRunnableExamplesSuccess:
+      result = "runnableExamples: " & r.msg
+
 
 
 proc reportFull*(conf: ConfigRef, r: CmdReport): string =

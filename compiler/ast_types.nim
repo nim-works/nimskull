@@ -673,7 +673,13 @@ const
   skError* = skUnknown
 
 var
-  eqTypeFlags* = {tfIterator, tfNotNil, tfVarIsPtr, tfGcSafe, tfNoSideEffect}
+  eqTypeFlags* = {
+    tfIterator,
+    tfNotNil,
+    tfVarIsPtr, # so that we don't unify T& and T* in C++ land
+    tfGcSafe,
+    tfNoSideEffect
+  }
     ## type flags that are essential for type equality.
     ## This is now a variable because for emulation of version:1.0 we
     ## might exclude {tfGcSafe, tfNoSideEffect}.

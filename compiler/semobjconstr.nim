@@ -99,8 +99,8 @@ proc semConstrField(c: PContext, flags: TExprFlags,
       return
     if not fieldVisible(c, field):
       result = newError(
-        c.config, initExpr, reportSem rsemFieldNotAccessible,
-        args = @[newSymNode(field)])
+        c.config, initExpr,
+        reportSym(rsemFieldNotAccessible, field))
 
       result.typ = errorType(c)
       return
@@ -115,7 +115,16 @@ proc semConstrField(c: PContext, flags: TExprFlags,
     result.flags.incl nfSem
     if initValue != nil and initValue.kind == nkError:
       result = newError(
-        c.config, result, reportSem rsemFieldOkButAssignedValueInvalid)
+        c.config,
+        result,
+        reportSym(
+          rsemFieldOkButAssignedValueInvalid,
+          field,
+          ast = initValue
+        ).withIt do:
+          it.wrongNode = result
+      )
+
 
 proc caseBranchMatchesExpr(branch, matched: PNode): bool =
   for i in 0..<branch.len-1:

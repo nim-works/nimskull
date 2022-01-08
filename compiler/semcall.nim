@@ -294,7 +294,6 @@ proc getMsgDiagnostic(
       typ: n[1].typ,
       str: $f,
       ast: n,
-      # `arg.call()`
       explicitCall: len({nfDotField, nfExplicitCall} * n.flags) == 2,
       kind: rsemCallNotAProcOrField)
 
