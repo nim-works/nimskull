@@ -465,8 +465,8 @@ proc processNote(c: PContext, n: PNode): PNode =
     let x = findStr(enumVals, n[0][1].ident.s, repNone)
     case x:
       of repNone:
-        assert false, n[0][1].ident.s
         newInvalidPragmaNode(c, n)
+
       else:
         nk = x
         let x = c.semConstBoolExpr(c, n[1])

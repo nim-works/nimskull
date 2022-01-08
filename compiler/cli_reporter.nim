@@ -820,7 +820,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
       result = "ambiguous call; both $1 and $2 match for: $3" % [
         getProcHeader(conf, r.symbols[0]),
-        getProcHeader(conf, r.symbols[1])
+        getProcHeader(conf, r.symbols[1]),
+        args
       ]
 
     of rsemCopiesToSink:
@@ -1238,7 +1239,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "wrong number of variables"
 
     of rsemInvalidOrderInEnum:
-      result = "invalid order in enum '$1'" & $r.symstr
+      result = "invalid order in enum '$1'" % $r.symstr
 
     of rsemSetTooBig:
       result = "set is too large"
@@ -1366,20 +1367,31 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
           case part.trace:
             of ssefUsesGlobalState:
-              addHint("accesses global state '$#'" % u.name.s, useLineInfo, s.name.s)
+              addHint(
+                "accesses global state '$#'" % u.name.s,
+                useLineInfo, s.name.s)
+
               inc level
-              addHint("accessed by '$#'" % s.name.s, u.info, u.name.s)
+              addHint(
+                "accessed by '$#'" % s.name.s, u.info, u.name.s)
 
             of ssefCallsSideEffect:
-              addHint("calls `.sideEffect` '$#'" % u.name.s, useLineInfo, s.name.s)
+              addHint(
+                "calls `.sideEffect` '$#'" % u.name.s, useLineInfo, s.name.s)
+
               inc level
-              addHint("called by '$#'" % s.name.s, u.info, u.name.s)
+              addHint(
+                "called by '$#'" % s.name.s, u.info, u.name.s)
 
             of ssefCallsViaIndirection:
-              addHint("calls routine via hidden pointer indirection", useLineInfo, s.name.s)
+              addHint(
+                "calls routine via hidden pointer indirection",
+                useLineInfo, s.name.s)
 
             else:
-              addHint("calls routine via pointer indirection", useLineInfo, s.name.s)
+              addHint(
+                "calls routine via pointer indirection",
+                useLineInfo, s.name.s)
 
           inc level
 
@@ -1389,8 +1401,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemXCannotRaiseY:
       result = "'$1' cannot raise '$2'" % [r.ast.render, r.raisesList.render]
 
-    of rsemUnlistedRaises:
-      result.add(r.ast.render, " can raise an unlisted exception: ", r.typ.render)
+    of rsemUnlistedRaises, rsemWarnUnlistedRaises:
+      result.add(
+        r.ast.render, " can raise an unlisted exception: ", r.typ.render)
 
     of rsemUnlistedEffects:
       result.add(r.ast.render, "can have an unlisted effect: ", r.typ.render)
@@ -2300,27 +2313,26 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         of Safe, Parent:
           discard
 
-    of rsemGcUnsafeListing:
-      for idx, trace in r.gcUnsafeTrace:
-        if 0 < idx: result.add("\n")
-        let (s, u) = (trace.isUnsafe.name.s, trace.unsafeVia.name.s)
-        case trace.unsafeRelation:
-          of sgcuCallsUnsafe:
-            result.addf("'$#' is not GC-safe as it calls '$#'", s, u)
+    of rsemWarnGcUnsafeListing, rsemErrGcUnsafeListing:
+      let trace = r.gcUnsafeTrace
+      let (s, u) = (trace.isUnsafe.name.s, trace.unsafeVia.name.s)
+      case trace.unsafeRelation:
+        of sgcuCallsUnsafe:
+          result.addf("'$#' is not GC-safe as it calls '$#'", s, u)
 
-          of sgcuAccessesGcGlobal:
-            result.addf(
-              "'$#' is not GC-safe as it accesses '$#' which is a global using GC'ed memory",
-              s, u)
+        of sgcuAccessesGcGlobal:
+          result.addf(
+            "'$#' is not GC-safe as it accesses '$#' which is a global using GC'ed memory",
+            s, u)
 
-          of sgcuIndirectCallVia:
+        of sgcuIndirectCallVia:
 
-            result.addf(
-              "'$#' is not GC-safe as it performs an indirect call via '$#'", s, u)
+          result.addf(
+            "'$#' is not GC-safe as it performs an indirect call via '$#'", s, u)
 
-          of sgcuIndirectCallHere:
-            result.addf(
-              "'$#' is not GC-safe as it performs an indirect call here", s)
+        of sgcuIndirectCallHere:
+          result.addf(
+            "'$#' is not GC-safe as it performs an indirect call here", s)
 
 
 const standalone = {
@@ -2893,6 +2905,10 @@ proc reportFull*(conf: ConfigRef, r: Report): string =
 
 var lastDot: bool = false
 
+const forceWrite = {
+  rsemExpandArc # Not considered a hint for now
+}
+
 proc reportHook*(conf: ConfigRef, r: Report) =
   let tryhack = conf.m.errorOutputs == {}
   # REFACTOR this check is an absolute hack, `errorOutputs` need to be
@@ -2908,7 +2924,16 @@ proc reportHook*(conf: ConfigRef, r: Report) =
       lastDot = false
     echo conf.reportFull(r)
 
-  elif not conf.isEnabled(r.kind) or tryhack:
+  elif (
+    # Not explicitly enanled
+    not conf.isEnabled(r.kind) and
+    # And not added for forced write
+    r.kind notin forceWrite
+  ) or
+    # Or we are in the special hack mode for `compiles()` processing
+       tryhack:
+
+    # Return without writing
     return
 
   elif r.kind == rsemProcessing and conf.hintProcessingDots:

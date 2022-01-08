@@ -74,7 +74,7 @@ proc computeNotesVerbosity(): tuple[
     rsemObservableStores,
     rsemResultUsed,
     rsemAnyEnumConvert,
-    rbackLinking
+    rbackLinking,
   }
 
 
@@ -93,7 +93,9 @@ proc computeNotesVerbosity(): tuple[
   result.main[2] = result.main[3] - {
     rsemUninit,
     rsemExtendedContext,
-    rsemProcessingStmt
+    rsemProcessingStmt,
+    rbackLinking,
+    rcmdCompiling
   }
 
   result.main[1] = result.main[2] - {

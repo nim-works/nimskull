@@ -243,13 +243,13 @@ proc markSideEffect(a: PEffects; reason: PNode | PSym; useLoc: TLineInfo) =
       a.c.sideEffects.mgetOrPut(a.owner.id, @[]).add (useLoc, sym)
     when false: markGcUnsafe(a, reason)
 
-proc listGcUnsafety(s: PSym; onlyWarning: bool; cycleCheck: var IntSet; conf: ConfigRef) =
+proc listGcUnsafety(
+    s: PSym; onlyWarning: bool; cycleCheck: var IntSet; conf: ConfigRef) =
   proc aux(
       s: PSym,
       onlyWarning: bool,
       cycleCheck: var IntSet,
       conf: ConfigRef,
-      report: var SemReport
     ) =
 
     let u = s.gcUnsafetyReason
@@ -266,7 +266,7 @@ proc listGcUnsafety(s: PSym; onlyWarning: bool; cycleCheck: var IntSet; conf: Co
       of routineKinds:
         # recursive call *always* produces only a warning so the full error
         # message is printed:
-        aux(u, true, cycleCheck, conf, report)
+        aux(u, true, cycleCheck, conf)
         reason = sgcuCallsUnsafe
       of skParam, skForVar:
         reason = sgcuIndirectCallVia
@@ -274,17 +274,18 @@ proc listGcUnsafety(s: PSym; onlyWarning: bool; cycleCheck: var IntSet; conf: Co
       else:
         reason = sgcuIndirectCallHere
 
-      report.gcUnsafeTrace.add((
+      var report = SemReport(kind: tern(
+        onlyWarning, rsemWarnGcUnsafeListing, rsemErrGcUnsafeListing))
+
+      report.gcUnsafeTrace = (
         isUnsafe: s,
         unsafeVia: u,
         unsafeRelation: reason,
-        location: s.info
-      ))
+      )
 
+      conf.localReport(s.info, report)
 
-  var report = SemReport(kind: rsemGcUnsafeListing)
-  aux(s, onlyWarning, cycleCheck, conf, report)
-  conf.localReport(report)
+  aux(s, onlyWarning, cycleCheck, conf)
 
 proc listGcUnsafety(s: PSym; onlyWarning: bool; conf: ConfigRef) =
   var cycleCheck = initIntSet()

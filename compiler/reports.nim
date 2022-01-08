@@ -768,6 +768,7 @@ type
     rsemDrnimCannotProveLeq
     rsemDrnimCannotPorveGe
 
+    rsemErrGcUnsafeListing
     rsemBorrowPragmaNonDot
     rsemInvalidExtern
     rsemInvalidPragmaBlock
@@ -787,12 +788,19 @@ type
     rsemDeprecated             = "Deprecated"
     rsemLockLevelMismatch      = "LockLevel"
 
+    rsemWarnUnlistedRaises = "Effect" ## `sempass2.checkRaisesSpec` had
+    ## `emitWarnings: bool` parameter which was supposedly used to control
+    ## whether `strictEffects` warnings actually generated an error, or
+    ## just a warning. But all four uses of this proc had constant `false`
+    ## written to this field, so for now it does not mean anything and all
+    ## mismatched raises are routed as errors.
+
     rsemDotForModuleImport
     rsemReorderingFail
     rsemProveField             = "ProveField"
     rsemStrictNotNil           = "StrictNotNil"
     rsemWarnGcUnsafe           = "GcUnsafe"
-    rsemGcUnsafeListing
+    rsemWarnGcUnsafeListing
     rsemProveInit              = "ProveInit"
     rsemUninit                 = "Uninit"
     rsemWarnUnsafeCode         = "UnsafeCode"
@@ -1203,13 +1211,12 @@ type
          rsemFieldOkButAssignedValueInvalid:
         wrongNode*: PNode
 
-      of rsemGcUnsafeListing:
-        gcUnsafeTrace*: seq[tuple[
+      of rsemWarnGcUnsafeListing, rsemErrGcUnsafeListing:
+        gcUnsafeTrace*: tuple[
           isUnsafe: PSym,
           unsafeVia: PSym,
           unsafeRelation: SemGcUnsafetyKind,
-          location: TLineInfo
-        ]]
+        ]
 
       of rsemHasSideEffects:
         sideEffectTrace*: seq[tuple[
