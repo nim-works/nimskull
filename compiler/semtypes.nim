@@ -708,7 +708,7 @@ iterator processBranchVals(b: PNode): int =
         for i in b[i][0].intVal..b[i][1].intVal:
           yield i.int
 
-proc toLiterals(vals: IntSet, t: PType): seq[PNode] =
+proc toLiterals*(vals: IntSet, t: PType): seq[PNode] =
   let t = t.skipTypes(abstractRange)
 
   var enumSymOffset = 0
@@ -735,29 +735,6 @@ proc toEnumFields(vals: IntSet, t: PType): seq[PSym] =
   for node in toLiterals(vals, t):
     result.add node.sym
 
-
-proc renderAsType(vals: IntSet, t: PType): string =
-  result = "{"
-  let t = t.skipTypes(abstractRange)
-  var enumSymOffset = 0
-  var i = 0
-  for val in vals:
-    if result.len > 1:
-      result &= ", "
-    case t.kind:
-    of tyEnum, tyBool:
-      while t.n[enumSymOffset].sym.position < val: inc(enumSymOffset)
-      result &= t.n[enumSymOffset].sym.name.s
-    of tyChar:
-      result.addQuoted(char(val))
-    else:
-      if i == 64:
-        result &= "omitted $1 values..." % $(vals.len - i)
-        break
-      else:
-        result &= $val
-    inc(i)
-  result &= "}"
 
 proc formatMissingEnums(c: PContext, n: PNode): seq[PSym] =
   var coveredCases = initIntSet()
@@ -1418,7 +1395,8 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       if typ == nil:
         typ = def.typ
         if isEmptyContainer(typ):
-          localReport(c.config, a, reportSem rsemCannotInferParameterType)
+          localReport(c.config, a, reportAst(
+            rsemCannotInferParameterType, a[0]))
 
         if typ.kind == tyTypeDesc:
           # consider a proc such as:
@@ -1468,7 +1446,9 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
           typ = param.typ
 
         else:
-          localReport(c.config, a, reportSem rsemParameterRequiresAType)
+          localReport(c.config, a, reportSym(
+            rsemParameterRequiresAType, arg))
+
           typ = errorType(c)
 
       let lifted = liftParamType(c, kind, genericParams, typ,
@@ -1481,7 +1461,8 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       if def != nil and def.kind != nkEmpty:
         arg.ast = copyTree(def)
       if containsOrIncl(check, arg.name.id):
-        localReport(c.config, a[j], reportSem rsemParameterRedefinition)
+        localReport(c.config, a[j], reportSym(
+          rsemParameterRedefinition, arg))
 
       result.n.add newSymNode(arg)
       rawAddSon(result, finalType)
@@ -1508,7 +1489,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
     # compiler only checks for 'nil':
     if skipTypes(r, {tyGenericInst, tyAlias, tySink}).kind != tyVoid:
       if kind notin {skMacro, skTemplate} and r.kind in {tyTyped, tyUntyped}:
-        localReport(c.config, n[0], reportSem rsemMisplacedMagicType)
+        localReport(c.config, n[0], reportTyp(rsemMisplacedMagicType, r))
       # 'auto' as a return type does not imply a generic:
       elif r.kind == tyAnything:
         # 'p(): auto' and 'p(): untyped' are equivalent, but the rest of the

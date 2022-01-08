@@ -540,8 +540,10 @@ proc cycleCheck(n: PNode; c: var Con) =
     else:
       break
     if exprStructuralEquivalent(x, value, strictSymEquality = true):
-      localReport(c.graph.config, n.info, reportAst(
-        rsemUncollectableRefCycle, field))
+      localReport(c.graph.config, n.info):
+        reportAst(rsemUncollectableRefCycle, field).withIt do:
+          it.cycleField = field
+
 
       break
 

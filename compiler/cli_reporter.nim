@@ -1,6 +1,11 @@
 import reports, ast, types, renderer, astmsgs, astalgo, msgs, lineinfos
 import options as compiler_options
-import std/[strutils, terminal, options, algorithm, sequtils, strformat, tables]
+import std/[
+  strutils, terminal, options, algorithm,
+  sequtils, strformat, tables, intsets
+]
+
+func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
 
 func add(target: var string, other: varargs[string, `$`]) =
   for item in other:
@@ -101,6 +106,16 @@ const
 
 proc csvList(syms: seq[PSym]): string =
   syms.mapIt(it.name.s).join(", ")
+
+template csvListIt(syms: seq[PNode], expr: untyped): string =
+  var res: string
+  var idx: int = 0
+  for it {.inject.} in items(syms):
+    if 0 < idx: res.add ", "
+    inc idx
+    res.add expr
+
+  res
 
 proc getContext(conf: ConfigRef, ctx: seq[ReportContext]): string =
   for ctx in items(ctx):
@@ -233,8 +248,36 @@ proc describeArgs(conf: ConfigRef, args: seq[PNode]; prefer = preferName): strin
     if idx != args.len - 1:
       result.add ", "
 
-proc describeArgs(conf: ConfigRef, n: PNode, startIdx = 1; prefer = preferName): string =
+proc describeArgs(
+    conf: ConfigRef, n: PNode, startIdx = 1;
+    prefer = preferName
+  ): string =
   describeArgs(conf, toSeq(n.sons[startIdx .. ^1]), prefer)
+
+proc renderAsType*(vals: IntSet, t: PType): string =
+  result = "{"
+  let t = t.skipTypes(abstractRange)
+  var enumSymOffset = 0
+  var i = 0
+  for val in vals:
+    if result.len > 1:
+      result &= ", "
+    case t.kind:
+    of tyEnum, tyBool:
+      while t.n[enumSymOffset].sym.position < val: inc(enumSymOffset)
+      result &= t.n[enumSymOffset].sym.name.s
+    of tyChar:
+      result.addQuoted(char(val))
+    else:
+      if i == 64:
+        result &= "omitted $1 values..." % $(vals.len - i)
+        break
+      else:
+        result &= $val
+    inc(i)
+  result &= "}"
+
+
 
 proc presentFailedCandidates(
     conf: ConfigRef,
@@ -389,7 +432,7 @@ proc presentSpellingCandidates*(
 
     result.addDeclaredLoc(conf, candidate.sym)
 
-proc toStr(conf: ConfigRef, r: SemReport): string =
+proc reportBody*(conf: ConfigRef, r: SemReport): string =
   proc render(n: PNode): string = renderTree(n, {renderNoComments})
   proc render(t: PType): string = typeToString(t)
 
@@ -398,6 +441,13 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       assert false, (
         "Cannot report wrapped sem error - use `walkErrors` in " &
           "order to write out all accumulated reports")
+
+    of rsemCannotConvertTypes:
+      result = "cannot convert $1 to $2" % [
+        r.formalType.render, r.actualType.render]
+
+    of rsemProveField:
+      result = "cannot prove that field '$1' is accessible" % r.ast.render
 
     of rsemUninit:
       result = "use explicit initialization of '$1' for clarity" % r.symstr
@@ -761,7 +811,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
 
     of rsemAmbiguousIdent:
-      result = "ambiguous identifier: '" & r.str & "' -- use one of the following:\n"
+      result = "ambiguous identifier: '" & r.symstr & "' -- use one of the following:\n"
       var i = 0
       for sym in r.symbols:
         result.add(
@@ -809,10 +859,10 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
           [r.sym.name.s, r.sym.kind.toHumanStr]
 
     of rsemCyclicDependency:
-      result = "recursive dependency: '$1'" % r.sym.name.s
+      result = "recursive dependency: '$1'" % r.symstr
 
     of rsemCannotInstantiate:
-      result = "cannot instantiate: '$1'" % r.ast.render
+      result = "cannot instantiate: '$1'" % r.symstr
 
     of rsemTypeKindMismatch:
       result = r.str
@@ -823,7 +873,7 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         result.add "; maybe use 'unsafeAddr'"
 
     of rsemVmCannotEvaluateAtComptime:
-      result = "typeof: cannot evaluate 'mode' parameter at compile-time"
+      result = "cannot evaluate at compile time: " & r.ast.render
 
     of rsemIntLiteralExpected:
       result = "integer literal expected"
@@ -1204,8 +1254,12 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
       result = "The $1 distinct type doesn't have a default value." % r.typ.render
 
     of rsemObjectRequiresFieldInit:
-      result = "The $1 type doesn't have a default value. The following fields must " &
-      "be initialized: $2." % [r.typ.render, r.symbols.csvList()]
+      result = "The $1 type requires the following fields to be initialized: $2." % [
+        r.typ.render, r.symbols.csvList()]
+
+    of rsemObjectRequiresFieldInitNoDefault:
+      result = ("The $1 type doesn't have a default value. The following fields must " &
+        "be initialized: $2.") % [r.typ.render, r.symbols.csvList()]
 
     of rsemExpectedObjectType:
       result = "object constructor needs an object type"
@@ -1358,9 +1412,11 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
         r.symstr & "': previous type was: " & r.formalType.render() &
         "; new type is: " & r.actualType.render()
 
+    of rsemMisplacedRunnableExample:
+      result = "runnableExamples must appear before the first non-comment statement"
 
     of rsemCannotInferTypeOfLiteral:
-      result = "cannot infer the type of the $1" % r.typ.render
+      result = "cannot infer the type of the $1" % r.typ.kind.toHumanStr
 
     of rsemProcHasNoConcreteType:
       result = "'$1' doesn't have a concrete type, due to unspecified generic parameters." %
@@ -1624,8 +1680,9 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
 
     of rsemConflictingDiscriminantValues:
       result = ("possible values " &
-        "$2 are in conflict with discriminator values for " &
-        "selected object branch $1.") % [r.ast.render, r.typ.render]
+        "{$1} are in conflict with discriminator values for " &
+        "selected object branch $2") % [
+          r.nodes.csvListIt(render(it)), r.str]
 
     of rsemRuntimeDiscriminantInitCap:
       result = "branch initialization with a runtime discriminator only " &
@@ -1852,6 +1909,312 @@ proc toStr(conf: ConfigRef, r: SemReport): string =
     of rsemXDeclaredButNotUsed:
       result = "'$1' is declared but not used " % r.symstr
 
+    of rsemCompilesDummyReport:
+      assert false, "Temporary report for `compiles()` speedup cannot be printed"
+
+    of rsemCannotMakeSink:
+      result = "could not turn '$1' to a sink parameter" % r.symstr
+
+    of rsemExprAlwaysX:
+      result = "expression always evaluates to constant value"
+
+    of rsemProcessingStmt:
+      result = "processing stmt"
+
+    of rsemProcessing:
+      let path = toFilenameOption(conf, r.processing.fileIdx, conf.filenameOption)
+      let indent = repeat(">", r.processing.importStackLen)
+      let fromModule = r.sym
+      let fromModule2 = if fromModule != nil: $fromModule.name.s else: "(toplevel)"
+      let mode = if r.processing.isNimscript: "(nims) " else: ""
+      result = "$#$# $#: $#: $#" % [mode, indent, fromModule2, r.processing.moduleStatus, path]
+
+    of rsemConvToBaseNotNeeded:
+      result = "??"
+
+    of rsemDuplicateModuleImport:
+      result = "duplicate import of '$1'; previous import here: $2" %
+        [r.symstr, conf.toStr(r.previous.info)]
+
+    of rsemHintLibDependency:
+      result = r.str
+
+    of rsemCaseTransition:
+      result = "Potential object case transition, instantiate new object instead"
+
+    of rsemObservableStores:
+      result = "observable stores to '$1'" % r.ast.render
+
+    of rsemParallelWarnNotDisjoint:
+      result = r.str
+
+    of rsemParallelWarnCanProve:
+      result = r.str
+
+    of rsemParallelWarnCannotProve:
+      result = r.str
+
+    of rsemUncollectableRefCycle:
+      if r.cycleField == nil:
+        result = "'$#' creates an uncollectable ref cycle" % [r.ast.render]
+      else:
+        result = "'$#' creates an uncollectable ref cycle; annotate '$#' with .cursor" % [
+          r.ast.render, r.cycleField.render]
+
+    of rsemResultUsed:
+      result = "used 'result' variable"
+
+    of rsemTypedReturnDeprecated:
+      result = "`typed` will change its meaning in future versions of Nim. " &
+        "`void` or no return type declaration at all has the same " &
+        "meaning as the current meaning of `typed` as return type " &
+        "declaration."
+
+    of rsemInheritFromException:
+      result = "inherit from a more precise exception type like ValueError, " &
+        "IOError or OSError. If these don't suit, inherit from CatchableError or Defect."
+
+    of rsemUseBase:
+      result = "use {.base.} for base methods; baseless methods are deprecated"
+
+    of rsemMethodLockMismatch:
+      result = "method has lock level $1, but another method has $2" %
+        [r.lockMismatch[0], r.lockMismatch[1]]
+
+    of rsemReorderingFail:
+      result = "Circular dependency detected. `codeReordering` pragma may not be able to" &
+        " reorder some nodes properly"
+
+    of rsemUnknownMagic:
+      result = "unknown magic '$1' might crash the compiler" % r.str
+
+    of rsemErrGcUnsafe:
+      result = r.ast.render & " is not GC safe"
+
+    of rsemDrnimCannotPorveGe:
+      assert false, "TODO"
+
+    of rsemDrnimCannotProveLeq:
+      assert false, "TODO"
+
+    of rsemDrNimRequiresUsesMissingResult:
+      assert false, "TODO"
+
+    of rsemInvalidGuardField:
+      result = "invalid guard field: " & r.symstr
+
+    of rsemUnguardedAccess:
+      result = "unguarded access: " & r.ast.render
+
+    of rsemInvalidNestedLocking:
+      result = "invalid nested locking"
+
+    of rsemMultilockRequiresSameLevel:
+      result = "multi-lock requires the same static lock level for every operand"
+
+    of rsemLocksRequiresArgs:
+      result = "locks pragma without argument"
+
+    of rsemMismatchedPopPush:
+      result = "{.pop.} without a corresponding {.push.}"
+
+    of rsemImportjsRequiresPattern:
+      result = "`importjs` for routines requires a pattern"
+
+    of rsemImportjsRequiresJs:
+      result = "`importjs` pragma requires the JavaScript target"
+
+    of rsemDynlibRequiresExportc:
+      assert false, "UNUSED?"
+
+    of rsemExportcppRequiresCpp:
+      result = "exportcpp requires `cpp` backend, got: " & $conf.backend
+
+    of rsemTypeInvalid:
+      result = "invalid type"
+
+    of rsemIdentExpected:
+      result = "identifier expected"
+
+    of rsemInitHereNotAllowed:
+      result = "initialization not allowed here"
+
+    of rsemPragmaDynlibRequiresExportc:
+      result = ".dynlib requires .exportc"
+
+    of rsemPropositionExpected:
+      result = "proposition expected"
+
+    of rsemUnexpectedPragma:
+      result = "unexpected pragma"
+
+    of rsemCannotAttachPragma:
+      result = "cannot attach a custom pragma to '" & r.symstr & "'"
+
+    of rsemDisallowedReprForNewruntime:
+      result = "'repr' is not available for --newruntime"
+
+    of rsemDisallowedOfForPureObjects:
+      result = "no 'of' operator available for pure objects"
+
+    of rsemRequiresDeepCopyEnabled:
+      result = "for --gc:arc|orc 'deepcopy' support has to be enabled with --deepcopy:on"
+
+    of rsemExpectedLiteralForGoto:
+      result = "'goto' target must be a literal value"
+
+    of rsemExpectedParameterForCxxPattern:
+      result =  "wrong importcpp pattern; expected parameter at position " &
+        $r.countMismatch.expected & " but got only: " & $r.countMismatch.got
+
+    of rsemExpectedCallForCxxPattern:
+      result = "call expression expected for C++ pattern"
+
+    of rsemDisallowedRangeForComputedGoto:
+      result = "range notation not available for computed goto"
+
+    of rsemExpectedCaseForComputedGoto:
+      result = "no case statement found for computed goto"
+
+    of rsemExpectedLow0ForComputedGoto:
+      result = "case statement has to start at 0 for computed goto"
+
+    of rsemTooManyEntriesForComputedGoto:
+      result = "case statement has too many cases for computed goto"
+
+    of rsemExpectedUnholyEnumForComputedGoto:
+      result = "case statement cannot work on enums with holes for computed goto"
+
+    of rsemExpectedExhaustiveCaseForComputedGoto:
+      result = "case statement must be exhaustive for computed goto"
+
+    of rsemExpectedNimcallProc:
+      result = r.symstr & " needs to have the 'nimcall' calling convention"
+
+    of rsemRttiRequestForIncompleteObject:
+      result = "request for RTTI generation for incomplete object: " & r.typ.render
+
+    of rsemVmNotAField:
+      result = "symbol is not a field (nskField)"
+
+    of rsemVmOutOfRange:
+      result = "unhandled exception: value out of range"
+
+    of rsemVmErrInternal:
+      result = r.str
+
+    of rsemVmCallingNonRoutine:
+      result = "NimScript: attempt to call non-routine: " & r.symstr
+
+    of rsemVmGlobalError:
+      result = r.str
+
+    of rsemNotAFieldSymbol:
+      result = "no field symbol"
+
+    of rsemVmOpcParseExpectedExpression:
+      result = "expected expression, but got multiple statements"
+
+    of rsemCannotDetermineBorrowTarget:
+      result = "cannot determine the target of the borrow"
+
+    of rsemResultMustBorrowFirst:
+      result = "'result' must borrow from the first parameter"
+
+    of rsemExpressionIsNotAPath:
+      result = "cannot borrow from " & r.ast.render & ", it is not a path expression"
+
+    of rsemCallconvExpected:
+      result = "calling convention expected"
+
+    of rsemOnOrOffExpected:
+      result = "'on' or 'off' expected"
+
+    of rsemUnresolvedGenericParameter:
+      result = "unresolved generic parameter"
+
+    of rsemRawTypeMismatch:
+      result = "type mismatch"
+
+    of rsemCannotAssignToDiscriminantWithCustomDestructor:
+      result = "Assignment to discriminant for objects with user " &
+        "defined destructor is not supported, object must have default " &
+        "destructor.\nIt is best to factor out piece of object that needs " &
+        "custom destructor into separate object or not use discriminator assignment"
+
+    of rsemCannotCreateImplicitOpenarray:
+      result = "cannot create an implicit openArray copy to be passed to a sink parameter"
+
+    of rsemWrongNumberOfQuoteArguments:
+      assert false, "UNUSED"
+
+    of rsemIllegalNimvmContext:
+      result = "illegal context for 'nimvm' magic"
+
+    of rsemInvalidOrderInArrayConstructor:
+      result = "invalid order in array constructor"
+
+    of rsemTypeConversionArgumentMismatch:
+      result = "a type conversion takes exactly one argument"
+
+    of rsemConstantOfTypeHasNoValue:
+      result = "constant of type '" & r.typ.render & "' has no value"
+
+    of rsemNoObjectOrTupleType:
+      result = "no object or tuple type"
+
+    of rsemParallelFieldsDisallowsCase:
+      result = "parallel 'fields' iterator does not work for 'case' objects"
+
+    of rsemFieldsIteratorCannotContinue:
+      result = "'continue' not supported in a 'fields' loop"
+
+    of rsemConstExpressionExpected:
+      result = "constant expression expected"
+
+    of rsemDiscardingVoid:
+      result = "statement returns no value that can be discarded"
+
+    of rsemParameterNotPointerToPartial:
+      result = "parameter '$1' is not a pointer to a partial object" % r.ast.render
+
+    of rsemIsNotParameterOf:
+      result = "'$1' is not a parameter of '$2'" % [$r.ast.render, r.symstr]
+
+    of rsemGenericInstantiationTooNested:
+      result = "generic instantiation too nested"
+
+    of rsemMacroInstantiationTooNested:
+      result = "macro instantiation too nested"
+
+    of rsemExpectedNonemptyPattern:
+      result = "a pattern cannot be empty"
+
+    of rsemInvalidExpression:
+      result = "invalid expression"
+
+    of rsemParameterRedefinition:
+      result = "attempt to redefine: '" & r.symstr & "'"
+
+    of rsemParameterRequiresAType:
+      result = "parameter '$1' requires a type" % r.symstr
+
+    of rsemCannotInferParameterType:
+      result = "cannot infer the type of parameter '" & r.ast.render & "'"
+
+    of rsemMisplacedMagicType:
+      result = "return type '" & r.typ.render &
+        "' is only valid for macros and templates"
+
+    of rsemIgnoreInvalidForLoop:
+      result = "ignored invalid for loop"
+
+    of rsemNotABaseMethod:
+      result = "method is not a base"
+
+    of rsemMissingMethodDispatcher:
+      result = "'" & r.ast.render & "' lacks a dispatcher"
+
     else:
       result = $r
 
@@ -1899,7 +2262,8 @@ proc suffix(
     )
 
 
-proc report(conf: ConfigRef, r: SemReport): string =
+proc reportFull*(conf: ConfigRef, r: SemReport): string =
+  assertKind r
   let sev = conf.severity(r)
 
   if r.kind == rsemProcessing and conf.hintProcessingDots:
@@ -1912,11 +2276,12 @@ proc report(conf: ConfigRef, r: SemReport): string =
     # `file(line, col) Error: ` prefix
     conf.prefix(r),
     # Message body
-    toStr(conf, r),
+    reportBody(conf, r),
     conf.suffix(r)
   )
 
-proc toStr(conf: ConfigRef, r: ParserReport): string =
+proc reportBody*(conf: ConfigRef, r: ParserReport): string =
+  assertKind r
   case ParserReportKind(r.kind):
     of rparInvalidIndentation:
        result = "invalid indentation"
@@ -1929,10 +2294,10 @@ proc toStr(conf: ConfigRef, r: ParserReport): string =
       result = "identifier expected, but got '$1'" % r.found
 
     of rparIdentOrKwdExpected:
-      result = "identifier expected, but got '$1'"
+      result = "identifier expected, but got '$1'" % r.found
 
     of rparExprExpected:
-      result = "expression expected, but found '$1'"
+      result = "expression expected, but found '$1'" % r.found
 
     of rparMissingToken:
       result = "expected " & r.expected[0]
@@ -1990,10 +2355,12 @@ proc toStr(conf: ConfigRef, r: ParserReport): string =
 
 
 
-proc report(conf: ConfigRef, r: ParserReport): string =
-  result = conf.prefix(r) & conf.toStr(r) & conf.suffix(r)
+proc reportFull*(conf: ConfigRef, r: ParserReport): string =
+  assertKind r
+  result = conf.prefix(r) & conf.reportBody(r) & conf.suffix(r)
 
-proc report(conf: ConfigRef, r: InternalReport): string =
+proc reportBody*(conf: ConfigRef, r: InternalReport): string =
+  assertKind r
   case r.kind:
     of rintStackTrace:
       result = conf.formatTrace(r.trace)
@@ -2062,8 +2429,12 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
     else:
       result = $r
 
-proc report(conf: ConfigRef, r: LexerReport): string    =
-  result.add prefix(conf, r)
+proc reportFull*(conf: ConfigRef, r: InternalReport): string =
+  assertKind r
+  reportBody(conf, r)
+
+proc reportBody*(conf: ConfigRef, r: LexerReport): string =
+  assertKind r
   case LexerReportKind(r.kind):
     of rlexMalformedTrailingUnderscre:
       result.add "invalid token: trailing underscore"
@@ -2130,11 +2501,12 @@ proc report(conf: ConfigRef, r: LexerReport): string    =
       result.add "?"
 
 
+proc reportFull*(conf: ConfigRef, r: LexerReport): string    =
+  assertKind r
+  result.add(prefix(conf, r), reportBody(conf, r), suffix(conf, r))
 
-  result.add suffix(conf, r)
-
-
-proc report(conf: ConfigRef, r: ExternalReport): string =
+proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
+  assertKind r
   case r.kind:
     of rextConf:
       result.add(
@@ -2158,7 +2530,12 @@ proc report(conf: ConfigRef, r: ExternalReport): string =
     else:
       result = $r
 
-proc report(conf: ConfigRef, r: DebugReport): string    =
+proc reportFull*(conf: ConfigRef, r: ExternalReport): string =
+  assertKind r
+  reportBody(conf, r)
+
+proc reportBody*(conf: ConfigRef, r: DebugReport): string    =
+  assertKind r
   case DebugReportKind(r.kind):
     of rdbgTraceStep:
       let s = r.semstep
@@ -2196,10 +2573,20 @@ proc report(conf: ConfigRef, r: DebugReport): string    =
       result = $r
 
 
-proc report(conf: ConfigRef, r: BackendReport): string  =
+proc reportFull*(conf: ConfigRef, r: DebugReport): string =
+  assertKind r
+  reportBody(conf, r)
+
+proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
+  assertKind r
   result = $r
 
-proc report(conf: ConfigRef, r: CmdReport): string =
+proc reportFull*(conf: ConfigRef, r: BackendReport): string =
+  assertKind r
+  reportBody(conf, r)
+
+proc reportBody*(conf: ConfigRef, r: CmdReport): string =
+  assertKind r
   case r.kind:
     of rcmdCompiling:
       result = "CC: " & r.msg
@@ -2210,16 +2597,34 @@ proc report(conf: ConfigRef, r: CmdReport): string =
     else:
       result = $r
 
-proc toStr*(conf: ConfigRef, r: Report): string =
+
+proc reportFull*(conf: ConfigRef, r: CmdReport): string =
+  assertKind r
+  reportBody(conf, r)
+
+proc reportBody*(conf: ConfigRef, r: Report): string =
+  assertKind r
   case r.category:
-    of repLexer:    result = conf.report(r.lexReport)
-    of repParser:   result = conf.report(r.parserReport)
-    of repCmd:      result = conf.report(r.cmdReport)
-    of repSem:      result = conf.report(r.semReport)
-    of repDebug:    result = conf.report(r.debugReport)
-    of repInternal: result = conf.report(r.internalReport)
-    of repBackend:  result = conf.report(r.backendReport)
-    of repExternal: result = conf.report(r.externalReport)
+    of repLexer:    result = conf.reportBody(r.lexReport)
+    of repParser:   result = conf.reportBody(r.parserReport)
+    of repCmd:      result = conf.reportBody(r.cmdReport)
+    of repSem:      result = conf.reportBody(r.semReport)
+    of repDebug:    result = conf.reportBody(r.debugReport)
+    of repInternal: result = conf.reportBody(r.internalReport)
+    of repBackend:  result = conf.reportBody(r.backendReport)
+    of repExternal: result = conf.reportBody(r.externalReport)
+
+proc reportFull*(conf: ConfigRef, r: Report): string =
+  assertKind r
+  case r.category:
+    of repLexer:    result = conf.reportFull(r.lexReport)
+    of repParser:   result = conf.reportFull(r.parserReport)
+    of repCmd:      result = conf.reportFull(r.cmdReport)
+    of repSem:      result = conf.reportFull(r.semReport)
+    of repDebug:    result = conf.reportFull(r.debugReport)
+    of repInternal: result = conf.reportFull(r.internalReport)
+    of repBackend:  result = conf.reportFull(r.backendReport)
+    of repExternal: result = conf.reportFull(r.externalReport)
 
 var lastDot: bool = false
 
@@ -2228,17 +2633,17 @@ proc reportHook*(conf: ConfigRef, r: Report) =
   # REFACTOR this check is an absolute hack, `errorOutputs` need to be
   # removed. For more details see `lineinfos.MsgConfig.errorOutputs`
   # comment
+  assertKind r
 
-
-  if conf.isEnabled(r) and r.category == repDebug and tryhack:
+  if conf.isEnabled(r.kind) and r.category == repDebug and tryhack:
     # Force write of the report messages using regular stdout if tryhack is
     # enabled
     if lastDot:
       conf.writeln("")
       lastDot = false
-    echo conf.toStr(r)
+    echo conf.reportFull(r)
 
-  elif not conf.isEnabled(r) or tryhack:
+  elif not conf.isEnabled(r.kind) or tryhack:
     return
 
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
@@ -2250,4 +2655,4 @@ proc reportHook*(conf: ConfigRef, r: Report) =
       conf.writeln("")
       lastDot = false
 
-    conf.writeln(conf.toStr(r))
+    conf.writeln(conf.reportFull(r))

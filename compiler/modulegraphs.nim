@@ -606,10 +606,9 @@ proc onProcessing*(graph: ModuleGraph, fileIdx: FileIndex, moduleStatus: string,
     let path = toFilenameOption(conf, fileIdx, conf.filenameOption)
     conf.localReport SemReport(
       kind: rsemProcessing,
+      sym: fromModule,
       processing: (
         isNimscript: isNimscript,
         importStackLen: graph.importStack.len,
-        fromModule: if fromModule != nil: $fromModule.name.s else: "",
-        isToplevel: fromModule == nil,
         moduleStatus: moduleStatus,
-        path: path))
+        fileIdx: fileIdx))

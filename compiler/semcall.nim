@@ -292,7 +292,7 @@ proc getMsgDiagnostic(
     var o: TOverloadIter
     result = SemReport(
       typ: n[1].typ,
-      str: f.ident.s,
+      str: $f,
       ast: n,
       # `arg.call()`
       explicitCall: len({nfDotField, nfExplicitCall} * n.flags) == 2,
@@ -305,9 +305,11 @@ proc getMsgDiagnostic(
       result.unexpectedCandidate.add(sym)
       sym = nextOverloadIter(o, c, f)
 
-    # Throw in potential typos - `obj.cull()` or `obj.lenghh` might
-    # potentially be caused by this.
-    result.spellingCandidates = fixSpelling(c, f.ident)
+    if f.kind == nkIdent:
+      # Throw in potential typos - `obj.cull()` or `obj.lenghh` might
+      # potentially be caused by this. This error is also called for `4
+      # +2`, so command is not always an identifier.
+      result.spellingCandidates = fixSpelling(c, f.ident)
 
 
 proc resolveOverloads(c: PContext, n, orig: PNode,

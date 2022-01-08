@@ -17,7 +17,8 @@ import
   parser, vmdeps, idents, trees, renderer, options, transf,
   gorgeimpl, lineinfos, btrees, macrocacheimpl,
   modulegraphs, sighashes, int128, vmprofiler,
-  debugutils, astalgo
+  debugutils, astalgo,
+  cli_reporter
 
 import ast except getstr
 from semfold import leValueConv, ordinalValToString
@@ -62,27 +63,32 @@ proc stackTraceImpl(
 
   aux(sframe, pc, 0, res)
 
-  let lineInfo =
-    if lineInfo == TLineInfo.default:
-      c.debug[pc]
-    else:
-      lineInfo
-
   let action = if c.mode == emRepl: doRaise else: doNothing
 
   let report = wrap(res, infoOrigin, lineInfo)
 
   c.config.handleReport(report, action)
 
+
 template stackTrace(
     c: PCtx,
     tos: PStackFrame,
     pc: int,
     sem: ReportTypes,
-    lineInfo: TLineInfo = TLineInfo.default
+    info: TLineInfo,
   ) =
-  stackTraceImpl(c, tos, pc, lineInfo, instLoc())
-  localReport(c.config, lineInfo, sem)
+  stackTraceImpl(c, tos, pc, info, instLoc())
+  localReport(c.config, info, sem)
+  return
+
+template stackTrace(
+    c: PCtx,
+    tos: PStackFrame,
+    pc: int,
+    sem: ReportTypes,
+  ) =
+  stackTraceImpl(c, tos, pc, c.debug[pc], instLoc())
+  localReport(c.config, c.debug[pc], sem)
   return
 
 proc bailOut(c: PCtx; tos: PStackFrame, raised: PNode) =
@@ -1656,6 +1662,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if nfSem in u.flags and allowSemcheckedAstModification notin c.config.legacyFeatures:
         stackTrace(c, tos, pc, reportSem(rsemVmCannotModifyTypechecked))
       elif u.kind in {nkEmpty..nkNilLit}:
+        echo c.config $ c.debug[pc]
         stackTrace(c, tos, pc, reportAst(rsemVmCannotAddChild, u))
       else:
         u.add(regs[rc].node)
@@ -1844,54 +1851,96 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         else:
           discard
 
-    of opcParseExprToAst:
+    of opcParseExprToAst, opcParseStmtToAst:
+      # REFACTOR This branch implements handling of the `parseExpr()` and
+      # `parseStmt()` calls in the compiler API - because parsing can
+      # expectedly fail (for example `"{a+}"` in strformat module) we need
+      # to handle failure and report it as a *VM* exception, so user can
+      # properly handle this.
+      #
+      # Previous implementation also relied on the report hook override -
+      # in the future this need to be completely removed, since I
+      # personally find exceptions-as-control-flow extremely ugly and unfit
+      # for any serious work. Technically it does the job, one might argue
+      # this is a good compromized, but I'd much rather have a paser
+      # template that (1) writes out error message with correction location
+      # information and (2) if parser is in 'speculative' mode, aborts the
+      # parsing completely (via early exit checks in the parser module).
+      # Yes, more work, but it avoids rebouncing exceptions through two (or
+      # even three) compiler subsystems (`Lexer?->Parser->Vm`)
+
       decodeB(rkNode)
-      # c.debug[pc].line.int - countLines(regs[rb].strVal) ?
+
+      type TemporaryExceptionHack = ref object of CatchableError
+
       var error = reportEmpty
-      let ast = parseString(
-        regs[rb].node.strVal,
-        c.cache,
-        c.config,
-        toFullPath(c.config, c.debug[pc]),
-        c.debug[pc].line.int
-        # proc (conf: ConfigRef; info: TLineInfo; msg: TMsgKind; arg: string) {.nosinks.} =
-        #   if error.len == 0 and msg <= errMax:
-        #     error = formatMsg(conf, info, msg, arg)
-      )
+      let oldHook = c.config.structuredReportHook
+      var ast: PNode
+      c.config.structuredReportHook = proc(conf: ConfigRef, report: Report) =
+        # QUESTION This check might be affected by current severity
+        # configurations, maybe it makes sense to do a hack-in that would
+        # ignore all user-provided CLI otions?
+        if report.category in {repParser, repLexer} and
+           conf.severity(report) == rsevError:
+          error = report
+          raise TemporaryExceptionHack()
+
+        else:
+          oldHook(conf, report)
+
+      try:
+        ast = parseString(
+          regs[rb].node.strVal,
+          c.cache,
+          c.config,
+          toFullPath(c.config, c.debug[pc]),
+          c.debug[pc].line.int
+        )
+
+      except TemporaryExceptionHack:
+        discard
+
+      c.config.structuredReportHook = oldHook
 
       if error.kind > repNone:
         c.errorFlag = error
 
-      elif ast.len != 1:
+      # Handling both statement and expression in this case branch, so
+      # first checking for `parseExpr()` postconditions and then repacking
+      # the ast as needed.
+      elif ast.len != 1 and instr.opcode == opcParseExprToAst:
         c.errorFlag = SemReport(kind: rsemVmOpcParseExpectedExpression).wrap()
 
-      else:
-        regs[ra].node = ast[0]
-
-    of opcParseStmtToAst:
-      decodeB(rkNode)
-      var error = reportEmpty
-      let ast = parseString(
-        regs[rb].node.strVal,
-        c.cache,
-        c.config,
-        toFullPath(c.config, c.debug[pc]),
-        c.debug[pc].line.int,
-        # proc (conf: ConfigRef; info: TLineInfo; msg: TMsgKind; arg: string) {.nosinks.} =
-        #   if error.len == 0 and msg <= errMax:
-        #     error = formatMsg(conf, info, msg, arg)
-      )
-
-      if error.kind != repNone:
-        c.errorFlag = error
-
-      else:
+      elif instr.opcode == opcParseStmtToAst:
         regs[ra].node = ast
 
+      else:
+        # Seems like parser always generates `stmtList`, so taking first
+        # node here (checked for correct lenght earlier)
+        regs[ra].node = ast[0]
+
     of opcQueryErrorFlag:
+      # REFACTOR HACK Only `parseExpr()` and `parseStmt()` appear to be
+      # using error flag - we might as well set them directly? Anyway,
+      # previous error formatting reused the same error message as
+      # generated by reporting system, but now I need to convert the
+      # `Report` object into string that can be read later by user VM code.
+
       createStr regs[ra]
-      regs[ra].node.strVal = $c.errorFlag
+      if c.errorFlag.kind != repNone:
+        # Not sure if there is any better solution - I /do/ want to make
+        # sure that error reported to the user in the VM is the same as one
+        # I would report on the CLI, but at the same time this still looks
+        # like an overly hacky approach
+        regs[ra].node.strVal = "Error: " & c.config.reportBody(c.errorFlag)
+                             # ^ `reportBody()` only returns main part of
+                             # the report, so need to add `"Error: "`
+                             # manally to stay consistent with the old
+                             # output.
+
       c.errorFlag = reportEmpty
+
+
     of opcCallSite:
       ensureKind(rkNode)
       if c.callsite != nil: regs[ra].node = c.callsite

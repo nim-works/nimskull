@@ -138,6 +138,14 @@ proc closeParser(p: var Parser) =
     closeEmitter(p.em)
 
 
+template localError(p: Parser, report: ParserReport): untyped =
+  var rep = report
+  if rep.found.len == 0:
+    rep.found = prettyTok(p.tok)
+
+  p.lex.config.handleReport(wrap(rep, instLoc(), getLineInfo(p.lex, p.tok)))
+
+
 template localError(p: Parser, report: ReportTypes): untyped =
   p.lex.config.handleReport(wrap(report, instLoc(), getLineInfo(p.lex, p.tok)))
 

@@ -261,10 +261,15 @@ proc semConstructFields(c: PContext, n: PNode,
               first: fields,
               second: @[discriminator.sym])))
 
-      template valuesInConflictError(valsDiff) =
-        localReport(c.config, discriminatorVal.info, reportTyp(
-          rsemConflictingDiscriminantValues, n[0].typ,
-          ast = n[selectedBranch]))
+      template valuesInConflictError(valsDiff: IntSet): untyped =
+        ## Write out 'conflicting discriminant values' report
+        var rep = reportTyp(
+          rsemConflictingDiscriminantValues,
+          n[0].typ, str = $selectedBranch)
+
+        rep.nodes = toLiterals(valsDiff, rep.typ)
+
+        localReport(c.config, discriminatorVal.info, rep)
 
       let branchNode = n[selectedBranch]
       let flags = {efPreferStatic, efPreferNilResult}
@@ -441,7 +446,8 @@ proc defaultConstructionError(c: PContext, t: PType, info: TLineInfo) =
     localReport(
       c.config, info,
       reportSymbols(
-        rsemObjectRequiresFieldInit, constrCtx.missingFields, typ = t))
+        rsemObjectRequiresFieldInitNoDefault,
+        constrCtx.missingFields, typ = t))
 
   elif objType.kind == tyDistinct:
     localReport(c.config, info, reportTyp(

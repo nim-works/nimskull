@@ -571,6 +571,7 @@ type
     rsemRuntimeDiscriminantMustBeImmutable
     rsemRuntimeDiscriminantRequiresElif
     rsemObjectRequiresFieldInit
+    rsemObjectRequiresFieldInitNoDefault
     rsemDistinctDoesNotHaveDefaultValue
     rsemExpectedModuleNameForImportExcept
     rsemCannotExport
@@ -1206,6 +1207,9 @@ type
       of rsemXCannotRaiseY:
         raisesList*: PNode
 
+      of rsemUncollectableRefCycle:
+        cycleField*: PNode
+
       of rsemStrictNotNil:
         nilIssue*: Nilability
         nilHistory*: seq[SemNilHistory]
@@ -1268,6 +1272,7 @@ type
          rsemConflictingDiscriminantInit,
          rsemConflictingDiscriminantValues:
         fieldMismatches*: tuple[first, second: seq[PSym]]
+        nodes*: seq[PNode]
 
       of rsemReportTwoSym + rsemReportOneSym + rsemReportListSym:
         symbols*: seq[PSym]
@@ -1320,9 +1325,8 @@ type
         processing*: tuple[
           isNimscript: bool,
           importStackLen: int,
-          fromModule: string,
-          isToplevel: bool,
-          moduleStatus, path: string
+          moduleStatus: string,
+          fileIdx: FileIndex
         ]
 
       of rsemLinterReport:

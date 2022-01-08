@@ -454,7 +454,7 @@ proc setVarType(c: PContext; v: PSym, typ: PType) =
 
 proc errorSymChoiceUseQualifier(c: PContext; n: PNode) =
   assert n.kind in nkSymChoices
-  var rep = reportAst(rsemAmbiguousIdent, n, str = $n[0])
+  var rep = reportAst(rsemAmbiguousIdent, n, sym = n[0].sym)
   for child in n:
     rep.symbols.add child.sym
 
