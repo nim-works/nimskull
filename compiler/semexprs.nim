@@ -2466,9 +2466,8 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   of mSpawn:
     markUsed(c, n.info, s)
     when defined(leanCompiler):
-      result = newError(c.config, n, InternalReport(
-        kind: rintUsingLeanCompiler, msg: "Compiler was not built with spawn support"))
-
+      internalError(c.config, n.info, rintUsingLeanCompiler,
+                    "Compiler was not built with spawn support")
     else:
       result = setMs(n, s)
       for i in 1..<n.len:
