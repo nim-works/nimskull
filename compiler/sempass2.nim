@@ -291,8 +291,14 @@ proc listGcUnsafety(s: PSym; onlyWarning: bool; conf: ConfigRef) =
   var cycleCheck = initIntSet()
   listGcUnsafety(s, onlyWarning, cycleCheck, conf)
 
-proc listSideEffects(result: var SemReport; s: PSym; cycleCheck: var IntSet;
-                     conf: ConfigRef; context: PContext) =
+proc listSideEffects(
+    result: var SemReport,
+    s: PSym,
+    cycleCheck: var IntSet,
+    conf: ConfigRef,
+    context: PContext,
+    level: int
+  ) =
 
   if context.sideEffects.hasKey(s.id):
     for (useLineInfo, u) in context.sideEffects[s.id]:
@@ -312,17 +318,18 @@ proc listSideEffects(result: var SemReport; s: PSym; cycleCheck: var IntSet;
           isUnsafe: s,
           unsafeVia: u,
           trace: trace,
-          location: useLineInfo
+          location: useLineInfo,
+          level: level
         ))
 
         if u.kind in routineKinds:
-          listSideEffects(result, u, cycleCheck, conf, context)
+          listSideEffects(result, u, cycleCheck, conf, context, level + 1)
 
 
 proc listSideEffects(result: var SemReport; s: PSym; conf: ConfigRef; context: PContext) =
   var cycleCheck = initIntSet()
   result.sym = s
-  listSideEffects(result, s, cycleCheck, conf, context)
+  listSideEffects(result, s, cycleCheck, conf, context, 1)
 
 proc useVarNoInitCheck(a: PEffects; n: PNode; s: PSym) =
   if {sfGlobal, sfThread} * s.flags != {} and s.kind in {skVar, skLet} and
@@ -1541,7 +1548,8 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
           isUnsafe: s,
           unsafeVia: nil,
           trace: ssefParameterMutation,
-          location: mutationInfo.mutatedHere
+          location: mutationInfo.mutatedHere,
+          level: 0
         ))
 
         report.sideEffectMutateConnection = mutationInfo.connectedVia

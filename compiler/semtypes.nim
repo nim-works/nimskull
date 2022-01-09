@@ -819,8 +819,9 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
     semRecordNodeAux(c, lastSon(n[i]), check, pos, b, rectype, hasCaseFields = true)
   if chckCovered and covered != toCover(c, a[0].typ):
     if a[0].typ.skipTypes(abstractRange).kind == tyEnum:
-      localReport(c.config, a.info, reportSymbols(
-        rsemMissingCaseBranches, formatMissingEnums(c, a)))
+      localReport(c.config, a.info, SemReport(
+        kind: rsemMissingCaseBranches,
+        nodes: formatMissingBranches(c, a)))
 
     else:
       localReport(c.config, a, reportSem rsemMissingCaseBranches)

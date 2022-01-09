@@ -567,9 +567,16 @@ func isEnabled*(conf: ConfigRef, report: ReportKind): bool =
         result = (report in conf.notes) and
         not ignoreMsgBecauseOfIdeTools(conf, report)
 
-  # if not result:
-  #   assert rbackJsUnsupportedClosureIter in repErrorKinds
-  #   assert report != rbackJsUnsupportedClosureIter
+func isEnabled*(conf: ConfigRef, report: Report): bool =
+  # Macro expansion configuration is done via `--expandMacro=name`
+  # configuration, and requires full report information to check.
+  if report.kind == rsemExpandMacro and
+     conf.macrosToExpand.hasKey(report.semReport.sym.name.s):
+    result = true
+
+  else:
+    result = conf.isEnabled(report.kind)
+
 
 
 proc hcrOn*(conf: ConfigRef): bool =

@@ -1063,6 +1063,7 @@ const
     rsemBorrowOutlivesSource,
     rsemImmutableBorrowMutation,
     rsemRedefinitionOf,
+    rsemInvalidMethodDeclarationOrder, # [s, witness]
     rsemIllegalCallconvCapture, # [symbol, owner]
     rsemDeprecated # [symbol, use-instead]
   }
@@ -1070,7 +1071,6 @@ const
   rsemReportOneSym* = {
     rsemUnexpectedPragmaInDefinitionOf,
     rsemDoubleCompletionOf,
-    rsemInvalidMethodDeclarationOrder,
 
     rsemIllegalMemoryCapture,
     rsemOverrideSafetyMismatch,
@@ -1223,7 +1223,8 @@ type
           isUnsafe: PSym,
           unsafeVia: PSym,
           trace: SemSideEffectCallKind,
-          location: TLineInfo
+          location: TLineInfo,
+          level: int
         ]]
 
         sideEffectMutateConnection*: TLineInfo

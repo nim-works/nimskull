@@ -537,6 +537,7 @@ proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
 
   if reportTraceExpand:
     c.config.localReport(nOrig.info, SemReport(
+      sym: sym,
       kind: rsemExpandMacro,
       ast: original,
       expandedAst: result))

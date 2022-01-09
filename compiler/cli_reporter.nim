@@ -1382,8 +1382,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
       else:
         result = "'$1' can have side effects\n" % r.symstr
-        var level = 1
-        template addHint(msg: string, lineInfo: TLineInfo, sym: string) =
+        template addHint(
+            msg: string, lineInfo: TLineInfo, sym: string, level: int) =
           result.addf(
             "$# $# $#'$#' $#\n",
             repeat(">", level),
@@ -1393,6 +1393,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
             msg
           )
 
+        var levelInc: seq[int]
+        var lastLevel = 0
         for part in r.sideEffectTrace:
           let s = part.isUnsafe
           let u = part.unsafeVia
@@ -1402,31 +1404,34 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
             of ssefUsesGlobalState:
               addHint(
                 "accesses global state '$#'" % u.name.s,
-                useLineInfo, s.name.s)
+                useLineInfo, s.name.s, part.level)
 
-              inc level
               addHint(
-                "accessed by '$#'" % s.name.s, u.info, u.name.s)
+                "accessed by '$#'" % s.name.s, u.info,
+                u.name.s, part.level + 1)
 
             of ssefCallsSideEffect:
               addHint(
-                "calls `.sideEffect` '$#'" % u.name.s, useLineInfo, s.name.s)
+                "calls `.sideEffect` '$#'" % u.name.s,
+                useLineInfo, s.name.s, part.level)
 
-              inc level
               addHint(
-                "called by '$#'" % s.name.s, u.info, u.name.s)
+                "called by '$#'" % s.name.s,
+                u.info, u.name.s, part.level + 1)
+
+            of ssefCallsViaHiddenIndirection:
+              addHint(
+                "calls routine via hidden pointer indirection",
+                useLineInfo, s.name.s, part.level)
 
             of ssefCallsViaIndirection:
               addHint(
-                "calls routine via hidden pointer indirection",
-                useLineInfo, s.name.s)
-
-            else:
-              addHint(
                 "calls routine via pointer indirection",
-                useLineInfo, s.name.s)
+                useLineInfo, s.name.s, part.level)
 
-          inc level
+            of ssefParameterMutation:
+              assert false, "Must be handled as a standalone effect"
+
 
     of rsemCannotBeRaised:
       result = "only a 'ref object' can be raised"
@@ -1982,7 +1987,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         conf, r.spellingCandidates)
 
     of rsemXDeclaredButNotUsed:
-      result = "'$1' is declared but not used " % r.symstr
+      result = "'$1' is declared but not used" % r.symstr
 
     of rsemCompilesDummyReport:
       assert false, "Temporary report for `compiles()` speedup cannot be printed"
@@ -3003,7 +3008,7 @@ proc reportHook*(conf: ConfigRef, r: Report) =
   # echo "severity as seen by report hook: [", sev, "]"
   # echo "enabled? ", conf.isEnabled (r.kind)
 
-  if conf.isEnabled(r.kind) and r.category == repDebug and tryhack:
+  if conf.isEnabled(r) and r.category == repDebug and tryhack:
     # Force write of the report messages using regular stdout if tryhack is
     # enabled
     if lastDot:
@@ -3013,7 +3018,7 @@ proc reportHook*(conf: ConfigRef, r: Report) =
 
   elif (
     # Not explicitly enanled
-    not conf.isEnabled(r.kind) and
+    not conf.isEnabled(r) and
     # And not added for forced write
     r.kind notin forceWrite
   ) or
@@ -3033,5 +3038,4 @@ proc reportHook*(conf: ConfigRef, r: Report) =
       conf.writeln("")
       lastDot = false
 
-    echo r
     conf.writeln(conf.reportFull(r))

@@ -736,7 +736,8 @@ proc handleCRLF(L: var Lexer, pos: int): int =
 
     when not defined(nimpretty):
       if col > MaxLineLength:
-        L.localReport(LexerReport(kind: rlexLineTooLong))
+        L.localReportPos(
+          LexerReport(kind: rlexLineTooLong), pos)
 
   case L.buf[pos]
   of CR:
@@ -785,7 +786,8 @@ proc getString(L: var Lexer, tok: var Token, mode: StringMode) =
         tokenEndIgnore(tok, pos)
         var line2 = L.lineNumber
         L.lineNumber = line
-        L.localReport LexerReport(kind: rlexUnclosedTripleString)
+        L.localReportPos(LexerReport(
+          kind: rlexUnclosedTripleString), L.lineStart)
         L.lineNumber = line2
         L.bufpos = pos
         break
@@ -1085,7 +1087,9 @@ proc skipMultiLineComment(L: var Lexer; tok: var Token; start: int;
           dec c
     of nimlexbase.EndOfFile:
       tokenEndIgnore(tok, pos)
-      L.localReport LexerReport(kind: rlexUnclosedComment)
+      L.localReportPos(
+        LexerReport(kind: rlexUnclosedComment), pos)
+
       break
     else:
       if isDoc or defined(nimpretty): tok.literal.add L.buf[pos]
@@ -1168,7 +1172,8 @@ proc skip(L: var Lexer, tok: var Token) =
       inc(tok.strongSpaceA)
     of '\t':
       if not L.allowTabs:
-        L.localReport LexerReport(kind: rlexNoTabs)
+        L.localReportPos(
+          LexerReport(kind: rlexNoTabs), pos)
 
       inc(pos)
     of CR, LF:
