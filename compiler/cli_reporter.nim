@@ -729,8 +729,16 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "invalid bindSym usage"
 
     of rsemSymbolKindMismatch:
+      var ask: string
+      if len(r.expectedSymbolKind) == 1:
+         for n in r.expectedSymbolKind:
+           ask = n.toHumanStr
+
+      else:
+        ask = $r.expectedSymbolKind
+
       result = "cannot use symbol of kind '$1' as a '$2'" %
-        [$r.sym.kind, $r.expectedSymbolKind]
+        [$r.sym.kind.toHumanStr, ask]
 
     of rsemTypeNotAllowed:
       let (t, typ, kind) = (
@@ -776,6 +784,12 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         result.addf("\n  found $1", getSymRepr(conf, sym))
 
       if r.explicitCall:
+        if result.len == 0:
+          result = "attempting to call undeclared routine: '$1'" % $r.str
+        else:
+          result = "attempting to call routine: '$1'$2" % [$r.str, $result]
+
+      else:
         let sym = r.typ.typSym
         var typeHint = ""
         if sym == nil:
@@ -792,11 +806,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
         result = "undeclared field: '$1'" % r.str & typeHint & suffix
 
-      else:
-        if result.len == 0:
-          result = "attempting to call undeclared routine: '$1'" % $r.str
-        else:
-          result = "attempting to call routine: '$1'$2" % [$r.str, $result]
+
 
 
     of rsemUndeclaredField:
@@ -883,7 +893,26 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "recursive dependency: '$1'" % r.symstr
 
     of rsemCannotInstantiate:
-      result = "cannot instantiate: '$1'" % r.symstr
+      if r.typ.isNil:
+        if r.sym.isNil:
+          result = "cannot instantiate: '$1'" % r.ast.render
+
+        else:
+          result = "cannot instantiate: '$1'" % r.symstr
+
+      elif r.ownerSym.isNil:
+        result.addf(
+          "cannot instantiate: '$1'; Maybe generic arguments are missing?",
+          typeToString(r.typ, preferDesc)
+        )
+
+      else:
+        result.addf(
+          "cannot instantiate '$1' inside of type definition: '$2'; " &
+            "Maybe generic arguments are missing?",
+          typeToString(r.typ, preferDesc),
+          r.ownerSym.name.s
+        )
 
     of rsemTypeKindMismatch:
       result = r.str
@@ -908,7 +937,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "unknown trait: " & r.sym.name.s
 
     of rsemExpectedOrdinal:
-      result = "ordinal type expected"
+      if not r.ast.isNil and r.ast.kind == nkBracket:
+        result.add "expected ordinal value for array index, got '$1'" % r.wrongNode.render
+
+      else:
+        result = "ordinal type expected"
 
     of rsemStringLiteralExpected:
       result = "string literal expected"
@@ -995,7 +1028,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = r.str
 
     of rsemInvalidPragma:
-      result = "invalid pragma"
+      result = "invalid pragma: " & r.ast.render
 
     of rsemMisplacedEffectsOf:
       result = "parameter cannot be declared as .effectsOf"
@@ -1245,7 +1278,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "set is too large"
 
     of rsemTIsNotAConcreteType:
-      result = "'$1' is not a concrete type" & r.typ.render()
+      result = "'$1' is not a concrete type" % r.typ.render()
 
     of rsemVarVarNotAllowed:
       result = "type 'var var' is not allowed"
@@ -1481,8 +1514,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemMissingCaseBranches:
       result = "not all cases are covered"
-      if 0 < r.symbols.len:
-        result.add "; missing: {$1}" % r.symbols.csvList()
+      if 0 < r.nodes.len:
+        result.add "; missing: {$1}" % r.nodes.csvListIt(it.render)
 
     of rsemCannotRaiseNonException:
       result = "raised object of type $1 does not inherit from Exception" & r.typ.render
@@ -1924,7 +1957,12 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "expression cannot be called"
 
     of rsemWrongNumberOfGenericParams:
-      result = ""
+      result.addf(
+        "cannot instantiate: '$1'; got $2 typeof(s) but expected $3",
+        r.ast.render,
+        $r.countMismatch.got,
+        $r.countMismatch.expected
+      )
 
     of rsemNoGenericParamsAllowed:
       result = "no generic parameters allowed for $1" % r.symstr
@@ -2302,7 +2340,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         tern(r.ast.isNil, "", "; " & r.ast.render)
       ]
 
-    of rsemStrictNotNil:
+    of rsemStrictNotNilResult:
       case r.nilIssue:
         of Nil:
           result = "return value is nil"
@@ -2312,6 +2350,38 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           result = "return value is unreachable"
         of Safe, Parent:
           discard
+
+    of rsemStrictNotNilExpr:
+      result.add(
+        "can't deref ",
+        r.ast.render,
+        ", ",
+        case r.nilIssue:
+          of Nil: "it is nil"
+          of MaybeNil: "it might be nil"
+          of Unreachable: "it is unreachable"
+          else: ""
+      )
+
+      if r.nilHistory.len > 0:
+        result.add("\n")
+
+
+      for step in r.nilHistory:
+        result.addf("  $1 on line "):
+          case step.kind:
+            of NilTransition.TArg: "param with nilable type"
+            of NilTransition.TNil: "it returns true for isNil"
+            of NilTransition.TAssign: "assigns a value which might be nil"
+            of NilTransition.TVarArg: "passes it as a var arg which might change to nil"
+            of NilTransition.TResult: "it is nil by default"
+            of NilTransition.TType: "it has ref type"
+            of NilTransition.TSafe: "it is safe here as it returns false for isNil"
+            of NilTransition.TPotentialAlias: "it might be changed directly or through an alias"
+            of NilTransition.TDependant: "it might be changed because its base might be changed"
+
+        result.addf("$1:$2", $step.info.line, $step.info.col)
+
 
     of rsemWarnGcUnsafeListing, rsemErrGcUnsafeListing:
       let trace = r.gcUnsafeTrace
@@ -2848,10 +2918,23 @@ proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
     of rbackLinking:
       result = ""
 
+    of rbackCompiling:
+      result = ""
+
 
 proc reportFull*(conf: ConfigRef, r: BackendReport): string =
   assertKind r
-  reportBody(conf, r)
+  case BackendReportKind(r.kind):
+    of rbackJsUnsupportedClosureIter,
+       rbackJsTooCaseTooLarge:
+      result.add(
+        conf.prefix(r),
+        conf.reportBody(r),
+        conf.suffix(r)
+      )
+
+    else:
+      result = reportBody(conf, r)
 
 proc reportBody*(conf: ConfigRef, r: CmdReport): string =
   assertKind r
@@ -2863,8 +2946,8 @@ proc reportBody*(conf: ConfigRef, r: CmdReport): string =
       result = conf.prefix(r) & conf.suffix(r)
 
     of rcmdFailedExecution:
-      result = "execution of an external program failed: '$1 $2'" % [
-        $r.msg, $r.code
+      result = "execution of an external program '$1' failed with exit code '$2'" % [
+        r.cmd, $r.code
       ]
 
     of rcmdExecuting:
@@ -2915,6 +2998,10 @@ proc reportHook*(conf: ConfigRef, r: Report) =
   # removed. For more details see `lineinfos.MsgConfig.errorOutputs`
   # comment
   assertKind r
+  # echo r
+  # let sev = conf.severity(r)
+  # echo "severity as seen by report hook: [", sev, "]"
+  # echo "enabled? ", conf.isEnabled (r.kind)
 
   if conf.isEnabled(r.kind) and r.category == repDebug and tryhack:
     # Force write of the report messages using regular stdout if tryhack is
@@ -2941,8 +3028,10 @@ proc reportHook*(conf: ConfigRef, r: Report) =
     lastDot = true
 
   else:
+    assert r.kind != rcmdLinking
     if lastDot:
       conf.writeln("")
       lastDot = false
 
+    echo r
     conf.writeln(conf.reportFull(r))

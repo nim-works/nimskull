@@ -111,7 +111,7 @@ proc illegalCustomPragma*(c: PContext, n: PNode, s: PSym) =
 
 proc newInvalidPragmaNode*(c: PContext; n: PNode): PNode =
   ## create an error node (`nkError`) for an invalid pragma error
-  c.config.newError(n, SemReport(kind: rsemInvalidPragma))
+  c.config.newError(n, reportAst(rsemInvalidPragma, n))
 
 proc newIllegalCustomPragmaNode*(c: PContext; n: PNode, s: PSym): PNode =
   ## create an error node (`nkError`) for an illegal custom pragma error
@@ -1085,14 +1085,14 @@ proc semCustomPragma(c: PContext, n: PNode): PNode =
   elif n.kind in nkPragmaCallKinds:
     callNode = n
   else:
-    result = c.config.newError(n, SemReport(kind: rsemInvalidPragma))
+    result = c.config.newError(n, reportAst(rsemInvalidPragma, n))
     return
     # invalidPragma(c, n)
     # return n
 
   let r = c.semOverloadedCall(c, callNode, n, {skTemplate}, {efNoUndeclared})
   if r.isNil or sfCustomPragma notin r[0].sym.flags:
-    result = c.config.newError(n, SemReport(kind: rsemInvalidPragma))
+    result = c.config.newError(n, reportAst(rsemInvalidPragma, n))
     return
     # invalidPragma(c, n)
     # return n

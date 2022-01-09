@@ -1576,7 +1576,15 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
 
       when false: trackWrites(s, body)
   if strictNotNil in c.features and s.kind == skProc:
+    # HACK I don't know why there are two different configurations anyway,
+    # but without mixing in `c.features` `checkNil` cannot know if nil
+    # reports are enabled or not.
+    let oldFeatures = g.config.features
+    g.config.features = c.features + g.config.features
+
     checkNil(s, body, g.config, c.idgen)
+
+    g.config.features = oldFeatures
 
 proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =
   if n.kind in {nkPragma, nkMacroDef, nkTemplateDef, nkProcDef, nkFuncDef,

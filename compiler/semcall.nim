@@ -290,6 +290,7 @@ proc getMsgDiagnostic(
     result = SemReport(kind: rsemCompilesDummyReport)
   else:
     var o: TOverloadIter
+    debug n
     result = SemReport(
       typ: n[1].typ,
       str: $f,

@@ -511,7 +511,8 @@ template globalReport*(conf: ConfigRef, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc()), doRaise)
 
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
-  handleReport(conf, wrap(report, instLoc(), info), doNothing)
+  {.line.}:
+    handleReport(conf, wrap(report, instLoc(), info), doNothing)
 
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc(), info), doNothing)

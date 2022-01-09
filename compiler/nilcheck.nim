@@ -541,7 +541,7 @@ proc derefWarning(n, ctx, map; kind: Nilability) =
   ctx.warningLocations.incl(n.info)
   var a: seq[SemNilHistory]
   var rep = SemReport(
-    kind: rsemStrictNotNil, nilIssue: kind, ast: n)
+    kind: rsemStrictNotNilExpr, nilIssue: kind, ast: n)
 
   if n.kind == nkSym:
     rep.nilHistory = history(map, ctx.index(n))
@@ -1149,7 +1149,8 @@ proc checkResult(n, ctx, map) =
   let resultNilability = map[resultExprIndex]
   case resultNilability:
   of Nil, MaybeNil, Unreachable:
-    localReport(ctx.config, n.info, SemReport(kind: rsemStrictNotNil, nilIssue: resultNilability))
+    localReport(ctx.config, n.info, SemReport(
+      kind: rsemStrictNotNilResult, nilIssue: resultNilability))
   of Safe, Parent:
     discard
 

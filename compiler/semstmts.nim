@@ -515,7 +515,8 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
              def.kind == nkSym and
              isGenericRoutine(def.sym.ast):
           # tfUnresolved in typ.flags:
-          localReport(c.config, def, reportSem rsemProcHasNoConcreteType)
+          localReport(c.config, def, reportAst(
+            rsemProcHasNoConcreteType, def))
 
     # this can only happen for errornous var statements:
     if typ == nil: continue
@@ -1041,8 +1042,9 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
     if covered == toCover(c, n[0].typ):
       hasElse = true
     elif n[0].typ.skipTypes(abstractRange).kind in {tyEnum, tyChar}:
-      localReport(c.config, n.info, reportSymbols(
-        rsemMissingCaseBranches, formatMissingEnums(c, n)))
+      localReport(c.config, n, SemReport(
+        kind: rsemMissingCaseBranches,
+        nodes: formatMissingBranches(c, n)))
 
     else:
       localReport(c.config, n, reportSem rsemMissingCaseBranches)
@@ -2367,7 +2369,7 @@ proc semPragmaBlock(c: PContext, n: PNode): PNode =
       of wUncheckedAssign:
         inUncheckedAssignSection = 1
       else:
-        let e = c.config.newError(p, reportSem rsemInvalidPragmaBlock)
+        let e = c.config.newError(p, reportAst(rsemInvalidPragmaBlock, p))
         pragmaList[i] = e
         n[0] = pragmaList
         result = wrapErrorInSubTree(c.config, n)

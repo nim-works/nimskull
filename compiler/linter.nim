@@ -137,7 +137,7 @@ proc styleCheckUse*(conf: ConfigRef; info: TLineInfo; s: PSym) =
       sym: s,
       info: info,
       kind: rsemLinterReportUse,
-      linterFail: (badName, newName)
+      linterFail: (wanted: newName, got: badName)
     ))
 
 proc checkPragmaUse*(conf: ConfigRef; info: TLineInfo; w: TSpecialWord; pragmaName: string) =

@@ -75,6 +75,11 @@ proc computeNotesVerbosity(): tuple[
     rsemResultUsed,
     rsemAnyEnumConvert,
     rbackLinking,
+
+    rbackLinking,
+    rbackCompiling,
+    rcmdLinking,
+    rcmdCompiling
   }
 
 
@@ -94,8 +99,7 @@ proc computeNotesVerbosity(): tuple[
     rsemUninit,
     rsemExtendedContext,
     rsemProcessingStmt,
-    rbackLinking,
-    rcmdCompiling
+
   }
 
   result.main[1] = result.main[2] - {
@@ -134,13 +138,11 @@ proc computeNotesVerbosity(): tuple[
     result.main[1],
     result.main[0],
   ]:
-    discard
+    assert rbackLinking notin n
 
 
 const
   NotesVerbosity* = computeNotesVerbosity()
-  errXMustBeCompileTime* = "'$1' can only be used in compile-time context"
-  errArgsNeedRunOption* = "arguments can only be given if the '--run' option is selected"
 
 
 type

@@ -1,5 +1,6 @@
 discard """
   cmd: "nim c --gc:arc $file"
+  joinable: false
   output: '''
 {"Package": {"name": "hello"}, "Author": {"name": "name", "qq": "123456789", "email": "email"}}
 hello
@@ -53,4 +54,3 @@ proc main2() =
     echo pname & "\n" & name & "\n" & qq & "\n" & email
 
 main2()
-

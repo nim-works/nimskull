@@ -2651,6 +2651,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
     if n[0].sym.typ.callConv == TCallingConvention.ccClosure:
       globalReport(p.config, n.info, BackendReport(
         kind: rbackJsUnsupportedClosureIter))
+      assert false, "asdfasdf"
 
   of nkPragma: genPragma(p, n)
   of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:

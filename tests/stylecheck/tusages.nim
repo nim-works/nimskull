@@ -1,6 +1,6 @@
 discard """
   action: reject
-  nimout: '''tusages.nim(22, 5) Error: 'BAD_STYLE' should be: 'BADSTYLE' [proc declared in tusages.nim(11, 6)]'''
+  nimout: '''tusages.nim(22, 5) Error: 'BAD_STYLE' should be: 'BADSTYLE' [proc declared in tusages.nim(11, 6)] [Name]'''
   matrix: "--styleCheck:error --styleCheck:usages"
 """
 

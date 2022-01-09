@@ -344,14 +344,14 @@ proc processCompile(conf: ConfigRef; filename: string) =
 
 template warningOptionNoop(switch: string) =
   conf.localReport(info,
-    InternalReport(
+    ExternalReport(
       kind: rextDeprecated,
       msg: "'$#' is deprecated, now a noop" % switch))
 
 template deprecatedAlias(oldName, newName: string) =
   conf.localReport(
     info,
-    InternalReport(
+    ExternalReport(
       kind: rextDeprecated,
       msg: "'$#' is a deprecated alias for '$#'" % [oldName, newName]))
 

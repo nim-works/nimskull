@@ -44,8 +44,7 @@ proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   if result.typ != nil:
     # XXX tyGenericInst here?
     if result.typ.kind == tyProc and hasUnresolvedParams(result, {efOperand}):
-      #and tfUnresolved in result.typ.flags:
-      localReport(c.config, n, reportSem rsemProcHasNoConcreteType)
+      localReport(c.config, n, reportAst(rsemProcHasNoConcreteType, n))
 
     if result.typ.kind in {tyVar, tyLent}:
       result = newDeref(result)
@@ -640,7 +639,9 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     if x.kind == nkExprColonExpr and x.len == 2:
       var idx = semConstExpr(c, x[0])
       if not isOrdinalType(idx.typ):
-        localReport(c.config, idx, reportSem rsemExpectedOrdinal)
+        localReport(c.config, idx):
+          reportTyp(rsemExpectedOrdinal, idx.typ, ast = result).withIt do:
+            it.wrongNode = idx
 
       else:
         firstIndex = getOrdValue(idx)

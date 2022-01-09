@@ -798,7 +798,8 @@ type
     rsemDotForModuleImport
     rsemReorderingFail
     rsemProveField             = "ProveField"
-    rsemStrictNotNil           = "StrictNotNil"
+    rsemStrictNotNilExpr       = "StrictNotNil"
+    rsemStrictNotNilResult     = "StrictNotNil"
     rsemWarnGcUnsafe           = "GcUnsafe"
     rsemWarnGcUnsafeListing
     rsemProveInit              = "ProveInit"
@@ -941,7 +942,8 @@ type
 
     # hints start
     rbackProducedAssembly
-    rbackLinking
+    rbackCompiling = "Compiling"
+    rbackLinking = "Link"
     # hints end
 
   ReportKinds* = set[ReportKind]
@@ -1020,11 +1022,10 @@ const
   rlexErrorKinds*   = {rlexMalformedUnderscores .. rlexUnclosedComment}
 
 func severity*(rep: LexerReport): ReportSeverity =
-  case rep.kind:
+  case LexerReportKind(rep.kind):
     of rlexHintKinds: rsevHint
     of rlexErrorKinds: rsevError
     of rlexWarningKinds: rsevWarning
-    else: rsevTrace
 
 type
   ParserReportKind* = range[rparInvalidIndentation .. rparName]
@@ -1051,11 +1052,10 @@ const
     rparInconsistentSpacing .. rparPragmaBeforeGenericParameters}
 
 func severity*(parser: ParserReport): ReportSeverity =
-  case parser.kind:
+  case ParserReportKind(parser.kind):
     of rparHintKinds: rsevHint
     of rparWarningKinds: rsevWarning
     of rparErrorKinds: rsevError
-    else: rsevTrace
 
 const
   rsemReportTwoSym* = {
@@ -1080,7 +1080,6 @@ const
   rsemReportListSym* = {
     rsemAmbiguous,
     rsemAmbiguousIdent,
-    rsemMissingCaseBranches,
     rsemObjectRequiresFieldInit
   }
 
@@ -1203,11 +1202,12 @@ type
       of rsemUncollectableRefCycle:
         cycleField*: PNode
 
-      of rsemStrictNotNil:
+      of rsemStrictNotNilExpr, rsemStrictNotNilResult:
         nilIssue*: Nilability
         nilHistory*: seq[SemNilHistory]
 
       of rsemExpectedIdentifierInExpr,
+         rsemExpectedOrdinal,
          rsemFieldOkButAssignedValueInvalid:
         wrongNode*: PNode
 
@@ -1266,9 +1266,13 @@ type
       of rsemDisjointFields,
          rsemUnsafeRuntimeDiscriminantInit,
          rsemConflictingDiscriminantInit,
+         rsemMissingCaseBranches,
          rsemConflictingDiscriminantValues:
         fieldMismatches*: tuple[first, second: seq[PSym]]
         nodes*: seq[PNode]
+
+      of rsemCannotInstantiate:
+        ownerSym*: PSym
 
       of rsemReportTwoSym + rsemReportOneSym + rsemReportListSym:
         symbols*: seq[PSym]
@@ -1338,17 +1342,26 @@ const
   rsemWarningKinds* = {rsemUserWarning .. rsemUseOfGc}
   rsemHintKinds* = {rsemUserHint .. rsemImplicitObjConv}
 
+  # Separated into standalone set to reuse in the `options.severity`
+  # checking - `--styleCheck=error` is set up as a global option.
+  repLinterKinds* = {rlexLinterReport, rsemLinterReport, rsemLinterReportUse}
+
+  # `--experimental=strictNotNil` and `{.experimental: "strictNotNil".}`
+  repNilcheckKinds* = {rsemStrictNotNilExpr, rsemStrictNotNilResult}
+
   rsemMultiHint* = @{
     "Performance": {rsemCopiesToSink, rsemCannotMakeSink},
-    "Name": {rlexLinterReport, rsemLinterReport, rsemLinterReportUse}
+    "Name": repLinterKinds,
+    "Link": {rbackLinking, rcmdLinking},
+    "StrictNotNil": {rsemStrictNotNilExpr, rsemStrictNotNilResult}
   }
 
 func severity*(report: SemReport): ReportSeverity =
-  case report.kind:
-    of rsemErrorKinds: result = rsevError
-    of rsemWarningKinds: result = rsevWarning
-    of rsemHintKinds: result = rsevHint
-    else: assert false
+  case SemReportKind(report.kind):
+    of rsemErrorKinds: rsevError
+    of rsemWarningKinds: rsevWarning
+    of rsemHintKinds: rsevHint
+    of rsemFatalError: rsevFatal
 
 func reportSymbols*(
     kind: ReportKind,
@@ -1429,11 +1442,10 @@ const
   rcmdHintKinds* = {rcmdCompiling .. rcmdRunnableExamplesSuccess}
 
 func severity*(report: CmdReport): ReportSeverity =
-  case report.kind:
+  case CmdReportKind(report.kind):
     of rcmdHintKinds: rsevHint
     of rcmdWarningKinds: rsevWarning
     of rcmdErrorKinds: rsevError
-    else: rsevTrace
 
 type
   DebugReportKind* = range[rdbgTest .. rdbgOptionsPop]
@@ -1554,11 +1566,10 @@ const
 
 
 func severity*(report: BackendReport): ReportSeverity =
-  case report.kind:
+  case BackendReportKind(report.kind):
     of rbackErrorKinds: rsevError
     of rbackHintKinds: rsevHint
     of rbackWarningKinds: rsevWarning
-    else: rsevTrace
 
 type
   ExternalReportKind* = range[rextUnknownCCompiler .. rextPath]
@@ -1594,11 +1605,10 @@ const
   rextHintKinds* = {rextConf .. rextPath}
 
 func severity*(report: ExternalReport): ReportSeverity =
-  case report.kind:
+  case ExternalReportKind(report.kind):
     of rextErrorKinds: rsevError
     of rextWarningKinds: rsevWarning
     of rextHintKinds: rsevHint
-    else: rsevTrace
 
 type
   InternalReportKind* = range[rintUnknown .. rintEchoMessage]
@@ -1670,20 +1680,23 @@ const
   rintErrorKinds* = {rintCannotOpenFile .. rintNotImplemented}
   rintWarningKinds* = {rintWarnCannotOpenFile .. rintWarnFileChanged}
   rintHintKinds* = {rintSource .. rintSuccessX}
+  rintDataPassKinds* = {rintNimconfWrite .. rintEchoMessage}
+
 
 func severity*(report: InternalReport): ReportSeverity =
-  case report.kind:
-    of rintFatalKinds: rsevFatal
-    of rintHintKinds: rsevHint
-    of rintWarningKinds: rsevWarning
-    of rintErrorKinds: rsevWarning
-    else: rsevTrace
+  case InternalReportKind(report.kind):
+    of rintFatalKinds:    rsevFatal
+    of rintHintKinds:     rsevHint
+    of rintWarningKinds:  rsevWarning
+    of rintErrorKinds:    rsevWarning
+    of rintDataPassKinds: rsevTrace
 
 const
   repWarningKinds*: ReportKinds =
     rsemWarningKinds +
       rlexWarningKinds +
       rparWarningKinds +
+      rbackWarningKinds +
       rextWarningKinds +
       rcmdWarningKinds +
       rintWarningKinds
@@ -1692,6 +1705,7 @@ const
     rsemHintKinds +
       rlexHintKinds +
       rparHintKinds +
+      rbackHintKinds +
       rextHintKinds +
       rcmdHintKinds +
       rintHintKinds
@@ -1700,6 +1714,7 @@ const
     rsemErrorKinds +
       rlexErrorKinds +
       rparErrorKinds +
+      rbackErrorKinds +
       rextErrorKinds +
       rcmdErrorKinds +
       rintErrorKinds

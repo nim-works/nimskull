@@ -15,11 +15,16 @@ raising VMQuit
 
 import "../../compiler" / [ast, vmdef, vm, nimeval, llstream, lineinfos, options, reports]
 import std / [os]
-
-proc initInterpreter(script: string): Interpreter =
+proc initInterpreter(script: string, hook: ReportHook): Interpreter =
   let std = findNimStdLibCompileTime()
-  result = createInterpreter(script, [std, parentDir(currentSourcePath),
-    std / "pure", std / "core"])
+  result = createInterpreter(
+    scriptName = script,
+    hook = hook,
+    searchPaths = [
+      std,
+      parentDir(currentSourcePath),
+      std / "pure",
+      std / "core"])
 
 proc main() =
   let i = initInterpreter("myscript.nim")
@@ -60,13 +65,15 @@ block issue9180:
 block error_hook:
   type VMQuit = object of CatchableError
 
-  let i = initInterpreter("invalid.nim")
-  i.registerErrorHook proc(config: ConfigRef, report: Report) {.gcsafe.} =
+  proc vmReport(config: ConfigRef, report: Report) {.gcsafe.} =
     if config.severity(report) == rsevError and
        config.errorCounter >= config.errorMax:
 
       echo "raising VMQuit"
       raise newException(VMQuit, "Script error")
 
+
+
+  let i = initInterpreter("invalid.nim", vmReport)
   doAssertRaises(VMQuit):
     i.evalScript()

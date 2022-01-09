@@ -116,10 +116,10 @@ proc splitPragmas(c: PContext, n: PNode): (PNode, seq[TSpecialWord]) =
           result[1].add whichKeyword(ni.ident)
 
         else:
-          globalReport(c.config, n.info, reportSem(rsemInvalidPragma))
+          globalReport(c.config, n.info, reportAst(rsemInvalidPragma, n))
 
     else:
-      globalReport(c.config, n.info, reportSem(rsemInvalidPragma))
+      globalReport(c.config, n.info, reportAst(rsemInvalidPragma, n))
 
   else:
     result[0] = n

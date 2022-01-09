@@ -735,15 +735,20 @@ proc toEnumFields(vals: IntSet, t: PType): seq[PSym] =
   for node in toLiterals(vals, t):
     result.add node.sym
 
-
-proc formatMissingEnums(c: PContext, n: PNode): seq[PSym] =
+proc missingInts(c: PContext, n: PNode): IntSet =
   var coveredCases = initIntSet()
   for i in 1..<n.len:
     for val in processBranchVals(n[i]):
       coveredCases.incl val
 
-  result = toEnumFields(
-    c.getIntSetOfType(n[0].typ) - coveredCases, n[0].typ)
+  return c.getIntSetOfType(n[0].typ) - coveredCases
+
+
+proc formatMissingBranches(c: PContext, n: PNode): seq[PNode] =
+  toLiterals(missingInts(c, n) , n[0].typ)
+
+proc formatMissingEnums(c: PContext, n: PNode): seq[PSym] =
+  toEnumFields(missingInts(c, n) , n[0].typ)
 
 proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
                    father: PNode, rectype: PType) =

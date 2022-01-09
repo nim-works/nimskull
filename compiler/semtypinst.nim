@@ -614,10 +614,9 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
       for i in 0..<result.len:
         if result[i] != nil:
           if result[i].kind == tyGenericBody:
-            localReport(
-              cl.c.config,
-              if t.sym != nil: t.sym.info else: cl.info,
-              reportTyp(rsemCannotInstantiate, result[i]))
+            localReport(cl.c.config, tern(t.sym.isNil, cl.info, t.sym.info)):
+              reportTyp(rsemCannotInstantiate, result[i]).withIt do:
+                it.ownerSym = t.owner
 
           var r = replaceTypeVarsT(cl, result[i])
           if result.kind == tyObject:

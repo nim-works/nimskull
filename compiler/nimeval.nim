@@ -102,12 +102,17 @@ proc findNimStdLibCompileTime*(): string =
   result = querySetting(libPath)
   doAssert fileExists(result / "system.nim"), "result:" & result
 
-proc createInterpreter*(scriptName: string;
-                        searchPaths: openArray[string];
-                        flags: TSandboxFlags = {},
-                        defines = @[("nimscript", "true")],
-                        registerOps = true): Interpreter =
+proc createInterpreter*(
+    scriptName:  string,
+    searchPaths: openArray[string],
+    hook:        ReportHook,
+    flags:       TSandboxFlags = {},
+    defines:     seq[(string, string)] = @[("nimscript", "true")],
+    registerOps: bool = true
+  ): Interpreter =
+
   var conf = newConfigRef()
+  conf.setReportHook(hook)
   var cache = newIdentCache()
   var graph = newModuleGraph(cache, conf)
   connectCallbacks(graph)
