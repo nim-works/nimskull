@@ -127,18 +127,20 @@ proc computeNotesVerbosity(): tuple[
     rsemUserHint,
     rsemUserWarning,
     rsemUserError,
-    rintQuitCalled
+    rintQuitCalled,
+    rsemImplicitObjConv
   }
 
   for idx, n in @[
     result.foreign,
-    result.base,
+    # result.base,
     result.main[3],
     result.main[2],
     result.main[1],
     result.main[0],
   ]:
     assert rbackLinking notin n
+    assert rsemImplicitObjConv in n, $idx
 
 
 const

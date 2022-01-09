@@ -417,7 +417,7 @@ proc writeln*(conf: ConfigRef, args: varargs[string, `$`]) =
 proc write*(conf: ConfigRef, args: varargs[string, `$`]) =
   writeHook(conf, args.join(""))
 
-func setReportHook*(conf: ConfigRef, hook: ReportHook) =
+proc setReportHook*(conf: ConfigRef, hook: ReportHook) =
   assert not hook.isNil
   conf.structuredReportHook = hook
 

@@ -290,13 +290,21 @@ proc getMsgDiagnostic(
     result = SemReport(kind: rsemCompilesDummyReport)
   else:
     var o: TOverloadIter
-    debug n
-    result = SemReport(
-      typ: n[1].typ,
-      str: $f,
-      ast: n,
-      explicitCall: len({nfDotField, nfExplicitCall} * n.flags) == 2,
-      kind: rsemCallNotAProcOrField)
+    if {nfDotField, nfExplicitCall} * n.flags == {nfDotField}:
+      result = SemReport(
+        typ: n[1].typ,
+        str: $f,
+        ast: n,
+        explicitCall: false,
+        kind: rsemCallNotAProcOrField)
+
+    else:
+      result = SemReport(
+        str: $f,
+        ast: n,
+        explicitCall: true,
+        kind: rsemCallNotAProcOrField)
+
 
     # store list of potenttial overload candidates that might be misuesd -
     # for example `obj.iterator()` call outside of the for loop.

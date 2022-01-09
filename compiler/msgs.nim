@@ -12,6 +12,9 @@ import
   std/private/miscdollars
 
 import
+  std/options as std_options
+
+import
   options, ropes, lineinfos, pathutils, strutils2, reports
 
 from ast_types import PSym
@@ -436,12 +439,12 @@ proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
       if context.detail.kind == skUnknown:
         result.add ReportContext(
           kind: sckInstantiationFrom,
-          location: conf.toReportPoint(context.info))
+          location: context.info)
 
       else:
         result.add ReportContext(
           kind: sckInstantiationOf,
-          location: conf.toReportPoint(context.info),
+          location: context.info,
           entry: context.detail)
 
     info = context.info
@@ -484,7 +487,14 @@ proc handleReport*(
     eh: TErrorHandling = doNothing
   ) {.noinline.} =
 
+  var report = report
+  if report.category == repSem and report.location.isSome():
+    report.semReport.context = conf.getContext(
+      report.location.get())
+
   conf.report(report)
+
+
 
   let (action, trace) = errorActions(conf, report, eh)
   case action:
@@ -596,7 +606,6 @@ template internalAssert*(
     handleReport(
       conf,
       wrap(InternalReport(
-        context: conf.getContext(unknownLineInfo),
         kind: rintAssert, msg: failMsg), instLoc()),
       doAbort
     )
@@ -605,7 +614,6 @@ template internalError*(
     conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
   conf.handleReport(
     wrap(InternalReport(
-      context: conf.getContext(unknownLineInfo),
       kind: repKind,
       msg: fail),
          instLoc()),
@@ -616,7 +624,6 @@ template internalError*(
     conf: ConfigRef, info: TLineInfo,
     repKind: InternalReportKind, fail: string): untyped =
   conf.handleReport(wrap(InternalReport(
-    context: conf.getContext(unknownLineInfo),
     kind: repKind, msg: fail), instLoc(), info), doAbort)
 
 template internalError*(

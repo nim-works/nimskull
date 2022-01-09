@@ -83,7 +83,7 @@ type
     borrowsFrom: seq[int] # indexes into Partitions.s
 
   MutationInfo* = object
-    param: PSym
+    param*: PSym
     mutatedHere*, connectedVia*: TLineInfo
     flags: set[SubgraphFlag]
     maxMutation, minConnection: AbstractTime

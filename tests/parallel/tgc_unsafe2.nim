@@ -1,4 +1,6 @@
 discard """
+  joinable: false
+  cmd: '''nim c --hint=GcUnsafe2:on $file'''
   errormsg: "'consumer' is not GC-safe as it calls 'track'"
   nimout: '''tgc_unsafe2.nim(21, 6) Warning: 'trick' is not GC-safe as it accesses 'global' which is a global using GC'ed memory [GcUnsafe2]
 tgc_unsafe2.nim(25, 6) Warning: 'track' is not GC-safe as it calls 'trick' [GcUnsafe2]

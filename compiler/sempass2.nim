@@ -1546,7 +1546,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
 
         report.sideEffectTrace.add((
           isUnsafe: s,
-          unsafeVia: nil,
+          unsafeVia: mutationInfo.param,
           trace: ssefParameterMutation,
           location: mutationInfo.mutatedHere,
           level: 0

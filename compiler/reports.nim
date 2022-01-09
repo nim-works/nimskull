@@ -801,7 +801,7 @@ type
     rsemStrictNotNilExpr       = "StrictNotNil"
     rsemStrictNotNilResult     = "StrictNotNil"
     rsemWarnGcUnsafe           = "GcUnsafe"
-    rsemWarnGcUnsafeListing
+    rsemWarnGcUnsafeListing    = "GcUnsafe2"
     rsemProveInit              = "ProveInit"
     rsemUninit                 = "Uninit"
     rsemWarnUnsafeCode         = "UnsafeCode"
@@ -980,7 +980,7 @@ type
 
 
   ReportContext* = object
-    location*: ReportLineInfo ## Report context instantiation
+    location*: TLineInfo ## Report context instantiation
     case kind*: ReportContextKind
       of sckInstantiationOf:
         entry*: PSym ## Instantiated entry symbol
@@ -1080,7 +1080,8 @@ const
   rsemReportListSym* = {
     rsemAmbiguous,
     rsemAmbiguousIdent,
-    rsemObjectRequiresFieldInit
+    rsemObjectRequiresFieldInit,
+    rsemObjectRequiresFieldInitNoDefault
   }
 
   rsemReportCountMismatch* = {
@@ -1364,7 +1365,7 @@ func severity*(report: SemReport): ReportSeverity =
     of rsemHintKinds: rsevHint
     of rsemFatalError: rsevFatal
 
-func reportSymbols*(
+proc reportSymbols*(
     kind: ReportKind,
     symbols: seq[PSym],
     typ: PType = nil,
@@ -1689,7 +1690,7 @@ func severity*(report: InternalReport): ReportSeverity =
     of rintFatalKinds:    rsevFatal
     of rintHintKinds:     rsevHint
     of rintWarningKinds:  rsevWarning
-    of rintErrorKinds:    rsevWarning
+    of rintErrorKinds:    rsevError
     of rintDataPassKinds: rsevTrace
 
 const

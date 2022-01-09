@@ -107,7 +107,8 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
     return
   mainCommand(graph)
   if conf.hasHint(rintGCStats):
-    echo(GC_getStatistics())
+    conf.localReport(InternalReport(
+      kind: rintGCStats, msg: GC_getStatistics()))
 
   if conf.errorCounter != 0: return
   when hasTinyCBackend:

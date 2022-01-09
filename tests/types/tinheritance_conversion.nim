@@ -1,5 +1,6 @@
 discard """
   cmd: "nim c --hint[Conf]:off --verbosity:0 $file"
+  joinable: false
   nimout: '''
 Hint: Implicit conversion: Receiver 'Base' will not receive fields of sub-type 'Derived' [tinheritance_conversion.nim(30, 15)] [ImplicitObjConv]
 Hint: Implicit conversion: Receiver 'Base' will not receive fields of sub-type 'Derived' [tinheritance_conversion.nim(30, 34)] [ImplicitObjConv]
@@ -22,7 +23,7 @@ block: # Value tests
   proc test(args: varargs[Base]) =
     for x in args:
       assert x.field == 0
-  
+
   proc test2(base: var Base) = base.field = 400
   proc test3(base: Base) = discard
   var a: Derived = Derived(Base())
@@ -46,7 +47,7 @@ block: # Ref tests
     Derived = ref object of Base
       field2: int
     Derived2 = ref object of Base
-  
+
   var a: Base = Derived()
   assert Derived(a) is Derived
   doAssertRaises(ObjectConversionDefect): discard Derived2(a)[]

@@ -428,7 +428,7 @@ proc semConstructTypeAux(c: PContext,
   if result == initError:
     constrCtx.initExpr = newError(
       c.config, constrCtx.initExpr,
-      reportSem rsemObjectConstructorIncorrect)
+      reportAst(rsemObjectConstructorIncorrect, constrCtx.initExpr))
 
 proc initConstrContext(t: PType, initExpr: PNode): ObjConstrContext =
   ObjConstrContext(
@@ -558,5 +558,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # wrap in an error see #17437
   if hasError:
     result = newError(
-      c.config, result, reportSem rsemObjectConstructorIncorrect)
+      c.config, result, reportAst(
+        rsemObjectConstructorIncorrect, result))
+
     result.typ = errorType(c)

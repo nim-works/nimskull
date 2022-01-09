@@ -664,7 +664,7 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
           kind: rsemIndexOutOfBounds,
           typ: validIndex,
           ast: n,
-          countMismatch: (expected: lastIndex, got: toInt128(n.len))
+          countMismatch: (expected: toInt128(i), got: toInt128(n.len))
         ))
 
       x = n[i]
@@ -2475,7 +2475,8 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
         result[i] = semExpr(c, n[i])
 
       if n.len > 1 and n[1].kind notin nkCallKinds:
-        return newError(c.config, n, reportSem rsemExpectedExpressionForSpawn)
+        return newError(c.config, n, reportAst(
+          rsemExpectedExpressionForSpawn, n[1]))
 
       let typ = result[^1].typ
       if not typ.isEmptyType:

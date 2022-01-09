@@ -120,15 +120,16 @@ template csvListIt(syms: seq[PNode], expr: untyped): string =
 
 proc getContext(conf: ConfigRef, ctx: seq[ReportContext]): string =
   for ctx in items(ctx):
+    result.add(conf.toStr(ctx.location))
     case ctx.kind:
       of sckInstantiationOf:
         result.add(
-          "template/generic instantiation of `",
+          " template/generic instantiation of `",
           ctx.entry.name.s,
           "` from here\n")
 
       of sckInstantiationFrom:
-        result.add("template/generic instantiation from here\n")
+        result.add(" template/generic instantiation from here\n")
 
 proc renderNotLValue(n: PNode): string =
   result = $n
@@ -1060,7 +1061,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
               candidates
 
     of rsemEffectsListingHint:
-      for tag in r.effectListing.exceptions & r.effectListing.tags:
+      for tag in r.effectListing.exceptions:
+        result.add typeToString(tag)
+        result.add "\n"
+
+      for tag in r.effectListing.tags:
         result.add typeToString(tag)
         result.add "\n"
 
@@ -1377,8 +1382,21 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemHasSideEffects:
       if r.sideEffectTrace[0].trace == ssefParameterMutation:
-        result = "'$1' can have side effects$2" % [r.symstr, conf.toStr(
-          r.sideEffectTrace[0].location)]
+        let part = r.sideEffectTrace[0]
+        result.addf(
+          "'$1' can have side effects.\nan object reachable " &
+            "from '$2' is potentially mutated",
+          part.isUnsafe.name.s,
+          part.unsafeVia.name.s
+        )
+
+        if part.location != unknownLineInfo:
+          result.addf("\n$1 the mutation is here", conf.toStr(part.location))
+
+        if r.sideEffectMutateConnection != unknownLineInfo:
+          result.addf(
+            "\n$1 is the statement that connected the mutation to the parameter",
+            conf.toStr(r.sideEffectMutateConnection))
 
       else:
         result = "'$1' can have side effects\n" % r.symstr
@@ -1647,15 +1665,15 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "over- or underflow"
 
     of rsemRuntimeDiscriminantRequiresElif:
-      result = "branch initialization with a runtime discriminator only " &
-        "supports ordinal types with 2^16 elements or less."
+      result = "branch initialization with a runtime discriminator " &
+        "is not supported inside of an `elif` branch."
 
     of rsemRuntimeDiscriminantMustBeImmutable:
       result = "runtime discriminator must be immutable if branch fields are " &
         "initialized, a 'let' binding is required."
 
     of rsemObjectConstructorIncorrect:
-      assert false, "TODO"
+      result = "Invalid object constructor: '$1'" % r.ast.render
 
     of rsemVmBadExpandToAst:
       result = "expandToAst requires 1 argument"
@@ -1739,7 +1757,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         [r.fieldMismatches.first.csvList(), r.fieldMismatches.second.csvList()]
 
     of rsemUnsafeRuntimeDiscriminantInit:
-      result = ("cannot prove that it's safe to initialize $1 with " &
+      result = ("cannot prove that it's safe to initialize '$1' with " &
         "the runtime value for the discriminator '$2' ") %
         [r.fieldMismatches.first.csvList(), r.fieldMismatches.second.csvList()]
 
@@ -1950,7 +1968,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemRedefinitionOf:
       if r.sym.isNil:
-        result = "redefinition of '$1'" % r.symbols[0].name.s
+        result.addf(
+          "redefinition of '$1'; previous declaration here: $2",
+          r.symbols[0].name.s,
+          conf.toStr(r.symbols[1].info)
+        )
 
       else:
         result = "attempt to redefine: '" & r.symstr & "'"
@@ -1982,9 +2004,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "invalid usage of counter after increment"
 
     of rsemUndeclaredIdentifier:
-      result = "undeclared identifier: '" & r.str & "'\n"
-      result.add presentSpellingCandidates(
-        conf, r.spellingCandidates)
+      result = "undeclared identifier: '" & r.str & "'"
+      if 0 < r.spellingCandidates.len:
+        result.add "\n"
+        result.add presentSpellingCandidates(
+          conf, r.spellingCandidates)
 
     of rsemXDeclaredButNotUsed:
       result = "'$1' is declared but not used" % r.symstr
@@ -2546,7 +2570,7 @@ proc reportFull*(conf: ConfigRef, r: ParserReport): string =
 
 proc reportBody*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
-  case r.kind:
+  case InternalReportKind(r.kind):
     of rintStackTrace:
       result = conf.formatTrace(r.trace)
 
@@ -2623,12 +2647,57 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
     of rintEchoMessage:
       result = r.msg
 
-    else:
-      result = $r
+    of rintCannotOpenFile, rintWarnCannotOpenFile:
+      result = "cannot open file: $1" % r.file
+
+    of rintUnknown:
+      result = "unknown"
+
+    of rintFatal:
+      result = "fatal"
+
+    of rintIce:
+      result = r.msg
+
+    of rintNotUsingNimcore:
+      result = "Nim tooling must be built using -d:nimcore"
+
+    of rintNotImplemented:
+      result = r.msg
+
+    of rintUnexpected:
+      result = "unexpected"
+
+    of rintWarnFileChanged:
+      result = "file changed: $1" % r.file
+
+    of rintSource:
+      assert false, "is a configuration hint, should not be reported manually"
+
+    of rintGCStats:
+      result = r.msg
+
+    of rintQuitCalled:
+      result = "quit() called"
+
+    of rintMsgOrigin:
+      assert false, "is a configuration hint, should not be reported manually"
+
+    of rintNimconfWrite:
+      result = ""
+
+    of rintDumpState:
+      {.warning: "[TODO] write dump state".}
+
 
 proc reportFull*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
-  reportBody(conf, r)
+  case r.kind:
+    of rintCannotOpenFile, rintWarnCannotOpenFile:
+      result.add(conf.prefix(r), conf.reportBody(r), conf.suffix(r))
+
+    else:
+      result = reportBody(conf, r)
 
 proc reportBody*(conf: ConfigRef, r: LexerReport): string =
   assertKind r
