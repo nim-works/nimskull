@@ -98,28 +98,13 @@ proc sugResultHook(s: Suggest) =
   results.send(s)
 
 proc reportHook(conf: ConfigRef, report: Report) =
-  let location: ReportLineInfo = report.location().get()
-
-  var
-    file: string
-    line, col: int
-
-  if location.isRange:
-    file = location.lrange.file
-    line = location.lrange.startLine
-    col = location.lrange.startCol
-
-  else:
-    file = location.lpoint.file
-    line = location.lpoint.line
-    col = location.lpoint.col
-
+  let info = report.location().get()
   results.send(Suggest(
     section: ideChk,
-    filePath: file,
-    line: line,
-    column: col,
-    doc: conf.toStr(report),
+    filePath: toFullPath(conf, info),
+    line: toLinenumber(info),
+    column: toColumn(info),
+    doc: conf.reportBody(report),
     forth: $conf.severity(report)
   ))
 

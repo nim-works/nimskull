@@ -99,7 +99,7 @@ proc computeNotesVerbosity(): tuple[
     rsemUninit,
     rsemExtendedContext,
     rsemProcessingStmt,
-
+    rsemWarnGcUnsafe
   }
 
   result.main[1] = result.main[2] - {
