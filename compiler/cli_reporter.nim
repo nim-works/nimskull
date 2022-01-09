@@ -1458,8 +1458,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "'$1' cannot raise '$2'" % [r.ast.render, r.raisesList.render]
 
     of rsemUnlistedRaises, rsemWarnUnlistedRaises:
-      result.add(
-        r.ast.render, " can raise an unlisted exception: ", r.typ.render)
+      result.add("can raise an unlisted exception: ", r.typ.render)
 
     of rsemUnlistedEffects:
       result.add(r.ast.render, "can have an unlisted effect: ", r.typ.render)

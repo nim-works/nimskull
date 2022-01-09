@@ -950,12 +950,6 @@ type
 
 const rstWarnings* = {rbackRstTestUnsupported .. rbackRstRstStyle}
 
-static:
-  echo(
-    "Nimskull compiler outputs ",
-    ord(high(ReportKind)),
-    " different kinds of diagnostics")
-
 type
   ReportLineInfo* = object
     ## Location expressed in terms of a single point in the file
@@ -1766,6 +1760,12 @@ type
 
 static:
   when false:
+    echo(
+      "Nimskull compiler outputs ",
+      ord(high(ReportKind)),
+      " different kinds of diagnostics")
+
+
     echo "size of ReportBase     ", sizeof(ReportBase)
     echo "size of LexerReport    ", sizeof(LexerReport)
     echo "size of ParserReport   ", sizeof(ParserReport)

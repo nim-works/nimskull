@@ -436,7 +436,7 @@ proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
   for i in 0 ..< conf.m.msgContext.len:
     let context = conf.m.msgContext[i]
     if context.info != lastinfo and context.info != info:
-      if context.detail.kind == skUnknown:
+      if context.detail.isNil or context.detail.kind == skUnknown:
         result.add ReportContext(
           kind: sckInstantiationFrom,
           location: context.info)

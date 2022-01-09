@@ -1,4 +1,5 @@
 discard """
+  cmd: '''nim c --warnings:off --hints:off $file'''
   output: '''top level statements are executed!
 (ival: 10, fval: 2.0)
 2.0
@@ -26,8 +27,23 @@ proc initInterpreter(script: string, hook: ReportHook): Interpreter =
       std / "pure",
       std / "core"])
 
+type VMQuit = object of CatchableError
+
+proc vmReport(config: ConfigRef, report: Report) {.gcsafe.} =
+  if config.severity(report) == rsevError and
+     config.errorCounter >= config.errorMax:
+
+    echo "raising VMQuit"
+    raise newException(VMQuit, "Script error")
+
+  elif report.kind == rintEchoMessage:
+    echo report.internalReport.msg
+
+
+
+
 proc main() =
-  let i = initInterpreter("myscript.nim")
+  let i = initInterpreter("myscript.nim", vmReport)
   i.implementRoutine("*", "exposed", "addFloats", proc (a: VmArgs) =
     setResult(a, getFloat(a, 0) + getFloat(a, 1) + getFloat(a, 2))
   )
@@ -54,7 +70,11 @@ block issue9180:
   proc evalString(code: string, moduleName = "script.nim") =
     let stream = llStreamOpen(code)
     let std = findNimStdLibCompileTime()
-    var intr = createInterpreter(moduleName, [std, std / "pure", std / "core"])
+    var intr = createInterpreter(
+      scriptName = moduleName,
+      searchPaths = [std, std / "pure", std / "core"],
+      hook = vmReport)
+
     intr.evalScript(stream)
     destroyInterpreter(intr)
     llStreamClose(stream)
@@ -63,17 +83,6 @@ block issue9180:
   evalString("echo 10+2")
 
 block error_hook:
-  type VMQuit = object of CatchableError
-
-  proc vmReport(config: ConfigRef, report: Report) {.gcsafe.} =
-    if config.severity(report) == rsevError and
-       config.errorCounter >= config.errorMax:
-
-      echo "raising VMQuit"
-      raise newException(VMQuit, "Script error")
-
-
-
   let i = initInterpreter("invalid.nim", vmReport)
   doAssertRaises(VMQuit):
     i.evalScript()
