@@ -494,8 +494,6 @@ proc handleReport*(
 
   conf.report(report)
 
-
-
   let (action, trace) = errorActions(conf, report, eh)
   case action:
     of doAbort: quit(conf, trace)

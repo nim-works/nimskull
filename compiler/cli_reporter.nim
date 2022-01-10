@@ -56,9 +56,6 @@ proc formatPath(conf: ConfigRef, path: string): string =
     else:
       result = path
 
-
-
-
 proc formatTrace*(conf: ConfigRef, trace: seq[StackTraceEntry]): string =
   var paths: seq[string]
   var width = 0
@@ -74,7 +71,6 @@ proc formatTrace*(conf: ConfigRef, trace: seq[StackTraceEntry]): string =
       entry.procname,
       tern(idx < trace.high, "\n", "")
     )
-
 
 proc toStr(conf: ConfigRef, loc: TLineInfo): string =
   conf.wrap(
@@ -443,7 +439,11 @@ proc presentSpellingCandidates*(
     result.addDeclaredLoc(conf, candidate.sym)
 
 proc reportBody*(conf: ConfigRef, r: SemReport): string =
-  proc render(n: PNode): string = renderTree(n, {renderNoComments})
+  const defaultRenderFlags: set[TRenderFlag] = {
+      renderNoComments,
+      renderWithoutErrorPrefix
+    }
+  proc render(n: PNode, rf = defaultRenderFlags): string = renderTree(n, rf)
   proc render(t: PType): string = typeToString(t)
 
   case SemReportKind(r.kind):
@@ -1458,7 +1458,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "'$1' cannot raise '$2'" % [r.ast.render, r.raisesList.render]
 
     of rsemUnlistedRaises, rsemWarnUnlistedRaises:
-      result.add("can raise an unlisted exception: ", r.typ.render)
+      result.add("$1 can raise an unlisted exception: " % r.ast.render,
+                 r.typ.render)
 
     of rsemUnlistedEffects:
       result.add(r.ast.render, "can have an unlisted effect: ", r.typ.render)
@@ -1483,7 +1484,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemProveInit:
       result = "Cannot prove that '$1' is initialized. This will become a compile time error in the future." %
-        r.symstr
+        (if r.sym != nil: r.symstr else: r.ast.render())
+        # presently this can be either a sym or an ast node
 
     of rsemUsingRequiresType:
       result = "'using' section must have a type"

@@ -1489,7 +1489,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
      s.kind in {skProc, skFunc, skConverter, skMethod}:
     var res = s.ast[resultPos].sym # get result symbol
     if res.id notin t.init:
-      localReport(g.config, body.info, reportStr(rsemProveInit, "result"))
+      localReport(g.config, body.info, reportSym(rsemProveInit, res))
   let p = s.ast[pragmasPos]
   let raisesSpec = effectSpec(p, wRaises)
   if not isNil(raisesSpec):
