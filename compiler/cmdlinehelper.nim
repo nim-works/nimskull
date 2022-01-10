@@ -21,13 +21,6 @@ proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
   else:
     result = f
 
-proc addCmdPrefix*(result: var string, kind: CmdLineKind) =
-  # consider moving this to std/parseopt
-  case kind
-  of cmdLongOption: result.add "--"
-  of cmdShortOption: result.add "-"
-  of cmdArgument, cmdEnd: discard
-
 type
   NimProg* = ref object
     suggestMode*: bool
@@ -38,8 +31,8 @@ proc initDefinesProg*(self: NimProg, conf: ConfigRef, name: string) =
   condsyms.initDefines(conf.symbols)
   defineSymbol conf.symbols, name
 
-proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef) =
-  self.processCmdLine(passCmd1, "", conf)
+proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef, cmd: string = "") =
+  self.processCmdLine(passCmd1, cmd, conf)
   if conf.projectIsCmd and conf.projectName in ["-", ""]:
     handleCmdInput(conf)
   elif self.supportsStdinFile and conf.projectName == "-":

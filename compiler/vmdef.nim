@@ -13,7 +13,7 @@
 import tables
 
 import ast, idents, options, modulegraphs,
-       lineinfos, reports, debugutils, msgs
+       lineinfos, reports, debugutils
 
 import vm_enums
 export vm_enums

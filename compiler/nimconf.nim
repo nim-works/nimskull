@@ -154,18 +154,26 @@ proc parseDirective(L: var Lexer, tok: var Token; config: ConfigRef; condStack: 
       ppGetTok(L, tok)
       os.putEnv(key, $tok)
       ppGetTok(L, tok)
+
     of "prependenv":
       ppGetTok(L, tok)
       var key = $tok
       ppGetTok(L, tok)
       os.putEnv(key, $tok & os.getEnv(key))
       ppGetTok(L, tok)
+
     of "appendenv":
       ppGetTok(L, tok)
       var key = $tok
       ppGetTok(L, tok)
       os.putEnv(key, os.getEnv(key) & $tok)
       ppGetTok(L, tok)
+
+    of "trace":
+      ppGetTok(L, tok)
+      localReport(L, DebugReport(kind: rdbgCfgTrace, str: $tok))
+      ppGetTok(L, tok)
+
     else:
       localReport(L, LexerReport(kind: rlexCfgInvalidDirective, msg: $tok))
 
@@ -238,8 +246,14 @@ proc readConfigFile*(filename: AbsoluteFile; cache: IdentCache;
     L: Lexer
     tok: Token
     stream: PLLStream
+
   stream = llStreamOpen(filename, fmRead)
   if stream != nil:
+    config.localReport DebugReport(
+      kind: rdbgStartingConfRead,
+      filename: filename.string
+    )
+
     initToken(tok)
     openLexer(L, filename, stream, cache, config)
     tok.tokType = tkEof       # to avoid a pointless warning
@@ -249,6 +263,12 @@ proc readConfigFile*(filename: AbsoluteFile; cache: IdentCache;
     if condStack.len > 0:
       localReport(L, LexerReport(kind: rlexExpectedToken, msg: "@end"))
     closeLexer(L)
+
+    config.localReport DebugReport(
+      kind: rdbgFinishedConfRead,
+      filename: filename.string
+    )
+
     return true
 
 proc getUserConfigPath*(filename: RelativeFile): AbsoluteFile =

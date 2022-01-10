@@ -1880,7 +1880,9 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       var error = reportEmpty
       let oldHook = c.config.structuredReportHook
       var ast: PNode
-      c.config.structuredReportHook = proc(conf: ConfigRef, report: Report) =
+      c.config.structuredReportHook = proc(
+          conf: ConfigRef, report: Report
+      ): TErrorHandling =
         # QUESTION This check might be affected by current severity
         # configurations, maybe it makes sense to do a hack-in that would
         # ignore all user-provided CLI otions?
@@ -1890,7 +1892,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
           raise TemporaryExceptionHack()
 
         else:
-          oldHook(conf, report)
+          return oldHook(conf, report)
 
       try:
         ast = parseString(

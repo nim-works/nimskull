@@ -107,7 +107,7 @@ const
   ]
 
   reportColors: array[ReportSeverity, ForegroundColor] = [
-    fgDefault, fgGreen, fgYellow, fgRed, fgRed, fgCyan
+    fgCyan, fgGreen, fgYellow, fgRed, fgRed, fgCyan
   ]
 
 proc csvList(syms: seq[PSym]): string =
@@ -2938,6 +2938,15 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string    =
         tern(exec.rc == rkNone, "", $exec.rc)
       )
 
+    of rdbgFinishedConfRead:
+      result = "finished configuration file read $1" % r.filename
+
+    of rdbgStartingConfRead:
+      result = "starting configuration file read $1" % r.filename
+
+    of rdbgCfgTrace:
+      result = "cfg trace '" & r.str & "'"
+
     of rdbgVmCodeListing:
       for e in r.vmgenListing.entries:
         if e.isTarget:
@@ -2981,7 +2990,12 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string    =
 
 proc reportFull*(conf: ConfigRef, r: DebugReport): string =
   assertKind r
-  reportBody(conf, r)
+  case r.kind:
+    of rdbgCfgTrace:
+      result.add(prefix(conf, r), reportBody(conf, r), suffix(conf, r))
+
+    else:
+      result = reportBody(conf, r)
 
 proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
   assertKind r
@@ -3140,7 +3154,7 @@ const forceWrite = {
   rsemExpandArc # Not considered a hint for now
 }
 
-proc reportHook*(conf: ConfigRef, r: Report) =
+proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   let tryhack = conf.m.errorOutputs == {}
   # REFACTOR this check is an absolute hack, `errorOutputs` need to be
   # removed. For more details see `lineinfos.MsgConfig.errorOutputs`

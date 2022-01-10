@@ -32,7 +32,7 @@ import tables
 import
   strutils, ast, types, msgs, renderer, vmdef, reports,
   intsets, magicsys, options, lowerings, lineinfos, transf, astmsgs,
-  debugutils, astalgo
+  debugutils
 
 from modulegraphs import getBody
 

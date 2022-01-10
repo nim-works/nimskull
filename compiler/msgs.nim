@@ -20,6 +20,7 @@ import
 from ast_types import PSym
 
 export InstantiationInfo
+export TErrorHandling
 
 template instLoc*(): InstantiationInfo =
   ## grabs where in the compiler an error was instanced to ease debugging.
@@ -372,8 +373,6 @@ macro callStyledWriteLineStderr(args: varargs[typed]): untyped =
     # not needed because styledWriteLine already ends with resetAttributes
     result = newStmtList(result, newCall(bindSym"resetAttributes", bindSym"stderr"))
 
-type TErrorHandling* = enum doNothing, doAbort, doRaise
-
 proc log*(s: string) =
   var f: File
   if open(f, getHomeDir() / "nimsuggest.log", fmAppend):
@@ -387,12 +386,12 @@ proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
   elif defined(debug) or withTrace or conf.hasHint(rintStackTrace):
     {.gcsafe.}:
       if stackTraceAvailable():
-        conf.report(InternalReport(
+        discard conf.report(InternalReport(
           kind: rintStackTrace,
           trace: getStackTraceEntries()))
 
       else:
-        conf.report(InternalReport(kind: rintMissingStackTrace))
+        discard conf.report(InternalReport(kind: rintMissingStackTrace))
 
   quit 1
 
@@ -492,13 +491,22 @@ proc handleReport*(
     report.semReport.context = conf.getContext(
       report.location.get())
 
-  conf.report(report)
+  let userAction = conf.report(report)
 
-  let (action, trace) = errorActions(conf, report, eh)
+  let (action, trace) =
+    if userAction == doDefault:
+      errorActions(conf, report, eh)
+
+    else:
+      (userAction, false)
+
   case action:
     of doAbort: quit(conf, trace)
     of doRaise: raiseRecoverableError("report")
     of doNothing: discard
+    of doDefault: assert(
+      false,
+      "Default error handing action must be turned into ignore/raise/abort")
 
 template globalAssert*(
     conf: ConfigRef;
@@ -738,5 +746,5 @@ proc genSuccessX*(conf: ConfigRef) =
   if conf.filenameOption != foAbs:
     params.output = params.output.AbsoluteFile.extractFilename
 
-  conf.report(InternalReport(
+  discard conf.report(InternalReport(
     kind: rintSuccessX, buildParams: params))

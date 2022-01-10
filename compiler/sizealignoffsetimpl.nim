@@ -90,8 +90,8 @@ proc computeSubObjectAlign(conf: ConfigRef; n: PNode): BiggestInt =
           return align
         result = max(result, align)
       else:
-        conf.report InternalReport(
-          kind: rintUnreachable, msg: "computeSubObjectAlign")
+        conf.internalError("computeSubObjectAlign")
+
   of nkRecList:
     result = 1
     for i, child in n.sons:
@@ -133,9 +133,9 @@ proc computeObjectOffsetsFoldFunction(conf: ConfigRef; n: PNode, packed: bool, a
           let align = int(computeSubObjectAlign(conf, n[i].lastSon))
           maxChildAlign = alignmentMax(maxChildAlign, align)
         else:
-          conf.report InternalReport(
-            kind: rintUnreachable,
-            msg: "computeObjectOffsetsFoldFunction(record case branch)")
+          conf.internalError(
+            "computeObjectOffsetsFoldFunction(record case branch)")
+
     if maxChildAlign == szUnknownSize:
       setOffsetsToUnknown(n)
       accum.offset  = szUnknownSize

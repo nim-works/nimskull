@@ -216,11 +216,11 @@ type
 
     # warnings begin
     rlexDeprecatedOctalPrefix = "OctalEscape"
-    rlexLinterReport = "Name"
     # warnings end
 
     # hints begin
     rlexLineTooLong = "LineTooLong"
+    rlexLinterReport = "Name"
 
     rlexSyntaxesCode
     # hints end
@@ -900,6 +900,9 @@ type
     rdbgTraceLine
     rdbgTraceEnd
 
+    rdbgStartingConfRead
+    rdbgFinishedConfRead
+    rdbgCfgTrace
 
     rdbgOptionsPush
     rdbgOptionsPop
@@ -1011,7 +1014,7 @@ type
 const
   repLexerKinds*    = {low(LexerReportKind) .. high(LexerReportKind)}
   rlexHintKinds*    = {rlexLineTooLong .. rlexSyntaxesCode}
-  rlexWarningKinds* = {rlexDeprecatedOctalPrefix .. rlexLinterReport}
+  rlexWarningKinds* = {rlexDeprecatedOctalPrefix .. rlexDeprecatedOctalPrefix}
   rlexErrorKinds*   = {rlexMalformedUnderscores .. rlexUnclosedComment}
 
 func severity*(rep: LexerReport): ReportSeverity =
@@ -1505,6 +1508,12 @@ type
 
       of rdbgTraceStep:
         semstep*: DebugSemStep
+
+      of rdbgStartingConfRead, rdbgFinishedConfRead:
+        filename*: string
+
+      of rdbgCfgTrace:
+        str*: string
 
       of rdbgTraceLine, rdbgTraceStart:
         ctraceData*: tuple[level: int, entries: seq[StackTraceEntry]]

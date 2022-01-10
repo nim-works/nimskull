@@ -14,7 +14,7 @@ import
   ast, modules, idents, passes, condsyms,
   options, sem, llstream, vm, vmdef, commands,
   os, times, osproc, wordrecg, strtabs, modulegraphs,
-  pathutils, reports
+  pathutils, reports, msgs
 
 # we support 'cmpIgnoreStyle' natively for efficiency:
 from strutils import cmpIgnoreStyle, contains
@@ -192,6 +192,12 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
 proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
                    idgen: IdGenerator;
                    freshDefines=true; conf: ConfigRef, stream: PLLStream) =
+
+  conf.localReport DebugReport(
+    kind: rdbgStartingConfRead,
+    filename: scriptName.string
+  )
+
   let oldSymbolFiles = conf.symbolFiles
   conf.symbolFiles = disabledSf
 
@@ -238,3 +244,8 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
   undefSymbol(conf.symbols, "nimscript")
   undefSymbol(conf.symbols, "nimconfig")
   conf.symbolFiles = oldSymbolFiles
+
+  conf.localReport DebugReport(
+    kind: rdbgFinishedConfRead,
+    filename: scriptName.string
+  )

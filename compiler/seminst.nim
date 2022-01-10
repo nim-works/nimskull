@@ -356,7 +356,7 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
     "Expected macro or template, but found " & $fn.kind)
 
   # generates an instantiated proc
-  if c.instCounter > 50:
+  if 64 < c.instCounter:
     globalReport(c.config, info, SemReport(
       kind: rsemGenericInstantiationTooNested))
 
