@@ -556,7 +556,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         )
 
     of rsemVmUnhandledException:
-      result = "unhandled exception:"
+      result.addf(
+        "unhandled exception: $1 [$2]",
+        r.ast[3].skipColon.strVal,
+        r.ast[2].skipColon.strVal
+      )
 
     of rsemExpandArc:
       result.add(
@@ -3160,10 +3164,6 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   # removed. For more details see `lineinfos.MsgConfig.errorOutputs`
   # comment
   assertKind r
-  # echo r
-  # let sev = conf.severity(r)
-  # echo "severity as seen by report hook: [", sev, "]"
-  # echo "enabled? ", conf.isEnabled (r.kind)
 
   if conf.isEnabled(r) and r.category == repDebug and tryhack:
     # Force write of the report messages using regular stdout if tryhack is

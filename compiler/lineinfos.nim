@@ -141,6 +141,7 @@ proc computeNotesVerbosity(): tuple[
   ]:
     assert rbackLinking notin n
     assert rsemImplicitObjConv in n, $idx
+    assert rsemVmStackTrace in n, $idx
 
 
 const

@@ -581,9 +581,12 @@ func isEnabled*(conf: ConfigRef, report: ReportKind): bool =
           result = conf.hasHint(report)
 
         of repWarningKinds:
-          result = conf.hasHint(report)
+          result = conf.hasWarn(report)
 
         of repErrorKinds, repFatalKinds:
+          result = true
+
+        of repTraceKinds:
           result = true
 
         else:

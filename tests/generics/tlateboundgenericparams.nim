@@ -35,7 +35,9 @@ when true:
         body
 
   template reject(x) =
-    static: assert(not compiles(x))
+    static:
+      echo "not compiles? ", astToStr(x), " ", not compiles(x)
+      assert(not compiles(x))
 
   test 1:
     proc t[T](val: T = defaultInt()) =
@@ -59,6 +61,11 @@ when true:
     proc t2[T](val: T = defaultFoo()) =
       discard
 
+    static: echo "checkpoint \e[31m1\e[39m"
+    t2[string]()
+    static: echo "checkpoint \e[31m2\e[39m"
+    static: t2[string]()
+    static: echo "checkpoint \e[31m3\e[39m"
     reject t2[string]()
 
   test 3:
@@ -142,4 +149,3 @@ when true:
     foo(10)
     foo(1)
     foo(10)
-

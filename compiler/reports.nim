@@ -832,6 +832,10 @@ type
     rsemUseOfGc                = "GcMem" # last !
     # end
 
+    # trace
+    rsemVmStackTrace
+    # trace
+
     # Semantic hints begin
     rsemUserHint = "User" ## `{.hint: .}` pragma encountereed
     rsemLinterReport  = "Name"
@@ -863,7 +867,6 @@ type
     rsemExpandMacro = "ExpandMacro" ## Trace macro expansion progress
     rsemExpandArc = "ExpandArc"
 
-    rsemVmStackTrace
     rsemCompilesDummyReport
     rsemNonMatchingCandidates
     rsemUserRaw = "UserRaw" # REVIEW - Used in
@@ -876,6 +879,7 @@ type
     ## `semexprs.semExprNoType()`
     rsemImplicitObjConv = "ImplicitObjConv"
     # end
+
 
     #------------------------  Command report kinds  -------------------------#
     # errors
@@ -1356,10 +1360,11 @@ const
 
 func severity*(report: SemReport): ReportSeverity =
   case SemReportKind(report.kind):
-    of rsemErrorKinds: rsevError
-    of rsemWarningKinds: rsevWarning
-    of rsemHintKinds: rsevHint
-    of rsemFatalError: rsevFatal
+    of rsemErrorKinds:   result = rsevError
+    of rsemWarningKinds: result = rsevWarning
+    of rsemHintKinds:    result = rsevHint
+    of rsemVmStackTrace: result = rsevTrace
+    of rsemFatalError:   result = rsevFatal
 
 proc reportSymbols*(
     kind: ReportKind,
@@ -1704,6 +1709,8 @@ const
       rextWarningKinds +
       rcmdWarningKinds +
       rintWarningKinds
+
+  repTraceKinds*: ReportKinds = {rsemVmStackTrace}
 
   repHintKinds*: ReportKinds    =
     rsemHintKinds +

@@ -91,12 +91,12 @@ template stackTrace(
   localReport(c.config, c.debug[pc], sem)
   return
 
-proc bailOut(c: PCtx; tos: PStackFrame, raised: PNode) =
+proc reportException(c: PCtx; tos: PStackFrame, raised: PNode) =
   # REFACTOR VM implementation relies on the `stackTrace` calling return,
   # but in this proc we are retuning only from it's body, so calling
-  # `bailOut()` does not stop vm loops. This needs to be cleaned up -
-  # invisible injection of the `return` to control flow of execution is an
-  # absolute monkey-tier hack.
+  # `reportException()` does not stop vm loops. This needs to be cleaned up
+  # - invisible injection of the `return` to control flow of execution is
+  # an absolute monkey-tier hack.
   stackTrace(
     c, tos, c.exceptionInstr,
     reportAst(rsemVmUnhandledException, raised))
@@ -1454,7 +1454,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
           updateRegsAlias
       of ExceptionGotoUnhandled:
         # Nobody handled this exception, error out.
-        bailOut(c, tos, raised)
+        reportException(c, tos, raised)
 
     of opcNew:
       ensureKind(rkNode)
