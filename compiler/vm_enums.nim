@@ -140,3 +140,9 @@ type
     opcTypeTrait,
     opcSymOwner,
     opcSymIsInstantiationOf
+
+const
+  firstABxInstr* = opcTJmp
+  largeInstrs* = { # instructions which use 2 int32s instead of 1:
+    opcSubStr, opcConv, opcCast, opcNewSeq, opcOf}
+  relativeJumps* = {opcTJmp, opcFJmp, opcJmp, opcJmpBack}

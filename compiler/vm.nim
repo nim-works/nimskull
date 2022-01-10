@@ -577,7 +577,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       )))
 
     if c.config.isVmTrace:
-      # unlike nimVMDebug, this doesn't require re-compiling nim and is controlled by user code
+      # unlike nimVMDebug, this doesn't require re-compiling nim and is
+      # controlled by user code
       c.config.localReport(DebugReport(
         kind: rdbgVmExecTraceMinimal,
         vmgenExecMinimal: (

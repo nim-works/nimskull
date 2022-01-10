@@ -551,6 +551,9 @@ func isEnabled*(conf: ConfigRef, report: ReportKind): bool =
   if report in repNilcheckKinds:
     result = strictNotNil in conf.features
 
+  elif report == rdbgVmExecTraceMinimal:
+    result = conf.isVmTrace
+
   else:
     # All other reports follow default hint category handing:
     case report:

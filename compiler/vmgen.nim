@@ -74,7 +74,14 @@ proc codeListing*(c: PCtx, prc: PSym, ast: PNode, start=0; last = -1) =
     let x = c.code[i]
     let opc = opcode(x)
     var code = DebugVmCodeEntry(
-      pc: i, opc: opc, ra: x.regA, rb: x.regB, rc: x.regC)
+      pc: i,
+      opc: opc,
+      ra: x.regA,
+      rb: x.regB,
+      rc: x.regC,
+      idx: x.regBx - wordExcess,
+      info: c.debug[i]
+    )
 
     code.isTarget = i in jumpTargets
 
@@ -86,14 +93,11 @@ proc codeListing*(c: PCtx, prc: PSym, ast: PNode, start=0; last = -1) =
         inc i, 2
 
       of {opcLdConst, opcAsgnConst}:
-        code.idx = x.regBx - wordExcess
         code.ast = c.constants[code.idx]
 
       else:
         discard
 
-
-    code.info = c.debug[i]
     rep.vmgenListing.entries.add code
     inc i
 

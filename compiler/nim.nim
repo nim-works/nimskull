@@ -38,7 +38,7 @@ when defined(profiler) or defined(memProfiler):
   {.hint: "Profiling support is turned on!".}
   import nimprof
 
-proc processCmdLine(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
+proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
   ## Process input command-line parameters into `config` settings
   var p = parseopt.initOptParser(cmd)
   var argsCount = 0

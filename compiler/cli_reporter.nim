@@ -1,4 +1,13 @@
-import reports, ast, types, renderer, astmsgs, astalgo, msgs, lineinfos, nilcheck_enums
+import reports,
+       ast,
+       types,
+       renderer,
+       astmsgs,
+       astalgo,
+       msgs,
+       lineinfos,
+       nilcheck_enums,
+       vm_enums
 
 import options as compiler_options
 import std/[
@@ -2869,6 +2878,8 @@ proc reportFull*(conf: ConfigRef, r: ExternalReport): string =
 
 proc reportBody*(conf: ConfigRef, r: DebugReport): string    =
   assertKind r
+  func toStr(opc: TOpcode): string = substr($opc, 3)
+
   case DebugReportKind(r.kind):
     of rdbgTraceStep:
       let s = r.semstep
@@ -2902,8 +2913,70 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string    =
     of rdbgTraceEnd:
       result = "trace end"
 
-    else:
-      result = $r
+    of rdbgVmExecTraceMinimal:
+      result.addf(
+        "$# [$#] $#",
+        conf.toStr(r.vmgenExecMinimal.info),
+        r.vmgenExecMinimal.opc.toStr,
+        conf.sourceLine(r.vmgenExecMinimal.info),
+      )
+
+    of rdbgOptionsPush:
+      result = "PUSH: " & $r.optionsNow
+
+    of rdbgOptionsPop:
+      result = "POP: " & $r.optionsNow
+
+    of rdbgVmExecTraceFull:
+      let exec = r.vmgenExecFull
+      result.addf(
+        "PC:$1 $2 $3 $4 $5",
+        $exec.pc,
+        $exec.opc.toStr,
+        tern(exec.ra == rkNone, "", $exec.ra),
+        tern(exec.rb == rkNone, "", $exec.rb),
+        tern(exec.rc == rkNone, "", $exec.rc)
+      )
+
+    of rdbgVmCodeListing:
+      for e in r.vmgenListing.entries:
+        if e.isTarget:
+          result.add("L:\n", e.pc)
+
+        case e.opc:
+          of {opcIndCall, opcIndCallAsgn}:
+            result.addf("\t$#\tr$#, r$#, nargs:$#", e.opc, e.ra, e.rb, e.rc)
+
+          of {opcConv, opcCast}:
+            result.addf(
+              "\t$#\tr$#, r$#, $#, $#",
+              $e.opc.toStr,
+              $e.ra,
+              $e.rb,
+              $e.types[0].typeToString(),
+              $e.types[1].typeToString())
+
+          elif e.opc < firstABxInstr:
+            result.addf("\t$#\tr$#, r$#, r$#", e.opc.toStr, $e.ra, $e.rb, $e.rc)
+
+          elif e.opc in relativeJumps + {opcTry}:
+            result.addf("\t$#\tr$#, L$#", e.opc.toStr, $e.ra, $e.idx)
+
+          elif e.opc in {opcExcept}:
+            result.addf("\t$#\t$#, $#", $e.opc.toStr, $e.ra, $e.idx)
+
+          elif e.opc in {opcLdConst, opcAsgnConst}:
+            result.addf(
+              "\t$#\tr$#, $# ($#)",
+              $e.opc.toStr, $e.ra, $e.ast.renderTree(), $e.idx)
+
+          else:
+            result.addf("\t$#\tr$#, $#", e.opc.toStr, $e.ra, $e.idx)
+
+        result.add("\t# ")
+        result.add(toStr(conf, e.info))
+        result.add("\n")
+
 
 
 proc reportFull*(conf: ConfigRef, r: DebugReport): string =

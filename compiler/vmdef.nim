@@ -187,11 +187,7 @@ proc registerCallback*(c: PCtx; name: string; callback: VmCallback): int {.disca
   c.callbacks.add((name, callback))
 
 const
-  firstABxInstr* = opcTJmp
-  largeInstrs* = { # instructions which use 2 int32s instead of 1:
-    opcSubStr, opcConv, opcCast, opcNewSeq, opcOf}
   slotSomeTemp* = slotTempUnknown
-  relativeJumps* = {opcTJmp, opcFJmp, opcJmp, opcJmpBack}
 
 # flag is used to signal opcSeqLen if node is NimNode.
 const nimNodeFlag* = 16

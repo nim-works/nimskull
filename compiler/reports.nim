@@ -891,7 +891,6 @@ type
 
 
     #----------------------------  Debug reports  ----------------------------#
-    rdbgTest
     rdbgVmExecTraceFull
     rdbgVmExecTraceMinimal
     rdbgVmCodeListing
@@ -1444,7 +1443,7 @@ func severity*(report: CmdReport): ReportSeverity =
     of rcmdErrorKinds: rsevError
 
 type
-  DebugReportKind* = range[rdbgTest .. rdbgOptionsPop]
+  DebugReportKind* = range[rdbgVmExecTraceFull .. rdbgOptionsPop]
 
   DebugSemStepDirection* = enum semstepEnter, semstepLeave
   DebugSemStepKind* = enum
@@ -1475,13 +1474,13 @@ type
     isTarget*: bool
     info*: TLineInfo
     pc*: int
+    idx*: int
     case opc*: TOpcode:
       of opcConv, opcCast:
         types*: tuple[tfrom, tto: PType]
 
       of opcLdConst, opcAsgnConst:
         ast*: PNode
-        idx*: int
 
       else:
         discard
