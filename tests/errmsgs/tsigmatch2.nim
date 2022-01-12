@@ -13,7 +13,7 @@ proc foo(i: Foo): string
   but expression '1.2' is of type: float64
 
 expression: foo(1.2)
-tsigmatch2.nim(40, 14) Error: expression 'foo(1.2)' has no type (or is ambiguous)
+tsigmatch2.nim(40, 14) Error: expression has no type: foo(1.2)
 tsigmatch2.nim(46, 7) Error: type mismatch: got <int literal(1)>
 but expected one of:
 proc foo(args: varargs[string, myproc])
@@ -44,4 +44,3 @@ block:
     let temp = 12.isNil
   proc foo(args: varargs[string, myproc]) = discard
   foo 1
-static: echo "done"
