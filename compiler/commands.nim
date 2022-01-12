@@ -247,8 +247,7 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
   if i < arg.len and arg[i] == '[':
     isBracket = true
     inc(i)
-  while i < arg.len and (
-      arg[i] notin {':', '=', ']'}):
+  while i < arg.len and (arg[i] notin {':', '=', ']'}):
     id.add(arg[i])
     inc(i)
   if isBracket:
@@ -260,17 +259,13 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
   else: invalidCmdLineOption(conf, pass, orig, info)
 
   let isSomeHint = state in {wHint, wHintAsError}
-  proc findNote(
-      noteSet: ReportKinds,
-      onFail: ReportKind,
-      multinote: seq[tuple[name: string, flags: set[ReportKind]]] = @[]
-  ) =
+  proc findNote(noteSet: ReportKinds, onFail: ReportKind) =
     # HACK first added in order to support `--hint[Performance]` - very
     # vague term that maps onto multiple report kinds, such as "copies to
     # sink". Checked here earlier, because multinote reports have the same
     # stirng values (`rlexLinterReport = "Name"`, `rsemLinterReport =
     # "Name"`)
-    for (multiName , flags) in multinote:
+    for (multiName , flags) in rsemMultiNamed:
       if cmpIgnoreStyle(multiName , id) == 0:
         notes = flags
         return
@@ -298,7 +293,7 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
         notes = repWarningKinds
 
     elif isSomeHint:
-      findNote(repHintKinds, rextInvalidHint, rsemMultiHint)
+      findNote(repHintKinds, rextInvalidHint)
 
     else:
       findNote(repWarningKinds, rextInvalidWarning)

@@ -3176,7 +3176,6 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   assertKind r
 
   const traceDir = "nimCompilerDebugTraceDir"
-  # echo r
   if conf.isEnabled(r) and r.category == repDebug and tryhack:
     # Force write of the report messages using regular stdout if tryhack is
     # enabled

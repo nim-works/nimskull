@@ -586,7 +586,7 @@ proc transformConv(c: PTransf, n: PNode): PNode =
       if n.kind == nkHiddenSubConv and n.typ.kind notin abstractVarRange:
         # Creates hint on converstion to parent type where information is lost,
         # presently hints on `proc(thing)` where thing converts to non var base.
-        localReport(c.graph.config, SemReport(
+        localReport(c.graph.config, n[1], SemReport(
           kind: rsemImplicitObjConv,
           typeMismatch: @[c.graph.config.typeMismatch(
             formal = dest, actual = source)]))

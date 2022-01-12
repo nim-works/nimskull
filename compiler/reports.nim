@@ -1354,7 +1354,7 @@ const
   # `--experimental=strictNotNil` and `{.experimental: "strictNotNil".}`
   repNilcheckKinds* = {rsemStrictNotNilExpr, rsemStrictNotNilResult}
 
-  rsemMultiHint* = @{
+  rsemMultiNamed* = @{
     "Performance": {rsemCopiesToSink, rsemCannotMakeSink},
     "Name": repLinterKinds,
     "Link": {rbackLinking, rcmdLinking},
