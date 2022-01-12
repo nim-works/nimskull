@@ -1,5 +1,22 @@
 The documentation consists of several documents:
 
+For developers and contributors
+===============================
+
+- | `Internal documentation <intern.html>`_
+  | The internal documentation describes how the compiler is implemented. Read
+    this if you want to hack the compiler.
+
+- | `Contribution guide <contributing.html>`_
+  | Contribution guide for |nimskull| projects
+
+- | `Moderation guidelines <moderation.html>`_
+  | Rules of moderation for |nimskull| projects.
+
+- | `Style guide <style_guide.html>`_
+  | Stanard library and compiler style guide
+
+
 For users
 =========
 
@@ -39,18 +56,3 @@ For users
 - | `Index <theindex.html>`_
   | The generated index.
 
-For developers and contributors
-===============================
-
-- | `Internal documentation <intern.html>`_
-  | The internal documentation describes how the compiler is implemented. Read
-    this if you want to hack the compiler.
-
-- | `Contribution guide <contributing.html>`_
-  | Contribution guide for |nimskull| projects
-
-- | `Moderation guidelines <moderation.html>`_
-  | Rules of moderation for |nimskull| projects.
-
-- | `Style guide <style_guide.html>`_
-  | Stanard library and compiler style guide
