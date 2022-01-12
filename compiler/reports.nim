@@ -112,16 +112,15 @@ type
 
     rintGCStats = "GCStats" ## Print GC statistics for the compiler run
     rintQuitCalled = "QuitCalled" ## `quit()` called by the macro code
-    rintStackTrace = "StackTrace" ## Stack trace during internal
     ## compilation error handling and similar
     rintMissingStackTrace ## Stack trace would've been generated in the
     ## debug compiler build
     rintMsgOrigin = "MsgOrigin"
 
-
     rintSuccessX = "SuccessX" ## Succesfull compilation
     # hints end
 
+    rintStackTrace = "StackTrace" ## Stack trace during internal
     rintNimconfWrite
     rintListWarnings
     rintListHints
@@ -405,6 +404,7 @@ type
     rsemExpectedReturnTypeForIterator
     rsemExpectedReturnTypeForConverter
     rsemExpectedOneArgumentForConverter
+    rsemIncompatibleDefaultExpr
 
     # Call and procedures
     rsemCallTypeMismatch
@@ -1691,7 +1691,7 @@ const
   rintErrorKinds* = {rintCannotOpenFile .. rintNotImplemented}
   rintWarningKinds* = {rintWarnCannotOpenFile .. rintWarnFileChanged}
   rintHintKinds* = {rintSource .. rintSuccessX}
-  rintDataPassKinds* = {rintNimconfWrite .. rintEchoMessage}
+  rintDataPassKinds* = {rintStackTrace .. rintEchoMessage}
 
 
 func severity*(report: InternalReport): ReportSeverity =
@@ -1712,7 +1712,7 @@ const
       rcmdWarningKinds +
       rintWarningKinds
 
-  repTraceKinds*: ReportKinds = {rsemVmStackTrace}
+  repTraceKinds*: ReportKinds = {rsemVmStackTrace, rintStackTrace}
 
   repHintKinds*: ReportKinds    =
     rsemHintKinds +

@@ -12,7 +12,7 @@
 import
   options, idents, nimconf, extccomp, commands, msgs,
   reports,
-  modulegraphs, condsyms, os, pathutils, parseopt
+  modulegraphs, condsyms, os, pathutils
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
   when defined(unix):

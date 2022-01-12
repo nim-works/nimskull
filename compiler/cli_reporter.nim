@@ -725,6 +725,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "VM problem: cannot find 'break' target"
 
     of rsemVmNotUnused:
+      echo r.ast.render
       result = "not unused"
 
     of rsemVmTooLargetOffset:
@@ -1882,6 +1883,12 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemExpectedOneArgumentForConverter:
       result = "a converter takes exactly one argument"
+
+    of rsemIncompatibleDefaultExpr:
+      result = (
+        "The default parameter '$1' has incompatible type " &
+        "with the explicitly requested proc instantiation"
+      ) % r.symstr
 
     of rsemSemfoldOverflow:
       result = "over- or underflow"
@@ -3177,6 +3184,7 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   assertKind r
 
   const traceDir = "nimCompilerDebugTraceDir"
+  # echo r
   if conf.isEnabled(r) and r.category == repDebug and tryhack:
     # Force write of the report messages using regular stdout if tryhack is
     # enabled
@@ -3186,6 +3194,9 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
     echo conf.reportFull(r)
 
   elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
+    let tmp = conf.globalOptions
+    conf.globalOptions.excl optUseColors
+
     case r.kind:
       of rdbgTraceDefined, rdbgTraceStart:
         if not existsDir(conf.getDefined(traceDir)):
@@ -3199,6 +3210,8 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
 
       else:
         traceFile.writeLine(conf.reportFull(r))
+
+    conf.globalOptions = tmp
 
   elif (
     # Not explicitly enanled

@@ -14,7 +14,7 @@ import
   intsets, ast, astalgo, semdata, types, msgs, renderer, lookups, semtypinst,
   magicsys, idents, lexer, options, parampatterns, strutils, trees,
   linter, lineinfos, lowerings, modulegraphs, concepts, errorhandling,
-  reports
+  reports, debugutils
 
 type
   MismatchInfo* = object
@@ -2551,6 +2551,7 @@ proc partialMatch*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
   matchesAux(c, n, nOrig, m, marker)
 
 proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
+  addInNimDebugUtils(c.config, "matches", n, nOrig)
   if m.magic in {mArrGet, mArrPut}:
     m.state = csMatch
     m.call = n
@@ -2586,8 +2587,8 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
           # The default param value is set to empty in `instantiateProcType`
           # when the type of the default expression doesn't match the type
           # of the instantiated proc param:
-          c.config.callDiagnostics.add SemCallDiagnostics(
-            kind: scalldDefaultParamIsIncompatible, param: formal)
+          c.config.localReport(reportSym(
+            rsemIncompatibleDefaultExpr, formal))
 
         if nfDefaultRefsParam in formal.ast.flags:
           m.call.flags.incl nfDefaultRefsParam
