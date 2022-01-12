@@ -938,6 +938,7 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
 
 proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode, nOrig: PNode,
                                      flags: TExprFlags): PNode =
+  addInNimDebugUtils(c.config, "semOverloadedCallAnalyseEffects", n, nOrig)
   if flags*{efInTypeof, efWantIterator, efWantIterable} != {}:
     # consider: 'for x in pReturningArray()' --> we don't want the restriction
     # to 'skIterator' anymore; skIterator is preferred in sigmatch already
@@ -1021,6 +1022,7 @@ proc afterCallActions(c: PContext; n, orig: PNode, flags: TExprFlags): PNode =
     result = evalAtCompileTime(c, result)
 
 proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
+  addInNimDebugUtils(c.config, "semIndirectOp")
   result = nil
   checkMinSonsLen(n, 1, c.config)
   if n.kind == nkError: return n

@@ -283,6 +283,11 @@ proc getMsgDiagnostic(
     else:
       origF
 
+  # HACK apparently this call is still necessary to provide some additional
+  # input validation and optionally raise the 'identifier expected but
+  # found' error.
+  discard considerQuotedIdent(c, f, n)
+
   if c.compilesContextId > 0:
     # we avoid running more diagnostic when inside a `compiles(expr)`, to
     # errors while running diagnostic (see test D20180828T234921), and
@@ -558,6 +563,7 @@ proc tryDeref(n: PNode): PNode =
 
 proc semOverloadedCall(c: PContext, n, nOrig: PNode,
                        filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
+  addInNimDebugUtils(c.config, "semOverloadedCall")
   var errors: CandidateErrors = @[]
 
   var r = resolveOverloads(c, n, nOrig, filter, flags, errors)

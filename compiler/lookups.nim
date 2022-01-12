@@ -12,7 +12,7 @@ import std/[algorithm, strutils]
 import
   intsets, ast, astalgo, idents, semdata, msgs, options,
   renderer, nimfix/prettybase, lineinfos, modulegraphs,
-  errorhandling, reports
+  errorhandling, reports, debugutils
 
 proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope)
 
@@ -27,9 +27,9 @@ proc noidentError2(conf: ConfigRef; n, origin: PNode): PNode =
   ## the the expression within which `n` resides, if `origin` is the same then
   ## a simplified error is generated.
   assert n != nil, "`n` must be provided"
-
-  let bad = if origin.isNil: n else: origin
-  conf.newError(bad, reportAst(rsemIdentExpected, bad))
+  conf.newError(tern(origin.isNil, n, origin)):
+    reportAst(rsemIdentExpectedInExpr, n).withIt do:
+      it.wrongNode = origin
 
 
 proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
@@ -76,8 +76,11 @@ proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
     result[1] = noidentError2(c.config, result[1], n)
 
 proc noidentError(conf: ConfigRef; n, origin: PNode) =
-  let bad = if origin.isNil: n else: origin
-  conf.localReport(n.info, SemReport(kind: rsemIdentExpected, ast: bad))
+  conf.localReport(n.info, SemReport(
+    kind: rsemIdentExpectedInExpr,
+    ast: n,
+    wrongNode: origin
+  ))
 
 proc considerQuotedIdent*(c: PContext; n: PNode, origin: PNode = nil): PIdent =
   ## Retrieve a PIdent from a PNode, taking into account accent nodes.
@@ -88,6 +91,7 @@ proc considerQuotedIdent*(c: PContext; n: PNode, origin: PNode = nil): PIdent =
   template handleError(n, origin: PNode) =
     noidentError(c.config, n, origin)
     result = getIdent(c.cache, "<Error>")
+  addInNimDebugUtils(c.config, "considerQuotedIdent", n, origin)
 
   case n.kind
   of nkIdent: result = n.ident

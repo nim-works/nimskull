@@ -618,6 +618,7 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   ## level statement basis, with the `PContext` parameter `c` acting as an
   ## accumulator across the various top level statements, modules, and overall
   ## program compilation.
+  addInNimDebugUtils(c.config, "semStmtAndGenerateGenerics")
 
   if c.isfirstTopLevelStmt and not isImportSystemStmt(c.graph, n):
     if sfSystemModule notin c.module.flags and not isEmptyTree(n):

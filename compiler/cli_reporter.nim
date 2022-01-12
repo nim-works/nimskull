@@ -2158,8 +2158,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemTypeInvalid:
       result = "invalid type"
 
-    of rsemIdentExpected:
-      result = "identifier expected"
+    of rsemIdentExpectedInExpr:
+      if r.wrongNode.isNil:
+        result = "in expression '$1':" % [r.wrongNode.render]
+
+      result.addf("identifier expected but found '$1'", r.ast.render)
 
     of rsemInitHereNotAllowed:
       result = "initialization not allowed here"
@@ -2886,10 +2889,13 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string    =
   case DebugReportKind(r.kind):
     of rdbgTraceStep:
       let s = r.semstep
+      result.addf("$1]", align($s.level, 2))
       result.add(
         repeat("  ", s.level),
         tern(s.direction == semstepEnter, "> ", "< "),
-        s.name
+        wrap(s.name, tern(s.direction == semstepEnter, fgGreen, fgRed)),
+        " @ ",
+        wrap(conf.toStr(r.reportInst), fgCyan)
       )
 
     of rdbgTraceLine:
@@ -2904,6 +2910,7 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string    =
 
       for idx, entry in r.ctraceData.entries:
         result.add(
+          "  ]",
           ind, " | ",
           alignLeft(paths[idx], width + 1),
           conf.wrap($entry.procname, fgGreen),
@@ -3185,9 +3192,6 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
     echo conf.reportFull(r)
 
   elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
-    let tmp = conf.globalOptions
-    conf.globalOptions.excl optUseColors
-
     case r.kind:
       of rdbgTraceDefined, rdbgTraceStart:
         if not existsDir(conf.getDefined(traceDir)):
@@ -3201,8 +3205,6 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
 
       else:
         traceFile.writeLine(conf.reportFull(r))
-
-    conf.globalOptions = tmp
 
   elif (
     # Not explicitly enanled

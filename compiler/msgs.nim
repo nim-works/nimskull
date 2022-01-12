@@ -22,11 +22,11 @@ from ast_types import PSym
 export InstantiationInfo
 export TErrorHandling
 
-template instLoc*(): InstantiationInfo =
+template instLoc*(depth: int = -2): InstantiationInfo =
   ## grabs where in the compiler an error was instanced to ease debugging.
   ##
   ## whether to use full paths depends on --excessiveStackTrace compiler option.
-  instantiationInfo(-2, fullPaths = compileOption"excessiveStackTrace")
+  instantiationInfo(depth, fullPaths = compileOption"excessiveStackTrace")
 
 template toStdOrrKind(stdOrr): untyped =
   if stdOrr == stdout: stdOrrStdout else: stdOrrStderr

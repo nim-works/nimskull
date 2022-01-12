@@ -486,7 +486,7 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
         n.info = oldInfo
         n.typ = result.typ
     else:
-      localReport(c.config, n, reportSem rsemIdentExpected)
+      localReport(c.config, n, reportSem rsemIdentExpectedInExpr)
       result = errorSym(c, n)
 
 proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =

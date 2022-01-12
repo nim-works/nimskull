@@ -730,7 +730,7 @@ type
     rsemSymbolKindMismatch
     rsemIllformedAst
     rsemInitHereNotAllowed
-    rsemIdentExpected
+    rsemIdentExpectedInExpr
     rsemTypeExpected
     rsemGenericTypeExpected
     rsemTypeInvalid
@@ -1212,6 +1212,7 @@ type
 
       of rsemExpectedIdentifierInExpr,
          rsemExpectedOrdinal,
+         rsemIdentExpectedInExpr,
          rsemFieldOkButAssignedValueInvalid:
         wrongNode*: PNode
 
@@ -1933,6 +1934,11 @@ func wrap*[R: ReportTypes](
 func wrap*[R: ReportTypes](
     rep: sink R, iinfo: InstantiationInfo, point: TLineInfo): Report =
   wrap(rep, toReportLineInfo(iinfo), point)
+
+
+func wrap*[R: ReportTypes](iinfo: InstantiationInfo, rep: sink R): Report =
+  wrap(rep, iinfo)
+
 
 template wrap*(rep: ReportTypes): Report =
   wrap(rep, toReportLineInfo(instLoc()))
