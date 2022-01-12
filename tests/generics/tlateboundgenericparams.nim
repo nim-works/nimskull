@@ -61,15 +61,6 @@ when true:
     proc t2[T](val: T = defaultFoo()) =
       discard
 
-
-    {.define(nimCompilerDebug).}
-    t2[string]()
-    {.undef(nimCompilerDebug).}
-
-    {.define(nimCompilerDebug).}
-    static: t2[string]()
-    {.undef(nimCompilerDebug).}
-
     reject t2[string]()
 
   test 3:

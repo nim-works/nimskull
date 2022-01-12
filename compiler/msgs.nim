@@ -396,7 +396,9 @@ proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
   quit 1
 
 proc errorActions(
-    conf: ConfigRef, report: Report, eh: TErrorHandling
+    conf: ConfigRef,
+    report: Report,
+    eh: TErrorHandling
   ): tuple[action: TErrorHandling, withTrace: bool] =
 
   if conf.isCompilerFatal(report):
@@ -508,6 +510,18 @@ proc handleReport*(
       false,
       "Default error handing action must be turned into ignore/raise/abort")
 
+
+proc handleReport*(
+    conf: ConfigRef,
+    id: ReportId,
+    eh: TErrorHandling = doNothing
+  ) =
+
+  if conf.canReport(id):
+    conf.m.writtenSemReports.incl id
+    conf.handleReport(conf.m.reports.getReport(id))
+
+
 template globalAssert*(
     conf: ConfigRef;
     cond: untyped, info: TLineInfo = unknownLineInfo, arg = "") =
@@ -535,7 +549,8 @@ template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
 
 template localReport*(conf: ConfigRef; node: PNode, report: SemReport) =
   var tmp = report
-  if isNil(tmp.ast): tmp.ast = node
+  if isNil(tmp.ast):
+    tmp.ast = node
   handleReport(conf, wrap(tmp, instLoc(), node.info), doNothing)
 
 proc temporaryStringError*(conf: ConfigRef, info: TLineInfo, text: string) =

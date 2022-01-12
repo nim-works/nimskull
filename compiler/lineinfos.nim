@@ -224,6 +224,7 @@ type
     ## `seminst.generateInstance()` and `semexprs.semTemplateExpr()`. In
     ## all other cases this field is left empty (SemReport is `skUnknown`)
     reports*: ReportList ## Intermediate storage for the
+    writtenSemReports*: ReportSet
     lastError*: TLineInfo
     filenameToIndexTbl*: Table[string, FileIndex]
     fileInfos*: seq[TFileInfo] ## Information about all known source files

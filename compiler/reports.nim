@@ -14,7 +14,7 @@
 ## reused by external tooling - custom error pretty-printers, test runners
 ## and so on.
 
-import std/[options]
+import std/[options, packedsets]
 
 import
   ast_types,
@@ -116,6 +116,7 @@ type
     rintMissingStackTrace ## Stack trace would've been generated in the
     ## debug compiler build
     rintMsgOrigin = "MsgOrigin"
+    rintErrKind = "ErrKind" ## Show report kind in error messages
 
     rintSuccessX = "SuccessX" ## Succesfull compilation
     # hints end
@@ -1946,6 +1947,12 @@ type
     ## mostly, and in other places where report might be *generated*, but
     ## not guaranteed to be printed out.
     list: seq[Report]
+
+  ReportSet* = object
+    ids: PackedSet[uint32]
+
+func incl*(s: var ReportSet, id: ReportId) = s.ids.incl uint32(id)
+func contains*(s: var ReportSet, id: ReportId): bool = s.ids.contains uint32(id)
 
 func addReport*(list: var ReportList, report: Report): ReportId =
   ## Add report to the report list

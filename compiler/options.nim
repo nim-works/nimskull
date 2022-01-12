@@ -438,10 +438,25 @@ proc report*(conf: ConfigRef, inReport: Report): TErrorHandling =
     "Cannot write report with empty report hook")
   return conf.structuredReportHook(conf, inReport)
 
+func canReport*(conf: ConfigRef, id: ReportId): bool =
+  ## Check whether report with given ID can actually be written out, or it
+  ## has already been seen. This check is used to prevent multiple reports
+  ## from the `nkError` node.
+  id notin conf.m.writtenSemReports
+
+func canReport*(conf: ConfigRef, node: PNode): bool =
+  ## Check whether `nkError` node can be reported
+  conf.canReport(node.reportId)
 
 proc report*(conf: ConfigRef, id: ReportId): TErrorHandling =
-  ## Write out existing stored report
+  ## Write out existing stored report unless it has already been reported
+  ## (can happen with multiple `nkError` visitations).
+  ##
+  ## .. note:: This check is done only for reports that are generated via
+  ##           IDs, because that's the only way report can (supposedly)
+  ##           enter the error message system twice.
   return conf.report(conf.m.reports.getReport(id))
+
 
 proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
   ## Write out report from the nkError node

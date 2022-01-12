@@ -207,4 +207,5 @@ proc localReport*(conf: ConfigRef, node: PNode) =
   ## Write out existing sem report that is stored in the nkError node
   assert node.kind == nkError, $node.kind
   for err in walkErrors(conf, node):
-    handleReport(conf, conf.m.reports.getReport(err.reportId), doNothing)
+    if canReport(conf, err):
+      handleReport(conf, err.reportId, doNothing)

@@ -2478,12 +2478,10 @@ proc suffix(
     conf: ConfigRef,
     r: ReportTypes
   ): string =
-  if r.kind in repWithSuffix:
+  if r.kind in repWithSuffix or conf.hasHint(rintErrKind):
     result.add conf.wrap(" [" & $r.kind & "]", fgCyan)
 
-  if conf.hasHint(rintMsgOrigin) or (
-    defined(nimDebugMsgOrigin) and rintMsgOrigin in conf.notes
-  ):
+  if conf.hasHint(rintMsgOrigin):
     result.add(
       "\n",
       conf.toStr(r.reportInst),
@@ -2502,13 +2500,7 @@ proc reportFull*(conf: ConfigRef, r: SemReport): string =
   if sev == rsevError:
     result.add conf.getContext(r.context)
 
-  result.add(
-    # `file(line, col) Error: ` prefix
-    conf.prefix(r),
-    # Message body
-    reportBody(conf, r),
-    conf.suffix(r)
-  )
+  result.add(conf.prefix(r), reportBody(conf, r), conf.suffix(r))
 
 proc reportBody*(conf: ConfigRef, r: ParserReport): string =
   assertKind r
@@ -2701,7 +2693,7 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
     of rintQuitCalled:
       result = "quit() called"
 
-    of rintMsgOrigin:
+    of rintMsgOrigin, rintErrKind:
       assert false, "is a configuration hint, should not be reported manually"
 
     of rintNimconfWrite:

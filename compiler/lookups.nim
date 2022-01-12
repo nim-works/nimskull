@@ -653,6 +653,8 @@ proc errorUndeclaredIdentifierWithHint(
   ): PSym =
   ## creates an error symbol with hints as to what it might be eg: recursive
   ## imports
+  # echo "errorUndeclaredIdentifierWithHint"
+  # writeStackTrace()
   result = errorSym2(c, n, c.config.newError(
     n,
     SemReport(
