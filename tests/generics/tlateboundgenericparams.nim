@@ -61,11 +61,15 @@ when true:
     proc t2[T](val: T = defaultFoo()) =
       discard
 
-    static: echo "checkpoint \e[31m1\e[39m"
+
+    {.define(nimCompilerDebug).}
     t2[string]()
-    static: echo "checkpoint \e[31m2\e[39m"
+    {.undef(nimCompilerDebug).}
+
+    {.define(nimCompilerDebug).}
     static: t2[string]()
-    static: echo "checkpoint \e[31m3\e[39m"
+    {.undef(nimCompilerDebug).}
+
     reject t2[string]()
 
   test 3:

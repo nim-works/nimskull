@@ -2917,6 +2917,12 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string    =
     of rdbgTraceEnd:
       result = "trace end"
 
+    of rdbgTraceDefined:
+      result = "debug trace defined"
+
+    of rdbgTraceUndefined:
+      result = "debug trace undefined"
+
     of rdbgVmExecTraceMinimal:
       result.addf(
         "$# [$#] $#",
@@ -3158,6 +3164,11 @@ const forceWrite = {
   rsemExpandArc # Not considered a hint for now
 }
 
+const rdbgTracerKinds* = {rdbgTraceDefined .. rdbgTraceEnd}
+
+var traceIndex = 0
+var traceFile: File
+
 proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   let tryhack = conf.m.errorOutputs == {}
   # REFACTOR this check is an absolute hack, `errorOutputs` need to be
@@ -3165,6 +3176,7 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   # comment
   assertKind r
 
+  const traceDir = "nimCompilerDebugTraceDir"
   if conf.isEnabled(r) and r.category == repDebug and tryhack:
     # Force write of the report messages using regular stdout if tryhack is
     # enabled
@@ -3172,6 +3184,21 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       conf.writeln("")
       lastDot = false
     echo conf.reportFull(r)
+
+  elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
+    case r.kind:
+      of rdbgTraceDefined, rdbgTraceStart:
+        if not existsDir(conf.getDefined(traceDir)):
+          createDir conf.getDefined(traceDir)
+
+        traceFile = open(conf.getDefined(traceDir) / $traceIndex, fmWrite)
+
+      of rdbgTraceUndefined, rdbgTraceEnd:
+        close(traceFile)
+        inc traceIndex
+
+      else:
+        traceFile.writeLine(conf.reportFull(r))
 
   elif (
     # Not explicitly enanled

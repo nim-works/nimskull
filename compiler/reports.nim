@@ -899,10 +899,12 @@ type
     rdbgVmExecTraceMinimal
     rdbgVmCodeListing
 
+    rdbgTraceDefined # first ! tracer begin
+    rdbgTraceUndefined
     rdbgTraceStart
     rdbgTraceStep
     rdbgTraceLine
-    rdbgTraceEnd
+    rdbgTraceEnd # last ! tracer end
 
     rdbgStartingConfRead
     rdbgFinishedConfRead

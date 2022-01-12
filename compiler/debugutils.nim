@@ -12,7 +12,7 @@ useful debugging flags:
 
 ]#
 
-import options, reports
+import options, reports, msgs
 
 proc isCompilerDebug*(conf: ConfigRef): bool {.inline.} =
   ##[

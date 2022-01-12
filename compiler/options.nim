@@ -413,6 +413,7 @@ type
     ## diagnostics that are used to provide more detailed error messages in
     ## case of the compilation failure. Populated in the `sigcall.matches`
 
+
 proc writelnHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
   conf.writelnHook(conf, msg, flags)
 
@@ -659,12 +660,6 @@ proc newProfileData(): ProfileData =
 
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 
-when defined(nimDebugUtils):
-  # this allows inserting debugging utilties in all modules that import `options`
-  # with a single switch, which is useful when debugging compiler.
-  import debugutils
-  export debugutils
-
 proc initConfigRefCommon(conf: ConfigRef) =
   conf.symbols = newStringTable(modeStyleInsensitive)
   conf.selectedGC = gcRefc
@@ -798,6 +793,9 @@ proc isDefined*(conf: ConfigRef; symbol: string): bool =
       result = conf.target.targetOS in {osSolaris, osNetbsd, osFreebsd, osOpenbsd,
                             osDragonfly, osMacosx}
     else: discard
+
+proc getDefined*(conf: ConfigRef, sym: string): string =
+  conf.symbols[sym]
 
 template quitOrRaise*(conf: ConfigRef, msg = "") =
   # xxx in future work, consider whether to also intercept `msgQuit` calls

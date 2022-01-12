@@ -673,7 +673,11 @@ proc processDefine(c: PContext, n: PNode): PNode =
   ## does not affect `n`, will either return it or `n` wrapped in an error if
   ## `n` is not a pragma callable, and its argument isn't an identifier.
   if (n.kind in nkPragmaCallKinds and n.len == 2) and (n[1].kind == nkIdent):
-    defineSymbol(c.config.symbols, n[1].ident.s)
+    let str = n[1].ident.s
+    if defined(nimCompilerDebug) and str == "nimCompilerDebug":
+      c.config.localReport DebugReport(kind: rdbgTraceDefined)
+
+    defineSymbol(c.config.symbols, str)
     n
   else:
     newInvalidPragmaNode(c, n)
@@ -683,7 +687,11 @@ proc processUndef(c: PContext, n: PNode): PNode =
   ## does not affect `n`, will either return it or `n` wrapped in an error if
   ## `n` is not a pragma callable, and its argument isn't an identifier.
   if (n.kind in nkPragmaCallKinds and n.len == 2) and (n[1].kind == nkIdent):
-    undefSymbol(c.config.symbols, n[1].ident.s)
+    let str = n[1].ident.s
+    if defined(nimCompilerDebug) and str == "nimCompilerDebug":
+      c.config.localReport DebugReport(kind: rdbgTraceUndefined)
+
+    undefSymbol(c.config.symbols, str)
     n
   else:
     newInvalidPragmaNode(c, n)
