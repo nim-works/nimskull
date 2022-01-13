@@ -1656,6 +1656,15 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
           bindConcreteTypeToUserTypeClass(matched, a)
           if doBind: put(c, f, matched)
           result = isGeneric
+        elif a.len > 0 and a.lastSon == f:
+          # Needed for checking `Y` == `Addable` in the following
+          #[
+            type 
+              Addable = concept a, type A
+                a + a is A
+              MyType[T: Addable; Y: static T] = object
+          ]#
+          result = isGeneric
         else:
           result = isNone
 
@@ -1761,11 +1770,25 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
     let prev = PType(idTableGet(c.bindings, f))
     if prev == nil:
       if aOrig.kind == tyStatic:
-        if f.base.kind != tyNone:
+        if f.base.kind notin {tyNone, tyGenericParam}:
           result = typeRel(c, f.base, a, flags)
           if result != isNone and f.n != nil:
             if not exprStructuralEquivalent(f.n, aOrig.n):
               result = isNone
+        elif f.base.kind == tyGenericParam:
+          # Handling things like `type A[T; Y: static T] = object`, the reason this is here is the following:
+          # The information is lost in the future steps so eventually it gets `T` vs. `T` which can be solved with a change to the tyTypedesc branch,
+          # but it then gets typedesc[int] vs. int literal (2) without knowing either side is static. 
+          # Seems the only place to solve it is here anywhere lower just lacks the knowledge to know to check the children types.
+          if f.base.len > 0: # There is a constraint, handle it
+            result = typeRel(c, f.base.lastSon, a, flags)
+          else:
+            # No constraint
+            if tfGenericTypeParam in f.flags:
+              result = isGeneric
+            else:
+              # for things like `proc fun[T](a: static[T])`
+              result = typeRel(c, f.base, a, flags)
         else:
           result = isGeneric
         if result != isNone: put(c, f, aOrig)
