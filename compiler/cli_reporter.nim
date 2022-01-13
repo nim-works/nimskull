@@ -2159,10 +2159,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "invalid type"
 
     of rsemIdentExpectedInExpr:
-      if r.wrongNode.isNil:
-        result = "in expression '$1':" % [r.wrongNode.render]
+      if not r.wrongNode.isNil:
+        result = "in expression '$1': " % [r.wrongNode.render]
 
-      result.addf("identifier expected but found '$1'", r.ast.render)
+      result.addf("identifier expected, but found '$1'", r.ast.render)
 
     of rsemInitHereNotAllowed:
       result = "initialization not allowed here"
@@ -2500,10 +2500,12 @@ proc reportFull*(conf: ConfigRef, r: SemReport): string =
   if r.kind == rsemProcessing and conf.hintProcessingDots:
     return "."
 
-  if sev == rsevError:
-    result.add conf.getContext(r.context)
-
-  result.add(conf.prefix(r), reportBody(conf, r), conf.suffix(r))
+  result.add(
+    conf.getContext(r.context),
+    conf.prefix(r),
+    reportBody(conf, r),
+    conf.suffix(r)
+  )
 
 proc reportBody*(conf: ConfigRef, r: ParserReport): string =
   assertKind r

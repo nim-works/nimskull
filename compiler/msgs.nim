@@ -489,9 +489,10 @@ proc handleReport*(
   ) {.noinline.} =
 
   var report = report
-  if report.category == repSem and report.location.isSome():
-    report.semReport.context = conf.getContext(
-      report.location.get())
+  if report.category == repSem:
+    if report.location.isSome():
+      report.semReport.context = conf.getContext(
+        report.location.get())
 
   let userAction = conf.report(report)
 

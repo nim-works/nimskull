@@ -7,6 +7,4 @@ twrongcolon.nim(10, 12) Error: in expression ' do:
 
 """
 
-{.define(nimCompilerDebug).}
 var n: int : 890
-{.undef(nimCompilerDebug).}

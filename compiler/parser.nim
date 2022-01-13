@@ -1986,7 +1986,7 @@ proc parseObjectCase(p: var Parser): PNode =
     colcom(p, b)
     var fields = parseObjectPart(p)
     if fields.kind == nkEmpty:
-      p.localError ParserReport(kind: rparIdentExpected, found: $p.tok)
+      p.localError ParserReport(kind: rparIdentExpected)
       fields = newNodeP(nkNilLit, p) # don't break further semantic checking
     b.add(fields)
     result.add(b)
