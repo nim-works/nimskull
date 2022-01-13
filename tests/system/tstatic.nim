@@ -45,6 +45,15 @@ template main() =
 
       doAssert "123".parseInt == 123
 
+    block:
+      type
+        MyType = object
+          field: float32
+        AType[T: static MyType] = distinct range[0f32 .. T.field]
+      var a: AType[MyType(field: 5f32)]
+      proc n(S: static Slice[int]): range[S.a..S.b] = discard
+      assert typeof(n 1..2) is range[1..2]
+
 
 static: main()
 main()
