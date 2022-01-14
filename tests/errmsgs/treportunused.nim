@@ -1,5 +1,5 @@
 discard """
-  matrix: "--hints=on --hint=all:off --hint=Conf:off"
+  matrix: "--hints=on --hint=all:off --hint=XDeclaredButNotUsed:off"
   nimoutFull: true
   nimout: '''
 treportunused.nim(23, 10) Hint: 's1' is declared but not used [XDeclaredButNotUsed]
