@@ -461,21 +461,21 @@ proc processDynLib(c: PContext, n: PNode, sym: PSym): PNode =
 proc processNote(c: PContext, n: PNode): PNode =
   ## process a single pragma "note" `n`
   ## xxx: document this better, this is awful
-  template handleNote(enumVals, notes): PNode =
+  proc handleNote(enumVals: ReportKinds, notes: ConfNoteSet): PNode =
     let x = findStr(enumVals, n[0][1].ident.s, repNone)
     case x:
       of repNone:
         newInvalidPragmaNode(c, n)
 
       else:
-        nk = x
+        let nk = x
         let x = c.semConstBoolExpr(c, n[1])
         n[1] = x
 
         if x.kind == nkIntLit and x.intVal != 0:
-          incl(notes, nk)
+          incl(c.config, notes, nk)
         else:
-          excl(notes, nk)
+          excl(c.config, notes, nk)
 
         n
 
@@ -492,13 +492,12 @@ proc processNote(c: PContext, n: PNode): PNode =
 
   result =
     if isBracketExpr:
-      var nk: ReportKind
       let cw = whichKeyword(n[0][0].ident)
       case cw:
-        of wHint:           handleNote(repHintKinds,    c.config.notes)
-        of wWarning:        handleNote(repWarningKinds, c.config.notes)
-        of wWarningAsError: handleNote(repWarningKinds, c.config.warningAsErrors)
-        of wHintAsError:    handleNote(repHintKinds,    c.config.hintsAsErrors)
+        of wHint:           handleNote(repHintKinds,    cnCurrent)
+        of wWarning:        handleNote(repWarningKinds, cnCurrent)
+        of wWarningAsError: handleNote(repWarningKinds, cnWarnAsError)
+        of wHintAsError:    handleNote(repHintKinds,    cnHintAsError)
         else: newInvalidPragmaNode(c, n)
     else:
       bracketExpr

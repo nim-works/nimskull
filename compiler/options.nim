@@ -286,6 +286,17 @@ type
     doRaise ## Raise recoverable error
 
   ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
+  ConfNoteSet* = enum
+    cnMainPackage
+    cnCurrent ## notes after resolving all logic(defaults,
+              ## verbosity)/cmdline/configs
+    cnForeign
+    cnWarnAsError
+    cnHintAsError
+    cnCmdline ## notes that have been set/unset from cmdline
+    cnModifiedy ## notes that have been set/unset from either
+                ## cmdline/configs
+
   ConfigRef* {.acyclic.} = ref object ## every global configuration
                           ## fields marked with '*' are subject to
                           ## the incremental compilation mechanisms
@@ -325,16 +336,9 @@ type
     ideCmd*: IdeCmd
     oldNewlines*: bool
     cCompiler*: TSystemCC ## the used compiler
-    modifiedyNotes*: ReportKinds ## notes that have been set/unset from
-    ## either cmdline/configs
-    cmdlineNotes*: ReportKinds ## notes that have been set/unset from
-    ## cmdline
-    foreignPackageNotes*: ReportKinds
-    notes*: ReportKinds ## notes after resolving all logic(defaults,
-    ## verbosity)/cmdline/configs
-    warningAsErrors*: ReportKinds
-    hintsAsErrors*: ReportKinds
-    mainPackageNotes*: ReportKinds
+
+    noteSets*: array[ConfNoteSet, ReportKinds]
+
     mainPackageId*: int
     errorCounter*: int
     hintCounter*: int
@@ -413,6 +417,69 @@ type
     ## diagnostics that are used to provide more detailed error messages in
     ## case of the compilation failure. Populated in the `sigcall.matches`
 
+
+
+proc incl*(conf: ConfigRef, nset: ConfNoteSet, note: ReportKind) =
+  conf.noteSets[nset].incl note
+
+proc excl*(conf: ConfigRef, nset: ConfNoteSet, note: ReportKind) =
+  conf.noteSets[nset].excl note
+
+proc asgn*(conf: ConfigRef, nset: ConfNoteSet, notes: ReportKinds) =
+  conf.noteSets[nset] = notes
+
+proc flip*(
+  conf: ConfigRef, nset: ConfNoteSet, note: ReportKind, state: bool) =
+  if state:
+    conf.incl(nset, note)
+
+  else:
+    conf.excl(nset, note)
+
+
+
+
+proc modifiedyNotes*(conf: ConfigRef): ReportKinds =
+  conf.noteSets[cnModifiedy]
+
+proc cmdlineNotes*(conf: ConfigRef): ReportKinds =
+  conf.noteSets[cnCmdline]
+
+proc foreignPackageNotes*(conf: ConfigRef): ReportKinds =
+  conf.noteSets[cnForeign]
+
+proc notes*(conf: ConfigRef): ReportKinds =
+  conf.noteSets[cnCurrent]
+
+proc warningAsErrors*(conf: ConfigRef): ReportKinds =
+  conf.noteSets[cnWarnAsError]
+
+proc hintsAsErrors*(conf: ConfigRef): ReportKinds =
+  conf.noteSets[cnHintAsError]
+
+proc mainPackageNotes*(conf: ConfigRef): ReportKinds =
+  conf.noteSets[cnMainPackage]
+
+proc `modifiedyNotes=`*(conf: ConfigRef, nset: ReportKinds) =
+  conf.asgn cnModifiedy, nset
+
+proc `cmdlineNotes=`*(conf: ConfigRef, nset: ReportKinds) =
+  conf.asgn cnCmdline, nset
+
+proc `foreignPackageNotes=`*(conf: ConfigRef, nset: ReportKinds) =
+  conf.asgn cnForeign, nset
+
+proc `notes=`*(conf: ConfigRef, nset: ReportKinds) =
+  conf.asgn cnCurrent, nset
+
+proc `warningAsErrors=`*(conf: ConfigRef, nset: ReportKinds) =
+  conf.asgn cnWarnAsError, nset
+
+proc `hintsAsErrors=`*(conf: ConfigRef, nset: ReportKinds) =
+  conf.asgn cnHintAsError, nset
+
+proc `mainPackageNotes=`*(conf: ConfigRef, nset: ReportKinds) =
+  conf.asgn cnMainPackage, nset
 
 proc writelnHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
   conf.writelnHook(conf, msg, flags)
@@ -543,15 +610,20 @@ template setErrorMaxHighMaybe*(conf: ConfigRef) =
 
 proc setNoteDefaults*(conf: ConfigRef, note: ReportKind, enabled = true) =
   template fun(op) =
-    conf.notes.op note
-    conf.mainPackageNotes.op note
-    conf.foreignPackageNotes.op note
+    conf.op cnCurrent, note
+    conf.op cnMainPackage, note
+    conf.op cnForeign, note
+
   if enabled: fun(incl) else: fun(excl)
 
 proc setNote*(conf: ConfigRef, note: ReportKind, enabled = true) =
   ## see also `prepareConfigNotes` which sets notes
   if note notin conf.cmdlineNotes:
-    if enabled: incl(conf.notes, note) else: excl(conf.notes, note)
+    if enabled:
+      incl(conf, cnCurrent, note)
+
+    else:
+      excl(conf, cnCurrent, note)
 
 proc hasHint*(conf: ConfigRef, note: ReportKind): bool =
   # ternary states instead of binary states would simplify logic

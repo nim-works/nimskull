@@ -211,10 +211,6 @@ iterator anyErrorsWalk*(config: ConfigRef; n: PNode
 proc localReport*(conf: ConfigRef, node: PNode) =
   ## Write out existing sem report that is stored in the nkError node
   assert node.kind == nkError, $node.kind
-  # for err in walkErrors(conf, node):
-  #   if canReport(conf, err):
-  #     echo "writing err ", err.reportId
-
   for err in walkErrors(conf, node):
     if canReport(conf, err):
       handleReport(conf, err.reportId, doNothing)

@@ -266,7 +266,7 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
     # stirng values (`rlexLinterReport = "Name"`, `rsemLinterReport =
     # "Name"`)
     for (multiName , flags) in rsemMultiNamed:
-      if cmpIgnoreStyle(multiName , id) == 0:
+      if cmpIgnoreStyle(multiName, id) == 0:
         notes = flags
         return
 
@@ -315,22 +315,24 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
       conf.localReport ExternalReport(kind: rextOnlyAllOffSupported)
 
     for n in notes:
+      echo "processing $1, on: $2, pass: $3" % [$n, $isOn, $pass]
       if n notin conf.cmdlineNotes or pass == passCmd1:
         if pass == passCmd1:
-          incl(conf.cmdlineNotes, n)
+          conf.incl(cnCmdline, n)
 
-        incl(conf.modifiedyNotes, n)
+        conf.incl(cnModifiedy, n)
 
         if state in {wWarningAsError, wHintAsError}:
           # xxx rename warningAsErrors to noteAsErrors
-          conf.warningAsErrors[n] = isOn
+          conf.flip(cnWarnAsError, n, isOn)
 
         else:
-          conf.notes[n] = isOn
-          conf.mainPackageNotes[n] = isOn
+          echo "modifying note $1 to $2" % [$n, $isOn]
+          conf.flip(cnCurrent, n, isOn)
+          conf.flip(cnMainPackage, n, isOn)
 
         if not isOn:
-          excl(conf.foreignPackageNotes, n)
+          conf.excl(cnForeign, n)
 
 proc processCompile(conf: ConfigRef; filename: string) =
   var found = findFile(conf, filename)
@@ -1106,14 +1108,14 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       conf.localReport(info, invalidSwitchValue @["abs", "canonical", "legacyRelProj"])
 
   of "processing":
-    incl(conf.notes, rsemProcessing)
-    incl(conf.mainPackageNotes, rsemProcessing)
+    incl(conf, cnCurrent, rsemProcessing)
+    incl(conf, cnMainPackage, rsemProcessing)
     case arg.normalize
     of "dots": conf.hintProcessingDots = true
     of "filenames": conf.hintProcessingDots = false
     of "off":
-      excl(conf.notes, rsemProcessing)
-      excl(conf.mainPackageNotes, rsemProcessing)
+      excl(conf, cnCurrent, rsemProcessing)
+      excl(conf, cnMainPackage, rsemProcessing)
     else:
       conf.localReport(info, invalidSwitchValue @["dots", "filenames", "off"])
   of "unitsep":
