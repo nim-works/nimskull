@@ -678,8 +678,9 @@ proc errorAmbiguousUseQualifier(
   for i, candidate in candidates.pairs:
     rep.symbols.add candidate
 
-  newQualifiedLookUpError(
-    c, ident, n.info, c.config.newError(n, rep))
+  let err = c.config.newError(n, rep)
+  result = newQualifiedLookUpError(c, ident, n.info, err)
+  c.config.localReport(err)
 
 type
   TLookupFlag* = enum

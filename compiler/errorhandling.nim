@@ -33,9 +33,7 @@
 
 import ast, msgs, options
 from lineinfos import unknownLineInfo
-from trees import cyclicTree
 import reports
-import std/algorithm
 
 proc errorSubNode*(n: PNode): PNode =
   ## find the first error node, or nil, under `n` using a depth first traversal

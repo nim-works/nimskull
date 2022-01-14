@@ -13,7 +13,7 @@ proc foo(i: Foo): string
   but expression '1.2' is of type: float64
 
 expression: foo(1.2)
-tsigmatch2.nim(40, 14) Error: expression has no type: foo(1.2)
+tsigmatch2.nim(40, 14) Error: expression '' has no type (or is ambiguous)
 tsigmatch2.nim(46, 7) Error: type mismatch: got <int literal(1)>
 but expected one of:
 proc foo(args: varargs[string, myproc])

@@ -257,8 +257,6 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
 
   result = newError(c.config, n, report)
 
-  c.config.localReport(result)
-
 
 proc bracketNotFoundError(c: PContext; n: PNode): PNode =
   var errors: CandidateErrors = @[]
