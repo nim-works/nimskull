@@ -274,16 +274,21 @@ proc listGcUnsafety(
       else:
         reason = sgcuIndirectCallHere
 
-      var report = SemReport(kind: tern(
-        onlyWarning, rsemWarnGcUnsafeListing, rsemErrGcUnsafeListing))
+
+      var report = reportSem(tern(
+        onlyWarning,
+        rsemWarnGcUnsafeListing,
+        rsemErrGcUnsafeListing))
 
       report.gcUnsafeTrace = (
         isUnsafe: s,
         unsafeVia: u,
-        unsafeRelation: reason,
+        unsafeRelation: reason
       )
 
-      conf.localReport(s.info, report)
+      conf.localReport(
+        tern(reason == sgcuIndirectCallHere, u.info, s.info),
+        report)
 
   aux(s, onlyWarning, cycleCheck, conf)
 
