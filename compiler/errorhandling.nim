@@ -92,8 +92,6 @@ proc newError*(
   for a in args:
     result.add #[ 3+ ]# a
 
-  assert not cyclicTree(result)
-
 proc newError*(
     conf: ConfigRef,
     wrongNode: PNode,
@@ -175,10 +173,6 @@ iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   assert n != nil
   var errNodes: seq[PNode] = @[]
   buildErrorList(config, n, errNodes)
-  # Reports must be written in order of their generation, regardless of how
-  # final ast was structured. Since ids are only incremented it is serves
-  # as a good way for ordering generated reports.
-  errNodes = sortedByIt(errNodes, it.reportId)
 
   # report from last to first (deepest in tree to highest)
   for i in 1..errNodes.len:
