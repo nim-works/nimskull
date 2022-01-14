@@ -106,7 +106,7 @@ const
 proc prepareConfigNotes(graph: ModuleGraph; module: PSym) =
   # don't be verbose unless the module belongs to the main package:
   if module.getnimblePkgId == graph.config.mainPackageId:
-    graph.config.notes = graph.config.mainPackageNotes
+    graph.config.asgn(cnCurrent, cnMainPackage)
 
   else:
     # QUESTION what are the exact conditions that lead to this branch being
@@ -115,9 +115,9 @@ proc prepareConfigNotes(graph: ModuleGraph; module: PSym) =
     # compilation has finished. This tests (despite being quite large) does
     # not do any imports.
     if graph.config.mainPackageNotes == {}:
-      graph.config.mainPackageNotes = graph.config.notes
+      graph.config.asgn(cnMainPackage, cnCurrent)
 
-    graph.config.notes = graph.config.foreignPackageNotes
+    graph.config.asgn(cnCurrent, cnForeign)
 
 proc moduleHasChanged*(graph: ModuleGraph; module: PSym): bool {.inline.} =
   result = true

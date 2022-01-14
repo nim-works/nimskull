@@ -636,7 +636,10 @@ proc processPush(c: PContext, n: PNode, start: int): PNode =
     return
   var x = pushOptionEntry(c)
   for i in start..<n.len:
-    let (opt, err) = tryProcessOption(c, n[i], c.config.options)
+    var tmp = c.config.options
+    let (opt, err) = tryProcessOption(c, n[i], tmp)
+    c.config.options = tmp
+
     if err.isNil:
       if not opt:
         # simply store it somewhere:
@@ -651,7 +654,7 @@ proc processPush(c: PContext, n: PNode, start: int): PNode =
 
   # If stacktrace is disabled globally we should not enable it
   if optStackTrace notin c.optionStack[0].options:
-    c.config.options.excl(optStackTrace)
+    c.config.excl(optStackTrace)
 
   c.config.localReport(n.info, DebugReport(
     kind: rdbgOptionsPush, optionsNow: c.config.options))
@@ -1662,13 +1665,16 @@ proc prepareSinglePragma(
          wLineDir, wOptimization, wStaticBoundchecks, wStyleChecks,
          wCallconv, wDebugger, wProfiler,
          wFloatChecks, wNanChecks, wInfChecks, wPatterns, wTrMacros:
-        result = processOption(c, it, c.config.options)
+        var tmp = c.config.options
+        result = processOption(c, it, tmp)
+        c.config.options = tmp
       of wStackTrace, wLineTrace:
-        result =
-          if sym.kind in {skProc, skMethod, skConverter}:
-            processOption(c, it, sym.options)
-          else:
-            processOption(c, it, c.config.options)
+        if sym.kind in {skProc, skMethod, skConverter}:
+          result = processOption(c, it, sym.options)
+        else:
+          var tmp = c.config.options
+          result = processOption(c, it, tmp)
+          c.config.options = tmp
       of FirstCallConv..LastCallConv:
         assert(sym != nil)
         result = it
@@ -1724,7 +1730,9 @@ proc prepareSinglePragma(
       of wByRef:
         result = noVal(c, it)
         if sym == nil or sym.typ == nil:
-          result = processOption(c, it, c.config.options)
+          var tmp = c.config.options
+          result = processOption(c, it, tmp)
+          c.config.options = tmp
         else:
           incl(sym.typ.flags, tfByRef)
       of wByCopy:

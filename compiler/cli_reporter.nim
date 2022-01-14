@@ -12,7 +12,8 @@ import reports,
 import options as compiler_options
 import std/[
   strutils, terminal, options, algorithm,
-  sequtils, strformat, tables, intsets
+  sequtils, strformat, tables, intsets,
+  json
 ]
 
 func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
@@ -2626,6 +2627,7 @@ proc reportBody*(conf: ConfigRef, r: InternalReport): string =
           build.add par.optimize
           build.add "; "
           build.add par.buildMode
+          build.add " "
 
       let mem =
         if par.isMaxMem:
@@ -2634,12 +2636,7 @@ proc reportBody*(conf: ConfigRef, r: InternalReport): string =
         else:
           formatSize(par.mem) & " totmem"
 
-      result = &"""
-{conf.prefix(r)}{build}
-{par.linesCompiled} lines; {par.sec:.3f}s; {mem}; proj: {par.project}; out: {par.output}
-"""
-
-      result.add conf.suffix(r)
+      result = &"{conf.prefix(r)}{build}{par.linesCompiled} lines; {par.sec:.3f}s; {mem}; proj: {par.project}; out: {par.output}{conf.suffix(r)}"
 
     of rintUsingLeanCompiler:
       result = r.msg
@@ -2668,7 +2665,11 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
       )
 
     of rintEchoMessage:
-      result = r.msg
+      if conf.cmd == cmdInteractive:
+        result = ">>> " & r.msg
+
+      else:
+        result = r.msg
 
     of rintCannotOpenFile, rintWarnCannotOpenFile:
       result = "cannot open file: $1" % r.file
@@ -2710,8 +2711,55 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
       result = ""
 
     of rintDumpState:
-      {.warning: "[TODO] write dump state".}
+      if getConfigVar(conf, "dump.format") == "json":
+        let s = r.stateDump
+        var definedSymbols = newJArray()
+        for s in s.definedSymbols:
+          definedSymbols.elems.add(%s)
 
+        var libpaths = newJArray()
+        var lazyPaths = newJArray()
+        for dir in conf.searchPaths:
+          libpaths.elems.add(%dir.string)
+
+        for dir in conf.lazyPaths:
+          lazyPaths.elems.add(%dir.string)
+
+        var hints = newJObject()
+        for (a, state) in s.hints:
+          hints[$a] = %(state)
+
+
+        var warnings = newJObject()
+        for (a, state) in s.warnings:
+          warnings[$a] = %(state)
+
+        result = $(%[
+          (key: "version",         val: %s.version),
+          (key: "nimExe",          val: %s.nimExe),
+          (key: "prefixdir",       val: %s.prefixdir),
+          (key: "libpath",         val: %s.libpath),
+          (key: "project_path",    val: %s.projectPath),
+          (key: "defined_symbols", val: definedSymbols),
+          (key: "lib_paths",       val: libpaths),
+          (key: "lazyPaths",       val: lazyPaths),
+          (key: "outdir",          val: %s.outdir),
+          (key: "out",             val: %s.out),
+          (key: "nimcache",        val: %s.nimcache),
+          (key: "hints",           val: hints),
+          (key: "warnings",        val: warnings),
+        ])
+
+      else:
+        result.add "-- list of currently defined symbols --\n"
+        let s = r.stateDump
+        for s in s.definedSymbols:
+          result.add(s, "\n")
+
+        result.add "-- end of list --\n"
+
+        for it in s.libPaths:
+          result.add it, "\n"
 
 proc reportFull*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
@@ -3188,6 +3236,11 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   # removed. For more details see `lineinfos.MsgConfig.errorOutputs`
   # comment
   assertKind r
+
+  # if r.kind == rextConf:
+  #   echo r
+  #   echo conf.isEnabled(r)
+  #   echo r.kind in conf.notes
 
   const traceDir = "nimCompilerDebugTraceDir"
   if conf.isEnabled(r) and r.category == repDebug and tryhack:

@@ -1556,7 +1556,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       regs[ra].node.strVal = renderTree(regs[rb].regToNode, {renderNoComments, renderDocComments})
     of opcQuit:
       if c.mode in {emRepl, emStaticExpr, emStaticStmt}:
-        localReport(c.config, c.debug[pc], SemReport(kind: rintQuitCalled))
+        localReport(c.config, c.debug[pc], InternalReport(kind: rintQuitCalled))
         msgQuit(int8(toInt(getOrdValue(regs[ra].regToNode, onError = toInt128(1)))))
       else:
         return TFullReg(kind: rkNone)
@@ -1570,7 +1570,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       let msg = regs[ra].node.strVal
       let disc = regs[instr.regB].regToNode
       let msg2 = formatFieldDefect(msg, $disc)
-      stackTrace(c, tos, pc, reportStr(rsemVmFieldInavailable, msg))
+      stackTrace(c, tos, pc, reportStr(rsemVmFieldInavailable, msg2))
     of opcSetLenStr:
       decodeB(rkNode)
       #createStrKeepNode regs[ra]

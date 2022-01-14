@@ -202,8 +202,8 @@ proc processOnOffSwitch(
     info: TLineInfo, switch: string
   ) =
   case arg.normalize
-  of "", "on": conf.options.incl op
-  of "off": conf.options.excl op
+  of "", "on": conf.incl op
+  of "off": conf.excl op
   else:
     conf.localReport(info, ExternalReport(
       kind: rextExpectedOnOrOff, cmdlineProvided: arg))
@@ -212,8 +212,8 @@ proc processOnOffSwitchOrList(conf: ConfigRef; op: TOptions, arg: string, pass: 
                               info: TLineInfo, switch: string): bool =
   result = false
   case arg.normalize
-  of "on": conf.options.incl op
-  of "off": conf.options.excl op
+  of "on": conf.incl op
+  of "off": conf.excl op
   of "list": result = true
   else:
     conf.localReport ExternalReport(
@@ -315,7 +315,6 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
       conf.localReport ExternalReport(kind: rextOnlyAllOffSupported)
 
     for n in notes:
-      echo "processing $1, on: $2, pass: $3" % [$n, $isOn, $pass]
       if n notin conf.cmdlineNotes or pass == passCmd1:
         if pass == passCmd1:
           conf.incl(cnCmdline, n)
@@ -327,7 +326,6 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
           conf.flip(cnWarnAsError, n, isOn)
 
         else:
-          echo "modifying note $1 to $2" % [$n, $isOn]
           conf.flip(cnCurrent, n, isOn)
           conf.flip(cnMainPackage, n, isOn)
 
@@ -645,12 +643,12 @@ proc specialDefine(conf: ConfigRef, key: string; pass: TCmdLinePass) =
     conf.exc = excQuirky
   elif cmpIgnoreStyle(key, "release") == 0 or cmpIgnoreStyle(key, "danger") == 0:
     if pass in {passCmd1, passPP}:
-      conf.options.excl {optStackTrace, optLineTrace, optLineDir, optOptimizeSize}
+      conf.excl {optStackTrace, optLineTrace, optLineDir, optOptimizeSize}
       conf.globalOptions.excl {optExcessiveStackTrace, optCDebug}
-      conf.options.incl optOptimizeSpeed
+      conf.incl optOptimizeSpeed
   if cmpIgnoreStyle(key, "danger") == 0 or cmpIgnoreStyle(key, "quick") == 0:
     if pass in {passCmd1, passPP}:
-      conf.options.excl {optObjCheck, optFieldCheck, optRangeCheck, optBoundsCheck,
+      conf.excl {optObjCheck, optFieldCheck, optRangeCheck, optBoundsCheck,
         optOverflowCheck, optAssert, optStackTrace, optLineTrace, optLineDir}
       conf.globalOptions.excl {optCDebug}
 
@@ -844,7 +842,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     case arg.normalize
     of "on", "native", "gdb":
       conf.globalOptions.incl optCDebug
-      conf.options.incl optLineDir
+      conf.incl optLineDir
       #defineSymbol(conf.symbols, "nimTypeNames") # type names are used in gdb pretty printing
     of "off":
       conf.globalOptions.excl optCDebug
@@ -854,7 +852,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
 
   of "g": # alias for --debugger:native
     conf.globalOptions.incl optCDebug
-    conf.options.incl optLineDir
+    conf.incl optLineDir
     #defineSymbol(conf.symbols, "nimTypeNames") # type names are used in gdb pretty printing
   of "profiler":
     processOnOffSwitch(conf, {optProfiler}, arg, pass, info, switch)
@@ -906,14 +904,14 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     expectArg(conf, switch, arg, pass, info)
     case arg.normalize
     of "speed":
-      incl(conf.options, optOptimizeSpeed)
-      excl(conf.options, optOptimizeSize)
+      incl(conf, optOptimizeSpeed)
+      excl(conf, optOptimizeSize)
     of "size":
-      excl(conf.options, optOptimizeSpeed)
-      incl(conf.options, optOptimizeSize)
+      excl(conf, optOptimizeSpeed)
+      incl(conf, optOptimizeSize)
     of "none":
-      excl(conf.options, optOptimizeSpeed)
-      excl(conf.options, optOptimizeSize)
+      excl(conf, optOptimizeSpeed)
+      excl(conf, optOptimizeSize)
     else:
       conf.localReport(info, ExternalReport(
         kind: rextInvalidValue,
@@ -1014,7 +1012,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "verbosity":
     expectArg(conf, switch, arg, pass, info)
     let verbosity = parseInt(arg)
-    if verbosity notin {0..3}:
+    if verbosity notin {0 .. 3}:
       conf.localReport(
         info, invalidSwitchValue @["0", "1", "2", "3"])
     conf.verbosity = verbosity
@@ -1247,7 +1245,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       defineSymbol(conf.symbols, "nimPanics")
   of "sourcemap": # xxx document in --fullhelp
     conf.globalOptions.incl optSourcemap
-    conf.options.incl optLineDir
+    conf.incl optLineDir
   of "deepcopy":
     processOnOffSwitchG(conf, {optEnableDeepCopy}, arg, pass, info, switch)
   of "": # comes from "-" in for example: `nim c -r -` (gets stripped from -)

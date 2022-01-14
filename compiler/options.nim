@@ -304,7 +304,7 @@ type
     backend*: TBackend ## set via `nim x` or `nim --backend:x`
     target*: Target       # (+)
     linesCompiled*: int   # all lines that have been compiled
-    options*: TOptions    # (+)
+    localOptions*: TOptions    # (+)
     globalOptions*: TGlobalOptions # (+)
     macrosToExpand*: StringTableRef
     arcToExpand*: StringTableRef
@@ -418,15 +418,36 @@ type
     ## case of the compilation failure. Populated in the `sigcall.matches`
 
 
+template changed(conf: ConfigRef, s: ConfNoteSet, body: untyped) =
+  # Template for debugging purposes - single place to track all changes in
+  # the enabled note sets.
+  when defined(debug):
+    let before = conf.noteSets[s]
+    body
+    let after = conf.noteSets[s]
+
+    # if (rextConf in before) != (rextConf in after):
+    #   writeStackTrace()
+    #   echo "changed conf $# -> $#" % [
+    #     $(rextConf in before) , $(rextConf in after)]
+
+  else:
+    body
 
 proc incl*(conf: ConfigRef, nset: ConfNoteSet, note: ReportKind) =
-  conf.noteSets[nset].incl note
+  changed(conf, nset):
+    conf.noteSets[nset].incl note
 
 proc excl*(conf: ConfigRef, nset: ConfNoteSet, note: ReportKind) =
-  conf.noteSets[nset].excl note
+  changed(conf, nset):
+    conf.noteSets[nset].excl note
 
 proc asgn*(conf: ConfigRef, nset: ConfNoteSet, notes: ReportKinds) =
-  conf.noteSets[nset] = notes
+  changed(conf, nset):
+    conf.noteSets[nset] = notes
+
+proc asgn*(conf: ConfigRef, sto, sfrom: ConfNoteSet) =
+  conf.noteSets[sto] = conf.noteSets[sfrom]
 
 proc flip*(
   conf: ConfigRef, nset: ConfNoteSet, note: ReportKind, state: bool) =
@@ -437,6 +458,30 @@ proc flip*(
     conf.excl(nset, note)
 
 
+func options*(conf: ConfigRef): TOptions =
+  result = conf.localOptions
+
+template changedOpts(conf: ConfigRef, body: untyped) =
+  when defined(debug):
+    let before = conf.localOptions
+    body
+    let after = conf.localOptions
+    let removed = (optHints in before) and (optHints notin after)
+
+  else:
+    body
+
+proc `options=`*(conf: ConfigRef, opts: TOptions) =
+  changedOpts(conf):
+    conf.localOptions = opts
+
+proc excl*(conf: ConfigRef, opt: TOption | TOptions) =
+  changedOpts(conf):
+    conf.localOptions.excl opt
+
+proc incl*(conf: ConfigRef, opt: TOption | TOptions) =
+  changedOpts(conf):
+    conf.localOptions.incl opt
 
 
 proc modifiedyNotes*(conf: ConfigRef): ReportKinds =

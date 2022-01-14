@@ -64,6 +64,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
 
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
     return
+
   mainCommand(graph)
   if conf.hasHint(rintGCStats):
     conf.localReport(InternalReport(
