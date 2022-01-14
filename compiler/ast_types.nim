@@ -1161,6 +1161,8 @@ type
 const emptyReportId* = ReportId(0)
 
 func `==`*(id1, id2: ReportId): bool = uint32(id1) == uint32(id2)
+func `<`*(id1, id2: ReportId): bool = uint32(id1) < uint32(id2)
+
 
 func isEmpty*(id: ReportId): bool = id == emptyReportId
 

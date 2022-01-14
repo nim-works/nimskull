@@ -456,6 +456,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
   proc render(t: PType): string = typeToString(t)
 
   case SemReportKind(r.kind):
+    of rsemTypelessParam:
+      result = "typeless param"
+
     of rsemLinterReport:
       result.addf("'$1' should be: '$2'", r.linterFail.got, r.linterFail.wanted)
 
@@ -1464,6 +1467,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
             of ssefParameterMutation:
               assert false, "Must be handled as a standalone effect"
 
+      if result[^1] == '\n':
+        result.setLen(result.high)
 
     of rsemCannotBeRaised:
       result = "only a 'ref object' can be raised"

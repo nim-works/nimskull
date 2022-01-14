@@ -121,7 +121,7 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
 
   if totalParams < genericParams:
     globalReport(conf, n.info, reportAst(
-      rsemMissingGenericParamsForTemplate, n))
+      rsemMissingGenericParamsForTemplate, n, sym = s))
 
   result = newNodeI(nkArgList, n.info)
   for i in 1..givenRegularParams:

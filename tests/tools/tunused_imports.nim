@@ -1,9 +1,10 @@
 discard """
   cmd: '''nim c --hint:Processing:off $file'''
+  joinable: false
   nimout: '''
-tunused_imports.nim(11, 10) Warning: BEGIN [User]
-tunused_imports.nim(36, 10) Warning: END [User]
-tunused_imports.nim(34, 8) Warning: imported and not used: 'strutils' [UnusedImport]
+tunused_imports.nim(12, 10) Warning: BEGIN [User]
+tunused_imports.nim(37, 10) Warning: END [User]
+tunused_imports.nim(35, 8) Warning: imported and not used: 'strutils' [UnusedImport]
 '''
   action: "compile"
 """

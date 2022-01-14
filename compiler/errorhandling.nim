@@ -35,6 +35,7 @@ import ast, msgs, options
 from lineinfos import unknownLineInfo
 from trees import cyclicTree
 import reports
+import std/algorithm
 
 proc errorSubNode*(n: PNode): PNode =
   ## find the first error node, or nil, under `n` using a depth first traversal
@@ -174,6 +175,10 @@ iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   assert n != nil
   var errNodes: seq[PNode] = @[]
   buildErrorList(config, n, errNodes)
+  # Reports must be written in order of their generation, regardless of how
+  # final ast was structured. Since ids are only incremented it is serves
+  # as a good way for ordering generated reports.
+  errNodes = sortedByIt(errNodes, it.reportId)
 
   # report from last to first (deepest in tree to highest)
   for i in 1..errNodes.len:
@@ -206,6 +211,10 @@ iterator anyErrorsWalk*(config: ConfigRef; n: PNode
 proc localReport*(conf: ConfigRef, node: PNode) =
   ## Write out existing sem report that is stored in the nkError node
   assert node.kind == nkError, $node.kind
+  # for err in walkErrors(conf, node):
+  #   if canReport(conf, err):
+  #     echo "writing err ", err.reportId
+
   for err in walkErrors(conf, node):
     if canReport(conf, err):
       handleReport(conf, err.reportId, doNothing)

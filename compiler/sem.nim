@@ -522,7 +522,8 @@ proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
 
   if suppliedParams < genericParams:
     globalReport(
-      c.config, info, reportAst(rsemMissingGenericParamsForTemplate, n))
+      c.config, info, reportAst(
+        rsemMissingGenericParamsForTemplate, n, sym = sym))
 
   let reportTraceExpand = c.config.macrosToExpand.hasKey(sym.name.s)
   var original: PNode

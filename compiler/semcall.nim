@@ -223,6 +223,7 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
   ## as semOverloadedCall is already pretty slow (and we need this information
   ## only in case of an error).
   ## returns an nkError
+  addInNimDebugUtils(c.config, "notFoundError")
   if c.config.m.errorOutputs == {}:
     # xxx: this is a hack to detect we're evaluating a constant expression or
     #      some other vm code, it seems
@@ -255,6 +256,9 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
   report.callMismatches = presentFailedCandidates(c, n, errors)
 
   result = newError(c.config, n, report)
+
+  c.config.localReport(result)
+
 
 proc bracketNotFoundError(c: PContext; n: PNode): PNode =
   var errors: CandidateErrors = @[]

@@ -1,5 +1,6 @@
 discard """
 action: compile
+joinable: false
 """
 
 # this test should ensure that the AST doesn't change slightly without it getting noticed.

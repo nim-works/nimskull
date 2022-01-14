@@ -111,8 +111,7 @@ proc createInterpreter*(
     registerOps: bool = true
   ): Interpreter =
 
-  var conf = newConfigRef()
-  conf.setReportHook(hook)
+  var conf = newConfigRef(hook)
   var cache = newIdentCache()
   var graph = newModuleGraph(cache, conf)
   connectCallbacks(graph)
@@ -144,15 +143,19 @@ proc destroyInterpreter*(i: Interpreter) =
 
 proc registerErrorHook*(
     i: Interpreter,
-    hook: proc (config: ConfigRef, report: Report) {.gcsafe.}
+    hook: proc (config: ConfigRef, report: Report): TErrorHandling {.gcsafe.}
   ) =
   i.graph.config.structuredReportHook = hook
 
-proc runRepl*(r: TLLRepl;
-              searchPaths: openArray[string];
-              supportNimscript: bool) =
+proc runRepl*(
+    r: TLLRepl;
+    searchPaths: openArray[string];
+    supportNimscript: bool,
+    reportHook: ReportHook
+  ) =
   ## deadcode but please don't remove... might be revived
-  var conf = newConfigRef()
+  var conf = newConfigRef(reportHook)
+
   var cache = newIdentCache()
   var graph = newModuleGraph(cache, conf)
 

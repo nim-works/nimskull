@@ -1,24 +1,14 @@
 discard """
   cmd: "nim c -d:useGcAssert $file"
-  output: '''running someProc(true)
-res: yes
-yes
-running someProc(false)
-res: 
-
-'''
+  joinable: false
 """
 
-proc someProc(x:bool):cstring =
+proc someProc(x:bool): cstring =
   var res:string = ""
   if x:
     res = "yes"
-  echo "res: ", res
   GC_ref(res)
   result = res
 
-echo "running someProc(true)"
-echo someProc(true)
-
-echo "running someProc(false)"
-echo someProc(false)
+doAssert someProc(true) == "yes".cstring
+doAssert someProc(false) == "".cstring

@@ -2047,13 +2047,8 @@ proc format*(dt: DateTime, f: static[string]): string {.raises: [].} =
 
 proc formatValue*(result: var string; value: DateTime, specifier: string) =
   ## adapter for strformat. Not intended to be called directly.
-  var specifier = specifier
-
-  if specifier.len != 0:
-    specifier = "yyyy-MM-dd'T'HH:mm:sszzz"
-
-  result.add format(value, specifier)
-
+  result.add format(value,
+    if specifier.len == 0: "yyyy-MM-dd'T'HH:mm:sszzz" else: specifier)
 
 proc format*(time: Time, f: string, zone: Timezone = local()): string
     {.raises: [TimeFormatParseError].} =

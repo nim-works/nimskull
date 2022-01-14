@@ -1,8 +1,8 @@
 discard """
 cmd: "nim check $file"
-errormsg: "'t' has unspecified generic parameters"
+action: reject
 nimout: '''
-t5167_5.nim(10, 16) Error: expression 'system' has no type (or is ambiguous)
+t5167_5.nim(10, 16) Error: expression has no type: system
 t5167_5.nim(21, 9) Error: 't' has unspecified generic parameters
 '''
 """

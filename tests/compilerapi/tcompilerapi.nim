@@ -29,7 +29,7 @@ proc initInterpreter(script: string, hook: ReportHook): Interpreter =
 
 type VMQuit = object of CatchableError
 
-proc vmReport(config: ConfigRef, report: Report) {.gcsafe.} =
+proc vmReport(config: ConfigRef, report: Report): TErrorHandling {.gcsafe.} =
   if config.severity(report) == rsevError and
      config.errorCounter >= config.errorMax:
 
