@@ -1,6 +1,6 @@
 discard """
-description: 'CLI and configuration file testing'
-joinable: false
+  description: '''CLI and configuration file testing'''
+  joinable: false
 """
 
 ## Unit tests for command line and configuration file processing. Tests are
