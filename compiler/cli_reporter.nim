@@ -82,20 +82,23 @@ proc formatTrace*(conf: ConfigRef, trace: seq[StackTraceEntry]): string =
       tern(idx < trace.high, "\n", "")
     )
 
-proc toStr(conf: ConfigRef, loc: TLineInfo): string =
+func dropExt(path: string, doDrop: bool): string =
+  if doDrop and path.endsWith(".nim"): path[0 .. ^5] else: path
+
+proc toStr(conf: ConfigRef, loc: TLineInfo, dropExt: bool = false): string =
   conf.wrap(
     "$1($2, $3)" % [
-      toFilenameOption(conf, loc.fileIndex, conf.filenameOption),
+      toFilenameOption(conf, loc.fileIndex, conf.filenameOption).dropExt(dropExt),
       $loc.line,
       $(loc.col + ColOffset)
     ],
     fgDefault,
     {styleBright})
 
-proc toStr(conf: ConfigRef, loc: ReportLineInfo): string =
+proc toStr(conf: ConfigRef, loc: ReportLineInfo, dropExt: bool = false): string =
   conf.wrap(
     "$1($2, $3)" % [
-      conf.formatPath(loc.file),
+      conf.formatPath(loc.file).dropExt(dropExt),
       $loc.line,
       $(loc.col + ColOffset)
     ],
@@ -2498,6 +2501,14 @@ proc suffix(
       conf.wrap("[MsgOrigin]", fgCyan)
     )
 
+    if r.reportInst != r.reportFrom:
+      result.add(
+        "\n",
+        conf.toStr(r.reportFrom),
+        " compiler report submitted here ",
+        conf.wrap("[MsgOrigin]", fgCyan)
+      )
+
 
 proc reportFull*(conf: ConfigRef, r: SemReport): string =
   assertKind r
@@ -2937,21 +2948,29 @@ proc reportFull*(conf: ConfigRef, r: ExternalReport): string =
   assertKind r
   reportBody(conf, r)
 
-proc reportBody*(conf: ConfigRef, r: DebugReport): string    =
+
+const
+  dropTraceExt = on
+  reportCaller = off
+
+proc reportBody*(conf: ConfigRef, r: DebugReport): string =
   assertKind r
   func toStr(opc: TOpcode): string = substr($opc, 3)
 
   case DebugReportKind(r.kind):
     of rdbgTraceStep:
       let s = r.semstep
-      result.addf("$1]", align($s.level, 2))
+      result.addf("$1]", align($s.level, 2, '#'))
       result.add(
         repeat("  ", s.level),
         tern(s.direction == semstepEnter, "> ", "< "),
         wrap(s.name, tern(s.direction == semstepEnter, fgGreen, fgRed)),
         " @ ",
-        wrap(conf.toStr(r.reportInst), fgCyan)
-      )
+        wrap(conf.toStr(r.reportInst, dropTraceExt), fgCyan),
+        tern(
+          reportCaller and s.steppedFrom.isValid(),
+          " from " & conf.toStr(s.steppedFrom, dropTraceExt),
+          ""))
 
     of rdbgTraceLine:
       let ind = repeat("  ", r.ctraceData.level)
@@ -2973,16 +2992,16 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string    =
         )
 
     of rdbgTraceStart:
-      result = "trace start"
+      result = ">>] trace start"
 
     of rdbgTraceEnd:
-      result = "trace end"
+      result = "<<] trace end"
 
     of rdbgTraceDefined:
-      result = "debug trace defined"
+      result = ">>] debug trace defined at " & toStr(conf, r.location.get())
 
     of rdbgTraceUndefined:
-      result = "debug trace undefined"
+      result = "<<] debug trace undefined " & toStr(conf, r.location.get())
 
     of rdbgVmExecTraceMinimal:
       result.addf(
@@ -3227,8 +3246,38 @@ const forceWrite = {
 
 const rdbgTracerKinds* = {rdbgTraceDefined .. rdbgTraceEnd}
 
+
+const
+  # additional configuration switches to control the behavior of the debug
+  # printer. Since most of them are for compiler debugging, you will most
+  # likely recompile the compiler anyway, so toggling couple hardcoded
+  # constants here is easier than dragging out completely unnecessary
+  # switches, or adding more magic `define()` blocks
+  semStack = off ## Show `| context` entries in the call tracer
+
+  reportInTrace = off ## Error messages are shown with matching indentation
+  ## if report was triggered during execution of the sem trace
+
+const traceDir = "nimCompilerDebugTraceDir"
 var traceIndex = 0
 var traceFile: File
+
+proc rotatedTrace(conf: ConfigRef, r: Report) =
+  # Dispatch each `{.define(nimCompilerDebug).}` section into separate file
+  case r.kind:
+    of rdbgTraceDefined, rdbgTraceStart:
+      if not existsDir(conf.getDefined(traceDir)):
+        createDir conf.getDefined(traceDir)
+
+      traceFile = open(conf.getDefined(traceDir) / $traceIndex, fmWrite)
+
+    of rdbgTraceUndefined, rdbgTraceEnd:
+      close(traceFile)
+      inc traceIndex
+
+    else:
+      traceFile.writeLine(conf.reportFull(r))
+
 
 proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   let tryhack = conf.m.errorOutputs == {}
@@ -3237,12 +3286,6 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   # comment
   assertKind r
 
-  # if r.kind == rextConf:
-  #   echo r
-  #   echo conf.isEnabled(r)
-  #   echo r.kind in conf.notes
-
-  const traceDir = "nimCompilerDebugTraceDir"
   if conf.isEnabled(r) and r.category == repDebug and tryhack:
     # Force write of the report messages using regular stdout if tryhack is
     # enabled
@@ -3252,19 +3295,7 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
     echo conf.reportFull(r)
 
   elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
-    case r.kind:
-      of rdbgTraceDefined, rdbgTraceStart:
-        if not existsDir(conf.getDefined(traceDir)):
-          createDir conf.getDefined(traceDir)
-
-        traceFile = open(conf.getDefined(traceDir) / $traceIndex, fmWrite)
-
-      of rdbgTraceUndefined, rdbgTraceEnd:
-        close(traceFile)
-        inc traceIndex
-
-      else:
-        traceFile.writeLine(conf.reportFull(r))
+    rotatedTrace(conf, r)
 
   elif (
     # Not explicitly enanled
@@ -3278,14 +3309,40 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
     # Return without writing
     return
 
+  elif not semStack and r.kind == rdbgTraceLine:
+    # Optionally Ignore context stacktrace
+    return
+
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
+    # REFACTOR 'processing with dots' - requires special hacks, pretty
+    # useless, need to be removed in the future.
     conf.write(".")
     lastDot = true
 
   else:
-    assert r.kind != rcmdLinking
     if lastDot:
       conf.writeln("")
       lastDot = false
 
-    conf.writeln(conf.reportFull(r))
+    if reportInTrace:
+      var indent {.global.}: int
+      if r.kind == rdbgTraceStep:
+        indent = r.debugReport.semstep.level
+
+      case r.kind:
+        of rdbgTracerKinds:
+          conf.writeln(conf.reportFull(r))
+
+        of repSemKinds:
+          if 0 < indent:
+            for line in conf.reportFull(r).splitLines():
+              conf.writeln("  ]", repeat("  ", indent), " ! ", line)
+
+          else:
+            conf.writeln(conf.reportFull(r))
+
+        else:
+          conf.writeln(conf.reportFull(r))
+
+    else:
+      conf.writeln(conf.reportFull(r))

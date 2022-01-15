@@ -485,10 +485,12 @@ proc getSurroundingSrc(conf: ConfigRef; info: TLineInfo): string =
 proc handleReport*(
     conf: ConfigRef,
     report: Report,
+    reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing
   ) {.noinline.} =
 
   var report = report
+  report.reportFrom = toReportLineInfo(reportFrom)
   if report.category == repSem:
     if report.location.isSome():
       report.semReport.context = conf.getContext(
@@ -515,12 +517,13 @@ proc handleReport*(
 proc handleReport*(
     conf: ConfigRef,
     id: ReportId,
+    reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing
   ) =
 
   if conf.canReport(id):
     conf.m.writtenSemReports.incl id
-    conf.handleReport(conf.m.reports.getReport(id))
+    conf.handleReport(conf.m.reports.getReport(id), reportFrom, eh)
 
 
 template globalAssert*(
@@ -536,29 +539,35 @@ template globalReport*(
   conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   ## `local` means compilation keeps going until errorMax is reached (via
   ## `doNothing`), `global` means it stops.
-  handleReport(conf, wrap(report, instLoc(), info), doRaise)
+  handleReport(
+    conf, wrap(report, instLoc(), info), instLoc(), doRaise)
 
 template globalReport*(conf: ConfigRef, report: ReportTypes) =
-  handleReport(conf, wrap(report, instLoc()), doRaise)
+  handleReport(
+    conf, wrap(report, instLoc()), instLoc(), doRaise)
 
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   {.line.}:
-    handleReport(conf, wrap(report, instLoc(), info), doNothing)
+    handleReport(
+      conf, wrap(report, instLoc(), info), instLoc(), doNothing)
 
 template localReport*(conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
-  handleReport(conf, wrap(report, instLoc(), info), doNothing)
+  handleReport(
+    conf, wrap(report, instLoc(), info), instLoc(), doNothing)
 
 template localReport*(conf: ConfigRef; node: PNode, report: SemReport) =
   var tmp = report
   if isNil(tmp.ast):
     tmp.ast = node
-  handleReport(conf, wrap(tmp, instLoc(), node.info), doNothing)
+  handleReport(
+    conf, wrap(tmp, instLoc(), node.info), instLoc(), doNothing)
 
 proc temporaryStringError*(conf: ConfigRef, info: TLineInfo, text: string) =
   assert false
 
 template localReport*(conf: ConfigRef, report: ReportTypes) =
-  handleReport(conf, wrap(report, instLoc()), doNothing)
+  handleReport(
+    conf, wrap(report, instLoc()), instLoc(), doNothing)
 
 
 proc semReportCountMismatch*(
@@ -579,6 +588,7 @@ template semReportIllformedAst*(
       SemReport(kind: rsemIllformedAst, ast: node ),
       instLoc(),
       node.info),
+    instLoc(),
     doNothing)
 
 proc joinAnyOf*[T](values: seq[T], quote: bool = false): string =
@@ -619,7 +629,7 @@ template semReportIllformedAst*(
   semReportIllformedAst(conf, node, msg)
 
 template localReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
-  handleReport(conf, wrap(report, instLoc(), info), doNothing)
+  handleReport(conf, wrap(report, instLoc(), info), instLoc(), doNothing)
 
 template internalAssert*(
     conf: ConfigRef, e: bool, failMsg: string = "") =
@@ -629,6 +639,7 @@ template internalAssert*(
       conf,
       wrap(InternalReport(
         kind: rintAssert, msg: failMsg), instLoc()),
+      instLoc(),
       doAbort
     )
 
@@ -639,14 +650,17 @@ template internalError*(
       kind: repKind,
       msg: fail),
          instLoc()),
+    instLoc(),
     doAbort
   )
 
 template internalError*(
     conf: ConfigRef, info: TLineInfo,
     repKind: InternalReportKind, fail: string): untyped =
-  conf.handleReport(wrap(InternalReport(
-    kind: repKind, msg: fail), instLoc(), info), doAbort)
+  conf.handleReport(wrap(
+    InternalReport(
+      kind: repKind, msg: fail), instLoc(), info),
+                    instLoc(), doAbort)
 
 template internalError*(
     conf: ConfigRef,
@@ -656,7 +670,7 @@ template internalError*(
 
   conf.handleReport(wrap(
     InternalReport(kind: rintUnreachable, msg: fail),
-    instLoc(), info), doAbort)
+    instLoc(), info), instLoc(), doAbort)
 
 
 template internalError*(
@@ -665,7 +679,7 @@ template internalError*(
   ): untyped =
 
   conf.handleReport(wrap(InternalReport(
-    kind: rintUnreachable, msg: fail), instLoc()), doAbort)
+    kind: rintUnreachable, msg: fail), instLoc()), instLoc(), doAbort)
 
 
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =

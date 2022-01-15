@@ -677,7 +677,8 @@ proc processDefine(c: PContext, n: PNode): PNode =
   if (n.kind in nkPragmaCallKinds and n.len == 2) and (n[1].kind == nkIdent):
     let str = n[1].ident.s
     if defined(nimCompilerDebug) and str == "nimCompilerDebug":
-      c.config.localReport DebugReport(kind: rdbgTraceDefined)
+      c.config.localReport(
+        n.info, DebugReport(kind: rdbgTraceDefined))
 
     defineSymbol(c.config.symbols, str)
     n
@@ -691,7 +692,8 @@ proc processUndef(c: PContext, n: PNode): PNode =
   if (n.kind in nkPragmaCallKinds and n.len == 2) and (n[1].kind == nkIdent):
     let str = n[1].ident.s
     if defined(nimCompilerDebug) and str == "nimCompilerDebug":
-      c.config.localReport DebugReport(kind: rdbgTraceUndefined)
+      c.config.localReport(
+        n.info, DebugReport(kind: rdbgTraceUndefined))
 
     undefSymbol(c.config.symbols, str)
     n

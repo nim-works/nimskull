@@ -143,9 +143,10 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode;
           direction: semstepEnter,
           level: indentLevel,
           name: action,
+          steppedFrom: calledFromInfo(),
           node: r,
           kind: stepNodeFlagsToNode,
-          flags: flags))))
+          flags: flags))), instLoc(instDepth))
 
     template leaveMsg(indentLevel: int) =
       handleReport(c, wrap(instLoc(instDepth), DebugReport(
@@ -154,9 +155,10 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode;
           direction: semstepLeave,
           level: indentLevel,
           name: action,
+          steppedFrom: calledFromInfo(),
           node: r,
           kind: stepNodeFlagsToNode,
-          flags: flags))))
+          flags: flags))), instLoc(instDepth))
 
     template getInfo(): string =
       c$n.info
@@ -175,8 +177,9 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode) =
           direction: semstepEnter,
           level: indentLevel,
           name: action,
+          steppedFrom: calledFromInfo(),
           node: n,
-          kind: stepNodeToNode))))
+          kind: stepNodeToNode))), instLoc(instDepth))
 
     template leaveMsg(indentLevel: int) =
       handleReport(c, wrap(instLoc(instDepth), DebugReport(
@@ -185,8 +188,9 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode) =
           direction: semstepLeave,
           level: indentLevel,
           name: action,
+          steppedFrom: calledFromInfo(),
           node: r,
-          kind: stepNodeToNode))))
+          kind: stepNodeToNode))), instLoc(instDepth))
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
@@ -203,9 +207,10 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
           direction: semstepEnter,
           level: indentLevel,
           name: action,
+          steppedFrom: calledFromInfo(),
           node: n,
           typ: prev,
-          kind: stepNodeTypeToNode))))
+          kind: stepNodeTypeToNode))), instLoc(instDepth))
 
     template leaveMsg(indentLevel: int) =
       handleReport(c, wrap(instLoc(instDepth), DebugReport(
@@ -214,9 +219,10 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
           direction: semstepLeave,
           level: indentLevel,
           name: action,
+          steppedFrom: calledFromInfo(),
           node: n,
           typ: r,
-          kind: stepNodeTypeToNode))))
+          kind: stepNodeTypeToNode))), instLoc(instDepth))
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
@@ -231,9 +237,10 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; x, y, r: PType) =
           direction: semstepEnter,
           level: indentLevel,
           name: action,
+          steppedFrom: calledFromInfo(),
           typ: x,
           typ1: y,
-          kind: stepTypeTypeToType))))
+          kind: stepTypeTypeToType))), instLoc(instDepth))
 
     template leaveMsg(indentLevel: int) =
       handleReport(c, wrap(instLoc(instDepth), DebugReport(
@@ -242,8 +249,9 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; x, y, r: PType) =
           direction: semstepLeave,
           level: indentLevel,
           name: action,
+          steppedFrom: calledFromInfo(),
           typ: r,
-          kind: stepTypeTypeToType))))
+          kind: stepTypeTypeToType))), instLoc(instDepth))
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
@@ -256,13 +264,17 @@ template addInNimDebugUtils*(c: ConfigRef; action: string) =
         kind: rdbgTraceStep,
         semstep: DebugSemStep(
           direction: semstepEnter,
-          level: indentLevel, name: action, kind: stepTrack))))
+          steppedFrom: calledFromInfo(),
+          level: indentLevel, name: action,
+          kind: stepTrack))), instLoc(instDepth))
 
     template leaveMsg(indentLevel: int) =
       handleReport(c, wrap(instLoc(instDepth), DebugReport(
         kind: rdbgTraceStep,
         semstep: DebugSemStep(
           direction: semstepLeave,
-          level: indentLevel, name: action, kind: stepTrack))))
+          steppedFrom: calledFromInfo(),
+          level: indentLevel, name: action,
+          kind: stepTrack))), instLoc(instDepth))
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)

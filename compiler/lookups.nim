@@ -91,7 +91,6 @@ proc considerQuotedIdent*(c: PContext; n: PNode, origin: PNode = nil): PIdent =
   template handleError(n, origin: PNode) =
     noidentError(c.config, n, origin)
     result = getIdent(c.cache, "<Error>")
-  addInNimDebugUtils(c.config, "considerQuotedIdent", n, origin)
 
   case n.kind
   of nkIdent: result = n.ident

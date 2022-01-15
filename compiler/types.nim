@@ -1582,7 +1582,7 @@ proc typeMismatch*(
     result = newError(n, rsemTypeMismatch, conf.store(info, rep), instLoc())
     result.info = info
 
-    conf.localReport(result)
+    # conf.localReport(result)
 
 proc semReportTypeMismatch*(
     conf: ConfigRef,

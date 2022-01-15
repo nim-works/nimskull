@@ -268,15 +268,16 @@ template eatChar(L: var Lexer, t: var Token) =
   inc(L.bufpos)
 
 template localReport*(L: Lexer, report: ReportTypes): untyped =
-  L.config.handleReport(wrap(report, instLoc(), getLineInfo(L)))
+  L.config.handleReport(wrap(report, instLoc(), getLineInfo(L)), instLoc())
 
 template localReportTok*(L: Lexer, report: ReportTypes, tok: Token): untyped =
   L.config.handleReport(wrap(
-    report, instLoc(), newLineInfo(L.fileIdx, tok.line, tok.col)))
+    report, instLoc(), newLineInfo(L.fileIdx, tok.line, tok.col)), instLoc())
 
 template localReportPos*(L: Lexer, report: ReportTypes, pos: int): untyped =
   L.config.handleReport(wrap(
-    report, instLoc(), newLineInfo(L.fileIdx, L.lineNumber, pos - L.lineStart)))
+    report, instLoc(), newLineInfo(
+      L.fileIdx, L.lineNumber, pos - L.lineStart)), instLoc())
 
 
 proc getNumber(L: var Lexer, result: var Token) =

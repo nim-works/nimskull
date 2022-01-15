@@ -143,11 +143,13 @@ template localError(p: Parser, report: ParserReport): untyped =
   if rep.found.len == 0:
     rep.found = prettyTok(p.tok)
 
-  p.lex.config.handleReport(wrap(rep, instLoc(), getLineInfo(p.lex, p.tok)))
+  p.lex.config.handleReport(
+    wrap(rep, instLoc(), getLineInfo(p.lex, p.tok)), instLoc())
 
 
 template localError(p: Parser, report: ReportTypes): untyped =
-  p.lex.config.handleReport(wrap(report, instLoc(), getLineInfo(p.lex, p.tok)))
+  p.lex.config.handleReport(
+    wrap(report, instLoc(), getLineInfo(p.lex, p.tok)), instLoc())
 
 template withInd(p, body: untyped) =
   let oldInd = p.currInd

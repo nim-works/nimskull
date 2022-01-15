@@ -1006,6 +1006,9 @@ type
     ## of the reports - present for all reports in order to track their
     ## origins.
 
+    reportFrom*: ReportLineInfo ## Information about submit location of the
+    ## report
+
 type
   LexerReportKind* = range[rlexMalformedUnderscores .. rlexSyntaxesCode]
   LexerReport* = object of ReportBase
@@ -1472,6 +1475,7 @@ type
     level*: int
     name*: string
     node*: PNode
+    steppedFrom*: ReportLineInfo
     case kind*: DebugSemStepKind
       of stepNodeToNode, stepTrack:
         discard
@@ -1820,6 +1824,18 @@ template eachCategory*(report: Report, field: untyped): untyped =
 func kind*(report: Report): ReportKind = eachCategory(report, kind)
 func location*(report: Report): Option[TLineInfo] = eachCategory(report, location)
 func reportInst*(report: Report): ReportLineInfo = eachCategory(report, reportInst)
+func reportFrom*(report: Report): ReportLineInfo = eachCategory(report, reportFrom)
+
+func `reportFrom=`*(report: var Report, loc: ReportLineInfo) =
+  case report.category:
+    of repLexer:    report.lexReport.reportFrom = loc
+    of repParser:   report.parserReport.reportFrom = loc
+    of repCmd:      report.cmdReport.reportFrom = loc
+    of repSem:      report.semReport.reportFrom = loc
+    of repDebug:    report.debugReport.reportFrom = loc
+    of repInternal: report.internalReport.reportFrom = loc
+    of repBackend:  report.backendReport.reportFrom = loc
+    of repExternal: report.externalReport.reportFrom = loc
 
 func category*(kind: ReportKind): ReportCategory =
   case kind:
@@ -1875,6 +1891,10 @@ func severity*(
 
 func toReportLineInfo*(iinfo: InstantiationInfo): ReportLineInfo =
   ReportLineInfo(file: iinfo[0], line: uint16(iinfo[1]), col: int16(iinfo[2]))
+
+template calledFromInfo*(): ReportLineInfo =
+  let e = getStackTraceEntries()[^2]
+  ReportLineInfo(file: $e.filename, line: e.line.uint16)
 
 func isValid*(point: ReportLineInfo): bool =
   0 < point.file.len and point.file != "???"

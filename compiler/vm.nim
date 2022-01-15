@@ -67,7 +67,7 @@ proc stackTraceImpl(
 
   let report = wrap(res, infoOrigin, lineInfo)
 
-  c.config.handleReport(report, action)
+  c.config.handleReport(report, infoOrigin, action)
 
 
 template stackTrace(
