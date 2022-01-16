@@ -896,7 +896,7 @@ proc handleStmtMacro(c: PContext; n, selector: PNode; magicType: string;
     callExpr.add newSymNode(match)
     callExpr.add n
     case match.kind
-    of skMacro: result = semMacroExpr(c, callExpr, callExpr, match, flags)
+    of skMacro: result = semMacroExpr(c, callExpr, match, flags)
     of skTemplate: result = semTemplateExpr(c, callExpr, match, flags)
     else: result = nil
 
@@ -912,7 +912,7 @@ proc handleCaseStmtMacro(c: PContext; n: PNode; flags: TExprFlags): PNode =
   toResolve.add n[0]
 
   var errors: CandidateErrors
-  var r = resolveOverloads(c, toResolve, toResolve, {skTemplate, skMacro}, {},
+  var r = resolveOverloads(c, toResolve, {skTemplate, skMacro}, {},
                            errors, false)
   if r.state == csMatch:
     var match = r.calleeSym
@@ -923,7 +923,7 @@ proc handleCaseStmtMacro(c: PContext; n: PNode; flags: TExprFlags): PNode =
     r.call[1] = n
     let toExpand = semResolvedCall(c, r, r.call, {})
     case match.kind
-    of skMacro: result = semMacroExpr(c, toExpand, toExpand, match, flags)
+    of skMacro: result = semMacroExpr(c, toExpand, match, flags)
     of skTemplate: result = semTemplateExpr(c, toExpand, match, flags)
     else: result = nil
   else:
@@ -1623,7 +1623,7 @@ proc semProcAnnotation(c: PContext, prc: PNode;
     x.add(prc)
 
     # recursion assures that this works for multiple macro annotations too:
-    var r = semOverloadedCall(c, x, x, {skMacro, skTemplate}, {efNoUndeclared})
+    var r = semOverloadedCall(c, x, {skMacro, skTemplate}, {efNoUndeclared})
     if r == nil:
       # Restore the old list of pragmas since we couldn't process this
       prc[pragmasPos] = n
@@ -1640,7 +1640,7 @@ proc semProcAnnotation(c: PContext, prc: PNode;
     doAssert r[0].kind == nkSym
     let m = r[0].sym
     case m.kind
-    of skMacro: result = semMacroExpr(c, r, r, m, {})
+    of skMacro: result = semMacroExpr(c, r, m, {})
     of skTemplate: result = semTemplateExpr(c, r, m, {})
     else:
       prc[pragmasPos] = n

@@ -11,12 +11,11 @@
 
 proc hlo(c: PContext, n: PNode): PNode
 
-proc evalPattern(c: PContext, n, orig: PNode): PNode =
+proc evalPattern(c: PContext, n: PNode): PNode =
   internalAssert(
     c.config,
     n.kind == nkCall and n[0].kind == nkSym,
     "Expected call node")
-
   # we need to ensure that the resulting AST is semchecked. However, it's
   # awful to semcheck before macro invocation, so we don't and treat
   # templates and macros as immediate in this context.
@@ -27,7 +26,7 @@ proc evalPattern(c: PContext, n, orig: PNode): PNode =
   let s = n[0].sym
   case s.kind
   of skMacro:
-    result = semMacroExpr(c, n, orig, s)
+    result = semMacroExpr(c, n, s)
 
   of skTemplate:
     result = semTemplateExpr(c, n, s, {efFromHlo})
@@ -36,9 +35,9 @@ proc evalPattern(c: PContext, n, orig: PNode): PNode =
     result = semDirectOp(c, n, {})
 
   if c.config.hasHint(rsemPattern):
-    c.config.localReport(orig.info, SemReport(
+    c.config.localReport(n.info, SemReport(
       kind: rsemPattern,
-      ast: original,
+      ast: n,
       expandedAst: result))
 
 proc applyPatterns(c: PContext, n: PNode): PNode =
@@ -62,10 +61,10 @@ proc applyPatterns(c: PContext, n: PNode): PNode =
         c.patterns[i] = nil
         if x.kind == nkStmtList:
           assert x.len == 3
-          x[1] = evalPattern(c, x[1], result)
+          x[1] = evalPattern(c, x[1])
           result = flattenStmts(x)
         else:
-          result = evalPattern(c, x, result)
+          result = evalPattern(c, x)
         dec(c.config.evalTemplateCounter)
         # activate this pattern again:
         c.patterns[i] = pattern

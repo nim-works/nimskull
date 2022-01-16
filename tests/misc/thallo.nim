@@ -19,14 +19,12 @@ proc fac[T](x: T): T =
   if x <= 1: return 1
   else: return x.`*`(fac(x-1))
 
-macro macrotest(n: varargs[untyped]): untyped =
-  let n = callsite()
-  expectKind(n, nnkCall)
-  expectMinLen(n, 2)
-  result = newNimNode(nnkStmtList, n)
-  for i in 2..n.len-1:
-    result.add(newCall("write", n[1], n[i]))
-  result.add(newCall("writeLine", n[1], newStrLitNode("")))
+macro macrotest(file: File; n: varargs[untyped]): untyped =
+  expectKind(n, nnkArgList)
+  result = newStmtList()
+  for arg in n:
+    result.add(newCall("write", file, arg))
+  result.add(newCall("writeLine", file, newStrLitNode("")))
 
 macro debug(n: untyped): untyped =
   let n = callsite()

@@ -373,7 +373,7 @@ proc semDirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode
 proc semWhen(c: PContext, n: PNode, semCheck: bool = true): PNode
 proc semTemplateExpr(c: PContext, n: PNode, s: PSym,
                      flags: TExprFlags = {}): PNode
-proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
+proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
                   flags: TExprFlags = {}): PNode
 
 proc symFromType(c: PContext; t: PType, info: TLineInfo): PSym =
@@ -570,10 +570,10 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
   dec(c.config.evalTemplateCounter)
   discard c.friendModules.pop()
 
-proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
+proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
                   flags: TExprFlags = {}): PNode =
-  rememberExpansion(c, nOrig.info, sym)
-  pushInfoContext(c.config, nOrig.info, sym)
+  rememberExpansion(c, n.info, sym)
+  pushInfoContext(c.config, n.info, sym)
 
   let info = getCallLineInfo(n)
   markUsed(c, info, sym)
@@ -595,19 +595,19 @@ proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
     original = n
 
   result = evalMacroCall(
-    c.module, c.idgen, c.graph, c.templInstCounter, n, nOrig, sym)
+    c.module, c.idgen, c.graph, c.templInstCounter, n, sym)
 
   if efNoSemCheck notin flags:
     result = semAfterMacroCall(c, n, result, sym, flags)
 
   if reportTraceExpand:
-    c.config.localReport(nOrig.info, SemReport(
+    c.config.localReport(n.info, SemReport(
       sym: sym,
       kind: rsemExpandMacro,
-      ast: original,
+      ast: n,
       expandedAst: result))
 
-  result = wrapInComesFrom(nOrig.info, sym, result)
+  result = wrapInComesFrom(n.info, sym, result)
   popInfoContext(c.config)
 
 proc forceBool(c: PContext, n: PNode): PNode =

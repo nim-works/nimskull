@@ -6,9 +6,8 @@ discard """
 import macros
 
 macro quoteWords(n: varargs[untyped]): untyped =
-  let n = callsite()
-  result = newNimNode(nnkBracket, n)
-  for i in 1..n.len-1:
+  result = newNimNode(nnkBracket)
+  for i in 0 ..< n.len:
     expectKind(n[i], nnkIdent)
     result.add(toStrLit(n[i]))
 
