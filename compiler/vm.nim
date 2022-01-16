@@ -22,7 +22,7 @@ import ast except getstr
 from semfold import leValueConv, ordinalValToString
 from evaltempl import evalTemplate
 from magicsys import getSysType
-
+from astalgo import debug
 const
   traceCode = defined(nimVMDebug)
 
@@ -2287,7 +2287,7 @@ const evalMacroLimit = 1000
 proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstCounter: ref int;
                     n, nOrig: PNode, sym: PSym): PNode =
   #if g.config.errorCounter > 0: return errorNode(idgen, module, n)
-
+  debug( module )
   # XXX globalError() is ugly here, but I don't know a better solution for now
   inc(g.config.evalMacroCounter)
   if g.config.evalMacroCounter > evalMacroLimit:

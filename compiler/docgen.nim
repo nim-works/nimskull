@@ -1072,7 +1072,7 @@ proc exportSym(d: PDoc; s: PSym) =
                    changeFileExt(external, "html"),
                    symbolOrId])
 
-proc documentNewEffect(cache: IdentCache; n: PNode): PNode =
+proc documentNewEffect(cache: f; n: PNode): PNode =
   let s = n[namePos].sym
   if tfReturnsNew in s.typ.flags:
     result = newIdentNode(getIdent(cache, "new"), n.info)
