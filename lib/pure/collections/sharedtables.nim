@@ -27,6 +27,9 @@ type
 
 template maxHash(t): untyped = t.dataLen-1
 
+template checkIfInitialized() =
+  assert t.data != nil, "shared table use before initialization"
+
 include tableimpl
 
 template st_maybeRehashPutImpl(enlarge) {.dirty.} =
