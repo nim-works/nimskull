@@ -17,10 +17,10 @@ proc semAddrArg(c: PContext; n: PNode; isUnsafeAddr = false): PNode =
   if isAssignable(c, x, isUnsafeAddr) notin {arLValue, arLocalLValue}:
     # Do not suggest the use of unsafeAddr if this expression already is a
     # unsafeAddr
-    if isUnsafeAddr:
-      localError(c.config, n.info, errExprHasNoAddress)
-    else:
-      localError(c.config, n.info, errExprHasNoAddress & "; maybe use 'unsafeAddr'")
+    localReport(c.config, n.info) do:
+      reportSem(rsemExprHasNoAddress).withIt do:
+        it.isUnsafeAddr = isUnsafeAddr
+
   result = x
 
 proc semTypeOf(c: PContext; n: PNode): PNode =
@@ -28,7 +28,7 @@ proc semTypeOf(c: PContext; n: PNode): PNode =
   if n.len == 3:
     let mode = semConstExpr(c, n[2])
     if mode.kind != nkIntLit:
-      localError(c.config, n.info, "typeof: cannot evaluate 'mode' parameter at compile-time")
+      localReport(c.config, n, reportSem rsemVmCannotEvaluateAtComptime)
     else:
       m = mode.intVal
   result = newNodeI(nkTypeOfExpr, n.info)
@@ -75,7 +75,7 @@ proc expectIntLit(c: PContext, n: PNode): int =
   let x = c.semConstExpr(c, n)
   case x.kind
   of nkIntLit..nkInt64Lit: result = int(x.intVal)
-  else: localError(c.config, n.info, errIntLiteralExpected)
+  else: localReport(c.config, n, reportSem rsemIntLiteralExpected)
 
 proc semInstantiationInfo(c: PContext, n: PNode): PNode =
   result = newNodeIT(nkTupleConstr, n.info, n.typ)
@@ -124,7 +124,7 @@ proc getTypeDescNode(c: PContext; typ: PType, sym: PSym, info: TLineInfo): PNode
 proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym): PNode =
   const skippedTypes = {tyTypeDesc, tyAlias, tySink}
   let trait = traitCall[0]
-  internalAssert c.config, trait.kind == nkSym
+  internalAssert(c.config, trait.kind == nkSym, "")
   var operand = operand.skipTypes(skippedTypes)
 
   template operand2: PType =
@@ -169,7 +169,13 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
     #   var resType = newType(tySequence, operand.owner)
     #   result = toNode(resType, traitCall.info) # doesn't work yet
     else:
-      localError(c.config, traitCall.info, "expected generic type, got: type $2 of kind $1" % [arg.kind.toHumanStr, typeToString(operand)])
+      localReport(
+        c.config,
+        traitCall.info,
+        SemReport(
+          kind: rsemGenericTypeExpected,
+          typeMismatch: @[c.config.typeMismatch({tyGenericInst}, arg)]))
+
       result = newType(tyError, nextTypeId c.idgen, context).toNode(traitCall.info)
   of "stripGenericParams":
     result = uninstantiate(operand).toNode(traitCall.info)
@@ -194,13 +200,15 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
       if not rec: break
     result = getTypeDescNode(c, arg, operand.owner, traitCall.info)
   else:
-    localError(c.config, traitCall.info, "unknown trait: " & s)
+    localReport(c.config, traitCall.info, reportSym(
+      rsemUnknownTrait, trait.sym))
+
     result = newNodeI(nkEmpty, traitCall.info)
 
 proc semTypeTraits(c: PContext, n: PNode): PNode =
   checkMinSonsLen(n, 2, c.config)
   let t = n[1].typ
-  internalAssert c.config, t != nil and t.kind == tyTypeDesc
+  internalAssert(c.config, t != nil and t.kind == tyTypeDesc, "")
   if t.len > 0:
     # This is either a type known to sem or a typedesc
     # param to a regular proc (again, known at instantiation)
@@ -215,7 +223,8 @@ proc semOrd(c: PContext, n: PNode): PNode =
   if isOrdinalType(parType, allowEnumWithHoles=true):
     discard
   else:
-    result = newError(n, errOrdinalTypeExpected)
+    result = c.config.newError(n, reportTyp(rsemExpectedOrdinal, parType))
+
     result.typ = errorType(c)
 
 proc semBindSym(c: PContext, n: PNode): PNode =
@@ -224,12 +233,12 @@ proc semBindSym(c: PContext, n: PNode): PNode =
 
   let sl = semConstExpr(c, n[1])
   if sl.kind notin {nkStrLit, nkRStrLit, nkTripleStrLit}:
-    return localErrorNode(c, n, n[1].info, errStringLiteralExpected)
+    return newError(c.config, n, reportSem rsemStringLiteralExpected)
 
   let isMixin = semConstExpr(c, n[2])
   if isMixin.kind != nkIntLit or isMixin.intVal < 0 or
       isMixin.intVal > high(TSymChoiceRule).int:
-    return localErrorNode(c, n, n[2].info, errConstExprExpected)
+    return newError(c.config, n, reportSem rsemConstExprExpected)
 
   let id = newIdentNode(getIdent(c.cache, sl.strVal), n.info)
   let s = qualifiedLookUp(c, id, {checkUndeclared})
@@ -246,10 +255,10 @@ proc semBindSym(c: PContext, n: PNode): PNode =
 
 proc opBindSym(c: PContext, scope: PScope, n: PNode, isMixin: int, info: PNode): PNode =
   if n.kind notin {nkStrLit, nkRStrLit, nkTripleStrLit, nkIdent}:
-    return localErrorNode(c, n, info.info, errStringOrIdentNodeExpected)
+    return newError(c.config, n, reportSem rsemStringOrIdentNodeExpected, posInfo = info.info)
 
   if isMixin < 0 or isMixin > high(TSymChoiceRule).int:
-    return localErrorNode(c, n, info.info, errConstExprExpected)
+    return newError(c.config, n, reportSem rsemConstExprExpected, posInfo = info.info)
 
   let id = if n.kind == nkIdent: n
     else: newIdentNode(getIdent(c.cache, n.strVal), info.info)
@@ -317,9 +326,9 @@ proc semOf(c: PContext, n: PNode): PNode =
     let y = skipTypes(n[2].typ, abstractPtrs-{tyTypeDesc})
 
     if x.kind == tyTypeDesc or y.kind != tyTypeDesc:
-      localError(c.config, n.info, "'of' takes object types")
+      localReport(c.config, n, reportSem rsemExpectedObjectForOf)
     elif b.kind != tyObject or a.kind != tyObject:
-      localError(c.config, n.info, "'of' takes object types")
+      localReport(c.config, n, reportSem rsemExpectedObjectForOf)
     else:
       let diff = inheritanceDiff(a, b)
       # | returns: 0 iff `a` == `b`
@@ -328,21 +337,26 @@ proc semOf(c: PContext, n: PNode): PNode =
       # | returns: `maxint` iff `a` and `b` are not compatible at all
       if diff <= 0:
         # optimize to true:
-        message(c.config, n.info, hintConditionAlwaysTrue, renderTree(n))
+        localReport(c.config, n, reportSem rsemConditionAlwaysTrue)
         result = newIntNode(nkIntLit, 1)
         result.info = n.info
         result.typ = getSysType(c.graph, n.info, tyBool)
         return result
       elif diff == high(int):
         if commonSuperclass(a, b) == nil:
-          localError(c.config, n.info, "'$1' cannot be of this subtype" % typeToString(a))
+          localReport(c.config, n.info, SemReport(
+            kind: rsemCannotBeOfSubtype,
+            typeMismatch: @[c.config.typeMismatch(actual = a, formal = b)]))
+
         else:
-          message(c.config, n.info, hintConditionAlwaysFalse, renderTree(n))
+          localReport(c.config, n, reportSem rsemConditionAlwaysFalse)
           result = newIntNode(nkIntLit, 0)
           result.info = n.info
           result.typ = getSysType(c.graph, n.info, tyBool)
   else:
-    localError(c.config, n.info, "'of' takes 2 arguments")
+    localReport(c.config, n.info, semReportCountMismatch(
+      rsemWrongNumberOfArguments, expected = 2, got = n.len - 1, node = n))
+
   n.typ = getSysType(c.graph, n.info, tyBool)
   result = n
 
@@ -439,17 +453,21 @@ proc semQuantifier(c: PContext; n: PNode): PNode =
         addDecl(c, v)
         result.add newTree(nkInfix, it[0], newSymNode(v), domain)
     if not valid:
-      localError(c.config, n.info, "<quantifier> 'in' <range> expected")
+      localReport(c.config, n, reportSem rsemQuantifierInRangeExpected)
   result.add forceBool(c, semExprWithType(c, args[^1]))
   closeScope(c)
 
 proc semOld(c: PContext; n: PNode): PNode =
   if n[1].kind == nkHiddenDeref:
     n[1] = n[1][0]
+
   if n[1].kind != nkSym or n[1].sym.kind != skParam:
-    localError(c.config, n[1].info, "'old' takes a parameter name")
+    localReport(c.config, n[1], reportSem rsemOldTakesParameterName)
+
   elif n[1].sym.owner != getCurrOwner(c):
-    localError(c.config, n[1].info, n[1].sym.name.s & " does not belong to " & getCurrOwner(c).name.s)
+    localReport(c.config, n[1].info, reportAst(
+      rsemOldDoesNotBelongTo, n[1], sym = getCurrOwner(c)))
+
   result = n
 
 proc semPrivateAccess(c: PContext, n: PNode): PNode =
@@ -511,26 +529,28 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   of mPlugin:
     let plugin = getPlugin(c.cache, n[0].sym)
     if plugin.isNil:
-      localError(c.config, n.info, "cannot find plugin " & n[0].sym.name.s)
+      localReport(c.config, n.info, reportSym(
+        rsemCannotFindPlugin, sym = n[0].sym))
+
       result = n
     else:
       result = plugin(c, n)
   of mNewFinalize:
     # Make sure the finalizer procedure refers to a procedure
     if n[^1].kind == nkSym and n[^1].sym.kind notin {skProc, skFunc}:
-      localError(c.config, n.info, "finalizer must be a direct reference to a proc")
+      localReport(c.config, n, reportSem rsemExpectedProcReferenceForFinalizer)
     elif optTinyRtti in c.config.globalOptions:
       let nfin = skipConvCastAndClosure(n[^1])
       let fin = case nfin.kind
         of nkSym: nfin.sym
         of nkLambda, nkDo: nfin[namePos].sym
         else:
-          localError(c.config, n.info, "finalizer must be a direct reference to a proc")
+          localReport(c.config, n, reportSem rsemExpectedProcReferenceForFinalizer)
           nil
       if fin != nil:
         if fin.kind notin {skProc, skFunc}:
           # calling convention is checked in codegen
-          localError(c.config, n.info, "finalizer must be a direct reference to a proc")
+          localReport(c.config, n, reportSem rsemExpectedProcReferenceForFinalizer)
 
         # check if we converted this finalizer into a destructor already:
         let t = whereToBindTypeHook(c, fin.typ[1].skipTypes(abstractInst+{tyRef}))
@@ -564,16 +584,21 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
                                            tyVar, tyGenericInst, tyOwned, tySink,
                                            tyAlias, tyUserTypeClassInst})
     if seqType.kind == tySequence and seqType.base.requiresInit:
-      message(c.config, n.info, warnUnsafeSetLen, typeToString(seqType.base))
+      localReport(c.config, n.info, reportTyp(
+        rsemUnsafeSetLen, seqType.base))
+
   of mDefault:
     result = n
-    c.config.internalAssert result[1].typ.kind == tyTypeDesc
+    c.config.internalAssert(result[1].typ.kind == tyTypeDesc, "")
     let constructed = result[1].typ.base
     if constructed.requiresInit:
-      message(c.config, n.info, warnUnsafeDefault, typeToString(constructed))
+      localReport(c.config, n.info, reportTyp(
+        rsemUnsafeDefault, constructed))
+
   of mIsolate:
     if not checkIsolate(n[1]):
-      localError(c.config, n.info, "expression cannot be isolated: " & $n[1])
+      localReport(c.config, n.info, reportAst(rsemCannotIsolate, n[1]))
+
     result = n
   of mPred:
     if n[1].typ.skipTypes(abstractInst).kind in {tyUInt..tyUInt64}:

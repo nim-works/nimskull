@@ -2044,6 +2044,7 @@ proc format*(dt: DateTime, f: static[string]): string {.raises: [].} =
   const f2 = initTimeFormat(f)
   result = dt.format(f2)
 
+
 proc formatValue*(result: var string; value: DateTime, specifier: string) =
   ## adapter for strformat. Not intended to be called directly.
   result.add format(value,

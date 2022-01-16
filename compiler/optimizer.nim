@@ -12,7 +12,7 @@
 ## - recognize "all paths lead to 'wasMoved(x)'"
 
 import
-  ast, renderer, idents, intsets
+  ast, renderer, intsets
 
 from trees import exprStructuralEquivalent
 

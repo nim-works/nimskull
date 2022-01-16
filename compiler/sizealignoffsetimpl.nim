@@ -90,7 +90,8 @@ proc computeSubObjectAlign(conf: ConfigRef; n: PNode): BiggestInt =
           return align
         result = max(result, align)
       else:
-        internalError(conf, "computeSubObjectAlign")
+        conf.internalError("computeSubObjectAlign")
+
   of nkRecList:
     result = 1
     for i, child in n.sons:
@@ -132,7 +133,9 @@ proc computeObjectOffsetsFoldFunction(conf: ConfigRef; n: PNode, packed: bool, a
           let align = int(computeSubObjectAlign(conf, n[i].lastSon))
           maxChildAlign = alignmentMax(maxChildAlign, align)
         else:
-          internalError(conf, "computeObjectOffsetsFoldFunction(record case branch)")
+          conf.internalError(
+            "computeObjectOffsetsFoldFunction(record case branch)")
+
     if maxChildAlign == szUnknownSize:
       setOffsetsToUnknown(n)
       accum.offset  = szUnknownSize
@@ -171,7 +174,7 @@ proc computeUnionObjectOffsetsFoldFunction(conf: ConfigRef; n: PNode; packed: bo
   of nkRecCase:
     accum.offset = szUnknownSize
     accum.maxAlign = szUnknownSize
-    localError(conf, n.info, "Illegal use of ``case`` in union type.")
+    conf.localReport(n, reportSem(rsemCaseInUnion))
   of nkRecList:
     let accumRoot = accum # copy, because each branch should start af the same offset
     for child in n.sons:
@@ -258,14 +261,14 @@ proc computeSizeAlign(conf: ConfigRef; typ: PType) =
 
   of tyArray:
     computeSizeAlign(conf, typ[1])
-    let elemSize = typ[1].size 
+    let elemSize = typ[1].size
     let len = lengthOrd(conf, typ[0])
     if elemSize < 0:
       typ.size = elemSize
       typ.align = int16(elemSize)
     elif len < 0:
       typ.size = szUnknownSize
-      typ.align = szUnknownSize    
+      typ.align = szUnknownSize
     else:
       typ.size = toInt64Checked(len * int32(elemSize), szTooBigSize)
       typ.align = typ[1].align
@@ -373,7 +376,7 @@ proc computeSizeAlign(conf: ConfigRef; typ: PType) =
       if tfUnion in typ.flags:
         if accum.offset != 0:
           let info = if typ.sym != nil: typ.sym.info else: unknownLineInfo
-          localError(conf, info, "union type may not have an object header")
+          conf.localReport(info, reportSem(rsemOffsetInUnion))
           accum = OffsetAccum(offset: szUnknownSize, maxAlign: szUnknownSize)
         elif tfPacked in typ.flags:
           computeUnionObjectOffsetsFoldFunction(conf, typ.n, true, accum)
@@ -490,7 +493,7 @@ template foldOffsetOf*(conf: ConfigRef; n: PNode; fallback: PNode): PNode =
     elif node[1].kind == nkCheckedFieldExpr:
       dotExpr = node[1][0]
     else:
-      localError(config, node.info, "can't compute offsetof on this ast")
+      config.localReport(node.info, reportAst(rsemCantComputeOffsetof, n))
 
   assert dotExpr != nil
   let value = dotExpr[0]

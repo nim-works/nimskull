@@ -3,8 +3,8 @@ discard """
   file: "system/fatal.nim"
   nimout: '''
 stack trace: (most recent call last)
-t9768.nim(28, 33)        main
-t9768.nim(23, 11)        foo1
+t9768.nim(28, 33) main
+t9768.nim(23, 11) foo1
 '''
 """
 

@@ -11,7 +11,9 @@
 
 import
   intsets, ast, astalgo, trees, msgs, strutils, platform, renderer, options,
-  lineinfos, int128, modulegraphs, astmsgs, errorhandling
+  lineinfos, int128, modulegraphs, astmsgs, errorhandling, reports
+
+export EffectsCompat, TTypeRelation, ProcConvMismatch
 
 type
   TPreferedDesc* = enum
@@ -25,29 +27,6 @@ type
     preferMixed,
       # most useful, shows: symbol + resolved symbols if it differs, e.g.:
       # tuple[a: MyInt{int}, b: float]
-
-  TTypeRelation* = enum      # order is important!
-    isNone, isConvertible,
-    isIntConv,
-    isSubtype,
-    isSubrange,              # subrange of the wanted type; no type conversion
-                             # but apart from that counts as ``isSubtype``
-    isBothMetaConvertible    # generic proc parameter was matched against
-                             # generic type, e.g., map(mySeq, x=>x+1),
-                             # maybe recoverable by rerun if the parameter is
-                             # the proc's return value
-    isInferred,              # generic proc was matched against a concrete type
-    isInferredConvertible,   # same as above, but requiring proc CC conversion
-    isGeneric,
-    isFromIntLit,            # conversion *from* int literal; proven safe
-    isEqual
-
-  ProcConvMismatch* = enum
-    pcmNoSideEffect
-    pcmNotGcSafe
-    pcmLockDifference
-    pcmNotIterator
-    pcmDifferentCallConv
 
 proc typeToString*(typ: PType; prefer: TPreferedDesc = preferName): string
 
@@ -773,11 +752,17 @@ proc firstOrd*(conf: ConfigRef; t: PType): Int128 =
     result = firstOrd(conf, lastSon(t))
   of tyOrdinal:
     if t.len > 0: result = firstOrd(conf, lastSon(t))
-    else: internalError(conf, "invalid kind for firstOrd(" & $t.kind & ')')
+    else:
+      conf.localReport InternalReport(
+        kind: rintUnreachable,
+        msg: "invalid kind for firstOrd(" & $t.kind & ')')
+
   of tyUncheckedArray, tyCstring:
     result = Zero
   else:
-    internalError(conf, "invalid kind for firstOrd(" & $t.kind & ')')
+    conf.localReport InternalReport(
+      kind: rintUnreachable,
+      msg: "invalid kind for firstOrd(" & $t.kind & ')')
     result = Zero
 
 proc firstFloat*(t: PType): BiggestFloat =
@@ -792,7 +777,9 @@ proc firstFloat*(t: PType): BiggestFloat =
      tyStatic, tyInferred, tyUserTypeClasses:
     firstFloat(lastSon(t))
   else:
-    internalError(newPartialConfigRef(), "invalid kind for firstFloat(" & $t.kind & ')')
+    newPartialConfigRef().localReport InternalReport(
+      kind: rintUnreachable,
+      msg: "invalid kind for firstFloat(" & $t.kind & ')')
     NaN
 
 proc lastOrd*(conf: ConfigRef; t: PType): Int128 =
@@ -832,11 +819,16 @@ proc lastOrd*(conf: ConfigRef; t: PType): Int128 =
   of tyProxy: result = Zero
   of tyOrdinal:
     if t.len > 0: result = lastOrd(conf, lastSon(t))
-    else: internalError(conf, "invalid kind for lastOrd(" & $t.kind & ')')
+    else:
+      conf.localReport InternalReport(
+        kind: rintUnreachable,
+        msg: "invalid kind for firstOrd(" & $t.kind & ')')
   of tyUncheckedArray:
     result = Zero
   else:
-    internalError(conf, "invalid kind for lastOrd(" & $t.kind & ')')
+    conf.localReport InternalReport(
+      kind: rintUnreachable,
+      msg: "invalid kind for firstOrd(" & $t.kind & ')')
     result = Zero
 
 proc lastFloat*(t: PType): BiggestFloat =
@@ -851,7 +843,9 @@ proc lastFloat*(t: PType): BiggestFloat =
      tyStatic, tyInferred, tyUserTypeClasses:
     lastFloat(lastSon(t))
   else:
-    internalError(newPartialConfigRef(), "invalid kind for lastFloat(" & $t.kind & ')')
+    newPartialConfigRef().localReport InternalReport(
+      kind: rintUnreachable,
+      msg: "invalid kind for firstFloat(" & $t.kind & ')')
     NaN
 
 proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
@@ -868,7 +862,9 @@ proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
      tyStatic, tyInferred, tyUserTypeClasses:
     floatRangeCheck(x, lastSon(t))
   else:
-    internalError(newPartialConfigRef(), "invalid kind for floatRangeCheck:" & $t.kind)
+    newPartialConfigRef().localReport InternalReport(
+      kind: rintUnreachable,
+      msg: "invalid kind for floatRangeCheck(" & $t.kind & ')')
     false
 
 proc lengthOrd*(conf: ConfigRef; t: PType): Int128 =
@@ -1127,7 +1123,7 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
     of dcEqOrDistinctOf:
       a = a.skipDistincts()
       if a.kind != b.kind: return false
-  
+
   #[
     The following code should not run in the case either side is an generic alias,
     but it's not presently possible to distinguish the genericinsts from aliases of
@@ -1369,15 +1365,6 @@ proc compatibleEffectsAux(se, re: PNode): bool =
       return false
   result = true
 
-type
-  EffectsCompat* = enum
-    efCompat
-    efRaisesDiffer
-    efRaisesUnknown
-    efTagsDiffer
-    efTagsUnknown
-    efLockLevelsDiffer
-    efEffectsDelayed
 
 proc compatibleEffects*(formal, actual: PType): EffectsCompat =
   # for proc type compatibility checking:
@@ -1527,7 +1514,9 @@ proc skipHiddenSubConv*(n: PNode; g: ModuleGraph; idgen: IdGenerator): PNode =
   else:
     result = n
 
-proc getProcConvMismatch*(c: ConfigRef, f, a: PType, rel = isNone): (set[ProcConvMismatch], TTypeRelation) =
+proc getProcConvMismatch*(
+    c: ConfigRef, f, a: PType, rel = isNone
+  ): (set[ProcConvMismatch], TTypeRelation) =
   ## Returns a set of the reason of mismatch, and the relation for conversion.
   result[1] = rel
   if tfNoSideEffect in f.flags and tfNoSideEffect notin a.flags:
@@ -1564,70 +1553,50 @@ proc getProcConvMismatch*(c: ConfigRef, f, a: PType, rel = isNone): (set[ProcCon
        # but it's a pragma mismatch reason which is why it's here
        result[0].incl pcmLockDifference
 
-proc addPragmaAndCallConvMismatch*(message: var string, formal, actual: PType, conf: ConfigRef) =
-  assert formal.kind == tyProc and actual.kind == tyProc
-  let (convMismatch, _) = getProcConvMismatch(conf, formal, actual)
-  var
-    gotPragmas = ""
-    expectedPragmas = ""
-  for reason in convMismatch:
-    case reason
-    of pcmDifferentCallConv:
-      message.add "\n  Calling convention mismatch: got '{.$1.}', but expected '{.$2.}'." % [$actual.callConv, $formal.callConv]
-    of pcmNoSideEffect:
-      expectedPragmas.add "noSideEffect, "
-    of pcmNotGcSafe:
-      expectedPragmas.add "gcsafe, "
-    of pcmLockDifference:
-      gotPragmas.add("locks: " & $actual.lockLevel & ", ")
-      expectedPragmas.add("locks: " & $formal.lockLevel & ", ")
-    of pcmNotIterator: discard
+proc typeMismatch*(
+  conf: ConfigRef, formal, actual: PType): SemTypeMismatch =
 
-  if expectedPragmas.len > 0:
-    gotPragmas.setLen(max(0, gotPragmas.len - 2)) # Remove ", "
-    expectedPragmas.setLen(max(0, expectedPragmas.len - 2)) # Remove ", "
-    message.add "\n  Pragma mismatch: got '{.$1.}', but expected '{.$2.}'." % [gotPragmas, expectedPragmas]
+  result = SemTypeMismatch(
+    actualType: actual,
+    formalType: formal,
+    descriptionStr: typeToString(formal, preferDesc)
+  )
 
+proc typeMismatch*(
+  conf: ConfigRef, formal: set[TTypeKind], actual: PType): SemTypeMismatch =
 
-proc typeMismatch*(conf: ConfigRef; info: TLineInfo, formal, actual: PType, n: PNode): PNode =
+  SemTypeMismatch(actualType: actual, formalTypeKind: formal)
+
+proc typeMismatch*(
+    conf: ConfigRef; info: TLineInfo, formal, actual: PType, n: PNode): PNode =
+  ## If formal and actual types are not `tyError`, create a new wrapper
+  ## `nkError` node and construct type mismatch report for it.
   result = n
   if formal.kind != tyError and actual.kind != tyError:
-    let actualStr = typeToString(actual)
-    let formalStr = typeToString(formal)
-    let desc = typeToString(formal, preferDesc)
-    let x = if formalStr == desc: formalStr else: formalStr & " = " & desc
-    let verbose = actualStr == formalStr or optDeclaredLocs in conf.globalOptions
-    var msg = "type mismatch:"
-    if verbose: msg.add "\n"
-    if conf.isDefined("nimLegacyTypeMismatch"):
-      msg.add  " got <$1>" % actualStr
-    else:
-      msg.add  " got '$1' for '$2'" % [actualStr, n.renderTree]
-    if verbose:
-      msg.addDeclaredLoc(conf, actual)
-      msg.add "\n"
-    msg.add " but expected '$1'" % x
-    if verbose: msg.addDeclaredLoc(conf, formal)
+    var rep = SemReport(
+      kind: rsemTypeMismatch,
+      ast: n,
+      typeMismatch: @[typeMismatch(conf, formal, actual)])
 
-    if formal.kind == tyProc and actual.kind == tyProc:
-      msg.addPragmaAndCallConvMismatch(formal, actual, conf)
-      case compatibleEffects(formal, actual)
-      of efCompat: discard
-      of efRaisesDiffer:
-        msg.add "\n.raise effects differ"
-      of efRaisesUnknown:
-        msg.add "\n.raise effect is 'can raise any'"
-      of efTagsDiffer:
-        msg.add "\n.tag effects differ"
-      of efTagsUnknown:
-        msg.add "\n.tag effect is 'any tag allowed'"
-      of efLockLevelsDiffer:
-        msg.add "\nlock levels differ"
-      of efEffectsDelayed:
-        msg.add "\n.effectsOf annotations differ"
-    # localError(conf, info, msg)
-    result = newError(n, msg)
+    assert not n.isNil, "Type mismatch requires non-nil AST for expression"
+    result = newError(conf, n, rsemTypeMismatch, conf.store(info, rep), instLoc())
     result.info = info
+
+    # conf.localReport(result)
+
+proc semReportTypeMismatch*(
+    conf: ConfigRef,
+    node: PNode,
+    formal: PType | set[TTypeKind],
+    actual: PType
+  ): SemReport =
+
+  result = SemReport(
+    kind: when formal is PType: rsemTypeMismatch else: rsemTypeKindMismatch,
+    ast: node,
+    typeMismatch: @[typeMismatch(
+      conf, formal = formal, actual = actual)]
+  )
 
 proc isTupleRecursive(t: PType, cycleDetector: var IntSet): bool =
   if t == nil:

@@ -268,7 +268,8 @@ proc genBreakState(p: BProc, n: PNode, d: var TLoc) =
 
 proc genGotoVar(p: BProc; value: PNode) =
   if value.kind notin {nkCharLit..nkUInt64Lit}:
-    localError(p.config, value.info, "'goto' target must be a literal value")
+    localReport(p.config, value, reportSem rsemExpectedLiteralForGoto)
+
   else:
     lineF(p, cpsStmts, "goto NIMSTATE_$#;$n", [value.intVal.rope])
 
@@ -481,7 +482,7 @@ proc genGotoForCase(p: BProc; caseStmt: PNode) =
     let it = caseStmt[i]
     for j in 0..<it.len-1:
       if it[j].kind == nkRange:
-        localError(p.config, it.info, "range notation not available for computed goto")
+        localReport(p.config, it, reportSem rsemDisallowedRangeForComputedGoto)
         return
       let val = getOrdValue(it[j])
       lineF(p, cpsStmts, "NIMSTATE_$#:$n", [val.rope])
@@ -510,22 +511,28 @@ proc genComputedGoto(p: BProc; n: PNode) =
     let it = n[i]
     if it.kind == nkCaseStmt:
       if lastSon(it).kind != nkOfBranch:
-        localError(p.config, it.info,
-            "case statement must be exhaustive for computed goto"); return
+        localReport(p.config, it, reportSem rsemExpectedExhaustiveCaseForComputedGoto)
+        return
+
       casePos = i
       if enumHasHoles(it[0].typ):
-        localError(p.config, it.info,
-            "case statement cannot work on enums with holes for computed goto"); return
+        localReport(p.config, it, reportSem rsemExpectedUnholyEnumForComputedGoto)
+        return
+
       let aSize = lengthOrd(p.config, it[0].typ)
       if aSize > 10_000:
-        localError(p.config, it.info,
-            "case statement has too many cases for computed goto"); return
+        localReport(p.config, it, reportSem rsemTooManyEntriesForComputedGoto)
+        return
+
       arraySize = toInt(aSize)
       if firstOrd(p.config, it[0].typ) != 0:
-        localError(p.config, it.info,
-            "case statement has to start at 0 for computed goto"); return
+        localReport(p.config, it, reportSem rsemExpectedLow0ForComputedGoto)
+        return
+
   if casePos < 0:
-    localError(p.config, n.info, "no case statement found for computed goto"); return
+    localReport(p.config, n, reportSem rsemExpectedCaseForComputedGoto)
+    return
+
   var id = p.labels+1
   inc p.labels, arraySize+1
   let tmp = "TMP$1_" % [id.rope]
@@ -549,7 +556,7 @@ proc genComputedGoto(p: BProc; n: PNode) =
     let it = caseStmt[i]
     for j in 0..<it.len-1:
       if it[j].kind == nkRange:
-        localError(p.config, it.info, "range notation not available for computed goto")
+        localReport(p.config, it, reportSem rsemDisallowedRangeForComputedGoto)
         return
 
       let val = getOrdValue(it[j])
@@ -1551,7 +1558,7 @@ proc asgnFieldDiscriminant(p: BProc, e: PNode) =
   if optTinyRtti notin p.config.globalOptions:
     let field = dotExpr[1].sym
     genDiscriminantCheck(p, a, tmp, dotExpr[0].typ, field)
-    message(p.config, e.info, warnCaseTransition)
+    localReport(p.config, e, reportSem rsemCaseTransition)
   genAssignment(p, a, tmp, {})
 
 proc genAsgn(p: BProc, e: PNode, fastAsgn: bool) =
@@ -1579,7 +1586,7 @@ proc genAsgn(p: BProc, e: PNode, fastAsgn: bool) =
 proc genStmts(p: BProc, t: PNode) =
   var a: TLoc
 
-  let isPush = p.config.hasHint(hintExtendedContext)
+  let isPush = p.config.hasHint(rsemExtendedContext)
   if isPush: pushInfoContext(p.config, t.info)
   expr(p, t, a)
   if isPush: popInfoContext(p.config)

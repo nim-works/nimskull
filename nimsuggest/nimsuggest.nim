@@ -12,15 +12,34 @@
 when not defined(nimcore):
   {.error: "nimcore MUST be defined for Nim's core tooling".}
 
-import strutils, os, parseopt, parseutils, sequtils, net, rdstdin, sexp
+import std/[strutils, os, parseopt, parseutils, sequtils, net, rdstdin]
+import sexp
+import std/options as std_options
+
 # Do NOT import suggest. It will lead to weird bugs with
 # suggestionResultHook, because suggest.nim is included by sigmatch.
 # So we import that one instead.
-import compiler / [options, commands, modules, sem,
-  passes, passaux, msgs,
-  sigmatch, ast,
-  idents, modulegraphs, prefixmatches, lineinfos, cmdlinehelper,
-  pathutils]
+
+import
+  ../compiler/[
+    options,
+    commands,
+    modules,
+    sem,
+    passes,
+    passaux,
+    msgs,
+    sigmatch,
+    ast,
+    reports,
+    idents,
+    modulegraphs,
+    prefixmatches,
+    lineinfos,
+    cmdlinehelper,
+    pathutils,
+    cli_reporter
+  ]
 
 when defined(windows):
   import winlean
@@ -58,17 +77,13 @@ are supported.
 """
 type
   Mode = enum mstdin, mtcp, mepc, mcmdsug, mcmdcon
-  CachedMsg = object
-    info: TLineInfo
-    msg: string
-    sev: Severity
-  CachedMsgs = seq[CachedMsg]
+  CachedMsgs = seq[Report]
 
 var
   gPort = 6000.Port
   gAddress = ""
   gMode: Mode
-  gEmitEof: bool # whether we write '!EOF!' dummy lines
+  gEmitEof: bool              ## whether we write '!EOF!' dummy lines
   gLogging = defined(logging)
   gRefresh: bool
   gAutoBind = false
@@ -82,13 +97,33 @@ proc writelnToChannel(line: string) =
 proc sugResultHook(s: Suggest) =
   results.send(s)
 
-proc errorHook(conf: ConfigRef; info: TLineInfo; msg: string; sev: Severity) =
-  results.send(Suggest(section: ideChk, filePath: toFullPath(conf, info),
-    line: toLinenumber(info), column: toColumn(info), doc: msg,
-    forth: $sev))
+proc myLog(conf: ConfigRef, s: string, flags: MsgFlags = {}) =
+  if gLogging:
+    log(s)
 
-proc myLog(s: string) =
-  if gLogging: log(s)
+proc reportHook(conf: ConfigRef, report: Report): TErrorHandling =
+  result = doNothing
+  case report.category
+  of repCmd, repDebug, repInternal, repExternal:
+    myLog(conf, $report)
+  of repParser, repLexer, repSem:
+    if report.category == repSem and
+       report.kind in {rsemProcessing, rsemProcessingStmt}:
+      # skip processing statements
+      return
+    let info = report.location().get(unknownLineInfo)
+    results.send(Suggest(
+      section: ideChk,
+      filePath: toFullPath(conf, info),
+      line: toLinenumber(info),
+      column: toColumn(info),
+      doc: conf.reportShort(report),
+      forth: $conf.severity(report)
+    ))
+  of repBackend:
+    # xxx: we should never get this, but we might get one as a bug so logging
+    #      for now, alternative is to crash or at least fail tests
+    myLog(conf, $report)
 
 const
   seps = {':', ';', ' ', '\t'}
@@ -163,9 +198,12 @@ proc symFromInfo(graph: ModuleGraph; trackPos: TLineInfo): PSym =
 proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
              graph: ModuleGraph) =
   let conf = graph.config
-  myLog("cmd: " & $cmd & ", file: " & file.string &
-        ", dirtyFile: " & dirtyfile.string &
-        "[" & $line & ":" & $col & "]")
+  myLog(
+    graph.config,
+    "cmd: " & $cmd & ", file: " & file.string & ", dirtyFile: " &
+      dirtyfile.string & "[" & $line & ":" & $col & "]"
+  )
+
   conf.ideCmd = cmd
   if cmd == ideUse and conf.suggestVersion != 0:
     graph.resetAllModules()
@@ -197,16 +235,19 @@ proc executeNoHooks(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
     if u != nil:
       listUsages(graph, u)
     else:
-      localError(conf, conf.m.trackPos, "found no symbol at this position " & (conf $ conf.m.trackPos))
+      localReport(conf, conf.m.trackPos, reportSem(rsemSugNoSymbolAtPosition))
 
 proc execute(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
              graph: ModuleGraph) =
   if cmd == ideChk:
-    graph.config.structuredErrorHook = errorHook
-    graph.config.writelnHook = myLog
+    graph.config.structuredReportHook = nimsuggest.reportHook
+    graph.config.writeHook = myLog
+
   else:
-    graph.config.structuredErrorHook = nil
-    graph.config.writelnHook = myLog
+    graph.config.structuredReportHook =
+      proc(conf: ConfigRef, report: Report): TErrorHandling = doNothing
+    graph.config.writeHook = myLog
+
   executeNoHooks(cmd, file, dirtyfile, line, col, graph)
 
 proc executeEpc(cmd: IdeCmd, args: SexpNode;
@@ -372,15 +413,9 @@ proc replEpc(x: ThreadParams) {.thread.} =
         uid = message[1].getNum
         cmd = message[2].getSymbol
         args = message[3]
+        fullCmd = cmd & " " & args.argsToStr
 
-      when false:
-        x.ideCmd[] = parseIdeCmd(message[2].getSymbol)
-        case x.ideCmd[]
-        of ideSug, ideCon, ideDef, ideUse, ideDus, ideOutline, ideHighlight:
-          setVerbosity(0)
-        else: discard
-      let fullCmd = cmd & " " & args.argsToStr
-      myLog "MSG CMD: " & fullCmd
+      myLog(nil, "MSG CMD: " & fullCmd)
       requests.send(fullCmd)
       toEpc(client, uid)
     of "methods":
@@ -459,7 +494,9 @@ proc execCmd(cmd: string; graph: ModuleGraph; cachedMsgs: CachedMsgs) =
     results.send(Suggest(section: ideProject, filePath: string conf.projectFull))
   else:
     if conf.ideCmd == ideChk:
-      for cm in cachedMsgs: errorHook(conf, cm.info, cm.msg, cm.sev)
+      for cm in cachedMsgs:
+        discard nimsuggest.reportHook(conf, cm)
+
     execute(conf.ideCmd, AbsoluteFile orig, AbsoluteFile dirtyfile, line, col, graph)
   sentinel()
 
@@ -478,13 +515,13 @@ proc mainThread(graph: ModuleGraph) =
     for it in conf.searchPaths:
       log(it.string)
 
-  proc wrHook(line: string) {.closure.} =
+  proc wrHook(conf: ConfigRef, line: string, flag: MsgFlags = {}) {.closure.} =
     if gMode == mepc:
       if gLogging: log(line)
     else:
       writelnToChannel(line)
 
-  conf.writelnHook = wrHook
+  conf.writeHook = wrHook
   conf.suggestionResultHook = sugResultHook
   graph.doStopCompile = proc (): bool = requests.peek() > 0
   var idle = 0
@@ -502,10 +539,13 @@ proc mainThread(graph: ModuleGraph) =
     if idle == 20 and gRefresh:
       # we use some nimsuggest activity to enable a lazy recompile:
       conf.ideCmd = ideChk
-      conf.writelnHook = proc (s: string) = discard
+      conf.writelnHook =
+        proc (conf: ConfigRef, s: string, flags: MsgFlags = {}) = discard
       cachedMsgs.setLen 0
-      conf.structuredErrorHook = proc (conf: ConfigRef; info: TLineInfo; msg: string; sev: Severity) =
-        cachedMsgs.add(CachedMsg(info: info, msg: msg, sev: sev))
+      conf.structuredReportHook =
+          proc (conf: ConfigRef, report: Report): TErrorHandling =
+            cachedMsgs.add(report)
+
       conf.suggestionResultHook = proc (s: Suggest) = discard
       recompileFullProject(graph)
 
@@ -528,7 +568,9 @@ proc mainCommand(graph: ModuleGraph) =
   conf.setErrorMaxHighMaybe # honor --errorMax even if it may not make sense here
   # do not print errors, but log them
   conf.writelnHook = myLog
-  conf.structuredErrorHook = nil
+  conf.structuredReportHook =
+    proc(conf: ConfigRef, report: Report): TErrorHandling =
+      doNothing
 
   # compile the project before showing any input so that we already
   # can answer questions right away:
@@ -536,6 +578,8 @@ proc mainCommand(graph: ModuleGraph) =
 
   open(requests)
   open(results)
+
+  conf.hintProcessingDots = false # turn off the silly dots
 
   case gMode
   of mstdin: createThread(inputThread, replStdin, (gPort, gAddress))
@@ -619,7 +663,7 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
 proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
   let self = NimProg(
     suggestMode: true,
-    processCmdLine: processCmdLine
+    processCmdLine: nimsuggest.processCmdLine
   )
   self.initDefinesProg(conf, "nimsuggest")
 
@@ -630,7 +674,9 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
   self.processCmdLineAndProjectPath(conf)
 
   if gMode != mstdin:
-    conf.writelnHook = proc (msg: string) = discard
+    conf.writelnHook =
+      proc (conf: ConfigRef, msg: string, flags: MsgFlags) = discard
+
   # Find Nim's prefix dir.
   #
   # TODO: Standardize this process.
@@ -648,14 +694,14 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
     conf.prefixDir = AbsoluteDir""
 
   #msgs.writelnHook = proc (line: string) = log(line)
-  myLog("START " & conf.projectFull.string)
+  myLog(conf, "START " & conf.projectFull.string)
 
   var graph = newModuleGraph(cache, conf)
   if self.loadConfigsAndProcessCmdLine(cache, conf, graph):
     mainCommand(graph)
 
 when isMainModule:
-  handleCmdLine(newIdentCache(), newConfigRef())
+  handleCmdLine(newIdentCache(), newConfigRef(cli_reporter.reportHook))
 else:
   export Suggest
   export IdeCmd
@@ -703,7 +749,7 @@ else:
           # if processArgument(pass, p, argsCount): break
     let
       cache = newIdentCache()
-      conf = newConfigRef()
+      conf = newConfigRef(cli_reporter.reportHook)
       self = NimProg(
         suggestMode: true,
         processCmdLine: mockCmdLine
@@ -727,7 +773,7 @@ else:
       conf.prefixDir = AbsoluteDir nimPath
 
     #msgs.writelnHook = proc (line: string) = log(line)
-    myLog("START " & conf.projectFull.string)
+    myLog(conf, "START " & conf.projectFull.string)
 
     var graph = newModuleGraph(cache, conf)
     if self.loadConfigsAndProcessCmdLine(cache, conf, graph):

@@ -10,8 +10,8 @@
 # Built-in types and compilerprocs are registered here.
 
 import
-  ast, astalgo, msgs, platform, idents,
-  modulegraphs, lineinfos, errorhandling
+  ast, astalgo, msgs, platform, idents, reports,
+  modulegraphs, lineinfos, errorhandling, options
 
 export createMagic
 
@@ -24,11 +24,15 @@ proc newSysType(g: ModuleGraph; kind: TTypeKind, size: int): PType =
 
 proc getSysSym*(g: ModuleGraph; info: TLineInfo; name: string): PSym =
   result = systemModuleSym(g, getIdent(g.cache, name))
-  if result == nil:
-    localError(g.config, info, "system module needs: " & name)
-    result = newSym(skError, getIdent(g.cache, name), nextSymId(g.idgen), g.systemModule, g.systemModule.info, {})
+  if result.isNil:
+    g.config.localReport(info, reportStr(rsemSystemNeeds, name))
+
+    result = newSym(
+      skError, getIdent(g.cache, name), nextSymId(g.idgen), g.systemModule, g.systemModule.info, {})
     result.typ = newType(tyError, nextTypeId(g.idgen), g.systemModule)
-  if result.kind == skAlias: result = result.owner
+  if result.kind == skAlias:
+    result = result.owner
+
 
 proc getSysMagic*(g: ModuleGraph; info: TLineInfo; name: string, m: TMagic): PSym =
   let id = getIdent(g.cache, name)
@@ -38,7 +42,8 @@ proc getSysMagic*(g: ModuleGraph; info: TLineInfo; name: string, m: TMagic): PSy
       if r.typ[0] != nil and r.typ[0].kind == tyInt: return r
       result = r
   if result != nil: return result
-  localError(g.config, info, "system module needs: " & name)
+  g.config.localReport(info, reportStr(rsemSystemNeeds, name))
+
   result = newSym(skError, id, nextSymId(g.idgen), g.systemModule, g.systemModule.info, {})
   result.typ = newType(tyError, nextTypeId(g.idgen), g.systemModule)
 
@@ -71,13 +76,20 @@ proc getSysType*(g: ModuleGraph; info: TLineInfo; kind: TTypeKind): PType =
     of tyCstring: result = sysTypeFromName("cstring")
     of tyPointer: result = sysTypeFromName("pointer")
     of tyNil: result = newSysType(g, tyNil, g.config.target.ptrSize)
-    else: internalError(g.config, "request for typekind: " & $kind)
+    else:
+      g.config.localReport InternalReport(
+        kind: rintUnreachable, msg: "request for typekind: " & $kind)
     g.sysTypes[kind] = result
   if result.kind != kind:
     if kind == tyFloat64 and result.kind == tyFloat: discard # because of aliasing
     else:
-      internalError(g.config, "wanted: " & $kind & " got: " & $result.kind)
-  if result == nil: internalError(g.config, "type not found: " & $kind)
+      g.config.localReport InternalReport(
+        kind: rintUnreachable,
+        msg: "wanted: " & $kind & " got: " & $result.kind)
+  if result == nil:
+    g.config.localReport InternalReport(
+      kind: rintUnreachable,
+      msg: "type not found: " & $kind)
 
 proc resetSysTypes*(g: ModuleGraph) =
   g.systemModule = nil
@@ -118,8 +130,8 @@ proc registerNimScriptSymbol*(g: ModuleGraph; s: PSym) =
   if conflict == nil:
     strTableAdd(g.exposed, s)
   else:
-    localError(g.config, s.info,
-      "symbol conflicts with other .exportNims symbol at: " & g.config$conflict.info)
+    g.config.localReport(s.info, reportSymbols(
+      rsemConflictingExportnims, @[s, conflict]))
 
 proc registerNimScriptSymbol2*(g: ModuleGraph; s: PSym): PNode =
   # Nimscript symbols must be al unique:
@@ -128,9 +140,10 @@ proc registerNimScriptSymbol2*(g: ModuleGraph; s: PSym): PNode =
   if conflict == nil:
     strTableAdd(g.exposed, s)
   else:
-    result = newError(newSymNode(s),
-                      "symbol conflicts with other .exportNims symbol at: " &
-                        g.config$conflict.info)
+    result = g.config.newError(
+      newSymNode(s),
+      reportSymbols(rsemConflictingExportnims, @[s, conflict]),
+      posInfo = s.info)
 
 proc getNimScriptSymbol*(g: ModuleGraph; name: string): PSym =
   strTableGet(g.exposed, getIdent(g.cache, name))
@@ -157,7 +170,4 @@ proc getMagicEqSymForType*(g: ModuleGraph; t: PType; info: TLineInfo): PSym =
   of tyProc:
     result = getSysMagic(g, info, "==", mEqProc)
   else:
-    globalError(g.config, info,
-      "can't find magic equals operator for type kind " & $t.kind)
-
-
+    g.config.globalReport(info, reportTyp(rsemNoMagicEqualsForType, t))

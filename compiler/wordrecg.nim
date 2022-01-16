@@ -7,11 +7,10 @@
 #    distribution, for details about the copyright.
 #
 
-# This module contains a word recognizer, i.e. a simple
-# procedure which maps special words to an enumeration.
-# It is primarily needed because Pascal's case statement
-# does not support strings. Without this the code would
-# be slow and unreadable.
+## This module contains a word recognizer, i.e. a simple procedure which
+## maps special words to an enumeration. It is primarily needed because
+## Pascal's case statement does not support strings. Without this the code
+## would be slow and unreadable.
 
 type
   TSpecialWord* = enum
@@ -132,17 +131,27 @@ const
 const enumUtilsExist = compiles:
   import std/enumutils
 
+import strutils
+
 when enumUtilsExist:
   from std/enumutils import genEnumCaseStmt
-  from strutils import normalize
   proc findStr*[T: enum](a, b: static[T], s: string, default: T): T =
     genEnumCaseStmt(T, s, default, ord(a), ord(b), normalize)
 
 else:
-  from strutils import cmpIgnoreStyle
-  proc findStr*[T: enum](a, b: static[T], s: string, default: T): T {.deprecated.} =
+  proc findStr*[T: enum](a, b: static[T], s: string, default: T): T =
     # used for compiler bootstrapping only
     for i in a..b:
       if cmpIgnoreStyle($i, s) == 0:
         return i
     result = default
+
+func getEnumNames*[E: enum](values: set[E]): seq[string] =
+  for name in items(values):
+    result.add $name
+
+proc findStr*[T: enum](values: set[T], s: string, default: T): T =
+  for i in items(values):
+    if cmpIgnoreStyle($i, s) == 0:
+      return i
+  result = default

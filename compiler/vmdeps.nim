@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-import ast, types, msgs, os, options, idents, lineinfos
+import ast, types, msgs, os, options, idents, lineinfos, reports
 from pathutils import AbsoluteFile
 
 proc opSlurp*(file: string, info: TLineInfo, module: PSym; conf: ConfigRef): string =
@@ -21,7 +21,7 @@ proc opSlurp*(file: string, info: TLineInfo, module: PSym; conf: ConfigRef): str
     discard conf.fileInfoIdx(AbsoluteFile filename)
     appendToModule(module, newTreeI(nkIncludeStmt, info, newStrNode(nkStrLit, filename)))
   except IOError:
-    localError(conf, info, "cannot open file: " & file)
+    localReport(conf, info, reportStr(rsemCannotOpenFile, file))
     result = ""
 
 proc atomicTypeX(cache: IdentCache; name: string; m: TMagic; t: PType; info: TLineInfo;

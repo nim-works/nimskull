@@ -33,7 +33,7 @@ import
   nversion, msgs, idents, types,
   ropes, passes, ccgutils, wordrecg, renderer,
   cgmeth, lowerings, sighashes, modulegraphs, lineinfos, rodutils,
-  transf, injectdestructors, sourcemap, astmsgs
+  transf, injectdestructors, sourcemap, astmsgs, reports
 
 import json, sets, math, tables, intsets, strutils
 
@@ -304,9 +304,10 @@ proc useMagic(p: PProc, name: string) =
       p.g.constants.add(code)
   else:
     if p.prc != nil:
-      globalError(p.config, p.prc.info, "system module needs: " & name)
+      globalReport(p.config, p.prc.info, reportStr(rsemSystemNeeds, name))
+
     else:
-      rawMessage(p.config, errGenerated, "system module needs: " & name)
+      localReport(p.config, reportStr(rsemSystemNeeds, name))
 
 proc isSimpleExpr(p: PProc; n: PNode): bool =
   # calls all the way down --> can stay expression based
@@ -884,8 +885,8 @@ proc genCaseJS(p: PProc, n: PNode, r: var TCompRes) =
           var v = copyNode(e[0])
           inc(totalRange, int(e[1].intVal - v.intVal))
           if totalRange > 65535:
-            localError(p.config, n.info,
-                       "Your case statement contains too many branches, consider using if/else instead!")
+            localReport(p.config, n.info, BackendReport(kind: rbackJsTooCaseTooLarge))
+
           while v.intVal <= e[1].intVal:
             gen(p, v, cond)
             lineF(p, "case $1:$n", [cond.rdLoc])
@@ -1048,7 +1049,7 @@ proc genAsgnAux(p: PProc, x, y: PNode, noCopyNeeded: bool) =
 
   # disable `[]=` for cstring
   if x.kind == nkBracketExpr and x.len >= 2 and x[0].typ.skipTypes(abstractInst).kind == tyCstring:
-    localError(p.config, x.info, "cstring doesn't support `[]=` operator")
+    localReport(p.config, x, reportSem rsemUnexpectedArrayAssignForCstring)
 
   gen(p, x, a)
   genLineDir(p, y)
@@ -1288,7 +1289,7 @@ template isIndirect(x: PSym): bool =
     v.kind notin {skProc, skFunc, skConverter, skMethod, skIterator,
                   skConst, skTemp, skLet})
 
-proc genSymAddr(p: PProc, n: PNode, typ: PType, r: var TCompRes) = 
+proc genSymAddr(p: PProc, n: PNode, typ: PType, r: var TCompRes) =
   ## Generates a dereferenced symbol,
   ## as many things in the JS gen'd code
   ## are stored in an arrays they have different dereference methods.
@@ -1442,8 +1443,9 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
     r.res = s.loc.r
   of skProc, skFunc, skConverter, skMethod:
     if sfCompileTime in s.flags:
-      localError(p.config, n.info, "request to generate code for .compileTime proc: " &
-          s.name.s)
+      localReport(p.config, n.info, reportSym(
+        rsemCannotCodegenCompiletimeProc, s))
+
     discard mangleName(p.module, s)
     r.res = s.loc.r
     if lfNoDecl in s.loc.flags or s.magic notin {mNone, mIsolate} or
@@ -1543,15 +1545,19 @@ proc genArgs(p: PProc, n: PNode, r: var TCompRes; start=1) =
     # XXX look into this:
     let jsp = countJsParams(typ)
     if emitted != jsp and tfVarargs notin typ.flags:
-      localError(p.config, n.info, "wrong number of parameters emitted; expected: " & $jsp &
+      localReport(p.config, n.info, "wrong number of parameters emitted; expected: " & $jsp &
         " but got: " & $emitted)
   r.kind = resExpr
 
 proc genOtherArg(p: PProc; n: PNode; i: int; typ: PType;
                  generated: var int; r: var TCompRes) =
   if i >= n.len:
-    globalError(p.config, n.info, "wrong importcpp pattern; expected parameter at position " & $i &
-        " but got only: " & $(n.len-1))
+    globalReport(p.config, n.info, semReportCountMismatch(
+      rsemExpectedParameterForCxxPattern,
+      expected = i,
+      got = n.len - 1,
+      node = n))
+
   let it = n[i]
   var paramType: PNode = nil
   if i < typ.len:
@@ -1614,7 +1620,7 @@ proc genInfixCall(p: PProc, n: PNode, r: var TCompRes) =
     gen(p, n[1], r)
     if r.typ == etyBaseIndex:
       if r.address == nil:
-        globalError(p.config, n.info, "cannot invoke with infix syntax")
+        internalError(p.config, n.info, "cannot invoke with infix syntax")
       r.res = "$1[$2]" % [r.address, r.res]
       r.address = nil
       r.typ = etyNone
@@ -1960,7 +1966,7 @@ proc genRepr(p: PProc, n: PNode, r: var TCompRes) =
   of tySet:
     genReprAux(p, n, r, "reprSet", genTypeInfo(p, t))
   of tyEmpty, tyVoid:
-    localError(p.config, n.info, "'repr' doesn't support 'void' type")
+    localReport(p.config, n, reportSem rsemUnexpectedVoidType)
   of tyPointer:
     genReprAux(p, n, r, "reprPointer")
   of tyOpenArray, tyVarargs:
@@ -2155,7 +2161,9 @@ proc genMagic(p: PProc, n: PNode, r: var TCompRes) =
   of mReset, mWasMoved: genReset(p, n)
   of mEcho: genEcho(p, n, r)
   of mNLen..mNError, mSlurp, mStaticExec:
-    localError(p.config, n.info, errXMustBeCompileTime % n[0].sym.name.s)
+    localReport(p.config, n.info, reportSym(
+      rsemConstExpressionExpected, n[0].sym))
+
   of mNewString: unaryExpr(p, n, r, "mnewString", "mnewString($1)")
   of mNewStringOfCap:
     unaryExpr(p, n, r, "mnewString", "mnewString(0)")
@@ -2641,7 +2649,10 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
      nkMixinStmt, nkBindStmt: discard
   of nkIteratorDef:
     if n[0].sym.typ.callConv == TCallingConvention.ccClosure:
-      globalError(p.config, n.info, "Closure iterators are not supported by JS backend!")
+      globalReport(p.config, n.info, BackendReport(
+        kind: rbackJsUnsupportedClosureIter))
+      assert false, "asdfasdf"
+
   of nkPragma: genPragma(p, n)
   of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:
     var s = n[namePos].sym
@@ -2649,7 +2660,9 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       genSym(p, n[namePos], r)
       r.res = nil
   of nkGotoState, nkState:
-    globalError(p.config, n.info, "First class iterators not implemented")
+    globalReport(p.config, n.info, BackendReport(
+      kind: rbackJsUnsupportedClosureIter))
+
   of nkPragmaBlock: gen(p, n.lastSon, r)
   of nkComesFrom:
     discard "XXX to implement for better stack traces"

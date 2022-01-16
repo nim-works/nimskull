@@ -1,5 +1,5 @@
 discard """
-  errormsg: "'typed' is only allowed in templates and macros"
+  errormsg: "return type 'typed' is only valid for macros and templates"
   line: 6
 """
 

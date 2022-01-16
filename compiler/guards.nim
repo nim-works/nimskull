@@ -10,7 +10,7 @@
 ## This module implements the 'implies' relation for guards.
 
 import ast, astalgo, msgs, magicsys, nimsets, trees, types, renderer, idents,
-  saturate, modulegraphs, options, lineinfos, int128
+  saturate, modulegraphs, options, lineinfos, int128, reports
 
 const
   someEq = {mEqI, mEqF64, mEqEnum, mEqCh, mEqB, mEqRef, mEqProc,
@@ -1055,4 +1055,5 @@ proc checkFieldAccess*(m: TModel, n: PNode; conf: ConfigRef) =
   for i in 1..<n.len:
     let check = buildProperFieldCheck(n[0], n[i], m.g.operators)
     if check != nil and m.doesImply(check) != impYes:
-      message(conf, n.info, warnProveField, renderTree(n[0])); break
+      localReport(conf, n.info, reportAst(rsemProveField, n[0]))
+      break

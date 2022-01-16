@@ -10,7 +10,7 @@
 ## This module implements threadpool's ``spawn``.
 
 import ast, types, idents, magicsys, msgs, options, modulegraphs,
-  lowerings, liftdestructors, renderer
+  lowerings, liftdestructors, renderer, reports
 from trees import getMagic, getRoot
 
 proc callProc(a: PNode): PNode =
@@ -126,7 +126,11 @@ proc createWrapperProc(g: ModuleGraph; f: PNode; threadParam, argsParam: PSym;
   if spawnKind == srByVar:
     threadLocalProm = addLocalVar(g, varSection, nil, idgen, result, fv.typ, fv)
   elif fv != nil:
-    internalAssert g.config, fv.typ.kind == tyGenericInst
+    internalAssert(
+      g.config,
+      fv.typ.kind == tyGenericInst,
+      "Expected generic inst type kind, but found " & $fv.typ.kind)
+
     threadLocalProm = addLocalVar(g, varSection, nil, idgen, result, fv.typ, fv)
   body.add varSection
   body.add varInit
@@ -143,8 +147,9 @@ proc createWrapperProc(g: ModuleGraph; f: PNode; threadParam, argsParam: PSym;
   elif fv != nil:
     let fk = flowVarKind(g.config, fv.typ[1])
     if fk == fvInvalid:
-      localError(g.config, f.info, "cannot create a flowVar of type: " &
-        typeToString(fv.typ[1]))
+      localReport(g.config, f.info, reportTyp(
+        rsemCannotCreateFlowVarOfType, fv.typ[1]))
+
     body.add newAsgnStmt(indirectAccess(threadLocalProm.newSymNode,
       if fk == fvGC: "data" else: "blob", fv.info, g.cache), call)
     if fk == fvGC:
@@ -195,7 +200,8 @@ proc createCastExpr(argsParam: PSym; objType: PType; idgen: IdGenerator): PNode 
 template checkMagicProcs(g: ModuleGraph, n: PNode, formal: PNode) =
   if (formal.typ.kind == tyVarargs and formal.typ[0].kind in {tyTyped, tyUntyped}) or
           formal.typ.kind in {tyTyped, tyUntyped}:
-    localError(g.config, n.info, "'spawn'ed function cannot have a 'typed' or 'untyped' parameter")
+    localReport(g.config, n.info, reportAst(
+      rsemCannotSpawnMagicProc, n))
 
 proc setupArgsForConcurrency(g: ModuleGraph; n: PNode; objType: PType;
                              idgen: IdGenerator; owner: PSym; scratchObj: PSym,
@@ -209,14 +215,15 @@ proc setupArgsForConcurrency(g: ModuleGraph; n: PNode; objType: PType;
     var argType = n[i].typ.skipTypes(abstractInst)
     if i < formals.len:
       if formals[i].typ.kind in {tyVar, tyLent}:
-        localError(g.config, n[i].info, "'spawn'ed function cannot have a 'var' parameter")
+        localReport(g.config, n[i].info, reportAst(
+          rsemCannotSpawnProcWithVar, formals[i]))
 
       checkMagicProcs(g, n[i], formals[i])
 
       if formals[i].typ.kind in {tyTypeDesc, tyStatic}:
         continue
     #elif containsTyRef(argType):
-    #  localError(n[i].info, "'spawn'ed function cannot refer to 'ref'/closure")
+    #  localReport(n[i].info, "'spawn'ed function cannot refer to 'ref'/closure")
 
     let fieldname = if i < formals.len: formals[i].sym.name else: tmpName
     var field = newSym(skField, fieldname, nextSymId idgen, objType.owner, n.info, g.config.options)
@@ -247,7 +254,7 @@ proc setupArgsForParallelism(g: ModuleGraph; n: PNode; objType: PType;
     let argType = skipTypes(if i < formals.len: formals[i].typ else: n.typ,
                             abstractInst)
     #if containsTyRef(argType):
-    #  localError(n.info, "'spawn'ed function cannot refer to 'ref'/closure")
+    #  localReport(n.info, "'spawn'ed function cannot refer to 'ref'/closure")
 
     let fieldname = if i < formals.len: formals[i].sym.name else: tmpName
     var field = newSym(skField, fieldname, nextSymId idgen, objType.owner, n.info, g.config.options)
@@ -324,28 +331,34 @@ proc wrapProcForSpawn*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; spawnExp
   let spawnKind = spawnResult(retType, barrier!=nil)
   case spawnKind
   of srVoid:
-    internalAssert g.config, dest == nil
+    internalAssert g.config, dest == nil, ""
     result = newNodeI(nkStmtList, n.info)
   of srFlowVar:
-    internalAssert g.config, dest == nil
+    internalAssert g.config, dest == nil, ""
     result = newNodeIT(nkStmtListExpr, n.info, retType)
   of srByVar:
-    if dest == nil: localError(g.config, n.info, "'spawn' must not be discarded")
+    if dest == nil: localReport(g.config, n, reportSem rsemCannotDiscardSpawn)
     result = newNodeI(nkStmtList, n.info)
 
   if n.kind notin nkCallKinds:
-    localError(g.config, n.info, "'spawn' takes a call expression; got: " & $n)
+    localReport(g.config, n, reportSem rsemSpawnRequiresCall)
     return
   if optThreadAnalysis in g.config.globalOptions:
     if {tfThread, tfNoSideEffect} * n[0].typ.flags == {}:
-      localError(g.config, n.info, "'spawn' takes a GC safe call expression")
+      localReport(g.config, n.info, reportTyp(
+        rsemSpawnRequiresGcSafe, n[0].typ, ast = n[0]))
 
   var fn = n[0]
   let
     name = (if fn.kind == nkSym: fn.sym.name.s else: genPrefix) & "Wrapper"
-    wrapperProc = newSym(skProc, getIdent(g.cache, name), nextSymId idgen, owner, fn.info, g.config.options)
-    threadParam = newSym(skParam, getIdent(g.cache, "thread"), nextSymId idgen, wrapperProc, n.info, g.config.options)
-    argsParam = newSym(skParam, getIdent(g.cache, "args"), nextSymId idgen, wrapperProc, n.info, g.config.options)
+    wrapperProc = newSym(
+      skProc, getIdent(g.cache, name), nextSymId idgen, owner, fn.info, g.config.options)
+
+    threadParam = newSym(
+      skParam, getIdent(g.cache, "thread"), nextSymId idgen, wrapperProc, n.info, g.config.options)
+
+    argsParam = newSym(
+      skParam, getIdent(g.cache, "args"), nextSymId idgen, wrapperProc, n.info, g.config.options)
 
   wrapperProc.flags.incl sfInjectDestructors
   block:
@@ -370,7 +383,8 @@ proc wrapProcForSpawn*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; spawnExp
   # templates and macros are in fact valid here due to the nature of
   # the transformation:
   if fn.kind == nkClosure or (fn.typ != nil and fn.typ.callConv == ccClosure):
-    localError(g.config, n.info, "closure in spawn environment is not allowed")
+    localReport(g.config, n.info, reportAst(rsemSpawnForbidsClosure, fn))
+
   if not (fn.kind == nkSym and fn.sym.kind in {skProc, skTemplate, skMacro,
                                                skFunc, skMethod, skConverter}):
     # for indirect calls we pass the function pointer in the scratchObj
@@ -381,7 +395,7 @@ proc wrapProcForSpawn*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; spawnExp
     result.add newFastAsgnStmt(newDotExpr(scratchObj, field), n[0])
     fn = indirectAccess(castExpr, field, n.info)
   elif fn.kind == nkSym and fn.sym.kind == skIterator:
-    localError(g.config, n.info, "iterator in spawn environment is not allowed")
+    localReport(g.config, n.info, reportAst(rsemSpawnForbidsIterator, fn))
 
   call.add(fn)
   var varSection = newNodeI(nkVarSection, n.info)
@@ -397,7 +411,9 @@ proc wrapProcForSpawn*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; spawnExp
   if barrier != nil:
     let typ = newType(tyPtr, nextTypeId idgen, owner)
     typ.rawAddSon(magicsys.getCompilerProc(g, "Barrier").typ)
-    var field = newSym(skField, getIdent(g.cache, "barrier"), nextSymId idgen, owner, n.info, g.config.options)
+    var field = newSym(
+      skField, getIdent(g.cache, "barrier"), nextSymId idgen, owner, n.info, g.config.options)
+
     field.typ = typ
     objType.addField(field, g.cache, idgen)
     result.add newFastAsgnStmt(newDotExpr(scratchObj, field), barrier)

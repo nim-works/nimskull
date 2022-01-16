@@ -7,8 +7,8 @@
 #    distribution, for details about the copyright.
 #
 
-import ast, renderer, strutils, msgs, options, idents, os, lineinfos,
-  pathutils
+import ast, renderer, strutils, msgs, options, os, lineinfos,
+  pathutils, reports
 
 when false:
   const
@@ -101,7 +101,7 @@ when false:
     of nkIdent:
       result = scriptableImport(pkg.ident.s, sub, pkg.info)
     else:
-      localError(pkg.info, "package name must be an identifier or string literal")
+      localReport(pkg.info, "package name must be an identifier or string literal")
       result = ""
 
 proc getModuleName*(conf: ConfigRef; n: PNode): string =
@@ -113,8 +113,9 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
     try:
       result = pathSubs(conf, n.strVal, toFullPath(conf, n.info).splitFile().dir)
     except ValueError:
-      localError(conf, n.info, "invalid path: " & n.strVal)
+      conf.localReport(n.info, reportAst(rsemInvalidModulePath, n))
       result = n.strVal
+
   of nkIdent:
     result = n.ident.s
   of nkSym:
@@ -127,7 +128,7 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
         if n0.kind == nkIdent and n0.ident.s == "/":
           result = lookupPackage(n1[1], n[2])
         else:
-          localError(n.info, "only '/' supported with $package notation")
+          localReport(n.info, "only '/' supported with $package notation")
           result = ""
     else:
       let modname = getModuleName(conf, n[2])
@@ -144,12 +145,12 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
     # hacky way to implement 'x / y /../ z':
     result = renderTree(n, {renderNoComments}).replace(" ")
   of nkDotExpr:
-    localError(conf, n.info, warnDeprecated, "using '.' instead of '/' in import paths is deprecated")
+    conf.localReport(n.info, reportAst(rsemDotForModuleImport, n))
     result = renderTree(n, {renderNoComments}).replace(".", "/")
   of nkImportAs:
     result = getModuleName(conf, n[0])
   else:
-    localError(conf, n.info, "invalid module name: '$1'" % n.renderTree)
+    conf.localReport(n.info, reportAst(rsemInvalidModuleName, n))
     result = ""
 
 proc checkModuleName*(conf: ConfigRef; n: PNode; doLocalError=true): FileIndex =
@@ -159,7 +160,8 @@ proc checkModuleName*(conf: ConfigRef; n: PNode; doLocalError=true): FileIndex =
   if fullPath.isEmpty:
     if doLocalError:
       let m = if modulename.len > 0: modulename else: $n
-      localError(conf, n.info, "cannot open file: " & m)
+      conf.localReport(n.info, InternalReport(
+        kind: rintCannotOpenFile, file: m))
     result = InvalidFileIdx
   else:
     result = fileInfoIdx(conf, fullPath)

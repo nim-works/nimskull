@@ -50,8 +50,7 @@ proc instFieldLoopBody(c: TFieldInstCtx, n: PNode, forLoop: PNode): PNode =
         break
   else:
     if n.kind == nkContinueStmt:
-      localError(c.c.config, n.info,
-                 "'continue' not supported in a 'fields' loop")
+      localReport(c.c.config, n, reportSem rsemFieldsIteratorCannotContinue)
     result = shallowCopy(n)
     for i in 0..<n.len:
       result[i] = instFieldLoopBody(c, n[i], forLoop)
@@ -78,8 +77,9 @@ proc semForObjectFields(c: TFieldsCtx, typ, forLoop, father: PNode) =
   of nkRecCase:
     let call = forLoop[^2]
     if call.len > 2:
-      localError(c.c.config, forLoop.info,
-                 "parallel 'fields' iterator does not work for 'case' objects")
+      localReport(c.c.config, forLoop.info, reportAst(
+        rsemParallelFieldsDisallowsCase, call))
+
       return
     # iterate over the selector:
     semForObjectFields(c, typ[0], forLoop, father)
@@ -98,9 +98,12 @@ proc semForObjectFields(c: TFieldsCtx, typ, forLoop, father: PNode) =
       caseStmt.add(branch)
     father.add(caseStmt)
   of nkRecList:
-    for t in items(typ): semForObjectFields(c, t, forLoop, father)
+    for t in items(typ):
+      semForObjectFields(c, t, forLoop, father)
+
   else:
-    illFormedAstLocal(typ, c.c.config)
+    semReportIllformedAst(c.c.config, typ, {
+      nkRecList, nkRecCase, nkNilLit, nkSym})
 
 proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
   # so that 'break' etc. work as expected, we produce
@@ -108,8 +111,11 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
   result = newNodeI(nkWhileStmt, n.info, 2)
   var trueSymbol = systemModuleSym(c.graph, getIdent(c.cache, "true"))
   if trueSymbol == nil:
-    localError(c.config, n.info, "system needs: 'true'")
-    trueSymbol = newSym(skUnknown, getIdent(c.cache, "true"), nextSymId c.idgen, getCurrOwner(c), n.info)
+    localReport(c.config, n.info, reportStr(rsemSystemNeeds, "true"))
+
+    trueSymbol = newSym(
+      skUnknown, getIdent(c.cache, "true"),
+      nextSymId c.idgen, getCurrOwner(c), n.info)
     trueSymbol.typ = getSysType(c.graph, n.info, tyBool)
 
   result[0] = newSymNode(trueSymbol, n.info)
@@ -117,14 +123,19 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
   result[1] = stmts
 
   var call = n[^2]
-  if n.len-2 != call.len-1 + ord(m==mFieldPairs):
-    localError(c.config, n.info, errWrongNumberOfVariables)
+  if n.len-2 != call.len - 1 + ord(m == mFieldPairs):
+    localReport(c.config, n.info, semReportCountMismatch(
+      rsemWrongNumberOfVariables,
+      expected = call.len - 1 + ord(m == mFieldPairs),
+      got = n.len - 2))
+
     return result
 
   const skippedTypesForFields = abstractVar - {tyTypeDesc} + tyUserTypeClasses
   var tupleTypeA = skipTypes(call[1].typ, skippedTypesForFields)
   if tupleTypeA.kind notin {tyTuple, tyObject}:
-    localError(c.config, n.info, errGenerated, "no object or tuple type")
+    localReport(c.config, n.info, reportSem(rsemNoObjectOrTupleType))
+
     return result
   for i in 1..<call.len:
     let calli = call[i]
@@ -132,7 +143,7 @@ proc semForFields(c: PContext, n: PNode, m: TMagic): PNode =
     if not sameType(tupleTypeA, tupleTypeB):
       let r = typeMismatch(c.config, calli.info, tupleTypeA, tupleTypeB, calli)
       if r.kind == nkError:
-        localError(c.config, calli.info, errorToString(c.config, r))
+        localReport(c.config, r)
 
   inc(c.p.nestedLoopCounter)
   if tupleTypeA.kind == tyTuple:

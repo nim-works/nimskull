@@ -11,7 +11,8 @@
 
 import
   options, idents, nimconf, extccomp, commands, msgs,
-  lineinfos, modulegraphs, condsyms, os, pathutils, parseopt
+  reports,
+  modulegraphs, condsyms, os, pathutils
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
   when defined(unix):
@@ -19,13 +20,6 @@ proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
     else: result = AbsoluteFile("./" & f.string)
   else:
     result = f
-
-proc addCmdPrefix*(result: var string, kind: CmdLineKind) =
-  # consider moving this to std/parseopt
-  case kind
-  of cmdLongOption: result.add "--"
-  of cmdShortOption: result.add "-"
-  of cmdArgument, cmdEnd: discard
 
 type
   NimProg* = ref object
@@ -37,8 +31,8 @@ proc initDefinesProg*(self: NimProg, conf: ConfigRef, name: string) =
   condsyms.initDefines(conf.symbols)
   defineSymbol conf.symbols, name
 
-proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef) =
-  self.processCmdLine(passCmd1, "", conf)
+proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef, cmd: string = "") =
+  self.processCmdLine(passCmd1, cmd, conf)
   if conf.projectIsCmd and conf.projectName in ["-", ""]:
     handleCmdInput(conf)
   elif self.supportsStdinFile and conf.projectName == "-":
@@ -50,10 +44,13 @@ proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef) =
 
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph): bool =
+  ## Load all the necessary configuration files and command-line options.
+  ## Main entry point for configuration processing.
   if self.suggestMode:
     conf.setCmd cmdIdeTools
   if conf.cmd == cmdNimscript:
     incl(conf.globalOptions, optWasNimscript)
+
   loadConfigs(DefaultConfig, cache, conf, graph.idgen) # load all config files
 
   if not self.suggestMode:
@@ -67,11 +64,13 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
   extccomp.initVars(conf)
   self.processCmdLine(passCmd2, "", conf)
   if conf.cmd == cmdNone:
-    rawMessage(conf, errGenerated, "command missing")
+    localReport(conf, ExternalReport(kind: rextCommandMissing))
 
   graph.suggestMode = self.suggestMode
   return true
 
-proc loadConfigsAndRunMainCommand*(self: NimProg, cache: IdentCache; conf: ConfigRef; graph: ModuleGraph): bool =
+proc loadConfigsAndRunMainCommand*(
+    self: NimProg, cache: IdentCache; conf: ConfigRef; graph: ModuleGraph): bool =
+
   ## Alias for loadConfigsAndProcessCmdLine, here for backwards compatibility
   loadConfigsAndProcessCmdLine(self, cache, conf, graph)

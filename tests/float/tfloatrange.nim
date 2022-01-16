@@ -1,6 +1,7 @@
 discard """
   cmd: "nim c -d:release --rangeChecks:on $file"
   disabled: "windows"
+  joinable: false
   output: '''StrictPositiveRange
 float
 range fail expected
@@ -47,4 +48,3 @@ try:
   discard strictOnlyProc(x4)
 except:
   echo "range fail expected"
-

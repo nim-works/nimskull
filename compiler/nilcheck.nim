@@ -7,7 +7,9 @@
 #    distribution, for details about the copyright.
 #
 
-import ast, renderer, intsets, tables, msgs, options, lineinfos, strformat, idents, treetab, hashes
+import ast, renderer, intsets, tables, msgs, options, lineinfos,
+       strformat, idents, treetab, hashes, reports, nilcheck_enums
+
 import sequtils, strutils, sets
 
 # IMPORTANT: notes not up to date, i'll update this comment again
@@ -116,51 +118,32 @@ type
   ## the set index
   SetIndex = distinct int
 
-  ## transition kind:
-  ##   what was the reason for changing the nilability of an expression
-  ##   useful for error messages and showing why an expression is being detected as nil / maybe nil
-  TransitionKind = enum TArg, TAssign, TType, TNil, TVarArg, TResult, TSafe, TPotentialAlias, TDependant
 
-  ## keep history for each transition
-  History = object
-    info: TLineInfo ## the location
-    nilability: Nilability ## the nilability
-    kind: TransitionKind ## what kind of transition was that
-    node: PNode ## the node of the expression
-
-  ## the context for the checker: an instance for each procedure
   NilCheckerContext = ref object
+    ## the context for the checker: an instance for each procedure
     # abstractTime: AbstractTime
     # partitions: Partitions
     # symbolGraphs: Table[Symbol, ]
     symbolIndices: Table[Symbol, ExprIndex] ## index for each symbol
     expressions: SeqOfDistinct[ExprIndex, PNode] ## a sequence of pre-indexed expressions
-    dependants: SeqOfDistinct[ExprIndex, IntSet] ## expr indices for expressions which are compound and based on others
-    warningLocations: HashSet[TLineInfo] ## warning locations to check we don't warn twice for stuff like warnings in for loops
+    dependants: SeqOfDistinct[ExprIndex, IntSet] ## expr indices for
+    ## expressions which are compound and based on others
+    warningLocations: HashSet[TLineInfo] ## warning locations to check we
+    ## don't warn twice for stuff like warnings in for loops
     idgen: IdGenerator ## id generator
     config: ConfigRef ## the config of the compiler
 
-  ## a map that is containing the current nilability for usually a branch
-  ## and is pointing optionally to a parent map: they make a stack of maps
   NilMap = ref object
-    expressions:  SeqOfDistinct[ExprIndex, Nilability] ## the expressions with the same order as in NilCheckerContext
-    history:  SeqOfDistinct[ExprIndex, seq[History]] ## history for each of them
+    ## a map that is containing the current nilability for usually a branch
+    ## and is pointing optionally to a parent map: they make a stack of maps
+    expressions:  SeqOfDistinct[ExprIndex, Nilability] ## the expressions
+    ## with the same order as in NilCheckerContext
+    history:  SeqOfDistinct[ExprIndex, seq[SemNilHistory]] ## history for each of them
     # what about gc and refs?
     setIndices: SeqOfDistinct[ExprIndex, SetIndex] ## set indices for each expression
     sets:     SeqOfDistinct[SetIndex, IntSet] ## disjoint sets with the aliased expressions
     parent:   NilMap ## the parent map
 
-  ## Nilability : if a value is nilable.
-  ## we have maybe nil and nil, so we can differentiate between
-  ## cases where we know for sure a value is nil and not
-  ## otherwise we can have Safe, MaybeNil
-  ## Parent: is because we just use a sequence with the same length
-  ## instead of a table, and we need to check if something was initialized
-  ## at all: if Parent is set, then you need to check the parent nilability
-  ## if the parent is nil, then for now we return MaybeNil
-  ## unreachable is the result of add(Safe, Nil) and others
-  ## it is a result of no states left, so it's usually e.g. in unreachable else branches?
-  Nilability* = enum Parent, Safe, MaybeNil, Nil, Unreachable
 
   ## check
   Check = object
@@ -225,7 +208,7 @@ proc newNilMap(parent: NilMap = nil, count: int = -1): NilMap =
     expressionsCount = parent.expressions.len.int
   result = NilMap(
     expressions: newSeqOfDistinct[ExprIndex, Nilability](expressionsCount),
-    history: newSeqOfDistinct[ExprIndex, seq[History]](expressionsCount),
+    history: newSeqOfDistinct[ExprIndex, seq[SemNilHistory]](expressionsCount),
     setIndices: newSeqOfDistinct[ExprIndex, SetIndex](expressionsCount),
     parent: parent)
   if parent.isNil:
@@ -257,7 +240,7 @@ proc `[]`(map: NilMap, index: ExprIndex): Nilability =
     now = now.parent
   return MaybeNil
 
-proc history(map: NilMap, index: ExprIndex): seq[History] =
+proc history(map: NilMap, index: ExprIndex): seq[SemNilHistory] =
   if index < map.expressions.len:
     map.history[index]
   else:
@@ -385,11 +368,20 @@ proc aliasSet(ctx: NilCheckerContext, map: NilMap, index: ExprIndex): IntSet =
 
 
 
-proc store(map: NilMap, ctx: NilCheckerContext, index: ExprIndex, value: Nilability, kind: TransitionKind, info: TLineInfo, node: PNode = nil) =
+proc store(
+    map: NilMap,
+    ctx: NilCheckerContext,
+    index: ExprIndex,
+    value: Nilability,
+    kind: NilTransition,
+    info: TLineInfo,
+    node: PNode = nil
+  ) =
+
   if index == noExprIndex:
     return
   map.expressions[index] = value
-  map.history[index].add(History(info: info, kind: kind, node: node, nilability: value))
+  map.history[index].add(SemNilHistory(info: info, kind: kind, node: node, nilability: value))
   #echo node, " ", index, " ", value
   #echo ctx.namedMapAndSetsDebugInfo(map)
   #for a, b in map.sets:
@@ -404,7 +396,8 @@ proc store(map: NilMap, ctx: NilCheckerContext, index: ExprIndex, value: Nilabil
       if value == Safe:
         map.history[a.ExprIndex] = @[]
       else:
-        map.history[a.ExprIndex].add(History(info: info, kind: TPotentialAlias, node: node, nilability: value))
+        map.history[a.ExprIndex].add(
+          SemNilHistory(info: info, kind: TPotentialAlias, node: node, nilability: value))
 
 proc moveOut(ctx: NilCheckerContext, map: NilMap, target: PNode) =
   #echo "move out ", target
@@ -541,38 +534,19 @@ proc checkCall(n, ctx, map): Check =
       result.nilability = Safe
   # echo result.map
 
-template event(b: History): string =
-  case b.kind:
-  of TArg: "param with nilable type"
-  of TNil: "it returns true for isNil"
-  of TAssign: "assigns a value which might be nil"
-  of TVarArg: "passes it as a var arg which might change to nil"
-  of TResult: "it is nil by default"
-  of TType: "it has ref type"
-  of TSafe: "it is safe here as it returns false for isNil"
-  of TPotentialAlias: "it might be changed directly or through an alias"
-  of TDependant: "it might be changed because its base might be changed"
-
 proc derefWarning(n, ctx, map; kind: Nilability) =
   ## a warning for potentially unsafe dereference
   if n.info in ctx.warningLocations:
     return
   ctx.warningLocations.incl(n.info)
-  var a: seq[History]
+  var a: seq[SemNilHistory]
+  var rep = SemReport(
+    kind: rsemStrictNotNilExpr, nilIssue: kind, ast: n)
+
   if n.kind == nkSym:
-    a = history(map, ctx.index(n))
-  var res = ""
-  var issue = case kind:
-      of Nil: "it is nil"
-      of MaybeNil: "it might be nil"
-      of Unreachable: "it is unreachable"
-      else: ""
-  res.add("can't deref " & $n & ", " & issue)
-  if a.len > 0:
-    res.add("\n")
-  for b in a:
-    res.add("  " & event(b) & " on line " & $b.info.line & ":" & $b.info.col)
-  message(ctx.config, n.info, warnStrictNotNil, res)
+    rep.nilHistory = history(map, ctx.index(n))
+
+  localReport(ctx.config, n.info, rep)
 
 proc handleNilability(check: Check; n, ctx, map) =
   ## handle the check:
@@ -1064,7 +1038,7 @@ proc reverse(value: Nilability): Nilability =
   of Parent: Parent
   of Unreachable: Unreachable
 
-proc reverse(kind: TransitionKind): TransitionKind =
+proc reverse(kind: NilTransition): NilTransition =
   case kind:
   of TNil: TSafe
   of TSafe: TNil
@@ -1174,12 +1148,9 @@ proc checkCondition(n, ctx, map; reverse: bool, base: bool): NilMap =
 proc checkResult(n, ctx, map) =
   let resultNilability = map[resultExprIndex]
   case resultNilability:
-  of Nil:
-    message(ctx.config, n.info, warnStrictNotNil, "return value is nil")
-  of MaybeNil:
-    message(ctx.config, n.info, warnStrictNotNil, "return value might be nil")
-  of Unreachable:
-    message(ctx.config, n.info, warnStrictNotNil, "return value is unreachable")
+  of Nil, MaybeNil, Unreachable:
+    localReport(ctx.config, n.info, SemReport(
+      kind: rsemStrictNotNilResult, nilIssue: resultNilability))
   of Safe, Parent:
     discard
 

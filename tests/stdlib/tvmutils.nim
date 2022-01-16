@@ -4,15 +4,15 @@ discard """
 0
 1
 2
-tvmutils.nim(28, 13) [opcLdImmInt]     if i == 4:
-tvmutils.nim(28, 10) [opcEqInt]     if i == 4:
-tvmutils.nim(28, 10) [opcFJmp]     if i == 4:
-tvmutils.nim(28, 13) [opcLdImmInt]     if i == 4:
-tvmutils.nim(28, 10) [opcEqInt]     if i == 4:
-tvmutils.nim(28, 10) [opcFJmp]     if i == 4:
-tvmutils.nim(29, 7) [opcLdConst]       vmTrace(false)
-tvmutils.nim(29, 15) [opcLdImmInt]       vmTrace(false)
-tvmutils.nim(29, 14) [opcIndCall]       vmTrace(false)
+tvmutils.nim(28, 13) [LdImmInt]     if i == 4:
+tvmutils.nim(28, 10) [EqInt]     if i == 4:
+tvmutils.nim(28, 10) [FJmp]     if i == 4:
+tvmutils.nim(28, 13) [LdImmInt]     if i == 4:
+tvmutils.nim(28, 10) [EqInt]     if i == 4:
+tvmutils.nim(28, 10) [FJmp]     if i == 4:
+tvmutils.nim(29, 7) [LdConst]       vmTrace(false)
+tvmutils.nim(29, 15) [LdImmInt]       vmTrace(false)
+tvmutils.nim(29, 14) [IndCall]       vmTrace(false)
 5
 6
 '''

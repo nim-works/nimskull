@@ -16,7 +16,8 @@ import
   packages/docutils/rst, packages/docutils/rstgen,
   json, xmltree, trees, types,
   typesrenderer, astalgo, lineinfos, intsets,
-  pathutils, tables, nimpaths, renderverbatim, osproc
+  pathutils, tables, nimpaths, renderverbatim, osproc, reports
+
 import packages/docutils/rstast except FileIndex, TLineInfo
 
 from uri import encodeUrl
@@ -173,8 +174,8 @@ proc presentationPath*(conf: ConfigRef, file: AbsoluteFile): RelativeFile =
   elif conf.docRoot.len > 0:
     # we're (currently) requiring `isAbsolute` to avoid confusion when passing
     # a relative path (would it be relative with regard to $PWD or to projectfile)
-    conf.globalAssert conf.docRoot.isAbsolute, arg=conf.docRoot
-    conf.globalAssert conf.docRoot.dirExists, arg=conf.docRoot
+    conf.internalAssert(conf.docRoot.isAbsolute, conf.docRoot)
+    conf.internalAssert(conf.docRoot.dirExists, conf.docRoot)
     # needed because `canonicalizePath` called on `file`
     result = file.relativeTo conf.docRoot.expandFilename.AbsoluteDir
   else:
@@ -207,28 +208,32 @@ proc attachToType(d: PDoc; p: PSym): PSym =
   for i in 2..<params.len: check(i)
 
 template declareClosures =
-  proc compilerMsgHandler(filename: string, line, col: int,
-                          msgKind: rst.MsgKind, arg: string) {.gcsafe.} =
+  proc compilerMsgHandler(
+      filename: string, line, col: int,
+      msgKind: rst.MsgKind, arg: string
+    ) {.gcsafe.} =
     # translate msg kind:
-    var k: TMsgKind
-    case msgKind
-    of meCannotOpenFile: k = errCannotOpenFile
-    of meExpected: k = errXExpected
-    of meGridTableNotImplemented: k = errRstGridTableNotImplemented
-    of meMarkdownIllformedTable: k = errRstMarkdownIllformedTable
-    of meNewSectionExpected: k = errRstNewSectionExpected
-    of meGeneralParseError: k = errRstGeneralParseError
-    of meInvalidDirective: k = errRstInvalidDirectiveX
-    of meInvalidField: k = errRstInvalidField
-    of meFootnoteMismatch: k = errRstFootnoteMismatch
-    of mwRedefinitionOfLabel: k = warnRstRedefinitionOfLabel
-    of mwUnknownSubstitution: k = warnRstUnknownSubstitutionX
-    of mwBrokenLink: k = warnRstBrokenLink
-    of mwUnsupportedLanguage: k = warnRstLanguageXNotSupported
-    of mwUnsupportedField: k = warnRstFieldXNotSupported
-    of mwRstStyle: k = warnRstStyle
     {.gcsafe.}:
-      globalError(conf, newLineInfo(conf, AbsoluteFile filename, line, col), k, arg)
+      globalReport(conf, newLineInfo(
+        conf, AbsoluteFile filename, line, col), BackendReport(
+          msg: arg,
+          kind: case msgKind:
+            of meCannotOpenFile:          rbackRstCannotOpenFile
+            of meExpected:                rbackRstExpected
+            of meGridTableNotImplemented: rbackRstGridTableNotImplemented
+            of meMarkdownIllformedTable:  rbackRstMarkdownIllformedTable
+            of meNewSectionExpected:      rbackRstNewSectionExpected
+            of meGeneralParseError:       rbackRstGeneralParseError
+            of meInvalidDirective:        rbackRstInvalidDirective
+            of meInvalidField:            rbackRstInvalidField
+            of meFootnoteMismatch:        rbackRstFootnoteMismatch
+            of mwRedefinitionOfLabel:     rbackRstRedefinitionOfLabel
+            of mwUnknownSubstitution:     rbackRstUnknownSubstitution
+            of mwBrokenLink:              rbackRstBrokenLink
+            of mwUnsupportedLanguage:     rbackRstUnsupportedLanguage
+            of mwUnsupportedField:        rbackRstUnsupportedField
+            of mwRstStyle:                rbackRstRstStyle
+      ))
 
   proc docgenFindFile(s: string): string {.gcsafe.} =
     result = options.findFile(conf, s).string
@@ -331,10 +336,13 @@ proc newDocumentor*(filename: AbsoluteFile; cache: IdentCache; conf: ConfigRef,
             # xxx `quoteShell` seems buggy if user passes options = "-d:foo somefile.nim"
         ]
       let cmd = cmd.interpSnippetCmd
-      rawMessage(conf, hintExecuting, cmd)
+      localReport(conf, CmdReport(kind: rcmdExecuting, cmd: cmd))
       let (output, gotten) = execCmdEx(cmd)
       if gotten != status:
-        rawMessage(conf, errGenerated, "snippet failed: cmd: '$1' status: $2 expected: $3 output: $4" % [cmd, $gotten, $status, output])
+        localReport(conf, CmdReport(
+          kind: rcmdFailedExecution,
+          cmd: cmd, exitOut: output, code: status))
+
   result.emitted = initIntSet()
   result.destFile = getOutFile2(conf, presentationPath(conf, filename), outExt, false).string
   result.thisDir = result.destFile.AbsoluteFile.splitFile.dir
@@ -518,7 +526,10 @@ proc runAllExamples(d: PDoc) =
       d.conf.quitOrRaise "[runnableExamples] failed: generated file: '$1' group: '$2' cmd: $3" % [outp.string, group[].prettyString, cmd]
     else:
       # keep generated source file `outp` to allow inspection.
-      rawMessage(d.conf, hintSuccess, ["runnableExamples: " & outp.string])
+      localReport(d.conf, CmdReport(
+        kind: rcmdRunnableExamplesSuccess,
+        msg: outp.string))
+
       # removeFile(outp.changeFileExt(ExeExt)) # it's in nimcache, no need to remove
 
 proc quoted(a: string): string = result.addQuoted(a)
@@ -530,11 +541,16 @@ proc toInstantiationInfo(conf: ConfigRef, info: TLineInfo): auto =
 proc prepareExample(d: PDoc; n: PNode, topLevel: bool): tuple[rdoccmd: string, code: string] =
   ## returns `rdoccmd` and source code for this runnableExamples
   var rdoccmd = ""
-  if n.len < 2 or n.len > 3: globalError(d.conf, n.info, "runnableExamples invalid")
+  if n.len < 2 or 3 < n.len:
+    internalError(d.conf, n.info, "runnableExamples invalid")
+
   if n.len == 3:
     let n1 = n[1]
     # xxx this should be evaluated during sempass
-    if n1.kind notin nkStrKinds: globalError(d.conf, n1.info, "string litteral expected")
+    if n1.kind notin nkStrKinds:
+      globalReport(d.conf, n1.info, reportAst(
+        rsemStringLiteralExpected, n1))
+
     rdoccmd = n1.strVal
 
   let useRenderModule = false
@@ -658,7 +674,9 @@ proc getAllRunnableExamplesImpl(d: PDoc; n: PNode, dest: var ItemPre,
         dest.add(d.config.getOrDefault"doc.listing_end" % id)
         return rsRunnable
       else:
-        localError(d.conf, n.info, errUser, "runnableExamples must appear before the first non-comment statement")
+        localReport(d.conf, n.info, reportAst(
+          rsemMisplacedRunnableExample, n))
+
   else: discard
   return rsDone
     # change this to `rsStart` if you want to keep generating doc comments
@@ -1438,8 +1456,9 @@ proc writeOutput*(d: PDoc, useWarning = false, groupedToc = false) =
     try:
       writeFile(outfile, content)
     except IOError:
-      rawMessage(d.conf, if useWarning: warnCannotOpenFile else: errCannotOpenFile,
-        outfile.string)
+      localReport(d.conf, InternalReport(
+        kind: rintCannotOpenFile, msg: outfile.string))
+
     if not d.wroteSupportFiles: # nimdoc.css + dochack.js
       let nimr = $d.conf.getPrefixDir()
       copyFile(docCss.interp(nimr = nimr), $d.conf.outDir / nimdocOutCss)
@@ -1466,9 +1485,10 @@ proc writeOutputJson*(d: PDoc, useWarning = false) =
       close(f)
       updateOutfile(d, d.destFile.AbsoluteFile)
     else:
-      localError(d.conf, newLineInfo(d.conf, AbsoluteFile d.filename, -1, -1),
-                 warnUser, "unable to open file \"" & d.destFile &
-                 "\" for writing")
+      localReport(
+        d.conf,
+        newLineInfo(d.conf, AbsoluteFile d.filename, -1, -1),
+        InternalReport(kind: rintCannotOpenFile, msg: d.destFile))
 
 proc handleDocOutputOptions*(conf: ConfigRef) =
   if optWholeProject in conf.globalOptions:
@@ -1514,8 +1534,9 @@ proc commandJson*(cache: IdentCache, conf: ConfigRef) =
   var d = newDocumentor(conf.projectFull, cache, conf)
   d.onTestSnippet = proc (d: var RstGenerator; filename, cmd: string;
                           status: int; content: string) =
-    localError(conf, newLineInfo(conf, AbsoluteFile d.filename, -1, -1),
-               warnUser, "the ':test:' attribute is not supported by this backend")
+    localReport(conf, newLineInfo(conf, AbsoluteFile d.filename, -1, -1),
+               BackendReport(kind: rbackRstTestUnsupported))
+
   d.hasToc = true
   generateJson(d, ast)
   finishGenerateDoc(d)
@@ -1530,7 +1551,8 @@ proc commandJson*(cache: IdentCache, conf: ConfigRef) =
     try:
       writeFile(filename, content)
     except:
-      rawMessage(conf, errCannotOpenFile, filename.string)
+      localReport(conf, InternalReport(
+        kind: rintCannotOpenFile, msg: filename.string))
 
 proc commandTags*(cache: IdentCache, conf: ConfigRef) =
   var ast = parseFile(conf.projectMainIdx, cache, conf)
@@ -1538,8 +1560,8 @@ proc commandTags*(cache: IdentCache, conf: ConfigRef) =
   var d = newDocumentor(conf.projectFull, cache, conf)
   d.onTestSnippet = proc (d: var RstGenerator; filename, cmd: string;
                           status: int; content: string) =
-    localError(conf, newLineInfo(conf, AbsoluteFile d.filename, -1, -1),
-               warnUser, "the ':test:' attribute is not supported by this backend")
+    localReport(conf, newLineInfo(conf, AbsoluteFile d.filename, -1, -1),
+               BackendReport(kind: rbackRstTestUnsupported))
   d.hasToc = true
   var
     content = ""
@@ -1553,7 +1575,8 @@ proc commandTags*(cache: IdentCache, conf: ConfigRef) =
     try:
       writeFile(filename, content)
     except:
-      rawMessage(conf, errCannotOpenFile, filename.string)
+      localReport(conf, InternalReport(
+        kind: rintCannotOpenFile, msg: filename.string))
 
 proc commandBuildIndex*(conf: ConfigRef, dir: string, outFile = RelativeFile"") =
   var content = mergeIndexes(dir)
@@ -1574,4 +1597,5 @@ proc commandBuildIndex*(conf: ConfigRef, dir: string, outFile = RelativeFile"") 
   try:
     writeFile(filename, code)
   except:
-    rawMessage(conf, errCannotOpenFile, filename.string)
+    localReport(conf, InternalReport(
+      kind: rintCannotOpenFile, msg: filename.string))

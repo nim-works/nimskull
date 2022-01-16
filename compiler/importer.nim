@@ -12,8 +12,7 @@
 import
   intsets, ast, astalgo, msgs, options, idents, lookups,
   semdata, modulepaths, sigmatch, lineinfos, sets,
-  modulegraphs, wordrecg, tables
-from strutils import `%`
+  modulegraphs, wordrecg, tables, reports
 
 proc readExceptSet*(c: PContext, n: PNode): IntSet =
   assert n.kind in {nkImportExceptStmt, nkExportExceptStmt}
@@ -109,14 +108,19 @@ proc rawImportSymbol(c: PContext, s, origin: PSym; importSet: var IntSet) =
     c.exportIndirections.incl((origin.id, s.id))
 
 proc splitPragmas(c: PContext, n: PNode): (PNode, seq[TSpecialWord]) =
-  template bail = globalError(c.config, n.info, "invalid pragma")
   if n.kind == nkPragmaExpr:
     if n.len == 2 and n[1].kind == nkPragma:
       result[0] = n[0]
       for ni in n[1]:
-        if ni.kind == nkIdent: result[1].add whichKeyword(ni.ident)
-        else: bail()
-    else: bail()
+        if ni.kind == nkIdent:
+          result[1].add whichKeyword(ni.ident)
+
+        else:
+          globalReport(c.config, n.info, reportAst(rsemInvalidPragma, n))
+
+    else:
+      globalReport(c.config, n.info, reportAst(rsemInvalidPragma, n))
+
   else:
     result[0] = n
     if result[0].safeLen > 0:
@@ -125,7 +129,7 @@ proc splitPragmas(c: PContext, n: PNode): (PNode, seq[TSpecialWord]) =
 proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
   let (n, kws) = splitPragmas(c, n)
   if kws.len > 0:
-    globalError(c.config, n.info, "unexpected pragma")
+    globalReport(c.config, n.info, reportSem(rsemUnexpectedPragma))
 
   let ident = lookups.considerQuotedIdent(c, n)
   let s = someSym(c.graph, fromMod, ident)
@@ -141,7 +145,9 @@ proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
       var it: ModuleIter
       var e = initModuleIter(it, c.graph, fromMod, s.name)
       while e != nil:
-        if e.name.id != s.name.id: internalError(c.config, n.info, "importSymbol: 3")
+        if e.name.id != s.name.id:
+          internalError(c.config, n.info, "importSymbol: 3")
+
         if s.kind in ExportableSymKinds:
           rawImportSymbol(c, e, fromMod, importSet)
         e = nextModuleIter(it, c.graph)
@@ -218,7 +224,8 @@ proc importForwarded(c: PContext, n: PNode, exceptSet: IntSet; fromMod: PSym; im
       elif exceptSet.isNil or s.name.id notin exceptSet:
         rawImportSymbol(c, s, fromMod, importSet)
   of nkExportExceptStmt:
-    localError(c.config, n.info, "'export except' not implemented")
+    localReport(c.config, n.info, InternalReport(
+      kind: rintNotImplemented, msg: "'export except' not implemented"))
   else:
     for i in 0..n.safeLen-1:
       importForwarded(c, n[i], exceptSet, fromMod, importSet)
@@ -227,9 +234,15 @@ proc importModuleAs(c: PContext; n: PNode, realModule: PSym, importHidden: bool)
   result = realModule
   template createModuleAliasImpl(ident): untyped =
     createModuleAlias(realModule, nextSymId c.idgen, ident, n.info, c.config.options)
-  if n.kind != nkImportAs: discard
+  if n.kind != nkImportAs:
+    discard
   elif n.len != 2 or n[1].kind != nkIdent:
-    localError(c.config, n.info, "module alias must be an identifier")
+    localReport(
+      c.config, n.info,
+      reportAst(
+        rsemExpectedIdentifier, n[1],
+        str = "module alias must be an identifier"))
+
   elif n[1].ident.id != realModule.name.id:
     # some misguided guy will write 'import abc.foo as foo' ...
     result = createModuleAliasImpl(n[1].ident)
@@ -248,8 +261,12 @@ proc transformImportAs(c: PContext; n: PNode): tuple[node: PNode, importHidden: 
     result = result2
     for ai in kws:
       case ai
-      of wImportHidden: ret.importHidden = true
-      else: globalError(c.config, n.info, "invalid pragma, expected: " & ${wImportHidden})
+      of wImportHidden:
+        ret.importHidden = true
+      else:
+        globalReport(c.config, n.info, reportAst(
+          rsemInvalidPragma, n2,
+          str = "invalid pragma, expected: " & ${wImportHidden}))
 
   if n.kind == nkInfix and considerQuotedIdent(c, n[0]).s == "as":
     ret.node = newNodeI(nkImportAs, n.info)
@@ -270,12 +287,11 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
     c.graph.importStack.add f
     #echo "adding ", toFullPath(f), " at ", L+1
     if recursion >= 0:
-      var err = ""
-      for i in recursion..<L:
-        if i > recursion: err.add "\n"
-        err.add toFullPath(c.config, c.graph.importStack[i]) & " imports " &
-                toFullPath(c.config, c.graph.importStack[i+1])
-      c.recursiveDep = err
+      for i in recursion ..< L:
+        c.recursiveDep.add((
+          importer: toFullPath(c.config, c.graph.importStack[i]),
+          importee: toFullPath(c.config, c.graph.importStack[i + 1])
+        ))
 
     var realModule: PSym
     discard pushOptionEntry(c)
@@ -288,11 +304,12 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
     # we cannot perform this check reliably because of
     # test: modules/import_in_config) # xxx is that still true?
     if realModule == c.module:
-      localError(c.config, n.info, "module '$1' cannot import itself" % realModule.name.s)
+      localReport(c.config, n.info, reportSym(
+        rsemCannotImportItself, realModule))
+
     if sfDeprecated in realModule.flags:
-      var prefix = ""
-      if realModule.constraint != nil: prefix = realModule.constraint.strVal & "; "
-      message(c.config, n.info, warnDeprecated, prefix & realModule.name.s & " is deprecated")
+      localReport(c.config, n.info, reportSym(rsemDeprecated, realModule))
+
     suggestSym(c.graph, n.info, result, c.graph.usageSym, false)
     importStmtResult.add newSymNode(result, n.info)
     #newStrNode(toFullPath(c.config, f), n.info)
@@ -316,7 +333,7 @@ proc impMod(c: PContext; it: PNode; importStmtResult: PNode) =
 
 proc evalImport*(c: PContext, n: PNode): PNode =
   result = newNodeI(nkImportStmt, n.info)
-  for i in 0..<n.len:
+  for i in 0 ..< n.len:
     let it = n[i]
     if it.kind == nkInfix and it.len == 3 and it[2].kind == nkBracket:
       let sep = it[0]

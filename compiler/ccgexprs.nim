@@ -951,7 +951,9 @@ proc genArrayElem(p: BProc, n, x, y: PNode, d: var TLoc) =
     if not isConstExpr(y):
       # semantic pass has already checked for const index expressions
       if firstOrd(p.config, ty) == 0 and lastOrd(p.config, ty) >= 0:
-        if (firstOrd(p.config, b.t) < firstOrd(p.config, ty)) or (lastOrd(p.config, b.t) > lastOrd(p.config, ty)):
+        if (firstOrd(p.config, b.t) < firstOrd(p.config, ty)) or
+           (lastOrd(p.config, b.t) > lastOrd(p.config, ty)):
+
           linefmt(p, cpsStmts, "if ((NU)($1) > (NU)($2)){ #raiseIndexError2($1, $2); $3}$n",
                   [rdCharLoc(b), intLiteral(lastOrd(p.config, ty)), raiseInstr(p)])
       else:
@@ -959,8 +961,16 @@ proc genArrayElem(p: BProc, n, x, y: PNode, d: var TLoc) =
                 [rdCharLoc(b), first, intLiteral(lastOrd(p.config, ty)), raiseInstr(p)])
     else:
       let idx = getOrdValue(y)
-      if idx < firstOrd(p.config, ty) or idx > lastOrd(p.config, ty):
-        localError(p.config, x.info, formatErrorIndexBound(idx, firstOrd(p.config, ty), lastOrd(p.config, ty)))
+      if idx < firstOrd(p.config, ty) or lastOrd(p.config, ty) < idx:
+        localReport(
+          p.config, x.info, SemReport(
+            kind: rsemStaticOutOfBounds,
+            indexSpec: (
+              usedIdx: idx,
+              minIdx: firstOrd(p.config, ty),
+              maxIdx: lastOrd(p.config, ty)),
+            ast: y))
+
   d.inheritLocation(a)
   putIntoDest(p, d, n,
               ropecg(p.module, "$1[($2)- $3]", [rdLoc(a), rdCharLoc(b), first]), a.storage)
@@ -1165,7 +1175,8 @@ proc genEcho(p: BProc, n: PNode) =
       linefmt(p, cpsStmts, "fflush(stdout);$n", [])
 
 proc gcUsage(conf: ConfigRef; n: PNode) =
-  if conf.selectedGC == gcNone: message(conf, n.info, warnGcMem, n.renderTree)
+  if conf.selectedGC == gcNone:
+    localReport(conf, n, reportSem rsemUseOfGc)
 
 proc strLoc(p: BProc; d: TLoc): Rope =
   if optSeqDestructors in p.config.globalOptions:
@@ -1330,9 +1341,7 @@ proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool) =
       # finalizer is: ``proc (x: ref T) {.nimcall.}``. We need to check the calling
       # convention at least:
       if op.typ == nil or op.typ.callConv != ccNimCall:
-        localError(p.module.config, a.lode.info,
-          "the destructor that is turned into a finalizer needs " &
-          "to have the 'nimcall' calling convention")
+        localReport(p.module.config, a.lode, reportSem rsemExpectedNimcallProc)
       var f: TLoc
       initLocExpr(p, newSymNode(op), f)
       p.module.s[cfsTypeInit3].addf("$1->finalizer = (void*)$2;$n", [ti, rdLoc(f)])
@@ -1644,9 +1653,10 @@ proc genOf(p: BProc, x: PNode, typ: PType, d: var TLoc) =
     while t.kind == tyObject and t[0] != nil:
       r.add(~".Sup")
       t = skipTypes(t[0], skipPtrs)
+
   if isObjLackingTypeField(t):
-    globalError(p.config, x.info,
-      "no 'of' operator available for pure objects")
+    localReport(p.config, x, reportSem rsemDisallowedOfForPureObjects)
+
   if nilCheck != nil:
     r = ropecg(p.module, "(($1) && ($2))", [nilCheck, genOfHelper(p, dest, r, x.info)])
   else:
@@ -1658,7 +1668,7 @@ proc genOf(p: BProc, n: PNode, d: var TLoc) =
 
 proc genRepr(p: BProc, e: PNode, d: var TLoc) =
   if optTinyRtti in p.config.globalOptions:
-    localError(p.config, e.info, "'repr' is not available for --newruntime")
+    localReport(p.config, e, reportSem rsemDisallowedReprForNewruntime)
   var a: TLoc
   initLocExpr(p, e[1], a)
   var t = skipTypes(e[1].typ, abstractVarRange)
@@ -1701,7 +1711,7 @@ proc genRepr(p: BProc, e: PNode, d: var TLoc) =
                 ropecg(p.module, "#reprAny($1, $2)", [
                 rdLoc(a), genTypeInfoV1(p.module, t, e.info)]), a.storage)
   of tyEmpty, tyVoid:
-    localError(p.config, e.info, "'repr' doesn't support 'void' type")
+    localReport(p.config, e, reportSem rsemUnexpectedVoidType)
   else:
     putIntoDest(p, d, e, ropecg(p.module, "#reprAny($1, $2)",
                               [addrLoc(p.config, a), genTypeInfoV1(p.module, t, e.info)]),
@@ -2259,7 +2269,7 @@ proc genSlice(p: BProc; e: PNode; d: var TLoc) =
   if d.k == locNone: getTemp(p, e.typ, d)
   linefmt(p, cpsStmts, "$1.Field0 = $2; $1.Field1 = $3;$n", [rdLoc(d), x, y])
   when false:
-    localError(p.config, e.info, "invalid context for 'toOpenArray'; " &
+    localReport(p.config, e.info, "invalid context for 'toOpenArray'; " &
       "'toOpenArray' is only valid within a call expression")
 
 proc genEnumToStr(p: BProc, e: PNode, d: var TLoc) =
@@ -2423,12 +2433,15 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
   of mEcho: genEcho(p, e[1].skipConv)
   of mArrToSeq: genArrToSeq(p, e, d)
   of mNLen..mNError, mSlurp..mQuoteAst:
-    localError(p.config, e.info, strutils.`%`(errXMustBeCompileTime, e[0].sym.name.s))
+    localReport(p.config, e.info, reportSym(
+      rsemConstExpressionExpected, e[0].sym))
+
   of mSpawn:
     when defined(leanCompiler):
       p.config.quitOrRaise "compiler built without support for the 'spawn' statement"
     else:
-      let n = spawn.wrapProcForSpawn(p.module.g.graph, p.module.idgen, p.module.module, e, e.typ, nil, nil)
+      let n = spawn.wrapProcForSpawn(
+        p.module.g.graph, p.module.idgen, p.module.module, e, e.typ, nil, nil)
       expr(p, n, d)
   of mParallel:
     when defined(leanCompiler):
@@ -2438,8 +2451,7 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
       expr(p, n, d)
   of mDeepCopy:
     if p.config.selectedGC in {gcArc, gcOrc} and optEnableDeepCopy notin p.config.globalOptions:
-      localError(p.config, e.info,
-        "for --gc:arc|orc 'deepcopy' support has to be enabled with --deepcopy:on")
+      localReport(p.config, e, reportSem rsemRequiresDeepCopyEnabled)
 
     var a, b: TLoc
     let x = if e[1].kind in {nkAddr, nkHiddenAddr}: e[1][0] else: e[1]
@@ -2746,8 +2758,9 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
       #if sym.kind == skIterator:
       #  echo renderTree(sym.getBody, {renderIds})
       if sfCompileTime in sym.flags:
-        localError(p.config, n.info, "request to generate code for .compileTime proc: " &
-           sym.name.s)
+        localReport(p.config, n.info, reportSym(
+          rsemCannotCodegenCompiletimeProc, sym))
+
       if useAliveDataFromDce in p.module.flags and sym.typ.callConv != ccInline:
         fillProcLoc(p.module, n)
         genProcPrototype(p.module, sym)
@@ -3000,7 +3013,8 @@ proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =
     if mapSetType(p.config, t) == ctArray: result = rope"{}"
     else: result = rope"0"
   else:
-    globalError(p.config, info, "cannot create null element for: " & $t.kind)
+    internalError(
+      p.config, info, "cannot create null element for: " & $t.kind)
 
 proc caseObjDefaultBranch(obj: PNode; branch: Int128): int =
   for i in 1 ..< obj.len:
@@ -3070,7 +3084,7 @@ proc getNullValueAux(p: BProc; t: PType; obj, constOrNil: PNode,
     # not found, produce default value:
     result.add getDefaultValue(p, field.typ, info)
   else:
-    localError(p.config, info, "cannot create null element for: " & $obj)
+    internalError(p.config, info, "cannot create null element for: " & $obj)
 
 proc getNullValueAuxT(p: BProc; orig, t: PType; obj, constOrNil: PNode,
                       result: var Rope; count: var int;
@@ -3215,7 +3229,8 @@ proc genBracedInit(p: BProc, n: PNode; isConst: bool; optionalType: PType): Rope
       result = genConstTuple(p, n, isConst, typ)
     of tyOpenArray:
       if n.kind != nkBracket:
-        internalError(p.config, n.info, "const openArray expression is not an array construction")
+        internalError(
+          p.config, n.info, "const openArray expression is not an array construction")
 
       let data = genConstSimpleList(p, n, isConst)
 

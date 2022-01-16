@@ -10,8 +10,8 @@
 ## This module implements the pattern matching features for term rewriting
 ## macro support.
 
-import strutils, ast, types, msgs, idents, renderer, wordrecg, trees,
-  options
+import strutils, ast, types, msgs, renderer, wordrecg, trees,
+  options, reports
 
 # we precompile the pattern here for efficiency into some internal
 # stack based VM :-) Why? Because it's fun; I did no benchmarks to see if that
@@ -42,9 +42,6 @@ type
 const
   MaxStackSize* = 64 ## max required stack size by the VM
 
-proc patternError(n: PNode; conf: ConfigRef) =
-  localError(conf, n.info, "illformed AST: " & renderTree(n, {renderNoComments}))
-
 proc add(code: var TPatternCode, op: TOpcode) {.inline.} =
   code.add chr(ord(op))
 
@@ -58,7 +55,9 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
   case p.kind
   of nkCallKinds:
     if p[0].kind != nkIdent:
-      patternError(p[0], conf)
+      conf.localReport(p[0].info, reportAst(
+        rsemIllformedAst, p,
+        str = "Expected ident for a first subnode, but found '$1'" % [$p[0].kind]))
       return
     let op = p[0].ident
     if p.len == 3:
@@ -71,17 +70,28 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
         compileConstraints(p[2], result, conf)
         result.add(ppAnd)
       else:
-        patternError(p, conf)
+        conf.localReport(p.info, reportAst(
+          rsemIllformedAst, p,
+          str = "Expected any of '|', 'or', '&', 'and' for TRM pattern, but found '$1' ($2)" % [
+            $op.s, $op.id]))
+
     elif p.len == 2 and (op.s == "~" or op.id == ord(wNot)):
       compileConstraints(p[1], result, conf)
       result.add(ppNot)
     else:
-      patternError(p, conf)
+      conf.localReport(p.info, reportAst(
+        rsemIllformedAst, p,
+        str = "Unexpected trm patern - wanted negation or and/or infix"))
+
   of nkAccQuoted, nkPar:
     if p.len == 1:
       compileConstraints(p[0], result, conf)
     else:
-      patternError(p, conf)
+      conf.localReport(p.info, reportAst(
+        rsemIllformedAst, p,
+        str = "Unexpected number of nodes for node - " &
+          "wanted $1, but found $2" % [$1, $p.len]))
+
   of nkIdent:
     let spec = p.ident.s.normalize
     case spec
@@ -98,22 +108,22 @@ proc compileConstraints(p: PNode, result: var TPatternCode; conf: ConfigRef) =
     of "nosideeffect": result.add(ppNoSideEffect)
     else:
       # check all symkinds:
-      internalAssert conf, int(high(TSymKind)) < 255
+      internalAssert conf, int(high(TSymKind)) < 255, "[FIXME]"
       for i in TSymKind:
         if cmpIgnoreStyle(i.toHumanStr, spec) == 0:
           result.add(ppSymKind)
           result.add(chr(i.ord))
           return
       # check all nodekinds:
-      internalAssert conf, int(high(TNodeKind)) < 255
+      internalAssert conf, int(high(TNodeKind)) < 255, "[FIXME]"
       for i in TNodeKind:
         if cmpIgnoreStyle($i, spec) == 0:
           result.add(ppNodeKind)
           result.add(chr(i.ord))
           return
-      patternError(p, conf)
+      conf.localReport(p.info, reportAst(rsemIllformedAst, p))
   else:
-    patternError(p, conf)
+    conf.localReport(p.info, reportAst(rsemIllformedAst, p))
 
 proc semNodeKindConstraints*(n: PNode; conf: ConfigRef; start: Natural): PNode =
   ## does semantic checking for a node kind pattern and compiles it into an
@@ -124,10 +134,12 @@ proc semNodeKindConstraints*(n: PNode; conf: ConfigRef; start: Natural): PNode =
   if n.len >= 2:
     for i in start..<n.len:
       compileConstraints(n[i], result.strVal, conf)
-    if result.strVal.len > MaxStackSize-1:
-      internalError(conf, n.info, "parameter pattern too complex")
+
+    if result.strVal.len > MaxStackSize - 1:
+      conf.internalError(n.info, "parameter pattern too complex")
+
   else:
-    patternError(n, conf)
+    conf.localReport(n.info, reportAst(rsemIllformedAst, n))
   result.strVal.add(ppEof)
 
 type
@@ -342,4 +354,3 @@ proc matchNodeKinds*(p, n: PNode): bool =
     of ppNoSideEffect: push checkForSideEffects(n) != seSideEffect
     inc pc
   result = stack[sp-1]
-

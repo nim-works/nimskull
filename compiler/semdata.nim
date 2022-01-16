@@ -14,7 +14,11 @@ import tables
 import
   intsets, options, ast, astalgo, msgs, idents, renderer,
   magicsys, vmdef, modulegraphs, lineinfos, sets, pathutils,
-  errorhandling, errorreporting
+  reports
+
+export TExprFlag, TExprFlags
+
+import std/strutils
 
 import ic / ic
 
@@ -23,10 +27,10 @@ type
     options*: TOptions
     defaultCC*: TCallingConvention
     dynlib*: PLib
-    notes*: TNoteKinds
+    notes*: ReportKinds
     features*: set[Feature]
     otherPragmas*: PNode      # every pragma can be pushed
-    warningAsErrors*: TNoteKinds
+    warningAsErrors*: ReportKinds
 
   POptionEntry* = ref TOptionEntry
   PProcCon* = ref TProcCon
@@ -52,27 +56,6 @@ type
     genericSym*: PSym
     inst*: PInstantiation
 
-  TExprFlag* = enum
-    efLValue, efWantIterator, efWantIterable, efInTypeof,
-    efNeedStatic,
-      # Use this in contexts where a static value is mandatory
-    efPreferStatic,
-      # Use this in contexts where a static value could bring more
-      # information, but it's not strictly mandatory. This may become
-      # the default with implicit statics in the future.
-    efPreferNilResult,
-      # Use this if you want a certain result (e.g. static value),
-      # but you don't want to trigger a hard error. For example,
-      # you may be in position to supply a better error message
-      # to the user.
-    efWantStmt, efAllowStmt, efDetermineType, efExplain,
-    efWantValue, efOperand, efNoSemCheck,
-    efNoEvaluateGeneric, efInCall, efFromHlo, efNoSem2Check,
-    efNoUndeclared
-      # Use this if undeclared identifiers should not raise an error during
-      # overload resolution.
-
-  TExprFlags* = set[TExprFlag]
 
   ImportMode* = enum
     importAll, importSet, importExcept
@@ -151,7 +134,7 @@ type
     cache*: IdentCache
     graph*: ModuleGraph
     signatures*: TStrTable
-    recursiveDep*: string
+    recursiveDep*: seq[tuple[importer, importee: string]]
     suggestionsMade*: bool
     isAmbiguous*: bool # little hack
     features*: set[Feature]
@@ -212,7 +195,8 @@ proc setIntLitType*(c: PContext; result: PNode) =
     else:
       result.typ = getSysType(c.graph, result.info, tyInt64)
   else:
-    internalError(c.config, result.info, "invalid int size")
+    c.config.internalError(
+      result.info, rintUnreachable, "invalid int size")
 
 proc makeInstPair*(s: PSym, inst: PInstantiation): TInstantiationPair =
   result.genericSym = s
@@ -237,8 +221,11 @@ proc pushOwner*(c: PContext; owner: PSym) =
   c.graph.owners.add(owner)
 
 proc popOwner*(c: PContext) =
-  if c.graph.owners.len > 0: setLen(c.graph.owners, c.graph.owners.len - 1)
-  else: internalError(c.config, "popOwner")
+  if c.graph.owners.len > 0:
+    setLen(c.graph.owners, c.graph.owners.len - 1)
+
+  else:
+    internalError(c.config, rintUnreachable, "popOwner")
 
 proc lastOptionEntry*(c: PContext): POptionEntry =
   result = c.optionStack[^1]
@@ -429,7 +416,7 @@ proc makeVarType*(owner: PSym, baseType: PType; idgen: IdGenerator; kind = tyVar
 proc makeTypeSymNode*(c: PContext, typ: PType, info: TLineInfo): PNode =
   let typedesc = newTypeS(tyTypeDesc, c)
   incl typedesc.flags, tfCheckedForDestructor
-  internalAssert(c.config, typ != nil)
+  internalAssert(c.config, typ != nil, "[FIXME]")
   typedesc.addSonSkipIntLit(typ, c.idgen)
   let sym = newSym(skType, c.cache.idAnon, nextSymId(c.idgen), getCurrOwner(c), info,
                    c.config.options).linkTo(typedesc)
@@ -513,35 +500,6 @@ proc errorNode*(c: PContext, n: PNode): PNode =
   result = newNodeI(nkEmpty, n.info)
   result.typ = errorType(c)
 
-proc newError*(c: PContext; wrongNode: PNode, k: ErrorKind; args: varargs[PNode]): PNode =
-  ## create an `nkError` node with error `k`, with additional error `args`, and
-  ## a type of error type associated to the current `PContext.owner`
-  case k:
-    of FatalError:
-      # in case we don't abort, ide tools, we set the result
-      result = errorhandling.newFatal(wrongNode, args) # this is an audited use
-      messageError(c.config, result)
-    else:
-      result = errorhandling.newError(wrongNode, k, args)
-      result.typ = errorType(c)
-
-# These mimic localError
-template localErrorNode*(c: PContext, n: PNode, info: TLineInfo, msg: TMsgKind, arg: string): PNode =
-  liMessage(c.config, info, msg, arg, doNothing, instLoc())
-  errorNode(c, n)
-
-template localErrorNode*(c: PContext, n: PNode, info: TLineInfo, arg: string): PNode =
-  liMessage(c.config, info, errGenerated, arg, doNothing, instLoc())
-  errorNode(c, n)
-
-template localErrorNode*(c: PContext, n: PNode, msg: TMsgKind, arg: string): PNode =
-  let n2 = n
-  liMessage(c.config, n2.info, msg, arg, doNothing, instLoc())
-  errorNode(c, n2)
-
-template localErrorNode*(c: PContext, n: PNode, arg: string): PNode =
-  newError(c, n, CustomError, newStrNode(arg, n.info))
-
 proc fillTypeS*(dest: PType, kind: TTypeKind, c: PContext) =
   dest.kind = kind
   dest.owner = getCurrOwner(c)
@@ -562,17 +520,17 @@ proc markIndirect*(c: PContext, s: PSym) {.inline.} =
     incl(s.flags, sfAddrTaken)
     # XXX add to 'c' for global analysis
 
-proc illFormedAst*(n: PNode; conf: ConfigRef) =
-  globalError(conf, n.info, errIllFormedAstX, renderTree(n, {renderNoComments}))
-
-proc illFormedAstLocal*(n: PNode; conf: ConfigRef) =
-  localError(conf, n.info, errIllFormedAstX, renderTree(n, {renderNoComments}))
-
 proc checkSonsLen*(n: PNode, length: int; conf: ConfigRef) =
-  if n.len != length: illFormedAst(n, conf)
+  if n.len != length:
+    conf.globalReport(n.info, reportAst(
+      rsemIllformedAst, n,
+      str = "Expected $1 elements, but found $2" % [$length, $n.len]))
 
 proc checkMinSonsLen*(n: PNode, length: int; conf: ConfigRef) =
-  if n.len < length: illFormedAst(n, conf)
+  if n.len < length:
+    conf.globalReport(n.info, reportAst(
+      rsemIllformedAst, n,
+      str = "Expected at least $1 elements, but found $2" % [$length, $n.len]))
 
 proc isTopLevel*(c: PContext): bool {.inline.} =
   result = c.currentScope.depthLevel <= 2

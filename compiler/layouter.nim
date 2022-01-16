@@ -9,7 +9,8 @@
 
 ## Layouter for nimpretty.
 
-import idents, lexer, lineinfos, llstream, options, msgs, strutils, pathutils
+import idents, lexer, lineinfos, llstream, options, msgs, strutils, pathutils,
+       reports
 
 const
   MinLineLen = 15
@@ -251,7 +252,9 @@ proc writeOut*(em: Emitter, content: string)  =
     return
   var f = llStreamOpen(outFile, fmWrite)
   if f == nil:
-    rawMessage(em.config, errGenerated, "cannot open file: " & outFile.string)
+    em.config.localReport(InternalReport(
+      kind: rintCannotOpenFile, msg: outFile.string))
+
     return
   f.llStreamWrite content
   llStreamClose(f)

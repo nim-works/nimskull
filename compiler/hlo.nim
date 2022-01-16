@@ -12,24 +12,34 @@
 proc hlo(c: PContext, n: PNode): PNode
 
 proc evalPattern(c: PContext, n, orig: PNode): PNode =
-  internalAssert c.config, n.kind == nkCall and n[0].kind == nkSym
+  internalAssert(
+    c.config,
+    n.kind == nkCall and n[0].kind == nkSym,
+    "Expected call node")
+
   # we need to ensure that the resulting AST is semchecked. However, it's
   # awful to semcheck before macro invocation, so we don't and treat
   # templates and macros as immediate in this context.
-  var rule: string
-  if c.config.hasHint(hintPattern):
-    rule = renderTree(n, {renderNoComments})
+  var original: PNode
+  if c.config.hasHint(rsemPattern):
+    original = n
+
   let s = n[0].sym
   case s.kind
   of skMacro:
     result = semMacroExpr(c, n, orig, s)
+
   of skTemplate:
     result = semTemplateExpr(c, n, s, {efFromHlo})
+
   else:
     result = semDirectOp(c, n, {})
-  if c.config.hasHint(hintPattern):
-    message(c.config, orig.info, hintPattern, rule & " --> '" &
-      renderTree(result, {renderNoComments}) & "'")
+
+  if c.config.hasHint(rsemPattern):
+    c.config.localReport(orig.info, SemReport(
+      kind: rsemPattern,
+      ast: original,
+      expandedAst: result))
 
 proc applyPatterns(c: PContext, n: PNode): PNode =
   result = n
@@ -45,7 +55,9 @@ proc applyPatterns(c: PContext, n: PNode): PNode =
         # better be safe than sorry, so check evalTemplateCounter too:
         inc(c.config.evalTemplateCounter)
         if c.config.evalTemplateCounter > evalTemplateLimit:
-          globalError(c.config, n.info, "template instantiation too nested")
+          globalReport(c.config, n.info, SemReport(
+            kind: rsemTemplateInstantiationTooNested))
+
         # deactivate this pattern:
         c.patterns[i] = nil
         if x.kind == nkStmtList:

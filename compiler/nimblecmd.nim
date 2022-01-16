@@ -12,6 +12,8 @@
 import parseutils, strutils, os, options, msgs, sequtils, lineinfos, pathutils,
   std/sha1, tables
 
+import reports
+
 proc addPath*(conf: ConfigRef; path: AbsoluteDir, info: TLineInfo) =
   if not conf.searchPaths.contains(path):
     conf.searchPaths.insert(path, 0)
@@ -110,7 +112,8 @@ proc addPackage*(conf: ConfigRef; packages: var PackageInfo, p: string;
       else:
         packages[name] = ($version, "")
   else:
-    localError(conf, info, "invalid package name: " & p)
+    conf.localReport ExternalReport(
+      kind: rextInvalidPackageName, packageName: p)
 
 iterator chosen(packages: PackageInfo): string =
   for key, val in pairs(packages):
@@ -136,7 +139,7 @@ proc addNimblePath(conf: ConfigRef; p: string, info: TLineInfo) =
       path = p / path
 
   if not contains(conf.searchPaths, AbsoluteDir path):
-    message(conf, info, hintPath, path)
+    conf.localReport ExternalReport(kind: rextPath, packagePath: path)
     conf.lazyPaths.insert(AbsoluteDir path, 0)
 
 proc addPathRec(conf: ConfigRef; dir: string, info: TLineInfo) =

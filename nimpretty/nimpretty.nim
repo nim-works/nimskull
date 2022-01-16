@@ -12,7 +12,9 @@
 when not defined(nimpretty):
   {.error: "This needs to be compiled with --define:nimPretty".}
 
-import ../compiler / [idents, msgs, syntaxes, options, pathutils, layouter]
+import ../compiler / [
+    idents, msgs, syntaxes, options, pathutils, layouter, cli_reporter
+  ]
 
 import parseopt, strutils, os, sequtils
 
@@ -49,7 +51,7 @@ type
     maxLineLen*: Positive
 
 proc prettyPrint*(infile, outfile: string, opt: PrettyOptions) =
-  var conf = newConfigRef()
+  var conf = newConfigRef(cli_reporter.reportHook)
   let fileIdx = fileInfoIdx(conf, AbsoluteFile infile)
   let f = splitFile(outfile.expandTilde)
   conf.outFile = RelativeFile f.name & f.ext

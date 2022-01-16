@@ -19,7 +19,7 @@
 # * transforms 'defer' into a 'try finally' statement
 
 import
-  options, ast, astalgo, trees, msgs,
+  options, ast, astalgo, trees, msgs, reports,
   idents, renderer, types, semfold, magicsys, cgmeth,
   lowerings, liftlocals,
   modulegraphs, lineinfos,
@@ -78,7 +78,9 @@ proc pushTransCon(c: PTransf, t: PTransCon) =
   c.transCon = t
 
 proc popTransCon(c: PTransf) =
-  if (c.transCon == nil): internalError(c.graph.config, "popTransCon")
+  if (c.transCon == nil):
+    internalError(c.graph.config, "popTransCon")
+
   c.transCon = c.transCon.next
 
 proc getCurrOwner(c: PTransf): PSym =
@@ -134,7 +136,9 @@ proc transformSymAux(c: PTransf, n: PNode): PNode =
       else:
         break
     b = getBody(c.graph, s)
-    if b.kind != nkSym: internalError(c.graph.config, n.info, "wrong AST for borrowed symbol")
+    if b.kind != nkSym:
+      internalError(c.graph.config, n.info, "wrong AST for borrowed symbol")
+
     b = newSymNode(b.sym, n.info)
   elif c.inlining > 0:
     # see bug #13596: we use ref-based equality in the DFA for destruction
@@ -183,7 +187,8 @@ proc transformVarSection(c: PTransf, v: PNode): PNode =
       result[i] = it
     elif it.kind == nkIdentDefs:
       if it[0].kind == nkSym:
-        internalAssert(c.graph.config, it.len == 3)
+        internalAssert(c.graph.config, it.len == 3,
+                       "var section must have three subnodes")
         let x = freshVar(c, it[0].sym)
         idNodeTablePut(c.transCon.mapping, it[0].sym, x)
         var defs = newTransNode(nkIdentDefs, it.info, 3)
@@ -202,6 +207,7 @@ proc transformVarSection(c: PTransf, v: PNode): PNode =
     else:
       if it.kind != nkVarTuple:
         internalError(c.graph.config, it.info, "transformVarSection: not nkVarTuple")
+
       var defs = newTransNode(it.kind, it.info, it.len)
       for j in 0..<it.len-2:
         if it[j].kind == nkSym:
@@ -224,7 +230,9 @@ proc transformConstSection(c: PTransf, v: PNode): PNode =
       if it.kind == nkCommentStmt:
         result[i] = it
       else:
-        if it.kind != nkConstDef: internalError(c.graph.config, it.info, "transformConstSection")
+        if it.kind != nkConstDef:
+          internalError(c.graph.config, it.info, "transformConstSection")
+
         if it[0].kind != nkSym:
           debug it[0]
           internalError(c.graph.config, it.info, "transformConstSection")
@@ -360,12 +368,16 @@ proc transformYield(c: PTransf, n: PNode): PNode =
     # nkDotExpr (a heap-allocated slot into the envP block)
     case lhs.kind
     of nkSym:
-      internalAssert c.graph.config, lhs.sym.kind == skForVar
+      internalAssert(
+        c.graph.config, lhs.sym.kind == skForVar, "assign lhs must be mutable")
+
       result = newAsgnStmt(c, nkFastAsgn, lhs, rhs)
     of nkDotExpr:
       result = newAsgnStmt(c, nkAsgn, lhs, rhs)
     else:
-      internalAssert c.graph.config, false
+      internalAssert(
+        c.graph.config, false, "Unexpected symbol for assign")
+
   result = newTransNode(nkStmtList, n.info, 0)
   var e = n[0]
   # c.transCon.forStmt.len == 3 means that there is one for loop variable
@@ -495,6 +507,7 @@ proc generateThunk(c: PTransf; prc: PNode, dest: PType): PNode =
   conv.add(prc)
   if prc.kind == nkClosure:
     internalError(c.graph.config, prc.info, "closure to closure created")
+
   result.add(conv)
   result.add(newNodeIT(nkNilLit, prc.info, getSysType(c.graph, prc.info, tyNil)))
 
@@ -569,11 +582,15 @@ proc transformConv(c: PTransf, n: PNode): PNode =
       result = transformSons(c, n)
   of tyObject:
     var diff = inheritanceDiff(dest, source)
-    template convHint =
+    template convHint() =
       if n.kind == nkHiddenSubConv and n.typ.kind notin abstractVarRange:
         # Creates hint on converstion to parent type where information is lost,
         # presently hints on `proc(thing)` where thing converts to non var base.
-        rawMessage(c.graph.config, hintImplicitObjConv, [typeToString(source), typeToString(dest), toFileLineCol(c.graph.config, n[1].info)])
+        localReport(c.graph.config, n[1], SemReport(
+          kind: rsemImplicitObjConv,
+          typeMismatch: @[c.graph.config.typeMismatch(
+            formal = dest, actual = source)]))
+
     if diff < 0:
       convHint()
       result = newTransNode(nkObjUpConv, n, 1)
@@ -664,7 +681,8 @@ template destructor(t: PType): PSym = getAttachedOp(c.graph, t, attachedDestruct
 proc transformFor(c: PTransf, n: PNode): PNode =
   # generate access statements for the parameters (unless they are constant)
   # put mapping from formal parameters to actual parameters
-  if n.kind != nkForStmt: internalError(c.graph.config, n.info, "transformFor")
+  if n.kind != nkForStmt:
+    internalError(c.graph.config, n.info, "transformFor")
 
   var call = n[^2]
 
@@ -945,7 +963,7 @@ proc transform(c: PTransf, n: PNode): PNode =
     # XXX: yet another place to report on nkError
     let conf = c.graph.config
     result = n
-    localError(conf, n.info, errorToString(conf, n))
+    localReport(conf, n)
     return
   of nkSym:
     result = transformSym(c, n)

@@ -7,15 +7,14 @@
 #    distribution, for details about the copyright.
 #
 
-# This module implements Nim's simple filters and helpers for filters.
+## This module implements Nim's simple filters and helpers for filters.
 
 import
-  llstream, idents, strutils, ast, msgs, options,
-  renderer, pathutils
+  llstream, strutils, ast, msgs, options,
+  renderer, pathutils, reports
 
 proc invalidPragma(conf: ConfigRef; n: PNode) =
-  localError(conf, n.info,
-      "'$1' not allowed here" % renderTree(n, {renderNoComments}))
+  conf.localReport(n.info, reportAst(rsemNodeNotAllowed, n))
 
 proc getArg(conf: ConfigRef; n: PNode, name: string, pos: int): PNode =
   result = nil

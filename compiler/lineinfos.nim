@@ -12,6 +12,16 @@
 
 import ropes, tables, pathutils, hashes
 
+from ast_types import
+  PSym,     # Contextual details of the instantnation stack optionally refer to
+            # the used symbol
+  TLineInfo,
+  FileIndex # Forward-declared to avoid cyclic dependencies
+
+export FileIndex, TLineInfo
+
+import reports
+
 const
   explanationsBaseUrl* = "https://nim-lang.github.io/Nim"
     # was: "https://nim-lang.org/docs" but we're now usually showing devel docs
@@ -25,249 +35,136 @@ proc createDocLink*(urlSuffix: string): string =
   else:
     result.add "/" & urlSuffix
 
-type
-  TMsgKind* = enum
-    # fatal errors
-    errUnknown, errFatal, errInternal,
-    # non-fatal errors
-    errIllFormedAstX, errCannotOpenFile,
-    errXExpected,
-    errRstGridTableNotImplemented,
-    errRstMarkdownIllformedTable,
-    errRstNewSectionExpected,
-    errRstGeneralParseError,
-    errRstInvalidDirectiveX,
-    errRstInvalidField,
-    errRstFootnoteMismatch,
-    errProveInit, # deadcode
-    errGenerated,
-    errUser,
-    # warnings
-    warnCannotOpenFile = "CannotOpenFile", warnOctalEscape = "OctalEscape",
-    warnXIsNeverRead = "XIsNeverRead", warnXmightNotBeenInit = "XmightNotBeenInit",
-    warnDeprecated = "Deprecated", warnConfigDeprecated = "ConfigDeprecated",
-    warnDotLikeOps = "DotLikeOps",
-    warnSmallLshouldNotBeUsed = "SmallLshouldNotBeUsed", warnUnknownMagic = "UnknownMagic",
-    warnRstRedefinitionOfLabel = "RedefinitionOfLabel",
-    warnRstUnknownSubstitutionX = "UnknownSubstitutionX",
-    warnRstBrokenLink = "BrokenLink",
-    warnRstLanguageXNotSupported = "LanguageXNotSupported",
-    warnRstFieldXNotSupported = "FieldXNotSupported",
-    warnRstStyle = "warnRstStyle",
-    warnCommentXIgnored = "CommentXIgnored",
-    warnTypelessParam = "TypelessParam",
-    warnUseBase = "UseBase", warnWriteToForeignHeap = "WriteToForeignHeap",
-    warnUnsafeCode = "UnsafeCode", warnUnusedImportX = "UnusedImport",
-    warnInheritFromException = "InheritFromException", warnEachIdentIsTuple = "EachIdentIsTuple",
-    warnUnsafeSetLen = "UnsafeSetLen", warnUnsafeDefault = "UnsafeDefault",
-    warnProveInit = "ProveInit", warnProveField = "ProveField", warnProveIndex = "ProveIndex",
-    warnUnreachableElse = "UnreachableElse", warnUnreachableCode = "UnreachableCode",
-    warnStaticIndexCheck = "IndexCheck", warnGcUnsafe = "GcUnsafe", warnGcUnsafe2 = "GcUnsafe2",
-    warnUninit = "Uninit", warnGcMem = "GcMem", warnDestructor = "Destructor",
-    warnLockLevel = "LockLevel", warnResultShadowed = "ResultShadowed",
-    warnInconsistentSpacing = "Spacing",  warnCaseTransition = "CaseTransition",
-    warnCycleCreated = "CycleCreated", warnObservableStores = "ObservableStores",
-    warnStrictNotNil = "StrictNotNil",
-    warnResultUsed = "ResultUsed",
-    warnCannotOpen = "CannotOpen",
-    warnFileChanged = "FileChanged",
-    warnSuspiciousEnumConv = "EnumConv",
-    warnAnyEnumConv = "AnyEnumConv",
-    warnHoleEnumConv = "HoleEnumConv",
-    warnCstringConv = "CStringConv",
-    warnEffect = "Effect",
-    warnUser = "User",
-    # hints
-    hintSuccess = "Success", hintSuccessX = "SuccessX",
-    hintCC = "CC",
-    hintLineTooLong = "LineTooLong",
-    hintXDeclaredButNotUsed = "XDeclaredButNotUsed", hintDuplicateModuleImport = "DuplicateModuleImport",
-    hintXCannotRaiseY = "XCannotRaiseY", hintConvToBaseNotNeeded = "ConvToBaseNotNeeded",
-    hintConvFromXtoItselfNotNeeded = "ConvFromXtoItselfNotNeeded", hintExprAlwaysX = "ExprAlwaysX",
-    hintQuitCalled = "QuitCalled", hintProcessing = "Processing", hintProcessingStmt = "ProcessingStmt", hintCodeBegin = "CodeBegin",
-    hintCodeEnd = "CodeEnd", hintConf = "Conf", hintPath = "Path",
-    hintConditionAlwaysTrue = "CondTrue", hintConditionAlwaysFalse = "CondFalse", hintName = "Name",
-    hintPattern = "Pattern", hintExecuting = "Exec", hintLinking = "Link", hintDependency = "Dependency",
-    hintSource = "Source", hintPerformance = "Performance", hintStackTrace = "StackTrace",
-    hintGCStats = "GCStats", hintGlobalVar = "GlobalVar", hintExpandMacro = "ExpandMacro",
-    hintUser = "User", hintUserRaw = "UserRaw", hintExtendedContext = "ExtendedContext",
-    hintMsgOrigin = "MsgOrigin", # since 1.3.5
-    hintDeclaredLoc = "DeclaredLoc", # since 1.5.1
-    hintImplicitObjConv = "ImplicitObjConv"
+proc computeNotesVerbosity(): tuple[
+    main: array[0..3, ReportKinds],
+    foreign: ReportKinds,
+    base: ReportKinds
+  ] =
+  ## Create configuration sets for the default compilation report verbosity
 
-const
-  MsgKindToStr*: array[TMsgKind, string] = [
-    errUnknown: "unknown error",
-    errFatal: "fatal error: $1",
-    errInternal: "internal error: $1",
-    errIllFormedAstX: "illformed AST: $1",
-    errCannotOpenFile: "cannot open '$1'",
-    errXExpected: "'$1' expected",
-    errRstGridTableNotImplemented: "grid table is not implemented",
-    errRstMarkdownIllformedTable: "illformed delimiter row of a markdown table",
-    errRstNewSectionExpected: "new section expected $1",
-    errRstGeneralParseError: "general parse error",
-    errRstInvalidDirectiveX: "invalid directive: '$1'",
-    errRstInvalidField: "invalid field: $1",
-    errRstFootnoteMismatch: "number of footnotes and their references don't match: $1",
-    errProveInit: "Cannot prove that '$1' is initialized.",  # deadcode
-    errGenerated: "$1",
-    errUser: "$1",
-    warnCannotOpenFile: "cannot open '$1'",
-    warnOctalEscape: "octal escape sequences do not exist; leading zero is ignored",
-    warnXIsNeverRead: "'$1' is never read",
-    warnXmightNotBeenInit: "'$1' might not have been initialized",
-    warnDeprecated: "$1",
-    warnConfigDeprecated: "config file '$1' is deprecated",
-    warnDotLikeOps: "$1",
-    warnSmallLshouldNotBeUsed: "'l' should not be used as an identifier; may look like '1' (one)",
-    warnUnknownMagic: "unknown magic '$1' might crash the compiler",
-    warnRstRedefinitionOfLabel: "redefinition of label '$1'",
-    warnRstUnknownSubstitutionX: "unknown substitution '$1'",
-    warnRstBrokenLink: "broken link '$1'",
-    warnRstLanguageXNotSupported: "language '$1' not supported",
-    warnRstFieldXNotSupported: "field '$1' not supported",
-    warnRstStyle: "RST style: $1",
-    warnCommentXIgnored: "comment '$1' ignored",
-    warnTypelessParam: "", # deadcode
-    warnUseBase: "use {.base.} for base methods; baseless methods are deprecated",
-    warnWriteToForeignHeap: "write to foreign heap",
-    warnUnsafeCode: "unsafe code: '$1'",
-    warnUnusedImportX: "imported and not used: '$1'",
-    warnInheritFromException: "inherit from a more precise exception type like ValueError, " &
-      "IOError or OSError. If these don't suit, inherit from CatchableError or Defect.",
-    warnEachIdentIsTuple: "each identifier is a tuple",
-    warnUnsafeSetLen: "setLen can potentially expand the sequence, " &
-                      "but the element type '$1' doesn't have a valid default value",
-    warnUnsafeDefault: "The '$1' type doesn't have a valid default value",
-    warnProveInit: "Cannot prove that '$1' is initialized. This will become a compile time error in the future.",
-    warnProveField: "cannot prove that field '$1' is accessible",
-    warnProveIndex: "cannot prove index '$1' is valid",
-    warnUnreachableElse: "unreachable else, all cases are already covered",
-    warnUnreachableCode: "unreachable code after 'return' statement or '{.noReturn.}' proc",
-    warnStaticIndexCheck: "$1",
-    warnGcUnsafe: "not GC-safe: '$1'",
-    warnGcUnsafe2: "$1",
-    warnUninit: "use explicit initialization of '$1' for clarity",
-    warnGcMem: "'$1' uses GC'ed memory",
-    warnDestructor: "usage of a type with a destructor in a non destructible context. This will become a compile time error in the future.",
-    warnLockLevel: "$1",
-    warnResultShadowed: "Special variable 'result' is shadowed.",
-    warnInconsistentSpacing: "Number of spaces around '$#' is not consistent",
-    warnCaseTransition: "Potential object case transition, instantiate new object instead",
-    warnCycleCreated: "$1",
-    warnObservableStores: "observable stores to '$1'",
-    warnStrictNotNil: "$1",
-    warnResultUsed: "used 'result' variable",
-    warnCannotOpen: "cannot open: $1",
-    warnFileChanged: "file changed: $1",
-    warnSuspiciousEnumConv: "$1",
-    warnAnyEnumConv: "$1",
-    warnHoleEnumConv: "$1",
-    warnCstringConv: "$1",
-    warnEffect: "$1",
-    warnUser: "$1",
-    hintSuccess: "operation successful: $#",
-    # keep in sync with `testament.isSuccess`
-    hintSuccessX: "$build\n$loc lines; ${sec}s; $mem; proj: $project; out: $output",
-    hintCC: "CC: $1",
-    hintLineTooLong: "line too long",
-    hintXDeclaredButNotUsed: "'$1' is declared but not used",
-    hintDuplicateModuleImport: "$1",
-    hintXCannotRaiseY: "$1",
-    hintConvToBaseNotNeeded: "conversion to base object is not needed",
-    hintConvFromXtoItselfNotNeeded: "conversion from $1 to itself is pointless",
-    hintExprAlwaysX: "expression evaluates always to '$1'",
-    hintQuitCalled: "quit() called",
-    hintProcessing: "$1",
-    hintProcessingStmt: "$1",
-    hintCodeBegin: "generated code listing:",
-    hintCodeEnd: "end of listing",
-    hintConf: "used config file '$1'",
-    hintPath: "added path: '$1'",
-    hintConditionAlwaysTrue: "condition is always true: '$1'",
-    hintConditionAlwaysFalse: "condition is always false: '$1'",
-    hintName: "$1",
-    hintPattern: "$1",
-    hintExecuting: "$1",
-    hintLinking: "$1",
-    hintDependency: "$1",
-    hintSource: "$1",
-    hintPerformance: "$1",
-    hintStackTrace: "$1",
-    hintGCStats: "$1",
-    hintGlobalVar: "global variable declared here",
-    hintExpandMacro: "expanded macro: $1",
-    hintUser: "$1",
-    hintUserRaw: "$1",
-    hintExtendedContext: "$1",
-    hintMsgOrigin: "$1",
-    hintDeclaredLoc: "$1",
-    hintImplicitObjConv: "Implicit conversion: Receiver '$2' will not receive fields of sub-type '$1' [$3]"
-  ]
+  # Mandatory reports - cannot be turned off, present in all verbosity
+  # settings
+  result.base = (repErrorKinds + repInternalKinds)
 
-const
-  fatalMsgs* = {errUnknown..errInternal}
-  errMin* = errUnknown
-  errMax* = errUser
-  warnMin* = warnCannotOpenFile
-  warnMax* = pred(hintSuccess)
-  hintMin* = hintSuccess
-  hintMax* = high(TMsgKind)
-  rstWarnings* = {warnRstRedefinitionOfLabel..warnRstStyle}
+  # Somewhat awkward handing - stack trace report cannot be error (because
+  # actual error report must follow), so it is a hint-level report (can't
+  # be debug because it is a user-facing, can't be "trace" because it is
+  # not for compiler developers use only)
+  result.base.incl {rsemVmStackTrace}
 
-type
-  TNoteKind* = range[warnMin..hintMax] # "notes" are warnings or hints
-  TNoteKinds* = set[TNoteKind]
+  when defined(debugOptions):
+    # debug report for transition of the configuration options
+    result.base.incl {rdbgOptionsPush, rdbgOptionsPop}
 
-proc computeNotesVerbosity(): array[0..3, TNoteKinds] =
-  result[3] = {low(TNoteKind)..high(TNoteKind)} - {warnObservableStores, warnResultUsed, warnAnyEnumConv}
-  result[2] = result[3] - {hintStackTrace, warnUninit, hintExtendedContext, hintDeclaredLoc, hintProcessingStmt}
-  result[1] = result[2] - {warnProveField, warnProveIndex,
-    warnGcUnsafe, hintPath, hintDependency, hintCodeBegin, hintCodeEnd,
-    hintSource, hintGlobalVar, hintGCStats, hintMsgOrigin, hintPerformance}
-  result[0] = result[1] - {hintSuccessX, hintSuccess, hintConf,
-    hintProcessing, hintPattern, hintExecuting, hintLinking, hintCC}
+  when defined(nimVMDebug):
+    result.base.incl {
+      rdbgVmExecTraceFull, # execution of the generated code listings
+      rdbgVmCodeListing    # immediately generated code listings
+    }
+
+  when defined(nimDebugUtils):
+    result.base.incl {
+      rdbgTraceStart, # Begin report
+      rdbgTraceStep, # in/out
+      rdbgTraceLine,
+      rdbgTraceEnd # End report
+    }
+
+  result.main[3] = result.base + repWarningKinds + repHintKinds - {
+    rsemObservableStores,
+    rsemResultUsed,
+    rsemAnyEnumConvert,
+    rbackLinking,
+
+    rbackLinking,
+    rbackCompiling,
+    rcmdLinking,
+    rcmdCompiling,
+
+    rintErrKind
+  }
+
+
+  if defined(release):
+    result.main[3].excl rintStackTrace
+
+
+  result.main[2] = result.main[3] - {
+    rsemUninit,
+    rsemExtendedContext,
+    rsemProcessingStmt,
+    rsemWarnGcUnsafe,
+    rextConf,
+  }
+
+  result.main[1] = result.main[2] - {
+    rsemProveField,
+    rsemErrGcUnsafe,
+    rextPath,
+    rsemHintLibDependency,
+    rsemGlobalVar,
+    rintGCStats,
+  }
+
+  result.main[0] = result.main[1] - {
+    rintSuccessX,
+    rextConf,
+    rsemProcessing,
+    rsemPattern,
+    rcmdExecuting,
+    rbackLinking,
+    rintMsgOrigin
+  }
+
+  result.foreign = result.base + {
+    rsemProcessing,
+    rsemUserHint,
+    rsemUserWarning,
+    rsemUserHint,
+    rsemUserWarning,
+    rsemUserError,
+    rintQuitCalled,
+    rsemImplicitObjConv
+  }
+
+  for idx, n in @[
+    result.foreign,
+    # result.base,
+    result.main[3],
+    result.main[2],
+    result.main[1],
+    result.main[0],
+  ]:
+    assert rbackLinking notin n
+    assert rsemImplicitObjConv in n, $idx
+    assert rsemVmStackTrace in n, $idx
+
 
 const
   NotesVerbosity* = computeNotesVerbosity()
-  errXMustBeCompileTime* = "'$1' can only be used in compile-time context"
-  errArgsNeedRunOption* = "arguments can only be given if the '--run' option is selected"
+
 
 type
   TFileInfo* = object
-    fullPath*: AbsoluteFile    # This is a canonical full filesystem path
-    projPath*: RelativeFile    # This is relative to the project's root
-    shortName*: string         # short name of the module
-    quotedName*: Rope          # cached quoted short name for codegen
-                               # purposes
-    quotedFullName*: Rope      # cached quoted full name for codegen
-                               # purposes
+    fullPath*: AbsoluteFile    ## This is a canonical full filesystem path
+    projPath*: RelativeFile    ## This is relative to the project's root
+    shortName*: string         ## short name of the module
+    quotedName*: Rope          ## cached quoted short name for codegen
+                               ## purposes
+    quotedFullName*: Rope      ## cached quoted full name for codegen
+                               ## purposes
 
-    lines*: seq[string]        # the source code of the module
-                               #   used for better error messages and
-                               #   embedding the original source in the
-                               #   generated code
-    dirtyFile*: AbsoluteFile   # the file that is actually read into memory
-                               # and parsed; usually "" but is used
-                               # for 'nimsuggest'
-    hash*: string              # the checksum of the file
-    dirty*: bool               # for 'nimfix' / 'nimpretty' like tooling
+    lines*: seq[string]        ## the source code of the module used for
+                               ## better error messages and embedding the
+                               ## original source in the generated code
+
+    dirtyFile*: AbsoluteFile   ## the file that is actually read into memory
+                               ## and parsed; usually "" but is used
+                               ## for 'nimsuggest'
+    hash*: string              ## the checksum of the file
+    dirty*: bool               ## for 'nimfix' / 'nimpretty' like tooling
     when defined(nimpretty):
       fullContent*: string
-  FileIndex* = distinct int32
-  TLineInfo* = object          # This is designed to be as small as possible,
-                               # because it is used
-                               # in syntax nodes. We save space here by using
-                               # two int16 and an int32.
-                               # On 64 bit and on 32 bit systems this is
-                               # only 8 bytes.
-    line*: uint16
-    col*: int16
-    fileIndex*: FileIndex
-    when defined(nimpretty):
-      offsetA*, offsetB*: int
-      commentOffsetA*, commentOffsetB*: int
 
   TErrorOutput* = enum
     eStdOut
@@ -290,13 +187,17 @@ const
   InvalidFileIdx* = FileIndex(-1)
   unknownLineInfo* = TLineInfo(line: 0, col: -1, fileIndex: InvalidFileIdx)
 
+func isKnown*(info: TLineInfo): bool =
+  ## Check if `info` represents valid source file location
+  info != unknownLineInfo
+
 type
   Severity* {.pure.} = enum ## VS Code only supports these three
     Hint, Warning, Error
 
 const
-  trackPosInvalidFileIdx* = FileIndex(-2) # special marker so that no suggestions
-                                          # are produced within comments and string literals
+  trackPosInvalidFileIdx* = FileIndex(-2) ## special marker so that no
+  ## suggestions are produced within comments and string literals
   commandLineIdx* = FileIndex(-3)
 
 type
@@ -305,13 +206,27 @@ type
     trackPosAttached*: bool ## whether the tracking position was attached to
                             ## some close token.
 
-    errorOutputs*: TErrorOutputs
-    msgContext*: seq[tuple[info: TLineInfo, detail: string]]
+    errorOutputs*: TErrorOutputs ## Allowed output streams for messages.
+    # REFACTOR this field is mostly touched in sem for 'performance'
+    # reasons - don't write out error messages when compilation failed,
+    # don't generate list of call candidates when `compiles()` fails and so
+    # on. This should be replaced with `.inTryExpr` or something similar,
+    # and let the reporting hook deal with all the associated heuristics.
+
+    msgContext*: seq[tuple[info: TLineInfo, detail: PSym]] ## \ Contextual
+    ## information about instantiation stack - "template/generic
+    ## instantiation of" message is constructed from this field. Right now
+    ## `.detail` field is only used in the `sem.semMacroExpr()`,
+    ## `seminst.generateInstance()` and `semexprs.semTemplateExpr()`. In
+    ## all other cases this field is left empty (SemReport is `skUnknown`)
+    reports*: ReportList ## Intermediate storage for the
+    writtenSemReports*: ReportSet
     lastError*: TLineInfo
     filenameToIndexTbl*: Table[string, FileIndex]
-    fileInfos*: seq[TFileInfo]
+    fileInfos*: seq[TFileInfo] ## Information about all known source files
+    ## is stored in this field - full/relative paths, list of line etc.
+    ## (For full list see `TFileInfo`)
     systemFileIdx*: FileIndex
-
 
 proc initMsgConfig*(): MsgConfig =
   result.msgContext = @[]

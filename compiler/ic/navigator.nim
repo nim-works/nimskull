@@ -16,7 +16,7 @@ import sets
 from os import nil
 from std/private/miscdollars import toLocation
 
-import ".." / [ast, modulegraphs, msgs, options]
+import ".." / [ast, modulegraphs, msgs, options, reports]
 import packed_ast, bitabs, ic
 
 type
@@ -79,7 +79,7 @@ proc usage(c: var NavContext; info: PackedLineInfo; isDecl: bool) =
     file = os.extractFilename file
   toLocation(m, file, info.line.int, info.col.int + ColOffset)
   if not c.alreadyEmitted.containsOrIncl(m):
-    msgWriteln c.g.config, (if isDecl: "def" else: "usage") & c.outputSep & m
+    c.g.config.writeln (if isDecl: "def" else: "usage") & c.outputSep & m
 
 proc list(c: var NavContext; tree: PackedTree; sym: ItemId) =
   for i in 0..high(tree.nodes):
@@ -119,7 +119,9 @@ proc nav(g: ModuleGraph) =
     mid = searchForIncludeFile(g, fullPath)
 
   if mid < 0:
-    localError(g.config, unpacked, "unknown file name: " & fullPath)
+    localReport(g.config, unpacked, ExternalReport(
+      kind: rextIcUnknownFileName, msg: fullPath))
+
     return
 
   let fileId = g.packed[mid].fromDisk.strings.getKeyId(fullPath)
@@ -139,7 +141,9 @@ proc nav(g: ModuleGraph) =
     symId = search(c, g.packed[mid].fromDisk.bodies)
 
   if symId == EmptyItemId:
-    localError(g.config, unpacked, "no symbol at this position")
+    localReport(g.config, unpacked, SemReport(
+      kind: rextIcNoSymbolAtPosition))
+
     return
 
   for i in 0..high(g.packed):

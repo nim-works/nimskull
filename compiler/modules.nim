@@ -12,7 +12,7 @@
 import
   ast, astalgo, magicsys, msgs, options,
   idents, lexer, passes, syntaxes, llstream, modulegraphs,
-  lineinfos, pathutils, tables
+  lineinfos, pathutils, tables, reports
 
 import ic / replayer
 
@@ -44,7 +44,7 @@ proc getPackage(graph: ModuleGraph; fileIdx: FileIndex): PSym =
     if existing != nil and existing.info.fileIndex != info.fileIndex:
       when false:
         # we used to produce an error:
-        localError(graph.config, info,
+        localReport(graph.config, info,
           "module names need to be unique per Nimble package; module clashes with " &
             toFullPath(graph.config, existing.info.fileIndex))
       else:
@@ -80,7 +80,8 @@ proc newModule(graph: ModuleGraph; fileIdx: FileIndex): PSym =
                 name: getModuleIdent(graph, filename),
                 info: newLineInfo(fileIdx, 1, 1))
   if not isNimIdentifier(result.name.s):
-    rawMessage(graph.config, errGenerated, "invalid module name: " & result.name.s)
+    localReport(graph.config, reportSym(rsemInvalidModuleName, result))
+
   partialInitModule(result, graph, fileIdx, filename)
   graph.registerModule(result)
 
@@ -133,11 +134,15 @@ proc importModule*(graph: ModuleGraph; s: PSym, fileIdx: FileIndex): PSym =
   if graph.config.hcrOn:
     graph.importDeps.mgetOrPut(FileIndex(s.position), @[]).add(fileIdx)
   #if sfSystemModule in result.flags:
-  #  localError(result.info, errAttemptToRedefine, result.name.s)
+  #  localReport(result.info, errAttemptToRedefine, result.name.s)
   # restore the notes for outer module:
-  graph.config.notes =
-    if s.getnimblePkgId == graph.config.mainPackageId or isDefined(graph.config, "booting"): graph.config.mainPackageNotes
-    else: graph.config.foreignPackageNotes
+  if s.getnimblePkgId == graph.config.mainPackageId or
+     isDefined(graph.config, "booting"):
+    graph.config.asgn(cnCurrent, cnMainPackage)
+
+  else:
+    graph.config.asgn(cnCurrent, cnForeign)
+
 
 proc includeModule*(graph: ModuleGraph; s: PSym, fileIdx: FileIndex): PNode =
   result = syntaxes.parseFile(fileIdx, graph.cache, graph.config)
@@ -157,7 +162,8 @@ proc compileSystemModule*(graph: ModuleGraph) =
 
 proc wantMainModule*(conf: ConfigRef) =
   if conf.projectFull.isEmpty:
-    fatal(conf, gCmdLineInfo, "command expects a filename")
+    localReport(conf, gCmdLineInfo, ExternalReport(kind: rextInvalidPath))
+
   conf.projectMainIdx = fileInfoIdx(conf, addFileExt(conf.projectFull, NimExt))
 
 proc compileProject*(graph: ModuleGraph; projectFileIdx = InvalidFileIdx) =

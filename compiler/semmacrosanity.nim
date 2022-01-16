@@ -10,7 +10,7 @@
 ## Implements type sanity checking for ASTs resulting from macros. Lots of
 ## room for improvement here.
 
-import ast, msgs, types, options
+import ast, msgs, types, options, reports, strutils
 
 proc ithField(n: PNode, field: var int): PSym =
   result = nil
@@ -44,9 +44,17 @@ proc ithField(t: PType, field: var int): PSym =
   result = ithField(t.n, field)
 
 proc annotateType*(n: PNode, t: PType; conf: ConfigRef) =
-  let x = t.skipTypes(abstractInst+{tyRange})
+  let x = t.skipTypes(abstractInst + {tyRange})
   # Note: x can be unequal to t and we need to be careful to use 't'
   # to not to skip tyGenericInst
+
+  proc malformedType(msg: string, expected: set[TTypeKind]) =
+    globalReport(conf, n.info, SemReport(
+      kind: rsemTypeKindMismatch,
+      typeMismatch: @[conf.typeMismatch(formal = expected, actual = n.typ)],
+      ast: n,
+      str: msg))
+
   case n.kind
   of nkObjConstr:
     let x = t.skipTypes(abstractPtrs)
@@ -55,50 +63,89 @@ proc annotateType*(n: PNode, t: PType; conf: ConfigRef) =
       var j = i-1
       let field = x.ithField(j)
       if field.isNil:
-        globalError conf, n.info, "invalid field at index " & $i
+        globalReport(conf, n.info, reportAst(
+          rsemIllformedAst, n,
+          str = "'nil' field at index" & $i))
+
       else:
-        internalAssert(conf, n[i].kind == nkExprColonExpr)
+        internalAssert(
+          conf,
+          n[i].kind == nkExprColonExpr,
+          "Object constructor expects exprColornExpr, but n[$1] has kind $2" % [
+            $i, $n[i].kind])
+
         annotateType(n[i][1], field.typ, conf)
   of nkPar, nkTupleConstr:
     if x.kind == tyTuple:
       n.typ = t
       for i in 0..<n.len:
-        if i >= x.len: globalError conf, n.info, "invalid field at index " & $i
-        else: annotateType(n[i], x[i], conf)
+        if i >= x.len:
+          globalReport(conf, n.info, reportAst(
+            rsemIllformedAst, n,
+            str = "Unexpected field at index $1 - type $2 is expected to have $3 fields." % [
+              $i, $x, $x.len]))
+
+        else:
+          annotateType(n[i], x[i], conf)
+
     elif x.kind == tyProc and x.callConv == ccClosure:
       n.typ = t
+
     else:
-      globalError(conf, n.info, "() must have a tuple type")
+      malformedType("() must have a tuple or closure proc type", {tyTuple, tyProc})
+
   of nkBracket:
     if x.kind in {tyArray, tySequence, tyOpenArray}:
       n.typ = t
-      for m in n: annotateType(m, x.elemType, conf)
+      for m in n:
+        annotateType(m, x.elemType, conf)
+
     else:
-      globalError(conf, n.info, "[] must have some form of array type")
+      malformedType(
+        "[] must have some form of array type",
+        {tyArray, tySequence, tyOpenArray})
+
   of nkCurly:
     if x.kind in {tySet}:
       n.typ = t
-      for m in n: annotateType(m, x.elemType, conf)
+      for m in n:
+        annotateType(m, x.elemType, conf)
     else:
-      globalError(conf, n.info, "{} must have the set type")
+      malformedType("{} must have the set type", {tySet})
+
   of nkFloatLit..nkFloat128Lit:
     if x.kind in {tyFloat..tyFloat128}:
       n.typ = t
+
     else:
-      globalError(conf, n.info, "float literal must have some float type")
+      malformedType(
+        "float literal must have some float type", {tyFloat..tyFloat128})
+
   of nkCharLit..nkUInt64Lit:
     if x.kind in {tyInt..tyUInt64, tyBool, tyChar, tyEnum}:
       n.typ = t
+
     else:
-      globalError(conf, n.info, "integer literal must have some int type")
+      malformedType(
+        "integer literal must have some int type",
+        {tyInt..tyUInt64, tyBool, tyChar, tyEnum})
+
   of nkStrLit..nkTripleStrLit:
     if x.kind in {tyString, tyCstring}:
       n.typ = t
+
     else:
-      globalError(conf, n.info, "string literal must be of some string type")
+      malformedType(
+        "string literal must be of some string type",
+        {tyString, tyCstring})
+
   of nkNilLit:
-    if x.kind in NilableTypes+{tyString, tySequence}:
+    if x.kind in NilableTypes + {tyString, tySequence}:
       n.typ = t
+
     else:
-      globalError(conf, n.info, "nil literal must be of some pointer type")
-  else: discard
+      malformedType(
+        "nil literal must be of some pointer type", NilableTypes + {tyString, tySequence})
+
+  else:
+    discard

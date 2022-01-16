@@ -1,5 +1,6 @@
 discard """
   valgrind: true
+  joinable: false
   cmd: '''nim c -d:nimAllocStats --newruntime $file'''
   output: '''OK 3
 (allocCount: 7, deallocCount: 4)'''

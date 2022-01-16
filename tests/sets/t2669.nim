@@ -1,5 +1,5 @@
 discard """
-errormsg: "cannot convert 6 to range 1..5(int8)"
+errormsg: "6 can't be converted to range 1..5(int8)"
 line: 6
 """
 

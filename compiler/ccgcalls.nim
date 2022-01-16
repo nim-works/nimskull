@@ -53,7 +53,7 @@ proc preventNrvo(p: BProc; le, ri: PNode): bool =
     # annoying warnings, see #14514
     if canRaise(ri[0]) and
         locationEscapes(p, le, p.nestedTryStmts.len > 0):
-      message(p.config, le.info, warnObservableStores, $le)
+      localReport(p.config, le, reportSem rsemObservableStores)
 
 proc hasNoInit(call: PNode): bool {.inline.} =
   result = call[0].kind == nkSym and sfNoInit in call[0].sym.flags
@@ -500,7 +500,9 @@ proc genOtherArg(p: BProc; ri: PNode; i: int; typ: PType): Rope =
       result = genArgNoParam(p, ri[i]) #, typ.n[i].sym)
   else:
     if tfVarargs notin typ.flags:
-      localError(p.config, ri.info, "wrong argument count")
+      localReport(p.config, ri.info, semReportCountMismatch(
+        rsemWrongNumberOfArguments, expected = 1, got = 0, node = ri))
+
       result = nil
     else:
       result = genArgNoParam(p, ri[i])
@@ -624,7 +626,7 @@ proc genPatternCall(p: BProc; ri: PNode; pat: string; typ: PType): Rope =
             result.add genOtherArg(p, ri, k, typ)
           result.add(~")")
         else:
-          localError(p.config, ri.info, "call expression expected for C++ pattern")
+          localReport(p.config, ri, reportSem rsemExpectedCallForCxxPattern)
         inc i
       elif i+1 < pat.len and pat[i+1] == '.':
         result.add genThisArg(p, ri, j, typ)

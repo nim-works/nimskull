@@ -10,8 +10,8 @@
 ## This module implements code generation for methods.
 
 import
-  intsets, options, ast, msgs, idents, renderer, types, magicsys,
-  sempass2, strutils, modulegraphs, lineinfos
+  intsets, options, ast, msgs, renderer, types, magicsys,
+  sempass2, modulegraphs, lineinfos, reports
 
 proc genConv(n: PNode, d: PType, downcast: bool; conf: ConfigRef): PNode =
   var dest = skipTypes(d, abstractPtrs)
@@ -24,7 +24,9 @@ proc genConv(n: PNode, d: PType, downcast: bool; conf: ConfigRef): PNode =
     elif diff < 0:
       result = newNodeIT(nkObjUpConv, n.info, d)
       result.add n
-      if downcast: internalError(conf, n.info, "cgmeth.genConv: no upcast allowed")
+      if downcast:
+        internalError(conf, n.info, "cgmeth.genConv: no upcast allowed")
+
     elif diff > 0:
       result = newNodeIT(nkObjDownConv, n.info, d)
       result.add n
@@ -51,7 +53,8 @@ proc methodCall*(n: PNode; conf: ConfigRef): PNode =
     for i in 1..<result.len:
       result[i] = genConv(result[i], disp.typ[i], true, conf)
   else:
-    localError(conf, n.info, "'" & $result[0] & "' lacks a dispatcher")
+    localReport(conf, n.info, reportAst(
+      rsemMissingMethodDispatcher, result[0]))
 
 type
   MethodResult = enum No, Invalid, Yes
@@ -152,9 +155,12 @@ proc fixupDispatcher(meth, disp: PSym; conf: ConfigRef) =
       disp.typ.lockLevel = meth.typ.lockLevel
     elif meth.typ.lockLevel != UnspecifiedLockLevel and
          meth.typ.lockLevel != disp.typ.lockLevel:
-      message(conf, meth.info, warnLockLevel,
-        "method has lock level $1, but another method has $2" %
-        [$meth.typ.lockLevel, $disp.typ.lockLevel])
+      localReport(conf, meth.info, SemReport(
+        kind: rsemMethodLockMismatch,
+        anotherMethod: meth,
+        sym: disp,
+        lockMismatch: ($meth.typ.lockLevel, $disp.typ.lockLevel)))
+
       # XXX The following code silences a duplicate warning in
       # checkMethodeffects() in sempass2.nim for now.
       if disp.typ.lockLevel < meth.typ.lockLevel:
@@ -174,7 +180,7 @@ proc methodDef*(g: ModuleGraph; idgen: IdGenerator; s: PSym) =
       if {sfBase, sfFromGeneric} * s.flags == {sfBase} and
            g.methods[i].methods[0] != s:
         # already exists due to forwarding definition?
-        localError(g.config, s.info, "method is not a base")
+        localReport(g.config, s.info, reportSym(rsemNotABaseMethod, s))
       return
     of No: discard
     of Invalid:
@@ -183,10 +189,11 @@ proc methodDef*(g: ModuleGraph; idgen: IdGenerator; s: PSym) =
   g.methods.add((methods: @[s], dispatcher: createDispatcher(s, g, idgen)))
   #echo "adding ", s.info
   if witness != nil:
-    localError(g.config, s.info, "invalid declaration order; cannot attach '" & s.name.s &
-                       "' to method defined here: " & g.config$witness.info)
+    localReport(g.config, s.info, reportSymbols(
+      rsemInvalidMethodDeclarationOrder, @[s, witness]))
+
   elif sfBase notin s.flags:
-    message(g.config, s.info, warnUseBase)
+    localReport(g.config, s.info, reportSem(rsemUseBase))
 
 proc relevantCol(methods: seq[PSym], col: int): bool =
   # returns true iff the position is relevant

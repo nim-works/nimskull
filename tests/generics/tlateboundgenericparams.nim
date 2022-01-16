@@ -35,7 +35,9 @@ when true:
         body
 
   template reject(x) =
-    static: assert(not compiles(x))
+    static:
+      echo "not compiles? ", astToStr(x), " ", not compiles(x)
+      assert(not compiles(x))
 
   test 1:
     proc t[T](val: T = defaultInt()) =
@@ -142,4 +144,3 @@ when true:
     foo(10)
     foo(1)
     foo(10)
-

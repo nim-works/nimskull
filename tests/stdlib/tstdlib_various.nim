@@ -7,7 +7,7 @@ prefix
 xyz
 def
 definition
-Hi Andreas! How do you feel, Rumpf?
+Hi user! How do you feel, name?
 
 @[0, 2, 1]
 @[1, 0, 2]
@@ -67,7 +67,7 @@ block testequivalence:
 
 
 block tformat:
-  echo("Hi $1! How do you feel, $2?\n" % ["Andreas", "Rumpf"])
+  echo("Hi $1! How do you feel, $2?\n" % ["user", "name"])
 
 
 
@@ -115,7 +115,7 @@ block treguse:
       write(stdout, y)
       write(stdout, "this should be the case")
       var input = "<no input>"
-      if input == "Andreas":
+      if input == "user":
         write(stdout, "wow")
       else:
         write(stdout, "hugh")

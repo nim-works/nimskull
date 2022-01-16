@@ -16,7 +16,7 @@ proc testAddPackageWithoutChecksum =
   ## sha1 checksum at the end of the name of the Nimble cache directory.
   ## This way a new compiler will be able to work with an older Nimble.
 
-  let conf = newConfigRef()
+  let conf = newConfigRef(nil)
   var rr: PackageInfo
 
   addPackage conf, rr, "irc-#a111", unknownLineInfo
@@ -33,7 +33,7 @@ proc testAddPackageWithoutChecksum =
     ["irc-#head", "another-0.1", "ab-0.1.3", "justone-1.0"].toHashSet
 
 proc testAddPackageWithChecksum =
-  let conf = newConfigRef()
+  let conf = newConfigRef(nil)
   var rr: PackageInfo
 
   # in the case of packages with the same version, but different checksums for

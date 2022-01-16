@@ -23,7 +23,9 @@ proc getIdentNode(c: PContext; n: PNode): PNode =
   of nkPragmaExpr: result = getIdentNode(c, n[0])
   of nkIdent, nkAccQuoted, nkSym: result = n
   else:
-    illFormedAst(n, c.config)
+    semReportIllformedAst(c.config, n, {
+      nkPostfix, nkPragmaExpr, nkIdent, nkAccQuoted, nkSym})
+
     result = n
 
 type
@@ -416,11 +418,15 @@ proc semGenericStmt(c: PContext, n: PNode,
         for j in 0..<a.len-2:
           addTempDecl(c, getIdentNode(c, a[j]), varKind)
       else:
-        illFormedAst(a, c.config)
+        semReportIllformedAst(c.config, a, {
+          nkCommentStmt, nkIdentDefs, nkVarTuple, nkConstDef})
+
   of nkGenericParams:
     for i in 0..<n.len:
       var a = n[i]
-      if (a.kind != nkIdentDefs): illFormedAst(a, c.config)
+      if (a.kind != nkIdentDefs):
+        semReportIllformedAst(c.config, a, {nkIdentDefs})
+
       checkMinSonsLen(a, 3, c.config)
       a[^2] = semGenericStmt(c, a[^2], flags+{withinTypeDesc}, ctx)
       # do not perform symbol lookup for default expressions
@@ -430,13 +436,15 @@ proc semGenericStmt(c: PContext, n: PNode,
     for i in 0..<n.len:
       var a = n[i]
       if a.kind == nkCommentStmt: continue
-      if (a.kind != nkTypeDef): illFormedAst(a, c.config)
+      if (a.kind != nkTypeDef):
+        semReportIllformedAst(c.config, a, {nkTypeDef})
       checkSonsLen(a, 3, c.config)
       addTempDecl(c, getIdentNode(c, a[0]), skType)
     for i in 0..<n.len:
       var a = n[i]
       if a.kind == nkCommentStmt: continue
-      if (a.kind != nkTypeDef): illFormedAst(a, c.config)
+      if (a.kind != nkTypeDef):
+        semReportIllformedAst(c.config, a, {nkTypeDef})
       checkSonsLen(a, 3, c.config)
       if a[1].kind != nkEmpty:
         openScope(c)
@@ -454,7 +462,9 @@ proc semGenericStmt(c: PContext, n: PNode,
         case n[i].kind
         of nkEnumFieldDef: a = n[i][0]
         of nkIdent: a = n[i]
-        else: illFormedAst(n, c.config)
+        else:
+          semReportIllformedAst(c.config, a, {nkEnumFieldDef, nkIdent})
+
         addDecl(c, newSymS(skUnknown, getIdentNode(c, a), c))
   of nkObjectTy, nkTupleTy, nkTupleClassTy:
     discard
@@ -462,7 +472,9 @@ proc semGenericStmt(c: PContext, n: PNode,
     checkMinSonsLen(n, 1, c.config)
     for i in 1..<n.len:
       var a = n[i]
-      if (a.kind != nkIdentDefs): illFormedAst(a, c.config)
+      if (a.kind != nkIdentDefs):
+        semReportIllformedAst(c.config, a, {nkIdentDefs})
+
       checkMinSonsLen(a, 3, c.config)
       a[^2] = semGenericStmt(c, a[^2], flags+{withinTypeDesc}, ctx)
       a[^1] = semGenericStmt(c, a[^1], flags, ctx)
@@ -519,4 +531,3 @@ proc semConceptBody(c: PContext, n: PNode): PNode =
   ctx.toBind = initIntSet()
   result = semGenericStmt(c, n, {withinConcept}, ctx)
   semIdeForTemplateOrGeneric(c, result, ctx.cursorInBody)
-
