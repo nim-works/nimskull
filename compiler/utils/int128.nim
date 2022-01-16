@@ -3,7 +3,7 @@
 ## hold all from `low(BiggestInt)` to `high(BiggestUInt)`, This
 ## type is for that purpose.
 
-from math import trunc
+from math import trunc, pow, isNaN
 
 type
   Int128* = object
@@ -20,8 +20,8 @@ const
   Zero* = Int128(udata: [0'u32, 0, 0, 0])
   One* = Int128(udata: [1'u32, 0, 0, 0])
   Ten* = Int128(udata: [10'u32, 0, 0, 0])
-  Min = Int128(udata: [0'u32, 0, 0, 0x80000000'u32])
-  Max = Int128(udata: [high(uint32), high(uint32), high(uint32), uint32(high(int32))])
+  Min* = Int128(udata: [0'u32, 0, 0, 0x80000000'u32])
+  Max* = Int128(udata: [high(uint32), high(uint32), high(uint32), uint32(high(int32))])
   NegOne* = Int128(udata: [0xffffffff'u32, 0xffffffff'u32, 0xffffffff'u32, 0xffffffff'u32])
 
 template low*(t: typedesc[Int128]): Int128 = Min
@@ -525,8 +525,16 @@ proc `+`*(a: BiggestInt, b: Int128): Int128 =
 proc `+`*(a: Int128, b: BiggestInt): Int128 =
   a + toInt128(b)
 
+const lowerBoundF64 = -pow(2'f64, 127)
+# 2^127-1 can't be represented with float64 precision, therefore upper bound is
+# Exclusive
+const upperBoundF64 = +pow(2'f64, 127)
+
 proc toFloat64*(arg: Int128): float64 =
   let isNegative = isNegative(arg)
+  if arg == Min:
+    return lowerBoundF64
+
   let arg = abs(arg)
 
   let a = float64(bitconcat(arg.udata[1], arg.udata[0]))
@@ -540,7 +548,25 @@ proc ldexp(x: float64, exp: cint): float64 {.importc: "ldexp", header: "<math.h>
 
 template bitor(a, b, c: Int128): Int128 = bitor(bitor(a, b), c)
 
+
+proc inInt128Range*(arg: float64): bool =
+  ## Simple range check. Of coures NaN is defined not to be in range.
+  lowerBoundF64 <= arg and arg < upperBoundF64
+
 proc toInt128*(arg: float64): Int128 =
+  # actually enabling this assert will cause /tests/misc/tconv.nim to fail
+  # assert(inInt128Range(arg), "out of range")
+
+  # dealing with out of range values, not correct but deterministic.
+  if isNaN(arg):
+    # The pick of 0 is inspired by WASM and Rust
+    return Zero
+  # inclusive test here `abs(arg)` doesn't work on `Min`
+  if arg <= lowerBoundF64:
+    return Min
+  if upperBoundF64 <= arg:
+    return Max
+
   let isNegative = arg < 0
   let v0 = ldexp(abs(arg), -100)
   let w0 = uint64(trunc(v0))

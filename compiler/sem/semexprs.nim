@@ -182,10 +182,11 @@ proc checkConvertible(c: PContext, targetTyp: PType, src: PNode): TConvStatus =
       if src.kind in nkCharLit..nkUInt64Lit and
           src.getInt notin firstOrd(c.config, targetTyp)..lastOrd(c.config, targetTyp):
         result = convNotInRange
-      elif src.kind in nkFloatLit..nkFloat64Lit and
-          (classify(src.floatVal) in {fcNan, fcNegInf, fcInf} or
-            src.floatVal.int64 notin firstOrd(c.config, targetTyp)..lastOrd(c.config, targetTyp)):
-        result = convNotInRange
+      elif src.kind in nkFloatLit..nkFloat64Lit:
+        if not src.floatVal.inInt128Range:
+          result = convNotInRange
+        elif src.floatVal.toInt128 notin firstOrd(c.config, targetTyp)..lastOrd(c.config, targetTyp):
+          result = convNotInRange
     elif targetBaseTyp.kind in tyFloat..tyFloat64:
       if src.kind in nkFloatLit..nkFloat64Lit and
           not floatRangeCheck(src.floatVal, targetTyp):
