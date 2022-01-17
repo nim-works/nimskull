@@ -38,6 +38,7 @@ type
     Zip = "zip" ## A zip archive
     Tar = "tar" ## An uncompressed tarball
     TarXz = "tar.xz" ## A tarball compressed with xz
+    TarZst = "tar.zst" ## A tarball compressed with zstd
 
   FileCategory = enum
     fcWinBin,     # binaries for Windows
@@ -73,7 +74,7 @@ type
     format: ArchiveFormat
 
 const
-  tarFormats = {Tar..TarXz}
+  tarFormats = {Tar..TarZst}
     ## Archive formats based on tar
   unixDirVars: array[fcConfig..fcLib, string] = [
     "$configdir", "$datadir", "$docdir", "$libdir"
@@ -943,6 +944,13 @@ proc archiveDist(c: var ConfigData) =
       case c.format
       of TarXz:
         checkedExec("xz", "-9f", proj & ".tar")
+      of TarZst:
+        # Archive level 20 gives us roughly the same ratio as xz while having
+        # around 40% speed up in decompression time and a lot more in
+        # compression time thanks to multithreading support.
+        checkedExec(
+          "zstd", "-T0", "-20f", "--ultra", "--rm", proj & ".tar"
+        )
       else:
         discard
 
