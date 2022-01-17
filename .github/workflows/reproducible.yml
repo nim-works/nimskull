@@ -32,11 +32,11 @@ jobs:
         test:
           - name: Source archive
             command: './koch.py boot -d:danger && ./koch.py csource -d:danger && ./koch.py archive'
-            pattern: 'build/*.tar.xz'
+            pattern: 'build/*.tar.zst'
 
           - name: Unix binary archive
             command: './koch.py unixrelease'
-            pattern: 'build/*.tar.xz'
+            pattern: 'build/*.tar.zst'
 
           # Note: this tests the zip generation and not exe generation determinism.
           #

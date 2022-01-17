@@ -226,7 +226,7 @@ proc archive(args: string) =
   nimexec("cc -r $2 --var:version=$1 --var:mingw=none --main:compiler/nim.nim scripts compiler/installer.ini" %
        [VersionAsString, compileNimInst])
   let (commit, date) = getSourceMetadata()
-  exec("$# --var:version=$# --var:mingw=none --var:commit=$# --var:commitdate=$# --main:compiler/nim.nim --format:tar.xz $# archive compiler/installer.ini" %
+  exec("$# --var:version=$# --var:mingw=none --var:commit=$# --var:commitdate=$# --main:compiler/nim.nim --format:tar.zst $# archive compiler/installer.ini" %
        ["tools" / "niminst" / "niminst".exe, VersionAsString, quoteShell(commit), quoteShell(date), args])
 
 proc buildTool(toolname, args: string) =
@@ -290,7 +290,7 @@ proc binArchive(target: BinArchiveTarget, args: string) =
     of Windows:
       quoteShellCommand(["--format:zip", "--binaries:windows"])
     of Unix:
-      quoteShellCommand(["--format:tar.xz", "--binaries:unix"])
+      quoteShellCommand(["--format:tar.zst", "--binaries:unix"])
 
   archive(binaryArgs & " " & args)
 
