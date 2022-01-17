@@ -30,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       skip: ${{ steps.skip_result.outputs.result }}
+      target_matrix: ${{ steps.matrix.outputs.result }}
 
     steps:
       - id: run_cond
@@ -56,12 +57,48 @@ jobs:
             echo "::set-output name=result::false"
           fi
 
+      - id: matrix
+        name: Obtain build target matrix
+        run: |
+          # This matrix will be shared by the jobs following it.
+          #
+          # The schema is:
+          # [
+          #   {
+          #     name: String,  ## The name of the target being tested
+          #     runner: String ## The runner to use of this target
+          #     publish_docs?: Bool ## Whether to publish documentation created by this target
+          #   }
+          # ]
+          cat << "EOF" > matrix.json
+          [
+            {
+              "name": "Linux",
+              "runner": "ubuntu-20.04",
+              "publish_docs": true
+            },
+            {
+              "name": "macOS",
+              "runner": "macos-10.15"
+            }
+          ]
+          EOF
+
+          # Use jq to compact the matrix into one line to be used as the result
+          echo "::set-output name=result::$(jq -c . matrix.json)"
+
   bootstrap:
-    name: Bootstrap the compiler
     needs: [pre_run]
     if: needs.pre_run.outputs.skip != 'true'
 
-    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+
+      matrix:
+        target: ${{ fromJson(needs.pre_run.outputs.target_matrix) }}
+
+    name: Bootstrap the compiler (${{ matrix.target.name }})
+    runs-on: ${{ matrix.target.runner }}
 
     steps:
       - uses: actions/checkout@v2.4.0
@@ -76,12 +113,13 @@ jobs:
         uses: ./.github/actions/upload-compiler
 
   test:
-    needs: [bootstrap]
+    needs: [pre_run, bootstrap]
 
     strategy:
       fail-fast: false
 
       matrix:
+        target: ${{ fromJson(needs.pre_run.outputs.target_matrix) }}
         # This controls the testament "batch" feature.
         #
         # If any additional batches are added, increment `total_batch` as well.
@@ -92,9 +130,8 @@ jobs:
         # an array due to how Github Actions process matrices.
         total_batch: [2]
 
-    name: 'Test the compiler and stdlib (batch #${{ matrix.batch }})'
-
-    runs-on: ubuntu-20.04
+    name: 'Test the compiler and stdlib (${{ matrix.target.name }}, batch #${{ matrix.batch }})'
+    runs-on: ${{ matrix.target.runner }}
 
     steps:
       - uses: actions/checkout@v2.4.0
@@ -106,7 +143,8 @@ jobs:
         with:
           node-version: '16'
 
-      - name: Install dependencies
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           deps=(
             # Needed by boehm gc tests
@@ -124,6 +162,21 @@ jobs:
           sudo apt-get update
           sudo apt-get install "${deps[@]}"
 
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          deps=(
+            # Needed by boehm gc tests
+            bdw-gc
+
+            # Required by Nim in Action tests
+            sdl
+            sfml
+          )
+
+          brew update
+          brew install "${deps[@]}"
+
       - name: Run tester
         run: ./koch.py test --batch:'${{ matrix.batch }}_${{ matrix.total_batch }}' all
 
@@ -132,10 +185,16 @@ jobs:
         run: bin/nim r tools/ci_testresults
 
   orc:
-    name: Test build compiler with ORC
-    needs: [bootstrap]
+    needs: [pre_run, bootstrap]
 
-    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+
+      matrix:
+        target: ${{ fromJson(needs.pre_run.outputs.target_matrix) }}
+
+    name: Test build compiler with ORC (${{ matrix.target.name }})
+    runs-on: ${{ matrix.target.runner }}
 
     steps:
       - uses: actions/checkout@v2.4.0
@@ -149,10 +208,16 @@ jobs:
         run: ./koch.py --nim:bin/nim boot -d:release --gc:orc
 
   tooling:
-    name: Build and test tooling
-    needs: [bootstrap]
+    needs: [pre_run, bootstrap]
 
-    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+
+      matrix:
+        target: ${{ fromJson(needs.pre_run.outputs.target_matrix) }}
+
+    name: Build and test tooling (${{ matrix.target.name }})
+    runs-on: ${{ matrix.target.runner }}
 
     steps:
       - uses: actions/checkout@v2.4.0
@@ -169,10 +234,16 @@ jobs:
         run: ./koch.py testTools
 
   doc:
-    name: Build HTML documentation
-    needs: [bootstrap]
+    needs: [pre_run, bootstrap]
 
-    runs-on: ubuntu-20.04
+    strategy:
+      fail-fast: false
+
+      matrix:
+        target: ${{ fromJson(needs.pre_run.outputs.target_matrix) }}
+
+    name: Build HTML documentation (${{ matrix.target.name }})
+    runs-on: ${{ matrix.target.runner }}
 
     steps:
       - uses: actions/checkout@v2.4.0
@@ -195,7 +266,8 @@ jobs:
 
       - name: Publish
         if: |
-          github.event_name == 'push' && github.ref == 'refs/heads/devel'
+          github.event_name == 'push' && github.ref == 'refs/heads/devel' &&
+          matrix.target.publish_docs
         uses: crazy-max/ghaction-github-pages@v2.5.0
         with:
           build_dir: doc/html
