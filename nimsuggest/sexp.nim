@@ -286,8 +286,8 @@ type
       key*: string
       value*: SexpNode
     of SCons:
-      car: SexpNode
-      cdr: SexpNode
+      car*: SexpNode
+      cdr*: SexpNode
     of SNil:
       discard
 
@@ -365,6 +365,12 @@ proc getSymbol*(n: SexpNode, default: string = ""): string =
   ## Returns ``default`` if ``n`` is not a ``SList``.
   if n.kind != SSymbol: return default
   else: return n.symbol
+
+proc getKey*(n: SexpNode, default: string = ""): string =
+  ## Get key value from the `SKeyword` node
+  ##
+  ## Return `default` is `n` is not a `SKeyword`
+  if n.kind != SKeyword: default else: n.key
 
 proc getElems*(n: SexpNode, default: seq[SexpNode] = @[]): seq[SexpNode] =
   ## Retrieves the int value of a `SList SexpNode`.
@@ -620,12 +626,73 @@ iterator items*(node: SexpNode): SexpNode =
   for i in items(node.elems):
     yield i
 
+
+iterator pairs*(node: SexpNode): (int, SexpNode) =
+  ## Iterator for the pairs of `node`. `node` has to be a SList.
+  assert node.kind == SList
+  for i in pairs(node.elems):
+    yield i
+
 iterator mitems*(node: var SexpNode): var SexpNode =
   ## Iterator for the items of `node`. `node` has to be a SList. Items can be
   ## modified.
   assert node.kind == SList
   for i in mitems(node.elems):
     yield i
+
+iterator mpairs*(node: var SexpNode): (int, var SexpNode) =
+  ## Iterator for the pairs of `node`. `node` has to be a SList. Items can be
+  ## modified.
+  assert node.kind == SList
+  for i, node in mpairs(node.elems):
+    yield (i, node)
+
+proc treeRepr*(node: SexpNode): string =
+  ## Generate uncolored tree repr string for the S-expression AST.
+  proc aux(node: SexpNode, level: int, res: var string) =
+    res.add repeat("  ", level)
+    res.add $node.kind
+    case node.kind:
+      of SInt:
+        res.add " "
+        res.add $node.getNum()
+
+      of SFloat:
+        res.add " "
+        res.add $node.getFNum()
+
+      of SString:
+        res.add " \""
+        res.add node.getStr()
+        res.add "\""
+
+      of SList:
+        for item in node:
+          res.add "\n"
+          aux(item, level + 1, res)
+
+      of SKeyword:
+        res.add " :"
+        res.add node.key
+        res.add "\n"
+        aux(node.value, level + 1, res)
+
+      of SNil:
+        res.add " null"
+
+      of SSymbol:
+        res.add " " & node.symbol
+
+      of SCons:
+        res.add "\n" & repeat("  ", level + 1) & "car"
+        aux(node.car, level + 2, res)
+        res.add "\n" & repeat("  ", level + 1) & "cdr"
+        aux(node.cdr, level + 2, res)
+
+
+  aux(node, 0, result)
+
+
 
 proc eat(p: var SexpParser, tok: TTokKind) =
   if p.tok == tok: discard getTok(p)
