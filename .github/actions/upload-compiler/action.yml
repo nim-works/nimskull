@@ -12,7 +12,10 @@ runs:
     - name: Package workspace
       run: |
         # Package new and changed files
-        readarray -d '' diff < <(git ls-files -zmo)
+        declare -a diff
+        while IFS= read -r -d '' file; do
+          diff+=("$file")
+        done < <(git ls-files -zmo)
         tar cf '${{ runner.temp }}/compiler.tar' "${diff[@]}"
       shell: bash
       working-directory: '${{ inputs.source }}'
