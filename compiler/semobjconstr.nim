@@ -547,7 +547,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
       # 2) No such field exists in the constructed type
 
       localReport(c.config, field[0], reportStr(
-        rsemUndeclaredField, id.s, typ = t))
+        rsemUndeclaredField, id.s, typ = t, sym = t.sym))
 
       hasError = true
       break

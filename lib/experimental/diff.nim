@@ -43,7 +43,7 @@ jkl"""
 # "An O(ND) Difference Algorithm and its Variations" by Eugene Myers
 # Algorithmica Vol. 1 No. 2, 1986, p 251.
 
-import tables, strutils
+import std/[tables, strutils, sequtils, algorithm]
 
 type
   Item* = object    ## An Item in the list of differences.
@@ -334,3 +334,341 @@ proc diffText*(textA, textB: string): seq[Item] =
   optimize(dataA)
   optimize(dataB)
   result = createDiffs(dataA, dataB)
+
+
+type
+  SeqEditKind* = enum
+    ## Kind of the sequence edit operation
+    sekNone ## Empty edit operation
+    sekKeep ## Keep original element unchanged
+    sekInsert ## Insert new element into target sequence
+    sekReplace ## Replace source element with the target
+    sekDelete ## Delete element from the source sequence
+    sekTranspose ## Transpose two elements
+
+  SeqEdit* = object
+    ## Sequence edit operation.
+    kind*: SeqEditKind ## Sequence edit operation kind
+    sourcePos*: int ## Position in the original sequence
+    targetPos*: int ## Position in the target sequence
+
+proc levenshteinDistance*[T](
+    str1, str2: openarray[T]
+  ): tuple[distance: int, operations: seq[SeqEdit]] =
+  ## Compute edit distance between two item sequences, return list of edit
+  ## operations necessary to transform `str1` into `str2`
+  ##
+  ## Adapted from https://phiresky.github.io/levenshtein-demo/
+  var
+    l1 = str1.len
+    l2 = str2.len
+
+    m: seq[seq[int]] = newSeqWith(l1 + 1, newSeqWith(l2 + 1, 0))
+    paths: seq[seq[(int, int)]] = newSeqWith(l1 + 1,
+                                             newSeqWith(l2 + 1, (0, 0)))
+
+  for i in 0 .. l1:
+    m[i][0] = i
+    paths[i][0] = (i - 1, 0)
+
+  for j in 0 .. l2:
+    m[0][j] = j
+    paths[0][j] = (0, j - 1)
+
+  for i in 1 .. l1:
+    for j in 1 .. l2:
+      if (str1[i - 1] == str2[j - 1]):
+        m[i][j] = m[i - 1][j - 1]
+        paths[i][j] = (i - 1, j - 1)
+      else:
+        let min = min([m[i - 1][j], m[i][j - 1], m[i - 1][j - 1]])
+        m[i][j] = min + 1;
+        if (m[i - 1][j] == min):
+          paths[i][j] = (i - 1, j)
+
+        elif (m[i][j - 1] == min):
+          paths[i][j] = (i, j - 1)
+
+        elif (m[i - 1][j - 1] == min):
+          paths[i][j] = (i - 1, j - 1)
+
+  var levenpath: seq[tuple[i, j: int, t: SeqEditKind]]
+
+  var j = l2
+  var i = l1
+  while i >= 0 and j >= 0:
+    j = l2
+    while i >= 0 and j >= 0:
+      levenpath.add((i, j, sekNone))
+      let t = i
+      i = paths[i][j][0]
+      j = paths[t][j][1]
+
+
+  reverse(levenpath)
+  result.distance = m[levenpath[^1][0]][levenpath[^1][1]]
+
+  for i in 1 ..< levenpath.len:
+    var
+      last = levenpath[i - 1]
+      cur = levenpath[i]
+
+    if i != 0:
+      if (
+        cur.i == last.i + 1 and
+        cur.j == last.j + 1 and
+        m[cur.i][cur.j] != m[last.i][last.j]
+      ):
+        result.operations.add SeqEdit(kind: sekReplace)
+
+      elif (cur.i == last.i and cur.j == last.j + 1):
+        result.operations.add SeqEdit(kind: sekInsert)
+
+      elif (cur.i == last.i + 1 and cur.j == last.j):
+        result.operations.add SeqEdit(kind: sekDelete)
+
+      else:
+        result.operations.add SeqEdit(kind: sekKeep)
+
+      result.operations[^1].sourcePos = cur.i - 1
+      result.operations[^1].targetPos = cur.j - 1
+
+
+type
+  ShiftedDiff* = object
+    ## Intermediate version of the diffed sequence
+    oldShifted*: seq[tuple[kind: SeqEditKind, item: int]]
+    newShifted*: seq[tuple[kind: SeqEditKind, item: int]]
+
+
+proc myersDiff*[T](
+    aSeq, bSeq: openarray[T], itemCmp: proc(x, y: T): bool): seq[SeqEdit] =
+  ## Generate series of sequence edit operations necessary to trasnform
+  ## `aSeq` into `bSeq`. For item equality comparison use `itemCmp`
+  ##
+  ## https://gist.github.com/adamnew123456/37923cf53f51d6b9af32a539cdfa7cc4
+  var front: Table[int, tuple[x: int, history: seq[SeqEdit]]]
+  front[1] = (0, @[])
+
+  template one(idx: int): int = idx - 1
+
+  let
+    aMax = len(aSeq)
+    bMax = len(bSeq)
+
+  for d in countup(0, aMax + bMax + 1):
+    for k in countup(-d, d + 1, 2):
+      let goDown =
+        (k == -d or (k != d and front[k - 1].x < front[k + 1].x))
+
+
+      var (x, history) =
+        if goDown:
+          (front[k + 1].x, front[k + 1].history)
+
+        else:
+          (front[k - 1].x + 1, front[k - 1].history)
+
+      var y = x - k
+
+      if 1 <= y and y <= bMax and goDown:
+        history.add SeqEdit(kind: sekInsert, targetPos: one(y))
+
+      elif 1 <= x and x <= aMax:
+        history.add SeqEdit(kind: sekDelete, sourcePos: one(x))
+
+      while x < aMax and
+            y < bMax and
+            itemCmp(aSeq[x], bSeq[y]):
+
+        x += 1
+        y += 1
+        history.add SeqEdit(kind: sekKeep, sourcePos: one(x), targetPos: one(y))
+
+      if x >= aMax and y >= bMax:
+        return history
+
+      else:
+        front[k] = (x, history)
+
+proc shiftDiffed*[T](
+    diff: seq[SeqEdit], oldSeq, newSeq: openarray[T]): ShiftedDiff =
+
+  for line in items(diff):
+    case line.kind:
+      of sekReplace:
+        result.oldShifted.add((sekReplace, line.sourcePos))
+
+      of sekNone:
+        assert false, "Input diff sequence should not contain empty operations"
+
+      of sekTranspose:
+        assert false, "Input diff sequence should not contain transpose operations"
+
+      of sekDelete:
+        result.oldShifted.add((sekDelete, line.sourcePos))
+
+      of sekInsert:
+        result.newShifted.add((sekInsert, line.targetPos))
+
+      of sekKeep:
+        var
+          oldLen = result.oldShifted.len
+          newLen = result.newShifted.len
+
+        if oldLen < newLen:
+          while oldLen < newLen:
+            result.oldShifted.add((sekNone, 0))
+            inc oldLen
+
+        elif newLen < oldLen:
+          while newLen < oldLen:
+            result.newShifted.add((sekNone, 0))
+            inc newLen
+
+        result.oldShifted.add((sekKeep, line.sourcePos))
+        result.newShifted.add((sekKeep, line.targetPos))
+
+
+proc formatDiffed*(
+    shifted: ShiftedDiff,
+    oldSeq, newSeq: seq[string],
+    sideBySide: bool,
+    showLineNumbers: bool = false
+  ): string =
+
+  ##[
+
+Plaintext format diff edit script for printing. Provides pretty barebones
+implementation of the formatting - no coloring, diff formatting is not
+configurable.
+
+Generated diff formatting does not contain trailing newline
+
+- `sideBySide`: stack modified lines on top of each other
+  (unified diff) or side-by-side (split diff)
+- `oldSeq`, `newSeq`: original diffed sequences with items
+  converted to strings. It is assumed that each item is placed
+  on one line and diffed between each other.
+- `showLineNumbers`: Show original line (sequence) numbers
+  in the generated string printout.
+
+
+]##
+
+  var
+    # Diffed sequence of items
+    oldText, newText: seq[tuple[
+      text: string, # formatted line
+      changed: bool # Whether line has changed. Used in unified diff
+                    # formatting to avoid duplicate string printing.
+    ]]
+
+  let maxLhsIdx = len($shifted.oldShifted[^1].item)
+  let maxRhsIdx = len($shifted.newShifted[^1].item)
+
+  proc editFmt(fmt: SeqEditKind, idx: int, isLhs: bool): string =
+    if showLineNumbers:
+      let num =
+        if fmt == sekNone:
+          align(" ", maxLhsIdx)
+
+        elif isLhs:
+          align($idx, maxLhsIdx)
+
+        else:
+          align($idx, maxRhsIdx)
+
+      case fmt:
+        of sekDelete: "- " & num
+        of sekInsert: "+ " & num
+        of sekKeep: "~ " & num
+        of sekNone: "? " & num
+        of sekReplace: "-+" & num
+        of sekTranspose: "^v" & num
+
+    else:
+      case fmt:
+        of sekDelete: "- "
+        of sekInsert: "+ "
+        of sekReplace: "-+"
+        of sekKeep: "~ "
+        of sekTranspose: "^v"
+        of sekNone: (if isLhs: "? " else: "?")
+
+
+  var lhsMax = 0
+
+  # Iterate over shifted diff sequence, construct formatted list of lines
+  # that will be joined to final output.
+  for (lhs, rhs) in zip(shifted.oldShifted, shifted.newShifted):
+    oldText.add((editFmt(lhs.kind, lhs.item, true), true))
+
+    newText.add((
+      editFmt(rhs.kind, rhs.item, false),
+      # Only newly inserted lines need to be formatted for the unified
+      # diff, everything else is displayed on the 'original' version.
+      not sideBySide and rhs.kind in {sekInsert}
+    ))
+
+    if lhs.kind == sekDelete and rhs.kind == sekInsert:
+      oldText[^1].text.add oldSeq[lhs.item]
+      newText[^1].text.add newSeq[rhs.item]
+
+    elif rhs.kind == sekInsert:
+      newText[^1].text.add newSeq[rhs.item]
+
+    elif lhs.kind == sekDelete:
+      oldText[^1].text.add oldSeq[lhs.item]
+
+    else:
+      oldText[^1].text.add oldSeq[lhs.item]
+      newText[^1].text.add newSeq[rhs.item]
+
+    lhsMax = max(oldText[^1].text.len, lhsMax)
+
+  var first = true
+  for (lhs, rhs) in zip(oldtext, newtext):
+    if not first:
+      # Avoid trailing newline of the diff formatting.
+      result.add "\n"
+    first = false
+
+    if sideBySide:
+      result.add alignLeft(lhs.text, lhsMax + 3)
+      result.add rhs.text
+
+    else:
+      result.add lhs.text
+      if rhs.changed:
+        result.add "\n"
+        result.add rhs.text
+
+
+proc myersDiff*[T](aSeq, bSeq: openarray[T]): seq[SeqEdit] =
+  ## Diff overload without explicit comparator proc - use default `==` for
+  ## two items.
+  myersDiff(aSeq, bSeq, proc(a, b: T): bool = a == b)
+
+proc diffText(
+    text1, text2: seq[string],
+    sideBySide: bool,
+    showLineNumbers: bool = false
+  ): string =
+  ## Format diff of two text lines using default `formatDiffed` implementation
+  myersDiff(text1, text2).
+    shiftDiffed(text1, text2).
+    formatDiffed(text1, text2, sideBySide, showLineNumbers = showLineNumbers)
+
+proc diffText*(
+    text1, text2: string,
+    sideBySide: bool,
+    showLineNumbers: bool = false
+  ): string =
+  ## Format diff of two text blocks via newline split and default
+  ## `formatDiffed` implementation
+  diffText(
+    text1.split("\n"),
+    text2.split("\n"),
+    sideBySide = sideBySide,
+    showLineNumbers = showLineNumbers)

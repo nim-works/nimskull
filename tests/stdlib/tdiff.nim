@@ -11,7 +11,42 @@ proc testHelper(f: seq[Item]): string =
       $it.deletedA & "." & $it.insertedB & "." & $it.startA & "." & $it.startB & "*"
     )
 
-proc main() =
+proc formatDiffed[T](
+    ops: seq[SeqEdit],
+    oldSeq, newSeq: openarray[T]
+  ): string =
+  ## Example implementation of the leveshtein string edit formatting
+
+  for idx, op in ops:
+    case op.kind:
+      of sekKeep:
+        result.add $oldSeq[op.sourcePos]
+
+      of sekDelete:
+        result.add "[del " & oldSeq[op.sourcePos] & "]"
+
+      of sekInsert:
+        result.add "[ins " & newSeq[op.targetPos] & "]"
+
+      of sekTranspose:
+        result.add "[trans " & oldSeq[op.sourcePos]
+        result.add " <> "
+        result.add newSeq[op.targetPos] & "]"
+
+      of sekReplace:
+        result.add "[repl " & oldSeq[op.sourcePos]
+        result.add " -> "
+        result.add newSeq[op.targetPos] & "]"
+
+      of sekNone:
+        assert false
+
+proc levEditText(a, b: string): string =
+  let (_, ops) = levenshteinDistance(a, b)
+  return formatDiffed(ops, a, b)
+
+
+proc stringAndIntDiff() =
   var a, b: string
 
   # Diff Self Test
@@ -69,5 +104,96 @@ proc main() =
   doAssert(testHelper(diffText(a, b)) ==
     "0.1.4.4*1.0.9.10*",
     "long chain of repeats test failed.")
+
+
+proc levenshteinDiff() =
+  for (a, b, edit) in @[
+    ("a", "b", "[repl a -> b]"),
+    ("ab", "b", "[del a]b"),
+    ("ab", "bb", "[repl a -> b]b"),
+    ("a", "aa", "[ins a]a")
+  ]:
+    let lev = levEditText(a, b)
+    doAssert(
+      lev == edit,
+      "Mismatched lev edit: expected '" & edit & "', but got '" & lev & "'"
+    )
+
+proc myersDiff() =
+  # Test side-by-side diff formatting implementation
+  for (a, b, edit) in @[
+    ("a", "b", "- a   + b"),
+    ("a\na",
+     "a\nb",
+     """
+~ a   ~ a
+- a   + b"""
+    ),
+    ("""
+var dir = dir
+let dir = getTempDirImpl(dir)
+if dir.len == 0:
+  dir = getTempDir()
+
+createDir(dir)""", """
+let dir = getTempDirImpl(dir)
+createDir(dir)""", """
+- var dir = dir                   ?
+~ let dir = getTempDirImpl(dir)   ~ let dir = getTempDirImpl(dir)
+- if dir.len == 0:                ?
+-   dir = getTempDir()            ?
+-                                 ?
+~ createDir(dir)                  ~ createDir(dir)"""
+    )
+  ]:
+    let diff = diffText(a, b, sideBySide = true)
+    doAssert(
+      diff == edit,
+      "Mismatched myers edit: expected \n" & edit & "\n, but got \n" & diff & "\n"
+    )
+
+  # Unified formatting implementation
+  for (a, b, edit) in @[
+    ("a", "b", "- a\n+ b"),
+    ("a\na",
+     "a\nb",
+     """
+~ a
+- a
++ b"""
+    ),
+    ("""
+var dir = dir
+let dir = getTempDirImpl(dir)
+if dir.len == 0:
+  dir = getTempDir()
+createDir(dir)""", """
+let dir = getTempDirImpl(dir)
+createDir(dir)""", """
+- var dir = dir
+~ let dir = getTempDirImpl(dir)
+- if dir.len == 0:
+-   dir = getTempDir()
+~ createDir(dir)"""
+    )
+  ]:
+    let diff = diffText(a, b, sideBySide = false)
+    doAssert(
+      diff == edit,
+      "Mismatched myers edit: expected \n" & edit & "\n, but got \n" & diff & "\n"
+    )
+
+
+
+proc main() =
+  stringAndIntDiff()
+  levenshteinDiff()
+
 main()
-static: main()
+# FIXME when compiled to js backend `formatDiffed` fails with 'cannot
+# evaluate at compile-time' error. This is not a regression, mainline works
+# the same way.
+myersDiff()
+
+static:
+  main()
