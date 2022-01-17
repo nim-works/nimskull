@@ -27,10 +27,13 @@ The |nimskull| project's directory structure is:
 - ``lib/`` - the standard library, including:
     - ``pure/`` - modules in the standard library written in pure
       |nimskull|.
+
     - ``impure/`` - modules in the standard library written in pure
-    |nimskull| with dependencies written in other languages.
+      |nimskull| with dependencies written in other languages.
+
     - ``wrappers/`` - modules that wrap dependencies written in other
       languages.
+
 - ``tests/`` - contains categorized tests for the compiler and standard
   library.
   - ``tests/lang`` - tests containing language specification
@@ -112,6 +115,7 @@ These procs may not already be imported by the module you're editing.
 You can import them directly for debugging:
 
 .. code-block:: nim
+
   from astalgo import debug
   from types import typeToString
   from renderer import renderTree
@@ -155,6 +159,42 @@ contextual information is required, in what is typically a local part of the
 AST being examined. Please help refactor accordingly if you encounter the
 legacy method.
 
+Reports
+-------
+
+All output generates during compiler runtime is handled using `Report`
+type, defined in `reports.nim` module. Every single compilation warning,
+hint, error, and lots of other reports are wrapped into several categories
+(lexer, parser, sem, internal, external, debug and backend) and passed
+around.
+
+Each error node (`nkError`) stores associated report id that is written out
+during error traversal. Postponed reports are stored in the
+`MsgConfig.reports` field, which can be asscessed from `ConfigRef.m`.
+
+For more details on the specific report kinds and categories see the
+`report.nim` module (for type definitions), `options.nim` (for writing
+storing postponed or writing out activated reports) and `msgs.nim` (for
+main logic related to error handing and report submission).
+
+When report need to be written out it is handed to
+`ConfigRef.structuredReportHook` - it can be reimplemented by other
+tooling, can generate output information in any format (json,
+pretty-printed, S-expression), and filter it out unnecessary reports.
+Default implementation of the report hook is provided in the
+`cli_reporter.nim` - if you want to improve particular error messages it is
+(ideally) the only (compiler) file that you need to edit.
+
+VM
+-----
+
+For compile-time code execution nim compiler implements register-based VM
+with custom instruction set. `vmgen.nim` implements code generation for the
+virtual machine, `vm.nim` provides main execution engine.
+
+Errors generated in the VM are handled using common pipeline - report with
+necessary location information is generated.
+
 
 Bisecting for regressions
 =========================
@@ -188,11 +228,8 @@ Coding Guidelines
 * Max line length is 100 characters.
 * Provide spaces around binary operators if that enhances readability.
 * Use a space after a colon, but not before it.
-* [deprecated] Start types with a capital `T`, unless they are
-  pointers/references which start with `P`.
 
 See also the `API naming design <apis.html>`_ document.
-
 
 Porting to new platforms
 ========================

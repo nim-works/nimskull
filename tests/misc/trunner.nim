@@ -1,5 +1,4 @@
 discard """
-  targets: "c cpp"
   joinable: false
 """
 
@@ -104,7 +103,7 @@ elif not defined(nimTestsTrunnerDebugging):
       of 5: nimcache / htmldocsDirname
       else: file.parentDir / htmldocsDirname
 
-      var cmd = fmt"{nim} doc --index:on --filenames:abs --hint:successX:on --nimcache:{nimcache} {options[i]} {file}"
+      var cmd = fmt"{nim} doc --index:on --filenames:abs --hints=on --hint:SuccessX:on --nimcache:{nimcache} {options[i]} {file}"
       removeDir(htmldocsDir)
       let (outp, exitCode) = execCmdEx(cmd)
       check exitCode == 0
@@ -233,7 +232,7 @@ sub/mmain.idx""", context
     check execCmdEx(cmd) == ("witness\n", 0)
 
   block: # config.nims, nim.cfg, hintConf, bug #16557
-    let cmd = fmt"{nim} r --hint:all:off --hint:conf tests/newconfig/bar/mfoo.nim"
+    let cmd = fmt"{nim} r --skipUserCfg --hints=on --hint=all:off --hint=conf:on tests/newconfig/bar/mfoo.nim"
     let (outp, exitCode) = execCmdEx(cmd, options = {poStdErrToStdOut})
     doAssert exitCode == 0
     let dir = getCurrentDir()
@@ -251,7 +250,7 @@ tests/newconfig/bar/mfoo.nims""".splitLines
 
   block: # mfoo2.customext
     let filename = testsDir / "newconfig/foo2/mfoo2.customext"
-    let cmd = fmt"{nim} e --hint:conf {filename}"
+    let cmd = fmt"{nim} e --skipUserCfg --hints=on --hint=all:off --hint:conf {filename}"
     let (outp, exitCode) = execCmdEx(cmd, options = {poStdErrToStdOut})
     doAssert exitCode == 0
     var expected = &"Hint: used config file '{filename}' [Conf]\n"
@@ -265,7 +264,7 @@ tests/newconfig/bar/mfoo.nims""".splitLines
     check fmt"""{nim} r -b:js {opt} --eval:"echo defined(js)"""".execCmdEx == ("true\n", 0)
 
   block: # `hintProcessing` dots should not interfere with `static: echo` + friends
-    let cmd = fmt"""{nim} r --hint:all:off --hint:processing -f --eval:"static: echo 1+1""""
+    let cmd = fmt"""{nim} r --skipUserCfg --hints=on --hint:all:off --hint:processing -f --eval:"static: echo 1+1""""
     let (outp, exitCode) = execCmdEx(cmd, options = {poStdErrToStdOut})
     template check3(cond) = doAssert cond, $(outp,)
     doAssert exitCode == 0
@@ -278,32 +277,6 @@ tests/newconfig/bar/mfoo.nims""".splitLines
     else:
       check3 "2" in outp
 
-  block: # nim secret
-    let opt = "--hint:all:off --hint:processing"
-    template check3(cond) = doAssert cond, $(outp,)
-    for extra in ["", "--stdout"]:
-      let cmd = fmt"""{nim} secret {opt} {extra}"""
-      # xxx minor bug: `nim --hint:QuitCalled:off secret` ignores the hint cmdline flag
-      template run(input2): untyped =
-        execCmdEx(cmd, options = {poStdErrToStdOut}, input = input2)
-      block:
-        let (outp, exitCode) = run """echo 1+2; import strutils; echo strip(" ab "); quit()"""
-        let lines = outp.splitLines
-        when not defined(windows):
-          check3 lines.len == 5
-          check3 lines[0].isDots
-          check3 lines[1].dup(removePrefix(">>> ")) == "3" # prompt depends on `nimUseLinenoise`
-          check3 lines[2].isDots
-          check3 lines[3] == "ab"
-          check3 lines[4] == ""
-        else:
-          check3 "3" in outp
-          check3 "ab" in outp
-        doAssert exitCode == 0
-      block:
-        let (outp, exitCode) = run "echo 1+2; quit(2)"
-        check3 "3" in outp
-        doAssert exitCode == 2
 
   block: # nimBetterRun
     let file = "misc/mbetterrun.nim"
@@ -329,6 +302,7 @@ running: v2
 
   block: # nim dump
     let cmd = fmt"{nim} dump --dump.format:json -d:D20210428T161003 --hints:off ."
+    echo cmd
     let (ret, status) = execCmdEx(cmd)
     doAssert status == 0
     let j = ret.parseJson
@@ -341,12 +315,17 @@ running: v2
     const nimcache2 = buildDir / "D20210524T212851"
     removeDir(nimcache2)
     let input = "tgenscript_fakefile" # no need for a real file, --eval is good enough
-    let output = runNimCmdChk(input, fmt"""--genscript --nimcache:{nimcache2.quoteShell} --eval:"echo(12345)" """)
+    let output = runNimCmdChk(
+      input, fmt"""--genscript --nimcache:{nimcache2.quoteShell} --eval:"echo(12345)" """)
+
     doAssert output.len == 0, output
     let ext = when defined(windows): ".bat" else: ".sh"
     let filename = fmt"compile_{input}{ext}" # synchronize with `generateScript`
     doAssert fileExists(nimcache2/filename), nimcache2/filename
-    let (outp, status) = execCmdEx(genShellCmd(filename), options = {poStdErrToStdOut}, workingDir = nimcache2)
+    let cmd = genShellCmd(filename)
+    let (outp, status) = execCmdEx(
+      cmd, options = {poStdErrToStdOut}, workingDir = nimcache2)
+
     doAssert status == 0, outp
     let (outp2, status2) = execCmdEx(nimcache2 / input, options = {poStdErrToStdOut})
     doAssert outp2 == "12345\n", outp2
@@ -354,7 +333,10 @@ running: v2
 
   block: # UnusedImport
     proc fn(opt: string, expected: string) =
-      let output = runNimCmdChk("pragmas/mused3.nim", fmt"--warning:all:off --warning:UnusedImport --hint:DuplicateModuleImport {opt}")
+      let output = runNimCmdChk(
+        "pragmas/mused3.nim",
+        fmt"--skipUserCfg --warning:all:off --warning:UnusedImport --hint:DuplicateModuleImport {opt}")
+
       doAssert output == expected, opt & "\noutput:\n" & output & "expected:\n" & expected
     fn("-d:case1"): """
 mused3.nim(13, 8) Warning: imported and not used: 'mused3b' [UnusedImport]
@@ -378,7 +360,11 @@ mused3.nim(75, 10) Hint: duplicate import of 'mused3a'; previous import here: mu
 
   block: # FieldDefect
     proc fn(opt: string, expected: string) =
-      let output = runNimCmdChk("misc/mfield_defect.nim", fmt"-r --warning:all:off --declaredlocs {opt}", status = 1)
+      let output = runNimCmdChk(
+        "misc/mfield_defect.nim",
+        fmt"-r --skipUserCfg --warning:all:off --declaredlocs {opt}",
+        status = 1)
+
       doAssert expected in output, opt & "\noutput:\n" & output & "expected:\n" & expected
     fn("-d:case1"): """mfield_defect.nim(25, 15) Error: field 'f2' is not accessible for type 'Foo' [discriminant declared in mfield_defect.nim(14, 8)] using 'kind = k3'"""
     fn("-d:case2 --gc:refc"): """mfield_defect.nim(25, 15) field 'f2' is not accessible for type 'Foo' [discriminant declared in mfield_defect.nim(14, 8)] using 'kind = k3'"""

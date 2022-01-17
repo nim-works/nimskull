@@ -10,7 +10,7 @@
 ## This module implements the '.liftLocals' pragma.
 
 import
-  strutils, options, ast, msgs,
+  options, ast, msgs, reports,
   idents, renderer, types, lowerings, lineinfos
 
 from pragmas import getPragmaVal
@@ -60,12 +60,14 @@ proc liftLocalsIfRequested*(prc: PSym; n: PNode; cache: IdentCache; conf: Config
   if liftDest == nil: return n
   let partialParam = lookupParam(prc.typ.n, liftDest)
   if partialParam.isNil:
-    localError(conf, liftDest.info, "'$1' is not a parameter of '$2'" %
-              [$liftDest, prc.name.s])
+    localReport(conf, liftDest.info, reportAst(
+      rsemIsNotParameterOf, liftDest, sym = prc))
+
     return n
   let objType = partialParam.typ.skipTypes(abstractPtrs)
   if objType.kind != tyObject or tfPartial notin objType.flags:
-    localError(conf, liftDest.info, "parameter '$1' is not a pointer to a partial object" % $liftDest)
+    localReport(conf, liftDest.info, reportAst(
+      rsemParameterNotPointerToPartial, liftDest))
     return n
   var c = Ctx(partialParam: partialParam, objType: objType, cache: cache, idgen: idgen)
   let w = newTree(nkStmtList, n)

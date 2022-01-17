@@ -13,17 +13,7 @@
 import
   intsets, ast, renderer, options, semdata, types
 
-type
-  TTypeAllowedFlag* = enum
-    taField,
-    taHeap,
-    taConcept,
-    taIsOpenArray,
-    taNoUntyped
-    taIsTemplateOrMacro
-    taProcContextIsNotMacro
-
-  TTypeAllowedFlags* = set[TTypeAllowedFlag]
+export TTypeAllowedFlag, TTypeAllowedFlags
 
 proc typeAllowedAux(marker: var IntSet, typ: PType, kind: TSymKind;
                     c: PContext; flags: TTypeAllowedFlags = {}): PType

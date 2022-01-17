@@ -15,8 +15,6 @@
 
 # included from sem.nim
 
-from sugar import dup
-
 type
   ObjConstrContext = object
     typ: PType               # The constructed type
@@ -58,10 +56,10 @@ proc mergeInitStatus(existing: var InitStatus, newStatus: InitStatus) =
 
 proc invalidObjConstr(c: PContext, n: PNode): PNode =
   if n.kind == nkInfix and n[0].kind == nkIdent and n[0].ident.s[0] == ':':
-    newError(c, n, FieldAssignmentInvalid,
-             newStrNode("use a space after the colon", n.info))
+    newError(c.config, n, reportSem rsemFieldAssignmentInvalid)
+
   else:
-    newError(c, n, FieldAssignmentInvalid)
+    newError(c.config, n, reportSem rsemFieldAssignmentInvalid)
 
 proc locateFieldInInitExpr(c: PContext, field: PSym, initExpr: PNode): PNode =
   ## Returns the assignment nkExprColonExpr node, nkError if malformed, or nil
@@ -71,7 +69,7 @@ proc locateFieldInInitExpr(c: PContext, field: PSym, initExpr: PNode): PNode =
       e = initExpr[i]
       valid = e.kind == nkExprColonExpr
       partiallyValid = e.kind == nkError and
-                       e.errorKind == FieldOkButAssignedValueInvalid
+                       e.errorKind == rsemFieldOkButAssignedValueInvalid
       atLeastPartiallyValid = valid or partiallyValid
       assignment = if partiallyValid: e[wrongNodePos] else: e
       match =
@@ -100,10 +98,13 @@ proc semConstrField(c: PContext, flags: TExprFlags,
     if nfSem in result.flags:
       return
     if not fieldVisible(c, field):
-      result = newError(initExpr, FieldNotAccessible, newSymNode(field))
+      result = newError(
+        c.config, initExpr,
+        reportSym(rsemFieldNotAccessible, field))
+
       result.typ = errorType(c)
       return
-    if result.kind == nkError and result.errorKind != FieldOkButAssignedValueInvalid:
+    if result.kind == nkError and result.errorKind != rsemFieldOkButAssignedValueInvalid:
       return # result is the assignment error
 
     var initValue = semExprFlagDispatched(c, result[1], flags)
@@ -113,7 +114,17 @@ proc semConstrField(c: PContext, flags: TExprFlags,
     result[1] = initValue
     result.flags.incl nfSem
     if initValue != nil and initValue.kind == nkError:
-      result = newError(c, result, FieldOkButAssignedValueInvalid)
+      result = newError(
+        c.config,
+        result,
+        reportSym(
+          rsemFieldOkButAssignedValueInvalid,
+          field,
+          ast = initValue
+        ).withIt do:
+          it.wrongNode = result
+      )
+
 
 proc caseBranchMatchesExpr(branch, matched: PNode): bool =
   for i in 0..<branch.len-1:
@@ -168,20 +179,18 @@ iterator directFieldsInRecList(recList: PNode): PNode =
 
 template quoteStr(s: string): string = "'" & s & "'"
 
-proc fieldsPresentInInitExpr(c: PContext, fieldsRecList, initExpr: PNode): string =
-  result = ""
+proc fieldsPresentInInitExpr(c: PContext, fieldsRecList, initExpr: PNode): seq[PSym] =
   for field in directFieldsInRecList(fieldsRecList):
     let
       assignment = locateFieldInInitExpr(c, field.sym, initExpr)
       found = assignment != nil
     if found:
-      if result.len != 0: result.add ", " # separate by comma
       case assignment.kind:
       of nkError:
         discard # XXX: figure out whether errors should be represented and how
       else:
         # more than just nkExprColonExpr is handled by this
-        result.add field.sym.name.s.quoteStr
+        result.add field.sym
 
 proc collectMissingFields(c: PContext, fieldsRecList: PNode,
                           constrCtx: var ObjConstrContext) =
@@ -192,7 +201,7 @@ proc collectMissingFields(c: PContext, fieldsRecList: PNode,
       let assignment = locateFieldInInitExpr(c, r.sym, constrCtx.initExpr)
       if assignment == nil or
          assignment.kind == nkError and
-         assignment.errorKind != FieldOkButAssignedValueInvalid:
+         assignment.errorKind != rsemFieldOkButAssignedValueInvalid:
         constrCtx.missingFields.add r.sym
 
 proc semConstructFields(c: PContext, n: PNode,
@@ -207,7 +216,7 @@ proc semConstructFields(c: PContext, n: PNode,
       mergeInitStatus(result, status)
 
   of nkRecCase:
-    template fieldsPresentInBranch(branchIdx: int): string =
+    template fieldsPresentInBranch(branchIdx: int): seq[PSym] =
       let branch = n[branchIdx]
       let fields = branch[^1]
       fieldsPresentInInitExpr(c, fields, constrCtx.initExpr)
@@ -218,7 +227,9 @@ proc semConstructFields(c: PContext, n: PNode,
         collectMissingFields(c, fields, constrCtx)
 
     let discriminator = n[0]
-    internalAssert c.config, discriminator.kind == nkSym
+    internalAssert(
+      c.config, discriminator.kind == nkSym, $discriminator.kind)
+
     var selectedBranch = -1
 
     for i in 1..<n.len:
@@ -227,12 +238,12 @@ proc semConstructFields(c: PContext, n: PNode,
       if status notin {initNone, initUnknown}:
         mergeInitStatus(result, status)
         if selectedBranch != -1:
-          let prevFields = fieldsPresentInBranch(selectedBranch)
-          let currentFields = fieldsPresentInBranch(i)
-          localError(c.config, constrCtx.initExpr.info,
-            ("The fields '$1' and '$2' cannot be initialized together, " &
-            "because they are from conflicting branches in the case object.") %
-            [prevFields, currentFields])
+          localReport(c.config, constrCtx.initExpr.info, SemReport(
+            kind: rsemDisjointFields,
+            fieldMismatches: (
+              first: fieldsPresentInBranch(selectedBranch),
+              second: fieldsPresentInBranch(i))))
+
           result = initConflict
         else:
           selectedBranch = i
@@ -241,26 +252,33 @@ proc semConstructFields(c: PContext, n: PNode,
       template badDiscriminatorError =
         if c.inUncheckedAssignSection == 0:
           let fields = fieldsPresentInBranch(selectedBranch)
-          localError(c.config, constrCtx.initExpr.info,
-            ("cannot prove that it's safe to initialize $1 with " &
-            "the runtime value for the discriminator '$2' ") %
-            [fields, discriminator.sym.name.s])
+          localReport(c.config, constrCtx.initExpr.info, SemReport(
+            kind: rsemUnsafeRuntimeDiscriminantInit,
+            fieldMismatches: (
+              first: fields,
+              second: @[discriminator.sym])))
+
         mergeInitStatus(result, initNone)
 
       template wrongBranchError(i) =
         if c.inUncheckedAssignSection == 0:
           let fields = fieldsPresentInBranch(i)
-          localError(c.config, constrCtx.initExpr.info,
-            ("a case selecting discriminator '$1' with value '$2' " &
-            "appears in the object construction, but the field(s) $3 " &
-            "are in conflict with this value.") %
-            [discriminator.sym.name.s, discriminatorVal.renderTree, fields])
+          localReport(c.config, constrCtx.initExpr.info,  SemReport(
+            kind: rsemConflictingDiscriminantInit,
+            ast: discriminatorVal,
+            fieldMismatches: (
+              first: fields,
+              second: @[discriminator.sym])))
 
-      template valuesInConflictError(valsDiff) =
-        localError(c.config, discriminatorVal.info, ("possible values " &
-          "$2 are in conflict with discriminator values for " &
-          "selected object branch $1.") % [$selectedBranch,
-          valsDiff.renderAsType(n[0].typ)])
+      template valuesInConflictError(valsDiff: IntSet): untyped =
+        ## Write out 'conflicting discriminant values' report
+        var rep = reportTyp(
+          rsemConflictingDiscriminantValues,
+          n[0].typ, str = $selectedBranch)
+
+        rep.nodes = toLiterals(valsDiff, rep.typ)
+
+        localReport(c.config, discriminatorVal.info, rep)
 
       let branchNode = n[selectedBranch]
       let flags = {efPreferStatic, efPreferNilResult}
@@ -278,9 +296,8 @@ proc semConstructFields(c: PContext, n: PNode,
             not isOrdinalType(discriminatorVal.typ, true) or
             lengthOrd(c.config, discriminatorVal.typ) > MaxSetElements or
             lengthOrd(c.config, n[0].typ) > MaxSetElements):
-          localError(c.config, discriminatorVal.info,
-            "branch initialization with a runtime discriminator only " &
-            "supports ordinal types with 2^16 elements or less.")
+          localReport(c.config, discriminatorVal.info, SemReport(
+            kind: rsemRuntimeDiscriminantInitCap))
 
       if discriminatorVal == nil:
         badDiscriminatorError()
@@ -298,13 +315,13 @@ proc semConstructFields(c: PContext, n: PNode,
         elif discriminatorVal.sym.kind notin {skLet, skParam} or
             discriminatorVal.sym.typ.kind in {tyVar}:
           if c.inUncheckedAssignSection == 0:
-            localError(c.config, discriminatorVal.info,
-              "runtime discriminator must be immutable if branch fields are " &
-              "initialized, a 'let' binding is required.")
+            localReport(c.config, discriminatorVal.info, SemReport(
+              kind: rsemRuntimeDiscriminantMustBeImmutable))
+
         elif ctorCase[ctorIdx].kind == nkElifBranch:
-          localError(c.config, discriminatorVal.info, "branch initialization " &
-            "with a runtime discriminator is not supported inside of an " &
-            "`elif` branch.")
+          localReport(c.config, discriminatorVal.info, SemReport(
+            kind: rsemRuntimeDiscriminantRequiresElif))
+
         else:
           var
             ctorBranchVals = branchVals(c, ctorCase, ctorIdx, true)
@@ -386,7 +403,7 @@ proc semConstructFields(c: PContext, n: PNode,
         initNone
 
   else:
-    internalAssert c.config, false
+    internalAssert(c.config, false, "")
 
 proc semConstructTypeAux(c: PContext,
                          constrCtx: var ObjConstrContext,
@@ -409,7 +426,9 @@ proc semConstructTypeAux(c: PContext,
     constrCtx.needsFullInit = constrCtx.needsFullInit or
                               tfNeedsFullInit in t.flags
   if result == initError:
-    constrCtx.initExpr = newError(c, constrCtx.initExpr, ObjectConstructorIncorrect)
+    constrCtx.initExpr = newError(
+      c.config, constrCtx.initExpr,
+      reportAst(rsemObjectConstructorIncorrect, constrCtx.initExpr))
 
 proc initConstrContext(t: PType, initExpr: PNode): ObjConstrContext =
   ObjConstrContext(
@@ -433,12 +452,16 @@ proc defaultConstructionError(c: PContext, t: PType, info: TLineInfo) =
     var constrCtx = initConstrContext(objType, newNodeI(nkObjConstr, info))
     let initResult = semConstructTypeAux(c, constrCtx, {})
     assert constrCtx.missingFields.len > 0
-    localError(c.config, info,
-      "The $1 type doesn't have a default value. The following fields must " &
-      "be initialized: $2." % [typeToString(t), listSymbolNames(constrCtx.missingFields)])
+    localReport(
+      c.config, info,
+      reportSymbols(
+        rsemObjectRequiresFieldInitNoDefault,
+        constrCtx.missingFields, typ = t))
+
   elif objType.kind == tyDistinct:
-    localError(c.config, info,
-      "The $1 distinct type doesn't have a default value." % typeToString(t))
+    localReport(c.config, info, reportTyp(
+      rsemDistinctDoesNotHaveDefaultValue, t))
+
   else:
     assert false, "Must not enter here."
 
@@ -448,7 +471,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   for child in n: result.add child
 
   if t == nil:
-    return localErrorNode(c, result, "object constructor needs an object type")
+    return newError(c.config, result, reportSem rsemExpectedObjectType)
 
   t = skipTypes(t, {tyGenericInst, tyAlias, tySink, tyOwned})
   if t.kind == tyRef:
@@ -459,8 +482,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
       # multiple times as long as they don't have closures.
       result.typ.flags.incl tfHasOwned
   if t.kind != tyObject:
-    return localErrorNode(c, result,
-      "object constructor needs an object type".dup(addDeclaredLoc(c.config, t)))
+    return newError(c.config, result, reportTyp(rsemExpectedObjectType, t))
 
   # Check if the object is fully initialized by recursively testing each
   # field (if this is a case object, initialized fields in two different
@@ -476,9 +498,10 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # It's possible that the object was not fully initialized while
   # specifying a .requiresInit. pragma:
   if missedFields:
-    localError(c.config, result.info,
-      "The $1 type requires the following fields to be initialized: $2." %
-      [t.sym.name.s, listSymbolNames(constrCtx.missingFields)])
+    localReport(c.config, result.info, reportSymbols(
+      rsemObjectRequiresFieldInit,
+      constrCtx.missingFields,
+      typ = t))
 
   if constructionError:
     result = constrCtx.initExpr
@@ -506,22 +529,26 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
             invalidObjConstr(c, field)
         # XXX: shouldn't report errors here, since creating and reporting split
         #      need to cascade an nkError instead
-        localError(c.config, e.info, errorToString(c.config, e))
+        localReport(c.config, e)
         hasError = true
         continue
-      
+
       let id = considerQuotedIdent(c, field[0])
       # This node was not processed. There are two possible reasons:
       # 1) It was shadowed by a field with the same name on the left
       for j in 1..<i:
         let prevId = considerQuotedIdent(c, result[j][0])
         if prevId.id == id.id:
-          localError(c.config, field.info, errFieldInitTwice % id.s)
+          localReport(c.config, field.info, reportAst(
+            rsemFieldInitTwice, result[j][0]))
+
           hasError = true
           break
       # 2) No such field exists in the constructed type
-      let msg = errUndeclaredField % id.s & " for type " & getProcHeader(c.config, t.sym)
-      localError(c.config, field[0].info, msg)
+
+      localReport(c.config, field[0], reportStr(
+        rsemUndeclaredField, id.s, typ = t))
+
       hasError = true
       break
 
@@ -530,5 +557,8 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   # wrap in an error see #17437
   if hasError:
-    result = newError(result, ObjectConstructorIncorrect)
+    result = newError(
+      c.config, result, reportAst(
+        rsemObjectConstructorIncorrect, result))
+
     result.typ = errorType(c)

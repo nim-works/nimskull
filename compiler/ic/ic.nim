@@ -10,7 +10,7 @@
 import hashes, tables, intsets, std/sha1
 import packed_ast, bitabs, rodfiles
 import ".." / [ast, idents, lineinfos, msgs, ropes, options,
-  pathutils, condsyms]
+  pathutils, condsyms, reports]
 #import ".." / [renderer, astalgo]
 from os import removeFile, isAbsolute
 
@@ -29,11 +29,11 @@ type
   PackedModule* = object ## the parts of a PackedEncoder that are part of the .rod file
     definedSymbols: string
     moduleFlags: TSymFlags
-    includes*: seq[(LitId, string)] # first entry is the module filename itself
-    imports: seq[LitId] # the modules this module depends on
-    toReplay*: PackedTree # pragmas and VM specific state to replay.
-    topLevel*: PackedTree  # top level statements
-    bodies*: PackedTree # other trees. Referenced from typ.n and sym.ast by their position.
+    includes*: seq[(LitId, string)] ## first entry is the module filename itself
+    imports: seq[LitId] ## the modules this module depends on
+    toReplay*: PackedTree ## pragmas and VM specific state to replay.
+    topLevel*: PackedTree  ## top level statements
+    bodies*: PackedTree ## other trees. Referenced from typ.n and sym.ast by their position.
     #producedGenerics*: Table[GenericKey, SymId]
     exports*: seq[(LitId, int32)]
     hidden*: seq[(LitId, int32)]
@@ -53,16 +53,16 @@ type
 
     syms*: seq[PackedSym]
     types*: seq[PackedType]
-    strings*: BiTable[string] # we could share these between modules.
-    numbers*: BiTable[BiggestInt] # we also store floats in here so
-                                  # that we can assure that every bit is kept
+    strings*: BiTable[string] ## we could share these between modules.
+    numbers*: BiTable[BiggestInt] ## we also store floats in here so
+                                  ## that we can assure that every bit is kept
 
     cfg: PackedConfig
 
   PackedEncoder* = object
     #m*: PackedModule
     thisModule*: int32
-    lastFile*: FileIndex # remember the last lookup entry.
+    lastFile*: FileIndex ## remember the last lookup entry.
     lastLit*: LitId
     filenames*: Table[FileIndex, LitId]
     pendingTypes*: seq[PType]
@@ -541,12 +541,15 @@ proc storeExpansion*(c: var PackedEncoder; m: var PackedModule; info: TLineInfo;
 proc loadError(err: RodFileError; filename: AbsoluteFile; config: ConfigRef;) =
   case err
   of cannotOpen:
-    rawMessage(config, warnCannotOpenFile, filename.string)
+    config.localReport InternalReport(
+      kind: rintWarnCannotOpenFile, file: filename.string)
+
   of includeFileChanged:
-    rawMessage(config, warnFileChanged, filename.string)
+    config.localReport InternalReport(
+      kind: rintWarnFileChanged, file: filename.string)
   else:
-    rawMessage(config, warnCannotOpenFile, filename.string & " reason: " & $err)
-    #echo "Error: ", $err, " loading file: ", filename.string
+    config.localReport InternalReport(
+      kind: rintCannotOpenFile, file: filename.string, msg: $err)
 
 proc loadRodFile*(filename: AbsoluteFile; m: var PackedModule; config: ConfigRef;
                   ignoreConfig = false): RodFileError =

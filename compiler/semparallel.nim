@@ -23,7 +23,8 @@
 
 import
   ast, astalgo, idents, lowerings, magicsys, guards, msgs,
-  renderer, types, modulegraphs, options, spawn, lineinfos
+  renderer, types, modulegraphs, options, spawn,
+  reports
 
 from trees import getMagic, isTrue, getRoot
 from strutils import `%`
@@ -120,21 +121,28 @@ proc checkLocal(c: AnalysisCtx; n: PNode) =
   if isLocal(n):
     let s = c.lookupSlot(n.sym)
     if s >= 0 and c.locals[s].stride != nil:
-      localError(c.graph.config, n.info, "invalid usage of counter after increment")
+      localReport(
+        c.graph.config, n, reportSem rsemParallelCounterAfterIncrement)
+
   else:
-    for i in 0..<n.safeLen: checkLocal(c, n[i])
+    for i in 0 ..< n.safeLen:
+      checkLocal(c, n[i])
 
 template `?`(x): untyped = x.renderTree
 
 proc checkLe(c: AnalysisCtx; a, b: PNode) =
   case proveLe(c.guards, a, b)
   of impUnknown:
-    message(c.graph.config, a.info, warnStaticIndexCheck,
-      "cannot prove: " & ?a & " <= " & ?b)
-  of impYes: discard
+    localReport(c.graph.config, a.info, reportStr(
+      rsemParallelWarnCannotProve,
+      "cannot prove: " & ?a & " <= " & ?b))
+
+  of impYes:
+    discard
+
   of impNo:
-    message(c.graph.config, a.info, warnStaticIndexCheck,
-      "can prove: " & ?a & " > " & ?b)
+    localReport(c.graph.config, a.info, reportStr(
+      rsemParallelWarnCanProve, "can prove: " & ?a & " > " & ?b))
 
 proc checkBounds(c: AnalysisCtx; arr, idx: PNode) =
   checkLe(c, lowBound(c.graph.config, arr), idx)
@@ -164,20 +172,29 @@ proc overlap(m: TModel; conf: ConfigRef; x,y,c,d: PNode) =
     case proveLe(m, x, d)
     of impNo: discard
     of impUnknown, impYes:
-      message(conf, x.info, warnStaticIndexCheck,
-        "cannot prove: $# > $#; required for ($#)..($#) disjoint from ($#)..($#)" %
-            [?c, ?y, ?x, ?y, ?c, ?d])
+      localReport(conf, x.info, reportStr(
+        rsemParallelWarnCannotProve,
+        "cannot prove: $# > $#; required for ($#)..($#) disjoint from ($#)..($#)" % [
+          ?c, ?y, ?x, ?y, ?c, ?d]))
+
   of impYes:
     case proveLe(m, x, d)
     of impUnknown:
-      message(conf, x.info, warnStaticIndexCheck,
-        "cannot prove: $# > $#; required for ($#)..($#) disjoint from ($#)..($#)" %
-          [?x, ?d, ?x, ?y, ?c, ?d])
+      localReport(conf, x.info, reportStr(
+        rsemParallelWarnCannotProve,
+        "cannot prove: $# > $#; required for ($#)..($#) disjoint from ($#)..($#)" % [
+          ?x, ?d, ?x, ?y, ?c, ?d]))
+
     of impYes:
-      message(conf, x.info, warnStaticIndexCheck, "($#)..($#) not disjoint from ($#)..($#)" %
-                [?c, ?y, ?x, ?y, ?c, ?d])
-    of impNo: discard
-  of impNo: discard
+      localReport(conf, x.info, reportStr(
+        rsemParallelWarnNotDisjoint,
+        "($#)..($#) not disjoint from ($#)..($#)" % [?c, ?y, ?x, ?y, ?c, ?d]))
+
+    of impNo:
+      discard
+
+  of impNo:
+    discard
 
 proc stride(c: AnalysisCtx; n: PNode): BiggestInt =
   if isLocal(n):
@@ -247,11 +264,15 @@ proc checkSlicesAreDisjoint(c: var AnalysisCtx) =
           if k < stride and m < stride:
             discard
           else:
-            localError(c.graph.config, x.x.info, "cannot prove ($#)..($#) disjoint from ($#)..($#)" %
-              [?x.a, ?x.b, ?y.a, ?y.b])
+            localReport(c.graph.config, x.x.info, reportStr(
+              rsemParallelCannotProveDisjoint,
+              "cannot prove ($#)..($#) disjoint from ($#)..($#)" % [
+                ?x.a, ?x.b, ?y.a, ?y.b]))
         else:
-          localError(c.graph.config, x.x.info, "cannot prove ($#)..($#) disjoint from ($#)..($#)" %
-            [?x.a, ?x.b, ?y.a, ?y.b])
+          localReport(c.graph.config, x.x.info, reportStr(
+            rsemParallelCannotProveDisjoint,
+            "cannot prove ($#)..($#) disjoint from ($#)..($#)" % [
+              ?x.a, ?x.b, ?y.a, ?y.b]))
 
 proc analyse(c: var AnalysisCtx; n: PNode)
 
@@ -352,7 +373,7 @@ proc analyse(c: var AnalysisCtx; n: PNode) =
       c.addSlice(n, n[0], n[1], n[1])
     analyseSons(c, n)
   of nkReturnStmt, nkRaiseStmt, nkTryStmt, nkHiddenTryStmt:
-    localError(c.graph.config, n.info, "invalid control flow for 'parallel'")
+    localReport(c.graph.config, n, reportSem rsemParallelInvalidControlFlow)
     # 'break' that leaves the 'parallel' section is not valid either
     # or maybe we should generate a 'try' XXX
   of nkVarSection, nkLetSection:
@@ -367,9 +388,15 @@ proc analyse(c: var AnalysisCtx; n: PNode) =
         for j in 0..<it.len-2:
           if it[j].isLocal:
             let slot = c.getSlot(it[j].sym)
-            if slot.lower.isNil: slot.lower = value
-            else: internalError(c.graph.config, it.info, "slot already has a lower bound")
-        if not isSpawned: analyse(c, value)
+            if slot.lower.isNil:
+              slot.lower = value
+
+            else:
+              internalError(c.graph.config, it.info, "slot already has a lower bound")
+
+        if not isSpawned:
+          analyse(c, value)
+
   of nkCaseStmt: analyseCase(c, n)
   of nkWhen, nkIfStmt, nkIfExpr: analyseIf(c, n)
   of nkWhileStmt:
@@ -430,7 +457,9 @@ proc transformSpawn(g: ModuleGraph; idgen: IdGenerator; owner: PSym; n, barrier:
     for it in n:
       let b = it.lastSon
       if getMagic(b) == mSpawn:
-        if it.len != 3: localError(g.config, it.info, "invalid context for 'spawn'")
+        if it.len != 3:
+          localReport(g.config, it, reportSem rsemSpawnInvalidContext)
+
         let m = transformSlices(g, idgen, b)
         if result.isNil:
           result = newNodeI(nkStmtList, n.info)
@@ -478,7 +507,8 @@ proc liftParallel*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; n: PNode): P
   let body = n.lastSon
   analyse(a, body)
   if a.spawns == 0:
-    localError(g.config, n.info, "'parallel' section without 'spawn'")
+    localReport(g.config, n, reportSem rsemParallelWithoutSpawn)
+
   checkSlicesAreDisjoint(a)
   checkArgs(a, body)
 

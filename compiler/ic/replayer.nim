@@ -12,7 +12,7 @@
 ## support.
 
 import ".." / [ast, modulegraphs, trees, extccomp, btrees,
-  msgs, lineinfos, pathutils, options, cgmeth]
+  msgs, pathutils, options, cgmeth, reports]
 
 import tables
 
@@ -29,9 +29,15 @@ proc replayStateChanges*(module: PSym; g: ModuleGraph) =
     if n.len >= 2:
       internalAssert g.config, n[0].kind == nkStrLit and n[1].kind == nkStrLit
       case n[0].strVal
-      of "hint": message(g.config, n.info, hintUser, n[1].strVal)
-      of "warning": message(g.config, n.info, warnUser, n[1].strVal)
-      of "error": localError(g.config, n.info, errUser, n[1].strVal)
+      of "hint": localReport(g.config, n.info, reportStr(
+        rsemUserHint, n[1].strVal))
+
+      of "warning": localReport(g.config, n.info, reportStr(
+        rsemUserWarning, n[1].strVal))
+
+      of "error": localReport(g.config, n.info, reportStr(
+        rsemUserError, n[1].strVal))
+
       of "compile":
         internalAssert g.config, n.len == 4 and n[2].kind == nkStrLit
         let cname = AbsoluteFile n[1].strVal
@@ -47,7 +53,8 @@ proc replayStateChanges*(module: PSym; g: ModuleGraph) =
       of "passc":
         extccomp.addCompileOption(g.config, n[1].strVal)
       of "localpassc":
-        extccomp.addLocalCompileOption(g.config, n[1].strVal, toFullPathConsiderDirty(g.config, module.info.fileIndex))
+        extccomp.addLocalCompileOption(
+          g.config, n[1].strVal, toFullPathConsiderDirty(g.config, module.info.fileIndex))
       of "cppdefine":
         options.cppDefine(g.config, n[1].strVal)
       of "inc":
@@ -73,7 +80,7 @@ proc replayStateChanges*(module: PSym; g: ModuleGraph) =
         else:
           block search:
             for existing in g.cacheSeqs[destKey]:
-              if exprStructuralEquivalent(existing, val, strictSymEquality=true):
+              if exprStructuralEquivalent(existing, val, strictSymEquality = true):
                 break search
             g.cacheSeqs[destKey].add val
       of "add":

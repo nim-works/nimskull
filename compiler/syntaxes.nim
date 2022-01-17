@@ -11,7 +11,7 @@
 
 import
   strutils, llstream, ast, idents, lexer, options, msgs, parser,
-  filters, filter_tmpl, renderer, lineinfos, pathutils
+  filters, filter_tmpl, renderer, lineinfos, pathutils, reports
 
 export Parser, parseAll, parseTopLevelStmt, closeParser
 
@@ -71,7 +71,7 @@ proc getCallee(conf: ConfigRef; n: PNode): PIdent =
   elif n.kind == nkIdent:
     result = n.ident
   else:
-    localError(conf, n.info, "invalid filter: " & renderTree(n))
+    conf.localReport(n.info, ParserReport(kind: rparInvalidFilter, node: n))
 
 proc applyFilter(p: var Parser, n: PNode, filename: AbsoluteFile,
                  stdin: PLLStream): PLLStream =
@@ -87,10 +87,9 @@ proc applyFilter(p: var Parser, n: PNode, filename: AbsoluteFile,
              filterReplace(p.lex.config, stdin, filename, n)
   if f != filtNone:
     assert p.lex.config != nil
-    if p.lex.config.hasHint(hintCodeBegin):
-      rawMessage(p.lex.config, hintCodeBegin, "")
-      msgWriteln(p.lex.config, result.s)
-      rawMessage(p.lex.config, hintCodeEnd, "")
+    if p.lex.config.hasHint(rlexSyntaxesCode):
+      p.lex.config.localReport LexerReport(
+        kind: rlexSyntaxesCode, msg: result.s)
 
 proc evalPipe(p: var Parser, n: PNode, filename: AbsoluteFile,
               start: PLLStream): PLLStream =
@@ -123,7 +122,8 @@ proc setupParser*(p: var Parser; fileIdx: FileIndex; cache: IdentCache;
   let filename = toFullPathConsiderDirty(config, fileIdx)
   var f: File
   if not open(f, filename.string):
-    rawMessage(config, errGenerated, "cannot open file: " & filename.string)
+    config.localReport InternalReport(
+      kind: rintCannotOpenFile, file: filename.string)
     return false
   openParser(p, fileIdx, llStreamOpen(f), cache, config)
   result = true

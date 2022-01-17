@@ -11,7 +11,8 @@
 ## (``=sink``, ``=``, ``=destroy``, ``=deepCopy``).
 
 import modulegraphs, lineinfos, idents, ast, renderer, semdata,
-  sighashes, lowerings, options, types, msgs, magicsys, tables, ccgutils
+  sighashes, lowerings, options, types, msgs, magicsys, tables, ccgutils,
+  reports
 
 from trees import isCaseObj
 
@@ -199,9 +200,13 @@ proc fillBodyObj(c: var TLiftCtx; n, body, x, y: PNode; enforceDefaultOp: bool) 
       fillBodyObj(c, n[0], body, x, y, enforceDefaultOp = false)
     c.filterDiscriminator = oldfilterDiscriminator
   of nkRecList:
-    for t in items(n): fillBodyObj(c, t, body, x, y, enforceDefaultOp)
+    for t in items(n):
+      fillBodyObj(c, t, body, x, y, enforceDefaultOp)
   else:
-    illFormedAstLocal(n, c.g.config)
+    c.g.config.localReport(n.info, reportAst(
+      rsemIllformedAst, n,
+      str = "Unexpected node kind for 'fillBodyObj' - " &
+        "wanted Sym, NilLit, RecList or RecCase, but found " & $n.kind))
 
 proc fillBodyObjTImpl(c: var TLiftCtx; t: PType, body, x, y: PNode) =
   if t.len > 0 and t[0] != nil:
@@ -280,7 +285,7 @@ proc getCycleParam(c: TLiftCtx): PNode =
 
 proc newHookCall(c: var TLiftCtx; op: PSym; x, y: PNode): PNode =
   #if sfError in op.flags:
-  #  localError(c.config, x.info, "usage of '$1' is a user-defined error" % op.name.s)
+  #  localReport(c.config, x.info, "usage of '$1' is a user-defined error" % op.name.s)
   result = newNodeI(nkCall, x.info)
   result.add newSymNode(op)
   if sfNeverRaises notin op.flags:
@@ -325,8 +330,11 @@ proc instantiateGeneric(c: var TLiftCtx; op: PSym; t, typeInst: PType): PSym =
   if c.c != nil and typeInst != nil:
     result = c.c.instTypeBoundOp(c.c, op, typeInst, c.info, attachedAsgn, 1)
   else:
-    localError(c.g.config, c.info,
-      "cannot generate destructor for generic type: " & typeToString(t))
+    localReport(
+      c.g.config,
+      c.info,
+      reportTyp(rsemCannotGenerateGenericDestructor, t))
+
     result = nil
 
 proc considerAsgnOrSink(c: var TLiftCtx; t: PType; body, x, y: PNode;
@@ -397,8 +405,8 @@ proc addDestructorCall(c: var TLiftCtx; orig: PType; body, x: PNode) =
     onUse(c.info, op)
     body.add destructorCall(c, op, x)
   elif useNoGc(c, t):
-    internalError(c.g.config, c.info,
-      "type-bound operator could not be resolved")
+    internalError(
+      c.g.config, c.info, "type-bound operator could not be resolved")
 
 proc considerUserDefinedOp(c: var TLiftCtx; t: PType; body, x, y: PNode): bool =
   case c.kind
@@ -1043,7 +1051,7 @@ proc inst(g: ModuleGraph; c: PContext; t: PType; kind: TTypeAttachedOp; idgen: I
         patchBody(g, c, opInst.ast, info, a.idgen)
       setAttachedOp(g, idgen.module, t, kind, opInst)
     else:
-      localError(g.config, info, "unresolved generic parameter")
+      localReport(g.config, info, reportSem(rsemUnresolvedGenericParameter))
 
 proc isTrival(s: PSym): bool {.inline.} =
   s == nil or (s.ast != nil and s.ast[bodyPos].len == 0)

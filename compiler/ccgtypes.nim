@@ -1148,8 +1148,9 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
 proc genObjectInfo(m: BModule, typ, origType: PType, name: Rope; info: TLineInfo) =
   if typ.kind == tyObject:
     if incompleteType(typ):
-      localError(m.config, info, "request for RTTI generation for incomplete object: " &
-                        typeToString(typ))
+      localReport(m.config, info, reportTyp(
+        rsemRttiRequestForIncompleteObject, typ))
+
     genTypeInfoAux(m, typ, origType, name, info)
   else:
     genTypeInfoAuxBase(m, typ, origType, name, rope("0"), info)
@@ -1293,8 +1294,8 @@ proc genHook(m: BModule; t: PType; info: TLineInfo; op: TTypeAttachedOp): Rope =
     # finalizer is: ``proc (x: ref T) {.nimcall.}``. We need to check the calling
     # convention at least:
     if theProc.typ == nil or theProc.typ.callConv != ccNimCall:
-      localError(m.config, info,
-        theProc.name.s & " needs to have the 'nimcall' calling convention")
+      localReport(m.config, info, reportSym(
+        rsemExpectedNimcallProc, theProc))
 
     genProc(m, theProc)
     result = theProc.loc.r
@@ -1315,8 +1316,9 @@ proc genTypeInfoV2Impl(m: BModule, t, origType: PType, name: Rope; info: TLineIn
   var typeName: Rope
   if t.kind in {tyObject, tyDistinct}:
     if incompleteType(t):
-      localError(m.config, info, "request for RTTI generation for incomplete object: " &
-                 typeToString(t))
+      localReport(m.config, info, reportTyp(
+        rsemRttiRequestForIncompleteObject, t))
+
     typeName = genTypeInfo2Name(m, t)
   else:
     typeName = rope("NIM_NIL")
@@ -1461,7 +1463,7 @@ proc genTypeInfoV1(m: BModule, t: PType; info: TLineInfo): Rope =
     if t.n != nil: result = genTypeInfoV1(m, lastSon t, info)
     else: internalError(m.config, "genTypeInfoV1(" & $t.kind & ')')
   of tyUserTypeClasses:
-    internalAssert m.config, t.isResolvedUserTypeClass
+    internalAssert(m.config, t.isResolvedUserTypeClass, "")
     return genTypeInfoV1(m, t.lastSon, info)
   of tyProc:
     if t.callConv != ccClosure:

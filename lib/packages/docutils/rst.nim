@@ -198,6 +198,8 @@
 import
   os, strutils, rstast, std/enumutils, algorithm, lists, sequtils,
   std/private/miscdollars, tables
+
+
 from highlite import SourceLanguage, getSourceLanguage
 
 type
@@ -220,21 +222,21 @@ type
 
   # keep the order in sync with compiler/docgen.nim and compiler/lineinfos.nim:
   MsgKind* = enum          ## the possible messages
-    meCannotOpenFile = "cannot open '$1'",
-    meExpected = "'$1' expected",
+    meCannotOpenFile          = "cannot open '$1'",
+    meExpected                = "'$1' expected",
     meGridTableNotImplemented = "grid table is not implemented",
-    meMarkdownIllformedTable = "illformed delimiter row of a Markdown table",
-    meNewSectionExpected = "new section expected $1",
-    meGeneralParseError = "general parse error",
-    meInvalidDirective = "invalid directive: '$1'",
-    meInvalidField = "invalid field: $1",
-    meFootnoteMismatch = "mismatch in number of footnotes and their refs: $1",
-    mwRedefinitionOfLabel = "redefinition of label '$1'",
-    mwUnknownSubstitution = "unknown substitution '$1'",
-    mwBrokenLink = "broken link '$1'",
-    mwUnsupportedLanguage = "language '$1' not supported",
-    mwUnsupportedField = "field '$1' not supported",
-    mwRstStyle = "RST style: $1"
+    meMarkdownIllformedTable  = "illformed delimiter row of a Markdown table",
+    meNewSectionExpected      = "new section expected $1",
+    meGeneralParseError       = "general parse error",
+    meInvalidDirective        = "invalid directive: '$1'",
+    meInvalidField            = "invalid field: $1",
+    meFootnoteMismatch        = "mismatch in number of footnotes and their refs: $1",
+    mwRedefinitionOfLabel     = "redefinition of label '$1'",
+    mwUnknownSubstitution     = "unknown substitution '$1'",
+    mwBrokenLink              = "broken link '$1'",
+    mwUnsupportedLanguage     = "language '$1' not supported",
+    mwUnsupportedField        = "field '$1' not supported",
+    mwRstStyle                = "RST style: $1"
 
   MsgHandler* = proc (filename: string, line, col: int, msgKind: MsgKind,
                        arg: string) {.closure, gcsafe.} ## what to do in case of an error
@@ -3032,6 +3034,7 @@ proc rstParse*(text, filename: string,
               tuple[node: PRstNode, filenames: RstFileTable, hasToc: bool] =
   ## Parses the whole `text`. The result is ready for `rstgen.renderRstToOut`,
   ## note that 2nd tuple element should be fed to `initRstGenerator`
+
   ## argument `filenames` (it is being filled here at least with `filename`
   ## and possibly with other files from RST ``.. include::`` statement).
   var sharedState = newRstSharedState(options, filename, findFile, msgHandler)

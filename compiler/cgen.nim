@@ -13,7 +13,7 @@ import
   ast, astalgo, hashes, trees, platform, magicsys, extccomp, options, intsets,
   nversion, nimsets, msgs, bitsets, idents, types,
   ccgutils, os, ropes, math, passes, wordrecg, treetab, cgmeth,
-  rodutils, renderer, cgendata, aliases,
+  rodutils, renderer, cgendata, aliases, reports,
   lowerings, tables, sets, ndi, lineinfos, pathutils, transf,
   injectdestructors, astmsgs
 
@@ -689,7 +689,9 @@ proc loadDynamicLib(m: BModule, lib: PLib) =
     if lib.path.kind in {nkStrLit..nkTripleStrLit}:
       var s: TStringSeq = @[]
       libCandidates(lib.path.strVal, s)
-      rawMessage(m.config, hintDependency, lib.path.strVal)
+      localReport(m.config, reportStr(
+        rsemHintLibDependency, lib.path.strVal))
+
       var loadlib: Rope = nil
       for i in 0..high(s):
         inc(m.labels)
@@ -796,7 +798,8 @@ proc cgsym(m: BModule, name: string): Rope =
     # we used to exclude the system module from this check, but for DLL
     # generation support this sloppyness leads to hard to detect bugs, so
     # we're picky here for the system module too:
-    rawMessage(m.config, errGenerated, "system module needs: " & name)
+    localReport(m.config, reportStr(rsemSystemNeeds, name))
+
   result = sym.loc.r
   if m.hcrOn and sym != nil and sym.kind in {skProc..skIterator}:
     result.addActualSuffixForHCR(m.module, sym)
@@ -1882,7 +1885,7 @@ proc writeHeader(m: BModule) =
   if m.config.cppCustomNamespace.len > 0: result.add closeNamespaceNim()
   result.addf("#endif /* $1 */$n", [guard])
   if not writeRope(result, m.filename):
-    rawMessage(m.config, errCannotOpenFile, m.filename.string)
+    localReport(m.config, reportStr(rsemCannotOpenFile, m.filename.string))
 
 proc getCFile(m: BModule): AbsoluteFile =
   let ext =
@@ -1951,7 +1954,8 @@ proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
         else:
           echo "new file ", cfile.cname.string
       if not writeRope(code, cfile.cname):
-        rawMessage(m.config, errCannotOpenFile, cfile.cname.string)
+        localReport(m.config, reportStr(rsemCannotOpenFile, cfile.cname.string))
+
       result = true
     elif fileExists(cfile.obj) and os.fileNewer(cfile.obj.string, cfile.cname.string):
       result = false
@@ -1959,7 +1963,8 @@ proc shouldRecompile(m: BModule; code: Rope, cfile: Cfile): bool =
       result = true
   else:
     if not writeRope(code, cfile.cname):
-      rawMessage(m.config, errCannotOpenFile, cfile.cname.string)
+      localReport(m.config, reportStr(rsemCannotOpenFile, cfile.cname.string))
+
     result = true
 
 # We need 2 different logics here: pending modules (including
@@ -1990,7 +1995,9 @@ proc writeModule(m: BModule, pending: bool) =
         onExit()
         return
 
-    if not shouldRecompile(m, code, cf): cf.flags = {CfileFlag.Cached}
+    if not shouldRecompile(m, code, cf):
+      cf.flags = {CfileFlag.Cached}
+
     addFileToCompile(m.config, cf)
   onExit()
 

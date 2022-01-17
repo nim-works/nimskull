@@ -1,5 +1,5 @@
 discard """
-  errormsg: "cannot convert 60 to TRange"
+  errormsg: "60 can't be converted to TRange"
   line: 20
 """
 

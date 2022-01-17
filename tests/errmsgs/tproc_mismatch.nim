@@ -1,7 +1,7 @@
 discard """
   action: reject
   cmd: '''nim check --hints:off $options $file'''
-  nimoutFull: true
+  nimoutFull: false
   nimout: '''
 tproc_mismatch.nim(35, 52) Error: type mismatch: got <proc (a: int, c: float){.cdecl, noSideEffect, gcsafe, locks: 0.}> but expected 'proc (a: int, c: float){.closure, noSideEffect.}'
   Calling convention mismatch: got '{.cdecl.}', but expected '{.closure.}'.

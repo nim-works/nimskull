@@ -13,13 +13,10 @@
 import
   intsets, ast, astalgo, semdata, types, msgs, renderer, lookups, semtypinst,
   magicsys, idents, lexer, options, parampatterns, strutils, trees,
-  linter, lineinfos, lowerings, modulegraphs, concepts, errorhandling
+  linter, lineinfos, lowerings, modulegraphs, concepts, errorhandling,
+  reports, debugutils
 
 type
-  MismatchKind* = enum
-    kUnknown, kAlreadyGiven, kUnknownNamedParam, kTypeMismatch, kVarNeeded,
-    kMissingParam, kExtraArg, kPositionalAlreadyGiven
-
   MismatchInfo* = object
     kind*: MismatchKind # reason for mismatch
     arg*: int           # position of provided arguments that mismatches
@@ -28,18 +25,11 @@ type
 
   TCandidateState* = enum
     csEmpty, csMatch, csNoMatch
-  
-  CandidateDiagnostic* = PNode
-    ## PNode is only ever an `nkError` kind, often converted to a string for
-    ## display purpopses
-  CandidateDiagnostics* = seq[CandidateDiagnostic]
-    ## list of diagnostics as part of errors or other information for Candidate
-    ## overload resolution and what not
 
   CandidateError* = object
     sym*: PSym
     firstMismatch*: MismatchInfo
-    diagnostics*: CandidateDiagnostics
+    diagnostics*: seq[SemReport]
     isDiagnostic*: bool
       ## is this is a diagnostic (true) or an error (false) that occurred
       ## xxx: this might be a terrible idea and we could get rid of it
@@ -76,14 +66,10 @@ type
                               # matching. they will be reset if the matching
                               # is not successful. may replace the bindings
                               # table in the future.
-    diagnostics*: CandidateDiagnostics # \
-                              # when diagnosticsEnabled, the matching process
-                              # will collect extra diagnostics that will be
-                              # displayed to the user.
-                              # triggered when overload resolution fails
-                              # or when the explain pragma is used. may be
-                              # triggered with an idetools command in the
-                              # future.
+    diagnostics*: seq[SemReport] ## The matching process (for concepts)
+    ## will collect extra diagnostics that will be displayed to the user.
+    ## triggered when overload resolution fails or when the explain pragma
+    ## is used.
     inheritancePenalty: int   # to prefer closest father object type
     firstMismatch*: MismatchInfo # mismatch info for better error messages
     diagnosticsEnabled*: bool
@@ -316,38 +302,7 @@ proc cmpCandidates*(a, b: TCandidate): int =
   if result != 0: return
   result = a.calleeScope - b.calleeScope
 
-proc argTypeToString(arg: PNode; prefer: TPreferedDesc): string =
-  if arg.kind in nkSymChoices:
-    result = typeToString(arg[0].typ, prefer)
-    for i in 1..<arg.len:
-      result.add(" | ")
-      result.add typeToString(arg[i].typ, prefer)
-  elif arg.typ == nil:
-    result = "void"
-  else:
-    result = arg.typ.typeToString(prefer)
 
-proc describeArgs*(c: PContext, n: PNode, startIdx = 1; prefer = preferName): string =
-  result = ""
-  for i in startIdx..<n.len:
-    var arg = n[i]
-    if n[i].kind == nkExprEqExpr:
-      result.add renderTree(n[i][0])
-      result.add ": "
-      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
-        # XXX we really need to 'tryExpr' here!
-        arg = c.semOperand(c, n[i][1])
-        n[i].typ = arg.typ
-        n[i][1] = arg
-    else:
-      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo, nkElse,
-                                           nkOfBranch, nkElifBranch,
-                                           nkExceptBranch}:
-        arg = c.semOperand(c, n[i])
-        n[i] = arg
-    if arg.typ != nil and arg.typ.kind == tyError: return
-    result.add argTypeToString(arg, prefer)
-    if i != n.len - 1: result.add ", "
 
 proc concreteType(c: TCandidate, t: PType; f: PType = nil): PType =
   case t.kind
@@ -676,7 +631,9 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
     matchedConceptContext.prev = prevMatchedConcept
     matchedConceptContext.depth = prevMatchedConcept.depth + 1
     if prevMatchedConcept.depth > 4:
-      localError(m.c.graph.config, body.info, $body & " too nested for type matching")
+      localReport(m.c.graph.config, body.info, reportAst(
+        rsemTooNestedConcept, body))
+
       return nil
 
   openScope(c)
@@ -735,36 +692,42 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
       addDecl(c, param)
 
   var
-    oldWriteHook: typeof(m.c.config.writelnHook)
-    diagnostics: CandidateDiagnostics
-    errorPrefix: string
     flags: TExprFlags = {}
-  let collectDiagnostics = m.diagnosticsEnabled or sfExplain in typeClass.sym.flags
+    diagnostics: seq[SemReport]
 
-  if collectDiagnostics:
-    oldWriteHook = m.c.config.writelnHook
-    # XXX: we can't write to m.diagnostics directly, because
-    # Nim doesn't support capturing var params in closures
-    diagnostics = @[]
+  # When concept substitution is performed fake body is supplied and then
+  # semantic analysis is ran. All errors during matching are ignored unless
+  # `{.explain.}` annotation is added to the concept, or `--explain` fiag
+  # is used.
+
+  let
+    storeDiagnostics = m.diagnosticsEnabled or sfExplain in typeClass.sym.flags
+    tmpHook = c.config.getReportHook()
+
+  if storeDiagnostics:
+    # If concept need to be explained, all sem errors are temporarily
+    # captured for error reporting, and then fully written out
     flags = {efExplain}
-    m.c.config.writelnHook = proc (s: string) =
-      if errorPrefix.len == 0:
-        errorPrefix = typeClass.sym.name.s & ":"
-      let msg = s.replace("Error:", errorPrefix)
-      if oldWriteHook != nil:
-        oldWriteHook msg
-      let e = newError(body, msg)
-      diagnostics.add e
+    c.config.setReportHook(
+      proc(conf: ConfigRef, report: Report): TErrorHandling =
+        if report.category == repSem and conf.isCodeError(report):
+          diagnostics.add report.semReport
+    )
 
   var checkedBody = c.semTryExpr(c, body.copyTree, flags)
 
-  if collectDiagnostics:
-    m.c.config.writelnHook = oldWriteHook
+  if storeDiagnostics:
+    c.config.setReportHook(tmpHook)
 
     if checkedBody != nil:
       for e in m.c.config.walkErrors(checkedBody):
-        m.diagnostics.add e
+        m.diagnostics.add c.config.getReport(e).semReport
         m.diagnosticsEnabled = true
+
+    # REFACTOR(nkError) Until nkError reporting is fully implemented in the
+    # `sigmatch.matches` we need to rely on the report writer hack that is
+    # modified during `semTryExpr`, and then moved over to the candidate
+    # match data. When nkError is implemented this needs to be removed.
     for d in diagnostics:
       m.diagnostics.add d
       m.diagnosticsEnabled = true
@@ -899,9 +862,8 @@ proc inferStaticParam*(c: var TCandidate, lhs: PNode, rhs: BiggestInt): bool =
 
 proc failureToInferStaticParam(conf: ConfigRef; n: PNode) =
   let staticParam = n.findUnresolvedStatic
-  let name = if staticParam != nil: staticParam.sym.name.s
-             else: "unknown"
-  localError(conf, n.info, "cannot infer the value of the static param '" & name & "'")
+  conf.localReport(n.info, reportSym(
+    rsemCannotInferStaticValue, staticParam.sym, str = "unknown"))
 
 proc inferStaticsInRange(c: var TCandidate,
                          inferred, concrete: PType): TTypeRelation =
@@ -1039,7 +1001,7 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
           candidate = computedType
         else:
           # XXX What is this non-sense? Error reporting in signature matching?
-          discard "localError(f.n.info, errTypeExpected)"
+          discard "localReport(f.n.info, errTypeExpected)"
       else:
         discard
 
@@ -1530,10 +1492,12 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
           x.len - 1 == f.len:
       for i in 1..<f.len:
         if x[i].kind == tyGenericParam:
-          internalError(c.c.graph.config, "wrong instantiated type!")
+          c.c.graph.config.internalError("wrong instantiated type!")
+
         elif typeRel(c, f[i], x[i], flags) <= isSubtype:
           # Workaround for regression #4589
           if f[i].kind != tyTypeDesc: return
+
       result = isGeneric
     elif x.kind == tyGenericInst and concpt.kind == tyConcept:
       result = if concepts.conceptMatch(c.c, concpt, x, c.bindings, f): isGeneric
@@ -1705,7 +1669,7 @@ proc typeRel(c: var TCandidate, f, aOrig: PType,
           if f.len == 0:
             result = isGeneric
           else:
-            internalAssert c.c.graph.config, a.len > 0
+            internalAssert c.c.graph.config, a.len > 0, "[FIXME]"
             c.typedescMatched = true
             var aa = a
             while aa.kind in {tyTypeDesc, tyGenericParam} and aa.len > 0:
@@ -1920,7 +1884,10 @@ proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
       result.typ = errorType(c)
   else:
     result.typ = f.skipTypes({tySink})
-  if result.typ == nil: internalError(c.graph.config, arg.info, "implicitConv")
+
+  if result.typ == nil:
+    internalError(c.graph.config, arg.info, "implicitConv")
+
   result.add c.graph.emptyNode
   result.add arg
 
@@ -2403,8 +2370,8 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
 
   template noMatchDueToError() =
     ## found an nkError along the way so wrap the call in an error, do not use
-    ## if the legacy `localError`s etc are being used.
-    m.call = wrapErrorInSubTree(m.call)
+    ## if the legacy `localReport`s etc are being used.
+    m.call = wrapErrorInSubTree(c.config, m.call)
     noMatch()
 
   template checkConstraint(n: untyped) {.dirty.} =
@@ -2464,7 +2431,11 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       # check if m.callee has such a param:
       prepareNamedParam(n[a], c)
       if n[a].kind == nkError or n[a][0].kind != nkIdent:
-        localError(c.config, n[a].info, "named parameter has to be an identifier")
+        localReport(c.config, n[a].info, reportAst(
+          rsemExpectedIdentifier, n[a],
+          str = "named parameter has to be an identifier"
+        ))
+
         noMatch()
       formal = getNamedParamFromList(m.callee.n, n[a][0].ident)
       if formal == nil or formal.isError:
@@ -2476,7 +2447,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         # we used to produce 'errCannotBindXTwice' here but see
         # bug #3836 of why that is not sound (other overload with
         # different parameter names could match later on):
-        when false: localError(n[a].info, errCannotBindXTwice, formal.name.s)
+        when false: localReport(n[a].info, errCannotBindXTwice, formal.name.s)
         noMatch()
       m.baseTypeMatch = false
       m.typedescMatched = false
@@ -2544,7 +2515,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         if containsOrIncl(marker, formal.position) and container.isNil:
           m.firstMismatch.kind = kPositionalAlreadyGiven
           # positional param already in namedParams: (see above remark)
-          when false: localError(n[a].info, errCannotBindXTwice, formal.name.s)
+          when false: localReport(n[a].info, errCannotBindXTwice, formal.name.s)
           noMatch()
 
         if formal.typ.isVarargsUntyped:
@@ -2592,8 +2563,12 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
             # a container
             #assert arg.kind == nkHiddenStdConv # for 'nim check'
             # this assertion can be off
-            localError(c.config, n[a].info, "cannot convert $1 to $2" % [
-              typeToString(n[a].typ), typeToString(formal.typ) ])
+            localReport(c.config, n[a].info,
+              SemReport(
+                kind: rsemCannotConvertTypes,
+                typeMismatch: @[c.config.typeMismatch(
+                  formal = formal.typ, actual = n[a].typ)]))
+
             noMatch()
         checkConstraint(n[a])
 
@@ -2619,6 +2594,7 @@ proc partialMatch*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
   matchesAux(c, n, nOrig, m, marker)
 
 proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
+  # addInNimDebugUtils(c.config, "matches", n, nOrig)
   if m.magic in {mArrGet, mArrPut}:
     m.state = csMatch
     m.call = n
@@ -2654,10 +2630,9 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
           # The default param value is set to empty in `instantiateProcType`
           # when the type of the default expression doesn't match the type
           # of the instantiated proc param:
-          localError(c.config, m.call.info,
-                     ("The default parameter '$1' has incompatible type " &
-                      "with the explicitly requested proc instantiation") %
-                      formal.name.s)
+          c.config.localReport(reportSym(
+            rsemIncompatibleDefaultExpr, formal))
+
         if nfDefaultRefsParam in formal.ast.flags:
           m.call.flags.incl nfDefaultRefsParam
         var defaultValue = copyTree(formal.ast)
@@ -2696,7 +2671,7 @@ proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
                       op: TTypeAttachedOp; col: int): PSym {.nosinks.} =
   var m = newCandidate(c, dc.typ)
   if col >= dc.typ.len:
-    localError(c.config, info, "cannot instantiate: '" & dc.name.s & "'")
+    localReport(c.config, info, reportSym(rsemCannotInstantiate, dc))
     return nil
   var f = dc.typ[col]
 
@@ -2705,7 +2680,7 @@ proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
   else:
     if f.kind in {tyVar}: f = f.lastSon
   if typeRel(m, f, t) == isNone:
-    localError(c.config, info, "cannot instantiate: '" & dc.name.s & "'")
+    localReport(c.config, info, reportSym(rsemCannotInstantiate, dc))
   else:
     result = c.semGenerateInstance(c, dc, m.bindings, info)
     if op == attachedDeepCopy:

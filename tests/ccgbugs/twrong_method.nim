@@ -1,5 +1,6 @@
 discard """
   cmd: "nim c -d:release $file"
+  joinable: false
   output: '''correct method'''
 """
 # bug #5439

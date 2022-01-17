@@ -20,6 +20,7 @@ BEFORE
 EXCEPT: IOError: hi
 FINALLY
 '''
+  joinable: false
   cmd: "nim c --gc:arc --exceptions:goto $file"
 """
 

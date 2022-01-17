@@ -17,10 +17,10 @@ but expected: <T: float or string, Y>
 tstatic_constrained.nim(77, 14) Error: cannot instantiate MyType [type declared in tstatic_constrained.nim(71, 5)]
 got: <typedesc[float], float64>
 but expected: <T: MyConstraint, Y>
-tstatic_constrained.nim(44, 31) Error: object constructor needs an object type [proxy]
-tstatic_constrained.nim(44, 31) Error: expression 'MyOtherType[int, 10]()' has no type (or is ambiguous)
-tstatic_constrained.nim(45, 34) Error: object constructor needs an object type [proxy]
-tstatic_constrained.nim(45, 34) Error: expression 'MyOtherType[byte, 10'u8]()' has no type (or is ambiguous)
+tstatic_constrained.nim(44, 31) Error: object constructor needs an object type
+tstatic_constrained.nim(44, 31) Error: expression has no type: MyOtherType[int, 10]()
+tstatic_constrained.nim(45, 34) Error: object constructor needs an object type
+tstatic_constrained.nim(45, 34) Error: expression has no type: MyOtherType[byte, 10'u8]()
 '''
 """
 block:

@@ -58,7 +58,9 @@ proc genObjectFields(p: PProc, typ: PType, n: PNode): Rope =
             u.add(rope(getOrdValue(b[j])))
       of nkElse:
         u = rope(lengthOrd(p.config, field.typ))
-      else: internalError(p.config, n.info, "genObjectFields(nkRecCase)")
+      else:
+        internalError(p.config, n.info, "genObjectFields(nkRecCase)")
+
       if result != nil: result.add(", \L")
       result.addf("[setConstr($1), $2]",
            [u, genObjectFields(p, typ, lastSon(b))])

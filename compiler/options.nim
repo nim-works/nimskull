@@ -9,7 +9,12 @@
 
 import
   os, strutils, strtabs, sets, lineinfos, platform,
-  prefixmatches, pathutils, nimpaths, tables
+  prefixmatches, pathutils, nimpaths, tables, reports
+
+import std/options as sopt
+
+from ast_types import TOption, TOptions
+export TOption, TOptions
 
 from terminal import isatty
 from times import utc, fromUnix, local, getTime, format, DateTime
@@ -23,84 +28,64 @@ const
 
   nimEnableCovariance* = defined(nimEnableCovariance)
 
-type                          # please make sure we have under 32 options
-                              # (improves code efficiency a lot!)
-  TOption* = enum             # **keep binary compatible**
-    optNone, optObjCheck, optFieldCheck, optRangeCheck, optBoundsCheck,
-    optOverflowCheck, optRefCheck,
-    optNaNCheck, optInfCheck, optStaticBoundsCheck, optStyleCheck,
-    optAssert, optLineDir, optWarns, optHints,
-    optOptimizeSpeed, optOptimizeSize,
-    optStackTrace, # stack tracing support
-    optStackTraceMsgs, # enable custom runtime msgs via `setFrameMsg`
-    optLineTrace,             # line tracing support (includes stack tracing)
-    optByRef,                 # use pass by ref for objects
-                              # (for interfacing with C)
-    optProfiler,              # profiler turned on
-    optImplicitStatic,        # optimization: implicit at compile time
-                              # evaluation
-    optTrMacros,              # en/disable pattern matching
-    optMemTracker,
-    optSinkInference          # 'sink T' inference
-    optCursorInference
-    optImportHidden
-
-  TOptions* = set[TOption]
+type
   TGlobalOption* = enum
     gloptNone, optForceFullMake,
-    optWasNimscript,          # redundant with `cmdNimscript`, could be removed
+    optWasNimscript,          ## redundant with `cmdNimscript`, could be removed
     optListCmd, optCompileOnly, optNoLinking,
-    optCDebug,                # turn on debugging information
-    optGenDynLib,             # generate a dynamic library
-    optGenStaticLib,          # generate a static library
-    optGenGuiApp,             # generate a GUI application
-    optGenScript,             # generate a script file to compile the *.c files
-    optGenMapping,            # generate a mapping file
-    optRun,                   # run the compiled project
-    optUseNimcache,           # save artifacts (including binary) in $nimcache
-    optStyleHint,             # check that the names adhere to NEP-1
-    optStyleError,            # enforce that the names adhere to NEP-1
-    optStyleUsages,           # only enforce consistent **usages** of the symbol
-    optSkipSystemConfigFile,  # skip the system's cfg/nims config file
-    optSkipProjConfigFile,    # skip the project's cfg/nims config file
-    optSkipUserConfigFile,    # skip the users's cfg/nims config file
-    optSkipParentConfigFiles, # skip parent dir's cfg/nims config files
-    optNoMain,                # do not generate a "main" proc
-    optUseColors,             # use colors for hints, warnings, and errors
-    optThreads,               # support for multi-threading
-    optStdout,                # output to stdout
-    optThreadAnalysis,        # thread analysis pass
-    optTlsEmulation,          # thread var emulation turned on
-    optGenIndex               # generate index file for documentation;
-    optEmbedOrigSrc           # embed the original source in the generated code
-                              # also: generate header file
-    optIdeDebug               # idetools: debug mode
-    optIdeTerse               # idetools: use terse descriptions
-    optExcessiveStackTrace    # fully qualified module filenames
-    optShowAllMismatches      # show all overloading resolution candidates
-    optWholeProject           # for 'doc': output any dependency
-    optDocInternal            # generate documentation for non-exported symbols
-    optMixedMode              # true if some module triggered C++ codegen
-    optDeclaredLocs           # show declaration locations in messages
+    optCDebug,                ## turn on debugging information
+    optGenDynLib,             ## generate a dynamic library
+    optGenStaticLib,          ## generate a static library
+    optGenGuiApp,             ## generate a GUI application
+    optGenScript,             ## generate a script file to compile the *.c files
+    optGenMapping,            ## generate a mapping file
+    optRun,                   ## run the compiled project
+    optUseNimcache,           ## save artifacts (including binary) in $nimcache
+    optStyleHint,             ## check that the names adhere to NEP-1
+    optStyleError,            ## enforce that the names adhere to NEP-1
+    optStyleUsages,           ## only enforce consistent **usages** of the symbol
+    optSkipSystemConfigFile,  ## skip the system's cfg/nims config file
+    optSkipProjConfigFile,    ## skip the project's cfg/nims config file
+    optSkipUserConfigFile,    ## skip the users's cfg/nims config file
+    optSkipParentConfigFiles, ## skip parent dir's cfg/nims config files
+    optNoMain,                ## do not generate a "main" proc
+    optUseColors,             ## use colors for hints, warnings, and errors
+    optThreads,               ## support for multi-threading
+    optStdout,                ## output to stdout
+    optThreadAnalysis,        ## thread analysis pass
+    optTlsEmulation,          ## thread var emulation turned on
+    optGenIndex               ## generate index file for documentation;
+    optEmbedOrigSrc           ## embed the original source in the generated code
+                              ## also: generate header file
+    optIdeDebug               ## idetools: debug mode
+    optIdeTerse               ## idetools: use terse descriptions
+    optExcessiveStackTrace    ## fully qualified module filenames
+    optShowAllMismatches      ## show all overloading resolution candidates
+    optWholeProject           ## for 'doc': output any dependency
+    optDocInternal            ## generate documentation for non-exported symbols
+    optMixedMode              ## true if some module triggered C++ codegen
+    optDeclaredLocs           ## show declaration locations in messages
     optNoNimblePath
     optHotCodeReloading
     optDynlibOverrideAll
-    optSeqDestructors         # active if the implementation uses the new
-                              # string/seq implementation based on destructors
-    optTinyRtti               # active if we use the new "tiny RTTI"
-                              # implementation
-    optOwnedRefs              # active if the Nim compiler knows about 'owned'.
+    optSeqDestructors         ## active if the implementation uses the new
+                              ## string/seq implementation based on destructors
+    optTinyRtti               ## active if we use the new "tiny RTTI"
+                              ## implementation
+    optOwnedRefs              ## active if the Nim compiler knows about 'owned'.
     optMultiMethods
-    optBenchmarkVM            # Enables cpuTime() in the VM
-    optProduceAsm             # produce assembler code
-    optPanics                 # turn panics (sysFatal) into a process termination
-    optNimV1Emulation         # emulate Nim v1.0
-    optNimV12Emulation        # emulate Nim v1.2
+    optBenchmarkVM            ## Enables cpuTime() in the VM
+    optProduceAsm             ## produce assembler code
+    optPanics                 ## turn panics (sysFatal) into a process termination
+    optNimV1Emulation         ## emulate Nim v1.0
+    optNimV12Emulation        ## emulate Nim v1.2
     optSourcemap
-    optProfileVM              # enable VM profiler
-    optEnableDeepCopy         # ORC specific: enable 'deepcopy' for all types.
+    optProfileVM              ## enable VM profiler
+    optEnableDeepCopy         ## ORC specific: enable 'deepcopy' for all types.
 
   TGlobalOptions* = set[TGlobalOption]
+
+
 
 const
   harmlessOptions* = {optForceFullMake, optNoLinking, optRun, optUseColors, optStdout}
@@ -132,30 +117,30 @@ type
     # backendLlvm = "llvm" # probably not well supported; was cmdCompileToLLVM
 
   Command* = enum  ## Nim's commands
-    cmdNone # not yet processed command
-    cmdUnknown # command unmapped
+    cmdNone        ## not yet processed command
+    cmdUnknown     ## command unmapped
     cmdCompileToC, cmdCompileToCpp, cmdCompileToOC, cmdCompileToJS
-    cmdCrun # compile and run in nimache
-    cmdTcc # run the project via TCC backend
-    cmdCheck # semantic checking for whole project
-    cmdParse # parse a single file (for debugging)
-    cmdRod # .rod to some text representation (for debugging)
-    cmdIdeTools # ide tools (e.g. nimsuggest)
-    cmdNimscript # evaluate nimscript
+    cmdCrun        ## compile and run in nimache
+    cmdTcc         ## run the project via TCC backend
+    cmdCheck       ## semantic checking for whole project
+    cmdParse       ## parse a single file (for debugging)
+    cmdRod         ## .rod to some text representation (for debugging)
+    cmdIdeTools    ## ide tools (e.g. nimsuggest)
+    cmdNimscript   ## evaluate nimscript
     cmdDoc0
-    cmdDoc      # convert .nim doc comments to HTML
-    cmdDoc2tex  # convert .nim doc comments to LaTeX
-    cmdRst2html # convert a reStructuredText file to HTML
-    cmdRst2tex # convert a reStructuredText file to TeX
+    cmdDoc         ## convert .nim doc comments to HTML
+    cmdDoc2tex     ## convert .nim doc comments to LaTeX
+    cmdRst2html    ## convert a reStructuredText file to HTML
+    cmdRst2tex     ## convert a reStructuredText file to TeX
     cmdJsondoc0
     cmdJsondoc
     cmdCtags
     cmdBuildindex
     cmdGendepend
     cmdDump
-    cmdInteractive # start interactive session
+    cmdInteractive ## start interactive session
     cmdNop
-    cmdJsonscript # compile a .json build file
+    cmdJsonscript  ## compile a .json build file
     cmdNimfix
     # old unused: cmdInterpret, cmdDef: def feature (find definition for IDEs)
 
@@ -220,22 +205,22 @@ type
       ## are not anymore.
 
   SymbolFilesOption* = enum
-    disabledSf,  # disables Rod files and maybe packed AST features
-    writeOnlySf, # not really sure, beyond not reading rod files
-    readOnlySf,  # we only read from rod files
-    v2Sf,        # who knows, probably a bad idea
-    stressTest   # likely more bad ideas
+    disabledSf,  ## disables Rod files and maybe packed AST features
+    writeOnlySf, ## not really sure, beyond not reading rod files
+    readOnlySf,  ## we only read from rod files
+    v2Sf,        ## who knows, probably a bad idea
+    stressTest   ## likely more bad ideas
 
   TSystemCC* = enum
     ccNone, ccGcc, ccNintendoSwitch, ccLLVM_Gcc, ccCLang, ccBcc, ccVcc,
     ccTcc, ccEnv, ccIcl, ccIcc, ccClangCl
 
   ExceptionSystem* = enum
-    excNone,   # no exception system selected yet
-    excSetjmp, # setjmp based exception handling
-    excCpp,    # use C++'s native exception handling
-    excGoto,   # exception handling based on goto (should become the new default for C)
-    excQuirky  # quirky exception handling
+    excNone,   ## no exception system selected yet
+    excSetjmp, ## setjmp based exception handling
+    excCpp,    ## use C++'s native exception handling
+    excGoto,   ## exception handling based on goto (should become the new default for C)
+    excQuirky  ## quirky exception handling
 
   CfileFlag* {.pure.} = enum
     Cached,    ## no need to recompile this time
@@ -251,16 +236,16 @@ type
   Suggest* = ref object
     section*: IdeCmd
     qualifiedPath*: seq[string]
-    name*: ptr string         # not used beyond sorting purposes; name is also
-                              # part of 'qualifiedPath'
+    name*: ptr string         ## not used beyond sorting purposes; name is also
+                              ## part of 'qualifiedPath'
     filePath*: string
-    line*: int                   # Starts at 1
-    column*: int                 # Starts at 0
-    doc*: string           # Not escaped (yet)
-    forth*: string               # type
-    quality*: range[0..100]   # matching quality
-    isGlobal*: bool # is a global variable
-    contextFits*: bool # type/non-type context matches
+    line*: int                   ## Starts at 1
+    column*: int                 ## Starts at 0
+    doc*: string           ## Unescaped documentation string
+    forth*: string               ## type
+    quality*: range[0..100]   ## matching quality
+    isGlobal*: bool ## is a global variable
+    contextFits*: bool ## type/non-type context matches
     prefix*: PrefixMatch
     symkind*: byte
     scope*, localUsages*, globalUsages*: int # more usages is better
@@ -280,21 +265,46 @@ type
     stdOrrStderr
 
   FilenameOption* = enum
-    foAbs # absolute path, e.g.: /pathto/bar/foo.nim
-    foRelProject # relative to project path, e.g.: ../foo.nim
-    foCanonical # canonical module name
-    foLegacyRelProj # legacy, shortest of (foAbs, foRelProject)
-    foName # lastPathPart, e.g.: foo.nim
-    foStacktrace # if optExcessiveStackTrace: foAbs else: foName
+    foAbs           ## absolute path, e.g.: /pathto/bar/foo.nim
+    foRelProject    ## relative to project path, e.g.: ../foo.nim
+    foCanonical     ## canonical module name
+    foLegacyRelProj ## legacy, shortest of (foAbs, foRelProject)
+    foName          ## lastPathPart, e.g.: foo.nim
+    foStacktrace    ## if optExcessiveStackTrace: foAbs else: foName
+
+  MsgFlag* = enum  ## flags altering msgWriteln behavior
+    msgStdout,     ## force writing to stdout, even stderr is default
+    msgNoUnitSep  ## the message is a complete "paragraph".
+  MsgFlags* = set[MsgFlag]
+
+  TErrorHandling* = enum
+    doDefault ## Default action, custom report hook can return this in
+              ## order for automatic handing to decide appropriate
+              ## reaction.
+    doNothing ## Don't do anything
+    doAbort ## Immediately abort compilation
+    doRaise ## Raise recoverable error
+
+  ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
+  ConfNoteSet* = enum
+    cnCurrent ## notes after resolving all logic(defaults,
+              ## verbosity)/cmdline/configs
+    cnMainPackage
+    cnForeign
+    cnWarnAsError
+    cnHintAsError
+    cnCmdline ## notes that have been set/unset from cmdline
+    cnModifiedy ## notes that have been set/unset from either
+                ## cmdline/configs
 
   ConfigRef* {.acyclic.} = ref object ## every global configuration
                           ## fields marked with '*' are subject to
                           ## the incremental compilation mechanisms
                           ## (+) means "part of the dependency"
-    backend*: TBackend # set via `nim x` or `nim --backend:x`
+    backend*: TBackend ## set via `nim x` or `nim --backend:x`
     target*: Target       # (+)
     linesCompiled*: int   # all lines that have been compiled
-    options*: TOptions    # (+)
+    localOptions*: TOptions    # (+)
     globalOptions*: TGlobalOptions # (+)
     macrosToExpand*: StringTableRef
     arcToExpand*: StringTableRef
@@ -304,18 +314,18 @@ type
     evalTemplateCounter*: int
     evalMacroCounter*: int
     exitcode*: int8
-    cmd*: Command  # raw command parsed as enum
-    cmdInput*: string  # input command
-    projectIsCmd*: bool # whether we're compiling from a command input
-    implicitCmd*: bool # whether some flag triggered an implicit `command`
-    selectedGC*: TGCMode       # the selected GC (+)
+    cmd*: Command        ## raw command parsed as enum
+    cmdInput*: string    ## input command
+    projectIsCmd*: bool  ## whether we're compiling from a command input
+    implicitCmd*: bool   ## whether some flag triggered an implicit `command`
+    selectedGC*: TGCMode ## the selected GC (+)
     exc*: ExceptionSystem
-    hintProcessingDots*: bool # true for dots, false for filenames
-    verbosity*: int            # how verbose the compiler is
-    numberOfProcessors*: int   # number of processors
-    lastCmdTime*: float        # when caas is enabled, we measure each command
+    hintProcessingDots*: bool ## true for dots, false for filenames
+    verbosity*: int           ## how verbose the compiler is
+    numberOfProcessors*: int  ## number of processors
+    lastCmdTime*: float       ## when caas is enabled, we measure each command
     symbolFiles*: SymbolFilesOption
-    spellSuggestMax*: int # max number of spelling suggestions for typos
+    spellSuggestMax*: int ## max number of spelling suggestions for typos
 
     cppDefines*: HashSet[string] # (*)
     headerFile*: string
@@ -325,13 +335,13 @@ type
                        ## should be run
     ideCmd*: IdeCmd
     oldNewlines*: bool
-    cCompiler*: TSystemCC # the used compiler
-    modifiedyNotes*: TNoteKinds # notes that have been set/unset from either cmdline/configs
-    cmdlineNotes*: TNoteKinds # notes that have been set/unset from cmdline
-    foreignPackageNotes*: TNoteKinds
-    notes*: TNoteKinds # notes after resolving all logic(defaults, verbosity)/cmdline/configs
-    warningAsErrors*: TNoteKinds
-    mainPackageNotes*: TNoteKinds
+    cCompiler*: TSystemCC ## the used compiler
+
+    noteSets*: array[ConfNoteSet, ReportKinds] ## All note sets used for
+    ## compilation. Active note set (`ConfNoteSet.cnCurrent`) can be
+    ## swapped (depending on the context - push/pop, target package) or
+    ## modified (via user configuration, command-line flags)
+
     mainPackageId*: int
     errorCounter*: int
     hintCounter*: int
@@ -340,9 +350,9 @@ type
     maxLoopIterationsVM*: int ## VM: max iterations of all loops
     isVmTrace*: bool
     configVars*: StringTableRef
-    symbols*: StringTableRef ## We need to use a StringTableRef here as defined
-                             ## symbols are always guaranteed to be style
-                             ## insensitive. Otherwise hell would break lose.
+    symbols*: StringTableRef ## We need to use a StringTableRef here as
+    ## defined symbols are always guaranteed to be style insensitive.
+    ## Otherwise hell would break lose.
     packageCache*: StringTableRef
     nimblePaths*: seq[AbsoluteDir]
     searchPaths*: seq[AbsoluteDir]
@@ -353,32 +363,33 @@ type
     prefixDir*, libpath*, nimcacheDir*: AbsoluteDir
     nimStdlibVersion*: NimVer
     dllOverrides, moduleOverrides*, cfileSpecificOptions*: StringTableRef
-    projectName*: string # holds a name like 'nim'
-    projectPath*: AbsoluteDir # holds a path like /home/alice/projects/nim/compiler/
-    projectFull*: AbsoluteFile # projectPath/projectName
-    projectIsStdin*: bool # whether we're compiling from stdin
-    lastMsgWasDot*: set[StdOrrKind] # the last compiler message was a single '.'
-    projectMainIdx*: FileIndex # the canonical path id of the main module
-    projectMainIdx2*: FileIndex # consider merging with projectMainIdx
-    command*: string # the main command (e.g. cc, check, scan, etc)
-    commandArgs*: seq[string] # any arguments after the main command
+    projectName*: string            ## holds a name like 'nim'
+    projectPath*: AbsoluteDir       ## holds a path like /home/alice/projects/nim/compiler/
+    projectFull*: AbsoluteFile      ## projectPath/projectName
+    projectIsStdin*: bool           ## whether we're compiling from stdin
+    lastMsgWasDot*: set[StdOrrKind] ## the last compiler message was a single '.'
+    projectMainIdx*: FileIndex      ## the canonical path id of the main module
+    projectMainIdx2*: FileIndex     ## consider merging with projectMainIdx
+    command*: string                ## the main command (e.g. cc, check, scan, etc)
+    commandArgs*: seq[string]       ## any arguments after the main command
     commandLine*: string
-    extraCmds*: seq[string] # for writeJsonBuildInstructions
-    keepComments*: bool # whether the parser needs to keep comments
-    implicitImports*: seq[string] # modules that are to be implicitly imported
-    implicitIncludes*: seq[string] # modules that are to be implicitly included
-    docSeeSrcUrl*: string # if empty, no seeSrc will be generated. \
-    # The string uses the formatting variables `path` and `line`.
+    extraCmds*: seq[string]        ## for writeJsonBuildInstructions
+    keepComments*: bool            ## whether the parser needs to keep comments
+    implicitImports*: seq[string]  ## modules that are to be implicitly imported
+    implicitIncludes*: seq[string] ## modules that are to be implicitly included
+    docSeeSrcUrl*: string          ## if empty, no seeSrc will be
+    ## generated. The string uses the formatting variables `path` and
+    ## `line`.
     docRoot*: string ## see nim --fullhelp for --docRoot
     docCmd*: string ## see nim --fullhelp for --docCmd
 
-    configFiles*: seq[AbsoluteFile]     # config files (cfg,nims)
-    cIncludes*: seq[AbsoluteDir]  # directories to search for included files
-    cLibs*: seq[AbsoluteDir]      # directories to search for lib files
-    cLinkedLibs*: seq[string]     # libraries to link
+    configFiles*: seq[AbsoluteFile] ## config files (cfg,nims)
+    cIncludes*: seq[AbsoluteDir]  ## directories to search for included files
+    cLibs*: seq[AbsoluteDir]      ## directories to search for lib files
+    cLinkedLibs*: seq[string]     ## libraries to link
 
-    externalToLink*: seq[string]  # files to link in addition to the file
-                                  # we compiled (*)
+    externalToLink*: seq[string]  ## files to link in addition to the file
+                                  ## we compiled (*)
     linkOptionsCmd*: string
     compileOptionsCmd*: seq[string]
     linkOptions*: string          # (*)
@@ -389,16 +400,280 @@ type
     suggestVersion*: int
     suggestMaxResults*: int
     lastLineInfo*: TLineInfo
-    writelnHook*: proc (output: string) {.closure.} # cannot make this gcsafe yet because of Nimble
-    structuredErrorHook*: proc (config: ConfigRef; info: TLineInfo; msg: string;
-                                severity: Severity) {.closure.}
-                                # cannot make this gcsafe yet because of sigmatch diagnostics
+    writelnHook*: proc(
+      conf: ConfigRef,
+      output: string,
+      flags: MsgFlags
+    ) {.closure.} ## All
+    ## textual output from the compiler goes through this callback.
+    writeHook*: proc(conf: ConfigRef, output: string, flags: MsgFlags) {.closure.}
+
+    structuredReportHook*: ReportHook
     cppCustomNamespace*: string
     vmProfileData*: ProfileData
 
     when defined(nimDebugUtils):
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
-                                    ## len is also used for output indent level
+      ## len is also used for output indent level
+
+template changed(conf: ConfigRef, s: ConfNoteSet, body: untyped) =
+  # Template for debugging purposes - single place to track all changes in
+  # the enabled note sets.
+  when defined(debug):
+    let before = conf.noteSets[s]
+    body
+    let after = conf.noteSets[s]
+
+    # let n = rintMsgOrigin
+    # if (n in before) != (n in after):
+    #   if n notin after:
+    #     writeStackTrace()
+    #     echo "changed conf $# -> $#" % [$(n in before), $(n in after)]
+
+  else:
+    body
+
+proc incl*(conf: ConfigRef, nset: ConfNoteSet, note: ReportKind) =
+  ## Include report kind in specified note set
+  changed(conf, nset):
+    conf.noteSets[nset].incl note
+
+proc excl*(conf: ConfigRef, nset: ConfNoteSet, note: ReportKind) =
+  ## Exclude report kind from the specified note set
+  changed(conf, nset):
+    conf.noteSets[nset].excl note
+
+proc asgn*(conf: ConfigRef, nset: ConfNoteSet, notes: ReportKinds) =
+  ## Assign to specified note set
+  changed(conf, nset):
+    conf.noteSets[nset] = notes
+
+proc asgn*(conf: ConfigRef, sto, sfrom: ConfNoteSet) =
+  ## Assign between two specified note sets
+  conf.noteSets[sto] = conf.noteSets[sfrom]
+
+proc flip*(
+  conf: ConfigRef, nset: ConfNoteSet, note: ReportKind, state: bool) =
+  ## Include or exlude node from the specified note set based on the
+  ## `state`
+  if state:
+    conf.incl(nset, note)
+
+  else:
+    conf.excl(nset, note)
+
+
+func options*(conf: ConfigRef): TOptions =
+  ## Get list of active local options
+  result = conf.localOptions
+
+template changedOpts(conf: ConfigRef, body: untyped) =
+  when defined(debug):
+    let before = conf.localOptions
+    body
+    let after = conf.localOptions
+    let removed = (optHints in before) and (optHints notin after)
+
+  else:
+    body
+
+proc `options=`*(conf: ConfigRef, opts: TOptions) =
+  ## Assign to list of active local options
+  changedOpts(conf):
+    conf.localOptions = opts
+
+proc excl*(conf: ConfigRef, opt: TOption | TOptions) =
+  ## Exclude from list of active local options
+  changedOpts(conf):
+    conf.localOptions.excl opt
+
+proc incl*(conf: ConfigRef, opt: TOption | TOptions) =
+  ## Include to list of active local options
+  changedOpts(conf):
+    conf.localOptions.incl opt
+
+
+proc modifiedyNotes*(conf: ConfigRef): ReportKinds =
+  ## Get list of reports modified from the command line or config
+  conf.noteSets[cnModifiedy]
+
+proc cmdlineNotes*(conf: ConfigRef): ReportKinds =
+  ## Get list of report filters modified from the command line
+  conf.noteSets[cnCmdline]
+
+proc foreignPackageNotes*(conf: ConfigRef): ReportKinds =
+  ## Get list of reports for foreign packages
+  conf.noteSets[cnForeign]
+
+proc notes*(conf: ConfigRef): ReportKinds =
+  ## Get list of active notes
+  conf.noteSets[cnCurrent]
+
+proc warningAsErrors*(conf: ConfigRef): ReportKinds =
+  ## Get list of warning notes that are treated like errors
+  conf.noteSets[cnWarnAsError]
+
+proc hintsAsErrors*(conf: ConfigRef): ReportKinds =
+  ## Get list of hint notes that are treated like errors
+  conf.noteSets[cnHintAsError]
+
+proc mainPackageNotes*(conf: ConfigRef): ReportKinds =
+  ## Get list of notes for main package
+  conf.noteSets[cnMainPackage]
+
+proc `modifiedyNotes=`*(conf: ConfigRef, nset: ReportKinds) =
+  ## Set list of notes modified from the cli/config
+  conf.asgn cnModifiedy, nset
+
+proc `cmdlineNotes=`*(conf: ConfigRef, nset: ReportKinds) =
+  ## Set list of notes modified from the CLI
+  conf.asgn cnCmdline, nset
+
+proc `foreignPackageNotes=`*(conf: ConfigRef, nset: ReportKinds) =
+  ## Set list of notes for foreign packages
+  conf.asgn cnForeign, nset
+
+proc `notes=`*(conf: ConfigRef, nset: ReportKinds) =
+  ## Set list of active notes
+  conf.asgn cnCurrent, nset
+
+proc `warningAsErrors=`*(conf: ConfigRef, nset: ReportKinds) =
+  ## Set list of warning notes to be treated as errors
+  conf.asgn cnWarnAsError, nset
+
+proc `hintsAsErrors=`*(conf: ConfigRef, nset: ReportKinds) =
+  ## Set list of hint notes that are treated like erorrs
+  conf.asgn cnHintAsError, nset
+
+proc `mainPackageNotes=`*(conf: ConfigRef, nset: ReportKinds) =
+  ## Set list of notes for main package
+  conf.asgn cnMainPackage, nset
+
+proc writelnHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
+  ## Write string using writeln hook
+  conf.writelnHook(conf, msg, flags)
+
+proc writeHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
+  ## Write string usign write hook
+  conf.writeHook(conf, msg, flags)
+
+proc writeln*(conf: ConfigRef, args: varargs[string, `$`]) =
+  ## writeln hook overload for varargs
+  writelnHook(conf, args.join(""))
+
+proc write*(conf: ConfigRef, args: varargs[string, `$`]) =
+  ## write hook overload for varargs
+  writeHook(conf, args.join(""))
+
+proc setReportHook*(conf: ConfigRef, hook: ReportHook) =
+  ## Set active report hook. Must not be nil
+  assert not hook.isNil
+  conf.structuredReportHook = hook
+
+proc getReportHook*(conf: ConfigRef): ReportHook =
+  ## Get active report hook
+  conf.structuredReportHook
+
+proc report*(conf: ConfigRef, inReport: Report): TErrorHandling =
+  ## Write `inReport`
+  assert inReport.kind != repNone, "Cannot write out empty report"
+  assert(
+    not conf.structuredReportHook.isNil,
+    "Cannot write report with empty report hook")
+  return conf.structuredReportHook(conf, inReport)
+
+proc canReport*(conf: ConfigRef, id: ReportId): bool =
+  ## Check whether report with given ID can actually be written out, or it
+  ## has already been seen. This check is used to prevent multiple reports
+  ## from the `nkError` node.
+  id notin conf.m.writtenSemReports
+
+proc canReport*(conf: ConfigRef, node: PNode): bool =
+  ## Check whether `nkError` node can be reported
+  conf.canReport(node.reportId)
+
+proc report*(conf: ConfigRef, id: ReportId): TErrorHandling =
+  ## Write out existing stored report unless it has already been reported
+  ## (can happen with multiple `nkError` visitations).
+  ##
+  ## .. note:: This check is done only for reports that are generated via
+  ##           IDs, because that's the only way report can (supposedly)
+  ##           enter the error message system twice.
+  return conf.report(conf.m.reports.getReport(id))
+
+
+proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
+  ## Write out report from the nkError node
+  assert node.kind == nkError
+  return conf.report(node.reportId)
+
+
+template report*[R: ReportTypes](
+    conf: ConfigRef, inReport: R): TErrorHandling =
+  ## Pass structured report object into `conf.structuredReportHook`,
+  ## converting to `Report` variant and updaing instantiation info.
+  report(conf, wrap(inReport, instLoc()))
+
+template report*[R: ReportTypes](
+    conf: ConfigRef, tinfo: TLineInfo, inReport: R): TErrorHandling =
+  ## Write out new report, updating it's location info using `tinfo` and
+  ## it's instantiation info with `instantiationInfo()` of the template.
+  report(conf, wrap(inReport, instLoc(), tinfo))
+
+proc addReport*(conf: ConfigRef, report: Report): ReportId =
+  ## Add new postponed report, return it's stored ID
+  result = conf.m.reports.addReport(report)
+  assert not result.isEmpty(), $result
+
+proc getReport*(conf: ConfigRef, report: ReportId): Report =
+  ## Get postponed report from the current report list
+  assert not report.isEmpty(), $report
+  result = conf.m.reports.getReport(report)
+
+proc getReport*(conf: ConfigRef, err: PNode): Report =
+  ## Get postponed report from the nkError node
+  conf.getReport(err.reportId)
+
+template store*(conf: ConfigRef, report: ReportTypes): untyped =
+  ## Add report to the postponed list, return new report ID
+  conf.addReport(wrap(report, instLoc()))
+
+template store*(
+    conf: ConfigRef, linfo: TLineInfo, report: ReportTypes): untyped =
+  ## Add report with given location information to the postponed list
+  conf.addReport(wrap(report, instLoc(), linfo))
+
+
+func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
+  ## Check if report stores fatal compilation error
+  report.category == repInternal and
+  report.internalReport.severity() == rsevFatal
+
+func severity*(conf: ConfigRef, report: ReportTypes | Report): ReportSeverity =
+  # style checking is a hint by default, but can be globally overriden to
+  # be treated as error via `--styleCheck:error`, and this is handled in
+  # the different configuration as hints/warnings as errors
+  if report.kind in repLinterKinds and optStyleError in conf.globalOptions:
+    result = rsevError
+
+  else:
+    result = report.severity(conf.warningAsErrors + conf.hintsAsErrors)
+
+
+func isCodeError*(conf: ConfigRef, report: Report): bool =
+  ## Check if report stores a regular code error, or warning/hint that has
+  ## been configured to be treated as error under "warningAsError"
+  conf.severity(report) == rsevError
+
+
+func ignoreMsgBecauseOfIdeTools(conf: ConfigRef, msg: ReportKind): bool =
+  msg notin (repErrorKinds + repFatalKinds) and
+  conf.cmd == cmdIdeTools and
+  optIdeDebug notin conf.globalOptions
+
+func useColor*(conf: ConfigRef): bool =
+  optUseColors in conf.globalOptions
+
 
 proc parseNimVersion*(a: string): NimVer =
   # could be moved somewhere reusable
@@ -418,31 +693,99 @@ template setErrorMaxHighMaybe*(conf: ConfigRef) =
   ## do not stop after first error (but honor --errorMax if provided)
   assignIfDefault(conf.errorMax, high(int))
 
-proc setNoteDefaults*(conf: ConfigRef, note: TNoteKind, enabled = true) =
+proc setNoteDefaults*(conf: ConfigRef, note: ReportKind, enabled = true) =
   template fun(op) =
-    conf.notes.op note
-    conf.mainPackageNotes.op note
-    conf.foreignPackageNotes.op note
+    conf.op cnCurrent, note
+    conf.op cnMainPackage, note
+    conf.op cnForeign, note
+
   if enabled: fun(incl) else: fun(excl)
 
-proc setNote*(conf: ConfigRef, note: TNoteKind, enabled = true) =
-  # see also `prepareConfigNotes` which sets notes
+proc setNote*(conf: ConfigRef, note: ReportKind, enabled = true) =
+  ## see also `prepareConfigNotes` which sets notes
   if note notin conf.cmdlineNotes:
-    if enabled: incl(conf.notes, note) else: excl(conf.notes, note)
+    if enabled:
+      incl(conf, cnCurrent, note)
 
-proc hasHint*(conf: ConfigRef, note: TNoteKind): bool =
+    else:
+      excl(conf, cnCurrent, note)
+
+proc hasHint*(conf: ConfigRef, note: ReportKind): bool =
   # ternary states instead of binary states would simplify logic
-  if optHints notin conf.options: false
-  elif note in {hintConf, hintProcessing}:
+  if optHints notin conf.options:
+    false
+
+  elif note in {rextConf, rsemProcessing}:
     # could add here other special notes like hintSource
     # these notes apply globally.
     note in conf.mainPackageNotes
-  else: note in conf.notes
 
-proc hasWarn*(conf: ConfigRef, note: TNoteKind): bool {.inline.} =
+  else:
+    note in conf.notes
+
+proc hasWarn*(conf: ConfigRef, note: ReportKind): bool {.inline.} =
+  ## Check if warnings are enabled and specific report kind is contained in
+  ## the
   optWarns in conf.options and note in conf.notes
 
-proc hcrOn*(conf: ConfigRef): bool = return optHotCodeReloading in conf.globalOptions
+func isEnabled*(conf: ConfigRef, report: ReportKind): bool =
+  ## Check whether report kind is allowed to be generated by the compiler.
+  ## Uses `options.hasHint`, `options.hasWarn` to check whether particular
+  ## report is enabled, otherwise use query global/local options.
+
+
+  # Reports related to experimental features and inconsistent CLI flags
+  # (such as `--styleCheck` which controls both CLI flags and hints) are
+  # checked for with higher priority
+  case report:
+    of repNilcheckKinds:
+      result = strictNotNil in conf.features
+
+    of rdbgVmExecTraceMinimal:
+      result = conf.isVmTrace
+
+    of rlexLinterReport, rsemLinterReport, :
+      # Regular linter report is enabled if style check is either hint or
+      # error, AND not `usages`
+      result = 0 < len({optStyleHint, optStyleError} * conf.globalOptions) and
+               optStyleUsages notin conf.globalOptions
+
+    of rsemLinterReportUse:
+      result = 0 < len({optStyleHint, optStyleError} * conf.globalOptions)
+
+    else:
+      # All other reports follow default hint category handing:
+      case report:
+        of repHintKinds:
+          result = conf.hasHint(report)
+
+        of repWarningKinds:
+          result = conf.hasWarn(report)
+
+        of repErrorKinds, repFatalKinds:
+          result = true
+
+        of repTraceKinds:
+          result = true
+
+        else:
+          result = (report in conf.notes) and
+          not ignoreMsgBecauseOfIdeTools(conf, report)
+
+func isEnabled*(conf: ConfigRef, report: Report): bool =
+  ## Macro expansion configuration is done via `--expandMacro=name`
+  ## configuration, and requires full report information to check.
+  if report.kind == rsemExpandMacro and
+     conf.macrosToExpand.hasKey(report.semReport.sym.name.s):
+    result = true
+
+  else:
+    result = conf.isEnabled(report.kind)
+
+
+
+proc hcrOn*(conf: ConfigRef): bool =
+  return optHotCodeReloading in conf.globalOptions
 
 when false:
   template depConfigFields*(fn) {.dirty.} = # deadcode
@@ -451,7 +794,8 @@ when false:
     fn(globalOptions)
     fn(selectedGC)
 
-const oldExperimentalFeatures* = {implicitDeref, dotOperators, callOperator, parallel}
+const oldExperimentalFeatures* = {
+  implicitDeref, dotOperators, callOperator, parallel}
 
 const
   ChecksOptions* = {optObjCheck, optFieldCheck, optRangeCheck,
@@ -491,16 +835,8 @@ template newPackageCache*(): untyped =
 proc newProfileData(): ProfileData =
   ProfileData(data: newTable[TLineInfo, ProfileInfo]())
 
-const foreignPackageNotesDefault* = {
-  hintProcessing, warnUnknownMagic, hintQuitCalled, hintExecuting, hintUser, warnUser}
 
 proc isDefined*(conf: ConfigRef; symbol: string): bool
-
-when defined(nimDebugUtils):
-  # this allows inserting debugging utilties in all modules that import `options`
-  # with a single switch, which is useful when debugging compiler.
-  import debugutils
-  export debugutils
 
 proc initConfigRefCommon(conf: ConfigRef) =
   conf.symbols = newStringTable(modeStyleInsensitive)
@@ -510,18 +846,19 @@ proc initConfigRefCommon(conf: ConfigRef) =
   conf.options = DefaultOptions
   conf.globalOptions = DefaultGlobalOptions
   conf.filenameOption = foAbs
-  conf.foreignPackageNotes = foreignPackageNotesDefault
-  conf.notes = NotesVerbosity[1]
-  conf.mainPackageNotes = NotesVerbosity[1]
+  conf.foreignPackageNotes = NotesVerbosity.foreign
+  conf.notes = NotesVerbosity.main[1]
+  conf.mainPackageNotes = NotesVerbosity.main[1]
   when defined(nimDebugUtils):
     # ensures that `nimDebugUtils` is defined for the compiled code so it can
     # access the `system.nimCompilerDebugRegion` template
     if not conf.symbols.hasKey("nimDebugUtils"):
       conf.symbols["nimDebugUtils"] = ""
 
-proc newConfigRef*(): ConfigRef =
+proc newConfigRef*(hook: ReportHook): ConfigRef =
   result = ConfigRef(
     cCompiler: ccGcc,
+    structuredReportHook: hook,
     macrosToExpand: newStringTable(modeStyleInsensitive),
     arcToExpand: newStringTable(modeStyleInsensitive),
     m: initMsgConfig(),
@@ -635,6 +972,9 @@ proc isDefined*(conf: ConfigRef; symbol: string): bool =
                             osDragonfly, osMacosx}
     else: discard
 
+proc getDefined*(conf: ConfigRef, sym: string): string =
+  conf.symbols[sym]
+
 template quitOrRaise*(conf: ConfigRef, msg = "") =
   # xxx in future work, consider whether to also intercept `msgQuit` calls
   if conf.isDefined("nimDebug"):
@@ -701,7 +1041,7 @@ proc getPrefixDir*(conf: ConfigRef): AbsoluteDir =
   else: result = AbsoluteDir splitPath(getAppDir()).head
 
 proc setDefaultLibpath*(conf: ConfigRef) =
-  # set default value (can be overwritten):
+  ## set default value (can be overwritten):
   if conf.libpath.isEmpty:
     # choose default libpath:
     var prefix = getPrefixDir(conf)

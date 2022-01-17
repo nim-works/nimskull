@@ -174,6 +174,8 @@ proc sexpToAnswer(s: SexpNode): string =
   doAssert s.kind == SList
   doAssert s.len >= 3
   let m = s[2]
+  if m.kind == SNil:
+    return # skip nils
   if m.kind != SList:
     echo s
   doAssert m.kind == SList
@@ -229,13 +231,13 @@ proc doReport(filename, answer, resp: string; report: var string) =
     var hasDiff = false
     for i in 0..min(resp.len-1, answer.len-1):
       if resp[i] != answer[i]:
-        report.add "\n  Expected:  " & resp.substr(i, i+200)
-        report.add "\n  But got:   " & answer.substr(i, i+200)
+        report.add "\n  Expected:\n" & resp.substr(i, i+200)
+        report.add "\n  But got:\n" & answer.substr(i, i+200)
         hasDiff = true
         break
     if not hasDiff:
-      report.add "\n  Expected:  " & resp
-      report.add "\n  But got:   " & answer
+      report.add "\n  Expected:\n" & resp
+      report.add "\n  But got:\n" & answer
 
 proc skipDisabledTest(test: Test): bool =
   if test.disabled:
@@ -271,7 +273,12 @@ proc runEpcTest(filename: string): int =
         os.sleep(50)
         inc i
       let a = outp.readAll().strip()
-    let port = parseInt(a)
+    let port =
+      try:
+        parseInt(a)
+      except:
+        echo "could not parse port from input: ", a
+        raise
     socket.connect("localhost", Port(port))
 
     for req, resp in items(s.script):

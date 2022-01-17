@@ -12,9 +12,9 @@
 
 import
   options, ast, llstream, msgs,
-  idents,
   syntaxes, modulegraphs, reorder,
-  lineinfos, pathutils
+  lineinfos, pathutils,
+  reports
 
 type
   TPassData* = tuple[input: PNode, closeOutput: PNode]
@@ -48,7 +48,11 @@ proc clearPasses*(g: ModuleGraph) =
   g.passes.setLen(0)
 
 proc registerPass*(g: ModuleGraph; p: TPass) =
-  internalAssert g.config, g.passes.len < maxPasses
+  internalAssert(
+    g.config,
+    g.passes.len < maxPasses,
+    "Cannot register more than " & $maxPasses & " passes")
+
   g.passes.add(p)
 
 proc openPasses(g: ModuleGraph; a: var TPassContextArray;
@@ -102,10 +106,18 @@ const
 proc prepareConfigNotes(graph: ModuleGraph; module: PSym) =
   # don't be verbose unless the module belongs to the main package:
   if module.getnimblePkgId == graph.config.mainPackageId:
-    graph.config.notes = graph.config.mainPackageNotes
+    graph.config.asgn(cnCurrent, cnMainPackage)
+
   else:
-    if graph.config.mainPackageNotes == {}: graph.config.mainPackageNotes = graph.config.notes
-    graph.config.notes = graph.config.foreignPackageNotes
+    # QUESTION what are the exact conditions that lead to this branch being
+    # executed? For example, if I compile `tests/arc/thard_alignment.nim`,
+    # this sets configuration entries to the 'foreign' state after
+    # compilation has finished. This tests (despite being quite large) does
+    # not do any imports.
+    if graph.config.mainPackageNotes == {}:
+      graph.config.asgn(cnMainPackage, cnCurrent)
+
+    graph.config.asgn(cnCurrent, cnForeign)
 
 proc moduleHasChanged*(graph: ModuleGraph; module: PSym): bool {.inline.} =
   result = true
@@ -125,13 +137,17 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
     a: TPassContextArray
     s: PLLStream
     fileIdx = module.fileIdx
+
   prepareConfigNotes(graph, module)
   openPasses(graph, a, module, idgen)
   if stream == nil:
     let filename = toFullPathConsiderDirty(graph.config, fileIdx)
     s = llStreamOpen(filename, fmRead)
     if s == nil:
-      rawMessage(graph.config, errCannotOpenFile, filename.string)
+      localReport(
+        graph.config,
+        reportStr(rsemCannotOpenFile, filename.string))
+
       return false
   else:
     s = stream
@@ -144,8 +160,10 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
       # in ROD files. I think we should enable this feature only
       # for the interactive mode.
       if module.name.s != "nimscriptapi":
-        processImplicits graph, graph.config.implicitImports, nkImportStmt, a, module
-        processImplicits graph, graph.config.implicitIncludes, nkIncludeStmt, a, module
+        processImplicits(
+          graph, graph.config.implicitImports, nkImportStmt, a, module)
+        processImplicits(
+          graph, graph.config.implicitIncludes, nkIncludeStmt, a, module)
 
     while true:
       if graph.stopCompile(): break
@@ -161,7 +179,8 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
           var n = parseTopLevelStmt(p)
           if n.kind == nkEmpty: break
           sl.add n
-        if sfReorder in module.flags or codeReordering in graph.config.features:
+        if sfReorder in module.flags or
+           codeReordering in graph.config.features:
           sl = reorder(graph, sl, module)
         discard processTopLevelStmt(graph, sl, a)
         break

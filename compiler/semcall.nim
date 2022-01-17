@@ -10,7 +10,6 @@
 ## This module implements semantic checking for calls.
 # included from sem.nim
 
-from algorithm import sort
 
 proc sameMethodDispatcher(a, b: PSym): bool =
   result = false
@@ -133,187 +132,131 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
     else:
       break
 
-proc effectProblem(f, a: PType; result: var string; c: PContext) =
-  if f.kind == tyProc and a.kind == tyProc:
-    if tfThread in f.flags and tfThread notin a.flags:
-      result.add "\n  This expression is not GC-safe. Annotate the " &
-          "proc with {.gcsafe.} to get extended error information."
-    elif tfNoSideEffect in f.flags and tfNoSideEffect notin a.flags:
-      result.add "\n  This expression can have side effects. Annotate the " &
-          "proc with {.noSideEffect.} to get extended error information."
+
+
+proc maybeResemArgs*(c: PContext, n: PNode, startIdx: int = 1): seq[PNode] =
+  # HACK original implementation of the `describeArgs` used `semOperand`
+  # here, but until there is a clear understanding /why/ is it necessary to
+  # additionall call sem on the arguments I will leave this as it is now.
+  # This was introduced in commit 5b0d8246f79730a473a869792f12938089ecced6
+  # that "made some tests green" (+98/-77)
+  for i in startIdx ..< n.len:
+    var arg = n[i]
+    if n[i].kind == nkExprEqExpr:
+      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
+        # XXX we really need to 'tryExpr' here!
+        arg = c.semOperand(c, n[i][1])
+        arg = n[i][1]
+        n[i].typ = arg.typ
+        n[i][1] = arg
+
     else:
-      case compatibleEffects(f, a)
-      of efCompat: discard
-      of efRaisesDiffer:
-        result.add "\n  The `.raises` requirements differ."
-      of efRaisesUnknown:
-        result.add "\n  The `.raises` requirements differ. Annotate the " &
-            "proc with {.raises: [].} to get extended error information."
-      of efTagsDiffer:
-        result.add "\n  The `.tags` requirements differ."
-      of efTagsUnknown:
-        result.add "\n  The `.tags` requirements differ. Annotate the " &
-            "proc with {.tags: [].} to get extended error information."
-      of efLockLevelsDiffer:
-        result.add "\n  The `.locks` requirements differ. Annotate the " &
-            "proc with {.locks: 0.} to get extended error information."
-      of efEffectsDelayed:
-        result.add "\n  The `.effectsOf` annotations differ."
-      when defined(drnim):
-        if not c.graph.compatibleProps(c.graph, f, a):
-          result.add "\n  The `.requires` or `.ensures` properties are incompatible."
+      if arg.typ.isNil and arg.kind notin {
+           nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch
+         }:
 
-proc renderNotLValue(n: PNode): string =
-  result = $n
-  let n = if n.kind == nkHiddenDeref: n[0] else: n
-  if n.kind == nkHiddenCallConv and n.len > 1:
-    result = $n[0] & "(" & result & ")"
-  elif n.kind in {nkHiddenStdConv, nkHiddenSubConv} and n.len == 2:
-    result = typeToString(n.typ.skipTypes(abstractVar)) & "(" & result & ")"
+        arg = c.semOperand(c, n[i])
+        n[i] = arg
 
-proc presentFailedCandidates(c: PContext, n: PNode, errors: CandidateErrors):
-                            (TPreferedDesc, string) =
-  var prefer = preferName
-  # to avoid confusing errors like:
-  #   got (SslPtr, SocketHandle)
-  #   but expected one of:
-  #   openssl.SSL_set_fd(ssl: SslPtr, fd: SocketHandle): cint
-  # we do a pre-analysis. If all types produce the same string, we will add
-  # module information.
-  let proto = describeArgs(c, n, 1, preferName)
+    if arg.typ != nil and arg.typ.kind == tyError:
+      return
+
+    result.add arg
+
+proc presentFailedCandidates(
+  c: PContext, n: PNode, errors: CandidateErrors): seq[SemCallMismatch] =
+  ## Construct list of type mismatch descriptions for subsequent reporting.
+  ## This procedure simply repacks the data from CandidateErrors into
+  ## `SemCallMismatch` - discard unnecessary data, pull important elements
+  ## into the result. No actual formatting is done here.
+
+
+  var candidates: seq[SemCallMismatch]
   for err in errors:
-    var errProto = ""
-    let n = err.sym.typ.n
-    for i in 1..<n.len:
-      var p = n[i]
-      if p.kind == nkSym:
-        errProto.add(typeToString(p.sym.typ, preferName))
-        if i != n.len-1: errProto.add(", ")
-      # else: ignore internal error as we're already in error handling mode
-    if errProto == proto:
-      prefer = preferModuleInfo
-      break
+    var cand = SemCallMismatch(
+      kind: err.firstMismatch.kind,
+      expression: n,
+      arguments: maybeResemArgs(c, n, 1)
+    )
 
-  # we pretend procs are attached to the type of the first
-  # argument in order to remove plenty of candidates. This is
-  # comparable to what C# does and C# is doing fine.
-  var filterOnlyFirst = false
-  if optShowAllMismatches notin c.config.globalOptions:
-    for err in errors:
-      if err.firstMismatch.arg > 1:
-        filterOnlyFirst = true
-        break
+    cand.target = err.sym
+    cand.arg = err.firstMismatch.arg
 
-  var
-    maybeWrongSpace = false
-    candidatesAll: seq[string]
-    candidates = ""
-    skipped = 0
-  for err in errors:
-    candidates.setLen 0
-    if filterOnlyFirst and err.firstMismatch.arg == 1:
-      inc skipped
-      continue
-    if err.sym.kind in routineKinds and err.sym.ast != nil:
-      candidates.add(renderTree(err.sym.ast,
-            {renderNoBody, renderNoComments, renderNoPragmas}))
-    else:
-      candidates.add(getProcHeader(c.config, err.sym, prefer))
-    candidates.addDeclaredLocMaybe(c.config, err.sym)
-    candidates.add("\n")
-    let nArg = if err.firstMismatch.arg < n.len: n[err.firstMismatch.arg] else: nil
-    let nameParam = if err.firstMismatch.formal != nil: err.firstMismatch.formal.name.s else: ""
+    let nArg =
+      if err.firstMismatch.arg < n.len:
+        n[err.firstMismatch.arg]
+      else:
+        nil
+
+    cand.targetArg = err.firstMismatch.formal
+    cand.diagnostics = err.diagnostics
+
     if n.len > 1:
-      candidates.add("  first type mismatch at position: " & $err.firstMismatch.arg)
-      # candidates.add "\n  reason: " & $err.firstMismatch.kind # for debugging
-      case err.firstMismatch.kind
-      of kUnknownNamedParam:
-        if nArg == nil:
-          candidates.add("\n  unknown named parameter")
-        else:
-          candidates.add("\n  unknown named parameter: " & $nArg[0])
-      of kAlreadyGiven: candidates.add("\n  named param already provided: " & $nArg[0])
-      of kPositionalAlreadyGiven: candidates.add("\n  positional param was already given as named param")
-      of kExtraArg: candidates.add("\n  extra argument given")
-      of kMissingParam: candidates.add("\n  missing parameter: " & nameParam)
-      of kTypeMismatch, kVarNeeded:
-        doAssert nArg != nil
-        let wanted = err.firstMismatch.formal.typ
-        doAssert err.firstMismatch.formal != nil
-        candidates.add("\n  required type for " & nameParam &  ": ")
-        candidates.addTypeDeclVerboseMaybe(c.config, wanted)
-        candidates.add "\n  but expression '"
-        if err.firstMismatch.kind == kVarNeeded:
-          candidates.add renderNotLValue(nArg)
-          candidates.add "' is immutable, not 'var'"
-        else:
-          candidates.add renderTree(nArg)
-          candidates.add "' is of type: "
-          let got = nArg.typ
-          candidates.addTypeDeclVerboseMaybe(c.config, got)
-          doAssert wanted != nil
-          if got != nil:
-            if got.kind == tyProc and wanted.kind == tyProc:
-              # These are proc mismatches so,
-              # add the extra explict detail of the mismatch
-              candidates.addPragmaAndCallConvMismatch(wanted, got, c.config)
-            effectProblem(wanted, got, candidates, c)
+      case cand.kind:
+        of kUnknownNamedParam,
+           kAlreadyGiven,
+           kPositionalAlreadyGiven,
+           kExtraArg,
+           kMissingParam:
+         # Additional metadata only contains `targetArg` that is
+         # unconditionally assigned from `err.formal`
+          discard
 
-      of kUnknown: discard "do not break 'nim check'"
-      candidates.add "\n"
-      if err.firstMismatch.arg == 1 and nArg.kind == nkTupleConstr and
-          n.kind == nkCommand:
-        maybeWrongSpace = true
-    for diag in err.diagnostics:
-      candidates.add(errorToString(c.config, diag) & "\n")
-    candidatesAll.add candidates
-  candidatesAll.sort # fix #13538
-  candidates = join(candidatesAll)
-  if skipped > 0:
-    candidates.add($skipped & " other mismatching symbols have been " &
-        "suppressed; compile with --showAllMismatches:on to see them\n")
-  if maybeWrongSpace:
-    candidates.add("maybe misplaced space between " & renderTree(n[0]) & " and '(' \n")
+        of kTypeMismatch, kVarNeeded:
+          assert nArg != nil
+          assert cand.targetArg != nil
+          assert cand.targetArg.typ != nil
+          assert nArg.typ != nil
+          cand.typeMismatch = c.config.typeMismatch(
+            err.firstMismatch.formal.typ, nArg.typ)
 
-  result = (prefer, candidates)
+        of kUnknown:
+          # do not break 'nim check'
+          discard
 
-const
-  errTypeMismatch = "type mismatch: got <"
-  errButExpected = "but expected one of:"
-  errUndeclaredField = "undeclared field: '$1'"
-  errUndeclaredRoutine = "attempting to call undeclared routine: '$1'"
-  errBadRoutine = "attempting to call routine: '$1'$2"
-  errAmbiguousCallXYZ = "ambiguous call; both $1 and $2 match for: $3"
+    candidates.add cand
+
+  result = candidates
 
 proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
   ## Gives a detailed error message; this is separated from semOverloadedCall,
   ## as semOverloadedCall is already pretty slow (and we need this information
   ## only in case of an error).
   ## returns an nkError
+  addInNimDebugUtils(c.config, "notFoundError")
   if c.config.m.errorOutputs == {}:
     # xxx: this is a hack to detect we're evaluating a constant expression or
     #      some other vm code, it seems
     # fail fast:
-    result = newError(n, RawTypeMismatchError)
-    return # xxx: under the legacy error scheme, this was a `msgs.globalError`,
+    result = c.config.newError(n, reportSem rsemRawTypeMismatch)
+    return # xxx: under the legacy error scheme, this was a `msgs.globalReport`,
            #      which means `doRaise`, but that made sense because we did a
            #      double pass, now we simply return for fast exit.
   if errors.len == 0:
     # no further explanation available for reporting
-    result = newError(n, ExpressionCannotBeCalled)
+    #
+    # QUESTION I wonder if it makes sense to still attempt spelling
+    # correction here.
+    result = c.config.newError(n, reportSem rsemExpressionCannotBeCalled)
     return
 
-  let (prefer, candidates) = presentFailedCandidates(c, n, errors)
-  var msg = errTypeMismatch
-  msg.add(describeArgs(c, n, 1, prefer))
-  msg.add('>')
-  if candidates != "":
-    msg.add("\n" & errButExpected & "\n" & candidates)
-  result =
-    newError(
-      n,
-      msg & "\nexpression: " & n.renderTree({renderWithoutErrorPrefix})
-    )
+  var f = n[0]
+  if f.kind == nkBracketExpr:
+    f = f[0]
+
+  if f.kind in {nkOpenSymChoice, nkClosedSymChoice}:
+    f = f[0]
+
+  assert f.kind in {nkSym, nkIdent}
+
+  var report = reportAst(rsemCallTypeMismatch, n)
+  report.spellingCandidates = fixSpelling(
+    c, tern(f.kind == nkSym, f.sym.name, f.ident))
+
+  report.callMismatches = presentFailedCandidates(c, n, errors)
+
+  result = newError(c.config, n, report)
+
 
 proc bracketNotFoundError(c: PContext; n: PNode): PNode =
   var errors: CandidateErrors = @[]
@@ -326,13 +269,15 @@ proc bracketNotFoundError(c: PContext; n: PNode): PNode =
                                 firstMismatch: MismatchInfo(),
                                 diagnostics: @[]))
     symx = nextOverloadIter(o, c, headSymbol)
-  result =
-    if errors.len == 0:
-      newCustomErrorMsgAndNode(n, "could not resolve: ")
-    else:
-      notFoundError(c, n, errors)
 
-proc getMsgDiagnostic(c: PContext, flags: TExprFlags, n, origF: PNode): string =
+  result = notFoundError(c, n, errors)
+
+proc getMsgDiagnostic(
+    c: PContext, flags: TExprFlags, n, origF: PNode): SemReport =
+  ## Generate report for
+  ## - `foo.bar()` in case of missing `bar()` overloads
+  ## - `iter()` for inline iterators outside of the loop
+  ## - `obj.field` for missing fields
   # for dotField calls, eg: `foo.bar()`, set f for nicer messages
   let f =
     if {nfDotField} <= n.flags and n.safeLen >= 3:
@@ -340,36 +285,48 @@ proc getMsgDiagnostic(c: PContext, flags: TExprFlags, n, origF: PNode): string =
     else:
       origF
 
+  # HACK apparently this call is still necessary to provide some additional
+  # input validation and optionally raise the 'identifier expected but
+  # found' error.
+  discard considerQuotedIdent(c, f, n)
+
   if c.compilesContextId > 0:
     # we avoid running more diagnostic when inside a `compiles(expr)`, to
     # errors while running diagnostic (see test D20180828T234921), and
     # also avoid slowdowns in evaluating `compiles(expr)`.
-    discard
+    result = SemReport(kind: rsemCompilesReport)
+
   else:
     var o: TOverloadIter
+    if {nfDotField, nfExplicitCall} * n.flags == {nfDotField}:
+      result = SemReport(
+        typ: n[1].typ,
+        str: $f,
+        ast: n,
+        explicitCall: false,
+        kind: rsemCallNotAProcOrField)
+
+    else:
+      result = SemReport(
+        str: $f,
+        ast: n,
+        explicitCall: true,
+        kind: rsemCallNotAProcOrField)
+
+
+    # store list of potenttial overload candidates that might be misuesd -
+    # for example `obj.iterator()` call outside of the for loop.
     var sym = initOverloadIter(o, c, f)
     while sym != nil:
-      result &= "\n  found $1" % [getSymRepr(c.config, sym)]
+      result.unexpectedCandidate.add(sym)
       sym = nextOverloadIter(o, c, f)
 
-  let ident = considerQuotedIdent(c, f, n).s
-  if {nfDotField, nfExplicitCall} * n.flags == {nfDotField}:
-    let sym = n[1].typ.typSym
-    var typeHint = ""
-    if sym == nil:
-      # Perhaps we're in a `compiles(foo.bar)` expression, or
-      # in a concept, e.g.:
-      #   ExplainedConcept {.explain.} = concept x
-      #     x.foo is int
-      # We could use: `(c.config $ n[1].info)` to get more context.
-      discard
-    else:
-      typeHint = " for type " & getProcHeader(c.config, sym)
-    let suffix = if result.len > 0: " " & result else: ""
-    result = errUndeclaredField % ident & typeHint & suffix
-  else:
-    if result.len == 0: result = errUndeclaredRoutine % ident
-    else: result = errBadRoutine % [ident, result]
+    if f.kind == nkIdent:
+      # Throw in potential typos - `obj.cull()` or `obj.lenghh` might
+      # potentially be caused by this. This error is also called for `4
+      # +2`, so command is not always an identifier.
+      result.spellingCandidates = fixSpelling(c, f.ident)
+
 
 proc resolveOverloads(c: PContext, n, orig: PNode,
                       filter: TSymKinds, flags: TExprFlags,
@@ -411,7 +368,8 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
       else: return
 
     if nfDotField in n.flags:
-      internalAssert c.config, f.kind == nkIdent and n.len >= 2
+      internalAssert(c.config, f.kind == nkIdent and n.len >= 2, "")
+
       if f.ident.s notin [".", ".()"]: # a dot call on a dot call is invalid
         # leave the op head symbol empty,
         # we are going to try multiple variants
@@ -445,20 +403,22 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
           if sym == nil:
             # xxx adapt/use errorUndeclaredIdentifierHint(c, n, f.ident)
             let msg = getMsgDiagnostic(c, flags, n, f)
-            result.call = newError(n, msg)
+            result.call = c.config.newError(n, msg)
           else:
-            let field = n[2].ident.s
-            let msg = errUndeclaredField % field & " for type " & getProcHeader(c.config, sym)
-            n[2] = newError(n[2], msg)
-            result.call = wrapErrorInSubTree(n)
+            n[2] = c.config.newError(n[2], SemReport(
+              kind: rsemUndeclaredField, ast: n[2], sym: sym, typ: sym.typ))
+
+            result.call = wrapErrorInSubTree(c.config, n)
         else:
           # xxx adapt/use errorUndeclaredIdentifierHint(c, n, f.ident)
           let msg = getMsgDiagnostic(c, flags, n, f)
-          result.call = newError(n, msg)
+          result.call = c.config.newError(n, msg)
       return
     elif result.state != csMatch:
       if nfExprCall in n.flags:
-        result.call = newError(n, ExpressionCannotBeCalled)
+        result.call = c.config.newError(
+          n, reportAst(rsemExpressionCannotBeCalled, n))
+
       else:
         if {nfDotField, nfDotSetter} * n.flags != {}:
           # clean up the inserted ops
@@ -467,24 +427,19 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
       return
   if alt.state == csMatch and cmpCandidates(result, alt) == 0 and
       not sameMethodDispatcher(result.calleeSym, alt.calleeSym):
-    internalAssert c.config, result.state == csMatch
+    internalAssert(c.config, result.state == csMatch, "")
     #writeMatches(result)
     #writeMatches(alt)
     if c.config.m.errorOutputs == {}:
       # quick error message for performance of 'compiles' built-in:
-      globalError(c.config, n.info, errGenerated, "ambiguous call")
-    elif c.config.errorCounter == 0:
-      # don't cascade errors
-      var args = "("
-      for i in 1..<n.len:
-        if i > 1: args.add(", ")
-        args.add(typeToString(n[i].typ))
-      args.add(")")
+      globalReport(c.config, n.info, reportSem(rsemAmbiguous))
 
-      localError(c.config, n.info, errAmbiguousCallXYZ % [
-        getProcHeader(c.config, result.calleeSym),
-        getProcHeader(c.config, alt.calleeSym),
-        args])
+    elif c.config.errorCounter == 0:
+      localReport(c.config, n.info, reportSymbols(
+        rsemAmbiguous,
+        @[result.calleeSym, alt.calleeSym],
+        ast = n
+      ))
 
 proc instGenericConvertersArg*(c: PContext, a: PNode, x: TCandidate) =
   let a = if a.kind == nkHiddenDeref: a[0] else: a
@@ -589,7 +544,10 @@ proc semResolvedCall(c: PContext, x: TCandidate,
         of skType:
           x.call.add newSymNode(s, n.info)
         else:
-          internalAssert c.config, false
+          internalAssert(
+            c.config, false,
+            "Unexpected symbol kind for result of 'instantiateGenericParamList': " &
+              $s.kind)
 
   result = x.call
   instGenericConvertersSons(c, result, x)
@@ -608,9 +566,11 @@ proc tryDeref(n: PNode): PNode =
 
 proc semOverloadedCall(c: PContext, n, nOrig: PNode,
                        filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
+  addInNimDebugUtils(c.config, "semOverloadedCall")
   var errors: CandidateErrors = @[]
 
   var r = resolveOverloads(c, n, nOrig, filter, flags, errors)
+
   if r.state != csMatch and implicitDeref in c.features and canDeref(n):
     # try to deref the first argument and then try overloading resolution again:
     #
@@ -625,20 +585,26 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
   if r.state == csMatch:
     # this may be triggered, when the explain pragma is used
     if (r.diagnosticsEnabled or efExplain in flags) and errors.len > 0:
-      let (_, candidates) = presentFailedCandidates(c, n, errors)
-      message(c.config, n.info, hintUserRaw,
-              "Non-matching candidates for " & renderTree(n) & "\n" &
-              candidates)
+      localReport(c.config, n.info, SemReport(
+        ast: n,
+        kind: rsemNonMatchingCandidates,
+        callMismatches: presentFailedCandidates(c, n, errors)
+      ))
+
     result = semResolvedCall(c, r, n, flags)
+
   elif r.call != nil and r.call.kind == nkError:
     result = r.call
+
   elif efNoUndeclared notin flags:
     result = notFoundError(c, n, errors)
+
   else:
     result = r.call
 
 proc explicitGenericInstError(c: PContext; n: PNode): PNode =
-  localError(c.config, getCallLineInfo(n), errCannotInstantiateX % renderTree(n))
+  localReport(c.config, getCallLineInfo(n), reportAst(rsemCannotInstantiate, n))
+
   result = n
 
 proc explicitGenericSym(c: PContext, n: PNode, s: PSym): PNode =
@@ -680,8 +646,13 @@ proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
     # number of generic type parameters:
     if s.ast[genericParamsPos].safeLen != n.len-1:
       let expected = s.ast[genericParamsPos].safeLen
-      localError(c.config, getCallLineInfo(n), errGenerated, "cannot instantiate: '" & renderTree(n) &
-         "'; got " & $(n.len-1) & " typeof(s) but expected " & $expected)
+      localReport(c.config, getCallLineInfo(n), SemReport(
+        kind: rsemWrongNumberOfGenericParams,
+        ast: n,
+        countMismatch: (
+          expected: toInt128(expected),
+          got: toInt128(n.len - 1))))
+
       return n
     result = explicitGenericSym(c, n, s)
     if result == nil: result = explicitGenericInstError(c, n)
@@ -740,7 +711,8 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
     var resolved = semOverloadedCall(c, call, call, filter, {})
     if resolved != nil:
       if resolved.kind == nkError:
-        localError(c.config, resolved.info, errorToString(c.config, resolved))
+        localReport(c.config, resolved)
+
       result = resolved[0].sym
       if not compareTypes(result.typ[0], fn.typ[0], dcEqIgnoreDistinct):
         result = nil

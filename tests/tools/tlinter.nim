@@ -1,5 +1,5 @@
 discard """
-  cmd: '''nim c --styleCheck:hint $file'''
+  cmd: '''nim c --styleCheck=hint $file'''
   nimout: '''
 tlinter.nim(21, 14) Hint: 'nosideeffect' should be: 'noSideEffect' [Name]
 tlinter.nim(21, 28) Hint: 'myown' should be: 'myOwn' [template declared in tlinter.nim(19, 9)] [Name]
@@ -35,6 +35,5 @@ proc main =
 main()
 
 type
-  Foo = object
+  Foo {.used.} = object
     meh_field: int
-

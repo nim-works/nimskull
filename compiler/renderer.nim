@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-# This module implements the renderer of the standard Nim representation.
+## This module implements the renderer of the standard Nim representation.
 
 when defined(nimHasUsed):
   # 'import renderer' is so useful for debugging
@@ -15,7 +15,7 @@ when defined(nimHasUsed):
   {.used.}
 
 import
-  lexer, options, idents, strutils, ast, msgs, lineinfos
+  lexer, options, idents, strutils, ast, msgs, lineinfos, reports
 
 type
   TRenderFlag* = enum
@@ -411,7 +411,8 @@ proc atom(g: TSrcGen; n: PNode): string =
     if (n.typ != nil) and (n.typ.sym != nil): result = n.typ.sym.name.s
     else: result = "[type node]"
   else:
-    internalError(g.config, "renderer.atom " & $n.kind)
+    g.config.localReport InternalReport(
+      kind: rintUnreachable, msg: "renderer.atom " & $n.kind)
     result = ""
 
 proc lcomma(g: TSrcGen; n: PNode, start: int = 0, theEnd: int = - 1): int =
@@ -423,7 +424,7 @@ proc lcomma(g: TSrcGen; n: PNode, start: int = 0, theEnd: int = - 1): int =
       inc(result, lsub(g, param))
       inc(result, 2)          # for ``, ``
   if result > 0:
-    dec(result, 2)            # last does not get a comma!
+    dec(result, 2)            # last does not get a comma
 
 proc lsons(g: TSrcGen; n: PNode, start: int = 0, theEnd: int = - 1): int =
   assert(theEnd < 0)
@@ -1701,7 +1702,8 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
     gsub(g, n[0], c)
   else:
     #nkNone, nkExplicitTypeListCall:
-    internalError(g.config, n.info, "renderer.gsub(" & $n.kind & ')')
+    g.config.localReport InternalReport(
+      kind: rintUnreachable, msg: "renderer.gsub(" & $n.kind & ')')
 
 proc renderTree*(n: PNode, renderFlags: TRenderFlags = {}): string =
   if n == nil: return "<nil tree>"
@@ -1739,7 +1741,8 @@ proc renderModule*(n: PNode, outfile: string,
     write(f, g.buf)
     close(f)
   else:
-    rawMessage(g.config, errGenerated, "cannot open file: " & outfile)
+    g.config.localReport InternalReport(
+      kind: rintCannotOpenFile, file: outfile)
 
 proc initTokRender*(r: var TSrcGen, n: PNode, renderFlags: TRenderFlags = {}) =
   initSrcGen(r, renderFlags, newPartialConfigRef())

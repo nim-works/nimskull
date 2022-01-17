@@ -14,6 +14,7 @@ block: # `.noSideEffect`
 
   accept:
     func fun1() = discard foo(fn1)
+
   reject:
     func fun1() = discard foo(fn2)
 

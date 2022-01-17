@@ -18,7 +18,7 @@ import
   evaltempl, patterns, parampatterns, sempass2, linter, semmacrosanity,
   lowerings, plugins/active, lineinfos, strtabs, int128,
   isolation_check, typeallowed, modulegraphs, enumtostr, concepts, astmsgs,
-  errorhandling, errorreporting
+  errorhandling, errorreporting, reports, debugutils
 
 when defined(nimfix):
   import nimfix/prettybase
@@ -76,168 +76,6 @@ proc deltaTrace(stopProc, indent: string, entries: seq[StackTraceEntry])
     echo:
       "$1| $2 $3($4)" % [indent, $e.procname, $e.filename, $e.line]
 
-template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
-                                enterMsg, leaveMsg, getInfo: untyped) =
-  ## used by one of the dedicated templates in order to output compiler trace
-  ## data, use a dedicated template (see below) for actual output. this is a
-  ## helper that takes three templates, `enterMsg`, `leaveMsg`, and `getInfo`
-  ## that will emit a message when entering and leaving a proc, and getting
-  ## the string out of some lineinfo, respectively.
-  ## 
-  ## The dedicate templates take specific parameters and pass in the above
-  ## templates with the following signatures:
-  ## * enterMsg: indent: string -> string
-  ## * leaveMsg: indent: string -> string
-  ## * getInfo: void -> string
-  ##
-  ## once a specialized template exists, again see below, use at the start of a
-  ## proc, typically a high traffic one such as `semExpr` and then this will
-  ## output partial traces through the compiler.
-  ##
-  ## The output is roughly:
-  ## 1. begin message with starting location
-  ##    a.  a full stacktrace for context
-  ## 2. for each proc (nests):
-  ##    a. `>prcname plus useful info...`
-  ##    b. delta stack trace `| procname filepath(line, col)`
-  ##    c. `<prcname plus useful change info...`
-  ## 3. end message
-
-  # xxx: as this template develops, eventually all the delta traces will be
-  #      replaced with useful debugging output from here so we can inspect
-  #      what the compiler is doing. eventually, even that should be superceded
-  #      as that sort of transformation and observability should be first class
-
-  when defined(nimDebugUtils): # see `debugutils`
-
-    # do all this at the start of any proc we're debugging
-    let
-      isDebug = conf.isCompilerDebug()
-        ## see if we're in compiler debug mode and also use the fact that we know
-        ## this early to see if we just entered or just left
-
-      # determine indentitation levels for output
-      indentString = "  "
-      indentLevel = conf.debugUtilsStack.len
-      indent = indentString.repeat(indentLevel)
-      info = getInfo()
-
-    if isDebug:
-      conf.debugUtilsStack.add prcname # use this to track deltas 
-      echo enterMsg(indent)
-      if indentLevel != 0: # print a delta stack
-        # try to print only the part of the stacktrace since the last time,
-        # this is done by looking for any previous calls in `debugUtilsStack`
-        {.line.}: # stops the template showing up in the StackTraceEntries
-          let
-            stopProc =
-              if indentLevel == 1: prcname  # we're the only ones
-              else: conf.debugUtilsStack[^2] # the one before us
-            entries = getStackTraceEntries()
-            endsWith = entries.len - 1
-
-        # find the actual StackTraceEntry index based on the name
-        var startFrom = 0
-        for i in countdown(endsWith, 0):
-          let e = entries[i]
-          if i != endsWith and $e.procname == stopProc: # found the previous
-            startFrom = i + 1
-            break                                       # skip the rest
-
-        # print the trace oldest (startFrom) to newest (endsWith)
-        for i in startFrom..endsWith:
-          let e = entries[i]
-          echo:
-            "$1| $2 $3($4)" % [indent, $e.procname, $e.filename, $e.line]
-
-    # upon leaving the proc being debugged (`defer`), let's see what changed
-    defer:
-      if not isDebug and conf.isCompilerDebug():
-        # meaning we just analysed a `{.define(nimCompilerDebug).}`
-        # it started of as false, now after the proc's work (`semExpr`) this
-        # `defer`red logic is seeing `true`, so we must have just started.
-        echo "compiler debug start at (initial stacktrace follows): ", info
-        {.line.}:           # don't let the template show up in the StackTrace
-          writeStackTrace() # gives context to the rest of the partial traces
-                            # we do a full one instead
-      elif isDebug and not conf.isCompilerDebug():
-        # meaning we just analysed an `{.undef(nimCompilerDebug).}`
-        # it started of as true, now in the `defer` it's false
-        discard conf.debugUtilsStack.pop()
-        echo "compiler debug end: ", info
-      elif isDebug:
-        discard conf.debugUtilsStack.pop()
-        echo leaveMsg(indent)
-  else:
-    discard # noop if undefined
-
-template addInNimDebugUtils(c: ConfigRef; name: string; n, r: PNode;
-                            flags: TExprFlags) =
-  ## add tracing to procs that are primarily `PNode -> PNode`, with expr flags
-  ## and can determine the type
-  template enterMsg(indent: string): string =
-    "$1>$2: $3, $4, $5" % [indent, name, $n.kind, c$n.info, $flags]
-  template leaveMsg(indent: string): string =
-    "$1<$2: $3, $4, $5" %
-      [indent, name, $r.kind, c$r.info, if r != nil: $r.typ else: ""]
-  template getInfo(): string =
-    c$n.info
-
-  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
-
-template addInNimDebugUtils(c: ConfigRef; name: string; n, r: PNode) =
-  ## add tracing to procs that are primarily `PNode -> PNode`, and can
-  ## determine the type
-  
-  template enterMsg(indent: string): string =
-    "$1>$2: $3, $4" % [indent, name, $n.kind, c$n.info]
-  template leaveMsg(indent: string): string =
-    "$1<$2: $3, $4, $5" %
-      [indent, name, $r.kind, c$r.info, if r != nil: $r.typ else: ""]
-  template getInfo(): string =
-    c$n.info
-
-  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
-
-template addInNimDebugUtils(c: ConfigRef; name: string; n: PNode;
-                            prev, r: PType) =
-  ## add tracing to procs that are primarily `PNode, PType|nil -> PType`,
-  ## determining a type node, with a possible previous type.
-  template enterMsg(indent: string): string =
-    "$1>$2: $3, $4, prev: $5" %
-      [indent, name, $n.kind, c$n.info, $prev]
-  template leaveMsg(indent: string): string =
-    "$1<$2: $3, $4, $5, %6, prev: $7" %
-      [indent, name, $n.kind, c$n.info, $n.typ, $r, $prev]
-  template getInfo(): string =
-    c$n.info
-  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
-
-template addInNimDebugUtils(c: ConfigRef; name: string; x: PType; n: PNode;
-                            r: PType) =
-  ## add tracing to procs that are primarily `PType, PNode -> PType`, looking
-  ## for a common type
-  template enterMsg(indent: string): string =
-    "$1>$2: $3, $4, $5, $6" %
-      [indent, name, $x.kind, c$n.info, $n.kind, $n.typ]
-  template leaveMsg(indent: string): string =
-    "$1<$2: $3, $4, $5, %6, $7" %
-      [indent, name, $x.kind, c$n.info, $x, $r, $n.typ]
-  template getInfo(): string =
-    c$n.info
-  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
-
-template addInNimDebugUtils(c: ConfigRef; name: string; x, y, r: PType) =
-  ## add tracing to procs that are primarily `PType, PType -> PType`, looking
-  ## for a common type
-  template enterMsg(indent: string): string =
-    "$1>$2: $3, $4" % [indent, name, $x.kind, $y.kind]
-  template leaveMsg(indent: string): string =
-    "$1<$2: $3, $4, $5, $6" % [indent, name, $x.kind, $x, $y, $r]
-  template getInfo(): string =
-    ""
-  addInNimDebugUtilsAux(c, name, enterMsg, leaveMsg, getInfo)
-
 template semIdeForTemplateOrGenericCheck(conf, n, requiresCheck) =
   # we check quickly if the node is where the cursor is
   when defined(nimsuggest):
@@ -266,8 +104,8 @@ proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
   if arg.typ.isNil:
-    localError(c.config, arg.info, "expression has no type: " &
-               renderTree(arg, {renderNoComments}))
+    c.config.localReport(arg.info, reportAst(rsemExpressionHasNoType, arg))
+
     # error correction:
     result = copyTree(arg)
     result.typ = formal
@@ -276,8 +114,10 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
     for ch in arg:
       if sameType(ch.typ, formal):
         return getConstExpr(c.module, ch, c.idgen, c.graph)
+
     # XXX: why don't we set the `typ` field to formal like above and below?
     result = typeMismatch(c.config, info, formal, arg.typ, arg)
+
   else:
     result = indexTypesMatch(c, formal, arg.typ, arg)
     if result == nil:
@@ -396,7 +236,7 @@ proc endsInNoReturn(n: PNode): bool =
 
 proc commonType*(c: PContext; x: PType, y: PNode): PType =
   # ignore exception raising branches in case/if expressions
-  addInNimDebugUtils(c.config, "commonType", x, y, result)
+  addInNimDebugUtils(c.config, "commonType", y, x, result)
   result = x
   if endsInNoReturn(y): return
   result = commonType(c, x, y.typ)
@@ -412,8 +252,11 @@ proc newSymG*(kind: TSymKind, n: PNode, c: PContext): PSym =
     # and sfGenSym in n.sym.flags:
     result = n.sym
     if result.kind notin {kind, skTemp}:
-      localError(c.config, n.info, "cannot use symbol of kind '$1' as a '$2'" %
-        [result.kind.toHumanStr, kind.toHumanStr])
+      localReport(c.config, n.info, SemReport(
+        kind: rsemSymbolKindMismatch,
+        sym: result,
+        expectedSymbolKind: {kind}))
+
     when false:
       if sfGenSym in result.flags and result.kind notin {skTemplate, skMacro, skParam}:
         # declarative context, so produce a fresh gensym:
@@ -441,15 +284,22 @@ proc typeAllowedCheck(c: PContext; info: TLineInfo; typ: PType; kind: TSymKind;
                       flags: TTypeAllowedFlags = {}) =
   let t = typeAllowed(typ, kind, c, flags)
   if t != nil:
-    var err: string
-    if t == typ:
-      err = "invalid type: '$1' for $2" % [typeToString(typ), toHumanStr(kind)]
-      if kind in {skVar, skLet, skConst} and taIsTemplateOrMacro in flags:
-        err &= ". Did you mean to call the $1 with '()'?" % [toHumanStr(typ.owner.kind)]
-    else:
-      err = "invalid type: '$1' in this context: '$2' for $3" % [typeToString(t),
-              typeToString(typ), toHumanStr(kind)]
-    localError(c.config, info, err)
+    # var err: string
+    # if t == typ:
+    #   err = "invalid type: '$1' for $2" % [typeToString(typ), toHumanStr(kind)]
+    #   if kind in {skVar, skLet, skConst} and taIsTemplateOrMacro in flags:
+    #     err &= ". Did you mean to call the $1 with '()'?" % [toHumanStr(typ.owner.kind)]
+    # else:
+    #   err = "invalid type: '$1' in this context: '$2' for $3" % [typeToString(t),
+    #           typeToString(typ), toHumanStr(kind)]
+
+    localReport(c.config, info, SemReport(
+      kind: rsemTypeNotAllowed,
+      allowedType: (
+        allowed: t,
+        actual: typ,
+        kind: kind,
+        allowedFlags: flags)))
 
 proc paramsTypeCheck(c: PContext, typ: PType) {.inline.} =
   typeAllowedCheck(c, typ.n.info, typ, skProc)
@@ -505,7 +355,7 @@ proc fixupTypeAfterEval(c: PContext, evaluated, eOrig: PNode): PNode =
       result = evaluated
       let expectedType = eOrig.typ.skipTypes({tyStatic})
       if hasCycle(result):
-        result = localErrorNode(c, eOrig, "the resulting AST is cyclic and cannot be processed further")
+        result = newError(c.config, eOrig, SemReport(kind: rsemCyclicTree))
       else:
         semmacrosanity.annotateType(result, expectedType, c.config)
   else:
@@ -521,8 +371,10 @@ proc fixupTypeAfterEval(c: PContext, evaluated, eOrig: PNode): PNode =
         arg.typ = eOrig.typ
 
 proc tryConstExpr(c: PContext, n: PNode): PNode =
+  addInNimDebugUtils(c.config, "tryConstExpr", n, result)
   var e = semExprWithType(c, n)
-  if e == nil: return
+  if e == nil:
+    return
 
   result = getConstExpr(c.module, e, c.idgen, c.graph)
   if result != nil: return
@@ -548,27 +400,25 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
   c.config.errorMax = oldErrorMax
   c.config.m.errorOutputs = oldErrorOutputs
 
-const
-  errConstExprExpected = "constant expression expected"
-
 proc semConstExpr(c: PContext, n: PNode): PNode =
   var e = semExprWithType(c, n)
   if e == nil:
-    localError(c.config, n.info, errConstExprExpected)
+    localReport(c.config, n.info, reportAst(rsemConstExprExpected, n))
+
     return n
   if e.kind in nkSymChoices and e[0].typ.skipTypes(abstractInst).kind == tyEnum:
     return e
   result = getConstExpr(c.module, e, c.idgen, c.graph)
   if result == nil:
-    #if e.kind == nkEmpty: globalError(n.info, errConstExprExpected)
+    #if e.kind == nkEmpty: globalReport(n.info, errConstExprExpected)
     result = evalConstExpr(c.module, c.idgen, c.graph, e)
     if result == nil or result.kind == nkEmpty:
       if e.info != n.info:
         pushInfoContext(c.config, n.info)
-        localError(c.config, e.info, errConstExprExpected)
+        localReport(c.config, e.info, SemReport(kind: rsemConstExprExpected))
         popInfoContext(c.config)
       else:
-        localError(c.config, e.info, errConstExprExpected)
+        localReport(c.config, e.info, SemReport(kind: rsemConstExprExpected))
       # error correction:
       result = e
     else:
@@ -608,7 +458,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
   ## contains.
   inc(c.config.evalTemplateCounter)
   if c.config.evalTemplateCounter > evalTemplateLimit:
-    globalError(c.config, s.info, "template instantiation too nested")
+    globalReport(c.config, s.info, SemReport(kind: rsemTemplateInstantiationTooNested))
   c.friendModules.add(s.owner.getModule)
   result = macroResult
   resetSemFlag result
@@ -632,8 +482,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListType)
       var typ = semTypeNode(c, result, nil)
       if typ == nil:
-        localError(c.config, result.info, "expression has no type: " &
-                   renderTree(result, {renderNoComments}))
+        localReport(c.config, result, reportSem rsemExpressionHasNoType)
         result = newSymNode(errorSym(c, result))
       else:
         result.typ = makeTypeDesc(c, typ)
@@ -653,38 +502,47 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
 
       result = semExpr(c, result, flags)
       result = fitNode(c, retType, result, result.info)
-      #globalError(s.info, errInvalidParamKindX, typeToString(s.typ[0]))
+      #globalReport(s.info, errInvalidParamKindX, typeToString(s.typ[0]))
   dec(c.config.evalTemplateCounter)
   discard c.friendModules.pop()
-
-const
-  errMissingGenericParamsForTemplate = "'$1' has unspecified generic parameters"
-  errFloatToString = "cannot convert '$1' to '$2'"
 
 proc semMacroExpr(c: PContext, n, nOrig: PNode, sym: PSym,
                   flags: TExprFlags = {}): PNode =
   rememberExpansion(c, nOrig.info, sym)
-  pushInfoContext(c.config, nOrig.info, sym.detailedInfo)
+  pushInfoContext(c.config, nOrig.info, sym)
 
   let info = getCallLineInfo(n)
   markUsed(c, info, sym)
   onUse(info, sym)
   if sym == c.p.owner:
-    globalError(c.config, info, "recursive dependency: '$1'" % sym.name.s)
+    globalReport(c.config, info, reportSym(rsemCyclicDependency, sym))
 
   let genericParams = sym.ast[genericParamsPos].len
   let suppliedParams = max(n.safeLen - 1, 0)
 
   if suppliedParams < genericParams:
-    globalError(c.config, info, errMissingGenericParamsForTemplate % n.renderTree)
+    globalReport(
+      c.config, info, reportAst(
+        rsemMissingGenericParamsForTemplate, n, sym = sym))
 
-  #if c.evalContext == nil:
-  #  c.evalContext = c.createEvalContext(emStatic)
-  result = evalMacroCall(c.module, c.idgen, c.graph, c.templInstCounter, n, nOrig, sym)
+  let reportTraceExpand = c.config.macrosToExpand.hasKey(sym.name.s)
+  var original: PNode
+  if reportTraceExpand:
+    original = n
+
+  result = evalMacroCall(
+    c.module, c.idgen, c.graph, c.templInstCounter, n, nOrig, sym)
+
   if efNoSemCheck notin flags:
     result = semAfterMacroCall(c, n, result, sym, flags)
-  if c.config.macrosToExpand.hasKey(sym.name.s):
-    message(c.config, nOrig.info, hintExpandMacro, renderTree(result))
+
+  if reportTraceExpand:
+    c.config.localReport(nOrig.info, SemReport(
+      sym: sym,
+      kind: rsemExpandMacro,
+      ast: original,
+      expandedAst: result))
+
   result = wrapInComesFrom(nOrig.info, sym, result)
   popInfoContext(c.config)
 
@@ -695,7 +553,7 @@ proc forceBool(c: PContext, n: PNode): PNode =
 proc semConstBoolExpr(c: PContext, n: PNode): PNode =
   result = forceBool(c, semConstExpr(c, n))
   if result.kind != nkIntLit:
-    localError(c.config, n.info, errConstExprExpected)
+    localReport(c.config, n, reportSem rsemConstExprExpected)
 
 proc semGenericStmt(c: PContext, n: PNode): PNode
 proc semConceptBody(c: PContext, n: PNode): PNode
@@ -761,6 +619,7 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   ## level statement basis, with the `PContext` parameter `c` acting as an
   ## accumulator across the various top level statements, modules, and overall
   ## program compilation.
+  addInNimDebugUtils(c.config, "semStmtAndGenerateGenerics")
 
   if c.isfirstTopLevelStmt and not isImportSystemStmt(c.graph, n):
     if sfSystemModule notin c.module.flags and not isEmptyTree(n):
@@ -806,7 +665,9 @@ proc myOpen(graph: ModuleGraph; module: PSym;
   c.enforceVoidContext = newType(tyTyped, nextTypeId(idgen), nil)
   c.voidType = newType(tyVoid, nextTypeId(idgen), nil)
 
-  if c.p != nil: internalError(graph.config, module.info, "sem.myOpen")
+  if c.p != nil:
+    internalError(graph.config, module.info, "sem.myOpen")
+
   c.semConstExpr = semConstExpr
   c.semExpr = semExpr
   c.semTryExpr = tryExpr
@@ -874,7 +735,8 @@ proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
 proc reportUnusedModules(c: PContext) =
   for i in 0..high(c.unusedImports):
     if sfUsed notin c.unusedImports[i][0].flags:
-      message(c.config, c.unusedImports[i][1], warnUnusedImportX, c.unusedImports[i][0].name.s)
+      localReport(c.config, c.unusedImports[i][1], reportSym(
+        rsemUnusedImport, c.unusedImports[i][0]))
 
 proc addCodeForGenerics(c: PContext, n: PNode) =
   for i in c.lastGenericIdx..<c.generics.len:
@@ -882,6 +744,7 @@ proc addCodeForGenerics(c: PContext, n: PNode) =
     if prc.kind in {skProc, skFunc, skMethod, skConverter} and prc.magic == mNone:
       if prc.ast == nil or prc.ast[bodyPos] == nil:
         internalError(c.config, prc.info, "no code for " & prc.name.s)
+
       else:
         n.add prc.ast
   c.lastGenericIdx = c.generics.len

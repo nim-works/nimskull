@@ -10,8 +10,8 @@
 # This module handles the reading of the config file.
 
 import
-  llstream, commands, os, strutils, msgs, lexer, ast,
-  options, idents, wordrecg, strtabs, lineinfos, pathutils, scriptconfig
+  llstream, commands, os, strutils, msgs, lexer, ast, reports,
+  options, idents, wordrecg, strtabs, pathutils, scriptconfig
 
 # ---------------- configuration file parser -----------------------------
 # we use Nim's lexer here to save space and work
@@ -26,8 +26,11 @@ proc parseAtom(L: var Lexer, tok: var Token; config: ConfigRef): bool =
   if tok.tokType == tkParLe:
     ppGetTok(L, tok)
     result = parseExpr(L, tok, config)
-    if tok.tokType == tkParRi: ppGetTok(L, tok)
-    else: lexMessage(L, errGenerated, "expected closing ')'")
+    if tok.tokType == tkParRi:
+      ppGetTok(L, tok)
+    else:
+      localReport(L, LexerReport(kind: rlexExpectedToken, msg: ")"))
+
   elif tok.tokType == tkNot:
     ppGetTok(L, tok)
     result = not parseAtom(L, tok, config)
@@ -52,13 +55,18 @@ proc parseExpr(L: var Lexer, tok: var Token; config: ConfigRef): bool =
 proc evalppIf(L: var Lexer, tok: var Token; config: ConfigRef): bool =
   ppGetTok(L, tok)            # skip 'if' or 'elif'
   result = parseExpr(L, tok, config)
-  if tok.tokType == tkColon: ppGetTok(L, tok)
-  else: lexMessage(L, errGenerated, "expected ':'")
+  if tok.tokType == tkColon:
+    ppGetTok(L, tok)
+
+  else:
+    localReport(L, LexerReport(kind: rlexExpectedToken, msg: ":"))
 
 #var condStack: seq[bool] = @[]
 
 proc doEnd(L: var Lexer, tok: var Token; condStack: var seq[bool]) =
-  if high(condStack) < 0: lexMessage(L, errGenerated, "expected @if")
+  if high(condStack) < 0:
+    localReport(L, LexerReport(kind: rlexExpectedToken, msg: "@if"))
+
   ppGetTok(L, tok)            # skip 'end'
   setLen(condStack, high(condStack))
 
@@ -69,16 +77,26 @@ type
 proc jumpToDirective(L: var Lexer, tok: var Token, dest: TJumpDest; config: ConfigRef;
                      condStack: var seq[bool])
 proc doElse(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq[bool]) =
-  if high(condStack) < 0: lexMessage(L, errGenerated, "expected @if")
+  if high(condStack) < 0:
+    localReport(L, LexerReport(kind: rlexExpectedToken, msg: "@if"))
+
   ppGetTok(L, tok)
-  if tok.tokType == tkColon: ppGetTok(L, tok)
-  if condStack[high(condStack)]: jumpToDirective(L, tok, jdEndif, config, condStack)
+  if tok.tokType == tkColon:
+    ppGetTok(L, tok)
+
+  if condStack[high(condStack)]:
+    jumpToDirective(L, tok, jdEndif, config, condStack)
 
 proc doElif(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq[bool]) =
-  if high(condStack) < 0: lexMessage(L, errGenerated, "expected @if")
+  if high(condStack) < 0:
+    localReport(L, LexerReport(kind: rlexExpectedToken, msg: "@if"))
+
   var res = evalppIf(L, tok, config)
-  if condStack[high(condStack)] or not res: jumpToDirective(L, tok, jdElseEndif, config, condStack)
-  else: condStack[high(condStack)] = true
+  if condStack[high(condStack)] or not res:
+    jumpToDirective(L, tok, jdElseEndif, config, condStack)
+
+  else:
+    condStack[high(condStack)] = true
 
 proc jumpToDirective(L: var Lexer, tok: var Token, dest: TJumpDest; config: ConfigRef;
                      condStack: var seq[bool]) =
@@ -106,7 +124,7 @@ proc jumpToDirective(L: var Lexer, tok: var Token, dest: TJumpDest; config: Conf
         discard
       ppGetTok(L, tok)
     elif tok.tokType == tkEof:
-      lexMessage(L, errGenerated, "expected @end")
+      localReport(L, LexerReport(kind: rlexExpectedToken, msg: "@end"))
     else:
       ppGetTok(L, tok)
 
@@ -123,8 +141,10 @@ proc parseDirective(L: var Lexer, tok: var Token; config: ConfigRef; condStack: 
   of wEnd: doEnd(L, tok, condStack)
   of wWrite:
     ppGetTok(L, tok)
-    msgs.msgWriteln(config, strtabs.`%`($tok, config.configVars,
-                                {useEnvironment, useKey}))
+    L.localReport(InternalReport(
+      kind: rintNimconfWrite,
+      msg: strtabs.`%`($tok, config.configVars, {useEnvironment, useKey})))
+
     ppGetTok(L, tok)
   else:
     case tok.ident.s.normalize
@@ -134,20 +154,28 @@ proc parseDirective(L: var Lexer, tok: var Token; config: ConfigRef; condStack: 
       ppGetTok(L, tok)
       os.putEnv(key, $tok)
       ppGetTok(L, tok)
+
     of "prependenv":
       ppGetTok(L, tok)
       var key = $tok
       ppGetTok(L, tok)
       os.putEnv(key, $tok & os.getEnv(key))
       ppGetTok(L, tok)
+
     of "appendenv":
       ppGetTok(L, tok)
       var key = $tok
       ppGetTok(L, tok)
       os.putEnv(key, os.getEnv(key) & $tok)
       ppGetTok(L, tok)
+
+    of "trace":
+      ppGetTok(L, tok)
+      localReport(L, DebugReport(kind: rdbgCfgTrace, str: $tok))
+      ppGetTok(L, tok)
+
     else:
-      lexMessage(L, errGenerated, "invalid directive: '$1'" % $tok)
+      localReport(L, LexerReport(kind: rlexCfgInvalidDirective, msg: $tok))
 
 proc confTok(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq[bool]) =
   ppGetTok(L, tok)
@@ -156,7 +184,7 @@ proc confTok(L: var Lexer, tok: var Token; config: ConfigRef; condStack: var seq
 
 proc checkSymbol(L: Lexer, tok: Token) =
   if tok.tokType notin {tkSymbol..tkInt64Lit, tkStrLit..tkTripleStrLit}:
-    lexMessage(L, errGenerated, "expected identifier, but got: " & $tok)
+    localReport(L, ParserReport(kind: rparIdentExpected, msg: $tok))
 
 proc parseAssignment(L: var Lexer, tok: var Token;
                      config: ConfigRef; condStack: var seq[bool]) =
@@ -181,8 +209,12 @@ proc parseAssignment(L: var Lexer, tok: var Token;
     val.add('[')
     val.add($tok)
     confTok(L, tok, config, condStack)
-    if tok.tokType == tkBracketRi: confTok(L, tok, config, condStack)
-    else: lexMessage(L, errGenerated, "expected closing ']'")
+    if tok.tokType == tkBracketRi:
+      confTok(L, tok, config, condStack)
+
+    else:
+      localReport(L, LexerReport(kind: rlexExpectedToken, msg: "]"))
+
     val.add(']')
   let percent = tok.ident != nil and tok.ident.s == "%="
   if tok.tokType in {tkColon, tkEquals} or percent:
@@ -214,16 +246,29 @@ proc readConfigFile*(filename: AbsoluteFile; cache: IdentCache;
     L: Lexer
     tok: Token
     stream: PLLStream
+
   stream = llStreamOpen(filename, fmRead)
   if stream != nil:
+    config.localReport DebugReport(
+      kind: rdbgStartingConfRead,
+      filename: filename.string
+    )
+
     initToken(tok)
     openLexer(L, filename, stream, cache, config)
     tok.tokType = tkEof       # to avoid a pointless warning
     var condStack: seq[bool] = @[]
     confTok(L, tok, config, condStack)           # read in the first token
     while tok.tokType != tkEof: parseAssignment(L, tok, config, condStack)
-    if condStack.len > 0: lexMessage(L, errGenerated, "expected @end")
+    if condStack.len > 0:
+      localReport(L, LexerReport(kind: rlexExpectedToken, msg: "@end"))
     closeLexer(L)
+
+    config.localReport DebugReport(
+      kind: rdbgFinishedConfRead,
+      filename: filename.string
+    )
+
     return true
 
 proc getUserConfigPath*(filename: RelativeFile): AbsoluteFile =
@@ -238,23 +283,35 @@ proc getSystemConfigPath*(conf: ConfigRef; filename: RelativeFile): AbsoluteFile
     if not fileExists(result): result = p / RelativeDir"etc/nim" / filename
     if not fileExists(result): result = AbsoluteDir"/etc/nim" / filename
 
-proc loadConfigs*(cfg: RelativeFile; cache: IdentCache; conf: ConfigRef; idgen: IdGenerator) =
+proc loadConfigs*(
+    cfg: RelativeFile; cache: IdentCache;
+    conf: ConfigRef; idgen: IdGenerator
+  ) =
+
+
   setDefaultLibpath(conf)
-  template readConfigFile(path) =
+  proc readConfigFile(path: AbsoluteFile) =
     let configPath = path
     if readConfigFile(configPath, cache, conf):
       conf.configFiles.add(configPath)
 
-  template runNimScriptIfExists(path: AbsoluteFile, isMain = false) =
+  proc runNimScriptIfExists(path: AbsoluteFile, isMain = false) =
     let p = path # eval once
     var s: PLLStream
     if isMain and optWasNimscript in conf.globalOptions:
-      if conf.projectIsStdin: s = stdin.llStreamOpen
-      elif conf.projectIsCmd: s = llStreamOpen(conf.cmdInput)
-    if s == nil and fileExists(p): s = llStreamOpen(p, fmRead)
+      if conf.projectIsStdin:
+        s = stdin.llStreamOpen
+
+      elif conf.projectIsCmd:
+        s = llStreamOpen(conf.cmdInput)
+
+    if s == nil and fileExists(p):
+      s = llStreamOpen(p, fmRead)
+
     if s != nil:
       conf.configFiles.add(p)
       runNimScript(cache, p, idgen, freshDefines = false, conf, s)
+
 
   if optSkipSystemConfigFile notin conf.globalOptions:
     readConfigFile(getSystemConfigPath(conf, cfg))
@@ -262,13 +319,19 @@ proc loadConfigs*(cfg: RelativeFile; cache: IdentCache; conf: ConfigRef; idgen: 
     if cfg == DefaultConfig:
       runNimScriptIfExists(getSystemConfigPath(conf, DefaultConfigNims))
 
+
   if optSkipUserConfigFile notin conf.globalOptions:
     readConfigFile(getUserConfigPath(cfg))
 
     if cfg == DefaultConfig:
       runNimScriptIfExists(getUserConfigPath(DefaultConfigNims))
 
-  let pd = if not conf.projectPath.isEmpty: conf.projectPath else: AbsoluteDir(getCurrentDir())
+  let pd = if not conf.projectPath.isEmpty:
+             conf.projectPath
+           else:
+             AbsoluteDir(getCurrentDir())
+
+
   if optSkipParentConfigFiles notin conf.globalOptions:
     for dir in parentDirs(pd.string, fromRoot=true, inclusive=false):
       readConfigFile(AbsoluteDir(dir) / cfg)
@@ -294,7 +357,7 @@ proc loadConfigs*(cfg: RelativeFile; cache: IdentCache; conf: ConfigRef; idgen: 
   template showHintConf =
     for filename in conf.configFiles:
       # delayed to here so that `hintConf` is honored
-      rawMessage(conf, hintConf, filename.string)
+      localReport(conf, ExternalReport(kind: rextConf, msg: filename.string))
   if conf.cmd == cmdNimscript:
     showHintConf()
     conf.configFiles.setLen 0

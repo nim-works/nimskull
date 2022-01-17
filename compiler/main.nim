@@ -20,6 +20,7 @@ import
   cgen, nversion,
   platform, nimconf, passaux, depends, vm,
   modules,
+  reports,
   modulegraphs, lineinfos, pathutils, vmprofiler
 
 import ic / [cbackend, integrity, navigator]
@@ -50,9 +51,16 @@ proc commandGenDepend(graph: ModuleGraph) =
   let project = graph.config.projectFull
   writeDepsFile(graph)
   generateDot(graph, project)
-  execExternalProgram(graph.config, "dot -Tpng -o" &
-      changeFileExt(project, "png").string &
-      ' ' & changeFileExt(project, "dot").string)
+  execExternalProgram(
+    graph.config,
+    (
+      "dot -Tpng -o" &
+        changeFileExt(project, "png").string &
+        ' ' &
+        changeFileExt(project, "dot").string
+    ),
+    rcmdExecuting
+  )
 
 proc commandCheck(graph: ModuleGraph) =
   let conf = graph.config
@@ -124,7 +132,10 @@ proc commandJsonScript(graph: ModuleGraph) =
 proc commandCompileToJS(graph: ModuleGraph) =
   let conf = graph.config
   when defined(leanCompiler):
-    globalError(conf, unknownLineInfo, "compiler wasn't built with JS code generator")
+    globalReport(conf, unknownLineInfo, InternalReport(
+      kind: rintUsingLeanCompiler,
+      msg: "Compiler was not build with js support"))
+
   else:
     conf.exc = excCpp
     setTarget(conf.target, osJS, cpuJS)
@@ -172,7 +183,8 @@ proc commandScan(cache: IdentCache, config: ConfigRef) =
       if tok.tokType == tkEof: break
     closeLexer(L)
   else:
-    rawMessage(config, errGenerated, "cannot open file: " & f.string)
+    localReport(config, InternalReport(
+      kind: rintCannotOpenFile, msg: f.string))
 
 proc commandView(graph: ModuleGraph) =
   let f = toAbsolute(mainCommandArg(graph.config), AbsoluteDir getCurrentDir()).addFileExt(RodExt)
@@ -207,6 +219,7 @@ proc setOutFile*(conf: ConfigRef) =
     conf.outFile = RelativeFile targetName
 
 proc mainCommand*(graph: ModuleGraph) =
+  ## Execute main compiler command
   let conf = graph.config
   let cache = graph.cache
 
@@ -277,15 +290,19 @@ proc mainCommand*(graph: ModuleGraph) =
     when hasTinyCBackend:
       extccomp.setCC(conf, "tcc", unknownLineInfo)
       if conf.backend != backendC:
-        rawMessage(conf, errGenerated, "'run' requires c backend, got: '$1'" % $conf.backend)
+        globalReport(conf, ExternalReport(
+          kind: rextExpectedCbackednForRun, usedCompiler: $conf.backend))
+
       compileToBackend()
     else:
-      rawMessage(conf, errGenerated, "'run' command not available; rebuild with -d:tinyc")
+      globalReport(conf, ExternalReport(
+        kind: rextExpectedTinyCForRun))
+
   of cmdDoc0: docLikeCmd commandDoc(cache, conf)
   of cmdDoc:
     docLikeCmd():
-      conf.setNoteDefaults(warnLockLevel, false) # issue #13218
-      conf.setNoteDefaults(warnRstRedefinitionOfLabel, false) # issue #13218
+      conf.setNoteDefaults(rsemLockLevelMismatch, false) # issue #13218
+      conf.setNoteDefaults(rbackRstRedefinitionOfLabel, false) # issue #13218
         # because currently generates lots of false positives due to conflation
         # of labels links in doc comments, e.g. for random.rand:
         #  ## * `rand proc<#rand,Rand,Natural>`_ that returns an integer
@@ -297,7 +314,7 @@ proc mainCommand*(graph: ModuleGraph) =
     # XXX: why are warnings disabled by default for rst2html and rst2tex?
     for warn in rstWarnings:
       conf.setNoteDefaults(warn, true)
-    conf.setNoteDefaults(warnRstRedefinitionOfLabel, false) # similar to issue #13218
+    conf.setNoteDefaults(rbackRstRedefinitionOfLabel, false) # similar to issue #13218
     when defined(leanCompiler):
       conf.quitOrRaise "compiler wasn't built with documentation generator"
     else:
@@ -320,53 +337,41 @@ proc mainCommand*(graph: ModuleGraph) =
   of cmdBuildindex: docLikeCmd commandBuildIndex(conf, $conf.projectFull, conf.outFile)
   of cmdGendepend: commandGenDepend(graph)
   of cmdDump:
-    if getConfigVar(conf, "dump.format") == "json":
-      wantMainModule(conf)
+    wantMainModule(conf)
+    var state = InternalStateDump()
+    for s in definedSymbolNames(conf.symbols):
+      state.definedSymbols.add $s
 
-      var definedSymbols = newJArray()
-      for s in definedSymbolNames(conf.symbols): definedSymbols.elems.add(%s)
+    for dir in conf.searchPaths:
+      state.libPaths.add(dir.string)
 
-      var libpaths = newJArray()
-      var lazyPaths = newJArray()
-      for dir in conf.searchPaths: libpaths.elems.add(%dir.string)
-      for dir in conf.lazyPaths: lazyPaths.elems.add(%dir.string)
+    for dir in conf.lazyPaths:
+      state.lazyPaths.add(dir.string)
 
-      var hints = newJObject() # consider factoring with `listHints`
-      for a in hintMin..hintMax:
-        hints[$a] = %(a in conf.notes)
-      var warnings = newJObject()
-      for a in warnMin..warnMax:
-        warnings[$a] = %(a in conf.notes)
+    for a in repHintKinds:
+      state.hints.add(($a, a in conf.notes))
 
-      var dumpdata = %[
-        (key: "version", val: %VersionAsString),
-        (key: "nimExe", val: %(getAppFilename())),
-        (key: "prefixdir", val: %conf.getPrefixDir().string),
-        (key: "libpath", val: %conf.libpath.string),
-        (key: "project_path", val: %conf.projectFull.string),
-        (key: "defined_symbols", val: definedSymbols),
-        (key: "lib_paths", val: %libpaths),
-        (key: "lazyPaths", val: %lazyPaths),
-        (key: "outdir", val: %conf.outDir.string),
-        (key: "out", val: %conf.outFile.string),
-        (key: "nimcache", val: %getNimcacheDir(conf).string),
-        (key: "hints", val: hints),
-        (key: "warnings", val: warnings),
-      ]
+    for a in repWarningKinds:
+      state.warnings.add(($a, a in conf.notes))
 
-      msgWriteln(conf, $dumpdata, {msgStdout, msgSkipHook, msgNoUnitSep})
-        # `msgNoUnitSep` to avoid generating invalid json, refs bug #17853
-    else:
-      msgWriteln(conf, "-- list of currently defined symbols --",
-                 {msgStdout, msgSkipHook, msgNoUnitSep})
-      for s in definedSymbolNames(conf.symbols): msgWriteln(conf, s, {msgStdout, msgSkipHook, msgNoUnitSep})
-      msgWriteln(conf, "-- end of list --", {msgStdout, msgSkipHook})
+    state.version     = VersionAsString
+    state.nimExe      = getAppFilename()
+    state.prefixdir   = conf.getPrefixDir().string
+    state.libpath     = conf.libpath.string
+    state.projectPath = conf.projectFull.string
+    state.outdir      = conf.outDir.string
+    state.`out`       = conf.outFile.string
+    state.nimcache    = getNimcacheDir(conf).string
 
-      for it in conf.searchPaths: msgWriteln(conf, it.string)
-  of cmdCheck: commandCheck(graph)
+    conf.localReport(InternalReport(kind: rintDumpState, stateDump: state))
+
+  of cmdCheck:
+    commandCheck(graph)
+
   of cmdParse:
     wantMainModule(conf)
     discard parseFile(conf.projectMainIdx, cache, conf)
+
   of cmdRod:
     wantMainModule(conf)
     commandView(graph)
@@ -375,14 +380,17 @@ proc mainCommand*(graph: ModuleGraph) =
   of cmdNimscript:
     if conf.projectIsCmd or conf.projectIsStdin: discard
     elif not fileExists(conf.projectFull):
-      rawMessage(conf, errGenerated, "NimScript file does not exist: " & conf.projectFull.string)
+      localReport(conf, InternalReport(
+        kind: rintCannotOpenFile, msg: conf.projectFull.string))
+
     # main NimScript logic handled in `loadConfigs`.
   of cmdNop: discard
   of cmdJsonscript:
     setOutFile(graph.config)
     commandJsonScript(graph)
   of cmdUnknown, cmdNone, cmdIdeTools, cmdNimfix:
-    rawMessage(conf, errGenerated, "invalid command: " & conf.command)
+    localReport(conf, ExternalReport(
+      msg: conf.command, kind: rextInvalidCommand))
 
   if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
     if optProfileVM in conf.globalOptions:

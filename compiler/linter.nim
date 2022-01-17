@@ -10,9 +10,7 @@
 ## This module implements the style checker.
 
 import std/strutils
-from std/sugar import dup
-
-import options, ast, msgs, idents, lineinfos, wordrecg, astmsgs
+import options, ast, msgs, lineinfos, wordrecg, reports
 
 const
   Letters* = {'a'..'z', 'A'..'Z', '0'..'9', '\x80'..'\xFF', '_'}
@@ -91,9 +89,12 @@ proc nep1CheckDefImpl(conf: ConfigRef; info: TLineInfo; s: PSym; k: TSymKind) =
   if s.typ != nil and s.typ.kind == tyTypeDesc: return
   if {sfImportc, sfExportc} * s.flags != {}: return
   if optStyleCheck notin s.options: return
-  let beau = beautifyName(s.name.s, k)
-  if s.name.s != beau:
-    lintReport(conf, info, beau, s.name.s)
+  let wanted = beautifyName(s.name.s, k)
+  if s.name.s != wanted:
+    conf.localReport(info, SemReport(
+      sym: s,
+      kind: rsemLinterReport,
+      linterFail: (wanted, s.name.s)))
 
 template styleCheckDef*(conf: ConfigRef; info: TLineInfo; s: PSym; k: TSymKind) =
   if {optStyleHint, optStyleError} * conf.globalOptions != {} and optStyleUsages notin conf.globalOptions:
@@ -129,10 +130,20 @@ proc styleCheckUse*(conf: ConfigRef; info: TLineInfo; s: PSym) =
   let badName = differs(conf, info, newName)
   if badName.len > 0:
     # special rules for historical reasons
-    let forceHint = badName == "nnkArgList" and newName == "nnkArglist" or badName == "nnkArglist" and newName == "nnkArgList"
-    lintReport(conf, info, newName, badName, forceHint = forceHint, extraMsg = "".dup(addDeclaredLoc(conf, s)))
+    let forceHint =
+      (badName == "nnkArgList" and newName == "nnkArglist") or
+      (badName == "nnkArglist" and newName == "nnkArgList")
+    conf.localReport(info, SemReport(
+      sym: s,
+      info: info,
+      kind: rsemLinterReportUse,
+      linterFail: (wanted: newName, got: badName)
+    ))
 
 proc checkPragmaUse*(conf: ConfigRef; info: TLineInfo; w: TSpecialWord; pragmaName: string) =
   let wanted = $w
   if pragmaName != wanted:
-    lintReport(conf, info, wanted, pragmaName)
+    conf.localReport(info, SemReport(
+      kind: rsemLinterReport,
+      linterFail: (wanted: wanted, got: pragmaName)
+    ))

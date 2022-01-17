@@ -54,13 +54,18 @@ proc pushProcCon*(c: PContext; owner: PSym) =
   rawPushProcCon(c, owner)
   rawHandleSelf(c, owner)
 
-const
-  errCannotInstantiateX = "cannot instantiate: '$1'"
-
 iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable): PSym =
-  internalAssert c.config, n.kind == nkGenericParams
+  internalAssert(
+    c.config,
+    n.kind == nkGenericParams,
+    "Expected generic parameter for a node, but found " & $n.kind)
+
   for i, a in n.pairs:
-    internalAssert c.config, a.kind == nkSym
+    internalAssert(
+      c.config,
+      a.kind == nkSym,
+      "Generic param list expected symbol, but found " & $a.kind)
+
     var q = a.sym
     if q.typ.kind in {tyTypeDesc, tyGenericParam, tyStatic, tyConcept}+tyTypeClasses:
       let symKind = if q.typ.kind == tyStatic: skConst else: skType
@@ -73,10 +78,12 @@ iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable): PSym 
           # later by semAsgn in return type inference scenario
           t = q.typ
         else:
-          localError(c.config, a.info, errCannotInstantiateX % s.name.s)
+          localReport(c.config, a.info, reportSym(rsemCannotInstantiate, s))
+
           t = errorType(c)
       elif t.kind in {tyGenericParam, tyConcept}:
-        localError(c.config, a.info, errCannotInstantiateX % q.name.s)
+        localReport(c.config, a.info, reportSym(rsemCannotInstantiate, q))
+
         t = errorType(c)
       elif t.kind == tyGenericInvocation:
         #t = instGenericContainer(c, a, t)
@@ -145,7 +152,7 @@ proc instantiateBody(c: PContext, n, params: PNode, result, orig: PSym) =
         if sfGenSym in param.flags:
           idTablePut(symMap, params[i].sym, result.typ.n[param.position+1].sym)
     freshGenSyms(c, b, result, orig, symMap)
-    if sfBorrow notin orig.flags: 
+    if sfBorrow notin orig.flags:
       # We do not want to generate a body for generic borrowed procs.
       # As body is a sym to the borrowed proc.
       b = semProcBody(c, b)
@@ -174,11 +181,14 @@ proc sideEffectsCheck(c: PContext, s: PSym) =
   when false:
     if {sfNoSideEffect, sfSideEffect} * s.flags ==
         {sfNoSideEffect, sfSideEffect}:
-      localError(s.info, errXhasSideEffects, s.name.s)
+      localReport(s.info, errXhasSideEffects, s.name.s)
 
 proc instGenericContainer(c: PContext, info: TLineInfo, header: PType,
                           allowMetaTypes = false): PType =
-  internalAssert c.config, header.kind == tyGenericInvocation
+  internalAssert(
+    c.config,
+    header.kind == tyGenericInvocation,
+    "Expected generic invocation for header kind, but found " & $header.kind)
 
   var
     cl: TReplTypeVars
@@ -271,7 +281,11 @@ proc instantiateProcType(c: PContext, pt: TIdTable,
        (typeToFit.kind != tyStatic):
       typeToFit = result[i]
 
-    internalAssert c.config, originalParams[i].kind == nkSym
+    internalAssert(
+      c.config,
+      originalParams[i].kind == nkSym,
+      "Expected symbol for param $1, but found $2" % [$i, $originalParams[i].kind])
+
     let oldParam = originalParams[i].sym
     let param = copySym(oldParam, nextSymId c.idgen)
     param.owner = prc
@@ -336,10 +350,16 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
   ## The `pt` parameter is a type-unsafe mapping table used to link generic
   ## parameters to their concrete types within the generic instance.
   # no need to instantiate generic templates/macros:
-  internalAssert c.config, fn.kind notin {skMacro, skTemplate}
+  internalAssert(
+    c.config,
+    fn.kind notin {skMacro, skTemplate},
+    "Expected macro or template, but found " & $fn.kind)
+
   # generates an instantiated proc
-  if c.instCounter > 50:
-    globalError(c.config, info, "generic instantiation too nested")
+  if 64 < c.instCounter:
+    globalReport(c.config, info, SemReport(
+      kind: rsemGenericInstantiationTooNested))
+
   inc(c.instCounter)
   # careful! we copy the whole AST including the possibly nil body!
   var n = copyTree(fn.ast)
@@ -362,9 +382,13 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
 
   openScope(c)
   let gp = n[genericParamsPos]
-  internalAssert c.config, gp.kind == nkGenericParams
+  internalAssert(
+    c.config,
+    gp.kind == nkGenericParams,
+    "Expected genric param list of a proc, but found " & $gp.kind)
+
   n[namePos] = newSymNode(result)
-  pushInfoContext(c.config, info, fn.detailedInfo)
+  pushInfoContext(c.config, info, fn)
   var entry = TInstantiation.new
   entry.sym = result
   # we need to compare both the generic types and the concrete types:
@@ -399,7 +423,8 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
       result.ast[pragmasPos] = pragma(c, result, n[pragmasPos], allRoutinePragmas)
       # check if we got any errors and if so report them
       for e in ifErrorWalkErrors(c.config, result.ast[pragmasPos]):
-        messageError(c.config, e)
+        localReport(c.config, e)
+
     if isNil(n[bodyPos]):
       n[bodyPos] = copyTree(getBody(c.graph, fn))
     if c.inGenericContext == 0:

@@ -7,50 +7,52 @@
 #    distribution, for details about the copyright.
 #
 
-# Module providing functions for calling the different external C compilers
-# Uses some hard-wired facts about each C/C++ compiler, plus options read
-# from a lineinfos file, to provide generalized procedures to compile
-# nim files.
+## Module providing functions for calling the different external C
+## compilers Uses some hard-wired facts about each C/C++ compiler, plus
+## options read from a lineinfos file, to provide generalized procedures to
+## compile nim files.
 
-import ropes, platform, condsyms, options, msgs, lineinfos, pathutils
+import ropes, platform, condsyms, options, msgs, lineinfos, pathutils, reports
+
 
 import std/[os, strutils, osproc, sha1, streams, sequtils, times, strtabs, json, jsonutils, sugar]
 
 type
-  TInfoCCProp* = enum         # properties of the C compiler:
-    hasSwitchRange,           # CC allows ranges in switch statements (GNU C)
-    hasComputedGoto,          # CC has computed goto (GNU C extension)
-    hasCpp,                   # CC is/contains a C++ compiler
-    hasAssume,                # CC has __assume (Visual C extension)
-    hasGcGuard,               # CC supports GC_GUARD to keep stack roots
-    hasGnuAsm,                # CC's asm uses the absurd GNU assembler syntax
-    hasDeclspec,              # CC has __declspec(X)
-    hasAttribute,             # CC has __attribute__((X))
+  TInfoCCProp* = enum         ## properties of the C compiler:
+    hasSwitchRange            ## CC allows ranges in switch statements (GNU C)
+    hasComputedGoto           ## CC has computed goto (GNU C extension)
+    hasCpp                    ## CC is/contains a C++ compiler
+    hasAssume                 ## CC has `__assume` (Visual C extension)
+    hasGcGuard                ## CC supports GC_GUARD to keep stack roots
+    hasGnuAsm                 ## CC's asm uses the absurd GNU assembler syntax
+    hasDeclspec               ## CC has `__declspec(X)`
+    hasAttribute              ## CC has `__attribute__((X))`
+
   TInfoCCProps* = set[TInfoCCProp]
-  TInfoCC* = tuple[
-    name: string,        # the short name of the compiler
-    objExt: string,      # the compiler's object file extension
-    optSpeed: string,    # the options for optimization for speed
-    optSize: string,     # the options for optimization for size
-    compilerExe: string, # the compiler's executable
-    cppCompiler: string, # name of the C++ compiler's executable (if supported)
-    compileTmpl: string, # the compile command template
-    buildGui: string,    # command to build a GUI application
-    buildDll: string,    # command to build a shared library
-    buildLib: string,    # command to build a static library
-    linkerExe: string,   # the linker's executable (if not matching compiler's)
-    linkTmpl: string,    # command to link files to produce an exe
-    includeCmd: string,  # command to add an include dir
-    linkDirCmd: string,  # command to add a lib dir
-    linkLibCmd: string,  # command to link an external library
-    debug: string,       # flags for debug build
-    pic: string,         # command for position independent code
-                         # used on some platforms
-    asmStmtFrmt: string, # format of ASM statement
-    structStmtFmt: string, # Format for struct statement
-    produceAsm: string,  # Format how to produce assembler listings
-    cppXsupport: string, # what to do to enable C++X support
-    props: TInfoCCProps] # properties of the C compiler
+  TInfoCC* = object
+    name*: string           ## the short name of the compiler
+    objExt*: string         ## the compiler's object file extension
+    optSpeed*: string       ## the options for optimization for speed
+    optSize*: string        ## the options for optimization for size
+    compilerExe*: string    ## the compiler's executable
+    cppCompiler*: string    ## name of the C++ compiler's executable (if supported)
+    compileTmpl*: string    ## the compile command template
+    buildGui*: string       ## command to build a GUI application
+    buildDll*: string       ## command to build a shared library
+    buildLib*: string       ## command to build a static library
+    linkerExe*: string      ## the linker's executable (if not matching compiler's)
+    linkTmpl*: string       ## command to link files to produce an exe
+    includeCmd*: string     ## command to add an include dir
+    linkDirCmd*: string     ## command to add a lib dir
+    linkLibCmd*: string     ## command to link an external library
+    debug*: string          ## flags for debug build
+    pic*: string            ## command for position independent code
+                            ## used on some platforms
+    asmStmtFrmt*: string    ## format of ASM statement
+    structStmtFmt*: string  ## Format for struct statement
+    produceAsm*: string     ## Format how to produce assembler listings
+    cppXsupport*: string    ## what to do to enable C++X support
+    props*: TInfoCCProps    ## properties of the C compiler
 
 
 # Configuration settings for various compilers.
@@ -65,7 +67,7 @@ const
 
 # GNU C and C++ Compiler
 compiler gcc:
-  result = (
+  result = TInfoCC(
     name: "gcc",
     objExt: "o",
     optSpeed: " -O3 -fno-ident",
@@ -92,7 +94,7 @@ compiler gcc:
 
 # GNU C and C++ Compiler
 compiler nintendoSwitchGCC:
-  result = (
+  result = TInfoCC(
     name: "switch_gcc",
     objExt: "o",
     optSpeed: " -O3 ",
@@ -140,7 +142,7 @@ compiler clang:
 
 # Microsoft Visual C/C++ Compiler
 compiler vcc:
-  result = (
+  result = TInfoCC(
     name: "vcc",
     objExt: "obj",
     optSpeed: " /Ogityb2 ",
@@ -188,7 +190,7 @@ compiler icc:
 
 # Borland C Compiler
 compiler bcc:
-  result = (
+  result = TInfoCC(
     name: "bcc",
     objExt: "obj",
     optSpeed: " -O3 -6 ",
@@ -215,7 +217,7 @@ compiler bcc:
 
 # Tiny C Compiler
 compiler tcc:
-  result = (
+  result = TInfoCC(
     name: "tcc",
     objExt: "o",
     optSpeed: "",
@@ -241,7 +243,7 @@ compiler tcc:
 
 # Your C Compiler
 compiler envcc:
-  result = (
+  result = TInfoCC(
     name: "env",
     objExt: "o",
     optSpeed: " -O3 ",
@@ -294,10 +296,8 @@ proc nameToCC*(name: string): TSystemCC =
       return i
   result = ccNone
 
-proc listCCnames(): string =
-  result = ""
+proc listCCnames(): seq[string] =
   for i in succ(ccNone)..high(TSystemCC):
-    if i > succ(ccNone): result.add ", "
     result.add CC[i].name
 
 proc isVSCompatible*(conf: ConfigRef): bool =
@@ -332,11 +332,18 @@ proc getConfigVar(conf: ConfigRef; c: TSystemCC, suffix: string): string =
 proc setCC*(conf: ConfigRef; ccname: string; info: TLineInfo) =
   conf.cCompiler = nameToCC(ccname)
   if conf.cCompiler == ccNone:
-    localError(conf, info, "unknown C compiler: '$1'. Available options are: $2" % [ccname, listCCnames()])
+    conf.localReport(ExternalReport(
+      kind: rextUnknownCCompiler,
+      knownCompilers: listCCnames(),
+      passedCompiler: ccname))
+
   conf.compileOptions = getConfigVar(conf, conf.cCompiler, ".options.always")
   conf.linkOptions = ""
   conf.cCompilerPath = getConfigVar(conf, conf.cCompiler, ".path")
-  for c in CC: undefSymbol(conf.symbols, c.name)
+
+  for c in CC:
+    undefSymbol(conf.symbols, c.name)
+
   defineSymbol(conf.symbols, CC[conf.cCompiler].name)
 
 proc addOpt(dest: var string, src: string) =
@@ -394,21 +401,23 @@ proc resetCompilationLists*(conf: ConfigRef) =
 proc addExternalFileToLink*(conf: ConfigRef; filename: AbsoluteFile) =
   conf.externalToLink.insert(filename.string, 0)
 
-proc execWithEcho(conf: ConfigRef; cmd: string, msg = hintExecuting): int =
-  rawMessage(conf, msg, if msg == hintLinking and not(optListCmd in conf.globalOptions or conf.verbosity > 1): "" else: cmd)
+proc execWithEcho(conf: ConfigRef; cmd: string, execKind: ReportKind): int =
+  conf.localReport(CmdReport(kind: execKind, cmd: cmd))
   result = execCmd(cmd)
 
-proc execExternalProgram*(conf: ConfigRef; cmd: string, msg = hintExecuting) =
-  if execWithEcho(conf, cmd, msg) != 0:
-    rawMessage(conf, errGenerated, "execution of an external program failed: '$1'" %
-      cmd)
+proc execExternalProgram*(conf: ConfigRef; cmd: string, kind: ReportKind) =
+  if execWithEcho(conf, cmd, kind) != 0:
+    conf.localReport CmdReport(kind: rcmdFailedExecution, cmd: cmd)
 
 proc generateScript(conf: ConfigRef; script: Rope) =
   let (_, name, _) = splitFile(conf.outFile.string)
-  let filename = getNimcacheDir(conf) / RelativeFile(addFileExt("compile_" & name,
-                                     platform.OS[conf.target.targetOS].scriptExt))
+  let filename = getNimcacheDir(conf) / RelativeFile(
+    addFileExt("compile_" & name, platform.OS[conf.target.targetOS].scriptExt))
+
   if not writeRope(script, filename):
-    rawMessage(conf, errGenerated, "could not write to file: " & filename.string)
+    conf.globalReport BackendReport(
+      kind: rbackCannotWriteScript,
+      filename: filename.string)
 
 proc getOptSpeed(conf: ConfigRef; c: TSystemCC): string =
   result = getConfigVar(conf, c, ".options.speed")
@@ -492,20 +501,27 @@ proc envFlags(conf: ConfigRef): string =
             getEnv("CFLAGS")
 
 proc getCompilerExe(conf: ConfigRef; compiler: TSystemCC; cfile: AbsoluteFile): string =
+  var target: string
   if compiler == ccEnv:
     result = if useCpp(conf, cfile):
-              getEnv("CXX")
-            else:
-              getEnv("CC")
+               target = "c++"
+               getEnv("CXX")
+             else:
+               target = "c"
+               getEnv("CC")
   else:
     result = if useCpp(conf, cfile):
-              CC[compiler].cppCompiler
-            else:
-              CC[compiler].compilerExe
+               target = "c++"
+               CC[compiler].cppCompiler
+             else:
+               target = "c"
+               CC[compiler].compilerExe
+
   if result.len == 0:
-    rawMessage(conf, errGenerated,
-      "Compiler '$1' doesn't support the requested target" %
-      CC[compiler].name)
+    conf.globalReport BackendReport(
+      kind: rbackTargetNotSupported,
+      requestedTarget: target,
+      usedCompiler:  CC[compiler].name)
 
 proc ccHasSaneOverflow*(conf: ConfigRef): bool =
   if conf.cCompiler == ccGcc:
@@ -607,11 +623,13 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
       let asmfile = objfile.changeFileExt(".asm").quoteShell
       addOpt(result, CC[conf.cCompiler].produceAsm % ["asmfile", asmfile])
       if produceOutput:
-        rawMessage(conf, hintUserRaw, "Produced assembler here: " & asmfile)
+        conf.localReport BackendReport(kind: rbackProducedAssembly, filename: asmfile)
+
     else:
       if produceOutput:
-        rawMessage(conf, hintUserRaw, "Couldn't produce assembler listing " &
-          "for the selected C compiler: " & CC[conf.cCompiler].name)
+        conf.localReport BackendReport(
+          kind: rbackCannotProduceAssembly,
+          usedCompiler: CC[conf.cCompiler].name)
 
   result.add(' ')
   result.addf(CC[c].compileTmpl, [
@@ -760,11 +778,11 @@ template tryExceptOSErrorMessage(conf: ConfigRef; errorPrefix: string = "", body
     body
   except OSError:
     let ose = (ref OSError)(getCurrentException())
-    if errorPrefix.len > 0:
-      rawMessage(conf, errGenerated, errorPrefix & " " & ose.msg & " " & $ose.errorCode)
-    else:
-      rawMessage(conf, errGenerated, "execution of an external program failed: '$1'" %
-        (ose.msg & " " & $ose.errorCode))
+    conf.localReport CmdReport(
+      kind: rcmdFailedExecution,
+      msg: if 0 < len(errorPrefix): errorPrefix & " " & ose.msg else: ose.msg,
+      code: ose.errorCode)
+
     raise
 
 proc getExtraCmds(conf: ConfigRef; output: AbsoluteFile): seq[string] =
@@ -775,31 +793,36 @@ proc getExtraCmds(conf: ConfigRef; output: AbsoluteFile): seq[string] =
 
 proc execLinkCmd(conf: ConfigRef; linkCmd: string) =
   tryExceptOSErrorMessage(conf, "invocation of external linker program failed."):
-    execExternalProgram(conf, linkCmd, hintLinking)
+    execExternalProgram(conf, linkCmd, rcmdLinking)
 
 proc execCmdsInParallel(conf: ConfigRef; cmds: seq[string]; prettyCb: proc (idx: int)) =
   let runCb = proc (idx: int, p: Process) =
     let exitCode = p.peekExitCode
     if exitCode != 0:
-      rawMessage(conf, errGenerated, "execution of an external compiler program '" &
-        cmds[idx] & "' failed with exit code: " & $exitCode & "\n\n")
-  if conf.numberOfProcessors == 0: conf.numberOfProcessors = countProcessors()
+      conf.localReport CmdReport(
+        kind: rcmdFailedExecution, cmd: cmds[idx], code: exitCode)
+
+  if conf.numberOfProcessors == 0:
+    conf.numberOfProcessors = countProcessors()
+
   var res = 0
   if conf.numberOfProcessors <= 1:
     for i in 0..high(cmds):
       tryExceptOSErrorMessage(conf, "invocation of external compiler program failed."):
-        res = execWithEcho(conf, cmds[i])
+        res = execWithEcho(conf, cmds[i], rcmdExecuting)
+
       if res != 0:
-        rawMessage(conf, errGenerated, "execution of an external program failed: '$1'" %
-          cmds[i])
+        conf.localReport CmdReport(
+          kind: rcmdFailedExecution, cmd: cmds[i], code: res)
   else:
     tryExceptOSErrorMessage(conf, "invocation of external compiler program failed."):
       res = execProcesses(cmds, {poStdErrToStdOut, poUsePath, poParentStreams},
                             conf.numberOfProcessors, prettyCb, afterRunEvent=runCb)
+
   if res != 0:
     if conf.numberOfProcessors <= 1:
-      rawMessage(conf, errGenerated, "execution of an external program failed: '$1'" %
-        cmds.join())
+      conf.localReport CmdReport(
+        kind: rcmdFailedExecution, cmd: cmds.join(), code: res)
 
 proc linkViaResponseFile(conf: ConfigRef; cmd: string) =
   # Extracting the linker.exe here is a bit hacky but the best solution
@@ -838,11 +861,11 @@ proc hcrLinkTargetName(conf: ConfigRef, objFile: string, isMain = false): Absolu
   result = conf.getNimcacheDir / RelativeFile(targetName)
 
 proc displayProgressCC(conf: ConfigRef, path, compileCmd: string): string =
-  if conf.hasHint(hintCC):
-    if optListCmd in conf.globalOptions or conf.verbosity > 1:
-      result = MsgKindToStr[hintCC] % (demanglePackageName(path.splitFile.name) & ": " & compileCmd)
-    else:
-      result = MsgKindToStr[hintCC] % demanglePackageName(path.splitFile.name)
+  if conf.hasHint(rcmdCompiling):
+    conf.localReport CmdReport(
+      kind: rcmdCompiling,
+      cmd: compileCmd,
+      msg: demanglePackageName(path.splitFile.name))
 
 proc callCCompiler*(conf: ConfigRef) =
   var
@@ -929,7 +952,7 @@ proc callCCompiler*(conf: ConfigRef) =
         else:
           execLinkCmd(conf, linkCmd)
         for cmd in extraCmds:
-          execExternalProgram(conf, cmd, hintExecuting)
+          execExternalProgram(conf, cmd, rcmdExecuting)
   else:
     linkCmd = ""
   if optGenScript in conf.globalOptions:
@@ -1019,17 +1042,21 @@ proc runJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
   createDir output.parentDir
   let outputCurrent = $conf.absOutFile
   if output != outputCurrent or bcache.cacheVersion != cacheVersion:
-    globalError(conf, gCmdLineInfo,
-      "jsonscript command outputFile '$1' must match '$2' which was specified during --compileOnly, see \"outputFile\" entry in '$3' " %
-      [outputCurrent, output, jsonFile.string])
+    conf.globalReport BackendReport(
+      kind: rbackJsonScriptMismatch,
+      jsonScriptParams: (outputCurrent, output, jsonFile.string))
+
   var cmds, prettyCmds: TStringSeq
   let prettyCb = proc (idx: int) = writePrettyCmdsStderr(prettyCmds[idx])
   for (name, cmd) in bcache.compile:
     cmds.add cmd
     prettyCmds.add displayProgressCC(conf, name, cmd)
+
   execCmdsInParallel(conf, cmds, prettyCb)
   execLinkCmd(conf, bcache.linkcmd)
-  for cmd in bcache.extraCmds: execExternalProgram(conf, cmd, hintExecuting)
+
+  for cmd in bcache.extraCmds:
+    execExternalProgram(conf, cmd, rcmdExecuting)
 
 proc genMappingFiles(conf: ConfigRef; list: CfileList): Rope =
   for it in list:
@@ -1052,4 +1079,5 @@ proc writeMapping*(conf: ConfigRef; symbolMapping: Rope) =
   code.addf("\n[Symbols]$n$1", [symbolMapping])
   let filename = getNimcacheDir(conf) / RelativeFile"mapping.txt"
   if not writeRope(code, filename):
-    rawMessage(conf, errGenerated, "could not write to file: " & filename.string)
+    conf.localReport BackendReport(
+      kind: rbackCannotWriteMappingFile, filename: filename.string)

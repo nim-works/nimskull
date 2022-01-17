@@ -627,6 +627,13 @@ proc value(this: var DebugPrinter; value: PNode) =
     if this.renderSymType and value.typ != nil:
       this.key "typ"
       this.value value.typ
+
+    if value.kind == nkError:
+      this.key "file"
+      this.value $value[compilerInfoPos].strVal
+      this.key "line"
+      this.value $value[compilerInfoPos].info.line
+
     if value.len > 0:
       this.key "sons"
       this.openBracket

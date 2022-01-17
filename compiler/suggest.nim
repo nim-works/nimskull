@@ -424,7 +424,7 @@ proc suggestFieldAccess(c: PContext, n, field: PNode, outputs: var Suggestions) 
         t = skipTypes(t[0], skipPtrs)
     elif typ.kind == tyTuple and typ.n != nil:
       suggestSymList(c, typ.n, field, n.info, outputs)
-    
+
     suggestOperations(c, n, field, orig, outputs)
     if typ != orig:
       suggestOperations(c, n, field, typ, outputs)
@@ -540,29 +540,26 @@ proc extractPragma(s: PSym): PNode =
 proc warnAboutDeprecated(conf: ConfigRef; info: TLineInfo; s: PSym) =
   var pragmaNode: PNode
   pragmaNode = if s.kind == skEnumField: extractPragma(s.owner) else: extractPragma(s)
-  let name =
-    if s.kind == skEnumField and sfDeprecated notin s.flags: "enum '" & s.owner.name.s & "' which contains field '" & s.name.s & "'"
-    else: s.name.s
   if pragmaNode != nil:
     for it in pragmaNode:
       if whichPragma(it) == wDeprecated and it.safeLen == 2 and
           it[1].kind in {nkStrLit..nkTripleStrLit}:
-        message(conf, info, warnDeprecated, it[1].strVal & "; " & name & " is deprecated")
+        localReport(conf, info, reportSym(
+          rsemDeprecated, s, str = it[1].strVal))
         return
-  message(conf, info, warnDeprecated, name & " is deprecated")
+  localReport(conf, info, reportSym(rsemDeprecated, s))
 
 proc userError(conf: ConfigRef; info: TLineInfo; s: PSym) =
   let pragmaNode = extractPragma(s)
-  template bail(prefix: string) =
-    localError(conf, info, "$1usage of '$2' is an {.error.} defined at $3" %
-      [prefix, s.name.s, toFileLineCol(conf, s.ast.info)])
   if pragmaNode != nil:
     for it in pragmaNode:
       if whichPragma(it) == wError and it.safeLen == 2 and
           it[1].kind in {nkStrLit..nkTripleStrLit}:
-        bail(it[1].strVal & "; ")
+        localReport(conf, info, reportSym(
+          rsemUsageIsError, s, str = it[1].strVal))
         return
-  bail("")
+
+  localReport(conf, info, reportSym(rsemUsageIsError, s))
 
 proc markOwnerModuleAsUsed(c: PContext; s: PSym) =
   var module = s
@@ -572,8 +569,9 @@ proc markOwnerModuleAsUsed(c: PContext; s: PSym) =
     var i = 0
     while i <= high(c.unusedImports):
       let candidate = c.unusedImports[i][0]
-      if candidate == module or c.importModuleMap.getOrDefault(candidate.id, int.low) == module.id or
-        c.exportIndirections.contains((candidate.id, s.id)):
+      if candidate == module or
+         c.importModuleMap.getOrDefault(candidate.id, int.low) == module.id or
+         c.exportIndirections.contains((candidate.id, s.id)):
         # mark it as used:
         c.unusedImports.del(i)
       else:

@@ -13,10 +13,12 @@
 
 import
   std/[strutils, tables, parseutils],
-  msgs, vmdef, vmgen, nimsets, types, passes,
+  msgs, vmdef, vmgen, nimsets, types, passes, reports,
   parser, vmdeps, idents, trees, renderer, options, transf,
   gorgeimpl, lineinfos, btrees, macrocacheimpl,
-  modulegraphs, sighashes, int128, vmprofiler
+  modulegraphs, sighashes, int128, vmprofiler,
+  debugutils, astalgo,
+  cli_reporter
 
 import ast except getstr
 from semfold import leValueConv, ordinalValToString
@@ -29,58 +31,76 @@ const
 when hasFFI:
   import evalffi
 
+const
+  errIllegalConvFromXtoY = "illegal conversion from '$1' to '$2'"
 
-proc stackTraceAux(c: PCtx; x: PStackFrame; pc: int; recursionLimit=100) =
-  if x != nil:
-    if recursionLimit == 0:
-      var calls = 0
-      var x = x
-      while x != nil:
-        inc calls
-        x = x.next
-      msgWriteln(c.config, $calls & " calls omitted\n", {msgNoUnitSep})
-      return
-    stackTraceAux(c, x.next, x.comesFrom, recursionLimit-1)
-    var info = c.debug[pc]
-    # we now use a format similar to the one in lib/system/excpt.nim
-    var s = ""
-    # todo: factor with quotedFilename
-    if optExcessiveStackTrace in c.config.globalOptions:
-      s = toFullPath(c.config, info)
-    else:
-      s = toFilename(c.config, info)
-    var line = toLinenumber(info)
-    var col = toColumn(info)
-    if line > 0:
-      s.add('(')
-      s.add($line)
-      s.add(", ")
-      s.add($(col + ColOffset))
-      s.add(')')
-    if x.prc != nil:
-      for k in 1..max(1, 25-s.len): s.add(' ')
-      s.add(x.prc.name.s)
-    msgWriteln(c.config, s, {msgNoUnitSep})
+proc stackTraceImpl(
+    c:          PCtx,
+    sframe:     PStackFrame,
+    pc:         int,
+    lineInfo:   TLineInfo,
+    infoOrigin: InstantiationInfo,
+    recursionLimit: int = 100
+  ) =
 
-proc stackTraceImpl(c: PCtx, tos: PStackFrame, pc: int,
-  msg: string, lineInfo: TLineInfo, infoOrigin: InstantiationInfo) {.noinline.} =
-  # noinline to avoid code bloat
-  msgWriteln(c.config, "stack trace: (most recent call last)", {msgNoUnitSep})
-  stackTraceAux(c, tos, pc)
+  proc aux(sframe: PStackFrame, pc, depth: int, res: var SemReport) =
+    if sframe != nil:
+      if recursionLimit < depth:
+        var calls = 0
+        var sframe = sframe
+        while sframe != nil:
+          inc calls
+          sframe = sframe.next
+
+        return
+
+      aux(sframe.next, sframe.comesFrom, depth + 1, res)
+      res.stacktrace.add((sym: sframe.prc, location: c.debug[pc]))
+
+  var res = SemReport(kind: rsemVmStackTrace)
+  res.currentExceptionA = c.currentExceptionA
+  res.currentExceptionB = c.currentExceptionB
+
+  aux(sframe, pc, 0, res)
+
   let action = if c.mode == emRepl: doRaise else: doNothing
-    # XXX test if we want 'globalError' for every mode
-  let lineInfo = if lineInfo == TLineInfo.default: c.debug[pc] else: lineInfo
-  liMessage(c.config, lineInfo, errGenerated, msg, action, infoOrigin)
 
-template stackTrace(c: PCtx, tos: PStackFrame, pc: int,
-                    msg: string, lineInfo: TLineInfo = TLineInfo.default) =
-  stackTraceImpl(c, tos, pc, msg, lineInfo, instantiationInfo(-2, fullPaths = compileOption"excessiveStackTrace"))
+  let report = wrap(res, infoOrigin, lineInfo)
+
+  c.config.handleReport(report, infoOrigin, action)
+
+
+template stackTrace(
+    c: PCtx,
+    tos: PStackFrame,
+    pc: int,
+    sem: ReportTypes,
+    info: TLineInfo,
+  ) =
+  stackTraceImpl(c, tos, pc, info, instLoc())
+  localReport(c.config, info, sem)
   return
 
-proc bailOut(c: PCtx; tos: PStackFrame) =
-  stackTrace(c, tos, c.exceptionInstr, "unhandled exception: " &
-             c.currentExceptionA[3].skipColon.strVal &
-             " [" & c.currentExceptionA[2].skipColon.strVal & "]")
+template stackTrace(
+    c: PCtx,
+    tos: PStackFrame,
+    pc: int,
+    sem: ReportTypes,
+  ) =
+  stackTraceImpl(c, tos, pc, c.debug[pc], instLoc())
+  localReport(c.config, c.debug[pc], sem)
+  return
+
+proc reportException(c: PCtx; tos: PStackFrame, raised: PNode) =
+  # REFACTOR VM implementation relies on the `stackTrace` calling return,
+  # but in this proc we are retuning only from it's body, so calling
+  # `reportException()` does not stop vm loops. This needs to be cleaned up
+  # - invisible injection of the `return` to control flow of execution is
+  # an absolute monkey-tier hack.
+  stackTrace(
+    c, tos, c.exceptionInstr,
+    reportAst(rsemVmUnhandledException, raised))
+
 
 when not defined(nimComputedGoto):
   {.pragma: computedGoto.}
@@ -384,7 +404,9 @@ proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType):
         dest.node.strVal = if f.ast.isNil: f.name.s else: f.ast.strVal
       else:
         for i in 0..<n.len:
-          if n[i].kind != nkSym: internalError(c.config, "opConv for enum")
+          if n[i].kind != nkSym:
+            internalError(c.config, "opConv for enum")
+
           let f = n[i].sym
           if f.position == x:
             dest.node.strVal = if f.ast.isNil: f.name.s else: f.ast.strVal
@@ -463,17 +485,18 @@ proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType):
 
 proc compile(c: PCtx, s: PSym): int =
   result = vmgen.genProc(c, s)
-  when debugEchoCode: c.echoCode result
-  #c.echoCode
+  when debugEchoCode:
+    c.codeListing(s, nil, start = result)
 
 template handleJmpBack() {.dirty.} =
   if c.loopIterations <= 0:
     if allowInfiniteLoops in c.features:
       c.loopIterations = c.config.maxLoopIterationsVM
     else:
-      msgWriteln(c.config, "stack trace: (most recent call last)", {msgNoUnitSep})
-      stackTraceAux(c, tos, pc)
-      globalError(c.config, c.debug[pc], errTooManyIterations % $c.config.maxLoopIterationsVM)
+      stackTraceImpl(c, tos, pc, c.debug[pc], instLoc())
+      globalReport(
+        c.config, c.debug[pc], reportSem(rsemVmTooManyIterations))
+
   dec(c.loopIterations)
 
 proc recSetFlagIsRef(arg: PNode) =
@@ -490,20 +513,10 @@ proc setLenSeq(c: PCtx; node: PNode; newLen: int; info: TLineInfo) =
     for i in oldLen..<newLen:
       node[i] = getNullValue(typ[0], info, c.config)
 
-const
-  errNilAccess = "attempt to access a nil address"
-  errOverOrUnderflow = "over- or underflow"
-  errConstantDivisionByZero = "division by zero"
-  errIllegalConvFromXtoY = "illegal conversion from '$1' to '$2'"
-  errTooManyIterations = "interpretation requires too many iterations; " &
-    "if you are sure this is not a bug in your code, compile with `--maxLoopIterationsVM:number` (current value: $1)"
-  errFieldXNotFound = "node lacks field: "
-
-
 template maybeHandlePtr(node2: PNode, reg: TFullReg, isAssign2: bool): bool =
   let node = node2 # prevent double evaluation
   if node.kind == nkNilLit:
-    stackTrace(c, tos, pc, errNilAccess)
+    stackTrace(c, tos, pc, reportSem(rsemVmNilAccess))
   let typ = node.typ
   if nfIsPtr in node.flags or (typ != nil and typ.kind == tyPtr):
     assert node.kind == nkIntLit, $(node.kind)
@@ -511,7 +524,7 @@ template maybeHandlePtr(node2: PNode, reg: TFullReg, isAssign2: bool): bool =
     let typ2 = if typ.kind == tyPtr: typ[0] else: typ
     if not derefPtrToReg(node.intVal, typ2, reg, isAssign = isAssign2):
       # tyObject not supported in this context
-      stackTrace(c, tos, pc, "deref unsupported ptr type: " & $(typeToString(typ), typ.kind))
+      stackTrace(c, tos, pc, reportTyp(rsemVmDerefUnsupportedPtr, typ))
     true
   else:
     false
@@ -533,6 +546,15 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       move(regs, tos.slots)
     var regs: seq[TFullReg] # alias to tos.slots for performance
     updateRegsAlias
+
+  proc reportVmIdx(usedIdx, maxIdx: SomeInteger): SemReport =
+    SemReport(
+      kind: rsemVmIndexError,
+      indexSpec: (
+        usedIdx: toInt128(usedIdx),
+        minIdx: toInt128(0),
+        maxIdx: toInt128(maxIdx)))
+
   #echo "NEW RUN ------------------------"
   while true:
     #{.computedGoto.}
@@ -540,19 +562,30 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
     let ra = instr.regA
 
     when traceCode:
-      template regDescr(name, r): string =
-        let kind = if r < regs.len: $regs[r].kind else: ""
-        let ret = name & ": " & $r & " " & $kind
-        alignLeft(ret, 15)
-      echo "PC:$pc $opcode $ra $rb $rc" % [
-        "pc", $pc, "opcode", alignLeft($c.code[pc].opcode, 15),
-        "ra", regDescr("ra", ra), "rb", regDescr("rb", instr.regB),
-        "rc", regDescr("rc", instr.regC)]
+      template regDescr(r): TRegisterKind =
+        if r < regs.len: regs[r].kind else: rkNone
+
+      c.config.localReport(DebugReport(
+        kind: rdbgVmExecTraceFull,
+        vmgenExecFull: (
+          pc: pc,
+          opc: c.code[pc].opcode,
+          info: c.debug[pc],
+          ra: regDescr(instr.regA),
+          rb: regDescr(instr.regB),
+          rc: regDescr(instr.regC)
+      )))
+
     if c.config.isVmTrace:
-      # unlike nimVMDebug, this doesn't require re-compiling nim and is controlled by user code
-      let info = c.debug[pc]
-      # other useful variables: c.loopIterations
-      echo "$# [$#] $#" % [c.config$info, $instr.opcode, c.config.sourceLine(info)]
+      # unlike nimVMDebug, this doesn't require re-compiling nim and is
+      # controlled by user code
+      c.config.localReport(DebugReport(
+        kind: rdbgVmExecTraceMinimal,
+        vmgenExecMinimal: (
+          info: c.debug[pc],
+          opc: instr.opcode
+      )))
+
     c.profiler.enter(c, tos)
     case instr.opcode
     of opcEof: return regs[ra]
@@ -610,7 +643,11 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         of rkNodeAddr:
           regs[ra].intVal = cast[int](regs[rb].nodeAddr)
         else:
-          stackTrace(c, tos, pc, "opcCastPtrToInt: got " & $regs[rb].kind)
+          stackTrace(
+            c, tos, pc,
+            reportStr(
+              rsemVmErrInternal, "opcCastPtrToInt: got " & $regs[rb].kind))
+
       of 2: # tyRef
         regs[ra].intVal = cast[int](regs[rb].node)
       else: assert false, $imm
@@ -622,9 +659,17 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       of rkInt: node2.intVal = regs[rb].intVal
       of rkNode:
         if regs[rb].node.typ.kind notin PtrLikeKinds:
-          stackTrace(c, tos, pc, "opcCastIntToPtr: regs[rb].node.typ: " & $regs[rb].node.typ.kind)
+          stackTrace(c, tos, pc, reportStr(
+            rsemVmErrInternal,
+            "opcCastIntToPtr: regs[rb].node.typ: " & $regs[rb].node.typ.kind))
+
         node2.intVal = regs[rb].node.intVal
-      else: stackTrace(c, tos, pc, "opcCastIntToPtr: regs[rb].kind: " & $regs[rb].kind)
+
+      else:
+        stackTrace(c, tos, pc, reportStr(
+          rsemVmErrInternal,
+          "opcCastIntToPtr: regs[rb].kind: " & $regs[rb].kind))
+
       regs[ra].node = node2
     of opcAsgnComplex:
       asgnComplex(regs[ra], regs[instr.regB])
@@ -656,7 +701,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       # a = b[c]
       decodeBC(rkNode)
       if regs[rc].intVal > high(int):
-        stackTrace(c, tos, pc, formatErrorIndexBound(regs[rc].intVal, high(int)))
+        stackTrace(c, tos, pc, reportVmIdx(regs[rc].intVal, high(int)))
+
       let idx = regs[rc].intVal.int
       let src = regs[rb].node
       if src.kind in {nkStrLit..nkTripleStrLit}:
@@ -664,22 +710,22 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
           regs[ra].node = newNodeI(nkCharLit, c.debug[pc])
           regs[ra].node.intVal = src.strVal[idx].ord
         else:
-          stackTrace(c, tos, pc, formatErrorIndexBound(idx, src.strVal.len-1))
+          stackTrace(c, tos, pc, reportVmIdx(idx, src.strVal.len - 1))
       elif src.kind notin {nkEmpty..nkFloat128Lit} and idx <% src.len:
         regs[ra].node = src[idx]
       else:
-        stackTrace(c, tos, pc, formatErrorIndexBound(idx, src.safeLen-1))
+        stackTrace(c, tos, pc, reportVmIdx(idx, src.safeLen-1))
     of opcLdArrAddr:
       # a = addr(b[c])
       decodeBC(rkNodeAddr)
       if regs[rc].intVal > high(int):
-        stackTrace(c, tos, pc, formatErrorIndexBound(regs[rc].intVal, high(int)))
+        stackTrace(c, tos, pc, reportVmIdx(regs[rc].intVal, high(int)))
       let idx = regs[rc].intVal.int
       let src = if regs[rb].kind == rkNode: regs[rb].node else: regs[rb].nodeAddr[]
       if src.kind notin {nkEmpty..nkTripleStrLit} and idx <% src.len:
         regs[ra].nodeAddr = addr src.sons[idx]
       else:
-        stackTrace(c, tos, pc, formatErrorIndexBound(idx, src.safeLen-1))
+        stackTrace(c, tos, pc, reportVmIdx(idx, src.safeLen-1))
     of opcLdStrIdx:
       decodeBC(rkInt)
       let idx = regs[rc].intVal.int
@@ -687,12 +733,13 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if idx <% s.len:
         regs[ra].intVal = s[idx].ord
       else:
-        stackTrace(c, tos, pc, formatErrorIndexBound(idx, s.len-1))
+        stackTrace(c, tos, pc, reportVmIdx(idx, s.len-1))
     of opcLdStrIdxAddr:
       # a = addr(b[c]); similar to opcLdArrAddr
       decodeBC(rkNode)
       if regs[rc].intVal > high(int):
-        stackTrace(c, tos, pc, formatErrorIndexBound(regs[rc].intVal, high(int)))
+        stackTrace(c, tos, pc, reportVmIdx(regs[rc].intVal, high(int)))
+
       let idx = regs[rc].intVal.int
       let s = regs[rb].node.strVal.addr # or `byaddr`
       if idx <% s[].len:
@@ -704,7 +751,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         node.flags.incl nfIsPtr
         regs[ra].node = node
       else:
-        stackTrace(c, tos, pc, formatErrorIndexBound(idx, s[].len-1))
+        stackTrace(c, tos, pc, reportVmIdx(idx, s[].len-1))
+
     of opcWrArr:
       # a[b] = c
       decodeBC(rkNode)
@@ -714,11 +762,13 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         if idx <% arr.strVal.len:
           arr.strVal[idx] = chr(regs[rc].intVal)
         else:
-          stackTrace(c, tos, pc, formatErrorIndexBound(idx, arr.strVal.len-1))
+          stackTrace(c, tos, pc, reportVmIdx(idx, arr.strVal.len-1))
+
       elif idx <% arr.len:
         writeField(arr[idx], regs[rc])
       else:
-        stackTrace(c, tos, pc, formatErrorIndexBound(idx, arr.safeLen-1))
+        stackTrace(c, tos, pc, reportVmIdx(idx, arr.safeLen - 1))
+
     of opcLdObj:
       # a = b.c
       decodeBC(rkNode)
@@ -728,7 +778,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         # for nkPtrLit, this could be supported in the future, use something like:
         # derefPtrToReg(src.intVal + offsetof(src.typ, rc), typ_field, regs[ra], isAssign = false)
         # where we compute the offset in bytes for field rc
-        stackTrace(c, tos, pc, errNilAccess & " " & $("kind", src.kind, "typ", typeToString(src.typ), "rc", rc))
+        stackTrace(c, tos, pc, reportAst(rsemVmNilAccess, src, str = $rc))
       of nkObjConstr:
         let n = src[rc + 1].skipColon
         regs[ra].node = n
@@ -741,7 +791,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       let src = if regs[rb].kind == rkNode: regs[rb].node else: regs[rb].nodeAddr[]
       case src.kind
       of nkEmpty..nkNilLit:
-        stackTrace(c, tos, pc, errNilAccess)
+        stackTrace(c, tos, pc, reportSem(rsemVmNilAccess))
       of nkObjConstr:
         let n = src.sons[rc + 1]
         if n.kind == nkExprColonExpr:
@@ -757,7 +807,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       let shiftedRb = rb + ord(regs[ra].node.kind == nkObjConstr)
       let dest = regs[ra].node
       if dest.kind == nkNilLit:
-        stackTrace(c, tos, pc, errNilAccess)
+        stackTrace(c, tos, pc, reportSem(rsemVmNilAccess))
       elif dest[shiftedRb].kind == nkExprColonExpr:
         writeField(dest[shiftedRb][1], regs[rc])
       else:
@@ -768,7 +818,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if idx <% regs[ra].node.strVal.len:
         regs[ra].node.strVal[idx] = chr(regs[rc].intVal)
       else:
-        stackTrace(c, tos, pc, formatErrorIndexBound(idx, regs[ra].node.strVal.len-1))
+        stackTrace(c, tos, pc, reportVmIdx(idx, regs[ra].node.strVal.len-1))
+
     of opcAddrReg:
       decodeB(rkRegisterAddr)
       regs[ra].regAddr = addr(regs[rb])
@@ -780,7 +831,9 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       of rkNodeAddr: # bug #14339
         regs[ra].nodeAddr = regs[rb].nodeAddr
       else:
-        stackTrace(c, tos, pc, "limited VM support for 'addr', got kind: " & $regs[rb].kind)
+        stackTrace(c, tos, pc, reportStr(
+          rsemVmErrInternal,
+          "limited VM support for 'addr', got kind: " & $regs[rb].kind))
     of opcLdDeref:
       # a = b[]
       let ra = instr.regA
@@ -800,7 +853,9 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
           ensureKind(rkNode)
           regs[ra].node = regs[rb].node
       else:
-        stackTrace(c, tos, pc, errNilAccess & " kind: " & $regs[rb].kind)
+        stackTrace(c, tos, pc, reportStr(
+          rsemVmNilAccess, " kind: " & $regs[rb].kind))
+
     of opcWrDeref:
       # a[] = c; b unused
       let ra = instr.regA
@@ -813,7 +868,9 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         # twice.
         # TODO: This should likely be handled differently in vmgen.
         let nAddr = regs[ra].nodeAddr
-        if nAddr[] == nil: stackTrace(c, tos, pc, "opcWrDeref internal error") # refs bug #16613
+        if nAddr[] == nil:
+          stackTrace(c, tos, pc, reportStr(
+            rsemVmErrInternal, "opcWrDeref internal error")) # refs bug #16613
         if (nfIsRef notin nAddr[].flags and nfIsRef notin n.flags): nAddr[][] = n[]
         else: nAddr[] = n
       of rkRegisterAddr: regs[ra].regAddr[] = regs[rc]
@@ -822,7 +879,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         if not maybeHandlePtr(regs[ra].node, regs[rc], true):
           regs[ra].node[] = regs[rc].regToNode[]
           regs[ra].node.flags.incl nfIsRef
-      else: stackTrace(c, tos, pc, errNilAccess)
+      else: stackTrace(c, tos, pc, reportSem(rsemVmNilAccess))
     of opcAddInt:
       decodeBC(rkInt)
       let
@@ -832,7 +889,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if (sum xor bVal) >= 0 or (sum xor cVal) >= 0:
         regs[ra].intVal = sum
       else:
-        stackTrace(c, tos, pc, errOverOrUnderflow)
+        stackTrace(c, tos, pc, reportSem(rsemVmOverOrUnderflow))
     of opcAddImmInt:
       decodeBImm(rkInt)
       #message(c.config, c.debug[pc], warnUser, "came here")
@@ -844,7 +901,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if (sum xor bVal) >= 0 or (sum xor cVal) >= 0:
         regs[ra].intVal = sum
       else:
-        stackTrace(c, tos, pc, errOverOrUnderflow)
+        stackTrace(c, tos, pc, reportSem(rsemVmOverOrUnderflow))
     of opcSubInt:
       decodeBC(rkInt)
       let
@@ -854,7 +911,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if (diff xor bVal) >= 0 or (diff xor not cVal) >= 0:
         regs[ra].intVal = diff
       else:
-        stackTrace(c, tos, pc, errOverOrUnderflow)
+        stackTrace(c, tos, pc, reportSem(rsemVmOverOrUnderflow))
     of opcSubImmInt:
       decodeBImm(rkInt)
       let
@@ -864,7 +921,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if (diff xor bVal) >= 0 or (diff xor not cVal) >= 0:
         regs[ra].intVal = diff
       else:
-        stackTrace(c, tos, pc, errOverOrUnderflow)
+        stackTrace(c, tos, pc, reportSem(rsemVmOverOrUnderflow))
     of opcLenSeq:
       decodeBImm(rkInt)
       #assert regs[rb].kind == nkBracket
@@ -918,15 +975,18 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       elif 32.0 * abs(resAsFloat - floatProd) <= abs(floatProd):
         regs[ra].intVal = product
       else:
-        stackTrace(c, tos, pc, errOverOrUnderflow)
+        stackTrace(c, tos, pc, reportSem(rsemVmOverOrUnderflow))
     of opcDivInt:
       decodeBC(rkInt)
-      if regs[rc].intVal == 0: stackTrace(c, tos, pc, errConstantDivisionByZero)
+      if regs[rc].intVal == 0:
+        stackTrace(c, tos, pc, reportSem(rsemVmDivisionByConstZero))
       else: regs[ra].intVal = regs[rb].intVal div regs[rc].intVal
     of opcModInt:
       decodeBC(rkInt)
-      if regs[rc].intVal == 0: stackTrace(c, tos, pc, errConstantDivisionByZero)
-      else: regs[ra].intVal = regs[rb].intVal mod regs[rc].intVal
+      if regs[rc].intVal == 0:
+        stackTrace(c, tos, pc, reportSem(rsemVmDivisionByConstZero))
+      else:
+        regs[ra].intVal = regs[rb].intVal mod regs[rc].intVal
     of opcAddFloat:
       decodeBC(rkFloat)
       regs[ra].floatVal = regs[rb].floatVal + regs[rc].floatVal
@@ -1071,7 +1131,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if val != int64.low:
         regs[ra].intVal = -val
       else:
-        stackTrace(c, tos, pc, errOverOrUnderflow)
+        stackTrace(c, tos, pc, reportSem(rsemVmOverOrUnderflow))
     of opcUnaryMinusFloat:
       decodeB(rkFloat)
       assert regs[rb].kind == rkFloat
@@ -1132,7 +1192,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if regs[ra].node.kind == nkBracket:
         regs[ra].node.add(copyValue(regs[rb].regToNode))
       else:
-        stackTrace(c, tos, pc, errNilAccess)
+        stackTrace(c, tos, pc, reportSem(rsemVmNilAccess))
     of opcGetImpl:
       decodeB(rkNode)
       var a = regs[rb].node
@@ -1142,7 +1202,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
                         else: copyTree(a.sym.ast)
         regs[ra].node.flags.incl nfIsRef
       else:
-        stackTrace(c, tos, pc, "node is not a symbol")
+        stackTrace(c, tos, pc, reportSem(rsemVmNodeNotASymbol))
+
     of opcGetImplTransf:
       decodeB(rkNode)
       let a = regs[rb].node
@@ -1164,7 +1225,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
                         else: newSymNode(a.sym.skipGenericOwner)
         regs[ra].node.flags.incl nfIsRef
       else:
-        stackTrace(c, tos, pc, "node is not a symbol")
+        stackTrace(c, tos, pc, reportSem(rsemVmNodeNotASymbol))
     of opcSymIsInstantiationOf:
       decodeBC(rkInt)
       let a = regs[rb].node
@@ -1175,16 +1236,21 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
           if sfFromGeneric in a.sym.flags and a.sym.owner == b.sym: 1
           else: 0
       else:
-        stackTrace(c, tos, pc, "node is not a proc symbol")
+        stackTrace(c, tos, pc, reportSem(rsemVmNodeNotAProcSymbol))
     of opcEcho:
       let rb = instr.regB
-      template fn(s) = msgWriteln(c.config, s, {msgStdout, msgNoUnitSep})
-      if rb == 1: fn(regs[ra].node.strVal)
+      template fn(s: string) =
+        localReport(c.config, InternalReport(msg: s, kind: rintEchoMessage))
+
+      if rb == 1:
+        fn(regs[ra].node.strVal)
+
       else:
         var outp = ""
         for i in ra..ra+rb-1:
           #if regs[i].kind != rkNode: debug regs[i]
           outp.add(regs[i].node.strVal)
+
         fn(outp)
     of opcContainsSet:
       decodeBC(rkInt)
@@ -1213,9 +1279,13 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       let rc = instr.regC
       if not (leValueConv(regs[rb].regToNode, regs[ra].regToNode) and
               leValueConv(regs[ra].regToNode, regs[rc].regToNode)):
-        stackTrace(c, tos, pc,
+        stackTrace(c, tos, pc, reportStr(
+          rsemVmIllegalConv,
           errIllegalConvFromXtoY % [
-             $regs[ra].regToNode, "[" & $regs[rb].regToNode & ".." & $regs[rc].regToNode & "]"])
+            $regs[ra].regToNode,
+            "[" & $regs[rb].regToNode & ".." & $regs[rc].regToNode & "]"
+          ]))
+
     of opcIndCall, opcIndCallAsgn:
       # dest = call regStart, n; where regStart = fn, arg1, ...
       let rb = instr.regB
@@ -1231,16 +1301,19 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
                  currentLineInfo: c.debug[pc]))
       elif importcCond(c, prc):
         if compiletimeFFI notin c.config.features:
-          globalError(c.config, c.debug[pc], "VM not allowed to do FFI, see `compiletimeFFI`")
+          globalReport(c.config, c.debug[pc], SemReport(kind: rsemVmEnableFFIToImportc))
         # we pass 'tos.slots' instead of 'regs' so that the compiler can keep
         # 'regs' in a register:
         when hasFFI:
           if prc.position - 1 < 0:
-            globalError(c.config, c.debug[pc],
-              "VM call invalid: prc.position: " & $prc.position)
+            globalError(
+              c.config,
+              c.debug[pc],
+              reportStr(rsemVmGlobalError, "VM call invalid: prc.position: " & $prc.position))
+
           let prcValue = c.globals[prc.position-1]
           if prcValue.kind == nkEmpty:
-            globalError(c.config, c.debug[pc], "cannot run " & prc.name.s)
+            globalReport(c.config, c.debug[pc], "cannot run " & prc.name.s)
           var slots2: TNodeSeq
           slots2.setLen(tos.slots.len)
           for i in 0..<tos.slots.len:
@@ -1251,7 +1324,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
             assert instr.opcode == opcIndCallAsgn
             putIntoReg(regs[ra], newValue)
         else:
-          globalError(c.config, c.debug[pc], "VM not built with FFI support")
+          globalReport(c.config, c.debug[pc], SemReport(kind: rsemVmCannotImportc))
       elif prc.kind != skTemplate:
         let newPc = compile(c, prc)
         # tricky: a recursion is also a jump back, so we use the same
@@ -1381,7 +1454,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
           updateRegsAlias
       of ExceptionGotoUnhandled:
         # Nobody handled this exception, error out.
-        bailOut(c, tos)
+        reportException(c, tos, raised)
+
     of opcNew:
       ensureKind(rkNode)
       let typ = c.types[instr.regBx - wordExcess]
@@ -1459,7 +1533,10 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         node2.flags.incl nfIsPtr
         regs[ra].node = node2
       elif not derefPtrToReg(node.intVal, typ, regs[ra], isAssign = false):
-        stackTrace(c, tos, pc, "opcLdDeref unsupported type: " & $(typeToString(typ), typ[0].kind))
+        stackTrace(c, tos, pc, reportStr(
+          rsemVmErrInternal,
+          "opcLdDeref unsupported type: " & $(typeToString(typ), typ[0].kind)))
+
     of opcLdGlobalAddrDerefFFI:
       let rb = instr.regBx - wordExcess - 1
       let node = c.globals[rb]
@@ -1479,15 +1556,21 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       regs[ra].node.strVal = renderTree(regs[rb].regToNode, {renderNoComments, renderDocComments})
     of opcQuit:
       if c.mode in {emRepl, emStaticExpr, emStaticStmt}:
-        message(c.config, c.debug[pc], hintQuitCalled)
+        localReport(c.config, c.debug[pc], InternalReport(kind: rintQuitCalled))
         msgQuit(int8(toInt(getOrdValue(regs[ra].regToNode, onError = toInt128(1)))))
       else:
         return TFullReg(kind: rkNone)
     of opcInvalidField:
+      # REFACTOR this opcode is filled in the
+      # `vmgen.genCheckedObjAccessAux` and contains expression for the
+      # incorrect node kind (generated using `astmsgs.genFieldDefect`
+      # call). For now I left it as-is, but in the future this needs to be
+      # cleaned up - hardcoded error message for missing field is insanely
+      # verbose.
       let msg = regs[ra].node.strVal
       let disc = regs[instr.regB].regToNode
       let msg2 = formatFieldDefect(msg, $disc)
-      stackTrace(c, tos, pc, msg2)
+      stackTrace(c, tos, pc, reportStr(rsemVmFieldInavailable, msg2))
     of opcSetLenStr:
       decodeB(rkNode)
       #createStrKeepNode regs[ra]
@@ -1507,14 +1590,16 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
     of opcSetLenSeq:
       decodeB(rkNode)
       let newLen = regs[rb].intVal.int
-      if regs[ra].node.isNil: stackTrace(c, tos, pc, errNilAccess)
+      if regs[ra].node.isNil:
+        stackTrace(c, tos, pc, reportSem(rsemVmNilAccess))
+
       else: c.setLenSeq(regs[ra].node, newLen, c.debug[pc])
     of opcNarrowS:
       decodeB(rkInt)
       let min = -(1.BiggestInt shl (rb-1))
       let max = (1.BiggestInt shl (rb-1))-1
       if regs[ra].intVal < min or regs[ra].intVal > max:
-        stackTrace(c, tos, pc, "unhandled exception: value out of range")
+        stackTrace(c, tos, pc, reportSem(rsemVmOutOfRange))
     of opcNarrowU:
       decodeB(rkInt)
       regs[ra].intVal = regs[ra].intVal and ((1'i64 shl rb)-1)
@@ -1558,9 +1643,9 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       let idx = regs[rc].intVal.int
       let src = regs[rb].node
       if src.kind in {nkEmpty..nkNilLit}:
-        stackTrace(c, tos, pc, "cannot get child of node kind: n" & $src.kind)
+        stackTrace(c, tos, pc, reportAst(rsemVmCannotGetChild, src))
       elif idx >=% src.len:
-        stackTrace(c, tos, pc, formatErrorIndexBound(idx, src.len-1))
+        stackTrace(c, tos, pc, reportVmIdx(idx, src.len - 1))
       else:
         regs[ra].node = src[idx]
     of opcNSetChild:
@@ -1568,20 +1653,21 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       let idx = regs[rb].intVal.int
       var dest = regs[ra].node
       if nfSem in dest.flags and allowSemcheckedAstModification notin c.config.legacyFeatures:
-        stackTrace(c, tos, pc, "typechecked nodes may not be modified")
+        stackTrace(c, tos, pc, reportSem(rsemVmCannotModifyTypechecked))
       elif dest.kind in {nkEmpty..nkNilLit}:
-        stackTrace(c, tos, pc, "cannot set child of node kind: n" & $dest.kind)
+        stackTrace(c, tos, pc, reportAst(rsemVmCannotSetChild, dest))
       elif idx >=% dest.len:
-        stackTrace(c, tos, pc, formatErrorIndexBound(idx, dest.len-1))
+        stackTrace(c, tos, pc, reportVmIdx(idx, dest.len - 1))
       else:
         dest[idx] = regs[rc].node
     of opcNAdd:
       decodeBC(rkNode)
       var u = regs[rb].node
       if nfSem in u.flags and allowSemcheckedAstModification notin c.config.legacyFeatures:
-        stackTrace(c, tos, pc, "typechecked nodes may not be modified")
+        stackTrace(c, tos, pc, reportSem(rsemVmCannotModifyTypechecked))
       elif u.kind in {nkEmpty..nkNilLit}:
-        stackTrace(c, tos, pc, "cannot add to node kind: n" & $u.kind)
+        echo c.config $ c.debug[pc]
+        stackTrace(c, tos, pc, reportAst(rsemVmCannotAddChild, u))
       else:
         u.add(regs[rc].node)
       regs[ra].node = u
@@ -1590,9 +1676,9 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       let x = regs[rc].node
       var u = regs[rb].node
       if nfSem in u.flags and allowSemcheckedAstModification notin c.config.legacyFeatures:
-        stackTrace(c, tos, pc, "typechecked nodes may not be modified")
+        stackTrace(c, tos, pc, reportSem(rsemVmCannotModifyTypechecked))
       elif u.kind in {nkEmpty..nkNilLit}:
-        stackTrace(c, tos, pc, "cannot add to node kind: n" & $u.kind)
+        stackTrace(c, tos, pc, reportAst(rsemVmCannotAddChild, u))
       else:
         for i in 0..<x.len: u.add(x[i])
       regs[ra].node = u
@@ -1606,7 +1692,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if a.kind == nkSym:
         regs[ra].intVal = ord(a.sym.kind)
       else:
-        stackTrace(c, tos, pc, "node is not a symbol")
+        stackTrace(c, tos, pc, reportSem(rsemVmNodeNotASymbol))
       c.comesFromHeuristic = regs[rb].node.info
     of opcNIntVal:
       decodeB(rkInt)
@@ -1616,27 +1702,27 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       elif a.kind == nkSym and a.sym.kind == skEnumField:
         regs[ra].intVal = a.sym.position
       else:
-        stackTrace(c, tos, pc, errFieldXNotFound & "intVal")
+        stackTrace(c, tos, pc, reportStr(rsemVmFieldNotFound, "intVal"))
     of opcNFloatVal:
       decodeB(rkFloat)
       let a = regs[rb].node
       case a.kind
       of nkFloatLit..nkFloat64Lit: regs[ra].floatVal = a.floatVal
-      else: stackTrace(c, tos, pc, errFieldXNotFound & "floatVal")
+      else: stackTrace(c, tos, pc, reportStr(rsemVmFieldNotFound, "floatVal"))
     of opcNSymbol:
       decodeB(rkNode)
       let a = regs[rb].node
       if a.kind == nkSym:
         regs[ra].node = copyNode(a)
       else:
-        stackTrace(c, tos, pc, errFieldXNotFound & "symbol")
+        stackTrace(c, tos, pc, reportStr(rsemVmFieldNotFound, "symbol"))
     of opcNIdent:
       decodeB(rkNode)
       let a = regs[rb].node
       if a.kind == nkIdent:
         regs[ra].node = copyNode(a)
       else:
-        stackTrace(c, tos, pc, errFieldXNotFound & "ident")
+        stackTrace(c, tos, pc, reportStr(rsemVmFieldNotFound, "ident"))
     of opcNodeId:
       decodeB(rkInt)
       when defined(useNodeIds):
@@ -1655,7 +1741,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         elif regs[rb].kind == rkNode and regs[rb].node.kind == nkSym and regs[rb].node.sym.typ != nil:
           regs[ra].node = opMapTypeToAst(c.cache, regs[rb].node.sym.typ, c.debug[pc], c.idgen)
         else:
-          stackTrace(c, tos, pc, "node has no type")
+          stackTrace(c, tos, pc, reportSem(rsemVmNoType))
       of 1:
         # typeKind opcode:
         ensureKind(rkInt)
@@ -1673,7 +1759,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         elif regs[rb].kind == rkNode and regs[rb].node.kind == nkSym and regs[rb].node.sym.typ != nil:
           regs[ra].node = opMapTypeInstToAst(c.cache, regs[rb].node.sym.typ, c.debug[pc], c.idgen)
         else:
-          stackTrace(c, tos, pc, "node has no type")
+          stackTrace(c, tos, pc, reportSem(rsemVmNoType))
       else:
         # getTypeImpl opcode:
         ensureKind(rkNode)
@@ -1682,26 +1768,26 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         elif regs[rb].kind == rkNode and regs[rb].node.kind == nkSym and regs[rb].node.sym.typ != nil:
           regs[ra].node = opMapTypeImplToAst(c.cache, regs[rb].node.sym.typ, c.debug[pc], c.idgen)
         else:
-          stackTrace(c, tos, pc, "node has no type")
+          stackTrace(c, tos, pc, reportSem(rsemVmNoType))
     of opcNGetSize:
       decodeBImm(rkInt)
       let n = regs[rb].node
       case imm
       of 0: # size
         if n.typ == nil:
-          stackTrace(c, tos, pc, "node has no type")
+          stackTrace(c, tos, pc, reportAst(rsemVmNoType, n))
         else:
           regs[ra].intVal = getSize(c.config, n.typ)
       of 1: # align
         if n.typ == nil:
-          stackTrace(c, tos, pc, "node has no type")
+          stackTrace(c, tos, pc, reportAst(rsemVmNoType, n))
         else:
           regs[ra].intVal = getAlign(c.config, n.typ)
       else: # offset
         if n.kind != nkSym:
-          stackTrace(c, tos, pc, "node is not a symbol")
+          stackTrace(c, tos, pc, reportAst(rsemVmNodeNotASymbol, n))
         elif n.sym.kind != skField:
-          stackTrace(c, tos, pc, "symbol is not a field (nskField)")
+          stackTrace(c, tos, pc, reportSym(rsemVmNotAField, n.sym))
         else:
           regs[ra].intVal = n.sym.offset
     of opcNStrVal:
@@ -1718,12 +1804,12 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       of nkSym:
         regs[ra].node.strVal = a.sym.name.s
       else:
-        stackTrace(c, tos, pc, errFieldXNotFound & "strVal")
+        stackTrace(c, tos, pc, reportStr(rsemVmFieldNotFound, "strVal"))
     of opcNSigHash:
       decodeB(rkNode)
       createStr regs[ra]
       if regs[rb].node.kind != nkSym:
-        stackTrace(c, tos, pc, "node is not a symbol")
+        stackTrace(c, tos, pc, reportAst(rsemVmNodeNotASymbol, regs[rb].node))
       else:
         regs[ra].node.strVal = $sigHash(regs[rb].node.sym)
     of opcSlurp:
@@ -1746,54 +1832,125 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
                                         c.debug[pc], c.config)[0]
         else:
           regs[ra].node.strVal = ""
-          globalError(c.config, c.debug[pc], "VM is not built with 'gorge' support")
+          globalReport(c.config, c.debug[pc], InternalReport(
+            kind: rintNotUsingNimcore,
+            msg: "VM is not built with 'gorge' support"))
+
     of opcNError, opcNWarning, opcNHint:
       decodeB(rkNode)
       let a = regs[ra].node
       let b = regs[rb].node
       let info = if b.kind == nkNilLit: c.debug[pc] else: b.info
-      if instr.opcode == opcNError:
-        stackTrace(c, tos, pc, a.strVal, info)
-      elif instr.opcode == opcNWarning:
-        message(c.config, info, warnUser, a.strVal)
-      elif instr.opcode == opcNHint:
-        message(c.config, info, hintUser, a.strVal)
-    of opcParseExprToAst:
+      case instr.opcode:
+        of opcNError:
+          stackTrace(
+            c, tos, pc, reportStr(rsemUserError, a.strVal), info)
+
+        of opcNWarning:
+          localReport(c.config, info, reportStr(rsemUserWarning, a.strVal))
+
+        of opcNHint:
+          localReport(c.config, info, reportStr(rsemUserHint, a.strVal))
+
+        else:
+          discard
+
+    of opcParseExprToAst, opcParseStmtToAst:
+      # REFACTOR This branch implements handling of the `parseExpr()` and
+      # `parseStmt()` calls in the compiler API - because parsing can
+      # expectedly fail (for example `"{a+}"` in strformat module) we need
+      # to handle failure and report it as a *VM* exception, so user can
+      # properly handle this.
+      #
+      # Previous implementation also relied on the report hook override -
+      # in the future this need to be completely removed, since I
+      # personally find exceptions-as-control-flow extremely ugly and unfit
+      # for any serious work. Technically it does the job, one might argue
+      # this is a good compromized, but I'd much rather have a paser
+      # template that (1) writes out error message with correction location
+      # information and (2) if parser is in 'speculative' mode, aborts the
+      # parsing completely (via early exit checks in the parser module).
+      # Yes, more work, but it avoids rebouncing exceptions through two (or
+      # even three) compiler subsystems (`Lexer?->Parser->Vm`)
+
       decodeB(rkNode)
-      # c.debug[pc].line.int - countLines(regs[rb].strVal) ?
-      var error: string
-      let ast = parseString(regs[rb].node.strVal, c.cache, c.config,
-                            toFullPath(c.config, c.debug[pc]), c.debug[pc].line.int,
-                            proc (conf: ConfigRef; info: TLineInfo; msg: TMsgKind; arg: string) {.nosinks.} =
-                              if error.len == 0 and msg <= errMax:
-                                error = formatMsg(conf, info, msg, arg))
-      if error.len > 0:
+
+      type TemporaryExceptionHack = ref object of CatchableError
+
+      var error = reportEmpty
+      let oldHook = c.config.structuredReportHook
+      var ast: PNode
+      c.config.structuredReportHook = proc(
+          conf: ConfigRef, report: Report
+      ): TErrorHandling =
+        # QUESTION This check might be affected by current severity
+        # configurations, maybe it makes sense to do a hack-in that would
+        # ignore all user-provided CLI otions?
+        if report.category in {repParser, repLexer} and
+           conf.severity(report) == rsevError:
+          error = report
+          raise TemporaryExceptionHack()
+
+        else:
+          return oldHook(conf, report)
+
+      try:
+        ast = parseString(
+          regs[rb].node.strVal,
+          c.cache,
+          c.config,
+          toFullPath(c.config, c.debug[pc]),
+          c.debug[pc].line.int
+        )
+
+      except TemporaryExceptionHack:
+        discard
+
+      c.config.structuredReportHook = oldHook
+
+      if error.kind > repNone:
         c.errorFlag = error
-      elif ast.len != 1:
-        c.errorFlag = formatMsg(c.config, c.debug[pc], errGenerated,
-          "expected expression, but got multiple statements")
-      else:
-        regs[ra].node = ast[0]
-    of opcParseStmtToAst:
-      decodeB(rkNode)
-      var error: string
-      let ast = parseString(regs[rb].node.strVal, c.cache, c.config,
-                            toFullPath(c.config, c.debug[pc]), c.debug[pc].line.int,
-                            proc (conf: ConfigRef; info: TLineInfo; msg: TMsgKind; arg: string) {.nosinks.} =
-                              if error.len == 0 and msg <= errMax:
-                                error = formatMsg(conf, info, msg, arg))
-      if error.len > 0:
-        c.errorFlag = error
-      else:
+
+      # Handling both statement and expression in this case branch, so
+      # first checking for `parseExpr()` postconditions and then repacking
+      # the ast as needed.
+      elif ast.len != 1 and instr.opcode == opcParseExprToAst:
+        c.errorFlag = SemReport(kind: rsemVmOpcParseExpectedExpression).wrap()
+
+      elif instr.opcode == opcParseStmtToAst:
         regs[ra].node = ast
+
+      else:
+        # Seems like parser always generates `stmtList`, so taking first
+        # node here (checked for correct lenght earlier)
+        regs[ra].node = ast[0]
+
     of opcQueryErrorFlag:
+      # REFACTOR HACK Only `parseExpr()` and `parseStmt()` appear to be
+      # using error flag - we might as well set them directly? Anyway,
+      # previous error formatting reused the same error message as
+      # generated by reporting system, but now I need to convert the
+      # `Report` object into string that can be read later by user VM code.
+
       createStr regs[ra]
-      regs[ra].node.strVal = c.errorFlag
-      c.errorFlag.setLen 0
+      if c.errorFlag.kind != repNone:
+        # Not sure if there is any better solution - I /do/ want to make
+        # sure that error reported to the user in the VM is the same as one
+        # I would report on the CLI, but at the same time this still looks
+        # like an overly hacky approach
+        regs[ra].node.strVal = "Error: " & c.config.reportBody(c.errorFlag)
+                             # ^ `reportBody()` only returns main part of
+                             # the report, so need to add `"Error: "`
+                             # manally to stay consistent with the old
+                             # output.
+
+      c.errorFlag = reportEmpty
+
+
     of opcCallSite:
       ensureKind(rkNode)
       if c.callsite != nil: regs[ra].node = c.callsite
-      else: stackTrace(c, tos, pc, errFieldXNotFound & "callsite")
+      else: stackTrace(c, tos, pc,  reportStr(rsemVmFieldNotFound, "callsite"))
     of opcNGetLineInfo:
       decodeBImm(rkNode)
       let n = regs[rb].node
@@ -1805,7 +1962,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       of 2: # getColumn
         regs[ra].node = newIntNode(nkIntLit, n.info.col)
       else:
-        internalAssert c.config, false
+        internalAssert(c.config, false, "Unexpected opcNGetLineInfo action code")
+
       regs[ra].node.info = n.info
       regs[ra].node.typ = n.typ
     of opcNSetLineInfo:
@@ -1865,7 +2023,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
     of opcStrToIdent:
       decodeB(rkNode)
       if regs[rb].node.kind notin {nkStrLit..nkTripleStrLit}:
-        stackTrace(c, tos, pc, errFieldXNotFound & "strVal")
+        stackTrace(c, tos, pc, reportStr(rsemVmFieldNotFound, "strVal"))
       else:
         regs[ra].node = newNodeI(nkIdent, c.debug[pc])
         regs[ra].node.ident = getIdent(c.cache, regs[rb].node.strVal)
@@ -1886,9 +2044,12 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       let srctyp = c.types[c.code[pc].regBx - wordExcess]
 
       if opConv(c, regs[ra], regs[rb], desttyp, srctyp):
-        stackTrace(c, tos, pc,
+        stackTrace(c, tos, pc, reportStr(
+          rsemVmIllegalConv,
           errIllegalConvFromXtoY % [
-          typeToString(srctyp), typeToString(desttyp)])
+            typeToString(srctyp),
+            typeToString(desttyp)
+        ]))
     of opcCast:
       let rb = instr.regB
       inc pc
@@ -1902,7 +2063,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         # asgnRef(regs[ra], dest)
         putIntoReg(regs[ra], dest)
       else:
-        globalError(c.config, c.debug[pc], "cannot evaluate cast")
+        globalReport(c.config, c.debug[pc], reportSem(rsemVmCannotCast))
+
     of opcNSetIntVal:
       decodeB(rkNode)
       var dest = regs[ra].node
@@ -1910,9 +2072,11 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
          regs[rb].kind in {rkInt}:
         dest.intVal = regs[rb].intVal
       elif dest.kind == nkSym and dest.sym.kind == skEnumField:
-        stackTrace(c, tos, pc, "`intVal` cannot be changed for an enum symbol.")
+        stackTrace(c, tos, pc, reportStr(
+          rsemVmErrInternal,
+          "`intVal` cannot be changed for an enum symbol."))
       else:
-        stackTrace(c, tos, pc, errFieldXNotFound & "intVal")
+        stackTrace(c, tos, pc, reportStr(rsemVmFieldNotFound, "intVal"))
     of opcNSetFloatVal:
       decodeB(rkNode)
       var dest = regs[ra].node
@@ -1920,26 +2084,32 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
          regs[rb].kind in {rkFloat}:
         dest.floatVal = regs[rb].floatVal
       else:
-        stackTrace(c, tos, pc, errFieldXNotFound & "floatVal")
+        stackTrace(c, tos, pc, reportStr(rsemVmFieldNotFound, "floatVal"))
     of opcNSetSymbol:
       decodeB(rkNode)
       var dest = regs[ra].node
       if dest.kind == nkSym and regs[rb].node.kind == nkSym:
         dest.sym = regs[rb].node.sym
       else:
-        stackTrace(c, tos, pc, errFieldXNotFound & "symbol")
+        stackTrace(c, tos, pc, reportStr(rsemVmFieldNotFound, "symbol"))
     of opcNSetIdent:
       decodeB(rkNode)
       var dest = regs[ra].node
       if dest.kind == nkIdent and regs[rb].node.kind == nkIdent:
         dest.ident = regs[rb].node.ident
       else:
-        stackTrace(c, tos, pc, errFieldXNotFound & "ident")
+        stackTrace(c, tos, pc, reportStr(rsemVmFieldNotFound, "ident"))
     of opcNSetType:
       decodeB(rkNode)
       let b = regs[rb].node
-      internalAssert c.config, b.kind == nkSym and b.sym.kind == skType
-      internalAssert c.config, regs[ra].node != nil
+      internalAssert(
+        c.config,
+        b.kind == nkSym and b.sym.kind == skType,
+        "Canot set type to a non-skType symbol")
+
+      internalAssert(
+        c.config, regs[ra].node != nil, "Target node must not be nil")
+
       regs[ra].node.typ = b.sym.typ
     of opcNSetStrVal:
       decodeB(rkNode)
@@ -1950,7 +2120,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       elif dest.kind == nkCommentStmt and regs[rb].kind in {rkNode}:
         dest.comment = regs[rb].node.strVal
       else:
-        stackTrace(c, tos, pc, errFieldXNotFound & "strVal")
+        stackTrace(c, tos, pc, reportStr(rsemVmFieldNotFound, "strVal"))
     of opcNNewNimNode:
       decodeBC(rkNode)
       var k = regs[rb].intVal
@@ -2044,7 +2214,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       if contains(g.cacheSeqs, destKey) and idx <% g.cacheSeqs[destKey].len:
         regs[ra].node = g.cacheSeqs[destKey][idx.int]
       else:
-        stackTrace(c, tos, pc, formatErrorIndexBound(idx, g.cacheSeqs[destKey].len-1))
+        stackTrace(c, tos, pc, reportVmIdx(idx, g.cacheSeqs[destKey].len-1))
+
     of opcNctPut:
       let g = c.graph
       let destKey = regs[ra].node.strVal
@@ -2056,7 +2227,9 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         g.cacheTables[destKey].add(key, val)
         recordPut(c, c.debug[pc], destKey, key, val)
       else:
-        stackTrace(c, tos, pc, "key already exists: " & key)
+        stackTrace(c, tos, pc, reportStr(
+          rsemVmCacheKeyAlreadyExists, destKey))
+
     of opcNctLen:
       let g = c.graph
       decodeB(rkInt)
@@ -2072,9 +2245,9 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         if contains(g.cacheTables[destKey], key):
           regs[ra].node = getOrDefault(g.cacheTables[destKey], key)
         else:
-          stackTrace(c, tos, pc, "key does not exist: " & key)
+          stackTrace(c, tos, pc, reportStr(rsemVmMissingCacheKey, destKey))
       else:
-        stackTrace(c, tos, pc, "key does not exist: " & destKey)
+        stackTrace(c, tos, pc, reportStr(rsemVmMissingCacheKey, destKey))
     of opcNctHasNext:
       let g = c.graph
       decodeBC(rkInt)
@@ -2094,14 +2267,14 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
         regs[ra].node = newTree(nkTupleConstr, newStrNode(k, c.debug[pc]), v,
                                 newIntNode(nkIntLit, nextIndex))
       else:
-        stackTrace(c, tos, pc, "key does not exist: " & destKey)
+        stackTrace(c, tos, pc, reportStr(rsemVmMissingCacheKey, destKey))
 
     of opcTypeTrait:
       # XXX only supports 'name' for now; we can use regC to encode the
       # type trait operation
       decodeB(rkNode)
       var typ = regs[rb].node.typ
-      internalAssert c.config, typ != nil
+      internalAssert(c.config, typ != nil, "")
       while typ.kind == tyTypeDesc and typ.len > 0: typ = typ[0]
       createStr regs[ra]
       regs[ra].node.strVal = typ.typeToString(preferExported)
@@ -2119,9 +2292,13 @@ proc execProc*(c: PCtx; sym: PSym; args: openArray[PNode]): PNode =
   c.loopIterations = c.config.maxLoopIterationsVM
   if sym.kind in routineKinds:
     if sym.typ.len-1 != args.len:
-      localError(c.config, sym.info,
-        "NimScript: expected $# arguments, but got $#" % [
-        $(sym.typ.len-1), $args.len])
+      localReport(c.config, sym.info, SemReport(
+        kind: rsemWrongNumberOfArguments,
+        sym: sym,
+        countMismatch: (
+          expected: toInt128(sym.typ.len - 1),
+          got: toInt128(args.len))))
+
     else:
       let start = genProc(c, sym)
 
@@ -2138,8 +2315,7 @@ proc execProc*(c: PCtx; sym: PSym; args: openArray[PNode]): PNode =
 
       result = rawExecute(c, start, tos).regToNode
   else:
-    localError(c.config, sym.info,
-      "NimScript: attempt to call non-routine: " & sym.name.s)
+    localReport(c.config, sym.info, reportSym(rsemVmCallingNonRoutine, sym))
 
 proc evalStmt*(c: PCtx, n: PNode) =
   let n = transformExpr(c.graph, c.idgen, c.module, n)
@@ -2159,17 +2335,18 @@ proc evalExpr*(c: PCtx, n: PNode): PNode =
   result = execute(c, start)
 
 proc getGlobalValue*(c: PCtx; s: PSym): PNode =
-  internalAssert c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags
+  internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags, "")
   result = c.globals[s.position-1]
 
 proc setGlobalValue*(c: PCtx; s: PSym, val: PNode) =
   ## Does not do type checking so ensure the `val` matches the `s.typ`
-  internalAssert c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags
+  internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags, "")
   c.globals[s.position-1] = val
 
 include vmops
 
 proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
+  addInNimDebugUtils(graph.config, "setupGlobalCtx")
   if graph.vm.isNil:
     graph.vm = newCtx(module, graph.cache, graph, idgen)
     registerAdditionalOps(PCtx graph.vm)
@@ -2203,6 +2380,7 @@ const evalPass* = makePass(myOpen, myProcess, myClose)
 proc evalConstExprAux(module: PSym; idgen: IdGenerator;
                       g: ModuleGraph; prc: PSym, n: PNode,
                       mode: TEvalMode): PNode =
+  addInNimDebugUtils(g.config, "evalConstExprAux")
   #if g.config.errorCounter > 0: return n
   let n = transformExpr(g, idgen, module, n)
   setupGlobalCtx(module, g, idgen)
@@ -2212,7 +2390,9 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
   let start = genExpr(c, n, requiresValue = mode!=emStaticStmt)
   if c.code[start].opcode == opcEof: return newNodeI(nkEmpty, n.info)
   assert c.code[start].opcode != opcEof
-  when debugEchoCode: c.echoCode start
+  when debugEchoCode:
+    c.codeListing(prc, n)
+
   var tos = PStackFrame(prc: prc, comesFrom: 0, next: nil)
   newSeq(tos.slots, c.prc.regInfo.len)
   #for i in 0..<c.prc.regInfo.len: tos.slots[i] = newNode(nkEmpty)
@@ -2288,16 +2468,21 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
                     n, nOrig: PNode, sym: PSym): PNode =
   #if g.config.errorCounter > 0: return errorNode(idgen, module, n)
 
-  # XXX globalError() is ugly here, but I don't know a better solution for now
+  # XXX globalReport() is ugly here, but I don't know a better solution for now
   inc(g.config.evalMacroCounter)
   if g.config.evalMacroCounter > evalMacroLimit:
-    globalError(g.config, n.info, "macro instantiation too nested")
+    globalReport(g.config, n.info, reportAst(
+      rsemMacroInstantiationTooNested, n))
 
   # immediate macros can bypass any type and arity checking so we check the
   # arity here too:
   if sym.typ.len > n.safeLen and sym.typ.len > 1:
-    globalError(g.config, n.info, "in call '$#' got $#, but expected $# argument(s)" % [
-        n.renderTree, $(n.safeLen-1), $(sym.typ.len-1)])
+    globalReport(g.config, n.info, SemReport(
+      kind: rsemWrongNumberOfArguments,
+      ast: n,
+      countMismatch: (
+        expected: toInt128(sym.typ.len - 1),
+        got: toInt128(n.safeLen - 1))))
 
   setupGlobalCtx(module, g, idgen)
   var c = PCtx g.vm
@@ -2333,13 +2518,19 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
     else:
       dec(g.config.evalMacroCounter)
       c.callsite = nil
-      localError(c.config, n.info, "expected " & $gp.len &
-                 " generic parameter(s)")
+      localReport(c.config, n.info, SemReport(
+        kind: rsemWrongNumberOfGenericParams,
+        countMismatch: (
+          expected: toInt128(gp.len),
+          got: toInt128(idx))))
+
   # temporary storage:
   #for i in L..<maxSlots: tos.slots[i] = newNode(nkEmpty)
   result = rawExecute(c, start, tos).regToNode
   if result.info.line < 0: result.info = n.info
-  if cyclicTree(result): globalError(c.config, n.info, "macro produced a cyclic tree")
+  if cyclicTree(result):
+    globalReport(c.config, n.info, reportAst(rsemCyclicTree, n, sym = sym))
+
   dec(g.config.evalMacroCounter)
   c.callsite = nil
   c.mode = oldMode

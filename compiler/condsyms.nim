@@ -13,7 +13,7 @@ import
   strtabs
 
 from options import Feature
-from lineinfos import hintMin, hintMax, warnMin, warnMax
+import reports
 
 proc defineSymbol*(symbols: StringTableRef; symbol: string, value: string = "true") =
   symbols[symbol] = value
@@ -91,9 +91,10 @@ proc initDefines*(symbols: StringTableRef) =
   for f in Feature:
     defineSymbol("nimHas" & $f)
 
-  for s in warnMin..warnMax:
+  for s in repWarningKinds:
     defineSymbol("nimHasWarning" & $s)
-  for s in hintMin..hintMax:
+
+  for s in repHintKinds:
     defineSymbol("nimHasHint" & $s)
 
   defineSymbol("nimFixedOwned")

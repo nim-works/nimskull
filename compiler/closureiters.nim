@@ -465,7 +465,9 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
       needsSplit = true
 
       result = newNodeI(nkStmtListExpr, n.info)
-      if n.typ.isNil: internalError(ctx.g.config, "lowerStmtListExprs: constr typ.isNil")
+      if n.typ.isNil:
+        internalError(ctx.g.config, "lowerStmtListExprs: constr typ.isNil")
+
       result.typ = n.typ
 
       for i in 0..<n.len:
@@ -573,7 +575,9 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
           of nkFinally:
             discard
           else:
-            internalError(ctx.g.config, "lowerStmtListExpr(nkTryStmt): " & $branch.kind)
+            internalError(
+              ctx.g.config, "lowerStmtListExpr(nkTryStmt): " & $branch.kind)
+
         result.add(n)
         result.add(ctx.newEnvVarAccess(tmp))
 
@@ -1334,7 +1338,9 @@ proc freshVars(n: PNode; c: var FreshVarsContext): PNode =
       else:
         result.add it
   of nkRaiseStmt:
-    localError(c.config, c.info, "unsupported control flow: 'finally: ... raise' duplicated because of 'break'")
+    temporaryStringError(
+      c.config, c.info,
+      "unsupported control flow: 'finally: ... raise' duplicated because of 'break'")
   else:
     result = n
     for i in 0..<n.safeLen:

@@ -26,7 +26,7 @@ proc specializeResetN(p: BProc, accessor: Rope, n: PNode;
     let disc = n[0].sym
     if disc.loc.r == nil: fillObjectFields(p.module, typ)
     if disc.loc.t == nil:
-      internalError(p.config, n.info, "specializeResetN()")
+     internalError(p.config, n.info, "specializeResetN()")
     lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, disc.loc.r])
     for i in 1..<n.len:
       let branch = n[i]

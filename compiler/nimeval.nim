@@ -12,7 +12,8 @@ import
   ast, astalgo, modules, passes, condsyms,
   options, sem, llstream, lineinfos, vm,
   vmdef, modulegraphs, idents, os, pathutils,
-  passaux, scriptconfig, std/compilesettings
+  passaux, scriptconfig, std/compilesettings,
+  reports
 
 type
   Interpreter* = ref object ## Use Nim as an interpreter with this object
@@ -101,12 +102,16 @@ proc findNimStdLibCompileTime*(): string =
   result = querySetting(libPath)
   doAssert fileExists(result / "system.nim"), "result:" & result
 
-proc createInterpreter*(scriptName: string;
-                        searchPaths: openArray[string];
-                        flags: TSandboxFlags = {},
-                        defines = @[("nimscript", "true")],
-                        registerOps = true): Interpreter =
-  var conf = newConfigRef()
+proc createInterpreter*(
+    scriptName:  string,
+    searchPaths: openArray[string],
+    hook:        ReportHook,
+    flags:       TSandboxFlags = {},
+    defines:     seq[(string, string)] = @[("nimscript", "true")],
+    registerOps: bool = true
+  ): Interpreter =
+
+  var conf = newConfigRef(hook)
   var cache = newIdentCache()
   var graph = newModuleGraph(cache, conf)
   connectCallbacks(graph)
@@ -136,16 +141,21 @@ proc destroyInterpreter*(i: Interpreter) =
   ## destructor.
   discard "currently nothing to do."
 
-proc registerErrorHook*(i: Interpreter, hook:
-                        proc (config: ConfigRef; info: TLineInfo; msg: string;
-                              severity: Severity) {.gcsafe.}) =
-  i.graph.config.structuredErrorHook = hook
+proc registerErrorHook*(
+    i: Interpreter,
+    hook: proc (config: ConfigRef, report: Report): TErrorHandling {.gcsafe.}
+  ) =
+  i.graph.config.structuredReportHook = hook
 
-proc runRepl*(r: TLLRepl;
-              searchPaths: openArray[string];
-              supportNimscript: bool) =
+proc runRepl*(
+    r: TLLRepl;
+    searchPaths: openArray[string];
+    supportNimscript: bool,
+    reportHook: ReportHook
+  ) =
   ## deadcode but please don't remove... might be revived
-  var conf = newConfigRef()
+  var conf = newConfigRef(reportHook)
+
   var cache = newIdentCache()
   var graph = newModuleGraph(cache, conf)
 

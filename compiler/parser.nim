@@ -7,12 +7,12 @@
 #    distribution, for details about the copyright.
 #
 
-# This module implements the parser of the standard Nim syntax.
-# The parser strictly reflects the grammar ("doc/grammar.txt"); however
-# it uses several helper routines to keep the parser small. A special
-# efficient algorithm is used for the precedence levels. The parser here can
-# be seen as a refinement of the grammar, as it specifies how the AST is built
-# from the grammar and how comments belong to the AST.
+## This module implements the parser of the standard Nim syntax.
+## The parser strictly reflects the grammar ("doc/grammar.txt"); however
+## it uses several helper routines to keep the parser small. A special
+## efficient algorithm is used for the precedence levels. The parser here can
+## be seen as a refinement of the grammar, as it specifies how the AST is built
+## from the grammar and how comments belong to the AST.
 
 
 # In fact the grammar is generated from this file:
@@ -31,7 +31,7 @@ when isMainModule:
 
 import
   llstream, lexer, idents, strutils, ast, msgs, options, lineinfos,
-  pathutils
+  pathutils, reports
 
 when defined(nimpretty):
   import layouter
@@ -66,7 +66,6 @@ proc parseTopLevelStmt*(p: var Parser): PNode
 # helpers for the other parsers
 proc isOperator*(tok: Token): bool
 proc getTok*(p: var Parser)
-proc parMessage*(p: Parser, msg: TMsgKind, arg: string = "")
 proc skipComment*(p: var Parser, node: PNode)
 proc newNodeP*(kind: TNodeKind, p: Parser): PNode
 proc newIntNodeP*(kind: TNodeKind, intVal: BiggestInt, p: Parser): PNode
@@ -138,17 +137,19 @@ proc closeParser(p: var Parser) =
   when defined(nimpretty):
     closeEmitter(p.em)
 
-proc parMessage(p: Parser, msg: TMsgKind, arg = "") =
-  ## Produce and emit the parser message `arg` to output.
-  lexMessageTok(p.lex, msg, p.tok, arg)
 
-proc parMessage(p: Parser, msg: string, tok: Token) =
-  ## Produce and emit a parser message to output about the token `tok`
-  parMessage(p, errGenerated, msg % prettyTok(tok))
+template localError(p: Parser, report: ParserReport): untyped =
+  var rep = report
+  if rep.found.len == 0:
+    rep.found = prettyTok(p.tok)
 
-proc parMessage(p: Parser, arg: string) =
-  ## Produce and emit the parser message `arg` to output.
-  lexMessageTok(p.lex, errGenerated, p.tok, arg)
+  p.lex.config.handleReport(
+    wrap(rep, instLoc(), getLineInfo(p.lex, p.tok)), instLoc())
+
+
+template localError(p: Parser, report: ReportTypes): untyped =
+  p.lex.config.handleReport(
+    wrap(report, instLoc(), getLineInfo(p.lex, p.tok)), instLoc())
 
 template withInd(p, body: untyped) =
   let oldInd = p.currInd
@@ -180,7 +181,7 @@ proc rawSkipComment(p: var Parser, node: PNode) =
         rhs.add p.tok.literal
       node.comment = move rhs
     else:
-      parMessage(p, errInternal, "skipComment")
+      p.localError InternalReport(kind: rintUnreachable, msg: "skipComment")
     getTok(p)
 
 proc skipComment(p: var Parser, node: PNode) =
@@ -189,18 +190,15 @@ proc skipComment(p: var Parser, node: PNode) =
 proc flexComment(p: var Parser, node: PNode) =
   if p.tok.indent < 0 or realInd(p): rawSkipComment(p, node)
 
-const
-  errInvalidIndentation = "invalid indentation"
-  errIdentifierExpected = "identifier expected, but got '$1'"
-  errExprExpected = "expression expected, but found '$1'"
-
 proc skipInd(p: var Parser) =
   if p.tok.indent >= 0:
-    if not realInd(p): parMessage(p, errInvalidIndentation)
+    if not realInd(p):
+      p.localError ParserReport(kind: rparInvalidIndentation)
 
 proc optPar(p: var Parser) =
   if p.tok.indent >= 0:
-    if p.tok.indent < p.currInd: parMessage(p, errInvalidIndentation)
+    if p.tok.indent < p.currInd:
+      p.localError ParserReport(kind: rparInvalidIndentation)
 
 proc optInd(p: var Parser, n: PNode) =
   skipComment(p, n)
@@ -208,15 +206,18 @@ proc optInd(p: var Parser, n: PNode) =
 
 proc getTokNoInd(p: var Parser) =
   getTok(p)
-  if p.tok.indent >= 0: parMessage(p, errInvalidIndentation)
+  if p.tok.indent >= 0:
+    p.localError ParserReport(kind: rparInvalidIndentation)
 
 proc expectIdentOrKeyw(p: Parser) =
   if p.tok.tokType != tkSymbol and not isKeyword(p.tok.tokType):
-    lexMessage(p.lex, errGenerated, errIdentifierExpected % prettyTok(p.tok))
+    p.localError ParserReport(
+      kind: rparIdentExpected, found: prettyTok(p.tok))
 
 proc expectIdent(p: Parser) =
   if p.tok.tokType != tkSymbol:
-    lexMessage(p.lex, errGenerated, errIdentifierExpected % prettyTok(p.tok))
+    p.localError ParserReport(
+      kind: rparIdentOrKwdExpected, found: prettyTok(p.tok))
 
 proc eat(p: var Parser, tokType: TokType) =
   ## Move the parser to the next token if the current token is of type
@@ -224,8 +225,9 @@ proc eat(p: var Parser, tokType: TokType) =
   if p.tok.tokType == tokType:
     getTok(p)
   else:
-    lexMessage(p.lex, errGenerated,
-      "expected: '" & $tokType & "', but got: '" & prettyTok(p.tok) & "'")
+    p.localError ParserReport(
+      kind: rparUnexpectedToken,
+      expected: @[$tokType], found: prettyTok(p.tok))
 
 proc parLineInfo(p: Parser): TLineInfo =
   ## Retrieve the line information associated with the parser's current state.
@@ -237,8 +239,12 @@ proc indAndComment(p: var Parser, n: PNode, maybeMissEquals = false) =
     elif maybeMissEquals:
       let col = p.bufposPrevious - p.lineStartPrevious
       var info = newLineInfo(p.lex.fileIdx, p.lineNumberPrevious, col)
-      parMessage(p, "invalid indentation, maybe you forgot a '=' at $1 ?" % [p.lex.config$info])
-    else: parMessage(p, errInvalidIndentation)
+      p.localError ParserReport(
+        kind: rparInvalidIndentation,
+        msg: ", maybe you forgot a '=' at $1 ?" % [p.lex.config$info])
+
+    else:
+      p.localError ParserReport(kind: rparInvalidIndentation)
   else:
     skipComment(p, n)
 
@@ -286,7 +292,8 @@ proc checkBinary(p: Parser) {.inline.} =
   # we don't check '..' here as that's too annoying
   if p.tok.tokType == tkOpr:
     if p.tok.strongSpaceB > 0 and p.tok.strongSpaceA == 0:
-      parMessage(p, warnInconsistentSpacing, prettyTok(p.tok))
+      p.localError ParserReport(
+        kind: rparInconsistentSpacing, found: prettyTok(p.tok))
 
 #| module = stmt ^* (';' / IND{=})
 #|
@@ -347,7 +354,7 @@ proc parseSymbol(p: var Parser, mode = smNormal): PNode =
       result = newNodeP(nkNilLit, p)
       getTok(p)
     else:
-      parMessage(p, errIdentifierExpected, p.tok)
+      p.localError ParserReport(kind: rparIdentExpected)
       result = p.emptyNode
   of tkAccent:
     result = newNodeP(nkAccQuoted, p)
@@ -357,7 +364,7 @@ proc parseSymbol(p: var Parser, mode = smNormal): PNode =
       case p.tok.tokType
       of tkAccent:
         if result.len == 0:
-          parMessage(p, errIdentifierExpected, p.tok)
+          p.localError ParserReport(kind: rparIdentExpected)
         break
       of tkOpr, tkDot, tkDotDot, tkEquals, tkParLe..tkParDotRi:
         let lineinfo = parLineInfo(p)
@@ -373,11 +380,11 @@ proc parseSymbol(p: var Parser, mode = smNormal): PNode =
         result.add(newIdentNodeP(p.lex.cache.getIdent($p.tok), p))
         getTok(p)
       else:
-        parMessage(p, errIdentifierExpected, p.tok)
+        p.localError ParserReport(kind: rparIdentExpected)
         break
     eat(p, tkAccent)
   else:
-    parMessage(p, errIdentifierExpected, p.tok)
+    p.localError ParserReport(kind: rparIdentExpected)
     # BUGFIX: We must consume a token here to prevent endless loops!
     # But: this really sucks for idetools and keywords, so we don't do it
     # if it is a keyword:
@@ -567,10 +574,10 @@ proc semiStmtList(p: var Parser, result: PNode) =
       if p.tok.tokType == tkParRi:
         break
       elif not (sameInd(p) or realInd(p)):
-        parMessage(p, errInvalidIndentation)
+        p.localError ParserReport(kind: rparIdentExpected)
       let a = complexOrSimpleStmt(p)
       if a.kind == nkEmpty:
-        parMessage(p, errExprExpected, p.tok)
+        p.localError ParserReport(kind: rparExprExpected)
         getTok(p)
       else:
         result.add a
@@ -765,7 +772,7 @@ proc identOrLiteral(p: var Parser, mode: PrimaryMode): PNode =
   of tkCast:
     result = parseCast(p)
   else:
-    parMessage(p, errExprExpected, p.tok)
+    p.localError ParserReport(kind: rparExprExpected)
     getTok(p)  # we must consume a token here to prevent endless loops!
     result = p.emptyNode
 
@@ -864,7 +871,7 @@ proc primarySuffix(p: var Parser, r: PNode,
         result = parseGStrLit(p, result)
       else:
         if isDotLike2:
-          parMessage(p, warnDotLikeOps, "dot-like operators will be parsed differently with `-d:nimPreviewDotLikeOps`")
+          p.localError ParserReport(kind: rparEnablePreviewDotOps)
         if p.inPragma == 0 and (isUnary(p.tok) or p.tok.tokType notin {tkOpr, tkDotDot}):
           # actually parsing {.push hints:off.} as {.push(hints:off).} is a sweet
           # solution, but pragmas.nim can't handle that
@@ -937,7 +944,8 @@ proc parsePragma(p: var Parser): PNode =
       if p.tok.tokType == tkCurlyRi: curlyRiWasPragma(p.em)
     getTok(p)
   else:
-    parMessage(p, "expected '.}'")
+    p.localError ParserReport(
+      kind: rparMissingToken, expected: @[".}"], found: $p.tok)
   dec p.inPragma
   when defined(nimpretty):
     dec p.em.doIndentMore
@@ -1003,7 +1011,8 @@ proc parseIdentColonEquals(p: var Parser, flags: DeclaredIdentFlags): PNode =
   else:
     result.add(newNodeP(nkEmpty, p))
     if p.tok.tokType != tkEquals and withBothOptional notin flags:
-      parMessage(p, "':' or '=' expected, but got '$1'", p.tok)
+      p.localError ParserReport(
+        kind: rparMissingToken, expected: @[":", "="], found: $p.tok)
   if p.tok.tokType == tkEquals:
     getTok(p)
     optInd(p, result)
@@ -1046,11 +1055,11 @@ proc parseTuple(p: var Parser, indentAllowed = false): PNode =
             result.add(a)
           of tkEof: break
           else:
-            parMessage(p, errIdentifierExpected, p.tok)
+            p.localError ParserReport(kind: rparIdentExpected, found: $p.tok)
             break
           if not sameInd(p): break
   elif p.tok.tokType == tkParLe:
-    parMessage(p, errGenerated, "the syntax for tuple types is 'tuple[...]', not 'tuple(...)'")
+    p.localError ParserReport(kind: rparTupleTypeWithPar)
   else:
     result = newNodeP(nkTupleClassTy, p)
 
@@ -1076,10 +1085,11 @@ proc parseParamList(p: var Parser, retColon = true): PNode =
       of tkParRi:
         break
       of tkVar:
-        parMessage(p, errGenerated, "the syntax is 'parameter: var T', not 'var parameter: T'")
+        p.localError ParserReport(kind: rparMisplacedParameterVar)
         break
       else:
-        parMessage(p, "expected closing ')'")
+        p.localError ParserReport(
+          kind: rparMissingToken, found: $p.tok, expected: @[")"])
         break
       result.add(a)
       if p.tok.tokType notin {tkComma, tkSemiColon}: break
@@ -1138,7 +1148,7 @@ proc parseProcExpr(p: var Parser; isExpr: bool; kind: TNodeKind): PNode =
     if hasSignature:
       result.add(params)
       if kind == nkFuncDef:
-        parMessage(p, "func keyword is not allowed in type descriptions, use proc with {.noSideEffect.} pragma instead")
+        p.localError ParserReport(kind: rparFuncNotAllowed)
       result.add(pragmas)
 
 proc isExprStart(p: Parser): bool =
@@ -1299,7 +1309,7 @@ proc primary(p: var Parser, mode: PrimaryMode): PNode =
     if mode == pmTypeDef:
       result = parseTypeClass(p)
     else:
-      parMessage(p, "the 'concept' keyword is only valid in 'type' sections")
+      p.localError ParserReport(kind: rparConceptNotinType)
   of tkBind:
     result = newNodeP(nkBind, p)
     getTok(p)
@@ -1427,7 +1437,8 @@ proc postExprBlocks(p: var Parser, x: PNode): PNode =
       if nextBlock.kind in {nkElse, nkFinally}: break
   else:
     if openingParams.kind != nkEmpty:
-      parMessage(p, "expected ':'")
+      p.localError ParserReport(
+        kind: rparMissingToken, expected: @[":"])
 
 proc parseExprStmt(p: var Parser): PNode =
   #| exprStmt = simpleExpr
@@ -1689,7 +1700,9 @@ proc parseTry(p: var Parser; isExpr: bool): PNode =
     colcom(p, b)
     b.add(parseStmt(p))
     result.add(b)
-  if b == nil: parMessage(p, "expected 'except'")
+  if b == nil:
+    p.localError ParserReport(
+      kind: rparMissingToken, expected: @["except"])
 
 proc parseExceptBlock(p: var Parser, kind: TNodeKind): PNode =
   result = newNodeP(kind, p)
@@ -1726,7 +1739,10 @@ proc parseAsm(p: var Parser): PNode =
   of tkRStrLit: result.add(newStrNodeP(nkRStrLit, p.tok.literal, p))
   of tkTripleStrLit: result.add(newStrNodeP(nkTripleStrLit, p.tok.literal, p))
   else:
-    parMessage(p, "the 'asm' statement takes a string literal")
+    p.localError ParserReport(
+      kind: rparUnexpectedTokenKind,
+      msg: "the 'asm' statement takes a string literal", found: $p.tok)
+
     result.add(p.emptyNode)
     return
   getTok(p)
@@ -1854,14 +1870,15 @@ proc parseSection(p: var Parser, kind: TNodeKind,
           var a = newCommentStmt(p)
           result.add(a)
         else:
-          parMessage(p, errIdentifierExpected, p.tok)
+          p.localError ParserReport(kind: rparIdentExpected, found: $p.tok)
           break
-    if result.len == 0: parMessage(p, errIdentifierExpected, p.tok)
+    if result.len == 0:
+      p.localError ParserReport(kind: rparIdentExpected, found: $p.tok)
   elif p.tok.tokType in {tkSymbol, tkAccent, tkParLe} and p.tok.indent < 0:
     # tkParLe is allowed for ``var (x, y) = ...`` tuple parsing
     result.add(defparser(p))
   else:
-    parMessage(p, errIdentifierExpected, p.tok)
+    p.localError ParserReport(kind: rparIdentExpected, found: $p.tok)
 
 proc parseEnum(p: var Parser): PNode =
   #| enumDecl = 'enum' optInd (symbol pragma? optInd ('=' optInd expr COMMENT?)? comma?)+
@@ -1907,7 +1924,7 @@ proc parseEnum(p: var Parser): PNode =
         p.tok.tokType == tkEof:
       break
   if result.len <= 1:
-    parMessage(p, errIdentifierExpected, p.tok)
+    p.localError ParserReport(kind: rparIdentExpected, found: $p.tok)
 
 proc parseObjectPart(p: var Parser): PNode
 proc parseObjectWhen(p: var Parser): PNode =
@@ -1971,7 +1988,7 @@ proc parseObjectCase(p: var Parser): PNode =
     colcom(p, b)
     var fields = parseObjectPart(p)
     if fields.kind == nkEmpty:
-      parMessage(p, errIdentifierExpected, p.tok)
+      p.localError ParserReport(kind: rparIdentExpected)
       fields = newNodeP(nkNilLit, p) # don't break further semantic checking
     b.add(fields)
     result.add(b)
@@ -1991,7 +2008,7 @@ proc parseObjectPart(p: var Parser): PNode =
         of tkCase, tkWhen, tkSymbol, tkAccent, tkNil, tkDiscard:
           result.add(parseObjectPart(p))
         else:
-          parMessage(p, errIdentifierExpected, p.tok)
+          p.localError ParserReport(kind: rparIdentExpected, found: $p.tok)
           break
   elif sameOrNoInd(p):
     case p.tok.tokType
@@ -2017,7 +2034,7 @@ proc parseObject(p: var Parser): PNode =
   getTok(p)
   if p.tok.tokType == tkCurlyDotLe and p.validInd:
     # Deprecated since v0.20.0
-    parMessage(p, warnDeprecated, "type pragmas follow the type name; this form of writing pragmas is deprecated")
+    p.localError ParserReport(kind: rparPragmaNotFollowingTypeName)
     result.add(parsePragma(p))
   else:
     result.add(p.emptyNode)
@@ -2091,7 +2108,12 @@ proc parseTypeClass(p: var Parser): PNode =
   # an initial IND{>} HAS to follow:
   if not realInd(p):
     if result.isNewStyleConcept:
-      parMessage(p, "routine expected, but found '$1' (empty new-styled concepts are not allowed)", p.tok)
+      p.localError ParserReport(
+        kind: rparRotineExpected,
+        msg: "routine expected, but found '$1' (empty new-styled concepts are not allowed)" % [
+          $p.tok],
+        found: $p.tok
+      )
     result.add(p.emptyNode)
   else:
     result.add(parseStmt(p))
@@ -2118,7 +2140,7 @@ proc parseTypeDef(p: var Parser): PNode =
   if p.tok.tokType == tkBracketLe and p.validInd:
     if not noPragmaYet:
       # Deprecated since v0.20.0
-      parMessage(p, warnDeprecated, "pragma before generic parameter list is deprecated")
+      p.localError ParserReport(kind: rparPragmaBeforeGenericParameters)
     genericParam = parseGenericParamList(p)
   else:
     genericParam = p.emptyNode
@@ -2130,7 +2152,7 @@ proc parseTypeDef(p: var Parser): PNode =
       identPragma.add(identifier)
       identPragma.add(pragma)
   elif p.tok.tokType == tkCurlyDotLe:
-    parMessage(p, errGenerated, "pragma already present")
+    p.localError ParserReport(kind: rparPragmaAlreadyPresent)
 
   result.add(identPragma)
   result.add(genericParam)
@@ -2316,7 +2338,7 @@ proc parseStmt(p: var Parser): PNode =
           else: break
         else:
           if p.tok.indent > p.currInd and p.tok.tokType != tkDot:
-            parMessage(p, errInvalidIndentation)
+            p.localError ParserReport(kind: rparInvalidIndentation)
           break
         if p.tok.tokType in {tkCurlyRi, tkParRi, tkCurlyDotRi, tkBracketRi}:
           # XXX this ensures tnamedparamanonproc still compiles;
@@ -2328,7 +2350,7 @@ proc parseStmt(p: var Parser): PNode =
 
         let a = complexOrSimpleStmt(p)
         if a.kind == nkEmpty and not p.hasProgress:
-          parMessage(p, errExprExpected, p.tok)
+          p.localError ParserReport(kind: rparExprExpected)
           break
         else:
           result.add a
@@ -2339,21 +2361,23 @@ proc parseStmt(p: var Parser): PNode =
     case p.tok.tokType
     of tkIf, tkWhile, tkCase, tkTry, tkFor, tkBlock, tkAsm, tkProc, tkFunc,
        tkIterator, tkMacro, tkType, tkConst, tkWhen, tkVar:
-      parMessage(p, "nestable statement requires indentation")
+      p.localError ParserReport(kind: rparNestableRequiresIndentation)
       result = p.emptyNode
     else:
       if p.inSemiStmtList > 0:
         result = simpleStmt(p)
-        if result.kind == nkEmpty: parMessage(p, errExprExpected, p.tok)
+        if result.kind == nkEmpty:
+          p.localError ParserReport(kind: rparExprExpected, found: $p.tok)
       else:
         result = newNodeP(nkStmtList, p)
         while true:
           if p.tok.indent >= 0:
-            parMessage(p, errInvalidIndentation)
+            p.localError ParserReport(kind: rparInvalidIndentation)
           p.hasProgress = false
           let a = simpleStmt(p)
           let err = not p.hasProgress
-          if a.kind == nkEmpty: parMessage(p, errExprExpected, p.tok)
+          if a.kind == nkEmpty:
+            p.localError ParserReport(kind: rparExprExpected, found: $p.tok)
           result.add(a)
           if p.tok.tokType != tkSemiColon: break
           getTok(p)
@@ -2368,11 +2392,11 @@ proc parseAll(p: var Parser): PNode =
     if a.kind != nkEmpty and p.hasProgress:
       result.add(a)
     else:
-      parMessage(p, errExprExpected, p.tok)
+      p.localError ParserReport(kind: rparExprExpected, found: $p.tok)
       # bugfix: consume a token here to prevent an endless loop:
       getTok(p)
     if p.tok.indent != 0:
-      parMessage(p, errInvalidIndentation)
+      p.localError ParserReport(kind: rparInvalidIndentation)
 
 proc parseTopLevelStmt(p: var Parser): PNode =
   ## Implements an iterator which, when called repeatedly, returns the next
@@ -2386,26 +2410,28 @@ proc parseTopLevelStmt(p: var Parser): PNode =
       elif p.tok.tokType != tkSemiColon:
         # special casing for better error messages:
         if p.tok.tokType == tkOpr and p.tok.ident.s == "*":
-          parMessage(p, errGenerated,
-            "invalid indentation; an export marker '*' follows the declared identifier")
+          p.localError ParserReport(kind: rparMisplacedExport,
+            msg: "invalid indentation; an export marker '*' follows the declared identifier")
         else:
-          parMessage(p, errInvalidIndentation)
+          p.localError ParserReport(kind: rparInvalidIndentation)
     p.firstTok = false
     case p.tok.tokType
     of tkSemiColon:
       getTok(p)
-      if p.tok.indent <= 0: discard
-      else: parMessage(p, errInvalidIndentation)
+      if p.tok.indent <= 0:
+        discard
+      else:
+        p.localError ParserReport(kind: rparInvalidIndentation)
       p.firstTok = true
     of tkEof: break
     else:
       result = complexOrSimpleStmt(p)
-      if result.kind == nkEmpty: parMessage(p, errExprExpected, p.tok)
+      if result.kind == nkEmpty:
+        p.localError ParserReport(kind: rparExprExpected, found: $p.tok)
       break
 
 proc parseString*(s: string; cache: IdentCache; config: ConfigRef;
-                  filename: string = ""; line: int = 0;
-                  errorHandler: ErrorHandler = nil): PNode =
+                  filename: string = ""; line: int = 0): PNode =
   ## Parses a string into an AST, returning the top node.
   ## `filename` and `line`, although optional, provide info so that the
   ## compiler can generate correct error messages referring to the original
@@ -2414,7 +2440,6 @@ proc parseString*(s: string; cache: IdentCache; config: ConfigRef;
   stream.lineOffset = line
 
   var parser: Parser
-  parser.lex.errorHandler = errorHandler
   openParser(parser, AbsoluteFile filename, stream, cache, config)
 
   result = parser.parseAll

@@ -10,7 +10,7 @@
 # This module implements a dependency file generator.
 
 import
-  options, ast, ropes, idents, passes, modulepaths, pathutils
+  options, ast, ropes, passes, modulepaths, pathutils
 
 from modulegraphs import ModuleGraph, PPassContext
 
@@ -65,4 +65,3 @@ proc myOpen(graph: ModuleGraph; module: PSym; idgen: IdGenerator): PPassContext 
   result = g
 
 const gendependPass* = makePass(open = myOpen, process = addDotDependency)
-

@@ -5,7 +5,7 @@ import std / [strutils, sets]
 
 import ".." / compiler / [
   llstream, lexer, options, msgs, idents,
-  lineinfos, pathutils]
+  lineinfos, pathutils, reports]
 
 proc checkGrammarFileImpl(cache: IdentCache, config: ConfigRef) =
   var f = AbsoluteFile"doc/grammar.txt"
@@ -46,7 +46,7 @@ proc checkGrammarFileImpl(cache: IdentCache, config: ConfigRef) =
 
     closeLexer(L)
   else:
-    rawMessage(config, errGenerated, "cannot open file: " & f.string)
+    config.localError InternalReport(kind: rintCannotOpenFile, file: f.string)
 
 proc checkGrammarFile* =
   checkGrammarFileImpl(newIdentCache(), newConfigRef())
