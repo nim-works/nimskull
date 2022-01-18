@@ -20,7 +20,8 @@ import
   ast_types,
   vm_enums,
   nilcheck_enums,
-  int128
+  int128,
+  platform
 
 export
   ast_types,
@@ -125,6 +126,12 @@ type
     rintNimconfWrite
     rintListWarnings
     rintListHints
+
+    rintCliHelp # cli report first!
+    rintCliFullHelp
+    rintCliVersion
+    rintCliAdvancedUsage # cli report last!
+
     rintDumpState
     rintEchoMessage # last !
 
@@ -1629,6 +1636,19 @@ func severity*(report: ExternalReport): ReportSeverity =
 type
   InternalReportKind* = range[rintUnknown .. rintEchoMessage]
 
+const
+  repInternalKinds*: ReportKinds = {
+    low(InternalReportKind) .. high(InternalReportKind)}
+
+  rintFatalKinds* = {rintUnknown .. rintIce} ## Fatal internal compilation
+                                             ## reports
+  rintErrorKinds* = {rintCannotOpenFile .. rintNotImplemented}
+  rintWarningKinds* = {rintWarnCannotOpenFile .. rintWarnFileChanged}
+  rintHintKinds* = {rintSource .. rintSuccessX}
+  rintDataPassKinds* = {rintStackTrace .. rintEchoMessage}
+  rintCliKinds* = {rintCliHelp .. rintCliAdvancedUsage}
+
+type
   UsedBuildParams* = object
     project*: string
     output*: string
@@ -1662,6 +1682,17 @@ type
     nimcache*: string
     hints*, warnings*: seq[tuple[name: string, enabled: bool]]
 
+  InternalCliData* = object
+    ## Information used to construct messages for CLI reports - `--help`,
+    ## `--fullhelp`
+    version*: string ## Language version
+    sourceHash*: string ## Compiler source code git hash
+    sourceDate*: string ## Compiler source code date
+    boot*: seq[string] ## nim compiler boot flags
+    cpu*: TSystemCPU ## Target CPU
+    os*: TSystemOS ## Target OS
+
+
   InternalReport* = object of ReportBase
     ## Report generated for the internal compiler workings
     msg*: string
@@ -1684,19 +1715,12 @@ type
       of rintListWarnings, rintListHints:
         enabledOptions*: set[ReportKind]
 
+      of rintCliKinds:
+        cliData*: InternalCliData
+
       else:
         discard
 
-const
-  repInternalKinds*: ReportKinds = {
-    low(InternalReportKind) .. high(InternalReportKind)}
-
-  rintFatalKinds* = {rintUnknown .. rintIce} ## Fatal internal compilation
-                                             ## reports
-  rintErrorKinds* = {rintCannotOpenFile .. rintNotImplemented}
-  rintWarningKinds* = {rintWarnCannotOpenFile .. rintWarnFileChanged}
-  rintHintKinds* = {rintSource .. rintSuccessX}
-  rintDataPassKinds* = {rintStackTrace .. rintEchoMessage}
 
 
 func severity*(report: InternalReport): ReportSeverity =

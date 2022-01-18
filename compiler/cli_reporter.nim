@@ -18,7 +18,9 @@ import reports,
        msgs,
        lineinfos,
        nilcheck_enums,
-       vm_enums
+       vm_enums,
+       platform,
+       nversion
 
 import options as compiler_options
 import std/[
@@ -769,7 +771,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "VM problem: cannot find 'break' target"
 
     of rsemVmNotUnused:
-      echo r.ast.render
       result = "not unused"
 
     of rsemVmTooLargetOffset:
@@ -2664,9 +2665,52 @@ proc reportShort*(conf: ConfigRef, r: ParserReport): string =
   reportBody(conf, r) & suffixShort(conf, r)
 
 
+proc genFeatureDesc[T: enum](t: typedesc[T]): string {.compileTime.} =
+  result = ""
+  for f in T:
+    if result.len > 0: result.add "|"
+    result.add $f
+
+const
+  HelpMessage = "Nim Compiler Version $1 [$2: $3]\n" &
+      "Copyright (c) 2006-" & copyrightYear & " by Andreas Rumpf\n"
+  CommitMessage = "Source hash: $1\n" &
+    "Source date: $2\n"
+
+  Usage = slurp"../doc/basicopt.txt".replace(" //", "   ")
+  AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") % [
+    genFeatureDesc(Feature),
+    genFeatureDesc(LegacyFeature)
+  ]
+
+
 proc reportBody*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
   case InternalReportKind(r.kind):
+    of rintCliKinds:
+      let d = r.cliData
+      result = HelpMessage % [
+        VersionAsString,
+        platform.OS[d.os].name,
+        CPU[d.cpu].name
+      ]
+
+      if r.kind == rintCliVersion:
+        if d.sourceHash != "":
+          result.add "\n"
+          result.add CommitMessage % [d.sourceHash, d.sourceDate
+          ]
+
+        result.add "\n"
+        result.add "active boot switches:" & d.boot.join(" ")
+
+      else:
+        if r.kind in {rintCliHelp, rintCliFullHelp}:
+          result.add Usage
+
+        if r.kind in {rintCliFullHelp, rintCliAdvancedUsage}:
+          result.add AdvancedUsage
+
     of rintStackTrace:
       result = conf.formatTrace(r.trace)
 
@@ -3398,12 +3442,18 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   # comment
   assertKind r
 
-  if conf.isEnabled(r) and r.category == repDebug and tryhack:
-    # Force write of the report messages using regular stdout if tryhack is
-    # enabled
+  if (
+     (conf.isEnabled(r) and r.category == repDebug and tryhack) or
+     # Force write of the report messages using regular stdout if tryhack is
+     # enabled
+     r.kind in rintCliKinds
+     # or if we are writing command-line help/usage information - it must
+     # always be printed
+  ):
     if lastDot:
       conf.writeln("")
       lastDot = false
+
     echo conf.reportFull(r)
 
   elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):

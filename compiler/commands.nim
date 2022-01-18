@@ -41,52 +41,6 @@ type
     passCmd2,                 # second pass over the command line
     passPP                    # preprocessor called processCommand()
 
-const
-  HelpMessage = "Nim Compiler Version $1 [$2: $3]\n" &
-      "Copyright (c) 2006-" & copyrightYear & " by Andreas Rumpf\n"
-  CommitMessage = "Source hash: $1\n" &
-    "Source date: $2\n"
-
-proc genFeatureDesc[T: enum](t: typedesc[T]): string {.compileTime.} =
-  result = ""
-  for f in T:
-    if result.len > 0: result.add "|"
-    result.add $f
-
-const
-  Usage = slurp"../doc/basicopt.txt".replace(" //", "   ")
-  AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") % [genFeatureDesc(Feature), genFeatureDesc(LegacyFeature)]
-
-proc getCommandLineDesc(conf: ConfigRef): string =
-  result = (HelpMessage % [VersionAsString, platform.OS[conf.target.hostOS].name,
-                           CPU[conf.target.hostCPU].name]) &
-                           Usage
-
-proc helpOnError(conf: ConfigRef; pass: TCmdLinePass) =
-  if pass == passCmd1:
-    conf.writeln(getCommandLineDesc(conf), {msgStdout})
-    msgQuit(0)
-
-proc writeAdvancedUsage(conf: ConfigRef; pass: TCmdLinePass) =
-  if pass == passCmd1:
-    conf.writeln((
-      HelpMessage % [
-        VersionAsString,
-        platform.OS[conf.target.hostOS].name,
-        CPU[conf.target.hostCPU].name
-    ]) & AdvancedUsage, {msgStdout})
-
-    msgQuit(0)
-
-proc writeFullhelp(conf: ConfigRef; pass: TCmdLinePass) =
-  if pass == passCmd1:
-    conf.writeln((HelpMessage % [
-      VersionAsString,
-      platform.OS[conf.target.hostOS].name,
-      CPU[conf.target.hostCPU].name
-    ]) & Usage & AdvancedUsage, {msgStdout})
-
-    msgQuit(0)
 
 proc getNimSourceData(): tuple[hash, date: string] {.compileTime.} =
   ## Retrieve metadata about the compiler source code.
@@ -96,30 +50,65 @@ proc getNimSourceData(): tuple[hash, date: string] {.compileTime.} =
     nimSourceDate {.strdefine.} = ""
   result = (nimSourceHash, nimSourceDate)
 
+proc getCliData(conf: ConfigRef): InternalCliData =
+  ## Get CLI data from current configuration and nim compiler configuration
+  ## (source code/date defines, boot switches)
+  let (sourceHash, sourceDate) = getNimSourceData()
+
+  InternalCliData(
+    version: VersionAsString,
+    sourceHash: sourceHash,
+    sourceDate: sourceDate,
+    boot: @[
+      usedRelease,
+      usedDanger,
+      usedTinyC,
+      useLinenoise,
+      usedFFI,
+      usedBoehm,
+      usedMarkAndSweep,
+      usedGoGC,
+      usedNoGC
+    ],
+    cpu: conf.target.hostCPU,
+    os: conf.target.hostOS
+  )
+
+
+proc helpOnError(conf: ConfigRef; pass: TCmdLinePass) =
+  if pass == passCmd1:
+    conf.localReport():
+      InternalReport(kind: rintCliHelp, cliData: conf.getCliData())
+
+    msgQuit(0)
+
+proc writeAdvancedUsage(conf: ConfigRef; pass: TCmdLinePass) =
+  if pass == passCmd1:
+    conf.localReport():
+      InternalReport(
+        kind: rintCliAdvancedUsage, cliData: conf.getCliData())
+
+    msgQuit(0)
+
+proc writeFullhelp(conf: ConfigRef; pass: TCmdLinePass) =
+  if pass == passCmd1:
+    conf.localReport():
+      InternalReport(
+        kind: rintCliFullHelp, cliData: conf.getCliData())
+
+    msgQuit(0)
+
 proc writeVersionInfo(conf: ConfigRef; pass: TCmdLinePass) =
   if pass == passCmd1:
-    writeln(
-      conf,
-      HelpMessage % [
-        VersionAsString, platform.OS[conf.target.hostOS].name,
-        CPU[conf.target.hostCPU].name
-      ],
-      {msgStdout}
-    )
+    conf.localReport():
+      InternalReport(
+        kind: rintCliVersion, cliData: conf.getCliData())
 
-    const (sourceHash, sourceDate) = getNimSourceData()
-
-    when sourceHash != "":
-      writeln(conf, CommitMessage % [sourceHash, sourceDate], {msgStdout})
-
-    writeln(conf, "active boot switches:" & usedRelease & usedDanger &
-      usedTinyC & useLinenoise &
-      usedFFI & usedBoehm & usedMarkAndSweep & usedGoGC & usedNoGC,
-               {msgStdout})
     msgQuit(0)
 
 proc writeCommandLineUsage*(conf: ConfigRef) =
-  writeln(conf, getCommandLineDesc(conf), {msgStdout})
+  conf.localReport(InternalReport(
+    kind: rintCliHelp, cliData: conf.getCliData()))
 
 proc addPrefix(switch: string): string =
   if switch.len <= 1: result = "-" & switch
