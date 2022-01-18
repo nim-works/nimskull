@@ -232,7 +232,7 @@ def main() -> None:
 
     # Implements the fetch-bootstrap command. See koch.nim for more
     # information.
-    if sys.argv[1] == "fetch-bootstrap":
+    if len(sys.argv) > 1 and sys.argv[1] == "fetch-bootstrap":
         bootstrap.fetch()
         return
 
