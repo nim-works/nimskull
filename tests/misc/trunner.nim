@@ -308,7 +308,6 @@ running: v2
     let j = ret.parseJson
     # sanity checks
     doAssert "D20210428T161003" in j["defined_symbols"].to(seq[string])
-    doAssert j["version"].to(string) == NimVersion
     doAssert j["nimExe"].to(string) == getCurrentCompilerExe()
 
   block: # genscript

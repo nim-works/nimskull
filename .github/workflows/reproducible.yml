@@ -61,6 +61,8 @@ jobs:
           sudo apt-get install -yqq reprotest
 
       - uses: actions/checkout@v2.4.0
+        with:
+          fetch-depth: 0
 
         # reprotest will manipulate the time which may cause bootstrapping
         # source download to fail due to SSL errors. Download this beforehand

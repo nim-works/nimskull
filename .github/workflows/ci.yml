@@ -102,6 +102,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2.4.0
+        with:
+          fetch-depth: 0
 
       - name: Enable annotations
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
@@ -135,6 +137,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2.4.0
+        with:
+          fetch-depth: 0
 
       - uses: ./.github/actions/download-compiler
 
@@ -198,6 +202,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2.4.0
+        with:
+          fetch-depth: 0
 
       - uses: ./.github/actions/download-compiler
 
@@ -221,6 +227,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2.4.0
+        with:
+          fetch-depth: 0
 
       - uses: ./.github/actions/download-compiler
 
@@ -247,6 +255,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2.4.0
+        with:
+          fetch-depth: 0
 
       - uses: ./.github/actions/download-compiler
 

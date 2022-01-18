@@ -29,10 +29,10 @@ import std/[json, os, strutils, parseopt, osproc]
   # If this fails with: `Error: cannot open file: std/os`, see
   # https://github.com/nim-lang/Nim/pull/14291 for explanation + how to fix.
 
+import ".."/".."/compiler/nversion
+
 import kochdocs
 import deps
-
-const VersionAsString = system.NimVersion
 
 const
   HelpText = """
@@ -128,19 +128,35 @@ proc tryExec(cmd: string): bool =
   echo(cmd)
   result = execShellCmd(cmd) == 0
 
-proc getSourceMetadata(): tuple[hash, date: string] =
+func cmpBase(a, b: Version): int =
+  ## Compare only the base version of `a` and `b`.
+  result = cmp(a.major, b.major)
+  if result == 0:
+    result = cmp(a.minor, b.minor)
+    if result == 0:
+      result = cmp(a.patch, b.patch)
+
+proc getSourceMetadata(): tuple[hash, date, versionSuffix: string] =
   ## Returns the metadata about Nim's source code
   ##
   ## Empty strings are returned if this information is not available
   # Since obtaining this data requires external calls, we cache them
   var hash {.global.}: string
   var date {.global.}: string
+  var versionSuffix {.global.}: string
 
   if hash == "" or date == "":
     try:
       let releaseMetadata = parseFile(nimSource / "release.json")
       hash = getStr releaseMetadata["commit"]
       date = getStr releaseMetadata["commit_date"]
+      let releaseVersion = nversion.parse(getStr releaseMetadata["version"])
+      if not releaseVersion.cmpBase(CompilerVersion) != 0:
+        quit:
+          "The compiler base version (" & VersionAsString & ")" &
+          " is different from release metadata: " & $releaseVersion
+
+      versionSuffix = releaseVersion.suffix
     except OSError, IOError:
       # If the file does not exist, then this is not a release tarball, try
       # obtaining the data from git instead
@@ -152,14 +168,87 @@ proc getSourceMetadata(): tuple[hash, date: string] =
       if dateCall.exitCode == 0:
         date = dateCall.output.strip()
 
-  result = (hash, date)
+      let nearestReleaseTagCall = execCmdEx:
+        "git" & " -C " & quoteShell(nimSource) & " describe" &
+        # Match all tags
+        " --tags" &
+        # Match versioned releases
+        " --match " & quoteShell"*.*.*" &
+        # Excluding pre-releases
+        " --exclude " & quoteShell"*-*"
+
+      # If there is a tag nearby
+      if nearestReleaseTagCall.exitCode == 0:
+        # If `-` is not in the tag, it means the tag is of the same commit as
+        # what is being compiled.
+        if '-' notin nearestReleaseTagCall.output:
+          let taggedVersion = nearestReleaseTagCall.output.strip()
+
+          if taggedVersion != VersionAsString:
+            quit:
+              "The compiler version (" & VersionAsString & ")" &
+              " is different from the tagged release: " & taggedVersion
+
+          versionSuffix = ""
+
+        # If `-` is in the tag, then the tag is of a previous release.
+        else:
+          let
+            # Git produces the following format: <tag>-<distance>-g<short commit id>
+            #
+            # We are interested in the tag and the commit distance.
+            splitOutput = nearestReleaseTagCall.output.strip().rsplit('-')
+            taggedVersion = nversion.parse(splitOutput[0])
+            distance = splitOutput[1] # The distance from the last tag
+
+          # In case the previous release version is equal to or larger than this release
+          if taggedVersion.cmpBase(CompilerVersion) >= 0:
+            quit:
+              "The pre-release compiler version (" & VersionAsString & ")" &
+              " is equal or smaller to a tagged release (" & $taggedVersion & ")." &
+              " Consider bumping the compiler version in compiler/nversion.nim."
+
+          # Use a suffix of -dev.<distance-from-last-tag>
+          versionSuffix = "-dev" & '.' & distance
+
+      # If there are no tags at all
+      else:
+        # Count the number of commits in the repo
+        let commitCountCall = execCmdEx:
+          "git -C " & quoteShell(nimSource) & " rev-list --count HEAD"
+
+        if commitCountCall.exitCode == 0:
+          let commitCount = commitCountCall.output.strip()
+
+          # Use a suffix of -dev.<number-of-commit-since-first-commit>
+          versionSuffix = "-dev" & '.' & commitCount
+
+        else:
+          echo "Warning: could not verify with git whether this is a release or pre-release"
+
+          # TODO: maybe have a suffix for this case
+
+      let dirtyIndexCall = execCmdEx:
+        "git -C " & quoteShell(nimSource) & " diff-index --quiet HEAD"
+
+      if dirtyIndexCall.exitCode == 1:
+        # If there are uncommitted changes, mark the version as "dirty"
+        versionSuffix &= "+dirty"
+
+  result = (hash, date, versionSuffix)
 
 proc defineSourceMetadata(): string =
   ## Produce arguments to pass to the compiler to embed source metadata in the
   ## built compiler
-  let (hash, date) = getSourceMetadata()
+  let (hash, date, versionSuffix) = getSourceMetadata()
   if hash != "" and date != "":
     result = quoteShellCommand(["-d:nimSourceHash=" & hash, "-d:nimSourceDate=" & date])
+  if versionSuffix != "":
+    result &= " -d:CompilerVersionSuffix=" & quoteShell(versionSuffix)
+
+proc targetCompilerVersion(): string =
+  ## Return the compiler version to be built as a string
+  VersionAsString & getSourceMetadata().versionSuffix
 
 proc safeRemove(filename: string) =
   if fileExists(filename): removeFile(filename)
@@ -226,10 +315,10 @@ proc ensureCleanGit() =
 proc archive(args: string) =
   ensureCleanGit()
   nimexec("cc -r $2 --var:version=$1 --var:mingw=none --main:compiler/nim.nim scripts compiler/installer.ini" %
-       [VersionAsString, compileNimInst])
-  let (commit, date) = getSourceMetadata()
+       [targetCompilerVersion(), compileNimInst])
+  let (commit, date, _) = getSourceMetadata()
   exec("$# --var:version=$# --var:mingw=none --var:commit=$# --var:commitdate=$# --main:compiler/nim.nim --format:tar.zst $# archive compiler/installer.ini" %
-       ["tools" / "niminst" / "niminst".exe, VersionAsString, quoteShell(commit), quoteShell(date), args])
+       ["tools" / "niminst" / "niminst".exe, targetCompilerVersion(), quoteShell(commit), quoteShell(date), args])
 
 proc buildTool(toolname, args: string) =
   nimexec("cc $# $#" % [args, toolname])
@@ -263,11 +352,11 @@ proc nsis(latest: bool; args: string) =
   #exec "nim c compiler" / "nim.nim"
   #copyExe("compiler/nim".exe, "bin/nim_debug".exe)
   exec(("tools" / "niminst" / "niminst --var:version=$# --var:mingw=mingw$#" &
-        " nsis compiler/installer.ini") % [VersionAsString, $(sizeof(pointer)*8)])
+        " nsis compiler/installer.ini") % [targetCompilerVersion(), $(sizeof(pointer)*8)])
 
 proc geninstall(args="") =
   nimexec("cc -r $# --var:version=$# --var:mingw=none --main:compiler/nim.nim scripts compiler/installer.ini $#" %
-       [compileNimInst, VersionAsString, args])
+       [compileNimInst, targetCompilerVersion(), args])
 
 proc install(args: string) =
   geninstall()
