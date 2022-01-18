@@ -30,11 +30,6 @@ proc rawInsert[X, A, B](t: var X, data: var KeyValuePairSeq[A, B],
                      key: A, val: sink B, hc: Hash, h: Hash) =
   rawInsertImpl()
 
-template checkIfInitialized() =
-  when compiles(defaultInitialSize):
-    if t.dataLen == 0:
-      initImpl(t, defaultInitialSize)
-
 template addImpl(enlarge) {.dirty.} =
   checkIfInitialized()
   if mustRehash(t): enlarge(t)
@@ -147,28 +142,13 @@ template delImplNoHCode(makeEmpty, cellEmpty, cellHash) {.dirty.} =
 
 template clearImpl() {.dirty.} =
   for i in 0 ..< t.dataLen:
-    when compiles(t.data[i].hcode): # CountTable records don't contain a hcode
-      t.data[i].hcode = 0
-    t.data[i].key = default(typeof(t.data[i].key))
-    t.data[i].val = default(typeof(t.data[i].val))
+    t.data[i] = default(typeof(t.data[i]))
   t.counter = 0
-
-template ctAnd(a, b): bool =
-  when a:
-    when b: true
-    else: false
-  else: false
 
 template initImpl(result: typed, size: int) =
   let correctSize = slotsNeeded(size)
-  when ctAnd(declared(SharedTable), typeof(result) is SharedTable):
-    init(result, correctSize)
-  else:
-    result.counter = 0
-    newSeq(result.data, correctSize)
-    when compiles(result.first):
-      result.first = -1
-      result.last = -1
+  result.counter = 0
+  newSeq(result.data, correctSize)
 
 template insertImpl() = # for CountTable
   if t.dataLen == 0: initImpl(t, defaultInitialSize)

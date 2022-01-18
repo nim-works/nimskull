@@ -227,6 +227,10 @@ const
 template maxHash(t): untyped = high(t.data)
 template dataLen(t): untyped = len(t.data)
 
+template checkIfInitialized() =
+  if t.dataLen == 0:
+    initImpl(t, defaultInitialSize)
+
 include tableimpl
 
 proc raiseKeyError[T](key: T) {.noinline, noreturn.} =
@@ -1320,6 +1324,8 @@ proc initOrderedTable*[A, B](initialSize = defaultInitialSize): OrderedTable[A, 
       a = initOrderedTable[int, string]()
       b = initOrderedTable[char, seq[int]]()
   initImpl(result, initialSize)
+  result.first = -1
+  result.last = -1
 
 proc `[]=`*[A, B](t: var OrderedTable[A, B], key: A, val: sink B) =
   ## Inserts a `(key, value)` pair into `t`.
