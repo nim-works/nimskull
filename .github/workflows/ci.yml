@@ -268,7 +268,7 @@ jobs:
         if: |
           github.event_name == 'push' && github.ref == 'refs/heads/devel' &&
           matrix.target.publish_docs
-        uses: crazy-max/ghaction-github-pages@v2.5.0
+        uses: crazy-max/ghaction-github-pages@v2.6.0
         with:
           build_dir: doc/html
         env:
