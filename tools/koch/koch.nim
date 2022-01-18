@@ -61,6 +61,8 @@ Possible Commands:
   tools                    builds Nim related tools
   toolsNoExternal          builds Nim related tools (except external tools)
                            doesn't require network connectivity
+  fetch-bootstrap          download the bootstrap compiler; must be passed as
+                           the sole command without any options
 
 Boot options:
   -d:release               produce a release version of the compiler
@@ -726,6 +728,9 @@ when isMainModule:
       of "drnim": buildDrNim(op.cmdLineRest)
       of "ic": icTest(op.cmdLineRest)
       of "branchdone": branchDone()
+      of "fetch-bootstrap":
+        # This is handled by koch.py
+        quit()
       else: showHelp(success = false)
       break
     of cmdEnd:

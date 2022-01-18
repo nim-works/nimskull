@@ -62,17 +62,11 @@ jobs:
 
       - uses: actions/checkout@v2.4.0
 
-      - name: Bootstrap koch
-        run: |
-          # TODO: Add a special mode to koch.py so we don't have to do this
-          # dance
-          #
-          # Perform a bootstrapping run for koch so that we don't have to clone
-          # csources
-          ./koch.py --help
-          # Then remove artifacts so we can test build those, too
-          git clean -fdx --exclude=/build/csources/
-          git -C build/csources clean -fdx
+        # reprotest will manipulate the time which may cause bootstrapping
+        # source download to fail due to SSL errors. Download this beforehand
+        # as a workaround.
+      - name: Download bootstrapping source
+        run: ./koch.py fetch-bootstrap
 
       - name: Run reproducibility build
         run: |
