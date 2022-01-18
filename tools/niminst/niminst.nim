@@ -843,6 +843,19 @@ proc archiveDist(c: var ConfigData) =
     }
   processFile(proj / releaseFile, tmpDir / releaseFile)
 
+  # Construct the base name of the archive
+  let archiveBaseName =
+    # If a binary archive is being built
+    if c.binCat != {}:
+      # Append a suffix of the target platform to the archive.
+      #
+      # Since cross-compiling is not supported yet, hostOS and hostCPU is used
+      # here. This should be changed once cross-compiling is supported.
+      proj & "-" & hostOS & "_" & hostCPU
+
+    else:
+      proj
+
   let oldDir = getCurrentDir()
   setCurrentDir(tmpDir)
   try:
@@ -894,7 +907,7 @@ proc archiveDist(c: var ConfigData) =
     of Zip:
       # Write the list into a file then supply that file to archival programs to
       # avoid exceeding command line capacity
-      let fileList = proj & ".files.txt"
+      let fileList = archiveBaseName & ".files.txt"
       writeFile(fileList, paths.join("\n"))
 
       # Set timezone to UTC so that timestamp recorded in the zip file is not
@@ -904,15 +917,17 @@ proc archiveDist(c: var ConfigData) =
       # TODO: Get rid of this hack once osproc gain the ability to modify just
       # one portion of the child standard I/O.
       checkedShellExec:
-        "zip -nw -X -@ $1 < $2" % [quoteShell(proj & ".zip"), quoteShell(fileList)]
+        "zip -nw -X -@ $1 < $2" % [quoteShell(archiveBaseName & ".zip"), quoteShell(fileList)]
 
     of tarFormats:
       # Write the list into a file then supply that file to archival programs to
       # avoid exceeding command line capacity
-      let fileList = proj & ".files.txt"
+      let fileList = archiveBaseName & ".files.txt"
       writeFile(fileList, paths.join("\0"))
 
-      let (tar, kind) = detectTar()
+      let
+        (tar, kind) = detectTar()
+        tarball = archiveBaseName & ".tar"
 
       # The command to create a tar archive
       var tarCmd = @[tar]
@@ -934,7 +949,7 @@ proc archiveDist(c: var ConfigData) =
       tarCmd.add "-cf"
 
       # Add target file name
-      tarCmd.add proj & ".tar"
+      tarCmd.add tarball
 
       # Add the list of files
       tarCmd.add ["--no-recursion", "--null", "-T", fileList]
@@ -943,13 +958,13 @@ proc archiveDist(c: var ConfigData) =
 
       case c.format
       of TarXz:
-        checkedExec("xz", "-9f", proj & ".tar")
+        checkedExec("xz", "-9f", tarball)
       of TarZst:
         # Archive level 20 gives us roughly the same ratio as xz while having
         # around 40% speed up in decompression time and a lot more in
         # compression time thanks to multithreading support.
         checkedExec(
-          "zstd", "-T0", "-20f", "--ultra", "--rm", proj & ".tar"
+          "zstd", "-T0", "-20f", "--ultra", "--rm", tarball
         )
       else:
         discard
