@@ -228,13 +228,29 @@ class Bootstrap:
 
 
 def main() -> None:
+    bootstrap = Bootstrap()
+
+    # Implements the fetch-bootstrap command. See koch.nim for more
+    # information.
+    if sys.argv[1] == "fetch-bootstrap":
+        bootstrap.fetch()
+        return
+
+    # In case --help is passed before the bootstrap compiler is built, warn the
+    # user about it.
+    if "-h" in sys.argv or "--help" in sys.argv:
+        if not bootstrap.is_built():
+            print(
+                "Warning: koch and its dependencies will be downloaded and built before --help is processed."
+            )
+
     print("Building koch.nim")
 
     # The path to koch's binary
     kochSourceDir = NimSource / "tools" / "koch"
     kochBinary = exe(kochSourceDir / "koch")
     kochSource = kochSourceDir / "koch.nim"
-    Bootstrap().run(
+    bootstrap.run(
         "c",
         "--hints:off",
         # (as of v1.0.11) This is required to silent "CC:" even with --hints:off.
