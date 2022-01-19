@@ -632,6 +632,13 @@ template skip* =
   testStatusIMPL = TestStatus.SKIPPED
   checkpoints = @[]
 
+proc print[T: not typedesc](name: string, value: T) =
+  when compiles(string($value)):
+    checkpoint(name & " was " & $value)
+
+proc print[T](name: string, typ: typedesc[T]) =
+  checkpoint(name & " was " & $typ)
+
 macro check*(conditions: untyped): untyped =
   ## Verify if a statement or a list of statements is true.
   ## A helpful error message and set checkpoints are printed out on
@@ -649,20 +656,10 @@ macro check*(conditions: untyped): untyped =
 
   let checked = callsite()[1]
 
-  template asgn(a: untyped, value: typed) =
-    var a = value # XXX: we need "var: var" here in order to
-                  # preserve the semantics of var params
-
-  template print(name: untyped, value: typed) =
-    when compiles(string($value)):
-      checkpoint(name & " was " & $value)
-
   proc inspectArgs(exp: NimNode): tuple[assigns, check, printOuts: NimNode] =
     result.check = copyNimTree(exp)
     result.assigns = newNimNode(nnkStmtList)
     result.printOuts = newNimNode(nnkStmtList)
-
-    var counter = 0
 
     if exp[0].kind in {nnkIdent, nnkOpenSymChoice, nnkClosedSymChoice, nnkSym} and
         $exp[0] in ["not", "in", "notin", "==", "<=",
@@ -670,26 +667,25 @@ macro check*(conditions: untyped): untyped =
 
       for i in 1 ..< exp.len:
         if exp[i].kind notin nnkLiterals:
-          inc counter
           let argStr = exp[i].toStrLit
           let paramAst = exp[i]
           if exp[i].kind == nnkIdent:
-            result.printOuts.add getAst(print(argStr, paramAst))
+            result.printOuts.add newCall(bindSym"print", argStr, paramAst)
           if exp[i].kind in nnkCallKinds + {nnkDotExpr, nnkBracketExpr, nnkPar} and
                   (exp[i].typeKind notin {ntyTypeDesc} or $exp[0] notin ["is", "isnot"]):
-            let callVar = newIdentNode(":c" & $counter)
-            result.assigns.add getAst(asgn(callVar, paramAst))
+            let callVar = genSym(nskVar, "c")
+            result.assigns.add newVarStmt(callVar, paramAst)
             result.check[i] = callVar
-            result.printOuts.add getAst(print(argStr, callVar))
+            result.printOuts.add newCall(bindSym"print", argStr, callVar)
           if exp[i].kind == nnkExprEqExpr:
             # ExprEqExpr
             #   Ident "v"
             #   IntLit 2
             result.check[i] = exp[i][1]
           if exp[i].typeKind notin {ntyTypeDesc}:
-            let arg = newIdentNode(":p" & $counter)
-            result.assigns.add getAst(asgn(arg, paramAst))
-            result.printOuts.add getAst(print(argStr, arg))
+            let arg = genSym(nskVar, "p")
+            result.assigns.add newVarStmt(arg, paramAst)
+            result.printOuts.add newCall(bindSym"print", argStr, arg)
             if exp[i].kind != nnkExprEqExpr:
               result.check[i] = arg
             else:
