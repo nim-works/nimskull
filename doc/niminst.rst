@@ -194,4 +194,3 @@ look at its configuration file:
 
 .. include:: ../compiler/installer.ini
      :literal:
-

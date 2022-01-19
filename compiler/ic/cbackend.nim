@@ -18,10 +18,30 @@
 ## also doing cross-module dependency tracking and DCE that we don't need
 ## anymore. DCE is now done as prepass over the entire packed module graph.
 
-import std/packedsets, algorithm, tables
+import
+  std/[
+    packedsets, algorithm, tables
+  ],
+  ast/[
+    ast,
+    lineinfos
+  ],
+  modules/[
+    modulegraphs
+  ],
+  front/[
+    options,
+    msgs
+  ],
+  utils/[
+    pathutils
+  ],
+  backend/[
+    cgendata,
+    cgen,
+    extccomp
+  ]
 
-import ".."/[ast, options, lineinfos, modulegraphs, cgendata, cgen,
-  pathutils, extccomp, msgs]
 
 import packed_ast, ic, dce, rodfiles
 

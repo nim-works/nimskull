@@ -7,12 +7,31 @@
 #    distribution, for details about the copyright.
 #
 
-import hashes, tables, intsets, std/sha1
-import packed_ast, bitabs, rodfiles
-import ".." / [ast, idents, lineinfos, msgs, ropes, options,
-  pathutils, condsyms, reports]
-#import ".." / [renderer, astalgo]
-from os import removeFile, isAbsolute
+import std/[hashes, tables, intsets, sha1]
+
+import
+  ic/[
+    packed_ast,
+    bitabs,
+    rodfiles
+  ],
+  ast/[
+    ast,
+    idents,
+    lineinfos,
+    reports
+  ],
+  front/[
+    msgs,
+    options,
+    condsyms
+  ],
+  utils/[
+    ropes,
+    pathutils
+  ]
+
+from std/os import removeFile, isAbsolute
 
 type
   PackedConfig* = object

@@ -19,9 +19,9 @@ www.yale.edu: 130.132.143.21
 '''
 """
 
-import compiler/btrees
+import compiler/utils/btrees
 
-import random, tables
+import std/[random, tables]
 
 proc main =
   var st = initBTree[string, string]()

@@ -3,9 +3,14 @@
 
 import std / [strutils, sets]
 
-import ".." / compiler / [
-  llstream, lexer, options, msgs, idents,
-  lineinfos, pathutils, reports]
+import
+  ast/[llstream, lexer, idents, lineinfos, reports],
+  utils/[pathutils],
+  front/[options, msgs, cli_reporter]
+
+# import ".." / compiler / [
+#   llstream, lexer, options, msgs, idents,
+#   lineinfos, pathutils, reports]
 
 proc checkGrammarFileImpl(cache: IdentCache, config: ConfigRef) =
   var f = AbsoluteFile"doc/grammar.txt"
@@ -46,7 +51,7 @@ proc checkGrammarFileImpl(cache: IdentCache, config: ConfigRef) =
 
     closeLexer(L)
   else:
-    config.localError InternalReport(kind: rintCannotOpenFile, file: f.string)
+    config.localReport InternalReport(kind: rintCannotOpenFile, file: f.string)
 
-proc checkGrammarFile* =
-  checkGrammarFileImpl(newIdentCache(), newConfigRef())
+proc checkGrammarFile*() =
+  checkGrammarFileImpl(newIdentCache(), newConfigRef(reportHook))

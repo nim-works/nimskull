@@ -1,4 +1,4 @@
-import "$lib/.." / compiler/strutils2
+import "$lib/.." / compiler/utils/strutils2
 
 block: # setLen
   var a = "abc"

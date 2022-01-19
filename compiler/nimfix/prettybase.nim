@@ -7,8 +7,23 @@
 #    distribution, for details about the copyright.
 #
 
-import strutils except Letters
-import ".." / [ast, msgs, lineinfos, idents, options, linter]
+
+import std/strutils except Letters
+import
+  std/[
+  ],
+  ast/[
+    ast,
+    lineinfos,
+    idents,
+    linter
+  ],
+  front/[
+    msgs,
+    options
+  ]
+
+
 
 proc replaceDeprecated*(conf: ConfigRef; info: TLineInfo; oldSym, newSym: PIdent) =
   let line = sourceLine(conf, info)

@@ -10,8 +10,8 @@
 ## Integrity checking for a set of .rod files.
 ## The set must cover a complete Nim project.
 
-import sets
-import ".." / [ast, modulegraphs]
+import std/sets
+import ast/ast, modules/modulegraphs
 import packed_ast, bitabs, ic
 
 type

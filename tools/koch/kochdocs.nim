@@ -6,7 +6,8 @@ when defined(nimHasCastPragmaBlocks):
   import std/pegs
 from std/private/globs import nativeToUnixPath, walkDirRecFilter, PathEntry
 from packages/docutils/highlite import nimKeywordsSynchronizationCheck
-import ".."/".."/compiler/[nversion, nimpaths]
+import ".."/".."/compiler/utils/[nversion]
+import ".."/".."/compiler/modules/[nimpaths]
 
 const
   # errormax: subsequent errors are probably consequences of 1st one; a simple

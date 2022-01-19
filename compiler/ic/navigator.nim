@@ -11,12 +11,24 @@
 ## IDE-like features. It uses the set of .rod files to accomplish
 ## its task. The set must cover a complete Nim project.
 
-import sets
+import
+  ast/[
+    ast,
+    reports
+  ],
+  modules/[
+    modulegraphs
+  ],
+  front/[
+    msgs,
+    options
+  ],
+  std/sets
 
-from os import nil
+
+from std/os import nil
 from std/private/miscdollars import toLocation
 
-import ".." / [ast, modulegraphs, msgs, options, reports]
 import packed_ast, bitabs, ic
 
 type
