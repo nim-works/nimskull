@@ -1,24 +1,25 @@
 ## Part of 'koch' responsible for the documentation generation.
 
-import os, strutils, osproc, sets, pathnorm, sequtils
+import os, strutils, osproc, sets, pathnorm, sequtils, json
 # XXX: Remove this feature check once the csources supports it.
 when defined(nimHasCastPragmaBlocks):
   import std/pegs
 from std/private/globs import nativeToUnixPath, walkDirRecFilter, PathEntry
 from packages/docutils/highlite import nimKeywordsSynchronizationCheck
-import "../compiler/nimpaths"
+import ".."/".."/compiler/[nversion, nimpaths]
 
 const
-  gaCode* = " --doc.googleAnalytics:UA-48159761-1"
   # errormax: subsequent errors are probably consequences of 1st one; a simple
   # bug could cause unlimited number of errors otherwise, hard to debug in CI.
   docDefines = "-d:nimExperimentalAsyncjsThen -d:nimExperimentalLinenoiseExtra"
-  nimArgs = "--errormax:3 --hint:Conf:off --hint:Path:off --hint:Processing:off --hint:XDeclaredButNotUsed:off --warning:UnusedImport:off -d:boot --putenv:nimversion=$# $#" % [system.NimVersion, docDefines]
-  gitUrl = "https://github.com/nim-lang/Nim"
+  nimArgs = "--errormax:3 --hint:Conf:off --hint:Path:off --hint:Processing:off --hint:XDeclaredButNotUsed:off --warning:UnusedImport:off -d:boot $#" % [docDefines]
+  gitUrl = "https://github.com/nim-works/nimskull"
   docHtmlOutput = "doc/html"
   webUploadOutput = "web/upload"
 
 var nimExe*: string
+var nimSource*: string
+  ## The compiler source code location
 const allowList = ["jsbigints.nim", "jsheaders.nim", "jsformdata.nim", "jsfetch.nim", "jsutils.nim"]
 
 template isJsOnly(file: string): bool =
@@ -112,6 +113,119 @@ proc nimCompileFold*(desc, input: string, outputDir = "bin", mode = "c", options
   let output = outputDir / outputName2
   let cmd = findNim().quoteShell() & " " & mode & " -o:" & output & " " & options & " " & input
   execFold(desc, cmd)
+
+func cmpBase(a, b: Version): int =
+  ## Compare only the base version of `a` and `b`.
+  result = cmp(a.major, b.major)
+  if result == 0:
+    result = cmp(a.minor, b.minor)
+    if result == 0:
+      result = cmp(a.patch, b.patch)
+
+proc getSourceMetadata*(): tuple[hash, date, versionSuffix: string] =
+  ## Returns the metadata about Nim's source code
+  ##
+  ## Empty strings are returned if this information is not available
+  # Since obtaining this data requires external calls, we cache them
+  var hash {.global.}: string
+  var date {.global.}: string
+  var versionSuffix {.global.}: string
+
+  if hash == "" or date == "":
+    try:
+      let releaseMetadata = parseFile(nimSource / "release.json")
+      hash = getStr releaseMetadata["commit"]
+      date = getStr releaseMetadata["commit_date"]
+      let releaseVersion = nversion.parse(getStr releaseMetadata["version"])
+      if not releaseVersion.cmpBase(CompilerVersion) != 0:
+        quit:
+          "The compiler base version (" & VersionAsString & ")" &
+          " is different from release metadata: " & $releaseVersion
+
+      versionSuffix = releaseVersion.suffix
+    except OSError, IOError:
+      # If the file does not exist, then this is not a release tarball, try
+      # obtaining the data from git instead
+      let hashCall = execCmdEx("git -C " & quoteShell(nimSource) & " rev-parse --verify HEAD")
+      if hashCall.exitCode == 0:
+        hash = hashCall.output.strip()
+
+      let dateCall = execCmdEx("git -C " & quoteShell(nimSource) & " log -1 --format=%cs HEAD")
+      if dateCall.exitCode == 0:
+        date = dateCall.output.strip()
+
+      let nearestReleaseTagCall = execCmdEx:
+        "git" & " -C " & quoteShell(nimSource) & " describe" &
+        # Match all tags
+        " --tags" &
+        # Match versioned releases
+        " --match " & quoteShell"*.*.*" &
+        # Excluding pre-releases
+        " --exclude " & quoteShell"*-*"
+
+      # If there is a tag nearby
+      if nearestReleaseTagCall.exitCode == 0:
+        # If `-` is not in the tag, it means the tag is of the same commit as
+        # what is being compiled.
+        if '-' notin nearestReleaseTagCall.output:
+          let taggedVersion = nearestReleaseTagCall.output.strip()
+
+          if taggedVersion != VersionAsString:
+            quit:
+              "The compiler version (" & VersionAsString & ")" &
+              " is different from the tagged release: " & taggedVersion
+
+          versionSuffix = ""
+
+        # If `-` is in the tag, then the tag is of a previous release.
+        else:
+          let
+            # Git produces the following format: <tag>-<distance>-g<short commit id>
+            #
+            # We are interested in the tag and the commit distance.
+            splitOutput = nearestReleaseTagCall.output.strip().rsplit('-')
+            taggedVersion = nversion.parse(splitOutput[0])
+            distance = splitOutput[1] # The distance from the last tag
+
+          # In case the previous release version is equal to or larger than this release
+          if taggedVersion.cmpBase(CompilerVersion) >= 0:
+            quit:
+              "The pre-release compiler version (" & VersionAsString & ")" &
+              " is equal or smaller to a tagged release (" & $taggedVersion & ")." &
+              " Consider bumping the compiler version in compiler/nversion.nim."
+
+          # Use a suffix of -dev.<distance-from-last-tag>
+          versionSuffix = "-dev" & '.' & distance
+
+      # If there are no tags at all
+      else:
+        # Count the number of commits in the repo
+        let commitCountCall = execCmdEx:
+          "git -C " & quoteShell(nimSource) & " rev-list --count HEAD"
+
+        if commitCountCall.exitCode == 0:
+          let commitCount = commitCountCall.output.strip()
+
+          # Use a suffix of -dev.<number-of-commit-since-first-commit>
+          versionSuffix = "-dev" & '.' & commitCount
+
+        else:
+          echo "Warning: could not verify with git whether this is a release or pre-release"
+
+          # TODO: maybe have a suffix for this case
+
+      let dirtyIndexCall = execCmdEx:
+        "git -C " & quoteShell(nimSource) & " diff-index --quiet HEAD"
+
+      if dirtyIndexCall.exitCode == 1:
+        # If there are uncommitted changes, mark the version as "dirty"
+        versionSuffix &= "+dirty"
+
+  result = (hash, date, versionSuffix)
+
+proc targetCompilerVersion*(): string =
+  ## Return the compiler version to be built as a string
+  VersionAsString & getSourceMetadata().versionSuffix
 
 proc getRst2html(): seq[string] =
   for a in walkDirRecFilter("doc"):
@@ -242,7 +356,7 @@ proc buildDocPackages(nimArgs, destPath: string) =
     # structure could be supported later
 
   proc docProject(outdir, options, mainproj: string) =
-    exec("$nim doc --project --outdir:$outdir $nimArgs --git.url:$gitUrl $options $mainproj" % [
+    exec("$nim doc --project --outdir:$outdir --git.url:$gitUrl $options $nimArgs $mainproj" % [
       "nim", nim,
       "outdir", outdir,
       "nimArgs", nimArgs,
@@ -263,26 +377,23 @@ proc buildDoc(nimArgs, destPath: string) =
     i = 0
   let nim = findNim().quoteShell()
   for d in items(rst2html):
-    commands[i] = nim & " rst2html $# --git.url:$# -o:$# --index:on $#" %
-      [nimArgs, gitUrl,
-      destPath / changeFileExt(splitFile(d).name, "html"), d]
+    commands[i] = nim & " rst2html --git.url:$# -o:$# --index:on $# $#" %
+      [gitUrl, destPath / changeFileExt(splitFile(d).name, "html"), nimArgs, d]
     i.inc
   for d in items(doc0):
-    commands[i] = nim & " doc0 $# --git.url:$# -o:$# --index:on $#" %
-      [nimArgs, gitUrl,
-      destPath / changeFileExt(splitFile(d).name, "html"), d]
+    commands[i] = nim & " doc0 --git.url:$# -o:$# --index:on $# $#" %
+      [gitUrl, destPath / changeFileExt(splitFile(d).name, "html"), nimArgs, d]
     i.inc
   for d in items(doc):
     let extra = if isJsOnly(d): "--backend:js" else: ""
     var nimArgs2 = nimArgs
     if d.isRelativeTo("compiler"): doAssert false
-    commands[i] = nim & " doc $# $# --git.url:$# --outdir:$# --index:on $#" %
-      [extra, nimArgs2, gitUrl, destPath, d]
+    commands[i] = nim & " doc $# --git.url:$# --outdir:$# --index:on $# $#" %
+      [extra, gitUrl, destPath, nimArgs2, d]
     i.inc
   for d in items(withoutIndex):
-    commands[i] = nim & " doc $# --git.url:$# -o:$# $#" %
-      [nimArgs, gitUrl,
-      destPath / changeFileExt(splitFile(d).name, "html"), d]
+    commands[i] = nim & " doc --git.url:$# -o:$# $# $#" %
+      [gitUrl, destPath / changeFileExt(splitFile(d).name, "html"), nimArgs, d]
     i.inc
 
   mexec(commands)
@@ -332,7 +443,10 @@ proc buildJS(): string =
   result = getDocHacksJs(nimr = getCurrentDir(), nim)
 
 proc buildDocsDir*(args: string, dir: string) =
-  let args = nimArgs & " " & args
+  let args =
+    nimArgs &
+    " " & quoteShell("--putenv:nimversion=" & targetCompilerVersion()) &
+    " " & args
   let docHackJsSource = buildJS()
   createDir(dir)
   nimKeywordsBuildCheck()
