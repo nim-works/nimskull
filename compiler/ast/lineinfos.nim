@@ -106,6 +106,7 @@ proc computeNotesVerbosity(): tuple[
     rsemHintLibDependency,
     rsemGlobalVar,
     rintGCStats,
+    rintMsgOrigin
   }
 
   result.main[0] = result.main[1] - {
@@ -115,7 +116,6 @@ proc computeNotesVerbosity(): tuple[
     rsemPattern,
     rcmdExecuting,
     rbackLinking,
-    rintMsgOrigin
   }
 
   result.foreign = result.base + {
