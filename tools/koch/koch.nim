@@ -29,8 +29,6 @@ import std/[json, os, strutils, parseopt, osproc]
   # If this fails with: `Error: cannot open file: std/os`, see
   # https://github.com/nim-lang/Nim/pull/14291 for explanation + how to fix.
 
-import ".."/".."/compiler/nversion
-
 import kochdocs
 import deps
 
@@ -93,10 +91,10 @@ Web options:
                            build the official docs, use UA-48159761-1
 """
 
-let
-  nimSource = getEnv("KOCH_NIM_SOURCE")
-    ## The Nim source code location as given by `koch.py`
+# Set the compiler source location to what is given by `koch.py`.
+nimSource = getEnv("KOCH_NIM_SOURCE")
 
+let
   kochExe =
     when defined(windows):
       # Use the `cmd` wrapper for Windows to automate finding Python
@@ -128,115 +126,6 @@ proc tryExec(cmd: string): bool =
   echo(cmd)
   result = execShellCmd(cmd) == 0
 
-func cmpBase(a, b: Version): int =
-  ## Compare only the base version of `a` and `b`.
-  result = cmp(a.major, b.major)
-  if result == 0:
-    result = cmp(a.minor, b.minor)
-    if result == 0:
-      result = cmp(a.patch, b.patch)
-
-proc getSourceMetadata(): tuple[hash, date, versionSuffix: string] =
-  ## Returns the metadata about Nim's source code
-  ##
-  ## Empty strings are returned if this information is not available
-  # Since obtaining this data requires external calls, we cache them
-  var hash {.global.}: string
-  var date {.global.}: string
-  var versionSuffix {.global.}: string
-
-  if hash == "" or date == "":
-    try:
-      let releaseMetadata = parseFile(nimSource / "release.json")
-      hash = getStr releaseMetadata["commit"]
-      date = getStr releaseMetadata["commit_date"]
-      let releaseVersion = nversion.parse(getStr releaseMetadata["version"])
-      if not releaseVersion.cmpBase(CompilerVersion) != 0:
-        quit:
-          "The compiler base version (" & VersionAsString & ")" &
-          " is different from release metadata: " & $releaseVersion
-
-      versionSuffix = releaseVersion.suffix
-    except OSError, IOError:
-      # If the file does not exist, then this is not a release tarball, try
-      # obtaining the data from git instead
-      let hashCall = execCmdEx("git -C " & quoteShell(nimSource) & " rev-parse --verify HEAD")
-      if hashCall.exitCode == 0:
-        hash = hashCall.output.strip()
-
-      let dateCall = execCmdEx("git -C " & quoteShell(nimSource) & " log -1 --format=%cs HEAD")
-      if dateCall.exitCode == 0:
-        date = dateCall.output.strip()
-
-      let nearestReleaseTagCall = execCmdEx:
-        "git" & " -C " & quoteShell(nimSource) & " describe" &
-        # Match all tags
-        " --tags" &
-        # Match versioned releases
-        " --match " & quoteShell"*.*.*" &
-        # Excluding pre-releases
-        " --exclude " & quoteShell"*-*"
-
-      # If there is a tag nearby
-      if nearestReleaseTagCall.exitCode == 0:
-        # If `-` is not in the tag, it means the tag is of the same commit as
-        # what is being compiled.
-        if '-' notin nearestReleaseTagCall.output:
-          let taggedVersion = nearestReleaseTagCall.output.strip()
-
-          if taggedVersion != VersionAsString:
-            quit:
-              "The compiler version (" & VersionAsString & ")" &
-              " is different from the tagged release: " & taggedVersion
-
-          versionSuffix = ""
-
-        # If `-` is in the tag, then the tag is of a previous release.
-        else:
-          let
-            # Git produces the following format: <tag>-<distance>-g<short commit id>
-            #
-            # We are interested in the tag and the commit distance.
-            splitOutput = nearestReleaseTagCall.output.strip().rsplit('-')
-            taggedVersion = nversion.parse(splitOutput[0])
-            distance = splitOutput[1] # The distance from the last tag
-
-          # In case the previous release version is equal to or larger than this release
-          if taggedVersion.cmpBase(CompilerVersion) >= 0:
-            quit:
-              "The pre-release compiler version (" & VersionAsString & ")" &
-              " is equal or smaller to a tagged release (" & $taggedVersion & ")." &
-              " Consider bumping the compiler version in compiler/nversion.nim."
-
-          # Use a suffix of -dev.<distance-from-last-tag>
-          versionSuffix = "-dev" & '.' & distance
-
-      # If there are no tags at all
-      else:
-        # Count the number of commits in the repo
-        let commitCountCall = execCmdEx:
-          "git -C " & quoteShell(nimSource) & " rev-list --count HEAD"
-
-        if commitCountCall.exitCode == 0:
-          let commitCount = commitCountCall.output.strip()
-
-          # Use a suffix of -dev.<number-of-commit-since-first-commit>
-          versionSuffix = "-dev" & '.' & commitCount
-
-        else:
-          echo "Warning: could not verify with git whether this is a release or pre-release"
-
-          # TODO: maybe have a suffix for this case
-
-      let dirtyIndexCall = execCmdEx:
-        "git -C " & quoteShell(nimSource) & " diff-index --quiet HEAD"
-
-      if dirtyIndexCall.exitCode == 1:
-        # If there are uncommitted changes, mark the version as "dirty"
-        versionSuffix &= "+dirty"
-
-  result = (hash, date, versionSuffix)
-
 proc defineSourceMetadata(): string =
   ## Produce arguments to pass to the compiler to embed source metadata in the
   ## built compiler
@@ -245,10 +134,6 @@ proc defineSourceMetadata(): string =
     result = quoteShellCommand(["-d:nimSourceHash=" & hash, "-d:nimSourceDate=" & date])
   if versionSuffix != "":
     result &= " -d:CompilerVersionSuffix=" & quoteShell(versionSuffix)
-
-proc targetCompilerVersion(): string =
-  ## Return the compiler version to be built as a string
-  VersionAsString & getSourceMetadata().versionSuffix
 
 proc safeRemove(filename: string) =
   if fileExists(filename): removeFile(filename)
@@ -269,7 +154,7 @@ const
 proc csource(args: string) =
   nimexec(("cc $1 -r $3 --var:version=$2 --var:mingw=none csource " &
            "--main:compiler/nim.nim $4 compiler/installer.ini $1") %
-       [args, VersionAsString, compileNimInst, quoteShell("--nim:" & findNim())])
+       [args, targetCompilerVersion(), compileNimInst, quoteShell("--nim:" & findNim())])
 
 proc bundleC2nim(args: string) =
   cloneDependency(distDir, "https://github.com/nim-lang/c2nim.git")
@@ -558,8 +443,8 @@ proc winReleaseArch(arch: string) =
       nimexec "c --cpu:$# koch" % cpu
     kochExecFold("winrelease boot", "boot -d:release --cpu:$#" % cpu)
     kochExecFold("winrelease zip", "zip -d:release")
-    overwriteFile r"build\nim-$#.zip" % VersionAsString,
-             r"web\upload\download\nim-$#_x$#.zip" % [VersionAsString, arch]
+    overwriteFile r"build\nim-$#.zip" % targetCompilerVersion(),
+             r"web\upload\download\nim-$#_x$#.zip" % [targetCompilerVersion(), arch]
 
 proc winRelease*() =
   # Now used from "tools/winrelease" and not directly supported by koch
@@ -567,12 +452,12 @@ proc winRelease*() =
   # Build -docs file:
   when true:
     inFold "winrelease buildDocs":
-      buildDocs(gaCode)
-    withDir "web/upload/" & VersionAsString:
+      buildDocs("")
+    withDir "web/upload/" & targetCompilerVersion():
       inFold "winrelease zipdocs":
-        exec "7z a -tzip docs-$#.zip *.html" % VersionAsString
-    overwriteFile "web/upload/$1/docs-$1.zip" % VersionAsString,
-                  "web/upload/download/docs-$1.zip" % VersionAsString
+        exec "7z a -tzip docs-$#.zip *.html" % targetCompilerVersion()
+    overwriteFile "web/upload/$1/docs-$1.zip" % targetCompilerVersion(),
+                  "web/upload/download/docs-$1.zip" % targetCompilerVersion()
   when true:
     inFold "winrelease csource":
       csource("-d:danger")
@@ -750,7 +635,8 @@ proc valgrind(cmd: string) =
   exec("valgrind --suppressions=" & supp & valcmd)
 
 proc showHelp(success: bool) =
-  quit(HelpText % [VersionAsString & spaces(44-len(VersionAsString))]):
+  let version = targetCompilerVersion()
+  quit(HelpText % [version & spaces(44-len(version))]):
     if success: QuitSuccess else: QuitFailure
 
 proc branchDone() =
@@ -785,9 +671,6 @@ when isMainModule:
       of "boot": boot(op.cmdLineRest)
       of "clean": clean(op.cmdLineRest)
       of "doc", "docs": buildDocs(op.cmdLineRest, localDocsOnly, localDocsOut)
-      of "doc0", "docs0":
-        # undocumented command for Araq-the-merciful:
-        buildDocs(op.cmdLineRest & gaCode)
       of "pdf": buildPdfDoc(op.cmdLineRest, "doc/pdf")
       of "csource", "csources": csource(op.cmdLineRest)
       of "winrelease": binArchive(Windows, op.cmdLineRest)
