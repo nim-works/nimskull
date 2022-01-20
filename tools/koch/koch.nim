@@ -24,7 +24,7 @@ when defined(amd64) and defined(windows) and defined(vcc):
 when defined(i386) and defined(windows) and defined(vcc):
   {.link: "icons/koch-i386-windows-vcc.res".}
 
-import std/[json, os, strutils, parseopt, osproc]
+import std/[json, os, strutils, parseopt, osproc, times]
   # Using `std/os` instead of `os` to fail early if config isn't set up properly.
   # If this fails with: `Error: cannot open file: std/os`, see
   # https://github.com/nim-lang/Nim/pull/14291 for explanation + how to fix.
@@ -652,6 +652,14 @@ when isMainModule:
     latest = false
     localDocsOnly = false
     localDocsOut = ""
+
+  # Set SOURCE_DATE_EPOCH to cover other tooling that might make use of the
+  # current time. Currently these tools are known to use the current time:
+  #
+  # - nim doc
+  let epoch = getSourceMetadata().date.parse("yyyy-MM-dd", zone = utc())
+                                      .toTime.toUnix()
+  putEnv("SOURCE_DATE_EPOCH", $epoch)
   while true:
     op.next()
     case op.kind

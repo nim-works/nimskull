@@ -35,14 +35,14 @@ jobs:
             pattern: 'build/*.tar.zst'
 
           - name: Unix binary archive
-            command: './koch.py unixrelease'
+            command: './koch.py boot -d:danger && ./koch.py docs --docCmd:skip && ./koch.py unixrelease'
             pattern: 'build/*.tar.zst'
 
           # Note: this tests the zip generation and not exe generation determinism.
           #
           # Testing exe generation will be done when cross-bootstrap is possible.
           - name: Windows binary archive
-            command: './koch.py winrelease'
+            command: './koch.py boot -d:danger && ./koch.py docs --docCmd:skip && ./koch.py winrelease'
             pattern: 'build/*.zip'
 
     name: '${{ matrix.test.name }} reproducibility tests'
