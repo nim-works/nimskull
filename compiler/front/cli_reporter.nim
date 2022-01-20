@@ -19,7 +19,8 @@ import
     strformat,
     tables,
     intsets,
-    json
+    json,
+    strtabs
   ],
   ast/[
     lineinfos,
@@ -101,7 +102,7 @@ proc formatPath(conf: ConfigRef, path: string): string =
     when compileOption"excessiveStackTrace":
       # instLoc(), when `--excessiveStackTrace` is used, generates full
       # paths that /might/ need to be filtered if `--filenames:canonical`.
-      const compilerRoot = currentSourcePath().parentDir()
+      const compilerRoot = currentSourcePath().parentDir().parentDir()
       if conf.filenameOption == foCanonical and
          path.startsWith(compilerRoot):
         result = path[(compilerRoot.len + 1) .. ^1]
@@ -3170,43 +3171,60 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
       result = "cfg trace '" & r.str & "'"
 
     of rdbgVmCodeListing:
+      result.add "Code listing"
+      let l = r.vmgenListing
+      if not l.sym.isNil():
+        result.addf(
+          " for the '$#' $#\n\n",
+          l.sym.name.s,
+          conf.toStr(l.sym.info))
+
+      else:
+        result.add "\n\n"
+
       for e in r.vmgenListing.entries:
         if e.isTarget:
-          result.add("L:\n", e.pc)
+          result.add("L:", e.pc, "\n")
 
+        func `$<`[T](arg: T): string = alignLeft($arg, 5)
+        func `$<`(opc: TOpcode): string = alignLeft(opc.toStr, 12)
+
+        var line: string
         case e.opc:
           of {opcIndCall, opcIndCallAsgn}:
-            result.addf("\t$#\tr$#, r$#, nargs:$#", e.opc, e.ra, e.rb, e.rc)
+            line.addf("  $# r$# r$# #$#", $<e.opc, $<e.ra, $<e.rb, $<e.rc)
 
           of {opcConv, opcCast}:
-            result.addf(
-              "\t$#\tr$#, r$#, $#, $#",
-              $e.opc.toStr,
-              $e.ra,
-              $e.rb,
-              $e.types[0].typeToString(),
-              $e.types[1].typeToString())
+            line.addf(
+              "  $# r$# r$# $# $#",
+              $<e.opc,
+              $<e.ra,
+              $<e.rb,
+              $<e.types[0].typeToString(),
+              $<e.types[1].typeToString())
 
           elif e.opc < firstABxInstr:
-            result.addf("\t$#\tr$#, r$#, r$#", e.opc.toStr, $e.ra, $e.rb, $e.rc)
+            line.addf("  $# r$# r$# r$#", $<e.opc, $<e.ra, $<e.rb, $<e.rc)
 
           elif e.opc in relativeJumps + {opcTry}:
-            result.addf("\t$#\tr$#, L$#", e.opc.toStr, $e.ra, $e.idx)
+            line.addf("  $# r$# L$#", $<e.opc, $<e.ra, $<e.idx)
 
           elif e.opc in {opcExcept}:
-            result.addf("\t$#\t$#, $#", $e.opc.toStr, $e.ra, $e.idx)
+            line.addf("  $# $# $#", $<e.opc, $<e.ra, $<e.idx)
 
           elif e.opc in {opcLdConst, opcAsgnConst}:
-            result.addf(
-              "\t$#\tr$#, $# ($#)",
-              $e.opc.toStr, $e.ra, $e.ast.renderTree(), $e.idx)
+            line.addf(
+              "  $# r$# $# $#",
+              $<e.opc, $<e.ra, $<e.ast.renderTree(), $<e.idx)
 
           else:
-            result.addf("\t$#\tr$#, $#", e.opc.toStr, $e.ra, $e.idx)
+            line.addf("  $# r$# $#", $<e.opc, $<e.ra, $<e.idx)
 
-        result.add("\t# ")
-        result.add(toStr(conf, e.info))
-        result.add("\n")
+        result.add(
+          line,
+          tern(line.len <= 48, repeat(" ", 48 - line.len), ""),
+          toStr(conf, e.info),
+          "\n")
 
 proc reportFull*(conf: ConfigRef, r: DebugReport): string =
   assertKind r
@@ -3457,7 +3475,24 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   # comment
   assertKind r
 
-  if (
+  if (r.kind == rdbgVmCodeListing) and (
+    (
+     # If special expand target is not defined, debug all generated code
+     ("expandVmListing" notin conf.symbols)
+    ) or (
+     # Otherwise check if listing target is not nil, and it's name is the
+     # name we are targeting.
+     (not r.debugReport.vmgenListing.sym.isNil()) and
+     (
+       r.debugReport.vmgenListing.sym.name.s ==
+       conf.symbols["expandVmListing"]
+  ))):
+    echo conf.reportFull(r)
+
+  elif r.kind == rdbgVmCodeListing:
+    return
+
+  elif (
      (conf.isEnabled(r) and r.category == repDebug and tryhack) or
      # Force write of the report messages using regular stdout if tryhack is
      # enabled
@@ -3489,6 +3524,8 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
 
     # Return without writing
     return
+
+
 
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
     # REFACTOR 'processing with dots' - requires special hacks, pretty
