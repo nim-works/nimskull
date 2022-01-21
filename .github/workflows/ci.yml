@@ -3,6 +3,9 @@ on:
   push:
     # Empty configuration means use default (ie. test all branches)
     branches-ignore:
+      # Everything would have passed bors before going into devel
+      - devel
+      # Bors temporary branches
       - staging.tmp
       - trying.tmp
       - staging-squash-merge.tmp
@@ -265,24 +268,22 @@ jobs:
 
       - name: Build docs
         run: |
-          branch=${{ github.ref }}
-          # Remove refs/heads/ prefix
-          branch=${branch##*/}
-
           ./koch.py doc \
             --git.url:'https://github.com/${{ github.repository }}' \
             --git.commit:'${{ github.sha }}' \
-            --git.devel:"$branch"
+            --git.devel:devel
 
-      - name: Publish
-        if: |
-          github.event_name == 'push' && github.ref == 'refs/heads/devel' &&
-          matrix.target.publish_docs
-        uses: crazy-max/ghaction-github-pages@v2.6.0
+          # Remove leftover nimcache
+          rm -rf doc/html/nimcache
+
+      - name: Publish to artifacts
+        if: matrix.target.publish_docs
+        uses: actions/upload-artifact@v2.3.1
         with:
-          build_dir: doc/html
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+          # If this name is updated, tweak publisher.yml
+          name: Generated docs
+          path: doc/html/
+          if-no-files-found: error
 
   passed:
     name: All check passed

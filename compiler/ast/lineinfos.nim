@@ -58,9 +58,13 @@ proc computeNotesVerbosity(): tuple[
     # debug report for transition of the configuration options
     result.base.incl {rdbgOptionsPush, rdbgOptionsPop}
 
-  when defined(nimVMDebug):
+  when defined(nimVMDebugExecute):
     result.base.incl {
-      rdbgVmExecTraceFull, # execution of the generated code listings
+      rdbgVmExecTraceFull # execution of the generated code listings
+    }
+
+  when defined(nimVMDebugGenerate):
+    result.base.incl {
       rdbgVmCodeListing    # immediately generated code listings
     }
 

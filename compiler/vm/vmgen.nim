@@ -64,7 +64,7 @@ when defined(nimCompilerStacktraceHints):
   import std/stackframes
 
 const
-  debugEchoCode* = defined(nimVMDebug)
+  debugEchoCode* = defined(nimVMDebugGenerate)
 
 when hasFFI:
   import vm/evalffi

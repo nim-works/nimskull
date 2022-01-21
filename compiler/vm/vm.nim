@@ -63,7 +63,7 @@ import ast/ast except getstr
 
 
 const
-  traceCode = defined(nimVMDebug)
+  traceCode = defined(nimVMDebugExecute)
 
 when hasFFI:
   import evalffi

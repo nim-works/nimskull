@@ -1,0 +1,39 @@
+name: Publish built artifacts
+on:
+  push:
+    branches:
+      - devel
+
+# Run every script actions in bash
+defaults:
+  run:
+    shell: bash
+
+# Since we will be pushing, make sure that only one instance can run at a time.
+concurrency: publisher
+
+jobs:
+  publisher:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Publish action needs a checkout
+      - uses: actions/checkout@v2.4.0
+
+      # Download the latest instance of generated documentation from the build
+      # during bors staging.
+      - name: Download generated docs
+        uses: dawidd6/action-download-artifact@v2.16.0
+        with:
+          workflow: ci.yml
+          workflow_conclusion: completed
+          commit: ${{ github.event.after }}
+          # Keep up-to-date with ci.yml
+          name: Generated docs
+          path: doc/html
+
+      - name: Publish docs
+        uses: JamesIves/github-pages-deploy-action@v4.2.2
+        with:
+          branch: gh-pages
+          folder: doc/html
