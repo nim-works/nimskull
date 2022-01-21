@@ -70,23 +70,42 @@ jobs:
       - name: Download bootstrapping source
         run: ./koch.py fetch-bootstrap
 
-      - name: Run reproducibility build
+      - id: reprotest
+        name: Run reproducibility build
         run: |
           # Add a guest user for reprotest
           sudo useradd -m guest-builder
 
-          # Disabled kernel variation as it messes with csources architecture
-          # detection.
-          #
-          # Can be re-enabled once reprotest is >= 0.7.18, where a fix is added
-          # to prevent 32-bit architectures from being selected.
-          reprotest \
-            --vary=domain_host.use_sudo=1 \
-            --vary=user_group.available+=guest-builder:guest-builder \
-            --vary=-kernel \
-            'export XDG_CACHE_HOME=$PWD/build/nimcache \
-              && ${{ matrix.test.command }}' \
-            '${{ matrix.test.pattern }}'
+          # The path to output diffoscope HTML to
+          output_html=$RUNNER_TEMP/diffoscope.html
+          run_reprotest() {
+            # Disabled kernel variation as it messes with csources architecture
+            # detection.
+            #
+            # Can be re-enabled once reprotest is >= 0.7.18, where a fix is added
+            # to prevent 32-bit architectures from being selected.
+            reprotest \
+              --vary=domain_host.use_sudo=1 \
+              --vary=user_group.available+=guest-builder:guest-builder \
+              --vary=-kernel \
+              --diffoscope-arg="--html=$output_html" \
+              'export XDG_CACHE_HOME=$PWD/build/nimcache \
+                && ${{ matrix.test.command }}' \
+              '${{ matrix.test.pattern }}'
+          }
+
+          if ! run_reprotest; then
+            echo "::error::Reproducibility test failed, check the diffoscope output uploaded to artifacts for more details"
+            echo "::set-output name=result::$output_html"
+            exit 1
+          fi
+
+      - name: Upload diffoscope output
+        if: failure()
+        uses: actions/upload-artifact@v2.3.1
+        with:
+          name: ${{ matrix.test.name }} reproducibility test diffoscope output
+          path: ${{ steps.reprotest.outputs.result }}
 
   passed:
     name: All reproducibility tests passed
