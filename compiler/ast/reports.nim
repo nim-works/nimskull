@@ -1466,6 +1466,7 @@ type
   DebugSemStepDirection* = enum semstepEnter, semstepLeave
   DebugSemStepKind* = enum
     stepNodeToNode
+    stepNodeToSym
     stepNodeFlagsToNode
     stepNodeTypeToNode
     stepTypeTypeToType
@@ -1478,7 +1479,8 @@ type
     direction*: DebugSemStepDirection
     level*: int
     name*: string
-    node*: PNode
+    node*: PNode ## Depending on the step direction this field stores
+                 ## either input or output node
     steppedFrom*: ReportLineInfo
     case kind*: DebugSemStepKind
       of stepNodeToNode, stepTrack, stepWrongNode, stepError:
@@ -1487,6 +1489,9 @@ type
       of stepNodeTypeToNode, stepTypeTypeToType:
         typ*: PType
         typ1*: PType
+
+      of stepNodeToSym:
+        sym*: PSym
 
       of stepNodeFlagsToNode:
         flags*: TExprFlags

@@ -22,6 +22,9 @@ import
   ]
 
 proc isCompilerDebug*(conf: ConfigRef): bool {.inline.} =
+  conf.isDefined("nimCompilerDebug")
+
+proc isCompilerTraceDebug*(conf: ConfigRef): bool =
   ##[
   Provides a simple way for user code to enable/disable logging in the compiler
   in a granular way. This can then be used in the compiler as follows:
@@ -37,7 +40,8 @@ proc isCompilerDebug*(conf: ConfigRef): bool {.inline.} =
       echo 3.5 # code section in which `isCompilerDebug` will be true
       {.undef(nimCompilerDebug).}
       echo 'x'
-  conf.isDefined("nimCompilerDebug")
+  conf.isCompilerDebug() and conf.isDefined("nimCompilerDebugCalltrace")
+
 
 template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
                                 enterMsg, leaveMsg) =
@@ -74,7 +78,7 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
 
     # do all this at the start of any proc we're debugging
     let
-      isDebug = conf.isCompilerDebug()
+      isDebug = conf.isCompilerTraceDebug()
         ## see if we're in compiler debug mode and also use the fact that we know
         ## this early to see if we just entered or just left
 
@@ -114,7 +118,7 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
 
     # upon leaving the proc being debugged (`defer`), let's see what changed
     defer:
-      if not isDebug and conf.isCompilerDebug():
+      if not isDebug and conf.isCompilerTraceDebug():
         # meaning we just analysed a `{.define(nimCompilerDebug).}`
         # it started of as false, now after the proc's work (`semExpr`) this
         # `defer`red logic is seeing `true`, so we must have just started.
@@ -125,7 +129,7 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
           report.ctraceData = (indentLevel, getStackTraceEntries())
 
         conf.localReport(report)
-      elif isDebug and not conf.isCompilerDebug():
+      elif isDebug and not conf.isCompilerTraceDebug():
         # meaning we just analysed an `{.undef(nimCompilerDebug).}`
         # it started of as true, now in the `defer` it's false
         discard conf.debugUtilsStack.pop()
@@ -151,7 +155,7 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode;
           level: indentLevel,
           name: action,
           steppedFrom: calledFromInfo(),
-          node: r,
+          node: n,
           kind: stepNodeFlagsToNode,
           flags: flags))), instLoc(instDepth))
 
@@ -256,6 +260,35 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
           node: n,
           typ: r,
           kind: stepNodeTypeToNode))), instLoc(instDepth))
+
+    addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
+
+template addInNimDebugUtils*(
+    c: ConfigRef; action: string; n: PNode; resSym: PSym) =
+  ## add tracing to procs that are primarily `PNode -> PSym`,
+
+  when defined(nimDebugUtils):
+    template enterMsg(indentLevel: int) =
+      handleReport(c, wrap(instLoc(instDepth), DebugReport(
+        kind: rdbgTraceStep,
+        semstep: DebugSemStep(
+          direction: semstepEnter,
+          level: indentLevel,
+          name: action,
+          steppedFrom: calledFromInfo(),
+          node: n,
+          kind: stepNodeToSym))), instLoc(instDepth))
+
+    template leaveMsg(indentLevel: int) =
+      handleReport(c, wrap(instLoc(instDepth), DebugReport(
+        kind: rdbgTraceStep,
+        semstep: DebugSemStep(
+          direction: semstepLeave,
+          level: indentLevel,
+          name: action,
+          steppedFrom: calledFromInfo(),
+          sym: resSym,
+          kind: stepNodeToSym))), instLoc(instDepth))
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 

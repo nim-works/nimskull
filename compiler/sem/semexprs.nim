@@ -938,7 +938,7 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
 
 proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode, nOrig: PNode,
                                      flags: TExprFlags): PNode =
-  addInNimDebugUtils(c.config, "semOverloadedCallAnalyseEffects", n, nOrig)
+  addInNimDebugUtils(c.config, "semOverloadedCallAnalyseEffects", n, result)
   if flags*{efInTypeof, efWantIterator, efWantIterable} != {}:
     # consider: 'for x in pReturningArray()' --> we don't want the restriction
     # to 'skIterator' anymore; skIterator is preferred in sigmatch already
@@ -3276,4 +3276,6 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkError: discard "ignore errors for now"
   else:
     localReport(c.config, n, reportSem rsemInvalidExpression)
-  if result != nil: incl(result.flags, nfSem)
+
+  if result != nil:
+    incl(result.flags, nfSem)
