@@ -4,4 +4,4 @@ discard """
 """
 
 var x: Undeclared
-import compiler/nimeval
+import std/strutils

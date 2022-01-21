@@ -14,8 +14,26 @@ raising VMQuit
 ## Example program that demonstrates how to use the
 ## compiler as an API to embed into your own projects.
 
-import "../../compiler" / [ast, vmdef, vm, nimeval, llstream, lineinfos, options, reports]
-import std / [os]
+
+import
+  std/[
+    os
+  ],
+  ast/[
+    ast,
+    lineinfos,
+    reports,
+    llstream
+  ],
+  front/[
+    options
+  ],
+  vm/[
+    vmdef,
+    vm,
+    nimeval,
+  ]
+
 proc initInterpreter(script: string, hook: ReportHook): Interpreter =
   let std = findNimStdLibCompileTime()
   result = createInterpreter(

@@ -12,9 +12,9 @@
 ## use this representation directly in all the transformations,
 ## it is superior.
 
-import hashes, tables, strtabs
-import bitabs
-import ".." / [ast, options]
+import std/[hashes, tables, strtabs]
+import ic/bitabs
+import ast/ast, front/options
 
 type
   SymId* = distinct int32

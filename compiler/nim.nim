@@ -24,19 +24,37 @@ when defined(windows) and not defined(nimKochBootstrap):
     {.link: "../icons/nim-i386-windows-vcc.res".}
 
 import
-  cli_reporter,
-  commands, options, msgs, extccomp, main, idents, cmdlinehelper,
-  pathutils, modulegraphs, reports
+  backend/[
+    extccomp
+  ],
+  front/[
+    msgs, main, cmdlinehelper, options, commands, cli_reporter
+  ],
+  modules/[
+    modulegraphs
+  ],
+  utils/[
+    pathutils
+  ],
+  ast/[
+    reports, idents
+  ]
 
-from browsers import openDefaultBrowser
-from nodejs import findNodeJs
+
+# import
+#   cli_reporter,
+#   commands, options, msgs,  main, idents, cmdlinehelper,
+#   pathutils, modulegraphs, reports
+
+from std/browsers import openDefaultBrowser
+from utils/nodejs import findNodeJs
 
 when hasTinyCBackend:
-  import tccgen
+  import backend/tccgen
 
 when defined(profiler) or defined(memProfiler):
   {.hint: "Profiling support is turned on!".}
-  import nimprof
+  import sdt/nimprof
 
 
 proc getNimRunExe(conf: ConfigRef): string =

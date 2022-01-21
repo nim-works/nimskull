@@ -12,18 +12,27 @@ discard """
 ## 3. Full processing of the CLI flags - integration tests for the
 ##    `nim.handleCmdLine()` logic
 
-import compiler/[
-  options,
-  reports,
-  commands,
-  cli_reporter,
-  idents,
-  modulegraphs,
-  nimconf,
-  cmdlinehelper
-]
 
-import std/[strutils, os, sequtils]
+import
+  std/[
+    strutils,
+    os,
+    sequtils
+  ],
+  ast/[
+    reports,
+    idents
+  ],
+  modules/[
+    modulegraphs
+  ],
+  front/[
+    options,
+    commands,
+    cli_reporter,
+    cmdlinehelper,
+    nimconf
+  ]
 
 var reported: seq[Report]
 

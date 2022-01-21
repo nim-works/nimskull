@@ -11,8 +11,27 @@
 ## state like ``{.compile: "foo.c".}``. For IC (= Incremental compilation)
 ## support.
 
-import ".." / [ast, modulegraphs, trees, extccomp, btrees,
-  msgs, pathutils, options, cgmeth, reports]
+import
+  ast/[
+    ast,
+    trees,
+    reports,
+  ],
+  modules/[
+    modulegraphs,
+  ],
+  utils/[
+    btrees,
+    pathutils,
+  ],
+  front/[
+    msgs,
+    options,
+  ],
+  backend/[
+    extccomp,
+    cgmeth
+  ]
 
 import tables
 

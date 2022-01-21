@@ -15,7 +15,7 @@ import stdtest/[specialpaths, unittest_light]
 from std/private/globs import nativeToUnixPath
 from strutils import startsWith, strip, removePrefix
 from std/sugar import dup
-import "$lib/../compiler/nimpaths"
+import "$lib/../compiler/modules/nimpaths"
 
 proc isDots(a: string): bool =
   ## test for `hintProcessing` dots

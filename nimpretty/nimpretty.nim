@@ -12,11 +12,22 @@
 when not defined(nimpretty):
   {.error: "This needs to be compiled with --define:nimPretty".}
 
-import ../compiler / [
-    idents, msgs, syntaxes, options, pathutils, layouter, cli_reporter
+import
+  ast/[
+    idents,
+    syntaxes,
+    layouter
+  ],
+  front/[
+    msgs,
+    options,
+    cli_reporter
+  ],
+  utils/[
+    pathutils,
   ]
 
-import parseopt, strutils, os, sequtils
+import std/[parseopt, strutils, os, sequtils]
 
 const
   Version = "0.2"

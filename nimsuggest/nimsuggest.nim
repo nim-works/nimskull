@@ -20,25 +20,34 @@ import std/options as std_options
 # suggestionResultHook, because suggest.nim is included by sigmatch.
 # So we import that one instead.
 
+
 import
-  ../compiler/[
+  ast/[
+    reports,
+    idents,
+    lineinfos,
+    ast
+  ],
+  modules/[
+    modules,
+    modulegraphs
+  ],
+  front/[
     options,
     commands,
-    modules,
+    msgs,
+    cmdlinehelper,
+    cli_reporter
+  ],
+  utils/[
+    prefixmatches,
+    pathutils
+  ],
+  sem/[
     sem,
     passes,
     passaux,
-    msgs,
-    sigmatch,
-    ast,
-    reports,
-    idents,
-    modulegraphs,
-    prefixmatches,
-    lineinfos,
-    cmdlinehelper,
-    pathutils,
-    cli_reporter
+    sigmatch
   ]
 
 when defined(windows):

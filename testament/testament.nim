@@ -15,7 +15,7 @@ import std/[
 ]
 import backend, azure, htmlgen, specs
 from std/sugar import dup
-import compiler/nodejs
+import utils/nodejs
 import lib/stdtest/testutils
 from lib/stdtest/specialpaths import splitTestFile
 from std/private/gitutils import diffStrings
@@ -98,12 +98,12 @@ proc isNimRepoTests(): bool =
 
 type
   Category = distinct string
-  
+
   TResults = object
     total, passed, failedButAllowed, skipped: int
       ## xxx rename passed to passedOrAllowedFailure
     data: string
-  
+
   TTest = object
     name: string
     cat: Category
@@ -792,7 +792,7 @@ proc main() =
       # action
       let runtype = if useMegatest: " pcat " else: " cat "
       cmds.add(myself & runtype & quoteShell(cat) & rest)
-      
+
     if simulate: # 'see what tests would be run but don't run them (for debugging)'
       skips = loadSkipFrom(skipFrom)
       for i, cati in cats:
@@ -822,7 +822,7 @@ proc main() =
     var cat = Category(p.key)
     p.next
     processCategory(r, cat, p.cmdLineRest, testsDir, runJoinableTests = false)
-  of "p", "pat", "pattern": # Run all tests matching the given pattern  
+  of "p", "pat", "pattern": # Run all tests matching the given pattern
     skips = loadSkipFrom(skipFrom)
     let pattern = p.key
     p.next

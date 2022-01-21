@@ -1,4 +1,4 @@
-include compiler/[nimblecmd], sets
+include modules/[nimblecmd], std/sets
 
 proc v(s: string): Version = s.newVersion
 

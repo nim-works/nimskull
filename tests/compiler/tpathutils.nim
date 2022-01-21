@@ -1,5 +1,5 @@
-import compiler/pathutils
-import os, strutils
+import compiler/utils/pathutils
+import std/[os, strutils]
 
 
 doAssert AbsoluteDir"/Users/me///" / RelativeFile"z.nim" == AbsoluteFile"/Users/me/z.nim"

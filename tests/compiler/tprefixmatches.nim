@@ -1,5 +1,5 @@
-import compiler/prefixmatches
-import macros
+import compiler/utils/prefixmatches
+import std/macros
 
 macro check(val, body: untyped): untyped =
   result = newStmtList()
