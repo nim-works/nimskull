@@ -44,9 +44,9 @@ type
   TSpawnResult* = enum
     srVoid, srFlowVar, srByVar
   TFlowVarKind = enum
-    fvInvalid # invalid type T for 'FlowVar[T]'
-    fvGC      # FlowVar of a GC'ed type
-    fvBlob    # FlowVar of a blob type
+    fvInvalid ## invalid type T for 'FlowVar[T]'
+    fvGC      ## FlowVar of a GC'ed type
+    fvBlob    ## FlowVar of a blob type
 
 proc spawnResult*(t: PType; inParallel: bool): TSpawnResult =
   if t.isEmptyType: srVoid

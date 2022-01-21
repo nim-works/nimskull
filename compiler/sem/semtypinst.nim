@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-# This module does the instantiation of generic types.
+## This module does the instantiation of generic types.
 
 import
   std/[

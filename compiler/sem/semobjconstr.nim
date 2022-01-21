@@ -13,24 +13,24 @@
 ## * The return nil pattern leads to a lot of boilerplate, most of this is for
 ##   `PNode`s which can be converted to use nkEmpty and/or optional.
 
-# included from sem.nim
+## included from sem.nim
 
 type
   ObjConstrContext = object
-    typ: PType               # The constructed type
-    initExpr: PNode          # The init expression (nkObjConstr)
-    needsFullInit: bool      # A `requiresInit` derived type will
-                             # set this to true while visiting
-                             # parent types.
-    missingFields: seq[PSym] # Fields that the user failed to specify
+    typ: PType               ## The constructed type
+    initExpr: PNode          ## The init expression (nkObjConstr)
+    needsFullInit: bool      ## A `requiresInit` derived type will
+                             ## set this to true while visiting
+                             ## parent types.
+    missingFields: seq[PSym] ## Fields that the user failed to specify
 
-  InitStatus = enum # This indicates the result of object construction
+  InitStatus = enum ## This indicates the result of object construction
     initUnknown
-    initFull     # All  of the fields have been initialized
-    initPartial  # Some of the fields have been initialized
-    initNone     # None of the fields have been initialized
-    initConflict # Fields from different branches have been initialized
-    initError    # Some or all fields had errors during initialization
+    initFull     ## All  of the fields have been initialized
+    initPartial  ## Some of the fields have been initialized
+    initNone     ## None of the fields have been initialized
+    initConflict ## Fields from different branches have been initialized
+    initError    ## Some or all fields had errors during initialization
 
 proc mergeInitStatus(existing: var InitStatus, newStatus: InitStatus) =
   case newStatus

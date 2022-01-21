@@ -8,7 +8,7 @@
 #
 
 ## this module does the semantic checking of statements
-#  included from sem.nim
+##  included from sem.nim
 
 proc semDiscard(c: PContext, n: PNode): PNode =
   result = n

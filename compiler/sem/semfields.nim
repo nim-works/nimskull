@@ -8,7 +8,7 @@
 #
 
 ## This module does the semantic transformation of the fields* iterators.
-#  included from semstmts.nim
+##  included from semstmts.nim
 
 type
   TFieldInstCtx = object  # either 'tup[i]' or 'field' is valid

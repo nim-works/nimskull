@@ -52,25 +52,28 @@ when defined(useDfa):
 import liftdestructors
 include sinkparameter_inference
 
-#[ Second semantic checking pass over the AST. Necessary because the old
-   way had some inherent problems. Performs:
+##[
 
-* effect+exception tracking
-* "usage before definition" checking
-* also now calls the "lift destructor logic" at strategic positions, this
+Second semantic checking pass over the AST. Necessary because the old
+way had some inherent problems. Performs:
+
+- effect+exception tracking
+- "usage before definition" checking
+- also now calls the "lift destructor logic" at strategic positions, this
   is about to be put into the spec:
 
 We treat assignment and sinks and destruction as identical.
 
-In the construct let/var x = expr() x's type is marked.
+In the construct `let/var x = expr()` x's type is marked.
 
-In x = y the type of x is marked.
+In `x = y` the type of `x` is marked.
 
-For every sink parameter of type T T is marked.
+For every sink parameter of type `T T` is marked.
 
-For every call f() the return type of f() is marked.
+For every call `f()` the return type of `f()` is marked.
 
-]#
+
+]##
 
 # ------------------------ exception and tag tracking -------------------------
 
@@ -95,14 +98,14 @@ discard """
 
 type
   TEffects = object
-    exc: PNode  # stack of exceptions
-    tags: PNode # list of tags
+    exc: PNode  ## stack of exceptions
+    tags: PNode ## list of tags
     bottom, inTryStmt, inExceptOrFinallyStmt, leftPartOfAsgn: int
     owner: PSym
     ownerModule: PSym
-    init: seq[int] # list of initialized variables
-    guards: TModel # nested guards
-    locked: seq[PNode] # locked locations
+    init: seq[int] ## list of initialized variables
+    guards: TModel ## nested guards
+    locked: seq[PNode] ## locked locations
     gcUnsafe, isRecursive, isTopLevel, hasSideEffect, inEnforcedGcSafe: bool
     hasDangerousAssign, isInnerProc: bool
     inEnforcedNoSideEffects: bool

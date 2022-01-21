@@ -108,7 +108,8 @@ proc gotoI(c: var Con; n: PNode): TPosition =
   result = TPosition(c.code.len)
   c.code.add Instr(n: n, kind: goto, dest: 0)
 
-#[
+##[
+
 
 Join is no more
 ===============
@@ -131,30 +132,32 @@ of unstructured controlflow.
 Design of join
 ==============
 
-block:
-  if cond: break
-  def(x)
+.. code-block:: nim
 
-use(x)
+    block:
+      if cond: break
+      def(x)
 
-Generates:
+    use(x)
 
-L0: fork lab1
-  join L0  # patched.
-  goto Louter
-lab1:
-  def x
-  join L0
-Louter:
-  use x
+    Generates:
+
+    L0: fork lab1
+      join L0  # patched.
+      goto Louter
+    lab1:
+      def x
+      join L0
+    Louter:
+      use x
 
 
-block outer:
-  while a:
-    while b:
-      if foo:
-        if bar:
-          break outer # --> we need to 'join' every pushed 'fork' here
+    block outer:
+      while a:
+        while b:
+          if foo:
+            if bar:
+              break outer # --> we need to 'join' every pushed 'fork' here
 
 
 This works and then our abstract interpretation needs to deal with 'fork'
@@ -167,57 +170,63 @@ threaded.
 Abstract Interpretation
 -----------------------
 
-proc interpret(pc, state, comesFrom): state =
-  result = state
-  # we need an explicit 'create' instruction (an explicit heap), in order
-  # to deal with 'var x = create(); var y = x; var z = y; destroy(z)'
-  while true:
-    case pc
-    of fork:
-      let a = interpret(pc+1, result, pc)
-      let b = interpret(forkTarget, result, pc)
-      result = a ++ b # ++ is a union operation
-      inc pc
-    of join:
-      if joinTarget == comesFrom: return result
-      else: inc pc
-    of use X:
-      if not result.contains(x):
-        error "variable not initialized " & x
-      inc pc
-    of def X:
-      if not result.contains(x):
-        result.incl X
-      else:
-        error "overwrite of variable causes memory leak " & x
-      inc pc
-    of destroy X:
-      result.excl X
+.. code-block:: nim
+
+    proc interpret(pc, state, comesFrom): state =
+      result = state
+      # we need an explicit 'create' instruction (an explicit heap), in order
+      # to deal with 'var x = create(); var y = x; var z = y; destroy(z)'
+      while true:
+        case pc
+        of fork:
+          let a = interpret(pc+1, result, pc)
+          let b = interpret(forkTarget, result, pc)
+          result = a ++ b # ++ is a union operation
+          inc pc
+        of join:
+          if joinTarget == comesFrom: return result
+          else: inc pc
+        of use X:
+          if not result.contains(x):
+            error "variable not initialized " & x
+          inc pc
+        of def X:
+          if not result.contains(x):
+            result.incl X
+          else:
+            error "overwrite of variable causes memory leak " & x
+          inc pc
+        of destroy X:
+          result.excl X
 
 This is correct but still can lead to false positives:
 
-proc p(cond: bool) =
-  if cond:
-    new(x)
-  otherThings()
-  if cond:
-    destroy x
+.. code-block:: nim
+
+    proc p(cond: bool) =
+      if cond:
+        new(x)
+      otherThings()
+      if cond:
+        destroy x
 
 Is not a leak. We should find a way to model *data* flow, not just
 control flow. One solution is to rewrite the 'if' without a fork
 instruction. The unstructured aspect can now be easily dealt with
 the 'goto' and 'join' instructions.
 
-proc p(cond: bool) =
-  L0: fork Lend
-    new(x)
-    # do not 'join' here!
+.. code-block:: nim
 
-  Lend:
-    otherThings()
-    join L0  # SKIP THIS FOR new(x) SOMEHOW
-  destroy x
-  join L0 # but here.
+    proc p(cond: bool) =
+      L0: fork Lend
+        new(x)
+        # do not 'join' here!
+
+      Lend:
+        otherThings()
+        join L0  # SKIP THIS FOR new(x) SOMEHOW
+      destroy x
+      join L0 # but here.
 
 
 
@@ -226,55 +235,57 @@ We restore the bindings after popping pc from the stack then there
 "no" problem?!
 
 
-while cond:
-  prelude()
-  if not condB: break
-  postlude()
+.. code-block:: nim
 
---->
-var setFlag = true
-while cond and not setFlag:
-  prelude()
-  if not condB:
-    setFlag = true   # BUT: Dependency
-  if not setFlag:    # HERE
-    postlude()
-
---->
-var setFlag = true
-while cond and not setFlag:
-  prelude()
-  if not condB:
-    postlude()
-    setFlag = true
-
-
--------------------------------------------------
-
-while cond:
-  prelude()
-  if more:
-    if not condB: break
-    stuffHere()
-  postlude()
-
--->
-var setFlag = true
-while cond and not setFlag:
-  prelude()
-  if more:
-    if not condB:
-      setFlag = false
-    else:
-      stuffHere()
+    while cond:
+      prelude()
+      if not condB: break
       postlude()
-  else:
-    postlude()
+
+    --->
+    var setFlag = true
+    while cond and not setFlag:
+      prelude()
+      if not condB:
+        setFlag = true   # BUT: Dependency
+      if not setFlag:    # HERE
+        postlude()
+
+    --->
+    var setFlag = true
+    while cond and not setFlag:
+      prelude()
+      if not condB:
+        postlude()
+        setFlag = true
+
+
+    -------------------------------------------------
+
+    while cond:
+      prelude()
+      if more:
+        if not condB: break
+        stuffHere()
+      postlude()
+
+    -->
+    var setFlag = true
+    while cond and not setFlag:
+      prelude()
+      if more:
+        if not condB:
+          setFlag = false
+        else:
+          stuffHere()
+          postlude()
+      else:
+        postlude()
 
 This is getting complicated. Instead we keep the whole 'join' idea but
 duplicate the 'join' instructions on breaks and return exits!
 
-]#
+]##
 
 proc genLabel(c: Con): TPosition = TPosition(c.code.len)
 
@@ -596,20 +607,29 @@ type AliasKind* = enum
   yes, no, maybe
 
 proc aliases*(obj, field: PNode): AliasKind =
-  # obj -> field:
-  # x -> x: true
-  # x -> x.f: true
-  # x.f -> x: false
-  # x.f -> x.f: true
-  # x.f -> x.v: false
-  # x -> x[0]: true
-  # x[0] -> x: false
-  # x[0] -> x[0]: true
-  # x[0] -> x[1]: false
-  # x -> x[i]: true
-  # x[i] -> x: false
-  # x[i] -> x[i]: maybe; Further analysis could make this return true when i is a runtime-constant
-  # x[i] -> x[j]: maybe; also returns maybe if only one of i or j is a compiletime-constant
+  ##[
+
+============ =========== ====
+obj          field       alias kind
+------------ ----------- ----
+`x`          `x`         true
+`x`          `x.f`       true
+`x.f`        `x`         false
+`x.f`        `x.f`       true
+`x.f`        `x.v`       false
+`x`          `x[0]`      true
+`x[0`]       `x`         false
+`x[0`]       `x[0]`      true
+`x[0`]       `x[1]`      false
+`x`          `x[i]`      true
+`x[i`]       `x`         false
+`x[i`]       `x[i]`      maybe; Further analysis could make this return true when i is a runtime-constant
+`x[i`]       `x[j]`      maybe; also returns maybe if only one of i or j is a compiletime-constant
+
+============ =========== ======
+
+  ]##
+
   template collectImportantNodes(result, n) =
     var result: seq[PNode]
     var n = n

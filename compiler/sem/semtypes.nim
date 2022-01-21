@@ -7,8 +7,8 @@
 #    distribution, for details about the copyright.
 #
 
-# this module does the semantic checking of type declarations
-# included from sem.nim
+## this module does the semantic checking of type declarations
+## included from sem.nim
 
 proc newOrPrevType(kind: TTypeKind, prev: PType, c: PContext): PType =
   if prev == nil:

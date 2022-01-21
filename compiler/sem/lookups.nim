@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-# This module implements lookup helpers.
+## This module implements lookup helpers.
 
 import
   std/[
@@ -43,9 +43,9 @@ proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope)
 
 type
   PIdentResult* = tuple
-    ident: PIdent      # found ident, otherwise `IdentCache.notFoundIdent`
-    errNode: PNode     # if ident is notFoundIdent, node where error occurred
-                       # use with original PNode for better error reporting
+    ident: PIdent      ## found ident, otherwise `IdentCache.notFoundIdent`
+    errNode: PNode     ## if ident is notFoundIdent, node where error occurred
+                       ## use with original PNode for better error reporting
 
 proc noidentError2(conf: ConfigRef; n, origin: PNode): PNode =
   ## generate an error node when no ident was found in `n`, with `origin` being

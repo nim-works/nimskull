@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-# This module implements a dependency file generator.
+## This module implements a dependency file generator.
 
 import
   ast/[

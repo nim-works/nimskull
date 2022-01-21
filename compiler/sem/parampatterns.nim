@@ -31,14 +31,14 @@ import
 # stack based VM :-) Why? Because it's fun; I did no benchmarks to see if that
 # actually improves performance.
 type
-  TAliasRequest* = enum # first byte of the bytecode determines alias checking
-    aqNone = 1,         # no alias analysis requested
-    aqShouldAlias,      # with some other param
-    aqNoAlias           # request noalias
+  TAliasRequest* = enum ## first byte of the bytecode determines alias checking
+    aqNone = 1,         ## no alias analysis requested
+    aqShouldAlias,      ## with some other param
+    aqNoAlias           ## request noalias
   TOpcode = enum
-    ppEof = 1, # end of compiled pattern
-    ppOr,      # we could short-cut the evaluation for 'and' and 'or',
-    ppAnd,     # but currently we don't
+    ppEof = 1, ## end of compiled pattern
+    ppOr,      ## we could short-cut the evaluation for 'and' and 'or',
+    ppAnd,     ## but currently we don't
     ppNot,
     ppSym,
     ppAtom,
@@ -197,13 +197,13 @@ proc checkForSideEffects*(n: PNode): TSideEffectAnalysis =
 
 type
   TAssignableResult* = enum
-    arNone,                   # no l-value and no discriminant
-    arLValue,                 # is an l-value
-    arLocalLValue,            # is an l-value, but local var; must not escape
-                              # its stack frame!
-    arDiscriminant,           # is a discriminant
-    arLentValue,              # lent value
-    arStrange                 # it is a strange beast like 'typedesc[var T]'
+    arNone,                   ## no l-value and no discriminant
+    arLValue,                 ## is an l-value
+    arLocalLValue,            ## is an l-value, but local var; must not escape
+                              ## its stack frame!
+    arDiscriminant,           ## is a discriminant
+    arLentValue,              ## lent value
+    arStrange                 ## it is a strange beast like 'typedesc[var T]'
 
 proc exprRoot*(n: PNode): PSym =
   var it = n

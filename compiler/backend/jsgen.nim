@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-# This is the JavaScript code generator.
+## This is the JavaScript code generator.
 
 discard """
 The JS code generator contains only 2 tricks:

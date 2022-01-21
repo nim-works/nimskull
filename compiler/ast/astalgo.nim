@@ -7,9 +7,9 @@
 #    distribution, for details about the copyright.
 #
 
-# Algorithms for the abstract syntax tree: hash tables, lists
-# and sets of nodes are supported. Efficiency is important as
-# the data structures here are used in various places of the compiler.
+## Algorithms for the abstract syntax tree: hash tables, lists
+## and sets of nodes are supported. Efficiency is important as
+## the data structures here are used in various places of the compiler.
 
 import
   ast/[
