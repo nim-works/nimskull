@@ -27,15 +27,11 @@ import
     sets
   ],
   modules/[
-    magicsys,
     modulegraphs,
   ],
   front/[
     msgs,
     options,
-  ],
-  utils/[
-    platform,
   ],
   sem/[
     nilcheck_enums

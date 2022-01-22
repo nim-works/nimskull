@@ -1661,7 +1661,6 @@ proc genGlobalInit(c: PCtx; n: PNode; s: PSym) =
     c.freeTemp(tmp)
 
 proc genRdVar(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
-  addInNimDebugUtils(c.config, "genRdVar")
   # gfNodeAddr and gfNode are mutually exclusive
   assert card(flags * {gfNodeAddr, gfNode}) < 2
   let s = n.sym
@@ -2049,7 +2048,6 @@ proc procIsCallback(c: PCtx; s: PSym): bool =
     dec i
 
 proc gen(c: PCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
-  addInNimDebugUtils(c.config, "genExpr(PNode/TDest)")
   when defined(nimCompilerStacktraceHints):
     setFrameMsg c.config$n.info & " " & $n.kind & " " & $flags
   case n.kind
@@ -2230,7 +2228,6 @@ proc genStmt*(c: PCtx; n: PNode): int =
     internalError(c.config, n.info, "VM problem: dest register is set")
 
 proc genExpr*(c: PCtx; n: PNode, requiresValue = true): int =
-  addInNimDebugUtils(c.config, "genExpr")
   c.removeLastEof
   result = c.code.len
   var d: TDest = -1
@@ -2246,7 +2243,6 @@ proc genExpr*(c: PCtx; n: PNode, requiresValue = true): int =
   #c.echoCode(result)
 
 proc genParams(c: PCtx; params: PNode) =
-  addInNimDebugUtils(c.config, "genParams")
   # res.sym.position is already 0
   setLen(c.prc.regInfo, max(params.len, 1))
   c.prc.regInfo[0] = (inUse: true, kind: slotFixedVar)
@@ -2317,7 +2313,6 @@ proc optimizeJumps(c: PCtx; start: int) =
     else: discard
 
 proc genProc(c: PCtx; s: PSym): int =
-  addInNimDebugUtils(c.config, "genProc")
   let
     pos = c.procToCodePos.getOrDefault(s.id)
     wasNotGenProcBefore = pos == 0

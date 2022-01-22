@@ -22,6 +22,9 @@ import
     json,
     strtabs
   ],
+  experimental/[
+    colortext
+  ],
   ast/[
     lineinfos,
     astalgo,
@@ -33,7 +36,8 @@ import
   ],
   utils/[
     platform,
-    nversion
+    nversion,
+    astrepr
   ],
   front/[
     msgs
@@ -46,6 +50,28 @@ import
   ]
 
 import front/options as compiler_options
+
+type
+  HackController* = object
+    ## additional configuration switches to control the behavior of the
+    ## debug printer. Since most of them are for compiler debugging, you
+    ## will most likely recompile the compiler anyway, so toggling couple
+    ## hardcoded constants here is easier than dragging out completely
+    ## unnecessary switches, or adding more magic `define()` blocks
+    semStack*: bool  ## Show `| context` entries in the call tracer
+
+    reportInTrace*: bool ## Error messages are shown with matching indentation
+    ## if report was triggered during execution of the sem trace
+
+    semTraceData*: bool ## For each sem step show processed data, or only
+    ## procedure calls.
+
+const controller = HackController(
+  semStack: off,
+  reportInTrace: off,
+  semTraceData: on
+)
+
 
 
 func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
@@ -85,6 +111,10 @@ func wrap*(
 
   else:
     result = str
+
+func wrap(conf: ConfigRef, text: ColText): string =
+  toString(text, conf.useColor())
+
 
 import std/[os]
 
@@ -3092,18 +3122,122 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
 
   case DebugReportKind(r.kind):
     of rdbgTraceStep:
-      let s = r.semstep
+      let
+        s = r.semstep
+        indent = s.level * 2 + (
+          2 #[ Item indentation ]# +
+          5 #[ Global entry indentation ]#
+        )
+
+      proc render(node: PNode): string =
+        conf.wrap(conf.treeRepr(node,
+          # add tree repr configuration options here
+
+
+          # next is formatting, don't edit
+          indentIncrease = indent + 2
+        ))
+
+      proc render(typ: PType): string =
+        conf.wrap(conf.treeRepr(typ,
+          # add tree repr configuration options here
+
+
+          # next is formatting, don't edit
+          indent = indent + 2
+        ))
+
+      proc render(sym: PSym): string =
+        conf.wrap(conf.treeRepr(sym,
+          # add tree repr configuration options here
+
+
+          # next is formatting, don't edit
+          indent = indent + 2
+        ))
       result.addf("$1]", align($s.level, 2, '#'))
       result.add(
         repeat("  ", s.level),
         tern(s.direction == semstepEnter, "> ", "< "),
-        wrap(s.name, tern(s.direction == semstepEnter, fgGreen, fgRed)),
+        conf.wrap(s.name, tern(s.direction == semstepEnter, fgGreen, fgRed)),
         " @ ",
-        wrap(conf.toStr(r.reportInst, dropTraceExt), fgCyan),
+        conf.wrap(conf.toStr(r.reportInst, dropTraceExt), fgCyan),
         tern(
           reportCaller and s.steppedFrom.isValid(),
           " from " & conf.toStr(s.steppedFrom, dropTraceExt),
           ""))
+
+      var res = addr result
+      proc field(name: string, value: string = "\n") =
+        res[].add "\n"
+        res[].add repeat(" ", indent)
+        res[].add name
+        res[].add ":"
+        res[].add value
+
+      let enter = s.direction == semstepEnter
+      if controller.semTraceData and
+         s.kind != stepTrack #[ 'track' has no extra data fields ]#:
+        field("kind", $s.kind)
+        case s.kind:
+          of stepNodeToNode:
+            if enter:
+              field("from node")
+
+            else:
+              field("to node")
+
+            result.add render(s.node)
+
+          of stepNodeTypeToNode:
+            if enter:
+              field("from node")
+              result.add render(s.node)
+              field("from type")
+              result.add render(s.typ)
+
+            else:
+              field("to node")
+              result.add render(s.node)
+
+          of stepNodeFlagsToNode:
+            if enter:
+              field("from flags",  " " & conf.wrap($s.flags + fgCyan))
+              result.add
+              field("from node")
+              result.add render(s.node)
+
+            else:
+              field("to node")
+              result.add render(s.node)
+
+          of stepTrack:
+            discard
+
+          of stepError, stepWrongNode:
+            field("node")
+            result.add render(s.node)
+
+          of stepNodeToSym:
+            if enter:
+              field("from node")
+              result.add render(s.node)
+
+            else:
+              field("to sym")
+              result.add render(s.sym)
+
+          of stepTypeTypeToType:
+            if enter:
+              field("from type")
+              result.add render(s.typ)
+              field("from type1")
+              result.add render(s.typ1)
+
+            else:
+              field("to type")
+              result.add render(s.typ)
+
 
     of rdbgTraceLine:
       let ind = repeat("  ", r.ctraceData.level)
@@ -3421,7 +3555,6 @@ proc reportShort*(conf: ConfigRef, r: Report): string =
     of repBackend:  result = conf.reportShort(r.backendReport)
     of repExternal: result = conf.reportShort(r.externalReport)
 
-var lastDot: bool = false
 
 const forceWrite = {
   rsemExpandArc # Not considered a hint for now
@@ -3430,20 +3563,12 @@ const forceWrite = {
 const rdbgTracerKinds* = {rdbgTraceDefined .. rdbgTraceEnd}
 
 
-const
-  # additional configuration switches to control the behavior of the debug
-  # printer. Since most of them are for compiler debugging, you will most
-  # likely recompile the compiler anyway, so toggling couple hardcoded
-  # constants here is easier than dragging out completely unnecessary
-  # switches, or adding more magic `define()` blocks
-  semStack = off ## Show `| context` entries in the call tracer
-
-  reportInTrace = off ## Error messages are shown with matching indentation
-  ## if report was triggered during execution of the sem trace
-
 const traceDir = "nimCompilerDebugTraceDir"
-var traceIndex = 0
-var traceFile: File
+
+var
+  lastDot: bool = false
+  traceIndex = 0
+  traceFile: File
 
 proc rotatedTrace(conf: ConfigRef, r: Report) =
   ## Write out debug traces into separate files in directory defined by
@@ -3462,7 +3587,10 @@ proc rotatedTrace(conf: ConfigRef, r: Report) =
       inc traceIndex
 
     else:
-      discard
+      conf.globalOptions.excl optUseColors
+      traceFile.write(conf.reportFull(r))
+      traceFile.write("\n")
+      conf.globalOptions.incl optUseColors
 
 
 proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
@@ -3489,7 +3617,10 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ))):
     echo conf.reportFull(r)
 
-  elif r.kind == rdbgVmCodeListing:
+  elif r.kind == rdbgVmCodeListing or (
+    # Optionally Ignore context stacktrace
+    not controller.semStack and r.kind == rdbgTraceLine
+  ):
     return
 
   elif (
@@ -3517,9 +3648,6 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ) or (
     # Or we are in the special hack mode for `compiles()` processing
     tryhack
-  ) or (
-    # Optionally Ignore context stacktrace
-    not semStack and r.kind == rdbgTraceLine
   ):
 
     # Return without writing
@@ -3538,7 +3666,7 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       conf.writeln("")
       lastDot = false
 
-    if reportInTrace:
+    if controller.reportInTrace:
       var indent {.global.}: int
       if r.kind == rdbgTraceStep:
         indent = r.debugReport.semstep.level

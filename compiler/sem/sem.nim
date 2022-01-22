@@ -48,7 +48,8 @@ import
     platform,
     nversion,
     debugutils,
-    int128
+    int128,
+    astrepr
   ],
   sem/[
     semfold,

@@ -612,6 +612,14 @@ func toString*(text: ColText, color: bool = true): string =
   ## Convert colored text to string with ansi escape sequences
   toString(text.runes, color)
 
+const
+  offsetGray: uint8 = 232
+  offset256:  uint8 = 16
+  max256:     uint8 = 255
+  scaleRed:   uint8 = 6 * 6
+  scaleGreen: uint8 = 6
+
+
 func `$`*(colored: ColRune): string =
   ## Convert to string with ansi escape sequences. To disable coloring use
   ## `toString` procedure instead.
@@ -636,23 +644,26 @@ func `$`*(colr: ColRuneGrid): string =
 
     result.add toString(line)
 
+
+
 func termFg*(r, g, b: range[0 .. 5]): TermColorFg =
   ## Create 256-terminal color with given red, green and blue coloring.
   ## Colors are mapped to 216-element color cube.
-  TermColorFg(16 + b + g * 6 + (6 * 6) * r)
+  TermColorFg(offset256 + b.uint8 + g.uint8 * scaleGreen + scaleRed * r.uint8)
 
 func termBg*(r, g, b: range[0 .. 5]): TermColorBg =
   ## 256-color for background. Maps to 216-element color cube.
-  TermColorBg(16 + b + g * 6 + (6 * 6) * r)
+  TermColorBg(offset256 + b.uint8 + g.uint8 * scaleGreen + scaleRed * r.uint8)
+
 
 func termBg*(gray: range[0 .. 23]): TermColorBg =
   ## Create 256-color with given grey background value (from 0 to 23, for
   ## total 24 shades).
-  TermColorBg(232 + gray)
+  TermColorBg(offsetGray + gray.uint8)
 
 func termFg*(gray: range[0 .. 23]): TermColorFg =
   ## Grey foreground value
-  TermColorFg(232 + gray)
+  TermColorFg(offsetGray + gray.uint8)
 
 func addIndent*(
     res: var ColText,
@@ -688,9 +699,12 @@ template coloredResult*(indentationStep: int = 2): untyped =
   ## - `endResult()` - return colored result. Required for proper work
   ##   of the code in the compile-time context, otherwise modification
   ##   of the  `addr result` does not work properly.
+  static:
+    when not declared(result):
+      {.error: "'coloredResult' template can only be called inside of the procedure returning 'ColText' as a result, or other environment that has `var result: ColText` defined."}
+
   var outPtr {.used.}: ptr ColText = addr result
 
-  template res(): untyped {.used.} = outPtr[]
   template endResult(): untyped {.used.} =
     when nimvm:
       return outPtr[]

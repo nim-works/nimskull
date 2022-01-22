@@ -28,6 +28,9 @@ import
   modules/[
     modulegraphs
   ],
+  utils/[
+    debugutils
+  ],
   front/[
     msgs,
     options
@@ -726,6 +729,7 @@ proc qualifiedLookUp2*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
   ## XXX: maybe remove the flags for ambiguity and undeclared and let the call
   ##      sites figure it out instead?
   const allExceptModule = {low(TSymKind)..high(TSymKind)} - {skModule, skPackage}
+  c.config.addInNimDebugUtils("qualifiedLookup2", n, result)
 
   proc symFromCandidates(
     c: PContext, candidates: seq[PSym], ident: PIdent, n: PNode,

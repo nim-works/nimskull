@@ -7,6 +7,10 @@ For developers and contributors
   | The internal documentation describes how the compiler is implemented. Read
     this if you want to hack the compiler.
 
+- | `Debugging guide <debug.html>`_
+  | Description of the built-in tools for debugging the compiler
+
+
 - | `Contribution guide <contributing.html>`_
   | Contribution guide for |nimskull| projects
 
@@ -55,4 +59,3 @@ For users
 
 - | `Index <theindex.html>`_
   | The generated index.
-

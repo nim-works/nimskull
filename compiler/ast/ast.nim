@@ -139,6 +139,7 @@ const
 
   nkSymChoices* = {nkClosedSymChoice, nkOpenSymChoice}
   nkStrKinds* = {nkStrLit..nkTripleStrLit}
+  nkIntKinds* = {nkCharLit .. nkUInt64Lit}
 
   skLocalVars* = {skVar, skLet, skForVar, skParam, skResult}
   skProcKinds* = {skProc, skFunc, skTemplate, skMacro, skIterator,
