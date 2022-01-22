@@ -730,7 +730,7 @@ template require*(conditions: untyped) =
     check conditions
   abortOnError = savedAbortOnError
 
-macro expect*(exceptions: varargs[typed], body: untyped): untyped =
+macro expect*(args: varargs[untyped]): untyped =
   ## Test if `body` raises an exception found in the passed `exceptions`.
   ## The test passes if the raised exception is part of the acceptable
   ## exceptions. Otherwise, it fails.
@@ -747,22 +747,29 @@ macro expect*(exceptions: varargs[typed], body: untyped): untyped =
     expect IOError, OSError, ValueError, AssertionDefect:
       defectiveRobot()
 
-  template expectBody(errorTypes, lineInfoLit, body): NimNode {.dirty.} =
-    try:
-      body
-      checkpoint(lineInfoLit & ": Expect Failed, no exception was thrown.")
-      fail()
-    except errorTypes:
-      discard
-    except:
-      checkpoint(lineInfoLit & ": Expect Failed, unexpected exception was thrown.")
-      fail()
+  args.expectMinLen(2)
 
-  var errorTypes = newNimNode(nnkBracket)
-  for exp in exceptions:
-    errorTypes.add(exp)
+  let exceptBranch1 = newNimNode(nnkExceptBranch)
+  for exp in args[0 ..< ^1]:
+    exceptBranch1.add(exp)
+  exceptBranch1.add nnkDiscardStmt.newTree(newEmptyNode())
 
-  result = getAst(expectBody(errorTypes, errorTypes.lineInfo, body))
+  let body = if args[^1].kind == nnkStmtList: args[^1] else: newStmtList(args[^1])
+
+  let lineInfoStr: string = exceptBranch1[0].lineInfo
+  let msg1 = newLit(lineInfoStr & ": Expect Failed, no exception was thrown.")
+
+  body.add newCall(bindSym"checkpoint", msg1)
+  body.add newCall(bindSym"fail")
+
+  let msg2 = newLit(lineInfoStr & ": Expect Failed, unexpected exception was thrown.")
+  let wrongException = newStmtList(
+    newCall(bindSym"checkpoint", msg2),
+    newCall(bindSym"fail")
+  )
+  let exceptBranch2 = nnkExceptBranch.newTree(wrongException)
+
+  result = nnkTryStmt.newTree(body, exceptBranch1, exceptBranch2)
 
 proc disableParamFiltering* =
   ## disables filtering tests with the command line params
