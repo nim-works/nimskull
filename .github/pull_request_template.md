@@ -1,29 +1,33 @@
-<!--
-## Tips for pull requests
-* use chat, discussions, etc... to refine an idea for big and/or impactful changes
-* open them relatively early in draft mode and get regular feedback
-* add notes for reviewers and yourself as you go, so it's easy to maintain context
-* refine the pull request message over time
--->
+## Summary
+* what changed and how?
+* why are we changing it?
+
+## Details
+* info that couldn't fit into the summary
+* relevant details; tricky parts
+* anything else
+
+Fixes full_issue_url
+
+---
+<!-- Note: section break (`---`) onwards is not in CI merge commit -->
+
+## Notes for Reviewers
+* leave additional context for reviewers
+* maybe specific requests or areas of focus
 
 <!--
-## Finalizing a PR:
+Pull Request(PR) Help
 
-### title:
-* reads like a short changelog line
+Before Merge Ensure:
+* title reads like a short changelog line entry
+* code includes tests and is documented
+* leave the source better than before, but split out big reformats
 
-### body:
-* describe the current behaviour
-* describe why this particular approach
-* if it's breaking, migration steps
-* note any follow-on work
+See contributor (guide)[https://nim-works.github.io/nimskull/contributing.html]
+for details, especially if you're new to this project.
 
-### content:
-* leave code better than you found it, add docs, tests, etc
--->
-
-
-<!--
-* note any issues that this fixes entirely
-* use `fixes #123 .` to auto-close issues
--->
+Tips that make PRs easier:
+* for big/impactful changes, start with chat/discussions to refine ideas
+* refine the pull request message over time; don't have to nail it in one go
+* handle the single commit message requirement at the end of review
