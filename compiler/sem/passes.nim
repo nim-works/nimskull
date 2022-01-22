@@ -35,23 +35,25 @@ import
 type
   TPassData* = tuple[input: PNode, closeOutput: PNode]
 
-# a pass is a tuple of procedure vars ``TPass.close`` may produce additional
-# nodes. These are passed to the other close procedures.
-# This mechanism used to be used for the instantiation of generics.
 
 proc makePass*(open: TPassOpen = nil,
                process: TPassProcess = nil,
                close: TPassClose = nil,
                isFrontend = false): TPass =
+
+  ## a pass is a tuple of procedure vars ``TPass.close`` may produce additional
+  ## nodes. These are passed to the other close procedures.
+  ## This mechanism used to be used for the instantiation of generics.
+
   result.open = open
   result.close = close
   result.process = process
   result.isFrontend = isFrontend
 
 proc skipCodegen*(config: ConfigRef; n: PNode): bool {.inline.} =
-  # can be used by codegen passes to determine whether they should do
-  # something with `n`. Currently, this ignores `n` and uses the global
-  # error count instead.
+  ## can be used by codegen passes to determine whether they should do
+  ## something with `n`. Currently, this ignores `n` and uses the global
+  ## error count instead.
   result = config.errorCounter > 0
 
 const

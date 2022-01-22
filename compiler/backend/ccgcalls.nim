@@ -7,7 +7,8 @@
 #    distribution, for details about the copyright.
 #
 #
-# included from cgen.nim
+
+## included from cgen.nim
 
 proc canRaiseDisp(p: BProc; n: PNode): bool =
   # we assume things like sysFatal cannot raise themselves

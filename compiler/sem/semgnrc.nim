@@ -7,15 +7,15 @@
 #    distribution, for details about the copyright.
 #
 
-# This implements the first pass over the generic body; it resolves some
-# symbols. Thus for generics there is a two-phase symbol lookup just like
-# in C++.
-# A problem is that it cannot be detected if the symbol is introduced
-# as in ``var x = ...`` or used because macros/templates can hide this!
-# So we have to eval templates/macros right here so that symbol
-# lookup can be accurate.
+## This implements the first pass over the generic body; it resolves some
+## symbols. Thus for generics there is a two-phase symbol lookup just like
+## in C++.
+## A problem is that it cannot be detected if the symbol is introduced
+## as in ``var x = ...`` or used because macros/templates can hide this!
+## So we have to eval templates/macros right here so that symbol
+## lookup can be accurate.
 
-# included from sem.nim
+## included from sem.nim
 
 proc getIdentNode(c: PContext; n: PNode): PNode =
   case n.kind

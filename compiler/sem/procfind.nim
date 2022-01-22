@@ -7,8 +7,8 @@
 #    distribution, for details about the copyright.
 #
 
-# This module implements the searching for procs and iterators.
-# This is needed for proper handling of forward declarations.
+## This module implements the searching for procs and iterators.
+## This is needed for proper handling of forward declarations.
 
 import
   ast/[

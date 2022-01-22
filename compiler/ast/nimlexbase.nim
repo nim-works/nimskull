@@ -7,10 +7,10 @@
 #    distribution, for details about the copyright.
 #
 
-# Base Object of a lexer with efficient buffer handling. In fact
-# I believe that this is the most efficient method of buffer
-# handling that exists! Only at line endings checks are necessary
-# if the buffer needs refilling.
+## Base Object of a lexer with efficient buffer handling. In fact
+## I believe that this is the most efficient method of buffer
+## handling that exists! Only at line endings checks are necessary
+## if the buffer needs refilling.
 
 import
   llstream, strutils
@@ -28,12 +28,17 @@ const
   VT* = '\x0B'
 
 const
-  EndOfFile* = '\0'           # end of file marker
-                              # A little picture makes everything clear :-)
-                              #  buf:
-                              #  "Example Text\n ha!"   bufLen = 17
-                              #   ^pos = 0     ^ sentinel = 12
-                              #
+  EndOfFile* = '\0' ##[
+end of file marker
+
+A little picture makes everything clear
+
+.. code-block:: nim
+
+  "Example Text\n ha!"   bufLen = 17
+    ^pos = 0     ^ sentinel = 12
+
+  ]##
   NewLines* = {CR, LF}
 
 type
@@ -42,12 +47,12 @@ type
     buf*: cstring
     bufStorage: string
     bufLen: int
-    stream*: PLLStream        # we read from this stream
-    lineNumber*: int          # the current line number
-                              # private data:
+    stream*: PLLStream        ## we read from this stream
+    lineNumber*: int          ## the current line number
+                              ## private data:
     sentinel*: int
-    lineStart*: int           # index of last line start in buffer
-    offsetBase*: int          # use ``offsetBase + bufpos`` to get the offset
+    lineStart*: int           ## index of last line start in buffer
+    offsetBase*: int          ## use ``offsetBase + bufpos`` to get the offset
 
 
 proc openBaseLexer*(L: var TBaseLexer, inputstream: PLLStream,
@@ -57,13 +62,13 @@ proc closeBaseLexer*(L: var TBaseLexer)
 proc getCurrentLine*(L: TBaseLexer, marker: bool = true): string
 proc getColNumber*(L: TBaseLexer, pos: int): int
 proc handleCR*(L: var TBaseLexer, pos: int): int
-  # Call this if you scanned over CR in the buffer; it returns the
-  # position to continue the scanning from. `pos` must be the position
-  # of the CR.
+  ## Call this if you scanned over CR in the buffer; it returns the
+  ## position to continue the scanning from. `pos` must be the position
+  ## of the CR.
 proc handleLF*(L: var TBaseLexer, pos: int): int
-  # Call this if you scanned over LF in the buffer; it returns the
-  # position to continue the scanning from. `pos` must be the position
-  # of the LF.
+  ## Call this if you scanned over LF in the buffer; it returns the
+  ## position to continue the scanning from. `pos` must be the position
+  ## of the LF.
 # implementation
 
 proc closeBaseLexer(L: var TBaseLexer) =

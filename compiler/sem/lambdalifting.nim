@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-# This file implements lambda lifting for the transformator.
+## This file implements lambda lifting for the transformator.
 
 import
   std/[

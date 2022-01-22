@@ -7,126 +7,151 @@
 #    distribution, for details about the copyright.
 #
 
-# This file implements closure iterator transformations.
-# The main idea is to split the closure iterator body to top level statements.
-# The body is split by yield statement.
-#
-# Example:
-#  while a > 0:
-#    echo "hi"
-#    yield a
-#    dec a
-#
-# Should be transformed to:
-#  STATE0:
-#    if a > 0:
-#      echo "hi"
-#      :state = 1 # Next state
-#      return a # yield
-#    else:
-#      :state = 2 # Next state
-#      break :stateLoop # Proceed to the next state
-#  STATE1:
-#    dec a
-#    :state = 0 # Next state
-#    break :stateLoop # Proceed to the next state
-#  STATE2:
-#    :state = -1 # End of execution
+##[
 
-# The transformation should play well with lambdalifting, however depending
-# on situation, it can be called either before or after lambdalifting
-# transformation. As such we behave slightly differently, when accessing
-# iterator state, or using temp variables. If lambdalifting did not happen,
-# we just create local variables, so that they will be lifted further on.
-# Otherwise, we utilize existing env, created by lambdalifting.
+This file implements closure iterator transformations.
+The main idea is to split the closure iterator body to top level statements.
+The body is split by yield statement.
 
-# Lambdalifting treats :state variable specially, it should always end up
-# as the first field in env. Currently C codegen depends on this behavior.
+Example:
 
-# One special subtransformation is nkStmtListExpr lowering.
-# Example:
-#   template foo(): int =
-#     yield 1
-#     2
-#
-#   iterator it(): int {.closure.} =
-#     if foo() == 2:
-#       yield 3
-#
-# If a nkStmtListExpr has yield inside, it has first to be lowered to:
-#   yield 1
-#   :tmpSlLower = 2
-#   if :tmpSlLower == 2:
-#     yield 3
+.. code-block:: nim
 
-# nkTryStmt Transformations:
-# If the iter has an nkTryStmt with a yield inside
-#  - the closure iter is promoted to have exceptions (ctx.hasExceptions = true)
-#  - exception table is created. This is a const array, where
-#    `abs(exceptionTable[i])` is a state idx to which we should jump from state
-#    `i` should exception be raised in state `i`. For all states in `try` block
-#    the target state is `except` block. For all states in `except` block
-#    the target state is `finally` block. For all other states there is no
-#    target state (0, as the first block can never be neither except nor finally).
-#    `exceptionTable[i]` is < 0 if `abs(exceptionTable[i])` is except block,
-#    and > 0, for finally block.
-#  - local variable :curExc is created
-#  - the iter body is wrapped into a
-#      try:
-#       closureIterSetupExc(:curExc)
-#       ...body...
-#      catch:
-#        :state = exceptionTable[:state]
-#        if :state == 0: raise # No state that could handle exception
-#        :unrollFinally = :state > 0 # Target state is finally
-#        if :state < 0:
-#           :state = -:state
-#        :curExc = getCurrentException()
-#
-# nkReturnStmt within a try/except/finally now has to behave differently as we
-# want the nearest finally block to be executed before the return, thus it is
-# transformed to:
-#  :tmpResult = returnValue (if return doesn't have a value, this is skipped)
-#  :unrollFinally = true
-#  goto nearestFinally (or -1 if not exists)
-#
-# Example:
-#
-# try:
-#  yield 0
-#  raise ...
-# except:
-#  yield 1
-#  return 3
-# finally:
-#  yield 2
-#
-# Is transformed to (yields are left in place for example simplicity,
-#    in reality the code is subdivided even more, as described above):
-#
-# STATE0: # Try
-#   yield 0
-#   raise ...
-#   :state = 2 # What would happen should we not raise
-#   break :stateLoop
-# STATE1: # Except
-#   yield 1
-#   :tmpResult = 3           # Return
-#   :unrollFinally = true # Return
-#   :state = 2 # Goto Finally
-#   break :stateLoop
-#   :state = 2 # What would happen should we not return
-#   break :stateLoop
-# STATE2: # Finally
-#   yield 2
-#   if :unrollFinally: # This node is created by `newEndFinallyNode`
-#     if :curExc.isNil:
-#       return :tmpResult
-#     else:
-#       closureIterSetupExc(nil)
-#       raise
-#   state = -1 # Goto next state. In this case we just exit
-#   break :stateLoop
+    while a > 0:
+      echo "hi"
+      yield a
+      dec a
+
+Should be transformed to:
+
+.. code-block:: nim
+
+    STATE0:
+      if a > 0:
+        echo "hi"
+        :state = 1 # Next state
+        return a # yield
+      else:
+        :state = 2 # Next state
+        break :stateLoop # Proceed to the next state
+    STATE1:
+      dec a
+      :state = 0 # Next state
+      break :stateLoop # Proceed to the next state
+    STATE2:
+      :state = -1 # End of execution
+
+
+The transformation should play well with lambdalifting, however depending
+on situation, it can be called either before or after lambdalifting
+transformation. As such we behave slightly differently, when accessing
+iterator state, or using temp variables. If lambdalifting did not happen,
+we just create local variables, so that they will be lifted further on.
+Otherwise, we utilize existing env, created by lambdalifting.
+Lambdalifting treats :state variable specially, it should always end up
+as the first field in env. Currently C codegen depends on this behavior.
+One special subtransformation is nkStmtListExpr lowering.
+Example:
+
+.. code-block:: nim
+
+    template foo(): int =
+      yield 1
+      2
+
+    iterator it(): int {.closure.} =
+      if foo() == 2:
+        yield 3
+
+If a nkStmtListExpr has yield inside, it has first to be lowered to:
+
+.. code-block:: nim
+
+  yield 1
+  :tmpSlLower = 2
+  if :tmpSlLower == 2:
+    yield 3
+
+nkTryStmt Transformations:
+
+If the iter has an nkTryStmt with a yield inside
+- the closure iter is promoted to have exceptions (ctx.hasExceptions = true)
+- exception table is created. This is a const array, where
+  `abs(exceptionTable[i])` is a state idx to which we should jump from state
+  `i` should exception be raised in state `i`. For all states in `try` block
+  the target state is `except` block. For all states in `except` block
+  the target state is `finally` block. For all other states there is no
+  target state (0, as the first block can never be neither except nor finally).
+  `exceptionTable[i]` is < 0 if `abs(exceptionTable[i])` is except block,
+  and > 0, for finally block.
+- local variable :curExc is created
+- the iter body is wrapped into a
+
+    .. code-block::
+
+        try:
+          closureIterSetupExc(:curExc)
+          ...body...
+        catch:
+          :state = exceptionTable[:state]
+          if :state == 0: raise # No state that could handle exception
+          :unrollFinally = :state > 0 # Target state is finally
+          if :state < 0:
+              :state = -:state
+          :curExc = getCurrentException()
+
+nkReturnStmt within a try/except/finally now has to behave differently as we
+want the nearest finally block to be executed before the return, thus it is
+transformed to:
+:tmpResult = returnValue (if return doesn't have a value, this is skipped)
+:unrollFinally = true
+goto nearestFinally (or -1 if not exists)
+
+Example:
+
+.. code-block:: nim
+
+    try:
+    yield 0
+    raise ...
+    except:
+    yield 1
+    return 3
+    finally:
+    yield 2
+
+Is transformed to (yields are left in place for example simplicity,
+in reality the code is subdivided even more, as described above):
+
+.. code-block::
+
+  STATE0: # Try
+    yield 0
+    raise ...
+    :state = 2 # What would happen should we not raise
+    break :stateLoop
+  STATE1: # Except
+    yield 1
+    :tmpResult = 3           # Return
+    :unrollFinally = true # Return
+    :state = 2 # Goto Finally
+    break :stateLoop
+    :state = 2 # What would happen should we not return
+    break :stateLoop
+  STATE2: # Finally
+    yield 2
+    if :unrollFinally: # This node is created by `newEndFinallyNode`
+      if :curExc.isNil:
+        return :tmpResult
+      else:
+        closureIterSetupExc(nil)
+        raise
+    state = -1 # Goto next state. In this case we just exit
+    break :stateLoop
+
+]##
+
+
 
 import
   std/[

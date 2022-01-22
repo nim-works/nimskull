@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-# tree helper routines
+## tree helper routines
 
 import
   ast, wordrecg, idents

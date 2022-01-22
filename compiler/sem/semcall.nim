@@ -8,7 +8,7 @@
 #
 
 ## This module implements semantic checking for calls.
-# included from sem.nim
+## included from sem.nim
 
 
 proc sameMethodDispatcher(a, b: PSym): bool =
@@ -679,10 +679,10 @@ proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
     result = explicitGenericInstError(c, n)
 
 proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
-  # Searches for the fn in the symbol table. If the parameter lists are suitable
-  # for borrowing the sym in the symbol table is returned, else nil.
-  # New approach: generate fn(x, y, z) where x, y, z have the proper types
-  # and use the overloading resolution mechanism:
+  ## Searches for the fn in the symbol table. If the parameter lists are suitable
+  ## for borrowing the sym in the symbol table is returned, else nil.
+  ## New approach: generate fn(x, y, z) where x, y, z have the proper types
+  ## and use the overloading resolution mechanism:
   var call = newNodeI(nkCall, fn.info)
   var hasDistinct = false
   call.add(newIdentNode(fn.name, fn.info))

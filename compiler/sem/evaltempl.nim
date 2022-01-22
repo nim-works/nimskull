@@ -26,10 +26,10 @@ import
 type
   TemplCtx = object
     owner, genSymOwner: PSym
-    instLines: bool   # use the instantiation lines numbers
+    instLines: bool   ## use the instantiation lines numbers
     isDeclarative: bool
-    mapping: TIdTable # every gensym'ed symbol needs to be mapped to some
-                      # new symbol
+    mapping: TIdTable ## every gensym'ed symbol needs to be mapped to some
+                      ## new symbol
     config: ConfigRef
     ic: IdentCache
     instID: int

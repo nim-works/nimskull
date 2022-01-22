@@ -10,7 +10,7 @@
 ## This module implements common simple lowerings.
 
 const
-  genPrefix* = ":tmp"         # prefix for generated names
+  genPrefix* = ":tmp"         ## prefix for generated names
 
 import
   ast/[

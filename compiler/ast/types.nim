@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-# this module contains routines for accessing and iterating over types
+## this module contains routines for accessing and iterating over types
 
 import
   std/[

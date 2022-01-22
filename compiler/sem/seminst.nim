@@ -7,8 +7,8 @@
 #    distribution, for details about the copyright.
 #
 
-# This module implements the instantiation of generic procs.
-# included from sem.nim
+## This module implements the instantiation of generic procs.
+## included from sem.nim
 
 proc addObjFieldsToLocalScope(c: PContext; n: PNode) =
   template rec(n) = addObjFieldsToLocalScope(c, n)
@@ -241,11 +241,11 @@ proc referencesAnotherParam(n: PNode, p: PSym): bool =
 
 proc instantiateProcType(c: PContext, pt: TIdTable,
                          prc: PSym, info: TLineInfo) =
-  # XXX: Instantiates a generic proc signature, while at the same
-  # time adding the instantiated proc params into the current scope.
-  # This is necessary, because the instantiation process may refer to
-  # these params in situations like this:
-  # proc foo[Container](a: Container, b: a.type.Item): typeof(b.x)
+  ## Instantiates a generic proc signature, while at the same
+  ## time adding the instantiated proc params into the current scope.
+  ## This is necessary, because the instantiation process may refer to
+  ## these params in situations like this:
+  ## `proc foo[Container](a: Container, b: a.type.Item): typeof(b.x)`
   #
   # Alas, doing this here is probably not enough, because another
   # proc signature could appear in the params:

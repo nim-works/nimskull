@@ -45,25 +45,25 @@ import
 export TExprFlag, TExprFlags
 
 type
-  TOptionEntry* = object      # entries to put on a stack for pragma parsing
+  TOptionEntry* = object      ## entries to put on a stack for pragma parsing
     options*: TOptions
     defaultCC*: TCallingConvention
     dynlib*: PLib
     notes*: ReportKinds
     features*: set[Feature]
-    otherPragmas*: PNode      # every pragma can be pushed
+    otherPragmas*: PNode      ## every pragma can be pushed
     warningAsErrors*: ReportKinds
 
   POptionEntry* = ref TOptionEntry
   PProcCon* = ref TProcCon
-  TProcCon* {.acyclic.} = object # procedure context; also used for top-level
-                                 # statements
-    owner*: PSym              # the symbol this context belongs to
-    resultSym*: PSym          # the result symbol (if we are in a proc)
-    selfSym*: PSym            # the 'self' symbol (if available)
-    nestedLoopCounter*: int   # whether we are in a loop or not
-    nestedBlockCounter*: int  # whether we are in a block or not
-    next*: PProcCon           # used for stacking procedure contexts
+  TProcCon* {.acyclic.} = object ## procedure context; also used for top-level
+                                 ## statements
+    owner*: PSym              ## the symbol this context belongs to
+    resultSym*: PSym          ## the result symbol (if we are in a proc)
+    selfSym*: PSym            ## the 'self' symbol (if available)
+    nestedLoopCounter*: int   ## whether we are in a loop or not
+    nestedBlockCounter*: int  ## whether we are in a block or not
+    next*: PProcCon           ## used for stacking procedure contexts
     mappingExists*: bool
     mapping*: TIdTable
     caseContext*: seq[tuple[n: PNode, idx: int]]
@@ -91,39 +91,39 @@ type
       exceptSet*: IntSet         # of PIdent.id
 
   PContext* = ref TContext
-  TContext* = object of TPassContext # a context represents the module
-                                     # that is currently being compiled
+  TContext* = object of TPassContext ## a context represents the module
+                                     ## that is currently being compiled
     enforceVoidContext*: PType
-      # for `if cond: stmt else: foo`, `foo` will be evaluated under
-      # enforceVoidContext != nil
+      ## for `if cond: stmt else: foo`, `foo` will be evaluated under
+      ## enforceVoidContext != nil
     voidType*: PType # for typeof(stmt)
-    module*: PSym              # the module sym belonging to the context
-    currentScope*: PScope      # current scope
-    moduleScope*: PScope       # scope for modules
-    imports*: seq[ImportedModule] # scope for all imported symbols
-    topLevelScope*: PScope     # scope for all top-level symbols
-    p*: PProcCon               # procedure context
-    intTypeCache*: array[-5..32, PType] # cache some common integer types
-                                        # to avoid type allocations
+    module*: PSym              ## the module sym belonging to the context
+    currentScope*: PScope      ## current scope
+    moduleScope*: PScope       ## scope for modules
+    imports*: seq[ImportedModule] ## scope for all imported symbols
+    topLevelScope*: PScope     ## scope for all top-level symbols
+    p*: PProcCon               ## procedure context
+    intTypeCache*: array[-5..32, PType] ## cache some common integer types
+                                        ## to avoid type allocations
     nilTypeCache*: PType
-    matchedConcept*: ptr TMatchedConcept # the current concept being matched
-    friendModules*: seq[PSym]  # friend modules; may access private data;
-                               # this is used so that generic instantiations
-                               # can access private object fields
-    instCounter*: int          # to prevent endless instantiations
-    templInstCounter*: ref int # gives every template instantiation a unique id
-    inGenericContext*: int     # > 0 if we are in a generic type
-    inStaticContext*: int      # > 0 if we are inside a static: block
-    inUnrolledContext*: int    # > 0 if we are unrolling a loop
-    compilesContextId*: int    # > 0 if we are in a ``compiles`` magic
+    matchedConcept*: ptr TMatchedConcept ## the current concept being matched
+    friendModules*: seq[PSym]  ## friend modules; may access private data;
+                               ## this is used so that generic instantiations
+                               ## can access private object fields
+    instCounter*: int          ## to prevent endless instantiations
+    templInstCounter*: ref int ## gives every template instantiation a unique id
+    inGenericContext*: int     ## > 0 if we are in a generic type
+    inStaticContext*: int      ## > 0 if we are inside a static: block
+    inUnrolledContext*: int    ## > 0 if we are unrolling a loop
+    compilesContextId*: int    ## > 0 if we are in a ``compiles`` magic
     compilesContextIdGenerator*: int
-    inGenericInst*: int        # > 0 if we are instantiating a generic
+    inGenericInst*: int        ## > 0 if we are instantiating a generic
     converters*: seq[PSym]
-    patterns*: seq[PSym]       # sequence of pattern matchers
+    patterns*: seq[PSym]       ## sequence of pattern matchers
     optionStack*: seq[POptionEntry]
-    symMapping*: TIdTable      # every gensym'ed symbol needs to be mapped
-                               # to some new symbol in a generic instantiation
-    libs*: seq[PLib]           # all libs used by this module
+    symMapping*: TIdTable      ## every gensym'ed symbol needs to be mapped
+                               ## to some new symbol in a generic instantiation
+    libs*: seq[PLib]           ## all libs used by this module
     semConstExpr*: proc (c: PContext, n: PNode): PNode {.nimcall.} # for the pragmas
     semExpr*: proc (c: PContext, n: PNode, flags: TExprFlags = {}): PNode {.nimcall.}
     semTryExpr*: proc (c: PContext, n: PNode, flags: TExprFlags = {}): PNode {.nimcall.}
@@ -139,16 +139,16 @@ type
     semInferredLambda*: proc(c: PContext, pt: TIdTable, n: PNode): PNode
     semGenerateInstance*: proc (c: PContext, fn: PSym, pt: TIdTable,
                                 info: TLineInfo): PSym
-    includedFiles*: IntSet    # used to detect recursive include files
-    pureEnumFields*: TStrTable   # pure enum fields that can be used unambiguously
+    includedFiles*: IntSet    ## used to detect recursive include files
+    pureEnumFields*: TStrTable   ## pure enum fields that can be used unambiguously
     userPragmas*: TStrTable
     evalContext*: PEvalContext
-    unknownIdents*: IntSet     # ids of all unknown identifiers to prevent
-                               # naming it multiple times
-    generics*: seq[TInstantiationPair] # pending list of instantiated generics to compile
-    topStmts*: int # counts the number of encountered top level statements
-    lastGenericIdx*: int      # used for the generics stack
-    hloLoopDetector*: int     # used to prevent endless loops in the HLO
+    unknownIdents*: IntSet     ## ids of all unknown identifiers to prevent
+                               ## naming it multiple times
+    generics*: seq[TInstantiationPair] ## pending list of instantiated generics to compile
+    topStmts*: int ## counts the number of encountered top level statements
+    lastGenericIdx*: int      ## used for the generics stack
+    hloLoopDetector*: int     ## used to prevent endless loops in the HLO
     inParallelStmt*: int
     instTypeBoundOp*: proc (c: PContext; dc: PSym; t: PType; info: TLineInfo;
                             op: TTypeAttachedOp; col: int): PSym {.nimcall.}
@@ -162,10 +162,10 @@ type
     features*: set[Feature]
     inTypeContext*, inConceptDecl*: int
     unusedImports*: seq[(PSym, TLineInfo)]
-    exportIndirections*: HashSet[(int, int)] # (module.id, symbol.id)
-    importModuleMap*: Table[int, int] # (module.id, module.id)
+    exportIndirections*: HashSet[(int, int)] ## (module.id, symbol.id)
+    importModuleMap*: Table[int, int] ## (module.id, module.id)
     lastTLineInfo*: TLineInfo
-    sideEffects*: Table[int, seq[(TLineInfo, PSym)]] # symbol.id index
+    sideEffects*: Table[int, seq[(TLineInfo, PSym)]] ## symbol.id index
     inUncheckedAssignSection*: int
 
 template config*(c: PContext): ConfigRef = c.graph.config
@@ -233,10 +233,10 @@ proc scopeDepth*(c: PContext): int {.inline.} =
            else: 0
 
 proc getCurrOwner*(c: PContext): PSym =
-  # owner stack (used for initializing the
-  # owner field of syms)
-  # the documentation comment always gets
-  # assigned to the current owner
+  ## owner stack (used for initializing the
+  ## owner field of syms)
+  ## the documentation comment always gets
+  ## assigned to the current owner
   result = c.graph.owners[^1]
 
 proc pushOwner*(c: PContext; owner: PSym) =

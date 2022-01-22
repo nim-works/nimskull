@@ -50,10 +50,10 @@ import
 
 type
   MismatchInfo* = object
-    kind*: MismatchKind # reason for mismatch
-    arg*: int           # position of provided arguments that mismatches
-    formal*: PSym       # parameter that mismatches against provided argument
-                        # its position can differ from `arg` because of varargs
+    kind*: MismatchKind ## reason for mismatch
+    arg*: int           ## position of provided arguments that mismatches
+    formal*: PSym       ## parameter that mismatches against provided argument
+                        ## its position can differ from `arg` because of varargs
 
   TCandidateState* = enum
     csEmpty, csMatch, csNoMatch
@@ -70,46 +70,46 @@ type
 
   TCandidate* = object
     c*: PContext
-    exactMatches*: int       # also misused to prefer iters over procs
-    genericMatches: int      # also misused to prefer constraints
+    exactMatches*: int       ## also misused to prefer iters over procs
+    genericMatches: int      ## also misused to prefer constraints
     subtypeMatches: int
-    intConvMatches: int      # conversions to int are not as expensive
+    intConvMatches: int      ## conversions to int are not as expensive
     convMatches: int
     state*: TCandidateState
-    callee*: PType           # may not be nil!
-    calleeSym*: PSym         # may be nil
-    calleeScope*: int        # scope depth:
-                             # is this a top-level symbol or a nested proc?
-    call*: PNode             # modified call
-    bindings*: TIdTable      # maps types to types
-    magic*: TMagic           # magic of operation
-    baseTypeMatch: bool      # needed for conversions from T to openarray[T]
-                             # for example
-    fauxMatch*: TTypeKind    # the match was successful only due to the use
-                             # of error or wildcard (unknown) types.
-                             # this is used to prevent instantiations.
-    genericConverter*: bool  # true if a generic converter needs to
-                             # be instantiated
-    coerceDistincts*: bool   # this is an explicit coercion that can strip away
-                             # a distrinct type
+    callee*: PType           ## may not be nil!
+    calleeSym*: PSym         ## may be nil
+    calleeScope*: int        ## scope depth:
+                             ## is this a top-level symbol or a nested proc?
+    call*: PNode             ## modified call
+    bindings*: TIdTable      ## maps types to types
+    magic*: TMagic           ## magic of operation
+    baseTypeMatch: bool      ## needed for conversions from T to openarray[T]
+                             ## for example
+    fauxMatch*: TTypeKind    ## the match was successful only due to the use
+                             ## of error or wildcard (unknown) types.
+                             ## this is used to prevent instantiations.
+    genericConverter*: bool  ## true if a generic converter needs to
+                             ## be instantiated
+    coerceDistincts*: bool   ## this is an explicit coercion that can strip away
+                             ## a distrinct type
     typedescMatched*: bool
-    isNoCall*: bool          # misused for generic type instantiations C[T]
-    inferredTypes: seq[PType] # inferred types during the current signature
-                              # matching. they will be reset if the matching
-                              # is not successful. may replace the bindings
-                              # table in the future.
+    isNoCall*: bool          ## misused for generic type instantiations C[T]
+    inferredTypes: seq[PType] ## inferred types during the current signature
+                              ## matching. they will be reset if the matching
+                              ## is not successful. may replace the bindings
+                              ## table in the future.
     diagnostics*: seq[SemReport] ## The matching process (for concepts)
     ## will collect extra diagnostics that will be displayed to the user.
     ## triggered when overload resolution fails or when the explain pragma
     ## is used.
-    inheritancePenalty: int   # to prefer closest father object type
-    firstMismatch*: MismatchInfo # mismatch info for better error messages
+    inheritancePenalty: int   ## to prefer closest father object type
+    firstMismatch*: MismatchInfo ## mismatch info for better error messages
     diagnosticsEnabled*: bool
 
   TTypeRelFlag* = enum
     trDontBind
     trNoCovariance
-    trBindGenericParam  # bind tyGenericParam even with trDontBind
+    trBindGenericParam  ## bind tyGenericParam even with trDontBind
 
   TTypeRelFlags* = set[TTypeRelFlag]
 
@@ -813,24 +813,25 @@ proc tryResolvingStaticExpr(c: var TCandidate, n: PNode,
   result = c.c.semExpr(c.c, instantiated)
 
 proc inferStaticParam*(c: var TCandidate, lhs: PNode, rhs: BiggestInt): bool =
-  # This is a simple integer arithimetic equation solver,
-  # capable of deriving the value of a static parameter in
-  # expressions such as (N + 5) / 2 = rhs
-  #
-  # Preconditions:
-  #
-  #   * The input of this proc must be semantized
-  #     - all templates should be expanded
-  #     - aby constant folding possible should already be performed
-  #
-  #   * There must be exactly one unresolved static parameter
-  #
-  # Result:
-  #
-  #   The proc will return true if the static types was successfully
-  #   inferred. The result will be bound to the original static type
-  #   in the TCandidate.
-  #
+  ##[
+
+This is a simple integer arithimetic equation solver,
+capable of deriving the value of a static parameter in
+expressions such as `(N + 5) / 2 = rhs`
+
+Preconditions:
+
+* The input of this proc must be semantized
+  - all templates should be expanded
+  - aby constant folding possible should already be performed
+* There must be exactly one unresolved static parameter
+
+Result:
+  The proc will return true if the static types was successfully
+  inferred. The result will be bound to the original static type
+  in the TCandidate.
+
+  ]##
   if lhs.kind in nkCallKinds and lhs[0].kind == nkSym:
     case lhs[0].sym.magic
     of mAddI, mAddU, mInc, mSucc:
@@ -971,21 +972,25 @@ template skipOwned(a) =
 
 proc typeRel(c: var TCandidate, f, aOrig: PType,
              flags: TTypeRelFlags = {}): TTypeRelation =
-  # typeRel can be used to establish various relationships between types:
-  #
-  # 1) When used with concrete types, it will check for type equivalence
-  # or a subtype relationship.
-  #
-  # 2) When used with a concrete type against a type class (such as generic
-  # signature of a proc), it will check whether the concrete type is a member
-  # of the designated type class.
-  #
-  # 3) When used with two type classes, it will check whether the types
-  # matching the first type class are a strict subset of the types matching
-  # the other. This allows us to compare the signatures of generic procs in
-  # order to give preferrence to the most specific one:
-  #
-  # seq[seq[any]] is a strict subset of seq[any] and hence more specific.
+  ##[
+
+typeRel can be used to establish various relationships between types:
+
+1) When used with concrete types, it will check for type equivalence
+    or a subtype relationship.
+
+2) When used with a concrete type against a type class (such as generic
+   signature of a proc), it will check whether the concrete type is a member
+   of the designated type class.
+
+3) When used with two type classes, it will check whether the types
+   matching the first type class are a strict subset of the types matching
+   the other. This allows us to compare the signatures of generic procs in
+   order to give preferrence to the most specific one:
+
+`seq[seq[any]]` is a strict subset of seq[any] and hence more specific.
+
+  ]##
 
   result = isNone
   assert(f != nil)

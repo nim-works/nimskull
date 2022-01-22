@@ -7,8 +7,8 @@
 #    distribution, for details about the copyright.
 #
 
-# this module does the semantic checking for expressions
-# included from sem.nim
+## this module does the semantic checking for expressions
+## included from sem.nim
 
 when defined(nimCompilerStacktraceHints):
   import std/stackframes

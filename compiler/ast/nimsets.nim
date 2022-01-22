@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-# this unit handles Nim sets; it implements symbolic sets
+## this unit handles Nim sets; it implements symbolic sets
 
 import
   ast/[ast, astalgo, lineinfos, types],
