@@ -297,6 +297,20 @@ type
     cnModifiedy ## notes that have been set/unset from either
                 ## cmdline/configs
 
+  HackController* = object
+    ## additional configuration switches to control the behavior of the
+    ## debug printer. Most of them are for compiler debugging, and for now
+    ## they can't be set up from the cli/defines - in the future this will
+    ## be changed. For now you can just edit `defaultHackController` value
+    ## in this module as you see fit.
+    semStack*: bool  ## Show `| context` entries in the call tracer
+
+    reportInTrace*: bool ## Error messages are shown with matching indentation
+    ## if report was triggered during execution of the sem trace
+
+    semTraceData*: bool ## For each sem step show processed data, or only
+    ## procedure calls.
+
   ConfigRef* {.acyclic.} = ref object ## every global configuration
                           ## fields marked with '*' are subject to
                           ## the incremental compilation mechanisms
@@ -411,6 +425,8 @@ type
     structuredReportHook*: ReportHook
     cppCustomNamespace*: string
     vmProfileData*: ProfileData
+
+    hack*: HackController ## Configuration values for debug printing
 
     when defined(nimDebugUtils):
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
@@ -782,6 +798,70 @@ func isEnabled*(conf: ConfigRef, report: Report): bool =
   else:
     result = conf.isEnabled(report.kind)
 
+type
+  ReportWritabilityKind* = enum
+    writeEnabled
+    writeDisabled
+    writeForceEnabled
+
+func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
+  const forceWrite = {
+    rsemExpandArc # Not considered a hint for now
+  }
+
+  let tryhack = conf.m.errorOutputs == {}
+  # REFACTOR this check is an absolute hack, `errorOutputs` need to be
+  # removed. For more details see `lineinfos.MsgConfig.errorOutputs`
+  # comment
+
+  if (r.kind == rdbgVmCodeListing) and (
+    (
+     # If special expand target is not defined, debug all generated code
+     ("expandVmListing" notin conf.symbols)
+    ) or (
+     # Otherwise check if listing target is not nil, and it's name is the
+     # name we are targeting.
+     (not r.debugReport.vmgenListing.sym.isNil()) and
+     (
+       r.debugReport.vmgenListing.sym.name.s ==
+       conf.symbols["expandVmListing"]
+  ))):
+    return writeForceEnabled
+
+  elif r.kind == rdbgVmCodeListing or (
+    # Optionally Ignore context stacktrace
+    not conf.hack.semStack and r.kind == rdbgTraceLine
+  ):
+    return writeDisabled
+
+  elif (
+     (conf.isEnabled(r) and r.category == repDebug and tryhack) or
+     # Force write of the report messages using regular stdout if tryhack is
+     # enabled
+     r.kind in rintCliKinds
+     # or if we are writing command-line help/usage information - it must
+     # always be printed
+  ):
+    return writeForceEnabled
+
+  elif (
+    # Not explicitly enanled
+    not conf.isEnabled(r) and
+    # And not added for forced write
+    r.kind notin forceWrite
+  ) or (
+    # Or we are in the special hack mode for `compiles()` processing
+    tryhack
+  ):
+
+    # Return without writing
+    return writeDisabled
+
+  else:
+    return writeEnabled
+
+
+
 
 
 proc hcrOn*(conf: ConfigRef): bool =
@@ -838,6 +918,12 @@ proc newProfileData(): ProfileData =
 
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 
+const defaultHackController = HackController(
+  semStack: off,
+  reportInTrace: off,
+  semTraceData: on
+)
+
 proc initConfigRefCommon(conf: ConfigRef) =
   conf.symbols = newStringTable(modeStyleInsensitive)
   conf.selectedGC = gcRefc
@@ -848,6 +934,7 @@ proc initConfigRefCommon(conf: ConfigRef) =
   conf.filenameOption = foAbs
   conf.foreignPackageNotes = NotesVerbosity.foreign
   conf.notes = NotesVerbosity.main[1]
+  conf.hack = defaultHackController
   conf.mainPackageNotes = NotesVerbosity.main[1]
   when defined(nimDebugUtils):
     # ensures that `nimDebugUtils` is defined for the compiled code so it can
