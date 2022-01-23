@@ -223,6 +223,9 @@ proc commandView(graph: ModuleGraph) =
 const
   PrintRopeCacheStats = false
 
+when PrintRopeCacheStats:
+  import utils/ropes
+
 proc hashMainCompilationParams*(conf: ConfigRef): string =
   ## doesn't have to be complete; worst case is a cache hit and recompilation.
   var state = newSha1State()
