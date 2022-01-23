@@ -27,13 +27,14 @@ import std/[unittest, sequtils]
 proc doThings(spuds: var int): int =
   spuds = 24
   return 99
+
 test "#964":
   var spuds = 0
   check doThings(spuds) == 99
   check spuds == 24
 
 
-from std/strutils import toUpperAscii
+from std/strutils import toUpperAscii, parseInt
 test "#1384":
   check(@["hello", "world"].map(toUpperAscii) == @["HELLO", "WORLD"])
 
@@ -50,7 +51,6 @@ test "unittest multiple requires":
 
 
 import std/random
-from std/strutils import parseInt
 proc defectiveRobot() =
   case rand(1..4)
   of 1: raise newException(OSError, "CANNOT COMPUTE!")

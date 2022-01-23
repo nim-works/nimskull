@@ -460,11 +460,52 @@ proc suiteEnded() =
   for formatter in formatters:
     formatter.suiteEnded()
 
+proc testStarted(testName: string) =
+  for formatter in formatters:
+    formatter.testStarted(testName)
+
 proc testEnded(testResult: TestResult) =
   for formatter in formatters:
     formatter.testEnded(testResult)
 
-template suite*(name, body) {.dirty.} =
+proc exceptionTypeName(e: ref Exception): string {.inline.} =
+  if e == nil: "<foreign exception>"
+  else: $e.name
+
+proc suiteStarted(name: string) =
+  ensureInitialized()
+  for formatter in formatters:
+    formatter.suiteStarted(name)
+
+template testInternal(testSuiteName, testNameArg, testBody: untyped): untyped =
+  bind shouldRun, checkpoints, formatters, testEnded, exceptionTypeName, setProgramResult
+  if shouldRun(testSuiteName, testNameArg):
+    checkpoints = @[]
+    var testStatusIMPL {.inject.} = TestStatus.OK
+    testStarted(testNameArg)
+    try:
+      testBody
+    except:
+      let e = getCurrentException()
+      let eTypeDesc = "[" & exceptionTypeName(e) & "]"
+      checkpoint("Unhandled exception: " & getCurrentExceptionMsg() & " " & eTypeDesc)
+      if e == nil: # foreign
+        fail()
+      else:
+        var stackTrace {.inject.} = e.getStackTrace()
+        fail()
+    finally:
+      if testStatusIMPL == TestStatus.FAILED:
+        setProgramResult 1
+      let testResult = TestResult(
+        suiteName: testSuiteName,
+        testName: testNameArg,
+        status: testStatusIMPL
+      )
+      testEnded(testResult)
+      checkpoints.setLen(0)
+
+macro suite*(name: string,body: untyped): untyped =
   ## Declare a test suite identified by `name` with optional ``setup``
   ## and/or ``teardown`` section.
   ##
@@ -493,32 +534,59 @@ template suite*(name, body) {.dirty.} =
   ##  [Suite] test suite for addition
   ##    [OK] 2 + 2 = 4
   ##    [OK] (2 + -2) != 4
-  bind formatters, ensureInitialized, suiteEnded
 
-  block:
-    template setup(setupBody: untyped) {.dirty, used.} =
-      var testSetupIMPLFlag {.used.} = true
-      template testSetupIMPL: untyped {.dirty.} = setupBody
+  body.expectKind(nnkStmtList)
+  # parse top level suite constructs and put their structure into local variables.
+  var setup: NimNode
+  var teardown: NimNode
+  var tests: seq[NimNode]
 
-    template teardown(teardownBody: untyped) {.dirty, used.} =
-      var testTeardownIMPLFlag {.used.} = true
-      template testTeardownIMPL: untyped {.dirty.} = teardownBody
+  # stuff that really should not be placed top level in a unittest.
+  result = newStmtList()
 
-    let testSuiteName {.used.} = name
+  for command in body:
+    if command.kind in nnkCallKinds:
+      let typ = command[0]
+      typ.expectKind nnkIdent
+      if typ.eqIdent("test"):
+        command.expectLen 3
+        let testName = command[1]
+        testName.expectKind {nnkStrLit..nnkTripleStrLit}
+        tests.add command
+      elif typ.eqIdent("setup"):
+        command.expectLen 2
+        if setup == nil:
+          setup = command
+        else:
+          error("double definition of setup", command)
+      elif typ.eqIdent("teardown"):
+        command.expectLen 2
+        if teardown == nil:
+          teardown = command
+        else:
+          error("double definition of teardown", command)
+      else:
+        error("illegal construct for unittest suite", command)
+    else:
+      warning("please only put `test`, `setup` and `teardown` at top level of `suite`", command)
+      # for backwards compatibility, preserve these constructs unprocessed (really it should be an error)
+      result.add command
 
-    ensureInitialized()
-    try:
-      for formatter in formatters:
-        formatter.suiteStarted(name)
-      body
-    finally:
-      suiteEnded()
+  # start generating code from the earlier constructs
+  result.add newCall(bindSym"suiteStarted", name)
 
-proc exceptionTypeName(e: ref Exception): string {.inline.} =
-  if e == nil: "<foreign exception>"
-  else: $e.name
+  for test in tests:
+    let tryBody = newStmtList()
+    if setup != nil:
+      tryBody.add setup[1]
+    if teardown != nil:
+      tryBody.add nnkDefer.newTree(teardown[1])
+    tryBody.add test[2]
+    let testName = test[1]
+    result.add newCall(bindSym"testInternal", name, testName, tryBody)
+  result.add newCall(bindSym"suiteEnded")
 
-template test*(name, body) {.dirty.} =
+template test*(name: string, body: untyped) =
   ## Define a single test case identified by `name`.
   ##
   ## .. code-block:: nim
@@ -532,43 +600,8 @@ template test*(name, body) {.dirty.} =
   ## .. code-block::
   ##
   ##  [OK] roses are red
-  bind shouldRun, checkpoints, formatters, ensureInitialized, testEnded, exceptionTypeName, setProgramResult
-
   ensureInitialized()
-
-  if shouldRun(when declared(testSuiteName): testSuiteName else: "", name):
-    checkpoints = @[]
-    var testStatusIMPL {.inject.} = TestStatus.OK
-
-    for formatter in formatters:
-      formatter.testStarted(name)
-
-    try:
-      when declared(testSetupIMPLFlag): testSetupIMPL()
-      when declared(testTeardownIMPLFlag):
-        defer: testTeardownIMPL()
-      body
-
-    except:
-      let e = getCurrentException()
-      let eTypeDesc = "[" & exceptionTypeName(e) & "]"
-      checkpoint("Unhandled exception: " & getCurrentExceptionMsg() & " " & eTypeDesc)
-      if e == nil: # foreign
-        fail()
-      else:
-        var stackTrace {.inject.} = e.getStackTrace()
-        fail()
-
-    finally:
-      if testStatusIMPL == TestStatus.FAILED:
-        setProgramResult 1
-      let testResult = TestResult(
-        suiteName: when declared(testSuiteName): testSuiteName else: "",
-        testName: name,
-        status: testStatusIMPL
-      )
-      testEnded(testResult)
-      checkpoints = @[]
+  testInternal("", name, body)
 
 proc checkpoint*(msg: string) =
   ## Set a checkpoint identified by `msg`. Upon test failure all
@@ -639,6 +672,26 @@ proc print[T: not typedesc](name: string, value: T) =
 proc print[T](name: string, typ: typedesc[T]) =
   checkpoint(name & " was " & $typ)
 
+proc untype(arg: NimNode): NimNode =
+  case arg.kind
+  of nnkCharLit..nnkUInt64Lit:
+    result = newNimNode(arg.kind, arg)
+    result.intVal = arg.intVal
+  of nnkFloatLit..nnkFloat128Lit:
+    result = newNimNode(arg.kind, arg)
+    result.floatVal = arg.floatVal
+  of nnkStrLit..nnkTripleStrLit:
+    result = newNimNode(arg.kind, arg)
+    result.strVal = arg.strVal
+  of nnkSym, nnkOpenSymChoice, nnkClosedSymChoice:
+    result = newIdentNode(arg.repr)
+  of nnkIdent:
+    result = arg
+  else:
+    result = newNimNode(arg.kind, arg)
+    for n in arg:
+      result.add untype(n)
+
 macro check*(conditions: untyped): untyped =
   ## Verify if a statement or a list of statements is true.
   ## A helpful error message and set checkpoints are printed out on
@@ -654,7 +707,8 @@ macro check*(conditions: untyped): untyped =
       "AKB48".toLowerAscii() == "akb48"
       'C' notin teams
 
-  let checked = callsite()[1]
+  # the call to `untype` is a workaround for https://github.com/nim-works/nimskull/issues/193
+  let checked = untype(conditions)
 
   proc inspectArgs(exp: NimNode): tuple[assigns, check, printOuts: NimNode] =
     result.check = copyNimTree(exp)
