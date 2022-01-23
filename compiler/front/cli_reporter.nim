@@ -51,26 +51,6 @@ import
 
 import front/options as compiler_options
 
-type
-  HackController* = object
-    ## additional configuration switches to control the behavior of the
-    ## debug printer. Since most of them are for compiler debugging, you
-    ## will most likely recompile the compiler anyway, so toggling couple
-    ## hardcoded constants here is easier than dragging out completely
-    ## unnecessary switches, or adding more magic `define()` blocks
-    semStack*: bool  ## Show `| context` entries in the call tracer
-
-    reportInTrace*: bool ## Error messages are shown with matching indentation
-    ## if report was triggered during execution of the sem trace
-
-    semTraceData*: bool ## For each sem step show processed data, or only
-    ## procedure calls.
-
-const controller = HackController(
-  semStack: off,
-  reportInTrace: off,
-  semTraceData: on
-)
 
 
 
@@ -3176,7 +3156,7 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
         res[].add value
 
       let enter = s.direction == semstepEnter
-      if controller.semTraceData and
+      if conf.hack.semTraceData and
          s.kind != stepTrack #[ 'track' has no extra data fields ]#:
         field("kind", $s.kind)
         case s.kind:
@@ -3556,9 +3536,6 @@ proc reportShort*(conf: ConfigRef, r: Report): string =
     of repExternal: result = conf.reportShort(r.externalReport)
 
 
-const forceWrite = {
-  rsemExpandArc # Not considered a hint for now
-}
 
 const rdbgTracerKinds* = {rdbgTraceDefined .. rdbgTraceEnd}
 
@@ -3597,63 +3574,24 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## Default implementation of the report hook. Dispatches into
   ## `reportBody` for report, which then calls respective (for each report
   ## category) `reportBody` overloads defined above
-  let tryhack = conf.m.errorOutputs == {}
-  # REFACTOR this check is an absolute hack, `errorOutputs` need to be
-  # removed. For more details see `lineinfos.MsgConfig.errorOutputs`
-  # comment
   assertKind r
 
-  if (r.kind == rdbgVmCodeListing) and (
-    (
-     # If special expand target is not defined, debug all generated code
-     ("expandVmListing" notin conf.symbols)
-    ) or (
-     # Otherwise check if listing target is not nil, and it's name is the
-     # name we are targeting.
-     (not r.debugReport.vmgenListing.sym.isNil()) and
-     (
-       r.debugReport.vmgenListing.sym.name.s ==
-       conf.symbols["expandVmListing"]
-  ))):
-    echo conf.reportFull(r)
+  let
+    wkind = conf.writabilityKind(r)
 
-  elif r.kind == rdbgVmCodeListing or (
-    # Optionally Ignore context stacktrace
-    not controller.semStack and r.kind == rdbgTraceLine
-  ):
+  # debug reports can be both enabled and force enabled, and sem tracer
+  # first needs to be checked for the trace group rotation. So adding a
+  # case here is not really useful, since report writability kind does not
+  # necessarily dictate how it is written, just whether it can/must/cannot
+  # be written.
+  if wkind == writeDisabled:
     return
-
-  elif (
-     (conf.isEnabled(r) and r.category == repDebug and tryhack) or
-     # Force write of the report messages using regular stdout if tryhack is
-     # enabled
-     r.kind in rintCliKinds
-     # or if we are writing command-line help/usage information - it must
-     # always be printed
-  ):
-    if lastDot:
-      conf.writeln("")
-      lastDot = false
-
-    echo conf.reportFull(r)
 
   elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
     rotatedTrace(conf, r)
 
-  elif (
-    # Not explicitly enanled
-    not conf.isEnabled(r) and
-    # And not added for forced write
-    r.kind notin forceWrite
-  ) or (
-    # Or we are in the special hack mode for `compiles()` processing
-    tryhack
-  ):
-
-    # Return without writing
-    return
-
-
+  elif wkind == writeForceEnabled:
+    echo conf.reportFull(r)
 
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
     # REFACTOR 'processing with dots' - requires special hacks, pretty
@@ -3666,7 +3604,7 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       conf.writeln("")
       lastDot = false
 
-    if controller.reportInTrace:
+    if conf.hack.reportInTrace:
       var indent {.global.}: int
       if r.kind == rdbgTraceStep:
         indent = r.debugReport.semstep.level
