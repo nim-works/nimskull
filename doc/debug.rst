@@ -1,3 +1,9 @@
+.. include:: rstcommon.rst
+
+========================
+Compiler debugging guide
+========================
+
 .. raw:: html
   <blockquote><p>
   The process of identifying and removing errors from computer hardware or software.

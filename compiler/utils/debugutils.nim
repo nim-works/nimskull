@@ -140,7 +140,89 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
   else:
     discard # noop if undefined
 
-const instDepth = -4
+
+type
+  StepParams* = object
+    ## Parameters necessary to construct new step of the execution tracing.
+    c*: ConfigRef
+    kind*: DebugSemStepKind
+    indentLevel*: int
+    action*: string
+    info*: InstantiationInfo
+
+proc stepParams*(
+    c: ConfigRef,
+    kind: DebugSemStepKind,
+    indentLevel: int,
+    action: string
+  ): StepParams =
+
+  StepParams(
+    c: c,
+    kind: kind,
+    indentLevel: indentLevel,
+    action: action
+  )
+
+const hasStacktrace = compileOption"stacktrace"
+
+template traceStepImpl*(
+    params: StepParams,
+    stepDirection: DebugSemStepDirection,
+    body: untyped,
+  ) =
+  ## Construct and write debug step report using given parameters. Mutable
+  ## `it: DebugSemStep` is injected and is accessible in the `body` that is
+  ## passed to the template. `stepDirection` is assigned to the contructed
+  ## step `.direction` field.
+  block:
+    let p = params
+    var it {.inject.} = DebugSemStep(
+      direction: stepDirection,
+      level: p.indentLevel,
+      name: p.action,
+      kind: p.kind
+    )
+
+    if hasStacktrace:
+      it.steppedFrom = calledFromInfo()
+
+    block:
+      body
+
+    handleReport(p.c, wrap(p.info, DebugReport(
+      kind: rdbgTraceStep,
+      semstep: it
+    )), p.info)
+
+const instDepth = -5
+template traceEnterIt*(
+    params: StepParams,
+    body: untyped,
+    templateDepth: int = instDepth
+  ): untyped =
+  ## Convenience wrapper around the `traceStepImpl`. If called from user
+  ## code `templateDepth` parameter must be specified as well - it controls
+  ## depth of the template instantiation location that is need to be
+  ## accounted for. With current implementation of the debugutils this
+  ## value is set to `-5` (`instDepth` default), for your code it might be
+  ## different (`-2` when called directly and `-1` for each wrapper template
+  ## level).
+  var tmp = params
+  tmp.info = instLoc(templateDepth)
+  traceStepImpl(params, semstepEnter, body)
+
+template traceLeaveIt*(
+    params: StepParams,
+    body: untyped,
+    templateDepth: int = instDepth
+  ): untyped =
+  ## Convenience wrapper for `traaceStepImpl` - for mode details see the
+  ## `traceEnterIt` and `traceStepImpl` documentation.
+  var tmp = params
+  tmp.info = instLoc(instDepth)
+  traceStepImpl(tmp, semstepLeave, body)
+
 
 template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode;
                             flags: TExprFlags) =
@@ -148,28 +230,18 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode;
   ## and can determine the type
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepEnter,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          node: n,
-          kind: stepNodeFlagsToNode,
-          flags: flags))), instLoc(instDepth))
+      traceEnterIt(stepParams(
+        c, stepNodeFlagsToNode, indentLevel, action
+      )):
+        it.node = n
+        it.flags = flags
 
     template leaveMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepLeave,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          node: r,
-          kind: stepNodeFlagsToNode,
-          flags: flags))), instLoc(instDepth))
+      traceLeaveIt(stepParams(
+        c, stepNodeFlagsToNode, indentLevel, action
+      )):
+        it.node = r
+        it.flags = flags
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
@@ -179,26 +251,16 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode) =
 
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepEnter,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          node: n,
-          kind: stepNodeToNode))), instLoc(instDepth))
+      traceEnterIt(stepParams(
+        c, stepNodeToNode, indentLevel, action
+      )):
+        it.node = n
 
     template leaveMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepLeave,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          node: r,
-          kind: stepNodeToNode))), instLoc(instDepth))
+      traceLeaveIt(stepParams(
+        c, stepNodeToNode, indentLevel, action
+      )):
+        it.node = r
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
@@ -208,26 +270,16 @@ template addInNimDebugUtilsError*(c: ConfigRef; n, e: PNode) =
   when defined(nimDebugUtils):
     const action = "newError"
     template enterMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepEnter,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          node: n,
-          kind: stepWrongNode))), instLoc(instDepth))
+      traceEnterIt(stepParams(
+        c, stepWrongNode, indentLevel, action
+      )):
+        it.node = n
 
     template leaveMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepLeave,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          node: e,
-          kind: stepError))), instLoc(instDepth))
+      traceLeaveIt(stepParams(
+        c, stepError, indentLevel, action
+      )):
+        it.node = e
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
@@ -238,28 +290,18 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
 
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepEnter,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          node: n,
-          typ: prev,
-          kind: stepNodeTypeToNode))), instLoc(instDepth))
+      traceEnterIt(stepParams(
+        c, stepNodeTypeToNode, indentLevel, action
+      )):
+        it.node = n
+        it.typ = prev
 
     template leaveMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepLeave,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          node: n,
-          typ: r,
-          kind: stepNodeTypeToNode))), instLoc(instDepth))
+      traceLeaveIt(stepParams(
+        c, stepNodeTypeToNode, indentLevel, action
+      )):
+        it.node = n
+        it.typ = r
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
@@ -269,26 +311,16 @@ template addInNimDebugUtils*(
 
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepEnter,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          node: n,
-          kind: stepNodeToSym))), instLoc(instDepth))
+      traceEnterIt(stepParams(
+        c, stepNodeToSym, indentLevel, action
+      )):
+        it.node = n
 
     template leaveMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepLeave,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          sym: resSym,
-          kind: stepNodeToSym))), instLoc(instDepth))
+      traceLeaveIt(stepParams(
+        c, stepNodeToSym, indentLevel, action
+      )):
+        it.sym = resSym
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
@@ -297,27 +329,17 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; x, y, r: PType) =
   ## for a common type
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepEnter,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          typ: x,
-          typ1: y,
-          kind: stepTypeTypeToType))), instLoc(instDepth))
+      traceEnterIt(stepParams(
+        c, stepTypeTypeToType, indentLevel, action
+      )):
+        it.typ = x
+        it.typ1 = y
 
     template leaveMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepLeave,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          typ: r,
-          kind: stepTypeTypeToType))), instLoc(instDepth))
+      traceLeaveIt(stepParams(
+        c, stepTypeTypeToType, indentLevel, action
+      )):
+        it.typ = r
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
@@ -326,21 +348,15 @@ template addInNimDebugUtils*(c: ConfigRef; action: string) =
   ## for a common type
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepEnter,
-          steppedFrom: calledFromInfo(),
-          level: indentLevel, name: action,
-          kind: stepTrack))), instLoc(instDepth))
+      traceEnterIt(stepParams(
+        c, stepTrack, indentLevel, action
+      )):
+        discard
 
     template leaveMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepLeave,
-          steppedFrom: calledFromInfo(),
-          level: indentLevel, name: action,
-          kind: stepTrack))), instLoc(instDepth))
+      traceLeaveIt(stepParams(
+        c, stepTrack, indentLevel, action
+      )):
+        discard
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
