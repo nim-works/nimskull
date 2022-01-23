@@ -149,10 +149,14 @@ proc symFields(
   if trfShowSymPosition in flags and sym.position != 0:
     field("pos", sym.offset.format())
 
-  if trfShowSymTypes in flags and not sym.typ.isNil():
+  if trfShowSymTypes in flags and
+     not sym.typ.isNil() and
+     not conf.isNil():
     field("typ", conf.textRepr(sym.typ))
 
-  if trfShowSymLineInfo in flags and sym.info != unknownLineInfo:
+  if trfShowSymLineInfo in flags and
+     sym.info != unknownLineInfo and
+     not conf.isNil():
     field("info", conf.toMsgFilename(sym.info.fileIndex) + fgBlue)
     add "("
     add $sym.info.line + fgCyan
@@ -255,7 +259,6 @@ proc treeRepr*(
   ): ColText =
   coloredResult(1)
 
-
   var visited: HashSet[int]
   var res = addr result
 
@@ -349,7 +352,9 @@ proc treeRepr*(
           else:
             field("typ", conf.textRepr(n.typ))
 
-    if trfShowNodeLineInfo in flags and n.info != unknownLineInfo:
+    if trfShowNodeLineInfo in flags and
+       n.info != unknownLineInfo and
+       not conf.isNil():
       field("info", conf.toMsgFilename(n.info.fileIndex) + fgBlue)
       add "("
       add $n.info.line + fgCyan
@@ -400,9 +405,10 @@ proc treeRepr*(
         addComment()
 
       of nkError:
-        let report = conf.getReport(n).semReport
-        field("err", substr($report.kind, 4) + termFg(5, 2, 0))
-        hfield("errid", $n.reportId.int + fgRed)
+        if not conf.isNil():
+          let report = conf.getReport(n).semReport
+          field("err", substr($report.kind, 4) + termFg(5, 2, 0))
+          hfield("errid", $n.reportId.int + fgRed)
 
       else:
         discard

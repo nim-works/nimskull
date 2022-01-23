@@ -100,6 +100,45 @@ type
     slotTempComplex,  # some complex temporary (s.node field is used)
     slotTempPerm      # slot is temporary but permanent (hack)
 
+  RegNodeKind* = enum
+    rnNil
+    rnEmpty
+    rnInt
+    rnAddr
+    rnFloat
+    rnStr
+
+    rnPNode
+    rnObject
+    rnSet
+    rnSeq
+
+  RegNodeFlag* = enum
+    rnfAllConst
+    rnfIsPtr
+
+  RegNode* = ref TRegNode
+  TRegNode* = object
+    flags*: set[RegNodeFlag]
+    case kind*: RegNodeKind
+      of rnNil, rnEmpty:
+        discard
+
+      of rnInt, rnAddr:
+        intVal*: BiggestInt
+
+      of rnFloat:
+        floatVal*: float
+
+      of rnStr:
+        strVal*: string
+
+      of rnPNode:
+        nodeVal*: PNode
+
+      of rnObject, rnSet, rnSeq:
+        nodes*: seq[RegNode]
+
 
   TFullReg* = object  # with a custom mark proc, we could use the same
                       # data representation as LuaJit (tagged NaNs).
@@ -107,9 +146,9 @@ type
     of rkNone: nil
     of rkInt: intVal*: BiggestInt
     of rkFloat: floatVal*: BiggestFloat
-    of rkNode: node*: PNode
+    of rkNode: node*: RegNode
     of rkRegisterAddr: regAddr*: ptr TFullReg
-    of rkNodeAddr: nodeAddr*: ptr PNode
+    of rkNodeAddr: nodeAddr*: ptr RegNode
 
   PProc* = ref object
     blocks*: seq[TBlock]    # blocks; temp data structure
@@ -170,6 +209,12 @@ type
 
   PEvalContext* = PCtx
 
+const
+  rnLiteralKinds* = {
+    rnNil .. rnPNode # With new data model PNode value is just a literal -
+                     # 'piece of the ast'.
+  }
+
 proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph; idgen: IdGenerator): PCtx =
   PCtx(
     code: @[],
@@ -213,3 +258,73 @@ template regC*(x: TInstr): TRegister = TRegister(x.TInstrType shr regCShift and 
 template regBx*(x: TInstr): int = (x.TInstrType shr regBxShift and regBxMask).int
 
 template jmpDiff*(x: TInstr): int = regBx(x) - wordExcess
+
+proc newRegNode*(str: string): RegNode =
+  RegNode(kind: rnStr, strVal: str)
+
+proc newRegNode*(kind: RegNodeKind): RegNode = RegNode(kind: kind)
+proc newRegNode*(val: BiggestInt): RegNode =
+  RegNode(kind: rnInt, intVal: val)
+
+proc newRegNode*(val: float): RegNode =
+  RegNode(kind: rnFloat, floatVal: val)
+
+proc newRegNode*(node: PNode): RegNode =
+  RegNode(kind: rnPNode, nodeVal: node)
+
+proc len*(node: RegNode): int =
+  node.nodes.len
+
+proc safeLen*(node: RegNode): int =
+  if node.kind in {rnObject, rnSet, rnSeq}:
+    return node.len()
+
+
+import experimental/colortext, utils/astrepr
+
+proc treeRepr*(node: RegNode): ColText =
+  coloredResult()
+  proc aux(node: RegNode, level: int) =
+    addi level, $node.kind
+    case node.kind:
+      of rnInt, rnAddr:
+        add " ", $node.intVal
+
+      of rnFloat:
+        add " ", $node.floatVal
+
+      of rnStr:
+        add " ", node.strVal
+
+      of rnPNode:
+        add " ", $node.nodeVal.kind
+
+      of rnObject, rnSet, rnSeq:
+        for sub in node.nodes:
+          add "\n"
+          aux(sub, level + 1)
+
+      of rnNil, rnEmpty:
+        discard
+
+
+  aux(node, 0)
+
+proc checkIdx(node: RegNode, idx: int) =
+  if node.kind == rnPNode:
+    assert(
+      false,
+      "Cannot index into register node that contains PNode " &
+        "- most likely a data migration issues. The source " &
+        "node structure was " & treeRepr(nil, node.nodeVal).toString(false) &
+        "index was - " & $idx
+    )
+
+proc `[]`*(node: RegNode, idx: int): RegNode =
+  node.nodes[idx]
+
+proc `[]`*(node: var RegNode, idx: int): var RegNode =
+  node.nodes[idx]
+
+proc add*(node: RegNode, other: RegNode) =
+  node.nodes.add other

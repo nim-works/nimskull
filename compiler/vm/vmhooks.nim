@@ -21,10 +21,10 @@ proc setResult*(a: VmArgs; v: bool) =
 
 proc setResult*(a: VmArgs; v: string) =
   a.slots[a.ra].ensureKind(rkNode)
-  a.slots[a.ra].node = newNode(nkStrLit)
+  a.slots[a.ra].node = newRegNode(rnStr)
   a.slots[a.ra].node.strVal = v
 
-proc setResult*(a: VmArgs; n: PNode) =
+proc setResult*(a: VmArgs; n: RegNode) =
   a.slots[a.ra].ensureKind(rkNode)
   a.slots[a.ra].node = n
 
@@ -32,8 +32,10 @@ proc setResult*(a: VmArgs; v: AbsoluteDir) = setResult(a, v.string)
 
 proc setResult*(a: VmArgs; v: seq[string]) =
   a.slots[a.ra].ensureKind(rkNode)
-  var n = newNode(nkBracket)
-  for x in v: n.add newStrNode(nkStrLit, x)
+  var n = newRegNode(rnSeq)
+  for x in v:
+    n.add newRegNode(x)
+
   a.slots[a.ra].node = n
 
 template getReg(a, i): untyped =
@@ -51,9 +53,9 @@ proc numArgs*(a: VmArgs): int =
 proc getInt*(a: VmArgs; i: Natural): BiggestInt = getX(rkInt, intVal)
 proc getBool*(a: VmArgs; i: Natural): bool = getInt(a, i) != 0
 proc getFloat*(a: VmArgs; i: Natural): BiggestFloat = getX(rkFloat, floatVal)
-proc getNode*(a: VmArgs; i: Natural): PNode = getX(rkNode, node)
+proc getNode*(a: VmArgs; i: Natural): RegNode = getX(rkNode, node)
 proc getString*(a: VmArgs; i: Natural): string = getX(rkNode, node).strVal
-proc getVar*(a: VmArgs; i: Natural): PNode =
+proc getVar*(a: VmArgs; i: Natural): RegNode =
   let p = getReg(a, i)
   # depending on whether we come from top-level or proc scope, we need to consider 2 cases
   case p.kind
@@ -61,7 +63,7 @@ proc getVar*(a: VmArgs; i: Natural): PNode =
   of rkNodeAddr: result = p.nodeAddr[]
   else: doAssert false, $p.kind
 
-proc getNodeAddr*(a: VmArgs; i: Natural): PNode =
+proc getNodeAddr*(a: VmArgs; i: Natural): RegNode =
   let nodeAddr = getX(rkNodeAddr, nodeAddr)
   doAssert nodeAddr != nil
   result = nodeAddr[]
