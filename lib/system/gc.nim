@@ -61,24 +61,6 @@ comparisons).
 
 {.push profiler:off.}
 
-type
-  GCStatsData = object
-    cycleCollections: int    # number of performed full collections
-    cycleTableSize: int      # max entries in cycle table
-    maxCycleTableSize: int64
-    maxPause: int64          # max me
-    maxPauseTime: int64
-    maxStackCells: int       # max stack cells in ``decStack``
-    maxThreshold: int        # max threshold that has been set
-    
-    stackCells : int64
-    stackScans: int          # number of performed stack scans (for statistics)
-    occupiedMem : int
-    totalMem: int
-    zctCapacity: int64
-
-    maxStackSize: int        # max stack size
-    stackBottom : int64
 
 
 
@@ -922,7 +904,7 @@ when not defined(useNimRtl):
     collectCT(gch)
     gch.cycleThreshold = oldThreshold
   
-  proc getGcData(): GCStatsData =
+  proc GC_getData(): GCStatsData =
     
     result = GCStatsData( 
       totalMem : getTotalMem() ,
@@ -961,7 +943,7 @@ when not defined(useNimRtl):
     
     
   proc GC_getStatistics(): string =
-    return getGcData().formatGcData()
+    return GC_getData().formatGcData()
 
 
 

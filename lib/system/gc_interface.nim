@@ -13,6 +13,23 @@ when hasAlloc:
       gcOptimizeTime,    ## optimize for speed
       gcOptimizeSpace    ## optimize for memory footprint
 
+type
+  GCStatsData* = object
+    cycleCollections: int    # number of performed full collections
+    cycleTableSize: int      # max entries in cycle table
+    maxCycleTableSize: int64
+    maxPause: int64          # max me
+    maxPauseTime: int64
+    maxStackCells: int       # max stack cells in ``decStack``
+    maxThreshold: int        # max threshold that has been set
+    stackCells : int64
+    stackScans: int          # number of performed stack scans (for statistics)
+    occupiedMem : int
+    totalMem: int
+    zctCapacity: int64
+    maxStackSize: int        # max stack size
+    stackBottom : int64
+
 when hasAlloc and not defined(js) and not usesDestructors:
   proc GC_disable*() {.rtl, inl, benign, raises: [].}
     ## Disables the GC. If called `n` times, `n` calls to `GC_enable`
@@ -36,8 +53,10 @@ when hasAlloc and not defined(js) and not usesDestructors:
     ## sweep phase may take a long time and is not needed if the application
     ## does not create cycles. Thus the mark and sweep phase can be deactivated
     ## and activated separately from the rest of the GC.
-
+  
+  proc GC_getData*(): GCStatsData {.rtl, benign.}
   proc GC_getStatistics*(): string {.rtl, benign.}
+  
     ## Returns an informative string about the GC's activity. This may be useful
     ## for tweaking.
 

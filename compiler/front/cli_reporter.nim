@@ -2841,7 +2841,7 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
       assert false, "is a configuration hint, should not be reported manually"
 
     of rintGCStats:
-      result = r.msg
+      result = r.msg #Should the formatting logic be moved / duplicated here?
 
     of rintQuitCalled:
       result = "quit() called"
