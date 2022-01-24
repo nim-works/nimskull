@@ -61,6 +61,27 @@ comparisons).
 
 {.push profiler:off.}
 
+type
+  GCStatsData = object
+    cycleCollections: int    # number of performed full collections
+    cycleTableSize: int      # max entries in cycle table
+    maxCycleTableSize: int64
+    maxPause: int64          # max me
+    maxPauseTime: int64
+    maxStackCells: int       # max stack cells in ``decStack``
+    maxThreshold: int        # max threshold that has been set
+    
+    stackCells : int64
+    stackScans: int          # number of performed stack scans (for statistics)
+    occupiedMem : int
+    totalMem: int
+    zctCapacity: int64
+
+    maxStackSize: int        # max stack size
+    stackBottom : int64
+
+
+
 const
   CycleIncrease = 2 # is a multiplicative increase
   InitialCycleThreshold = when defined(nimCycleBreaker): high(int)
@@ -900,22 +921,49 @@ when not defined(useNimRtl):
     gch.cycleThreshold = 0 # forces cycle collection
     collectCT(gch)
     gch.cycleThreshold = oldThreshold
+  
+  proc getGcData(): GCStatsData =
+    
+    result = GCStatsData( 
+      totalMem : getTotalMem() ,
+      occupiedMem : getOccupiedMem(),
+      stackScans : gch.stat.stackScans,
+      stackCells : gch.stat.maxStackCells,
+      maxThreshold : gch.stat.maxThreshold,
+      zctCapacity : gch.zct.cap,
+      cycleTableSize : gch.stat.cycleTableSize,
+      maxPauseTime : gch.stat.maxPause
+                  )
+                  
+    when defined(logGC):
+      result.stackBottom = gch.stack.bottom
+      result.maxStackSize = gch.stat.maxStackSize
+    
+    return result
 
-  proc GC_getStatistics(): string =
-    result = "[GC] total memory: " & $(getTotalMem()) & "\n" &
-             "[GC] occupied memory: " & $(getOccupiedMem()) & "\n" &
-             "[GC] stack scans: " & $gch.stat.stackScans & "\n" &
-             "[GC] stack cells: " & $gch.stat.maxStackCells & "\n" &
-             "[GC] cycle collections: " & $gch.stat.cycleCollections & "\n" &
-             "[GC] max threshold: " & $gch.stat.maxThreshold & "\n" &
-             "[GC] zct capacity: " & $gch.zct.cap & "\n" &
-             "[GC] max cycle table size: " & $gch.stat.cycleTableSize & "\n" &
-             "[GC] max pause time [ms]: " & $(gch.stat.maxPause div 1000_000) & "\n"
+  proc formatGcData( data : GCStatsData ): string = 
+
+    result = "[GC] total memory: " & $( data.totalMem ) & "\n" &
+             "[GC] occupied memory: " & $(data.occupiedMem) & "\n" &
+             "[GC] stack scans: " & $data.stackScans & "\n" &
+             "[GC] stack cells: " & $data.stackCells & "\n" &
+             "[GC] cycle collections: " & $data.cycleCollections & "\n" &
+             "[GC] max threshold: " & $data.maxThreshold & "\n" &
+             "[GC] zct capacity: " & $data.zctCapacity & "\n" &
+             "[GC] max cycle table size: " & $data.maxCycleTableSize & "\n" &
+             "[GC] max pause time [ms]: " & $(data.maxPauseTime div 1_000_000) & "\n"
 
     # this caused memory leaks, see #10488 ; find a way without `repr`
     # maybe using a local copy of strutils.toHex or snprintf
     when defined(logGC):
-      result.add "[GC] stack bottom: " & gch.stack.bottom.repr
-    result.add "[GC] max stack size: " & $gch.stat.maxStackSize & "\n"
+      result.add "[GC] stack bottom: " & data.stackBottom.repr
+      result.add "[GC] max stack size: " & $data.maxStackSize & "\n"
+    
+    
+  proc GC_getStatistics(): string =
+    return getGcData().formatGcData()
+
+
+
 
 {.pop.} # profiler: off, stackTrace: off
