@@ -51,8 +51,6 @@ Options:
                            external components (default).
   --nim:path               use specified path for nim binary. This can also be used to
                            override the bootstrapping compiler.
-  --localdocs[:path]       only build local documentations. If a path is not
-                           specified (or empty), the default is used.
 Possible Commands:
   boot [options]           bootstraps with given command line options
   distrohelper [bindir]    helper for distro packagers
@@ -86,9 +84,6 @@ Commands for core developers:
                            specifying a category, e.g. `tests cat async`)
   temp options             creates a temporary compiler for testing
   testTools                run tooling testsuite
-Web options:
-  --googleAnalytics:UA-... add the given google analytics code to the docs. To
-                           build the official docs, use UA-48159761-1
 """
 
 # Set the compiler source location to what is given by `koch.py`.
@@ -269,20 +264,6 @@ proc binArchive(target: BinArchiveTarget, args: string) =
       quoteShellCommand(["--format:tar.zst", "--binaries:unix"])
 
   archive(binaryArgs & " " & args)
-
-when false:
-  proc web(args: string) =
-    nimexec("js tools/dochack/dochack.nim")
-    nimexec("cc -r tools/nimweb.nim $# web/website.ini --putenv:nimversion=$#" %
-        [args, VersionAsString])
-
-  proc website(args: string) =
-    nimexec("cc -r tools/nimweb.nim $# --website web/website.ini --putenv:nimversion=$#" %
-        [args, VersionAsString])
-
-  proc pdf(args="") =
-    exec("$# cc -r tools/nimweb.nim $# --pdf web/website.ini --putenv:nimversion=$#" %
-        [findNim().quoteShell(), args, VersionAsString], additionalPATH=findNim().splitFile.dir)
 
 # -------------- boot ---------------------------------------------------------
 
@@ -650,8 +631,6 @@ when isMainModule:
   var op = initOptParser()
   var
     latest = false
-    localDocsOnly = false
-    localDocsOut = ""
 
   # Set SOURCE_DATE_EPOCH to cover other tooling that might make use of the
   # current time. Currently these tools are known to use the current time:
@@ -669,16 +648,12 @@ when isMainModule:
       of "latest": latest = true
       of "stable": latest = false
       of "nim": nimExe = op.val.absolutePath # absolute so still works with changeDir
-      of "localdocs":
-        localDocsOnly = true
-        if op.val.len > 0:
-          localDocsOut = op.val.absolutePath
       else: showHelp(success = false)
     of cmdArgument:
       case normalize(op.key)
       of "boot": boot(op.cmdLineRest)
       of "clean": clean(op.cmdLineRest)
-      of "doc", "docs": buildDocs(op.cmdLineRest, localDocsOnly, localDocsOut)
+      of "doc", "docs": buildDocs(op.cmdLineRest)
       of "pdf": buildPdfDoc(op.cmdLineRest, "doc/pdf")
       of "csource", "csources": csource(op.cmdLineRest)
       of "winrelease": binArchive(Windows, op.cmdLineRest)

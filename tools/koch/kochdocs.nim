@@ -16,7 +16,6 @@ const
   nimArgs = "--errormax:3 --hint:Conf:off --hint:Path:off --hint:Processing:off --hint:XDeclaredButNotUsed:off --warning:UnusedImport:off -d:boot $#" % [docDefines]
   gitUrl = "https://github.com/nim-works/nimskull"
   docHtmlOutput = "doc/html"
-  webUploadOutput = "web/upload"
 
 var nimExe*: string
 var nimSource*: string
@@ -438,9 +437,6 @@ proc buildPdfDoc*(nimArgs, destPath: string) =
 
 proc buildJS(): string =
   let nim = findNim()
-  exec("$# js -d:release --out:$# tools/nimblepkglist.nim" %
-      [nim.quoteShell(), webUploadOutput / "nimblepkglist.js"])
-      # xxx deadcode? and why is it only for webUploadOutput, not for local docs?
   result = getDocHacksJs(nimr = getCurrentDir(), nim)
 
 proc buildDocsDir*(args: string, dir: string) =
@@ -457,23 +453,9 @@ proc buildDocsDir*(args: string, dir: string) =
   buildDocPackages(args, dir)
   copyFile(docHackJsSource, dir / docHackJsSource.lastPathPart)
 
-proc buildDocs*(args: string, localOnly = false, localOutDir = "") =
-  let localOutDir =
-    if localOutDir.len == 0:
-      docHtmlOutput
-    else:
-      localOutDir
-
+proc buildDocs*(args: string) =
   nimKeywordsBuildCheck()
 
   var args = args
 
-  if not localOnly:
-    buildDocsDir(args, webUploadOutput / NimVersion)
-
-    # XXX: Remove this feature check once the csources supports it.
-    when defined(nimHasCastPragmaBlocks):
-      let gaFilter = peg"@( y'--doc.googleAnalytics:' @(\s / $) )"
-      args = args.replace(gaFilter)
-
-  buildDocsDir(args, localOutDir)
+  buildDocsDir(args, docHtmlOutput)

@@ -68,21 +68,6 @@ driver of Nim's test suite. You can pass options to the `test`:option: command,
 they will be forwarded to the tester. See its source code for available
 options.
 
-web command
------------
-
-The `web`:idx: command converts the documentation in the `doc` directory
-from rst to HTML. It also repeats the same operation but places the result in
-the ``web/upload`` which can be used to update the website at
-https://nim-lang.org.
-
-By default, the documentation will be built in parallel using the number of
-available CPU cores. If any documentation build sub-commands fail, they will
-be rerun in serial fashion so that meaningful error output can be gathered for
-inspection. The `--parallelBuild:n`:option: switch or configuration option can be
-used to force a specific number of parallel jobs or run everything serially
-from the start (`n == 1`).
-
 pdf command
 -----------
 
