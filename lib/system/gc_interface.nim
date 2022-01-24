@@ -15,20 +15,20 @@ when hasAlloc:
 
 type
   GCStatsData* = object
-    cycleCollections: int    # number of performed full collections
-    cycleTableSize: int      # max entries in cycle table
-    maxCycleTableSize: int64
-    maxPause: int64          # max me
-    maxPauseTime: int64
-    maxStackCells: int       # max stack cells in ``decStack``
-    maxThreshold: int        # max threshold that has been set
-    stackCells : int64
-    stackScans: int          # number of performed stack scans (for statistics)
-    occupiedMem : int
-    totalMem: int
-    zctCapacity: int64
-    maxStackSize: int        # max stack size
-    stackBottom : int64
+    cycleCollections*: int    # number of performed full collections
+    cycleTableSize*: int      # max entries in cycle table
+    maxCycleTableSize*: int64
+    maxPause*: int64          # max me
+    maxPauseTime*: int64
+    maxStackCells*: int       # max stack cells in ``decStack``
+    maxThreshold*: int        # max threshold that has been set
+    stackCells* : int64
+    stackScans*: int          # number of performed stack scans (for statistics)
+    occupiedMem* : int
+    totalMem*: int
+    zctCapacity*: int64
+    maxStackSize*: int        # max stack size
+    stackBottom* : int64
 
 when hasAlloc and not defined(js) and not usesDestructors:
   proc GC_disable*() {.rtl, inl, benign, raises: [].}

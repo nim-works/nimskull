@@ -86,7 +86,21 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
   mainCommand(graph)
   if conf.hasHint(rintGCStats):
     let gcData = GC_getData()
-    let internalGcData  = InternalGCStats( 
+    let internalGcData : InternalGCStats  = InternalGCStats(
+         cycleCollections : gcData.cycleCollections,
+         cycleTableSize : gcData.cycleTableSize,
+         maxCycleTableSize : gcData.maxCycleTableSize,
+         maxPause : gcData.maxPause,
+         maxPauseTime : gcData.maxPauseTime,
+         maxStackCells : gcData.maxStackCells,
+         maxThreshold : gcData.maxThreshold,
+         stackCells : gcData.stackCells,
+         stackScans : gcData.stackScans,
+         occupiedMem : gcData.occupiedMem,
+         totalMem : gcData.totalMem,
+         zctCapacity : gcData.zctCapacity,
+         maxStackSize : gcData.maxStackSize,
+         stackBottom : gcData.stackBottom
         )
 
     conf.localReport(InternalReport(
