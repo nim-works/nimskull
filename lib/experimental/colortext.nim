@@ -714,7 +714,8 @@ template coloredResult*(indentationStep: int = 2): untyped =
 
   template add(arg: untyped): untyped {.used.} = outPtr[].add arg
   template add(arg1, arg2: untyped): untyped {.used.} =
-    outPtr[].add(arg1, arg2)
+    outPtr[].add(arg1)
+    outPtr[].add(arg2)
 
   template addIndent(level: int, sep: int = indentationStep): untyped {.used.} =
     outPtr[].addIndent(level, sep)
