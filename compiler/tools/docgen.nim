@@ -113,7 +113,6 @@ type
                             # in `doc.section.toc2`
     toc: TocSectionsFinal  # final TOC (wrapped in `doc.section.toc`)
     indexValFilename: string
-    analytics: string  # Google Analytics javascript, "" if doesn't exist
     seenSymbols: StringTableRef # avoids duplicate symbol generation for HTML.
     jEntriesPre: seq[JsonItem] # pre-processed RST + JSON content
     jEntriesFinal: JsonNode    # final JSON after RST pass 2 and rendering
@@ -314,22 +313,6 @@ proc newDocumentor*(filename: AbsoluteFile; cache: IdentCache; conf: ConfigRef,
   initRstGenerator(result[], (if conf.isLatexCmd: outLatex else: outHtml),
                    conf.configVars, filename.string,
                    docgenFindFile, compilerMsgHandler)
-
-  if conf.configVars.hasKey("doc.googleAnalytics"):
-    result.analytics = """
-<script>
-  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
-
-  ga('create', '$1', 'auto');
-  ga('send', 'pageview');
-
-</script>
-    """ % [conf.configVars.getOrDefault"doc.googleAnalytics"]
-  else:
-    result.analytics = ""
 
   result.seenSymbols = newStringTable(modeCaseInsensitive)
   result.id = 100
@@ -1458,7 +1441,7 @@ proc genOutFile(d: PDoc, groupedToc = false): string =
         "title", title, "subtitle", subtitle, "tableofcontents", toc,
         "moduledesc", d.modDescFinal, "date", getDateStr(), "time", getClockStr(),
         "content", content, "author", d.meta[metaAuthor],
-        "version", esc(d.target, d.meta[metaVersion]), "analytics", d.analytics,
+        "version", esc(d.target, d.meta[metaVersion]),
         "deprecationMsg", d.modDeprecationMsg]
   else:
     code = content
@@ -1627,8 +1610,7 @@ proc commandBuildIndex*(conf: ConfigRef, dir: string, outFile = RelativeFile"") 
       "title", "Index",
       "subtitle", "", "tableofcontents", "", "moduledesc", "",
       "date", getDateStr(), "time", getClockStr(),
-      "content", content, "author", "", "version", "", "analytics", ""]
-  # no analytics because context is not available
+      "content", content, "author", "", "version", ""]
 
   try:
     writeFile(filename, code)
