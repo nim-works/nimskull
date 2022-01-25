@@ -5,7 +5,8 @@ import
     ast,
     reports,
     renderer,
-    lineinfos
+    lineinfos,
+    errorhandling
   ],
   front/[
     options,
@@ -152,12 +153,10 @@ proc symFields(
   if trfShowSymTypes in flags and not sym.typ.isNil():
     field("typ", conf.textRepr(sym.typ))
 
-  if trfShowSymLineInfo in flags and sym.info != unknownLineInfo:
+  if not isNil(conf) and trfShowSymLineInfo in flags and sym.info != unknownLineInfo:
     field("info", conf.toMsgFilename(sym.info.fileIndex) + fgBlue)
-    add "("
-    add $sym.info.line + fgCyan
-    add "."
-    add $sym.info.col + fgCyan
+    add "(", $sym.info.line + fgCyan
+    add ".", $sym.info.col + fgCyan
     add ")"
 
   if trfShowSymOwner in flags and not sym.owner.isNil():
@@ -349,7 +348,8 @@ proc treeRepr*(
           else:
             field("typ", conf.textRepr(n.typ))
 
-    if trfShowNodeLineInfo in flags and n.info != unknownLineInfo:
+    if not conf.isNil() and trfShowNodeLineInfo in flags and
+       n.info != unknownLineInfo:
       field("info", conf.toMsgFilename(n.info.fileIndex) + fgBlue)
       add "("
       add $n.info.line + fgCyan
@@ -400,9 +400,19 @@ proc treeRepr*(
         addComment()
 
       of nkError:
-        let report = conf.getReport(n).semReport
-        field("err", substr($report.kind, 4) + termFg(5, 2, 0))
-        hfield("errid", $n.reportId.int + fgRed)
+        if isNil(conf):
+          field("err", substr($n.errorKind(), 4) + termFg(5, 2, 0))
+
+        else:
+          let report = conf.getReport(n).semReport
+          field("err", substr($report.kind, 4) + termFg(5, 2, 0))
+          hfield("errid", $n.reportId.int + fgRed)
+
+        let (file, line, col) = n.compilerInstInfo()
+        field("info", formatPath(conf, file) + fgBlue)
+        add "(", $line + fgCyan
+        add ".", $col + fgCyan
+        add ")"
 
       else:
         discard
@@ -432,3 +442,49 @@ proc treeRepr*(
           add "\n"
 
   aux(pnode, @[])
+
+proc debugAst*(it: PNode) {.exportc.} =
+  ## Print out tree representation of the AST node.
+  ##
+  ## .. note:: there is no `ConfigRef` argument, and because of that some
+  ##     information cannot be fully retrieved from the AST (such as full
+  ##     paths of the FileIndex entries).
+  ##
+  ## .. tip:: This proc is annotated with `{.exportc.}` which means it's
+  ##     mangled name exactly the same - `debugAst` and you can call it
+  ##     from the `gdb` debugging session.
+  echo treeRepr(nil, it)
+
+proc debugType*(it: PType) {.exportc.} =
+  ## Print out tree represntation of the type. Can also be used in gdb
+  ## debugging session due to `.exportc.` annotation
+  echo treeRepr(nil, it)
+
+proc debugSym*(it: PSym) {.exportc.} =
+  ## Print out tree represntation of the symbol. Can also be used in gdb
+  ## debugging session due to `.exportc.` annotation
+  echo treeRepr(nil, it)
+
+proc debug*(it: PNode) =
+  ## Convenience overload of `debugAst`
+  debugAst(it)
+
+proc debug*(it: PType) =
+  ## Convenience overload of `debugType`
+  debugType(it)
+
+proc debug*(it: PSym) =
+  ## Convenience overload of `debugSym`
+  debugSym(it)
+
+proc debug*(conf: ConfigRef, it: PNode) =
+  ## Print tree representation of the AST
+  echo treeRepr(conf, it)
+
+proc debug*(conf: ConfigRef, it: PType) =
+  ## Print tree representation of the type
+  echo treeRepr(conf, it)
+
+proc debug*(conf: ConfigRef, it: PSym) =
+  ## Print tree reprsentation of the symbol
+  echo treeRepr(conf, it)
