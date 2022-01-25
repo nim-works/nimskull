@@ -12,7 +12,7 @@ duplication (which always results in weaker test coverage in practice).
 ]#
 
 import std/unittest
-template test[T](a: T, expected: string) =
+template test(a, expected: untyped): untyped =
   check $a == expected
   var b = a
   check $b == expected
