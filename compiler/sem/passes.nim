@@ -179,9 +179,9 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
       # for the interactive mode.
       if module.name.s != "nimscriptapi":
         processImplicits(
-          graph, graph.config.implicitImports, nkImportStmt, a, module)
+          graph, graph.config.active.implicitImports, nkImportStmt, a, module)
         processImplicits(
-          graph, graph.config.implicitIncludes, nkIncludeStmt, a, module)
+          graph, graph.config.active.implicitIncludes, nkIncludeStmt, a, module)
 
     while true:
       if graph.stopCompile(): break

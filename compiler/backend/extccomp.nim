@@ -13,12 +13,31 @@
 ## compile nim files.
 
 import
-  utils/[ropes, platform, pathutils],
-  ast/[lineinfos, reports],
-  front/[condsyms, options, msgs],
+  utils/[
+    ropes,
+    platform,
+    pathutils
+  ],
+  ast/[
+    lineinfos,
+    reports
+  ],
+  front/[
+    options,
+    msgs
+  ],
   std/[
-    os, strutils, osproc, sha1, streams, sequtils,
-    times, strtabs, json, jsonutils, sugar
+    os,
+    strutils,
+    osproc,
+    sha1,
+    streams,
+    sequtils,
+    times,
+    strtabs,
+    json,
+    jsonutils,
+    sugar
   ]
 
 # import ropes, platform, condsyms, options, msgs, lineinfos, pathutils, reports
@@ -350,9 +369,9 @@ proc setCC*(conf: ConfigRef; ccname: string; info: TLineInfo) =
   conf.cCompilerPath = getConfigVar(conf, conf.cCompiler, ".path")
 
   for c in CC:
-    undefSymbol(conf.symbols, c.name)
+    undefSymbol(conf, c.name)
 
-  defineSymbol(conf.symbols, CC[conf.cCompiler].name)
+  defineSymbol(conf, CC[conf.cCompiler].name)
 
 proc addOpt(dest: var string, src: string) =
   if dest.len == 0 or dest[^1] != ' ': dest.add(" ")
@@ -366,15 +385,17 @@ proc addCompileOption*(conf: ConfigRef; option: string) =
     addOpt(conf.compileOptions, option)
 
 proc addLinkOptionCmd*(conf: ConfigRef; option: string) =
-  addOpt(conf.linkOptionsCmd, option)
+  conf.linkOptionsCmdAdd option
 
 proc addCompileOptionCmd*(conf: ConfigRef; option: string) =
-  conf.compileOptionsCmd.add(option)
+  conf.compileOptionsCmdAdd option
 
 proc initVars*(conf: ConfigRef) =
   # we need to define the symbol here, because ``CC`` may have never been set!
-  for c in CC: undefSymbol(conf.symbols, c.name)
-  defineSymbol(conf.symbols, CC[conf.cCompiler].name)
+  for c in CC:
+    undefSymbol(conf, c.name)
+
+  defineSymbol(conf, CC[conf.cCompiler].name)
   addCompileOption(conf, getConfigVar(conf, conf.cCompiler, ".options.always"))
   #addLinkOption(getConfigVar(cCompiler, ".options.linker"))
   if conf.cCompilerPath.len == 0:
@@ -489,7 +510,7 @@ proc vccplatform(conf: ConfigRef): string =
         else: ""
 
 proc getLinkOptions(conf: ConfigRef): string =
-  result = conf.linkOptions & " " & conf.linkOptionsCmd & " "
+  result = conf.linkOptions & " " & conf.linkOptionsCmd.join(" ") & " "
   for linkedLib in items(conf.cLinkedLibs):
     result.add(CC[conf.cCompiler].linkLibCmd % linkedLib.quoteShell)
   for libDir in items(conf.cLibs):

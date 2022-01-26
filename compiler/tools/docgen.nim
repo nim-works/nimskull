@@ -1453,10 +1453,10 @@ proc generateIndex*(d: PDoc) =
     let dest = dir / changeFileExt(presentationPath(d.conf, AbsoluteFile d.filename), IndexExt)
     writeIndexFile(d[], dest.string)
 
-proc updateOutfile(d: PDoc, outfile: AbsoluteFile) =
+proc updateOutfile(d: PDoc, outFile: AbsoluteFile) =
   if d.module == nil or sfMainModule in d.module.flags: # nil for e.g. for commandRst2Html
     if d.conf.outFile.isEmpty:
-      d.conf.outFile = outfile.relativeTo(d.conf.outDir)
+      d.conf.outfile = outFile.relativeTo(d.conf.outDir)
       if isAbsolute(d.conf.outFile.string):
         d.conf.outFile = splitPath(d.conf.outFile.string)[1].RelativeFile
 

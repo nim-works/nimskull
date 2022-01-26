@@ -23,8 +23,7 @@ import
   ],
   front/[
     msgs,
-    options,
-    condsyms
+    options
   ],
   utils/[
     ropes,
@@ -147,7 +146,7 @@ template primConfigFields(fn: untyped) {.dirty.} =
 proc definedSymbolsAsString(config: ConfigRef): string =
   result = newStringOfCap(200)
   result.add "config"
-  for d in definedSymbolNames(config.symbols):
+  for d in definedSymbolNames(config):
     result.add ' '
     result.add d
 

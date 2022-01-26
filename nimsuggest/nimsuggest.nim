@@ -450,9 +450,10 @@ proc execCmd(cmd: string; graph: ModuleGraph; cachedMsgs: CachedMsgs) =
 
   template toggle(sw) =
     if sw in conf.globalOptions:
-      excl(conf.globalOptions, sw)
+      excl(conf, sw)
     else:
-      incl(conf.globalOptions, sw)
+      incl(conf, sw)
+
     sentinel()
     return
 
@@ -572,7 +573,7 @@ proc mainCommand(graph: ModuleGraph) =
   if not fileExists(conf.projectFull):
     quit "cannot find file: " & conf.projectFull.string
 
-  add(conf.searchPaths, conf.libpath)
+  conf.searchPathsAdd conf.libpath
 
   conf.setErrorMaxHighMaybe # honor --errorMax even if it may not make sense here
   # do not print errors, but log them
@@ -628,15 +629,15 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
       of "cmdsug":
         gMode = mcmdsug
         gAddress = p.val
-        incl(conf.globalOptions, optIdeDebug)
+        conf.incl optIdeDebug
       of "cmdcon":
         gMode = mcmdcon
         gAddress = p.val
-        incl(conf.globalOptions, optIdeDebug)
+        conf.incl optIdeDebug
       of "epc":
         gMode = mepc
         conf.verbosity = 0          # Port number gotta be first.
-      of "debug": incl(conf.globalOptions, optIdeDebug)
+      of "debug": conf.incl optIdeDebug
       of "v2": conf.suggestVersion = 0
       of "v1": conf.suggestVersion = 1
       of "tester":

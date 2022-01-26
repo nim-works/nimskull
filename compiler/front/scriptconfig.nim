@@ -182,7 +182,7 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
   cbconf setCommand:
     conf.setCommandEarly(a.getString 0)
     let arg = a.getString 1
-    incl(conf.globalOptions, optWasNimscript)
+    incl(conf, optWasNimscript)
     if arg.len > 0: setFromProjectName(conf, arg)
   cbconf getCommand:
     setResult(a, conf.command)
@@ -233,19 +233,20 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
 
   let graph = newModuleGraph(cache, conf)
   connectCallbacks(graph)
-  if freshDefines: initDefines(conf.symbols)
+  if freshDefines:
+    initDefines(conf.symbols)
 
-  defineSymbol(conf.symbols, "nimscript")
-  defineSymbol(conf.symbols, "nimconfig")
+  defineSymbol(conf, "nimscript")
+  defineSymbol(conf, "nimconfig")
   registerPass(graph, semPass)
   registerPass(graph, evalPass)
 
-  conf.searchPaths.add(conf.libpath)
+  conf.searchPathsAdd(conf.libpath)
 
   let oldGlobalOptions = conf.globalOptions
   let oldSelectedGC = conf.selectedGC
-  undefSymbol(conf.symbols, "nimv2")
-  conf.globalOptions.excl {optTinyRtti, optOwnedRefs, optSeqDestructors}
+  undefSymbol(conf, "nimv2")
+  conf.excl {optTinyRtti, optOwnedRefs, optSeqDestructors}
   conf.selectedGC = gcUnselected
 
   var m = graph.makeModule(scriptName)
@@ -261,18 +262,18 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
   if conf.selectedGC == gcUnselected:
     conf.selectedGC = oldSelectedGC
   if optOwnedRefs in oldGlobalOptions:
-    conf.globalOptions.incl {optTinyRtti, optOwnedRefs, optSeqDestructors}
-    defineSymbol(conf.symbols, "nimv2")
+    conf.incl {optTinyRtti, optOwnedRefs, optSeqDestructors}
+    defineSymbol(conf, "nimv2")
   if conf.selectedGC in {gcArc, gcOrc}:
-    conf.globalOptions.incl {optTinyRtti, optSeqDestructors}
-    defineSymbol(conf.symbols, "nimv2")
+    conf.incl {optTinyRtti, optSeqDestructors}
+    defineSymbol(conf, "nimv2")
 
   # ensure we load 'system.nim' again for the real non-config stuff!
   resetSystemArtifacts(graph)
   # do not remove the defined symbols
   #initDefines()
-  undefSymbol(conf.symbols, "nimscript")
-  undefSymbol(conf.symbols, "nimconfig")
+  undefSymbol(conf, "nimscript")
+  undefSymbol(conf, "nimconfig")
   conf.symbolFiles = oldSymbolFiles
 
   conf.localReport DebugReport(

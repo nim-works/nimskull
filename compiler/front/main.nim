@@ -95,7 +95,7 @@ proc commandGenDepend(graph: ModuleGraph) =
 proc commandCheck(graph: ModuleGraph) =
   let conf = graph.config
   conf.setErrorMaxHighMaybe
-  defineSymbol(conf.symbols, "nimcheck")
+  defineSymbol(conf, "nimcheck")
   semanticPasses(graph)  # use an empty backend for semantic checking only
   compileProject(graph)
 
@@ -134,7 +134,7 @@ proc commandCompileToC(graph: ModuleGraph) =
         return
 
   if not extccomp.ccHasSaneOverflow(conf):
-    conf.symbols.defineSymbol("nimEmulateOverflowChecks")
+    conf.defineSymbol("nimEmulateOverflowChecks")
 
   compileProject(graph)
   if graph.config.errorCounter > 0:
@@ -168,8 +168,10 @@ proc commandCompileToJS(graph: ModuleGraph) =
 
   else:
     conf.exc = excCpp
-    setTarget(conf.target, osJS, cpuJS)
-    defineSymbol(conf.symbols, "ecmascript") # For backward compatibility
+    conf.target = conf.target.withIt do:
+      setTarget(it, osJS, cpuJS)
+
+    defineSymbol(conf, "ecmascript") # For backward compatibility
     semanticPasses(graph)
     registerPass(graph, JSgenPass)
     compileProject(graph)
@@ -178,9 +180,9 @@ proc commandCompileToJS(graph: ModuleGraph) =
 
 proc interactivePasses(graph: ModuleGraph) =
   initDefines(graph.config.symbols)
-  defineSymbol(graph.config.symbols, "nimscript")
+  defineSymbol(graph.config, "nimscript")
   # note: seems redundant with -d:nimHasLibFFI
-  when hasFFI: defineSymbol(graph.config.symbols, "nimffi")
+  when hasFFI: defineSymbol(graph.config, "nimffi")
   registerPass(graph, verbosePass)
   registerPass(graph, semPass)
   registerPass(graph, evalPass)
@@ -259,7 +261,7 @@ proc mainCommand*(graph: ModuleGraph) =
   # In "nim serve" scenario, each command must reset the registered passes
   clearPasses(graph)
   conf.lastCmdTime = epochTime()
-  conf.searchPaths.add(conf.libpath)
+  conf.searchPathsAdd(conf.libpath)
 
   proc customizeForBackend(backend: TBackend) =
     ## Sets backend specific options but don't compile to backend yet in
@@ -268,7 +270,7 @@ proc mainCommand*(graph: ModuleGraph) =
       # only set if wasn't already set, to allow override via `nim c -b:cpp`
       conf.backend = backend
 
-    defineSymbol(graph.config.symbols, $conf.backend)
+    defineSymbol(graph.config, $conf.backend)
     case conf.backend
     of backendC:
       if conf.exc == excNone: conf.exc = excSetjmp
@@ -281,7 +283,7 @@ proc mainCommand*(graph: ModuleGraph) =
         # with "-d:useNimRtl". The HCR option has been processed earlier
         # and it has added this define implictly, so we must undo that here.
         # A better solution might be to fix system.nim
-        undefSymbol(conf.symbols, "useNimRtl")
+        undefSymbol(conf, "useNimRtl")
     of backendInvalid: doAssert false
 
   proc compileToBackend() =
@@ -301,11 +303,11 @@ proc mainCommand*(graph: ModuleGraph) =
       wantMainModule(conf)
       let docConf = if conf.cmd == cmdDoc2tex: DocTexConfig else: DocConfig
       loadConfigs(docConf, cache, conf, graph.idgen)
-      defineSymbol(conf.symbols, "nimdoc")
+      defineSymbol(conf, "nimdoc")
       body
 
   ## command prepass
-  if conf.cmd == cmdCrun: conf.globalOptions.incl {optRun, optUseNimcache}
+  if conf.cmd == cmdCrun: conf.incl {optRun, optUseNimcache}
   if conf.cmd notin cmdBackends + {cmdTcc}: customizeForBackend(backendC)
   if conf.outDir.isEmpty:
     # doc like commands can generate a lot of files (especially with --project)
@@ -372,7 +374,7 @@ proc mainCommand*(graph: ModuleGraph) =
   of cmdDump:
     wantMainModule(conf)
     var state = InternalStateDump()
-    for s in definedSymbolNames(conf.symbols):
+    for s in definedSymbolNames(conf):
       state.definedSymbols.add $s
 
     for dir in conf.searchPaths:
