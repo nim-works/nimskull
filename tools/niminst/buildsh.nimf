@@ -71,10 +71,6 @@ uosname=
 #  add(result, "# bin dir detection\n")
 binDir=?{firstBinPath(c).toUnix}
 
-if [ -s ../koch.nim ]; then
-  binDir="../bin"
-fi
-
 if [ ! -d $binDir ]; then
   mkdir $binDir
 fi
