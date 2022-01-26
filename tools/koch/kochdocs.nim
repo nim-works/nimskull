@@ -137,7 +137,7 @@ proc getSourceMetadata*(): tuple[hash, date, versionSuffix: string] =
       hash = getStr releaseMetadata["commit"]
       date = getStr releaseMetadata["commit_date"]
       let releaseVersion = nversion.parse(getStr releaseMetadata["version"])
-      if not releaseVersion.cmpBase(CompilerVersion) != 0:
+      if releaseVersion.cmpBase(CompilerVersion) != 0:
         quit:
           "The compiler base version (" & VersionAsString & ")" &
           " is different from release metadata: " & $releaseVersion
