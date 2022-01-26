@@ -21,6 +21,7 @@ import
     renderer,
     idents,
     lexer,
+    typesrenderer,
     trees,
     linter,
     lineinfos,

@@ -177,8 +177,6 @@ iterator directFieldsInRecList(recList: PNode): PNode =
       if field.kind != nkSym: continue
       yield field
 
-template quoteStr(s: string): string = "'" & s & "'"
-
 proc fieldsPresentInInitExpr(c: PContext, fieldsRecList, initExpr: PNode): seq[PSym] =
   for field in directFieldsInRecList(fieldsRecList):
     let

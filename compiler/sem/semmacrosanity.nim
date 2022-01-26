@@ -16,6 +16,7 @@ import
   ast/[
     ast,
     types,
+    typesrenderer,
     reports,
   ],
   front/[

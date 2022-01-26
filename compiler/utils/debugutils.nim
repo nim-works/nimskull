@@ -324,6 +324,35 @@ template addInNimDebugUtils*(
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
+template addInNimDebugUtils*(
+    c: ConfigRef; action: string; n: PNode; resSym: PSym) =
+  ## add tracing to procs that are primarily `PNode -> PSym`,
+
+  when defined(nimDebugUtils):
+    template enterMsg(indentLevel: int) =
+      handleReport(c, wrap(instLoc(instDepth), DebugReport(
+        kind: rdbgTraceStep,
+        semstep: DebugSemStep(
+          direction: semstepEnter,
+          level: indentLevel,
+          name: action,
+          steppedFrom: calledFromInfo(),
+          node: n,
+          kind: stepNodeToSym))), instLoc(instDepth))
+
+    template leaveMsg(indentLevel: int) =
+      handleReport(c, wrap(instLoc(instDepth), DebugReport(
+        kind: rdbgTraceStep,
+        semstep: DebugSemStep(
+          direction: semstepLeave,
+          level: indentLevel,
+          name: action,
+          steppedFrom: calledFromInfo(),
+          sym: resSym,
+          kind: stepNodeToSym))), instLoc(instDepth))
+
+    addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
+
 template addInNimDebugUtils*(c: ConfigRef; action: string; x, y, r: PType) =
   ## add tracing to procs that are primarily `PType, PType -> PType`, looking
   ## for a common type

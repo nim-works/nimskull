@@ -25,6 +25,7 @@ import
     astalgo,
     renderer,
     types,
+    typesrenderer,
     idents,
     lineinfos,
     reports

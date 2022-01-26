@@ -32,6 +32,7 @@ import
     astmsgs,
     renderer,
     types,
+    typesrenderer,
     ast,
     reports
   ],
@@ -52,6 +53,26 @@ import
 
 import front/options as compiler_options
 
+type
+  HackController* = object
+    ## additional configuration switches to control the behavior of the
+    ## debug printer. Since most of them are for compiler debugging, you
+    ## will most likely recompile the compiler anyway, so toggling couple
+    ## hardcoded constants here is easier than dragging out completely
+    ## unnecessary switches, or adding more magic `define()` blocks
+    semStack*: bool  ## Show `| context` entries in the call tracer
+
+    reportInTrace*: bool ## Error messages are shown with matching indentation
+    ## if report was triggered during execution of the sem trace
+
+    semTraceData*: bool ## For each sem step show processed data, or only
+    ## procedure calls.
+
+const controller = HackController(
+  semStack: off,
+  reportInTrace: off,
+  semTraceData: on
+)
 
 
 
@@ -330,6 +351,31 @@ proc renderAsType*(vals: IntSet, t: PType): string =
     inc(i)
   result &= "}"
 
+proc getProcHeader(
+    conf: ConfigRef; sym: PSym; prefer: TPreferedDesc = preferName; getDeclarationPath = true): string =
+  ## Formats procs and types
+  ## Returns for procs `owner.name(argument: signature): return`
+  ## Returns for types `owner.name`
+  assert sym != nil
+  # consider using `skipGenericOwner` to avoid fun2.fun2 when fun2 is generic
+  result = sym.owner.name.s & '.' & sym.name.s
+  if sym.kind in routineKinds:
+    result.add '('
+    var n = sym.typ.n
+    for i in 1..<n.len:
+      let p = n[i]
+      if p.kind == nkSym:
+        result.add(p.sym.name.s)
+        result.add(": ")
+        result.add(typeToString(p.sym.typ, prefer))
+        if i != n.len-1: result.add(", ")
+      else:
+        result.add renderTree(p)
+    result.add(')')
+    if n[0].typ != nil:
+      result.add(": " & typeToString(n[0].typ, prefer))
+  if getDeclarationPath: result.addDeclaredLoc(conf, sym)
+
 proc getSymRepr*(conf: ConfigRef; s: PSym, getDeclarationPath = true): string =
   case s.kind
   of routineKinds, skType:
@@ -339,6 +385,22 @@ proc getSymRepr*(conf: ConfigRef; s: PSym, getDeclarationPath = true): string =
     if getDeclarationPath:
       result.addDeclaredLoc(conf, s)
 
+proc addTypeDeclVerboseMaybe(result: var string, conf: ConfigRef; typ: PType) =
+  ## Calls `typeToString` on given `typ`.
+  ## If `--declaredlocs` is specified, it will also add the declared location.
+  #
+  # REFACTOR `addTypeDeclVerboseMaybe` can be implemented as a wrapper
+  # around addTypeHeader, but simple change causes <test name> to fail with
+  # 'got `seq[MyInt2{char}]` but expected `seq[MyInt2]`' - formatting
+  # becomes buggy, so leaving as it is until all implicit code interactions
+  # are figured out. commit:
+  # https://github.com/nim-works/nimskull/pull/179/commits/55808ea55e90f01a3617d11d33a1699f3e7f2f12
+  # failing test: https://github.com/nim-works/nimskull/runs/4951209502
+  if optDeclaredLocs in conf.globalOptions:
+    result.add typeToString(typ, preferMixed)
+    result.addDeclaredLoc(conf, typ)
+  else:
+    result.add typeToString(typ)
 
 proc presentFailedCandidates(
     conf: ConfigRef,
@@ -3566,6 +3628,8 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
 
   elif wkind == writeForceEnabled:
     echo conf.reportFull(r)
+
+
 
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
     # REFACTOR 'processing with dots' - requires special hacks, pretty

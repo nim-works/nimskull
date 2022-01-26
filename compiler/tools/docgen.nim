@@ -31,7 +31,6 @@ import
     renderer,
     lexer,
     trees,
-    types,
     typesrenderer,
     astalgo,
     lineinfos,
