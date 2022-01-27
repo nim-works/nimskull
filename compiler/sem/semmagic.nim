@@ -10,6 +10,8 @@
 # This include file implements the semantic checking for magics.
 # included from sem.nim
 
+import ast/typesrenderer
+
 proc semAddrArg(c: PContext; n: PNode; isUnsafeAddr = false): PNode =
   let x = semExprWithType(c, n)
   if x.kind == nkSym:

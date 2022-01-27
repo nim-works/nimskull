@@ -25,6 +25,7 @@ import
     nimsets,
     idents,
     types,
+    typesrenderer,
     wordrecg,
     treetab,
     renderer,
@@ -62,8 +63,6 @@ import
     cgendata
   ],
   plugins/[
-  ],
-  vm/[
   ]
 
 

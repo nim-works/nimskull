@@ -23,6 +23,7 @@ import
     trees,
     idents,
     reports,
+    typesrenderer,
     types,
     nimsets,
     parser # `parseExpr()` and `parseStmt()`

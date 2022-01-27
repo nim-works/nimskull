@@ -1136,7 +1136,6 @@ type
   SemTypeMismatch* = object
     formalTypeKind*: set[TTypeKind]
     actualType*, formalType*: PType
-    descriptionStr*: string
 
   SemCallMismatch* = object
     ## Description of the single candidate mismatch. This type is later
