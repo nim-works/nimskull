@@ -389,11 +389,9 @@ const
   nkEffectList* = nkArgList
   # hacks ahead: an nkEffectList is a node with 4 children:
   exceptionEffects* = 0 ## exceptions at position 0
-  requiresEffects* = 1  ## 'requires' annotation
-  ensuresEffects* = 2   ## 'ensures' annotation
-  tagEffects* = 3       ## user defined tag ('gc', 'time' etc.)
-  pragmasEffects* = 4   ## not an effect, but a slot for pragmas in proc type
-  effectListLen* = 5    ## list of effects list
+  tagEffects* = 1       ## user defined tag ('gc', 'time' etc.)
+  pragmasEffects* = 2   ## not an effect, but a slot for pragmas in proc type
+  effectListLen* = 3    ## list of effects list
   nkLastBlockStmts* = {nkRaiseStmt, nkReturnStmt, nkBreakStmt, nkContinueStmt}
                         ## these must be last statements in a block
 
@@ -719,7 +717,6 @@ type
     mCStrToStr,
     mStrToStr, mEnumToStr,
     mAnd, mOr,
-    mImplies, mIff, mExists, mForall, mOld,
     mEqStr, mLeStr, mLtStr,
     mEqSet, mLeSet, mLtSet, mMulSet, mPlusSet, mMinusSet,
     mConStrStr, mSlice,
