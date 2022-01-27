@@ -76,35 +76,41 @@ type
 
   TSpec* = object
     # xxx make sure `isJoinableSpec` takes into account each field here.
-    # description*: string        ## document the purpose of the test
+    description*: string        ## document the purpose of the test
     action*: TTestAction
-    file*, cmd*: string
-    input*: string
-    outputCheck*: TOutputCheck
-    sortoutput*: bool
-    output*: string
+    file*: string ## File that test spec has been parsed from
+    cmd*: string ## Command to execute for the test
+    input*: string ## `stdin` input that will be piped into program after
+                   ## it has been compiled.
+    outputCheck*: TOutputCheck ## Kind of the output checking for the
+                               ## executed compiled program.
+    sortoutput*: bool ## Sort runtime output
+    output*: string ## Expected runtime output
     line*, column*: int
     exitCode*: int
     msg*: string
-    ccodeCheck*: seq[string]
-    maxCodeSize*: int
+    ccodeCheck*: seq[string] ## List of peg patterns that need to be
+    ## searched for in the generated code. Used for backend code testing.
+    maxCodeSize*: int ## Maximum allowed code size (in bytes) for the test.
     err*: TResultEnum
     inCurrentBatch*: bool
     targets*: set[TTarget]
     matrix*: seq[string]
+    nimoutSexp*: bool
     nimout*: string
-    nimoutFull*: bool    # whether nimout is all compiler output or a subset
-    parseErrors*: string # when the spec definition is invalid, this is not empty.
+    nimoutFull*: bool    ## whether nimout is all compiler output or a subset
+    parseErrors*: string ## when the spec definition is invalid, this is
+                         ## not empty.
     unjoinable*: bool
     unbatchable*: bool
-      # whether this test can be batchable via `NIM_TESTAMENT_BATCH`; only very
-      # few tests are not batchable; the ones that are not could be turned batchable
-      # by making the dependencies explicit
+      ## whether this test can be batchable via `NIM_TESTAMENT_BATCH`; only
+      ## very few tests are not batchable; the ones that are not could be
+      ## turned batchable by making the dependencies explicit
     useValgrind*: ValgrindSpec
-    timeout*: float # in seconds, fractions possible,
-                      # but don't rely on much precision
-    inlineErrors*: seq[InlineError] # line information to error message
-    debugInfo*: string # debug info to give more context
+    timeout*: float ## in seconds, fractions possible, but don't rely on
+    ## much precision
+    inlineErrors*: seq[InlineError] ## line information to error message
+    debugInfo*: string ## debug info to give more context
     knownIssues*: seq[string] ## known issues to be fixed
 
   RetryContainer* = object
@@ -118,6 +124,7 @@ type
 var retryContainer* = RetryContainer(retry: false)
 
 proc getCmd*(s: TSpec): string =
+  ## Get runner command for a given test specification
   if s.cmd.len == 0:
     result = compilerPrefix & " $target --hints:on -d:testing --clearNimblePath --nimblePath:build/deps/pkgs $options $file"
   else:
@@ -158,6 +165,7 @@ const
   inlineErrorMarker = "#[tt."
 
 proc extractErrorMsg(s: string; i: int; line: var int; col: var int; spec: var TSpec): int =
+  ## Get position of the error message in input text `s`.
   result = i + len(inlineErrorMarker)
   inc col, len(inlineErrorMarker)
   var kind = ""
@@ -218,13 +226,22 @@ proc extractSpec(filename: string; spec: var TSpec): string =
   var col = 1
   while i < s.len:
     if (i == 0 or s[i-1] != ' ') and s.continuesWith(specStart, i):
-      # `s[i-1] == '\n'` would not work because of `tests/stdlib/tbase64.nim` which contains BOM (https://en.wikipedia.org/wiki/Byte_order_mark)
+      # `s[i-1] == '\n'` would not work because of
+      # `tests/stdlib/tbase64.nim` which contains BOM
+      # (https://en.wikipedia.org/wiki/Byte_order_mark)
       const lineMax = 10
       if a != -1:
-        raise newException(ValueError, "testament spec violation: duplicate `specStart` found: " & $(filename, a, b, line))
+        raise newException(
+          ValueError,
+          "testament spec violation: duplicate `specStart` found: " &
+            $(filename, a, b, line))
       elif line > lineMax:
-        # not overly restrictive, but prevents mistaking some `specStart` as spec if deeep inside a test file
-        raise newException(ValueError, "testament spec violation: `specStart` should be before line $1, or be indented; info: $2" % [$lineMax, $(filename, a, b, line)])
+        # not overly restrictive, but prevents mistaking some `specStart`
+        # as spec if deep inside a test file
+        raise newException(
+          ValueError,
+          "testament spec violation: `specStart` should be before line $1, or be indented; info: $2" % [
+            $lineMax, $(filename, a, b, line)])
       i += specStart.len
       a = i
     elif a > -1 and b == -1 and s.continuesWith(tripleQuote, i):
@@ -235,6 +252,7 @@ proc extractSpec(filename: string; spec: var TSpec): string =
       inc i
       col = 1
     elif s.continuesWith(inlineErrorMarker, i):
+      # Found `#[tt.` - extract it
       i = extractErrorMsg(s, i, line, col, spec)
     else:
       inc col
@@ -243,11 +261,15 @@ proc extractSpec(filename: string; spec: var TSpec): string =
   if a >= 0 and b > a:
     result = s.substr(a, b-1).multiReplace({"'''": tripleQuote, "\\31": "\31"})
   elif a >= 0:
-    raise newException(ValueError, "testament spec violation: `specStart` found but not trailing `tripleQuote`: $1" % $(filename, a, b, line))
+    raise newException(
+      ValueError,
+      "testament spec violation: `specStart` found but not trailing `tripleQuote`: $1" %
+        $(filename, a, b, line))
   else:
     result = ""
 
 proc parseTargets*(value: string): set[TTarget] =
+  ## Get list of allowed run targets for the testament
   for v in value.normalize.splitWhitespace:
     case v
     of "c": result.incl(targetC)
@@ -275,6 +297,7 @@ proc isCurrentBatch*(testamentData: TestamentData; filename: string): bool =
     true
 
 proc parseSpec*(filename: string): TSpec =
+  ## Extract and parse specification for a given file path
   result.file = filename
 
   when defined(windows):
@@ -308,6 +331,17 @@ proc parseSpec*(filename: string): TSpec =
         #      incorporate it into the the actual test runner and output.
         # result.description = e.value
         discard
+      of "nimoutformat":
+        case e.value.normalize:
+          of "sexp":
+            result.nimoutSexp = true
+
+          of "text":
+            result.nimoutSexp = false
+
+          else:
+            result.parseErrors.addLine "unexpected nimout format: got ", e.value
+
       of "action":
         case e.value.normalize
         of "compile":
@@ -432,7 +466,7 @@ proc parseSpec*(filename: string): TSpec =
       of "knownissue":
         case e.value.normalize
         of "n", "no", "false", "0": discard
-        else: 
+        else:
             result.knownIssues.add e.value
             result.err = reDisabled
       else:

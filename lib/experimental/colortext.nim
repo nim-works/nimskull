@@ -434,6 +434,15 @@ proc indent*(
 
     inc idx
 
+func join*(text: seq[ColText], sep: ColText): ColText =
+  var first = true
+  for item in text:
+    if not first:
+      result.add sep
+    first = false
+
+    result.add item
+
 func stripLines*(
     text: ColText,
     leading: bool = false,
@@ -619,7 +628,6 @@ const
   scaleRed:   uint8 = 6 * 6
   scaleGreen: uint8 = 6
 
-
 func `$`*(colored: ColRune): string =
   ## Convert to string with ansi escape sequences. To disable coloring use
   ## `toString` procedure instead.
@@ -712,6 +720,9 @@ template coloredResult*(indentationStep: int = 2): untyped =
     else:
       return
 
+  proc addf(format: string, args: varargs[ColText, toColText]) =
+    outPtr[].addf(format, args)
+
   template add(arg: untyped): untyped {.used.} = outPtr[].add arg
   template add(arg1, arg2: untyped): untyped {.used.} =
     outPtr[].add(arg1)
@@ -785,3 +796,34 @@ func grid*(text: ColText): ColRuneGrid =
   ## Convert colored text to grid
   for line in lines(text):
      result.add line
+
+func addf*(
+    text: var ColText,
+    formatstr: string,
+    colored: varargs[ColText, toColText]
+  ) =
+  ## Interpolate `formatstr` using values from `colored` and add results to
+  ## the `text`.
+  ##
+  ## Iterpolation syntax is identical to the `std/strutils.addf` except
+  ## `$name` is currently not supported, so only positional interpolation
+  ## is available.
+  for fr in addfFragments(formatstr):
+    case fr.kind:
+      of addfDollar:
+        text.add "$"
+
+      of addfText:
+        text.add fr.text
+
+      of addfVar, addfExpr:
+        assert false, "var/expr formatting is not supported for colored text yet"
+
+      of addfPositional, addfIndexed, addfBackIndexed:
+        let idx = if fr.kind == addfBackIndexed: len(colored) - fr.idx else: fr.idx
+        assert (0 <= idx and idx < colored.len)
+        text.add colored[idx]
+
+func `%`*(format: string, interpolate: openArray[ColText]): ColText =
+  ## Shorthand for colored text interpolation
+  result.addf(format, interpolate)

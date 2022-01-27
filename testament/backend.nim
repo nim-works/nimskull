@@ -50,6 +50,9 @@ proc writeTestResult*(name, category, target, action, result, expected, given: s
     currentCategory = category
     results = newJArray()
 
+  if results.isNil():
+    results = newJArray()
+
   results.add %*{"name": name, "category": category, "target": target,
     "action": action, "result": result, "expected": expected, "given": given,
     "machine": thisMachine.string, "commit": thisCommit.string, "branch": thisBranch}
@@ -99,7 +102,7 @@ proc cacheResults*() =
       let noderesult = node{"result"}.getStr()
       if not passResults.contains(noderesult):
         fresults.add(node)
-  
+
   var results = open("testresults" / "cacheresults" / "result".addFileExt"json", fmWrite)
   results.write(fresults.pretty())
   close(results)

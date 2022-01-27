@@ -2660,41 +2660,73 @@ func findNormalized(x: string, inArray: openArray[string]): int =
               # security hole...
   return -1
 
-func invalidFormatString() {.noinline.} =
-  raise newException(ValueError, "invalid format string")
+func invalidFormatString(explain: string) {.noinline.} =
+  ## Raise value error for invalid interpolation format string
+  raise newException(ValueError, "invalid format string - " & explain)
 
-func addf*(s: var string, formatstr: string, a: varargs[string, `$`]) {.rtl,
-    extern: "nsuAddf".} =
-  ## The same as `add(s, formatstr % a)`, but more efficient.
-  const PatternChars = {'a'..'z', 'A'..'Z', '0'..'9', '\128'..'\255', '_'}
+type
+  AddfFragmentKind* = enum
+    ## Kind of the `addf` interpolation fragment
+    addfText ## Regular text fragment
+    addfPositional ## Positional fragment `$#`
+    addfIndexed ## Indexed fragment `$1`
+    addfDollar ## Dollar literal `$$`
+    addfBackIndexed ## Negative indexed fragment `$-1`
+    addfVar ## Interpolated variable `$name`
+    addfExpr ## Expression in braces `${some expr}`
+
+  AddfFragment* = object
+    ## `addf` format string fragment - can be used to write your own text
+    ## interpolation logic.
+    case kind*: AddfFragmentKind
+      of addfText, addfVar, addfExpr:
+        text*: string
+
+      of addfIndexed, addfPositional, addfBackIndexed:
+        idx*: int
+
+      of addfDollar:
+        discard
+
+iterator addfFragments*(formatstr: string): AddfFragment =
+  ## Iterate over interpolation fragments of the `formatstr`
   var i = 0
   var num = 0
+  const PatternChars = {'a'..'z', 'A'..'Z', '0'..'9', '\128'..'\255', '_'}
   while i < len(formatstr):
+    var frag: AddfFragment
     if formatstr[i] == '$' and i+1 < len(formatstr):
       case formatstr[i+1]
       of '#':
-        if num > a.high: invalidFormatString()
-        add s, a[num]
+        frag = AddfFragment(kind: addfIndexed, idx: num)
         inc i, 2
         inc num
+
       of '$':
-        add s, '$'
         inc(i, 2)
+        frag = AddfFragment(kind: addfDollar)
+
       of '1'..'9', '-':
         var j = 0
         inc(i) # skip $
+        let starti = i
         var negative = formatstr[i] == '-'
         if negative: inc i
         while i < formatstr.len and formatstr[i] in Digits:
           j = j * 10 + ord(formatstr[i]) - ord('0')
           inc(i)
-        let idx = if not negative: j-1 else: a.len-j
-        if idx < 0 or idx > a.high: invalidFormatString()
-        add s, a[idx]
+
+        if negative:
+          frag = AddfFragment(kind: addfBackIndexed, idx: j)
+
+        else:
+          frag = AddfFragment(kind: addfIndexed, idx: j - 1)
+
       of '{':
         var j = i+2
         var k = 0
         var negative = formatstr[j] == '-'
+        let starti = j
         if negative: inc j
         var isNumber = 0
         while j < formatstr.len and formatstr[j] notin {'\0', '}'}:
@@ -2705,26 +2737,72 @@ func addf*(s: var string, formatstr: string, a: varargs[string, `$`]) {.rtl,
             isNumber = -1
           inc(j)
         if isNumber == 1:
-          let idx = if not negative: k-1 else: a.len-k
-          if idx < 0 or idx > a.high: invalidFormatString()
-          add s, a[idx]
+          if negative:
+            frag = AddfFragment(kind: addfBackIndexed, idx: k)
+
+          else:
+            frag = AddfFragment(kind: addfIndexed, idx: k - 1)
+
         else:
-          var x = findNormalized(substr(formatstr, i+2, j-1), a)
-          if x >= 0 and x < high(a): add s, a[x+1]
-          else: invalidFormatString()
-        i = j+1
+          frag = AddfFragment(kind: addfExpr, text: substr(formatstr, i+2, j-1))
+
+        i = j + 1
+
       of 'a'..'z', 'A'..'Z', '\128'..'\255', '_':
         var j = i+1
-        while j < formatstr.len and formatstr[j] in PatternChars: inc(j)
-        var x = findNormalized(substr(formatstr, i+1, j-1), a)
-        if x >= 0 and x < high(a): add s, a[x+1]
-        else: invalidFormatString()
+        while j < formatstr.len and formatstr[j] in PatternChars:
+          inc(j)
+
+        frag = AddfFragment(kind: addfVar, text: substr(formatstr, i+1, j-1))
+
         i = j
+
       else:
-        invalidFormatString()
+        invalidFormatString("unexpected char after $ - " & $formatstr[i + 1])
+
     else:
-      add s, formatstr[i]
+      var trange = i .. i
+      while trange.b < formatstr.len and formatstr[trange.b] != '$':
+        inc trange.b
+
+      dec trange.b
+
+      frag = AddfFragment(kind: addfText, text: formatstr[trange])
+
+      i = trange.b
       inc(i)
+
+    yield frag
+
+
+
+func addf*(s: var string, formatstr: string, a: varargs[string, `$`]) {.rtl,
+    extern: "nsuAddf".} =
+  ## The same as `add(s, formatstr % a)`, but more efficient.
+  for fr in addfFragments(formatstr):
+    case fr.kind:
+      of addfDollar:
+        s.add '$'
+
+      of addfPositional, addfIndexed, addfBackIndexed:
+        let idx = if fr.kind == addfBackIndexed: len(a) - fr.idx else: fr.idx
+        if not (0 <= idx and idx < a.len):
+          invalidFormatString(
+            "index for " & $idx & " is out of bounds for format arguments")
+
+        s.add a[idx]
+
+      of addfText:
+        s.add fr.text
+
+      of addfVar, addfExpr:
+        var x = findNormalized(fr.text, a)
+        if x >= 0 and x < high(a):
+          add s, a[x+1]
+
+        else:
+          invalidFormatString(" no named interpolation argument")
+
 
 func `%`*(formatstr: string, a: openArray[string]): string {.rtl,
     extern: "nsuFormatOpenArray".} =
@@ -2893,3 +2971,10 @@ func isEmptyOrWhitespace*(s: string): bool {.rtl,
     extern: "nsuIsEmptyOrWhitespace".} =
   ## Checks if `s` is empty or consists entirely of whitespace characters.
   result = s.allCharsInSet(Whitespace)
+
+when isMainModule:
+  for fr in addfFragments("$# $1 ${name} $-1 $4"):
+    echo fr
+
+  echo "$1" % "'_"
+  echo "$1 $1" % "'_"

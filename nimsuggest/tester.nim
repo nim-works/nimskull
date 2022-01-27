@@ -5,7 +5,8 @@
 # When debugging, to run a single test, use for e.g.:
 # `nim r nimsuggest/tester.nim nimsuggest/tests/tsug_accquote.nim`
 
-import os, osproc, strutils, streams, re, sexp, net
+import std/[os, osproc, strutils, streams, re, net]
+import experimental/sexp
 from sequtils import toSeq
 
 type

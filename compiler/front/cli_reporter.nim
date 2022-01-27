@@ -143,7 +143,7 @@ proc toStr(conf: ConfigRef, loc: TLineInfo, dropExt: bool = false): string =
   ## Convert location to printable string
   conf.wrap(
     "$1($2, $3)" % [
-      toFilenameOption(conf, loc.fileIndex, conf.filenameOption).dropExt(dropExt),
+      conf.toMsgFilename(loc.fileIndex).dropExt(dropExt),
       $loc.line,
       $(loc.col + ColOffset)
     ],
@@ -3120,7 +3120,12 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
       result = "$1 is not a valid number" % r.cmdlineProvided
 
     of rextInvalidValue:
-      result = r.cmdlineError
+      result = ("Unexpected value for " &
+        "the $1. Expected one of $2, but got '$3'") % [
+          r.cmdlineSwitch,
+          r.cmdlineAllowed.mapIt("'" & it & "'").join(", "),
+          r.cmdlineProvided
+      ]
 
     of rextUnexpectedValue:
       result = "Unexpected value for $1. Expected one of $2" % [

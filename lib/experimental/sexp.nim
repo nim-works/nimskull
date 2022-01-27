@@ -10,7 +10,7 @@
 ## **Note:** Import ``nimsuggest/sexp`` to use this module
 
 import
-  hashes, strutils, lexbase, streams, unicode, macros
+  std/[hashes, strutils, lexbase, streams, unicode, macros, algorithm]
 
 import std/private/decode_helpers
 
@@ -508,6 +508,20 @@ proc add*(father, child: SexpNode) =
   assert father.kind == SList
   father.elems.add(child)
 
+proc addField*(node: SexpNode, name: string, value: SexpNode) =
+  ## Add `:name value` keyword pair to the `node`
+  node.add(newSKeyword(name, value))
+
+proc getField*(
+    node: SexpNode, name: string, default: SexpNode = nil
+  ): SexpNode =
+  ## Iterate over direct subnodes of `node`, searching for the SKeyword
+  ## with name set to `name`. If found return it's `.value`, otherwise
+  ## return `default`
+  for field in node.elems:
+    if field.kind == SKeyword and field.getKey() == name:
+      return field.value
+
 # ------------- pretty printing ----------------------------------------------
 
 proc indent(s: var string, i: int) =
@@ -608,6 +622,7 @@ proc toPretty(result: var string, node: SexpNode, indent = 2, ml = true,
     toPretty(result, node.cdr, indent, ml,
         true, newIndent(currIndent, indent, ml))
     result.add(")")
+
 
 proc pretty*(node: SexpNode, indent = 2): string =
   ## Converts `node` to its Sexp Representation, with indentation and

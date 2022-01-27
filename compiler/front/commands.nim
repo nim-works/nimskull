@@ -45,7 +45,9 @@ import
   front/[
     condsyms,
     options,
-    msgs
+    msgs,
+    cli_reporter,
+    sexp_reporter
   ],
   backend/[
     extccomp
@@ -1121,6 +1123,17 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     else:
       conf.localReport(info, invalidSwitchValue @["abs", "canonical", "legacyRelProj"])
 
+  of "msgformat":
+    case arg.normalize:
+      of "text":
+        conf.setReportHook cli_reporter.reportHook
+
+      of "sexp":
+        conf.setReportHook sexp_reporter.reportHook
+
+      else:
+        conf.localReport(info, invalidSwitchValue @["text", "sexp"])
+
   of "processing":
     incl(conf, cnCurrent, rsemProcessing)
     incl(conf, cnMainPackage, rsemProcessing)
@@ -1269,6 +1282,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "nilseqs", "nilchecks", "mainmodule", "m", "symbol", "taintmode",
      "cs", "deadcodeelim":
     warningOptionNoop(switch)
+
   else:
     if strutils.find(switch, '.') >= 0: options.setConfigVar(conf, switch, arg)
     else: invalidCmdLineOption(conf, pass, switch, info)
