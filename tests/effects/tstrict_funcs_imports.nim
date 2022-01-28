@@ -139,7 +139,6 @@ import std/[
   exitprocs,
   isolation,
   jsonutils,
-  logic,
   monotimes,
   packedsets,
   setutils,

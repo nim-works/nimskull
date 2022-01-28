@@ -373,7 +373,6 @@ proc analyse(c: var AnalysisCtx; n: PNode) =
       # prevent direct assignments to the monotonic variable:
       let slot = c.getSlot(n[0].sym)
       slot.blacklisted = true
-    invalidateFacts(c.guards, n[0])
     let value = n[1]
     if getMagic(value) == mSpawn:
       pushSpawnId(c):

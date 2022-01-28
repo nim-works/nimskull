@@ -741,7 +741,6 @@ proc trackOperandForIndirectCall(tracked: PEffects, n: PNode, formals: PType; ar
         markSideEffect(tracked, a, n.info)
   let paramType = if formals != nil and argIndex < formals.len: formals[argIndex] else: nil
   if paramType != nil and paramType.kind in {tyVar}:
-    invalidateFacts(tracked.guards, n)
     if n.kind == nkSym and isLocalVar(tracked, n.sym):
       makeVolatile(tracked, n.sym)
   if paramType != nil and paramType.kind == tyProc and tfGcSafe in paramType.flags:
@@ -845,36 +844,18 @@ proc cstringCheck(tracked: PEffects; n: PNode) =
       a.typ.kind == tyString and a.kind notin {nkStrLit..nkTripleStrLit}):
     localReport(tracked.config, n.info, reportAst(rsemWarnUnsafeCode, n))
 
-proc patchResult(c: PEffects; n: PNode) =
-  if n.kind == nkSym and n.sym.kind == skResult:
-    let fn = c.owner
-    if fn != nil and fn.kind in routineKinds and fn.ast != nil and resultPos < fn.ast.len:
-      n.sym = fn.ast[resultPos].sym
-    else:
-      localReport(c.config, n.info, reportSem(rsemDrNimRequiresUsesMissingResult))
-  else:
-    for i in 0..<safeLen(n):
-      patchResult(c, n[i])
-
 proc checkLe(c: PEffects; a, b: PNode) =
   case proveLe(c.guards, a, b)
   of impUnknown:
-    #for g in c.guards.s:
-    #  if g != nil: echo "I Know ", g
-    localReport(
-      c.config, a.info,
-      SemReport(
-        kind: rsemDrnimCannotProveLeq,
-        drnimExpressions: (a, b)))
-
+    c.config.localReport(a.info):
+      reportSem(rsemStaticIndexLeqUnprovable).withIt do:
+        it.rangeExpression = (a, b)
   of impYes:
     discard
   of impNo:
-    localReport(
-      c.config, a.info,
-      SemReport(
-        kind: rsemDrnimCannotPorveGe,
-        drnimExpressions: (a, b)))
+    c.config.localReport(a.info):
+      reportSem(rsemStaticIndexGeProvable).withIt do:
+        it.rangeExpression = (a, b)
 
 proc checkBounds(c: PEffects; arr, idx: PNode) =
   checkLe(c, lowBound(c.config, arr), idx)
@@ -1126,7 +1107,6 @@ proc track(tracked: PEffects, n: PNode) =
   of nkAsgn, nkFastAsgn:
     track(tracked, n[1])
     initVar(tracked, n[0], volatileCheck=true)
-    invalidateFacts(tracked.guards, n[0])
     inc tracked.leftPartOfAsgn
     track(tracked, n[0])
     dec tracked.leftPartOfAsgn
@@ -1418,11 +1398,6 @@ proc checkMethodEffects*(g: ModuleGraph; disp, branch: PSym) =
     localReport(g.config, branch.info, reportSymbols(
       rsemOverrideSafetyMismatch, @[disp, branch]))
 
-  when defined(drnim):
-    if not g.compatibleProps(g, disp.typ, branch.typ):
-      localReport(g.config, branch.info, "for method '" & branch.name.s &
-        "' the `.requires` or `.ensures` properties are incompatible.")
-
   if branch.typ.lockLevel > disp.typ.lockLevel:
     when true:
       localReport(g.config, branch.info, reportSymbols(
@@ -1453,13 +1428,6 @@ proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
     elif s != nil and (s.magic != mNone or {sfImportc, sfExportc} * s.flags == {sfImportc}):
       effects[tagEffects] = newNodeI(nkArgList, effects.info)
 
-    let requiresSpec = propSpec(n, wRequires)
-    if not isNil(requiresSpec):
-      effects[requiresEffects] = requiresSpec
-    let ensuresSpec = propSpec(n, wEnsures)
-    if not isNil(ensuresSpec):
-      effects[ensuresEffects] = ensuresSpec
-
     effects[pragmasEffects] = n
   if s != nil and s.magic != mNone:
     if s.magic != mEcho:
@@ -1469,8 +1437,6 @@ proc rawInitEffects(g: ModuleGraph; effects: PNode) =
   newSeq(effects.sons, effectListLen)
   effects[exceptionEffects] = newNodeI(nkArgList, effects.info)
   effects[tagEffects] = newNodeI(nkArgList, effects.info)
-  effects[requiresEffects] = g.emptyNode
-  effects[ensuresEffects] = g.emptyNode
   effects[pragmasEffects] = g.emptyNode
 
 proc initEffects(g: ModuleGraph; effects: PNode; s: PSym; t: var TEffects; c: PContext) =
@@ -1483,10 +1449,7 @@ proc initEffects(g: ModuleGraph; effects: PNode; s: PSym; t: var TEffects; c: PC
   t.init = @[]
   t.guards.s = @[]
   t.guards.g = g
-  when defined(drnim):
-    t.currOptions = g.config.options + s.options - {optStaticBoundsCheck}
-  else:
-    t.currOptions = g.config.options + s.options
+  t.currOptions = g.config.options + s.options
   t.guards.beSmart = optStaticBoundsCheck in t.currOptions
   t.locked = @[]
   t.graph = g
@@ -1553,14 +1516,6 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
   else:
     effects[tagEffects] = t.tags
 
-  let requiresSpec = propSpec(p, wRequires)
-  if not isNil(requiresSpec):
-    effects[requiresEffects] = requiresSpec
-  let ensuresSpec = propSpec(p, wEnsures)
-  if not isNil(ensuresSpec):
-    patchResult(t, ensuresSpec)
-    effects[ensuresEffects] = ensuresSpec
-
   var mutationInfo = MutationInfo()
   var hasMutationSideEffect = false
   if {strictFuncs, views} * c.features != {}:
@@ -1620,8 +1575,6 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
       kind: rsemLockLevelMismatch,
       lockMismatch: ($s.typ.lockLevel, $t.maxLockLevel)))
 
-  when defined(drnim):
-    if c.graph.strongSemCheck != nil: c.graph.strongSemCheck(c.graph, s, body)
   when defined(useDfa):
     if s.name.s == "testp":
       dataflowAnalysis(s, body)
@@ -1648,5 +1601,3 @@ proc trackStmt*(c: PContext; module: PSym; n: PNode, isTopLevel: bool) =
   initEffects(g, effects, module, t, c)
   t.isTopLevel = isTopLevel
   track(t, n)
-  when defined(drnim):
-    if c.graph.strongSemCheck != nil: c.graph.strongSemCheck(c.graph, module, n)

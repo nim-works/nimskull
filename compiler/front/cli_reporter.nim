@@ -2225,14 +2225,13 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemErrGcUnsafe:
       result = r.ast.render & " is not GC safe"
 
-    of rsemDrnimCannotPorveGe:
-      assert false, "TODO"
+    of rsemStaticIndexLeqUnprovable:
+      let (a, b) = r.rangeExpression
+      result = "cannot prove: " & $a & " <= " & $b
 
-    of rsemDrnimCannotProveLeq:
-      assert false, "TODO"
-
-    of rsemDrNimRequiresUsesMissingResult:
-      assert false, "TODO"
+    of rsemStaticIndexGeProvable:
+      let (a, b) = r.rangeExpression
+      result = "can prove: " & $a & " > " & $b
 
     of rsemInvalidGuardField:
       result = "invalid guard field: " & r.symstr

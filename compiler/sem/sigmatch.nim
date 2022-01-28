@@ -625,9 +625,8 @@ proc procTypeRel(c: var TCandidate, f, a: PType): TTypeRelation =
     result = getProcConvMismatch(c.c.config, f, a, result)[1]
 
     when useEffectSystem:
-      if compatibleEffects(f, a) != efCompat: return isNone
-    when defined(drnim):
-      if not c.c.graph.compatibleProps(c.c.graph, f, a): return isNone
+      if compatibleEffects(f, a) != efCompat:
+        return isNone
 
   of tyNil:
     result = f.allowsNil

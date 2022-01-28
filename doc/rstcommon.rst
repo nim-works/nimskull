@@ -32,7 +32,6 @@
 .. |nim| replace:: nim
 .. |nimskull| replace:: nimskull
 .. |nimsuggest| replace:: nimsuggest
-.. |drnim| replace:: drnim
 
 .. define language roles explicitly (for compatibility with rst2html.py):
 
@@ -64,4 +63,3 @@
 .. role:: program(code)
 
 .. role:: option(code)
-

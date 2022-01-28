@@ -433,45 +433,6 @@ proc turnFinalizerIntoDestructor(c: PContext; orig: PSym; info: TLineInfo): PSym
   result.typ = newProcType(result.info, nextTypeId c.idgen, result)
   result.typ.addParam newParam
 
-proc semQuantifier(c: PContext; n: PNode): PNode =
-  checkSonsLen(n, 2, c.config)
-  openScope(c)
-  result = newNodeIT(n.kind, n.info, n.typ)
-  result.add n[0]
-  let args = n[1]
-  assert args.kind == nkArgList
-  for i in 0..args.len-2:
-    let it = args[i]
-    var valid = false
-    if it.kind == nkInfix:
-      let op = considerQuotedIdent(c, it[0])
-      if op.id == ord(wIn):
-        let v = newSymS(skForVar, it[1], c)
-        styleCheckDef(c.config, v)
-        onDef(it[1].info, v)
-        let domain = semExprWithType(c, it[2], {efWantIterator})
-        v.typ = domain.typ
-        valid = true
-        addDecl(c, v)
-        result.add newTree(nkInfix, it[0], newSymNode(v), domain)
-    if not valid:
-      localReport(c.config, n, reportSem rsemQuantifierInRangeExpected)
-  result.add forceBool(c, semExprWithType(c, args[^1]))
-  closeScope(c)
-
-proc semOld(c: PContext; n: PNode): PNode =
-  if n[1].kind == nkHiddenDeref:
-    n[1] = n[1][0]
-
-  if n[1].kind != nkSym or n[1].sym.kind != skParam:
-    localReport(c.config, n[1], reportSem rsemOldTakesParameterName)
-
-  elif n[1].sym.owner != getCurrOwner(c):
-    localReport(c.config, n[1].info, reportAst(
-      rsemOldDoesNotBelongTo, n[1], sym = getCurrOwner(c)))
-
-  result = n
-
 proc semPrivateAccess(c: PContext, n: PNode): PNode =
   let t = n[1].typ[0].toObjectFromRefPtrGeneric
   c.currentScope.allowPrivateAccess.add t.sym
@@ -576,10 +537,6 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
       result[0] = newSymNode(op)
   of mUnown:
     result = semUnown(c, n)
-  of mExists, mForall:
-    result = semQuantifier(c, n)
-  of mOld:
-    result = semOld(c, n)
   of mSetLengthSeq:
     result = n
     let seqType = result[1].typ.skipTypes({tyPtr, tyRef, # in case we had auto-dereferencing

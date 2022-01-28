@@ -336,6 +336,8 @@ type
     rsemCantComputeOffsetof
     rsemStaticOutOfBounds ## Error generated when semfold or static bound
     ## checking sees and out-of-bounds index error.
+    rsemStaticIndexLeqUnprovable
+    rsemStaticIndexGeProvable
     rsemStaticFieldNotFound # TODO DOC generated in `semfold.nim`, need
     # better documentation, right now I don't know what exactly this error
     # means and how to reproduce it in the example code.
@@ -772,10 +774,6 @@ type
     rsemInvalidNestedLocking
     rsemUnguardedAccess
     rsemInvalidGuardField
-
-    rsemDrNimRequiresUsesMissingResult
-    rsemDrnimCannotProveLeq
-    rsemDrnimCannotPorveGe
 
     rsemErrGcUnsafeListing
     rsemBorrowPragmaNonDot
@@ -1258,8 +1256,9 @@ type
       of rsemWrongIdent:
         expectedIdents*: seq[string]
 
-      of rsemDrnimCannotProveLeq, rsemDrnimCannotPorveGe:
-        drnimExpressions*: tuple[a, b: PNode]
+
+      of rsemStaticIndexLeqUnprovable, rsemStaticIndexGeProvable:
+        rangeExpression*: tuple[a, b: PNode]
 
       of rsemExprHasNoAddress:
         isUnsafeAddr*: bool

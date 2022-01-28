@@ -474,30 +474,6 @@ proc hasSubTree(n, x: PNode): bool =
       for i in 0..<n.len:
         if hasSubTree(n[i], x): return true
 
-proc invalidateFacts*(s: var seq[PNode], n: PNode) =
-  # We are able to guard local vars (as opposed to 'let' variables)!
-  # 'while p != nil: f(p); p = p.next'
-  # This is actually quite easy to do:
-  # Re-assignments (incl. pass to a 'var' param) trigger an invalidation
-  # of every fact that contains 'v'.
-  #
-  #   if x < 4:
-  #     if y < 5
-  #       x = unknown()
-  #       # we invalidate 'x' here but it's known that x >= 4
-  #       # for the else anyway
-  #   else:
-  #     echo x
-  #
-  # The same mechanism could be used for more complex data stored on the heap;
-  # procs that 'write: []' cannot invalidate 'n.kind' for instance. In fact, we
-  # could CSE these expressions then and help C's optimizer.
-  for i in 0..high(s):
-    if s[i] != nil and s[i].hasSubTree(n): s[i] = nil
-
-proc invalidateFacts*(m: var TModel, n: PNode) =
-  invalidateFacts(m.s, n)
-
 proc valuesUnequal(a, b: PNode): bool =
   if a.isValue and b.isValue:
     result = not sameValue(a, b)

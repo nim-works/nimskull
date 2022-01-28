@@ -67,7 +67,7 @@ const
     wAsmNoStackFrame, wDiscardable, wNoInit, wCodegenDecl,
     wGensym, wInject, wRaises, wEffectsOf, wTags, wLocks, wDelegator, wGcSafe,
     wConstructor, wLiftLocals, wStackTrace, wLineTrace, wNoDestroy,
-    wRequires, wEnsures, wEnforceNoRaises}
+    wEnforceNoRaises}
   converterPragmas* = procPragmas
   methodPragmas* = procPragmas+{wBase}-{wImportCpp}
   templatePragmas* = {wDeprecated, wError, wGensym, wInject, wDirty,
@@ -78,7 +78,7 @@ const
   iteratorPragmas* = declPragmas + {FirstCallConv..LastCallConv, wNoSideEffect, wSideEffect,
     wMagic, wBorrow,
     wDiscardable, wGensym, wInject, wRaises, wEffectsOf,
-    wTags, wLocks, wGcSafe, wRequires, wEnsures}
+    wTags, wLocks, wGcSafe}
   exprPragmas* = {wLine, wLocks, wNoRewrite, wGcSafe, wNoSideEffect}
   stmtPragmas* = {wChecks, wObjChecks, wFieldChecks, wRangeChecks,
     wBoundChecks, wOverflowChecks, wNilChecks, wStaticBoundchecks,
@@ -91,11 +91,11 @@ const
     wDeprecated,
     wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit, wUnroll,
     wLinearScanEnd, wPatterns, wTrMacros, wEffects, wNoForward, wReorder, wComputedGoto,
-    wExperimental, wThis, wUsed, wInvariant, wAssume, wAssert}
+    wExperimental, wThis, wUsed, wAssert}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
     wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
     wThread, wAsmNoStackFrame,
-    wRaises, wLocks, wTags, wRequires, wEnsures, wEffectsOf,
+    wRaises, wLocks, wTags, wEffectsOf,
     wGcSafe, wCodegenDecl, wNoInit, wCompileTime}
   typePragmas* = declPragmas + {wMagic, wAcyclic,
     wPure, wHeader, wCompilerProc, wCore, wFinal, wSize, wShallow,
@@ -115,8 +115,7 @@ const
   paramPragmas* = {wNoalias, wInject, wGensym}
   letPragmas* = varPragmas
   procTypePragmas* = {FirstCallConv..LastCallConv, wVarargs, wNoSideEffect,
-                      wThread, wRaises, wEffectsOf, wLocks, wTags, wGcSafe,
-                      wRequires, wEnsures}
+                      wThread, wRaises, wEffectsOf, wLocks, wTags, wGcSafe}
   forVarPragmas* = {wInject, wGensym}
   allRoutinePragmas* = methodPragmas + iteratorPragmas + lambdaPragmas
   enumFieldPragmas* = {wDeprecated}
@@ -157,45 +156,6 @@ proc newIllegalCustomPragmaNode*(c: PContext; n: PNode, s: PSym): PNode =
     @[newSymNode(s)],
     n.info
   )
-
-proc pragmaProposition(c: PContext, n: PNode): PNode =
-  ## drnim - `ensures` pragma,  must be a callable with single arg predicate,
-  ## producing either:
-  ## 1. mutated `n` with the the proposition (2nd child) semantically checked
-  ##    analysed
-  ## 2. nkError node over `n`, when a callable unary proposition isn't provided
-  if n.kind notin nkPragmaCallKinds or n.len != 2:
-    result = c.config.newError(n, SemReport(kind: rsemPropositionExpected))
-  else:
-    n[1] = c.semExpr(c, n[1])
-
-proc pragmaEnsures(c: PContext, n: PNode): PNode =
-  ## drnim - `ensures` pragma, must be a callable with single arg predicate,
-  ## producing either:
-  ## 1. mutated `n` with the the proposition (2nd child) semantically checked
-  ##    analysed, and if the current owner is a routineKind adds a `result`
-  ##    symbol.
-  ## 2. nkError node over `n`, when a callable unary proposition isn't provided
-  ##
-  ## xxx: 1. the implementation is unclear, we create a `result` symbol for
-  ##      routines, adding it to the a sub-scope with the routine as owner, but
-  ##      won't that potentially create a duplicate `result` symbol? or does
-  ##      that get resolved later?
-  ##      2. `routineKinds` includes template, so is that potentially an issue
-  ##      as well?
-  result = n
-  if n.kind notin nkPragmaCallKinds or n.len != 2:
-    result = c.config.newError(n, SemReport(kind: rsemPropositionExpected))
-  else:
-    openScope(c)
-    let o = getCurrOwner(c)
-    if o.kind in routineKinds and o.typ != nil and o.typ.sons[0] != nil:
-      var s = newSym(skResult, getIdent(c.cache, "result"), nextSymId(c.idgen), o, n.info)
-      s.typ = o.typ.sons[0]
-      incl(s.flags, sfUsed)
-      addDecl(c, s)
-    n[1] = c.semExpr(c, n[1])
-    closeScope(c)
 
 proc pragmaAsm*(c: PContext, n: PNode): char =
   result = '\0'
@@ -1879,10 +1839,6 @@ proc prepareSinglePragma(
           sym.flags.incl sfUsed
       of wLiftLocals:
         result = it
-      of wRequires, wInvariant, wAssume, wAssert:
-        result = pragmaProposition(c, it)
-      of wEnsures:
-        result = pragmaEnsures(c, it)
       of wEnforceNoRaises:
         sym.flags.incl sfNeverRaises
       else:
