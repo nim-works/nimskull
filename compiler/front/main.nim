@@ -75,8 +75,9 @@ proc writeDepsFile(g: ModuleGraph) =
   f.close()
 
 proc commandGenDepend(graph: ModuleGraph) =
+  registerPass(graph, genDependPreSemPass)
   semanticPasses(graph)
-  registerPass(graph, gendependPass)
+  registerPass(graph, genDependPostSemPass)
   compileProject(graph)
   let project = graph.config.projectFull
   writeDepsFile(graph)

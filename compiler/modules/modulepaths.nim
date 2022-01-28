@@ -171,7 +171,8 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
     result = ""
 
 proc checkModuleName*(conf: ConfigRef; n: PNode; doLocalError=true): FileIndex =
-  # This returns the full canonical path for a given module import
+  ## Get file index from module path, otherwise report a 'cannot find'
+  ## error via report hook.
   let modulename = getModuleName(conf, n)
   let fullPath = findModule(conf, modulename, toFullPath(conf, n.info))
   if fullPath.isEmpty:
