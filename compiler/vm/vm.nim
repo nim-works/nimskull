@@ -17,7 +17,6 @@ import
     parseutils
   ],
   ast/[
-    astalgo,
     lineinfos,
     renderer, # toStrLit implementation
     trees,
@@ -2503,7 +2502,7 @@ const evalMacroLimit = 1000
 #  result.typ.flags.incl tfCheckedForDestructor
 
 proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstCounter: ref int;
-                    n, nOrig: PNode, sym: PSym): PNode =
+                    n: PNode, sym: PSym): PNode =
   #if g.config.errorCounter > 0: return errorNode(idgen, module, n)
 
   # XXX globalReport() is ugly here, but I don't know a better solution for now
@@ -2527,7 +2526,7 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
   let oldMode = c.mode
   c.mode = emStaticStmt
   c.comesFromHeuristic.line = 0'u16
-  c.callsite = nOrig
+  c.callsite = n
   c.templInstCounter = templInstCounter
   let start = genProc(c, sym)
 

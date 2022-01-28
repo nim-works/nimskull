@@ -34,25 +34,30 @@ proc init(my: var TRectangle) =
   my.height = 10
   my.draw = cast[proc (my: var TFigure) {.nimcall.}](drawRectangle)
 
-macro `!` (n: varargs[untyped]): typed =
-  let n = callsite()
-  result = newNimNode(nnkCall, n)
-  var dot = newNimNode(nnkDotExpr, n)
-  dot.add(n[1])    # obj
-  if n[2].kind == nnkCall:
+macro `!` (args: varargs[untyped]): typed =
+  args.expectLen 2
+  let arg1 = args[0]
+  let arg2 = args[1]
+  for i, arg in args:
+    echo "arg", i, " ", arg.lispRepr
+
+  result = newNimNode(nnkCall)
+  var dot = newNimNode(nnkDotExpr)
+  dot.add(arg1)    # obj
+  if arg2.kind == nnkCall:
     # transforms ``obj!method(arg1, arg2, ...)`` to
     # ``(obj.method)(obj, arg1, arg2, ...)``
-    dot.add(n[2][0]) # method
+    dot.add(arg2[0]) # method
     result.add(dot)
-    result.add(n[1]) # obj
-    for i in 1..n[2].len-1:
-      result.add(n[2][i])
+    result.add(arg1) # obj
+    for i in 1..arg2.len-1:
+      result.add(arg2[i])
   else:
     # transforms ``obj!method`` to
     # ``(obj.method)(obj)``
-    dot.add(n[2]) # method
+    dot.add(arg2) # method
     result.add(dot)
-    result.add(n[1]) # obj
+    result.add(arg1) # obj
 
 type
   TSocket* = object of RootObj

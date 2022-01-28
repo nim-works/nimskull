@@ -1098,7 +1098,7 @@ proc semCustomPragma(c: PContext, n: PNode): PNode =
     # invalidPragma(c, n)
     # return n
 
-  let r = c.semOverloadedCall(c, callNode, n, {skTemplate}, {efNoUndeclared})
+  let r = c.semOverloadedCall(c, callNode, {skTemplate}, {efNoUndeclared})
   if r.isNil or sfCustomPragma notin r[0].sym.flags:
     result = c.config.newError(n, reportAst(rsemInvalidPragma, n))
     return

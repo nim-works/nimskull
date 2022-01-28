@@ -86,7 +86,7 @@ proc semGenericStmtSymbol(c: PContext, n: PNode, s: PSym,
   of skMacro:
     if macroToExpandSym(s):
       onUse(n.info, s)
-      result = semMacroExpr(c, n, n, s, {efNoSemCheck})
+      result = semMacroExpr(c, n, s, {efNoSemCheck})
       result = semGenericStmt(c, result, {}, ctx)
     else:
       result = symChoice(c, n, s, scOpen)
@@ -252,7 +252,7 @@ proc semGenericStmt(c: PContext, n: PNode,
       of skMacro:
         if macroToExpand(s) and sc.safeLen <= 1:
           onUse(fn.info, s)
-          result = semMacroExpr(c, n, n, s, {efNoSemCheck})
+          result = semMacroExpr(c, n, s, {efNoSemCheck})
           result = semGenericStmt(c, result, flags, ctx)
         else:
           n[0] = sc

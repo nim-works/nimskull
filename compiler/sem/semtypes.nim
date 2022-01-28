@@ -1624,7 +1624,7 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
   else:
     var m = newCandidate(c, t)
     m.isNoCall = true
-    matches(c, n, copyTree(n), m)
+    matches(c, n, m)
 
     if m.state != csMatch:
       localReport(c.config, n.info):
@@ -1815,7 +1815,7 @@ proc applyTypeSectionPragmas(c: PContext; pragmas, operand: PNode): PNode =
           # Also pass the node the pragma has been applied to
           x.add(operand.copyTreeWithoutNode(p))
           # recursion assures that this works for multiple macro annotations too:
-          var r = semOverloadedCall(c, x, x, {skMacro, skTemplate}, {efNoUndeclared})
+          var r = semOverloadedCall(c, x, {skMacro, skTemplate}, {efNoUndeclared})
           if r != nil:
             if r.kind == nkError:
               localReport(c.config, r)
@@ -1824,7 +1824,7 @@ proc applyTypeSectionPragmas(c: PContext; pragmas, operand: PNode): PNode =
             doAssert r[0].kind == nkSym
             let m = r[0].sym
             case m.kind
-            of skMacro: return semMacroExpr(c, r, r, m, {efNoSemCheck})
+            of skMacro: return semMacroExpr(c, r, m, {efNoSemCheck})
             of skTemplate: return semTemplateExpr(c, r, m, {efNoSemCheck})
             else: doAssert(false, "cannot happen")
 

@@ -55,7 +55,7 @@ proc initCandidateSymbols(c: PContext, headSymbol: PNode,
     best.state = csNoMatch
 
 proc pickBestCandidate(c: PContext, headSymbol: PNode,
-                       n, orig: PNode,
+                       n: PNode,
                        initialBinding: PNode,
                        filter: TSymKinds,
                        best, alt: var TCandidate,
@@ -92,7 +92,7 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
     determineType(c, sym)
     initCandidate(c, z, sym, initialBinding, scope, diagnosticsFlag)
     if c.currentScope.symbols.counter == counterInitial or syms.len != 0:
-      matches(c, n, orig, z)
+      matches(c, n, z)
       if z.state == csMatch:
         # little hack so that iterators are preferred over everything else:
         if sym.kind == skIterator:
@@ -328,7 +328,7 @@ proc getMsgDiagnostic(
       result.spellingCandidates = fixSpelling(c, f.ident)
 
 
-proc resolveOverloads(c: PContext, n, orig: PNode,
+proc resolveOverloads(c: PContext, n: PNode,
                       filter: TSymKinds, flags: TExprFlags,
                       errors: var CandidateErrors,
                       errorsEnabled: bool = true): TCandidate =
@@ -344,7 +344,7 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
     initialBinding = nil
 
   template pickBest(headSymbol) =
-    pickBestCandidate(c, headSymbol, n, orig, initialBinding,
+    pickBestCandidate(c, headSymbol, n, initialBinding,
                       filter, result, alt, errors, efExplain in flags,
                       errorsEnabled, flags)
   pickBest(f)
@@ -357,13 +357,11 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
       var hiddenArg = newSymNode(c.p.selfSym)
       hiddenArg.typ = nil
       n.sons.insert(hiddenArg, 1)
-      orig.sons.insert(hiddenArg, 1)
 
       pickBest(f)
 
       if result.state != csMatch:
         n.sons.delete(1)
-        orig.sons.delete(1)
         excl n.flags, nfExprCall
       else: return
 
@@ -374,12 +372,10 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
         # leave the op head symbol empty,
         # we are going to try multiple variants
         n.sons[0..1] = [nil, n[1], f]
-        orig.sons[0..1] = [nil, orig[1], f]
 
         template tryOp(x) =
           let op = newIdentNode(getIdent(c.cache, x), n.info)
           n[0] = op
-          orig[0] = op
           pickBest(op)
 
         if nfExplicitCall in n.flags:
@@ -393,7 +389,6 @@ proc resolveOverloads(c: PContext, n, orig: PNode,
       let calleeName = newIdentNode(getIdent(c.cache, f.ident.s[0..^2]), f.info)
       let callOp = newIdentNode(getIdent(c.cache, ".="), n.info)
       n.sons[0..1] = [callOp, n[1], calleeName]
-      orig.sons[0..1] = [callOp, orig[1], calleeName]
       pickBest(callOp)
 
     if overloadsState == csEmpty and result.state == csEmpty:
@@ -459,7 +454,7 @@ proc instGenericConvertersSons*(c: PContext, n: PNode, x: TCandidate) =
 
 proc indexTypesMatch(c: PContext, f, a: PType, arg: PNode): PNode =
   var m = newCandidate(c, f)
-  result = paramTypesMatch(m, f, a, arg, nil)
+  result = paramTypesMatch(m, f, a, arg)
   if m.genericConverter and result != nil:
     instGenericConvertersArg(c, result, m)
 
@@ -467,7 +462,7 @@ proc inferWithMetatype(c: PContext, formal: PType,
                        arg: PNode, coerceDistincts = false): PNode =
   var m = newCandidate(c, formal)
   m.coerceDistincts = coerceDistincts
-  result = paramTypesMatch(m, formal, arg.typ, arg, nil)
+  result = paramTypesMatch(m, formal, arg.typ, arg)
   if m.genericConverter and result != nil:
     instGenericConvertersArg(c, result, m)
   if result != nil:
@@ -564,12 +559,12 @@ proc tryDeref(n: PNode): PNode =
   result.typ = n.typ.skipTypes(abstractInst)[0]
   result.add n
 
-proc semOverloadedCall(c: PContext, n, nOrig: PNode,
+proc semOverloadedCall(c: PContext, n: PNode,
                        filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
   addInNimDebugUtils(c.config, "semOverloadedCall")
   var errors: CandidateErrors = @[]
 
-  var r = resolveOverloads(c, n, nOrig, filter, flags, errors)
+  var r = resolveOverloads(c, n, filter, flags, errors)
 
   if r.state != csMatch and implicitDeref in c.features and canDeref(n):
     # try to deref the first argument and then try overloading resolution again:
@@ -580,7 +575,7 @@ proc semOverloadedCall(c: PContext, n, nOrig: PNode,
     #      into sigmatch with hidden conversion produced there
 
     n[1] = n[1].tryDeref
-    r = resolveOverloads(c, n, nOrig, filter, flags, errors)
+    r = resolveOverloads(c, n, filter, flags, errors)
 
   if r.state == csMatch:
     # this may be triggered, when the explain pragma is used
@@ -708,7 +703,7 @@ proc searchForBorrowProc(c: PContext, startScope: PScope, fn: PSym): PSym =
     call.add(newNodeIT(nkEmpty, fn.info, x))
   if hasDistinct:
     let filter = if fn.kind in {skProc, skFunc}: {skProc, skFunc} else: {fn.kind}
-    var resolved = semOverloadedCall(c, call, call, filter, {})
+    var resolved = semOverloadedCall(c, call, filter, {})
     if resolved != nil:
       if resolved.kind == nkError:
         localReport(c.config, resolved)

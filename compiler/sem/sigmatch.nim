@@ -36,9 +36,6 @@ import
     msgs,
     options,
   ],
-  utils/[
-    debugutils
-  ],
   sem/[
     semdata,
     semtypinst,
@@ -2036,7 +2033,7 @@ template matchesVoidProc(t: PType): bool =
     (t.kind == tyBuiltInTypeClass and t[0].kind == tyProc)
 
 proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
-                        argSemantized, argOrig: PNode): PNode =
+                        argSemantized: PNode): PNode =
   var
     fMaybeStatic = f.skipTypes({tyDistinct})
     arg = argSemantized
@@ -2055,14 +2052,14 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
     if a.kind == tyGenericParam and tfWildcard in a.flags:
       a.assignType(f)
       # put(m.bindings, f, a)
-      result = argSemantized
+      result = arg
       return
 
     if a.kind == tyStatic:
       if m.callee.kind == tyGenericBody and
          a.n == nil and
          tfGenericTypeParam notin a.flags:
-        result = newNodeIT(nkType, argOrig.info, makeTypeFromExpr(c, arg))
+        result = newNodeIT(nkType, arg.info, makeTypeFromExpr(c, arg))
         return
     else:
       var evaluated = c.semTryConstExpr(c, arg)
@@ -2102,7 +2099,7 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       elif f.kind == tyStatic and arg.typ.n != nil:
         arg.typ.n
       else:
-        argSemantized # argOrig
+        argSemantized
     return
 
   # If r == isBothMetaConvertible then we rerun typeRel.
@@ -2197,10 +2194,10 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
       m.fauxMatch = a.kind
       result = arg
       return
-    elif a.kind == tyVoid and f.matchesVoidProc and argOrig.kind == nkStmtList:
+    elif a.kind == tyVoid and f.matchesVoidProc and arg.kind == nkStmtList:
       # lift do blocks without params to lambdas
       let p = c.graph
-      let lifted = c.semExpr(c, newProcNode(nkDo, argOrig.info, body = argOrig,
+      let lifted = c.semExpr(c, newProcNode(nkDo, arg.info, body = arg,
           params = nkFormalParams.newTree(p.emptyNode), name = p.emptyNode, pattern = p.emptyNode,
           genericParams = p.emptyNode, pragmas = p.emptyNode, exceptions = p.emptyNode), {})
       if f.kind == tyBuiltInTypeClass:
@@ -2244,9 +2241,9 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
           if result != nil: m.baseTypeMatch = true
 
 proc paramTypesMatch*(m: var TCandidate, f, a: PType,
-                      arg, argOrig: PNode): PNode =
+                      arg: PNode): PNode =
   if arg == nil or arg.kind notin nkSymChoices:
-    result = paramTypesMatchAux(m, f, a, arg, argOrig)
+    result = paramTypesMatchAux(m, f, a, arg)
   else:
     # CAUTION: The order depends on the used hashing scheme. Thus it is
     # incorrect to simply use the first fitting match. However, to implement
@@ -2301,7 +2298,7 @@ proc paramTypesMatch*(m: var TCandidate, f, a: PType,
       # only one valid interpretation found:
       markUsed(m.c, arg.info, arg[best].sym)
       onUse(arg.info, arg[best].sym)
-      result = paramTypesMatchAux(m, f, arg[best].typ, arg[best], argOrig)
+      result = paramTypesMatchAux(m, f, arg[best].typ, arg[best])
   when false:
     if m.calleeSym != nil and m.calleeSym.name.s == "[]":
       echo m.c.config $ arg.info, " for ", m.calleeSym.name.s, " ", m.c.config $ m.calleeSym.info
@@ -2396,7 +2393,7 @@ proc findFirstArgBlock(m: var TCandidate, n: PNode): int =
       result = a2
     else: break
 
-proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var IntSet) =
+proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
 
   template noMatch() =
     c.mergeShadowScope #merge so that we don't have to resem for later overloads
@@ -2491,7 +2488,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
       n[a][1] = prepareOperand(c, formal.typ, n[a][1])
       n[a].typ = n[a][1].typ
       arg = paramTypesMatch(m, formal.typ, n[a].typ,
-                                n[a][1], n[a][1])
+                                n[a][1])
       m.firstMismatch.kind = kTypeMismatch
       if arg == nil or arg.isErrorLike:
         noMatch()
@@ -2530,7 +2527,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           incl(marker, formal.position)
           n[a] = prepareOperand(c, formal.typ, n[a])
           arg = paramTypesMatch(m, formal.typ, n[a].typ,
-                                    n[a], nOrig[a])
+                                    n[a])
           if arg != nil and arg.kind != nkError and m.baseTypeMatch and container != nil:
             container.add arg
             incrIndexType(container.typ)
@@ -2569,7 +2566,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
           m.typedescMatched = false
           n[a] = prepareOperand(c, formal.typ, n[a])
           arg = paramTypesMatch(m, formal.typ, n[a].typ,
-                                    n[a], nOrig[a])
+                                    n[a])
 
           if arg == nil or arg.isErrorLike:
             noMatch()
@@ -2625,12 +2622,12 @@ proc semFinishOperands*(c: PContext, n: PNode) =
   for i in 1..<n.len:
     n[i] = prepareOperand(c, n[i])
 
-proc partialMatch*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
+proc partialMatch*(c: PContext, n: PNode, m: var TCandidate) =
   # for 'suggest' support:
   var marker = initIntSet()
-  matchesAux(c, n, nOrig, m, marker)
+  matchesAux(c, n, m, marker)
 
-proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
+proc matches*(c: PContext, n: PNode, m: var TCandidate) =
   # addInNimDebugUtils(c.config, "matches", n, nOrig)
   if m.magic in {mArrGet, mArrPut}:
     m.state = csMatch
@@ -2642,7 +2639,7 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
       inc m.exactMatches
     return
   var marker = initIntSet()
-  matchesAux(c, n, nOrig, m, marker)
+  matchesAux(c, n, m, marker)
   if m.state == csNoMatch: return
   # check that every formal parameter got a value:
   for f in 1..<m.callee.n.len:
@@ -2691,7 +2688,7 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
 
 proc argtypeMatches*(c: PContext, f, a: PType, fromHlo = false): bool =
   var m = newCandidate(c, f)
-  let res = paramTypesMatch(m, f, a, c.graph.emptyNode, nil)
+  let res = paramTypesMatch(m, f, a, c.graph.emptyNode)
   #instantiateGenericConverters(c, res, m)
   # XXX this is used by patterns.nim too; I think it's better to not
   # instantiate generic converters for that
