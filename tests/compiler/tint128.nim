@@ -182,3 +182,48 @@ for i in 0 ..< 128:
   let str1 = toHex(e shl i)
   let str2 = strArray2[i]
   doAssert str1 == str2
+
+doAssert toInt128(Inf) == int128.Max
+doAssert toInt128(-Inf) == int128.Min
+doAssert toInt128(NaN) == int128.Zero
+doAssert toInt128(0.0) == int128.Zero
+doAssert toInt128(1e100) == int128.Max
+doAssert toInt128(-1e100) == int128.Min
+
+doAssert inInt128Range(Inf) == false
+doAssert inInt128Range(-Inf) == false
+doAssert inInt128Range(NaN) == false
+doAssert inInt128Range(0.0) == true
+doAssert inInt128Range(1e100) == false
+doAssert inInt128Range(-1e100) == false
+
+from math import pow
+
+proc nextafter(`from`,to: float64): float64 {.importc: "nextafter", header: "<math.h>".}
+
+let minValue = -pow(2'f64, 127)
+let maxValue = pow(2'f64, 127)
+
+let nonMinValue = nextafter(minValue, Inf)
+let lowerThanMinValue = nextafter(minValue, -Inf)
+
+proc testInt128RoundTrip(arg: float64) =
+  let int128Val = toInt128(arg)
+  let convertedBack = toFloat64(int128Val)
+  doAssert(arg == convertedBack)
+
+testInt128RoundTrip(minValue)
+# max value is exclusive, out of bounds. It doesn't need to be roundtrip safe
+testInt128RoundTrip(nextafter(maxValue, -Inf))
+testInt128RoundTrip(nonMinValue)
+testInt128RoundTrip(1337'f64)
+testInt128RoundTrip(4711'f64)
+testInt128RoundTrip(1000000'f64)
+
+doAssert $toInt128(minValue)                  == "-170141183460469231731687303715884105728"
+doAssert $toInt128(maxValue)                  ==  "170141183460469231731687303715884105727" # <- last digit different
+# test clamping
+doAssert $toInt128(nextafter(minValue, -Inf)) == "-170141183460469231731687303715884105728"
+doAssert $toInt128(nextafter(maxValue,  Inf)) ==  "170141183460469231731687303715884105727"
+
+doAssert toFloat64(toInt128(NaN)) == 0.0
