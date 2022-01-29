@@ -14,7 +14,7 @@ import
   ],
   experimental/colortext,
   std/[
-    sets,
+    tables,
     strutils,
     strformat,
   ]
@@ -28,6 +28,7 @@ type
     trfPackedFields
     trfSkipAuxError
     trfSymDefined
+    trfIndexVisisted
 
     trfShowSymFlags
     trfShowSymLineInfo
@@ -63,7 +64,8 @@ const treeReprAllFields* = { trfShowSymFlags .. trfShowNodeTypes }
 const defaultTreeReprFlags* = {
   trfPositionIndexed,
   trfReportInfo,
-  trfSkipAuxError
+  trfSkipAuxError,
+  trfIndexVisisted
 } + treeReprAllFields - {
   trfShowNodeLineInfo,
   trfShowSymLineInfo,
@@ -252,12 +254,15 @@ proc treeRepr*(
     maxPath: int           = 1,
     indentIncrease: int = 0
   ): ColText =
+  ## .. include:: tree_repr_doc.rst
+
+
   coloredResult(1)
 
 
-  var visited: HashSet[int]
+  var visited: Table[int, int]
   var res = addr result
-
+  var nodecount = 0
   proc aux(n: PNode, idx: seq[int]) =
     var indent = indentIncrease
     genFields(res[], indent, flags)
@@ -297,17 +302,35 @@ proc treeRepr*(
       add "<nil>" + fgRed
       return
 
-    elif cast[int](n) in visited:
-      add " <visited>"
+    elif not (n.kind == nkEmpty and n.safeLen == 0) and
+         # empty nodes can be reused. Only check for visitation if it is
+         # not an empty (completely empty) node
+         cast[int](n) in visited:
+
+      if trfIndexVisisted in flags:
+        add "<visited "
+        add substr($n.kind, 2) + fgCyan
+        add " at "
+        add $visited[cast[int](n)] + styleDim
+        add ">"
+
+      else:
+        add "<visited>"
+
       return
 
     elif idx.len > maxDepth:
       add " ..."
       return
 
-    visited.incl cast[int](n)
-
+    visited[cast[int](n)] = nodecount
     add substr($n.kind, 2) + fgCyan
+
+    if trfIndexVisisted in flags:
+      add " "
+      add $nodecount + styleDim
+
+    inc nodecount
 
     when defined(useNodeids):
       if trfShowNodeIds in flags:
@@ -316,13 +339,15 @@ proc treeRepr*(
 
     proc addComment(sep: bool = true) =
       if trfShowNodeComments in flags and n.comment.len > 0:
-        add "\n"
         var nl = false
         for line in split(n.comment.strip(leading = false), '\n'):
           if nl: add "\n"
           nl = true
 
-          addi indent, "  # " & line + fgCyan
+          addi indent, "  # " + termFg(4, 2, 1)
+          add line + termFg(4, 2, 1)
+
+        add "\n"
 
       elif sep:
         add " "
@@ -397,6 +422,7 @@ proc treeRepr*(
 
       of nkCommentStmt:
         addFlags()
+        add "\n"
         addComment()
 
       of nkError:
@@ -418,7 +444,7 @@ proc treeRepr*(
         discard
 
 
-    if n.kind notin nkNone .. nkNilLit:
+    if n.kind notin {nkNone .. nkNilLit, nkCommentStmt}:
       addFlags()
       if n.len > 0:
         add "\n"

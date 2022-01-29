@@ -1,5 +1,23 @@
 Generate tree representation from `PNode`.
 
+Procedure arguments:
+
+- `conf`: some configuration options are inferred from it, such as
+  `--filenames:canonical`, but it is mostly used to get full paths from
+  file ids
+- `pnode`: node to be printed - can be `nil`, recursive, `nkError` or any
+  other kind form or shape.
+- `flags`: Set of the formatting options for the procedure. Several
+  built-in constants are defined in this module that might be suitable for
+  different debugging or AST exploration tasks.
+- `maxDepth`: Ignore all nodes that are placed deeper than that. Useful to
+  see a high-level overview for large nodes, such as full proc bodies
+- `maxLength`: on each level, print upto that many subnodes. Useful to cut
+  out parts on large `case` trees, toplevel nodes for modules, statement
+  lists and such.
+- `maxPath`: maximum path length for subnodes
+- `indentIncreas`: start tree indentation from certain formatting
+
 Generated output packs in a lot of information - here is a short list of
 features, those will be elaborated on
 
@@ -18,22 +36,6 @@ features, those will be elaborated on
 - any associated structured reports (IDs, kinds, generation location)
 - symbol definition location if any
 - type symbols definition location if any
-
-Procedure arguments:
-
-- `conf`: some configuration options are inferred from it, such as
-  `--filenames:canonical`, but it is mostly used to get full paths from
-  file ids
-- `pnode`: node to be printed - can be `nil`, recursive, `nkError` or any
-  other kind form or shape.
-- `flags`: Set of the formatting options for the procedure. Several
-  built-in constants are defined in this module that might be suitable for
-  different debugging or AST exploration tasks.
-- `maxDepth`: Ignore all nodes that are placed deeper than that. Useful to
-  see a high-level overview for large nodes, such as full proc bodies
-- `maxLength`: on each level, print upto that many subnodes. Useful to cut
-  out parts on large `case` trees, toplevel nodes for modules, statement
-  lists and such.
 
 
 .. note:: Output examples in the documentation might be slightly different
