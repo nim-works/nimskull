@@ -72,6 +72,7 @@ proc semExprCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
     localReport(c.config, n, reportSem rsemExpressionHasNoType)
 
   if isError and isTypeError:
+    # XXX: Error message should mention that it's an error node/type
     # newer code paths propagate nkError nodes
     result = c.config.newError(result, reportSem rsemExpressionHasNoType, args = @[n])
 
@@ -91,8 +92,8 @@ proc semExprWithType(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   elif result.typ.kind == tyError:
     # associates the type error to the current owner
     result.typ = errorType(c)
-  else:
-    if result.typ.kind in {tyVar, tyLent}: result = newDeref(result)
+  elif result.typ.kind in {tyVar, tyLent}:
+    result = newDeref(result)
 
 proc semExprNoDeref(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   result = semExprCheck(c, n, flags)
@@ -267,8 +268,15 @@ proc maybeLiftType(t: var PType, c: PContext, info: TLineInfo) =
   if lifted != nil: t = lifted
 
 proc isOwnedSym(c: PContext; n: PNode): bool =
+  ## checks to see if the `n`ode is the "owned" sym node
   let s = qualifiedLookUp(c, n, {})
-  result = s != nil and sfSystemModule in s.owner.flags and s.name.s == "owned"
+  result =
+    if s.isError:
+      # XXX: move to propagating nkError, skError, and tyError
+      localReport(c.config, s.ast)
+      false
+    else:
+      s != nil and sfSystemModule in s.owner.flags and s.name.s == "owned"
 
 proc semConv(c: PContext, n: PNode): PNode =
   if n.len != 2:
@@ -478,13 +486,20 @@ proc isOpImpl(c: PContext, n: PNode, flags: TExprFlags): PNode =
       discard
     var m = newCandidate(c, t2)
     if efExplain in flags:
-      m.diagnostics = @[]
-      m.diagnosticsEnabled = true
+      m.error.diagnosticsEnabled = true
     res = typeRel(m, t2, t1) >= isSubtype # isNone
+    if m.error.diagnosticsEnabled and m.error.diag.reports.len > 0:
+      localReport(c.config, n.info, SemReport(
+        ast: n,
+        kind: rsemDiagnostics,
+        diag: m.error.diag
+      ))
+
     # `res = sameType(t1, t2)` would be wrong, e.g. for `int is (int|float)`
 
   result = newIntNode(nkIntLit, ord(res))
   result.typ = n.typ
+  result.info = n.info
 
 proc semIs(c: PContext, n: PNode, flags: TExprFlags): PNode =
   if n.len != 3:
@@ -492,12 +507,14 @@ proc semIs(c: PContext, n: PNode, flags: TExprFlags): PNode =
       rsemWrongNumberOfArguments, 1, 2, n))
 
   let boolType = getSysType(c.graph, n.info, tyBool)
-  result = n
   n.typ = boolType
   var liftLhs = true
 
-  n[1] = semExprWithType(c, n[1], {efDetermineType, efWantIterator})
-  if n[2].kind notin {nkStrLit..nkTripleStrLit}:
+  n[1] = semExprWithType(c, n[1], flags + {efDetermineType, efWantIterator})
+
+  if n[2].kind in {nkStrLit..nkTripleStrLit}:
+    n[2] = semExpr(c, n[2])
+  else:
     let t2 = semTypeNode(c, n[2], nil)
     n[2] = newNodeIT(nkType, n[2].info, t2)
     if t2.kind == tyStatic:
@@ -508,27 +525,25 @@ proc semIs(c: PContext, n: PNode, flags: TExprFlags): PNode =
       else:
         result = newIntNode(nkIntLit, 0)
         result.typ = boolType
+        result.info = n.info
         return
     elif t2.kind == tyTypeDesc and
         (t2.base.kind == tyNone or tfExplicit in t2.flags):
       # When the right-hand side is an explicit type, we must
       # not allow regular values to be matched against the type:
       liftLhs = false
-  else:
-    n[2] = semExpr(c, n[2])
 
   var lhsType = n[1].typ
-  if lhsType.kind != tyTypeDesc:
-    if liftLhs:
-      n[1] = makeTypeSymNode(c, lhsType, n[1].info)
-      lhsType = n[1].typ
+  if n[1].isError:
+    result = wrapErrorInSubTree(c.config, n)
+  elif lhsType.kind == tyTypeDesc and (lhsType.base.kind == tyNone or
+     (c.inGenericContext > 0 and lhsType.base.containsGenericType)):
+    # BUGFIX: don't evaluate this too early: ``T is void``
+    result = n
   else:
-    if lhsType.base.kind == tyNone or
-        (c.inGenericContext > 0 and lhsType.base.containsGenericType):
-      # BUGFIX: don't evaluate this too early: ``T is void``
-      return
-
-  result = isOpImpl(c, n, flags)
+    if lhsType.kind != tyTypeDesc and liftLhs:
+      n[1] = makeTypeSymNode(c, lhsType, n[1].info)
+    result = isOpImpl(c, n, flags)
 
 proc semOpAux(c: PContext, n: PNode) =
   const flags = {efDetermineType}
@@ -1408,7 +1423,7 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
     result = newSymNode(s, n.info)
   else:
     if s.kind == skError and not s.ast.isNil and s.ast.kind == nkError:
-      # XXX: at the time or writing only `lookups.qualifiedLookUp2` sets up the
+      # XXX: at the time or writing only `lookups.qualifiedlookup` sets up the
       #      PSym so the error is in the ast field
       result = s.ast
     else:
@@ -1478,7 +1493,10 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
       if exactEquals(c.config.m.trackPos, n[1].info): suggestExprNoCheck(c, n)
 
   var s = qualifiedLookUp(c, n, {checkAmbiguity, checkUndeclared, checkModule})
-  if s != nil:
+  if s.isError:
+    # XXX: move to propagating nkError, skError, and tyError
+    localReport(c.config, s.ast)
+  elif s != nil:
     if s.kind in OverloadableSyms:
       result = symChoice(c, n, s, scClosed)
       if result.kind == nkSym: result = semSym(c, n, s, flags)
@@ -2096,27 +2114,6 @@ proc semDeclared(c: PContext, n: PNode, onlyCurrentScope: bool): PNode =
   result.info = n.info
   result.typ = getSysType(c.graph, n.info, tyBool)
 
-proc expectMacroOrTemplateCall(c: PContext, n: PNode): PSym =
-  ## The argument to the proc should be nkCall(...) or similar
-  ## Returns the macro/template symbol
-  if isCallExpr(n):
-    var expandedSym = qualifiedLookUp(c, n[0], {checkUndeclared})
-    if expandedSym == nil:
-      errorUndeclaredIdentifier(c, n.info, n[0].renderTree)
-      return errorSym(c, n[0])
-
-    if expandedSym.kind notin {skMacro, skTemplate}:
-      localReport(c.config, n.info, reportSym(
-        rsemExpectedMacroOrTemplate, expandedSym))
-
-      return errorSym(c, n[0])
-
-    result = expandedSym
-  else:
-    localReport(c.config, n, reportSem rsemExpectedMacroOrTemplate)
-
-    result = errorSym(c, n)
-
 proc expectString(c: PContext, n: PNode): string =
   var n = semConstExpr(c, n)
   if n.kind in nkStrKinds:
@@ -2129,14 +2126,6 @@ proc newAnonSym(c: PContext; kind: TSymKind, info: TLineInfo): PSym =
 
 proc semExpandToAst(c: PContext, n: PNode): PNode =
   let macroCall = n[1]
-
-  when false:
-    let expandedSym = expectMacroOrTemplateCall(c, macroCall)
-    if expandedSym.kind == skError: return n
-
-    macroCall[0] = newSymNode(expandedSym, macroCall.info)
-    markUsed(c, n.info, expandedSym)
-    onUse(n.info, expandedSym)
 
   if isCallExpr(macroCall):
     for i in 1..<macroCall.len:
@@ -2849,7 +2838,12 @@ proc asBracketExpr(c: PContext; n: PNode): PNode =
   proc isGeneric(c: PContext; n: PNode): bool =
     if n.kind in {nkIdent, nkAccQuoted}:
       let s = qualifiedLookUp(c, n, {})
-      result = s != nil and isGenericRoutineStrict(s)
+      if s.isError:
+        # XXX: move to propagating nkError, skError, and tyError
+        localReport(c.config, s.ast)
+        result = false
+      else:
+        result = s != nil and isGenericRoutineStrict(s)
 
   assert n.kind in nkCallKinds
   if n.len > 1 and isGeneric(c, n[1]):
@@ -2965,7 +2959,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
         {checkUndeclared, checkPureEnumFields, checkModule}
       else:
         {checkUndeclared, checkPureEnumFields, checkModule, checkAmbiguity}
-    var s = qualifiedLookUp2(c, n, checks) # query & production (errors)
+    var s = qualifiedLookUp(c, n, checks) # query & production (errors)
 
     # production (outside of errors above)
     case s.kind
@@ -3061,9 +3055,9 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     #  if gIdeCmd == ideCon and c.config.m.trackPos == n.info: suggestExprNoCheck(c, n)
     let mode = if nfDotField in n.flags: {} else: {checkUndeclared}
     c.isAmbiguous = false
-    var s = qualifiedLookUp2(c, n[0], mode)
+    var s = qualifiedLookUp(c, n[0], mode)
     if s != nil and not s.isError:
-      # xxx: currently `qualifiedLookup2` will set the s.ast field to nkError
+      # xxx: currently `qualifiedLookUp` will set the s.ast field to nkError
       #      if there was an nkError reported instead of the legacy localReport
       #      based flows we need to halt progress. This also needs to do a
       #      better job of raising/handling the fact that we just got an error.

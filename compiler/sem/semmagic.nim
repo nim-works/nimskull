@@ -244,7 +244,10 @@ proc semBindSym(c: PContext, n: PNode): PNode =
 
   let id = newIdentNode(getIdent(c.cache, sl.strVal), n.info)
   let s = qualifiedLookUp(c, id, {checkUndeclared})
-  if s != nil:
+  if s.isError:
+    # XXX: move to propagating nkError, skError, and tyError
+    localReport(c.config, s.ast)
+  elif s != nil:
     # we need to mark all symbols:
     var sc = symChoice(c, id, s, TSymChoiceRule(isMixin.intVal))
     if not (c.inStaticContext > 0 or getCurrOwner(c).isCompileTimeProc):
@@ -252,7 +255,8 @@ proc semBindSym(c: PContext, n: PNode): PNode =
       # nodes (see tinspectsymbol)
       return sc
     result.add(sc)
-  else:
+  
+  if s.isNil or s.isError:
     errorUndeclaredIdentifier(c, n[1].info, sl.strVal)
 
 proc opBindSym(c: PContext, scope: PScope, n: PNode, isMixin: int, info: PNode): PNode =
@@ -268,10 +272,14 @@ proc opBindSym(c: PContext, scope: PScope, n: PNode, isMixin: int, info: PNode):
   let tmpScope = c.currentScope
   c.currentScope = scope
   let s = qualifiedLookUp(c, id, {checkUndeclared})
-  if s != nil:
+  if s.isError:
+    # XXX: move to propagating nkError, skError, and tyError
+    localReport(c.config, s.ast)
+  elif s != nil:
     # we need to mark all symbols:
     result = symChoice(c, id, s, TSymChoiceRule(isMixin))
-  else:
+  
+  if s.isNil or s.isError:
     errorUndeclaredIdentifier(c, info.info, if n.kind == nkIdent: n.ident.s
       else: n.strVal)
   c.currentScope = tmpScope

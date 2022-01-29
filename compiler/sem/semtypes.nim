@@ -432,7 +432,13 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
     result = pickSym(c, n, {skType, skGenericParam, skParam})
     if result.isNil:
       result = qualifiedLookUp(c, n, {checkAmbiguity, checkUndeclared})
-    if result != nil:
+    if result.isError:
+      markUsed(c, n.info, result)
+      onUse(n.info, result)
+
+      # XXX: move to propagating nkError, skError, and tyError
+      localReport(c.config, result.ast)
+    elif result != nil:
       markUsed(c, n.info, result)
       onUse(n.info, result)
 
@@ -1427,11 +1433,10 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
           def = semConstExpr(c, def)
           def = fitNode(c, typ, def, def.info)
 
-    if def.isError():
+    if def.isError:
       # xxx: yet another place where we report errors
       #      got lazy, but this should propagate
-      for e in walkErrors(c.config, def):
-        localReport(c.config, e)
+      localReport(c.config, def)
 
     if not hasType and not hasDefault:
       if isType: internalError(c.config, a.info, "':' expected")

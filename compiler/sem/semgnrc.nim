@@ -154,7 +154,11 @@ proc fuzzyLookup(c: PContext, n: PNode, flags: TSemGenericFlags,
   let luf = if withinMixin notin flags: {checkUndeclared, checkModule} else: {checkModule}
 
   var s = qualifiedLookUp(c, n, luf)
-  if s != nil:
+  if s.isError:
+    # XXX: move to propagating nkError, skError, and tyError
+    localReport(c.config, s.ast)
+    result = s.ast
+  elif s != nil:
     result = semGenericStmtSymbol(c, n, s, ctx, flags)
   else:
     n[0] = semGenericStmt(c, n[0], flags, ctx)
@@ -203,9 +207,6 @@ proc semGenericStmt(c: PContext, n: PNode,
       assert result.sym != nil
       markUsed(c, n.info, result.sym)
   of nkDotExpr:
-    #let luf = if withinMixin notin flags: {checkUndeclared} else: {}
-    #var s = qualifiedLookUp(c, n, luf)
-    #if s != nil: result = semGenericStmtSymbol(c, n, s)
     # XXX for example: ``result.add`` -- ``add`` needs to be looked up here...
     var dummy: bool
     result = fuzzyLookup(c, n, flags, ctx, dummy)
@@ -271,7 +272,7 @@ proc semGenericStmt(c: PContext, n: PNode,
         # we need to put the ``c`` in ``t(c)`` in a mixin context to prevent
         # the famous "undeclared identifier: it" bug:
         mixinContext = true
-      of skUnknown, skParam:
+      of skParam:
         # Leave it as an identifier.
         discard
       of skProc, skFunc, skMethod, skIterator, skConverter, skModule:
@@ -291,6 +292,21 @@ proc semGenericStmt(c: PContext, n: PNode,
           result[0] = newSymNodeTypeDesc(s, c.idgen, fn.info)
           onUse(fn.info, s)
           first = 1
+      of skError:
+        if s.isError: # has the error ast
+          # XXX: move to propagating nkError, skError, and tyError
+          localReport(c.config, s.ast)
+          # XXX: set keep the symbol lookup error around which means we might run
+          #      into duplicate error messages downt the road when most things
+          #      are nkError aware -- the solution then would be to ensure all
+          #      paths are covered and the `walkErrors` and `localReport` above
+          #      is then removed.
+          result[0] = s.ast
+          result = wrapErrorInSubTree(c.config, result)
+          return
+        else: # legacy nimsuggest skUnknown usage          
+          # Leave it as an identifier.
+          discard
       else:
         result[0] = newSymNode(s, fn.info)
         onUse(fn.info, s)

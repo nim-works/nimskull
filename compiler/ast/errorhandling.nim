@@ -186,9 +186,9 @@ iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   buildErrorList(config, n, errNodes)
 
   # report from last to first (deepest in tree to highest)
-  for i in 1..errNodes.len:
+  for i in countdown(errNodes.len - 1, 0):
     # reverse index so we go from the innermost to outermost
-    let e = errNodes[^i]
+    let e = errNodes[i]
     if e.errorKind == rsemWrappedError:
       continue
 

@@ -1032,7 +1032,7 @@ proc deprecatedStmt(c: PContext; outerPragma: PNode): PNode =
     return
   for n in pragma:
     if n.kind in nkPragmaCallKinds and n.len == 2:
-      let dest = qualifiedLookUp2(c, n[1], {checkUndeclared})
+      let dest = qualifiedLookUp(c, n[1], {checkUndeclared})
       if dest == nil or dest.kind in routineKinds or dest.kind == skError:
         # xxx: warnings need to be figured out, also this is just silly, why
         #      are they unreliable?
@@ -1067,7 +1067,7 @@ proc pragmaGuard(c: PContext; it: PNode; kind: TSymKind): PSym =
     result = n.sym
   elif kind == skField:
     # First check if the guard is a global variable:
-    result = qualifiedLookUp2(c, n, {})
+    result = qualifiedLookUp(c, n, {})
     if result.isError:
       # this is an error propagate it
       return
@@ -1079,7 +1079,7 @@ proc pragmaGuard(c: PContext; it: PNode; kind: TSymKind): PSym =
       result = newSym(skUnknown, considerQuotedIdent(c, n), nextSymId(c.idgen), nil, n.info,
         c.config.options)
   else:
-    result = qualifiedLookUp2(c, n, {checkUndeclared})
+    result = qualifiedLookUp(c, n, {checkUndeclared})
 
 proc semCustomPragma(c: PContext, n: PNode): PNode =
   var callNode: PNode

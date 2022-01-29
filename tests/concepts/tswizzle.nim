@@ -1,17 +1,19 @@
 discard """
+  knownIssue: "https://github.com/nim-lang/Nim/issues/2346"
   output: '''3
 [1, 3]
 [2, 1, 2]
 '''
-  knownIssue: "https://github.com/nim-lang/Nim/issues/2346"
 """
+
+{.experimental: "dotOperators".}
 
 import macros, strutils
 
-template accept(e: expr) =
+template accept(e: untyped) =
   static: assert(compiles(e))
 
-template reject(e: expr) =
+template reject(e: untyped) =
   static: assert(not compiles(e))
 
 proc swizzleIdx(c: char): int =
@@ -48,33 +50,32 @@ type
 proc foo(x: SwizzleStr) =
   echo "sw"
 
-#foo("xx")
+accept foo("xx")
 reject foo("xe")
 
 type
   Vec[N: static[int]; T] = array[N, T]
 
-when false:
-  proc card(x: Vec): int = x.N
-  proc `$`(x: Vec): string = x.repr.strip
+proc card(x: Vec): int = x.N
+proc `$`(x: Vec): string = x.repr.strip
 
-  macro `.`(x: Vec, swizzle: SwizzleStr): expr =
-    var
-      cardinality = swizzle.len
-      values = newNimNode(nnkBracket)
-      v = genSym()
+macro `.`(x: Vec, swizzle: SwizzleStr): untyped =
+  var
+    cardinality = swizzle.len
+    values = newNimNode(nnkBracket)
+    v = genSym()
 
-    for c in swizzle:
-      values.add newNimNode(nnkBracketExpr).add(
-        v, c.swizzleIdx.newIntLitNode)
+  for c in swizzle:
+    values.add newNimNode(nnkBracketExpr).add(
+      v, c.swizzleIdx.newIntLitNode)
 
-    return quote do:
-      let `v` = `x`
-      Vec[`cardinality`, `v`.T](`values`)
+  return quote do:
+    let `v` = `x`
+    Vec[`cardinality`, `v`.T](`values`)
 
 var z = Vec([1, 2, 3])
 
-#echo z.card
-#echo z.xz
-#echo z.yxy
+echo z.card
+echo z.xz
+echo z.yxy
 

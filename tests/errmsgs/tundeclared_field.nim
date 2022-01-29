@@ -39,7 +39,7 @@ tundeclared_field.nim(65, 14) Error: expression 'Bi(bad7: 0)' has no type (or is
 xxx in future work, generic instantiations (e.g. `B[int]`) should be shown with their instantiation instead of `tundeclared_field.B`,
 maybe using TPreferedDesc.preferResolved or preferMixed
 ]#
-# line 20
+# line 39
 block:
   type A = object
     a0: int
