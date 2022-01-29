@@ -251,13 +251,6 @@ block troof:
   y[3..5] = [1, 2, 3]
   echo y[3..5]
 
-
-  var d: array['a'..'c', string] = ["a", "b", "c"]
-  doAssert d[^1] == "c"
-
-
-
-
 import strutils, sequtils, typetraits, os
 
 type
@@ -602,3 +595,33 @@ block t18643:
   except IndexDefect:
     caught = true
   doAssert caught, "IndexDefect not caught!"
+
+block backwardsindex:
+  # test for default implementation of backwards index
+
+  type
+    MyType = object
+
+  proc len(arg: MyType): int = 100
+  proc `[]`(arg: MyType; idx: int): int = idx
+
+  var mt: MyType
+
+  doAssert mt[0] == 0
+  doAssert mt[^0] == 100
+  doAssert mt[^1] == 99
+
+  # test for custom backwards index conversion
+
+  type
+    MyOtherType = object
+
+  template `^^`(a: MyOtherType, b: BackwardsIndex): int =
+    ## my conversion of `BackwardsIndex` for `MyOtherType`
+    1000 + int(b)
+
+  proc `[]`(arg: MyOtherType; idx: int): int =
+    idx
+
+  var mot: MyOtherType
+  doAssert mot[^1] == 1001
