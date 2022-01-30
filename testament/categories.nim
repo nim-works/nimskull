@@ -340,12 +340,11 @@ proc setupStdlibTests(execState: var Execution) =
       if namei.cmpPaths(name) == 0: return false
     return true
 
-  for testFile in os.walkDirRec(pattern):
+  for testFile in os.walkDirRec("lib/pure/"):
     if isValid(testFile):
-      let testId: TestIde = execState.testFiles.len
+      let testId: TestId = execState.testFiles.len
       execState.testFiles.add testFile
-      # TODO set the spec override here
-      # execState.testOpts[testId] = TestOptionData(action: actionCompile)
+      execState.testOpts[testId] = TestOptionData(action: some(actionCompile))
 
 # ----------------------------------------------------------------------------
 
