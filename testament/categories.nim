@@ -154,7 +154,7 @@ type
     gcMarkSweep,
     gcBoehm
 
-proc setupGcTests(execState: var Execution, cat: Category) =
+proc setupGcTests(execState: var Execution) =
   ## setup tests for the gc category, requires special handling due to
   ## testament limitations.
 
@@ -217,6 +217,13 @@ proc threadTests(r: var TResults, cat: Category, options: string) =
   for t in os.walkFiles("tests/threads/t*.nim"):
     test(t)
 
+proc setupThreadTests(execState: var Execution) =
+  for t in os.walkFiles("tests/threads/t*.nim"):
+    let testId: TestId = execState.testFiles.len
+    execState.testFiles.add t
+    execState.testOpts[testId] = TestOptionData(
+      optMatrix: @["", "-d:release", "--tlsEmulation:on"])
+
 # ------------------------- IO tests ------------------------------------------
 
 proc ioTests(r: var TResults, cat: Category, options: string) =
@@ -230,6 +237,10 @@ proc ioTests(r: var TResults, cat: Category, options: string) =
   # when a test depends on another test, as it makes tests non-independent,
   # creating complications for batching and megatest logic.
   testSpec r, makeTest("tests/system/tio", options, cat)
+
+proc setupIoTests(execState: var Execution) =
+  # FIXME: not quite sure what the old one did, or how it even worked
+  discard
 
 # ------------------------- debugger tests ------------------------------------
 
@@ -315,6 +326,26 @@ proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
     var testObj = makeTest(testFile, options, cat)
     testObj.spec.action = actionCompile
     testSpec r, testObj
+
+proc setupStdlibTests(execState: var Execution) =
+  proc isValid(file: string): bool =
+    for dir in parentDirs(file, inclusive = false):
+      if dir.lastPathPart in ["includes", "nimcache"]:
+        # e.g.: lib/pure/includes/osenv.nim gives: Error: This is an include file for os.nim!
+        return false
+    let name = extractFilename(file)
+    if name.splitFile.ext != ".nim": return false
+    for namei in disabledFiles:
+      # because of `LockFreeHash.nim` which has case
+      if namei.cmpPaths(name) == 0: return false
+    return true
+
+  for testFile in os.walkDirRec(pattern):
+    if isValid(testFile):
+      let testId: TestIde = execState.testFiles.len
+      execState.testFiles.add testFile
+      # TODO set the spec override here
+      # execState.testOpts[testId] = TestOptionData(action: actionCompile)
 
 # ----------------------------------------------------------------------------
 

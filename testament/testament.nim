@@ -1152,6 +1152,8 @@ type
 
   TestOptionData = object
     optMatrix: seq[string]   ## matrix of cli options for this test
+    # xxx: replace action with a spec and treat as an override
+    # action: Option[TTestAction] ## possible action override
 
   TestOptions = OrderedTable[TestId, TestOptionData]
     ## for legacy reasons (eg: `dllTests`) we need to be able to set per test
@@ -1541,7 +1543,14 @@ proc prepareTestFilesAndSpecs(execState: var Execution) =
       if isCompilerRepo:
         case normCat
         of "gc":
-          setupGcTests(execState, cat)
+          setupGcTests(execState)
+        of "threads":
+          setupThreadTests(execState)
+        of "io":
+          setupIoTests(execState)
+        of "lib":
+          # xxx: implement this proc and all the subsequent handling
+          setupStdlibTests(execState)
         else:
           handled = false
       
@@ -1585,6 +1594,7 @@ proc prepareTestFilesAndSpecs(execState: var Execution) =
 
   # parse all specs
   for testId, test in execState.testFiles.pairs:
+    # TODO this needs to check to see if testsOpts is providing a spec
     execState.testSpecs.add parseSpec(addFileExt(test, ".nim"))
 
 proc prepareTestRuns(execState: var Execution) =
@@ -1605,15 +1615,29 @@ proc prepareTestRuns(execState: var Execution) =
 
     for target in targetsToRun:
       # TODO: create a "target matrix" to cover both js release vs non-release
-      # TODO: handle testOpts.matrix
-      case spec.matrix.len
+      let matrix =
+        if execState.testOpts.hasKey(testId):
+          case spec.matrix.len
+          of 0: # empty
+            # xxx: the fact that we have to screw with the matrix is a bad sign
+            spec.matrix = execState.testOpts[testId]
+          else:
+            var tmp = @[]
+            for o in execState.testOpts.items:
+              for e in spec.matrix.items:
+                tmp.add o & " " & e
+            tmp
+        else:
+          spec.matrix
+
+      case matrix.len
       of 0: # no tests to run
         execState.testRuns.add:
           TestRun(testId: testId, target: target, matrixEntry: noMatrixEntry)
         execState.runTimes.add RunTime()
         execState.runActuals.add RunActual()
       else:
-        for entryId, _ in spec.matrix.pairs:
+        for entryId, _ in matrix.pairs:
           execState.testRuns.add:
             TestRun(testId: testId, target: target, matrixEntry: entryId)
           execState.runTimes.add RunTime()
@@ -1696,10 +1720,10 @@ proc runTests(execState: var Execution) =
       spec = execState.testSpecs[testId]
       testFile = execState.testFiles[testId]
       matrixOptions =
-        if not testRun.matrixEntry == noMatrixEntry:
-          spec.matrix[testRun.matrixEntry]
-        else:
+        if testRun.matrixEntry == noMatrixEntry:
           ""
+        else:
+          spec.matrix[testRun.matrixEntry]
       target = testRun.target
       nimcache = nimcacheDir(testFile, testArgs, testRun.target)
       cmd = prepareTestCmd(spec.getCmd, testFile, testArgs, nimcache, target, matrixOptions)

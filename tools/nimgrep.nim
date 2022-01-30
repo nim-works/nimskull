@@ -7,6 +7,15 @@
 #    distribution, for details about the copyright.
 #
 
+# include a testament spec, because we hack in testing that way
+discard """
+action: "compile"
+targets: "c"
+matrix: "--debugger:on"
+"""
+# Note: force target to C because of MacOS 10.15 SDK headers bug
+# https://github.com/nim-lang/Nim/pull/15612#issuecomment-712471879
+
 import
   os, strutils, parseopt, pegs, re, terminal, osproc, tables, algorithm, times
 
