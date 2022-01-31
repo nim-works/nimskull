@@ -1741,19 +1741,36 @@ proc runTests(execState: var Execution) =
     of actionRun:
       let
         matrixEntryId = testRun.matrixEntry
-        runArgs = execState.testSpecs[testId].matrix[matrixEntryId]
         isJsTarget = testRun.target == targetJs
         testFile = execState.testSpecs[testId].file
-        exeExt  = if isJsTarget: "js"         else: ExeExt
+        exeExt =
+          if isJsTarget:
+            "js"
+          else:
+            ExeExt
         exeFile = changeFileExt(testFile, exeExt)
-        nodeJs  = if isJsTarget: findNodeJs() else: ""
-        exeCmd  = if isJsTarget: nodeJs       else: exeFile
-        # xxx - handle valgrind
+        exeCmd =
+          if isJsTarget:
+            findNodeJs()
+          elif spec.useValgrind != disabled:
+            "valgrind"
+          else: 
+            exeFile.dup(normalizeExe)
         args =
           if isJsTarget:
-            @["--unhandled-rejections=strict", exeFile] & runArgs
+            @["--unhandled-rejections=strict", exeFile]
+          elif spec.useValgrind != disabled:
+            let leakCheck =
+              if spec.useValgrind == leaking:
+                "yes"
+              else:
+                "no"
+
+            @["--error-exitcode=1", "--leak-check=" & leakCheck, exeFile]
           else:
-            @[runArgs]
+            @[]
+
+      # TODO - build out the command based on what gets passed to execCmdEx2 in testSpecHelper
 
       # let runCmd = prepareRunCmd(exeCmd, args, input = expected.input)
       let runCmd = "echo 'running'"
