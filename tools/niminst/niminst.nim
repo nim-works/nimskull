@@ -114,7 +114,7 @@ func iniConfigData(c: var ConfigData) =
 
 func firstBinPath(c: ConfigData): string =
   if c.binPaths.len > 0: result = c.binPaths[0]
-  else: result = ""
+  else: result = "bin"
 
 func `\`(a, b: string): string =
   result = if a.len == 0: b else: a & '\\' & b
