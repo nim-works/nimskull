@@ -164,24 +164,24 @@ proc setupGcTests(execState: var Execution) =
     noConditions = {gcOther, gcMarkSweep, gcBoehm}
 
   let testData = [
-    ("foreign_thr", withoutBoehm),
-    ("gcemscripten", noConditions),
-    ("growobjcrash", noConditions),
-    ("gcbench", noConditions),
-    ("gcleak", noConditions),
-    ("gcleak2", noConditions),
-    ("gctest", withoutBoehm),
-    ("gcleak3", noConditions),
-    ("gcleak4", noConditions),
-    ("weakrefs", withoutBoehm),
-    ("cycleleak", noConditions),
-    ("closureleak", withoutBoehm),
-    ("refarrayleak", withoutMs),
-    ("tlists", withoutBoehm),
-    ("thavlak", withoutBoehm),
-    ("stackrefleak", noConditions),
-    ("cyclecollector", noConditions),
-    ("trace_globals", withoutBoehm)
+    ("foreign_thr.nim", withoutBoehm),
+    ("gcemscripten.nim", noConditions),
+    ("growobjcrash.nim", noConditions),
+    ("gcbench.nim", noConditions),
+    ("gcleak.nim", noConditions),
+    ("gcleak2.nim", noConditions),
+    ("gctest.nim", withoutBoehm),
+    ("gcleak3.nim", noConditions),
+    ("gcleak4.nim", noConditions),
+    ("weakrefs.nim", withoutBoehm),
+    ("cycleleak.nim", noConditions),
+    ("closureleak.nim", withoutBoehm),
+    ("refarrayleak.nim", withoutMs),
+    ("tlists.nim", withoutBoehm),
+    ("thavlak.nim", withoutBoehm),
+    ("stackrefleak.nim", noConditions),
+    ("cyclecollector.nim", noConditions),
+    ("trace_globals.nim", withoutBoehm)
   ]
 
   for (testFile, gcConditions) in testData:

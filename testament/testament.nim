@@ -1129,9 +1129,13 @@ type
     nimout: string           ## nimout from compile, empty if not required
     nimExit: int             ## exit code produced by the compiler
     nimMsg: string           ## last message, if any, from the compiler
+    nimFile: string          ## filename from last compiler message, if present
     nimLine: int             ## line from last compiler message, if present
     nimColumn: int           ## colunn from last compiler message, if present
     nimStatus: CompileStatus ## compilation state based on exit code and msgs
+    # xxx: track data not by run but by action
+    prgOut: string           ## program output, if any
+    prgExit: int             ## program exit, if any
 
   RunActuals = seq[RunActual]
 
@@ -1178,7 +1182,7 @@ type
     testCats:  Categories    ## categories discovered, for this execution
     testFiles: seq[TestFile] ## files for this execution
     testSpecs: seq[TSpec]    ## spec for each file
-    testOpts:  TestOptions   ## per test options, because legacy (`dllTests`)
+    testOpts:  TestOptions   ## per test options, because legacy category magic
 
     # test execution data
     testRuns: seq[TestRun]   ## a test run: reject, compile, or compile + run
@@ -1614,7 +1618,6 @@ proc prepareTestFilesAndSpecs(execState: var Execution) =
       if actionOverride.isSome:
         execState.testSpecs[testId].action = actionOverride.get
 
-
 proc prepareTestRuns(execState: var Execution) =
   ## create a list of necessary testRuns
   # xxx: create specific type to avoid accidental mutation
@@ -1715,7 +1718,9 @@ proc runTests(execState: var Execution) =
   proc onTestRunComplete(id: int, p: Process) =
     endTimes[id] = epochTime()
     exitCodes[id] = p.peekExitCode()
-    outputs[id] = p.outputStream.readAll
+    let outp = p.outputStream
+    outputs[id] = outp.readAll
+    outp.close()
 
   for actionId, action in testActions:
     let
@@ -1734,13 +1739,31 @@ proc runTests(execState: var Execution) =
 
     case action.kind
     of actionRun:
+      let
+        matrixEntryId = testRun.matrixEntry
+        runArgs = execState.testSpecs[testId].matrix[matrixEntryId]
+        isJsTarget = testRun.target == targetJs
+        testFile = execState.testSpecs[testId].file
+        exeExt  = if isJsTarget: "js"         else: ExeExt
+        exeFile = changeFileExt(testFile, exeExt)
+        nodeJs  = if isJsTarget: findNodeJs() else: ""
+        exeCmd  = if isJsTarget: nodeJs       else: exeFile
+        # xxx - handle valgrind
+        args =
+          if isJsTarget:
+            @["--unhandled-rejections=strict", exeFile] & runArgs
+          else:
+            @[runArgs]
+
+      # let runCmd = prepareRunCmd(exeCmd, args, input = expected.input)
+      let runCmd = "echo 'running'"
       if testCmds.len == 0: # we've already processed its dependency
         # testCmds.add "echo '$1'" % quoteShell(cmd)
-        testCmds.add "echo 'running'"
+        testCmds.add runCmd
         cmdIdToActId.add actionId
       else: # dependency is in the current batch, add to the next
         # nextTestCmds.add "echo '$1'" % quoteShell(cmd)
-        nextTestCmds.add cmd
+        nextTestCmds.add runCmd
         nextCmdIdToActId.add actionId
     of actionCompile, actionReject:
       # add to this batch
@@ -1766,16 +1789,69 @@ proc runTests(execState: var Execution) =
           actionId = cmdIdToActId[id]
           action = execState.actions[actionId]
           runId = action.runId
+          testRun = execState.testRuns[runId]
+          testId = testRun.testId
           duration = endTimes[id] - startTimes[id]
           durationStr = duration.formatFloat(ffDecimal, precision = 2).align(5)
         case action.kind
         of actionRun:
           execState.runTimes[runId].runStart = startTimes[id]
           execState.runTimes[runId].runEnd = endTimes[id]
+
         else:
           execState.runTimes[runId].compileStart = startTimes[id]
           execState.runTimes[runId].compileEnd = endTimes[id]
-          echo "batch: ", batches, ", runId: ", runId, ", actionId: ", actionId, ", duration: ", durationStr, ", cmd: ", testCmds[id]
+          
+          # xxx - refactor into a proc
+
+          # look for compilation errors or success messages
+          let output = newStringStream(outputs[id])
+          var
+            line = newStringOfCap(120)
+            err = ""
+            foundSuccessMsg = false
+          while output.readLine(line):
+            trimUnitSep line
+            execState.runActuals[runId].nimout.add(line & '\n')
+            if line =~ pegOfInterest:
+              # `err` should contain the last error message
+              err = line
+            elif line.isSuccess:
+              foundSuccessMsg = true
+          output.close
+          
+          # validate exist codes and collect action debug info
+          execState.runActuals[runId].nimExit = exitCodes[id]
+          execState.runActuals[runId].nimStatus = CompileCrashed
+          case exitCodes[id]
+          of 0:
+            if err != "":
+              execState.debugInfo.mgetOrPut(actionId, "").add:
+                " compiler exit code was 0 but some Error's were found"
+            else:
+              execState.runActuals[runId].nimStatus = CompileSuccessful
+          of 1:
+            if err == "": # no error found
+              execState.debugInfo.mgetOrPut(actionId, "").add:
+                " compiler exit code was 1 but no Error's were found."
+            if foundSuccessMsg:
+              execState.debugInfo.mgetOrPut(actionId, "").add:
+                " compiler exit code was 1 but found a success message (see: testament.isSuccess)."
+          else:
+            execState.debugInfo.mgetOrPut(actionId, "").add:
+              " expected compiler exit code 0 or 1, got $1." % $exitCodes[id]
+          
+          # set the last error message and get any relevant position info
+          if err =~ pegLineError:
+            execState.runActuals[runId].nimMsg = matches[3]
+            execState.runActuals[runId].nimFile = extractFilename(matches[0])
+            execState.runActuals[runId].nimLine = parseInt(matches[1])
+            execState.runActuals[runId].nimColumn = parseInt(matches[2])
+          elif err =~ pegOtherError:
+            execState.runActuals[runId].nimMsg = matches[0]
+          execState.runActuals[runId].nimMsg.trimUnitSep
+
+        echo "batch: ", batches, ", runId: ", runId, ", actionId: ", actionId, ", duration: ", durationStr, ", cmd: ", testCmds[id]
         # echo "batch: ", batches, ", runId: ", runId, ", actionId: ", actionId,
         #       ", duration: ", durationStr, " sec"
         # echo outputs[id]
