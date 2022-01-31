@@ -19,8 +19,6 @@ IF DEFINED ARCH (
 )
 ECHO Building with %ARCH% bit %CC%
 
-if EXIST ..\koch.nim SET BIN_DIR=..\bin
-
 if NOT EXIST %BIN_DIR%\nul mkdir %BIN_DIR%
 
 REM call the compiler:
