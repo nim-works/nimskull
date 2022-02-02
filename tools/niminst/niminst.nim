@@ -22,6 +22,7 @@ const
   deinstallShFile = "deinstall.sh"
   csourcesReleaseFile = "csources-release"
   releaseFile = "release.json"
+  archiveManifestFile = "archive.json"
 
 type
   AppType = enum appConsole, appGUI
@@ -769,7 +770,52 @@ proc checkedShellExec(cmd: string) =
   if exitCode != 0:
     raise newExternalProgramError(exitCode)
 
-proc archiveDist(c: var ConfigData) =
+proc computeChecksum(file: string): string =
+  ## Calculate the SHA256 hash for `file`.
+  let p = startProcess(
+    "openssl",
+    args = ["dgst", "-sha256", quoteShell(file)],
+    options = {poUsePath, poStdErrToStdOut, poEchoCmd}
+  )
+
+  defer: close p
+
+  let exitCode = p.waitForExit()
+
+  if exitCode != 0:
+    stderr.write p.outputStream.readAll()
+    raise newExternalProgramError(exitCode)
+  else:
+    # OpenSSL produces output in this format:
+    #
+    #   algo(filename)= checksum
+    #
+    # First separate the checksum out
+    result = p.outputStream.readAll().rsplit('=', maxsplit = 2)[1]
+    # Then trim trailing space on both sides
+    result = result.strip()
+
+type
+  ArchiveKind {.pure.} = enum
+    Source = "source"
+    Binary = "binary"
+
+  ArchiveManifest = object
+    ## The generated archive manifest. This object is used as the schema for
+    ## the generated JSON, so changes should be reflected to its users
+    ## (currently release_maker).
+    name: string ## The archive file name
+    sha256: string ## The archive checksum
+    version: string ## The project version
+    case kind: ArchiveKind ## The archive type, in the generated JSON this field
+                           ## will be a string.
+    of Binary:
+      os: string ## The binary archive target OS
+      cpu: string ## The binary archive target CPU
+    of Source:
+      discard
+
+proc createArchiveDist(c: var ConfigData) =
   ## Create the archive distribution
   let proj = toLowerAscii(c.name) & "-" & c.version
   let tmpDir = if c.outdir.len == 0: "build" else: c.outdir
@@ -903,6 +949,19 @@ proc archiveDist(c: var ConfigData) =
     # has no bearing on the creation of the archive.
     paths.sort()
 
+    var manifest =
+      if c.binCat != {}:
+        ArchiveManifest(
+          kind: Binary,
+          # Since cross-compiling is not supported, use hostOS and hostCPU
+          # here.
+          os: hostOS,
+          cpu: hostCPU,
+          version: c.version
+        )
+      else:
+        ArchiveManifest(kind: Source, version: c.version)
+
     case c.format
     of Zip:
       # Write the list into a file then supply that file to archival programs to
@@ -914,10 +973,12 @@ proc archiveDist(c: var ConfigData) =
       # affected by the timezone.
       putEnv("TZ", "UTC")
 
+      manifest.name = archiveBaseName & ".zip"
+
       # TODO: Get rid of this hack once osproc gain the ability to modify just
       # one portion of the child standard I/O.
       checkedShellExec:
-        "zip -nw -X -@ $1 < $2" % [quoteShell(archiveBaseName & ".zip"), quoteShell(fileList)]
+        "zip -nw -X -@ $1 < $2" % [quoteShell(manifest.name), quoteShell(fileList)]
 
     of tarFormats:
       # Write the list into a file then supply that file to archival programs to
@@ -959,6 +1020,7 @@ proc archiveDist(c: var ConfigData) =
       case c.format
       of TarXz:
         checkedExec("xz", "-9f", tarball)
+        manifest.name = tarball & ".xz"
       of TarZst:
         # Archive level 20 gives us roughly the same ratio as xz while having
         # around 40% speed up in decompression time and a lot more in
@@ -966,9 +1028,16 @@ proc archiveDist(c: var ConfigData) =
         checkedExec(
           "zstd", "-T0", "-20f", "--ultra", "--rm", tarball
         )
+        manifest.name = tarball & ".zst"
       else:
-        discard
+        manifest.name = tarball
 
+    # Compute the archive checksum
+    manifest.sha256 = computeChecksum(manifest.name)
+    # Write the archive manifest to `archive.json`
+    writeFile(archiveManifestFile, $ %manifest)
+    
+    echo "Archive manifest written to: ", expandFilename(archiveManifestFile)
   finally:
     setCurrentDir(oldDir)
 
@@ -1034,7 +1103,7 @@ proc main() =
   if actionScripts in c.actions:
     writeInstallScripts(c)
   if actionArchive in c.actions:
-    archiveDist(c)
+    createArchiveDist(c)
   if actionDeb in c.actions:
     debDist(c)
 
