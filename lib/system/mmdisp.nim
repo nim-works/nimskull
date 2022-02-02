@@ -14,7 +14,6 @@
 {.push checks:off.}
 
 const
-  debugGC = false # we wish to debug the GC...
   logGC = false
   traceGC = false # extensive debugging
   alwaysCycleGC = defined(nimSmokeCycles)
@@ -34,9 +33,6 @@ const
 
 type
   PPointer = ptr pointer
-  ByteArray = UncheckedArray[byte]
-  PByte = ptr ByteArray
-  PString = ptr string
 
 when declared(IntsPerTrunk):
   discard

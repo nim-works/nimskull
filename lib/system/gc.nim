@@ -180,13 +180,6 @@ proc internRefcount(p: pointer): int {.exportc: "getRefcount".} =
 when BitsPerPage mod (sizeof(int)*8) != 0:
   {.error: "(BitsPerPage mod BitsPerUnit) should be zero!".}
 
-template color(c): untyped = c.refCount and colorMask
-template setColor(c, col) =
-  when col == rcBlack:
-    c.refcount = c.refcount and not colorMask
-  else:
-    c.refcount = c.refcount and not colorMask or col
-
 when defined(logGC):
   proc writeCell(msg: cstring, c: PCell) =
     var kind = -1
@@ -735,10 +728,10 @@ proc collectZCT(gch: var GcHeap): bool =
   # deep freeing, which is bad for incremental operation. In order to
   # avoid a deep stack, we move objects to keep the ZCT small.
   # This is performance critical!
-  const workPackage = 100
   var L = addr(gch.zct.len)
 
   when withRealTime:
+    const workPackage = 100
     var steps = workPackage
     var t0: Ticks
     if gch.maxPause > 0: t0 = getticks()

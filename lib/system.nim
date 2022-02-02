@@ -541,9 +541,6 @@ const
 
 include "system/inclrtl"
 
-const NoFakeVars = defined(nimscript) ## `true` if the backend doesn't support \
-  ## "fake variables" like `var EBADF {.importc.}: cint`.
-
 const notJSnotNims = not defined(js) and not defined(nimscript)
 
 when not defined(js) and not defined(nimSeqsV2):

@@ -115,12 +115,6 @@ proc copyString(src: NimString): NimString {.compilerRtl.} =
         if (src.reserved and strlitFlag) != 0:
           result.reserved = (result.reserved and not strlitFlag) or seqShallowFlag
 
-proc newOwnedString(src: NimString; n: int): NimString =
-  result = rawNewStringNoInit(n)
-  result.len = n
-  copyMem(addr(result.data), addr(src.data), n)
-  result.data[n] = '\0'
-
 proc copyStringRC1(src: NimString): NimString {.compilerRtl.} =
   if src != nil:
     if (src.reserved and seqShallowFlag) != 0:
