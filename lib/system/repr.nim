@@ -142,10 +142,6 @@ when not defined(useNimRtl):
     when hasThreadSupport and hasSharedHeap and declared(heapLock):
       ReleaseSys(HeapLock)
 
-  proc reprBreak(result: var string, cl: ReprClosure) =
-    add result, "\n"
-    for i in 0..cl.indent-1: add result, ' '
-
   proc reprAux(result: var string, p: pointer, typ: PNimType,
                cl: var ReprClosure) {.benign.}
 

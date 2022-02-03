@@ -49,9 +49,6 @@ import
     msgs,
     options
   ],
-  utils/[
-    debugutils
-  ],
   sem/[
     lowerings,
     transf

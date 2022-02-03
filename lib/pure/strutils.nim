@@ -1493,7 +1493,7 @@ func delete*(s: var string, slice: Slice[int]) =
     a.delete(1..<1) # empty slice
     assert a == "ad"
   when compileOption("boundChecks"):
-    if not (slice.a < s.len and slice.a >= 0 and slice.b < s.len):
+    if (slice.a > s.len) or (slice.a < 0) or (slice.b >= s.len):
       raise newException(IndexDefect, $(slice: slice, len: s.len))
   if slice.b >= slice.a:
     var i = slice.a
@@ -1626,7 +1626,7 @@ func removePrefix*(s: var string, chars: set[char] = Newlines) {.rtl,
 
   var start = 0
   while start < s.len and s[start] in chars: start += 1
-  if start > 0: s.delete(0, start - 1)
+  if start > 0: s.delete(0 ..< start)
 
 func removePrefix*(s: var string, c: char) {.rtl,
     extern: "nsuRemovePrefixChar".} =
@@ -1654,7 +1654,7 @@ func removePrefix*(s: var string, prefix: string) {.rtl,
     answers.removePrefix("yes")
     doAssert answers == "yes"
   if s.startsWith(prefix):
-    s.delete(0, prefix.len - 1)
+    s.delete(0 ..< prefix.len)
 
 func removeSuffix*(s: var string, chars: set[char] = Newlines) {.rtl,
     extern: "nsuRemoveSuffixCharSet".} =
@@ -2449,7 +2449,7 @@ func trimZeros*(x: var string; decimalSep = '.') =
     var pos = last
     while pos >= 0 and x[pos] == '0': dec(pos)
     if pos > sPos: inc(pos)
-    x.delete(pos, last)
+    x.delete(pos .. last)
 
 type
   BinaryPrefixMode* = enum ## The different names for binary prefixes.

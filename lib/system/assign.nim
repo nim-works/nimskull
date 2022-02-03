@@ -40,19 +40,20 @@ proc genericAssignAux(dest, src: pointer, n: ptr TNimNode,
   #  echo "ugh memory corruption! ", n.kind
   #  quit 1
 
-template deepSeqAssignImpl(operation, additionalArg) {.dirty.} =
-  var d = cast[ptr NimSeqV2Reimpl](dest)
-  var s = cast[ptr NimSeqV2Reimpl](src)
-  d.len = s.len
-  let elem = mt.base
-  d.p = cast[ptr NimSeqPayloadReimpl](newSeqPayload(s.len, elem.size, elem.align))
+when defined(nimSeqsV2):
+  template deepSeqAssignImpl(operation, additionalArg) {.dirty.} =
+    var d = cast[ptr NimSeqV2Reimpl](dest)
+    var s = cast[ptr NimSeqV2Reimpl](src)
+    d.len = s.len
+    let elem = mt.base
+    d.p = cast[ptr NimSeqPayloadReimpl](newSeqPayload(s.len, elem.size, elem.align))
 
-  let bs = elem.size
-  let ba = elem.align
-  let headerSize = align(sizeof(NimSeqPayloadBase), ba)
+    let bs = elem.size
+    let ba = elem.align
+    let headerSize = align(sizeof(NimSeqPayloadBase), ba)
 
-  for i in 0..d.len-1:
-    operation(d.p +! (headerSize+i*bs), s.p +! (headerSize+i*bs), mt.base, additionalArg)
+    for i in 0..d.len-1:
+      operation(d.p +! (headerSize+i*bs), s.p +! (headerSize+i*bs), mt.base, additionalArg)
 
 proc genericAssignAux(dest, src: pointer, mt: PNimType, shallow: bool) =
   var

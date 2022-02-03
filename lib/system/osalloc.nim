@@ -18,16 +18,6 @@ sysAssert(roundup(65, 8) == 72, "roundup broken 2")
 
 # ------------ platform specific chunk allocation code -----------
 
-# some platforms have really weird unmap behaviour:
-# unmap(blockStart, PageSize)
-# really frees the whole block. Happens for Linux/PowerPC for example. Amd64
-# and x86 are safe though; Windows is special because MEM_RELEASE can only be
-# used with a size of 0. We also allow unmapping to be turned off with
-# -d:nimAllocNoUnmap:
-const doNotUnmap = not (defined(amd64) or defined(i386)) or
-                   defined(windows) or defined(nimAllocNoUnmap)
-
-
 when defined(nimAllocPagesViaMalloc):
   when not defined(gcArc) and not defined(gcOrc):
     {.error: "-d:nimAllocPagesViaMalloc is only supported with --gc:arc or --gc:orc".}

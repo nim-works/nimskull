@@ -14,9 +14,6 @@
 
 {.push stack_trace: off.}
 
-const
-  NilLibHandle: LibHandle = nil
-
 proc nimLoadLibraryError(path: string) =
   # carefully written to avoid memory allocation:
   const prefix = "could not load: "
@@ -85,7 +82,8 @@ when defined(posix):
   proc dlsym(lib: LibHandle, name: cstring): ProcAddr {.
       importc, header: "<dlfcn.h>".}
 
-  proc dlerror(): cstring {.importc, header: "<dlfcn.h>".}
+  when defined(nimDebugDlOpen):
+    proc dlerror(): cstring {.importc, header: "<dlfcn.h>".}
 
   proc nimUnloadLibrary(lib: LibHandle) =
     dlclose(lib)

@@ -218,7 +218,7 @@ proc parseString(my: var JsonParser): TokKind =
           add(my.a, 'u')
         inc(pos, 2)
         var pos2 = pos
-        var r = parseEscapedUTF16(my.buf, pos)
+        var r = parseEscapedUTF16(my.buf.cstring, pos)
         if r < 0:
           my.err = errInvalidToken
           break
@@ -228,7 +228,7 @@ proc parseString(my: var JsonParser): TokKind =
             my.err = errInvalidToken
             break
           inc(pos, 2)
-          var s = parseEscapedUTF16(my.buf, pos)
+          var s = parseEscapedUTF16(my.buf.cstring, pos)
           if (s and 0xfc00) == 0xdc00 and s > 0:
             r = 0x10000 + (((r - 0xd800) shl 10) or (s - 0xdc00))
           else:
