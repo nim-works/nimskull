@@ -1692,8 +1692,12 @@ proc runTests(execState: var Execution) =
   var
     testCmds = newSeqOfCap[string](batchSize)
     cmdIdToActId = newSeqOfCap[int](batchSize)
+    cmdIdToActKind = newSeqOfCap[TTestAction](batchSize)
+    cmdIdToInput = newSeqOfCap[Option[string]](batchSize)
     nextTestCmds = newSeqOfCap[string](batchSize)
     nextCmdIdToActId = newSeqOfCap[int](batchSize)
+    nextCmdIdToActKind = newSeqOfCap[TTestAction](batchSize)
+    nextCmdIdToInput = newSeqOfCap[Option[string]](batchSize)
     exitCodes {.threadvar.}: seq[int]
     outputs {.threadvar.}: seq[string]
     startTimes {.threadvar.}: seq[float]
@@ -1714,6 +1718,15 @@ proc runTests(execState: var Execution) =
     exitCodes[id] = 0
     outputs[id] = ""
     endTimes[id] = 0.0
+
+  proc onTestProcess(id: int, p: Process) =
+    let testInput = cmdIdToInput[id]
+    if testInput.isSome:
+      let instream = inputStream(p)
+      instream.write(testInput.get())
+      close instream
+    else:
+      discard
 
   proc onTestRunComplete(id: int, p: Process) =
     endTimes[id] = epochTime()
@@ -1736,11 +1749,14 @@ proc runTests(execState: var Execution) =
       target = testRun.target
       nimcache = nimcacheDir(testFile, testArgs, testRun.target)
       cmd = prepareTestCmd(spec.getCmd, testFile, testArgs, nimcache, target, matrixOptions)
+      testInput =
+        case action.kind
+        of actionRun: some(spec.input)
+        else: options.none[string]()
 
     case action.kind
     of actionRun:
       let
-        matrixEntryId = testRun.matrixEntry
         isJsTarget = testRun.target == targetJs
         testFile = execState.testSpecs[testId].file
         exeExt =
@@ -1769,24 +1785,31 @@ proc runTests(execState: var Execution) =
             @["--error-exitcode=1", "--leak-check=" & leakCheck, exeFile]
           else:
             @[]
+        cmd = (@[exeCmd] & args).map(quoteShell).join(" ")
 
       # TODO - build out the command based on what gets passed to execCmdEx2 in testSpecHelper
 
-      # let runCmd = prepareRunCmd(exeCmd, args, input = expected.input)
-      let runCmd = "echo 'running'"
+      let runCmd = cmd
+      # let runCmd = "echo 'running'"
       if testCmds.len == 0: # we've already processed its dependency
         # testCmds.add "echo '$1'" % quoteShell(cmd)
         testCmds.add runCmd
         cmdIdToActId.add actionId
+        cmdIdToActKind.add action.kind
+        cmdIdToInput.add testInput
       else: # dependency is in the current batch, add to the next
         # nextTestCmds.add "echo '$1'" % quoteShell(cmd)
         nextTestCmds.add runCmd
         nextCmdIdToActId.add actionId
+        nextCmdIdToActKind.add action.kind
+        nextCmdIdToInput.add testInput
     of actionCompile, actionReject:
       # add to this batch
       # testCmds.add "echo '$1'" % quoteShell(cmd)
       testCmds.add cmd
       cmdIdToActId.add actionId
+      cmdIdToActKind.add action.kind
+      cmdIdToInput.add testInput
 
     template runTestBatch() {.dirty.} =
       inc batches
@@ -1798,6 +1821,7 @@ proc runTests(execState: var Execution) =
           processOpts,
           batchSize,
           onTestRunStart,
+          onTestProcess,
           onTestRunComplete
         )
 
@@ -1810,11 +1834,40 @@ proc runTests(execState: var Execution) =
           testId = testRun.testId
           duration = endTimes[id] - startTimes[id]
           durationStr = duration.formatFloat(ffDecimal, precision = 2).align(5)
+          spec = execState.testSpecs[testId]
         case action.kind
         of actionRun:
           execState.runTimes[runId].runStart = startTimes[id]
           execState.runTimes[runId].runEnd = endTimes[id]
 
+          let output = newStringStream(outputs[id])
+          var line = newStringOfCap(120)
+          while output.readLine(line):
+            execState.runActuals[runId].prgOut.add(line & '\n')
+          output.close
+
+          execState.runActuals[runId].prgExit = exitCodes[id]
+
+          # xxx - very ridiculous approach to comparing output, legacy junk
+          #       sorry, i can't even being to explain this mess; brought over
+          #       from `testSpecHelper`
+          let
+            sillyBuffer =
+              if spec.sortoutput:
+                var buffer = execState.runActuals[runId].prgOut
+                buffer.stripLineEnd
+                var x = buffer.splitLines
+                sort(x, system.cmp)
+                x.join("\n") & '\n'
+              else:
+                execState.runActuals[runId].prgOut
+          if execState.runActuals[runId].prgExit != spec.exitCode:
+            discard # TODO - something about failure
+          elif (spec.outputCheck == ocEqual and not spec.output.equalModuloLastNewLine(sillyBuffer)) or
+               (spec.outputCheck == ocSubstr and spec.output notin sillyBuffer):
+                 discard # TODO - something about output failure
+          else:
+            discard # TODO - compare output results
         else:
           execState.runTimes[runId].compileStart = startTimes[id]
           execState.runTimes[runId].compileEnd = endTimes[id]
@@ -1877,6 +1930,8 @@ proc runTests(execState: var Execution) =
       # clear old batch information
       testCmds.setLen(0)
       cmdIdToActId.setLen(0)
+      cmdIdToActKind.setLen(0)
+      cmdIdToInput.setLen(0)
 
     let
       lastActionId = testActions.len - 1
@@ -1891,10 +1946,14 @@ proc runTests(execState: var Execution) =
       # copy next cmds and cmd id to run id map to current
       testCmds = nextTestCmds
       cmdIdToActId = nextCmdIdToActId
-      
+      cmdIdToActKind = nextCmdIdToActKind
+      cmdIdToInput = nextCmdIdToInput      
+
       # clear old next batch information
       nextTestCmds.setLen(0)
       nextCmdIdToActId.setLen(0)
+      nextCmdIdToActKind.setLen(0)
+      nextCmdIdToInput.setLen(0)
 
     if nextBatchFull or lastAction:
       runTestBatch()

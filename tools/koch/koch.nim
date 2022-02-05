@@ -452,7 +452,7 @@ proc winRelease*() =
 template `|`(a, b): string = (if a.len > 0: a else: b)
 
 proc tests(args: string) =
-  nimexec "cc --opt:speed testament/testament"
+  nimexec "--lib:lib cc --opt:speed testament/testament"
   var testCmd = quoteShell(getCurrentDir() / "testament/testament".exe)
   testCmd.add " " & quoteShell("--nim:" & findNim())
   testCmd.add " " & (args|"all")
