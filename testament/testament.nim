@@ -1747,7 +1747,7 @@ proc runTests(execState: var Execution) =
         else:
           spec.matrix[testRun.matrixEntry]
       target = testRun.target
-      nimcache = nimcacheDir(testFile, testArgs, testRun.target)
+      nimcache = nimcacheDir(testFile, testArgs, target)
       cmd = prepareTestCmd(spec.getCmd, testFile, testArgs, nimcache, target, matrixOptions)
       testInput =
         case action.kind
@@ -1757,14 +1757,14 @@ proc runTests(execState: var Execution) =
     case action.kind
     of actionRun:
       let
-        isJsTarget = testRun.target == targetJs
-        testFile = execState.testSpecs[testId].file
+        isJsTarget = target == targetJs
+        specFile = execState.testSpecs[testId].file
         exeExt =
           if isJsTarget:
             "js"
           else:
             ExeExt
-        exeFile = changeFileExt(testFile, exeExt)
+        exeFile = changeFileExt(specFile, exeExt)
         exeCmd =
           if isJsTarget:
             findNodeJs()
