@@ -1133,7 +1133,7 @@ type
     nimLine: int             ## line from last compiler message, if present
     nimColumn: int           ## colunn from last compiler message, if present
     nimStatus: CompileStatus ## compilation state based on exit code and msgs
-    # xxx: track data not by run but by action
+    # xxx: maybe track data by action instead of by run?
     prgOut: string           ## program output, if any
     prgExit: int             ## program exit, if any
 
@@ -1947,7 +1947,9 @@ proc runTests(execState: var Execution) =
       testCmds = nextTestCmds
       cmdIdToActId = nextCmdIdToActId
       cmdIdToActKind = nextCmdIdToActKind
-      cmdIdToInput = nextCmdIdToInput      
+      cmdIdToInput = nextCmdIdToInput
+
+      # TODO - check for action failures and invalidate actions in next
 
       # clear old next batch information
       nextTestCmds.setLen(0)
