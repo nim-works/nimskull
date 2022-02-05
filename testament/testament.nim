@@ -1674,6 +1674,137 @@ proc prepareTestActions(execState: var Execution) =
       execState.actions.add:
         TestAction(runId: runId, kind: actionRun)
 
+template runTestBatch(execState: var Execution,
+                      testCmds: seq[string],
+                      processOpts: set[ProcessOption],
+                      batchSize: int,
+                      exitCodes: seq[int],
+                      outputs: seq[string],
+                      startTimes, endTimes: seq[float],
+                      onTestRunStart: proc (i: int),
+                      onTestProcess, onTestRunComplete: proc (i: int, p: Process),
+                      cmdIdToActId: var seq[int],
+                      cmdIdToActKind: var seq[TTestAction],
+                      cmdIdToInput: var seq[Option[string]]
+                      ) =
+  inc batches
+
+  # run actions
+  #echo "execProcesses with: ", testCmds, processOpts, batchSize #, " and map: ", cmdIdToActId
+  discard osproc.execProcesses(
+      testCmds,
+      processOpts,
+      batchSize,
+      onTestRunStart,
+      onTestProcess,
+      onTestRunComplete
+    )
+
+  for id in 0..<cmdIdToActId.len:
+    let
+      actionId = cmdIdToActId[id]
+      action = execState.actions[actionId]
+      runId = action.runId
+      testRun = execState.testRuns[runId]
+      testId = testRun.testId
+      duration = endTimes[id] - startTimes[id]
+      durationStr = duration.formatFloat(ffDecimal, precision = 2).align(5)
+      spec = execState.testSpecs[testId]
+    case action.kind
+    of actionRun:
+      execState.runTimes[runId].runStart = startTimes[id]
+      execState.runTimes[runId].runEnd = endTimes[id]
+
+      let output = newStringStream(outputs[id])
+      var line = newStringOfCap(120)
+      while output.readLine(line):
+        execState.runActuals[runId].prgOut.add(line & '\n')
+      output.close
+
+      execState.runActuals[runId].prgExit = exitCodes[id]
+
+      # xxx - very ridiculous approach to comparing output, legacy junk
+      #       sorry, i can't even being to explain this mess; brought over
+      #       from `testSpecHelper`
+      let
+        sillyBuffer =
+          if spec.sortoutput:
+            var buffer = execState.runActuals[runId].prgOut
+            buffer.stripLineEnd
+            var x = buffer.splitLines
+            sort(x, system.cmp)
+            x.join("\n") & '\n'
+          else:
+            execState.runActuals[runId].prgOut
+      if execState.runActuals[runId].prgExit != spec.exitCode:
+        discard # TODO - something about failure
+      elif (spec.outputCheck == ocEqual and not spec.output.equalModuloLastNewLine(sillyBuffer)) or
+            (spec.outputCheck == ocSubstr and spec.output notin sillyBuffer):
+              discard # TODO - something about output failure
+      else:
+        discard # TODO - compare output results
+    else:
+      execState.runTimes[runId].compileStart = startTimes[id]
+      execState.runTimes[runId].compileEnd = endTimes[id]
+      
+      # xxx - refactor into a proc
+
+      # look for compilation errors or success messages
+      let output = newStringStream(outputs[id])
+      var
+        line = newStringOfCap(120)
+        err = ""
+        foundSuccessMsg = false
+      while output.readLine(line):
+        trimUnitSep line
+        execState.runActuals[runId].nimout.add(line & '\n')
+        if line =~ pegOfInterest:
+          # `err` should contain the last error message
+          err = line
+        elif line.isSuccess:
+          foundSuccessMsg = true
+      output.close
+      
+      # validate exist codes and collect action debug info
+      execState.runActuals[runId].nimExit = exitCodes[id]
+      execState.runActuals[runId].nimStatus = CompileCrashed
+      case exitCodes[id]
+      of 0:
+        if err != "":
+          execState.debugInfo.mgetOrPut(actionId, "").add:
+            " compiler exit code was 0 but some Error's were found"
+        else:
+          execState.runActuals[runId].nimStatus = CompileSuccessful
+      of 1:
+        if err == "": # no error found
+          execState.debugInfo.mgetOrPut(actionId, "").add:
+            " compiler exit code was 1 but no Error's were found."
+        if foundSuccessMsg:
+          execState.debugInfo.mgetOrPut(actionId, "").add:
+            " compiler exit code was 1 but found a success message (see: testament.isSuccess)."
+      else:
+        execState.debugInfo.mgetOrPut(actionId, "").add:
+          " expected compiler exit code 0 or 1, got $1." % $exitCodes[id]
+      
+      # set the last error message and get any relevant position info
+      if err =~ pegLineError:
+        execState.runActuals[runId].nimMsg = matches[3]
+        execState.runActuals[runId].nimFile = extractFilename(matches[0])
+        execState.runActuals[runId].nimLine = parseInt(matches[1])
+        execState.runActuals[runId].nimColumn = parseInt(matches[2])
+      elif err =~ pegOtherError:
+        execState.runActuals[runId].nimMsg = matches[0]
+      execState.runActuals[runId].nimMsg.trimUnitSep
+
+    echo "batch: ", batches, ", runId: ", runId, ", actionId: ", actionId, ", duration: ", durationStr, ", cmd: ", testCmds[id]
+    # xxx: exitcode and outputs
+
+  # clear old batch information
+  testCmds.setLen(0)
+  cmdIdToActId.setLen(0)
+  cmdIdToActKind.setLen(0)
+  cmdIdToInput.setLen(0)
+
 proc runTests(execState: var Execution) =
   ## execute test runs in batches of test actions
   # xxx: create specific type to avoid accidental mutation
@@ -1811,128 +1942,6 @@ proc runTests(execState: var Execution) =
       cmdIdToActKind.add action.kind
       cmdIdToInput.add testInput
 
-    template runTestBatch() {.dirty.} =
-      inc batches
-
-      # run actions
-      #echo "execProcesses with: ", testCmds, processOpts, batchSize #, " and map: ", cmdIdToActId
-      discard osproc.execProcesses(
-          testCmds,
-          processOpts,
-          batchSize,
-          onTestRunStart,
-          onTestProcess,
-          onTestRunComplete
-        )
-
-      for id in 0..<cmdIdToActId.len:
-        let
-          actionId = cmdIdToActId[id]
-          action = execState.actions[actionId]
-          runId = action.runId
-          testRun = execState.testRuns[runId]
-          testId = testRun.testId
-          duration = endTimes[id] - startTimes[id]
-          durationStr = duration.formatFloat(ffDecimal, precision = 2).align(5)
-          spec = execState.testSpecs[testId]
-        case action.kind
-        of actionRun:
-          execState.runTimes[runId].runStart = startTimes[id]
-          execState.runTimes[runId].runEnd = endTimes[id]
-
-          let output = newStringStream(outputs[id])
-          var line = newStringOfCap(120)
-          while output.readLine(line):
-            execState.runActuals[runId].prgOut.add(line & '\n')
-          output.close
-
-          execState.runActuals[runId].prgExit = exitCodes[id]
-
-          # xxx - very ridiculous approach to comparing output, legacy junk
-          #       sorry, i can't even being to explain this mess; brought over
-          #       from `testSpecHelper`
-          let
-            sillyBuffer =
-              if spec.sortoutput:
-                var buffer = execState.runActuals[runId].prgOut
-                buffer.stripLineEnd
-                var x = buffer.splitLines
-                sort(x, system.cmp)
-                x.join("\n") & '\n'
-              else:
-                execState.runActuals[runId].prgOut
-          if execState.runActuals[runId].prgExit != spec.exitCode:
-            discard # TODO - something about failure
-          elif (spec.outputCheck == ocEqual and not spec.output.equalModuloLastNewLine(sillyBuffer)) or
-               (spec.outputCheck == ocSubstr and spec.output notin sillyBuffer):
-                 discard # TODO - something about output failure
-          else:
-            discard # TODO - compare output results
-        else:
-          execState.runTimes[runId].compileStart = startTimes[id]
-          execState.runTimes[runId].compileEnd = endTimes[id]
-          
-          # xxx - refactor into a proc
-
-          # look for compilation errors or success messages
-          let output = newStringStream(outputs[id])
-          var
-            line = newStringOfCap(120)
-            err = ""
-            foundSuccessMsg = false
-          while output.readLine(line):
-            trimUnitSep line
-            execState.runActuals[runId].nimout.add(line & '\n')
-            if line =~ pegOfInterest:
-              # `err` should contain the last error message
-              err = line
-            elif line.isSuccess:
-              foundSuccessMsg = true
-          output.close
-          
-          # validate exist codes and collect action debug info
-          execState.runActuals[runId].nimExit = exitCodes[id]
-          execState.runActuals[runId].nimStatus = CompileCrashed
-          case exitCodes[id]
-          of 0:
-            if err != "":
-              execState.debugInfo.mgetOrPut(actionId, "").add:
-                " compiler exit code was 0 but some Error's were found"
-            else:
-              execState.runActuals[runId].nimStatus = CompileSuccessful
-          of 1:
-            if err == "": # no error found
-              execState.debugInfo.mgetOrPut(actionId, "").add:
-                " compiler exit code was 1 but no Error's were found."
-            if foundSuccessMsg:
-              execState.debugInfo.mgetOrPut(actionId, "").add:
-                " compiler exit code was 1 but found a success message (see: testament.isSuccess)."
-          else:
-            execState.debugInfo.mgetOrPut(actionId, "").add:
-              " expected compiler exit code 0 or 1, got $1." % $exitCodes[id]
-          
-          # set the last error message and get any relevant position info
-          if err =~ pegLineError:
-            execState.runActuals[runId].nimMsg = matches[3]
-            execState.runActuals[runId].nimFile = extractFilename(matches[0])
-            execState.runActuals[runId].nimLine = parseInt(matches[1])
-            execState.runActuals[runId].nimColumn = parseInt(matches[2])
-          elif err =~ pegOtherError:
-            execState.runActuals[runId].nimMsg = matches[0]
-          execState.runActuals[runId].nimMsg.trimUnitSep
-
-        echo "batch: ", batches, ", runId: ", runId, ", actionId: ", actionId, ", duration: ", durationStr, ", cmd: ", testCmds[id]
-        # echo "batch: ", batches, ", runId: ", runId, ", actionId: ", actionId,
-        #       ", duration: ", durationStr, " sec"
-        # echo outputs[id]
-        # xxx: exitcode and outputs
-
-      # clear old batch information
-      testCmds.setLen(0)
-      cmdIdToActId.setLen(0)
-      cmdIdToActKind.setLen(0)
-      cmdIdToInput.setLen(0)
-
     let
       lastActionId = testActions.len - 1
       lastAction = actionId == lastActionId
@@ -1941,7 +1950,18 @@ proc runTests(execState: var Execution) =
       processOpts = {poStdErrToStdOut, poUsePath}
 
     if currBatchFull or lastAction:
-      runTestBatch()
+      runTestBatch(execState,
+                   testCmds,
+                   processOpts,
+                   batchSize,
+                   exitCodes,
+                   outputs,
+                   startTimes, endTimes,
+                   onTestRunStart,
+                   onTestProcess, onTestRunComplete,
+                   cmdIdToActId,
+                   cmdIdToActKind,
+                   cmdIdToInput)
       
       # copy next cmds and cmd id to run id map to current
       testCmds = nextTestCmds
@@ -1958,7 +1978,18 @@ proc runTests(execState: var Execution) =
       nextCmdIdToInput.setLen(0)
 
     if nextBatchFull or lastAction:
-      runTestBatch()
+      runTestBatch(execState,
+                   testCmds,
+                   processOpts,
+                   batchSize,
+                   exitCodes,
+                   outputs,
+                   startTimes, endTimes,
+                   onTestRunStart,
+                   onTestProcess, onTestRunComplete,
+                   cmdIdToActId,
+                   cmdIdToActKind,
+                   cmdIdToInput)
   
   var
     earliest = epochTime() # will get minimized in the loop below
