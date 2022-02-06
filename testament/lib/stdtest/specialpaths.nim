@@ -46,7 +46,8 @@ proc splitTestFile*(file: string): tuple[cat: string, path: string] =
       else:
         result.path = file
       return result
-  doAssert false, "file must match this pattern: '/pathto/tests/dir/**/tfile.nim', got: '" & file & "'"
+
+  result.path = file
 
 static:
   # sanity check

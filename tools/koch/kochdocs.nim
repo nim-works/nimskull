@@ -323,7 +323,6 @@ lib/system/widestrs.nim
        a.nativeToUnixPath in docIgnore:
          continue
     result.add a
-  result.add normalizePath("nimsuggest/sexp.nim")
 
 let doc = getDocList()
 

@@ -244,7 +244,6 @@ type
     ) {.closure.} ## All
     ## textual output from the compiler goes through this callback.
     writeHook*: proc(conf: ConfigRef, output: string, flags: MsgFlags) {.closure.}
-
     structuredReportHook*: ReportHook
     vmProfileData*: ProfileData
 

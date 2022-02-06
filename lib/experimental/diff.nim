@@ -353,7 +353,7 @@ type
     targetPos*: int ## Position in the target sequence
 
 proc levenshteinDistance*[T](
-    str1, str2: openarray[T]
+    str1, str2: openArray[T]
   ): tuple[distance: int, operations: seq[SeqEdit]] =
   ## Compute edit distance between two item sequences, return list of edit
   ## operations necessary to transform `str1` into `str2`
@@ -442,7 +442,7 @@ type
 
 
 proc myersDiff*[T](
-    aSeq, bSeq: openarray[T], itemCmp: proc(x, y: T): bool): seq[SeqEdit] =
+    aSeq, bSeq: openArray[T], itemCmp: proc(x, y: T): bool): seq[SeqEdit] =
   ## Generate series of sequence edit operations necessary to trasnform
   ## `aSeq` into `bSeq`. For item equality comparison use `itemCmp`
   ##
@@ -492,7 +492,8 @@ proc myersDiff*[T](
         front[k] = (x, history)
 
 proc shiftDiffed*[T](
-    diff: seq[SeqEdit], oldSeq, newSeq: openarray[T]): ShiftedDiff =
+    diff: seq[SeqEdit], oldSeq, newSeq: openArray[T]): ShiftedDiff =
+  ## Align diff operations against each other, for further formatting.
 
   for line in items(diff):
     case line.kind:
@@ -528,6 +529,26 @@ proc shiftDiffed*[T](
 
         result.oldShifted.add((sekKeep, line.sourcePos))
         result.newShifted.add((sekKeep, line.targetPos))
+
+
+iterator zipToMax*[T](lhs, rhs: seq[T], fill: T = default(T)):
+  tuple[lhs, rhs: T, rhsDefault, lhsDefault: bool, idx: int] =
+  ## Iterate each argument to the end, filling in missing values with
+  ## `fill` argument. This is an opposite of the std built-in `zip` which
+  ## iterates up until `min(lhs.len, rhs.len)`.
+
+  var idx = 0
+  while idx < max(lhs.len, rhs.len):
+    if idx < lhs.len and idx < rhs.len:
+      yield (lhs[idx], rhs[idx], false, false, idx)
+
+    elif idx < lhs.len:
+      yield (lhs[idx], fill, false, true, idx)
+
+    else:
+      yield (fill, rhs[idx], true, false, idx)
+
+    inc idx
 
 
 proc formatDiffed*(
@@ -601,7 +622,7 @@ Generated diff formatting does not contain trailing newline
 
   # Iterate over shifted diff sequence, construct formatted list of lines
   # that will be joined to final output.
-  for (lhs, rhs) in zip(shifted.oldShifted, shifted.newShifted):
+  for (lhs, rhs, lhsDefault, rhsDefault, _) in zipToMax(shifted.oldShifted, shifted.newShifted):
     oldText.add((editFmt(lhs.kind, lhs.item, true), true))
 
     newText.add((
@@ -611,7 +632,10 @@ Generated diff formatting does not contain trailing newline
       not sideBySide and rhs.kind in {sekInsert}
     ))
 
-    if lhs.kind == sekDelete and rhs.kind == sekInsert:
+    if not lhsDefault and
+       not rhsDefault and
+       lhs.kind == sekDelete and
+       rhs.kind == sekInsert:
       oldText[^1].text.add oldSeq[lhs.item]
       newText[^1].text.add newSeq[rhs.item]
 
@@ -628,7 +652,7 @@ Generated diff formatting does not contain trailing newline
     lhsMax = max(oldText[^1].text.len, lhsMax)
 
   var first = true
-  for (lhs, rhs) in zip(oldtext, newtext):
+  for (lhs, rhs) in zip(oldText, newText):
     if not first:
       # Avoid trailing newline of the diff formatting.
       result.add "\n"
@@ -645,7 +669,7 @@ Generated diff formatting does not contain trailing newline
         result.add rhs.text
 
 
-proc myersDiff*[T](aSeq, bSeq: openarray[T]): seq[SeqEdit] =
+proc myersDiff*[T](aSeq, bSeq: openArray[T]): seq[SeqEdit] =
   ## Diff overload without explicit comparator proc - use default `==` for
   ## two items.
   myersDiff(aSeq, bSeq, proc(a, b: T): bool = a == b)
