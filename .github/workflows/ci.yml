@@ -34,6 +34,7 @@ jobs:
     outputs:
       skip: ${{ steps.skip_result.outputs.result }}
       target_matrix: ${{ steps.matrix.outputs.result }}
+      shared_builder: ${{ steps.matrix.outputs.shared }}
 
     steps:
       - id: run_cond
@@ -70,7 +71,10 @@ jobs:
           #   {
           #     name: String,  ## The name of the target being tested
           #     runner: String ## The runner to use of this target
-          #     publish_docs?: Bool ## Whether to publish documentation created by this target
+          #     shared_builder?: Bool ## Whether this target should be used to
+          #                           ## build artifacts shared between
+          #                           ## platforms. Only one target may have
+          #                           ## this attribute.
           #   }
           # ]
           cat << "EOF" > matrix.json
@@ -78,7 +82,7 @@ jobs:
             {
               "name": "Linux",
               "runner": "ubuntu-20.04",
-              "publish_docs": true
+              "shared_builder": true
             },
             {
               "name": "macOS",
@@ -89,8 +93,10 @@ jobs:
 
           # Use jq to compact the matrix into one line to be used as the result
           echo "::set-output name=result::$(jq -c . matrix.json)"
+          # Isolate the shared builder into its own thing as well
+          echo "::set-output name=shared::$(jq -c '.[] | select(.shared_builder)' matrix.json)"
 
-  bootstrap:
+  binaries:
     needs: [pre_run]
     if: needs.pre_run.outputs.skip != 'true'
 
@@ -100,7 +106,7 @@ jobs:
       matrix:
         target: ${{ fromJson(needs.pre_run.outputs.target_matrix) }}
 
-    name: Bootstrap the compiler (${{ matrix.target.name }})
+    name: Build release binaries (${{ matrix.target.name }})
     runs-on: ${{ matrix.target.runner }}
 
     steps:
@@ -111,14 +117,14 @@ jobs:
       - name: Enable annotations
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
-      - name: Build compiler
-        run: ./koch.py boot -d:release
+      - name: Build release binaries
+        run: ./koch.py all
 
-      - name: Upload compiler to artifacts
+      - name: Upload workspace to artifacts
         uses: ./.github/actions/upload-compiler
 
   test:
-    needs: [pre_run, bootstrap]
+    needs: [pre_run, binaries]
 
     strategy:
       fail-fast: false
@@ -192,7 +198,7 @@ jobs:
         run: bin/nim r tools/ci_testresults
 
   orc:
-    needs: [pre_run, bootstrap]
+    needs: [pre_run, binaries]
 
     strategy:
       fail-fast: false
@@ -217,7 +223,7 @@ jobs:
         run: ./koch.py --nim:bin/nim boot -d:release --gc:orc
 
   tooling:
-    needs: [pre_run, bootstrap]
+    needs: [pre_run, binaries]
 
     strategy:
       fail-fast: false
@@ -238,14 +244,53 @@ jobs:
       - name: Enable annotations
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
-      - name: Build tooling
-        run: ./koch.py tools -d:release
-
       - name: Test tooling
         run: ./koch.py testTools
 
-  doc:
-    needs: [pre_run, bootstrap]
+  source:
+    needs: [pre_run, binaries]
+
+    name: Build source archive
+    runs-on: ${{ fromJson(needs.pre_run.outputs.shared_builder).runner }}
+
+    steps:
+      - uses: actions/checkout@v2.4.0
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/download-compiler
+
+      - name: Enable annotations
+        run: echo "::add-matcher::.github/nim-problem-matcher.json"
+
+      - name: Generate csources
+        run: ./koch.py csource -d:danger
+
+      - id: archive
+        name: Build release source
+        run: |
+          ./koch.py archive
+
+          archive=build/$(jq -r .name build/archive.json)
+
+          # Rename the archive manifest to avoid collision with manifest of
+          # other archives
+          mv build/archive.json build/source.json
+
+          echo "::set-output name=archive::$archive"
+          echo "::set-output name=metadata::build/source.json"
+
+      - name: Publish source archive to artifacts
+        uses: actions/upload-artifact@v2.3.1
+        with:
+          name: source archive
+          path: |
+            ${{ steps.archive.outputs.archive }}
+            ${{ steps.archive.outputs.metadata }}
+          if-no-files-found: error
+
+  source_binaries:
+    needs: [pre_run, source]
 
     strategy:
       fail-fast: false
@@ -253,7 +298,71 @@ jobs:
       matrix:
         target: ${{ fromJson(needs.pre_run.outputs.target_matrix) }}
 
-    name: Build HTML documentation (${{ matrix.target.name }})
+    name: Build release artifacts from source archive (${{ matrix.target.name }})
+    runs-on: ${{ matrix.target.runner }}
+
+    steps:
+      - name: Download source archive
+        uses: actions/download-artifact@v2.1.0
+        with:
+          name: source archive
+          path: source-archive
+
+      - name: Unpack source archive
+        run: |
+          archive=source-archive/$(jq -r .name source-archive/source.json)
+          # Pipe from zstd to tar because macOS' tar does not support unpacking zstd
+          zstd -c -d "$archive" | tar -xf - --strip-components 1
+
+      - name: Build release binaries
+        run: ./koch.py all
+
+      # Note: keep synchronized with package job
+      - name: Build docs
+        run: |
+          ./koch.py doc \
+            --git.url:'https://github.com/${{ github.repository }}' \
+            --git.commit:'${{ github.sha }}' \
+            --git.devel:devel
+
+          # Remove leftover nimcache
+          rm -rf doc/html/nimcache
+
+      - id: package
+        name: Create release package
+        run: |
+          ./koch.py unixrelease
+
+          archive=build/$(jq -r .name build/archive.json)
+          # Rename the archive manifest to avoid collision with other artifacts
+          os=$(jq -r .os build/archive.json)
+          cpu=$(jq -r .cpu build/archive.json)
+          metadata=build/${os}_${cpu}.json
+          mv build/archive.json "$metadata"
+
+          # Let the uploader know what to upload
+          echo "::set-output name=archive::$archive"
+          echo "::set-output name=metadata::$metadata"
+
+      - name: Upload release package to artifacts
+        uses: actions/upload-artifact@v2.3.1
+        with:
+          name: binaries from source archive
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.metadata }}
+          if-no-files-found: error
+
+  package:
+    needs: [pre_run, binaries]
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        target: ${{ fromJson(needs.pre_run.outputs.target_matrix) }}
+
+    name: Build docs and release artifacts (${{ matrix.target.name }})
     runs-on: ${{ matrix.target.runner }}
 
     steps:
@@ -266,6 +375,7 @@ jobs:
       - name: Enable annotations
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
+      # Note: keep synchronized with source_binaries job
       - name: Build docs
         run: |
           ./koch.py doc \
@@ -276,8 +386,24 @@ jobs:
           # Remove leftover nimcache
           rm -rf doc/html/nimcache
 
-      - name: Publish to artifacts
-        if: matrix.target.publish_docs
+      - id: package
+        name: Create release package
+        run: |
+          ./koch.py unixrelease
+
+          archive=build/$(jq -r .name build/archive.json)
+          # Rename the archive manifest to avoid collision with other artifacts
+          os=$(jq -r .os build/archive.json)
+          cpu=$(jq -r .cpu build/archive.json)
+          metadata=build/${os}_${cpu}.json
+          mv build/archive.json "$metadata"
+
+          # Let the uploader know what to upload
+          echo "::set-output name=archive::$archive"
+          echo "::set-output name=metadata::$metadata"
+
+      - name: Upload docs to artifacts
+        if: matrix.target.shared_builder
         uses: actions/upload-artifact@v2.3.1
         with:
           # If this name is updated, tweak publisher.yml
@@ -285,9 +411,77 @@ jobs:
           path: doc/html/
           if-no-files-found: error
 
+      - name: Upload release package to artifacts
+        uses: actions/upload-artifact@v2.3.1
+        with:
+          name: release binaries
+          path: |
+            ${{ steps.package.outputs.archive }}
+            ${{ steps.package.outputs.metadata }}
+          if-no-files-found: error
+
+  test_package:
+    needs: [pre_run, package, source_binaries]
+
+    name: Test release artifacts
+    runs-on: ${{ fromJSON(needs.pre_run.outputs.shared_builder).runner }}
+
+    steps:
+      - uses: actions/checkout@v2.4.0
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/download-compiler
+
+      - name: Enable annotations
+        run: echo "::add-matcher::.github/nim-problem-matcher.json"
+
+      - name: Download binaries built from source archive
+        uses: actions/download-artifact@v2.1.0
+        with:
+          name: binaries from source archive
+          path: binary-from-source
+
+      - name: Download release package
+        uses: actions/download-artifact@v2.1.0
+        with:
+          name: release binaries
+          path: release-binary
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -yqq --no-install-recommends diffoscope
+
+      - id: diff
+        name: Binaries from git and source archive should be the same
+        run: |
+          output_html=$RUNNER_TEMP/diffoscope.html
+          run_diff() {
+            # Exclude directory metadata as we only care about the files themselves
+            diffoscope \
+              --html="$output_html" \
+              --exclude-directory-metadata=yes \
+              release-binary/ binary-from-source/
+          }
+          if ! run_diff; then
+            echo "::error::There are differences when building from source archive compared to building from git, check the output uploaded to artifacts for more details"
+            echo "::set-output name=result::$output_html"
+            exit 1
+          else
+            echo "Success! Binaries built from git and source archive are the same"
+          fi
+
+      - name: Upload difference test result on failure
+        if: failure() && steps.diff.outputs.result != ''
+        uses: actions/upload-artifact@v2.3.1
+        with:
+          name: differences between binary from source archive and git
+          path: ${{ steps.diff.outputs.result }}
+
   passed:
     name: All check passed
-    needs: [bootstrap, test, tooling, doc, orc]
+    needs: [binaries, test, tooling, source, source_binaries, package, test_package, orc]
     if: always()
     runs-on: ubuntu-latest
 

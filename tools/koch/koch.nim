@@ -48,6 +48,7 @@ Options:
   --nim:path               use specified path for nim binary. This can also be used to
                            override the bootstrapping compiler.
 Possible Commands:
+  all                      bootstrap the compiler and build tools for release
   boot [options]           bootstraps with given command line options
   distrohelper [bindir]    helper for distro packagers
   tools                    builds Nim related tools
@@ -244,13 +245,16 @@ type
     Windows
     Unix
 
-proc binArchive(target: BinArchiveTarget, args: string) =
-  ## Builds binary archive for `target`
+proc buildReleaseBinaries() =
+  ## Build binaries needed for creating a release
   # Boot the compiler
   kochExec("boot -d:danger")
   # Build the tools
   buildTools()
 
+proc binArchive(target: BinArchiveTarget, args: string) =
+  ## Builds binary archive for `target`
+  buildReleaseBinaries()
   # Build the binary archive
   let binaryArgs =
     case target
@@ -624,6 +628,7 @@ when isMainModule:
       else: showHelp(success = false)
     of cmdArgument:
       case normalize(op.key)
+      of "all": buildReleaseBinaries()
       of "boot": boot(op.cmdLineRest)
       of "clean": clean(op.cmdLineRest)
       of "doc", "docs": buildDocs(op.cmdLineRest)
