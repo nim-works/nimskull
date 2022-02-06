@@ -3637,10 +3637,10 @@ proc rotatedTrace(conf: ConfigRef, r: Report) =
       inc traceIndex
 
     else:
-      conf.globalOptions.excl optUseColors
+      conf.excl optUseColors
       traceFile.write(conf.reportFull(r))
       traceFile.write("\n")
-      conf.globalOptions.incl optUseColors
+      conf.incl optUseColors
 
 
 proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =

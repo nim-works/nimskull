@@ -1,51 +1,10 @@
 import utils/ropes
 import std/[hashes]
 
+from front/in_options import TOption, TOptions # Stored in `PSym`
+
 const
   hasFFI = defined(nimHasLibFFI)
-
-type
-  TOption* = enum
-    ## please make sure we have under 32 options (improves code efficiency
-    ## a lot!) **keep binary compatible**
-    optNone
-    optObjCheck ## `ccgenexprs.nim` generates `isObj` check if this options
-                ## is enabled for a procedure
-    optFieldCheck ## Codegen uses it to conditionally generate check for a
-                  ## discriminant field
-    optRangeCheck ## Control generation of range checks in the backend
-    optBoundsCheck ## Control generation of the array boundary checks in
-                   ## the backend
-    optOverflowCheck ## Integer overflow check control
-    optRefCheck ## Deprecated option, does something with refs in te
-                ## `liftdestructors.nim`, need to investigate further
-    optNaNCheck ## Raise float invalid defect C backend if operation
-                ## returned nan
-    optInfCheck ## Raise float overflow in C backend if operation reaturned
-                ## inf
-    optStaticBoundsCheck
-    optStyleCheck ## Check symbol for spelling consistency
-    optAssert
-    optLineDir
-    optWarns
-    optHints
-    optOptimizeSpeed
-    optOptimizeSize
-    optStackTrace     ## stack tracing support
-    optStackTraceMsgs ## enable custom runtime msgs via `setFrameMsg`
-    optLineTrace      ## line tracing support (includes stack tracing)
-    optByRef          ## use pass by ref for objects
-                      ## (for interfacing with C)
-    optProfiler       ## profiler turned on
-    optImplicitStatic ## optimization: implicit at compile time
-                      ## evaluation
-    optTrMacros       ## en/disable pattern matching
-    optMemTracker
-    optSinkInference  ## 'sink T' inference
-    optCursorInference
-    optImportHidden
-
-  TOptions* = set[TOption]
 
 
 type

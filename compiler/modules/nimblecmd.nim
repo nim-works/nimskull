@@ -33,7 +33,7 @@ import
 
 proc addPath*(conf: ConfigRef; path: AbsoluteDir, info: TLineInfo) =
   if not conf.searchPaths.contains(path):
-    conf.searchPaths.insert(path, 0)
+    conf.active.searchPaths.insert(path, 0)
 
 type
   Version* = distinct string
@@ -157,7 +157,7 @@ proc addNimblePath(conf: ConfigRef; p: string, info: TLineInfo) =
 
   if not contains(conf.searchPaths, AbsoluteDir path):
     conf.localReport ExternalReport(kind: rextPath, packagePath: path)
-    conf.lazyPaths.insert(AbsoluteDir path, 0)
+    conf.active.lazyPaths.insert(AbsoluteDir path, 0)
 
 proc addPathRec(conf: ConfigRef; dir: string, info: TLineInfo) =
   var packages: PackageInfo
@@ -174,5 +174,5 @@ proc nimblePath*(conf: ConfigRef; path: AbsoluteDir, info: TLineInfo) =
   addNimblePath(conf, path.string, info)
   let i = conf.nimblePaths.find(path)
   if i != -1:
-    conf.nimblePaths.delete(i)
-  conf.nimblePaths.insert(path, 0)
+    conf.active.nimblePaths.delete(i)
+  conf.active.nimblePaths.insert(path, 0)

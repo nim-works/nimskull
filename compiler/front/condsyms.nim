@@ -15,25 +15,11 @@ import
 from front/options import Feature
 import ast/reports
 
-proc defineSymbol*(symbols: StringTableRef; symbol: string, value: string = "true") =
-  symbols[symbol] = value
-
-proc undefSymbol*(symbols: StringTableRef; symbol: string) =
-  symbols.del(symbol)
-
-#proc lookupSymbol*(symbols: StringTableRef; symbol: string): string =
-#  result = if isDefined(symbol): gSymbols[symbol] else: nil
-
-iterator definedSymbolNames*(symbols: StringTableRef): string =
-  for key, val in pairs(symbols):
-    yield key
-
-proc countDefinedSymbols*(symbols: StringTableRef): int =
-  symbols.len
 
 proc initDefines*(symbols: StringTableRef) =
   # for bootstrapping purposes and old code:
-  template defineSymbol(s) = symbols.defineSymbol(s)
+  template defineSymbol(s) =
+    symbols[s] = "true"
   defineSymbol("nimhygiene") # deadcode
   defineSymbol("niminheritable") # deadcode
   defineSymbol("nimmixin") # deadcode

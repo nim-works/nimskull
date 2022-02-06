@@ -124,20 +124,20 @@ when defined(nimHasInvariant):
 
   proc querySettingImpl(conf: ConfigRef, switch: BiggestInt): string =
     case SingleValueSetting(switch)
-    of arguments: result = conf.arguments
-    of outFile: result = conf.outFile.string
-    of outDir: result = conf.outDir.string
-    of nimcacheDir: result = conf.getNimcacheDir().string
-    of projectName: result = conf.projectName
-    of projectPath: result = conf.projectPath.string
-    of projectFull: result = conf.projectFull.string
-    of command: result = conf.command
-    of commandLine: result = conf.commandLine
-    of linkOptions: result = conf.linkOptions
-    of compileOptions: result = conf.compileOptions
-    of ccompilerPath: result = conf.cCompilerPath
-    of backend: result = $conf.backend
-    of libPath: result = conf.libpath.string
+    of SingleValueSetting.arguments: result = conf.arguments
+    of SingleValueSetting.outFile: result = conf.outFile.string
+    of SingleValueSetting.outDir: result = conf.outDir.string
+    of SingleValueSetting.nimcacheDir: result = conf.getNimcacheDir().string
+    of SingleValueSetting.projectName: result = conf.projectName
+    of SingleValueSetting.projectPath: result = conf.projectPath.string
+    of SingleValueSetting.projectFull: result = conf.projectFull.string
+    of SingleValueSetting.command: result = conf.command
+    of SingleValueSetting.commandLine: result = conf.commandLine
+    of SingleValueSetting.linkOptions: result = conf.linkOptions
+    of SingleValueSetting.compileOptions: result = conf.compileOptions
+    of SingleValueSetting.ccompilerPath: result = conf.cCompilerPath
+    of SingleValueSetting.backend: result = $conf.backend
+    of SingleValueSetting.libPath: result = conf.libpath.string
     of gc: result = $conf.selectedGC
 
   proc querySettingSeqImpl(conf: ConfigRef, switch: BiggestInt): seq[string] =
@@ -145,12 +145,12 @@ when defined(nimHasInvariant):
       for i in field: result.add i.string
 
     case MultipleValueSetting(switch)
-    of nimblePaths: copySeq(conf.nimblePaths)
-    of searchPaths: copySeq(conf.searchPaths)
-    of lazyPaths: copySeq(conf.lazyPaths)
-    of commandArgs: result = conf.commandArgs
-    of cincludes: copySeq(conf.cIncludes)
-    of clibs: copySeq(conf.cLibs)
+    of MultipleValueSetting.nimblePaths: copySeq(conf.nimblePaths)
+    of MultipleValueSetting.searchPaths: copySeq(conf.searchPaths)
+    of MultipleValueSetting.lazyPaths: copySeq(conf.lazyPaths)
+    of MultipleValueSetting.commandArgs: result = conf.commandArgs
+    of MultipleValueSetting.cincludes: copySeq(conf.cIncludes)
+    of MultipleValueSetting.clibs: copySeq(conf.cLibs)
 
 proc stackTrace2(c: PCtx, report: SemReport, n: PNode) =
   stackTrace(
@@ -267,7 +267,7 @@ proc registerAdditionalOps*(c: PCtx) =
     setResult(a, sfExported in n.sym.flags)
 
   registerCallback c, "stdlib.vmutils.vmTrace", proc (a: VmArgs) =
-    c.config.isVmTrace = getBool(a, 0)
+    c.config.active.isVmTrace = getBool(a, 0)
 
   proc hashVmImpl(a: VmArgs) =
     var res = hashes.hash(a.getString(0), a.getInt(1).int, a.getInt(2).int)

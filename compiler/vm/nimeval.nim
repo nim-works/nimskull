@@ -16,9 +16,7 @@ import
   ],
   ast/[
     ast,
-    astalgo,
     llstream,
-    lineinfos,
     idents,
     reports
   ],
@@ -38,10 +36,6 @@ import
     passes,
     sem,
     passaux
-  ],
-  backend/[
-  ],
-  plugins/[
   ],
   vm/[
     vmdef,
@@ -150,12 +144,12 @@ proc createInterpreter*(
   connectCallbacks(graph)
   initDefines(conf.symbols)
   for define in defines:
-    defineSymbol(conf.symbols, define[0], define[1])
+    defineSymbol(conf, define[0], define[1])
   registerPass(graph, semPass)
   registerPass(graph, evalPass)
 
   for p in searchPaths:
-    conf.searchPaths.add(AbsoluteDir p)
+    conf.searchPathsAdd(AbsoluteDir p)
     if conf.libpath.isEmpty: conf.libpath = AbsoluteDir p
 
   var m = graph.makeModule(scriptName)
@@ -193,15 +187,19 @@ proc runRepl*(
   var graph = newModuleGraph(cache, conf)
 
   for p in searchPaths:
-    conf.searchPaths.add(AbsoluteDir p)
+    conf.searchPathsAdd(AbsoluteDir p)
     if conf.libpath.isEmpty: conf.libpath = AbsoluteDir p
 
   conf.cmd = cmdInteractive # see also `setCmd`
   conf.setErrorMaxHighMaybe
   initDefines(conf.symbols)
-  defineSymbol(conf.symbols, "nimscript")
-  if supportNimscript: defineSymbol(conf.symbols, "nimconfig")
-  when hasFFI: defineSymbol(graph.config.symbols, "nimffi")
+  defineSymbol(conf, "nimscript")
+  if supportNimscript:
+    defineSymbol(conf, "nimconfig")
+
+  when hasFFI:
+    defineSymbol(graph.config, "nimffi")
+
   registerPass(graph, verbosePass)
   registerPass(graph, semPass)
   registerPass(graph, evalPass)
@@ -209,6 +207,8 @@ proc runRepl*(
   incl(m.flags, sfMainModule)
   var idgen = idGeneratorFromModule(m)
 
-  if supportNimscript: graph.vm = setupVM(m, cache, "stdin", graph, idgen)
+  if supportNimscript:
+    graph.vm = setupVM(m, cache, "stdin", graph, idgen)
+
   graph.compileSystemModule()
   processModule(graph, m, idgen, llStreamOpenStdIn(r))

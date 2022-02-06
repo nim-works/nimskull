@@ -33,7 +33,6 @@ import
   ],
   front/[
     msgs,
-    condsyms,
     options
   ],
   utils/[
@@ -245,7 +244,7 @@ proc processImportCpp(c: PContext; s: PSym, ext: string): SetExternNameStatus =
   if c.config.backend == backendC:
     let m = s.getModule()
     incl(m.flags, sfCompileToCpp)
-  incl c.config.globalOptions, optMixedMode
+  incl c.config, optMixedMode
 
 proc processImportObjC(c: PContext; s: PSym, ext: string): SetExternNameStatus =
   ## produces (mutates) `s`'s `loc`ation setting the imported objc proc
@@ -676,7 +675,7 @@ proc processDefine(c: PContext, n: PNode): PNode =
       c.config.localReport(
         n.info, DebugReport(kind: rdbgTraceDefined))
 
-    defineSymbol(c.config.symbols, str)
+    defineSymbol(c.config, str)
     n
   else:
     newInvalidPragmaNode(c, n)
@@ -691,7 +690,7 @@ proc processUndef(c: PContext, n: PNode): PNode =
       c.config.localReport(
         n.info, DebugReport(kind: rdbgTraceUndefined))
 
-    undefSymbol(c.config.symbols, str)
+    undefSymbol(c.config, str)
     n
   else:
     newInvalidPragmaNode(c, n)

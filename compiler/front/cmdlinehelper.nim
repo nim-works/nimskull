@@ -50,7 +50,7 @@ type
 
 proc initDefinesProg*(self: NimProg, conf: ConfigRef, name: string) =
   condsyms.initDefines(conf.symbols)
-  defineSymbol conf.symbols, name
+  defineSymbol conf, name
 
 proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef, cmd: string = "") =
   self.processCmdLine(passCmd1, cmd, conf)
@@ -70,7 +70,7 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
   if self.suggestMode:
     conf.setCmd cmdIdeTools
   if conf.cmd == cmdNimscript:
-    incl(conf.globalOptions, optWasNimscript)
+    incl(conf, optWasNimscript)
 
   loadConfigs(DefaultConfig, cache, conf, graph.idgen) # load all config files
 

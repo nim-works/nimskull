@@ -613,7 +613,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
           rc: regDescr(instr.regC)
       )))
 
-    if c.config.isVmTrace:
+    if c.config.active.isVmTrace:
       # unlike nimVMDebug, this doesn't require re-compiling nim and is
       # controlled by user code
       c.config.localReport(DebugReport(
