@@ -2,20 +2,13 @@ Generate tree representation from `PNode`.
 
 Procedure arguments:
 
-- `conf`: some configuration options are inferred from it, such as
-  `--filenames:canonical`, but it is mostly used to get full paths from
+- ``conf``: used to get some configuration options, such as
+  ``--filenames:canonical``, but it is mostly used to get full paths from
   file ids
-- `pnode`: node to be printed - can be `nil`, recursive, `nkError` or any
+- ``pnode``: node to print - can be `nil`, recursive, `nkError` or any
   other kind form or shape.
-- `flags`: Set of the formatting options for the procedure. Several
-  built-in constants are defined in this module that might be suitable for
-  different debugging or AST exploration tasks.
-- `maxDepth`: Ignore all nodes that are placed deeper than that. Useful to
-  see a high-level overview for large nodes, such as full proc bodies
-- `maxLength`: on each level, print upto that many subnodes. Useful to cut
-  out parts on large `case` trees, toplevel nodes for modules, statement
-  lists and such.
-- `maxPath`: maximum path length for subnodes
+- ``rconf``: print configuration - all nested calls to ``treeRepr`` also used
+  it (for ``PType`` and ``PSym``)
 - `indentIncreas`: start tree indentation from certain formatting
 
 Generated output packs in a lot of information - here is a short list of
@@ -23,7 +16,7 @@ features, those will be elaborated on
 
 - subnode index in relation to the parent node, optionally extended index
   (like`[0][0]`)
-- symbol symbol kind, flags, other relevant elements
+- symbol kind, flags, other relevant elements
 - type, if exists
 - comment message (optionally)
 - all node flags

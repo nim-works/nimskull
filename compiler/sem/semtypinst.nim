@@ -31,6 +31,9 @@ import
   ],
   sem/[
     semdata,
+  ],
+  utils/[
+    astrepr
   ]
 
 from concepts import makeTypeDesc

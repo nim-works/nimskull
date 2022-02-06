@@ -3183,31 +3183,14 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
         )
 
       proc render(node: PNode): string =
-        conf.wrap(conf.treeRepr(node,
-          # add tree repr configuration options here
-
-
-          # next is formatting, don't edit
-          indentIncrease = indent + 2
-        ))
+        conf.wrap(conf.treeRepr(node, indent = indent + 2))
 
       proc render(typ: PType): string =
-        conf.wrap(conf.treeRepr(typ,
-          # add tree repr configuration options here
-
-
-          # next is formatting, don't edit
-          indent = indent + 2
-        ))
+        conf.wrap(conf.treeRepr(typ, indent = indent + 2))
 
       proc render(sym: PSym): string =
-        conf.wrap(conf.treeRepr(sym,
-          # add tree repr configuration options here
+        conf.wrap(conf.treeRepr(sym, indent = indent + 2))
 
-
-          # next is formatting, don't edit
-          indent = indent + 2
-        ))
       result.addf("$1]", align($s.level, 2, '#'))
       result.add(
         repeat("  ", s.level),
