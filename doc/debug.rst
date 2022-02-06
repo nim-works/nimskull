@@ -38,6 +38,14 @@ Define                       Enables
 `nimCompilerDebugTraceDir`   Write call traces to the directory
 ============================ =======
 
+Debug helper modules
+--------------------
+
+`astrepr
+<https://nim-works.github.io/nimskull/compiler/utils/astrepr.html>`_ module
+provides a collection of useful procedures for printing internal
+representation types (``PSym``, ``PType`` and ``PNode``) in a readable
+manner. For more documentation see the module itself.
 
 Semantic analysis
 -----------------
@@ -235,9 +243,9 @@ This change results in the two more entries added to the call trace:
                  owner:  kind:skModule name:file
 
 
-As you can clearly see now, the return values of this procedure are
-different here. We have successfully localized the bug from 'whole
-compiler' to a specific procedure.
+As you can see now, the return values of this procedure are different here.
+We have successfully localized the bug from 'whole compiler' to a specific
+procedure.
 
 
 -------
@@ -284,8 +292,8 @@ VM codegen and execution
 
 VM code generation prints all of the generated procedures. If this is not
 needed (which would be the majority of use cases) you can add
-`--define:expandVmListing=vmTarget`:option: and only code for the specific
-proc would be printed. For example (generated listing might not match
+`--define:expandVmListing=vmTarget`:option: to print only the code
+generated for this proc. For example (generated listing might not match
 exactly)
 
 .. code-block:: nim
