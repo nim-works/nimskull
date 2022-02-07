@@ -23,7 +23,7 @@ jobs:
       # Download the latest instance of generated documentation from the build
       # during bors staging.
       - name: Download generated docs
-        uses: dawidd6/action-download-artifact@v2.16.0
+        uses: dawidd6/action-download-artifact@v2.17.0
         with:
           workflow: ci.yml
           workflow_conclusion: completed
