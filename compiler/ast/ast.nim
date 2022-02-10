@@ -806,25 +806,29 @@ proc delSon*(father: PNode, idx: int) =
   for i in idx..<father.len - 1: father[i] = father[i + 1]
   father.sons.setLen(father.len - 1)
 
-proc copyNode*(src: PNode): PNode =
-  # does not copy its sons!
-  if src == nil:
-    return nil
-  result = newNode(src.kind)
-  result.info = src.info
-  result.typ = src.typ
-  result.flags = src.flags * PersistentNodeFlags
-  result.comment = src.comment
+template copyNodeImpl(dst, src, processSonsStmt) =
+  if src == nil: return
+  dst = newNode(src.kind)
+  dst.info = src.info
+  dst.typ = src.typ
+  dst.flags = src.flags * PersistentNodeFlags
+  dst.comment = src.comment
+  dst.reportId = src.reportId
   when defined(useNodeIds):
-    if result.id == nodeIdToDebug:
+    if dst.id == nodeIdToDebug:
       echo "COMES FROM ", src.id
   case src.kind
-  of nkCharLit..nkUInt64Lit: result.intVal = src.intVal
-  of nkFloatLiterals: result.floatVal = src.floatVal
-  of nkSym: result.sym = src.sym
-  of nkIdent: result.ident = src.ident
-  of nkStrLit..nkTripleStrLit: result.strVal = src.strVal
-  else: discard
+  of nkCharLit..nkUInt64Lit: dst.intVal = src.intVal
+  of nkFloatLiterals: dst.floatVal = src.floatVal
+  of nkSym: dst.sym = src.sym
+  of nkIdent: dst.ident = src.ident
+  of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
+  else: processSonsStmt
+
+proc copyNode*(src: PNode): PNode =
+  # does not copy its sons!
+  copyNodeImpl(result, src):
+    discard
 
 template transitionNodeKindCommon(k: TNodeKind) =
   let obj {.inject.} = n[]
@@ -868,25 +872,6 @@ proc transitionToLet*(s: PSym) =
   s.guard = obj.guard
   s.bitsize = obj.bitsize
   s.alignment = obj.alignment
-
-template copyNodeImpl(dst, src, processSonsStmt) =
-  if src == nil: return
-  dst = newNode(src.kind)
-  dst.info = src.info
-  dst.typ = src.typ
-  dst.flags = src.flags * PersistentNodeFlags
-  dst.comment = src.comment
-  dst.reportId = src.reportId
-  when defined(useNodeIds):
-    if dst.id == nodeIdToDebug:
-      echo "COMES FROM ", src.id
-  case src.kind
-  of nkCharLit..nkUInt64Lit: dst.intVal = src.intVal
-  of nkFloatLiterals: dst.floatVal = src.floatVal
-  of nkSym: dst.sym = src.sym
-  of nkIdent: dst.ident = src.ident
-  of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
-  else: processSonsStmt
 
 proc shallowCopy*(src: PNode): PNode =
   # does not copy its sons, but provides space for them:
