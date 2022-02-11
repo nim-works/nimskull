@@ -136,18 +136,11 @@ proc recordPragma(c: PContext; n: PNode; args: varargs[string]) =
     recorded.add newStrNode(args[i], n.info)
   addPragmaComputation(c, recorded)
 
-proc invalidPragma*(c: PContext; n: PNode) =
-  localReport(c.config, n.info, reportAst(rsemInvalidPragma, n))
-
-proc illegalCustomPragma*(c: PContext, n: PNode, s: PSym) =
-  localReport(c.config, n.info, reportSym(
-    rsemCannotAttachPragma, s, ast = n))
-
-proc newInvalidPragmaNode*(c: PContext; n: PNode): PNode =
+proc invalidPragma*(c: PContext; n: PNode): PNode =
   ## create an error node (`nkError`) for an invalid pragma error
   c.config.newError(n, reportAst(rsemInvalidPragma, n))
 
-proc newIllegalCustomPragmaNode*(c: PContext; n: PNode, s: PSym): PNode =
+proc illegalCustomPragma*(c: PContext; n: PNode, s: PSym): PNode =
   ## create an error node (`nkError`) for an illegal custom pragma error
   c.config.newError(
     n,
@@ -156,19 +149,20 @@ proc newIllegalCustomPragmaNode*(c: PContext; n: PNode, s: PSym): PNode =
     n.info
   )
 
-proc pragmaAsm*(c: PContext, n: PNode): char =
-  result = '\0'
+proc pragmaAsm*(c: PContext, n: PNode): tuple[marker: char, err: PNode] =
+  ## Gets the marker out of an asm stmts pragma list
+  ## Returns ` as the default marker if no other markers are found
+  result.marker = '`'
   if n != nil:
     for i in 0..<n.len:
       let it = n[i]
       if it.kind in nkPragmaCallKinds and it.len == 2 and it[0].kind == nkIdent:
         case whichKeyword(it[0].ident)
         of wSubsChar:
-          if it[1].kind == nkCharLit: result = chr(int(it[1].intVal))
-          else: invalidPragma(c, it)
-        else: invalidPragma(c, it)
-      else:
-        invalidPragma(c, it)
+          if it[1].kind == nkCharLit: result.marker = chr(it[1].intVal)
+          else: result.err = invalidPragma(c, it)
+        else: result.err = invalidPragma(c, it)
+      else: result.err = invalidPragma(c, it)
 
 # xxx: the procs returning `SetExternNameStatus` names were introduced in order
 #      to avoid carrying out IO/error effects within, instead signaling the
@@ -460,7 +454,7 @@ proc processNote(c: PContext, n: PNode): PNode =
     let x = findStr(enumVals, n[0][1].ident.s, repNone)
     case x:
       of repNone:
-        newInvalidPragmaNode(c, n)
+        invalidPragma(c, n)
 
       else:
         let nk = x
@@ -478,12 +472,12 @@ proc processNote(c: PContext, n: PNode): PNode =
     validPragma = n.kind in nkPragmaCallKinds and n.len == 2
     exp =
       if validPragma: n[0]
-      else:           newInvalidPragmaNode(c, n)
+      else:           invalidPragma(c, n)
     isBracketExpr = exp.kind == nkBracketExpr and exp.len == 2
     useExp = isBracketExpr or exp.kind == nkError
     bracketExpr =
       if useExp: exp
-      else:      newInvalidPragmaNode(c, n)
+      else:      invalidPragma(c, n)
 
   result =
     if isBracketExpr:
@@ -493,7 +487,7 @@ proc processNote(c: PContext, n: PNode): PNode =
         of wWarning:        handleNote(repWarningKinds, cnCurrent)
         of wWarningAsError: handleNote(repWarningKinds, cnWarnAsError)
         of wHintAsError:    handleNote(repHintKinds,    cnHintAsError)
-        else: newInvalidPragmaNode(c, n)
+        else: invalidPragma(c, n)
     else:
       bracketExpr
 
@@ -591,7 +585,7 @@ proc tryProcessOption(c: PContext, n: PNode, resOptions: var TOptions): (bool, P
       of wOptimization:
         # debug n
         if n[1].kind != nkIdent:
-          result = (false, newInvalidPragmaNode(c, n))
+          result = (false, invalidPragma(c, n))
         else:
           case n[1].ident.s.normalize
           of "speed":
@@ -678,7 +672,7 @@ proc processDefine(c: PContext, n: PNode): PNode =
     defineSymbol(c.config, str)
     n
   else:
-    newInvalidPragmaNode(c, n)
+    invalidPragma(c, n)
 
 proc processUndef(c: PContext, n: PNode): PNode =
   ## processes pragma undefines
@@ -693,7 +687,7 @@ proc processUndef(c: PContext, n: PNode): PNode =
     undefSymbol(c.config, str)
     n
   else:
-    newInvalidPragmaNode(c, n)
+    invalidPragma(c, n)
 
 proc relativeFile(c: PContext; name: string, info: TLineInfo;
                   ext = ""): AbsoluteFile =
@@ -799,7 +793,7 @@ proc semAsmOrEmit*(con: PContext, n: PNode, marker: char): PNode =
     result = newNodeI(if n.kind == nkAsmStmt: nkAsmStmt else: nkArgList, n.info)
     var str = n[1].strVal
     if str == "":
-      localReport(con.config, n.info, SemReport(kind: rsemEmptyAsm))
+      result = con.config.newError(n, SemReport(kind: rsemEmptyAsm))
       return
     # now parse the string literal and substitute symbols:
     var a = 0
@@ -826,13 +820,11 @@ proc semAsmOrEmit*(con: PContext, n: PNode, marker: char): PNode =
       if c < 0: break
       a = c + 1
   else:
-    con.config.localReport(n.info, SemReport(
+    result = con.config.newError(n, SemReport(
       ast: n,
       kind: rsemIllformedAst,
       str: "Expected string string literal for asm/emit statement [1] " &
         "but AST contains '$1'" % [$n[1].kind]))
-
-    result = newNodeI(nkAsmStmt, n.info)
 
 proc pragmaEmit(c: PContext, n: PNode): PNode =
   result = n
@@ -856,21 +848,21 @@ proc pragmaEmit(c: PContext, n: PNode): PNode =
 proc noVal(c: PContext; n: PNode): PNode =
   ## ensure that this pragma does not produce a value
   if n.kind in nkPragmaCallKinds and n.len > 1:
-    newInvalidPragmaNode(c, n)
+    invalidPragma(c, n)
   else:
     n
 
 proc pragmaUnroll(c: PContext, n: PNode): PNode =
   result = n
   if c.p.nestedLoopCounter <= 0:
-    result = newInvalidPragmaNode(c, n)
+    result = invalidPragma(c, n)
   elif n.kind in nkPragmaCallKinds and n.len == 2:
     var (unrollFactor, err) = intLitToIntOrErr(c, n)
     if err.isNil:
       if unrollFactor <% 32:
         n[1] = newIntNode(nkIntLit, unrollFactor)
       else:
-        result = newInvalidPragmaNode(c, n)
+        result = invalidPragma(c, n)
     else:
       result = err
 
@@ -904,7 +896,7 @@ proc processPragma(c: PContext, n: PNode, i: int): PNode =
   result = it
   if it.kind notin nkPragmaCallKinds and it.safeLen == 2 or
      it.safeLen != 2 or it[0].kind != nkIdent or it[1].kind != nkIdent:
-    n[i] = newInvalidPragmaNode(c, it)
+    n[i] = invalidPragma(c, it)
     result = n[i]
     return
 
@@ -945,12 +937,12 @@ proc pragmaRaisesOrTags(c: PContext, n: PNode): PNode =
           result = wrapErrorInSubTree(c.config, n)
           return
   else:
-    result = newInvalidPragmaNode(c, n)
+    result = invalidPragma(c, n)
 
 proc pragmaLockStmt(c: PContext; it: PNode): PNode =
   result = it
   if it.kind notin nkPragmaCallKinds or it.len != 2:
-    result = newInvalidPragmaNode(c, it)
+    result = invalidPragma(c, it)
   else:
     let n = it[1]
     if n.kind != nkBracket:
@@ -963,7 +955,7 @@ proc pragmaLockStmt(c: PContext; it: PNode): PNode =
 
 proc pragmaLocks(c: PContext, it: PNode): (TLockLevel, PNode) =
   if it.kind notin nkPragmaCallKinds or it.len != 2:
-    result = (UnknownLockLevel, newInvalidPragmaNode(c, it))
+    result = (UnknownLockLevel, invalidPragma(c, it))
   else:
     case it[1].kind
     of nkStrLit, nkRStrLit, nkTripleStrLit:
@@ -1059,7 +1051,7 @@ proc pragmaGuard(c: PContext; it: PNode; kind: TSymKind): PSym =
   if it.kind notin nkPragmaCallKinds or it.len != 2:
     result = newSym(skError, getIdent(c.cache, "err:" & renderTree(it)),
                     nextSymId(c.idgen), getCurrOwner(c), it.info, {})
-    result.ast = newInvalidPragmaNode(c, it)
+    result.ast = invalidPragma(c, it)
     return
   let n = it[1]
   if n.kind == nkSym:
@@ -1092,17 +1084,13 @@ proc semCustomPragma(c: PContext, n: PNode): PNode =
   elif n.kind in nkPragmaCallKinds:
     callNode = n
   else:
-    result = c.config.newError(n, reportAst(rsemInvalidPragma, n))
+    result = invalidPragma(c, n)
     return
-    # invalidPragma(c, n)
-    # return n
 
   let r = c.semOverloadedCall(c, callNode, {skTemplate}, {efNoUndeclared})
   if r.isNil or sfCustomPragma notin r[0].sym.flags:
-    result = c.config.newError(n, reportAst(rsemInvalidPragma, n))
+    result = invalidPragma(c, n)
     return
-    # invalidPragma(c, n)
-    # return n
 
   result = r
   # Transform the nkCall node back to its original form if possible
@@ -1154,8 +1142,6 @@ proc prepareSinglePragma(
   ## * whether it's `isStatement`
   ##
   ## what this does:
-  ## * return an nkError if `invalidPragma` would have been called
-  ## * all the localReports and what not should be nkErrors
   ## * flag with nfImplicitPragma if it's an implcit pragma :D
   ## * return the pragma after prep and it's good to go
   var
@@ -1291,7 +1277,7 @@ proc prepareSinglePragma(
             incl(sym.flags, sfDirty)
             it
           else:
-            newInvalidPragmaNode(c, it)
+            invalidPragma(c, it)
       of wImportCpp:
         let nameLit = getOptionalStrLit(c, it, "$1")
         case nameLit.kind
@@ -1347,7 +1333,7 @@ proc prepareSinglePragma(
       of wSize:
         result =
           if sym.typ == nil:
-            newInvalidPragmaNode(c, it)
+            invalidPragma(c, it)
           else:
             it
         var (size, err) = intLitToIntOrErr(c, it)
@@ -1385,7 +1371,7 @@ proc prepareSinglePragma(
         result = noVal(c, it)
         if sym != nil:
           if k == wPure and sym.kind in routineKinds:
-            result = newInvalidPragmaNode(c, it)
+            result = invalidPragma(c, it)
           else:
             incl(sym.flags, sfPure)
       of wVolatile:
@@ -1499,7 +1485,7 @@ proc prepareSinglePragma(
       of wVarargs:
         result = noVal(c, it)
         if sym.typ == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           incl(sym.typ.flags, tfVarargs)
       of wBorrow:
@@ -1511,27 +1497,27 @@ proc prepareSinglePragma(
       of wFinal:
         result = noVal(c, it)
         if sym.typ == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else: incl(sym.typ.flags, tfFinal)
       of wInheritable:
         result = noVal(c, it)
         if sym.typ == nil or tfFinal in sym.typ.flags:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else: incl(sym.typ.flags, tfInheritable)
       of wPackage:
         result = noVal(c, it)
         if sym.typ == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else: incl(sym.flags, sfForward)
       of wAcyclic:
         result = noVal(c, it)
         if sym.typ == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else: incl(sym.typ.flags, tfAcyclic)
       of wShallow:
         result = noVal(c, it)
         if sym.typ == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else: incl(sym.typ.flags, tfShallow)
       of wThread:
         result = noVal(c, it)
@@ -1547,13 +1533,13 @@ proc prepareSinglePragma(
           if sym.typ != nil:
             incl(sym.typ.flags, tfGcSafe)
           else:
-            result = newInvalidPragmaNode(c, it)
+            result = invalidPragma(c, it)
         else:
           discard "no checking if used as a code block"
       of wPacked:
         result = noVal(c, it)
         if sym.typ == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           incl(sym.typ.flags, tfPacked)
       of wHint:
@@ -1676,7 +1662,7 @@ proc prepareSinglePragma(
         assert(sym != nil)
         result = it
         if sym.typ == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           sym.typ.callConv = wordToCallConv(k)
           sym.typ.flags.incl tfExplicitCallConv
@@ -1692,19 +1678,19 @@ proc prepareSinglePragma(
       of wIncompleteStruct:
         result = noVal(c, it)
         if sym.typ == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           incl(sym.typ.flags, tfIncompleteStruct)
       of wCompleteStruct:
         result = noVal(c, it)
         if sym.typ == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           incl(sym.typ.flags, tfCompleteStruct)
       of wUnchecked:
         result = noVal(c, it)
         if sym.typ == nil or sym.typ.kind notin {tyArray, tyUncheckedArray}:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           sym.typ.kind = tyUncheckedArray
       of wUnion:
@@ -1713,7 +1699,7 @@ proc prepareSinglePragma(
         else:
           result = noVal(c, it)
           if sym.typ == nil:
-            result = newInvalidPragmaNode(c, it)
+            result = invalidPragma(c, it)
           else:
             incl(sym.typ.flags, tfUnion)
       of wRequiresInit:
@@ -1723,7 +1709,7 @@ proc prepareSinglePragma(
         elif sym.typ != nil:
           incl(sym.typ.flags, tfNeedsFullInit)
         else:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
       of wByRef:
         result = noVal(c, it)
         if sym == nil or sym.typ == nil:
@@ -1735,20 +1721,20 @@ proc prepareSinglePragma(
       of wByCopy:
         result = noVal(c, it)
         if sym.kind != skType or sym.typ == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           incl(sym.typ.flags, tfByCopy)
       of wPartial:
         result = noVal(c, it)
         if sym.kind != skType or sym.typ == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           incl(sym.typ.flags, tfPartial)
       of wInject, wGensym:
         # We check for errors, but do nothing with these pragmas otherwise
         # as they are handled directly in 'evalTemplate'.
         result = noVal(c, it)
-        if sym == nil: result = newInvalidPragmaNode(c, it)
+        if sym == nil: result = invalidPragma(c, it)
       of wLine:
         result = pragmaLine(c, it)
       of wRaises, wTags:
@@ -1757,14 +1743,14 @@ proc prepareSinglePragma(
         if sym == nil:
           result = pragmaLockStmt(c, it)
         elif sym.typ == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           (sym.typ.lockLevel, result) = pragmaLocks(c, it)
           if result.isNil:
             result = it
       of wBitsize:
         if sym == nil or sym.kind != skField:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           (sym.bitsize, result) = intLitToIntOrErr(c, it)
           if result.isNil: result = it
@@ -1773,7 +1759,7 @@ proc prepareSinglePragma(
       of wGuard:
         result = it
         if sym == nil or sym.kind notin {skVar, skLet, skField}:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           sym.guard = pragmaGuard(c, it, sym.kind)
           if sym.guard != nil and sym.guard.kind == skError and sym.guard.ast != nil and sym.guard.ast.kind == nkError:
@@ -1783,13 +1769,13 @@ proc prepareSinglePragma(
       of wGoto:
         result = it
         if sym == nil or sym.kind notin {skVar, skLet}:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           sym.flags.incl sfGoto
       of wExportNims:
         result = it
         if sym == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           result = magicsys.registerNimScriptSymbol2(c.graph, sym)
           if result.kind != nkError:
@@ -1833,7 +1819,7 @@ proc prepareSinglePragma(
       of wUsed:
         result = noVal(c, it)
         if sym == nil:
-          result = newInvalidPragmaNode(c, it)
+          result = invalidPragma(c, it)
         else:
           sym.flags.incl sfUsed
       of wLiftLocals:
@@ -1841,7 +1827,7 @@ proc prepareSinglePragma(
       of wEnforceNoRaises:
         sym.flags.incl sfNeverRaises
       else:
-        result = newInvalidPragmaNode(c, it)
+        result = invalidPragma(c, it)
     elif comesFromPush and whichKeyword(ident) != wInvalid:
       discard "ignore the .push pragma; it doesn't apply"
     else:
@@ -1850,9 +1836,9 @@ proc prepareSinglePragma(
         n[i] = semCustomPragma(c, it)
         result = n[i]
       elif sym != nil:
-        result = newIllegalCustomPragmaNode(c, it, sym)
+        result = illegalCustomPragma(c, it, sym)
       else:
-        result = newInvalidPragmaNode(c, it)
+        result = invalidPragma(c, it)
 
 proc overwriteLineInfo(n: PNode; info: TLineInfo) =
   n.info = info
