@@ -2156,9 +2156,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemUnexpectedPragma:
       result = "unexpected pragma"
 
-    of rsemCannotAttachPragma:
-      result = "cannot attach a custom pragma to '" & r.symstr & "'"
-
     of rsemDisallowedReprForNewruntime:
       result = "'repr' is not available for --newruntime"
 

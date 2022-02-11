@@ -680,7 +680,6 @@ type
     # Pragma
     rsemInvalidPragma
       ## suplied pragma is invalid
-    rsemCannotAttachPragma
     rsemUnexpectedPragma
     rsemPropositionExpected
     rsemIllegalCustomPragma

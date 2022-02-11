@@ -55,9 +55,13 @@ proc semBreakOrContinue(c: PContext, n: PNode): PNode =
 
 proc semAsm(c: PContext, n: PNode): PNode =
   checkSonsLen(n, 2, c.config)
-  var marker = pragmaAsm(c, n[0])
-  if marker == '\0': marker = '`' # default marker
-  result = semAsmOrEmit(c, n, marker)
+  let (marker, err) = pragmaAsm(c, n[0])
+  if err.isNil:
+    result = semAsmOrEmit(c, n, marker)
+  else:
+    result = n
+    result[0] = err
+    result = c.config.wrapErrorInSubTree(result)
 
 proc semWhile(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
