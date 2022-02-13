@@ -154,7 +154,7 @@ type
     gcMarkSweep,
     gcBoehm
 
-proc setupGcTests(execState: var Execution) =
+proc setupGcTests(execState: var Execution, catId: CategoryId) =
   ## setup tests for the gc category, requires special handling due to
   ## testament limitations.
 
@@ -186,7 +186,7 @@ proc setupGcTests(execState: var Execution) =
 
   for (testFile, gcConditions) in testData:
     let testId: TestId = execState.testFiles.len
-    execState.testFiles.add "tests/gc" / testFile
+    execState.testFiles.add TestFile(file: "tests/gc" / testFile, catId: catId)
     execState.testOpts[testId] = TestOptionData()
 
     if gcMarkSweep in gcConditions:
@@ -217,10 +217,10 @@ proc threadTests(r: var TResults, cat: Category, options: string) =
   for t in os.walkFiles("tests/threads/t*.nim"):
     test(t)
 
-proc setupThreadTests(execState: var Execution) =
+proc setupThreadTests(execState: var Execution, catId: CategoryId) =
   for t in os.walkFiles("tests/threads/t*.nim"):
     let testId: TestId = execState.testFiles.len
-    execState.testFiles.add t
+    execState.testFiles.add TestFile(file: t, catId: catId)
     execState.testOpts[testId] = TestOptionData(
       optMatrix: @["", "-d:release", "--tlsEmulation:on"])
 
@@ -238,7 +238,7 @@ proc ioTests(r: var TResults, cat: Category, options: string) =
   # creating complications for batching and megatest logic.
   testSpec r, makeTest("tests/system/tio", options, cat)
 
-proc setupIoTests(execState: var Execution) =
+proc setupIoTests(execState: var Execution, catId: CategoryId) =
   # FIXME: not quite sure what the old one did, or how it even worked
   discard
 
@@ -327,7 +327,7 @@ proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
     testObj.spec.action = actionCompile
     testSpec r, testObj
 
-proc setupStdlibTests(execState: var Execution) =
+proc setupStdlibTests(execState: var Execution, catId: CategoryId) =
   proc isValid(file: string): bool =
     for dir in parentDirs(file, inclusive = false):
       if dir.lastPathPart in ["includes", "nimcache"]:
@@ -343,7 +343,7 @@ proc setupStdlibTests(execState: var Execution) =
   for testFile in os.walkDirRec("lib/pure/"):
     if isValid(testFile):
       let testId: TestId = execState.testFiles.len
-      execState.testFiles.add testFile
+      execState.testFiles.add TestFile(file: testFile, catId: catId)
       execState.testOpts[testId] = TestOptionData(action: some(actionCompile))
 
 # ----------------------------------------------------------------------------
