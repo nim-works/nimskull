@@ -5,6 +5,7 @@ Compiler debugging guide
 ========================
 
 .. raw:: html
+
   <blockquote><p>
   The process of identifying and removing errors from computer hardware or software.
   </p></blockquote>
@@ -14,9 +15,9 @@ How to debug different subsystems of the compiler using built-in tooling.
 Special defines
 ---------------
 
-Debugging functionality can usually be accessed only when compiler itself
-has been built with special defines - this is made to avoid runtime
-overhead, because some debugging tools are not exactly cheap to run.
+Debugging functionality is available only when compiler itself is built
+with special defines - this guard is necessary to avoid runtime overhead,
+because some debugging tools are not exactly cheap to run.
 
 **Used when compiling temporary compiler**
 
@@ -50,12 +51,17 @@ manner. For more documentation see the module itself.
 Semantic analysis
 -----------------
 
-When `nimDebugUtils` is enabled you can annotate section of the code to
-trace how semantic analysis is performed on this block of code. Each
-procedure that is annotated with one of the `addInNimDebugUtils()`
-overloads is going to be traced in the execution tree. For example -
-`sem.semOverloadedCall`, triggered when it is necessary to analyze call to
-overloaded procedure.
+With `nimDebugUtils` defined, you can then enable tracing for compiler
+semantic analysis over sections of code using `nimCompilerDebug` -- code
+example below. Not all compiler routines are enabled with first class
+tracing, if tracing is missing for a particular compiler procedure then add
+a call to one of the `addInNimDebugUtils()` overloads in the compiler
+procedure definition. An example of a compiler procedure with tracing
+enabled is `sem.semOverloadedCall`. This procedure will appear in any trace
+where the code being analysed includes a call to an overloaded procedure.
+
+See below for an example of how to add tracing to a procedure, followed by
+an example of how to enable tracing for a section of code being compiled.
 
 .. code-block:: nim
 
@@ -79,10 +85,9 @@ You will get all the call entries traced
 .. important::
 
      Both *compiler* and your file must be compiled with defines. The
-     compiler must be built with `nimDebugUtils` (this guard avoids heavy
-     performance hits). Your file must be compiled with
-     `nimCompilerDebugCalltrace` to control which exact parts of the
-     default debugger will be executed.
+     compiler must use `nimDebugUtils` (this guard avoids heavy performance
+     hits). Your file must use `nimCompilerDebugCalltrace` to control which
+     exact parts of the default debugger will run.
 
 .. code-block:: literal
 
@@ -101,9 +106,9 @@ You will get all the call entries traced
     <<] trace end
 
 
-Formatting of the report is implemented in the `cli_reporter.nim` as well
-(all debug reports are also transferred using regular reporting pipeline).
-It has a lot of information, but general parts for each call parts are:
+Reports are formatted in the `cli_reporter.nim` as well (all debug reports
+are also transferred using regular reporting pipeline). It has a lot of
+information, but general parts for each call parts are:
 
 .. code-block:: literal
 
@@ -115,19 +120,20 @@ It has a lot of information, but general parts for each call parts are:
    |      Whether proc has been entered or exited
    Depth of the traced call tree
 
-If test compiler is executed with `-d:nimCompilerDebugTraceDir=/some/dir`
-option the reports stored between different sections are written into
-separate files in this directory. This is extremely helpful if you want to
-track bugs where you can clearly find "this works" and "this doesn't work"
-versions. This debugging technique is referred to differential debugging or
-sometimes differential diagnosis.
-
+If test compiler runs with `-d:nimCompilerDebugTraceDir=/some/dir` option
+the reports stored between different sections are written into separate
+files in this directory. This is helpful if you want to track bugs where
+you have two pieces or versions of code where one works and the other
+doesn't. Collect traces for both and compare them to see how the compiler
+analysis differs between them and use that to guide your investigation.
+This technique is called differential debugging or sometimes differential
+diagnosis.
 
 
 For example, `semchecked ast passed down as untyped macro argument #193
 <https://github.com/nim-works/nimskull/issues/193>`_ has two distinct cases
 (`foo1` and `foo3`) whose only difference is the presence of the `let`
-symbol. The example code can be be cleaned up a little (leaving only two
+symbol. We can clean up the example code a little (leaving only two
 examples that we plan to compare):
 
 .. code-block:: nim
@@ -153,8 +159,8 @@ examples that we plan to compare):
       check(a == b)
       {.undef(nimCompilerDebug), undef(nimCompilerDebugCalltrace).}
 
-If we compiled the code with the following command (`/tmp/nimtrace` can be
-replaced with any other target directory)
+If we compiled the code with the following command (`/tmp/nimtrace` can any
+other target directory)
 
 .. code-block:: cmd
 
@@ -199,9 +205,9 @@ and so on. We need to find out where exactly the calltree diverges, that is
 most likely going to be a location of the bug. Second group's
 `semOverloadedCall` generates correct results, so we most likely need to
 look into the `semIndirectOp` call here, because it does not make any
-sense. It is called `from sem/semexprs.nim(3095, 1)`. If we go into the
-file and look at the surrounding code we will see that call to
-`semDirectOp` is indeed present there. `line 3070
+sense. It calls `from sem/semexprs.nim(3095, 1)`. If we go into the file
+and look at the surrounding code we will see that call to `semDirectOp` is
+really there. `line 3070
 <https://github.com/nim-works/nimskull/blob/eaf1e8ac8a/compiler/sem/semexprs.nim#L3070>`_
 contains call to the `qualifiedLookUp2` call, that should've returned a
 `skMacro` symbol there (branch on line `3077`), but this does not happen in
@@ -259,9 +265,9 @@ procedure.
 .. tip::
 
     Sometimes it is necessary to print processed nodes for a specific part
-    of the compiler procedure, but it is called multiple times on the code
-    that does not show any issues, clobbering the final output and making
-    it harder to figure out what was wrong.
+    of the compiler procedure, but it runs multiple times on the code that
+    does not show any issues, clobbering the final output and making it
+    harder to figure out what was wrong.
 
     In that case you can wrap problematic (input) code with
     `{.define(nimCompilerDebug).}` and `{.undef(nimCompilerDebug).}`
@@ -276,6 +282,11 @@ procedure.
 
           # Call any debugging logic you can think of
           echo c.config.treeRepr(result, maxPath = 1)
+
+    Alternatively, if you need to filter out node on the file/line location
+    basis, you can use `inFile` and `inLines` procs defined in the
+    `astrepr`. Note that both of them are only for debug purposes, and
+    should not stay in the final code.
 
 
 .. warning::

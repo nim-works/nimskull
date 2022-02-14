@@ -350,10 +350,6 @@ proc `$`*(conf: ConfigRef; info: TLineInfo): string = toFileLineCol(conf, info)
 
 proc `$`*(info: TLineInfo): string {.error.} = discard
 
-proc `??`* (conf: ConfigRef; info: TLineInfo, filename: string): bool =
-  # only for debugging purposes
-  result = filename in toFilename(conf, info)
-
 proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
   ## Writes given message string to stderr by default.
   ## If ``--stdout`` option is given, writes to stdout instead. If message hook
