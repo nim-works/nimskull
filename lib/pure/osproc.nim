@@ -60,8 +60,8 @@ type
       inHandle, outHandle, errHandle: FileHandle
       id: Pid
     inStream, outStream, errStream: owned(Stream)
-    exitStatus: cint
-    exitFlag: bool
+    exitStatus*: cint
+    exitFlag*: bool
     options: set[ProcessOption]
 
   Process* = ref ProcessObj ## Represents an operating system process.
