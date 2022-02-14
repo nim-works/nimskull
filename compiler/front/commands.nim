@@ -588,7 +588,7 @@ proc dynlibOverride(conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, in
     expectArg(conf, switch, arg, pass, info)
     options.inclDynlibOverride(conf, arg)
 
-template handleStdinOrCmdInput =
+proc handleStdinOrCmdInput(conf: ConfigRef) =
   conf.projectFull = conf.projectName.AbsoluteFile
   conf.projectPath = AbsoluteDir getCurrentDir()
   if conf.outDir.isEmpty:
@@ -597,11 +597,11 @@ template handleStdinOrCmdInput =
 proc handleStdinInput*(conf: ConfigRef) =
   conf.projectName = "stdinfile"
   conf.projectIsStdin = true
-  handleStdinOrCmdInput()
+  handleStdinOrCmdInput(conf)
 
 proc handleCmdInput*(conf: ConfigRef) =
   conf.projectName = "cmdfile"
-  handleStdinOrCmdInput()
+  handleStdinOrCmdInput(conf)
 
 proc parseCommand*(command: string): Command =
   # NOTE when adding elements to this list, sync with `cmdNames` const
@@ -1373,7 +1373,9 @@ proc addCmdPrefix*(result: var string, kind: CmdLineKind) =
   of cmdArgument, cmdEnd: discard
 
 proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
-  ## Process input command-line parameters into `config` settings
+  ## Process input command-line parameters into `config` settings. Input is
+  ## a joined list of command-line arguments with multiple options and/or
+  ## configurations.
   var p = parseopt.initOptParser(cmd)
   var argsCount = 0
 

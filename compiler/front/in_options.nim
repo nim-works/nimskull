@@ -254,19 +254,33 @@ type
     ## system.
     backend*: TBackend ## set via `nim x` or `nim --backend:x`
     target*: Target       # (+)
-    localOptions*: TOptions    # (+)
-    globalOptions*: TGlobalOptions # (+)
+    localOptions*: TOptions ## Localized configuration options - they can
+    ## be set via command-line or using region-local pragmas.
+    globalOptions*: TGlobalOptions ## Global configuration options that can
+    ## only be supplied from the command line or the configuration files.
     cppDefines*: HashSet[string] #[ (*) ]# ## `--cppdefine` ??
     features*: set[Feature]
     legacyFeatures*: set[LegacyFeature]
 
+    symbolFiles*: SymbolFilesOption
     symbols*: StringTableRef ## We need to use a StringTableRef here as
     ## defined symbols are always guaranteed to be style insensitive.
     ## Otherwise hell would break lose.
+    prefixDir*: AbsoluteDir
+    nimcacheDir*: AbsoluteDir ## Directory to write temporary generated
+    ## files to.
 
-    nimblePaths*: seq[AbsoluteDir]
-    searchPaths*: seq[AbsoluteDir]
-    lazyPaths*: seq[AbsoluteDir]
+    libpath*: AbsoluteDir ## Path to the standard library
+    nimblePaths*: seq[AbsoluteDir] ## List of provided `--nimblePath`
+    ## directories
+    searchPaths*: seq[AbsoluteDir] ## Explicitly added list of the search
+    ## paths for modules. Those are queried first.
+    lazyPaths*: seq[AbsoluteDir] ## Implicitly constructed list of the
+    ## search paths for modules. Updated when `--nimblePath` option is
+    ## provided, and consists of explicitly provided nimble paths to the
+    ## found package directories. Last part allows to specify directory for
+    ## packages and avoid specifying `--path` for every single one of them.
+
 
     macrosToExpand*: StringTableRef ## Table of the target macros to expand.
     # Used as set for some reason, probably should actually be a set.
@@ -313,6 +327,14 @@ type
 
     linkOptionsCmd*: seq[string] ## options passed from `passl` on the
                                  ## command line.
-    compileOptionsCmd*: seq[string] ## `passc` on the command line
+    compileOptionsCmd*: seq[string] ## `passc` on the command line.
+    ## Compilation options that would be used for every single file. They
+    ## are placed in front of the file-specific options.
 
     cppCustomNamespace*: string
+
+    configVars*: StringTableRef ## Additional configuration variables for
+    ## providing extra options for different compiler subsystems.
+
+func flip*[I](s: var set[I], it: I, val: bool) =
+  if val: s.incl it else: s.excl it

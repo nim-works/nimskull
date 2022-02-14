@@ -89,7 +89,7 @@ when defined(nimpretty):
   # Wrapped in `when defined()` because `.fullContent` is not defined
   # without it.
   proc fileSection*(conf: ConfigRef; fid: FileIndex; a, b: int): string =
-    substr(conf.m.fileInfos[fid.int].fullContent, a, b)
+    substr(conf[fid].fullContent, a, b)
 
 proc canonicalCase(path: var string) =
   ## the idea is to only use this for checking whether a path is already in
@@ -211,18 +211,23 @@ template toFilename*(conf: ConfigRef; fileIdx: FileIndex): string =
   if fileIdx.int32 < 0 or conf == nil:
     (if fileIdx == commandLineIdx: commandLineDesc else: "???")
   else:
-    conf.m.fileInfos[fileIdx.int32].shortName
+    conf[fileIdx].shortName
 
 proc toProjPath*(conf: ConfigRef; fileIdx: FileIndex): string =
   if fileIdx.int32 < 0 or conf == nil:
-    (if fileIdx == commandLineIdx: commandLineDesc else: "???")
-  else: conf.m.fileInfos[fileIdx.int32].projPath.string
+    if fileIdx == commandLineIdx:
+      commandLineDesc
+    else:
+      "???"
+
+  else:
+    conf[fileIdx].projPath.string
 
 proc toFullPath*(conf: ConfigRef; fileIdx: FileIndex): string =
   if fileIdx.int32 < 0 or conf == nil:
     result = (if fileIdx == commandLineIdx: commandLineDesc else: "???")
   else:
-    result = conf.m.fileInfos[fileIdx.int32].fullPath.string
+    result = conf[fileIdx].fullPath.string
 
 proc toReportLineInfo*(conf: ConfigRef, info: TLineInfo): ReportLineInfo =
   ReportLineInfo(
@@ -231,24 +236,24 @@ proc toReportLineInfo*(conf: ConfigRef, info: TLineInfo): ReportLineInfo =
 
 proc setDirtyFile*(conf: ConfigRef; fileIdx: FileIndex; filename: AbsoluteFile) =
   assert fileIdx.int32 >= 0
-  conf.m.fileInfos[fileIdx.int32].dirtyFile = filename
-  setLen conf.m.fileInfos[fileIdx.int32].lines, 0
+  conf[fileIdx].dirtyFile = filename
+  setLen conf[fileIdx].lines, 0
 
 proc setHash*(conf: ConfigRef; fileIdx: FileIndex; hash: string) =
   assert fileIdx.int32 >= 0
-  shallowCopy(conf.m.fileInfos[fileIdx.int32].hash, hash)
+  shallowCopy(conf[fileIdx].hash, hash)
 
 proc getHash*(conf: ConfigRef; fileIdx: FileIndex): string =
   assert fileIdx.int32 >= 0
-  shallowCopy(result, conf.m.fileInfos[fileIdx.int32].hash)
+  shallowCopy(result, conf[fileIdx].hash)
 
 proc toFullPathConsiderDirty*(conf: ConfigRef; fileIdx: FileIndex): AbsoluteFile =
   if fileIdx.int32 < 0:
     result = AbsoluteFile(if fileIdx == commandLineIdx: commandLineDesc else: "???")
-  elif not conf.m.fileInfos[fileIdx.int32].dirtyFile.isEmpty:
-    result = conf.m.fileInfos[fileIdx.int32].dirtyFile
+  elif not conf[fileIdx].dirtyFile.isEmpty:
+    result = conf[fileIdx].dirtyFile
   else:
-    result = conf.m.fileInfos[fileIdx.int32].fullPath
+    result = conf[fileIdx].fullPath
 
 template toFilename*(conf: ConfigRef; info: TLineInfo): string =
   toFilename(conf, info.fileIndex)
@@ -461,19 +466,19 @@ proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
     info = context.info
 
 proc addSourceLine(conf: ConfigRef; fileIdx: FileIndex, line: string) =
-  conf.m.fileInfos[fileIdx.int32].lines.add line
+  conf[fileIdx].lines.add line
 
 proc numLines*(conf: ConfigRef, fileIdx: FileIndex): int =
   ## xxx there's an off by 1 error that should be fixed; if a file ends with "foo" or "foo\n"
   ## it will return same number of lines (ie, a trailing empty line is discounted)
-  result = conf.m.fileInfos[fileIdx.int32].lines.len
+  result = conf[fileIdx].lines.len
   if result == 0:
     try:
       for line in lines(toFullPathConsiderDirty(conf, fileIdx).string):
         addSourceLine conf, fileIdx, line
     except IOError:
       discard
-    result = conf.m.fileInfos[fileIdx.int32].lines.len
+    result = conf[fileIdx].lines.len
 
 proc sourceLine*(conf: ConfigRef; i: TLineInfo): string =
   ## 1-based index (matches editor line numbers); 1st line is for i.line = 1
@@ -483,7 +488,7 @@ proc sourceLine*(conf: ConfigRef; i: TLineInfo): string =
   # can happen if the error points to EOF:
   if i.line.int > num: return ""
 
-  result = conf.m.fileInfos[i.fileIndex.int32].lines[i.line.int-1]
+  result = conf[i.fileIndex].lines[i.line.int - 1]
 
 proc getSurroundingSrc(conf: ConfigRef; info: TLineInfo): string =
   if conf.hasHint(rintSource) and info != unknownLineInfo:
@@ -700,10 +705,10 @@ proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
     result = makeCString "???"
 
   elif optExcessiveStackTrace in conf.globalOptions:
-    result = conf.m.fileInfos[i.fileIndex.int32].quotedFullName
+    result = conf[i.fileIndex].quotedFullName
 
   else:
-    result = conf.m.fileInfos[i.fileIndex.int32].quotedName
+    result = conf[i.fileIndex].quotedName
 
 proc listWarnings*(conf: ConfigRef) =
   conf.localReport(InternalReport(

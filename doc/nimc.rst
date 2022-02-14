@@ -527,7 +527,36 @@ Define                   Effect
                          loaded libraries.
 ======================   =========================================================
 
+Configuration variables
+=======================
 
+Configuration variables can be either supplied via command-line or using
+`.cfg` files. In configuration file you can use multiline strings for
+options like `doc.item` or `doc.file`
+
+=========================== ============================================
+Variable                    Effect
+=========================== ============================================
+`<modulename>.always`       Pass compilation flag to the specific module
+`doc.toc`                   Documentation generator table of contents text
+`<compiler>.options.always` Flags for a specific C compiler
+`<compiler>.path`           Path to the compiler executable
+`<compiler>.exe`            Compiler executable
+`<compiler>.options.debug`  Flags for debug compilation
+`<compiler>.options.size`   Flags for 'size' optimization
+`<compiler>.options.speed`  Flags for 'speed' compiler optimization
+`<compiler>.options.linker` Linker exe
+`dump.format`               Format of the compiler state dump output
+`doc.file`                  Generated documentation template body
+`doc.item`                  Template for a documentation entry item
+`doc.listing_end`           HTML end of the code listing
+`doc.listing_start`         HTML start of the code listing
+`doc.listing_button`
+`doc.smiley_format`
+`git.url`                   Github repository URL
+`git.devel`                 Git branch
+`git.commit`                Current git commit
+=========================== ============================================
 
 Additional Features
 ===================
@@ -587,9 +616,9 @@ can be read in the `Nim Backend Integration document <backends.html>`_.
 Nim documentation tools
 =======================
 
-Nim provides the `doc`:idx: command to generate HTML
-documentation from ``.nim`` source files. Only exported symbols will appear in
-the output. For more details `see the docgen documentation <docgen.html>`_.
+Nim provides the `doc`:idx: command to generate HTML documentation from
+``.nim`` source files. Only exported symbols will appear in the output. For
+more details `see the docgen documentation <docgen.html>`_.
 
 Nim idetools integration
 ========================
@@ -645,10 +674,10 @@ A good start is to use the `any` operating target together with the
 If your platform does not provide these functions it should be trivial to
 provide an implementation for them and link these to your program.
 
-For targets with very restricted memory, it might be beneficial to pass some
-additional flags to both the Nim compiler and the C compiler and/or linker
-to optimize the build for size. For example, the following flags can be used
-when targeting a gcc compiler:
+For targets with a very restricted memory, it might be beneficial to pass
+some additional flags to both the Nim compiler and the C compiler and/or
+linker to optimize the build for size. For example, the following flags can
+be used when targeting a gcc compiler:
 
 `--opt:size --passC:-flto --passL:-flto`:option:
 
@@ -719,17 +748,20 @@ a procedure call, because the callee returns a new string anyway.
 Thus it is efficient to do:
 
 .. code-block:: Nim
+
   var s = procA() # assignment will not copy the string; procA allocates a new
                   # string already
 
 However, it is not efficient to do:
 
 .. code-block:: Nim
+
   var s = varA    # assignment has to copy the whole string into a new buffer!
 
 For `let` symbols a copy is not always necessary:
 
 .. code-block:: Nim
+
   let s = varA    # may only copy a pointer if it safe to do so
 
 
@@ -737,6 +769,7 @@ If you know what you're doing, you can also mark single-string (or sequence)
 objects as `shallow`:idx:\:
 
 .. code-block:: Nim
+
   var s = "abc"
   shallow(s) # mark 's' as a shallow string
   var x = s  # now might not copy the string!
@@ -750,6 +783,7 @@ if several different string constants are used. So code like this is reasonably
 efficient:
 
 .. code-block:: Nim
+
   case normalize(k.key)
   of "name": c.name = v
   of "displayname": c.displayName = v

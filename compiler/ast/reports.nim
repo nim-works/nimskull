@@ -33,6 +33,9 @@ export
 from front/in_options import TOption, TOptions
 type InstantiationInfo* = typeof(instantiationInfo())
 
+# Importing and reexporting enums and 'external' reports in order to avoid
+# needlessly cluttering the import lists of all modules that have to report
+# something (and that would be almost all modules)
 import report_enums
 export report_enums
 

@@ -65,10 +65,12 @@ type
     External   ## file was introduced via .compile pragma
 
   Cfile* = object
-    nimname*: string
+    nimname*: string ## Original name of the nim file, constructed from the
+    ## module name.
     cname*, obj*: AbsoluteFile
     flags*: set[CfileFlag]
     customArgs*: string
+
   CfileList* = seq[Cfile]
 
   Suggest* = ref object
@@ -147,16 +149,6 @@ type
     # 'active' configuration
     verbosity*: int           ## how verbose the compiler is
 
-    # Additional 'configuration variables', apparenly it was too hard to
-    # actually enumerate all the things that compiler uses, so there are
-    # random `dump.format` strings in the compiler, and of course they are
-    # not documented anywhere really. Processing is just done with 'if has
-    # dot then it is a config variable'
-    #
-    # `if strutils.find(switch, '.') >= 0: options.setConfigVar(conf, switch, arg)`
-    configVars*: StringTableRef
-
-
     # 'arguments' aka a single string aka 'joining strings for external
     # program is bad'
     arguments*: string ## the arguments to be passed to the program that
@@ -185,7 +177,6 @@ type
     lastCmdTime*: float       ## Start of the last compiler commmand - set
     ## in the `main.mainCommand` and then read to generate 'successX'
     ## message
-    symbolFiles*: SymbolFilesOption
 
     headerFile*: string
     ideCmd*: IdeCmd
@@ -202,7 +193,6 @@ type
     packageCache*: StringTableRef
 
     jsonBuildFile*: AbsoluteFile
-    prefixDir*, libpath*, nimcacheDir*: AbsoluteDir
     nimStdlibVersion*: NimVer
     moduleOverrides*: StringTableRef
     cfileSpecificOptions*: StringTableRef ## File specific compilation options for C backend.
@@ -226,10 +216,11 @@ type
     ## processed during compilation.
 
     externalToLink*: seq[string]  ## files to link in addition to the file
-    ## we compiled. Modified by the `{.link.}` pragma
+    ## we compiled. Modified by the `{.link.}` pragma and `--link`
+    ## command-line flag.
     linkOptions*: string ## Additional linking options, modified by the
     ## `{.passl.}` pragma
-    compileOptions*: string ## Additional compilation optinos, modified by
+    compileOptions*: string ## Additional compilation options, modified by
     ## the `{.passc.}` pragma
     cCompilerPath*: string
     toCompile*: CfileList         # (*)
@@ -252,6 +243,9 @@ type
     when defined(nimDebugUtils):
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
       ## len is also used for output indent level
+
+template `[]`*(conf: ConfigRef, idx: FileIndex): TFileInfo =
+  conf.m.fileInfos[idx.uint32]
 
 template passField(fieldname, fieldtype: untyped): untyped =
   proc `fieldname`*(conf: ConfigRef): fieldtype =
@@ -289,6 +283,10 @@ template passSeqField(fieldname, itemtype: untyped): untyped =
 
 
 passField backend,            TBackend
+passField symbolFiles,        SymbolFilesOption
+passField prefixDir,          AbsoluteDir
+passField libpath,            AbsoluteDir
+passField nimcacheDir,        AbsoluteDir
 passField target,             Target
 passField cppDefines,         HashSet[string]
 passField cmd,                Command
@@ -321,6 +319,7 @@ passSetField features,       set[Feature],       Feature
 passSetField legacyFeatures, set[LegacyFeature], LegacyFeature
 
 passStrTableField dllOverrides
+passStrTableField configVars
 passStrTableField symbols
 passStrTableField macrosToExpand
 passStrTableField arcToExpand
@@ -845,10 +844,7 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
     structuredReportHook: hook,
     m: initMsgConfig(),
     headerFile: "",
-    configVars: newStringTable(modeStyleInsensitive),
     packageCache: newPackageCache(),
-    prefixDir: AbsoluteDir"",
-    libpath: AbsoluteDir"", nimcacheDir: AbsoluteDir"",
     moduleOverrides: newStringTable(modeStyleInsensitive),
     cfileSpecificOptions: newStringTable(modeCaseSensitive),
     projectIsStdin: false, # whether we're compiling from stdin
@@ -866,9 +862,10 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
       cCompiler:      ccGcc,
       macrosToExpand: newStringTable(modeStyleInsensitive),
       arcToExpand:    newStringTable(modeStyleInsensitive),
+      configVars:     newStringTable(modeStyleInsensitive),
+      dllOverrides:   newStringTable(modeCaseInsensitive),
       outFile:        RelativeFile"",
       outDir:         AbsoluteDir"",
-      dllOverrides:   newStringTable(modeCaseInsensitive),
     ),
     suggestMaxResults: 10_000,
     maxLoopIterationsVM: 10_000_000,
@@ -897,7 +894,7 @@ proc getStdlibVersion*(conf: ConfigRef): NimVer =
     conf.nimStdlibVersion = s.parseNimVersion
   result = conf.nimStdlibVersion
 
-proc isDefined*(conf: ConfigRef; symbol: string): bool =
+proc isDefined*(conf: CurrentConf; symbol: string): bool =
   if conf.symbols.hasKey(symbol):
     result = true
   elif cmpIgnoreStyle(symbol, CPU[conf.target.targetCPU].name) == 0:
@@ -944,6 +941,9 @@ proc isDefined*(conf: ConfigRef; symbol: string): bool =
       result = conf.target.targetOS in {osSolaris, osNetbsd, osFreebsd, osOpenbsd,
                             osDragonfly, osMacosx}
     else: discard
+
+proc isDefined*(conf: ConfigRef, symbol: string): bool =
+  conf.active.isDefined(symbol)
 
 proc getDefined*(conf: ConfigRef, sym: string): string =
   conf.symbols[sym]
@@ -1003,15 +1003,17 @@ proc prepareToWriteOutput*(conf: ConfigRef): AbsoluteFile =
   createDir result.string.parentDir
 
 proc getPrefixDir*(conf: ConfigRef): AbsoluteDir =
-  ## Gets the prefix dir, usually the parent directory where the binary resides.
+  ## Gets the prefix dir, usually the parent directory where the binary
+  ## resides.
   ##
-  ## This is overridden by some tools (namely nimsuggest) via the ``conf.prefixDir``
-  ## field.
-  ## This should resolve to root of nim sources, whether running nim from a local
-  ##  clone or using installed nim, so that these exist: `result/doc/advopt.txt`
-  ## and `result/lib/system.nim`
-  if not conf.prefixDir.isEmpty: result = conf.prefixDir
-  else: result = AbsoluteDir splitPath(getAppDir()).head
+  ## This is overridden by some tools (namely nimsuggest) via the
+  ## ``conf.prefixDir`` field. This should resolve to root of nim sources,
+  ## whether running nim from a local clone or using installed nim, so that
+  ## these exist: `result/doc/advopt.txt` and `result/lib/system.nim`
+  if not conf.prefixDir.isEmpty:
+    result = conf.prefixDir
+  else:
+    result = AbsoluteDir splitPath(getAppDir()).head
 
 proc setDefaultLibpath*(conf: ConfigRef) =
   ## set default value (can be overwritten):
@@ -1073,8 +1075,8 @@ proc getOsCacheDir(): string =
   else:
     result = getHomeDir() / genSubDir.string
 
-proc getNimcacheDir*(conf: ConfigRef): AbsoluteDir =
-  proc nimcacheSuffix(conf: ConfigRef): string =
+proc getNimcacheDir*(conf: CurrentConf): AbsoluteDir =
+  proc nimcacheSuffix(conf: CurrentConf): string =
     if conf.cmd == cmdCheck: "_check"
     elif isDefined(conf, "release") or isDefined(conf, "danger"): "_r"
     else: "_d"
@@ -1091,7 +1093,13 @@ proc getNimcacheDir*(conf: ConfigRef): AbsoluteDir =
             AbsoluteDir(getOsCacheDir() / splitFile(conf.projectName).name &
                nimcacheSuffix(conf))
 
+proc getNimcacheDir*(conf: ConfigRef): AbsoluteDir =
+  conf.active.getNimcacheDir()
+
 proc pathSubs*(conf: ConfigRef; p, config: string): string =
+  ## Substitute text `p` with configuration paths, such as project name,
+  ## nim cache directory, project directory etc. `config` is an argument of
+  ## the configuration file path in case `$config` template is used.
   let home = removeTrailingDirSep(os.getHomeDir())
   result = unixToNativePath(p % [
     "nim", getPrefixDir(conf).string,
@@ -1104,6 +1112,8 @@ proc pathSubs*(conf: ConfigRef; p, config: string): string =
     "nimcache", getNimcacheDir(conf).string]).expandTilde
 
 iterator nimbleSubs*(conf: ConfigRef; p: string): string =
+  ## Iterate over possible interpolations of the path string `p` and known
+  ## package directories.
   let pl = p.toLowerAscii
   if "$nimblepath" in pl or "$nimbledir" in pl:
     for i in countdown(conf.nimblePaths.len-1, 0):
@@ -1112,14 +1122,18 @@ iterator nimbleSubs*(conf: ConfigRef; p: string): string =
   else:
     yield p
 
-proc toGeneratedFile*(conf: ConfigRef; path: AbsoluteFile,
-                      ext: string): AbsoluteFile =
+proc toGeneratedFile*(
+    conf: CurrentConf | ConfigRef,
+    path: AbsoluteFile,
+    ext: string
+  ): AbsoluteFile =
   ## converts "/home/a/mymodule.nim", "rod" to "/home/a/nimcache/mymodule.rod"
-  result = getNimcacheDir(conf) / RelativeFile path.string.splitPath.tail.changeFileExt(ext)
+  result = getNimcacheDir(conf) / RelativeFile(
+    path.string.splitPath.tail.changeFileExt(ext))
 
 proc completeGeneratedFilePath*(conf: ConfigRef; f: AbsoluteFile,
                                 createSubDir: bool = true): AbsoluteFile =
-  let subdir = getNimcacheDir(conf)
+  let subdir = getNimcacheDir(conf.active)
   if createSubDir:
     try:
       createDir(subdir.string)
@@ -1133,6 +1147,7 @@ proc toRodFile*(conf: ConfigRef; f: AbsoluteFile; ext = RodExt): AbsoluteFile =
     withPackageName(conf, f)), ext)
 
 proc rawFindFile(conf: ConfigRef; f: RelativeFile; suppressStdlib: bool): AbsoluteFile =
+  ## Find file using list of explicit search paths
   for it in conf.searchPaths:
     if suppressStdlib and it.string.startsWith(conf.libpath.string):
       continue
@@ -1142,6 +1157,10 @@ proc rawFindFile(conf: ConfigRef; f: RelativeFile; suppressStdlib: bool): Absolu
   result = AbsoluteFile""
 
 proc rawFindFile2(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
+  ## Find file using list of lazy paths. If relative file is found bring
+  ## lazy path forward. TODO - lazy path reordering appears to be an
+  ## 'optimization' feature, but it might have some implicit dependencies
+  ## elsewhere.
   for i, it in conf.lazyPaths:
     result = it / f
     if fileExists(result):
@@ -1152,7 +1171,9 @@ proc rawFindFile2(conf: ConfigRef; f: RelativeFile): AbsoluteFile =
       return canonicalizePath(conf, result)
   result = AbsoluteFile""
 
-template patchModule(conf: ConfigRef) {.dirty.} =
+proc patchModule(conf: ConfigRef, result: var AbsoluteFile) =
+  ## If there is a known module override for a given
+  ## `package/<name(result)>` replace result with new module override.
   if not result.isEmpty and conf.moduleOverrides.len > 0:
     let key = getPackageName(conf, result.string) & "_" & splitFile(result).name
     if conf.moduleOverrides.hasKey(key):
@@ -1195,6 +1216,11 @@ proc getRelativePathFromConfigPath*(conf: ConfigRef; f: AbsoluteFile, isTitle = 
   search(conf.lazyPaths)
 
 proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile =
+  ## Find module file using search paths or lazy search paths (in that
+  ## order). If suppress stdlib is used - do not try to return files that
+  ## start with current `conf.libpath` prefix. First explicit search paths
+  ## are queried, and then lazy load paths (generated from directories) are
+  ## used.
   if f.isAbsolute:
     result = if f.fileExists: AbsoluteFile(f) else: AbsoluteFile""
   else:
@@ -1205,10 +1231,22 @@ proc findFile*(conf: ConfigRef; f: string; suppressStdlib = false): AbsoluteFile
         result = rawFindFile2(conf, RelativeFile f)
         if result.isEmpty:
           result = rawFindFile2(conf, RelativeFile f.toLowerAscii)
-  patchModule(conf)
+  patchModule(conf, result)
 
 proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFile =
-  # returns path to module
+  ## Return absolute path to the imported module `modulename`. Imported
+  ## path can be relative to the `currentModule`, absolute one, `std/` or
+  ## `pkg/`-prefixed. In case of `pkg/` prefix it is dropped and search is
+  ## performed again, while ignoring stdlib.
+  ##
+  ## Search priority is
+  ##
+  ## 1. `pkg/` prefix
+  ## 2. Stdlib prefix
+  ## 3. Relative to the current file
+  ## 4. Search in the `--path` (see `findFile` and `rawFindFile`)
+  ##
+  ## If the module is found and exists module override, apply it last.
   var m = addFileExt(modulename, NimExt)
   if m.startsWith(pkgPrefix):
     result = findFile(conf, m.substr(pkgPrefix.len), suppressStdlib = true)
@@ -1225,9 +1263,10 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
       result = AbsoluteFile currentPath / m
     if not fileExists(result):
       result = findFile(conf, m)
-  patchModule(conf)
+  patchModule(conf, result)
 
 proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
+  ## Find configuration file for a current project
   const extensions = [".nims", ".cfg", ".nimcfg", ".nimble"]
   var
     candidates: seq[string] = @[]
@@ -1268,10 +1307,8 @@ proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   return ""
 
 proc canonicalImportAux*(conf: ConfigRef, file: AbsoluteFile): string =
-  ##[
-  Shows the canonical module import, e.g.:
-  system, std/tables, fusion/pointers, system/assertions, std/private/asciitables
-  ]##
+  ## Shows the canonical module import, e.g.: system, std/tables,
+  ## fusion/pointers, system/assertions, std/private/asciitables
   var ret = getRelativePathFromConfigPath(conf, file, isTitle = true)
   let dir = getNimbleFile(conf, $file).parentDir.AbsoluteDir
   if not dir.isEmpty:
@@ -1286,7 +1323,9 @@ proc canonicalImport*(conf: ConfigRef, file: AbsoluteFile): string =
   let ret = canonicalImportAux(conf, file)
   result = ret.nativeToUnixPath.changeFileExt("")
 
-proc canonDynlibName(s: string): string =
+proc canonDynlibName*(s: string): string =
+  ## Get 'canonical' dynamic library name - without optional `lib` prefix
+  ## on linux and optional version pattern or extension. `libgit2.so -> git2`
   let start = if s.startsWith("lib"): 3 else: 0
   let ende = strutils.find(s, {'(', ')', '.'})
   if ende >= 0:
