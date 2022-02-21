@@ -52,8 +52,6 @@ type
     ignoredGiven: seq[int]
     cantIgnoreGiven: bool
 
-
-
 proc diffStrings*(a, b: string): tuple[output: string, same: bool] =
   let a = a.split("\n")
   let b = b.split("\n")
@@ -80,9 +78,7 @@ proc diffStrings*(a, b: string): tuple[output: string, same: bool] =
 
 proc format(tcmp: TOutCompare): ColText =
   ## Pretty-print structured output comparison for further printing.
-  var
-    conf = diffFormatter()
-    res: ColText
+  var conf = diffFormatter()
 
   coloredResult()
 
@@ -416,7 +412,6 @@ proc logToConsole(
     param: ReportParams,
     givenSpec: ptr TSpec = nil
   ) =
-
   ## Format test infomation to the console. `test` contains information
   ## about the test itself, `param` contains additional data about test
   ## execution.
@@ -628,7 +623,7 @@ proc nimoutCheck(expected, given: TSpec): bool =
     result = false
 
 proc sexpCheck(test: TTest, expected, given: TSpec): TOutCompare =
-  ## Check if expected nimout values match with specified ones. Thish check
+  ## Check if expected nimout values match with specified ones. This check
   ## implements a structured comparison of the data and returns full report
   ## about all the mismatches that can be formatted as needed.
   ## This procedure determines whether `given` spec matches `expected` test
@@ -654,7 +649,6 @@ proc sexpCheck(test: TTest, expected, given: TSpec): TOutCompare =
     if 0 < line.len:
       r.givenReports.add TOutReport(node: parseSexp(line))
 
-  var map = r.diffMap
   proc reportCmp(a, b: int): int =
     # Best place for further optimization and configuration - if more
     # comparison speed is needed, try starting with error kind, file, line
@@ -698,7 +692,6 @@ proc cmpMsgs(
   # If structural comparison is requested - drop directly to it and handle
   # the success/failure modes in the branch
   if expected.nimoutSexp:
-    echo "executing structural comparison"
     let outCompare = test.sexpCheck(expected, given)
     # Full match of the output results.
     if outCompare.match:
@@ -1042,7 +1035,14 @@ const
   # array of modules disabled from compilation test of stdlib.
   disabledFiles = disabledFilesDefault
 
-type
+type  
+  TestId = int         # xxx: make this a distinct
+  RunId = int          ## test run's id/index # xxx: make this a distinct
+  EntryId = int        ## matrix entry index # xxx: make this a distinct
+  ActionId = int       ## a test action's id # xxx: make this a distinct
+  CategoryId = int     ## a category's id # xxx: make this a distinct
+  TestTarget = TTarget # xxx: renamed because I dislike the TXxx convention
+
   Categories = seq[Category]
 
   GlobPattern = string
@@ -1065,21 +1065,6 @@ type
       pattern: GlobPattern
     of tfkSingle:
       test: string
-  
-  TestId = int         # xxx: make this a distinct
-  RunId = int          ## test run's id/index # xxx: make this a distinct
-  EntryId = int        ## matrix entry index # xxx: make this a distinct
-  ActionId = int       ## a test action's id # xxx: make this a distinct
-  CategoryId = int     ## a category's id # xxx: make this a distinct
-  TestTarget = TTarget # xxx: renamed because I dislike the TXxx convention
-  
-  TestFile = object
-    file: string
-    catId: CategoryId
-
-  RetryInfo = object
-    test: TestId       ## which test failed
-    target: TestTarget ## the specific target
 
   ExecutionFlag = enum
     outputColour,      ## colour the output
@@ -1094,13 +1079,30 @@ type
   ExecutionFlags = set[ExecutionFlag]
     ## track the option flags that got set for an execution
 
+  RetryInfo = object
+    test: TestId       ## which test failed
+    target: TestTarget ## the specific target
+
   RetryList = OrderedTable[TestId, RetryInfo]
       ## record failures in here so the user can choose to retry them
 
-  TestTargets = set[TestTarget]
-
   DebugInfo = OrderedTable[RunId, string]
   # Refactor - debug info should be per action instead of per run
+  
+  # Category is in specs.nim
+
+  TestFile = object
+    file: string
+    catId: CategoryId
+
+  # TSpec is in specs.nim
+
+  TestRun = object
+    testId: TestId           ## test id for which this belongs
+    target: TestTarget       ## which target to run for
+    matrixEntry: EntryId     ## which item from the matrix was used
+
+  TestTargets = set[TestTarget]
 
   RunTime = object
     ## time tracking for test run activities
@@ -1113,14 +1115,9 @@ type
     runCheckStart: float     ## start of run output check
     runCheckEnd: float       ## end of run output check
 
-  TestRun = object
-    testId: TestId           ## test id for which this belongs
-    target: TestTarget       ## which target to run for
-    matrixEntry: EntryId     ## which item from the matrix was used
-
   CompileStatus = enum
-    CompileCrashed           ## assume that it crashed in test scenarios
-    CompileSuccessful        ## exit code was 0 and no error messages
+    compileCrashed           ## assume that it crashed in test scenarios
+    compileSuccessful        ## exit code was 0 and no error messages
 
   RunActual = object
     ## actual data for a run
@@ -1134,15 +1131,17 @@ type
     # xxx: maybe track data by action instead of by run?
     prgOut: string           ## program output, if any
     prgExit: int             ## program exit, if any
+    lastAction: ActionId     ## last action in this run
+    runResult: TResultEnum   ## current result, invalid if `lastAction` unset
 
   RunActuals = seq[RunActual]
 
   # xxx: add 'check' to remove `cmd: "nim check"...` from tests
-  TestActionKind = enum
-    testActionSkip           ## skip this test; check the spec for why
-    testActionReject,        ## reject the compilation
-    testActionCompile,       ## compile some source
-    testActionRun            ## run the compiled program
+  # TestActionKind = enum
+  #   testActionSkip           ## skip this test; check the spec for why
+  #   testActionReject,        ## reject the compilation
+  #   testActionCompile,       ## compile some source
+  #   testActionRun            ## run the compiled program
 
   TestAction = object
     runId: RunId
@@ -1707,7 +1706,7 @@ proc logToConsole(
     testFile = execState.testFiles[testId]
     testName = testFile.file.changeFileExt("")
     cat = execState.categories[testFile.catId]
-    debugInfo = execSTate.debugInfo.getOrDefault(runId)
+    debugInfo = execState.debugInfo.getOrDefault(runId)
     elapsedStr = formatFloat(params.duration, precision = 2).align(5)
   
   template displayNonSkipped(colour, outcome) =
@@ -1748,10 +1747,10 @@ proc logToConsole(
     if debugInfo.len > 0:
       msg Undefined: "debugInfo: " & debugInfo
     else:
-      if params.outCompare == nil:
+      if params.outCompare.isNil:
         # REFACTOR error message formatting should be based on the
         # `TestReport` data structure that contains all the necessary
-        # inforamtion in order to generate error message.
+        # information in order to generate an error message.
         maybeStyledEcho fgYellow, "Expected:"
         maybeStyledEcho styleBright, params.expected, "\n"
         maybeStyledEcho fgYellow, "Gotten:"
@@ -1768,7 +1767,6 @@ proc logToBackend(
   let
     runId = action.runId
     testId = execState.testRuns[runId].testId
-    test = execState.testSpecs[testId]
     testFile = execState.testFiles[testId]
     testName = testFile.file.changeFileExt("")
     cat = execState.categories[testFile.catId]
@@ -1805,15 +1803,23 @@ proc logToBackend(
     discard waitForExit(p)
     close(p)
 
-proc makeName(test: TestFile, target: TTarget, allowFailure: bool): string =
-  var name = test.file.changeFileExt("").replace(DirSep, '/')
-  name.add ' ' & $target
+proc makeName(test: TestFile,
+              testRun: TestRun,
+              allowFailure: bool
+              ): string =
+  let
+    target = testRun.target
+    matrixEntry = testRun.matrixEntry
+  var result = test.file.changeFileExt("").replace(DirSep, '/')
+  result.add ' ' & $target
+  if matrixEntry != noMatrixEntry:
+    result.add "[$1]" % $matrixEntry
   if allowFailure:
-    name.add " (allowed to fail) "
+    result.add " (allowed to fail) "
   # if test.options.len > 0:
-  #   name.add ' ' & test.options
+  #   result.add ' ' & test.options
 
-  return name
+  return result
 
 proc reportResult(execState: var Execution,
                   action: TestAction,
@@ -1824,14 +1830,13 @@ proc reportResult(execState: var Execution,
   let
     runId = action.runId
     run = execState.testRuns[runId]
-    runResult = execState.runActuals[runId]
+    # runResult = execState.runActuals[runId]
     runTimes = execState.runTimes[runId]
     testId = run.testId
     test = execState.testSpecs[testId]
     allowFailure = test.err == reKnownIssue
     testFile = execState.testFiles[testId]
-    target = run.target
-    name = testFile.makeName(target, allowFailure)
+    name = testFile.makeName(run, allowFailure)
     category = execState.categories[testFile.catId]
     testAction = $test.action
     elapsedCompile = runtimes.compileEnd - runtimes.compileStart
@@ -1847,7 +1852,7 @@ proc reportResult(execState: var Execution,
     backend.writeTestResult(
       name     = name,
       category = category.string,
-      target   = $target,
+      target   = $run.target,
       action   = testAction,
       result   = $testResult,
       expected = expected,
@@ -1873,10 +1878,10 @@ proc reportResult(execState: var Execution,
     # Write to logger
     execState.logToBackend(action, params)
 
-proc cmpAndReporResult(
+proc cmpAndReportResult(
     execState: var Execution,
     action: TestAction,
-    given: string,
+    expected: string,
     given: string,
     target: TTarget
   ) =
@@ -1889,70 +1894,136 @@ proc cmpAndReporResult(
   ## It is used to for performing 'reject' action checks - it compares
   ## both inline and regular messages - in addition to `nimoutCheck`
   
+  # let
+  #   runId = action.runId
+  #   run = execState.testRuns[runId]
+  #   testId = run.testId
+  #   spec = execState.testSpecs[testId]
+
+proc sexpCheck(testName: string, spec: TSpec, run: RunActual): TOutCompare =
+  ## Check if expected nimout values match with specified ones. This check
+  ## implements a structured comparison of the data and returns full report
+  ## about all the mismatches that can be formatted as needed.
+  ## This procedure determines whether `run` actual output matches the `spec`.
+  result.cantIgnoreGiven = spec.nimoutFull
+
+  for exp in spec.inlineErrors:
+    var
+      parsed = parseSexp(exp.msg)
+      loc = convertSexp([sexp(testName), sexp(exp.line)])
+    if exp.col > 0:
+      loc.add sexp(exp.col)
+
+    parsed.addField("location", loc)
+    parsed.addField("severity", newSSymbol(exp.kind))
+    result.expectedReports.add:
+      TOutReport(inline: some exp, node: parsed, file: spec.file)
+
+  for line in splitLines(spec.nimout):
+    if 0 < line.len:
+      result.expectedReports.add TOutReport(node: parseSexp(line))
+
+  for line in splitLines(run.nimout):
+    if 0 < line.len:
+      result.givenReports.add TOutReport(node: parseSexp(line))
+
+  template checkResult: TOutCompare =
+    ## allows referencing the outer result in `reportCmp` below
+    bind result
+    result
+
+  proc reportCmp(a, b: int): int =
+    # Best place for further optimization and configuration - if more
+    # comparison speed is needed, try starting with error kind, file, line
+    # comparison, then doing a regular msg != msg compare and only then
+    # deep structural diff.
+    let
+      nodeA = checkResult.expectedReports[a].node
+      nodeB = checkResult.givenReports[b].node
+    if nodeA[0] != nodeB[0]:
+      result += 10
+
+    let diff = diff(nodeA, nodeB)
+    checkResult.diffMap[(a, b)] = diff
+    result += diff.len
+  
+  (result.ignoredExpected, result.ignoredGiven, result.sortedMapping) =
+    stableMatch(
+      result.expectedReports.len,
+      result.givenReports.len,
+      reportCmp,
+      Descending
+    )
+  
+  # REFACTOR - use some boolean algebra to simplify the following:
+  result.match = result.sortedMapping[0].cost <= 0 and
+                 (result.ignoredGiven.len == 0 or not spec.nimoutFull)
+
+proc checkForInlineErrors(execState: var Execution, action: TestAction, name: string) =
+  ## Check for inline error annotations in the nimout results, comparing
+  ## them with the output of the compiler.
+
   let
     runId = action.runId
     run = execState.testRuns[runId]
+    runActual = execState.runActuals[runId]
     testId = run.testId
     spec = execState.testSpecs[testId]
+    pegLine = peg"{[^(]*} '(' {\d+} ', ' {\d+} ') ' {[^:]*} ':' \s* {.*}"
 
-  # If structural comparison is requested - drop directly to it and handle
-  # the success/failure modes in the branch
-  if spec.nimoutSexp:
-    echo "executing structural comparison"
-    let outCompare = sexpCheck(spec, given)
-    # Full match of the output results.
-    if outCompare.match:
-      r.addResult(test, target, spec.msg, given.msg, reSuccess)
-      inc(r.passed)
+  var covered = initIntSet()
+  for line in splitLines(runActual.nimout):
+    # Iterate over each line in the output
 
-    else:
-      # Write out error message.
-      r.addResult(
-        test, target, spec.msg, given, reMsgsDiffer,
-        givenSpec = unsafeAddr given,
-        outCompare = outCompare
-      )
-  elif test.inlineErrors.len > 0:
-    # QUESTION - `checkForInlineErrors` does not perform any comparisons
-    # for the regular message spec, it just compares annotated messages.
-    # How can it report anything properly then?
-    #
-    # MAYBE it is related the fact testament misuses the `inlineErrors`,
-    # and wrongly assumes they are /only/ errors, despite actually parsing
-    # anything that starts with `#[tt.` as inline annotation? Even in this
-    # case this does not make any sense, because comparisons is done only
-    # for inline error messages.
-    #
-    # MAYBE this is just a way to mitigate the more complex problem of
-    # mixing in inline error messages and regular `.nimout`? I 'solved' it
-    # using `stablematch` and weighted ordering, so most likely the person
-    # who wrote this solved the same problem using "I don't care" approach.
-    #
-    # https://github.com/nim-lang/Nim/commit/9a110047cbe2826b1d4afe63e3a1f5a08422b73f#diff-a161d4667e86146f2f8003f08f765b8d9580ae92ec5fb6679c80c07a5310a551R362-R364
-    checkForInlineErrors(r, spec, given, test, target)
-  elif strip(spec.msg) notin strip(given):
-    execState.reportResult(action, spec.msg, given, reMsgsDiffer)
-  elif not nimoutCheck(expected, given):
-    # Report general message mismatch error
-    r.addResult(test, target, expected.nimout, given.nimout, reMsgsDiffer)
-  elif extractFilename(expected.file) != extractFilename(given.file) and
-      "internal error:" notin expected.msg:
-    # Report error for the the error file mismatch
-    r.addResult(test, target, expected.file, given.file, reFilesDiffer)
+    # Searching for the `file(line, col) Severity: text` pattern
+    if line =~ pegLine:
+      let 
+        file = extractFilename(matches[0])
+        line = try: parseInt(matches[1]) except: -1
+        col = try: parseInt(matches[2]) except: -1
+        kind = matches[3]
+        msg = matches[4]
 
-  # Check for produced and given error message locations
-  elif expected.line != given.line and
-       expected.line != 0 or
-       expected.column != given.column and
-       expected.column != 0:
-    # Report error for the location mismatch
-    r.reportResult(test, target, $expected.line & ':' & $expected.column,
-                      $given.line & ':' & $given.column, reLinesDiffer)
+      if file == extractFilename name:
+        # If annotation comes from the target file
+        var i = 0
+        for x in spec.inlineErrors:
+          if x.line == line and (x.col == col or x.col < 0) and
+              x.kind == kind and x.msg in msg:
+            # And annotaiton has matching line, column and message
+            # information, register it as 'covered'
+            covered.incl i
+          inc i
 
-  # None of the unstructured checks found mismatches, reporting test
-  # as passed.
-  else:
-    execState.reportResult(action, spec.msg, given, reSuccess)
+  block coverCheck:
+    for j in 0..high(spec.inlineErrors):
+      # For each output message that was not covered by annotations, add it
+      # to the output as 'missing'
+      if j notin covered:
+        let
+          exp = spec.inlineErrors[j]
+          colStr =
+            if exp.col > 0:
+              ", " & $exp.col
+            else:
+              ""
+          e = "$name($line$col) $kind: $msg" % [
+                "name", name,
+                "line", $exp.line,
+                "col", colStr,
+                "kind", $exp.kind,
+                "msg", exp.msg]
+
+        execState.runActuals[runId].runResult = reMsgsDiffer
+        # TODO - This is where you left off:
+        # * the results should be appended to a result log for each run
+        # * then those get aggregated upwards
+        # r.addResult(test, target, e, runActual.nimout, reMsgsDiffer)
+        break coverCheck
+
+    execState.runActuals[runId].runResult = reSuccess
+    # r.addResult(test, target, "", runActual.nimMsg, reSuccess)
+    # inc(r.passed)
 
 template runTestBatch(execState: var Execution,
                       testCmds: seq[string],
@@ -1987,10 +2058,116 @@ template runTestBatch(execState: var Execution,
       runId = action.runId
       testRun = execState.testRuns[runId]
       testId = testRun.testId
-      duration = endTimes[id] - startTimes[id]
-      durationStr = duration.formatFloat(ffDecimal, precision = 2).align(5)
       spec = execState.testSpecs[testId]
+      testFile = execState.testFiles[testId]
+      allowFailure = spec.err == reKnownIssue
+      name = testFile.makeName(testRun, allowFailure)
+      # duration = endTimes[id] - startTimes[id]
+      # durationStr = duration.formatFloat(ffDecimal, precision = 2).align(5)
+
+    execState.runActuals[runId].lastAction = actionId
+
     case action.kind
+    of actionCompile, actionReject:
+      execState.runTimes[runId].compileStart = startTimes[id]
+      execState.runTimes[runId].compileEnd = endTimes[id]
+      
+      # xxx - refactor into a proc
+
+      # look for compilation errors or success messages
+      let output = newStringStream(outputs[id])
+      var
+        line = newStringOfCap(120)
+        err = ""
+        foundSuccessMsg = false
+      while output.readLine(line):
+        trimUnitSep line
+        execState.runActuals[runId].nimout.add(line & '\n')
+        if line =~ pegOfInterest:
+          # `err` should contain the last error message
+          err = line
+        elif line.isSuccess:
+          foundSuccessMsg = true
+      output.close
+      
+      # validate exist codes and collect action debug info
+      execState.runActuals[runId].nimExit = exitCodes[id]
+      execState.runActuals[runId].nimStatus = compileCrashed
+      execState.runActuals[runId].runResult = reNimcCrash
+      case exitCodes[id]
+      of 0:
+        if err != "":
+          execState.debugInfo.mgetOrPut(runId, "").add:
+            " compiler exit code was 0 but some Error's were found"
+        else:
+          execState.runActuals[runId].nimStatus = compileSuccessful
+          execState.runActuals[runId].runResult = reSuccess
+      of 1:
+        if err == "": # no error found
+          execState.debugInfo.mgetOrPut(runId, "").add:
+            " compiler exit code was 1 but no Error's were found."
+        if foundSuccessMsg:
+          execState.debugInfo.mgetOrPut(runId, "").add:
+            " compiler exit code was 1 but found a success message (see: testament.isSuccess)."
+      else:
+        execState.debugInfo.mgetOrPut(runId, "").add:
+          " expected compiler exit code 0 or 1, got $1." % $exitCodes[id]
+      
+      # set the last error message and get any relevant position info
+      if err =~ pegLineError:
+        execState.runActuals[runId].nimMsg = matches[3]
+        execState.runActuals[runId].nimFile = extractFilename(matches[0])
+        execState.runActuals[runId].nimLine = parseInt(matches[1])
+        execState.runActuals[runId].nimColumn = parseInt(matches[2])
+      elif err =~ pegOtherError:
+        execState.runActuals[runId].nimMsg = matches[0]
+      execState.runActuals[runId].nimMsg.trimUnitSep
+
+      case action.kind
+      of actionCompile:
+        let
+          runActual = execState.runActuals[runId]
+          successfulCompile = runActual.nimStatus == compileSuccessful
+          # gotCompilerMsg = runActual.nimMsg != ""
+
+        if spec.needsCodegenCheck:
+          # TODO - implement `codegenCheck`
+          discard
+
+        if spec.nimoutSexp:
+          let outputComparison = sexpCheck(name, spec, runActual)
+          
+          if outputComparison.match:
+            execState.runActuals[runId].runResult = reSuccess
+            discard # TODO - this is a success, check if part of run
+          else:
+            execState.runActuals[runId].runResult = reMsgsDiffer
+        elif spec.inlineErrors.len > 0:
+          # QUESTION - `checkForInlineErrors` does not perform any comparisons
+          # for the regular message spec, it just compares annotated messages.
+          # How can it report anything properly then?
+          #
+          # MAYBE it is related the fact testament misuses the `inlineErrors`,
+          # and wrongly assumes they are /only/ errors, despite actually parsing
+          # anything that starts with `#[tt.` as inline annotation? Even in this
+          # case this does not make any sense, because comparisons is done only
+          # for inline error messages.
+          #
+          # MAYBE this is just a way to mitigate the more complex problem of
+          # mixing in inline error messages and regular `.nimout`? I 'solved' it
+          # using `stablematch` and weighted ordering, so most likely the person
+          # who wrote this solved the same problem using "I don't care" approach.
+          #
+          # https://github.com/nim-lang/Nim/commit/9a110047cbe2826b1d4afe63e3a1f5a08422b73f#diff-a161d4667e86146f2f8003f08f765b8d9580ae92ec5fb6679c80c07a5310a551R362-R364
+          checkForInlineErrors(execState, action, name)
+
+      of actionReject:
+
+        # TODO - compare things
+        discard
+      else:
+        assert false, "we should never end up in this case: " & $action.kind
+    
     of actionRun:
       execState.runTimes[runId].runStart = startTimes[id]
       execState.runTimes[runId].runEnd = endTimes[id]
@@ -2029,70 +2206,6 @@ template runTestBatch(execState: var Execution,
               reSuccess
       
       execState.reportResult(action, expect, given, testResult)
-    of actionCompile, actionReject:
-      execState.runTimes[runId].compileStart = startTimes[id]
-      execState.runTimes[runId].compileEnd = endTimes[id]
-      
-      # xxx - refactor into a proc
-
-      # look for compilation errors or success messages
-      let output = newStringStream(outputs[id])
-      var
-        line = newStringOfCap(120)
-        err = ""
-        foundSuccessMsg = false
-      while output.readLine(line):
-        trimUnitSep line
-        execState.runActuals[runId].nimout.add(line & '\n')
-        if line =~ pegOfInterest:
-          # `err` should contain the last error message
-          err = line
-        elif line.isSuccess:
-          foundSuccessMsg = true
-      output.close
-      
-      # validate exist codes and collect action debug info
-      execState.runActuals[runId].nimExit = exitCodes[id]
-      execState.runActuals[runId].nimStatus = CompileCrashed
-      case exitCodes[id]
-      of 0:
-        if err != "":
-          execState.debugInfo.mgetOrPut(runId, "").add:
-            " compiler exit code was 0 but some Error's were found"
-        else:
-          execState.runActuals[runId].nimStatus = CompileSuccessful
-      of 1:
-        if err == "": # no error found
-          execState.debugInfo.mgetOrPut(runId, "").add:
-            " compiler exit code was 1 but no Error's were found."
-        if foundSuccessMsg:
-          execState.debugInfo.mgetOrPut(runId, "").add:
-            " compiler exit code was 1 but found a success message (see: testament.isSuccess)."
-      else:
-        execState.debugInfo.mgetOrPut(runId, "").add:
-          " expected compiler exit code 0 or 1, got $1." % $exitCodes[id]
-      
-      # set the last error message and get any relevant position info
-      if err =~ pegLineError:
-        execState.runActuals[runId].nimMsg = matches[3]
-        execState.runActuals[runId].nimFile = extractFilename(matches[0])
-        execState.runActuals[runId].nimLine = parseInt(matches[1])
-        execState.runActuals[runId].nimColumn = parseInt(matches[2])
-      elif err =~ pegOtherError:
-        execState.runActuals[runId].nimMsg = matches[0]
-      execState.runActuals[runId].nimMsg.trimUnitSep
-
-      case action.kind
-      of actionCompile:
-        if action.partOfRun:
-          discard
-        else:
-          # TODO - compare stuff
-          discard
-      of actionReject:
-
-        # TODO - compare things
-        discard
 
     # echo "batch: ", batches, ", runId: ", runId, ", actionId: ", actionId, ", duration: ", durationStr, ", cmd: ", testCmds[id]
     # xxx: exitcode and outputs
