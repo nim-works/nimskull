@@ -20,20 +20,73 @@ jobs:
       # Publish action needs a checkout
       - uses: actions/checkout@v2.4.0
 
-      # Download the latest instance of generated documentation from the build
-      # during bors staging.
+      # Download the latest instance of artifacts from a build done previously
       - name: Download generated docs
         uses: dawidd6/action-download-artifact@v2.17.0
         with:
           workflow: ci.yml
-          workflow_conclusion: completed
+          workflow_conclusion: success
           commit: ${{ github.event.after }}
           # Keep up-to-date with ci.yml
           name: Generated docs
           path: doc/html
+
+      - name: Download generated source archive
+        uses: dawidd6/action-download-artifact@v2.17.0
+        with:
+          workflow: ci.yml
+          workflow_conclusion: success
+          commit: ${{ github.event.after }}
+          # Keep up-to-date with ci.yml
+          name: source archive
+          path: release-staging
+
+      - name: Download generated release binaries
+        uses: dawidd6/action-download-artifact@v2.17.0
+        with:
+          workflow: ci.yml
+          workflow_conclusion: success
+          commit: ${{ github.event.after }}
+          # Keep up-to-date with ci.yml
+          name: release binaries
+          path: release-staging
+
+      - name: Download release manifest tool
+        uses: dawidd6/action-download-artifact@v2.17.0
+        with:
+          workflow: ci.yml
+          workflow_conclusion: success
+          commit: ${{ github.event.after }}
+          # Keep up-to-date with ci.yml
+          name: release manifest tool
+          path: release-staging
 
       - name: Publish docs
         uses: JamesIves/github-pages-deploy-action@v4.2.3
         with:
           branch: gh-pages
           folder: doc/html
+
+      - id: release-files
+        name: Create release manifest
+        run: |
+          # Github Artifacts strip executable permissions so it has to be set again
+          chmod 755 release_manifest
+          # Create a new release manifest
+          ./release_manifest add *.json
+
+          toUpload=$(./release_manifest files-to-upload --format:github-actions)
+          echo "::set-output name=result::$toUpload"
+          echo "::set-output name=version::$(./release_manifest version)"
+        working-directory: release-staging
+
+      - name: Create pre-release
+        uses: softprops/action-gh-release@v0.1.14
+        with:
+          prerelease: true
+          files: ${{ steps.release-files.outputs.result }}
+          tag_name: ${{ steps.release-files.outputs.version }}
+          fail-on-unmatched-files: true
+          target_commitish: ${{ github.event.after }}
+          body: |
+            Continuous delivery for commit ${{ github.event.after }}

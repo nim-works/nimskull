@@ -448,6 +448,12 @@ jobs:
           name: release binaries
           path: release-binary
 
+      - name: Download release source archive
+        uses: actions/download-artifact@v2.1.0
+        with:
+          name: source archive
+          path: source-archive
+
       - name: Install tools
         run: |
           sudo apt-get update
@@ -478,6 +484,26 @@ jobs:
         with:
           name: differences between binary from source archive and git
           path: ${{ steps.diff.outputs.result }}
+
+      - name: Verify archive manifests
+        run: |
+          # Verify them by using the manifest builder tool to create a manifest
+          # for the full bundle.
+          bin/nim c tools/release_manifest.nim
+          cd release-binary
+          ../tools/release_manifest add ../source-archive/*.json *.json
+
+          # Print the resulting manifest
+          echo "Success! Generated manifest:"
+          jq . manifest.json
+
+      # This allow the publisher to run the tool directly without having to
+      # clone the compiler.
+      - name: Upload release manifest tool
+        uses: actions/upload-artifact@v2.3.1
+        with:
+          name: release manifest tool
+          path: tools/release_manifest
 
   passed:
     name: All check passed
