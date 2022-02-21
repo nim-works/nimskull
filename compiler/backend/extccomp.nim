@@ -428,6 +428,7 @@ proc resetCompilationLists*(conf: ConfigRef) =
   conf.externalToLink.setLen 0
 
 proc addExternalFileToLink*(conf: ConfigRef; filename: AbsoluteFile) =
+  ## Add new file to be linked with every compiled target.
   conf.externalToLink.insert(filename.string, 0)
 
 proc execWithEcho(conf: ConfigRef; cmd: string, execKind: ReportKind): int =
@@ -471,6 +472,10 @@ proc noAbsolutePaths(conf: ConfigRef): bool {.inline.} =
   result = conf.globalOptions * {optGenScript, optGenMapping} != {}
 
 proc cFileSpecificOptions(conf: ConfigRef; nimname, fullNimFile: string): string =
+  ## Construct CLI options to to compile a specific nim file. Options are
+  ## added in the following order:
+  ## `[global(--passc)][opt=speed/size/debug][file-local][<nimname>.always]`.
+  ## `<nimname>.always` is a configuration variable.
   result = conf.compileOptions
 
   for option in conf.compileOptionsCmd:
@@ -912,7 +917,9 @@ proc callCCompiler*(conf: ConfigRef) =
   for idx, it in conf.toCompile:
     # call the C compiler for the .c file:
     if CfileFlag.Cached in it.flags: continue
-    let compileCmd = getCompileCFileCmd(conf, it, idx == conf.toCompile.len - 1, produceOutput=true)
+    let compileCmd = getCompileCFileCmd(
+      conf, it, idx == conf.toCompile.len - 1, produceOutput=true)
+
     if optCompileOnly notin conf.globalOptions:
       cmds.add(compileCmd)
       prettyCmds.add displayProgressCC(conf, $it.cname, compileCmd)

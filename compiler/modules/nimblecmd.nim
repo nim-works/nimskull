@@ -144,6 +144,7 @@ iterator chosen(packages: PackageInfo): string =
     yield res
 
 proc addNimblePath(conf: ConfigRef; p: string, info: TLineInfo) =
+  ## Add paths from the
   var path = p
   let nimbleLinks = toSeq(walkPattern(p / "*.nimble-link"))
   if nimbleLinks.len > 0:
