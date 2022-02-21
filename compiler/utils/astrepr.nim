@@ -1,23 +1,46 @@
-## `treeRepr()` implementation for the `PNode` tree structures. This module
-## provides helper procedures that can be used for debugging purposes -
-## dumping compiler IR in the textual form.
-##
-## For each IR type (``PType``, ``PSym``, ``PNode``) there are several
-## procs defined:
-#
-## - `treeRepr` - main implementation to generate the `ColText` chunk for the
-##   object.
-## - `debug` - convenience ovelroads that print generated text immediately.
-##   There are two version of the `debug` - one that accept `ConfigRef` object,
-##   and one that can work without it. Both call `treeRepr` internally, but
-##   with `ConfigRef` present more information can be printed.
-## - `debugAst`, `debugSym`, `debugType` - procs added for use in `gdb` debugging.
-##   They have `{.exportc.}` annotations, so can be used directly by name there
-##
-## `treeRepr` and all other procedures in the module accept `TReprConf`
-## object (default value is provided via `implicitTReprConf` global, for
-## gdb procs it is used implicitly) that controls which fields specifically
-## will be printed.
+##[
+
+`treeRepr()` implementation for the `PNode` tree structures. This module
+provides helper procedures that can be used for debugging purposes -
+dumping compiler IR in the textual form.
+
+For each IR type (``PType``, ``PSym``, ``PNode``) there are several procs
+defined:
+
+- `treeRepr` - main implementation to generate the `ColText` chunk for the
+  object.
+
+- `debug` - convenience ovelroads that print generated text immediately.
+  There are two version of the `debug` - one that accept `ConfigRef`
+  object, and one that can work without it. Both call `treeRepr`
+  internally, but with `ConfigRef` present more information can be printed.
+
+- `debugAst`, `debugSym`, `debugType` - procs added for use in `gdb`
+  debugging. They have `{.exportc.}` annotations, so can be used directly
+  by name there
+
+`treeRepr` and all other procedures in the module accept `TReprConf` object
+(default value is provided via `implicitTReprConf` global, for gdb procs it
+is used implicitly) that controls which fields specifically will be
+printed.
+
+Configuration object also includes callbacks that would allow you to
+provide additional information for the printed targets. For example, you
+want to perform some analysis, and don't have `ConfigRef` object passed
+around (because your code *only* collects some data from the nodes). But
+then you need to figure out the actual location of where node comes from.
+In that case you simply assign to `implicitTReprConf.extraNodeInfo`, and
+next `debug` you call will provide needed information.
+
+.. code::nim
+
+  implicitTReprConf.extraNodeInfo = proc(node: PNode): ColText =
+    result.add "node location " & (config $ node.info)
+
+
+
+]##
+
 
 import
   ast/[
@@ -35,13 +58,17 @@ import
   std/[
     tables,
     strutils,
-    strformat
+    strformat,
+    math
   ]
 
 import std/options as std_options
 
+export colortext
+
 type
   TReprFlag* = enum
+    ## Configuration options for treeRepr debugging
     trfReportInfo ## Show information about embedded semantic report errors
     trfPackedFields ## Put fields horizontally instead of arranging them
                     ## out veritcally. Should be used only when a small
@@ -56,6 +83,7 @@ type
 
     trfShowSymFlags ## Show symbol `.flags` field
     trfShowSymLineInfo ## Line information
+    trfShowSymName
     trfShowSymTypes ## Flat render of the symbol type
     trfShowSymMagic ## used symbol magic
     trfShowSymKind ## `.kind`
@@ -65,15 +93,16 @@ type
     trfShowSymOffset ## `.offset`
     trfShowSymBitsize ## `.bitsize`
     trfShowSymAlignment ## `.alignment`
+    trfShowSymAst ## `.ast` from the symbol
+    trfShowSymId ## `module` and `item` from `itemId` field
 
     trfShowTypeCallConv ## Calling convention
     trfShowTypeFlags ## `.flags`
     trfShowTypeSym ## `.sym`
     trfShowTypeAlloc ## `.align` and `.size` fields. They represent a
-                     ## single logical chunk of information, and pinter
-                     ## together
+    ## single logical chunk of information, and pinter together
     trfShowTypeOwner ## Full chain of the type owner
-    trfShowTypeBaseId ## `module` and `item` from `itemId` field
+    trfShowTypeId ## `module` and `item` from `itemId` field
 
     trfShowNodeLineInfo ## Node location information
     trfShowNodeFlags ## `.flags`
@@ -96,9 +125,16 @@ type
     ## modules, statement lists and such.
     maxPath*: int ## maximum path length for subnodes
 
+    extraNodeInfo*: proc(node: PNode): ColText ## Additional information
+    ## for node, symbol or type printing. By default these procs are not
+    ## implemented and ignored. If the procedure is not nil it is called at
+    ## the start of each entry (before mandatory fields and nested
+    ## elements) and results are indented to match the surroundings.
+
+    extraSymInfo*: proc(sym: PSym): ColText ## Extra info for symbol
+    extraTypInfo*: proc(typ: PType): ColText ## Extra info for type
 
 
-export colortext.`$`
 
 const treeReprAllFields* = { trfShowSymFlags .. trfShowNodeTypes } ## Set
                            ## of flags to print all fields in all tree
@@ -108,7 +144,7 @@ const style = (
   kind: fgBlue,
   nilIt: fgRed,
   ident: fgCyan,
-  setIt: termFg(2, 1, 3),
+  setIt: termFg(5, 1, 5),
   number: fgCyan,
   strLit: fgYellow,
   floatLit: fgMagenta,
@@ -116,32 +152,59 @@ const style = (
   errKind: termFg(5, 2, 0),
   err: fgRed,
   comment: termFg(4, 2, 1),
-  owner: termFg(1, 3, 0)
+  owner: termFg(1, 3, 0),
+  identLit: fgGreen
 )
 
-const defaultTReprConf* = TReprConf(
+let defaultTReprConf* = TReprConf(
   maxDepth: 120,
   maxLen: 30,
   maxPath: 1,
   flags: {
     trfReportInfo,
-    trfSkipAuxError,
-    trfIndexVisisted
+    trfSkipAuxError
   } + treeReprAllFields - {
     trfShowNodeLineInfo,
     trfShowSymLineInfo,
     trfShowSymOptions,
-    trfShowTypeBaseId,
-    trfShowTypeAlloc
+    trfShowSymPosition,
+    trfShowTypeId,
+    trfShowTypeAlloc,
+    trfShowSymId,
+    trfShowSymAst
   }
 ) ## Default based configuration for the tree repr printing functions
 
-const compactTReprConf* =
+let onlyStructureTReprConf* =
   block:
     var base = defaultTReprConf
-    base.flags.incl trfPackedFields
+    base.flags = {trfShowNodeComments}
+    base.maxPath = 0
     base
-  ## Compacted tree repr configuration
+
+func incl*(conf: var TReprConf, flag: TReprFlag | set[TReprFlag]) =
+  conf.flags.incl flag
+
+func excl*(conf: var TReprConf, flag: TReprFlag | set[TReprFlag]) =
+  conf.flags.excl flag
+
+func `+`*(conf: TReprConf, flag: TReprFlag | set[TReprFlag]): TReprConf =
+  result = conf
+  result.incl flag
+
+func `-`*(conf: TReprConf, flag: TReprFlag | set[TReprFlag]): TReprConf =
+  result = conf
+  result.excl flag
+
+let compactTReprConf* = defaultTReprConf + trfPackedFields ## Compacted tree repr configuration
+
+let verboseTReprConf* =
+  block:
+    var base = defaultTReprConf + { low(TReprFlag) .. high(TReprFlag) } - { trfPackedFields }
+    base.maxPath = 40
+    base
+  ## Show absolutely everything
+
 
 var implicitTReprConf*: TReprConf = defaultTReprConf ## global
   ## configuration object that is implicitly used by `debugAst` and
@@ -170,7 +233,6 @@ proc textRepr(conf: ConfigRef, typ: PType): ColText =
     if '\n' notin t:
       result &= " " & t + fgRed
 
-
 template genFields(res: ColText, indent: int, rconf: TReprConf): untyped =
   proc hfield(name: string, text: ColText = default ColText) =
     res.add " "
@@ -181,7 +243,7 @@ template genFields(res: ColText, indent: int, rconf: TReprConf): untyped =
   proc vfield(name: string, text: ColText = default ColText) =
     res.newline()
     res.addIndent(indent, 1)
-    res.add alignLeft(name & ":", 7)
+    res.add alignLeft(name & ":", 9)
     res.add text
 
   proc field(name: string, text: ColText = default ColText) =
@@ -203,33 +265,74 @@ proc format[I](s: set[I], sub: int): string =
 func format(i: SomeInteger): ColText = $i + style.number
 
 proc ownerChain(sym: PSym): string =
-  var own: seq[PSym] = @[sym]
+  var chain: seq[PSym] = @[sym]
   var sym = sym
   while not sym.owner.isNil():
     sym = sym.owner
-    own.add sym
+    chain.add sym
 
-  for idx in countdown(own.high, 0):
-    if idx < own.high:
+  for idx in countdown(chain.high, 0):
+    if idx < chain.high:
       result.add "."
 
-    result.add own[idx].name.s
-    result.add "("
-    result.add substr($own[idx].kind, 2)
+    result.add "'"
+    result.add chain[idx].name.s
+    result.add "'("
+    result.add substr($chain[idx].kind, 2)
     result.add ")"
 
 func defaulted(r: TReprConf): bool = trfShowDefaultedFields in r
+
+proc infoField(
+    conf: ConfigRef, info: TLineInfo, rconf: TReprConf,
+    indent: int, name: string): ColText =
+  var res = addr result
+  genFields(res[], indent, rconf)
+  if info == unknownLineInfo:
+    field(name, "unknown" + style.err)
+
+  elif isNil(conf):
+    field(name)
+    hfield("fileIndex", $info.fileIndex.int + style.number)
+    hfield("line", $info.line + style.number)
+    hfield("col", $info.col + style.number)
+
+  else:
+    field(name, "$#($#, $#)" % [
+      conf.toMsgFilename(info.fileIndex) + style.ident,
+      $info.line + style.number,
+      $info.col + style.number
+    ])
+
+
+proc treeRepr*(
+    conf: ConfigRef,
+    pnode: PNode,
+    rconf: TReprConf = implicitTReprConf,
+    indent: int = 0
+  ): ColText
 
 proc symFields(
     conf: ConfigRef,
     sym: PSym,
     rconf: TReprConf = implicitTReprConf,
-    indent: int = 0
+    indent: int = 0,
+    inNode: bool = false
   ): ColText =
 
   coloredResult(1)
   var res = addr result
   genFields(res[], indent, rconf)
+
+
+  if not rconf.extraSymInfo.isNil():
+    let text = rconf.extraSymInfo(sym)
+    if 0 < len(text):
+      result.add text.indent(indent)
+
+  if trfShowSymName in rconf:
+    field("name.s", sym.name.s + style.ident)
+    hfield("name.id", $sym.name.id + style.number)
 
   if trfShowSymFlags in rconf and
      (sym.flags.len > 0 or rconf.defaulted()):
@@ -238,6 +341,12 @@ proc symFields(
   if trfShowSymMagic in rconf and
      (sym.magic != mNone or rconf.defaulted()):
     field("magic", substr($sym.magic, 1) + style.setIt)
+
+
+  if trfShowSymId in rconf:
+    field("itemId")
+    hfield("module", sym.itemId.module.format())
+    hfield("item", sym.itemId.item.format())
 
   if trfShowSymOptions in rconf and
      (0 < sym.options.len or rconf.defaulted()):
@@ -254,13 +363,10 @@ proc symFields(
   if trfShowSymTypes in rconf and not sym.typ.isNil():
     field("typ", conf.textRepr(sym.typ))
 
-  if not isNil(conf) and
-     trfShowSymLineInfo in rconf and
-     (sym.info != unknownLineInfo or rconf.defaulted()):
-    field("info", conf.toMsgFilename(sym.info.fileIndex) + style.ident)
-    add "(", $sym.info.line + style.number
-    add ".", $sym.info.col + style.number
-    add ")"
+  if trfShowSymLineInfo in rconf:
+    addi indent, infoField(
+      conf, sym.info, rconf, indent, tern(
+        inNode, "symInfo", "info"))
 
   if trfShowSymOwner in rconf and not sym.owner.isNil():
     field("owner")
@@ -274,6 +380,14 @@ proc symFields(
     if trfShowSymAlignment in rconf and
        (sym.alignment != 0 or rconf.defaulted()):
       field("alignment", sym.bitsize.format())
+
+  if trfShowSymAst in rconf:
+    var rconf = compactTReprConf
+    rconf.excl trfShowSymAst
+    field("ast")
+    result.add "\n"
+    result.add treeRepr(
+      conf, sym.ast, rconf, indent = indent + 2)
 
 
 
@@ -302,6 +416,12 @@ proc typFields(
   let res = addr result
   genFields(res[], indent, rconf)
 
+  if not rconf.extraTypInfo.isNil():
+    let text = rconf.extraTypInfo(typ)
+    if 0 < len(text):
+      result.add text.indent(indent)
+
+
   if trfShowTypeCallConv in rconf and typ.kind == tyProc:
     field("callConv", $typ.callConv + style.ident)
 
@@ -322,13 +442,6 @@ proc typFields(
 
 proc treeRepr*(
     conf: ConfigRef,
-    pnode: PNode,
-    rconf: TReprConf = defaultTReprConf,
-    indent: int = 0
-  ): ColText
-
-proc treeRepr*(
-    conf: ConfigRef,
     typ: PType,
     rconf: TReprConf = implicitTReprConf,
     indent: int = 0
@@ -346,8 +459,8 @@ proc treeRepr*(
 
     else:
       addi indent, substr($typ.kind, 2) + style.kind
-      if trfShowTypeBaseId in rconf:
-        hfield("itemId")
+      if trfShowTypeId in rconf:
+        field("itemId")
         hfield("module",typ.itemId.module.format())
         hfield("item", typ.itemId.item.format())
 
@@ -374,10 +487,29 @@ proc treeRepr*(
 
 
 
+proc cyclicTreeAux(n: PNode, visited: var seq[PNode], count: var int): bool =
+  if n.isNil(): return
+  for v in visited:
+    if v == n:
+      return true
+
+  inc count
+  if n.kind notin {nkEmpty..nkNilLit}:
+    visited.add(n)
+    for nSon in n.sons:
+      if cyclicTreeAux(nSon, visited, count):
+        return true
+
+    discard visited.pop()
+
+proc cyclicTree(n: PNode): tuple[cyclic: bool, count: int] =
+  var visited: seq[PNode] = @[]
+  result.cyclic = cyclicTreeAux(n, visited, result.count)
+
 proc treeRepr*(
     conf: ConfigRef,
     pnode: PNode,
-    rconf: TReprConf = defaultTReprConf,
+    rconf: TReprConf = implicitTReprConf,
     indent: int = 0
   ): ColText =
   ## .. include:: tree_repr_doc.rst
@@ -391,11 +523,24 @@ proc treeRepr*(
     res = addr result
     nodecount = 0
 
+  let (cyclic, maxNum) = cyclicTree(pnode)
+  let numerate = trfIndexVisisted in rconf or cyclic
+
+  let numWidth = log10(maxNum.float).int + 1
+  let pad = tern(numerate, 3 + numWidth, 0)
+
   proc aux(n: PNode, idx: seq[int]) =
+    if numerate:
+      add "["
+      add ($nodecount + style.dim) |>> numWidth
+      add "] "
+
+    inc nodecount
+
     var indent = indentIncrease
     genFields(res[], indent, rconf)
     addIndent(indentIncrease)
-    indent += 2
+    indent += 2 + pad
     if 0 < idx.len:
       var first = true
       for idxIdx, pos in idx:
@@ -430,7 +575,7 @@ proc treeRepr*(
          # not an empty (completely empty) node
          cast[int](n) in visited:
 
-      if trfIndexVisisted in rconf:
+      if numerate:
         add "<visited "
         add substr($n.kind, 2) + style.number
         add " at "
@@ -448,12 +593,6 @@ proc treeRepr*(
 
     visited[cast[int](n)] = nodecount
     add substr($n.kind, 2) + style.kind
-
-    if trfIndexVisisted in rconf:
-      add " "
-      add $nodecount + style.dim
-
-    inc nodecount
 
     when defined(useNodeids):
       if trfShowNodeIds in rconf:
@@ -478,6 +617,16 @@ proc treeRepr*(
         add " "
 
     proc addFlags() =
+      if not rconf.extraNodeInfo.isNil():
+        let text = rconf.extraNodeInfo(n)
+        if 0 < len(text):
+          add text.indent(indent)
+
+      if trfShowNodeLineInfo in rconf:
+        addi indent, infoField(
+          conf, n.info, rconf, indent, tern(
+            n.kind == nkSym, "nodeInfo", "info"))
+
       if trfShowNodeFlags in rconf and n.flags.len > 0:
         field("nflags", format(n.flags, 2) + style.setIt)
 
@@ -492,56 +641,50 @@ proc treeRepr*(
               discard
 
             else:
-              field("typ", conf.textRepr(n.typ))
-              add " != sym.typ" + style.err
+              field("typ", " != sym.typ" + style.err)
+              add "\n"
+              add conf.treeRepr(n.typ, rconf, indent = indent + 2)
 
           else:
-            field("typ", conf.textRepr(n.typ))
+            field("typ")
+            add "\n"
+            add conf.treeRepr(n.typ, rconf, indent = indent + 2)
 
-    if not conf.isNil() and trfShowNodeLineInfo in rconf and
-       n.info != unknownLineInfo:
-      field("info", conf.toMsgFilename(n.info.fileIndex) + style.ident)
-      add "("
-      add $n.info.line + style.number
-      add "."
-      add $n.info.col + style.number
-      add ")"
+    proc postLiteral() =
+      addFlags()
+      if hasComment: add "\n"
+      addComment()
 
     case n.kind:
       of nkStrKinds:
         add " "
         add "\"" & n.strVal + style.strLit & "\""
-        addFlags()
-        if hasComment: add "\n"
-        addComment()
+        postLiteral()
 
       of nkCharLit .. nkUInt64Lit:
         add " "
         add $n.intVal + style.number
-        addFlags()
-        if hasComment: add "\n"
-        addComment()
+        postLiteral()
 
       of nkFloatLit .. nkFloat128Lit:
         add " "
         add $n.floatVal + style.floatLit
-        addFlags()
-        if hasComment: add "\n"
-        addComment()
+        postLiteral()
 
       of nkIdent:
-        add " "
-        add n.ident.s + style.ident
-        addFlags()
-        if hasComment: add "\n"
-        addComment()
+        add " \""
+        add n.ident.s + style.identLit
+        add "\""
+        hfield "ident.id", $n.ident.id + style.number
+        postLiteral()
 
       of nkSym:
-        add " "
-        add n.sym.name.s + style.ident
+        add " \""
+        add n.sym.name.s + style.identLit
+        add "\""
         hfield "sk", substr($n.sym.kind, 2) + style.kind
 
-        add symFields(conf, n.sym, rconf, indent)
+        add symFields(conf, n.sym, rconf, indent, inNode = true)
         addFlags()
         addComment()
 
@@ -563,8 +706,12 @@ proc treeRepr*(
         let (file, line, col) = n.compilerInstInfo()
         field("info", formatPath(conf, file) + style.ident)
         add "(", $line + style.number
-        add ".", $col + style.number
+        add ",", $col + style.number
         add ")"
+
+      of nkType:
+        postLiteral()
+
 
       else:
         discard
@@ -577,7 +724,8 @@ proc treeRepr*(
 
       if hasComment:
         addComment(false)
-        add "\n"
+        if len(n) == 0:
+          add "\n"
 
       for newIdx, subn in n:
         if trfSkipAuxError in rconf and n.kind == nkError and newIdx in {1, 2}:
@@ -597,7 +745,15 @@ proc treeRepr*(
 
   aux(pnode, @[])
 
-{.pragma: dbg, deprecated: "Debug proc, should not be used in the final build".}
+{.pragma:
+  dbg,
+  deprecated: "DEBUG proc, should not be used in the final build!".}
+
+var implicitDebugConfRef: ConfigRef
+
+proc setImplicitDebugConfRef*(conf: ConfigRef) {.dbg.} =
+  ## Set implicit debug config reference.
+  implicitDebugConfRef = conf
 
 proc debugAst*(it: PNode) {.exportc, dbg.} =
   ## Print out tree representation of the AST node.
@@ -609,41 +765,63 @@ proc debugAst*(it: PNode) {.exportc, dbg.} =
   ## .. tip:: This proc is annotated with `{.exportc.}` which means it's
   ##     mangled name exactly the same - `debugAst` and you can call it
   ##     from the `gdb` debugging session.
-  echo treeRepr(nil, it, implicitTReprConf)
+  echo treeRepr(implicitDebugConfRef, it, implicitTReprConf)
 
 proc debugType*(it: PType) {.exportc, dbg.} =
   ## Print out tree represntation of the type. Can also be used in gdb
   ## debugging session due to `.exportc.` annotation
-  echo treeRepr(nil, it, implicitTReprConf)
+  echo treeRepr(implicitDebugConfRef, it, implicitTReprConf)
 
 proc debugSym*(it: PSym) {.exportc, dbg.} =
   ## Print out tree represntation of the symbol. Can also be used in gdb
   ## debugging session due to `.exportc.` annotation
-  echo treeRepr(nil, it, implicitTReprConf)
+  echo treeRepr(implicitDebugConfRef, it, implicitTReprConf)
 
-proc debug*(it: PNode, tconf: TReprConf = implicitTReprConf) {.dbg.} =
+proc debug*(it: PNode | PSym | PNode, tconf: TReprConf) {.dbg.} =
   ## Convenience overload of `debugAst`
-  echo treeRepr(nil, it, tconf)
+  echo treeRepr(implicitDebugConfRef, it, tconf)
 
-proc debug*(it: PType, tconf: TReprConf = implicitTReprConf) {.dbg.} =
-  ## Convenience overload of `debugType`
-  echo treeRepr(nil, it, tconf)
-
-proc debug*(it: PSym, tconf: TReprConf = implicitTReprConf) {.dbg.} =
-  ## Convenience overload of `debugSym`
-  echo treeRepr(nil, it, tconf)
-
-proc debug*(
-    conf: ConfigRef, it: PNode, tconf: TReprConf = implicitTReprConf) {.dbg.} =
+proc debug*(conf: ConfigRef, it: PNode | PType | PSym, tconf: TReprConf) {.dbg.} =
   ## Print tree representation of the AST
   echo treeRepr(conf, it, tconf)
 
-proc debug*(
-    conf: ConfigRef, it: PType, tconf: TReprConf = implicitTReprConf) {.dbg.} =
-  ## Print tree representation of the type
-  echo treeRepr(conf, it, tconf)
+proc debug*(it: PNode | PSym | PNode) {.dbg.} =
+  ## Convenience overload of `debugAst`
+  echo treeRepr(implicitDebugConfRef, it, implicitTReprConf)
 
-proc debug*(
-    conf: ConfigRef, it: PSym, tconf: TReprConf = implicitTReprConf) {.dbg.} =
-  ## Print tree reprsentation of the symbol
-  echo treeRepr(conf, it, tconf)
+proc debug*(conf: ConfigRef, it: PNode | PType | PSym) {.dbg.} =
+  ## Print tree representation of the AST
+  echo treeRepr(conf, it, implicitTReprConf)
+
+proc inLines*(node: PNode, lrange: Slice[int]): bool {.dbg.} =
+  lrange.a <= node.info.line.int and
+  node.info.line.int <= lrange.b
+
+proc inFile*(
+    conf: ConfigRef,
+    node: PNode | PSym,
+    file: string,
+    lrange: Slice[int] = low(int) .. high(int)
+  ): bool {.dbg.} =
+  ## Check if file name of the `info` has `filename` in it, and that node
+  ## is located in the specified line range. For debugging purposes as it
+  ## is pretty slow.
+  return file in toFilename(conf, node.info) and
+         node.info.line.int in lrange
+
+proc inFile*(
+    node: PNode | PSym,
+    file: string,
+    lrange: Slice[int] = low(int) .. high(int)
+  ): bool {.dbg.} =
+  ## Check if file name of the `info` has `filename` in it. For debugging
+  ## purposes as it is pretty slow. Should be used like this:
+  ##
+  ## ..code-block::nim
+  ##   if inFile(conf, node.info, "filename"):
+  ##     debug node # For example
+  ##
+  ## This proc requries implicit debug config to be set, since information
+  ## about nodde file names is not available otherwise.
+  return file in toFilename(implicitDebugConfRef, node.info) and
+         node.info.line.int in lrange
