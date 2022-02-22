@@ -43,6 +43,9 @@ import
   front/[
     msgs,
     options
+  ],
+  std/[
+    tables
   ]
 
 proc errorSubNode*(n: PNode): PNode =
@@ -101,6 +104,10 @@ proc newError*(
 
   for a in args:
     result.add #[ 3+ ]# a
+
+  when defined(nimDebugUnreportedErrors):
+    if errorKind != rsemWrappedError:
+      conf.unreportedErrors[result.reportId] = result
 
 proc newError*(
     conf: ConfigRef,
@@ -166,15 +173,16 @@ proc wrapIfErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode
         instLoc())
 
 proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
-  ## creates a list (`errs` seq) from least specific to most specific
+  ## creates a list (`errs` seq) from most specific to least specific
+  ## by traversing the the error tree in a depth-first-search.
   case n.kind
   of nkEmpty .. nkNilLit:
     discard
   of nkError:
-    errs.add n
     buildErrorList(config, n[wrongNodePos], errs)
+    errs.add n
   else:
-    for i in countdown(n.len - 1, 0):
+    for i in 0..<n.len:
       buildErrorList(config, n[i], errs)
 
 iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
@@ -186,7 +194,7 @@ iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   buildErrorList(config, n, errNodes)
 
   # report from last to first (deepest in tree to highest)
-  for i in countdown(errNodes.len - 1, 0):
+  for i in 0..<errNodes.len:
     # reverse index so we go from the innermost to outermost
     let e = errNodes[i]
     if e.errorKind == rsemWrappedError:

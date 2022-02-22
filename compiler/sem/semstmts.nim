@@ -134,6 +134,7 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
   var typ = commonTypeBegin
   var hasElse = false
+  var hasError = false
   for i in 0..<n.len:
     var it = n[i]
     if it.len == 2:
@@ -142,16 +143,23 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
       it[1] = semExprBranch(c, it[1], flags)
       typ = commonType(c, typ, it[1])
       closeScope(c)
+      if it[0].isError or it[1].isError:
+        hasError = true
     elif it.len == 1:
       hasElse = true
       it[0] = semExprBranchScope(c, it[0])
       typ = commonType(c, typ, it[0])
+      if it[0].isError:
+        hasError = true
     else:
       semReportIllformedAst(
         c.config, it,
         "Expected one or two subnodes for if statement, but found " & $it.len)
 
-  if isEmptyType(typ) or typ.kind in {tyNil, tyUntyped} or
+  if hasError:
+    result = c.config.wrapErrorInSubTree(result)
+
+  elif isEmptyType(typ) or typ.kind in {tyNil, tyUntyped} or
       (not hasElse and efInTypeof notin flags):
     for it in n: discardCheck(c, it.lastSon, flags)
     result.transitionSonsKind(nkIfStmt)
@@ -532,10 +540,8 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
     var tup = skipTypes(typ, {tyGenericInst, tyAlias, tySink})
     if a.kind == nkVarTuple:
       if tup.kind != tyTuple:
-        localReport(c.config, a.info, SemReport(
-          kind: rsemTypeKindMismatch,
-          typeMismatch: @[c.config.typeMismatch(
-            formal = {tyTuple}, actual = tup)]))
+        localReport(c.config, a.info, c.config.semReportTypeMismatch(
+          a, {tyTuple}, tup))
 
       elif a.len - 2 != tup.len:
         localReport(

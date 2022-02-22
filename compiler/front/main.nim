@@ -59,6 +59,19 @@ from ic / ic import rodViewer
 when not defined(leanCompiler):
   import backend/jsgen, tools/[docgen, docgen2]
 
+when defined(nimDebugUnreportedErrors):
+  import std/exitprocs
+  import utils/astrepr
+
+  proc echoAndResetUnreportedErrors(conf: ConfigRef) =
+    if conf.unreportedErrors.len > 0:
+      echo "Unreported errors:"
+      for reportId, node in conf.unreportedErrors:
+        var reprConf = defaultTReprConf
+        reprConf.flags.incl trfShowNodeErrors
+        echo conf.treeRepr(node)
+      conf.unreportedErrors.clear
+
 proc semanticPasses(g: ModuleGraph) =
   registerPass g, verbosePass
   registerPass g, semPass
@@ -318,6 +331,9 @@ proc mainCommand*(graph: ModuleGraph) =
     if conf.cmd in cmdDocLike + {cmdRst2html, cmdRst2tex}: ret = ret / htmldocsDir
     conf.outDir = ret
 
+  when defined(nimDebugUnreportedErrors):
+    addExitProc proc = echoAndResetUnreportedErrors(conf)
+
   ## process all commands
   case conf.cmd
   of cmdBackends: compileToBackend()
@@ -431,6 +447,9 @@ proc mainCommand*(graph: ModuleGraph) =
     if optProfileVM in conf.globalOptions:
       echo conf.dump(conf.vmProfileData)
     genSuccessX(conf)
+
+  when defined(nimDebugUnreportedErrors):
+    echoAndResetUnreportedErrors(conf)
 
   when PrintRopeCacheStats:
     echo "rope cache stats: "

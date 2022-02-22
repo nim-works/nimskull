@@ -13,7 +13,7 @@
 ## * write an error reporting proc that handles string conversion and also
 ##   determines which error handling strategy to use doNothing, raise, etc.
 
-import ast, errorhandling, renderer, reports
+import ast, errorhandling, renderer, reports, std/tables
 from front/options import ConfigRef
 from front/msgs import TErrorHandling
 
@@ -34,6 +34,12 @@ proc errorHandling*(err: PNode): TErrorHandling =
 template localReport*(conf: ConfigRef, node: PNode) =
   ## Write out existing sem report that is stored in the nkError node
   assert node.kind == nkError, $node.kind
+
+  when defined(nimDebugUnreportedErrors):
+    conf.unreportedErrors.del node.reportId
+    for err in walkErrors(conf, node):
+      conf.unreportedErrors.del err.reportId
+
   for err in walkErrors(conf, node):
     if true or canReport(conf, err):
       handleReport(conf, err.reportId, instLoc(), node.errorHandling)

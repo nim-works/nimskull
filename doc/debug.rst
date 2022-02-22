@@ -20,13 +20,14 @@ overhead, because some debugging tools are not exactly cheap to run.
 
 **Used when compiling temporary compiler**
 
-==================== =======
-Define               Enables
--------------------- -------
-`nimVMDebugExecute`    Print out every instruction executed by the VM
-`nimVMDebugGenerate`   List VM code generated for every procedure called at compile-time
-`nimDebugUtils`        Enable semantic analysis execution tracer
-==================== =======
+=========================== =======
+Define                      Enables
+--------------------------- -------
+`nimVMDebugExecute`         Print out every instruction executed by the VM
+`nimVMDebugGenerate`        List VM code generated for every procedure called at compile-time
+`nimDebugUtils`             Enable semantic analysis execution tracer
+`nimDebugUnreportedErrors`  Enable unreported error debugging
+=========================== =======
 
 **Used when executing temporary compiler**
 

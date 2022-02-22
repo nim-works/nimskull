@@ -19,6 +19,7 @@ export in_options
 from terminal import isatty
 from times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
+
 const
   hasTinyCBackend* = defined(tinyc)
   useEffectSystem* = true
@@ -243,6 +244,9 @@ type
     when defined(nimDebugUtils):
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
       ## len is also used for output indent level
+
+    when defined(nimDebugUnreportedErrors):
+      unreportedErrors*: OrderedTable[ReportId, PNode]
 
 template `[]`*(conf: ConfigRef, idx: FileIndex): TFileInfo =
   conf.m.fileInfos[idx.uint32]
