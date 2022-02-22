@@ -62,7 +62,7 @@ jobs:
           path: release-staging
 
       - name: Publish docs
-        uses: JamesIves/github-pages-deploy-action@v4.2.3
+        uses: JamesIves/github-pages-deploy-action@v4.2.5
         with:
           branch: gh-pages
           folder: doc/html
