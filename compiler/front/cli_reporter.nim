@@ -910,6 +910,14 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemTypeKindMismatch:
       result = r.str
+      result.add  " got '$1'" % typeToString(r.actualType)
+      result.add " but expected "
+      var first = true
+      for typKind in r.formalTypeKind:
+        if not first:
+          result.add " or "
+        result.add "'$1'" % typeToStr[typKind]
+        first = false
 
     of rsemExprHasNoAddress:
       result = "expression has no address"

@@ -157,7 +157,7 @@ proc rangeToStr(n: PNode): string =
 const
   preferToResolveSymbols = {preferName, preferTypeName, preferModuleInfo,
   preferGenericArg, preferResolved, preferMixed}
-  typeToStr: array[TTypeKind, string] = ["None", "bool", "char", "empty",
+  typeToStr*: array[TTypeKind, string] = ["None", "bool", "char", "empty",
     "Alias", "typeof(nil)", "untyped", "typed", "typeDesc",
     # xxx typeDesc=>typedesc: typedesc is declared as such, and is 10x more common.
     "GenericInvocation", "GenericBody", "GenericInst", "GenericParam",

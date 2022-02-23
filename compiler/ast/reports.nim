@@ -955,4 +955,5 @@ func getReport*(list: ReportList, id: ReportId): Report =
 
 func actualType*(r: SemReport): PType = r.typeMismatch[0].actualType
 func formalType*(r: SemReport): PType = r.typeMismatch[0].formalType
+func formalTypeKind*(r: SemReport): set[TTypeKind] = r.typeMismatch[0].formalTypeKind
 func symstr*(r: SemReport): string = r.sym.name.s
