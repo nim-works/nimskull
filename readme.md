@@ -29,7 +29,7 @@
 ## About the Project
 
 The Nim-Works compiler, stdlib, tools, and documentation repository. Nim-Works
-is presently a derivative of [Nim][nim-site]. Its intention best described by:
+is presently a derivative of [Nim][nim-site]. Its intention is best described by:
 
 > Nimskull is not an alternative implementation; it's a reimaging of the language
 > that aims for a community where if one uses the language then they also
@@ -67,8 +67,8 @@ The current and key areas of development are as follows:
 <details><summary><b>Show more</b></summary><br />
 
 There are more, the above have been carefully chosen based on the direction of
-the language; moreover, their impact is far beyond as described and the
-intention is to create a virtuous cycle, examples:
+the language; moreover, their impact is further beyond than described and the
+intention is to create a virtuous cycle. Examples:
 
 * clarifying the language specification will identify bugs and design flaws that
   in turn will be fixed.
@@ -97,7 +97,7 @@ documentation! We look forward to seeing introductions and pull requests!
 The compiler currently aims to support the following platform and
 architecture combinations:
 
-  * Windows (Windows XP or greater) - x86 and x86_64
+  * Windows (Windows XP or later) - x86 and x86_64
   * Linux (most, if not all, distributions) - x86, x86_64, ppc64 and armv6l
   * Mac OS X (10.04 or greater) - x86, x86_64, ppc64 and Apple Silicon (based on the ARM64 architecture)
 
@@ -171,7 +171,7 @@ Onboarding practitioners requires a langauge that is familiar enough to get
 started in terms of syntax and initial concepts such as *structured and*
 *modular programming*.
 
-Supporting practitioner driven innovation requires a language that allows for
+Supporting practitioner-driven innovation requires a language that allows for
 experimentation without necessarily being an expert in all aspects of language
 development. Compile time facilities integrated into the language, such as
 *compile time evaluation* and a *macro system* provide a sandbox.
@@ -243,8 +243,7 @@ Maybe. Many experienced users will know that a lot of current code 'works' becau
 </details>
 
 <details>
-<summary class="blue">Will you plan to merge Nim upstream changes?</summary>
-</br>
+<summary class="blue">Do you plan to merge Nim upstream changes?</summary>
 </br>
 Generally? No. There will likely be exceptions to this. Our current focus remains on solidifying the foundations before moving forward.
 </details>
