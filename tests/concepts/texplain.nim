@@ -13,10 +13,8 @@ proc e(o: ExplainedConcept): int
   required type for o: ExplainedConcept
   but expression '10' is of type: int literal(10)
 texplain.nim(110, 6) ExplainedConcept: undeclared field: 'foo'
-texplain.nim(110, 6) ExplainedConcept: expression has no type: `.`(o, foo)
 texplain.nim(110, 11) ExplainedConcept: concept predicate failed
 texplain.nim(111, 6) ExplainedConcept: undeclared field: 'bar'
-texplain.nim(111, 6) ExplainedConcept: expression has no type: `.`(o, bar)
 texplain.nim(111, 11) ExplainedConcept: concept predicate failed
  [rsemNonMatchingCandidates]
 texplain.nim(150, 10) Hint: Non-matching candidates for e(10)
@@ -25,10 +23,8 @@ proc e(o: ExplainedConcept): int
   required type for o: ExplainedConcept
   but expression '10' is of type: int literal(10)
 texplain.nim(110, 6) ExplainedConcept: undeclared field: 'foo'
-texplain.nim(110, 6) ExplainedConcept: expression has no type: `.`(o, foo)
 texplain.nim(110, 11) ExplainedConcept: concept predicate failed
 texplain.nim(111, 6) ExplainedConcept: undeclared field: 'bar'
-texplain.nim(111, 6) ExplainedConcept: expression has no type: `.`(o, bar)
 texplain.nim(111, 11) ExplainedConcept: concept predicate failed
  [rsemNonMatchingCandidates]
 texplain.nim(154, 20) Error: type mismatch: got <NonMatchingType>
@@ -80,16 +76,20 @@ proc f(o: NestedConcept)
   required type for o: NestedConcept
   but expression 'y' is of type: MatchingType
 texplain.nim(114, 6) RegularConcept: undeclared field: 'foo'
-texplain.nim(114, 6) RegularConcept: expression has no type: `.`(o, foo)
 texplain.nim(114, 11) RegularConcept: concept predicate failed
 texplain.nim(115, 6) RegularConcept: undeclared field: 'bar'
-texplain.nim(115, 6) RegularConcept: expression has no type: `.`(o, bar)
 texplain.nim(115, 11) RegularConcept: concept predicate failed
 texplain.nim(118, 11) NestedConcept: concept predicate failed
 
 expression: f(y)'''
   errormsg: "type mismatch: got <MatchingType>"
 """
+
+
+
+
+
+
 
 
 

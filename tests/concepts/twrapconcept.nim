@@ -1,6 +1,6 @@
 discard """
   errormsg: "type mismatch: got <string>"
-  nimout: "twrapconcept.nim(10, 8) Foo: expression has no type: get(foo)"
+  nimout: "twrapconcept.nim(10, 13) Foo: concept predicate failed"
 """
 
 # https://github.com/nim-lang/Nim/issues/5127

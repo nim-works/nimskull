@@ -314,11 +314,19 @@ proc resolveOverloads(c: PContext, n: PNode,
   var f = n[0]
   if f.kind == nkBracketExpr:
     # fill in the bindings:
-    semOpAux(c, f)
+    let hasError = semOpAux(c, f)
     initialBinding = f
-    f = f[0]
+    if hasError:
+      f = c.config.wrapErrorInSubTree(f)
+    else:
+      f = f[0]
   else:
     initialBinding = nil
+
+  if f.isError:
+    n[0] = f
+    result.call = c.config.wrapErrorInSubTree(n)
+    return
 
   template pickBest(headSymbol) =
     pickBestCandidate(c, headSymbol, n, initialBinding,
@@ -576,7 +584,7 @@ proc semOverloadedCall(c: PContext, n: PNode,
 
     result = semResolvedCall(c, r, n, flags)
 
-  elif r.call != nil and r.call.kind == nkError:
+  elif r.call.isError:
     result = r.call
 
   elif efNoUndeclared notin flags:
@@ -586,9 +594,7 @@ proc semOverloadedCall(c: PContext, n: PNode,
     result = r.call
 
 proc explicitGenericInstError(c: PContext; n: PNode): PNode =
-  localReport(c.config, getCallLineInfo(n), reportAst(rsemCannotInstantiate, n))
-
-  result = n
+  c.config.newError(n, reportAst(rsemCannotInstantiate, n), posInfo = getCallLineInfo(n))
 
 proc explicitGenericSym(c: PContext, n: PNode, s: PSym): PNode =
   # binding has to stay 'nil' for this to work!
@@ -618,7 +624,11 @@ proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
   assert n.kind == nkBracketExpr
   for i in 1..<n.len:
     let e = semExpr(c, n[i])
-    if e.typ == nil:
+    if e.isError:
+      n[i] = e
+      result = c.config.wrapErrorInSubTree(n)
+      return
+    elif e.typ == nil:
       n[i].typ = errorType(c)
     else:
       n[i].typ = e.typ.skipTypes({tyTypeDesc})
