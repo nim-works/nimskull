@@ -103,7 +103,7 @@ proc changeType(c: PContext; n: PNode, newType: PType, check: bool)
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode
-proc semOpAux(c: PContext, n: PNode)
+proc semOpAux(c: PContext, n: PNode): bool
 proc semParamList(c: PContext, n, genericParams: PNode, s: PSym)
 proc addParams(c: PContext, n: PNode, kind: TSymKind)
 proc maybeAddResult(c: PContext, s: PSym, n: PNode)

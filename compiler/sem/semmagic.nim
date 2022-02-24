@@ -36,7 +36,10 @@ proc semTypeOf(c: PContext; n: PNode): PNode =
   result = newNodeI(nkTypeOfExpr, n.info)
   let typExpr = semExprWithType(c, n[1], if m == 1: {efInTypeof} else: {})
   result.add typExpr
-  result.typ = makeTypeDesc(c, typExpr.typ)
+  if typExpr.isError:
+    result = c.config.wrapErrorInSubTree(result)
+  else:
+    result.typ = makeTypeDesc(c, typExpr.typ)
 
 type
   SemAsgnMode = enum asgnNormal, noOverloadedSubscript, noOverloadedAsgn

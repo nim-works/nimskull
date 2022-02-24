@@ -2304,7 +2304,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "a pattern cannot be empty"
 
     of rsemInvalidExpression:
-      result = "invalid expression"
+      result = "invalid expression: " & render(r.ast)
 
     of rsemParameterRedefinition:
       result = "attempt to redefine: '" & r.symstr & "'"
