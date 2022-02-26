@@ -60,6 +60,8 @@ proc typeAllowedAux(marker: var IntSet, typ: PType, kind: TSymKind,
   of tyVar, tyLent:
     if kind in {skProc, skFunc, skConst} and (views notin c.features):
       result = t
+    elif taIsOpenArray in flags:
+      result = t
     elif t.kind == tyLent and ((kind != skResult and views notin c.features) or
                               kind == skParam): # lent can't be used as parameters.
       result = t
@@ -234,7 +236,7 @@ proc classifyViewTypeAux(marker: var IntSet, t: PType): ViewTypeKind =
   case t.kind
   of tyVar:
     result = mutableView
-  of tyLent, tyOpenArray:
+  of tyLent, tyOpenArray, tyVarargs:
     result = immutableView
   of tyGenericInst, tyDistinct, tyAlias, tyInferred, tySink, tyOwned,
      tyUncheckedArray, tySequence, tyArray, tyRef, tyStatic:

@@ -1686,7 +1686,8 @@ typeRel can be used to establish various relationships between types:
             var aa = a
             while aa.kind in {tyTypeDesc, tyGenericParam} and aa.len > 0:
               aa = lastSon(aa)
-            if aa.kind == tyGenericParam:
+            if aa.kind in {tyGenericParam} + tyTypeClasses:
+              # If the constraint is a genericParam or typeClass this isGeneric
               return isGeneric
             result = typeRel(c, f.base, aa, flags)
             if result > isGeneric: result = isGeneric

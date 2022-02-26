@@ -2134,7 +2134,7 @@ iterator walkPattern*(pattern: string): string {.tags: [ReadDirEffect], noWeirdT
   ## Iterate over all the files and directories that match the `pattern`.
   ##
   ## On POSIX this uses the `glob`:idx: call.
-  ## `pattern` is OS dependent, but at least the `"\*.ext"`
+  ## `pattern` is OS dependent, but at least the `"*.ext"`
   ## notation is supported.
   ##
   ## See also:
@@ -2153,7 +2153,7 @@ iterator walkFiles*(pattern: string): string {.tags: [ReadDirEffect], noWeirdTar
   ## Iterate over all the files that match the `pattern`.
   ##
   ## On POSIX this uses the `glob`:idx: call.
-  ## `pattern` is OS dependent, but at least the `"\*.ext"`
+  ## `pattern` is OS dependent, but at least the `"*.ext"`
   ## notation is supported.
   ##
   ## See also:
@@ -2170,7 +2170,7 @@ iterator walkDirs*(pattern: string): string {.tags: [ReadDirEffect], noWeirdTarg
   ## Iterate over all the directories that match the `pattern`.
   ##
   ## On POSIX this uses the `glob`:idx: call.
-  ## `pattern` is OS dependent, but at least the `"\*.ext"`
+  ## `pattern` is OS dependent, but at least the `"*.ext"`
   ## notation is supported.
   ##
   ## See also:
@@ -2896,7 +2896,7 @@ when defined(nimdoc):
 
 elif defined(nimscript): discard
 elif defined(nodejs):
-  type Argv = object of JSRoot
+  type Argv = object of JsRoot
   let argv {.importjs: "process.argv".} : Argv
   proc len(argv: Argv): int {.importjs: "#.length".}
   proc `[]`(argv: Argv, i: int): cstring {.importjs: "#[#]".}
@@ -3224,11 +3224,10 @@ proc getFileSize*(file: string): BiggestInt {.rtl, extern: "nos$1",
     result = rdFileSize(a)
     findClose(resA)
   else:
-    var f: File
-    if open(f, file):
-      result = getFileSize(f)
-      close(f)
-    else: raiseOSError(osLastError(), file)
+    var rawInfo: Stat
+    if stat(file, rawInfo) < 0'i32:
+      raiseOSError(osLastError(), file)
+    rawInfo.st_size
 
 when defined(windows) or weirdTarget:
   type
@@ -3263,7 +3262,11 @@ template rawToFormalFileInfo(rawInfo, path, formalInfo): untyped =
   ## 'rawInfo' is either a 'BY_HANDLE_FILE_INFORMATION' structure on Windows,
   ## or a 'Stat' structure on posix
   when defined(windows):
-    template merge(a, b): untyped = a or (b shl 32)
+    template merge(a, b): untyped =
+      int64(
+        (uint64(cast[uint32](a))) or
+        (uint64(cast[uint32](b)) shl 32)
+       )
     formalInfo.id.device = rawInfo.dwVolumeSerialNumber
     formalInfo.id.file = merge(rawInfo.nFileIndexLow, rawInfo.nFileIndexHigh)
     formalInfo.size = merge(rawInfo.nFileSizeLow, rawInfo.nFileSizeHigh)

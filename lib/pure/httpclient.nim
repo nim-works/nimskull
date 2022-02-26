@@ -458,7 +458,7 @@ proc generateHeaders(requestUrl: Uri, httpMethod: HttpMethod, headers: HttpHeade
   # Proxy auth header.
   if not proxy.isNil and proxy.auth != "":
     let auth = base64.encode(proxy.auth)
-    add(result, "Proxy-Authorization: basic " & auth & httpNewLine)
+    add(result, "Proxy-Authorization: Basic " & auth & httpNewLine)
 
   for key, val in headers:
     add(result, key & ": " & val & httpNewLine)
@@ -554,7 +554,7 @@ proc reportProgress(client: HttpClient,
                     progress: BiggestInt) =
   client.contentProgress += progress
   client.oneSecondProgress += progress
-  if (getMonoTime() - client.lastProgressReport).inSeconds > 1:
+  if (getMonoTime() - client.lastProgressReport).inSeconds >= 1:
     if not client.onProgressChanged.isNil:
       client.onProgressChanged(client.contentTotal,
                                client.contentProgress,

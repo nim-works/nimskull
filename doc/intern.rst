@@ -210,7 +210,7 @@ current commit:
 
 You can also bisect using custom options to build the compiler, for example if
 you don't need a debug version of the compiler (which runs slower), you can replace
-`./koch.py temp`:cmd: by explicit compilation command, see `Rebuilding the compiler`_.
+`./koch.py temp`:cmd: by explicit compilation command, see `Bootstrapping the compiler`_.
 
 Runtimes
 ========

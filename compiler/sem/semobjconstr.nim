@@ -449,12 +449,12 @@ proc defaultConstructionError(c: PContext, t: PType, info: TLineInfo) =
   if objType.kind == tyObject:
     var constrCtx = initConstrContext(objType, newNodeI(nkObjConstr, info))
     let initResult = semConstructTypeAux(c, constrCtx, {})
-    assert constrCtx.missingFields.len > 0
-    localReport(
-      c.config, info,
-      reportSymbols(
-        rsemObjectRequiresFieldInitNoDefault,
-        constrCtx.missingFields, typ = t))
+    if constrCtx.missingFields.len > 0:
+      localReport(
+        c.config, info,
+        reportSymbols(
+          rsemObjectRequiresFieldInitNoDefault,
+          constrCtx.missingFields, typ = t))
 
   elif objType.kind == tyDistinct:
     localReport(c.config, info, reportTyp(

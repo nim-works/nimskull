@@ -215,7 +215,7 @@ proc openArrayLoc(p: BProc, formalType: PType, n: PNode): Rope =
   else:
     var a: TLoc
     initLocExpr(p, if n.kind == nkHiddenStdConv: n[1] else: n, a)
-    case skipTypes(a.t, abstractVar).kind
+    case skipTypes(a.t, abstractVar+{tyStatic}).kind
     of tyOpenArray, tyVarargs:
       if reifiedOpenArray(n):
         if a.t.kind in {tyVar, tyLent}:
@@ -377,8 +377,8 @@ proc genParams(p: BProc, ri: PNode, typ: PType): Rope =
         if not needTmp[i - 1]:
           needTmp[i - 1] = potentialAlias(n, potentialWrites)
       getPotentialWrites(ri[i], false, potentialWrites)
-    if ri[i].kind == nkHiddenAddr:
-      # Optimization: don't use a temp, if we would only take the adress anyway
+    if ri[i].kind in {nkHiddenAddr, nkAddr}:
+      # Optimization: don't use a temp, if we would only take the address anyway
       needTmp[i - 1] = false
 
   for i in 1..<ri.len:

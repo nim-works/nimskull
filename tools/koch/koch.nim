@@ -566,9 +566,8 @@ proc runCI(cmd: string) =
   testTools(cmd)
 
   when not defined(bsd):
-    if not doUseCpp:
-      # the BSDs are overwhelmed already, so only run this test on the other machines:
-      kochExecFold("Boot Nim ORC", "boot -d:release --gc:orc --lib:lib")
+    # the BSDs are overwhelmed already, so only run this test on the other machines:
+    kochExecFold("Boot Nim ORC", "boot -d:release --gc:orc --lib:lib")
 
 proc valgrind(cmd: string) =
   # somewhat hacky: '=' sign means "pass to valgrind" else "pass to Nim"
