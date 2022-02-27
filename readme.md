@@ -42,7 +42,7 @@ is presently a derivative of [Nim][nim-site]. Its intention is best described by
 
 Ultimately this will mean a different community, language, standard library,
 and much more. For now it's closer to an alternative with most deviations
-appearing in the standard library, mostly in the form of deleting much of it.
+appearing in the standard library, mostly in the form of deleting old and unmaintained modules from it.
 
 PS. the name `Nimskull` is temporary
 
