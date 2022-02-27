@@ -387,8 +387,8 @@ Take advantage of no implicit bool conversion
   doAssert isValid() == true
   doAssert isValid() # preferred
 
-Desing for method call syntax
------------------------------
+Designing for method call syntax
+--------------------------------
 
 Design with method call syntax chaining in mind
 
