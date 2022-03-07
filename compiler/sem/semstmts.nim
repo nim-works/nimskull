@@ -921,7 +921,7 @@ proc handleCaseStmtMacro(c: PContext; n: PNode; flags: TExprFlags): PNode =
   toResolve.add newIdentNode(getIdent(c.cache, "case"), n.info)
   toResolve.add n[0]
 
-  var errors: CandidateErrors
+  var errors: seq[SemCallMismatch]
   var r = resolveOverloads(c, toResolve, {skTemplate, skMacro}, {}, errors)
   if r.state == csMatch:
     var match = r.calleeSym

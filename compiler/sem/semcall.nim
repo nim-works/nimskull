@@ -58,7 +58,7 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
                        initialBinding: PNode,
                        filter: TSymKinds,
                        best, alt: var TCandidate,
-                       errors: var CandidateErrors,
+                       errors: var seq[SemCallMismatch],
                        flags: TExprFlags) =
   var o: TOverloadIter
   var sym = initOverloadIter(o, c, headSymbol)
@@ -106,7 +106,7 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
       else:
         # XXX: Collect diagnostics for matching, but not winning overloads too?
         var err = z.error
-        err.sym = sym
+        err.target = sym
         errors.add err
 
     else:
@@ -157,50 +157,7 @@ proc maybeResemArgs*(c: PContext, n: PNode, startIdx: int = 1): seq[PNode] =
 
     result.add arg
 
-proc collectMismatches(
-  c: PContext, n: PNode, errors: CandidateErrors): seq[SemCallMismatch] =
-  ## Construct list of type mismatch descriptions for subsequent reporting.
-  ## This procedure simply repacks the data from CandidateErrors into
-  ## `SemCallMismatch` - discard unnecessary data, pull important elements
-  ## into the result. No actual formatting is done here.
-  for err in errors:
-    var cand = SemCallMismatch(
-      kind: err.firstMismatch.kind,
-      expression: n,
-      arguments: maybeResemArgs(c, n, 1),
-      target: err.sym,
-      targetArg: err.firstMismatch.formal,
-      arg: err.firstMismatch.arg,
-    )
-
-    if n.len > 1:
-      case cand.kind:
-        of kUnknownNamedParam,
-           kAlreadyGiven,
-           kPositionalAlreadyGiven,
-           kExtraArg,
-           kMissingParam:
-          # Additional metadata only contains `targetArg` that is
-          # unconditionally assigned from `err.formal`
-          discard
-
-        of kTypeMismatch, kVarNeeded:
-          let nArg = n[err.firstMismatch.arg]
-          assert nArg != nil
-          assert cand.targetArg != nil
-          assert cand.targetArg.typ != nil
-          assert nArg.typ != nil
-          cand.typeMismatch = c.config.typeMismatch(
-            err.firstMismatch.formal.typ, nArg.typ)
-          cand.diag = err.diag
-
-        of kUnknown:
-          # do not break 'nim check'
-          discard
-
-    result.add cand
-
-proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
+proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
   ## Gives a detailed error message; this is separated from semOverloadedCall,
   ## as semOverloadedCall is already pretty slow (and we need this information
   ## only in case of an error).
@@ -235,19 +192,20 @@ proc notFoundError(c: PContext, n: PNode, errors: CandidateErrors): PNode =
   report.spellingCandidates = fixSpelling(
     c, tern(f.kind == nkSym, f.sym.name, f.ident))
 
-  report.callMismatches = collectMismatches(c, n, errors)
+  discard maybeResemArgs(c, n, 1)
+  report.callMismatches = errors
 
   result = newError(c.config, n, report)
 
 
 proc bracketNotFoundError(c: PContext; n: PNode): PNode =
-  var errors: CandidateErrors
+  var errors: seq[SemCallMismatch]
   var o: TOverloadIter
   let headSymbol = n[0]
   var symx = initOverloadIter(o, c, headSymbol)
   while symx != nil:
     if symx.kind in routineKinds:
-      errors.add CandidateError(sym: symx, firstMismatch: MismatchInfo())
+      errors.add SemCallMismatch(target: symx, firstMismatch: MismatchInfo())
     symx = nextOverloadIter(o, c, headSymbol)
 
   result = notFoundError(c, n, errors)
@@ -308,7 +266,7 @@ proc getMsgDiagnostic(
 
 proc resolveOverloads(c: PContext, n: PNode,
                       filter: TSymKinds, flags: TExprFlags,
-                      errors: var CandidateErrors): TCandidate =
+                      errors: var seq[SemCallMismatch]): TCandidate =
   var initialBinding: PNode
   var alt: TCandidate
   var f = n[0]
@@ -349,6 +307,11 @@ proc resolveOverloads(c: PContext, n: PNode,
         excl n.flags, nfExprCall
       else: return
 
+    template tryOp(x) =
+      let op = newIdentNode(getIdent(c.cache, x), n.info)
+      n[0] = op
+      pickBest(op)
+
     if nfDotField in n.flags:
       internalAssert(c.config, f.kind == nkIdent and n.len >= 2, "")
 
@@ -356,11 +319,6 @@ proc resolveOverloads(c: PContext, n: PNode,
         # leave the op head symbol empty,
         # we are going to try multiple variants
         n.sons[0..1] = [nil, n[1], f]
-
-        template tryOp(x) =
-          let op = newIdentNode(getIdent(c.cache, x), n.info)
-          n[0] = op
-          pickBest(op)
 
         if nfExplicitCall in n.flags:
           tryOp ".()"
@@ -371,9 +329,8 @@ proc resolveOverloads(c: PContext, n: PNode,
     elif nfDotSetter in n.flags and f.kind == nkIdent and n.len == 3:
       # we need to strip away the trailing '=' here:
       let calleeName = newIdentNode(getIdent(c.cache, f.ident.s[0..^2]), f.info)
-      let callOp = newIdentNode(getIdent(c.cache, ".="), n.info)
-      n.sons[0..1] = [callOp, n[1], calleeName]
-      pickBest(callOp)
+      n.sons[0..1] = [nil, n[1], calleeName]
+      tryOp ".="
 
     if overloadsState == csEmpty and result.state == csEmpty:
       if efNoUndeclared notin flags: # for tests/pragmas/tcustom_pragma.nim
@@ -547,7 +504,7 @@ proc tryDeref(n: PNode): PNode =
 proc semOverloadedCall(c: PContext, n: PNode,
                        filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
   addInNimDebugUtils(c.config, "semOverloadedCall")
-  var errors: CandidateErrors
+  var errors: seq[SemCallMismatch]
 
   var r = resolveOverloads(c, n, filter, flags, errors)
 
@@ -569,17 +526,18 @@ proc semOverloadedCall(c: PContext, n: PNode,
         if efExplain in flags: # output everything
           errors
         else: # only report non-matching candidates that have sfExplain
-          var filteredErrors: CandidateErrors
+          var filteredErrors: seq[SemCallMismatch]
           for e in errors:
-            if e.diagnosticsEnabled and e.sym != r.calleeSym:
+            if e.diagnosticsEnabled and e.target != r.calleeSym:
               filteredErrors.add e
           filteredErrors
 
       if errorsToReport.len > 0:
+        discard maybeResemArgs(c, n, 1)
         localReport(c.config, n.info, SemReport(
           ast: n,
           kind: rsemNonMatchingCandidates,
-          callMismatches: collectMismatches(c, n, errorsToReport)
+          callMismatches: errorsToReport
         ))
 
     result = semResolvedCall(c, r, n, flags)

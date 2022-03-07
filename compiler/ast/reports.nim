@@ -151,34 +151,24 @@ type
     diagnosticsTarget*: PSym ## The concept sym that didn't match
     reports*: seq[SemReport] ## The reports that explain why the concept didn't match
 
+  MismatchInfo* = object
+    kind*: MismatchKind ## reason for mismatch
+    pos*: int           ## position of provided argument that mismatches. This doesn't always correspond to
+                        ## the *expression* subnode index (e.g. `.=`) nor the *target parameter* index (varargs)
+    arg*: PNode         ## the node of the mismatching provided argument
+    formal*: PSym       ## parameter that mismatches against provided argument
+                        ## its position can differ from `arg` because of varargs
+
   SemCallMismatch* = object
     ## Description of the single candidate mismatch. This type is later
     ## used to construct meaningful type mismatch message, and must contain
     ## all the necessary information to provide meaningful sorting,
     ## collapse and other operations.
     target*: PSym ## Procedure that was tried for an overload resolution
-    expression*: PNode ## Full typed expression that was used as a
-    ## procedure call
-    arg*: int ## Mismatched argument index. This corresponds to the
-    ## *expression* subnode index - due to varargs actual *target
-    ## parameter* index might differe. See `.formal` field for the actual
-    ## target argument symbol.
-    targetArg*: PSym ## parameter that mismatches against provided
-    ## argument its position can differ from `arg` because of varargs
-    arguments*: seq[PNode]
-    case kind*: MismatchKind
-      of kTypeMismatch, kVarNeeded:
-        typeMismatch*: SemTypeMismatch ## Argument type mismatch
-                                       ## elaboration
-        diag*: SemDiagnostics
+    firstMismatch*: MismatchInfo ## mismatch info for better error messages
 
-      of kPositionalAlreadyGiven, kUnknownNamedParam,
-         kAlreadyGiven, kMissingParam:
-        ## Parameter name (if used) is stored in the `.targetArg` symbol
-        discard
-
-      else:
-        discard
+    diag*: SemDiagnostics
+    diagnosticsEnabled*: bool ## Set by sfExplain. efExplain or notFoundError ignore this
 
   SemSpellCandidate* = object
     dist*: int

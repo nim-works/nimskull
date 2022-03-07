@@ -2663,7 +2663,7 @@ proc presentFailedCandidates(
   var filterOnlyFirst = false
   if optShowAllMismatches notin conf.globalOptions:
     for err in errors:
-      if err.arg > 1:
+      if err.firstMismatch.pos > 1:
         filterOnlyFirst = true
         break
 
@@ -2675,7 +2675,7 @@ proc presentFailedCandidates(
 
   for err in errors:
     candidates.setLen 0
-    if filterOnlyFirst and err.arg == 1:
+    if filterOnlyFirst and err.firstMismatch.pos == 1:
       inc skipped
       continue
 
@@ -2689,13 +2689,13 @@ proc presentFailedCandidates(
     candidates.addDeclaredLocMaybe(conf, err.target)
     candidates.add("\n")
 
-    let nArg = if err.arg < n.len: n[err.arg] else: nil
+    let nArg = err.firstMismatch.arg
 
-    let nameParam = if err.targetArg != nil: err.targetArg.name.s else: ""
+    let nameParam = if err.firstMismatch.formal != nil: err.firstMismatch.formal.name.s else: ""
     if n.len > 1:
-      candidates.add("  first type mismatch at position: " & $err.arg)
+      candidates.add("  first type mismatch at position: " & $err.firstMismatch.pos)
       # candidates.add "\n  reason: " & $err.firstMismatch.kind # for debugging
-      case err.kind:
+      case err.firstMismatch.kind:
         of kUnknownNamedParam:
           if nArg == nil:
             candidates.add("\n  unknown named parameter")
@@ -2716,14 +2716,14 @@ proc presentFailedCandidates(
 
         of kTypeMismatch, kVarNeeded:
           doAssert nArg != nil
-          let wanted = err.targetArg.typ
-          doAssert err.targetArg != nil
+          doAssert err.firstMismatch.formal != nil
+          let wanted = err.firstMismatch.formal.typ
 
           candidates.add("\n  required type for " & nameParam &  ": ")
           candidates.addTypeDeclVerboseMaybe(conf, wanted)
           candidates.add "\n  but expression '"
 
-          if err.kind == kVarNeeded:
+          if err.firstMismatch.kind == kVarNeeded:
             candidates.add renderNotLValue(nArg)
             candidates.add "' is immutable, not 'var'"
 
@@ -2748,7 +2748,7 @@ proc presentFailedCandidates(
           discard "do not break 'nim check'"
 
       candidates.add '\n'
-      if err.arg == 1 and nArg.kind == nkTupleConstr and
+      if err.firstMismatch.pos == 1 and nArg.kind == nkTupleConstr and
           n.kind == nkCommand:
         maybeWrongSpace = true
 
