@@ -281,7 +281,7 @@ jobs:
           echo "::set-output name=metadata::build/source.json"
 
       - name: Publish source archive to artifacts
-        uses: actions/upload-artifact@v2.3.1
+        uses: actions/upload-artifact@v3
         with:
           name: source archive
           path: |
@@ -345,7 +345,7 @@ jobs:
           echo "::set-output name=metadata::$metadata"
 
       - name: Upload release package to artifacts
-        uses: actions/upload-artifact@v2.3.1
+        uses: actions/upload-artifact@v3
         with:
           name: binaries from source archive
           path: |
@@ -404,7 +404,7 @@ jobs:
 
       - name: Upload docs to artifacts
         if: matrix.target.shared_builder
-        uses: actions/upload-artifact@v2.3.1
+        uses: actions/upload-artifact@v3
         with:
           # If this name is updated, tweak publisher.yml
           name: Generated docs
@@ -412,7 +412,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload release package to artifacts
-        uses: actions/upload-artifact@v2.3.1
+        uses: actions/upload-artifact@v3
         with:
           name: release binaries
           path: |
@@ -480,7 +480,7 @@ jobs:
 
       - name: Upload difference test result on failure
         if: failure() && steps.diff.outputs.result != ''
-        uses: actions/upload-artifact@v2.3.1
+        uses: actions/upload-artifact@v3
         with:
           name: differences between binary from source archive and git
           path: ${{ steps.diff.outputs.result }}
@@ -500,7 +500,7 @@ jobs:
       # This allow the publisher to run the tool directly without having to
       # clone the compiler.
       - name: Upload release manifest tool
-        uses: actions/upload-artifact@v2.3.1
+        uses: actions/upload-artifact@v3
         with:
           name: release manifest tool
           path: tools/release_manifest
