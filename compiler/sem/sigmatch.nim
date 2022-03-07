@@ -47,20 +47,6 @@ import
 
 
 type
-  MismatchInfo* = object
-    kind*: MismatchKind ## reason for mismatch
-    arg*: int           ## position of provided arguments that mismatches
-    formal*: PSym       ## parameter that mismatches against provided argument
-                        ## its position can differ from `arg` because of varargs
-
-  CandidateError* = object
-    sym*: PSym
-    firstMismatch*: MismatchInfo ## mismatch info for better error messages
-    diag*: SemDiagnostics
-    diagnosticsEnabled*: bool ## Set by sfExplain. efExplain or notFoundError ignore this
-
-  CandidateErrors* = seq[CandidateError]
-
   TCandidateState* = enum
     csEmpty, csMatch, csNoMatch
 
@@ -95,7 +81,7 @@ type
                               ## is not successful. may replace the bindings
                               ## table in the future.
     inheritancePenalty: int   ## to prefer closest father object type
-    error*: CandidateError
+    error*: SemCallMismatch
 
   TTypeRelFlag* = enum
     trDontBind
@@ -141,7 +127,7 @@ proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PType) =
   c.baseTypeMatch = false
   c.genericConverter = false
   c.inheritancePenalty = 0
-  c.error = CandidateError()
+  c.error = SemCallMismatch()
   initIdTable(c.bindings)
 
 proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
@@ -2377,7 +2363,8 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
   template noMatch() =
     c.mergeShadowScope #merge so that we don't have to resem for later overloads
     m.state = csNoMatch
-    m.error.firstMismatch.arg = a
+    m.error.firstMismatch.pos = a
+    m.error.firstMismatch.arg = n[a]
     m.error.firstMismatch.formal = formal
     return
 
@@ -2589,7 +2576,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
 
     inc a
   # for some edge cases (see tdont_return_unowned_from_owned test case)
-  m.error.firstMismatch.arg = a
+  m.error.firstMismatch.pos = a
   m.error.firstMismatch.formal = formal
 
 proc semFinishOperands*(c: PContext, n: PNode) =
