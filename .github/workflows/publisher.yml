@@ -18,7 +18,7 @@ jobs:
 
     steps:
       # Publish action needs a checkout
-      - uses: actions/checkout@v2.4.0
+      - uses: actions/checkout@v3
 
       # Download the latest instance of artifacts from a build done previously
       - name: Download generated docs
