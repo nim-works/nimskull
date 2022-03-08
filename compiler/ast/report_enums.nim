@@ -1093,3 +1093,33 @@ const
     rsemIndexOutOfBounds,
     rsemExpectedHighCappedDiscriminant
   }
+
+  repPerformanceHints* = {
+    rsemCopiesToSink,
+    rsemCannotMakeSink
+  }
+
+  repLinkingHints* = {
+    rbackLinking,
+    rcmdLinking
+  }
+
+  repStrictNotNilWarnings* = {
+    rsemStrictNotNilExpr,
+    rsemStrictNotNilResult
+  }
+
+
+
+const
+  repHintGroups* = @{
+    "all": repHintKinds,
+    "Performance": repPerformanceHints,
+    "Name": repLinterKinds,
+    "Link": repLinkingHints,
+  }
+
+  repWarningGroups* = @{
+    "all": repWarningKinds,
+    "StrictNotNil": repStrictNotNilWarnings
+  }
