@@ -355,13 +355,6 @@ type
       else:
         discard
 
-const
-  rsemMultiNamed* = @{
-    "Performance": {rsemCopiesToSink, rsemCannotMakeSink},
-    "Name": repLinterKinds,
-    "Link": {rbackLinking, rcmdLinking},
-    "StrictNotNil": {rsemStrictNotNilExpr, rsemStrictNotNilResult}
-  }
 
 func severity*(report: SemReport): ReportSeverity =
   case SemReportKind(report.kind):

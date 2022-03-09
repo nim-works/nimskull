@@ -103,14 +103,14 @@ proc computeNotesVerbosity(): tuple[
     rextConf,
   }
 
-  result.main[1] = result.main[2] - {
+  result.main[1] = result.main[2] - repPerformanceHints - {
     rsemProveField,
     rsemErrGcUnsafe,
     rextPath,
     rsemHintLibDependency,
     rsemGlobalVar,
     rintGCStats,
-    rintMsgOrigin
+    rintMsgOrigin,
   }
 
   result.main[0] = result.main[1] - {

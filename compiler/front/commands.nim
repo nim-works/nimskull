@@ -275,23 +275,21 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
   elif i < arg.len and (arg[i] in {':', '='}): inc(i)
   else: invalidCmdLineOption(conf, pass, orig, info)
 
-  let isSomeHint = state in {wHint, wHintAsError}
-  proc findNote(noteSet: ReportKinds, onFail: ReportKind) =
-    # HACK first added in order to support `--hint[Performance]` - very
+  proc findNote(noteSet: ReportKinds, onFail: ReportKind, groups: seq[(string, ReportKinds)]) =
+    # Check groups like `--hint/warning[all]` or `--hint[Performance]` (very
     # vague term that maps onto multiple report kinds, such as "copies to
-    # sink". Checked here earlier, because multinote reports have the same
-    # stirng values (`rlexLinterReport = "Name"`, `rsemLinterReport =
-    # "Name"`)
-    for (multiName , flags) in rsemMultiNamed:
-      if cmpIgnoreStyle(multiName, id) == 0:
+    # sink") first, because report groups have the same string values:
+    # (`rlexLinterReport = "Name"`, `rsemLinterReport = "Name"`)
+    for (groupName, flags) in groups:
+      if cmpIgnoreStyle(groupName, id) == 0:
         notes = flags
         return
 
     # unfortunately, hintUser and warningUser clash, otherwise
     # implementation would simplify a bit
-    var x: ReportKind = findStr(noteSet, id, onFail)
+    let x = findStr(noteSet, id, onFail)
     if x != onFail:
-      notes = {ReportKind(x)}
+      notes = {x}
 
     else:
       var r = ExternalReport(kind: onFail)
@@ -301,19 +299,10 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
 
       conf.localReport r
 
-  case id.normalize:
-    of "all": # other note groups would be easy to support via additional cases
-      if isSomeHint:
-        notes = repHintKinds
-
-      else:
-        notes = repWarningKinds
-
-    elif isSomeHint:
-      findNote(repHintKinds, rextInvalidHint)
-
-    else:
-      findNote(repWarningKinds, rextInvalidWarning)
+  if state in {wHint, wHintAsError}:
+    findNote(repHintKinds, rextInvalidHint, repHintGroups)
+  else:
+    findNote(repWarningKinds, rextInvalidWarning, repWarningGroups)
 
   var val = substr(arg, i).normalize
   if val == "":
