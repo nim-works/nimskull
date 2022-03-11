@@ -243,11 +243,8 @@ proc pushOwner*(c: PContext; owner: PSym) =
   c.graph.owners.add(owner)
 
 proc popOwner*(c: PContext) =
-  if c.graph.owners.len > 0:
-    setLen(c.graph.owners, c.graph.owners.len - 1)
-
-  else:
-    internalError(c.config, rintUnreachable, "popOwner")
+  c.config.internalAssert(c.graph.owners.len > 0, "popOwner")
+  setLen(c.graph.owners, c.graph.owners.len - 1)
 
 proc lastOptionEntry*(c: PContext): POptionEntry =
   result = c.optionStack[^1]
@@ -470,8 +467,7 @@ proc makeAndType*(c: PContext, t1, t2: PType): PType =
   result.sons = @[t1, t2]
   propagateToOwner(result, t1)
   propagateToOwner(result, t2)
-  result.flags.incl((t1.flags + t2.flags) * {tfHasStatic})
-  result.flags.incl tfHasMeta
+  result.flags.incl ((t1.flags + t2.flags) * {tfHasStatic}) + {tfHasMeta}
 
 proc makeOrType*(c: PContext, t1, t2: PType): PType =
   result = newTypeS(tyOr, c)
@@ -487,15 +483,13 @@ proc makeOrType*(c: PContext, t1, t2: PType): PType =
     addOr(t2)
   propagateToOwner(result, t1)
   propagateToOwner(result, t2)
-  result.flags.incl((t1.flags + t2.flags) * {tfHasStatic})
-  result.flags.incl tfHasMeta
+  result.flags.incl ((t1.flags + t2.flags) * {tfHasStatic}) + {tfHasMeta}
 
 proc makeNotType*(c: PContext, t1: PType): PType =
   result = newTypeS(tyNot, c)
   result.sons = @[t1]
   propagateToOwner(result, t1)
-  result.flags.incl(t1.flags * {tfHasStatic})
-  result.flags.incl tfHasMeta
+  result.flags.incl (t1.flags * {tfHasStatic}) + {tfHasMeta}
 
 proc nMinusOne(c: PContext; n: PNode): PNode =
   result = newTreeI(nkCall, n.info, newSymNode(getSysMagic(c.graph, n.info, "pred", mPred)), n)

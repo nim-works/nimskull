@@ -119,9 +119,7 @@ proc ordinalValToString*(a: PNode; g: ModuleGraph): string =
   of tyEnum:
     var n = t.n
     for i in 0..<n.len:
-      if n[i].kind != nkSym:
-        g.config.internalError(
-          rintUnreachable, "ordinalValToString")
+      g.config.internalAssert(n[i].kind == nkSym, "ordinalValToString")
       var field = n[i].sym
       if field.position == x:
         if field.ast == nil:

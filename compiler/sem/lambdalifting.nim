@@ -194,17 +194,13 @@ proc addHiddenParam(routine: PSym, param: PSym) =
 proc getHiddenParam(g: ModuleGraph; routine: PSym): PSym =
   let params = routine.ast[paramsPos]
   let hidden = lastSon(params)
-  if hidden.kind == nkSym and hidden.sym.kind == skParam and hidden.sym.name.s == paramName:
-    result = hidden.sym
-    assert sfFromGeneric in result.flags
-  else:
-    # writeStackTrace()
-    internalError(
-      g.config,
-      routine.info,
-      "internal error: could not find env param for " & routine.name.s)
 
-    result = routine
+  g.config.internalAssert(
+    hidden.kind == nkSym and hidden.sym.kind == skParam and hidden.sym.name.s == paramName,
+    routine.info, "internal error: could not find env param for " & routine.name.s)
+
+  result = hidden.sym
+  assert sfFromGeneric in result.flags
 
 proc getEnvParam*(routine: PSym): PSym =
   let params = routine.ast[paramsPos]
@@ -241,8 +237,7 @@ proc makeClosure*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; env: PNode; inf
   if env == nil:
     result.add(newNodeIT(nkNilLit, info, getSysType(g, info, tyNil)))
   else:
-    if env.skipConv.kind == nkClosure:
-      internalError(g.config, info, "taking closure of closure")
+    g.config.internalAssert(env.skipConv.kind != nkClosure, info, "taking closure of closure")
     result.add(env)
   #if isClosureIterator(result.typ):
   createTypeBoundOps(g, nil, result.typ, info, idgen)
@@ -289,8 +284,8 @@ proc liftIterSym*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner: PSym): PN
     e.typ = hp.typ
     e.flags = hp.flags
     env = newSymNode(e)
-    var v = newNodeI(nkVarSection, n.info)
-    addVar(v, env)
+    let v = newTreeI(nkVarSection, n.info):
+      newIdentDefs(env)
     result.add(v)
   # add 'new' statement:
   result.add newCall(getSysSym(g, n.info, "internalNew"), env)
@@ -305,11 +300,8 @@ proc freshVarForClosureIter*(g: ModuleGraph; s: PSym; idgen: IdGenerator; owner:
   var access = newSymNode(envParam)
   assert obj.kind == tyObject
   let field = getFieldFromObj(obj, s)
-  if field != nil:
-    result = rawIndirectAccess(access, field, s.info)
-  else:
-    internalError(g.config, s.info, "internal error: cannot generate fresh variable")
-    result = access
+  g.config.internalAssert(field != nil, s.info, "internal error: cannot generate fresh variable")
+  result = rawIndirectAccess(access, field, s.info)
 
 # ------------------ new stuff -------------------------------------------
 
@@ -392,14 +384,15 @@ proc createUpField(c: var DetectionPass; dest, dep: PSym; info: TLineInfo) =
                     c.getEnvTypeForOwnerUp(dep, info) #getHiddenParam(dep).typ
                   else:
                     c.getEnvTypeForOwner(dep, info)
-  if refObj == fieldType:
-    internalError(c.graph.config, dep.info, "internal error: invalid up reference computed")
+  c.graph.config.internalAssert(refObj != fieldType, dep.info):
+    "internal error: invalid up reference computed"
 
   let upIdent = getIdent(c.graph.cache, upName)
   let upField = lookupInRecord(obj.n, upIdent)
   if upField != nil:
-    if upField.typ.skipTypes({tyOwned, tyRef, tyPtr}) != fieldType.skipTypes({tyOwned, tyRef, tyPtr}):
-      internalError(c.graph.config, dep.info, "internal error: up references do not agree")
+    c.graph.config.internalAssert(
+      upField.typ.skipTypes({tyOwned, tyRef, tyPtr}) == fieldType.skipTypes({tyOwned, tyRef, tyPtr}),
+      dep.info, "internal error: up references do not agree")
 
     when false:
       if c.graph.config.selectedGC == gcDestructors and sfCursor notin upField.flags:
@@ -555,19 +548,17 @@ proc accessViaEnvParam(g: ModuleGraph; n: PNode; owner: PSym): PNode =
   let s = n.sym
   # Type based expression construction for simplicity:
   let envParam = getHiddenParam(g, owner)
-  if not envParam.isNil:
-    var access = newSymNode(envParam)
-    while true:
-      let obj = access.typ[0]
-      assert obj.kind == tyObject
-      let field = getFieldFromObj(obj, s)
-      if field != nil:
-        return rawIndirectAccess(access, field, n.info)
-      let upField = lookupInRecord(obj.n, getIdent(g.cache, upName))
-      if upField == nil: break
-      access = rawIndirectAccess(access, upField, n.info)
-  internalError(g.config, n.info, "internal error: environment misses: " & s.name.s)
-  result = n
+  g.config.internalAssert(not envParam.isNil, n.info, "internal error: environment misses: " & s.name.s)
+  var access = newSymNode(envParam)
+  while true:
+    let obj = access.typ[0]
+    assert obj.kind == tyObject
+    let field = getFieldFromObj(obj, s)
+    if field != nil:
+      return rawIndirectAccess(access, field, n.info)
+    let upField = lookupInRecord(obj.n, getIdent(g.cache, upName))
+    g.config.internalAssert(upField != nil, n.info, "internal error: environment misses: " & s.name.s)
+    access = rawIndirectAccess(access, upField, n.info)
 
 proc newEnvVar(cache: IdentCache; owner: PSym; typ: PType; info: TLineInfo; idgen: IdGenerator): PNode =
   var v = newSym(skVar, getIdent(cache, envName), nextSymId(idgen), owner, info)
@@ -589,9 +580,7 @@ proc setupEnvVar(owner: PSym; d: var DetectionPass;
   result = c.envVars.getOrDefault(owner.id)
   if result.isNil:
     let envVarType = d.ownerToType.getOrDefault(owner.id)
-    if envVarType.isNil:
-      internalError(
-        d.graph.config, owner.info, "internal error: could not determine closure type")
+    d.graph.config.internalAssert(envVarType != nil, owner.info, "internal error: could not determine closure type")
     result = newEnvVar(d.graph.cache, owner, asOwnedRef(d, envVarType), info, d.idgen)
     c.envVars[owner.id] = result
     if optOwnedRefs in d.graph.config.globalOptions:
@@ -605,10 +594,8 @@ proc getUpViaParam(g: ModuleGraph; owner: PSym): PNode =
   result = p.newSymNode
   if owner.isIterator:
     let upField = lookupInRecord(p.typ.skipTypes({tyOwned, tyRef, tyPtr}).n, getIdent(g.cache, upName))
-    if upField == nil:
-      internalError(g.config, owner.info, "could not find up reference for closure iter")
-    else:
-      result = rawIndirectAccess(result, upField, p.info)
+    g.config.internalAssert(upField != nil, owner.info, "could not find up reference for closure iter")
+    result = rawIndirectAccess(result, upField, p.info)
 
 proc rawClosureCreation(owner: PSym;
                         d: var DetectionPass; c: var LiftingPass;
@@ -621,13 +608,13 @@ proc rawClosureCreation(owner: PSym;
   else:
     env = setupEnvVar(owner, d, c, info)
     if env.kind == nkSym:
-      var v = newNodeI(nkVarSection, env.info)
-      addVar(v, env)
+      let v = newTreeI(nkVarSection, env.info):
+        newIdentDefs(env)
       result.add(v)
       if optOwnedRefs in d.graph.config.globalOptions:
         let unowned = c.unownedEnvVars[owner.id]
         assert unowned != nil
-        addVar(v, unowned)
+        v.add newIdentDefs(unowned)
 
     # add 'new' statement:
     result.add(newCall(getSysSym(d.graph, env.info, "internalNew"), env))
@@ -656,16 +643,11 @@ proc rawClosureCreation(owner: PSym;
 
   if upField != nil:
     let up = getUpViaParam(d.graph, owner)
-    if up != nil and upField.typ.skipTypes({tyOwned, tyRef, tyPtr}) ==
-       up.typ.skipTypes({tyOwned, tyRef, tyPtr}):
+    d.graph.config.internalAssert(
+      up != nil and upField.typ.skipTypes({tyOwned, tyRef, tyPtr}) == up.typ.skipTypes({tyOwned, tyRef, tyPtr}),
+      env.info, "internal error: cannot create up reference")
 
-      result.add(newAsgnStmt(rawIndirectAccess(env, upField, env.info),
-                 up, env.info))
-    #elif oldenv != nil and oldenv.typ == upField.typ:
-    #  result.add(newAsgnStmt(rawIndirectAccess(env, upField, env.info),
-    #             oldenv, env.info))
-    else:
-      internalError(d.graph.config, env.info, "internal error: cannot create up reference")
+    result.add(newAsgnStmt(rawIndirectAccess(env, upField, env.info), up, env.info))
   # we are not in the sem'check phase anymore! so pass 'nil' for the PContext
   # and hope for the best:
   createTypeBoundOpsLL(d.graph, env.typ, owner.info, d.idgen, owner)
@@ -693,8 +675,8 @@ proc closureCreationForIter(iter: PNode;
     vnode = indirectAccess(newSymNode(it), v, v.info)
   else:
     vnode = v.newSymNode
-    var vs = newNodeI(nkVarSection, iter.info)
-    addVar(vs, vnode)
+    let vs = newTreeI(nkVarSection, iter.info):
+      newIdentDefs(vnode)
     result.add(vs)
   result.add(newCall(getSysSym(d.graph, iter.info, "internalNew"), vnode))
   createTypeBoundOpsLL(d.graph, vnode.typ, iter.info, d.idgen, owner)
@@ -702,12 +684,12 @@ proc closureCreationForIter(iter: PNode;
   let upField = lookupInRecord(v.typ.skipTypes({tyOwned, tyRef, tyPtr}).n, getIdent(d.graph.cache, upName))
   if upField != nil:
     let u = setupEnvVar(owner, d, c, iter.info)
-    if u.typ.skipTypes({tyOwned, tyRef, tyPtr}) == upField.typ.skipTypes({tyOwned, tyRef, tyPtr}):
-      result.add(newAsgnStmt(rawIndirectAccess(vnode, upField, iter.info),
-                 u, iter.info))
-    else:
-      internalError(
-        d.graph.config, iter.info, "internal error: cannot create up reference for iter")
+
+    d.graph.config.internalAssert(
+      u.typ.skipTypes({tyOwned, tyRef, tyPtr}) == upField.typ.skipTypes({tyOwned, tyRef, tyPtr}),
+      iter.info, "internal error: cannot create up reference for iter")
+
+    result.add(newAsgnStmt(rawIndirectAccess(vnode, upField, iter.info), u, iter.info))
   result.add makeClosure(d.graph, d.idgen, iter.sym, vnode, iter.info)
 
 proc accessViaEnvVar(n: PNode; owner: PSym; d: var DetectionPass;
@@ -717,12 +699,8 @@ proc accessViaEnvVar(n: PNode; owner: PSym; d: var DetectionPass;
     access = c.unownedEnvVars[owner.id]
   let obj = access.typ.skipTypes({tyOwned, tyRef, tyPtr})
   let field = getFieldFromObj(obj, n.sym)
-  if field != nil:
-    result = rawIndirectAccess(access, field, n.info)
-  else:
-    internalError(
-      d.graph.config, n.info, "internal error: not part of closure object type")
-    result = n
+  d.graph.config.internalAssert(field != nil, n.info, "internal error: not part of closure object type")
+  result = rawIndirectAccess(access, field, n.info)
 
 proc getStateField*(g: ModuleGraph; owner: PSym): PSym =
   getHiddenParam(g, owner).typ.skipTypes({tyOwned, tyRef, tyPtr}).n[0].sym
@@ -752,9 +730,7 @@ proc symToClosure(n: PNode; owner: PSym; d: var DetectionPass;
         return makeClosure(d.graph, d.idgen, s, access, n.info)
       let obj = access.typ.skipTypes({tyOwned, tyRef, tyPtr})
       let upField = lookupInRecord(obj.n, getIdent(d.graph.cache, upName))
-      if upField == nil:
-        internalError(d.graph.config, n.info, "internal error: no environment found")
-        return n
+      d.graph.config.internalAssert(upField != nil, n.info, "internal error: no environment found")
       access = rawIndirectAccess(access, upField, n.info)
 
 proc liftCapturedVars(n: PNode; owner: PSym; d: var DetectionPass;
@@ -979,8 +955,8 @@ proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator; owner: PSym):
     env.typ = hp.typ
     env.flags = hp.flags
 
-    var v = newNodeI(nkVarSection, body.info)
-    addVar(v, newSymNode(env))
+    let v = newTreeI(nkVarSection, body.info):
+      newIdentDefs(newSymNode(env))
     result.add(v)
     # add 'new' statement:
     result.add(newCall(getSysSym(g, env.info, "internalNew"), env.newSymNode))

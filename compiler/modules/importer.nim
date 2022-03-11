@@ -75,11 +75,10 @@ proc importPureEnumFields(c: PContext; s: PSym; etyp: PType) =
   assert sfPure in s.flags
   for j in 0..<etyp.n.len:
     var e = etyp.n[j].sym
-    if e.kind != skEnumField:
-      internalError(c.config, s.info, "rawImportSymbol")
-      # BUGFIX: because of aliases for enums the symbol may already
-      # have been put into the symbol table
-      # BUGFIX: but only iff they are the same symbols!
+    c.config.internalAssert(e.kind == skEnumField, s.info, "rawImportSymbol")
+    # BUGFIX: because of aliases for enums the symbol may already
+    # have been put into the symbol table
+    # BUGFIX: but only iff they are the same symbols!
     for check in importedItems(c, e.name):
       if check.id == e.id:
         e = nil
@@ -110,11 +109,10 @@ proc rawImportSymbol(c: PContext, s, origin: PSym; importSet: var IntSet) =
     if etyp.kind in {tyBool, tyEnum}:
       for j in 0..<etyp.n.len:
         var e = etyp.n[j].sym
-        if e.kind != skEnumField:
-          internalError(c.config, s.info, "rawImportSymbol")
-          # BUGFIX: because of aliases for enums the symbol may already
-          # have been put into the symbol table
-          # BUGFIX: but only iff they are the same symbols!
+        c.config.internalAssert(e.kind == skEnumField, s.info, "rawImportSymbol")
+        # BUGFIX: because of aliases for enums the symbol may already
+        # have been put into the symbol table
+        # BUGFIX: but only iff they are the same symbols!
         for check in importedItems(c, e.name):
           if check.id == e.id:
             e = nil
@@ -168,8 +166,7 @@ proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
       var it: ModuleIter
       var e = initModuleIter(it, c.graph, fromMod, s.name)
       while e != nil:
-        if e.name.id != s.name.id:
-          internalError(c.config, n.info, "importSymbol: 3")
+        c.config.internalAssert(e.name.id == s.name.id, n.info, "importSymbol: 3")
 
         if s.kind in ExportableSymKinds:
           rawImportSymbol(c, e, fromMod, importSet)

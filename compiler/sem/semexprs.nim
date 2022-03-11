@@ -277,7 +277,7 @@ proc semConv(c: PContext, n: PNode): PNode =
   var targetType = semTypeNode(c, n[0], nil)
   case targetType.kind
   of tyTypeDesc:
-    internalAssert(c.config, targetType.len > 0, "")
+    c.config.internalAssert targetType.len > 0
 
     if targetType.base.kind == tyNone:
       return semTypeOf(c, n)
@@ -439,11 +439,8 @@ proc fixupStaticType(c: PContext, n: PNode) =
 proc isOpImpl(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ## implements `is`, for `x is Y` where x is an expression and `Y` is a type
   ## or an expression whose type is compared with `x`'s type.
-  internalAssert(c.config,
-    n.len == 3 and
-    n[1].typ != nil and
-    n[2].kind in {nkStrLit..nkTripleStrLit, nkType},
-    "")
+  c.config.internalAssert:
+    n.len == 3 and n[1].typ != nil and n[2].kind in {nkStrLit..nkTripleStrLit, nkType}
 
   var
     res = false
@@ -793,10 +790,8 @@ proc analyseIfAddressTaken(c: PContext, n: PNode): PNode =
       result = newHiddenAddrTaken(c, n)
   of nkDotExpr:
     checkSonsLen(n, 2, c.config)
-    if n[1].kind != nkSym:
-      internalError(c.config, n.info, "analyseIfAddressTaken")
+    c.config.internalAssert(n[1].kind == nkSym, n.info, "analyseIfAddressTaken")
 
-      return
     if skipTypes(n[1].sym.typ, abstractInst-{tyTypeDesc}).kind notin {tyVar, tyLent}:
       incl(n[1].sym.flags, sfAddrTaken)
       result = newHiddenAddrTaken(c, n)
@@ -971,9 +966,8 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
       {skProc, skFunc, skMethod, skConverter, skMacro, skTemplate}, flags)
 
   if result != nil and result.kind != nkError:
-    if result[0].kind != nkSym:
-      internalError(c.config, "semOverloadedCallAnalyseEffects")
-      return
+    c.config.internalAssert(result[0].kind == nkSym, "semOverloadedCallAnalyseEffects")
+
     let callee = result[0].sym
     case callee.kind
     of skMacro, skTemplate: discard
@@ -1000,7 +994,7 @@ proc resolveIndirectCall(c: PContext; n: PNode;
   if result.state != csMatch:
     # try to deref the first argument:
     if implicitDeref in c.features and canDeref(n):
-      n[1] = n[1].tryDeref
+      n[1] = genDeref(n[1])
       initCandidate(c, result, t)
       matches(c, n, result)
 
@@ -1360,7 +1354,7 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
       return s.typ.n
     elif sfGenSym in s.flags:
       # the owner should have been set by now by addParamOrResult
-      internalAssert(c.config, s.owner != nil, "")
+      c.config.internalAssert s.owner != nil
     result = newSymNode(s, n.info)
   of skVar, skLet, skResult, skForVar:
     if s.magic == mNimvm:
@@ -1937,7 +1931,7 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
           if rhsTyp.kind in tyUserTypeClasses and rhsTyp.isResolvedUserTypeClass:
             rhsTyp = rhsTyp.lastSon
           if cmpTypes(c, lhs.typ, rhsTyp) in {isGeneric, isEqual}:
-            internalAssert(c.config, c.p.resultSym != nil,"")
+            c.config.internalAssert c.p.resultSym != nil
             # Make sure the type is valid for the result variable
             typeAllowedCheck(c, n.info, rhsTyp, skResult)
             lhs.typ = rhsTyp
@@ -2060,8 +2054,7 @@ proc semYield(c: PContext, n: PNode): PNode =
     if restype != nil:
       if restype.kind != tyUntyped:
         n[0] = fitNode(c, restype, n[0], n.info)
-      if n[0].typ == nil:
-        internalError(c.config, n.info, "semYield")
+      c.config.internalAssert(n[0].typ != nil, n.info, "semYield")
 
       if resultTypeIsInferrable(restype):
         let inferred = n[0].typ
@@ -2166,7 +2159,7 @@ proc semExpandToAst(c: PContext, n: PNode): PNode =
   else:
     localReport(c.config, n, reportSem rsemExpectedCallForGetAst)
   # Preserve the magic symbol in order to be handled in evals.nim
-  internalAssert(c.config, n[0].sym.magic == mExpandToAst, "")
+  c.config.internalAssert n[0].sym.magic == mExpandToAst
   #n.typ = getSysSym("NimNode").typ # expandedSym.getReturnType
   if n.kind == nkStmtList and n.len == 1: result = n[0]
   else: result = n
@@ -2802,8 +2795,7 @@ proc semExport(c: PContext, n: PNode): PNode =
             if etyp.kind in {tyBool, tyEnum}:
               for j in 0..<etyp.n.len:
                 var e = etyp.n[j].sym
-                if e.kind != skEnumField:
-                  internalError(c.config, s.info, "rawImportSymbol")
+                c.config.internalAssert(e.kind == skEnumField, s.info, "rawImportSymbol")
                 reexportSym(c, e)
 
         s = nextOverloadIter(o, c, a)

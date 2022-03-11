@@ -645,18 +645,6 @@ template semReportIllformedAst*(
 template localReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc(), info), instLoc(), doNothing)
 
-template internalAssert*(
-    conf: ConfigRef, e: bool, failMsg: string = "") =
-
-  if not e:
-    handleReport(
-      conf,
-      wrap(InternalReport(
-        kind: rintAssert, msg: failMsg), instLoc()),
-      instLoc(),
-      doAbort
-    )
-
 template internalError*(
     conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
   conf.handleReport(
@@ -671,6 +659,7 @@ template internalError*(
 template internalError*(
     conf: ConfigRef, info: TLineInfo,
     repKind: InternalReportKind, fail: string): untyped =
+  ## Causes an internal error
   conf.handleReport(wrap(
     InternalReport(
       kind: repKind, msg: fail), instLoc(), info),
@@ -681,7 +670,7 @@ template internalError*(
     info: TLineInfo,
     fail: string,
   ): untyped =
-
+  ## Causes an internal error
   conf.handleReport(wrap(
     InternalReport(kind: rintUnreachable, msg: fail),
     instLoc(), info), instLoc(), doAbort)
@@ -691,9 +680,24 @@ template internalError*(
     conf: ConfigRef,
     fail: string
   ): untyped =
-
+  ## Causes an internal error
   conf.handleReport(wrap(InternalReport(
     kind: rintUnreachable, msg: fail), instLoc()), instLoc(), doAbort)
+
+template internalAssert*(
+    conf: ConfigRef, condition: bool, info: TLineInfo, failMsg: string = "") =
+  ## Causes an internal error if the provided condition evaluates to false
+  if not condition:
+    conf.handleReport(wrap(
+      InternalReport(kind: rintAssert, msg: failMsg),
+      instLoc(), info), instLoc(), doAbort)
+
+template internalAssert*(
+    conf: ConfigRef, condition: bool, failMsg: string = "") =
+  ## Causes an internal error if the provided condition evaluates to false
+  if not condition:
+    conf.handleReport(wrap(InternalReport(
+      kind: rintAssert, msg: failMsg), instLoc()), instLoc(), doAbort)
 
 
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =

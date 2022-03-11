@@ -5,7 +5,7 @@ nimout: '''
 tmisc.nim(24, 13) Error: object construction uses ':', not '='
 tmisc.nim(26, 5) Error: wrong number of arguments
 tmisc.nim(30, 9) Error: expression has no type: foo
-tmisc.nim(38, 3) Error: type mismatch: got <int, uint>
+tmisc.nim(38, 5) Error: type mismatch: got <int, uint>
 but expected one of:
 template `.=`(a: int; b: untyped; c: int)
   first type mismatch at position: 3

@@ -348,10 +348,10 @@ proc wrapProcForSpawn*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; spawnExp
   let spawnKind = spawnResult(retType, barrier!=nil)
   case spawnKind
   of srVoid:
-    internalAssert g.config, dest == nil, ""
+    g.config.internalAssert dest == nil
     result = newNodeI(nkStmtList, n.info)
   of srFlowVar:
-    internalAssert g.config, dest == nil, ""
+    g.config.internalAssert dest == nil
     result = newNodeIT(nkStmtListExpr, n.info, retType)
   of srByVar:
     if dest == nil: localReport(g.config, n, reportSem rsemCannotDiscardSpawn)
@@ -392,8 +392,8 @@ proc wrapProcForSpawn*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; spawnExp
   block:
     scratchObj.typ = objType
     incl(scratchObj.flags, sfFromGeneric)
-    var varSectionB = newNodeI(nkVarSection, n.info)
-    varSectionB.addVar(scratchObj.newSymNode)
+    let varSectionB = newTreeI(nkVarSection, n.info):
+      newIdentDefs(scratchObj.newSymNode)
     result.add varSectionB
 
   var call = newNodeIT(nkCall, n.info, n.typ)

@@ -77,22 +77,6 @@ type
 proc equalParams*(a, b: PNode): TParamsEquality
   # returns whether the parameter lists of the procs a, b are exactly the same
 
-const
-  # TODO: Remove tyTypeDesc from each abstractX and (where necessary)
-  # replace with typedescX
-  abstractPtrs* = {tyVar, tyPtr, tyRef, tyGenericInst, tyDistinct, tyOrdinal,
-                   tyTypeDesc, tyAlias, tyInferred, tySink, tyLent, tyOwned}
-  abstractVar* = {tyVar, tyGenericInst, tyDistinct, tyOrdinal, tyTypeDesc,
-                  tyAlias, tyInferred, tySink, tyLent, tyOwned}
-  abstractRange* = {tyGenericInst, tyRange, tyDistinct, tyOrdinal, tyTypeDesc,
-                    tyAlias, tyInferred, tySink, tyOwned}
-  abstractInstOwned* = abstractInst + {tyOwned}
-  skipPtrs* = {tyVar, tyPtr, tyRef, tyGenericInst, tyTypeDesc, tyAlias,
-               tyInferred, tySink, tyLent, tyOwned}
-  # typedescX is used if we're sure tyTypeDesc should be included (or skipped)
-  typedescPtrs* = abstractPtrs + {tyTypeDesc}
-  typedescInst* = abstractInst + {tyTypeDesc, tyOwned, tyUserTypeClass}
-
 proc invalidGenericInst*(f: PType): bool =
   result = f.kind == tyGenericInst and lastSon(f) == nil
 

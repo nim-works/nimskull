@@ -39,7 +39,7 @@ proc genObjectFields(p: PProc, typ: PType, n: PNode): Rope =
                    [mangleName(p.module, field), s,
                     makeJSString(field.name.s)]
   of nkRecCase:
-    if (n[0].kind != nkSym): internalError(p.config, n.info, "genObjectFields")
+    p.config.internalAssert(n[0].kind == nkSym, n.info, "genObjectFields")
     field = n[0].sym
     s = genTypeInfo(p, field.typ)
     for i in 1..<n.len:
@@ -47,8 +47,7 @@ proc genObjectFields(p: PProc, typ: PType, n: PNode): Rope =
       u = nil
       case b.kind
       of nkOfBranch:
-        if b.len < 2:
-          internalError(p.config, b.info, "genObjectFields; nkOfBranch broken")
+        p.config.internalAssert(b.len >= 2, b.info, "genObjectFields; nkOfBranch broken")
         for j in 0..<b.len - 1:
           if u != nil: u.add(", ")
           if b[j].kind == nkRange:
@@ -106,7 +105,7 @@ proc genTupleInfo(p: PProc, typ: PType, name: Rope) =
 proc genEnumInfo(p: PProc, typ: PType, name: Rope) =
   var s: Rope = nil
   for i in 0..<typ.n.len:
-    if (typ.n[i].kind != nkSym): internalError(p.config, typ.n.info, "genEnumInfo")
+    p.config.internalAssert(typ.n[i].kind == nkSym, typ.n.info, "genEnumInfo")
     let field = typ.n[i].sym
     if i > 0: s.add(", \L")
     let extName = if field.ast == nil: field.name.s else: field.ast.strVal
@@ -153,6 +152,6 @@ proc genTypeInfo(p: PProc, typ: PType): Rope =
   of tyObject: genObjectInfo(p, t, result)
   of tyTuple: genTupleInfo(p, t, result)
   of tyStatic:
-    if t.n != nil: result = genTypeInfo(p, lastSon t)
-    else: internalError(p.config, "genTypeInfo(" & $t.kind & ')')
+    p.config.internalAssert(t.n != nil, "genTypeInfo(" & $t.kind & ')')
+    result = genTypeInfo(p, lastSon t)
   else: internalError(p.config, "genTypeInfo(" & $t.kind & ')')

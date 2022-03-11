@@ -383,16 +383,6 @@ when defined(useNodeIds):
   const nodeIdToDebug* = -1 # 2322968
   var gNodeId: int
 
-template newNodeImpl(info2) =
-  result = PNode(kind: kind, info: info2, reportId: emptyReportId)
-  when false:
-    # this would add overhead, so we skip it; it results in a small amount of leaked entries
-    # for old PNode that gets re-allocated at the same address as a PNode that
-    # has `nfHasComment` set (and an entry in that table). Only `nfHasComment`
-    # should be used to test whether a PNode has a comment; gconfig.comments
-    # can contain extra entries for deleted PNode's with comments.
-    gconfig.comments.del(cast[int](result))
-
 template setIdMaybe() =
   when defined(useNodeIds):
     result.id = gNodeId
@@ -401,28 +391,39 @@ template setIdMaybe() =
       writeStackTrace()
     inc gNodeId
 
-proc newNode*(kind: TNodeKind): PNode =
-  ## new node with unknown line info, no type, and no children
-  newNodeImpl(unknownLineInfo)
-  setIdMaybe()
-
 proc newNodeI*(kind: TNodeKind, info: TLineInfo): PNode =
   ## new node with line info, no type, and no children
-  newNodeImpl(info)
+  result = PNode(kind: kind, info: info, reportId: emptyReportId)
+  when false:
+    # this would add overhead, so we skip it; it results in a small amount of leaked entries
+    # for old PNode that gets re-allocated at the same address as a PNode that
+    # has `nfHasComment` set (and an entry in that table). Only `nfHasComment`
+    # should be used to test whether a PNode has a comment; gconfig.comments
+    # can contain extra entries for deleted PNode's with comments.
+    gconfig.comments.del(cast[int](result))
+
   setIdMaybe()
 
+proc newNode*(kind: TNodeKind): PNode =
+  ## new node with unknown line info, no type, and no children
+  result = newNodeI(kind, unknownLineInfo)
+
 proc newNodeI*(kind: TNodeKind, info: TLineInfo, children: int): PNode =
-  ## new node with line info, type, and children
-  newNodeImpl(info)
+  ## new node with line info, no type, and children
+  result = newNodeI(kind, info)
   if children > 0:
     newSeq(result.sons, children)
-  setIdMaybe()
 
 proc newNodeIT*(kind: TNodeKind, info: TLineInfo, typ: PType): PNode =
   ## new node with line info, type, and no children
-  result = newNode(kind)
-  result.info = info
+  result = newNodeI(kind, info)
   result.typ = typ
+
+proc newNodeIT*(kind: TNodeKind, info: TLineInfo, typ: PType, children: int): PNode =
+  ## new node with line info, type, and children
+  result = newNodeIT(kind, info, typ)
+  if children > 0:
+    newSeq(result.sons, children)
 
 proc newTree*(kind: TNodeKind; children: varargs[PNode]): PNode =
   result = newNode(kind)
@@ -432,14 +433,10 @@ proc newTree*(kind: TNodeKind; children: varargs[PNode]): PNode =
 
 proc newTreeI*(kind: TNodeKind; info: TLineInfo; children: varargs[PNode]): PNode =
   result = newNodeI(kind, info)
-  if children.len > 0:
-    result.info = children[0].info
   result.sons = @children
 
 proc newTreeIT*(kind: TNodeKind; info: TLineInfo; typ: PType; children: varargs[PNode]): PNode =
   result = newNodeIT(kind, info, typ)
-  if children.len > 0:
-    result.info = children[0].info
   result.sons = @children
 
 template previouslyInferred*(t: PType): PType =
@@ -742,6 +739,9 @@ proc initObjectSet*(x: var TObjectSet) =
 proc initIdNodeTable*(x: var TIdNodeTable) =
   x.counter = 0
   newSeq(x.data, StartSize)
+
+proc newIdNodeTable*: TIdNodeTable =
+  initIdNodeTable(result)
 
 proc initNodeTable*(x: var TNodeTable) =
   x.counter = 0

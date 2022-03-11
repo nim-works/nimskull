@@ -441,8 +441,7 @@ proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType):
         dest.node.strVal = if f.ast.isNil: f.name.s else: f.ast.strVal
       else:
         for i in 0..<n.len:
-          if n[i].kind != nkSym:
-            internalError(c.config, "opConv for enum")
+          c.config.internalAssert(n[i].kind == nkSym, "opConv for enum")
 
           let f = n[i].sym
           if f.position == x:
@@ -513,8 +512,7 @@ proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType):
       else:
         dest.floatVal = src.floatVal
     of tyObject:
-      if srctyp.skipTypes(abstractVarRange).kind != tyObject:
-        internalError(c.config, "invalid object-to-object conversion")
+      c.config.internalAssert(srctyp.skipTypes(abstractVarRange).kind == tyObject, "invalid object-to-object conversion")
       # A object-to-object conversion is essentially a no-op
       moveConst(dest, src)
     else:
@@ -2166,9 +2164,8 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
     of opcNNewNimNode:
       decodeBC(rkNode)
       var k = regs[rb].intVal
-      if k < 0 or k > ord(high(TNodeKind)):
-        internalError(c.config, c.debug[pc],
-          "request to create a NimNode of invalid kind")
+      c.config.internalAssert(k in 0..ord(high(TNodeKind)), c.debug[pc],
+        "request to create a NimNode of invalid kind")
       let cc = regs[rc].node
 
       let x = newNodeI(TNodeKind(int(k)),
@@ -2200,8 +2197,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       let k = regs[rb].intVal
       let name = if regs[rc].node.strVal.len == 0: ":tmp"
                  else: regs[rc].node.strVal
-      if k < 0 or k > ord(high(TSymKind)):
-        internalError(c.config, c.debug[pc], "request to create symbol of invalid kind")
+      c.config.internalAssert(k in 0..ord(high(TSymKind)), c.debug[pc], "request to create symbol of invalid kind")
       var sym = newSym(k.TSymKind, getIdent(c.cache, name), nextSymId c.idgen, c.module.owner, c.debug[pc])
       incl(sym.flags, sfGenSym)
       regs[ra].node = newSymNode(sym)
@@ -2316,7 +2312,7 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
       # type trait operation
       decodeB(rkNode)
       var typ = regs[rb].node.typ
-      internalAssert(c.config, typ != nil, "")
+      internalAssert(c.config, typ != nil)
       while typ.kind == tyTypeDesc and typ.len > 0: typ = typ[0]
       createStr regs[ra]
       regs[ra].node.strVal = typ.typeToString(preferExported)
@@ -2377,12 +2373,12 @@ proc evalExpr*(c: PCtx, n: PNode): PNode =
   result = execute(c, start)
 
 proc getGlobalValue*(c: PCtx; s: PSym): PNode =
-  internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags, "")
+  internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
   result = c.globals[s.position-1]
 
 proc setGlobalValue*(c: PCtx; s: PSym, val: PNode) =
   ## Does not do type checking so ensure the `val` matches the `s.typ`
-  internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags, "")
+  internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
   c.globals[s.position-1] = val
 
 include vmops

@@ -26,20 +26,19 @@ proc genEnumToStrProc*(t: PType; info: TLineInfo; g: ModuleGraph; idgen: IdGener
 
   result.typ.addParam dest
 
-  var body = newNodeI(nkStmtList, info)
   var caseStmt = newNodeI(nkCaseStmt, info)
   caseStmt.add(newSymNode dest)
 
   # copy the branches over, but replace the fields with the for loop body:
   for i in 0..<t.n.len:
     assert(t.n[i].kind == nkSym)
-    var field = t.n[i].sym
+    let field = t.n[i].sym
     let val = if field.ast == nil: field.name.s else: field.ast.strVal
     caseStmt.add newTree(nkOfBranch, newSymNode(field),
       newTree(nkStmtList, newTree(nkFastAsgn, newSymNode(res), newStrNode(val, info))))
     #newIntTypeNode(nkIntLit, field.position, t)
 
-  body.add(caseStmt)
+  let body = newTreeI(nkStmtList, info): caseStmt
 
   var n = newNodeI(nkProcDef, info, bodyPos+2)
   for i in 0..<n.len: n[i] = newNodeI(nkEmpty, info)
@@ -48,8 +47,7 @@ proc genEnumToStrProc*(t: PType; info: TLineInfo; g: ModuleGraph; idgen: IdGener
   n[bodyPos] = body
   n[resultPos] = newSymNode(res)
   result.ast = n
-  incl result.flags, sfFromGeneric
-  incl result.flags, sfNeverRaises
+  result.flags.incl {sfFromGeneric, sfNeverRaises}
 
 proc searchObjCaseImpl(obj: PNode; field: PSym): PNode =
   case obj.kind
@@ -87,7 +85,6 @@ proc genCaseObjDiscMapping*(t: PType; field: PSym; info: TLineInfo; g: ModuleGra
 
   result.typ.addParam dest
 
-  var body = newNodeI(nkStmtList, info)
   var caseStmt = newNodeI(nkCaseStmt, info)
   caseStmt.add(newSymNode dest)
 
@@ -101,7 +98,7 @@ proc genCaseObjDiscMapping*(t: PType; field: PSym; info: TLineInfo; g: ModuleGra
     newBranch.add newTree(nkStmtList, newTree(nkFastAsgn, newSymNode(res), newIntNode(nkInt8Lit, i)))
     caseStmt.add newBranch
 
-  body.add(caseStmt)
+  let body = newTreeI(nkStmtList, info): caseStmt
 
   var n = newNodeI(nkProcDef, info, bodyPos+2)
   for i in 0..<n.len: n[i] = newNodeI(nkEmpty, info)
@@ -110,5 +107,4 @@ proc genCaseObjDiscMapping*(t: PType; field: PSym; info: TLineInfo; g: ModuleGra
   n[bodyPos] = body
   n[resultPos] = newSymNode(res)
   result.ast = n
-  incl result.flags, sfFromGeneric
-  incl result.flags, sfNeverRaises
+  result.flags.incl {sfFromGeneric, sfNeverRaises}

@@ -16,8 +16,7 @@ import
   ],
   ast/[
     ast,
-    lineinfos,
-    types
+    lineinfos
   ],
   front/[
     options

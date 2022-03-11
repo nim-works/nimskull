@@ -136,7 +136,7 @@ proc getTypeName(m: BModule; typ: PType; sig: SigHash): Rope =
       # check consistency:
       assert($typ.loc.r == $(typ.typeName & $sig))
   result = typ.loc.r
-  if result == nil: internalError(m.config, "getTypeName: " & $typ.kind)
+  m.config.internalAssert(result != nil, "getTypeName: " & $typ.kind)
 
 proc mapSetType(conf: ConfigRef; typ: PType): TCTypeKind =
   case int(getSize(conf, typ))
@@ -297,8 +297,8 @@ proc getSimpleTypeDesc(m: BModule, typ: PType): Rope =
     result = typeNameOrLiteral(m, typ, NumericalTypeToStr[typ.kind])
   of tyDistinct, tyRange, tyOrdinal: result = getSimpleTypeDesc(m, typ[0])
   of tyStatic:
-    if typ.n != nil: result = getSimpleTypeDesc(m, lastSon typ)
-    else: internalError(m.config, "tyStatic for getSimpleTypeDesc")
+    m.config.internalAssert(typ.n != nil, "tyStatic for getSimpleTypeDesc")
+    result = getSimpleTypeDesc(m, lastSon typ)
   of tyGenericInst, tyAlias, tySink, tyOwned:
     result = getSimpleTypeDesc(m, lastSon typ)
   else: result = nil
@@ -369,8 +369,8 @@ proc getTypeDescWeak(m: BModule; t: PType; check: var IntSet; kind: TSymKind): R
   of tySequence:
     let sig = hashType(t)
     if optSeqDestructors in m.config.globalOptions:
-      if skipTypes(etB[0], typedescInst).kind == tyEmpty:
-        internalError(m.config, "cannot map the empty seq type to a C type")
+      m.config.internalAssert(skipTypes(etB[0], typedescInst).kind != tyEmpty,
+                              "cannot map the empty seq type to a C type")
 
       result = cacheGetType(m.forwTypeCache, sig)
       if result == nil:
@@ -430,7 +430,7 @@ proc genProcParams(m: BModule, t: PType, rettype, params: var Rope,
   else:
     rettype = getTypeDescAux(m, t[0], check, skResult)
   for i in 1..<t.n.len:
-    if t.n[i].kind != nkSym: internalError(m.config, t.n.info, "genProcParams")
+    m.config.internalAssert(t.n[i].kind == nkSym, t.n.info, "genProcParams")
     var param = t.n[i].sym
     if isCompileTimeOnly(param.typ): continue
     if params != nil: params.add(~", ")
@@ -484,7 +484,7 @@ proc mangleRecFieldName(m: BModule; field: PSym): Rope =
     result = field.loc.r
   else:
     result = rope(mangleField(m, field.name))
-  if result == nil: internalError(m.config, field.info, "mangleRecFieldName")
+  m.config.internalAssert(result != nil, field.info, "mangleRecFieldName")
 
 proc genRecordFieldsAux(m: BModule, n: PNode,
                         rectype: PType,
@@ -495,7 +495,7 @@ proc genRecordFieldsAux(m: BModule, n: PNode,
     for i in 0..<n.len:
       result.add(genRecordFieldsAux(m, n[i], rectype, check, unionPrefix))
   of nkRecCase:
-    if n[0].kind != nkSym: internalError(m.config, n.info, "genRecordFieldsAux")
+    m.config.internalAssert(n[0].kind == nkSym, n.info, "genRecordFieldsAux")
     result.add(genRecordFieldsAux(m, n[0], rectype, check, unionPrefix))
     # prefix mangled name with "_U" to avoid clashes with other field names,
     # since identifiers are not allowed to start with '_'
@@ -677,8 +677,8 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKin
 
   var t = origTyp.skipTypes(irrelevantForBackend-{tyOwned})
   if containsOrIncl(check, t.id):
-    if not (isImportedCppType(origTyp) or isImportedCppType(t)):
-      internalError(m.config, "cannot generate C type for: " & typeToString(origTyp))
+    m.config.internalAssert(isImportedCppType(origTyp) or isImportedCppType(t),
+                            "cannot generate C type for: " & typeToString(origTyp))
     # XXX: this BUG is hard to fix -> we need to introduce helper structs,
     # but determining when this needs to be done is hard. We should split
     # C type generation into an analysis and a code generation phase somehow.
@@ -1056,8 +1056,7 @@ proc discriminatorTableName(m: BModule, objtype: PType, d: PSym): Rope =
   var objtype = objtype.skipTypes(abstractPtrs)
   while lookupInRecord(objtype.n, d.name) == nil:
     objtype = objtype[0].skipTypes(abstractPtrs)
-  if objtype.sym == nil:
-    internalError(m.config, d.info, "anonymous obj with discriminator")
+  m.config.internalAssert(objtype.sym != nil, d.info, "anonymous obj with discriminator")
   result = "NimDT_$1_$2" % [rope($hashType(objtype)), rope(d.name.s.mangle)]
 
 proc rope(arg: Int128): Rope = rope($arg)
@@ -1099,8 +1098,7 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
     var L = lengthOrd(m.config, field.typ)
     assert L > 0
     if field.loc.r == nil: fillObjectFields(m, typ)
-    if field.loc.t == nil:
-      internalError(m.config, n.info, "genObjectFields")
+    m.config.internalAssert(field.loc.t != nil, n.info, "genObjectFields")
     m.s[cfsTypeInit3].addf("$1.kind = 3;$n" &
         "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
         "$1.name = $5;$n" & "$1.sons = &$6[0];$n" &
@@ -1115,8 +1113,7 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
       genObjectFields(m, typ, origType, lastSon(b), tmp2, info)
       case b.kind
       of nkOfBranch:
-        if b.len < 2:
-          internalError(m.config, b.info, "genObjectFields; nkOfBranch broken")
+        m.config.internalAssert(b.len >= 2, b.info, "genObjectFields; nkOfBranch broken")
         for j in 0..<b.len - 1:
           if b[j].kind == nkRange:
             var x = toInt(getOrdValue(b[j][0]))
@@ -1137,8 +1134,7 @@ proc genObjectFields(m: BModule, typ, origType: PType, n: PNode, expr: Rope;
     if isEmptyType(field.typ): return
     if field.bitsize == 0:
       if field.loc.r == nil: fillObjectFields(m, typ)
-      if field.loc.t == nil:
-        internalError(m.config, n.info, "genObjectFields")
+      m.config.internalAssert(field.loc.t != nil, n.info, "genObjectFields")
       m.s[cfsTypeInit3].addf("$1.kind = 1;$n" &
           "$1.offset = offsetof($2, $3);$n" & "$1.typ = $4;$n" &
           "$1.name = $5;$n", [expr, getTypeDesc(m, origType, skVar),
@@ -1460,10 +1456,10 @@ proc genTypeInfoV1(m: BModule, t: PType; info: TLineInfo): Rope =
   of tyPointer, tyBool, tyChar, tyCstring, tyString, tyInt..tyUInt64, tyVar, tyLent:
     genTypeInfoAuxBase(m, t, t, result, rope"0", info)
   of tyStatic:
-    if t.n != nil: result = genTypeInfoV1(m, lastSon t, info)
-    else: internalError(m.config, "genTypeInfoV1(" & $t.kind & ')')
+    m.config.internalAssert(t.n != nil, "genTypeInfoV1(" & $t.kind & ')')
+    result = genTypeInfoV1(m, lastSon t, info)
   of tyUserTypeClasses:
-    internalAssert(m.config, t.isResolvedUserTypeClass, "")
+    m.config.internalAssert t.isResolvedUserTypeClass
     return genTypeInfoV1(m, t.lastSon, info)
   of tyProc:
     if t.callConv != ccClosure:

@@ -401,7 +401,7 @@ proc semConstructFields(c: PContext, n: PNode,
         initNone
 
   else:
-    internalAssert(c.config, false, "")
+    c.config.internalAssert false
 
 proc semConstructTypeAux(c: PContext,
                          constrCtx: var ObjConstrContext,

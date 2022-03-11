@@ -25,8 +25,7 @@ import
      linter,
      errorhandling,
      reports,
-     lineinfos,
-     types
+     lineinfos
   ],
   modules/[
     magicsys
@@ -232,12 +231,10 @@ proc processImportCpp(c: PContext; s: PSym, ext: string): SetExternNameStatus =
   ## compiles to C++, and sets the global options to generate mixed C/C++ code,
   ## and returns a success/failure
   result = setExternName(c, s, ext)
-  incl(s.flags, sfImportc)
-  incl(s.flags, sfInfixCall)
-  excl(s.flags, sfForward)
+  s.flags.incl {sfImportc, sfInfixCall}
+  s.flags.excl sfForward
   if c.config.backend == backendC:
-    let m = s.getModule()
-    incl(m.flags, sfCompileToCpp)
+    s.getModule().flags.incl sfCompileToCpp
   incl c.config, optMixedMode
 
 proc processImportObjC(c: PContext; s: PSym, ext: string): SetExternNameStatus =
@@ -246,11 +243,9 @@ proc processImportObjC(c: PContext; s: PSym, ext: string): SetExternNameStatus =
   ## declaration, sets the current module to comiple to objc, and
   ## returns a success/failure.
   result = setExternName(c, s, ext)
-  incl(s.flags, sfImportc)
-  incl(s.flags, sfNamedParamCall)
-  excl(s.flags, sfForward)
-  let m = s.getModule()
-  incl(m.flags, sfCompileToObjc)
+  s.flags.incl {sfImportc, sfNamedParamCall}
+  s.flags.excl sfForward
+  s.getModule().flags.incl sfCompileToObjc
 
 proc newEmptyStrNode(c: PContext; n: PNode): PNode {.noinline.} =
   result = newNodeIT(nkStrLit, n.info, getSysType(c.graph, n.info, tyString))
@@ -1002,8 +997,7 @@ proc markCompilerProc(c: PContext; s: PSym): PNode =
         newSymNode(s),
         SemReport(kind: rsemInvalidExtern, sym: s, externName: name))
 
-  incl(s.flags, sfCompilerProc)
-  incl(s.flags, sfUsed)
+  s.flags.incl {sfCompilerProc, sfUsed}
   registerCompilerProc(c.graph, s)
   if c.config.symbolFiles != disabledSf:
     addCompilerProc(c.encoder, c.packedRepr, s)
@@ -1308,8 +1302,7 @@ proc prepareSinglePragma(
             elif sym.kind in skProcKinds and {'(', '#', '@'} notin name:
               c.config.newError(it, reportSem rsemImportjsRequiresPattern)
             else:
-              incl(sym.flags, sfImportc)
-              incl(sym.flags, sfInfixCall)
+              sym.flags.incl {sfImportc, sfInfixCall}
               case setExternName(c, sym, name)
               of ExternNameSet:
                 it
@@ -1407,8 +1400,7 @@ proc prepareSinglePragma(
           incl(sym.flags, sfCompileTime)
       of wGlobal:
         result = noVal(c, it)
-        incl(sym.flags, sfGlobal)
-        incl(sym.flags, sfPure)
+        sym.flags.incl {sfGlobal, sfPure}
       of wMerge:
         # only supported for backwards compat, doesn't do anything anymore
         result = noVal(c, it)
@@ -1419,9 +1411,8 @@ proc prepareSinglePragma(
         result = getStrLitNode(c, it) # the path or an error
         var lib = getLib(c, libHeader, result)
         addToLib(lib, sym)
-        incl(sym.flags, sfImportc)
-        incl(sym.loc.flags, lfHeader)
-        incl(sym.loc.flags, lfNoDecl)
+        sym.flags.incl sfImportc
+        sym.loc.flags.incl {lfHeader, lfNoDecl}
         # implies nodecl, because otherwise header would not make sense
         if sym.loc.r == nil: sym.loc.r = rope(sym.name.s)
       of wNoSideEffect:
@@ -1521,8 +1512,7 @@ proc prepareSinglePragma(
         else: incl(sym.typ.flags, tfShallow)
       of wThread:
         result = noVal(c, it)
-        incl(sym.flags, sfThread)
-        incl(sym.flags, sfProcvar)
+        sym.flags.incl {sfThread, sfProcvar}
         if sym.typ != nil:
           incl(sym.typ.flags, tfThread)
           if sym.typ.callConv == ccClosure: sym.typ.callConv = ccNimCall
@@ -1908,8 +1898,7 @@ proc implicitPragmas*(c: PContext, sym: PSym, info: TLineInfo,
             result.ast = c.config.newError(
               p, reportSem rsemImplicitPragmaError, args = @[newSymNode(sym)])
             return
-          if nfImplicitPragma in p.flags:
-            internalError(c.config, info, "implicitPragmas")
+          c.config.internalAssert(nfImplicitPragma notin p.flags, info, "implicitPragmas")
           inc i
         popInfoContext(c.config)
         if sym.kind in routineKinds and sym.ast != nil:

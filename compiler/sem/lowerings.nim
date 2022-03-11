@@ -31,55 +31,47 @@ import
   ]
 
 proc newDeref*(n: PNode): PNode {.inline.} =
-  result = newNodeIT(nkHiddenDeref, n.info, n.typ[0])
-  result.add n
+  result = newTreeIT(nkHiddenDeref, n.info, n.typ[0]): n
+
+proc newTupleAccessRaw*(tup: PNode, i: int): PNode =
+  var lit = newNodeI(nkIntLit, tup.info)
+  lit.intVal = i
+  result = newTreeI(nkBracketExpr, tup.info):
+    [copyTree(tup), lit]
 
 proc newTupleAccess*(g: ModuleGraph; tup: PNode, i: int): PNode =
   if tup.kind == nkHiddenAddr:
-    result = newNodeIT(nkHiddenAddr, tup.info, tup.typ.skipTypes(abstractInst+{tyPtr, tyVar, tyLent}))
-    result.add newNodeIT(nkBracketExpr, tup.info, tup.typ.skipTypes(abstractInst+{tyPtr, tyVar, tyLent})[i])
-    result[0].add tup[0]
     var lit = newNodeIT(nkIntLit, tup.info, getSysType(g, tup.info, tyInt))
     lit.intVal = i
-    result[0].add lit
+    result = newTreeIT(nkHiddenAddr, tup.info, tup.typ.skipTypes(abstractInst+{tyPtr, tyVar, tyLent})):
+      newTreeIT(nkBracketExpr, tup.info, tup.typ.skipTypes(abstractInst+{tyPtr, tyVar, tyLent})[i]):
+        [tup[0], lit]
   else:
-    result = newNodeIT(nkBracketExpr, tup.info, tup.typ.skipTypes(
-                       abstractInst)[i])
-    result.add copyTree(tup)
     var lit = newNodeIT(nkIntLit, tup.info, getSysType(g, tup.info, tyInt))
     lit.intVal = i
-    result.add lit
+    result = newTreeIT(nkBracketExpr, tup.info, tup.typ.skipTypes(abstractInst)[i]):
+      [copyTree(tup), lit]
 
-proc addVar*(father, v: PNode) =
-  var vpart = newNodeI(nkIdentDefs, v.info, 3)
-  vpart[0] = v
-  vpart[1] = newNodeI(nkEmpty, v.info)
-  vpart[2] = vpart[1]
-  father.add vpart
+proc newIdentDefs*(v: PNode): PNode =
+  let emptyNode = newNodeI(nkEmpty, v.info)
+  result = newTreeI(nkIdentDefs, v.info):
+    [v, emptyNode, emptyNode]
 
-proc addVar*(father, v, value: PNode) =
-  var vpart = newNodeI(nkIdentDefs, v.info, 3)
-  vpart[0] = v
-  vpart[1] = newNodeI(nkEmpty, v.info)
-  vpart[2] = value
-  father.add vpart
+proc newIdentDefs*(v, value: PNode): PNode =
+  result = newTreeI(nkIdentDefs, v.info):
+    [v, newNodeI(nkEmpty, v.info), value]
 
 proc newAsgnStmt*(le, ri: PNode): PNode =
-  result = newNodeI(nkAsgn, le.info, 2)
-  result[0] = le
-  result[1] = ri
+  result = newTreeI(nkAsgn, le.info): [le, ri]
 
 proc newFastAsgnStmt*(le, ri: PNode): PNode =
-  result = newNodeI(nkFastAsgn, le.info, 2)
-  result[0] = le
-  result[1] = ri
+  result = newTreeI(nkFastAsgn, le.info): [le, ri]
 
 proc newFastMoveStmt*(g: ModuleGraph, le, ri: PNode): PNode =
-  result = newNodeI(nkFastAsgn, le.info, 2)
-  result[0] = le
-  result[1] = newNodeIT(nkCall, ri.info, ri.typ)
-  result[1].add newSymNode(getSysMagic(g, ri.info, "move", mMove))
-  result[1].add ri
+  result = newTreeI(nkFastAsgn, le.info):
+    [le,
+     newTreeIT(nkCall, ri.info, ri.typ,
+       newSymNode(getSysMagic(g, ri.info, "move", mMove)), ri)]
 
 proc lowerTupleUnpacking*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner: PSym): PNode =
   assert n.kind == nkVarTuple
@@ -91,82 +83,62 @@ proc lowerTupleUnpacking*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner: P
   temp.typ = skipTypes(value.typ, abstractInst)
   incl(temp.flags, sfFromGeneric)
 
-  var v = newNodeI(nkVarSection, value.info)
   let tempAsNode = newSymNode(temp)
-  v.addVar(tempAsNode, value)
-  result.add(v)
+  var v = newTreeI(nkVarSection, value.info):
+    newIdentDefs(tempAsNode, value)
 
   for i in 0..<n.len-2:
     let val = newTupleAccess(g, tempAsNode, i)
-    if n[i].kind == nkSym: v.addVar(n[i], val)
+    if n[i].kind == nkSym: v.add newIdentDefs(n[i], val)
     else: result.add newAsgnStmt(n[i], val)
+
+  result.add(v)
 
 proc evalOnce*(g: ModuleGraph; value: PNode; idgen: IdGenerator; owner: PSym): PNode =
   ## Turns (value) into (let tmp = value; tmp) so that 'value' can be re-used
   ## freely, multiple times. This is frequently required and such a builtin would also be
   ## handy to have in macros.nim. The value that can be reused is 'result.lastSon'!
-  result = newNodeIT(nkStmtListExpr, value.info, value.typ)
   var temp = newSym(skTemp, getIdent(g.cache, genPrefix), nextSymId(idgen),
                     owner, value.info, g.config.options)
   temp.typ = skipTypes(value.typ, abstractInst)
   incl(temp.flags, sfFromGeneric)
 
-  var v = newNodeI(nkLetSection, value.info)
   let tempAsNode = newSymNode(temp)
-  v.addVar(tempAsNode)
-  result.add(v)
-  result.add newAsgnStmt(tempAsNode, value)
-  result.add tempAsNode
-
-proc newTupleAccessRaw*(tup: PNode, i: int): PNode =
-  result = newNodeI(nkBracketExpr, tup.info)
-  result.add copyTree(tup)
-  var lit = newNodeI(nkIntLit, tup.info)
-  lit.intVal = i
-  result.add lit
+  let v = newTreeI(nkLetSection, value.info):
+    newIdentDefs(tempAsNode)
+  result = newTreeIT(nkStmtListExpr, value.info, value.typ):
+    [v, newAsgnStmt(tempAsNode, value), tempAsNode]
 
 proc newTryFinally*(body, final: PNode): PNode =
   result = newTree(nkHiddenTryStmt, body, newTree(nkFinally, final))
 
 proc lowerTupleUnpackingForAsgn*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner: PSym): PNode =
   let value = n.lastSon
-  result = newNodeI(nkStmtList, n.info)
 
-  var temp = newSym(skTemp, getIdent(g.cache, "_"), nextSymId(idgen), owner, value.info, owner.options)
-  var v = newNodeI(nkLetSection, value.info)
+  let temp = newSym(skTemp, getIdent(g.cache, "_"), nextSymId(idgen), owner, value.info, owner.options)
   let tempAsNode = newSymNode(temp) #newIdentNode(getIdent(genPrefix & $temp.id), value.info)
 
-  var vpart = newNodeI(nkIdentDefs, tempAsNode.info, 3)
-  vpart[0] = tempAsNode
-  vpart[1] = newNodeI(nkEmpty, value.info)
-  vpart[2] = value
-  v.add vpart
-  result.add(v)
+  let v = newTreeI(nkLetSection, value.info):
+    newIdentDefs(tempAsNode, value)
+  result = newTreeI(nkStmtList, n.info): v
 
   let lhs = n[0]
   for i in 0..<lhs.len:
     result.add newAsgnStmt(lhs[i], newTupleAccessRaw(tempAsNode, i))
 
 proc lowerSwap*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner: PSym): PNode =
-  result = newNodeI(nkStmtList, n.info)
   # note: cannot use 'skTemp' here cause we really need the copy for the VM :-(
   var temp = newSym(skVar, getIdent(g.cache, genPrefix), nextSymId(idgen), owner, n.info, owner.options)
   temp.typ = n[1].typ
-  incl(temp.flags, sfFromGeneric)
-  incl(temp.flags, sfGenSym)
+  temp.flags.incl {sfFromGeneric, sfGenSym}
 
-  var v = newNodeI(nkVarSection, n.info)
   let tempAsNode = newSymNode(temp)
 
-  var vpart = newNodeI(nkIdentDefs, v.info, 3)
-  vpart[0] = tempAsNode
-  vpart[1] = newNodeI(nkEmpty, v.info)
-  vpart[2] = n[1]
-  v.add vpart
+  let v = newTreeI(nkVarSection, n.info):
+    newIdentDefs(tempAsNode, n[1])
 
-  result.add(v)
-  result.add newFastAsgnStmt(n[1], n[2])
-  result.add newFastAsgnStmt(n[2], tempAsNode)
+  result = newTreeI(nkStmtList, n.info):
+    [v, newFastAsgnStmt(n[1], n[2]), newFastAsgnStmt(n[2], tempAsNode)]
 
 proc createObj*(g: ModuleGraph; idgen: IdGenerator; owner: PSym, info: TLineInfo; final=true): PType =
   result = newType(tyObject, nextTypeId(idgen), owner)
@@ -199,21 +171,15 @@ proc rawAddField*(obj: PType; field: PSym) =
 proc rawIndirectAccess*(a: PNode; field: PSym; info: TLineInfo): PNode =
   # returns a[].field as a node
   assert field.kind == skField
-  var deref = newNodeI(nkHiddenDeref, info)
-  deref.typ = a.typ.skipTypes(abstractInst)[0]
-  deref.add a
-  result = newNodeI(nkDotExpr, info)
-  result.add deref
-  result.add newSymNode(field)
-  result.typ = field.typ
+  let deref = newTreeIT(nkHiddenDeref, info, a.typ.skipTypes(abstractInst)[0]): a
+  result = newTreeIT(nkDotExpr, info, field.typ):
+    [deref, newSymNode(field)]
 
 proc rawDirectAccess*(obj, field: PSym): PNode =
   # returns a.field as a node
   assert field.kind == skField
-  result = newNodeI(nkDotExpr, field.info)
-  result.add newSymNode(obj)
-  result.add newSymNode(field)
-  result.typ = field.typ
+  result = newTreeIT(nkDotExpr, field.info, field.typ):
+    [newSymNode(obj), newSymNode(field)]
 
 proc lookupInRecord(n: PNode, id: ItemId): PSym =
   result = nil
@@ -266,18 +232,15 @@ proc addUniqueField*(obj: PType; s: PSym; cache: IdentCache; idgen: IdGenerator)
     result = field
 
 proc newDotExpr*(obj, b: PSym): PNode =
-  result = newNodeI(nkDotExpr, obj.info)
   let field = lookupInRecord(obj.typ.n, b.itemId)
   assert field != nil, b.name.s
-  result.add newSymNode(obj)
-  result.add newSymNode(field)
-  result.typ = field.typ
+  result = newTreeIT(nkDotExpr, obj.info, field.typ):
+    [newSymNode(obj), newSymNode(field)]
 
 proc indirectAccess*(a: PNode, b: ItemId, info: TLineInfo): PNode =
   # returns a[].b as a node
-  var deref = newNodeI(nkHiddenDeref, info)
-  deref.typ = a.typ.skipTypes(abstractInst)[0]
-  var t = deref.typ.skipTypes(abstractInst)
+  let derefTyp = a.typ.skipTypes(abstractInst)[0]
+  var t = derefTyp.skipTypes(abstractInst)
   var field: PSym
   while true:
     assert t.kind == tyObject
@@ -286,21 +249,15 @@ proc indirectAccess*(a: PNode, b: ItemId, info: TLineInfo): PNode =
     t = t[0]
     if t == nil: break
     t = t.skipTypes(skipPtrs)
-  #if field == nil:
-  #  echo "FIELD ", b
-  #  debug deref.typ
   assert field != nil
-  deref.add a
-  result = newNodeI(nkDotExpr, info)
-  result.add deref
-  result.add newSymNode(field)
-  result.typ = field.typ
+  let deref = newTreeIT(nkHiddenDeref, info, derefTyp): a
+  result = newTreeIT(nkDotExpr, info, field.typ):
+    [deref, newSymNode(field)]
 
 proc indirectAccess*(a: PNode, b: string, info: TLineInfo; cache: IdentCache): PNode =
   # returns a[].b as a node
-  var deref = newNodeI(nkHiddenDeref, info)
-  deref.typ = a.typ.skipTypes(abstractInst)[0]
-  var t = deref.typ.skipTypes(abstractInst)
+  let derefTyp = a.typ.skipTypes(abstractInst)[0]
+  var t = derefTyp.skipTypes(abstractInst)
   var field: PSym
   let bb = getIdent(cache, b)
   while true:
@@ -310,15 +267,10 @@ proc indirectAccess*(a: PNode, b: string, info: TLineInfo; cache: IdentCache): P
     t = t[0]
     if t == nil: break
     t = t.skipTypes(skipPtrs)
-  #if field == nil:
-  #  echo "FIELD ", b
-  #  debug deref.typ
   assert field != nil
-  deref.add a
-  result = newNodeI(nkDotExpr, info)
-  result.add deref
-  result.add newSymNode(field)
-  result.typ = field.typ
+  let deref = newTreeIT(nkHiddenDeref, info, derefTyp): a
+  result = newTreeIT(nkDotExpr, info, field.typ):
+    [deref, newSymNode(field)]
 
 proc getFieldFromObj*(t: PType; v: PSym): PSym =
   assert v.kind != skField
@@ -339,15 +291,12 @@ proc indirectAccess*(a, b: PSym, info: TLineInfo): PNode =
   result = indirectAccess(newSymNode(a), b, info)
 
 proc genAddrOf*(n: PNode; idgen: IdGenerator; typeKind = tyPtr): PNode =
-  result = newNodeI(nkAddr, n.info, 1)
-  result[0] = n
-  result.typ = newType(typeKind, nextTypeId(idgen), n.typ.owner)
-  result.typ.rawAddSon(n.typ)
+  var resTyp = newType(typeKind, nextTypeId(idgen), n.typ.owner)
+  resTyp.rawAddSon(n.typ)
+  result = newTreeIT(nkAddr, n.info, resTyp): n
 
 proc genDeref*(n: PNode; k = nkHiddenDeref): PNode =
-  result = newNodeIT(k, n.info,
-                     n.typ.skipTypes(abstractInst)[0])
-  result.add n
+  result = newTreeIT(k, n.info, n.typ.skipTypes(abstractInst)[0]): n
 
 proc callCodegenProc*(g: ModuleGraph; name: string;
                       info: TLineInfo = unknownLineInfo;
@@ -375,16 +324,12 @@ proc genHigh*(g: ModuleGraph; n: PNode): PNode =
   if skipTypes(n.typ, abstractVar).kind == tyArray:
     result = newIntLit(g, n.info, toInt64(lastOrd(g.config, skipTypes(n.typ, abstractVar))))
   else:
-    result = newNodeI(nkCall, n.info, 2)
-    result.typ = getSysType(g, n.info, tyInt)
-    result[0] = newSymNode(getSysMagic(g, n.info, "high", mHigh))
-    result[1] = n
+    result = newTreeIT(nkCall, n.info, getSysType(g, n.info, tyInt)):
+      [newSymNode(getSysMagic(g, n.info, "high", mHigh)), n]
 
 proc genLen*(g: ModuleGraph; n: PNode): PNode =
   if skipTypes(n.typ, abstractVar).kind == tyArray:
     result = newIntLit(g, n.info, toInt64(lastOrd(g.config, skipTypes(n.typ, abstractVar)) + 1))
   else:
-    result = newNodeI(nkCall, n.info, 2)
-    result.typ = getSysType(g, n.info, tyInt)
-    result[0] = newSymNode(getSysMagic(g, n.info, "len", mLengthSeq))
-    result[1] = n
+    result = newTreeIT(nkCall, n.info, getSysType(g, n.info, tyInt)):
+      [newSymNode(getSysMagic(g, n.info, "len", mLengthSeq)), n]

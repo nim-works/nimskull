@@ -848,10 +848,9 @@ proc genTry(p: PProc, n: PNode, r: var TCompRes) =
           # If this is a ``except exc as sym`` branch there must be no following
           # nodes
           doAssert orExpr == nil
-        elif it.kind == nkType:
-          throwObj = it
         else:
-          internalError(p.config, n.info, "genTryStmt")
+          p.config.internalAssert(it.kind == nkType, n.info, "genTryStmt")
+          throwObj = it
 
         if orExpr != nil: orExpr.add("||")
         # Generate the correct type checking code depending on whether this is a
@@ -960,7 +959,7 @@ proc genBlock(p: PProc, n: PNode, r: var TCompRes) =
   let idx = p.blocks.len
   if n[0].kind != nkEmpty:
     # named block?
-    if (n[0].kind != nkSym): internalError(p.config, n.info, "genBlock")
+    p.config.internalAssert(n[0].kind == nkSym, n.info, "genBlock")
     var sym = n[0].sym
     sym.loc.k = locOther
     sym.position = idx+1
@@ -985,8 +984,7 @@ proc genBreakStmt(p: PProc, n: PNode) =
     # an unnamed 'break' can only break a loop after 'transf' pass:
     idx = p.blocks.len - 1
     while idx >= 0 and not p.blocks[idx].isLoop: dec idx
-    if idx < 0 or not p.blocks[idx].isLoop:
-      internalError(p.config, n.info, "no loop to break")
+    p.config.internalAssert(idx >= 0 and p.blocks[idx].isLoop, n.info, "no loop to break")
   p.blocks[idx].id = abs(p.blocks[idx].id) # label is used
   lineF(p, "break Label$1;$n", [rope(p.blocks[idx].id)])
 
@@ -1171,8 +1169,7 @@ proc genSwap(p: PProc, n: PNode) =
   var tmp = p.getTemp(false)
   if mapType(p, skipTypes(n[1].typ, abstractVar)) == etyBaseIndex:
     let tmp2 = p.getTemp(false)
-    if a.typ != etyBaseIndex or b.typ != etyBaseIndex:
-      internalError(p.config, n.info, "genSwap")
+    p.config.internalAssert(a.typ == etyBaseIndex and b.typ == etyBaseIndex, n.info, "genSwap")
     lineF(p, "var $1 = $2; $2 = $3; $3 = $1;$n",
              [tmp, a.address, b.address])
     tmp = tmp2
@@ -1193,7 +1190,7 @@ proc genFieldAddr(p: PProc, n: PNode, r: var TCompRes) =
   if skipTypes(b[0].typ, abstractVarRange).kind == tyTuple:
     r.res = makeJSString("Field" & $getFieldPosition(p, b[1]))
   else:
-    if b[1].kind != nkSym: internalError(p.config, b[1].info, "genFieldAddr")
+    p.config.internalAssert(b[1].kind == nkSym, b[1].info, "genFieldAddr")
     var f = b[1].sym
     if f.loc.r == nil: f.loc.r = mangleName(p.module, f)
     r.res = makeJSString($f.loc.r)
@@ -1221,7 +1218,7 @@ proc genFieldAccess(p: PProc, n: PNode, r: var TCompRes) =
         [r.res, getFieldPosition(p, n[1]).rope]
     mkTemp(0)
   else:
-    if n[1].kind != nkSym: internalError(p.config, n[1].info, "genFieldAccess")
+    p.config.internalAssert(n[1].kind == nkSym, n[1].info, "genFieldAccess")
     var f = n[1].sym
     if f.loc.r == nil: f.loc.r = mangleName(p.module, f)
     r.res = "$1.$2" % [r.res, f.loc.r]
@@ -1314,7 +1311,7 @@ proc genArrayAccess(p: PProc, n: PNode, r: var TCompRes) =
     genFieldAddr(p, n, r)
   else: internalError(p.config, n.info, "expr(nkBracketExpr, " & $ty.kind & ')')
   r.typ = mapType(n.typ)
-  if r.res == nil: internalError(p.config, n.info, "genArrayAccess")
+  p.config.internalAssert(r.res != nil, n.info, "genArrayAccess")
   if ty.kind == tyCstring:
     r.res = "$1.charCodeAt($2)" % [r.address, r.res]
   elif r.typ == etyBaseIndex:
@@ -1344,7 +1341,7 @@ proc genSymAddr(p: PProc, n: PNode, typ: PType, r: var TCompRes) =
   ## as many things in the JS gen'd code
   ## are stored in an arrays they have different dereference methods.
   let s = n.sym
-  if s.loc.r == nil: internalError(p.config, n.info, "genAddr: 3")
+  p.config.internalAssert(s.loc.r != nil, n.info, "genAddr: 3")
   case s.kind
   of skParam:
     r.res = s.loc.r
@@ -1414,8 +1411,8 @@ proc genAddr(p: PProc, n: PNode, r: var TCompRes) =
     of nkConv:
       genAddr(p, n[0], r)
     of nkStmtListExpr:
-      if n.len == 1: gen(p, n[0], r)
-      else: internalError(p.config, n[0].info, "genAddr for complex nkStmtListExpr")
+      p.config.internalAssert(n.len == 1, n[0].info, "genAddr for complex nkStmtListExpr")
+      gen(p, n[0], r)
     of nkCallKinds:
       if n[0].typ.kind == tyOpenArray:
         # 'var openArray' for instance produces an 'addr' but this is harmless:
@@ -1448,8 +1445,7 @@ proc genCopyForParamIfNeeded(p: PProc, n: PNode) =
     return
   var owner = p.up
   while true:
-    if owner == nil:
-      internalError(p.config, n.info, "couldn't find the owner proc of the closed over param: " & s.name.s)
+    p.config.internalAssert(owner != nil, n.info, "couldn't find the owner proc of the closed over param: " & s.name.s)
     if owner.prc == s.owner:
       if not owner.generatedParamCopies.containsOrIncl(s.id):
         let copy = "$1 = nimCopy(null, $1, $2);$n" % [s.loc.r, genTypeInfo(p, s.typ)]
@@ -1463,8 +1459,7 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
   var s = n.sym
   case s.kind
   of skVar, skLet, skParam, skTemp, skResult, skForVar:
-    if s.loc.r == nil:
-      internalError(p.config, n.info, "symbol has no generated name: " & s.name.s)
+    p.config.internalAssert(s.loc.r != nil, n.info, "symbol has no generated name: " & s.name.s)
     if sfCompileTime in s.flags:
       genVarInit(p, s, if s.ast != nil: s.ast else: newNodeI(nkEmpty, s.info))
     if s.kind == skParam:
@@ -1488,8 +1483,7 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
       r.res = s.loc.r
   of skConst:
     genConstant(p, s)
-    if s.loc.r == nil:
-      internalError(p.config, n.info, "symbol has no generated name: " & s.name.s)
+    p.config.internalAssert(s.loc.r != nil, n.info, "symbol has no generated name: " & s.name.s)
     r.res = s.loc.r
   of skProc, skFunc, skConverter, skMethod:
     if sfCompileTime in s.flags:
@@ -1509,8 +1503,7 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
     else:
       genProcForSymIfNeeded(p, s)
   else:
-    if s.loc.r == nil:
-      internalError(p.config, n.info, "symbol has no generated name: " & s.name.s)
+    p.config.internalAssert(s.loc.r != nil, n.info, "symbol has no generated name: " & s.name.s)
     if mapType(p, s.typ) == etyBaseIndex:
       r.address = s.loc.r
       r.res = s.loc.r & "_Idx"
@@ -1673,8 +1666,7 @@ proc genInfixCall(p: PProc, n: PNode, r: var TCompRes) =
   if n.len != 1:
     gen(p, n[1], r)
     if r.typ == etyBaseIndex:
-      if r.address == nil:
-        internalError(p.config, n.info, "cannot invoke with infix syntax")
+      p.config.internalAssert(r.address != nil, n.info, "cannot invoke with infix syntax")
       r.res = "$1[$2]" % [r.address, r.res]
       r.address = nil
       r.typ = etyNone
@@ -1818,11 +1810,8 @@ proc createVar(p: PProc, typ: PType, indirect: bool): Rope =
   of tyCstring, tyProc:
     result = putToSeq("null", indirect)
   of tyStatic:
-    if t.n != nil:
-      result = createVar(p, lastSon t, indirect)
-    else:
-      internalError(p.config, "createVar: " & $t.kind)
-      result = nil
+    p.config.internalAssert(t.n != nil, "createVar: " & $t.kind)
+    result = createVar(p, lastSon t, indirect)
   else:
     internalError(p.config, "createVar: " & $t.kind)
     result = nil
@@ -2383,7 +2372,7 @@ proc convStrToCStr(p: PProc, n: PNode, r: var TCompRes) =
     gen(p, n[0][0], r)
   else:
     gen(p, n[0], r)
-    if r.res == nil: internalError(p.config, n.info, "convStrToCStr")
+    p.config.internalAssert(r.res != nil, n.info, "convStrToCStr")
     useMagic(p, "toJSStr")
     r.res = "toJSStr($1)" % [r.res]
     r.kind = resExpr
@@ -2395,13 +2384,13 @@ proc convCStrToStr(p: PProc, n: PNode, r: var TCompRes) =
     gen(p, n[0][0], r)
   else:
     gen(p, n[0], r)
-    if r.res == nil: internalError(p.config, n.info, "convCStrToStr")
+    p.config.internalAssert(r.res != nil, n.info, "convCStrToStr")
     useMagic(p, "cstrToNimstr")
     r.res = "cstrToNimstr($1)" % [r.res]
     r.kind = resExpr
 
 proc genReturnStmt(p: PProc, n: PNode) =
-  if p.procDef == nil: internalError(p.config, n.info, "genReturnStmt")
+  p.config.internalAssert(p.procDef != nil, n.info, "genReturnStmt")
   p.beforeRetNeeded = true
   if n[0].kind != nkEmpty:
     genStmt(p, n[0])
@@ -2803,7 +2792,7 @@ proc myProcess(b: PPassContext, n: PNode): PNode =
   result = n
   let m = BModule(b)
   if passes.skipCodegen(m.config, n): return n
-  if m.module == nil: internalError(m.config, n.info, "myProcess")
+  m.config.internalAssert(m.module != nil, n.info, "myProcess")
   let globals = PGlobals(m.graph.backend)
   var p = newInitProc(globals, m)
   p.unique = globals.unique
