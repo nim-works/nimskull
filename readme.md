@@ -274,4 +274,4 @@ MIT
 
 [nim-site]: https://nim-lang.org
 [csources-v1-repo]: https://github.com/nim-lang/csources_v1
-[nim-works-matrix]: https://matrix.to/#/#nimworks:envs.net
+[nim-works-matrix]: https://matrix.to/#/#nimworks:envs.net?client=element.io
