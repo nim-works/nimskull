@@ -110,7 +110,7 @@ jobs:
     runs-on: ${{ matrix.target.runner }}
 
     steps:
-      - uses: actions/checkout@v2.4.0
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
@@ -145,7 +145,7 @@ jobs:
     runs-on: ${{ matrix.target.runner }}
 
     steps:
-      - uses: actions/checkout@v2.4.0
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
@@ -210,7 +210,7 @@ jobs:
     runs-on: ${{ matrix.target.runner }}
 
     steps:
-      - uses: actions/checkout@v2.4.0
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
@@ -235,7 +235,7 @@ jobs:
     runs-on: ${{ matrix.target.runner }}
 
     steps:
-      - uses: actions/checkout@v2.4.0
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
@@ -254,7 +254,7 @@ jobs:
     runs-on: ${{ fromJson(needs.pre_run.outputs.shared_builder).runner }}
 
     steps:
-      - uses: actions/checkout@v2.4.0
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
@@ -303,7 +303,7 @@ jobs:
 
     steps:
       - name: Download source archive
-        uses: actions/download-artifact@v2.1.0
+        uses: actions/download-artifact@v3
         with:
           name: source archive
           path: source-archive
@@ -366,7 +366,7 @@ jobs:
     runs-on: ${{ matrix.target.runner }}
 
     steps:
-      - uses: actions/checkout@v2.4.0
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
@@ -427,7 +427,7 @@ jobs:
     runs-on: ${{ fromJSON(needs.pre_run.outputs.shared_builder).runner }}
 
     steps:
-      - uses: actions/checkout@v2.4.0
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
@@ -437,19 +437,19 @@ jobs:
         run: echo "::add-matcher::.github/nim-problem-matcher.json"
 
       - name: Download binaries built from source archive
-        uses: actions/download-artifact@v2.1.0
+        uses: actions/download-artifact@v3
         with:
           name: binaries from source archive
           path: binary-from-source
 
       - name: Download release package
-        uses: actions/download-artifact@v2.1.0
+        uses: actions/download-artifact@v3
         with:
           name: release binaries
           path: release-binary
 
       - name: Download release source archive
-        uses: actions/download-artifact@v2.1.0
+        uses: actions/download-artifact@v3
         with:
           name: source archive
           path: source-archive
