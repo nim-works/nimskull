@@ -102,7 +102,7 @@ jobs:
 
       - name: Upload diffoscope output
         if: failure()
-        uses: actions/upload-artifact@v2.3.1
+        uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.test.name }} reproducibility test diffoscope output
           path: ${{ steps.reprotest.outputs.result }}
