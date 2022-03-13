@@ -16,12 +16,12 @@ import
   ]
 
 
-proc enter*(prof: var Profiler, c: PCtx, tos: PStackFrame) {.inline.} =
+proc enter*(prof: var Profiler, c: var TCtx, tos: PStackFrame) {.inline.} =
   if optProfileVM in c.config.globalOptions:
     prof.tEnter = cpuTime()
     prof.tos = tos
 
-proc leaveImpl(prof: var Profiler, c: PCtx) {.noinline.} =
+proc leaveImpl(prof: var Profiler, c: TCtx) {.noinline.} =
   let tLeave = cpuTime()
   var tos = prof.tos
   var data = c.config.vmProfileData.data
@@ -35,7 +35,7 @@ proc leaveImpl(prof: var Profiler, c: PCtx) {.noinline.} =
         inc data[li].count
     tos = tos.next
 
-proc leave*(prof: var Profiler, c: PCtx) {.inline.} =
+proc leave*(prof: var Profiler, c: TCtx) {.inline.} =
   if optProfileVM in c.config.globalOptions:
     leaveImpl(prof, c)
 
