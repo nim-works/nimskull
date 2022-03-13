@@ -61,7 +61,7 @@ proc endBlock(p: BProc)
 
 proc genVarTuple(p: BProc, n: PNode) =
   var tup, field: TLoc
-  if n.kind != nkVarTuple: internalError(p.config, n.info, "genVarTuple")
+  p.config.internalAssert(n.kind == nkVarTuple, n.info, "genVarTuple")
 
   # if we have a something that's been captured, use the lowering instead:
   for i in 0..<n.len-2:
@@ -104,7 +104,7 @@ proc genVarTuple(p: BProc, n: PNode) =
     if t.kind == tyTuple:
       field.r = "$1.Field$2" % [rdLoc(tup), rope(i)]
     else:
-      if t.n[i].kind != nkSym: internalError(p.config, n.info, "genVarTuple")
+      p.config.internalAssert(t.n[i].kind == nkSym, n.info, "genVarTuple")
       field.r = "$1.$2" % [rdLoc(tup), mangleRecFieldName(p.module, t.n[i].sym)]
     putLocIntoDest(p, v.loc, field)
     if forHcr or isGlobalInBlock:
@@ -700,8 +700,7 @@ proc genBreakStmt(p: BProc, t: PNode) =
   else:
     # an unnamed 'break' can only break a loop after 'transf' pass:
     while idx >= 0 and not p.blocks[idx].isLoop: dec idx
-    if idx < 0 or not p.blocks[idx].isLoop:
-      internalError(p.config, t.info, "no loop to break")
+    p.config.internalAssert(idx >= 0 and p.blocks[idx].isLoop, t.info, "no loop to break")
   let label = assignLabel(p.blocks[idx])
   blockLeaveActions(p,
     p.nestedTryStmts.len - p.blocks[idx].nestedTryStmts,
@@ -1585,11 +1584,10 @@ proc genAsgn(p: BProc, e: PNode, fastAsgn: bool) =
     var a: TLoc
     discard getTypeDesc(p.module, le.typ.skipTypes(skipPtrs), skVar)
     initLoc(a, locNone, le, OnUnknown)
-    a.flags.incl(lfEnforceDeref)
-    a.flags.incl(lfPrepareForMutation)
+    a.flags.incl {lfEnforceDeref, lfPrepareForMutation}
     expr(p, le, a)
-    a.flags.excl(lfPrepareForMutation)
-    if fastAsgn: incl(a.flags, lfNoDeepCopy)
+    a.flags.excl lfPrepareForMutation
+    if fastAsgn: a.flags.incl lfNoDeepCopy
     assert(a.t != nil)
     genLineDir(p, ri)
     loadInto(p, le, ri, a)

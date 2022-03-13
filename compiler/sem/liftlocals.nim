@@ -14,7 +14,6 @@ import
     reports,
     idents,
     renderer,
-    types,
     lineinfos,
     ast
   ],

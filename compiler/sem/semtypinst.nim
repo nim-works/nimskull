@@ -206,9 +206,8 @@ proc replaceObjBranches(cl: TReplTypeVars, n: PNode): PNode =
         checkSonsLen(it, 2, cl.c.config)
         var cond = it[0]
         var e = cl.c.semConstExpr(cl.c, cond)
-        if e.kind != nkIntLit:
-          cl.c.config.internalError(
-            e.info, "ReplaceTypeVarsN: when condition not a bool")
+        cl.c.config.internalAssert(e.kind == nkIntLit, e.info):
+          "ReplaceTypeVarsN: when condition not a bool"
 
         if e.intVal != 0 and branch == nil: branch = it[1]
       of nkElse:
@@ -256,9 +255,8 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
         checkSonsLen(it, 2, cl.c.config)
         var cond = prepareNode(cl, it[0])
         var e = cl.c.semConstExpr(cl.c, cond)
-        if e.kind != nkIntLit:
-          cl.c.config.internalError(
-             e.info, "ReplaceTypeVarsN: when condition not a bool")
+        cl.c.config.internalAssert(e.kind == nkIntLit, e.info):
+          "ReplaceTypeVarsN: when condition not a bool"
         if e.intVal != 0 and branch == nil: branch = it[1]
       of nkElse:
         checkSonsLen(it, 1, cl.c.config)
@@ -371,8 +369,7 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   # tyGenericInvocation[A, tyGenericInvocation[A, B]]
   # is difficult to handle:
   var body = t[0]
-  if body.kind != tyGenericBody:
-    cl.c.config.internalError(cl.info, "no generic body")
+  cl.c.config.internalAssert(body.kind == tyGenericBody, cl.info, "no generic body")
   var header = t
   # search for some instantiation here:
   if cl.allowMetaTypes:

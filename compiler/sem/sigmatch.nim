@@ -1489,10 +1489,9 @@ typeRel can be used to establish various relationships between types:
     elif x.kind == tyGenericInst and f[0] == x[0] and
           x.len - 1 == f.len:
       for i in 1..<f.len:
-        if x[i].kind == tyGenericParam:
-          c.c.graph.config.internalError("wrong instantiated type!")
+        c.c.graph.config.internalAssert(x[i].kind != tyGenericParam, "wrong instantiated type!")
 
-        elif typeRel(c, f[i], x[i], flags) <= isSubtype:
+        if typeRel(c, f[i], x[i], flags) <= isSubtype:
           # Workaround for regression #4589
           if f[i].kind != tyTypeDesc: return
 
@@ -1525,9 +1524,10 @@ typeRel can be used to establish various relationships between types:
           let x = PType(idTableGet(c.bindings, genericBody[i-1]))
           if x == nil:
             discard "maybe fine (for e.g. a==tyNil)"
-          elif x.kind in {tyGenericInvocation, tyGenericParam}:
-            internalError(c.c.graph.config, "wrong instantiated type!")
           else:
+            c.c.graph.config.internalAssert(
+              x.kind notin {tyGenericInvocation, tyGenericParam},
+              "wrong instantiated type!")
             let key = f[i]
             let old = PType(idTableGet(c.bindings, key))
             if old == nil:
@@ -1869,9 +1869,7 @@ proc getInstantiatedType(c: PContext, arg: PNode, m: TCandidate,
   result = PType(idTableGet(m.bindings, f))
   if result == nil:
     result = generateTypeInstance(c, m.bindings, arg, f)
-  if result == nil:
-    internalError(c.graph.config, arg.info, "getInstantiatedType")
-    result = errorType(c)
+  c.graph.config.internalAssert(result != nil, arg.info, "getInstantiatedType")
 
 proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
                   c: PContext): PNode =
@@ -1884,8 +1882,7 @@ proc implicitConv(kind: TNodeKind, f: PType, arg: PNode, m: TCandidate,
   else:
     result.typ = f.skipTypes({tySink})
 
-  if result.typ == nil:
-    internalError(c.graph.config, arg.info, "implicitConv")
+  c.graph.config.internalAssert(result.typ != nil, arg.info, "implicitConv")
 
   result.add c.graph.emptyNode
   result.add arg
@@ -2252,8 +2249,7 @@ proc paramTypesMatch*(m: var TCandidate, f, a: PType,
     if x.state == csEmpty:
       result = nil
     elif y.state == csMatch and cmpCandidates(x, y) == 0:
-      if x.state != csMatch:
-        internalError(m.c.graph.config, arg.info, "x.state is not csMatch")
+      m.c.graph.config.internalAssert(x.state == csMatch, arg.info, "x.state is not csMatch")
       # ambiguous: more than one symbol fits!
       # See tsymchoice_for_expr as an example. 'f.kind == tyUntyped' should match
       # anyway:
@@ -2505,9 +2501,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
           m.error.firstMismatch.kind = kExtraArg
           noMatch()
       else:
-        if m.callee.n[f].kind != nkSym:
-          internalError(c.config, n[a].info, "matches")
-          noMatch()
+        c.config.internalAssert(m.callee.n[f].kind == nkSym, n[a].info, "matches")
         if a >= firstArgBlock: f = max(f, m.callee.n.len - (n.len - a))
         formal = m.callee.n[f].sym
         m.error.firstMismatch.kind = kTypeMismatch

@@ -761,9 +761,7 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
   var a = copyNode(n)
   checkMinSonsLen(n, 2, c.config)
   semRecordNodeAux(c, n[0], check, pos, a, rectype, hasCaseFields = true)
-  if a[0].kind != nkSym:
-    internalError(c.config, "semRecordCase: discriminant is no symbol")
-    return
+  c.config.internalAssert(a[0].kind == nkSym, "semRecordCase: discriminant is no symbol")
   incl(a[0].sym.flags, sfDiscriminant)
   var covered = toInt128(0)
   var chckCovered = false
@@ -950,8 +948,7 @@ proc addInheritedFieldsAux(c: PContext, check: var IntSet, pos: var int,
                            n: PNode) =
   case n.kind
   of nkRecCase:
-    if (n[0].kind != nkSym):
-      internalError(c.config, n.info, "addInheritedFieldsAux")
+    c.config.internalAssert(n[0].kind == nkSym, n.info, "addInheritedFieldsAux")
 
     addInheritedFieldsAux(c, check, pos, n[0])
     for i in 1..<n.len:
@@ -1019,7 +1016,7 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
 
         base = nil
         realBase = nil
-  if n.kind != nkObjectTy: internalError(c.config, n.info, "semObjectNode")
+  c.config.internalAssert(n.kind == nkObjectTy, n.info, "semObjectNode")
   result = newOrPrevType(tyObject, prev, c)
   rawAddSon(result, realBase)
   if realBase == nil and tfInheritable in flags:
@@ -1140,7 +1137,7 @@ proc addParamOrResult(c: PContext, param: PSym, kind: TSymKind) =
     else: addDecl(c, param)
 
 template shouldHaveMeta(t) =
-  internalAssert(c.config, tfHasMeta in t.flags, "")
+  c.config.internalAssert tfHasMeta in t.flags
   # result.lastSon.flags.incl tfHasMeta
 
 proc addImplicitGeneric(c: PContext; typeClass: PType, typId: PIdent;
@@ -1439,7 +1436,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       localReport(c.config, def)
 
     if not hasType and not hasDefault:
-      if isType: internalError(c.config, a.info, "':' expected")
+      c.config.internalAssert(not isType, a.info, "':' expected")
       if kind in {skTemplate, skMacro}:
         typ = newTypeS(tyUntyped, c)
     elif skipTypes(typ, {tyGenericInst, tyAlias, tySink}).kind == tyVoid:
@@ -1609,10 +1606,8 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
   addSonSkipIntLit(result, t, c.idgen)
 
   template addToResult(typ) =
-    if typ.isNil:
-      internalAssert(c.config, false, "")
-      rawAddSon(result, typ)
-    else: addSonSkipIntLit(result, typ, c.idgen)
+    c.config.internalAssert typ != nil
+    addSonSkipIntLit(result, typ, c.idgen)
 
   if t.kind == tyForward:
     for i in 1..<n.len:
@@ -1755,8 +1750,7 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
 
   if inherited.kind != nkEmpty:
     for n in inherited.sons:
-      let typ = semTypeNode(c, n, nil)
-      result.add(typ)
+      result.add semTypeNode(c, n, nil)
 
   openScope(c)
   for param in n[0]:
@@ -1772,8 +1766,7 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
       # if modifier == tyRef:
         # dummyType.flags.incl tfNotNil
       if modifier == tyTypeDesc:
-        dummyType.flags.incl tfConceptMatchedTypeSym
-        dummyType.flags.incl tfCheckedForDestructor
+        dummyType.flags.incl {tfConceptMatchedTypeSym, tfCheckedForDestructor}
     else:
       dummyName = param
       dummyType = candidateTypeSlot
@@ -1782,7 +1775,7 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
     # see bug #8230
     if dummyName.kind == nkEmpty: continue
 
-    internalAssert(c.config, dummyName.kind == nkIdent, "")
+    c.config.internalAssert dummyName.kind == nkIdent
     var dummyParam = newSym(if modifier == tyTypeDesc: skType else: skVar,
                             dummyName.ident, nextSymId c.idgen, owner, param.info)
     dummyParam.typ = dummyType
@@ -2099,7 +2092,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
 
       result = newOrPrevType(tyError, prev, c)
     elif s.kind == skParam and s.typ.kind == tyTypeDesc:
-      internalAssert(c.config, s.typ.base.kind != tyNone and prev == nil, "")
+      c.config.internalAssert s.typ.base.kind != tyNone and prev == nil
       result = s.typ.base
     elif prev == nil:
       result = s.typ
@@ -2121,7 +2114,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
         if s.kind == skType:
           s.typ
         else:
-          internalAssert(c.config, s.typ.base.kind != tyNone and prev == nil, "")
+          c.config.internalAssert s.typ.base.kind != tyNone and prev == nil
           s.typ.base
       let alias = maybeAliasType(c, t, prev)
       if alias != nil:
@@ -2266,8 +2259,7 @@ proc processMagicType(c: PContext, m: PSym) =
     setMagicIntegral(c.config, m, tyIterable, 0)
     rawAddSon(m.typ, newTypeS(tyNone, c))
   of mPNimrodNode:
-    incl m.typ.flags, tfTriggersCompileTime
-    incl m.typ.flags, tfCheckedForDestructor
+    m.typ.flags.incl {tfTriggersCompileTime, tfCheckedForDestructor}
   of mException: discard
   of mBuiltinType:
     case m.name.s

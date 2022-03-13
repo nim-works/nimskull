@@ -300,8 +300,7 @@ proc makePtrType(c: var Con, baseType: PType): PType =
   addSonSkipIntLit(result, baseType, c.idgen)
 
 proc genOp(c: var Con; op: PSym; dest: PNode): PNode =
-  let addrExp = newNodeIT(nkHiddenAddr, dest.info, makePtrType(c, dest.typ))
-  addrExp.add(dest)
+  let addrExp = newTreeIT(nkHiddenAddr, dest.info, makePtrType(c, dest.typ)): dest
   result = newTree(nkCall, newSymNode(op), addrExp)
 
 proc genOp(c: var Con; t: PType; kind: TTypeAttachedOp; dest, ri: PNode): PNode =
@@ -312,16 +311,13 @@ proc genOp(c: var Con; t: PType; kind: TTypeAttachedOp; dest, ri: PNode): PNode 
     let canon = c.graph.canonTypes.getOrDefault(h)
     if canon != nil:
       op = getAttachedOp(c.graph, canon, kind)
-  if op == nil:
-    #echo dest.typ.id
-    internalError(
-      c.graph.config, dest.info, "internal error: '" & AttachedOpToStr[kind] &
-        "' operator not found for type " & typeToString(t))
 
-  elif op.ast.isGenericRoutine:
-    internalError(
-      c.graph.config, dest.info, "internal error: '" & AttachedOpToStr[kind] &
-        "' operator is generic")
+  c.graph.config.internalAssert(op != nil, dest.info):
+    "internal error: '" & AttachedOpToStr[kind] &
+    "' operator not found for type " & typeToString(t)
+
+  c.graph.config.internalAssert(not op.ast.isGenericRoutine, dest.info):
+    "internal error: '" & AttachedOpToStr[kind] & "' operator is generic"
 
   dbg:
     if kind == attachedDestructor:
@@ -385,7 +381,7 @@ proc finishCopy(c: var Con; result, dest: PNode; isFromSink: bool) =
     if cyclicType(t):
       result.add boolLit(c.graph, result.info, isFromSink or isCriticalLink(dest))
 
-proc genMarkCyclic(c: var Con; result, dest: PNode) =
+proc genMarkCyclic(c: Con; result, dest: PNode) =
   if c.graph.config.selectedGC == gcOrc:
     let t = dest.typ.skipTypes({tyGenericInst, tyAlias, tySink, tyDistinct})
     if cyclicType(t):
@@ -433,27 +429,23 @@ proc genDiscriminantAsgn(c: var Con; s: var Scope; n: PNode): PNode =
 
     # generate: if le != tmp: `=destroy`(le)
     let branchDestructor = produceDestructorForDiscriminator(c.graph, objType, leDotExpr[1].sym, n.info, c.idgen)
-    let cond = newNodeIT(nkInfix, n.info, getSysType(c.graph, unknownLineInfo, tyBool))
-    cond.add newSymNode(getMagicEqSymForType(c.graph, le.typ, n.info))
-    cond.add le
-    cond.add tmp
-    let notExpr = newNodeIT(nkPrefix, n.info, getSysType(c.graph, unknownLineInfo, tyBool))
-    notExpr.add newSymNode(createMagic(c.graph, c.idgen, "not", mNot))
-    notExpr.add cond
+    let cond = newTreeIT(nkInfix, n.info, getSysType(c.graph, unknownLineInfo, tyBool)):
+      [newSymNode(getMagicEqSymForType(c.graph, le.typ, n.info)), le, tmp]
+    let notExpr = newTreeIT(nkPrefix, n.info, getSysType(c.graph, unknownLineInfo, tyBool)):
+      [newSymNode(createMagic(c.graph, c.idgen, "not", mNot)), cond]
     result.add newTree(nkIfStmt, newTree(nkElifBranch, notExpr, c.genOp(branchDestructor, le)))
   result.add newTree(nkFastAsgn, le, tmp)
 
 proc genWasMoved(c: var Con, n: PNode): PNode =
-  result = newNodeI(nkCall, n.info)
-  result.add(newSymNode(createMagic(c.graph, c.idgen, "wasMoved", mWasMoved)))
-  result.add copyTree(n) #mWasMoved does not take the address
+  result = newTreeI(nkCall, n.info):
+    [newSymNode(createMagic(c.graph, c.idgen, "wasMoved", mWasMoved)),
+     copyTree(n)] #mWasMoved does not take the address
   #if n.kind != nkSym:
   #  message(c.graph.config, n.info, warnUser, "wasMoved(" & $n & ")")
 
 proc genDefaultCall(t: PType; c: Con; info: TLineInfo): PNode =
-  result = newNodeI(nkCall, info)
-  result.add(newSymNode(createMagic(c.graph, c.idgen, "default", mDefault)))
-  result.typ = t
+  result = newTreeIT(nkCall, info, t):
+    newSymNode(createMagic(c.graph, c.idgen, "default", mDefault))
 
 proc destructiveMoveVar(n: PNode; c: var Con; s: var Scope): PNode =
   # generate: (let tmp = v; reset(v); tmp)
@@ -461,24 +453,20 @@ proc destructiveMoveVar(n: PNode; c: var Con; s: var Scope): PNode =
     assert n.kind != nkSym or not hasDestructor(c, n.sym.typ)
     result = copyTree(n)
   else:
-    result = newNodeIT(nkStmtListExpr, n.info, n.typ)
-
     var temp = newSym(skLet, getIdent(c.graph.cache, "blitTmp"), nextSymId c.idgen, c.owner, n.info)
     temp.typ = n.typ
-    var v = newNodeI(nkLetSection, n.info)
     let tempAsNode = newSymNode(temp)
 
-    var vpart = newNodeI(nkIdentDefs, tempAsNode.info, 3)
-    vpart[0] = tempAsNode
-    vpart[1] = newNodeI(nkEmpty, tempAsNode.info)
-    vpart[2] = n
-    v.add(vpart)
+    var vpart = newTreeI(nkIdentDefs, tempAsNode.info):
+      [tempAsNode, newNodeI(nkEmpty, tempAsNode.info), n]
 
-    result.add v
+    let v = newTreeI(nkLetSection, n.info): vpart
+
     let nn = skipConv(n)
+    result = newNodeIT(nkStmtListExpr, n.info, n.typ)
+    result.add v
     c.genMarkCyclic(result, nn)
-    let wasMovedCall = c.genWasMoved(nn)
-    result.add wasMovedCall
+    result.add c.genWasMoved(nn)
     result.add tempAsNode
 
 proc isCapturedVar(n: PNode): bool =
@@ -539,10 +527,9 @@ proc ensureDestruction(arg, orig: PNode; c: var Con; s: var Scope): PNode =
   if arg.typ != nil and hasDestructor(c, arg.typ):
     # produce temp creation for (fn, env). But we need to move 'env'?
     # This was already done in the sink parameter handling logic.
-    result = newNodeIT(nkStmtListExpr, arg.info, arg.typ)
     let tmp = c.getTemp(s, arg.typ, arg.info)
-    result.add c.genSink(tmp, arg, isDecl = true)
-    result.add tmp
+    result = newTreeIT(nkStmtListExpr, arg.info, arg.typ):
+      [c.genSink(tmp, arg, isDecl = true), tmp]
     s.final.add c.genDestroy(tmp)
   else:
     result = arg
@@ -595,8 +582,8 @@ proc processScope(c: var Con; s: var Scope; ret: PNode): PNode =
   if s.vars.len > 0:
     let varSection = newNodeI(nkVarSection, ret.info)
     for tmp in s.vars:
-      varSection.add newTree(nkIdentDefs, newSymNode(tmp), newNodeI(nkEmpty, ret.info),
-                                                           newNodeI(nkEmpty, ret.info))
+      varSection.add newTree(nkIdentDefs,
+        [newSymNode(tmp), newNodeI(nkEmpty, ret.info), newNodeI(nkEmpty, ret.info)])
     result.add varSection
   if s.wasMoved.len > 0 or s.final.len > 0:
     let finSection = newNodeI(nkStmtList, ret.info)
@@ -629,8 +616,8 @@ template processScopeExpr(c: var Con; s: var Scope; ret: PNode, processCall: unt
   if s.vars.len > 0:
     let varSection = newNodeI(nkVarSection, ret.info)
     for tmp in s.vars:
-      varSection.add newTree(nkIdentDefs, newSymNode(tmp), newNodeI(nkEmpty, ret.info),
-                                                           newNodeI(nkEmpty, ret.info))
+      varSection.add newTree(nkIdentDefs, # TODO XXX lowerings.nim????????
+        [newSymNode(tmp), newNodeI(nkEmpty, ret.info), newNodeI(nkEmpty, ret.info)])
     result.add varSection
   let finSection = newNodeI(nkStmtList, ret.info)
   for m in s.wasMoved: finSection.add m

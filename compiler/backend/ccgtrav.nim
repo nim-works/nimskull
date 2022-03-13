@@ -31,12 +31,11 @@ proc genTraverseProc(c: TTraversalClosure, accessor: Rope, n: PNode;
     for i in 0..<n.len:
       genTraverseProc(c, accessor, n[i], typ)
   of nkRecCase:
-    if (n[0].kind != nkSym): internalError(c.p.config, n.info, "genTraverseProc")
+    c.p.config.internalAssert(n[0].kind == nkSym, n.info, "genTraverseProc")
     var p = c.p
     let disc = n[0].sym
     if disc.loc.r == nil: fillObjectFields(c.p.module, typ)
-    if disc.loc.t == nil:
-      internalError(c.p.config, n.info, "genTraverseProc()")
+    c.p.config.internalAssert(disc.loc.t != nil, n.info, "genTraverseProc()")
     lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, disc.loc.r])
     for i in 1..<n.len:
       let branch = n[i]
@@ -52,8 +51,7 @@ proc genTraverseProc(c: TTraversalClosure, accessor: Rope, n: PNode;
     let field = n.sym
     if field.typ.kind == tyVoid: return
     if field.loc.r == nil: fillObjectFields(c.p.module, typ)
-    if field.loc.t == nil:
-      internalError(c.p.config, n.info, "genTraverseProc()")
+    c.p.config.internalAssert(field.loc.t != nil, n.info, "genTraverseProc()")
     genTraverseProc(c, "$1.$2" % [accessor, field.loc.r], field.loc.t)
   else: internalError(c.p.config, n.info, "genTraverseProc()")
 

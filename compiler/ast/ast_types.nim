@@ -462,11 +462,23 @@ const
 
   tyMetaTypes* = {tyGenericParam, tyTypeDesc, tyUntyped} + tyTypeClasses
   tyUserTypeClasses* = {tyUserTypeClass, tyUserTypeClassInst}
-  # consider renaming as `tyAbstractVarRange`
-  abstractVarRange* = {tyGenericInst, tyRange, tyVar, tyDistinct, tyOrdinal,
-                       tyTypeDesc, tyAlias, tyInferred, tySink, tyOwned}
+
+  # TODO: Remove tyTypeDesc from each abstractX and (where necessary)
+  # replace with typedescX
   abstractInst* = {tyGenericInst, tyDistinct, tyOrdinal, tyTypeDesc, tyAlias,
                    tyInferred, tySink, tyOwned} # xxx what about tyStatic?
+  abstractPtrs* = abstractInst + {tyVar, tyPtr, tyRef, tyLent}
+  abstractVar* = abstractInst + {tyVar, tyLent}
+  abstractRange* = abstractInst + {tyRange}
+  # consider renaming as `tyAbstractVarRange`
+  abstractVarRange* = abstractVar + abstractRange - {tyLent}
+  abstractInstOwned* = abstractInst + {tyOwned}
+  skipPtrs* = {tyVar, tyPtr, tyRef, tyGenericInst, tyTypeDesc, tyAlias,
+               tyInferred, tySink, tyLent, tyOwned}
+  # typedescX is used if we're sure tyTypeDesc should be included (or skipped)
+  typedescPtrs* = abstractPtrs + {tyTypeDesc}
+  typedescInst* = abstractInst + {tyTypeDesc, tyOwned, tyUserTypeClass}
+
 
 type
   TTypeKinds* = set[TTypeKind]

@@ -406,11 +406,8 @@ proc analyse(c: var AnalysisCtx; n: PNode) =
         for j in 0..<it.len-2:
           if it[j].isLocal:
             let slot = c.getSlot(it[j].sym)
-            if slot.lower.isNil:
-              slot.lower = value
-
-            else:
-              internalError(c.graph.config, it.info, "slot already has a lower bound")
+            c.graph.config.internalAssert(slot.lower.isNil, it.info, "slot already has a lower bound")
+            slot.lower = value
 
         if not isSpawned:
           analyse(c, value)
@@ -530,12 +527,12 @@ proc liftParallel*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; n: PNode): P
   checkSlicesAreDisjoint(a)
   checkArgs(a, body)
 
-  var varSection = newNodeI(nkVarSection, n.info)
   var temp = newSym(skTemp, getIdent(g.cache, "barrier"), nextSymId idgen, owner, n.info)
   temp.typ = magicsys.getCompilerProc(g, "Barrier").typ
   incl(temp.flags, sfFromGeneric)
   let tempNode = newSymNode(temp)
-  varSection.addVar tempNode
+  let varSection = newTreeI(nkVarSection, n.info):
+    newIdentDefs(tempNode)
 
   let barrier = genAddrOf(tempNode, idgen)
   result = newNodeI(nkStmtList, n.info)

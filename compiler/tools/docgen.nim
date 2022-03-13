@@ -559,8 +559,7 @@ proc toInstantiationInfo(conf: ConfigRef, info: TLineInfo): auto =
 proc prepareExample(d: PDoc; n: PNode, topLevel: bool): tuple[rdoccmd: string, code: string] =
   ## returns `rdoccmd` and source code for this runnableExamples
   var rdoccmd = ""
-  if n.len < 2 or 3 < n.len:
-    internalError(d.conf, n.info, "runnableExamples invalid")
+  d.conf.internalAssert(n.len in 2..3, n.info, "runnableExamples invalid")
 
   if n.len == 3:
     let n1 = n[1]

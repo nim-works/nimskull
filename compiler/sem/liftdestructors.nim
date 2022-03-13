@@ -68,10 +68,7 @@ proc createTypeBoundOps*(g: ModuleGraph; c: PContext; orig: PType; info: TLineIn
                          idgen: IdGenerator)
 
 proc at(a, i: PNode, elemType: PType): PNode =
-  result = newNodeI(nkBracketExpr, a.info, 2)
-  result[0] = a
-  result[1] = i
-  result.typ = elemType
+  result = newTreeIT(nkBracketExpr, a.info, elemType): [a, i]
 
 proc destructorOverriden(g: ModuleGraph; t: PType): bool =
   let op = getAttachedOp(g, t, attachedDestructor)
@@ -84,23 +81,16 @@ proc fillBodyTup(c: var TLiftCtx; t: PType; body, x, y: PNode) =
     fillBody(c, t[i], body, x.at(lit, t[i]), b)
 
 proc dotField(x: PNode, f: PSym): PNode =
-  result = newNodeI(nkDotExpr, x.info, 2)
-  if x.typ.skipTypes(abstractInst).kind == tyVar:
-    result[0] = x.newDeref
-  else:
-    result[0] = x
-  result[1] = newSymNode(f, x.info)
-  result.typ = f.typ
+  result = newTreeIT(nkDotExpr, x.info, f.typ):
+    [if x.typ.skipTypes(abstractInst).kind == tyVar: x.newDeref else: x,
+     newSymNode(f, x.info)]
 
 proc newAsgnStmt(le, ri: PNode): PNode =
-  result = newNodeI(nkAsgn, le.info, 2)
-  result[0] = le
-  result[1] = ri
+  result = newTreeI(nkAsgn, le.info): [le, ri]
 
 proc genBuiltin*(g: ModuleGraph; idgen: IdGenerator; magic: TMagic; name: string; i: PNode): PNode =
-  result = newNodeI(nkCall, i.info)
-  result.add createMagic(g, idgen, name, magic).newSymNode
-  result.add i
+  result = newTreeI(nkCall, i.info):
+    [createMagic(g, idgen, name, magic).newSymNode, i]
 
 proc genBuiltin(c: var TLiftCtx; magic: TMagic; name: string; i: PNode): PNode =
   result = genBuiltin(c.g, c.idgen, magic, name, i)
@@ -118,16 +108,14 @@ proc genAddr(c: var TLiftCtx; x: PNode): PNode =
     checkSonsLen(x, 1, c.g.config)
     result = x[0]
   else:
-    result = newNodeIT(nkHiddenAddr, x.info, makeVarType(x.typ.owner, x.typ, c.idgen))
-    result.add x
+    result = newTreeIT(nkHiddenAddr, x.info, makeVarType(x.typ.owner, x.typ, c.idgen)): x
 
 proc genWhileLoop(c: var TLiftCtx; i, dest: PNode): PNode =
-  result = newNodeI(nkWhileStmt, c.info, 2)
   let cmp = genBuiltin(c, mLtI, "<", i)
   cmp.add genLen(c.g, dest)
   cmp.typ = getSysType(c.g, c.info, tyBool)
-  result[0] = cmp
-  result[1] = newNodeI(nkStmtList, c.info)
+  result = newTreeI(nkWhileStmt, c.info):
+    [cmp, newNodeI(nkStmtList, c.info)]
 
 proc genIf(c: var TLiftCtx; cond, action: PNode): PNode =
   result = newTree(nkIfStmt, newTree(nkElifBranch, cond, action))
@@ -136,15 +124,13 @@ proc genContainerOf(c: var TLiftCtx; objType: PType, field, x: PSym): PNode =
   # generate: cast[ptr ObjType](cast[int](addr(x)) - offsetOf(objType.field))
   let intType = getSysType(c.g, unknownLineInfo, tyInt)
 
-  let addrOf = newNodeIT(nkAddr, c.info, makePtrType(x.owner, x.typ, c.idgen))
-  addrOf.add newDeref(newSymNode(x))
-  let castExpr1 = newNodeIT(nkCast, c.info, intType)
-  castExpr1.add newNodeIT(nkType, c.info, intType)
-  castExpr1.add addrOf
+  let addrOf = newTreeIT(nkAddr, c.info, makePtrType(x.owner, x.typ, c.idgen)):
+    newDeref(newSymNode(x))
+  let castExpr1 = newTreeIT(nkCast, c.info, intType):
+    [newNodeIT(nkType, c.info, intType), addrOf]
 
-  let dotExpr = newNodeIT(nkDotExpr, c.info, x.typ)
-  dotExpr.add newNodeIT(nkType, c.info, objType)
-  dotExpr.add newSymNode(field)
+  let dotExpr = newTreeIT(nkDotExpr, c.info, x.typ):
+    [newNodeIT(nkType, c.info, objType), newSymNode(field)]
 
   let offsetOf = genBuiltin(c, mOffsetOf, "offsetof", dotExpr)
   offsetOf.typ = intType
@@ -154,18 +140,17 @@ proc genContainerOf(c: var TLiftCtx; objType: PType, field, x: PSym): PNode =
   minusExpr.add offsetOf
 
   let objPtr = makePtrType(objType.owner, objType, c.idgen)
-  result = newNodeIT(nkCast, c.info, objPtr)
-  result.add newNodeIT(nkType, c.info, objPtr)
-  result.add minusExpr
+  result = newTreeIT(nkCast, c.info, objPtr):
+    [newNodeIT(nkType, c.info, objPtr), minusExpr]
 
 proc destructorCall(c: var TLiftCtx; op: PSym; x: PNode): PNode =
-  var destroy = newNodeIT(nkCall, x.info, op.typ[0])
-  destroy.add(newSymNode(op))
-  destroy.add genAddr(c, x)
+  var destroy = newTreeIT(nkCall, x.info, op.typ[0]):
+    [newSymNode(op), genAddr(c, x)]
   if sfNeverRaises notin op.flags:
     c.canRaise = true
   if c.addMemReset:
-    result = newTree(nkStmtList, destroy, genBuiltin(c, mWasMoved,  "wasMoved", x))
+    result = newTree(nkStmtList):
+      [destroy, genBuiltin(c, mWasMoved,  "wasMoved", x)]
   else:
     result = destroy
 
@@ -273,15 +258,15 @@ proc fillBodyObjT(c: var TLiftCtx; t: PType, body, x, y: PNode) =
     var temp = newSym(skTemp, getIdent(c.g.cache, lowerings.genPrefix), nextSymId c.idgen, c.fn, c.info)
     temp.typ = x.typ
     incl(temp.flags, sfFromGeneric)
-    var v = newNodeI(nkVarSection, c.info)
     let blob = newSymNode(temp)
-    v.addVar(blob, x)
+    let v = newTreeI(nkVarSection, c.info):
+      newIdentDefs(blob, x)
     body.add v
     #body.add newAsgnStmt(blob, x)
 
-    var wasMovedCall = newNodeI(nkCall, c.info)
-    wasMovedCall.add(newSymNode(createMagic(c.g, c.idgen, "wasMoved", mWasMoved)))
-    wasMovedCall.add x # mWasMoved does not take the address
+    # mWasMoved does not take the address
+    var wasMovedCall = newTreeI(nkCall, c.info):
+      [newSymNode(createMagic(c.g, c.idgen, "wasMoved", mWasMoved)), x]
     body.add wasMovedCall
 
     fillBodyObjTImpl(c, t, body, x, y)
@@ -331,9 +316,8 @@ proc newHookCall(c: var TLiftCtx; op: PSym; x, y: PNode): PNode =
       result.add boolLit(c.g, y.info, true)
 
 proc newOpCall(c: var TLiftCtx; op: PSym; x: PNode): PNode =
-  result = newNodeIT(nkCall, x.info, op.typ[0])
-  result.add(newSymNode(op))
-  result.add x
+  result = newTreeIT(nkCall, x.info, op.typ[0]):
+    [newSymNode(op), x]
   if sfNeverRaises notin op.flags:
     c.canRaise = true
 
@@ -475,9 +459,9 @@ proc declareCounter(c: var TLiftCtx; body: PNode; first: BiggestInt): PNode =
   temp.typ = getSysType(c.g, body.info, tyInt)
   incl(temp.flags, sfFromGeneric)
 
-  var v = newNodeI(nkVarSection, c.info)
   result = newSymNode(temp)
-  v.addVar(result, lowerings.newIntLit(c.g, body.info, first))
+  let v = newTreeI(nkVarSection, c.info):
+    newIdentDefs(result, lowerings.newIntLit(c.g, body.info, first))
   body.add v
 
 proc declareTempOf(c: var TLiftCtx; body: PNode; value: PNode): PNode =
@@ -485,9 +469,9 @@ proc declareTempOf(c: var TLiftCtx; body: PNode; value: PNode): PNode =
   temp.typ = value.typ
   incl(temp.flags, sfFromGeneric)
 
-  var v = newNodeI(nkVarSection, c.info)
   result = newSymNode(temp)
-  v.addVar(result, value)
+  let v = newTreeI(nkVarSection, c.info):
+    newIdentDefs(result, value)
   body.add v
 
 proc addIncStmt(c: var TLiftCtx; body, i: PNode) =
@@ -709,8 +693,8 @@ proc atomicClosureOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
     else:
       xenv
 
-  var actions = newNodeI(nkStmtList, c.info)
-  actions.add callCodegenProc(c.g, "nimDestroyAndDispose", c.info, tmp)
+  var actions = newTreeI(nkStmtList, c.info):
+    callCodegenProc(c.g, "nimDestroyAndDispose", c.info, tmp)
 
   let decRefProc =
     if isCyclic: "nimDecRefIsLastCyclicDyn"
@@ -758,8 +742,8 @@ proc weakrefOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   of attachedDestructor:
     # it's better to prepend the destruction of weak refs in order to
     # prevent wrong "dangling refs exist" problems:
-    var actions = newNodeI(nkStmtList, c.info)
-    actions.add callCodegenProc(c.g, "nimDecWeakRef", c.info, x)
+    var actions = newTreeI(nkStmtList, c.info):
+      callCodegenProc(c.g, "nimDecWeakRef", c.info, x)
     let des = genIf(c, x, actions)
     if body.len == 0:
       body.add des
@@ -797,10 +781,8 @@ proc closureOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   if c.kind == attachedDeepCopy:
     # a big problem is that we don't know the environment's type here, so we
     # have to go through some indirection; we delegate this to the codegen:
-    let call = newNodeI(nkCall, c.info, 2)
-    call.typ = t
-    call[0] = newSymNode(createMagic(c.g, c.idgen, "deepCopy", mDeepCopy))
-    call[1] = y
+    let call = newTreeIT(nkCall, c.info, t):
+      [newSymNode(createMagic(c.g, c.idgen, "deepCopy", mDeepCopy)), y]
     body.add newAsgnStmt(x, call)
   elif (optOwnedRefs in c.g.config.globalOptions and
       optRefCheck in c.g.config.options) or c.g.config.selectedGC in {gcArc, gcOrc}:
@@ -972,8 +954,7 @@ proc symPrototype(g: ModuleGraph; typ: PType; owner: PSym; kind: TTypeAttachedOp
   n[paramsPos] = result.typ.n
   n[bodyPos] = newNodeI(nkStmtList, info)
   result.ast = n
-  incl result.flags, sfFromGeneric
-  incl result.flags, sfGeneratedOp
+  result.flags.incl {sfFromGeneric, sfGeneratedOp}
 
 proc genTypeFieldCopy(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   let xx = genBuiltin(c, mAccessTypeField, "accessTypeField", x)
@@ -1043,8 +1024,8 @@ proc produceDestructorForDiscriminator*(g: ModuleGraph; typ: PType; field: PSym,
   dst.typ = makePtrType(typ.owner, typ, idgen)
   let dstSym = newSymNode(dst)
   let d = newDeref(dstSym)
-  let v = newNodeI(nkVarSection, info)
-  v.addVar(dstSym, genContainerOf(a, typ, field, discrimantDest))
+  let v = newTreeI(nkVarSection, info):
+    newIdentDefs(dstSym, genContainerOf(a, typ, field, discrimantDest))
   result.ast[bodyPos].add v
   let placeHolder = newNodeIT(nkSym, info, getSysType(g, info, tyPointer))
   fillBody(a, typ, result.ast[bodyPos], d, placeHolder)
@@ -1063,10 +1044,8 @@ proc patchBody(g: ModuleGraph; c: PContext; n: PNode; info: TLineInfo; idgen: Id
 
       let op = getAttachedOp(g, t, attachedDestructor)
       if op != nil:
-        if op.ast.isGenericRoutine:
-          internalError(g.config, info, "resolved destructor is generic")
-        if op.magic == mDestroy:
-          internalError(g.config, info, "patching mDestroy with mDestroy?")
+        g.config.internalAssert(not op.ast.isGenericRoutine, info, "resolved destructor is generic")
+        g.config.internalAssert(op.magic != mDestroy, info, "patching mDestroy with mDestroy?")
         n[0] = newSymNode(op)
   for x in n: patchBody(g, c, x, info, idgen)
 

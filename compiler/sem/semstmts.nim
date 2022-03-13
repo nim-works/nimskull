@@ -1372,8 +1372,8 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       # give anonymous object a dummy symbol:
       var st = s.typ
       if st.kind == tyGenericBody: st = st.lastSon
-      internalAssert(c.config, st.kind in {tyPtr, tyRef}, "")
-      internalAssert(c.config, st.lastSon.sym == nil, "")
+      c.config.internalAssert st.kind in {tyPtr, tyRef}
+      c.config.internalAssert st.lastSon.sym == nil
       incl st.flags, tfRefsAnonObj
       let obj = newSym(skType, getIdent(c.cache, s.name.s & ":ObjectType"),
                        nextSymId c.idgen, getCurrOwner(c), s.info)
@@ -1789,8 +1789,7 @@ proc bindTypeHook(c: PContext; s: PSym; n: PNode; op: TTypeAttachedOp) =
     localReport(c.config, n.info, reportSym(
       rsemUnexpectedTypeBoundOpSignature, s))
 
-  incl(s.flags, sfUsed)
-  incl(s.flags, sfOverriden)
+  s.flags.incl {sfUsed, sfOverriden}
 
 proc semOverride(c: PContext, s: PSym, n: PNode) =
   let name = s.name.s.normalize
@@ -1825,12 +1824,10 @@ proc semOverride(c: PContext, s: PSym, n: PNode) =
       localReport(c.config, n.info, reportSym(
         rsemUnexpectedTypeBoundOpSignature, s))
 
-    incl(s.flags, sfUsed)
-    incl(s.flags, sfOverriden)
+    s.flags.incl {sfUsed, sfOverriden}
   of "=", "=copy", "=sink":
     if s.magic == mAsgn: return
-    incl(s.flags, sfUsed)
-    incl(s.flags, sfOverriden)
+    s.flags.incl {sfUsed, sfOverriden}
     let t = s.typ
     if t.len == 3 and t[0] == nil and t[1].kind == tyVar:
       var obj = t[1][0]
@@ -2005,8 +2002,8 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
   if s.kind == skIterator:
     s.typ.flags.incl(tfIterator)
   elif s.kind == skFunc:
-    incl(s.flags, sfNoSideEffect)
-    incl(s.typ.flags, tfNoSideEffect)
+    s.flags.incl sfNoSideEffect
+    s.typ.flags.incl tfNoSideEffect
 
   var (proto, comesFromShadowScope) =
       if isAnon: (nil, false)
@@ -2101,8 +2098,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     n[genericParamsPos] = proto.ast[genericParamsPos]
     n[paramsPos] = proto.ast[paramsPos]
     n[pragmasPos] = proto.ast[pragmasPos]
-    if n[namePos].kind != nkSym:
-      internalError(c.config, n.info, "semProcAux")
+    c.config.internalAssert(n[namePos].kind == nkSym, n.info, "semProcAux")
 
     n[namePos].sym = proto
     if importantComments(c.config) and proto.ast.comment.len > 0:
@@ -2181,8 +2177,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
         # `auto` is represented as `tyUntyped` at this point in compilation.
         localReport(c.config, n[paramsPos][0], reportSem rsemUnexpectedAutoInForwardDeclaration)
 
-      incl(s.flags, sfForward)
-      incl(s.flags, sfWasForwarded)
+      s.flags.incl {sfForward, sfWasForwarded}
     elif sfBorrow in s.flags: semBorrow(c, n, s)
   sideEffectsCheck(c, s)
   closeScope(c)           # close scope for parameters

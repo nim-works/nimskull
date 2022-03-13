@@ -600,16 +600,14 @@ proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
       varInDynamicLib(q, s)
     else:
       s.loc.r = mangleDynLibProc(s)
-    if value != nil:
-      internalError(p.config, n.info, ".dynlib variables cannot have a value")
+    p.config.internalAssert(value.isNil, n.info, ".dynlib variables cannot have a value")
     return
   useHeader(p.module, s)
   if lfNoDecl in s.loc.flags: return
   if not containsOrIncl(p.module.declaredThings, s.id):
     if sfThread in s.flags:
       declareThreadVar(p.module, s, sfImportc in s.flags)
-      if value != nil:
-        internalError(p.config, n.info, ".threadvar variables cannot have a value")
+      p.config.internalAssert(value.isNil, n.info, ".threadvar variables cannot have a value")
     else:
       var decl: Rope = nil
       var td = getTypeDesc(p.module, s.loc.t, skVar)
@@ -771,7 +769,7 @@ proc loadDynamicLib(m: BModule, lib: PLib) =
            "if (!($1 = #nimLoadLibrary($2))) #nimLoadLibraryError($2);$n",
            [tmp, rdLoc(dest)])
 
-  if lib.name == nil: internalError(m.config, "loadDynamicLib")
+  m.config.internalAssert(lib.name != nil, "loadDynamicLib")
 
 proc mangleDynLibProc(sym: PSym): Rope =
   # we have to build this as a single rope in order not to trip the
@@ -891,8 +889,7 @@ proc closureSetup(p: BProc, prc: PSym) =
   if tfCapturesEnv notin prc.typ.flags: return
   # prc.ast[paramsPos].last contains the type we're after:
   var ls = lastSon(prc.ast[paramsPos])
-  if ls.kind != nkSym:
-    internalError(p.config, prc.info, "closure generation failed")
+  p.config.internalAssert(ls.kind == nkSym, prc.info, "closure generation failed")
   var env = ls.sym
   #echo "created environment: ", env.id, " for ", prc.name.s
   assignLocalVar(p, ls)
@@ -1071,8 +1068,7 @@ proc genProcAux(m: BModule, prc: PSym) =
     procBody = injectDestructorCalls(m.g.graph, m.idgen, prc, procBody)
 
   if sfPure notin prc.flags and prc.typ[0] != nil:
-    if resultPos >= prc.ast.len:
-      internalError(m.config, prc.info, "proc has no result symbol")
+    m.config.internalAssert(resultPos < prc.ast.len, prc.info, "proc has no result symbol")
     let resNode = prc.ast[resultPos]
     let res = resNode.sym # get result symbol
     if not isInvalidReturnType(m.config, prc.typ[0]):
@@ -2126,8 +2122,7 @@ proc genForwardedProcs(g: BModuleList) =
     let
       prc = g.forwardedProcs.pop()
       m = g.modules[prc.itemId.module]
-    if sfForward in prc.flags:
-      internalError(m.config, prc.info, "still forwarded: " & prc.name.s)
+    m.config.internalAssert(sfForward notin prc.flags, prc.info, "still forwarded: " & prc.name.s)
 
     genProcNoForward(m, prc)
 

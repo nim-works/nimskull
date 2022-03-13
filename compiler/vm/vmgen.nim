@@ -144,15 +144,14 @@ proc gABI(c: PCtx; n: PNode; opc: TOpcode; a, b: TRegister; imm: BiggestInt) =
   # Takes the `b` register and the immediate `imm`, applies the operation `opc`,
   # and stores the output value into `a`.
   # `imm` is signed and must be within [-128, 127]
-  if imm >= -128 and imm <= 127:
-    let ins = (opc.TInstrType or (a.TInstrType shl regAShift) or
-                             (b.TInstrType shl regBShift) or
-                             (imm+byteExcess).TInstrType shl regCShift).TInstr
-    c.code.add(ins)
-    c.debug.add(n.info)
-  else:
-    internalError(c.config, n.info,
-      "VM: immediate value does not fit into an int8")
+  c.config.internalAssert(imm in -128..127 , n.info,
+    "VM: immediate value does not fit into an int8")
+
+  let ins = (opc.TInstrType or (a.TInstrType shl regAShift) or
+                           (b.TInstrType shl regBShift) or
+                           (imm+byteExcess).TInstrType shl regCShift).TInstr
+  c.code.add(ins)
+  c.debug.add(n.info)
 
 proc gABx(c: PCtx; n: PNode; opc: TOpcode; a: TRegister = 0; bx: int) =
   # Applies `opc` to `bx` and stores it into register `a`
@@ -162,14 +161,13 @@ proc gABx(c: PCtx; n: PNode; opc: TOpcode; a: TRegister = 0; bx: int) =
       writeStackTrace()
       echo "generating ", opc
 
-  if bx >= regBxMin-1 and bx <= regBxMax:
-    let ins = (opc.TInstrType or a.TInstrType shl regAShift or
-              (bx+wordExcess).TInstrType shl regBxShift).TInstr
-    c.code.add(ins)
-    c.debug.add(n.info)
-  else:
-    internalError(c.config, n.info,
-      "VM: immediate value does not fit into regBx")
+  c.config.internalAssert(bx in regBxMin-1..regBxMax, n.info,
+    "VM: immediate value does not fit into regBx")
+
+  let ins = (opc.TInstrType or a.TInstrType shl regAShift or
+            (bx+wordExcess).TInstrType shl regBxShift).TInstr
+  c.code.add(ins)
+  c.debug.add(n.info)
 
 proc xjmp(c: PCtx; n: PNode; opc: TOpcode; a: TRegister = 0): TPosition =
   #assert opc in {opcJmp, opcFJmp, opcTJmp}
@@ -182,7 +180,7 @@ proc genLabel(c: PCtx): TPosition =
 
 proc jmpBack(c: PCtx, n: PNode, p = TPosition(0)) =
   let dist = p.int - c.code.len
-  internalAssert(c.config, regBxMin < dist and dist < regBxMax, "")
+  internalAssert(c.config, regBxMin < dist and dist < regBxMax)
   gABx(c, n, opcJmpBack, 0, dist)
 
 proc patch(c: PCtx, p: TPosition) =
@@ -190,7 +188,7 @@ proc patch(c: PCtx, p: TPosition) =
   let p = p.int
   let diff = c.code.len - p
   #c.jumpTargets.incl(c.code.len)
-  internalAssert(c.config, regBxMin < diff and diff < regBxMax, "")
+  internalAssert(c.config, regBxMin < diff and diff < regBxMax)
   let oldInstr = c.code[p]
   # opcode and regA stay the same:
   c.code[p] = ((oldInstr.TInstrType and regBxMask).TInstrType or
@@ -456,7 +454,7 @@ proc rawGenLiteral(c: PCtx; n: PNode): int =
   #assert(n.kind != nkCall)
   n.flags.incl nfAllConst
   c.constants.add n
-  internalAssert c.config, result < regBxMax, ""
+  internalAssert c.config, result < regBxMax
 
 proc sameConstant*(a, b: PNode): bool =
   result = false
@@ -536,7 +534,7 @@ proc genType(c: PCtx; typ: PType): int =
     if sameType(t, typ): return i
   result = c.types.len
   c.types.add(typ)
-  internalAssert(c.config, result <= regBxMax, "")
+  internalAssert(c.config, result <= regBxMax)
 
 proc genTry(c: PCtx; n: PNode; dest: var TDest) =
   if dest < 0 and not isEmptyType(n.typ): dest = getTemp(c, n.typ)
@@ -612,7 +610,7 @@ proc genCall(c: PCtx; n: PNode; dest: var TDest) =
     var r: TRegister = x+i
     c.gen(n[i], r, {gfIsParam})
     if i >= fntyp.len:
-      internalAssert(c.config, tfVarargs in fntyp.flags, "")
+      internalAssert(c.config, tfVarargs in fntyp.flags)
       c.gABx(n, opcSetType, r, c.genType(n[i].typ))
   if dest < 0:
     c.gABC(n, opcIndCall, 0, x, n.len)
@@ -1601,10 +1599,8 @@ proc genAsgn(c: PCtx; le, ri: PNode; requiresCopy: bool) =
         c.freeTemp(val)
     else:
       if s.kind == skForVar: c.setSlot s
-      internalAssert(
-        c.config,
-        s.position > 0 or (s.position == 0 and s.kind in {skParam, skResult}),
-        "")
+      c.config.internalAssert s.position > 0 or
+        (s.position == 0 and s.kind in {skParam, skResult})
 
       var dest: TRegister = s.position + ord(s.kind == skParam)
       assert le.typ != nil
@@ -2221,8 +2217,7 @@ proc genStmt*(c: PCtx; n: PNode): int =
   var d: TDest = -1
   c.gen(n, d)
   c.gABC(n, opcEof)
-  if d >= 0:
-    internalError(c.config, n.info, "VM problem: dest register is set")
+  c.config.internalAssert(d < 0, n.info, "VM problem: dest register is set")
 
 proc genExpr*(c: PCtx; n: PNode, requiresValue = true): int =
   c.removeLastEof
@@ -2230,8 +2225,7 @@ proc genExpr*(c: PCtx; n: PNode, requiresValue = true): int =
   var d: TDest = -1
   c.gen(n, d)
   if d < 0:
-    if requiresValue:
-      internalError(c.config, n.info, "VM problem: dest register is not set")
+    c.config.internalAssert(not requiresValue, n.info, "VM problem: dest register is not set")
 
     d = 0
   c.gABC(n, opcEof, d)

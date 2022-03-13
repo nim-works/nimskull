@@ -313,7 +313,7 @@ proc resolveOverloads(c: PContext, n: PNode,
       pickBest(op)
 
     if nfDotField in n.flags:
-      internalAssert(c.config, f.kind == nkIdent and n.len >= 2, "")
+      c.config.internalAssert f.kind == nkIdent and n.len >= 2
 
       if f.ident.s notin [".", ".()"]: # a dot call on a dot call is invalid
         # leave the op head symbol empty,
@@ -364,7 +364,7 @@ proc resolveOverloads(c: PContext, n: PNode,
       return
   if alt.state == csMatch and cmpCandidates(result, alt) == 0 and
       not sameMethodDispatcher(result.calleeSym, alt.calleeSym):
-    internalAssert(c.config, result.state == csMatch, "")
+    c.config.internalAssert result.state == csMatch
     #writeMatches(result)
     #writeMatches(alt)
     if c.config.m.errorOutputs == {}:
@@ -496,11 +496,6 @@ proc canDeref(n: PNode): bool {.inline.} =
   result = n.len >= 2 and (let t = n[1].typ;
     t != nil and t.skipTypes({tyGenericInst, tyAlias, tySink}).kind in {tyPtr, tyRef})
 
-proc tryDeref(n: PNode): PNode =
-  result = newNodeI(nkHiddenDeref, n.info)
-  result.typ = n.typ.skipTypes(abstractInst)[0]
-  result.add n
-
 proc semOverloadedCall(c: PContext, n: PNode,
                        filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
   addInNimDebugUtils(c.config, "semOverloadedCall")
@@ -516,7 +511,7 @@ proc semOverloadedCall(c: PContext, n: PNode,
     #      inside `resolveOverloads` or it could be moved all the way
     #      into sigmatch with hidden conversion produced there
 
-    n[1] = n[1].tryDeref
+    n[1] = genDeref(n[1])
     r = resolveOverloads(c, n, filter, flags, errors)
 
   if r.state == csMatch:

@@ -268,8 +268,7 @@ proc unpackObject(conf: ConfigRef, x: pointer, typ: PType, n: PNode): PNode =
   if n.isNil:
     result = newNode(nkTupleConstr)
     result.typ = typ
-    if typ.n.isNil:
-      internalError(conf, "cannot unpack unnamed tuple")
+    conf.internalAssert(typ.n != nil, "cannot unpack unnamed tuple")
     unpackObjectAdd(conf, x, typ.n, result)
   else:
     result = n

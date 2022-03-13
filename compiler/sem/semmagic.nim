@@ -129,7 +129,7 @@ proc getTypeDescNode(c: PContext; typ: PType, sym: PSym, info: TLineInfo): PNode
 proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym): PNode =
   const skippedTypes = {tyTypeDesc, tyAlias, tySink}
   let trait = traitCall[0]
-  internalAssert(c.config, trait.kind == nkSym, "")
+  c.config.internalAssert trait.kind == nkSym
   var operand = operand.skipTypes(skippedTypes)
 
   template operand2: PType =
@@ -213,7 +213,7 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
 proc semTypeTraits(c: PContext, n: PNode): PNode =
   checkMinSonsLen(n, 2, c.config)
   let t = n[1].typ
-  internalAssert(c.config, t != nil and t.kind == tyTypeDesc, "")
+  c.config.internalAssert t != nil and t.kind == tyTypeDesc
   if t.len > 0:
     # This is either a type known to sem or a typedesc
     # param to a regular proc (again, known at instantiation)
@@ -559,7 +559,7 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
 
   of mDefault:
     result = n
-    c.config.internalAssert(result[1].typ.kind == tyTypeDesc, "")
+    c.config.internalAssert result[1].typ.kind == tyTypeDesc
     let constructed = result[1].typ.base
     if constructed.requiresInit:
       localReport(c.config, n.info, reportTyp(

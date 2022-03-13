@@ -731,8 +731,7 @@ proc genNamedParamCall(p: BProc, ri: PNode, d: var TLoc) =
       pl.add(genArg(p, ri[2], typ.n[2].sym, ri))
   for i in start..<ri.len:
     assert(typ.len == typ.n.len)
-    if i >= typ.len:
-      internalError(p.config, ri.info, "varargs for objective C method?")
+    p.config.internalAssert(i < typ.len, ri.info, "varargs for objective C method?")
     assert(typ.n[i].kind == nkSym)
     var param = typ.n[i].sym
     pl.add(~" ")

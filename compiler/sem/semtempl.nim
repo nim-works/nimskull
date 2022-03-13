@@ -32,8 +32,8 @@ type
 
 proc symBinding(n: PNode): TSymBinding =
   for i in 0..<n.len:
-    var it = n[i]
-    var key = if it.kind == nkExprColonExpr: it[0] else: it
+    let it = n[i]
+    let key = if it.kind == nkExprColonExpr: it[0] else: it
     if key.kind == nkIdent:
       case whichKeyword(key.ident)
       of wGensym: return spGenSym
@@ -61,7 +61,7 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
     # XXX this makes more sense but breaks bootstrapping for now:
     # (s.kind notin routineKinds or s.magic != mNone):
     # for instance 'nextTry' is both in tables.nim and astalgo.nim ...
-    if not isField or sfGenSym notin s.flags:
+    if not(isField and sfGenSym in s.flags):
       result = newSymNode(s, info)
       markUsed(c, info, s)
       onUse(info, s)
@@ -75,7 +75,7 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
     result = newNodeIT(kind, info, newTypeS(tyNone, c))
     a = initOverloadIter(o, c, n)
     while a != nil:
-      if a.kind != skModule and (not isField or sfGenSym notin s.flags):
+      if a.kind != skModule and not(isField and sfGenSym in s.flags):
         incl(a.flags, sfUsed)
         markOwnerModuleAsUsed(c, a)
         result.add newSymNode(a, info)
@@ -192,8 +192,7 @@ proc onlyReplaceParams(c: var TemplCtx, n: PNode): PNode =
 
 proc newGenSym(kind: TSymKind, n: PNode, c: var TemplCtx): PSym =
   result = newSym(kind, considerQuotedIdent(c.c, n), nextSymId c.c.idgen, c.owner, n.info)
-  incl(result.flags, sfGenSym)
-  incl(result.flags, sfShadowed)
+  result.flags.incl {sfGenSym, sfShadowed}
 
 proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
   # locals default to 'gensym':
@@ -823,23 +822,23 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
       # we interpret `*` and `|` only as pattern operators if they occur in
       # infix notation, so that '`*`(a, b)' can be used for verbatim matching:
       if id.s == "*" or id.s == "**":
-        result = newNodeI(nkPattern, n.info, n.len)
-        result[0] = newIdentNode(id, n.info)
-        result[1] = semPatternBody(c, n[1])
-        result[2] = expectParam(c, n[2])
+        result = newTreeI(nkPattern, n.info):
+          [newIdentNode(id, n.info),
+           semPatternBody(c, n[1]),
+           expectParam(c, n[2])]
         return
       elif id.s == "|":
-        result = newNodeI(nkPattern, n.info, n.len)
-        result[0] = newIdentNode(id, n.info)
-        result[1] = semPatternBody(c, n[1])
-        result[2] = semPatternBody(c, n[2])
+        result = newTreeI(nkPattern, n.info):
+          [newIdentNode(id, n.info),
+           semPatternBody(c, n[1]),
+           semPatternBody(c, n[2])]
         return
 
     if n.kind == nkPrefix and (let id = considerQuotedIdent(c.c, n[0]); id != nil):
       if id.s == "~":
-        result = newNodeI(nkPattern, n.info, n.len)
-        result[0] = newIdentNode(id, n.info)
-        result[1] = semPatternBody(c, n[1])
+        result = newTreeI(nkPattern, n.info):
+          [newIdentNode(id, n.info),
+           semPatternBody(c, n[1])]
         return
 
     for i in 0..<n.len:
@@ -866,12 +865,13 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
 
 proc semPattern(c: PContext, n: PNode; s: PSym): PNode =
   openScope(c)
-  var ctx: TemplCtx
-  ctx.toBind = initIntSet()
-  ctx.toMixin = initIntSet()
-  ctx.toInject = initIntSet()
-  ctx.c = c
-  ctx.owner = getCurrOwner(c)
+  var ctx = TemplCtx(
+    toBind: initIntSet(),
+    toMixin: initIntSet(),
+    toInject: initIntSet(),
+    c: c,
+    owner: getCurrOwner(c)
+  )
   result = flattenStmts(semPatternBody(ctx, n))
   if result.kind in {nkStmtList, nkStmtListExpr}:
     if result.len == 1:

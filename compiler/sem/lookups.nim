@@ -419,10 +419,8 @@ proc addInterfaceDeclAux(c: PContext, sym: PSym) =
   ## adds symbol to the module for either private or public access.
   if sfExported in sym.flags:
     # add to interface:
-    if c.module != nil:
-      exportSym(c, sym)
-    else:
-      c.config.internalError("addInterfaceDeclAux")
+    c.config.internalAssert(c.module != nil, "addInterfaceDeclAux")
+    exportSym(c, sym)
 
   elif sym.kind in ExportableSymKinds and c.module != nil and isTopLevelInsideDeclaration(c, sym):
     strTableAdd(semtabAll(c.graph, c.module), sym)
@@ -443,9 +441,7 @@ proc addInterfaceDecl*(c: PContext, sym: PSym) {.inline.} =
 proc addOverloadableSymAt*(c: PContext; scope: PScope, fn: PSym) =
   ## adds an symbol to the given scope, will check for and raise errors if it's
   ## a redefinition as opposed to an overload.
-  if fn.kind notin OverloadableSyms:
-    c.config.internalError(fn.info, "addOverloadableSymAt")
-    return
+  c.config.internalAssert(fn.kind in OverloadableSyms, fn.info, "addOverloadableSymAt")
   let check = strTableGet(scope.symbols, fn.name)
   if check != nil and check.kind notin OverloadableSyms:
     wrongRedefinition(c, fn.info, fn, check)

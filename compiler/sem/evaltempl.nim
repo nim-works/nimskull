@@ -57,7 +57,7 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
            s.kind == skType and s.typ != nil and s.typ.kind == tyGenericParam):
         handleParam actual[s.owner.typ.len + s.position - 1]
       else:
-        internalAssert(c.config, sfGenSym in s.flags or s.kind == skType, "")
+        c.config.internalAssert(sfGenSym in s.flags or s.kind == skType)
         var x = PSym(idTableGet(c.mapping, s))
         if x == nil:
           x = copySym(s, nextSymId(c.idgen))
@@ -87,22 +87,16 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
     else:
       result.add newNodeI(nkEmpty, templ.info)
   else:
-    var isDeclarative = false
-    if templ.kind in {nkProcDef, nkFuncDef, nkMethodDef, nkIteratorDef,
-                      nkMacroDef, nkTemplateDef, nkConverterDef, nkTypeSection,
-                      nkVarSection, nkLetSection, nkConstSection} and
-        not c.isDeclarative:
+    let parentIsDeclarative = c.isDeclarative
+    if templ.kind in routineDefs + {nkTypeSection, nkVarSection, nkLetSection, nkConstSection}:
       c.isDeclarative = true
-      isDeclarative = true
-    if (not c.isDeclarative) and templ.kind in nkCallKinds and isRunnableExamples(templ[0]):
-      # fixes bug #16993, bug #18054
-      discard
-    else:
+    # fixes bug #16993, bug #18054
+    if c.isDeclarative or templ.kind notin nkCallKinds or not isRunnableExamples(templ[0]):
       var res = copyNode(c, templ, actual)
       for i in 0..<templ.len:
         evalTemplateAux(templ[i], actual, c, res)
       result.add res
-    if isDeclarative: c.isDeclarative = false
+    c.isDeclarative = parentIsDeclarative
 
 proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode =
   # if the template has zero arguments, it can be called without ``()``
@@ -169,12 +163,9 @@ proc wrapInComesFrom*(info: TLineInfo; sym: PSym; res: PNode): PNode =
           if x[i].kind in nkCallKinds:
             x[i].info = info
   else:
-    result = newNodeI(nkStmtListExpr, info)
-    var d = newNodeI(nkComesFrom, info)
-    d.add newSymNode(sym, info)
-    result.add d
-    result.add res
-    result.typ = res.typ
+    let d = newTreeI(nkComesFrom, info): newSymNode(sym, info)
+    result = newTreeIT(nkStmtListExpr, info, res.typ):
+      [d, res]
 
 proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
                    conf: ConfigRef;
@@ -190,15 +181,15 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
 
   # replace each param by the corresponding node:
   var args = evalTemplateArgs(n, tmpl, conf, fromHlo)
-  var ctx: TemplCtx
-  ctx.owner = tmpl
-  ctx.genSymOwner = genSymOwner
-  ctx.config = conf
-  ctx.ic = ic
-  initIdTable(ctx.mapping)
-  ctx.instID = instID[]
-  ctx.idgen = idgen
-
+  var ctx = TemplCtx(
+    owner: tmpl,
+    genSymOwner: genSymOwner,
+    config: conf,
+    ic: ic,
+    mapping: newIdTable(),
+    instID: instID[],
+    idgen: idgen
+  )
   let body = tmpl.ast[bodyPos]
   #echo "instantion of ", renderTree(body, {renderIds})
   if isAtom(body):
@@ -213,10 +204,8 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
         str = "Expected single subnode, but found " & $result.len))
 
   else:
-    result = copyNode(body)
     ctx.instLines = sfCallsite in tmpl.flags
-    if ctx.instLines:
-      result.info = n.info
+    result = copyNode(ctx, body, n)
     for i in 0..<body.safeLen:
       evalTemplateAux(body[i], args, ctx, result)
   result.flags.incl nfFromTemplate

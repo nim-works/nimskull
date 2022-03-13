@@ -728,8 +728,7 @@ proc myOpen(graph: ModuleGraph; module: PSym;
   c.enforceVoidContext = newType(tyTyped, nextTypeId(idgen), nil)
   c.voidType = newType(tyVoid, nextTypeId(idgen), nil)
 
-  if c.p != nil:
-    internalError(graph.config, module.info, "sem.myOpen")
+  graph.config.internalAssert(c.p == nil, module.info, "sem.myOpen")
 
   c.semConstExpr = semConstExpr
   c.semExpr = semExpr
@@ -805,11 +804,9 @@ proc addCodeForGenerics(c: PContext, n: PNode) =
   for i in c.lastGenericIdx..<c.generics.len:
     var prc = c.generics[i].inst.sym
     if prc.kind in {skProc, skFunc, skMethod, skConverter} and prc.magic == mNone:
-      if prc.ast == nil or prc.ast[bodyPos] == nil:
-        internalError(c.config, prc.info, "no code for " & prc.name.s)
+      c.config.internalAssert(prc.ast != nil and prc.ast[bodyPos] != nil, prc.info, "no code for " & prc.name.s)
 
-      else:
-        n.add prc.ast
+      n.add prc.ast
   c.lastGenericIdx = c.generics.len
 
 proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
@@ -820,8 +817,7 @@ proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
   rawCloseScope(c)      # imported symbols; don't check for unused ones!
   reportUnusedModules(c)
   result = newNode(nkStmtList)
-  if n != nil:
-    internalError(c.config, n.info, "n is not nil") #result := n;
+  c.config.internalAssert(n == nil, n.info, "n is not nil") #result := n;
   addCodeForGenerics(c, result)
   if c.module.ast != nil:
     result.add(c.module.ast)
