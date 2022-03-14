@@ -211,6 +211,8 @@ type
     testArgs: seq[string]
     spec: TSpec
     startTime: float
+    duration: Option[float]
+      ## let's newer code pass duration to legacy code
     debugInfo: string
 
 # ----------------------------------------------------------------------------
@@ -279,14 +281,24 @@ proc nimcacheDir(filename, options: string, target: TTarget): string =
   result = "nimcache" / (filename & '_' & hashInput.getMD5)
 
 proc prepareTestCmd(cmdTemplate, filename, options, nimcache: string,
-                     target: TTarget, extraOptions = ""): string =
+                     target: TTarget, extraOptions = "", outfile = ""): string =
   var options = target.defaultOptions & ' ' & options
   if nimcache.len > 0: options.add(" --nimCache:$#" % nimcache.quoteShell)
   options.add ' ' & extraOptions
+  let outfileOption =
+    if outfile == "":
+      "" # don't do anything
+    else:
+      "--out:" & outfile.quoteShell
+
   # we avoid using `parseCmdLine` which is buggy, refs bug #14343
-  result = cmdTemplate % ["target", target.cmd,
-                      "options", options, "file", filename.quoteShell,
-                      "filedir", filename.getFileDir(), "nim", compilerPrefix]
+  result = cmdTemplate % [
+              "target", target.cmd,
+              "options", options,
+              "file", filename.quoteShell,
+              "filedir", filename.getFileDir(),
+              "nim", compilerPrefix,
+              "outfileOption", outfileOption]
 
 proc callNimCompiler(cmdTemplate, filename, options, nimcache: string,
                      target: TTarget, extraOptions = ""): TSpec =
@@ -531,7 +543,11 @@ proc addResult(
   var param: ReportParams
 
   param.name = test.getName(target, allowFailure)
-  param.duration = epochTime() - test.startTime
+  param.duration =
+    if test.duration.isSome:
+      test.duration.get
+    else:
+      epochTime() - test.startTime
   param.outCompare = outCompare
   param.expected = expected
   param.given = given
@@ -872,6 +888,27 @@ proc equalModuloLastNewline(a, b: string): bool =
   # be fixed instead
   result = a == b or b.endsWith("\n") and a == b[0 ..< ^1]
 
+proc checkCmdHelper(r: var TResults,
+                    test: TTest,
+                    target: TTarget,
+                    expected: TSpec,
+                    given: var TSpec,
+                    cmdOut: string,
+                    exitCode: int) =
+  ## extracted from `testSpecHelper` to allow for reuse in new testament runner
+
+  case given.err
+  of reExitcodesDiffer:
+    r.addResult(test,
+                target,
+                "exitcode: " & $expected.exitCode,
+                "exitcode: " & $exitCode & "\n\nOutput:\n" & cmdOut,
+                reExitcodesDiffer)
+  of reOutputsDiffer:
+    r.addResult(test, target, expected.output, cmdOut, reOutputsDiffer)
+  else:
+    compilerOutputTests(test, target, given, expected, r)
+
 proc testSpecHelper(r: var TResults, test: var TTest, expected: TSpec,
                     target: TTarget, nimcache: string, extraOptions = "") =
   test.startTime = epochTime()
@@ -936,9 +973,10 @@ proc testSpecHelper(r: var TResults, test: var TTest, expected: TSpec,
             else:
               buf
           if exitCode != expected.exitCode:
-            r.addResult(test, target, "exitcode: " & $expected.exitCode,
-                              "exitcode: " & $exitCode & "\n\nOutput:\n" &
-                              bufB, reExitcodesDiffer)
+            given.err = reExitcodesDiffer
+            # r.addResult(test, target, "exitcode: " & $expected.exitCode,
+            #                   "exitcode: " & $exitCode & "\n\nOutput:\n" &
+            #                   bufB, reExitcodesDiffer)
           elif (
             expected.outputCheck == ocEqual and
             not expected.output.equalModuloLastNewline(bufB)
@@ -947,9 +985,11 @@ proc testSpecHelper(r: var TResults, test: var TTest, expected: TSpec,
             expected.output notin bufB
           ):
             given.err = reOutputsDiffer
-            r.addResult(test, target, expected.output, bufB, reOutputsDiffer)
+            # r.addResult(test, target, expected.output, bufB, reOutputsDiffer)
           else:
-            compilerOutputTests(test, target, given, expected, r)
+            discard
+            # compilerOutputTests(test, target, given, expected, r)
+          checkCmdHelper(r, test, target, expected, given, bufB, exitCode)
   of actionReject:
     let given = callNimCompilerImpl()
     # Scan compiler output fully for all mismatches and report if any found
@@ -1088,6 +1128,8 @@ type
 
   DebugInfo = OrderedTable[RunId, string]
   # Refactor - debug info should be per action instead of per run
+
+  TestTargets = set[TestTarget]
   
   # Category is in specs.nim
 
@@ -1096,13 +1138,37 @@ type
     catId: CategoryId
 
   # TSpec is in specs.nim
+  # TSpec is the the spec in a single test file, but we run (`TestRun`) a test
+  # for every target and matrix entry, which itself is a number of actions and
+  # checks.
+
+  TestRunSet = object
+    ## describes extra data for a test `TSpec`
+    # the consecutive range of `TestRun` belonging to this `TestSuite`
+    firstTestRun: RunId    ## id of first `TestRun`
+    extraTestRuns: Natural ## number of `TestRun`s after the first
 
   TestRun = object
     testId: TestId           ## test id for which this belongs
     target: TestTarget       ## which target to run for
     matrixEntry: EntryId     ## which item from the matrix was used
 
-  TestTargets = set[TestTarget]
+  # xxx: add 'check' to remove `cmd: "nim check"...` from tests
+  # TestActionKind = enum
+  #   testActionSkip           ## skip this test; check the spec for why
+  #   testActionReject,        ## reject the compilation
+  #   testActionCompile,       ## compile some source
+  #   testActionRun            ## run the compiled program
+
+  TestAction = object
+    runId: RunId
+    case kind: TTestAction      # xxx: might not need `partOfRun` at all
+    of actionReject:
+      discard
+    of actionRun:
+      compileActionId: ActionId ## id of the preceeding compile action
+    of actionCompile:
+      partOfRun: bool
 
   RunTime = object
     ## time tracking for test run activities
@@ -1130,6 +1196,8 @@ type
     nimStatus: CompileStatus ## compilation state based on exit code and msgs
     # xxx: maybe track data by action instead of by run?
     prgOut: string           ## program output, if any
+    prgOutSorted: string     ## sorted version of `prgOut`; kept for legacy
+                             ## reason, remove when no longer necessary
     prgExit: int             ## program exit, if any
     lastAction: ActionId     ## last action in this run
     runResult: TResultEnum   ## current result, invalid if `lastAction` unset
@@ -1142,14 +1210,6 @@ type
   #   testActionReject,        ## reject the compilation
   #   testActionCompile,       ## compile some source
   #   testActionRun            ## run the compiled program
-
-  TestAction = object
-    runId: RunId
-    case kind: TTestAction
-    of actionReject, actionRun:
-      discard
-    of actionCompile:
-      partOfRun: bool
 
   TestOptionData = object
     optMatrix: seq[string]   ## matrix of cli options for this test
@@ -1166,6 +1226,7 @@ type
     flags: ExecutionFlags    ## various options set by the user
     targets: TestTargets     ## specified targets or `noTargetsSpecified`
     workingDir: string       ## working directory to begin execution in
+    nodeJs: string           ## path to nodejs binary
     nimSpecified: bool       ## whether the user specified the nim
     testArgs: string         ## arguments passed to tests by the user
     isCompilerRepo: bool     ## whether this is the compiler repository, used
@@ -1190,6 +1251,7 @@ type
     runActuals: RunActuals   ## actual information for a given run
     debugInfo: DebugInfo     ## debug info related to runs for tests, should be
                              ## per action instead of per run.
+    runProgress: RunProgress ## current run progress based on action progress
 
     actions: seq[TestAction] ## test actions for each run, phases of a run;
                              ## actions for a run must be continugous and
@@ -1199,10 +1261,20 @@ type
     retryList: RetryList     ## list of failures to potentially retry later
 
     # legacy compat stuff -- try to remove
-    legacyTestData: seq[string] ## `TResults` had a `data` field of type `
-                                ## `string` where we appended a message per
-                                ## test... which seems horribly wasteful.
-                                ## keep it around until we know we can kill it
+    legacyTestResults: TResults  ## Legacy compatability for result reporting
+                                 ## kept to limit refactor work to running
+                                 ## tests and not include reporting.
+    legacyTestData: seq[string]  ## `TResults` had a `data` field of type
+                                 ## `string` where we appended a message per
+                                 ## test... which seems horribly wasteful.
+                                 ## keep it around until we know we can kill it
+
+  RunProgress = object
+    ## Acts as a tracker for a producer/consumer model, where `lastCheckedRun`
+    ## is where the consumer left off, and `mostRecentRun` is where the
+    ## producer left off.
+    lastCheckedRun: RunId ## run last reviewed for reporting/consumption
+    mostRecentRun: RunId  ## run that completed most recently/production
 
   ParseCliResult = enum
     parseSuccess       ## successfully parsed cli params
@@ -1625,6 +1697,7 @@ proc prepareTestFilesAndSpecs(execState: var Execution) =
         of 0:
           optMatrix
         else:
+          # REFACTOR - this is a hack, we shouldn't modify the spec.matrix
           var tmp: seq[string] = @[]
           for o in optMatrix.items:
             for e in execState.testSpecs[testId].matrix.items:
@@ -1687,10 +1760,13 @@ proc prepareTestActions(execState: var Execution) =
       execState.actions.add:
         TestAction(runId: runId, kind: actionKind)
     of actionRun:
+      let compileActionId = execState.actions.len
       execState.actions.add:
         TestAction(runId: runId, kind: actionCompile, partOfRun: true)
       execState.actions.add:
-        TestAction(runId: runId, kind: actionRun)
+        TestAction(runId: runId,
+                   kind: actionRun,
+                   compileActionId: compileActionId)
 
 proc logToConsole(
     execState: Execution,
@@ -1803,6 +1879,25 @@ proc logToBackend(
     discard waitForExit(p)
     close(p)
 
+proc exeFile(testRun: TestRun, specFilePath: string): string =
+  let
+    target = testRun.target
+    isJsTarget = target == targetJs
+    (dirPart, specName, _) = splitFile(specFilePath)
+    matrixEntry = testRun.matrixEntry
+    exeName =
+      (if matrixEntry == noMatrixEntry:
+        @[specName, target.cmd]
+      else:
+        @[specName, $matrixEntry, target.cmd]).join("_")
+    exeExt =
+      if isJsTarget:
+        "js"
+      else:
+        ExeExt
+  
+  changeFileExt(joinPath(dirPart, exeName), exeExt)
+
 proc makeName(test: TestFile,
               testRun: TestRun,
               allowFailure: bool
@@ -1810,7 +1905,7 @@ proc makeName(test: TestFile,
   let
     target = testRun.target
     matrixEntry = testRun.matrixEntry
-  var result = test.file.changeFileExt("").replace(DirSep, '/')
+  result = test.file.changeFileExt("").replace(DirSep, '/')
   result.add ' ' & $target
   if matrixEntry != noMatrixEntry:
     result.add "[$1]" % $matrixEntry
@@ -1818,8 +1913,6 @@ proc makeName(test: TestFile,
     result.add " (allowed to fail) "
   # if test.options.len > 0:
   #   result.add ' ' & test.options
-
-  return result
 
 proc reportResult(execState: var Execution,
                   action: TestAction,
@@ -2040,6 +2133,11 @@ template runTestBatch(execState: var Execution,
                       ) =
   inc batches
 
+  # TODO - handle executable not found issues for `actionRun`, test this before
+  #        the action is swapped in from next to current batch (it should have
+  #        already been created). If it's not, note progress and remove from
+  #        runnable actions.
+
   # run actions
   #echo "execProcesses with: ", testCmds, processOpts, batchSize #, " and map: ", cmdIdToActId
   discard osproc.execProcesses(
@@ -2059,10 +2157,9 @@ template runTestBatch(execState: var Execution,
       testRun = execState.testRuns[runId]
       testId = testRun.testId
       spec = execState.testSpecs[testId]
+      cmd = testCmds[id]
       testFile = execState.testFiles[testId]
       allowFailure = spec.err == reKnownIssue
-      name = testFile.makeName(testRun, allowFailure)
-      # duration = endTimes[id] - startTimes[id]
       # durationStr = duration.formatFloat(ffDecimal, precision = 2).align(5)
 
     execState.runActuals[runId].lastAction = actionId
@@ -2090,7 +2187,7 @@ template runTestBatch(execState: var Execution,
           foundSuccessMsg = true
       output.close
       
-      # validate exist codes and collect action debug info
+      # validate exit code and collect action debug info
       execState.runActuals[runId].nimExit = exitCodes[id]
       execState.runActuals[runId].nimStatus = compileCrashed
       execState.runActuals[runId].runResult = reNimcCrash
@@ -2122,51 +2219,12 @@ template runTestBatch(execState: var Execution,
       elif err =~ pegOtherError:
         execState.runActuals[runId].nimMsg = matches[0]
       execState.runActuals[runId].nimMsg.trimUnitSep
-
-      case action.kind
-      of actionCompile:
-        let
-          runActual = execState.runActuals[runId]
-          successfulCompile = runActual.nimStatus == compileSuccessful
-          # gotCompilerMsg = runActual.nimMsg != ""
-
-        if spec.needsCodegenCheck:
-          # TODO - implement `codegenCheck`
-          discard
-
-        if spec.nimoutSexp:
-          let outputComparison = sexpCheck(name, spec, runActual)
-          
-          if outputComparison.match:
-            execState.runActuals[runId].runResult = reSuccess
-            discard # TODO - this is a success, check if part of run
-          else:
-            execState.runActuals[runId].runResult = reMsgsDiffer
-        elif spec.inlineErrors.len > 0:
-          # QUESTION - `checkForInlineErrors` does not perform any comparisons
-          # for the regular message spec, it just compares annotated messages.
-          # How can it report anything properly then?
-          #
-          # MAYBE it is related the fact testament misuses the `inlineErrors`,
-          # and wrongly assumes they are /only/ errors, despite actually parsing
-          # anything that starts with `#[tt.` as inline annotation? Even in this
-          # case this does not make any sense, because comparisons is done only
-          # for inline error messages.
-          #
-          # MAYBE this is just a way to mitigate the more complex problem of
-          # mixing in inline error messages and regular `.nimout`? I 'solved' it
-          # using `stablematch` and weighted ordering, so most likely the person
-          # who wrote this solved the same problem using "I don't care" approach.
-          #
-          # https://github.com/nim-lang/Nim/commit/9a110047cbe2826b1d4afe63e3a1f5a08422b73f#diff-a161d4667e86146f2f8003f08f765b8d9580ae92ec5fb6679c80c07a5310a551R362-R364
-          checkForInlineErrors(execState, action, name)
-
-      of actionReject:
-
-        # TODO - compare things
-        discard
-      else:
-        assert false, "we should never end up in this case: " & $action.kind
+      
+      let exeFile = exeFile(testRun, spec.file)
+      if spec.action == actionCompile and
+         execState.runActuals[runId].runResult == reSuccess and
+         not fileExists(exeFile):
+        execState.runActuals[runId].runResult = reExeNotFound
     
     of actionRun:
       execState.runTimes[runId].runStart = startTimes[id]
@@ -2185,30 +2243,124 @@ template runTestBatch(execState: var Execution,
       #       from `testSpecHelper`
       let
         expect = spec.output
-        given =
-          if spec.sortoutput:
-            var buffer = execState.runActuals[runId].prgOut
-            buffer.stripLineEnd
-            var x = buffer.splitLines
-            sort(x, system.cmp)
-            x.join("\n") & '\n'
+        exitCode =
+          if execState.runActuals[runId].prgExit != 0:
+            # xxx - sigh... weird legacy
+            # Treat all failure codes from nodejs as 1. Older versions of
+            # nodejs used to return other codes, but for us it is sufficient
+            # to know that it's not 0.
+            1
           else:
-            execState.runActuals[runId].prgOut
+            0
         testResult =
-          if execState.runActuals[runId].prgExit != spec.exitCode:
+          if exitCode != spec.exitCode:
             reExitcodesDiffer
           else:
-            let check = spec.outputCheck
+            let
+              check = spec.outputCheck
+              given =
+                if spec.sortoutput:
+                  var buffer = execState.runActuals[runId].prgOut
+                  buffer.stripLineEnd
+                  var x = buffer.splitLines
+                  sort(x, system.cmp)
+                  x.join("\n") & '\n'
+                else:
+                  execState.runActuals[runId].prgOut
+            
+            if spec.sortoutput:
+              # REFACTOR - storing this for legacy test reporting
+              execState.runActuals[runId].prgOutSorted = given
+            
             if (check == ocEqual and not expect.equalModuloLastNewline(given)) or
                (check == ocSubstr and expect notin given):
               reOutputsDiffer
             else:
               reSuccess
-      
-      execState.reportResult(action, expect, given, testResult)
+       
+      # TODO - this isn't quite right because we're not skipping broken
+      #        compiles yet.
+      execState.runActuals[runId].runResult = testResult
+
+    let
+      runTime = execState.runTimes[runId]
+      duration = runTime.compileEnd - runTime.compileStart +
+                 runTime.runEnd - runTime.runStart
+
+    var
+      givenAsSpec = TSpec(
+        cmd: cmd,
+        nimout: execState.runActuals[runId].nimout,
+        msg: execState.runActuals[runId].nimMsg,
+        file: execState.runActuals[runId].nimFile,
+        output: execState.runActuals[runId].prgOut,
+        line: execState.runActuals[runId].nimLine,
+        column: execState.runActuals[runId].nimColumn,
+        err: execState.runActuals[runId].runResult,
+        debugInfo: execState.debugInfo.getOrDefault(runId, ""))
+      legacyTest = TTest(
+        cat: execState.categories[testFile.catId],
+        name: testFile.makeName(testRun, allowFailure),
+        options:
+          if testRun.matrixEntry == noMatrixEntry:
+            ""
+          else:
+            spec.matrix[testRun.matrixEntry],
+        spec: spec,
+        duration: some(duration))
+      legacyResults = execState.legacyTestResults
+    case spec.action
+    of actionCompile:
+      compilerOutputTests(legacyTest, target, givenAsSpec, spec, legacyResults)
+    of actionRun:
+      case action.kind
+      of actionCompile:
+        case givenAsSpec.err
+        of reSuccess:
+          discard # success will be determined after `actionRun`
+        of reExeNotFound:
+          legacyResults.addResult(
+            legacyTest,
+            target,
+            spec.output,
+            "executable not found: " & testRun.exeFile(givenAsSpec.file),
+            reExeNotFound
+          )
+        else:
+          # all other errors
+          legacyResults.addResult(
+            legacyTest,
+            target,
+            "",
+            "$ " & givenAsSpec.cmd & '\n' & givenAsSpec.nimout,
+            givenAsSpec.err,
+            givenSpec = givenAsSpec.addr
+          )
+      of actionRun:
+        checkCmdHelper(
+          legacyResults,
+          legacyTest,
+          testRun.target,
+          spec,
+          givenAsSpec,
+          execState.runActuals[runId].prgOutSorted,
+          case execState.runActuals[runId].prgExit:
+            # xxx - sigh... weird legacy
+            # Treat all failure codes from nodejs as 1. Older versions of
+            # nodejs used to return other codes, but for us it is sufficient
+            # to know that it's not 0.
+            of 0: 0
+            else: 1
+          )
+      of actionReject:
+        doAssert false, "we should never get here"
+    of actionReject:
+      # Scan compiler output fully for all mismatches and report if any found
+      cmpMsgs(legacyResults, spec, givenAsSpec, legacyTest, target)
+
+    execState.legacyTestResults = legacyResults # write them back
 
     # echo "batch: ", batches, ", runId: ", runId, ", actionId: ", actionId, ", duration: ", durationStr, ", cmd: ", testCmds[id]
-    # xxx: exitcode and outputs
 
   # clear old batch information
   testCmds.setLen(0)
@@ -2279,7 +2431,8 @@ proc runTests(execState: var Execution) =
 
   for actionId, action in testActions:
     let
-      testRun = testRuns[action.runId]
+      runId = action.runId
+      testRun = testRuns[runId]
       testId = testRun.testId
       spec = execState.testSpecs[testId]
       testFile = execState.testFiles[testId]
@@ -2290,7 +2443,13 @@ proc runTests(execState: var Execution) =
           spec.matrix[testRun.matrixEntry]
       target = testRun.target
       nimcache = nimcacheDir(testFile.file, testArgs, target)
-      cmd = prepareTestCmd(spec.getCmd, testFile.file, testArgs, nimcache, target, matrixOptions)
+      cmd = prepareTestCmd(spec.getCmd,
+                           testFile.file,
+                           testArgs,
+                           nimcache,
+                           target,
+                           matrixOptions,
+                           testRun.exeFile(spec.file))
       testInput =
         case action.kind
         of actionRun: some(spec.input)
@@ -2301,12 +2460,7 @@ proc runTests(execState: var Execution) =
       let
         isJsTarget = target == targetJs
         specFile = execState.testSpecs[testId].file
-        exeExt =
-          if isJsTarget:
-            "js"
-          else:
-            ExeExt
-        exeFile = changeFileExt(specFile, exeExt)
+        exeFile = testRun.exeFile(spec.file)
         exeCmd =
           if isJsTarget:
             findNodeJs()
@@ -2328,26 +2482,23 @@ proc runTests(execState: var Execution) =
           else:
             @[]
         cmd = (@[exeCmd] & args).map(quoteShell).join(" ")
+        compileSuccessful = execState.runActuals[runId].runResult == reSuccess
 
-      # TODO - build out the command based on what gets passed to execCmdEx2 in testSpecHelper
-
-      let runCmd = cmd
-      # let runCmd = "echo 'running'"
-      if testCmds.len == 0: # we've already processed its dependency
-        # testCmds.add "echo '$1'" % quoteShell(cmd)
-        testCmds.add runCmd
-        cmdIdToActId.add actionId
-        cmdIdToActKind.add action.kind
-        cmdIdToInput.add testInput
-      else: # dependency is in the current batch, add to the next
-        # nextTestCmds.add "echo '$1'" % quoteShell(cmd)
-        nextTestCmds.add runCmd
-        nextCmdIdToActId.add actionId
-        nextCmdIdToActKind.add action.kind
-        nextCmdIdToInput.add testInput
+      if compileSuccessful:
+        if testCmds.len == 0: # we've already processed its dependency
+          testCmds.add cmd
+          cmdIdToActId.add actionId
+          cmdIdToActKind.add action.kind
+          cmdIdToInput.add testInput
+        else: # dependency is in the current batch, add to the next
+          nextTestCmds.add cmd
+          nextCmdIdToActId.add actionId
+          nextCmdIdToActKind.add action.kind
+          nextCmdIdToInput.add testInput
+      else:
+        discard # compile failed, so we don't do anything else
     of actionCompile, actionReject:
       # add to this batch
-      # testCmds.add "echo '$1'" % quoteShell(cmd)
       testCmds.add cmd
       cmdIdToActId.add actionId
       cmdIdToActKind.add action.kind
@@ -2457,6 +2608,15 @@ proc main2() =
   case parseArg(execState, p)
   of parseQuitWithUsage: quit Usage
   of parseSuccess:       discard
+
+  if execState.workingDir != "":
+    setCurrentDir(execState.workingDir)
+  
+  if targetJS in execState.targets:
+    let nodeExe = findNodeJs()
+    if nodeExe == "":
+      quit "Failed to find nodejs binary in path", 1
+    execState.nodejs = nodeExe
 
   # Options have all been parsed; we now act on parsed actions
   # Prepare the results container
