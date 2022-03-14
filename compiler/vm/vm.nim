@@ -72,7 +72,7 @@ const
   errIllegalConvFromXtoY = "illegal conversion from '$1' to '$2'"
 
 proc stackTraceImpl(
-    c:          PCtx,
+    c:          TCtx,
     sframe:     PStackFrame,
     pc:         int,
     lineInfo:   TLineInfo,
@@ -80,7 +80,7 @@ proc stackTraceImpl(
     recursionLimit: int = 100
   ) =
 
-  proc aux(sframe: PStackFrame, pc, depth: int, res: var SemReport) =
+  proc aux(c: TCtx, sframe: PStackFrame, pc, depth: int, res: var SemReport) =
     if sframe != nil:
       if recursionLimit < depth:
         var calls = 0
@@ -91,14 +91,14 @@ proc stackTraceImpl(
 
         return
 
-      aux(sframe.next, sframe.comesFrom, depth + 1, res)
+      aux(c, sframe.next, sframe.comesFrom, depth + 1, res)
       res.stacktrace.add((sym: sframe.prc, location: c.debug[pc]))
 
   var res = SemReport(kind: rsemVmStackTrace)
   res.currentExceptionA = c.currentExceptionA
   res.currentExceptionB = c.currentExceptionB
 
-  aux(sframe, pc, 0, res)
+  aux(c, sframe, pc, 0, res)
 
   let action = if c.mode == emRepl: doRaise else: doNothing
 
@@ -108,7 +108,7 @@ proc stackTraceImpl(
 
 
 template stackTrace(
-    c: PCtx,
+    c: TCtx,
     tos: PStackFrame,
     pc: int,
     sem: ReportTypes,
@@ -119,7 +119,7 @@ template stackTrace(
   return
 
 template stackTrace(
-    c: PCtx,
+    c: TCtx,
     tos: PStackFrame,
     pc: int,
     sem: ReportTypes,
@@ -128,7 +128,7 @@ template stackTrace(
   localReport(c.config, c.debug[pc], sem)
   return
 
-proc reportException(c: PCtx; tos: PStackFrame, raised: PNode) =
+proc reportException(c: TCtx; tos: PStackFrame, raised: PNode) =
   # REFACTOR VM implementation relies on the `stackTrace` calling return,
   # but in this proc we are retuning only from it's body, so calling
   # `reportException()` does not stop vm loops. This needs to be cleaned up
@@ -340,7 +340,7 @@ type
     ExceptionGotoFinally,
     ExceptionGotoUnhandled
 
-proc findExceptionHandler(c: PCtx, f: PStackFrame, exc: PNode):
+proc findExceptionHandler(c: TCtx, f: PStackFrame, exc: PNode):
     tuple[why: ExceptionGoto, where: int] =
   let raisedType = exc.typ.skipTypes(abstractPtrs)
 
@@ -411,7 +411,7 @@ proc findExceptionHandler(c: PCtx, f: PStackFrame, exc: PNode):
 
   return (ExceptionGotoUnhandled, 0)
 
-proc cleanUpOnReturn(c: PCtx; f: PStackFrame): int =
+proc cleanUpOnReturn(c: TCtx; f: PStackFrame): int =
   # Walk up the chain of safepoints and return the PC of the first `finally`
   # block we find or -1 if no such block is found.
   # Note that the safepoint is removed once the function returns!
@@ -428,7 +428,7 @@ proc cleanUpOnReturn(c: PCtx; f: PStackFrame): int =
       discard f.safePoints.pop
       return pc + 1
 
-proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType): bool =
+proc opConv(c: TCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType): bool =
   if desttyp.kind == tyString:
     dest.ensureKind(rkNode)
     dest.node = newNode(nkStrLit)
@@ -518,7 +518,7 @@ proc opConv(c: PCtx; dest: var TFullReg, src: TFullReg, desttyp, srctyp: PType):
     else:
       asgnComplex(dest, src)
 
-proc compile(c: PCtx, s: PSym): int =
+proc compile(c: var TCtx, s: PSym): int =
   result = vmgen.genProc(c, s)
   when debugEchoCode:
     c.codeListing(s, nil, start = result)
@@ -540,7 +540,7 @@ proc recSetFlagIsRef(arg: PNode) =
   for i in 0..<arg.safeLen:
     arg[i].recSetFlagIsRef
 
-proc setLenSeq(c: PCtx; node: PNode; newLen: int; info: TLineInfo) =
+proc setLenSeq(c: TCtx; node: PNode; newLen: int; info: TLineInfo) =
   let typ = node.typ.skipTypes(abstractInst+{tyRange}-{tyTypeDesc})
   let oldLen = node.len
   setLen(node.sons, newLen)
@@ -572,7 +572,7 @@ template takeAddress(reg, source) =
   when defined(gcDestructors):
     GC_ref source
 
-proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
+proc rawExecute(c: var TCtx, start: int, tos: PStackFrame): TFullReg =
   var pc = start
   var tos = tos
   # Used to keep track of where the execution is resumed.
@@ -2321,12 +2321,12 @@ proc rawExecute(c: PCtx, start: int, tos: PStackFrame): TFullReg =
 
     inc pc
 
-proc execute(c: PCtx, start: int): PNode =
+proc execute(c: var TCtx, start: int): PNode =
   var tos = PStackFrame(prc: nil, comesFrom: 0, next: nil)
   newSeq(tos.slots, c.prc.regInfo.len)
   result = rawExecute(c, start, tos).regToNode
 
-proc execProc*(c: PCtx; sym: PSym; args: openArray[PNode]): PNode =
+proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
   c.loopIterations = c.config.maxLoopIterationsVM
   if sym.kind in routineKinds:
     if sym.typ.len-1 != args.len:
@@ -2355,7 +2355,7 @@ proc execProc*(c: PCtx; sym: PSym; args: openArray[PNode]): PNode =
   else:
     localReport(c.config, sym.info, reportSym(rsemVmCallingNonRoutine, sym))
 
-proc evalStmt*(c: PCtx, n: PNode) =
+proc evalStmt*(c: var TCtx, n: PNode) =
   let n = transformExpr(c.graph, c.idgen, c.module, n)
   let start = genStmt(c, n)
   # execute new instructions; this redundant opcEof check saves us lots
@@ -2363,7 +2363,7 @@ proc evalStmt*(c: PCtx, n: PNode) =
   if c.code[start].opcode != opcEof:
     discard execute(c, start)
 
-proc evalExpr*(c: PCtx, n: PNode): PNode =
+proc evalExpr*(c: var TCtx, n: PNode): PNode =
   # deadcode
   # `nim --eval:"expr"` might've used it at some point for idetools; could
   # be revived for nimsuggest
@@ -2372,11 +2372,11 @@ proc evalExpr*(c: PCtx, n: PNode): PNode =
   assert c.code[start].opcode != opcEof
   result = execute(c, start)
 
-proc getGlobalValue*(c: PCtx; s: PSym): PNode =
+proc getGlobalValue*(c: TCtx; s: PSym): PNode =
   internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
   result = c.globals[s.position-1]
 
-proc setGlobalValue*(c: PCtx; s: PSym, val: PNode) =
+proc setGlobalValue*(c: var TCtx; s: PSym, val: PNode) =
   ## Does not do type checking so ensure the `val` matches the `s.typ`
   internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
   c.globals[s.position-1] = val
@@ -2389,7 +2389,8 @@ proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
     graph.vm = newCtx(module, graph.cache, graph, idgen)
     registerAdditionalOps(PCtx graph.vm)
   else:
-    refresh(PCtx graph.vm, module, idgen)
+    let c = PCtx(graph.vm)
+    refresh(c[], module, idgen)
 
 proc myOpen(graph: ModuleGraph; module: PSym; idgen: IdGenerator): PPassContext {.nosinks.} =
   #var c = newEvalContext(module, emRepl)
@@ -2404,7 +2405,7 @@ proc myProcess(c: PPassContext, n: PNode): PNode =
   let c = PCtx(c)
   # don't eval errornous code:
   if c.oldErrorCount == c.config.errorCounter:
-    evalStmt(c, n)
+    evalStmt(c[], n)
     result = newNodeI(nkEmpty, n.info)
   else:
     result = n
@@ -2422,10 +2423,10 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
   #if g.config.errorCounter > 0: return n
   let n = transformExpr(g, idgen, module, n)
   setupGlobalCtx(module, g, idgen)
-  var c = PCtx g.vm
+  let c = PCtx g.vm
   let oldMode = c.mode
   c.mode = mode
-  let start = genExpr(c, n, requiresValue = mode!=emStaticStmt)
+  let start = genExpr(c[], n, requiresValue = mode!=emStaticStmt)
   if c.code[start].opcode == opcEof: return newNodeI(nkEmpty, n.info)
   assert c.code[start].opcode != opcEof
   when debugEchoCode:
@@ -2434,7 +2435,7 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
   var tos = PStackFrame(prc: prc, comesFrom: 0, next: nil)
   newSeq(tos.slots, c.prc.regInfo.len)
   #for i in 0..<c.prc.regInfo.len: tos.slots[i] = newNode(nkEmpty)
-  result = rawExecute(c, start, tos).regToNode
+  result = rawExecute(c[], start, tos).regToNode
   if result.info.col < 0: result.info = n.info
   c.mode = oldMode
 
@@ -2523,13 +2524,13 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
         got: toInt128(n.safeLen - 1))))
 
   setupGlobalCtx(module, g, idgen)
-  var c = PCtx g.vm
+  let c = PCtx g.vm
   let oldMode = c.mode
   c.mode = emStaticStmt
   c.comesFromHeuristic.line = 0'u16
   c.callsite = n
   c.templInstCounter = templInstCounter
-  let start = genProc(c, sym)
+  let start = genProc(c[], sym)
 
   var tos = PStackFrame(prc: sym, comesFrom: 0, next: nil)
   let maxSlots = sym.offset
@@ -2564,7 +2565,7 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
 
   # temporary storage:
   #for i in L..<maxSlots: tos.slots[i] = newNode(nkEmpty)
-  result = rawExecute(c, start, tos).regToNode
+  result = rawExecute(c[], start, tos).regToNode
   if result.info.line < 0: result.info = n.info
   if cyclicTree(result):
     globalReport(c.config, n.info, reportAst(rsemCyclicTree, n, sym = sym))

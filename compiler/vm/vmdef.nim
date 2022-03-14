@@ -189,16 +189,21 @@ proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph; idgen: IdGenerator
     idgen: idgen
   )
 
-proc refresh*(c: PCtx, module: PSym; idgen: IdGenerator) =
+func refresh*(c: var TCtx, module: PSym; idgen: IdGenerator) =
   addInNimDebugUtils(c.config, "refresh")
   c.module = module
   c.prc = PProc(blocks: @[])
   c.loopIterations = c.config.maxLoopIterationsVM
   c.idgen = idgen
 
-proc registerCallback*(c: PCtx; name: string; callback: VmCallback): int {.discardable.} =
+proc registerCallback*(c: var TCtx; name: string; callback: VmCallback): int {.discardable.} =
   result = c.callbacks.len
   c.callbacks.add((name, callback))
+
+template registerCallback*(c: PCtx; name: string; callback: VmCallback): int {.deprecated.} =
+  ## A transition helper. Use the `registerCallback` proc that takes
+  ## `var TCtx` instead
+  registerCallback(c[], name, callback)
 
 const
   slotSomeTemp* = slotTempUnknown

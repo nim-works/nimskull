@@ -154,7 +154,7 @@ when defined(nimHasInvariant):
 
 proc stackTrace2(c: PCtx, report: SemReport, n: PNode) =
   stackTrace(
-    c,
+    c[],
     PStackFrame(prc: c.prc.sym, comesFrom: 0, next: nil),
     c.exceptionInstr, report, n.info)
 
