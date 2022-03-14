@@ -1142,12 +1142,6 @@ type
   # for every target and matrix entry, which itself is a number of actions and
   # checks.
 
-  TestRunSet = object
-    ## describes extra data for a test `TSpec`
-    # the consecutive range of `TestRun` belonging to this `TestSuite`
-    firstTestRun: RunId    ## id of first `TestRun`
-    extraTestRuns: Natural ## number of `TestRun`s after the first
-
   TestRun = object
     testId: TestId           ## test id for which this belongs
     target: TestTarget       ## which target to run for
@@ -1193,8 +1187,6 @@ type
     nimFile: string          ## filename from last compiler message, if present
     nimLine: int             ## line from last compiler message, if present
     nimColumn: int           ## colunn from last compiler message, if present
-    nimStatus: CompileStatus ## compilation state based on exit code and msgs
-    # xxx: maybe track data by action instead of by run?
     prgOut: string           ## program output, if any
     prgOutSorted: string     ## sorted version of `prgOut`; kept for legacy
                              ## reason, remove when no longer necessary
@@ -1768,117 +1760,6 @@ proc prepareTestActions(execState: var Execution) =
                    kind: actionRun,
                    compileActionId: compileActionId)
 
-proc logToConsole(
-    execState: Execution,
-    action: TestAction,
-    params: ReportParams
-  ) =
-  ## Format test infomation to the console.
-
-  # Refactor - rather than read out of execState, just pass data in
-  let
-    runId = action.runId
-    testId = execState.testRuns[runId].testId
-    testFile = execState.testFiles[testId]
-    testName = testFile.file.changeFileExt("")
-    cat = execState.categories[testFile.catId]
-    debugInfo = execState.debugInfo.getOrDefault(runId)
-    elapsedStr = formatFloat(params.duration, precision = 2).align(5)
-  
-  template displayNonSkipped(colour, outcome) =
-    if not optFailing or colour == fgRed:
-      maybeStyledEcho(
-        colour, outcome,
-        fgCyan, debugInfo,
-        alignLeft(params.name, 60), fgBlue, " ($1 sec)" % elapsedStr
-      )
-  
-  template display(msg) =
-    if not optFailing:
-      maybeStyledEcho(
-        styleDim, fgYellow, msg & ' ',
-        styleBright, fgCyan, params.name)
-
-  case params.success
-  of reSuccess:
-    displayNonSkipped(fgGreen, "PASS: ")
-  of reDisabled, reKnownIssue:           # xxx - handle known issue properly
-    display("SKIP:")
-  of reJoined:
-    doAssert false, "megatest crap is somehow alive"
-  of reNimcCrash, reMsgsDiffer, reFilesDiffer, reLinesDiffer, reOutputsDiffer,
-     reExitcodesDiffer,reTimeout, reInvalidPeg, reCodegenFailure,
-     reCodeNotFound, reExeNotFound, reInstallFailed, reBuildFailed,
-     reInvalidSpec:
-    displayNonSkipped(fgRed, failString)
-    if cat.string.len > 0:
-      maybeStyledEcho(
-        styleBright, fgCyan, "Test \"", testName, "\"",
-        " in category \"", cat.string, "\"")
-    else:
-      maybeStyledEcho(styleBright, fgCyan, "Test \"", testName, "\"")
-
-    maybeStyledEcho(styleBright, fgRed, "Failure: ", $params.success)
-
-    if debugInfo.len > 0:
-      msg Undefined: "debugInfo: " & debugInfo
-    else:
-      if params.outCompare.isNil:
-        # REFACTOR error message formatting should be based on the
-        # `TestReport` data structure that contains all the necessary
-        # information in order to generate an error message.
-        maybeStyledEcho fgYellow, "Expected:"
-        maybeStyledEcho styleBright, params.expected, "\n"
-        maybeStyledEcho fgYellow, "Gotten:"
-        maybeStyledEcho styleBright, params.given, "\n"
-        msg Undefined:
-          diffStrings(params.expected, params.given).output
-      else:
-        msg Undefined: params.outCompare.format().toString(useColors)
-
-proc logToBackend(
-    execState: Execution, action: TestAction, params: ReportParams
-  ) =
-  # Refactor - rather than read out of execState, just pass data in
-  let
-    runId = action.runId
-    testId = execState.testRuns[runId].testId
-    testFile = execState.testFiles[testId]
-    testName = testFile.file.changeFileExt("")
-    cat = execState.categories[testFile.catId]
-  
-  let (outcome, msg) =
-    case params.success
-    of reSuccess:
-      ("Passed", "")
-    of reDisabled, reKnownIssue:
-      ("Skipped", "")
-    of reJoined:
-      doAssert false, "megatest junk creeped in, remove it"
-      ("", "")
-    of reBuildFAiled, reNimcCrash, reInstallFailed:
-      ("Failed", "Failure: $1, \n $2" % [$params.success, params.given])
-    else:
-      ("Failed", "Failure: $1\nExpected:\n$2\n\nGotten:\n$3" % 
-        [$params.success, params.expected, params.given])
-      
-  if isAzure:
-    azure.addTestResult(
-      params.name, cat.string, int(params.duration * 1000), msg, params.success)
-  else:
-    var p = startProcess("appveyor",
-              args = ["AddTest",
-                      # TODO - figure out if this test.options thing is necessary
-                      testName.replace("\\", "/"), #& test.options,
-                      "-Framework",
-                      "nim-testament",
-                      "-FileName", cat.string,
-                      "-Outcome", outcome, "-ErrorMessage", msg,
-                      "-Duration", $(params.duration * 1000).int],
-              options = {poStdErrToStdOut, poUsePath, poParentStreams})
-    discard waitForExit(p)
-    close(p)
-
 proc exeFile(testRun: TestRun, specFilePath: string): string =
   let
     target = testRun.target
@@ -1913,210 +1794,6 @@ proc makeName(test: TestFile,
     result.add " (allowed to fail) "
   # if test.options.len > 0:
   #   result.add ' ' & test.options
-
-proc reportResult(execState: var Execution,
-                  action: TestAction,
-                  expected: string,
-                  given: string,
-                  origResult: TResultEnum) =
-  # Refactor - rather than read out of execState, just pass data in
-  let
-    runId = action.runId
-    run = execState.testRuns[runId]
-    # runResult = execState.runActuals[runId]
-    runTimes = execState.runTimes[runId]
-    testId = run.testId
-    test = execState.testSpecs[testId]
-    allowFailure = test.err == reKnownIssue
-    testFile = execState.testFiles[testId]
-    name = testFile.makeName(run, allowFailure)
-    category = execState.categories[testFile.catId]
-    testAction = $test.action
-    elapsedCompile = runtimes.compileEnd - runtimes.compileStart
-    elapsedRun = runtimes.runEnd - runTimes.runStart
-    elapsedTotal = elapsedCompile + elapsedRun
-    testResult =
-      if test.timeout > 0.0 and elapsedTotal > test.timeout:
-        reTimeout
-      else:
-        origResult
-  
-  if backendLogging:
-    backend.writeTestResult(
-      name     = name,
-      category = category.string,
-      target   = $run.target,
-      action   = testAction,
-      result   = $testResult,
-      expected = expected,
-      given    = given
-    )
-
-  execState.legacyTestData.add:
-    "$#\t$#\t$#\t$#" % ["name", expected, given, $testResult]
-
-  let params = ReportParams(
-    name: "name",
-    duration: elapsedTotal,
-    outCompare: nil,        # TODO: set properly
-    expected: expected,
-    given: given,
-    success: testResult
-  )
-
-  # Write to console
-  execState.logToConsole(action, params)
-
-  if backendLogging and (isAppVeyor or isAzure):
-    # Write to logger
-    execState.logToBackend(action, params)
-
-proc cmpAndReportResult(
-    execState: var Execution,
-    action: TestAction,
-    expected: string,
-    given: string,
-    target: TTarget
-  ) =
-  # TODO - left off here, lots to do to port this over
-
-  ## Compare all test output messages. This proc does structured or
-  ## unstructured comparison comparison and immediately reports it's
-  ## results.
-  ##
-  ## It is used to for performing 'reject' action checks - it compares
-  ## both inline and regular messages - in addition to `nimoutCheck`
-  
-  # let
-  #   runId = action.runId
-  #   run = execState.testRuns[runId]
-  #   testId = run.testId
-  #   spec = execState.testSpecs[testId]
-
-proc sexpCheck(testName: string, spec: TSpec, run: RunActual): TOutCompare =
-  ## Check if expected nimout values match with specified ones. This check
-  ## implements a structured comparison of the data and returns full report
-  ## about all the mismatches that can be formatted as needed.
-  ## This procedure determines whether `run` actual output matches the `spec`.
-  result.cantIgnoreGiven = spec.nimoutFull
-
-  for exp in spec.inlineErrors:
-    var
-      parsed = parseSexp(exp.msg)
-      loc = convertSexp([sexp(testName), sexp(exp.line)])
-    if exp.col > 0:
-      loc.add sexp(exp.col)
-
-    parsed.addField("location", loc)
-    parsed.addField("severity", newSSymbol(exp.kind))
-    result.expectedReports.add:
-      TOutReport(inline: some exp, node: parsed, file: spec.file)
-
-  for line in splitLines(spec.nimout):
-    if 0 < line.len:
-      result.expectedReports.add TOutReport(node: parseSexp(line))
-
-  for line in splitLines(run.nimout):
-    if 0 < line.len:
-      result.givenReports.add TOutReport(node: parseSexp(line))
-
-  template checkResult: TOutCompare =
-    ## allows referencing the outer result in `reportCmp` below
-    bind result
-    result
-
-  proc reportCmp(a, b: int): int =
-    # Best place for further optimization and configuration - if more
-    # comparison speed is needed, try starting with error kind, file, line
-    # comparison, then doing a regular msg != msg compare and only then
-    # deep structural diff.
-    let
-      nodeA = checkResult.expectedReports[a].node
-      nodeB = checkResult.givenReports[b].node
-    if nodeA[0] != nodeB[0]:
-      result += 10
-
-    let diff = diff(nodeA, nodeB)
-    checkResult.diffMap[(a, b)] = diff
-    result += diff.len
-  
-  (result.ignoredExpected, result.ignoredGiven, result.sortedMapping) =
-    stableMatch(
-      result.expectedReports.len,
-      result.givenReports.len,
-      reportCmp,
-      Descending
-    )
-  
-  # REFACTOR - use some boolean algebra to simplify the following:
-  result.match = result.sortedMapping[0].cost <= 0 and
-                 (result.ignoredGiven.len == 0 or not spec.nimoutFull)
-
-proc checkForInlineErrors(execState: var Execution, action: TestAction, name: string) =
-  ## Check for inline error annotations in the nimout results, comparing
-  ## them with the output of the compiler.
-
-  let
-    runId = action.runId
-    run = execState.testRuns[runId]
-    runActual = execState.runActuals[runId]
-    testId = run.testId
-    spec = execState.testSpecs[testId]
-    pegLine = peg"{[^(]*} '(' {\d+} ', ' {\d+} ') ' {[^:]*} ':' \s* {.*}"
-
-  var covered = initIntSet()
-  for line in splitLines(runActual.nimout):
-    # Iterate over each line in the output
-
-    # Searching for the `file(line, col) Severity: text` pattern
-    if line =~ pegLine:
-      let 
-        file = extractFilename(matches[0])
-        line = try: parseInt(matches[1]) except: -1
-        col = try: parseInt(matches[2]) except: -1
-        kind = matches[3]
-        msg = matches[4]
-
-      if file == extractFilename name:
-        # If annotation comes from the target file
-        var i = 0
-        for x in spec.inlineErrors:
-          if x.line == line and (x.col == col or x.col < 0) and
-              x.kind == kind and x.msg in msg:
-            # And annotaiton has matching line, column and message
-            # information, register it as 'covered'
-            covered.incl i
-          inc i
-
-  block coverCheck:
-    for j in 0..high(spec.inlineErrors):
-      # For each output message that was not covered by annotations, add it
-      # to the output as 'missing'
-      if j notin covered:
-        let
-          exp = spec.inlineErrors[j]
-          colStr =
-            if exp.col > 0:
-              ", " & $exp.col
-            else:
-              ""
-          e = "$name($line$col) $kind: $msg" % [
-                "name", name,
-                "line", $exp.line,
-                "col", colStr,
-                "kind", $exp.kind,
-                "msg", exp.msg]
-
-        execState.runActuals[runId].runResult = reMsgsDiffer
-        # TODO - This is where you left off:
-        # * the results should be appended to a result log for each run
-        # * then those get aggregated upwards
-        # r.addResult(test, target, e, runActual.nimout, reMsgsDiffer)
-        break coverCheck
-
-    execState.runActuals[runId].runResult = reSuccess
-    # r.addResult(test, target, "", runActual.nimMsg, reSuccess)
-    # inc(r.passed)
 
 template runTestBatch(execState: var Execution,
                       testCmds: seq[string],
@@ -2189,7 +1866,6 @@ template runTestBatch(execState: var Execution,
       
       # validate exit code and collect action debug info
       execState.runActuals[runId].nimExit = exitCodes[id]
-      execState.runActuals[runId].nimStatus = compileCrashed
       execState.runActuals[runId].runResult = reNimcCrash
       case exitCodes[id]
       of 0:
@@ -2197,7 +1873,6 @@ template runTestBatch(execState: var Execution,
           execState.debugInfo.mgetOrPut(runId, "").add:
             " compiler exit code was 0 but some Error's were found"
         else:
-          execState.runActuals[runId].nimStatus = compileSuccessful
           execState.runActuals[runId].runResult = reSuccess
       of 1:
         if err == "": # no error found
@@ -2442,14 +2117,14 @@ proc runTests(execState: var Execution) =
         else:
           spec.matrix[testRun.matrixEntry]
       target = testRun.target
-      nimcache = nimcacheDir(testFile.file, testArgs, target)
+      nimcache = nimcacheDir(testFile.file, matrixOptions & testArgs, target)
       cmd = prepareTestCmd(spec.getCmd,
                            testFile.file,
                            testArgs,
                            nimcache,
                            target,
                            matrixOptions,
-                           testRun.exeFile(spec.file))
+                           testRun.exeFile(testFile.file))
       testInput =
         case action.kind
         of actionRun: some(spec.input)
@@ -2459,8 +2134,8 @@ proc runTests(execState: var Execution) =
     of actionRun:
       let
         isJsTarget = target == targetJs
-        specFile = execState.testSpecs[testId].file
-        exeFile = testRun.exeFile(spec.file)
+        # specFile = execState.testSpecs[testId].file
+        exeFile = testRun.exeFile(testFile.file)
         exeCmd =
           if isJsTarget:
             findNodeJs()
@@ -2620,7 +2295,6 @@ proc main2() =
 
   # Options have all been parsed; we now act on parsed actions
   # Prepare the results container
-  var r = initResults()
 
   # if optPrintResults:
   #   if action == "html": openDefaultBrowser(resultsFile)
