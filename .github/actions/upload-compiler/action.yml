@@ -20,7 +20,10 @@ runs:
       shell: bash
       working-directory: '${{ inputs.source }}'
 
-    - uses: actions/upload-artifact@v2.2.4
+    - uses: actions/upload-artifact@v3.0.0
       with:
         name: compiler ${{ runner.os }}
         path: '${{ runner.temp }}/compiler.tar'
+        # This action is only used to share data between jobs, there is no need
+        # to keep this artifact for long.
+        retention-days: 1
