@@ -1175,10 +1175,6 @@ type
     runCheckStart: float     ## start of run output check
     runCheckEnd: float       ## end of run output check
 
-  CompileStatus = enum
-    compileCrashed           ## assume that it crashed in test scenarios
-    compileSuccessful        ## exit code was 0 and no error messages
-
   RunActual = object
     ## actual data for a run
     nimout: string           ## nimout from compile, empty if not required
@@ -1216,6 +1212,7 @@ type
     # user and execution inputs
     filter: TestFilter       ## filter that was configured
     flags: ExecutionFlags    ## various options set by the user
+    skipsFile: string        ## test files to skip loaded from `--skipFrom`
     targets: TestTargets     ## specified targets or `noTargetsSpecified`
     workingDir: string       ## working directory to begin execution in
     nodeJs: string           ## path to nodejs binary
@@ -1542,6 +1539,8 @@ proc parseOpts(execState: var Execution, p: var OptParser): ParseCliResult =
       else: return parseQuitWithUsage
     of "retry":
       execState.flags.incl rerunFailed
+    of "skipFrom":
+      execState.loadSkipFrom = p.val
     else:
       return parseQuitWithUsage
     p.next()
@@ -1613,6 +1612,9 @@ proc prepareTestFilesAndSpecs(execState: var Execution) =
     testsDir = execState.testsDir
     filter = execState.filter
     isCompilerRepo = execState.isCompilerRepo
+
+  # REFACTOR: legacy set `specs.skips`
+  skips = loadSkipFrom(execState.skipsFile)
   
   template testFilesFromCat(execState: var Execution, cat: Category) =
     if cat.string notin ["testdata", "nimcache"]:
