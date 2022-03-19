@@ -1192,13 +1192,6 @@ type
 
   RunActuals = seq[RunActual]
 
-  # xxx: add 'check' to remove `cmd: "nim check"...` from tests
-  # TestActionKind = enum
-  #   testActionSkip           ## skip this test; check the spec for why
-  #   testActionReject,        ## reject the compilation
-  #   testActionCompile,       ## compile some source
-  #   testActionRun            ## run the compiled program
-
   TestOptionData = object
     optMatrix: seq[string]   ## matrix of cli options for this test
     action: Option[TTestAction] ## possible action override
