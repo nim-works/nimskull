@@ -22,6 +22,47 @@ import lib/stdtest/testutils
 from lib/stdtest/specialpaths import splitTestFile
 import experimental/[sexp, sexp_diff, colortext, colordiff]
 
+const
+  failString* = "FAIL: "
+    ## ensures all failures can be searched with 1 keyword in CI logs
+  knownIssueSuccessString* = "KNOWNISSUE: "
+    ## ensures all now succeeding known issues can be searched with 1 keyword
+    ## in CI logs
+  testsDir = "tests" & DirSep
+  resultsFile = "testresults.html"
+  Usage = """Usage:
+  testament [options] command [arguments]
+
+Command:
+  p|pat|pattern <glob>        run all the tests matching the given pattern
+  all                         run all tests
+  c|cat|category <category>   run all the tests of a certain category
+  r|run <test>                run single test file
+  html                        generate $1 from the database
+Arguments:
+  arguments are passed to the compiler
+Options:
+  --retry                   runs tests that failed the last run
+  --print                   print results to the console
+  --verbose                 print commands (compiling and running tests)
+  --simulate                see what tests would be run but don't run them (for debugging)
+  --failing                 only show failing/ignored tests
+  --targets:"c cpp js objc" run tests for specified targets (default: all)
+  --nim:path                use a particular nim executable (default: $$PATH/nim)
+  --directory:dir           Change to directory dir before reading the tests or doing anything else.
+  --colors:on|off           Turn messages coloring on|off.
+  --backendLogging:on|off   Disable or enable backend logging. By default turned on.
+  --megatest:on|off         Enable or disable megatest. Default is on.
+  --skipFrom:file           Read tests to skip from `file` - one test per line, # comments ignored.
+  --includeKnownIssues      runs tests that are marked as known issues
+
+On Azure Pipelines, testament will also publish test results via Azure Pipelines' Test Management API
+provided that System.AccessToken is made available via the environment variable SYSTEM_ACCESSTOKEN.
+
+Experimental: using environment variable `NIM_TESTAMENT_REMOTE_NETWORKING=1` enables
+tests with remote networking (as in CI).
+""" % resultsFile
+
 proc trimUnitSep(x: var string) =
   let L = x.len
   if L > 0 and x[^1] == '\31':
@@ -148,47 +189,6 @@ proc msg(msgType: MessageType; parts: varargs[string, `$`]) =
 proc verboseCmd(cmd: string) {.inline.} =
   if optVerbose:
     msg Undefined: "executing: " & cmd
-
-const
-  failString* = "FAIL: "
-    ## ensures all failures can be searched with 1 keyword in CI logs
-  knownIssueSuccessString* = "KNOWNISSUE: "
-    ## ensures all now succeeding known issues can be searched with 1 keyword
-    ## in CI logs
-  testsDir = "tests" & DirSep
-  resultsFile = "testresults.html"
-  Usage = """Usage:
-  testament [options] command [arguments]
-
-Command:
-  p|pat|pattern <glob>        run all the tests matching the given pattern
-  all                         run all tests
-  c|cat|category <category>   run all the tests of a certain category
-  r|run <test>                run single test file
-  html                        generate $1 from the database
-Arguments:
-  arguments are passed to the compiler
-Options:
-  --retry                   runs tests that failed the last run
-  --print                   print results to the console
-  --verbose                 print commands (compiling and running tests)
-  --simulate                see what tests would be run but don't run them (for debugging)
-  --failing                 only show failing/ignored tests
-  --targets:"c cpp js objc" run tests for specified targets (default: all)
-  --nim:path                use a particular nim executable (default: $$PATH/nim)
-  --directory:dir           Change to directory dir before reading the tests or doing anything else.
-  --colors:on|off           Turn messages coloring on|off.
-  --backendLogging:on|off   Disable or enable backend logging. By default turned on.
-  --megatest:on|off         Enable or disable megatest. Default is on.
-  --skipFrom:file           Read tests to skip from `file` - one test per line, # comments ignored.
-  --includeKnownIssues      runs tests that are marked as known issues
-
-On Azure Pipelines, testament will also publish test results via Azure Pipelines' Test Management API
-provided that System.AccessToken is made available via the environment variable SYSTEM_ACCESSTOKEN.
-
-Experimental: using environment variable `NIM_TESTAMENT_REMOTE_NETWORKING=1` enables
-tests with remote networking (as in CI).
-""" % resultsFile
 
 proc isNimRepoTests(): bool =
   # this logic could either be specific to cwd, or to some file derived from
@@ -1533,7 +1533,7 @@ proc parseOpts(execState: var Execution, p: var OptParser): ParseCliResult =
     of "retry":
       execState.flags.incl rerunFailed
     of "skipFrom":
-      execState.loadSkipFrom = p.val
+      execState.skipsFile = p.val
     else:
       return parseQuitWithUsage
     p.next()
@@ -2047,6 +2047,8 @@ proc runTests(execState: var Execution) =
                                     # xxx: use processor count
     testArgs = execState.testArgs   ## arguments from the cli for each test
     verbose = outputVerbose in execState.flags
+    dryRun = ExecutionFlag.dryRun in execState.flags
+    totalCats = execState.categories.len
 
   # test commands and a mapping for command id (`osproc.execProcesses`) to
   # actionId, along with a pair of `next` ones so we can serialize the compile
@@ -2065,6 +2067,7 @@ proc runTests(execState: var Execution) =
     startTimes {.threadvar.}: seq[float]
     endTimes {.threadvar.}: seq[float]
     batches = 0
+    startedCategoryIds: seq[CategoryId]
 
   exitCodes = newSeq[int](batchSize)
   outputs = newSeq[string](batchSize)
@@ -2122,6 +2125,26 @@ proc runTests(execState: var Execution) =
         case action.kind
         of actionRun: some(spec.input)
         else: options.none[string]()
+      catId = testFile.catId
+    
+    if catId notin startedCategoryIds:
+      let cat = execState.categories[catId].string
+    
+      msg Progress:
+        "progress[all]: $1/$2 starting: cat: $3" % [$catId, $totalCats, cat]
+
+    if dryRun:
+      let
+        count = testId  # assumes it's in ascending order
+        expected = testRuns.len
+      case action.kind
+      of actionCompile, actionReject:
+        msg Undefined:
+          "testSpec count: " & $count & " expected: " & $expected
+      of actionRun:
+        discard # we'll have reported the compile action already
+
+      continue # don't actually run any tests
 
     case action.kind
     of actionRun:
