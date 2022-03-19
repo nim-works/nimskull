@@ -21,7 +21,6 @@ const
     "debugger",
     "dll",
     "gc",
-    "io",
     "js",
     "ic",
     "lib",
@@ -223,24 +222,6 @@ proc setupThreadTests(execState: var Execution, catId: CategoryId) =
     execState.testFiles.add TestFile(file: t, catId: catId)
     execState.testOpts[testId] = TestOptionData(
       optMatrix: @["", "-d:release", "--tlsEmulation:on"])
-
-# ------------------------- IO tests ------------------------------------------
-
-proc ioTests(r: var TResults, cat: Category, options: string) =
-  # We need readall_echo to be compiled for this test to run.
-  # dummy compile result:
-  var c = initResults()
-  testSpec c, makeTest("tests/system/helpers/readall_echo", options, cat)
-  #        ^- why is this not appended to r? Should this be discarded?
-  # EDIT: this should be replaced by something like in D20210524T180826,
-  # likewise in similar instances where `testSpec c` is used, or more generally
-  # when a test depends on another test, as it makes tests non-independent,
-  # creating complications for batching and megatest logic.
-  testSpec r, makeTest("tests/system/tio", options, cat)
-
-proc setupIoTests(execState: var Execution, catId: CategoryId) =
-  # FIXME: not quite sure what the old one did, or how it even worked
-  discard
 
 # ------------------------- debugger tests ------------------------------------
 
@@ -530,8 +511,6 @@ proc processCategory(r: var TResults, cat: Category,
       manyLoc r, cat, options
     of "threads":
       threadTests r, cat, options & " --threads:on"
-    of "io":
-      ioTests r, cat, options
     of "lib":
       testStdlib(r, "lib/pure/", options, cat)
     of "untestable":

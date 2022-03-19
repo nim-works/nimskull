@@ -212,7 +212,7 @@ type
     spec: TSpec
     startTime: float
     duration: Option[float]
-      ## let's newer code pass duration to legacy code
+      ## allows newer code pass duration to legacy code
     debugInfo: string
 
 # ----------------------------------------------------------------------------
@@ -1628,8 +1628,6 @@ proc prepareTestFilesAndSpecs(execState: var Execution) =
           setupGcTests(execState, catId)
         of "threads":
           setupThreadTests(execState, catId)
-        of "io":
-          setupIoTests(execState, catId)
         of "lib":
           # xxx: implement this proc and all the subsequent handling
           setupStdlibTests(execState, catId)
