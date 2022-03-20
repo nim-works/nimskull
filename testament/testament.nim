@@ -1788,6 +1788,98 @@ proc makeName(test: TestFile,
   # if test.options.len > 0:
   #   result.add ' ' & test.options
 
+proc reportTestRunResult(
+    legacyResults: var TResults,
+    cat: Category,
+    testFile: TestFile,
+    spec: TSpec,
+    testRun: TestRun,
+    runActual: RunActual,
+    runTime: RunTime,
+    action: TestAction,
+    cmd: string,
+    debugInfo: string
+  ) =
+  ## birdge newer testament internals (`ExecutionState` and friends) to the
+  ## legacy reporting and generate output accordingly.
+
+  let
+    duration = runTime.compileEnd - runTime.compileStart +
+                runTime.runEnd - runTime.runStart
+    target = testRun.target
+    allowFailure = spec.err == reKnownIssue
+
+  var
+    givenAsSpec = TSpec(
+      cmd: cmd,
+      nimout: runActual.nimout,
+      msg: runActual.nimMsg,
+      file: runActual.nimFile,
+      output: runActual.prgOut,
+      line: runActual.nimLine,
+      column: runActual.nimColumn,
+      err: runActual.runResult,
+      debugInfo: debugInfo)
+    legacyTest = TTest(
+      cat: cat,
+      name: testFile.makeName(testRun, allowFailure),
+      options:
+        if testRun.matrixEntry == noMatrixEntry:
+          ""
+        else:
+          spec.matrix[testRun.matrixEntry],
+      spec: spec,
+      duration: some(duration))
+
+  case spec.action
+  of actionCompile:
+    compilerOutputTests(legacyTest, target, givenAsSpec, spec, legacyResults)
+  of actionRun:
+    case action.kind
+    of actionCompile:
+      case givenAsSpec.err
+      of reSuccess:
+        discard # success will be determined after `actionRun`
+      of reExeNotFound:
+        legacyResults.addResult(
+          legacyTest,
+          target,
+          spec.output,
+          "executable not found: " & testRun.exeFile(givenAsSpec.file),
+          reExeNotFound
+        )
+      else:
+        # all other errors
+        legacyResults.addResult(
+          legacyTest,
+          target,
+          "",
+          "$ " & givenAsSpec.cmd & '\n' & givenAsSpec.nimout,
+          givenAsSpec.err,
+          givenSpec = givenAsSpec.addr
+        )
+    of actionRun:
+      checkCmdHelper(
+        legacyResults,
+        legacyTest,
+        testRun.target,
+        spec,
+        givenAsSpec,
+        runActual.prgOutSorted,
+        case runActual.prgExit:
+          # xxx - sigh... weird legacy
+          # Treat all failure codes from nodejs as 1. Older versions of
+          # nodejs used to return other codes, but for us it is sufficient
+          # to know that it's not 0.
+          of 0: 0
+          else: 1
+        )
+    of actionReject:
+      doAssert false, "we should never get here"
+  of actionReject:
+    # Scan compiler output fully for all mismatches and report if any found
+    cmpMsgs(legacyResults, spec, givenAsSpec, legacyTest, target)
+
 template runTestBatch(execState: var Execution,
                       testCmds: seq[string],
                       processOpts: set[ProcessOption],
@@ -1829,7 +1921,6 @@ template runTestBatch(execState: var Execution,
       spec = execState.testSpecs[testId]
       cmd = testCmds[id]
       testFile = execState.testFiles[testId]
-      allowFailure = spec.err == reKnownIssue
       # durationStr = duration.formatFloat(ffDecimal, precision = 2).align(5)
 
     execState.runActuals[runId].lastAction = actionId
@@ -1950,81 +2041,20 @@ template runTestBatch(execState: var Execution,
       #        compiles yet.
       execState.runActuals[runId].runResult = testResult
 
-    let
-      runTime = execState.runTimes[runId]
-      duration = runTime.compileEnd - runTime.compileStart +
-                 runTime.runEnd - runTime.runStart
+    var legacyResults = execState.legacyTestResults
 
-    var
-      givenAsSpec = TSpec(
-        cmd: cmd,
-        nimout: execState.runActuals[runId].nimout,
-        msg: execState.runActuals[runId].nimMsg,
-        file: execState.runActuals[runId].nimFile,
-        output: execState.runActuals[runId].prgOut,
-        line: execState.runActuals[runId].nimLine,
-        column: execState.runActuals[runId].nimColumn,
-        err: execState.runActuals[runId].runResult,
-        debugInfo: execState.debugInfo.getOrDefault(runId, ""))
-      legacyTest = TTest(
-        cat: execState.categories[testFile.catId],
-        name: testFile.makeName(testRun, allowFailure),
-        options:
-          if testRun.matrixEntry == noMatrixEntry:
-            ""
-          else:
-            spec.matrix[testRun.matrixEntry],
-        spec: spec,
-        duration: some(duration))
-      legacyResults = execState.legacyTestResults
-    case spec.action
-    of actionCompile:
-      compilerOutputTests(legacyTest, target, givenAsSpec, spec, legacyResults)
-    of actionRun:
-      case action.kind
-      of actionCompile:
-        case givenAsSpec.err
-        of reSuccess:
-          discard # success will be determined after `actionRun`
-        of reExeNotFound:
-          legacyResults.addResult(
-            legacyTest,
-            target,
-            spec.output,
-            "executable not found: " & testRun.exeFile(givenAsSpec.file),
-            reExeNotFound
-          )
-        else:
-          # all other errors
-          legacyResults.addResult(
-            legacyTest,
-            target,
-            "",
-            "$ " & givenAsSpec.cmd & '\n' & givenAsSpec.nimout,
-            givenAsSpec.err,
-            givenSpec = givenAsSpec.addr
-          )
-      of actionRun:
-        checkCmdHelper(
-          legacyResults,
-          legacyTest,
-          testRun.target,
-          spec,
-          givenAsSpec,
-          execState.runActuals[runId].prgOutSorted,
-          case execState.runActuals[runId].prgExit:
-            # xxx - sigh... weird legacy
-            # Treat all failure codes from nodejs as 1. Older versions of
-            # nodejs used to return other codes, but for us it is sufficient
-            # to know that it's not 0.
-            of 0: 0
-            else: 1
-          )
-      of actionReject:
-        doAssert false, "we should never get here"
-    of actionReject:
-      # Scan compiler output fully for all mismatches and report if any found
-      cmpMsgs(legacyResults, spec, givenAsSpec, legacyTest, target)
+    reportTestRunResult(
+        legacyResults = legacyResults,
+        cat = execState.categories[testFile.catId],
+        testFile = testFile,
+        spec = spec,
+        testRun = testRun,
+        runActual = execState.runActuals[runId],
+        runTime = execState.runTimes[runId],
+        action = action,
+        cmd = cmd,
+        debugInfo = execState.debugInfo.getOrDefault(runId, "")
+      )
 
     execState.legacyTestResults = legacyResults # write them back
 
