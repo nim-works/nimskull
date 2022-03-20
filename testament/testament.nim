@@ -2129,6 +2129,7 @@ proc runTests(execState: var Execution) =
     
     if catId notin startedCategoryIds:
       let cat = execState.categories[catId].string
+      startedCategoryIds.add catId
     
       msg Progress:
         "progress[all]: $1/$2 starting: cat: $3" % [$catId, $totalCats, cat]
@@ -2145,6 +2146,34 @@ proc runTests(execState: var Execution) =
         discard # we'll have reported the compile action already
 
       continue # don't actually run any tests
+
+    # handle skipping of disabled and known issues
+    case spec.err
+    of reDisabled, reKnownIssue:
+      let
+        allowFailure = spec.err == reKnownIssue
+        legacyTest = TTest(
+            cat: execState.categories[testFile.catId],
+            name: testFile.makeName(testRun, allowFailure),
+            spec: spec,
+            duration: some(0.0),
+            options:
+              if testRun.matrixEntry == noMatrixEntry:
+                ""
+              else:
+                spec.matrix[testRun.matrixEntry]
+          )
+      execState.legacyTestResults.addResult(
+          legacyTest,
+          target,
+          "",
+          "",
+          spec.err,
+          allowFailure
+        )
+      continue
+    else:
+      discard # keep processing
 
     case action.kind
     of actionRun:
