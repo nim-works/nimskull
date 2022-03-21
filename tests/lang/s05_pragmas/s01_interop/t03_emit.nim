@@ -1,15 +1,16 @@
 block emit_type:
-  {.emit: """/*TYPESECTION*/
-struct CStruct { int field; };
-""".}
+  when not defined(js):       # should work in c / c++
+    {.emit: """/*TYPESECTION*/
+  struct CStruct { int field; };
+  """.}
 
-  type
-    CStruct {.importc: "struct CStruct".} = object
-      field: cint
+    type
+      CStruct {.importc: "struct CStruct".} = object
+        field: cint
 
 
-  var struct = CStruct()
-  struct.field = 12
+    var struct = CStruct()
+    struct.field = 12
 
 block interpolate_variables:
   proc impl() = 

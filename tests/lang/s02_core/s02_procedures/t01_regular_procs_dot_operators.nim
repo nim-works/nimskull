@@ -2,7 +2,7 @@ discard """
 description: '''
 Specification of the experimental dot operators feature
 '''
-cmd: "nim $target -r -d:nimPreviewDotLikeOps $options $file"
+matrix: "-d:nimPreviewDotLikeOps"
 """
 
 {.experimental: "dotOperators".}
