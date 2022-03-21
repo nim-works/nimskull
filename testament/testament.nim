@@ -22,6 +22,13 @@ import lib/stdtest/testutils
 from lib/stdtest/specialpaths import splitTestFile
 import experimental/[sexp, sexp_diff, colortext, colordiff]
 
+# TODO - things to do before this can be finalized:
+# * get the tests running
+# * remove legacy cruft inside testament
+# * Test name, exe, printable name generation
+# * Update usage and remove unsupported features
+# * update docs so testament is for the compiler only
+
 const
   failString* = "FAIL: "
     ## ensures all failures can be searched with 1 keyword in CI logs
@@ -399,7 +406,7 @@ Tests known issues succeeded: $3 / $1 <br />
 Tests skipped: $4 / $1 <br />
 """ % [$x.total, $x.passed, $x.knownIssuesSucceeded, $x.skipped]
 
-proc getName(test: TTest, target: TTarget, allowFailure: bool): string =
+proc printableName(test: TTest, target: TTarget, allowFailure: bool): string =
   var name = test.name.replace(DirSep, '/')
   name.add ' ' & $target
   if allowFailure:
@@ -542,7 +549,7 @@ proc addResult(
   # Compute test duration, final success status, prepare formatting variables
   var param: ReportParams
 
-  param.name = test.getName(target, allowFailure)
+  param.name = test.printableName(target, allowFailure)
   param.duration =
     if test.duration.isSome:
       test.duration.get
@@ -775,12 +782,16 @@ proc cmpMsgs(
 
 proc generatedFile(test: TTest, target: TTarget): string =
   ## Get path to the generated file name from the test.
-  if target == targetJS:
-    result = test.name.changeFileExt("js")
-  else:
-    let (_, name, _) = test.name.splitFile
-    let ext = target.ext
-    result = nimcacheDir(test.name, test.options, target) / "@m" & name.changeFileExt(ext)
+  result =
+    case target
+    of targetJS:
+      test.name.changeFileExt("js")
+    else:
+      let
+        testFile = test.spec.file
+        (_, name, _) = testFile.splitFile
+        ext = target.ext
+      nimcacheDir(testFile, test.options, target) / "@m" & name.changeFileExt(ext)
 
 proc needsCodegenCheck(spec: TSpec): bool =
   ## If there is any checks that need to be performed for a generated code
@@ -1780,7 +1791,7 @@ proc makeName(test: TestFile,
     target = testRun.target
     matrixEntry = testRun.matrixEntry
   result = test.file.changeFileExt("").replace(DirSep, '/')
-  result.add ' ' & $target
+  result.add '_' & $target
   if matrixEntry != noMatrixEntry:
     result.add "[$1]" % $matrixEntry
   if allowFailure:
