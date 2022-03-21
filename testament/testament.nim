@@ -2255,7 +2255,6 @@ proc runTests(execState: var Execution) =
       lastActionId = testActions.len - 1
       lastAction = actionId == lastActionId
       currBatchFull = testCmds.len == batchSize
-      nextBatchFull = nextTestCmds.len == batchSize
       processOpts = {poStdErrToStdOut, poUsePath}
 
     if currBatchFull or lastAction:
@@ -2302,6 +2301,8 @@ proc runTests(execState: var Execution) =
       nextCmdIdToActId.setLen(0)
       nextCmdIdToActKind.setLen(0)
       nextCmdIdToInput.setLen(0)
+
+    let nextBatchFull = nextTestCmds.len == batchSize
 
     if nextBatchFull or lastAction:
       runTestBatch(execState,
