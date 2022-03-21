@@ -153,10 +153,23 @@ when defined(nimHasInvariant):
     of MultipleValueSetting.clibs: copySeq(conf.cLibs)
 
 proc stackTrace2(c: PCtx, report: SemReport, n: PNode) =
+  # TODO: we need a proper way for a VmCallback to raise errors. Right now,
+  # `stackTrace2` doesn't abort execution (both callback and vm), which will
+  # probably lead to the compiler crashing sooner or later
+
+  # Add a temporary stack frame so that the callback call shows up in the trace
+  # XXX: unfortunately, we don't know who called us and from where. The stack 
+  # trace will only contain the callback as a single entry
+  c.sframes.add TStackFrame(prc: c.prc.sym, comesFrom: 0, next: -1)
+    
   stackTrace(
     c[],
-    PStackFrame(prc: c.prc.sym, comesFrom: 0, next: nil),
+    c.sframes.high,
+    # TODO: `c.exceptionInstr` is completely wrong here. It refers to the instruction 
+    # that most recently raised (or 0 if raise was never called yet). 
     c.exceptionInstr, report, n.info)
+  # Remove temporary frame again
+  discard c.sframes.pop()
 
 proc registerAdditionalOps*(c: PCtx) =
 

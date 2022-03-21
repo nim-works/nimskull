@@ -527,13 +527,19 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemVmStackTrace:
       result = "stack trace: (most recent call last)\n"
-      for idx, (sym, loc) in r.stacktrace:
+      for idx in countdown(r.stacktrace.high, 0):
+        let (sym, loc) = r.stacktrace[idx]
         result.add(
           conf.toStr(loc),
           " ",
-          sym.name.s,
-          if idx == r.stacktrace.high: "" else: "\n"
+          if sym != nil: sym.name.s else: "???"
         )
+        if r.skipped > 0 and idx == r.stacktrace.high:
+          # The entry point is always the last element in the list
+          result.add("\nSkipped ", r.skipped, " entries, calls that led up to printing")
+
+        if idx > 0: 
+          result.add("\n")
 
     of rsemVmUnhandledException:
       result.addf(

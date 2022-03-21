@@ -251,6 +251,7 @@ type
         currentExceptionA*, currentExceptionB*: PNode
         traceReason*: ReportKind
         stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
+        skipped*: int
 
       of rsemReportCountMismatch,
          rsemWrongNumberOfVariables:

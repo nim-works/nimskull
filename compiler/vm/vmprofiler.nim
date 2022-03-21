@@ -16,24 +16,25 @@ import
   ]
 
 
-proc enter*(prof: var Profiler, c: var TCtx, tos: PStackFrame) {.inline.} =
+proc enter*(prof: var Profiler, c: TCtx, sframe: StackFrameIndex) {.inline.} =
   if optProfileVM in c.config.globalOptions:
     prof.tEnter = cpuTime()
-    prof.tos = tos
+    prof.sframe = sframe
 
 proc leaveImpl(prof: var Profiler, c: TCtx) {.noinline.} =
   let tLeave = cpuTime()
-  var tos = prof.tos
+  var frameIdx = prof.sframe
   var data = c.config.vmProfileData.data
-  while tos != nil:
-    if tos.prc != nil:
-      let li = tos.prc.info
+  while frameIdx >= 0:
+    let frame = c.sframes[frameIdx]
+    if frame.prc != nil:
+      let li = frame.prc.info
       if li notin data:
         data[li] = ProfileInfo()
       data[li].time += tLeave - prof.tEnter
-      if tos == prof.tos:
+      if frameIdx == prof.sframe:
         inc data[li].count
-    tos = tos.next
+    frameIdx = frame.next
 
 proc leave*(prof: var Profiler, c: TCtx) {.inline.} =
   if optProfileVM in c.config.globalOptions:
