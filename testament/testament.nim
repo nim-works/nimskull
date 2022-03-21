@@ -2232,21 +2232,18 @@ proc runTests(execState: var Execution) =
           else:
             @[]
         cmd = (@[exeCmd] & args).map(quoteShell).join(" ")
-        compileSuccessful = execState.runActuals[runId].runResult == reSuccess
 
-      if compileSuccessful:
-        if testCmds.len == 0: # we've already processed its dependency
-          testCmds.add cmd
-          cmdIdToActId.add actionId
-          cmdIdToActKind.add action.kind
-          cmdIdToInput.add testInput
-        else: # dependency is in the current batch, add to the next
-          nextTestCmds.add cmd
-          nextCmdIdToActId.add actionId
-          nextCmdIdToActKind.add action.kind
-          nextCmdIdToInput.add testInput
-      else:
-        discard # compile failed, so we don't do anything else
+      if testCmds.len == 0: # we've already processed its dependency
+        testCmds.add cmd
+        cmdIdToActId.add actionId
+        cmdIdToActKind.add action.kind
+        cmdIdToInput.add testInput
+      else: # dependency is in the current batch, add to the next
+        nextTestCmds.add cmd
+        nextCmdIdToActId.add actionId
+        nextCmdIdToActKind.add action.kind
+        nextCmdIdToInput.add testInput
+
     of actionCompile, actionReject:
       # add to this batch
       testCmds.add cmd
@@ -2269,19 +2266,36 @@ proc runTests(execState: var Execution) =
                    exitCodes,
                    outputs,
                    startTimes, endTimes,
-                   onTestRunStart,
-                   onTestProcess, onTestRunComplete,
+                   onTestRunStart, onTestProcess, onTestRunComplete,
                    cmdIdToActId,
                    cmdIdToActKind,
                    cmdIdToInput)
       
+      var i = 0
+      while i < nextCmdIdToActId.len:
+        let
+          cid = i
+          aid = nextCmdIdToActId[cid]
+          currAct = execState.actions[aid]
+          currRunResult = execState.runActuals[currAct.runId].runResult
+
+        case currRunResult
+        of reSuccess:
+          # this item is ok, we can proceed to the next one
+          inc i
+        else:
+          # this isn't ok, remove it and the next item will take its place; so
+          # don't increment `i` because the "item comes to us"
+          nextTestCmds.delete(cid)
+          nextCmdIdToActId.delete(cid)
+          nextCmdIdToActKind.delete(cid)
+          nextCmdIdToInput.delete(cid)
+
       # copy next cmds and cmd id to run id map to current
       testCmds = nextTestCmds
       cmdIdToActId = nextCmdIdToActId
       cmdIdToActKind = nextCmdIdToActKind
       cmdIdToInput = nextCmdIdToInput
-
-      # TODO - check for action failures and invalidate actions in next
 
       # clear old next batch information
       nextTestCmds.setLen(0)
@@ -2297,8 +2311,7 @@ proc runTests(execState: var Execution) =
                    exitCodes,
                    outputs,
                    startTimes, endTimes,
-                   onTestRunStart,
-                   onTestProcess, onTestRunComplete,
+                   onTestRunStart, onTestProcess, onTestRunComplete,
                    cmdIdToActId,
                    cmdIdToActKind,
                    cmdIdToInput)
