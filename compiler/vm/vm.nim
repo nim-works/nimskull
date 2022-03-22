@@ -73,32 +73,47 @@ const
 
 proc stackTraceImpl(
     c:          TCtx,
-    sframe:     PStackFrame,
+    sframe:     StackFrameIndex,
     pc:         int,
     lineInfo:   TLineInfo,
     infoOrigin: InstantiationInfo,
     recursionLimit: int = 100
   ) =
-
-  proc aux(c: TCtx, sframe: PStackFrame, pc, depth: int, res: var SemReport) =
-    if sframe != nil:
-      if recursionLimit < depth:
-        var calls = 0
-        var sframe = sframe
-        while sframe != nil:
-          inc calls
-          sframe = sframe.next
-
-        return
-
-      aux(c, sframe.next, sframe.comesFrom, depth + 1, res)
-      res.stacktrace.add((sym: sframe.prc, location: c.debug[pc]))
+  ## Generate and report the stack trace starting at frame `sframe` (inclusive).
+  ## The generated trace length is capped at `recursionLimit`, but always includes
+  ## the entry function
+  assert c.sframes.len > 0
 
   var res = SemReport(kind: rsemVmStackTrace)
   res.currentExceptionA = c.currentExceptionA
   res.currentExceptionB = c.currentExceptionB
 
-  aux(c, sframe, pc, 0, res)
+  block:
+    var i = sframe
+    var count = 0
+    var pc = pc
+    # Traverse the stack formed via the `next` field
+    while i >= 0:
+      let f = c.sframes[i]
+      i = f.next
+
+      if count < recursionLimit - 1 or i == 0:
+        # The `i == 0` is to make sure that we're always including the
+        # bottom of the stack (the entry function) in the trace
+
+        # Since we're walking the stack from top to bottom,
+        # the elements are added to the trace in reverse order 
+        # (the most recent function is first in the list, not last).
+        # This needs to be accounted for by the actual reporting logic
+        res.stacktrace.add((sym: f.prc, location: c.debug[pc]))
+
+      pc = f.comesFrom
+      inc count
+
+    if count > recursionLimit:
+      res.skipped = count - recursionLimit
+
+  assert res.stacktrace.len() <= recursionLimit # post condition check
 
   let action = if c.mode == emRepl: doRaise else: doNothing
 
@@ -109,33 +124,33 @@ proc stackTraceImpl(
 
 template stackTrace(
     c: TCtx,
-    tos: PStackFrame,
+    sframe: StackFrameIndex,
     pc: int,
     sem: ReportTypes,
     info: TLineInfo,
   ) =
-  stackTraceImpl(c, tos, pc, info, instLoc())
+  stackTraceImpl(c, sframe, pc, info, instLoc())
   localReport(c.config, info, sem)
   return
 
 template stackTrace(
     c: TCtx,
-    tos: PStackFrame,
+    sframe: StackFrameIndex,
     pc: int,
     sem: ReportTypes,
   ) =
-  stackTraceImpl(c, tos, pc, c.debug[pc], instLoc())
+  stackTraceImpl(c, sframe, pc, c.debug[pc], instLoc())
   localReport(c.config, c.debug[pc], sem)
   return
 
-proc reportException(c: TCtx; tos: PStackFrame, raised: PNode) =
+proc reportException(c: TCtx; sframe: StackFrameIndex, raised: PNode) =
   # REFACTOR VM implementation relies on the `stackTrace` calling return,
   # but in this proc we are retuning only from it's body, so calling
   # `reportException()` does not stop vm loops. This needs to be cleaned up
   # - invisible injection of the `return` to control flow of execution is
   # an absolute monkey-tier hack.
   stackTrace(
-    c, tos, c.exceptionInstr,
+    c, sframe, c.exceptionInstr,
     reportAst(rsemVmUnhandledException, raised))
 
 
@@ -328,10 +343,10 @@ proc regToNode(x: TFullReg): PNode =
 template getstr(a: untyped): untyped =
   (if a.kind == rkNode: a.node.strVal else: $chr(int(a.intVal)))
 
-proc pushSafePoint(f: PStackFrame; pc: int) =
+proc pushSafePoint(f: var TStackFrame; pc: int) =
   f.safePoints.add(pc)
 
-proc popSafePoint(f: PStackFrame) =
+proc popSafePoint(f: var TStackFrame) =
   discard f.safePoints.pop()
 
 type
@@ -340,7 +355,7 @@ type
     ExceptionGotoFinally,
     ExceptionGotoUnhandled
 
-proc findExceptionHandler(c: TCtx, f: PStackFrame, exc: PNode):
+proc findExceptionHandler(c: TCtx, f: var TStackFrame, exc: PNode):
     tuple[why: ExceptionGoto, where: int] =
   let raisedType = exc.typ.skipTypes(abstractPtrs)
 
@@ -411,7 +426,7 @@ proc findExceptionHandler(c: TCtx, f: PStackFrame, exc: PNode):
 
   return (ExceptionGotoUnhandled, 0)
 
-proc cleanUpOnReturn(c: TCtx; f: PStackFrame): int =
+proc cleanUpOnReturn(c: TCtx; f: var TStackFrame): int =
   # Walk up the chain of safepoints and return the PC of the first `finally`
   # block we find or -1 if no such block is found.
   # Note that the safepoint is removed once the function returns!
@@ -572,19 +587,49 @@ template takeAddress(reg, source) =
   when defined(gcDestructors):
     GC_ref source
 
-proc rawExecute(c: var TCtx, start: int, tos: PStackFrame): TFullReg =
+proc rawExecute(c: var TCtx, start: int, sframe: StackFrameIndex): TFullReg =
+  assert sframe == c.sframes.high
+
   var pc = start
-  var tos = tos
+  var tos = sframe # Top-of-stack
   # Used to keep track of where the execution is resumed.
   var savedPC = -1
-  var savedFrame: PStackFrame
+  var savedFrame: StackFrameIndex
   when defined(gcArc) or defined(gcOrc):
-    template updateRegsAlias = discard
-    template regs: untyped = tos.slots
+    var tosPtr: ptr TStackFrame
+    template regs: untyped = tosPtr.slots
+    template updateRegsAlias =
+      tosPtr = addr c.sframes[tos]
+    updateRegsAlias
   else:
     template updateRegsAlias =
-      move(regs, tos.slots)
+      move(regs, c.sframes[tos].slots)
     var regs: seq[TFullReg] # alias to tos.slots for performance
+    updateRegsAlias
+
+  template pushFrame(p: TStackFrame) =
+    c.sframes.add(p)
+    tos = c.sframes.high
+    updateRegsAlias
+
+  template popFrame() =
+    tos = c.sframes[tos].next
+    # Possibly throws aways all frames left alive for `raise` 
+    # handling, but since the exception is swallowed anyway,
+    # it doesn't really matter
+    c.sframes.setLen(tos + 1)
+    updateRegsAlias
+
+  template gotoFrame(f: int) =
+    tos = f
+    assert tos in 0..c.sframes.high
+    updateRegsAlias
+
+  template unwindToFrame(f: int) =
+    let nf = f
+    assert nf in 0..c.sframes.high
+    c.sframes.setLen(nf + 1)
+    tos = nf
     updateRegsAlias
 
   proc reportVmIdx(usedIdx, maxIdx: SomeInteger): SemReport =
@@ -630,16 +675,15 @@ proc rawExecute(c: var TCtx, start: int, tos: PStackFrame): TFullReg =
     case instr.opcode
     of opcEof: return regs[ra]
     of opcRet:
-      let newPc = c.cleanUpOnReturn(tos)
+      let newPc = c.cleanUpOnReturn(c.sframes[tos])
       # Perform any cleanup action before returning
       if newPc < 0:
-        pc = tos.comesFrom
+        pc = c.sframes[tos].comesFrom
         let retVal = regs[0]
-        tos = tos.next
-        if tos.isNil:
+        if tos == 0:
           return retVal
 
-        updateRegsAlias
+        popFrame()
         assert c.code[pc].opcode in {opcIndCall, opcIndCallAsgn}
         if c.code[pc].opcode == opcIndCallAsgn:
           regs[c.code[pc].regA] = retVal
@@ -1371,7 +1415,7 @@ proc rawExecute(c: var TCtx, start: int, tos: PStackFrame): TFullReg =
         # logic as for loops:
         if newPc < pc: handleJmpBack()
         #echo "new pc ", newPc, " calling: ", prc.name.s
-        var newFrame = PStackFrame(prc: prc, comesFrom: pc, next: tos)
+        var newFrame = TStackFrame(prc: prc, comesFrom: pc, next: tos)
         newSeq(newFrame.slots, prc.offset+ord(isClosure))
         if not isEmptyType(prc.typ[0]):
           putIntoReg(newFrame.slots[0], getNullValue(prc.typ[0], prc.info, c.config))
@@ -1379,14 +1423,14 @@ proc rawExecute(c: var TCtx, start: int, tos: PStackFrame): TFullReg =
           newFrame.slots[i] = regs[rb+i]
         if isClosure:
           newFrame.slots[rc] = TFullReg(kind: rkNode, node: regs[rb].node[1])
-        tos = newFrame
-        updateRegsAlias
+        pushFrame(newFrame)
         # -1 for the following 'inc pc'
         pc = newPc-1
       else:
+        let prevFrame = c.sframes[tos].next
         # for 'getAst' support we need to support template expansion here:
-        let genSymOwner = if tos.next != nil and tos.next.prc != nil:
-                            tos.next.prc
+        let genSymOwner = if prevFrame > 0 and c.sframes[prevFrame].prc != nil:
+                            c.sframes[prevFrame].prc
                           else:
                             c.module
         var macroCall = newNodeI(nkCall, c.debug[pc])
@@ -1436,7 +1480,7 @@ proc rawExecute(c: var TCtx, start: int, tos: PStackFrame): TFullReg =
         inc pc, rbx
     of opcTry:
       let rbx = instr.regBx - wordExcess
-      tos.pushSafePoint(pc + rbx)
+      c.sframes[tos].pushSafePoint(pc + rbx)
       assert c.code[pc+rbx].opcode in {opcExcept, opcFinally}
     of opcExcept:
       # This opcode is never executed, it only holds information for the
@@ -1447,7 +1491,7 @@ proc rawExecute(c: var TCtx, start: int, tos: PStackFrame): TFullReg =
       # executed _iff_ no exception was raised in the body of the `try`
       # statement hence the need to pop the safepoint here.
       doAssert(savedPC < 0)
-      tos.popSafePoint()
+      c.sframes[tos].popSafePoint()
     of opcFinallyEnd:
       # The control flow may not resume at the next instruction since we may be
       # raising an exception or performing a cleanup.
@@ -1455,8 +1499,7 @@ proc rawExecute(c: var TCtx, start: int, tos: PStackFrame): TFullReg =
         pc = savedPC - 1
         savedPC = -1
         if tos != savedFrame:
-          tos = savedFrame
-          updateRegsAlias
+          gotoFrame(savedFrame)
     of opcRaise:
       let raised =
         # Empty `raise` statement - reraise current exception
@@ -1470,10 +1513,10 @@ proc rawExecute(c: var TCtx, start: int, tos: PStackFrame): TFullReg =
       c.exceptionInstr = pc
 
       var frame = tos
-      var jumpTo = findExceptionHandler(c, frame, raised)
-      while jumpTo.why == ExceptionGotoUnhandled and not frame.next.isNil:
-        frame = frame.next
-        jumpTo = findExceptionHandler(c, frame, raised)
+      var jumpTo = findExceptionHandler(c, c.sframes[frame], raised)
+      while jumpTo.why == ExceptionGotoUnhandled and frame > 0:
+        dec frame
+        jumpTo = findExceptionHandler(c, c.sframes[frame], raised)
 
       case jumpTo.why:
       of ExceptionGotoHandler:
@@ -1481,8 +1524,7 @@ proc rawExecute(c: var TCtx, start: int, tos: PStackFrame): TFullReg =
         savedPC = -1
         pc = jumpTo.where - 1
         if tos != frame:
-          tos = frame
-          updateRegsAlias
+          unwindToFrame(frame)
       of ExceptionGotoFinally:
         # Jump to the `finally` block first then re-jump here to continue the
         # traversal of the exception chain
@@ -1490,8 +1532,7 @@ proc rawExecute(c: var TCtx, start: int, tos: PStackFrame): TFullReg =
         savedFrame = tos
         pc = jumpTo.where - 1
         if tos != frame:
-          tos = frame
-          updateRegsAlias
+          gotoFrame(frame)
       of ExceptionGotoUnhandled:
         # Nobody handled this exception, error out.
         reportException(c, tos, raised)
@@ -2321,10 +2362,20 @@ proc rawExecute(c: var TCtx, start: int, tos: PStackFrame): TFullReg =
 
     inc pc
 
+proc execute(c: var TCtx, start: int, frame: sink TStackFrame): PNode {.inline.} =
+  assert c.sframes.len == 0
+  c.sframes.add frame
+  result = rawExecute(c, start, 0).regToNode
+  assert c.sframes.len == 1
+  c.sframes.setLen(0)
+
+
 proc execute(c: var TCtx, start: int): PNode =
-  var tos = PStackFrame(prc: nil, comesFrom: 0, next: nil)
+  # XXX: instead of building the object first and then adding it to the list, it could
+  # also be done in reverse. Which style is prefered?
+  var tos = TStackFrame(prc: nil, comesFrom: 0, next: -1)
   newSeq(tos.slots, c.prc.regInfo.len)
-  result = rawExecute(c, start, tos).regToNode
+  execute(c, start, tos)
 
 proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
   c.loopIterations = c.config.maxLoopIterationsVM
@@ -2340,7 +2391,7 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
     else:
       let start = genProc(c, sym)
 
-      var tos = PStackFrame(prc: sym, comesFrom: 0, next: nil)
+      var tos = TStackFrame(prc: sym, comesFrom: 0, next: -1)
       let maxSlots = sym.offset
       newSeq(tos.slots, maxSlots)
 
@@ -2351,7 +2402,7 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
       for i in 1..<sym.typ.len:
         putIntoReg(tos.slots[i], args[i-1])
 
-      result = rawExecute(c, start, tos).regToNode
+      result = execute(c, start, tos)
   else:
     localReport(c.config, sym.info, reportSym(rsemVmCallingNonRoutine, sym))
 
@@ -2432,10 +2483,10 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
   when debugEchoCode:
     c.codeListing(prc, n)
 
-  var tos = PStackFrame(prc: prc, comesFrom: 0, next: nil)
+  var tos = TStackFrame(prc: prc, comesFrom: 0, next: -1)
   newSeq(tos.slots, c.prc.regInfo.len)
   #for i in 0..<c.prc.regInfo.len: tos.slots[i] = newNode(nkEmpty)
-  result = rawExecute(c[], start, tos).regToNode
+  result = execute(c[], start, tos)
   if result.info.col < 0: result.info = n.info
   c.mode = oldMode
 
@@ -2532,7 +2583,7 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
   c.templInstCounter = templInstCounter
   let start = genProc(c[], sym)
 
-  var tos = PStackFrame(prc: sym, comesFrom: 0, next: nil)
+  var tos = TStackFrame(prc: sym, comesFrom: 0, next: -1)
   let maxSlots = sym.offset
   newSeq(tos.slots, maxSlots)
   # setup arguments:
@@ -2565,7 +2616,7 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
 
   # temporary storage:
   #for i in L..<maxSlots: tos.slots[i] = newNode(nkEmpty)
-  result = rawExecute(c[], start, tos).regToNode
+  result = execute(c[], start, tos)
   if result.info.line < 0: result.info = n.info
   if cyclicTree(result):
     globalReport(c.config, n.info, reportAst(rsemCyclicTree, n, sym = sym))
