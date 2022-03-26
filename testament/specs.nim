@@ -271,12 +271,13 @@ proc extractSpec(filename: string; spec: var TSpec): string =
 proc parseTargets*(value: string): set[TTarget] =
   ## Get list of allowed run targets for the testament
   for v in value.normalize.splitWhitespace:
-    case v
-    of "c": result.incl(targetC)
-    of "cpp", "c++": result.incl(targetCpp)
-    of "objc": result.incl(targetObjC)
-    of "js": result.incl(targetJS)
-    else: raise newException(ValueError, "invalid target: '$#'" % v)
+    result.incl:
+      case v
+      of "c":          targetC
+      of "cpp", "c++": targetCpp
+      of "objc":       targetObjC
+      of "js":         targetJS
+      else: raise newException(ValueError, "invalid target: '$#'" % v)
 
 proc addLine*(self: var string; a: string) =
   self.add a
