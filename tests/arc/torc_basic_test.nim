@@ -1,6 +1,6 @@
 discard """
   output: "MEM 0"
-  cmd: "nim c --gc:orc $file"
+  matrix: "--gc:orc"
 """
 
 type

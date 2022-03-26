@@ -1,6 +1,6 @@
 discard """
+  matrix: "--gc:orc"
   output: '''400 true'''
-  cmd: "nim c --gc:orc $file"
 """
 
 type HeapQueue*[T] = object

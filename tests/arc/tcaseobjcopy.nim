@@ -1,6 +1,6 @@
 discard """
   valgrind: true
-  cmd: "nim c --gc:arc -d:useMalloc $file"
+  matrix: "--gc:arc -d:useMalloc"
   output: '''myobj destroyed
 myobj destroyed
 myobj destroyed

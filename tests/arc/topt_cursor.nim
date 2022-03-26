@@ -1,6 +1,6 @@
 discard """
+  matrix: '''--gc:arc --expandArc:main --expandArc:sio --hint:Performance:off'''
   output: '''("string here", 80)'''
-  cmd: '''nim c --gc:arc --expandArc:main --expandArc:sio --hint:Performance:off $file'''
   nimout: '''--expandArc: main
 
 var

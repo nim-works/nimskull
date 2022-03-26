@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c --gc:arc $file"
+  matrix: "--gc:arc"
 """
 
 type MyObj = ref object

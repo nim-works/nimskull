@@ -1,6 +1,6 @@
 discard """
+matrix: "--gc:arc"
 disabled: "arm64"
-cmd: "nim c --gc:arc $file"
 output: "y"
 """
 

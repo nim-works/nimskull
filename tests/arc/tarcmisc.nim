@@ -1,4 +1,5 @@
 discard """
+  matrix: "--gc:arc --deepcopy:on -d:nimAllocPagesViaMalloc"
   output: '''
 123xyzabc
 destroyed: false
@@ -35,7 +36,6 @@ closed
 destroying variable: 20
 destroying variable: 10
 '''
-  cmd: "nim c --gc:arc --deepcopy:on -d:nimAllocPagesViaMalloc $file"
 """
 
 proc takeSink(x: sink string): bool = true

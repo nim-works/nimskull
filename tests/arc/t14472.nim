@@ -1,6 +1,7 @@
 discard """
+  matrix: "--gc:arc -d:useMalloc --deepcopy:on"
   valgrind: true
-  cmd: "nim cpp --gc:arc -d:useMalloc --deepcopy:on $file"
+  targets: 'cpp'
 """
 
 type

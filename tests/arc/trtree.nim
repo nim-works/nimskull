@@ -4,7 +4,7 @@ discard """
   targets: "c"
   joinable: false
 disabled: 32bit
-  cmd: "nim c --gc:arc $file"
+  matrix: "--gc:arc"
 """
 
 # bug #13110: This test failed with --gc:arc.

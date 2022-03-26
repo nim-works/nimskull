@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c --gc:arc $file"
+  matrix: "--gc:arc"
   output: '''5
 (w: 5)
 (w: -5)

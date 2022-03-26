@@ -1,4 +1,5 @@
 discard """
+  matrix: "--gc:arc -d:danger"
   output: '''begin A
 elif
 end A
@@ -14,7 +15,6 @@ end true
 ##index 2 not in 0 .. 1##
 true
 '''
-  cmd: "nim c --gc:arc -d:danger $file"
 """
 # we use the -d:danger switch to detect uninitialized stack
 # slots more reliably (there shouldn't be any, of course).

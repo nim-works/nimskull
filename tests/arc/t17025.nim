@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c --gc:arc $file"
+  matrix: "--gc:arc"
   joinable: false
   output: '''
 {"Package": {"name": "hello"}, "Author": {"name": "name", "qq": "123456789", "email": "email"}}

@@ -1,4 +1,5 @@
 discard """
+  matrix: "--gc:arc"
   output: '''Section: common
   Param: Floats1
 Section: local
@@ -8,7 +9,6 @@ Section: local
 destroy Foo
 destroy Foo
 '''
-  cmd: '''nim c --gc:arc $file'''
 """
 
 # bug #15325

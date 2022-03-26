@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c --threads:on --gc:arc $file"
+  matrix: "--threads:on --gc:arc"
   action: compile
 """
 

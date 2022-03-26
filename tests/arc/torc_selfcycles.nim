@@ -1,6 +1,6 @@
 discard """
   output: '''ok'''
-  cmd: '''nim c --gc:orc -d:useMalloc -d:nimStressOrc $file'''
+  matrix: '''--gc:orc -d:useMalloc -d:nimStressOrc'''
   valgrind: "leaks"
 """
 
