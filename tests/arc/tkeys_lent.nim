@@ -1,6 +1,6 @@
 discard """
+  matrix: "--gc:orc"
   output: '''{"string": 2}'''
-  cmd: "nim c --gc:orc $file"
 """
 
 import tables

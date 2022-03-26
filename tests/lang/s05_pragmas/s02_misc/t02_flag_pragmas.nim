@@ -8,36 +8,38 @@ Disable or enable safety checks
 ## generation options for a proc/method/converter.
 
 block enable_bound_checking:
-  {.push boundChecks:on.}
-  proc impl() = 
-    var gotDefect = false
-    try:
-      var a: array[10, int]
-      let idx = 9
-      assert cast[ptr array[9, int]](a.addr)[idx] == 0
+  when not defined(js):       # no ptr in js yet
+    {.push boundChecks:on.}
+    proc impl() = 
+      var gotDefect = false
+      try:
+        var a: array[10, int]
+        let idx = 9
+        assert cast[ptr array[9, int]](a.addr)[idx] == 0
 
-    except IndexDefect:
-      gotDefect = true
+      except IndexDefect:
+        gotDefect = true
 
-    doAssert gotDefect
+      doAssert gotDefect
 
-  {.pop.}
+    {.pop.}
 
-  impl()
+    impl()
 
 block disable_bound_checking:
-  {.push boundChecks:off.}
-  proc impl() = 
+  when not defined(js):       # no ptr in js yet
+    {.push boundChecks:off.}
+    proc impl() = 
 
-    var a: array[10, int]
-    let idx = 9
-    a[idx] = 10
-    assert cast[ptr array[9, int]](a.addr)[idx] == 10
+      var a: array[10, int]
+      let idx = 9
+      a[idx] = 10
+      assert cast[ptr array[9, int]](a.addr)[idx] == 10
 
 
-  {.pop.}
+    {.pop.}
 
-  impl()
+    impl()
     
 block enable_overflow_checks:
   {.push overflowChecks:on.}

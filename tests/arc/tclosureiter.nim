@@ -1,5 +1,5 @@
 discard """
-  cmd: '''nim c -d:nimAllocStats --gc:arc $file'''
+  matrix: "--gc:arc -d:nimAllocStats"
   output: '''(allocCount: 102, deallocCount: 102)'''
 """
 

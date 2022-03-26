@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c --gc:orc -d:nimThinout -r $file"
+  matrix: "--gc:orc -d:nimThinout"
   output: '''The first 20 hammings are:  1 2 3 4 5 MEM IS 0'''
 """
 

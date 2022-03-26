@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c --gc:orc -d:release $file"
+  matrix: "--gc:orc -d:release"
 """
 
 # bug #18240

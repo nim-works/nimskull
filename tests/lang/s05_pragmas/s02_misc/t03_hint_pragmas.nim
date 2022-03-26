@@ -18,7 +18,7 @@ t03_hint_pragmas.nim(31, 6) Hint: 'declaredButNotUsed' is declared but not used 
 proc gen1[T](arg: T) =
   {.hint: "gen1 size of the argument is " & $sizeof(arg).}
 
-gen1[int](1)
+gen1[int64](1)
 
 when defined(tryBrokenSpecification):
   proc gen2[T](arg: T) =

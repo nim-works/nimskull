@@ -1,10 +1,10 @@
 discard """
+  matrix: "--gc:arc"
   output: '''true
 true
 true
 true
 true'''
-  cmd: "nim c --gc:arc $file"
 """
 # bug #15361
 

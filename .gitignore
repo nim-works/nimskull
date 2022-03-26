@@ -93,7 +93,7 @@ tweeter_test.db
 /t15148.txt
 /tests/vm/tfile_rw.txt
 
-/lib/pure/*.js
+/lib/pure/**/*.js
 
 !/.builds/
 

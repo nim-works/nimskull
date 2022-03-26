@@ -1,4 +1,7 @@
 discard """
+  matrix: "--gc:orc -d:useMalloc"
+  valgrind: "true"
+  joinable: false
   outputsub: '''1
 2
 3
@@ -17,9 +20,6 @@ discard """
 1 3 7
 after 6 6
 MEM 0'''
-joinable: false
-  cmd: "nim c --gc:orc -d:useMalloc $file"
-  valgrind: "true"
 """
 
 import typetraits

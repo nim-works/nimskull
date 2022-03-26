@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim cpp --gc:arc --threads:on $file"
+  matrix: "--gc:arc --threads:on"
   output: '''ok1
 ok2
 destroyed

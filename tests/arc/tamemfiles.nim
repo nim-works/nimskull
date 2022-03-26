@@ -1,4 +1,5 @@
 discard """
+  matrix: "--gc:arc"
   output: '''
 loop 1a
 loop 1b; cols: @[1, x]
@@ -9,7 +10,6 @@ loop 1b; cols: @[2, y]
 loop 1c
 loop 1d
 '''
-  cmd: "nim c --gc:arc $file"
 """
 
 # bug #13596

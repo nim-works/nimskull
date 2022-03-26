@@ -1,6 +1,6 @@
 discard """
   output: ''''''
-  cmd: '''nim c --gc:arc --expandArc:main --expandArc:tfor --hint:Performance:off $file'''
+  matrix: '''--gc:arc --expandArc:main --expandArc:tfor --hint:Performance:off'''
   nimout: '''--expandArc: main
 
 var

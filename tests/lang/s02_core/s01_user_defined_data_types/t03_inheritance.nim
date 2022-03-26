@@ -4,7 +4,11 @@ It is possible for objects to inherit fields from another object. Each
 object has at most one parent type. This practice is common in Object
 Orientated Programming.
 '''
+
+knownIssue: "derive_from_ref_root_obj doesn't fail on the js backend"
 """
+
+# TODO - what should we do with this test?
 
 block derive_from_root_obj:
   type

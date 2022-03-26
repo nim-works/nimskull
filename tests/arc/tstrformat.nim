@@ -2,7 +2,7 @@ discard """
   output: '''
 verstuff
 '''
-  cmd: "nim c --gc:arc $file"
+  matrix: "--gc:arc"
 """
 
 # bug #13622

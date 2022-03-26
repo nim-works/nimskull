@@ -1,6 +1,6 @@
 discard """
+  matrix: "--gc:arc"
   action: run
-  cmd: "nim c --gc:arc $file"
 """
 
 proc f1() {.noreturn.} = raise newException(CatchableError, "")

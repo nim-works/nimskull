@@ -1,8 +1,8 @@
 discard """
+  matrix: "--gc:orc"
   outputsub: '''f1
 f2
 f3'''
-  cmd: "nim c --gc:orc $file"
   valgrind: true
 """
 

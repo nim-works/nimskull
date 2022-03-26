@@ -1,8 +1,8 @@
 discard """
+  matrix: "--gc:arc"
   output: '''a
 b
 c'''
-  cmd: "nim c --gc:arc $file"
 """
 
 # bug #18469

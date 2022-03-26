@@ -1,5 +1,6 @@
 discard """
-  cmd: "nim cpp --gc:arc $file"
+  matrix: "--gc:arc"
+  targets: "cpp"
 """
 
 block: # issue #13071

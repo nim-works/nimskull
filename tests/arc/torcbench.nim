@@ -1,6 +1,6 @@
 discard """
   output: '''true peak memory: true'''
-  cmd: "nim c --gc:orc -d:release $file"
+  matrix: "--gc:orc -d:release"
 """
 
 import lists, strutils, times

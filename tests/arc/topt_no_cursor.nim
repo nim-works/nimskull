@@ -1,4 +1,5 @@
 discard """
+  matrix: '''--gc:arc --expandArc:newTarget --expandArc:delete --expandArc:p1 --expandArc:tt --hint:Performance:off --assertions:off --expandArc:extractConfig --expandArc:mergeShadowScope --expandArc:check'''
   output: '''(repo: "", package: "meo", ext: "")
 doing shady stuff...
 3
@@ -8,7 +9,6 @@ doing shady stuff...
 192.168.0.1
 192.168.0.1
 192.168.0.1'''
-  cmd: '''nim c --gc:arc --expandArc:newTarget --expandArc:delete --expandArc:p1 --expandArc:tt --hint:Performance:off --assertions:off --expandArc:extractConfig --expandArc:mergeShadowScope --expandArc:check $file'''
   nimout: '''--expandArc: newTarget
 
 var

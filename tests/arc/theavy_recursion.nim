@@ -1,6 +1,6 @@
 discard """
+  matrix: "--gc:arc"
   output: "yay"
-  cmd: "nim c --gc:arc $file"
 """
 
 # bug #15122

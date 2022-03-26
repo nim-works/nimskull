@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c --gc:arc $file"
+  matrix: "--gc:arc"
   nimout: '''(a: true, n: doAssert)
 Table[system.string, trepr.MyType](data: @[], counter: 0)
 nil

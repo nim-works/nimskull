@@ -1,7 +1,7 @@
 discard """
+  matrix: "--gc:orc -d:nimAllocStats"
   output: '''(allocCount: 1114, deallocCount: 1112)
 created 491 destroyed 491'''
-  cmd: "nim c --gc:orc -d:nimAllocStats $file"
 """
 
 # bug #18421

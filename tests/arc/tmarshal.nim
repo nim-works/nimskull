@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c --gc:orc $file"
+  matrix: "--gc:orc"
   output: '''
 {"age": 12, "bio": "Я Cletus", "blob": [65, 66, 67, 128], "name": "Cletus"}
 true

@@ -1,7 +1,7 @@
 discard """
   outputsub: '''inside closure
 hello world'''
-  cmd: "nim c --gc:orc -d:useMalloc $file"
+  matrix: "--gc:orc -d:useMalloc"
   valgrind: true
 """
 
