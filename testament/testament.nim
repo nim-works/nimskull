@@ -1710,13 +1710,16 @@ proc prepareTestRuns(execState: var Execution) =
   # xxx: create specific type to avoid accidental mutation
   
   # xxx: read-only items; only testRuns are written
-  let testSpecs = execState.testSpecs
+  let
+    testSpecs = execState.testSpecs
+    testFiles = execState.testFiles
+    categories = execState.categories
 
   for testId, spec in testSpecs.pairs:
     let
       specTargets =
         if spec.targets == noTargetsSpecified:
-          {targetC, targetCpp, targetJs}
+          categories[testFiles[testId].catId].defaultTargets
         else:
           spec.targets
       targetsToRun = specTargets * execState.requestedTargets

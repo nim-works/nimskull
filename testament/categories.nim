@@ -38,6 +38,16 @@ proc isTestFile*(file: string): bool =
   let (_, name, ext) = splitFile(file)
   result = ext == ".nim" and name.startsWith("t")
 
+func defaultTargets(category: Category): set[TTarget] =
+  const standardTargets = {low(TTarget)..high(TTarget)} - {targetObjC}
+  case category.string
+  of "arc":
+    standardTargets - {targetJs}
+  of "js":
+    {targetJs}
+  else:
+    standardTargets
+
 # --------------------- DLL generation tests ----------------------------------
 
 proc runBasicDLLTest(c, r: var TResults, cat: Category, options: string) =
