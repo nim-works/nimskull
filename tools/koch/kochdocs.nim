@@ -349,7 +349,7 @@ proc buildDocSamples(nimArgs, destPath: string) =
     [nimArgs, destPath / "docgen_sample.html", "doc" / "docgen_sample.nim"])
 
 proc buildDocPackages(nimArgs, destPath: string) =
-  # compiler docs; later, other packages (perhaps tools, testament etc)
+  # compiler docs; later, other packages
   let nim = findNim().quoteShell()
     # to avoid broken links to manual from compiler dir, but a multi-package
     # structure could be supported later

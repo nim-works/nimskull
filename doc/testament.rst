@@ -10,15 +10,13 @@ Testament is a test runner for running tests in the development of |NimSkull| it
 It offers process isolation for tests, it can generate statistics about test cases,
 supports multiple targets (C, C++, ObjectiveC, JavaScript, etc),
 simulated `Dry-Runs <https://en.wikipedia.org/wiki/Dry_run_(testing)>`_,
-has logging, can generate HTML reports, skip tests from a file, and more,
-so can be useful to run tests, even the most complex ones.
+has logging, can generate HTML reports, skip tests from a file, and more.
 
 
 Test files location
 ===================
 
-By default Testament looks for test files on ``"./tests/*.nim"``.
-You can overwrite this pattern glob using `pattern <glob>`:option:.
+By default Testament looks for test files on ``"./tests/**/*.nim"``.
 The default working directory path can be changed using
 `--directory:"folder/subfolder/"`:option:.
 
@@ -62,20 +60,6 @@ not very useful for production, but easy to understand:
   $ testament r test0
   PASS: tests/test0.nim C                                    ( 0.2 sec)
 
-
-Running all tests from a directory
-==================================
-
-.. code:: console
-
-  $ testament pattern "tests/*.nim"
-
-To search for tests deeper in a directory, use
-
-.. code:: console
-
-  $ testament pattern "tests/**/*.nim"    # one level deeper
-  $ testament pattern "tests/**/**/*.nim" # two levels deeper
 
 HTML Reports
 ============

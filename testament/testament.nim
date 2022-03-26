@@ -1,13 +1,13 @@
 #
 #
-#            Nim Testament
+#            Testament
 #        (c) Copyright 2017 Andreas Rumpf
 #
 #    See the file "copying.txt", included in this
 #    distribution, for details about the copyright.
 #
 
-## This program verifies Nim against the testcases.
+## Testament runs tests for the compiler.
 
 import std/[
   strutils, pegs, os, osproc, streams, json, exitprocs, parseopt, browsers,
@@ -51,8 +51,6 @@ type
     ignoredExpected: seq[int]
     ignoredGiven: seq[int]
     cantIgnoreGiven: bool
-
-
 
 proc diffStrings*(a, b: string): tuple[output: string, same: bool] =
   let a = a.split("\n")
@@ -162,7 +160,6 @@ const
   testament [options] command [arguments]
 
 Command:
-  p|pat|pattern <glob>        run all the tests matching the given pattern
   all                         run all tests
   c|cat|category <category>   run all the tests of a certain category
   r|run <test>                run single test file
@@ -189,13 +186,6 @@ provided that System.AccessToken is made available via the environment variable 
 Experimental: using environment variable `NIM_TESTAMENT_REMOTE_NETWORKING=1` enables
 tests with remote networking (as in CI).
 """ % resultsFile
-
-proc isNimRepoTests(): bool =
-  # this logic could either be specific to cwd, or to some file derived from
-  # the input file, eg testament r /pathto/tests/foo/tmain.nim; we choose
-  # the former since it's simpler and also works with `testament all`.
-  let file = "testament"/"testament.nim.cfg"
-  result = file.fileExists
 
 type
   Category = distinct string
@@ -447,13 +437,10 @@ proc logToConsole(
 
   else:
     dispNonSkipped(fgRed, failString)
-    if test.cat.string.len > 0:
-      maybeStyledEcho(
-        styleBright, fgCyan, "Test \"", test.name, "\"",
-        " in category \"", test.cat.string, "\"")
-
-    else:
-      maybeStyledEcho(styleBright, fgCyan, "Test \"", test.name, "\"")
+    doAssert test.cat.string.len > 0, "no category for test: $1" % test.name
+    maybeStyledEcho(
+      styleBright, fgCyan, "Test \"", test.name, "\"",
+      " in category \"", test.cat.string, "\"")
 
     maybeStyledEcho styleBright, fgRed, "Failure: ", $param.success
     if givenSpec != nil and givenSpec.debugInfo.len > 0:
@@ -1176,8 +1163,7 @@ proc main() =
         continue
       if kind == pcDir and cat notin ["testdata", "nimcache"]:
         cats.add cat
-    if isNimRepoTests():
-      cats.add AdditionalCategories
+    cats.add AdditionalCategories
     # User may pass an option to skip the megatest category, default is useMegaTest
     if useMegatest: cats.add MegaTestCat
     # We now prepare the command line arguments for our child processes
@@ -1218,11 +1204,6 @@ proc main() =
     var cat = Category(p.key)
     p.next
     processCategory(r, cat, p.cmdLineRest, testsDir, runJoinableTests = false)
-  of "p", "pat", "pattern": # Run all tests matching the given pattern
-    skips = loadSkipFrom(skipFrom)
-    let pattern = p.key
-    p.next
-    processPattern(r, pattern, p.cmdLineRest, simulate)
   of "r", "run": # Run single test file
     let (cat, path) = splitTestFile(p.key)
     processSingleTest(r, cat.Category, p.cmdLineRest, path, gTargets, targetsSet)
