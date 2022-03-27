@@ -49,12 +49,9 @@ Options:
   --megatest:on|off         Enable or disable megatest. Default is on.
   --skipFrom:file           Read tests to skip from `file` - one test per line, # comments ignored
 
-<<<<<<< HEAD
-=======
 On Azure Pipelines, testament will also publish test results via Azure Pipelines' Test Management API
 provided that System.AccessToken is made available via the environment variable SYSTEM_ACCESSTOKEN.
 
->>>>>>> 81debe236 (clean-up testament file)
 Experimental: using environment variable `NIM_TESTAMENT_REMOTE_NETWORKING=1` enables
 tests with remote networking (as in CI).
 """ % resultsFile
@@ -72,7 +69,6 @@ type
     cat: Category
     options: string
     testArgs: seq[string]
-<<<<<<< HEAD
     startTime: float
     spec: TSpec
 
@@ -130,12 +126,6 @@ type
 
 const noMatrixEntry = -1
 
-=======
-    spec: TSpec
-    startTime: float
-    debugInfo: string
-
->>>>>>> 81debe236 (clean-up testament file)
 # ----------------------------------------------------------------------------
 
 # xxx: yay, global state
@@ -1133,7 +1123,6 @@ proc makeTestWithDummySpec(test, options: string, cat: Category): TTest =
   var spec = initSpec(addFileExt(test, ".nim"))
   spec.action = actionCompile
   spec.targets = cat.defaultTargets()
-  
   initTest(test, options, cat, spec)
 
 # TODO: fix these files
