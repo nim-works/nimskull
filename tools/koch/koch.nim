@@ -176,7 +176,6 @@ proc bundleWinTools(args: string) =
   buildVccTool(args)
   nimCompile("tools/nimgrab.nim", options = "-d:ssl " & args)
   nimCompile("tools/nimgrep.nim", options = args)
-  nimCompile("testament/testament.nim", options = args)
   when false:
     # not yet a tool worth including
     nimCompile(r"tools\downloader.nim",
@@ -207,7 +206,6 @@ proc buildTools(args: string = "") =
                  options = "-d:release " & defineSourceMetadata() & " " & args)
   when defined(windows): buildVccTool(args)
   bundleNimpretty(args)
-  nimCompileFold("Compile testament", "testament/testament.nim", options = "-d:release " & defineSourceMetadata() & " " & args)
 
   # pre-packages a debug version of nim which can help in many cases investigate issuses
   # withouth having to rebuild compiler.

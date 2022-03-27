@@ -310,8 +310,9 @@ proc processSingleTest(r: var TResults, cat: Category, options, test: string, ta
   testSpec r, makeTest(test, options, cat), targets
 
 proc isJoinableSpec(spec: TSpec): bool =
-  # xxx simplify implementation using a whitelist of fields that are allowed to be
-  # set to non-default values (use `fieldPairs`), to avoid issues like bug #16576.
+  # xxx simplify implementation using an allow list of fields that are allowed
+  # to be set to non-default values (use `fieldPairs`), to avoid issues like
+  # bug #16576.
   result = useMegatest and not spec.sortoutput and
     spec.action == actionRun and
     not fileExists(spec.file.changeFileExt("cfg")) and
@@ -454,82 +455,53 @@ proc processCategory(r: var TResults, cat: Category,
                      options, testsDir: string,
                      runJoinableTests: bool) =
   let cat2 = cat.string.normalize
-  var handled = false
-  if isNimRepoTests():
-    handled = true
-    case cat2
-    of "js":
-      # only run the JS tests on Windows or Linux because Travis is bad
-      # and other OSes like Haiku might lack nodejs:
-      if not defined(linux) and isTravis:
-        discard
-      else:
-        jsTests(r, cat, options)
-    of "dll":
-      dllTests(r, cat, options)
-    of "gc":
-      gcTests(r, cat, options)
-    of "debugger":
-      debuggerTests(r, cat, options)
-    of "manyloc":
-      manyLoc r, cat, options
-    of "threads":
-      threadTests r, cat, options & " --threads:on"
-    of "lib":
-      testStdlib(r, "lib/pure/", options, cat)
-    of "ic":
-      icTests(r, testsDir / cat2, cat, options, isNavigatorTest=false)
-    of "navigator":
-      icTests(r, testsDir / cat2, cat, options, isNavigatorTest=true)
-    of "untestable":
-      # These require special treatment e.g. because they depend on a third party
-      # dependency; see `trunner_special` which runs some of those.
+  case cat2
+  of "js":
+    # only run the JS tests on Windows or Linux because Travis is bad
+    # and other OSes like Haiku might lack nodejs:
+    if not defined(linux) and isTravis:
       discard
     else:
-      handled = false
-  if not handled:
-    case cat2
-    of "megatest":
-      runJoinedTest(r, cat, testsDir, options)
-    else:
-      var testsRun = 0
-      var files: seq[string]
-      for file in walkDirRec(testsDir &.? cat.string):
-        if isTestFile(file): files.add file
-      files.sort # give reproducible order
-      for i, name in files:
-        var test = makeTest(name, options, cat)
-        if runJoinableTests or not isJoinableSpec(test.spec) or cat.string in specialCategories:
-          discard "run the test"
-        else:
-          test.spec.err = reJoined
-        testSpec r, test
-        inc testsRun
-      if testsRun == 0:
-        const whiteListedDirs = ["deps", "htmldocs", "pkgs"]
-          # `pkgs` because bug #16556 creates `pkgs` dirs and this can affect some users
-          # that try an old version of choosenim.
-        doAssert cat.string in whiteListedDirs,
-          "Invalid category specified: '$#' not in whilelist: $#" % [cat.string, $whiteListedDirs]
-
-proc processPattern(r: var TResults, pattern, options: string; simulate: bool) =
-  var testsRun = 0
-  if dirExists(pattern):
-    for k, name in walkDir(pattern):
-      if k in {pcFile, pcLinkToFile} and name.endsWith(".nim"):
-        if simulate:
-          msg Undefined: "Detected test: " & name
-        else:
-          var test = makeTest(name, options, Category"pattern")
-          testSpec r, test
-        inc testsRun
+      jsTests(r, cat, options)
+  of "dll":
+    dllTests(r, cat, options)
+  of "gc":
+    gcTests(r, cat, options)
+  of "debugger":
+    debuggerTests(r, cat, options)
+  of "manyloc":
+    manyLoc r, cat, options
+  of "threads":
+    threadTests r, cat, options & " --threads:on"
+  of "lib":
+    testStdlib(r, "lib/pure/", options, cat)
+  of "ic":
+    icTests(r, testsDir / cat2, cat, options, isNavigatorTest=false)
+  of "navigator":
+    icTests(r, testsDir / cat2, cat, options, isNavigatorTest=true)
+  of "untestable":
+    # These require special treatment e.g. because they depend on a third party
+    # dependency; see `trunner_special` which runs some of those.
+    discard
+  of "megatest":
+    runJoinedTest(r, cat, testsDir, options)
   else:
-    for name in walkPattern(pattern):
-      if simulate:
-        msg Undefined: "Detected test: " & name
+    var testsRun = 0
+    var files: seq[string]
+    for file in walkDirRec(testsDir &.? cat.string):
+      if isTestFile(file): files.add file
+    files.sort # give reproducible order
+    for i, name in files:
+      var test = makeTest(name, options, cat)
+      if runJoinableTests or not isJoinableSpec(test.spec) or cat.string in specialCategories:
+        discard "run the test"
       else:
-        var test = makeTest(name, options, Category"pattern")
-        testSpec r, test
+        test.spec.err = reJoined
+      testSpec r, test
       inc testsRun
-  if testsRun == 0:
-    msg Undefined: "no tests were found for pattern: " & pattern
+    if testsRun == 0:
+      const allowedDirs = ["deps", "htmldocs", "pkgs"]
+        # `pkgs` because bug #16556 creates `pkgs` dirs and this can affect some users
+        # that try an old version of choosenim.
+      doAssert cat.string in allowedDirs,
+        "Invalid category specified: '$#' not in allow list: $#" % [cat.string, $allowedDirs]

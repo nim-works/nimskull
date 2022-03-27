@@ -20,15 +20,6 @@
 ## Compiled test files as well as `nim c -r <testfile.nim>`
 ## exit with 0 for success (no failed tests) or 1 for failure.
 ##
-## Testament
-## =========
-##
-## Instead of `unittest`, please consider using
-## `the Testament tool <testament.html>`_ which offers process isolation for your tests.
-##
-## Alternatively using `when isMainModule: doAssert conditionHere` is usually a
-## much simpler solution for testing purposes.
-##
 ## Running a single test
 ## =====================
 ##

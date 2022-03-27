@@ -211,7 +211,7 @@ be used to run the Nim test suite.
 
 You may execute the tests using ``./koch.py tests``. The tests take a while to
 run, but you can run a subset of tests by specifying a category (for example
-``./koch.py tests cat async``).
+``./koch.py tests cat lang``).
 
 For more information on the ``koch`` build tool please see the documentation
 within the [doc/koch.rst](doc/koch.rst) file.
