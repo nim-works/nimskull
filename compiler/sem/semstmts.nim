@@ -473,8 +473,10 @@ proc errorSymChoiceUseQualifier(c: PContext; n: PNode) =
   localReport(c.config, n.info, rep)
 
 proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
-  var b: PNode
-  var hasError = false
+  addInNimDebugUtils(c.config, "semVarOrLet", n, result)
+  var
+    b: PNode
+    hasError = false
     ## not fully converted to using nkError, so track this flag and then wrap
     ## the result if true in an nkError.
     ## xxx: this should be replaced once nkError is more pervasive

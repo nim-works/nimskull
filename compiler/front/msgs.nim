@@ -202,7 +202,6 @@ proc getInfoContext*(conf: ConfigRef; index: int): TLineInfo =
 
   if i >=% conf.m.msgContext.len:
     result = unknownLineInfo
-
   else:
     result = conf.m.msgContext[i].info
 
@@ -218,7 +217,6 @@ proc toProjPath*(conf: ConfigRef; fileIdx: FileIndex): string =
       commandLineDesc
     else:
       "???"
-
   else:
     conf[fileIdx].projPath.string
 
@@ -301,7 +299,6 @@ proc formatPath*(conf: ConfigRef, path: string): string =
     # formatting is done using `FileInfo` data from the config.
     let id = conf.m.filenameToIndexTbl[path]
     result = toFilenameOption(conf, id, conf.filenameOption)
-
   else:
     # Path not registered in the filename table - most likely an
     # instantiation info report location
@@ -312,13 +309,10 @@ proc formatPath*(conf: ConfigRef, path: string): string =
       if conf.filenameOption == foCanonical and
          path.startsWith(compilerRoot):
         result = path[(compilerRoot.len + 1) .. ^1]
-
       else:
         result = path
-
     else:
       result = path
-
 
 proc toMsgFilename*(conf: ConfigRef; fileIdx: FileIndex): string =
   toFilenameOption(conf, fileIdx, conf.filenameOption)
@@ -372,7 +366,6 @@ proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
       write(stdout, s)
       write(stdout, sep)
       flushFile(stdout)
-
   else:
     if eStdErr in conf.m.errorOutputs:
       write(stderr, s)
@@ -391,18 +384,15 @@ proc log*(s: string) =
 proc quit(conf: ConfigRef; withTrace: bool) {.gcsafe.} =
   if conf.isDefined("nimDebug"):
     quitOrRaise(conf)
-
   elif defined(debug) or withTrace or conf.hasHint(rintStackTrace):
     {.gcsafe.}:
       if stackTraceAvailable():
         discard conf.report(InternalReport(
           kind: rintStackTrace,
           trace: getStackTraceEntries()))
-
       else:
         discard conf.report(InternalReport(
           kind: rintMissingStackTrace))
-
   quit 1
 
 proc errorActions(
@@ -414,21 +404,19 @@ proc errorActions(
   if conf.isCompilerFatal(report):
     # Fatal message such as ICE (internal compiler), errFatal,
     return (doAbort, true)
-
   elif conf.isCodeError(report):
     # Regular code error
     inc(conf.errorCounter)
     conf.exitcode = 1'i8
+
     if conf.errorMax <= conf.errorCounter:
       # only really quit when we're not in the new 'nim check --def' mode:
       if conf.ideCmd == ideNone:
         return (doAbort, false)
-
     elif eh == doAbort and conf.cmd != cmdIdeTools:
       return (doAbort, false)
-
     elif eh == doRaise:
-      {.warning: "[IMPLEMENT] Convert report to string message ?".}
+      {.warning: "[IMPLEMENT] Convert report to string message?".}
       return (doRaise, false)
 
   return (doNothing, false)
@@ -451,7 +439,6 @@ proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
         result.add ReportContext(
           kind: sckInstantiationFrom,
           location: context.info)
-
       else:
         result.add ReportContext(
           kind: sckInstantiationOf,
@@ -501,28 +488,25 @@ proc handleReport*(
 
   var report = report
   report.reportFrom = toReportLineInfo(reportFrom)
-  if report.category == repSem:
-    if report.location.isSome():
-      report.semReport.context = conf.getContext(
-        report.location.get())
+  if report.category == repSem and report.location.isSome():
+    report.semReport.context = conf.getContext(report.location.get())
 
-  let userAction = conf.report(report)
+  let
+    userAction = conf.report(report)
+    (action, trace) =
+      case userAction
+      of doDefault:
+        errorActions(conf, report, eh)
+      else:
+        (userAction, false)
 
-  let (action, trace) =
-    if userAction == doDefault:
-      errorActions(conf, report, eh)
-
-    else:
-      (userAction, false)
-
-  case action:
-    of doAbort: quit(conf, trace)
-    of doRaise: raiseRecoverableError("report")
-    of doNothing: discard
-    of doDefault: assert(
-      false,
-      "Default error handing action must be turned into ignore/raise/abort")
-
+  case action
+  of doAbort:   quit(conf, trace)
+  of doRaise:   raiseRecoverableError("report")
+  of doNothing: discard
+  of doDefault: assert(
+    false,
+    "Default error handing action must be turned into ignore/raise/abort")
 
 proc handleReport*(
     conf: ConfigRef,
@@ -530,11 +514,9 @@ proc handleReport*(
     reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing
   ) =
-
   if true or conf.canReport(id):
     conf.m.writtenSemReports.incl id
     conf.handleReport(conf.m.reports.getReport(id), reportFrom, eh)
-
 
 template globalAssert*(
     conf: ConfigRef;
@@ -582,19 +564,16 @@ template localReport*(conf: ConfigRef, report: ReportTypes) =
 template localReport*(conf: ConfigRef, report: Report) =
   handleReport(conf, report, instLoc(), doNothing)
 
-
 proc semReportCountMismatch*(
     kind: ReportKind,
     expected, got: distinct SomeInteger,
     node: PNode = nil,
   ): SemReport =
-
   result = SemReport(kind: kind, ast: node)
   result.countMismatch = (toInt128(expected), toInt128(got))
 
 template semReportIllformedAst*(
     conf: ConfigRef, node: PNode, explain: string): untyped =
-
   handleReport(
     conf,
     wrap(
@@ -613,10 +592,8 @@ proc joinAnyOf*[T](values: seq[T], quote: bool = false): string =
 
   if len(values) == 1:
     result.add q($values[0])
-
   elif len(values) == 2:
     result.add q($values[0]) & " or " & q($values[1])
-
   else:
     for idx in 0 ..< len(values) - 1:
       if idx > 0:
@@ -625,8 +602,6 @@ proc joinAnyOf*[T](values: seq[T], quote: bool = false): string =
 
     result.add " or "
     result.add q($values[^1])
-
-
 
 template semReportIllformedAst*(
   conf: ConfigRef, node: PNode, expected: set[TNodeKind]): untyped =
@@ -674,7 +649,6 @@ template internalError*(
     InternalReport(kind: rintUnreachable, msg: fail),
     instLoc(), info), instLoc(), doAbort)
 
-
 template internalError*(
     conf: ConfigRef,
     fail: string
@@ -698,14 +672,11 @@ template internalAssert*(
     conf.handleReport(wrap(InternalReport(
       kind: rintAssert, msg: failMsg), instLoc()), instLoc(), doAbort)
 
-
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
   if i.fileIndex.int32 < 0:
     result = makeCString "???"
-
   elif optExcessiveStackTrace in conf.globalOptions:
     result = conf[i.fileIndex].quotedFullName
-
   else:
     result = conf[i.fileIndex].quotedName
 
@@ -723,14 +694,14 @@ proc uniqueModuleName*(conf: ConfigRef; fid: FileIndex): string =
   ## The unique module name is guaranteed to only contain {'A'..'Z',
   ## 'a'..'z', '0'..'9', '_'} so that it is useful as a C identifier
   ## snippet.
-  let path = AbsoluteFile toFullPath(conf, fid)
-  let rel =
-    if path.string.startsWith(conf.libpath.string):
-      relativeTo(path, conf.libpath).string
-    else:
-      relativeTo(path, conf.projectPath).string
-
-  let trunc = if rel.endsWith(".nim"): rel.len - len(".nim") else: rel.len
+  let
+    path = AbsoluteFile toFullPath(conf, fid)
+    rel =
+      if path.string.startsWith(conf.libpath.string):
+        relativeTo(path, conf.libpath).string
+      else:
+        relativeTo(path, conf.projectPath).string
+    trunc = if rel.endsWith(".nim"): rel.len - len(".nim") else: rel.len
   result = newStringOfCap(trunc)
   for i in 0..<trunc:
     let c = rel[i]
@@ -767,26 +738,25 @@ proc genSuccessX*(conf: ConfigRef) =
   params.sec = epochTime() - conf.lastCmdTime
 
   params.project =
-    if conf.filenameOption == foAbs:
+    case conf.filenameOption
+    of foAbs:
       $conf.projectFull
-
     else:
       $conf.projectName
 
-  if optCompileOnly in conf.globalOptions and conf.cmd != cmdJsonscript:
-    params.output = $conf.jsonBuildFile
-
-  elif conf.outFile.isEmpty and conf.cmd notin {cmdJsonscript} + cmdDocLike + cmdBackends:
-    # for some cmd we expect a valid absOutFile
-    params.output = "unknownOutput"
-
-  else:
-    params.output = $conf.absOutFile
+  params.output =
+    if optCompileOnly in conf.globalOptions and conf.cmd != cmdJsonscript:
+      $conf.jsonBuildFile
+    elif conf.outFile.isEmpty and
+         conf.cmd notin {cmdJsonscript} + cmdDocLike + cmdBackends:
+      # for some cmd we expect a valid absOutFile
+      "unknownOutput"
+    else:
+      $conf.absOutFile
 
   when declared(system.getMaxMem):
     params.mem = getMaxMem()
     params.isMaxMem = true
-
   else:
     params.mem = getTotalMem()
 

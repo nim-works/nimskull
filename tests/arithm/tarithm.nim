@@ -1,20 +1,4 @@
 discard """
-  output: '''
-int32
-int32
-1280
-1280
-3
-1
-2
-2
-3
-4294967295
-2
-0
-tUnsignedOps OK
-'''
-nimout: "tUnsignedOps OK"
 """
 
 import typetraits
@@ -22,26 +6,21 @@ import typetraits
 
 block tand:
   # bug #5216
-  echo(name typeof((0x0A'i8 and 0x7F'i32) shl 7'i32))
+  doAssert (name typeof((0x0A'i8 and 0x7F'i32) shl 7'i32)) == "int32"
 
   let i8 = 0x0A'i8
-  echo(name typeof((i8 and 0x7F'i32) shl 7'i32))
+  doAssert (name typeof((i8 and 0x7F'i32) shl 7'i32)) == "int32"
 
-  echo((0x0A'i8 and 0x7F'i32) shl 7'i32)
+  doAssert ((0x0A'i8 and 0x7F'i32) shl 7'i32) == 1280
 
   let ii8 = 0x0A'i8
-  echo((ii8 and 0x7F'i32) shl 7'i32)
-
-
+  doAssert ((ii8 and 0x7F'i32) shl 7'i32) == 1280
 
 block tcast:
   template crossCheck(ty: untyped, exp: untyped) =
     let rt = ty(exp)
     const ct = ty(exp)
-    if $rt != $ct:
-      echo astToStr(exp)
-      echo "Got ", ct
-      echo "Expected ", rt
+    doAssert $rt == $ct, astToStr(exp) & "\nGot " & $ct & "\nExpected " & $rt
 
   template add1(x: uint8): untyped = x + 1
   template add1(x: uint16): untyped = x + 1
@@ -160,28 +139,30 @@ block tissue12177:
   var a: uint16 = 1
   var b: uint32 = 2
 
-  echo(b + a)
-  echo(b - a)
-  echo(b * a)
-  echo(b div a)
+  doAssert b + a == 3
+  doAssert b - a == 1
+  doAssert b * a == 2
+  doAssert b div a == 2
 
-  echo(a + b)
-  echo(a - b)
-  echo(a * b)
-  echo(a div b)
+  doAssert a + b == 3
+  doAssert a - b == 4294967295'u32
+  doAssert a * b == 2
+  doAssert a div b == 0
 
 block tUnsignedOps:
-  proc testUnsignedOps() =
-    let a: int8 = -128
-    let b: int8 = 127
+  proc testUnsignedOps(): bool =
+    let
+      a: int8 = -128
+      b: int8 = 127
 
     doAssert b +% 1 == -128
     doAssert b -% -1 == -128
     doAssert b *% 2 == -2
     doAssert a /% 4 == 32
     doAssert a %% 7 == 2
-    echo "tUnsignedOps OK"
 
-  testUnsignedOps()
+    result = true
+
+  doAssert testUnsignedOps()
   static:
-    testUnsignedOps()
+    doAssert testUnsignedOps()

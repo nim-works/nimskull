@@ -448,6 +448,7 @@ type
   DebugSemStepKind* = enum
     stepNodeToNode
     stepNodeToSym
+    stepSymNodeToNode
     stepNodeFlagsToNode
     stepNodeTypeToNode
     stepTypeTypeToType
@@ -471,7 +472,7 @@ type
         typ*: PType
         typ1*: PType
 
-      of stepNodeToSym:
+      of stepNodeToSym, stepSymNodeToNode:
         sym*: PSym
 
       of stepNodeFlagsToNode:
@@ -485,13 +486,10 @@ type
     case opc*: TOpcode:
       of opcConv, opcCast:
         types*: tuple[tfrom, tto: PType]
-
       of opcLdConst, opcAsgnConst:
         ast*: PNode
-
       else:
         discard
-
     ra*: int
     rb*: int
     rc*: int
@@ -513,14 +511,14 @@ type
       of rdbgTraceStep:
         semstep*: DebugSemStep
 
+      of rdbgTraceLine, rdbgTraceStart:
+        ctraceData*: tuple[level: int, entries: seq[StackTraceEntry]]
+
       of rdbgStartingConfRead, rdbgFinishedConfRead:
         filename*: string
 
       of rdbgCfgTrace:
         str*: string
-
-      of rdbgTraceLine, rdbgTraceStart:
-        ctraceData*: tuple[level: int, entries: seq[StackTraceEntry]]
 
       of rdbgVmCodeListing:
         vmgenListing*: tuple[
@@ -835,8 +833,9 @@ func toReportLineInfo*(iinfo: InstantiationInfo): ReportLineInfo =
   ReportLineInfo(file: iinfo[0], line: uint16(iinfo[1]), col: int16(iinfo[2]))
 
 template calledFromInfo*(): ReportLineInfo =
-  let e = getStackTraceEntries()[^2]
-  ReportLineInfo(file: $e.filename, line: e.line.uint16)
+  {.line.}:
+    let e = getStackTraceEntries()[^2]
+    ReportLineInfo(file: $e.filename, line: e.line.uint16)
 
 func isValid*(point: ReportLineInfo): bool =
   0 < point.file.len and point.file != "???"

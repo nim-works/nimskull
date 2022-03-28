@@ -341,8 +341,6 @@ iterator definedSymbolNames*(conf: ConfigRef): string =
 proc countDefinedSymbols*(conf: ConfigRef): int =
   conf.symbols.len
 
-
-
 template changed(conf: ConfigRef, s: ConfNoteSet, body: untyped) =
   # Template for debugging purposes - single place to track all changes in
   # the enabled note sets.
@@ -517,12 +515,10 @@ proc report*(conf: ConfigRef, id: ReportId): TErrorHandling =
   ##           enter the error message system twice.
   return conf.report(conf.m.reports.getReport(id))
 
-
 proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
   ## Write out report from the nkError node
   assert node.kind == nkError
   return conf.report(node.reportId)
-
 
 template report*[R: ReportTypes](
     conf: ConfigRef, inReport: R): TErrorHandling =
@@ -559,7 +555,6 @@ template store*(
   ## Add report with given location information to the postponed list
   conf.addReport(wrap(report, instLoc(), linfo))
 
-
 func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
   ## Check if report stores fatal compilation error
   report.category == repInternal and
@@ -571,16 +566,13 @@ func severity*(conf: ConfigRef, report: ReportTypes | Report): ReportSeverity =
   # the different configuration as hints/warnings as errors
   if report.kind in repLinterKinds and optStyleError in conf.globalOptions:
     result = rsevError
-
   else:
     result = report.severity(conf.warningAsErrors + conf.hintsAsErrors)
-
 
 func isCodeError*(conf: ConfigRef, report: Report): bool =
   ## Check if report stores a regular code error, or warning/hint that has
   ## been configured to be treated as error under "warningAsError"
   conf.severity(report) == rsevError
-
 
 func ignoreMsgBecauseOfIdeTools(conf: ConfigRef, msg: ReportKind): bool =
   msg notin (repErrorKinds + repFatalKinds) and
@@ -589,7 +581,6 @@ func ignoreMsgBecauseOfIdeTools(conf: ConfigRef, msg: ReportKind): bool =
 
 func useColor*(conf: ConfigRef): bool =
   optUseColors in conf.globalOptions
-
 
 proc parseNimVersion*(a: string): NimVer =
   # could be moved somewhere reusable
@@ -630,12 +621,10 @@ proc hasHint*(conf: ConfigRef, note: ReportKind): bool =
   # ternary states instead of binary states would simplify logic
   if optHints notin conf.options:
     false
-
   elif note in {rextConf, rsemProcessing}:
     # could add here other special notes like hintSource
     # these notes apply globally.
     note in conf.mainPackageNotes
-
   else:
     note in conf.notes
 
@@ -730,7 +719,7 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
 
   elif r.kind == rdbgVmCodeListing or (
     # Optionally Ignore context stacktrace
-    not conf.hack.semStack and r.kind == rdbgTraceLine
+    r.kind == rdbgTraceLine and not conf.hack.semStack
   ):
     return writeDisabled
 
@@ -745,7 +734,7 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
     return writeForceEnabled
 
   elif (
-    # Not explicitly enanled
+    # Not explicitly enabled
     not conf.isEnabled(r) and
     # And not added for forced write
     r.kind notin forceWrite
@@ -760,24 +749,13 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
   else:
     return writeEnabled
 
-
-
-
-
 proc hcrOn*(conf: ConfigRef): bool =
   return optHotCodeReloading in conf.globalOptions
 
-when false:
-  template depConfigFields*(fn) {.dirty.} = # deadcode
-    fn(target)
-    fn(options)
-    fn(globalOptions)
-    fn(selectedGC)
-
-const oldExperimentalFeatures* = {
-  implicitDeref, dotOperators, callOperator, parallel}
-
 const
+  oldExperimentalFeatures* = {
+    implicitDeref, dotOperators, callOperator, parallel}
+
   ChecksOptions* = {optObjCheck, optFieldCheck, optRangeCheck,
     optOverflowCheck, optBoundsCheck, optAssert, optNaNCheck, optInfCheck,
     optStyleCheck}
@@ -815,11 +793,10 @@ template newPackageCache*(): untyped =
 proc newProfileData(): ProfileData =
   ProfileData(data: newTable[TLineInfo, ProfileInfo]())
 
-
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 
 const defaultHackController = HackController(
-  semStack: off,
+  semStack: on,
   reportInTrace: off,
   semTraceData: on
 )

@@ -36,7 +36,8 @@ import
   ],
   utils/[
     ropes,
-    pathutils
+    pathutils,
+    debugUtils
   ],
   sem/[
     semdata,
@@ -1916,6 +1917,7 @@ proc implicitPragmas*(c: PContext, sym: PSym, info: TLineInfo,
 
 proc pragma*(c: PContext, sym: PSym, n: PNode, validPragmas: TSpecialWords;
             isStatement: bool): PNode {.discardable.} =
+  addInNimDebugUtils(c.config, "pragma", sym, n, result)
   if n == nil or n.kind == nkError: return
   result = pragmaRec(c, sym, n, validPragmas, isStatement)
   if result != nil and result.kind == nkError:
