@@ -167,7 +167,7 @@ Attracting practitioners with diversity of experience and perspectives
 requires a language with broad applicability, from the *Web to Systems*
 *Programming* all the while remaining *efficient*.
 
-Onboarding practitioners requires a langauge that is familiar enough to get
+Onboarding practitioners requires a language that is familiar enough to get
 started in terms of syntax and initial concepts such as *structured and*
 *modular programming*.
 
