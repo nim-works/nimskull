@@ -1,5 +1,6 @@
 discard """
-  cmd: "nim c --useVersion:1.0 -r $file"
+  targets: "c cpp"
+  matrix: "--useVersion:1.0"
   output: "1.0.100"
 """
 

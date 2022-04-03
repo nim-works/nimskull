@@ -1,10 +1,13 @@
 # issue 7705, 7703, 7702
 discard """
+  targets: "c cpp"
   output: '''
 z
 e
 '''
 """
+
+# xxx: should work in js too"
 
 type
   Reversable*[T] = concept a

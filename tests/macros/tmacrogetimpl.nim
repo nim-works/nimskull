@@ -1,3 +1,9 @@
+discard """
+targets: "c cpp"
+"""
+
+# xxx: js should work, but codegen is broken
+
 import macros
 
 # bug #5034

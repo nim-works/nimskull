@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: '''Sortable
 Sortable
 Container
@@ -8,6 +9,8 @@ int
 (id: @[1, 2, 3], name: @["Vas", "Pas", "NafNaf"], age: @[10, 16, 18])
 '''
 """
+
+# xxx: this should work in js too
 
 import typetraits
 

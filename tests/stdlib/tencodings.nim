@@ -1,3 +1,7 @@
+discard """
+targets: "c cpp"
+"""
+
 import std/encodings
 
 var fromGBK = open("utf-8", "gbk")

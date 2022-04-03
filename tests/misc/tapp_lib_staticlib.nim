@@ -1,4 +1,5 @@
 discard """
+target: c
 joinable: false
 """
 

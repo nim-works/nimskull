@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 import std/wordwrap
 import openssl
 

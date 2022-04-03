@@ -1,4 +1,5 @@
 discard """
+targets: "c cpp"
 """
 
 # bug #5404

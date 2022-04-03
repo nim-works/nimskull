@@ -17,7 +17,7 @@ block tobject2:
       z: int # added a field
 
   proc getPoint( p: var TPoint2d) =
-    writeLine(stdout, p.x)
+    echo p.x
 
   var p: TPoint3d
 

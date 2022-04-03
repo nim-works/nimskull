@@ -1,7 +1,8 @@
 discard """
   errormsg: "'myproc' is not GC-safe as it calls 'global_proc'"
-  line: 12
-  cmd: "nim $target --hints:on --threads:on $options $file"
+  line: 13
+  matrix: "--hints:on --threads:on"
+  targets: "c cpp"
 """
 
 var useGcMem = "string here"

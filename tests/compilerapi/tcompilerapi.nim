@@ -1,5 +1,11 @@
 discard """
-  cmd: '''nim c --warnings:off --hints:off $file'''
+  target: c
+  matrix: "--warnings:off --hints:off"
+  joinable: "false"
+
+  description: '''Example program that demonstrates how to use the compiler as
+an API to embed into your own projects.'''
+
   output: '''top level statements are executed!
 (ival: 10, fval: 2.0)
 2.0
@@ -8,11 +14,9 @@ my secret
 12
 raising VMQuit
 '''
-  joinable: "false"
 """
 
-## Example program that demonstrates how to use the
-## compiler as an API to embed into your own projects.
+# only tested in C presently because it's _very_ slow
 
 
 import

@@ -51,8 +51,9 @@ proc initFoo5*(z3: int): Foo5 = Foo5(z3: z3)
 func foo13(): auto = 2
 iterator foo14a(): int = discard
 iterator foo14b*(): int = discard
-iterator foo14c(): int {.closure.} = discard
-iterator foo14d(): int {.inline.} = discard
+when not defined(js):
+  iterator foo14c(): int {.closure.} = discard
+  iterator foo14d(): int {.inline.} = discard
 
 # fwd declare
 proc foo15(): int

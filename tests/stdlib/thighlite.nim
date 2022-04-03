@@ -1,3 +1,6 @@
+discard """
+  targets: "c cpp"
+"""
 
 import unittest, strutils
 import ../../lib/packages/docutils/highlite

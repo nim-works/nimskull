@@ -72,7 +72,7 @@ block tcopy:
     p = find(example, "=")
     a = substr(example, 0, p-1)
     b = substr(example, p+1)
-    writeLine(stdout, a & '=' & b)
+    echo a & '=' & b
 
   main()
 
@@ -211,8 +211,11 @@ when false:
 
 block tgeneric_assign_varargs:
   template fatal(msgs: varargs[string]) =
-    for msg in msgs:
-      stdout.write(msg)
-    stdout.write('\n')
+    when defined(js):
+      echo msgs.join('')
+    else:
+      for msg in msgs:
+        stdout.write(msg)
+      stdout.write('\n')
 
   fatal "abc", "123"

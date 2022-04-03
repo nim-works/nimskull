@@ -1,4 +1,5 @@
 discard """
+targets: "c cpp"
 output: '''
 HandlePrintEvent: Output -> Handled print event
 HandlePrintEvent2: Output -> printing for ME

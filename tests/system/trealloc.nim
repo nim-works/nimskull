@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: '''success'''
   joinable: false
   disabled: "openbsd"

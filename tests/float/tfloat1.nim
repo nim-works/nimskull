@@ -1,8 +1,11 @@
 discard """
+  targets: "c cpp"
   outputsub: "Error: unhandled exception: FPU operation caused an overflow [FloatOverflowDefect]"
   exitcode: "1"
 """
 # Test new floating point exceptions
+
+# xxx: what should js behaviour be?
 
 {.floatChecks: on.}
 

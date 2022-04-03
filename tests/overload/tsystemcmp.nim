@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   cmd: r"nim c --hints:on $options --threads:on $file"
   output: '''@["", "a", "ha", "hi", "ho", "huu"]'''
 """

@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 import std/unittest
 import std/[cgi, strtabs, sugar]
 

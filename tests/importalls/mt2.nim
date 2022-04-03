@@ -60,8 +60,9 @@ block: # different symbol kinds
     doAssert r1.foo13() == 2
     for a in r1.foo14a(): discard
     for a in r1.foo14b(): discard
-    for a in r1.foo14c(): discard
-    for a in r1.foo14d(): discard
+    when not defined(js):
+      for a in r1.foo14c(): discard
+      for a in r1.foo14d(): discard
     doAssert r1.foo15() == 2
     doAssert r1.foo16() == 2
     doAssert r1.foo17() == 2

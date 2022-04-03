@@ -1,7 +1,8 @@
 discard """
+  targets: "c cpp"
   errormsg: "type mismatch: got <array[0..6, string], int literal(7)>"
   file: "tinvalidnewseq.nim"
-  line: 15
+  line: 16
 """
 import re, strutils
 

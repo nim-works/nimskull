@@ -1,5 +1,6 @@
 discard """
 output: ""
+targets: "c cpp"
 """
 
 type

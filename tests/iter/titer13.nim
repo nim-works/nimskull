@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: '''b yields
 c yields
 a returns

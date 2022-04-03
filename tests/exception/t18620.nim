@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   matrix: "--gc:arc; --gc:refc"
 """
 

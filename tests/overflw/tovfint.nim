@@ -8,13 +8,13 @@ var
 i = int(0xffffffff'i32)
 when defined(cpu64):
   if i == -1:
-    write(stdout, "works!\n")
+    echo "works!"
   else:
-    write(stdout, "broken!\n")
+    echo "broken!"
 else:
   if i == -1:
-    write(stdout, "works!\n")
+    echo "works!"
   else:
-    write(stdout, "broken!\n")
+    echo "broken!"
 
 #OUT works!

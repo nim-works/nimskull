@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: '''Can't access 6
 10
 11

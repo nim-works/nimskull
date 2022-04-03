@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: "key: keyAYes!"
 """
 # Test the new regular expression module

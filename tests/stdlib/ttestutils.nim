@@ -1,3 +1,6 @@
+discard """
+  targets: "c cpp"
+"""
 import stdtest/testutils
 
 block: # assertAll

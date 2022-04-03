@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 # test atomic operations
 
 import std/[atomics, bitops]

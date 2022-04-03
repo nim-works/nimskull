@@ -1,4 +1,5 @@
 discard """
+targets: "c cpp"
 outputsub: "is newer than"
 """
 # test the new LastModificationTime() proc

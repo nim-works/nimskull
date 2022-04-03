@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: "pcDir\npcFile\npcLinkToDir\npcLinkToFile\n"
   joinable: false
 """

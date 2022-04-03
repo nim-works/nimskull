@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 doAssert "@[23, 45]" == $(@[23, 45])
 doAssert "[32, 45]" == $([32, 45])
 doAssert """@["", "foo", "bar"]""" == $(@["", "foo", "bar"])

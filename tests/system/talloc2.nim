@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
 disabled: "windows"
 disabled: "openbsd"
 joinable: false

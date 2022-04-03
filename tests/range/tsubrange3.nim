@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   outputsub: "value out of range: 50 notin 0 .. 40 [RangeDefect]"
   exitcode: "1"
 """

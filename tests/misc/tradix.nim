@@ -1,4 +1,5 @@
 discard """
+targets: "c cpp"
 output: '''
 start tradix.nim
 false

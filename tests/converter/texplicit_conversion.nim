@@ -1,6 +1,9 @@
 discard """
+  targets: "c cpp"
   output: "234"
 """
+
+# xxx: should work in js too
 
 # bug #4432
 
@@ -16,6 +19,6 @@ block: # test of nkConv
   # int(a) is a l-value so should emit an nkConv for transf.
   # test will show regressions on code generators
   proc foo(o: var int) =
-    assert o == 0
+    doAssert o == 0
   var a = 0
   foo(int(a))

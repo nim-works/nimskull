@@ -1,6 +1,7 @@
 discard """
-    action: run
-    output: '''
+  action: run
+  targets: "c cpp"
+  output: '''
 18446744073709551615
 9223372036854775807
 4294967295

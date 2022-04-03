@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   input: "Arne"
   output: '''
 Hello! What is your name?

@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   ccodecheck: "\\i@'NI* NIM_NOALIAS field;' @'NIM_CHAR* NIM_NOALIAS x,' @'void* NIM_NOALIAS q'"
 """
 

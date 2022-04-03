@@ -1,4 +1,5 @@
 discard """
+targets: "c cpp"
 ccodeCheck: "\\i @'unsigned int flag:1;' .*"
 """
 

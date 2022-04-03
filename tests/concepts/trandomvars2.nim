@@ -1,6 +1,9 @@
 discard """
+targets: "c cpp"
 output: "11.0"
 """
+
+# should work in js too
 
 type
   # A random number generator

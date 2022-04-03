@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: '''Match failed: spam
 Match failed: ham'''
 joinable: false

@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 type
   A[T] = iterator(x: T): T {.gcsafe, closure.}
 

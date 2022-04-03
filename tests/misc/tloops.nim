@@ -1,6 +1,7 @@
 discard """
 output: '''
-Hello!(x: 1, y: 2, z: 3)
+Hello!
+(x: 1, y: 2, z: 3)
 (x: 1.0, y: 2.0)
 '''
 """
@@ -64,7 +65,7 @@ proc Foo(n: int): int =
     while b:
         a = a + 3
     a = a + 5
-    write(stdout, "Hello!")
+    echo "Hello!"
 
 
 # We should come till here :-)

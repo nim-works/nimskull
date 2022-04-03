@@ -1,12 +1,11 @@
 discard """
-  output: "0false12"
 """
 
 # Test multiple generic instantiation of generic proc vars:
 
-proc threadProcWrapper[TMsg]() =
+proc threadProcWrapper[TMsg](): string =
   var x: TMsg
-  stdout.write($x)
+  $x
 
 #var x = threadProcWrapper[int]
 #x()
@@ -14,8 +13,8 @@ proc threadProcWrapper[TMsg]() =
 #var y = threadProcWrapper[bool]
 #y()
 
-threadProcWrapper[int]()
-threadProcWrapper[bool]()
+doAssert threadProcWrapper[int]() == "0"
+doAssert threadProcWrapper[bool]() == "false"
 
 type
   TFilterProc[T,D] = proc (item: T, env:D): bool {.nimcall.}
@@ -31,7 +30,8 @@ proc predTest(item: int, value: int): bool =
 proc test(data: seq[int], value: int): seq[int] =
   return filter(data, value, predTest)
 
+var stuff: seq[string]
 for x in items(test(@[1,2,3], 2)):
-  stdout.write(x)
+  stuff.add $x
 
-stdout.write "\n"
+doAssert stuff == @["1", "2"]

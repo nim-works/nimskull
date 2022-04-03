@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   joinable: false
   disabled: windows
 """

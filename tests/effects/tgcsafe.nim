@@ -1,7 +1,8 @@
 discard """
   errormsg: "'mainUnsafe' is not GC-safe"
-  line: 26
-  cmd: "nim $target --hints:on --threads:on $options $file"
+  line: 27
+  targets: "c cpp"
+  matrix: "--hints:on --threads:on"
 """
 
 # bug #6955

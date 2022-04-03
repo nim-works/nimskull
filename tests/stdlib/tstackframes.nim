@@ -1,3 +1,6 @@
+discard """
+  targets: "c cpp"
+"""
 import std/[strformat,os,osproc]
 import stdtest/unittest_light
 

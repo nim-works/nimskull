@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: '''
 Hello World
 Hello World'''

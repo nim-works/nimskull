@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 import nativesockets
 
 doAssert getProtoByName("ipv6") == 41

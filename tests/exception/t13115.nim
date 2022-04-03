@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 const msg = "This char is `" & '\0' & "` and works fine!"
 
 when defined nim_t13115:

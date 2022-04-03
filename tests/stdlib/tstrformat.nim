@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 # xxx: test js target
 
 import genericstrformat

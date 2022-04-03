@@ -1,5 +1,6 @@
 discard """
-  cmd: "nim c -d:useGcAssert $file"
+  targets: "c cpp"
+  matrix: "-d:useGcAssert"
   joinable: false
 """
 

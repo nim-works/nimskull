@@ -1,19 +1,20 @@
 discard """
+targets: "c cpp"
 exitcode: 1
 output: '''
 Traceback (most recent call last)
-tstrace.nim(36)          tstrace
-tstrace.nim(28)          recTest
-tstrace.nim(28)          recTest
-tstrace.nim(28)          recTest
-tstrace.nim(28)          recTest
-tstrace.nim(28)          recTest
-tstrace.nim(28)          recTest
-tstrace.nim(28)          recTest
-tstrace.nim(28)          recTest
-tstrace.nim(28)          recTest
-tstrace.nim(28)          recTest
-tstrace.nim(31)          recTest
+tstrace.nim(37)          tstrace
+tstrace.nim(29)          recTest
+tstrace.nim(29)          recTest
+tstrace.nim(29)          recTest
+tstrace.nim(29)          recTest
+tstrace.nim(29)          recTest
+tstrace.nim(29)          recTest
+tstrace.nim(29)          recTest
+tstrace.nim(29)          recTest
+tstrace.nim(29)          recTest
+tstrace.nim(29)          recTest
+tstrace.nim(32)          recTest
 SIGSEGV: Illegal storage access. (Attempt to read from nil?)
 '''
 """

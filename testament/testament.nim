@@ -1123,6 +1123,7 @@ proc makeTestWithDummySpec(test, options: string, cat: Category): TTest =
   var spec = initSpec(addFileExt(test, ".nim"))
   spec.action = actionCompile
   spec.targets = cat.defaultTargets()
+  
   initTest(test, options, cat, spec)
 
 # TODO: fix these files

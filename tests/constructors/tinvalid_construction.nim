@@ -1,8 +1,8 @@
 template accept(x) =
-  static: assert compiles(x)
+  static: doAssert compiles(x)
 
 template reject(x) =
-  static: assert(not compiles(x))
+  static: doAssert(not compiles(x))
 
 {.experimental: "notnil".}
 
@@ -237,7 +237,7 @@ reject:
 accept:
   # All code paths must return a value when the result requires initialization:
   proc wellFormedIf: THasNotNils =
-    if stdin.readLine == "":
+    if "some string" == "":
       return THasNotNils(a: notNilRef, b: notNilRef, c: nilRef)
     else:
       return THasNotNIls(a: notNilRef, b: notNilRef)
@@ -255,7 +255,7 @@ reject:
 
 accept:
   proc wellFormedCase: FullRequiresInit =
-    case stdin.readLine
+    case "some string"
     of "x":
       result = FullRequiresInit(a: 10, b: 20)
     else:

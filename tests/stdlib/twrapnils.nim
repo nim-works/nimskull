@@ -1,3 +1,6 @@
+discard """
+  targets: "c cpp"
+"""
 import std/wrapnils
 from std/options import get, isSome
 

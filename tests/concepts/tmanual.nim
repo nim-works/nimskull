@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: '''1
 2
 3
@@ -13,6 +14,8 @@ s
 t
 '''
 """
+
+# xxx: should work in js too
 
 template accept(e) =
   static: assert compiles(e)

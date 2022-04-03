@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 include parsecsv
 import strutils, os
 

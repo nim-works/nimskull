@@ -1,3 +1,7 @@
+discard """
+targets: "c cpp"
+"""
+
 import compiler/utils/int128
 
 let (a,b) = divMod(Ten,Ten)

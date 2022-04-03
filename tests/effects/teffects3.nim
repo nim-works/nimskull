@@ -1,6 +1,6 @@
 discard """
   errormsg: "type mismatch"
-  line: 18
+  line: 19
 """
 
 type
@@ -9,10 +9,11 @@ type
     a, b, c: string
     fn: proc (): int {.tags: [].}
 
-
+proc effectfulWrite(s: string) {.tags:[WriteIoEffect].} =
+  discard
 
 proc raiser(): int {.tags: [TObj, WriteIoEffect].} =
-  writeLine stdout, "arg"
+  effectfulWrite "arg"
 
 var o: TObjB
 o.fn = raiser

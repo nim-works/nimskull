@@ -1,5 +1,6 @@
 discard """
-  cmd: "nim c --gc:boehm $options $file"
+  targets: "c cpp"
+  matrix: "--gc:boehm"
   output: '''meep'''
   disabled: "windows"
 """

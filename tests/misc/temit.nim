@@ -1,4 +1,5 @@
 discard """
+  target: c
   output: "509"
 """
 # Test the new ``emit`` pragma:

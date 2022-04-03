@@ -1,3 +1,7 @@
+discard """
+targets: "c cpp"
+"""
+
 import memfiles
 var inp = memfiles.open("tests/stdlib/tmemlinesBuf.nim")
 var buffer: string = ""
@@ -6,4 +10,4 @@ for line in lines(inp, buffer):
   lineCount += 1
 
 close(inp)
-doAssert lineCount == 9, $lineCount # this file's number of lines
+doAssert lineCount == 13, $lineCount # this file's number of lines

@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   cmd: "nim $target --threads:on -d:ssl $options $file"
   disabled: "openbsd"
 """

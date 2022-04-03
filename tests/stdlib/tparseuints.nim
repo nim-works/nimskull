@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 import unittest, strutils
 
 block: # parseutils

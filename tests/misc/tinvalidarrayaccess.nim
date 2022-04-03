@@ -1,6 +1,7 @@
 discard """
+  targets: "c cpp"
   errormsg: "index 2 not in 0 .. 1"
-  line: 18
+  line: 19
 """
 block:
   try:

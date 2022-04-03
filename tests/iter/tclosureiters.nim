@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: '''0
 1
 2

@@ -2,14 +2,6 @@ discard """
   output: '''
 Hithere, what's your name?Hathere, what's your name?
 fA13msg1falsefB14msg2truefC15msg3false
-Zip: [{"Field0": 1, "Field1": 2}, {"Field0": 3, "Field1": 4}, {"Field0": 5, "Field1": 6}]
-Filter Iterator: 3
-Filter Iterator: 5
-Filter Iterator: 7
-Filter: [3, 5, 7]
-FilterIt: [1, 3, 7]
-Concat: [1, 3, 5, 7, 2, 4, 6]
-Deduplicate: [1, 2, 3, 4, 5, 7]
 @[()]
 @[1, 42, 3]
 @[1, 42, 3]
@@ -48,10 +40,12 @@ block tseqcon:
     b = s # deep copying here!
     b[0][1] = 'a'
 
+    var output = ""
     for i in 0 .. len(s)-1:
-      write(stdout, s[i])
+      output.add s[i]
     for i in 0 .. len(b)-1:
-      write(stdout, b[i])
+      output.add b[i]
+    echo output
 
   when nestedFixed:
     proc nested() =
@@ -68,8 +62,6 @@ block tseqcon:
   test()
   when nestedFixed:
     nested()
-  echo ""
-
 
 
 import os
@@ -98,15 +90,16 @@ block tseqtuple:
   s.add(("fB", 14, "msg2", true))
   s.add(("fC", 15, "msg3", false))
 
+  var output = ""
   for file, line, msg, err in items(s):
-    stdout.write(file)
-    stdout.write($line)
-    stdout.write(msg)
-    stdout.write($err)
-  echo ""
+    output.add(file)
+    output.add($line)
+    output.add(msg)
+    output.add($err)
+  echo output, ""
 
 
-import sequtils, marshal
+import sequtils
 block tsequtils:
   proc testFindWhere(item : int) : bool =
     if item != 1: return true
@@ -121,32 +114,45 @@ block tsequtils:
   var seq2: seq[int] = @[2, 4, 6]
   var final = zip(seq1, seq2)
 
-  echo "Zip: ", $$(final)
+  doAssert final == @[(1, 2), (3, 4), (5, 6)], "Zip mismatch, got: " & $final
+
+  # echo "Zip: ", $$(final)
 
   #Test findWhere as a iterator
 
-  for itms in filter(seq1, testFindWhere):
-    echo "Filter Iterator: ", $$(itms)
+  var itms: string
+  for itm in filter(seq1, testFindWhere):
+    # echo "Filter Iterator: ", $$(itm)
+    itms.add $itm
+  
+  doAssert itms == "357", "Filter Iterator mismatch, got: " & $itms
 
 
   #Test findWhere as a proc
 
   var fullseq: seq[int] = filter(seq1, testFindWhere)
 
-  echo "Filter: ", $$(fullseq)
+  # echo "Filter: ", $$(fullseq)
+  doAssert fullSeq == @[3, 5, 7], "Filter mismatch, got: " & $fullSeq
+
 
   #Test findIt as a template
 
   var finditval: seq[int] = filterIt(seq1, it!=5)
 
-  echo "FilterIt: ", $$(finditval)
+  # echo "FilterIt: ", $$(finditval)
+  doAssert finditval == @[1, 3, 7], "FilterIt mismatch, got: " & $finditval
 
   var concatseq = concat(seq1,seq2)
-  echo "Concat: ", $$(concatseq)
+  # echo "Concat: ", $$(concatseq)
+  doAssert concatseq == @[1, 3, 5, 7, 2, 4, 6],
+    "Concat mismatch, got: " & $finditval
 
   var seq3 = @[1,2,3,4,5,5,5,7]
   var dedupseq = deduplicate(seq3)
-  echo "Deduplicate: ", $$(dedupseq)
+  # echo "Deduplicate: ", $$(dedupseq)
+  doAssert dedupseq == @[1, 2, 3, 4, 5, 7], "Deduplicate mismatch, got: " & $dedupseq
+  
   # bug #4973
   type
     SomeObj = object
@@ -197,13 +203,14 @@ block tshallowemptyseq:
 
 import strutils
 block ttoseq:
+  var output = ""
   for x in toSeq(countup(2, 6)):
-    stdout.write(x)
+    output.add($x)
   for x in items(toSeq(countup(2, 6))):
-    stdout.write(x)
+    output.add($x)
   var y: typeof("a b c".split)
   y = "xzy"
-  stdout.write("\n")
+  echo output
 
 block tseqmapitchain:
   doAssert @[101, 102] == [1, 2].mapIt(func (x: int): int = it + x).mapIt(it(100))

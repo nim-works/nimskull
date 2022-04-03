@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 # xxx move to here other tests that belong here; io is a proper module
 
 import std/os

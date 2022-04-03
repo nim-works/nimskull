@@ -1,3 +1,6 @@
+discard """
+  targets: "c cpp"
+"""
 import "$lib/.." / compiler/utils/strutils2
 
 block: # setLen

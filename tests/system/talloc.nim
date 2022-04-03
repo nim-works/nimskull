@@ -1,3 +1,6 @@
+discard """
+  targets: "c cpp"
+"""
 # was: appveyor is "out of memory"
 
 var x: ptr int

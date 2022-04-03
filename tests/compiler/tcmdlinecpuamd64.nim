@@ -1,5 +1,6 @@
 discard """
-  cmd: "nim $target $options --cpu:amd64 $file"
+  targets: "c cpp"
+  matrix: "--cpu:amd64"
   disabled: "32bit"
 """
 

@@ -15,5 +15,4 @@ proc ack(x, y: int): int =
 #  else: return ack(x-1, ack(x, y-1))
 
 # echo(ack(0, 0))
-write(stdout, ack(3, 4)) #OUT 125
-write stdout, "\n"
+echo ack(3, 4) #OUT 125

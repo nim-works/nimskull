@@ -1,8 +1,11 @@
 discard """
+  targets: "c cpp"
   outputsub: "Error: unhandled exception: FPU operation caused a NaN result [FloatInvalidOpDefect]"
   exitcode: "1"
 """
 # Test new floating point exceptions
+
+# xxx: what should js behaviour be?
 
 {.floatChecks: on.}
 

@@ -1,5 +1,6 @@
 discard """
-  outputsub: '''tproper_stacktrace2.nim(20) main'''
+  targets: "c cpp"
+  outputsub: '''tproper_stacktrace2.nim(21) main'''
   exitcode: 1
 """
 

@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: "02468101214161820\n15"
 """
 

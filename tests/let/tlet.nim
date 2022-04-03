@@ -4,7 +4,7 @@ discard """
 """
 
 echo("What's your name? ")
-let name = readLine(stdin)
+let name = "foo"
 while name == "":
   echo("Please tell me your name: ")
-  name = readLine(stdin)
+  name = "bar"

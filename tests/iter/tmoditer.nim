@@ -1,5 +1,5 @@
 discard """
-  output: "XXXXX01234"
+  output: ""
 """
 
 iterator modPairs(a: var array[0..4,string]): tuple[key: int, val: var string] =
@@ -16,16 +16,17 @@ var
 for a in modItems(arr):
   a = "X"
 
+var actual = ""
 for a in items(arr):
-  stdout.write(a)
+  actual.add(a)
 
 for i, a in modPairs(arr):
   a = $i
 
 for a in items(arr):
-  stdout.write(a)
+  actual.add(a)
 
-echo ""
+doAssert actual == "XXXXX01234"
 
 #--------------------------------------------------------------------
 # Lent iterators

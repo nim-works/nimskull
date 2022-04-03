@@ -1,4 +1,4 @@
-import t9578
+import t9578_unchecked_array
 
 proc testUncheckedArray*(x: var UncheckedArray[mytype]) =
   f(x[0].addr)

@@ -1,7 +1,10 @@
 discard """
+  targets: "c cpp"
   outputsub: "CustomChildError"
   exitcode: 1
 """
+
+# xxx: this should work for JS, but exception reporting is inconsistent
 
 type
   CustomError* = object of Exception

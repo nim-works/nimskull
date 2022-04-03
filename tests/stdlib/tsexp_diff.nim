@@ -1,4 +1,5 @@
 discard """
+targets: "c cpp"
 description: '''
 Test structural S-expression comparison. Correctness of
 this test is very important, since it directly influences

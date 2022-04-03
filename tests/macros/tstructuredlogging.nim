@@ -1,9 +1,12 @@
 discard """
+targets: "c cpp"
 output: '''
 main started: a=10, b=inner-b, c=10, d=some-d, x=16, z=20
 exiting: a=12, b=overriden-b, c=100, msg=bye bye, x=16
 '''
 """
+
+# xxx: removed js target only because there is too much to audit here
 
 import macros, tables
 

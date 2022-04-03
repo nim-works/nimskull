@@ -1,3 +1,9 @@
+discard """
+  target: c
+"""
+
+# xxx: this is broken on the cpp target
+
 import atomicSample
 
 block crossFileObjectContainingAGenericWithAComplexObject:

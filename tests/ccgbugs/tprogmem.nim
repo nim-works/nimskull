@@ -1,6 +1,6 @@
 discard """
   output: "5"
-  cmd: r"nim c --hints:on $options -d:release $file"
+  matrix: "--hints:on -d:release"
   ccodecheck: "'/*PROGMEM*/ myLetVariable = {'"
   targets: "c"
 """

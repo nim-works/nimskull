@@ -1,3 +1,6 @@
+discard """
+  targets: "c cpp"
+"""
 import std/sha1
 
 let hash1 = secureHash("a93tgj0p34jagp9[agjp98ajrhp9aej]")

@@ -1,5 +1,6 @@
 discard """
   ccodecheck: "__restrict__"
+  targets: "c cpp"
   action: compile
   joinable: false
 """

@@ -1,4 +1,5 @@
 discard """
+targets: "c cpp"
 output: '''
 456456
 456456

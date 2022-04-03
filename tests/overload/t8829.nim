@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 block:
   let txt = "Hello World"
 

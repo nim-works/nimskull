@@ -1,5 +1,5 @@
-
 discard """
+targets: "c cpp"
 output: '''
 test the improved readline handling that does not care whether its
 Macintosh, Unix or Windows text format.

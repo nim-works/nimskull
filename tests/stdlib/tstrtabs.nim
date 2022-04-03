@@ -1,4 +1,5 @@
 discard """
+targets: "c cpp"
 sortoutput: true
 output: '''
 key1: value1

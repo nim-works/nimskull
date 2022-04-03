@@ -112,27 +112,28 @@ template main =
         a.ha1 = 3
         a2.ha1 == 3
 
-    block:
-      disableVm:
-        assertAll:
-          var a = A.create()
-          defer: dealloc(a)
-          a is PtA
-          a.typeof is PtA
-          not compiles(a.ha1)
-          privateAccess a.typeof
-          a.ha1 = 2
-          a.ha1 == 2
-          a[].ha1 = 3
-          a.ha1 == 3
+    when not defined(js):
+      block:
+        disableVm:
+          assertAll:
+            var a = A.create()
+            defer: dealloc(a)
+            a is PtA
+            a.typeof is PtA
+            not compiles(a.ha1)
+            privateAccess a.typeof
+            a.ha1 = 2
+            a.ha1 == 2
+            a[].ha1 = 3
+            a.ha1 == 3
 
-    block:
-      disableVm:
-        assertAll:
-          var a = A.create()
-          defer: dealloc(a)
-          privateAccess PtA
-          a.ha1 == 0
+      block:
+        disableVm:
+          assertAll:
+            var a = A.create()
+            defer: dealloc(a)
+            privateAccess PtA
+            a.ha1 == 0
 
 static: main()
 main()

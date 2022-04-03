@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: '''ok'''
 """
 import strscans, strutils
@@ -65,7 +66,6 @@ template verifyStackTrace*(expectedStackTrace: string, body: untyped) =
 
 
 
-
 when true:
 # <-- Align with line 70 in the text editor
   block:
@@ -79,7 +79,7 @@ when true:
       tproper_stacktrace.nim(86) tproper_stacktrace
       tproper_stacktrace.nim(76) foo
       tproper_stacktrace.nim(73) bar
-      tproper_stacktrace.nim(7) raiseTestException
+      tproper_stacktrace.nim(8) raiseTestException
     """
 
     verifyStackTrace expectedStackTrace:
@@ -95,7 +95,7 @@ when true:
     const expectedStackTrace = """
       tproper_stacktrace.nim(103) tproper_stacktrace
       tproper_stacktrace.nim(90) bar
-      tproper_stacktrace.nim(7) raiseTestException
+      tproper_stacktrace.nim(8) raiseTestException
     """
 
     verifyStackTrace expectedStackTrace:
@@ -113,7 +113,7 @@ when true:
       tproper_stacktrace.nim(120) tproper_stacktrace
       tproper_stacktrace.nim(110) foo
       tproper_stacktrace.nim(107) bar
-      tproper_stacktrace.nim(7) raiseTestException
+      tproper_stacktrace.nim(8) raiseTestException
     """
 
     verifyStackTrace expectedStackTrace:
@@ -132,7 +132,7 @@ when true:
       tproper_stacktrace.nim(139) tproper_stacktrace
       tproper_stacktrace.nim(129) foo
       tproper_stacktrace.nim(125) baz
-      tproper_stacktrace.nim(7) raiseTestException
+      tproper_stacktrace.nim(8) raiseTestException
     """
 
     verifyStackTrace expectedStackTrace:

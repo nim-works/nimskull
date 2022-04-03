@@ -1,6 +1,7 @@
 discard """
+  targets: "c cpp"
   errormsg: "illegal capture 'x'"
-  line: 9
+  line: 10
 """
 
 proc outer(arg: string) =

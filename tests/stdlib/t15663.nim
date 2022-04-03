@@ -1,5 +1,6 @@
 discard """
-  cmd: "nim c --gc:arc $file"
+  targets: "c cpp"
+  matrix: "--gc:arc"
   output: "Test"
 """
 

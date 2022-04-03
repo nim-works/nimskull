@@ -1,4 +1,5 @@
 discard """
+targets: "c cpp"
 output: '''
 hallo40
 1

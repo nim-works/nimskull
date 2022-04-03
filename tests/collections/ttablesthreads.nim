@@ -1,5 +1,6 @@
 discard """
-  cmd: "nim c --threads:on $file"
+  targets: "c cpp"
+  matrix: "--threads:on"
   output: '''true'''
 """
 

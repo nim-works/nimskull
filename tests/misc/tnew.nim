@@ -1,4 +1,5 @@
 discard """
+targets: "c cpp"
 outputsub: '''
 Simple tree node allocation worked!
 Simple cycle allocation worked!

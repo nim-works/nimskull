@@ -1,3 +1,6 @@
+discard """
+  targets: "c cpp"
+"""
 type
   MyTypeCon = concept c
     c.counter is int

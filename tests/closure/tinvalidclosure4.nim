@@ -1,6 +1,7 @@
 discard """
+  targets: "c cpp"
   errormsg: "illegal capture 'v'"
-  line: 7
+  line: 8
 """
 
 proc outer(v: int) =

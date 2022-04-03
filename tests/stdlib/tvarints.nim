@@ -1,3 +1,6 @@
+discard """
+  targets: "c cpp"
+"""
 import std/varints
 
 # xxx doesn't work with js: tvarints.nim(18, 14) `wrLen == rdLen`  [AssertionDefect]

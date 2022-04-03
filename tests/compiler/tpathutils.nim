@@ -1,3 +1,7 @@
+discard """
+targets: "c cpp"
+"""
+
 import compiler/utils/pathutils
 import std/[os, strutils]
 

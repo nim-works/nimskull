@@ -1,7 +1,10 @@
 discard """
+  targets: "c cpp"
   output: "3"
 """
 import math
+
+# xxx: js math is broken
 
 proc FibonacciA(n: int): int64 =
   var fn = float64(n)

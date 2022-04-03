@@ -1,6 +1,7 @@
 discard """
+  targets: "c cpp"
   errormsg: "cannot cast to a non concrete type: 'ptr SomeNumber'"
-  line: 36
+  line: 37
 """
 
 # https://github.com/nim-lang/Nim/issues/5428

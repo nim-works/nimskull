@@ -1,9 +1,13 @@
 discard """
-  cmd: "nim $target -d:release $options $file"
-  outputsub: '''tunhandledexc.nim(15)    genErrors
+  targets: "c cpp"
+  matrix: "-d:release"
+  outputsub: '''tunhandledexc.nim(19)    genErrors
 Error: unhandled exception: bla [ESomeOtherErr]'''
   exitcode: "1"
 """
+
+# xxx: this should work for JS, but exception reporting is inconsistent
+
 type
   ESomething = object of Exception
   ESomeOtherErr = object of Exception

@@ -1,3 +1,7 @@
+discard """
+  targets: "c cpp"
+"""
+
 import experimental/[diff, colordiff, colortext]
 import std/[strformat, strutils]
 

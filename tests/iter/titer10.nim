@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: '''3
 2
 5
@@ -9,7 +10,7 @@ discard """
 @[@[2, 2], @[2, 3]]'''
 """
 
-when true:
+when not defined(js): # js codegen is broken
   # bug #2604
 
   import algorithm

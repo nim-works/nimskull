@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   matrix: "--threads:on --gc:arc"
   disabled: "freebsd"
   output: "42"

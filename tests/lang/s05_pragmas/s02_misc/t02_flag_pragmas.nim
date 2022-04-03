@@ -1,6 +1,7 @@
 discard """
+targets: "c cpp"
 description: '''
-Disable or enable safety checks
+Enable or disable safety checks applicable to C and C++ targets
 '''
 """
 

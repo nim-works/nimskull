@@ -1,3 +1,7 @@
+discard """
+targets: "c cpp"
+"""
+
 # issue #8573
 
 import

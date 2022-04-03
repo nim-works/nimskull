@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: '''
 OBJ 1 foo
 10
