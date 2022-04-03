@@ -64,10 +64,11 @@ proc someInSet*(s: PNode, a, b: PNode): bool =
         return true
   result = false
 
-proc toBitSet*(conf: ConfigRef; s: PNode): TBitSet =
+proc inclTreeSet*(result: var TBitSetView, conf: ConfigRef; s: PNode) =
+  ## Includes all elements from tree-set `s` into `result`
+  assert result.len == int(getSize(conf, s.typ))
   var first, j: Int128
   first = firstOrd(conf, s.typ[0])
-  bitSetInit(result, int(getSize(conf, s.typ)))
   for i in 0..<s.len:
     if s[i].kind == nkRange:
       j = getOrdValue(s[i][0], first)
@@ -77,7 +78,12 @@ proc toBitSet*(conf: ConfigRef; s: PNode): TBitSet =
     else:
       bitSetIncl(result, toInt64(getOrdValue(s[i]) - first))
 
-proc toTreeSet*(conf: ConfigRef; s: TBitSet, settype: PType, info: TLineInfo): PNode =
+proc toBitSet*(conf: ConfigRef; s: PNode): TBitSet =
+  ## Creates a bit set from tree-set `s`
+  bitSetInit(result, int(getSize(conf, s.typ)))
+  inclTreeSet(result, conf, s)
+
+proc toTreeSet*(conf: ConfigRef; s: TBitSetView, settype: PType, info: TLineInfo): PNode =
   var
     a, b, e, first: BiggestInt # a, b are interval borders
     elemType: PType

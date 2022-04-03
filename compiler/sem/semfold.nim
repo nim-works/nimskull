@@ -294,11 +294,11 @@ proc evalOp(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): P
     let argB = maskBytes(getInt(b), int(a.typ.size))
     if argB != Zero:
       result = newIntNodeT(argA div argB, n, idgen, g)
-  of mLeSet: result = newIntNodeT(toInt128(ord(containsSets(g.config, a, b))), n, idgen, g)
+  of mLeSet: result = newIntNodeT(toInt128(ord(containsSets(g.config, b, a))), n, idgen, g)
   of mEqSet: result = newIntNodeT(toInt128(ord(equalSets(g.config, a, b))), n, idgen, g)
   of mLtSet:
     result = newIntNodeT(toInt128(ord(
-      containsSets(g.config, a, b) and not equalSets(g.config, a, b))), n, idgen, g)
+      containsSets(g.config, b, a) and not equalSets(g.config, a, b))), n, idgen, g)
   of mMulSet:
     result = nimsets.intersectSets(g.config, a, b)
     result.info = n.info

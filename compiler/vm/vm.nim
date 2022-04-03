@@ -1235,7 +1235,7 @@ proc rawExecute(c: var TCtx, start: int, sframe: StackFrameIndex): TFullReg =
       regs[ra].intVal = ord(regs[rb].node.strVal < regs[rc].node.strVal)
     of opcLeSet:
       decodeBC(rkInt)
-      regs[ra].intVal = ord(containsSets(c.config, regs[rb].node, regs[rc].node))
+      regs[ra].intVal = ord(containsSets(c.config, regs[rc].node, regs[rb].node))
     of opcEqSet:
       decodeBC(rkInt)
       regs[ra].intVal = ord(equalSets(c.config, regs[rb].node, regs[rc].node))
@@ -1243,7 +1243,7 @@ proc rawExecute(c: var TCtx, start: int, sframe: StackFrameIndex): TFullReg =
       decodeBC(rkInt)
       let a = regs[rb].node
       let b = regs[rc].node
-      regs[ra].intVal = ord(containsSets(c.config, a, b) and not equalSets(c.config, a, b))
+      regs[ra].intVal = ord(containsSets(c.config, b, a) and not equalSets(c.config, a, b))
     of opcMulSet:
       decodeBC(rkNode)
       createSet(regs[ra])
