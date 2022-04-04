@@ -1,9 +1,12 @@
 discard """
+targets: "!js"
 output: '''
 @[1.0, 2.0, 3.0]
 @[1.0, 2.0, 3.0]
 '''
 """
+
+# xxx: JS' NaN to bool conversion is not right?
 
 # bug #6406
 

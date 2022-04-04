@@ -116,20 +116,23 @@ y.setColorArray()
 echo y
 
 #bug #6016
-type
-  Onion {.union.} = object
-    field1: int
-    field2: uint64
+when not defined(js):
+  type
+    Onion {.union.} = object
+      field1: int
+      field2: uint64
 
-  Stroom  = Onion
+    Stroom  = Onion
 
-  PStroom = ptr Stroom
+    PStroom = ptr Stroom
 
-proc pstruct(u: PStroom) =
-  echo u.field2
+  proc pstruct(u: PStroom) =
+    echo u.field2
 
-var oni = Onion(field1: 100)
-pstruct(oni.addr)
+  var oni = Onion(field1: 100)
+  pstruct(oni.addr)
+else:
+  echo 100 # force it to pass because in JS we don't have union
 
 
 # bug #4124

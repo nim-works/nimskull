@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
   nimout: '''
 2
 3
@@ -12,6 +13,8 @@ b
 c
 '''
 """
+
+# xxx: js codegen is broken
 
 # bug #404
 

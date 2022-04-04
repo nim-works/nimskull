@@ -1,3 +1,8 @@
+discard """
+  targets: "!js"
+"""
+
+# xxx: js doesn't have zero extend
 
 const RANGE = -384.. -127
 

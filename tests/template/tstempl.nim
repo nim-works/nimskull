@@ -15,10 +15,10 @@ var abclev = levB
 
 template tstLev(abclev: TLev) =
   bind tstempl.abclev, `%`
-  writeLine(stdout, "global = $1, arg = $2, test = $3" % [
-    $tstempl.abclev, $abclev, $(tstempl.abclev == abclev)])
+  echo "global = $1, arg = $2, test = $3" % [
+    $tstempl.abclev, $abclev, $(tstempl.abclev == abclev)]
   # evaluates to true, but must be false
 
 
 tstLev(levA)
-writeLine(stdout, $abclev)
+echo abclev

@@ -16,5 +16,5 @@ proc wrongfoo(c, e: int): int {.inline.} =
 
 var p: TProc
 p = foo
-write(stdout, "success!")
+echo "success!"
 p = wrongfoo  #ERROR_MSG type mismatch

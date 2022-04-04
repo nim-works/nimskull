@@ -212,7 +212,10 @@ when false:
 block tgeneric_assign_varargs:
   template fatal(msgs: varargs[string]) =
     when defined(js):
-      echo msgs.join('')
+      var finalMsg = ""
+      for msg in msgs:
+        finalMsg.add msg
+      echo finalMsg
     else:
       for msg in msgs:
         stdout.write(msg)

@@ -1,4 +1,5 @@
 discard """
+targets: "native"
 cmd: "nim c --nimcache:build/myNimCache --nimblePath:myNimblePath $file"
 joinable: false
 """

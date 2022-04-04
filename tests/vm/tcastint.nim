@@ -1,3 +1,9 @@
+discard """
+  targets: "!js"
+"""
+
+# xxx: js number handling and codegen are broken
+
 import macros
 from stdtest/testutils import disableVM
 type

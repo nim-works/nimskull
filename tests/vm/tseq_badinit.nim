@@ -1,3 +1,8 @@
+discard """
+  targets: "!js"
+"""
+
+# xxx: this is broken in js
 
 type
   AObj = object

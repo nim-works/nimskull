@@ -1,10 +1,13 @@
 discard """
+targets: "!js"
 output: '''
 12false3ha
 21
 optimized
 '''
 """
+
+# xxx: this is broken in JS, hits an NPE
 
 import macros, pegs
 

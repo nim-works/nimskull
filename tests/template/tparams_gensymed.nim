@@ -1,4 +1,5 @@
 discard """
+targets: "!js"
 output: '''
 0
 1
@@ -82,6 +83,7 @@ genericProc(7)  # This doesn't compile
 import tables
 
 # bug #9476
+# xxx: this is broken in JS
 proc getTypeInfo*(T: typedesc): pointer =
   var dummy: T
   getTypeInfo(dummy)

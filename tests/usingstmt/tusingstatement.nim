@@ -1,5 +1,6 @@
 discard """
-  output: "Using test.Closing test."
+  output: '''Using test.
+Closing test.'''
 """
 
 import
@@ -69,12 +70,10 @@ proc openResource(param: string): TResource =
   result.field = param
 
 proc close(r: var TResource) =
-  write(stdout, "Closing " & r.field & ".")
+  echo "Closing " & r.field & "."
 
 proc use(r: var TResource) =
-  write(stdout, "Using " & r.field & ".")
+  echo "Using " & r.field & "."
 
 autoClose(r = openResource("test")):
   use r
-
-write stdout, "\n"
