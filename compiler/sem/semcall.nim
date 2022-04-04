@@ -179,6 +179,9 @@ proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
     result = c.config.newError(n, reportSem rsemExpressionCannotBeCalled)
     return
 
+  var report = reportAst(rsemCallTypeMismatch, n)
+
+  # attempt to handle spelling
   var f = n[0]
   if f.kind == nkBracketExpr:
     f = f[0]
@@ -186,11 +189,9 @@ proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
   if f.kind in {nkOpenSymChoice, nkClosedSymChoice}:
     f = f[0]
 
-  assert f.kind in {nkSym, nkIdent}
-
-  var report = reportAst(rsemCallTypeMismatch, n)
-  report.spellingCandidates = fixSpelling(
-    c, tern(f.kind == nkSym, f.sym.name, f.ident))
+  if f.kind in {nkSym, nkIdent}:
+    report.spellingCandidates = fixSpelling(
+      c, tern(f.kind == nkSym, f.sym.name, f.ident))
 
   discard maybeResemArgs(c, n, 1)
   report.callMismatches = errors
