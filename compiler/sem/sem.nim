@@ -449,15 +449,11 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
   c.config.m.errorOutputs = {}
   c.config.errorMax = high(int) # `setErrorMaxHighMaybe` not appropriate here
 
-  try:
-    result = evalConstExpr(c.module, c.idgen, c.graph, e)
-    if result == nil or result.kind == nkEmpty:
-      result = nil
-    else:
-      result = fixupTypeAfterEval(c, result, e)
-
-  except ERecoverableError:
+  result = evalConstExpr(c.module, c.idgen, c.graph, e)
+  if result == nil or result.kind in {nkEmpty, nkError}:
     result = nil
+  else:
+    result = fixupTypeAfterEval(c, result, e)
 
   c.config.errorCounter = oldErrorCount
   c.config.errorMax = oldErrorMax
@@ -475,13 +471,20 @@ proc semConstExpr(c: PContext, n: PNode): PNode =
   if result == nil:
     #if e.kind == nkEmpty: globalReport(n.info, errConstExprExpected)
     result = evalConstExpr(c.module, c.idgen, c.graph, e)
-    if result == nil or result.kind == nkEmpty:
-      if e.info != n.info:
+    assert result != nil
+    case result.kind
+    of {nkEmpty, nkError}:
+      let withContext = e.info != n.info
+      if withContext:
         pushInfoContext(c.config, n.info)
+
+      if result.kind == nkEmpty:
         localReport(c.config, e.info, SemReport(kind: rsemConstExprExpected))
-        popInfoContext(c.config)
       else:
-        localReport(c.config, e.info, SemReport(kind: rsemConstExprExpected))
+        localReport(c.config, result)
+
+      if withContext:
+        popInfoContext(c.config)
       # error correction:
       result = e
     else:

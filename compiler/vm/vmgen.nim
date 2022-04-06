@@ -54,7 +54,8 @@ import
     transf
   ],
   vm/[
-    vmdef
+    vmdef,
+    vmerrors
   ]
 
 when defined(nimCompilerStacktraceHints):
@@ -65,6 +66,53 @@ const
 
 when hasFFI:
   import vm/evalffi
+
+type
+  VmGenResult* = object ## The result of a vmgen invocation
+    case success*: bool
+    of false:
+      report*: SemReport
+    of true:
+      start*: int ## The offset into the instruction buffer at where the
+                  ## generated code starts
+
+  VmGenError = object of CatchableError
+    report: SemReport
+
+func raiseVmGenError(
+  report: sink SemReport,
+  loc:    TLineInfo,
+  inst:   InstantiationInfo
+  ) {.noinline, noreturn.} =
+  report.location = some(loc)
+  report.reportInst = toReportLineInfo(inst)
+  raise (ref VmGenError)(report: report)
+
+func fail(
+  info: TLineInfo,
+  kind: ReportKind,
+  ast:  PNode = nil,
+  sym:  PSym = nil,
+  str:  string = "",
+  loc:  InstantiationInfo = instLoc()
+  ) {.noinline, noreturn.} =
+  raiseVmGenError(
+    SemReport(kind: kind, ast: ast, sym: sym, str: str),
+    info,
+    loc)
+
+
+template wrap(val, code): VmGenResult =
+  let s = val # Evaluate `val` before executing `code`
+  try:
+    code
+    VmGenResult(success: true, start: s)
+  except VmGenError as e:
+    VmGenResult(success: false, report: move e.report)
+  except VmError as e:
+    # getNullValue may raise `VmError` and we have to make sure it
+    # doesn't escape
+    VmGenResult(success: false, report: move e.report)
 
 type
   TGenFlag = enum
@@ -231,8 +279,7 @@ proc getFreeRegister(cc: var TCtx; k: TSlotKind; start: int): TRegister =
         c.regInfo[i] = (inUse: true, kind: k)
         return TRegister(i)
   if c.regInfo.len >= high(TRegister):
-    globalReport(cc.config, cc.bestEffort, SemReport(
-      kind: rsemTooManyRegistersRequired))
+    fail(cc.bestEffort, rsemTooManyRegistersRequired)
 
   result = TRegister(max(c.regInfo.len, start))
   c.regInfo.setLen int(result)+1
@@ -273,7 +320,7 @@ proc getTempRange(cc: var TCtx; n: int; kind: TSlotKind): TRegister =
           for k in result..result+n-1: c.regInfo[k] = (inUse: true, kind: kind)
           return
   if c.regInfo.len+n >= high(TRegister):
-    globalReport(cc.config, cc.bestEffort, reportSem(rsemTooManyRegistersRequired))
+    fail(cc.bestEffort, rsemTooManyRegistersRequired)
   result = TRegister(c.regInfo.len)
   setLen c.regInfo, c.regInfo.len+n
   for k in result..result+n-1: c.regInfo[k] = (inUse: true, kind: kind)
@@ -386,7 +433,7 @@ proc genBreak(c: var TCtx; n: PNode) =
       if c.prc.blocks[i].label == n[0].sym:
         c.prc.blocks[i].fixups.add lab1
         return
-    globalReport(c.config, n.info, reportSem(rsemVmCannotFindBreakTarget))
+    fail(n.info, rsemVmCannotFindBreakTarget)
   else:
     c.prc.blocks[c.prc.blocks.high].fixups.add lab1
 
@@ -488,7 +535,7 @@ proc genLiteral(c: var TCtx; n: PNode): int =
 
 proc unused(c: TCtx; n: PNode; x: TDest) {.inline.} =
   if x >= 0:
-    globalReport(c.config, n.info, reportAst(rsemVmNotUnused, n))
+    fail(n.info, rsemVmNotUnused, n)
 
 proc genCase(c: var TCtx; n: PNode; dest: var TDest) =
   #  if (!expr1) goto lab1;
@@ -627,11 +674,11 @@ proc needsAsgnPatch(n: PNode): bool =
 
 proc genField(c: TCtx; n: PNode): TRegister =
   if n.kind != nkSym or n.sym.kind != skField:
-    globalReport(c.config, n.info, reportAst(rsemNotAFieldSymbol, n))
+    fail(n.info, rsemNotAFieldSymbol, ast = n)
 
   let s = n.sym
   if s.position > high(typeof(result)):
-    globalReport(c.config, n.info, reportSym(rsemVmTooLargetOffset, s))
+    fail(n.info, rsemVmTooLargetOffset, sym = s)
 
   result = s.position
 
@@ -678,7 +725,7 @@ proc genAsgnPatch(c: var TCtx; le: PNode, value: TRegister) =
       c.freeTemp(dest)
   of nkError:
     # XXX: do a better job with error generation
-    globalReport(c.config, le.info, reportAst(rsemVmCannotGenerateCode, le))
+    fail(le.info, rsemVmCannotGenerateCode, le)
 
   else:
     discard
@@ -942,10 +989,13 @@ proc genCastIntFloat(c: var TCtx; n: PNode; dest: var TDest) =
     genLit(c, n[1], dest)
   else:
     # todo: support cast from tyInt to tyRef
-    globalReport(c.config, n.info, SemReport(
-      kind: rsemVmCannotCast,
-      typeMismatch: @[c.config.typeMismatch(
-        actual = dst, formal = src)]))
+    raiseVmGenError(
+      SemReport(
+        kind: rsemVmCannotCast,
+        typeMismatch: @[c.config.typeMismatch(
+          actual = dst, formal = src)]),
+      n.info,
+      instLoc())
 
 proc genVoidABC(c: var TCtx, n: PNode, dest: TDest, opcode: TOpcode) =
   unused(c, n, dest)
@@ -1358,8 +1408,8 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genCall(n, dest)
   of mExpandToAst:
     if n.len != 2:
-      globalReport(c.config, n.info, reportStr(
-        rsemVmBadExpandToAst, "expandToAst requires 1 argument"))
+      fail(n.info, rsemVmBadExpandToAst,
+        str = "expandToAst requires 1 argument")
 
     let arg = n[1]
     if arg.kind in nkCallKinds:
@@ -1370,20 +1420,17 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
       # do not call clearDest(n, dest) here as getAst has a meta-type as such
       # produces a value
     else:
-      globalReport(c.config, n.info, reportStr(
-        rsemVmBadExpandToAst, "expandToAst requires a call expression"))
+      fail(n.info, rsemVmBadExpandToAst,
+        str = "expandToAst requires a call expression")
 
   of mSizeOf:
-    globalReport(c.config, n.info, reportStr(
-      rsemMissingImportcCompleteStruct, "sizeof"))
+    fail(n.info, rsemMissingImportcCompleteStruct, str = "sizeof")
 
   of mAlignOf:
-    globalReport(c.config, n.info, reportStr(
-      rsemMissingImportcCompleteStruct, "alignof"))
+    fail(n.info, rsemMissingImportcCompleteStruct, str = "alignof")
 
   of mOffsetOf:
-    globalReport(c.config, n.info, reportStr(
-      rsemMissingImportcCompleteStruct, "offsetof"))
+    fail(n.info, rsemMissingImportcCompleteStruct, str = "offsetof")
 
   of mRunnableExamples:
     discard "just ignore any call to runnableExamples"
@@ -1403,8 +1450,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genUnaryABC(n, dest, opcNodeId)
   else:
     # mGCref, mGCunref,
-    globalReport(c.config, n.info, reportStr(
-      rsemVmCannotGenerateCode, $m))
+    fail(n.info, rsemVmCannotGenerateCode, str = $m)
 
 
 proc unneededIndirection(n: PNode): bool =
@@ -1482,18 +1528,11 @@ proc setSlot(c: var TCtx; v: PSym) =
   if v.position == 0:
     v.position = getFreeRegister(c, if v.kind == skLet: slotFixedLet else: slotFixedVar, start = 1)
 
-proc cannotEval(c: TCtx; n: PNode) {.noinline.} =
-  globalReport(c.config, n.info, reportAst(rsemVmCannotEvaluateAtComptime, n))
-  # HACK REFACTOR FIXME With current compiler 'arhitecture' this call
-  # MUST raise an exception that is captured by `sem.tryConstExpr` in sem. In
-  # the future this needs to be removed, `checkCanEval` must return a
-  # `true/false` bool.
-  #
-  # For more elaborate explanation of the related code see the comment
-  # https://github.com/nim-works/nimskull/pull/94#issuecomment-1006927599
-  #
-  # This code must not be reached
-  raiseRecoverableError("vmgen.cannotEval failed")
+func cannotEval(c: TCtx; n: PNode) {.noinline, noreturn.} =
+  raiseVmGenError(
+    reportAst(rsemVmCannotEvaluateAtComptime, n),
+    n.info,
+    instLoc())
 
 func isOwnedBy(a, b: PSym): bool =
   var a = a.owner
@@ -1551,7 +1590,7 @@ proc genAsgn(c: var TCtx; le, ri: PNode; requiresCopy: bool) =
   case le.kind
   of nkError:
     # XXX: do a better job with error generation
-    globalReport(c.config, le.info, reportAst(rsemVmCannotGenerateCode, le))
+    fail(le.info, rsemVmCannotGenerateCode, le)
 
   of nkBracketExpr:
     let dest = c.genx(le[0], {gfNode})
@@ -1840,8 +1879,10 @@ proc getNullValueAux(t: PType; obj: PNode, result: PNode; conf: ConfigRef; currP
     doAssert obj.sym.position == currPosition
     inc currPosition
   else:
-    globalReport(conf, result.info, reportAst(
-      rsemVmCannotCreateNullElement, obj))
+    # XXX: `getNullValueAux` is called from both inside `vmgen` and
+    # `rawExecute` so we use `raiseVmError` here
+    raiseVmError(reportAst(
+      rsemVmCannotCreateNullElement, obj), result.info)
 
 proc getNullValue(typ: PType, info: TLineInfo; conf: ConfigRef): PNode =
   var t = skipTypes(typ, abstractRange+{tyStatic, tyOwned}-{tyTypeDesc})
@@ -1884,9 +1925,7 @@ proc getNullValue(typ: PType, info: TLineInfo; conf: ConfigRef): PNode =
   of tySequence, tyOpenArray:
     result = newNodeIT(nkBracket, info, t)
   else:
-    globalReport(conf, info, reportTyp(rsemVmCannotCreateNullElement, t))
-
-    result = newNodeI(nkEmpty, info)
+    raiseVmError(reportTyp(rsemVmCannotCreateNullElement, t), info)
 
 proc genVarSection(c: var TCtx; n: PNode) =
   for a in n:
@@ -1997,8 +2036,7 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
                           dest, idx, tmp)
       c.freeTemp(tmp)
     else:
-      globalReport(c.config, n.info, reportAst(
-        rsemVmInvalidObjectConstructor, it))
+      fail(n.info, rsemVmInvalidObjectConstructor, it)
 
 proc genTupleConstr(c: var TCtx, n: PNode, dest: var TDest) =
   if dest < 0: dest = c.getTemp(n.typ)
@@ -2018,7 +2056,7 @@ proc genTupleConstr(c: var TCtx, n: PNode, dest: var TDest) =
         c.preventFalseAlias(it, opcWrObj, dest, i.TRegister, tmp)
         c.freeTemp(tmp)
 
-proc genProc*(c: var TCtx; s: PSym): int
+proc genProc*(c: var TCtx; s: PSym): VmGenResult
 
 func matches(s: PSym; x: string): bool =
   let y = x.split('.')
@@ -2046,7 +2084,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
   case n.kind
   of nkError:
     # XXX: do a better job with error generation
-    globalReport(c.config, n.info, reportAst(rsemVmCannotGenerateCode, n))
+    fail(n.info, rsemVmCannotGenerateCode, n)
 
   of nkSym:
     let s = n.sym
@@ -2058,7 +2096,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     of skProc, skFunc, skConverter, skMacro, skTemplate, skMethod, skIterator:
       # 'skTemplate' is only allowed for 'getAst' support:
       if s.kind == skIterator and s.typ.callConv == TCallingConvention.ccClosure:
-        globalReport(c.config, n.info, reportSym(rsemVmNoClosureIterators, s))
+        fail(n.info, rsemVmNoClosureIterators, sym = s)
       if procIsCallback(c, s): discard
       elif importcCond(c, s): c.importcSym(n.info, s)
       genLit(c, n, dest)
@@ -2081,16 +2119,18 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       if c.prc.sym != nil and c.prc.sym.kind == skMacro:
         genRdVar(c, n, dest, flags)
       else:
-        globalReport(c.config, n.info, reportSym(
-          rsemVmCannotGenerateCode, s,
+        fail(n.info,
+          rsemVmCannotGenerateCode,
+          sym = s,
           str = "Attempt to generate VM code for generic parameter in non-macro proc"
-        ))
+        )
 
     else:
-      globalReport(c.config, n.info, reportSym(
-        rsemVmCannotGenerateCode, s,
+      fail(n.info,
+        rsemVmCannotGenerateCode,
+        sym = s,
         str = "Unexpected symbol for VM code - " & $s.kind
-      ))
+      )
   of nkCallKinds:
     if n[0].kind == nkSym:
       let s = n[0].sym
@@ -2201,7 +2241,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     if n.typ != nil and n.typ.isCompileTimeOnly:
       genTypeLit(c, n.typ, dest)
     else:
-      globalReport(c.config, n.info, reportAst(rsemVmCannotGenerateCode, n))
+      fail(n.info, rsemVmCannotGenerateCode, n)
 
 func removeLastEof(c: var TCtx) =
   let last = c.code.len-1
@@ -2211,24 +2251,32 @@ func removeLastEof(c: var TCtx) =
     c.code.setLen(last)
     c.debug.setLen(last)
 
-proc genStmt*(c: var TCtx; n: PNode): int =
+proc genStmt*(c: var TCtx; n: PNode): VmGenResult =
   c.removeLastEof
-  result = c.code.len
-  var d: TDest = -1
-  c.gen(n, d)
-  c.gABC(n, opcEof)
-  c.config.internalAssert(d < 0, n.info, "VM problem: dest register is set")
+  let start = c.code.len
+  result = wrap(start):
+    var d: TDest = -1
+    c.gen(n, d)
+    c.gABC(n, opcEof)
+    c.config.internalAssert(d < 0, n.info, "VM problem: dest register is set")
 
-proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): int =
+
+proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
   c.removeLastEof
-  result = c.code.len
+  let start = c.code.len
   var d: TDest = -1
-  c.gen(n, d)
+  result = wrap(start):
+    c.gen(n, d)
+
+  if unlikely(not result.success): return
+
   if d < 0:
     c.config.internalAssert(not requiresValue, n.info, "VM problem: dest register is not set")
 
     d = 0
   c.gABC(n, opcEof, d)
+
+  result = VmGenResult(success: true, start: start)
 
   #echo renderTree(n)
   #c.echoCode(result)
@@ -2303,7 +2351,7 @@ proc optimizeJumps(c: var TCtx; start: int) =
         c.finalJumpTarget(i, d - i)
     else: discard
 
-proc genProc(c: var TCtx; s: PSym): int =
+proc genProc*(c: var TCtx; s: PSym): VmGenResult =
   let
     pos = c.procToCodePos.getOrDefault(s.id)
     wasNotGenProcBefore = pos == 0
@@ -2321,8 +2369,8 @@ proc genProc(c: var TCtx; s: PSym): int =
       c.code.setLen(last)
       c.debug.setLen(last)
     #c.removeLastEof
-    result = c.code.len+1 # skip the jump instruction
-    c.procToCodePos[s.id] = result
+    let start = c.code.len+1 # skip the jump instruction
+    c.procToCodePos[s.id] = start
     # thanks to the jmp we can add top level statements easily and also nest
     # procs easily:
     let body = transformBody(c.graph, c.idgen, s, cache = not isCompileTimeProc(s))
@@ -2341,12 +2389,16 @@ proc genProc(c: var TCtx; s: PSym): int =
       #let env = s.ast[paramsPos].lastSon.sym
       #assert env.position == 2
       c.prc.regInfo.add (inUse: true, kind: slotFixedLet)
-    gen(c, body)
+
+    result = wrap(start):
+      gen(c, body)
+    if unlikely(not result.success): return
+
     # generate final 'return' statement:
     c.gABC(body, opcRet)
     c.patch(procStart)
     c.gABC(body, opcEof, eofInstr.regA)
-    c.optimizeJumps(result)
+    c.optimizeJumps(start)
     s.offset = c.prc.regInfo.len
     #if s.name.s == "main" or s.name.s == "[]":
     #  echo renderTree(body)
@@ -2354,4 +2406,4 @@ proc genProc(c: var TCtx; s: PSym): int =
     c.prc = oldPrc
   else:
     c.prc.regInfo.setLen s.offset
-    result = pos
+    result = VmGenResult(success: true, start: pos)

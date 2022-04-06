@@ -923,7 +923,7 @@ type
 func incl*(s: var ReportSet, id: ReportId) = s.ids.incl uint32(id)
 func contains*(s: var ReportSet, id: ReportId): bool = s.ids.contains uint32(id)
 
-func addReport*(list: var ReportList, report: Report): ReportId =
+func addReport*(list: var ReportList, report: sink Report): ReportId =
   ## Add report to the report list
   list.list.add report
   result = ReportId(uint32(list.list.high) + 1)
