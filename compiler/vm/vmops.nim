@@ -152,25 +152,6 @@ when defined(nimHasInvariant):
     of MultipleValueSetting.cincludes: copySeq(conf.cIncludes)
     of MultipleValueSetting.clibs: copySeq(conf.cLibs)
 
-proc stackTrace2(c: PCtx, report: SemReport, n: PNode) =
-  # TODO: we need a proper way for a VmCallback to raise errors. Right now,
-  # `stackTrace2` doesn't abort execution (both callback and vm), which will
-  # probably lead to the compiler crashing sooner or later
-
-  # Add a temporary stack frame so that the callback call shows up in the trace
-  # XXX: unfortunately, we don't know who called us and from where. The stack 
-  # trace will only contain the callback as a single entry
-  c.sframes.add TStackFrame(prc: c.prc.sym, comesFrom: 0, next: -1)
-    
-  stackTrace(
-    c[],
-    c.sframes.high,
-    # TODO: `c.exceptionInstr` is completely wrong here. It refers to the instruction 
-    # that most recently raised (or 0 if raise was never called yet). 
-    c.exceptionInstr, report, n.info)
-  # Remove temporary frame again
-  discard c.sframes.pop()
-
 proc registerAdditionalOps*(c: PCtx) =
 
   template wrapIterator(fqname: string, iter: untyped) =
@@ -266,16 +247,16 @@ proc registerAdditionalOps*(c: PCtx) =
   registerCallback c, "stdlib.macros.symBodyHash", proc (a: VmArgs) =
     let n = getNode(a, 0)
     if n.kind != nkSym:
-      stackTrace2(c, reportAst(
-        rsemVmNodeNotASymbol, n, str = "symBodyHash()"), n)
+      raiseVmError(reportAst(
+        rsemVmNodeNotASymbol, n, str = "symBodyHash()"), n.info)
 
     setResult(a, $symBodyDigest(c.graph, n.sym))
 
   registerCallback c, "stdlib.macros.isExported", proc(a: VmArgs) =
     let n = getNode(a, 0)
     if n.kind != nkSym:
-      stackTrace2(c, reportAst(
-        rsemVmNodeNotASymbol, n, str = "isExported()"), n)
+      raiseVmError(reportAst(
+        rsemVmNodeNotASymbol, n, str = "isExported()"), n.info)
 
     setResult(a, sfExported in n.sym.flags)
 
