@@ -2168,18 +2168,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): TFullReg =
         dest.ident = regs[rb].node.ident
       else:
         raiseVmError(reportStr(rsemVmFieldNotFound, "ident"))
-    of opcNSetType:
-      decodeB(rkNode)
-      let b = regs[rb].node
-      internalAssert(
-        c.config,
-        b.kind == nkSym and b.sym.kind == skType,
-        "Canot set type to a non-skType symbol")
-
-      internalAssert(
-        c.config, regs[ra].node != nil, "Target node must not be nil")
-
-      regs[ra].node.typ = b.sym.typ
     of opcNSetStrVal:
       decodeB(rkNode)
       var dest = regs[ra].node

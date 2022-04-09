@@ -84,7 +84,7 @@ type
     opcNGetSize,
 
     opcNSetIntVal,
-    opcNSetFloatVal, opcNSetSymbol, opcNSetIdent, opcNSetType, opcNSetStrVal,
+    opcNSetFloatVal, opcNSetSymbol, opcNSetIdent, opcNSetStrVal,
     opcNNewNimNode, opcNCopyNimNode, opcNCopyNimTree, opcNDel, opcGenSym,
 
     opcNccValue, opcNccInc, opcNcsAdd, opcNcsIncl, opcNcsLen, opcNcsAt,
