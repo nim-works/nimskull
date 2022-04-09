@@ -86,7 +86,7 @@ proc execProcess*(command: string, workingDir: string = "",
   ## See also:
   ## * `startProcess proc
   ##   <#startProcess,string,string,openArray[string],StringTableRef,set[ProcessOption]>`_
-  ## * `execProcesses proc <#execProcesses,openArray[string],proc(int),proc(int,Process)>`_
+  ## * `execProcesses proc <#execProcesses,openArray[string],proc(int),proc(int,Process),proc(int,Process)>`_
   ## * `execCmd proc <#execCmd,string>`_
   ##
   ## Example:
@@ -146,7 +146,7 @@ proc startProcess*(command: string, workingDir: string = "",
   ## but ``OSError`` is raised in case of an error.
   ##
   ## See also:
-  ## * `execProcesses proc <#execProcesses,openArray[string],proc(int),proc(int,Process)>`_
+  ## * `execProcesses proc <#execProcesses,openArray[string],proc(int),proc(int,Process),proc(int,Process)>`_
   ## * `execProcess proc
   ##   <#execProcess,string,string,openArray[string],StringTableRef,set[ProcessOption]>`_
   ## * `execCmd proc <#execCmd,string>`_
@@ -336,15 +336,18 @@ when not defined(nimHasEffectsOf):
 proc execProcesses*(cmds: openArray[string],
     options = {poStdErrToStdOut, poParentStreams}, n = countProcessors(),
     beforeRunEvent: proc(idx: int) = nil,
+    startRunEvent: proc(idx: int, p: Process) = nil,
     afterRunEvent: proc(idx: int, p: Process) = nil):
   int {.rtl, extern: "nosp$1",
         tags: [ExecIOEffect, TimeEffect, ReadEnvEffect, RootEffect],
-        effectsOf: [beforeRunEvent, afterRunEvent].} =
+        effectsOf: [beforeRunEvent, startRunEvent, afterRunEvent].} =
   ## Executes the commands `cmds` in parallel.
   ## Creates `n` processes that execute in parallel.
   ##
   ## The highest (absolute) return value of all processes is returned.
-  ## Runs `beforeRunEvent` before running each command.
+  ## Runs `beforeRunEvent` before running each command; then `startRunEvent`
+  ## immediately after a command has started, useful for input; and then
+  ## `afterRunEvent` after a command has finished.
 
   assert n > 0
   if n > 1:
@@ -363,6 +366,8 @@ proc execProcesses*(cmds: openArray[string],
       if beforeRunEvent != nil:
         beforeRunEvent(i)
       q[i] = startProcess(cmds[i], options = options + {poEvalCommand})
+      if startRunEvent != nil:
+        startRunEvent(i, q[i])
       idxs[i] = i
       when defined(windows):
         w[i] = q[i].fProcessHandle
@@ -425,9 +430,12 @@ proc execProcesses*(cmds: openArray[string],
         if afterRunEvent != nil: afterRunEvent(idxs[rexit], q[rexit])
         close(q[rexit])
         if i < len(cmds):
-          if beforeRunEvent != nil: beforeRunEvent(i)
+          if beforeRunEvent != nil:
+            beforeRunEvent(i)
           q[rexit] = startProcess(cmds[i],
                                   options = options + {poEvalCommand})
+          if startRunEvent != nil:
+            startRunEvent(i, q[rexit])
           idxs[rexit] = i
           when defined(windows):
             w[rexit] = q[rexit].fProcessHandle
@@ -447,8 +455,11 @@ proc execProcesses*(cmds: openArray[string],
       if beforeRunEvent != nil:
         beforeRunEvent(i)
       var p = startProcess(cmds[i], options = options + {poEvalCommand})
+      if startRunEvent != nil:
+        startRunEvent(i, p)
       result = max(abs(waitForExit(p)), result)
-      if afterRunEvent != nil: afterRunEvent(i, p)
+      if afterRunEvent != nil:
+        afterRunEvent(i, p)
       close(p)
 
 iterator lines*(p: Process): string {.since: (1, 3), tags: [ReadIOEffect].} =
