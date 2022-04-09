@@ -64,6 +64,7 @@ lib/**/*.html
 testament.db
 /tests/**/*.json
 /tests/**/*.js
+/testament/tests/**/*.js
 
 /csources
 /csources_v1
@@ -93,7 +94,7 @@ tweeter_test.db
 /t15148.txt
 /tests/vm/tfile_rw.txt
 
-/lib/pure/*.js
+/lib/pure/**/*.js
 
 !/.builds/
 

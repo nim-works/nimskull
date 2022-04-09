@@ -21,19 +21,76 @@ import lib/stdtest/testutils
 from lib/stdtest/specialpaths import splitTestFile
 import experimental/[sexp, sexp_diff, colortext, colordiff]
 
+const
+  failString* = "FAIL: " # ensures all failures can be searched with 1 keyword in CI logs
+  testsDir = "tests" & DirSep
+  resultsFile = "testresults.html"
+  Usage = """Usage:
+  testament [options] command [arguments]
+
+Command:
+  all                         run all tests
+  c|cat|category <category>   run all the tests of a certain category
+  r|run <test>                run single test file
+  html                        generate $1 from the database
+Arguments:
+  arguments are passed to the compiler
+Options:
+  --retry                   runs tests that failed the last run
+  --print                   print results to the console
+  --verbose                 print commands (compiling and running tests)
+  --simulate                see what tests would be run but don't run them (for debugging)
+  --failing                 only show failing/ignored tests
+  --targets:"c cpp js objc" run tests for specified targets (default: all)
+  --nim:path                use a particular nim executable (default: $$PATH/nim)
+  --directory:dir           Change to directory dir before reading the tests or doing anything else.
+  --colors:on|off           Turn messages coloring on|off.
+  --backendLogging:on|off   Disable or enable backend logging. By default turned on.
+  --megatest:on|off         Enable or disable megatest. Default is on.
+  --skipFrom:file           Read tests to skip from `file` - one test per line, # comments ignored
+
+On Azure Pipelines, testament will also publish test results via Azure Pipelines' Test Management API
+provided that System.AccessToken is made available via the environment variable SYSTEM_ACCESSTOKEN.
+
+Experimental: using environment variable `NIM_TESTAMENT_REMOTE_NETWORKING=1` enables
+tests with remote networking (as in CI).
+""" % resultsFile
+
+type
+  Category = distinct string
+
+  TResults = object
+    total, passed, failedButAllowed, skipped: int
+      ## xxx rename passed to passedOrAllowedFailure
+    data: string
+
+  TTest = object
+    name: string
+    cat: Category
+    options: string
+    testArgs: seq[string]
+    spec: TSpec
+    startTime: float
+    debugInfo: string
+
+# ----------------------------------------------------------------------------
+
+# xxx: yay, global state
+
+var
+  useColors = true
+  backendLogging = true
+  simulate = false
+  optVerbose = false
+  useMegatest = true
+  optFailing = false
+
+# ----------------------------------------------------------------------------
+
 proc trimUnitSep(x: var string) =
   let L = x.len
   if L > 0 and x[^1] == '\31':
     setLen x, L-1
-
-var useColors = true
-var backendLogging = true
-var simulate = false
-var optVerbose = false
-var useMegatest = true
-var optFailing = false
-
-import std/sugar
 
 type
   TOutReport = object
@@ -80,7 +137,6 @@ proc format(tcmp: TOutCompare): ColText =
   ## Pretty-print structured output comparison for further printing.
   var
     conf = diffFormatter()
-    res: ColText
 
   coloredResult()
 
@@ -151,58 +207,6 @@ proc msg(msgType: MessageType; parts: varargs[string, `$`]) =
 proc verboseCmd(cmd: string) =
   if optVerbose:
     msg Undefined: "executing: " & cmd
-
-const
-  failString* = "FAIL: " # ensures all failures can be searched with 1 keyword in CI logs
-  testsDir = "tests" & DirSep
-  resultsFile = "testresults.html"
-  Usage = """Usage:
-  testament [options] command [arguments]
-
-Command:
-  all                         run all tests
-  c|cat|category <category>   run all the tests of a certain category
-  r|run <test>                run single test file
-  html                        generate $1 from the database
-Arguments:
-  arguments are passed to the compiler
-Options:
-  --retry                   runs tests that failed the last run
-  --print                   print results to the console
-  --verbose                 print commands (compiling and running tests)
-  --simulate                see what tests would be run but don't run them (for debugging)
-  --failing                 only show failing/ignored tests
-  --targets:"c cpp js objc" run tests for specified targets (default: all)
-  --nim:path                use a particular nim executable (default: $$PATH/nim)
-  --directory:dir           Change to directory dir before reading the tests or doing anything else.
-  --colors:on|off           Turn messages coloring on|off.
-  --backendLogging:on|off   Disable or enable backend logging. By default turned on.
-  --megatest:on|off         Enable or disable megatest. Default is on.
-  --skipFrom:file           Read tests to skip from `file` - one test per line, # comments ignored
-
-On Azure Pipelines, testament will also publish test results via Azure Pipelines' Test Management API
-provided that System.AccessToken is made available via the environment variable SYSTEM_ACCESSTOKEN.
-
-Experimental: using environment variable `NIM_TESTAMENT_REMOTE_NETWORKING=1` enables
-tests with remote networking (as in CI).
-""" % resultsFile
-
-type
-  Category = distinct string
-
-  TResults = object
-    total, passed, failedButAllowed, skipped: int
-      ## xxx rename passed to passedOrAllowedFailure
-    data: string
-
-  TTest = object
-    name: string
-    cat: Category
-    options: string
-    testArgs: seq[string]
-    spec: TSpec
-    startTime: float
-    debugInfo: string
 
 # ----------------------------------------------------------------------------
 
@@ -641,7 +645,6 @@ proc sexpCheck(test: TTest, expected, given: TSpec): TOutCompare =
     if 0 < line.len:
       r.givenReports.add TOutReport(node: parseSexp(line))
 
-  var map = r.diffMap
   proc reportCmp(a, b: int): int =
     # Best place for further optimization and configuration - if more
     # comparison speed is needed, try starting with error kind, file, line
@@ -841,12 +844,6 @@ proc compilerOutputTests(test: TTest, target: TTarget, given: var TSpec,
     outCompare = outCompare
   )
 
-proc getTestSpecTarget(): TTarget =
-  if getEnv("NIM_COMPILE_TO_CPP", "false") == "true":
-    result = targetCpp
-  else:
-    result = targetC
-
 proc checkDisabled(r: var TResults, test: TTest): bool =
   ## Check if test has been enabled (not `disabled: true`, and not joined).
   ## Return true if test can be executed.
@@ -963,19 +960,41 @@ proc targetHelper(r: var TResults, test: TTest, expected: TSpec, extraOptions = 
       var testClone = test
       testSpecHelper(r, testClone, expected, target, nimcache, extraOptions)
 
-proc testSpec(r: var TResults, test: TTest, targets: set[TTarget] = {}) =
+func nativeTarget(): TTarget =
+  if getEnv("NIM_COMPILE_TO_CPP", "false") == "true":
+    targetCpp
+  else:
+    targetC
+
+func defaultTargets(category: Category): set[TTarget] =
+  const standardTargets = {nativeTarget()}
+  case category.string
+  of "arc", "avr", "destructor", "distros", "dll", "gc", "osproc", "parallel",
+     "realtimeGC", "threads", "views", "valgrind":
+    standardTargets - {targetJs}
+  of "compilerapi", "compilerunits", "ic", "navigator", "lexer", "testament":
+    {nativeTarget()}
+  of "js":
+    {targetJs}
+  of "cpp":
+    {targetCpp}
+  else:
+    standardTargets
+
+proc testSpec(r: var TResults, test: TTest) =
   var expected = test.spec
   if expected.parseErrors.len > 0:
     # targetC is a lie, but a parameter is required
     r.addResult(test, targetC, "", expected.parseErrors, reInvalidSpec)
     inc(r.total)
     return
-  if not checkDisabled(r, test): return
 
-  expected.targets.incl targets
-  # still no target specified at all
+  if not checkDisabled(r, test):
+    return
+
   if expected.targets == {}:
-    expected.targets = {getTestSpecTarget()}
+    expected.targets = test.cat.defaultTargets()
+
   if test.spec.matrix.len > 0:
     for m in test.spec.matrix:
       targetHelper(r, test, expected, m)
@@ -989,21 +1008,30 @@ proc testSpecWithNimcache(r: var TResults, test: TTest; nimcache: string) {.used
     var testClone = test
     testSpecHelper(r, testClone, test.spec, target, nimcache)
 
-proc makeTest(test, options: string, cat: Category): TTest =
+proc initTest(test, options: string; cat: Category, spec: TSpec): TTest =
+  ## make a test with the given spec, meant to be used internally as a
+  ## constructor mostly
   result.cat = cat
   result.name = test
   result.options = options
-  result.spec = parseSpec(addFileExt(test, ".nim"))
+  result.spec = spec
   result.startTime = epochTime()
 
-proc makeRawTest(test, options: string, cat: Category): TTest {.used.} =
-  result.cat = cat
-  result.name = test
-  result.options = options
-  result.spec = initSpec(addFileExt(test, ".nim"))
-  result.spec.action = actionCompile
-  result.spec.targets = {getTestSpecTarget()}
-  result.startTime = epochTime()
+proc makeTest(test, options: string, cat: Category): TTest =
+  ## make a test from inferring the test's filename from `test` and parsing the
+  ## spec within that file.
+  initTest(test, options, cat,
+           parseSpec(
+             addFileExt(test, ".nim"),
+             cat.defaultTargets,
+             nativeTarget()))
+
+proc makeTestWithDummySpec(test, options: string, cat: Category): TTest =
+  var spec = initSpec(addFileExt(test, ".nim"))
+  spec.action = actionCompile
+  spec.targets = cat.defaultTargets()
+  
+  initTest(test, options, cat, spec)
 
 # TODO: fix these files
 const disabledFilesDefault = @[
@@ -1206,7 +1234,7 @@ proc main() =
     processCategory(r, cat, p.cmdLineRest, testsDir, runJoinableTests = false)
   of "r", "run": # Run single test file
     let (cat, path) = splitTestFile(p.key)
-    processSingleTest(r, cat.Category, p.cmdLineRest, path, gTargets, targetsSet)
+    processSingleTest(r, cat.Category, p.cmdLineRest, path)
   of "html": # Generate html from the database
     generateHtml(resultsFile, optFailing)
   else:

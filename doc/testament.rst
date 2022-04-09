@@ -106,7 +106,9 @@ Test execution options
   example: ``"nim c -r $file"``
 
 - ``targets`` supported backend compilation targets for test into (c,
-  cpp, objc, js).
+  cpp, objc, js). Targets can be excluded via a `!`, eg: `!js` to exclude js.
+  Additionally, a `native` target is supported in order to use the same target
+  used for the compiler itself.
 
 - ``matrix`` flags with which to run the test, delimited by `;`
 
