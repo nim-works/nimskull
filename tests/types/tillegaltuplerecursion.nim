@@ -1,4 +1,5 @@
 discard """
+  targets: native
   errormsg: "illegal recursion in type"
 """
 

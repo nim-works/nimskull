@@ -1,6 +1,6 @@
 discard """
-  targets: "c cpp"
-  cmd: r"nim c --hints:on $options --threads:on $file"
+  targets: "native"
+  matrix: "--hints:on --threads:on"
   output: '''@["", "a", "ha", "hi", "ho", "huu"]'''
 """
 

@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   cmd: "nim default --hint:cc:off --hint:cc $file"
   output: '''hello world! 0.5 true'''
   nimout: '''[NimScript] exec: gcc -v'''

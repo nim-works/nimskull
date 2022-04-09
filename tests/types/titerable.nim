@@ -1,5 +1,4 @@
 discard """
-  targets: "c js"
 """
 
 from stdtest/testutils import accept, reject, whenVMorJs

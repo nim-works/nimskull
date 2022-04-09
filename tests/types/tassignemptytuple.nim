@@ -1,7 +1,8 @@
 discard """
+  targets: native
   errormsg: "cannot infer the type of the tuple"
   file: "tassignemptytuple.nim"
-  line: 11
+  line: 12
 """
 
 var

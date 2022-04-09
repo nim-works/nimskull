@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "type mismatch: got <int literal(1)> but expected 'bool'"
-  line: 6
+  line: 7
 """
 
 if 1:

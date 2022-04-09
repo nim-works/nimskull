@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
   matrix: "--useVersion:1.0"
   output: "1.0.100"
 """

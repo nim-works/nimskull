@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   outputsub: '''tproper_stacktrace2.nim(21) main'''
   exitcode: 1
 """

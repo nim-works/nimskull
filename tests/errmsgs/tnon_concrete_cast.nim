@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   errormsg: "cannot cast to a non concrete type: 'ptr SomeNumber'"
   line: 37
 """

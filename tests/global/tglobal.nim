@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
   output: "in globalaux2: 10\ntotal globals: 2\nint value: 100\nstring value: second"
 """
 

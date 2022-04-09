@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   outputsub: "Error: unhandled exception: FPU operation caused a NaN result [FloatInvalidOpDefect]"
   exitcode: "1"
 """

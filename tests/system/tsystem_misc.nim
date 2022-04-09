@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
   output:'''1
 1
 2

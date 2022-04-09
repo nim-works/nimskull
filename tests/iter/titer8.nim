@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   output: '''tada
 1
 2

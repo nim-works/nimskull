@@ -1,6 +1,7 @@
 # bug #1940
 
 discard """
+targets: native
 nimout: '''
 ===
 merge (A) with (B)

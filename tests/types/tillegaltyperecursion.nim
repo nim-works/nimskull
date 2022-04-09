@@ -1,11 +1,9 @@
 discard """
-  targets: "!js"
-  cmd: "nim $target --threads:on $options $file"
+  targets: "native"
+  matrix: "--threads:on"
   errormsg: "illegal recursion in type 'TIRC'"
-  line: 19
+  line: 17
 """
-
-# js doesn't support threads
 
 import events
 import net

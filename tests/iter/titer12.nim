@@ -1,5 +1,5 @@
 discard """
-targets: "c cpp"
+targets: "native"
 output: '''
 Selecting 2
 1.0

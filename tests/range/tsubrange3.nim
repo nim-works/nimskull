@@ -4,6 +4,8 @@ discard """
   exitcode: "1"
 """
 
+# xxx: this should work in JS but the exception output differs too much
+
 type
   TRange = range[0..40]
 

@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   matrix: "--cpu:amd64"
   disabled: "32bit"
 """

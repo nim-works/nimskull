@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "undeclared identifier: 'a'"
-  line: 10
+  line: 11
 """
 
 

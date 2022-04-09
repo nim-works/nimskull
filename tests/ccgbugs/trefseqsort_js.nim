@@ -1,6 +1,6 @@
 discard """
   target: js
-  knownIssue: '''Broken js code gen, `new(foo)` results in attempting to se a
+  knownIssue: '''Broken js code gen, `new(foo)` results in attempting to set a
 property on a null `foo`.'''
   output: '''@[0, 4, 9, 1, 3, 2]
 @[0, 1, 2, 3, 9]'''

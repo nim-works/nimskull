@@ -1,3 +1,7 @@
+discard """
+  targets: native
+"""
+
 # bug #1774
 proc p(T: typedesc) = discard
 

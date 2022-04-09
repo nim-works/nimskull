@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   output: '''b yields
 c yields
 a returns

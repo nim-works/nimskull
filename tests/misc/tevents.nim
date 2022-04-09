@@ -1,5 +1,5 @@
 discard """
-targets: "c cpp"
+targets: "native"
 output: '''
 HandlePrintEvent: Output -> Handled print event
 HandlePrintEvent2: Output -> printing for ME

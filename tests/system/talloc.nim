@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
 """
 # was: appveyor is "out of memory"
 

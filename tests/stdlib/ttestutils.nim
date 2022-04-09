@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
 """
 import stdtest/testutils
 

@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
 """
 import std/wrapnils
 from std/options import get, isSome

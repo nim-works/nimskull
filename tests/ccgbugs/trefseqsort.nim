@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   output: '''@[0, 4, 9, 1, 3, 2]
 @[0, 1, 2, 3, 9]'''
 """

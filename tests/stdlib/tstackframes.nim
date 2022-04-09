@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
 """
 import std/[strformat,os,osproc]
 import stdtest/unittest_light

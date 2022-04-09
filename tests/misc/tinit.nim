@@ -1,10 +1,10 @@
 discard """
-  targets: "c cpp"
-  output: "Hello from module! Hello from main module!"
+  output: '''Hello from module!
+Hello from main module!'''
 """
 # Test the new init section in modules
 
 import minit
 
-write(stdout, "Hello from main module!\n")
-#OUT Hello from module! Hello from main module!
+echo "Hello from main module!"
+#OUT Hello from module!\nHello from main module!

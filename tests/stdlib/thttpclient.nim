@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
   matrix: "--threads:on -d:ssl"
   disabled: "openbsd"
   disabled: "freebsd"

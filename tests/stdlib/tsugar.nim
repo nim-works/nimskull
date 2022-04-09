@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
   output: '''
 x + y = 30
 '''

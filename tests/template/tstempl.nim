@@ -1,4 +1,5 @@
 discard """
+  targets: native
   output: '''global = levB, arg = levA, test = false
 levB'''
 """

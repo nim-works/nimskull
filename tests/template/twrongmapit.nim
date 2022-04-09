@@ -1,4 +1,5 @@
 discard """
+  targets: native
   output: "####"
 """
 # unfortunately our tester doesn't support multiple lines of compiler

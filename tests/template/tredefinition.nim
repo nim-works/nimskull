@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "redefinition of 'a`gensym"
-  line: 9
+  line: 10
 """
 # bug #10180
 proc f() =

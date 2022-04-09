@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "invalid type: 'typedesc[seq[tuple[title: string, body: string]]]' for var"
-  line: 7
+  line: 8
 """
 
 proc crashAndBurn() =

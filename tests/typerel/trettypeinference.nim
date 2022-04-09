@@ -1,5 +1,6 @@
 discard """
-  nimout:    "instantiated for string\ninstantiated for int\ninstantiated for bool"
+  targets: native
+  nimout:  "instantiated for string\ninstantiated for int\ninstantiated for bool"
   output: "int\nseq[string]\nA\nB\n100\ntrue"
 """
 

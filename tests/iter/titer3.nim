@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   output: '''1231
 4
 6

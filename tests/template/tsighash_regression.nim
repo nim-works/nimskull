@@ -1,4 +1,5 @@
 discard """
+targets: native
 exitcode: 1
 outputsub: "0"
 """

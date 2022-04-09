@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
 """
 
 # xxx move to here other tests that belong here; io is a proper module

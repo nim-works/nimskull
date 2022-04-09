@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
   output: "pcDir\npcFile\npcLinkToDir\npcLinkToFile\n"
   joinable: false
 """

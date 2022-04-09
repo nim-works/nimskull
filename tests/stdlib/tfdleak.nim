@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   exitcode: 0
   output: ""
   matrix: "; -d:nimInheritHandles"

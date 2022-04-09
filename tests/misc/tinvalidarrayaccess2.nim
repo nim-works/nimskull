@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   errormsg: "index 3 not in 0 .. 1"
   line: 10
 """

@@ -2,7 +2,7 @@ discard """
   output: '''A
 B'''
   matrix: "--gc:arc"
-  targets: "c cpp"
+  targets: "native"
 """
 type
   Enum = enum A, B, C

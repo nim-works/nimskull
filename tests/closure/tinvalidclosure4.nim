@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  target: "native"
   errormsg: "illegal capture 'v'"
   line: 8
 """

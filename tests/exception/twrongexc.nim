@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   outputsub: "Error: unhandled exception:  [ValueError]"
   exitcode: "1"
 """

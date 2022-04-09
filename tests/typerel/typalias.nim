@@ -1,3 +1,6 @@
+discard """
+  targets: native
+"""
 
 type
   TMyObj = TYourObj

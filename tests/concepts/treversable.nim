@@ -1,6 +1,6 @@
 # issue 7705, 7703, 7702
 discard """
-  targets: "c cpp"
+  targets: "native"
   output: '''
 z
 e

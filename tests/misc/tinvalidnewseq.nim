@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   errormsg: "type mismatch: got <array[0..6, string], int literal(7)>"
   file: "tinvalidnewseq.nim"
   line: 16

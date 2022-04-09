@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
   output: '''@[11, 12, 13]
 @[11, 12, 13]
 @[1, 3, 5]

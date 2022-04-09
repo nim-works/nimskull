@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
 """
 
 import std/[os, osproc, strformat]

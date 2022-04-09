@@ -1,7 +1,7 @@
 discard """
   output: '''good'''
   joinable: false
-  targets: "c cpp"
+  targets: "native"
   matrix: "--gc:orc -d:release"
 """
 

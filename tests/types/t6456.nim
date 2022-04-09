@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "type \'ptr void\' is not allowed"
-  line: 6
+  line: 7
 """
 
 proc foo(x: ptr void) =

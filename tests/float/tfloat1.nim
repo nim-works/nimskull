@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   outputsub: "Error: unhandled exception: FPU operation caused an overflow [FloatOverflowDefect]"
   exitcode: "1"
 """

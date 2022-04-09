@@ -1,5 +1,5 @@
 discard """
-targets: "c cpp"
+targets: "native"
 outputsub: "is newer than"
 """
 # test the new LastModificationTime() proc

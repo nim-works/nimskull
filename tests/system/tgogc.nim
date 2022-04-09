@@ -1,6 +1,7 @@
 discard """
   disabled: "windows"
-  cmd: "nim c --gc:go $file"
+  targets: "native"
+  matrix: "--gc:go"
   joinable: false
   action: "compile"
 """

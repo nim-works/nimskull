@@ -1,5 +1,5 @@
 discard """
-targets: "c cpp"
+targets: "!js"
 output: '''
 Created size: 10
 Position after writing: 5

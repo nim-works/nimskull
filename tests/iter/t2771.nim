@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
 """
 
 template t1(i: int): int=

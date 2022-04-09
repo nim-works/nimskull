@@ -1,5 +1,6 @@
 discard """
-  cmd: "nim c --app:console $file"
+  targets: "!js"
+  matrix: "--app:console"
   action: "compile"
 """
 

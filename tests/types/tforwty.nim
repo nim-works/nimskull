@@ -1,3 +1,7 @@
+discard """
+  targets: native
+"""
+
 # Test 13: forward types
 
 type

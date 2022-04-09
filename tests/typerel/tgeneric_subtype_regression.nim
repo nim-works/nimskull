@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "type mismatch: got <FooRef[system.string]>"
-  line: 15
+  line: 16
 """
 
 # bug #4478

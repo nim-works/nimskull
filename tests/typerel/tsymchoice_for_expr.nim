@@ -1,3 +1,7 @@
+discard """
+  targets: native
+"""
+
 # bug #1988
 
 template t(e) = discard

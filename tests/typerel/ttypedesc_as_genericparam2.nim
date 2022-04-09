@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "'repr' doesn't support 'void' type"
-  line: 9
+  line: 10
 """
 
 # bug #2879

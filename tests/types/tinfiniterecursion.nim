@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "illegal recursion in type 'XIM'"
-  line: 8
+  line: 9
 """
 
 type

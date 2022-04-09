@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim $target --hints:on -d:embedUnidecodeTable $options $file"
+  matrix: "--hints:on -d:embedUnidecodeTable"
 """
 
 import unidecode

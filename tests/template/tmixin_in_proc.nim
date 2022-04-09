@@ -1,4 +1,5 @@
 discard """
+  targets: native
   output: '''monkey'''
 """
 # bug #5478

@@ -1,5 +1,5 @@
 discard """
-  targets: "c js"
+  targets: "native js"
 """
 
 # xxx move all tests under `main`

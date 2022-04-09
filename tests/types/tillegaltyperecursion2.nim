@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "illegal recursion in type 'Executor'"
-  line: 8
+  line: 9
 """
 # bug reported by PR #5637
 type

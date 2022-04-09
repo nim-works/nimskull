@@ -1,6 +1,6 @@
 discard """
-targets: "c cpp"
-cmd: "nim $target --threads:on $options $file"
+targets: "!js"
+matrix: "--threads:on"
 output: '''
 '''
 """

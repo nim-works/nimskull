@@ -1,3 +1,7 @@
+discard """
+  targets: native
+"""
+
 type
   TAnimal=object {.inheritable.}
   PAnimal=ref TAnimal

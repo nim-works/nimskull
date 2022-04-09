@@ -1,3 +1,7 @@
+discard """
+  targets: native
+"""
+
 type
   Bar[T] = Foo[T, T]
   Baz[T] = proc (x: Foo[T, T])

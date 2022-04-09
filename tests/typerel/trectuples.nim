@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "illegal recursion in type 'Node'"
-  line: 6
+  line: 7
 """
 
 type Node = tuple[left: ref Node]

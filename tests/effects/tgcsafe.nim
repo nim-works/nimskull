@@ -1,7 +1,7 @@
 discard """
   errormsg: "'mainUnsafe' is not GC-safe"
   line: 27
-  targets: "c cpp"
+  targets: "native"
   matrix: "--hints:on --threads:on"
 """
 

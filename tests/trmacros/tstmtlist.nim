@@ -1,5 +1,5 @@
 discard """
-  targets: "!js"
+  targets: native
   output: '''0
 |12|
 34

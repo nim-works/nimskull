@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   outputsub: '''Error: unhandled exception: cannot dispatch; dispatcher is nil [NilAccessDefect]'''
   exitcode: 1
 """

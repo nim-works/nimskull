@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   output: '''
 Nim 3.4368930843, 0.3299290698
 C double: 3.4368930843, 0.3299290698'''

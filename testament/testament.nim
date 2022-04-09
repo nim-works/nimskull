@@ -1041,12 +1041,6 @@ func nativeTarget(): TTarget =
   else:
     targetC
 
-func nativeTarget(): TTarget =
-  if getEnv("NIM_COMPILE_TO_CPP", "false") == "true":
-    targetCpp
-  else:
-    targetC
-
 func defaultTargets(category: Category): set[TTarget] =
   const standardTargets = {nativeTarget()}
   case category.string

@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
   disabled: "Windows"
   output: '''Full read size: 20
 Half read size: 10 Data: Hello'''

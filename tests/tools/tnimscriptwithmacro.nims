@@ -1,4 +1,5 @@
 discard """
+targets: native
 cmd: "nim e $file"
 output: '''
 foobar

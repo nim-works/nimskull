@@ -1,7 +1,8 @@
 discard """
+  targets: native
   errormsg: "attempt to redefine: 'color'"
   file: "tparameterizedparent3.nim"
-  line: 13
+  line: 14
 """
 # bug #5264
 type

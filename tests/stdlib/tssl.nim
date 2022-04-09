@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
   joinable: false
   disabled: "freebsd"
   disabled: "openbsd"

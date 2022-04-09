@@ -1,5 +1,5 @@
 discard """
-targets: "c cpp"
+targets: "native"
   output: '''
 c_func
 12

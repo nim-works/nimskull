@@ -1,7 +1,8 @@
 discard """
+  targets: native
   errormsg: "inheritance only works with non-final objects"
   file: "tparameterizedparent1.nim"
-  line: 14
+  line: 15
 """
 # bug #5264
 type

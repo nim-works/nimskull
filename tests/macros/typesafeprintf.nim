@@ -1,5 +1,5 @@
 discard """
-  targets: "c"
+  targets: "native"
   output: '''test 10'''
 """
 

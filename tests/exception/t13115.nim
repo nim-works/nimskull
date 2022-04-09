@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
 """
 
 const msg = "This char is `" & '\0' & "` and works fine!"

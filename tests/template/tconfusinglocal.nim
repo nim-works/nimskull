@@ -1,4 +1,5 @@
 discard """
+targets: native
 output: "0"
 """
 
@@ -14,8 +15,8 @@ type Bar = object
 template foo(a: Bar): int = a.mFoo
 
 proc main =
-    let foo = 5 # Rename this to smth else to make it work
-    var b: Bar
-    echo b.foo
+  let foo = 5 # Rename this to smth else to make it work
+  var b: Bar
+  echo b.foo
 
 main()

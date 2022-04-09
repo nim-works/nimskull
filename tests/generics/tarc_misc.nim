@@ -1,7 +1,7 @@
 discard """
   output: ''''''
   matrix: "--gc:arc"
-  targets: "c cpp"
+  targets: "native"
 """
 
 # bug #13519

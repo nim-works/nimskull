@@ -1,4 +1,5 @@
 discard """
+  targets: native
   errormsg: "redefinition of 'x'"
 """
 

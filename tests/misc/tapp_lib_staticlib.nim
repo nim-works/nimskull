@@ -1,5 +1,5 @@
 discard """
-target: c
+target: native
 joinable: false
 """
 

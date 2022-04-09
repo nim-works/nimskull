@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   matrix: "-d:release"
   outputsub: '''tunhandledexc.nim(19)    genErrors
 Error: unhandled exception: bla [ESomeOtherErr]'''

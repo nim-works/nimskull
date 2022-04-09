@@ -3,7 +3,8 @@ discard """
   # Disallow joining to ensure it can compile in isolation.
   # See #15584
   joinable: false
-  cmd: "nim $target --threads:on $options $file"
+  matrix: "--threads:on"
+  targets: "!js"
 """
 
 # bugfix #15584

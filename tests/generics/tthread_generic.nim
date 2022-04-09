@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "native"
   matrix: "--hints:on --threads:on"
   action: compile
 """

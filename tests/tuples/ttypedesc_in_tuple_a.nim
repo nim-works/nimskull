@@ -1,4 +1,5 @@
 discard """
+targets: native
 errormsg: "typedesc not allowed as tuple field."
 """
 

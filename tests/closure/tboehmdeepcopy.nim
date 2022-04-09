@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  target: "native"
   matrix: "--gc:boehm"
   output: '''meep'''
   disabled: "windows"

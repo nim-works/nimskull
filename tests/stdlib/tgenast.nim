@@ -1,5 +1,5 @@
 discard """
-targets: "c cpp"
+targets: "native"
 """
 
 # xxx: also test on js <-- nice, too bad this code & what it tests are a joke

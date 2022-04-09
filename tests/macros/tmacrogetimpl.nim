@@ -1,8 +1,9 @@
 discard """
-targets: "c cpp"
+targets: "native js !js"
 """
 
-# xxx: js should work, but codegen is broken
+# xxx: js should work, but codegen is broken remove the negated js (`!js`) once
+#      everything is fixed.
 
 import macros
 

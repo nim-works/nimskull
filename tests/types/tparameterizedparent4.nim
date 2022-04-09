@@ -1,7 +1,8 @@
 discard """
+  targets: native
   errormsg: "attempt to redefine: 'grain'"
   file: "tparameterizedparent4.nim"
-  line: 23
+  line: 24
 """
 # bug #5264
 type

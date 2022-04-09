@@ -1,5 +1,5 @@
 discard """
-targets: "!js"
+targets: native
 action: compile
 """
 

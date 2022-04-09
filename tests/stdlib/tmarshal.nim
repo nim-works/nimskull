@@ -1,10 +1,8 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
 """
 
 import std/marshal
-
-# TODO: add static tests
 
 proc testit[T](x: T): string = $$to[T]($$x)
 

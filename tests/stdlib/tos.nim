@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
   output: '''
 All:
 __really_obscure_dir_name/are.x

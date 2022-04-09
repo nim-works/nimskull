@@ -1,6 +1,7 @@
 discard """
+targets: native
 errormsg: "invalid type: 'object' for var"
-line: 6
+line: 7
 """
 
 var a: object

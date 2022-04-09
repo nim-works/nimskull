@@ -2,7 +2,7 @@ discard """
   errormsg: "'myproc' is not GC-safe as it calls 'global_proc'"
   line: 13
   matrix: "--hints:on --threads:on"
-  targets: "c cpp"
+  targets: "native"
 """
 
 var useGcMem = "string here"

@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "!js"
 """
 
 doAssert "@[23, 45]" == $(@[23, 45])
