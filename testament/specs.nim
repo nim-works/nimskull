@@ -66,6 +66,19 @@ type
     targetObjC = "objc"
     targetJS = "js"
 
+  SpecifiedTarget* = enum
+    addTargetC = "c"
+    remTargetC = "!c"
+    addTargetCpp = "cpp"
+    remTargetCpp = "!cpp"
+    addTargetObjC = "objc"
+    remTargetObjC = "!objc"
+    addTargetJS = "js"
+    remTargetJS = "!js"
+    addTargetNative = "native"
+    addCategoryTargets = "default"
+    remCategoryTargets = "!default"
+
   InlineError* = object
     kind*: string
     msg*: string
@@ -95,6 +108,7 @@ type
     err*: TResultEnum
     inCurrentBatch*: bool
     targets*: set[TTarget]
+    specifiedTargets*: set[SpecifiedTarget] ## targets as described by the spec
     matrix*: seq[string]
     nimoutSexp*: bool
     nimout*: string
@@ -279,6 +293,25 @@ proc parseTargets*(value: string): set[TTarget] =
       of "js":         targetJS
       else: raise newException(ValueError, "invalid target: '$#'" % v)
 
+proc parseSpecifiedTargets*(value: string): set[SpecifiedTarget] =
+  ## Get target specification
+  for v in value.normalize.splitWhitespace:
+    result.incl:
+      case v
+      of "c":            addTargetC
+      of "cpp", "c++":   addTargetCpp
+      of "objc":         addTargetObjC
+      of "js":           addTargetJS
+      of "native":       addTargetNative
+      of "default":      addCategoryTargets
+      of "!c":           remTargetC
+      of "!cpp", "!c++": remTargetCpp
+      of "!objc":        remTargetObjC
+      of "!js":          remTargetJS
+      of "!default":     remCategoryTargets
+      else: raise newException(ValueError,
+                               "invalid target specificatoin: '$#'" % v)
+
 proc addLine*(self: var string; a: string) =
   self.add a
   self.add "\n"
@@ -297,7 +330,9 @@ proc isCurrentBatch*(testamentData: TestamentData; filename: string): bool =
   else:
     true
 
-proc parseSpec*(filename: string): TSpec =
+proc parseSpec*(filename: string,
+                catTargets: set[TTarget],
+                nativeTarget: TTarget): TSpec =
   ## Extract and parse specification for a given file path
   result.file = filename
 
@@ -458,9 +493,46 @@ proc parseSpec*(filename: string): TSpec =
           result.parseErrors.addLine "cannot interpret as a float: ", e.value
       of "targets", "target":
         try:
-          result.targets.incl parseTargets(e.value)
+          result.specifiedTargets.incl parseSpecifiedTargets(e.value)
         except ValueError as e:
           result.parseErrors.addLine e.msg
+        
+        # do a two pass add / remove, this way 'default !js' is the same as
+        # '!js default'
+
+        # do the additions first
+        for st in result.specifiedTargets:
+          case st
+          of addTargetC: result.targets.incl targetC
+          of addTargetCpp: result.targets.incl targetCpp
+          of addTargetObjc: result.targets.incl targetObjC
+          of addTargetJS: result.targets.incl targetJS
+          of addTargetNative: result.targets.incl nativeTarget
+          of addCategoryTargets: result.targets = result.targets + catTargets
+          of remTargetC, remTargetCpp, remTargetObjc, remTargetJS,
+             remCategoryTargets:
+               discard
+        
+        if result.targets == {}:
+          # nothing was specified, so assume the defaults
+          result.targets = catTargets
+
+        # do the removals next
+        for st in result.specifiedTargets:
+          case st
+          of remTargetC: result.targets.excl targetC
+          of remTargetCpp: result.targets.excl targetCpp
+          of remTargetObjc: result.targets.excl targetObjC
+          of remTargetJS: result.targets.excl targetJS
+          of remCategoryTargets: result.targets = result.targets - catTargets
+          of addTargetC, addTargetCpp, addTargetObjc, addTargetJS,
+             addTargetNative, addCategoryTargets:
+               discard
+        
+        # if nothing was specified, setup category defaults
+        if result.targets == {}:
+          result.parseErrors.addLine "Empty targets set, ", e.value
+
       of "matrix":
         for v in e.value.split(';'):
           result.matrix.add(v.strip)

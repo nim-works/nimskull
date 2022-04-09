@@ -75,13 +75,14 @@ proc runBasicDLLTest(c, r: var TResults, cat: Category, options: string) =
 
   if "boehm" notin options:
     # force build required - see the comments in the .nim file for more details
-    var hcri = makeTest("tests/dll/nimhcr_integration.nim",
-                                   options & " --forceBuild --hotCodeReloading:on" & rpath, cat)
-    let nimcache = nimcacheDir(hcri.name, hcri.options, getTestSpecTarget())
-    let cmd = prepareTestCmd(hcri.spec.getCmd, hcri.name,
-                                hcri.options, nimcache, getTestSpecTarget())
-    hcri.testArgs = cmd.parseCmdLine
-    testSpec r, hcri
+    for target in cat.defaultTargets():
+      var hcri = makeTest("tests/dll/nimhcr_integration.nim",
+                                    options & " --forceBuild --hotCodeReloading:on" & rpath, cat)
+      let nimcache = nimcacheDir(hcri.name, hcri.options, target)
+      let cmd = prepareTestCmd(hcri.spec.getCmd, hcri.name,
+                                  hcri.options, nimcache, target)
+      hcri.testArgs = cmd.parseCmdLine
+      testSpec r, hcri
 
 proc dllTests(r: var TResults, cat: Category, options: string) =
   # dummy compile result:
@@ -172,8 +173,8 @@ proc debuggerTests(r: var TResults, cat: Category, options: string) =
 
 proc jsTests(r: var TResults, cat: Category, options: string) =
   template test(filename: untyped) =
-    testSpec r, makeTest(filename, options, cat), {targetJS}
-    testSpec r, makeTest(filename, options & " -d:release", cat), {targetJS}
+    testSpec r, makeTest(filename, options, cat)
+    testSpec r, makeTest(filename, options & " -d:release", cat)
 
   for t in os.walkFiles("tests/js/t*.nim"):
     test(t)
@@ -217,6 +218,31 @@ proc manyLoc(r: var TResults, cat: Category, options: string) =
         test.spec.action = actionCompile
         testSpec r, test
 
+
+const stdlibToExcludeFromJS = [
+  "lib/pure/browsers.nim",
+  "lib/pure/cgi.nim",
+  "lib/pure/concurrency/cpuinfo.nim",
+  "lib/pure/concurrency/threadpool.nim",
+  "lib/pure/distros.nim",
+  "lib/pure/dynlib.nim",
+  "lib/pure/encodings.nim",
+  "lib/pure/endians.nim",
+  "lib/pure/httpclient.nim",
+  "lib/pure/marshal.nim",
+  "lib/pure/md5.nim",
+  "lib/pure/memfiles.nim",
+  "lib/pure/nativesockets.nim",
+  "lib/pure/net.nim",
+  "lib/pure/nimprof.nim",
+  "lib/pure/oids.nim",
+  "lib/pure/osproc.nim",
+  "lib/pure/selectors.nim",
+  "lib/pure/smtp.nim",
+  "lib/pure/ssl_certs.nim",
+  "lib/pure/terminal.nim",
+] ## these can't run on the JS target
+
 proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
   var files: seq[string]
 
@@ -237,9 +263,16 @@ proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
       files.add testFile
 
   files.sort # reproducible order
+  let targets = cat.defaultTargets
   for testFile in files:
     var testObj = makeTest(testFile, options, cat)
     testObj.spec.action = actionCompile
+    
+    let name = testFile.replace(DirSep, '/')
+    testObj.spec.targets = targets
+    if name in stdlibToExcludeFromJS:
+      testObj.spec.targets.excl targetJS
+    
     testSpec r, testObj
 
 # ---------------- IC tests ---------------------------------------------
@@ -250,46 +283,54 @@ proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
     tooltests = ["compiler/nim.nim"]
     incrementalOn = " --incremental:on -d:nimIcIntegrityChecks "
     navTestConfig = " --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off "
+  
+  let targets =
+    if isNavigatorTest:
+      {nativeTarget()}
+    else:
+      cat.defaultTargets()
 
   template editedTest(x: untyped) =
     var test = makeTest(file, x & options, cat)
     if isNavigatorTest:
       test.spec.action = actionCompile
-    test.spec.targets = {getTestSpecTarget()}
+    test.spec.targets = targets
     testSpecWithNimcache(r, test, nimcache)
 
   template checkTest() =
-    var test = makeRawTest(file, options, cat)
+    var test = makeTestWithDummySpec(file, options, cat)
     test.spec.cmd = compilerPrefix & " check --hint:Conf:off --warnings:off --ic:on $options " & file
     testSpecWithNimcache(r, test, nimcache)
 
   if not isNavigatorTest:
     for file in tooltests:
-      let nimcache = nimcacheDir(file, options, getTestSpecTarget())
-      removeDir(nimcache)
+      for target in targets:
+        let nimcache = nimcacheDir(file, options, target)
+        removeDir(nimcache)
 
-      let oldPassed = r.passed
-      checkTest()
-
-      if r.passed == oldPassed+1:
+        let oldPassed = r.passed
         checkTest()
-        if r.passed == oldPassed+2:
+
+        if r.passed == oldPassed+1:
           checkTest()
+          if r.passed == oldPassed+2:
+            checkTest()
 
   const tempExt = "_temp.nim"
   for it in walkDirRec(testsDir):
   # for it in ["tests/ic/timports.nim"]: # debugging: to try a specific test
     if isTestFile(it) and not it.endsWith(tempExt):
-      let nimcache = nimcacheDir(it, options, getTestSpecTarget())
-      removeDir(nimcache)
+      for target in targets:
+        let nimcache = nimcacheDir(it, options, target)
+        removeDir(nimcache)
 
-      let content = readFile(it)
-      for fragment in content.split("#!EDIT!#"):
-        let file = it.replace(".nim", tempExt)
-        writeFile(file, fragment)
-        let oldPassed = r.passed
-        editedTest(if isNavigatorTest: navTestConfig else: incrementalOn)
-        if r.passed != oldPassed+1: break
+        let content = readFile(it)
+        for fragment in content.split("#!EDIT!#"):
+          let file = it.replace(".nim", tempExt)
+          writeFile(file, fragment)
+          let oldPassed = r.passed
+          editedTest(if isNavigatorTest: navTestConfig else: incrementalOn)
+          if r.passed != oldPassed+1: break
 
 # ----------------------------------------------------------------------------
 
@@ -301,13 +342,9 @@ proc `&.?`(a, b: string): string =
   # candidate for the stdlib?
   result = if b.startsWith(a): b else: a & b
 
-proc processSingleTest(r: var TResults, cat: Category, options, test: string, targets: set[TTarget], targetsSet: bool) =
-  var targets = targets
-  if not targetsSet:
-    let target = if cat.string.normalize == "js": targetJS else: targetC
-    targets = {target}
+proc processSingleTest(r: var TResults, cat: Category, options, test: string) =
   doAssert fileExists(test), test & " test does not exist"
-  testSpec r, makeTest(test, options, cat), targets
+  testSpec r, makeTest(test, options, cat)
 
 proc isJoinableSpec(spec: TSpec): bool =
   # xxx simplify implementation using an allow list of fields that are allowed
@@ -356,7 +393,7 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
         if isTestFile(file):
           var spec: TSpec
           try:
-            spec = parseSpec(file)
+            spec = parseSpec(file, cat.Category.defaultTargets, nativeTarget())
           except ValueError:
             # e.g. for `tests/navigator/tincludefile.nim` which have multiple
             # specs; this will be handled elsewhere
