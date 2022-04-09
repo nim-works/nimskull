@@ -853,7 +853,8 @@ proc execCmdsInParallel(conf: ConfigRef; cmds: seq[string]; prettyCb: proc (idx:
   else:
     tryExceptOSErrorMessage(conf, "invocation of external compiler program failed."):
       res = execProcesses(cmds, {poStdErrToStdOut, poUsePath, poParentStreams},
-                            conf.numberOfProcessors, prettyCb, afterRunEvent=runCb)
+                            conf.numberOfProcessors, beforeRunEvent=prettyCb,
+                            afterRunEvent=runCb)
 
   if res != 0:
     if conf.numberOfProcessors <= 1:
