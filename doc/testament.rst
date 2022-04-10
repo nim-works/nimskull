@@ -121,7 +121,6 @@ Test execution options
     disabled: "win"
     disabled: "32bit" # ...or architectures
     disabled: "i386"
-    disabled: "azure" # ...or pipeline runners
     disabled: true    # ...or can disable the test entirely
 
 - ``knownIssue``
@@ -197,7 +196,6 @@ Binary output assertions
 * Spec has sane defaults, so you don't need to provide them all, any simple assert will work just fine.
 * `This is not the full spec of Testament, check the Testament Spec on GitHub, see parseSpec(). <https://github.com/nim-works/nimskull/blob/devel/testament/specs.nim#L238>`_
 * `Nim itself uses Testament, so there are plenty of test examples. <https://github.com/nim-works/nimskull/tree/devel/tests>`_
-* Has some built-in CI compatibility, like Azure Pipelines, etc.
 * `Testament supports inlined error messages on tests, basically comments with the expected error directly on the code. <https://github.com/nim-works/nimskull/blob/9a110047cbe2826b1d4afe63e3a1f5a08422b73f/tests/effects/teffects1.nim>`_
 
 Reading test outputs

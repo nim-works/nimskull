@@ -72,7 +72,7 @@ proc cacheResults*() =
   ## and inserts them into a new file within the cacheresults directory.
   createDir("testresults/cacheresults")
   # We will ignore any entries that have this as their result
-  const passResults = ["reJoined", "reSuccess", "reDisabled", ""] # "" is defaulted to if result field not found
+  const passResults = ["reJoined", "reSuccess", "reDisabled", "reKnownIssue", ""] # "" is defaulted to if result field not found
   let searchPattern = "testresults" / "*.json"
   # Prepare json array which will be written to our new cache file
   var fresults = newJArray()

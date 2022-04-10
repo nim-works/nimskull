@@ -225,7 +225,7 @@ To run a single test:
   ./koch.py test run tests/stdlib/tos.nim # can also provide relative path
 
 For reproducible tests (to reproduce an environment more similar to the one
-run by Continuous Integration on github actions/azure pipelines), you may want to disable your
+run by Continuous Integration on GitHub Actions pipelines), you may want to disable your
 local configuration (e.g. in ``~/.config/nim/nim.cfg``) which may affect some
 tests; this can also be achieved by using
 `export XDG_CONFIG_HOME=pathtoAlternateConfig`:cmd: before running `./koch.py`:cmd:
@@ -638,12 +638,10 @@ Continuous Integration (CI)
 1. Continuous Integration is by default run on every push in a PR; this clogs
    the CI pipeline and affects other PR's; if you don't need it (e.g. for WIP or
    documentation only changes), add ``[skip ci]`` to your commit message title.
-   This convention is supported by our github actions pipelines and our azure pipeline
-   (using custom logic, which should complete in < 1mn) as well as our former other pipelines:
-   `Appveyor <https://www.appveyor.com/docs/how-to/filtering-commits/#skip-directive-in-commit-message>`_
-   and `Travis <https://docs.travis-ci.com/user/customizing-the-build/#skipping-a-build>`_.
+   This convention is supported by our GitHub Actions pipelines (using custom
+   logic, which should complete in < 1mn).
 
-2. Consider enabling CI (azure, GitHub actions and builds.sr.ht) in your own |NimSkull| fork, and
+2. Consider enabling CI (GitHub Actions and builds.sr.ht) in your own |NimSkull| fork, and
    waiting for CI to be green in that fork (fixing bugs as needed) before
    opening your PR in the original |NimSkull| repo, so as to reduce CI congestion. Same
    applies for updates on a PR: you can test commits on a separate private
@@ -660,10 +658,6 @@ Debugging CI failures, flaky tests, etc
    will re-trigger all CI jobs (even successful ones, which can be wasteful). Instead,
    follow these instructions to only restart the jobs that failed:
 
-   * Azure: if on your own fork, it's possible from inside azure console
-     (e.g. ``dev.azure.com/username/username/_build/results?buildId=1430&view=results``) via ``rerun failed jobs`` on top.
-     If either on you own fork or in |NimSkull| repo, it's possible from inside GitHub UI
-     under checks tab, see https://github.com/timotheecour/Nim/issues/211#issuecomment-629751569
    * GitHub actions: under "Checks" tab, click "Re-run jobs" in the right.
    * builds.sr.ht: create a sourcehut account so you can restart a PR job as illustrated.
      builds.sr.ht also allows you to ssh to a CI machine which can help a lot for debugging

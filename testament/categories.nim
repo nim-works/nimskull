@@ -357,7 +357,7 @@ proc isJoinableSpec(spec: TSpec): bool =
     not fileExists(parentDir(spec.file) / "nim.cfg") and
     not fileExists(parentDir(spec.file) / "config.nims") and
     spec.cmd.len == 0 and
-    spec.err != reDisabled and
+    spec.err notin {reDisabled, reKnownIssue} and
     not spec.unjoinable and
     spec.exitCode == 0 and
     spec.input.len == 0 and
@@ -494,9 +494,9 @@ proc processCategory(r: var TResults, cat: Category,
   let cat2 = cat.string.normalize
   case cat2
   of "js":
-    # only run the JS tests on Windows or Linux because Travis is bad
-    # and other OSes like Haiku might lack nodejs:
-    if not defined(linux) and isTravis:
+    # only run the JS tests on Windows or Linux because some CI and other OSes
+    # like Haiku might hijack/lack nodejs:
+    if not defined(linux) or not defined(windows):
       discard
     else:
       jsTests(r, cat, options)
