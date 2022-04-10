@@ -9,6 +9,8 @@
 
 # included from cgen.nim
 
+from ast/enumtostr import searchObjCase
+
 const
   RangeExpandLimit = 256      # do not generate ranges
                               # over 'RangeExpandLimit' elements
@@ -1565,17 +1567,61 @@ proc asgnFieldDiscriminant(p: BProc, e: PNode) =
   initLocExpr(p, e[0], a)
   getTemp(p, a.t, tmp)
   expr(p, e[1], tmp)
-  if optTinyRtti notin p.config.globalOptions:
+
+  if p.config.selectedGC == gcRefc:
+    # TODO: the branch reset logic should be generated into a standalone
+    # function to which a call is then emitted here
+
+    # Setup a loc for the object that holds the discriminator (only needed
+    # for the accesor)
+    var le: TLoc
+    initLocExpr(p, dotExpr[0], le)
+    var accessor = rdLoc(le)
+
+    let field = dotExpr[1].sym
+    var ty = dotExpr[0].typ
+    # Find the object type of which the discriminator is part
+    # XXX: duplicates the logic in `ccgexprs.lookupFieldAgain`
+    while ty != nil:
+      ty = ty.skipTypes(skipPtrs)
+      assert(ty.kind in {tyTuple, tyObject})
+      if lookupInRecord(ty.n, field.name) != nil:
+        break
+      if not p.module.compileToCpp:
+        accessor.add(".Sup")
+      ty = ty[0]
+
+    internalAssert(p.config, ty != nil, field.info)
+    assert ty.kind == tyObject
+
+    # Find the discriminator's corresponding nkRecCase node
+    let recCase = searchObjCase(ty, field)
+
+    # only reset when the new discriminator is different
+    linefmt(p, cpsStmts, "if($1!=$2){$n", [rdLoc(a), rdLoc(tmp)])
+    # Emit case reset logic
+    specializeResetN(p, accessor, recCase, ty)
+
+    # We assume that no padding bits were modified, so no need to clear
+    # the destination branch
+    #specializeResetN(p, rdLoc(tmp), recCase, objTyp)
+
+    lineF(p, cpsStmts, "} $n", [])
+
+
+  elif optTinyRtti notin p.config.globalOptions:
     let field = dotExpr[1].sym
     genDiscriminantCheck(p, a, tmp, dotExpr[0].typ, field)
     localReport(p.config, e, reportSem rsemCaseTransition)
+
   genAssignment(p, a, tmp, {})
 
 proc genAsgn(p: BProc, e: PNode, fastAsgn: bool) =
   if e[0].kind == nkSym and sfGoto in e[0].sym.flags:
     genLineDir(p, e)
     genGotoVar(p, e[1])
-  elif optFieldCheck in p.options and isDiscriminantField(e[0]):
+  elif isDiscriminantField(e[0]) and
+    (optFieldCheck in p.options or p.config.selectedGC == gcRefc):
     genLineDir(p, e)
     asgnFieldDiscriminant(p, e)
   else:
