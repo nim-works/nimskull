@@ -21,14 +21,7 @@ var
   compilerPrefix* = findExe("nim")
   skips*: seq[string]
 
-
 let testamentData0* = TestamentData()
-
-# environment related predicates
-let
-  isTravis*   = existsEnv("TRAVIS")
-  isAppVeyor* = existsEnv("APPVEYOR")
-  isAzure*    = existsEnv("TF_BUILD")
 
 type
   TTestAction* = enum
@@ -57,8 +50,9 @@ type
     reBuildFailed      # package building failed
     reDisabled,        # test is disabled
     reJoined,          # test is disabled because it was joined into the megatest
-    reSuccess          # test was successful
     reInvalidSpec      # test had problems to parse the spec
+    reKnownIssue       # test has a known issue(s) and is expected to fail
+    reSuccess          # test was successful
 
   TTarget* = enum
     targetC = "c"
@@ -456,12 +450,6 @@ proc parseSpec*(filename: string,
           when defined(unix): result.err = reDisabled
         of "posix":
           when defined(posix): result.err = reDisabled
-        of "travis": # deprecated
-          if isTravis: result.err = reDisabled
-        of "appveyor": # deprecated
-          if isAppVeyor: result.err = reDisabled
-        of "azure":
-          if isAzure: result.err = reDisabled
         of "32bit":
           if sizeof(int) == 4:
             result.err = reDisabled
@@ -541,7 +529,7 @@ proc parseSpec*(filename: string,
         of "n", "no", "false", "0": discard
         else:
             result.knownIssues.add e.value
-            result.err = reDisabled
+            result.err = reKnownIssue
       else:
         result.parseErrors.addLine "invalid key for test spec: ", e.key
 
@@ -559,6 +547,9 @@ proc parseSpec*(filename: string,
     result.err = reDisabled
   if nimoutFound and result.nimout.len == 0 and not result.nimoutFull:
     result.parseErrors.addLine "empty `nimout` is vacuously true, use `nimoutFull:true` if intentional"
+
+  if result.parseErrors.len > 0:
+    result.err = reInvalidSpec
 
   result.inCurrentBatch = isCurrentBatch(testamentData0, filename) or result.unbatchable
   if not result.inCurrentBatch:

@@ -132,7 +132,7 @@ batchable: false
 #   - play with plugins/dlls/lfIndirect/lfDynamicLib/lfExportLib - shouldn't add an extra '*'
 #   - everything thread-local related
 # - tests
-#   - add a new travis build matrix entry which builds everything with HCR enabled
+#   - add a new CI build matrix entry which builds everything with HCR enabled
 #     - currently building with useNimRtl is problematic - lots of problems...
 #     - how to supply the nimrtl/nimhcr shared objects to all test binaries...?
 #     - think about building to C++ instead of only to C - added type safety
