@@ -35,7 +35,6 @@ template toStdOrrKind(stdOrr): untyped =
 
 proc flushDot*(conf: ConfigRef) =
   ## safe to call multiple times
-  # xxx one edge case not yet handled is when `printf` is called at CT with `compiletimeFFI`.
   let stdOrr = if optStdout in conf.globalOptions: stdout else: stderr
   let stdOrrKind = toStdOrrKind(stdOrr)
   if stdOrrKind in conf.lastMsgWasDot:

@@ -195,8 +195,6 @@ proc setExternName(c: PContext; s: PSym, ext: string): SetExternNameStatus =
       s.loc.r = rope(ext % s.name.s)
     except ValueError:
       result = ExternNameSetFailed
-  when hasFFI:
-    s.cname = $s.loc.r
   if c.config.cmd == cmdNimfix and '$' notin ext:
     # note that '{.importc.}' is transformed into '{.importc: "$1".}'
     s.loc.flags.incl(lfFullExternalName)

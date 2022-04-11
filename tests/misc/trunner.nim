@@ -46,35 +46,7 @@ proc genShellCmd(filename: string): string =
   when defined(windows): "cmd /c " & filename # or "cmd /c " ?
   else: "sh " & filename
 
-when defined(nimTrunnerFfi):
-  block: # mevalffi
-    when defined(openbsd):
-      #[
-      openbsd defines `#define stderr (&__sF[2])` which makes it cumbersome
-      for dlopen'ing inside `importcSymbol`. Instead of adding special rules
-      inside `importcSymbol` to handle this, we disable just the part that's
-      not working and will provide a more general, clean fix in future PR.
-      ]#
-      var opt = "-d:nimEvalffiStderrWorkaround"
-      let prefix = ""
-    else:
-      var opt = ""
-      let prefix = """
-hello world stderr
-hi stderr
-"""
-    let output = runNimCmdChk("vm/mevalffi.nim", fmt"{opt} --experimental:compiletimeFFI")
-    doAssert output == fmt"""
-{prefix}foo
-foo:100
-foo:101
-foo:102:103
-foo:102:103:104
-foo:0.03:asdf:103:105
-ret=[s1:foobar s2:foobar age:25 pi:3.14]
-""", output
-
-elif not defined(nimTestsTrunnerDebugging):
+when not defined(nimTestsTrunnerDebugging):
   # don't run twice the same test with `nimTrunnerFfi`
   # use `-d:nimTestsTrunnerDebugging` for debugging convenience when you want to just run 1 test
   import std/strutils

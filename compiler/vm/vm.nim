@@ -69,9 +69,6 @@ import std/options as stdoptions
 const
   traceCode = defined(nimVMDebugExecute)
 
-when hasFFI:
-  import evalffi
-
 const
   errIllegalConvFromXtoY = "illegal conversion from '$1' to '$2'"
 
@@ -1372,31 +1369,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): TFullReg =
           VmArgs(ra: ra, rb: rb, rc: rc, slots: cast[ptr UncheckedArray[TFullReg]](addr regs[0]),
                  currentException: c.currentExceptionA,
                  currentLineInfo: c.debug[pc]))
-      elif importcCond(c, prc):
-        if compiletimeFFI notin c.config.features:
-          raiseVmError(SemReport(kind: rsemVmEnableFFIToImportc))
-        # we pass 'tos.slots' instead of 'regs' so that the compiler can keep
-        # 'regs' in a register:
-        when hasFFI:
-          if prc.position - 1 < 0:
-            raiseVmError(
-              reportStr(rsemVmGlobalError, "VM call invalid: prc.position: " & $prc.position))
 
-          let prcValue = c.globals[prc.position-1]
-          if prcValue.kind == nkEmpty:
-            raiseVmError(
-              reportStr(rsemVmErrInternal, "cannot run " & prc.name.s))
-          var slots2: TNodeSeq
-          slots2.setLen(tos.slots.len)
-          for i in 0..<tos.slots.len:
-            slots2[i] = regToNode(tos.slots[i])
-          let newValue = callForeignFunction(c.config, prcValue, prc.typ, slots2,
-                                             rb+1, rc-1, c.debug[pc])
-          if newValue.kind != nkEmpty:
-            assert instr.opcode == opcIndCallAsgn
-            putIntoReg(regs[ra], newValue)
-        else:
-          raiseVmError(SemReport(kind: rsemVmCannotImportc))
       elif prc.kind != skTemplate:
         let newPc = compile(c, prc)
         # tricky: a recursion is also a jump back, so we use the same
@@ -1589,32 +1562,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): TFullReg =
       let rb = instr.regBx - wordExcess - 1
       ensureKind(rkNode)
       regs[ra].node = c.globals[rb]
-    of opcLdGlobalDerefFFI:
-      let rb = instr.regBx - wordExcess - 1
-      let node = c.globals[rb]
-      let typ = node.typ
-      doAssert node.kind == nkIntLit, $(node.kind)
-      if typ.kind == tyPtr:
-        ensureKind(rkNode)
-        # use nkPtrLit once this is added
-        let node2 = newNodeIT(nkIntLit, c.debug[pc], typ)
-        node2.intVal = cast[ptr int](node.intVal)[]
-        node2.flags.incl nfIsPtr
-        regs[ra].node = node2
-      elif not derefPtrToReg(node.intVal, typ, regs[ra], isAssign = false):
-        raiseVmError(reportStr(
-          rsemVmErrInternal,
-          "opcLdDeref unsupported type: " & $(typeToString(typ), typ[0].kind)))
-
-    of opcLdGlobalAddrDerefFFI:
-      let rb = instr.regBx - wordExcess - 1
-      let node = c.globals[rb]
-      let typ = node.typ
-      var node2 = newNodeIT(nkIntLit, node.info, typ)
-      node2.intVal = node.intVal
-      node2.flags.incl nfIsPtr
-      ensureKind(rkNode)
-      regs[ra].node = node2
     of opcLdGlobalAddr:
       let rb = instr.regBx - wordExcess - 1
       ensureKind(rkNodeAddr)
@@ -2126,13 +2073,11 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): TFullReg =
       inc pc
       let srctyp = c.types[c.code[pc].regBx - wordExcess]
 
-      when hasFFI:
-        let dest = fficast(c.config, regs[rb].node, desttyp)
-        # todo: check whether this is correct
-        # asgnRef(regs[ra], dest)
-        putIntoReg(regs[ra], dest)
-      else:
-        raiseVmError(reportSem(rsemVmCannotCast))
+      # XXX: `fficast`, which is now removed, was used for here previously.
+      # Since we're soon storing objects in a flat representation, doing the
+      # cast in a safe manner becomes possible, but I'm unsure if this feature
+      # is really needed, so an error is always reported here for now
+      raiseVmError(reportSem(rsemVmCannotCast))
 
     of opcNSetIntVal:
       decodeB(rkNode)

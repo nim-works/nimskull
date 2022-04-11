@@ -24,7 +24,6 @@ const
   hasTinyCBackend* = defined(tinyc)
   useEffectSystem* = true
   useWriteTracking* = false
-  hasFFI* = defined(nimHasLibFFI)
   copyrightYear* = "2022"
 
   nimEnableCovariance* = defined(nimEnableCovariance)

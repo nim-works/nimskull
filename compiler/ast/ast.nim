@@ -854,8 +854,6 @@ template transitionSymKindCommon*(k: TSymKind) =
              info: obj.info, owner: obj.owner, flags: obj.flags, ast: obj.ast,
              options: obj.options, position: obj.position, offset: obj.offset,
              loc: obj.loc, annex: obj.annex, constraint: obj.constraint)
-  when hasFFI:
-    s.cname = obj.cname
   when defined(nimsuggest):
     s.allUsages = obj.allUsages
 

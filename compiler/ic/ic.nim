@@ -425,8 +425,6 @@ proc storeSym*(s: PSym; c: var PackedEncoder; m: var PackedModule): PackedItemId
     c.addMissing s.owner
     p.owner = s.owner.safeItemId(c, m)
     p.annex = toPackedLib(s.annex, c, m)
-    when hasFFI:
-      p.cname = toLitId(s.cname, m)
 
     # fill the reserved slot, nothing else:
     m.syms[s.itemId.item] = p
@@ -868,8 +866,6 @@ proc symBodyFromPacked(c: var PackedDecoder; g: var PackedModuleGraph;
   else:
     loadAstBody(s, ast)
   result.annex = loadLib(c, g, si, item, s.annex)
-  when hasFFI:
-    result.cname = g[si].fromDisk.strings[s.cname]
 
   if s.kind in {skLet, skVar, skField, skForVar}:
     result.guard = loadSym(c, g, si, s.guard)

@@ -194,8 +194,6 @@ proc commandCompileToJS(graph: ModuleGraph) =
 proc interactivePasses(graph: ModuleGraph) =
   initDefines(graph.config.symbols)
   defineSymbol(graph.config, "nimscript")
-  # note: seems redundant with -d:nimHasLibFFI
-  when hasFFI: defineSymbol(graph.config, "nimffi")
   registerPass(graph, verbosePass)
   registerPass(graph, semPass)
   registerPass(graph, evalPass)
