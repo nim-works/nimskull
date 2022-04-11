@@ -335,12 +335,9 @@ proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
 # ----------------------------------------------------------------------------
 
 # const AdditionalCategories = ["debugger", "lib", "ic", "navigator"]
-const AdditionalCategories = ["debugger", "lib"]
-const MegaTestCat = "megatest"
-
-proc `&.?`(a, b: string): string =
-  # candidate for the stdlib?
-  result = if b.startsWith(a): b else: a & b
+const
+  AdditionalCategories = ["debugger", "lib"]
+  MegaTestCat = "megatest"
 
 proc processSingleTest(r: var TResults, cat: Category, options, test: string) =
   doAssert fileExists(test), test & " test does not exist"
@@ -488,6 +485,10 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
 
 # ---------------------------------------------------------------------------
 
+proc `&.?`(a, b: string): string =
+  # candidate for the stdlib?
+  result = if b.startsWith(a): b else: a & b
+
 proc processCategory(r: var TResults, cat: Category,
                      options, testsDir: string,
                      runJoinableTests: bool) =
@@ -523,11 +524,16 @@ proc processCategory(r: var TResults, cat: Category,
   of "megatest":
     runJoinedTest(r, cat, testsDir, options)
   else:
-    var testsRun = 0
-    var files: seq[string]
+    var
+      testsRun = 0
+      files: seq[string]
+
     for file in walkDirRec(testsDir &.? cat.string):
-      if isTestFile(file): files.add file
+      if isTestFile(file):
+        files.add file
+
     files.sort # give reproducible order
+
     for i, name in files:
       var test = makeTest(name, options, cat)
       if runJoinableTests or not isJoinableSpec(test.spec) or cat.string in specialCategories:
