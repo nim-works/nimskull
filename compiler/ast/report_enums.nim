@@ -624,7 +624,6 @@ type
     rsemVmBadExpandToAst
     rsemVmCannotEvaluateAtComptime
     rsemVmCannotImportc
-    rsemVmEnableFFIToImportc
     rsemVmCannotCreateNullElement
     rsemVmInvalidObjectConstructor
     rsemVmNoClosureIterators

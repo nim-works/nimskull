@@ -200,9 +200,6 @@ proc runRepl*(
   if supportNimscript:
     defineSymbol(conf, "nimconfig")
 
-  when hasFFI:
-    defineSymbol(graph.config, "nimffi")
-
   registerPass(graph, verbosePass)
   registerPass(graph, semPass)
   registerPass(graph, evalPass)

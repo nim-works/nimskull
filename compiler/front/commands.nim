@@ -61,7 +61,6 @@ import
 from ast/ast import setUseIc, eqTypeFlags, tfGcSafe, tfNoSideEffect
 
 bootSwitch(usedTinyC, hasTinyCBackend, "-d:tinyc")
-bootSwitch(usedFFI, hasFFI, "-d:nimHasLibFFI")
 
 type
   TCmdLinePass* = enum
@@ -92,7 +91,6 @@ proc getCliData(conf: ConfigRef): InternalCliData =
       usedDanger,
       usedTinyC,
       useLinenoise,
-      usedFFI,
       usedBoehm,
       usedMarkAndSweep,
       usedGoGC,

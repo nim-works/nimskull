@@ -64,8 +64,6 @@ type
     externalName*: LitId # instead of TLoc
     locFlags*: TLocFlags
     annex*: PackedLib
-    when hasFFI:
-      cname*: LitId
     constraint*: NodeId
 
   PackedType* = object

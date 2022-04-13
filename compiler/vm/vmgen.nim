@@ -64,8 +64,6 @@ when defined(nimCompilerStacktraceHints):
 const
   debugEchoCode* = defined(nimVMDebugGenerate)
 
-when hasFFI:
-  import vm/evalffi
 
 type
   VmGenResult* = object ## The result of a vmgen invocation
@@ -1551,7 +1549,10 @@ proc checkCanEval(c: TCtx; n: PNode) =
   # proc foo() = var x ...
   let s = n.sym
   if {sfCompileTime, sfGlobal} <= s.flags: return
-  if s.importcCondVar: return
+  if s.importcCondVar:
+    # Defining importc'ed variables is allowed and since `checkCanEval` is
+    # also used by `genVarSection`, don't fail here
+    return
   if s.kind in {skVar, skTemp, skLet, skParam, skResult} and
       not s.isOwnedBy(c.prc.sym) and s.owner != c.module and c.mode != emRepl:
     # little hack ahead for bug #12612: assume gensym'ed variables
@@ -1657,21 +1658,11 @@ proc genTypeLit(c: var TCtx; t: PType; dest: var TDest) =
   n.typ = t
   genLit(c, n, dest)
 
-proc importcCond*(c: var TCtx; s: PSym): bool {.inline.} =
+proc importcCond*(c: TCtx; s: PSym): bool {.inline.} =
   ## return true to importc `s`, false to execute its body instead (refs #8405)
   if sfImportc in s.flags:
     if s.kind in routineKinds:
       return getBody(c.graph, s).kind == nkEmpty
-
-proc importcSym(c: var TCtx; info: TLineInfo; s: PSym) =
-  when hasFFI:
-    if compiletimeFFI in c.config.features:
-      c.globals.add(importcSymbol(c.config, s))
-      s.position = c.globals.len
-    else:
-      localReport(c.config, info, reportSym(rsemVmEnableFFIToImportc, s))
-  else:
-    localReport(c.config, info, reportSym(rsemVmCannotImportc, s))
 
 proc getNullValue*(typ: PType, info: TLineInfo; conf: ConfigRef): PNode
 
@@ -1694,24 +1685,22 @@ proc genRdVar(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
   assert card(flags * {gfNodeAddr, gfNode}) < 2
   let s = n.sym
   if s.isGlobal:
-    let isImportcVar = importcCondVar(s)
-    if sfCompileTime in s.flags or c.mode == emRepl or isImportcVar:
+    if importcCondVar(s) or c.importcCond(s):
+      # Using importc'ed symbols on the left or right side of an expression is
+      # not allowed
+      fail(n.info, rsemVmCannotImportc, sym = s)
+
+    if sfCompileTime in s.flags or c.mode == emRepl:
       discard
     elif s.position == 0:
       cannotEval(c, n)
     if s.position == 0:
-      if importcCond(c, s) or isImportcVar: c.importcSym(n.info, s)
-      else: genGlobalInit(c, n, s)
+      genGlobalInit(c, n, s)
     if dest < 0: dest = c.getTemp(n.typ)
     assert s.typ != nil
 
     if gfNodeAddr in flags:
-      if isImportcVar:
-        c.gABx(n, opcLdGlobalAddrDerefFFI, dest, s.position)
-      else:
-        c.gABx(n, opcLdGlobalAddr, dest, s.position)
-    elif isImportcVar:
-      c.gABx(n, opcLdGlobalDerefFFI, dest, s.position)
+      c.gABx(n, opcLdGlobalAddr, dest, s.position)
     elif fitsRegister(s.typ) and gfNode notin flags:
       var cc = c.getTemp(n.typ)
       c.gABx(n, opcLdGlobal, cc, s.position)
@@ -1939,7 +1928,9 @@ proc genVarSection(c: var TCtx; n: PNode) =
       checkCanEval(c, a[0])
       if s.isGlobal:
         if s.position == 0:
-          if importcCond(c, s): c.importcSym(a.info, s)
+          if importcCondVar(s):
+            # Ignore definitions of importc'ed variables
+            return
           else:
             let sa = getNullValue(s.typ, a.info, c.config)
             #if s.ast.isNil: getNullValue(s.typ, a.info)
@@ -2095,7 +2086,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       if s.kind == skIterator and s.typ.callConv == TCallingConvention.ccClosure:
         fail(n.info, rsemVmNoClosureIterators, sym = s)
       if procIsCallback(c, s): discard
-      elif importcCond(c, s): c.importcSym(n.info, s)
+      elif importcCond(c, s): fail(n.info, rsemVmCannotImportc, sym = s)
       genLit(c, n, dest)
     of skConst:
       let constVal = if s.ast != nil: s.ast else: s.typ.n

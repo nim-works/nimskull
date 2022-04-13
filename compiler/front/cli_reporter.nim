@@ -1689,11 +1689,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemMissingImportcCompleteStruct:
       result = "'$1' requires '.importc' types to be '.completeStruct'" % r.str
 
-    of rsemVmEnableFFIToImportc:
-      result = "VM is not allowed to 'importc' without --experimental:compiletimeFFI"
-
     of rsemVmCannotImportc:
-      result = "cannot 'importc' variable at compile time; " & r.symstr
+      result = "cannot 'importc' variable/proc at compile time: " & r.symstr
 
     of rsemVmCannotCreateNullElement:
       result = "cannot create null element for: " & r.typ.render

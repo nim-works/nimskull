@@ -195,10 +195,6 @@ type
                    ## compatibility
     caseStmtMacros,## ditto
     codeReordering,
-    compiletimeFFI,
-      ## This requires building nim with `-d:nimHasLibFFI`
-      ## which itself requires `nimble install libffi`, see #10150
-      ## Note: this feature can't be localized with {.push.}
     vmopsDanger,
     strictFuncs,
     views,
