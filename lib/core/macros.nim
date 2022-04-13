@@ -1686,6 +1686,17 @@ proc getProjectPath*(): string = discard
   ## See also:
   ## * `getCurrentDir proc <os.html#getCurrentDir>`_
 
+macro stripDoNode*(arg: untyped): untyped =
+  ## for templates that expect multiple blocks of code with the do
+  ## notation, this macro will strip the do lambda node to inline the
+  ## body.
+  if arg.kind == nnkDo:
+    expectLen(arg[3], 1)
+    expectKind(arg[3][0], nnkEmpty)
+    result = arg[6]
+  else:
+    result = arg
+
 proc getSize*(arg: NimNode): int {.magic: "NSizeOf", noSideEffect.} =
   ## Returns the same result as `system.sizeof` if the size is
   ## known by the Nim compiler. Returns a negative value if the Nim

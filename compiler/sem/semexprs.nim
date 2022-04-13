@@ -2228,6 +2228,8 @@ proc semQuoteAst(c: PContext, n: PNode): PNode =
       # this will store the generated param names
       # leave some room for the result symbol
 
+  if quotedBlock.kind == nkDo:
+    quotedBlock = quotedBlock[^1]
   if quotedBlock.kind != nkStmtList:
     semReportIllformedAst(c.config, n, {nkStmtList})
 

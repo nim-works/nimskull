@@ -66,6 +66,8 @@ template enableRemoteNetworking*: bool =
   ## a `nim` invocation (possibly via additional intermediate processes).
   getEnv("NIM_TESTAMENT_REMOTE_NETWORKING") == "1"
 
+from macros import stripDoNode
+
 template whenRuntimeJs*(bodyIf, bodyElse) =
   ##[
   Behaves as `when defined(js) and not nimvm` (which isn't legal yet).
@@ -78,17 +80,19 @@ template whenRuntimeJs*(bodyIf, bodyElse) =
   do:
     discard
   ]##
-  when nimvm: bodyElse
+  when nimvm: stripDoNode(bodyElse)
   else:
-    when defined(js): bodyIf
-    else: bodyElse
+    when defined(js): stripDoNode(bodyIf)
+    else: stripDoNode(bodyElse)
+
+from macros import stripDoNode
 
 template whenVMorJs*(bodyIf, bodyElse) =
   ## Behaves as: `when defined(js) or nimvm`
-  when nimvm: bodyIf
+  when nimvm: stripDoNode(bodyIf)
   else:
-    when defined(js): bodyIf
-    else: bodyElse
+    when defined(js): stripDoNode(bodyIf)
+    else: stripDoNode(bodyElse)
 
 template accept*(a) =
   doAssert compiles(a)

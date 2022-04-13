@@ -213,6 +213,10 @@ type
       ## Historically and especially in version 1.0.0 of the language
       ## conversions to unsigned numbers were checked. In 1.0.4 they
       ## are not anymore.
+    optOldDoNode
+      ## Do blocks without arguments magically become nkStmtList;
+      ## Nodes of kind nkStmtList automatically convert to lambda
+      ## expressions without arguments.
 
   TSystemCC* = enum
     ccNone, ccGcc, ccNintendoSwitch, ccLLVM_Gcc, ccCLang, ccBcc, ccVcc,

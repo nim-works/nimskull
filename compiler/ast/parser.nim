@@ -1139,13 +1139,17 @@ proc parseDoBlock(p: var Parser; info: TLineInfo): PNode =
   var params = parseParamList(p, retColon=false)
   let pragmas = optPragmas(p)
   colcom(p, result)
-  result = parseStmt(p)
-  if params.kind != nkEmpty or pragmas.kind != nkEmpty:
+  let body = parseStmt(p)
+  let legacyMode = optOldDoNode in p.lex.config.legacyFeatures
+  if legacyMode and params.kind == nkEmpty and pragmas.kind == nkEmpty:
+    # only in legacy mode, the result can be a bare stmtList
+    result = body
+  else:
     if params.kind == nkEmpty:
       params = newNodeP(nkFormalParams, p)
       params.add(p.emptyNode) # return type
     result = newProcNode(nkDo, info,
-      body = result, params = params, name = p.emptyNode, pattern = p.emptyNode,
+      body = body, params = params, name = p.emptyNode, pattern = p.emptyNode,
       genericParams = p.emptyNode, pragmas = pragmas, exceptions = p.emptyNode)
 
 proc parseProcExpr(p: var Parser; isExpr: bool; kind: TNodeKind): PNode =
@@ -1390,14 +1394,18 @@ proc postExprBlocks(p: var Parser, x: PNode): PNode =
   result = x
   if p.tok.indent >= 0: return
 
-  var
-    openingParams = p.emptyNode
-    openingPragmas = p.emptyNode
+  var openingParams, openingPragmas: PNode
+  var gotDoToken = false
 
   if p.tok.tokType == tkDo:
     getTok(p)
     openingParams = parseParamList(p, retColon=false)
     openingPragmas = optPragmas(p)
+    gotDoToken = true
+  else:
+    openingParams = newNodeP(nkFormalParams, p)
+    openingParams.add p.emptyNode
+    openingPragmas = p.emptyNode
 
   if p.tok.tokType == tkColon:
     result = makeCall(result)
@@ -1410,18 +1418,21 @@ proc postExprBlocks(p: var Parser, x: PNode): PNode =
       if stmtList[0].kind == nkStmtList: stmtList = stmtList[0]
 
       stmtList.flags.incl nfBlockArg
-      if openingParams.kind != nkEmpty or openingPragmas.kind != nkEmpty:
-        if openingParams.kind == nkEmpty:
-          openingParams = newNodeP(nkFormalParams, p)
-          openingParams.add(p.emptyNode) # return type
+      let legacyMode = optOldDoNode in p.lex.config.legacyFeatures
+      if not gotDoToken or (legacyMode and openingParams.len == 0 and openingPragmas.kind == nkEmpty):
+        # in legacy mode, a nkDo node is generated depending on the
+        # amount of parameters of the do node `do(a,b,c): ...` vs
+        # `do:`. This has changed, without legacy mode an `nkDo` node
+        # is generated always when also a doToken got parsed.
+        result.add stmtList
+      else:
         result.add newProcNode(nkDo, stmtList.info, body = stmtList,
                                params = openingParams,
                                name = p.emptyNode, pattern = p.emptyNode,
                                genericParams = p.emptyNode,
                                pragmas = openingPragmas,
                                exceptions = p.emptyNode)
-      else:
-        result.add stmtList
+
 
     while sameInd(p):
       var nextBlock: PNode
@@ -1458,7 +1469,7 @@ proc postExprBlocks(p: var Parser, x: PNode): PNode =
 
       if nextBlock.kind in {nkElse, nkFinally}: break
   else:
-    if openingParams.kind != nkEmpty:
+    if openingParams.len > 1:
       p.localError ParserReport(
         kind: rparMissingToken, expected: @[":"])
 

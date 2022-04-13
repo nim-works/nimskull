@@ -14,6 +14,7 @@
 ## reused by external tooling - custom error pretty-printers, test runners
 ## and so on.
 
+import macros
 import std/[options, packedsets]
 
 import
@@ -410,11 +411,18 @@ func reportSym*(
 
   SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
 
-template withIt*(expr: untyped, body: untyped): untyped =
-  block:
-    var it {.inject.} = expr
-    body
-    it
+# template withIt*(expr: untyped, body: untyped): untyped =
+#   block:
+#     var it {.inject.} = expr
+#     stripDoNode(body)
+#     it
+macro withIt*(expr: untyped, body: untyped): untyped =
+  let body = if body.kind == nnkDo: body[^1] else: body
+  let it = ident"it"
+  quote:
+    var `it` {.inject.} = `expr`
+    `body`
+    `it`
 
 template tern*(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
   ## Shorthand for inline if/else. Allows use of conditions in strformat,
