@@ -146,7 +146,7 @@ const
 proc csource(args: string) =
   nimexec(("cc $1 -r $3 --var:version=$2 --var:mingw=none csource " &
            "--main:compiler/nim.nim $4 compiler/installer.ini $1") %
-       [args, targetCompilerVersion(), compileNimInst, quoteShell("--nim:" & findNim())])
+       [defineSourceMetadata() & " " & args, targetCompilerVersion(), compileNimInst, quoteShell("--nim:" & findNim())])
 
 proc bundleC2nim(args: string) =
   cloneDependency(distDir, "https://github.com/nim-lang/c2nim.git")
