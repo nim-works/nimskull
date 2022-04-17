@@ -1287,6 +1287,34 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): TFullReg =
               ast[i] = a.sym.ast[i]
             ast[bodyPos] = transformBody(c.graph, c.idgen, a.sym, cache=true)
             ast.copyTree()
+    of opcExpandToAst:
+      decodeBC(rkNode)
+
+      let
+        callExprAst = c.constants[regs[rb].intVal.int]
+        prc =         callExprAst[0].sym
+        prevFrame =   c.sframes[tos].next
+
+      assert callExprAst.kind in nkCallKinds
+      assert prc.kind == skTemplate
+
+      let genSymOwner = if prevFrame > 0 and c.sframes[prevFrame].prc != nil:
+                          c.sframes[prevFrame].prc
+                        else:
+                          c.module
+      var templCall = newNodeI(nkCall, c.debug[pc])
+      templCall.add(newSymNode(prc))
+      for i in 1..rc-1:
+        let node = regs[rb+i].regToNode
+        node.info = c.debug[pc]
+        templCall.add(node)
+
+      var a = evalTemplate(templCall, prc, genSymOwner, c.config, c.cache, c.templInstCounter, c.idgen)
+      if a.kind == nkStmtList and a.len == 1: # flatten if a single statement
+        a = a[0]
+      a.recSetFlagIsRef
+      regs[ra].node = a
+
     of opcSymOwner:
       decodeB(rkNode)
       let a = regs[rb].node
@@ -1370,7 +1398,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): TFullReg =
                  currentException: c.currentExceptionA,
                  currentLineInfo: c.debug[pc]))
 
-      elif prc.kind != skTemplate:
+      else:
         let newPc = compile(c, prc)
         # tricky: a recursion is also a jump back, so we use the same
         # logic as for loops:
@@ -1387,24 +1415,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): TFullReg =
         pushFrame(newFrame)
         # -1 for the following 'inc pc'
         pc = newPc-1
-      else:
-        let prevFrame = c.sframes[tos].next
-        # for 'getAst' support we need to support template expansion here:
-        let genSymOwner = if prevFrame > 0 and c.sframes[prevFrame].prc != nil:
-                            c.sframes[prevFrame].prc
-                          else:
-                            c.module
-        var macroCall = newNodeI(nkCall, c.debug[pc])
-        macroCall.add(newSymNode(prc))
-        for i in 1..rc-1:
-          let node = regs[rb+i].regToNode
-          node.info = c.debug[pc]
-          macroCall.add(node)
-        var a = evalTemplate(macroCall, prc, genSymOwner, c.config, c.cache, c.templInstCounter, c.idgen)
-        if a.kind == nkStmtList and a.len == 1: a = a[0]
-        a.recSetFlagIsRef
-        ensureKind(rkNode)
-        regs[ra].node = a
     of opcTJmp:
       # jump Bx if A != 0
       let rbx = instr.regBx - wordExcess - 1 # -1 for the following 'inc pc'
