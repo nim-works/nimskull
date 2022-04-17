@@ -1411,7 +1411,26 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
       #if arg[0].kind != nkSym or arg[0].sym.kind notin {skTemplate, skMacro}:
       #      "ExpandToAst: expanded symbol is no macro or template"
       if dest < 0: dest = c.getTemp(n.typ)
-      c.genCall(arg, dest)
+
+      if arg[0].sym.kind == skTemplate:
+        let x = c.getTempRange(arg.len, slotTempUnknown)
+
+        # Pass the whole call expression as the first value. Since the node
+        # might have a nil type, we can't use `genLit`. Instead load the
+        # constant index and make the instruction do the lookup itself
+        c.gABx(n, opcLdImmInt, TRegister(x), c.genLiteral(arg))
+
+        # Generate the arguments
+        for i in 1..<arg.len:
+          var d = TDest(x+i)
+          c.gen(arg[i], d, {gfIsParam})
+
+        c.gABC(arg, opcExpandToAst, dest, x, arg.len)
+        c.freeTempRange(x, arg.len)
+      else:
+        # macros are still invoked via the opcIndCall mechanism
+        c.genCall(arg, dest)
+
       # do not call clearDest(n, dest) here as getAst has a meta-type as such
       # produces a value
     else:
@@ -2081,12 +2100,14 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     of skVar, skForVar, skTemp, skLet, skParam, skResult:
       genRdVar(c, n, dest, flags)
 
-    of skProc, skFunc, skConverter, skMacro, skTemplate, skMethod, skIterator:
-      # 'skTemplate' is only allowed for 'getAst' support:
+    of skProc, skFunc, skConverter, skMacro, skMethod, skIterator:
       if s.kind == skIterator and s.typ.callConv == TCallingConvention.ccClosure:
         fail(n.info, rsemVmNoClosureIterators, sym = s)
       if procIsCallback(c, s): discard
       elif importcCond(c, s): fail(n.info, rsemVmCannotImportc, sym = s)
+      genLit(c, n, dest)
+    of skTemplate:
+      # template symbols can be used as arguments in a `getAst` expression
       genLit(c, n, dest)
     of skConst:
       let constVal = if s.ast != nil: s.ast else: s.typ.n
