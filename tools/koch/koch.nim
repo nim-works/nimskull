@@ -652,7 +652,7 @@ when isMainModule:
       of "tools":
         buildTools(op.cmdLineRest)
       of "pushcsource":
-        quit "use this instead: https://github.com/nim-lang/csources_v1/blob/master/push_c_code.nim"
+        quit "use this instead: https://github.com/nim-works/csources_v1/blob/master/push_c_code.nim"
       of "valgrind": valgrind(op.cmdLineRest)
       of "c2nim": bundleC2nim(op.cmdLineRest)
       of "ic": icTest(op.cmdLineRest)
