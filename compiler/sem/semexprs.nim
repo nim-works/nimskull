@@ -56,6 +56,7 @@ proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     result = c.config.newError(n, reportAst(rsemExpressionHasNoType, result))
 
 proc semExprCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
+  addInNimDebugUtils(c.config, "semExprCheck", n, result, flags)
   rejectEmptyNode(n)
   result = semExpr(c, n, flags+{efWantValue})
 
@@ -72,6 +73,7 @@ proc semExprCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
     result = c.config.newError(n, reportSem rsemExpressionHasNoType)
 
 proc semExprWithType(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
+  addInNimDebugUtils(c.config, "semExprWithType", n, result, flags)
   result = semExprCheck(c, n, flags)
   if result.typ == nil and efInTypeof in flags:
     result.typ = c.voidType
@@ -1036,7 +1038,7 @@ proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
     result = evalAtCompileTime(c, result)
 
 proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
-  addInNimDebugUtils(c.config, "semIndirectOp")
+  addInNimDebugUtils(c.config, "semIndirectOp", n, result, flags)
   result = nil
   checkMinSonsLen(n, 1, c.config)
   if n.kind == nkError: return n

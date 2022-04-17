@@ -53,29 +53,6 @@ import
 
 import front/options as compiler_options
 
-type
-  HackController* = object
-    ## additional configuration switches to control the behavior of the
-    ## debug printer. Since most of them are for compiler debugging, you
-    ## will most likely recompile the compiler anyway, so toggling couple
-    ## hardcoded constants here is easier than dragging out completely
-    ## unnecessary switches, or adding more magic `define()` blocks
-    semStack*: bool  ## Show `| context` entries in the call tracer
-
-    reportInTrace*: bool ## Error messages are shown with matching indentation
-    ## if report was triggered during execution of the sem trace
-
-    semTraceData*: bool ## For each sem step show processed data, or only
-    ## procedure calls.
-
-const controller = HackController(
-  semStack: off,
-  reportInTrace: off,
-  semTraceData: on
-)
-
-
-
 func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
 
 func add(target: var string, other: varargs[string, `$`]) =
@@ -107,12 +84,10 @@ func wrap*(
   ): string =
   ## Optionally wrap text in ansi color formatting, of `conf` has coloring
   ## enabled
-
   if conf.useColor:
-    result = wrap(str, color, style)
-
+    wrap(str, color, style)
   else:
-    result = str
+    str
 
 func wrap(conf: ConfigRef, text: ColText): string =
   toString(text, conf.useColor())
@@ -3232,11 +3207,20 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
           of stepNodeToNode:
             if enter:
               field("from node")
-
             else:
               field("to node")
 
             result.add render(s.node)
+
+          of stepSymNodeToNode:
+            if enter:
+              field("from sym")
+              result.add render(s.sym)
+              field("from node")
+              result.add render(s.node)
+            else:
+              field("to node")
+              result.add render(s.node)
 
           of stepNodeTypeToNode:
             if enter:
@@ -3244,7 +3228,6 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
               result.add render(s.node)
               field("from type")
               result.add render(s.typ)
-
             else:
               field("to node")
               result.add render(s.node)
@@ -3255,7 +3238,6 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
               result.add
               field("from node")
               result.add render(s.node)
-
             else:
               field("to node")
               result.add render(s.node)
@@ -3271,7 +3253,6 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
             if enter:
               field("from node")
               result.add render(s.node)
-
             else:
               field("to sym")
               result.add render(s.sym)
@@ -3282,7 +3263,6 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
               result.add render(s.typ)
               field("from type1")
               result.add render(s.typ1)
-
             else:
               field("to type")
               result.add render(s.typ)
@@ -3290,8 +3270,9 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
 
     of rdbgTraceLine:
       let ind = repeat("  ", r.ctraceData.level)
-      var paths: seq[string]
-      var width = 0
+      var
+        paths: seq[string]
+        width = 0
       for entry in r.ctraceData.entries:
         paths.add "$1($2)" % [
           formatPath(conf, $entry.filename), $entry.line]
@@ -3604,12 +3585,9 @@ proc reportShort*(conf: ConfigRef, r: Report): string =
     of repBackend:  result = conf.reportShort(r.backendReport)
     of repExternal: result = conf.reportShort(r.externalReport)
 
-
-
-const rdbgTracerKinds* = {rdbgTraceDefined .. rdbgTraceEnd}
-
-
-const traceDir = "nimCompilerDebugTraceDir"
+const
+  rdbgTracerKinds* = {rdbgTraceDefined .. rdbgTraceEnd}
+  traceDir = "nimCompilerDebugTraceDir"
 
 var
   lastDot: bool = false
@@ -3625,28 +3603,22 @@ proc rotatedTrace(conf: ConfigRef, r: Report) =
     of rdbgTraceDefined, rdbgTraceStart:
       if not dirExists(conf.getDefined(traceDir)):
         createDir conf.getDefined(traceDir)
-
       traceFile = open(conf.getDefined(traceDir) / $traceIndex, fmWrite)
-
     of rdbgTraceUndefined, rdbgTraceEnd:
       close(traceFile)
       inc traceIndex
-
     else:
       conf.excl optUseColors
       traceFile.write(conf.reportFull(r))
       traceFile.write("\n")
       conf.incl optUseColors
 
-
 proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## Default implementation of the report hook. Dispatches into
   ## `reportBody` for report, which then calls respective (for each report
   ## category) `reportBody` overloads defined above
   assertKind r
-
-  let
-    wkind = conf.writabilityKind(r)
+  let wkind = conf.writabilityKind(r)
 
   # debug reports can be both enabled and force enabled, and sem tracer
   # first needs to be checked for the trace group rotation. So adding a
@@ -3655,21 +3627,15 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   # be written.
   if wkind == writeDisabled:
     return
-
   elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
     rotatedTrace(conf, r)
-
   elif wkind == writeForceEnabled:
     echo conf.reportFull(r)
-
-
-
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
     # REFACTOR 'processing with dots' - requires special hacks, pretty
     # useless, need to be removed in the future.
     conf.write(".")
     lastDot = true
-
   else:
     if lastDot:
       conf.writeln("")
@@ -3679,21 +3645,16 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       var indent {.global.}: int
       if r.kind == rdbgTraceStep:
         indent = r.debugReport.semstep.level
-
-      case r.kind:
-        of rdbgTracerKinds:
-          conf.writeln(conf.reportFull(r))
-
-        of repSemKinds:
-          if 0 < indent:
-            for line in conf.reportFull(r).splitLines():
-              conf.writeln("  ]", repeat("  ", indent), " ! ", line)
-
-          else:
-            conf.writeln(conf.reportFull(r))
-
+      case r.kind
+      of rdbgTracerKinds:
+        conf.writeln(conf.reportFull(r))
+      of repSemKinds:
+        if 0 < indent:
+          for line in conf.reportFull(r).splitLines():
+            conf.writeln("  ]", repeat("  ", indent), " ! ", line)
         else:
           conf.writeln(conf.reportFull(r))
-
+      else:
+        conf.writeln(conf.reportFull(r))
     else:
       conf.writeln(conf.reportFull(r))

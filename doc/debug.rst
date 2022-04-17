@@ -1,7 +1,7 @@
 .. include:: rstcommon.rst
 
 ========================
-Compiler debugging guide
+Compiler Debugging Guide
 ========================
 
 .. raw:: html
@@ -12,36 +12,51 @@ Compiler debugging guide
 
 How to debug different subsystems of the compiler using built-in tooling.
 
-Special defines
----------------
+Each of these approaches requires building a debug or temporary compiler.
+Building a debug or temporary compiler is covered in the Internals
+documentation under the section `Developing the compiler<intern.html>`_. Some
+might require additional defines as part of building the compiler and are
+detailed in the relevant sections below.
 
-Debugging functionality is available only when compiler itself is built
-with special defines - this guard is necessary to avoid runtime overhead,
-because some debugging tools are not exactly cheap to run.
+The remaining sections of this document describes how to debug various aspects
+of the compiler.
 
-**Used when compiling temporary compiler**
+
+Debugging Defines - Quick Reference
+-----------------------------------
+
+(if you're new to compiler debugging skip this section to the next heading)
+
+For those familiar with debugging the compiler below are quick reference tables
+for the various defines involved. Those new to debugging the compiler you can
+skim or skip these and see the following sections for details what they are and
+how to use them.
+
+**Used when compiling the compiler itself**
 
 =========================== =======
 Define                      Enables
 --------------------------- -------
+`nimDebugUtils`             Allows for semantic analysis execution tracing and more
+`nimDebugUnreportedErrors`  Enable unreported error debugging
 `nimVMDebugExecute`         Print out every instruction executed by the VM
 `nimVMDebugGenerate`        List VM code generated for every procedure called at compile-time
-`nimDebugUtils`             Enable semantic analysis execution tracer
-`nimDebugUnreportedErrors`  Enable unreported error debugging
 =========================== =======
 
-**Used when executing temporary compiler**
+**Used when executing the compiler**
 
+(most of these require a compiler built with `nimDebugUtils`)
 ============================ =======
 Define                       Enables
 ---------------------------- -------
 `nimCompilerDebug`           Reports for localized piece of the user code
 `nimCompilerDebugCalltrace`  Call trace reports
-`nimCompilerDebugTraceDir`   Write call traces to the directory
+`nimCompilerDebugTraceDir`   Writes call traces to the specified directory
 ============================ =======
 
-Debug helper modules
---------------------
+
+Simplest / All Apsects - Debug Helper Modules
+=============================================
 
 `astrepr
 <https://nim-works.github.io/nimskull/compiler/utils/astrepr.html>`_ module
@@ -49,31 +64,32 @@ provides a collection of useful procedures for printing internal
 representation types (``PSym``, ``PType`` and ``PNode``) in a readable
 manner. For more documentation see the module itself.
 
-Semantic analysis
------------------
+This is the simplest approach a bit better than `echo` based debugging.
+Use the exported procs from the module, build the compiler and look at the
+output.
 
-With `nimDebugUtils` defined, you can then enable tracing for compiler
-semantic analysis over sections of code using `nimCompilerDebug` -- code
-example below. Not all compiler routines are enabled with first class
-tracing, if tracing is missing for a particular compiler procedure then add
-a call to one of the `addInNimDebugUtils()` overloads in the compiler
-procedure definition. An example of a compiler procedure with tracing
-enabled is `sem.semOverloadedCall`. This procedure will appear in any trace
-where the code being analysed includes a call to an overloaded procedure.
 
-See below for an example of how to add tracing to a procedure, followed by
-an example of how to enable tracing for a section of code being compiled.
+Semantic Analysis - Execution Tracing
+=====================================
 
-.. code-block:: nim
+This creates a call trace of semantic analysis functions and procedures that
+were invoked when compiler some code. This is useful for debugging how the
+compiler is interpreting a fragment of code.
 
-    proc semOverloadedCall(c: PContext, n, nOrig: PNode,
-                           filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
-      addInNimDebugUtils(c.config, "semOverloadedCall")
-      # Other implementaion parts ...
+Quick start:
+* Ensure the compiler is built with `nimDebugUtils` defined.
+* wrap a region of user code with a define/undefine `nimCompilerDebug`
+  * or use the `system.nimCompilerDebugRegion`
+* compile the user code with the define `nimCompilerDebugCalltrace`
+* watch the spam
 
-If you compile your test file with `nim c -d:nimCompilerDebugCalltrace
---filenames:canonical file.nim`:cmd: and annotate code block with the
-`nimCompilerDebug` wrapper.
+
+Execution Tracing a Fragment
+----------------------------
+
+Using a compiler built with `nimDebugUtils` defined, compile your test file
+with `nim c -d:nimCompilerDebugCalltrace --filenames:canonical file.nim`:cmd:
+and annotate code block with the `nimCompilerDebug` wrapper.
 
 .. code-block:: nim
 
@@ -82,13 +98,6 @@ If you compile your test file with `nim c -d:nimCompilerDebugCalltrace
     {.undef(nimCompilerDebug).}
 
 You will get all the call entries traced
-
-.. important::
-
-     Both *compiler* and your file must be compiled with defines. The
-     compiler must use `nimDebugUtils` (this guard avoids heavy performance
-     hits). Your file must use `nimCompilerDebugCalltrace` to control which
-     exact parts of the default debugger will run.
 
 .. code-block:: literal
 
@@ -107,6 +116,9 @@ You will get all the call entries traced
     <<] trace end
 
 
+Anatomy of a Trace Entry
+------------------------
+
 Reports are formatted in the `cli_reporter.nim` as well (all debug reports
 are also transferred using regular reporting pipeline). It has a lot of
 information, but general parts for each call parts are:
@@ -121,6 +133,29 @@ information, but general parts for each call parts are:
    |      Whether proc has been entered or exited
    Depth of the traced call tree
 
+
+Missing Trace Entries
+---------------------
+
+Execution tracing is implemented by adding a template to each routine in the
+compiler manually (gasp!). Thankfully they're easy to add and quick win
+contributions making coverage easy to grow.
+
+To add traces for a missed compiler routine insert a call to one of the
+`addInNimDebugUtils()` overloads from `utils.debugutils` at the start of said
+routine. See the snippet below to show how tracing was added to
+`sem.semOverloadedCall`:
+
+.. code-block:: nim
+
+    proc semOverloadedCall(c: PContext, n, nOrig: PNode,
+                           filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
+      addInNimDebugUtils(c.config, "semOverloadedCall")
+      # Rest of the code as before ...
+
+Comparing/Logging Traces: Differential Debugging
+---------------------------------------------------
+
 If test compiler runs with `-d:nimCompilerDebugTraceDir=/some/dir` option
 the reports stored between different sections are written into separate
 files in this directory. This is helpful if you want to track bugs where
@@ -129,7 +164,6 @@ doesn't. Collect traces for both and compare them to see how the compiler
 analysis differs between them and use that to guide your investigation.
 This technique is called differential debugging or sometimes differential
 diagnosis.
-
 
 For example, `semchecked ast passed down as untyped macro argument #193
 <https://github.com/nim-works/nimskull/issues/193>`_ has two distinct cases
@@ -299,8 +333,8 @@ procedure.
      this) it might inhibit unexpected behavior.
 
 
-VM codegen and execution
-------------------------
+VM Codegen and Execution
+========================
 
 VM code generation prints all of the generated procedures. If this is not
 needed (which would be the majority of use cases) you can add

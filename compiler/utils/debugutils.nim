@@ -1,5 +1,5 @@
 ##[
-Utilities to help with debugging nim compiler.
+Utilities to help with debugging nimskull compiler.
 
 Experimental API, subject to change.
 ]##
@@ -9,7 +9,6 @@ Experimental API, subject to change.
 useful debugging flags:
 --stacktrace -d:debug -d:nimDebugUtils
  nim c -o:bin/nim_temp --stacktrace -d:debug -d:nimDebugUtils compiler/nim
-
 ]#
 
 import
@@ -22,9 +21,6 @@ import
   ]
 
 proc isCompilerDebug*(conf: ConfigRef): bool {.inline.} =
-  conf.isDefined("nimCompilerDebug")
-
-proc isCompilerTraceDebug*(conf: ConfigRef): bool =
   ##[
   Provides a simple way for user code to enable/disable logging in the compiler
   in a granular way. This can then be used in the compiler as follows:
@@ -40,6 +36,10 @@ proc isCompilerTraceDebug*(conf: ConfigRef): bool =
       echo 3.5 # code section in which `isCompilerDebug` will be true
       {.undef(nimCompilerDebug).}
       echo 'x'
+  conf.isDefined("nimCompilerDebug")
+
+
+proc isCompilerTraceDebug*(conf: ConfigRef): bool =
   conf.isCompilerDebug() and conf.isDefined("nimCompilerDebugCalltrace")
 
 
@@ -75,7 +75,6 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
   #      as that sort of transformation and observability should be first class
 
   when defined(nimDebugUtils): # see `debugutils`
-
     # do all this at the start of any proc we're debugging
     let
       isDebug = conf.isCompilerTraceDebug()
@@ -83,60 +82,62 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
         ## this early to see if we just entered or just left
 
       # determine indentitation levels for output
-      indentString = "  "
       indentLevel = conf.debugUtilsStack.len
 
-    if isDebug:
-      conf.debugUtilsStack.add prcname # use this to track deltas
-      enterMsg(indentLevel)
-      if indentLevel != 0: # print a delta stack
-        # try to print only the part of the stacktrace since the last time,
-        # this is done by looking for any previous calls in `debugUtilsStack`
-        {.line.}: # stops the template showing up in the StackTraceEntries
-          let
-            stopProc =
-              if indentLevel == 1: prcname  # we're the only ones
-              else: conf.debugUtilsStack[^2] # the one before us
-            entries = getStackTraceEntries()
-            endsWith = entries.len - 1
+    {.cast(noSideEffect).}:
+      if isDebug:
+        conf.debugUtilsStack.add prcname # use this to track deltas
+        enterMsg(indentLevel)
+        if indentLevel != 0: # print a delta stack
+          # try to print only the part of the stacktrace since the last time,
+          # this is done by looking for any previous calls in `debugUtilsStack`
+          {.line.}: # stops the template showing up in the StackTraceEntries
+            let
+              stopProc =
+                if indentLevel == 1: prcname  # we're the only ones
+                else: conf.debugUtilsStack[^2] # the one before us
+              entries = getStackTraceEntries()
+              endsWith = entries.len - 1
 
-        # find the actual StackTraceEntry index based on the name
-        var startFrom = 0
-        for i in countdown(endsWith, 0):
-          let e = entries[i]
-          if i != endsWith and $e.procname == stopProc: # found the previous
-            startFrom = i + 1
-            break                                       # skip the rest
+          # find the actual StackTraceEntry index based on the name
+          var startFrom = 0
+          for i in countdown(endsWith, 0):
+            let e = entries[i]
+            if i != endsWith and $e.procname == stopProc: # found the previous
+              startFrom = i + 1
+              break                                       # skip the rest
 
-        # print the trace oldest (startFrom) to newest (endsWith)
-        var rep = DebugReport(kind: rdbgTraceLine)
-        rep.ctraceData.level = indentLevel
-        for i in startFrom .. endsWith:
-          rep.ctraceData.entries.add entries[i]
+          # print the trace oldest (startFrom) to newest (endsWith)
+          var rep = DebugReport(kind: rdbgTraceLine)
+          rep.ctraceData.level = indentLevel
+          for i in startFrom .. endsWith:
+            rep.ctraceData.entries.add entries[i]
 
-        conf.localReport(rep)
+          conf.localReport(rep)
 
     # upon leaving the proc being debugged (`defer`), let's see what changed
     defer:
-      if not isDebug and conf.isCompilerTraceDebug():
-        # meaning we just analysed a `{.define(nimCompilerDebug).}`
-        # it started of as false, now after the proc's work (`semExpr`) this
-        # `defer`red logic is seeing `true`, so we must have just started.
-        var report = DebugReport(kind: rdbgTraceStart)
-        {.line.}:
-          # don't let the template show up in the StackTrace gives context
-          # to the rest of the partial traces we do a full one instead
-          report.ctraceData = (indentLevel, getStackTraceEntries())
+      {.cast(noSideEffect).}:
+        if not isDebug and conf.isCompilerTraceDebug():
+          # meaning we just analysed a `{.define(nimCompilerDebug).}`
+          # it started of as false, now after the proc's work (`semExpr`) this
+          # `defer`red logic is seeing `true`, so we must have just started.
+          var report = DebugReport(kind: rdbgTraceStart)
+          {.line.}:
+            # don't let the template show up in the StackTrace gives context
+            # to the rest of the partial traces we do a full one instead
+            report.ctraceData = (indentLevel, getStackTraceEntries())
 
-        conf.localReport(report)
-      elif isDebug and not conf.isCompilerTraceDebug():
-        # meaning we just analysed an `{.undef(nimCompilerDebug).}`
-        # it started of as true, now in the `defer` it's false
-        discard conf.debugUtilsStack.pop()
-        conf.localReport(DebugReport(kind: rdbgTraceEnd))
-      elif isDebug:
-        discard conf.debugUtilsStack.pop()
-        leaveMsg(indentLevel)
+          conf.localReport(report)
+        elif isDebug and not conf.isCompilerTraceDebug():
+          # meaning we just analysed an `{.undef(nimCompilerDebug).}`
+          # it started of as true, now in the `defer` it's false
+          discard conf.debugUtilsStack.pop()
+          conf.localReport(DebugReport(kind: rdbgTraceEnd))
+        elif isDebug:
+          discard conf.debugUtilsStack.pop()
+          leaveMsg(indentLevel)
+      discard
   else:
     discard # noop if undefined
 
@@ -156,13 +157,7 @@ proc stepParams*(
     indentLevel: int,
     action: string
   ): StepParams =
-
-  StepParams(
-    c: c,
-    kind: kind,
-    indentLevel: indentLevel,
-    action: action
-  )
+  StepParams(c: c, kind: kind, indentLevel: indentLevel, action: action)
 
 const hasStacktrace = compileOption"stacktrace"
 
@@ -185,7 +180,8 @@ template traceStepImpl*(
     )
 
     if hasStacktrace:
-      it.steppedFrom = calledFromInfo()
+      {.line.}:
+        it.steppedFrom = calledFromInfo()
 
     block:
       body
@@ -217,7 +213,7 @@ template traceLeaveIt*(
     body: untyped,
     templateDepth: int = instDepth
   ): untyped =
-  ## Convenience wrapper for `traaceStepImpl` - for mode details see the
+  ## Convenience wrapper for `traceStepImpl` - for mode details see the
   ## `traceEnterIt` and `traceStepImpl` documentation.
   var tmp = params
   tmp.info = instLoc(instDepth)
@@ -230,16 +226,12 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode;
   ## and can determine the type
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(
-        c, stepNodeFlagsToNode, indentLevel, action
-      )):
+      traceEnterIt(stepParams(c, stepNodeFlagsToNode, indentLevel, action)):
         it.node = n
         it.flags = flags
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(
-        c, stepNodeFlagsToNode, indentLevel, action
-      )):
+      traceLeaveIt(stepParams(c, stepNodeFlagsToNode, indentLevel, action)):
         it.node = r
         it.flags = flags
 
@@ -248,37 +240,27 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode;
 template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode) =
   ## add tracing to procs that are primarily `PNode -> PNode`, and can
   ## determine the type
-
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(
-        c, stepNodeToNode, indentLevel, action
-      )):
+      traceEnterIt(stepParams(c, stepNodeToNode, indentLevel, action)):
         it.node = n
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(
-        c, stepNodeToNode, indentLevel, action
-      )):
+      traceLeaveIt(stepParams(c, stepNodeToNode, indentLevel, action)):
         it.node = r
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
 template addInNimDebugUtilsError*(c: ConfigRef; n, e: PNode) =
   ## add tracing error generation `PNode -> PNode`
-
   when defined(nimDebugUtils):
     const action = "newError"
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(
-        c, stepWrongNode, indentLevel, action
-      )):
+      traceEnterIt(stepParams(c, stepWrongNode, indentLevel, action)):
         it.node = n
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(
-        c, stepError, indentLevel, action
-      )):
+      traceLeaveIt(stepParams(c, stepError, indentLevel, action)):
         it.node = e
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
@@ -287,19 +269,14 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
                             prev, r: PType) =
   ## add tracing to procs that are primarily `PNode, PType|nil -> PType`,
   ## determining a type node, with a possible previous type.
-
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(
-        c, stepNodeTypeToNode, indentLevel, action
-      )):
+      traceEnterIt(stepParams(c, stepNodeTypeToNode, indentLevel, action)):
         it.node = n
         it.typ = prev
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(
-        c, stepNodeTypeToNode, indentLevel, action
-      )):
+      traceLeaveIt(stepParams(c, stepNodeTypeToNode, indentLevel, action)):
         it.node = n
         it.typ = r
 
@@ -308,48 +285,30 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
 template addInNimDebugUtils*(
     c: ConfigRef; action: string; n: PNode; resSym: PSym) =
   ## add tracing to procs that are primarily `PNode -> PSym`,
-
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(
-        c, stepNodeToSym, indentLevel, action
-      )):
+      traceEnterIt(stepParams(c, stepNodeToSym, indentLevel, action)):
         it.node = n
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(
-        c, stepNodeToSym, indentLevel, action
-      )):
+      traceLeaveIt(stepParams(c, stepNodeToSym, indentLevel, action)):
         it.sym = resSym
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
 template addInNimDebugUtils*(
-    c: ConfigRef; action: string; n: PNode; resSym: PSym) =
-  ## add tracing to procs that are primarily `PNode -> PSym`,
-
+    c: ConfigRef; action: string; sym: PSym; n: PNode; res: PNode) =
+  ## add tracing to procs that are primarily `PSym, PNode -> PNode`, such as
+  ## applying pragmas to a symbol
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepEnter,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          node: n,
-          kind: stepNodeToSym))), instLoc(instDepth))
+      traceEnterIt(stepParams(c, stepSymNodeToNode, indentLevel, action)):
+        it.sym = sym
+        it.node = n
 
     template leaveMsg(indentLevel: int) =
-      handleReport(c, wrap(instLoc(instDepth), DebugReport(
-        kind: rdbgTraceStep,
-        semstep: DebugSemStep(
-          direction: semstepLeave,
-          level: indentLevel,
-          name: action,
-          steppedFrom: calledFromInfo(),
-          sym: resSym,
-          kind: stepNodeToSym))), instLoc(instDepth))
+      traceLeaveIt(stepParams(c, stepSymNodeToNode, indentLevel, action)):
+        it.node = res
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
@@ -358,16 +317,12 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; x, y, r: PType) =
   ## for a common type
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(
-        c, stepTypeTypeToType, indentLevel, action
-      )):
+      traceEnterIt(stepParams(c, stepTypeTypeToType, indentLevel, action)):
         it.typ = x
         it.typ1 = y
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(
-        c, stepTypeTypeToType, indentLevel, action
-      )):
+      traceLeaveIt(stepParams(c, stepTypeTypeToType, indentLevel, action)):
         it.typ = r
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
@@ -377,15 +332,11 @@ template addInNimDebugUtils*(c: ConfigRef; action: string) =
   ## for a common type
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(
-        c, stepTrack, indentLevel, action
-      )):
+      traceEnterIt(stepParams(c, stepTrack, indentLevel, action)):
         discard
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(
-        c, stepTrack, indentLevel, action
-      )):
+      traceLeaveIt(stepParams(c, stepTrack, indentLevel, action)):
         discard
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)

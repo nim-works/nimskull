@@ -1,7 +1,7 @@
 .. include:: rstcommon.rst
 
 =========================================
-    Internals of the |NimSkull| Compiler
+    Internals of the NimSkull Compiler
 =========================================
 
 .. default-role:: code
