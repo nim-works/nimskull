@@ -1087,7 +1087,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemCannotExport:
       result = "cannot export: " & render(r.ast)
-      if r.sym.kind == skEnumField:
+      if r.sym != nil and r.sym.kind == skEnumField:
         result.add "; enum field cannot be exported individually"
 
     of rsemExpectedModuleNameForImportExcept:
