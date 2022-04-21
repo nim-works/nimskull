@@ -748,59 +748,60 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
   var iterAfterVarLent = iter.skipTypes({tyGenericInst, tyAlias, tyLent, tyVar})
   # n.len == 3 means that there is one for loop variable
   # and thus no tuple unpacking:
-  if iterAfterVarLent.kind != tyTuple or n.len == 3:
-    if n.len == 3:
-      if n[0].kind == nkVarTuple:
-        if n[0].len - 1 != iterAfterVarLent.len:
-          return newError(c.config, n, semReportCountMismatch(
-            rsemWrongNumberOfVariables,
-            expected = iterAfterVarLent.len,
-            got = n[0].len - 1))
+  if n.len == 3:
+    if n[0].kind == nkVarTuple:
+      if n[0].len - 1 != iterAfterVarLent.len:
+        return newError(c.config, n, semReportCountMismatch(
+          rsemWrongNumberOfVariables,
+          expected = iterAfterVarLent.len,
+          got = n[0].len - 1))
 
-        for i in 0..<n[0].len-1:
-          var v = symForVar(c, n[0][i])
-          if getCurrOwner(c).kind == skModule:
-            incl(v.flags, sfGlobal)
+      for i in 0..<n[0].len-1:
+        var v = symForVar(c, n[0][i])
+        if getCurrOwner(c).kind == skModule:
+          incl(v.flags, sfGlobal)
 
-          case iter.kind:
-            of tyVar, tyLent:
-              v.typ = newTypeS(iter.kind, c)
-              v.typ.add iterAfterVarLent[i]
+        case iter.kind:
+          of tyVar, tyLent:
+            v.typ = newTypeS(iter.kind, c)
+            v.typ.add iterAfterVarLent[i]
 
-              if tfVarIsPtr in iter.flags:
-                v.typ.flags.incl tfVarIsPtr
+            if tfVarIsPtr in iter.flags:
+              v.typ.flags.incl tfVarIsPtr
 
-            else:
-              v.typ = iter[i]
+          else:
+            v.typ = iter[i]
 
-          n[0][i] = newSymNode(v)
+        n[0][i] = newSymNode(v)
 
-          if sfGenSym notin v.flags and not isDiscardUnderscore(v):
-            addDecl(c, v)
+        if sfGenSym notin v.flags and not isDiscardUnderscore(v):
+          addDecl(c, v)
 
-          elif v.owner == nil:
-            v.owner = getCurrOwner(c)
+        elif v.owner == nil:
+          v.owner = getCurrOwner(c)
 
-      else:
-        var v = symForVar(c, n[0])
-        if getCurrOwner(c).kind == skModule: incl(v.flags, sfGlobal)
-        # BUGFIX: don't use `iter` here as that would strip away
-        # the ``tyGenericInst``! See ``tests/compile/tgeneric.nim``
-        # for an example:
-        v.typ = iterBase
-        n[0] = newSymNode(v)
-        if sfGenSym notin v.flags and not isDiscardUnderscore(v): addDecl(c, v)
-        elif v.owner == nil: v.owner = getCurrOwner(c)
     else:
-      localReport(c.config, n.info, semReportCountMismatch(
-        rsemWrongNumberOfVariables, expected = 3, got = n.len, n))
+      var v = symForVar(c, n[0])
+      if getCurrOwner(c).kind == skModule: incl(v.flags, sfGlobal)
+      # BUGFIX: don't use `iter` here as that would strip away
+      # the ``tyGenericInst``! See ``tests/compile/tgeneric.nim``
+      # for an example:
+      v.typ = iterBase
+      n[0] = newSymNode(v)
+      if sfGenSym notin v.flags and not isDiscardUnderscore(v): addDecl(c, v)
+      elif v.owner == nil: v.owner = getCurrOwner(c)
+
+  elif iterAfterVarLent.kind != tyTuple:
+    return newError(c.config, n, semReportCountMismatch(
+      rsemWrongNumberOfVariables,
+      expected = 3,
+      got = n.len))
 
   elif n.len - 2 != iterAfterVarLent.len:
-    localReport(c.config, n.info, semReportCountMismatch(
+    return newError(c.config, n, semReportCountMismatch(
       rsemWrongNumberOfVariables,
       expected = iterAfterVarLent.len,
-      got = n.len - 2,
-      n))
+      got = n.len - 2))
 
   else:
     for i in 0..<n.len - 2:
