@@ -1735,20 +1735,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): TFullReg =
       case a.kind
       of nkFloatLit..nkFloat64Lit: regs[ra].floatVal = a.floatVal
       else: raiseVmError(reportStr(rsemVmFieldNotFound, "floatVal"))
-    of opcNSymbol:
-      decodeB(rkNode)
-      let a = regs[rb].node
-      if a.kind == nkSym:
-        regs[ra].node = copyNode(a)
-      else:
-        raiseVmError(reportStr(rsemVmFieldNotFound, "symbol"))
-    of opcNIdent:
-      decodeB(rkNode)
-      let a = regs[rb].node
-      if a.kind == nkIdent:
-        regs[ra].node = copyNode(a)
-      else:
-        raiseVmError(reportStr(rsemVmFieldNotFound, "ident"))
     of opcNodeId:
       decodeB(rkInt)
       when defined(useNodeIds):
@@ -2109,20 +2095,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): TFullReg =
         dest.floatVal = regs[rb].floatVal
       else:
         raiseVmError(reportStr(rsemVmFieldNotFound, "floatVal"))
-    of opcNSetSymbol:
-      decodeB(rkNode)
-      var dest = regs[ra].node
-      if dest.kind == nkSym and regs[rb].node.kind == nkSym:
-        dest.sym = regs[rb].node.sym
-      else:
-        raiseVmError(reportStr(rsemVmFieldNotFound, "symbol"))
-    of opcNSetIdent:
-      decodeB(rkNode)
-      var dest = regs[ra].node
-      if dest.kind == nkIdent and regs[rb].node.kind == nkIdent:
-        dest.ident = regs[rb].node.ident
-      else:
-        raiseVmError(reportStr(rsemVmFieldNotFound, "ident"))
     of opcNSetStrVal:
       decodeB(rkNode)
       var dest = regs[ra].node
