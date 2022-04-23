@@ -163,10 +163,6 @@ jobs:
             # Needed by boehm gc tests
             libgc-dev
 
-            # Required by Nim in Action tests
-            libsdl1.2-dev
-            libsfml-dev
-
             # Required by ARC/ORC memory leak tests (only enabled on linux x64)
             libc6-dbg
             valgrind
@@ -181,10 +177,6 @@ jobs:
           deps=(
             # Needed by boehm gc tests
             bdw-gc
-
-            # Required by Nim in Action tests
-            sdl
-            sfml
           )
 
           brew update
