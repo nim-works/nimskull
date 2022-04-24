@@ -49,9 +49,6 @@ Options:
   --megatest:on|off         Enable or disable megatest. Default is on.
   --skipFrom:file           Read tests to skip from `file` - one test per line, # comments ignored
 
-On Azure Pipelines, testament will also publish test results via Azure Pipelines' Test Management API
-provided that System.AccessToken is made available via the environment variable SYSTEM_ACCESSTOKEN.
-
 Experimental: using environment variable `NIM_TESTAMENT_REMOTE_NETWORKING=1` enables
 tests with remote networking (as in CI).
 """ % resultsFile
