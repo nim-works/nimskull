@@ -355,6 +355,8 @@ proc computeSizeAlign(conf: ConfigRef; typ: PType) =
           while st.kind in skipPtrs:
             st = st[^1]
           computeSizeAlign(conf, st)
+          # xxx: instead of dispatching on backend, the padding should be 0 and
+          #      end up being a noop
           if conf.backend == backendCpp:
             OffsetAccum(
               offset: int(st.size) - int(st.paddingAtEnd),

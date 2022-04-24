@@ -767,8 +767,7 @@ proc hasUnresolvedArgs(c: PContext, n: PNode): bool =
     return false
 
 proc newHiddenAddrTaken(c: PContext, n: PNode): PNode =
-  if n.kind == nkHiddenDeref and not (c.config.backend == backendCpp or
-                                      sfCompileToCpp in c.module.flags):
+  if n.kind == nkHiddenDeref:
     checkSonsLen(n, 1, c.config)
     result = n[0]
   else:

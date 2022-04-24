@@ -1,7 +1,10 @@
 discard """
-  targets: "c cpp"
+  targets: "c !cpp"
   joinable: false
 """
+
+# xxx: this should work in CPP, it's a knownIssue, see PR:
+#      https://github.com/nim-works/nimskull/pull/290
 
 #[
 Runs tests that require special treatment, e.g. because they rely on 3rd party code

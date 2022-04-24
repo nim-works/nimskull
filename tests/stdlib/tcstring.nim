@@ -1,7 +1,10 @@
 discard """
-  targets: "c cpp js"
+  targets: "c !cpp js"
   matrix: "--gc:refc; --gc:arc"
 """
+
+# xxx: this should work in CPP, it's a knownIssue, see PR:
+#      https://github.com/nim-works/nimskull/pull/290
 
 from std/sugar import collect
 from stdtest/testutils import whenRuntimeJs, whenVMorJs

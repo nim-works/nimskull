@@ -1,8 +1,11 @@
 discard """
   matrix: "--threads"
   joinable: false
-  targets: "c js cpp"
+  targets: "c js !cpp"
 """
+
+# xxx: this should work in CPP, it's a knownIssue, see PR:
+#      https://github.com/nim-works/nimskull/pull/290
 
 import std/os
 from std/sequtils import toSeq

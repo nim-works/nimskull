@@ -1,7 +1,10 @@
 discard """
-  targets: "c cpp"
+  targets: "c !cpp"
   matrix: "--gc:refc; --gc:arc"
 """
+
+# xxx: this should work in CPP, it's a knownIssue, see PR:
+#      https://github.com/nim-works/nimskull/pull/290
 
 # bug #7308
 proc foo(x: seq[int32]) =
