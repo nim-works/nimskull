@@ -1066,13 +1066,14 @@ proc testSpec(r: var TResults, test: TTest) =
   if expected.targets == {}:
     expected.targets = test.cat.defaultTargets()
 
-  for target in expected.targets:  
+  for target in expected.targets:
     let runTemplate = TestRun(
         test: test,
         expected: test.spec,
         matrixEntry: noMatrixEntry,
         target: target,
-        nimcache: nimcacheDir(test.name, test.options, target)
+        nimcache: nimcacheDir(test.name, test.options, target),
+        startTime: epochTime()
       )
 
     if test.spec.matrix.len > 0:
@@ -1087,7 +1088,7 @@ proc testSpec(r: var TResults, test: TTest) =
 
 proc testSpecWithNimcache(r: var TResults, test: TTest; nimcache: string) {.used.} =
   if not checkDisabled(r, test): return
-  for target in test.spec.targets:
+  for target in (test.spec.targets * gTargets):
     inc(r.total)
     var testRun = TestRun(
       test: test,
@@ -1251,7 +1252,6 @@ proc main() =
   ## Cli options and misc
   var
     optPrintResults = false
-    targetsStr      = ""
     isMainProcess   = true
     skipFrom        = ""
   
@@ -1270,6 +1270,7 @@ proc main() =
   let
     action = $execState.filter.kind
     options = execState.userTestOptions
+    targetsStr = execState.targetsStr
 
   optPrintResults = outputResults in execState.flags
   useColors = outputColour in execState.flags
@@ -1322,7 +1323,8 @@ proc main() =
         cats.add cat
     cats.add AdditionalCategories
     # User may pass an option to skip the megatest category, default is useMegaTest
-    if useMegatest: cats.add MegaTestCat
+    if useMegatest and targetC in gTargets:
+      cats.add MegaTestCat
     # We now prepare the command line arguments for our child processes
 
     let rest = if options.len > 0: " " & options else: ""

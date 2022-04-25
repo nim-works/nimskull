@@ -1,6 +1,9 @@
 discard """
   targets: "cpp"
-  cmd: "nim cpp --threads:on $file"
+  matrix: "--threads:on"
+  knownIssue: '''this should work in CPP, see PR:
+https://github.com/nim-works/nimskull/pull/290
+'''
 """
 
 # bug #5142

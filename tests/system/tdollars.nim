@@ -1,6 +1,9 @@
 discard """
-  targets: "c cpp js"
+  targets: "c !cpp js"
 """
+
+# xxx: this should work in CPP, it's a knownIssue, see PR:
+#      https://github.com/nim-works/nimskull/pull/290
 
 #[
 if https://github.com/nim-lang/Nim/pull/14043 is merged (or at least its

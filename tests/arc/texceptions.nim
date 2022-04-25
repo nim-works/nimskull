@@ -1,5 +1,9 @@
 discard """
-  cmd: "nim cpp --gc:arc $file"
+  target: "cpp"
+  matrix: "--gc:arc"
+  knownIssue: '''this should work in CPP, see PR:
+https://github.com/nim-works/nimskull/pull/290
+'''
 """
 
 block: # issue #13071

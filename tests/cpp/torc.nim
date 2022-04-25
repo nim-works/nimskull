@@ -1,6 +1,9 @@
 discard """
   targets: "cpp"
   matrix: "--gc:orc"
+  knownIssue: '''this should work in CPP, see PR:
+https://github.com/nim-works/nimskull/pull/290
+'''
 """
 
 import std/options
