@@ -922,7 +922,7 @@ proc transform(c: PTransf, n: PNode): PNode =
     return
   of nkSym:
     result = transformSym(c, n)
-  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit, nkComesFrom:
+  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit:
     # nothing to be done for leaves:
     result = n
   of nkBracketExpr: result = transformArrayAccess(c, n)

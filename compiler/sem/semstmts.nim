@@ -110,23 +110,23 @@ proc implicitlyDiscardable(n: PNode): bool =
            (isCallExpr(n) and n[0].kind == nkSym and
            sfDiscardable in n[0].sym.flags)
 
-proc discardCheck(c: PContext, result: PNode, flags: TExprFlags) =
-  ## checks to see if an expression, `result`, needs to be consumed as most do
+proc discardCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
+  ## checks to see if an expression needs to be consumed as most do
   ## in the language -- unless a proc is marked with the discardable pragma.
+  result = n
   if c.matchedConcept != nil or efInTypeof in flags: return
 
-  if result.typ != nil and result.typ.kind notin {tyTyped, tyVoid}:
-    if implicitlyDiscardable(result):
-      var n = newNodeI(nkDiscardStmt, result.info, 1)
-      n[0] = result
+  if n.typ != nil and n.typ.kind notin {tyTyped, tyVoid}:
+    if implicitlyDiscardable(n):
+      result = newTreeI(nkDiscardStmt, n.info, n)
 
-    elif result.typ.kind != tyError and c.config.cmd != cmdInteractive:
-      var n = result
-      while n.kind in skipForDiscardable:
-        n = n.lastSon
+    elif n.typ.kind != tyError and c.config.cmd != cmdInteractive:
+      var m = n
+      while m.kind in skipForDiscardable:
+        m = m.lastSon
 
-      localReport(
-        c.config, n.info, reportAst(rsemUseOrDiscardExpr, result))
+      result = newError(c.config, m,
+        reportAst(rsemUseOrDiscardExpr, n))
 
 # end `discard` check related code
 
@@ -161,7 +161,10 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
 
   elif isEmptyType(typ) or typ.kind in {tyNil, tyUntyped} or
       (not hasElse and efInTypeof notin flags):
-    for it in n: discardCheck(c, it.lastSon, flags)
+    for it in n:
+      it[^1] = discardCheck(c, it[^1], flags)
+      if it[^1].isError:
+        return wrapErrorInSubTree(c.config, result)
     result.transitionSonsKind(nkIfStmt)
     # propagate any enforced VoidContext:
     if typ == c.enforceVoidContext: result.typ = c.enforceVoidContext
@@ -265,14 +268,21 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
     closeScope(c)
 
   if isEmptyType(typ) or typ.kind in {tyNil, tyUntyped}:
-    discardCheck(c, n[0], flags)
+    n[0] = discardCheck(c, n[0], flags)
+    if n[0].isError:
+      return wrapErrorInSubTree(c.config, n)
     for i in 1 ..< n.len:
-      discardCheck(c, n[i].lastSon, flags)
+      n[i][^1] = discardCheck(c, n[i][^1], flags)
+      if n[i][^1].isError:
+        return wrapErrorInSubTree(c.config, n)
 
     if typ == c.enforceVoidContext:
       result.typ = c.enforceVoidContext
   else:
-    if n.lastSon.kind == nkFinally: discardCheck(c, n.lastSon.lastSon, flags)
+    if n.lastSon.kind == nkFinally:
+      n[^1][^1] = discardCheck(c, n[^1][^1], flags)
+      if n[^1][^1].isError:
+        return wrapErrorInSubTree(c.config, n)
     n[0] = fitNode(c, typ, n[0], n[0].info)
     for i in 1..last:
       var it = n[i]
@@ -857,7 +867,9 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
   openScope(c)
   n[^1] = semExprBranch(c, n[^1], flags)
   if efInTypeof notin flags:
-    discardCheck(c, n[^1], flags)
+    n[^1] = discardCheck(c, n[^1], flags)
+    if n[^1].isError:
+      result = wrapErrorInSubTree(c.config, n)
   closeScope(c)
   dec(c.p.nestedLoopCounter)
 
@@ -1064,7 +1076,10 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   closeScope(c)
   if isEmptyType(typ) or typ.kind in {tyNil, tyUntyped} or
       (not hasElse and efInTypeof notin flags):
-    for i in 1..<n.len: discardCheck(c, n[i].lastSon, flags)
+    for i in 1..<n.len:
+      n[i][^1] = discardCheck(c, n[i][^1], flags)
+      if n[i][^1].isError:
+        return wrapErrorInSubTree(c.config, n)
     # propagate any enforced VoidContext:
     if typ == c.enforceVoidContext:
       result.typ = c.enforceVoidContext
@@ -2482,7 +2497,9 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
       n.typ = n[i].typ
       if not isEmptyType(n.typ): n.transitionSonsKind(nkStmtListExpr)
     else:
-      discardCheck(c, n[i], flags)
+      n[i] = discardCheck(c, n[i], flags)
+      if n[i].isError:
+        hasError = true
     if n[i].kind in nkLastBlockStmts or
         n[i].kind in nkCallKinds and n[i][0].kind == nkSym and
         sfNoReturn in n[i][0].sym.flags:

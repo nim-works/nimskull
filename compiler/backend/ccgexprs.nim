@@ -2584,25 +2584,9 @@ proc genComplexConst(p: BProc, sym: PSym, d: var TLoc) =
 
 template genStmtListExprImpl(exprOrStmt) {.dirty.} =
   #let hasNimFrame = magicsys.getCompilerProc("nimFrame") != nil
-  let hasNimFrame = p.prc != nil and
-      sfSystemModule notin p.module.module.flags and
-      optStackTrace in p.prc.options
-  var frameName: Rope = nil
   for i in 0..<n.len - 1:
-    let it = n[i]
-    if it.kind == nkComesFrom:
-      if hasNimFrame and frameName == nil:
-        inc p.labels
-        frameName = "FR" & rope(p.labels) & "_"
-        let theMacro = it[0].sym
-        add p.s(cpsStmts), initFrameNoDebug(p, frameName,
-           makeCString theMacro.name.s,
-           quotedFilename(p.config, theMacro.info), it.info.line.int)
-    else:
-      genStmts(p, it)
+    genStmts(p, n[i])
   if n.len > 0: exprOrStmt
-  if frameName != nil:
-    p.s(cpsStmts).add deinitFrameNoDebug(p, frameName)
 
 proc genStmtListExpr(p: BProc, n: PNode, d: var TLoc) =
   genStmtListExprImpl:

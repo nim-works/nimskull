@@ -837,7 +837,7 @@ template transitionNodeKindCommon(k: TNodeKind) =
   when defined(useNodeIds):
     n.id = obj.id
 
-proc transitionSonsKind*(n: PNode, kind: range[nkComesFrom..nkTupleConstr]) =
+proc transitionSonsKind*(n: PNode, kind: range[nkDotCall..nkTupleConstr]) =
   transitionNodeKindCommon(kind)
   n.sons = obj.sons
 

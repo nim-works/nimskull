@@ -764,7 +764,7 @@ proc liftCapturedVars(n: PNode; owner: PSym; d: var DetectionPass;
         result = accessViaEnvParam(d.graph, n, owner)
       else:
         result = accessViaEnvVar(n, owner, d, c)
-  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit, nkComesFrom,
+  of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit,
      nkTemplateDef, nkTypeSection, nkProcDef, nkMethodDef, nkConverterDef,
      nkMacroDef, nkFuncDef, nkMixinStmt, nkBindStmt:
     discard

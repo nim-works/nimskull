@@ -16,14 +16,14 @@ proc semAddrArg(c: PContext; n: PNode; isUnsafeAddr = false): PNode =
   let x = semExprWithType(c, n)
   if x.kind == nkSym:
     x.sym.flags.incl(sfAddrTaken)
-  if isAssignable(c, x, true) notin {arLValue, arLocalLValue}:
+  if isAssignable(c, x, true) in {arLValue, arLocalLValue}:
+    result = x
+  else:
     # Do not suggest the use of unsafeAddr if this expression already is a
     # unsafeAddr
-    localReport(c.config, n.info) do:
+    result = newError(c.config, n,
       reportSem(rsemExprHasNoAddress).withIt do:
-        it.isUnsafeAddr = true
-
-  result = x
+        it.isUnsafeAddr = true)
 
 proc semTypeOf(c: PContext; n: PNode): PNode =
   var m = BiggestInt 1 # typeOfIter

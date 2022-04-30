@@ -2715,8 +2715,6 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       kind: rbackJsUnsupportedClosureIter))
 
   of nkPragmaBlock: gen(p, n.lastSon, r)
-  of nkComesFrom:
-    discard "XXX to implement for better stack traces"
   else: internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
 proc newModule(g: ModuleGraph; module: PSym): BModule =

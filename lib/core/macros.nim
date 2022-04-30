@@ -29,7 +29,13 @@ type
     nnkInt16Lit, nnkInt32Lit, nnkInt64Lit, nnkUIntLit, nnkUInt8Lit,
     nnkUInt16Lit, nnkUInt32Lit, nnkUInt64Lit, nnkFloatLit,
     nnkFloat32Lit, nnkFloat64Lit, nnkFloat128Lit, nnkStrLit, nnkRStrLit,
-    nnkTripleStrLit, nnkNilLit, nnkComesFrom, nnkDotCall,
+    nnkTripleStrLit, nnkNilLit,
+    nnkDotCall = when defined(nimHasNkComesFromNodeRemoved):
+                   ord(nnkNilLit) + 1
+                 else:
+                   # Skip what would be nnkComesFrom, if we compiling with a
+                   # compiler that still has nkComesFrom (e.g. in bootstrapping)
+                   ord(nnkNilLit) + 2
     nnkCommand, nnkCall, nnkCallStrLit, nnkInfix,
     nnkPrefix, nnkPostfix, nnkHiddenCallConv,
     nnkExprEqExpr,
