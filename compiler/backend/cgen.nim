@@ -429,16 +429,6 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: var TLoc,
       var r = if mode == constructObj: addrLoc(p.config, a) else: rdLoc(a)
       linefmt(p, section, "#objectInit($1, $2);$n", [r, genTypeInfoV1(p.module, t, a.lode.info)])
 
-  if isException(t):
-    var r = rdLoc(a)
-    if mode == constructRefObj: r = "(*$1)" % [r]
-    var s = skipTypes(t, abstractInst)
-    if not p.module.compileToCpp:
-      while s.kind == tyObject and s[0] != nil and s.sym.magic != mException:
-        r.add(".Sup")
-        s = skipTypes(s[0], skipPtrs)
-    linefmt(p, section, "$1.name = $2;$n", [r, makeCString(t.skipTypes(abstractInst).sym.name.s)])
-
 proc genRefAssign(p: BProc, dest, src: TLoc)
 
 proc isComplexValueType(t: PType): bool {.inline.} =

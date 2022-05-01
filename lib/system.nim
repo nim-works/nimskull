@@ -2032,9 +2032,9 @@ proc debugEcho*(x: varargs[typed, `$`]) {.magic: "Echo", noSideEffect,
 
 template newException*(exceptn: typedesc, message: string;
                        parentException: ref Exception = nil): untyped =
-  ## Creates an exception object of type `exceptn` and sets its `msg` field
-  ## to `message`. Returns the new exception object.
-  (ref exceptn)(msg: message, parent: parentException)
+  ## Creates an exception object of type `exceptn`, initializes it's `name`
+  ## and sets its `msg` field to `message`. Returns the new exception object.
+  (ref exceptn)(name: $exceptn, msg: message, parent: parentException)
 
 when hostOS == "standalone" and defined(nogc):
   proc nimToCStringConv(s: NimString): cstring {.compilerproc, inline.} =
