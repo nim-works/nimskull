@@ -1,10 +1,7 @@
 discard """
   matrix: "--gc:refc; --gc:orc"
-  targets: "c !cpp js"
+  targets: "c cpp js"
 """
-
-# xxx: this should work in CPP, it's a knownIssue, see PR:
-#      https://github.com/nim-works/nimskull/pull/290
 
 import std/deques
 from std/sequtils import toSeq

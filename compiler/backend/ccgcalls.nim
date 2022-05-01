@@ -282,16 +282,40 @@ proc genArg(p: BProc, n: PNode, param: PSym; call: PNode, needsTmp = false): Rop
       result = addrLoc(p.config, literalsNeedsTmp(p, a))
     else:
       result = addrLoc(p.config, withTmpIfNeeded(p, a, needsTmp))
-  elif p.module.compileToCpp and param.typ.kind in {tyVar} and
-      n.kind == nkHiddenAddr:
-    initLocExprSingleUse(p, n[0], a)
+  elif p.module.compileToCpp and param.typ.kind in {tyVar}:
+    # `semexprs.newHiddenAddrTaken` collapsed `nkHiddenAddr(nkHiddenDeref(x))`
+    # into just `x`. We're trying to reconstruct whether or not this took place
+    # here
+    var (srcIsVarPtr, src) =
+      if n.kind != nkHiddenAddr and n.typ.kind == tyVar:
+        # The collapsing took place
+        (tfVarIsPtr in n.typ.flags, n)
+      else:
+        (false, if n.kind == nkHiddenAddr: n[0] else: n)
+
+    srcIsVarPtr =
+      srcIsVarPtr or
+      mapType(p.config, n.typ, mapTypeChooser(n)) in {ctArray, ctPtrToArray}
+
+    var dstIsPtr =
+      tfVarIsPtr in param.typ.flags or
+      mapType(p.config, n.typ, mapTypeChooser(n)) in {ctArray, ctPtrToArray}
+
     # if the proc is 'importc'ed but not 'importcpp'ed then 'var T' still
     # means '*T'. See posix.nim for lots of examples that do that in the wild.
     let callee = call[0]
     if callee.kind == nkSym and
         {sfImportc, sfInfixCall, sfCompilerProc} * callee.sym.flags == {sfImportc} and
         {lfHeader, lfNoDecl} * callee.sym.loc.flags != {}:
-      result = addrLoc(p.config, a)
+      dstIsPtr = true
+
+    initLocExprSingleUse(p, src, a)
+
+    if srcIsVarPtr != dstIsPtr:
+      if dstIsPtr:
+        result = addrLoc(p.config, a)
+      else:
+        result = "*$1" % [rdLoc(a)]
     else:
       result = rdLoc(a)
   else:
@@ -367,6 +391,7 @@ proc genParams(p: BProc, ri: PNode, typ: PType): Rope =
   var needTmp = newSeq[bool](ri.len - 1)
   var potentialWrites: seq[PNode]
   for i in countdown(ri.len - 1, 1):
+    let isVarParam = i < typ.len and (typ.n[i].sym.typ.kind == tyVar)
     if ri[i].skipTrivialIndirections.kind == nkSym:
       needTmp[i - 1] = potentialAlias(ri[i], potentialWrites)
     else:
@@ -376,8 +401,8 @@ proc genParams(p: BProc, ri: PNode, typ: PType): Rope =
       for n in potentialReads:
         if not needTmp[i - 1]:
           needTmp[i - 1] = potentialAlias(n, potentialWrites)
-      getPotentialWrites(ri[i], false, potentialWrites)
-    if ri[i].kind in {nkHiddenAddr, nkAddr}:
+      getPotentialWrites(ri[i], isVarParam, potentialWrites)
+    if ri[i].kind in {nkHiddenAddr, nkAddr} or isVarParam:
       # Optimization: don't use a temp, if we would only take the address anyway
       needTmp[i - 1] = false
 

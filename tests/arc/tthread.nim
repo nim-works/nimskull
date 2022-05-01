@@ -1,9 +1,6 @@
 discard """
   target: "cpp"
   matrix: "--gc:arc --threads:on"
-  knownIssue: '''this should work in CPP, see PR:
-https://github.com/nim-works/nimskull/pull/290
-'''
   output: '''ok1
 ok2
 destroyed
