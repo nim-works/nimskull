@@ -1479,8 +1479,12 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): TFullReg =
         else:
           regs[ra].node
       c.currentExceptionA = raised
-      # Set the `name` field of the exception
-      c.currentExceptionA[2].skipColon.strVal = c.currentExceptionA.typ.sym.name.s
+      if raised[2].skipColon.strVal.len == 0:
+        # XXX: the VM doesn't distinguish between a `nil` cstring and an empty
+        #      `cstring`, leading to the name erroneously being overridden if
+        #      it was explicitly initialized with `""`
+        # Set the `name` field of the exception
+        raised[2].skipColon.strVal = raised.typ.sym.name.s
       c.exceptionInstr = pc
 
       var frame = tos

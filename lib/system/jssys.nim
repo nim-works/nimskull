@@ -142,7 +142,8 @@ proc unhandledException(e: ref Exception) {.
 
 proc raiseException(e: ref Exception, ename: cstring) {.
     compilerproc, asmNoStackFrame.} =
-  e.name = ename
+  if e.name.isNil:
+    e.name = ename
   if excHandler == 0:
     unhandledException(e)
   when NimStackTrace:
