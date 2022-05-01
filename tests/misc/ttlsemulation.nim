@@ -1,10 +1,7 @@
 discard """
   matrix: "-d:nimTtlsemulationCase1 --threads --tlsEmulation:on; -d:nimTtlsemulationCase2 --threads --tlsEmulation:off; -d:nimTtlsemulationCase3 --threads"
-  targets: "c !cpp"
+  targets: "c cpp"
 """
-
-# xxx: this should work in CPP, it's a knownIssue, see PR:
-#      https://github.com/nim-works/nimskull/pull/290
 
 #[
 tests for: `.cppNonPod`, `--tlsEmulation`

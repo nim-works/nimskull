@@ -1,11 +1,8 @@
 discard """
   output: '''@[(s1: "333", s2: ""), (s1: "abc", s2: "def"), (s1: "3x", s2: ""), (s1: "3x", s2: ""), (s1: "3x", s2: ""), (s1: "3x", s2: ""), (s1: "lastone", s2: "")]'''
   matrix: "--gc:arc"
-  targets: "c !cpp"
+  targets: "c cpp"
 """
-
-# xxx: this should work in CPP, it's a knownIssue, see PR:
-#      https://github.com/nim-works/nimskull/pull/290
 
 # bug #13240
 

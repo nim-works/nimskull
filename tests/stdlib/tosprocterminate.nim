@@ -1,11 +1,8 @@
 discard """
   cmd: "nim $target $options -r $file"
-  targets: "c !cpp"
+  targets: "c cpp"
   matrix: "--threads:on; "
 """
-
-# xxx: this should work in CPP, it's a knownIssue, see PR:
-#      https://github.com/nim-works/nimskull/pull/290
 
 import os, osproc, times, std / monotimes
 
