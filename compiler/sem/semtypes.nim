@@ -1445,9 +1445,9 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
     for j in 0..<a.len-2:
       var arg = newSymG(skParam, if a[j].kind == nkPragmaExpr: a[j][0] else: a[j], c)
       if a[j].kind == nkPragmaExpr:
-        a[j][i] = pragma(c, arg, a[j][1], paramPragmas)
+        a[j][1] = pragma(c, arg, a[j][1], paramPragmas)
         # check if we got any errors and if so report them
-        for e in ifErrorWalkErrors(c.config, a[i][j]):
+        for e in ifErrorWalkErrors(c.config, a[j][1]):
           localReport(c.config, e)
 
       if not hasType and not hasDefault and kind notin {skTemplate, skMacro}:
