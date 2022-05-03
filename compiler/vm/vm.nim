@@ -574,10 +574,11 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): TFullReg =
   var savedPC = -1
   var savedFrame: StackFrameIndex
   when defined(gcArc) or defined(gcOrc):
-    var tosPtr: ptr TStackFrame
-    template regs: untyped = tosPtr.slots
+    # Use {.cursor.} as a way to get a shallow copy of the seq. This is safe,
+    # since `slots` is never changed in length (no add/delete)
+    var regs {.cursor.}: seq[TFullReg]
     template updateRegsAlias =
-      tosPtr = addr c.sframes[tos]
+      regs = c.sframes[tos].slots
     updateRegsAlias
   else:
     template updateRegsAlias =
