@@ -610,8 +610,14 @@ when isMainModule:
   # current time. Currently these tools are known to use the current time:
   #
   # - nim doc
-  let epoch = getSourceMetadata().date.parse("yyyy-MM-dd", zone = utc())
-                                      .toTime.toUnix()
+  let epoch =
+    if getSourceMetadata().date.len > 0:
+      getSourceMetadata().date.parse("yyyy-MM-dd", zone = utc())
+                              .toTime.toUnix()
+    else:
+      # The data is not available, opt for epoch 0 for reproducibility
+      0
+
   putEnv("SOURCE_DATE_EPOCH", $epoch)
   while true:
     op.next()
