@@ -137,13 +137,13 @@ proc getSourceMetadata*(): tuple[hash, date, versionSuffix: string] =
     except OSError, IOError:
       # If the file does not exist, then this is not a release tarball, try
       # obtaining the data from git instead
-      let hashCall = execCmdEx("git -C " & quoteShell(nimSource) & " rev-parse --verify HEAD")
-      if hashCall.exitCode == 0:
-        hash = hashCall.output.strip()
 
-      let dateCall = execCmdEx("git -C " & quoteShell(nimSource) & " log -1 --format=%cs HEAD")
-      if dateCall.exitCode == 0:
-        date = dateCall.output.strip()
+      # Grab the hash and commit timestamp from git log
+      let hashAndDateCall = execCmdEx("git -C " & quoteShell(nimSource) & " log -1 --format=%H,%cd --date=short HEAD")
+      if hashAndDateCall.exitCode == 0:
+        let splitted = hashAndDateCall.output.strip().split(',')
+        hash = splitted[0]
+        date = splitted[1]
 
       let nearestReleaseTagCall = execCmdEx:
         "git" & " -C " & quoteShell(nimSource) & " describe" &
