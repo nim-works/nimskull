@@ -60,7 +60,7 @@ type
     opcMulSet, opcPlusSet, opcMinusSet, opcConcatStr,
     opcContainsSet, opcRepr, opcSetLenStr, opcSetLenSeq,
     opcIsNil, opcOf, opcIs,
-    opcSubStr, opcParseFloat, opcConv, opcCast,
+    opcParseFloat, opcConv, opcCast,
     opcQuit, opcInvalidField,
     opcNarrowS, opcNarrowU,
     opcSignExtend,
@@ -142,5 +142,5 @@ type
 const
   firstABxInstr* = opcTJmp
   largeInstrs* = { # instructions which use 2 int32s instead of 1:
-    opcSubStr, opcConv, opcCast, opcNewSeq, opcOf}
+    opcConv, opcCast, opcNewSeq, opcOf}
   relativeJumps* = {opcTJmp, opcFJmp, opcJmp, opcJmpBack}
