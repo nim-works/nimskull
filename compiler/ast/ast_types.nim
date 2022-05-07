@@ -327,7 +327,6 @@ const
     ## in user messages.
 
   sfNoForward*     = sfRegister       ## forward declarations are not required (per module)
-  sfReorder*       = sfForward        ## reordering pass is enabled
   sfCompileToCpp*  = sfInfixCall      ## compile the module as C++ code
   sfCompileToObjc* = sfNamedParamCall ## compile the module as Objective-C code
   sfExperimental*  = sfOverriden      ## module uses the .experimental switch

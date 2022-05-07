@@ -194,7 +194,6 @@ type
     forLoopMacros, ## not experimental anymore; remains here for backwards
                    ## compatibility
     caseStmtMacros,## ditto
-    codeReordering,
     vmopsDanger,
     strictFuncs,
     views,

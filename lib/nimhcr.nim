@@ -150,7 +150,7 @@ batchable: false
 # - ability to check with the current callstack if a reload is "legal"
 #   - if it is in any function which is in a module about to be reloaded ==> error
 # - pragma annotations for files - to be excluded from dll shenanigans
-#   - for such file-global pragmas look at codeReordering or injectStmt
+#   - for such file-global pragmas look at injectStmt
 #   - how would the initialization order be kept? messy...
 # - C code calling stable exportc interface of nim code (for bindings)
 #   - generate proxy functions with the stable names

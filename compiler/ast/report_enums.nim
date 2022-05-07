@@ -594,7 +594,6 @@ type
 
     rsemOnOrOffExpected
     rsemCallconvExpected
-    rsemInnerCodeReordering
     rsemUnknownExperimental
     rsemDuplicateCaseLabel
 
@@ -769,7 +768,6 @@ type
     ## mismatched raises are routed as errors.
 
     rsemDotForModuleImport
-    rsemReorderingFail
     rsemProveField             = "ProveField"
     rsemStrictNotNilExpr       = "StrictNotNil"
     rsemStrictNotNilResult     = "StrictNotNil"

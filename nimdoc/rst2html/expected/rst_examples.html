@@ -110,11 +110,10 @@ window.addEventListener('DOMContentLoaded', main);
 <ul class="simple"><li><a class="reference" id="pragmas-deprecated-pragma_toc" href="#pragmas-deprecated-pragma">deprecated pragma</a></li>
 </ul><li><a class="reference" id="pure-libraries_toc" href="#pure-libraries">Pure libraries</a></li>
 <ul class="simple"><li><a class="reference" id="pure-libraries-automatic-imports_toc" href="#pure-libraries-automatic-imports">Automatic imports</a></li>
-</ul><li><a class="reference" id="code-reordering_toc" href="#code-reordering">Code reordering</a></li>
-<ul class="simple"><li><a class="reference" id="code-reordering-parameter-constraints_toc" href="#code-reordering-parameter-constraints">Parameter constraints</a></li>
+<li><a class="reference" id="pure-libraries-parameter-constraints_toc" href="#pure-libraries-parameter-constraints">Parameter constraints</a></li>
 <ul class="simple"><li><a class="reference" id="parameter-constraints-the-tilde-operator_toc" href="#parameter-constraints-the-tilde-operator">The <tt class="docutils literal"><span class="pre">~</span></tt> operator</a></li>
 <li><a class="reference" id="parameter-constraints-the-starstar-operator_toc" href="#parameter-constraints-the-starstar-operator">The <tt class="docutils literal"><span class="pre">**</span></tt> operator</a></li>
-</ul><li><a class="reference" id="code-reordering-time-measurement-with-garbage-collectors_toc" href="#code-reordering-time-measurement-with-garbage-collectors">Time measurement with garbage collectors</a></li>
+</ul><li><a class="reference" id="pure-libraries-time-measurement-with-garbage-collectors_toc" href="#pure-libraries-time-measurement-with-garbage-collectors">Time measurement with garbage collectors</a></li>
 </ul><li><a class="reference" id="introduction_toc" href="#introduction">Introduction</a></li>
 
 </ul>
@@ -246,19 +245,7 @@ stmt = IND{&gt;} stmt ^+ IND{=} DED  # list of statements
 <li><a class="reference external" href="threads.html">threads</a> Basic Nim thread support. <strong>Note</strong>: This is part of the system module. Do not import it explicitly. Enabled with <tt class="docutils literal"><span class="pre">--threads:on</span></tt>.</li>
 </ul>
 
-<h1><a class="toc-backref" id="code-reordering" href="#code-reordering">Code reordering</a></h1><p>The code reordering feature can implicitly rearrange procedure, template, and macro definitions along with variable declarations and initializations at the top level scope so that, to a large extent, a programmer should not have to worry about ordering definitions correctly or be forced to use forward declarations to preface definitions inside a module.</p>
-<p>Example:</p>
-<pre class="listing"><span class="Punctuation">{</span><span class="Operator">.</span><span class="Identifier">experimental</span><span class="Punctuation">:</span> <span class="StringLit">&quot;codeReordering&quot;</span><span class="Operator">.</span><span class="Punctuation">}</span>
-
-<span class="Keyword">proc</span> <span class="Identifier">foo</span><span class="Punctuation">(</span><span class="Identifier">x</span><span class="Punctuation">:</span> <span class="Identifier">int</span><span class="Punctuation">)</span> <span class="Operator">=</span>
-  <span class="Identifier">bar</span><span class="Punctuation">(</span><span class="Identifier">x</span><span class="Punctuation">)</span>
-
-<span class="Keyword">proc</span> <span class="Identifier">bar</span><span class="Punctuation">(</span><span class="Identifier">x</span><span class="Punctuation">:</span> <span class="Identifier">int</span><span class="Punctuation">)</span> <span class="Operator">=</span>
-  <span class="Identifier">echo</span><span class="Punctuation">(</span><span class="Identifier">x</span><span class="Punctuation">)</span>
-
-<span class="Identifier">foo</span><span class="Punctuation">(</span><span class="DecNumber">10</span><span class="Punctuation">)</span></pre><p>It is important to note that reordering <em>only</em> works for symbols at top level scope. Therefore, the following will <em>fail to compile:</em></p>
-
-<h2><a class="toc-backref" id="code-reordering-parameter-constraints" href="#code-reordering-parameter-constraints">Parameter constraints</a></h2><p>The <span id="parameter-constraint_1">parameter constraint</span> expression can use the operators <tt class="docutils literal"><span class="pre">|</span></tt> (or), <tt class="docutils literal"><span class="pre">&amp;</span></tt> (and) and <tt class="docutils literal"><span class="pre">~</span></tt> (not) and the following predicates:</p>
+<h2><a class="toc-backref" id="pure-libraries-parameter-constraints" href="#pure-libraries-parameter-constraints">Parameter constraints</a></h2><p>The <span id="parameter-constraint_1">parameter constraint</span> expression can use the operators <tt class="docutils literal"><span class="pre">|</span></tt> (or), <tt class="docutils literal"><span class="pre">&amp;</span></tt> (and) and <tt class="docutils literal"><span class="pre">~</span></tt> (not) and the following predicates:</p>
 
 <h3><a class="toc-backref" id="parameter-constraints-the-tilde-operator" href="#parameter-constraints-the-tilde-operator">The <tt class="docutils literal"><span class="pre">~</span></tt> operator</a></h3><p>The <tt class="docutils literal"><span class="pre">~</span></tt> operator is the <strong>not</strong> operator in patterns:</p>
 
@@ -287,7 +274,7 @@ stmt = IND{&gt;} stmt ^+ IND{=} DED  # list of statements
 </ol>
 <p>These procs provide a &quot;best effort&quot; real-time guarantee; in particular the cycle collector is not aware of deadlines. Deactivate it to get more predictable real-time behaviour. Tests show that a 1ms max pause time will be met in almost all cases on modern CPUs (with the cycle collector disabled).</p>
 
-<h2><a class="toc-backref" id="code-reordering-time-measurement-with-garbage-collectors" href="#code-reordering-time-measurement-with-garbage-collectors">Time measurement with garbage collectors</a></h2><p>The garbage collectors' way of measuring time uses (see <tt class="docutils literal"><span class="pre">lib/system/timers.nim</span></tt> for the implementation):</p>
+<h2><a class="toc-backref" id="pure-libraries-time-measurement-with-garbage-collectors" href="#pure-libraries-time-measurement-with-garbage-collectors">Time measurement with garbage collectors</a></h2><p>The garbage collectors' way of measuring time uses (see <tt class="docutils literal"><span class="pre">lib/system/timers.nim</span></tt> for the implementation):</p>
 <ol class="simple"><li><tt class="docutils literal"><span class="pre">QueryPerformanceCounter</span></tt> and <tt class="docutils literal"><span class="pre">QueryPerformanceFrequency</span></tt> on Windows.</li>
 <li><tt class="docutils literal"><span class="pre">mach_absolute_time</span></tt> on Mac OS X.</li>
 <li><tt class="docutils literal"><span class="pre">gettimeofday</span></tt> on Posix systems.</li>
