@@ -968,9 +968,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCannotIsolate:
       result = "expression cannot be isolated: " & render(r.ast)
 
-    of rsemInnerCodeReordering:
-      result = "Code reordering experimental pragma only valid at toplevel"
-
     of rsemUnknownExperimental:
       result = "unknown experimental feature"
 
@@ -2072,10 +2069,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemMethodLockMismatch:
       result = "method has lock level $1, but another method has $2" %
         [r.lockMismatch[0], r.lockMismatch[1]]
-
-    of rsemReorderingFail:
-      result = "Circular dependency detected. `codeReordering` pragma may not be able to" &
-        " reorder some nodes properly"
 
     of rsemUnknownMagic:
       result = "unknown magic '$1' might crash the compiler" % r.str

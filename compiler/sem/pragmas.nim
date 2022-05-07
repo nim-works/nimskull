@@ -89,7 +89,7 @@ const
     wDeadCodeElimUnused,  # deprecated, always on
     wDeprecated,
     wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit, wUnroll,
-    wLinearScanEnd, wPatterns, wTrMacros, wEffects, wNoForward, wReorder, wComputedGoto,
+    wLinearScanEnd, wPatterns, wTrMacros, wEffects, wNoForward, wComputedGoto,
     wExperimental, wThis, wUsed, wAssert}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
     wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
@@ -353,7 +353,7 @@ proc onOff(c: PContext, n: PNode, op: TOptions, resOptions: var TOptions): PNode
   if r: resOptions.incl op
   else: resOptions.excl op
 
-proc pragmaNoForward(c: PContext, n: PNode; flag=sfNoForward): PNode =
+proc pragmaNoForward(c: PContext, n: PNode): PNode =
   ## `n` must be a callable pragma of length two, or an error is produced,
   ## otherwise produces (mutates) the boolean arg (2nd) in `n` and the
   ## current modules flags, enabling no forward, disables code re-ordering.
@@ -361,10 +361,9 @@ proc pragmaNoForward(c: PContext, n: PNode; flag=sfNoForward): PNode =
   result =
     if err.isNil:
       if isOn:
-        incl(c.module.flags, flag)
-        c.features.incl codeReordering
+        incl(c.module.flags, sfNoForward)
       else:
-        excl(c.module.flags, flag)
+        excl(c.module.flags, sfNoForward)
       n
     else:
       err
@@ -527,10 +526,6 @@ proc processExperimental(c: PContext; n: PNode): PNode =
       try:
         let feature = parseEnum[Feature](n[1].strVal)
         c.features.incl feature
-        if feature == codeReordering:
-          if not isTopLevel(c):
-            result = c.config.newError(n, reportSem(rsemInnerCodeReordering))
-          c.module.flags.incl sfReorder
       except ValueError:
         n[1] = c.config.newError(
           n[1], reportAst(rsemUnknownExperimental, n[1]))
@@ -1386,8 +1381,6 @@ proc prepareSinglePragma(
       of wDeadCodeElimUnused: discard  # xxx: deprecated, dead code elim always on
       of wNoForward:
         result = pragmaNoForward(c, it)
-      of wReorder:
-        result = pragmaNoForward(c, it, flag = sfReorder)
       of wMagic:
         result = processMagic(c, it, sym)
       of wCompileTime:

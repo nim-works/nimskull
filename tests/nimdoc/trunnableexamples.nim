@@ -8,13 +8,12 @@ foo2
 foo3
 foo5
 foo6
-foo7
 in examplesInTemplate1
 doc in outer
 doc in inner1
 doc in inner2
+foo7
 foo8
-foo9
 '''
 joinable: false
 """
@@ -44,20 +43,13 @@ proc fun*() =
     fun()
 
   runnableExamples:
-    # `codeReordering` only allowed at top level
-    {.experimental: "codeReordering".}
-    proc fun1() = fun2()
-    proc fun2() = echo "foo6"
-    fun1()
-
-  runnableExamples:
     # only works at top level
     import std/macros
     macro myImport(a: static string): untyped =
       newTree(nnkImportStmt, [newLit a])
     myImport "str" & "utils"
     doAssert declared(isAlphaAscii)
-    echo "foo7"
+    echo "foo6"
 
 when true: # issue #12746
   # this proc on its own works fine with `nim doc`
@@ -190,10 +182,10 @@ runnableExamples:
 # also check for runnableExamples at module scope
 runnableExamples:
   block:
-    defer: echo "foo8"
+    defer: echo "foo7"
 
 runnableExamples:
-  proc fun*()=echo "foo9"
+  proc fun*()=echo "foo8"
   fun()
 
 # note: there are yet other examples where putting runnableExamples at module

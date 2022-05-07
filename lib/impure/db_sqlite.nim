@@ -164,8 +164,6 @@
 ## * `db_mysql module <db_mysql.html>`_ for MySQL database wrapper
 ## * `db_postgres module <db_postgres.html>`_ for PostgreSQL database wrapper
 
-{.experimental: "codeReordering".}
-
 import sqlite3, macros
 
 import db_common
@@ -727,11 +725,6 @@ proc execAffectedRows*(db: DbConn, query: SqlQuery,
   exec(db, query, args)
   result = changes(db)
 
-proc execAffectedRows*(db: DbConn, stmtName: SqlPrepared): int64
-                      {.tags: [ReadDbEffect, WriteDbEffect],since: (1, 3).} =
-  exec(db, stmtName)
-  result = changes(db)
-
 proc close*(db: DbConn) {.tags: [DbEffect].} =
   ## Closes the database connection.
   ##
@@ -855,6 +848,11 @@ template exec*(db: DbConn, stmtName: SqlPrepared,
       dbError(db)
     stmtName.bindParams(args)
   if not tryExec(db, stmtName): dbError(db)
+
+proc execAffectedRows*(db: DbConn, stmtName: SqlPrepared): int64
+                      {.tags: [ReadDbEffect, WriteDbEffect],since: (1, 3).} =
+  exec(db, stmtName)
+  result = changes(db)
 
 when not defined(testing) and isMainModule:
   var db = open(":memory:", "", "", "")

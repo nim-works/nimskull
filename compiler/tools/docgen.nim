@@ -601,7 +601,7 @@ proc prepareExample(d: PDoc; n: PNode, topLevel: bool): tuple[rdoccmd: string, c
 
   else:
     var code2 = code
-    if code.len > 0 and "codeReordering" notin code:
+    if code.len > 0:
       # hacky but simplest solution, until we devise a way to make `{.line.}`
       # work without introducing a scope
       code2 = """
