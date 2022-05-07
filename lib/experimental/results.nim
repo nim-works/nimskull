@@ -113,7 +113,7 @@ func initSuccess*[E](self: var Result[void, E]) =
     r.initSuccess()
     doAssert r.isOk
 
-  self = ok[E](typeOf(self))
+  self = ok[E](typeof(self))
 
 func ok*[T, E](R: typedesc[Result[T, E]]; v: sink T): Result[T, E] =
   ## Returns a result with a success and value.
@@ -125,7 +125,7 @@ func ok*[T, E](R: typedesc[Result[T, E]]; v: sink T): Result[T, E] =
 
 proc initSuccess*[T, E](self: var Result[T, E]; v: sink T) =
   ## Sets the result to success and updates value.
-  self = ok[T, E](typeOf(self), v)
+  self = ok[T, E](typeof(self), v)
 
 func err*[T, E](R: typedesc[Result[T, E]]; e: sink E): Result[T, E] =
   ## Returns a result with an error.
@@ -137,7 +137,7 @@ func err*[T, E](R: typedesc[Result[T, E]]; e: sink E): Result[T, E] =
 
 func initFailure*[T, E](self: var Result[T, E]; e: sink E) =
   ## Sets the result as an error.
-  self = err[T, E](typeOf(self), e)
+  self = err[T, E](typeof(self), e)
 
 func isOk*(self: Result): bool {.inline.} = self.o
 func isErr*(self: Result): bool {.inline.} = not self.o
