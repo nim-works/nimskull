@@ -2,7 +2,7 @@ import
   std/[
     os, strformat, strutils, tables, sets, json, algorithm
   ],
-  utils/[
+  compiler/utils/[
     ropes
   ]
 

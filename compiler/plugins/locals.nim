@@ -10,14 +10,14 @@
 ## The builtin 'system.locals' implemented as a plugin.
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
   ],
-  sem/[
+  compiler/sem/[
     semdata,
     lowerings,
     lookups

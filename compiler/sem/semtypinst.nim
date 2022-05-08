@@ -13,7 +13,7 @@ import
   std/[
     strutils
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     types,
@@ -21,18 +21,18 @@ import
     lineinfos,
     reports,
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs,
   ],
-  front/[
+  compiler/front/[
      msgs,
      options,
   ],
-  sem/[
+  compiler/sem/[
     semdata,
   ],
-  utils/[
+  compiler/utils/[
     astrepr
   ]
 

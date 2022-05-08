@@ -16,7 +16,7 @@ import
     strtabs,
     intsets
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     trees,
@@ -33,17 +33,17 @@ import
     enumtostr,
     linter
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulepaths,
     importer,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  utils/[
+  compiler/utils/[
     ropes,
     platform,
     nversion,
@@ -51,7 +51,7 @@ import
     int128,
     astrepr
   ],
-  sem/[
+  compiler/sem/[
     semfold,
     concepts,
     semmacrosanity,
@@ -73,22 +73,22 @@ import
     evaltempl,
     lowerings,
   ],
-  backend/[
+  compiler/backend/[
     cgmeth
   ],
-  plugins/[
+  compiler/plugins/[
     active
   ],
-  vm/[
+  compiler/vm/[
     vmdef,
     vm
   ]
 
 when defined(nimfix):
-  import nimfix/prettybase
+  import compiler/nimfix/prettybase
 
 when not defined(leanCompiler):
-  import sem/spawn
+  import compiler/sem/spawn
 
 # implementation
 

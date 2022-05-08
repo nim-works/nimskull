@@ -19,16 +19,16 @@ import
   std/[
     os
   ],
-  ast/[
+  compiler/ast/[
     ast,
     lineinfos,
     reports,
     llstream
   ],
-  front/[
+  compiler/front/[
     options
   ],
-  vm/[
+  compiler/vm/[
     vmdef,
     vm,
     nimeval,

@@ -12,11 +12,11 @@
 ## DLLs or the FFI will not work.
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     idents
   ],
-  sem/[
+  compiler/sem/[
     semdata
   ]
 

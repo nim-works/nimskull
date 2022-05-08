@@ -15,11 +15,11 @@ import
   std/options as std_options
 
 import
-  utils/[ropes, pathutils, strutils2],
-  ast/[reports, lineinfos],
-  front/[options]
+  compiler/utils/[ropes, pathutils, strutils2],
+  compiler/ast/[reports, lineinfos],
+  compiler/front/[options]
 
-from ast/ast_types import PSym
+from compiler/ast/ast_types import PSym
 
 export InstantiationInfo
 export TErrorHandling

@@ -15,7 +15,7 @@ when defined(nimHasUsed):
   {.used.}
 
 import
-  ast/[
+  compiler/ast/[
     lexer,
     idents,
     ast,
@@ -25,7 +25,7 @@ import
   std/[
     strutils,
   ],
-  front/[
+  compiler/front/[
     options,
     msgs,
   ]

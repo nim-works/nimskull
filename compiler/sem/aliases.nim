@@ -14,7 +14,7 @@ import
   std/[
     intsets
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     types,

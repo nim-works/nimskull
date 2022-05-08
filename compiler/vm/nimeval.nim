@@ -14,30 +14,30 @@ import
     compilesettings,
     os
   ],
-  ast/[
+  compiler/ast/[
     ast,
     llstream,
     idents,
     reports
   ],
-  modules/[
+  compiler/modules/[
     modules,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     condsyms,
     options,
     scriptconfig
   ],
-  utils/[
+  compiler/utils/[
     pathutils
   ],
-  sem/[
+  compiler/sem/[
     passes,
     sem,
     passaux
   ],
-  vm/[
+  compiler/vm/[
     vmdef,
     vm
   ]

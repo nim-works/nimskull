@@ -4,6 +4,6 @@
 ## The problem is that 'koch.exe' too is part of the zip bundle and
 ## needs to have the right 32/64 bit version. (Bug #6147)
 
-import "../koch"
+import koch/koch
 
 winRelease()

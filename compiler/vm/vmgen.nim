@@ -33,7 +33,7 @@ import
     strutils,
     intsets
   ],
-  ast/[
+  compiler/ast/[
     renderer,
     types,
     ast,
@@ -41,19 +41,19 @@ import
     lineinfos,
     astmsgs
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  sem/[
+  compiler/sem/[
     lowerings,
     transf
   ],
-  vm/[
+  compiler/vm/[
     vmdef,
     vmerrors
   ]

@@ -15,41 +15,41 @@ import
     math,
     os
   ],
-  ast/[
-     ast,
-     astalgo,
-     idents,
-     renderer,
-     wordrecg,
-     trees,
-     linter,
-     errorhandling,
-     reports,
-     lineinfos
+  compiler/ast/[
+    ast,
+    astalgo,
+    idents,
+    renderer,
+    wordrecg,
+    trees,
+    linter,
+    errorhandling,
+    reports,
+    lineinfos
   ],
-  modules/[
+  compiler/modules/[
     magicsys
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  utils/[
+  compiler/utils/[
     ropes,
     pathutils,
     debugUtils
   ],
-  sem/[
+  compiler/sem/[
     semdata,
     lookups
   ],
-  backend/[
+  compiler/backend/[
     extccomp
   ]
 
 
 
-from ic/ic import addCompilerProc
+from compiler/ic/ic import addCompilerProc
 
 const
   FirstCallConv* = wNimcall

@@ -10,17 +10,17 @@
 ## Plugin to transform an inline iterator into a data structure.
 
 import
-  ast/[
+  compiler/ast/[
     reports,
     ast
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     msgs
   ],
-  sem/[
+  compiler/sem/[
     lookups,
     semdata,
     lambdalifting

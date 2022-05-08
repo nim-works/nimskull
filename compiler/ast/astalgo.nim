@@ -12,7 +12,7 @@
 ## the data structures here are used in various places of the compiler.
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     idents,
     renderer
@@ -22,7 +22,7 @@ import
     intsets,
     strutils,
   ],
-  utils/[
+  compiler/utils/[
     ropes,
   ]
 

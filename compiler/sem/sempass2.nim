@@ -13,7 +13,7 @@ import
     tables,
     intsets,
   ],
-  ast/[
+  compiler/ast/[
     ast,
     renderer,
     astalgo,
@@ -26,18 +26,18 @@ import
     lineinfos,
     trees,
   ],
-  front/[
+  compiler/front/[
    options,
    msgs,
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
     magicsys,
   ],
-  utils/[
+  compiler/utils/[
     debugutils
   ],
-  sem/[
+  compiler/sem/[
     varpartitions,
     typeallowed,
     guards,

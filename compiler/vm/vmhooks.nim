@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-import utils/pathutils
+import compiler/utils/pathutils
 
 template setX(k, field) {.dirty.} =
   a.slots[a.ra].ensureKind(k)

@@ -10,14 +10,14 @@
 ## Include file that imports all plugins that are active.
 
 import
-  ast/[
+  compiler/ast/[
     idents,
     ast
   ],
-  utils/[
+  compiler/utils/[
     pluginsupport
   ],
-  plugins/[
+  compiler/plugins/[
     locals, itersgen
   ]
 

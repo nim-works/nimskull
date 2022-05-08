@@ -11,14 +11,14 @@
 ## support of Nim code. "ndi" stands for "Nim debug info".
 
 import
-  ast/[
+  compiler/ast/[
     ast
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  utils/[
+  compiler/utils/[
     ropes,
     pathutils
   ]

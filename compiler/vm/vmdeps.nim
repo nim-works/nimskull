@@ -11,18 +11,18 @@ import
   std/[
     os
   ],
-  ast/[
+  compiler/ast/[
     types,
     ast,
     idents,
     lineinfos,
     reports
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  utils/[
+  compiler/utils/[
     pathutils
   ]
 

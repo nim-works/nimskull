@@ -56,7 +56,7 @@
 #  To cache them they are inserted in a `cache` array.
 
 import
-  hashes
+  std/hashes
 
 from pathutils import AbsoluteFile
 

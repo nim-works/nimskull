@@ -14,7 +14,7 @@ import
     intsets,
     strutils,
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     trees,
@@ -23,15 +23,15 @@ import
     errorhandling,
     reports
   ],
-  front/[
+  compiler/front/[
     msgs,
     options,
   ],
-  utils/[
+  compiler/utils/[
     platform,
     int128,
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
   ]
 
@@ -988,7 +988,7 @@ proc matchType*(a: PType, pattern: openArray[tuple[k:TTypeKind, i:int]],
   result = a.kind == last
 
 
-include sem/sizealignoffsetimpl
+include compiler/sem/sizealignoffsetimpl
 
 proc computeSize*(conf: ConfigRef; typ: PType): BiggestInt =
   computeSizeAlign(conf, typ)

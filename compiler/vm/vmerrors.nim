@@ -9,10 +9,10 @@
 ## nor inside VM code-generation (`vmgen`)
 
 import
-  ast/[
+  compiler/ast/[
     reports
   ],
-  front/[
+  compiler/front/[
     msgs
   ]
 

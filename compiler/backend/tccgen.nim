@@ -8,7 +8,14 @@
 #
 
 import
-  os, strutils, options, msgs, tinyc, lineinfos, sequtils
+  os, strutils, tinyc, sequtils
+  compiler/ast[
+    lineinfos,
+  ],
+  compiler/front/[
+    options,
+    msgs
+  ]
 
 const tinyPrefix = "dist/nim-tinyc-archive".unixToNativePath
 const nimRoot = currentSourcePath.parentDir.parentDir

@@ -17,10 +17,10 @@
 import std/[options, packedsets]
 
 import
-  vm/vm_enums,
-  ast/ast_types,
-  utils/[int128, platform],
-  sem/nilcheck_enums
+  compiler/vm/vm_enums,
+  compiler/ast/ast_types,
+  compiler/utils/[int128, platform],
+  compiler/sem/nilcheck_enums
 
 export
   ast_types,
@@ -30,7 +30,7 @@ export
   int128.toInt128
 
 
-from front/in_options import TOption, TOptions
+from compiler/front/in_options import TOption, TOptions
 type InstantiationInfo* = typeof(instantiationInfo())
 
 # Importing and reexporting enums and 'external' reports in order to avoid

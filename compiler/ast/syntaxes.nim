@@ -10,8 +10,8 @@
 ## Implements the dispatcher for the different parsers.
 
 import
-  strutils,
-  ast/[
+  std/strutils,
+  compiler/ast/[
     llstream,
     ast,
     idents,
@@ -23,11 +23,11 @@ import
     lineinfos,
     reports
   ],
-  front/[
+  compiler/front/[
     options,
     msgs,
   ],
-  utils/[
+  compiler/utils/[
     pathutils,
   ]
 

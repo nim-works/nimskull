@@ -10,17 +10,17 @@
 ## This module implements Nim's standard template filter.
 
 import
-  front/[
+  compiler/front/[
     msgs,
     options,
   ],
   std/[
     strutils,
   ],
-  utils/[
+  compiler/utils/[
     pathutils,
   ],
-  ast/[
+  compiler/ast/[
     llstream,
     ast,
     filters,

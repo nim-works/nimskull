@@ -16,7 +16,7 @@ import
     tables,
     parseutils
   ],
-  ast/[
+  compiler/ast/[
     errorhandling,
     errorreporting,
     lineinfos,
@@ -29,22 +29,22 @@ import
     nimsets,
     parser # `parseExpr()` and `parseStmt()`
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
     magicsys
   ],
-  front/[
+  compiler/front/[
     options,
     msgs,
     cli_reporter # Imported to generate literal error message for VM exception
                  # handling
   ],
-  utils/[
+  compiler/utils/[
     debugutils,
     int128,
     btrees
   ],
-  sem/[
+  compiler/sem/[
     sighashes,
     macrocacheimpl,
     transf,
@@ -52,7 +52,7 @@ import
     evaltempl,
     semfold
   ],
-  vm/[
+  compiler/vm/[
     vmprofiler,
     gorgeimpl,
     vmdeps,
@@ -62,7 +62,7 @@ import
   ]
 
 
-import ast/ast except getstr
+import compiler/ast/ast except getstr
 import std/options as stdoptions
 
 

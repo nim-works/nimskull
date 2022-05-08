@@ -11,7 +11,7 @@
 
 # ------------------------- Name Mangling --------------------------------
 
-import sem/sighashes, modules/modulegraphs
+import compiler/sem/sighashes, compiler/modules/modulegraphs
 
 proc genProcHeader(m: BModule, prc: PSym, asPtr: bool = false): Rope
 

@@ -4,10 +4,10 @@ joinable: false
 """
 
 import
-  ast/[
+  compiler/ast/[
     reports
   ],
-  front/[
+  compiler/front/[
     options,
     commands
   ],

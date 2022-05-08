@@ -39,17 +39,17 @@ import
     sets,
     tables
   ],
-  ast/[
+  compiler/ast/[
     wordrecg
   ],
-  utils/[
+  compiler/utils/[
     prefixmatches
   ]
 
 
 
 when defined(nimsuggest):
-  import sem/passes, std/tables, utils/pathutils # importer
+  import compiler/sem/passes, std/tables, compiler/utils/pathutils # importer
 
 const
   sep = '\t'

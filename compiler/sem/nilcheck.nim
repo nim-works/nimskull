@@ -9,14 +9,6 @@
 
 
 import
-  ast/[
-    ast,
-    renderer,
-    lineinfos,
-    idents,
-    reports,
-    treetab,
-  ],
   std/[
     hashes,
     intsets,
@@ -26,14 +18,22 @@ import
     strutils,
     sets
   ],
-  modules/[
+  compiler/ast/[
+    ast,
+    renderer,
+    lineinfos,
+    idents,
+    reports,
+    treetab,
+  ],
+  compiler/modules/[
     modulegraphs,
   ],
-  front/[
+  compiler/front/[
     msgs,
     options,
   ],
-  sem/[
+  compiler/sem/[
     nilcheck_enums
   ]
 

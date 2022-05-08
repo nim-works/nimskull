@@ -9,11 +9,11 @@
 
 import
   std/[os, strutils, strtabs, sets, tables],
-  utils/[prefixmatches, pathutils, platform],
-  ast/[reports, lineinfos],
-  modules/nimpaths
+  compiler/utils/[prefixmatches, pathutils, platform],
+  compiler/ast/[reports, lineinfos],
+  compiler/modules/nimpaths
 
-import ./in_options
+import compiler/front/in_options
 export in_options
 
 from terminal import isatty
@@ -1047,7 +1047,7 @@ proc clearNimblePath*(conf: ConfigRef) =
   conf.lazyPaths = @[]
   conf.nimblePaths = @[]
 
-include modules/packagehandling
+include compiler/modules/packagehandling
 
 proc getOsCacheDir(): string =
   when defined(posix):

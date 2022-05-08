@@ -10,18 +10,18 @@
 ## Layouter for nimpretty.
 
 import
-  ast/[
+  compiler/ast/[
     idents,
     lexer,
     lineinfos,
     llstream,
     reports
   ],
-  front/[
+  compiler/front/[
     options,
     msgs,
   ],
-  utils/[
+  compiler/utils/[
     pathutils,
   ],
   std/[

@@ -12,14 +12,14 @@
 ## its task. The set must cover a complete Nim project.
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     reports
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],

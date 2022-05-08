@@ -43,14 +43,14 @@ next `debug` you call will provide needed information.
 
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     reports,
     renderer,
     lineinfos,
     errorhandling
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],

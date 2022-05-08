@@ -33,11 +33,9 @@ import
   std/[
     intsets
   ],
-  ast/[
+  compiler/ast/[
+    ast,
     renderer
-  ],
-  ast/[
-    ast
   ]
 
 import std/private/asciitables

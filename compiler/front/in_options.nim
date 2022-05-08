@@ -1,8 +1,8 @@
 ## This module contains defintions of all types and configuration objects
 ## that are used to determine nim compiler inputs.
 
-import utils/[pathutils, platform]
-import ast/[report_enums]
+import compiler/utils/[pathutils, platform]
+import compiler/ast/[report_enums]
 import std/[sets, strtabs]
 
 type

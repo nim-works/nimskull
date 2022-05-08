@@ -1,7 +1,7 @@
-import utils/ropes
+import compiler/utils/ropes
 import std/[hashes]
 
-from front/in_options import TOption, TOptions # Stored in `PSym`
+from compiler/front/in_options import TOption, TOptions # Stored in `PSym`
 
 
 type

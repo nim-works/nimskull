@@ -11,17 +11,17 @@
 ## This is needed for proper handling of forward declarations.
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     types,
     trees,
     reports
   ],
-  front/[
+  compiler/front/[
      msgs,
   ],
-  sem/[
+  compiler/sem/[
      semdata,
      lookups,
   ]

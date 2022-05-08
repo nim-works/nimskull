@@ -16,7 +16,7 @@ import std/[
 ]
 import backend, htmlgen, specs
 from std/sugar import dup
-import utils/nodejs
+import compiler/utils/nodejs
 import lib/stdtest/testutils
 from lib/stdtest/specialpaths import splitTestFile
 import experimental/[sexp, sexp_diff, colortext, colordiff]

@@ -16,14 +16,14 @@ import
     osproc,
     streams,
   ],
-  ast/[
+  compiler/ast/[
     lineinfos
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  utils/[
+  compiler/utils/[
     pathutils
   ]
 

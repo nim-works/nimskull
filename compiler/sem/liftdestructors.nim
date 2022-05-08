@@ -11,7 +11,10 @@
 ## (``=sink``, ``=``, ``=destroy``, ``=deepCopy``).
 
 import
-  ast/[
+  std/[
+    tables
+  ],
+  compiler/ast/[
     lineinfos,
     idents,
     ast,
@@ -20,25 +23,22 @@ import
     reports,
     trees
   ],
-  std/[
-    tables
-  ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
     magicsys
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  utils/[
+  compiler/utils/[
   ],
-  sem/[
+  compiler/sem/[
     semdata,
     sighashes,
     lowerings
   ],
-  backend/[
+  compiler/backend/[
     ccgutils
   ]
 

@@ -23,7 +23,7 @@ import
     tables,
     osproc
   ],
-  ast/[
+  compiler/ast/[
     ast,
     idents,
     wordrecg,
@@ -37,14 +37,14 @@ import
     renderverbatim,
     reports
   ],
-  modules/[
+  compiler/modules/[
     nimpaths
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  utils/[
+  compiler/utils/[
     pathutils,
   ]
 
@@ -57,7 +57,7 @@ import packages/docutils/rstast except FileIndex, TLineInfo
 
 from std/uri import encodeUrl
 from std/private/globs import nativeToUnixPath
-from utils/nodejs import findNodeJs
+from compiler/utils/nodejs import findNodeJs
 
 const
   exportSection = skField

@@ -15,27 +15,27 @@ import
     os,
     parseopt
   ],
-  ast/[
+  compiler/ast/[
     idents
   ],
-  modules/[
+  compiler/modules/[
     modules,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     options,
     commands,
     msgs,
     condsyms,
     nimconf
   ],
-  sem/[
+  compiler/sem/[
     sem,
     passes,
     passaux,
     linter
   ],
-  backend/[
+  compiler/backend/[
     extccomp
   ]
 

@@ -22,7 +22,7 @@
 # - output slices need special logic (+)
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     idents,
@@ -30,22 +30,22 @@ import
     types,
     reports
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  sem/[
+  compiler/sem/[
     lowerings,
     guards,
     spawn
   ]
 
 
-from ast/trees import getMagic, isTrue, getRoot
+from compiler/ast/trees import getMagic, isTrue, getRoot
 from std/strutils import `%`
 
 discard """

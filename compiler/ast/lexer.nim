@@ -17,11 +17,11 @@
 ## format.
 
 import
-  utils/[
+  compiler/utils/[
     platform,
     pathutils,
   ],
-  ast/[
+  compiler/ast/[
     wordrecg,
     nimlexbase,
     llstream,
@@ -34,7 +34,7 @@ import
     hashes,
     strutils
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ]

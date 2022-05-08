@@ -10,18 +10,18 @@
 ## implements some little helper passes
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     reports
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  sem/[
+  compiler/sem/[
     passes
   ]
 

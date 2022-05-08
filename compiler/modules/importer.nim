@@ -15,7 +15,7 @@ import
     sets,
     tables
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     idents,
@@ -23,15 +23,15 @@ import
     wordrecg,
     reports
   ],
-  modules/[
+  compiler/modules/[
     modulepaths,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  sem/[
+  compiler/sem/[
     lookups,
     semdata,
     sigmatch

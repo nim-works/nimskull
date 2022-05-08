@@ -10,7 +10,10 @@
 ## Implements the module handling, including the caching of modules.
 
 import
-  ast/[
+  std/[
+    tables
+  ],
+  compiler/ast/[
     ast,
     astalgo,
     idents,
@@ -20,24 +23,21 @@ import
     reports,
     syntaxes,
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  sem/[
+  compiler/sem/[
     passes,
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
     magicsys,
   ],
-  std/[
-    tables
-  ],
-  utils/[
+  compiler/utils/[
     pathutils
   ],
-  ic/[
+  compiler/ic/[
     replayer
   ]
 

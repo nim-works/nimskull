@@ -15,7 +15,7 @@ import
   std/[
     intsets
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     renderer,
@@ -24,15 +24,15 @@ import
     idents,
     lineinfos
   ],
-  front/[
+  compiler/front/[
     msgs
   ],
-  sem/[
+  compiler/sem/[
     lookups,
     semdata
   ]
 
-from modules/magicsys import addSonSkipIntLit
+from compiler/modules/magicsys import addSonSkipIntLit
 
 const
   logBindings = false

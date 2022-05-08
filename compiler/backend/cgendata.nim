@@ -15,18 +15,18 @@ import
     tables,
     sets
   ],
-  ast/[
+  compiler/ast/[
     ast,
     lineinfos,
     ndi
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     options
   ],
-  utils/[
+  compiler/utils/[
     ropes,
     pathutils
   ]

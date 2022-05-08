@@ -2612,7 +2612,7 @@ proc genStmtList(p: BProc, n: PNode) =
   genStmtListExprImpl:
     genStmts(p, n[^1])
 
-from sem/parampatterns import isLValue
+from compiler/sem/parampatterns import isLValue
 
 proc upConv(p: BProc, n: PNode, d: var TLoc) =
   var a: TLoc

@@ -4,9 +4,9 @@
 import std / [strutils, sets]
 
 import
-  ast/[llstream, lexer, idents, lineinfos, reports],
-  utils/[pathutils],
-  front/[options, msgs, cli_reporter]
+  compiler/ast/[llstream, lexer, idents, lineinfos, reports],
+  compiler/utils/[pathutils],
+  compiler/front/[options, msgs, cli_reporter]
 
 # import ".." / compiler / [
 #   llstream, lexer, options, msgs, idents,

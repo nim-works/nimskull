@@ -10,13 +10,18 @@
 # This module handles the reading of the config file.
 
 import
-  front/[
+  std/[
+    os,
+    strutils,
+    strtabs,
+  ],
+  compiler/front/[
     commands,
     msgs,
     options,
     scriptconfig
   ],
-  ast/[
+  compiler/ast/[
     lexer,
     reports,
     idents,
@@ -24,12 +29,7 @@ import
     llstream,
     ast
   ],
-  std/[
-    os,
-    strutils,
-    strtabs,
-  ],
-  utils/[
+  compiler/utils/[
     pathutils,
   ]
 

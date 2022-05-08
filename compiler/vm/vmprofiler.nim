@@ -4,14 +4,14 @@ import
     strutils,
     tables
   ],
-  ast/[
+  compiler/ast/[
     lineinfos,
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  vm/[
+  compiler/vm/[
     vmdef
   ]
 

@@ -19,14 +19,14 @@ import
     os,
     sequtils
   ],
-  ast/[
+  compiler/ast/[
     reports,
     idents
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     options,
     commands,
     cli_reporter,

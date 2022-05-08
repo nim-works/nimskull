@@ -9,12 +9,12 @@ import
     colortext,
     sexp_diff
   ],
-  ast/[
+  compiler/ast/[
     lineinfos,
     ast,
     reports
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
@@ -28,8 +28,6 @@ var writeConf: ConfigRef
 
 
 proc addFields[T](s: var SexpNode, r: T, ignore: seq[string] = @[])
-
-
 
 proc sexpItems*[T](s: T): SexpNode =
   result = newSList()

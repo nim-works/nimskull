@@ -12,7 +12,7 @@
 
 import
   std/[tables, hashes],
- utils/[ropes, pathutils]
+  compiler/utils/[ropes, pathutils]
 
 from ast_types import
   PSym,     # Contextual details of the instantnation stack optionally refer to

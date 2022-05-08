@@ -12,11 +12,11 @@ useful debugging flags:
 ]#
 
 import
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  ast/[
+  compiler/ast/[
     reports,
   ]
 
@@ -28,14 +28,17 @@ proc isCompilerDebug*(conf: ConfigRef): bool {.inline.} =
   if conf.isCompilerDebug():
     echo n.sym.typ.len
   ```
+
+  Example region to trace:
+  ```nim
+  proc main =
+    echo 2
+    {.define(nimCompilerDebug).}
+    echo 3.5 # code section in which `isCompilerDebug` will be true
+    {.undef(nimCompilerDebug).}
+    echo 'x'
+  ```
   ]##
-  runnableExamples:
-    proc main =
-      echo 2
-      {.define(nimCompilerDebug).}
-      echo 3.5 # code section in which `isCompilerDebug` will be true
-      {.undef(nimCompilerDebug).}
-      echo 'x'
   conf.isDefined("nimCompilerDebug")
 
 

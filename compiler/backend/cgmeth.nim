@@ -13,22 +13,22 @@ import
   std/[
     intsets,
   ],
-  front/[
+  compiler/front/[
     options,
     msgs,
   ],
-  ast/[
+  compiler/ast/[
     ast,
     renderer,
     types,
     lineinfos,
     reports
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs,
   ],
-  sem/[
+  compiler/sem/[
     sempass2,
   ]
 

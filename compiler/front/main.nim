@@ -14,7 +14,7 @@ when not defined(nimcore):
 
 import
   std/[strutils, os, times, tables, sha1, with, json],
-  ast/[
+  compiler/ast/[
     llstream,    # Input data stream
     ast,
     lexer,
@@ -23,45 +23,51 @@ import
     reports,     # Error report information
     lineinfos    # Positional data
   ],
-  front/[
+  compiler/front/[
     options,
     condsyms,
     msgs,
     nimconf      # Configuration file reading
   ],
-  sem/[
+  compiler/sem/[
     sem,         # Implementation of the semantic pass
     passes,      # Main procs for compilation pass setups
     passaux
   ],
-  modules/[
+  compiler/modules/[
     depends,     # Generate dependency information
     modules,
     modulegraphs # Project module graph
   ],
-  backend/[
+  compiler/backend/[
     extccomp,    # Calling C compiler
     cgen,        # C code generation
   ],
-  utils/[
+  compiler/utils/[
     platform,    # Target platform data
     nversion,
     pathutils    # Input file handling
   ],
-  vm/[
+  compiler/vm/[
     vm,          # Configuration file evaluation, `nim e`
     vmprofiler
   ]
 
-import ic / [cbackend, integrity, navigator]
-from ic / ic import rodViewer
+import compiler/ic/[
+    cbackend,
+    integrity,
+    navigator
+  ]
+from compiler/ic/ic import rodViewer
 
 when not defined(leanCompiler):
-  import backend/jsgen, tools/[docgen, docgen2]
+  import
+    compiler/backend/jsgen,
+    compiler/tools/[docgen, docgen2]
 
 when defined(nimDebugUnreportedErrors):
   import std/exitprocs
-  import utils/astrepr
+  import compiler/utils/astrepr
 
   proc echoAndResetUnreportedErrors(conf: ConfigRef) =
     if conf.unreportedErrors.len > 0:

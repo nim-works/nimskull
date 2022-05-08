@@ -10,7 +10,7 @@
 ## Path handling utilities for Nim. Strictly typed code in order
 ## to avoid the never ending time sink in getting path handling right.
 
-import os, pathnorm
+import std/[os, pathnorm]
 
 type
   AbsoluteFile* = distinct string
