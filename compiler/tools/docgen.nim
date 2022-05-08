@@ -1514,18 +1514,6 @@ proc handleDocOutputOptions*(conf: ConfigRef) =
     # it'd write to `sub/bar.html/main.html`
     conf.outDir = AbsoluteDir(conf.outDir / conf.outFile)
 
-proc commandDoc*(cache: IdentCache, conf: ConfigRef) =
-  ## implementation of deprecated ``doc0`` command (without semantic checking)
-  handleDocOutputOptions conf
-  var ast = parseFile(conf.projectMainIdx, cache, conf)
-  if ast == nil: return
-  var d = newDocumentor(conf.projectFull, cache, conf)
-  d.hasToc = true
-  generateDoc(d, ast, ast)
-  finishGenerateDoc(d)
-  writeOutput(d)
-  generateIndex(d)
-
 proc commandRstAux(cache: IdentCache, conf: ConfigRef;
                    filename: AbsoluteFile, outExt: string) =
   var filen = addFileExt(filename, "txt")
@@ -1543,33 +1531,6 @@ proc commandRst2Html*(cache: IdentCache, conf: ConfigRef) =
 
 proc commandRst2TeX*(cache: IdentCache, conf: ConfigRef) =
   commandRstAux(cache, conf, conf.projectFull, TexExt)
-
-proc commandJson*(cache: IdentCache, conf: ConfigRef) =
-  ## implementation of a deprecated jsondoc0 command
-  var ast = parseFile(conf.projectMainIdx, cache, conf)
-  if ast == nil: return
-  var d = newDocumentor(conf.projectFull, cache, conf)
-  d.onTestSnippet = proc (d: var RstGenerator; filename, cmd: string;
-                          status: int; content: string) =
-    localReport(conf, newLineInfo(conf, AbsoluteFile d.filename, -1, -1),
-               BackendReport(kind: rbackRstTestUnsupported))
-
-  d.hasToc = true
-  generateJson(d, ast)
-  finishGenerateDoc(d)
-  let json = d.jEntriesFinal
-  let content = pretty(json)
-
-  if optStdout in d.conf.globalOptions:
-    write(stdout, content)
-  else:
-    #echo getOutFile(gProjectFull, JsonExt)
-    let filename = getOutFile(conf, RelativeFile conf.projectName, JsonExt)
-    try:
-      writeFile(filename, content)
-    except:
-      localReport(conf, InternalReport(
-        kind: rintCannotOpenFile, msg: filename.string))
 
 proc commandTags*(cache: IdentCache, conf: ConfigRef) =
   var ast = parseFile(conf.projectMainIdx, cache, conf)

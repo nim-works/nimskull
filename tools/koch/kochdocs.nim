@@ -240,11 +240,6 @@ niminst.rst
 gc.rst
 """.splitWhitespace().mapIt("doc" / it)
 
-  doc0 = """
-lib/system/threads.nim
-lib/system/channels_builtin.nim
-""".splitWhitespace() # ran by `nim doc0` instead of `nim doc`
-
   withoutIndex = """
 lib/wrappers/mysql.nim
 lib/wrappers/sqlite3.nim
@@ -289,7 +284,6 @@ when (NimMajor, NimMinor) < (1, 1) or not declared(isRelativeTo):
 
 proc getDocList(): seq[string] =
   var docIgnore: HashSet[string]
-  for a in doc0: docIgnore.incl a
   for a in withoutIndex: docIgnore.incl a
   for a in ignoredModules: docIgnore.incl a
 
@@ -363,15 +357,11 @@ proc buildDoc(nimArgs, destPath: string) =
   # call nim for the documentation:
   let rst2html = getRst2html()
   var
-    commands = newSeq[string](rst2html.len + len(doc0) + len(doc) + withoutIndex.len)
+    commands = newSeq[string](rst2html.len + len(doc) + withoutIndex.len)
     i = 0
   let nim = findNim().quoteShell()
   for d in items(rst2html):
     commands[i] = nim & " rst2html --git.url:$# -o:$# --index:on $# $#" %
-      [gitUrl, destPath / changeFileExt(splitFile(d).name, "html"), nimArgs, d]
-    i.inc
-  for d in items(doc0):
-    commands[i] = nim & " doc0 --git.url:$# -o:$# --index:on $# $#" %
       [gitUrl, destPath / changeFileExt(splitFile(d).name, "html"), nimArgs, d]
     i.inc
   for d in items(doc):

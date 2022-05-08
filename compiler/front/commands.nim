@@ -364,8 +364,8 @@ const gcNames = @[
 
 const cmdNames = @[
   "c", "cc", "compile", "compiletoc", "cpp", "compiletocpp", "objc",
-  "compiletooc", "js", "compiletojs", "r", "run", "check", "e", "doc0",
-  "doc2", "doc", "doc2tex", "rst2html", "rst2tex", "jsondoc0", "jsondoc2",
+  "compiletooc", "js", "compiletojs", "r", "run", "check", "e",
+  "doc2", "doc", "doc2tex", "rst2html", "rst2tex", "jsondoc2",
   "jsondoc", "ctags", "buildindex", "gendepend", "dump", "parse", "rod",
   "secret", "nop", "help", "jsonscript",
 ]
@@ -601,12 +601,10 @@ proc parseCommand*(command: string): Command =
   of "run": cmdTcc
   of "check": cmdCheck
   of "e": cmdNimscript
-  of "doc0": cmdDoc0
   of "doc2", "doc": cmdDoc
   of "doc2tex": cmdDoc2tex
   of "rst2html": cmdRst2html
   of "rst2tex": cmdRst2tex
-  of "jsondoc0": cmdJsondoc0
   of "jsondoc2", "jsondoc": cmdJsondoc
   of "ctags": cmdCtags
   of "buildindex": cmdBuildindex

@@ -157,12 +157,10 @@ type
     cmdRod         ## .rod to some text representation (for debugging)
     cmdIdeTools    ## ide tools (e.g. nimsuggest)
     cmdNimscript   ## evaluate nimscript
-    cmdDoc0
     cmdDoc         ## convert .nim doc comments to HTML
     cmdDoc2tex     ## convert .nim doc comments to LaTeX
     cmdRst2html    ## convert a reStructuredText file to HTML
     cmdRst2tex     ## convert a reStructuredText file to TeX
-    cmdJsondoc0
     cmdJsondoc
     cmdCtags
     cmdBuildindex
