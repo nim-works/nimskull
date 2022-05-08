@@ -347,7 +347,6 @@ proc mainCommand*(graph: ModuleGraph) =
       globalReport(conf, ExternalReport(
         kind: rextExpectedTinyCForRun))
 
-  of cmdDoc0: docLikeCmd commandDoc(cache, conf)
   of cmdDoc:
     docLikeCmd():
       conf.setNoteDefaults(rsemLockLevelMismatch, false) # issue #13218
@@ -380,7 +379,6 @@ proc mainCommand*(graph: ModuleGraph) =
         commandRst2TeX(cache, conf)
       else:
         docLikeCmd commandDoc2(graph, TexExt)
-  of cmdJsondoc0: docLikeCmd commandJson(cache, conf)
   of cmdJsondoc: docLikeCmd commandDoc2(graph, JsonExt)
   of cmdCtags: docLikeCmd commandTags(cache, conf)
   of cmdBuildindex: docLikeCmd commandBuildIndex(conf, $conf.projectFull, conf.outFile)

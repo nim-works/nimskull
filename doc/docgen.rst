@@ -204,30 +204,7 @@ Output::
     ]
   }
 
-Similarly to the old `doc`:option: command, the old `jsondoc`:option: command has been
-renamed to `jsondoc0`:option:.
-
-The `jsondoc0`:option: command:
-
-.. code:: cmd
-
-  nim jsondoc0 docgen_sample.nim
-
-Output::
-  [
-    {
-      "comment": "This module is a sample."
-    },
-    {
-      "name": "helloWorld",
-      "type": "skProc",
-      "description": "Takes an integer and outputs as many &quot;hello world!&quot;s",
-      "code": "proc helloWorld*(times: int)"
-    }
-  ]
-
-Note that the `jsondoc`:option: command outputs its JSON without pretty-printing it,
-while `jsondoc0`:option: outputs pretty-printed JSON.
+Note that the `jsondoc`:option: command outputs its JSON without pretty-printing it.
 
 Related Options
 ===============
