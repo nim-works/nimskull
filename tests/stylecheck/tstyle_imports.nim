@@ -123,7 +123,7 @@ import experimental/[
   colordiff,
   colortext,
   diff,
-  #results,
+  results,
   sexp,
   sexp_diff,
   #shellrunner
