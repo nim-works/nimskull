@@ -1394,9 +1394,8 @@ proc boolVal*(n: NimNode): bool {.noSideEffect.} =
 
 when defined(nimMacrosGetNodeId):
   proc nodeID*(n: NimNode): int {.magic: "NodeId".}
-    ## Returns the id of `n`, when the compiler has been compiled
-    ## with the flag `-d:useNodeids`, otherwise returns `-1`. This
-    ## proc is for the purpose to debug the compiler only.
+    ## Returns the id of `n`. This proc is for the purpose to debug the
+    ## compiler only.
 
 macro expandMacros*(body: typed): untyped =
   ## Expands one level of macro - useful for debugging.
