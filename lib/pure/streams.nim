@@ -242,17 +242,19 @@ proc readDataStr*(s: Stream, buffer: var string, slice: Slice[int]): int =
     # fallback
     result = s.readData(addr buffer[slice.a], slice.b + 1 - slice.a)
 
+from macros import stripDoNode
+
 template jsOrVmBlock(caseJsOrVm, caseElse: untyped): untyped =
   when nimvm:
     block:
-      caseJsOrVm
+      stripDoNode(caseJsOrVm)
   else:
     block:
       when defined(js) or defined(nimscript):
         # nimscript has to be here to avoid semantic checking of caseElse
-        caseJsOrVm
+        stripDoNode(caseJsOrVm)
       else:
-        caseElse
+        stripDoNode(caseElse)
 
 when (NimMajor, NimMinor) >= (1, 3) or not defined(js):
   proc readAll*(s: Stream): string =
