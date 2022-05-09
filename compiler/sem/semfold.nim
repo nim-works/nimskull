@@ -11,7 +11,12 @@
 ## and evaluation phase
 
 import
-  ast/[
+  std/[
+    strutils,
+    strtabs,
+    math,
+  ],
+  compiler/ast/[
     renderer,
     types,
     nimsets,
@@ -20,26 +25,18 @@ import
     lineinfos,
     reports
   ],
-  std/[
-    strutils,
-    strtabs,
-    math,
-  ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs,
   ],
-  front/[
+  compiler/front/[
     commands,
     msgs,
     options,
   ],
-  utils/[
+  compiler/utils/[
     platform,
   ]
-
-
-
 
 from system/memory import nimCStrLen
 

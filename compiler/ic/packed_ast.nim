@@ -13,8 +13,8 @@
 ## it is superior.
 
 import std/[hashes, tables, strtabs]
-import ic/bitabs
-import ast/ast, front/options
+import compiler/ic/bitabs
+import compiler/ast/ast, compiler/front/options
 
 type
   SymId* = distinct int32

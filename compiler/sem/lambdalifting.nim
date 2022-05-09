@@ -14,7 +14,7 @@ import
     intsets,
     tables
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     reports,
@@ -23,15 +23,15 @@ import
     types,
     lineinfos
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  sem/[
+  compiler/sem/[
     typeallowed,
     liftdestructors,
     transf,

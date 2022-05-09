@@ -13,7 +13,7 @@ const
   genPrefix* = ":tmp"         ## prefix for generated names
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     types,
@@ -21,11 +21,11 @@ import
     lineinfos,
     reports
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
     magicsys
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ]

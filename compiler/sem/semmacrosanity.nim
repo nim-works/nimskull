@@ -13,13 +13,13 @@ import
   std/[
     strutils
   ],
-  ast/[
+  compiler/ast/[
     ast,
     types,
     typesrenderer,
     reports,
   ],
-  front/[
+  compiler/front/[
     msgs,
     options,
   ]

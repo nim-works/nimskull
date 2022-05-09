@@ -10,15 +10,15 @@
 ## abstract syntax tree + symbol table
 
 import
-  ast/[
+  compiler/ast/[
     lineinfos, # Positional information
     idents, # Ast identifiers
     ast_types # Main ast type definitions
   ],
-  front/[
+  compiler/front/[
     options
   ],
-  utils/[
+  compiler/utils/[
     ropes,
     int128 # Values for integer nodes
   ],

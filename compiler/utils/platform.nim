@@ -14,7 +14,7 @@
 # Feel free to test for your excentric platform!
 
 import
-  strutils
+  std/strutils
 
 type
   TSystemOS* = enum # Also add OS in initialization section and alias

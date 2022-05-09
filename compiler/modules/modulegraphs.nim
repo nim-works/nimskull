@@ -18,23 +18,23 @@ import
     hashes,
     md5
   ],
-  front/[
+  compiler/front/[
     options,
     msgs,
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     lineinfos,
     idents,
     reports
   ],
-  utils/[
+  compiler/utils/[
     pathutils,
     btrees,
     ropes,
   ],
-  ic/[
+  compiler/ic/[
     packed_ast,
     ic
   ]

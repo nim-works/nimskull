@@ -10,23 +10,23 @@
 ## This module implements the '.liftLocals' pragma.
 
 import
-  ast/[
+  compiler/ast/[
     reports,
     idents,
     renderer,
     lineinfos,
     ast
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  sem/[
+  compiler/sem/[
     lowerings
   ]
 
-from sem/pragmas import getPragmaVal
-from ast/wordrecg import wLiftLocals
+from compiler/sem/pragmas import getPragmaVal
+from compiler/ast/wordrecg import wLiftLocals
 
 type
   Ctx = object

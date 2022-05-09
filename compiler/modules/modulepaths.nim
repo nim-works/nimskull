@@ -12,16 +12,16 @@ import
     strutils,
     os,
   ],
-  ast/[
+  compiler/ast/[
     ast,
     lineinfos,
     renderer,
     reports,
   ],
-  utils/[
+  compiler/utils/[
     pathutils,
   ],
-  front/[
+  compiler/front/[
     msgs,
     options,
   ]

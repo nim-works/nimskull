@@ -11,12 +11,12 @@
 ## macro support.
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     types,
     trees
   ],
-  sem/[
+  compiler/sem/[
     semdata,
     sigmatch,
     aliases,

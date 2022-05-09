@@ -12,13 +12,13 @@ import std/strutils except Letters
 import
   std/[
   ],
-  ast/[
+  compiler/ast/[
     ast,
     lineinfos,
     idents,
     linter
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ]

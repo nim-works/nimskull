@@ -1,4 +1,4 @@
-import ast/ast
+import compiler/ast/ast
 
 template elementType*(T: typedesc): typedesc =
   typeof(block:

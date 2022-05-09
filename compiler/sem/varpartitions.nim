@@ -29,25 +29,26 @@
 ## for a high-level description of how borrow checking works.
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     lineinfos,
     types,
     renderer,
     reports
   ],
-  front/[
+  compiler/front/[
     options,
     msgs,
   ],
-  sem/[
+  compiler/sem/[
     typeallowed,
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
   ]
 
-from ast/trees import getMagic, isNoSideEffectPragma, stupidStmtListExpr
+from compiler/ast/trees import getMagic, isNoSideEffectPragma,
+                               stupidStmtListExpr
 from isolation_check import canAlias
 
 type

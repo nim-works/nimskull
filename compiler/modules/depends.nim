@@ -10,21 +10,21 @@
 ## This module implements a dependency file generator.
 
 import
-  ast/[
+  compiler/ast/[
     ast
   ],
-  modules/[
+  compiler/modules/[
     modulepaths,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     options
   ],
-  utils/[
+  compiler/utils/[
     ropes,
     pathutils
   ],
-  sem/[
+  compiler/sem/[
     passes
   ]
 

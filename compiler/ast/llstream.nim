@@ -10,7 +10,7 @@
 ## Low-level streams for high performance.
 
 import
-  utils/pathutils
+  compiler/utils/pathutils
 
 # support `useGnuReadline`, `useLinenoise` for backwards compatibility
 const hasRstdin = (defined(nimUseLinenoise) or defined(useLinenoise) or defined(useGnuReadline)) and

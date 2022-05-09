@@ -13,22 +13,22 @@ import
   std/[
     hashes, strutils
   ],
-  ast/[
+  compiler/ast/[
     wordrecg,
     ast,
     types,
     trees
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  utils/[
+  compiler/utils/[
     platform
   ],
-  sem/[
+  compiler/sem/[
   ],
-  backend/[
+  compiler/backend/[
     cgendata
   ]
 

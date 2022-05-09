@@ -1,10 +1,10 @@
 import
-  ast/[
+  compiler/ast/[
     ast,
     idents,
     lineinfos
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
     magicsys
   ]

@@ -14,7 +14,7 @@ import
     intsets,
     strutils,
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     types,
@@ -28,15 +28,15 @@ import
     errorhandling,
     reports,
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
     magicsys,
   ],
-  front/[
+  compiler/front/[
     msgs,
     options,
   ],
-  sem/[
+  compiler/sem/[
     semdata,
     semtypinst,
     lookups,
@@ -2677,7 +2677,7 @@ proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
     if op == attachedDeepCopy:
       assert sfFromGeneric in result.flags
 
-include tools/suggest
+include compiler/tools/suggest
 
 when not declared(tests):
   template tests(s: untyped) = discard

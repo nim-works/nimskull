@@ -15,7 +15,7 @@ import
     strutils,
     intsets
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     idents,
@@ -25,20 +25,20 @@ import
     errorreporting,
     reports
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs
   ],
-  utils/[
+  compiler/utils/[
     debugutils
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  sem/[
+  compiler/sem/[
     semdata
   ],
-  nimfix/[
+  compiler/nimfix/[
     prettybase
   ]
 
@@ -413,7 +413,7 @@ proc addDecl*(c: PContext, sym: PSym) {.inline.} =
 proc addPrelimDecl*(c: PContext, sym: PSym) =
   discard c.currentScope.addUniqueSym(sym)
 
-from ic/ic import addHidden
+from compiler/ic/ic import addHidden
 
 proc addInterfaceDeclAux(c: PContext, sym: PSym) =
   ## adds symbol to the module for either private or public access.

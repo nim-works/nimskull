@@ -24,19 +24,19 @@ when defined(windows) and not defined(nimKochBootstrap):
     {.link: "../icons/nim-i386-windows-vcc.res".}
 
 import
-  backend/[
+  compiler/backend/[
     extccomp
   ],
-  front/[
+  compiler/front/[
     msgs, main, cmdlinehelper, options, commands, cli_reporter
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs
   ],
-  utils/[
+  compiler/utils/[
     pathutils
   ],
-  ast/[
+  compiler/ast/[
     reports, idents
   ]
 
@@ -47,10 +47,10 @@ import
 #   pathutils, modulegraphs, reports
 
 from std/browsers import openDefaultBrowser
-from utils/nodejs import findNodeJs
+from compiler/utils/nodejs import findNodeJs
 
 when hasTinyCBackend:
-  import backend/tccgen
+  import compiler/backend/tccgen
 
 when defined(profiler) or defined(memProfiler):
   {.hint: "Profiling support is turned on!".}

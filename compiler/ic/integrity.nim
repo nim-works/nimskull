@@ -11,7 +11,7 @@
 ## The set must cover a complete Nim project.
 
 import std/sets
-import ast/ast, modules/modulegraphs
+import compiler/ast/ast, compiler/modules/modulegraphs
 import packed_ast, bitabs, ic
 
 type

@@ -10,11 +10,11 @@
 ## this unit handles Nim sets; it implements symbolic sets
 
 import
-  ast/[ast, astalgo, lineinfos, types],
-  front/[
+  compiler/ast/[ast, astalgo, lineinfos, types],
+  compiler/front/[
     options
   ],
-  utils/[
+  compiler/utils/[
     bitsets
   ]
 

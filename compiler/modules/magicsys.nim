@@ -10,10 +10,10 @@
 ## Built-in types and compilerprocs are registered here.
 
 import
-  utils/[
+  compiler/utils/[
     platform,
   ],
-  ast/[
+  compiler/ast/[
     lineinfos,
     errorhandling,
     idents,
@@ -21,10 +21,10 @@ import
     ast,
     astalgo,
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ]

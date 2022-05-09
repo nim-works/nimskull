@@ -14,14 +14,14 @@ import
     md5,
     hashes
   ],
-  ast/[
+  compiler/ast/[
     ast,
     types
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs
   ],
-  utils/[
+  compiler/utils/[
     ropes
   ]
 

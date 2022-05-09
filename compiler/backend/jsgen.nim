@@ -36,7 +36,7 @@ import
     intsets,
     strutils
   ],
-  ast/[
+  compiler/ast/[
     ast,
     trees,
     idents,
@@ -47,19 +47,19 @@ import
     astmsgs,
     reports
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  utils/[
+  compiler/utils/[
     nversion,
     ropes
   ],
-  sem/[
+  compiler/sem/[
     passes,
     lowerings,
     sighashes,
@@ -68,13 +68,13 @@ import
     transf,
     sourcemap
   ],
-  backend/[
+  compiler/backend/[
     ccgutils,
     cgmeth,
   ],
-  plugins/[
+  compiler/plugins/[
   ],
-  vm/[
+  compiler/vm/[
   ]
 
 

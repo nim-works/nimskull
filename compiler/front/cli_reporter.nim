@@ -26,7 +26,7 @@ import
   experimental/[
     colortext
   ],
-  ast/[
+  compiler/ast/[
     lineinfos,
     astalgo,
     astmsgs,
@@ -36,22 +36,22 @@ import
     ast,
     reports
   ],
-  utils/[
+  compiler/utils/[
     platform,
     nversion,
     astrepr
   ],
-  front/[
+  compiler/front/[
     msgs
   ],
-  sem/[
+  compiler/sem/[
     nilcheck_enums
   ],
-  vm/[
+  compiler/vm/[
     vm_enums
   ]
 
-import front/options as compiler_options
+import compiler/front/options as compiler_options
 
 func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
 

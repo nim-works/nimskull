@@ -9,13 +9,13 @@
 
 import
   std/strutils,
-  ast/[
+  compiler/ast/[
     ast,
     astmsgs,
     renderer,
     types,
   ],
-  front/options
+  compiler/front/options
 
 const defaultParamSeparator* = ","
 

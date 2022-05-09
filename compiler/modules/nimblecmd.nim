@@ -18,15 +18,15 @@ import
     tables,
     sequtils
   ],
-  front/[
+  compiler/front/[
     options,
     msgs,
   ],
-  ast/[
+  compiler/ast/[
     lineinfos,
     reports
   ],
-  utils/[
+  compiler/utils/[
     pathutils
   ]
 

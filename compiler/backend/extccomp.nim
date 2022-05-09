@@ -13,16 +13,16 @@
 ## compile nim files.
 
 import
-  utils/[
+  compiler/utils/[
     ropes,
     platform,
     pathutils
   ],
-  ast/[
+  compiler/ast/[
     lineinfos,
     reports
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],

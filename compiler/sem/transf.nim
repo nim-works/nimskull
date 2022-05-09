@@ -19,7 +19,7 @@
 ## * transforms 'defer' into a 'try finally' statement
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     trees,
@@ -30,20 +30,20 @@ import
     lineinfos,
     errorreporting
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  sem/[
+  compiler/sem/[
     liftlocals,
     semfold,
     lowerings
   ],
-  backend/[
+  compiler/backend/[
     cgmeth
   ]
 

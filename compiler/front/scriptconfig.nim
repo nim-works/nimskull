@@ -11,38 +11,38 @@
 ## language.
 
 import
-  ast/[
-    ast,
-    idents,
-    wordrecg,
-    reports,
-    llstream,
-  ],
   std/[
     os,
     times,
     osproc,
     strtabs,
   ],
-  modules/[
+  compiler/ast/[
+    ast,
+    idents,
+    wordrecg,
+    reports,
+    llstream,
+  ],
+  compiler/modules/[
     modules,
     modulegraphs,
   ],
-  sem/[
+  compiler/sem/[
     passes,
     sem,
   ],
-  vm/[
+  compiler/vm/[
     vm,
     vmdef,
   ],
-  front/[
+  compiler/front/[
     msgs,
     condsyms,
     options,
     commands,
   ],
-  utils/[
+  compiler/utils/[
     pathutils
   ]
 

@@ -13,17 +13,17 @@ when not defined(nimpretty):
   {.error: "This needs to be compiled with --define:nimPretty".}
 
 import
-  ast/[
+  compiler/ast/[
     idents,
     syntaxes,
     layouter
   ],
-  front/[
+  compiler/front/[
     msgs,
     options,
     cli_reporter
   ],
-  utils/[
+  compiler/utils/[
     pathutils,
   ]
 

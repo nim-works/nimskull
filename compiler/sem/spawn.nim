@@ -9,7 +9,7 @@
 
 ## This module implements threadpool's ``spawn``.
 import
-  ast/[
+  compiler/ast/[
     trees,
     ast,
     types,
@@ -17,15 +17,15 @@ import
     renderer,
     reports
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  sem/[
+  compiler/sem/[
     lowerings,
     liftdestructors
   ]

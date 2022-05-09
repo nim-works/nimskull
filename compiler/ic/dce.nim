@@ -14,11 +14,11 @@ import
     intsets,
     tables
   ],
-  ast/[
+  compiler/ast/[
     ast,
     lineinfos
   ],
-  front/[
+  compiler/front/[
     options
   ]
 

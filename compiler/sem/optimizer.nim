@@ -12,9 +12,9 @@
 ## - recognize "all paths lead to 'wasMoved(x)'"
 
 import
-  ast/[ast, renderer], std/intsets
+  compiler/ast/[ast, renderer], std/intsets
 
-from ast/trees import exprStructuralEquivalent
+from compiler/ast/trees import exprStructuralEquivalent
 
 const
   nfMarkForDeletion = nfNone # faster than a lookup table

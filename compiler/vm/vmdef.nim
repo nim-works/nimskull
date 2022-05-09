@@ -13,19 +13,19 @@
 import tables
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     idents,
     lineinfos,
     reports,
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
   ],
-  front/[
+  compiler/front/[
     options,
   ],
-  utils/[
+  compiler/utils/[
     debugutils
   ]
 

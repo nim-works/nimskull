@@ -13,24 +13,24 @@ import
   std/[
     os
   ],
-  ast/[
+  compiler/ast/[
     idents,
     reports
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     nimconf,
     commands,
     msgs,
     options,
     condsyms
   ],
-  utils/[
+  compiler/utils/[
     pathutils
   ],
-  backend/[
+  compiler/backend/[
     extccomp
   ]
 

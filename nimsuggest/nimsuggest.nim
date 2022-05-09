@@ -22,28 +22,28 @@ import std/options as std_options
 
 
 import
-  ast/[
+  compiler/ast/[
     reports,
     idents,
     lineinfos,
     ast
   ],
-  modules/[
+  compiler/modules/[
     modules,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     options,
     commands,
     msgs,
     cmdlinehelper,
     cli_reporter
   ],
-  utils/[
+  compiler/utils/[
     prefixmatches,
     pathutils
   ],
-  sem/[
+  compiler/sem/[
     sem,
     passes,
     passaux,

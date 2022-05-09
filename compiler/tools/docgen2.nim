@@ -11,26 +11,26 @@
 # semantic checking.
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     lineinfos
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  utils/[
+  compiler/utils/[
     pathutils
   ],
-  sem/[
+  compiler/sem/[
     passes
   ],
-  tools/[
+  compiler/tools/[
     docgen
   ]
 
+from compiler/modules/modulegraphs import ModuleGraph, PPassContext
 
-from modules/modulegraphs import ModuleGraph, PPassContext
 
 type
   TGen = object of PPassContext

@@ -14,7 +14,7 @@ import
   std/[
     strutils
   ],
-  ast/[
+  compiler/ast/[
     ast,
     types,
     renderer,
@@ -22,7 +22,7 @@ import
     trees,
     reports
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ]

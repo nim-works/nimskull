@@ -11,21 +11,21 @@
 ## `TPass` interface.
 
 import
-  front/[
+  compiler/front/[
     options,
     msgs,
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
   ],
-  ast/[
+  compiler/ast/[
     ast,
     llstream,
     syntaxes,
     reports,
     lineinfos,
   ],
-  utils/[
+  compiler/utils/[
     pathutils,
   ]
 

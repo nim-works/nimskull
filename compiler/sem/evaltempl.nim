@@ -10,7 +10,7 @@
 ## Template evaluation engine. Now hygienic.
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     lineinfos,
@@ -18,7 +18,7 @@ import
     renderer,
     reports
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ]

@@ -18,7 +18,7 @@ import
     tables,
     sets
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     trees,
@@ -34,21 +34,21 @@ import
     astmsgs,
     ndi
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  utils/[
+  compiler/utils/[
     platform,
     nversion,
     bitsets,
     ropes,
     pathutils
   ],
-  sem/[
+  compiler/sem/[
     passes,
     rodutils,
     aliases,
@@ -56,22 +56,22 @@ import
     transf,
     injectdestructors
   ],
-  backend/[
+  compiler/backend/[
     extccomp,
     ccgutils,
     cgmeth,
     cgendata
   ],
-  plugins/[
+  compiler/plugins/[
   ]
 
 
 when not defined(leanCompiler):
-  import sem/[spawn, semparallel]
+  import compiler/sem/[spawn, semparallel]
 
 import std/strutils except `%` # collides with ropes.`%`
 
-from ic / ic import ModuleBackendFlag
+from compiler/ic/ic import ModuleBackendFlag
 import dynlib
 
 when not declared(dynlib.libCandidates):

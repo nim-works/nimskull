@@ -1,10 +1,10 @@
 # this module avoids ast depending on msgs or vice versa
 import std/strutils
 import
-  ast/[
+  compiler/ast/[
     ast,
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ]

@@ -22,28 +22,31 @@ import
   std/[
     packedsets, algorithm, tables
   ],
-  ast/[
+  compiler/ast/[
     ast,
     lineinfos
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  utils/[
+  compiler/utils/[
     pathutils
   ],
-  backend/[
+  compiler/backend/[
     cgendata,
     cgen,
     extccomp
+  ],
+  compiler/ic/[
+    packed_ast,
+    ic,
+    dce,
+    rodfiles
   ]
-
-
-import packed_ast, ic, dce, rodfiles
 
 proc unpackTree(g: ModuleGraph; thisModule: int;
                 tree: PackedTree; n: NodePos): PNode =

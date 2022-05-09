@@ -157,21 +157,21 @@ import
   std/[
     tables
   ],
-  ast/[
+  compiler/ast/[
     ast,
     idents,
     renderer,
     lineinfos
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     options,
     msgs
   ],
-  sem/[
+  compiler/sem/[
     lowerings,
     lambdalifting
   ]

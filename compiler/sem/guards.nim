@@ -10,7 +10,7 @@
 ## This module implements the 'implies' relation for guards.
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     renderer,
@@ -21,15 +21,15 @@ import
     lineinfos,
     reports
   ],
-  utils/[
+  compiler/utils/[
     saturate,
     int128,
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs,
   ],
-  front/[
+  compiler/front/[
     msgs,
     options,
   ]

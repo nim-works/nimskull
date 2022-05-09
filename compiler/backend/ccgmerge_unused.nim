@@ -11,8 +11,30 @@
 ## is needed for incremental compilation.
 
 import
-  ast, ropes, options, strutils, nimlexbase, cgendata, rodutils,
-  intsets, llstream, tables, modulegraphs, pathutils
+  std[
+    strutils,
+    intsets,
+    tables
+  ],
+  compiler/ast[
+    ast,
+    llstream,
+    nimlexbase
+  ],
+  compiler/front[
+    options
+  ],
+  compiler/modules[
+    modulegraphs
+  ],
+  compiler/sem[
+    rodutils
+  ],
+  compiler/utils[
+    ropes,
+    pathutils
+  ],
+  cgendata
 
 # Careful! Section marks need to contain a tabulator so that they cannot
 # be part of C string literals.

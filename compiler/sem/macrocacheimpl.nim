@@ -10,11 +10,11 @@
 ## This module implements helpers for the macro cache.
 
 import
-  ast/[
+  compiler/ast/[
     lineinfos,
     ast
   ],
-  vm/[
+  compiler/vm/[
     vmdef
   ]
 

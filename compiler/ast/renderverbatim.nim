@@ -1,11 +1,11 @@
 import std/strutils
 
-import ast/ast, front/options, front/msgs
+import compiler/ast/ast, compiler/front/options, compiler/front/msgs
 
 const isDebug = false
 when isDebug:
-  import ast/renderer
-  import ast/astalgo
+  import compiler/ast/renderer
+  import compiler/ast/astalgo
 
 proc lastNodeRec(n: PNode): PNode =
   result = n

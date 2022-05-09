@@ -12,8 +12,8 @@
 import
   std/strtabs
 
-from front/options import Feature
-import ast/reports
+from compiler/front/options import Feature
+import compiler/ast/reports
 
 
 proc initDefines*(symbols: StringTableRef) =

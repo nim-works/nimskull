@@ -20,7 +20,7 @@ import
     strutils,
     tables
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     renderer,
@@ -30,15 +30,15 @@ import
     lineinfos,
     reports
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  sem/[
+  compiler/sem/[
     dfa,
     lowerings,
     parampatterns,
@@ -48,7 +48,7 @@ import
     varpartitions
   ]
 
-from ast/trees import exprStructuralEquivalent, getRoot
+from compiler/ast/trees import exprStructuralEquivalent, getRoot
 
 type
   Con = object

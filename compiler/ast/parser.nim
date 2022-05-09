@@ -30,7 +30,7 @@ when isMainModule:
   checkGrammarFile()
 
 import
-  ast/[
+  compiler/ast/[
     llstream,
     lexer,
     idents,
@@ -41,11 +41,11 @@ import
   std/[
     strutils,
   ],
-  front/[
+  compiler/front/[
     msgs,
     options,
   ],
-  utils/[
+  compiler/utils/[
     pathutils
   ]
 

@@ -10,7 +10,7 @@
 ## This module implements Nim's simple filters and helpers for filters.
 
 import
-  ast/[
+  compiler/ast/[
     llstream,
     ast,
     renderer,
@@ -19,10 +19,10 @@ import
   std/[
     strutils,
   ],
-  utils/[
+  compiler/utils/[
     pathutils,
   ],
-  front/[
+  compiler/front/[
     msgs,
     options,
   ]

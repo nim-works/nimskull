@@ -10,22 +10,22 @@
 import std/[hashes, tables, intsets, sha1]
 
 import
-  ic/[
+  compiler/ic/[
     packed_ast,
     bitabs,
     rodfiles
   ],
-  ast/[
+  compiler/ast/[
     ast,
     idents,
     lineinfos,
     reports
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
-  utils/[
+  compiler/utils/[
     ropes,
     pathutils
   ]

@@ -14,8 +14,8 @@
 ##   determines which error handling strategy to use doNothing, raise, etc.
 
 import ast, errorhandling, renderer, reports, std/tables
-from front/options import ConfigRef
-from front/msgs import TErrorHandling
+from compiler/front/options import ConfigRef
+from compiler/front/msgs import TErrorHandling
 
 export compilerInstInfo, walkErrors, errorKind
 # export because keeping the declaration in `errorhandling` acts as a reminder

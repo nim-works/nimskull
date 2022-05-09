@@ -16,11 +16,11 @@ import
     tables,
     strutils
   ],
-  front/[
+  compiler/front/[
     options,
     msgs,
   ],
-  ast/[
+  compiler/ast/[
     ast,
     astalgo,
     idents,
@@ -28,17 +28,17 @@ import
     lineinfos,
     reports
   ],
-  modules/[
+  compiler/modules/[
     magicsys,
     modulegraphs,
   ],
-  vm/[
+  compiler/vm/[
     vmdef,
   ],
-  ic/[
+  compiler/ic/[
     ic
   ],
-  utils/[
+  compiler/utils/[
     pathutils,
   ]
 

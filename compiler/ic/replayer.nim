@@ -12,28 +12,28 @@
 ## support.
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     trees,
     reports,
   ],
-  modules/[
+  compiler/modules/[
     modulegraphs,
   ],
-  utils/[
+  compiler/utils/[
     btrees,
     pathutils,
   ],
-  front/[
+  compiler/front/[
     msgs,
     options,
   ],
-  backend/[
+  compiler/backend/[
     extccomp,
     cgmeth
   ]
 
-import tables
+import std/tables
 
 import packed_ast, ic, bitabs
 

@@ -11,7 +11,7 @@
 ## https://github.com/nim-lang/RFCs/issues/244 for more details.
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     types,
     renderer,

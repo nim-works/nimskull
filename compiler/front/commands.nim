@@ -34,31 +34,31 @@ import
     strtabs,
     pathnorm
   ],
-  modules/[
+  compiler/modules/[
     nimblecmd,
   ],
-  ast/[
+  compiler/ast/[
     lineinfos,
     reports,
     wordrecg,
   ],
-  front/[
+  compiler/front/[
     options,
     msgs,
     cli_reporter,
     sexp_reporter
   ],
-  backend/[
+  compiler/backend/[
     extccomp
   ],
-  utils/[
+  compiler/utils/[
     nversion,
     pathutils,
     platform
   ]
 
 
-from ast/ast import setUseIc, eqTypeFlags, tfGcSafe, tfNoSideEffect
+from compiler/ast/ast import setUseIc, eqTypeFlags, tfGcSafe, tfNoSideEffect
 
 bootSwitch(usedTinyC, hasTinyCBackend, "-d:tinyc")
 

@@ -14,15 +14,15 @@ import
   std/[
     intsets,
   ],
-  ast/[
+  compiler/ast/[
     ast,
     renderer,
     types
   ],
-  front/[
+  compiler/front/[
     options,
   ],
-  sem/[
+  compiler/sem/[
     semdata,
   ]
 

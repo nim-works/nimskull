@@ -32,15 +32,15 @@
 ##   structure on the side instead of directly in the node
 
 import
-  ast/[
+  compiler/ast/[
     ast,
     reports,
     lineinfos
   ],
-  utils/[
+  compiler/utils/[
     debugutils,
   ],
-  front/[
+  compiler/front/[
     msgs,
     options
   ],
