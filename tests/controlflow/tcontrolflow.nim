@@ -84,15 +84,14 @@ block tnestif:
       x, y: int
   x = 2
   if x == 0:
-      write(stdout, "i == 0")
       if y == 0:
-          writeLine(stdout, x)
+          echo x
       else:
-          writeLine(stdout, y)
+          echo y
   elif x == 1:
-      writeLine(stdout, "i == 1")
+      echo "i == 1"
   elif x == 2:
-      writeLine(stdout, "i == 2")
+      echo "i == 2"
   else:
-      writeLine(stdout, "looks like Python")
+      echo "looks like Python"
   #OUT i == 2

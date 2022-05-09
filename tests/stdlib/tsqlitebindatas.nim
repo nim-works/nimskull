@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
   action: "run"
   exitcode: 0
 """

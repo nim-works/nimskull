@@ -41,6 +41,7 @@ var m = createMatrix(w, h)
 for i in 0..w-1:
   m[i, i] = 1.0
 
+var actual = ""
 for i in 0..w-1:
-  stdout.write(m[i,i]) #OUT 111
-stdout.write "\n"
+  actual.add $m[i,i] #OUT 111
+echo actual

@@ -1,7 +1,8 @@
 discard """
+  targets: native
   errormsg: "type mismatch: got <typedesc[int]> but expected 'int'"
   file: "ttypenoval.nim"
-  line: 38
+  line: 39
 """
 
 # A min-heap.

@@ -1,5 +1,4 @@
 discard """
-  output: "000"
 """
 # Test iterator with more than 1 yield statement
 
@@ -20,9 +19,10 @@ iterator tokenize2(s: string, seps: set[char] = Whitespace): tuple[
         yield (substr(s, i, j-1), false)
     i = j
 
+var actual = ""
 for word, isSep in tokenize2("ta da", WhiteSpace):
   var titer2TestVar = 0
-  stdout.write(titer2TestVar)
+  actual.add $titer2TestVar
 
 proc wordWrap2(s: string, maxLineWidth = 80,
                splitLongWords = true,
@@ -32,4 +32,4 @@ proc wordWrap2(s: string, maxLineWidth = 80,
   for word, isSep in tokenize2(s, seps):
     var w = 0
 
-stdout.write "\n"
+doAssert actual == "000"

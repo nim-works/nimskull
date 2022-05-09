@@ -1,4 +1,5 @@
 discard """
+target: native
 joinable: false
 """
 

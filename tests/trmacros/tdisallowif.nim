@@ -1,6 +1,7 @@
 discard """
-  errormsg: "usage of 'disallowIf' is an {.error.} defined at tdisallowif.nim(10, 1)"
-  line: 24
+  targets: native
+  errormsg: "usage of 'disallowIf' is an {.error.} defined at tdisallowif.nim(11, 1)"
+  line: 25
 """
 
 template optZero{x+x}(x: int): int = x*3

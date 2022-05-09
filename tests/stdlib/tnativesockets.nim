@@ -1,3 +1,7 @@
+discard """
+  targets: "!js"
+"""
+
 import std/nativesockets
 import stdtest/testutils
 

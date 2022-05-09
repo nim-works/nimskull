@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
   disabled: "unix"
   matrix: "--gc:refc; --gc:arc"
 """

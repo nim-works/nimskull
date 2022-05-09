@@ -1,5 +1,5 @@
 discard """
-  targets: "c js"
+  targets: "c cpp js"
 """
 
 import times, strutils, unittest

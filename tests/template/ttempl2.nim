@@ -1,7 +1,8 @@
 discard """
+  targets: native
   errormsg: "undeclared identifier: \'b\'"
   file: "ttempl2.nim"
-  line: 18
+  line: 19
 """
 template declareInScope(x: untyped, t: typeDesc): untyped =
   var x: t

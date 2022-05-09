@@ -1,3 +1,6 @@
+discard """
+  targets: "!js"
+"""
 
 import unittest, strutils
 import ../../lib/packages/docutils/highlite

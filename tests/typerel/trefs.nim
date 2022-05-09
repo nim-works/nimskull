@@ -1,7 +1,8 @@
 discard """
+  targets: native
   errormsg: "type mismatch"
   file: "trefs.nim"
-  line: 20
+  line: 21
 """
 # test for ref types (including refs to procs)
 
@@ -16,5 +17,5 @@ proc wrongfoo(c, e: int): int {.inline.} =
 
 var p: TProc
 p = foo
-write(stdout, "success!")
+echo "success!"
 p = wrongfoo  #ERROR_MSG type mismatch

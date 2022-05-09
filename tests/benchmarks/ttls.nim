@@ -1,5 +1,6 @@
 discard """
   action: compile
+  knownIssue: "doesn't work under JS because `cpuTime` isn't implemented"
 """
 
 #[

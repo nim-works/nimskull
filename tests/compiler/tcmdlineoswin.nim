@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim $target $options --os:windows $file"
+  matrix: "--os:windows"
   disabled: "linux"
   disabled: "bsd"
   disabled: "osx"

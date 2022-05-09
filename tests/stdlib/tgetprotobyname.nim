@@ -1,3 +1,7 @@
+discard """
+  targets: "!js"
+"""
+
 import nativesockets
 
 doAssert getProtoByName("ipv6") == 41

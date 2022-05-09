@@ -1,4 +1,5 @@
 discard """
+targets: "!js"
 sortoutput: true
 output: '''
 key1: value1

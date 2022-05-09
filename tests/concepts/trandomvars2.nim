@@ -1,6 +1,9 @@
 discard """
+targets: "native"
 output: "11.0"
 """
+
+# should work in js too
 
 type
   # A random number generator

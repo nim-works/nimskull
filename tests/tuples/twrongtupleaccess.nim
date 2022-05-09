@@ -1,7 +1,8 @@
 discard """
+  targets: native
   errormsg: "attempting to call undeclared routine: \'setBLAH\'"
   file: "twrongtupleaccess.nim"
-  line: 9
+  line: 10
 """
 # Bugfix
 

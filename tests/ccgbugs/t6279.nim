@@ -1,5 +1,6 @@
 discard """
-cmd: "nim c -r -d:fulldebug -d:smokeCycles --gc:refc $file"
+targets: "c cpp"
+matrix: "-d:fulldebug -d:smokeCycles --gc:refc"
 output: '''@["a"]'''
 """
 

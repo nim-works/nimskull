@@ -1,3 +1,7 @@
+discard """
+  targets: "native"
+"""
+
 # test sym digest is computable at compile time
 
 import macros, algorithm

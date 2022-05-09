@@ -1,4 +1,5 @@
 discard """
+targets: "c"
 output: '''
 9.0
 

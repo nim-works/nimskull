@@ -1,11 +1,14 @@
 discard """
-  cmd: "nim c -d:nimStacktraceOverride $file"
+  targets: "c"
+  matrix: "-d:nimStacktraceOverride"
   output: '''begin
 Traceback (most recent call last, using override)
 Error: unhandled exception: stack trace produced [ValueError]
 '''
   exitcode: 1
 """
+
+# xxx: this doesn't work in cpp
 
 proc `$`*(stackTraceEntries: seq[StackTraceEntry]): string =
   when defined(nimStackTraceOverride):

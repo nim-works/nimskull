@@ -1,5 +1,5 @@
 discard """
-cmd: "nim c -d:release $file"
+matrix: "-d:release"
 output: 1
 """
 

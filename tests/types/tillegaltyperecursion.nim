@@ -1,7 +1,8 @@
 discard """
-  cmd: "nim $target --threads:on $options $file"
+  targets: "native"
+  matrix: "--threads:on"
   errormsg: "illegal recursion in type 'TIRC'"
-  line: 16
+  line: 17
 """
 
 import events

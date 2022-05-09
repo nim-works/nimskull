@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
   output: '''
 
 [Suite] RST parsing

@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
   matrix: "--gc:none -d:useMalloc"
 """
 # bug #15617

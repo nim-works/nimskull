@@ -1,6 +1,8 @@
-import std/marshal
+discard """
+  targets: "!js"
+"""
 
-# TODO: add static tests
+import std/marshal
 
 proc testit[T](x: T): string = $$to[T]($$x)
 

@@ -1,10 +1,13 @@
 discard """
-  output: "123100"
+  output: '''1
+2
+3
+100'''
 """
 
 template hygienic(val) =
   var x = val
-  stdout.write x
+  echo x
 
 var x = 100
 

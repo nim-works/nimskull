@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   nimout: '''1
 2
 3

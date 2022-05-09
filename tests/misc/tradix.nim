@@ -1,4 +1,5 @@
 discard """
+targets: "native"
 output: '''
 start tradix.nim
 false

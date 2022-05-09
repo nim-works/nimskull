@@ -1,4 +1,5 @@
 discard """
+targets: "native"
   output: '''
 c_func
 12

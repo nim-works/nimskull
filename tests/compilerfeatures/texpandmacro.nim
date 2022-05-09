@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c --expandMacro:foo $file"
+  matrix: "--expandMacro:foo"
   nimout: '''texpandmacro.nim(17, 1) Hint: expanded macro:
 echo ["injected echo"]
 var x = 4 [ExpandMacro]

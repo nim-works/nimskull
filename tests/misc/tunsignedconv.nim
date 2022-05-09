@@ -1,3 +1,7 @@
+discard """
+targets: "c cpp"
+"""
+
 # Tests unsigned literals and implicit conversion between uints and ints
 
 var h8:uint8 = 128

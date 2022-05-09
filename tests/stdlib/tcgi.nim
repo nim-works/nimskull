@@ -1,3 +1,7 @@
+discard """
+  targets: "!js"
+"""
+
 import std/unittest
 import std/[cgi, strtabs, sugar]
 

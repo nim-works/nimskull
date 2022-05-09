@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: "Success!"
 """
 # Test variable length binary integers

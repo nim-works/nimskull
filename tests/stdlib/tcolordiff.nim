@@ -1,3 +1,7 @@
+discard """
+  targets: "!js"
+"""
+
 import experimental/[diff, colordiff, colortext]
 import std/[strformat, strutils]
 

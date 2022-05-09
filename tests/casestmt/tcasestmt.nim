@@ -14,7 +14,9 @@ an identifier
 OK
 OK
 OK
-ayyydd
+a
+yyy
+dd
 '''
 """
 
@@ -133,12 +135,12 @@ block tcasestm:
     i: int
 
   case y
-  of eA: write(stdout, "a")
-  of eB, eC: write(stdout, "b or c")
+  of eA: echo "a"
+  of eB, eC: echo "b or c"
 
   case x
-  of "Andreas", "Rumpf": write(stdout, "Hallo Meister!")
-  of "aa", "bb": write(stdout, "Du bist nicht mein Meister")
+  of "Andreas", "Rumpf": echo "Hallo Meister!"
+  of "aa", "bb": echo "Du bist nicht mein Meister"
   of "cc", "hash", "when": discard
   of "will", "it", "finally", "be", "generated": discard
 
@@ -148,7 +150,7 @@ block tcasestm:
     elif x == "Ha":
       "cc"
     elif x == "yyy":
-      write(stdout, x)
+      echo x
       "dd"
     else:
       "zz"
@@ -240,16 +242,19 @@ proc positiveOrNegative(num: int): string =
 
 #issue #11551
 
-proc negativeOrNot(num: int): string =
+when not defined(js):
+  # this test should work in JS, but jsgen is broken for large ranges in case
+  # statements, see: tcasestmt_large_range_broken_js
+  proc negativeOrNot(num: int): string =
     result = case num
     of low(int) .. -1:
       "negative"
     else:
       "zero or positive"
 
-doAssert negativeOrNot(-1) == "negative"
-doAssert negativeOrNot(10000000) == "zero or positive"
-doAssert negativeOrNot(0) == "zero or positive"
+  doAssert negativeOrNot(-1) == "negative"
+  doAssert negativeOrNot(10000000) == "zero or positive"
+  doAssert negativeOrNot(0) == "zero or positive"
 
 ########################################################
 # issue #13490

@@ -1,5 +1,4 @@
 discard """
-  output: "Key: 12 value: 12Key: 13 value: 13 Key: A value: 12 Key: B value: 13"
 """
 
 # test explicit type instantiation
@@ -20,16 +19,22 @@ proc add*(d: PDict, k: d.TKey, v: d.TValue) =
 iterator items*(d: PDict): tuple[k: d.TKey, v: d.TValue] =
   for k, v in items(d.data): yield (k, v)
 
-var d = newDict[int, string]()
-d.add(12, "12")
-d.add(13, "13")
-for k, v in items(d):
-  stdout.write("Key: ", $k, " value: ", v)
+block test_1:
+  var
+    actual = ""
+    d = newDict[int, string]()
+  d.add(12, "12")
+  d.add(13, "13")
+  for k, v in items(d):
+    actual.add "Key: " & $k & " value: " & v
+  doAssert actual == "Key: 12 value: 12Key: 13 value: 13"
 
-var c = newDict[char, string]()
-c.add('A', "12")
-c.add('B', "13")
-for k, v in items(c):
-  stdout.write(" Key: ", $k, " value: ", v)
-
-stdout.write "\n"
+block test_2:
+  var
+    actual = ""
+    c = newDict[char, string]()
+  c.add('A', "12")
+  c.add('B', "13")
+  for k, v in items(c):
+    actual.add "Key: " & $k & " value: " & v
+  doAssert actual == "Key: A value: 12Key: B value: 13"

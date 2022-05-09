@@ -1,4 +1,5 @@
 discard """
+  targets: native
   output: '''0
 true
 3'''

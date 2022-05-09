@@ -1,3 +1,6 @@
+discard """
+  targets: "!js"
+"""
 import "$lib/.." / compiler/utils/strutils2
 
 block: # setLen

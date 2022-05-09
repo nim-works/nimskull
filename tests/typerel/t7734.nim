@@ -1,3 +1,7 @@
+discard """
+  targets: native
+"""
+
 type
   Foo[T: SomeFloat] = object
     learning_rate: T

@@ -62,22 +62,24 @@ type
 
 template baseObj[T](t: ptr T): untyped = T
 
-proc something123(): int =
-  var r : SubRef
-  r.new
-  var p : SubPtr
-  p = create(baseObj(p))
-  var r2 : ref BaseObj
-  r2.new
+when not defined(js):
+  # js doesn't have `create`
+  proc something123(): int =
+    var r : SubRef
+    r.new
+    var p : SubPtr
+    p = create(baseObj(p))
+    var r2 : ref BaseObj
+    r2.new
 
-  var accu = 0
-  # trigger code generation
-  accu += r.baseRef
-  accu += p.basePtr
-  accu += r2.baseObj
+    var accu = 0
+    # trigger code generation
+    accu += r.baseRef
+    accu += p.basePtr
+    accu += r2.baseObj
 
-  doAssert sizeof(r[]) == sizeof(int)
-  doAssert sizeof(baseObj(p)) == sizeof(int)
-  doAssert sizeof(r2[]) == sizeof(int)
+    doAssert sizeof(r[]) == sizeof(int)
+    doAssert sizeof(baseObj(p)) == sizeof(int)
+    doAssert sizeof(r2[]) == sizeof(int)
 
-discard something123()
+  discard something123()

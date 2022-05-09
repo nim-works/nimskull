@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c -d:release --rangeChecks:on $file"
+  matrix: "-d:release --rangeChecks:on"
   disabled: "windows"
   joinable: false
   output: '''StrictPositiveRange

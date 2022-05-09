@@ -1,4 +1,5 @@
 discard """
+  targets: "native"
   output: '''Match failed: spam
 Match failed: ham'''
 joinable: false

@@ -1,4 +1,5 @@
 discard """
+  targets: native
   output: "Valid and not defined"
 """
 # test for issue #7997

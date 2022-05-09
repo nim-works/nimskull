@@ -1,5 +1,6 @@
 discard """
 ccodeCheck: "\\i @'__attribute__((noreturn))' .*"
+targets: "c cpp"
 action: compile
 """
 

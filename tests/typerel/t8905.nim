@@ -1,3 +1,7 @@
+discard """
+  targets: native
+"""
+
 type
   Foo[T] = distinct seq[T]
   Bar[T] = object

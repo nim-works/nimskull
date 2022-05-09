@@ -1,3 +1,7 @@
+discard """
+targets: "native"
+"""
+
 import compiler/utils/pathutils
 import std/[os, strutils]
 

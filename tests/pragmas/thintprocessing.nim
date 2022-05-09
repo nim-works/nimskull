@@ -1,6 +1,7 @@
 discard """
   disabled: windows
   matrix: "--hint:processing"
+  target: c
   nimout: '''
 compile start
 ..

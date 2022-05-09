@@ -1,6 +1,4 @@
 discard """
-  action: run
-  targets: '''c js'''
 """
 
 import math

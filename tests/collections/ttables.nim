@@ -177,7 +177,15 @@ block tableconstr:
 block ttables2:
   proc TestHashIntInt() =
     var tab = initTable[int,int]()
-    let n = 100_000
+    let n =
+      when defined(js):
+        # xxx: tables don't use native js facilities and run really slowly, so
+        #      keeping this as a minimal tests as it easily adds 10s of seconds
+        #      to each test run. really the core implementation should be
+        #      reworked
+        1_000
+      else:
+        100_000
     for i in 1..n:
       tab[i] = i
     for i in 1..n:

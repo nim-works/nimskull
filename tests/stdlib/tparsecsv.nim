@@ -1,3 +1,7 @@
+discard """
+  targets: "!js"
+"""
+
 include parsecsv
 import strutils, os
 

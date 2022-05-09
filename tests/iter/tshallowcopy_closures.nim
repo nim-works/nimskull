@@ -1,4 +1,5 @@
 discard """
+  targets: "native"
   ccodecheck: "!@('{' \\s* 'NI HEX3Astate;' \\s* '}')"
   output: '''
 a1 10

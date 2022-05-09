@@ -1,4 +1,5 @@
 discard """
+  targets: native
   output: '''[0.0, 0.0, 0.0]
 [0.0, 0.0, 0.0, 0.0]
 5050

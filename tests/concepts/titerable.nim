@@ -1,7 +1,10 @@
 discard """
+  targets: "native"
   nimout: "int\nint"
   output: 15
 """
+
+# xxx: should work in js too
 
 import typetraits
 

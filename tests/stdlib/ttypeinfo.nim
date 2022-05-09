@@ -1,3 +1,6 @@
+discard """
+  targets: "!js"
+"""
 import typeinfo
 
 type

@@ -1,4 +1,5 @@
 discard """
+  targets: native
   output: '''success'''
 """
 var s = "HI"

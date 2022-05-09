@@ -1,5 +1,6 @@
 discard """
-  cmd: "nim c --threads:on -d:ssl $file"
+  targets: "!js"
+  matrix: "--threads:on -d:ssl"
   disabled: "openbsd"
   disabled: "freebsd"
   disabled: "windows"

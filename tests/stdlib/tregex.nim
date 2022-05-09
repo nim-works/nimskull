@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
   output: "key: keyAYes!"
 """
 # Test the new regular expression module

@@ -181,57 +181,58 @@ proc internalFind[T,D] (n: PNode[T,D], key: T): ref TItem[T,D] {.inline.} =
   return nil
 
 proc traceTree[T,D](root: PNode[T,D]) =
+  var actual = ""
   proc traceX(x: int) =
-    write stdout, "("
-    write stdout, x
-    write stdout, ") "
+    actual.add "("
+    actual.add $x
+    actual.add ") "
 
   proc traceEl(el: ref TItem[T,D]) =
-    write stdout, " key: "
-    write stdout, el.key
-    write stdout, " value: "
-    write stdout, el.value
-
+    actual.add " key: "
+    actual.add $el.key
+    actual.add " value: "
+    actual.add $el.value
 
   proc traceln(space: string) =
-    writeLine stdout, ""
-    write stdout, space
+    actual.add "\n"
+    actual.add space
 
   proc doTrace(n: PNode[T,D], level: int) =
     var space = spaces(2 * level)
     traceln(space)
-    write stdout, "node: "
+    actual.add "node: "
     if n == nil:
-      writeLine stdout, "is empty"
+      actual.add "is empty\n"
       return
-    write stdout, n.count
-    write stdout, " elements: "
+    actual.add $n.count
+    actual.add " elements: "
     if n.left != nil:
       traceln(space)
-      write stdout, "left: "
+      actual.add "left: "
       doTrace(n.left, level+1)
     for i, el in n.slots:
       if el != nil and not isClean(el):
         traceln(space)
         traceX(i)
         if i >= n.count:
-          write stdout, "error "
+          actual.add "error "
         else:
           traceEl(el)
           if el.node != nil: doTrace(el.node, level+1)
-          else : write stdout, " empty "
+          else : actual.add " empty "
       elif i < n.count :
         traceln(space)
         traceX(i)
-        write stdout, "clean: "
+        actual.add "clean: "
         when T is string :
-          if el.key != nil: write stdout, el.key
-        else : write stdout, el.key
+          if el.key != nil: actual.add el.key
+        else : actual.add $el.key
         if el.node != nil: doTrace(el.node, level+1)
-        else : write stdout, " empty "
-    writeLine stdout,""
+        else : actual.add " empty "
+    actual.add "\n"
 
   doTrace(root, 0)
+  echo actual
 
 proc InsertItem[T,D](APath: RPath[T,D], ANode:PNode[T,D], Akey: T, Avalue: D) =
   var x = - APath.Xi

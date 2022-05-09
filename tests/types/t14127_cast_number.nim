@@ -1,6 +1,6 @@
 discard """
-  targets: "c cpp js"
 """
+
 block: # bug #14127
   template int2uint(T) =
     var a = -1

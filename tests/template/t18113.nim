@@ -1,7 +1,12 @@
-# ensure template pragma handling doesn't eagerly attempt to add an implicit
-# 'pushed' pragma to the evaluation of any intermediate AST prior to
-# substitution.
- 
+discard """
+  targets: "native"
+  description: '''
+ensure template pragma handling doesn't eagerly attempt to add an implicit
+'pushed' pragma to the evaluation of any intermediate AST prior to
+substitution.
+'''
+"""
+
 # bug #18113
 
 import sequtils

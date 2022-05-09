@@ -1,5 +1,5 @@
 discard """
-  output: "passed all tests."
+  targets: "native"
 """
 
 import strutils
@@ -60,4 +60,4 @@ assert $s[0] == "-13.888888"
 var x = 1.23456789012345'f32
 assert $x == "1.2345679"
 
-echo("passed all tests.")
+doAssert true, "all tests passed if we got this far"

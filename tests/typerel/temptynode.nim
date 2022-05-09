@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "type mismatch: got <void>"
-  line: 16
+  line: 17
 """
 
 # bug #950

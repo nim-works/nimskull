@@ -1,7 +1,8 @@
 discard """
   output: '''A
 B'''
-  cmd: '''nim c --gc:arc $file'''
+  matrix: "--gc:arc"
+  targets: "native"
 """
 type
   Enum = enum A, B, C

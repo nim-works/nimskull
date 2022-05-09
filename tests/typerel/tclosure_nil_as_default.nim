@@ -1,3 +1,6 @@
+discard """
+  targets: native
+"""
 
 # bug #4328
 type

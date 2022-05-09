@@ -1,3 +1,7 @@
+discard """
+targets: "native"
+"""
+
 # issue #8573
 
 import

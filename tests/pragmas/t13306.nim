@@ -1,6 +1,7 @@
 discard """
   errormsg: "'testEpo' can have side effects"
-  line: 8
+  targets: "c cpp"
+  line: 9
 """
 
 import times

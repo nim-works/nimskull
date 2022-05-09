@@ -1,3 +1,7 @@
+discard """
+  targets: native
+"""
+
 proc output_x:string {.compileTime.} = "x"
 
 template t =

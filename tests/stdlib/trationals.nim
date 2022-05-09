@@ -1,3 +1,7 @@
+discard """
+  targets: "!js"
+"""
+
 import std/[rationals, math]
 
 template main() =

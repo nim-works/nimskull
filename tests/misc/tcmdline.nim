@@ -1,4 +1,5 @@
 discard """
+targets: "c cpp"
 outputsub: "Number of parameters: 0"
 joinable: false
 """

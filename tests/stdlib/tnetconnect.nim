@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
   matrix: "-d:ssl"
 """
 

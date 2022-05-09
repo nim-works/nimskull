@@ -1,4 +1,5 @@
 discard """
+target: "native"
 output: '''
 foo88
 23 24foo 88

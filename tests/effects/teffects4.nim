@@ -1,6 +1,6 @@
 discard """
   errormsg: "type mismatch"
-  line: 23
+  line: 26
 """
 
 type
@@ -14,8 +14,11 @@ type
 proc q() {.tags: [IoEffect].} =
   discard
 
+proc effectfulWrite(s: string) {.tags: [WriteIOEffect].} =
+  discard
+
 proc raiser(): int =
-  writeLine stdout, "arg"
+  effectfulWrite "arg"
   if true:
     q()
 

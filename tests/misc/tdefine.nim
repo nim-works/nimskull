@@ -1,6 +1,6 @@
 discard """
 joinable: false
-cmd: "nim c -d:booldef -d:booldef2=false -d:intdef=2 -d:strdef=foobar -r $file"
+matrix: "-d:booldef -d:booldef2=false -d:intdef=2 -d:strdef=foobar"
 """
 
 const booldef {.booldefine.} = false

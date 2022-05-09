@@ -1,3 +1,7 @@
+discard """
+  targets: native
+"""
+
 # Test for a hard to fix internal error
 # occurred in the SDL library
 

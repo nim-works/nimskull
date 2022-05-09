@@ -11,7 +11,7 @@ type
 proc len(x: TMyType): int {.inline.} = return x.len
 
 proc x(s: TMyType, len: int) =
-  writeLine(stdout, len(s))
+  echo len(s)
 
 var
   m: TMyType

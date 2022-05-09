@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   nimout: "OK"
   output: '''
 OK

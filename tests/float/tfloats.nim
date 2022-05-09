@@ -1,6 +1,5 @@
 discard """
   matrix: "-d:nimPreviewFloatRoundtrip; -u:nimPreviewFloatRoundtrip"
-  targets: "c cpp js"
 """
 
 #[

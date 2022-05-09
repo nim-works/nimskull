@@ -1,4 +1,5 @@
 discard """
+  targets: "native"
   output: '''tada
 1
 2

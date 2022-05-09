@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "expected a template that takes 3 arguments"
-  line: 16
+  line: 17
 """
 
 import macros

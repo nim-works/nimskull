@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
   output: '''success'''
   joinable: false
   disabled: "openbsd"

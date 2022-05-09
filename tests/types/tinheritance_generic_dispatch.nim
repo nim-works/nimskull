@@ -1,9 +1,10 @@
 discard """
+  targets: native
   action: reject
   cmd: '''nim check --hints:off $options $file'''
   nimoutFull: true
   nimout: '''
-tinheritance_generic_dispatch.nim(43, 5) Error: type mismatch: got <U>
+tinheritance_generic_dispatch.nim(44, 5) Error: type mismatch: got <U>
 but expected one of:
 proc test(u: Union[string, RootObj])
   first type mismatch at position: 1
@@ -11,7 +12,7 @@ proc test(u: Union[string, RootObj])
   but expression 'U()' is of type: U
 
 expression: test(U())
-tinheritance_generic_dispatch.nim(45, 6) Error: type mismatch: got <T>
+tinheritance_generic_dispatch.nim(46, 6) Error: type mismatch: got <T>
 but expected one of:
 proc test2(u: Union[int, float])
   first type mismatch at position: 1
@@ -19,7 +20,7 @@ proc test2(u: Union[int, float])
   but expression 'T()' is of type: T
 
 expression: test2(T())
-tinheritance_generic_dispatch.nim(47, 6) Error: type mismatch: got <Union[system.string, system.RootObj]>
+tinheritance_generic_dispatch.nim(48, 6) Error: type mismatch: got <Union[system.string, system.RootObj]>
 but expected one of:
 proc test2(u: Union[int, float])
   first type mismatch at position: 1

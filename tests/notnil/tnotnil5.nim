@@ -1,4 +1,5 @@
 discard """
+  targets: "native"
   matrix: "--threads:on"
 """
 

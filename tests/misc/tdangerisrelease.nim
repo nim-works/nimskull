@@ -1,5 +1,4 @@
 discard """
-  cmd: "nim c $options -r $file"
   matrix: "-d:danger; -d:release"
   output: '''
 a

@@ -1,3 +1,7 @@
+discard """
+  targets: "!js"
+"""
+
 import unittest, strutils
 
 block: # parseutils

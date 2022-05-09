@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   outputsub: "Error: unhandled exception: over- or underflow [OverflowDefect]"
   exitcode: "1"
 """

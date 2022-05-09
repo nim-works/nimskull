@@ -1,3 +1,7 @@
+discard """
+  targets: native
+"""
+
 # bug #5909
 type
   Vec2[T] = tuple

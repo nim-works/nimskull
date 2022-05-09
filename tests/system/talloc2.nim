@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
 disabled: "windows"
 disabled: "openbsd"
 joinable: false

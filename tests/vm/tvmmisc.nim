@@ -1,3 +1,7 @@
+discard """
+  targets: "!js"
+"""
+
 # bug #4462
 import macros
 import os

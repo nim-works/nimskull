@@ -1,6 +1,7 @@
 discard """
+  targets: "c cpp"
+  matrix: "--overflowChecks:off"
   output: "ok"
-  cmd: "nim $target --overflowChecks:off $options $file"
 """
 # Tests nim's ability to detect overflows
 

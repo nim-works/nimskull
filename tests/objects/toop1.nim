@@ -1,4 +1,5 @@
 discard """
+  targets: "native"
   output: "34[]o 5"
 """
 # Test the stuff in the tutorial

@@ -1,4 +1,8 @@
 discard """
+  targets: "c cpp"
+  description: '''should work for js as well, see:
+`tcompile_time_var_at_runtime_js`
+'''
   output: "1\n2\n2\n3"
 """
 var a {.compileTime.} = 1

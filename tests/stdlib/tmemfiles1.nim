@@ -1,3 +1,7 @@
+discard """
+  targets: "!js"
+"""
+
 import memfiles, os
 var
   mm: MemFile

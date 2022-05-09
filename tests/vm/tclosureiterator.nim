@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
   errormsg: "Closure iterators are not supported by VM!"
 """
 

@@ -1,3 +1,6 @@
+discard """
+  targets: "!js"
+"""
 import stdtest/testutils
 
 block: # assertAll

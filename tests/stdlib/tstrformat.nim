@@ -1,3 +1,7 @@
+discard """
+  targets: "!js"
+"""
+
 # xxx: test js target
 
 import genericstrformat

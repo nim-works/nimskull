@@ -1,7 +1,8 @@
 discard """
   output: '''good'''
   joinable: false
-  cmd: "nim c --gc:orc -d:release $file"
+  targets: "native"
+  matrix: "--gc:orc -d:release"
 """
 
 type

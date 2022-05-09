@@ -1,19 +1,14 @@
 discard """
-output: '''
-Nim: nan
-Nim: nan (float)
-Nim: nan (double)
-'''
 """
 
 let f = NaN
-echo "Nim: ", f
+doAssert $f == $NaN, "Nan when infered floating point number"
 
 let f32: float32 = NaN
-echo "Nim: ", f32, " (float)"
+doAssert $f32 == $NaN, "NaN for float 32"
 
 let f64: float64 = NaN
-echo "Nim: ", f64, " (double)"
+doAssert $f64 == $NaN, "NaN for float 64"
 
 block: # bug #10305
   # with `-O3 -ffast-math`, generated C/C++ code is not nan compliant
@@ -51,7 +46,13 @@ template main() =
     let a4 = 1.0 / a2
     doAssert a3 == Inf
     doAssert a4 == -Inf
-    doAssert $(a1, a2, a3, a4) == "(0.0, -0.0, inf, -inf)"
+    when nimvm:
+      doAssert $(a1, a2, a3, a4) == "(0.0, -0.0, inf, -inf)"
+    else:
+      when defined(js):
+        doAssert $(a1, a2, a3, a4) == "(0.0, -0.0, Infinity, -Infinity)"
+      else:
+        doAssert $(a1, a2, a3, a4) == "(0.0, -0.0, inf, -inf)"
 
 static: main()
 main()

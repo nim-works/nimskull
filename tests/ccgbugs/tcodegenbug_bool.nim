@@ -1,4 +1,5 @@
 discard """
+  targets: "c"
 """
 
 # issue #13798

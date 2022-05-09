@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
   matrix: "--threads:on"
 """
 

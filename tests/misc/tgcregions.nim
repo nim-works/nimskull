@@ -1,5 +1,6 @@
 discard """
-cmd: "nim c --gc:regions $file"
+targets: "native"
+matrix: "--gc:regions"
 """
 
 # issue #12597

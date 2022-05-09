@@ -1,3 +1,7 @@
+discard """
+  targets: "native"
+"""
+
 block:
   let txt = "Hello World"
 

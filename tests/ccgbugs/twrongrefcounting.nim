@@ -1,6 +1,7 @@
 discard """
+  targets: "c cpp"
+  matrix: "--gc:refc -d:useGcAssert -d:useSysAssert -d:fulldebug -d:smokeCycles"
   output: '''ok'''
-  cmd: "nim c -r --gc:refc -d:useGcAssert -d:useSysAssert -d:fulldebug -d:smokeCycles $file"
 """
 
 # bug #9825

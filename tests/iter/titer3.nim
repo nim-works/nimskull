@@ -1,4 +1,5 @@
 discard """
+  targets: "native"
   output: '''1231
 4
 6

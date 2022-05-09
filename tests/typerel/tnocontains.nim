@@ -1,7 +1,8 @@
 discard """
+  targets: native
   errormsg: "type mismatch: got <string, string>"
   file: "tnocontains.nim"
-  line: 10
+  line: 11
 """
 
 # shouldn't compile since it doesn't do what you think it does without

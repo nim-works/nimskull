@@ -1,3 +1,7 @@
+discard """
+  targets: "!js"
+"""
+
 import md5
 
 doAssert(getMD5("Franz jagt im komplett verwahrlosten Taxi quer durch Bayern") ==

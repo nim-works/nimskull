@@ -1,4 +1,5 @@
 discard """
+targets: "!cpp !js"
 output: '''
 i2416
 33
@@ -34,6 +35,8 @@ bar7
 -1-1-1
 '''
 """
+
+# xxx: this test is broken for c++
 
 import macros
 

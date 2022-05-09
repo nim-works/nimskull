@@ -1,3 +1,6 @@
+discard """
+  targets: native
+"""
 # bug #3670
 
 template someTempl(someConst: bool) =

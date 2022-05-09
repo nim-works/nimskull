@@ -1,7 +1,8 @@
 discard """
+  targets: native
   errormsg: "illegal recursion in type \'TIllegal\'"
   file: "tillrec.nim"
-  line: 13
+  line: 14
 """
 # test illegal recursive types
 

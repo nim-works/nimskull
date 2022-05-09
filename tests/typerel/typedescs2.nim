@@ -1,7 +1,8 @@
 discard """
+  targets: native
   errormsg: "invalid type: 'typedesc[Table]' for const"
   file: "typedescs2.nim"
-  line: 16
+  line: 17
 """
 
 # bug #9961

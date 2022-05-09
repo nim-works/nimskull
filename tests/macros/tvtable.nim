@@ -1,4 +1,5 @@
 discard """
+  targets: "native"
   output: '''
 OBJ 1 foo
 10

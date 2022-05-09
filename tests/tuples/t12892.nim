@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
   disabled: i386
 """
 

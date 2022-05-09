@@ -1,7 +1,12 @@
-# Inside template bodies, ensure return types referencing a param are replaced.
-# This helps guarantee that return parameter analysis happens after argument
-# analysis.
- 
+discard """
+  targets: "native"
+  description: '''
+Inside template bodies, ensure return types referencing a param are replaced.
+This helps guarantee that return parameter analysis happens after argument
+analysis.
+'''
+"""
+
 # bug #17433
 
 from std/macros import expandMacros

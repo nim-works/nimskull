@@ -1,4 +1,5 @@
 discard """
+  targets: "!js"
   input: "Arne"
   output: '''
 Hello! What is your name?

@@ -1,4 +1,6 @@
 discard """
+  targets: "c cpp"
+  matrix: "--gc:orc"
   nimout: '''1,2
 2,3
 2,2
@@ -16,7 +18,6 @@ discard """
 2,2
 1,2
 '''
-  cmd: "nim c --gc:orc $file"
 """
 
 template test =

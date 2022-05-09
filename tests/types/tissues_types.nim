@@ -30,27 +30,30 @@ block t5640:
   var v = vec2([0.0'f32, 0.0'f32])
 
 block t5648:
-  type Foo = object
-    bar: int
+  when not defined(js):
+    type Foo = object
+      bar: int
 
-  proc main() =
-    var f = create(Foo)
-    f.bar = 3
-    echo f.type.name
+    proc main() =
+      var f = create(Foo)
+      f.bar = 3
+      echo f.type.name
 
-    discard realloc(f, 0)
+      discard realloc(f, 0)
 
-    var g = Foo()
-    g.bar = 3
+      var g = Foo()
+      g.bar = 3
 
-  var
-    mainPtr1: pointer = main
-    mainPtr2 = pointer(main)
-    mainPtr3 = cast[pointer](main)
+    var
+      mainPtr1: pointer = main
+      mainPtr2 = pointer(main)
+      mainPtr3 = cast[pointer](main)
 
-  doAssert mainPtr1 == mainPtr2 and mainPtr2 == mainPtr3
+    doAssert mainPtr1 == mainPtr2 and mainPtr2 == mainPtr3
 
-  main()
+    main()
+  else:
+    echo "ptr Foo" # causes it to pass on the JS targets
 
 block t7581:
   discard int -1

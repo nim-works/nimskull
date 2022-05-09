@@ -1,4 +1,5 @@
 discard """
+targets: "c cpp"
 disabled: "arm64"
 """
 

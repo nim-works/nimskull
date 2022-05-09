@@ -1,7 +1,7 @@
 discard """
 description: "Structured echo message comparison"
 nimoutformat: "sexp"
-cmd: "nim c --filenames=canonical --msgFormat=sexp $file"
+matrix: "--filenames=canonical --msgFormat=sexp"
 action: compile
 nimout: '''
 (IntEchoMessage :msg "test message")

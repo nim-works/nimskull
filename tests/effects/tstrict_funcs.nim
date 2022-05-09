@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c --experimental:strictFuncs --experimental:views $file"
+  matrix: "--experimental:strictFuncs --experimental:views"
 """
 
 import tables, streams, parsecsv

@@ -1,5 +1,4 @@
 discard """
-  targets: "c cpp js"
   output: '''
 {'a', 'b'}
 '''

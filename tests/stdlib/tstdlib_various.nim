@@ -1,4 +1,5 @@
 discard """
+targets: "c"
 output: '''
 abc
 def
@@ -30,6 +31,8 @@ true
 <h1><a href="http://force7.de/nim">Nim</a></h1>
 '''
 """
+
+# xxx: breaks in cpp
 
 import
   critbits, sets, strutils, tables, random, algorithm, re, ropes,

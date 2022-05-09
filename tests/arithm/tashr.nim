@@ -1,6 +1,5 @@
 discard """
-  output: ''''''
-  targets: '''c js'''
+  description: "Arithmetic Shift Right feature tests"
 """
 
 # issue #6255, feature request

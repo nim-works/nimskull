@@ -1,3 +1,7 @@
+discard """
+  targets: "native"
+"""
+
 import std/[os, osproc, strformat]
 
 

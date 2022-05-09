@@ -1,6 +1,7 @@
 discard """
+  target: "native"
   errormsg: "illegal capture 'A'"
-  line: 10
+  line: 11
 """
 
 proc outer() =

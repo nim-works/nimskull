@@ -1,3 +1,6 @@
+discard """
+  targets: "native"
+"""
 type
   MyTypeCon = concept c
     c.counter is int

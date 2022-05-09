@@ -9,7 +9,7 @@ import strutils
 
 proc p =
   var x, y, z: int
-  if stdin.readLine == "true":
+  if "test" == "true":
     x = 34
 
     while false:

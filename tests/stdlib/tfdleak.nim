@@ -1,4 +1,5 @@
 discard """
+  targets: "native"
   exitcode: 0
   output: ""
   matrix: "; -d:nimInheritHandles"

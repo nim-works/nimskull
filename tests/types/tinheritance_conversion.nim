@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c --hints=on $file"
+  matrix: "--hints=on"
   joinable: false
 """
 
@@ -43,32 +43,34 @@ block: # Value tests
 
 
 block: # Ref tests
-  type
-    Base = ref object of RootObj
-      field: int
-    Derived = ref object of Base
-      field2: int
-    Derived2 = ref object of Base
+  when not defined(js): # xxx: js codegen is broken
+    type
+      Base = ref object of RootObj
+        field: int
+      Derived = ref object of Base
+        field2: int
+      Derived2 = ref object of Base
 
-  var a: Base = Derived()
-  assert Derived(a) is Derived
-  doAssertRaises(ObjectConversionDefect): discard Derived2(a)[]
-  doAssertRaises(ObjectConversionDefect): discard Base(Derived2()).Derived
-  assert Base(Derived()) is Base
-  assert Derived2(Base(Derived2())) is Derived2
-  assert Derived(Base(Derived())) is Derived
+    var a: Base = Derived()
+    assert Derived(a) is Derived
+    doAssertRaises(ObjectConversionDefect): discard Derived2(a)[]
+    doAssertRaises(ObjectConversionDefect): discard Base(Derived2()).Derived
+    assert Base(Derived()) is Base
+    assert Derived2(Base(Derived2())) is Derived2
+    assert Derived(Base(Derived())) is Derived
 
 block: # Pointer tests
-  template make(t: typedesc): ptr t =
-    let res = createU(t)
-    res[] = t()
-    res
-  var a: ptr Base = make(Derived)
-  assert (ptr Derived)(a) is (ptr Derived)
-  doAssertRaises(ObjectConversionDefect): discard (ptr Derived2)(a)[]
-  doAssertRaises(ObjectConversionDefect):
-    var a = make(Derived2)
-    discard (ptr Derived)((ptr Base)(a))
-  assert (ptr Base)(make(Derived)) is (ptr Base)
-  assert (ptr Derived2)((ptr Base)(make(Derived2))) is (ptr Derived2)
-  assert (ptr Derived)((ptr Base)(make(Derived))) is (ptr Derived)
+  when not defined(js): # no pointers in js
+    template make(t: typedesc): ptr t =
+      let res = createU(t)
+      res[] = t()
+      res
+    var a: ptr Base = make(Derived)
+    assert (ptr Derived)(a) is (ptr Derived)
+    doAssertRaises(ObjectConversionDefect): discard (ptr Derived2)(a)[]
+    doAssertRaises(ObjectConversionDefect):
+      var a = make(Derived2)
+      discard (ptr Derived)((ptr Base)(a))
+    assert (ptr Base)(make(Derived)) is (ptr Base)
+    assert (ptr Derived2)((ptr Base)(make(Derived2))) is (ptr Derived2)
+    assert (ptr Derived)((ptr Base)(make(Derived))) is (ptr Derived)

@@ -6,8 +6,9 @@ import strutils
 
 const lines = """abc  xyz"""
 
+var actual = ""
 for x in lines.split():
-  stdout.write(x)
+  actual.add(x)
 
 #OUT abcxyz
-stdout.write "\n"
+echo actual

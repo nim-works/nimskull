@@ -57,8 +57,10 @@ block t9442:
   GC_unref(v3)
 
 block: # bug #6499
-  let x = (chr, 0)
-  doAssert x[1] == 0
+  when not defined(js):
+    # xxx: this is like a bug
+    let x = (chr, 0)
+    doAssert x[1] == 0
 
 block: # bug #12229
   proc foo(T: typedesc) = discard

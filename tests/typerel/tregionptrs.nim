@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "type mismatch: got <BPtr> but expected 'APtr = ptr[RegionA, int]'"
-  line: 16
+  line: 17
 """
 
 type

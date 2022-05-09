@@ -1,3 +1,6 @@
+discard """
+  targets: "!js"
+"""
 # was: appveyor is "out of memory"
 
 var x: ptr int

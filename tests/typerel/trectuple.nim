@@ -1,6 +1,7 @@
 discard """
+  targets: native
   errormsg: "illegal recursion in type 'TNode'"
-  line: 9
+  line: 10
 
 """
 

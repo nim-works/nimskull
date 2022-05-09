@@ -76,7 +76,7 @@ block tgeneric1:
 
   proc print[T](heap: PBinHeap[T]) =
     for i in countup(0, heap.last):
-      stdout.write($heap.heap[i].data, "\n")
+      echo heap.heap[i].data
 
   var heap: PBinHeap[int]
 

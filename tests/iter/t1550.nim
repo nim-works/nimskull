@@ -1,3 +1,7 @@
+discard """
+  targets: "native"
+"""
+
 type
   A[T] = iterator(x: T): T {.gcsafe, closure.}
 

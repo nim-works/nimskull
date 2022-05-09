@@ -1,3 +1,6 @@
+discard """
+targets: "!js"
+"""
 
 block: # cmpMem
   type

@@ -1,4 +1,5 @@
 discard """
+  targets: "c cpp"
   output: '''[10, 0, 0, 0, 0, 0, 0, 0]
 255
 1 1
