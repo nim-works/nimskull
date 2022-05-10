@@ -1684,10 +1684,6 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
     put(g, tkBracketRi, "]")
   of nkTupleClassTy:
     put(g, tkTuple, "tuple")
-  of nkComesFrom:
-    put(g, tkParLe, "(ComesFrom|")
-    gsub(g, n, 0)
-    put(g, tkParRi, ")")
   of nkGotoState:
     var c: TContext
     initContext c

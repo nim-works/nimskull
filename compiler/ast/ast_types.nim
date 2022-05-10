@@ -65,8 +65,6 @@ type
     nkTripleStrLit        ## a triple string literal """
     nkNilLit              ## the nil literal
                           ## end of atoms
-    nkComesFrom           ## "comes from" template/macro information for
-                          ## better stack trace generation
     nkDotCall             ## used to temporarily flag a nkCall node;
                           ## this is used
                           ## for transforming ``s.len`` to ``len(s)``

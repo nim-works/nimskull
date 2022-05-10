@@ -16,7 +16,8 @@ import
     lineinfos,
     idents,
     renderer,
-    reports
+    reports,
+    errorhandling
   ],
   compiler/front/[
     options,
@@ -136,8 +137,8 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
   for i in givenRegularParams+1..expectedRegularParams:
     let default = s.typ.n[i].sym.ast
     if default.isNil or default.kind == nkEmpty:
-      localReport(conf, n, reportSem rsemWrongNumberOfArguments)
       result.add newNodeI(nkEmpty, n.info)
+      return newError(conf, result, reportSem rsemWrongNumberOfArguments)
     else:
       result.add default.copyTree
 
@@ -149,23 +150,14 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
 const evalTemplateLimit* = 1000
 
 proc wrapInComesFrom*(info: TLineInfo; sym: PSym; res: PNode): PNode =
-  when true:
-    result = res
-    result.info = info
-    if result.kind in {nkStmtList, nkStmtListExpr} and result.len > 0:
-      result.lastSon.info = info
-    when false:
-      # this hack is required to
-      var x = result
-      while x.kind == nkStmtListExpr: x = x.lastSon
-      if x.kind in nkCallKinds:
-        for i in 1..<x.len:
-          if x[i].kind in nkCallKinds:
-            x[i].info = info
-  else:
-    let d = newTreeI(nkComesFrom, info): newSymNode(sym, info)
-    result = newTreeIT(nkStmtListExpr, info, res.typ):
-      [d, res]
+  # The original idea of this proc was to use a 'nkComesFrom' node to
+  # store template/macro information for generating better stack traces:
+  # result = newTreeIT(nkStmtListExpr, info, res.typ):
+  #   [newTreeI(nkComesFrom, info, newSymNode(sym, info)), res]
+  result = res
+  result.info = info
+  if result.kind in {nkStmtList, nkStmtListExpr} and result.len > 0:
+    result.lastSon.info = info
 
 proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
                    conf: ConfigRef;
@@ -180,7 +172,7 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
     result = n
 
   # replace each param by the corresponding node:
-  var args = evalTemplateArgs(n, tmpl, conf, fromHlo)
+  let args = evalTemplateArgs(n, tmpl, conf, fromHlo)
   var ctx = TemplCtx(
     owner: tmpl,
     genSymOwner: genSymOwner,
@@ -191,18 +183,11 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
     idgen: idgen
   )
   let body = tmpl.ast[bodyPos]
-  #echo "instantion of ", renderTree(body, {renderIds})
   if isAtom(body):
     result = newNodeI(nkPar, body.info)
     evalTemplateAux(body, args, ctx, result)
-    if result.len == 1:
-      result = result[0]
-
-    else:
-      localReport(conf, result.info, reportAst(
-        rsemIllformedAst, result,
-        str = "Expected single subnode, but found " & $result.len))
-
+    assert result.len == 1
+    result = result[0]
   else:
     ctx.instLines = sfCallsite in tmpl.flags
     result = copyNode(ctx, body, n)
@@ -210,8 +195,7 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
       evalTemplateAux(body[i], args, ctx, result)
   result.flags.incl nfFromTemplate
   result = wrapInComesFrom(n.info, tmpl, result)
-  #if ctx.debugActive:
-  #  echo "instantion of ", renderTree(result, {renderIds})
+
   dec(conf.evalTemplateCounter)
   # The instID must be unique for every template instantiation, so we increment it here
   inc instID[]

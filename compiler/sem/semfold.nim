@@ -741,7 +741,7 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
   of nkStmtListExpr:
     var i = 0
     while i <= n.len - 2:
-      if n[i].kind in {nkComesFrom, nkCommentStmt, nkEmpty}: i.inc
+      if n[i].kind in {nkCommentStmt, nkEmpty}: i.inc
       else: break
     if i == n.len - 1:
       result = getConstExpr(m, n[i], idgen, g)

@@ -214,7 +214,7 @@ proc semGenericStmt(c: PContext, n: PNode,
     let a = n.sym
     let b = getGenSym(c, a)
     if b != a: n.sym = b
-  of nkEmpty, succ(nkSym)..nkNilLit, nkComesFrom:
+  of nkEmpty, succ(nkSym)..nkNilLit:
     # see tests/compile/tgensymgeneric.nim:
     # We need to open the gensym'ed symbol again so that the instantiation
     # creates a fresh copy; but this is wrong the very first reason for gensym
