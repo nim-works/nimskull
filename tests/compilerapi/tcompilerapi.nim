@@ -1,4 +1,7 @@
 discard """
+  description: '''Example program that demonstrates how to use the compiler as
+  an API to embed into your own projects.
+  '''
   cmd: '''nim c --warnings:off --hints:off $file'''
   output: '''top level statements are executed!
 (ival: 10, fval: 2.0)
@@ -10,9 +13,6 @@ raising VMQuit
 '''
   joinable: "false"
 """
-
-## Example program that demonstrates how to use the
-## compiler as an API to embed into your own projects.
 
 
 import
@@ -56,8 +56,6 @@ proc vmReport(config: ConfigRef, report: Report): TErrorHandling {.gcsafe.} =
 
   elif report.kind == rintEchoMessage:
     echo report.internalReport.msg
-
-
 
 
 proc main() =
@@ -104,3 +102,7 @@ block error_hook:
   let i = initInterpreter("invalid.nim", vmReport)
   doAssertRaises(VMQuit):
     i.evalScript()
+
+block isNimSkull_define:
+  const isNimSkull {.booldefine.} = false
+  doAssert isNimSkull, "define 'isNimSkull' is not set"
