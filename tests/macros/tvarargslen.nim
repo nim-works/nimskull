@@ -1,13 +1,15 @@
 discard """
   output: '''
-tvarargslen.nim:35:9 (1, 2)
-tvarargslen.nim:36:9 12
-tvarargslen.nim:37:9 1
-tvarargslen.nim:38:8 
+tvarargslen.nim:37:9 (1, 2)
+tvarargslen.nim:38:9 12
+tvarargslen.nim:39:9 1
+tvarargslen.nim:40:8 
 done
 '''
 """
 ## line 10
+
+from std/macros import varargsLen
 
 template myecho*(a: varargs[untyped]) =
   ## shows a useful debugging echo-like proc that is dependency-free (no dependency
