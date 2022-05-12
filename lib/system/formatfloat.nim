@@ -9,12 +9,15 @@
 
 proc c_memcpy(a, b: pointer, size: csize_t): pointer {.importc: "memcpy", header: "<string.h>", discardable.}
 
-proc addCstringN(result: var string, buf: cstring; buflen: int) =
-  # no nimvm support needed, so it doesn't need to be fast here either
+proc addStringN(result: var string, buf: openArray[char]; buflen: int) =
   let oldLen = result.len
   let newLen = oldLen + buflen
   result.setLen newLen
-  c_memcpy(result[oldLen].addr, buf, buflen.csize_t)
+  when nimvm:
+    for i in 0..<buflen:
+      result[oldLen + i] = buf[i]
+  else:
+    c_memcpy(result[oldLen].addr, buf[0].unsafeAddr, buflen.csize_t)
 
 import dragonbox, schubfach
 
@@ -80,12 +83,9 @@ proc writeFloatToBuffer*(buf: var array[65, char]; value: BiggestFloat | float32
     writeFloatToBufferSprintf(buf, value)
 
 proc addFloatRoundtrip*(result: var string; x: float | float32) =
-  when nimvm:
-    doAssert false
-  else:
-    var buffer {.noinit.}: array[65, char]
-    let n = writeFloatToBufferRoundtrip(buffer, x)
-    result.addCstringN(cstring(buffer[0].addr), n)
+  var buffer {.noinit.}: array[65, char]
+  let n = writeFloatToBufferRoundtrip(buffer, x)
+  result.addStringN(buffer, n)
 
 proc addFloatSprintf*(result: var string; x: float) =
   when nimvm:
@@ -93,7 +93,7 @@ proc addFloatSprintf*(result: var string; x: float) =
   else:
     var buffer {.noinit.}: array[65, char]
     let n = writeFloatToBufferSprintf(buffer, x)
-    result.addCstringN(cstring(buffer[0].addr), n)
+    result.addStringN(buffer, n)
 
 proc nimFloatToString(a: float): cstring =
   ## ensures the result doesn't print like an integer, i.e. return 2.0, not 2
