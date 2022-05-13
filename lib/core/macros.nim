@@ -1570,6 +1570,10 @@ macro getCustomPragmaVal*(n: typed, cp: typed{nkSym}): untyped =
   if result.kind == nnkEmpty:
     error(n.repr & " doesn't have a pragma named " & cp.repr()) # returning an empty node results in most cases in a cryptic error,
 
+macro varargsLen*(x: varargs[untyped]): int {.since: (1, 1).} =
+  ## returns number of variadic arguments in `x`
+  newLit(x.len)
+
 macro unpackVarargs*(callee: untyped; args: varargs[untyped]): untyped =
   ## Calls `callee` with `args` unpacked as individual arguments.
   ## This is useful in 2 cases:
