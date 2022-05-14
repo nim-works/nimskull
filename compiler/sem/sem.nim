@@ -700,12 +700,7 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   else:
     inc c.topStmts
 
-  # xxx: can noforward be deprecated? might be repurposed for IC, not sure.
-  if sfNoForward in c.module.flags:
-    result = semAllTypeSections(c, n)
-  else:
-    result = n
-
+  result = n
   result = semStmt(c, result, {})
   result = hloStmt(c, result)
 

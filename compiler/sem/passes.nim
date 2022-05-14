@@ -184,18 +184,7 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
       if graph.stopCompile(): break
       var n = parseTopLevelStmt(p)
       if n.kind == nkEmpty: break
-      if sfSystemModule notin module.flags and
-          {sfNoForward} * module.flags != {}:
-        # read everything, no streaming possible
-        var sl = newNodeI(nkStmtList, n.info)
-        sl.add n
-        while true:
-          var n = parseTopLevelStmt(p)
-          if n.kind == nkEmpty: break
-          sl.add n
-        discard processTopLevelStmt(graph, sl, a)
-        break
-      elif n.kind in imperativeCode:
+      if n.kind in imperativeCode:
         # read everything until the next proc declaration etc.
         var sl = newNodeI(nkStmtList, n.info)
         sl.add n

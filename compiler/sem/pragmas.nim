@@ -89,7 +89,7 @@ const
     wDeadCodeElimUnused,  # deprecated, always on
     wDeprecated,
     wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit, wUnroll,
-    wLinearScanEnd, wPatterns, wTrMacros, wEffects, wNoForward, wComputedGoto,
+    wLinearScanEnd, wPatterns, wTrMacros, wEffects, wComputedGoto,
     wExperimental, wThis, wUsed, wAssert}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
     wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
@@ -352,21 +352,6 @@ proc onOff(c: PContext, n: PNode, op: TOptions, resOptions: var TOptions): PNode
            else:         err
   if r: resOptions.incl op
   else: resOptions.excl op
-
-proc pragmaNoForward(c: PContext, n: PNode): PNode =
-  ## `n` must be a callable pragma of length two, or an error is produced,
-  ## otherwise produces (mutates) the boolean arg (2nd) in `n` and the
-  ## current modules flags, enabling no forward, disables code re-ordering.
-  var (isOn, err) = isTurnedOn(c, n)
-  result =
-    if err.isNil:
-      if isOn:
-        incl(c.module.flags, sfNoForward)
-      else:
-        excl(c.module.flags, sfNoForward)
-      n
-    else:
-      err
 
 proc processCallConv(c: PContext, n: PNode): PNode =
   ## sets the calling convention on the the `c`ontext's option stack, and upon
@@ -1379,8 +1364,6 @@ proc prepareSinglePragma(
         result = noVal(c, it)
         incl(sym.flags, {sfThread, sfGlobal})
       of wDeadCodeElimUnused: discard  # xxx: deprecated, dead code elim always on
-      of wNoForward:
-        result = pragmaNoForward(c, it)
       of wMagic:
         result = processMagic(c, it, sym)
       of wCompileTime:
