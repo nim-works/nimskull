@@ -143,15 +143,6 @@ proc parseString(my: var SexpParser): TTokKind =
       of 'f':
         add(my.a, '\f')
         inc(pos, 2)
-      of 'n':
-        add(my.a, '\L')
-        inc(pos, 2)
-      of 'r':
-        add(my.a, '\C')
-        inc(pos, 2)
-      of 't':
-        add(my.a, '\t')
-        inc(pos, 2)
       of 'u':
         inc(pos, 2)
         var r: int
