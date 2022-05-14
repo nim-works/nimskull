@@ -482,11 +482,9 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
       if result.typ.kind != tyGenericParam:
         # XXX get rid of this hack!
         var oldInfo = n.info
-        when defined(useNodeIds):
-          let oldId = n.id
+        let oldId = n.id
         reset(n[])
-        when defined(useNodeIds):
-          n.id = oldId
+        n.id = oldId
         n.transitionNoneToSym()
         n.sym = result
         n.info = oldInfo

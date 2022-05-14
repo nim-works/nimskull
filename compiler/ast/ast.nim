@@ -30,8 +30,6 @@ import
 
 export ast_types, int128
 
-template nodeId(n: PNode): int = cast[int](n)
-
 type Gconfig = object
   ## we put comments in a side channel to avoid increasing `sizeof(TNode)`,
   ## which reduces memory usage given that `PNode` is the most allocated
@@ -46,10 +44,9 @@ proc setUseIc*(useIc: bool) = gconfig.useIc = useIc
 proc comment*(n: PNode): string =
   if nfHasComment in n.flags and not gconfig.useIc:
     # IC doesn't track comments, see `packed_ast`, so this could fail
-    result = gconfig.comments[n.nodeId]
+    result = gconfig.comments[n.id]
 
 proc `comment=`*(n: PNode, a: string) =
-  let id = n.nodeId
   if a.len > 0:
     # if needed, we could periodically cleanup gconfig.comments when its size increases,
     # to ensure only live nodes (and with nfHasComment) have an entry in gconfig.comments;
@@ -58,10 +55,10 @@ proc `comment=`*(n: PNode, a: string) =
     # size of gconfig.comments: 33585
     # num of nodes with comments that were deleted and hence wasted: 3081
     n.flags.incl nfHasComment
-    gconfig.comments[id] = a
+    gconfig.comments[n.id] = a
   elif nfHasComment in n.flags:
     n.flags.excl nfHasComment
-    gconfig.comments.del(id)
+    gconfig.comments.del(n.id)
 
 # BUGFIX: a module is overloadable so that a proc can have the
 # same name as an imported module. This is necessary because of
@@ -379,30 +376,31 @@ proc getDeclPragma*(n: PNode): PNode =
   if result != nil:
     assert result.kind == nkPragma, $(result.kind, n.kind)
 
+const invalidNodeId = 0
+var gNodeId: int
+
 when defined(useNodeIds):
   const nodeIdToDebug* = -1 # 2322968
-  var gNodeId: int
 
-template setIdMaybe() =
+template setNodeId() =
+  inc gNodeId
+  result.id = gNodeId
   when defined(useNodeIds):
-    result.id = gNodeId
     if result.id == nodeIdToDebug:
       echo "KIND ", result.kind
       writeStackTrace()
-    inc gNodeId
 
 proc newNodeI*(kind: TNodeKind, info: TLineInfo): PNode =
   ## new node with line info, no type, and no children
   result = PNode(kind: kind, info: info, reportId: emptyReportId)
+  setNodeId()
   when false:
     # this would add overhead, so we skip it; it results in a small amount of leaked entries
     # for old PNode that gets re-allocated at the same address as a PNode that
     # has `nfHasComment` set (and an entry in that table). Only `nfHasComment`
     # should be used to test whether a PNode has a comment; gconfig.comments
     # can contain extra entries for deleted PNode's with comments.
-    gconfig.comments.del(cast[int](result))
-
-  setIdMaybe()
+    gconfig.comments.del(result.id)
 
 proc newNode*(kind: TNodeKind): PNode =
   ## new node with unknown line info, no type, and no children
@@ -832,10 +830,9 @@ proc copyNode*(src: PNode): PNode =
 
 template transitionNodeKindCommon(k: TNodeKind) =
   let obj {.inject.} = n[]
-  n[] = TNode(kind: k, typ: obj.typ, info: obj.info, flags: obj.flags)
+  n[] = TNode(id: obj.id, kind: k, typ: obj.typ, info: obj.info,
+              flags: obj.flags)
   # n.comment = obj.comment # shouldn't be needed, the address doesnt' change
-  when defined(useNodeIds):
-    n.id = obj.id
 
 proc transitionSonsKind*(n: PNode, kind: range[nkDotCall..nkTupleConstr]) =
   transitionNodeKindCommon(kind)

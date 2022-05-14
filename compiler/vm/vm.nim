@@ -193,11 +193,9 @@ proc createStrKeepNode(x: var TFullReg; keepNode=true) =
   if x.node.isNil or not keepNode:
     x.node = newNode(nkStrLit)
   elif x.node.kind == nkNilLit and keepNode:
-    when defined(useNodeIds):
-      let id = x.node.id
+    let id = x.node.id
     x.node[] = TNode(kind: nkStrLit)
-    when defined(useNodeIds):
-      x.node.id = id
+    x.node.id = id
   elif x.node.kind notin {nkStrLit..nkTripleStrLit} or
       nfAllConst in x.node.flags:
     # XXX this is hacky; tests/txmlgen triggers it:
@@ -1734,10 +1732,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): TFullReg =
       else: raiseVmError(reportStr(rsemVmFieldNotFound, "floatVal"))
     of opcNodeId:
       decodeB(rkInt)
-      when defined(useNodeIds):
-        regs[ra].intVal = regs[rb].node.id
-      else:
-        regs[ra].intVal = -1
+      regs[ra].intVal = regs[rb].node.id
     of opcNGetType:
       let rb = instr.regB
       let rc = instr.regC

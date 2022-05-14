@@ -594,10 +594,9 @@ proc treeRepr*(
     visited[cast[int](n)] = nodecount
     add substr($n.kind, 2) + style.kind
 
-    when defined(useNodeids):
-      if trfShowNodeIds in rconf:
-        hfield("nid")
-        add $n.id
+    if trfShowNodeIds in rconf:
+      hfield("nid")
+      add $n.id
 
     let hasComment = trfShowNodeComments in rconf and n.comment.len > 0
 

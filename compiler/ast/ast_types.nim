@@ -793,8 +793,7 @@ type
     h*: Hash ## hash value of s
 
   TNode*{.final, acyclic.} = object # on a 32bit machine, this takes 32 bytes
-    when defined(useNodeIds):
-      id*: int
+    id*: int
     typ*: PType
     info*: TLineInfo
     flags*: TNodeFlags
