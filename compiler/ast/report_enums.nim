@@ -430,7 +430,6 @@ type
     # error means exactly. It /does/ have a 'sort of' reproducible example
     # - https://github.com/nim-lang/Nim/issues/5325. No real tests for this
     # one of course, I mean who needs this, right?
-    rsemIsNotParameterOf
     rsemParameterNotPointerToPartial
 
     # Statements
@@ -450,7 +449,6 @@ type
     rsemUsingRequiresType
     rsemUsingDisallowsAssign
     rsemDifferentTypeForReintroducedSymbol
-    rsemImplicitFieldConstructinoRequiresPartial
     rsemCannotInferTypeOfLiteral
     rsemCannotInferTypeOfParameter
     rsemProcHasNoConcreteType

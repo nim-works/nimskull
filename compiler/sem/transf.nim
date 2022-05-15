@@ -39,7 +39,6 @@ import
     msgs
   ],
   compiler/sem/[
-    liftlocals,
     semfold,
     lowerings
   ],
@@ -1122,7 +1121,6 @@ proc transformBody*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; cache: bool):
     result = liftLambdas(g, prc, getBody(g, prc), c.tooEarly, c.idgen)
     result = processTransf(c, result, prc)
     liftDefer(c, result)
-    result = liftLocalsIfRequested(prc, result, g.cache, g.config, c.idgen)
 
     if prc.isIterator:
       result = g.transformClosureIterator(c.idgen, prc, result)

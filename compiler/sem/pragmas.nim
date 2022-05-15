@@ -65,7 +65,7 @@ const
     wBorrow, wImportCompilerProc, wThread,
     wAsmNoStackFrame, wDiscardable, wNoInit, wCodegenDecl,
     wGensym, wInject, wRaises, wEffectsOf, wTags, wLocks, wDelegator, wGcSafe,
-    wConstructor, wLiftLocals, wStackTrace, wLineTrace, wNoDestroy,
+    wConstructor, wStackTrace, wLineTrace, wNoDestroy,
     wEnforceNoRaises}
   converterPragmas* = procPragmas
   methodPragmas* = procPragmas+{wBase}-{wImportCpp}
@@ -100,7 +100,7 @@ const
     wPure, wHeader, wCompilerProc, wCore, wFinal, wSize, wShallow,
     wIncompleteStruct, wCompleteStruct, wByCopy, wByRef,
     wInheritable, wGensym, wInject, wRequiresInit, wUnchecked, wUnion, wPacked,
-    wCppNonPod, wBorrow, wGcSafe, wPartial, wExplain, wPackage}
+    wCppNonPod, wBorrow, wGcSafe, wExplain, wPackage}
   fieldPragmas* = declPragmas + {wGuard, wBitsize, wCursor,
     wRequiresInit, wNoalias, wAlign} - {wExportNims, wNodecl} # why exclude these?
   varPragmas* = declPragmas + {wVolatile, wRegister, wThreadVar,
@@ -1689,12 +1689,6 @@ proc prepareSinglePragma(
           result = invalidPragma(c, it)
         else:
           incl(sym.typ.flags, tfByCopy)
-      of wPartial:
-        result = noVal(c, it)
-        if sym.kind != skType or sym.typ == nil:
-          result = invalidPragma(c, it)
-        else:
-          incl(sym.typ.flags, tfPartial)
       of wInject, wGensym:
         # We check for errors, but do nothing with these pragmas otherwise
         # as they are handled directly in 'evalTemplate'.
@@ -1787,8 +1781,6 @@ proc prepareSinglePragma(
           result = invalidPragma(c, it)
         else:
           sym.flags.incl sfUsed
-      of wLiftLocals:
-        result = it
       of wEnforceNoRaises:
         sym.flags.incl sfNeverRaises
       else:
