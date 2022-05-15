@@ -393,7 +393,25 @@ type
     constructObj,
     constructRefObj
 
-proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: var TLoc,
+proc genObjectInitHeader(p: BProc, section: TCProcSection, t: PType, r: Rope,
+                         info: TLineInfo) =
+  var
+    r = r
+    s = skipTypes(t, abstractInst)
+
+  if not p.module.compileToCpp:
+    while s.kind == tyObject and s[0] != nil:
+      r.add(".Sup")
+      s = skipTypes(s[0], skipPtrs)
+
+  if optTinyRtti in p.config.globalOptions:
+    linefmt(p, section, "$1.m_type = $2;$n",
+            [r, genTypeInfoV2(p.module, t, info)])
+  else:
+    linefmt(p, section, "$1.m_type = $2;$n",
+            [r, genTypeInfoV1(p.module, t, info)])
+
+proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: TLoc,
                    mode: ObjConstrMode) =
   #if optNimV2 in p.config.globalOptions: return
   case analyseObjectWithTypeField(t)
@@ -402,15 +420,7 @@ proc genObjectInit(p: BProc, section: TCProcSection, t: PType, a: var TLoc,
   of frHeader:
     var r = rdLoc(a)
     if mode == constructRefObj: r = "(*$1)" % [r]
-    var s = skipTypes(t, abstractInst)
-    if not p.module.compileToCpp:
-      while s.kind == tyObject and s[0] != nil:
-        r.add(".Sup")
-        s = skipTypes(s[0], skipPtrs)
-    if optTinyRtti in p.config.globalOptions:
-      linefmt(p, section, "$1.m_type = $2;$n", [r, genTypeInfoV2(p.module, t, a.lode.info)])
-    else:
-      linefmt(p, section, "$1.m_type = $2;$n", [r, genTypeInfoV1(p.module, t, a.lode.info)])
+    genObjectInitHeader(p, section, t, r, a.lode.info)
   of frEmbedded:
     # inheritance in C++ does not allow struct initialization: bug #18410
     if not p.module.compileToCpp and optTinyRtti in p.config.globalOptions:
@@ -438,7 +448,7 @@ proc isComplexValueType(t: PType): bool {.inline.} =
 
 include ccgreset
 
-proc resetLoc(p: BProc, loc: var TLoc) =
+proc resetLoc(p: BProc, loc: var TLoc; doInitObj = true) =
   let containsGcRef = optSeqDestructors notin p.config.globalOptions and containsGarbageCollectedRef(loc.t)
   let typ = skipTypes(loc.t, abstractVarRange)
   if isImportedCppType(typ): return
@@ -466,7 +476,8 @@ proc resetLoc(p: BProc, loc: var TLoc) =
                 [addrLoc(p.config, loc), genTypeInfoV1(p.module, loc.t, loc.lode.info)])
       # XXX: generated reset procs should not touch the m_type
       # field, so disabling this should be safe:
-      genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
+      if doInitObj:
+        genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
     else:
       # array passed as argument decayed into pointer, bug #7332
       # so we use getTypeDesc here rather than rdLoc(loc)
@@ -475,9 +486,10 @@ proc resetLoc(p: BProc, loc: var TLoc) =
               getTypeDesc(p.module, loc.t, mapTypeChooser(loc))])
       # XXX: We can be extra clever here and call memset only
       # on the bytes following the m_type field?
-      genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
+      if doInitObj:
+        genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
 
-proc constructLoc(p: BProc, loc: var TLoc, isTemp = false) =
+proc constructLoc(p: BProc, loc: var TLoc, isTemp = false; doInitObj = true) =
   let typ = loc.t
   if optSeqDestructors in p.config.globalOptions and skipTypes(typ, abstractInst + {tyStatic}).kind in {tyString, tySequence}:
     linefmt(p, cpsStmts, "$1.len = 0; $1.p = NIM_NIL;$n", [rdLoc(loc)])
@@ -491,7 +503,9 @@ proc constructLoc(p: BProc, loc: var TLoc, isTemp = false) =
       if not isImportedCppType(typ):
         linefmt(p, cpsStmts, "#nimZeroMem((void*)$1, sizeof($2));$n",
                 [addrLoc(p.config, loc), getTypeDesc(p.module, typ, mapTypeChooser(loc))])
-    genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
+
+    if doInitObj:
+      genObjectInit(p, cpsStmts, loc.t, loc, constructObj)
 
 proc initLocalVar(p: BProc, v: PSym, immediateAsgn: bool) =
   if sfNoInit notin v.flags:

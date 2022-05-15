@@ -227,6 +227,10 @@ proc searchTypeForAux(t: PType, predicate: TTypePredicate,
   else:
     discard
 
+proc searchTypeNodeFor*(n: PNode, predicate: TTypePredicate): bool =
+  var marker = initIntSet()
+  result = searchTypeNodeForAux(n, predicate, marker)
+
 proc searchTypeFor*(t: PType, predicate: TTypePredicate): bool =
   var marker = initIntSet()
   result = searchTypeForAux(t, predicate, marker)
