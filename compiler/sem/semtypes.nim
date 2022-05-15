@@ -1083,8 +1083,6 @@ proc semAnyRef(c: PContext; n: PNode; kind: TTypeKind; prev: PType): PType =
           addSonSkipIntLit(result, region, c.idgen)
 
     addSonSkipIntLit(result, t, c.idgen)
-    if tfPartial in result.flags:
-      if result.lastSon.kind == tyObject: incl(result.lastSon.flags, tfPartial)
     # if not isNilable: result.flags.incl tfNotNil
     case wrapperKind
     of tyOwned:

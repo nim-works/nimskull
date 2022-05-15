@@ -542,7 +542,6 @@ type
     tfByCopy,         ## pass object/tuple by copy (C backend)
     tfByRef,          ## pass object/tuple by reference (C backend)
     tfIterator,       ## type is really an iterator, not a tyProc
-    tfPartial,        ## type is declared as 'partial'
     tfNotNil,         ## type cannot be 'nil'
     tfRequiresInit,   ## type constains a "not nil" constraint somewhere or
                       ## a `requiresInit` field, so the default zero init

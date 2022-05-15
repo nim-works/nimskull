@@ -376,7 +376,7 @@ proc getDeclPragma*(n: PNode): PNode =
   if result != nil:
     assert result.kind == nkPragma, $(result.kind, n.kind)
 
-const invalidNodeId = 0
+const invalidNodeId* = 0
 var gNodeId: int
 
 when defined(useNodeIds):

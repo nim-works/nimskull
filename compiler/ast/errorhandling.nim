@@ -43,9 +43,6 @@ import
   compiler/front/[
     msgs,
     options
-  ],
-  std/[
-    tables
   ]
 
 proc errorSubNode*(n: PNode): PNode =

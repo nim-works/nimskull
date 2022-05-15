@@ -1475,10 +1475,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemUsingDisallowsAssign:
       result = "'using' sections cannot contain assignments"
 
-    of rsemImplicitFieldConstructinoRequiresPartial:
-      result = "implicit object field construction " &
-        "requires a .partial object, but got " & r.typ.render
-
     of rsemDifferentTypeForReintroducedSymbol:
       result = "inconsistent typing for reintroduced symbol '" &
         r.symstr & "': previous type was: " & r.formalType.render() &
@@ -2264,9 +2260,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemParameterNotPointerToPartial:
       result = "parameter '$1' is not a pointer to a partial object" % r.ast.render
-
-    of rsemIsNotParameterOf:
-      result = "'$1' is not a parameter of '$2'" % [$r.ast.render, r.symstr]
 
     of rsemGenericInstantiationTooNested:
       result = "generic instantiation too nested"

@@ -441,27 +441,6 @@ proc makeDeref(n: PNode): PNode =
     result.add a
     t = skipTypes(baseTyp, {tyGenericInst, tyAlias, tySink, tyOwned})
 
-proc fillPartialObject(c: PContext; n: PNode; typ: PType) =
-  if n.len == 2:
-    let x = semExprWithType(c, n[0])
-    let y = considerQuotedIdent(c, n[1])
-    let obj = x.typ.skipTypes(abstractPtrs)
-    if obj.kind == tyObject and tfPartial in obj.flags:
-      let field = newSym(skField, getIdent(c.cache, y.s), nextSymId c.idgen, obj.sym, n[1].info)
-      field.typ = skipIntLit(typ, c.idgen)
-      field.position = obj.n.len
-      obj.n.add newSymNode(field)
-      n[0] = makeDeref x
-      n[1] = newSymNode(field)
-      n.typ = field.typ
-    else:
-      localReport(c.config, n.info, reportTyp(
-        rsemImplicitFieldConstructinoRequiresPartial, obj))
-
-  else:
-    semReportIllformedAst(
-      c.config, n, "nkDotNode requires 2 children")
-
 proc setVarType(c: PContext; v: PSym, typ: PType) =
   if v.typ != nil and not sameTypeOrNil(v.typ, typ):
     localReport(
@@ -574,11 +553,6 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
       localReport(c.config, a.info, reportSem  rsemEachIdentIsTuple)
 
     for j in 0..<a.len-2:
-      if a[j].kind == nkDotExpr:
-        fillPartialObject(c, a[j],
-          if a.kind != nkVarTuple: typ else: tup[j])
-        addToVarSection(c, result, n, a)
-        continue
       var v = semIdentDef(c, a[j], symkind)
       styleCheckDef(c.config, v)
       onDef(a[j].info, v)
