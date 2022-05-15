@@ -390,10 +390,11 @@ template setNodeId() =
       echo "KIND ", result.kind
       writeStackTrace()
 
-proc newNodeI*(kind: TNodeKind, info: TLineInfo): PNode =
+func newNodeI*(kind: TNodeKind, info: TLineInfo): PNode =
   ## new node with line info, no type, and no children
   result = PNode(kind: kind, info: info, reportId: emptyReportId)
-  setNodeId()
+  {.cast(noSideEffect).}:
+    setNodeId()
   when false:
     # this would add overhead, so we skip it; it results in a small amount of leaked entries
     # for old PNode that gets re-allocated at the same address as a PNode that
