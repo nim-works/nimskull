@@ -216,6 +216,13 @@ proc objectInit(dest: pointer, typ: PNimType) =
       var pint = cast[ptr PNimType](dest)
       pint[] = typ
     objectInitAux(dest, typ.node)
+
+    # initialize the bases. `objectInit` can't be used directly, since it
+    # would change the header type field that was filled above
+    var t = typ.base
+    while t != nil:
+      objectInitAux(dest, t.node)
+      t = t.base
   of tyTuple:
     objectInitAux(dest, typ.node)
   of tyArray, tyArrayConstr:
