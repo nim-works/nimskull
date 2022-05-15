@@ -857,7 +857,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "illformed AST: " & render(r.ast)
 
     of rsemTypeExpected:
-      if r.sym.typ.isNil:
+      if r.sym.isNil:
+        result = "type expected, but expression has no type"
+
+      elif r.sym.typ.isNil:
         result = "type expected, but symbol '$1' has no type." % r.symstr
 
       else:
