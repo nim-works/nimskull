@@ -501,6 +501,7 @@ proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =
     addSonSkipIntLit(result, semTypeNode(c, it, nil), c.idgen)
 
 proc semTuple(c: PContext, n: PNode, prev: PType): PType =
+  addInNimDebugUtils(c.config, "semTuple", n, prev, result)
   var typ: PType
   result = newOrPrevType(tyTuple, prev, c)
   result.n = newNodeI(nkRecList, n.info)
@@ -569,6 +570,7 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
 
 proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
                         allowed: TSymFlags): PSym =
+  addInNimDebugUtils(c.config, "semIdentWithPragma", n, result)
   if n.kind == nkPragmaExpr:
     checkSonsLen(n, 2, c.config)
     result = semIdentVis(c, kind, n[0], allowed)

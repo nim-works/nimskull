@@ -43,6 +43,9 @@ import
     lowerings,
     parampatterns,
     concepts,
+  ],
+  compiler/utils/[
+    debugutils,
   ]
 
 
@@ -90,12 +93,21 @@ type
 
   TTypeRelFlags* = set[TTypeRelFlag]
 
-
 const
   isNilConversion = isConvertible # maybe 'isIntConv' fits better?
 
 proc markUsed*(c: PContext; info: TLineInfo, s: PSym)
 proc markOwnerModuleAsUsed*(c: PContext; s: PSym)
+
+proc toDebugCallableCandidate*(c: TCandidate): DebugCallableCandidate =
+  DebugCallableCandidate(
+    state: $c.state,
+    callee: c.callee,
+    calleeSym: c.calleeSym,
+    calleeScope: c.calleeScope,
+    call: c.call,
+    error: c.error
+  )
 
 template hasFauxMatch*(c: TCandidate): bool = c.fauxMatch != tyNone
 
@@ -302,7 +314,6 @@ proc cmpCandidates*(a, b: TCandidate): int =
   # only as a last resort, consider scoping:
   if result != 0: return
   result = a.calleeScope - b.calleeScope
-
 
 
 proc concreteType(c: TCandidate, t: PType; f: PType = nil): PType =
@@ -2585,7 +2596,7 @@ proc partialMatch*(c: PContext, n: PNode, m: var TCandidate) =
   matchesAux(c, n, m, marker)
 
 proc matches*(c: PContext, n: PNode, m: var TCandidate) =
-  # addInNimDebugUtils(c.config, "matches", n, nOrig)
+  addInNimDebugUtils(c.config, "matches", n, m)
   if m.magic in {mArrGet, mArrPut}:
     m.state = csMatch
     m.call = n

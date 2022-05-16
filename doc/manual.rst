@@ -1,8 +1,7 @@
-==========
-Nim Manual
-==========
+===============
+NimSkull Manual
+===============
 
-:Authors: Andreas Rumpf, Zahary Karadjov
 :Version: |nimversion|
 
 .. default-role:: code
@@ -18,8 +17,8 @@ Nim Manual
 About this document
 ===================
 
-**Note**: This document is a draft! Several of Nim's features may need more
-precise wording. This manual is constantly evolving into a proper specification.
+**Note**: This document is a draft! Several of |NimSkull|'s features may need
+more precise wording. This manual is constantly evolving.
 
 **Note**: The experimental features of Nim are
 covered `here <manual_experimental.html>`_.
@@ -2904,7 +2903,10 @@ identifier `_` can be used to ignore some parts of the tuple:
 
     let (x, _, z) = returnsTuple()
 
-
+.. warning::
+  Use of pragmas is not supporting during let, var, or const tuple unpacking.
+  This is a known issue and will be addressed in the future, it's currently
+  unclear how this will or should be resolved, unfortunately.
 
 Const section
 -------------

@@ -998,6 +998,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemWrongIdent:
       result = joinAnyOf(r.expectedIdents, quote = true) & " expected"
 
+    of rsemPragmaDisallowedForTupleUnpacking:
+      result = "pragmas are disallowed during tuple unpacking assignment, " &
+        "this is a know design issue; as a work around split pragmas and " &
+        "unpacking into two steps."
+
     of rsemPragmaOptionExpected:
       result = "option expected"
 
@@ -3276,6 +3281,22 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
             else:
               field("to type")
               result.add render(s.typ)
+          
+          of stepNodeSigMatch, stepResolveOverload:
+            if enter:
+              field("from node")
+              result.add render(s.node)
+            else:
+              field("match status", s.candidate.state)
+              if s.candidate.call.isNil:
+                field("mismatch kind", $s.candidate.error.firstMismatch.kind)
+              else:
+                field("callee")
+                result.add render(s.candidate.callee)
+                field("calleeSym")
+                result.add render(s.candidate.calleeSym)
+                field("call")
+                result.add render(s.candidate.call)
 
 
     of rdbgTraceLine:

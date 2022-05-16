@@ -126,8 +126,6 @@ proc pickBestCandidate(c: PContext, headSymbol: PNode,
     else:
       break
 
-
-
 proc maybeResemArgs*(c: PContext, n: PNode, startIdx: int = 1): seq[PNode] =
   # HACK original implementation of the `describeArgs` used `semOperand`
   # here, but until there is a clear understanding /why/ is it necessary to
@@ -162,7 +160,7 @@ proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
   ## as semOverloadedCall is already pretty slow (and we need this information
   ## only in case of an error).
   ## returns an nkError
-  addInNimDebugUtils(c.config, "notFoundError")
+  addInNimDebugUtils(c.config, "notFoundError", n, result)
   if c.config.m.errorOutputs == {}:
     # xxx: this is a hack to detect we're evaluating a constant expression or
     #      some other vm code, it seems
@@ -197,7 +195,6 @@ proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
   report.callMismatches = errors
 
   result = newError(c.config, n, report)
-
 
 proc bracketNotFoundError(c: PContext; n: PNode): PNode =
   var errors: seq[SemCallMismatch]
@@ -268,6 +265,7 @@ proc getMsgDiagnostic(
 proc resolveOverloads(c: PContext, n: PNode,
                       filter: TSymKinds, flags: TExprFlags,
                       errors: var seq[SemCallMismatch]): TCandidate =
+  addInNimDebugUtils(c.config, "resolveOverloads", n, filter, errors, result)
   var initialBinding: PNode
   var alt: TCandidate
   var f = n[0]
@@ -499,7 +497,7 @@ proc canDeref(n: PNode): bool {.inline.} =
 
 proc semOverloadedCall(c: PContext, n: PNode,
                        filter: TSymKinds, flags: TExprFlags): PNode {.nosinks.} =
-  addInNimDebugUtils(c.config, "semOverloadedCall")
+  addInNimDebugUtils(c.config, "semOverloadedCall", n, result)
   var errors: seq[SemCallMismatch]
 
   var r = resolveOverloads(c, n, filter, flags, errors)
