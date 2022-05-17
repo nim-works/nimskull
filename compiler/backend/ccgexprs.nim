@@ -3195,22 +3195,38 @@ proc genBracedInit(p: BProc, n: PNode; isConst: bool; optionalType: PType): Rope
       else:
         result = genConstSeq(p, n, typ, isConst)
     of tyProc:
-      if typ.callConv == ccClosure and n.safeLen > 1 and n[1].kind == nkNilLit:
-        # n.kind could be: nkClosure, nkTupleConstr and maybe others; `n.safeLen`
-        # guards against the case of `nkSym`, refs bug #14340.
-        # Conversion: nimcall -> closure.
-        # this hack fixes issue that nkNilLit is expanded to {NIM_NIL,NIM_NIL}
-        # this behaviour is needed since closure_var = nil must be
-        # expanded to {NIM_NIL,NIM_NIL}
-        # in VM closures are initialized with nkPar(nkNilLit, nkNilLit)
-        # leading to duplicate code like this:
-        # "{NIM_NIL,NIM_NIL}, {NIM_NIL,NIM_NIL}"
-        if n[0].kind == nkNilLit:
-          result = ~"{NIM_NIL,NIM_NIL}"
+      if typ.callConv == ccClosure:
+        var symNode: PNode
+
+        case n.kind
+        of nkNilLit, nkSym:
+          # XXX: an nkSym shouldn't reach here, but it does. Example that
+          #      triggers it:
+          #      .. code-block:: nim
+          #        proc p() = discard
+          #        type Proc = proc()
+          #        const c = p
+          #
+          #      `semConst` removes the `nkHiddenStdConv` around `p` prior to
+          #      passing the expression to evaluation
+          symNode = n
+        of nkClosure:
+          p.config.internalAssert(n[0].kind == nkSym, n.info)
+          p.config.internalAssert(n[1].kind == nkNilLit, n.info)
+          symNode = n[0]
         else:
+          p.config.internalError(n.info, "not a closure node: " & $n.kind)
+
+        case symNode.kind
+        of nkNilLit:
+          result = ~"{NIM_NIL,NIM_NIL}"
+        of nkSym:
           var d: TLoc
-          initLocExpr(p, n[0], d)
+          initLocExpr(p, symNode, d)
           result = "{(($1) $2),NIM_NIL}" % [getClosureType(p.module, typ, clHalfWithEnv), rdLoc(d)]
+        else:
+          assert false # unreachable
+
       else:
         var d: TLoc
         initLocExpr(p, n, d)

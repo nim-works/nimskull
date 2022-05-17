@@ -198,7 +198,7 @@ proc main =
       template boo(x): untyped =
         fun(x)
       result = genAstOpt({kNoNewLit}, s1=newLit(s1), s1b=s1): (s1, s1b)
-    doAssert bar() == (true, 1)
+    doAssert bar() == (true, true)
 
   block: # sanity check: check passing `{}` also works
     macro bar(): untyped =

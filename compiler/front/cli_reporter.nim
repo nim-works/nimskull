@@ -561,6 +561,16 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemVmNilAccess:
       result = "attempt to access a nil address"
 
+    of rsemVmAccessOutOfBounds:
+      result = "trying to access a location outside of the VM's memory"
+
+    of rsemVmAccessTypeMismatch:
+        # TODO: provide both dynamic and static type in the message
+      result = "trying to access a location with a handle of incompatible type"
+
+    of rsemVmAccessNoLocation:
+      result = "handle doesn't reference a valid location"
+
     of rsemVmOverOrUnderflow:
       result = "over- or underflow"
 
@@ -605,6 +615,17 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemVmFieldInavailable:
       result = r.str
+
+    of rsemVmUnsupportedNonNil:
+      case r.typ.kind
+      of tyRef:
+        result = "static expressions yielding non-nil 'ref' values that are" &
+                " not of 'object'-type are not supported"
+      of tyPtr, tyPointer:
+        result = "static expressions yielding non-nil pointer values are " &
+                "not supported"
+      else:
+        assert false
 
     of rsemBorrowOutlivesSource:
       result.add(

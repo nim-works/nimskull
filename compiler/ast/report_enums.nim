@@ -628,6 +628,9 @@ type
     rsemVmCallingNonRoutine
     rsemVmCannotModifyTypechecked
     rsemVmNilAccess
+    rsemVmAccessOutOfBounds
+    rsemVmAccessTypeMismatch
+    rsemVmAccessNoLocation
     rsemVmDerefUnsupportedPtr
     rsemVmErrInternal
     rsemVmIndexError
@@ -647,6 +650,7 @@ type
     rsemVmCannotGetChild
     rsemVmNoType
     rsemVmNotAField
+    rsemVmUnsupportedNonNil
 
     rsemVmTooManyIterations
 

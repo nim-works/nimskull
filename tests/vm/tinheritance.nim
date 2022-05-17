@@ -92,3 +92,32 @@ type
 static:
   var fb: FooBar
   echo fb.a
+
+block:
+  # For this test, it's important that all fields have incompatible types
+  type
+    A = object of RootObj
+      f1: string
+      f2: int
+      f3: float32
+    B = object of A
+      f4: seq[int]
+      f5: seq[char]
+
+    # {.inheritable.} must also work
+    AInh {.inheritable.} = object
+      f1: string
+      f2: int
+      f3: float32
+    BInh = object of AInh
+      f4: seq[int]
+      f5: seq[char]
+
+  proc test[T]() =
+    # make sure that all fields are writable. If an incompatible type error
+    # is raised by the VM, the inheritance implementation is broken
+    let b = T(f1: "f1", f2: 2, f3: 3.0, f4: @[], f5: @[])
+
+  static:
+    test[B]()
+    test[BInh]()

@@ -51,6 +51,10 @@ proc foobar(dst: var MyObjectRef) =
 proc changeChar(c: var char) =
   c = 'A'
 
+template assertStrEq(s, expect: string) =
+  {.line.}:
+    doAssert s == expect, s
+
 proc test() =
   # when it comes from a var, it works
   var y: MyObjectRef
@@ -76,17 +80,19 @@ proc test() =
   foobar(z.member)
   echo z.member
 
-  # this still doesn't work
-  # var sc = new(MySuperContainerObject)
-  # sc.member = new(MyContainerObject)
-  # foobar(sc.member.member)
-  # echo sc.member.member
-  # foobar(sc.arr[1])
-  # echo sc.arr
 
-  #var str = "---"
-  #changeChar(str[1])
-  #echo str
+  var sc = new(MySuperContainerObject)
+  sc.member = new(MyContainerObject)
+  foobar(sc.member.member)
+  doAssert sc.member.member.a == 123
+  doAssert sc.member.member.b == 321
+  foobar(sc.arr[1])
+  doAssert sc.arr[1].a == 123
+  doAssert sc.arr[1].b == 321
+
+  var str = "---"
+  changeChar(str[1])
+  assertStrEq str, "-A-"
 
 test()
 static:
@@ -108,3 +114,63 @@ proc bar() =
 
 static:
   bar()
+
+
+block addr_tuple_array:
+  proc t() =
+    var a = [(1, 2)]
+    # Test nkBracketExpr(nkBracketExpr()) where the outer
+    # subscript operator is for the tuple
+    let p = addr(a[0][0])
+    doAssert p[] == 1
+
+  static:
+    t()
+
+block addr_array_array:
+  type A = object
+    x: int
+
+  proc t() =
+    var a1: array[1, int]
+    var a = [A(x: 10)]
+    let p = unsafeAddr(a[a1[0]])
+    doAssert p.x == 10
+
+  static:
+    t()
+
+block addr_dot_dot:
+  # Make sure that `addr(a.b.c)` works when c is:
+  # * an array field subscript expression
+  # * an int field
+  # * a object field
+  # * a string field subscript expression
+  type
+    C = object
+      x: int
+    B = object
+      a: array[2, int]
+      b: int
+      c: C
+      d: string
+      f: seq[string]
+    A = object
+      b: B
+
+  proc t(a: A) =
+    let p1 = unsafeAddr(a.b.a[0])
+    doAssert p1[] == 1
+    let p2 = unsafeAddr(a.b.b)
+    doAssert p2[] == 3
+    let p3 = unsafeAddr(a.b.c)
+    doAssert p3.x == 4
+    let p4 = unsafeAddr(a.b.d[2])
+    # doesn't work right now, due to char being treated as having
+    # a size of 8-byte
+    #doAssert p4[] == 's'
+
+
+  static:
+    var a = A(b: B(a: [1, 2], b: 3, c: C(x: 4), d: "test", f: @["str"]))
+    t(a)

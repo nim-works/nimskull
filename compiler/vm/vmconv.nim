@@ -1,45 +1,95 @@
-import compiler/ast/ast
+## The module implements helper functions for reading and writing values to VM
+## locations. These are useful when writing VM callbacks.
 
-template elementType*(T: typedesc): typedesc =
-  typeof(block:
-    var a: T
-    for ai in a: ai)
+import
+  compiler/ast/[
+    reports
+  ],
+  compiler/front/[
+    options
+  ],
+  compiler/utils/[
+    bitsets
+  ],
+  compiler/vm/[
+    vmdef,
+    vmerrors,
+    vmobjects,
+    vmmemory
+  ]
 
-proc fromLit*(a: PNode, T: typedesc): auto =
-  ## generic PNode => type
-  ## see also reverse operation `toLit`
-  when T is set:
-    result = default(T)
-    type Ti = elementType(T)
-    for ai in a:
-      result.incl Ti(ai.intVal)
+# XXX: A better approach than `tryWrite` is needed if the plan is to wrap
+#      large parts of the stdlib... (macros come to mind)
+#      VM callback design needs to be revisited in general
+
+proc tryWriteTo*[T: enum](v: T, dest: LocHandle, mm: var VmMemoryManager): bool =
+  if dest.typ.kind == akInt:
+    result = true
+    # XXX: this will silently cut off bits beyond what dest can hold
+    writeUInt(dest.byteView(), ord(v))
+
+
+proc tryWriteTo*[T: SomeSignedInt](v: T, dest: LocHandle, mm: var VmMemoryManager): bool =
+  if dest.typ.kind == akInt:
+    result = true
+    # XXX: this will silently cut off bits beyond what dest can hold
+    writeInt(dest.byteView(), BiggestInt(v))
+
+
+proc tryWriteTo*[T: SomeUnsignedInt](v: T, dest: LocHandle, mm: var VmMemoryManager): bool =
+  if dest.typ.kind == akInt:
+    result = true
+    # XXX: this will silently cut off bits beyond what dest can hold
+    writeUInt(dest, BiggestUInt(v))
+
+proc tryWriteTo*[T: string](v: T, dest: LocHandle, mm: var VmMemoryManager): bool =
+  if dest.typ.kind == akString:
+    result = true
+    deref(dest).strVal.newVmString(v, mm.allocator)
   else:
-    static: doAssert false, "not yet supported: " & $T # add as needed
+    result = false
 
-proc toLit*[T](a: T): PNode =
-  ## generic type => PNode
-  ## see also reverse operation `fromLit`
-  when T is string: newStrNode(nkStrLit, a)
-  elif T is Ordinal: newIntNode(nkIntLit, a.ord)
-  elif T is (proc): newNode(nkNilLit)
-  elif T is ref:
-    if a == nil: newNode(nkNilLit)
-    else: toLit(a[])
-  elif T is tuple:
-    result = newTree(nkTupleConstr)
-    for ai in fields(a): result.add toLit(ai)
-  elif T is seq:
-    result = newNode(nkBracket)
-    for ai in a:
-      result.add toLit(ai)
-  elif T is object:
-    result = newTree(nkObjConstr)
-    result.add(newNode(nkEmpty))
-    for k, ai in fieldPairs(a):
-      let reti = newNode(nkExprColonExpr)
-      reti.add k.toLit
-      reti.add ai.toLit
-      result.add reti
-  else:
-    static: doAssert false, "not yet supported: " & $T # add as needed
+proc tryWriteTo*[T: seq](v: T, dest: LocHandle, mm: var VmMemoryManager): bool =
+  if dest.typ.kind == akSeq:
+    deref(dest).seqVal.setLenSeq(dest.typ, v.len, mm)
 
+    let s = deref(dest).seqVal # shallow copy
+    for i in 0..<v.len:
+      if tryWriteTo(v[i], s.getItemHandle(dest.typ, i), mm): discard
+      else: return false
+
+    result = true
+
+proc tryWriteTo*[T: object|tuple](v: T, dest: LocHandle, mm: var VmMemoryManager): bool =
+  var fI = 0
+  # XXX: this might be bit fuzzy for more complex objects...
+  for x in v.fields:
+    if tryWriteTo(x, dest.getFieldHandle(FieldPosition(fI)), mm): discard
+    else: return false
+    inc fI
+
+  result = true
+
+proc writeTo*[T](v: T, dest: LocHandle, mm: var VmMemoryManager) =
+  if tryWriteTo(v, dest, mm):
+    return
+
+  raiseVmError(reportStr(
+    rsemVmErrInternal,
+    "Writing to location failed: " & $T))
+
+
+func tryReadTo*[T](src: LocHandle, dst: var set[T]): bool =
+  const ElemRange = low(T)..high(T)
+  if src.typ.kind == akSet and src.typ.setLength <= len(ElemRange):
+    # TODO: do something more efficient than testing for each possible element
+    for i in ElemRange:
+      if bitSetIn(src.byteView(), ord(i)):
+        dst.incl i
+    result = true
+
+func readAs*[T](src: LocHandle, t: typedesc[T]): T =
+  if tryReadTo(src, result):
+    return
+
+  raiseVmError(reportStr(rsemVmErrInternal, "Reading from location failed"))
