@@ -1314,7 +1314,7 @@ proc genDefault(p: BProc; n: PNode; d: var TLoc) =
   if d.k == locNone: getTemp(p, n.typ, d, needsInit=true)
   else: resetLoc(p, d)
 
-proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool) =
+proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool; doInitObj = true) =
   var sizeExpr = sizeExpr
   let typ = a.t
   var b: TLoc
@@ -1364,8 +1364,10 @@ proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool) =
     else:
       b.r = ropecg(p.module, "($1) #newObj($2, $3)", [getTypeDesc(p.module, typ), ti, sizeExpr])
       genAssignment(p, a, b, {})
-  # set the object type:
-  genObjectInit(p, cpsStmts, bt, a, constructRefObj)
+
+  if doInitObj:
+    # set the object type:
+    genObjectInit(p, cpsStmts, bt, a, constructRefObj)
 
 proc genNew(p: BProc, e: PNode) =
   var a: TLoc
@@ -1456,6 +1458,120 @@ proc handleConstExpr(p: BProc, n: PNode, d: var TLoc): bool =
   else:
     result = false
 
+# XXX: maybe move the `specializeInitObject` procs into a separate module
+#      (similiar to `specializeReset`)
+
+proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
+                          info: TLineInfo)
+
+proc specializeInitObjectL(p: BProc, accessor: Rope, loc: TLoc) =
+  ## Generates type field (if there are any) initialization code for the given
+  ## `loc`. `accessor` is the path to `loc`, excluding loc itself
+  specializeInitObject(p, "$1.$2" % [accessor, loc.r], loc.t, loc.lode.info)
+
+proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
+  ## Generates type field initialization code for the record node
+
+  # XXX: this proc shares alot of code with `specializeResetN` (it's based on
+  #      a copy of it, after all)
+  if n == nil: return
+  case n.kind
+  of nkRecList:
+    for i in 0..<n.len:
+      specializeInitObjectN(p, accessor, n[i], typ)
+  of nkRecCase:
+    p.config.internalAssert(n[0].kind == nkSym, n.info,
+                            "specializeInitObjectN")
+    let disc = n[0].sym
+    if disc.loc.r == nil: fillObjectFields(p.module, typ)
+    p.config.internalAssert(disc.loc.t != nil, n.info,
+                            "specializeInitObjectN()")
+    lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, disc.loc.r])
+    for i in 1..<n.len:
+      let branch = n[i]
+      assert branch.kind in {nkOfBranch, nkElse}
+      if branch.kind == nkOfBranch:
+        genCaseRange(p, branch)
+      else:
+        lineF(p, cpsStmts, "default:$n", [])
+      specializeInitObjectN(p, accessor, lastSon(branch), typ)
+      lineF(p, cpsStmts, "break;$n", [])
+    lineF(p, cpsStmts, "} $n", [])
+  of nkSym:
+    let field = n.sym
+    if field.typ.kind == tyVoid: return
+    if field.loc.r == nil: fillObjectFields(p.module, typ)
+    p.config.internalAssert(field.loc.t != nil, n.info,
+                            "specializeInitObjectN()")
+    specializeInitObjectL(p, accessor, field.loc)
+  else: internalError(p.config, n.info, "specializeInitObjectN()")
+
+proc specializeInitObject(p: BProc, accessor: Rope, typ: PType,
+                          info: TLineInfo) =
+  ## Generates type field (if there are any) initialization code for an
+  ## variable of `typ` at `accessor`. Specialiaztion for the run-time
+  ## `objectInit` function (that's also only available for the old runtime)
+  if typ == nil:
+    return
+
+  let typ = typ.skipTypes(abstractInst)
+
+  # XXX: this function trades compililation time for run-time efficiency by
+  #      potentially performing lots of redundant walks over the same types,
+  #      in order to not generate code for records that don't need it. The
+  #      better solution would be to run type field analysis only once for
+  #      each record type and then cache the result. `cgen` lacks a general
+  #      mechanism for caching type related info.
+  #      A further improvement would be to emit the code into a separate
+  #      function and then just call that
+
+  case typ.kind
+  of tyArray:
+    # To not generate an empty `for` loop, first check if the array contains
+    # any type fields. This optimizes for the case where there are none,
+    # making the case where type fields exist slower (compile time)
+    if analyseObjectWithTypeField(typ) == frNone:
+      return
+
+    let arraySize = lengthOrd(p.config, typ[0])
+    var i: TLoc
+    getTemp(p, getSysType(p.module.g.graph, info, tyInt), i)
+    linefmt(p, cpsStmts, "for ($1 = 0; $1 < $2; $1++) {$n",
+            [i.r, arraySize])
+    specializeInitObject(p, ropecg(p.module, "$1[$2]", [accessor, i.r]),
+                         typ[1], info)
+    lineF(p, cpsStmts, "}$n", [])
+  of tyObject:
+    proc pred(t: PType): bool = not isObjLackingTypeField(t)
+
+    var
+      t = typ
+      a = accessor
+
+    # walk the type hierarchy and generate object initialization code for
+    # all bases that contain type fields
+    while t != nil:
+      t = t.skipTypes(skipPtrs)
+
+      if t.n != nil and searchTypeNodeFor(t.n, pred):
+        specializeInitObjectN(p, a, t.n, t)
+
+      a = a.parentObj(p.module)
+      t = t.base
+
+    # type header:
+    if pred(typ):
+      genObjectInitHeader(p, cpsStmts, typ, accessor, info)
+
+  of tyTuple:
+    let typ = getUniqueType(typ)
+    for i in 0..<typ.len:
+      specializeInitObject(p, ropecg(p.module, "$1.Field$2", [accessor, i]),
+                           typ[i], info)
+
+  else:
+    discard
+
 proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
   #echo renderTree e, " ", e.isDeepConstExpr
   # inheritance in C++ does not allow struct initialization so
@@ -1478,20 +1594,37 @@ proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
         (d.k notin {locTemp,locLocalVar,locGlobalVar,locParam,locField}) or
         (isPartOf(d.lode, e) != arNo)
 
+  # if the object has a record-case, don't initialize type fields before but
+  # after initializing discriminators. Otherwise, the type fields in the
+  # default branch would be filled, leading to uninitialized fields in other
+  # branches not being empty (or having their type fields not set) in case the
+  # default branch is not the active one
+  let hasCase = block:
+    var v = false
+    var obj = t
+    while obj != nil and not(v):
+      obj = obj.skipTypes(abstractPtrs)
+      v = isCaseObj(obj.n)
+      obj = obj.base
+
+    v
+
   var tmp: TLoc
   var r: Rope
   if useTemp:
     getTemp(p, t, tmp)
     r = rdLoc(tmp)
     if isRef:
-      rawGenNew(p, tmp, nil, needsInit = nfAllFieldsSet notin e.flags)
+      rawGenNew(p, tmp, nil,
+                needsInit = nfAllFieldsSet notin e.flags,
+                doInitObj = not hasCase)
       t = t.lastSon.skipTypes(abstractInstOwned)
       r = "(*$1)" % [r]
       gcUsage(p.config, e)
     else:
-      constructLoc(p, tmp)
+      constructLoc(p, tmp, doInitObj = not hasCase)
   else:
-    resetLoc(p, d)
+    resetLoc(p, d, doInitObj = not hasCase)
     r = rdLoc(d)
   discard getTypeDesc(p.module, t)
   let ty = getUniqueType(t)
@@ -1519,6 +1652,18 @@ proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
       d = tmp
     else:
       genAssignment(p, d, tmp, {})
+
+  if hasCase:
+    # fill in type type fields. Always use `specializeInitObject`, even when
+    # compiling for the old runtime (`objectInit` could be used there)
+
+    # XXX: for some discriminators, the value is known at compile-time, so
+    #      their switch-case stmt emitted by `specializeInitObject` could be
+    #      elided
+    var r = rdLoc(d)
+    if isRef: r = "(*$1)" % [r]
+
+    specializeInitObject(p, r, t, e.info)
 
 proc lhsDoesAlias(a, b: PNode): bool =
   for y in b:
