@@ -326,12 +326,6 @@ proc safeLen*(n: PNode): int {.inline.} =
   if n.kind in {nkNone..nkNilLit}: result = 0
   else: result = n.len
 
-proc safeArrLen*(n: PNode): int {.inline.} =
-  ## works for array-like objects (strings passed as openArray in VM).
-  if n.kind in {nkStrLit..nkTripleStrLit}: result = n.strVal.len
-  elif n.kind in {nkNone..nkFloat128Lit}: result = 0
-  else: result = n.len
-
 proc add*(father, son: Indexable) =
   assert son != nil
   father.sons.add(son)
@@ -556,7 +550,10 @@ proc newIntNode*(kind: TNodeKind, intVal: Int128): PNode =
   result = newNode(kind)
   result.intVal = castToInt64(intVal)
 
-proc lastSon*(n: Indexable): Indexable = n.sons[^1]
+func lastSon*(n: Indexable): Indexable =
+  {.cast(noSideEffect).}:
+    # erroneously inferred side-effect
+    n.sons[^1]
 
 proc skipTypes*(t: PType, kinds: TTypeKinds): PType =
   ## Used throughout the compiler code to test whether a type tree contains or

@@ -34,6 +34,7 @@ import
   ],
   compiler/vm/[
     vm,
+    vmconv,
     vmdef,
   ],
   compiler/front/[
@@ -54,7 +55,8 @@ proc listDirs(a: VmArgs, filter: set[PathComponent]) =
   var result: seq[string] = @[]
   for kind, path in walkDir(dir):
     if kind in filter: result.add path
-  setResult(a, result)
+
+  writeTo(result, a.getResultHandle(), a.mem[])
 
 proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
               graph: ModuleGraph; idgen: IdGenerator): PEvalContext =

@@ -13,7 +13,6 @@ from std/math import sqrt, ln, log10, log2, exp, round, arccos, arcsin,
   arctan, arctan2, cos, cosh, hypot, sinh, sin, tan, tanh, pow, trunc,
   floor, ceil, `mod`, cbrt, arcsinh, arccosh, arctanh, erf, erfc, gamma,
   lgamma
-from std/sequtils import toSeq
 when declared(math.copySign):
   # pending bug #18762, avoid renaming math
   from std/math as math2 import copySign
@@ -29,7 +28,7 @@ from std/md5 import getMD5
 from std/times import cpuTime
 from std/hashes import hash
 from std/osproc import nil
-from system/formatfloat import addFloatRoundtrip, addFloatSprintf
+from system/formatfloat import writeFloatToBufferSprintf
 
 
 # There are some useful procs in vmconv.
@@ -84,7 +83,7 @@ template wrap2s(op, modop) {.dirty.} =
 
 template wrap2si(op, modop) {.dirty.} =
   proc `op Wrapper`(a: VmArgs) {.nimcall.} =
-    setResult(a, op(getString(a, 0), getInt(a, 1)))
+    writeTo(op(getString(a, 0), getInt(a, 1)), a.getResultHandle(), a.mem[])
   modop op
 
 template wrap1svoid(op, modop) {.dirty.} =
@@ -108,16 +107,31 @@ template wrapDangerous(op, modop) {.dirty.} =
     modop op
 
 proc getCurrentExceptionMsgWrapper(a: VmArgs) {.nimcall.} =
-  setResult(a, if a.currentException.isNil: ""
-               else: a.currentException[3].skipColon.strVal)
+  if a.currentException.isNil:
+    setResult(a, "")
+  else:
+    let h = tryDeref(a.heap[], a.currentException, noneType).value()
+
+    a.slots[a.ra].strVal.asgnVmString(
+      deref(h.getFieldHandle(FieldPosition(2))).strVal,
+      a.mem.allocator)
 
 proc getCurrentExceptionWrapper(a: VmArgs) {.nimcall.} =
-  setResult(a, a.currentException)
+  deref(a.slots[a.ra].handle).refVal = a.currentException
+  if not a.currentException.isNil:
+    a.heap[].heapIncRef(a.currentException)
 
-proc staticWalkDirImpl(path: string, relative: bool): PNode =
-  result = newNode(nkBracket)
-  for k, f in walkDir(path, relative):
-    result.add toLit((k, f))
+template wrapIteratorInner(a: VmArgs, iter: untyped) =
+  let rh = a.getResultHandle()
+  assert rh.typ.kind == akSeq
+
+  let s = addr deref(rh).seqVal
+  var i = 0
+  for x in iter:
+    s[].growBy(rh.typ, 1, a.mem[])
+    writeTo(x, getItemHandle(s[], rh.typ, i), a.mem[])
+    inc i
+
 
 when defined(nimHasInvariant):
   from std / compilesettings import SingleValueSetting, MultipleValueSetting
@@ -154,15 +168,18 @@ when defined(nimHasInvariant):
 
 proc registerAdditionalOps*(c: PCtx) =
 
+  template writeResult(ret) {.dirty.} =
+    writeTo(ret, a.getResultHandle(), a.mem[])
+
   template wrapIterator(fqname: string, iter: untyped) =
     registerCallback c, fqname, proc(a: VmArgs) =
-      setResult(a, toLit(toSeq(iter)))
+      wrapIteratorInner(a, iter)
 
 
   proc gorgeExWrapper(a: VmArgs) =
     let ret = opGorge(getString(a, 0), getString(a, 1), getString(a, 2),
                          a.currentLineInfo, c.config)
-    setResult a, ret.toLit
+    writeResult(ret)
 
   proc getProjectPathWrapper(a: VmArgs) =
     setResult a, c.config.projectPath.string
@@ -228,12 +245,16 @@ proc registerAdditionalOps*(c: PCtx) =
     systemop getCurrentExceptionMsg
     systemop getCurrentException
     registerCallback c, "stdlib.*.staticWalkDir", proc (a: VmArgs) {.nimcall.} =
-      setResult(a, staticWalkDirImpl(getString(a, 0), getBool(a, 1)))
+      let path = getString(a, 0)
+      let relative = getBool(a, 1)
+      wrapIteratorInner(a):
+        walkDir(path, relative)
+
     when defined(nimHasInvariant):
       registerCallback c, "stdlib.compilesettings.querySetting", proc (a: VmArgs) =
-        setResult(a, querySettingImpl(c.config, getInt(a, 0)))
+        writeResult(querySettingImpl(c.config, getInt(a, 0)))
       registerCallback c, "stdlib.compilesettings.querySettingSeq", proc (a: VmArgs) =
-        setResult(a, querySettingSeqImpl(c.config, getInt(a, 0)))
+        writeResult(querySettingSeqImpl(c.config, getInt(a, 0)))
 
     if defined(nimsuggest) or c.config.cmd == cmdCheck:
       discard "don't run staticExec for 'nim suggest'"
@@ -264,6 +285,7 @@ proc registerAdditionalOps*(c: PCtx) =
     c.config.active.isVmTrace = getBool(a, 0)
 
   proc hashVmImpl(a: VmArgs) =
+    # TODO: perform index check here
     var res = hashes.hash(a.getString(0), a.getInt(1).int, a.getInt(2).int)
     if c.config.backend == backendJs:
       # emulate JS's terrible integers:
@@ -273,15 +295,28 @@ proc registerAdditionalOps*(c: PCtx) =
   registerCallback c, "stdlib.hashes.hashVmImpl", hashVmImpl
 
   proc hashVmImplByte(a: VmArgs) =
-    # nkBracket[...]
     let sPos = a.getInt(1).int
     let ePos = a.getInt(2).int
-    let arr = a.getNode(0)
-    var bytes = newSeq[byte](arr.len)
-    for i in 0..<arr.len:
-      bytes[i] = byte(arr[i].intVal and 0xff)
+    let arr = a.getHandle(0)
+    # XXX: openArray is currently treated as `seq` in the vm
+    assert arr.typ.kind == akSeq
+    assert arr.typ.seqElemType.kind == akInt
+    assert arr.typ.seqElemType.sizeInBytes == 1
 
-    var res = hashes.hash(bytes, sPos, ePos)
+    let seqVal = addr deref(arr).seqVal
+
+    if ePos >= seqVal.length:
+      raiseVmError(
+        SemReport(
+          kind: rsemVmIndexError,
+          indexSpec: (
+            usedIdx: toInt128(ePos),
+            minIdx: toInt128(0),
+            maxIdx: toInt128(seqVal.length-1))))
+
+    let p = seqVal.data.rawPointer
+
+    var res = hashes.hash(toOpenArray(p, sPos, ePos), sPos, ePos)
     if c.config.backend == backendJs:
       # emulate JS's terrible integers:
       res = cast[int32](res)
@@ -304,10 +339,10 @@ proc registerAdditionalOps*(c: PCtx) =
     registerCallback c, "stdlib.os.getCurrentDir", proc (a: VmArgs) {.nimcall.} =
       setResult(a, os.getCurrentDir())
     registerCallback c, "stdlib.osproc.execCmdEx", proc (a: VmArgs) {.nimcall.} =
-      let options = getNode(a, 1).fromLit(set[osproc.ProcessOption])
-      a.setResult osproc.execCmdEx(getString(a, 0), options).toLit
+      let options = readAs(getHandle(a, 1), set[osproc.ProcessOption])
+      writeResult osproc.execCmdEx(getString(a, 0), options)
     registerCallback c, "stdlib.times.getTime", proc (a: VmArgs) {.nimcall.} =
-      setResult(a, times.getTime().toLit)
+      writeResult times.getTime()
 
   proc getEffectList(c: PCtx; a: VmArgs; effectIndex: int) =
     let fn = getNode(a, 0)
@@ -342,6 +377,10 @@ proc registerAdditionalOps*(c: PCtx) =
   registerCallback c, "stdlib.formatfloat.addFloatSprintf", proc(a: VmArgs) =
     let p = a.getVar(0)
     let x = a.getFloat(1)
-    addFloatSprintf(p.strVal, x)
+    var temp {.noinit.}: array[65, char]
+    let n = writeFloatToBufferSprintf(temp, x)
+    let oldLen = deref(p).strVal.len
+    deref(p).strVal.setLen(oldLen + n, a.mem.allocator)
+    safeCopyMem(deref(p).strVal.data.subView(oldLen, n), temp, n)
 
   wrapIterator("stdlib.os.envPairsImplSeq"): envPairs()

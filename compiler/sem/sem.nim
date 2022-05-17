@@ -54,7 +54,6 @@ import
   compiler/sem/[
     semfold,
     concepts,
-    semmacrosanity,
     typeallowed,
     isolation_check,
     procfind,
@@ -411,16 +410,13 @@ proc hasCycle(n: PNode): bool =
 proc fixupTypeAfterEval(c: PContext, evaluated, eOrig: PNode): PNode =
   # recompute the types as 'eval' isn't guaranteed to construct types nor
   # that the types are sound:
+  # XXX: `fixupTypeAfterEval` is not really needed anymore
   when true:
     if eOrig.typ.kind in {tyUntyped, tyTyped, tyTypeDesc}:
+      # XXX: is this case still used now?
       result = semExprWithType(c, evaluated)
     else:
       result = evaluated
-      let expectedType = eOrig.typ.skipTypes({tyStatic})
-      if hasCycle(result):
-        result = newError(c.config, eOrig, SemReport(kind: rsemCyclicTree))
-      else:
-        semmacrosanity.annotateType(result, expectedType, c.config)
   else:
     result = semExprWithType(c, evaluated)
     #result = fitNode(c, e.typ, result) inlined with special case:
