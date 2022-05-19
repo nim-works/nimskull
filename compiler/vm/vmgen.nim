@@ -183,7 +183,7 @@ proc codeListing*(c: TCtx, prc: PSym, ast: PNode, start=0; last = -1) =
             newStrNode(nkStrLit, $deref(cnst.strVal).strVal)
           of cnstNode:
             cnst.node
-          of cnstBranchLit:
+          of cnstSliceListInt..cnstSliceListStr:
             # XXX: translate into an `nkOfBranch`?
             newNode(nkEmpty)
 
@@ -661,44 +661,65 @@ proc genLiteral(c: var TCtx, n: PNode): int =
     c.config.internalError(n.info, $n.kind)
     0
 
+template fillSliceList[T](sl: var seq[Slice[T]], nodes: openArray[PNode],
+                          get: untyped) =
+  sl.newSeq(nodes.len)
 
-proc genBranchLit(c: var TCtx, n: PNode): int =
-  ## Turn the of-branch `n` into a constant, add it to `c.constants` and
-  ## return it's index.
-  ##
-  ## Single values are turned into either an int or string constant, while
-  ## range values and multiple values are stored as an array of ranges (int
-  ## pairs).
-  ##
-  ## The of-branch:
-  ##
-  ## .. code-block:: nim
-  ##  of 1..2, 5, 6..10
-  ##
-  ## would be stored as [1, 2, 5, 5, 6, 10]
+  template getIt(n): untyped =
+    block:
+      let it {.cursor, inject.} = n
+      get
 
-  if n.len == 2 and n[0].kind in {nkCharLit..nkUInt64Lit, nkStrLit..nkTripleStrLit}:
+  for (i, n) in nodes.pairs:
+    sl[i] =
+      if n.kind == nkRange:
+        getIt(n[0]) .. getIt(n[1])
+      else:
+        let e = getIt(n)
+        e .. e
+
+proc genBranchLit(c: var TCtx, n: PNode, t: PType): int =
+  ## Turns the slice-list or single literal of the given `nkOfBranch` into
+  ## a constant and returns it's index in `c.constant`.
+  ##
+  ## slice-lists are always added as a new constant while single literals
+  ## are reused
+
+  # XXX: slice-list constants (maybe `VmConstant`s in general) should be
+  #      stored in a `BiTable` so that it can be easily detected if they
+  #      already exist
+  assert t.kind in IntegralTypes+{tyString}
+
+  if n.len == 2 and n[0].kind in nkLiterals:
     # It's an 'of' branch with a single value
     result = c.genLiteral(n[0])
   else:
     # It's an 'of' branch with multiple and/or range values
-    var lit = VmConstant(kind: cnstBranchLit)
-    # XXX: this breaks IC! See comment in `makeCnstFunc`
-    lit.ranges.newSeq((n.len-1) * 2)
-    for i in 0..<n.len - 1:
-      let it = n[i]
-      var l, h: BiggestInt
-      if it.kind == nkRange:
-        l = it[0].intVal
-        h = it[1].intVal
-      else:
-        assert it.kind in nkCharLit..nkUInt64Lit
-        l = it.intVal
-        h = l
-      lit.ranges[i * 2 + 0] = l
-      lit.ranges[i * 2 + 1] = h
+    var cnst: VmConstant
 
-    result = c.rawGenLiteral(lit)
+    template values: untyped =
+      n.sons.toOpenArray(0, n.sons.high - 1) # -1 for the branch body
+
+    case t.kind
+    of IntegralTypes-{tyFloat..tyFloat128}:
+      cnst = VmConstant(kind: cnstSliceListInt)
+      cnst.intSlices.fillSliceList(values):
+        it.intVal
+
+    of tyFloat..tyFloat128:
+      cnst = VmConstant(kind: cnstSliceListFloat)
+      cnst.floatSlices.fillSliceList(values):
+        it.floatVal
+
+    of tyString:
+      cnst = VmConstant(kind: cnstSliceListStr)
+      cnst.strSlices.fillSliceList(values):
+        c.toStringCnst(it.strVal)
+
+    else:
+      unreachable($t.kind)
+
+    result = c.rawGenLiteral(cnst)
 
 
 proc unused(c: TCtx; n: PNode; x: TDest) {.inline.} =
@@ -740,7 +761,7 @@ proc genCase(c: var TCtx; n: PNode; dest: var TDest) =
         # elif branches were eliminated during transformation
         doAssert branch.kind == nkOfBranch
 
-        let b = genBranchLit(c, branch)
+        let b = genBranchLit(c, branch, selType)
         c.gABx(branch, opcBranch, tmp, b)
         let elsePos = c.xjmp(branch.lastSon, opcFJmp, tmp)
         c.gen(branch.lastSon, dest)
@@ -1940,7 +1961,7 @@ proc genDiscrVal(c: var TCtx, discr, n: PNode, oty: PType): TRegister =
         c.gABx(n, opcLdImmInt, bIReg, bI)
       else:
         # of branch
-        let b = genBranchLit(c, branch)
+        let b = genBranchLit(c, branch, dt)
         c.gABx(branch, opcBranch, tmp, b)
         let elsePos = c.xjmp(branch.lastSon, opcFJmp, tmp)
         c.gABx(n, opcLdImmInt, bIReg, bI)

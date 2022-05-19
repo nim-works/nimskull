@@ -327,7 +327,14 @@ type
     cnstFloat
     cnstString
     cnstNode ## AST, type literals
-    cnstBranchLit
+
+    # slice-lists are used for implementing `opcBranch` (branch for case stmt)
+    cnstSliceListInt
+    cnstSliceListFloat
+    cnstSliceListStr
+
+  ConstantId* = int ## The ID of a `VmConstant`. Currently just an index into
+                    ## `PCtx.constants`
 
   VmConstant* = object
     ## `VmConstant`s are used for passing constant data from `vmgen` to the
@@ -347,11 +354,16 @@ type
       #      `opcMatConst` mechanism and `strVal` should be a simple `string`
     of cnstNode:
       node*: PNode
-    of cnstBranchLit:
-      # Used for implementing multi-value 'of' branches
+
+    of cnstSliceListInt:
       # XXX: always using `BiggestInt` is inredibly wasteful for when the
       #      values are small (e.g. `char`)
-      ranges*: seq[BiggestInt]
+      intSlices*: seq[Slice[BiggestInt]]
+    of cnstSliceListFloat:
+      floatSlices*: seq[Slice[BiggestFloat]]
+    of cnstSliceListStr:
+      strSlices*: seq[Slice[ConstantId]] ## Stores the ids of string constants
+                                         ## as a storage optimization
 
   RegInfo* = object
     refCount*: uint16

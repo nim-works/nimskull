@@ -2190,23 +2190,38 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
 
       checkHandle(regs[ra])
 
+      func contains[T](list: openArray[Slice[T]], v: T): bool =
+        for s in list.items:
+          if v in s: return true
+
       var cond = false
       case value.kind
       of cnstInt:      cond = regs[ra].intVal == value.intVal
       of cnstString:   cond = regs[ra].strVal == deref(value.strVal).strVal
-      of cnstBranchLit:
-        let a = regs[ra].intVal
-        let L = value.ranges.len
-        for i in countup(0, L-1, 2):
-          let l = value.ranges[i+0]
-          let h = value.ranges[i+1]
-
-          if a in l..h:
-            cond = true
-            break
+      of cnstFloat:    cond = regs[ra].floatVal == value.floatVal
+      of cnstSliceListInt:   cond = regs[ra].intVal in value.intSlices
+      of cnstSliceListFloat: cond = regs[ra].floatVal in value.floatSlices
+      of cnstSliceListStr:
+        # string slice-lists don't store the strings directly, but the ID of
+        # a constant instead
+        let str = regs[ra].strVal
+        for s in value.strSlices.items:
+          let a = deref(c.constants[s.a].strVal).strVal
+          let r = cmp(a, str)
+          if s.a == s.b:
+            # no need to compare the string with both slice elements if
+            # they're the same
+            if r == 0:
+              cond = true
+              break
+          else:
+            let b = deref(c.constants[s.b].strVal).strVal
+            if r <= 0 and cmp(str, b) <= 0:
+              cond = true
+              break
 
       else:
-        assert false, $value.kind
+        unreachable($value.kind)
 
       assert c.code[pc+1].opcode == opcFJmp
       inc pc
@@ -2354,8 +2369,8 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         #      cases where non-NimNode PNodes need to be stored in registers
         #      seems unnecessary however.
         regs[ra] = TFullReg(kind: rkNimNode, nimNode: cnst.node)
-      of cnstBranchLit:
-        # A branch literal must not be used with `LdConst`
+      of cnstSliceListInt..cnstSliceListStr:
+        # A slice-list must not be used with `LdConst`
         assert false
 
     of opcAsgnConst:
