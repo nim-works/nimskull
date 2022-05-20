@@ -142,12 +142,12 @@ func deref*(handle: LocHandle): ptr Atom {.inline.} =
 template byteView*(handle: LocHandle): untyped =
   handle.h.subView(handle.typ.sizeInBytes)
 
-func heapNew*(heap: var VmHeap, a: var VmAllocator, typ: PVmType, nimTyp: PType): HeapSlotHandle =
+func heapNew*(heap: var VmHeap, a: var VmAllocator, typ: PVmType): HeapSlotHandle =
   ## Creates a new managed slot of type `typ` and sets the ref-count to 1
   assert heap.slots.len > 0
   result = heap.slots.len
   # XXX: slots are currently not reused
-  heap.slots.add(HeapSlot(handle: a.allocSingleLocation(typ), refCount: 1, nType: nimTyp))
+  heap.slots.add(HeapSlot(handle: a.allocSingleLocation(typ), refCount: 1))
 
 func heapIncRef*(heap: var VmHeap, slot: HeapSlotHandle) =
   ## Increments the ref-counter for the given slot (expected to be valid)

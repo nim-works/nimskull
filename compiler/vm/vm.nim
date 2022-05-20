@@ -189,10 +189,25 @@ template toException(x: DerefFailureCode): untyped =
   ## `Result` -> exception translation
   toVmError(x, instLoc())
 
-proc reportException(c: TCtx; sframe: StackFrameIndex, raised: LocHandle, excType: PType) =
+proc reportException(c: TCtx; sframe: StackFrameIndex, raised: LocHandle) =
   ## Reports the exception represented by `raised` by raising a `VmError`
-  raiseVmError(reportAst(rsemVmUnhandledException,
-    c.deserialize(raised, excType, unknownLineInfo)))
+
+  let name = $raised.getFieldHandle(1.fpos).deref().strVal
+  let msg = $raised.getFieldHandle(2.fpos).deref().strVal
+
+  # The reporter expects the exception as a deserialized PNode-tree. Only the
+  # 2nd (name) and 3rd (msg) field are actually used, so instead of running
+  # full deserialization (which is also not possible due to no `PType` being
+  # available), we just create the necessary parts manually
+
+  # TODO: the report should take the two strings directly instead
+  let empty = newNode(nkEmpty)
+  let ast = newTree(nkObjConstr,
+                    empty, # constructor type; unused
+                    empty, # unused
+                    newStrNode(nkStrLit, name),
+                    newStrNode(nkStrLit, msg))
+  raiseVmError(reportAst(rsemVmUnhandledException, ast))
 
 when not defined(nimComputedGoto):
   {.pragma: computedGoto.}
@@ -448,9 +463,8 @@ type
     ExceptionGotoFinally,
     ExceptionGotoUnhandled
 
-proc findExceptionHandler(c: TCtx, f: var TStackFrame, excTyp: PType):
+proc findExceptionHandler(c: TCtx, f: var TStackFrame, raisedType: PVmType):
     tuple[why: ExceptionGoto, where: int] =
-  let raisedType = excTyp.skipTypes(abstractPtrs)
 
   while f.safePoints.len > 0:
     var pc = f.safePoints.pop()
@@ -482,13 +496,13 @@ proc findExceptionHandler(c: TCtx, f: var TStackFrame, excTyp: PType):
       while c.code[pc].opcode == opcExcept:
         let excIndex = c.code[pc].regBx - wordExcess
         let exceptType =
-          if excIndex > 0: c.types[excIndex].nType.skipTypes(abstractPtrs)
+          if excIndex > 0: c.types[excIndex].layoutDesc
           else: nil
 
         # echo typeToString(exceptType), " ", typeToString(raisedType)
 
         # Determine if the exception type matches the pattern
-        if exceptType.isNil or inheritanceDiff(raisedType, exceptType) <= 0:
+        if exceptType.isNil or getTypeRel(raisedType, exceptType) in {vtrSub, vtrSame}:
           matched = true
           break
 
@@ -2254,18 +2268,22 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         if tos != savedFrame:
           gotoFrame(savedFrame)
     of opcRaise:
+      decodeBImm()
       checkHandle(regs[ra])
 
+      # `imm == 0` -> raise; `imm == 1` -> reraise current exception
+      let isReraise = imm == 1
+
       let raisedRef =
-        # Empty `raise` statement - reraise current exception
-        if regs[ra].kind == rkNone:
+        if isReraise:
+          # TODO: must raise a defect when there's no current exception
           c.currentExceptionA
         else:
           assert regs[ra].handle.typ.kind == akRef
           regs[ra].atomVal.refVal
 
       let raised = c.heap.tryDeref(raisedRef, noneType).value()
-      let excType = c.heap.slots[raisedRef].nType
+      let excType = raised.typ
 
       # XXX: the exception is never freed right now
 
@@ -2278,15 +2296,14 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       c.exceptionInstr = pc
 
       let name = deref(raised.getFieldHandle(1.fpos))
-      if name.strVal.len == 0:
+      if not isReraise and name.strVal.len == 0:
         # XXX: the VM doesn't distinguish between a `nil` cstring and an empty
         #      `cstring`, leading to the name erroneously being overridden if
         #      it was explicitly initialized with `""`
-        # Set the `name` field of the exception
-        let typ = skipTypes(excType, abstractPtrs)
-        name.strVal.newVmString(typ.sym.name.s, c.allocator)
-
-      # TODO: keep exception from being collected between raising and catching (should be easy)
+        # Set the `name` field of the exception. No need to valdiate the
+        # handle in `regs[rb]`, since it's a constant loaded prior to the
+        # raise
+        name.strVal.asgnVmString(regs[rb].strVal, c.allocator)
 
       var frame = tos
       var jumpTo = findExceptionHandler(c, c.sframes[frame], excType)
@@ -2311,7 +2328,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
           gotoFrame(frame)
       of ExceptionGotoUnhandled:
         # Nobody handled this exception, error out.
-        reportException(c, tos, raised, excType)
+        reportException(c, tos, raised)
 
     of opcNew:
       let typ = c.types[instr.regBx - wordExcess]
@@ -2319,7 +2336,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       assert typ.nType.kind == tyRef
 
       # typ is the ref type, not the target type
-      let slot = c.heap.heapNew(c.allocator, typ.layoutDesc.targetType, typ.nType[0])
+      let slot = c.heap.heapNew(c.allocator, typ.layoutDesc.targetType)
       regs[ra].initLocReg(typ.layoutDesc, c.memory)
       regs[ra].atomVal.refVal = slot
     of opcNewSeq:

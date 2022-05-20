@@ -308,8 +308,6 @@ type
     handle*: LocHandle
     refCount*: int
 
-    nType*: PType ## The `PType` of the slot. Only needed for exceptions
-
   VmHeap* = object
     ## `VmHeap` manages all ref-counted locations. These are used for `new`'ed
     ## values as well as globals.
