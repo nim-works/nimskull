@@ -422,7 +422,7 @@ func asgnVmString*(dest: var VmString, src: VmString, a: var VmAllocator) =
   else:
     dest = newVmString(nilMemPtr, 0)
 
-func cmp(a, b: VmString): int =
+func cmp*(a, b: VmString): int =
   let minLen = min(a.len, b.len)
   result = cmpMem(a.data.rawPointer, b.data.rawPointer, minLen)
   if result == 0:
