@@ -509,7 +509,7 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
       of nkNilLit: discard "nothing to do"
       of nkObjConstr:
         let typ = c.getOrCreate(t)
-        let r = c.heap.heapNew(c.allocator, typ.targetType, t)
+        let r = c.heap.heapNew(c.allocator, typ.targetType)
         c.serialize(n, c.heap.unsafeDeref(r), t[0])
       else: unreachable()
     else:
@@ -535,7 +535,7 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
             # The closure's env type was already created, so we can just look
             # it up here
             let envTyp = c.typeInfoCache.lookup(c.config, nEnvTyp).unsafeGet
-            let e = c.heap.heapNew(c.allocator, envTyp.targetType, nEnvTyp[0])
+            let e = c.heap.heapNew(c.allocator, envTyp.targetType)
             c.serialize(n[1], c.heap.unsafeDeref(e), nEnvTyp[0])
               # we wan't to fill the object, so pass the object type (not the
               # ref-type, i.e. `nEnvTyp`)

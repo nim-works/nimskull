@@ -125,6 +125,9 @@ type
     gfIsParam # do not deepcopy parameters, they are immutable
   TGenFlags = set[TGenFlag]
 
+# forward declarations
+proc genLit(c: var TCtx; n: PNode; lit: int; dest: var TDest)
+
 template isUnset(x: TDest): bool = x < 0
 
 proc debugInfo(c: TCtx; info: TLineInfo): string =
@@ -828,9 +831,23 @@ proc genTry(c: var TCtx; n: PNode; dest: var TDest) =
   c.gABx(fin, opcFinallyEnd, 0, 0)
 
 proc genRaise(c: var TCtx; n: PNode) =
-  let dest = genx(c, n[0])
-  c.gABC(n, opcRaise, dest)
-  c.freeTemp(dest)
+  if n[0].kind != nkEmpty:
+    let
+      dest = c.genx(n[0])
+      typ = skipTypes(n[0].typ, abstractPtrs)
+
+    # get the exception name
+    var name: TDest = c.getTemp(c.graph.getSysType(n.info, tyString))
+    c.genLit(n[0], c.toStringCnst(typ.sym.name.s), name)
+
+    # XXX: using an ABxI encoding would make sense here...
+    c.gABI(n, opcRaise, dest, name, 0)
+    c.freeTemp(name)
+    c.freeTemp(dest)
+  else:
+    # reraise
+    c.gABI(n, opcRaise, 0, 0, imm=1)
+
 
 proc genReturn(c: var TCtx; n: PNode) =
   if n[0].kind != nkEmpty:
@@ -2104,7 +2121,7 @@ proc genGlobalInit(c: var TCtx; n: PNode; s: PSym) =
   let ti = c.getOrCreate(s.typ)
   # XXX: this breaks IC! In the future, a special instruction will be used for
   #      setting up globals
-  c.globals.add(c.heap.heapNew(c.allocator, ti, s.typ))
+  c.globals.add(c.heap.heapNew(c.allocator, ti))
   s.position = c.globals.len
   # This is rather hard to support, due to the laziness of the VM code
   # generator. See tests/compile/tmacro2 for why this is necessary:
@@ -2339,7 +2356,7 @@ proc genVarSection(c: var TCtx; n: PNode) =
             let ti = c.getOrCreate(s.typ)
             # XXX: this breaks IC! In the future, a special instruction will
             #      be used for setting up globals
-            let obj = c.heap.heapNew(c.allocator, ti, s.typ)
+            let obj = c.heap.heapNew(c.allocator, ti)
             #if s.ast.isNil: getNullValue(s.typ, a.info)
             #else: canonValue(s.ast)
             # TODO: check why this assert was necessary previously
