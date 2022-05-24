@@ -774,7 +774,7 @@ proc genCase(c: var TCtx; n: PNode; dest: var TDest) =
       c.clearDest(n, dest)
   for endPos in endings: c.patch(endPos)
 
-proc genType(c: var TCtx; typ: PType, info: TLineInfo): int =
+proc genType(c: var TCtx; typ: PType): int =
   for i, t in c.types:
     # For procderual types, `ExactTypeDescValues` is important since:
     # .. code-block:: nim
@@ -810,7 +810,7 @@ proc genTry(c: var TCtx; n: PNode; dest: var TDest) =
       for j in 0..<it.len - 1:
         assert(it[j].kind == nkType)
         let typ = it[j].typ.skipTypes(abstractPtrs-{tyTypeDesc})
-        c.gABx(it, opcExcept, 0, c.genType(typ, it[j].info))
+        c.gABx(it, opcExcept, 0, c.genType(typ))
       if it.len == 1:
         # general except section:
         c.gABx(it, opcExcept, 0, 0)
@@ -874,7 +874,7 @@ proc genProcLit(c: var TCtx, n: PNode, s: PSym; dest: var TDest) =
   if dest.isUnset:
     dest = c.getTemp(s.typ)
 
-  c.gABx(n, opcLdNull, dest, c.genType(s.typ, n.info))
+  c.gABx(n, opcLdNull, dest, c.genType(s.typ))
   c.gABx(n, opcWrProc, dest, int c.getOrCreateFunction(s))
 
 
@@ -906,7 +906,7 @@ proc genCall(c: var TCtx; n: PNode; dest: var TDest) =
 
     if i >= fntyp.len:
       internalAssert(c.config, tfVarargs in fntyp.flags)
-      c.gABx(n, opcSetType, r, c.genType(n[i].typ, n[i].info))
+      c.gABx(n, opcSetType, r, c.genType(n[i].typ))
   if dest.isUnset:
     c.gABC(n, opcIndCall, 0, x, n.len)
   else:
@@ -994,7 +994,7 @@ proc genNew(c: var TCtx; n: PNode) =
   let dest = if needsAsgnPatch(n[1]): c.getTemp(n[1].typ)
              else: c.genx(n[1])
   c.gABx(n, opcNew, dest,
-         c.genType(n[1].typ.skipTypes(abstractVar-{tyTypeDesc}), n[1].info))
+         c.genType(n[1].typ.skipTypes(abstractVar-{tyTypeDesc})))
   c.genAsgnPatch(n[1], dest)
   c.freeTemp(dest)
 
@@ -1004,7 +1004,7 @@ proc genNewSeq(c: var TCtx; n: PNode) =
   let dest = if needsAsgnPatch(n[1]): c.getTemp(n[1].typ)
              else: c.genx(n[1])
   let tmp = c.genx(n[2])
-  c.gABx(n, opcNewSeq, dest, c.genType(t, n[1].info))
+  c.gABx(n, opcNewSeq, dest, c.genType(t))
   c.gABx(n, opcNewSeq, tmp, 0)
   c.freeTemp(tmp)
   c.genAsgnPatch(n[1], dest)
@@ -1015,10 +1015,9 @@ proc genNewSeqOfCap(c: var TCtx; n: PNode; dest: var TDest) =
   if dest.isUnset:
     dest = c.getTemp(n.typ)
   let tmp = c.getTemp(n[1].typ)
-  c.gABx(n, opcLdNull, dest, c.genType(t, n.info))
+  c.gABx(n, opcLdNull, dest, c.genType(t))
   c.gABx(n, opcLdImmInt, tmp, 0)
-  c.gABx(n, opcNewSeq, dest, c.genType(t.skipTypes(
-                                                  abstractVar-{tyTypeDesc}), n.info))
+  c.gABx(n, opcNewSeq, dest, c.genType(t.skipTypes(abstractVar-{tyTypeDesc})))
   c.gABx(n, opcNewSeq, tmp, 0)
   c.freeTemp(tmp)
 
@@ -1162,8 +1161,8 @@ proc genConv(c: var TCtx; n, arg: PNode; dest: var TDest; opc=opcConv) =
   let tmp = c.genx(arg)
   if dest.isUnset: dest = c.getTemp(n.typ)
   c.gABC(n, opc, dest, tmp)
-  c.gABx(n, opc, 0, genType(c, n.typ.skipTypes({tyStatic}), n.info))
-  c.gABx(n, opc, 0, genType(c, arg.typ.skipTypes({tyStatic}), arg.info))
+  c.gABx(n, opc, 0, c.genType(n.typ.skipTypes({tyStatic})))
+  c.gABx(n, opc, 0, c.genType(arg.typ.skipTypes({tyStatic})))
   c.freeTemp(tmp)
 
 proc genCard(c: var TCtx; n: PNode; dest: var TDest) =
@@ -1232,14 +1231,14 @@ proc genCastIntFloat(c: var TCtx; n: PNode; dest: var TDest) =
     let tmp = c.genx(n[1])
     if dest.isUnset: dest = c.getTemp(n[0].typ)
     c.gABC(n, opcCastIntToPtr, dest, tmp)
-    c.gABx(n, opcSetType, dest, c.genType(dst, n[0].info))
+    c.gABx(n, opcSetType, dest, c.genType(dst))
     c.freeTemp(tmp)
   elif src.kind == tyNil and dst.kind in NilableTypes:
     # supports casting nil literals to NilableTypes in VM
     # see #16024
     if dest.isUnset: dest = c.getTemp(n[0].typ)
     let opcode = if fitsRegister(dst): opcLdNullReg else: opcLdNull
-    c.gABx(n, opcode, dest, c.genType(dst, n[0].info))
+    c.gABx(n, opcode, dest, c.genType(dst))
   else:
     # todo: support cast from tyInt to tyRef
     raiseVmGenError(
@@ -1399,7 +1398,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     if dest.isUnset:
       dest = c.getTemp(n.typ)
 
-    c.gABx(n, opcLdNull, dest, c.genType(t, n.info))
+    c.gABx(n, opcLdNull, dest, c.genType(t))
     c.gABC(n, opcSetLenSeq, dest, L)
     c.gABC(n, opcArrCopy, dest, temp, L)
     c.freeTemp(temp)
@@ -1525,7 +1524,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mRepr:
     let tmp = c.genx(n[1])
     if dest.isUnset: dest = c.getTemp(n.typ)
-    c.gABx(n, opcRepr, dest, c.genType(n[1].typ, n[1].info))
+    c.gABx(n, opcRepr, dest, c.genType(n[1].typ))
     c.gABC(n, opcRepr, dest, tmp)
     c.freeTemp(tmp)
   of mExit:
@@ -1567,12 +1566,12 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     unused(c, n, dest)
     var d = c.genx(n[1])
     # XXX use ldNullOpcode() here?
-    c.gABx(n, opcLdNull, d, c.genType(n[1].typ, n[1].info))
+    c.gABx(n, opcLdNull, d, c.genType(n[1].typ))
     c.gABx(n, opcNodeToReg, d, d)
     c.genAsgnPatch(n[1], d)
   of mDefault:
     if dest.isUnset: dest = c.getTemp(n.typ)
-    c.gABx(n, ldNullOpcode(n.typ), dest, c.genType(n.typ, n.info))
+    c.gABx(n, ldNullOpcode(n.typ), dest, c.genType(n.typ))
   of mOf:
     if dest.isUnset: dest = c.getTemp(n.typ)
 
@@ -1587,7 +1586,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
       var tmp = c.genx(n[1])
       var idx = c.getTemp(getSysType(c.graph, n.info, tyInt))
       let typ = n[2].typ.skipTypes(abstractPtrs)
-      c.gABx(n, opcLdImmInt, idx, c.genType(typ, n[2].info))
+      c.gABx(n, opcLdImmInt, idx, c.genType(typ))
       c.gABC(n, opcOf, dest, tmp, idx)
       c.freeTemp(tmp)
       c.freeTemp(idx)
@@ -1637,7 +1636,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mTypeTrait:
     let tmp = c.genx(n[1])
     if dest.isUnset: dest = c.getTemp(n.typ)
-    c.gABx(n, opcNSetType, tmp, c.genType(n[1].typ, n[1].info))
+    c.gABx(n, opcNSetType, tmp, c.genType(n[1].typ))
     c.gABC(n, opcTypeTrait, dest, tmp)
     c.freeTemp(tmp)
   of mSlurp: genUnaryABC(c, n, dest, opcSlurp)
@@ -1669,7 +1668,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     # Load the dest register with a null value of correct type, so that the
     # instruction can write into dest directly without run-time type lookup
     if dest.isUnset: dest = c.getTemp(n.typ)
-    c.gABx(n, opcLdNull, dest, c.genType(n.typ, n.info))
+    c.gABx(n, opcLdNull, dest, c.genType(n.typ))
     genBinaryABC(c, n, dest, opcNctNext)
 
   of mNIntVal: genUnaryABC(c, n, dest, opcNIntVal)
@@ -2271,7 +2270,7 @@ proc genCheckedObjAccessAux(c: var TCtx; n: PNode; dest: var TDest; flags: TGenF
   strLit.typ = strType
   c.genLit(strLit, msgReg)
   # repr for discriminator value
-  c.gABx(n, opcRepr, discrStrReg, c.genType(disc.typ, disc.info))
+  c.gABx(n, opcRepr, discrStrReg, c.genType(disc.typ))
   c.gABC(n, opcRepr, discrStrReg, discVal)
   c.gABC(n, opcInvalidField, msgReg, discrStrReg)
   c.freeTemp(discVal)
@@ -2372,11 +2371,11 @@ proc genVarSection(c: var TCtx; n: PNode) =
       else:
         setSlot(c, s)
         if a[2].kind == nkEmpty:
-          c.gABx(a, ldNullOpcode(s.typ), s.position, c.genType(s.typ, a[0].info))
+          c.gABx(a, ldNullOpcode(s.typ), s.position, c.genType(s.typ))
         else:
           assert s.typ != nil
           if not fitsRegister(s.typ):
-            c.gABx(a, ldNullOpcode(s.typ), s.position, c.genType(s.typ, a[0].info))
+            c.gABx(a, ldNullOpcode(s.typ), s.position, c.genType(s.typ))
           let le = a[0]
           assert le.typ != nil
           # XXX: also perform a copy for `let` for now. With the current
@@ -2396,7 +2395,7 @@ proc genVarSection(c: var TCtx; n: PNode) =
         discard
         #[
         let tmp = genx(c, a[0])
-        c.gABx(a, ldNullOpcode(a[0].typ), tmp, c.genType(a[0].typ, a[0].info))
+        c.gABx(a, ldNullOpcode(a[0].typ), tmp, c.genType(a[0].typ))
         c.freeTemp(tmp)
         ]#
       else:
@@ -2404,20 +2403,20 @@ proc genVarSection(c: var TCtx; n: PNode) =
 
 proc genArrayConstr(c: var TCtx, n: PNode, dest: var TDest) =
   if dest.isUnset: dest = c.getTemp(n.typ)
-  c.gABx(n, opcLdNull, dest, c.genType(n.typ, n.info))
+  c.gABx(n, opcLdNull, dest, c.genType(n.typ))
 
   let intType = getSysType(c.graph, n.info, tyInt)
   let seqType = n.typ.skipTypes(abstractVar-{tyTypeDesc})
   if seqType.kind == tySequence:
     var tmp = c.getTemp(intType)
     c.gABx(n, opcLdImmInt, tmp, n.len)
-    c.gABx(n, opcNewSeq, dest, c.genType(seqType, n.info))
+    c.gABx(n, opcNewSeq, dest, c.genType(seqType))
     c.gABx(n, opcNewSeq, tmp, 0)
     c.freeTemp(tmp)
 
   if n.len > 0:
     var tmp = getTemp(c, intType)
-    c.gABx(n, opcLdNullReg, tmp, c.genType(intType, n.info))
+    c.gABx(n, opcLdNullReg, tmp, c.genType(intType))
     for x in n:
       let a = c.genx(x)
       c.preventFalseAlias(n, opcWrArr, dest, tmp, a)
@@ -2427,7 +2426,7 @@ proc genArrayConstr(c: var TCtx, n: PNode, dest: var TDest) =
 
 proc genSetConstr(c: var TCtx, n: PNode, dest: var TDest) =
   if dest.isUnset: dest = c.getTemp(n.typ)
-  c.gABx(n, opcLdNull, dest, c.genType(n.typ, n.info))
+  c.gABx(n, opcLdNull, dest, c.genType(n.typ))
   # XXX: since `first` stays the same across the loop, we could invert
   #      the loop around `genSetElem`'s logic...
   let first = firstOrd(c.config, n.typ.skipTypes(abstractInst)).toInt()
@@ -2450,11 +2449,11 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
   if t.kind == tyRef:
     refTemp = c.getTemp(t[0]) # The temporary register to hold the
                               # dereferenced location
-    c.gABx(n, opcNew, dest, c.genType(t, n.info))
+    c.gABx(n, opcNew, dest, c.genType(t))
     c.gABC(n, opcLdDeref, refTemp, dest)
     swap(refTemp, dest)
   else:
-    c.gABx(n, opcLdNull, dest, c.genType(n.typ, n.info))
+    c.gABx(n, opcLdNull, dest, c.genType(n.typ))
   for i in 1..<n.len:
     let it = n[i]
     if it.kind == nkExprColonExpr and it[0].kind == nkSym:
@@ -2473,8 +2472,8 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
           #      conversions, which we could have otherwise relied on
           let tmp2 = c.getTemp(le)
           c.gABC(n, opcConv, tmp2, tmp)
-          c.gABx(n, opcConv, 0, genType(c, le, it[0].info))
-          c.gABx(n, opcConv, 0, genType(c, ri, it[1].info))
+          c.gABx(n, opcConv, 0, c.genType(le))
+          c.gABx(n, opcConv, 0, c.genType(ri))
           c.freeTemp(tmp)
           tmp = tmp2
       else:
@@ -2493,7 +2492,7 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
 proc genTupleConstr(c: var TCtx, n: PNode, dest: var TDest) =
   if dest.isUnset: dest = c.getTemp(n.typ)
   if n.typ.kind != tyTypeDesc:
-    c.gABx(n, opcLdNull, dest, c.genType(n.typ, n.info))
+    c.gABx(n, opcLdNull, dest, c.genType(n.typ))
     # XXX x = (x.old, 22)  produces wrong code ... stupid self assignments
     for i in 0..<n.len:
       let it = n[i]
@@ -2511,7 +2510,7 @@ proc genTupleConstr(c: var TCtx, n: PNode, dest: var TDest) =
 proc genClosureConstr(c: var TCtx, n: PNode, dest: var TDest) =
   if dest.isUnset: dest = c.getTemp(n.typ)
 
-  c.gABx(n, opcLdNull, dest, c.genType(n.typ, n.info))
+  c.gABx(n, opcLdNull, dest, c.genType(n.typ))
   let tmp = c.genx(n[0])
   if n[1].typ.kind == tyNil:
     # no environment
@@ -2618,7 +2617,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
         n.info,
         $t.kind)
       if dest.isUnset: dest = c.getTemp(t)
-      c.gABx(n, ldNullOpcode(t), dest, c.genType(n.typ, n.info))
+      c.gABx(n, ldNullOpcode(t), dest, c.genType(n.typ))
     else: unused(c, n, dest)
   of nkAsgn, nkFastAsgn:
     unused(c, n, dest)
