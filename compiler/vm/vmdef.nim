@@ -227,6 +227,16 @@ type
     sizeInBytes*: uint
     alignment*: uint8 ## 1 shl `alignment` == real alignment value
 
+  VmTypeInfo* = object
+    ## Stores run-time-type-information (RTTI) for types. Similiar to the
+    ## `PNimType` used by the other backends, with the difference that
+    ## `VmTypeInfo` is not exposed to user-code.
+    ## Only used internally for implementing `repr` (only when not compiling
+    ## with `--newruntime`; implied by `mm:arc/orc`) and `opcConv`
+
+    internal*: PVmType ## the `VmType` the type maps to
+    nimType*: PType
+
   CallableKind* = enum
     ckDefault ## A normal function
     ckCallback ## A VmCallback
@@ -488,8 +498,9 @@ type
     constants*: seq[VmConstant] ## constant data
 
     typeInfoCache*: TypeInfoCache ## manages the types used by the VM
-    types*: seq[tuple[nType: PType, layoutDesc: PVmType]] ##
-      ## some instructions reference types (e.g. 'except')
+
+    rtti*: seq[VmTypeInfo] ## run-time-type-information as needed by
+                           ## conversion and `repr`
     functions*: seq[VmFunctionObject] ## all functions known to the VM. Indexed
                                       ## by `FunctionIndex`
     memory*: VmMemoryManager
@@ -562,6 +573,10 @@ template heap*(c: TCtx): untyped =
 
 template allocator*(c: TCtx): untyped =
   c.memory.allocator
+
+template types*(c: TCtx): untyped =
+  ## Transition helper
+  c.typeInfoCache.types
 
 proc init(cache: var TypeInfoCache) =
   template mkDesc(ak, s, a): untyped =
@@ -654,7 +669,6 @@ proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph; idgen: IdGenerator
     debug: @[],
     globals: @[],
     constants: @[],
-    types: @[],
     prc: PProc(blocks: @[]),
     module: module,
     loopIterations: g.config.maxLoopIterationsVM,
