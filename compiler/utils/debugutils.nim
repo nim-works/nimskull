@@ -330,9 +330,51 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; x, y, r: PType) =
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
+template addInNimDebugUtils*(c: ConfigRef; 
+                            action: string;
+                            n: PNode;
+                            filter: TSymKinds;
+                            e: var seq[SemCallMismatch];
+                            res: typed) =
+  ## add tracing to procs that are primarily `PNode -> TCandidate`, looking for
+  ## a candidate callable
+  when res is not TCandidate:
+    {.error: "parameter `res` must be a `sigmatch.TCandidate`".}
+  when defined(nimDebugUtils):
+    template enterMsg(indentLevel: int) =
+      traceEnterIt(stepParams(c, stepResolveOverload, indentLevel, action)):
+        it.node = n
+        it.filters = filter
+
+    template leaveMsg(indentLevel: int) =
+      traceLeaveIt(stepParams(c, stepResolveOverload, indentLevel, action)):
+        it.candidate = toDebugCallableCandidate(res)
+        it.errors = e
+
+    addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
+
+template addInNimDebugUtils*(c: ConfigRef; 
+                            action: string;
+                            n: PNode;
+                            res: typed) =
+  ## add tracing to procs that are primarily `PNode -> TCandidate`, looking for
+  ## a candidate callable
+  when res is not TCandidate:
+    {.error: "parameter `res` must be a `sigmatch.TCandidate`".}
+  when defined(nimDebugUtils):
+    template enterMsg(indentLevel: int) =
+      traceEnterIt(stepParams(c, stepNodeSigMatch, indentLevel, action)):
+        it.node = n
+
+    template leaveMsg(indentLevel: int) =
+      traceLeaveIt(stepParams(c, stepNodeSigMatch, indentLevel, action)):
+        it.candidate = toDebugCallableCandidate(res)
+
+    addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
+
 template addInNimDebugUtils*(c: ConfigRef; action: string) =
-  ## add tracing to procs that are primarily `PType, PType -> PType`, looking
-  ## for a common type
+  ## add tracing to procs as a stop gap measure, not favour using one that
+  ## provides more output for various parts
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
       traceEnterIt(stepParams(c, stepTrack, indentLevel, action)):

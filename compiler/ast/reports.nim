@@ -121,8 +121,6 @@ type
       else:
         discard
 
-
-
 func severity*(parser: ParserReport): ReportSeverity =
   case ParserReportKind(parser.kind):
     of rparHintKinds: rsevHint
@@ -423,7 +421,6 @@ template tern*(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
     block:
       if predicate: tBranch else: fBranch
 
-
 type
   CmdReport* = object of ReportBase
     cmd*: string
@@ -443,7 +440,6 @@ func severity*(report: CmdReport): ReportSeverity =
     of rcmdErrorKinds: rsevError
 
 type
-
   DebugSemStepDirection* = enum semstepEnter, semstepLeave
   DebugSemStepKind* = enum
     stepNodeToNode
@@ -452,10 +448,20 @@ type
     stepNodeFlagsToNode
     stepNodeTypeToNode
     stepTypeTypeToType
+    stepResolveOverload
+    stepNodeSigMatch
     stepWrongNode
     stepError
     stepTrack
 
+  DebugCallableCandidate* = object
+    ## stripped down version of `sigmatch.TCandidate`
+    state*: string
+    callee*: PType
+    calleeSym*: PSym
+    calleeScope*: int
+    call*: PNode
+    error*: SemCallMismatch
 
   DebugSemStep* = object
     direction*: DebugSemStepDirection
@@ -477,6 +483,11 @@ type
 
       of stepNodeFlagsToNode:
         flags*: TExprFlags
+      
+      of stepNodeSigMatch, stepResolveOverload:
+        filters*: TSymKinds
+        candidate*: DebugCallableCandidate
+        errors*: seq[SemCallMismatch]
 
   DebugVmCodeEntry* = object
     isTarget*: bool
@@ -493,7 +504,6 @@ type
     ra*: int
     rb*: int
     rc*: int
-
 
   DebugReport* = object of ReportBase
     case kind*: ReportKind
@@ -554,11 +564,11 @@ type
 
       of rbackJsonScriptMismatch:
         jsonScriptParams*: tuple[
-          outputCurrent, output, jsonFile: string]
+          outputCurrent, output, jsonFile: string
+        ]
 
       else:
         discard
-
 
 func severity*(report: BackendReport): ReportSeverity =
   case BackendReportKind(report.kind):

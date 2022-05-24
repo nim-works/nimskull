@@ -885,6 +885,13 @@ proc copyTreeWithoutNode*(src, skippedNode: PNode): PNode =
       if n != skippedNode:
         result.sons.add copyTreeWithoutNode(n, skippedNode)
 
+proc copyTreeWithoutNodes*(src: PNode; skippedNodes: varargs[PNode]): PNode =
+  copyNodeImpl(result, src):
+    result.sons = newSeqOfCap[PNode](src.len)
+    for n in src.sons:
+      if n notin skippedNodes:
+        result.sons.add copyTreeWithoutNodes(n, skippedNodes)
+
 proc hasSonWith*(n: PNode, kind: TNodeKind): bool =
   for i in 0..<n.len:
     if n[i].kind == kind:

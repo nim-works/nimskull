@@ -44,7 +44,6 @@ const
   DocTexConfig* = RelativeFile"nimdoc.tex.cfg"
   htmldocsDir* = htmldocsDirname.RelativeDir
   docRootDefault* = "@default" # using `@` instead of `$` to avoid shell quoting complications
-  oKeepVariableNames* = true
   spellSuggestSecretSauce* = -1
 
 const

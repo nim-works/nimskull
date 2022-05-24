@@ -10,7 +10,7 @@ defined:
 - `treeRepr` - main implementation to generate the `ColText` chunk for the
   object.
 
-- `debug` - convenience ovelroads that print generated text immediately.
+- `debug` - convenience overloads that print generated text immediately.
   There are two version of the `debug` - one that accept `ConfigRef`
   object, and one that can work without it. Both call `treeRepr`
   internally, but with `ConfigRef` present more information can be printed.

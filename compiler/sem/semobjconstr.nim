@@ -443,10 +443,13 @@ proc computeRequiresInit(c: PContext, t: PType): bool =
 
 proc defaultConstructionError(c: PContext, t: PType, info: TLineInfo) =
   var objType = t
+  
   while objType.kind notin {tyObject, tyDistinct}:
     objType = objType.lastSon
     assert objType != nil
-  if objType.kind == tyObject:
+  
+  case objType.kind
+  of tyObject:
     var constrCtx = initConstrContext(objType, newNodeI(nkObjConstr, info))
     let initResult = semConstructTypeAux(c, constrCtx, {})
     if constrCtx.missingFields.len > 0:
@@ -455,11 +458,11 @@ proc defaultConstructionError(c: PContext, t: PType, info: TLineInfo) =
         reportSymbols(
           rsemObjectRequiresFieldInitNoDefault,
           constrCtx.missingFields, typ = t))
-
-  elif objType.kind == tyDistinct:
+  
+  of tyDistinct:
     localReport(c.config, info, reportTyp(
       rsemDistinctDoesNotHaveDefaultValue, t))
-
+  
   else:
     assert false, "Must not enter here."
 

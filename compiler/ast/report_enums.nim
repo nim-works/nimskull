@@ -700,6 +700,12 @@ type
       ## there is no meaningful error to construct, but there is an error
       ## further down the AST that invalidates the whole
 
+    rsemPragmaDisallowedForTupleUnpacking
+      ## we disallow pragma blocks `let (foo {.somePragma.}, bar) = (1,2)` as
+      ## the semantics of pragmas in the face of unpacking are not woefully
+      ## underspecified. This is not a matter of reenabling it as a rethinking
+      ## the approach from a first principles perspective is required.
+
     rsemSymbolKindMismatch
     rsemIllformedAst
     rsemInitHereNotAllowed
@@ -750,8 +756,6 @@ type
     rsemMissingPragmaArg
     rsemErrGcUnsafe
     rsemEmptyAsm
-
-
     # END !! add reports BEFORE the last enum !!
 
     # Semantic warnings begin
