@@ -131,8 +131,11 @@ type
     akArray
 
 
-  # XXX: will be replaced with integer IDs
+  # XXX: `PVmType` will be step-by-step replaced with `VmTypeId`
   PVmType* = ref VmType
+  VmTypeId* = #[distinct]# uint32
+    ## The unique ID of a `VmType`. Implementation-wise, it's an index into
+    ## `TypeInfoCache.types`
 
   FieldPosition* = distinct uint32
   FieldIndex* = distinct uint32
@@ -407,6 +410,13 @@ type
   # operator than the one used for `PType`
   FuncTypeLutKey* = distinct PType
 
+  TypeTableEntry* = tuple[hcode: int, typ: VmTypeId]
+  TypeTable* = object
+    ## A partial hash-table overlay for `TypeInfoCache.types`. Not all types
+    ## present in the latter need to be present in the table
+    data*: seq[TypeTableEntry]
+    counter*: int
+
   TypeInfoCache* = object
     ## An append-only cache for everything type related
     lut*: Table[ItemId, PVmType] ## `PType`-id -> `PVmType` mappings
@@ -414,14 +424,13 @@ type
       ## 'generic type' -> 'known instantiations' mappings. Needed to make
       ## sure that all same instantations map to the same VmType
 
+    structs*: TypeTable ## All structural types created by ``vmtypegen``
+
     funcTypeLut*: Table[FuncTypeLutKey, FunctionTypeId] ## PType -> function
     nextFuncTypeId*: FunctionTypeId
 
     types*: seq[PVmType] ## all generated types (except VM-created primitive
                          ## types)
-    startAtomic*: int    ## index of the first atomic type in `types`
-    startTuples*: int    ## index of the first `tuple` type in `types`
-    startObjects*: int   ## index of the first `object` type in `types`
 
     staticInfo*: array[AtomKind, tuple[size, align: uint8]]
       ## size and alignment information for atoms where this information is
@@ -594,6 +603,9 @@ proc init(cache: var TypeInfoCache, g: ModuleGraph) =
   setInfo(akClosure, VmClosure)
   setInfo(akPNode, PNode)
 
+  # Add a `nil` at index '0' so that type-id '0' means none/nil/invalid
+  cache.types.add(nil)
+
   addType(boolType, akInt, 1, 0)
   addType(charType, akInt, 1, 0)
   cache.stringType =
@@ -629,10 +641,6 @@ proc init(cache: var TypeInfoCache, g: ModuleGraph) =
   # Too many things would break if emptyType had a size of 0
   cache.emptyType = PVmType(kind: akObject, sizeInBytes: 1) # an empty tuple
   cache.types.add(cache.emptyType)
-
-  cache.startAtomic = cache.types.high
-  cache.startTuples = cache.types.high
-  cache.startObjects = cache.types.high
 
 # `Atom` must never ever be used in assignments
 proc `=`(a: var Atom, b: Atom) {.error.}

@@ -38,6 +38,71 @@ template paddedSize(info: VmType): untyped =
   ## Round the size up so that `info.sizeInBytes % (1 shl info.alignment) == 0`
   paddedSize(info.sizeInBytes, 1'u shl info.alignment)
 
+func hash(t: PVmType): Hash {.inline.} =
+  # the ref itself already acts as a unique id
+  hash(cast[int](t))
+
+func hash(t: VmType): Hash =
+  ## Creates a hash over the fields of `t` that are relevant for structural
+  ## types
+  let h = hash(t.kind)
+  let body =
+    case t.kind
+    of akSeq:                 hash(t.seqElemType)
+    of akPtr, akRef:          hash(t.targetType)
+    of akSet:                 hash(t.setLength)
+    of akCallable, akClosure: hash(t.funcTypeId.int)
+    of akDiscriminator:       hash(t.numBits)
+    of akArray:               hash(t.elementCount) !& hash(t.elementType)
+    of akObject:
+      var r = 0
+      for (_, ft) in t.objFields.items:
+        r = r !& hash(ft)
+      r
+    of akInt, akFloat, akString, akPNode:
+      # the hash function is only meant to be used on structural types created
+      # during `genType`
+      unreachable()
+
+  result = !$(h !& body)
+
+func `==`(a, b: VmType): bool =
+  ## Compares the fields of `a` and `b` that are relevant for structural types
+  if a.kind != b.kind:
+    return false
+
+  template cmpField(n): untyped = a.n == b.n
+
+  case a.kind
+  of akSeq:                 cmpField(seqElemType)
+  of akPtr, akRef:          cmpField(targetType)
+  of akSet:                 cmpField(setLength)
+  of akCallable, akClosure: cmpField(funcTypeId)
+  of akDiscriminator:
+    # XXX: just testing for `numBits` means that `a: range[0..2]` and
+    #      `b: range[0..3]` are treated as the same type!
+    cmpField(numBits)
+  of akArray:               cmpField(elementType) and cmpField(elementCount)
+  of akObject:
+    if a.objFields.len != b.objFields.len:
+      return false
+
+    for i in 0..<a.objFields.len:
+      if a.objFields[i].typ != b.objFields[i].typ:
+        return false
+
+    true
+  of akInt, akFloat, akString, akPNode:
+    unreachable()
+
+func `==`(a: PVmType, b: openArray[PVmType]): bool {.inline.} =
+  # compare field types
+  if a.kind == akObject and a.objFields.len == b.len:
+    for i in 0..<b.len:
+      if a.objFields[i].typ != b[i]:
+        return false
+
+    result = true
 
 func getOrCreateFuncType*(c: var TypeInfoCache, typ: PType): FunctionTypeId
 
@@ -80,6 +145,76 @@ func getAtomicType(cache: TypeInfoCache, conf: ConfigRef, t: PType): Option[PVmT
 
   result = option(r)
 
+# ------------ TypeTable implementation ------------
+
+template maxHash(t: TypeTable): int = t.data.high
+
+func mustRehash(len, counter: int): bool {.inline.} =
+  assert(len > counter)
+  result = (len * 2 < counter * 3) or (len - counter < 4)
+
+template isFilled(m: TypeTableEntry): bool = m.typ != 0
+
+template nextTry(i, max: int): int =
+  (i + 1) and max
+
+func enlarge(tbl: var TypeTable) =
+  ## Grows and re-hashes the table
+  var n = newSeq[TypeTableEntry](tbl.data.len * 2)
+  swap(n, tbl.data)
+  for old in n.items:
+    if old.isFilled:
+      var j = old.hcode and maxHash(tbl)
+      while tbl.data[j].isFilled:
+        j = nextTry(j, maxHash(tbl))
+      tbl.data[j] = old
+
+func get[K](types: seq[PVmType], tbl: TypeTable,
+            key: K; hcode: Hash): VmTypeId =
+  mixin `==`
+  if tbl.data.len > 0:
+    var i = hcode and maxHash(tbl)
+    while (let m = tbl.data[i]; m.isFilled):
+      if m.hcode == hcode and `==`(types[m.typ], key): return m.typ
+      i = nextTry(i, maxHash(tbl))
+  # type-id '0' means "not found" in this context
+
+func getOrIncl(types: var seq[PVmType], tbl: var TypeTable,
+               h: Hash, t: sink VmType): (VmTypeId, bool) =
+  ## Returns the ID of structural type `t` and whether it existed prior to
+  ## this operation. If the type is not in `types` yet, it is first added and
+  ## also registered with `tbl`
+  var i = h and maxHash(tbl)
+  if tbl.data.len > 0:
+    while (let m = tbl.data[i]; m.isFilled):
+      if m.hcode == h and types[m.typ][] == t: return (m.typ, true)
+      i = nextTry(i, maxHash(tbl))
+
+    # no matching entry found
+    if mustRehash(tbl.data.len, tbl.counter):
+      enlarge(tbl)
+      i = h and maxHash(tbl)
+      # find the first empty slot
+      while (let m = tbl.data[i]; m.typ != 0):
+        i = nextTry(i, maxHash(tbl))
+
+  else:
+    tbl.data.setLen(16) # needs to be a power-of-two
+    i = h and maxHash(tbl)
+
+  # add the type to the `types` list
+  let id = types.len.VmTypeId
+  let pt = PVmType()
+  pt[] = t
+  types.add(pt)
+
+  # fill table entry
+  tbl.data[i] = (h, id)
+  inc tbl.counter
+  result = (id, false)
+
+# ------------ end ------------
+
 func genDiscriminator(conf: ConfigRef, typ: PType): VmType =
   ## Builds a `VmType` for a discriminator of type `typ`
 
@@ -101,32 +236,6 @@ func addObjectType(c: var TypeInfoCache): PVmType =
   result = PVmType(kind: akObject)
   c.types.add(result)
 
-func addTupleType(c: var TypeInfoCache, t: sink VmType): PVmType =
-  result = PVmType()
-  result[] = t
-  # We don't depend on the order of object/tuple/atomic types, so in order get
-  # around a costly seq insert, we simply add the tuple type, swap it with the
-  # first object type and move the object start index
-  # XXX: in theory, we could do this optimization at the AtomKind level. Would
-  #      allow us to get rid of the `it.atomKind == ...` checks with
-  #      `findAtomicType`. Not all atom kinds are produced by `genType`
-  #      however.
-  c.types.add(result)
-  swap(c.types[c.startObjects], c.types[c.types.high])
-  inc c.startObjects
-
-func addAtomicType(c: var TypeInfoCache, t: sink VmType): PVmType =
-  result = PVmType()
-  result[] = t
-  # See `addTupleType` for what the following does
-  c.types.add(result)
-  # XXX: swap where `addr a == addr b` works, but violates parameter aliasing
-  #      rules
-  swap(c.types[c.startObjects], c.types[c.types.high])
-  swap(c.types[c.startTuples], c.types[c.startObjects])
-  inc c.startObjects
-  inc c.startTuples
-
 type GenClosure* = object
   queue: seq[(PVmType, PType)]
   tmpFields: seq[PVmType]
@@ -137,17 +246,6 @@ type GenClosure* = object
 type GenResult = object
   existing: PVmType
   typ: VmType
-
-template findAtomicType(c: TypeInfoCache, cmp: untyped): untyped =
-  ## Searches for a non-object type that consists of only a single field.
-  ## Use `it` for accessing the current type in the `cmp` expression
-  var res: PVmType
-  for i in c.startAtomic..<c.startTuples:
-    let it {.inject.} = c.types[i]
-    if cmp:
-      res = it
-      break
-  res
 
 func skipTypesGetInst(t: PType): tuple[inst: PType, concrete: PType] =
   ## Skips all types who's kind matches `skipTypeSet`. Returns the first
@@ -212,41 +310,25 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVm
   #       type was just created
 
   case t.kind
-  of tyVar, tyLent, tyPtr, tyRef:
-    let (et, _) = genType(c, t[0], cl)
+  of tyVar, tyLent, tyPtr:
+    res.typ = VmType(kind: akPtr,
+                     targetType: genType(c, t[0], cl).typ)
 
-    let k = case t.kind
-      of tyVar, tyLent, tyPtr: akPtr
-      of tyRef: akRef
-      else: unreachable()
-
-    res.typ = VmType(kind: k)
-    res.typ.targetType = et
-
-    res.existing = findAtomicType(c):
-      it.kind == k and it.targetType == et
+  of tyRef:
+    res.typ = VmType(kind: akRef,
+                     targetType: genType(c, t[0], cl).typ)
 
   of tySequence, tyOpenArray:
-    let (et, _) = genType(c, t[0], cl)
-
-    res.typ = VmType(kind: akSeq)
-    res.typ.seqElemType = et
-
-    res.existing = findAtomicType(c):
-      it.kind == akSeq and it.seqElemType == et
+    res.typ = VmType(kind: akSeq,
+                     seqElemType: genType(c, t[0], cl).typ)
 
   of tyProc:
     let kind =
       if t.callConv == ccClosure: akClosure
       else: akCallable
 
-    let id = c.getOrCreateFuncType(t)
-
     res.typ = VmType(kind: kind)
-    res.typ.funcTypeId = id
-
-    res.existing = findAtomicType(c):
-      it.kind == kind and it.funcTypeId == id
+    res.typ.funcTypeId = c.getOrCreateFuncType(t)
 
   of tyObject:
     if inst == nil:
@@ -277,14 +359,9 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVm
     {.noSideEffect.}:
       let L = toInt(lengthOrd(cl.conf, t))
 
-    let (et, _) = genType(c, t[1], cl)
-
-    res.existing = findAtomicType(c):
-      it.kind == akArray and it.elementCount == L and it.elementType == et
-
     res.typ = VmType(kind: akArray,
-      elementType: et,
-      elementCount: L)
+                     elementType: genType(c, t[1], cl).typ,
+                     elementCount: L)
   of tySet:
     # XXX: for now `set`s are separate atoms, but they could be represented
     #      via `akInt` and `akArry` similar to how the C backend does it.
@@ -296,19 +373,15 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVm
         if t[0].kind != tyEmpty: toUInt32(lengthOrd(cl.conf, t[0]))
         else: 0
 
-    res.existing = findAtomicType(c):
-      # TODO: sets should be ordered by `setLength`
-      it.kind == akSet and it.setLength == int L
+    res.typ = VmType(kind: akSet, setLength: int L)
 
-    if res.existing == nil:
-      res.typ = VmType(kind: akSet, setLength: int L)
-      # Calculate the size and alignment for the underlying storage
-      (res.typ.sizeInBytes, res.typ.alignment) =
-        if L <= 8:    (1'u, 0'u8)
-        elif L <= 16: (2'u, 1'u8)
-        elif L <= 32: (4'u, 2'u8)
-        elif L <= 64: (8'u, 3'u8)
-        else: (bitand(uint(L) + 7, not 7'u) div 8, 3'u8)
+    # Calculate the size and alignment for the underlying storage
+    (res.typ.sizeInBytes, res.typ.alignment) =
+      if L <= 8:    (1'u, 0'u8)
+      elif L <= 16: (2'u, 1'u8)
+      elif L <= 32: (4'u, 2'u8)
+      elif L <= 64: (8'u, 3'u8)
+      else: (bitand(uint(L) + 7, not 7'u) div 8, 3'u8)
 
   of tyUserTypeClass, tyUserTypeClassInst:
     # XXX: do these two even reach here? `cgen` has logic for them, but maybe
@@ -330,41 +403,46 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVm
     unreachable()
 
   if res.existing != nil:
-    # The `VmType` the given `typ` maps to already exists, cache the mapping
     result.typ = res.existing
     result.existed = true
-    c.lut[t.itemId] = res.existing
-  else:
-    # A new `VmType`
-    if res.typ.sizeInBytes == 0:
-      (res.typ.sizeInBytes, res.typ.alignment) = c.staticInfo[res.typ.kind]
-
-    # XXX: as of this commit, there's a compiler bug (presumably with
-    #      `injectdestructors`) that leads to `result.typ` being erroneously
-    #      sunk into the tuple passed to `cl.queue.add` below, making the
-    #      following if check crash due to a nil access, when bootstrapping
-    #      with ORC. First assigning to a temporary like this makes the issue
-    #      go away
-    let temp = result.typ
-
-    if t.kind == tyObject:
-      assert result.typ != nil
-      # Queue the object to be generated later. See the comment in the
-      # `tyObject` of-branch above
-      cl.queue.add((temp, t))
-    else:
-      result.typ =
-        if res.typ.kind == akObject:
-          c.addTupleType(res.typ)
-        else:
-          c.addAtomicType(res.typ)
-
-    if result.typ.kind in {akObject, akArray, akSeq}:
-      cl.sizeQueue.add(result.typ)
-
+  elif t.kind == tyObject:
+    assert result.typ != nil
     result.existed = false
 
-    c.lut[t.itemId] = result.typ
+    # XXX: as of the time of this comment, `result.typ` gets erroneously
+    #      sunken into the `sizeQueue.add` argument when passed directly
+    #      without `temp`, leaving `result.typ` empty. Using a custom copy
+    #      function prevents the move (explicitly using the `=copy` function
+    #      doesn't suffice)
+    func copy(a: PVmType): PVmType {.inline.} = a
+    let temp = copy(result.typ)
+
+    # Queue the object to be generated later. See the comment in the
+    # `tyObject` of-branch above
+    cl.queue.add((temp, t))
+    cl.sizeQueue.add(temp)
+  else:
+    let (id, existed) = c.types.getOrIncl(c.structs, hash(res.typ), res.typ)
+
+    result.typ = c.types[id]
+    result.existed = existed
+
+    if not existed:
+      let typ = result.typ
+
+      # if the type has no size set, try to use the static size/alignment for
+      # the type kind (`staticInfo` yields 0 if types of the given kind have
+      # no static size)
+      if typ.sizeInBytes == 0:
+        (typ.sizeInBytes, typ.alignment) = c.staticInfo[typ.kind]
+
+      # tuples and arrays use deferred size computation; seqs use
+      # deferred stride computation
+      if typ.kind in {akObject, akArray, akSeq}:
+        cl.sizeQueue.add(result.typ)
+
+  # add a lookup entry from the `PType` ID to the `VmType`
+  c.lut[t.itemId] = result.typ
 
 
 func genTuple(c: var TypeInfoCache, t: PType, cl: var GenClosure): GenResult =
@@ -386,30 +464,23 @@ func genTuple(c: var TypeInfoCache, t: PType, cl: var GenClosure): GenResult =
   ]#
 
   let fieldStart = cl.tmpFields.len
-  var isNew = false
+  var
+    isNew = false
+    hcode = Hash(0)
 
   for i in 0..<t.len:
     let (typ, e) = genType(c, t[i], cl)
     isNew = isNew or not e # if the field's type was just created, the tuple
                            # type also doesn't exist yet
     cl.tmpFields.add(typ)
+    hcode = hcode !& hash(typ)
 
   if not isNew:
-    # Iterate over all tuple types and see if one exists that matches the
-    # one we're trying to generate
-    for i in c.startTuples..<c.startObjects:
-      let typ = c.types[i]
-      if typ.objFields.len == L:
-        var n = 0
-        while n < L:
-          if typ.objFields[n].typ != cl.tmpFields[fieldStart + n]:
-            break
-          inc n
-
-        if n == L:
-          # a match!
-          result.existing = typ
-          break
+    # see if a tuple with the same structure already exists
+    let id = c.types.get(c.structs, cl.tmpFields.subView(fieldStart, L),
+                           hcode)
+    if id != 0:
+      result.existing = c.types[id]
 
   # set up the type if it doesn't exist yet
   if result.existing == nil:
@@ -461,17 +532,8 @@ func genRecordNode(c: var TypeInfoCache, dest: var VmType, n: PNode, cl: var Gen
     # discriminator
     block:
       let dTyp = genDiscriminator(cl.conf, n[0].sym.typ)
-      var ty = findAtomicType(c):
-        # XXX: just testing for `numBits` means that `a: range[0..2]` and
-        #      `b: range[0..3]` are treated as the same type!
-        it.kind == akDiscriminator and it.numBits == dTyp.numBits
-
-      if ty == nil:
-        ty = c.addAtomicType(dTyp)
-        # XXX: In order to add a `PType` mapping for discriminators, we'd
-        #      need some kind of flags as part of the PType-key.
-
-      dest.objFields.add((0, ty))
+      let (id, _) = c.types.getOrIncl(c.structs, hash(dTyp), dTyp)
+      dest.objFields.add((0, c.types[id]))
 
     let discIndex = dest.branches.len
     block:
