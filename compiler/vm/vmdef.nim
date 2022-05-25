@@ -20,8 +20,7 @@ import
     reports,
   ],
   compiler/modules/[
-    modulegraphs,
-    magicsys, # For `getSysType`
+    modulegraphs
   ],
   compiler/front/[
     options,
@@ -564,7 +563,7 @@ template heap*(c: TCtx): untyped =
 template allocator*(c: TCtx): untyped =
   c.memory.allocator
 
-proc init(cache: var TypeInfoCache, g: ModuleGraph) =
+proc init(cache: var TypeInfoCache) =
   template mkDesc(ak, s, a): untyped =
     PVmType(kind: ak, sizeInBytes: uint(s), alignment: a)
 
@@ -575,16 +574,6 @@ proc init(cache: var TypeInfoCache, g: ModuleGraph) =
   template addTypeA(k, n, ak, s, a) =
     cache.n[k] = mkDesc(ak, s, a)
     cache.types.add(cache.n[k])
-
-  template addSysType(k, n, ak, s, a) =
-    let h = mkDesc(ak, s, a)
-    cache.n = h
-    cache.lut[getSysType(g, TLineInfo(), k).itemId] = h
-
-  template addSysTypeA(k, n, ak, s, a) =
-    let h = mkDesc(ak, s, a)
-    cache.n[k] = h
-    cache.lut[getSysType(g, TLineInfo(), k).itemId] = h
 
   func vmAlignof(t: typedesc): uint8 {.compileTime.} =
     let align = uint64(alignof(t))
@@ -681,7 +670,7 @@ proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph; idgen: IdGenerator
   # The first slot (index 0) is reserved so that index == 0 means nil access
   result.memory.heap.slots.add HeapSlot()
 
-  result.typeInfoCache.init(g)
+  result.typeInfoCache.init()
   result.memory.allocator.byteType = result.typeInfoCache.charType
 
 func refresh*(c: var TCtx, module: PSym; idgen: IdGenerator) =

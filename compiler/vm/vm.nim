@@ -2984,14 +2984,13 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       regs[ra].nimNode.ident = getIdent(c.cache, $regs[rb].strVal)
     of opcSetType:
       let typ = c.types[instr.regBx - wordExcess]
-      case regs[ra].kind
-      of rkAddress:
-        assert typ.layoutDesc.kind == akPtr
-        regs[ra].addrTyp = typ.layoutDesc.targetType
-      of rkNimNode:
-        regs[ra].nimNode.typ = typ.nType
-      else:
-        assert false # vmgen issue
+      assert typ.layoutDesc.kind == akPtr
+      regs[ra].addrTyp = typ.layoutDesc.targetType
+
+    of opcNSetType:
+      # Only used internally
+      let typ = c.types[instr.regBx - wordExcess]
+      regs[ra].nimNode.typ = typ.nType
 
     of opcConv:
       let rb = instr.regB
