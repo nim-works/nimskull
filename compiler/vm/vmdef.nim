@@ -429,8 +429,8 @@ type
     funcTypeLut*: Table[FuncTypeLutKey, FunctionTypeId] ## PType -> function
     nextFuncTypeId*: FunctionTypeId
 
-    types*: seq[PVmType] ## all generated types (except VM-created primitive
-                         ## types)
+    types*: seq[PVmType] ## all generated types (including those created
+                         ## during VM setup)
 
     staticInfo*: array[AtomKind, tuple[size, align: uint8]]
       ## size and alignment information for atoms where this information is
@@ -570,9 +570,11 @@ proc init(cache: var TypeInfoCache, g: ModuleGraph) =
 
   template addType(n, ak, s, a) =
     cache.n = mkDesc(ak, s, a)
+    cache.types.add(cache.n)
 
   template addTypeA(k, n, ak, s, a) =
     cache.n[k] = mkDesc(ak, s, a)
+    cache.types.add(cache.n[k])
 
   template addSysType(k, n, ak, s, a) =
     let h = mkDesc(ak, s, a)
@@ -606,6 +608,10 @@ proc init(cache: var TypeInfoCache, g: ModuleGraph) =
   # Add a `nil` at index '0' so that type-id '0' means none/nil/invalid
   cache.types.add(nil)
 
+  # Too many things would break if emptyType had a size of 0
+  cache.emptyType = PVmType(kind: akObject, sizeInBytes: 1) # an empty tuple
+  cache.types.add(cache.emptyType)
+
   addType(boolType, akInt, 1, 0)
   addType(charType, akInt, 1, 0)
   cache.stringType =
@@ -614,6 +620,7 @@ proc init(cache: var TypeInfoCache, g: ModuleGraph) =
             alignment: static vmAlignof(VmString),
             seqElemType: cache.charType,
             seqElemStride: 1)
+  cache.types.add(cache.stringType)
   addType(pointerType, akPtr, sizeof(ptr Atom), static vmAlignof(ptr Atom)) # untyped pointer
   addType(nodeType, akPNode, sizeof(PNode), static vmAlignof(PNode))
 
@@ -637,10 +644,6 @@ proc init(cache: var TypeInfoCache, g: ModuleGraph) =
   addTypeA(tyFloat, floatTypes, akFloat, 8, 3)
   addTypeA(tyFloat32, floatTypes, akFloat, 4, 2)
   addTypeA(tyFloat64, floatTypes, akFloat, 8, 3)
-
-  # Too many things would break if emptyType had a size of 0
-  cache.emptyType = PVmType(kind: akObject, sizeInBytes: 1) # an empty tuple
-  cache.types.add(cache.emptyType)
 
 # `Atom` must never ever be used in assignments
 proc `=`(a: var Atom, b: Atom) {.error.}
