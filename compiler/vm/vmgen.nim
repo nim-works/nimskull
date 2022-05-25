@@ -1637,7 +1637,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mTypeTrait:
     let tmp = c.genx(n[1])
     if dest.isUnset: dest = c.getTemp(n.typ)
-    c.gABx(n, opcSetType, tmp, c.genType(n[1].typ, n[1].info))
+    c.gABx(n, opcNSetType, tmp, c.genType(n[1].typ, n[1].info))
     c.gABC(n, opcTypeTrait, dest, tmp)
     c.freeTemp(tmp)
   of mSlurp: genUnaryABC(c, n, dest, opcSlurp)
