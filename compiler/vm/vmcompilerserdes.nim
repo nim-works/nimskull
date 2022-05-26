@@ -51,8 +51,7 @@ template toReport(c: DerefFailureCode): SemReport =
 #      separate parameters would make the function signature unreasonably
 #      large however.
 
-template wrongNode(t: PType): PNode =
-  mixin info
+template wrongNode(t: PType, info: TLineInfo): PNode =
   newNodeIT(nkEmpty, info, t)
 
 proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info: TLineInfo): PNode
@@ -80,7 +79,7 @@ proc deserializeRef*(c: TCtx, slot: HeapSlotHandle, vt: PVmType; f, con: PType, 
       result = c.deserializeObject(src.byteView(), vt.targetType, f, conBase, info)
     else:
       result = c.config.newError(
-        wrongNode(base),
+        wrongNode(base, info),
         SemReport(kind: rsemVmUnsupportedNonNil, typ: con))
 
   else:
@@ -89,7 +88,7 @@ proc deserializeRef*(c: TCtx, slot: HeapSlotHandle, vt: PVmType; f, con: PType, 
       if e == dfcNil:
         newNodeIT(nkNilLit, info, f)
       else:
-        c.config.newError(wrongNode(f), e.toReport())
+        c.config.newError(wrongNode(f, info), e.toReport())
 
 proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal: PType, info: TLineInfo): PNode {.inline.} =
   deserialize(c, m, vt, formal, formal.skipTypes(SkipSet), info)
@@ -151,7 +150,7 @@ proc deserializeObjectPart(c: TCtx,
   m: VmMemoryRegion,
   vt: PVmType,
   ty: PType, info: TLineInfo,
-  dest: var TNode): tuple[cIdx: int, hasError: bool] =
+  dest: PNode): tuple[cIdx: int, hasError: bool] =
   var start = 0
   if vt.relFieldStart == 0:
     discard "nothing to do"
@@ -212,7 +211,7 @@ proc deserializeObject(c: TCtx, m: VmMemoryRegion, vt: PVmType; f, con: PType; i
   result.sons[0] = newNode(nkEmpty)
   result.sons[0].typ = f
 
-  let (len, hasError) = deserializeObjectPart(c, m, vt, con, info, result[])
+  let (len, hasError) = deserializeObjectPart(c, m, vt, con, info, result)
   result.sons.setLen(len) # XXX: this should ideally also shrink the capacity
 
   if hasError:
@@ -404,8 +403,9 @@ func findInConstr(n: PNode, pos: FieldPosition): PNode =
   for i in 1..<n.len:
     if n[i][0].sym.position == pos.int:
       return n[i]
-
-  return nil
+  
+  {.cast(noSideEffect).}:
+    return nilPNode
 
 proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil)
 

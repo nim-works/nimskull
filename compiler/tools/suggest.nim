@@ -59,7 +59,7 @@ const
 template origModuleName(m: PSym): string = m.name.s
 
 proc findDocComment(n: PNode): PNode =
-  if n == nil: return nil
+  if n == nil: return nilPNode
   if n.comment.len > 0: return n
   if n.kind in {nkStmtList, nkStmtListExpr, nkObjectTy, nkRecList} and n.len > 0:
     result = findDocComment(n[0])
@@ -334,7 +334,7 @@ proc nameFits(c: PContext, s: PSym, n: PNode): bool =
 proc argsFit(c: PContext, candidate: PSym, n: PNode): bool =
   case candidate.kind
   of OverloadableSyms:
-    var m = newCandidate(c, candidate, nil)
+    var m = newCandidate(c, candidate, nilPNode)
     sigmatch.partialMatch(c, n, m)
     result = m.state != csNoMatch
   else:
@@ -342,7 +342,7 @@ proc argsFit(c: PContext, candidate: PSym, n: PNode): bool =
 
 proc suggestCall(c: PContext, n: PNode, outputs: var Suggestions) =
   let info = n.info
-  wholeSymTab(filterSym(it, nil, pm) and nameFits(c, it, n) and argsFit(c, it, n),
+  wholeSymTab(filterSym(it, nilPNode, pm) and nameFits(c, it, n) and argsFit(c, it, n),
               ideCon)
 
 proc suggestVar(c: PContext, n: PNode, outputs: var Suggestions) =
@@ -625,7 +625,7 @@ proc sugExpr(c: PContext, n: PNode, outputs: var Suggestions) =
     # of the next line, so we check the 'field' is actually on the same
     # line as the object to prevent this from happening:
     let prefix = if n.len == 2 and n[1].info.line == n[0].info.line and
-       not c.config.m.trackPosAttached: n[1] else: nil
+       not c.config.m.trackPosAttached: n[1] else: nilPNode
     suggestFieldAccess(c, obj, prefix, outputs)
 
     #if optIdeDebug in gGlobalOptions:
@@ -633,11 +633,11 @@ proc sugExpr(c: PContext, n: PNode, outputs: var Suggestions) =
     #writeStackTrace()
   elif n.kind == nkIdent:
     let
-      prefix = if c.config.m.trackPosAttached: nil else: n
+      prefix = if c.config.m.trackPosAttached: nilPNode else: n
       info = n.info
     wholeSymTab(filterSym(it, prefix, pm), ideSug)
   else:
-    let prefix = if c.config.m.trackPosAttached: nil else: n
+    let prefix = if c.config.m.trackPosAttached: nilPNode else: n
     suggestEverything(c, n, prefix, outputs)
 
 proc suggestExprNoCheck*(c: PContext, n: PNode) =
@@ -684,7 +684,7 @@ proc suggestStmt*(c: PContext, n: PNode) =
 
 proc suggestEnum*(c: PContext; n: PNode; t: PType) =
   var outputs: Suggestions = @[]
-  suggestSymList(c, t.n, nil, n.info, outputs)
+  suggestSymList(c, t.n, nilPNode, n.info, outputs)
   produceOutput(outputs, c.config)
   if outputs.len > 0: suggestQuit()
 
@@ -696,7 +696,7 @@ proc suggestSentinel*(c: PContext) =
   # suggest everything:
   for (it, scopeN, isLocal) in allSyms(c):
     var pm: PrefixMatch
-    if filterSymNoOpr(it, nil, pm):
+    if filterSymNoOpr(it, nilPNode, pm):
       outputs.add(symToSuggest(c.graph, it, isLocal = isLocal, ideSug,
           newLineInfo(c.config.m.trackPos.fileIndex, 0, -1), it.getQuality,
           PrefixMatch.None, false, scopeN))

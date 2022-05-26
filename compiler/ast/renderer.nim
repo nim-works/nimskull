@@ -408,7 +408,9 @@ proc atom(g: TSrcGen; n: PNode): string =
   of nkUInt64Lit: result = ulitAux(g, n, n.intVal, 8) & "\'u64"
   of nkFloatLit:
     if n.flags * {nfBase2, nfBase8, nfBase16} == {}: result = $(n.floatVal)
-    else: result = litAux(g, n, (cast[PInt64](addr(n.floatVal)))[] , 8)
+    else:
+      f = n.floatVal
+      result = litAux(g, n, (cast[PInt64](addr(f)))[] , 8)
   of nkFloat32Lit:
     if n.flags * {nfBase2, nfBase8, nfBase16} == {}:
       result = $n.floatVal & "\'f32"
@@ -419,7 +421,8 @@ proc atom(g: TSrcGen; n: PNode): string =
     if n.flags * {nfBase2, nfBase8, nfBase16} == {}:
       result = $n.floatVal & "\'f64"
     else:
-      result = litAux(g, n, (cast[PInt64](addr(n.floatVal)))[], 8) & "\'f64"
+      f = n.floatVal
+      result = litAux(g, n, (cast[PInt64](addr(f)))[], 8) & "\'f64"
   of nkNilLit: result = "nil"
   of nkType:
     if (n.typ != nil) and (n.typ.sym != nil): result = n.typ.sym.name.s

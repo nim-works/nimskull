@@ -561,7 +561,7 @@ proc overloadedCallOpr(c: PContext, n: PNode): PNode =
   var par = getIdent(c.cache, "()")
   var amb = false
   if searchInScopes(c, par, amb) == nil:
-    result = nil
+    result = nilPNode
   else:
     result = newNodeI(nkCall, n.info)
     result.add newIdentNode(par, n.info)
@@ -1038,7 +1038,7 @@ proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
 
 proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
   addInNimDebugUtils(c.config, "semIndirectOp", n, result, flags)
-  result = nil
+  result = nilPNode
   checkMinSonsLen(n, 1, c.config)
   if n.kind == nkError: return n
   var prc = n[0]
@@ -1102,7 +1102,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
         return
 
-      result = nil
+      result = nilPNode
 
     else:
       result = m.call
@@ -1293,7 +1293,7 @@ proc readTypeParameter(c: PContext, typ: PType,
           let foundTyp = makeTypeDesc(c, rawTyp)
           return newSymNode(copySym(tParam.sym, nextSymId c.idgen).linkTo(foundTyp), info)
 
-  return nil
+  return nilPNode
 
 proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
   let s = getGenSym(c, sym)
@@ -1395,10 +1395,10 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
       var ty = skipTypes(p.selfSym.typ, {tyGenericInst, tyVar, tyLent, tyPtr, tyRef,
                                          tyAlias, tySink, tyOwned})
       while tfBorrowDot in ty.flags: ty = ty.skipTypes({tyDistinct, tyGenericInst, tyAlias})
-      var check: PNode = nil
+      var check: PNode = nilPNode
       if ty.kind == tyObject:
         while true:
-          check = nil
+          check = nilPNode
           let f = lookupInRecordAndBuildCheck(c, n, ty.n, s.name, check)
           if f != nil and fieldVisible(c, f):
             # is the access to a public field or in the same module or in a friend?
@@ -1509,7 +1509,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
   var i = considerQuotedIdent(c, n[1], n)
   var ty = n[0].typ
   var f: PSym = nil
-  result = nil
+  result = nilPNode
 
   if ty.kind == tyTypeDesc:
     if ty.base.kind == tyNone:
@@ -1521,23 +1521,23 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
         n.typ = makeTypeFromExpr(c, n.copyTree)
         return n
       else:
-        return nil
+        return nilPNode
     else:
       return tryReadingTypeField(c, n, i, ty.base)
   elif isTypeExpr(n.sons[0]):
     return tryReadingTypeField(c, n, i, ty)
   elif ty.kind == tyError:
     # a type error doesn't have any builtin fields
-    return nil
+    return nilPNode
 
   if ty.kind in tyUserTypeClasses and ty.isResolvedUserTypeClass:
     ty = ty.lastSon
   ty = skipTypes(ty, {tyGenericInst, tyVar, tyLent, tyPtr, tyRef, tyOwned, tyAlias, tySink, tyStatic})
   while tfBorrowDot in ty.flags: ty = ty.skipTypes({tyDistinct, tyGenericInst, tyAlias})
-  var check: PNode = nil
+  var check: PNode = nilPNode
   if ty.kind == tyObject:
     while true:
-      check = nil
+      check = nilPNode
       f = lookupInRecordAndBuildCheck(c, n, ty.n, i, check)
       if f != nil: break
       if ty[0] == nil: break
@@ -1612,9 +1612,8 @@ proc semDeref(c: PContext, n: PNode): PNode =
   case t.kind:
     of tyRef, tyPtr:
       n.typ = t.lastSon
-
     else:
-      result = nil
+      result = nilPNode
 
   #GlobalError(n[0].info, errCircumNeedsPointer)
 
@@ -1647,7 +1646,7 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ## checking of assignments
   if n.len == 1:
     let x = semDeref(c, n)
-    if x == nil: return nil
+    if x == nil: return nilPNode
     result = newNodeIT(nkDerefExpr, x.info, x.typ)
     result.add(x[0])
     return
@@ -1670,7 +1669,7 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
   case arr.kind
   of tyArray, tyOpenArray, tyVarargs, tySequence, tyString, tyCstring,
     tyUncheckedArray:
-    if n.len != 2: return nil
+    if n.len != 2: return nilPNode
     n[0] = makeDeref(n[0])
     for i in 1..<n.len:
       n[i] = semExprWithType(c, n[i],
@@ -1696,7 +1695,7 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
     result.typ = makeTypeDesc(c, semTypeNode(c, n, nil))
     #result = symNodeFromType(c, semTypeNode(c, n, nil), n.info)
   of tyTuple:
-    if n.len != 2: return nil
+    if n.len != 2: return nilPNode
     n[0] = makeDeref(n[0])
     # [] operator for tuples requires constant expression:
     n[1] = semConstExpr(c, n[1])
@@ -1713,7 +1712,7 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
       result = n
     else:
-      result = nil
+      result = nilPNode
   else:
     let s = if n[0].kind == nkSym: n[0].sym
             elif n[0].kind in nkSymChoices: n[0][0].sym
@@ -2306,7 +2305,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
       trackStmt(c, c.module, result, isTopLevel = false)
     if c.config.errorCounter != oldErrorCount and
        result != nil and result.kind != nkError:
-      result = nil
+      result = nilPNode
   except ERecoverableError:
     discard
   # undo symbol table changes (as far as it's possible):
@@ -2519,7 +2518,7 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
 proc semWhen(c: PContext, n: PNode, semCheck = true): PNode =
   # If semCheck is set to false, ``when`` will return the verbatim AST of
   # the correct branch. Otherwise the AST will be passed through semStmt.
-  result = nil
+  result = nilPNode
 
   template setResult(e: untyped) =
     if semCheck: result = semExpr(c, e) # do not open a new scope!
@@ -2852,7 +2851,7 @@ proc asBracketExpr(c: PContext; n: PNode): PNode =
           result = newNodeI(nkBracketExpr, n.info)
           for i in 1..<n.len: result.add(n[i])
           return result
-  return nil
+  return nilPNode
 
 proc hoistParamsUsedInDefault(c: PContext, call, letSection, defExpr: var PNode) =
   # This takes care of complicated signatures such as:

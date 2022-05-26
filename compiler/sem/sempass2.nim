@@ -671,8 +671,8 @@ proc notNilCheck(tracked: PEffects, n: PNode, paramType: PType) =
         discard
 
 proc assumeTheWorst(tracked: PEffects; n: PNode; op: PType) =
-  addRaiseEffect(tracked, createRaise(tracked.graph, n), nil)
-  addTag(tracked, createTag(tracked.graph, n), nil)
+  addRaiseEffect(tracked, createRaise(tracked.graph, n), nilPNode)
+  addTag(tracked, createTag(tracked.graph, n), nilPNode)
   let lockLevel = if op.lockLevel == UnspecifiedLockLevel: UnknownLockLevel
                   else: op.lockLevel
   #if lockLevel == UnknownLockLevel:
@@ -1092,7 +1092,7 @@ proc track(tracked: PEffects, n: PNode) =
       # A `raise` with no arguments means we're going to re-raise the exception
       # being handled or, if outside of an `except` block, a `ReraiseDefect`.
       # Here we add a `Exception` tag in order to cover both the cases.
-      addRaiseEffect(tracked, createRaise(tracked.graph, n), nil)
+      addRaiseEffect(tracked, createRaise(tracked.graph, n), nilPNode)
   of nkCallKinds:
     trackCall(tracked, n)
   of nkDotExpr:
@@ -1339,7 +1339,7 @@ proc checkRaisesSpec(
     spec, real: PNode,
     hints: bool,
     effectPredicate: proc (g: ModuleGraph; a, b: PNode): bool {.nimcall.},
-    hintsArg: PNode = nil
+    hintsArg: PNode = nilPNode
   ) =
   # check that any real exception is listed in 'spec'; mark those as used;
   # report any unused exception

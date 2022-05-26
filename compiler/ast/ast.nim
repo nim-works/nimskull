@@ -34,7 +34,7 @@ type Gconfig = object
   ## we put comments in a side channel to avoid increasing `sizeof(TNode)`,
   ## which reduces memory usage given that `PNode` is the most allocated
   ## type by far.
-  comments: Table[int, string] # nodeId => comment
+  comments: Table[NodeId, string] # nodeId => comment
   useIc*: bool
 
 var gconfig {.threadvar.}: Gconfig
@@ -319,6 +319,7 @@ proc discardSons*(father: PNode)
 type Indexable = PNode | PType
 
 proc len*(n: Indexable): int {.inline.} =
+  ## number of children, unsafe if called on leaf nodes, see `safeLen`
   result = n.sons.len
 
 proc safeLen*(n: PNode): int {.inline.} =
@@ -326,15 +327,22 @@ proc safeLen*(n: PNode): int {.inline.} =
   if n.kind in {nkNone..nkNilLit}: result = 0
   else: result = n.len
 
-proc add*(father, son: Indexable) =
-  assert son != nil
-  father.sons.add(son)
+proc safeArrLen*(n: PNode): int {.inline.} =
+  ## works for array-like objects (strings passed as openArray in VM).
+  if n.kind in {nkStrLit..nkTripleStrLit}: result = n.strVal.len
+  elif n.kind in {nkNone..nkFloat128Lit}: result = 0
+  else: result = n.len
 
 proc addAllowNil*(father, son: Indexable) {.inline.} =
   father.sons.add(son)
 
+proc add*(father, son: Indexable) {.inline.} =
+  assert son != nil
+  addAllowNil(father, son)
+
 template `[]`*(n: Indexable, i: int): Indexable = n.sons[i]
-template `[]=`*(n: Indexable, i: int; x: Indexable) = n.sons[i] = x
+template `[]=`*(n: Indexable, i: int; x: Indexable) =
+  n.sons[i] = x
 
 template `[]`*(n: Indexable, i: BackwardsIndex): Indexable = n[n.len - i.int]
 template `[]=`*(n: Indexable, i: BackwardsIndex; x: Indexable) = n[n.len - i.int] = x
@@ -366,19 +374,46 @@ proc getDeclPragma*(n: PNode): PNode =
       result = n[0][1]
   else:
     # support as needed for `nkIdentDefs` etc.
-    result = nil
+    result = nilPNode
   if result != nil:
     assert result.kind == nkPragma, $(result.kind, n.kind)
 
-const invalidNodeId* = 0
-var gNodeId: int
-
 when defined(useNodeIds):
-  const nodeIdToDebug* = -1 # 2322968
+  const nodeIdToDebug* = NodeId -1 # 2322968
 
-template setNodeId() =
-  inc gNodeId
-  result.id = gNodeId
+template newNodeImpl(kind: TNodeKind, info2: TLineInfo) =
+  # result = PNode(kind: kind, info: info2)
+  {.cast(noSideEffect).}:
+    let
+      nodeId = state.nextNodeId()
+      nodeIdx = nodeId.idx
+    state.nodeList.add NodeData(kind: kind)
+    state.nodeInf.add info2
+    state.nodeFlag.add {}
+    case extraDataKind(kind):
+    of ExtraDataInt:
+      state.nodeInt.add 0
+      state.nodeList[nodeIdx].extra = ExtraDataId state.nodeInt.len
+    of ExtraDataFloat:
+      state.nodeFlt.add 0
+      state.nodeList[nodeIdx].extra = ExtraDataId state.nodeFlt.len
+    of ExtraDataString:
+      state.nodeStr.add ""
+      state.nodeList[nodeIdx].extra = ExtraDataId state.nodeStr.len
+    of ExtraDataSymbol:
+      state.nodeSym.add nil
+      state.nodeList[nodeIdx].extra = ExtraDataId state.nodeSym.len
+    of ExtraDataIdentifier:
+      state.nodeIdt.add nil
+      state.nodeList[nodeIdx].extra = ExtraDataId state.nodeIdt.len
+    of ExtraDataAst, ExtraDataNone:
+      state.astData.add @[]
+      state.nodeList[nodeIdx].extra = ExtraDataId state.astData.len
+      discard
+
+    result = PNode(id: nodeId)
+
+template checkNodeIdForDebug() =
   when defined(useNodeIds):
     if result.id == nodeIdToDebug:
       echo "KIND ", result.kind
@@ -386,16 +421,17 @@ template setNodeId() =
 
 func newNodeI*(kind: TNodeKind, info: TLineInfo): PNode =
   ## new node with line info, no type, and no children
-  result = PNode(kind: kind, info: info, reportId: emptyReportId)
+  newNodeImpl(kind, info)
   {.cast(noSideEffect).}:
-    setNodeId()
-  when false:
-    # this would add overhead, so we skip it; it results in a small amount of leaked entries
-    # for old PNode that gets re-allocated at the same address as a PNode that
-    # has `nfHasComment` set (and an entry in that table). Only `nfHasComment`
-    # should be used to test whether a PNode has a comment; gconfig.comments
-    # can contain extra entries for deleted PNode's with comments.
-    gconfig.comments.del(result.id)
+    checkNodeIdForDebug()
+    when defined(nimsuggest):
+      # this would add overhead, so we skip it; it results in a small amount of
+      # leaked entries for old PNode that gets re-allocated at the same address
+      # as a PNode that has `nfHasComment` set (and an entry in that table).
+      # Only `nfHasComment` should be used to test whether a PNode has a
+      # comment; gconfig.comments can contain extra entries for deleted PNode's
+      # with comments.
+      gconfig.comments.del(result.id)
 
 proc newNode*(kind: TNodeKind): PNode =
   ## new node with unknown line info, no type, and no children
@@ -417,6 +453,11 @@ proc newNodeIT*(kind: TNodeKind, info: TLineInfo, typ: PType, children: int): PN
   result = newNodeIT(kind, info, typ)
   if children > 0:
     newSeq(result.sons, children)
+
+proc newErrorNodeIT*(rep: ReportId, info: TLineInfo, typ: PType): PNode =
+  ## new node with line info, type, report, and no children
+  result = newNodeIT(nkError, info, typ)
+  result.reportId = rep
 
 proc newTree*(kind: TNodeKind; children: varargs[PNode]): PNode =
   result = newNode(kind)
@@ -802,14 +843,43 @@ proc delSon*(father: PNode, idx: int) =
   for i in idx..<father.len - 1: father[i] = father[i + 1]
   father.sons.setLen(father.len - 1)
 
+proc applyToNode*(src, dest: PNode) =
+  ## used for the VM when we pass nodes "by value"
+  # assert not dest.isNil
+  # assert not src.isNil
+  # assert dest.id != src.id, "applying to self, id: " & $src.id
+  state.nodeList[dest.idx] = state.nodeList[src.idx]
+  state.nodeFlag[dest.idx] = state.nodeFlag[src.idx]
+  state.nodeInf[dest.idx] = state.nodeInf[src.idx]
+  if state.nodeTyp.hasKey(src.id):
+    state.nodeTyp[dest.id] = state.nodeTyp[src.id]
+  if state.nodeRpt.hasKey(src.id):
+    state.nodeRpt[dest.id] = state.nodeRpt[src.id]
+  case src.kind.extraDataKind
+  of ExtraDataInt:
+    dest.intVal = src.intVal
+  of ExtraDataFloat:
+    dest.floatVal = src.floatVal
+  of ExtraDataString:
+    dest.strVal = src.strVal
+  of ExtraDataSymbol:
+    dest.sym = src.sym
+  of ExtraDataIdentifier:
+    dest.ident = src.ident
+  of ExtraDataAst, ExtraDataNone:
+    dest.sons = src.sons
+
 template copyNodeImpl(dst, src, processSonsStmt) =
-  if src == nil: return
+  # does not copy src's sons to dst
+  if src == nil:
+    return nilPNode
   dst = newNode(src.kind)
   dst.info = src.info
   dst.typ = src.typ
   dst.flags = src.flags * PersistentNodeFlags
   dst.comment = src.comment
-  dst.reportId = src.reportId
+  if src.kind == nkError:
+    dst.reportId = src.reportId
   when defined(useNodeIds):
     if dst.id == nodeIdToDebug:
       echo "COMES FROM ", src.id
@@ -826,22 +896,108 @@ proc copyNode*(src: PNode): PNode =
   copyNodeImpl(result, src):
     discard
 
-template transitionNodeKindCommon(k: TNodeKind) =
-  let obj {.inject.} = n[]
-  n[] = TNode(id: obj.id, kind: k, typ: obj.typ, info: obj.info,
-              flags: obj.flags)
-  # n.comment = obj.comment # shouldn't be needed, the address doesnt' change
+type
+  NodeDataToClear = enum
+    nodeClearAst,
+    nodeClearFlg,
+    nodeClearInf,
+    nodeClearSym,
+    nodeClearIdt,
+    nodeClearTyp,
+    nodeClearInt,
+    nodeClearFlt,
+    nodeClearStr,
+    nodeClearRpt,
+    nodeClearCmt
+
+func determineNodeDataToClear(k: TNodeKind): set[NodeDataToClear] {.inline.} =
+  case k
+  of nkCharLit..nkUInt64Lit:
+    {nodeClearAst, nodeClearSym, nodeClearIdt, nodeClearFlt, nodeClearStr, nodeClearRpt}
+  of nkFloatLit..nkFloat128Lit:
+    {nodeClearAst, nodeClearSym, nodeClearIdt, nodeClearInt, nodeClearStr, nodeClearRpt}
+  of nkStrLit..nkTripleStrLit:
+    {nodeClearAst, nodeClearSym, nodeClearIdt, nodeClearInt, nodeClearFlt, nodeClearRpt}
+  of nkSym:
+    {nodeClearAst, nodeClearIdt, nodeClearInt, nodeClearFlt, nodeClearStr, nodeClearRpt}
+  of nkIdent:
+    {nodeClearAst, nodeClearSym, nodeClearInt, nodeClearFlt, nodeClearStr, nodeClearRpt}
+  of nkError:
+    {nodeClearIdt, nodeClearSym, nodeClearInt, nodeClearFlt, nodeClearStr}
+  else:
+    {nodeClearIdt, nodeClearSym, nodeClearInt, nodeClearFlt, nodeClearStr, nodeClearRpt}
+    # xxx: this should handle empty and other special cases
+
+template transitionNodeKindCommon(k, old: TNodeKind) =
+  # xxx: this used to be a memory copy, but now we just change the kind
+  # xxx: trace the transition for lineage information
+
+  # clear old data: this was added as part of the data oriented design
+  #                 refactor; might be a source of bugs wrt to how legacy code
+  #                 expects things to work, try to favour fixing legacy code
+  let
+    kExtraDataKind = extraDataKind(k)
+    oldExtraDataKind = extraDataKind(old)
+    sameNodeVariety = kExtraDataKind == oldExtraDataKind ## kinds need equivalent storage
+    clears =
+      if sameNodeVariety: {}            # don't clear if the same
+      else: determineNodeDataToClear(k)
+    resetExtraDataId = clears != {} and oldExtraDataKind != ExtraDataNone
+
+  for clear in clears.items:
+    case clear
+    of nodeClearAst:
+      if oldExtraDataKind == ExtraDataAst:
+        state.astData[n.extraIdx].setLen(0)
+    of nodeClearFlg: state.nodeFlag[n.idx] = {}
+    of nodeClearInf: state.nodeInf[n.idx] = unknownLineInfo
+    of nodeClearTyp: state.nodeTyp.del(n.id)
+    of nodeClearRpt: state.nodeRpt.del(n.id)
+    of nodeClearSym:
+      if oldExtraDataKind == ExtraDataSymbol:
+        state.nodeSym[n.extraId.idx] = nil
+    of nodeClearIdt:
+      if oldExtraDataKind == ExtraDataIdentifier:
+        state.nodeIdt[n.extraId.idx] = nil
+    of nodeClearInt:
+      if oldExtraDataKind == ExtraDataInt:
+        state.nodeInt[n.extraId.idx] = 0
+    of nodeClearFlt:
+      if oldExtraDataKind == ExtraDataFloat:
+        state.nodeFlt[n.extraId.idx] = 0.0
+    of nodeClearStr:
+      if oldExtraDataKind == ExtraDataString:
+        state.nodeStr[n.extraId.idx] = ""
+    of nodeClearCmt: gconfig.comments.del(n.id)
+  
+  state.nodeList[n.idx].kind = k
+
+  # xxx: setup storage if we reset it
+  if resetExtraDataId:
+    state.nodeList[n.idx].extra = nilExtraDataId
+  
+  when defined(useNodeIds):
+    if n.id == nodeIdToDebug:
+      echo "KIND ", n.kind
+      writeStackTrace()
 
 proc transitionSonsKind*(n: PNode, kind: range[nkDotCall..nkTupleConstr]) =
-  transitionNodeKindCommon(kind)
-  n.sons = obj.sons
+  # xxx: just change the kind now, might need clearing/validation here
+  transitionNodeKindCommon(kind, n.kind)
+  # xxx: this used to copy sons, not sure if that's still needed.
 
 proc transitionIntKind*(n: PNode, kind: range[nkCharLit..nkUInt64Lit]) =
-  transitionNodeKindCommon(kind)
-  n.intVal = obj.intVal
+  # xxx: just change the kind now, might need clearing/validation here
+  transitionNodeKindCommon(kind, n.kind)
+
+proc transitionToNilLit*(n: PNode) =
+  ## used to reset a node to a nil literal
+  transitionNodeKindCommon(nkNilLit, n.kind)
 
 proc transitionNoneToSym*(n: PNode) =
-  transitionNodeKindCommon(nkSym)
+  # xxx: just change the kind now, might need clearing/validation here
+  #      see the hack in `semtypes.semTypeIdent`
+  transitionNodeKindCommon(nkSym, n.kind)
 
 template transitionSymKindCommon*(k: TSymKind) =
   let obj {.inject.} = s[]
@@ -1182,7 +1338,7 @@ proc findUnresolvedStatic*(n: PNode): PNode =
     let n = son.findUnresolvedStatic
     if n != nil: return n
 
-  return nil
+  return nilPNode
 
 when false:
   proc containsNil*(n: PNode): bool =

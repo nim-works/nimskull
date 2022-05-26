@@ -52,7 +52,7 @@ proc genEnumToStrProc*(t: PType; info: TLineInfo; g: ModuleGraph; idgen: IdGener
 proc searchObjCaseImpl(obj: PNode; field: PSym): PNode =
   case obj.kind
   of nkSym:
-    result = nil
+    result = nilPNode
   of nkElse, nkOfBranch:
     result = searchObjCaseImpl(obj.lastSon, field)
   else:

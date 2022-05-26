@@ -49,11 +49,11 @@ proc errorSubNode*(n: PNode): PNode =
   ## find the first error node, or nil, under `n` using a depth first traversal
   case n.kind
   of nkEmpty..nkNilLit:
-    result = nil
+    result = nilPNode
   of nkError:
     result = n
   else:
-    result = nil
+    result = nilPNode
     for s in n.items:
       if s.isNil: continue
       result = errorSubNode(s)
@@ -85,11 +85,10 @@ proc newError*(
   assert wrongNode != nil, "can't have a nil node for `wrongNode`"
   assert not report.isEmpty(), $report
 
-  result = PNode(
-    kind: nkError,
-    info: wrongNode.info,
-    typ: newType(tyError, ItemId(module: -2, item: -1), nil),
-    reportId: report
+  result = newErrorNodeIT(
+    report,
+    wrongNode.info,
+    newType(tyError, ItemId(module: -2, item: -1), nil)
   )
 
   addInNimDebugUtilsError(conf, wrongNode, result)

@@ -129,6 +129,8 @@ type
     akObject # currently also includes tuple types
     akArray
 
+  # NodeAddr* = distinct int    ## index/identifier into `TCtx.nodeAddrs`
+  NodeAddr* = distinct PNode ## a PNode, but used an address in the VM
 
   # XXX: `PVmType` will be step-by-step replaced with `VmTypeId`
   PVmType* = ref VmType
@@ -531,6 +533,8 @@ type
     templInstCounter*: ref int # gives every template instantiation a unique ID, needed here for getAst
     vmstateDiff*: seq[(PSym, PNode)] # we remember the "diff" to global state here (feature for IC)
     procToCodePos*: Table[int, int]
+    # nodeAddrs*: seq[NodeId] ## maintain "references" to PNodes, so we can alter
+    #                          ## which PNode we're referring to
 
   StackFrameIndex* = int
 
@@ -709,6 +713,7 @@ const realAtomKinds* = {low(AtomKind)..high(AtomKind)} - pseudoAtomKinds
 
 const
   slotSomeTemp* = slotTempUnknown
+  # nilNodeAddr* = NodeAddr 0
 
 # flag is used to signal opcSeqLen if node is NimNode.
 const nimNodeFlag* = 16

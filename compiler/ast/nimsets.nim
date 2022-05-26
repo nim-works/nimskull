@@ -33,7 +33,7 @@ proc inSet*(s: PNode, elem: PNode): bool =
         return true
   result = false
 
-proc overlap*(a, b: PNode): bool =
+func overlap*(a, b: PNode): bool =
   if a.kind == nkRange:
     if b.kind == nkRange:
       # X..Y and C..D overlap iff (X <= D and C <= Y)

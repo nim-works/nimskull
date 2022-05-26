@@ -278,7 +278,7 @@ proc resolveOverloads(c: PContext, n: PNode,
     else:
       f = f[0]
   else:
-    initialBinding = nil
+    initialBinding = nilPNode
 
   if f.isError:
     n[0] = f
@@ -317,7 +317,7 @@ proc resolveOverloads(c: PContext, n: PNode,
       if f.ident.s notin [".", ".()"]: # a dot call on a dot call is invalid
         # leave the op head symbol empty,
         # we are going to try multiple variants
-        n.sons[0..1] = [nil, n[1], f]
+        n.sons[0..1] = [nilPNode, n[1], f]
 
         if nfExplicitCall in n.flags:
           tryOp ".()"
@@ -328,7 +328,7 @@ proc resolveOverloads(c: PContext, n: PNode,
     elif nfDotSetter in n.flags and f.kind == nkIdent and n.len == 3:
       # we need to strip away the trailing '=' here:
       let calleeName = newIdentNode(getIdent(c.cache, f.ident.s[0..^2]), f.info)
-      n.sons[0..1] = [nil, n[1], calleeName]
+      n.sons[0..1] = [nilPNode, n[1], calleeName]
       tryOp ".="
 
     if overloadsState == csEmpty and result.state == csEmpty:
@@ -550,7 +550,7 @@ proc explicitGenericInstError(c: PContext; n: PNode): PNode =
 
 proc explicitGenericSym(c: PContext, n: PNode, s: PSym): PNode =
   # binding has to stay 'nil' for this to work!
-  var m = newCandidate(c, s, nil)
+  var m = newCandidate(c, s, nilPNode)
 
   for i in 1..<n.len:
     let formal = s.ast[genericParamsPos][i-1].typ
@@ -564,7 +564,7 @@ proc explicitGenericSym(c: PContext, n: PNode, s: PSym): PNode =
         arg.sons = @[evaluated.typ]
         arg.n = evaluated
     let tm = typeRel(m, formal, arg)
-    if tm in {isNone, isConvertible}: return nil
+    if tm in {isNone, isConvertible}: return nilPNode
   var newInst = generateInstance(c, s, m.bindings, n.info)
   newInst.typ.flags.excl tfUnresolved
   let info = getCallLineInfo(n)

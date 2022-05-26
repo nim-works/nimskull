@@ -122,7 +122,7 @@ proc getFloatLitType*(g: ModuleGraph; literal: PNode): PType =
 proc skipIntLit*(t: PType; id: IdGenerator): PType {.inline.} =
   if t.n != nil and t.kind in {tyInt, tyFloat}:
     result = copyType(t, nextTypeId(id), t.owner)
-    result.n = nil
+    result.n = nilPNode
   else:
     result = t
 

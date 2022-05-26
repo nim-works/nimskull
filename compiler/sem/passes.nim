@@ -78,7 +78,7 @@ proc openPasses(g: ModuleGraph; a: var TPassContextArray;
     else: a[i] = nil
 
 proc closePasses(graph: ModuleGraph; a: var TPassContextArray) =
-  var m: PNode = nil
+  var m: PNode = nilPNode
   for i in 0..<graph.passes.len:
     if not isNil(graph.passes[i].close):
       m = graph.passes[i].close(graph, a[i], m)
@@ -188,7 +188,7 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
         # read everything until the next proc declaration etc.
         var sl = newNodeI(nkStmtList, n.info)
         sl.add n
-        var rest: PNode = nil
+        var rest: PNode = nilPNode
         while true:
           var n = parseTopLevelStmt(p)
           if n.kind == nkEmpty or n.kind notin imperativeCode:

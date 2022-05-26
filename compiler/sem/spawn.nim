@@ -134,21 +134,21 @@ proc createWrapperProc(g: ModuleGraph; f: PNode; threadParam, argsParam: PSym;
   var threadLocalBarrier: PSym
   if barrier != nil:
     var varSection2 = newNodeI(nkVarSection, barrier.info)
-    threadLocalBarrier = addLocalVar(g, varSection2, nil, idgen, result,
+    threadLocalBarrier = addLocalVar(g, varSection2, nilPNode, idgen, result,
                                      barrier.typ, barrier)
     body.add varSection2
     body.add callCodegenProc(g, "barrierEnter", threadLocalBarrier.info,
       threadLocalBarrier.newSymNode)
   var threadLocalProm: PSym
   if spawnKind == srByVar:
-    threadLocalProm = addLocalVar(g, varSection, nil, idgen, result, fv.typ, fv)
+    threadLocalProm = addLocalVar(g, varSection, nilPNode, idgen, result, fv.typ, fv)
   elif fv != nil:
     internalAssert(
       g.config,
       fv.typ.kind == tyGenericInst,
       "Expected generic inst type kind, but found " & $fv.typ.kind)
 
-    threadLocalProm = addLocalVar(g, varSection, nil, idgen, result, fv.typ, fv)
+    threadLocalProm = addLocalVar(g, varSection, nilPNode, idgen, result, fv.typ, fv)
   body.add varSection
   body.add varInit
   if fv != nil and spawnKind != srByVar:
@@ -298,7 +298,7 @@ proc setupArgsForParallelism(g: ModuleGraph; n: PNode; objType: PType;
         result.add newFastAsgnStmt(newDotExpr(scratchObj, fieldA), n[2])
         result.add newFastAsgnStmt(newDotExpr(scratchObj, fieldB), n[3])
 
-        let threadLocal = addLocalVar(g, varSection, nil, idgen, owner, fieldA.typ,
+        let threadLocal = addLocalVar(g, varSection, nilPNode, idgen, owner, fieldA.typ,
                                       indirectAccess(castExpr, fieldA, n.info),
                                       useShallowCopy=true)
         slice[2] = threadLocal.newSymNode
@@ -313,7 +313,7 @@ proc setupArgsForParallelism(g: ModuleGraph; n: PNode; objType: PType;
       # the array itself does not need to go through a thread local variable:
       slice[1] = genDeref(indirectAccess(castExpr, field, n.info))
 
-      let threadLocal = addLocalVar(g, varSection, nil, idgen, owner, fieldB.typ,
+      let threadLocal = addLocalVar(g, varSection, nilPNode, idgen, owner, fieldB.typ,
                                     indirectAccess(castExpr, fieldB, n.info),
                                     useShallowCopy=true)
       slice[3] = threadLocal.newSymNode
@@ -325,7 +325,7 @@ proc setupArgsForParallelism(g: ModuleGraph; n: PNode; objType: PType;
       field.typ = a.typ
       objType.addField(field, g.cache, idgen)
       result.add newFastAsgnStmt(newDotExpr(scratchObj, field), a)
-      let threadLocal = addLocalVar(g, varSection, nil, idgen, owner, field.typ,
+      let threadLocal = addLocalVar(g, varSection, nilPNode, idgen, owner, field.typ,
                                     indirectAccess(castExpr, field, n.info),
                                     useShallowCopy=true)
       call.add(genDeref(threadLocal.newSymNode))
@@ -341,7 +341,7 @@ proc setupArgsForParallelism(g: ModuleGraph; n: PNode; objType: PType;
       call.add(threadLocal.newSymNode)
 
 proc wrapProcForSpawn*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; spawnExpr: PNode; retType: PType;
-                       barrier, dest: PNode = nil): PNode =
+                       barrier, dest: PNode = nilPNode): PNode =
   # if 'barrier' != nil, then it is in a 'parallel' section and we
   # generate quite different code
   let n = spawnExpr[^2]
@@ -424,7 +424,7 @@ proc wrapProcForSpawn*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; spawnExp
     setupArgsForParallelism(g, n, objType, idgen, wrapperProc, scratchObj, castExpr, call,
                             varSection, varInit, result)
 
-  var barrierAsExpr: PNode = nil
+  var barrierAsExpr: PNode = nilPNode
   if barrier != nil:
     let typ = newType(tyPtr, nextTypeId idgen, owner)
     typ.rawAddSon(magicsys.getCompilerProc(g, "Barrier").typ)
@@ -436,7 +436,7 @@ proc wrapProcForSpawn*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; spawnExp
     result.add newFastAsgnStmt(newDotExpr(scratchObj, field), barrier)
     barrierAsExpr = indirectAccess(castExpr, field, n.info)
 
-  var fvField, fvAsExpr: PNode = nil
+  var fvField, fvAsExpr: PNode = nilPNode
   if spawnKind == srFlowVar:
     var field = newSym(skField, getIdent(g.cache, "fv"), nextSymId idgen, owner, n.info, g.config.options)
     field.typ = retType
@@ -461,6 +461,6 @@ proc wrapProcForSpawn*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; spawnExp
                       varSection, varInit, call,
                       barrierAsExpr, fvAsExpr, idgen, spawnKind, wrapperProc)
   result.add callCodegenProc(g, "nimSpawn" & $spawnExpr.len, wrapperProc.info,
-    wrapperProc.newSymNode, genAddrOf(scratchObj.newSymNode, idgen), nil, spawnExpr)
+    wrapperProc.newSymNode, genAddrOf(scratchObj.newSymNode, idgen), nilPNode, spawnExpr)
 
   if spawnKind == srFlowVar: result.add fvField

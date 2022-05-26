@@ -341,13 +341,13 @@ proc processCompile(conf: ConfigRef; filename: string) =
   if found.isEmpty: found = AbsoluteFile filename
   extccomp.addExternalFileToCompile(conf, found)
 
-template warningOptionNoop(switch: string) =
+template warningOptionNoop(switch: string, info: TLineInfo) =
   conf.localReport(info,
     ExternalReport(
       kind: rextDeprecated,
       msg: "'$#' is deprecated, now a noop" % switch))
 
-template deprecatedAlias(oldName, newName: string) =
+template deprecatedAlias(oldName, newName: string, info: TLineInfo) =
   conf.localReport(
     info,
     ExternalReport(
@@ -384,7 +384,7 @@ proc testCompileOptionArg*(conf: ConfigRef; switch, arg: string, info: TLineInfo
     of "go": result = conf.selectedGC == gcGo
     of "none": result = conf.selectedGC == gcNone
     of "stack", "regions": result = conf.selectedGC == gcRegions
-    of "v2", "generational": warningOptionNoop(arg)
+    of "v2", "generational": warningOptionNoop(arg, info)
     else:
       conf.localReport(info, ExternalReport(
         kind: rextUnexpectedValue,
@@ -478,10 +478,10 @@ proc testCompileOption*(conf: ConfigRef; switch: string, info: TLineInfo): bool 
   of "tlsemulation": result = contains(conf.globalOptions, optTlsEmulation)
   of "implicitstatic": result = contains(conf.options, optImplicitStatic)
   of "patterns", "trmacros":
-    if switch.normalize == "patterns": deprecatedAlias(switch, "trmacros")
+    if switch.normalize == "patterns": deprecatedAlias(switch, "trmacros", info)
     result = contains(conf.options, optTrMacros)
   of "excessivestacktrace": result = contains(conf.globalOptions, optExcessiveStackTrace)
-  of "nilseqs", "nilchecks", "taintmode": warningOptionNoop(switch)
+  of "nilseqs", "nilchecks", "taintmode": warningOptionNoop(switch, info)
   else: invalidCmdLineOption(conf, passCmd1, switch, info)
 
 proc processPath(conf: ConfigRef; path: string, info: TLineInfo, switch: string,
@@ -683,7 +683,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       addPath(conf, if pass == passPP: processCfgPath(conf, path, info, switch)
                     else: processPath(conf, path, info, switch), info)
   of "nimblepath", "babelpath":
-    if switch.normalize == "babelpath": deprecatedAlias(switch, "nimblepath")
+    if switch.normalize == "babelpath": deprecatedAlias(switch, "nimblepath", info)
     if pass in {passCmd2, passPP} and optNoNimblePath notin conf.globalOptions:
       expectArg(conf, switch, arg, pass, info)
       var path = processPath(conf, arg, info, switch, notRelativeToProj=true)
@@ -692,7 +692,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
         path = nimbleDir / RelativeDir"pkgs"
       nimblePath(conf, path, info)
   of "nonimblepath", "nobabelpath":
-    if switch.normalize == "nobabelpath": deprecatedAlias(switch, "nonimblepath")
+    if switch.normalize == "nobabelpath": deprecatedAlias(switch, "nonimblepath", info)
     expectNoArg(conf, switch, arg, pass, info)
     disableNimblePath(conf)
   of "clearnimblepath":
@@ -819,7 +819,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       of "stack", "regions":
         conf.selectedGC = gcRegions
         defineSymbol(conf, "gcregions")
-      of "v2": warningOptionNoop(arg)
+      of "v2": warningOptionNoop(arg, info)
       else:
         conf.localReport(
           info, invalidSwitchValue gcNames)
@@ -928,8 +928,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "implicitstatic":
     processOnOffSwitch(conf, {optImplicitStatic}, arg, pass, info, switch)
   of "patterns", "trmacros":
-    if switch.normalize == "patterns":
-      deprecatedAlias(switch, "trmacros")
+    if switch.normalize == "patterns": deprecatedAlias(switch, "trmacros", info)
     processOnOffSwitch(conf, {optTrMacros}, arg, pass, info, switch)
   of "opt":
     expectArg(conf, switch, arg, pass, info)
@@ -1074,7 +1073,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     expectNoArg(conf, switch, arg, pass, info)
     helpOnError(conf, pass)
   of "symbolfiles", "incremental", "ic":
-    if switch.normalize == "symbolfiles": deprecatedAlias(switch, "incremental")
+    if switch.normalize == "symbolfiles": deprecatedAlias(switch, "incremental", info)
       # xxx maybe also ic, since not in help?
     if pass in {passCmd2, passPP}:
       case arg.normalize
@@ -1097,7 +1096,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "skipparentcfg":
     processOnOffSwitchG(conf, {optSkipParentConfigFiles}, arg, pass, info, switch)
   of "genscript", "gendeps":
-    if switch.normalize == "gendeps": deprecatedAlias(switch, "genscript")
+    if switch.normalize == "gendeps": deprecatedAlias(switch, "genscript", info)
     processOnOffSwitchG(conf, {optGenScript}, arg, pass, info, switch)
     processOnOffSwitchG(conf, {optCompileOnly}, arg, pass, info, switch)
   of "colors": processOnOffSwitchG(conf, {optUseColors}, arg, pass, info, switch)
@@ -1305,8 +1304,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     handleStdinInput(conf)
   of "nilseqs", "nilchecks", "mainmodule", "m", "symbol", "taintmode",
      "cs", "deadcodeelim":
-    warningOptionNoop(switch)
-
+    warningOptionNoop(switch, info)
   else:
     if strutils.find(switch, '.') >= 0: options.setConfigVar(conf, switch, arg)
     else: invalidCmdLineOption(conf, pass, switch, info)

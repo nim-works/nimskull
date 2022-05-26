@@ -758,7 +758,7 @@ proc loadNodes*(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int;
                 tree: PackedTree; n: NodePos): PNode =
   let k = n.kind
   if k == nkNilRodNode:
-    return nil
+    return nilPNode
   when false:
     echo "loading node ", c.config $ translateLineInfo(c, g, thisModule, n.info)
   result = newNodeIT(k, translateLineInfo(c, g, thisModule, n.info),
@@ -784,7 +784,7 @@ proc loadNodes*(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int;
     let (n1, n2) = sons2(tree, n)
     assert n1.kind == nkInt32Lit
     assert n2.kind == nkInt32Lit
-    transitionNoneToSym(result)
+    result.transitionNoneToSym()
     result.sym = loadSym(c, g, thisModule, PackedItemId(module: n1.litId, item: tree.nodes[n2.int].operand))
   else:
     for n0 in sonsReadonly(tree, n):
@@ -812,7 +812,7 @@ proc loadProcHeader(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: 
     if i != bodyPos:
       result.add loadNodes(c, g, thisModule, tree, n0)
     else:
-      result.addAllowNil nil
+      result.addAllowNil nilPNode
     inc i
 
 proc loadProcBody(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int;

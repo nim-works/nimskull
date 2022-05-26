@@ -121,7 +121,7 @@ const
 
 proc getPragmaVal*(procAst: PNode; name: TSpecialWord): PNode =
   let p = procAst[pragmasPos]
-  if p.kind == nkEmpty: return nil
+  if p.kind == nkEmpty: return nilPNode
   for it in p:
     if it.kind in nkPragmaCallKinds and it.len == 2 and it[0].kind == nkIdent and
         it[0].ident.id == ord(name):
@@ -272,7 +272,7 @@ proc strLitToStrOrErr(c: PContext, n: PNode): (string, PNode) =
   let r = getStrLitNode(c, n)
   case r.kind
   of nkStrLit, nkRStrLit, nkTripleStrLit:
-    (r.strVal, nil)
+    (r.strVal, nilPNode)
   of nkError:
     ("", r)
   else:
@@ -287,7 +287,7 @@ proc intLitToIntOrErr(c: PContext, n: PNode): (int, PNode) =
     n[1] = c.semConstExpr(c, n[1])
     case n[1].kind
     of nkIntLit..nkInt64Lit:
-      (int(n[1].intVal), nil)
+      (int(n[1].intVal), nilPNode)
     else:
       (-1, c.config.newError(n, SemReport(kind: rsemIntLiteralExpected)))
 
@@ -339,7 +339,7 @@ proc isTurnedOn(c: PContext, n: PNode): (bool, PNode) =
     let x = c.semConstBoolExpr(c, n[1])
     n[1] = x
     if x.kind == nkIntLit:
-      (x.intVal != 0, nil)
+      (x.intVal != 0, nilPNode)
     else:
       (false, c.config.newError(n, SemReport(kind: rsemOnOrOffExpected)))
   else:
@@ -530,32 +530,32 @@ proc tryProcessOption(c: PContext, n: PNode, resOptions: var TOptions): (bool, P
   ## (mutate) `n` with it's children analysed, and using the values update
   ## `resOptions` appropriately. Upon error, instead of the `n` production, an
   ## error node wrapping n is produced.
-  result = (true, nil)
+  result = (true, nilPNode)
   if n.kind notin nkPragmaCallKinds or n.len != 2:
-    result = (false, nil)
+    result = (false, nilPNode)
   elif n[0].kind == nkBracketExpr:
     let err = processNote(c, n)
-    result = (true, if err.kind == nkError: err else: nil)
+    result = (true, if err.kind == nkError: err else: nilPNode)
   elif n[0].kind != nkIdent:
-    result = (false, nil)
+    result = (false, nilPNode)
   else:
     let sw = whichKeyword(n[0].ident)
     if sw == wExperimental:
       let e = processExperimental(c, n)
-      result = (true, if e.kind == nkError: e else: nil)
+      result = (true, if e.kind == nkError: e else: nilPNode)
       return
     let opts = pragmaToOptions(sw)
     if opts != {}:
       let e = onOff(c, n, opts, resOptions)
-      result = (true, if e.kind == nkError: e else: nil)
+      result = (true, if e.kind == nkError: e else: nilPNode)
     else:
       case sw
       of wCallconv:
         let e = processCallConv(c, n)
-        result = (true, if e.kind == nkError: e else: nil)
+        result = (true, if e.kind == nkError: e else: nilPNode)
       of wDynlib:
         let e = processDynLib(c, n, nil)
-        result = (true, if e.kind == nkError: e else: nil)
+        result = (true, if e.kind == nkError: e else: nilPNode)
       of wOptimization:
         # debug n
         if n[1].kind != nkIdent:
@@ -576,7 +576,7 @@ proc tryProcessOption(c: PContext, n: PNode, resOptions: var TOptions): (bool, P
               kind: rsemWrongIdent,
               expectedIdents: @["none", "speed", "size"])))
       else:
-        result = (false, nil)
+        result = (false, nilPNode)
 
 proc processOption(c: PContext, n: PNode, resOptions: var TOptions): PNode =
   ## wraps `tryProcessOption`, the difference that the return is either an
@@ -696,7 +696,7 @@ proc processCompile(c: PContext, n: PNode): PNode =
     case n[i].kind
     of nkStrLit, nkRStrLit, nkTripleStrLit:
       shallowCopy(result[0], n[i].strVal)
-      result[1] = nil
+      result[1] = nilPNode
     else:
       result = ("", c.config.newError(
         n, SemReport(kind: rsemStringLiteralExpected)))
@@ -934,7 +934,7 @@ proc pragmaLocks(c: PContext, it: PNode): (TLockLevel, PNode) =
     case it[1].kind
     of nkStrLit, nkRStrLit, nkTripleStrLit:
       if it[1].strVal == "unknown":
-        result = (UnknownLockLevel, nil)
+        result = (UnknownLockLevel, nilPNode)
       else:
         it[1] = c.config.newError(it[1], reportStr(
           rsemLocksPragmaBadLevel,
@@ -949,7 +949,7 @@ proc pragmaLocks(c: PContext, it: PNode): (TLockLevel, PNode) =
             "integer must be within 0.." & $MaxLockLevel))
           result = (UnknownLockLevel, wrapErrorInSubTree(c.config, it))
         else:
-          result = (TLockLevel(x), nil)
+          result = (TLockLevel(x), nilPNode)
 
 proc typeBorrow(c: PContext; sym: PSym, n: PNode): PNode =
   result = n
@@ -961,7 +961,7 @@ proc typeBorrow(c: PContext; sym: PSym, n: PNode): PNode =
   incl(sym.typ.flags, tfBorrowDot)
 
 proc markCompilerProc(c: PContext; s: PSym): PNode =
-  result = nil
+  result = nilPNode
   # minor hack ahead: FlowVar is the only generic .compilerproc type which
   # should not have an external name set.
   # xxx: like all hacks, they incur penalties and now the error handling is
@@ -1128,9 +1128,9 @@ proc prepareSinglePragma(
   of nkCast:
     result =
       if comesFromPush:
-        c.config.newError(n, reportAst(rsemCannotPushCast, nil))
+        c.config.newError(n, reportAst(rsemCannotPushCast, nilPNode))
       elif not isStatement:
-        c.config.newError(n, reportAst(rsemCastRequiresStatement, nil))
+        c.config.newError(n, reportAst(rsemCastRequiresStatement, nilPNode))
       elif whichPragma(key[1]) in {wRaises, wTags}:
         pragmaRaisesOrTags(c, key[1])
       else:

@@ -498,7 +498,7 @@ proc canReport*(conf: ConfigRef, id: ReportId): bool =
   ## Check whether report with given ID can actually be written out, or it
   ## has already been seen. This check is used to prevent multiple reports
   ## from the `nkError` node.
-  id notin conf.m.writtenSemReports
+  true or id notin conf.m.writtenSemReports
 
 proc canReport*(conf: ConfigRef, node: PNode): bool =
   ## Check whether `nkError` node can be reported

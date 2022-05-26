@@ -372,7 +372,7 @@ proc mutateTypeAux(marker: var IntSet, t: PType, iter: TTypeMutator,
                    closure: RootRef): PType
 proc mutateNode(marker: var IntSet, n: PNode, iter: TTypeMutator,
                 closure: RootRef): PNode =
-  result = nil
+  result = nilPNode
   if n != nil:
     result = copyNode(n)
     result.typ = mutateTypeAux(marker, n.typ, iter, closure)

@@ -140,6 +140,19 @@ const treeReprAllFields* = { trfShowSymFlags .. trfShowNodeTypes } ## Set
                            ## of flags to print all fields in all tree
                            ## reprs
 
+const defaultTreeReprFlags* = {
+  trfShowNodeIds,
+  trfShowNodeFlags,
+  trfReportInfo,
+  trfSkipAuxError
+} + treeReprAllFields - {
+  trfShowNodeLineInfo,
+  trfShowSymLineInfo,
+  trfShowSymOptions,
+}
+
+const treeReprCompact* = defaultTreeReprFlags + {trfPackedFields}
+
 const style = (
   kind: fgBlue,
   nilIt: fgRed,
@@ -211,7 +224,6 @@ var implicitTReprConf*: TReprConf = defaultTReprConf ## global
   ## `debugType`. Can be used in order to configure behaviour of the
   ## debugging functions that could later be called from `gdb` environment
   ## (`debugAst`, `debugType`, `debugSym`), or sem execution tracer
-
 
 const IntTypes = {
   tyInt, tyInt8, tyInt16,

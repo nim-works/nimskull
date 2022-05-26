@@ -194,8 +194,8 @@ proc replaceObjBranches(cl: TReplTypeVars, n: PNode): PNode =
   of nkNone..nkNilLit:
     discard
   of nkRecWhen:
-    var branch: PNode = nil              # the branch to take
-    for i in 0 ..< n.len:
+    var branch: PNode = nilPNode         # the branch to take
+    for i in 0..<n.len:
       var it = n[i]
       if it == nil:
         cl.c.config.globalReport(reportAst(
@@ -243,7 +243,7 @@ proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
       # don't add the 'void' field
       result = newNodeI(nkRecList, n.info)
   of nkRecWhen:
-    var branch: PNode = nil              # the branch to take
+    var branch: PNode = nilPNode         # the branch to take
     for i in 0..<n.len:
       var it = n[i]
       if it == nil:

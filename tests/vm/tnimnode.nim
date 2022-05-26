@@ -3,7 +3,6 @@ import macros
 proc assertEq(arg0,arg1: string): void =
   if arg0 != arg1:
     raiseAssert("strings not equal:\n" & arg0 & "\n" & arg1)
-
 # a simple assignment of stmtList to another variable
 var node {.compileTime.}: NimNode
 # an assignment of stmtList into an array
