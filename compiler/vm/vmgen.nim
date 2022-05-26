@@ -167,7 +167,8 @@ proc codeListing*(c: TCtx, prc: PSym, ast: PNode, start=0; last = -1) =
       of {opcConv, opcCast}:
         let y = c.code[i + 1]
         let z = c.code[i + 2]
-        code.types = (c.types[y.regBx-wordExcess].nType, c.types[z.regBx-wordExcess].nType)
+        code.types = (c.rtti[y.regBx-wordExcess].nimType,
+                      c.rtti[z.regBx-wordExcess].nimType)
         inc i, 2
 
       of {opcLdConst, opcAsgnConst}:
@@ -775,21 +776,26 @@ proc genCase(c: var TCtx; n: PNode; dest: var TDest) =
   for endPos in endings: c.patch(endPos)
 
 proc genType(c: var TCtx; typ: PType): int =
-  for i, t in c.types:
-    # For procderual types, `ExactTypeDescValues` is important since:
-    # .. code-block:: nim
-    #   proc a(x: typedesc[int]) # is not the same vm function type as
-    #   proc b(x: typedesc[float])
-    if sameType(t.nType, typ, {ExactTypeDescValues}): return i
-  result = c.types.len
-  let vmTy =
-    if typ.kind != tyVoid:
-      c.getOrCreate(typ)
-    else:
-      # `when T is void` triggers this case. Since `void` can't be used for
-      # values' types, it's safe to use nil
-      nil
-  c.types.add((typ, vmTy))
+  ## Returns the ID of `typ`'s corresponding `VmType` as an `int`. The
+  ## `VmType` is created first if it doesn't exist already
+  let t = c.getOrCreate(typ)
+  # XXX: `getOrCreate` doesn't return the id directly yet. Once it does, the
+  #      linear search below can be removed
+  result = c.types.find(t)
+  assert result != -1
+
+  internalAssert(c.config, result <= regBxMax, "")
+
+proc genTypeInfo(c: var TCtx, typ: PType): int =
+  ## Returns the stable index into `PCtx.rtti` where `typ`'s corresponding
+  ## `VmTypeInfo` is located. If it doesn't exist yet, it is created first
+  for i, t in c.rtti.pairs:
+    if sameType(t.nimType, typ): return i
+
+  result = c.rtti.len
+  c.rtti.add:
+    VmTypeInfo(nimType: typ, internal: c.getOrCreate(typ))
+
   internalAssert(c.config, result <= regBxMax, "")
 
 proc genTry(c: var TCtx; n: PNode; dest: var TDest) =
@@ -1161,8 +1167,8 @@ proc genConv(c: var TCtx; n, arg: PNode; dest: var TDest; opc=opcConv) =
   let tmp = c.genx(arg)
   if dest.isUnset: dest = c.getTemp(n.typ)
   c.gABC(n, opc, dest, tmp)
-  c.gABx(n, opc, 0, c.genType(n.typ.skipTypes({tyStatic})))
-  c.gABx(n, opc, 0, c.genType(arg.typ.skipTypes({tyStatic})))
+  c.gABx(n, opc, 0, c.genTypeInfo(n.typ.skipTypes({tyStatic})))
+  c.gABx(n, opc, 0, c.genTypeInfo(arg.typ.skipTypes({tyStatic})))
   c.freeTemp(tmp)
 
 proc genCard(c: var TCtx; n: PNode; dest: var TDest) =
@@ -1524,7 +1530,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mRepr:
     let tmp = c.genx(n[1])
     if dest.isUnset: dest = c.getTemp(n.typ)
-    c.gABx(n, opcRepr, dest, c.genType(n[1].typ))
+    c.gABx(n, opcRepr, dest, c.genTypeInfo(n[1].typ))
     c.gABC(n, opcRepr, dest, tmp)
     c.freeTemp(tmp)
   of mExit:
@@ -1636,7 +1642,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mTypeTrait:
     let tmp = c.genx(n[1])
     if dest.isUnset: dest = c.getTemp(n.typ)
-    c.gABx(n, opcNSetType, tmp, c.genType(n[1].typ))
+    c.gABx(n, opcNSetType, tmp, c.genTypeInfo(n[1].typ))
     c.gABC(n, opcTypeTrait, dest, tmp)
     c.freeTemp(tmp)
   of mSlurp: genUnaryABC(c, n, dest, opcSlurp)
@@ -2270,7 +2276,7 @@ proc genCheckedObjAccessAux(c: var TCtx; n: PNode; dest: var TDest; flags: TGenF
   strLit.typ = strType
   c.genLit(strLit, msgReg)
   # repr for discriminator value
-  c.gABx(n, opcRepr, discrStrReg, c.genType(disc.typ))
+  c.gABx(n, opcRepr, discrStrReg, c.genTypeInfo(disc.typ))
   c.gABC(n, opcRepr, discrStrReg, discVal)
   c.gABC(n, opcInvalidField, msgReg, discrStrReg)
   c.freeTemp(discVal)
@@ -2472,8 +2478,8 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
           #      conversions, which we could have otherwise relied on
           let tmp2 = c.getTemp(le)
           c.gABC(n, opcConv, tmp2, tmp)
-          c.gABx(n, opcConv, 0, c.genType(le))
-          c.gABx(n, opcConv, 0, c.genType(ri))
+          c.gABx(n, opcConv, 0, c.genTypeInfo(le))
+          c.gABx(n, opcConv, 0, c.genTypeInfo(ri))
           c.freeTemp(tmp)
           tmp = tmp2
       else:

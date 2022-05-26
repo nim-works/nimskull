@@ -496,7 +496,7 @@ proc findExceptionHandler(c: TCtx, f: var TStackFrame, raisedType: PVmType):
       while c.code[pc].opcode == opcExcept:
         let excIndex = c.code[pc].regBx - wordExcess
         let exceptType =
-          if excIndex > 0: c.types[excIndex].layoutDesc
+          if excIndex > 0: c.types[excIndex]
           else: nil
 
         # echo typeToString(exceptType), " ", typeToString(raisedType)
@@ -2332,12 +2332,11 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
 
     of opcNew:
       let typ = c.types[instr.regBx - wordExcess]
-      assert typ.layoutDesc.kind == akRef
-      assert typ.nType.kind == tyRef
+      assert typ.kind == akRef
 
       # typ is the ref type, not the target type
-      let slot = c.heap.heapNew(c.allocator, typ.layoutDesc.targetType)
-      regs[ra].initLocReg(typ.layoutDesc, c.memory)
+      let slot = c.heap.heapNew(c.allocator, typ.targetType)
+      regs[ra].initLocReg(typ, c.memory)
       regs[ra].atomVal.refVal = slot
     of opcNewSeq:
       let typ = c.types[instr.regBx - wordExcess]
@@ -2345,9 +2344,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       let instr2 = c.code[pc]
       let count = regs[instr2.regA].intVal.int
 
-      assert typ.layoutDesc.kind == akSeq
-      regs[ra].initLocReg(typ.layoutDesc, c.memory)
-      newVmSeq(regs[ra].atomVal.seqVal, typ.layoutDesc, count, c.memory)
+      assert typ.kind == akSeq
+      regs[ra].initLocReg(typ, c.memory)
+      newVmSeq(regs[ra].atomVal.seqVal, typ, count, c.memory)
     of opcNewStr:
       let rb = instr.regB
       regs[ra].initLocReg(c.typeInfoCache.stringType, c.memory)
@@ -2358,10 +2357,10 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       regs[ra].intVal = rbx
     of opcLdNull:
       let typ = c.types[instr.regBx - wordExcess]
-      regs[ra].initLocReg(typ.layoutDesc, c.memory)
+      regs[ra].initLocReg(typ, c.memory)
     of opcLdNullReg:
       let typ = c.types[instr.regBx - wordExcess]
-      if loadEmptyReg(regs[ra], typ.layoutDesc, c.debug[pc], c.memory):
+      if loadEmptyReg(regs[ra], typ, c.debug[pc], c.memory):
         discard
       else:
         # XXX: this case was previously just ignored
@@ -2450,15 +2449,18 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       #       inefficient. Not only is opcRepr a two-instruction-word opcode
       #       now, we're also deserializing an object just to throw it away
       #       after rendering
-      let typ = c.types[instr.regBx - wordExcess]
+      let typ = c.rtti[instr.regBx - wordExcess]
       inc pc
       let instr2 = c.code[pc]
       let rb = instr2.regB
 
       checkHandle(regs[rb])
 
+      let str = renderTree(c.regToNode(regs[rb], typ.nimType, c.debug[pc]),
+                           {renderNoComments, renderDocComments})
+
       regs[ra].initLocReg(c.typeInfoCache.stringType, c.memory)
-      regs[ra].strVal.newVmString(renderTree(c.regToNode(regs[rb], typ.nType, c.debug[pc]), {renderNoComments, renderDocComments}), c.allocator)
+      regs[ra].strVal.newVmString(str, c.allocator)
     of opcQuit:
       if c.mode in {emRepl, emStaticExpr, emStaticStmt}:
         localReport(c.config, c.debug[pc], InternalReport(kind: rintQuitCalled))
@@ -2504,7 +2506,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       let ret =
         if not refVal.isNil:
           let h = c.heap.tryDeref(refVal, noneType).value()
-          getTypeRel(h.typ, typ.layoutDesc) in {vtrSame, vtrSub}
+          getTypeRel(h.typ, typ) in {vtrSame, vtrSub}
         else:
           false
 
@@ -2984,30 +2986,36 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       regs[ra].nimNode.ident = getIdent(c.cache, $regs[rb].strVal)
     of opcSetType:
       let typ = c.types[instr.regBx - wordExcess]
-      assert typ.layoutDesc.kind == akPtr
-      regs[ra].addrTyp = typ.layoutDesc.targetType
+      assert typ.kind == akPtr
+      regs[ra].addrTyp = typ.targetType
 
     of opcNSetType:
       # Only used internally
-      let typ = c.types[instr.regBx - wordExcess]
-      regs[ra].nimNode.typ = typ.nType
+      let typ = c.rtti[instr.regBx - wordExcess]
+      # XXX: instead of (ab-)using the rtti for this, the type could also be
+      #      passed via a `nkType` constant. The latter matches the type's
+      #      usage here better
+      regs[ra].nimNode.typ = typ.nimType
 
     of opcConv:
       let rb = instr.regB
       inc pc
-      let desttyp = c.types[c.code[pc].regBx - wordExcess]
+      let desttyp = c.rtti[c.code[pc].regBx - wordExcess]
       inc pc
-      let srctyp = c.types[c.code[pc].regBx - wordExcess]
+      let srctyp = c.rtti[c.code[pc].regBx - wordExcess]
 
       # No need to check the handle of regs[ra] since it's not accessed
       checkHandle(regs[rb])
 
-      if opConv(c, regs[ra], regs[rb], desttyp, srctyp):
+      # TODO: `opConv` needs to accept `VmTypeInfo` directly
+      let dt = (desttyp.nimType, desttyp.internal)
+      let st = (srctyp.nimType, srctyp.internal)
+      if opConv(c, regs[ra], regs[rb], dt, st):
         raiseVmError(reportStr(
           rsemVmIllegalConv,
           errIllegalConvFromXtoY % [
-            typeToString(srctyp.nType),
-            typeToString(desttyp.nType)
+            typeToString(srctyp.nimType),
+            typeToString(desttyp.nimType)
         ]))
     of opcCast:
       let rb = instr.regB
