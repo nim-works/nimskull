@@ -257,6 +257,7 @@ type
     #      the first vmgen run, we could also store the callback proc here. Would
     #      save us one additional lookup
     cbOffset*: int ## for callbacks; the index into the callback list
+    start*: int ## for non-callbacks; the code position of the function
     kind*: CallableKind
 
   VmClosure* = object
@@ -426,9 +427,12 @@ type
     data*: seq[TypeTableEntry]
     counter*: int
 
-  TypeInfoCache* = object
-    ## An append-only cache for everything type related
-    lut*: Table[ItemId, PVmType] ## `PType`-id -> `PVmType` mappings
+  TypeInfoCache* = TypeGenState ## transition helper
+  TypeGenState* = object
+    ## All the state necessary for incrementally generating `VmType`s from
+    ## `PType`s
+    lut*: Table[ItemId, PVmType] ##
+      ## `PType`-id -> `PVmType` mappings. Also acts as a cache
     genericInsts*: Table[ItemId, seq[(PType, PVmType)]] ##
       ## 'generic type' -> 'known instantiations' mappings. Needed to make
       ## sure that all same instantations map to the same VmType
@@ -438,12 +442,18 @@ type
     funcTypeLut*: Table[FuncTypeLutKey, FunctionTypeId] ## PType -> function
     nextFuncTypeId*: FunctionTypeId
 
-    types*: seq[PVmType] ## all generated types (including those created
-                         ## during VM setup)
-
     staticInfo*: array[AtomKind, tuple[size, align: uint8]]
       ## size and alignment information for atoms where this information is
       ## the same for every instance
+
+  FunctionIndex* = distinct int
+
+  # XXX: the plan is for `Types` to become a `distinct seq`, with the current
+  #      extra fields turned into accessor functions
+  Types* = object
+    ## All known `VmType`s
+    types*: seq[PVmType] ## all generated types (except VM-created primitive
+                         ## types)
 
     # XXX: if `tyBool..tyFloat128` would only include all numeric types (plus
     #      bool and char), we could use the `numericTypes` below instead
@@ -460,77 +470,110 @@ type
     uintTypes*: array[tyUInt..tyUInt64, PVmType]
     floatTypes*: array[tyFloat..tyFloat64, PVmType]
 
-  FunctionIndex* = distinct int
-
   # TODO: needs a better name
   MaterializedConst* = object
     sym*: PSym ## The `const` symbol
     handle*: LocHandle ## The materialized value or an invalid handle if the
                        ## `const` hasn't been materialized yet
 
-  # XXX: TCtx's contents should be separated into five parts (separate object
-  #      types):
-  #      - 'execution state': stack frames, program counter, etc.; everything
-  #        that makes up a single VM invocation. Mutated during execution
-  #      - 'shared execution state': allocator, managed slots, etc.; state that
-  #        is shared across VM invocations. Mutated during execution
-  #      - 'execution environment': types, globals, constants, functions, etc.;
-  #        populated by code-gen (vmgen) or the compilerapi and possibly
-  #        reused across compiler invocations (relevant for IC). Not mutated
-  #        by the execution engine
-  #      - code and debug information
-  #      - 'vmgen' state: auxiliary data used during code generation, reused
-  #        across vmgen invocations for efficiency
-
-  PCtx* = ref TCtx
-  TCtx* = object of TPassContext
-    # XXX: TCtx stores three different things:
-    #  - VM execution state
-    #  - VM environment (code, constants, type data, etc.)
-    #  - vmgen context/state
-    # These should be encapsulated into standalone types
-
-    code*: seq[TInstr]
-    debug*: seq[TLineInfo]  # line info for every instruction; kept separate
-                            # to not slow down interpretation
+  ExecState* = object
+    ## The state that makes up a single VM invocation. Mutated by execution
     sframes*: seq[TStackFrame] ## The stack of the currently running code # XXX: rename to `stack`?
-    globals*: seq[HeapSlotHandle] ## Stores each global's corresponding heap slot
-    constants*: seq[VmConstant] ## constant data
-
-    typeInfoCache*: TypeInfoCache ## manages the types used by the VM
-
-    rtti*: seq[VmTypeInfo] ## run-time-type-information as needed by
-                           ## conversion and `repr`
-    functions*: seq[VmFunctionObject] ## all functions known to the VM. Indexed
-                                      ## by `FunctionIndex`
-    memory*: VmMemoryManager
-
-    materializedConsts*: BiTable[MaterializedConst] ##
-      ## `const` id <-> `const` info
-
-    # XXX: could and should be merged with `procToCodePos` table
-    procToFuncObj*: Table[int, FunctionIndex] ## symbol id -> index into `functions`
 
     currentExceptionA*, currentExceptionB*: HeapSlotHandle
     exceptionInstr*: int # index of instruction that raised the exception
-    prc*: PProc
-    module*: PSym
+
+    loopIterations*: int
+
+  ExecStateExtra* = object
+    ## Extra state needed for macros/AST-manipulation that is only
+    ## relevant/available during compile-time execution
     callsite*: PNode
+    errorFlag*: Report
+
+    comesFromHeuristic*: TLineInfo # Heuristic for better macro stack traces
+
+    module*: PSym
+    cache*: IdentCache
+    graph*: ModuleGraph
+    templInstCounter*: ref int # gives every template instantiation a unique ID, needed here for getAst
+
+  SharedExecState* = object
+    ## State that is shared across VM invocations. Mutated by execution
+    memory*: VmMemoryManager
+
+    globals*: seq[HeapSlotHandle] ## Stores each global's corresponding heap slot
+
+    # XXX: the current `const` handling won't work out
+    materializedConsts*: BiTable[MaterializedConst] ##
+      ## `const` id <-> `const` info
+
+    profiler*: Profiler
+
+  ExecEnv* = object
+    ## Static state that is shared across VM invocations and is only read
+    ## during execution. It acts as the interface between compile-time and
+    ## run-time
+
+    types*: Types
+    rtti*: seq[VmTypeInfo]
+
+    constants*: seq[VmConstant] ## constant data
+    functions*: seq[VmFunctionObject] ## all functions known to the VM. Indexed
+                                      ## by `FunctionIndex`
+
+    callbacks*: seq[tuple[key: string, value: VmCallback]]
+
+    # XXX: maybe split these off into a separate object (e.g. ExecConfig)?
     mode*: TEvalMode
     features*: TSandboxFlags
-    traceActive*: bool
-    loopIterations*: int
-    comesFromHeuristic*: TLineInfo # Heuristic for better macro stack traces
-    callbacks*: seq[tuple[key: string, value: VmCallback]]
-    errorFlag*: Report
-    cache*: IdentCache
-    config*: ConfigRef
+
+  IncrementalState* = object
+    ## The state necessary to incrementally generate and execute byte-code
+    ## along with the corresponding execution environment
+
+    typeGen*: TypeGenState
+
+    # "linker"-state:
+    procToFuncObj*: Table[int, FunctionIndex] ## symbol id -> index into `functions`
+
+  CodeGenState* = object
+    ## The state of a single `vmgen` invocation (can be either for standalone
+    ## AST or for a proc)
+
+    prc*: PProc # XXX: `PProc`'s content could be embedded into `CodeGenState`
+
+    # inputs:
+    owner*: PSym ## the owner of the AST being code-gen'ed
+    module*: PSym ## needed for ownership validation in some places. Should
+                  ## ideally be removed
     graph*: ModuleGraph
+
+  PCtx* = ref TCtx
+  TCtx* = object of TPassContext
+
+    # XXX: code and debug should ideally also be split off into a separate
+    #      object
+    code*: seq[TInstr]
+    debug*: seq[TLineInfo]  # line info for every instruction; kept separate
+                            # to not slow down interpretation
+
+    invoc*: ExecState
+    invocExtra*: ExecStateExtra
+    shared*: SharedExecState
+    env*: ExecEnv
+
+    incr*: IncrementalState
+
+    codegen*: CodeGenState
+
+    # XXX: unused
+    # traceActive*: bool
+
+    config*: ConfigRef
+
     oldErrorCount*: int
-    profiler*: Profiler
-    templInstCounter*: ref int # gives every template instantiation a unique ID, needed here for getAst
     vmstateDiff*: seq[(PSym, PNode)] # we remember the "diff" to global state here (feature for IC)
-    procToCodePos*: Table[int, int]
 
   StackFrameIndex* = int
 
@@ -550,6 +593,22 @@ type
   TPosition* = distinct int
 
   PEvalContext* = PCtx
+
+template ctxAccessor(a, b) =
+  template b*(c: TCtx): untyped = c.a.b
+
+# These accessor templates are meant as transition helpers. The plan is to
+# incrementally get rid of them
+
+ctxAccessor(shared, memory)
+
+ctxAccessor(env, typeInfoCache)
+ctxAccessor(env, constants)
+ctxAccessor(env, types)
+ctxAccessor(env, functions)
+
+ctxAccessor(incr, procToFuncObj)
+ctxAccessor(incr, procToCodePos)
 
 func `<`*(a, b: FieldIndex): bool {.borrow.}
 func `<=`*(a, b: FieldIndex): bool {.borrow.}
