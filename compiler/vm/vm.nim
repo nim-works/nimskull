@@ -722,12 +722,12 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
     else:
       asgnValue(c.memory, dest, src)
 
-proc compile(c: var TCtx, s: PSym): int =
-  let r = vmgen.genProc(c, s)
-  if unlikely(not r.success):
-    raiseVmError(r.report)
+func toException(r: sink SemReport): ref VmError {.noinline.} =
+  new(result)
+  result.report = r
 
-  result = r.start
+proc compile(c: var TCtx, s: PSym): int =
+  result = vmgen.genProc(c, s).value()
 
   when debugEchoCode:
     c.codeListing(s, nil, start = result)
@@ -3250,30 +3250,15 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
 
     inc pc
 
-# XXX: Passing the results' types to execute needs some further though put
-#      into it. It's quite ugly right now
-type OptPtr[T: ref|ptr] = object
-  valid: bool
-  p: T
-
-func somePtr[T](x: T): OptPtr[T] =
-  result.valid = true
-  result.p = x
-
-func somePtrNonNil[T](x: T): OptPtr[T] =
-  result.valid = x != nil
-  result.p = x
-
-func nonePtr[T](x: typedesc[T]): OptPtr[T] =
-  result.valid = false
-
-type ExecutionResult = object
-  case success: bool
-  of false:
+type
+  ExecErrorReport = object
     stackTrace: SemReport ## The report storing the stack-trace
     report: SemReport     ## The report detailing the error
-  of true:
-    result: PNode ## The evaluated value/tree (nkEmpty if nothing was returned)
+
+  ExecutionResult = Result[PNode, ExecErrorReport]
+
+# prevent a default `$` implmenentation from being generated
+func `$`(e: ExecErrorReport): string {.error.}
 
 # XXX: the execution procs together with the result value processing needs
 #      some refactoring
@@ -3292,23 +3277,23 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame; cb: proc(c: TCtx,
     let r = rawExecute(c, pc, sframe)
     assert c.sframes.len == 1
     let n = cb(c, c.sframes[0].slots[r])
-    result = ExecutionResult(success: true, result: n)
+    result = ExecutionResult.ok(n)
   except VmError as e:
     # Execution failed, generate a stack-trace and wrap the error payload
     # into an `ExecutionResult`
-    let trace = createStackTrace(c, sframe, pc)
-    result = ExecutionResult(
-      success: false,
-      stackTrace: trace,
-      report: move e.report)
+    var err: ExecErrorReport
+    err.stackTrace = createStackTrace(c, sframe, pc)
+    err.report = move e.report
 
-    if result.report.location.isNone():
+    if err.report.location.isNone():
       # Use the location info of the failing instruction if none is provided
-      result.report.location = some(c.debug[pc])
+      err.report.location = some(c.debug[pc])
 
     # Set stack-trace report information
-    result.stackTrace.location = some(c.debug[pc])
-    result.stackTrace.reportInst = toReportLineInfo(instLoc())
+    err.stackTrace.location = some(c.debug[pc])
+    err.stackTrace.reportInst = toReportLineInfo(instLoc(-1))
+
+    result = ExecutionResult.err(err)
 
   finally:
     # Clean up frames whenever leaving execution
@@ -3319,51 +3304,59 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame; cb: proc(c: TCtx,
     # Free pending
     cleanUpPending(c.memory)
 
-proc unpackResult(res: sink ExecutionResult; config: ConfigRef, node: PNode; wrap = true): PNode =
+proc unpackResult(res: sink ExecutionResult; config: ConfigRef, node: PNode): PNode =
   ## Unpacks the execution result. If the result represents a failure, returns
   ## a new `nkError` wrapping `node`. Otherwise, returns the value/tree result,
   ## optionally filling in the node's `info` with that of `node`, if not
   ## present already.
-  ##
-  ## `wrap` (defaulting to true) indicates whether the above described
-  ## behaviour should take place or if the error should be handled
-  ## directly (via `handleReport`)
-  if res.success:
-    result = res.result
+  if res.isOk:
+    result = res.take
     if node != nil and result.info.line < 0:
       result.info = node.info
   else:
-    let errKind = res.report.kind
+    let
+      err = res.takeErr
+      errKind = err.report.kind
 
-    let stId = config.addReport(wrap(res.stackTrace))
-    let rId = config.addReport(wrap(res.report))
+      stId = config.addReport(wrap(err.stackTrace))
+      rId = config.addReport(wrap(err.report))
 
-    if wrap:
-      result = newError(config, node, errKind, rId, instLoc())
-      result.sons.add(newIntNode(nkIntLit, ord(stId)))
-    else:
-      # XXX: `report` is a temporary solution in order to report errors
-      # from locations where no node is returned (e.g. `evalStaticStmt`)
-      config.handleReport(stId, instLoc(), doNothing)
-      config.handleReport(rId, instLoc(), doNothing)
+    result = config.newError(node, errKind, rId, instLoc(-1)):
+                             [newIntNode(nkIntLit, ord(stId))]
 
 proc execute(c: var TCtx, start: int): ExecutionResult =
   var tos = TStackFrame(prc: nil, comesFrom: 0, next: -1)
   tos.slots.newSeq(c.prc.regInfo.len)
-  execute(c, start, tos, proc(c: TCtx, r: TFullReg): PNode = nil)
+  execute(c, start, tos, proc(c: TCtx, r: TFullReg): PNode = c.graph.emptyNode)
 
-proc unpackResult(r: sink VmGenResult, conf: ConfigRef, node: PNode, start: var int): PNode =
-  ## Unpacks the vmgen result. If the result represents a failure, returns a
-  ## new `nkError` wrapping `node`. Otherwise, sets `start` to the instruction
-  ## offset given by the result and returns `nil`
-  if r.success:
-    result = nil
-    start = r.start
+template returnOnErr(res: VmGenResult, config: ConfigRef, node: PNode): int =
+  ## Unpacks the vmgen result. If the result represents an error, exits the
+  ## calling function by returning a new `nkError` wrapping `node`
+  let r = res
+  if r.isOk:
+    r.take
   else:
-    let kind = r.report.kind
-    let rid = conf.addReport(wrap(r.report))
+    let
+      report = r.takeErr
+      kind = report.kind
+      rid = config.addReport(wrap(report))
 
-    result = newError(conf, node, kind, rid, instLoc())
+    return config.newError(node, kind, rid, instLoc())
+
+proc reportIfError(config: ConfigRef, n: PNode) =
+  ## If `n` is a `nkError`, reports the error via `handleReport`. This is
+  ## only meant for errors from vm/vmgen invocations and is also only a
+  ## transition helper until all vm invocation functions properly propagate
+  ## `nkError`
+  if n.isError:
+    # Errors from direct vmgen invocations don't have a stack-trace
+    if n.len == 4 and n[3].kind == nkIntLit:
+      # XXX: testing for the presence of a stack-trace report like this is
+      #      not a good idea. Error node layout might change, making the test
+      #      invalid. VM errors should get their own report object with the
+      #      stack-trace embedded as part of it.
+      config.handleReport(n[3].intVal.ReportId, instLoc(-1)) # stack-trace
+    config.localReport(n)
 
 proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
   # XXX: `localReport` is still used here since execProc is only used by the
@@ -3380,11 +3373,14 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
           got: toInt128(args.len))))
 
     else:
-      var start: int
-      result = genProc(c, sym).unpackResult(c.config, nil, start)
-      if unlikely(result != nil):
-        localReport(c.config, result)
-        return nil
+      let start = block:
+        # XXX: `returnOnErr` should be used here instead, but isn't for
+        #      backwards compatiblity
+        let r = genProc(c, sym)
+        if unlikely(r.isErr):
+          localReport(c.config, r.takeErr)
+          return nil
+        r.unsafeGet
 
       var tos = TStackFrame(prc: sym, comesFrom: 0, next: -1)
       let maxSlots = sym.offset
@@ -3409,33 +3405,30 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
           mkCallback(c, r): newNodeI(nkEmpty, sym.info)
 
       let r = execute(c, start, tos, cb)
-      result = r.unpackResult(c.config, nil, wrap = false)
+      result = r.unpackResult(c.config, c.graph.emptyNode)
+      reportIfError(c.config, result)
+      if result.isError:
+        result = nil
   else:
     localReport(c.config, sym.info, reportSym(rsemVmCallingNonRoutine, sym))
 
-proc evalStmt(c: var TCtx, n: PNode) =
-  var start: int
+proc evalStmt(c: var TCtx, n: PNode): PNode =
   let n = transformExpr(c.graph, c.idgen, c.module, n)
-  let err = genStmt(c, n).unpackResult(c.config, n, start)
-  if unlikely(err != nil):
-    c.config.localReport(err)
-    return
+  let start = genStmt(c, n).returnOnErr(c.config, n)
 
   # execute new instructions; this redundant opcEof check saves us lots
   # of allocations in 'execute':
   if c.code[start].opcode != opcEof:
-    discard execute(c, start).unpackResult(c.config, nil, wrap = false)
+    result = execute(c, start).unpackResult(c.config, n)
+  else:
+    result = c.graph.emptyNode
 
 proc evalExpr*(c: var TCtx, n: PNode): PNode =
   # deadcode
   # `nim --eval:"expr"` might've used it at some point for idetools; could
   # be revived for nimsuggest
-  var start: int
   let n = transformExpr(c.graph, c.idgen, c.module, n)
-  result = genExpr(c, n).unpackResult(c.config, n, start)
-  if unlikely(result != nil):
-    c.config.localReport(result)
-    return
+  let start = genExpr(c, n).returnOnErr(c.config, n)
 
   assert c.code[start].opcode != opcEof
   result = execute(c, start).unpackResult(c.config, n)
@@ -3486,7 +3479,10 @@ proc myProcess(c: PPassContext, n: PNode): PNode =
   let c = PCtx(c)
   # don't eval errornous code:
   if c.oldErrorCount == c.config.errorCounter:
-    evalStmt(c[], n)
+    let r = evalStmt(c[], n)
+    reportIfError(c.config, r)
+    # TODO: use the node returned by evalStmt as the result and don't report
+    #       the error here
     result = newNodeI(nkEmpty, n.info)
   else:
     result = n
@@ -3509,15 +3505,7 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
   c.mode = mode
   let requiresValue = mode!=emStaticStmt
 
-  var start: int
-  result = genExpr(c[], n, requiresValue).unpackResult(c.config, n, start)
-  if unlikely(result != nil):
-    if not requiresValue:
-      # The caller doesn't do anything with the result so we
-      # report it here in order to not silenty ignore the error
-      c.config.localReport(result)
-
-    return
+  let start = genExpr(c[], n, requiresValue).returnOnErr(c.config, n)
 
   if c.code[start].opcode == opcEof: return newNodeI(nkEmpty, n.info)
   assert c.code[start].opcode != opcEof
@@ -3533,8 +3521,7 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
     else:
       mkCallback(c, r): newNodeI(nkEmpty, n.info)
 
-  result = execute(c[], start, tos, cb).unpackResult(
-    c.config, n, wrap = requiresValue)
+  result = execute(c[], start, tos, cb).unpackResult(c.config, n)
 
   c.mode = oldMode
 
@@ -3545,11 +3532,14 @@ proc evalStaticExpr*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode,
   result = evalConstExprAux(module, idgen, g, prc, e, emStaticExpr)
 
 proc evalStaticStmt*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode, prc: PSym) =
-  discard evalConstExprAux(module, idgen, g, prc, e, emStaticStmt)
+  let r = evalConstExprAux(module, idgen, g, prc, e, emStaticStmt)
+  # TODO: the node needs to be returned to the caller instead
+  reportIfError(g.config, r)
 
 proc setupCompileTimeVar*(module: PSym; idgen: IdGenerator; g: ModuleGraph; n: PNode) =
-  discard evalConstExprAux(module, idgen, g, nil, n, emStaticStmt)
-
+  let r = evalConstExprAux(module, idgen, g, nil, n, emStaticStmt)
+  # TODO: the node needs to be returned to the caller instead
+  reportIfError(g.config, r)
 
 proc setupMacroParam(reg: var TFullReg, c: var TCtx, x: PNode, typ: PType) =
   case typ.kind
@@ -3605,10 +3595,8 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
   c.comesFromHeuristic.line = 0'u16
   c.callsite = n
   c.templInstCounter = templInstCounter
-  var start: int
-  result = genProc(c[], sym).unpackResult(c.config, n, start)
-  if unlikely(result != nil):
-    return
+
+  let start = genProc(c[], sym).returnOnErr(c.config, n)
 
   var tos = TStackFrame(prc: sym, comesFrom: 0, next: -1)
   let maxSlots = sym.offset

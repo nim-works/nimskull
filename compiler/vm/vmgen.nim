@@ -63,6 +63,9 @@ import
     vmmemory,
     vmtypegen,
     vmtypes
+  ],
+  experimental/[
+    results
   ]
 
 from std/bitops import bitor
@@ -76,13 +79,7 @@ const
 
 
 type
-  VmGenResult* = object ## The result of a vmgen invocation
-    case success*: bool
-    of false:
-      report*: SemReport
-    of true:
-      start*: int ## The offset into the instruction buffer at where the
-                  ## generated code starts
+  VmGenResult* = Result[int, SemReport] ## The result of a vmgen invocation
 
   VmGenError = object of CatchableError
     report: SemReport
@@ -110,13 +107,11 @@ func fail(
     loc)
 
 
-template wrap(val, code): VmGenResult =
-  let s = val # Evaluate `val` before executing `code`
+template tryOrReturn(code) =
   try:
     code
-    VmGenResult(success: true, start: s)
   except VmGenError as e:
-    VmGenResult(success: false, report: move e.report)
+    return VmGenResult.err(move e.report)
 
 type
   TGenFlag = enum
@@ -2725,21 +2720,21 @@ func removeLastEof(c: var TCtx) =
 proc genStmt*(c: var TCtx; n: PNode): VmGenResult =
   c.removeLastEof
   let start = c.code.len
-  result = wrap(start):
-    var d: TDest = -1
+  var d: TDest = -1
+  tryOrReturn:
     c.gen(n, d)
-    c.gABC(n, opcEof)
-    c.config.internalAssert(d < 0, n.info, "VM problem: dest register is set")
 
+  c.gABC(n, opcEof)
+  c.config.internalAssert(d < 0, n.info, "VM problem: dest register is set")
+
+  VmGenResult.ok(start)
 
 proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
   c.removeLastEof
   let start = c.code.len
   var d: TDest = -1
-  result = wrap(start):
+  tryOrReturn:
     c.gen(n, d)
-
-  if unlikely(not result.success): return
 
   if d < 0:
     c.config.internalAssert(not requiresValue, n.info, "VM problem: dest register is not set")
@@ -2757,7 +2752,7 @@ proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
   c.gABC(n, opcEof)
   ]#
 
-  result = VmGenResult(success: true, start: start)
+  VmGenResult.ok(start)
 
   #echo renderTree(n)
   #c.echoCode(result)
@@ -2871,9 +2866,8 @@ proc genProc*(c: var TCtx; s: PSym): VmGenResult =
       #assert env.position == 2
       c.prc.regInfo.add RegInfo(refCount: 1, kind: slotFixedLet)
 
-    result = wrap(start):
+    tryOrReturn:
       gen(c, body)
-    if unlikely(not result.success): return
 
     # generate final 'return' statement:
     c.gABC(body, opcRet)
@@ -2885,6 +2879,8 @@ proc genProc*(c: var TCtx; s: PSym): VmGenResult =
     #  echo renderTree(body)
     #  c.echoCode(result)
     c.prc = oldPrc
+
+    result = VmGenResult.ok(start)
   else:
     c.prc.regInfo.setLen s.offset
-    result = VmGenResult(success: true, start: pos)
+    result = VmGenResult.ok(pos)
