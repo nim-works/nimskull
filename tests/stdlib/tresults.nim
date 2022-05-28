@@ -242,6 +242,22 @@ proc main() =
     expect IOError:
       discard get f
 
+  test "Tuple values":
+    type
+      Tup = tuple[a, b: int]
+      R = Result[Tup, int]
+
+    var r = R.ok (1, 2)
+
+    check r.unsafeGet() == (1, 2)
+    check r.get() == (1, 2)
+    check r.value() == (1, 2)
+
+    r.value().a = 3
+
+    check r.unsafeGet() == (3, 2)
+    check r.get() == (3, 2)
+    check r.value() == (3, 2)
 
 # TODO: use the VM target once it's available in testament
 static: main()

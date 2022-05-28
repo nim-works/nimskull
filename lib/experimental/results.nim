@@ -200,8 +200,11 @@ func `$`*[E](self: Result[void, E]): string =
   if self.isOk: "Ok()"
   else: "Err(" & $self.e & ")"
 
-template value*[T, E](self: Result[T, E]): T = get self
-template value*[T, E](self: var Result[T, E]): T = get self
+# XXX: the `value` templates only use `untyped` in order to work around a
+#      compiler bug (https://github.com/nim-works/nimskull/issues/328).
+#      Once the bug is fixed, `T` should be used as the return type again
+template value*[T, E](self: Result[T, E]): untyped = get self
+template value*[T, E](self: var Result[T, E]): untyped = get self
 
 template value*[E](self: Result[void, E]) = get self
 template value*[E](self: var Result[void, E]) = get self
