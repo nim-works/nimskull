@@ -234,6 +234,8 @@ proc semGenericStmt(c: PContext, n: PNode,
     checkMinSonsLen(n, 1, c.config)
     let fn = n[0]
     var s = qualifiedLookUp(c, fn, {})
+    if s.isError:
+      localReport(c.config, s.ast)
     if s == nil and
         {withinMixin, withinConcept}*flags == {} and
         fn.kind in {nkIdent, nkAccQuoted} and

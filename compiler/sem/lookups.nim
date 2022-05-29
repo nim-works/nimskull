@@ -651,9 +651,9 @@ proc errorExpectedIdentifier(
     if exp.isNil:
       c.config.newError(n, SemReport(kind: rsemExpectedIdentifier))
     else:
-      c.config.newError(n):
-        reportAst(rsemExpectedIdentifierInExpr, exp).withIt do:
-          it.wrongNode = n
+      c.config.newError(exp):
+        reportAst(rsemExpectedIdentifierInExpr, n).withIt do:
+          it.wrongNode = exp
 
   result = newQualifiedLookUpError(c, ident, n.info, ast)
 
@@ -680,8 +680,6 @@ proc errorUndeclaredIdentifierWithHint(
   ): PSym =
   ## creates an error symbol with hints as to what it might be eg: recursive
   ## imports
-  # echo "errorUndeclaredIdentifierWithHint"
-  # writeStackTrace()
   result = errorSym2(c, n, c.config.newError(
     n,
     SemReport(
@@ -703,7 +701,6 @@ proc errorAmbiguousUseQualifier(
 
   let err = c.config.newError(n, rep)
   result = newQualifiedLookUpError(c, ident, n.info, err)
-  c.config.localReport(err)
 
 type
   TLookupFlag* = enum
@@ -748,9 +745,20 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       amb = false
       (ident, errNode) = considerQuotedIdent2(c, n)
     if isNotFound(c.cache, ident):
-      let errExprCtx = if errNode != n: n else: nil
-        ## expression within which the error occurred
-      result = errorExpectedIdentifier(c, ident, errNode, errExprCtx)
+      let
+        wrongNode =
+          if n.kind == nkAccQuoted and n.len == 1:
+            n[0]
+          else:
+            n
+        errExprCtx =
+          if n != wrongNode:
+            n
+          else:
+            nil
+          ## expression within which the error occurred
+        
+      result = errorExpectedIdentifier(c, ident, wrongNode, errExprCtx)
     elif checkModule in flags:
       result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
       # xxx: search in scopes can return an skError -- this happens because
@@ -855,62 +863,80 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
   o.marked = initIntSet()
   case n.kind
   of nkIdent, nkAccQuoted:
-    var ident = considerQuotedIdent(c, n)
-    var scope = c.currentScope
-    o.mode = oimNoQualifier
-    while true:
-      result = initIdentIter(o.it, scope.symbols, ident).skipAlias(n, c.config)
-      if result != nil:
-        o.currentScope = scope
-        break
-      else:
-        scope = scope.parent
-        if scope == nil:
-          for i in 0..c.imports.high:
-            result = initIdentIter(o.mit, o.marked, c.imports[i], ident, c.graph).skipAlias(n, c.config)
-            if result != nil:
-              o.currentScope = nil
-              o.importIdx = i
-              return result
-          return nil
+    let (ident, err) = considerQuotedIdent2(c, n)
+    if err.isNil:  
+      var scope = c.currentScope
+      o.mode = oimNoQualifier
+      while true:
+        result = initIdentIter(o.it, scope.symbols, ident).skipAlias(n, c.config)
+        if result != nil:
+          o.currentScope = scope
+          break
+        else:
+          scope = scope.parent
+          if scope == nil:
+            for i in 0..c.imports.high:
+              result = initIdentIter(o.mit, o.marked, c.imports[i], ident, c.graph).skipAlias(n, c.config)
+              if result != nil:
+                o.currentScope = nil
+                o.importIdx = i
+                return result
+            return nil
+    else:
+      result = newQualifiedLookUpError(c, ident, n.info, err)
 
   of nkSym:
     result = n.sym
     o.mode = oimDone
+
   of nkDotExpr:
     o.mode = oimOtherModule
     o.m = qualifiedLookUp(c, n[0], {checkUndeclared, checkModule})
     if o.m.isError:
-      # XXX: move to propagating nkError, skError, and tyError
-      localReport(c.config, o.m.ast)
+      let errDotExpr = copyNode n
+      errDotExpr.add o.m.ast
+      errDotExpr.add n[1]
+      result = newQualifiedLookUpError(c, o.m.name, n.info,
+                  c.config.wrapErrorInSubTree(errDotExpr))
     elif o.m != nil and o.m.kind == skModule:
-      var ident: PIdent = nil
-      if n[1].kind == nkIdent:
-        ident = n[1].ident
-      elif n[1].kind == nkAccQuoted:
-        ident = considerQuotedIdent(c, n[1], n)
-      if ident != nil:
-        if o.m == c.module:
-          # a module may access its private members:
-          result = initIdentIter(o.it, c.topLevelScope.symbols,
-                                 ident).skipAlias(n, c.config)
-          o.mode = oimSelfModule
-        else:
-          result = initModuleIter(o.mit, c.graph, o.m, ident).skipAlias(n, c.config)
+      let (ident, err) = considerQuotedIdent2(c, n[1])
+
+      if err.isNil:
+        if ident != nil:
+          if o.m == c.module:
+            # a module may access its private members:
+            result = initIdentIter(o.it, c.topLevelScope.symbols,
+                                  ident).skipAlias(n, c.config)
+            o.mode = oimSelfModule
+          else:
+            result = initModuleIter(o.mit, c.graph, o.m, ident).skipAlias(n, c.config)
       else:
-        let err = noidentError2(c.config, n[1], n)
-        result = errorSym2(c, n[1], err)
+        let errDotExpr = copyNode n
+        errDotExpr.add o.m.ast
+        errDotExpr.add err
+        result = newQualifiedLookUpError(c, ident, n.info,
+                    c.config.wrapErrorInSubTree(errDotExpr))
+        # pretend it's from the top level scope to prevent cascading errors:
+        if c.config.cmd != cmdInteractive and c.compilesContextId == 0:
+          c.moduleScope.addSym(result)
+        # result = errorSym2(c, n[1], err)
+
   of nkClosedSymChoice, nkOpenSymChoice:
-    o.mode = oimSymChoice
-    if n[0].kind == nkSym:
+    case n[0].kind
+    of nkSym:
+      o.mode = oimSymChoice
       result = n[0].sym
+
+      o.symChoiceIndex = 1
+      o.marked = initIntSet()
+      incl(o.marked, result.id)
     else:
       o.mode = oimDone
-      return nil
-    o.symChoiceIndex = 1
-    o.marked = initIntSet()
-    incl(o.marked, result.id)
-  else: discard
+      result = nil
+
+  else:
+    discard
+
   when false:
     if result != nil and result.kind == skStub: loadStub(result)
 

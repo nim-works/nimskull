@@ -55,6 +55,8 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
     if a.kind != skModule:
       inc(i)
       if i > 1: break
+    elif a.isError:
+      localReport(c.config, a.ast)
     a = nextOverloadIter(o, c, n)
   let info = getCallLineInfo(n)
   if i <= 1 and r != scForceOpen:
@@ -80,6 +82,8 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
         markOwnerModuleAsUsed(c, a)
         result.add newSymNode(a, info)
         onUse(info, a)
+      elif a.isError:
+        localReport(c.config, a.ast)
       a = nextOverloadIter(o, c, n)
 
 proc semBindStmt(c: PContext, n: PNode, toBind: var IntSet): PNode =

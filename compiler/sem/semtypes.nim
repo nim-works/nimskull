@@ -471,8 +471,11 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
         # this implements the wanted ``var v: V, x: V`` feature ...
         var ov: TOverloadIter
         var amb = initOverloadIter(ov, c, n)
-        while amb != nil and amb.kind != skType:
-          amb = nextOverloadIter(ov, c, n)
+        while amb != nil:
+          if amb.isError:
+            localReport(c.config, amb.ast)
+          if amb.kind != skType:
+            amb = nextOverloadIter(ov, c, n)
         if amb != nil: result = amb
         else:
           if result.kind != skError:

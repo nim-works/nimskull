@@ -1092,6 +1092,8 @@ proc handleStmtMacro(c: PContext; n, selector: PNode; magicType: string;
               reportSymbols(rsemAmbiguous, @[match, symx]).withIt do:
                 it.ast = selector
             )
+      elif symx.isError:
+        localReport(c.config, symx.ast)
 
       symx = nextOverloadIter(o, c, headSymbol)
 

@@ -45,6 +45,8 @@ proc initCandidateSymbols(c: PContext, headSymbol: PNode,
   while symx != nil:
     if symx.kind in filter:
       result.add((symx, o.lastOverloadScope))
+    elif symx.isError:
+      localReport(c.config, symx.ast)
     symx = nextOverloadIter(o, c, headSymbol)
   if result.len > 0:
     initCandidate(c, best, result[0].s, initialBinding,
@@ -53,23 +55,32 @@ proc initCandidateSymbols(c: PContext, headSymbol: PNode,
                   result[0].scope)
     best.state = csNoMatch
 
-proc pickBestCandidate(c: PContext, headSymbol: PNode,
+proc pickBestCandidate(c: PContext,
+                       headSymbol: PNode,
                        n: PNode,
                        initialBinding: PNode,
                        filter: TSymKinds,
                        best, alt: var TCandidate,
                        errors: var seq[SemCallMismatch],
                        flags: TExprFlags) =
-  var o: TOverloadIter
-  var sym = initOverloadIter(o, c, headSymbol)
-  var scope = o.lastOverloadScope
+  var
+    o: TOverloadIter
+    sym = initOverloadIter(o, c, headSymbol)
+    scope = o.lastOverloadScope
   # Thanks to the lazy semchecking for operands, we need to check whether
   # 'initCandidate' modifies the symbol table (via semExpr).
   # This can occur in cases like 'init(a, 1, (var b = new(Type2); b))'
   let counterInitial = c.currentScope.symbols.counter
-  var syms: seq[tuple[s: PSym, scope: int]]
-  var noSyms = true
-  var nextSymIndex = 0
+  var
+    syms: seq[tuple[s: PSym, scope: int]]
+    noSyms = true
+    nextSymIndex = 0
+  
+  if sym.isError:
+    # xxx: this should be in the loop below but it's not that simple as we'll
+    #      end up with lots of excessive reports, need a bigger rethink
+    localReport(c.config, sym.ast)
+
   while sym != nil:
     if sym.kind in filter:
       # Initialise 'best' and 'alt' with the first available symbol
@@ -204,6 +215,9 @@ proc bracketNotFoundError(c: PContext; n: PNode): PNode =
   while symx != nil:
     if symx.kind in routineKinds:
       errors.add SemCallMismatch(target: symx, firstMismatch: MismatchInfo())
+    elif symx.isError:
+      # xxx: unlike we ever get here; defensive code
+      continue
     symx = nextOverloadIter(o, c, headSymbol)
 
   result = notFoundError(c, n, errors)
@@ -249,11 +263,13 @@ proc getMsgDiagnostic(
         explicitCall: true,
         kind: rsemCallNotAProcOrField)
 
-    # store list of potenttial overload candidates that might be misuesd -
+    # store list of potential overload candidates that might be misuesd -
     # for example `obj.iterator()` call outside of the for loop.
     var sym = initOverloadIter(o, c, f)
     while sym != nil:
-      result.unexpectedCandidate.add(sym)
+      if not sym.isError:
+        # xxx: unlikely we need to do a localReport here, should be earlier
+        result.unexpectedCandidate.add(sym)
       sym = nextOverloadIter(o, c, f)
 
     if f.kind == nkIdent:
@@ -266,10 +282,13 @@ proc resolveOverloads(c: PContext, n: PNode,
                       filter: TSymKinds, flags: TExprFlags,
                       errors: var seq[SemCallMismatch]): TCandidate =
   addInNimDebugUtils(c.config, "resolveOverloads", n, filter, errors, result)
-  var initialBinding: PNode
-  var alt: TCandidate
-  var f = n[0]
-  if f.kind == nkBracketExpr:
+  var
+    initialBinding: PNode
+    alt: TCandidate
+    f = n[0]
+  
+  case f.kind
+  of nkBracketExpr:
     # fill in the bindings:
     let hasError = semOpAux(c, f)
     initialBinding = f
