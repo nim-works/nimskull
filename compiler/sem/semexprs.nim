@@ -1490,10 +1490,9 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
       suggestExpr(c, n)
       if exactEquals(c.config.m.trackPos, n[1].info): suggestExprNoCheck(c, n)
 
-  var s = qualifiedLookUp(c, n, {checkAmbiguity, checkUndeclared, checkModule})
+  let s = qualifiedLookUp(c, n, {checkAmbiguity, checkUndeclared, checkModule})
   if s.isError:
-    # XXX: move to propagating nkError, skError, and tyError
-    localReport(c.config, s.ast)
+    result = s.ast
   elif s != nil:
     if s.kind in OverloadableSyms:
       result = symChoice(c, n, s, scClosed)
@@ -1506,10 +1505,10 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   n[0] = semExprWithType(c, n[0], flags+{efDetermineType, efWantIterable})
   #restoreOldStyleType(n[0])
-  var i = considerQuotedIdent(c, n[1], n)
-  var ty = n[0].typ
-  var f: PSym = nil
-  result = nil
+  var
+    i = considerQuotedIdent(c, n[1], n)
+    ty = n[0].typ
+    f: PSym = nil
 
   if ty.kind == tyTypeDesc:
     if ty.base.kind == tyNone:
@@ -1524,7 +1523,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
         return nil
     else:
       return tryReadingTypeField(c, n, i, ty.base)
-  elif isTypeExpr(n.sons[0]):
+  elif isTypeExpr(n[0]):
     return tryReadingTypeField(c, n, i, ty)
   elif ty.kind == tyError:
     # a type error doesn't have any builtin fields
@@ -2140,6 +2139,8 @@ proc semExpandToAst(c: PContext, n: PNode): PNode =
       if symx.kind in {skTemplate, skMacro} and symx.typ.len == macroCall.len:
         cand = symx
         inc cands
+      elif symx.isError:
+        localReport(c.config, symx.ast)
       symx = nextOverloadIter(o, c, headSymbol)
     if cands == 0:
       localReport(c.config, n.info, semReportCountMismatch(
@@ -2780,10 +2781,13 @@ proc semExport(c: PContext, n: PNode): PNode =
           result.add newSymNode(it, a.info)
           specialSyms(c, it)
       markUsed(c, n.info, s)
+
     else:
       while s != nil:
         if s.kind == skEnumField:
           localReport(c.config, a.info, reportSym(rsemCannotExport, s))
+        elif s.isError:
+          localReport(c.config, s.ast)
 
         if s.kind in ExportableSymKinds+{skModule} and sfError notin s.flags:
           result.add(newSymNode(s, a.info))
@@ -2908,6 +2912,8 @@ proc enumFieldSymChoice(c: PContext, n: PNode, s: PSym): PNode =
     if a.kind in OverloadableSyms-{skModule}:
       inc(i)
       if i > 1: break
+    elif a.isError:
+      localReport(c.config, a.ast)
     a = nextOverloadIter(o, c, n)
   let info = getCallLineInfo(n)
   if i <= 1:
@@ -2926,6 +2932,8 @@ proc enumFieldSymChoice(c: PContext, n: PNode, s: PSym): PNode =
         markOwnerModuleAsUsed(c, a)
         result.add newSymNode(a, info)
         onUse(info, a)
+      elif a.isError:
+        localReport(c.config, a.ast)
       a = nextOverloadIter(o, c, n)
 
 proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
