@@ -3,7 +3,7 @@ discard """
   disabled: "32bit"
 """
 
-import strutils
+import std/strutils
 
 static:
   #cpu is set to "i386" in tcpuamd64.nim.cfg, but --cpu:amd64 in command line should override it.

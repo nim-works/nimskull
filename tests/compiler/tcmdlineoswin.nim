@@ -7,7 +7,7 @@ discard """
   disabled: "posix"
 """
 
-import strutils
+import std/strutils
 
 static:
   #os is set to "linux" in toswin.nim.cfg, but --os:windows in command line should override it.
