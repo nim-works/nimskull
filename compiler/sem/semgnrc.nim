@@ -122,7 +122,9 @@ proc semGenericStmtSymbol(c: PContext, n: PNode, s: PSym,
 proc lookup(c: PContext, n: PNode, flags: TSemGenericFlags,
             ctx: var GenericCtx): PNode =
   result = n
-  let ident = considerQuotedIdent(c, n)
+  let (ident, err) = considerQuotedIdent(c, n)
+  if err != nil:
+    localReport(c.config, err)
   var amb = false
   var s = searchInScopes(c, ident, amb).skipAlias(n, c.config)
   if s == nil:
@@ -163,8 +165,11 @@ proc fuzzyLookup(c: PContext, n: PNode, flags: TSemGenericFlags,
   else:
     n[0] = semGenericStmt(c, n[0], flags, ctx)
     result = n
-    let n = n[1]
-    let ident = considerQuotedIdent(c, n)
+    let
+      n = n[1]
+      (ident, err) = considerQuotedIdent(c, n)
+    if err != nil:
+      localReport(c.config, err)
     var candidates = searchInScopesFilterBy(c, ident, routineKinds) # .skipAlias(n, c.config)
     if candidates.len > 0:
       let s = candidates[0] # XXX take into account the other candidates!
@@ -239,7 +244,7 @@ proc semGenericStmt(c: PContext, n: PNode,
     if s == nil and
         {withinMixin, withinConcept}*flags == {} and
         fn.kind in {nkIdent, nkAccQuoted} and
-        considerQuotedIdent(c, fn).id notin ctx.toMixin:
+        legacyConsiderQuotedIdent(c, fn, nil).id notin ctx.toMixin:
       errorUndeclaredIdentifier(c, n.info, fn.renderTree)
 
     var first = int ord(withinConcept in flags)

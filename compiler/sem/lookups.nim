@@ -50,7 +50,7 @@ type
     errNode: PNode     ## if ident is notFoundIdent, node where error occurred
                        ## use with original PNode for better error reporting
 
-proc noidentError2(conf: ConfigRef; n, origin: PNode): PNode =
+proc noidentError(conf: ConfigRef; n, origin: PNode): PNode =
   ## generate an error node when no ident was found in `n`, with `origin` being
   ## the the expression within which `n` resides, if `origin` is the same then
   ## a simplified error is generated.
@@ -59,8 +59,7 @@ proc noidentError2(conf: ConfigRef; n, origin: PNode): PNode =
     reportAst(rsemIdentExpectedInExpr, n).withIt do:
       it.wrongNode = origin
 
-
-proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
+proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
   ## Retrieve a PIdent from a PNode, taking into account accent nodes.
   ##
   ## If none found, returns a `idents.IdentCache.identNotFound`
@@ -73,7 +72,7 @@ proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
     of nkAccQuoted:
       case n.len
       of 0: (ident: ic.getNotFoundIdent(), errNode: n)
-      of 1: considerQuotedIdent2(c, n[0])
+      of 1: considerQuotedIdent(c, n[0])
       else:
         var
           id = ""
@@ -101,49 +100,34 @@ proc considerQuotedIdent2*(c: PContext; n: PNode): PIdentResult =
 
   # this handles the case where in an `nkAccQuoted` node we "dig"
   if result[1] != nil:
-    result[1] = noidentError2(c.config, result[1], n)
+    result[1] = noidentError(c.config, result[1], n)
 
-proc noidentError(conf: ConfigRef; n, origin: PNode) =
-  conf.localReport(n.info, SemReport(
-    kind: rsemIdentExpectedInExpr,
-    ast: n,
-    wrongNode: origin
-  ))
-
-proc considerQuotedIdent*(c: PContext; n: PNode, origin: PNode = nil): PIdent =
-  ## Retrieve a PIdent from a PNode, taking into account accent nodes.
-  ## ``origin`` can be nil. If it is not nil, it is used for a better
-  ## error message.
+template legacyConsiderQuotedIdent*(c: PContext; n, origin: PNode): PIdent =
+  ## Legacy/Transition Code: avoid using this
   ##
-  ## XXX: legacy, deprecate and replace with `considerQuotedIdent2`
-  template handleError(n, origin: PNode) =
-    noidentError(c.config, n, origin)
-    result = getIdent(c.cache, "<Error>")
-
-  case n.kind
-  of nkIdent: result = n.ident
-  of nkSym: result = n.sym.name
-  of nkAccQuoted:
-    case n.len
-    of 0: handleError(n, origin)
-    of 1: result = considerQuotedIdent(c, n[0], origin)
-    else:
-      var id = ""
-      for i in 0..<n.len:
-        let x = n[i]
-        case x.kind
-        of nkIdent: id.add(x.ident.s)
-        of nkSym: id.add(x.sym.name.s)
-        of nkLiterals - nkFloatLiterals: id.add(x.renderTree)
-        else: handleError(n, origin)
-      result = getIdent(c.cache, id)
-  of nkOpenSymChoice, nkClosedSymChoice:
-    if n[0].kind == nkSym:
-      result = n[0].sym.name
-    else:
-      handleError(n, origin)
-  else:
-    handleError(n, origin)
+  ## `considerQuotedIdent` used to allow providing an `origin` for "better"
+  ## error reporting, but it was an awkward API. This template creates a block
+  ## to replicate the previous behaviour of fetching and doing inline error
+  ## with an `origin` parameter for the purposes of transition.
+  block:
+    let (ident, err) = considerQuotedIdent(c, n)
+    if not err.isNil:
+      if origin.isNil or n == origin:
+        localReport(c.config, err)
+      else:
+        # xxx: janky error gen, the way tot fix is this by starting at the
+        #      callsites and reworking how things are consumed/passed in.
+        #      also, the nkAccQuote handling likely requires alpha-rewriting
+        let
+          errTarget =
+            if n.kind == nkAccQuoted and n.len == 1:
+              n[0]
+            else:
+              n
+          errRep = reportAst(rsemIdentExpectedInExpr, errTarget).withIt do:
+                    it.wrongNode = origin
+        localReport(c.config, c.config.newError(origin, errRep))
+    ident
 
 template addSym*(scope: PScope, s: PSym) =
   strTableAdd(scope.symbols, s)
@@ -318,22 +302,6 @@ proc searchInScopesFilterBy*(c: PContext, s: PIdent, filter: TSymKinds): seq[PSy
       for s in symbols(im, marked, s, c.graph):
         if s.kind in filter:
           result.add s
-
-proc errorSym*(c: PContext, n: PNode): PSym =
-  ## creates an error symbol to avoid cascading errors (for IDE support)
-  var m = n
-  # ensure that 'considerQuotedIdent' can't fail:
-  if m.kind == nkDotExpr: m = m[1]
-  let ident = if m.kind in {nkIdent, nkSym, nkAccQuoted}:
-      considerQuotedIdent(c, m)
-    else:
-      getIdent(c.cache, "err:" & renderTree(m))
-  result = newSym(skError, ident, nextSymId(c.idgen), getCurrOwner(c), n.info, {})
-  result.typ = errorType(c)
-  incl(result.flags, sfDiscardable)
-  # pretend it's from the top level scope to prevent cascading errors:
-  if c.config.cmd != cmdInteractive and c.compilesContextId == 0:
-    c.moduleScope.addSym(result)
 
 type
   TOverloadIterMode* = enum
@@ -601,15 +569,55 @@ proc errorUndeclaredIdentifier*(
     # prevent excessive errors for 'nim check'
     c.recursiveDep.setLen 0
 
-proc errorUndeclaredIdentifierHint*(
+proc newQualifiedLookUpError(c: PContext, ident: PIdent, info: TLineInfo, err: PNode): PSym =
+  ## create an error symbol for `qualifiedLookUp` related errors
+  result = newSym(skError, ident, nextSymId(c.idgen), getCurrOwner(c), info)
+  result.typ = c.errorType
+  result.flags.incl(sfDiscardable)
+  # result.flags.incl(sfError)
+  result.ast = err
+
+proc errorSym*(c: PContext, n, err: PNode): PSym =
+  ## creates an error symbol to avoid cascading errors (for IDE support), with
+  ## `n` as the node with the error and `err` with the desired `nkError`
+  var m = n
+  # ensure that 'considerQuotedIdent' can't fail:
+  if m.kind == nkDotExpr: m = m[1]
+  let ident = if m.kind in {nkIdent, nkSym, nkAccQuoted}:
+      let (i, e) = considerQuotedIdent(c, m)
+      doAssert e.isNil, "unexpected failure to retrieve ident: " & renderTree(m)
+      i
+    else:
+      getIdent(c.cache, "err:" & renderTree(m))
+  result = newQualifiedLookUpError(c, ident, n.info, err)
+  # pretend it's from the top level scope to prevent cascading errors:
+  if c.config.cmd != cmdInteractive and c.compilesContextId == 0:
+    c.moduleScope.addSym(result)
+
+proc createUndeclaredIdentifierError(
+    c:PContext; n: PNode; name:string;
+    candidates: seq[SemSpellCandidate] = @[]
+  ): PNode =
+  
+  result = c.config.newError(n, SemReport(
+              kind: rsemUndeclaredIdentifier,
+              str: name,
+              spellingCandidates: candidates,
+              potentiallyRecursive: c.recursiveDep.len > 0
+            ))
+
+  if c.recursiveDep.len > 0:
+    # prevent excessive errors for 'nim check'
+    c.recursiveDep.setLen 0
+
+proc errorUndeclaredIdentifierHint(
     c: PContext; n: PNode, ident: PIdent): PSym =
   var candidates: seq[SemSpellCandidate]
   if c.mustFixSpelling:
     candidates = fixSpelling(c, ident)
 
-  errorUndeclaredIdentifier(c, n.info, ident.s, candidates)
-
-  result = errorSym(c, n)
+  result = errorSym(c, n,
+            createUndeclaredIdentifierError(c, n, ident.s, candidates))
 
 proc lookUp*(c: PContext, n: PNode): PSym =
   # Looks up a symbol. Generates an error in case of nil.
@@ -617,13 +625,20 @@ proc lookUp*(c: PContext, n: PNode): PSym =
   case n.kind
   of nkIdent:
     result = searchInScopes(c, n.ident, amb).skipAlias(n, c.config)
-    if result == nil: result = errorUndeclaredIdentifierHint(c, n, n.ident)
+    if result == nil:
+      result = errorUndeclaredIdentifierHint(c, n, n.ident)
+      localReport(c.config, result.ast)
   of nkSym:
     result = n.sym
   of nkAccQuoted:
-    var ident = considerQuotedIdent(c, n)
-    result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
-    if result == nil: result = errorUndeclaredIdentifierHint(c, n, ident)
+    var (ident, err) = considerQuotedIdent(c, n)
+    if err.isNil:
+      result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
+      if result == nil:
+        result = errorUndeclaredIdentifierHint(c, n, ident)
+        localReport(c.config, result.ast)
+    else:
+      result = newQualifiedLookUpError(c, ident, n.info, err)
   else:
     c.config.internalError("lookUp")
     return
@@ -633,20 +648,11 @@ proc lookUp*(c: PContext, n: PNode): PSym =
   when false:
     if result.kind == skStub: loadStub(result)
 
-proc newQualifiedLookUpError(c: PContext, ident: PIdent, info: TLineInfo, err: PNode): PSym =
-  ## create an error symbol for `qualifiedLookUp` related errors
-  result = newSym(skError, ident, nextSymId(c.idgen), getCurrOwner(c), info)
-  result.typ = c.errorType
-  result.flags.incl(sfDiscardable)
-  # result.flags.incl(sfError)
-  result.ast = err
-
 proc errorExpectedIdentifier(
     c: PContext, ident: PIdent, n: PNode, exp: PNode = nil
   ): PSym {.inline.} =
   ## create an error symbol for non-identifier in identifier position within an
   ## expression (`exp`). non-nil `exp` leads to better error messages.
-  echo "Error expected identifier"
   let ast =
     if exp.isNil:
       c.config.newError(n, SemReport(kind: rsemExpectedIdentifier))
@@ -657,30 +663,13 @@ proc errorExpectedIdentifier(
 
   result = newQualifiedLookUpError(c, ident, n.info, ast)
 
-proc errorSym2(c: PContext, n, err: PNode): PSym =
-  ## creates an error symbol to avoid cascading errors (for IDE support), with
-  ## `n` as the node with the error and `err` with the desired `nkError`
-  var m = n
-  # ensure that 'considerQuotedIdent2' can't fail:
-  if m.kind == nkDotExpr: m = m[1]
-  let ident = if m.kind in {nkIdent, nkSym, nkAccQuoted}:
-      let (i, e) = considerQuotedIdent2(c, m)
-      doAssert e.isNil, "unexpected failure to retrieve ident: " & renderTree(m)
-      i
-    else:
-      getIdent(c.cache, "err:" & renderTree(m))
-  result = newQualifiedLookUpError(c, ident, n.info, err)
-  # pretend it's from the top level scope to prevent cascading errors:
-  if c.config.cmd != cmdInteractive and c.compilesContextId == 0:
-    c.moduleScope.addSym(result)
-
 proc errorUndeclaredIdentifierWithHint(
     c: PContext; n: PNode; name: string,
     candidates: seq[SemSpellCandidate] = @[]
   ): PSym =
   ## creates an error symbol with hints as to what it might be eg: recursive
   ## imports
-  result = errorSym2(c, n, c.config.newError(
+  result = errorSym(c, n, c.config.newError(
     n,
     SemReport(
       kind: rsemUndeclaredIdentifier,
@@ -743,7 +732,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
   of nkIdent, nkAccQuoted:
     var
       amb = false
-      (ident, errNode) = considerQuotedIdent2(c, n)
+      (ident, errNode) = considerQuotedIdent(c, n)
     if isNotFound(c.cache, ident):
       let
         wrongNode =
@@ -828,7 +817,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       if n[1].kind == nkIdent:
         ident = n[1].ident
       elif n[1].kind == nkAccQuoted:
-        (ident, errNode) = considerQuotedIdent2(c, n[1])
+        (ident, errNode) = considerQuotedIdent(c, n[1])
 
       if ident != nil and errNode.isNil:
         if m == c.module:
@@ -844,7 +833,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         result = n[1].sym
       elif checkUndeclared in flags and
           n[1].kind notin {nkOpenSymChoice, nkClosedSymChoice}:
-        result = errorSym2(c, n[1],
+        result = errorSym(c, n[1],
           c.config.newError(
             n[1], reportSem(rsemExpectedIdentifier)))
     elif m.isError:
@@ -852,7 +841,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       var err = copyTreeWithoutNode(n, n[0])
       err[0] = m.ast
       err = wrapErrorInSubTree(c.config, err)
-      result = errorSym2(c, n, err)
+      result = errorSym(c, n, err)
   else:
     result = nil
   when false:
@@ -863,7 +852,7 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
   o.marked = initIntSet()
   case n.kind
   of nkIdent, nkAccQuoted:
-    let (ident, err) = considerQuotedIdent2(c, n)
+    let (ident, err) = considerQuotedIdent(c, n)
     if err.isNil:  
       var scope = c.currentScope
       o.mode = oimNoQualifier
@@ -899,7 +888,7 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
       result = newQualifiedLookUpError(c, o.m.name, n.info,
                   c.config.wrapErrorInSubTree(errDotExpr))
     elif o.m != nil and o.m.kind == skModule:
-      let (ident, err) = considerQuotedIdent2(c, n[1])
+      let (ident, err) = considerQuotedIdent(c, n[1])
 
       if err.isNil:
         if ident != nil:
@@ -919,7 +908,7 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
         # pretend it's from the top level scope to prevent cascading errors:
         if c.config.cmd != cmdInteractive and c.compilesContextId == 0:
           c.moduleScope.addSym(result)
-        # result = errorSym2(c, n[1], err)
+        # result = errorSym(c, n[1], err)
 
   of nkClosedSymChoice, nkOpenSymChoice:
     case n[0].kind

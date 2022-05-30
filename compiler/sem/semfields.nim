@@ -26,9 +26,11 @@ proc instFieldLoopBody(c: TFieldInstCtx, n: PNode, forLoop: PNode): PNode =
   of nkEmpty..pred(nkIdent), succ(nkSym)..nkNilLit: result = copyNode(n)
   of nkIdent, nkSym:
     result = n
-    let ident = considerQuotedIdent(c.c, n)
+    let (ident, err) = considerQuotedIdent(c.c, n)
+    if err != nil:
+      localReport(c.c.config, err)
     if c.replaceByFieldName:
-      if ident.id == considerQuotedIdent(c.c, forLoop[0]).id:
+      if ident.id == legacyConsiderQuotedIdent(c.c, forLoop[0], nil).id:
         let fieldName = if c.tupleType.isNil: c.field.name.s
                         elif c.tupleType.n.isNil: "Field" & $c.tupleIndex
                         else: c.tupleType.n[c.tupleIndex].sym.name.s
@@ -36,7 +38,7 @@ proc instFieldLoopBody(c: TFieldInstCtx, n: PNode, forLoop: PNode): PNode =
         return
     # other fields:
     for i in ord(c.replaceByFieldName)..<forLoop.len-2:
-      if ident.id == considerQuotedIdent(c.c, forLoop[i]).id:
+      if ident.id == legacyConsiderQuotedIdent(c.c, forLoop[i], nil).id:
         var call = forLoop[^2]
         var tupl = call[i+1-ord(c.replaceByFieldName)]
         if c.field.isNil:

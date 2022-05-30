@@ -1001,7 +1001,7 @@ proc deprecatedStmt(c: PContext; outerPragma: PNode): PNode =
         # xxx: warnings need to be figured out, also this is just silly, why
         #      are they unreliable?
         localReport(c.config, n.info, SemReport(kind: rsemUserWarning))
-      let (src, err) = considerQuotedIdent2(c, n[0])
+      let (src, err) = considerQuotedIdent(c, n[0])
       if err.isNil:
         let alias = newSym(skAlias, src, nextSymId(c.idgen), dest, n[0].info, c.config.options)
         incl(alias.flags, sfExported)
@@ -1040,7 +1040,10 @@ proc pragmaGuard(c: PContext; it: PNode; kind: TSymKind): PSym =
       # We return a dummy symbol; later passes over the type will repair it.
       # Generic instantiation needs to know about this too. But we're lazy
       # and perform the lookup on demand instead.
-      result = newSym(skUnknown, considerQuotedIdent(c, n), nextSymId(c.idgen), nil, n.info,
+      let (ident, err) = considerQuotedIdent(c, n)
+      internalAssert(c.config, err.isNil,
+        "the qualifiedLookup above should have caught any issues")
+      result = newSym(skUnknown, ident, nextSymId(c.idgen), nil, n.info,
         c.config.options)
   else:
     result = qualifiedLookUp(c, n, {checkUndeclared})
@@ -1149,7 +1152,7 @@ proc prepareSinglePragma(
     # we already know it's not a single pragma
     return
 
-  let (ident, error) = considerQuotedIdent2(c, key)
+  let (ident, error) = considerQuotedIdent(c, key)
   if error != nil:
     result = error
     return
@@ -1746,7 +1749,7 @@ proc prepareSinglePragma(
         result = processExperimental(c, it)
       of wThis:
         if it.kind in nkPragmaCallKinds and it.len == 2:
-          (c.selfName, result) = considerQuotedIdent2(c, it[1])
+          (c.selfName, result) = considerQuotedIdent(c, it[1])
           if result == nil:
             result = it
             localReport(

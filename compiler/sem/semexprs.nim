@@ -545,8 +545,10 @@ proc semOpAux(c: PContext, n: PNode): bool =
   for i in 1..<n.len:
     var a = n[i]
     if a.kind == nkExprEqExpr and a.len == 2:
-      let info = a[0].info
-      a[0] = newIdentNode(considerQuotedIdent(c, a[0], a), info)
+      let
+        info = a[0].info
+        ident = legacyConsiderQuotedIdent(c, a[0], a)
+      a[0] = newIdentNode(ident, info)
       a[1] = semExprWithType(c, a[1], flags)
       if a[1].isError:
         result = true
@@ -754,7 +756,9 @@ proc hasUnresolvedArgs(c: PContext, n: PNode): bool =
   of nkSym:
     return isUnresolvedSym(n.sym)
   of nkIdent, nkAccQuoted:
-    let ident = considerQuotedIdent(c, n)
+    let (ident, err) = considerQuotedIdent(c, n)
+    if err != nil:
+      localReport(c.config, err)
     var amb = false
     let sym = searchInScopes(c, ident, amb)
     if sym != nil:
@@ -974,12 +978,16 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
     of skMacro, skTemplate: discard
     else:
       if callee.kind == skIterator and callee.id == c.p.owner.id:
-        localReport(c.config, n.info, reportSym(
-          rsemRecursiveDependencyIterator, callee))
+        # xxx: this is weird overall, but the generation of the error with `n`
+        #      instead of `result[0]`, which is what we're setting down below
+        #      seems rather wrong.
+        let err = newError(c.config, n,
+                    reportSym(rsemRecursiveDependencyIterator, callee))
+        localReport(c.config, err)
 
         # error correction, prevents endless for loop elimination in transf.
         # See bug #2051:
-        result[0] = newSymNode(errorSym(c, n))
+        result[0] = newSymNode(errorSym(c, n, err))
       elif callee.kind == skIterator:
         if efWantIterable in flags:
           let typ = newTypeS(tyIterable, c)
@@ -1484,7 +1492,6 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # tests/bind/tbindoverload.nim wants an early exit here, but seems to
   # work without now. template/tsymchoicefield doesn't like an early exit
   # here at all!
-  #if isSymChoice(n[1]): return
   when defined(nimsuggest):
     if c.config.cmd == cmdIdeTools:
       suggestExpr(c, n)
@@ -1504,9 +1511,8 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
     return
 
   n[0] = semExprWithType(c, n[0], flags+{efDetermineType, efWantIterable})
-  #restoreOldStyleType(n[0])
   var
-    i = considerQuotedIdent(c, n[1], n)
+    i = legacyConsiderQuotedIdent(c, n[1], n)
     ty = n[0].typ
     f: PSym = nil
 
@@ -1580,7 +1586,7 @@ proc dotTransformation(c: PContext, n: PNode): PNode =
     result.add n[1]
     result.add copyTree(n[0])
   else:
-    var i = considerQuotedIdent(c, n[1], n)
+    var i = legacyConsiderQuotedIdent(c, n[1], n)
     result = newNodeI(nkDotCall, n.info)
     result.flags.incl nfDotField
     result.add newIdentNode(i, n[1].info)
@@ -1749,7 +1755,7 @@ proc semArrayAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
     result = semExpr(c, buildOverloadedSubscripts(n, getIdent(c.cache, "[]")), flags)
 
 proc propertyWriteAccess(c: PContext, n, a: PNode): PNode =
-  var id = considerQuotedIdent(c, a[1], a)
+  var id = legacyConsiderQuotedIdent(c, a[1],a)
   var setterId = newIdentNode(getIdent(c.cache, id.s & '='), a[1].info)
   # a[0] is already checked for semantics, that does ``builtinFieldAccess``
   # this is ugly. XXX Semantic checking should use the ``nfSem`` flag for
@@ -2072,7 +2078,8 @@ proc semDefined(c: PContext, n: PNode): PNode =
   checkSonsLen(n, 2, c.config)
   # we replace this node by a 'true' or 'false' node:
   result = newIntNode(nkIntLit, 0)
-  result.intVal = ord isDefined(c.config, considerQuotedIdent(c, n[1], n).s)
+  result.intVal = ord isDefined(c.config,
+                                legacyConsiderQuotedIdent(c, n[1], n).s)
   result.info = n.info
   result.typ = getSysType(c.graph, n.info, tyBool)
 
@@ -2080,7 +2087,9 @@ proc lookUpForDeclared(c: PContext, n: PNode, onlyCurrentScope: bool): PSym =
   case n.kind
   of nkIdent, nkAccQuoted:
     var amb = false
-    let ident = considerQuotedIdent(c, n)
+    let (ident, err) = considerQuotedIdent(c, n)
+    if err != nil:
+      localReport(c.config, err)
     result = if onlyCurrentScope:
                localSearchInScope(c, ident)
              else:
@@ -2091,7 +2100,7 @@ proc lookUpForDeclared(c: PContext, n: PNode, onlyCurrentScope: bool): PSym =
     checkSonsLen(n, 2, c.config)
     var m = lookUpForDeclared(c, n[0], onlyCurrentScope)
     if m != nil and m.kind == skModule:
-      let ident = considerQuotedIdent(c, n[1], n)
+      let ident = legacyConsiderQuotedIdent(c, n[1], n)
       if m == c.module:
         result = strTableGet(c.topLevelScope.symbols, ident)
       else:
@@ -2689,7 +2698,9 @@ proc semTupleFieldsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
     if n[i].kind != nkExprColonExpr:
       semReportIllformedAst(c.config, n[i], {nkExprColonExpr})
 
-    let id = considerQuotedIdent(c, n[i][0])
+    let (id, err) = considerQuotedIdent(c, n[i][0])
+    if err != nil:
+      localReport(c.config, err)
     if containsOrIncl(ids, id.id):
       localReport(c.config, n[i], reportStr(rsemFieldInitTwice, id.s))
 
@@ -3130,7 +3141,9 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkPragmaExpr:
     let
       pragma = n[1]
-      pragmaName = considerQuotedIdent(c, pragma[0])
+      (pragmaName, err) = considerQuotedIdent(c, pragma[0])
+    if err != nil:
+      localReport(c.config, err)
 
     case whichKeyword(pragmaName)
     of wExplain:

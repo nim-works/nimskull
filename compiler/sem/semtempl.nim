@@ -116,7 +116,10 @@ proc semMixinStmt(c: PContext, n: PNode, toMixin: var IntSet): PNode =
   result = copyNode(n)
   var count = 0
   for i in 0..<n.len:
-    toMixin.incl(considerQuotedIdent(c, n[i]).id)
+    let (ident, err) = considerQuotedIdent(c, n[i])
+    if err != nil:
+      localReport(c.config, err)
+    toMixin.incl(ident.id)
     let x = symChoice(c, n[i], nil, scForceOpen)
     inc count, x.len
     result.add x
@@ -195,7 +198,10 @@ proc onlyReplaceParams(c: var TemplCtx, n: PNode): PNode =
       result[i] = onlyReplaceParams(c, n[i])
 
 proc newGenSym(kind: TSymKind, n: PNode, c: var TemplCtx): PSym =
-  result = newSym(kind, considerQuotedIdent(c.c, n), nextSymId c.c.idgen, c.owner, n.info)
+  let (ident, err) = considerQuotedIdent(c.c, n)
+  if err != nil:
+    localReport(c.c.config, err)
+  result = newSym(kind, ident, nextSymId c.c.idgen, c.owner, n.info)
   result.flags.incl {sfGenSym, sfShadowed}
 
 proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
@@ -822,7 +828,8 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
       elif templToExpand(s):
         return semPatternBody(c, semTemplateExpr(c.c, n, s, {efNoSemCheck}))
 
-    if n.kind == nkInfix and (let id = considerQuotedIdent(c.c, n[0]); id != nil):
+    if n.kind == nkInfix and
+      (let id = legacyConsiderQuotedIdent(c.c, n[0], nil); id != nil):
       # we interpret `*` and `|` only as pattern operators if they occur in
       # infix notation, so that '`*`(a, b)' can be used for verbatim matching:
       if id.s == "*" or id.s == "**":
@@ -838,7 +845,8 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
            semPatternBody(c, n[2])]
         return
 
-    if n.kind == nkPrefix and (let id = considerQuotedIdent(c.c, n[0]); id != nil):
+    if n.kind == nkPrefix and
+      (let id = legacyConsiderQuotedIdent(c.c, n[0], nil); id != nil):
       if id.s == "~":
         result = newTreeI(nkPattern, n.info):
           [newIdentNode(id, n.info),

@@ -1316,9 +1316,10 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
   var name = typeDef[0]
   var s: PSym
   if name.kind == nkDotExpr and typeDef[2].kind == nkObjectTy:
-    let pkgName = considerQuotedIdent(c, name[0])
-    let typName = considerQuotedIdent(c, name[1])
-    let pkg = c.graph.packageSyms.strTableGet(pkgName)
+    let
+      pkgName = legacyConsiderQuotedIdent(c, name[0], nil)
+      typName = legacyConsiderQuotedIdent(c, name[1], nil)
+      pkg = c.graph.packageSyms.strTableGet(pkgName)
     if pkg.isNil or pkg.kind != skPackage:
       localReport(c.config, name.info, reportStr(
         rsemUnknownPackageName, pkgName.s))
@@ -1802,7 +1803,9 @@ proc semProcAnnotation(c: PContext, prc: PNode;
       # Not a custom pragma
       continue
     else:
-      let ident = considerQuotedIdent(c, key)
+      let (ident, err) = considerQuotedIdent(c, key)
+      if err != nil:
+        localReport(c.config, err)
       if strTableGet(c.userPragmas, ident) != nil:
         continue # User defined pragma
       else:
