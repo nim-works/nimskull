@@ -305,7 +305,10 @@ proc commonType*(c: PContext; x: PType, y: PNode): PType =
   result = commonType(c, x, y.typ)
 
 proc newSymS(kind: TSymKind, n: PNode, c: PContext): PSym =
-  result = newSym(kind, considerQuotedIdent(c, n), nextSymId c.idgen, getCurrOwner(c), n.info)
+  let (ident, err) = considerQuotedIdent(c, n)
+  if err != nil:
+    localReport(c.config, err)
+  result = newSym(kind, ident, nextSymId c.idgen, getCurrOwner(c), n.info)
   when defined(nimsuggest):
     suggestDecl(c, n, result)
 
@@ -331,7 +334,10 @@ proc newSymG*(kind: TSymKind, n: PNode, c: PContext): PSym =
     # template; we must fix it here: see #909
     result.owner = getCurrOwner(c)
   else:
-    result = newSym(kind, considerQuotedIdent(c, n), nextSymId c.idgen, getCurrOwner(c), n.info)
+    let (ident, err) = considerQuotedIdent(c, n)
+    if err != nil:
+      localReport(c.config, err)
+    result = newSym(kind, ident, nextSymId c.idgen, getCurrOwner(c), n.info)
   #if kind in {skForVar, skLet, skVar} and result.owner.kind == skModule:
   #  incl(result.flags, sfGlobal)
   when defined(nimsuggest):
@@ -383,21 +389,6 @@ proc symFromType(c: PContext; t: PType, info: TLineInfo): PSym =
 proc symNodeFromType(c: PContext, t: PType, info: TLineInfo): PNode =
   result = newSymNode(symFromType(c, t, info), info)
   result.typ = makeTypeDesc(c, t)
-
-when false: # xxx: deprecate me
-  proc createEvalContext(c: PContext, mode: TEvalMode): PEvalContext =
-    result = newEvalContext(c.module, mode)
-    result.getType = proc (n: PNode): PNode =
-      result = tryExpr(c, n)
-      if result == nil:
-        result = newSymNode(errorSym(c, n))
-      elif result.typ == nil:
-        result = newSymNode(getSysSym"void")
-      else:
-        result.typ = makeTypeDesc(c, result.typ)
-
-    result.handleIsOperator = proc (n: PNode): PNode =
-      result = isOpImpl(c, n)
 
 proc hasCycle(n: PNode): bool =
   incl n.flags, nfNone
@@ -544,8 +535,9 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListType)
       var typ = semTypeNode(c, result, nil)
       if typ == nil:
-        localReport(c.config, result, reportSem rsemExpressionHasNoType)
-        result = newSymNode(errorSym(c, result))
+        let err = newError(c.config, result, reportSem rsemExpressionHasNoType)
+        localReport(c.config, err)
+        result = newSymNode(errorSym(c, result, err))
       else:
         result.typ = makeTypeDesc(c, typ)
       #result = symNodeFromType(c, typ, n.info)

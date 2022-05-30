@@ -755,14 +755,14 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
   result.n = checkedBody
 
 proc shouldSkipDistinct(m: TCandidate; rules: PNode, callIdent: PIdent): bool =
-  # XXX This is bad as 'considerQuotedIdent' can produce an error!
+  # xxx: `considerQuotedIdent` can produce an error and is not being handled
   if rules.kind == nkWith:
     for r in rules:
-      if considerQuotedIdent(m.c, r) == callIdent: return true
+      if considerQuotedIdent(m.c, r) == (callIdent, nil): return true
     return false
   else:
     for r in rules:
-      if considerQuotedIdent(m.c, r) == callIdent: return false
+      if considerQuotedIdent(m.c, r) == (callIdent, nil): return false
     return true
 
 proc maybeSkipDistinct(m: TCandidate; t: PType, callee: PSym): PType =
@@ -2327,8 +2327,7 @@ proc prepareNamedParam(a: PNode; c: PContext) =
   else:
     let
       info = a[0].info
-      (i, err) = considerQuotedIdent2(c, a[0])
-    # a[0] = newIdentNode(considerQuotedIdent(c, a[0]), info)
+      (i, err) = considerQuotedIdent(c, a[0])
     a[0] =
       if err.isNil():
         newIdentNode(i, info)

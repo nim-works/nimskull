@@ -238,7 +238,7 @@ proc getMsgDiagnostic(
   # HACK apparently this call is still necessary to provide some additional
   # input validation and optionally raise the 'identifier expected but
   # found' error.
-  discard considerQuotedIdent(c, f, n)
+  discard legacyConsiderQuotedIdent(c, f, n)
 
   if c.compilesContextId > 0 and efExplain notin flags:
     # we avoid running more diagnostic when inside a `compiles(expr)`, to
@@ -355,7 +355,6 @@ proc resolveOverloads(c: PContext, n: PNode,
         if n[0] != nil and n[0].kind == nkIdent and n[0].ident.s in [".", ".="] and n[2].kind == nkIdent:
           let sym = n[1].typ.typSym
           if sym == nil:
-            # xxx adapt/use errorUndeclaredIdentifierHint(c, n, f.ident)
             let msg = getMsgDiagnostic(c, flags, n, f)
             result.call = c.config.newError(n, msg)
           else:
@@ -364,7 +363,6 @@ proc resolveOverloads(c: PContext, n: PNode,
 
             result.call = wrapErrorInSubTree(c.config, n)
         else:
-          # xxx adapt/use errorUndeclaredIdentifierHint(c, n, f.ident)
           let msg = getMsgDiagnostic(c, flags, n, f)
           result.call = c.config.newError(n, msg)
 

@@ -21,7 +21,8 @@ import
     idents,
     lineinfos,
     wordrecg,
-    reports
+    reports,
+    errorreporting,
   ],
   compiler/modules/[
     modulepaths,
@@ -41,8 +42,11 @@ proc readExceptSet*(c: PContext, n: PNode): IntSet =
   assert n.kind in {nkImportExceptStmt, nkExportExceptStmt}
   result = initIntSet()
   for i in 1..<n.len:
-    let ident = lookups.considerQuotedIdent(c, n[i])
-    result.incl(ident.id)
+    let (ident, err) = lookups.considerQuotedIdent(c, n[i])
+    if err.isNil:
+      result.incl(ident.id)
+    else:
+      localReport(c.config, err)
 
 proc declarePureEnumField*(c: PContext; s: PSym) =
   # XXX Remove the outer 'if' statement and see what breaks.
@@ -152,28 +156,31 @@ proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
   if kws.len > 0:
     globalReport(c.config, n.info, reportSem(rsemUnexpectedPragma))
 
-  let ident = lookups.considerQuotedIdent(c, n)
-  let s = someSym(c.graph, fromMod, ident)
-  if s == nil:
-    errorUndeclaredIdentifier(c, n.info, ident.s)
-  else:
-    when false:
-      if s.kind == skStub: loadStub(s)
-    let multiImport = s.kind notin ExportableSymKinds or s.kind in skProcKinds
-    # for an enumeration we have to add all identifiers
-    if multiImport:
-      # for a overloadable syms add all overloaded routines
-      var it: ModuleIter
-      var e = initModuleIter(it, c.graph, fromMod, s.name)
-      while e != nil:
-        c.config.internalAssert(e.name.id == s.name.id, n.info, "importSymbol: 3")
-
-        if s.kind in ExportableSymKinds:
-          rawImportSymbol(c, e, fromMod, importSet)
-        e = nextModuleIter(it, c.graph)
+  let (ident, err) = lookups.considerQuotedIdent(c, n)
+  if err.isNil:
+    let s = someSym(c.graph, fromMod, ident)
+    if s == nil:
+      errorUndeclaredIdentifier(c, n.info, ident.s)
     else:
-      rawImportSymbol(c, s, fromMod, importSet)
-    suggestSym(c.graph, n.info, s, c.graph.usageSym, false)
+      when false:
+        if s.kind == skStub: loadStub(s)
+      let multiImport = s.kind notin ExportableSymKinds or s.kind in skProcKinds
+      # for an enumeration we have to add all identifiers
+      if multiImport:
+        # for a overloadable syms add all overloaded routines
+        var it: ModuleIter
+        var e = initModuleIter(it, c.graph, fromMod, s.name)
+        while e != nil:
+          c.config.internalAssert(e.name.id == s.name.id, n.info, "importSymbol: 3")
+
+          if s.kind in ExportableSymKinds:
+            rawImportSymbol(c, e, fromMod, importSet)
+          e = nextModuleIter(it, c.graph)
+      else:
+        rawImportSymbol(c, s, fromMod, importSet)
+      suggestSym(c.graph, n.info, s, c.graph.usageSym, false)
+  else:
+    localReport(c.config, err)
 
 proc addImport(c: PContext; im: sink ImportedModule) =
   for i in 0..high(c.imports):
@@ -290,7 +297,8 @@ proc transformImportAs(c: PContext; n: PNode): tuple[node: PNode, importHidden: 
           rsemInvalidPragma, n2,
           str = "invalid pragma, expected: " & ${wImportHidden}))
 
-  if n.kind == nkInfix and considerQuotedIdent(c, n[0]).s == "as":
+  if n.kind == nkInfix and
+    (let ident = legacyConsiderQuotedIdent(c, n[0], nil); ident.s == "as"):
     ret.node = newNodeI(nkImportAs, n.info)
     ret.node.add n[1].processPragma
     ret.node.add n[2]

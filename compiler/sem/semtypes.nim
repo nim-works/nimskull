@@ -219,7 +219,10 @@ proc semVarargs(c: PContext, n: PNode, prev: PType): PType =
     var base = semTypeNode(c, n[1], nil)
     addSonSkipIntLit(result, base, c.idgen)
     if n.len == 3:
-      result.n = newIdentNode(considerQuotedIdent(c, n[2]), n[2].info)
+      let (ident, err) = considerQuotedIdent(c, n[2])
+      if err != nil:
+        localReport(c.config, err)
+      result.n = newIdentNode(ident, n[2].info)
   else:
     c.config.semReportParamCountMismatch(n, result, 1, n.len - 1)
     addSonSkipIntLit(result, errorType(c), c.idgen)
@@ -316,9 +319,9 @@ proc semRange(c: PContext, n: PNode, prev: PType): PType =
           n[1].floatVal < 0.0:
         incl(result.flags, tfRequiresInit)
     else:
-      if n[1].kind == nkInfix and considerQuotedIdent(c, n[1][0]).s == "..<":
+      if n[1].kind == nkInfix and
+         legacyConsiderQuotedIdent(c, n[1][0], nil).s == "..<":
         localReport(c.config, n[0], reportSem rsemRangeRequiresDotDot)
-
       else:
         localReport(c.config, n[0], reportSem rsemExpectedRange)
 
@@ -451,8 +454,10 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
           if bound != nil: return bound
           return result
         if result.typ.sym == nil:
-          localReport(c.config, n, reportSem rsemTypeExpected)
-          return errorSym(c, n)
+          let err = newError(c.config, n, reportSem rsemTypeExpected)
+          localReport(c.config, err)
+
+          return errorSym(c, n, err)
         result = result.typ.sym.copySym(nextSymId c.idgen)
         result.typ = exactReplica(result.typ)
         result.typ.flags.incl tfUnresolved
@@ -465,8 +470,10 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
           result.typ.flags.excl tfWildcard
           return
         else:
-          localReport(c.config, n, reportSem rsemTypeExpected)
-          return errorSym(c, n)
+          let err = newError(c.config, n, reportSem rsemTypeExpected)
+          localReport(c.config, err)
+
+          return errorSym(c, n, err)
       if result.kind != skType and result.magic notin {mStatic, mType, mTypeOf}:
         # this implements the wanted ``var v: V, x: V`` feature ...
         var ov: TOverloadIter
@@ -478,10 +485,11 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
             amb = nextOverloadIter(ov, c, n)
         if amb != nil: result = amb
         else:
+          let err = newError(c.config, n, reportSem rsemTypeExpected)
           if result.kind != skError:
-            localReport(c.config, n, reportSem rsemTypeExpected)
+            localReport(c.config, err)
 
-          return errorSym(c, n)
+          return errorSym(c, n, err)
       if result.typ.kind != tyGenericParam:
         # XXX get rid of this hack!
         var oldInfo = n.info
@@ -493,8 +501,9 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
         n.info = oldInfo
         n.typ = result.typ
     else:
-      localReport(c.config, n, reportSem rsemIdentExpectedInExpr)
-      result = errorSym(c, n)
+      let err = newError(c.config, n, reportSem rsemIdentExpectedInExpr)
+      localReport(c.config, err)
+      result = errorSym(c, n, err)
 
 proc semAnonTuple(c: PContext, n: PNode, prev: PType): PType =
   if n.len == 0:
@@ -556,7 +565,9 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
       # for gensym'ed identifiers the identifier may already have been
       # transformed to a symbol and we need to use that here:
       result = newSymG(kind, n[1], c)
-      var v = considerQuotedIdent(c, n[0])
+      var (v, err) = considerQuotedIdent(c, n[0])
+      if err != nil:
+        localReport(c.config, err)
       if sfExported in allowed and v.id == ord(wStar):
         incl(result.flags, sfExported)
       else:
@@ -1331,7 +1342,7 @@ proc semParamType(c: PContext, n: PNode, constraint: var PNode): PType =
     constraint = semNodeKindConstraints(n, c.config, 1)
   elif n.kind == nkCall and
       n[0].kind in {nkIdent, nkSym, nkOpenSymChoice, nkClosedSymChoice} and
-      considerQuotedIdent(c, n[0]).s == "{}":
+      legacyConsiderQuotedIdent(c, n[0], nil).s == "{}":
     result = semTypeNode(c, n[1], nil)
     constraint = semNodeKindConstraints(n, c.config, 2)
   else:
@@ -1793,7 +1804,7 @@ proc applyTypeSectionPragmas(c: PContext; pragmas, operand: PNode): PNode =
     if p.kind == nkEmpty or whichPragma(p) != wInvalid:
       discard "builtin pragma"
     else:
-      let ident = considerQuotedIdent(c, key)
+      let (ident, err) = considerQuotedIdent(c, key)
       if strTableGet(c.userPragmas, ident) != nil:
         discard "User-defined pragma"
       else:
@@ -1864,8 +1875,9 @@ proc symFromExpectedTypeNode(c: PContext, n: PNode): PSym =
   if n.kind == nkType:
     result = symFromType(c, n.typ, n.info)
   else:
-    localReport(c.config, n, reportSem rsemTypeExpected)
-    result = errorSym(c, n)
+    let err = newError(c.config, n, reportSem rsemTypeExpected)
+    localReport(c.config, err)
+    result = errorSym(c, n, err)
 
 proc semStaticType(c: PContext, childNode: PNode, prev: PType): PType =
   result = newOrPrevType(tyStatic, prev, c)
@@ -1937,7 +1949,9 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     elif n[0].kind notin nkIdentKinds:
       result = semTypeExpr(c, n, prev)
     else:
-      let op = considerQuotedIdent(c, n[0])
+      let (op, err) = considerQuotedIdent(c, n[0])
+      if err != nil:
+        localReport(c.config, err)
       if op.id in {ord(wAnd), ord(wOr)} or op.s == "|":
         checkSonsLen(n, 3, c.config)
         var

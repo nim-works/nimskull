@@ -75,7 +75,7 @@ proc locateFieldInInitExpr(c: PContext, field: PSym, initExpr: PNode): PNode =
       match =
         if atLeastPartiallyValid:
           let
-            (ident, errNode) = considerQuotedIdent2(c, assignment[0])
+            (ident, errNode) = considerQuotedIdent(c, assignment[0])
             validIdent = errNode.isNil
           validIdent and fieldId == ident.id
         else:
@@ -534,11 +534,15 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
         hasError = true
         continue
 
-      let id = considerQuotedIdent(c, field[0])
+      let (id, err) = considerQuotedIdent(c, field[0])
+      if err != nil:
+        localReport(c.config, err)
       # This node was not processed. There are two possible reasons:
       # 1) It was shadowed by a field with the same name on the left
       for j in 1..<i:
-        let prevId = considerQuotedIdent(c, result[j][0])
+        let (prevId, err) = considerQuotedIdent(c, result[j][0])
+        if err != nil:
+          localReport(c.config, err)
         if prevId.id == id.id:
           localReport(c.config, field.info, reportAst(
             rsemFieldInitTwice, result[j][0]))
