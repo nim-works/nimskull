@@ -86,9 +86,6 @@ import
 when defined(nimfix):
   import compiler/nimfix/prettybase
 
-when not defined(leanCompiler):
-  import compiler/sem/spawn
-
 # implementation
 
 proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode

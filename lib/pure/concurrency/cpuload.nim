@@ -82,22 +82,3 @@ proc advice*(s: var ThreadPoolState): ThreadPoolAdvice =
     # XXX implement this for other OSes
     result = doNothing
   inc s.calls
-
-when not defined(testing) and isMainModule and not defined(nimdoc):
-  import random
-
-  proc busyLoop() =
-    while true:
-      discard rand(80)
-      os.sleep(100)
-
-  spawn busyLoop()
-  spawn busyLoop()
-  spawn busyLoop()
-  spawn busyLoop()
-
-  var s: ThreadPoolState
-
-  for i in 1 .. 70:
-    echo advice(s)
-    os.sleep(1000)

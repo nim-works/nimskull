@@ -149,7 +149,6 @@ type
     topStmts*: int ## counts the number of encountered top level statements
     lastGenericIdx*: int      ## used for the generics stack
     hloLoopDetector*: int     ## used to prevent endless loops in the HLO
-    inParallelStmt*: int
     instTypeBoundOp*: proc (c: PContext; dc: PSym; t: PType; info: TLineInfo;
                             op: TTypeAttachedOp; col: int): PSym {.nimcall.}
     selfName*: PIdent

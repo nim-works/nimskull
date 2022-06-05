@@ -2968,8 +2968,8 @@ when hasAlloc and notJSnotNims:
   proc deepCopy*[T](x: var T, y: T) {.noSideEffect, magic: "DeepCopy".} =
     ## Performs a deep copy of `y` and copies it into `x`.
     ##
-    ## This is also used by the code generator
-    ## for the implementation of `spawn`.
+    ## This was used by the code generator for the implementation of the now
+    ## removed `spawn` feature.
     ##
     ## For `--gc:arc` or `--gc:orc` deepcopy support has to be enabled
     ## via `--deepcopy:on`.

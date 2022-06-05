@@ -3921,7 +3921,7 @@ The following built-in procs cannot be overloaded for reasons of implementation
 simplicity (they require specialized semantic checking)::
 
   declared, defined, definedInScope, compiles, sizeof,
-  is, shallowCopy, getAst, astToStr, spawn, procCall
+  is, shallowCopy, getAst, astToStr, procCall
 
 Thus they act more like keywords than like ordinary identifiers; unlike a
 keyword however, a redefinition may `shadow`:idx: the definition in
@@ -7013,18 +7013,22 @@ is uncertain (it may be removed at any time). See the
 Example:
 
 .. code-block:: nim
-  import std/threadpool
-  {.experimental: "parallel".}
 
-  proc threadedEcho(s: string, i: int) =
-    echo(s, " ", $i)
+  {.experimental: "notnil".}
 
-  proc useParallel() =
-    parallel:
-      for i in 0..4:
-        spawn threadedEcho("echo in parallel", i)
+  type
+    PObject = ref TObj not nil
+    TProc = (proc (x, y: int)) not nil
 
-  useParallel()
+  proc p(x: PObject) =
+    echo "not nil"
+
+  # compiler catches this:
+  p(nil)
+
+  # and also this:
+  var x: PObject
+  p(x)
 
 
 As a top-level statement, the experimental pragma enables a feature for the
@@ -7032,23 +7036,8 @@ rest of the module it's enabled in. This is problematic for macro and generic
 instantiations that cross a module scope. Currently, these usages have to be
 put into a `.push/pop` environment:
 
-.. code-block:: nim
-
-  # client.nim
-  proc useParallel*[T](unused: T) =
-    # use a generic T here to show the problem.
-    {.push experimental: "parallel".}
-    parallel:
-      for i in 0..4:
-        echo "echo in parallel"
-
-    {.pop.}
-
-
-.. code-block:: nim
-
-  import client
-  useParallel(1)
+**TODO** document a relevant example, or better yet remove the need for this, it
+creates yet more dialects
 
 
 Implementation Specific Pragmas

@@ -1,13 +1,7 @@
 discard """
-  cmd: "nim $target --threads:on -d:release -d:useRealtimeGC $options $file"
+  matrix: "--threads:on -d:release -d:useRealtimeGC"
   joinable:false
 """
-
-#[
-was: cmd: "nim $target --debuginfo $options $file"
-these dont' seem needed --debuginfo
-nor these from the previous main.nim.cfg: --app:console
-]#
 
 #[
 Test the realtime GC without linking nimrtl.dll/so.
@@ -18,7 +12,6 @@ To build by hand and run the test for 35 minutes:
 
 import times, os, strformat, strutils
 from stdtest/specialpaths import buildDir
-# import threadpool
 
 const runtimeSecs {.intdefine.} = 5
 
@@ -54,9 +47,5 @@ proc process() =
 
 proc main() =
   process()
-  # parallel:
-  #   for i in 0..0:
-  #     spawn process()
-  # sync()
 
 main()

@@ -65,10 +65,6 @@ import
   compiler/plugins/[
   ]
 
-
-when not defined(leanCompiler):
-  import compiler/sem/[spawn, semparallel]
-
 import std/strutils except `%` # collides with ropes.`%`
 
 from compiler/ic/ic import ModuleBackendFlag

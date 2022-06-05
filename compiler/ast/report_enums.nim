@@ -418,14 +418,6 @@ type
     # macro or template instantiations. There is a `pushOwner` called for
     # each generic instantiation - can this be reused?
 
-    rsemCannotSpawnProcWithVar
-    rsemCannotSpawnMagicProc
-    rsemCannotDiscardSpawn
-    rsemSpawnRequiresCall
-    rsemSpawnRequiresGcSafe
-    rsemSpawnForbidsClosure
-    rsemSpawnForbidsIterator
-
     rsemInvalidMethodDeclarationOrder # Right now I have no idea what this
     # error means exactly. It /does/ have a 'sort of' reproducible example
     # - https://github.com/nim-lang/Nim/issues/5325. No real tests for this
@@ -527,8 +519,6 @@ type
     rsemExpectedTemplateWithNArgs
     rsemExpectedCallForGetAst
     rsemWrongNumberOfQuoteArguments
-    rsemEnableExperimentalParallel
-    rsemExpectedExpressionForSpawn
     rsemNamedExprExpected
     rsemNamedExprNotAllowed
     rsemFieldInitTwice
@@ -551,12 +541,6 @@ type
     rsemCannotCreateImplicitOpenarray
     rsemCannotAssignToDiscriminantWithCustomDestructor
     rsemUnavailableTypeBound
-
-    rsemParallelInvalidControlFlow
-    rsemParallelCannotProveDisjoint
-    rsemParallelCounterAfterIncrement
-    rsemParallelWithoutSpawn
-    rsemSpawnInvalidContext
 
     # Identifier Lookup
     rsemUndeclaredIdentifier
@@ -801,9 +785,6 @@ type
     rsemUnsafeDefault          = "UnsafeDefault"
     rsemBindDeprecated
     rsemUncollectableRefCycle  =  "CycleCreated"
-    rsemParallelWarnCannotProve
-    rsemParallelWarnCanProve
-    rsemParallelWarnNotDisjoint
     rsemObservableStores       = "ObservableStores"
     rsemCaseTransition         = "CaseTransition"
     rsemUseOfGc                = "GcMem" # last !

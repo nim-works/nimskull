@@ -1131,12 +1131,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemNamedExprExpected:
       result = "named expression expected"
 
-    of rsemExpectedExpressionForSpawn:
-      result =  "'spawn' takes a call expression; got: " & render(r.ast)
-
-    of rsemEnableExperimentalParallel:
-      result = "use the {.experimental.} pragma to enable 'parallel'"
-
     of rsemExpectedTypeOrValue:
       result = "'$1' expects a type or value" % r.str
 
@@ -1166,27 +1160,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemCannotCreateFlowVarOfType:
       result = "cannot create a flowVar of type: " & typeToString(r.typ)
-
-    of rsemCannotSpawnMagicProc:
-      result = "'spawn'ed function cannot have a 'typed' or 'untyped' parameter"
-
-    of rsemCannotSpawnProcWithVar:
-      result = "'spawn'ed function cannot have a 'var' parameter"
-
-    of rsemCannotDiscardSpawn:
-      result = "'spawn' must not be discarded"
-
-    of rsemSpawnRequiresCall:
-      result = "'spawn' takes a call expression; got: " & render(r.ast)
-
-    of rsemSpawnRequiresGcSafe:
-      result = "'spawn' takes a GC safe call expression"
-
-    of rsemSpawnForbidsClosure:
-      result = "closure in spawn environment is not allowed"
-
-    of rsemSpawnForbidsIterator:
-      result =  "iterator in spawn environment is not allowed"
 
     of rsemUnexpectedClosureOnToplevelProc:
       result = "'.closure' calling convention for top level routines is invalid"
@@ -1741,18 +1714,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         ("'" & proto.name.s & "' from " & conf $ proto.info &
         " '" & s.name.s & "' from " & conf $ s.info)
 
-    of rsemParallelCannotProveDisjoint:
-      result = r.str
-
-    of rsemParallelInvalidControlFlow:
-      result = "invalid control flow for 'parallel'"
-
-    of rsemSpawnInvalidContext:
-      result = "invalid context for 'spawn'"
-
-    of rsemParallelWithoutSpawn:
-      result = "'parallel' section without 'spawn'"
-
     of rsemDisjointFields:
       result = ("The fields '$1' and '$2' cannot be initialized together, " &
         "because they are from conflicting branches in the case object.") %
@@ -2010,9 +1971,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCallingConventionMismatch:
       assert false, "REMOVE"
 
-    of rsemParallelCounterAfterIncrement:
-      result = "invalid usage of counter after increment"
-
     of rsemUndeclaredIdentifier:
       result = "undeclared identifier: '" & r.str & "'"
       if r.spellingCandidates.len > 0:
@@ -2058,15 +2016,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemObservableStores:
       result = "observable stores to '$1'" % r.ast.render
-
-    of rsemParallelWarnNotDisjoint:
-      result = r.str
-
-    of rsemParallelWarnCanProve:
-      result = r.str
-
-    of rsemParallelWarnCannotProve:
-      result = r.str
 
     of rsemUncollectableRefCycle:
       if r.cycleField == nil:
