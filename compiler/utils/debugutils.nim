@@ -300,13 +300,13 @@ template addInNimDebugUtils*(
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
 template addInNimDebugUtils*(
-    c: ConfigRef; action: string; sym: PSym; n: PNode; res: PNode) =
+    c: ConfigRef; action: string; s: PSym; n: PNode; res: PNode) =
   ## add tracing to procs that are primarily `PSym, PNode -> PNode`, such as
   ## applying pragmas to a symbol
   when defined(nimDebugUtils):
     template enterMsg(indentLevel: int) =
       traceEnterIt(stepParams(c, stepSymNodeToNode, indentLevel, action)):
-        it.sym = sym
+        it.sym = s
         it.node = n
 
     template leaveMsg(indentLevel: int) =

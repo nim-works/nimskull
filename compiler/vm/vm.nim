@@ -3496,7 +3496,7 @@ const evalPass* = makePass(myOpen, myProcess, myClose)
 proc evalConstExprAux(module: PSym; idgen: IdGenerator;
                       g: ModuleGraph; prc: PSym, n: PNode,
                       mode: TEvalMode): PNode =
-  addInNimDebugUtils(g.config, "evalConstExprAux")
+  addInNimDebugUtils(g.config, "evalConstExprAux", prc, n, result)
   #if g.config.errorCounter > 0: return n
   let n = transformExpr(g, idgen, module, n)
   setupGlobalCtx(module, g, idgen)

@@ -13,9 +13,14 @@
 ## id. This module is essential for the compiler's performance.
 
 import
-  hashes, wordrecg
+  std/[
+    hashes
+  ],
+  compiler/ast/[
+    ast_types,
+    wordrecg
+  ]
 
-import ast_types
 export PIdent
 
 type

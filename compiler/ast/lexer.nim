@@ -149,8 +149,15 @@ proc getLineInfo*(L: Lexer, tok: Token): TLineInfo {.inline.} =
     result.commentOffsetA = tok.commentOffsetA
     result.commentOffsetB = tok.commentOffsetB
 
-proc isKeyword*(kind: TokType): bool =
+func isKeyword*(kind: TokType): bool =
   (kind >= tokKeywordLow) and (kind <= tokKeywordHigh)
+
+func isKeyword*(i: PIdent): bool =
+  ## is this the `i`dentifier a keyword?
+  # xxx: not the best place for this, but putting it in `idents` leads to a
+  #      circular dependency; likely need an intermediate module
+  (i.id >= ord(tokKeywordLow) - ord(tkSymbol)) and
+    (i.id <= ord(tokKeywordHigh) - ord(tkSymbol))
 
 template ones(n): untyped = ((1 shl n)-1) # for utf-8 conversion
 

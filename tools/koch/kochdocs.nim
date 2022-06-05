@@ -1,9 +1,14 @@
 ## Part of 'koch' responsible for the documentation generation.
 
-import os, strutils, osproc, sets, pathnorm, sequtils, json
+import std/[ os, strutils, osproc, sets, sequtils, json ]
+
+when (NimMajor, NimMinor) < (1, 1) or not declared(isRelativeTo):
+  import std/pathnorm
+
 # XXX: Remove this feature check once the csources supports it.
 when defined(nimHasCastPragmaBlocks):
   import std/pegs
+
 from std/private/globs import nativeToUnixPath, walkDirRecFilter, PathEntry
 from packages/docutils/highlite import nimKeywordsSynchronizationCheck
 import ".."/".."/compiler/utils/[nversion]

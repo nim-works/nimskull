@@ -30,7 +30,6 @@ import
     msgs,
   ]
 
-
 type
   TRenderFlag* = enum
     renderNone, renderNoBody, renderNoComments, renderDocComments,
@@ -80,11 +79,6 @@ proc disamb(g: var TSrcGen; s: PSym): int =
     if s.name.s == g.mangler[i].name.s: inc result
   g.mangler.add s
 
-proc isKeyword*(i: PIdent): bool =
-  if (i.id >= ord(tokKeywordLow) - ord(tkSymbol)) and
-      (i.id <= ord(tokKeywordHigh) - ord(tkSymbol)):
-    result = true
-
 proc renderDefinitionName*(s: PSym, noQuotes = false): string =
   ## Returns the definition name of the symbol.
   ##
@@ -92,7 +86,7 @@ proc renderDefinitionName*(s: PSym, noQuotes = false): string =
   ## happen if the name happens to be a keyword or the first character is not
   ## part of the SymStartChars set.
   let x = s.name.s
-  if noQuotes or (x[0] in SymStartChars and not renderer.isKeyword(s.name)):
+  if noQuotes or (x[0] in SymStartChars and not lexer.isKeyword(s.name)):
     result = x
   else:
     result = '`' & x & '`'
@@ -1315,7 +1309,7 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
                 elif n[0].kind in {nkOpenSymChoice, nkClosedSymChoice}: n[0][0].sym.name
                 else: nil
       let nNext = skipHiddenNodes(n[1])
-      if nNext.kind == nkPrefix or (opr != nil and renderer.isKeyword(opr)):
+      if nNext.kind == nkPrefix or (opr != nil and lexer.isKeyword(opr)):
         put(g, tkSpaces, Space)
       if nNext.kind == nkInfix:
         put(g, tkParLe, "(")

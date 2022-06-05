@@ -142,7 +142,8 @@ template wrapErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode 
   ## down the tree, this is used to wrap the `wrongNodeContainer` in an nkError
   ## node but no message will be reported for it.
   var e = errorSubNode(wrongNodeContainer)
-  assert e != nil, "there must be an error node within"
+  {.line.}:
+    assert e != nil, "there must be an error node within"
   newError(
     conf,
     wrongNodeContainer,

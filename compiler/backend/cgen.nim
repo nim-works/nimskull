@@ -108,7 +108,7 @@ proc initLoc(result: var TLoc, k: TLocKind, lode: PNode, s: TStorageLoc) =
   result.flags = {}
 
 proc fillLoc(a: var TLoc, k: TLocKind, lode: PNode, r: Rope, s: TStorageLoc) =
-  # fills the loc if it is not already initialized
+  ## fills the loc if it is not already initialized
   if a.k == locNone:
     a.k = k
     a.lode = lode
