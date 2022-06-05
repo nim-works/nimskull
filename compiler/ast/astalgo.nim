@@ -132,6 +132,8 @@ proc lookupInRecord(n: PNode, field: PIdent): PSym =
   else: return nil
 
 proc getModule*(s: PSym): PSym =
+  ## if it's a module returns itself, otherwise looks through `s`' owners, may
+  ## return nil if none are found.
   result = s
   assert((result.kind == skModule) or (result.owner != result))
   while result != nil and result.kind != skModule: result = result.owner

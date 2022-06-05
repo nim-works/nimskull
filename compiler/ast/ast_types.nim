@@ -1114,6 +1114,20 @@ type
 
   TExprFlags* = set[TExprFlag]
 
+type Indexable* = PNode | PType
+
+proc len*(n: Indexable): int {.inline.} =
+  result = n.sons.len
+
+proc add*(father, son: Indexable) =
+  assert son != nil
+  father.sons.add(son)
+
+template `[]`*(n: Indexable, i: int): Indexable = n.sons[i]
+template `[]=`*(n: Indexable, i: int; x: Indexable) = n.sons[i] = x
+
+template `[]`*(n: Indexable, i: BackwardsIndex): Indexable = n[n.len - i.int]
+template `[]=`*(n: Indexable, i: BackwardsIndex; x: Indexable) = n[n.len - i.int] = x
 
 const emptyReportId* = ReportId(0)
 
@@ -1125,6 +1139,42 @@ func isEmpty*(id: ReportId): bool = id == emptyReportId
 func `$`*(id: ReportId): string =
   if id.isEmpty:
     "<empty report id>"
-
   else:
     "<report-id-" & $uint32(id) & ">"
+
+import
+  std/[
+    tables # For comments table mapping
+  ]
+
+const invalidNodeId* = 0
+
+type Gconfig = object
+  ## we put comments in a side channel to avoid increasing `sizeof(TNode)`,
+  ## which reduces memory usage given that `PNode` is the most allocated
+  ## type by far.
+  comments: Table[int, string] # nodeId => comment
+  useIc*: bool
+
+var gconfig {.threadvar.}: Gconfig
+
+proc comment*(n: PNode): string =
+  if nfHasComment in n.flags and not gconfig.useIc:
+    # IC doesn't track comments, see `packed_ast`, so this could fail
+    result = gconfig.comments[n.id]
+
+proc `comment=`*(n: PNode, a: string) =
+  if a.len > 0:
+    # if needed, we could periodically cleanup gconfig.comments when its size increases,
+    # to ensure only live nodes (and with nfHasComment) have an entry in gconfig.comments;
+    # for compiling compiler, the waste is very small:
+    # num calls to newNodeImpl: 14984160 (num of PNode allocations)
+    # size of gconfig.comments: 33585
+    # num of nodes with comments that were deleted and hence wasted: 3081
+    n.flags.incl nfHasComment
+    gconfig.comments[n.id] = a
+  elif nfHasComment in n.flags:
+    n.flags.excl nfHasComment
+    gconfig.comments.del(n.id)
+
+proc setUseIc*(useIc: bool) = gconfig.useIc = useIc
