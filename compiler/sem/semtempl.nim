@@ -436,7 +436,7 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
         a[j] = semTemplBody(c, a[j])
       a[^1] = semTemplBodyScope(c, a[^1])
     closeScope(c)
-  of nkForStmt, nkParForStmt:
+  of nkForStmt:
     openScope(c)
     n[^2] = semTemplBody(c, n[^2])
     for i in 0..<n.len - 2:

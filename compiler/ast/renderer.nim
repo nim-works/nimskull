@@ -1487,7 +1487,7 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
   of nkPragmaBlock: gpragmaBlock(g, n)
   of nkCaseStmt, nkRecCase: gcase(g, n)
   of nkTryStmt, nkHiddenTryStmt: gtry(g, n)
-  of nkForStmt, nkParForStmt: gfor(g, n)
+  of nkForStmt: gfor(g, n)
   of nkBlockStmt, nkBlockExpr: gblock(g, n)
   of nkStaticStmt: gstaticStmt(g, n)
   of nkAsmStmt: gasm(g, n)

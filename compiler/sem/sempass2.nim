@@ -1166,7 +1166,7 @@ proc track(tracked: PEffects, n: PNode) =
       track(tracked, n[1])
       setLen(tracked.init, oldState)
       setLen(tracked.guards.s, oldFacts)
-  of nkForStmt, nkParForStmt:
+  of nkForStmt:
     # we are very conservative here and assume the loop is never executed:
     let oldState = tracked.init.len
 

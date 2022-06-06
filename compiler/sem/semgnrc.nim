@@ -387,7 +387,7 @@ proc semGenericStmt(c: PContext, n: PNode,
         a[j] = semGenericStmt(c, a[j], flags, ctx)
       a[^1] = semGenericStmtScope(c, a[^1], flags, ctx)
     closeScope(c)
-  of nkForStmt, nkParForStmt:
+  of nkForStmt:
     openScope(c)
     n[^2] = semGenericStmt(c, n[^2], flags, ctx)
     for i in 0..<n.len - 2:

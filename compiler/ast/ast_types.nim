@@ -151,7 +151,6 @@ type
     nkIfStmt              ## an if statement
     nkWhenStmt            ## a when expression or statement
     nkForStmt             ## a for statement
-    nkParForStmt          ## a parallel for statement
     nkWhileStmt           ## a while statement
     nkCaseStmt            ## a case statement
     nkTypeSection         ## a type section (consists of type definitions)

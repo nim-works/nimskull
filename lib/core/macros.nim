@@ -33,7 +33,7 @@ type
     nnkDotCall = when defined(nimHasNkComesFromNodeRemoved):
                    ord(nnkNilLit) + 1
                  else:
-                   # Skip what would be nnkComesFrom, if we compiling with a
+                   # Skip what would be nnkComesFrom, if compiled with a
                    # compiler that still has nkComesFrom (e.g. in bootstrapping)
                    ord(nnkNilLit) + 2
     nnkCommand, nnkCall, nnkCallStrLit, nnkInfix,
@@ -57,7 +57,14 @@ type
     nnkMacroDef, nnkTemplateDef, nnkIteratorDef, nnkOfBranch,
     nnkElifBranch, nnkExceptBranch, nnkElse,
     nnkAsmStmt, nnkPragma, nnkPragmaBlock, nnkIfStmt, nnkWhenStmt,
-    nnkForStmt, nnkParForStmt, nnkWhileStmt, nnkCaseStmt,
+    nnkForStmt,
+    nnkWhileStmt = when defined(nimHasNkParForStmtNodeRemoved):
+                     ord(nnkForStmt) + 1
+                   else:
+                     # Skip what would be nnkParForStmt, if compiled with a compiler
+                     # compiler that still has nkParForStmt (e.g. in bootstrapping)
+                     ord(nnkForStmt) + 2
+    nnkCaseStmt,
     nnkTypeSection, nnkVarSection, nnkLetSection, nnkConstSection,
     nnkConstDef, nnkTypeDef,
     nnkYieldStmt, nnkDefer, nnkTryStmt, nnkFinally, nnkRaiseStmt,
