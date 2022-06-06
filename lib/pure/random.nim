@@ -177,25 +177,6 @@ proc skipRandomNumbers*(s: var Rand) =
   ##
   ## **See also:**
   ## * `next proc<#next,Rand>`_
-  runnableExamples("--threads:on"):
-    import std/[random, threadpool]
-
-    const spawns = 4
-    const numbers = 100000
-
-    proc randomSum(r: Rand): int =
-      var r = r
-      for i in 1..numbers:
-        result += r.rand(0..10)
-
-    var r = initRand(2019)
-    var vals: array[spawns, FlowVar[int]]
-    for val in vals.mitems:
-      val = spawn randomSum(r)
-      r.skipRandomNumbers()
-
-    for val in vals:
-      doAssert abs(^val - numbers * 5) / numbers < 0.1
 
   when defined(js):
     const helper = [0xbeac0467u32, 0xd86b048bu32]

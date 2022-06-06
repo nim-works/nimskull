@@ -12,8 +12,7 @@
 ## **Note**: This is part of the system module. Do not import it directly.
 ## To activate thread support compile with the `--threads:on` command line switch.
 ##
-## **Note:** Channels are designed for the `Thread` type. They are unstable when
-## used with `spawn`
+## **Note:** Channels are designed for the `Thread` type.
 ##
 ## **Note:** The current implementation of message passing does
 ## not work with cyclic data structures.

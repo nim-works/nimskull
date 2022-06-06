@@ -1153,12 +1153,8 @@ proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
     n[^2] = call
   let isCallExpr = call.kind in nkCallKinds
   if isCallExpr and call[0].kind == nkSym and
-      call[0].sym.magic in {mFields, mFieldPairs, mOmpParFor}:
-    if call[0].sym.magic == mOmpParFor:
-      result = semForVars(c, n, flags)
-      result.transitionSonsKind(nkParForStmt)
-    else:
-      result = semForFields(c, n, call[0].sym.magic)
+      call[0].sym.magic in {mFields, mFieldPairs}:
+    result = semForFields(c, n, call[0].sym.magic)
   elif isCallExpr and isClosureIterator(call[0].typ.skipTypes(abstractInst)):
     # first class iterator:
     result = semForVars(c, n, flags)

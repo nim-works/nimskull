@@ -751,8 +751,7 @@ proc hcrOn*(conf: ConfigRef): bool =
   return optHotCodeReloading in conf.globalOptions
 
 const
-  oldExperimentalFeatures* = {
-    implicitDeref, dotOperators, callOperator, parallel}
+  oldExperimentalFeatures* = {implicitDeref, dotOperators, callOperator}
 
   ChecksOptions* = {optObjCheck, optFieldCheck, optRangeCheck,
     optOverflowCheck, optBoundsCheck, optAssert, optNaNCheck, optInfCheck,

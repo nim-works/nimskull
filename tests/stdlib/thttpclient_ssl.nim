@@ -79,69 +79,72 @@ when not defined(windows):
     log "server: exited"
 
 
-  suite "SSL self signed certificate check":
+  # XXX: Disabled until we bring back `spawn`, more likely replace it with
+  #      something entirely new. Kept for reference if/when these need to be
+  #      replaced.
+  # suite "SSL self signed certificate check":
 
-    test "TCP socket":
-      const port = 12347.Port
-      let t = spawn runServer(port)
-      sleep(100)
-      var sock = newSocket()
-      var ctx = newContext()
-      ctx.wrapSocket(sock)
-      try:
-        log "client: connect"
-        sock.connect("127.0.0.1", port)
-        fail()
-      except:
-        let msg = getCurrentExceptionMsg()
-        check(msg.contains("certificate verify failed"))
+  #   test "TCP socket":
+  #     const port = 12347.Port
+  #     let t = spawn runServer(port)
+  #     sleep(100)
+  #     var sock = newSocket()
+  #     var ctx = newContext()
+  #     ctx.wrapSocket(sock)
+  #     try:
+  #       log "client: connect"
+  #       sock.connect("127.0.0.1", port)
+  #       fail()
+  #     except:
+  #       let msg = getCurrentExceptionMsg()
+  #       check(msg.contains("certificate verify failed"))
 
-    test "HttpClient default: no check":
-      const port = 12345.Port
-      let t = spawn runServer(port)
-      sleep(100)
+  #   test "HttpClient default: no check":
+  #     const port = 12345.Port
+  #     let t = spawn runServer(port)
+  #     sleep(100)
 
-      var client = newHttpClient(sslContext=newContext(verifyMode=CVerifyNone))
-      try:
-        log "client: connect"
-        discard client.getContent("https://127.0.0.1:12345")
-      except:
-        let msg = getCurrentExceptionMsg()
-        log "client: unexpected exception: " & msg
-        fail()
+  #     var client = newHttpClient(sslContext=newContext(verifyMode=CVerifyNone))
+  #     try:
+  #       log "client: connect"
+  #       discard client.getContent("https://127.0.0.1:12345")
+  #     except:
+  #       let msg = getCurrentExceptionMsg()
+  #       log "client: unexpected exception: " & msg
+  #       fail()
 
-    test "HttpClient with CVerifyPeer":
-      const port = 12346.Port
-      let t = spawn runServer(port)
-      sleep(100)
+  #   test "HttpClient with CVerifyPeer":
+  #     const port = 12346.Port
+  #     let t = spawn runServer(port)
+  #     sleep(100)
 
-      var client = newHttpClient(sslContext=newContext(verifyMode=CVerifyPeer))
-      try:
-        log "client: connect"
-        discard client.getContent("https://127.0.0.1:12346")
-        log "getContent should have raised an exception"
-        fail()
-      except:
-        let msg = getCurrentExceptionMsg()
-        log "client: exception: " & msg
-        # SSL_shutdown:shutdown while in init
-        if not (msg.contains("alert number 48") or
-          msg.contains("certificate verify failed")):
-          echo "CVerifyPeer exception: " & msg
-          check(false)
+  #     var client = newHttpClient(sslContext=newContext(verifyMode=CVerifyPeer))
+  #     try:
+  #       log "client: connect"
+  #       discard client.getContent("https://127.0.0.1:12346")
+  #       log "getContent should have raised an exception"
+  #       fail()
+  #     except:
+  #       let msg = getCurrentExceptionMsg()
+  #       log "client: exception: " & msg
+  #       # SSL_shutdown:shutdown while in init
+  #       if not (msg.contains("alert number 48") or
+  #         msg.contains("certificate verify failed")):
+  #         echo "CVerifyPeer exception: " & msg
+  #         check(false)
 
-    test "HttpClient with CVerifyPeerUseEnvVars":
-      const port = 12346.Port
-      let t = spawn runServer(port)
-      sleep(100)
+  #   test "HttpClient with CVerifyPeerUseEnvVars":
+  #     const port = 12346.Port
+  #     let t = spawn runServer(port)
+  #     sleep(100)
 
-      putEnv("SSL_CERT_FILE", getCurrentDir() / certFile)
-      var client = newHttpClient(sslContext=newContext(verifyMode=CVerifyPeerUseEnvVars))
-      try:
-        log "client: connect"
-        discard client.getContent("https://127.0.0.1:12346")
-      except:
-        let msg = getCurrentExceptionMsg()
-        log "client: exception: " & msg
-        log "getContent should not have raised an exception"
-        fail()
+  #     putEnv("SSL_CERT_FILE", getCurrentDir() / certFile)
+  #     var client = newHttpClient(sslContext=newContext(verifyMode=CVerifyPeerUseEnvVars))
+  #     try:
+  #       log "client: connect"
+  #       discard client.getContent("https://127.0.0.1:12346")
+  #     except:
+  #       let msg = getCurrentExceptionMsg()
+  #       log "client: exception: " & msg
+  #       log "getContent should not have raised an exception"
+  #       fail()

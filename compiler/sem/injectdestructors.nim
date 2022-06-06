@@ -55,7 +55,7 @@ type
     owner: PSym
     g: ControlFlowGraph
     graph: ModuleGraph
-    inLoop, inSpawn, inLoopCond: int
+    inLoop, inLoopCond: int
     uninit: IntSet # set of uninit'ed vars
     uninitComputed: bool
     idgen: IdGenerator
@@ -484,8 +484,7 @@ proc passCopyToSink(n: PNode; c: var Con; s: var Scope): PNode =
     result.add m
     if isLValue(n) and
        not isCapturedVar(n) and
-       n.typ.skipTypes(abstractInst).kind != tyRef and
-       c.inSpawn == 0:
+       n.typ.skipTypes(abstractInst).kind != tyRef:
 
       localReport(c.graph.config, n, reportSem rsemCopiesToSink)
 
@@ -846,12 +845,6 @@ proc p(n: PNode; c: var Con; s: var Scope; mode: ProcessMode): PNode =
       if mode == normal and isRefConstr:
         result = ensureDestruction(result, n, c, s)
     of nkCallKinds:
-      let inSpawn = c.inSpawn
-      if n[0].kind == nkSym and n[0].sym.magic == mSpawn:
-        c.inSpawn.inc
-      elif c.inSpawn > 0:
-        c.inSpawn.dec
-
       let parameters = n[0].typ
       let L = if parameters != nil: parameters.len else: 0
 
@@ -865,7 +858,7 @@ proc p(n: PNode; c: var Con; s: var Scope; mode: ProcessMode): PNode =
       for i in 1..<n.len:
         if i < L and isCompileTimeOnly(parameters[i]):
           result[i] = n[i]
-        elif i < L and (isSinkTypeForParam(parameters[i]) or inSpawn > 0):
+        elif i < L and isSinkTypeForParam(parameters[i]):
           result[i] = p(n[i], c, s, sinkArg)
         else:
           result[i] = p(n[i], c, s, normal)

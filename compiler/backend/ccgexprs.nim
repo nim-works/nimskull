@@ -2588,19 +2588,6 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
     localReport(p.config, e.info, reportSym(
       rsemConstExpressionExpected, e[0].sym))
 
-  of mSpawn:
-    when defined(leanCompiler):
-      p.config.quitOrRaise "compiler built without support for the 'spawn' statement"
-    else:
-      let n = spawn.wrapProcForSpawn(
-        p.module.g.graph, p.module.idgen, p.module.module, e, e.typ, nil, nil)
-      expr(p, n, d)
-  of mParallel:
-    when defined(leanCompiler):
-      p.config.quitOrRaise "compiler built without support for the 'parallel' statement"
-    else:
-      let n = semparallel.liftParallel(p.module.g.graph, p.module.idgen, p.module.module, e)
-      expr(p, n, d)
   of mDeepCopy:
     if p.config.selectedGC in {gcArc, gcOrc} and optEnableDeepCopy notin p.config.globalOptions:
       localReport(p.config, e, reportSem rsemRequiresDeepCopyEnabled)

@@ -2367,29 +2367,6 @@ proc semShallowCopy(c: PContext, n: PNode, flags: TExprFlags): PNode =
   else:
     result = semDirectOp(c, n, flags)
 
-proc createFlowVar(c: PContext; t: PType; info: TLineInfo): PType =
-  result = newType(tyGenericInvocation, nextTypeId c.idgen, c.module)
-  addSonSkipIntLit(result, magicsys.getCompilerProc(c.graph, "FlowVar").typ, c.idgen)
-  addSonSkipIntLit(result, t, c.idgen)
-  result = instGenericContainer(c, info, result, allowMetaTypes = false)
-
-proc instantiateCreateFlowVarCall(c: PContext; t: PType;
-                                  info: TLineInfo): PSym =
-  let sym = magicsys.getCompilerProc(c.graph, "nimCreateFlowVar")
-  if sym == nil:
-    localReport(c.config, info, reportStr(
-      rsemSystemNeeds, "nimCreateFlowVar"))
-
-  var bindings: TIdTable
-  initIdTable(bindings)
-  bindings.idTablePut(sym.ast[genericParamsPos][0].typ, t)
-  result = c.semGenerateInstance(c, sym, bindings, info)
-  # since it's an instantiation, we unmark it as a compilerproc. Otherwise
-  # codegen would fail:
-  if sfCompilerProc in result.flags:
-    result.flags.excl {sfCompilerProc, sfExportc, sfImportc}
-    result.loc.r = nil
-
 proc setMs(n: PNode, s: PSym): PNode =
   result = n
   n[0] = newSymNode(s)
@@ -2448,39 +2425,6 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     checkSonsLen(n, 2, c.config)
     result = newStrNodeT(renderTree(n[1], {renderNoComments}), n, c.graph)
     result.typ = getSysType(c.graph, n.info, tyString)
-  of mParallel:
-    markUsed(c, n.info, s)
-    if parallel notin c.features:
-      localReport(c.config, n, reportSem rsemEnableExperimentalParallel)
-    result = setMs(n, s)
-    var x = n.lastSon
-    if x.kind == nkDo: x = x[bodyPos]
-    inc c.inParallelStmt
-    result[1] = semStmt(c, x, {})
-    dec c.inParallelStmt
-  of mSpawn:
-    markUsed(c, n.info, s)
-    when defined(leanCompiler):
-      internalError(c.config, n.info, rintUsingLeanCompiler,
-                    "Compiler was not built with spawn support")
-    else:
-      result = setMs(n, s)
-      for i in 1..<n.len:
-        result[i] = semExpr(c, n[i])
-
-      if n.len > 1 and n[1].kind notin nkCallKinds:
-        return newError(c.config, n, reportAst(
-          rsemExpectedExpressionForSpawn, n[1]))
-
-      let typ = result[^1].typ
-      if not typ.isEmptyType:
-        if spawnResult(typ, c.inParallelStmt > 0) == srFlowVar:
-          result.typ = createFlowVar(c, typ, n.info)
-        else:
-          result.typ = typ
-        result.add instantiateCreateFlowVarCall(c, typ, n.info).newSymNode
-      else:
-        result.add c.graph.emptyNode
   of mProcCall:
     markUsed(c, n.info, s)
     result = setMs(n, s)

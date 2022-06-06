@@ -35,7 +35,7 @@ type
     nnkMacroDef, nnkTemplateDef, nnkIteratorDef, nnkOfBranch,
     nnkElifBranch, nnkExceptBranch, nnkElse,
     nnkAsmStmt, nnkPragma, nnkPragmaBlock, nnkIfStmt, nnkWhenStmt,
-    nnkForStmt, nnkParForStmt, nnkWhileStmt, nnkCaseStmt,
+    nnkForStmt, nnkWhileStmt, nnkCaseStmt,
     nnkTypeSection, nnkVarSection, nnkLetSection, nnkConstSection,
     nnkConstDef, nnkTypeDef,
     nnkYieldStmt, nnkDefer, nnkTryStmt, nnkFinally, nnkRaiseStmt,
@@ -93,7 +93,7 @@ type
       c: int
     of nnkReturnStmt:
       d: int
-    of nnkForStmt, nnkParForStmt, nnkWhileStmt, nnkProcDef, nnkMethodDef:
+    of nnkForStmt, nnkWhileStmt, nnkProcDef, nnkMethodDef:
       e: int
     of nnkSomething, nnkRefTy, nnkPtrTy, nnkHiddenStdConv:
       f: int

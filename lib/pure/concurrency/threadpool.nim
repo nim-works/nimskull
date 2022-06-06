@@ -7,7 +7,8 @@
 #    distribution, for details about the copyright.
 #
 
-## Implements Nim's `parallel & spawn statements <manual_experimental.html#parallel-amp-spawn>`_.
+## Implements a threadpool, was used for the legacy parallel and spawn
+## experiemental features.
 ##
 ## Unstable API.
 ##
@@ -407,9 +408,6 @@ proc setMaxPoolSize*(size: range[1..MaxThreadPoolSize]) =
       let w = addr(workersData[i])
       w.shutdown = true
 
-when defined(nimRecursiveSpawn):
-  var localThreadId {.threadvar.}: int
-
 proc activateWorkerThread(i: int) {.noinline.} =
   workersData[i].taskArrived.initSemaphore()
   workersData[i].taskStarted.initSemaphore()
@@ -417,8 +415,6 @@ proc activateWorkerThread(i: int) {.noinline.} =
   workersData[i].q.empty.initSemaphore()
   initLock(workersData[i].q.lock)
   createThread(workers[i], slave, addr(workersData[i]))
-  when defined(nimRecursiveSpawn):
-    localThreadId = i+1
   when defined(nimPinToCpu):
     if gCpus > 0: pinToCpu(workers[i], i mod gCpus)
 
@@ -448,21 +444,21 @@ proc preferSpawn*(): bool =
   ## <#spawnX.t>`_ instead.
   result = gSomeReady.counter > 0
 
-proc spawn*(call: sink typed) {.magic: "Spawn".} =
-  ## Always spawns a new task, so that the `call` is never executed on
-  ## the calling thread.
-  ##
-  ## `call` has to be a proc call `p(...)` where `p` is gcsafe and has a
-  ## return type that is either `void` or compatible with `FlowVar[T]`.
-  discard "It uses `nimSpawn3` internally"
+# proc spawn*(call: sink typed) {.magic: "Spawn".} =
+#   ## Always spawns a new task, so that the `call` is never executed on
+#   ## the calling thread.
+#   ##
+#   ## `call` has to be a proc call `p(...)` where `p` is gcsafe and has a
+#   ## return type that is either `void` or compatible with `FlowVar[T]`.
+#   discard "It uses `nimSpawn3` internally"
 
-proc pinnedSpawn*(id: ThreadId; call: sink typed) {.magic: "Spawn".} =
-  ## Always spawns a new task on the worker thread with `id`, so that
-  ## the `call` is **always** executed on the thread.
-  ##
-  ## `call` has to be a proc call `p(...)` where `p` is gcsafe and has a
-  ## return type that is either `void` or compatible with `FlowVar[T]`.
-  discard "It uses `nimSpawn4` internally"
+# proc pinnedSpawn*(id: ThreadId; call: sink typed) {.magic: "Spawn".} =
+#   ## Always spawns a new task on the worker thread with `id`, so that
+#   ## the `call` is **always** executed on the thread.
+#   ##
+#   ## `call` has to be a proc call `p(...)` where `p` is gcsafe and has a
+#   ## return type that is either `void` or compatible with `FlowVar[T]`.
+#   discard "It uses `nimSpawn4` internally"
 
 template spawnX*(call) =
   ## Spawns a new task if a CPU core is ready, otherwise executes the
@@ -475,13 +471,13 @@ template spawnX*(call) =
   ## return type that is either 'void' or compatible with `FlowVar[T]`.
   (if preferSpawn(): spawn call else: call)
 
-proc parallel*(body: untyped) {.magic: "Parallel".}
-  ## A parallel section can be used to execute a block in parallel.
-  ##
-  ## `body` has to be in a DSL that is a particular subset of the language.
-  ##
-  ## Please refer to `the manual <manual_experimental.html#parallel-amp-spawn>`_
-  ## for further information.
+# proc parallel*(body: untyped) {.magic: "Parallel".}
+#   ## A parallel section can be used to execute a block in parallel.
+#   ##
+#   ## `body` has to be in a DSL that is a particular subset of the language.
+#   ##
+#   ## Please refer to `the manual <manual_experimental.html#parallel-amp-spawn>`_
+#   ## for further information.
 
 var
   state: ThreadPoolState
@@ -531,15 +527,6 @@ proc nimSpawn3(fn: WorkerProc; data: pointer) {.compilerproc.} =
         release(stateLock)
       # else the acquire failed, but this means some
       # other thread succeeded, so we don't need to do anything here.
-    when defined(nimRecursiveSpawn):
-      if localThreadId > 0:
-        # we are a worker thread, so instead of waiting for something which
-        # might as well never happen (see tparallel_quicksort), we run the task
-        # on the current thread instead.
-        var self = addr(workersData[localThreadId-1])
-        fn(self, data)
-        blockUntil(self.taskStarted)
-        return
 
     if isSlave:
       # Run under lock until `numSlavesWaiting` increment to avoid a

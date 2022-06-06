@@ -185,7 +185,6 @@ type
     implicitDeref,
     dotOperators,
     callOperator,
-    parallel,
     destructor,
     notnil,
     dynamicBindSym,
