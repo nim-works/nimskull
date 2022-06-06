@@ -2679,7 +2679,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkWhileStmt: genWhileStmt(p, n)
   of nkVarSection, nkLetSection: genVarStmt(p, n)
   of nkConstSection: discard
-  of nkForStmt, nkParForStmt:
+  of nkForStmt:
     internalError(p.config, n.info, "for statement not eliminated")
   of nkCaseStmt: genCaseJS(p, n, r)
   of nkReturnStmt: genReturnStmt(p, n)

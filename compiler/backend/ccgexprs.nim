@@ -3080,7 +3080,6 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
           # by ensuring it's no inner proc (owner is a module).
           # Generate proc even if empty body, bugfix #11651.
           genProc(p.module, prc)
-  of nkParForStmt: genParForStmt(p, n)
   of nkState: genState(p, n)
   of nkGotoState:
     # simply never set it back to 0 here from here on...

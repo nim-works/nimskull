@@ -228,7 +228,7 @@ proc transformConstSection(c: PTransf, v: PNode): PNode =
 
 proc hasContinue(n: PNode): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkForStmt, nkParForStmt, nkWhileStmt: discard
+  of nkEmpty..nkNilLit, nkForStmt, nkWhileStmt: discard
   of nkContinueStmt: result = true
   else:
     for i in 0..<n.len:
@@ -943,8 +943,6 @@ proc transform(c: PTransf, n: PNode): PNode =
     result = n
   of nkForStmt:
     result = transformFor(c, n)
-  of nkParForStmt:
-    result = transformSons(c, n)
   of nkCaseStmt:
     result = transformCase(c, n)
   of nkWhileStmt: result = transformWhile(c, n)

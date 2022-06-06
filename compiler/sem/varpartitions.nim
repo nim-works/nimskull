@@ -781,7 +781,7 @@ proc traverse(c: var Partitions; n: PNode) =
     inc c.inNoSideEffectSection, enforceNoSideEffects
     traverse(c, n.lastSon)
     dec c.inNoSideEffectSection, enforceNoSideEffects
-  of nkWhileStmt, nkForStmt, nkParForStmt:
+  of nkWhileStmt, nkForStmt:
     for child in n: traverse(c, child)
     # analyse loops twice so that 'abstractTime' suffices to detect cases
     # like:
@@ -866,7 +866,7 @@ proc computeLiveRanges(c: var Partitions; n: PNode) =
 
   of nkPragmaBlock:
     computeLiveRanges(c, n.lastSon)
-  of nkWhileStmt, nkForStmt, nkParForStmt:
+  of nkWhileStmt, nkForStmt:
     for child in n: computeLiveRanges(c, child)
     # analyse loops twice so that 'abstractTime' suffices to detect cases
     # like:
