@@ -1315,7 +1315,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       let handle = regs[ra].handle
       assert handle.typ.kind in {akCallable, akClosure}
 
-      assert handle.typ.funcTypeId == c.functions[fncIdx.int].typ
+      assert handle.typ.routineSig == c.functions[fncIdx.int].sig
 
       # XXX: as a direct consequence of the state of vmgen, opcWrProc and
       #      opcWrClosure are both implemented in a rather hacky way
@@ -2113,7 +2113,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         raiseVmError(reportSem(rsemVmNilAccess))
 
       let bb = c.functions[int toFuncIndex(fPtr)]
-      assert bb.typ == h.typ.funcTypeId
+      assert bb.sig == h.typ.routineSig
       let retType = bb.retValDesc
 
       let prc = bb.prc
