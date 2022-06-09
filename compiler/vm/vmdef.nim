@@ -197,7 +197,7 @@ type
       seqElemStride*: int
       seqElemType*: PVmType
     of akCallable, akClosure:
-      funcTypeId*: FunctionTypeId
+      routineSig*: RoutineSigId
     of akDiscriminator:
       # A discriminator consists of two things: the value as seen by the guest
       # and the index of the branch
@@ -251,7 +251,7 @@ type
     prc*: PSym
     retValDesc*: PVmType ## the return value type (may be empty)
     envParamType*: PVmType ## the type of the hidden environment parameter
-    typ*: FunctionTypeId
+    sig*: RoutineSigId
 
     # XXX: if it would be explicitly forbidden to modify the callbacks after
     #      the first vmgen run, we could also store the callback proc here. Would
@@ -413,11 +413,14 @@ type
     allocator*: VmAllocator
     heap*: VmHeap
 
-  FunctionTypeId* = distinct int
+  # XXX: should be a `distinct uint32`. More than 2^32 different routine
+  #      signatures is highly unlikely
+  RoutineSigId* = distinct int ## Routine signature ID. Each different
+    ## routine (proc, func, etc.) signature gets mapped to a unique ID.
 
   # We use a distinct here since we need a different `==` and `hash`
   # operator than the one used for `PType`
-  FuncTypeLutKey* = distinct PType
+  RoutineSig* = distinct PType
 
   TypeTableEntry* = tuple[hcode: int, typ: VmTypeId]
   TypeTable* = object
@@ -435,8 +438,8 @@ type
 
     structs*: TypeTable ## All structural types created by ``vmtypegen``
 
-    funcTypeLut*: Table[FuncTypeLutKey, FunctionTypeId] ## PType -> function
-    nextFuncTypeId*: FunctionTypeId
+    signatures*: Table[RoutineSig, RoutineSigId]
+    nextSigId*: RoutineSigId ## The ID to use for a new `signatures` entry
 
     types*: seq[PVmType] ## all generated types (including those created
                          ## during VM setup)
@@ -661,7 +664,7 @@ func toFuncIndex*(x: VmFunctionPtr): FunctionIndex =
 
 template isNil*(x: VmFunctionPtr): bool = int(x) == 0
 
-template `==`*(a, b: FunctionTypeId): bool = int(a) == int(b)
+func `==`*(a, b: RoutineSigId): bool {.borrow.}
 
 proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph; idgen: IdGenerator): PCtx =
   result = PCtx(

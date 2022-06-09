@@ -51,7 +51,7 @@ func hash(t: VmType): Hash =
     of akSeq:                 hash(t.seqElemType)
     of akPtr, akRef:          hash(t.targetType)
     of akSet:                 hash(t.setLength)
-    of akCallable, akClosure: hash(t.funcTypeId.int)
+    of akCallable, akClosure: hash(t.routineSig.int)
     of akDiscriminator:       hash(t.numBits)
     of akArray:               hash(t.elementCount) !& hash(t.elementType)
     of akObject:
@@ -77,7 +77,7 @@ func `==`(a, b: VmType): bool =
   of akSeq:                 cmpField(seqElemType)
   of akPtr, akRef:          cmpField(targetType)
   of akSet:                 cmpField(setLength)
-  of akCallable, akClosure: cmpField(funcTypeId)
+  of akCallable, akClosure: cmpField(routineSig)
   of akDiscriminator:
     # XXX: just testing for `numBits` means that `a: range[0..2]` and
     #      `b: range[0..3]` are treated as the same type!
@@ -104,7 +104,7 @@ func `==`(a: PVmType, b: openArray[PVmType]): bool {.inline.} =
 
     result = true
 
-func getOrCreateFuncType*(c: var TypeInfoCache, typ: PType): FunctionTypeId
+func makeSignatureId*(c: var TypeInfoCache, typ: PType): RoutineSigId
 
 const skipTypeSet = abstractRange+{tyStatic}-{tyTypeDesc}
 
@@ -328,7 +328,7 @@ func genType(c: var TypeInfoCache, t: PType, cl: var GenClosure): tuple[typ: PVm
       else: akCallable
 
     res.typ = VmType(kind: kind)
-    res.typ.funcTypeId = c.getOrCreateFuncType(t)
+    res.typ.routineSig = c.makeSignatureId(t)
 
   of tyObject:
     if inst == nil:
@@ -815,12 +815,12 @@ func lookup*(c: TypeInfoCache, conf: ConfigRef, typ: PType): Option[PVmType] =
     # XXX: double lookup
     result = some(c.lut[t.itemId])
 
-template hash(x: FuncTypeLutKey): untyped =
+template hash(x: RoutineSig): untyped =
   # XXX: the (extremely) simple hash function is not worth the cost of the
-  #      additional calls to `sameType`?
+  #      additional calls to `sameType`
   hash(x.PType.len)
 
-func `==`(x, y: FuncTypeLutKey): bool {.inline.} =
+func `==`(x, y: RoutineSig): bool {.inline.} =
   let xt = x.PType
   let yt = y.PType
   if xt.len == yt.len:
@@ -844,17 +844,18 @@ func `==`(x, y: FuncTypeLutKey): bool {.inline.} =
 
     result = true
 
-func getOrCreateFuncType*(c: var TypeInfoCache, typ: PType): FunctionTypeId =
+func makeSignatureId*(c: var TypeInfoCache, typ: PType): RoutineSigId =
+  ## Generates a unique ID for the routine signature `typ`. The exact meaning
+  ## of "unique" here is given by the `== <#==,RoutineSig,RoutineSig>`_
+  ## function. Two types that are equal (using the aforementioned comparison)
+  ## map to the same ID
   assert typ.kind == tyProc
 
-  let typ = typ.skipTypes(abstractRange)
+  let
+    typ = typ.skipTypes(abstractRange)
+    key = RoutineSig(typ)
 
-  let key = FuncTypeLutKey(typ)
-  # XXX: redundant table lookup
-  if key in c.funcTypeLut:
-    return c.funcTypeLut[key]
-  else:
-    result = c.nextFuncTypeId
-    inc int(c.nextFuncTypeId)
-
-    c.funcTypeLut[key] = result
+  result = c.signatures.mgetOrPut(key, c.nextSigId)
+  if result == c.nextSigId:
+    # a table entry was just created:
+    inc int(c.nextSigId)

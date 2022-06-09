@@ -111,7 +111,7 @@ proc getOrCreateFunction*(c: var TCtx, prc: PSym): FunctionIndex =
       if procIsCallback(c, prc): f.cbOffset = -prc.offset - 2; ckCallback
       else: ckDefault
 
-    f.typ = c.typeInfoCache.getOrCreateFuncType(prc.typ)
+    f.sig = c.typeInfoCache.makeSignatureId(prc.typ)
     let rTyp = prc.getReturnType()
     if rTyp != nil and rTyp.kind != tyVoid:
       f.retValDesc = c.getOrCreate(rTyp)
