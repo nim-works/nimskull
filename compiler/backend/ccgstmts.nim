@@ -643,52 +643,6 @@ proc genBlock(p: BProc, n: PNode, d: var TLoc) =
     expr(p, n[1], d)
     endBlock(p)
 
-proc genParForStmt(p: BProc, t: PNode) =
-  assert(t.len == 3)
-  inc(p.withinLoop)
-  genLineDir(p, t)
-
-  preserveBreakIdx:
-    let forLoopVar = t[0].sym
-    var rangeA, rangeB: TLoc
-    assignLocalVar(p, t[0])
-    #initLoc(forLoopVar.loc, locLocalVar, forLoopVar.typ, onStack)
-    #discard mangleName(forLoopVar)
-    let call = t[1]
-    assert(call.len in {4, 5})
-    initLocExpr(p, call[1], rangeA)
-    initLocExpr(p, call[2], rangeB)
-
-    # $n at the beginning because of #9710
-    if call.len == 4: # procName(a, b, annotation)
-      if call[0].sym.name.s == "||":  # `||`(a, b, annotation)
-        lineF(p, cpsStmts, "$n#pragma omp $4$n" &
-                            "for ($1 = $2; $1 <= $3; ++$1)",
-                            [forLoopVar.loc.rdLoc,
-                            rangeA.rdLoc, rangeB.rdLoc,
-                            call[3].getStr.rope])
-      else:
-        lineF(p, cpsStmts, "$n#pragma $4$n" &
-                    "for ($1 = $2; $1 <= $3; ++$1)",
-                    [forLoopVar.loc.rdLoc,
-                    rangeA.rdLoc, rangeB.rdLoc,
-                    call[3].getStr.rope])
-    else: # `||`(a, b, step, annotation)
-      var step: TLoc
-      initLocExpr(p, call[3], step)
-      lineF(p, cpsStmts, "$n#pragma omp $5$n" &
-                    "for ($1 = $2; $1 <= $3; $1 += $4)",
-                    [forLoopVar.loc.rdLoc,
-                    rangeA.rdLoc, rangeB.rdLoc, step.rdLoc,
-                    call[4].getStr.rope])
-
-    p.breakIdx = startBlock(p)
-    p.blocks[p.breakIdx].isLoop = true
-    genStmts(p, t[2])
-    endBlock(p)
-
-  dec(p.withinLoop)
-
 proc genBreakStmt(p: BProc, t: PNode) =
   var idx = p.breakIdx
   if t[0].kind != nkEmpty:
