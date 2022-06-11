@@ -22,7 +22,7 @@ func elemType*(typ: PVmType): PVmType =
   of akArray:
     typ.elementType
   else:
-    unreachable($typ.kind)
+    unreachable(typ.kind)
 
 func alignedSize*(t: PVmType): uint {.inline.} =
   let

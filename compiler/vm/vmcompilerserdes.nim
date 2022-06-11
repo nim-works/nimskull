@@ -542,7 +542,7 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
             e
 
         deref(dest).closureVal = VmClosure(fnc: fnc, env: env)
-      else: unreachable($n.kind)
+      else: unreachable(n.kind)
     else:
       assert n.kind == nkSym
       assert dest.typ.kind == akCallable
@@ -593,4 +593,4 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
         allowedFlags: {})))
 
   of tyError: unreachable("error nodes must not reach here")
-  else: unreachable($t.kind)
+  else: unreachable(t.kind)

@@ -35,6 +35,8 @@ import
 import vm_enums
 export vm_enums
 
+from std/private/miscdollars import toLocation
+
 type TInstrType* = uint64
 
 const
@@ -829,9 +831,31 @@ func safeZeroMem*(dest: var openArray[byte], numBytes: Natural) =
 func hash*(x: MaterializedConst): int {.inline.} =
   hash(x.sym.itemId)
 
+# XXX: `unreachable` and it's implementation details don't really belong here.
+#      They're also useful outside of VM related code
+type IInfo = typeof(instantiationInfo())
+
+func unreachableImpl(str: string, loc: IInfo) {.noinline, noreturn.} =
+  var msg: string
+  msg.toLocation(loc.filename, loc.line, loc.column + 1)
+  msg.add:
+    if str.len > 0: " unreachable: "
+    else: " unreachable"
+  msg.add str
+  raiseAssert(msg)
+
+func unreachableImpl(e: enum, loc: IInfo) {.noinline, noreturn.} =
+  ## More efficient than `unreachable($e)`, as the stringification code is
+  ## placed in a different function, reducing I-cache pressure at the callsite
+  unreachableImpl($e, loc)
 
 template unreachable*() =
-  raise AssertionDefect.newException("unreachable")
+  unreachableImpl("", instantiationInfo(-1))
 
 template unreachable*(msg: string) =
-  raise AssertionDefect.newException("unreachable: " & msg)
+  unreachableImpl(msg, instantiationInfo(-1))
+
+template unreachable*(e: enum) =
+  ## More efficient than `unreachable($e)`. See `unreachableImpl` for more
+  ## info
+  unreachableImpl(e, instantiationInfo(-1))

@@ -1146,7 +1146,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       of akSeq, akArray:
         regs[ra].setHandle(getItemHandle(regs[rb].handle, idx))
       else:
-        unreachable($srcTyp.kind)
+        unreachable(srcTyp.kind)
 
     of opcLdArrAddr:
       # a = addr(b[c])
@@ -1171,7 +1171,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         let h = getItemHandle(src, idx)
         regs[ra].setAddress(h.h, h.typ)
       else:
-        unreachable($src.typ.kind) # vmgen issue
+        unreachable(src.typ.kind) # vmgen issue
 
     of opcLdStrIdx:
       decodeBC(rkInt)
@@ -1227,7 +1227,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
            dTyp.elementCount,
            dTyp.elementStride, dTyp.elementType)
         of akInt, akFloat, akSet, akPtr, akRef, akObject, akPNode, akCallable, akClosure, akDiscriminator:
-          unreachable($dTyp.kind)
+          unreachable(dTyp.kind)
 
       if idx <% maxLen:
         writeLoc(makeLocHandle(mHandle.getSubHandle(stride * idx), eTyp), regs[rc], c.memory)
@@ -2032,7 +2032,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         case x.kind
         of rkInt: $x.intVal
         of rkFloat: $x.floatVal
-        else: unreachable($x.kind)
+        else: unreachable(x.kind)
 
       let a = addr regs[ra]
       let l = addr regs[rb]
@@ -2235,7 +2235,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
               break
 
       else:
-        unreachable($value.kind)
+        unreachable(value.kind)
 
       assert c.code[pc+1].opcode == opcFJmp
       inc pc
@@ -2562,7 +2562,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         of akClosure:
           res = atom.closureVal.fnc.isNil
         of akInt, akFloat, akSet, akObject, akArray, akPNode, akDiscriminator:
-          unreachable($regs[rb].kind)
+          unreachable(regs[rb].kind)
       of rkNimNode:
         res = regs[rb].nimNode.kind == nkNilLit
       of rkAddress:
@@ -2962,7 +2962,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
           else:
             discard
         else:
-          unreachable($a.kind) # vmgen issue
+          unreachable(a.kind) # vmgen issue
 
       checkHandle(regs[rb])
       checkHandle(regs[rc])

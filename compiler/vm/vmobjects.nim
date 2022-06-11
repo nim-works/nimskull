@@ -362,7 +362,7 @@ func arrayLen*(loc: LocHandle): int =
   of akString:
     deref(loc).strVal.len
   else:
-    unreachable($loc.typ.kind)
+    unreachable(loc.typ.kind)
 
 
 template toOpenArray(a: VmString): untyped =
@@ -516,7 +516,7 @@ func getItemHandle*(loc: LocHandle, index: Natural): LocHandle =
     makeLocHandle(getSubHandle(loc.h, typ.elementStride * index), typ.elementType)
   else:
     # Not an array like type
-    unreachable($typ.kind)
+    unreachable(typ.kind)
 
 
 proc arrayCopy*(mm: var VmMemoryManager, dest, src: MemRegionPtr, count: Natural, elemTyp: PVmType, reset: static[bool]) =
