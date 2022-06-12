@@ -716,7 +716,7 @@ proc genBranchLit(c: var TCtx, n: PNode, t: PType): int =
         c.toStringCnst(it.strVal)
 
     else:
-      unreachable($t.kind)
+      unreachable(t.kind)
 
     result = c.rawGenLiteral(cnst)
 
