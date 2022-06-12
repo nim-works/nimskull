@@ -1466,7 +1466,6 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
         let param = strTableGet(c.signatures, arg.name)
         if param != nil:
           typ = param.typ
-
         else:
           localReport(c.config, a, reportSym(
             rsemParameterRequiresAType, arg))

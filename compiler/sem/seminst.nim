@@ -356,7 +356,12 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
     "Expected macro or template, but found " & $fn.kind)
 
   # generates an instantiated proc
-  if 64 < c.instCounter:
+  if c.instCounter > 64:
+    # xxx: likely buggy:
+    #      - we check for a different constant in `pragmas` (100)
+    #      - also each pragmas requires a macro eval, so it's a new context
+    #      - we don't seem to copy this value between contexts
+    #      - which means in non-trivial cases we can't terminate
     globalReport(c.config, info, SemReport(
       kind: rsemGenericInstantiationTooNested))
 
