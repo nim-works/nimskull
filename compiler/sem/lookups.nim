@@ -562,7 +562,7 @@ proc errorUndeclaredIdentifier*(
     kind: rsemUndeclaredIdentifier,
     str: name,
     spellingCandidates: candidates,
-    potentiallyRecursive: c.recursiveDep.len > 0
+    recursiveDep: c.recursiveDep
   ))
 
   if c.recursiveDep.len > 0:
@@ -603,7 +603,7 @@ proc createUndeclaredIdentifierError(
               kind: rsemUndeclaredIdentifier,
               str: name,
               spellingCandidates: candidates,
-              potentiallyRecursive: c.recursiveDep.len > 0
+              recursiveDep: c.recursiveDep
             ))
 
   if c.recursiveDep.len > 0:
@@ -669,16 +669,8 @@ proc errorUndeclaredIdentifierWithHint(
   ): PSym =
   ## creates an error symbol with hints as to what it might be eg: recursive
   ## imports
-  result = errorSym(c, n, c.config.newError(
-    n,
-    SemReport(
-      kind: rsemUndeclaredIdentifier,
-      potentiallyRecursive: c.recursiveDep.len > 0,
-      spellingCandidates: candidates,
-      str: name)))
-
-  if c.recursiveDep.len > 0:
-    c.recursiveDep.setLen 0
+  result = errorSym(c, n,
+            createUndeclaredIdentifierError(c, n, name, candidates))
 
 proc errorAmbiguousUseQualifier(
     c: PContext; ident: PIdent, n: PNode, candidates: seq[PSym]
@@ -754,9 +746,11 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       # skError is a const referring to skUnknown, which gets used in resolving
       # `result`, which starts off as undeclared/unknown.
       if result.isError and not amb and checkUndeclared in flags:
-        var rep = reportStr(rsemUndeclaredIdentifier, ident.s)
-        rep.spellingCandidates = c.fixSpelling(ident)
-        result.ast = c.config.newError(n, rep)
+        var candidates: seq[SemSpellCandidate]
+        if c.mustFixSpelling:
+          candidates = c.fixSpelling(ident)
+
+        result.ast = createUndeclaredIdentifierError(c, n, ident.s, candidates)
     else:
       let candidates = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
       result = symFromCandidates(c, candidates, ident, n, flags, amb)
@@ -769,11 +763,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       result = symFromCandidates(c, candidates, ident, n, flags, amb)
 
     if result.isNil and checkUndeclared in flags:
-      var candidates: seq[SemSpellCandidate]
-      if c.mustFixSpelling:
-        candidates = fixSpelling(c, ident)
-
-      result = errorUndeclaredIdentifierWithHint(c, n, ident.s, candidates)
+      result = errorUndeclaredIdentifierHint(c, n, ident)
 
     elif checkAmbiguity in flags and result != nil and amb:
       var
