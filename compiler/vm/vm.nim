@@ -63,8 +63,10 @@ import
     vmerrors,
     vmgen,
     vmdef,
+    vmhooks,
     vmmemory,
     vmobjects,
+    vmops,
     vmtypegen,
     vmtypes
   ],
@@ -78,6 +80,9 @@ import
 
 import std/options as stdoptions
 from std/math import round
+
+# these were includes previously, so they're re-exported for compatibility
+export vmhooks, vmops
 
 const
   traceCode = defined(nimVMDebugExecute)
@@ -339,7 +344,6 @@ template decodeBx() {.dirty.} =
 template move(a, b: untyped) {.dirty.} = system.shallowCopy(a, b)
 # XXX fix minor 'shallowCopy' overloading bug in compiler
 
-include vmhooks
 
 template rawPointer(x: LocHandle): untyped =
   x.h.rawPointer
@@ -3454,8 +3458,6 @@ proc setGlobalValue*(c: var TCtx; s: PSym, val: PNode) =
   let slot = c.heap.slots[slotIdx]
 
   c.serialize(val, slot.handle)
-
-include vmops
 
 proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
   addInNimDebugUtils(graph.config, "setupGlobalCtx")
