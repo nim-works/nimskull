@@ -7,7 +7,21 @@
 #    distribution, for details about the copyright.
 #
 
-import compiler/utils/pathutils
+## Various helpers for interacting with registers from inside a VM callback
+## implementations
+
+import
+  compiler/ast/[
+    ast_types
+  ],
+  compiler/utils/[
+    pathutils
+  ],
+  compiler/vm/[
+    vmdef,
+    vmmemory,
+    vmobjects
+  ]
 
 # XXX: proper error handling is missing here. Since these functions are exposed
 # via the compilerapi, `doAssert` is used for pre-condition checking

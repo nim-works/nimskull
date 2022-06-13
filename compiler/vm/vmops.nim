@@ -7,8 +7,33 @@
 #    distribution, for details about the copyright.
 #
 
-# Unfortunately this cannot be a module yet:
-#import vmdeps, vm
+import
+  compiler/ast/[
+    ast_types,
+    ast,
+    idents,
+    reports,
+  ],
+  compiler/front/[
+    options
+  ],
+  compiler/sem/[
+    sighashes
+  ],
+  compiler/vm/[
+    gorgeimpl,
+    vmconv,
+    vmdef,
+    vmdeps,
+    vmerrors,
+    vmhooks,
+    vmmemory,
+    vmobjects
+  ],
+  experimental/[
+    results
+  ]
+
 from std/math import sqrt, ln, log10, log2, exp, round, arccos, arcsin,
   arctan, arctan2, cos, cosh, hypot, sinh, sin, tan, tanh, pow, trunc,
   floor, ceil, `mod`, cbrt, arcsinh, arccosh, arctanh, erf, erfc, gamma,
@@ -30,9 +55,8 @@ from std/hashes import hash
 from std/osproc import nil
 from system/formatfloat import writeFloatToBufferSprintf
 
+from compiler/modules/modulegraphs import `$`
 
-# There are some useful procs in vmconv.
-import vmconv
 
 template mathop(op) {.dirty.} =
   registerCallback(c, "stdlib.math." & astToStr(op), `op Wrapper`)
@@ -112,7 +136,7 @@ proc getCurrentExceptionMsgWrapper(a: VmArgs) {.nimcall.} =
   else:
     let h = tryDeref(a.heap[], a.currentException, noneType).value()
 
-    a.slots[a.ra].strVal.asgnVmString(
+    deref(a.slots[a.ra].handle).strVal.asgnVmString(
       deref(h.getFieldHandle(FieldPosition(2))).strVal,
       a.mem.allocator)
 
