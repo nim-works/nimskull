@@ -17,4 +17,23 @@ static:
     discard someFunc()
   except:
     discard
-  
+
+static:
+  proc raiseEx() =
+    raise ValueError.newException("A")
+
+  proc doSomething() = discard
+
+  try:
+    try:
+      raiseEx() # it's important that the exception is raised from a
+                # function here
+    finally:
+      doSomething()
+      raise ValueError.newException("B") # raise a different exception while
+                                         # another exception is already active
+
+  except ValueError as e:
+    # the `except` needs to be on the same stack-frame as the `raise` in the
+    # `finally` block
+    doAssert e.msg == "B"

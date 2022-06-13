@@ -922,13 +922,15 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
     updateRegsAlias
 
   template popFrame() =
+    assert tos == c.sframes.high
+    cleanUpLocations(c.memory, c.sframes[tos])
+
+    # if `popFrame` is called during exception handling (e.g. on returning
+    # from a function call in a `finally` block), `next` is not neccessarily
+    # `tos - 1`
     tos = c.sframes[tos].next
-    # Possibly throws aways all frames left alive for `raise`
-    # handling, but since the exception is swallowed anyway,
-    # it doesn't really matter
-    for i in (tos+1)..<c.sframes.len:
-      cleanUpLocations(c.memory, c.sframes[i])
-    c.sframes.setLen(tos + 1)
+
+    c.sframes.setLen(c.sframes.len - 1)
     updateRegsAlias
 
   template gotoFrame(f: int) =
@@ -937,6 +939,8 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
     updateRegsAlias
 
   template unwindToFrame(f: int) =
+    ## Destroys all frames above `f` (the stack top is the most recent frame)
+    ## and sets the frame pointer to `f`
     let nf = f
     assert nf in 0..c.sframes.high
     for i in (nf+1)..<c.sframes.len:
@@ -2320,8 +2324,10 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         # Jump to the handler, do nothing when the `finally` block ends.
         savedPC = -1
         pc = jumpTo.where - 1
-        if tos != frame:
-          unwindToFrame(frame)
+        # Unwind even if `tos == frame`, since there might be (now stale)
+        # frames above `tos`. This can happen when raising inside a `finally`
+        # while an exception is already active
+        unwindToFrame(frame)
       of ExceptionGotoFinally:
         # Jump to the `finally` block first then re-jump here to continue the
         # traversal of the exception chain
