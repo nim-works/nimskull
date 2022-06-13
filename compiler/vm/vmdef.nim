@@ -103,6 +103,10 @@ type
     slotTempHandle,   ## some temporary handle into an object/array
     slotTempPerm      ## slot is temporary but permanent (hack)
 
+  CodeInfo* = tuple
+    start: int ## The position where the bytecode starts
+    regCount: int ## The maximum number of registers required to run the code
+
   AtomKind* = enum
     akInt
     akFloat
@@ -242,21 +246,21 @@ type
 
   VmFunctionPtr* = distinct int
 
-  VmFunctionObject* = object
-    ## Represents a callable procedure inside the VM, storing all information
-    ## necessary to call the procedure.
+  FuncTableEntry* = object
+    ## A function table entry. Stores all information necessary to call the
+    ## corresponding procedure
 
-    # TODO: type needs some cleanup
-    prc*: PSym
+    sym*: PSym
     retValDesc*: PVmType ## the return value type (may be empty)
     envParamType*: PVmType ## the type of the hidden environment parameter
     sig*: RoutineSigId
 
-    # XXX: if it would be explicitly forbidden to modify the callbacks after
-    #      the first vmgen run, we could also store the callback proc here. Would
-    #      save us one additional lookup
-    cbOffset*: int ## for callbacks; the index into the callback list
-    kind*: CallableKind
+    case kind*: CallableKind
+    of ckDefault:
+      regCount*: uint16
+      start*: int ## the code position where the function starts
+    of ckCallback:
+      cbOffset*: int ## the index into the callback list
 
   VmClosure* = object
     fnc*: VmFunctionPtr
@@ -482,6 +486,29 @@ type
   #      - 'vmgen' state: auxiliary data used during code generation, reused
   #        across vmgen invocations for efficiency
 
+  LinkIndex* = uint32 ## Depending on the context: `FunctionIndex`; index
+    ## into `TCtx.globals`; index into `TCtx.complexConsts`
+
+  # XXX: design of `CodeGenInOut` is not yet final
+  CodeGenInOut* = object
+    ## Mutable global state for the code-generator (`vmgen`) that is not
+    ## directly related to the code being generated.
+    ##
+    ## The `newX` seqs accumulate the symbols added to `symToIndexTbl` during
+    ## code-gen, with a seq for each link-item kind. They're never reset by
+    ## `vmgen`.
+    ##
+    ## The `nextX` values hold the `LinkIndex` to use for new entries
+    ## added to `symToIndexTbl`. They're incremented after a respective
+    ## new entry is added.
+    newProcs*: seq[PSym]
+    newGlobals*: seq[PSym]
+    newConsts*: seq[PSym]
+
+    nextProc*: LinkIndex
+    nextGlobal*: LinkIndex
+    nextConst*: LinkIndex
+
   PCtx* = ref TCtx
   TCtx* = object of TPassContext
     # XXX: TCtx stores three different things:
@@ -503,15 +530,18 @@ type
 
     rtti*: seq[VmTypeInfo] ## run-time-type-information as needed by
                            ## conversion and `repr`
-    functions*: seq[VmFunctionObject] ## all functions known to the VM. Indexed
-                                      ## by `FunctionIndex`
+    functions*: seq[FuncTableEntry] ## the function table. Contains an entry
+      ## for each procedure known to the VM. Indexed by `FunctionIndex`
     memory*: VmMemoryManager
 
-    # XXX: could and should be merged with `procToCodePos` table
-    procToFuncObj*: Table[int, FunctionIndex] ## symbol id -> index into `functions`
-    # TODO: `procToFuncObj` and `symToConst` should be merged into a single
-    #       table (a `.union` could be used for the value)
-    symToConst*: Table[int, int] ## symbol id -> index into `complexConsts`
+    # linker state:
+    symToIndexTbl*: Table[int, LinkIndex] ## keeps track of all known
+      ## dependencies. Expanded during code-generation and used for looking
+      ## up the link-index (e.g. `FunctionIndex`) of a symbol
+
+    codegenInOut*: CodeGenInOut ## Input and outputs to vmgen
+    # TODO: `codegenInOut` shouldn't be part of `TCtx` but rather a `var`
+    #       parameter for the various codegen functions
 
     currentExceptionA*, currentExceptionB*: HeapSlotHandle
     exceptionInstr*: int # index of instruction that raised the exception
@@ -535,7 +565,6 @@ type
     profiler*: Profiler
     templInstCounter*: ref int # gives every template instantiation a unique ID, needed here for getAst
     vmstateDiff*: seq[(PSym, PNode)] # we remember the "diff" to global state here (feature for IC)
-    procToCodePos*: Table[int, int]
 
   StackFrameIndex* = int
 
@@ -563,6 +592,8 @@ template `-`*(a: FieldIndex, b: int): FieldIndex =
   let n = int(a) - b
   rangeCheck(n >= 0)
   FieldIndex(n)
+
+func `==`*(a, b: FunctionIndex): bool {.borrow.}
 
 template fieldAt*(x: VmType, i: FieldIndex): untyped =
   x.objFields[i.int]

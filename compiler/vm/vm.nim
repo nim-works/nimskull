@@ -56,11 +56,11 @@ import
     gorgeimpl,
     vmchecks,
     vmcompilerserdes,
+    vmdef,
     vmdeps,
     vmerrors,
-    vmgen,
-    vmdef,
     vmhooks,
+    vmjit,
     vmmemory,
     vmobjects,
     vmops,
@@ -190,6 +190,11 @@ proc toVmError(c: DerefFailureCode, inst: InstantiationInfo): ref VmError =
 template toException(x: DerefFailureCode): untyped =
   ## `Result` -> exception translation
   toVmError(x, instLoc())
+
+func toException*(r: sink SemReport): ref VmError {.noinline.} =
+  ## Implements the `toException` interface for use with `Result`
+  new(result)
+  result.report = r
 
 proc reportException(c: TCtx; sframe: StackFrameIndex, raised: LocHandle) =
   ## Reports the exception represented by `raised` by raising a `VmError`
@@ -723,15 +728,6 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
     else:
       asgnValue(c.memory, dest, src)
 
-func toException(r: sink SemReport): ref VmError {.noinline.} =
-  new(result)
-  result.report = r
-
-proc compile(c: var TCtx, s: PSym): int =
-  result = vmgen.genProc(c, s).value()
-
-  when debugEchoCode:
-    c.codeListing(s, nil, start = result)
 
 template handleJmpBack() {.dirty.} =
   if c.loopIterations <= 0:
@@ -2121,12 +2117,12 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       if unlikely(fPtr.isNil):
         raiseVmError(reportSem(rsemVmNilAccess))
 
-      let bb = c.functions[int toFuncIndex(fPtr)]
-      assert bb.sig == h.typ.routineSig
-      let retType = bb.retValDesc
+      let entry = c.functions[int toFuncIndex(fPtr)]
+      assert entry.sig == h.typ.routineSig
+      let retType = entry.retValDesc
 
-      let prc = bb.prc
-      case bb.kind:
+      let prc = entry.sym
+      case entry.kind:
       of ckCallback:
         # it's a callback:
         if instr.opcode == opcIndCallAsgn:
@@ -2141,7 +2137,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         for i in (rb+1)..<(rb+rc):
           checkHandle(regs[i])
 
-        c.callbacks[bb.cbOffset](
+        c.callbacks[entry.cbOffset](
           VmArgs(ra: ra, rb: rb, rc: rc, slots: cast[ptr UncheckedArray[TFullReg]](addr regs[0]),
                  currentException: c.currentExceptionA,
                  currentLineInfo: c.debug[pc],
@@ -2149,13 +2145,19 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
                  mem: addr c.memory,
                  heap: addr c.heap))
       of ckDefault:
-        let newPc = compile(c, prc)
+        let (newPc, regCount) =
+          if entry.start >= 0:
+            (entry.start, entry.regCount.int)
+          else:
+            let r = compile(c, toFuncIndex(fPtr))
+            r.value()
+
         # tricky: a recursion is also a jump back, so we use the same
         # logic as for loops:
         if newPc < pc: handleJmpBack()
         #echo "new pc ", newPc, " calling: ", prc.name.s
         var newFrame = TStackFrame(prc: prc, comesFrom: pc, next: tos)
-        newFrame.slots.newSeq(prc.offset+ord(isClosure))
+        newFrame.slots.newSeq(regCount+ord(isClosure))
         if retType.isValid:
           # TODO: instead of initializing the result register here, it should
           #       be done by vmgen via `opcLdNull`
@@ -2164,7 +2166,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         for i in 1..rc-1:
           newFrame.slots[i].fastAsgnComplex(regs[rb+i])
 
-        let envPType = bb.envParamType
+        let envPType = entry.envParamType
         if isClosure:
           let env = deref(h).closureVal.env
           if not env.isNil:
@@ -2425,14 +2427,13 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         copyToLocation(regs[ra].handle, cnst, c.memory, false)
       ]#
     of opcLdGlobal:
-      let rb = instr.regBx - wordExcess - 1
+      let rb = instr.regBx - wordExcess
       let slot = c.globals[rb]
       ensureKind(rkHandle)
       regs[ra].setHandle(c.heap.slots[slot].handle)
     of opcLdGlobalAddr:
       # a = addr to globals[b]
-      let rb = instr.regBx - wordExcess - 1 # -1 since global indices are
-                          # 1-based (zero indicates not-initialized state)
+      let rb = instr.regBx - wordExcess
 
       let handle = c.heap.slots[c.globals[rb]].handle
       ensureKind(rkAddress)
@@ -3327,12 +3328,13 @@ proc unpackResult(res: sink ExecutionResult; config: ConfigRef, node: PNode): PN
     result = config.newError(node, errKind, rId, instLoc(-1)):
                              [newIntNode(nkIntLit, ord(stId))]
 
-proc execute(c: var TCtx, start: int): ExecutionResult =
+proc execute(c: var TCtx, info: CodeInfo): ExecutionResult =
   var tos = TStackFrame(prc: nil, comesFrom: 0, next: -1)
-  tos.slots.newSeq(c.prc.regInfo.len)
-  execute(c, start, tos, proc(c: TCtx, r: TFullReg): PNode = c.graph.emptyNode)
+  tos.slots.newSeq(info.regCount)
+  execute(c, info.start, tos,
+          proc(c: TCtx, r: TFullReg): PNode = c.graph.emptyNode)
 
-template returnOnErr(res: VmGenResult, config: ConfigRef, node: PNode): int =
+template returnOnErr(res: VmGenResult, config: ConfigRef, node: PNode): CodeInfo =
   ## Unpacks the vmgen result. If the result represents an error, exits the
   ## calling function by returning a new `nkError` wrapping `node`
   let r = res
@@ -3361,6 +3363,7 @@ proc reportIfError(config: ConfigRef, n: PNode) =
       config.handleReport(n[3].intVal.ReportId, instLoc(-1)) # stack-trace
     config.localReport(n)
 
+
 proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
   # XXX: `localReport` is still used here since execProc is only used by the
   # VM's compilerapi (`nimeval`) whose users don't know about nkError yet
@@ -3376,17 +3379,16 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
           got: toInt128(args.len))))
 
     else:
-      let start = block:
+      let (start, maxSlots) = block:
         # XXX: `returnOnErr` should be used here instead, but isn't for
         #      backwards compatiblity
-        let r = genProc(c, sym)
+        let r = loadProc(c, sym)
         if unlikely(r.isErr):
           localReport(c.config, r.takeErr)
           return nil
         r.unsafeGet
 
       var tos = TStackFrame(prc: sym, comesFrom: 0, next: -1)
-      let maxSlots = sym.offset
       tos.slots.newSeq(maxSlots)
 
       # setup parameters:
@@ -3417,12 +3419,12 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
 
 proc evalStmt(c: var TCtx, n: PNode): PNode =
   let n = transformExpr(c.graph, c.idgen, c.module, n)
-  let start = genStmt(c, n).returnOnErr(c.config, n)
+  let info = genStmt(c, n).returnOnErr(c.config, n)
 
   # execute new instructions; this redundant opcEof check saves us lots
   # of allocations in 'execute':
-  if c.code[start].opcode != opcEof:
-    result = execute(c, start).unpackResult(c.config, n)
+  if c.code[info.start].opcode != opcEof:
+    result = execute(c, info).unpackResult(c.config, n)
   else:
     result = c.graph.emptyNode
 
@@ -3431,10 +3433,10 @@ proc evalExpr*(c: var TCtx, n: PNode): PNode =
   # `nim --eval:"expr"` might've used it at some point for idetools; could
   # be revived for nimsuggest
   let n = transformExpr(c.graph, c.idgen, c.module, n)
-  let start = genExpr(c, n).returnOnErr(c.config, n)
+  let info = genExpr(c, n).returnOnErr(c.config, n)
 
-  assert c.code[start].opcode != opcEof
-  result = execute(c, start).unpackResult(c.config, n)
+  assert c.code[info.start].opcode != opcEof
+  result = execute(c, info).unpackResult(c.config, n)
 
 # XXX: the compilerapi regarding globals (getGlobalValue/setGlobalValue)
 #      doesn't work the same as before. Previously, the returned PNode
@@ -3445,7 +3447,7 @@ proc getGlobalValue*(c: TCtx; s: PSym): PNode =
   ## Does not perform type checking, so ensure that `s.typ` matches the
   ## global's type
   internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
-  let slotIdx = c.globals[s.position-1]
+  let slotIdx = c.globals[c.symToIndexTbl[s.id]]
   let slot = c.heap.slots[slotIdx]
 
   result = c.deserialize(slot.handle, s.typ, s.info)
@@ -3453,7 +3455,7 @@ proc getGlobalValue*(c: TCtx; s: PSym): PNode =
 proc setGlobalValue*(c: var TCtx; s: PSym, val: PNode) =
   ## Does not do type checking so ensure the `val` matches the `s.typ`
   internalAssert(c.config, s.kind in {skLet, skVar} and sfGlobal in s.flags)
-  let slotIdx = c.globals[s.position-1]
+  let slotIdx = c.globals[c.symToIndexTbl[s.id]]
   let slot = c.heap.slots[slotIdx]
 
   c.serialize(val, slot.handle)
@@ -3505,8 +3507,7 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
   let oldMode = c.mode
   c.mode = mode
   let requiresValue = mode!=emStaticStmt
-
-  let start = genExpr(c[], n, requiresValue).returnOnErr(c.config, n)
+  let (start, regCount) = genExpr(c[], n, requiresValue).returnOnErr(c.config, n)
 
   if c.code[start].opcode == opcEof: return newNodeI(nkEmpty, n.info)
   assert c.code[start].opcode != opcEof
@@ -3514,8 +3515,8 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
     c.codeListing(prc, n)
 
   var tos = TStackFrame(prc: prc, comesFrom: 0, next: -1)
-  tos.slots.newSeq(c.prc.regInfo.len)
-  #for i in 0..<c.prc.regInfo.len: tos.slots[i] = newNode(nkEmpty)
+  tos.slots.newSeq(regCount)
+  #for i in 0..<regCount: tos.slots[i] = newNode(nkEmpty)
   let cb =
     if requiresValue:
       mkCallback(c, r): c.regToNode(r, n.typ, n.info)
@@ -3597,11 +3598,10 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
   c.callsite = n
   c.templInstCounter = templInstCounter
 
-  let start = genProc(c[], sym).returnOnErr(c.config, n)
+  let (start, regCount) = loadProc(c[], sym).returnOnErr(c.config, n)
 
   var tos = TStackFrame(prc: sym, comesFrom: 0, next: -1)
-  let maxSlots = sym.offset
-  tos.slots.newSeq(maxSlots)
+  tos.slots.newSeq(regCount)
   # setup arguments:
   var L = n.safeLen
   if L == 0: L = 1
