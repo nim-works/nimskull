@@ -40,7 +40,7 @@ type
   FileHandle* = cint ## type that represents an OS file handle; this is
                       ## useful for low-level file access
 
-const isNimVmTarget = defined(nimscript)
+const isNimVmTarget = defined(nimscript) or defined(vm)
 
 # text file handling:
 when not isNimVmTarget and not defined(js):

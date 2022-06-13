@@ -139,6 +139,7 @@ type
     backendCpp = "cpp"
     backendJs = "js"
     backendObjc = "objc"
+    backendNimVm = "vm"
     # backendNimscript = "nimscript" # this could actually work
     # backendLlvm = "llvm" # probably not well supported; was cmdCompileToLLVM
 
@@ -150,6 +151,7 @@ type
     cmdCompileToCpp
     cmdCompileToOC
     cmdCompileToJS
+    cmdCompileToVM
     cmdCrun        ## compile and run in nimache
     cmdTcc         ## run the project via TCC backend
     cmdCheck       ## semantic checking for whole project

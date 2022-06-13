@@ -4,8 +4,10 @@ Test inline iterators, `break`, `continue`, and other control-flow controls
 for the for loop. Returning values from the iterators, order of control-flow
 transfer bettween body of the iterator and main loop.
 '''
+targets: "!vm"
 """
 
+# knownIssue: try/finally in the VM is broken in non-simple cases
 
 ## An iterator is similar to a procedure, except that it can be called in
 ## the context of a `for` loop. Iterators provide a way to specify the
@@ -137,6 +139,7 @@ block iterator_and_break:
       values.add $item
       break
 
+    echo values
     doAssert values == @[
       "resource setup",
       "before 1",

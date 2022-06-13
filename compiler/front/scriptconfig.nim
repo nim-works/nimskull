@@ -62,6 +62,9 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
               graph: ModuleGraph; idgen: IdGenerator): PEvalContext =
   # For Nimble we need to export 'setupVM'.
   result = newCtx(module, cache, graph, idgen)
+  # for backwards compatibility, allow meta expressions in nimscript (this
+  # matches the previous behaviour)
+  result.codegenInOut.flags = {cgfAllowMeta}
   result.mode = emRepl
   registerBasicOps(result[])
   let conf = graph.config

@@ -551,7 +551,7 @@ const
 include "system/inclrtl"
 
 const
-  isNimVmTarget = defined(nimscript)
+  isNimVmTarget = defined(nimscript) or defined(vm)
   notJSnotNims = not defined(js) and not isNimVmTarget
 
 when not defined(js) and not defined(nimSeqsV2):

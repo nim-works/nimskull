@@ -337,7 +337,7 @@ proc getConfigVar(conf: ConfigRef; c: TSystemCC, suffix: string): string =
   # for niminst support
   var fullSuffix = suffix
   case conf.backend
-  of backendCpp, backendJs, backendObjc: fullSuffix = "." & $conf.backend & suffix
+  of backendCpp, backendJs, backendObjc, backendNimVm: fullSuffix = "." & $conf.backend & suffix
   of backendC: discard
   of backendInvalid:
     # during parsing of cfg files; we don't know the backend yet, no point in

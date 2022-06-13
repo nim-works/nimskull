@@ -3,6 +3,7 @@ Advanced commands:
   //compileToCpp, cpp       compile project to C++ code
   //compileToOC, objc       compile project to Objective C code
   //js                      compile project to Javascript
+  //vm                      compile project to NimVM
   //e                       run a Nimscript file
   //rst2html                convert a reStructuredText file to HTML
                             use `--docCmd:skip` to skip compiling snippets
@@ -100,7 +101,7 @@ Advanced options:
                             if path == @default (the default and most useful), will use
                             best match among @pkg,@path.
                             if these are nonexistent, will use project path
-  -b, --backend:c|cpp|js|objc
+  -b, --backend:c|cpp|js|objc|vm
                             sets backend to use with commands like `nim doc` or `nim r`
   --docCmd:cmd              if `cmd == skip`, skips runnableExamples
                             else, runs runnableExamples with given options, e.g.:

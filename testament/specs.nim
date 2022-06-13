@@ -59,6 +59,7 @@ type
     targetCpp = "cpp"
     targetObjC = "objc"
     targetJS = "js"
+    targetVM = "vm"
 
   SpecifiedTarget* = enum
     addTargetC = "c"
@@ -69,6 +70,8 @@ type
     remTargetObjC = "!objc"
     addTargetJS = "js"
     remTargetJS = "!js"
+    addTargetVM = "vm"
+    remTargetVM = "!vm"
     addTargetNative = "native"
     addCategoryTargets = "default"
     remCategoryTargets = "!default"
@@ -146,6 +149,7 @@ func ext*(t: TTarget): string {.inline.} =
     of targetCpp:  "nim.cpp"
     of targetObjC: "nim.m"
     of targetJS:   "js"
+    of targetVM:   ""
 
 func cmd*(t: TTarget): string {.inline.} =
   ## read-only field providing the command string for the given target
@@ -154,6 +158,7 @@ func cmd*(t: TTarget): string {.inline.} =
     of targetCpp:  "cpp"
     of targetObjC: "objc"
     of targetJS:   "js"
+    of targetVM:   "vm"
 
 func defaultOptions*(a: TTarget): string {.inline.} =
   case a
@@ -286,6 +291,7 @@ proc parseTargets*(value: string): set[TTarget] =
       of "cpp", "c++": targetCpp
       of "objc":       targetObjC
       of "js":         targetJS
+      of "vm":         targetVM
       else: raise newException(ValueError, "invalid target: '$#'" % v)
 
 proc parseSpecifiedTargets*(value: string): set[SpecifiedTarget] =
@@ -297,12 +303,14 @@ proc parseSpecifiedTargets*(value: string): set[SpecifiedTarget] =
       of "cpp", "c++":   addTargetCpp
       of "objc":         addTargetObjC
       of "js":           addTargetJS
+      of "vm":           addTargetVM
       of "native":       addTargetNative
       of "default":      addCategoryTargets
       of "!c":           remTargetC
       of "!cpp", "!c++": remTargetCpp
       of "!objc":        remTargetObjC
       of "!js":          remTargetJS
+      of "!vm":          remTargetVM
       of "!default":     remCategoryTargets
       else: raise newException(ValueError,
                                "invalid target specificatoin: '$#'" % v)
@@ -496,9 +504,10 @@ proc parseSpec*(filename: string,
           of addTargetCpp: result.targets.incl targetCpp
           of addTargetObjc: result.targets.incl targetObjC
           of addTargetJS: result.targets.incl targetJS
+          of addTargetVM: result.targets.incl targetVM
           of addTargetNative: result.targets.incl nativeTarget
           of addCategoryTargets: result.targets = result.targets + catTargets
-          of remTargetC, remTargetCpp, remTargetObjc, remTargetJS,
+          of remTargetC, remTargetCpp, remTargetObjc, remTargetJS, remTargetVM,
              remCategoryTargets:
                discard
         
@@ -513,8 +522,9 @@ proc parseSpec*(filename: string,
           of remTargetCpp: result.targets.excl targetCpp
           of remTargetObjc: result.targets.excl targetObjC
           of remTargetJS: result.targets.excl targetJS
+          of remTargetVM: result.targets.excl targetVM
           of remCategoryTargets: result.targets = result.targets - catTargets
-          of addTargetC, addTargetCpp, addTargetObjc, addTargetJS,
+          of addTargetC, addTargetCpp, addTargetObjc, addTargetJS, addTargetVM,
              addTargetNative, addCategoryTargets:
                discard
         

@@ -597,6 +597,7 @@ proc parseCommand*(command: string): Command =
   of "cpp", "compiletocpp": cmdCompileToCpp
   of "objc", "compiletooc": cmdCompileToOC
   of "js", "compiletojs": cmdCompileToJS
+  of "vm", "compiletovm": cmdCompileToVM
   of "r": cmdCrun
   of "run": cmdTcc
   of "check": cmdCheck
@@ -626,6 +627,7 @@ proc setCmd*(conf: ConfigRef, cmd: Command) =
   of cmdCompileToCpp: conf.backend = backendCpp
   of cmdCompileToOC: conf.backend = backendObjc
   of cmdCompileToJS: conf.backend = backendJs
+  of cmdCompileToVM: conf.backend = backendNimVm
   else: discard
 
 proc setCommandEarly*(conf: ConfigRef, command: string) =
@@ -771,7 +773,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     processOnOffSwitchG(
       conf, {optWholeProject, optGenIndex}, arg, pass, info, switch)
   of "gc":
-    if conf.backend == backendJs: return # for: bug #16033
+    if conf.backend in {backendJs, backendNimVm}: return # for: bug #16033
     expectArg(conf, switch, arg, pass, info)
     if pass in {passCmd2, passPP}:
       case arg.normalize

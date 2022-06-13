@@ -82,6 +82,8 @@ type
     emStaticExpr,             ## evaluate for enforced compile time eval
                               ## ('static' context)
     emStaticStmt              ## 'static' as an expression
+    emStandalone              ## standalone execution separate from
+                              ## code-generation
 
   TSandboxFlag* = enum        ## what the evaluation engine should allow
     allowCast,                ## allow unsafe language feature: 'cast'
@@ -486,6 +488,13 @@ type
   #      - 'vmgen' state: auxiliary data used during code generation, reused
   #        across vmgen invocations for efficiency
 
+  CodeGenFlag* = enum
+    cgfAllowMeta ## If not present, type or other meta expressions are
+                 ## disallowed in imperative contexts and code-gen for meta
+                 ## function arguments (e.g. `typedesc`) is suppressed
+    cgfCollectGlobals ## If present, the ident defs of `{.global.}` variables
+                      ## are collected instead of code-gen'ed
+
   LinkIndex* = uint32 ## Depending on the context: `FunctionIndex`; index
     ## into `TCtx.globals`; index into `TCtx.complexConsts`
 
@@ -508,6 +517,12 @@ type
     nextProc*: LinkIndex
     nextGlobal*: LinkIndex
     nextConst*: LinkIndex
+
+    globalDefs*: seq[PNode] ## output; collected `{.global.}` definitions.
+                            ## They're only collected if `cgfCollectGlobals`
+                            ## is active
+
+    flags*: set[CodeGenFlag] ## input
 
   PCtx* = ref TCtx
   TCtx* = object of TPassContext
@@ -614,7 +629,7 @@ template types*(c: TCtx): untyped =
   ## Transition helper
   c.typeInfoCache.types
 
-proc init(cache: var TypeInfoCache) =
+proc init*(cache: var TypeInfoCache) =
   template mkDesc(ak, s, a): untyped =
     PVmType(kind: ak, sizeInBytes: uint(s), alignment: a)
 

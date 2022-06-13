@@ -3411,6 +3411,10 @@ proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
         r.jsonScriptParams[2],
       ]
 
+    of rbackVmFileWriteFailed:
+      result = "writing to output file '$1' failed with error: '$2'" %
+               [r.outFilename, r.failureMsg]
+
     of rbackRstCannotOpenFile:
       result = "cannot open '$1'" % r.msg
 
