@@ -25,9 +25,6 @@ import
   compiler/front/[
     options,
   ],
-  compiler/ic/[
-    bitabs
-  ],
   compiler/utils/[
     debugutils
   ]
@@ -353,8 +350,6 @@ type
     ## execution engine. This currently includes constants for both internal
     ## use as well as user-defined literal values (e.g. string literals).
 
-    # XXX: the plan is to use `VmConstant` for internal purposes only (no user
-    #      literal values)
     case kind*: ConstantKind
     of cnstInt:
       intVal*: BiggestInt
@@ -362,8 +357,7 @@ type
       floatVal*: BiggestFloat
     of cnstString:
       strVal*: LocHandle
-      # XXX: user-defined string literals should be merged with the
-      #      `opcMatConst` mechanism and `strVal` should be a simple `string`
+      # XXX: `strVal` should be a simple `string`
     of cnstNode:
       node*: PNode
 
@@ -467,12 +461,6 @@ type
 
   FunctionIndex* = distinct int
 
-  # TODO: needs a better name
-  MaterializedConst* = object
-    sym*: PSym ## The `const` symbol
-    handle*: LocHandle ## The materialized value or an invalid handle if the
-                       ## `const` hasn't been materialized yet
-
   # XXX: TCtx's contents should be separated into five parts (separate object
   #      types):
   #      - 'execution state': stack frames, program counter, etc.; everything
@@ -501,6 +489,8 @@ type
     sframes*: seq[TStackFrame] ## The stack of the currently running code # XXX: rename to `stack`?
     globals*: seq[HeapSlotHandle] ## Stores each global's corresponding heap slot
     constants*: seq[VmConstant] ## constant data
+    complexConsts*: seq[LocHandle] ## complex constants (i.e. everything that
+                                   ## is not a int/float/string literal)
 
     typeInfoCache*: TypeInfoCache ## manages the types used by the VM
 
@@ -510,11 +500,11 @@ type
                                       ## by `FunctionIndex`
     memory*: VmMemoryManager
 
-    materializedConsts*: BiTable[MaterializedConst] ##
-      ## `const` id <-> `const` info
-
     # XXX: could and should be merged with `procToCodePos` table
     procToFuncObj*: Table[int, FunctionIndex] ## symbol id -> index into `functions`
+    # TODO: `procToFuncObj` and `symToConst` should be merged into a single
+    #       table (a `.union` could be used for the value)
+    symToConst*: Table[int, int] ## symbol id -> index into `complexConsts`
 
     currentExceptionA*, currentExceptionB*: HeapSlotHandle
     exceptionInstr*: int # index of instruction that raised the exception
@@ -827,9 +817,6 @@ func safeZeroMem*(dest: var openArray[byte], numBytes: Natural) =
     # Calling `safeZeroMem` with empty `dest` would erroneously raise without this check
     zeroMem(addr dest[0], numBytes)
 
-
-func hash*(x: MaterializedConst): int {.inline.} =
-  hash(x.sym.itemId)
 
 # XXX: `unreachable` and it's implementation details don't really belong here.
 #      They're also useful outside of VM related code

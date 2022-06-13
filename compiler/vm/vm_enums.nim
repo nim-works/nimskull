@@ -161,8 +161,7 @@ type
     opcLdGlobal,  # dest = globals[Bx]
     opcLdGlobalAddr, # dest = addr(globals[Bx])
 
-    # TODO: maybe needs a better name?
-    opcMatConst, # materialize a `const c`
+    opcLdCmplxConst, # dest = complexConsts[Bx]
 
     opcLdImmInt,  # dest = immediate value
     opcNBindSym,

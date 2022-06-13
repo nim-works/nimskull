@@ -10,7 +10,7 @@ discard """
 # This test file tests four things:
 # * VM representation -> PNode tree representation (via `deserialize`)
 # * PNode tree representation -> VM representation (via `serialize` and `putIntoReg`)
-# * `const` materializing (`opcMatConst` and `vmgen`)
+# * loading of `const` value into VM memory (`serialize` and `vmgen`)
 # * is the backend able to embed the constant?
 
 template testCase(n, ty, setup, testCode) =
@@ -22,7 +22,7 @@ template testCase(n, ty, setup, testCode) =
   m(c) # `serialize` and `putIntoReg` happen here
 
   static:
-    let n: ty = c # Usage in static context (`opcMatConst`)
+    let n: ty = c # Usage in static context
     testCode
 
   when not declared(disableBackend):
