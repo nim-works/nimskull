@@ -2137,7 +2137,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         for i in (rb+1)..<(rb+rc):
           checkHandle(regs[i])
 
-        c.callbacks[bb.cbOffset].value(
+        c.callbacks[bb.cbOffset](
           VmArgs(ra: ra, rb: rb, rc: rc, slots: cast[ptr UncheckedArray[TFullReg]](addr regs[0]),
                  currentException: c.currentExceptionA,
                  currentLineInfo: c.debug[pc],
@@ -2576,7 +2576,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         rb = instr.regB
         rc = instr.regC
         idx = int(regs[rb+rc-1].intVal)
-        callback = c.callbacks[idx].value
+        callback = c.callbacks[idx]
         args = VmArgs(ra: ra, rb: rb, rc: rc, slots: cast[ptr UncheckedArray[TFullReg]](addr regs[0]),
                 currentException: c.currentExceptionA,
                 currentLineInfo: c.debug[pc],

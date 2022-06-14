@@ -24,30 +24,26 @@ from compiler/ast/nimsets import overlap
 from compiler/sem/lambdalifting import getEnvParam
 
 # XXX: this proc was previously located in ``vmgen.nim``
-func matches(s: PSym; x: string): bool =
-  let y = x.split('.')
+func matches(s: PSym; x: IdentPattern): bool =
   var s = s
-  for i in 1..y.len:
-    if s == nil or (y[^i].cmpIgnoreStyle(s.name.s) != 0 and y[^i] != "*"):
+  for part in rsplit(string(x), '.'):
+    if s == nil or (part.cmpIgnoreStyle(s.name.s) != 0 and part != "*"):
       return false
     s = if sfFromGeneric in s.flags: s.owner.owner else: s.owner
     while s != nil and s.kind == skPackage and s.owner != nil: s = s.owner
   result = true
 
-# XXX: this proc was previously located in ``vmgen.nim``
-proc procIsCallback*(c: TCtx; s: PSym): bool =
-  # XXX: indicating that a sym is a callback by using s.offset < -1 is really confusing
-  if s.offset < -1: return true
-  var i = -2
-  for key, value in items(c.callbacks):
-    if s.matches(key):
-      doAssert s.offset == -1
-      # TODO: instead of modifying the offset here, just return `i`.
-      #       The procToFuncObj table makes sure that procIsCallback is not called
-      #       for the same symbol twice
-      s.offset = i
-      return true
-    dec i
+func lookup*(patterns: seq[IdentPattern]; s: PSym): int =
+  ## Tries to find and return the index of the pattern matching `s`. If none
+  ## is found, -1 is returned
+  var i = 0
+  # XXX: `pairs` doesn't use `lent`, so a manual implementation of `pairs`
+  #      is used
+  for p in patterns.items:
+    if s.matches(p): return i
+    inc i
+
+  result = -1
 
 func findRecCaseAux(n: PNode, d: PSym): PNode =
   ## Find the `nkRecCase` node in the tree `r` that has `d` as the discriminator
@@ -106,9 +102,10 @@ proc getOrCreateFunction*(c: var TCtx, prc: PSym): FunctionIndex =
     # XXX: double lookup
     result = c.procToFuncObj[prc.id]
   else:
+    let cbIndex = lookup(c.callbackKeys, prc)
     var f = VmFunctionObject(prc: prc)
     f.kind =
-      if procIsCallback(c, prc): f.cbOffset = -prc.offset - 2; ckCallback
+      if cbIndex != -1: f.cbOffset = cbIndex; ckCallback
       else: ckDefault
 
     f.sig = c.typeInfoCache.makeSignatureId(prc.typ)

@@ -2542,7 +2542,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     of skProc, skFunc, skConverter, skMacro, skMethod, skIterator:
       if s.kind == skIterator and s.typ.callConv == TCallingConvention.ccClosure:
         fail(n.info, rsemVmNoClosureIterators, sym = s)
-      if importcCond(c, s) and not procIsCallback(c, s):
+      if importcCond(c, s) and lookup(c.callbackKeys, s) == -1:
         fail(n.info, rsemVmCannotImportc, sym = s)
 
       genProcLit(c, n, s, dest)
