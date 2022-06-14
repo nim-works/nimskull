@@ -1244,7 +1244,7 @@ proc parseArgs(execState: var Execution, p: var OptParser): ParseCliResult =
 proc main() =
   ## Define CLI Options/Args Parsing loops
   var
-    execState = Execution(flags: {outputColour})
+    execState = Execution(flags: {outputColour, logBackend})
     p = initOptParser()
 
   ## Main procedure
@@ -1310,6 +1310,8 @@ proc main() =
         myself &= " --batch:" & testamentData0.batchArg
       if skipFrom.len > 0:
         myself &= " " & quoteShell("--skipFrom:" & skipFrom)
+      if not backendLogging:
+        myself &= " " & quoteShell("--backendLogging:off")
 
     # Traverse the test directory
     for kind, dir in walkDir(testsDir):
