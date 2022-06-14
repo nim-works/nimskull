@@ -400,6 +400,8 @@ type
     mem*: ptr VmMemoryManager
     heap*: ptr VmHeap
 
+  IdentPattern* = distinct string ## A matcher pattern for a fully qualified
+                                  ## symbol identifier
   VmCallback* = proc (args: VmArgs) {.closure.}
 
   VmAllocator* = object
@@ -526,7 +528,10 @@ type
     traceActive*: bool
     loopIterations*: int
     comesFromHeuristic*: TLineInfo # Heuristic for better macro stack traces
-    callbacks*: seq[tuple[key: string, value: VmCallback]]
+    callbacks*: seq[VmCallback]
+    callbackKeys*: seq[IdentPattern] ## The matcher patterns corresponding to
+      ## each entry in `callbacks`. Written during VM environment setup or
+      ## inbetween invocations. Read during code-generation.
     errorFlag*: Report
     cache*: IdentCache
     config*: ConfigRef
@@ -701,7 +706,9 @@ func refresh*(c: var TCtx, module: PSym; idgen: IdGenerator) =
 
 proc registerCallback*(c: var TCtx; name: string; callback: VmCallback): int {.discardable.} =
   result = c.callbacks.len
-  c.callbacks.add((name, callback))
+  c.callbacks.add(callback)
+  # XXX: for backwards compatibility, `name` is still a `string`
+  c.callbackKeys.add(IdentPattern(name))
 
 template registerCallback*(c: PCtx; name: string; callback: VmCallback): int {.deprecated.} =
   ## A transition helper. Use the `registerCallback` proc that takes
