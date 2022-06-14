@@ -347,8 +347,8 @@ type
 
   VmConstant* = object
     ## `VmConstant`s are used for passing constant data from `vmgen` to the
-    ## execution engine. This currently includes constants for both internal
-    ## use as well as user-defined literal values (e.g. string literals).
+    ## execution engine. This includes constants for both internal use as well
+    ## as user-defined literal values (e.g. string literals).
 
     case kind*: ConstantKind
     of cnstInt:
@@ -356,8 +356,7 @@ type
     of cnstFloat:
       floatVal*: BiggestFloat
     of cnstString:
-      strVal*: LocHandle
-      # XXX: `strVal` should be a simple `string`
+      strVal*: string
     of cnstNode:
       node*: PNode
 

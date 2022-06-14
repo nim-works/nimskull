@@ -2217,10 +2217,17 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         for s in list.items:
           if v in s: return true
 
+      func cmp(a: string, b: VmString): int =
+        let minLen = min(a.len, b.len)
+        if minLen > 0:
+          result = cmpMem(unsafeAddr a[0], b.data.rawPointer, minLen)
+        if result == 0:
+          result = a.len - b.len
+
       var cond = false
       case value.kind
       of cnstInt:      cond = regs[ra].intVal == value.intVal
-      of cnstString:   cond = regs[ra].strVal == deref(value.strVal).strVal
+      of cnstString:   cond = regs[ra].strVal == value.strVal
       of cnstFloat:    cond = regs[ra].floatVal == value.floatVal
       of cnstSliceListInt:   cond = regs[ra].intVal in value.intSlices
       of cnstSliceListFloat: cond = regs[ra].floatVal in value.floatSlices
@@ -2229,7 +2236,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         # a constant instead
         let str = regs[ra].strVal
         for s in value.strSlices.items:
-          let a = deref(c.constants[s.a].strVal).strVal
+          let a = c.constants[s.a].strVal
           let r = cmp(a, str)
           if s.a == s.b:
             # no need to compare the string with both slice elements if
@@ -2238,8 +2245,8 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
               cond = true
               break
           else:
-            let b = deref(c.constants[s.b].strVal).strVal
-            if r <= 0 and cmp(str, b) <= 0:
+            let b = c.constants[s.b].strVal
+            if r <= 0 and cmp(b, str) >= 0:
               cond = true
               break
 
@@ -2389,7 +2396,12 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       of cnstFloat:
         regs[ra] = TFullReg(kind: rkFloat, floatVal: cnst.floatVal)
       of cnstString:
-        regs[ra] = TFullReg(kind: rkHandle, handle: cnst.strVal)
+        regs[ra] = TFullReg(kind: rkLocation)
+        regs[ra].handle =
+          c.allocator.allocSingleLocation(c.typeInfoCache.stringType)
+        # TODO: once implemented, assign the string as a literal instead of
+        #       via deep copying
+        deref(regs[ra].handle).strVal.newVmString(cnst.strVal, c.allocator)
       of cnstNode:
         # XXX: cnstNode is also used for non-NimNodes, so using `rkNimNode` is
         #      somewhat wrong. Introducing a new register kind just for the
