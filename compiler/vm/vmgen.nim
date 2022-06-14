@@ -49,15 +49,13 @@ import
     msgs,
     options
   ],
-  compiler/ic/[
-    bitabs
-  ],
   compiler/sem/[
     lowerings,
     transf
   ],
   compiler/vm/[
     vmaux,
+    vmcompilerserdes,
     vmdef,
     vmobjects,
     vmmemory,
@@ -626,9 +624,7 @@ template makeCnstFunc(name, vType, aKind, valName, cmp) {.dirty.} =
     var cnst = VmConstant(kind: aKind)
     when vType is string:
       # XXX: this breaks IC! `vmgen` must not modify VM execution state (the
-      #      allocator in this case). Either store the constant as a `string`
-      #      and create a new `VmString` on every load or use a mechanism
-      #      similar to the `opcMatConst` one
+      #      allocator in this case).
       cnst.strVal = c.allocator.allocConstantLocation(c.typeInfoCache.stringType)
       deref(cnst.strVal).strVal.newVmString(val, c.allocator)
     else:
@@ -2556,12 +2552,29 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     of skConst:
       if dest.isUnset: dest = c.getTemp(s.typ)
 
-      # make sure that the const's type exists
-      discard c.getOrCreate(s.typ)
+      if s.ast.kind in nkLiterals:
+        let lit = genLiteral(c, s.ast)
+        c.genLit(n, lit, dest)
+      else:
+        let
+          next = c.complexConsts.len
+          i = c.symToConst.mgetOrPut(s.id, next)
 
-      let mConst = MaterializedConst(sym: s)
-      let id = c.materializedConsts.getOrIncl(mConst)
-      c.gABx(n, opcMatConst, dest, id.int)
+        # XXX: allocating and initializing the constant during code-gen is a
+        #      layering violation. The correct place to do this would be the
+        #      not yet existing linker/execution-setup layer
+        if i == next:
+          # const not "instantiated" yet:
+          let handle = c.allocator.allocConstantLocation(c.getOrCreate(s.typ))
+
+          # TODO: strings, seq and other values using allocation also need to
+          #       be allocated with `allocConstLocation` inside
+          #       `serialize` here
+          c.serialize(s.ast, handle)
+          c.complexConsts.add(handle)
+
+        c.gABx(n, opcLdCmplxConst, dest, i)
+
     of skEnumField:
       # we never reach this case - as of the time of this comment,
       # skEnumField is folded to an int in semfold.nim, but this code
