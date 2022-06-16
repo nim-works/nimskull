@@ -382,6 +382,12 @@ type
     sym*: PSym
     regInfo*: seq[RegInfo]
 
+    # XXX: the value's type should be `TRegister`, but we need a sentinel
+    #      value (-1) for `getOrDefault`, so it has to be `int`
+    locals*: Table[int, int] ## symbol-id -> register index. Used for looking
+                             ## up the corresponding register slot of each
+                             ## local (including parameters and `result`)
+
   VmArgs* = object
     ra*, rb*, rc*: Natural
     slots*: ptr UncheckedArray[TFullReg]
