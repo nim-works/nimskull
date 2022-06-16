@@ -177,7 +177,7 @@ proc codeListing*(c: TCtx, prc: PSym, ast: PNode, start=0; last = -1) =
           of cnstFloat:
             newFloatNode(nkFloatLit, cnst.floatVal)
           of cnstString:
-            newStrNode(nkStrLit, $deref(cnst.strVal).strVal)
+            newStrNode(nkStrLit, cnst.strVal)
           of cnstNode:
             cnst.node
           of cnstSliceListInt..cnstSliceListStr:
@@ -612,25 +612,13 @@ func cmpNodeCnst(a, b: PNode): bool {.inline.} =
           if not cmpNodeCnst(a[i], b[i]): return
         result = true
 
-func cmpStrCnst(a: LocHandle, b: string): bool {.inline.} =
-  deref(a).strVal == b
-
 template makeCnstFunc(name, vType, aKind, valName, cmp) {.dirty.} =
   proc name(c: var TCtx, val: vType): int =
     for (i, cnst) in c.constants.pairs():
       if cnst.kind == aKind and cmp(cnst.valName, val):
         return i
 
-    var cnst = VmConstant(kind: aKind)
-    when vType is string:
-      # XXX: this breaks IC! `vmgen` must not modify VM execution state (the
-      #      allocator in this case).
-      cnst.strVal = c.allocator.allocConstantLocation(c.typeInfoCache.stringType)
-      deref(cnst.strVal).strVal.newVmString(val, c.allocator)
-    else:
-      cnst.valName = val
-
-    rawGenLiteral(c, cnst)
+    c.rawGenLiteral: VmConstant(kind: aKind, valName: val)
 
 
 makeCnstFunc(toNodeCnst, PNode, cnstNode, node, cmpNodeCnst)
@@ -639,7 +627,7 @@ makeCnstFunc(toIntCnst, BiggestInt, cnstInt, intVal, `==`)
 
 makeCnstFunc(toFloatCnst, BiggestFloat, cnstFloat, floatVal, cmpFloatRep)
 
-makeCnstFunc(toStringCnst, string, cnstString, strVal, cmpStrCnst)
+makeCnstFunc(toStringCnst, string, cnstString, strVal, `==`)
 
 proc genLiteral(c: var TCtx, n: PNode): int =
   ## Create a constant, add it to the `c.constants` list and return
