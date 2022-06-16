@@ -901,6 +901,21 @@ proc genCall(c: var TCtx; n: PNode; dest: var TDest) =
 template isGlobal(s: PSym): bool = sfGlobal in s.flags and s.kind != skForVar
 proc isGlobal(n: PNode): bool = n.kind == nkSym and isGlobal(n.sym)
 
+func local(prc: PProc, sym: PSym): TDest {.inline.} =
+  ## Returns the register associated with the local variable `sym` (or -1 if
+  ## `sym` is not a local)
+  let
+    s = sym
+    r = prc.locals.getOrDefault(s.id, -1)
+  # Problem: in macro bodies, copies of the parameters' symbols with differnt
+  # IDs are used (see `addParamOrResult`), meaning that these symbols have no
+  # mapping in the table after `genParams`. Which register a parameter with
+  # position X maps to is deteministic, so a simple fallback can be used.
+  if r >= 0: r
+  else:
+    if s.kind in {skResult, skParam}: s.position + ord(s.kind == skParam)
+    else: -1
+
 proc needsAsgnPatch(n: PNode): bool =
   n.kind in {nkBracketExpr, nkDotExpr, nkCheckedFieldExpr,
              nkDerefExpr, nkHiddenDeref} or (n.kind == nkSym and n.sym.isGlobal)
@@ -1865,10 +1880,10 @@ proc genAsgn(c: var TCtx; dest: TDest; ri: PNode; requiresCopy: bool) =
   gABC(c, ri, whichAsgnOpc(ri, requiresCopy), dest, tmp)
   c.freeTemp(tmp)
 
-proc setSlot(c: var TCtx; v: PSym) =
+func setSlot(c: var TCtx; v: PSym): TRegister {.discardable.} =
   # XXX generate type initialization here?
-  if v.position == 0:
-    v.position = getFreeRegister(c, if v.kind == skLet: slotFixedLet else: slotFixedVar, start = 1)
+  result = getFreeRegister(c, if v.kind == skLet: slotFixedLet else: slotFixedVar, start = 1)
+  c.prc.locals[v.id] = result
 
 func cannotEval(c: TCtx; n: PNode) {.noinline, noreturn.} =
   raiseVmGenError(
@@ -2070,11 +2085,9 @@ proc genAsgn(c: var TCtx; le, ri: PNode; requiresCopy: bool) =
         c.preventFalseAlias(le, opcWrDeref, tmp, 0, val)
         c.freeTemp(val)
     else:
-      if s.kind == skForVar: c.setSlot s
-      c.config.internalAssert s.position > 0 or
-        (s.position == 0 and s.kind in {skParam, skResult})
+      var dest = c.prc.local(s)
+      c.config.internalAssert dest >= 0
 
-      var dest: TRegister = s.position + ord(s.kind == skParam)
       assert le.typ != nil
       if not fitsRegister(le.typ):# and s.kind in {skResult, skVar, skParam}:
         # XXX: always perform a copy for now, it's too complex to make it work
@@ -2147,11 +2160,9 @@ proc genRdVar(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
     else:
       c.gABx(n, opcLdGlobal, dest, s.position)
   else:
-    if s.kind == skForVar and c.mode == emRepl: c.setSlot(s)
-    if s.position > 0 or (s.position == 0 and
-                          s.kind in {skParam, skResult}):
+    if (let local = c.prc.local(s); local >= 0):
       if dest.isUnset:
-        dest = s.position + ord(s.kind == skParam)
+        dest = local
         internalAssert(c.config, c.prc.regInfo[dest].kind < slotSomeTemp)
       else:
         # we need to generate an assignment:
@@ -2354,13 +2365,13 @@ proc genVarSection(c: var TCtx; n: PNode) =
           c.freeTemp(val)
           c.freeTemp(tmp)
       else:
-        setSlot(c, s)
+        let reg = setSlot(c, s)
         if a[2].kind == nkEmpty:
-          c.gABx(a, ldNullOpcode(s.typ), s.position, c.genType(s.typ))
+          c.gABx(a, ldNullOpcode(s.typ), reg, c.genType(s.typ))
         else:
           assert s.typ != nil
           if not fitsRegister(s.typ):
-            c.gABx(a, ldNullOpcode(s.typ), s.position, c.genType(s.typ))
+            c.gABx(a, ldNullOpcode(s.typ), reg, c.genType(s.typ))
           let le = a[0]
           assert le.typ != nil
           # XXX: also perform a copy for `let` for now. With the current
@@ -2368,10 +2379,10 @@ proc genVarSection(c: var TCtx; n: PNode) =
           if not fitsRegister(le.typ) and s.kind in {skResult, skLet, skVar, skParam}:
             var cc = c.getTemp(le.typ)
             gen(c, a[2], cc)
-            c.gABC(le, whichAsgnOpc(le), s.position.TRegister, cc)
+            c.gABC(le, whichAsgnOpc(le), reg, cc)
             c.freeTemp(cc)
           else:
-            gen(c, a[2], s.position.TRegister)
+            gen(c, a[2], reg)
     else:
       # assign to a[0]; happens for closures
       if a[2].kind == nkEmpty:
@@ -2758,12 +2769,20 @@ proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
   #echo renderTree(n)
   #c.echoCode(result)
 
-proc genParams(c: var TCtx; params: PNode) =
-  # res.sym.position is already 0
-  setLen(c.prc.regInfo, max(params.len, 1))
-  c.prc.regInfo[0] = RegInfo(refCount: 1, kind: slotFixedVar)
+proc genParams(prc: PProc; s: PSym) =
+  let
+    params = s.typ.n
+    res = if resultPos < s.ast.len: s.ast[resultPos] else: nil
+
+  setLen(prc.regInfo, max(params.len, 1))
+
+  if res != nil:
+    prc.locals[res.sym.id] = 0
+    prc.regInfo[0] = RegInfo(refCount: 1, kind: slotFixedVar)
+
   for i in 1..<params.len:
-    c.prc.regInfo[i] = RegInfo(refCount: 1, kind: slotFixedLet)
+    prc.locals[params[i].sym.id] = i
+    prc.regInfo[i] = RegInfo(refCount: 1, kind: slotFixedLet)
 
 proc finalJumpTarget(c: var TCtx; pc, diff: int) =
   internalAssert(
@@ -2784,7 +2803,8 @@ proc genGenericParams(c: var TCtx; gp: PNode) =
   setLen c.prc.regInfo, base + gp.len
   for i in 0..<gp.len:
     var param = gp[i].sym
-    param.position = base + i # XXX: fix this earlier; make it consistent with templates
+    c.prc.locals[param.id] = base + i # XXX: fix this earlier; make it
+                                      # consistent with templates
     c.prc.regInfo[base + i] = RegInfo(refCount: 1, kind: slotFixedLet)
 
 proc optimizeJumps(c: var TCtx; start: int) =
@@ -2856,7 +2876,7 @@ proc genProc*(c: var TCtx; s: PSym): VmGenResult =
     let oldPrc = c.prc
     c.prc = p
     # iterate over the parameters and allocate space for them:
-    genParams(c, s.typ.n)
+    genParams(c.prc, s)
 
     # allocate additional space for any generically bound parameters
     if s.kind == skMacro and s.isGenericRoutineStrict:
