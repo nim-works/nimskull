@@ -1235,6 +1235,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
           unreachable(dTyp.kind)
 
       if idx <% maxLen:
+        checkHandle(regs[rc])
         writeLoc(makeLocHandle(mHandle.getSubHandle(stride * idx), eTyp), regs[rc], c.memory)
       else:
         raiseVmError(reportVmIdx(idx, maxLen))
@@ -1271,6 +1272,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
         # the handle to the field for those
         checkHandle(c.allocator, h)
 
+      checkHandle(regs[rc])
       writeLoc(h, regs[rc], c.memory)
 
     of opcWrStrIdx:
@@ -1437,6 +1439,8 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       #      This would make `opcWrDeref` obsolete
 
       # Copies c into the location pointed to by a
+
+      checkHandle(regs[rc])
 
       let r = addr regs[ra]
       case r.kind

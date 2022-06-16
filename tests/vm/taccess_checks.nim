@@ -85,3 +85,47 @@ static:
   #      `SemVmAccessTypeMismatch`. See `tsafety_checks_issues2`
   let v = p[][5] #[tt.Error
             ^ (SemVmAccessTypeMismatch) ]#
+
+# TODO: the tests using `testSource` might violate the parameter aliasing
+#       rules, but there's currently no other way to force an invalid source
+#       location. Once the VM supports `alloc` and `dealloc`, those should be
+#       used instead
+proc testSource(x: var seq[string], y: ptr string, m: range[0..2]) =
+  type Obj = object
+    v: string
+    arr: array[1, string]
+
+  # resizes the seq's underlying buffer, making `y` a dangling pointer:
+  x.add("")
+  var o: Obj
+
+  # note: the validation of the source currently happens as part of
+  # `opcWrDeref`, `opcWrArr`, and `opcWrObj`, which is why the position
+  # information for the error is a bit confusing.
+
+  case m
+  of 0:
+    # writing to object field
+    o.v = y[] #[tt.Error
+    ^ (SemVmAccessOutOfBounds) ]#
+  of 1:
+    # writing through pointer
+    var p = addr o.v
+    p[] = y[] #[tt.Error
+    ^ (SemVmAccessOutOfBounds) ]#
+  of 2:
+    # writing to array
+    o.arr[0] = y[] #[tt.Error
+        ^ (SemVmAccessOutOfBounds) ]#
+
+static:
+  var s = newSeq[string](1)
+  testSource(s, addr s[0], 0)
+
+static:
+  var s = newSeq[string](1)
+  testSource(s, addr s[0], 1)
+
+static:
+  var s = newSeq[string](1)
+  testSource(s, addr s[0], 2)
