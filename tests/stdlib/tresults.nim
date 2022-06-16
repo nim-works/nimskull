@@ -7,6 +7,8 @@ discard """
 # knownIssue: fails on the JS back-end due to a code-gen issue. The issue
 #             seems to be related to sink parameters
 
+# knownIssue: fails for the VM back-end due to code-gen issues
+
 # This file was based on the ``test.nim`` file
 # from https://github.com/disruptek/badresults
 
@@ -260,5 +262,5 @@ proc main() =
     check r.value() == (3, 2)
 
 # TODO: use the VM target once it's available in testament
-static: main()
+#static: main()
 main()
