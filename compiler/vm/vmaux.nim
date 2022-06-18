@@ -93,38 +93,52 @@ func findMatchingBranch*(recCase: PNode, lit: PNode): int =
   result = -1
 
 
-proc getOrCreateFunction*(c: var TCtx, prc: PSym): FunctionIndex =
-  ## Looks up the index of the given procs corresponding VM function object.
-  ## If one does not exists yet, it is created first. If the function type
-  ## description doesn't exist yet it is created too
-
-  if prc.id in c.procToFuncObj:
-    # XXX: double lookup
-    result = c.procToFuncObj[prc.id]
-  else:
-    let cbIndex = lookup(c.callbackKeys, prc)
-    var f = VmFunctionObject(prc: prc)
-    f.kind =
-      if cbIndex != -1: f.cbOffset = cbIndex; ckCallback
-      else: ckDefault
-
-    f.sig = c.typeInfoCache.makeSignatureId(prc.typ)
-    let rTyp = prc.getReturnType()
-    if rTyp != nil and rTyp.kind != tyVoid:
-      f.retValDesc = c.getOrCreate(rTyp)
+proc initProcEntry*(c: var TCtx, prc: PSym): FuncTableEntry =
+  ## Returns an initialized function table entry. Execution information (such
+  ## as the bytecode offset and register count) for procedures not overriden
+  ## by callbacks is initialized to a state that indicates "missing" and needs
+  ## to be filled in separately via `fillProcEntry`
+  let cbIndex = lookup(c.callbackKeys, prc)
+  result =
+    if cbIndex >= 0:
+      FuncTableEntry(kind: ckCallback, cbOffset: cbIndex)
     else:
-      f.retValDesc = noneType
+      FuncTableEntry(kind: ckDefault, start: -1)
 
-    # Create the env parameter type (if an env param exists)
-    f.envParamType =
-      if (let envP = prc.getEnvParam(); envP != nil):
-        c.getOrCreate(envP.typ)
+  result.sym = prc
+  result.sig = c.typeInfoCache.makeSignatureId(prc.typ)
+  result.retValDesc =
+    if prc.kind == skMacro:
+      c.typeInfoCache.nodeType
+    else:
+      let rTyp = prc.getReturnType()
+      if not isEmptyType(rTyp):
+        c.getOrCreate(rTyp)
       else:
         noneType
 
-    assert f.envParamType == noneType or f.envParamType.kind == akRef
+  # Create the env parameter type (if an env param exists)
+  result.envParamType =
+    if (let envP = prc.getEnvParam(); envP != nil):
+      c.getOrCreate(envP.typ)
+    else:
+      noneType
 
-    result = FunctionIndex(c.functions.len)
-    c.functions.add(f)
+  assert result.envParamType == noneType or result.envParamType.kind == akRef
 
-    c.procToFuncObj[prc.id] = result
+func fillProcEntry*(e: var FuncTableEntry, info: CodeInfo) {.inline.} =
+  ## Sets the execution information of the function table entry to `info`
+  e.start = info.start
+  e.regCount = info.regCount.uint16
+
+proc registerProc*(c: var TCtx, prc: PSym): FunctionIndex =
+  ## Registers the procedure in the function table if it wasn't already. In
+  ## both cases, an index into the function table is returned. Whether a
+  ## procedure will resolve to a callback is decided on it's addition to the
+  ## function table
+  let next = LinkIndex(c.functions.len)
+
+  result = c.symToIndexTbl.mgetOrPut(prc.id, next).FunctionIndex
+  if result == next.FunctionIndex:
+    # a new entry:
+    c.functions.add(initProcEntry(c, prc))

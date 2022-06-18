@@ -50,15 +50,12 @@ import
     options
   ],
   compiler/sem/[
-    lowerings,
-    transf
+    lowerings
   ],
   compiler/vm/[
     vmaux,
-    vmcompilerserdes,
     vmdef,
     vmobjects,
-    vmmemory,
     vmtypegen,
     vmtypes
   ],
@@ -72,12 +69,8 @@ from std/bitops import bitor
 when defined(nimCompilerStacktraceHints):
   import std/stackframes
 
-const
-  debugEchoCode* = defined(nimVMDebugGenerate)
-
-
 type
-  VmGenResult* = Result[int, SemReport] ## The result of a vmgen invocation
+  VmGenResult* = Result[CodeInfo, SemReport] ## The result of a vmgen invocation
 
   VmGenError = object of CatchableError
     report: SemReport
@@ -105,7 +98,7 @@ func fail(
     loc)
 
 
-template tryOrReturn(code) =
+template tryOrReturn(code): untyped =
   try:
     code
   except VmGenError as e:
@@ -192,8 +185,31 @@ proc codeListing*(c: TCtx, prc: PSym, ast: PNode, start=0; last = -1) =
 
   c.config.localReport(rep)
 
+func registerLinkItem(tbl: var Table[int, LinkIndex], list: var seq[PSym],
+                      sym: PSym, next: var LinkIndex): int =
+  let linkIdx = tbl.mgetOrPut(sym.id, next)
+  if linkIdx == next:
+    # a not seen before symbol:
+    list.add(sym)
+    inc next
 
-func gABC(ctx: var TCtx; n: PNode; opc: TOpcode; a, b, c: TRegister = 0) =
+  result = linkIdx.int
+
+
+func registerProc(c: var TCtx, sym: PSym): int {.inline.} =
+  registerLinkItem(c.symToIndexTbl, c.codegenInOut.newProcs, sym,
+                   c.codegenInOut.nextProc)
+
+func registerGlobal(c: var TCtx, sym: PSym): int {.inline.} =
+  registerLinkItem(c.symToIndexTbl, c.codegenInOut.newGlobals, sym,
+                   c.codegenInOut.nextGlobal)
+
+func registerConst(c: var TCtx, sym: PSym): int {.inline.} =
+  registerLinkItem(c.symToIndexTbl, c.codegenInOut.newConsts, sym,
+                   c.codegenInOut.nextConst)
+
+
+func gABC*(ctx: var TCtx; n: PNode; opc: TOpcode; a, b, c: TRegister = 0) =
   ## Takes the registers `b` and `c`, applies the operation `opc` to them, and
   ## stores the result into register `a`
   ## The node is needed for debug information
@@ -223,7 +239,7 @@ proc gABI(c: var TCtx; n: PNode; opc: TOpcode; a, b: TRegister; imm: BiggestInt)
   c.code.add(ins)
   c.debug.add(n.info)
 
-proc gABx(c: var TCtx; n: PNode; opc: TOpcode; a: TRegister = 0; bx: int) =
+proc gABx*(c: var TCtx; n: PNode; opc: TOpcode; a: TRegister = 0; bx: int) =
   # Applies `opc` to `bx` and stores it into register `a`
   # `bx` must be signed and in the range [regBxMin, regBxMax]
 
@@ -859,8 +875,10 @@ proc genProcLit(c: var TCtx, n: PNode, s: PSym; dest: var TDest) =
   if dest.isUnset:
     dest = c.getTemp(s.typ)
 
+  let idx = c.registerProc(s)
+
   c.gABx(n, opcLdNull, dest, c.genType(s.typ))
-  c.gABx(n, opcWrProc, dest, int c.getOrCreateFunction(s))
+  c.gABx(n, opcWrProc, dest, idx)
 
 
 proc genCall(c: var TCtx; n: PNode; dest: var TDest) =
@@ -2114,23 +2132,6 @@ proc importcCond*(c: TCtx; s: PSym): bool {.inline.} =
     if s.kind in routineKinds:
       return getBody(c.graph, s).kind == nkEmpty
 
-proc genGlobalInit(c: var TCtx; n: PNode; s: PSym) =
-  let ti = c.getOrCreate(s.typ)
-  # XXX: this breaks IC! In the future, a special instruction will be used for
-  #      setting up globals
-  c.globals.add(c.heap.heapNew(c.allocator, ti))
-  s.position = c.globals.len
-  # This is rather hard to support, due to the laziness of the VM code
-  # generator. See tests/compile/tmacro2 for why this is necessary:
-  #   var decls{.compileTime.}: seq[NimNode] = @[]
-  let dest = c.getTemp(s.typ)
-  c.gABx(n, opcLdGlobal, dest, s.position)
-  if s.astdef != nil:
-    let tmp = c.genx(s.astdef)
-    c.genAdditionalCopy(n, opcWrDeref, dest, 0, tmp)
-    c.freeTemp(dest)
-    c.freeTemp(tmp)
-
 proc genRdVar(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
   # gfNodeAddr and gfNode are mutually exclusive
   assert card(flags * {gfNodeAddr, gfNode}) < 2
@@ -2141,24 +2142,30 @@ proc genRdVar(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
       # not allowed
       fail(n.info, rsemVmCannotImportc, sym = s)
 
-    if sfCompileTime in s.flags or c.mode == emRepl:
-      discard
-    elif s.position == 0:
-      cannotEval(c, n)
-    if s.position == 0:
-      genGlobalInit(c, n, s)
+    var pos: int
+    if s.id in c.symToIndexTbl:
+      # XXX: double table lookup
+      pos = c.symToIndexTbl[s.id].int
+    else:
+      if c.mode == emRepl:
+        # For repl mode, allow the ad-hoc setup of globals
+        pos = c.registerGlobal(s)
+      else:
+        # a global that is not accessible in the current context
+        cannotEval(c, n)
+
     if dest.isUnset: dest = c.getTemp(n.typ)
     assert s.typ != nil
 
     if gfNodeAddr in flags:
-      c.gABx(n, opcLdGlobalAddr, dest, s.position)
+      c.gABx(n, opcLdGlobalAddr, dest, pos)
     elif fitsRegister(s.typ) and gfNode notin flags:
       var cc = c.getTemp(n.typ)
-      c.gABx(n, opcLdGlobal, cc, s.position)
+      c.gABx(n, opcLdGlobal, cc, pos)
       c.genRegLoad(n, dest, cc)
       c.freeTemp(cc)
     else:
-      c.gABx(n, opcLdGlobal, dest, s.position)
+      c.gABx(n, opcLdGlobal, dest, pos)
   else:
     if (let local = c.prc.local(s); local >= 0):
       if dest.isUnset:
@@ -2343,21 +2350,19 @@ proc genVarSection(c: var TCtx; n: PNode) =
       let s = a[0].sym
       checkCanEval(c, a[0])
       if s.isGlobal:
-        if s.position == 0:
-          if importcCondVar(s):
-            # Ignore definitions of importc'ed variables
-            return
-          else:
-            let ti = c.getOrCreate(s.typ)
-            # XXX: this breaks IC! In the future, a special instruction will
-            #      be used for setting up globals
-            let obj = c.heap.heapNew(c.allocator, ti)
-            #if s.ast.isNil: getNullValue(s.typ, a.info)
-            #else: canonValue(s.ast)
-            # TODO: check why this assert was necessary previously
-            # assert sa.kind != nkCall
-            c.globals.add(obj)
-            s.position = c.globals.len
+        if importcCondVar(s):
+          # Ignore definitions of importc'ed variables
+          continue
+
+        # XXX: during NimScript execution, top-level ``.compileTime``
+        #      variables are code-gen'ed twice, once via `setupCompileTimeVar`
+        #      called from `sem.semVarOrLet` and once through `vm.myProcess`.
+        #      This leads to the global's symbol already being present in the
+        #      table.
+        #c.config.internalAssert(s.id notin c.symToIndexTbl, a[0].info)
+        discard c.registerGlobal(s)
+        discard c.getOrCreate(s.typ)
+
         if a[2].kind != nkEmpty:
           let tmp = c.genx(a[0], {gfNodeAddr})
           let val = c.genx(a[2])
@@ -2519,10 +2524,6 @@ proc genClosureConstr(c: var TCtx, n: PNode, dest: var TDest) =
   c.freeTemp(tmp)
 
 
-proc genProc*(c: var TCtx; s: PSym): VmGenResult
-
-
-
 proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
   when defined(nimCompilerStacktraceHints):
     setFrameMsg c.config$n.info & " " & $n.kind & " " & $flags
@@ -2555,24 +2556,9 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
         let lit = genLiteral(c, s.ast)
         c.genLit(n, lit, dest)
       else:
-        let
-          next = c.complexConsts.len
-          i = c.symToConst.mgetOrPut(s.id, next)
-
-        # XXX: allocating and initializing the constant during code-gen is a
-        #      layering violation. The correct place to do this would be the
-        #      not yet existing linker/execution-setup layer
-        if i == next:
-          # const not "instantiated" yet:
-          let handle = c.allocator.allocConstantLocation(c.getOrCreate(s.typ))
-
-          # TODO: strings, seq and other values using allocation also need to
-          #       be allocated with `allocConstLocation` inside
-          #       `serialize` here
-          c.serialize(s.ast, handle)
-          c.complexConsts.add(handle)
-
-        c.gABx(n, opcLdCmplxConst, dest, i)
+        let idx = c.registerConst(s)
+        discard c.getOrCreate(s.typ)
+        c.gABx(n, opcLdCmplxConst, dest, idx)
 
     of skEnumField:
       # we never reach this case - as of the time of this comment,
@@ -2721,28 +2707,17 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     else:
       fail(n.info, rsemVmCannotGenerateCode, n)
 
-func removeLastEof(c: var TCtx) =
-  let last = c.code.len-1
-  if last >= 0 and c.code[last].opcode == opcEof:
-    # overwrite last EOF:
-    assert c.code.len == c.debug.len
-    c.code.setLen(last)
-    c.debug.setLen(last)
-
-proc genStmt*(c: var TCtx; n: PNode): VmGenResult =
-  c.removeLastEof
-  let start = c.code.len
+proc genStmt*(c: var TCtx; n: PNode): Result[void, SemReport] =
   var d: TDest = -1
-  tryOrReturn:
+  try:
     c.gen(n, d)
+  except VmGenError as e:
+    return typeof(result).err(move e.report)
 
-  c.gABC(n, opcEof)
   c.config.internalAssert(d < 0, n.info, "VM problem: dest register is set")
-
-  VmGenResult.ok(start)
+  result = typeof(result).ok()
 
 proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
-  c.removeLastEof
   let start = c.code.len
   var d: TDest = -1
   tryOrReturn:
@@ -2764,10 +2739,8 @@ proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
   c.gABC(n, opcEof)
   ]#
 
-  VmGenResult.ok(start)
-
-  #echo renderTree(n)
-  #c.echoCode(result)
+  result = VmGenResult.ok:
+    (start: start, regCount: c.prc.regInfo.len)
 
 proc genParams(prc: PProc; s: PSym) =
   let
@@ -2848,30 +2821,7 @@ proc optimizeJumps(c: var TCtx; start: int) =
         c.finalJumpTarget(i, d - i)
     else: discard
 
-proc genProc*(c: var TCtx; s: PSym): VmGenResult =
-  let
-    pos = c.procToCodePos.getOrDefault(s.id)
-    wasNotGenProcBefore = pos == 0
-    noRegistersAllocated = s.offset == -1
-  if wasNotGenProcBefore or noRegistersAllocated:
-    # xxx: the noRegisterAllocated check is required in order to avoid issues
-    #      where nimsuggest can crash due as a macro with pos will be loaded
-    #      but it doesn't have offsets for register allocations see:
-    #      https://github.com/nim-lang/Nim/issues/18385
-    #      Improvements and further use of IC should remove the need for this.
-    let last = c.code.len-1
-    var eofInstr: TInstr
-    if last >= 0 and c.code[last].opcode == opcEof:
-      eofInstr = c.code[last]
-      c.code.setLen(last)
-      c.debug.setLen(last)
-    #c.removeLastEof
-    let start = c.code.len+1 # skip the jump instruction
-    c.procToCodePos[s.id] = start
-    # thanks to the jmp we can add top level statements easily and also nest
-    # procs easily:
-    let body = transformBody(c.graph, c.idgen, s, cache = not isCompileTimeProc(s))
-    let procStart = c.xjmp(body, opcJmp, 0)
+proc genProcBody(c: var TCtx; s: PSym, body: PNode): int =
     var p = PProc(blocks: @[], sym: s)
     let oldPrc = c.prc
     c.prc = p
@@ -2887,21 +2837,26 @@ proc genProc*(c: var TCtx; s: PSym): VmGenResult =
       #assert env.position == 2
       c.prc.regInfo.add RegInfo(refCount: 1, kind: slotFixedLet)
 
-    tryOrReturn:
-      gen(c, body)
+    gen(c, body)
 
     # generate final 'return' statement:
     c.gABC(body, opcRet)
-    c.patch(procStart)
-    c.gABC(body, opcEof, eofInstr.regA)
-    c.optimizeJumps(start)
-    s.offset = c.prc.regInfo.len
-    #if s.name.s == "main" or s.name.s == "[]":
-    #  echo renderTree(body)
-    #  c.echoCode(result)
+
+    result = c.prc.regInfo.len
     c.prc = oldPrc
 
-    result = VmGenResult.ok(start)
-  else:
-    c.prc.regInfo.setLen s.offset
-    result = VmGenResult.ok(pos)
+proc genProc*(c: var TCtx; s: PSym, body: PNode): VmGenResult =
+  # thanks to the jmp we can add top level statements easily and also nest
+  # procs easily:
+  let
+    start = c.code.len+1 # skip the jump instruction
+    procStart = c.xjmp(body, opcJmp, 0)
+
+  let regCount = tryOrReturn:
+    c.genProcBody(s, body)
+
+  c.patch(procStart)
+  c.optimizeJumps(start)
+
+  result = VmGenResult.ok:
+    (start: start, regCount: regCount)

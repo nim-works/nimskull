@@ -312,11 +312,10 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
     case vt.kind
     of akCallable:
       if not atom.callableVal.isNil:
-        let fncObj = c.functions[int toFuncIndex(atom.callableVal)]
-        let prc = fncObj.prc
+        let entry = c.functions[int toFuncIndex(atom.callableVal)]
         # XXX: the effects list of the prc.typ and `formal` can be different.
         #      What problems does this entail?
-        result = newSymNode(prc)
+        result = newSymNode(entry.sym)
       else:
         result = newNode(nkNilLit)
 
@@ -324,16 +323,16 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
       if atom.closureVal.fnc.isNil:
         result = newNode(nkNilLit)
       else:
-        let fncObj = c.functions[int toFuncIndex(atom.closureVal.fnc)]
+        let entry = c.functions[int toFuncIndex(atom.closureVal.fnc)]
         result = newNode(nkClosure)
-        result.add(newSymNode(fncObj.prc))
+        result.add(newSymNode(entry.sym))
 
         let env =
           if atom.closureVal.env.isNil:
             newNode(nkNilLit)
           else:
-            let t = fncObj.prc.getEnvParam().typ
-            c.deserializeRef(atom.closureVal.env, fncObj.envParamType, t, t, info)
+            let t = entry.sym.getEnvParam().typ
+            c.deserializeRef(atom.closureVal.env, entry.envParamType, t, t, info)
 
         result.sons.add(env)
     else:
@@ -524,7 +523,7 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
       of nkNilLit: discard "nothing to do"
       of nkClosure:
         assert n[0].kind == nkSym
-        let fnc = toFuncPtr(c.getOrCreateFunction(n[0].sym))
+        let fnc = toFuncPtr(c.registerProc(n[0].sym))
 
         let env =
           if n[1].kind == nkNilLit:
@@ -546,7 +545,7 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
     else:
       assert n.kind == nkSym
       assert dest.typ.kind == akCallable
-      deref(dest).callableVal = toFuncPtr(c.getOrCreateFunction(n.sym))
+      deref(dest).callableVal = toFuncPtr(c.registerProc(n.sym))
   of tyObject:
     assert n.kind == nkObjConstr
     assert dest.typ.kind == akObject
