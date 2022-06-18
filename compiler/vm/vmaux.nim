@@ -21,7 +21,6 @@ import
   ]
 
 from compiler/ast/nimsets import overlap
-from compiler/sem/lambdalifting import getEnvParam
 
 # XXX: this proc was previously located in ``vmgen.nim``
 func matches(s: PSym; x: IdentPattern): bool =
@@ -92,6 +91,15 @@ func findMatchingBranch*(recCase: PNode, lit: PNode): int =
 
   result = -1
 
+# TODO: should likely be moved somewhere else, since it's not strictly related
+#       to the VM
+func getEnvParam*(prc: PSym): PSym =
+  ## Return the symbol the hidden environment parameter, or `nil` if there's
+  ## none
+  if tfCapturesEnv in prc.typ.flags:
+    lastSon(prc.ast[paramsPos]).sym
+  else: nil
+
 
 proc initProcEntry*(c: var TCtx, prc: PSym): FuncTableEntry =
   ## Returns an initialized function table entry. Execution information (such
@@ -119,7 +127,7 @@ proc initProcEntry*(c: var TCtx, prc: PSym): FuncTableEntry =
 
   # Create the env parameter type (if an env param exists)
   result.envParamType =
-    if (let envP = prc.getEnvParam(); envP != nil):
+    if (let envP = getEnvParam(prc); envP != nil):
       c.getOrCreate(envP.typ)
     else:
       noneType

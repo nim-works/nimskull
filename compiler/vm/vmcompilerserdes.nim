@@ -37,7 +37,6 @@ import
 # XXX: the function signatures are a bit cumbersome here
 
 from compiler/ast/trees import exprStructuralEquivalent, cyclicTree
-from compiler/sem/lambdalifting import getEnvParam
 
 const SkipSet = abstractRange + {tyStatic} - {tyTypeDesc}
 
