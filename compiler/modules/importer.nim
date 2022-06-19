@@ -22,6 +22,7 @@ import
     lineinfos,
     wordrecg,
     reports,
+    errorhandling,
     errorreporting,
   ],
   compiler/modules/[
@@ -37,16 +38,6 @@ import
     semdata,
     sigmatch
   ]
-
-proc readExceptSet*(c: PContext, n: PNode): IntSet =
-  assert n.kind in {nkImportExceptStmt, nkExportExceptStmt}
-  result = initIntSet()
-  for i in 1..<n.len:
-    let (ident, err) = lookups.considerQuotedIdent(c, n[i])
-    if err.isNil:
-      result.incl(ident.id)
-    else:
-      localReport(c.config, err)
 
 proc declarePureEnumField*(c: PContext; s: PSym) =
   # XXX Remove the outer 'if' statement and see what breaks.
@@ -133,25 +124,24 @@ proc rawImportSymbol(c: PContext, s, origin: PSym; importSet: var IntSet) =
     c.exportIndirections.incl((origin.id, s.id))
 
 proc splitPragmas(c: PContext, n: PNode): (PNode, seq[TSpecialWord]) =
-  if n.kind == nkPragmaExpr:
+  case n.kind
+  of nkPragmaExpr:
     if n.len == 2 and n[1].kind == nkPragma:
       result[0] = n[0]
       for ni in n[1]:
-        if ni.kind == nkIdent:
+        case ni.kind
+        of nkIdent:
           result[1].add whichKeyword(ni.ident)
-
         else:
           globalReport(c.config, n.info, reportAst(rsemInvalidPragma, n))
-
     else:
       globalReport(c.config, n.info, reportAst(rsemInvalidPragma, n))
-
   else:
     result[0] = n
     if result[0].safeLen > 0:
       (result[0][^1], result[1]) = splitPragmas(c, result[0][^1])
 
-proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
+proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet): PSym =
   let (n, kws) = splitPragmas(c, n)
   if kws.len > 0:
     globalReport(c.config, n.info, reportSem(rsemUnexpectedPragma))
@@ -159,19 +149,25 @@ proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
   let (ident, err) = lookups.considerQuotedIdent(c, n)
   if err.isNil:
     let s = someSym(c.graph, fromMod, ident)
-    if s == nil:
-      errorUndeclaredIdentifier(c, n.info, ident.s)
+    result = s # less typing below
+    if s.isNil:
+      result = errorUndeclaredIdentifierWithHint(c, n, ident.s)
     else:
       when false:
         if s.kind == skStub: loadStub(s)
-      let multiImport = s.kind notin ExportableSymKinds or s.kind in skProcKinds
-      # for an enumeration we have to add all identifiers
+
+      let multiImport = s.kind notin ExportableSymKinds or
+                        s.kind in skProcKinds
+        ## for an enumeration we have to add all identifiers
+
       if multiImport:
         # for a overloadable syms add all overloaded routines
-        var it: ModuleIter
-        var e = initModuleIter(it, c.graph, fromMod, s.name)
+        var
+          it: ModuleIter
+          e = initModuleIter(it, c.graph, fromMod, s.name)
         while e != nil:
-          c.config.internalAssert(e.name.id == s.name.id, n.info, "importSymbol: 3")
+          c.config.internalAssert(e.name.id == s.name.id, n.info,
+                                  "importSymbol: 3")
 
           if s.kind in ExportableSymKinds:
             rawImportSymbol(c, e, fromMod, importSet)
@@ -180,7 +176,10 @@ proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet) =
         rawImportSymbol(c, s, fromMod, importSet)
       suggestSym(c.graph, n.info, s, c.graph.usageSym, false)
   else:
-    localReport(c.config, err)
+    result =
+      newSym(skError, ident, nextSymId(c.idgen), getCurrOwner(c), n.info)
+    result.typ = c.errorType
+    result.ast = err
 
 proc addImport(c: PContext; im: sink ImportedModule) =
   for i in 0..high(c.imports):
@@ -241,45 +240,31 @@ proc importAllSymbols*(c: PContext, fromMod: PSym) =
     var exceptSet: IntSet
     importAllSymbolsExcept(c, fromMod, exceptSet)
 
-proc importForwarded(c: PContext, n: PNode, exceptSet: IntSet; fromMod: PSym; importSet: var IntSet) =
-  if n.isNil: return
-  case n.kind
-  of nkExportStmt:
-    for a in n:
-      assert a.kind == nkSym
-      let s = a.sym
-      if s.kind == skModule:
-        importAllSymbolsExcept(c, s, exceptSet)
-      elif exceptSet.isNil or s.name.id notin exceptSet:
-        rawImportSymbol(c, s, fromMod, importSet)
-  of nkExportExceptStmt:
-    localReport(c.config, n.info, InternalReport(
-      kind: rintNotImplemented, msg: "'export except' not implemented"))
-  else:
-    for i in 0..n.safeLen-1:
-      importForwarded(c, n[i], exceptSet, fromMod, importSet)
-
 proc importModuleAs(c: PContext; n: PNode, realModule: PSym, importHidden: bool): PSym =
   result = realModule
+  
   template createModuleAliasImpl(ident): untyped =
     createModuleAlias(realModule, nextSymId c.idgen, ident, n.info, c.config.options)
+  
   if n.kind != nkImportAs:
     discard
   elif n.len != 2 or n[1].kind != nkIdent:
-    localReport(
-      c.config, n.info,
-      reportAst(
-        rsemExpectedIdentifier, n[1],
-        str = "module alias must be an identifier"))
-
+    result = errorSym(c, n,
+                      c.config.newError(n, reportAst(
+                        rsemExpectedIdentifier,
+                        n[1],
+                        str = "module alias must be an identifier")))
   elif n[1].ident.id != realModule.name.id:
     # some misguided guy will write 'import abc.foo as foo' ...
     result = createModuleAliasImpl(n[1].ident)
+  
   if result == realModule:
     # avoids modifying `realModule`, see D20201209T194412 for `import {.all.}`
     result = createModuleAliasImpl(realModule.name)
+  
   if importHidden:
     result.options.incl optImportHidden
+  
   c.unusedImports.add((result, n.info))
   c.importModuleMap[result.id] = realModule.id
 
@@ -333,80 +318,143 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
     c.graph.importStack.setLen(L)
     # we cannot perform this check reliably because of
     # test: modules/import_in_config) # xxx is that still true?
-    if realModule == c.module:
-      localReport(c.config, n.info, reportSym(
-        rsemCannotImportItself, realModule))
+    if not result.isError and realModule == c.module:
+      result = errorSym(c, n,
+                        c.config.newError(n, reportSym(
+                          rsemCannotImportItself,
+                          realModule)))
 
     if sfDeprecated in realModule.flags:
+      # xxx: this is a hint, `localReport` doesn't communicate this well
       localReport(c.config, n.info, reportSym(rsemDeprecated, realModule))
 
     suggestSym(c.graph, n.info, result, c.graph.usageSym, false)
-    importStmtResult.add newSymNode(result, n.info)
+    importStmtResult.add:
+      case result.kind
+      of skError:
+        n = result.ast # updates the passed in ref to the error node
+        result.ast
+      else:
+        newSymNode(result, n.info)
     #newStrNode(toFullPath(c.config, f), n.info)
 
 proc afterImport(c: PContext, m: PSym) =
   # fixes bug #17510, for re-exported symbols
-  let realModuleId = c.importModuleMap[m.id]
-  for s in allSyms(c.graph, m):
-    if s.owner.id != realModuleId:
-      c.exportIndirections.incl((m.id, s.id))
+  case m.kind
+  of skModule:
+    let realModuleId = c.importModuleMap[m.id]
+    for s in allSyms(c.graph, m):
+      if s.owner.id != realModuleId:
+        c.exportIndirections.incl((m.id, s.id))
+  else:
+    discard
 
-proc impMod(c: PContext; it: PNode; importStmtResult: PNode) =
-  var it = it
-  let m = myImportModule(c, it, importStmtResult)
+proc impMod(c: PContext; it: PNode; importStmtResult: PNode): PNode =
+  result = it
+  let
+    m = myImportModule(c, result, importStmtResult)
+    hasError = m.isError
+
   if m != nil:
     # ``addDecl`` needs to be done before ``importAllSymbols``!
-    addDecl(c, m, it.info) # add symbol to symbol table of module
+    addDecl(c, m, result.info) # add symbol to symbol table of module
     importAllSymbols(c, m)
-    #importForwarded(c, m.ast, emptySet, m)
     afterImport(c, m)
 
+  if hasError:
+    result = c.config.wrapErrorInSubTree(result)
+
 proc evalImport*(c: PContext, n: PNode): PNode =
+  checkMinSonsLen(n, 1, c.config)
   result = newNodeI(nkImportStmt, n.info)
-  for i in 0 ..< n.len:
-    let it = n[i]
+  var hasError = false
+
+  for it in n.sons:
     if it.kind == nkInfix and it.len == 3 and it[2].kind == nkBracket:
-      let sep = it[0]
-      let dir = it[1]
-      var imp = newNodeI(nkInfix, it.info)
-      imp.add sep
-      imp.add dir
-      imp.add sep # dummy entry, replaced in the loop
+      let
+        sep = it[0]
+        dir = it[1]
+        impTmpl =
+          block:
+            let t = newNodeI(nkInfix, it.info, 3)
+            t[0] = sep
+            t[1] = dir
+            t
+          ## `impTmpl` is copied/instanced in the loop below including setting
+          ## the third child
+      
       for x in it[2]:
+        let imp = copyTree(impTmpl)
+
         # transform `a/b/[c as d]` to `/a/b/c as d`
-        if x.kind == nkInfix and x[0].ident.s == "as":
-          let impAs = copyTree(x)
-          imp[2] = x[1]
-          impAs[1] = imp
-          impMod(c, imp, result)
-        else:
-          imp[2] = x
-          impMod(c, imp, result)
+        imp[2] =
+          if x.kind == nkInfix and x[0].ident.s == "as":
+            x[1]
+          else:
+            x
+
+        hasError = impMod(c, imp, result).kind == nkError or hasError
     else:
-      impMod(c, it, result)
+      hasError = impMod(c, it, result).kind == nkError
+
+  if hasError:
+    result = c.config.wrapErrorInSubTree(result)
 
 proc evalFrom*(c: PContext, n: PNode): PNode =
-  result = newNodeI(nkImportStmt, n.info)
   checkMinSonsLen(n, 2, c.config)
-  var m = myImportModule(c, n[0], result)
+  result = newNodeI(nkImportStmt, n.info)
+  let m = myImportModule(c, n[0], result)
+  var hasError = m.isError
   if m != nil:
     n[0] = newSymNode(m)
+    
     addDecl(c, m, n.info)               # add symbol to symbol table of module
 
+    # xxx: a better approach might be to treat each import part in
+    #      `from m import a, b` as `m.a` and `m.b` aka a fully qualified lookup
+    #      this might clean-up all the error handling bits here
     var im = ImportedModule(m: m, mode: importSet, imported: initIntSet())
     for i in 1..<n.len:
-      if n[i].kind != nkNilLit:
-        importSymbol(c, n[i], m, im.imported)
+      case n[i].kind
+      of nkNilLit:
+        discard # no op
+      else:
+        let imported = importSymbol(c, n[i], m, im.imported)
+        case imported.kind
+        of skError:
+          hasError = true
+          result[i] = imported.ast
+        else:
+          discard
+    
     c.addImport im
     afterImport(c, m)
 
+  if hasError:
+    result = c.config.wrapErrorInSubTree(result)
+
+proc readExceptSet(c: PContext, n: PNode): IntSet =
+  assert n.kind in {nkImportExceptStmt, nkExportExceptStmt}
+  result = initIntSet()
+  for i in 1..<n.len:
+    let (ident, err) = lookups.considerQuotedIdent(c, n[i])
+    if err.isNil:
+      result.incl(ident.id)
+    else:
+      localReport(c.config, err)
+
 proc evalImportExcept*(c: PContext, n: PNode): PNode =
-  result = newNodeI(nkImportStmt, n.info)
   checkMinSonsLen(n, 2, c.config)
-  var m = myImportModule(c, n[0], result)
+  result = newNodeI(nkImportStmt, n.info)
+  let m = myImportModule(c, n[0], result)
+  var hasError = m.isError
+
   if m != nil:
     n[0] = newSymNode(m)
+
     addDecl(c, m, n.info)               # add symbol to symbol table of module
     importAllSymbolsExcept(c, m, readExceptSet(c, n))
-    #importForwarded(c, m.ast, exceptSet, m)
     afterImport(c, m)
+
+  if hasError:
+    result = c.config.wrapErrorInSubTree(result)

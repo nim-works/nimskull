@@ -2697,21 +2697,89 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
   closeScope(c)
   dec(c.p.nestedBlockCounter)
 
+
 proc semExportExcept(c: PContext, n: PNode): PNode =
-  let moduleName = semExpr(c, n[0])
-  if moduleName.kind != nkSym or moduleName.sym.kind != skModule:
-    localReport(c.config, n, reportSem rsemExpectedModuleNameForImportExcept)
-    return n
-  let exceptSet = readExceptSet(c, n)
-  let exported = moduleName.sym
-  result = newNodeI(nkExportStmt, n.info)
-  reexportSym(c, exported)
-  for s in allSyms(c.graph, exported):
-    if s.kind in ExportableSymKinds + {skModule} and
-       s.name.id notin exceptSet and sfError notin s.flags:
-      reexportSym(c, s)
-      result.add newSymNode(s, n.info)
-  markUsed(c, n.info, exported)
+  ## analyses an nkExportExceptStmt, producing an nkExportStmt, or nkError if
+  ## analysis failed. If successful, at least partially, the target module to
+  ## export's symbol along with its interface symbols are exported.
+  addInNimDebugUtils(c.config, "semExportExcept", n, result)
+
+  assert n != nil, "nil node instead of an export except statement"
+  internalAssert(c.config, n.kind == nkExportExceptStmt,
+    "only export except statements allowed, got: " & $n.kind)
+
+  checkMinSonsLen(n, 2, c.config) # at least a module and one excluded ident
+
+  var hasError = false
+  
+  # xxx: besides the `exceptSet` optimization above, this proc can be split
+  #      into interleaved normalization and eval phases. Not a big win in and
+  #      of itself but this is likely how sem comes apart and some IRs emerge.
+
+  let
+    # start normalizing the export except statement
+    normExportExcept = newNodeI(nkExportExceptStmt, n.info)
+    
+    # normalize the module name part
+    moduleName = semExpr(c, n[0])
+    normModuleName =
+      case moduleName.kind
+      of nkSym:
+        moduleName
+      of nkError:
+        # pass the nkError through
+        hasError = true
+        moduleName
+      else:
+        # something went very wrong
+        hasError = true
+        c.config.internalError(moduleName.info,
+                              "Excepted nkSym, got: " & $n.kind)
+        nil  # internalError means we don't actually end up with nil
+
+  # eval of the name part
+  if not normModuleName.isError:
+    reexportSym(c, normModuleName.sym)
+    markUsed(c, n.info, normModuleName.sym)
+
+  # finish module name part normalization and eval
+  normExportExcept.add normModuleName
+
+  var exceptSet = initIntSet()
+    ## stores ident ids of symbols to exclude from the export
+    ##
+    ## this is an optimization to avoid looping over the except nodes twice.
+    ## once for ident checking during normalization and then again for
+    ## populating this set, we collect it in one shot.
+
+  # normalize the except list
+  for i in 1..<n.len:
+    let
+      ex = n[i]
+      (ident, err) = lookups.considerQuotedIdent(c, ex)
+
+    normExportExcept.add:
+      if err.isNil:
+        exceptSet.incl(ident.id)
+        ex
+      else:
+        hasError = true
+        err
+
+  if hasError:
+    result = c.config.wrapErrorInSubTree(normExportExcept)
+  else:
+    result = newNodeI(nkExportStmt, n.info)
+    result.add normModuleName
+    let exported = normModuleName.sym
+
+    # eval the except items and compose it into the final production
+    for s in allSyms(c.graph, exported):
+      if s.kind in ExportableSymKinds + {skModule} and
+        s.name.id notin exceptSet and sfError notin s.flags:
+          reexportSym(c, s)
+          result.add newSymNode(s, n.info)
+
 
 proc semExport(c: PContext, n: PNode): PNode =
   proc specialSyms(c: PContext; s: PSym) {.inline.} =
