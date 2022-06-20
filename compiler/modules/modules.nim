@@ -151,21 +151,22 @@ proc compileModule*(graph: ModuleGraph; fileIdx: FileIndex; flags: TSymFlags, fr
     processModuleAux("import(dirty)")
     graph.markClientsDirty(fileIdx)
 
+
 proc importModule*(graph: ModuleGraph; s: PSym, fileIdx: FileIndex): PSym =
-  # this is called by the semantic checking phase
+  ## this is called by the semantic checking phase
   assert graph.config != nil
+
   result = compileModule(graph, fileIdx, {}, s)
   graph.addDep(s, fileIdx)
+
   # keep track of import relationships
   if graph.config.hcrOn:
     graph.importDeps.mgetOrPut(FileIndex(s.position), @[]).add(fileIdx)
-  #if sfSystemModule in result.flags:
-  #  localReport(result.info, errAttemptToRedefine, result.name.s)
+
   # restore the notes for outer module:
   if s.getnimblePkgId == graph.config.mainPackageId or
      isDefined(graph.config, "booting"):
     graph.config.asgn(cnCurrent, cnMainPackage)
-
   else:
     graph.config.asgn(cnCurrent, cnForeign)
 

@@ -115,7 +115,7 @@ template legacyConsiderQuotedIdent*(c: PContext; n, origin: PNode): PIdent =
       if origin.isNil or n == origin:
         localReport(c.config, err)
       else:
-        # xxx: janky error gen, the way tot fix is this by starting at the
+        # xxx: janky error gen, the way to fix is this by starting at the
         #      callsites and reworking how things are consumed/passed in.
         #      also, the nkAccQuote handling likely requires alpha-rewriting
         let
@@ -610,7 +610,7 @@ proc createUndeclaredIdentifierError(
     # prevent excessive errors for 'nim check'
     c.recursiveDep.setLen 0
 
-proc errorUndeclaredIdentifierHint(
+proc errorUndeclaredIdentifierHint*(
     c: PContext; n: PNode, ident: PIdent): PSym =
   var candidates: seq[SemSpellCandidate]
   if c.mustFixSpelling:
@@ -663,7 +663,7 @@ proc errorExpectedIdentifier(
 
   result = newQualifiedLookUpError(c, ident, n.info, ast)
 
-proc errorUndeclaredIdentifierWithHint(
+proc errorUndeclaredIdentifierWithHint*(
     c: PContext; n: PNode; name: string,
     candidates: seq[SemSpellCandidate] = @[]
   ): PSym =
