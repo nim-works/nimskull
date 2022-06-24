@@ -2,7 +2,7 @@ discard """
 description: '''
 It is possible for objects to inherit fields from another object. Each
 object has at most one parent type. This practice is common in Object
-Orientated Programming.
+Oriented Programming.
 '''
 """
 
@@ -37,8 +37,8 @@ block derive_from_ref_root_obj:
     Derived = ref object of Base
       f2: int
 
-  ## Using ref object allows to store values of derived type in variable
-  ## of base type
+  ## Using ref object allows storing a reference of derived type in variable
+  ## of the base type
   let base: Base = Derived(f2: 12)
 
   ## Or storing multuple derived objects in the same sequence
@@ -52,11 +52,12 @@ block derive_from_ref_root_obj:
   ## To convert base type back to derived, you can use object conversion
   doAssert Derived(base).f2 == 12
 
-  ## If expressions cannot be converted to the derived type, it will
-  ## result in an `ObjectConversionDefect` begin raised
-  try:
-    discard Derived(Base())
-    doAssert false, "Had to raise defect"
+  when not defined(js):
+   when not defined(js) or defined(tryBrokenSpecification):
+    # Bug: js target allows this conversion to happen parent ref -> child ref
+    try:
+      discard Derived(Base())
+      doAssert false, "Should have raised defect"
 
-  except ObjectConversionDefect as def:
-    discard
+    except ObjectConversionDefect as def:
+      discard

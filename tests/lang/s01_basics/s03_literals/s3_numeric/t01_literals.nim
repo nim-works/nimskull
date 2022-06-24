@@ -2,7 +2,6 @@ discard """
 description: '''
 Covers numeric literals, in particular defaults and how suffixes are handled
 '''
-targets: "c cpp js"
 """
 
 # basic int literals

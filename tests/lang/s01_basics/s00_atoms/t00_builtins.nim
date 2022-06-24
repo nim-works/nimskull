@@ -2,7 +2,6 @@ discard """
 description: '''
 This test specifies basic operations used in other tests.
 '''
-targets:"c cpp js"
 """
 
 block builtin_assert:

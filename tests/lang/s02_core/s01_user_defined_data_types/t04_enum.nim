@@ -4,7 +4,6 @@ An enumeration defines a type with a closed set of values. These values
 have an identifier, are ordered, and have corresponding integer and string
 values.
 '''
-target: "c cpp js"
 """
 
 block enum_definition_syntax:

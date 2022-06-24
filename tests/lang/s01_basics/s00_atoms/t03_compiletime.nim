@@ -5,7 +5,6 @@ Execution of the code at compilation time.
 output: '''
 echo outside of static
 '''
-targets:"c cpp js"
 """
 
 # Given this is a specification I don't think it is an appropriate place to
