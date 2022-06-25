@@ -6,7 +6,6 @@ Basics of sequences:
 - indexing
 - length
 '''
-target: "c cpp js"
 """
 
 block literal:

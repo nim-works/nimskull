@@ -2,7 +2,6 @@ discard """
 description: '''
 Basics of boolean types
 '''
-target: "c cpp js"
 """
 
 # overlaps heavily with literals, not going to cover here

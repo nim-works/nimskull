@@ -1,6 +1,6 @@
 discard """
 description: '''
-Passing derived types via varargs reaises an "invalid object assignment" exception
+Passing derived types via varargs raises an "invalid object assignment" exception
 instead of passing values directly.
 
 `varargs` is defined to behave the same way as procedure with multiple arguments,

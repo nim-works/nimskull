@@ -3,7 +3,6 @@ description: '''
 Pre-defined integer types, the listing is under numeric literals, this covers
 additional operations and conversion.
 '''
-target: "c cpp js"
 """
 
 # Conversions types:

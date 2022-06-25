@@ -10,7 +10,6 @@ To be covered elsewhere:
   - though not all operators are available for overload
   - user defined operators one or a a combination of tokens
 '''
-targets: "c cpp js"
 """
 
 #[

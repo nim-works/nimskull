@@ -1,6 +1,7 @@
 discard """
+targets: "!js"
 description: '''
-Disable or enable safety checks
+Enable or disable safety checks applicable to C and C++ targets
 '''
 """
 
@@ -38,7 +39,7 @@ block disable_bound_checking:
   {.pop.}
 
   impl()
-    
+
 block enable_overflow_checks:
   {.push overflowChecks:on.}
   proc impl() = 

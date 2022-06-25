@@ -3,7 +3,6 @@ description: '''
 Unsigned integer operations kept for backwards compatibility, but should be
 removed from the language eventually
 '''
-target: "c cpp js"
 """
 
 # unsigned operators treat operands as unsigned, returning original type.

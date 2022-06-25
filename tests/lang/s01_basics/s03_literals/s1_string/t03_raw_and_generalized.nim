@@ -11,7 +11,6 @@ Raw and generalized raw string literals:
 - generalized raw string literals can be applied to triplequoted strings
     unlike normal raw string literals
 '''
-targets: "c cpp js"
 """
 
 doAssert r"\n" == "\\n", "raw string literals don't apply escape sequences"

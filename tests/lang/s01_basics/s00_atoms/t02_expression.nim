@@ -2,7 +2,6 @@ discard """
 description: '''
 Test expression evaluation - via blocks, noreturn statements, regular expressions.
 '''
-targets:"c cpp js"
 """
 
 ## Basic expressions. This section explains and tests basic expressions -

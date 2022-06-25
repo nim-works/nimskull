@@ -6,7 +6,6 @@ Describe the basics of arrays:
 - indexing
 - length
 '''
-target: "c cpp js"
 """
 
 block literal:

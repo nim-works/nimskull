@@ -3,7 +3,6 @@ description: '''
 This test covers statements, sequential evaluation and control flow.
 '''
 joinable: false
-targets:"c cpp js"
 """
 
 ## This section of specification explains what *statemetn* is, and two different

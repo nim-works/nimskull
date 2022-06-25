@@ -2,7 +2,6 @@ discard """
 description: '''
 If statements, if expressions
 '''
-targets:"c cpp js"
 """
 
 #[

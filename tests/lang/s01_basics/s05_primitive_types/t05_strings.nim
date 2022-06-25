@@ -7,7 +7,6 @@ String type related tests, covering key properties regarding:
 - indexing is per byte (char)
 - lexographic comparison
 '''
-target: "c cpp js"
 """
 
 block strings_valid_from_empty_string:

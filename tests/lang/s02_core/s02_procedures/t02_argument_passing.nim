@@ -2,9 +2,10 @@ discard """
 description: '''
 Covers the multitude of ways you can pass arguments to procedures.
 '''
+targets: "!cpp"
 """
 
-##
+# knownIssue: broken in cpp
 
 
 block different_number_of_arguments:
@@ -341,7 +342,7 @@ block passing_subtypes:
   ## `object of RootObj` (in addition to `ref object of RootObj`) whereas `method`
   ## requires `ref` to be used.
   block inheritable_pragma:
-    ## `{.inheritable.}` provides subtyping capabilities
+    ## `{.inheritable.}` marks the object as non-final
     type
       Base {.inheritable.} = object
         fbase: int

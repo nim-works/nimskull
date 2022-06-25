@@ -6,7 +6,6 @@ particular escaping method used. Otherwise the tests are pretty silly.
 
 ASCII reference: https://en.wikipedia.org/wiki/ASCII#Control_characters
 '''
-targets: "c cpp js"
 """
 
 # NB: `\[0-9]+` - is the decimal encoding of a character

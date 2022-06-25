@@ -3,7 +3,7 @@ description: '''
 `var openarray` must either generate a proper error message or be allowed,
 currently fails with codegen error
 '''
-knownIssue: "var openarray fails with C codegen errro"
+knownIssue: "var openarray fails with C codegen error"
 
 """
 

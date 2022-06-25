@@ -1,3 +1,10 @@
+discard """
+targets: "c"
+description: '''
+Emit pragma outputs code directly through the back, these are C examples.
+'''
+"""
+
 block emit_type:
   {.emit: """/*TYPESECTION*/
 struct CStruct { int field; };
