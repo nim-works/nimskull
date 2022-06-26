@@ -1,5 +1,5 @@
 discard """
-description: "explain reporting isn't working during the transition to nkError; revise and ressurrect once fixed"
+description: "From https://github.com/nim-lang/Nim/issues/3330"
 errormsg: "type mismatch: got <Bar[system.int]>"
 nimout: '''
 t3330.nim(70, 4) Error: type mismatch: got <Bar[system.int]>
