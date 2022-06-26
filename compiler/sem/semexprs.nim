@@ -1049,7 +1049,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
   result = nil
   checkMinSonsLen(n, 1, c.config)
   if n.kind == nkError: return n
-  var prc = n[0]
+  let prc = n[0]
   if n[0].kind == nkDotExpr:
     checkSonsLen(n[0], 2, c.config)
     let n0 = semFieldAccess(c, n[0])
@@ -1605,21 +1605,79 @@ proc buildOverloadedSubscripts(n: PNode, ident: PIdent): PNode =
   for s in n: result.add s
 
 proc semDeref(c: PContext, n: PNode): PNode =
-  checkSonsLen(n, 1, c.config)
-  n[0] = semExprWithType(c, n[0])
-  let a = getConstExpr(c.module, n[0], c.idgen, c.graph)
-  if a != nil:
-    if a.kind == nkNilLit:
-      localReport(c.config, n, reportSem rsemDisallowedNilDeref)
-    n[0] = a
-  result = n
-  var t = skipTypes(n[0].typ, {tyGenericInst, tyVar, tyLent, tyAlias, tySink, tyOwned})
-  case t.kind:
-    of tyRef, tyPtr:
-      n.typ = t.lastSon
+  ## analyse deref such as `foo[]`, when given an nkBracketExpr converts it to
+  ## an nkDerefExpr and evals it, if given an nkDerefExpr evals it, nkError is
+  ## passed through.
+  ##
+  ## the behaviour is different if the deref target is a constant expression 
+  ## (static) or not (dynamic).
+  ##
+  ## Constant Expression:
+  ## - nil -> nkError
+  ## - ptr|ref type -> nkDeref with derefed value as first son
+  ## - not (ptr|ref) -> nil
+  ##
+  ## Dynamic Expression:
+  ## - ptr|ref type -> nkDeref with derefed value as first son
+  ## - not (ptr|ref) -> nil
 
+  addInNimDebugUtils(c.config, "semDeref", n, result)
+
+  proc semDerefEval(c: PContext, n: PNode): PNode {.inline.} =
+    result = n # we allow mutation because we're evaluating `n`
+
+    const tySkippedToGetRefType = {tyAlias, tyGenericInst, tyLent, tyOwned,
+                                   tySink, tyVar}
+    # xxx: should tySkippedToGetRefType be based off of `ast_types.skipPtrs`
+    #      doing `skipPtrs - {tyRef, tyPtr}`? Also, not sure if tyVar and
+    #      tyAlias are correct handled.
+
+    let
+      derefTarget = semExprWithType(c, n[0])
+      targetAsConstExpr = getConstExpr(c.module, derefTarget, c.idgen, c.graph)
+      isTargetConstExpr = targetAsConstExpr != nil
+      isTargetConstNil = isTargetConstExpr and
+                         targetAsConstExpr.kind == nkNilLit
+      semmedTarget =
+        if isTargetConstExpr:
+          targetAsConstExpr
+        else:
+          derefTarget
+      refTyp = skipTypes(semmedTarget.typ, tySkippedToGetRefType)
+      derefType =
+        case refTyp.kind
+        of tyRef, tyPtr:
+          refTyp.lastSon
+        else:
+          nil # xxx: should probably be an error type; derefing a non-ptr/ref
+
+    case derefTarget.kind
+    of nkError:
+      result = c.config.wrapErrorInSubTree(result)
     else:
-      result = nil
+      result[0] = semmedTarget
+      result.typ = derefType
+
+      if isTargetConstNil:
+        result = c.config.newError(result, reportSem rsemDisallowedNilDeref)
+      elif derefType.isNil:
+        result = nil # xxx: this should be an nkError and recovered from
+
+  case n.kind:
+  of nkBracketExpr:
+    checkSonsLen(n, 1, c.config)
+
+    result = newNodeIT(nkDerefExpr, n.info, n.typ, children = 1)
+    result[0] = n[0]
+
+    result = semDerefEval(c, result)
+  of nkDerefExpr:
+    result = semDerefEval(c, n)
+  of nkError:
+    result = n
+  else:
+    c.config.internalError(n.info,
+      "expected nkBracketExpr or nkDerefExpr, got: " & $n.kind)
 
   #GlobalError(n[0].info, errCircumNeedsPointer)
 
@@ -1650,12 +1708,13 @@ proc maybeInstantiateGeneric(c: PContext, n: PNode, s: PSym): PNode =
 proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ## returns nil if not a built-in subscript operator; also called for the
   ## checking of assignments
+
+  addInNimDebugUtils(c.config, "semSubscript", n, result, flags)
+
   if n.len == 1:
-    let x = semDeref(c, n)
-    if x == nil: return nil
-    result = newNodeIT(nkDerefExpr, x.info, x.typ)
-    result.add(x[0])
+    result = semDeref(c, n)
     return
+
   checkMinSonsLen(n, 2, c.config)
   # make sure we don't evaluate generic macros/templates
   n[0] = semExprWithType(c, n[0],
@@ -3072,7 +3131,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
         var baseType = semExpr(c, n[0]).typ.skipTypes({tyTypeDesc})
         result.typ = c.makeTypeDesc(c.newTypeWithSons(modifier, @[baseType]))
         return
-    var typ = semTypeNode(c, n, nil).skipTypes({tyTypeDesc})
+    let typ = semTypeNode(c, n, nil).skipTypes({tyTypeDesc})
     result.typ = makeTypeDesc(c, typ)
   of nkStmtListType:
     let typ = semTypeNode(c, n, nil)
