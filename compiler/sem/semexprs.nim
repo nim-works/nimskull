@@ -1711,7 +1711,12 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   addInNimDebugUtils(c.config, "semSubscript", n, result, flags)
 
+  c.config.internalAssert(n.kind == nkBracketExpr,
+                          "expected nkBracketExpr, got: " & $n.kind)
+
   if n.len == 1:
+    # xxx: this branch might be unnecessary as call sites for semSubscript may
+    #      already handle nkDerefExpr scenarios
     result = semDeref(c, n)
     return
 
@@ -1808,10 +1813,20 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
         discard
 
 proc semArrayAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
-  result = semSubscript(c, n, flags)
-  if result == nil:
-    # overloaded [] operator:
-    result = semExpr(c, buildOverloadedSubscripts(n, getIdent(c.cache, "[]")), flags)
+  addInNimDebugUtils(c.config, "semArrayAccess", n, result, flags)
+
+  case n.kind
+  of nkBracketExpr:
+    result = semSubscript(c, n, flags)
+    if result == nil:
+      # overloaded [] operator:
+      result = semExpr(c,
+                       buildOverloadedSubscripts(n, getIdent(c.cache, "[]")),
+                       flags)
+  of nkError:
+    result = n
+  else:
+    c.config.internalError(n.info, "execpted nkBracketExpr, got: " & $n.kind)
 
 proc propertyWriteAccess(c: PContext, n, a: PNode): PNode =
   var id = legacyConsiderQuotedIdent(c, a[1],a)
