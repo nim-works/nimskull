@@ -1,3 +1,11 @@
+discard """
+description: '''
+  . From https://github.com/nim-lang/Nim/issues/18859
+    Weird static[T](T) type produced by type expression in
+    generic type definition
+'''
+"""
+
 import macros
 
 macro symFromDesc(T: typedesc): untyped =
@@ -15,3 +23,4 @@ type
   X[T] = produceType(T)
 
 var x: X[int]
+
