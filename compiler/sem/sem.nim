@@ -14,7 +14,9 @@ import
     strutils,
     math,
     strtabs,
-    intsets
+    intsets,
+    sets,       # used for markOwnerModuleAsUsed
+    tables,     # used for markOwnerModuleAsUsed
   ],
   compiler/ast/[
     ast,
@@ -82,6 +84,8 @@ import
     vmdef,
     vm
   ]
+
+import compiler/tools/suggest
 
 when defined(nimfix):
   import compiler/nimfix/prettybase

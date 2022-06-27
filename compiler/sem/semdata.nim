@@ -26,7 +26,10 @@ import
     idents,
     renderer,
     lineinfos,
-    reports
+    linter,
+    reports,
+    trees,
+    wordrecg,
   ],
   compiler/modules/[
     magicsys,
@@ -1111,3 +1114,75 @@ proc rememberExpansion*(c: PContext; info: TLineInfo; expandedSym: PSym) =
   ## delegated to the "rod" file mechanism.
   if c.config.symbolFiles != disabledSf:
     storeExpansion(c.encoder, c.packedRepr, info, expandedSym)
+
+proc extractPragma(s: PSym): PNode =
+  if s.kind in routineKinds:
+    result = s.ast[pragmasPos]
+  elif s.kind in {skType, skVar, skLet}:
+    if s.ast != nil and s.ast.len > 0:
+      if s.ast[0].kind == nkPragmaExpr and s.ast[0].len > 1:
+        # s.ast = nkTypedef / nkPragmaExpr / [nkSym, nkPragma]
+        result = s.ast[0][1]
+  doAssert result == nil or result.kind == nkPragma
+
+proc warnAboutDeprecated(conf: ConfigRef; info: TLineInfo; s: PSym) =
+  var pragmaNode: PNode
+  pragmaNode = if s.kind == skEnumField: extractPragma(s.owner) else: extractPragma(s)
+  if pragmaNode != nil:
+    for it in pragmaNode:
+      if whichPragma(it) == wDeprecated and it.safeLen == 2 and
+          it[1].kind in {nkStrLit..nkTripleStrLit}:
+        localReport(conf, info, reportSym(
+          rsemDeprecated, s, str = it[1].strVal))
+        return
+  localReport(conf, info, reportSym(rsemDeprecated, s))
+
+proc userError(conf: ConfigRef; info: TLineInfo; s: PSym) =
+  let pragmaNode = extractPragma(s)
+  if pragmaNode != nil:
+    for it in pragmaNode:
+      if whichPragma(it) == wError and it.safeLen == 2 and
+          it[1].kind in {nkStrLit..nkTripleStrLit}:
+        localReport(conf, info, reportSym(
+          rsemUsageIsError, s, str = it[1].strVal))
+        return
+
+  localReport(conf, info, reportSym(rsemUsageIsError, s))
+
+proc markOwnerModuleAsUsed*(c: PContext; s: PSym) =
+  var module = s
+  while module != nil and module.kind != skModule:
+    module = module.owner
+  if module != nil and module != c.module:
+    var i = 0
+    while i <= high(c.unusedImports):
+      let candidate = c.unusedImports[i][0]
+      if candidate == module or
+         c.importModuleMap.getOrDefault(candidate.id, int.low) == module.id or
+         c.exportIndirections.contains((candidate.id, s.id)):
+        # mark it as used:
+        c.unusedImports.del(i)
+      else:
+        inc i
+
+proc markUsed*(c: PContext; info: TLineInfo; s: PSym) =
+  let conf = c.config
+  incl(s.flags, sfUsed)
+  if s.kind == skEnumField and s.owner != nil:
+    incl(s.owner.flags, sfUsed)
+    if sfDeprecated in s.owner.flags:
+      warnAboutDeprecated(conf, info, s)
+  if {sfDeprecated, sfError} * s.flags != {}:
+    if sfDeprecated in s.flags:
+      if not (c.lastTLineInfo.line == info.line and
+              c.lastTLineInfo.col == info.col):
+        warnAboutDeprecated(conf, info, s)
+        c.lastTLineInfo = info
+
+    if sfError in s.flags: userError(conf, info, s)
+  when defined(nimsuggest):
+    if c.graph.onMarkUsed != nil:
+      c.graph.onMarkUsed(c.graph, info, s, c.graph.usageSym, false)
+  if {optStyleHint, optStyleError} * conf.globalOptions != {}:
+    styleCheckUse(conf, info, s)
+  markOwnerModuleAsUsed(c, s)

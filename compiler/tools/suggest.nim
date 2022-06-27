@@ -35,12 +35,33 @@
 import
   std/[
     algorithm,
+    intsets,
     parseutils,
     sets,
-    tables
+    strutils,
+    tables,
   ],
   compiler/ast/[
-    wordrecg
+    ast,
+    astalgo,
+    lexer,
+    lineinfos,
+    linter,
+    types,
+    typesrenderer,
+    wordrecg,
+  ],
+  compiler/front/[
+    msgs,
+    options,
+  ],
+  compiler/modules/[
+    modulegraphs,
+  ],
+  compiler/sem/[
+    lookups,
+    semdata,
+    sigmatch,
   ],
   compiler/utils/[
     prefixmatches
@@ -49,7 +70,7 @@ import
 
 
 when defined(nimsuggest):
-  import compiler/sem/passes, std/tables, compiler/utils/pathutils # importer
+  import compiler/sem/passes, compiler/utils/pathutils # importer
 
 const
   sep = '\t'
@@ -262,21 +283,6 @@ proc filterSym(s: PSym; prefix: PNode; res: var PrefixMatch): bool {.inline.} =
 proc filterSymNoOpr(s: PSym; prefix: PNode; res: var PrefixMatch): bool {.inline.} =
   result = filterSym(s, prefix, res) and s.name.s[0] in lexer.SymChars and
      not isKeyword(s.name)
-
-proc fieldVisible*(c: PContext, f: PSym): bool {.inline.} =
-  let fmoduleId = getModule(f).id
-  result = sfExported in f.flags or fmoduleId == c.module.id
-
-  if not result:
-    for module in c.friendModules:
-      if fmoduleId == module.id: return true
-    if f.kind == skField:
-      var symObj = f.owner
-      if symObj.typ.kind in {tyRef, tyPtr}:
-        symObj = symObj.typ[0].sym
-      for scope in allScopes(c.currentScope):
-        for sym in scope.allowPrivateAccess:
-          if symObj.id == sym.id: return true
 
 proc getQuality(s: PSym): range[0..100] =
   result = 100
@@ -539,77 +545,6 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
 
       if parentFileIndex == conf.m.trackPos.fileIndex:
         suggestResult(conf, symToSuggest(g, s, isLocal=false, ideOutline, info, 100, PrefixMatch.None, false, 0))
-
-proc extractPragma(s: PSym): PNode =
-  if s.kind in routineKinds:
-    result = s.ast[pragmasPos]
-  elif s.kind in {skType, skVar, skLet}:
-    if s.ast != nil and s.ast.len > 0:
-      if s.ast[0].kind == nkPragmaExpr and s.ast[0].len > 1:
-        # s.ast = nkTypedef / nkPragmaExpr / [nkSym, nkPragma]
-        result = s.ast[0][1]
-  doAssert result == nil or result.kind == nkPragma
-
-proc warnAboutDeprecated(conf: ConfigRef; info: TLineInfo; s: PSym) =
-  var pragmaNode: PNode
-  pragmaNode = if s.kind == skEnumField: extractPragma(s.owner) else: extractPragma(s)
-  if pragmaNode != nil:
-    for it in pragmaNode:
-      if whichPragma(it) == wDeprecated and it.safeLen == 2 and
-          it[1].kind in {nkStrLit..nkTripleStrLit}:
-        localReport(conf, info, reportSym(
-          rsemDeprecated, s, str = it[1].strVal))
-        return
-  localReport(conf, info, reportSym(rsemDeprecated, s))
-
-proc userError(conf: ConfigRef; info: TLineInfo; s: PSym) =
-  let pragmaNode = extractPragma(s)
-  if pragmaNode != nil:
-    for it in pragmaNode:
-      if whichPragma(it) == wError and it.safeLen == 2 and
-          it[1].kind in {nkStrLit..nkTripleStrLit}:
-        localReport(conf, info, reportSym(
-          rsemUsageIsError, s, str = it[1].strVal))
-        return
-
-  localReport(conf, info, reportSym(rsemUsageIsError, s))
-
-proc markOwnerModuleAsUsed(c: PContext; s: PSym) =
-  var module = s
-  while module != nil and module.kind != skModule:
-    module = module.owner
-  if module != nil and module != c.module:
-    var i = 0
-    while i <= high(c.unusedImports):
-      let candidate = c.unusedImports[i][0]
-      if candidate == module or
-         c.importModuleMap.getOrDefault(candidate.id, int.low) == module.id or
-         c.exportIndirections.contains((candidate.id, s.id)):
-        # mark it as used:
-        c.unusedImports.del(i)
-      else:
-        inc i
-
-proc markUsed(c: PContext; info: TLineInfo; s: PSym) =
-  let conf = c.config
-  incl(s.flags, sfUsed)
-  if s.kind == skEnumField and s.owner != nil:
-    incl(s.owner.flags, sfUsed)
-    if sfDeprecated in s.owner.flags:
-      warnAboutDeprecated(conf, info, s)
-  if {sfDeprecated, sfError} * s.flags != {}:
-    if sfDeprecated in s.flags:
-      if not (c.lastTLineInfo.line == info.line and
-              c.lastTLineInfo.col == info.col):
-        warnAboutDeprecated(conf, info, s)
-        c.lastTLineInfo = info
-
-    if sfError in s.flags: userError(conf, info, s)
-  when defined(nimsuggest):
-    suggestSym(c.graph, info, s, c.graph.usageSym, false)
-  if {optStyleHint, optStyleError} * conf.globalOptions != {}:
-    styleCheckUse(conf, info, s)
-  markOwnerModuleAsUsed(c, s)
 
 proc safeSemExpr*(c: PContext, n: PNode): PNode =
   # use only for idetools support!

@@ -36,7 +36,6 @@ import
   compiler/sem/[
     lookups,
     semdata,
-    sigmatch
   ]
 
 proc declarePureEnumField*(c: PContext; s: PSym) =
@@ -174,7 +173,8 @@ proc importSymbol(c: PContext, n: PNode, fromMod: PSym; importSet: var IntSet): 
           e = nextModuleIter(it, c.graph)
       else:
         rawImportSymbol(c, s, fromMod, importSet)
-      suggestSym(c.graph, n.info, s, c.graph.usageSym, false)
+      if c.graph.onSymImport != nil:
+        c.graph.onSymImport(c.graph, n.info, s, c.graph.usageSym, false)
   else:
     result =
       newSym(skError, ident, nextSymId(c.idgen), getCurrOwner(c), n.info)
@@ -328,7 +328,9 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
       # xxx: this is a hint, `localReport` doesn't communicate this well
       localReport(c.config, n.info, reportSym(rsemDeprecated, realModule))
 
-    suggestSym(c.graph, n.info, result, c.graph.usageSym, false)
+    if c.graph.onSymImport != nil:
+      c.graph.onSymImport(c.graph, n.info, result, c.graph.usageSym, false)
+
     importStmtResult.add:
       case result.kind
       of skError:
