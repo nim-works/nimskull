@@ -12,7 +12,6 @@
 import
   std/[
     intsets,
-    strutils,
   ],
   compiler/ast/[
     ast,
@@ -20,10 +19,7 @@ import
     types,
     renderer,
     idents,
-    lexer,
-    typesrenderer,
     trees,
-    linter,
     lineinfos,
     errorhandling,
     reports,
@@ -95,9 +91,6 @@ type
 
 const
   isNilConversion = isConvertible # maybe 'isIntConv' fits better?
-
-proc markUsed*(c: PContext; info: TLineInfo, s: PSym)
-proc markOwnerModuleAsUsed*(c: PContext; s: PSym)
 
 proc toDebugCallableCandidate*(c: TCandidate): DebugCallableCandidate =
   DebugCallableCandidate(
@@ -2686,8 +2679,6 @@ proc instTypeBoundOp*(c: PContext; dc: PSym; t: PType; info: TLineInfo;
     result = c.semGenerateInstance(c, dc, m.bindings, info)
     if op == attachedDeepCopy:
       assert sfFromGeneric in result.flags
-
-include compiler/tools/suggest
 
 when not declared(tests):
   template tests(s: untyped) = discard

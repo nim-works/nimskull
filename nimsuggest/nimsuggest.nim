@@ -47,8 +47,9 @@ import
     sem,
     passes,
     passaux,
-    sigmatch
   ]
+
+from compiler/tools/suggest import isTracked, listUsages, suggestSym, `$`
 
 when defined(windows):
   import winlean
@@ -707,6 +708,9 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
   myLog(conf, "START " & conf.projectFull.string)
 
   var graph = newModuleGraph(cache, conf)
+  graph.onMarkUsed = proc (g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; isDecl: bool) =
+    suggestSym(g, info, s, usageSym, isDecl)
+  graph.onSymImport = graph.onMarkUsed # same callback
   if self.loadConfigsAndProcessCmdLine(cache, conf, graph):
     mainCommand(graph)
 

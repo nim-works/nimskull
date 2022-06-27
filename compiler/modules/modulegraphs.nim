@@ -137,6 +137,11 @@ type
     compatibleProps*: proc (graph: ModuleGraph; formal, actual: PType): bool {.nimcall.}
     idgen*: IdGenerator
     operators*: Operators
+    when defined(nimsuggest):
+      onMarkUsed*: SuggestCallback
+        ## callback decouples regular compiler code `markUsed` from suggest
+    onSymImport*: SuggestCallback
+        ## callback decouples regular compiler code `importer` from suggest
 
   TPassContext* = object of RootObj # the pass's context
     idgen*: IdGenerator
@@ -150,6 +155,10 @@ type
                  process: TPassProcess,
                  close: TPassClose,
                  isFrontend: bool]
+  
+  SuggestCallback* = proc (graph: ModuleGraph, info: TLineInfo, s: PSym,
+                          usageSym: var PSym, isDecl: bool)
+    ## callback is used to decouple regular compiler code from suggest tool
 
 proc resetForBackend*(g: ModuleGraph) =
   initStrTable(g.compilerprocs)
@@ -397,11 +406,11 @@ proc hash*(u: SigHash): Hash =
 
 proc hash*(x: FileIndex): Hash {.borrow.}
 
-template getPContext(): untyped =
-  when c is PContext: c
-  else: c.c
-
 when defined(nimfind):
+  template getPContext(): untyped =
+    when c is PContext: c
+    else: c.c
+
   template onUse*(info: TLineInfo; s: PSym) =
     let c = getPContext()
     if c.graph.onUsage != nil: c.graph.onUsage(c.graph, s, info)
@@ -625,7 +634,6 @@ proc onProcessing*(graph: ModuleGraph, fileIdx: FileIndex, moduleStatus: string,
   let conf = graph.config
   let isNimscript = conf.isDefined("nimscript")
   if (not isNimscript) or rsemProcessing in conf.cmdlineNotes:
-    let path = toFilenameOption(conf, fileIdx, conf.filenameOption)
     conf.localReport SemReport(
       kind: rsemProcessing,
       sym: fromModule,
