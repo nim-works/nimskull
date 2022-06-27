@@ -436,8 +436,9 @@ proc execWithEcho(conf: ConfigRef; cmd: string, execKind: ReportKind): int =
   result = execCmd(cmd)
 
 proc execExternalProgram*(conf: ConfigRef; cmd: string, kind: ReportKind) =
-  if execWithEcho(conf, cmd, kind) != 0:
-    conf.localReport CmdReport(kind: rcmdFailedExecution, cmd: cmd)
+  let code = execWithEcho(conf, cmd, kind)
+  if code != 0:
+    conf.localReport CmdReport(kind: rcmdFailedExecution, cmd: cmd, code: code)
 
 proc generateScript(conf: ConfigRef; script: Rope) =
   let (_, name, _) = splitFile(conf.outFile.string)
