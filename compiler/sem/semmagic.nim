@@ -45,12 +45,35 @@ type
   SemAsgnMode = enum asgnNormal, noOverloadedSubscript, noOverloadedAsgn
 
 proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode
+proc semDeref(c: PContext, n: PNode): PNode
 proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode
 
 proc semArrGet(c: PContext; n: PNode; flags: TExprFlags): PNode =
-  result = newNodeI(nkBracketExpr, n.info)
-  for i in 1..<n.len: result.add(n[i])
-  result = semSubscript(c, result, flags)
+  ## a basic array access `a[1]`, will be received here as a magic call in `n`
+  ## with the following shape: `(nkCall (nkSym []) (nkSym a) (nkSym 1))`. This
+  ## will:
+  ## - if static (compile time) return the evaluated node
+  ## - if no bracket operator is found for the type, an error
+  ## - otherwise the typed array access expression
+
+  addInNimDebugUtils(c.config, "semArrGet", n, result, flags)
+
+  c.config.internalAssert(n.kind == nkCall, n.info,
+                          "must be a call, got: " & $n.kind)
+  checkMinSonsLen(n, 2, c.config)
+
+  case n.len
+  of 2:
+    # this is a deref, `someArray[]` matches the generic `[]` ArrGet magic
+    result = newNodeI(nkDerefExpr, n.info, 1)
+    result[0] = n[1]
+    result = semDeref(c, result)
+  else:
+    result = newNodeI(nkBracketExpr, n.info)
+    for i in 1..<n.len:
+      result.add(n[i])
+    result = semSubscript(c, result, flags)
+
   if result.isNil:
     let x = copyTree(n)
     x[0] = newIdentNode(getIdent(c.cache, "[]"), n.info)

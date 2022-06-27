@@ -216,7 +216,7 @@ proc bracketNotFoundError(c: PContext; n: PNode): PNode =
     if symx.kind in routineKinds:
       errors.add SemCallMismatch(target: symx, firstMismatch: MismatchInfo())
     elif symx.isError:
-      # xxx: unlike we ever get here; defensive code
+      # xxx: unlikely we ever get here; defensive code
       continue
     symx = nextOverloadIter(o, c, headSymbol)
 
