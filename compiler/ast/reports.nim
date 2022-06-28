@@ -641,6 +641,23 @@ type
     `out`*: string
     nimcache*: string
     hints*, warnings*: seq[tuple[name: string, enabled: bool]]
+  
+  InternalGCStats* = object
+    cycleCollections*: int    
+    cycleTableSize*: int      
+    maxCycleTableSize*: int64
+    maxPause*: int64          
+    maxPauseTime*: int64
+    maxStackCells*: int       
+    maxThreshold*: int        
+    stackCells* : int64
+    stackScans*: int          
+    occupiedMem* : int
+    totalMem*: int
+    zctCapacity*: int64
+    maxStackSize*: int        
+    stackBottom* : int64
+
 
   InternalCliData* = object
     ## Information used to construct messages for CLI reports - `--help`,
@@ -677,7 +694,8 @@ type
 
       of rintCliKinds:
         cliData*: InternalCliData
-
+      of rintGCStats:
+        gcStats*: InternalGCStats
       else:
         discard
 
