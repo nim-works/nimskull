@@ -1,0 +1,16 @@
+# This file specifies who is responsible for a given part of the project.
+#
+# Each lines contains a file pattern followed by one or more owners.
+# Lines starting with `#` are comments. For more information about the
+# syntax, see:
+#
+#   https://help.github.com/articles/about-codeowners/
+#
+# Owners are requested for reviews when PRs are made against their code.
+
+# CI
+.github/actions @nim-works/ci
+.github/workflows @nim-works/ci
+.github/dependabot.yml @nim-works/ci
+.github/nim-problem-matcher.json @nim-works/ci
+bors.toml @nim-works/ci
