@@ -1,11 +1,15 @@
 discard """
 ccodeCheck: "\\i @'NIM_ALIGN(128) NI mylocal1' .*"
 targets: "c cpp"
-output: "align ok"
-"""
+labels: "pragma alignment generic"
+description: '''
+  . First one is is for Azure. The keyword ``alignof`` only exists in ``c++11``
+    and newer. On Azure gcc does not default to c++11 yet.
 
-# This is for Azure. The keyword ``alignof`` only exists in ``c++11``
-# and newer. On Azure gcc does not default to c++11 yet.
+  . From https://github.com/nim-lang/Nim/issues/13122
+    {.align.} pragma is not applied if there is a generic field
+'''
+"""
 
 import globalalignas
 
@@ -39,15 +43,13 @@ proc foobar() =
   doAssert (cast[uint](addr(mylocal2)) and 127) == 0
   doAssert (cast[uint](addr(mylocal3)) and 127) == 0
 
-  echo "align ok"
-
 foobar()
 
-# bug #13122
+block issue_13122:
 
-type Bug[T] = object
-  bug{.align:64.}: T
-  sideffect{.align:64.}: int
+  type Bug[T] = object
+    bug{.align:64.}: T
+    sideffect{.align:64.}: int
 
-var bug: Bug[int]
-doAssert sizeof(bug) == 128, "Oops my size is " & $sizeof(bug) # 16
+  var bug: Bug[int]
+  doAssert sizeof(bug) == 128, "Oops my size is " & $sizeof(bug) # 16
