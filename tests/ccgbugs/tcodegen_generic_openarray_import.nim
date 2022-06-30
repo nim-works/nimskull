@@ -10,6 +10,13 @@ output: '''
 @[(v: -1), (v: 2), (v: 3)]
 @[(v: -1), (v: 2), (v: 3)]
 '''
+labels : "codegen generic import openArray"
+description: '''
+  . From https://github.com/nim-lang/Nim/issues/9578
+    openArray generates incorrect C code with "incomplete type"
+  . openArray[T] generates incorrect C code, if the containing module
+    does not use T directly.
+'''
 """
 
 type mytype* = object
@@ -25,6 +32,7 @@ block:
   var x = @[1.g,2.g,3.g]
   testSeq(x)
   echo x
+  
 block:
   var x = @[1.g,2.g,3.g]
   var y = addr x

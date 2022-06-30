@@ -120,6 +120,7 @@ type
     inlineErrors*: seq[InlineError] ## line information to error message
     debugInfo*: string ## debug info to give more context
     knownIssues*: seq[string] ## known issues to be fixed
+    labels*: seq[string] ## user-added metadata
 
   RetryContainer* = object
     ## Global object which contains information related to the --retry flag.
@@ -530,6 +531,12 @@ proc parseSpec*(filename: string,
         else:
             result.knownIssues.add e.value
             result.err = reKnownIssue
+      of "labels":
+         discard """
+         Adding only key support for now.
+         This allows on-band addition of tags inside the tests, without
+         requiring full parsing implementation.
+         """
       else:
         result.parseErrors.addLine "invalid key for test spec: ", e.key
 
