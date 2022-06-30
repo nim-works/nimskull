@@ -162,7 +162,8 @@ proc createInterpreter*(
   vm.mode = emRepl
   vm.features = flags
   if registerOps:
-    vm.registerAdditionalOps() # Required to register parts of stdlib modules
+    # Register basic system operations and parts of stdlib modules
+    vm[].registerBasicOps()
   graph.vm = vm
   graph.compileSystemModule()
   result = Interpreter(mainModule: m, graph: graph, scriptName: scriptName, idgen: idgen)

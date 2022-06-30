@@ -63,7 +63,7 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
   # For Nimble we need to export 'setupVM'.
   result = newCtx(module, cache, graph, idgen)
   result.mode = emRepl
-  registerAdditionalOps(result)
+  registerBasicOps(result[])
   let conf = graph.config
 
   # captured vars:
@@ -254,6 +254,20 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
   var m = graph.makeModule(scriptName)
   incl(m.flags, sfMainModule)
   var vm = setupVM(m, cache, scriptName.string, graph, idgen)
+  let disallowDanger =
+    defined(nimsuggest) or graph.config.cmd == cmdCheck or
+    vmopsDanger notin graph.config.features
+  # the VM instance used for NimScript execution is also used for the
+  # compile-time evaluation, so we have to register the macro/compile-time
+  # ops on the instance. Combined with how callback registration works,
+  # this has the following consequences:
+  # - CTFE and macro evaluation happening during semantic analysis of the
+  #  NimScript file are run with NimScript privileges, e.g. file-system write
+  #  access
+  # - the ``vmopsDanger`` option has no effect on callbacks registered
+  #  during `setupVM`
+  # - NimScript has access to the macro/compile-time APIs
+  registerAdditionalOps(vm[], disallowDanger)
   graph.vm = vm
 
   graph.compileSystemModule()
