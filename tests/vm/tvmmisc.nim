@@ -1,3 +1,8 @@
+discard """
+  matrix: "--experimental:vmopsDanger" # for compile-time `putEnv`
+  target: native
+"""
+
 # bug #4462
 import macros
 import os

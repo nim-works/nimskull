@@ -1,5 +1,6 @@
 discard """
-  matrix: "--threads"
+  # `vmopsDanger` is required for compile-time `putEnv`/`delEnv`
+  matrix: "--threads --experimental:vmopsDanger"
   joinable: false
   targets: "c js cpp"
 """

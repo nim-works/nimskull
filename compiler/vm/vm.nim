@@ -3464,7 +3464,13 @@ proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
   addInNimDebugUtils(graph.config, "setupGlobalCtx")
   if graph.vm.isNil:
     graph.vm = newCtx(module, graph.cache, graph, idgen)
-    registerAdditionalOps(PCtx graph.vm)
+    let
+      ctx = PCtx graph.vm
+      disallowDangerous =
+        defined(nimsuggest) or graph.config.cmd == cmdCheck or
+        vmopsDanger notin ctx.config.features
+
+    registerAdditionalOps(ctx[], disallowDangerous)
   else:
     let c = PCtx(graph.vm)
     refresh(c[], module, idgen)
