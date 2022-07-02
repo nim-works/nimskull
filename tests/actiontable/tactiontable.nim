@@ -1,23 +1,20 @@
 discard """
-  output: '''
-action 3 arg
-action 3 arg
-'''
+labels: "table var const"
 """
 
 import tables
 
-proc action1(arg: string) =
-  echo "action 1 ", arg
+proc action1(arg: string) : string =
+  return "action 1 " & arg
 
-proc action2(arg: string) =
-  echo "action 2 ", arg
+proc action2(arg: string) : string =
+  return "action 2 " & arg
 
-proc action3(arg: string) =
-  echo "action 3 ", arg
+proc action3(arg: string) : string =
+  return "action 3 " & arg
 
-proc action4(arg: string) =
-  echo "action 4 ", arg
+proc action4(arg: string) : string =
+  return "action 4 " & arg
 
 var
   actionTable1 = {
@@ -33,5 +30,5 @@ const
     "C": action3,
     "D": action4}.toTable
 
-actionTable1["C"]("arg")
-actionTable2["C"]("arg")
+doAssert actionTable1["C"]("arg") == "action 3 arg"
+doAssert actionTable2["C"]("arg") == "action 3 arg"

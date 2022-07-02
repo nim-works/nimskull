@@ -1,4 +1,9 @@
-# Test the alias analysis
+discard """
+labels: "alias"
+description: '''
+  . Test the alias analysis
+'''
+"""
 
 type
   TAnalysisResult* = enum
