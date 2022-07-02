@@ -2652,11 +2652,11 @@ proc argtypeMatches*(c: PContext, f, a: PType, fromHlo = false): bool =
   #instantiateGenericConverters(c, res, m)
   # XXX this is used by patterns.nim too; I think it's better to not
   # instantiate generic converters for that
-  if not fromHlo:
-    res != nil
-  else:
+  if fromHlo:
     # pattern templates do not allow for conversions except from int literal
     res != nil and m.convMatches == 0 and m.intConvMatches in [0, 256]
+  else:
+    res != nil
 
 when not defined(nimHasSinkInference):
   {.pragma: nosinks.}

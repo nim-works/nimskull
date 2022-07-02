@@ -577,7 +577,7 @@ template semReportIllformedAst*(
   handleReport(
     conf,
     wrap(
-      SemReport(kind: rsemIllformedAst, ast: node ),
+      SemReport(kind: rsemIllformedAst, ast: node, str: explain),
       instLoc(),
       node.info),
     instLoc(),
@@ -590,12 +590,13 @@ proc joinAnyOf*[T](values: seq[T], quote: bool = false): string =
     else:
       s
 
-  if len(values) == 1:
+  case len(values)
+  of 1:
     result.add q($values[0])
-  elif len(values) == 2:
+  of 2:
     result.add q($values[0]) & " or " & q($values[1])
   else:
-    for idx in 0 ..< len(values) - 1:
+    for idx in 0..<len(values) - 1:
       if idx > 0:
         result.add ", "
       result.add q($values[idx])
@@ -603,18 +604,17 @@ proc joinAnyOf*[T](values: seq[T], quote: bool = false): string =
     result.add " or "
     result.add q($values[^1])
 
-template semReportIllformedAst*(
-  conf: ConfigRef, node: PNode, expected: set[TNodeKind]): untyped =
+template createSemIllformedAstMsg*(node: PNode,
+                                   expected: set[TNodeKind]): string =
   var exp: seq[TNodeKind]
   for e in expected:
     exp.add e
 
-  var msg = "Expected "
-  msg.add joinAnyOf(exp)
-  msg.add ", but found "
-  msg.add $node.kind
+  "Expected $1, but found $2" % [joinAnyOf(exp), $node.kind]
 
-  semReportIllformedAst(conf, node, msg)
+template semReportIllformedAst*(
+  conf: ConfigRef, node: PNode, expected: set[TNodeKind]): untyped =
+  semReportIllformedAst(conf, node, createSemIllformedAstMsg(node, expected))
 
 template localReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc(), info), instLoc(), doNothing)

@@ -27,7 +27,7 @@ import
 proc semLocals*(c: PContext, n: PNode): PNode =
   var counter = 0
   var tupleType = newTypeS(tyTuple, c)
-  result = newNodeIT(nkPar, n.info, tupleType)
+  result = newNodeIT(nkTupleConstr, n.info, tupleType)
   tupleType.n = newNodeI(nkRecList, n.info)
   let owner = getCurrOwner(c)
   # for now we skip openarrays ...

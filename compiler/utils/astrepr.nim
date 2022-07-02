@@ -324,7 +324,6 @@ proc symFields(
   var res = addr result
   genFields(res[], indent, rconf)
 
-
   if not rconf.extraSymInfo.isNil():
     let text = rconf.extraSymInfo(sym)
     if 0 < len(text):
@@ -332,6 +331,7 @@ proc symFields(
 
   if trfShowSymName in rconf:
     field("name.s", sym.name.s + style.ident)
+    hfield("sym.id", $sym.id + style.number)
     hfield("name.id", $sym.name.id + style.number)
 
   if trfShowSymFlags in rconf and
@@ -341,7 +341,6 @@ proc symFields(
   if trfShowSymMagic in rconf and
      (sym.magic != mNone or rconf.defaulted()):
     field("magic", substr($sym.magic, 1) + style.setIt)
-
 
   if trfShowSymId in rconf:
     field("itemId")
