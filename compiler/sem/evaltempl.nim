@@ -22,6 +22,9 @@ import
   compiler/front/[
     options,
     msgs
+  ],
+  compiler/utils/[
+    debugutils
   ]
 
 type
@@ -164,6 +167,8 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
                    ic: IdentCache; instID: ref int;
                    idgen: IdGenerator;
                    fromHlo=false): PNode =
+  addInNimDebugUtils(conf, "evalTemplate", n, result)
+
   inc(conf.evalTemplateCounter)
   if conf.evalTemplateCounter > evalTemplateLimit:
     globalReport(conf, n.info, SemReport(

@@ -548,8 +548,7 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
       haveGivenTyp = givenTyp != nil and not givenTyp.isError
       haveInit = initType != nil and not initType.isError
     
-    # xxx: this was hacked in to disallow typedesc in arrays, outside of
-    #      macros, but it feels wrong here
+    # xxx: this was hacked in to disallow typedesc in arrays outside of macros
     if haveInit and initType.kind == tyTypeDesc and c.p.owner.kind != skMacro:
       typFlags.incl taProcContextIsNotMacro
 

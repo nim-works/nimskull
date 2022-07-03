@@ -1906,11 +1906,11 @@ proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
   result = t.typ
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
+  addInNimDebugUtils(c.config, "semTypeNode", n, prev, result)
   result = nil
   inc c.inTypeContext
 
   if c.config.cmd == cmdIdeTools: suggestExpr(c, n)
-  addInNimDebugUtils(c.config, "semTypeNode", n, prev, result)
   case n.kind
   of nkEmpty: result = n.typ
   of nkTypeOfExpr:

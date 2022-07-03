@@ -3166,7 +3166,7 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
       let enter = s.direction == semstepEnter
       if conf.hack.semTraceData and
          s.kind != stepTrack #[ 'track' has no extra data fields ]#:
-        field("kind", $s.kind)
+        # field("kind", $s.kind) # useful if you're new to reading traces
         case s.kind:
           of stepNodeToNode:
             if enter:
