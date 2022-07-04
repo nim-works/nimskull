@@ -34,14 +34,15 @@ how to use them.
 
 **Used when compiling the compiler itself**
 
-=========================== =======
-Define                      Enables
---------------------------- -------
-`nimDebugUtils`             Allows for semantic analysis execution tracing and more
-`nimDebugUnreportedErrors`  Enable unreported error debugging
-`nimVMDebugExecute`         Print out every instruction executed by the VM
-`nimVMDebugGenerate`        List VM code generated for every procedure called at compile-time
-=========================== =======
+============================= =======
+Define                        Enables
+----------------------------- -------
+`nimDebugUtils`               Allows for semantic analysis execution tracing and more
+`nimDebugUnreportedErrors`    Enable unreported error debugging
+`nimVMDebugExecute`           Print out every instruction executed by the VM
+`nimVMDebugGenerate`          List VM code generated for every procedure called at compile-time
+`nimCompilerStacktraceHints`  Add extra information (node location + kind) to some
+============================= =======
 
 **Used when executing the compiler**
 
@@ -53,6 +54,83 @@ Define                       Enables
 `nimCompilerDebugCalltrace`  Call trace reports
 `nimCompilerDebugTraceDir`   Writes call traces to the specified directory
 ============================ =======
+
+Common operations & how-tos
+---------------------------
+
+**Getting started with debugutils and astrepr**
+
+**tl;dr**: `import compiler/utils/astrepr` and `debug` any value. If you
+ want only debug a specific section use `setImplicitDebugConfRef` and then
+ `inDebug()` checks (paired with `{.define(nimCompilerDebug).}` in the
+ code) or `inFile()` (specific file name)
+
+This section provides a short getting started guide on how to use the
+`debug` proc from the `astrepr` module and how it is integrated with
+`debugutils`.
+
+The main procedure for printing and debugging internal representation is
+`astrepr.debug`. It has several overloads that allow to print `PType`,
+`PSym` and `PNode` - main types of the IR. The simplest use case is
+
+.. code-block:: nim
+
+    debug node
+
+Which would print the structure of the tree. By default `debug` uses
+implicit configuration, stored in the `astrepr.implicitTReprConf` variable.
+You can pass your own configuration to the `debug`, or modify the global
+configuration if needed. There are several preset configurations of the
+`TReprConf` object, all defined the `astrepr`:
+
+.. code-block:: nim
+
+    debug node, onlyStructureTReprConf # Print only basic structure of the tree
+    debug node, verboseTReprConf # Print all existing fields
+    debug node, defaultTReprConf # Starting configuration
+
+In addition to implicit configuration of the tree printing functions there
+is also an implicit `ConfRef` variable that can be set via
+`astrepr.setImplicitDebugConfRef`. If it is set it will be used by the
+`debug` functions to access more information - for example it will now be
+able to resolve file index field in the `TLineInfo`.
+
+Setting this variable makes it possible to use the `inFile()` and
+`inDebug()` debugging helpers for checking whether compiler is currently
+processing a specific file or is in the `{.defune(nimCompilerDebug).}`
+section.
+
+.. warning:: The `inFile()` and `inDebug()` are **not** to be used in the
+             final code, they implemented **purely** for the debug
+             purposes.
+
+
+
+**Do debugging only for a limited range of code**
+
+Wrap the code range in define-undef of `nimCompilerDebug` and put the
+debugging logic in the `if config.isCompilerDebug` check.
+
+**Print semantic trace for range of code**
+
+Define `nimDebugUtils` and `nimCompilerDebugCalltrace`. Don't forget to
+build the compiler with `-d=nimDebugUtils`.
+
+**Configure semantic trace parser**
+
+Right now some details of the configuration are coded into `HackController`
+object (defined in `options.nim`) and it's default version -
+`defaultHackController` (also defined in `options.nim`). For details on
+specific fields and uses please see the documentation comments, but
+high-level overview of functionality is (might be a little outdated):
+
+============== =======================
+Field          Controls
+-------------- -----------------------
+semStack       Report stack trace
+semTraceData   Associated data print
+reportInTrace  Indentation printing
+============   =======================
 
 
 Simplest / All Apsects - Debug Helper Modules
@@ -68,7 +146,6 @@ This is the simplest approach a bit better than `echo` based debugging.
 Use the exported procs from the module, build the compiler and look at the
 output.
 
-
 Semantic Analysis - Execution Tracing
 =====================================
 
@@ -77,7 +154,7 @@ were invoked when compiler some code. This is useful for debugging how the
 compiler is interpreting a fragment of code.
 
 Quick start:
-* Ensure the compiler is built with `nimDebugUtils` defined.
+******** Ensure the compiler is built with `nimDebugUtils` defined.
 * wrap a region of user code with a define/undefine `nimCompilerDebug`
   * or use the `system.nimCompilerDebugRegion`
 * compile the user code with the define `nimCompilerDebugCalltrace`
@@ -88,7 +165,7 @@ Execution Tracing a Fragment
 ----------------------------
 
 Using a compiler built with `nimDebugUtils` defined, compile your test file
-with `nim c -d:nimCompilerDebugCalltrace --filenames:canonical file.nim`:cmd:
+with `nim c -d=nimCompilerDebugCalltrace --filenames:canonical file.nim`:cmd:
 and annotate code block with the `nimCompilerDebug` wrapper.
 
 .. code-block:: nim
@@ -156,7 +233,7 @@ routine. See the snippet below to show how tracing was added to
 Comparing/Logging Traces: Differential Debugging
 ---------------------------------------------------
 
-If test compiler runs with `-d:nimCompilerDebugTraceDir=/some/dir` option
+If test compiler runs with `-d=nimCompilerDebugTraceDir=/some/dir` option
 the reports stored between different sections are written into separate
 files in this directory. This is helpful if you want to track bugs where
 you have two pieces or versions of code where one works and the other
@@ -199,7 +276,7 @@ other target directory)
 
 .. code-block:: cmd
 
-    nim c --filenames:canonical -d:nimCompilerDebugTraceDir=/tmp/nimtrace -d:nimDebugUtils file.nim
+    nim c --filenames:canonical -d=nimCompilerDebugTraceDir=/tmp/nimtrace -d=nimDebugUtils file.nim
 
 We will get two large files - `/tmp/nimtrace/0` and `/tmp/nimtrace/1` that
 contain debug trace for the first and second sections respectively. The
