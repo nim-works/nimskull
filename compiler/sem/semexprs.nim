@@ -3405,21 +3405,14 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
       # what other pragmas are allowed for expressions? `likely`, `unlikely`
       result = invalidPragma(c, n)
   of nkPar:
-    case n.len
-    of 0: # treat empty parens as types
-      result = n
-      transitionSonsKind(result, nkTupleConstr)
-      result = semTupleConstr(c, result, flags)
-    of 1:
+    if n.len == 1:
       result = semExpr(c, n[0], flags)
     else:
-      # xxx: this is compensating for what is likely a bug in the parser where
-      #      nkPar with more than one element is passed in. this should
-      #      supposedly not happen. if investigating in the future talk to
-      #      clyybber or saem.
-      result = n
-      transitionSonsKind(result, nkTupleConstr)
-      result = semTupleConstr(c, result, flags)
+      result = c.config.newError(n,
+                    reportAst(
+                      rsemIllformedAst,
+                      n,
+                      createSemIllformedAstMsg(n, {nkTupleConstr})))
   of nkTupleConstr:
     result = semTupleConstr(c, n, flags)
   of nkCurly: result = semSetConstr(c, n)

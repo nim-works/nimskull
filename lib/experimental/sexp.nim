@@ -431,7 +431,7 @@ proc toSexp(x: NimNode): NimNode {.compileTime.} =
     result = prefix(result, "sexp")
 
   of nnkExprEqExpr:
-    result = prefix(nnkPar.newTree(
+    result = prefix(nnkTupleConstr.newTree(
       newLit(x[0].strVal()), toSexp(x[1])), "sexp")
 
   else:
