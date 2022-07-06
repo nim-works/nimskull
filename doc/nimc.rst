@@ -474,6 +474,60 @@ They are:
 5. nl_types. No headers for this.
 6. As mmap is not supported, the nimAllocPagesViaMalloc option has to be used.
 
+Usage with other build systems
+==============================
+
+Use the depfile in Makefile
+---------------------------
+
+.. code:: 
+
+      main: main.nim
+         nim c $(NIMFLAGS) --depfile $@.d $<
+
+      -include main.d
+
+
+Use the depfile in Ninja
+------------------------
+
+.. code:: 
+
+      rule nimc:
+        deps = gcc
+        depfile = $out.d
+        command = nim c $nimflags --depfile $out.d $in
+
+      build main: nimc main.nim
+
+
+Use the depfile in CMake
+------------------------
+
+.. code:: 
+
+      add_custom_command(
+          OUTPUT main
+          COMMAND nim c ${NIMFLAGS} --depfile main.d main.nim
+          DEPFILE main.d
+          VERBATIM
+      )
+
+
+Use the depfile in Meson
+------------------------
+
+.. code:: 
+
+      nim = find_program('nim')
+      custom_target(
+        input : 'main.nim',
+        output : 'main',
+        depfile : '@BASENAME@.d',
+        command : [nim, 'c', '--depfile', '@DEPFILE@', '@INPUT@'],
+        build_by_default : true
+      )
+
 DLL generation
 ==============
 
