@@ -663,3 +663,73 @@ proc skipAddr*(n: PNode): PNode {.inline.} =
 proc isNewStyleConcept*(n: PNode): bool {.inline.} =
   assert n.kind == nkTypeClassTy
   result = n[0].kind == nkEmpty
+
+
+
+type
+  NodePosName* = enum
+    ## Named node position accessor
+    PosLastIdent ## Last item in the identifier
+    PosType ## Type position for variable declaration or a procedure. For
+            ## procedure returns it's formal parameters (signature)
+    PosInit ## Initialization expression
+    PosProcBody ## Procedure body
+    PosProcReturn ## Return value of the procedure in formal parameters
+    PosProcArgs ## Formal parmeters in the procedure
+    PosTypeBody ## Type definition body
+    PosName ## Procedure name
+    PosBody ## Generic statement body
+    PosPragma ## Pragma position in the node body
+
+  NodeSliceName* = enum
+    ## Named node slice accessor
+    SliceAllIdents ## All identifiers in the ident defs
+    SliceAllArguments  ## All arguments in the formal parammeters
+    SliceAllBranches ## All case statement branches
+    SliceBranchExpressions ## All expressions in the `of` branch
+
+proc `[]`*(node: PNode, pos: NodePosName): PNode =
+  ## Get subnode by named position
+
+  # NOTE: further expansion and clarifications of this node should happen
+  # on as-needed basis. When adding clarifications for accessing different
+  # *node kinds* please do update the documentation on the respective named
+  # position enum values as well.
+  case pos:
+    of PosLastIdent: node[^3]
+    of PosType:
+      case node.kind:
+        of routineDefs:
+          node[3]
+
+        else:
+          node[^2]
+
+    of PosInit: node[^1]
+    of PosProcBody: node[6]
+    of PosTypeBody: node[2]
+    of PosProcArgs: node[3]
+    of PosBody: node[^1]
+    of PosProcReturn:
+      assert node.kind == nkFormalParams, $node.kind
+      node[0]
+    of PosName: node[0]
+    of PosPragma:
+      case node.kind:
+        of routineDefs:
+          node[pragmasPos]
+
+        of nkTypeDef:
+          node[0][PosPragma]
+
+        else:
+          assert node.kind == nkPragmaExpr, $node.kind
+          node[1]
+
+
+proc `[]`*(node: PNode, slice: NodeSliceName): seq[PNode] =
+  ## Access named node slice
+  case slice:
+    of SliceAllIdents: node.sons[0..^3]
+    of SliceAllArguments, SliceAllBranches: node.sons[1..^1]
+    of SliceBranchExpressions: node.sons[0 .. ^2]
