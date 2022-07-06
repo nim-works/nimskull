@@ -298,6 +298,7 @@ passField filenameOption,     FilenameOption
 passField numberOfProcessors, int
 passField outFile,            RelativeFile
 passField outDir,             AbsoluteDir
+passField depfile,            AbsoluteFile
 passField projectPath,        AbsoluteDir
 passField projectName,        string
 passField projectFull,        AbsoluteFile

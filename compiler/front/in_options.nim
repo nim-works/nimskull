@@ -295,6 +295,7 @@ type
 
     outFile*: RelativeFile
     outDir*: AbsoluteDir
+    depfile*: AbsoluteFile
 
     implicitImports*: seq[string]  ## modules that are to be implicitly
                                    ## imported

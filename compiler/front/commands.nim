@@ -149,7 +149,7 @@ const optNames = @[
   # processSwitch
   "eval", "path", "p", "nimblepath", "babelpath", "nonimblepath",
   "nobabelpath", "clearnimblepath", "excludepath", "nimcache", "out", "o",
-  "outdir", "usenimcache", "docseesrcurl", "docroot", "backend", "b",
+  "outdir", "depfile", "usenimcache", "docseesrcurl", "docroot", "backend", "b",
   "doccmd", "define", "d", "undef", "u", "compile", "link", "debuginfo",
   "embedsrc", "compileonly", "c", "nolinking", "nomain", "forcebuild", "f",
   "project", "warnings", "w", "warning", "hint", "warningaserror",
@@ -718,6 +718,9 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "outdir":
     expectArg(conf, switch, arg, pass, info)
     conf.outDir = processPath(conf, arg, info, switch, notRelativeToProj=true)
+  of "depfile":
+    expectArg(conf, switch, arg, pass, info)
+    conf.depfile = processPath(conf, arg, info, switch, notRelativeToProj=true).AbsoluteFile
   of "usenimcache":
     processOnOffSwitchG(conf, {optUseNimcache}, arg, pass, info, switch)
   of "docseesrcurl":

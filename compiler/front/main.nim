@@ -13,7 +13,7 @@ when not defined(nimcore):
   {.error: "nimcore MUST be defined for Nim's core tooling".}
 
 import
-  std/[strutils, os, times, tables, sha1, with, json],
+  std/[sequtils, strutils, os, times, tables, sha1, with, json],
   compiler/ast/[
     llstream,    # Input data stream
     ast,
@@ -27,7 +27,8 @@ import
     options,
     condsyms,
     msgs,
-    nimconf      # Configuration file reading
+    nimconf,     # Configuration file reading
+    depfiles
   ],
   compiler/sem/[
     sem,         # Implementation of the semantic pass
@@ -82,16 +83,17 @@ proc semanticPasses(g: ModuleGraph) =
   registerPass g, verbosePass
   registerPass g, semPass
 
-proc writeDepsFile(g: ModuleGraph) =
-  let fname = g.config.nimcacheDir / RelativeFile(g.config.projectName & ".deps")
-  let f = open(fname.string, fmWrite)
-  for m in g.ifaces:
-    if m.module != nil:
-      f.writeLine(toFullPath(g.config, m.module.position.FileIndex))
-  for k in g.inclToMod.keys:
-    if g.getModule(k).isNil:  # don't repeat includes which are also modules
-      f.writeLine(toFullPath(g.config, k))
-  f.close()
+proc writeGccDepfile(conf: ConfigRef) =
+  ## Writes target's dependencies in the format understood by most build
+  ## systems. See https://github.com/nim-works/nimskull/pull/376.
+  let
+    depfile = open(conf.depfile.string, fmWrite)
+    target = conf.outFile.string
+    paths = conf.m.fileInfos.mapIt(it.fullPath.string)
+
+  depfile.writeGccDepfile(target, paths)
+
+  depfile.close()
 
 proc commandGenDepend(graph: ModuleGraph) =
   semanticPasses(graph)
@@ -172,6 +174,8 @@ proc commandCompileToC(graph: ModuleGraph) =
     # for now we do not support writing out a .json file with the build instructions when HCR is on
     if not conf.hcrOn:
       extccomp.writeJsonBuildInstructions(conf)
+    if conf.depfile.string.len != 0:
+      writeGccDepfile(conf)
     if optGenScript in graph.config.globalOptions:
       writeDepsFile(graph)
 
@@ -194,6 +198,8 @@ proc commandCompileToJS(graph: ModuleGraph) =
     semanticPasses(graph)
     registerPass(graph, JSgenPass)
     compileProject(graph)
+    if conf.depfile.string.len != 0:
+      writeGccDepfile(conf)
     if optGenScript in conf.globalOptions:
       writeDepsFile(graph)
 
