@@ -37,7 +37,7 @@ import
   compiler/utils/[
     ropes,
     pathutils,
-    debugUtils
+    debugUtils,
   ],
   compiler/sem/[
     semdata,
@@ -984,40 +984,53 @@ proc markCompilerProc(c: PContext; s: PSym): PNode =
 proc deprecatedStmt(c: PContext; outerPragma: PNode): PNode =
   result = outerPragma
   let pragma = outerPragma[1]
+  
   if pragma.kind in {nkStrLit..nkTripleStrLit}:
     incl(c.module.flags, sfDeprecated)
     c.module.constraint = getStrLitNode(c, outerPragma)
+  
     if c.module.constraint.kind == nkError:
       result = wrapError(c.config, outerPragma)
+
     return
   elif pragma.kind != nkBracket:
     result = c.config.newError(pragma, reportStr(
       rsemBadDeprecatedArgs, "list of key:value pairs expected"))
+  
     return
+
   for n in pragma:
     if n.kind in nkPragmaCallKinds and n.len == 2:
       let dest = qualifiedLookUp(c, n[1], {checkUndeclared})
+  
       if dest == nil or dest.kind in routineKinds or dest.kind == skError:
         # xxx: warnings need to be figured out, also this is just silly, why
         #      are they unreliable?
         localReport(c.config, n.info, SemReport(kind: rsemUserWarning))
+  
       let (src, err) = considerQuotedIdent(c, n[0])
+
       if err.isNil:
         let alias = newSym(skAlias, src, nextSymId(c.idgen), dest, n[0].info, c.config.options)
         incl(alias.flags, sfExported)
+  
         if sfCompilerProc in dest.flags:
           let e = markCompilerProc(c, alias)
+  
           if e != nil:
             result = e
             return
+  
         addInterfaceDecl(c, alias)
         n[1] = newSymNode(dest)
       else:
         result = err
+
         return
     else:
       result = c.config.newError(n, reportStr(
         rsemBadDeprecatedArgs, "key:value pair expected"))
+
       return
 
 proc pragmaGuard(c: PContext; it: PNode; kind: TSymKind): PSym =

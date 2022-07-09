@@ -2347,11 +2347,13 @@ proc genArrAccess(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
 
 proc genVarSection(c: var TCtx; n: PNode) =
   for a in n:
-    if a.kind == nkCommentStmt: continue
-    #assert(a[0].kind == nkSym) can happen for transformed vars
-    if a.kind == nkVarTuple:
+    case a.kind
+    of nkCommentStmt:
+      continue
+    of nkVarTuple:
       for i in 0..<a.len-2:
-        if a[i].kind == nkSym:
+        case a[i].kind
+        of nkSym:
           checkCanEval(c, a[i])
           let s = a[i].sym
 
@@ -2362,64 +2364,66 @@ proc genVarSection(c: var TCtx; n: PNode) =
             discard c.getOrCreate(s.typ)
           else:
             setSlot(c, s)
+        else:
+          discard # xxx: seems weird we don't know what to expect here
 
       c.gen(lowerTupleUnpacking(c.graph, a, c.idgen, c.getOwner))
-    elif a[0].kind == nkSym:
-      let s = a[0].sym
-      checkCanEval(c, a[0])
-      if s.isGlobal:
-        if importcCondVar(s):
-          # Ignore definitions of importc'ed variables
-          continue
+    of nkIdentDefs:
+      if a[0].kind == nkSym:
+        let s = a[0].sym
+        checkCanEval(c, a[0])
+        if s.isGlobal:
+          if importcCondVar(s):
+            # Ignore definitions of importc'ed variables
+            continue
 
-        # XXX: during NimScript execution, top-level ``.compileTime``
-        #      variables are code-gen'ed twice, once via `setupCompileTimeVar`
-        #      called from `sem.semVarOrLet` and once through `vm.myProcess`.
-        #      This leads to the global's symbol already being present in the
-        #      table. For the VM back-end, the symbol is also already present
-        #      if the global was used somewhere in another module
-        #c.config.internalAssert(s.id notin c.symToIndexTbl, a[0].info)
-        discard c.registerGlobal(s)
-        discard c.getOrCreate(s.typ)
+          # XXX: during NimScript execution, top-level ``.compileTime``
+          #      variables are code-gen'ed twice, once via `setupCompileTimeVar`
+          #      called from `sem.semVarOrLet` and once through `vm.myProcess`.
+          #      This leads to the global's symbol already being present in the
+          #      table. For the VM back-end, the symbol is also already present
+          #      if the global was used somewhere in another module
+          #c.config.internalAssert(s.id notin c.symToIndexTbl, a[0].info)
+          discard c.registerGlobal(s)
+          discard c.getOrCreate(s.typ)
 
-        # no need to generate or collect if the global has no initializer
-        if a[2].kind == nkEmpty:
-          continue
+          # no need to generate or collect if the global has no initializer
+          if a[2].kind == nkEmpty:
+            continue
 
-        if cgfCollectGlobals in c.codegenInOut.flags and
-           s.owner != nil and
-           s.owner.kind in routineKinds:
-          # we encountered a function-level global and code generation for
-          # them is defered
-          c.codegenInOut.globalDefs.add a
-        else:
-          let tmp = c.genx(a[0], {gfNodeAddr})
-          let val = c.genx(a[2])
-          c.genAdditionalCopy(a[2], opcWrDeref, tmp, 0, val)
-          c.freeTemp(val)
-          c.freeTemp(tmp)
-      else:
-        let reg = setSlot(c, s)
-        if a[2].kind == nkEmpty:
-          c.gABx(a, ldNullOpcode(s.typ), reg, c.genType(s.typ))
-        else:
-          assert s.typ != nil
-          if not fitsRegister(s.typ):
-            c.gABx(a, ldNullOpcode(s.typ), reg, c.genType(s.typ))
-          let le = a[0]
-          assert le.typ != nil
-          # XXX: also perform a copy for `let` for now. With the current
-          #      vmgen, it's too complex to make it work otherwise 
-          if not fitsRegister(le.typ) and s.kind in {skResult, skLet, skVar, skParam}:
-            var cc = c.getTemp(le.typ)
-            gen(c, a[2], cc)
-            c.gABC(le, whichAsgnOpc(le), reg, cc)
-            c.freeTemp(cc)
+          if cgfCollectGlobals in c.codegenInOut.flags and
+            s.owner != nil and
+            s.owner.kind in routineKinds:
+            # we encountered a function-level global and code generation for
+            # them is defered
+            c.codegenInOut.globalDefs.add a
           else:
-            gen(c, a[2], reg)
-    else:
-      # assign to a[0]; happens for closures
-      if a[2].kind == nkEmpty:
+            let tmp = c.genx(a[0], {gfNodeAddr})
+            let val = c.genx(a[2])
+            c.genAdditionalCopy(a[2], opcWrDeref, tmp, 0, val)
+            c.freeTemp(val)
+            c.freeTemp(tmp)
+        else:
+          let reg = setSlot(c, s)
+          if a[2].kind == nkEmpty:
+            c.gABx(a, ldNullOpcode(s.typ), reg, c.genType(s.typ))
+          else:
+            assert s.typ != nil
+            if not fitsRegister(s.typ):
+              c.gABx(a, ldNullOpcode(s.typ), reg, c.genType(s.typ))
+            let le = a[0]
+            assert le.typ != nil
+            # XXX: also perform a copy for `let` for now. With the current
+            #      vmgen, it's too complex to make it work otherwise 
+            if not fitsRegister(le.typ) and s.kind in {skResult, skLet, skVar, skParam}:
+              var cc = c.getTemp(le.typ)
+              gen(c, a[2], cc)
+              c.gABC(le, whichAsgnOpc(le), reg, cc)
+              c.freeTemp(cc)
+            else:
+              gen(c, a[2], reg)
+      
+      elif a[2].kind == nkEmpty:
         # The closure's captured value is automatically zero-initialized when
         # creating the closure environment object; nothing left to do here
         discard
@@ -2428,8 +2432,13 @@ proc genVarSection(c: var TCtx; n: PNode) =
         c.gABx(a, ldNullOpcode(a[0].typ), tmp, c.genType(a[0].typ))
         c.freeTemp(tmp)
         ]#
+      
       else:
+        # assign to a[0]; happens for closures
         genAsgn(c, a[0], a[2], true)
+    else:
+      # xxx: error out
+      discard
 
 proc genArrayConstr(c: var TCtx, n: PNode, dest: var TDest) =
   if dest.isUnset: dest = c.getTemp(n.typ)
@@ -2691,7 +2700,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     genConv(c, n, n[0], dest)
   of nkObjUpConv:
     genConv(c, n, n[0], dest)
-  of nkVarSection, nkLetSection:
+  of nkLetSection, nkVarSection:
     unused(c, n, dest)
     genVarSection(c, n)
   of declarativeDefs, nkMacroDef:

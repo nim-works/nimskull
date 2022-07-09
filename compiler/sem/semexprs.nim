@@ -494,6 +494,8 @@ proc isOpImpl(c: PContext, n: PNode, flags: TExprFlags): PNode =
   result.info = n.info
 
 proc semIs(c: PContext, n: PNode, flags: TExprFlags): PNode =
+  addInNimDebugUtils(c.config, "semIs", n, result, flags)
+
   if n.len != 3:
     result = c.config.newError(n, semReportCountMismatch(
       rsemWrongNumberOfArguments, 1, 2, n))
@@ -505,8 +507,11 @@ proc semIs(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   n[1] = semExprWithType(c, n[1], flags + {efDetermineType, efWantIterator})
 
-  if n[2].kind in {nkStrLit..nkTripleStrLit}:
+  case n[2].kind
+  of nkStrLit..nkTripleStrLit:
     n[2] = semExpr(c, n[2])
+  of nkError:
+    discard # below we'll wrap the result in an error
   else:
     let t2 = semTypeNode(c, n[2], nil)
     n[2] = newNodeIT(nkType, n[2].info, t2)
@@ -527,7 +532,7 @@ proc semIs(c: PContext, n: PNode, flags: TExprFlags): PNode =
       liftLhs = false
 
   var lhsType = n[1].typ
-  if n[1].isError:
+  if n[1].isError or n[2].isError:
     result = wrapError(c.config, n)
   elif lhsType.kind == tyTypeDesc and (lhsType.base.kind == tyNone or
      (c.inGenericContext > 0 and lhsType.base.containsGenericType)):
@@ -2643,8 +2648,10 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     result = semDirectOp(c, n, flags)
 
 proc semWhen(c: PContext, n: PNode, semCheck = true): PNode =
-  # If semCheck is set to false, ``when`` will return the verbatim AST of
+  # If semCheck is set to false, `when` will return the verbatim AST of
   # the correct branch. Otherwise the AST will be passed through semStmt.
+  addInNimDebugUtils(c.config, "semWhen", n, result)
+
   result = nil
 
   template setResult(e: untyped) =
@@ -2932,26 +2939,87 @@ proc semTupleConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
 include semobjconstr
 
 proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
-  result = n
-  inc(c.p.nestedBlockCounter)
-  checkSonsLen(n, 2, c.config)
-  openScope(c) # BUGFIX: label is in the scope of block!
-  if n[0].kind != nkEmpty:
-    var labl = newSymG(skLabel, n[0], c)
-    if sfGenSym notin labl.flags:
-      addDecl(c, labl)
-    elif labl.owner == nil:
-      labl.owner = c.p.owner
-    n[0] = newSymNode(labl, n[0].info)
-    suggestSym(c.graph, n[0].info, labl, c.graph.usageSym)
-    styleCheckDef(c.config, labl)
-    onDef(n[0].info, labl)
-  n[1] = semExpr(c, n[1], flags)
-  n.typ = n[1].typ
-  if isEmptyType(n.typ): n.transitionSonsKind(nkBlockStmt)
-  else: n.transitionSonsKind(nkBlockExpr)
-  closeScope(c)
-  dec(c.p.nestedBlockCounter)
+  addInNimDebugUtils(c.config, "semBlock", n, result, flags)
+
+  assert n != nil
+
+  case n.kind
+  of nkError:
+    result = n
+  of nkBlockExpr, nkBlockStmt:
+    checkSonsLen(n, 2, c.config)
+    inc(c.p.nestedBlockCounter)
+    openScope(c) # BUGFIX: label is in the scope of block!
+
+    # handle the label
+    let 
+      givenLabl = n[0]
+      lablRes =
+        case givenLabl.kind
+        of nkEmpty, nkError:
+          givenLabl
+        of nkIdent, nkSym, nkAccQuoted:
+          let labl = newSymG(skLabel, givenLabl, c)
+          
+          if sfGenSym notin labl.flags:
+            addDecl(c, labl)
+          elif labl.owner == nil:
+            labl.owner = c.p.owner
+          
+          let lablNode = newSymNode2(labl, givenLabl.info)
+
+          suggestSym(c.graph, lablNode.info, labl, c.graph.usageSym)
+          styleCheckDef(c.config, labl)
+          onDef(lablNode.info, labl)
+
+          lablNode
+        else:
+          c.config.newError(givenLabl,
+                            reportAst(rsemIdentExpectedInExpr, givenLabl))
+      bodyRes = semExpr(c, n[1], flags)
+
+    result = copyNode(n)
+    result.flags = n.flags # xxx: we should be able to perserve flags, this
+                           #      code didn't used to do a copyNode, it changed
+                           #      `n` directly
+    result.add lablRes
+    result.add bodyRes
+    result.typ = bodyRes.typ
+    
+    # xxx: always transitions because nkError always(?) has an error type
+    if isEmptyType(result.typ):
+      result.transitionSonsKind(nkBlockStmt)
+    else:
+      result.transitionSonsKind(nkBlockExpr)
+
+    if lablRes.kind == nkError or bodyRes.kind == nkError:
+      result = c.config.wrapError(result)
+
+    closeScope(c)  
+    dec(c.p.nestedBlockCounter)
+  else:
+    c.config.internalError:
+      "expected block expresssion or statement, got: " & $n.kind
+
+  # inc(c.p.nestedBlockCounter)
+  # # result = n
+  # openScope(c) # BUGFIX: label is in the scope of block!
+  # if n[0].kind != nkEmpty:
+  #   var labl = newSymG(skLabel, n[0], c)
+  #   if sfGenSym notin labl.flags:
+  #     addDecl(c, labl)
+  #   elif labl.owner == nil:
+  #     labl.owner = c.p.owner
+  #   n[0] = newSymNode(labl, n[0].info)
+  #   suggestSym(c.graph, n[0].info, labl, c.graph.usageSym)
+  #   styleCheckDef(c.config, labl)
+  #   onDef(n[0].info, labl)
+  # n[1] = semExpr(c, n[1], flags)
+  # n.typ = n[1].typ
+  # if isEmptyType(n.typ): n.transitionSonsKind(nkBlockStmt)
+  # else: n.transitionSonsKind(nkBlockExpr)
+  # closeScope(c)
+  # dec(c.p.nestedBlockCounter)
 
 
 proc semExportExcept(c: PContext, n: PNode): PNode =
@@ -3453,8 +3521,8 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkBlockStmt, nkBlockExpr: result = semBlock(c, n, flags)
   of nkStmtList, nkStmtListExpr: result = semStmtList(c, n, flags)
   of nkRaiseStmt: result = semRaise(c, n)
-  of nkVarSection: result = semVarOrLet(c, n, skVar)
-  of nkLetSection: result = semVarOrLet(c, n, skLet)
+  of nkVarSection: result = semLetOrVar(c, n, skVar)
+  of nkLetSection: result = semLetOrVar(c, n, skLet)
   of nkConstSection: result = semConst(c, n)
   of nkTypeSection: result = semTypeSection(c, n)
   of nkDiscardStmt: result = semDiscard(c, n)

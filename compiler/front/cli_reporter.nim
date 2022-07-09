@@ -3135,13 +3135,19 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
         )
 
       proc render(node: PNode): string =
-        conf.wrap(conf.treeRepr(node, indent = indent + 2))
+        conf.wrap(conf.treeRepr(node,
+                                indent = indent + 2,
+                                rconf = compilerTraceReprConf))
 
       proc render(typ: PType): string =
-        conf.wrap(conf.treeRepr(typ, indent = indent + 2))
+        conf.wrap(conf.treeRepr(typ,
+                                indent = indent + 2,
+                                rconf = compilerTraceReprConf))
 
       proc render(sym: PSym): string =
-        conf.wrap(conf.treeRepr(sym, indent = indent + 2))
+        conf.wrap(conf.treeRepr(sym,
+                                indent = indent + 2,
+                                rconf = compilerTraceReprConf))
 
       result.addf("$1]", align($s.level, 2, '#'))
       result.add(
@@ -3240,10 +3246,12 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
               if s.candidate.call.isNil:
                 field("mismatch kind", $s.candidate.error.firstMismatch.kind)
               else:
-                field("callee")
-                result.add render(s.candidate.callee)
-                field("calleeSym")
-                result.add render(s.candidate.calleeSym)
+                if s.candidate.calleeSym.isNil:
+                  field("callee")
+                  result.add render(s.candidate.callee)
+                else:
+                  field("calleeSym")
+                  result.add render(s.candidate.calleeSym)
                 field("call")
                 result.add render(s.candidate.call)
 

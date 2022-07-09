@@ -17,7 +17,8 @@ import
     idents,
     renderer,
     reports,
-    errorhandling
+    errorhandling,
+    errorreporting
   ],
   compiler/front/[
     options,
@@ -197,6 +198,9 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
     ctx.instLines = sfCallsite in tmpl.flags
     result = copyNode(ctx, body, n)
     for i in 0..<body.safeLen:
+      # xxx: likely should simply emit the error and wrap the body
+      if body[i].kind == nkError:
+        conf.localReport(body[i])
       evalTemplateAux(body[i], args, ctx, result)
   result.flags.incl nfFromTemplate
   result = wrapInComesFrom(n.info, tmpl, result)

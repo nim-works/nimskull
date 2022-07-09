@@ -149,7 +149,6 @@ type
     extraTypInfo*: proc(typ: PType): ColText ## Extra info for type
 
 
-
 const treeReprAllFields* = {trfShowSymFlags .. trfShowNodeTypes} ## Set of
   ## flags to print all fields in all tree reprs
 
@@ -224,11 +223,31 @@ let verboseTReprConf* =
   ## Show absolutely everything
 
 
-var implicitTReprConf*: TReprConf = defaultTReprConf ## global
-  ## configuration object that is implicitly used by `debugAst` and
-  ## `debugType`. Can be used in order to configure behaviour of the
-  ## debugging functions that could later be called from `gdb` environment
-  ## (`debugAst`, `debugType`, `debugSym`), or sem execution tracer
+var
+  compilerTraceReprConf*: TReprConf =
+    block:
+      var base = defaultTReprConf
+      base.maxDepth = 3
+      base.maxLen = 5
+      base.flags = {
+        trfPackedFields,
+        trfSkipAuxError,
+        trfShowKindTypes,
+        trfShowSymName,
+        trfShowSymTypes,
+        trfShowSymKind,
+        trfShowNodeErrors,
+        trfShowNodeIds,
+        trfShowNodeLineInfo
+      }
+      base
+    ## default tree repr config for compiler tracing, meant to be compact as
+    ## there is a lot of tracing spam.
+  implicitTReprConf*: TReprConf = defaultTReprConf
+    ## global configuration object that is implicitly used by `debugAst` and
+    ## `debugType`. Can be used in order to configure behaviour of the
+    ## debugging functions that could later be called from `gdb` environment
+    ## (`debugAst`, `debugType`, `debugSym`), or sem execution tracer
 
 
 const IntTypes = {
@@ -501,7 +520,7 @@ proc typFields(
 
     hfield("align", trfShowTypeAlloc, $typ.align + style.number)
 
-  if typ.owner.isNil():
+  if typ.owner != nil:
     field("owner", trfShowTypeOwner, rconf.ownerChain(typ.owner) + style.owner)
 
 

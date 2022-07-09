@@ -35,7 +35,8 @@ import
     magicsys,
   ],
   compiler/utils/[
-    debugutils
+    debugutils,
+    astrepr,
   ],
   compiler/sem/[
     varpartitions,
@@ -1162,6 +1163,8 @@ proc track(tracked: PEffects, n: PNode) =
       let oldState = tracked.init.len
       let oldFacts = tracked.guards.s.len
       addFact(tracked.guards, n[0])
+      if n[0].kind == nkError:
+        echo n.id
       track(tracked, n[0])
       track(tracked, n[1])
       setLen(tracked.init, oldState)

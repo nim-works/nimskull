@@ -1470,11 +1470,18 @@ proc customPragmaNode(n: NimNode): NimNode =
     else:
       return impl[0] # handle types which don't have macro at all
 
-  if n.kind == nnkSym: # either an variable or a proc
+  if n.kind == nnkSym: # either a variable or a proc
     let impl = n.getImpl()
     if impl.kind in RoutineNodes:
       return impl.pragma
-    elif impl.kind == nnkIdentDefs and impl[0].kind == nnkPragmaExpr:
+    # xxx: this and the next branch are a hack, it may seem "helpful" to lookup
+    #      pragmas on the type, but that doesn't actually make sense. metadata
+    #      on the type is not metadata on the symbol. This also demonstrates
+    #      how compiler internals are leaking out unnecessarily, as the
+    #      compiler further normalizes the ast, the implied schema of NimNode
+    #      will keep churning and these traversals are all very fragile.
+    elif impl.kind == nnkIdentDefs and impl[0].kind == nnkPragmaExpr and
+         impl[0][1].len > 0:
       return impl[0][1]
     else:
       let timpl = typ.getImpl()
