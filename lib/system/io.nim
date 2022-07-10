@@ -40,8 +40,10 @@ type
   FileHandle* = cint ## type that represents an OS file handle; this is
                       ## useful for low-level file access
 
+const isNimVmTarget = defined(nimscript)
+
 # text file handling:
-when not defined(nimscript) and not defined(js):
+when not isNimVmTarget and not defined(js):
   # duplicated between io and ansi_c
   const stdioUsesMacros = (defined(osx) or defined(freebsd) or defined(dragonfly)) and not defined(emscripten)
   const stderrName = when stdioUsesMacros: "__stderrp" else: "stderr"
@@ -160,13 +162,13 @@ proc raiseEOF() {.noinline, noreturn.} =
 
 proc strerror(errnum: cint): cstring {.importc, header: "<string.h>".}
 
-when not defined(nimscript):
+when not isNimVmTarget:
   var
     errno {.importc, header: "<errno.h>".}: cint ## error variable
     EINTR {.importc: "EINTR", header: "<errno.h>".}: cint
 
 proc checkErr(f: File) =
-  when not defined(nimscript):
+  when not isNimVmTarget:
     if c_ferror(f) != 0:
       let msg = "errno: " & $errno & " `" & $strerror(errno) & "`"
       c_clearerr(f)
@@ -266,7 +268,7 @@ proc write*(f: File, s: string) {.tags: [WriteIOEffect], benign.} =
       raiseEIO("cannot write string to file")
 {.pop.}
 
-when defined(nimscript):
+when isNimVmTarget:
   when defined(windows):
     const
       IOFBF = cint(0)
@@ -282,7 +284,7 @@ else:
     IONBF {.importc: "_IONBF", nodecl.}: cint
 
 const SupportIoctlInheritCtl = (defined(linux) or defined(bsd)) and
-                              not defined(nimscript)
+                              not isNimVmTarget
 when SupportIoctlInheritCtl:
   var
     FIOCLEX {.importc, header: "<sys/ioctl.h>".}: cint
@@ -290,7 +292,7 @@ when SupportIoctlInheritCtl:
 
   proc c_ioctl(fd: cint, request: cint): cint {.
     importc: "ioctl", header: "<sys/ioctl.h>", varargs.}
-elif defined(posix) and not defined(lwip) and not defined(nimscript):
+elif defined(posix) and not defined(lwip) and not isNimVmTarget:
   var
     F_GETFD {.importc, header: "<fcntl.h>".}: cint
     F_SETFD {.importc, header: "<fcntl.h>".}: cint
@@ -354,7 +356,7 @@ proc getOsFileHandle*(f: File): FileHandle =
   else:
     result = c_fileno(f)
 
-when defined(nimdoc) or (defined(posix) and not defined(nimscript)) or defined(windows):
+when defined(nimdoc) or (defined(posix) and not isNimVmTarget) or defined(windows):
   proc setInheritable*(f: FileHandle, inheritable: bool): bool =
     ## control whether a file handle can be inherited by child processes. Returns
     ## `true` on success. This requires the OS file handle, which can be
@@ -466,7 +468,7 @@ proc readLine*(f: File, line: var string): bool {.tags: [ReadIOEffect],
       # likely other io procs need this for correctness.
       fgetsSuccess = c_fgets(addr line[pos], sp.cint, f) != nil
       if fgetsSuccess: break
-      when not defined(nimscript):
+      when not isNimVmTarget:
         if errno == EINTR:
           errno = 0
           c_clearerr(f)
@@ -655,7 +657,7 @@ const
     # we always use binary here as for Nim the OS line ending
     # should not be translated.
 
-when defined(posix) and not defined(nimscript):
+when defined(posix) and not isNimVmTarget:
   when defined(linux) and defined(amd64):
     type
       Mode {.importc: "mode_t", header: "<sys/types.h>".} = cint
@@ -698,7 +700,7 @@ proc open*(f: var File, filename: string,
   var p = fopen(filename.cstring, FormatOpen[mode])
   if p != nil:
     var f2 = cast[File](p)
-    when defined(posix) and not defined(nimscript):
+    when defined(posix) and not isNimVmTarget:
       # How `fopen` handles opening a directory is not specified in ISO C and
       # POSIX. We do not want to handle directories as regular files that can
       # be opened.
@@ -829,7 +831,7 @@ when declared(stdout):
         releaseSys echoLock
 
 
-when defined(windows) and not defined(nimscript) and not defined(js):
+when defined(windows) and not isNimVmTarget and not defined(js):
   # work-around C's sucking abstraction:
   # BUGFIX: stdin and stdout should be binary files!
   proc c_setmode(handle, mode: cint) {.
@@ -844,7 +846,7 @@ when defined(windows) and not defined(nimscript) and not defined(js):
   c_setmode(c_fileno(stderr), O_BINARY)
 
 when defined(windows) and appType == "console" and
-    not defined(nimDontSetUtf8CodePage) and not defined(nimscript):
+    not defined(nimDontSetUtf8CodePage) and not isNimVmTarget:
   proc setConsoleOutputCP(codepage: cuint): int32 {.stdcall, dynlib: "kernel32",
     importc: "SetConsoleOutputCP".}
   proc setConsoleCP(wCodePageID: cuint): int32 {.stdcall, dynlib: "kernel32",

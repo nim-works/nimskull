@@ -550,7 +550,9 @@ const
 
 include "system/inclrtl"
 
-const notJSnotNims = not defined(js) and not defined(nimscript)
+const
+  isNimVmTarget = defined(nimscript)
+  notJSnotNims = not defined(js) and not isNimVmTarget
 
 when not defined(js) and not defined(nimSeqsV2):
   type
@@ -865,12 +867,12 @@ template `isnot`*(x, y: untyped): untyped = not (x is y)
   ##   assert 42 isnot float
   ##   assert @[1, 2] isnot enum
 
-when (defined(nimOwnedEnabled) and not defined(nimscript)) or defined(nimFixedOwned):
+when (defined(nimOwnedEnabled) and not isNimVmTarget) or defined(nimFixedOwned):
   type owned*[T]{.magic: "BuiltinType".} ## type constructor to mark a ref/ptr or a closure as `owned`.
 else:
   template owned*(t: typedesc): typedesc = t
 
-when defined(nimOwnedEnabled) and not defined(nimscript):
+when defined(nimOwnedEnabled) and not isNimVmTarget:
   proc new*[T](a: var owned(ref T)) {.magic: "New", noSideEffect.}
     ## Creates a new object of type `T` and returns a safe (traced)
     ## reference to it in `a`.
@@ -1140,7 +1142,7 @@ const
   # for string literals, it allows for some optimizations.
 
 const
-  hasThreadSupport = compileOption("threads") and not defined(nimscript)
+  hasThreadSupport = compileOption("threads") and not isNimVmTarget
   hasSharedHeap = defined(boehmgc) or defined(gogc) # don't share heaps; every thread has its own
 
 when hasThreadSupport and defined(tcc) and not compileOption("tlsEmulation"):
@@ -1166,7 +1168,7 @@ when defined(boehmgc):
 type TaintedString* {.deprecated: "Deprecated since 1.5".} = string
 
 
-when defined(profiler) and not defined(nimscript):
+when defined(profiler) and not isNimVmTarget:
   proc nimProfile() {.compilerproc, noinline.}
 when hasThreadSupport:
   {.pragma: rtlThreadVar, threadvar.}
@@ -1234,7 +1236,7 @@ elif defined(genode):
   proc quit*(errorcode: int = QuitSuccess) =
     systemEnv.quit(errorcode)
 
-elif defined(js) and defined(nodejs) and not defined(nimscript):
+elif defined(js) and defined(nodejs) and not isNimVmTarget:
   proc quit*(errorcode: int = QuitSuccess) {.magic: "Exit",
     importc: "process.exit", noreturn.}
 
@@ -1251,14 +1253,14 @@ template sysAssert(cond: bool, msg: string) =
       cstderr.rawWrite "\n"
       quit 1
 
-const hasAlloc = (hostOS != "standalone" or not defined(nogc)) and not defined(nimscript)
+const hasAlloc = (hostOS != "standalone" or not defined(nogc)) and not isNimVmTarget
 
 when notJSnotNims and hostOS != "standalone" and hostOS != "any":
   include "system/cgprocs"
 when notJSnotNims and hasAlloc and not defined(nimSeqsV2):
   proc addChar(s: NimString, c: char): NimString {.compilerproc, benign.}
 
-when defined(nimscript) or not defined(nimSeqsV2):
+when isNimVmTarget or not defined(nimSeqsV2):
   proc add*[T](x: var seq[T], y: sink T) {.magic: "AppendSeqElem", noSideEffect.}
     ## Generic proc for adding a data item `y` to a container `x`.
     ##
@@ -1799,7 +1801,7 @@ when notJSnotNims and defined(nimSeqsV2):
 
 {.pop.}
 
-when not defined(nimscript):
+when not isNimVmTarget:
   proc writeStackTrace*() {.tags: [], gcsafe, raises: [].}
     ## Writes the current stack trace to `stderr`. This is only works
     ## for debug builds. Since it's usually used for debugging, this
@@ -1808,7 +1810,7 @@ when not defined(nimscript):
 when not declared(sysFatal):
   include "system/fatal"
 
-when not defined(nimscript):
+when not isNimVmTarget:
   {.push stackTrace: off, profiler: off.}
 
   proc atomicInc*(memLoc: var int, x: int = 1): int {.inline,
@@ -2252,7 +2254,7 @@ when not defined(js):
       elif x > y: result = 1
       else: result = 0
     else:
-      when not defined(nimscript): # avoid semantic checking
+      when declared(nimCmpMem): # avoid semantic checking
         let minlen = min(x.len, y.len)
         result = int(nimCmpMem(x.cstring, y.cstring, cast[csize_t](minlen)))
         if result == 0:
@@ -2306,7 +2308,7 @@ when not defined(js):
     initAllocator()
   when hasThreadSupport:
     when hostOS != "standalone": include "system/threads"
-  elif not defined(nogc) and not defined(nimscript):
+  elif not defined(nogc) and not isNimVmTarget:
     when not defined(useNimRtl) and not defined(createNimRtl): initStackBottom()
     when declared(initGC): initGC()
 
@@ -2436,7 +2438,7 @@ when notJSnotNims and hostOS != "standalone":
     ##
     ## .. warning:: Only use this if you know what you are doing.
     currException = exc
-elif defined(nimscript):
+elif isNimVmTarget:
   proc getCurrentException*(): ref Exception {.compilerRtl.} = discard
 
 when notJSnotNims:
@@ -2488,7 +2490,7 @@ when defined(js):
 
 proc quit*(errormsg: string, errorcode = QuitFailure) {.noreturn.} =
   ## A shorthand for `echo(errormsg); quit(errorcode)`.
-  when defined(nimscript) or defined(js) or (hostOS == "standalone"):
+  when isNimVmTarget or defined(js) or (hostOS == "standalone"):
     echo errormsg
   else:
     when nimvm:
@@ -2790,7 +2792,7 @@ proc shallow*[T](s: var seq[T]) {.noSideEffect, inline.} =
   ##
   ## This is only useful for optimization purposes.
   if s.len == 0: return
-  when not defined(js) and not defined(nimscript) and not defined(nimSeqsV2):
+  when not defined(js) and not isNimVmTarget and not defined(nimSeqsV2):
     var s = cast[PGenericSeq](s)
     s.reserved = s.reserved or seqShallowFlag
 
@@ -2799,7 +2801,7 @@ proc shallow*(s: var string) {.noSideEffect, inline.} =
   ## perform deep copies of `s`.
   ##
   ## This is only useful for optimization purposes.
-  when not defined(js) and not defined(nimscript) and not defined(nimSeqsV2):
+  when not defined(js) and not isNimVmTarget and not defined(nimSeqsV2):
     var s = cast[PGenericSeq](s)
     if s == nil:
       s = cast[PGenericSeq](newString(0))
@@ -2826,7 +2828,7 @@ when false:
     macro payload: typed {.gensym.} = blk
     payload()
 
-when hasAlloc or defined(nimscript):
+when hasAlloc or isNimVmTarget:
   proc insert*(x: var string, item: string, i = 0.Natural) {.noSideEffect.} =
     ## Inserts `item` into `x` at position `i`.
     ##
@@ -3140,7 +3142,7 @@ export widestrs
 import system/io
 export io
 
-when not defined(createNimHcr) and not defined(nimscript):
+when not defined(createNimHcr) and not isNimVmTarget:
   include nimhcr
 
 when notJSnotNims and not defined(nimSeqsV2):
