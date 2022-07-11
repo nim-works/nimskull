@@ -567,6 +567,11 @@ type
           outputCurrent, output, jsonFile: string
         ]
 
+      of rbackVmFileWriteFailed:
+        outFilename*: string
+        failureMsg*: string ## string rep of the ``RodFileError``, so that
+                           ## ``rodfiles`` doesn't need to be imported here
+
       else:
         discard
 

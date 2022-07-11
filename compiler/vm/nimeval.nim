@@ -159,6 +159,7 @@ proc createInterpreter*(
   incl(m.flags, sfMainModule)
   var idgen = idGeneratorFromModule(m)
   var vm = newCtx(m, cache, graph, idgen)
+  vm.codegenInOut.flags = {cgfAllowMeta}
   vm.mode = emRepl
   vm.features = flags
   if registerOps:

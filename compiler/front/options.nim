@@ -47,7 +47,7 @@ const
   spellSuggestSecretSauce* = -1
 
 const
-  cmdBackends* = {cmdCompileToC, cmdCompileToCpp, cmdCompileToOC, cmdCompileToJS, cmdCrun}
+  cmdBackends* = {cmdCompileToC, cmdCompileToCpp, cmdCompileToOC, cmdCompileToJS, cmdCompileToVM, cmdCrun}
   cmdDocLike* = {cmdDoc, cmdDoc2tex, cmdJsondoc, cmdCtags, cmdBuildindex}
 
 type

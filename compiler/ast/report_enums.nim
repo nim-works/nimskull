@@ -883,6 +883,8 @@ type
     rbackJsonScriptMismatch # ??? used in `extccomp.nim`, TODO figure out
     # what the original mesage was responsible for exactly
 
+    rbackVmFileWriteFailed
+
     rbackRstCannotOpenFile
     rbackRstExpected
     rbackRstGridTableNotImplemented

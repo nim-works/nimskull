@@ -880,6 +880,7 @@ proc genProcLit(c: var TCtx, n: PNode, s: PSym; dest: var TDest) =
   c.gABx(n, opcLdNull, dest, c.genType(s.typ))
   c.gABx(n, opcWrProc, dest, idx)
 
+template isMetaAllowed(c: TCtx): bool = cgfAllowMeta in c.codegenInOut.flags
 
 proc genCall(c: var TCtx; n: PNode; dest: var TDest) =
   # it can happen that due to inlining we have a 'n' that should be
@@ -894,6 +895,10 @@ proc genCall(c: var TCtx; n: PNode; dest: var TDest) =
   # varargs need 'opcSetType' for the FFI support:
   let fntyp = skipTypes(n[0].typ, abstractInst)
   for i in 0..<n.len:
+    # don't codegen and pass meta-types if they're disallowed
+    if not c.isMetaAllowed and n[i].typ.isCompileTimeOnly:
+      continue
+
     var r: TRegister = x+i
     # XXX: fastAsgn is broken for the VM, leading to aliasing issue with
     #      arguments. To fix `tests/stdlib/tlists.nim`, we perform a copy for
@@ -1934,7 +1939,8 @@ proc checkCanEval(c: TCtx; n: PNode) =
     # also used by `genVarSection`, don't fail here
     return
   if s.kind in {skVar, skTemp, skLet, skParam, skResult} and
-      not s.isOwnedBy(c.prc.sym) and s.owner != c.module and c.mode != emRepl:
+      not s.isOwnedBy(c.prc.sym) and s.owner != c.module and
+      c.mode notin {emRepl, emStandalone}:
     # little hack ahead for bug #12612: assume gensym'ed variables
     # are in the right scope:
     if sfGenSym in s.flags and c.prc.sym == nil: discard
@@ -2147,8 +2153,11 @@ proc genRdVar(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
       # XXX: double table lookup
       pos = c.symToIndexTbl[s.id].int
     else:
-      if c.mode == emRepl:
-        # For repl mode, allow the ad-hoc setup of globals
+      if c.mode in {emRepl, emStandalone}:
+        # for REPL and standalone mode, allow the ad-hoc setup of globals. For
+        # the VM back-end (standalone mode), the modules aren't necessarily
+        # processed in a meaningfull order, so the global's var section might
+        # have been not visited yet
         pos = c.registerGlobal(s)
       else:
         # a global that is not accessible in the current context
@@ -2343,8 +2352,17 @@ proc genVarSection(c: var TCtx; n: PNode) =
     if a.kind == nkVarTuple:
       for i in 0..<a.len-2:
         if a[i].kind == nkSym:
-          if not a[i].sym.isGlobal: setSlot(c, a[i].sym)
           checkCanEval(c, a[i])
+          let s = a[i].sym
+
+          if s.isGlobal:
+            # No need to check for function-level globals here, as var
+            # tuples with the `{.global.}` pragma are currently forbidden
+            discard c.registerGlobal(s)
+            discard c.getOrCreate(s.typ)
+          else:
+            setSlot(c, s)
+
       c.gen(lowerTupleUnpacking(c.graph, a, c.idgen, c.getOwner))
     elif a[0].kind == nkSym:
       let s = a[0].sym
@@ -2358,12 +2376,23 @@ proc genVarSection(c: var TCtx; n: PNode) =
         #      variables are code-gen'ed twice, once via `setupCompileTimeVar`
         #      called from `sem.semVarOrLet` and once through `vm.myProcess`.
         #      This leads to the global's symbol already being present in the
-        #      table.
+        #      table. For the VM back-end, the symbol is also already present
+        #      if the global was used somewhere in another module
         #c.config.internalAssert(s.id notin c.symToIndexTbl, a[0].info)
         discard c.registerGlobal(s)
         discard c.getOrCreate(s.typ)
 
-        if a[2].kind != nkEmpty:
+        # no need to generate or collect if the global has no initializer
+        if a[2].kind == nkEmpty:
+          continue
+
+        if cgfCollectGlobals in c.codegenInOut.flags and
+           s.owner != nil and
+           s.owner.kind in routineKinds:
+          # we encountered a function-level global and code generation for
+          # them is defered
+          c.codegenInOut.globalDefs.add a
+        else:
           let tmp = c.genx(a[0], {gfNodeAddr})
           let val = c.genx(a[2])
           c.genAdditionalCopy(a[2], opcWrDeref, tmp, 0, val)
@@ -2513,7 +2542,7 @@ proc genClosureConstr(c: var TCtx, n: PNode, dest: var TDest) =
 
   c.gABx(n, opcLdNull, dest, c.genType(n.typ))
   let tmp = c.genx(n[0])
-  if n[1].typ.kind == tyNil:
+  if n[1].kind == nkNilLit:
     # no environment
     c.gABC(n, opcWrClosure, dest, tmp, dest)
   else:
@@ -2571,6 +2600,8 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
         var lit = genLiteral(c, newIntNode(nkIntLit, s.position))
         c.gABx(n, opcLdConst, dest, lit)
     of skType:
+      internalAssert(c.config, c.isMetaAllowed, n.info):
+        "type expression forbidden"
       genTypeLit(c, s.typ, dest)
     of skGenericParam:
       if c.prc.sym != nil and c.prc.sym.kind == skMacro:

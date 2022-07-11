@@ -207,6 +207,11 @@ proc buildTools(args: string = "") =
   when defined(windows): buildVccTool(args)
   bundleNimpretty(args)
 
+  # the VM runs into `setjmp`-related stack-corruption issues when using the
+  # MinGW runtime. ``exceptions:goto`` is used as a workaround
+  nimCompileFold("Compile vmrunner", "compiler/vm/vmrunner.nim",
+                options = "-d:release --exceptions:goto $# $#" % [defineSourceMetadata(), args])
+
   # pre-packages a debug version of nim which can help in many cases investigate issuses
   # withouth having to rebuild compiler.
   # `-d:nimDebugUtils` only makes sense when temporarily editing/debugging compiler

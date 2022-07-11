@@ -106,6 +106,9 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
         # tasyncjs_fail` would fail, refs https://nodejs.org/api/cli.html#cli_unhandled_rejections_mode
         if cmdPrefix.len == 0: cmdPrefix = findNodeJs().quoteShell
         cmdPrefix.add " --unhandled-rejections=strict"
+      of backendNimVm:
+        if cmdPrefix.len == 0:
+          cmdPrefix = changeFileExt(getAppDir() / "vmrunner", ExeExt)
       else: doAssert false, $conf.backend
       if cmdPrefix.len > 0: cmdPrefix.add " "
         # without the `cmdPrefix.len > 0` check, on windows you'd get a cryptic:

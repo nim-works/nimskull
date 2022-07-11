@@ -51,6 +51,7 @@ import
   ],
   compiler/vm/[
     vm,          # Configuration file evaluation, `nim e`
+    vmbackend,   # VM code generation
     vmprofiler
   ]
 
@@ -165,7 +166,7 @@ proc commandCompileToC(graph: ModuleGraph) =
   else:
     if isDefined(conf, "nimIcIntegrityChecks"):
       checkIntegrity(graph)
-    generateCode(graph)
+    cbackend.generateCode(graph)
     # graph.backend can be nil under IC when nothing changed at all:
     if graph.backend != nil:
       cgenWriteModules(graph.backend, conf)
@@ -202,6 +203,21 @@ proc commandCompileToJS(graph: ModuleGraph) =
       writeGccDepfile(conf)
     if optGenScript in conf.globalOptions:
       writeDepsFile(graph)
+
+proc commandCompileToVM(graph: ModuleGraph) =
+  let conf = graph.config
+  # XXX: there doesn't exist an exception mode for "external" (maybe excQuirky
+  #      would fit?) so excCpp is used, since the same is done for the
+  #      JS backend
+  conf.exc = excCpp
+
+  semanticPasses(graph)
+  registerPass(graph, vmgenPass)
+  compileProject(graph)
+
+  # The VM-backend doesn't use a pass for the actual code generation, but a
+  # separate function instead (similar to the C-backend for IC)
+  vmbackend.generateCode(graph)
 
 proc interactivePasses(graph: ModuleGraph) =
   initDefines(graph.config.symbols)
@@ -270,6 +286,7 @@ proc setOutFile*(conf: ConfigRef) =
       base.add "_" & hashMainCompilationParams(conf)
     let targetName =
       if conf.backend == backendJs: base & ".js"
+      elif conf.backend == backendNimVm: base & ".nimbc" # nim bytecode
       elif optGenDynLib in conf.globalOptions:
         platform.OS[conf.target.targetOS].dllFrmt % base
       elif optGenStaticLib in conf.globalOptions: libNameTmpl(conf) % base
@@ -307,6 +324,7 @@ proc mainCommand*(graph: ModuleGraph) =
         # and it has added this define implictly, so we must undo that here.
         # A better solution might be to fix system.nim
         undefSymbol(conf, "useNimRtl")
+    of backendNimVm: discard
     of backendInvalid: doAssert false
 
   proc compileToBackend() =
@@ -317,6 +335,7 @@ proc mainCommand*(graph: ModuleGraph) =
     of backendCpp: commandCompileToC(graph)
     of backendObjc: commandCompileToC(graph)
     of backendJs: commandCompileToJS(graph)
+    of backendNimVm: commandCompileToVM(graph)
     of backendInvalid: doAssert false
 
   template docLikeCmd(body) =

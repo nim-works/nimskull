@@ -2,7 +2,12 @@
 Experimental API, subject to change.
 ]##
 
-proc vmTrace*(on: bool) {.compileTime.} =
+when defined(vm):
+  {.pragma: vmOnly.}
+else:
+  {.pragma: vmOnly, compileTime.}
+
+proc vmTrace*(on: bool) {.vmOnly.} =
   runnableExamples:
     static: vmTrace(true)
     proc fn =

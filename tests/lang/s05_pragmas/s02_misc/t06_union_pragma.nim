@@ -1,5 +1,5 @@
 discard """
-targets: "!js"
+targets: "!js !vm"
 """
 
 block union_pragma:

@@ -36,18 +36,18 @@ Command:
 Arguments:
   arguments are passed to the compiler
 Options:
-  --retry                   runs tests that failed the last run
-  --print                   print results to the console
-  --verbose                 print commands (compiling and running tests)
-  --simulate                see what tests would be run but don't run them (for debugging)
-  --failing                 only show failing/ignored tests
-  --targets:"c cpp js objc" run tests for specified targets (default: all)
-  --nim:path                use a particular nim executable (default: $$PATH/nim)
-  --directory:dir           Change to directory dir before reading the tests or doing anything else.
-  --colors:on|off           Turn messages coloring on|off.
-  --backendLogging:on|off   Disable or enable backend logging. By default turned on.
-  --megatest:on|off         Enable or disable megatest. Default is on.
-  --skipFrom:file           Read tests to skip from `file` - one test per line, # comments ignored
+  --retry                      runs tests that failed the last run
+  --print                      print results to the console
+  --verbose                    print commands (compiling and running tests)
+  --simulate                   see what tests would be run but don't run them (for debugging)
+  --failing                    only show failing/ignored tests
+  --targets:"c cpp js objc vm" run tests for specified targets (default: all)
+  --nim:path                   use a particular nim executable (default: $$PATH/nim)
+  --directory:dir              Change to directory dir before reading the tests or doing anything else.
+  --colors:on|off              Turn messages coloring on|off.
+  --backendLogging:on|off      Disable or enable backend logging. By default turned on.
+  --megatest:on|off            Enable or disable megatest. Default is on.
+  --skipFrom:file              Read tests to skip from `file` - one test per line, # comments ignored
 
 Experimental: using environment variable `NIM_TESTAMENT_REMOTE_NETWORKING=1` enables
 tests with remote networking (as in CI).
@@ -956,8 +956,15 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
         run, "", "$ " & given.cmd & '\n' & given.nimout,
         given.err, givenSpec = given.addr)
     else:
-      let isJsTarget = run.target == targetJS
-      var exeFile = changeFileExt(run.test.name, if isJsTarget: "js" else: ExeExt)
+      let
+        isJsTarget = run.target == targetJS
+        ext =
+          case run.target
+          of targetJS: "js"
+          of targetVM: "nimbc"
+          else: ExeExt
+
+      var exeFile = changeFileExt(run.test.name, ext)
       
       if not fileExists(exeFile):
         r.addResult(run, run.expected.output,
@@ -976,6 +983,10 @@ proc testSpecHelper(r: var TResults, run: var TestRun) =
             exeCmd = nodejs
             # see D20210217T215950
             args = @["--unhandled-rejections=strict", exeFile] & args
+          elif run.target == targetVM:
+            let nimDir = compilerPrefix.getFileDir()
+            exeCmd = changeFileExt(nimDir / "vmrunner", ExeExt)
+            args = @[exeFile]
           else:
             exeCmd = exeFile.dup(normalizeExe)
             if run.expected.useValgrind != disabled:
@@ -1042,7 +1053,7 @@ func defaultTargets(category: Category): set[TTarget] =
   const standardTargets = {nativeTarget()}
   case category.string
   of "lang":
-    {targetC, targetJs, targetCpp}
+    {targetC, targetJs, targetCpp, targetVM}
   of "arc", "avr", "destructor", "distros", "dll", "gc", "osproc", "parallel",
      "realtimeGC", "threads", "views", "valgrind":
     standardTargets - {targetJs}

@@ -32,6 +32,9 @@ template testCase(n, ty, setup, testCode) =
       testCode
 
 
+# XXX: the `const` sym is erroneously inlined somwhere before reaching the
+#      back-end, so this case doesn't really test if the backend can handle
+#      a `skConst` of closure type
 block closure_with_single_capture:
 
   proc mkClosure(): proc(): int =
@@ -43,6 +46,7 @@ block closure_with_single_capture:
   testCase(v, proc(): int {.closure.}, mkClosure()):
     doAssert v() == 1
 
+# XXX: the issue mentioned above also applies for this test case
 block closure_with_multiple_captures:
 
   proc mkClosure2(): proc(): int =
@@ -77,10 +81,23 @@ block non_nil_closure_in_object:
     result = proc(): int =
       x
 
-  # Fails on the c/cpp backend (what about JS?)
+  # Fails on the c/cpp and VM backend (what about JS?) since closures with
+  # non-nil environments are not supported
   const disableBackend = true
   testCase(v, A, A(c: mkClosure())):
     doAssert v.c() == 1
+
+block non_nil_proc_in_object:
+  type Obj = object
+    a: int
+    b: proc(): int {.nimcall.}
+
+  proc p(): int = 2
+
+  testCase(v, Obj, Obj(a: 1, b: p)):
+    doAssert v.a == 1
+    doAssert v.b() == 2
+
 
 block empty_object:
   type Empty = object

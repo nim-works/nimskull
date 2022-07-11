@@ -22,6 +22,7 @@ dnimcache/
 *.iss
 *.log
 *.pdb
+*.nimbc
 
 mapping.txt
 tags

@@ -3129,6 +3129,9 @@ When nimvm statement
 `when nimvm` statement to differentiate the execution path between
 compile-time and the executable.
 
+.. note:: For the VM target, the compile-time branch is also taken in the
+  executable. NimScript always takes the compile-time branch.
+
 Example:
 
 .. code-block:: nim

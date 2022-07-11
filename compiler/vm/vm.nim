@@ -3255,11 +3255,11 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
     inc pc
 
 type
-  ExecErrorReport = object
-    stackTrace: SemReport ## The report storing the stack-trace
-    report: SemReport     ## The report detailing the error
+  ExecErrorReport* = object
+    stackTrace*: SemReport ## The report storing the stack-trace
+    report*: SemReport     ## The report detailing the error
 
-  ExecutionResult = Result[PNode, ExecErrorReport]
+  ExecutionResult* = Result[PNode, ExecErrorReport]
 
 # prevent a default `$` implmenentation from being generated
 func `$`(e: ExecErrorReport): string {.error.}
@@ -3271,7 +3271,7 @@ template mkCallback(cn, rn, body): untyped =
   let p = proc(cn: TCtx, rn: TFullReg): PNode = body
   p
 
-proc execute(c: var TCtx, start: int, frame: sink TStackFrame; cb: proc(c: TCtx, r: TFullReg): PNode): ExecutionResult {.inline.} =
+proc execute*(c: var TCtx, start: int, frame: sink TStackFrame; cb: proc(c: TCtx, r: TFullReg): PNode): ExecutionResult {.inline.} =
   assert c.sframes.len == 0
   c.sframes.add frame
 
@@ -3463,14 +3463,16 @@ proc setGlobalValue*(c: var TCtx; s: PSym, val: PNode) =
 proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
   addInNimDebugUtils(graph.config, "setupGlobalCtx")
   if graph.vm.isNil:
-    graph.vm = newCtx(module, graph.cache, graph, idgen)
     let
-      ctx = PCtx graph.vm
+      ctx = newCtx(module, graph.cache, graph, idgen)
       disallowDangerous =
         defined(nimsuggest) or graph.config.cmd == cmdCheck or
         vmopsDanger notin ctx.config.features
 
+    ctx.codegenInOut.flags = {cgfAllowMeta}
     registerAdditionalOps(ctx[], disallowDangerous)
+
+    graph.vm = ctx
   else:
     let c = PCtx(graph.vm)
     refresh(c[], module, idgen)

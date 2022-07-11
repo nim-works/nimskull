@@ -216,3 +216,8 @@ func tryDeref*(heap: VmHeap, slot: HeapSlotHandle, typ: PVmType): Result[LocHand
       result.initSuccess(h)
     else:
       result.initFailure(dfcTypeMismatch)
+
+func getUsedMem*(a: VmAllocator): uint =
+  ## Calculates and returns the combined size-in-bytes of all current allocations
+  for r in a.regions.items:
+    result += r.len.uint
