@@ -1005,9 +1005,14 @@ proc newStmtList*(stmts: varargs[NimNode]): NimNode =
   ## Create a new statement list.
   result = newNimNode(nnkStmtList).add(stmts)
 
-proc newPar*(exprs: varargs[NimNode]): NimNode =
+proc newPar*(expr: NimNode): NimNode =
   ## Create a new parentheses-enclosed expression.
-  newNimNode(nnkPar).add(exprs)
+  ##
+  ## This does not construct tuples, for that use `nnkTupleConstr` nodes.
+  newNimNode(nnkPar).add(expr)
+
+proc newPar*(exprs: varargs[NimNode]): NimNode {.error:
+  "newPar/nnkPar does not construct tuples anymore, for that use nnkTupleConstr nodes."}
 
 proc newBlockStmt*(label, body: NimNode): NimNode =
   ## Create a new block statement with label.
@@ -1567,7 +1572,7 @@ macro getCustomPragmaVal*(n: typed, cp: typed{nkSym}): untyped =
         result = p[1]
       else:
         let def = p[0].getImpl[3]
-        result = newTree(nnkPar)
+        result = newTree(nnkTupleConstr)
         for i in 1 ..< def.len:
           let key = def[i][0]
           let val = p[i]

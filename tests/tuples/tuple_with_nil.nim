@@ -723,7 +723,7 @@ proc generatefmt(fmtstr: string;
               fmtexpr = newexpr
         else:
           # literal format string, precompute the format data
-          fmtexpr = newNimNode(nnkPar)
+          fmtexpr = newNimNode(nnkTupleConstr)
           for field, val in part.fmt.parse.fieldPairs:
             fmtexpr.add(newNimNode(nnkExprColonExpr).add(field.ident, literal(val)))
         # add argument
