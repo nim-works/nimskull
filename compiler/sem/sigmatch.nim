@@ -38,7 +38,6 @@ import
     lookups,
     lowerings,
     parampatterns,
-    concepts,
   ],
   compiler/utils/[
     debugutils,
@@ -317,7 +316,7 @@ proc concreteType(c: TCandidate, t: PType; f: PType = nil): PType =
   of tySequence, tySet:
     if t[0].kind == tyEmpty: result = nil
     else: result = t
-  of tyGenericParam, tyAnything, tyConcept:
+  of tyGenericParam, tyAnything:
     result = t
     while true:
       result = PType(idTableGet(c.bindings, t))
@@ -1472,7 +1471,7 @@ typeRel can be used to establish various relationships between types:
   of tyGenericInvocation:
     var x = a.skipGenericAlias
     let concpt = f[0].skipTypes({tyGenericBody})
-    var preventHack = concpt.kind == tyConcept
+    var preventHack = false
     if x.kind == tyOwned and f[0].kind != tyOwned:
       preventHack = true
       x = x.lastSon
@@ -1500,9 +1499,6 @@ typeRel can be used to establish various relationships between types:
           if f[i].kind != tyTypeDesc: return
 
       result = isGeneric
-    elif x.kind == tyGenericInst and concpt.kind == tyConcept:
-      result = if concepts.conceptMatch(c.c, concpt, x, c.bindings, f): isGeneric
-               else: isNone
     else:
       let genericBody = f[0]
       var askip = skippedNone
@@ -1633,10 +1629,6 @@ typeRel can be used to establish various relationships between types:
           result = isGeneric
         else:
           result = isNone
-
-  of tyConcept:
-    result = if concepts.conceptMatch(c.c, f, a, c.bindings, nil): isGeneric
-             else: isNone
 
   of tyCompositeTypeClass:
     considerPreviousT:

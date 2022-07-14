@@ -14,18 +14,18 @@ string int'''
 import hashes
 
 type
-  Comparable = concept # no T, an atom
-    proc cmp(a, b: Self): int
+  Comparable = concept a, b
+    cmp(a, b) is int
 
-  ToStringable = concept
-    proc `$`(a: Self): string
+  ToStringable = concept a
+    $a is string
 
-  Hashable = concept   ## the most basic of identity assumptions
-    proc hash(x: Self): int
-    proc `==`(x, y: Self): bool
+  Hashable = concept x, y  ## the most basic of identity assumptions
+    hash(x) is int
+    x == y is bool
 
-  Swapable = concept
-    proc swap(x, y: var Self)
+  Swapable = concept x, y
+    swap(x, y)
 
 
 proc h(x: Hashable) =
@@ -52,8 +52,9 @@ when true:
 
 when true:
   type
-    Iterable[Ix] = concept
-      iterator items(c: Self): Ix
+    Iterable[Ix] = concept c
+      for i in items(c):
+        i is Ix
 
   proc g[Tu](it: Iterable[Tu]) =
     for x in it:
@@ -68,11 +69,11 @@ proc hs(x: Swapable) =
 hs(4)
 
 type
-  Indexable[T] = concept # has a T, a collection
-    proc `[]`(a: Self; index: int): T # we need to describe how to infer 'T'
+  Indexable[T] = concept a # has a T, a collection
+    a[int] is T # we need to describe how to infer 'T'
     # and then we can use the 'T' and it must match:
-    proc `[]=`(a: var Self; index: int; value: T)
-    proc len(a: Self): int
+    a[int] = T
+    len(a) is int
 
 proc indexOf[T](a: Indexable[T]; value: T) =
   echo "yes ", T
@@ -84,9 +85,9 @@ block:
 import tables, typetraits
 
 type
-  Dict[K, V] = concept
-    proc `[]`(s: Self; k: K): V
-    proc `[]=`(s: var Self; k: K; v: V)
+  Dict[K, V] = concept s
+    s[K] is V
+    s[K] = V
 
 proc d[K2, V2](x: Dict[K2, V2]) =
   echo K2, " ", V2
@@ -95,9 +96,9 @@ var x = initTable[string, int]()
 d(x)
 
 
-type Monoid = concept
-  proc `+`(x, y: Self): Self
-  proc z(t: typedesc[Self]): Self
+type Monoid = concept x, y
+  x + y is type(x)
+  z(typedesc[type(x)]) is type(x)
 
 proc z(x: typedesc[int]): int = 0
 

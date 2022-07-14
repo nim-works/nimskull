@@ -432,7 +432,6 @@ type
       ## instantiation and prior to this it has the potential to
       ## be any type.
 
-    tyConcept ## new style concept.
     tyVoid ## now different from tyEmpty, hurray!
     tyIterable
 

@@ -914,8 +914,6 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
     cycleCheck()
     result = sameTypeAux(a.lastSon, b.lastSon, c)
   of tyNone: result = false
-  of tyConcept:
-    result = exprStructuralEquivalent(a.n, b.n)
 
 proc sameBackendType*(x, y: PType): bool =
   var c = initSameTypeClosure()

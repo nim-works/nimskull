@@ -947,6 +947,14 @@ proc makeVarType*(owner: PSym, baseType: PType; idgen: IdGenerator; kind = tyVar
     result = newType(kind, nextTypeId(idgen), owner)
     addSonSkipIntLit(result, baseType, idgen)
 
+proc makeTypeDesc*(c: PContext, typ: PType): PType =
+  if typ.kind == tyTypeDesc:
+    result = typ
+  else:
+    result = newTypeS(tyTypeDesc, c)
+    incl result.flags, tfCheckedForDestructor
+    result.addSonSkipIntLit(typ, c.idgen)
+
 proc makeTypeSymNode*(c: PContext, typ: PType, info: TLineInfo): PNode =
   let typedesc = newTypeS(tyTypeDesc, c)
   incl typedesc.flags, tfCheckedForDestructor
