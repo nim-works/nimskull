@@ -293,7 +293,7 @@ proc resolveOverloads(c: PContext, n: PNode,
     let hasError = semOpAux(c, f)
     initialBinding = f
     if hasError:
-      f = c.config.wrapErrorInSubTree(f)
+      f = c.config.wrapError(f)
     else:
       f = f[0]
   else:
@@ -301,7 +301,7 @@ proc resolveOverloads(c: PContext, n: PNode,
 
   if f.isError:
     n[0] = f
-    result.call = c.config.wrapErrorInSubTree(n)
+    result.call = c.config.wrapError(n)
     return
 
   template pickBest(headSymbol) =
@@ -361,7 +361,7 @@ proc resolveOverloads(c: PContext, n: PNode,
             n[2] = c.config.newError(n[2], SemReport(
               kind: rsemUndeclaredField, ast: n[2], sym: sym, typ: sym.typ))
 
-            result.call = wrapErrorInSubTree(c.config, n)
+            result.call = wrapError(c.config, n)
         else:
           let msg = getMsgDiagnostic(c, flags, n, f)
           result.call = c.config.newError(n, msg)
@@ -595,7 +595,7 @@ proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
     let e = semExpr(c, n[i])
     if e.isError:
       n[i] = e
-      result = c.config.wrapErrorInSubTree(n)
+      result = c.config.wrapError(n)
       return
     elif e.typ == nil:
       n[i].typ = errorType(c)

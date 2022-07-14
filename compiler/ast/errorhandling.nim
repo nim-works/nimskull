@@ -45,6 +45,9 @@ import
     options
   ]
 
+when defined(nimDebugUnreportedErrors):
+  import std/tables
+
 proc errorSubNode*(n: PNode): PNode =
   ## find the first error node, or nil, under `n` using a depth first traversal
   case n.kind
@@ -137,7 +140,7 @@ template newError*(
   ): untyped =
   newError(conf, wrongNode, report, instLoc(), args, posInfo)
 
-template wrapErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode =
+template wrapError*(conf: ConfigRef, wrongNodeContainer: PNode): PNode =
   ## `wrongNodeContainer` doesn't directly have an error but one exists further
   ## down the tree, this is used to wrap the `wrongNodeContainer` in an nkError
   ## node but no message will be reported for it.
@@ -178,6 +181,9 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
     discard
   of nkError:
     buildErrorList(config, n[wrongNodePos], errs)
+    when defined(nimDebugUnreportedErrors):
+      if n.errorKind == rsemWrappedError and errs.len == 0:
+        echo "Empty WrappedError: ", config $ n.info
     errs.add n
   else:
     for i in 0..<n.len:
