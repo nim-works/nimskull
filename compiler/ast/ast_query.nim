@@ -660,10 +660,6 @@ proc canRaise*(fn: PNode): bool =
 proc skipAddr*(n: PNode): PNode {.inline.} =
   if n.kind == nkHiddenAddr: n[0] else: n
 
-proc isNewStyleConcept*(n: PNode): bool {.inline.} =
-  assert n.kind == nkTypeClassTy
-  result = n[0].kind == nkEmpty
-
 
 
 type

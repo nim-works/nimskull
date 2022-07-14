@@ -171,7 +171,7 @@ const
     "lent ", "varargs[$1]", "UncheckedArray[$1]", "Error Type",
     "BuiltInTypeClass", "UserTypeClass",
     "UserTypeClassInst", "CompositeTypeClass", "inferred",
-    "and", "or", "not", "any", "static", "TypeFromExpr", "concept", # xxx bugfix
+    "and", "or", "not", "any", "static", "TypeFromExpr",
     "void", "iterable"]
 
 proc addTypeFlags(name: var string, typ: PType) {.inline.} =

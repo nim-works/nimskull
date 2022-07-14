@@ -122,3 +122,4 @@ proc initDefines*(symbols: StringTableRef) =
   defineSymbol("nimHasEnforceNoRaises")
   defineSymbol("nimHasNkComesFromNodeRemoved")
   defineSymbol("nimHasNkParForStmtNodeRemoved")
+  defineSymbol("nimHasTyConceptRemoved")

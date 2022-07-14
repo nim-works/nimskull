@@ -67,7 +67,7 @@ iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable): PSym 
       "Generic param list expected symbol, but found " & $a.kind)
 
     var q = a.sym
-    if q.typ.kind in {tyTypeDesc, tyGenericParam, tyStatic, tyConcept}+tyTypeClasses:
+    if q.typ.kind in {tyTypeDesc, tyGenericParam, tyStatic}+tyTypeClasses:
       let symKind = if q.typ.kind == tyStatic: skConst else: skType
       var s = newSym(symKind, q.name, nextSymId(c.idgen), getCurrOwner(c), q.info)
       s.flags.incl {sfUsed, sfFromGeneric}
@@ -81,7 +81,7 @@ iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable): PSym 
           localReport(c.config, a.info, reportSym(rsemCannotInstantiate, s))
 
           t = errorType(c)
-      elif t.kind in {tyGenericParam, tyConcept}:
+      elif t.kind == tyGenericParam:
         localReport(c.config, a.info, reportSym(rsemCannotInstantiate, q))
 
         t = errorType(c)

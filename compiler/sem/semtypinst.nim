@@ -36,8 +36,6 @@ import
     astrepr
   ]
 
-from concepts import makeTypeDesc
-
 const tfInstClearedFlags = {tfHasMeta, tfUnresolved}
 
 proc checkPartialConstructedType(conf: ConfigRef; info: TLineInfo, t: PType) =
@@ -554,7 +552,7 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
   result = t
   if t == nil: return
 
-  if t.kind in {tyStatic, tyGenericParam, tyConcept} + tyTypeClasses:
+  if t.kind in {tyStatic, tyGenericParam} + tyTypeClasses:
     let lookup = cl.typeMap.lookup(t)
     if lookup != nil: return lookup
 

@@ -55,7 +55,6 @@ import
   ],
   compiler/sem/[
     semfold,
-    concepts,
     typeallowed,
     isolation_check,
     procfind,

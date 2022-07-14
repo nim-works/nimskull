@@ -2030,18 +2030,14 @@ proc parseTypeClass(p: var Parser): PNode =
   #|               &IND{>} stmt
   result = newNodeP(nkTypeClassTy, p)
   p.getTok
-  if p.tok.tokType == tkComment:
-    p.skipComment(result)
 
-  if p.tok.indent < 0:
-    var args = newNodeP(nkArgList, p)
-    result.add args
+  var args = newNodeP(nkArgList, p)
+  result.add args
+  args.add p.parseTypeClassParam
+  while p.tok.tokType == tkComma:
+    p.getTok
     args.add p.parseTypeClassParam
-    while p.tok.tokType == tkComma:
-      p.getTok
-      args.add p.parseTypeClassParam
-  else:
-    result.add p.emptyNode # see ast.isNewStyleConcept
+
   result.add if p.tok.tokType == tkCurlyDotLe and p.validInd:
                parsePragma(p)
              else:
@@ -2063,13 +2059,6 @@ proc parseTypeClass(p: var Parser): PNode =
   result.add if p.realInd:
                parseStmt(p)
              else:
-               if result.isNewStyleConcept:
-                 p.localError ParserReport(
-                   kind: rparRotineExpected,
-                   msg:
-"routine expected, but found '$1' (empty new-styled concepts are not allowed)" % [$p.tok],
-                   found: $p.tok
-                 )
                p.emptyNode
 
 proc parseTypeDef(p: var Parser): PNode =

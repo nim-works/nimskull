@@ -120,7 +120,13 @@ type
     ntyError,
     ntyBuiltinTypeClass, ntyUserTypeClass, ntyUserTypeClassInst,
     ntyCompositeTypeClass, ntyInferred, ntyAnd, ntyOr, ntyNot,
-    ntyAnything, ntyStatic, ntyFromExpr, ntyOptDeprecated, ntyVoid
+    ntyAnything, ntyStatic, ntyFromExpr,
+    ntyVoid = when defined(nimHasTyConceptRemoved):
+                ord(ntyFromExpr) + 1
+              else:
+                # Skip what would be ntyConcept, if compiled with a compiler
+                # compiler that still has ntyConcept (e.g. in bootstrapping)
+                ord(ntyFromExpr) + 2
 
   TNimTypeKinds* {.deprecated.} = set[NimTypeKind]
   NimSymKind* = enum
