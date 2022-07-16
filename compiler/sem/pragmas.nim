@@ -515,9 +515,9 @@ proc processExperimental(c: PContext; n: PNode): PNode =
         n[1] = c.config.newError(
           n[1], reportAst(rsemUnknownExperimental, n[1]))
 
-        result = wrapErrorInSubTree(c.config, n)
+        result = wrapError(c.config, n)
     of nkError:
-      result = wrapErrorInSubTree(c.config, n)
+      result = wrapError(c.config, n)
     else:
       result = c.config.newError(n, reportSem(rsemStringLiteralExpected))
 
@@ -611,7 +611,7 @@ proc processPush(c: PContext, n: PNode, start: int): PNode =
         x.otherPragmas.add n[i]
     else:
       n[i] = err
-      result = wrapErrorInSubTree(c.config, n)
+      result = wrapError(c.config, n)
       assert not cyclicTree(result)
       return
 
@@ -902,13 +902,13 @@ proc pragmaRaisesOrTags(c: PContext, n: PNode): PNode =
       let r = processExc(c, it)
       if r.kind == nkError:
         n[1] = r
-        result = wrapErrorInSubTree(c.config, n)
+        result = wrapError(c.config, n)
     else:
       for i, e in it.pairs:
         let r = processExc(c, e)
         if r.kind == nkError:
           n[i] = r
-          result = wrapErrorInSubTree(c.config, n)
+          result = wrapError(c.config, n)
           return
   else:
     result = invalidPragma(c, n)
@@ -922,7 +922,7 @@ proc pragmaLockStmt(c: PContext; it: PNode): PNode =
     if n.kind != nkBracket:
       # xxx: was errGenerated
       it[1] = c.config.newError(n, reportSem(rsemLocksPragmaExpectsList))
-      result = wrapErrorInSubTree(c.config, it)
+      result = wrapError(c.config, it)
     else:
       for i in 0..<n.len:
         n[i] = c.semExpr(c, n[i])
@@ -939,7 +939,7 @@ proc pragmaLocks(c: PContext, it: PNode): (TLockLevel, PNode) =
         it[1] = c.config.newError(it[1], reportStr(
           rsemLocksPragmaBadLevel,
           "invalid string literal for locks pragma (only allowed string is \"unknown\")"))
-        result = (UnknownLockLevel, wrapErrorInSubTree(c.config, it))
+        result = (UnknownLockLevel, wrapError(c.config, it))
     else:
       let (x, err) = intLitToIntOrErr(c, it)
       if err.isNil:
@@ -947,7 +947,7 @@ proc pragmaLocks(c: PContext, it: PNode): (TLockLevel, PNode) =
           it[1] = c.config.newError(it[1], reportStr(
             rsemLocksPragmaBadLevel,
             "integer must be within 0.." & $MaxLockLevel))
-          result = (UnknownLockLevel, wrapErrorInSubTree(c.config, it))
+          result = (UnknownLockLevel, wrapError(c.config, it))
         else:
           result = (TLockLevel(x), nil)
 
@@ -988,7 +988,7 @@ proc deprecatedStmt(c: PContext; outerPragma: PNode): PNode =
     incl(c.module.flags, sfDeprecated)
     c.module.constraint = getStrLitNode(c, outerPragma)
     if c.module.constraint.kind == nkError:
-      result = wrapErrorInSubTree(c.config, outerPragma)
+      result = wrapError(c.config, outerPragma)
     return
   elif pragma.kind != nkBracket:
     result = c.config.newError(pragma, reportStr(
@@ -1757,7 +1757,7 @@ proc prepareSinglePragma(
               reportStr(rsemDeprecated, "'.this' pragma is deprecated"))
           else:
             it[1] = result # we retrieved it above from `it[1]`, so making sure return the same node
-            result = wrapErrorInSubTree(c.config, it)
+            result = wrapError(c.config, it)
         elif it.kind == nkIdent or it.len == 1:
           c.selfName = getIdent(c.cache, "self")
           localReport(
@@ -1834,7 +1834,7 @@ proc pragmaRec(c: PContext, sym: PSym, n: PNode, validPragmas: TSpecialWords;
       else:
         result[i] = p
       assert not cyclicTree(result)
-      result = wrapErrorInSubTree(c.config, result)
+      result = wrapError(c.config, result)
       return
     elif p != nil and nfImplicitPragma in p.flags:
       break
@@ -1907,4 +1907,4 @@ proc pragmaCallable*(c: PContext, sym: PSym, n: PNode,
     let p = pragmaRec(c, sym, n[pragmasPos], validPragmas, false)
     if p.kind == nkError:
       n[pragmasPos] = p
-      result = wrapErrorInSubTree(c.config, n)
+      result = wrapError(c.config, n)

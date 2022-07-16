@@ -61,7 +61,7 @@ proc semAsm(c: PContext, n: PNode): PNode =
   else:
     result = n
     result[0] = err
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)
 
 proc semWhile(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
@@ -157,14 +157,14 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
         "Expected one or two subnodes for if statement, but found " & $it.len)
 
   if hasError:
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)
 
   elif isEmptyType(typ) or typ.kind in {tyNil, tyUntyped} or
       (not hasElse and efInTypeof notin flags):
     for it in n:
       it[^1] = discardCheck(c, it[^1], flags)
       if it[^1].isError:
-        return wrapErrorInSubTree(c.config, result)
+        return wrapError(c.config, result)
     result.transitionSonsKind(nkIfStmt)
     # propagate any enforced VoidContext:
     if typ == c.enforceVoidContext: result.typ = c.enforceVoidContext
@@ -270,11 +270,11 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if isEmptyType(typ) or typ.kind in {tyNil, tyUntyped}:
     n[0] = discardCheck(c, n[0], flags)
     if n[0].isError:
-      return wrapErrorInSubTree(c.config, n)
+      return wrapError(c.config, n)
     for i in 1 ..< n.len:
       n[i][^1] = discardCheck(c, n[i][^1], flags)
       if n[i][^1].isError:
-        return wrapErrorInSubTree(c.config, n)
+        return wrapError(c.config, n)
 
     if typ == c.enforceVoidContext:
       result.typ = c.enforceVoidContext
@@ -282,7 +282,7 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
     if n.lastSon.kind == nkFinally:
       n[^1][^1] = discardCheck(c, n[^1][^1], flags)
       if n[^1][^1].isError:
-        return wrapErrorInSubTree(c.config, n)
+        return wrapError(c.config, n)
     n[0] = fitNode(c, typ, n[0], n[0].info)
     for i in 1..last:
       var it = n[i]
@@ -910,7 +910,7 @@ proc semConst(c: PContext, n: PNode): PNode =
     # xxx: hasError is here until we've converted the whole proc to use nkError
     #      until then we check at the end to ensure we capture any nkErrors
     #      embedded within the section
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)
 
   dec c.inStaticContext
 
@@ -1047,7 +1047,7 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if efInTypeof notin flags:
     n[^1] = discardCheck(c, n[^1], flags)
     if n[^1].isError:
-      result = wrapErrorInSubTree(c.config, n)
+      result = wrapError(c.config, n)
   closeScope(c)
   dec(c.p.nestedLoopCounter)
 
@@ -1255,7 +1255,7 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
     for i in 1..<n.len:
       n[i][^1] = discardCheck(c, n[i][^1], flags)
       if n[i][^1].isError:
-        return wrapErrorInSubTree(c.config, n)
+        return wrapError(c.config, n)
     # propagate any enforced VoidContext:
     if typ == c.enforceVoidContext:
       result.typ = c.enforceVoidContext
@@ -2244,7 +2244,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
   if result.isErrorLike:
     closeScope(c)
     popOwner(c)
-    return wrapErrorInSubTree(c.config, result)
+    return wrapError(c.config, result)
 
   if n[pragmasPos].kind != nkEmpty and sfBorrow notin s.flags:
     setEffectsForProcType(c.graph, s.typ, n[pragmasPos], s)
@@ -2547,14 +2547,14 @@ proc semPragmaBlock(c: PContext, n: PNode): PNode =
 
   if pragmaList != nil and pragmaList.kind == nkError:
     n[0] = pragmaList
-    result = wrapErrorInSubTree(c.config, n)
+    result = wrapError(c.config, n)
     return
 
   var inUncheckedAssignSection = 0
   for i, p in pragmaList.pairs:
     if p.kind == nkError:
       n[0] = pragmaList
-      result = wrapErrorInSubTree(c.config, n)
+      result = wrapError(c.config, n)
       return
     elif whichPragma(p) == wCast:
       case whichPragma(p[1])
@@ -2566,7 +2566,7 @@ proc semPragmaBlock(c: PContext, n: PNode): PNode =
         let e = c.config.newError(p, reportAst(rsemInvalidPragmaBlock, p))
         pragmaList[i] = e
         n[0] = pragmaList
-        result = wrapErrorInSubTree(c.config, n)
+        result = wrapError(c.config, n)
         return
 
   inc c.inUncheckedAssignSection, inUncheckedAssignSection
@@ -2698,7 +2698,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
       prettybase.replaceComment(result.info)
 
   if hasError:
-    result = wrapErrorInSubTree(c.config, result)
+    result = wrapError(c.config, result)
 
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if efInTypeof in flags:

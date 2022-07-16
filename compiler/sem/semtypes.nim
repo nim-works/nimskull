@@ -1405,6 +1405,8 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       block determineType:
         if genericParams.isGenericParams:
           def = semGenericStmt(c, def)
+          if def.isError:
+            localReport(c.config, def)
           if hasUnresolvedArgs(c, def):
             def.typ = makeTypeFromExpr(c, def.copyTree)
             break determineType
@@ -1786,6 +1788,8 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
     addDecl(c, dummyParam)
 
   result.n[3] = semConceptBody(c, n[3])
+  if result.n[3].isError:
+    localReport(c.config, result.n[3])
   closeScope(c)
 
 proc applyTypeSectionPragmas(c: PContext; pragmas, operand: PNode): PNode =
@@ -2086,6 +2090,8 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
            # the dot expression may refer to a concept type in
            # a different module. allow a normal alias then.
         let preprocessed = semGenericStmt(c, n)
+        if preprocessed.isError:
+          localReport(c.config, preprocessed)
         result = makeTypeFromExpr(c, preprocessed.copyTree)
       else:
         let alias = maybeAliasType(c, result, prev)

@@ -37,7 +37,7 @@ proc semTypeOf(c: PContext; n: PNode): PNode =
   let typExpr = semExprWithType(c, n[1], if m == 1: {efInTypeof} else: {})
   result.add typExpr
   if typExpr.isError:
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)
   else:
     result.typ = makeTypeDesc(c, typExpr.typ)
 

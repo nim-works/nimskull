@@ -528,7 +528,7 @@ proc semIs(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   var lhsType = n[1].typ
   if n[1].isError:
-    result = wrapErrorInSubTree(c.config, n)
+    result = wrapError(c.config, n)
   elif lhsType.kind == tyTypeDesc and (lhsType.base.kind == tyNone or
      (c.inGenericContext > 0 and lhsType.base.containsGenericType)):
     # BUGFIX: don't evaluate this too early: ``T is void``
@@ -660,7 +660,7 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
         result = n
         result[0][0] = c.config.newError(x[0]):
           reportTyp(rsemExpectedOrdinal, idx.typ, ast = result).withIt: it.wrongNode = idx
-        result = c.config.wrapErrorInSubTree(result)
+        result = c.config.wrapError(result)
         return
 
       else:
@@ -699,7 +699,7 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
             countMismatch: (
               expected: lastIndex + 1,
               got: getOrdValue(idx))))
-          result = c.config.wrapErrorInSubTree(result)
+          result = c.config.wrapError(result)
           return
 
         x = x[1]
@@ -1066,13 +1066,13 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
     of nkError:
       result = n
       result[0] = n0
-      return wrapErrorInSubTree(c.config, result)
+      return wrapError(c.config, result)
     else:
       n[0] = n0
   else:
     n[0] = semExpr(c, n[0], {efInCall})
     if n[0] != nil and n[0].isErrorLike:
-      result = wrapErrorInSubTree(c.config, n)
+      result = wrapError(c.config, n)
       return
     let t = n[0].typ
     if t != nil and t.kind in {tyVar, tyLent}:
@@ -1142,7 +1142,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
   elif result[0].kind == nkSym:
     result =
       if result[0].sym.isError:
-        wrapErrorInSubTree(c.config, result)
+        wrapError(c.config, result)
       else:
         afterCallActions(c, result, flags)
   else:
@@ -1611,7 +1611,7 @@ proc dotTransformation(c: PContext, n: PNode): PNode =
   result.add copyTree(n[0])
 
   if result[0].kind == nkError: # handle the potential ident error
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)
 
 proc semFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # this is difficult, because the '.' is used in many different contexts
@@ -1674,7 +1674,7 @@ proc semDeref(c: PContext, n: PNode): PNode =
 
     case derefTarget.kind
     of nkError:
-      result = c.config.wrapErrorInSubTree(result)
+      result = c.config.wrapError(result)
     else:
       result[0] = semmedTarget
       result.typ = derefType
@@ -2033,7 +2033,7 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
 
   case a.kind
   of nkError:
-    result = c.config.wrapErrorInSubTree(n)
+    result = c.config.wrapError(n)
     return # refactor: return is "needed" because of final `result = n` below
   else:
     # a = b # both are vars, means: a[] = b[]
@@ -2042,7 +2042,7 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
 
     if le.isNil:
       n[0] = c.config.newError(a, reportSem rsemExpressionHasNoType)
-      result = c.config.wrapErrorInSubTree(n)
+      result = c.config.wrapError(n)
       return # refactor: return is "needed" because of final `result = n` below
 
     elif (skipTypes(le, {tyGenericInst, tyAlias, tySink}).kind notin {tyVar} and
@@ -2051,7 +2051,7 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
           views notin c.features):
       # Direct assignment to a discriminant is allowed!
       n[0] = c.config.newError(a, reportAst(rsemCannotAssignTo, a, typ = le))
-      result = c.config.wrapErrorInSubTree(n)
+      result = c.config.wrapError(n)
       return
 
     else:
@@ -2082,7 +2082,7 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
             if r.kind == nkError:
               result = n
               result[1] = r # rhs error
-              result = c.config.wrapErrorInSubTree(result)
+              result = c.config.wrapError(result)
               return
       borrowCheck(c, n, lhs, rhs)
 
@@ -2202,7 +2202,7 @@ proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
                       rsemIllformedAst,
                       result[0],
                       createSemIllformedAstMsg(n[0], {nkPar, nkTupleConstr})))
-      result = c.config.wrapErrorInSubTree(result)
+      result = c.config.wrapError(result)
   else:
     when false:
       # xxx: investigate what we really need here.
@@ -2864,7 +2864,7 @@ proc semTupleFieldsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   result.typ = typ
 
   if hasError:
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)
 
 proc semTuplePositionsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ## analyse tuple construction based on position `("bar", 13)`, also handles
@@ -2902,7 +2902,7 @@ proc semTuplePositionsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
           posInfo = tupExp[i].info)
 
   if hasError:
-    result = c.config.wrapErrorInSubTree(tupExp)
+    result = c.config.wrapError(tupExp)
   elif isTupleType: # reinterpret `(int, string)` as type expressions
     result = n
     result.typ = makeTypeDesc(c, semTypeNode(c, n, nil).skipTypes({tyTypeDesc}))
@@ -3023,7 +3023,7 @@ proc semExportExcept(c: PContext, n: PNode): PNode =
         err
 
   if hasError:
-    result = c.config.wrapErrorInSubTree(normExportExcept)
+    result = c.config.wrapError(normExportExcept)
   else:
     result = newNodeI(nkExportStmt, n.info)
     result.add normModuleName
