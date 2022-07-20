@@ -109,7 +109,7 @@ var markerGeneration: int
 proc breakCycles(s: Cell; desc: PNimTypeV2) =
   let markerColor = if (markerGeneration and 1) == 0: colRed
                     else: colYellow
-  atomicInc markerGeneration
+  discard atomicInc markerGeneration
   when traceCollector:
     cprintf("[BreakCycles] starting: %p %s RC %ld trace proc %p\n",
       s, desc.name, s.rc shr rcShift, desc.traceImpl)

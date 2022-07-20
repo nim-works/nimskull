@@ -3,7 +3,7 @@ discard """
 """
 
 var x = 10
-atomicInc(x)
+discard atomicInc(x)
 doAssert x == 11
-atomicDec(x)
+discard atomicDec(x)
 doAssert x == 10

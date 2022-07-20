@@ -211,13 +211,24 @@ elif someVcc and hasThreadSupport:
         importc: "_InterlockedExchangeAdd", header: "<intrin.h>".}
 
 else:
+  type AtomMemModel* = distinct cint
+
+  const
+    ATOMIC_RELAXED = 0.AtomMemModel
+    ATOMIC_CONSUME = 1.AtomMemModel
+    ATOMIC_ACQUIRE = 2.AtomMemModel
+    ATOMIC_RELEASE = 3.AtomMemModel
+    ATOMIC_ACQ_REL = 4.AtomMemModel
+    ATOMIC_SEQ_CST = 5.AtomMemModel
+
   proc addAndFetch*(p: ptr int, val: int): int {.inline.} =
     inc(p[], val)
     result = p[]
 
-proc atomicInc*(memLoc: var int, x: int = 1): int =
+proc atomicInc*(memLoc: var int; x: int = 1; order = ATOMIC_RELAXED): int =
+  ## Atomic increment of `memLoc`. Returns the value after the operation.
   when someGcc and hasThreadSupport:
-    result = atomicAddFetch(memLoc.addr, x, ATOMIC_RELAXED)
+    result = atomicAddFetch(memLoc.addr, x, order)
   elif someVcc and hasThreadSupport:
     result = addAndFetch(memLoc.addr, x)
     inc(result, x)
@@ -225,12 +236,13 @@ proc atomicInc*(memLoc: var int, x: int = 1): int =
     inc(memLoc, x)
     result = memLoc
 
-proc atomicDec*(memLoc: var int, x: int = 1): int =
+proc atomicDec*(memLoc: var int; x: int = 1; order = ATOMIC_RELAXED): int =
+  ## Atomic decrement of `memLoc`. Returns the value after the operation.
   when someGcc and hasThreadSupport:
     when declared(atomicSubFetch):
-      result = atomicSubFetch(memLoc.addr, x, ATOMIC_RELAXED)
+      result = atomicSubFetch(memLoc.addr, x, order)
     else:
-      result = atomicAddFetch(memLoc.addr, -x, ATOMIC_RELAXED)
+      result = atomicAddFetch(memLoc.addr, -x, order)
   elif someVcc and hasThreadSupport:
     result = addAndFetch(memLoc.addr, -x)
     dec(result, x)

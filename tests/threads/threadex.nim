@@ -23,7 +23,7 @@ proc consume() {.thread.} =
     var x = recv(chan)
     if x.k == mEof: break
     echo x.data
-    atomicInc(printedLines)
+    discard atomicInc(printedLines)
 
 proc produce() {.thread.} =
   prodId = getThreadId()
