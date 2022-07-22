@@ -23,7 +23,7 @@ proc pushFront*[T] (list: var ForwardList[T], val: sink T) =
     var head = list.first
     newNode.get.next = head
     result = list.first.cas(head, newNode)
-  list.len.atomicInc()
+  discard atomicInc(list.len)
 
 proc test1() =
   var list: ForwardList[int]

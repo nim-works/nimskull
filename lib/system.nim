@@ -1813,14 +1813,6 @@ when not declared(sysFatal):
 when not isNimVmTarget:
   {.push stackTrace: off, profiler: off.}
 
-  proc atomicInc*(memLoc: var int, x: int = 1): int {.inline,
-    discardable, benign.}
-    ## Atomic increment of `memLoc`. Returns the value after the operation.
-
-  proc atomicDec*(memLoc: var int, x: int = 1): int {.inline,
-    discardable, benign.}
-    ## Atomic decrement of `memLoc`. Returns the value after the operation.
-
   include "system/atomics"
 
   {.pop.}

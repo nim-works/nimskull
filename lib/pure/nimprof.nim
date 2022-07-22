@@ -214,7 +214,7 @@ var
 
 proc disableProfiling*() =
   when declared(system.StackTrace):
-    atomicDec disabled
+    discard atomicDec disabled
     system.profilingRequestedHook = nil
 
 proc enableProfiling*() =

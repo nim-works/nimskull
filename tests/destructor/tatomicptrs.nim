@@ -21,9 +21,10 @@ type
 #proc isNil[T](s: SharedPtr[T]): bool {.inline.} = s.x.isNil
 
 template incRef(x) =
-  atomicInc(x.refcount)
+  discard atomicInc(x.refcount)
 
-template decRef(x): untyped = atomicDec(x.refcount)
+template decRef(x): untyped =
+  atomicDec(x.refcount)
 
 proc makeShared*[T](x: sink T): SharedPtr[T] =
   # XXX could benefit from a macro that generates it.
