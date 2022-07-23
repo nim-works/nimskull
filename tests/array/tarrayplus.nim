@@ -1,5 +1,11 @@
 discard """
   errormsg: "type mismatch: got <array[0..2, float], array[0..1, float]>"
+  labels: "generic proc resolution range"
+  description: '''
+    . From https://github.com/nim-lang/Nim/issues/202
+      Bunch of issues. Generics related
+    . Generics fail to match exactly on range specs of arrays
+'''
 """
 
 proc `+`*[R, T] (v1, v2: array[R, T]): array[R, T] =

@@ -1,20 +1,29 @@
 discard """
+labels: "arithmetic bitwise conversion int range system"
+description: '''
+  . From https://github.com/nim-lang/Nim/issues/5216
+    Wrong result type when using bitwise and
+
+  . From https://github.com/nim-lang/Nim/issues/5854
+    Range type inference leads to counter-intuitive behvaiour
+  . Nim modifies range types under the hood when you make arithmetic operations
+    on them.
+  . For example if you add 2 to the type range[0..127], you get range[2..129].
+  . While being useful in some cases, in others this leads to problems that can
+    not be seen, until the program encounters some values that cause range errors
+    in runtime.
+
+  . From https://github.com/nim-lang/Nim/issues/12177
+    system.nim unsigned operators use different rules than signed operators
+  . When using basic operators (+,-,*,div) on integers of different lengths
+    (eg uint16 and uint32), implicit conversion only works when the longest type
+    is first.
+  . It is expected that the order of operands on these operators should not
+    affect the operation.
+'''
 """
 
 import typetraits
-
-
-block tand:
-  # bug #5216
-  doAssert (name typeof((0x0A'i8 and 0x7F'i32) shl 7'i32)) == "int32"
-
-  let i8 = 0x0A'i8
-  doAssert (name typeof((i8 and 0x7F'i32) shl 7'i32)) == "int32"
-
-  doAssert ((0x0A'i8 and 0x7F'i32) shl 7'i32) == 1280
-
-  let ii8 = 0x0A'i8
-  doAssert ((ii8 and 0x7F'i32) shl 7'i32) == 1280
 
 block tcast:
   template crossCheck(ty: untyped, exp: untyped) =
@@ -104,7 +113,6 @@ block tnot:
     doAssert t6 == 4
     doAssert t7 == 4
 
-
 block tshr:
   proc T() =
     # let VI = -8
@@ -121,33 +129,6 @@ block tshr:
   T()
   static:
     T()
-
-
-
-block tsubrange:
-  # bug #5854
-  type
-    n16 = range[0'i16..high(int16)]
-
-  var level: n16 = 1
-  let maxLevel: n16 = 1
-
-  level = min(level + 2, maxLevel).n16
-  doAssert level == 1
-
-block tissue12177:
-  var a: uint16 = 1
-  var b: uint32 = 2
-
-  doAssert b + a == 3
-  doAssert b - a == 1
-  doAssert b * a == 2
-  doAssert b div a == 2
-
-  doAssert a + b == 3
-  doAssert a - b == 4294967295'u32
-  doAssert a * b == 2
-  doAssert a div b == 0
 
 block tUnsignedOps:
   proc testUnsignedOps(): bool =
@@ -166,3 +147,39 @@ block tUnsignedOps:
   doAssert testUnsignedOps()
   static:
     doAssert testUnsignedOps()
+
+block issue_5216_bitwise_and:
+  doAssert (name typeof((0x0A'i8 and 0x7F'i32) shl 7'i32)) == "int32"
+
+  let i8 = 0x0A'i8
+  doAssert (name typeof((i8 and 0x7F'i32) shl 7'i32)) == "int32"
+
+  doAssert ((0x0A'i8 and 0x7F'i32) shl 7'i32) == 1280
+
+  let ii8 = 0x0A'i8
+  doAssert ((ii8 and 0x7F'i32) shl 7'i32) == 1280
+
+block issue_5854_subrange:
+
+  type
+    n16 = range[0'i16..high(int16)]
+
+  var level: n16 = 1
+  let maxLevel: n16 = 1
+
+  level = min(level + 2, maxLevel).n16
+  doAssert level == 1
+
+block issue_12177_conversion:
+  var a: uint16 = 1
+  var b: uint32 = 2
+
+  doAssert b + a == 3
+  doAssert b - a == 1
+  doAssert b * a == 2
+  doAssert b div a == 2
+
+  doAssert a + b == 3
+  doAssert a - b == 4294967295'u32
+  doAssert a * b == 2
+  doAssert a div b == 0

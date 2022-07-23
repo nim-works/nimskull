@@ -1,10 +1,18 @@
 discard """
-  output: ''''''
-  targets: '''c js'''
+  targets: "c js"
+  labels: "arithmetic bitwise shift int"
+  description: '''
+    . From https://github.com/nim-lang/Nim/issues/6255
+      shr operator should keep the sign bit on signed types
+    . The right shift operator is useful with both, keeping the sign bit, and
+      not keeping the sign bit. But for not keeping the sign bit,
+      that is what unsigend integers are for. Therefore I recommend that on
+      signed integers the sign is kept.
+    . The arithmetic right shift operator is very important for writing
+      optimized routines for scientific computing.
+    . Added system.ashr arithmetic right shift.
+'''
 """
-
-# issue #6255, feature request
-# arithmetic right shift
 
 var x1 = -123'i8
 var x2 = -123'i16

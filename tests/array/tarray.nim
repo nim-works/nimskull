@@ -1,116 +1,160 @@
 discard """
-output: '''
-[4, 5, 6]
-[16, 25, 36]
-[16, 25, 36]
-apple
-banana
-Fruit
-2
-4
-3
-none
-skin
-paper
-@[2, 3, 4]321
-9.0 4.0
-3
-@[(1, 2), (3, 5)]
-2
-@["a", "new one", "c"]
-@[1, 2, 3]
-3
-dflfdjkl__abcdefgasfsgdfgsgdfggsdfasdfsafewfkljdsfajs
-dflfdjkl__abcdefgasfsgdfgsgdfggsdfasdfsafewfkljdsfajsdf
-kgdchlfniambejop
-fjpmholcibdgeakn
-2.0
-a:1
-a:2
-a:3
-ret:
-ret:1
-ret:12
-123
-'''
 joinable: false
 target: "c cpp js"
+labels: "array"
+description: '''
+  . From https://github.com/nim-lang/Nim/issues/1669
+    Regression: array using high
+    ___
+
+  . From https://github.com/nim-lang/Nim/issues/3899
+    Wrong bounds check using template [] to access array in a const object
+  . If c is declared as a var, the code works correctly.
+    ___
+
+  . From https://github.com/nim-lang/Nim/issues/6675
+    Wrong indices in arrays not starting with 0
+  . Fixed by
+    https://github.com/nim-lang/Nim/commit/0f5261e9711c3fd57241874963bd5e45b11ed65e
+    ___
+
+  . From https://github.com/nim-lang/Nim/issues/6852
+    Negative range for array makes no sense but compiles, and last invalid
+    line causes segmentation fault.
+    Semcheck negative array length: https://github.com/nim-lang/Nim/pull/7518
+    ___
+
+  . From https://github.com/nim-lang/Nim/issues/6853
+    Impossible to create an empty const array
+    ___
+
+  . From https://github.com/nim-lang/Nim/issues/7153
+    Unsigned integers could not be used as array indexes
+  . Array indexing does not have to be bound by the "ordinal type" constraint.
+    ___
+
+  . From https://github.com/nim-lang/Nim/issues/7818
+     inconsistent internal representation of generic objects array construction
+  . I use macro to avoid object slicing
+  . This is not a macro bug, but array construction bug ,  see #7712 and #7637
+
+    ___
+
+  . From https://github.com/nim-lang/Nim/issues/8049
+    Converter applied when it should not be
+  . Fixed by `introduce precise string '[]', '[]=' accessors`
+    https://github.com/nim-lang/Nim/commit/df4d5b77a14b3b84f3ff37b3741dd039c9e21ce4
+    ___
+
+  . From https://github.com/nim-lang/Nim/issues/8316
+    BUG: "varargs[string, $]" calls $ n^2 times instead of n times (n=len(varargs))
+    ___
+
+  . From https://github.com/nim-lang/Nim/issues/12466
+    Crash in sameTree() with uint literals #12466
+    ___
+
+  . From https://github.com/nim-lang/Nim/pull/17705
+    Fix array's high & low return type for empty arrays #17705
+  . a is of type range 0..-1, and the compilers checks for
+    range.min <= x <= range.max (and 0 < x < -1 can't work)
+  . It is intentional that reverse ranges are empty, I don't think it's desired
+    to change that. With this "fix", it wouldn't be guaranteed that an index
+    that is in the range I is also a valid index for array[I, T] anymore.
+    The real issue here is that low and high can't possibly be valid indices
+    for array[0, T]. I can't think of a good fix for that:
+      * changing the return type of low/high doesn't work, since the index type
+        doesn't need to be an integer type (unless array[0, T] is special cased)
+      * using -1 .. 0 for array[0, T] makes no sense (and neither would 0..0),
+        because -1 and 0 are no valid indices
+    ___
+
+  . From https://github.com/nim-lang/Nim/issues/18643
+    Accessing an empty array sometimes works #18643
+
+'''
 """
 
 block tarray:
+
   type
     TMyArray = array[0..2, int]
     TMyRecord = tuple[x, y: int]
     TObj = object
       arr: TMyarray
 
+  block arrayToopenArray:
+     proc sum(a: openarray[int]): int =
+           result = 0
+           var i = 0
+           while i < len(a):
+             inc(result, a[i])
+             inc(i)
+     doAssert sum([1, 2, 3, 4]) == 10
+     doAssert sum([]) == 0
 
-  proc sum(a: openarray[int]): int =
-    result = 0
-    var i = 0
-    while i < len(a):
-      inc(result, a[i])
-      inc(i)
+  block leftoverTests:
+    proc getPos(r: TMyRecord): int =
+      result = r.x + r.y
+    doAssert getPos( (x: 5, y: 7) ) == 12
 
-  proc getPos(r: TMyRecord): int =
-    result = r.x + r.y
+    const myData = [[1,2,3], [4, 5, 6]]
+    doAssert myData[0][2] == 3
 
-  doAssert sum([1, 2, 3, 4]) == 10
-  doAssert sum([]) == 0
-  doAssert getPos( (x: 5, y: 7) ) == 12
+  block issue_1669:
+    # Regression with arrays.high
+    let letters = ["a" , "b", "c", "d"]
+    var foundVar: array[0..letters.high, bool]
 
-  # bug #1669
-  let filesToCreate = ["tempdir/fl1.a", "tempdir/fl2.b",
-              "tempdir/tempdir2/fl3.e", "tempdir/tempdir2/tempdir3/fl4.f"]
-
-  var found: array[0..filesToCreate.high, bool]
-
-  doAssert found.len == 4
-
-  # make sure empty arrays are assignable (bug #6853)
-  const arr1: array[0, int] = []
-  const arr2 = []
-  let arr3: array[0, string] = []
-
-  doAssert(arr1.len == 0)
-  doAssert(arr2.len == 0)
-  doAssert(arr3.len == 0)
-
-  # Negative array length is not allowed (#6852)
-  doAssert(not compiles(block:
-    var arr: array[-1, int]))
+    doAssert foundVar.len == letters.len
 
 
-  proc mul(a, b: TMyarray): TMyArray =
-    result = a
-    for i in 0..len(a)-1:
-      result[i] = a[i] * b[i]
+  block issue_6853:
+    # make sure empty arrays are assignable (bug #6853)
 
-  var
-    x, y: TMyArray
-    o: TObj
+    const arr1: array[0, int] = []
+    const arr2 = []
+    let arr3: array[0, string] = []
+    var arr4: array[0, string] = []
 
-  proc varArr1(x: var TMyArray): var TMyArray = x
-  proc varArr2(x: var TObj): var TMyArray = x.arr
+    doAssert(arr1.len == 0)
+    doAssert(arr2.len == 0)
+    doAssert(arr3.len == 0)
+    doAssert(arr4.len == 0)
 
-  x = [4, 5, 6]
-  echo repr(varArr1(x))
+  block issue_68523:
+    # Negative array length is not allowed (#6852)
+    doAssert(
+    not compiles(
+     block:
+      var arr: array[-1, int]
+      ))
 
-  y = x
-  echo repr(mul(x, y))
+  block issue_106:
+    # SIGSEGV when array is used as var return type
+    proc mul(a, b: TMyarray): TMyArray =
+      result = a
+      for i in 0..len(a)-1:
+        result[i] = a[i] * b[i]
 
-  o.arr = mul(x, y)
-  echo repr(varArr2(o))
+    var
+      x, y: TMyArray
+      o: TObj
+
+    proc arrayId(x: var TMyArray): var TMyArray = x
+    proc arrayGet(x: var TObj): var TMyArray = x.arr
+
+    x = [4, 5, 6]
+    y = x
+    o.arr = mul(x, y)
 
 
-  const
-    myData = [[1,2,3], [4, 5, 6]]
-
-  doAssert myData[0][2] == 3
-
-
+    doAssert repr(arrayId(x)) == "[4, 5, 6]"
+    doAssert repr(mul(x, y)) == "[16, 25, 36]"
+    doAssert repr(arrayGet(o)) == "[16, 25, 36]"
 
 block tarraycons:
+
   type
     TEnum = enum
       eA, eB, eC, eD, eE, eF
@@ -119,15 +163,13 @@ block tarraycons:
     myMapping: array[TEnum, array[0..1, int]] = [
       eA: [1, 2],
       eB: [3, 4],
-      [5, 6],
+      [5, 6], # Inferred as eC
       eD: [0: 8, 1: 9],
       eE: [0: 8, 9],
       eF: [2, 1: 9]
     ]
 
   doAssert myMapping[eC][1] == 6
-
-
 
 block tarraycons_ptr_generic:
   type
@@ -136,41 +178,58 @@ block tarraycons_ptr_generic:
     Apple = object of Fruit
     Banana = object of Fruit
 
-  var
-    ir = Fruit(name: "Fruit")
-    ia = Apple(name: "apple")
-    ib = Banana(name: "banana")
 
-  let x = [ia.addr, ib.addr, ir.addr]
-  for c in x: echo c.name
-
-  type
-    Vehicle[T] = object of RootObj
-      tire: T
-    Car[T] = object of Vehicle[T]
-    Bike[T] = object of Vehicle[T]
-
-  var v = Vehicle[int](tire: 3)
-  var c = Car[int](tire: 4)
-  var b = Bike[int](tire: 2)
-
-  let y = [b.addr, c.addr, v.addr]
-  for c in y: echo c.tire
-
-  type
-    Book[T] = ref object of RootObj
-      cover: T
-    Hard[T] = ref object of Book[T]
-    Soft[T] = ref object of Book[T]
-
-  var bn = Book[string](cover: "none")
-  var hs = Hard[string](cover: "skin")
-  var bp = Soft[string](cover: "paper")
-
-  let z = [bn, hs, bp]
-  for c in z: echo c.cover
+  block iter_dereference_ptrs_1:
+    var
+        apple = Apple(name: "apple")
+        banana = Banana(name: "banana")
+        fruit = Fruit(name: "Fruit")
+    let fruits = [apple.addr, banana.addr, fruit.addr]
 
 
+    var names: seq[string]
+    for it in fruits:
+      names.add( it.name )
+    doAssert names == [ "apple" , "banana", "Fruit"]
+
+
+  block iter_dereference_ptrs_2:
+    type
+      Vehicle[T] = object of RootObj
+        tire: T
+      Car[T] = object of Vehicle[T]
+      Bike[T] = object of Vehicle[T]
+
+    var
+      bike = Bike[int](tire: 2)
+      car = Car[int](tire: 4)
+      vehicle = Vehicle[int](tire: 3)
+    let vehicles = [bike.addr, car.addr, vehicle.addr]
+
+    var tires : seq[int]
+    for it in vehicles:
+      tires.add( it.tire )
+    doAssert  tires == [2, 4 , 3]
+
+
+  block iter_ref_generic:
+    type
+      Book[T] = ref object of RootObj
+        cover: T
+      Hard[T] = ref object of Book[T]
+      Soft[T] = ref object of Book[T]
+
+    var
+        book = Book[string](cover: "none")
+        hardBook = Hard[string](cover: "skin")
+        softBook = Soft[string](cover: "paper")
+    let books = [book, hardBook, softBook]
+
+
+    var covers : seq[string]
+    for it in books:
+      covers.add( it.cover )
+    doAssert covers == [ "none" , "skin" , "paper" ]
 
 block tarraylen:
   var a: array[0, int]
@@ -190,70 +249,87 @@ block tarraylen:
   doAssert([42].len == 1)
 
 
-
-
 type ustring = distinct string
 converter toUString(s: string): ustring = ustring(s)
+# converter is only allowed at top level
 
 block tarrayindx:
-  # bug #7153
-  const
-    UnsignedConst = 1024'u
-  type
-    SomeObject = object
-      s1: array[UnsignedConst, uint32]
 
-  var
-    obj: SomeObject
+  block issue_7153:
+    # Unsigned integers could not be used as array indexes
+    const UnsignedConst = 1024'u
+    type
+      SomeObject = object
+        s1: array[UnsignedConst, uint32]
 
-  doAssert obj.s1[0] == 0
-  doAssert obj.s1[0u] == 0
-
-  # bug #8049
-  proc `[]`(s: ustring, i: int): ustring = s
-  doAssert "abcdefgh"[1..2] == "bc"
-  doAssert "abcdefgh"[1..^2] == "bcdefg"
+    var obj: SomeObject
+    doAssert obj.s1[0] == 0
+    doAssert obj.s1[0u] == 0
 
 
+  block issue_8049:
+    # converter applied when it shouldn't be
+    proc `[]`(s: ustring, i: int): ustring = s
+    doAssert "abcdefgh"[1..2] == "bc"
+    doAssert "abcdefgh"[1..^2] == "bcdefg"
 
 block troof:
-  proc foo[T](x, y: T): T = x
 
-  var a = @[1, 2, 3, 4]
-  var b: array[3, array[2, float]] = [[1.0,2], [3.0,4], [8.0,9]]
-  echo a[1.. ^1], a[^2], a[^3], a[^4]
-  echo b[^1][^1], " ", (b[^2]).foo(b[^1])[^1]
+  block:
 
-  b[^1] = [8.8, 8.9]
+    var a = @[1, 2, 3, 4]
+    doAssert a[1 .. ^1] ==  @[2, 3, 4]
+    doAssert a[^1] == 4
+    doAssert a[^2] == 3
+    doAssert a[^3] == 2
+    doAssert a[^4] == 1
 
-  var c: seq[(int, int)] = @[(1,2), (3,4)]
+  block:
+    proc first[T](x, y: T): T = x
+    var b: array[3, array[2, float]] = [[1.0,2],
+                                        [3.0,4],
+                                        [8.0,9]]
 
-  proc takeA(x: ptr int) = echo x[]
+    doAssert b[^1][^1] == 9.0
+    doAssert ( b[^2] ).first( b[^1] )[^1] == 4.0
 
-  takeA(addr c[^1][0])
-  c[^1][1] = 5
-  echo c
+    b[^1] = [8.8, 8.9]
+    doAssert b[^1] == [8.8, 8.9]
 
-  proc useOpenarray(x: openArray[int]) =
-    echo x[^2]
+  block:
 
-  proc mutOpenarray(x: var openArray[string]) =
-    x[^2] = "new one"
+    var c: seq[(int, int)] = @[(1,2), (3,4)]
+    c[^1][1] = 5
+    doAssert c == @[(1, 2), (3, 5)]
 
-  useOpenarray([1, 2, 3])
+    proc deref(x: ptr int): int = x[]
+    doAssert deref(addr c[^1][0]) == 3
 
-  var z = @["a", "b", "c"]
-  mutOpenarray(z)
-  echo z
+  block:
+    proc fromOpenArray(x: openArray[int]): int =
+      return x[^2]
 
-  # bug #6675
-  var y: array[1..5, int] = [1,2,3,4,5]
-  y[3..5] = [1, 2, 3]
-  echo y[3..5]
+    doAssert fromOpenArray([1, 2, 3]) == 2
 
+  block:
+    proc mutOpenarray(x: var openArray[string], val: string) =
+      x[^2] = val
 
-  var d: array['a'..'c', string] = ["a", "b", "c"]
-  doAssert d[^1] == "c"
+    const value = "new value"
+    var z = @["a", "b", "c"]
+
+    mutOpenarray(z , value)
+    doAssert z == @["a" , value , "c" ]
+
+  block issue_6675:
+    # Wrong indices in arrays not starting with 0
+    var y: array[1..5, int] = [1,2,3,4,5]
+    y[3..5] = [1, 2, 3]
+    doAssert y[3..5] == @[1, 2, 3]
+
+  block:
+    var d: array['a'..'c', string] = ["a", "b", "c"]
+    doAssert d[^1] == "c"
 
 
 
@@ -298,12 +374,12 @@ block troofregression:
     MySeq[T] = ref object
       data: seq[T]
 
-  proc test[T](sx: MySeq[T]) =
+  proc test[T](sx: MySeq[T]): T =
     # Removing the backward index removes the error "lib/system.nim(3536, 3) Error: for a 'var' type a variable needs to be passed"
-    echo sx.data[^1] # error here
+    return sx.data[^1] # error here
 
   let s = MySeq[int](data: @[1, 2, 3])
-  s.test()
+  doAssert s.test() == 3
 
 
   # bug #6989
@@ -329,15 +405,11 @@ block troofregression:
     ## a shortcut for 'a..pred(b)'.
     a ... pred(b)
 
-  template check(a, b) =
-    if $a != b:
-      echo "Failure ", a, " != ", b
-
-  check typeof(4 ...< 1), "HSlice[system.int, system.int]"
-  check typeof(4 ...< ^1), "HSlice[system.int, system.BackwardsIndex]"
-  check typeof(4 ... pred(^1)), "HSlice[system.int, system.BackwardsIndex]"
-  check typeof(4 ... mypred(8)), "HSlice[system.int, system.int]"
-  check typeof(4 ... mypred(^1)), "HSlice[system.int, system.BackwardsIndex]"
+  doAssert typeof(4 ...< 1).name == "HSlice[system.int, system.int]"
+  doAssert typeof(4 ...< ^1).name == "HSlice[system.int, system.BackwardsIndex]"
+  doAssert typeof(4 ... pred(^1)).name == "HSlice[system.int, system.BackwardsIndex]"
+  doAssert typeof(4 ... mypred(8)).name == "HSlice[system.int, system.int]"
+  doAssert typeof(4 ... mypred(^1)).name == "HSlice[system.int, system.BackwardsIndex]"
 
   var rot = 8
 
@@ -347,20 +419,16 @@ block troofregression:
 
   const testStr = "abcdefgasfsgdfgsgdfggsdfasdfsafewfkljdsfajsdflfdjkl"
 
-  echo bug(testStr)
-  echo testStr[testStr.len - 8 .. testStr.len - 1] & "__" & testStr[0 .. testStr.len - pred(rot)]
+  doAssert ( bug(testStr) ==
+    "dflfdjkl__abcdefgasfsgdfgsgdfggsdfasdfsafewfkljdsfajs")
 
-  when defined(js):
-    # js can't `readFile` so we read it into memory and compile it in
-    const instr = readFile(parentDir(currentSourcePath) / "troofregression2.txt").split(',')
+  doAssert ( testStr[testStr.len - 8 .. testStr.len - 1] & "__" &
+     testStr[0 .. testStr.len - pred(rot)] ==
+    "dflfdjkl__abcdefgasfsgdfgsgdfggsdfasdfsafewfkljdsfajsdf")
 
-  var
-    instructions =
-      when defined(js):
-        instr # js cannot read from disk so we do it at compile time, see above
-      else:
-        readFile(parentDir(currentSourcePath) / "troofregression2.txt").split(',')
-    programs = "abcdefghijklmnop"
+  # js can't `readFile` so we read it into memory and compile it in
+
+  const instructions = staticRead( parentDir(currentSourcePath) / "troofregression2.txt" ).split(',')
 
   proc dance(dancers: string): string =
     result = dancers
@@ -394,8 +462,11 @@ block troofregression:
         return seen[iterations mod i]
       seen.add(dancers)
 
-  echo dance(programs)
-  echo longDance(programs)
+
+
+  var programs = "abcdefghijklmnop"
+  doAssert dance(programs) == "kgdchlfniambejop"
+  doAssert longDance(programs) == "fjpmholcibdgeakn"
 
 
 when not defined(js):
@@ -409,12 +480,8 @@ when not defined(js):
 
 
 import macros
-block t7818:
-  # bug #7818
-  # this is not a macro bug, but array construction bug
-  # I use macro to avoid object slicing
-  # see #7712 and #7637
-
+block issue_7818:
+   #inconsistent internal representation of generic objects array construction
   type
     Vehicle[T] = object of RootObj
       tire: T
@@ -536,19 +603,20 @@ block t7818:
 
 block trelaxedindextyp:
   # any integral type is allowed as index
-  proc foo(x: ptr UncheckedArray[int]; idx: uint64) = echo x[idx]
-  proc foo(x: seq[int]; idx: uint64) = echo x[idx]
-  proc foo(x: string|cstring; idx: uint64) = echo x[idx]
-  proc foo(x: openArray[int]; idx: uint64) = echo x[idx]
+  proc foo(x: ptr UncheckedArray[int]; idx: uint64): int = x[idx]
+  proc foo(x: seq[int]; idx: uint64): int =  x[idx]
+  proc foo(x: string|cstring; idx: uint64): int = x[idx]
+  proc foo(x: openArray[int]; idx: uint64): int = x[idx]
 
-block t3899:
-  # https://github.com/nim-lang/Nim/issues/3899
+block issue_3899:
+  #  Wrong bounds check using template [] to access array in a const object
   type O = object
     a: array[1..2,float]
   template `[]`(x: O, i: int): float =
     x.a[i]
+
   const c = O(a: [1.0,2.0])
-  echo c[2]
+  doAssert c[2] == 2.0
 
 block arrayLiterals:
   type ABC = enum A, B, C
@@ -561,44 +629,44 @@ block arrayLiterals:
 
 
 
-block t8316:
-  # https://github.com/nim-lang/Nim/issues/8316
+block issue_8316:
+  #BUG: "varargs[string, $]" calls $ n^2 times instead of n times (n=len(varargs))
+  var cnt : int = 0
   proc myAppend[T](a:T):string=
-    echo "a:", a
+    cnt += 1
     return $a
 
   template append2(args: varargs[string, myAppend]): string =
     var ret:string
     for a in args:
-      echo "ret:", ret
       ret.add(a)
     ret
 
-  let foo = append2("1", "2", "3")
-  echo foo
+  doAssert append2("1", "2", "3") == "123"
+  doAssert cnt == 3
 
-block t12466:
-  # https://github.com/nim-lang/Nim/issues/12466
+block issue_12466:
+  # Crash in sameTree() with uint literals
   var a: array[288, uint16]
   for i in 0'u16 ..< 144'u16:
     a[0'u16 + i] = i
   for i in 0'u16 ..< 8'u16:
     a[0'u16 + i] = i
 
-block t17705:
-  # https://github.com/nim-lang/Nim/pull/17705
+block issue_17705:
+  #  Fix array's high & low return type for empty arrays
   var a = array[0, int].low
   a = int(a)
   var b = array[0, int].high
   b = int(b)
 
-block t18643:
-  # https://github.com/nim-lang/Nim/issues/18643
+block issue_18643:
+  # Accessing an empty array sometimes works
   let a: array[0, int] = []
   var caught = false
   let b = 9999999
   try:
-    echo a[b]
+    discard a[b]
+    doAssert false,  "IndexDefect not caught!"
   except IndexDefect:
-    caught = true
-  doAssert caught, "IndexDefect not caught!"
+    doAssert true
