@@ -88,12 +88,12 @@ proc newError*(
   assert wrongNode != nil, "can't have a nil node for `wrongNode`"
   assert not report.isEmpty(), $report
 
-  result = PNode(
-    kind: nkError,
-    info: wrongNode.info,
-    typ: newType(tyError, ItemId(module: -2, item: -1), nil),
-    reportId: report
+  result = newNodeIT(
+    nkError,
+    wrongNode.info,
+    newType(tyError, ItemId(module: -2, item: -1), nil)
   )
+  result.reportId = report
 
   addInNimDebugUtilsError(conf, wrongNode, result)
 

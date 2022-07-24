@@ -174,43 +174,62 @@ proc freshVar(c: PTransf; v: PSym): PNode =
     result = newSymNode(newVar)
 
 proc transformVarSection(c: PTransf, v: PNode): PNode =
+  c.graph.config.internalAssert(v.kind in nkVariableSections,
+                                "not a variable section, got: " & $v.kind)
+
   result = shallowCopy(v)
+
   for i in 0..<v.len:
     var it = v[i]
-    if it.kind == nkCommentStmt:
+    case it.kind
+    of nkCommentStmt:
       result[i] = it
-    elif it.kind == nkIdentDefs:
+    of nkIdentDefs:
       if it[0].kind == nkSym:
         internalAssert(c.graph.config, it.len == 3,
-                       "var section must have three subnodes")
+                       "var section must have three subnodes, got: " & $it.len)
+        
         let x = freshVar(c, it[0].sym)
+        
         idNodeTablePut(c.transCon.mapping, it[0].sym, x)
+        
         var defs = newTreeI(nkIdentDefs, it.info):
           [x, it[1], transform(c, it[2])]
+        
         if importantComments(c.graph.config):
           # keep documentation information:
           defs.comment = it.comment
-        if x.kind == nkSym: x.sym.ast = defs[2]
+        
+        if x.kind == nkSym:
+          x.sym.ast = defs[2]
+        
         result[i] = defs
       else:
         # has been transformed into 'param.x' for closure iterators, so just
         # transform it:
         result[i] = transform(c, it)
-    else:
-      c.graph.config.internalAssert(it.kind == nkVarTuple, it.info, "transformVarSection: not nkVarTuple")
+    of nkVarTuple:
+      let defs = newNodeI(it.kind, it.info, it.len)
 
-      var defs = newNodeI(it.kind, it.info, it.len)
       for j in 0..<it.len-2:
-        if it[j].kind == nkSym:
-          let x = freshVar(c, it[j].sym)
-          idNodeTablePut(c.transCon.mapping, it[j].sym, x)
-          defs[j] = x
-        else:
-          defs[j] = transform(c, it[j])
+        defs[j] =
+          if it[j].kind == nkSym:
+            let x = freshVar(c, it[j].sym)
+            idNodeTablePut(c.transCon.mapping, it[j].sym, x)
+            x
+          else:
+            transform(c, it[j])
+      
       assert(it[^2].kind == nkEmpty)
+      
       defs[^2] = newNodeI(nkEmpty, it.info)
       defs[^1] = transform(c, it[^1])
+      
       result[i] = defs
+    else:
+      c.graph.config.internalError(it.info):
+        "transformVarSection expected identdefs, tuple, or comment, got: " &
+          $it.kind
 
 proc transformConstSection(c: PTransf, v: PNode): PNode =
   result = v
@@ -995,7 +1014,7 @@ proc transform(c: PTransf, n: PNode): PNode =
   of nkTypeSection, nkTypeOfExpr, nkMixinStmt, nkBindStmt:
     # no need to transform type sections:
     return n
-  of nkVarSection, nkLetSection:
+  of nkLetSection, nkVarSection:
     if c.inlining > 0:
       # we need to copy the variables for multiple yield statements:
       result = transformVarSection(c, n)

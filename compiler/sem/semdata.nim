@@ -43,6 +43,7 @@ import
   ],
   compiler/utils/[
     pathutils,
+    astrepr,
   ]
 
 export TExprFlag, TExprFlags
@@ -1036,6 +1037,7 @@ proc errorType*(c: PContext): PType =
   result.flags.incl tfCheckedForDestructor
 
 proc errorNode*(c: PContext, n: PNode): PNode =
+  # xxx: convert to `nkError` instead of `nkEmpty`
   result = newNodeI(nkEmpty, n.info)
   result.typ = errorType(c)
 
@@ -1135,7 +1137,12 @@ proc extractPragma(s: PSym): PNode =
 
 proc warnAboutDeprecated(conf: ConfigRef; info: TLineInfo; s: PSym) =
   var pragmaNode: PNode
-  pragmaNode = if s.kind == skEnumField: extractPragma(s.owner) else: extractPragma(s)
+  pragmaNode =
+    if s.kind == skEnumField:
+      extractPragma(s.owner)
+    else:
+      extractPragma(s)
+
   if pragmaNode != nil:
     for it in pragmaNode:
       if whichPragma(it) == wDeprecated and it.safeLen == 2 and
@@ -1143,6 +1150,7 @@ proc warnAboutDeprecated(conf: ConfigRef; info: TLineInfo; s: PSym) =
         localReport(conf, info, reportSym(
           rsemDeprecated, s, str = it[1].strVal))
         return
+
   localReport(conf, info, reportSym(rsemDeprecated, s))
 
 proc userError(conf: ConfigRef; info: TLineInfo; s: PSym) =

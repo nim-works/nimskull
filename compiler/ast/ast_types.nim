@@ -346,6 +346,9 @@ const
   effectListLen* = 3    ## list of effects list
   nkLastBlockStmts* = {nkRaiseStmt, nkReturnStmt, nkBreakStmt, nkContinueStmt}
                         ## these must be last statements in a block
+  nkVariableSections* = {nkLetSection, nkVarSection}
+                        # xxx: doesn't include const because const section
+                        #      analysis isn't unified with them
 
 type
   TTypeKind* = enum  # order is important!
@@ -971,6 +974,7 @@ type
                               ## for procs and tyGenericBody, it's the
                               ## formal param list
                               ## for concepts, the concept body
+                              ## for errors, nkError or nil if legacy
                               ## else: unused
     owner*: PSym              ## the 'owner' of the type
     sym*: PSym                ## types have the sym associated with them
@@ -982,7 +986,7 @@ type
     lockLevel*: TLockLevel    ## lock level as required for deadlock checking
     loc*: TLoc
     typeInst*: PType          ## for generic instantiations the tyGenericInst that led to this
-                              ## type.
+                              ## type; for tyError the previous type if avaiable
     uniqueId*: ItemId         ## due to a design mistake, we need to keep the real ID here as it
                               ## is required by the --incremental:on mode.
 

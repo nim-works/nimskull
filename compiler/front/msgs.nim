@@ -572,12 +572,15 @@ proc semReportCountMismatch*(
   result = SemReport(kind: kind, ast: node)
   result.countMismatch = (toInt128(expected), toInt128(got))
 
+proc illformedAstReport*(node: PNode, explain: string): SemReport {.inline.} =
+  SemReport(kind: rsemIllformedAst, ast: node, str: explain)
+
 template semReportIllformedAst*(
     conf: ConfigRef, node: PNode, explain: string): untyped =
   handleReport(
     conf,
     wrap(
-      SemReport(kind: rsemIllformedAst, ast: node, str: explain),
+      illformedAstReport(node, explain),
       instLoc(),
       node.info),
     instLoc(),
@@ -611,6 +614,10 @@ template createSemIllformedAstMsg*(node: PNode,
     exp.add e
 
   "Expected $1, but found $2" % [joinAnyOf(exp), $node.kind]
+
+proc illformedAstReport*(node: PNode, 
+                         expected: set[TNodeKind]): SemReport {.inline.} =
+  illformedAstReport(node, createSemIllformedAstMsg(node, expected))
 
 template semReportIllformedAst*(
   conf: ConfigRef, node: PNode, expected: set[TNodeKind]): untyped =

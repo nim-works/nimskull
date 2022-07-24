@@ -16,10 +16,11 @@ let x = try: parseInt("133a")
 
 
 template atFuncEnd =
-  defer:
-    echo "A"
-  defer:
-    echo "B"
+  {.line.}: # this is a span, and shouldn't mess up the defer
+    defer:
+      echo "A"
+    defer:
+      echo "B"
 
 template testB(): untyped =
     let a = 0

@@ -106,15 +106,20 @@ when false:
       echo v
 
 proc newSym*(symKind: TSymKind, name: PIdent, id: ItemId, owner: PSym,
-             info: TLineInfo; options: TOptions = {}): PSym =
+             info: TLineInfo, typ: PType; options: TOptions = {}): PSym =
   # generates a symbol and initializes the hash field too
   result = PSym(name: name, kind: symKind, flags: {}, info: info, itemId: id,
-                options: options, owner: owner, offset: defaultOffset)
+                typ: typ, options: options, owner: owner, offset: defaultOffset)
   when false:
     if id.module == 48 and id.item == 39:
       writeStackTrace()
       echo "kind ", symKind, " ", name.s
       if owner != nil: echo owner.name.s
+
+proc newSym*(symKind: TSymKind, name: PIdent, id: ItemId, owner: PSym,
+             info: TLineInfo; options: TOptions = {}): PSym {.inline.} =
+  # generates a symbol and initializes the hash field too
+  result = newSym(symKind, name, id, owner, info, typ = nil, options)
 
 proc linkTo*(t: PType, s: PSym): PType {.discardable.} =
   t.sym = s
@@ -167,6 +172,33 @@ proc newIdentNode*(ident: PIdent, info: TLineInfo): PNode =
   result = newNode(nkIdent)
   result.ident = ident
   result.info = info
+
+proc newSymNode2*(sym: PSym): PNode =
+  ## creates a new `nkSym` node, unless sym.kind is an skError where an nkError
+  ## is extracted from the sym and returned instead.
+  # TODO replace newSymNode with this
+  if sym.isError:
+    result = sym.ast
+  else:
+    result = newNode(nkSym)
+    result.sym = sym
+    result.typ = sym.typ
+    result.info = sym.info
+
+proc newSymNode2*(sym: PSym, info: TLineInfo): PNode =
+  ## creates a new `nkSym` node, unless sym.kind is an skError where an nkError
+  ## is extracted from the sym and returned instead. In either case sets the
+  ## node info to the one provided
+  
+  # TODO replace newSymNode with this
+  if sym.isError:
+    result = sym.ast
+    result.info = info
+  else:
+    result = newNode(nkSym)
+    result.sym = sym
+    result.typ = sym.typ
+    result.info = info
 
 proc newSymNode*(sym: PSym): PNode =
   result = newNode(nkSym)
@@ -234,6 +266,17 @@ proc newProcNode*(kind: TNodeKind, info: TLineInfo, body: PNode,
   result = newNodeI(kind, info)
   result.sons = @[name, pattern, genericParams, params,
                   pragmas, exceptions, body]
+
+proc newTypeError*(prev: PType,
+                   id: ItemId, 
+                   owner: PSym = if prev.isNil: nil else: prev.owner,
+                   err: PNode): PType =
+  ## create a new error type, with an optional `prev`ious type (can be nil) and
+  ## `err`or node for the error msg
+  result = PType(kind: tyError, owner: owner, size: defaultSize,
+                 align: defaultAlignment, itemId: id,
+                 lockLevel: UnspecifiedLockLevel, uniqueId: id, n: err)
+  result.typeInst = prev
 
 proc newType*(kind: TTypeKind, id: ItemId; owner: PSym): PType =
   result = PType(kind: kind, owner: owner, size: defaultSize,

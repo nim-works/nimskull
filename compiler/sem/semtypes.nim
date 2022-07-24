@@ -1881,11 +1881,26 @@ proc semStaticType(c: PContext, childNode: PNode, prev: PType): PType =
   result.flags.incl tfHasStatic
 
 proc semTypeOf(c: PContext; n: PNode; prev: PType): PType =
+  # xxx: this should be folded into semTypeOf2
   openScope(c)
-  let t = semExprWithType(c, n, {efInTypeof})
-  closeScope(c)
-  fixupTypeOf(c, prev, t)
-  result = t.typ
+  case n.kind
+  of nkError:
+    result = n.typ
+    if result.n.isNil:
+      result.n = n
+    closeScope(c)
+  else:
+    let t = semExprWithType(c, n, {efInTypeof})
+    closeScope(c)
+    
+    case t.kind
+    of nkError:
+      result = t.typ
+      if result.n.isNil:
+        result.n = t
+    else:
+      fixupTypeOf(c, prev, t)
+      result = t.typ
 
 proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
   openScope(c)
@@ -1896,10 +1911,26 @@ proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
       localReport(c.config, n, reportSem rsemVmCannotEvaluateAtComptime)
     else:
       m = mode.intVal
-  let t = semExprWithType(c, n[1], if m == 1: {efInTypeof} else: {})
-  closeScope(c)
-  fixupTypeOf(c, prev, t)
-  result = t.typ
+  
+  case n[1].kind
+  of nkError:
+    result = n[1].typ
+    if result.n.isNil:
+      result.n = n[1] # at time of writing: error in TType.n is a new thing
+    closeScope(c)
+  else:
+    let t = semExprWithType(c, n[1], if m == 1: {efInTypeof} else: {})
+    closeScope(c)
+
+    case t.kind
+    of nkError:
+      result = t.typ
+      if result.n.isNil:
+        result.n = t
+    else:
+      fixupTypeOf(c, prev, t)
+      result = t.typ
+
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
   addInNimDebugUtils(c.config, "semTypeNode", n, prev, result)
@@ -1915,7 +1946,8 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     result = semTypeOf(c, n[0], prev)
     if result.kind == tyTypeDesc: result.flags.incl tfExplicit
   of nkPar:
-    if n.len == 1: result = semTypeNode(c, n[0], prev)
+    if n.len == 1:
+      result = semTypeNode(c, n[0], prev)
     else:
       result = semAnonTuple(c, n, prev)
   of nkTupleConstr: result = semAnonTuple(c, n, prev)
@@ -2025,7 +2057,8 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
           result = semTypeExpr(c, n, prev)
   of nkWhenStmt:
     var whenResult = semWhen(c, n, false)
-    if whenResult.kind == nkStmtList: whenResult.transitionSonsKind(nkStmtListType)
+    if whenResult.kind == nkStmtList:
+      whenResult.transitionSonsKind(nkStmtListType)
     result = semTypeNode(c, whenResult, prev)
   of nkBracketExpr:
     checkMinSonsLen(n, 2, c.config)
@@ -2175,6 +2208,10 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
   of nkType: result = n.typ
   of nkStmtListType: result = semStmtListType(c, n, prev)
   of nkBlockType: result = semBlockType(c, n, prev)
+  of nkError:
+    localReport(c.config, n, reportSem rsemTypeExpected)
+    result = newOrPrevType(tyError, prev, c)
+    result.n = n # set the error and read it out else where
   else:
     localReport(c.config, n, reportSem rsemTypeExpected)
     result = newOrPrevType(tyError, prev, c)

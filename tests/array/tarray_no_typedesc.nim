@@ -3,7 +3,7 @@ cmd: "nim check $file"
 errormsg: "invalid type: 'typedesc[int]' in this context: 'array[0..0, typedesc[int]]' for var"
 nimout: '''
 tarray_no_typedesc.nim(16, 5) Error: invalid type: 'type' in this context: 'array[0..0, type]' for var
-tarray_no_typedesc.nim(17, 5) Error: invalid type: 'typedesc[int]' in this context: 'array[0..0, typedesc[int]]' for var
+tarray_no_typedesc.nim(17, 9) Error: invalid type: 'typedesc[int]' in this context: 'array[0..0, typedesc[int]]' for var
 '''
 labels: "array typedesc"
 description: '''
