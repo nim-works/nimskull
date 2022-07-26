@@ -1973,6 +1973,14 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemUndeclaredIdentifier:
       result = "undeclared identifier: '" & r.str & "'"
+      if r.recursiveDep.len > 0:
+        result.add "\nThis might be caused by a recursive module dependency:"
+        result.add "\n "
+        for dep in r.recursiveDep.items:
+          result.addf("'$1' -> ", dep.importer)
+
+        result.addf("'$1'", r.recursiveDep[^1].importee)
+
       if r.spellingCandidates.len > 0:
         result.add "\n"
         result.add presentSpellingCandidates(

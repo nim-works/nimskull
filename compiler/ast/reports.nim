@@ -268,11 +268,11 @@ type
       of rsemExprHasNoAddress:
         isUnsafeAddr*: bool
 
-      of rsemUndeclaredIdentifier,
-         rsemCallNotAProcOrField,
-           :
-        potentiallyRecursive*: bool
+      of rsemUndeclaredIdentifier:
+        recursiveDep*: seq[tuple[importer, importee: string]] ## The list of
+        ## present recursive module imports
 
+      of rsemCallNotAProcOrField:
         explicitCall*: bool ## Whether `rsemCallNotAProcOrField` error was
         ## caused by expression with explicit dot call: `obj.cal()`
         unexpectedCandidate*: seq[PSym] ## Symbols that are syntactically
