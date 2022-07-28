@@ -62,6 +62,8 @@ import compiler/ic/[
   ]
 from compiler/ic/ic import rodViewer
 
+from compiler/vm/cbackend2 import nil
+
 when not defined(leanCompiler):
   import
     compiler/backend/jsgen,
@@ -146,7 +148,7 @@ proc commandCompileToC(graph: ModuleGraph) =
   let conf = graph.config
   extccomp.initVars(conf)
   semanticPasses(graph)
-  if conf.symbolFiles == disabledSf:
+  if conf.symbolFiles == disabledSf and not isDefined(graph.config, "cbackend2"):
     registerPass(graph, cgenPass)
 
     if {optRun, optForceFullMake} * conf.globalOptions == {optRun} or isDefined(conf, "nimBetterRun"):
@@ -154,6 +156,9 @@ proc commandCompileToC(graph: ModuleGraph) =
         # nothing changed
         graph.config.notes = graph.config.mainPackageNotes
         return
+  else:
+    graph.config.exc = excGoto # only goto exceptions are support for the new cbackend
+    registerPass(graph, cbackend2.cgen2Pass)
 
   if not extccomp.ccHasSaneOverflow(conf):
     conf.defineSymbol("nimEmulateOverflowChecks")
@@ -161,7 +166,9 @@ proc commandCompileToC(graph: ModuleGraph) =
   compileProject(graph)
   if graph.config.errorCounter > 0:
     return # issue #9933
-  if conf.symbolFiles == disabledSf:
+  if isDefined(graph.config, "cbackend2"):
+    cbackend2.generateCode(graph)
+  elif conf.symbolFiles == disabledSf:
     cgenWriteModules(graph.backend, conf)
   else:
     if isDefined(conf, "nimIcIntegrityChecks"):

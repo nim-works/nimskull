@@ -1,0 +1,372 @@
+import
+  std/[
+    intsets,
+    tables
+  ],
+  compiler/ast/[
+    ast,
+    ast_types,
+    astalgo, # for `getModule`
+    idents,
+    reports
+  ],
+  compiler/backend/[
+    extccomp
+  ],
+  compiler/front/[
+    msgs,
+    options
+  ],
+  compiler/modules/[
+    magicsys,
+    modulegraphs
+  ],
+  compiler/sem/[
+    passes,
+    transf
+  ],
+  compiler/utils/[
+    pathutils
+  ],
+  compiler/vm/[
+    irgen,
+    vmir,
+    cgen2,
+    irpasses,
+    irdbg
+  ],
+  experimental/[
+    results
+  ]
+
+import std/options as stdoptions
+
+type
+  CodeFragment = object
+    ## The state required for generating code in multiple steps.
+    ## `CodeFragment` helps when generating code for multiple procedures in
+    ## an interleaved manner.
+    prc: PProc
+    irs: IrStore3
+
+  Module = object
+    stmts: seq[PNode] ## top level statements in the order they were parsed
+    sym: PSym ## module symbol
+
+    initGlobalsCode: CodeFragment ## the bytecode of `initGlobalsProc`. Each
+      ## encountered `{.global.}`'s init statement gets code-gen'ed into the
+      ## `initGlobalCode` of the module that owns it
+    initGlobalsProc: (PSym, IrStore3) ## the proc that initializes `{.global.}`
+      ## variables
+    initProc: (PSym, IrStore3) ## the module init proc (top-level statements)
+
+  ModuleListRef = ref ModuleList
+  ModuleList = object of RootObj
+    modules: seq[Module]
+    modulesClosed: seq[int] ## indices into `modules` in the order the modules
+                            ## were closed. The first closed module comes
+                            ## first, then the next, etc.
+    moduleMap: Table[int, int] ## module sym-id -> index into `modules`
+
+  ModuleRef = ref object of TPassContext
+    ## The pass context for the VM backend. Represents a reference to a
+    ## module in the module list
+    list: ModuleListRef
+    index: int
+
+func growBy[T](x: var seq[T], n: Natural) {.inline.} =
+  x.setLen(x.len + n)
+
+iterator cpairs[T](s: seq[T]): (int, lent T) =
+  ## Continous pair iterator. Supports `s` growing during iteration
+  var i = 0
+  while i < s.len:
+    yield (i, s[i])
+    inc i
+
+func collectRoutineSyms(ast: PNode, syms: var seq[PSym]) =
+  ## Traverses the `ast`, collects all symbols that are of routine kind and
+  ## appends them to `syms`
+  if ast.kind == nkSym:
+    if ast.sym.kind in routineKinds:
+      syms.add(ast.sym)
+
+    return
+
+  for i in 0..<ast.safeLen:
+    collectRoutineSyms(ast[i], syms)
+
+proc generateTopLevelStmts*(module: var Module, c: var TCtx,
+                            config: ConfigRef) =
+  ## Generates code for all collected top-level statements of `module` and
+  ## compiles the fragments into a single function. The resulting code is
+  ## stored in `module.initProc`
+  let n = newNodeI(nkEmpty, module.sym.info) # for line information
+
+  c.prc = PProc(sym: module.sym)
+  c.irs.reset()
+
+  c.startProc()
+
+  let ast =
+    if module.stmts.len > 1: newTree(nkStmtList, module.stmts)
+    elif module.stmts.len == 1: module.stmts[0]
+    else: newNode(nkEmpty)
+
+  let tn = transformStmt(c.graph, c.idgen, c.module, ast)
+  let r = c.genStmt(tn)
+
+  if unlikely(r.isErr):
+    config.localReport(r.takeErr)
+
+  c.endProc()
+
+  # the `initProc` symbol is missing a valid `ast` field
+  module.initProc[0] = newSym(skProc, getIdent(c.graph.cache, "init"), nextSymId c.idgen, module.sym, module.sym.info)
+  module.initProc[1] = c.irs
+
+proc generateCodeForProc(c: var TCtx, s: PSym): IrGenResult =
+  assert s != nil
+  #debugEcho s.name.s, "(", s.kind, "): ", c.config.toFileLineCol(s.info)
+  let body = transformBody(c.graph, c.idgen, s, cache = false)
+  c.irs.reset()
+  result = genProc(c, s, body)
+
+proc unwrap[T](c: TCtx, r: Result[T, SemReport]): T =
+  if r.isErr:
+    c.config.localReport(r.takeErr)
+  else:
+    result = r.unsafeGet
+
+proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]) =
+  ## Generates and emits code for the given `{.global.}` initialization
+  ## statements (`nkIdentDefs` in this case) into `f`
+  template swapState() =
+    #swap(c.code, f.code)
+    #swap(c.debug, f.debug)
+    swap(c.prc, f.prc)
+
+  # In order to generate code into the fragment, the fragment's state is
+  # swapped with the `TCtx`'s one
+  swapState()
+
+  for def in defs.items:
+    assert def.kind == nkIdentDefs
+    for i in 0..<def.len-2:
+      # note: don't transform the expressions here; they already were, during
+      # transformation of their owning procs
+      let
+        a = c.genExpr(def[i])
+        b = c.genExpr(def[^1])
+        r = c.irs.irAsgn(askInit, c.unwrap a, c.unwrap b)
+
+  # Swap back once done
+  swapState()
+
+proc genInitProcCall(c: var IrStore3, m: Module) =
+  discard c.irCall(c.irSym(m.initProc[0]))
+
+proc generateEntryProc(c: var TCtx, info: TLineInfo, mlist: ModuleList): IrStore3 =
+  ## Generates the entry function and returns it's function table index.
+  ## The entry function simply calls all given `initProcs` (ordered from low
+  ## to high by their function table index) and then returns the value of the
+  ## ``programResult`` global
+  let
+    n = newNodeI(nkEmpty, info)
+
+  # setup code-gen state. One register for the return value and one as a
+  # temporary to hold the init procs
+  c.prc = PProc()
+  c.irs.reset()
+
+  var systemIdx, mainIdx: int
+  # XXX: can't use `pairs` since it copies
+  for i in 0..<mlist.modules.len:
+    let sym = mlist.modules[i].sym
+    if sfMainModule     in sym.flags: mainIdx = i
+    elif sfSystemModule in sym.flags: systemIdx = i
+
+  # Call the init procs int the right order. That is, module-closed-order with
+  # special handling for the main and system module
+  genInitProcCall(c.irs, mlist.modules[systemIdx])
+  for mI in mlist.modulesClosed.items:
+    let m = mlist.modules[mI]
+    if {sfMainModule, sfSystemModule} * m.sym.flags == {}:
+      genInitProcCall(c.irs, m)
+
+  genInitProcCall(c.irs, mlist.modules[mainIdx])
+
+  # write ``programResult`` into the result variable
+  let prSym = magicsys.getCompilerProc(c.graph, "programResult")
+  c.irs.irAsgn(askInit, c.irs.irLocal(0), c.irs.irSym(prSym))
+
+  # refc-compatible "move"
+  swap(result, c.irs)
+
+proc generateMain(c: var TCtx, mainModule: PSym,
+                  mlist: ModuleList): IrStore3 =
+  ## Generates and links in the main procedure (the entry point) along with
+  ## setting up the required state.
+
+  # lastly, generate the actual code:
+  result = generateEntryProc(c, mainModule.info, mlist)
+
+func collectRoutineSyms(s: IrStore3, list: var seq[PSym], known: var IntSet) =
+  for n in s.nodes:
+    case n.kind
+    of ntkSym:
+      let sym = s.sym(n)
+      # XXX: excluding all magics is wrong. Depending on which back-end is
+      #      used, some magics are treated like any other routine
+      if sym.kind in routineKinds and
+         sym.magic == mNone and
+         sym.id notin known:
+        known.incl(sym.id)
+        list.add(sym)
+    else: discard
+
+# XXX: copied from `cgen.nim` and adjusted
+proc getCFile(config: ConfigRef, filename: AbsoluteFile): AbsoluteFile =
+  ## `filename` is the file path without the file extension
+  let ext = ".nim.c"
+  result = changeFileExt(
+    completeCfilePath(config, withPackageName(config, filename)), ext)
+
+proc generateCode*(g: ModuleGraph) =
+  ## The backend's entry point. Orchestrates code generation and linking. If
+  ## all went well, the resulting binary is written to the project's output
+  ## file
+  let
+    mlist = g.backend.ModuleListRef
+    conf = g.config
+
+  echo "starting codgen"
+
+  var moduleProcs: seq[seq[(PSym, IrStore3)]]
+  moduleProcs.newSeq(mlist.modules.len)
+
+  var c = TCtx(config: g.config, graph: g, idgen: g.idgen)
+
+  # generate all module init procs (i.e. code for the top-level statements):
+  for m in mlist.modules.mitems:
+    c.module = m.sym
+    c.idgen = g.idgen
+    generateTopLevelStmts(m, c, g.config)
+
+    # combine module list iteration with initialiazing `initGlobalsCode`:
+    m.initGlobalsCode.prc = PProc()
+
+  var nextProcs: seq[PSym]
+  var seenProcs: IntSet
+
+  for it in mlist.modules.items:
+    collectRoutineSyms(it.initProc[1], nextProcs, seenProcs)
+
+  var nextProcs2: seq[PSym]
+  while nextProcs.len > 0:
+    for it in nextProcs.items:
+      let mIdx = it.itemId.module
+      let realIdx = mlist.moduleMap[it.getModule().id]
+
+      if g.getBody(it).kind == nkEmpty:
+        # a quick fix to not run `irgen` for 'importc'ed procs
+        moduleProcs[realIdx].add((it, IrStore3()))
+        continue
+
+      let ir = generateCodeForProc(c, it)
+      collectRoutineSyms(c.unwrap ir, nextProcs2, seenProcs)
+
+      #doAssert mIdx == realIdx
+      moduleProcs[realIdx].add((it, c.unwrap ir))
+
+    nextProcs.setLen(0)
+    swap(nextProcs, nextProcs2)
+
+  let entryPoint =
+    generateMain(c, g.getModule(conf.projectMainIdx), mlist[])
+
+  var lpCtx = LiftPassCtx(graph: g, idgen: g.idgen, cache: g.cache)
+
+  for i in 0..<mlist.modules.len:
+    for s, irs in moduleProcs[i].mitems:
+      try:
+        runPass(irs, initHookCtx(g, irs), hookPass)
+
+        lowerTestError(irs, g, g.cache, g.idgen, s)
+        var rpCtx: RefcPassCtx
+        rpCtx.setupRefcPass(g, g.idgen, irs)
+        runPass(irs, rpCtx, lowerSetsPass)
+
+        rpCtx.setupRefcPass(g, g.idgen, irs)
+        runPass(irs, rpCtx, lowerRangeCheckPass)
+
+        rpCtx.setupRefcPass(g, g.idgen, irs)
+        #runV2(irs, rpCtx, refcPass)
+        runPass(irs, rpCtx, refcPass)
+        if optSeqDestructors in conf.globalOptions:
+          rpCtx.setupRefcPass(g, g.idgen, irs)
+        else:
+          rpCtx.setupRefcPass(g, g.idgen, irs)
+          runPass(irs, rpCtx, seqV1Pass)
+
+        runPass(irs, lpCtx, typeV1Pass)
+
+      except PassError as e:
+        echo conf.toFileLineCol(s.info)
+        echo irs.traceFor(e.n)
+        printIr(irs, calcStmt(irs))
+        echo "At: ", e.n
+        raise
+      except:
+        echo conf.toFileLineCol(s.info)
+        printIr(irs, calcStmt(irs))
+        raise
+
+  for i, m in mlist.modules.pairs:
+    let cfile = getCFile(conf, AbsoluteFile toFullPath(conf, m.sym.position.FileIndex))
+    var cf = Cfile(nimname: m.sym.name.s, cname: cfile,
+                   obj: completeCfilePath(conf, toObjFile(conf, cfile)), flags: {})
+
+    emitModuleToFile(conf, cfile, moduleProcs[i])
+
+    addFileToCompile(conf, cf)
+
+
+  # code generation is finished
+
+
+# Below is the `passes` interface implementation
+
+proc myOpen(graph: ModuleGraph, module: PSym, idgen: IdGenerator): PPassContext =
+  if graph.backend == nil:
+    graph.backend = ModuleListRef()
+
+  let
+    mlist = ModuleListRef(graph.backend)
+    next = mlist.modules.len
+
+  # append an empty module to the list
+  mlist.modules.growBy(1)
+  mlist.modules[next] = Module(sym: module)
+  mlist.moduleMap[module.id] = next
+
+  result = ModuleRef(list: mlist, index: next)
+
+proc myProcess(b: PPassContext, n: PNode): PNode =
+  result = n
+  let m = ModuleRef(b)
+
+  const declarativeKinds = routineDefs + {nkTypeSection, nkPragma,
+    nkExportStmt, nkExportExceptStmt, nkFromStmt, nkImportStmt,
+    nkImportExceptStmt}
+
+  if n.kind notin declarativeKinds:
+    m.list.modules[m.index].stmts.add(n)
+
+proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
+  result = myProcess(b, n)
+
+  let m = ModuleRef(b)
+  m.list.modulesClosed.add(m.index)
+
+const cgen2Pass* = makePass(myOpen, myProcess, myClose)
