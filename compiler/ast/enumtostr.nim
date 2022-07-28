@@ -63,7 +63,9 @@ proc searchObjCaseImpl(obj: PNode; field: PSym): PNode =
         result = searchObjCaseImpl(x, field)
         if result != nil: break
 
-proc searchObjCase(t: PType; field: PSym): PNode =
+# TODO: this is also useful outside `enumtostr` and should be moved
+# somewhere else
+proc searchObjCase*(t: PType; field: PSym): PNode =
   result = searchObjCaseImpl(t.n, field)
   if result == nil and t.len > 0:
     result = searchObjCase(t[0].skipTypes({tyAlias, tyGenericInst, tyRef, tyPtr}), field)
