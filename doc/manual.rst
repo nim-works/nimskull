@@ -7775,9 +7775,10 @@ More examples with custom pragmas:
 Macro pragmas
 -------------
 
-All macros and templates can also be used as pragmas. They can be attached
-to routines (procs, iterators, etc), type names, or type expressions. The
-compiler will perform the following simple syntactic transformations:
+Macros and templates can sometimes be called with the pragma syntax. Cases
+where this is possible include when attached to routine (procs, iterators, etc)
+declarations or routine type expressions. The compiler will perform the
+following simple syntactic transformations:
 
 .. code-block:: nim
   template command(name: string, def: untyped) = discard
@@ -7811,11 +7812,31 @@ This is translated to:
 This is translated to a call to the `schema` macro with a `nnkTypeDef`
 AST node capturing both the left-hand side and right-hand side of the
 definition. The macro can return a potentially modified `nnkTypeDef` tree
-which will replace the original row in the type section.
+which will replace the original row in the type section. Transformation for
+type sections are ill-defined and error prone.
 
-When multiple macro pragmas are applied to the same definition, the
-compiler will apply them consequently from left to right. Each macro
-will receive as input the output of the previous one.
+For variables and constants, it is largely the same, except a unary node with
+the same kind as the section containing a single definition is passed to
+macros, and macros can return any expression.
+
+.. code-block:: nim
+  var
+    a = ...
+    b {.importc, foo, nodecl.} = ...
+    c = ...
+
+Assuming `foo` is a macro or a template, this is roughly equivalent to:
+
+.. code-block:: nim
+  var a = ...
+  foo:
+    var b {.importc, nodecl.} = ...
+  var c = ...
+
+When multiple macro pragmas are applied to the same definition, the first one
+from left to right will be evaluated. This macro can then choose to keep the
+remaining macro pragmas in its output, and those will be evaluated in the same
+way.
 
 
 
