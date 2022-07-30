@@ -327,7 +327,10 @@ proc renderAsType*(vals: IntSet, t: PType): string =
   result &= "}"
 
 proc getProcHeader(
-    conf: ConfigRef; sym: PSym; prefer: TPreferedDesc = preferName; getDeclarationPath = true): string =
+    conf: ConfigRef;
+    sym: PSym;
+    prefer: TPreferedDesc = preferName;
+    getDeclarationPath = true): string =
   ## Formats procs and types
   ## Returns for procs `owner.name(argument: signature): return`
   ## Returns for types `owner.name`
@@ -3488,7 +3491,8 @@ proc reportFull*(conf: ConfigRef, r: BackendReport): string =
   assertKind r
   case BackendReportKind(r.kind):
     of rbackJsUnsupportedClosureIter,
-       rbackJsTooCaseTooLarge:
+       rbackJsTooCaseTooLarge,
+       rbackRstKinds:
       result.add(
         conf.prefix(r),
         conf.reportBody(r),

@@ -194,6 +194,9 @@ proc wantMainModule*(conf: ConfigRef) =
   conf.projectMainIdx = fileInfoIdx(conf, addFileExt(conf.projectFull, NimExt))
 
 proc compileProject*(graph: ModuleGraph; projectFileIdx = InvalidFileIdx) =
+  ## Execute configured compilation passes on the module graph. Main entry
+  ## point of the actual compilation process - `graph` must be properly
+  ## configured before this proc is executed.
   connectCallbacks(graph)
   let conf = graph.config
   wantMainModule(conf)

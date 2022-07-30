@@ -5,6 +5,8 @@ import compiler/utils/[pathutils, platform]
 import compiler/ast/[report_enums]
 import std/[sets, strtabs]
 
+
+
 type
   TGlobalOption* = enum
     gloptNone
@@ -18,7 +20,7 @@ type
     optGenDynLib              ## generate a dynamic library
     optGenStaticLib           ## generate a static library
     optGenGuiApp              ## generate a GUI application
-    optGenScript              ## generate a script file to compile the *.c
+    optGenScript              ## generate a script file to compile the `*.c`
                               ## files
     optGenMapping             ## generate a mapping file
     optRun                    ## run the compiled project
@@ -142,6 +144,12 @@ type
     backendNimVm = "vm"
     # backendNimscript = "nimscript" # this could actually work
     # backendLlvm = "llvm" # probably not well supported; was cmdCompileToLLVM
+
+  TDocMode* = enum
+    docDefault
+    docOnefile
+    docUntyped
+    docUntypedOnefile
 
   Command* = enum
     ## Compiler execution command
@@ -328,6 +336,7 @@ type
 
     cppCustomNamespace*: string
 
+    docMode*: TDocMode
     configVars*: StringTableRef ## Additional configuration variables for
     ## providing extra options for different compiler subsystems.
 

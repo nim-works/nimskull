@@ -529,11 +529,11 @@ type
                       ## because for instantiations of objects, structural
                       ## type equality has to be used
     tfUnresolved,     ## marks unresolved typedesc/static params: e.g.
-                      ## proc foo(T: typedesc, list: seq[T]): var T
-                      ## proc foo(L: static[int]): array[L, int]
+                      ## `proc foo(T: typedesc, list: seq[T]): var T`
+                      ## `proc foo(L: static[int]): array[L, int]`
                       ## can be attached to ranges to indicate that the range
                       ## can be attached to generic procs with free standing
-                      ## type parameters: e.g. proc foo[T]()
+                      ## type parameters: e.g. `proc foo[T]()`
                       ## depends on unresolved static params.
     tfResolved        ## marks a user type class, after it has been bound to a
                       ## concrete type (lastSon becomes the concrete type)
@@ -547,7 +547,7 @@ type
     tfRequiresInit,   ## type constains a "not nil" constraint somewhere or
                       ## a `requiresInit` field, so the default zero init
                       ## is not appropriate
-    tfNeedsFullInit,  ## object type marked with {.requiresInit.}
+    tfNeedsFullInit,  ## object type marked with `{.requiresInit.}`
                       ## all fields must be initialized
     tfVarIsPtr,       ## 'var' type is translated like 'ptr' even in C++ mode
     tfHasMeta,        ## type contains "wildcard" sub-types such as generic params
@@ -561,7 +561,7 @@ type
     tfConceptMatchedTypeSym
     tfExplicit        ## for typedescs, marks types explicitly prefixed with the
                       ## `type` operator (e.g. type int)
-    tfWildcard        ## consider a proc like foo[T, I](x: Type[T, I])
+    tfWildcard        ## consider a proc like `foo[T, I](x: Type[T, I])`
                       ## T and I here can bind to both typedesc and static types
                       ## before this is determined, we'll consider them to be a
                       ## wildcard type.
@@ -645,7 +645,7 @@ var
   }
     ## type flags that are essential for type equality.
     ## This is now a variable because for emulation of version:1.0 we
-    ## might exclude {tfGcSafe, tfNoSideEffect}.
+    ## might exclude `{tfGcSafe, tfNoSideEffect}`.
 
 type
   TMagic* = enum ## symbols that require compiler magic:
@@ -928,15 +928,20 @@ type
                        # the `optStyleCheck` could've been a global option
                        # it makes it even more weird)
     position*: int            ## used for many different things:
-                              ## for enum fields its position;
-                              ## for fields its offset
-                              ## for parameters its position (starting with 0)
-                              ## for a conditional:
-                              ## 1 iff the symbol is defined, else 0
-                              ## (or not in symbol table)
-                              ## for modules, an unique index corresponding
-                              ## to the module's fileIdx
-                              ## for variables a slot index for the evaluator
+    ## for enum fields its value.
+    ## for fields its offset
+    ## for parameters its position (starting with 0)
+    ## for a conditional:
+    ## 1 iff the symbol is defined, else 0
+    ## (or not in symbol table)
+    ## for modules, an unique index corresponding
+    ## to the module's fileIdx
+    ## for variables a slot index for the evaluator
+    ##
+    ## Values of the enum symbol can be retrieved using `.position`,
+    ## including cases with value override
+    ##
+
     offset*: int              ## offset of record field
     loc*: TLoc
     annex*: PLib              ## additional fields (seldom used, so we use a
@@ -1126,9 +1131,13 @@ proc add*(father, son: Indexable) =
   father.sons.add(son)
 
 template `[]`*(n: Indexable, i: int): Indexable = n.sons[i]
+template `[]`*(n: Indexable, i: Slice[int]): seq[Indexable] = n.sons[i.a .. i.b]
 template `[]=`*(n: Indexable, i: int; x: Indexable) = n.sons[i] = x
 
 template `[]`*(n: Indexable, i: BackwardsIndex): Indexable = n[n.len - i.int]
+template `[]`*(n: Indexable, slice: HSlice[int, BackwardsIndex]): seq[Indexable] =
+  n[slice.a .. n.len - slice.b.int]
+
 template `[]=`*(n: Indexable, i: BackwardsIndex; x: Indexable) = n[n.len - i.int] = x
 
 const emptyReportId* = ReportId(0)

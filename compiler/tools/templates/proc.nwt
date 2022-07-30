@@ -1,0 +1,15 @@
+<p>
+
+<code>
+<pre>
+proc {{db[id].name}}(
+  {%- for arg in nested(db, id, {ndkArg}) %}
+    {{db[arg].name}}:
+  {%- endfor %}
+) =
+</pre>
+</code>
+
+{{docToHtml(db, id)}}
+
+</p>

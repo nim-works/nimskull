@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>{{en.name}}</title>
+</head>
+<body>
+  <h1>{{en.name}}</h1>
+  {% for doc in en.docs %}
+    {{toHtml(db, doc)}}
+  {% endfor %}
+
+  {% for id in en.nested %}
+    {{toHtml(db, id)}}
+  {% endfor %}
+</body>
+</html>

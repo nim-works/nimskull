@@ -208,3 +208,24 @@ proc dontInlineConstant*(orig, cnst: PNode): bool {.inline.} =
   result = orig.kind != cnst.kind and
            cnst.kind in {nkCurly, nkPar, nkTupleConstr, nkBracket, nkObjConstr} and
            cnst.len > ord(cnst.kind == nkObjConstr)
+
+proc isEmptyTree*(n: PNode): bool =
+  ## true if `n` is empty that shouldn't count as a top level statement.
+  ## Explicit `Empty` nodes, nil nodes, comment statements and statement
+  ## lists with all nodes empty (checked recursively)
+  if n.isNil:
+    return true
+
+  else:
+    case n.kind
+    of nkStmtList:
+      for it in n:
+        if not isEmptyTree(it):
+          return false
+
+      result = true
+    of nkEmpty, nkCommentStmt:
+      result = true
+
+    else:
+      result = false

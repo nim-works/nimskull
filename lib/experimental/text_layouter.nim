@@ -275,14 +275,14 @@ func event(spaces: int): LytEvent =
 
 func event(): LytEvent = LytEvent(kind: layEvNewline)
 
-func format(str: LytStr, getStr: proc(s: LytStr): string): string =
+proc format(str: LytStr, getStr: proc(s: LytStr): string): string =
   if getStr.isNil():
     result.add $str
 
   else:
     result.add getStr(str)
 
-func format(span: LytStrSpan, getStr: proc(s: LytStr): string): string =
+proc format(span: LytStrSpan, getStr: proc(s: LytStr): string): string =
   result.add "["
   for idx, item in span.strs:
     if 0 < idx: result.add ", "
@@ -290,7 +290,7 @@ func format(span: LytStrSpan, getStr: proc(s: LytStr): string): string =
 
   result.add "]"
 
-func treeRepr*(
+proc treeRepr*(
     self: Layout,
     getStr: proc(s: LytStr): string = nil,
     level: int = 0,
@@ -299,8 +299,8 @@ func treeRepr*(
   var r = addr result
   func add(s: string) = r[].add s
 
-  func aux(lyt: Layout, l: int)
-  func aux(lyt: LayoutElement, l: int) =
+  proc aux(lyt: Layout, l: int)
+  proc aux(lyt: LayoutElement, l: int) =
     add repeat("  ", l)
     add &"id {lyt.id} "
     case lyt.kind:
@@ -319,7 +319,7 @@ func treeRepr*(
         add "[lyt]\n"
         aux(lyt.layout, l + 1)
 
-  func aux(lyt: Layout, l: int) =
+  proc aux(lyt: Layout, l: int) =
     for idx, elem in pairs(lyt.elements):
       if not idx == 0:
         add "\n"
@@ -327,7 +327,7 @@ func treeRepr*(
 
   aux(self, level)
 
-func treeRepr*(
+proc treeRepr*(
     self: LytSolution,
     getStr: proc(s: LytStr): string = nil,
     level: int = 0
@@ -1750,4 +1750,3 @@ template initBlockFormatDSL*() {.dirty.} =
     firstNl: bool = false,
     breakMult: int
   ): LytBlock = initVerbBlock(strs, breaking, firstNl, breakMult)
-

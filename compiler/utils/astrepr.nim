@@ -122,6 +122,8 @@ type
     trfShowNodeComments ## `.comment` field
     trfShowNodeErrors ## Embedded `nkError` reports
     trfShowNodeTypes
+    trfShowFullNodeTypes ## Show first level of the node types expansion.
+    ## NOTE: only shows the first level to avoid infinte recursion
     trfDescFlag ## For each formatted field, show name of the flag that
                 ## controls it
 
@@ -222,7 +224,6 @@ let verboseTReprConf* =
     base
   ## Show absolutely everything
 
-
 var
   compilerTraceReprConf*: TReprConf =
     block:
@@ -248,7 +249,6 @@ var
     ## `debugType`. Can be used in order to configure behaviour of the
     ## debugging functions that could later be called from `gdb` environment
     ## (`debugAst`, `debugType`, `debugSym`), or sem execution tracer
-
 
 const IntTypes = {
   tyInt, tyInt8, tyInt16,

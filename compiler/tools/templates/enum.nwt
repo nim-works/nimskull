@@ -1,0 +1,8 @@
+Enum <b>{{db[id].name}}</b>
+
+<table>
+{% for sub in db[id].nested %}
+   <tr>
+   </tr>
+{% endfor %}
+</table>

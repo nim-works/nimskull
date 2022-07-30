@@ -28,6 +28,19 @@ const
 
   nimEnableCovariance* = defined(nimEnableCovariance)
 
+template withIt*(expr: untyped, body: untyped): untyped =
+  block:
+    var it {.inject.} = expr
+    body
+    it
+
+template tern*(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
+  ## Shorthand for inline if/else. Allows use of conditions in strformat,
+  ## simplifies use in expressions. Less picky with formatting
+  {.line: instantiationInfo(fullPaths = true).}:
+    block:
+      if predicate: tBranch else: fBranch
+
 const
   harmlessOptions* = {optForceFullMake, optNoLinking, optRun, optUseColors, optStdout}
   genSubDir* = RelativeDir"nimcache"
@@ -282,7 +295,7 @@ template passSeqField(fieldname, itemtype: untyped): untyped =
   proc `fieldname Add`*(conf: ConfigRef, item: itemtype | seq[itemtype]) =
     conf.active.fieldname.add item
 
-
+passField docMode,            TDocMode
 passField backend,            TBackend
 passField symbolFiles,        SymbolFilesOption
 passField prefixDir,          AbsoluteDir
@@ -969,8 +982,8 @@ proc getOutFile*(conf: ConfigRef; filename: RelativeFile, ext: string): Absolute
   result = conf.outDir / changeFileExt(filename, ext)
 
 proc absOutFile*(conf: ConfigRef): AbsoluteFile =
-  doAssert not conf.outDir.isEmpty
-  doAssert not conf.outFile.isEmpty
+  # doAssert not conf.outDir.isEmpty
+  # doAssert not conf.outFile.isEmpty
   result = conf.outDir / conf.outFile
   when defined(posix):
     if dirExists(result.string): result.string.add ".out"
@@ -1359,3 +1372,4 @@ proc floatInt64Align*(conf: ConfigRef): int16 =
       # to 4bytes (except with -malign-double)
       return 4
   return 8
+
