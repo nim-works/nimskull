@@ -63,7 +63,7 @@ For updates on the progress see the roadmap progress [thread](https://github.com
 
 The current and key areas of development are as follows:
 
-1. improve tests - memorialize the slim core's it in tests.
+1. improve tests - core specification as tests (see `slim the core` below).
    Reorganize existing tests. [Project](https://github.com/nim-works/nimskull/projects/2)
    to track progress.
 2. nkError/tyError/skerror - replace `localError` etc approach with an AST
@@ -72,7 +72,7 @@ The current and key areas of development are as follows:
 4. slim the core - remove dialects, backwards compatibility, etc [Discussion](https://github.com/nim-works/nimskull/discussions/289)
 
 There are more, the above have been carefully chosen based on the direction of
-the language; moreover, their impact is goes beyond what's been described and
+the language; moreover, their impact goes beyond what's been described and
 intends to create a virtuous cycle. Examples:
 
 * clarifying the language specification will identify bugs and design flaws that
