@@ -755,7 +755,7 @@ proc transformFor(c: PTransf, n: PNode): PNode =
         idNodeTablePut(newC.mapping, formal, temp)
 
     let body = transformBody(c.graph, c.idgen, iter, true)
-    pushInfoContext(c.graph.config, n.info)
+    pushInfoContext(c.graph.config, n.info, TIdTable())
     inc(c.inlining)
     stmtList.add(transform(c, body))
     #findWrongOwners(c, stmtList.PNode)

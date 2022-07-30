@@ -167,7 +167,7 @@ proc fixupInstantiatedSymbols(c: PContext, s: PSym) =
       var oldPrc = c.generics[i].inst.sym
       pushProcCon(c, oldPrc)
       pushOwner(c, oldPrc)
-      pushInfoContext(c.config, oldPrc.info)
+      pushInfoContext(c.config, oldPrc.info, TIdTable())
       openScope(c)
       var n = oldPrc.ast
       n[bodyPos] = copyTree(getBody(c.graph, s))
@@ -255,7 +255,7 @@ proc instantiateProcType(c: PContext, pt: TIdTable,
   # at this point semtypinst have to become part of sem, because it
   # will need to use openScope, addDecl, etc.
   #addDecl(c, prc)
-  pushInfoContext(c.config, info)
+  pushInfoContext(c.config, info, pt)
   var typeMap = initLayeredTypeMap(pt)
   var cl = initTypeVars(c, typeMap, info, nil)
   var result = instCopyType(cl, prc.typ)
@@ -347,13 +347,14 @@ proc fillMixinScope(c: PContext) =
 proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
                       info: TLineInfo): PSym {.nosinks.} =
   ## Generates a new instance of a generic procedure.
+  ##
   ## The `pt` parameter is a type-unsafe mapping table used to link generic
   ## parameters to their concrete types within the generic instance.
   # no need to instantiate generic templates/macros:
   internalAssert(
     c.config,
     fn.kind notin {skMacro, skTemplate},
-    "Expected macro or template, but found " & $fn.kind)
+    "Expected generic procedure, but found " & $fn.kind)
 
   # generates an instantiated proc
   if c.instCounter > 64:
@@ -393,7 +394,7 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
     "Expected genric param list of a proc, but found " & $gp.kind)
 
   n[namePos] = newSymNode(result)
-  pushInfoContext(c.config, info, fn)
+  pushInfoContext(c.config, info, pt, fn)
   var entry = TInstantiation.new
   entry.sym = result
   # we need to compare both the generic types and the concrete types:

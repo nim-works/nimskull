@@ -473,7 +473,7 @@ proc semConstExpr(c: PContext, n: PNode): PNode =
     of {nkEmpty, nkError}:
       let withContext = e.info != n.info
       if withContext:
-        pushInfoContext(c.config, n.info)
+        pushInfoContext(c.config, n.info, TIdTable())
 
       if result.kind == nkEmpty:
         localReport(c.config, e.info, SemReport(kind: rsemConstExprExpected))
@@ -573,7 +573,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
 proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
                   flags: TExprFlags = {}): PNode =
   rememberExpansion(c, n.info, sym)
-  pushInfoContext(c.config, n.info, sym)
+  pushInfoContext(c.config, n.info, TIdTable(), sym)
 
   let info = getCallLineInfo(n)
   markUsed(c, info, sym)

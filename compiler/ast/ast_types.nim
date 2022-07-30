@@ -991,13 +991,13 @@ type
                               ## is required by the --incremental:on mode.
 
   TPair* = object
-    key*, val*: RootRef
+    key*, val*: PIdObj
 
   TPairSeq* = seq[TPair]
 
   TIdPair* = object
     key*: PIdObj
-    val*: RootRef
+    val*: PIdObj
 
   TIdPairSeq* = seq[TIdPair]
   TIdTable* = object # the same as table[PIdent] of PObject

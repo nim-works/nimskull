@@ -694,7 +694,7 @@ proc replaceTypesInBody*(p: PContext, pt: TIdTable, n: PNode;
   var typeMap = initLayeredTypeMap(pt)
   var cl = initTypeVars(p, typeMap, n.info, owner)
   cl.allowMetaTypes = allowMetaTypes
-  pushInfoContext(p.config, n.info)
+  pushInfoContext(p.config, n.info, pt)
   result = replaceTypeVarsN(cl, n)
   popInfoContext(p.config)
 
@@ -733,7 +733,7 @@ proc generateTypeInstance*(p: PContext, pt: TIdTable, info: TLineInfo,
   # proc (x: T = 0); T -> int ---->  proc (x: int = 0)
   var typeMap = initLayeredTypeMap(pt)
   var cl = initTypeVars(p, typeMap, info, nil)
-  pushInfoContext(p.config, info)
+  pushInfoContext(p.config, info, pt)
   result = replaceTypeVarsT(cl, t)
   popInfoContext(p.config)
   let objType = result.skipTypes(abstractInst)
@@ -746,7 +746,7 @@ proc prepareMetatypeForSigmatch*(p: PContext, pt: TIdTable, info: TLineInfo,
   var typeMap = initLayeredTypeMap(pt)
   var cl = initTypeVars(p, typeMap, info, nil)
   cl.allowMetaTypes = true
-  pushInfoContext(p.config, info)
+  pushInfoContext(p.config, info, pt)
   result = replaceTypeVarsT(cl, t)
   popInfoContext(p.config)
 

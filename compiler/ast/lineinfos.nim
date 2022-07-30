@@ -219,12 +219,16 @@ type
     # on. This should be replaced with `.inTryExpr` or something similar,
     # and let the reporting hook deal with all the associated heuristics.
 
-    msgContext*: seq[tuple[info: TLineInfo, detail: PSym]] ## \ Contextual
+    msgContext*: seq[tuple[
+      info: TLineInfo, detail: PSym, params: TIdTable]] ## Contextual
     ## information about instantiation stack - "template/generic
     ## instantiation of" message is constructed from this field. Right now
     ## `.detail` field is only used in the `sem.semMacroExpr()`,
     ## `seminst.generateInstance()` and `semexprs.semTemplateExpr()`. In
-    ## all other cases this field is left empty (SemReport is `skUnknown`)
+    ## all other cases this field is left empty (SemReport is `skUnknown`).
+    ##
+    ## `params` is used for generic instantiations and stores key-value
+    ## mapping between generic parameter names and their concrete values
     reports*: ReportList ## Intermediate storage for the
     writtenSemReports*: ReportSet
     lastError*: TLineInfo

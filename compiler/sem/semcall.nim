@@ -63,10 +63,15 @@ proc pickBestCandidate(c: PContext,
                        best, alt: var TCandidate,
                        errors: var seq[SemCallMismatch],
                        flags: TExprFlags) =
+  ## Iterate over all possible candidates and return the best candidate in
+  ## mutable `best:` field. All mismatch failure are collected in `errors`
+  ## field. `filter` used to limit kinds of the callables we consider for
+  ## overloading.
   var
     o: TOverloadIter
     sym = initOverloadIter(o, c, headSymbol)
     scope = o.lastOverloadScope
+
   # Thanks to the lazy semchecking for operands, we need to check whether
   # 'initCandidate' modifies the symbol table (via semExpr).
   # This can occur in cases like 'init(a, 1, (var b = new(Type2); b))'
@@ -305,8 +310,17 @@ proc resolveOverloads(c: PContext, n: PNode,
     return
 
   template pickBest(headSymbol) =
-    pickBestCandidate(c, headSymbol, n, initialBinding,
-                      filter, result, alt, errors, flags)
+    pickBestCandidate(
+      c,
+      headSymbol,
+      n,
+      initialBinding,
+      filter, # Pass overloading filter
+      result, # Best output result
+      alt,
+      errors, # For error reporting
+      flags)
+
   pickBest(f)
 
   let overloadsState = result.state
@@ -322,7 +336,7 @@ proc resolveOverloads(c: PContext, n: PNode,
 
       if result.state != csMatch:
         n.sons.delete(1)
-        excl n.flags, nfExprCall
+        n.flags.excl(nfExprCall)
       else: return
 
     template tryOp(x) =
@@ -352,7 +366,10 @@ proc resolveOverloads(c: PContext, n: PNode,
 
     if overloadsState == csEmpty and result.state == csEmpty:
       if efNoUndeclared notin flags: # for tests/pragmas/tcustom_pragma.nim
-        if n[0] != nil and n[0].kind == nkIdent and n[0].ident.s in [".", ".="] and n[2].kind == nkIdent:
+        if n[0] != nil and
+           n[0].kind == nkIdent and
+           n[0].ident.s in [".", ".="] and
+           n[2].kind == nkIdent:
           let sym = n[1].typ.typSym
           if sym == nil:
             let msg = getMsgDiagnostic(c, flags, n, f)

@@ -105,7 +105,6 @@ section.
              purposes.
 
 
-
 **Do debugging only for a limited range of code**
 
 Wrap the code range in define-undef of `nimCompilerDebug` and put the

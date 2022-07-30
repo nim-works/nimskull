@@ -46,7 +46,8 @@ import
     options,
     msgs,
     cli_reporter,
-    sexp_reporter
+    sexp_reporter,
+    new_reporter
   ],
   compiler/backend/[
     extccomp
@@ -1149,14 +1150,12 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
 
   of "msgformat":
     case arg.normalize:
-      of "text":
-        conf.setReportHook cli_reporter.reportHook
-
-      of "sexp":
-        conf.setReportHook sexp_reporter.reportHook
-
+      of "text": conf.setReportHook cli_reporter.reportHook
+      of "new": conf.setReportHook new_reporter.reportHook
+      of "sexp": conf.setReportHook sexp_reporter.reportHook
       else:
-        conf.localReport(info, invalidSwitchValue @["text", "sexp"])
+        conf.localReport(info, invalidSwitchValue(
+          @["text", "sexp", "new"]))
 
   of "processing":
     incl(conf, cnCurrent, rsemProcessing)

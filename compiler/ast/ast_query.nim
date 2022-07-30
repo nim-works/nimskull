@@ -431,6 +431,21 @@ proc getStr*(a: PNode): string =
     #internalError(a.info, "getStr")
     #result = ""
 
+
+func getIdentStr*(s: PSym): string = s.name.s
+func getIdentStr*(i: PIdent): string = i.s
+
+proc getIdentStr*(n: PNode): string =
+  ## Get string from identifier or symbol node. Raise recoverable error for
+  ## all other node kinds
+  case n.kind:
+    of nkIdent: result = n.ident.s
+    of nkSym: result = n.sym.name.s
+    else:
+      raiseRecoverableError(
+        "Cannot extract 'identifier' string from node of kind " & $n.kind)
+
+
 proc getStrOrChar*(a: PNode): string =
   case a.kind
   of nkStrLit..nkTripleStrLit: result = a.strVal
@@ -660,8 +675,6 @@ proc canRaise*(fn: PNode): bool =
 proc skipAddr*(n: PNode): PNode {.inline.} =
   if n.kind == nkHiddenAddr: n[0] else: n
 
-
-
 type
   NodePosName* = enum
     ## Named node position accessor
@@ -729,3 +742,17 @@ proc `[]`*(node: PNode, slice: NodeSliceName): seq[PNode] =
     of SliceAllIdents: node.sons[0..^3]
     of SliceAllArguments, SliceAllBranches: node.sons[1..^1]
     of SliceBranchExpressions: node.sons[0 .. ^2]
+
+proc isNewStyleConcept*(n: PNode): bool {.inline.} =
+  assert n.kind == nkTypeClassTy
+  result = n[0].kind == nkEmpty
+
+func isUnnamedTuple*(typ: PType): bool =
+  ## Check if type is a unnamed tuple (`(A, B)`)
+  var operand = typ.skipTypes({tyGenericInst})
+  return operand.kind == tyTuple and operand.n == nil
+
+func isNamedTuple*(typ: PType): bool =
+  ## Check if type is a named tuple (`tuple[a: T]`)
+  var operand = typ.skipTypes({tyGenericInst})
+  return operand.kind == tyTuple and operand.n != nil

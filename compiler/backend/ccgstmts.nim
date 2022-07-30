@@ -1550,7 +1550,7 @@ proc genStmts(p: BProc, t: PNode) =
   var a: TLoc
 
   let isPush = p.config.hasHint(rsemExtendedContext)
-  if isPush: pushInfoContext(p.config, t.info)
+  if isPush: pushInfoContext(p.config, t.info, TIdTable())
   expr(p, t, a)
   if isPush: popInfoContext(p.config)
   internalAssert p.config, a.k in {locNone, locTemp, locLocalVar, locExpr}

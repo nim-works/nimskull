@@ -315,7 +315,12 @@ type
     symChoiceIndex*: int
     currentScope: PScope
     importIdx: int
-    marked: IntSet
+    marked: IntSet ## Set of identifiers, visited during the overload
+                   ## traversal. Modified and passed around in
+                   ## `(next|init)OverloadIter`, but effectively checked
+                   ## for content in the `nextIdentIter` where it is used
+                   ## to verify whether identifier had already been yielded
+                   ## once or not.
 
 proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope) =
   # check if all symbols have been used and defined:
@@ -837,6 +842,8 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
     if result != nil and result.kind == skStub: loadStub(result)
 
 proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
+  ## Create overload iterator using node identifier, by considering current
+  ## scope or other sources (for dot expression with `module.funcname`)
   o.importIdx = -1
   o.marked = initIntSet()
   case n.kind
@@ -888,6 +895,7 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
             o.mode = oimSelfModule
           else:
             result = initModuleIter(o.mit, c.graph, o.m, ident).skipAlias(n, c.config)
+
       else:
         let errDotExpr = copyNode n
         errDotExpr.add o.m.ast

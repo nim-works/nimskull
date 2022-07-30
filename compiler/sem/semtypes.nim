@@ -610,8 +610,9 @@ proc checkForOverlap(c: PContext, t: PNode, currentEx, branchIndex: int) =
       if overlap(t[i][j].skipConv, ex):
         localReport(c.config, ex.info, SemReport(
           kind: rsemDuplicateCaseLabel,
-          ast: ex,
-          overlappingGroup: t[i][j].skipConv))
+          ast: t[i][j].skipConv,
+          overlappingGroup: ex
+        ))
 
 proc semBranchRange(c: PContext, t, a, b: PNode, covered: var Int128): PNode =
   checkMinSonsLen(t, 1, c.config)
