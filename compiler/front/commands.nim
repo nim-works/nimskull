@@ -1214,7 +1214,19 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     of "quirky": conf.exc = excQuirky
     of "goto": conf.exc = excGoto
     else:
-      conf.localReport(info, invalidSwitchValue @["cpp", "setjmp", "quirky", "goto"])
+      conf.localReport(
+        info, invalidSwitchValue @["cpp", "setjmp", "quirky", "goto"])
+
+  of "docmode":
+    case arg.normalize:
+      of "onefile": conf.docMode = docOnefile
+      of "default": conf.docMode = docDefault
+      of "untyped": conf.docMode = docUntyped
+      of "untypedonefile": conf.docMode = docUntypedOnefile
+      else: conf.localReport(
+        info, invalidSwitchValue @[
+          "onefile", "default", "untyped", "untypedonefile"])
+
   of "cppdefine":
     expectArg(conf, switch, arg, pass, info)
     if conf != nil:

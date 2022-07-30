@@ -65,7 +65,7 @@ from compiler/ic/ic import rodViewer
 when not defined(leanCompiler):
   import
     compiler/backend/jsgen,
-    compiler/tools/[docgen, docgen2]
+    compiler/tools/[docgen, docgen2, docgen3]
 
 when defined(nimDebugUnreportedErrors):
   import std/exitprocs
@@ -81,6 +81,7 @@ when defined(nimDebugUnreportedErrors):
       conf.unreportedErrors.clear
 
 proc semanticPasses(g: ModuleGraph) =
+  ## Add semantic and verbose pass to module graph
   registerPass g, verbosePass
   registerPass g, semPass
 
@@ -131,6 +132,7 @@ proc commandCheck(graph: ModuleGraph) =
 
 when not defined(leanCompiler):
   proc commandDoc2(graph: ModuleGraph; ext: string) =
+    ## Execute documentation generation command for module graph
     handleDocOutputOptions graph.config
     graph.config.setErrorMaxHighMaybe
     semanticPasses(graph)
@@ -386,9 +388,11 @@ proc mainCommand*(graph: ModuleGraph) =
         # of labels links in doc comments, e.g. for random.rand:
         #  ## * `rand proc<#rand,Rand,Natural>`_ that returns an integer
         #  ## * `rand proc<#rand,Rand,range[]>`_ that returns a float
-      commandDoc2(graph, HtmlExt)
-      if optGenIndex in conf.globalOptions and optWholeProject in conf.globalOptions:
-        commandBuildIndex(conf, $conf.outDir)
+      commandDoc3(graph, HtmlExt)
+      when false:
+        if optGenIndex in conf.globalOptions and optWholeProject in conf.globalOptions:
+          commandBuildIndex(conf, $conf.outDir)
+
   of cmdRst2html:
     # XXX: why are warnings disabled by default for rst2html and rst2tex?
     for warn in rstWarnings:

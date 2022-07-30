@@ -917,8 +917,8 @@ type
 
   ReportKinds* = set[ReportKind]
 
-
-const rstWarnings* = {rbackRstTestUnsupported .. rbackRstRstStyle}
+const rbackRstKinds* = { rbackRstCannotOpenFile .. rbackRstRstStyle }
+const rstWarnings* = { rbackRstTestUnsupported .. rbackRstRstStyle }
 
 type
   LexerReportKind* = range[rlexMalformedUnderscores .. rlexSyntaxesCode]

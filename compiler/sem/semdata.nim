@@ -94,6 +94,9 @@ type
     of importExcept:
       exceptSet*: IntSet         # of PIdent.id
 
+  SemExpandHook* = proc(context: PContext, expr: PNode, sym: PSym)
+  SemResolveHook* = proc(context: PContext, expr, call: PNode)
+
   PContext* = ref TContext
 
   # Refactoring of `TContext` in progress:
@@ -685,6 +688,27 @@ type
     # end: suggestion/code completion; lifetime unsure
     # -------------------------------------------------------------------------
 
+    expandHooks*: tuple[
+      preMacro,
+      preMacroResem,
+      postMacro,
+      preTemplate,
+      preTemplateResem,
+      postTemplate: SemExpandHook
+    ] ## Optional hooks to call before/after macro/template expansion is
+      ## called. Necessary for user-provided extensions for the macro
+      ## expansion logging. Post-expand hooks are called after
+      ## `semAfterMacroCall` is called, so supplied AST should be correctly
+      ## analyzed, and all repeated macro expansion inside of the body
+      ## happen in the nested manner. Pre-resem procs are called
+      ## immediately after evaluation on the resulting AST.
+
+
+    resolveHook*: SemResolveHook ## `preResolve` and `postResolve` procs
+    ## are called in the `semOverloadedCall` on the start and finish of the
+    ## resolution process. Note that call result might contain error nodes
+    ## if overloading fails.
+
 template config*(c: PContext): ConfigRef = c.graph.config
 
 func isfirstTopLevelStmt*(c: PContext): bool =
@@ -827,8 +851,21 @@ proc popOptionEntry*(c: PContext) =
   c.features = c.optionStack[^1].features
   c.optionStack.setLen(c.optionStack.len - 1)
 
-proc newContext*(graph: ModuleGraph; module: PSym): PContext =
-  new(result)
+proc newContext*(
+    graph: ModuleGraph;
+    module: PSym,
+    startContext: PContext = nil
+  ): PContext =
+  ## Create new semantic pass context object, or reuse given `startContext`
+  ## - latter one is necessary if additional processing must be done during
+  ## semantic processing.
+
+  if startContext.isNil:
+    new(result)
+
+  else:
+    result = startContext
+
   result.optionStack = @[newOptionEntry(graph.config)]
   result.libs = @[]
   result.module = module

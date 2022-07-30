@@ -700,7 +700,7 @@ proc getAllRunnableExamplesImpl(d: PDoc; n: PNode, dest: var ItemPre,
     # and runnableExamples that occur after some code in routine
 
 proc getRoutineBody(n: PNode): PNode =
-  ##[
+  #[
   nim transforms these quite differently:
 
   proc someType*(): int =
@@ -720,7 +720,7 @@ proc getRoutineBody(n: PNode): PNode =
 
   so we normalize the results to get to the statement list containing the
   (0 or more) doc comments and runnableExamples.
-  ]##
+  ]#
   result = n[bodyPos]
 
   # This won't be transformed: result.id = 10. Namely result[0].kind != nkSym.

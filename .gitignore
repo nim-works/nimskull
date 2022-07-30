@@ -116,3 +116,26 @@ nimdoc.out.css
 # For anyone who wants to make a workspace out of nimskull repo
 *.code-workspace
 *.vscode
+
+# temporary hacks
+
+.hax-gitignore
+.gitignore
+
+**/haxdoc/*
+stdinfile.*
+tfile.*
+*.svg
+scratch/*
+compiler/*.png
+file.nim.cfg
+tests/shit/*
+test.sh
+.hax-gitignore
+tfile_regular.nim
+nim.tags
+compiler/nim.*
+!compiler/nim.nim
+**/*.etags
+**/*.sqlite
+**/*.sqlite2

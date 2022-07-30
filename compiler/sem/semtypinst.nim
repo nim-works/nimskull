@@ -164,6 +164,7 @@ proc isTypeParam(n: PNode): bool =
          (n.sym.kind == skGenericParam or
            (n.sym.kind == skType and sfFromGeneric in n.sym.flags))
 
+
 proc reResolveCallsWithTypedescParams(cl: var TReplTypeVars, n: PNode): PNode =
   # This is needed for tgenericshardcases
   # It's possible that a generic param will be used in a proc call to a

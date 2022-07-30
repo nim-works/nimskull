@@ -3163,3 +3163,4 @@ proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result = semExpr(c, n, flags)
   else:
     result = semExprNoType(c, n)
+

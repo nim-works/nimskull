@@ -408,18 +408,6 @@ func reportSym*(
 
   SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
 
-template withIt*(expr: untyped, body: untyped): untyped =
-  block:
-    var it {.inject.} = expr
-    body
-    it
-
-template tern*(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
-  ## Shorthand for inline if/else. Allows use of conditions in strformat,
-  ## simplifies use in expressions. Less picky with formatting
-  {.line: instantiationInfo(fullPaths = true).}:
-    block:
-      if predicate: tBranch else: fBranch
 
 type
   CmdReport* = object of ReportBase

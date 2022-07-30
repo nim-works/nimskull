@@ -72,47 +72,77 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
     supportsStdinFile: true,
     processCmdLine: processCmdLine
   )
+
   self.initDefinesProg(conf, "nim_compiler")
+
+  # At least one command must be supplied, otherwise write out `--help`
   if paramCount() == 0:
     writeCommandLineUsage(conf)
     return
 
+  # Process initial configuration for the command line - input file path
+  # and command-line options
   self.processCmdLineAndProjectPath(conf)
+
+  # Construct module graph - it is necessary to properly read `config.nims`
+  # files, that already require evaluation.
   var graph = newModuleGraph(cache, conf)
 
+  # Read all associated configuration files, process command line. This
+  # populates data in the `conf` object.
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
     return
 
+  # Execute main command on the given module graph
   mainCommand(graph)
+
+
+  # Write out compilation statistics
   if conf.hasHint(rintGCStats):
     conf.localReport(InternalReport(
       kind: rintGCStats, msg: GC_getStatistics()))
 
-  if conf.errorCounter != 0: return
+
+  if conf.errorCounter != 0:
+    # Errors encountered during code processing
+    return
+
   when hasTinyCBackend:
     if conf.cmd == cmdTcc:
       tccgen.run(conf, conf.arguments)
+
+
+  # If `-r` was used in the compilation
   if optRun in conf.globalOptions:
     let output = conf.absOutFile
     case conf.cmd
     of cmdBackends, cmdTcc:
       let nimRunExe = getNimRunExe(conf)
       var cmdPrefix: string
-      if nimRunExe.len > 0: cmdPrefix.add nimRunExe.quoteShell
+      if nimRunExe.len > 0:
+        cmdPrefix.add nimRunExe.quoteShell
+
       case conf.backend
       of backendC, backendCpp, backendObjc: discard
       of backendJs:
-        # D20210217T215950:here this flag is needed for node < v15.0.0, otherwise
-        # tasyncjs_fail` would fail, refs https://nodejs.org/api/cli.html#cli_unhandled_rejections_mode
-        if cmdPrefix.len == 0: cmdPrefix = findNodeJs().quoteShell
+        # This flag is needed for node < v15.0.0, otherwise tasyncjs_fail`
+        # would fail
+        # https://nodejs.org/api/cli.html#cli_unhandled_rejections_mode
+        if cmdPrefix.len == 0:
+          cmdPrefix = findNodeJs().quoteShell
+
         cmdPrefix.add " --unhandled-rejections=strict"
       of backendNimVm:
         if cmdPrefix.len == 0:
           cmdPrefix = changeFileExt(getAppDir() / "vmrunner", ExeExt)
-      else: doAssert false, $conf.backend
+      else:
+        doAssert false, $conf.backend
+
       if cmdPrefix.len > 0: cmdPrefix.add " "
         # without the `cmdPrefix.len > 0` check, on windows you'd get a cryptic:
         # `The parameter is incorrect`
+
+      # Execute external compiled program (or js file)
       execExternalProgram(
         conf, cmdPrefix & output.quoteShell & ' ' & conf.arguments, rcmdExecuting)
 

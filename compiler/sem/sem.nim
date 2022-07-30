@@ -594,11 +594,20 @@ proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
   if reportTraceExpand:
     original = n
 
+  if not c.expandHooks.preMacro.isNil:
+    c.expandHooks.preMacro(c, n, sym)
+
   result = evalMacroCall(
     c.module, c.idgen, c.graph, c.templInstCounter, n, sym)
 
+  if not c.expandHooks.preMacroResem.isNil:
+    c.expandHooks.preMacroResem(c, result, sym)
+
   if efNoSemCheck notin flags:
     result = semAfterMacroCall(c, n, result, sym, flags)
+
+  if not c.expandHooks.postMacro.isNil:
+    c.expandHooks.postMacro(c, result, sym)
 
   if reportTraceExpand:
     c.config.localReport(n.info, SemReport(
@@ -662,16 +671,6 @@ proc isImportSystemStmt(g: ModuleGraph; n: PNode): bool =
         return true
   else: discard
 
-proc isEmptyTree(n: PNode): bool =
-  ## true if `n` is empty that shouldn't count as a top level statement
-  case n.kind
-  of nkStmtList:
-    for it in n:
-      if not isEmptyTree(it): return false
-    result = true
-  of nkEmpty, nkCommentStmt: result = true
-  else: result = false
-
 proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
   ## given top level statements from a module, carries out semantic analysis:
   ## - per module, ensure system module is improted first unless in system
@@ -715,11 +714,15 @@ proc semStmtAndGenerateGenerics(c: PContext, n: PNode): PNode =
 # All the code below here is for the pass machinery, the code above is the
 # actual work.
 
-# -- code-myopen
+# -- code-semPassopen
 
-proc myOpen(graph: ModuleGraph; module: PSym;
-            idgen: IdGenerator): PPassContext {.nosinks.} =
-  var c = newContext(graph, module)
+proc semPassSetupOpen*(
+    c: PContext,
+    graph: ModuleGraph; module: PSym;
+    idgen: IdGenerator
+  ): PPassContext {.nosinks.} =
+  ## Setup semantic pass context for given module
+
   c.idgen = idgen
   c.enforceVoidContext = newType(tyTyped, nextTypeId(idgen), nil)
   c.voidType = newType(tyVoid, nextTypeId(idgen), nil)
@@ -752,7 +755,17 @@ proc myOpen(graph: ModuleGraph; module: PSym;
   c.topLevelScope = openScope(c)
   result = c
 
-# -- code-myprocess
+
+proc semPassOpen*(
+    graph: ModuleGraph; module: PSym;
+    idgen: IdGenerator
+  ): PPassContext {.nosinks.} =
+  ## Open semantic pass context for given module
+  var c = newContext(graph, module)
+  return semPassSetupOpen(c, graph, module, idgen)
+
+
+# -- code-semPassprocess
 
 proc recoverContext(c: PContext) =
   # clean up in case of a semantic error: We clean up the stacks, etc. This is
@@ -762,7 +775,7 @@ proc recoverContext(c: PContext) =
   while getCurrOwner(c).kind != skModule: popOwner(c)
   while c.p != nil and c.p.owner.kind != skModule: c.p = c.p.next
 
-proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
+proc semPassProcess*(context: PPassContext, n: PNode): PNode {.nosinks.} =
   ## Entry point for the semantic analysis pass, this proc is part of the
   ## compiler graph `passes` interface. This adapts that interface to the sem
   ## implementation by wrapping `semStmtAndGenerateGenerics`.
@@ -788,7 +801,7 @@ proc myProcess(context: PPassContext, n: PNode): PNode {.nosinks.} =
         result = newNodeI(nkEmpty, n.info)
   storeRodNode(c, result)
 
-# -- code-myclose
+# -- code-semPassclose
 
 proc reportUnusedModules(c: PContext) =
   for i in 0..high(c.unusedImports):
@@ -805,7 +818,8 @@ proc addCodeForGenerics(c: PContext, n: PNode) =
       n.add prc.ast
   c.lastGenericIdx = c.generics.len
 
-proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
+proc semPassClose*(
+    graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
   var c = PContext(context)
   if c.config.cmd == cmdIdeTools and not c.suggestionsMade:
     suggestSentinel(c)
@@ -821,5 +835,5 @@ proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
   popProcCon(c)
   sealRodFile(c)
 
-const semPass* = makePass(myOpen, myProcess, myClose,
-                          isFrontend = true)
+const semPass* = makePass(
+  semPassOpen, semPassProcess, semPassClose, isFrontend = true)

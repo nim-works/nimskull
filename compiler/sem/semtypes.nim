@@ -717,6 +717,9 @@ proc getIntSetOfType(c: PContext, t: PType): IntSet =
       result.incl(i.int)
 
 iterator processBranchVals(b: PNode): int =
+  ## Iterate over values in the case statement `of` branch. This procedure
+  ## expects any input node that can be found in the `case` - including
+  ## `elif` and `else`, but will only yield values for `of`.
   assert b.kind in {nkOfBranch, nkElifBranch, nkElse}
   if b.kind == nkOfBranch:
     for i in 0..<b.len-1:
@@ -727,6 +730,10 @@ iterator processBranchVals(b: PNode): int =
           yield i.int
 
 proc toLiterals*(vals: IntSet, t: PType): seq[PNode] =
+  ## Return set nodes reconstructed back from the set of `vals` assuming
+  ## each of them is of type `t`. So, for character types it will be a set
+  ## of char literals, for numerical it will an integer set, and of enum it
+  ## will be a list of enum field symbols
   let t = t.skipTypes(abstractRange)
 
   var enumSymOffset = 0
