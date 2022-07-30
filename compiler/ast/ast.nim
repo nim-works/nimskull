@@ -200,17 +200,18 @@ proc newSymNode2*(sym: PSym, info: TLineInfo): PNode =
     result.typ = sym.typ
     result.info = info
 
-proc newSymNode*(sym: PSym): PNode =
-  result = newNode(nkSym)
+proc newSymNodeIT*(sym: PSym, info: TLineInfo, typ: PType): PNode =
+  ## create a new sym node with the supplied `info` and `typ`
+  result = newNodeIT(nkSym, info, typ)
   result.sym = sym
-  result.typ = sym.typ
-  result.info = sym.info
 
-proc newSymNode*(sym: PSym, info: TLineInfo): PNode =
-  result = newNode(nkSym)
-  result.sym = sym
-  result.typ = sym.typ
-  result.info = info
+proc newSymNode*(sym: PSym, info: TLineInfo): PNode {.inline.} =
+  ## create a new sym node from `sym` with its type and supplied `info`
+  result = newSymNodeIT(sym, info, sym.typ)
+
+proc newSymNode*(sym: PSym): PNode {.inline.} =
+  ## create a new sym node from `sym` with its info and type
+  result = newSymNode(sym, sym.info)
 
 proc newIntNode*(kind: TNodeKind, intVal: BiggestInt): PNode =
   result = newNode(kind)
