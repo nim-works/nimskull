@@ -1872,7 +1872,7 @@ proc implicitPragmas*(c: PContext, sym: PSym, info: TLineInfo,
     for it in c.optionStack:
       let o = it.otherPragmas
       if not o.isNil and sfFromGeneric notin sym.flags: # see issue #12985
-        pushInfoContext(c.config, info)
+        pushInfoContext(c.config, info, TIdTable())
         var i = 0
         while i < o.len:
           let p = prepareSinglePragma(c, sym, o, i, validPragmas, true, false)

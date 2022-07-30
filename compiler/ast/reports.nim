@@ -67,6 +67,7 @@ type
     case kind*: ReportContextKind
       of sckInstantiationOf:
         entry*: PSym ## Instantiated entry symbol
+        params*: TIdTable
 
       of sckInstantiationFrom:
         discard
@@ -147,12 +148,15 @@ type
 
   SemDiagnostics* = object
     diagnosticsTarget*: PSym ## The concept sym that didn't match
-    reports*: seq[SemReport] ## The reports that explain why the concept didn't match
+    reports*: seq[SemReport] ## The reports that explain why the concept
+                             ## didn't match
 
   MismatchInfo* = object
     kind*: MismatchKind ## reason for mismatch
-    pos*: int           ## position of provided argument that mismatches. This doesn't always correspond to
-                        ## the *expression* subnode index (e.g. `.=`) nor the *target parameter* index (varargs)
+    pos*: int           ## position of provided argument that mismatches.
+                        ## This doesn't always correspond to the
+                        ## *expression* subnode index (e.g. `.=`) nor the
+                        ## *target parameter* index (varargs)
     arg*: PNode         ## the node of the mismatching provided argument
     formal*: PSym       ## parameter that mismatches against provided argument
                         ## its position can differ from `arg` because of varargs
@@ -166,7 +170,8 @@ type
     firstMismatch*: MismatchInfo ## mismatch info for better error messages
 
     diag*: SemDiagnostics
-    diagnosticsEnabled*: bool ## Set by sfExplain. efExplain or notFoundError ignore this
+    diagnosticsEnabled*: bool ## Set by sfExplain. efExplain or
+                              ## notFoundError ignore this
 
   SemSpellCandidate* = object
     dist*: int

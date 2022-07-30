@@ -346,15 +346,15 @@ proc listSideEffects(
     for (useLineInfo, u) in context.sideEffects[s.id]:
       if u != nil and not cycleCheck.containsOrIncl(u.id):
         var trace: SemSideEffectCallKind
-        case u.kind
-        of skLet, skVar:
-          trace = ssefUsesGlobalState
-        of routineKinds:
-          trace = ssefCallsSideEffect
-        of skParam, skForVar:
-          trace = ssefCallsViaHiddenIndirection
-        else:
-          trace = ssefCallsViaIndirection
+        case u.kind:
+          of skLet, skVar:
+            trace = ssefUsesGlobalState
+          of routineKinds:
+            trace = ssefCallsSideEffect
+          of skParam, skForVar:
+            trace = ssefCallsViaHiddenIndirection
+          else:
+            trace = ssefCallsViaIndirection
 
         result.sideEffectTrace.add((
           isUnsafe: s,
@@ -1354,7 +1354,7 @@ proc checkRaisesSpec(
           used.incl(s)
           break search
       # XXX call graph analysis would be nice here!
-      pushInfoContext(g.config, spec.info)
+      pushInfoContext(g.config, spec.info, TIdTable())
       var rr = if r.kind == nkRaiseStmt: r[0] else: r
       while rr.kind in {nkStmtList, nkStmtListExpr} and rr.len > 0:
         rr = rr.lastSon

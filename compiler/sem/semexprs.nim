@@ -21,7 +21,7 @@ proc semTemplateExpr(c: PContext, n: PNode, s: PSym,
   onUse(info, s)
   # Note: This is n.info on purpose. It prevents template from creating an info
   # context when called from an another template
-  pushInfoContext(c.config, n.info, s)
+  pushInfoContext(c.config, n.info, TIdTable(), s)
   result = evalTemplate(n, s, getCurrOwner(c), c.config, c.cache,
                         c.templInstCounter, c.idgen, efFromHlo in flags)
   if efNoSemCheck notin flags: result = semAfterMacroCall(c, n, result, s, flags)
@@ -1183,7 +1183,7 @@ proc semExprNoType(c: PContext, n: PNode): PNode =
   ##
   ## Semantic/type analysis is still done as we perform a check for `discard`.
   let isPush = c.config.hasHint(rsemExtendedContext)
-  if isPush: pushInfoContext(c.config, n.info)
+  if isPush: pushInfoContext(c.config, n.info, TIdTable())
   result = discardCheck(c, semExpr(c, n, {efWantStmt}), {})
   if isPush: popInfoContext(c.config)
 
@@ -3268,6 +3268,20 @@ proc enumFieldSymChoice(c: PContext, n: PNode, s: PSym): PNode =
 proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   when defined(nimCompilerStacktraceHints):
     setFrameMsg c.config$n.info & " " & $n.kind
+
+  when defined(nimDebugUtils):
+    # HACK debugging workaround that makes `undef(nimDebugUtils)` and
+    # similar operations trigger a lot earlier and thus cut cuts out a
+    # deedles chunk of the semantic checking trace tail.
+    if n.kind == nkPragma and n[0].kind in { nkCommand, nkCall }:
+      let call = n[0]
+      if call[0].kind == nkIdent and
+         call[0].getIdentStr() == "undef":
+        let what = call[1].getIdentStr()
+        if what in ["nimCompilerDebug", "nimCompilerDebugStackTrace"]:
+          c.config.undefSymbol(what)
+
+
   addInNimDebugUtils(c.config, "semExpr", n, result, flags)
 
   result = n

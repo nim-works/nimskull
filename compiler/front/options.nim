@@ -51,6 +51,33 @@ const
   cmdDocLike* = {cmdDoc, cmdDoc2tex, cmdJsondoc, cmdCtags, cmdBuildindex}
 
 type
+  HackController* = object
+    ## additional configuration switches to control the behavior of the
+    ## debug printer. Most of them are for compiler debugging, and for now
+    ## they can't be set up from the cli/defines - in the future this will
+    ## be changed. For now you can just edit `defaultHackController` value
+    ## in this module as you see fit.
+    ##
+    ## If you need to do some extra-extra configuration you can also look
+    ## into default printing implementation of the debug trace in the
+    ## `cli_reporter.nim`. Relevant chunks have `NOTE !!DEBUG`
+    ## annotation with commentary.
+    semStack*: bool  ## Show `| context` entries in the call tracer
+
+    reportInTrace*: bool ## Error messages are shown with matching indentation
+    ## if report was triggered during execution of the sem trace
+
+    semTraceData*: bool ## For each sem step show processed data, or only
+    ## procedure calls.
+
+const defaultHackController = HackController(
+  semStack: off,
+  reportInTrace: off,
+  semTraceData: off
+)
+
+
+type
   NimVer* = tuple[major: int, minor: int, patch: int]
   TStringSeq* = seq[string]
 
@@ -116,20 +143,6 @@ type
     doRaise ## Raise recoverable error
 
   ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
-
-  HackController* = object
-    ## additional configuration switches to control the behavior of the
-    ## debug printer. Most of them are for compiler debugging, and for now
-    ## they can't be set up from the cli/defines - in the future this will
-    ## be changed. For now you can just edit `defaultHackController` value
-    ## in this module as you see fit.
-    semStack*: bool  ## Show `| context` entries in the call tracer
-
-    reportInTrace*: bool ## Error messages are shown with matching indentation
-    ## if report was triggered during execution of the sem trace
-
-    semTraceData*: bool ## For each sem step show processed data, or only
-    ## procedure calls.
 
   ConfigRef* {.acyclic.} = ref object ## every global configuration
                           ## fields marked with '*' are subject to
@@ -793,11 +806,6 @@ proc newProfileData(): ProfileData =
 
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 
-const defaultHackController = HackController(
-  semStack: on,
-  reportInTrace: off,
-  semTraceData: on
-)
 
 proc initConfigRefCommon(conf: ConfigRef) =
   conf.symbols = newStringTable(modeStyleInsensitive)

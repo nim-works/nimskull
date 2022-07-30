@@ -213,9 +213,10 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
                      hasDestructor(t)
     result = newIntNodeT(toInt128(ord(not complexObj)), traitCall, c.idgen, c.graph)
   of "isNamedTuple":
-    var operand = operand.skipTypes({tyGenericInst})
-    let cond = operand.kind == tyTuple and operand.n != nil
-    result = newIntNodeT(toInt128(ord(cond)), traitCall, c.idgen, c.graph)
+    result = newIntNodeT(
+      toInt128(ord(isNamedTuple(operand))),
+      traitCall, c.idgen, c.graph)
+
   of "tupleLen":
     var operand = operand.skipTypes({tyGenericInst})
     assert operand.kind == tyTuple, $operand.kind

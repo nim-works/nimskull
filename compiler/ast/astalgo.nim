@@ -31,7 +31,7 @@ proc hashNode*(p: RootRef): Hash
 # --------------------------- ident tables ----------------------------------
 proc idTableGet*(t: TIdTable, key: PIdObj): RootRef
 proc idTableGet*(t: TIdTable, key: int): RootRef
-proc idTablePut*(t: var TIdTable, key: PIdObj, val: RootRef)
+proc idTablePut*(t: var TIdTable, key, val: PIdObj)
 proc idTableHasObjectAsKey*(t: TIdTable, key: PIdObj): bool
   # checks if `t` contains the `key` (compared by the pointer value, not only
   # `key`'s id)
@@ -457,7 +457,7 @@ iterator pairs*(t: TIdTable): tuple[key: int, value: RootRef] =
     if t.data[i].key != nil:
       yield (t.data[i].key.id, t.data[i].val)
 
-proc idTableRawInsert(data: var TIdPairSeq, key: PIdObj, val: RootRef) =
+proc idTableRawInsert(data: var TIdPairSeq, key, val: PIdObj) =
   var h: Hash
   h = key.id and high(data)
   while data[h].key != nil:
@@ -467,7 +467,7 @@ proc idTableRawInsert(data: var TIdPairSeq, key: PIdObj, val: RootRef) =
   data[h].key = key
   data[h].val = val
 
-proc idTablePut(t: var TIdTable, key: PIdObj, val: RootRef) =
+proc idTablePut(t: var TIdTable, key, val: PIdObj) =
   var
     index: int
     n: TIdPairSeq
@@ -486,7 +486,7 @@ proc idTablePut(t: var TIdTable, key: PIdObj, val: RootRef) =
     idTableRawInsert(t.data, key, val)
     inc(t.counter)
 
-iterator idTablePairs*(t: TIdTable): tuple[key: PIdObj, val: RootRef] =
+iterator idTablePairs*(t: TIdTable): tuple[key, val: PIdObj] =
   for i in 0..high(t.data):
     if not isNil(t.data[i].key): yield (t.data[i].key, t.data[i].val)
 

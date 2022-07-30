@@ -820,9 +820,17 @@ func addf*(
         assert false, "var/expr formatting is not supported for colored text yet"
 
       of addfPositional, addfIndexed, addfBackIndexed:
-        let idx = if fr.kind == addfBackIndexed: len(colored) - fr.idx else: fr.idx
+        let idx = if fr.kind == addfBackIndexed:
+                    len(colored) - fr.idx
+                  else:
+                    fr.idx
+
         assert (0 <= idx and idx < colored.len)
         text.add colored[idx]
+
+func clformat*(
+    formatstr: string, colored: varargs[ColText, toColText]): ColText =
+  result.addf(formatstr, colored)
 
 func `%`*(format: string, interpolate: openArray[ColText]): ColText =
   ## Shorthand for colored text interpolation

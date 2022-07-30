@@ -184,10 +184,11 @@ proc setInfoContextLen*(conf: ConfigRef; L: int) = setLen(conf.m.msgContext, L)
 proc pushInfoContext*(
     conf: ConfigRef;
     info: TLineInfo,
-    detail: PSym = nil
+    instTable: TIdTable,
+    detail: PSym = nil,
   ) =
   ## Add entry to the message context information stack.
-  conf.m.msgContext.add((info, detail))
+  conf.m.msgContext.add((info, detail, instTable))
 
 proc popInfoContext*(conf: ConfigRef) =
   ## Remove one entry from the message context information stack
@@ -413,10 +414,11 @@ proc errorActions(
       # only really quit when we're not in the new 'nim check --def' mode:
       if conf.ideCmd == ideNone:
         return (doAbort, false)
+
     elif eh == doAbort and conf.cmd != cmdIdeTools:
       return (doAbort, false)
+
     elif eh == doRaise:
-      {.warning: "[IMPLEMENT] Convert report to string message?".}
       return (doRaise, false)
 
   return (doNothing, false)
@@ -443,7 +445,9 @@ proc getContext*(conf: ConfigRef; lastinfo: TLineInfo): seq[ReportContext] =
         result.add ReportContext(
           kind: sckInstantiationOf,
           location: context.info,
-          entry: context.detail)
+          entry: context.detail,
+          params: context.params
+        )
 
     info = context.info
 
