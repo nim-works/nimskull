@@ -643,14 +643,25 @@ proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode =
     for i in 0..<n.len:
       result[i] = semTemplBodyDirty(c, n[i])
 
+proc semProcAnnotation(c: PContext, prc: PNode; validPragmas: TSpecialWords): PNode
+# from semstmts
+
 proc semTemplateDef(c: PContext, n: PNode): PNode =
+  addInNimDebugUtils(c.config, "semTemplateDef", n, result)
+
+  result = semProcAnnotation(c, n, templatePragmas)
+  if result != nil:
+    return result
+
   result = n
   var s: PSym
+
   if isTopLevel(c):
     s = semIdentVis(c, skTemplate, n[namePos], {sfExported})
     incl(s.flags, sfGlobal)
   else:
     s = semIdentVis(c, skTemplate, n[namePos], {})
+
   assert s.kind == skTemplate
 
   if s.owner != nil:
