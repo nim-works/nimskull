@@ -86,7 +86,7 @@ jobs:
           prerelease: true
           files: ${{ steps.release-files.outputs.result }}
           tag_name: ${{ steps.release-files.outputs.version }}
-          fail-on-unmatched-files: true
+          fail_on_unmatched_files: true
           target_commitish: ${{ github.event.after }}
           body: |
             Continuous delivery for commit ${{ github.event.after }}
