@@ -1163,13 +1163,20 @@ proc skipConvTakeType*(n: PNode): PNode =
   result.typ = n.typ
 
 proc isEmptyContainer*(t: PType): bool =
+  ## true if the type is considered a container and is empty, otherwise false.
+  ## container types are untyped, nil, `array/seq/set/etc[T]` with an emtpy
+  ## type for `T`.
   case t.kind
-  of tyUntyped, tyNil: result = true
-  of tyArray: result = t[1].kind == tyEmpty
+  of tyUntyped, tyNil:
+    true
+  of tyArray:
+    t[1].kind == tyEmpty
   of tySet, tySequence, tyOpenArray, tyVarargs:
-    result = t[0].kind == tyEmpty
-  of tyGenericInst, tyAlias, tySink: result = isEmptyContainer(t.lastSon)
-  else: result = false
+    t[0].kind == tyEmpty
+  of tyGenericInst, tyAlias, tySink:
+    isEmptyContainer(t.lastSon)
+  else:
+    false
 
 proc takeType*(formal, arg: PType; g: ModuleGraph; idgen: IdGenerator): PType =
   # param: openArray[string] = []
