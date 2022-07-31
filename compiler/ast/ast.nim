@@ -430,8 +430,10 @@ proc addSonNilAllowed*(father, son: PNode) =
   father.sons.add(son)
 
 proc delSon*(father: PNode, idx: int) =
-  if father.len == 0: return
-  for i in idx..<father.len - 1: father[i] = father[i + 1]
+  if father.len == 0:
+    return
+  for i in idx..<father.len - 1:
+    father[i] = father[i + 1]
   father.sons.setLen(father.len - 1)
 
 template copyNodeImpl(dst, src, processSonsStmt) =
@@ -451,6 +453,7 @@ template copyNodeImpl(dst, src, processSonsStmt) =
   of nkSym: dst.sym = src.sym
   of nkIdent: dst.ident = src.ident
   of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
+  of nkEmpty, nkNone: discard # no children, nothing to do
   else: processSonsStmt
 
 proc copyNode*(src: PNode): PNode =

@@ -154,8 +154,7 @@ proc pragmaAsm*(c: PContext, n: PNode): tuple[marker: char, err: PNode] =
   ## Returns ` as the default marker if no other markers are found
   result.marker = '`'
   if n != nil:
-    for i in 0..<n.len:
-      let it = n[i]
+    for it in n:
       if it.kind in nkPragmaCallKinds and it.len == 2 and it[0].kind == nkIdent:
         case whichKeyword(it[0].ident)
         of wSubsChar:

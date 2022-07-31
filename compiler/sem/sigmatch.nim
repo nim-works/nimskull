@@ -154,7 +154,7 @@ proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
   c.magic = c.calleeSym.magic
   if binding != nil and callee.kind in routineKinds:
     var typeParams = callee.ast[genericParamsPos]
-    for i in 1..min(typeParams.len, binding.len-1):
+    for i in 1..min(typeParams.safeLen, binding.safeLen-1):
       var formalTypeParam = typeParams[i-1].typ
       var bound = binding[i].typ
       if bound != nil:

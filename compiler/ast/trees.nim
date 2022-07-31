@@ -151,8 +151,7 @@ proc findPragma*(n: PNode, which: TSpecialWord): PNode =
         return son
 
 proc effectSpec*(n: PNode, effectType: TSpecialWord): PNode =
-  for i in 0..<n.len:
-    var it = n[i]
+  for it in n:
     if it.kind == nkExprColonExpr and whichPragma(it) == effectType:
       result = it[1]
       if result.kind notin {nkCurly, nkBracket}:

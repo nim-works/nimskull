@@ -809,6 +809,8 @@ type
       sym*: PSym
     of nkIdent:
       ident*: PIdent
+    of nkEmpty, nkNone:
+      discard
     else:
       sons*: TNodeSeq
 
@@ -889,8 +891,6 @@ type
     allowPrivateAccess*: seq[PSym] #  # enable access to private fields
 
   PScope* = ref TScope
-
-
 
   PLib* = ref TLib
   TSym* {.acyclic.} = object of TIdObj # Keep in sync with PackedSym
@@ -1032,7 +1032,14 @@ type
   TImplication* = enum
     impUnknown, impNo, impYes
 
-
+const
+  nkWithoutSons* =
+    {nkCharLit..nkUInt64Lit} +
+    {nkFloatLit..nkFloat128Lit} +
+    {nkStrLit..nkTripleStrLit} +
+    {nkSym} +
+    {nkIdent} +
+    {nkEmpty, nkNone}
 
 type
   EffectsCompat* = enum
@@ -1118,7 +1125,7 @@ type
 
 type Indexable* = PNode | PType
 
-proc len*(n: Indexable): int {.inline.} =
+func len*(n: Indexable): int {.inline.} =
   result = n.sons.len
 
 proc add*(father, son: Indexable) =
@@ -1128,8 +1135,10 @@ proc add*(father, son: Indexable) =
 template `[]`*(n: Indexable, i: int): Indexable = n.sons[i]
 template `[]=`*(n: Indexable, i: int; x: Indexable) = n.sons[i] = x
 
-template `[]`*(n: Indexable, i: BackwardsIndex): Indexable = n[n.len - i.int]
-template `[]=`*(n: Indexable, i: BackwardsIndex; x: Indexable) = n[n.len - i.int] = x
+template `[]`*(n: Indexable, i: BackwardsIndex): Indexable =
+  n[n.len - i.int]
+template `[]=`*(n: Indexable, i: BackwardsIndex; x: Indexable) =
+  n[n.len - i.int] = x
 
 const emptyReportId* = ReportId(0)
 

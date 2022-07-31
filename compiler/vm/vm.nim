@@ -3626,7 +3626,7 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
 
   # put macro generic parameters into registers
   let gp = sym.ast[genericParamsPos]
-  for i in 0..<gp.len:
+  for i in 0..<gp.safeLen:
     let idx = sym.typ.len + i
     if idx < n.len:
       setupMacroParam(tos.slots[idx], c[], n[idx], gp[i].sym.typ)
