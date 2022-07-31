@@ -128,7 +128,6 @@ type
                 # compiler that still has ntyConcept (e.g. in bootstrapping)
                 ord(ntyFromExpr) + 2
 
-  TNimTypeKinds* {.deprecated.} = set[NimTypeKind]
   NimSymKind* = enum
     nskUnknown, nskConditional, nskDynLib, nskParam,
     nskGenericParam, nskTemp, nskModule, nskType, nskVar, nskLet,
@@ -137,8 +136,6 @@ type
     nskConverter, nskMacro, nskTemplate, nskField,
     nskEnumField, nskForVar, nskLabel,
     nskStub
-
-  TNimSymKinds* {.deprecated.} = set[NimSymKind]
 
 const
   nnkLiterals* = {nnkCharLit..nnkNilLit}
