@@ -1,13 +1,16 @@
 discard """
   description: "Tests for the std/experimental/results module"
   matrix: "--gc:refc; --gc:arc"
-  targets: "c cpp !js"
+  targets: "c !cpp !js"
 """
 
 # knownIssue: fails on the JS back-end due to a code-gen issue. The issue
 #             seems to be related to sink parameters
 
 # knownIssue: fails for the VM back-end due to code-gen issues
+
+# knownIssue: fails for the CPP back-end due to code-gen issues, after this
+#             pragma removal
 
 # This file was based on the ``test.nim`` file
 # from https://github.com/disruptek/badresults

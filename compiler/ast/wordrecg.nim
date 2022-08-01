@@ -95,7 +95,7 @@ type
     wProtected = "protected", wPublic = "public", wRegister = "register",
     wReinterpret_cast = "reinterpret_cast", wRestrict = "restrict", wShort = "short",
     wSigned = "signed", wSizeof = "sizeof", wStatic_cast = "static_cast", wStruct = "struct",
-    wSwitch = "switch", wThis = "this", wThrow = "throw", wTrue = "true", wTypedef = "typedef",
+    wSwitch = "switch", wThrow = "throw", wTrue = "true", wTypedef = "typedef",
     wTypeid = "typeid", wTypeof = "typeof",  wTypename = "typename",
     wUnion = "union", wPacked = "packed", wUnsigned = "unsigned", wVirtual = "virtual",
     wVoid = "void", wVolatile = "volatile", wWchar_t = "wchar_t",

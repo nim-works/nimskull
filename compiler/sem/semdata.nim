@@ -64,7 +64,6 @@ type
                                  ## statements
     owner*: PSym              ## the symbol this context belongs to
     resultSym*: PSym          ## the result symbol (if we are in a proc)
-    selfSym*: PSym            ## the 'self' symbol (if available)
     nestedLoopCounter*: int   ## whether we are in a loop or not
     nestedBlockCounter*: int  ## whether we are in a block or not
     next*: PProcCon           ## used for stacking procedure contexts
@@ -355,14 +354,6 @@ type
     # -------------------------------------------------------------------------
     # start: module env; module lifetime
     # -------------------------------------------------------------------------
-    selfName*: PIdent 
-      ## used for the experimental `this` pragma support (remove me!)
-      ## 
-      ## written:
-      ##  - pragmas: `prepareSinglePragma` writes the name of the `this` param
-      ## read:
-      ##  - seminst: `rawHandleSelf` reads the name of the `this` param
-      # xxx: remove the pragma features and this field
 
     # lookups: imports / scopes
     module*: PSym
@@ -765,6 +756,14 @@ proc popOwner*(c: PContext) =
 
 proc lastOptionEntry*(c: PContext): POptionEntry =
   result = c.optionStack[^1]
+
+proc pushProcCon*(c: PContext, owner: PSym) {.inline.} =
+  c.config.internalAssert(owner != nil, "owner is nil")
+  var x: PProcCon
+  new(x)
+  x.owner = owner
+  x.next = c.p
+  c.p = x
 
 proc popProcCon*(c: PContext) {.inline.} = c.p = c.p.next
 

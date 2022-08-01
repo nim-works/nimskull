@@ -311,20 +311,6 @@ proc resolveOverloads(c: PContext, n: PNode,
 
   let overloadsState = result.state
   if overloadsState != csMatch:
-    if c.p != nil and c.p.selfSym != nil:
-      # we need to enforce semchecking of selfSym again because it
-      # might need auto-deref:
-      var hiddenArg = newSymNode(c.p.selfSym)
-      hiddenArg.typ = nil
-      n.sons.insert(hiddenArg, 1)
-
-      pickBest(f)
-
-      if result.state != csMatch:
-        n.sons.delete(1)
-        excl n.flags, nfExprCall
-      else: return
-
     template tryOp(x) =
       let op = newIdentNode(getIdent(c.cache, x), n.info)
       n[0] = op
@@ -368,15 +354,10 @@ proc resolveOverloads(c: PContext, n: PNode,
 
       return
     elif result.state != csMatch:
-      if nfExprCall in n.flags:
-        result.call = c.config.newError(
-          n, reportAst(rsemExpressionCannotBeCalled, n))
-
-      else:
-        if {nfDotField, nfDotSetter} * n.flags != {}:
-          # clean up the inserted ops
-          n.sons.delete(2)
-          n[0] = f
+      if {nfDotField, nfDotSetter} * n.flags != {}:
+        # clean up the inserted ops
+        n.sons.delete(2)
+        n[0] = f
       return
   if alt.state == csMatch and cmpCandidates(result, alt) == 0 and
       not sameMethodDispatcher(result.calleeSym, alt.calleeSym):

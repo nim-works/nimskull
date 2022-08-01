@@ -3,9 +3,9 @@ targets: "!js !vm"
 """
 
 block union_pragma:
-  ## The union pragma can be applied to any object type. It means all of the object's 
-  ## fields are overlaid in memory.This produces a union instead of a struct in the 
-  ## generated C/C++ code.
+  ## The union pragma can be applied to any object type. It means all of the
+  ## object's fields are overlaid in memory. This produces a union instead of a
+  ## struct in the generated C/C++ code.
   type
     Union {.union.} = object
       field1: int

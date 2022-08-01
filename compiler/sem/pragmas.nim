@@ -90,7 +90,7 @@ const
     wDeprecated,
     wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit, wUnroll,
     wLinearScanEnd, wPatterns, wTrMacros, wEffects, wComputedGoto,
-    wExperimental, wThis, wUsed, wAssert}
+    wExperimental, wUsed, wAssert}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
     wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
     wThread, wAsmNoStackFrame,
@@ -1760,24 +1760,6 @@ proc prepareSinglePragma(
         if not isTopLevel(c):
           result = c.config.newError(it, reportSem rsemExperimentalRequiresToplevel)
         result = processExperimental(c, it)
-      of wThis:
-        if it.kind in nkPragmaCallKinds and it.len == 2:
-          (c.selfName, result) = considerQuotedIdent(c, it[1])
-          if result == nil:
-            result = it
-            localReport(
-              c.config, n.info,
-              reportStr(rsemDeprecated, "'.this' pragma is deprecated"))
-          else:
-            it[1] = result # we retrieved it above from `it[1]`, so making sure return the same node
-            result = wrapError(c.config, it)
-        elif it.kind == nkIdent or it.len == 1:
-          c.selfName = getIdent(c.cache, "self")
-          localReport(
-            c.config, n.info,
-            reportStr(rsemDeprecated, "'.this' pragma is deprecated"))
-        else:
-          result = c.config.newError(it, reportSem rsemThisPragmaRequires01Args)
       of wNoRewrite:
         result = noVal(c, it)
       of wBase:
