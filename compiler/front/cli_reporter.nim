@@ -2525,13 +2525,13 @@ proc reportBody*(conf: ConfigRef, r: ParserReport): string =
       result = "Number of spaces around '$#' is not consistent"
 
     of rparEnablePreviewDotOps:
-      result = "?"
+      result = "dot-like operators will be parsed differently with `-d:nimPreviewDotLikeOps`"
 
     of rparPragmaNotFollowingTypeName:
-      result = "?"
+      result = "type pragmas follow the type name; this form of writing pragmas is deprecated"
 
     of rparPragmaBeforeGenericParameters:
-      result = "?"
+      result = "pragma must come after any generic parameter list"
 
     of rparName:
       result = "?"
