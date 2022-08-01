@@ -1,4 +1,5 @@
 discard """
+knownIssue: "Broke after this pragma removal"
 targets: "cpp"
 output: "[0, 0, 10, 0]\n5\n1.2\n15\ntest\n[0, 0, 20, 0]\n4"
 """

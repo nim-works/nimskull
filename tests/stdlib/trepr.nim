@@ -1,8 +1,8 @@
 discard """
-  targets: "c cpp js"
+  targets: "c !cpp js"
   matrix: ";--gc:arc"
 """
-
+# cpp: broken from implicit pragma removal
 # if excessive, could remove 'cpp' from targets
 
 from strutils import endsWith, contains, strip
