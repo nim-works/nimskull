@@ -175,7 +175,9 @@ proc transformObjectconfigPacked(arg: NimNode): NimNode =
       result.add transformObjectconfigPacked(child)
 
 proc removeObjectconfig(arg: NimNode): NimNode =
-  if arg.kind == nnkPragmaExpr and arg[1][0].eqIdent "objectconfig":
+  if arg.kind == nnkPragmaExpr and
+     arg[1].kind != nnkEmpty and
+     arg[1][0].eqIdent "objectconfig":
     result = arg[0]
   else:
     result = copyNimNode(arg)

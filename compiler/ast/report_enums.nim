@@ -220,6 +220,8 @@ type
     rparPragmaAlreadyPresent
     rparMisplacedExport
 
+    rparPragmaBeforeGenericParameters
+
     # template parser `filter_tmpl.nim`
     rparTemplMissingEndClose
     rparTemplInvalidExpression
@@ -230,9 +232,8 @@ type
 
     # warnings begin
     rparInconsistentSpacing = "Spacing"
-    rparEnablePreviewDotOps = "DotLikeOps"
     rparPragmaNotFollowingTypeName
-    rparPragmaBeforeGenericParameters
+    rparEnablePreviewDotOps = "DotLikeOps"
     # warnings END !! add reports BEFORE the last enum !!
 
     rparName = "Name" ## Linter report about used identifier
@@ -951,7 +952,7 @@ const
   rparHintKinds*    = {rparName}
   rparErrorKinds*   = {rparInvalidIndentation .. rparInvalidFilter}
   rparWarningKinds* = {
-    rparInconsistentSpacing .. rparPragmaBeforeGenericParameters}
+    rparInconsistentSpacing .. rparEnablePreviewDotOps}
 
   #---------------------------------  sem  ---------------------------------#
   repSemKinds* = {low(SemReportKind) .. high(SemReportKind)}

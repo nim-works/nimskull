@@ -1,7 +1,7 @@
 discard """
   outputsub: '''Success'''
-  cmd: '''nim c --gc:arc --threads:on $file'''
   disabled: "bsd"
+  matrix: "--gc:arc --threads:on"
 """
 
 # bug #13936
