@@ -88,7 +88,7 @@ const
     wPassl, wPassc, wLocalPassc,
     wDeadCodeElimUnused,  # deprecated, always on
     wDeprecated,
-    wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit, wUnroll,
+    wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit,
     wLinearScanEnd, wPatterns, wTrMacros, wEffects, wComputedGoto,
     wExperimental, wUsed, wAssert}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
@@ -825,20 +825,6 @@ proc noVal(c: PContext; n: PNode): PNode =
     invalidPragma(c, n)
   else:
     n
-
-proc pragmaUnroll(c: PContext, n: PNode): PNode =
-  result = n
-  if c.p.nestedLoopCounter <= 0:
-    result = invalidPragma(c, n)
-  elif n.kind in nkPragmaCallKinds and n.len == 2:
-    var (unrollFactor, err) = intLitToIntOrErr(c, n)
-    if err.isNil:
-      if unrollFactor <% 32:
-        n[1] = newIntNode(nkIntLit, unrollFactor)
-      else:
-        result = invalidPragma(c, n)
-    else:
-      result = err
 
 proc pragmaLine(c: PContext, n: PNode): PNode =
   result = n
@@ -1650,8 +1636,6 @@ proc prepareSinglePragma(
           sym.typ.flags.incl tfExplicitCallConv
       of wEmit:
         result = pragmaEmit(c, it)
-      of wUnroll:
-        result = pragmaUnroll(c, it)
       of wLinearScanEnd, wComputedGoto:
         result = noVal(c, it)
       of wEffects:
