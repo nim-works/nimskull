@@ -1,5 +1,5 @@
 discard """
-  cmd: "nim c --gc:orc -d:useMalloc -d:nimStressOrc $file"
+  matrix: "--gc:orc -d:useMalloc -d:nimStressOrc"
   valgrind: "leaks"
   output: "done"
 """
@@ -42,7 +42,7 @@ proc createNode(self: var Cfg, name: int): ref BasicBlock =
   result = self.basicBlockMap.getOrDefault(name)
   if result == nil:
     result = newBasicBlock(name)
-    self.basicBlockMap.add name, result
+    self.basicBlockMap[name] = result
 
   if self.startNode == nil:
     self.startNode = result

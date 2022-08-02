@@ -53,7 +53,7 @@ proc createNode(self: var Cfg, name: int): BasicBlock =
   result = self.basicBlockMap.getOrDefault(name)
   if result == nil:
     result = newBasicBlock(name)
-    self.basicBlockMap.add name, result
+    self.basicBlockMap[name] = result
 
   if self.startNode == nil:
     self.startNode = result
