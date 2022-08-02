@@ -43,7 +43,6 @@ runnableExamples:
 
 ## **See also:**
 ## * `tables module <tables.html>`_ for general hash tables
-## * `sharedtables module<sharedtables.html>`_ for shared hash table support
 ## * `strutils module<strutils.html>`_ for common string functions
 ## * `json module<json.html>`_ for table-like structure which allows
 ##   heterogeneous members

@@ -221,8 +221,6 @@ const
 
 # ------------------------------ helpers ---------------------------------
 
-# Do NOT move these to tableimpl.nim, because sharedtables uses that
-# file and has its own implementation.
 template maxHash(t): untyped = high(t.data)
 template dataLen(t): untyped = len(t.data)
 
@@ -487,25 +485,12 @@ proc len*[A, B](t: Table[A, B]): int =
 
   result = t.counter
 
-proc add*[A, B](t: var Table[A, B], key: A, val: sink B) {.deprecated:
-    "Deprecated since v1.4; it was more confusing than useful, use `[]=`".} =
-  ## Puts a new `(key, value)` pair into `t` even if `t[key]` already exists.
-  ##
-  ## **This can introduce duplicate keys into the table!**
-  ##
-  ## Use `[]= proc<#[]=,Table[A,B],A,sinkB>`_ for inserting a new
-  ## (key, value) pair in the table without introducing duplicates.
-  addImpl(enlarge)
-
 template tabMakeEmpty(i) = t.data[i].hcode = 0
 template tabCellEmpty(i) = isEmpty(t.data[i].hcode)
 template tabCellHash(i)  = t.data[i].hcode
 
 proc del*[A, B](t: var Table[A, B], key: A) =
   ## Deletes `key` from hash table `t`. Does nothing if the key does not exist.
-  ##
-  ## .. warning:: If duplicate keys were added (via the now deprecated `add` proc),
-  ##   this may need to be called multiple times.
   ##
   ## See also:
   ## * `pop proc<#pop,Table[A,B],A,B>`_
@@ -524,9 +509,6 @@ proc pop*[A, B](t: var Table[A, B], key: A, val: var B): bool =
   ## Returns `true`, if the `key` existed, and sets `val` to the
   ## mapping of the key. Otherwise, returns `false`, and the `val` is
   ## unchanged.
-  ##
-  ## .. warning:: If duplicate keys were added (via the now deprecated `add` proc),
-  ##   this may need to be called multiple times.
   ##
   ## See also:
   ## * `del proc<#del,Table[A,B],A>`_
@@ -786,28 +768,6 @@ iterator mvalues*[A, B](t: var Table[A, B]): var B =
       yield t.data[h].val
       assert(len(t) == L, "the length of the table changed while iterating over it")
 
-iterator allValues*[A, B](t: Table[A, B]; key: A): B {.deprecated:
-    "Deprecated since v1.4; tables with duplicated keys are deprecated".} =
-  ## Iterates over any value in the table `t` that belongs to the given `key`.
-  ##
-  ## Used if you have a table with duplicate keys (as a result of using
-  ## `add proc<#add,Table[A,B],A,sinkB>`_).
-  ##
-  runnableExamples:
-    import std/[sequtils, algorithm]
-
-    var a = {'a': 3, 'b': 5}.toTable
-    for i in 1..3: a.add('z', 10*i)
-    doAssert toSeq(a.pairs).sorted == @[('a', 3), ('b', 5), ('z', 10), ('z', 20), ('z', 30)]
-    doAssert sorted(toSeq(a.allValues('z'))) == @[10, 20, 30]
-  var h: Hash = genHash(key) and high(t.data)
-  let L = len(t)
-  while isFilled(t.data[h].hcode):
-    if t.data[h].key == key:
-      yield t.data[h].val
-      assert(len(t) == L, "the length of the table changed while iterating over it")
-    h = nextTry(h, high(t.data))
-
 
 
 # -------------------------------------------------------------------
@@ -1022,21 +982,8 @@ proc len*[A, B](t: TableRef[A, B]): int =
 
   result = t.counter
 
-proc add*[A, B](t: TableRef[A, B], key: A, val: sink B) {.deprecated:
-    "Deprecated since v1.4; it was more confusing than useful, use `[]=`".} =
-  ## Puts a new `(key, value)` pair into `t` even if `t[key]` already exists.
-  ##
-  ## **This can introduce duplicate keys into the table!**
-  ##
-  ## Use `[]= proc<#[]=,TableRef[A,B],A,sinkB>`_ for inserting a new
-  ## (key, value) pair in the table without introducing duplicates.
-  t[].add(key, val)
-
 proc del*[A, B](t: TableRef[A, B], key: A) =
   ## Deletes `key` from hash table `t`. Does nothing if the key does not exist.
-  ##
-  ## .. warning:: If duplicate keys were added (via the now deprecated `add` proc),
-  ##   this may need to be called multiple times.
   ##
   ## See also:
   ## * `pop proc<#pop,TableRef[A,B],A,B>`_
@@ -1055,9 +1002,6 @@ proc pop*[A, B](t: TableRef[A, B], key: A, val: var B): bool =
   ## Returns `true`, if the `key` existed, and sets `val` to the
   ## mapping of the key. Otherwise, returns `false`, and the `val` is
   ## unchanged.
-  ##
-  ## .. warning:: If duplicate keys were added (via the now deprecated `add` proc),
-  ##   this may need to be called multiple times.
   ##
   ## See also:
   ## * `del proc<#del,TableRef[A,B],A>`_
@@ -1512,16 +1456,6 @@ proc len*[A, B](t: OrderedTable[A, B]): int {.inline.} =
     doAssert len(a) == 2
 
   result = t.counter
-
-proc add*[A, B](t: var OrderedTable[A, B], key: A, val: sink B) {.deprecated:
-    "Deprecated since v1.4; it was more confusing than useful, use `[]=`".} =
-  ## Puts a new `(key, value)` pair into `t` even if `t[key]` already exists.
-  ##
-  ## **This can introduce duplicate keys into the table!**
-  ##
-  ## Use `[]= proc<#[]=,OrderedTable[A,B],A,sinkB>`_ for inserting a new
-  ## (key, value) pair in the table without introducing duplicates.
-  addImpl(enlarge)
 
 proc del*[A, B](t: var OrderedTable[A, B], key: A) =
   ## Deletes `key` from hash table `t`. Does nothing if the key does not exist.
@@ -1998,16 +1932,6 @@ proc len*[A, B](t: OrderedTableRef[A, B]): int {.inline.} =
     doAssert len(a) == 2
 
   result = t.counter
-
-proc add*[A, B](t: OrderedTableRef[A, B], key: A, val: sink B) {.deprecated:
-    "Deprecated since v1.4; it was more confusing than useful, use `[]=`".} =
-  ## Puts a new `(key, value)` pair into `t` even if `t[key]` already exists.
-  ##
-  ## **This can introduce duplicate keys into the table!**
-  ##
-  ## Use `[]= proc<#[]=,OrderedTableRef[A,B],A,sinkB>`_ for inserting a new
-  ## (key, value) pair in the table without introducing duplicates.
-  t[].add(key, val)
 
 proc del*[A, B](t: OrderedTableRef[A, B], key: A) =
   ## Deletes `key` from hash table `t`. Does nothing if the key does not exist.

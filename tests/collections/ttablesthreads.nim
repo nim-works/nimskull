@@ -3,7 +3,7 @@ discard """
   output: '''true'''
 """
 
-import hashes, tables, sharedtables, algorithm, sequtils
+import hashes, tables, algorithm, sequtils
 
 proc sortedPairs[T](t: T): auto = toSeq(t.pairs).sorted
 
@@ -212,30 +212,6 @@ block clearCountTableTest:
   doAssert t.len() != 0
   t.clear()
   doAssert t.len() == 0
-
-block withKeyTest:
-  var t: SharedTable[int, int]
-  t.init()
-  t.withKey(1) do (k: int, v: var int, pairExists: var bool):
-    doAssert(v == 0)
-    pairExists = true
-    v = 42
-  doAssert(t.mget(1) == 42)
-  t.withKey(1) do (k: int, v: var int, pairExists: var bool):
-    doAssert(v == 42)
-    pairExists = false
-  try:
-    discard t.mget(1)
-    doAssert(false, "KeyError expected")
-  except KeyError:
-    discard
-  t.withKey(2) do (k: int, v: var int, pairExists: var bool):
-    pairExists = false
-  try:
-    discard t.mget(2)
-    doAssert(false, "KeyError expected")
-  except KeyError:
-    discard
 
 block takeTest:
   var t = initTable[string, int]()

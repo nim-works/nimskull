@@ -52,7 +52,7 @@ proc validateComponent(r: var Registry, name: string, c: Component) =
 
 proc addComponent(r: var Registry, name: string, c: Component) =
   r.validateComponent(name, c)
-  r.components.add(name, c)
+  r.components[name] = c
 
 proc parse_component(body: NimNode): Component =
   result.field_index = @[]

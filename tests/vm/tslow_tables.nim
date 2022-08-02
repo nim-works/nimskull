@@ -18,7 +18,7 @@ proc hop(): bool =
 
   echo "create"
   for i in 1..1000:
-    v.add i, Flop()
+    v[i] = Flop()
 
   echo "search"
   for i in 1..1000:
