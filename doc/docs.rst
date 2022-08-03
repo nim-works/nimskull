@@ -10,7 +10,6 @@ For developers and contributors
 - | `Debugging guide <debug.html>`_
   | Description of the built-in tools for debugging the compiler
 
-
 - | `Contribution guide <contributing.html>`_
   | Contribution guide for |nimskull| projects
 
@@ -20,6 +19,8 @@ For developers and contributors
 - | `Style guide <style_guide.html>`_
   | Stanard library and compiler style guide
 
+- | `Continuous integration internals <ci.html>`_
+  | Describes how CI is implemented and steps for troubleshooting common failures. Required reading for those looking to work on the CI infrastructure.
 
 For users
 =========
