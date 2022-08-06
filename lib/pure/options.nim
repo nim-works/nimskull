@@ -90,7 +90,6 @@ type
       has: bool
 
   UnpackDefect* = object of Defect
-  UnpackError* {.deprecated: "See corresponding Defect".} = UnpackDefect
 
 proc option*[T](val: sink T): Option[T] {.inline.} =
   ## Can be used to convert a pointer type (`ptr`, `pointer`, `ref` or `proc`) to an option type.
