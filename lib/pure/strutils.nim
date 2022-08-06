@@ -1507,29 +1507,6 @@ func delete*(s: var string, slice: Slice[int]) =
       inc(j)
     setLen(s, newLen)
 
-func delete*(s: var string, first, last: int) {.rtl, extern: "nsuDelete", deprecated: "use `delete(s, first..last)`".} =
-  ## Deletes in `s` the characters at positions `first .. last` (both ends included).
-  runnableExamples("--warning:deprecated:off"):
-    var a = "abracadabra"
-
-    a.delete(4, 5)
-    doAssert a == "abradabra"
-
-    a.delete(1, 6)
-    doAssert a == "ara"
-
-    a.delete(2, 999)
-    doAssert a == "ar"
-
-  var i = first
-  var j = min(len(s), last+1)
-  var newLen = len(s)-j+i
-  while i < newLen:
-    s[i] = s[j]
-    inc(i)
-    inc(j)
-  setLen(s, newLen)
-
 func startsWith*(s: string, prefix: char): bool {.inline.} =
   ## Returns true if `s` starts with character `prefix`.
   ##
