@@ -140,7 +140,6 @@ import std/[
   compilesettings,
   editdistance,
   effecttraits,
-  enumerate,
   enumutils,
   exitprocs,
   isolation,

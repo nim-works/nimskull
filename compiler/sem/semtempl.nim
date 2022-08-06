@@ -31,14 +31,18 @@ type
     spNone, spGenSym, spInject
 
 proc symBinding(n: PNode): TSymBinding =
-  for i in 0..<n.len:
-    let it = n[i]
+  result = spNone
+  for it in n:
     let key = if it.kind == nkExprColonExpr: it[0] else: it
-    if key.kind == nkIdent:
+
+    case key.kind
+    of nkIdent:
       case whichKeyword(key.ident)
       of wGensym: return spGenSym
       of wInject: return spInject
       else: discard
+    else:
+      discard
 
 type
   TSymChoiceRule = enum

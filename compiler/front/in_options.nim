@@ -190,9 +190,6 @@ type
     destructor,
     notnil,
     dynamicBindSym,
-    forLoopMacros, ## not experimental anymore; remains here for backwards
-                   ## compatibility
-    caseStmtMacros,## ditto
     vmopsDanger,
     strictFuncs,
     views,

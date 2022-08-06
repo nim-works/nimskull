@@ -88,7 +88,7 @@ const
     wPassl, wPassc, wLocalPassc,
     wDeadCodeElimUnused,  # deprecated, always on
     wDeprecated,
-    wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit, wUnroll,
+    wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit,
     wLinearScanEnd, wPatterns, wTrMacros, wEffects, wComputedGoto,
     wExperimental, wThis, wUsed, wAssert}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
@@ -154,8 +154,7 @@ proc pragmaAsm*(c: PContext, n: PNode): tuple[marker: char, err: PNode] =
   ## Returns ` as the default marker if no other markers are found
   result.marker = '`'
   if n != nil:
-    for i in 0..<n.len:
-      let it = n[i]
+    for it in n:
       if it.kind in nkPragmaCallKinds and it.len == 2 and it[0].kind == nkIdent:
         case whichKeyword(it[0].ident)
         of wSubsChar:
@@ -825,20 +824,6 @@ proc noVal(c: PContext; n: PNode): PNode =
     invalidPragma(c, n)
   else:
     n
-
-proc pragmaUnroll(c: PContext, n: PNode): PNode =
-  result = n
-  if c.p.nestedLoopCounter <= 0:
-    result = invalidPragma(c, n)
-  elif n.kind in nkPragmaCallKinds and n.len == 2:
-    var (unrollFactor, err) = intLitToIntOrErr(c, n)
-    if err.isNil:
-      if unrollFactor <% 32:
-        n[1] = newIntNode(nkIntLit, unrollFactor)
-      else:
-        result = invalidPragma(c, n)
-    else:
-      result = err
 
 proc pragmaLine(c: PContext, n: PNode): PNode =
   result = n
@@ -1650,8 +1635,6 @@ proc prepareSinglePragma(
           sym.typ.flags.incl tfExplicitCallConv
       of wEmit:
         result = pragmaEmit(c, it)
-      of wUnroll:
-        result = pragmaUnroll(c, it)
       of wLinearScanEnd, wComputedGoto:
         result = noVal(c, it)
       of wEffects:

@@ -473,7 +473,7 @@ proc main() =
     # Note: times.format adheres to the format protocol. Test that this
     # works:
 
-    var dt = initDateTime(01, mJan, 2000, 00, 00, 00)
+    var dt = dateTime(2000, mJan, 01, 00, 00, 00)
     check &"{dt:yyyy-MM-dd}", "2000-01-01"
 
     var tm = fromUnix(0)

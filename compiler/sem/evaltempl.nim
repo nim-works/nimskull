@@ -120,7 +120,7 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
     # wiser to just deprecate immediate templates and macros
     # now that we have working untyped parameters.
     genericParams = if fromHlo: 0
-                    else: s.ast[genericParamsPos].len
+                    else: s.ast[genericParamsPos].safeLen
     expectedRegularParams = s.typ.len-1
     givenRegularParams = totalParams - genericParams
   if givenRegularParams < 0: givenRegularParams = 0

@@ -1614,83 +1614,8 @@ proc isTrivalStmtExpr(n: PNode): bool =
       return false
   result = true
 
-proc handleStmtMacro(c: PContext; n, selector: PNode; magicType: string;
-                     flags: TExprFlags): PNode =
-  if selector.kind in nkCallKinds:
-    # we transform
-    # n := for a, b, c in m(x, y, z): Y
-    # to
-    # m(n)
-    let maType = magicsys.getCompilerProc(c.graph, magicType)
-    if maType == nil: return
-
-    let headSymbol = selector[0]
-    var o: TOverloadIter
-    var match: PSym = nil
-    var symx = initOverloadIter(o, c, headSymbol)
-    while symx != nil:
-      if symx.kind in {skTemplate, skMacro}:
-        if symx.typ.len == 2 and symx.typ[1] == maType.typ:
-          if match == nil:
-            match = symx
-          else:
-            localReport(
-              c.config, n.info,
-              reportSymbols(rsemAmbiguous, @[match, symx]).withIt do:
-                it.ast = selector
-            )
-      elif symx.isError:
-        localReport(c.config, symx.ast)
-
-      symx = nextOverloadIter(o, c, headSymbol)
-
-    if match == nil: return
-    var callExpr = newNodeI(nkCall, n.info)
-    callExpr.add newSymNode(match)
-    callExpr.add n
-    case match.kind
-    of skMacro: result = semMacroExpr(c, callExpr, match, flags)
-    of skTemplate: result = semTemplateExpr(c, callExpr, match, flags)
-    else: result = nil
-
-proc handleForLoopMacro(c: PContext; n: PNode; flags: TExprFlags): PNode =
-  result = handleStmtMacro(c, n, n[^2], "ForLoopStmt", flags)
-
-proc handleCaseStmtMacro(c: PContext; n: PNode; flags: TExprFlags): PNode =
-  # n[0] has been sem'checked and has a type. We use this to resolve
-  # '`case`(n[0])' but then we pass 'n' to the `case` macro. This seems to
-  # be the best solution.
-  var toResolve = newNodeI(nkCall, n.info)
-  toResolve.add newIdentNode(getIdent(c.cache, "case"), n.info)
-  toResolve.add n[0]
-
-  var errors: seq[SemCallMismatch]
-  var r = resolveOverloads(c, toResolve, {skTemplate, skMacro}, {}, errors)
-  if r.state == csMatch:
-    var match = r.calleeSym
-    markUsed(c, n[0].info, match)
-    onUse(n[0].info, match)
-
-    # but pass 'n' to the `case` macro, not 'n[0]':
-    r.call[1] = n
-    let toExpand = semResolvedCall(c, r, r.call, {})
-    case match.kind
-    of skMacro: result = semMacroExpr(c, toExpand, match, flags)
-    of skTemplate: result = semTemplateExpr(c, toExpand, match, flags)
-    else: result = nil
-  else:
-    assert r.call.kind == nkError
-    result = r.call # xxx: hope this is nkError
-  # this would be the perfectly consistent solution with 'for loop macros',
-  # but it kinda sucks for pattern matching as the matcher is not attached to
-  # a type then:
-  when false:
-    result = handleStmtMacro(c, n, n[0], "CaseStmt")
-
 proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
   checkMinSonsLen(n, 3, c.config)
-  result = handleForLoopMacro(c, n, flags)
-  if result != nil: return result
   openScope(c)
   result = n
   n[^2] = semExprNoDeref(c, n[^2], {efWantIterator})
@@ -1748,9 +1673,6 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   else:
     popCaseContext(c)
     closeScope(c)
-    result = handleCaseStmtMacro(c, n, flags)
-    if result != nil:
-      return result
     result[0] = c.config.newError(n[0], reportSem rsemSelectorMustBeOfCertainTypes)
     return
   for i in 1..<n.len:

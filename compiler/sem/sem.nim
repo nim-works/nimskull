@@ -581,8 +581,9 @@ proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
   if sym == c.p.owner:
     globalReport(c.config, info, reportSym(rsemCyclicDependency, sym))
 
-  let genericParams = sym.ast[genericParamsPos].len
-  let suppliedParams = max(n.safeLen - 1, 0)
+  let
+    genericParams = sym.ast[genericParamsPos].safeLen
+    suppliedParams = max(n.safeLen - 1, 0)
 
   if suppliedParams < genericParams:
     globalReport(
@@ -604,7 +605,7 @@ proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
     c.config.localReport(n.info, SemReport(
       sym: sym,
       kind: rsemExpandMacro,
-      ast: n,
+      ast: original,
       expandedAst: result))
 
   result = wrapInComesFrom(n.info, sym, result)
