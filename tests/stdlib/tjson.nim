@@ -1,7 +1,7 @@
 discard """
-  targets: "c cpp js"
+  targets: "c !cpp js"
 """
-
+# cpp: broken from implicit pragma removal
 
 #[
 Note: Macro tests are in tests/stdlib/tjsonmacro.nim

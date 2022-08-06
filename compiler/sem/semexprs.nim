@@ -1134,9 +1134,10 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
       # XXX: hmm, what kind of symbols will end up here?
       # do we really need to try the overload resolution?
       n[0] = prc
-      n.flags.incl nfExprCall
       result = semOverloadedCallAnalyseEffects(c, n, flags)
-      if result == nil: return errorNode(c, n)
+      
+      if result == nil:
+        return c.config.newError(n, reportAst(rsemExpressionCannotBeCalled, n))
     elif result.kind notin nkCallKinds:
       # the semExpr() in overloadedCallOpr can even break this condition!
       # See bug #904 of how to trigger it:
@@ -1384,7 +1385,6 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
     # genericThatUsesLen(x) # marked as taking a closure?
     if hasWarn(c.config, rsemResultUsed):
       localReport(c.config, n, reportSem rsemResultUsed)
-
   of skGenericParam:
     onUse(n.info, s)
     if s.typ.kind == tyStatic:
@@ -1403,36 +1403,12 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
     result = newSymNode(s, n.info)
     result.typ = makeTypeDesc(c, s.typ)
   of skField:
-    var p = c.p
-    while p != nil and p.selfSym == nil:
-      p = p.next
-    if p != nil and p.selfSym != nil:
-      var ty = skipTypes(p.selfSym.typ, {tyGenericInst, tyVar, tyLent, tyPtr, tyRef,
-                                         tyAlias, tySink, tyOwned})
-      while tfBorrowDot in ty.flags: ty = ty.skipTypes({tyDistinct, tyGenericInst, tyAlias})
-      var check: PNode = nil
-      if ty.kind == tyObject:
-        while true:
-          check = nil
-          let f = lookupInRecordAndBuildCheck(c, n, ty.n, s.name, check)
-          if f != nil and fieldVisible(c, f):
-            # is the access to a public field or in the same module or in a friend?
-            doAssert f == s
-            markUsed(c, n.info, f)
-            onUse(n.info, f)
-            result = newNodeIT(nkDotExpr, n.info, f.typ)
-            result.add makeDeref(newSymNode(p.selfSym))
-            result.add newSymNode(f) # we now have the correct field
-            if check != nil:
-              check[0] = result
-              check.typ = result.typ
-              result = check
-            return result
-          if ty[0] == nil: break
-          ty = skipTypes(ty[0], skipPtrs)
     # old code, not sure if it's live code:
     markUsed(c, n.info, s)
     onUse(n.info, s)
+    if sfGenSym in s.flags:
+      # the owner should have been set by now by addParamOrResult
+      c.config.internalAssert s.owner != nil
     result = newSymNode(s, n.info)
   else:
     if s.kind == skError and not s.ast.isNil and s.ast.kind == nkError:

@@ -331,7 +331,6 @@ const
   sfWrittenTo*     = sfBorrow         ## param is assigned to
   sfEscapes*       = sfProcvar        ## param escapes
   sfBase*          = sfDiscriminant
-  sfIsSelf*        = sfOverriden      ## param is 'self'
   sfCustomPragma*  = sfRegister       ## symbol is custom pragma template
 
 const
@@ -493,7 +492,6 @@ type
     nfDotField  ## the call can use a dot operator
     nfDotSetter ## the call can use a setter dot operarator
     nfExplicitCall ## `x.y()` was used instead of x.y
-    nfExprCall  ## this is an attempt to call a regular expression
     nfIsRef     ## this node is a 'ref' node; used for the VM
     nfIsPtr     ## this node is a 'ptr' node; used for the VM
     nfPreventCg ## this node should be ignored by the codegen
