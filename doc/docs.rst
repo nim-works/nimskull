@@ -18,7 +18,7 @@ For developers and contributors
   | Rules of moderation for |nimskull| projects.
 
 - | `Style guide <style_guide.html>`_
-  | Stanard library and compiler style guide
+  | Standard library and compiler style guide
 
 
 For users
