@@ -3102,11 +3102,6 @@ proc toOpenArrayByte*(x: openArray[char]; first, last: int): openArray[byte] {.
 proc toOpenArrayByte*(x: seq[char]; first, last: int): openArray[byte] {.
   magic: "Slice".}
 
-type
-  ForLoopStmt* {.compilerproc.} = object ## \
-    ## A special type that marks a macro as a `for-loop macro`:idx:.
-    ## See `"For Loop Macro" <manual.html#macros-for-loop-macro>`_.
-
 when defined(genode):
   var componentConstructHook*: proc (env: GenodeEnv) {.nimcall.}
     ## Hook into the Genode component bootstrap process.

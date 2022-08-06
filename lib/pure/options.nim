@@ -42,29 +42,6 @@ raises `UnpackDefect` if there is no value. Note that `UnpackDefect`
 inherits from `system.Defect` and should therefore never be caught.
 Instead, rely on checking if the option contains a value with the
 `isSome <#isSome,Option[T]>`_ and `isNone <#isNone,Option[T]>`_ procs.
-
-
-Pattern matching
-================
-
-.. note:: This requires the [fusion](https://github.com/nim-lang/fusion) package.
-
-[fusion/matching](https://nim-lang.github.io/fusion/src/fusion/matching.html)
-supports pattern matching on `Option`s, with the `Some(<pattern>)` and
-`None()` patterns.
-
-.. code-block:: nim
-  {.experimental: "caseStmtMacros".}
-
-  import fusion/matching
-
-  case some(42)
-  of Some(@a):
-    assert a == 42
-  of None():
-    assert false
-
-  assertMatch(some(some(none(int))), Some(Some(None())))
 ]##
 # xxx pending https://github.com/timotheecour/Nim/issues/376 use `runnableExamples` and `whichModule`
 

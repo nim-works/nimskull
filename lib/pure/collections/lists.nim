@@ -268,7 +268,7 @@ iterator mitems*[T](L: var SomeLinkedRing[T]): var T =
   itemsRingImpl()
 
 iterator nodes*[T](L: SomeLinkedList[T]): SomeLinkedNode[T] =
-  ## Iterates over every node of `x`. Removing the current node from the
+  ## Iterates over every node of `L`. Removing the current node from the
   ## list during traversal is supported.
   ##
   ## **See also:**
@@ -293,7 +293,7 @@ iterator nodes*[T](L: SomeLinkedList[T]): SomeLinkedNode[T] =
     it = nxt
 
 iterator nodes*[T](L: SomeLinkedRing[T]): SomeLinkedNode[T] =
-  ## Iterates over every node of `x`. Removing the current node from the
+  ## Iterates over every node of `L`. Removing the current node from the
   ## list during traversal is supported.
   ##
   ## **See also:**
@@ -318,6 +318,22 @@ iterator nodes*[T](L: SomeLinkedRing[T]): SomeLinkedNode[T] =
       yield it
       it = nxt
       if it == L.head: break
+
+iterator enumerate*[T](L: SomeLinkedList[T]): (int, T) =
+  ## Iterates over every node of `L`, yielding `(count, value)` tuples with
+  ## count starting at `0`.
+  var i = 0
+  for n in L.items:
+    yield (i, n)
+    inc i
+
+iterator enumerate*[T](L: SomeLinkedRing[T]): (int, T) =
+  ## Iterates over every node of `L`, yielding `(count, value)` tuples with
+  ## count starting at `0`.
+  var i = 0
+  for n in L.items:
+    yield (i, n)
+    inc i
 
 proc `$`*[T](L: SomeLinkedCollection[T]): string =
   ## Turns a list into its string representation for logging and printing.
@@ -390,7 +406,7 @@ proc prependMoved*[T: SomeLinkedList](a, b: var T) {.since: (1, 5, 1).} =
   ## * `prepend proc <#prepend,T,T>`_
   ##   for prepending a copy of a list
   runnableExamples:
-    import std/[sequtils, enumerate, sugar]
+    import std/[sequtils, sugar]
     var
       a = [4, 5].toSinglyLinkedList
       b = [1, 2, 3].toSinglyLinkedList
@@ -515,7 +531,7 @@ proc addMoved*[T](a, b: var SinglyLinkedList[T]) {.since: (1, 5, 1).} =
   ## **See also:**
   ## * `add proc <#add,T,T>`_ for adding a copy of a list
   runnableExamples:
-    import std/[sequtils, enumerate, sugar]
+    import std/[sequtils, sugar]
     var
       a = [1, 2, 3].toSinglyLinkedList
       b = [4, 5].toSinglyLinkedList
@@ -659,7 +675,7 @@ proc addMoved*[T](a, b: var DoublyLinkedList[T]) {.since: (1, 5, 1).} =
   ## * `add proc <#add,T,T>`_
   ##   for adding a copy of a list
   runnableExamples:
-    import std/[sequtils, enumerate, sugar]
+    import std/[sequtils, sugar]
     var
       a = [1, 2, 3].toDoublyLinkedList
       b = [4, 5].toDoublyLinkedList
@@ -712,7 +728,7 @@ proc remove*[T](L: var SinglyLinkedList[T], n: SinglyLinkedNode[T]): bool {.disc
   ## Attempting to remove an element not contained in the list is a no-op.
   ## When the list is cyclic, the cycle is preserved after removal.
   runnableExamples:
-    import std/[sequtils, enumerate, sugar]
+    import std/[sequtils, sugar]
     var a = [0, 1, 2].toSinglyLinkedList
     let n = a.head.next
     assert n.value == 1
@@ -749,7 +765,7 @@ proc remove*[T](L: var DoublyLinkedList[T], n: DoublyLinkedNode[T]) =
   ## otherwise the effects are undefined.
   ## When the list is cyclic, the cycle is preserved after removal.
   runnableExamples:
-    import std/[sequtils, enumerate, sugar]
+    import std/[sequtils, sugar]
     var a = [0, 1, 2].toSinglyLinkedList
     let n = a.head.next
     assert n.value == 1

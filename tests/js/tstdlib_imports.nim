@@ -63,7 +63,7 @@ import std/[
   # fails due to copyMem/endians import: sha1
 
   # Miscellaneous:
-  colors, logging, sugar, unittest, varints, enumerate, with,
+  colors, logging, sugar, unittest, varints, with,
   # fails due to FFI: browsers
   # works but uses FFI: segfaults
 
