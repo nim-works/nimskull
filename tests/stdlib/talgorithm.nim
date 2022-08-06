@@ -45,8 +45,8 @@ block:
   var arr1 = @[0, 1, 2, 3, 4]
   doAssert arr1.reversed() == @[4, 3, 2, 1, 0]
   for i in 0 .. high(arr1):
-    doAssert arr1.reversed(0, i) == arr1.reversed()[high(arr1) - i .. high(arr1)]
-    doAssert arr1.reversed(i, high(arr1)) == arr1.reversed()[0 .. high(arr1) - i]
+    doAssert arr1[0..i].reversed() == arr1.reversed()[high(arr1) - i .. high(arr1)]
+    doAssert arr1[i..high(arr1)].reversed() == arr1.reversed()[0 .. high(arr1) - i]
 
 block:
   var list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
