@@ -898,7 +898,7 @@ proc requestAux(client: HttpClient, url: Uri,
   result = parseResponse(client, getBody)
 
 proc request*(client: HttpClient, url: Uri | string,
-              httpMethod: HttpMethod | string = HttpGet, body = "",
+              httpMethod: HttpMethod = HttpGet, body = "",
               headers: HttpHeaders = nil,
               multipart: MultipartData = nil): Response =
   ## Connects to the hostname specified by the URL and performs a request
@@ -916,36 +916,9 @@ proc request*(client: HttpClient, url: Uri | string,
   ##
   ## `headers` are HTTP headers that override the `client.headers` for
   ## this specific request only and will not be persisted.
-  ##
-  ## **Deprecated since v1.5**: use HttpMethod enum instead; string parameter httpMethod is deprecated
   when url is string:
     doAssert(not url.contains({'\c', '\L'}), "url shouldn't contain any newline characters")
     let url = parseUri(url)
-
-  when httpMethod is string:
-    {.warning:
-       "Deprecated since v1.5; use HttpMethod enum instead; string parameter httpMethod is deprecated".}
-    let httpMethod = case httpMethod
-      of "HEAD":
-        HttpHead
-      of "GET":
-        HttpGet
-      of "POST":
-        HttpPost
-      of "PUT":
-        HttpPut
-      of "DELETE":
-        HttpDelete
-      of "TRACE":
-        HttpTrace
-      of "OPTIONS":
-        HttpOptions
-      of "CONNECT":
-        HttpConnect
-      of "PATCH":
-        HttpPatch
-      else:
-        raise newException(ValueError, "Invalid HTTP method name: " & httpMethod)
 
   result = client.requestAux(url, httpMethod, body, headers, multipart)
 
