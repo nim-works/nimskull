@@ -487,13 +487,10 @@ template main =
   block: # delete tests
     let outcome = @[1, 1, 1, 1, 1, 1, 1, 1]
     var dest = @[1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1]
-    dest.delete(3, 8)
+    dest.delete(3..8)
     doAssert outcome == dest, """\
     Deleting range 3-9 from [1,1,1,2,2,2,2,2,2,1,1,1,1,1]
     is [1,1,1,1,1,1,1,1]"""
-    var x = @[1, 2, 3]
-    x.delete(100, 100)
-    doAssert x == @[1, 2, 3]
 
   block: # delete tests
     var a = @[10, 11, 12, 13, 14]
