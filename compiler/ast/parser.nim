@@ -1987,7 +1987,7 @@ proc parseObject(p: var Parser): PNode =
   result = newNodeP(nkObjectTy, p)
   p.getTok
   result.add if p.tok.tokType == tkCurlyDotLe and p.validInd:
-               # Deprecated since v0.20.0
+               # Deprecated: type declaration syntax needs overhaul to fix this
                p.localError ParserReport(kind: rparPragmaNotFollowingTypeName)
                p.parsePragma
              else:
@@ -2063,38 +2063,41 @@ proc parseTypeClass(p: var Parser): PNode =
 
 proc parseTypeDef(p: var Parser): PNode =
   #|
-  #| typeDef = identWithPragmaDot genericParamList? '=' optInd typeDefAux
-  #|             indAndComment? / identVisDot genericParamList? pragma '=' optInd typeDefAux
+  #| typeDef = identWithPragmaDot '=' optInd typeDefAux
+  #|             indAndComment? / identVisDot genericParamList? pragma? '=' optInd typeDefAux
   #|             indAndComment?
   result = newNodeP(nkTypeDef, p)
-  let identifier = p.identVis(allowDot=true)
-  var identPragma = identifier
-  var foundPragmas = false
+  let 
+    identifier = p.identVis(allowDot=true)
+    (genericParams, pragmas) =
+      case p.tok.tokType
+      of tkBracketLe:
+        (
+          (if p.validInd: parseGenericParamList(p) else: p.emptyNode),
+          optPragmas(p)
+        )
+        # xxx: should the else/empty generic branch invalid indentation error?
+      of tkCurlyDotLe:
+        let res = (p.emptyNode, optPragmas(p))
+        
+        if p.validInd and p.tok.tokType == tkBracketLe:
+          p.localError ParserReport(kind: rparPragmaBeforeGenericParameters)
+        
+        res
+      of tkEquals:
+        (p.emptyNode, p.emptyNode)
+        # parsing for everything after the equals is shared, we do that below
+      else:
+        (p.emptyNode, p.emptyNode) # xxx: error?
 
-  if p.tok.tokType == tkCurlyDotLe:
-    let pragma = optPragmas(p)
-    identPragma = newTreeI(nkPragmaExpr, p.lineInfo, [identifier, pragma])
-    foundPragmas = true
-
-  let genericParam = if p.validInd and p.tok.tokType == tkBracketLe:
-                   if foundPragmas:
-                     # Deprecated since v0.20.0
-                     p.localError ParserReport(kind: rparPragmaBeforeGenericParameters)
-                   parseGenericParamList(p)
-                 else:
-                   p.emptyNode
-
-  if not foundPragmas:
-    let pragma = optPragmas(p)
-    if pragma.kind != nkEmpty:
-      identPragma = newTreeI(nkPragmaExpr, p.lineInfo, [identifier, pragma])
-  elif p.tok.tokType == tkCurlyDotLe:
-    p.localError ParserReport(kind: rparPragmaAlreadyPresent)
-
-  result.add identPragma
-  result.add genericParam
-
-  result.add if p.tok.tokType == tkEquals:
+  result.add:
+    if pragmas.kind == nkEmpty:
+      identifier
+    else:
+      newTreeI(nkPragmaExpr, p.lineInfo, [identifier, pragmas])
+  result.add genericParams
+  result.add case p.tok.tokType
+             of tkEquals:
                result.info = p.lineInfo
                p.getTok
                p.optInd(result)

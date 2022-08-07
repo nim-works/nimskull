@@ -1132,7 +1132,7 @@ proc extractPragma(s: PSym): PNode =
       if s.ast[0].kind == nkPragmaExpr and s.ast[0].len > 1:
         # s.ast = nkTypedef / nkPragmaExpr / [nkSym, nkPragma]
         result = s.ast[0][1]
-  doAssert result == nil or result.kind == nkPragma
+  doAssert result == nil or result.kind in {nkPragma, nkEmpty}
 
 proc warnAboutDeprecated(conf: ConfigRef; info: TLineInfo; s: PSym) =
   var pragmaNode: PNode
