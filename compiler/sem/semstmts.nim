@@ -2655,8 +2655,13 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     n[miscPos] = c.graph.emptyNode
 
   if tfTriggersCompileTime in s.typ.flags: incl(s.flags, sfCompileTime)
+  
   if n[patternPos].kind != nkEmpty:
     n[patternPos] = semPattern(c, n[patternPos], s)
+    if n[patternPos].kind == nkError:
+      # xxx: convert to nkError propagation
+      c.config.localReport(n[patternPos])
+  
   if s.kind == skIterator:
     s.typ.flags.incl(tfIterator)
   elif s.kind == skFunc:
