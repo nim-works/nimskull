@@ -52,10 +52,10 @@ runnableExamples:
 
 
 when not defined(js):
-  import os
+  import std/os
 
 when defined(posix):
-  import posix
+  import std/posix
 
 const
   batchImplOS = defined(freebsd) or defined(openbsd) or (defined(macosx) and not defined(ios))

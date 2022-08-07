@@ -15,7 +15,7 @@ when not defined(memTracker) and not isMainModule:
 {.push memtracker: off.}
 # we import the low level wrapper and are careful not to use Nim's
 # memory manager for anything here.
-import sqlite3
+import std/sqlite3
 
 var
   dbHandle: PSqlite3

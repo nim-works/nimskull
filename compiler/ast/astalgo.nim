@@ -21,9 +21,6 @@ import
     hashes,
     intsets,
     strutils,
-  ],
-  compiler/utils/[
-    ropes,
   ]
 
 proc hashNode*(p: RootRef): Hash
@@ -193,10 +190,6 @@ proc hashNode(p: RootRef): Hash =
 proc mustRehash(length, counter: int): bool =
   assert(length > counter)
   result = (length * 2 < counter * 3) or (length - counter < 4)
-
-proc rspaces(x: int): Rope =
-  # returns x spaces
-  result = rope(spaces(x))
 
 proc nextTry(h, maxHash: Hash): Hash =
   result = ((5 * h) + 1) and maxHash

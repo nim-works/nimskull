@@ -99,15 +99,15 @@
 import std/private/since
 import std/exitprocs
 
-import macros, strutils, streams, times, sets, sequtils
+import std/[macros, strutils, streams, times, sets, sequtils]
 
 when declared(stdout):
-  import os
+  import std/os
 
 const useTerminal = not defined(js)
 
 when useTerminal:
-  import terminal
+  import std/terminal
 
 type
   TestStatus* = enum ## The status of a test when it is done.

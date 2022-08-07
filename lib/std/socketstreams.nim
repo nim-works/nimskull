@@ -63,7 +63,7 @@
 ##  sendStream.setPosition(1)
 ##  sendStream.write "I" # Throws an error as we can't write into an already sent buffer
 
-import net, streams
+import std/[net, streams]
 
 type
   ReadSocketStream* = ref ReadSocketStreamObj

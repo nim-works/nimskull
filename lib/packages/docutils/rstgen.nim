@@ -39,8 +39,10 @@
 ##   No backreferences are generated since finding all references of a footnote
 ##   can be done by simply searching for [footnoteName].
 
-import strutils, os, hashes, strtabs, rstast, rst, highlite, tables, sequtils,
-  algorithm, parseutils, std/strbasics
+import std/[strutils, os, hashes, strtabs, tables, sequtils, algorithm,
+            parseutils, strbasics]
+
+import rstast, rst, highlite
 
 import ../../std/private/since
 

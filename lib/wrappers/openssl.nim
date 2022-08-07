@@ -39,17 +39,17 @@ when sslVersion != "":
     const
       DLLSSLName* = "libssl." & sslVersion & ".dylib"
       DLLUtilName* = "libcrypto." & sslVersion & ".dylib"
-    from posix import SocketHandle
+    from std/posix import SocketHandle
   elif defined(windows):
     const
       DLLSSLName* = "libssl-" & sslVersion & ".dll"
       DLLUtilName* =  "libcrypto-" & sslVersion & ".dll"
-    from winlean import SocketHandle
+    from std/winlean import SocketHandle
   else:
     const
       DLLSSLName* = "libssl.so." & sslVersion
       DLLUtilName* = "libcrypto.so." & sslVersion
-    from posix import SocketHandle
+    from std/posix import SocketHandle
 
 elif useWinVersion:
   when defined(openssl10) or defined(nimOldDlls):
@@ -70,7 +70,7 @@ elif useWinVersion:
       DLLSSLName* = "(libssl-1_1|ssleay32|libssl32).dll"
       DLLUtilName* = "(libcrypto-1_1|libeay32).dll"
 
-  from winlean import SocketHandle
+  from std/winlean import SocketHandle
 else:
   when defined(osx):
     const versions = "(.1.1|.38|.39|.41|.43|.44|.45|.46|.47|.48|.10|.1.0.2|.1.0.1|.1.0.0|.0.9.9|.0.9.8|)"
@@ -89,9 +89,9 @@ else:
     const
       DLLSSLName* = "libssl.so" & versions
       DLLUtilName* = "libcrypto.so" & versions
-  from posix import SocketHandle
+  from std/posix import SocketHandle
 
-import dynlib
+import std/dynlib
 
 type
   SslStruct {.final, pure.} = object
@@ -748,7 +748,7 @@ proc md5*(d: ptr uint8; n: csize_t; md: ptr uint8): ptr uint8{.importc: "MD5".}
 proc md5_Transform*(c: var MD5_CTX; b: ptr uint8){.importc: "MD5_Transform".}
 {.pop.}
 
-from strutils import toHex, toLowerAscii
+from std/strutils import toHex, toLowerAscii
 
 proc hexStr(buf: cstring): string =
   # turn md5s output into a nice hex str

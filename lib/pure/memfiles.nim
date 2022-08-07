@@ -16,13 +16,13 @@
 ## other "line-like", variable length, delimited records).
 
 when defined(windows):
-  import winlean
+  import std/winlean
 elif defined(posix):
-  import posix
+  import std/posix
 else:
   {.error: "the memfiles module is not supported on your operating system!".}
 
-import os, streams
+import std/[os, streams]
 
 proc newEIO(msg: string): ref IOError =
   new(result)

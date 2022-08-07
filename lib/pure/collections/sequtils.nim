@@ -82,7 +82,7 @@ runnableExamples:
 
 import std/private/since
 
-import macros
+import std/macros
 
 when defined(nimHasEffectsOf):
   {.experimental: "strictEffects".}

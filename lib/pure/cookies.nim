@@ -9,7 +9,7 @@
 
 ## This module implements helper procs for parsing Cookies.
 
-import strtabs, times, options
+import std/[strtabs, times, options]
 
 
 type

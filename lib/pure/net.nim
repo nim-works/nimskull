@@ -90,8 +90,8 @@ runnableExamples("-r:off"):
 
 import std/private/since
 
-import nativesockets, os, strutils, times, sets, options, std/monotimes
-import ssl_config
+import std/[nativesockets, os, strutils, times, sets, options, monotimes]
+import std/ssl_config
 export nativesockets.Port, nativesockets.`$`, nativesockets.`==`
 export Domain, SockType, Protocol
 
@@ -99,12 +99,12 @@ const useWinVersion = defined(windows) or defined(nimdoc)
 const defineSsl = defined(ssl) or defined(nimdoc)
 
 when useWinVersion:
-  from winlean import WSAESHUTDOWN
+  from std/winlean import WSAESHUTDOWN
 
 when defineSsl:
-  import openssl
+  import std/openssl
   when not defined(nimDisableCertificateValidation):
-    from ssl_certs import scanSSLCertificates
+    from std/ssl_certs import scanSSLCertificates
 
 # Note: The enumerations are mapped to Window's constants.
 
@@ -1106,7 +1106,7 @@ proc accept*(server: Socket, client: var owned(Socket),
   acceptAddr(server, client, addrDummy, flags)
 
 when defined(posix) and not defined(lwip):
-  from posix import Sigset, sigwait, sigismember, sigemptyset, sigaddset,
+  from std/posix import Sigset, sigwait, sigismember, sigemptyset, sigaddset,
     sigprocmask, pthread_sigmask, SIGPIPE, SIG_BLOCK, SIG_UNBLOCK
 
 template blockSigpipe(body: untyped): untyped =
@@ -1220,9 +1220,9 @@ proc close*(socket: Socket, flags = {SocketFlag.SafeDisconn}) =
     socket.fd = osInvalidSocket
 
 when defined(posix):
-  from posix import TCP_NODELAY
+  from std/posix import TCP_NODELAY
 else:
-  from winlean import TCP_NODELAY
+  from std/winlean import TCP_NODELAY
 
 proc toCInt*(opt: SOBool): cint =
   ## Converts a `SOBool` into its Socket Option cint representation.

@@ -58,13 +58,13 @@ runnableExamples("-r:off"):
 
   stdout.styledWriteLine(fgRed, "red text ", styleBright, "bold red", fgDefault, " bold text")
 
-import macros
-import strformat
-from strutils import toLowerAscii, `%`
-import colors
+import std/macros
+import std/strformat
+from std/strutils import toLowerAscii, `%`
+import std/colors
 
 when defined(windows):
-  import winlean
+  import std/winlean
 
 type
   PTerminal = ref object
@@ -96,7 +96,7 @@ const
   stylePrefix = "\e["
 
 when defined(windows):
-  import winlean, os
+  import std/[winlean, os]
 
   const
     DUPLICATE_SAME_ACCESS = 2
@@ -250,7 +250,7 @@ when defined(windows):
     if f == stderr: term.hStderr else: term.hStdout
 
 else:
-  import termios, posix, os, parseutils
+  import std/[termios, posix, os, parseutils]
 
   proc setRaw(fd: FileHandle, time: cint = TCSAFLUSH) =
     var mode: Termios
@@ -898,7 +898,7 @@ proc isTrueColorSupported*(): bool =
   return getTerminal().trueColorIsSupported
 
 when defined(windows):
-  import os
+  import std/os
 
 proc enableTrueColors*() =
   ## Enables true color.

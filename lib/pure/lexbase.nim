@@ -12,7 +12,7 @@
 ## needs refilling.
 
 import
-  strutils, streams
+  std/[strutils, streams]
 
 const
   EndOfFile* = '\0' ## end of file marker

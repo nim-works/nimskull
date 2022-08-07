@@ -18,7 +18,7 @@
 ##
 ## Unstable API.
 
-from os import raiseOSError, osLastError
+from std/os import raiseOSError, osLastError
 
 template distance*(lhs, rhs: pointer): int =
   cast[int](rhs) - cast[int](lhs)
@@ -41,7 +41,7 @@ type
     mem: ReservedMem
 
 when defined(windows):
-  import winlean
+  import std/winlean
   import std/private/win_getsysteminfo
 
   proc getAllocationGranularity: uint =
@@ -65,7 +65,7 @@ when defined(windows):
       raiseOSError(osLastError())
 
 else:
-  import posix
+  import std/posix
 
   let allocationGranularity = sysconf(SC_PAGESIZE)
 

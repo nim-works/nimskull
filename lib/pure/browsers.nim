@@ -14,15 +14,15 @@
 
 import std/private/since
 
-import strutils
+import std/strutils
 
 when defined(windows):
-  import winlean
-  from os import absolutePath
+  import std/winlean
+  from std/os import absolutePath
 else:
-  import os
+  import std/os
   when not defined(osx):
-    import osproc
+    import std/osproc
 
 const osOpenCmd* =
   when defined(macos) or defined(macosx) or defined(windows): "open" else: "xdg-open" ## \

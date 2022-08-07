@@ -17,7 +17,7 @@ See also:
 * `mkstemp` (posix), refs https://man7.org/linux/man-pages/man3/mkstemp.3.html
 ]#
 
-import os, random
+import std/[os, random]
 
 
 const
@@ -27,7 +27,7 @@ const
 
 
 when defined(windows):
-  import winlean
+  import std/winlean
 
   var O_RDWR {.importc: "_O_RDWR", header: "<fcntl.h>".}: cint
 
@@ -42,7 +42,7 @@ when defined(windows):
   proc close_osfandle(fd: cint): cint {.
     importc: "_close", header: "<io.h>".}
 else:
-  import posix
+  import std/posix
 
   proc c_fdopen(
     filehandle: cint,

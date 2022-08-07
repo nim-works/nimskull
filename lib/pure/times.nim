@@ -202,7 +202,7 @@ import std/private/since
 include "system/inclrtl"
 
 when defined(js):
-  import jscore
+  import std/jscore
 
   # This is really bad, but overflow checks are broken badly for
   # ints on the JS backend. See #6752.
@@ -226,7 +226,7 @@ when defined(js):
   {.pop.}
 
 elif defined(posix):
-  import posix
+  import std/posix
 
   type CTime = posix.Time
 
@@ -235,7 +235,7 @@ elif defined(posix):
       {.importc: "gettimeofday", header: "<sys/time.h>", sideEffect.}
 
 elif defined(windows):
-  import winlean, std/time_t
+  import std/[winlean, time_t]
 
   type
     CTime = time_t.Time

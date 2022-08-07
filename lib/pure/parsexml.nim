@@ -42,7 +42,7 @@ document.
     # This program reads an HTML file and writes its title to stdout.
     # Errors and whitespace are ignored.
 
-    import os, streams, parsexml, strutils
+    import std/[os, streams, parsexml, strutils]
 
     if paramCount() < 1:
       quit("Usage: htmltitle filename[.html]")
@@ -91,7 +91,7 @@ an HTML document contains.
     # This program reads an HTML file and writes all its used links to stdout.
     # Errors and whitespace are ignored.
 
-    import os, streams, parsexml, strutils
+    import std/[os, streams, parsexml, strutils]
 
     proc `=?=` (a, b: string): bool =
       # little trick: define our own comparator that ignores case
@@ -147,7 +147,7 @@ an HTML document contains.
 ]##
 
 import
-  strutils, lexbase, streams, unicode
+  std/[strutils, lexbase, streams, unicode]
 
 # the parser treats ``<br />`` as ``<br></br>``
 
@@ -789,7 +789,7 @@ proc next*(my: var XmlParser) =
     my.state = stateNormal
 
 when not defined(testing) and isMainModule:
-  import os
+  import std/os
   var s = newFileStream(paramStr(1), fmRead)
   if s == nil: quit("cannot open the file" & paramStr(1))
   var x: XmlParser

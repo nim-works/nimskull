@@ -16,7 +16,7 @@ runnableExamples:
   assert 0.0.toJson.kind == JFloat
   assert Inf.toJson.kind == JString
 
-import json, strutils, tables, sets, strtabs, options
+import std/[json, strutils, tables, sets, strtabs, options]
 
 #[
 Future directions:
@@ -30,9 +30,9 @@ add a way to customize serialization, for e.g.:
   objects.
 ]#
 
-import macros
-from enumutils import symbolName
-from typetraits import OrdinalEnum
+import std/macros
+from std/enumutils import symbolName
+from std/typetraits import OrdinalEnum
 
 when not defined(nimFixedForwardGeneric):
   # xxx remove pending csources_v1 update >= 1.2.0

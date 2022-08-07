@@ -182,7 +182,8 @@ proc bundleWinTools(args: string) =
                options = r"--cc:vcc --app:gui -d:ssl --noNimblePath --path:..\ui " & args)
 
 proc ensureCleanGit() =
-  let (outp, status) = osproc.execCmdEx("git diff")
+  discard osproc.execCmdEx("git diff")
+  # let (outp, status) = osproc.execCmdEx("git diff")
   #if outp.len != 0:
   #  quit "Not a clean git repository; 'git diff' not empty!"
   #if status != 0:

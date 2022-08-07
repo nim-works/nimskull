@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-import locks
+import std/locks
 
 type
   FunKind = enum kClosure, kNoconv # extend as needed

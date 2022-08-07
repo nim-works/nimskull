@@ -22,7 +22,7 @@
 ## * `sets module <sets.html>`_ for more general hash sets
 
 import std/private/since
-import hashes
+import std/hashes
 
 type
   BitScalar = uint
