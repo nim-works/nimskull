@@ -653,18 +653,22 @@ proc semProcAnnotation(c: PContext, prc: PNode; validPragmas: TSpecialWords): PN
 proc semTemplateDef(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "semTemplateDef", n, result)
 
+  assert n.kind == nkTemplateDef, "template def expected, got: " & $n.kind
+
   result = semProcAnnotation(c, n, templatePragmas)
   if result != nil:
     return result
 
-  result = n
-  var s: PSym
+  # setup node for production
+  result = copyNode(n)      # not all flags copied, let's see how that works
+  result.sons.newSeq(n.len) # make space for the kids
 
-  if isTopLevel(c):
-    s = semIdentVis(c, skTemplate, n[namePos], {sfExported})
+  var hasError = false
+
+  var s = semIdentVis(c, skTemplate, n[namePos],
+                      allowed = (if c.isTopLevel: {sfExported} else: {}))
+  if c.isTopLevel:
     incl(s.flags, sfGlobal)
-  else:
-    s = semIdentVis(c, skTemplate, n[namePos], {})
 
   assert s.kind == skTemplate
 
@@ -676,26 +680,38 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
 
   styleCheckDef(c.config, s)
   onDef(n[namePos].info, s)
+
   # check parameter list:
-  #s.scope = c.currentScope
   pushOwner(c, s)
   openScope(c)
-  n[namePos] = newSymNode(s)
-  result = pragmaCallable(c, s, n, templatePragmas)
-  if result.kind != nkError:
-    s = implicitPragmas(c, s, n.info, templatePragmas)
 
-  # check if we got any errors and if so report them
-  if s != nil and s.kind == skError:
-    result = s.ast
-  for e in ifErrorWalkErrors(c.config, result):
-    localReport(c.config, e)
+  result[namePos] = newSymNode(s)
+  result[pragmasPos] = n[pragmasPos]
 
-  setGenericParamsMisc(c, n)
+  discard pragmaCallable(c, s, result, templatePragmas) # just check pragmasPos
+
+  if result[pragmasPos].kind == nkError:
+    hasError = true
+  
+  # this should return the same `s` if there were no errors
+  s = implicitPragmas(c, s, n.info, templatePragmas)
+
+  if s.isError:
+    result[namePos] = s.ast
+    hasError = true
+  
+  result[genericParamsPos] = n[genericParamsPos]
+  result[miscPos] = n[miscPos]
+
+  setGenericParamsMisc(c, result)
+
+  result[paramsPos] = n[paramsPos]
+
   # process parameters:
   var allUntyped = true
-  if n[paramsPos].kind != nkEmpty:
-    semParamList(c, n[paramsPos], n[genericParamsPos], s)
+  case n[paramsPos].kind
+  of nkFormalParams:
+    semParamList(c, result[paramsPos], result[genericParamsPos], s)
     # a template's parameters are not gensym'ed even if that was originally the
     # case as we determine whether it's a template parameter in the template
     # body by the absence of the sfGenSym flag:
@@ -703,58 +719,78 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
       let param = s.typ.n[i].sym
       param.flags.incl sfTemplateParam
       param.flags.excl sfGenSym
-      if param.typ.kind != tyUntyped: allUntyped = false
-  else:
+      if param.typ.kind != tyUntyped:
+        allUntyped = false
+  of nkEmpty:
     s.typ = newTypeS(tyProc, c)
     # XXX why do we need tyTyped as a return type again?
     s.typ.n = newNodeI(nkFormalParams, n.info)
     rawAddSon(s.typ, newTypeS(tyTyped, c))
     s.typ.n.add newNodeIT(nkType, n.info, s.typ[0])
-  if n[genericParamsPos].safeLen == 0:
-    # restore original generic type params as no explicit or implicit were found
-    n[genericParamsPos] = n[miscPos][1]
-    n[miscPos] = c.graph.emptyNode
-  if allUntyped: incl(s.flags, sfAllUntyped)
-
-  if n[patternPos].kind != nkEmpty:
-    n[patternPos] = semPattern(c, n[patternPos], s)
-
-  var ctx: TemplCtx
-  ctx.toBind = initIntSet()
-  ctx.toMixin = initIntSet()
-  ctx.toInject = initIntSet()
-  ctx.c = c
-  ctx.owner = s
-  if sfDirty in s.flags:
-    n[bodyPos] = semTemplBodyDirty(ctx, n[bodyPos])
   else:
-    n[bodyPos] = semTemplBody(ctx, n[bodyPos])
-  # only parameters are resolved, no type checking is performed
-  semIdeForTemplateOrGeneric(c, n[bodyPos], ctx.cursorInBody)
+    discard # error out?
+  
+  if result[genericParamsPos].safeLen == 0:
+    # restore original generic type params as no explicit or implicit params
+    # were found
+    result[genericParamsPos] = result[miscPos][1]
+    result[miscPos] = c.graph.emptyNode
+  
+  if allUntyped:
+    incl(s.flags, sfAllUntyped)
+  
+  result[patternPos] = semPattern(c, n[patternPos], s)
+  if result[patternPos].isError:
+    hasError = true
+
+  var ctx = TemplCtx(c: c, toBind: initIntSet(), toMixin: initIntSet(),
+                     toInject: initIntSet(), owner: s)
+  result[bodyPos] =
+    if sfDirty in s.flags:
+      semTemplBodyDirty(ctx, n[bodyPos])
+    else:
+      semTemplBody(ctx, n[bodyPos])
+  
+  # only parameters are resolve, no type checking is performed
+  semIdeForTemplateOrGeneric(c, result[bodyPos], ctx.cursorInBody)
   closeScope(c)
   popOwner(c)
 
   # set the symbol AST after pragmas, at least. This stops pragma that have
   # been pushed (implicit) to be explicitly added to the template definition
-  # and misapplied to the body. see #18113
-  s.ast = n
+  # and misapplied to the body.
+  s.ast = result
 
-  if sfCustomPragma in s.flags:
-    if n[bodyPos].kind != nkEmpty:
-      localReport(c.config, n[bodyPos].info, reportSym(
-        rsemImplementationNotAllowed, s))
+  case result[bodyPos].kind
+  of nkError:
+    hasError = true
+  of nkEmpty:
+    if sfCustomPragma notin s.flags:
+      result[bodyPos] = newError(c.config, result[bodyPos],
+                                 reportSym(rsemImplementationExpected, s),
+                                 posInfo = result.info)
+      hasError = true
+  else:
+    if sfCustomPragma in s.flags:      
+      result[bodyPos] = newError(c.config, result[bodyPos],
+                                 reportSym(rsemImplementationNotAllowed, s))
+      hasError = true
 
-  elif n[bodyPos].kind == nkEmpty:
-    localReport(c.config, n.info, reportSym(
-      rsemImplementationExpected, s))
+  let (proto, comesFromShadowScope) = searchForProc(c, c.currentScope, s)
 
-  var (proto, comesFromShadowscope) = searchForProc(c, c.currentScope, s)
-  if proto == nil:
+  if proto.isNil:
     addInterfaceOverloadableSymAt(c, c.currentScope, s)
-  elif not comesFromShadowscope:
+  elif not comesFromShadowScope:
     symTabReplace(c.currentScope.symbols, proto, s)
-  if n[patternPos].kind != nkEmpty:
+  
+  case result[patternPos].kind
+  of nkEmpty:
+    discard # no pattern, nothing to do
+  else:
     c.patterns.add(s)
+
+  if hasError:
+    result = c.config.wrapError(result)
 
 proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
   template templToExpand(s: untyped): untyped =
@@ -891,19 +927,27 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
       result[i] = semPatternBody(c, n[i])
 
 proc semPattern(c: PContext, n: PNode; s: PSym): PNode =
-  openScope(c)
-  var ctx = TemplCtx(
-    toBind: initIntSet(),
-    toMixin: initIntSet(),
-    toInject: initIntSet(),
-    c: c,
-    owner: getCurrOwner(c)
-  )
-  result = flattenStmts(semPatternBody(ctx, n))
-  if result.kind in {nkStmtList, nkStmtListExpr}:
-    if result.len == 1:
-      result = result[0]
-    elif result.len == 0:
-      localReport(c.config, n, reportSem rsemExpectedNonemptyPattern)
-  closeScope(c)
-  addPattern(c, LazySym(sym: s))
+  case n.kind
+  of nkError, nkEmpty:
+    result = n
+  else:
+    openScope(c)
+    var ctx = TemplCtx(
+      toBind: initIntSet(),
+      toMixin: initIntSet(),
+      toInject: initIntSet(),
+      c: c,
+      owner: getCurrOwner(c)
+    )
+    result = flattenStmts(semPatternBody(ctx, n))
+    if result.kind in {nkStmtList, nkStmtListExpr}:
+      result =
+        case result.len
+        of 1:
+          result[0] # flatten
+        of 0:
+          c.config.newError(n, reportSem rsemExpectedNonemptyPattern)
+        else:
+          result    # leave as is
+    closeScope(c)
+    addPattern(c, LazySym(sym: s))
