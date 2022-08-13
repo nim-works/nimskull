@@ -36,7 +36,7 @@ See also
 * `times module <times.html>`_
 ]##
 
-import times
+import std/times
 
 type
   MonoTime* = object ## Represents a monotonic timestamp.
@@ -74,7 +74,7 @@ when defined(js):
   {.pop.}
 
 elif defined(posix) and not defined(osx):
-  import posix
+  import std/posix
 
 elif defined(windows):
   proc QueryPerformanceCounter(res: var uint64) {.

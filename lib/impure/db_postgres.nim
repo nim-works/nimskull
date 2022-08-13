@@ -83,9 +83,9 @@
 ## .. code-block:: Nim
 ##     db.exec(sql"INSERT INTO myTable (id, name) VALUES (0, ?)",
 ##             "Dominik")
-import strutils, postgres
+import std/[strutils, postgres]
 
-import db_common
+import std/db_common
 export db_common
 
 import std/private/since

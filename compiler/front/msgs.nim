@@ -155,12 +155,6 @@ proc newLineInfo*(conf: ConfigRef; filename: AbsoluteFile, line, col: int): TLin
 
 const gCmdLineInfo* = newLineInfo(commandLineIdx, 1, 1)
 
-proc concat(strings: openArray[string]): string =
-  var totalLen = 0
-  for s in strings: totalLen += s.len
-  result = newStringOfCap totalLen
-  for s in strings: result.add s
-
 proc suggestWriteln*(conf: ConfigRef; s: string) =
   if eStdOut in conf.m.errorOutputs:
     writelnHook(conf, s)
@@ -326,7 +320,7 @@ proc toLinenumber*(info: TLineInfo): int {.inline.} =
 proc toColumn*(info: TLineInfo): int {.inline.} =
   result = info.col
 
-proc toFileLineCol(info: InstantiationInfo): string {.inline.} =
+proc toFileLineCol*(info: InstantiationInfo): string {.inline.} =
   result.toLocation(info.filename, info.line, info.column + ColOffset)
 
 proc toFileLineCol*(conf: ConfigRef; info: TLineInfo): string {.inline.} =
@@ -472,7 +466,7 @@ proc sourceLine*(conf: ConfigRef; i: TLineInfo): string =
 
   result = conf[i.fileIndex].lines[i.line.int - 1]
 
-proc getSurroundingSrc(conf: ConfigRef; info: TLineInfo): string =
+proc getSurroundingSrc*(conf: ConfigRef; info: TLineInfo): string =
   if conf.hasHint(rintSource) and info != unknownLineInfo:
     const indent = "  "
     result = "\n" & indent & $sourceLine(conf, info)

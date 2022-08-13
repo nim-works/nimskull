@@ -46,7 +46,7 @@ Instead, rely on checking if the option contains a value with the
 # xxx pending https://github.com/timotheecour/Nim/issues/376 use `runnableExamples` and `whichModule`
 
 
-import typetraits
+import std/typetraits
 
 when (NimMajor, NimMinor) >= (1, 1):
   type

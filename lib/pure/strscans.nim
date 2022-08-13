@@ -283,7 +283,7 @@ efficiency and perform different checks.
 ]##
 
 
-import macros, parseutils
+import std/[macros, parseutils]
 import std/private/since
 
 proc conditionsToIfChain(n, idx, res: NimNode; start: int): NimNode =

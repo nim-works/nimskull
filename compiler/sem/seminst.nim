@@ -313,7 +313,7 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
     "Expected macro or template, but found " & $fn.kind)
 
   # generates an instantiated proc
-  if c.instCounter > 64:
+  if c.instCounter > maxInstantiation:
     # xxx: likely buggy:
     #      - we check for a different constant in `pragmas` (100)
     #      - also each pragmas requires a macro eval, so it's a new context

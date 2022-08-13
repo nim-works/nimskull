@@ -1161,7 +1161,7 @@ proc prepareSinglePragma(
 
     # number of pragmas increase/decrease with user pragma expansion
     inc c.instCounter
-    if c.instCounter > 100:
+    if c.instCounter > maxInstantiation:
       result = c.config.newError(
         it, reportSym(rsemPragmaRecursiveDependency, userPragma))
 

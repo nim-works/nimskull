@@ -43,7 +43,7 @@
 ## For SSL support this module relies on OpenSSL. If you want to
 ## enable SSL, compile with `-d:ssl`.
 
-import net, strutils, strtabs, base64, os, strutils
+import std/[net, strutils, strtabs, base64, os]
 
 export Port
 

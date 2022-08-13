@@ -18,18 +18,18 @@
 include "system/inclrtl"
 
 import
-  strutils, os, strtabs, streams, cpuinfo, streamwrapper,
+  std/[strutils, os, strtabs, streams, cpuinfo, streamwrapper],
   std/private/since
 
 export quoteShell, quoteShellWindows, quoteShellPosix
 
 when defined(windows):
-  import winlean
+  import std/winlean
 else:
-  import posix
+  import std/posix
 
 when defined(linux) and defined(useClone):
-  import linux
+  import std/linux
 
 type
   ProcessOption* = enum ## Options that can be passed to `startProcess proc
@@ -1248,7 +1248,7 @@ elif not defined(useNimRtl):
 
   when defined(macosx) or defined(freebsd) or defined(netbsd) or
        defined(openbsd) or defined(dragonfly):
-    import kqueue
+    import std/kqueue
 
     proc waitForExit(p: Process, timeout: int = -1): int =
       if p.exitFlag:
@@ -1370,7 +1370,7 @@ elif not defined(useNimRtl):
       result = exitStatusLikeShell(p.exitStatus)
 
   else:
-    import times
+    import std/times
 
     const
       hasThreadSupport = compileOption("threads") and not defined(nimscript)

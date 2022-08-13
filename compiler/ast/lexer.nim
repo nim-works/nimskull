@@ -96,11 +96,13 @@ type
 
   TokTypes* = set[TokType]
 
+when defined(nimsuggest):
+  const weakTokens = {tkComma, tkSemiColon, tkColon,
+                      tkParRi, tkParDotRi, tkBracketRi, tkBracketDotRi,
+                      tkCurlyRi}
+    ## tokens that should not be considered for previousToken
+
 const
-  weakTokens = {tkComma, tkSemiColon, tkColon,
-                tkParRi, tkParDotRi, tkBracketRi, tkBracketDotRi,
-                tkCurlyRi} # \
-    # tokens that should not be considered for previousToken
   tokKeywordLow* = succ(tkSymbol)
   tokKeywordHigh* = pred(tkIntLit)
 
@@ -748,10 +750,8 @@ proc getEscapedChar(L: var Lexer, tok: var Token) =
 
 proc handleCRLF(L: var Lexer, pos: int): int =
   template registerLine =
-    let col = L.getColNumber(pos)
-
     when not defined(nimpretty):
-      if col > MaxLineLength:
+      if L.getColNumber(pos) > MaxLineLength:
         L.localReportPos(
           LexerReport(kind: rlexLineTooLong), pos)
 

@@ -48,7 +48,7 @@
 
 
 import
-  hashes, math
+  std/[hashes, math]
 
 {.pragma: myShallow.}
 # For "integer-like A" that are too big for intsets/bit-vectors to be practical,

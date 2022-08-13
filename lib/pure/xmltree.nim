@@ -31,7 +31,7 @@ runnableExamples:
 ## * `htmlgen module <htmlgen.html>`_ for html code generator
 
 import std/private/since
-import macros, strtabs, strutils
+import std/[macros, strtabs, strutils]
 
 type
   XmlNode* = ref XmlNodeObj ## An XML tree consisting of XML nodes.

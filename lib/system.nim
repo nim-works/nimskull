@@ -1897,7 +1897,7 @@ proc `<`*[T: tuple](x, y: T): bool =
 include "system/gc_interface"
 
 # we have to compute this here before turning it off in except.nim anyway ...
-const NimStackTrace = compileOption("stacktrace")
+const NimStackTrace {.used.} = compileOption("stacktrace")
 
 {.push checks: off.}
 # obviously we cannot generate checking operations here :-)

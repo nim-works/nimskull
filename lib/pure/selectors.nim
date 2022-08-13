@@ -27,7 +27,7 @@
 ##
 ## TODO: `/dev/poll`, `event ports` and filesystem events.
 
-import os, nativesockets
+import std/[os, nativesockets]
 
 const hasThreadSupport = compileOption("threads") and defined(threadsafe)
 
@@ -233,9 +233,9 @@ when defined(nimdoc):
     ## For *poll* and *select* selectors `-1` is returned.
 
 else:
-  import strutils
+  import std/strutils
   when hasThreadSupport:
-    import locks
+    import std/locks
 
     type
       SharedArray[T] = UncheckedArray[T]
@@ -286,7 +286,7 @@ else:
     setBlocking(fd.SocketHandle, false)
 
   when not defined(windows):
-    import posix
+    import std/posix
 
     template setKey(s, pident, pevents, pparam, pdata: untyped) =
       var skey = addr(s.fds[pident])

@@ -214,12 +214,12 @@ else:
   type AtomMemModel* = distinct cint
 
   const
-    ATOMIC_RELAXED = 0.AtomMemModel
-    ATOMIC_CONSUME = 1.AtomMemModel
-    ATOMIC_ACQUIRE = 2.AtomMemModel
-    ATOMIC_RELEASE = 3.AtomMemModel
-    ATOMIC_ACQ_REL = 4.AtomMemModel
-    ATOMIC_SEQ_CST = 5.AtomMemModel
+    ATOMIC_RELAXED* = 0.AtomMemModel
+    ATOMIC_CONSUME* = 1.AtomMemModel
+    ATOMIC_ACQUIRE* = 2.AtomMemModel
+    ATOMIC_RELEASE* = 3.AtomMemModel
+    ATOMIC_ACQ_REL* = 4.AtomMemModel
+    ATOMIC_SEQ_CST* = 5.AtomMemModel
 
   proc addAndFetch*(p: ptr int, val: int): int {.inline.} =
     inc(p[], val)
@@ -339,7 +339,7 @@ elif someGcc or defined(tcc):
 elif defined(icl):
   proc cpuRelax* {.importc: "_mm_pause", header: "xmmintrin.h".}
 elif false:
-  from os import sleep
+  from std/os import sleep
 
   proc cpuRelax* {.inline.} = os.sleep(1)
 

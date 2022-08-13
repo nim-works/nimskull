@@ -131,7 +131,7 @@ proc toString[Key, Val](h: Node[Key, Val], indent: string; result: var string) =
       if j > 0: result.add(indent & "(" & $h.keys[j] & ")\n")
       toString(h.links[j], indent & "   ", result)
 
-proc `$`[Key, Val](b: BTree[Key, Val]): string =
+proc `$`*[Key, Val](b: BTree[Key, Val]): string =
   result = ""
   toString(b.root, "", result)
 

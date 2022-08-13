@@ -931,19 +931,15 @@ when not defined(gcDestructors):
             sysAssert isAllocatedPtr(a, result), " result wrong pointer!"
 
 proc ptrSize(p: pointer): int =
-  when not defined(gcDestructors):
-    var x = cast[pointer](cast[ByteAddress](p) -% sizeof(FreeCell))
-    var c = pageAddr(p)
-    sysAssert(not chunkUnused(c), "ptrSize")
-    result = c.size -% sizeof(FreeCell)
-    if not isSmallChunk(c):
-      dec result, bigChunkOverhead()
-  else:
-    var c = pageAddr(p)
-    sysAssert(not chunkUnused(c), "ptrSize")
-    result = c.size
-    if not isSmallChunk(c):
-      dec result, bigChunkOverhead()
+  var c = pageAddr(p)
+  sysAssert(not chunkUnused(c), "ptrSize")
+  result =
+    when defined(gcDestructors):
+      c.size
+    else:
+      c.size -% sizeof(FreeCell)
+  if not isSmallChunk(c):
+    dec result, bigChunkOverhead()
 
 proc alloc(allocator: var MemRegion, size: Natural): pointer {.gcsafe.} =
   when not defined(gcDestructors):

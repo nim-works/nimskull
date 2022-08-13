@@ -5,7 +5,6 @@
 import
   experimental/[
     sexp,
-    diff,
     colortext,
     sexp_diff
   ],

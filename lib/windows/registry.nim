@@ -9,7 +9,7 @@
 
 ## This module is experimental and its interface may change.
 
-import winlean, os
+import std/[winlean, os]
 
 type
   HKEY* = uint

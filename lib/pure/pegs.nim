@@ -20,11 +20,11 @@ include "system/inclrtl"
 const
   useUnicode = true ## change this to deactivate proper UTF-8 support
 
-import strutils, macros
+import std/[strutils, macros]
 import std/private/decode_helpers
 
 when useUnicode:
-  import unicode
+  import std/unicode
   export unicode.`==`
 
 const

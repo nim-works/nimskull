@@ -40,7 +40,7 @@
 ##
 
 import
-  macros, strutils
+  std/[macros, strutils]
 
 const
   coreAttr* = " accesskey class contenteditable dir hidden id lang " &

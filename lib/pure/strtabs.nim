@@ -50,13 +50,13 @@ runnableExamples:
 import std/private/since
 
 import
-  hashes, strutils
+  std/[hashes, strutils]
 
 when defined(js) or defined(nimscript) or defined(Standalone):
   {.pragma: rtlFunc.}
 else:
   {.pragma: rtlFunc, rtl.}
-  import os
+  import std/os
 
 include "system/inclrtl"
 

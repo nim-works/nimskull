@@ -3,6 +3,8 @@ import std/[hashes]
 
 from compiler/front/in_options import TOption, TOptions # Stored in `PSym`
 
+const maxInstantiation* = 100
+  ## maximum number of nested generic instantiations or macro pragma expansions
 
 type
   FileIndex* = distinct int32

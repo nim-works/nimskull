@@ -72,7 +72,7 @@ runnableExamples:
 ## * `list of cryptographic and hashing modules <lib.html#pure-libraries-hashing>`_
 ##   in the standard library
 
-import algorithm, math
+import std/[algorithm, math]
 import std/private/since
 
 include system/inclrtl
@@ -617,7 +617,7 @@ when not defined(standalone):
       import std/[hashes, os, sysrand, monotimes]
 
       when compileOption("threads"):
-        import locks
+        import std/locks
         var baseSeedLock: Lock
         baseSeedLock.initLock
 

@@ -164,9 +164,9 @@
 ## * `db_mysql module <db_mysql.html>`_ for MySQL database wrapper
 ## * `db_postgres module <db_postgres.html>`_ for PostgreSQL database wrapper
 
-import sqlite3, macros
+import std/[sqlite3, macros]
 
-import db_common
+import std/db_common
 export db_common
 
 import std/private/[since, dbutils]
