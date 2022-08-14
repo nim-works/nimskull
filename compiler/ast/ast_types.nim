@@ -963,6 +963,228 @@ type
     attachedTrace,
     attachedDeepCopy
 
+  NewTypeKind* = enum
+    # uninitialized types
+    ntkNone          ## not yet typed
+    ntkUnspecified   ## no type was specified; a refinement on not yet typed,
+                     ## might be better to make this "in any type relationship
+                     ## check judge me as the other type"
+
+    # basic - singularity types
+    ntkUnit          ## not officialy in the language yet, this is the "void"
+                     ## value, useful for expressions. it's a single "unit", as
+                     ## in "uni" or single value
+    ntkRealVoid      ## The absence of any value, AKA no return
+    ntkNever         ## a known impossible value with no representaiton
+
+    # basic - scalar types
+    ntkBool
+
+    ntkChar
+    
+    ntkInt,  ntkInt8,  ntkInt16,  ntkInt32,  ntkInt64
+    ntkUInt, ntkUInt8, ntkUInt16, ntkUInt32, ntkUInt64
+    
+    ntkFloat, ntkFloat32, ntkFloat64, ntkFloat128
+
+    ntkEnum          ## enums and their fields
+    ntkSubRange      ## range[foo .. bar]
+    
+    # product types
+    ntkTuplePos      ## positional tuple
+    ntkTupleAssoc    ## associative tuple
+    ntkObject        ## ye ol' struct
+    ntkObjectOf      ## struct which inherits
+    
+    # sum types
+    ntkTaggedSum     ## variants / case objects
+
+    # nil types
+    ntkNilOf         ## nil of some type, effectively `nil[Foo]`
+    ntkNilUnbound    ## nil type, effectively `nil[any]`
+                     # xxx: make this a monomorph?
+
+    # scalar addr types
+    ntkRefOf         ## reference to a type, `ref[T]`
+    ntkPtrOf         ## pointer to a type, `ptr[T]`
+
+    # static vector types
+    ntkArray         ## static sized `array[T, n]`
+    ntkOrdSet
+    ntkVarargs       ## any `varargs[T]`
+    ntkVarargsMap    ## any `varargs[T, $]` where $ is a mapping fn
+
+    # routine types
+    ntkProc
+    ntkFunc
+    ntkIter
+    ntkConv
+
+    # dynamic vector types
+    ntkSeq
+    ntkString
+    ntkCString
+    
+    # vector addr type
+    ntkUncheckedArray
+
+    # monomorphs - "type classes"
+    ntkMonoObject
+    ntkMonoTuple
+    ntkMonoEnum
+    ntkMonoProc
+    ntkMonoRef
+    ntkMonoPtr
+    ntkMonoVar
+    ntkMonoDistinct
+    ntkMonoArray
+    ntkMonoSet
+    ntkMonoSeq
+    ntkMonoAuto
+    ntkMonoOrdinal
+    ntkMonoRange
+    ntkMonoIterable   # xxx: this could well be a Timmy mistake
+    ntkMonoOpenArray
+    ntkMonoUserDef    ## holds a type expression to check
+
+    # generics - universal and existentials
+    ntkGenericUniversal
+    ntkGenericConcept
+    ntkGenericParam
+
+    ntkAny
+
+    # metaprogramming
+    ntkUntypedCode    ## untyped chunk of code
+    ntkTypedCode      ## typed chunk of code
+    ntkAstConstraint  ## for ast overloading and term rewriting
+
+    ntkMacro
+    ntkTemplate
+    
+    # meta type
+    ntkTypeDescOf       ## `typeDesc[T]`
+
+    ntkError
+
+  NewType* {.acyclic.} = object of TIdObj
+    ## This is a type, rather a type judgement, as in we apply it to a node,
+    ## symbol or whatever to indicate the type at some point in the code.
+    ## 
+    ## It's not equivalent to TType, which mixes judgement, type expression
+    ## language, and a bunch of other bits.
+    ## 
+    ## We specialize a lot in this type for peformance, but it needs to be
+    ## equivalent to `Table[Field, Type]` in the non-generic cases and allows
+    ## for easy structural comparison (compare element-wise).Then to bring in
+    ## nominal typing add a 'name' `Field` to types and that'll break the
+    ## structural comparison. This is the canonical approach wrt to
+    ## implementing most type systems, outside of exotic stuff like dependent
+    ## types.
+    ## 
+    ## Todo:
+    ## - add specialized fields for the various types
+    ## - carry around metadata pragmas
+    ## - hold general size, offset, alignment data
+    ## - place for type bound operations
+    ## - place for type tags
+    ## - place for type lineage
+    case kind*: NewTypeKind            ## type kind
+    of ntkNone, ntkUnspecified:        # uninitialized
+      discard
+    of ntkUnit, ntkRealVoid, ntkNever: # singularity
+      discard
+    of ntkBool,                        # basic scalar
+       ntkChar,
+       ntkInt,  ntkInt8,  ntkInt16,  ntkInt32,  ntkInt64,
+       ntkUInt, ntkUInt8, ntkUInt16, ntkUInt32, ntkUInt64,
+       ntkFloat, ntkFloat32, ntkFloat64, ntkFloat128:
+      discard
+    of ntkEnum, ntkSubRange:           # scalar range
+      discard
+    of ntkTuplePos, ntkTupleAssoc,     # product
+       ntkObject, ntkObjectOf:
+      discard
+    of ntkTaggedSum:                   # sum
+      discard
+    of ntkNilOf, ntkNilUnbound:        # nil
+      discard
+    of ntkRefOf, ntkPtrOf:             # addr scalar
+      discard
+    of ntkArray, ntkOrdSet,            # static vectors
+       ntkVarargs, ntkVarargsMap:
+      discard
+    of ntkProc, ntkFunc,               # routines
+       ntkIter, ntkConv:
+      discard
+    of ntkSeq, ntkString, ntkCString:  # dynamic vectors
+      discard
+    of ntkUncheckedArray:              # addr vector
+      discard
+    of ntkMonoObject, ntkMonoTuple,    # monomorphs
+       ntkMonoEnum, ntkMonoProc,
+       ntkMonoRef, ntkMonoPtr,
+       ntkMonoVar, ntkMonoDistinct,
+       ntkMonoArray, ntkMonoSet,
+       ntkMonoSeq, ntkMonoAuto,
+       ntkMonoOrdinal, ntkMonoRange,
+       ntkMonoIterable, ntkMonoOpenArray,
+       ntkMonoUserDef:
+      discard
+    of ntkGenericUniversal,            # generics - universals & existentials
+       ntkGenericConcept,
+       ntkGenericParam:
+      discard
+    of ntkAny:                         # generics - any
+      discard
+    of ntkUntypedCode, ntkTypedCode,   # metaprogramming data
+       ntkAstConstraint:
+      discard
+    of ntkMacro, ntkTemplate:          # metaprogramming routines
+      discard
+    of ntkTypeDescOf:                  # meta / reflection
+      discard
+    of ntkError:                       # error
+      discard
+
+    astKind* : NewTypeAstKind      ## support AST and sem patterns
+    nameId*: int                   ## placeholder: need a cheap way to store
+                                   ##   name and handle anonymous
+    aliasId*: int                  ## alias / display name, same as nameId if no alias
+    anon*: bool                    ## anonymous or not
+
+  NewTypeAstKind* = enum
+    ## not using yet, but track patterns in `NewType`
+    ntakAtom         ## node has no children
+    ntakLit          ## node is a literal like "abc", 12
+    ntakSym          ## node must be a symbol (a bound identifier)
+    ntakIdent        ## node must be an identifier (an unbound identifier)
+    ntakCall         ## AST must be a call/apply expression
+    ntakLvalue       ## AST must be an lvalue
+    ntakSideeffect   ## AST must have a side effect
+    ntakNosideeffect ## AST must have no side effect
+    ntakParam        ## symbol is a parameter
+    ntakGenericparam ## symbol is a generic parameter
+    ntakModule       ## symbol is a module
+    ntakType         ## symbol is a type
+    ntakVar          ## symbol is a variable
+    ntakLet          ## symbol is a let variable
+    ntakConst        ## symbol is a constant
+    ntakResult       ## special result variable
+    ntakProc         ## symbol is a proc
+    ntakMethod       ## symbol is a method
+    ntakIterator     ## symbol is an iterator
+    ntakConverter    ## symbol is a converter
+    ntakMacro        ## symbol is a macro
+    ntakTemplate     ## symbol is a template
+    ntakField        ## symbol is a field in a tuple or an object
+    ntakEnumfield    ## symbol is a field in an enumeration
+    ntakForvar       ## for loop variable
+    ntakLabel        ## label (used in block statements)
+    ntakNkNode       ## AST must have the specified kind, eg: `nkIfStmt` for an if
+    ntakAlias        ## marked parameter needs to alias with some other parameter
+    ntakNoalias      ## every other parameter must not alias with the marked parameter
+
   TType* {.acyclic.} = object of TIdObj
     ## types are identical only if they have the same id; there may be multiple
     ## copies of a type in memory! Keep in sync with PackedType
