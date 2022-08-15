@@ -88,6 +88,7 @@ type
     reportFrom*: ReportLineInfo ## Information about submit location of the
     ## report
 
+
 type
   LexerReport* = object of ReportBase
     msg*: string
@@ -95,17 +96,15 @@ type
       of rlexLinterReport:
         wanted*: string
         got*: string
-
       else:
         discard
-
-
 
 func severity*(rep: LexerReport): ReportSeverity =
   case LexerReportKind(rep.kind):
     of rlexHintKinds: rsevHint
     of rlexErrorKinds: rsevError
     of rlexWarningKinds: rsevWarning
+
 
 type
   ParserReport* = object of ReportBase

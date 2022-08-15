@@ -2990,7 +2990,7 @@ proc reportBody*(conf: ConfigRef, r: LexerReport): string =
       assert false
 
     of rlexCfgInvalidDirective:
-      result.add "?"
+      result.addf("invalid directive: '$1'", r.msg)
 
     of rlexUnclosedComment:
       result.add "end of multiline comment expected"
@@ -3004,8 +3004,10 @@ proc reportBody*(conf: ConfigRef, r: LexerReport): string =
     of rlexLineTooLong:
       result.add "line too long"
 
-    of rlexSyntaxesCode:
-      result.add "?"
+    of rlexSourceCodeFilterOutput:
+      result.add "generated code listing:"
+      result.add r.msg
+      result.add "end of listing"
 
 proc reportFull*(conf: ConfigRef, r: LexerReport): string    =
   assertKind r

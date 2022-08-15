@@ -194,7 +194,7 @@ type
     rlexLineTooLong = "LineTooLong"
     rlexLinterReport = "Name"
 
-    rlexSyntaxesCode
+    rlexSourceCodeFilterOutput = "SourceCodeFilterOutput"
     # hints END !! add reports BEFORE the last enum !!
 
     # Lexer report end
@@ -922,7 +922,7 @@ type
 const rstWarnings* = {rbackRstTestUnsupported .. rbackRstRstStyle}
 
 type
-  LexerReportKind* = range[rlexMalformedUnderscores .. rlexSyntaxesCode]
+  LexerReportKind* = range[rlexMalformedUnderscores .. rlexSourceCodeFilterOutput]
   ParserReportKind* = range[rparInvalidIndentation .. rparName]
 
   SemReportKind* = range[rsemFatalError .. rsemImplicitObjConv]
@@ -942,7 +942,7 @@ type
 const
   #--------------------------------  lexer  --------------------------------#
   repLexerKinds*    = {low(LexerReportKind) .. high(LexerReportKind)}
-  rlexHintKinds*    = {rlexLineTooLong .. rlexSyntaxesCode}
+  rlexHintKinds*    = {rlexLineTooLong .. rlexSourceCodeFilterOutput}
   rlexWarningKinds* = {rlexDeprecatedOctalPrefix .. rlexDeprecatedOctalPrefix}
   rlexErrorKinds*   = {rlexMalformedUnderscores .. rlexUnclosedComment}
 
