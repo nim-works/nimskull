@@ -90,10 +90,8 @@ proc computeNotesVerbosity(): tuple[
     rintErrKind
   }
 
-
   if defined(release):
     result.main[3].excl rintStackTrace
-
 
   result.main[2] = result.main[3] - {
     rsemUninit,
@@ -106,11 +104,15 @@ proc computeNotesVerbosity(): tuple[
   result.main[1] = result.main[2] - repPerformanceHints - {
     rsemProveField,
     rsemErrGcUnsafe,
-    rextPath,
     rsemHintLibDependency,
     rsemGlobalVar,
+
     rintGCStats,
     rintMsgOrigin,
+
+    rextPath,
+
+    rlexSourceCodeFilterOutput,
   }
 
   result.main[0] = result.main[1] - {

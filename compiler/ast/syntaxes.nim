@@ -105,9 +105,9 @@ proc applyFilter(p: var Parser, n: PNode, filename: AbsoluteFile,
              filterReplace(p.lex.config, stdin, filename, n)
   if f != filtNone:
     assert p.lex.config != nil
-    if p.lex.config.hasHint(rlexSyntaxesCode):
+    if p.lex.config.hasHint(rlexSourceCodeFilterOutput):
       p.lex.config.localReport LexerReport(
-        kind: rlexSyntaxesCode, msg: result.s)
+        kind: rlexSourceCodeFilterOutput, msg: result.s)
 
 proc evalPipe(p: var Parser, n: PNode, filename: AbsoluteFile,
               start: PLLStream): PLLStream =

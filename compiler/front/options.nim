@@ -637,7 +637,6 @@ func isEnabled*(conf: ConfigRef, report: ReportKind): bool =
   ## Uses `options.hasHint`, `options.hasWarn` to check whether particular
   ## report is enabled, otherwise use query global/local options.
 
-
   # Reports related to experimental features and inconsistent CLI flags
   # (such as `--styleCheck` which controls both CLI flags and hints) are
   # checked for with higher priority
