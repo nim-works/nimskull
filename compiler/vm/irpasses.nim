@@ -763,34 +763,6 @@ func setupTransCtx*(g: ModuleGraph, ir: IrStore3, env: IrEnv): GenericTransCtx =
 #      during compilation instead
 const SeqDataFieldPos = 2
 
-proc requestSeqType(c: var RefcPassCtx, t: PType): PType =
-  ## `t` is the original ``tySequence`` type. The resulting type has the following definition:
-  ##
-  ## .. code:: nim
-  ##   type NimSeq = ptr object of TGenericSeq
-  ##     data: UncheckedArray[t.elemType]
-
-  let cache = c.graph.cache
-
-  # TODO: use a cache for the instantiations
-  # XXX: yeah, this is bad; same as for symbols, it'd probably be a good idea to
-  #      introduce a custom type representation for the whole compiler backend
-  let
-    typSym = newSym(skType, cache.getIdent("NimSeq"), c.idgen.nextSymId(), t.owner, t.owner.info)
-    objTyp = newType(tyObject, c.idgen.nextTypeId(), t.owner)
-    f =      newSym(skField, cache.getIdent("data"), c.idgen.nextSymId(), typSym, t.owner.info)
-
-  f.position = SeqDataFieldPos
-  f.typ = newType(tyUncheckedArray, nextTypeId c.idgen, t.owner)
-  f.typ.add t.elemType
-
-  objTyp.add(c.graph.getCompilerProc("TGenericSeq").typ) # base type
-  objTyp.n = newTree(nkRecList, [newSymNode(f)])
-
-  result = newType(tyPtr, c.idgen.nextTypeId(), t.owner)
-  result.add(objTyp)
-  result.linkTo(typSym)
-
 proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers the `seq`-related magic operations into calls to the v1 `seq`
   ## implementation
@@ -872,97 +844,6 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
     else:
       discard
 
-  #[
-  of ntkLocal:
-    # replace locals of `seq` and `string` type with locals of the lowered type
-    # XXX: there's currently no way to replace an existing local (would be
-    #      simpler and more efficient), so the logic here resorts to
-    #      introducing a new local and replacing all reference to the old one
-    let (lk, origTyp, sym) = ir.getLocal(cr.position)
-
-    let typ = origTyp
-
-    # TODO: handle ``var`` and ``lent`` wrapped types here
-    case typ.kind
-    of tySequence:
-      # replace seqs with `NimSeq`. The latter is bascially a generic type
-      # that were instantiating manually here. The old C backend did this step
-      # in the code-generator
-      cr.replace()
-
-      let idx = ir.getLocalIdx(cr.position)
-      var newName = c.localMap.getOrDefault(idx, -1)
-      if newName == -1:
-        let nt = c.requestSeqType(typ)
-        if sym != nil:
-          let ns = copySym(sym, c.idgen.nextSymId())
-          ns.typ = nt
-
-          newName = cr.newLocal(lk, ns)
-        else:
-          newName = cr.newLocal(lk, nt)
-
-        c.localMap[idx] = newName
-
-      discard cr.insertLocalRef(newName)
-
-    of tyString:
-      # replace `string` with `NimString`
-
-      cr.replace()
-
-      let idx = ir.getLocalIdx(cr.position)
-      var newName = c.localMap.getOrDefault(idx, -1)
-      if newName == -1:
-        # XXX: ugly; the whole backend would probably benefit from it's own
-        #      symbol representation
-
-        let nt = c.graph.getCompilerProc("NimString").typ
-        if sym != nil:
-          let ns = copySym(sym, c.idgen.nextSymId())
-          ns.typ = nt
-          newName = cr.newLocal(lk, ns)
-        else:
-          newName = cr.newLocal(lk, nt)
-
-        c.localMap[idx] = newName
-
-      discard cr.insertLocalRef(newName)
-
-    else:
-      discard
-
-  of ntkSym:
-    # replace `string` and `seq` types of globals and parameters by directly
-    # modifying the `PSym`s
-
-    let sym = ir.sym(n)
-
-    # XXX: the symbol patching here won't work out...
-    if sym.kind notin {skVar, skLet, skParam}:
-      # XXX: ignore constants for now
-      return
-
-    var newTyp: PType = nil
-
-    let typ = sym.typ.skipTypes(abstractInst)
-    let newType =
-      case skipTypes(typ, {tyVar, tyLent}).kind
-      of tySequence: c.requestSeqType(typ)
-      of tyString:   c.graph.getCompilerProc("NimString").typ
-      else: nil
-
-    # this overwrites possibly present ``tyGenericInst``, ``tyDistinct``,
-    # etc. but at this point in the backend, we no longer need those
-    if newType != nil:
-      if typ.kind == tyVar:
-        # only ``var seq`` is treated as a pointer-to-pointer, not ``lent``
-        sym.typ = newType(tyVar, nextTypeId c.idgen, typ.owner)
-        sym.typ.add newType
-      else:
-        sym.typ = newType
-  ]#
-
   of ntkPathArr:
     let arrTyp = c.typeof(n.srcLoc)
 
@@ -986,6 +867,42 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
 
   else:
     discard "ignore"
+
+type TypeTransformCtx* = object
+  graph*: PassEnv
+
+func lowerSeqTypesV1*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: var SymbolEnv) =
+  let
+    strTyp = c.graph.getCompilerType("NimString")
+    seqTyp = c.graph.getCompilerType("TGenericSeq")
+
+  for id, typ in tenv.mtypes:
+    case typ.kind
+    of tnkString:
+      # TODO: this doesn't work. Since we're doing no deduplication, there may
+      #       exist multiple string types and we're overwriting all of them
+      #       with the new type, meaning that we now have multiple instances
+      #       of the new type!
+      # overwrite with
+      typ = tenv[c.graph.getCompilerType("NimString")]
+    of tnkSeq:
+      # XXX: same as for strings, we're creating duplicate types here
+
+      # replace a ``seq[T]`` with the following:
+      #
+      # .. code:: nim
+      #   type PSeq = ptr object of TGenericSeq # name is just an example
+      #     data: UncheckedArray[T]
+      #
+
+      let
+        arr = tenv.requestGenericType(tnkUncheckedArray, typ.base)
+        sym = senv.addSym(skField, arr, "data") # TODO: this is bad; don't use ``Symbol`` to store field naming information
+        rec = tenv.requestRecordType(base = seqTyp, [(sym, arr)])
+      typ = genGenericType(tnkPtr, rec)
+    else:
+      discard
+
 
 func lowerSeqsV2(c: GenericTransCtx, n: IrNode3, cr: var IrCursor) =
   ## Lowers the `seq`-related magic operations into calls to the v2 `seq`

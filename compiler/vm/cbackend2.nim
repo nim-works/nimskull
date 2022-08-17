@@ -424,6 +424,13 @@ proc generateCode*(g: ModuleGraph) =
         printTypes(irs, env)
         raise
 
+  # type lowering passes
+  var ttc = TypeTransformCtx(graph: passEnv)
+  if optSeqDestructors in conf.globalOptions:
+    discard
+  else:
+    lowerSeqTypesV1(ttc, env.types, env.syms)
+
   var gCtx: GlobalGenCtx
   initGlobalContext(gCtx, env)
 
