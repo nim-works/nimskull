@@ -136,6 +136,8 @@ type
     name: CIdent #
 
   CProcHeader = object
+    ident: CIdent
+
     returnType: CTypeId
     args: seq[tuple[typ: CTypeId, name: CIdent]]
 
@@ -492,6 +494,7 @@ func mapTypeV3(t: TypeId): CTypeId =
     VoidCType
 
 func genCProcHeader(idents: var IdentCache, env: ProcedureEnv, s: ProcId): CProcHeader =
+  result.ident = idents.getOrIncl(mangledName(env[s].decl))
   result.returnType = mapTypeV3(env.getReturnType(s))
 
   result.args.newSeq(env.numParams(s))
@@ -530,6 +533,10 @@ func emitAddr(c: var CAstBuilder, idents: var IdentCache): var CAstBuilder =
 func ident(c: var CAstBuilder, idents: var IdentCache, name: string): var CAstBuilder =
   result = c
   c.ast.add cnkIdent, idents.getOrIncl(name).uint32
+
+func ident(c: var CAstBuilder, ident: CIdent): var CAstBuilder =
+  result = c
+  c.ast.add cnkIdent, ident.uint32
 
 func intLit(c: var CAstBuilder, v: BiggestInt): var CAstBuilder =
   result = c
@@ -723,7 +730,7 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
       if prc.magic == mNone:
         useFunction(c.m, n.procId)
 
-      names[i] = start().ident(c.gl.idents, mangledName(prc.decl)).fin()
+      names[i] = start().ident(c.gl.funcs[toIndex(n.procId)].ident).fin()
     of ntkLocal:
       let (kind, typ, sym) = irs.getLocal(i)
       if sym == NoneSymbol:
@@ -1103,7 +1110,7 @@ proc emitCType(f: File, c: GlobalGenCtx, info: CTypeInfo) =
 proc writeDecl(f: File, c: GlobalGenCtx, h: CProcHeader, decl: Declaration) =
   emitType(f, c, h.returnType)
   f.write(" ")
-  f.write(mangledName(decl))
+  f.write(c.idents[h.ident])
   f.write("(")
   for i, it in h.args.pairs:
     if i > 0:
@@ -1116,7 +1123,7 @@ proc writeDecl(f: File, c: GlobalGenCtx, h: CProcHeader, decl: Declaration) =
 proc writeDef(f: File, c: GlobalGenCtx, h: CProcHeader, decl: Declaration) =
   emitType(f, c, h.returnType)
   f.write(" ")
-  f.write(mangledName(decl))
+  f.write(c.idents[h.ident])
   f.write("(")
   for i, it in h.args.pairs:
     if i > 0:
