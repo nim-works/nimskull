@@ -56,10 +56,13 @@ func typeName(t: Type): string =
   else:
     $t.kind
 
-proc printIr*(irs: IrStore3, e: IrEnv, exprs: seq[bool]) =
+iterator toStrIter*(irs: IrStore3, e: IrEnv, exprs: seq[bool]): string =
   var i = 0
   for n in irs.nodes:
-    var line = ""
+    var
+      line = ""
+      indentStmt = true
+
     case n.kind
     of ntkSym:
       line = fmt"sym {e.syms[irs.sym(n)].decl.name}"
@@ -112,20 +115,29 @@ proc printIr*(irs: IrStore3, e: IrEnv, exprs: seq[bool]) =
     of ntkBranch:
       line = fmt"branch label:{n.target} cond:{n.cond}"
     of ntkJoin:
+      indentStmt = false
       if irs.isLoop(n.joinPoint):
-        echo "loop ", n.joinPoint, ":"
+        line = fmt"loop {n.joinPoint} :"
       else:
-        echo "label ", n.joinPoint, ":"
-      inc i
-      continue
+        line = fmt"label {n.joinPoint} :"
+
     else:
       line = fmt"<missing: {n.kind}>"
 
-    if exprs[i]:
-      echo i, ": ", line
-    else:
-      echo "  ", line
+    if exprs.len == 0:
+      line = fmt"{i}(?): {line}"
+    elif exprs[i]:
+      line = fmt"{i}: {line}"
+    elif indentStmt:
+      line = "  " & line
+
+    yield line
     inc i
+
+proc printIr*(irs: IrStore3, e: IrEnv, exprs: seq[bool]) =
+  for x in toStrIter(irs, e, exprs):
+    echo x
+
 
 proc echoTrace*(ir: IrStore3, n: IRIndex) =
   let trace = ir.traceFor(n)
