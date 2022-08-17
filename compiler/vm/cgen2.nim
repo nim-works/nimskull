@@ -978,6 +978,14 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
       emitCAst(f, c, ast, pos)
     f.write "}"
 
+  of cnkTernary:
+    f.write "("
+    emitCAst(f, c, ast, pos) # condition
+    f.write ") ? "
+    emitAndEscapeIf(f, c, ast, pos, {cnkIdent}) # a
+    f.write " : "
+    emitAndEscapeIf(f, c, ast, pos, {cnkIdent}) # b
+
   else:
     f.write "EMIT_ERROR(\"missing " & $n.kind & "\")"
 
