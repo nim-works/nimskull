@@ -1865,6 +1865,7 @@ type IrCursor* = object
   traces: seq[seq[StackTraceEntry]]
 
   nextIdx: IRIndex
+  nextJoinPoint: JoinPoint
 
 func add[T](x: var SeqAdditions[T], item: sink T): int {.inline.} =
   result = x.start + x.data.len
@@ -1886,6 +1887,7 @@ func apply[T](dest: var seq[T], src: sink SeqAdditions[T]) =
 
 func setup*(cr: var IrCursor, ir: IrStore3) =
   cr.nextIdx = ir.len
+  cr.nextJoinPoint = ir.numJoins
   #cr.newSyms.setFrom(ir.syms)
   cr.newLocals.setFrom(ir.locals)
   cr.newLiterals.setFrom(ir.literals)
@@ -1954,6 +1956,9 @@ func insertConv*(cr: var IrCursor, t: TypeId, val: IRIndex): IRIndex =
 func insertDeref*(cr: var IrCursor, val: IRIndex): IRIndex =
   cr.insert IrNode3(kind: ntkDeref, addrLoc: val)
 
+func insertAddr*(cr: var IrCursor, val: IRIndex): IRIndex =
+  cr.insert IrNode3(kind: ntkAddr, addrLoc: val)
+
 func insertPathObj*(cr: var IrCursor, obj: IRIndex, field: uint16): IRIndex =
   cr.insert IrNode3(kind: ntkPathObj, objSrc: obj, field: field)
 
@@ -1961,16 +1966,17 @@ func insertPathArr*(cr: var IrCursor, arr, idx: IRIndex): IRIndex =
   cr.insert IrNode3(kind: ntkPathArr, arrSrc: arr, idx: idx)
 
 func newJoinPoint*(cr: var IrCursor): JoinPoint =
-  discard
+  result = cr.nextJoinPoint
+  inc cr.nextJoinPoint
 
 func insertBranch*(cr: var IrCursor, cond: IRIndex, target: JoinPoint) =
-  discard
+  discard cr.insert IrNode3(kind: ntkBranch, cond: cond, target: target)
 
 func insertGoto*(cr: var IrCursor, t: JoinPoint) =
-  discard
+  discard cr.insert IrNode3(kind: ntkGoto, gotoTarget: t)
 
 func insertJoin*(cr: var IrCursor, t: JoinPoint) =
-  discard
+  discard cr.insert IrNode3(kind: ntkJoin, joinPoint: t)
 
 func newLocal*(cr: var IrCursor, kind: LocalKind, t: TypeId, s: SymId): int =
   assert t != NoneType
@@ -2164,6 +2170,7 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
   #ir.syms.apply(cr.newSyms)
   ir.locals.apply(cr.newLocals)
   ir.literals.apply(cr.newLiterals)
+  ir.numJoins = cr.nextJoinPoint
 
   let start = cr.actions[0][1].a
 
