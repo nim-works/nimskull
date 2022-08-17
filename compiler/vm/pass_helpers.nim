@@ -1,5 +1,12 @@
 
 import compiler/vm/vmir
+import compiler/ast/ast
+
+func insertNilLit*(cr: var IrCursor, typ: TypeId): IRIndex =
+  cr.insertLit (newNode(nkNilLit), typ)
+
+func insertTypeLit*(cr: var IrCursor, typ: TypeId): IRIndex =
+  cr.insertLit (nil, typ)
 
 template genIfNot*(cr: var IrCursor, cond: IRIndex, code: untyped) =
   let condVal = cond
