@@ -18,3 +18,13 @@ template argAt*(ir: IrStore3, cr: IrCursor, i: Natural): IRIndex =
   ## Temporary helper until ``IRIndex`` is used in more places
   {.line.}:
     ir.args(cr.position, i)
+
+func access*(cr: var IrCursor, env: TypeEnv, val: IRIndex, typ: TypeId): IRIndex =
+  # XXX: including lent here might lead to problems. When removing redundant
+  #      ``lent`` types (e.g. transformed seqs/strings) for example
+  # don't use a 'deref' for ``var openArray``
+  if env[typ].kind in {tnkVar, tnkLent} and
+     env[env[typ].base].kind != tnkOpenArray:
+    cr.insertDeref(val)
+  else:
+    val
