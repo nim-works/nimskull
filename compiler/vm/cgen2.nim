@@ -410,8 +410,14 @@ func genCTypeInfo(gen: var TypeGenCtx, env: TypeEnv, id: TypeId): CTypeInfo =
 
     result = CTypeInfo(name: gen.cache.getOrIncl(name))
   else:
-    let decl = genCTypeDecl(gen, id)
-    result = CTypeInfo(decl: decl, name: getTypeName(gen.cache, id, t, Declaration()))
+    let name = getTypeName(gen.cache, id, t, Declaration())
+    var decl = genCTypeDecl(gen, id)
+
+    # set the identifier field for struct and union types:
+    if decl[0].kind in {cdnkStruct, cdnkUnion}:
+      decl[1] = (cdnkIdent, name.uint32, 0'u32)
+
+    result = CTypeInfo(decl: decl, name: name)
 
 
 func useFunction(c: var ModuleCtx, s: ProcId) =
@@ -1031,15 +1037,6 @@ proc emitCDecl(f: File, c: GlobalGenCtx, decl: CDecl, pos: var int) =
     let info {.cursor.} = c.ctypes[n.a.uint32]
     assert info.name != InvalidCIdent
 
-    if info.decl.len > 0:
-      # only specify the namespace if the type has a declaration (it's an
-      # imported type otherwise)
-      f.write:
-        case info.decl[0].kind
-        of cdnkStruct: "struct "
-        of cdnkUnion: "union "
-        else: unreachable(info.decl[0].kind)
-
     f.write c.idents[info.name]
 
   of cdnkPtr:
@@ -1070,7 +1067,7 @@ proc emitCDecl(f: File, c: GlobalGenCtx, decl: CDecl) =
   var pos = 0
   emitCDecl(f, c, decl, pos)
 
-proc emitCType(f: File, c: GlobalGenCtx, info: CTypeInfo) =
+proc emitCType(f: File, c: GlobalGenCtx, info: CTypeInfo, isFwd: bool) =
   var pos = 0
 
   assert info.decl.len > 0, c.idents[info.name]
@@ -1078,12 +1075,24 @@ proc emitCType(f: File, c: GlobalGenCtx, info: CTypeInfo) =
   let kind = info.decl[0].kind
   case kind
   of cdnkStruct, cdnkUnion:
-    # emit the definition as ``typedef struct {} X;`` in order to make the
-    # identifier available in the ordinary name-space. This removes the need
-    # to specify the name-space on every usage (less generated code)
-    f.write "typedef "
-    emitCDecl(f, c, info.decl, pos)
-    f.write fmt" {c.idents[info.name]}"
+    if isFwd:
+      # --> ``typdef struct X X;``
+      # forward-declare the record type and make the identifier available in
+      # the ordinary namespace
+      f.write "typedef "
+      f.write:
+        case kind
+        of cdnkStruct: "struct"
+        of cdnkUnion:  "union"
+        else: unreachable()
+
+      f.write fmt" {c.idents[info.name]}"
+      f.write fmt" {c.idents[info.name]}"
+      pos = info.decl.len # mark the body as processed
+    else:
+      # definition requested
+      emitCDecl(f, c, info.decl, pos)
+
   of cdnkBracket:
     f.write "typedef "
     pos = 1
@@ -1200,7 +1209,62 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
   for id in mCtx.syms.items:
     mCtx.useType(env.syms[id].typ)
 
-  let used = mCtx.types
+  # collect all types that we need to be defined in this translation unit (.c file)
+
+  type TypeDef = tuple[fwd: bool, id: CTypeId]
+
+  func collectFwd(list: var seq[TypeDef], types: seq[CTypeInfo], id: CTypeId, marker, markerFwd: var PackedSet[CTypeId]) =
+    if id notin marker and not markerFwd.containsOrIncl(id):
+      # not defined nor forward declared
+      assert types[id.int].name != InvalidCIdent
+      list.add (true, id)
+
+  func collectOrdered(list: var seq[TypeDef], types: seq[CTypeInfo],
+                      id: CTypeId, marker, markerFwd: var PackedSet[CTypeId]) =
+    let info {.cursor.} = types[id.int]
+    if marker.containsOrIncl(id):
+      # nothing to do
+      return
+
+    # scan the type's body for dependencies and add them first
+    for n in info.decl.items:
+      case n.kind
+      of cdnkType:
+        # requires a definition
+        collectOrdered(list, types, n.a.CTypeId, marker, markerFwd)
+      of cdnkWeakType:
+        # only requires a forward declaration
+        collectFwd(list, types, n.a.CTypeId, marker, markerFwd)
+      else:
+        discard
+
+    # XXX: the used headers could also be collected here, but that would grow
+    # the required state even more
+
+    if info.name != InvalidCIdent:
+      # only collect types that have an identifier. The others don't need a
+      # typedef (they're inlined directly) and also don't/can't have header
+      # dependency information attached
+      list.add (false, id)
+
+  var typedefs: seq[TypeDef]
+  var marker, markerFwd: PackedSet[CTypeId]
+  for it in mCtx.types.items:
+    collectOrdered(typedefs, ctx.ctypes, it, marker, markerFwd)
+
+  marker.reset() # no longer needed
+
+  # collect the header dependencies from the used types
+  # XXX: to be more efficient, writing out the header includes for the types
+  #      could be combined with emitting the type definitions
+
+  for _, id in typedefs.items:
+    let iface = env.types[id].iface
+    if iface != nil and lfHeader in iface.loc.flags:
+      echo ctx.idents[ctx.ctypes[id.int].name], ": ", iface.loc.flags
+      mCtx.headers.incl getStr(iface.annex.path)
+
+  # ----- start of the emit logic -----
 
   f.writeLine "#define NIM_INTBITS 64" # TODO: don't hardcode
 
@@ -1210,26 +1274,17 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
 
   # type section
 
-  proc emitWithDeps(f: File, c: GlobalGenCtx, t: CTypeId,
-                    marker: var PackedSet[CTypeId]) =
-    let info {.cursor.} = c.ctypes[t.int]
-    if marker.containsOrIncl(t):
-      # nothing to do
-      return
+  for fwd, id in typedefs.items:
+    let info = ctx.ctypes[id.int]
+    # imported types don't have a body
+    if info.decl.len > 0:
+      if not fwd and info.decl[0].kind in {cdnkStruct, cdnkUnion} and id notin markerFwd:
+        # struct and unions types always use a forward-declaration bacause the
+        # emitted typedef makes the identifier available in the ordinary
+        # name-space
+        emitCType(f, ctx, ctx.ctypes[id.int], isFwd=true)
 
-    # scan the type's body for non-weak dependencies and emit them first
-    for n in info.decl.items:
-      if n.kind == cdnkType:
-        emitWithDeps(f, c, n.a.CTypeId, marker)
-
-    if info.decl.len > 0 and info.name != InvalidCIdent:
-      # only emit types that need a definition/declaration
-      emitCType(f, c, info)
-
-  var marker: PackedSet[CTypeId]
-  for it in used.items:
-    emitWithDeps(f, ctx, it, marker)
-
+      emitCType(f, ctx, ctx.ctypes[id.int], isFwd=fwd)
 
   # generate all procedure forward declarations
   for id in mCtx.funcs.items:
