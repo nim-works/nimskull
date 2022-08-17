@@ -241,7 +241,7 @@ type
         typ: TypeId # the return type
       of false: callee: IRIndex
 
-      args: seq[IRIndex]
+      numArgs: uint32
     of ntkUse, ntkConsume:
       theLoc: IRIndex
     of ntkJoin:
@@ -501,11 +501,11 @@ proc irStmt*(c: var IrStore, opc: TOpcode, args: varargs[IRIndex]): IRIndex {.di
   ## be used in a value or location context
   c.add(IrNode2(kind: inktStmt, opc: opc, opArgs: @args))
 
-func irCall*(c: var IrStore3, callee: IRIndex, args: varargs[IRIndex]): IRIndex =
-  c.add(IrNode3(kind: ntkCall, isBuiltin: false, callee: callee, args: @args))
+func irCall*(c: var IrStore3, callee: IRIndex, numArgs: uint32): IRIndex =
+  c.add(IrNode3(kind: ntkCall, isBuiltin: false, callee: callee, numArgs: numArgs))
 
-func irCall*(c: var IrStore3, callee: BuiltinCall, typ: TypeId, args: varargs[IRIndex]): IRIndex =
-  c.add(IrNode3(kind: ntkCall, isBuiltin: true, builtin: callee, typ: typ, args: @args))
+func irCall*(c: var IrStore3, callee: BuiltinCall, typ: TypeId, numArgs: uint32): IRIndex =
+  c.add(IrNode3(kind: ntkCall, isBuiltin: true, builtin: callee, typ: typ, numArgs: numArgs))
 
 proc irCallExpr*(c: var IrStore, name: IRIndex, noSideEffect: bool, args: varargs[IRIndex]): IRIndex =
   ## A call producing a value. Can only be reordered with other calls if both have no side-effects
@@ -654,16 +654,22 @@ func builtin*(n: IrNode3): BuiltinCall =
   n.builtin
 
 func argCount*(n: IrNode3): int =
-  n.args.len
+  n.numArgs.int
 
 # TODO: rename to `arg` or `getArg`
 func args*(ir: IrStore3, n: IRIndex, i: Natural): IRIndex =
-  ir.nodes[n].args[i]
+  let num = ir.at(n).numArgs.int
+  assert i < num
+  # the arguments are stored in the nodes coming just before the
+  # ``ntkCall`` node
+  result = ir.nodes[n - num + i].theLoc
 
 iterator args*(ir: IrStore3, n: IRIndex): IRIndex =
-  for it in ir.nodes[n].args:
-    yield it
-
+  var i = n - ir.at(n).numArgs.int
+  let hi = n
+  while i < hi:
+    yield ir.nodes[i].theLoc
+    inc i
 
 func typ*(n: IrNode3): TypeId =
   ## The return type of a builtin call
@@ -1932,18 +1938,28 @@ func insertParam*(cr: var IrCursor, param: Natural): IRIndex =
 func insertProcSym*(cr: var IrCursor, prc: ProcId): IRIndex =
   cr.insert IrNode3(kind: ntkProc, procId: prc)
 
+func insertArgs(cr: var IrCursor, args: openArray[IRIndex]) =
+  for arg in args.items:
+    # TODO: using ``ntkUse`` is not correct, but we don't know if it's a
+    #       mutating or sink parameter here. The user should be responsible
+    #       for setting up the argument list
+    discard cr.insert(IrNode3(kind: ntkUse, theLoc: arg))
+
 func insertCallExpr*(cr: var IrCursor, prc: ProcId, args: varargs[IRIndex]): IRIndex =
   let c = cr.insertProcSym(prc)
-  result = cr.insert IrNode3(kind: ntkCall, isBuiltin: false, callee: c, args: @args)
+  cr.insertArgs(args)
+  result = cr.insert IrNode3(kind: ntkCall, isBuiltin: false, callee: c, numArgs: args.len.uint32)
 
 func insertCallStmt*(cr: var IrCursor, prc: ProcId, args: varargs[IRIndex]) =
   discard insertCallExpr(cr, prc, args)
 
 func insertCallExpr*(cr: var IrCursor, callee: IRIndex, args: varargs[IRIndex]): IRIndex =
-  cr.insert IrNode3(kind: ntkCall, isBuiltin: false, callee: callee, args: @args)
+  cr.insertArgs(args)
+  cr.insert IrNode3(kind: ntkCall, isBuiltin: false, callee: callee, numArgs: args.len.uint32)
 
 func insertCallExpr*(cr: var IrCursor, bc: BuiltinCall, typ: TypeId, args: varargs[IRIndex]): IRIndex =
-  result = cr.insert IrNode3(kind: ntkCall, isBuiltin: true, builtin: bc, typ: typ, args: @args)
+  cr.insertArgs(args)
+  result = cr.insert IrNode3(kind: ntkCall, isBuiltin: true, builtin: bc, typ: typ, numArgs: args.len.uint32)
 
 func insertLit*(cr: var IrCursor, lit: Literal): IRIndex =
   cr.insert IrNode3(kind: ntkLit, litIdx: cr.newLiterals.add(lit))
@@ -2007,9 +2023,6 @@ func patch(n: var IrNode3, patchTable: seq[IRIndex]) =
   of ntkCall:
     if not n.isBuiltin:
       patchIdx(n.callee)
-
-    for arg in n.args.mitems:
-      patchIdx(arg)
 
   of ntkAsgn:
     patchIdx(n.wrDst)
@@ -2215,15 +2228,6 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
     if kind: # replace
       patchTable[p] = insert + slice.len - 1 # the replaced node
 
-      # nodes currently own GC'ed memory, so we have to reset the thrown-away
-      # node in order to prevent leaks
-      # BUGFIX: resetting the node at ``copySrc`` caused problems, since it is
-      #         possible for it to be part of the region we have just written
-      #         to above. No reset is done for now, but that means we're
-      #         leaking memory (we'd have to reset the node **before** the
-      #         copyMem above)
-      #reset(ir.nodes[copySrc])
-
       # we replaced a node, prevent it from being included in the following move
       inc p
       inc copySrc
@@ -2253,9 +2257,7 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
     insert += num
 
   # we've effectively done a ``move`` for all elements so we have to also zero
-  # the memory or else the garbage collector would clean up the nodes' GC'ed
-  # fields when collecting `cr.newNodes`
-  zeroMem(cr.newNodes)
+  # the memory or else the garbage collector would clean up the traces
   when useNodeTraces:
     zeroMem(cr.traces)
 

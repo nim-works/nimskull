@@ -173,6 +173,19 @@ func closeScope(c: var TCtx) =
 proc genProcSym(c: var TCtx, s: PSym): IRIndex =
   c.irs.irProc(c.procs.requestProc(s))
 
+func irCall*(ir: var IrStore3, callee: IRIndex, args: varargs[IRIndex]): IRIndex =
+  ## A shortcut for procedures taking only immutable arguments
+  for arg in args.items:
+    discard ir.irUse(arg)
+  ir.irCall(callee, args.len.uint32)
+
+func irCall(ir: var IrStore3, bc: BuiltinCall, typ: TypeId, args: varargs[IRIndex]): IRIndex =
+  ## A shortcut for procedures taking only immutable arguments
+  for arg in args.items:
+    discard ir.irUse(arg)
+  ir.irCall(bc, typ, args.len.uint32)
+
+
 proc irCall(c: var TCtx, name: string, args: varargs[IRIndex]): IRIndex =
   # TODO: compiler procs should be cached here in `TCtx`
   let prc = c.passEnv.getCompilerProc(name)
@@ -687,10 +700,12 @@ proc genCall(c: var TCtx; n: PNode): IRIndex =
       args[L] = genArg(c, t, true, n[i])
       inc L
 
-  # resize to the real amount
-  args.setLen(L)
+  # emit the arguments
+  for i in 0..<L:
+    # TODO: use ntkModify and ntkConsume where applicable
+    discard c.irs.irUse(args[i])
 
-  result = c.irs.irCall(callee, args)
+  result = c.irs.irCall(callee, L.uint32)
   if canRaiseConservative(n[0]):
     raiseExit(c)
 
