@@ -477,27 +477,27 @@ func gen(c: GenCtx, irs: IrStore3, n: IRIndex): CAst =
   c.names[n]
   #"gen_MISSING"
 
-func mapTypeV3(c: GlobalGenCtx, t: TypeId): CTypeId
+func mapTypeV3(t: TypeId): CTypeId
 
 func mapTypeV2(c: var GenCtx, t: TypeId): CTypeId =
   # TODO: unfinished
   c.m.useType(t) # mark the type as used
-  mapTypeV3(c.gl, t)
+  mapTypeV3(t)
 
-func mapTypeV3(c: GlobalGenCtx, t: TypeId): CTypeId =
+func mapTypeV3(t: TypeId): CTypeId =
   if t != NoneType:
     # XXX: maybe just have a ``NoneType`` -> ``VoidCType`` mapping in the table instead?
     CTypeId(t)
   else:
     VoidCType
 
-func genCProcHeader(c: var GlobalGenCtx, env: ProcedureEnv, s: ProcId): CProcHeader =
-  result.returnType = mapTypeV3(c, env.getReturnType(s))
+func genCProcHeader(idents: var IdentCache, env: ProcedureEnv, s: ProcId): CProcHeader =
+  result.returnType = mapTypeV3(env.getReturnType(s))
 
   result.args.newSeq(env.numParams(s))
   var i = 0
   for p in env.params(s):
-    result.args[i] = (mapTypeV3(c, p.typ), c.idents.getOrIncl(p.name))
+    result.args[i] = (mapTypeV3(p.typ), idents.getOrIncl(p.name))
     inc i
 
 
@@ -1146,7 +1146,7 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
   # create the procedure headers
   # TODO: use ``setLen`` + []
   for id in env.procs.items:
-    c.funcs.add genCProcHeader(c, env.procs, id)
+    c.funcs.add genCProcHeader(c.idents, env.procs, id)
 
 proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalGenCtx, env: IrEnv, procs: openArray[(ProcId, IrStore3)]) =
   let f = open(filename.string, fmWrite)
