@@ -245,6 +245,17 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
       else:
         discard
 
+    elif ir.at(n.callee).kind == ntkProc and (let m = c.env.procs[ir.at(n.callee).procId].magic; m != mNone):
+      case m
+      of mIsNil:
+        let arg0 = ir.argAt(cr, 0)
+        if c.env.types[c.types[arg0]].kind == tnkClosure:
+          cr.replace()
+          discard cr.insertCallExpr(c.graph.magics[mIsNil], cr.insertPathObj(arg0, ClosureProcField))
+
+      else:
+        discard
+
     # rewrite calls using closures as the callee
     elif ir.at(n.callee).kind != ntkProc and c.env.types[c.types[n.callee]].kind == tnkClosure:
       # --->
