@@ -141,9 +141,8 @@ func irLit(c: var TCtx, n: PNode): IRIndex =
 
   c.irs.irLit((n, typ))
 
-proc irImm(c: var TCtx, val: SomeInteger): IRIndex =
-  # XXX: getSysType has side-effects
-  c.irLit newIntTypeNode(BiggestInt(val), c.graph.getSysType(unknownLineInfo, tyInt))
+func irImm(c: var TCtx, val: SomeInteger): IRIndex =
+  c.irs.irLit (newIntNode(nkIntLit, BiggestInt(val)), c.passEnv.sysTypes[tyInt])
 
 template tryOrReturn(code): untyped =
   try:
@@ -194,6 +193,11 @@ func genLocal(c: var TCtx, kind: LocalKind, s: PSym): IRIndex =
 proc getTemp(cc: var TCtx; tt: PType): IRIndex =
   let id = cc.genLocal(lkTemp, tt)
   cc.irs.irLocal(id)
+
+func irNull(c: var TCtx, t: TypeId): IRIndex =
+  # XXX: maybe `irNull` should be a dedicated IR node?
+  let id = c.irs.genLocal(lkTemp, t)
+  c.irs.irLocal(id)
 
 func irNull(c: var TCtx, t: PType): IRIndex =
   # XXX: maybe `irNull` should be a dedicated IR node?
@@ -1247,7 +1251,7 @@ proc genTupleConstr(c: var TCtx, n: PNode): IRIndex =
 proc genClosureConstr(c: var TCtx, n: PNode): IRIndex =
   let tmp = c.genx(n[0])
   let env =
-    if n[1].kind == nkNilLit: c.irNull(c.graph.getSysType(n.info, tyNil))
+    if n[1].kind == nkNilLit: c.irNull(c.passEnv.sysTypes[tyPointer])
     else: c.genx(n[1])
 
   c.irs.irCall(bcNewClosure, c.types.requestType(n.typ), tmp, env)
