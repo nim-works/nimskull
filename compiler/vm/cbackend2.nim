@@ -254,16 +254,20 @@ proc getSysMagic2(g: ModuleGraph, name: string, m: TMagic): PSym =
 proc newPassEnv(g: ModuleGraph, tgen: var DeferredTypeGen, syms: var SymbolEnv,
                 procs: var ProcedureEnv): PassEnv =
   new(result)
+
+proc initCompilerProcs(p: PassEnv, g: ModuleGraph, tgen: var DeferredTypeGen,
+                       procs: var ProcedureEnv) =
   for sym in g.compilerprocs.items:
     case sym.kind
     of routineKinds:
-      result.compilerprocs[sym.name.s] = procs.requestProc(sym)
+      p.compilerprocs[sym.name.s] = procs.requestProc(sym)
     of skType:
-      result.compilertypes[sym.name.s] = tgen.requestType(sym.typ)
+      p.compilertypes[sym.name.s] = tgen.requestType(sym.typ)
     else:
       # TODO: the rest (e.g. globals) also need to be handled
       discard
 
+proc initMagics(p: PassEnv, g: ModuleGraph, procs: var ProcedureEnv) =
   # XXX: a magic is not necessarily a procedure - it can also be a type
   # create a symbol for each magic to be used by the IR transformations
   for m in low(TMagic)..high(TMagic):
@@ -282,9 +286,11 @@ proc newPassEnv(g: ModuleGraph, tgen: var DeferredTypeGen, syms: var SymbolEnv,
       # we don't care about magic types here
       continue
 
-    result.magics[m] = procs.addMagic(NoneType, name, m)
+    p.magics[m] = procs.addMagic(NoneType, name, m)
 
-  for op, tbl in result.attachedOps.mpairs:
+# TODO: needs a different name:
+proc resolveTypeBoundOps(p: PassEnv, g: ModuleGraph, tgen: DeferredTypeGen, procs: var ProcedureEnv) =
+  for op, tbl in p.attachedOps.mpairs:
     for k, v in g.attachedOps[op].pairs:
       let t = tgen.lookupType(k)
       if t != NoneType:
@@ -293,6 +299,7 @@ proc newPassEnv(g: ModuleGraph, tgen: var DeferredTypeGen, syms: var SymbolEnv,
         # XXX: is this case even possible
         discard#echo "missing type for type-bound operation"
 
+proc initSysTypes(p: PassEnv, g: ModuleGraph, types: var TypeEnv, tgen: var DeferredTypeGen) =
   for t in { tyVoid, tyInt..tyFloat64, tyUInt..tyUInt64, tyBool, tyChar, tyString, tyCstring, tyPointer }.items:
     result.sysTypes[t] = tgen.requestType(g.getSysType(unknownLineInfo, t))
 
@@ -347,7 +354,11 @@ proc generateCode*(g: ModuleGraph) =
   c.types.charType = g.getSysType(unknownLineInfo, tyChar)
 
   # setup a ``PassEnv``
-  let passEnv = newPassEnv(g, c.types, c.symEnv, c.procs)
+  let passEnv = PassEnv()
+  passEnv.initSysTypes(g, env.types, c.types)
+  passEnv.initCompilerProcs(g, c.types, c.procs)
+  passEnv.initMagics(g, c.procs)
+
   c.passEnv = passEnv
 
   # generate all module init procs (i.e. code for the top-level statements):
@@ -393,6 +404,12 @@ proc generateCode*(g: ModuleGraph) =
   for id, s in c.symEnv.msymbols:
     if (let orig = c.symEnv.orig.getOrDefault(id); orig != nil):
       s.typ = c.types.requestType(orig.typ)
+
+  # XXX: this is a problem. Resolving the type-bounds operation requires
+  #      all alive types being present, but that isn't the case yet since
+  #      the final flush hasn't happenend, but for that we need to call
+  #      ``finish``, but we can't since we're still adding procedures
+  resolveTypeBoundOps(passEnv, g, c.types, c.procs)
 
   c.procs.finish(c.types)
 
