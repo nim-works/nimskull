@@ -827,6 +827,37 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
 
     # no adjustments needed
     result = c.irs.irCall(prc, arg, genx(c, n[2]), genx(c, n[3]))
+
+  of mLengthOpenArray:
+    # Consider:
+    #
+    # .. code-block:: nim
+    #
+    #   template tmpl(x: openArray[int]) = x.len
+    #   var s: seq[int]
+    #   tmpl(s)
+    #
+    # ``mLengthOpenArray`` is used for the ``len`` call here, even though
+    # ``x`` is of type ``seq[int]``!
+
+    # XXX: correcting this here is better than allowing it to reach the IR,
+    #      but it's still very late. It's better fixed at the root
+
+    let fixup =
+      case n[1].typ.skipTypes(abstractVar).kind:
+      of tySequence:  mLengthSeq
+      of tyString:    mLengthStr
+      of tyArray:     mLengthArray
+      of tyOpenArray, tyVarargs: mLengthOpenArray
+      else: unreachable(n[1].typ.skipTypes(abstractVar).kind)
+
+    result =
+      if fixup != mLengthOpenArray:
+        c.irCall("len", fixup, genx(c, n[1]))
+      else:
+        # emit the original
+        c.irs.irCall(genProcSym(c, n[0].sym), genx(c, n[1]))
+
   of mConStrStr:
     # the `mConStrStr` magic is very special. Nested calls to it are flattened
     # into a single call in ``transf``
