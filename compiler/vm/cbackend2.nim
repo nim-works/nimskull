@@ -497,13 +497,19 @@ proc generateCode*(g: ModuleGraph) =
 
   lowerSetTypes(ttc, env.types, env.syms)
 
-  # apply transformations meant for the C-like targets. This has to happen
-  # separately, since we need valid typed IR which we only have again after
-  # the type transformations took place
-  for i in 0..<mlist.modules.len:
-    for s, irs in moduleProcs[i].mitems:
-      logError(irs, env, s):
-        applyCTransforms(passEnv, s, irs, env)
+  block:
+    # apply transformations meant for the C-like targets. This has to happen
+    # separately, since we need valid typed IR which we only have again after
+    # the type transformations took place
+    var ctx: CTransformEnv
+    applyCTypeTransforms(ctx, passEnv, env.types, env.syms)
+
+    for i in 0..<mlist.modules.len:
+      for s, irs in moduleProcs[i].mitems:
+        logError(irs, env, s):
+          applyCTransforms(ctx, passEnv, s, irs, env)
+
+    finish(ctx, env.types)
 
   var gCtx: GlobalGenCtx
   initGlobalContext(gCtx, env)

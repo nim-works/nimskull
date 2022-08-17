@@ -19,10 +19,21 @@ func transformNrvo*(g: PassEnv, procs: var ProcedureEnv) =
   ## Performs the named-return-value-optimization (NRVO)
   discard
 
+type CTransformEnv* = object
+  ## State and artifacts for/of type transformation; not modified during
+  ## procedure transformation
+  rawProcs: Table[TypeId, TypeId] ## for each closure type the procedure type
+    ## without the environment parameter
+  remap: Table[TypeId, TypeId]
+
 type CTransformCtx = object
+  # immutable external state shared across all ``applyCTransforms``
+  # invocations
   graph: PassEnv
   env: ptr IrEnv
+  transEnv*: ptr CTransformEnv
 
+  # immutable state local to the current procedure being transformed
   types: seq[TypeId]
   paramMap: seq[uint32] ## maps the current parameter indices to the new ones
 
@@ -199,18 +210,10 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
 
       cr.insertJoin(elseP)
       block:
-        # TODO: a cast is needed here, but we don't know the destination type yet...
-        # XXX: this problem has come up multiple times now and it's clear that
-        #      a different approach to type patching/transforming is needed.
-        #      An approach that looks promising is to not mutate the types in
-        #      place but create new types and then store original->new
-        #      mappings. Type lowering/patching would then happen *before* the
-        #      IR pass so that the latter is able to lookup the new types.
-        #      After all IR passes still requiring access to the original type
-        #      are done, the new types are "committed". For this to work a
-        #      general type indirection facility is needed, but this is
-        #      planned anyways.
-        let prc = cr.insertPathObj(cl, ClosureProcField)
+        # the closure procedure needs to be cast to the non-closure
+        # counterpart first
+        let prc = cr.insertCast(c.transEnv.rawProcs[c.types[n.callee]],
+                                cr.insertPathObj(cl, ClosureProcField))
 
         # remove the env arg
         args.del(args.high)
@@ -230,13 +233,13 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
 const transformPass = LinearPass2[CTransformCtx](visit: visit)
 const lowerClosuresPass = LinearPass2[CTransformCtx](visit: lowerClosuresVisit)
 
-proc applyCTransforms*(g: PassEnv, id: ProcId, ir: var IrStore3, env: IrEnv) =
+proc applyCTransforms*(c: CTransformEnv, g: PassEnv, id: ProcId, ir: var IrStore3, env: IrEnv) =
   ## Applies lowerings to the IR that are specific to the C-like targets:
   ## * turn ``bcRaise`` into calls to ``raiseExceptionEx``/``reraiseException``
   ## * transform overflow checks
   ## * lower ``mWasMoved`` and ``mCStrToStr``
 
-  var ctx = CTransformCtx(graph: g, env: addr env)
+  var ctx = CTransformCtx(graph: g, env: addr env, transEnv: addr c)
   ctx.types = computeTypes(ir, env)
 
   runPass(ir, ctx, transformPass)
@@ -244,16 +247,20 @@ proc applyCTransforms*(g: PassEnv, id: ProcId, ir: var IrStore3, env: IrEnv) =
 
   runPass(ir, ctx, lowerClosuresPass)
 
-proc applyCTypeTransforms*(g: PassEnv, env: var TypeEnv, senv: var SymbolEnv) =
+func applyCTypeTransforms*(c: var CTransformEnv, g: PassEnv, env: var TypeEnv, senv: var SymbolEnv) =
   # lower closures to a ``tuple[prc: proc, env: pointer]`` pair
   let pointerType = g.sysTypes[tyPointer]
-  var remap: Table[TypeId, TypeId]
   for id, typ in env.items:
     if typ.kind == tnkClosure:
       let prcTyp = env.requestProcType(id, ccNimCall, params=[pointerType])
 
-      remap[id] = env.requestRecordType(base = NoneType):
+      c.remap[id] = env.requestRecordType(base = NoneType):
         [(NoneSymbol, prcTyp),
          (NoneSymbol, pointerType)]
 
-  commit(env, remap)
+      # needed for the lowering of closure invocations
+      c.rawProcs[id] = env.requestProcType(id, ccNimCall)
+
+func finish*(c: var CTransformEnv, env: var TypeEnv) =
+  ## Commit the type modifications
+  commit(env, c.remap)
