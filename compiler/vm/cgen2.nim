@@ -205,6 +205,8 @@ func mangledName(d: Declaration): string =
 
 const BaseName = "Sub" ## the name of the field for the base type
 
+const ArrayInnerName = "arr"
+
 func add(decl: var CDecl, k: CDeclAstNodeKind; a, b: uint32 = 0) =
   decl.add((k, a, 0'u32))
 
@@ -325,12 +327,17 @@ func genCTypeDecl(c: var TypeGenCtx, t: TypeId): CDecl =
     result[0].a += count.uint32
 
   of tnkArray:
-    result.add cdnkBracket
-    # not a weak-dep, since the a complete type is required
+    # --> struct { T data[len] }
+    # Arrays are wrapped in a struct which allows for them to appear as return-types and in assignments
+    result.add cdnkStruct, 1.uint32
+    result.add cdnkEmpty
+
+    result.add cdnkField
+    # not a weak-dep, since the complete type is required
     result.add cdnkType, c.requestType(c.env.types.elemType(t)).uint32
-    # TODO: pass a valid ConfigRef
-    {.cast(noSideEffect).}:
-      result.addIntLit c.env.types.length(t).uint64
+    result.add cdnkBracket
+    result.add cdnkIdent, c.cache.getOrIncl(ArrayInnerName).uint32
+    result.addIntLit c.env.types.length(t).uint64
 
   of tnkProc:
     case c.env.types.callConv(t)
@@ -799,7 +806,11 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
       names[i] = ast.fin()
 
     of ntkPathArr:
-      names[i] = start().add(cnkBracket).add(names[n.srcLoc]).add(names[n.arrIdx]).fin()
+      case c.env.types[c.types[n.srcLoc]].kind
+      of tnkArray:
+        names[i] = start().add(cnkBracket).add(cnkDotExpr).add(names[n.srcLoc]).ident(c.gl.idents, ArrayInnerName).add(names[n.arrIdx]).fin()
+      else:
+        names[i] = start().add(cnkBracket).add(names[n.srcLoc]).add(names[n.arrIdx]).fin()
     of ntkLit:
       names[i] = genLit(c, irs.getLit(n))
     of ntkUse:
