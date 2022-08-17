@@ -600,7 +600,7 @@ func storageLoc(c: RefcPassCtx, val: IRIndex): StorageLoc =
 
 proc requestRtti(c: var RefcPassCtx, cr: var IrCursor, t: TypeId): IRIndex =
   # refc uses the v1 type-info
-  cr.insertCallExpr(c.extra.magics[mGetTypeInfo], cr.insertLit((nil, t)))
+  cr.insertAddr cr.insertCallExpr(c.extra.magics[mGetTypeInfo], cr.insertLit((nil, t)))
   # TODO: collect for which types rtti was requested
 
 proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMagic, n: IrNode3) =
