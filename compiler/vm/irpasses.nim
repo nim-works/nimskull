@@ -668,6 +668,14 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
     # XXX: not sure about `askMove` here...
     genNewObj(cr, c.extra, c.env[], ptrTyp, arg, size, c.storageLoc(arg))
 
+  of mGCref, mGCunref:
+    const op = [mGCref:   "nimGCref",
+                mGCunref: "nimGCunref"]
+
+    cr.replace()
+    genIfNot(cr, cr.insertMagicCall(c.extra, mIsNil, n.args(0))):
+      cr.insertCompProcCall(c.extra, op[m], n.args(0))
+
   else:
     discard "ignore"
 
