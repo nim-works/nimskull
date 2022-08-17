@@ -15,6 +15,8 @@ import compiler/vm/irtypes
 
 export irtypes
 
+const useNodeTraces {.booldefine.} = false
+
 type IRIndex* = int
 const InvalidIndex* = -1 # XXX: it would be better for `InvalidIndex` to be '0'
 
@@ -298,10 +300,12 @@ template missingImpl*() = assert false
 
 
 func traceFor*(s: IrStore3, i: IRIndex): seq[StackTraceEntry] =
-  s.sources[i]
+  when useNodeTraces:
+    s.sources[i]
 
 func traceForLocal*(s: IrStore3, i: int): seq[StackTraceEntry] =
-  s.localSrc[i]
+  when useNodeTraces:
+    s.localSrc[i]
 
 # version 1
 
@@ -364,8 +368,9 @@ func add(x: var IrStore, n: sink IrNode2): IRIndex =
 func add(x: var IrStore3, n: sink IrNode3): IRIndex =
   result = x.nodes.len.IRIndex
   x.nodes.add n
-  {.noSideEffect.}:
-    x.sources.add getStackTraceEntries()
+  when useNodeTraces:
+    {.noSideEffect.}:
+      x.sources.add getStackTraceEntries()
 
 ## version 2/3
 
@@ -374,8 +379,9 @@ func genLocal*(c: var IrStore3, kind: LocalKind, typ: TypeId): int =
   assert typ != NoneType
   c.locals.add((kind, typ, NoneSymbol))
   result = c.locals.high
-  {.noSideEffect.}:
-    c.localSrc.add(getStackTraceEntries())
+  when useNodeTraces:
+    {.noSideEffect.}:
+      c.localSrc.add(getStackTraceEntries())
 
 func genLocal*(c: var IrStore3, kind: LocalKind, typ: TypeId, sym: SymId): int =
   ## A local that has a symbol
@@ -386,8 +392,9 @@ func genLocal*(c: var IrStore3, kind: LocalKind, typ: TypeId, sym: SymId): int =
   #      for the local?
   c.locals.add((kind, typ, sym))
   result = c.locals.high
-  {.noSideEffect.}:
-    c.localSrc.add(getStackTraceEntries())
+  when useNodeTraces:
+    {.noSideEffect.}:
+      c.localSrc.add(getStackTraceEntries())
 
 func irContinue*(c: var IrStore3) =
   discard c.add(IrNode3(kind: ntkContinue))
@@ -1891,8 +1898,9 @@ func replace*(cr: var IrCursor) =
 
 func insert(cr: var IrCursor, n: sink IrNode3): IRIndex =
   cr.newNodes.add n
-  {.cast(noSideEffect).}:
-    cr.traces.add getStackTraceEntries()
+  when useNodeTraces:
+    {.cast(noSideEffect).}:
+      cr.traces.add getStackTraceEntries()
 
   if cr.actions.len > 0 and cr.actions[^1][1].a == cr.pos:
       # append to the insertion or replacement
@@ -2069,7 +2077,9 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
     template insertNode(p: int) =
       patchTable[oldLen + np] = p
       ir.nodes.insert(cr.newNodes[np], p)
-      ir.sources.insert(cr.traces[np], p)
+
+      when useNodeTraces:
+        ir.sources.insert(cr.traces[np], p)
 
       patch(ir.nodes[p], patchTable)
 
@@ -2083,7 +2093,8 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
 
       # replace the node
       ir.nodes[slice.b + currOff] = cr.newNodes[np]
-      ir.sources[slice.b + currOff] = cr.traces[np]
+      when useNodeTraces:
+        ir.sources[slice.b + currOff] = cr.traces[np]
       inc np
 
       # patch the replaced node
