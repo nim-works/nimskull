@@ -1356,6 +1356,24 @@ proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
   else:
     discard
 
+func lowerSetTypes*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: SymbolEnv) =
+  for id, typ in tenv.mtypes:
+    if typ.kind == tnkSet:
+      let L = typ.length
+
+      if L <= 64:
+        # sets smaller than 64 bits are turned into fitting uint types
+        let r =
+          if L <= 8:    c.graph.sysTypes[tyUInt8]
+          elif L <= 16: c.graph.sysTypes[tyUInt16]
+          elif L <= 32: c.graph.sysTypes[tyUInt32]
+          else:         c.graph.sysTypes[tyUInt64]
+
+        typ = tenv[r]
+      else:
+        # larget sets are turned into byte arrays
+        let numBytes = ((L + 7) and (not 7'u)) div 8'u # round to the next multiple of 8
+        typ = tenv.genArrayType(numBytes, c.graph.sysTypes[tyUInt8])
 
 proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers ``bcRangeCheck`` (nkChckRange, nkChckRangeF, etc.) into simple comparisons

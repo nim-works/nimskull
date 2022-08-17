@@ -450,6 +450,8 @@ proc generateCode*(g: ModuleGraph) =
   else:
     lowerSeqTypesV1(ttc, env.types, env.syms)
 
+  lowerSetTypes(ttc, env.types, env.syms)
+
   # apply transformations meant for the C-like targets. This has to happen
   # separately, since we need valid typed IR which we only have again after
   # the type transformations took place
