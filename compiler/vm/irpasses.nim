@@ -889,6 +889,54 @@ proc genSeqLen(cr: var IrCursor, g: PassEnv, ir: IrStore3, src: IRIndex): IRInde
 
   result = cr.insertLocalRef(local)
 
+proc genStrConcat(cr: var IrCursor, g: PassEnv, tm: seq[TypeId], ir: IrStore3, env: IrEnv, n: IRIndex): IRIndex =
+  # Input:
+  #   s = "Abc" & "def" & str & 'g'
+  # Transformed:
+  #   var tmp = rawNewString(str.len + 7)
+  #   appendString(tmp, "Abc")
+  #   appendString(tmp, "def")
+  #   appendString(tmp, name)
+  #   appendChar(tmp, 'g')
+
+  var staticLen = 0
+  var lenExpr = InvalidIndex
+
+  for arg in ir.args(n):
+    case env.types[tm[arg]].kind
+    of tnkChar:
+      inc staticLen
+    of tnkString:
+      if ir.at(arg).kind == ntkLit:
+        staticLen += getLit(ir, ir.at(arg)).val.strVal.len
+      else:
+        let v = genSeqLen(cr, g, ir, arg)
+        lenExpr =
+          if lenExpr == InvalidIndex:
+            v
+          else:
+            cr.insertMagicCall(g, mAddI, lenExpr, v)
+
+    else: unreachable()
+
+  lenExpr =
+    if lenExpr == InvalidIndex:
+      cr.insertLit(staticLen)
+    else:
+      cr.insertMagicCall(g, mAddI, lenExpr, cr.insertLit(staticLen))
+
+  let tmp = cr.newLocal(lkTemp, g.getCompilerType("NimString"))
+  cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertCompProcCall(g, "rawNewString", lenExpr))
+
+  for arg in ir.args(n):
+    # BUG: the discard is necessary for the compiler not to crash with an NPE
+    case env.types[tm[arg]].kind
+    of tnkChar:   discard cr.insertCompProcCall(g, "appendChar", cr.insertLocalRef(tmp), arg)
+    of tnkString: discard cr.insertCompProcCall(g, "appendString", cr.insertLocalRef(tmp), arg)
+    else: unreachable()
+
+  result = cr.insertLocalRef(tmp)
+
 proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers the `seq`-related magic operations into calls to the v1 `seq`
   ## implementation
@@ -984,6 +1032,10 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       let tmp = cr.genTempOf(strVal, c.typeof(strVal))
 
       cr.genRefcRefAssign(c.extra, strVal, cr.insertCompProcCall(c.extra, "addChar", cr.insertLocalRef(tmp), arg(1)), c.storageLoc(strVal))
+
+    of mConStrStr:
+      cr.replace()
+      discard genStrConcat(cr, c.extra, c.types, ir, c.env[], cr.position)
 
     of mEqStr:
       # TODO: move into a common pass, since this shared between v1 and v2
