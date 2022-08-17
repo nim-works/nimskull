@@ -187,6 +187,20 @@ type
     forceName*: bool
     header*: string # only needed for the C-backend. # TODO: this need to be handled differently. Will likely use the attachment strategy
 
+  DeclarationV2* = object
+    # TODO: maybe use a different name? E.g. CodeGenEntity, CodeGenDesc?
+
+    name*: string # same as for ``Declaration.name``
+    forceName*: bool
+    omit*: bool # don't emit any code for to the entity this declaration is attached to. XXX: this doesn't really fit here
+
+    format*: string # formatting string. May be empty (in case special
+                    # formatting is to be applied). Only relevant for
+                    # source-based code-generators.
+
+  SymInterfaceDef* = object
+    header*: string
+
   Symbol* = object
     ## The symbol representation used by the backend
 
@@ -206,7 +220,8 @@ type
     magic*: TMagic
     position*: int # inherited from `TSym`, might be removed/replaced
 
-    decl*: Declaration
+    # TODO: store the declarations separately
+    decl*: DeclarationV2
 
   SymbolEnv* = object
     # TODO: maybe rename?
@@ -239,7 +254,8 @@ type
     #      less ``ProcHeader``s fit into a cache-line. The declration is only
     #      needed by code-generators so it likely makes sense to move the
     #      declaration into a separate seq in ``ProcedureEnv``
-    decl*: Declaration
+    decl*: DeclarationV2
+    iface*: SymInterfaceDef
 
   ProcedureEnv* = object
     # TODO: maybe rename
@@ -747,12 +763,12 @@ proc flush*(gen: var DeferredTypeGen, symEnv: var SymbolEnv, conf: ConfigRef) =
 
 func addSym*(e: var SymbolEnv, kind: TSymKind, typ: TypeId, name: string, flags: TSymFlags = {}): SymId =
   # XXX: temporary helper
-  e.symbols.add(Symbol(kind: kind, typ: typ, flags: flags, decl: Declaration(name: name)))
+  e.symbols.add(Symbol(kind: kind, typ: typ, flags: flags, decl: DeclarationV2(name: name)))
   result = e.symbols.len.SymId
 
 func addMagic*(e: var ProcedureEnv, typ: TypeId, name: string, m: TMagic): ProcId =
   # XXX: temporary helper
-  e.procs.add ProcHeader(returnType: typ, magic: m, decl: Declaration(name: name))
+  e.procs.add ProcHeader(returnType: typ, magic: m, decl: DeclarationV2(name: name))
   result = e.procs.len.ProcId
 
 iterator msymbols*(e: var SymbolEnv): (SymId, var Symbol) =
@@ -825,6 +841,12 @@ func translateProc*(s: PSym, types: var DeferredTypeGen, dest: var ProcHeader) =
 
   # fill in the declaration info
   dest.decl.name = s.name.s
+  dest.decl.forceName = s.flags.overlaps({sfImportc, sfExportc})
+  dest.decl.omit = lfNoDecl in s.loc.flags
+  dest.decl.format = if s.constraint != nil: getStr(s.constraint) else: ""
+
+  if lfHeader in s.loc.flags:
+    dest.iface.header = getStr(s.annex.path)
 
   # XXX: temporary workaround for manually created magic syms (e.g. via
   #      ``createMagic``), as these have no type information. Those shouldn't

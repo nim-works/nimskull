@@ -203,6 +203,14 @@ func mangledName(d: Declaration): string =
   # XXX: temporary
   d.name
 
+func mangledName(procs: ProcedureEnv, id: ProcId): string =
+  let decl = procs[id].decl
+  if decl.forceName:
+    decl.name
+  else:
+    # XXX: temporary fix in order to make overloading work
+    fmt"{decl.name}_{id.uint32}"
+
 const BaseName = "Sub" ## the name of the field for the base type
 
 const ArrayInnerName = "arr"
@@ -509,7 +517,7 @@ func mapTypeV3(t: TypeId): CTypeId =
     VoidCType
 
 func genCProcHeader(idents: var IdentCache, env: ProcedureEnv, s: ProcId): CProcHeader =
-  result.ident = idents.getOrIncl(mangledName(env[s].decl))
+  result.ident = idents.getOrIncl(mangledName(env, s))
   result.returnType = mapTypeV3(env.getReturnType(s))
 
   result.args.newSeq(env.numParams(s))
@@ -1153,7 +1161,10 @@ proc emitCType(f: File, c: GlobalGenCtx, info: CTypeInfo, isFwd: bool) =
 
   assert pos == info.decl.len
 
-proc writeDecl(f: File, c: GlobalGenCtx, h: CProcHeader, decl: Declaration) =
+proc writeProcHeader(f: File, c: GlobalGenCtx, h: CProcHeader, decl: DeclarationV2, withParamNames: bool): bool =
+  if decl.omit:
+    return false
+
   emitType(f, c, h.returnType)
   f.write(" ")
   f.write(c.idents[h.ident])
@@ -1164,22 +1175,12 @@ proc writeDecl(f: File, c: GlobalGenCtx, h: CProcHeader, decl: Declaration) =
 
     emitType(f, c, it.typ)
 
-  f.writeLine(");")
+    if withParamNames:
+      f.write " "
+      f.write c.idents[it.name]
 
-proc writeDef(f: File, c: GlobalGenCtx, h: CProcHeader, decl: Declaration) =
-  emitType(f, c, h.returnType)
-  f.write(" ")
-  f.write(c.idents[h.ident])
-  f.write("(")
-  for i, it in h.args.pairs:
-    if i > 0:
-      f.write ", "
-
-    emitType(f, c, it.typ)
-    f.write " "
-    f.write c.idents[it.name]
-
-  f.writeLine(") {")
+  f.write ")"
+  result = true
 
 func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
   ## Initializes the ``GlobalGenCtx`` to use for all following ``emitModuleToFile`` calls. Creates the ``CTypeInfo`` for each IR type.
@@ -1301,6 +1302,12 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       echo ctx.idents[ctx.ctypes[id.int].name], ": ", iface.loc.flags
       mCtx.headers.incl getStr(iface.annex.path)
 
+  # collect the header dependencies of used functions
+  for id in mCtx.funcs.items:
+    let header = env.procs[id].iface.header
+    if header.len != 0:
+      mCtx.headers.incl header
+
   # ----- start of the emit logic -----
 
   f.writeLine "#define NIM_INTBITS 64" # TODO: don't hardcode
@@ -1326,7 +1333,8 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
   # generate all procedure forward declarations
   for id in mCtx.funcs.items:
     #echo "decl: ", sym.name.s, " at ", conf.toFileLineCol(sym.info)
-    writeDecl(f, ctx, ctx.funcs[id.toIndex], env.procs[id].decl)
+    if writeProcHeader(f, ctx, ctx.funcs[id.toIndex], env.procs[id].decl, false):
+      f.writeLine ";"
 
   for id in mCtx.syms.items:
     let sym = env.syms[id]
@@ -1351,11 +1359,12 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       (id, _) = procs[i]
       prc = env.procs[id]
 
-    writeDef(f, ctx, ctx.funcs[id.toIndex], prc.decl)
-    try:
+    if writeProcHeader(f, ctx, ctx.funcs[id.toIndex], prc.decl, true):
+      # only emit the body if the procedure is not omitted (i.e. declared
+      # as `.noDecl`)
+      # XXX: forbid using the .noDecl pragma on a procedure with body?
+      f.writeLine "{"
       emitCAst(f, ctx, it)
-    except:
-      echo "emit: ", prc.decl.name#, " at ", conf.toFileLineCol(sym.info)
-      raise
-    f.writeLine "}"
+      f.writeLine "}"
+
     inc i
