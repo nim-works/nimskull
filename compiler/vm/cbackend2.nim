@@ -30,6 +30,7 @@ import
     pathutils
   ],
   compiler/vm/[
+    cpasses,
     irgen,
     irtypes,
     vmir,
@@ -439,6 +440,14 @@ proc generateCode*(g: ModuleGraph) =
     discard
   else:
     lowerSeqTypesV1(ttc, env.types, env.syms)
+
+  # apply transformations meant for the C-like targets. This has to happen
+  # separately, since we need valid typed IR which we only have again after
+  # the type transformations took place
+  for i in 0..<mlist.modules.len:
+    for s, irs in moduleProcs[i].mitems:
+      logError(irs, env, s):
+        applyCTransforms(passEnv, s, irs, env)
 
   var gCtx: GlobalGenCtx
   initGlobalContext(gCtx, env)

@@ -658,8 +658,6 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IrNode3): CAst
   case bc
   of bcNewClosure:
     genBraced(c.gl.ident("NIM_NIL"), c.gl.ident("NIM_NIL"))
-  of bcOverflowCheck:
-    genArithm(c, n.args(0), true)
   of bcUnlikely:
     start().add(cnkCall, 1).ident(c.gl.idents, "NIM_UNLIKELY").add(c.gen(irs, n.args(0))).fin()
   of bcConv, bcCast:
@@ -670,19 +668,6 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IrNode3): CAst
     var ast = start()
     discard ast.add(cnkCast).add(cnkType, mapTypeV2(c, dstTyp).uint32).add(gen(c, irs, n.args(0)))
     ast.fin()
-  of bcRaise:
-    var ast = start()
-    if argCount(n) == 0:
-      # re-raise
-      discard ast.add(cnkCall, 0).ident(c.gl.idents, "reraiseException")
-    else:
-      # TODO: empty arguments
-      discard ast.add(cnkCall, 5).ident(c.gl.idents, "raiseExceptionEx")
-      discard ast.add(c.gen(irs, n.args(0))).add(c.gen(irs, n.args(1)))
-      discard ast.ident(c.gl.idents, "NIM_NIL").ident(c.gl.idents, "NIM_NIL").intLit(0)
-
-    ast.fin()
-
   else:
     genError(c, fmt"missing: {bc}")
     #unreachable(bc)
