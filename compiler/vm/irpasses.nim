@@ -1149,33 +1149,27 @@ func lowerSeqTypesV1*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: var Symb
     strTyp = c.graph.getCompilerType("NimString")
     seqTyp = c.graph.getCompilerType("TGenericSeq")
 
-  for id, typ in tenv.mtypes:
+  var remap: Table[TypeId, TypeId]
+  for id, typ in tenv.items:
     case typ.kind
     of tnkString:
-      # TODO: this doesn't work. Since we're doing no deduplication, there may
-      #       exist multiple string types and we're overwriting all of them
-      #       with the new type, meaning that we now have multiple instances
-      #       of the new type!
-      # overwrite with
-      typ = tenv[c.graph.getCompilerType("NimString")]
+      remap[id] = c.graph.getCompilerType("NimString")
     of tnkSeq:
-      # XXX: same as for strings, we're creating duplicate types here
-
       # replace a ``seq[T]`` with the following:
       #
       # .. code:: nim
       #   type PSeq = ptr object of TGenericSeq # name is just an example
       #     data: UncheckedArray[T]
       #
-
       let
         arr = tenv.requestGenericType(tnkUncheckedArray, typ.base)
         sym = senv.addSym(skField, arr, "data") # TODO: this is bad; don't use ``Symbol`` to store field naming information
         rec = tenv.requestRecordType(base = seqTyp, [(sym, arr)])
-      typ = genGenericType(tnkPtr, rec)
+      remap[id] = requestGenericType(tenv, tnkPtr, rec)
     else:
       discard
 
+  commit(tenv, remap)
 
 func lowerSeqsV2(c: GenericTransCtx, n: IrNode3, cr: var IrCursor) =
   ## Lowers the `seq`-related magic operations into calls to the v2 `seq`
@@ -1409,7 +1403,9 @@ proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
     discard
 
 func lowerSetTypes*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: SymbolEnv) =
-  for id, typ in tenv.mtypes:
+  var remap: Table[TypeId, TypeId]
+
+  for id, typ in tenv.items:
     if typ.kind == tnkSet:
       let L = typ.length
 
@@ -1421,11 +1417,13 @@ func lowerSetTypes*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: SymbolEnv)
           elif L <= 32: c.graph.sysTypes[tyUInt32]
           else:         c.graph.sysTypes[tyUInt64]
 
-        typ = tenv[r]
+        remap[id] = r
       else:
         # larget sets are turned into byte arrays
         let numBytes = ((L + 7) and (not 7'u)) div 8'u # round to the next multiple of 8
-        typ = tenv.genArrayType(numBytes, c.graph.sysTypes[tyUInt8])
+        remap[id] = tenv.requestArrayType(numBytes, c.graph.sysTypes[tyUInt8])
+
+  commit(tenv, remap)
 
 proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers ``bcRangeCheck`` (nkChckRange, nkChckRangeF, etc.) into simple comparisons
@@ -1711,7 +1709,7 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
     discard
 
 
-func genTransformedOpenArray(g: PassEnv, tenv: var TypeEnv, typ: Type): Type =
+func genTransformedOpenArray(g: PassEnv, tenv: var TypeEnv, typ: Type): TypeId =
   ## .. code-block:: nim
   ##
   ##   type X = object
@@ -1721,27 +1719,26 @@ func genTransformedOpenArray(g: PassEnv, tenv: var TypeEnv, typ: Type): Type =
     arrTyp = tenv.requestGenericType(tnkUncheckedArray, typ.base)
     ptrTyp = tenv.requestGenericType(tnkPtr, arrTyp)
 
-  result = tenv.genRecordType(base = NoneType, [(NoneSymbol, ptrTyp), (NoneSymbol, g.sysTypes[tyInt])])
+  result = tenv.requestRecordType(base = NoneType, [(NoneSymbol, ptrTyp), (NoneSymbol, g.sysTypes[tyInt])])
 
 func lowerOpenArrayTypes*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: SymbolEnv) =
   ## Transforms ``openArray[T]`` types
 
-  # XXX: there are two issues here. 1) we need two passes, and 2) we're
-  #      possibly creating lots of duplicate record types, due to both the
-  #      ``var`` indirections and the fact that we're getting lots of
-  #      duplicate types from sem
+  var remap: Table[TypeId, TypeId]
 
-  # ``var/lent openArray[T]`` needs to be lowered too. Since the types may be
-  # in the list in arbitrary order, this step has to happen first, as we
-  # otherwise wouldn't be able to easily detect if the target type is/was an
-  # ``openArray``
-  for id, typ in tenv.mtypes:
-    if typ.kind in {tnkVar, tnkLent} and tenv[typ.base].kind == tnkOpenArray:
-      typ = genTransformedOpenArray(c.graph, tenv, tenv[typ.base])
+  for id, typ in tenv.items:
+    case typ.kind
+    of tnkVar, tnkLent:
+      # ``var/lent openArray[T]`` is lowered too
+      if tenv[typ.base].kind == tnkOpenArray:
+        remap[id] = genTransformedOpenArray(c.graph, tenv, tenv[typ.base])
 
-  for id, typ in tenv.mtypes:
-    if typ.kind == tnkOpenArray:
-      typ = genTransformedOpenArray(c.graph, tenv, typ)
+    of tnkOpenArray:
+      remap[id] = genTransformedOpenArray(c.graph, tenv, tenv[id])
+    else:
+      discard
+
+  commit(tenv, remap)
 
 proc lowerOpenArray*(g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
   ## * transform ``openArray`` **parameters** (not the types in general) into

@@ -247,10 +247,13 @@ proc applyCTransforms*(g: PassEnv, id: ProcId, ir: var IrStore3, env: IrEnv) =
 proc applyCTypeTransforms*(g: PassEnv, env: var TypeEnv, senv: var SymbolEnv) =
   # lower closures to a ``tuple[prc: proc, env: pointer]`` pair
   let pointerType = g.sysTypes[tyPointer]
-  for id, typ in env.mtypes:
+  var remap: Table[TypeId, TypeId]
+  for id, typ in env.items:
     if typ.kind == tnkClosure:
       let prcTyp = env.requestProcType(id, ccNimCall, params=[pointerType])
 
-      typ = env.genRecordType(base = NoneType):
+      remap[id] = env.requestRecordType(base = NoneType):
         [(NoneSymbol, prcTyp),
          (NoneSymbol, pointerType)]
+
+  commit(env, remap)

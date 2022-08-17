@@ -1277,6 +1277,18 @@ func hash(e: TypeEnv, hcode: var Hash, se: var seq[int], typ: Type) =
     # TODO: remove
     discard
 
+
+iterator items*(x: TypeEnv): (TypeId, lent Type) =
+  ## Supports adding types while iterating, but the added types are not included
+  # XXX: yielding a view to the type is unsafe in the case that the callsite
+  #      is adding new types, since the `types` list might get reallocated,
+  #      turning the view into a dangling pointer
+  var i = 0
+  let L = x.types.len
+  while i < L:
+    yield (toId(i.TypeNodeIndex), x.types[i])
+    inc i
+
 func map*(gen: DeferredTypeGen, id: TypeId): TypeId {.inline.} =
   assert id != NoneType
   result = gen.data[(id.uint32 and TypeIdMask) - 1]
