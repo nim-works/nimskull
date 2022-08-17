@@ -61,6 +61,11 @@ type PProc* = object
 
   locals: Table[int, int]
 
+  paramRemap: seq[int] # maps the parameter position given by ``TSym.position``
+    ## to the index used for the IR. This is required in the case that
+    ## parameters are removed during the translation step (e.g. ``static T``
+    ## parameters). The list is empty if the positions can be used directly
+
 type TCtx* = object
 
   irs*: IrStore3
@@ -934,7 +939,13 @@ proc genRdVar(c: var TCtx; n: PNode;): IRIndex =
     c.irGlobal(s)
   elif s.kind == skParam:
     if s.position < c.prc.sym.typ.len - 1:
-      c.irParam(s)
+      let p =
+        if c.prc.paramRemap.len == 0:
+          s.position
+        else:
+          c.prc.paramRemap[s.position]
+
+      c.irs.irParam(p.uint32)
     else:
       assert tfCapturesEnv in c.prc.sym.typ.flags
       # the parameter is the hidden environment parameter
@@ -1540,6 +1551,26 @@ proc genProcBody(c: var TCtx; s: PSym, body: PNode) =
     var p = PProc(blocks: @[], sym: s)
     let oldPrc = c.prc
     c.prc = p
+
+    # TODO: move this elsewhere
+    block:
+      var needsRemap = false
+
+      # figure out the number of parameters that we want to skip
+      for i in 1..<s.typ.len:
+        if s.typ[i].isCompileTimeOnly():
+          needsRemap = true
+          break
+
+      if needsRemap:
+        c.prc.paramRemap.newSeq(s.typ.len - 1) # -1 for the return type
+        var j = 0
+        for i in 1..<s.typ.len:
+          c.prc.paramRemap[i - 1] =
+            if s.typ[i].isCompileTimeOnly():
+              -1
+            else:
+              let tmp = j; inc j; tmp
 
     if tfCapturesEnv in s.typ.flags:
       #let env = s.ast[paramsPos].lastSon.sym

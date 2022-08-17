@@ -837,12 +837,19 @@ func translateProc*(s: PSym, types: var DeferredTypeGen, dest: var ProcHeader) =
 
   dest.returnType = types.requestType(t[0])
 
-  # walk the type node instead of the sons so that hidden parameters (used by
-  # closure procs) get added too
+  # an existing hidden environment parameter is **not** added to the parameter
+  # list here
   dest.params.setLen(t.n.len - 1) # skip the first node
+  var j = 0
   for i in 1..<t.n.len:
     let n = t.n[i]
-    dest.params[i - 1] = (n.sym.name.s, types.requestType(n.typ))
+    # don't add e.g. ``static`` or ``typeDesc`` parameters to the list
+    if not n.typ.isCompileTimeOnly():
+      dest.params[j] = (n.sym.name.s, types.requestType(n.typ))
+      inc j
+
+  # shrink to the number of used parameters
+  dest.params.setLen(j)
 
 func hash(s: PSym): Hash =
   hash(s.itemId)
