@@ -347,6 +347,14 @@ func numFields*(env: TypeEnv, t: TypeId): int =
   assert env[t].kind == tnkRecord
   env[env[t].record].a.int
 
+func skipVarOrLent*(env: TypeEnv, t: TypeId): TypeId =
+  if env[t].kind in {tnkVar, tnkLent}:
+    # a ``var var T`` (same with ``lent``) is not possible so no need to use
+    # a while loop
+    env[t].base
+  else:
+    t
+
 
 func combine(lo, hi: uint32): uint64 {.inline.}
 
