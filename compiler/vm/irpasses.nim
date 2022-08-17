@@ -604,6 +604,34 @@ proc requestRtti(c: var RefcPassCtx, cr: var IrCursor, t: TypeId): IRIndex =
   cr.insertAddr cr.insertCallExpr(c.extra.magics[mGetTypeInfo], cr.insertLit((nil, t)))
   # TODO: collect for which types rtti was requested
 
+func requestRtti2(g: PassEnv, cr: var IrCursor, t: TypeId): IRIndex =
+  # refc uses the v1 type-info
+  cr.insertAddr cr.insertCallExpr(g.magics[mGetTypeInfo], cr.insertLit((nil, t)))
+
+proc genRefcRefAssign(cr: var IrCursor, e: PassEnv, dst, src: IRIndex, sl: StorageLoc)
+
+proc genNewObj(cr: var IrCursor, g: PassEnv, env: IrEnv, ptrTyp: TypeId,
+               dest, sizeExpr: IRIndex; loc: StorageLoc) =
+  let
+    typ = env.types[ptrTyp].base
+    rttiExpr = g.requestRtti2(cr, typ)
+
+  let sizeExpr =
+    if sizeExpr == InvalidIndex:
+      cr.insertMagicCall(g, mSizeOf, cr.insertLit((nil, typ)))
+    else:
+      sizeExpr
+
+
+  case loc
+  of slHeap:
+    let v = cr.insertCompProcCall(g, "newObjRC1", rttiExpr, sizeExpr)
+    # XXX: not sure about `askMove` here...
+    cr.insertAsgn(askMove, dest, cr.insertCast(ptrTyp, v))
+  of slStack, slUnknown:
+    let v = cr.insertCompProcCall(g, "newObj", rttiExpr, sizeExpr)
+    genRefcRefAssign(cr, g, dest, v, loc)
+
 proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMagic, n: IrNode3) =
   ## Lowers calls to various magics into calls to `compilerproc`s
   case getMagic(ir, c.env[], n)
@@ -632,14 +660,35 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
       discard
 
   of mNew:
+    let
+      arg = n.args(0)
+      ptrTyp = c.env.types.skipVarOrLent(c.typeof(arg))
+      # ``unsafeNew`` also uses the ``mNew`` magic, so we have to handle
+      # that here
+      size = if n.argCount > 1: n.args(1) else: InvalidIndex
+
     cr.replace()
-    # TODO: alignment value missing
-    let v = cr.insertCompProcCall(c.extra, "newObjRC1", c.requestRtti(cr, c.typeof(n.args(0))), cr.insertLit(0))
     # XXX: not sure about `askMove` here...
-    cr.insertAsgn(askMove, n.args(0), v)
+    genNewObj(cr, c.extra, c.env[], ptrTyp, arg, size, c.storageLoc(arg))
 
   else:
     discard "ignore"
+
+  if n.isBuiltIn:
+    case n.builtin
+    of bcNew:
+      # XXX: duplicate of `mNew` handling...
+      let
+        arg = n.args(0)
+        ptrTyp = c.env.types.skipVarOrLent(c.typeof(arg))
+        size = if n.argCount > 1: n.args(1) else: InvalidIndex
+
+      cr.replace()
+      # XXX: not sure about `askMove` here...
+      genNewObj(cr, c.extra, c.env[], ptrTyp, arg, size, c.storageLoc(arg))
+
+    else:
+      discard
 
 proc genRefcRefAssign(cr: var IrCursor, e: PassEnv, dst, src: IRIndex, sl: StorageLoc) =
   # TODO: document
