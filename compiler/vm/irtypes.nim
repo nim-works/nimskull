@@ -872,6 +872,20 @@ func requestGenericType*(e: var TypeEnv, kind: TypeNodeKind, elem: TypeId): Type
   e.types.add(Type(kind: kind, base: elem))
   result = toId(e.types.high, TypeId)
 
+
+func requestProcType*(e: var TypeEnv, inherit: TypeId, cc: TCallingConvention, params: varargs[TypeId]): TypeId =
+  ## `inherit` is a procedure type to inherit the signature from
+  # TODO: remove this procedure. How a closure procedure type looks is up the
+  #       code-generator and not something general
+  assert inherit != NoneType
+  assert e[inherit].kind in ProcedureLike
+
+  var sig = e[inherit].sig
+  sig.add params
+
+  e.types.add Type(kind: tnkProc, a: cc.uint32, sig: sig)
+  result = toId(e.types.high, TypeId)
+
 func translateProc*(s: PSym, types: var DeferredTypeGen, dest: var ProcHeader) =
   assert s != nil
 

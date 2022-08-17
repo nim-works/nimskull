@@ -130,7 +130,105 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   else:
     discard
 
+const
+  ClosureProcField = 0
+  ClosureEnvField = 1
+
+func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+  case n.kind
+  of ntkCall:
+    if n.isBuiltIn:
+      case n.builtin
+      of bcNewClosure:
+        cr.replace()
+        let
+          tmp = cr.newLocal(lkTemp, n.typ)
+          tmpAcc = cr.insertLocalRef(tmp)
+
+        cr.insertAsgn(askInit, cr.insertPathObj(tmpAcc, ClosureProcField), ir.argAt(cr, 0))
+        cr.insertAsgn(askInit, cr.insertPathObj(tmpAcc, ClosureEnvField), ir.argAt(cr, 1))
+
+        discard cr.insertLocalRef(tmp)
+      else:
+        discard
+
+    # rewrite calls using closures as the callee
+    elif ir.at(n.callee).kind != ntkProc and c.env.types[c.types[n.callee]].kind == tnkClosure:
+      # --->
+      #   if cl.env != nil:
+      #     cl.prc(args, cl.env)
+      #   else:
+      #     cast[NonClosurePrcTyp](cl.prc)(args)
+      let cl = n.callee
+
+      cr.replace()
+
+      let cond = cr.insertMagicCall(c.graph, mIsNil, cr.insertPathObj(cl, ClosureEnvField))
+      let
+        elseP = cr.newJoinPoint()
+        endP = cr.newJoinPoint()
+
+      let (tmp, tmpAcc) =
+        if c.env.types[c.types[cr.position]].kind == tnkVoid:
+          (0, InvalidIndex)
+        else:
+          let l = cr.newLocal(lkTemp, c.types[cr.position])
+          (l, cr.insertLocalRef(l))
+
+      # XXX: meh, unnecessary allocation. The ``IrCursor`` API needs to
+      #      expose low-level call generation.
+      var args = newSeq[IRIndex](n.argCount)
+      block:
+        var i = 0
+        for arg in ir.args(cr.position):
+          args[i] = arg
+          inc i
+
+      template asgnResult(val: IRIndex) =
+        let v = val
+        if tmpAcc != InvalidIndex:
+          cr.insertAsgn(askInit, tmpAcc, v)
+
+      cr.insertBranch(cond, elseP)
+      block:
+        # "env is present"-branch
+        args.add cr.insertPathObj(cl, ClosureEnvField)
+
+        asgnResult cr.insertCallExpr(cr.insertPathObj(cl, ClosureProcField), args)
+        cr.insertGoto(endP)
+
+      cr.insertJoin(elseP)
+      block:
+        # TODO: a cast is needed here, but we don't know the destination type yet...
+        # XXX: this problem has come up multiple times now and it's clear that
+        #      a different approach to type patching/transforming is needed.
+        #      An approach that looks promising is to not mutate the types in
+        #      place but create new types and then store original->new
+        #      mappings. Type lowering/patching would then happen *before* the
+        #      IR pass so that the latter is able to lookup the new types.
+        #      After all IR passes still requiring access to the original type
+        #      are done, the new types are "committed". For this to work a
+        #      general type indirection facility is needed, but this is
+        #      planned anyways.
+        let prc = cr.insertPathObj(cl, ClosureProcField)
+
+        # remove the env arg
+        args.del(args.high)
+
+        asgnResult cr.insertCallExpr(prc, args)
+        cr.insertGoto(endP)
+
+      cr.insertJoin(endP)
+
+      if tmpAcc != InvalidIndex:
+        discard cr.insertLocalRef(tmp)
+
+  else:
+    discard
+
+
 const transformPass = LinearPass2[CTransformCtx](visit: visit)
+const lowerClosuresPass = LinearPass2[CTransformCtx](visit: lowerClosuresVisit)
 
 proc applyCTransforms*(g: PassEnv, id: ProcId, ir: var IrStore3, env: IrEnv) =
   ## Applies lowerings to the IR that are specific to the C-like targets:
@@ -142,3 +240,17 @@ proc applyCTransforms*(g: PassEnv, id: ProcId, ir: var IrStore3, env: IrEnv) =
   ctx.types = computeTypes(ir, env)
 
   runPass(ir, ctx, transformPass)
+  ctx.types = computeTypes(ir, env)
+
+  runPass(ir, ctx, lowerClosuresPass)
+
+proc applyCTypeTransforms*(g: PassEnv, env: var TypeEnv, senv: var SymbolEnv) =
+  # lower closures to a ``tuple[prc: proc, env: pointer]`` pair
+  let pointerType = g.sysTypes[tyPointer]
+  for id, typ in env.mtypes:
+    if typ.kind == tnkClosure:
+      let prcTyp = env.requestProcType(id, ccNimCall, params=[pointerType])
+
+      typ = env.genRecordType(base = NoneType):
+        [(NoneSymbol, prcTyp),
+         (NoneSymbol, pointerType)]
