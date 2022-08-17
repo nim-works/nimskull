@@ -214,13 +214,11 @@ proc getTemp(cc: var TCtx; tt: PType): IRIndex =
 
 func irNull(c: var TCtx, t: TypeId): IRIndex =
   # XXX: maybe `irNull` should be a dedicated IR node?
-  let id = c.irs.genLocal(lkTemp, t)
-  c.irs.irLocal(id)
+  c.irCall("default", mDefault, c.irs.irLit((nil, t)))
 
 func irNull(c: var TCtx, t: PType): IRIndex =
   # XXX: maybe `irNull` should be a dedicated IR node?
-  let id = c.genLocal(lkTemp, t)
-  c.irs.irLocal(id)
+  c.irCall("default", mDefault, c.irs.irLit((nil, c.types.requestType(t))))
 
 proc popBlock(c: var TCtx; oldLen: int) =
   #for f in c.prc.blocks[oldLen].fixups:
@@ -835,7 +833,8 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     result = c.irs.irAddr(c.irCall("getTypeInfo", mGetTypeInfo, genTypeLit(c, n[1].typ)))
 
   of mDefault:
-    result = c.irNull(n.typ)
+    assert n[1].typ.kind == tyTypeDesc
+    result = c.irs.irCall(genProcSym(c, n[0].sym), genTypeLit(c, n[1].typ[0]))
   of mRunnableExamples:
     discard "just ignore any call to runnableExamples"
   of mDestroy, mTrace:
