@@ -28,7 +28,7 @@ import
     results
   ]
 
-from compiler/vm/vmaux import findRecCase, findMatchingBranch
+from compiler/vm/vmaux import findRecCase, findMatchingBranch, getEnvParam
 from compiler/vm/vmdef import unreachable
 
 # XXX: temporary import; needed for ``PassEnv``
@@ -929,7 +929,14 @@ proc genRdVar(c: var TCtx; n: PNode;): IRIndex =
   if sfGlobal in s.flags:
     c.irGlobal(s)
   elif s.kind == skParam:
-    c.irParam(s)
+    if s.position < c.prc.sym.typ.len - 1:
+      c.irParam(s)
+    else:
+      assert tfCapturesEnv in c.prc.sym.typ.flags
+      # the parameter is the hidden environment parameter
+      let envT = c.types.requestType(getEnvParam(c.prc.sym).typ)
+      c.irs.irCall(bcAccessEnv, envT)
+
   elif s.kind == skResult: c.irs.irLocal(0) # TODO: don't hardcode
   else: c.irs.irLocal(c.prc.local(s))
 

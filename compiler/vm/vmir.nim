@@ -195,6 +195,8 @@ type
 
     bcNew
 
+    bcAccessEnv ## access the current procedure's closure environment
+
     bcUnlikely # XXX: alternatively, turn `system.unlikelyProc` into a .compilerproc
 
   IrNode3* = object
