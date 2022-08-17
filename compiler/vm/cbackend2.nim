@@ -452,6 +452,16 @@ proc generateCode*(g: ModuleGraph) =
   lpCtx.env = addr env
   var ttc = TypeTransformCtx(graph: passEnv, ic: g.cache)
 
+  block:
+    # the lowering of ``echo`` for the C-targets has to happen *before*
+    # transforming ``openArray``s because the pass inserts code that needs to
+    # also be transformed by the latter
+    var ctx = initUntypedCtx(passEnv, addr env)
+    for i in 0..<mlist.modules.len:
+      for s, ir in moduleProcs[i].mitems:
+        logError(ir, env, s):
+          runPass(ir, ctx, lowerEchoPass)
+
   # the openArray lowering has to happen separately
   # TODO: explain why
   for i in 0..<mlist.modules.len:

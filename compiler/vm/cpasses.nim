@@ -337,6 +337,31 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
   else:
     discard
 
+func lowerEchoVisit(c: var UntypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+  ## Doesn't need the IR to be typed
+  case n.kind
+  of ntkCall:
+    case getMagic(ir, c.env[], n)
+    of mEcho:
+      cr.replace()
+
+      # construct an array from the arguments
+      let
+        arr = cr.newLocal(lkTemp, c.env.types.lookupArrayType(n.argCount.uint, c.graph.sysTypes[tyString]))
+        arrAcc = cr.insertLocalRef(arr)
+
+      for i in 0..<n.argCount:
+        cr.insertAsgn(askInit, cr.insertPathArr(arrAcc, cr.insertLit(i)), ir.argAt(cr, i))
+
+      let prc = c.graph.getCompilerProc("echoBinSafe")
+      cr.insertCallStmt(prc, cr.insertConv(c.env.procs.param(prc, 0).typ, arrAcc))
+
+    else:
+      discard
+
+  else:
+    discard
+
 func lowerAccessEnv(ir: var IrStore3, env: IrEnv, envTyp: TypeId, envSym: SymId, param: Natural) =
   assert envTyp != NoneType
 
@@ -368,6 +393,7 @@ func lowerAccessEnv(ir: var IrStore3, env: IrEnv, envTyp: TypeId, envSym: SymId,
 
 const transformPass = LinearPass2[CTransformCtx](visit: visit)
 const lowerClosuresPass = LinearPass2[CTransformCtx](visit: lowerClosuresVisit)
+const lowerEchoPass* = LinearPass2[UntypedPassCtx](visit: lowerEchoVisit)
 
 proc applyCTransforms*(c: CTransformEnv, ic: IdentCache, g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
   ## Applies lowerings to the IR that are specific to the C-like targets:
