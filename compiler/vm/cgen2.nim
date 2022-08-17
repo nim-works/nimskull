@@ -1143,6 +1143,11 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
 
   swap(gen.cache, c.idents)
 
+  # create the procedure headers
+  # TODO: use ``setLen`` + []
+  for id in env.procs.items:
+    c.funcs.add genCProcHeader(c, env.procs, id)
+
 proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalGenCtx, env: IrEnv, procs: openArray[(ProcId, IrStore3)]) =
   let f = open(filename.string, fmWrite)
   defer: f.close()
@@ -1222,9 +1227,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
   # generate all procedure forward declarations
   for id in mCtx.funcs.items:
     #echo "decl: ", sym.name.s, " at ", conf.toFileLineCol(sym.info)
-    let hdr = genCProcHeader(ctx, env.procs, id)
-
-    writeDecl(f, ctx, hdr, env.procs[id].decl)
+    writeDecl(f, ctx, ctx.funcs[id.toIndex], env.procs[id].decl)
 
   for id in mCtx.syms.items:
     let sym = env.syms[id]
@@ -1248,8 +1251,8 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
     let
       (id, _) = procs[i]
       prc = env.procs[id]
-    let hdr = genCProcHeader(ctx, env.procs, id)
-    writeDef(f, ctx, hdr, prc.decl)
+
+    writeDef(f, ctx, ctx.funcs[id.toIndex], prc.decl)
     try:
       emitCAst(f, ctx, it)
     except:

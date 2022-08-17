@@ -874,3 +874,10 @@ func numParams*(e: ProcedureEnv, p: ProcId): int =
 iterator params*(e: ProcedureEnv, p: ProcId): tuple[name: lent string, typ: TypeId] =
   for n, t in e[p].params.items:
     yield (n, t)
+
+iterator items*(e: ProcedureEnv): ProcId =
+  var i = 0
+  let L = e.procs.len
+  while i < L:
+    yield toId(i, ProcId)
+    inc i
