@@ -1206,7 +1206,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
   proc emitWithDeps(f: File, c: GlobalGenCtx, t: CTypeId,
                     marker: var PackedSet[CTypeId]) =
     let info {.cursor.} = c.ctypes[t.int]
-    if info.name == InvalidCIdent or marker.containsOrIncl(t):
+    if marker.containsOrIncl(t):
       # nothing to do
       return
 
