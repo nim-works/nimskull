@@ -738,6 +738,31 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IrNode3): CAst =
 
     result = builder.fin()
 
+func genLit(dest: var CAstBuilder, c: var GenCtx, val: PNode): var CAstBuilder =
+  case val.kind
+  of nkIntLit:
+    result = dest.intLit(val.intVal)
+  else:
+    result = dest.add genError(c, fmt"missing: {val.kind}")
+
+func genBracedInit(dest: var CAstBuilder, c: var GenCtx, n: PNode): var CAstBuilder {.discardable.} =
+  result = dest
+  case n.kind
+  of nkBracket, nkTupleConstr:
+    if n.kind == nkBracket:
+      # arrays are wrapped in a struct so a surrounding initializer is needed
+      discard dest.add(cnkBraced, 1)
+
+    discard dest.add(cnkBraced, n.len.uint32)
+    for it in n:
+      genBracedInit(dest, c, it)
+
+  of nkLiterals:
+    discard genLit(dest, c, n)
+
+  else:
+    discard dest.add genError(c, fmt"genBracedInit: {n.kind}")
+
 
 func genLit(c: var GenCtx, literal: Literal): CAst =
   let lit = literal.val
@@ -770,6 +795,8 @@ func genLit(c: var GenCtx, literal: Literal): CAst =
         unreachable(lit.typ.kind)
   of nkNilLit:
     start().ident(c.gl.idents, "NIM_NIL").fin()
+  of nkBracket, nkTupleConstr:
+    start().genBracedInit(c, lit).fin()
   else:
     genError(c, fmt"missing lit: {lit.kind}")
 
