@@ -13,7 +13,8 @@ import
 
   compiler/ast/[
     ast_types,
-    ast_query
+    ast_query,
+    wordrecg
   ],
   compiler/backend/[
     ccgutils
@@ -210,12 +211,23 @@ func mangledName(sym: PSym): string =
   else:
     fmt"{sym.owner.name.s}__{mangle(sym.name.s)}_{sym.typ.id}"
 
+# XXX: shared with ``ccgtypes``
+func isKeyword(w: PIdent): bool =
+  ## Tests if the identifier is a keyword in C
+  result = w.id in {ccgKeywordsLow..ccgKeywordsHigh, ord(wInline)}
+
+func mangledName(w: PIdent): string =
+  if isKeyword(w):
+    fmt"{w.s}_0"
+  else:
+    mangle(w.s)
+
 func mangledName(d: DeclarationV2): string =
   # XXX: temporary
   if d.forceName:
     d.name.s
   else:
-    mangle(d.name.s)
+    mangledName(d.name)
 
 func mangledName(d: DeclarationV2, id: uint32): string =
   # XXX: temporary
@@ -570,7 +582,7 @@ func genCProcHeader(idents: var IdentCache, env: ProcedureEnv, s: ProcId): CProc
   var i = 0
   for p in env.params(s):
     result.args[i] = (mapTypeV3(p.typ),
-                      idents.getOrIncl(mangle(p.name.s)))
+                      idents.getOrIncl(mangledName(p.name)))
     inc i
 
 
