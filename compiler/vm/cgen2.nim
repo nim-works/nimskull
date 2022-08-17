@@ -1061,6 +1061,13 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     emitCAst(f, c, ast, pos) # stmt list
     f.write "}"
 
+  of cnkWhile:
+    f.write "while ("
+    emitCAst(f, c, ast, pos) # condition
+    f.write ") {"
+    emitCAst(f, c, ast, pos) # stmt list
+    f.write "}"
+
   of cnkReturn:
     f.write "return "
     if n.a == 1:
