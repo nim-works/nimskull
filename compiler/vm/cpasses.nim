@@ -204,6 +204,22 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
 
       discard cr.insertLocalRef(tmp)
 
+  of ntkConv:
+    # we need to guard against closures since that conversion is handled
+    # separately by the closure lowering pass
+    if c.env.types.kind(n.typ) != tnkClosure and
+       c.env.types.resolve(n.typ) == c.env.types.resolve(c.types[n.srcLoc]):
+      # conversion to itself. This happens for conversion between distinct
+      # types and their base or when previously different types become the
+      # same after lowering
+
+      # XXX: the ``IrCursor`` API currently doesn't support replacing a node
+      #      with an existing one, so we have to work around that here
+      cr.replace()
+      let tmp = cr.newLocal(lkTemp, n.typ)
+      cr.insertAsgn(askInit, cr.insertLocalRef(tmp), n.srcLoc)
+      discard cr.insertLocalRef(tmp)
+
   else:
     discard
 
