@@ -292,7 +292,7 @@ proc newPassEnv(g: ModuleGraph, tgen: var DeferredTypeGen, syms: var SymbolEnv,
         # XXX: is this case even possible
         discard#echo "missing type for type-bound operation"
 
-  for t in { tyVoid, tyInt..tyFloat64, tyBool, tyChar, tyString, tyCstring, tyPointer }.items:
+  for t in { tyVoid, tyInt..tyFloat64, tyUInt..tyUInt64, tyBool, tyChar, tyString, tyCstring, tyPointer }.items:
     result.sysTypes[t] = tgen.requestType(g.getSysType(unknownLineInfo, t))
 
 proc logError(conf: ConfigRef, ir: IrStore3, prc: ProcId, env: IrEnv, pos: (bool, int)) =
