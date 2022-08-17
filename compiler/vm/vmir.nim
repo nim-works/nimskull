@@ -190,6 +190,8 @@ type
     bcCast # XXX: cast and conv should become dedicated ir nodes
     bcOverflowCheck
 
+    bcNew
+
     bcUnlikely # XXX: alternatively, turn `system.unlikelyProc` into a .compilerproc
 
   IrNode3* = object

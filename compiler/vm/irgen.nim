@@ -786,6 +786,17 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
 
     result = c.irCall("&", mConStrStr, args)
     # the proc doesn't raise so no ``raiseExit`` is needed here
+  of mNew:
+    # problem: ``lambdalifting`` inserts calls to ``internalNew`` by just
+    #          using the symbol of the generic proc. This is a problem for
+    #          type translation following after the IR-gen step, since it
+    #          can't handle `tyGenericParam` types.
+    if n[0].sym.name.s == "internalNew":
+      let t = c.types.requestType(n[1].typ)
+      discard c.irs.irCall(bcNew, t, genx(c, n[1]))
+    else:
+      # a normal new. Don't do any special transformation
+      result = genCall(c, n)
   else:
     # TODO: return a bool instead and let the callsite call `genCall` in case
     #       the magic doesn't use special logic here
@@ -1178,8 +1189,7 @@ proc genObjConstr(c: var TCtx, n: PNode): IRIndex =
   let t = n.typ.skipTypes(abstractRange+{tyOwned}-{tyTypeDesc})
   var obj: IRIndex
   if t.kind == tyRef:
-    let nSym = c.irSym getSysSym(c.graph, n.info, "internalNew")
-    discard c.irs.irCall(nSym, result)
+    discard c.irs.irCall(bcNew, NoneType, result)
     obj = c.irs.irDeref(result)
   else:
     obj = result
