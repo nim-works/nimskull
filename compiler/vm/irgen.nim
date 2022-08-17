@@ -624,12 +624,32 @@ func isVarParam(t: PType): bool =
   #      argument
   t.skipTypes({tyAlias, tyGenericInst}).kind == tyVar
 
+func irConv(c: var TCtx, typ: PType, val: IRIndex): IRIndex
+
+func restoreConv(c: var TCtx, dest, src: PType, val: IRIndex): IRIndex =
+  ## Wraps the given `val` in a conversion if the `dest` type is an
+  ## ``openArray``-like type but the `src` type is not. Semantic analysis
+  ## did introduce a ``nkHiddenStdConv`` which we could have relied on, but
+  ## it was removed during ``transf``.
+  let
+    dest = dest.skipTypes(abstractVar)
+    src = src.skipTypes(abstractVar)
+
+  const OpenArrayLike = {tyOpenArray, tyVarargs}
+
+  if dest.kind in OpenArrayLike and src.kind notin OpenArrayLike:
+    c.irConv(dest, val)
+  else:
+    val
+
 proc genArg(c: var TCtx, formal: PType, useTemp: bool, n: PNode): IRIndex =
   # TODO: add a test to make sure that a ``move x`` passed to a var parameter
   #       doesn't reach here
-  let
-    isMove = isMove(n)
-    arg = c.genx(if isMove: n[1] else: n)
+  let isMove = isMove(n)
+  var arg = c.genx(if isMove: n[1] else: n)
+
+  if formal != nil:
+    arg = restoreConv(c, formal, n.typ, arg)
 
   if formal == nil or formal.isVarParam():
     # no special handling for c-style varargs or ``var`` params
