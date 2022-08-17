@@ -203,7 +203,7 @@ type
       arrSrc: PathIndex
       idx: IRIndex
     of ntkLit:
-      lit: PNode
+      litIdx: int
     of ntkLocal:
       local: int
     of ntkAddr, ntkDeref:
@@ -240,6 +240,7 @@ type
     nodes: seq[IrNode3]
     joins: seq[(IRIndex, bool)] # joint point id -> ir position
     syms: seq[PSym]
+    literals: seq[PNode]
     locals: seq[(LocalKind, PType, PSym)]
 
     localSrc: seq[seq[StackTraceEntry]]
@@ -537,7 +538,8 @@ func irAddr*(c: var IrStore3, loc: IRIndex): IRIndex =
 
 func irLit*(c: var IrStore3, n: PNode): IRIndex =
   #assert n.typ != nil
-  c.add(IrNode3(kind: ntkLit, lit: n))
+  result = c.add(IrNode3(kind: ntkLit, litIdx: c.literals.len))
+  c.literals.add(n)
 
 # TODO: not related to the IR. Might need a better home
 proc append*(dst: var CodeFragment, f: CodeFragment) =
@@ -578,7 +580,7 @@ func getLocalIdx*(irs: IrStore3, n: IRIndex): int =
   irs.nodes[n].local
 
 func getLit*(irs: IrStore3, n: IrNode3): PNode =
-  n.lit
+  irs.literals[n.litIdx]
 
 func isLoop*(ir: IrStore3, j: JoinPoint): bool =
   ir.joins[j][1]
@@ -1810,6 +1812,7 @@ type IrCursor* = object
   actions: seq[(bool, Slice[IRIndex])] # true = replace, false = insert
   newSyms: SeqAdditions[PSym]
   newLocals: SeqAdditions[(LocalKind, PType, PSym)]
+  newLiterals: SeqAdditions[PNode]
   newNodes: seq[IrNode3]
 
   traces: seq[seq[StackTraceEntry]]
@@ -1883,7 +1886,8 @@ func insertCallExpr*(cr: var IrCursor, bc: BuiltinCall, typ: PType, args: vararg
   result = cr.insert IrNode3(kind: ntkCall, isBuiltin: true, builtin: bc, typ: typ, args: @args)
 
 func insertLit*(cr: var IrCursor, lit: PNode): IRIndex =
-  cr.insert IrNode3(kind: ntkLit, lit: lit)
+  assert lit != nil
+  cr.insert IrNode3(kind: ntkLit, litIdx: cr.newLiterals.add(lit))
 
 func insertAsgn*(cr: var IrCursor, kind: AssignKind, a, b: IRIndex) =
   discard cr.insert IrNode3(kind: ntkAsgn, asgnKind: kind, wrDst: a, wrSrc: b)
@@ -2009,6 +2013,7 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
 
   ir.syms.apply(cr.newSyms)
   ir.locals.apply(cr.newLocals)
+  ir.literals.apply(cr.newLiterals)
 
   var currOff = 0
   var p = 0
