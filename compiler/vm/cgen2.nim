@@ -366,16 +366,14 @@ func genCTypeDecl(c: var TypeGenCtx, t: TypeId): CDecl =
     result.add cdnkIdent, c.cache.getOrIncl(ArrayInnerName).uint32
     result.addIntLit c.env.types.length(t).uint64
 
-  of tnkProc:
-    case c.env.types.callConv(t)
-    of ccClosure:
+  of tnkClosure:
       result.add cdnkStruct, 2
       result.add cdnkEmpty
 
       result.addField(c.cache, c.requestFuncType(t), "ClP_0")
       result.addField(c.cache, c.requestType(c.env.types.param(t, ^1)), "ClE_0")
 
-    else:
+  of tnkProc:
       result.add cdnkFuncPtr, c.env.types.numParams(t).uint32
       result.addWeakType(c, c.env.types.getReturnType(t))
 

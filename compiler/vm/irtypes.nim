@@ -68,7 +68,9 @@ type TypeNodeKind* = enum
   tnkRecord # tuples and objects
   tnkArray
 
-  tnkProc
+  tnkProc ## the type of procedure value
+  tnkClosure ## the type of a closure object (procedure + environment
+             ## reference)
 
   tnkTypeDesc ## only relevant for compile-time function evaluation
 
@@ -267,6 +269,8 @@ const NoneType* = TypeId(0)
 const NoneSymbol* = SymId(0)
 const NoneDType* = DeclTypeId(0)
 
+const ProcedureLike = {tnkProc, tnkClosure}
+
 # XXX: copied from `ccgtypes`, might need some adjustments
 # note: we DO care for ``tyDistinct``s, since they act as nominal types and
 #       type-bound operations can be attached to them
@@ -317,7 +321,7 @@ func `[]`*(e: ProcedureEnv, i: ProcId): lent ProcHeader {.inline.} =
 
 func getReturnType*(e: TypeEnv, t: TypeId): TypeId =
   ## Returns the return type of the given procedure type `t`
-  assert e[t].kind == tnkProc, $e[t].kind
+  assert e[t].kind in ProcedureLike, $e[t].kind
   e[t].sig[0]
 
 func elemType*(e: TypeEnv, t: TypeId): TypeId =
@@ -388,11 +392,11 @@ func callConv*(t: Type): TCallingConvention =
   t.a.TCallingConvention
 
 func param*(e: TypeEnv, t: TypeId, i: BackwardsIndex): TypeId =
-  assert e[t].kind == tnkProc
+  assert e[t].kind in ProcedureLike
   e[t].sig[i]
 
 func param*(e: TypeEnv, t: TypeId, i: Natural): TypeId =
-  assert e[t].kind == tnkProc
+  assert e[t].kind in ProcedureLike
   e[t].sig[i]
 
 func size*(t: Type): uint =
@@ -405,13 +409,12 @@ func length*(t: Type): uint =
 
 iterator params*(e: TypeEnv, t: TypeId): TypeId =
   let typ = e[t]
-  assert typ.kind == tnkProc
+  assert typ.kind in ProcedureLike
   for i in 1..<typ.sig.len:
     yield typ.sig[i]
 
-
 func numParams*(e: TypeEnv, t: TypeId): int =
-  assert e[t].kind == tnkProc
+  assert e[t].kind in ProcedureLike
   e[t].sig.len - 1
 
 func getSize*(e: TypeEnv, t: TypeId): uint =
@@ -718,7 +721,11 @@ proc translate(dest: var TypeEnv, gen: var TypeGen, conf: ConfigRef, pos: int, t
     dest.types[pos] = Type(kind: tnkPtr, base: gen.def[].requestType(gen.def.voidType))
 
   of tyProc:
-    var r = Type(kind: tnkProc, a: t.callConv.ord.uint32)
+    let kind =
+      if t.callConv == ccClosure: tnkClosure
+      else: tnkProc
+
+    var r = Type(kind: kind, a: t.callConv.ord.uint32)
     r.sig.newSeq(t.len)
 
     for i in 0..<t.len:
