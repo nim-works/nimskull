@@ -742,9 +742,15 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
       let sId = irs.sym(n)
       let sym = c.env.syms[sId]
       # TODO: refactor
-      if sym.kind in {skVar, skLet} and sfGlobal in sym.flags:
-        c.m.syms.incl sId
+      case sym.kind
+      of skVar, skLet:
+        if sfGlobal in sym.flags:
+          c.m.syms.incl sId
         #discard mapTypeV3(c.gl, sym.typ) # XXX: temporary
+      of skConst:
+        c.m.syms.incl sId
+      else:
+        discard
 
       if sym.typ != NoneType:
         useType(c.m, sym.typ)
