@@ -1071,7 +1071,12 @@ proc emitCType(f: File, c: GlobalGenCtx, info: CTypeInfo) =
   let kind = info.decl[0].kind
   case kind
   of cdnkStruct, cdnkUnion:
+    # emit the definition as ``typedef struct {} X;`` in order to make the
+    # identifier available in the ordinary name-space. This removes the need
+    # to specify the name-space on every usage (less generated code)
+    f.write "typedef "
     emitCDecl(f, c, info.decl, pos)
+    f.write fmt" {c.idents[info.name]}"
   of cdnkBracket:
     f.write "typedef "
     pos = 1
