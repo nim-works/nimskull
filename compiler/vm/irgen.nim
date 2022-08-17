@@ -509,14 +509,19 @@ proc genTry(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
     else: n.len
 
   if hasExcept:
-    let eVal = c.irCall("getCurrentException")
     let handler = c.prc.excHandlers.pop() # pop the handler we registered at
                                           # the start
+
+    c.irs.irJoin(handler)
+    let eVal = c.irCall("getCurrentException")
+
     var currNext = handler
     for i in 1..<len:
       let it = n[i]
 
-      c.irs.irJoin(currNext)
+      if currNext != handler:
+        c.irs.irJoin(currNext)
+
       currNext =
         if i < len-1: c.irs.irJoinFwd()
         else:         c.prc.nextHandler()
