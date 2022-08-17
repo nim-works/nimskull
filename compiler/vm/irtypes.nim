@@ -267,6 +267,7 @@ type
     params*: seq[ProcParam]
     returnType*: TypeId
 
+    callConv*: TCallingConvention
     magic*: TMagic
 
     flags*: TSymFlags # XXX: uses `TSymFlags` for now, but this will be changed to something else later on
@@ -1129,6 +1130,7 @@ func translateProc*(s: PSym, types: var DeferredTypeGen, dest: var ProcHeader) =
   let t = s.typ
 
   dest.returnType = types.requestType(t[0])
+  dest.callConv = s.typ.callConv
 
   # an existing hidden environment parameter is **not** added to the parameter
   # list here
