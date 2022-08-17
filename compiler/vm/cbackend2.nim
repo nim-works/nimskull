@@ -295,6 +295,34 @@ proc newPassEnv(g: ModuleGraph, tgen: var DeferredTypeGen, syms: var SymbolEnv,
   for t in { tyVoid, tyInt..tyFloat64, tyBool, tyChar, tyString, tyCstring, tyPointer }.items:
     result.sysTypes[t] = tgen.requestType(g.getSysType(unknownLineInfo, t))
 
+proc logError(conf: ConfigRef, ir: IrStore3, prc: ProcId, env: IrEnv, pos: (bool, int)) =
+  let sym = env.procs.orig.getOrDefault(prc)
+  if sym != nil:
+    echo conf.toFileLineCol(sym.info)
+  else:
+    echo "???"
+
+  if pos[0]:
+    echo "Node added at:"
+    echoTrace(ir, pos[1])
+
+  if pos[0]:
+    echo "Node position: ", pos[1]
+
+  echo "IR:"
+  printIr(ir, env, calcStmt(ir))
+
+  printTypes(ir, env)
+
+template logError(ir: IrStore3, env: IrEnv, prc: ProcId, code: untyped) =
+  try:
+    code
+  except PassError as e:
+    logError(conf, ir, prc, env, (true, e.n))
+    raise
+  except:
+    logError(conf, ir, prc, env, (false, 0))
+    raise
 
 proc generateCode*(g: ModuleGraph) =
   ## The backend's entry point. Orchestrates code generation and linking. If
@@ -381,7 +409,7 @@ proc generateCode*(g: ModuleGraph) =
   for i in 0..<mlist.modules.len:
     for s, irs in moduleProcs[i].mitems:
       let orig = irs
-      try:
+      logError(irs, env, s):
         runPass(irs, initHookCtx(passEnv, irs, env), hookPass)
 
         lowerTestError(irs, passEnv, env.types, env.procs, env.syms)
@@ -403,26 +431,6 @@ proc generateCode*(g: ModuleGraph) =
 
         runPass(irs, lpCtx, typeV1Pass)
 
-      except PassError as e:
-        let sym = env.procs.orig[s]
-        echo conf.toFileLineCol(sym.info)
-        echoTrace(irs, e.n)
-        printIr(irs, env, calcStmt(irs))
-        echo "At: ", e.n
-        printTypes(irs, env)
-        raise
-      except:
-        let sym = env.procs.orig.getOrDefault(s)
-        if sym != nil:
-          echo conf.toFileLineCol(sym.info)
-        else:
-          echo "???"
-        echo "orig:"
-        printIr(orig, env, calcStmt(orig))
-        echo "new:"
-        printIr(irs, env, calcStmt(irs))
-        printTypes(irs, env)
-        raise
 
   # type lowering passes
   var ttc = TypeTransformCtx(graph: passEnv)
