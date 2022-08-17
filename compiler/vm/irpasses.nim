@@ -748,6 +748,26 @@ func setupTransCtx*(g: ModuleGraph, ir: IrStore3, env: IrEnv): GenericTransCtx =
 #      during compilation instead
 const SeqDataFieldPos = 2
 
+proc genTernaryIf(cr: var IrCursor, g: PassEnv, asgn: AssignKind, cond, dest, a, b: IRIndex) =
+  # if cond:
+  #   dest = a
+  # else:
+  #   dest = b
+
+  let
+    elseP = cr.newJoinPoint()
+    endP = cr.newJoinPoint()
+
+  cr.insertBranch(cr.insertMagicCall(g, mNot, cond), elseP)
+  cr.insertAsgn(asgn, dest, a)
+  cr.insertGoto(endP)
+
+  cr.insertJoin(elseP)
+  cr.insertAsgn(asgn, dest, b)
+  cr.insertGoto(endP)
+
+  cr.insertJoin(endP)
+
 proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers the `seq`-related magic operations into calls to the v1 `seq`
   ## implementation
