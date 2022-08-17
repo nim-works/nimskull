@@ -203,7 +203,7 @@ func mangledName(sym: PSym): string =
   if {sfImportc, sfExportc} * sym.flags != {}:
     $sym.loc.r
   else:
-    sym.name.s
+    fmt"{sym.owner.name.s}__{sym.name.s}_{sym.typ.id}"
 
 func mangledName(d: DeclarationV2): string =
   # XXX: temporary
