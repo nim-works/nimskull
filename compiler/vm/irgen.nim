@@ -1324,7 +1324,15 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
   of nkDotExpr: dest = genObjAccess(c, n)
   of nkCheckedFieldExpr: dest = genCheckedObjAccess(c, n)
   of nkBracketExpr: dest = genArrAccess(c, n)
-  of nkDerefExpr, nkHiddenDeref: dest = genDeref(c, n)
+  of nkDerefExpr: dest = genDeref(c, n)
+  of nkHiddenDeref:
+    if n[0].typ.skipTypes({tyVar, tyLent}).kind == tyOpenArray:
+      # don't generate a 'deref' for openArray
+      # XXX: sem shouldn't introduce a ``nkHiddenDeref`` for openArrays in the
+      #      first place
+      dest = genx(c, n[0])
+    else:
+      dest = genDeref(c, n)
   of nkAddr, nkHiddenAddr: dest = genAddr(c, n)
   of nkIfStmt, nkIfExpr:
     let fwd = c.irs.irJoinFwd()
