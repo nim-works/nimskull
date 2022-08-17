@@ -102,6 +102,39 @@ type Type* = object
   c*: uint32 # for records, a ``RecordNodeIndex``
   sig: seq[TypeId] # for procedures
 
+type
+  DeclTypeId* = distinct uint32
+
+  DeclType* = object
+    ## A `DeclType`  is a direct translation from ``PType``. It corresponds to
+    ## the types defined in the source-code.
+    ##
+    ## .. code-block:: nim
+    ##
+    ##   type
+    ##     A = int        # Both `A` and `int`
+    ##     B = object     # `B`
+    ##       x: int       # `int`
+    ##   var x: seq[int]  # `seq[int]`
+    ##   var y: var int   # `var int`
+    ##
+    ## `TypeDecl` links a canonical type with an "interface" and extra data.
+    ## A canonical type is the type representation used at the IR-level.
+    ## The "interface" has the information necessary for the code-generator to
+    ## handle imported and exported types (e.g. the imported name).
+    ## The extra data are things that aren't needed for the code-generator or
+    ## the IR processing to work (e.g. the name), but would, for example, help
+    ## with generating easier to read code
+
+    # TODO: maybe rename to `DeclaredType`?
+
+    canonical: TypeId
+
+    # XXX: the "interface" and extra part are both combined into a `PSym` for
+    #      now. This makes the first implementation simpler and also helps
+    #      with reducing memory usage
+    decl: PSym
+
 type TypeEnv* = object
   ## Holds the data for all types
   # XXX: in general, a `seq[seq]` could be used for `records`, `fields`, and
@@ -111,6 +144,9 @@ type TypeEnv* = object
   records: seq[RecordNode] ## the bodies for all record-like types (objects and tuples) in one contiguous seq
   fields: seq[FieldDesc] ## all fields
   types: seq[Type] ## all types in one contiguous seq
+
+  decls: seq[DeclType] ## all declared types
+
   # XXX: maybe a redirection table for `tnkName` makes sense? Alternatively,
   #      indirections to another tnkName could be allowed
   typdescs: Table[ItemId, PType] # type-id -> a `tyTypeDesc` type
@@ -209,6 +245,7 @@ type
 
 const NoneType* = TypeId(0)
 const NoneSymbol* = SymId(0)
+const NoneDType* = DeclTypeId(0)
 
 # XXX: copied from `ccgtypes`, might need some adjustments
 # note: we DO care for ``tyDistinct``s, since they act as nominal types and
@@ -224,7 +261,7 @@ func `==`*(a, b: ProcId): bool {.borrow.}
 
 func `inc`*(a: var RecordNodeIndex, val: int = 1) {.borrow.}
 
-type SomeId = TypeId | SymId | RecordId | FieldId | ProcId
+type SomeId = TypeId | SymId | RecordId | FieldId | ProcId | DeclTypeId
 
 template toIndex*(id: SomeId): uint32 =
   id.uint32 - 1
@@ -237,6 +274,11 @@ func `[]`*(e: SymbolEnv, s: SymId): lent Symbol =
 
 func `[]`*(e: TypeEnv, t: TypeId): lent Type =
   e.types[toIndex(t)]
+
+func `[]`*(e: TypeEnv, t: DeclTypeId): lent Type =
+  ## For the convenience of the IR processing steps, this procedure returns a
+  ## ``Type`` instead of a ``DeclType``
+  e.types[e.decls[toIndex(t)].canonical.toIndex]
 
 func `[]`*(e: TypeEnv, f: FieldId): lent FieldDesc =
   e.fields[f.int - 1]
