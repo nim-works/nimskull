@@ -444,6 +444,10 @@ proc generateCode*(g: ModuleGraph) =
   initGlobalContext(gCtx, env)
 
   for i, m in mlist.modules.pairs:
+    if moduleProcs[i].len == 0:
+      # don't generate anything for modules that have no procedures
+      continue
+
     let cfile = getCFile(conf, AbsoluteFile toFullPath(conf, m.sym.position.FileIndex))
     var cf = Cfile(nimname: m.sym.name.s, cname: cfile,
                    obj: completeCfilePath(conf, toObjFile(conf, cfile)), flags: {})
