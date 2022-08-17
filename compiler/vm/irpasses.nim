@@ -938,8 +938,7 @@ proc liftTypeInfoV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurs
 
         c.typeInfoMarker[typ] = s
 
-      # TODO: cache the `pointer` type
-      discard cr.insertCast(c.graph.getSysType(tyPointer), cr.insertSym s)
+      discard cr.insertSym(s)
 
   else:
     discard
