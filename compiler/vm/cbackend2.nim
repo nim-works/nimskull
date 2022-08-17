@@ -249,6 +249,51 @@ proc getSysMagic2(g: ModuleGraph, name: string, m: TMagic): PSym =
     if r.magic == m:
       result = r
 
+proc newPassEnv(g: ModuleGraph, tgen: var DeferredTypeGen, syms: var SymbolEnv,
+                procs: var ProcedureEnv): PassEnv =
+  new(result)
+  for sym in g.compilerprocs.items:
+    case sym.kind
+    of routineKinds:
+      result.compilerprocs[sym.name.s] = procs.requestProc(sym)
+    of skType:
+      result.compilertypes[sym.name.s] = tgen.requestType(sym.typ)
+    else:
+      # TODO: the rest (e.g. globals) also need to be handled
+      discard
+
+  # XXX: a magic is not necessarily a procedure - it can also be a type
+  # create a symbol for each magic to be used by the IR transformations
+  for m in low(TMagic)..high(TMagic):
+    # fetch the name from a "real" symbol
+    let sym = g.getSysMagic2("", m)
+
+    let name =
+      if sym.isNil():
+        # not every magic has symbol defined in ``system.nim`` (e.g. procs and
+        # types only used in the backend)
+        $m
+      else:
+        sym.name.s
+
+    if sym != nil and sym.kind notin routineKinds:
+      # we don't care about magic types here
+      continue
+
+    result.magics[m] = procs.addMagic(NoneType, name, m)
+
+  for op, tbl in result.attachedOps.mpairs:
+    for k, v in g.attachedOps[op].pairs:
+      let t = tgen.lookupType(k)
+      if t != NoneType:
+        tbl[t] = procs.requestProc(v)
+      else:
+        # XXX: is this case even possible
+        discard#echo "missing type for type-bound operation"
+
+  for t in { tyVoid, tyInt..tyFloat64, tyBool, tyChar, tyString, tyCstring, tyPointer }.items:
+    result.sysTypes[t] = tgen.requestType(g.getSysType(unknownLineInfo, t))
+
 
 proc generateCode*(g: ModuleGraph) =
   ## The backend's entry point. Orchestrates code generation and linking. If
@@ -312,50 +357,7 @@ proc generateCode*(g: ModuleGraph) =
     swap(nextProcs, nextProcs2)
 
   # setup a ``PassEnv``
-  let passEnv = PassEnv()
-  block:
-    for sym in g.compilerprocs.items:
-      case sym.kind
-      of routineKinds:
-        passEnv.compilerprocs[sym.name.s] = c.procs.requestProc(sym)
-      of skType:
-        passEnv.compilertypes[sym.name.s] = c.types.requestType(sym.typ)
-      else:
-        # TODO: the rest (e.g. globals) also need to be handled
-        discard
-
-    # XXX: a magic is not necessarily a procedure - it can also be a type
-    # create a symbol for each magic to be used by the IR transformations
-    for m in low(TMagic)..high(TMagic):
-      # fetch the name from a "real" symbol
-      let sym = g.getSysMagic2("", m)
-
-      let name =
-        if sym.isNil():
-          # not every magic has symbol defined in ``system.nim`` (e.g. procs and
-          # types only used in the backend)
-          $m
-        else:
-          sym.name.s
-
-      if sym != nil and sym.kind notin routineKinds:
-        # we don't care about magic types here
-        continue
-
-      passEnv.magics[m] = c.procs.addMagic(NoneType, name, m)
-
-    for op, tbl in passEnv.attachedOps.mpairs:
-      for k, v in g.attachedOps[op].pairs:
-        let t = c.types.lookupType(k)
-        if t != NoneType:
-          tbl[t] = c.procs.requestProc(v)
-        else:
-          # XXX: is this case even possible
-          discard#echo "missing type for type-bound operation"
-
-    for t in { tyVoid, tyInt..tyFloat64, tyBool, tyChar, tyString, tyCstring, tyPointer }.items:
-      passEnv.sysTypes[t] = c.types.requestType(g.getSysType(unknownLineInfo, t))
-
+  let passEnv = newPassEnv(g, c.types, c.symEnv, c.procs)
 
   for id, s in c.symEnv.msymbols:
     if (let orig = c.symEnv.orig.getOrDefault(id); orig != nil):
