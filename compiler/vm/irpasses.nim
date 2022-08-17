@@ -640,10 +640,7 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
     # destructors were lifted into specialized procs already
     let val = n.args(0)
     case c.env.types[c.typeof(val)].kind
-    of tnkString:
-      cr.replace()
-      cr.insertCompProcCall(c.extra, "genericSeqAssign")
-    of tnkRef:
+    of tnkRef, tnkString:
       # XXX: only non-injected destroys for refs should be turned
       cr.replace()
       let nilLit = cr.insertLit((newNode(nkNilLit), NoneType))
