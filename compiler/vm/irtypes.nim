@@ -266,6 +266,8 @@ type
 
     params*: seq[ProcParam]
     returnType*: TypeId
+    envType*: TypeId ## the ``ref`` type of the captured environment, or
+      ##``NoneType`` if the procedure doesn't capture an environment
 
     callConv*: TCallingConvention
     magic*: TMagic
@@ -1130,6 +1132,9 @@ func translateProc*(s: PSym, types: var DeferredTypeGen, dest: var ProcHeader) =
   let t = s.typ
 
   dest.returnType = types.requestType(t[0])
+  if tfCapturesEnv in s.typ.flags:
+    dest.envType = types.requestType(s.ast[paramsPos].lastSon.typ)
+
   dest.callConv = s.typ.callConv
 
   # an existing hidden environment parameter is **not** added to the parameter
@@ -1381,6 +1386,9 @@ func mapTypes*(e: var ProcedureEnv, g: DeferredTypeGen) =
     # magics not created during sem don't have type information
     if it.returnType != NoneType:
       it.returnType = map(g, it.returnType)
+
+    if it.envType != NoneType:
+      it.envType = map(g, it.envType)
 
 func mapTypes*(e: var SymbolEnv, g: DeferredTypeGen) =
   for it in e.symbols.mitems:
