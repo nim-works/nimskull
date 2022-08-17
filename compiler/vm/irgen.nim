@@ -623,7 +623,7 @@ proc genCall(c: var TCtx; n: PNode): IRIndex =
                           ## code-gen'ed
 
   let callee =
-    if n[0].kind == nkSym:
+    if n[0].kind == nkSym and n[0].sym.kind in routineKinds:
       genProcSym(c, n[0].sym)
     else:
       genx(c, n[0])
