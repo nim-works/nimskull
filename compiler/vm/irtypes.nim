@@ -211,10 +211,12 @@ const NoneType* = TypeId(0)
 const NoneSymbol* = SymId(0)
 
 # XXX: copied from `ccgtypes`, might need some adjustments
+# note: we DO care for ``tyDistinct``s, since they act as nominal types and
+#       type-bound operations can be attached to them
 const
   irrelevantForBackend = {tyGenericBody, tyGenericInst, tyGenericInvocation,
-                          tyDistinct, tyRange, tyStatic, tyAlias, tySink,
-                          tyInferred, tyOwned}
+                          tyRange, tyStatic, tyAlias, tySink, tyInferred,
+                          tyOwned}
 
 func `==`*(a, b: TypeId): bool {.borrow.}
 func `==`*(a, b: SymId): bool {.borrow.}
@@ -378,10 +380,29 @@ when useGenTraces:
         gen.traces.add getStackTraceEntries()
       gen.traces.high
 
+template overlaps(a: set, b: set): bool =
+  a * b != {}
+
 func requestType*(gen: var DeferredTypeGen, t: PType): TypeId =
-  let t =
-    if t != nil: t
-    else: gen.voidType
+  var t = t
+  if t == nil:
+    t = gen.voidType
+
+  # skip all types that we are not interested in on the IR level. This does
+  # however mean that the original type name is lost and the code-generators
+  # can't make use of it.
+  # For the version this comment was written against the skipping reduced the
+  # number of genrated types by 5%, the record nodes by 50%, and the fields
+  # by 30%
+  while true:
+    if t.sym != nil and t.sym.flags.overlaps({sfImportc, sfExportc}):
+      # don't skip types that have an external interface attached
+      break
+
+    if t.kind in irrelevantForBackend:
+      t = t.lastSon
+    else:
+      break
 
   #[
   if t.kind in {tyTyped, tyUntyped, tyGenericParam}:
