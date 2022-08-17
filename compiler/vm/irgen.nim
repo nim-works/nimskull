@@ -31,6 +31,9 @@ import
 from compiler/vm/vmaux import findRecCase, findMatchingBranch
 from compiler/vm/vmdef import unreachable
 
+# XXX: temporary import; needed for ``PassEnv``
+import compiler/vm/irpasses
+
 type TBlock = object
   label: PSym
   start: JoinPoint
@@ -67,6 +70,8 @@ type TCtx* = object
 
   graph*: ModuleGraph # only needed for testing if a proc has a body
   idgen*: IdGenerator # needed for creating magics on-demand
+
+  passEnv*: PassEnv
 
   module*: PSym
 
@@ -166,14 +171,12 @@ proc genProcSym(c: var TCtx, s: PSym): IRIndex =
 
 proc irCall(c: var TCtx, name: string, args: varargs[IRIndex]): IRIndex =
   # TODO: compiler procs should be cached here in `TCtx`
-  let sym = c.graph.getCompilerProc(name)
-  c.irs.irCall(genProcSym(c, sym), args)
+  let prc = c.passEnv.getCompilerProc(name)
+  c.irs.irCall(c.irs.irProc(prc), args)
 
 func irCall(c: var TCtx, name: string, m: TMagic, args: varargs[IRIndex]): IRIndex {.inline.} =
-  # TODO: instead of creating a new duplicate magic each time, all used magics
-  #       should be only created once and then reused
-  let sym = createMagic(c.graph, c.idgen, name, m)
-  c.irs.irCall(genProcSym(c, sym), args)
+  # TODO: maybe store all used magics directly in ``TCtx``?
+  c.irs.irCall(c.irs.irProc(c.passEnv.magics[m]), args)
 
 func genLocal(c: var TCtx, kind: LocalKind, t: PType): IRIndex =
   let

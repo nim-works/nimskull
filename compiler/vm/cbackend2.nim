@@ -221,10 +221,11 @@ func collectRoutineSyms(s: IrStore3, env: ProcedureEnv, list: var seq[PSym], kno
   for n in s.nodes:
     case n.kind
     of ntkProc:
-      let sym = env.orig[n.procId] # XXX: inefficient
+      let sym = env.orig.getOrDefault(n.procId) # XXX: inefficient
       # XXX: excluding all magics is wrong. Depending on which back-end is
       #      used, some magics are treated like any other routine
-      if sym.magic == mNone and
+      if sym != nil and
+         sym.magic == mNone and
          sym.id notin known:
         known.incl(sym.id)
         list.add(sym)
@@ -317,6 +318,10 @@ proc generateCode*(g: ModuleGraph) =
   c.types.voidType = g.getSysType(unknownLineInfo, tyVoid)
   c.types.charType = g.getSysType(unknownLineInfo, tyChar)
 
+  # setup a ``PassEnv``
+  let passEnv = newPassEnv(g, c.types, c.symEnv, c.procs)
+  c.passEnv = passEnv
+
   # generate all module init procs (i.e. code for the top-level statements):
   for m in mlist.modules.mitems:
     c.module = m.sym
@@ -355,9 +360,6 @@ proc generateCode*(g: ModuleGraph) =
 
     nextProcs.setLen(0)
     swap(nextProcs, nextProcs2)
-
-  # setup a ``PassEnv``
-  let passEnv = newPassEnv(g, c.types, c.symEnv, c.procs)
 
   for id, s in c.symEnv.msymbols:
     if (let orig = c.symEnv.orig.getOrDefault(id); orig != nil):
