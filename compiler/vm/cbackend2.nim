@@ -6,7 +6,8 @@ import
   compiler/ast/[
     ast,
     ast_types,
-    astalgo, # for `getModule`
+    astalgo, # for `getModule`,
+    idents,
     lineinfos,
     reports
   ],
@@ -233,6 +234,19 @@ proc getCFile(config: ConfigRef, filename: AbsoluteFile): AbsoluteFile =
   result = changeFileExt(
     completeCfilePath(config, withPackageName(config, filename)), ext)
 
+
+proc getSysMagic2(g: ModuleGraph, name: string, m: TMagic): PSym =
+  ## Same as ``magicsys.getSysMagic``, except that:
+  ## * it doesn't use ``localReport``.
+  ## * procedures returning int don't have higher precedence
+  ## * `nil` is returned if no matching magic is found
+  ## * no line info is required
+  let id = getIdent(g.cache, name)
+  for r in systemModuleSyms(g, id):
+    if r.magic == m:
+      result = r
+
+
 proc generateCode*(g: ModuleGraph) =
   ## The backend's entry point. Orchestrates code generation and linking. If
   ## all went well, the resulting binary is written to the project's output
@@ -301,19 +315,23 @@ proc generateCode*(g: ModuleGraph) =
 
     # XXX: a magic is not necessarily a procedure - it can also be a type
     # create a symbol for each magic to be used by the IR transformations
-    for m, id in passEnv.magics.mpairs:
+    for m in low(TMagic)..high(TMagic):
       # fetch the name from a "real" symbol
-      let sym = g.getSysMagic(unknownLineInfo, "", m)
+      let sym = g.getSysMagic2("", m)
 
       let name =
-        if sym.isError():
+        if sym.isNil():
           # not every magic has symbol defined in ``system.nim`` (e.g. procs and
           # types only used in the backend)
           $m
         else:
           sym.name.s
 
-      id = c.symEnv.addMagic(skProc, NoneType, name, m)
+      if sym != nil and sym.kind notin routineKinds:
+        # we don't care about magic types here
+        continue
+
+      passEnv.magics[m] = c.symEnv.addMagic(skProc, NoneType, name, m)
 
     for op, tbl in passEnv.attachedOps.mpairs:
       for k, v in g.attachedOps[op].pairs:
