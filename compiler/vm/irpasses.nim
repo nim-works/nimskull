@@ -211,6 +211,14 @@ proc runV2*[G, L](s: var IrStore3, gs: var G, pass: CfPass[G, L]) =
 
   s.update(cursor)
 
+type
+  UntypedPassCtx* = object
+    ## Pass context for passes that neither need typed IR nor other extra data
+    graph*: PassEnv
+    env*: ptr IrEnv
+
+func initUntypedCtx*(graph: PassEnv, env: ptr IrEnv): UntypedPassCtx =
+  result = UntypedPassCtx(graph: graph, env: env)
 
 # location and value lifetimes are different things. A location can live
 # longer than it's value, but accessing a location past it's values' lifetime
