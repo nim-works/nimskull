@@ -346,6 +346,17 @@ proc generateCode*(g: ModuleGraph) =
       passEnv.sysTypes[t] = c.types.requestType(g.getSysType(unknownLineInfo, t))
 
 
+  for id, s in c.symEnv.msymbols:
+    if (let orig = c.symEnv.orig.getOrDefault(id); orig != nil):
+      # a `nil` PType would get turned into a ``void`` and we explicitly
+      # don't want this behaviour here (that is, if the type is `nil`, it
+      # needs to map to ``NoneType``). ``irpasses.computeTypes`` depends on
+      # the type being empty if there is no type information
+      if orig.typ != nil:
+        s.typ = c.types.requestType(orig.typ)
+
+  c.types.flush(c.symEnv, g.config)
+
   let entryPoint =
     generateMain(c, passEnv, mlist[])
 
