@@ -558,6 +558,9 @@ func insertLit(cr: var IrCursor, lit: string): IRIndex =
 func insertLit(cr: var IrCursor, i: int): IRIndex =
   cr.insertLit (newIntNode(nkIntLit, i), NoneType)
 
+func insertLit(cr: var IrCursor, i: uint): IRIndex =
+  cr.insertLit (newIntNode(nkUIntLit, cast[BiggestInt](i)), NoneType)
+
 proc insertMagicCall*(cr: var IrCursor, g: PassEnv, m: TMagic, args: varargs[IRIndex]): IRIndex {.discardable.} =
   cr.insertCallExpr(g.magics[m], args)
 
@@ -1553,6 +1556,50 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
 
       discard cr.insertPathArr(cr.insertDeref(field), n.arrIdx)
 
+  of ntkConv:
+    let typ = c.env.types.skipVarOrLent(n.typ)
+    if c.env.types[typ].kind == tnkOpenArray:
+      # Transform to:
+      #   var tmp: OpenArrayTuple
+      #   tmp[0] = addr src[0]
+      #   tmp[1] = src.len
+
+      cr.replace()
+      let
+        tmp = cr.newLocal(lkTemp, n.typ)
+        arr = cr.access(c.env.types, n.srcLoc, c.types[n.srcLoc])
+        srcTyp = c.env.types.skipVarOrLent(c.types[n.srcLoc])
+
+      let tmpAcc = cr.insertLocalRef(tmp)
+      let ex = block:
+        (dataExpr: cr.insertPathObj(tmpAcc, OpenArrayDataField),
+         lenExpr:  cr.insertPathObj(tmpAcc, OpenArrayLenField))
+
+      assert c.env.types[srcTyp].kind in {tnkArray, tnkString, tnkSeq}, $c.env.types[srcTyp].kind
+
+      # TODO: this will fail if the source has a length of zero
+      let p =
+        if c.env.types[srcTyp].kind == tnkArray and c.env.types.length(srcTyp) == 0:
+          cr.insertLit (newNode(nkNilLit), NoneType)
+        else:
+          cr.insertAddr cr.insertPathArr(arr, cr.insertLit(0))
+
+      let lenExpr =
+        case c.env.types[srcTyp].kind
+        of tnkArray:
+          cr.insertLit(c.env.types[srcTyp].length)
+        of tnkSeq:
+          cr.insertMagicCall(c.graph, mLengthSeq, arr)
+        of tnkString:
+          cr.insertMagicCall(c.graph, mLengthStr, arr)
+        else:
+          unreachable(c.env.types[srcTyp].kind)
+
+      # XXX: the pointer needs a cast, but we don't know the correct type yet...
+      cr.insertAsgn(askInit, ex.dataExpr, p)
+      cr.insertAsgn(askInit, ex.lenExpr, lenExpr)
+
+      discard cr.insertLocalRef(tmp)
   #[
   of ntkParam:
     let orig = n.paramIndex
