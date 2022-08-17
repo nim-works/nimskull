@@ -531,7 +531,8 @@ func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
         customAssert false, n.srcLoc
 
     of ntkPathArr:
-      result[i] = env.types.elemType(result[n.srcLoc])
+      let typ = env.types.skipVarOrLent(result[n.srcLoc])
+      result[i] = env.types.elemType(typ)
 
     else:
       debugEcho "computeTypes missing: ", n.kind
