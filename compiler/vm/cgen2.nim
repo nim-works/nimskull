@@ -1029,20 +1029,18 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     f.write c.idents[n.a.LitId]
 
   of cnkInfix:
-    emitCAst(f, c, ast, pos) # lhs
+    emitAndEscapeIf(f, c, ast, pos, {cnkIdent, cnkIntLit, cnkStrLit}) # lhs
     f.write " "
     emitCAst(f, c, ast, pos) # infix
     f.write " "
-    emitCAst(f, c, ast, pos) # rhs
+    emitAndEscapeIf(f, c, ast, pos, {cnkIdent, cnkIntLit, cnkStrLit}) # rhs
 
   of cnkPrefix:
     emitCAst(f, c, ast, pos)
-    f.write "("
-    emitCAst(f, c, ast, pos)
-    f.write ")"
+    emitAndEscapeIf(f, c, ast, pos, {cnkIdent})
 
   of cnkBracket:
-    emitAndEscapeIf(f, c, ast, pos, {cnkIdent})
+    emitAndEscapeIf(f, c, ast, pos, {cnkIdent, cnkDotExpr})
     f.write "["
     emitCAst(f, c, ast, pos)
     f.write "]"
@@ -1077,9 +1075,8 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     f.write "goto "
     f.write c.idents[n.a.LitId]
   of cnkDotExpr:
-    f.write "("
-    emitCAst(f, c, ast, pos)
-    f.write ")."
+    emitAndEscapeIf(f, c, ast, pos, {cnkIdent, cnkCall, cnkDotExpr})
+    f.write "."
     emitCAst(f, c, ast, pos)
 
   of cnkStrLit:
@@ -1096,9 +1093,8 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
   of cnkCast:
     f.write "("
     emitCAst(f, c, ast, pos)
-    f.write ") ("
-    emitCAst(f, c, ast, pos)
-    f.write ")"
+    f.write ") "
+    emitAndEscapeIf(f, c, ast, pos, {cnkIdent})
 
   of cnkBraced:
     f.write "{"
