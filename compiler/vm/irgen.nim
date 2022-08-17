@@ -622,6 +622,7 @@ proc genArg(c: var TCtx, formal: PType, useTemp: bool, n: PNode): IRIndex =
     # no special handling for c-style varargs or ``var`` params
     assert not isMove
     result = arg
+  #[
   elif useTemp:
     # turn each immutable argument into a `let tmp = arg; tmp`. The
     # subsequent passes take care of turning the `let` into an
@@ -631,6 +632,7 @@ proc genArg(c: var TCtx, formal: PType, useTemp: bool, n: PNode): IRIndex =
     let tmp = c.getTemp(n.typ)
     c.irs.irAsgn(askInit, tmp, arg)
     result = c.irs.irUse(tmp)
+  ]#
   else:
     result = arg
 
