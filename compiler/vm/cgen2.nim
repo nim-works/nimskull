@@ -1066,7 +1066,7 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     f.write "}"
 
   of cnkReturn:
-    f.write "return"
+    f.write "return "
     if n.a == 1:
       emitCAst(f, c, ast, pos)
 
