@@ -776,8 +776,14 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     var d = c.genx(n[1])
     unreachable("missing")
   of mGetTypeInfo:
-    # transform the `getTypeInfo(x)` into a `getTypeInfo(typeof(x))`
-    result = c.irCall("getTypeInfo", mGetTypeInfo, genTypeLit(c, n[1].typ))
+    # transform ``mGetTypeInfo`` calls into the format the IR expects
+    #
+    # .. code-block:: nim
+    #   getTypeInfo(x)
+    #   # -->
+    #   addr getTypeInfo(typeof(x))
+    #
+    result = c.irs.irAddr(c.irCall("getTypeInfo", mGetTypeInfo, genTypeLit(c, n[1].typ)))
 
   of mDefault:
     result = c.irNull(n.typ)
