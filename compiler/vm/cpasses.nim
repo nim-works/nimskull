@@ -243,6 +243,20 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
       if tmpAcc != InvalidIndex:
         discard cr.insertLocalRef(tmp)
 
+  of ntkConv:
+    if c.env.types[n.typ].kind == tnkClosure:
+      # ``sigmatch`` introduces a ``nkHiddenSubConv`` when assigning a
+      # procedural value of non-closure calling convention to a closure. It
+      # subsequently gets translated into a 'conv' by ``irgen`` and
+      # then reaches here.
+      # Since all proc types using the ``ccClosure`` calling-convention are
+      # translated into ``tnkClosure`` (which renders the conversion wrong) we
+      # have to rewrite it to use the correct type here
+      let prcTyp = c.env.types[c.env.types.nthField(c.transEnv.remap[n.typ], ClosureProcField)].typ
+
+      cr.replace()
+      discard cr.insertCast(prcTyp, n.srcLoc)
+
   else:
     discard
 
