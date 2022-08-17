@@ -1938,6 +1938,9 @@ func insertCallExpr*(cr: var IrCursor, prc: ProcId, args: varargs[IRIndex]): IRI
 func insertCallStmt*(cr: var IrCursor, prc: ProcId, args: varargs[IRIndex]) =
   discard insertCallExpr(cr, prc, args)
 
+func insertCallExpr*(cr: var IrCursor, callee: IRIndex, args: varargs[IRIndex]): IRIndex =
+  cr.insert IrNode3(kind: ntkCall, isBuiltin: false, callee: callee, args: @args)
+
 func insertCallExpr*(cr: var IrCursor, bc: BuiltinCall, typ: TypeId, args: varargs[IRIndex]): IRIndex =
   result = cr.insert IrNode3(kind: ntkCall, isBuiltin: true, builtin: bc, typ: typ, args: @args)
 
