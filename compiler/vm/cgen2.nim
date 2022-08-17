@@ -125,7 +125,7 @@ type
   CTypeDesc = distinct CDecl
 
 
-  CTypeId = distinct uint32
+  CTypeId = TypeId
 
   CIdent = LitId ## An identifier in the generated code
 
@@ -149,7 +149,7 @@ type
     isImmutable: bool # TODO: merge both bools into a `set`
     isVolatile: bool
 
-  GlobalGenCtx = object
+  GlobalGenCtx* = object
     ## Environment state that applies to all to all code, independent from
     ## which routine or module the code is in.
 
@@ -167,10 +167,8 @@ type
     funcMap: Table[int, int] ## symbol-id -> index into `procs` # TODO: a table is maybe the wrong data structure here.
     funcs: seq[ProcHeader]
 
-    ctypeMap: Table[TypeKey, CTypeId] #
     ctypes: seq[CTypeInfo] #
 
-    defered: seq[(TypeId, CTypeId)]
 
   CAstBuilder = object
     ast: CAst
@@ -218,30 +216,16 @@ type CTypeMap = Table[TypeKey, CTypeId]
 
 type TypeGenCtx = object
   # inherited state
-  tm: CTypeMap # mutated
-  ctypes: seq[CTypeInfo] # mutated
-  cache: IdentCache # mutated
-
+  cache: IdentCache
   env: ptr IrEnv
 
   # non-inherited state
   weakTypes: set[TypeNodeKind] # the set of types that can be turned into forward declarations when declared as a pointer
 
-  forwardBegin: int
-  forwarded: seq[TypeId] ## types who's creation was defered. THe first entry
-                        ## has an ID of `forwardBegin`, the second
-                        ## `forwardBegin + 1`, etc.
-
 func requestType(c: var TypeGenCtx, t: TypeId): CTypeId =
   ## Requests the type-id for `t`. If the c-type for `t` doesn't exist yet, a
   ## slot for it is reserved and it's added to the `c.forwared` list
-  let next = c.ctypes.len.CTypeId
-  result = c.tm.mgetOrPut(t.TypeKey, next)
-  if result == next:
-    # type wasn't generated yet
-    assert c.forwardBegin + c.forwarded.len == next.int
-    c.ctypes.setLen(c.ctypes.len + 1)
-    c.forwarded.add(t)
+  CTypeId(t)
 
 func requestFuncType(c: var TypeGenCtx, t: TypeId): CTypeId =
   # XXX: this is going to be tricky
@@ -394,23 +378,6 @@ func getTypeName(c: var IdentCache, typ: Type, decl: Declaration): CIdent =
     let h = 0#hashType(typ)
     c.getOrIncl(fmt"{typ.kind}_{h}")
 
-
-func genForwarded(c: var TypeGenCtx) =
-  ## Generates the `CTypeInfo` for all forwarded types (and also for their
-  ## dependencies)
-  var i = 0
-  # note: ``genCTypeDecl`` may add to ``forwarded``
-  while i < c.forwarded.len:
-    let fwd = c.forwarded[i]
-    # XXX: forwarded could be cleared when ``i == forwarded.high`` in
-    #      order to cut down on allocations
-    let decl = genCTypeDecl(c, c.forwarded[i])
-    c.ctypes[c.forwardBegin + i] = CTypeInfo(decl: decl, name: getTypeName(c.cache, c.env.types[fwd], Declaration()))
-    inc i
-
-  c.forwarded.setLen(0)
-  c.forwardBegin = c.ctypes.len # prepare for following ``requestType`` calls
-
 func genCType(dest: var CDecl, cache: var IdentCache, t: Type) =
   template addIdentNode(n: string) =
     dest.add cdnkIdent, cache.getOrIncl(n).uint32
@@ -512,7 +479,7 @@ func mapTypeV2(c: var GenCtx, t: TypeId): CTypeId =
 func mapTypeV3(c: var GlobalGenCtx, t: TypeId): CTypeId =
   if t != NoneType:
     # XXX: maybe just have a ``NoneType`` -> ``VoidCType`` mapping in the table instead?
-    c.ctypeMap[t]
+    CTypeId(t)
   else:
     VoidCType
 
@@ -1144,30 +1111,34 @@ proc writeDef(f: File, c: GlobalGenCtx, h: ProcHeader, decl: Declaration) =
 
   f.writeLine(") {")
 
-proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, env: IrEnv, procs: openArray[(SymId, IrStore3)]) =
+func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
+  ## Initializes the ``GlobalGenCtx`` to use for all following ``emitModuleToFile`` calls. Creates the ``CTypeInfo`` for each IR type.
+
+  var gen = TypeGenCtx(weakTypes: {tnkRecord}, env: unsafeAddr env)
+  swap(gen.cache, c.idents)
+
+  # XXX: a leftover from the CTypeId -> TypeId transition. Needs to be removed
+  c.ctypes.add(CTypeInfo(name: gen.cache.getOrIncl("void"))) # the `VoidCType`
+
+  # TODO: use ``setLen`` + []
+  var i = 0
+  for id in types(env.types):
+    let decl = genCTypeDecl(gen, id)
+    c.ctypes.add CTypeInfo(decl: decl, name: getTypeName(gen.cache, env.types[id], Declaration()))
+
+  swap(gen.cache, c.idents)
+
+proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalGenCtx, env: IrEnv, procs: openArray[(SymId, IrStore3)]) =
   let f = open(filename.string, fmWrite)
   defer: f.close()
 
   echo "Here: ", filename.string
 
   var
-    ctx: GlobalGenCtx
     mCtx: ModuleCtx
     asts: seq[CAst]
 
-    tgc = TypeGenCtx(weakTypes: {tnkRecord}, env: unsafeAddr env)
-
-  template swapTypeCtx() =
-    swap(tgc.tm, ctx.ctypeMap)
-    swap(tgc.ctypes, ctx.ctypes)
-    swap(tgc.cache, ctx.idents)
-
-  ctx.ctypes.add(CTypeInfo(name: ctx.idents.getOrIncl("void"))) # the `VoidCType`
-  # XXX: we need the `NimStringDesc` PType here
-  #ctx.ctypes.add(CTypeInfo(name: ctx.idents.getOrIncl("NimString"))) # XXX: wrong, see above
   mCtx.headers.incl("\"nimbase.h\"")
-
-  tgc.forwardBegin = ctx.ctypes.len
 
   for sym, irs in procs.items:
     useFunction(mCtx, sym)
@@ -1183,24 +1154,12 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, env: IrEnv, proc
     # requires less code duplication; and is also good for modularity
     c.types = computeTypes(irs, env)
 
-    swapTypeCtx()
-
-    # request all types used inside the IR to be setup. Note that this only
-    # means that the C-type equivalents are created, not that the declarations
-    # are also emitted in the output file
-    for t in c.types.items:
-      if t != NoneType:
-        discard tgc.requestType(t)
-
-    swapTypeCtx()
-
     swap(c.gl, ctx)
     swap(c.m, mCtx)
     asts.add genCode(c, irs)
     swap(c.m, mCtx)
     swap(c.gl, ctx)
 
-  swapTypeCtx()
   # XXX: this might lead to an ordering problem, since we're not registering
   #      the types on the first occurence
   # mark the types used in routine signatures as used
@@ -1212,24 +1171,11 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, env: IrEnv, proc
 
       for it in env.types.params(sym.typ):
         if it != NoneType:
-          discard tgc.requestType(it)
           mCtx.useType(it)
     else:
-      discard tgc.requestType(sym.typ)
       mCtx.useType(sym.typ)
 
-  tgc.genForwarded()
-
-  swapTypeCtx()
-
-  var used: seq[CTypeId]
-
-  block:
-    for typ in mCtx.types.items:
-      used.add ctx.ctypeMap[typ.TypeKey]
-
-  for i, t in ctx.ctypes.pairs:
-    assert t.name != InvalidCIdent, $i
+  let used = mCtx.types
 
   f.writeLine "#define NIM_INTBITS 64" # TODO: don't hardcode
 
@@ -1270,7 +1216,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, env: IrEnv, proc
 
       writeDecl(f, ctx, hdr, sym.decl)
     of skLet, skVar:
-      emitType(f, ctx, ctx.ctypeMap[sym.typ.TypeKey])
+      emitType(f, ctx, sym.typ)
       f.write " "
       f.write mangledName(sym.decl)
       f.writeLine ";"

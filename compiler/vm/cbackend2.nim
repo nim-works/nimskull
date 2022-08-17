@@ -411,12 +411,15 @@ proc generateCode*(g: ModuleGraph) =
         printTypes(irs, env)
         raise
 
+  var gCtx: GlobalGenCtx
+  initGlobalContext(gCtx, env)
+
   for i, m in mlist.modules.pairs:
     let cfile = getCFile(conf, AbsoluteFile toFullPath(conf, m.sym.position.FileIndex))
     var cf = Cfile(nimname: m.sym.name.s, cname: cfile,
                    obj: completeCfilePath(conf, toObjFile(conf, cfile)), flags: {})
 
-    emitModuleToFile(conf, cfile, env, moduleProcs[i])
+    emitModuleToFile(conf, cfile, gCtx, env, moduleProcs[i])
 
     addFileToCompile(conf, cf)
 
