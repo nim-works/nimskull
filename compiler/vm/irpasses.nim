@@ -684,6 +684,42 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
     genIfNot(cr, cr.insertMagicCall(c.extra, mIsNil, arg(0))):
       cr.insertCompProcCall(c.extra, op[m], arg(0))
 
+  of mDefault:
+    # XXX: temporary implementation
+
+    cr.replace()
+    let typ = ir.getLit(ir.at(arg(0)))[1]
+
+    case c.env.types[typ].kind
+    of tnkBool, tnkChar, tnkInt, tnkUInt:
+      # TODO: bool and char need their own literal
+      discard cr.insertLit(0)
+    of tnkFloat:
+      discard cr.insertLit((newFloatNode(nkFloatLit, 0), typ))
+    of tnkPtr, tnkRef, tnkProc:
+      discard cr.insertNilLit(typ)
+    else:
+      # a complex type
+      type TypeHeaderKind = enum
+        none, single, embedded
+      var hdr = embedded # XXX: wrong, obviously
+
+      let
+        tmp = cr.newLocal(lkTemp, typ)
+        tmpAcc = cr.insertLocalRef(tmp)
+
+      # XXX: should IR temporaries be specified to be zero-initialized by
+      #      default? Sounds like a good idea
+      cr.insertCompProcCall(c.extra, "nimZeroMem", cr.insertAddr tmpAcc, cr.insertMagicCall(c.extra, mSizeOf, cr.insertLit((nil, typ))))
+      case hdr
+      of none: discard
+      of single:
+        cr.insertAsgn(askInit, cr.insertMagicCall(c.extra, mAccessTypeField, tmpAcc), c.requestRtti(cr, typ))
+      of embedded:
+        cr.insertCompProcCall(c.extra, "objectInit", cr.insertAddr tmpAcc, c.requestRtti(cr, typ))
+
+      discard cr.insertLocalRef(tmp)
+
   else:
     discard "ignore"
 
