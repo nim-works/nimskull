@@ -854,6 +854,9 @@ iterator sliceIt[T](x: seq[T], first, last: int): (int, lent T) =
     inc i
 
 proc addPrimitiveType*(env: var TypeEnv, gen: var DeferredTypeGen, conf: ConfigRef, t: PType): TypeId =
+  # XXX: might be a good idea to merge ``marker`` with ``cache``
+  gen.marker.incl t.id
+
   var ctx: TypeGen
   ctx.def = addr gen
   swap(gen.cache, ctx.cache)
@@ -866,10 +869,19 @@ proc addPrimitiveType*(env: var TypeEnv, gen: var DeferredTypeGen, conf: ConfigR
   var hcode: Hash
   var se: seq[int]
   hash(env, hcode, se, env.types[^1])
-  assert se notin env.structMap
 
-  result = toId(env.types.high, TypeId)
-  gen.cache[t.itemId] = env.types.high.TypeNodeIndex
+  let
+    idx = env.types.high.TypeNodeIndex
+    r = env.structMap.mgetOrPut(se, idx)
+
+  # we also do deduplication here in order to make ``int``/``float`` handling
+  # simpler
+  if r != idx:
+    # already exists --> rewind
+    env.types.setLen(env.types.len - 1)
+
+  result = toId(r, TypeId)
+  gen.cache[t.itemId] = r
 
 proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, symEnv: var SymbolEnv, conf: ConfigRef) =
   ## Generates all the types that were deferred. `types` may be
