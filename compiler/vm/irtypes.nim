@@ -868,6 +868,10 @@ func finish*(e: var ProcedureEnv, types: var DeferredTypeGen) =
 func getReturnType*(e: ProcedureEnv, p: ProcId): TypeId =
   e[p].returnType
 
+func param*(e: ProcedureEnv, p: ProcId, i: Natural): auto =
+  # XXX: costly string copy since ``lent`` is not used here
+  e[p].params[i]
+
 func numParams*(e: ProcedureEnv, p: ProcId): int =
   e[p].params.len
 

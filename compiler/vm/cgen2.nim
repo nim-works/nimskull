@@ -731,6 +731,11 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
         useType(c.m, sym.typ)
 
       names[i] = start().ident(c.gl.idents, mangledName(sym.decl)).fin()
+
+    of ntkParam:
+      let name = c.gl.funcs[toIndex(irs.owner)].args[n.paramIndex].name
+      names[i] = start().ident(name).fin()
+
     of ntkProc:
       let prc = c.env.procs[n.procId]
       if prc.magic == mNone:

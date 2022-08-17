@@ -374,7 +374,7 @@ proc generateCode*(g: ModuleGraph) =
 
       if g.getBody(it).kind == nkEmpty:
         # a quick fix to not run `irgen` for 'importc'ed procs
-        moduleProcs[realIdx].add((sId, IrStore3()))
+        moduleProcs[realIdx].add((sId, IrStore3(owner: sId)))
         continue
 
       let ir = generateCodeForProc(c, it)
@@ -382,6 +382,7 @@ proc generateCode*(g: ModuleGraph) =
 
       #doAssert mIdx == realIdx
       moduleProcs[realIdx].add((sId, c.unwrap ir))
+      moduleProcs[realIdx][^1][1].owner = sId
 
     # flush deferred types already to reduce memory usage a bit
     c.types.flush(c.symEnv, g.config)

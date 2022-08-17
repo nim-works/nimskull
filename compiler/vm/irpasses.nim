@@ -504,6 +504,8 @@ func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
       let s = ir.sym(n)
       customAssert s != NoneSymbol, i
       result[i] = env.syms[s].typ
+    of ntkParam:
+      result[i] = env.procs.param(ir.owner, n.paramIndex).typ
     of ntkUse, ntkConsume:
       result[i] = result[n.srcLoc]
     of ntkLocal:

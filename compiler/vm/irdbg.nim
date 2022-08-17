@@ -9,7 +9,7 @@ func calcStmt*(irs: IrStore3): seq[bool] =
   var i = 0
   for n in irs.nodes:
     case n.kind
-    of ntkSym, ntkLocal, ntkJoin, ntkLit, ntkGoto, ntkProc:
+    of ntkSym, ntkLocal, ntkJoin, ntkLit, ntkGoto, ntkProc, ntkParam:
       discard
     of ntkCall:
       for it in n.args:
@@ -59,6 +59,8 @@ proc printIr*(irs: IrStore3, e: IrEnv, exprs: seq[bool]) =
       line = fmt"sym {e.syms[irs.sym(n)].decl.name}"
     of ntkProc:
       line = fmt"proc '{e.procs[n.procId].decl.name}'"
+    of ntkParam:
+      line = fmt"param {n.paramIndex}: '{e.procs.param(irs.owner, n.paramIndex).name}'"
     of ntkAsgn:
       case n.asgnKind
       of askCopy, askDiscr:

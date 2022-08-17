@@ -124,7 +124,7 @@ func irSym(c: var TCtx, sym: PSym): IRIndex =
   c.irs.irSym(id)
 
 func irParam(c: var TCtx, sym: PSym): IRIndex =
-  c.irSym(sym)
+  c.irs.irParam(sym.position.uint32)
 
 func irGlobal(c: var TCtx, sym: PSym): IRIndex =
   c.irSym(sym)

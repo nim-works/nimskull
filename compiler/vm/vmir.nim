@@ -150,6 +150,7 @@ type
     ntkLocEnd
 
     ntkProc # reference to a procedure
+    ntkParam # reference to a parameter
     ntkSym
     ntkRoot # a handle
     ntkLocal # references a local
@@ -221,6 +222,8 @@ type
       local: int
     of ntkProc:
       procId: ProcId
+    of ntkParam:
+      param: int
     of ntkAddr, ntkDeref:
       addrLoc: PathIndex
     of ntkGoto, ntkGotoLink:
@@ -262,6 +265,9 @@ type
 
     localSrc: seq[seq[StackTraceEntry]]
     sources: seq[seq[StackTraceEntry]] # the stack trace of where each node was added
+
+    # XXX: to temporarily make things easier, the owning procedure's ID is stored here (will be moved elsewhere later)
+    owner*: ProcId
 
   IrEnv* = object
     ##
@@ -430,9 +436,9 @@ func irTemp*(c: var IrStore, typ: VmTypeId): IRIndex =
   result = c.add(IrNode2(kind: inktTemp, tmpName: c.nextTemp, typ: typ))
   inc c.nextTemp
 
-func irParam*(c: var IrStore, pos: uint32): IRIndex =
+func irParam*(c: var IrStore3, pos: uint32): IRIndex =
   ## A path component. Refers to a parameter
-  c.add(IrNode2(kind: inktParam, param: pos))
+  c.add IrNode3(kind: ntkParam, param: pos.int)
 
 proc irConst*(c: var IrStore, i: uint32): IRIndex =
   ## Load a simple constant with the given literal index `i`
@@ -613,6 +619,9 @@ func sym*(c: IrStore3, n: IrNode3): SymId =
 
 func procId*(n: IrNode3): ProcId =
   n.procId
+
+func paramIndex*(n: IrNode3): int =
+  n.param
 
 func getLocal*(irs: IrStore3, n: IRIndex): (LocalKind, TypeId, SymId) =
   irs.locals[irs.nodes[n].local]
@@ -1914,6 +1923,9 @@ func insertSym*(cr: var IrCursor, sym: SymId): IRIndex =
   assert sym != NoneSymbol
   cr.insert IrNode3(kind: ntkSym, sym: sym)
 
+func insertParam*(cr: var IrCursor, param: Natural): IRIndex =
+  cr.insert IrNode3(kind: ntkParam, param: param)
+
 func insertProcSym*(cr: var IrCursor, prc: ProcId): IRIndex =
   cr.insert IrNode3(kind: ntkProc, procId: prc)
 
@@ -2007,7 +2019,8 @@ func patch(n: var IrNode3, patchTable: seq[IRIndex]) =
     patchIdx(n.idx)
 
   of ntkJoin, ntkGoto, ntkSym, ntkLocal, ntkLocEnd, ntkImm, ntkGotoCont,
-     ntkContinue, ntkGotoLink, ntkLoad, ntkWrite, ntkRoot, ntkLit, ntkProc:
+     ntkContinue, ntkGotoLink, ntkLoad, ntkWrite, ntkRoot, ntkLit, ntkProc,
+     ntkParam:
     discard "nothing to patch"
 
 func inline*(cr: var IrCursor, other: IrStore3, sEnv: SymbolEnv, args: varargs[IRIndex]): IRIndex =
