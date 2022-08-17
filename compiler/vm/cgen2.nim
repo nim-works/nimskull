@@ -483,6 +483,8 @@ type GenCtx = object
   types: seq[TypeId]
   config: ConfigRef
 
+  localNames: seq[CIdent]
+
   env: #[lent]# ptr IrEnv
 
   gl: GlobalGenCtx # XXX: temporary
@@ -698,6 +700,8 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
   var numStmts = 0
   result.add cnkStmtList
 
+  c.localNames.setLen(0)
+
   var tmp = 0
   for typ, sym in irs.locals:
     if sym != NoneSymbol:
@@ -710,14 +714,22 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
         continue
       ]#
 
+    let name =
+      if sym != NoneSymbol:
+        mangledName(c.env.syms[sym].decl)
+      else:
+        let i = tmp
+        inc tmp
+        fmt"_tmp{i}"
+
+    let ident = c.gl.idents.getOrIncl(name)
+
+    # TODO: use ``setLen`` + []
+    c.localNames.add(ident)
+
     result.add cnkDef
     result.add cnkType, mapTypeV2(c, typ).uint32
-    if sym != NoneSymbol: # TODO: don't test for temps like this
-      result.add c.gl.ident mangledName(c.env.syms[sym].decl)
-
-    else:
-      result.add c.gl.ident(fmt"_tmp{tmp}")
-      inc tmp
+    result.add cnkIdent, ident.uint32
 
     inc numStmts
 
@@ -750,12 +762,7 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
 
       names[i] = start().ident(c.gl.funcs[toIndex(n.procId)].ident).fin()
     of ntkLocal:
-      let (kind, typ, sym) = irs.getLocal(i)
-      if sym == NoneSymbol:
-        names[i] = start().ident(c.gl.idents, "_tmp" & $c.tmp).fin()
-        inc c.tmp
-      else:
-        names[i] = start().ident(c.gl.idents, mangledName(c.env.syms[sym].decl)).fin()
+      names[i] = start().ident(c.localNames[irs.getLocalIdx(i)]).fin()
 
     of ntkCall:
       if n.isBuiltIn:
