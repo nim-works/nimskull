@@ -1022,8 +1022,6 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     if n.a != 0'u32:
       f.write " = "
       emitCAst(f, c, ast, pos) # initializer
-    else:
-      f.write ";"
 
   of cnkIdent:
     f.write c.idents[n.a.LitId]
