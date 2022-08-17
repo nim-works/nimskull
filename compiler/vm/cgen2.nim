@@ -1434,6 +1434,13 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       # nothing to do
       return
 
+    if info.decl.len > 0 and info.decl[0].kind in {cdnkStruct, cdnkUnion}:
+      # a forward ``typedef`` is used for all structs and unions for two reasons:
+      # * the typedef introduces the identifier in the ordinary name-space
+      # * it's a simple solution to the cyclical object type problem
+      list.add (true, id)
+      markerFwd.incl id
+
     # scan the type's body for dependencies and add them first
     for n in info.decl.items:
       case n.kind
@@ -1491,12 +1498,6 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
     let info = ctx.ctypes[id.int]
     # imported types don't have a body
     if info.decl.len > 0:
-      if not fwd and info.decl[0].kind in {cdnkStruct, cdnkUnion} and id notin markerFwd:
-        # struct and unions types always use a forward-declaration bacause the
-        # emitted typedef makes the identifier available in the ordinary
-        # name-space
-        emitCType(f, ctx, ctx.ctypes[id.int], isFwd=true)
-
       emitCType(f, ctx, ctx.ctypes[id.int], isFwd=fwd)
 
   # generate all procedure forward declarations
