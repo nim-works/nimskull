@@ -718,10 +718,11 @@ proc applyRefcPass(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurso
       case c.typeKindOf(n.wrLoc)
       of tnkString:
         cr.replace()
-        cr.insertCompProcCall(c.extra, "copyString", n.wrLoc, n.srcLoc)
+        # TODO: this is only correct for strings on the stack
+        cr.insertAsgn(askShallow, n.wrLoc, cr.insertCompProcCall(c.extra, "copyString", n.srcLoc))
       of tnkSeq:
         cr.replace()
-        cr.insertCompProcCall(c.extra, "genericSeqAssign", n.wrLoc, n.srcLoc)
+        cr.insertCompProcCall(c.extra, "genericSeqAssign", n.wrLoc, n.srcLoc, c.requestRtti(cr, c.typeof(n.wrLoc)))
       else:
         discard
     of askInit, askShallow, askDiscr:
