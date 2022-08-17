@@ -125,7 +125,7 @@ proc generateTopLevelStmts*(module: var Module, c: var TCtx,
   c.endProc()
 
   # the `initProc` symbol is missing a valid `ast` field
-  module.initProc[0] = c.symEnv.addSym(skProc, NoneType, "init") # TODO: non-obvious mutation, move this somewhere else
+  module.initProc[0] = c.symEnv.addSym(skProc, NoneType, c.graph.cache.getIdent("init")) # TODO: non-obvious mutation, move this somewhere else
   module.initProc[1] = c.irs
 
 proc generateCodeForProc(c: var TCtx, s: PSym): IrGenResult =
@@ -278,9 +278,9 @@ proc initMagics(p: PassEnv, g: ModuleGraph, procs: var ProcedureEnv) =
       if sym.isNil():
         # not every magic has symbol defined in ``system.nim`` (e.g. procs and
         # types only used in the backend)
-        $m
+        g.cache.getIdent($m)
       else:
-        sym.name.s
+        sym.name
 
     if sym != nil and sym.kind notin routineKinds:
       # we don't care about magic types here
@@ -450,7 +450,7 @@ proc generateCode*(g: ModuleGraph) =
 
   var lpCtx = LiftPassCtx(graph: passEnv, idgen: g.idgen, cache: g.cache)
   lpCtx.env = addr env
-  var ttc = TypeTransformCtx(graph: passEnv)
+  var ttc = TypeTransformCtx(graph: passEnv, ic: g.cache)
 
   # the openArray lowering has to happen separately
   # TODO: explain why
@@ -467,7 +467,7 @@ proc generateCode*(g: ModuleGraph) =
       logError(irs, env, s):
         runPass(irs, initHookCtx(passEnv, irs, env), hookPass)
 
-        lowerTestError(irs, passEnv, env.types, env.procs, env.syms)
+        lowerTestError(irs, passEnv, g.cache, env.types, env.procs, env.syms)
         var rpCtx: RefcPassCtx
         rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
         runPass(irs, rpCtx, lowerSetsPass)

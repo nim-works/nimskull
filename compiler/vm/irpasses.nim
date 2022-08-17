@@ -1143,11 +1143,13 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
 
 type TypeTransformCtx* = object
   graph*: PassEnv
+  ic*: IdentCache
 
 func lowerSeqTypesV1*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: var SymbolEnv) =
   let
     strTyp = c.graph.getCompilerType("NimString")
     seqTyp = c.graph.getCompilerType("TGenericSeq")
+    fieldName = c.ic.getIdent("data")
 
   var remap: Table[TypeId, TypeId]
   for id, typ in tenv.items:
@@ -1163,7 +1165,7 @@ func lowerSeqTypesV1*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: var Symb
       #
       let
         arr = tenv.requestGenericType(tnkUncheckedArray, typ.base)
-        sym = senv.addSym(skField, arr, "data") # TODO: this is bad; don't use ``Symbol`` to store field naming information
+        sym = senv.addSym(skField, arr, fieldName)
         rec = tenv.requestRecordType(base = seqTyp, [(sym, arr)])
       remap[id] = requestGenericType(tenv, tnkPtr, rec)
     else:
@@ -1189,10 +1191,10 @@ type LiftPassCtx* = object
 
 func addGlobal*(c: var LiftPassCtx, t: TypeId, name: string): SymId =
   # XXX: temporary helper
-  c.env.syms.addSym(skLet, t, name, {sfGlobal}) # XXX: uh-oh, hidden mutation
+  c.env.syms.addSym(skLet, t, c.cache.getIdent(name), {sfGlobal}) # XXX: uh-oh, hidden mutation
 
 func addConst*(c: var LiftPassCtx, t: TypeId, name: string, val: PNode): SymId =
-  c.env.syms.addSym(skConst, t, name)
+  c.env.syms.addSym(skConst, t, c.cache.getIdent(name))
 
 proc liftTypeInfoV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Turns all ``mGetTypeInfo`` calls into globals and collects the newly
@@ -1292,7 +1294,7 @@ proc liftSeqConstsV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCur
 
 const ErrFlagName = "nimError"
 
-proc lowerTestError*(ir: var IrStore3, g: PassEnv, types: TypeEnv, procs: ProcedureEnv, syms: var SymbolEnv) =
+proc lowerTestError*(ir: var IrStore3, g: PassEnv, ic: IdentCache, types: TypeEnv, procs: ProcedureEnv, syms: var SymbolEnv) =
   ## Lowers ``bcTestError`` builtin calls for the C-like targets. Turns
   ## ``bcTestError`` into ``unlikelyProc(ErrFlagName[])`` and inserts a
   ##
@@ -1329,8 +1331,7 @@ proc lowerTestError*(ir: var IrStore3, g: PassEnv, types: TypeEnv, procs: Proced
 
             # TODO: this lookup yields the same across all calls to `lowerTestError`. Cache both the compiler proc and it's return type
             typ = procs.getReturnType(p)
-            s = syms.addSym(skLet, typ, ErrFlagName) # XXX: no caching is currently done for the symbol names, so a lot of duplicated strings are created here...
-
+            s = syms.addSym(skLet, typ, ic.getIdent(ErrFlagName))
 
           errFlag = cr.insertLocalRef(cr.newLocal(lkLet, typ, s))
           cr.insertAsgn(askInit, errFlag, cr.insertCallExpr(p))

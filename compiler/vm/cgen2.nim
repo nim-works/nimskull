@@ -213,24 +213,24 @@ func mangledName(sym: PSym): string =
 func mangledName(d: DeclarationV2): string =
   # XXX: temporary
   if d.forceName:
-    d.name
+    d.name.s
   else:
-    mangle(d.name)
+    mangle(d.name.s)
 
 func mangledName(d: DeclarationV2, id: uint32): string =
   # XXX: temporary
   if d.forceName:
-    d.name
+    d.name.s
   else:
-    fmt"{mangle(d.name)}_{id}"
+    fmt"{mangle(d.name.s)}_{id}"
 
 func mangledName(procs: ProcedureEnv, id: ProcId): string =
   let decl = procs[id].decl
   if decl.forceName:
-    decl.name
+    decl.name.s
   else:
     # XXX: temporary fix in order to make overloading work
-    fmt"{mangle(decl.name)}_{id.uint32}"
+    fmt"{mangle(decl.name.s)}_{id.uint32}"
 
 const BaseName = "Sup" ## the name of the field for the base type
 
@@ -286,7 +286,7 @@ func genRecordNode(c: var TypeGenCtx, decl: var CDecl, i: var RecordNodeIndex, f
             #       fields in ``object`` types using inheritance won't work
             fmt"Field{i}"
           else:
-            c.env.syms[field.sym].decl.name
+            c.env.syms[field.sym].decl.name.s
 
       decl.addField(c.cache,
                     c.requestType(field.typ),
@@ -398,9 +398,9 @@ func getTypeName(c: var IdentCache, env: TypeEnv, id: TypeId, decl: Declaration)
   if (let a = env.getAttachmentIndex(id); a.isSome):
     let attach = env.getAttachment(a.unsafeGet)
     if attach[1]:
-      c.getOrIncl(attach[0])
+      c.getOrIncl(attach[0].s)
     else:
-      c.getOrIncl(fmt"{mangle(attach[0])}_{id.uint32}")
+      c.getOrIncl(fmt"{mangle(attach[0].s)}_{id.uint32}")
   else:
     # some types require a definition and thus need a name
     case env.kind(id)
@@ -570,7 +570,7 @@ func genCProcHeader(idents: var IdentCache, env: ProcedureEnv, s: ProcId): CProc
   var i = 0
   for p in env.params(s):
     result.args[i] = (mapTypeV3(p.typ),
-                      idents.getOrIncl(mangle(p.name)))
+                      idents.getOrIncl(mangle(p.name.s)))
     inc i
 
 
@@ -820,7 +820,7 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
 
       ident =
         if decl.forceName:
-          c.gl.idents.getOrIncl(decl.name)
+          c.gl.idents.getOrIncl(decl.name.s)
         else:
           getUniqueName(c.scope, c.gl.idents, mangledName(decl))
 
@@ -1392,7 +1392,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       asts.add(default(CAst))
       continue
 
-    echo "genFor: ", env.procs[sym].decl.name #, " at ", conf.toFileLineCol(sym.info)
+    echo "genFor: ", env.procs[sym].decl.name.s #, " at ", conf.toFileLineCol(sym.info)
     var c = GenCtx(f: f, config: conf, sym: sym, env: unsafeAddr env)
     # doing a separate pass for the type computation instead of doing it in
     # `genCode` is probably a bit less efficient, but it's also simpler;

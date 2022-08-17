@@ -156,7 +156,7 @@ type TypeEnv* = object
   types: seq[Type] ## all types in one contiguous seq
 
   attachMap: Table[TypeId, int32]
-  attachments: seq[tuple[name: string, forceName: bool]] # TODO: should use ``DeclarationV2``
+  attachments: seq[tuple[name: PIdent, forceName: bool]] # TODO: should use ``DeclarationV2``
   ifaces: Table[TypeId, PSym]
 
   # XXX: currently maps a unique structural represnetation of a type to it's
@@ -209,7 +209,7 @@ type
   DeclarationV2* = object
     # TODO: maybe use a different name? E.g. CodeGenEntity, CodeGenDesc?
 
-    name*: string # same as for ``Declaration.name``
+    name*: PIdent # same as for ``Declaration.name``
     forceName*: bool
     omit*: bool # don't emit any code for to the entity this declaration is attached to. XXX: this doesn't really fit here
 
@@ -256,7 +256,7 @@ type
   ProcId* = distinct uint32
 
   ProcParam = tuple
-    name: string
+    name: PIdent
     typ: TypeId
 
   ProcHeader* = object
@@ -595,7 +595,7 @@ func requestSym*(e: var SymbolEnv, s: PSym): SymId =
   if result == next:
     # a not yet translated symbol
     e.symbols.add(Symbol(kind: s.kind, position: s.position, magic: s.magic, flags: s.flags))
-    e.symbols[^1].decl.name = s.name.s
+    e.symbols[^1].decl.name = s.name
     e.orig[result] = s
 
 type TypeGen = object
@@ -907,7 +907,7 @@ proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, symEnv: var SymbolEnv, c
 
       # create an attached declaration
       env.attachMap[idx.TypeNodeIndex.toId] = env.attachments.len.int32
-      env.attachments.add (t.sym.name.s, sfExportc in t.sym.flags)
+      env.attachments.add (t.sym.name, sfExportc in t.sym.flags)
 
     else:
       idx = env.types.len
@@ -977,12 +977,12 @@ func getAttachmentIndex*(e: TypeEnv, id: TypeId): Option[int] =
 func getAttachment*(e: TypeEnv, i: Natural): auto {.inline.} =
   e.attachments[i]
 
-func addSym*(e: var SymbolEnv, kind: TSymKind, typ: TypeId, name: string, flags: TSymFlags = {}): SymId =
+func addSym*(e: var SymbolEnv, kind: TSymKind, typ: TypeId, name: PIdent, flags: TSymFlags = {}): SymId =
   # XXX: temporary helper
   e.symbols.add(Symbol(kind: kind, typ: typ, flags: flags, decl: DeclarationV2(name: name)))
   result = e.symbols.len.SymId
 
-func addMagic*(e: var ProcedureEnv, typ: TypeId, name: string, m: TMagic): ProcId =
+func addMagic*(e: var ProcedureEnv, typ: TypeId, name: PIdent, m: TMagic): ProcId =
   # XXX: temporary helper
   e.procs.add ProcHeader(returnType: typ, magic: m, decl: DeclarationV2(name: name))
   result = e.procs.len.ProcId
@@ -1111,7 +1111,7 @@ func translateProc*(s: PSym, types: var DeferredTypeGen, dest: var ProcHeader) =
   dest.flags = s.flags
 
   # fill in the declaration info
-  dest.decl.name = s.name.s
+  dest.decl.name = s.name
   dest.decl.forceName = s.flags.overlaps({sfImportc, sfExportc})
   dest.decl.omit = lfNoDecl in s.loc.flags
   dest.decl.format = if s.constraint != nil: getStr(s.constraint) else: ""
@@ -1138,7 +1138,7 @@ func translateProc*(s: PSym, types: var DeferredTypeGen, dest: var ProcHeader) =
     let n = t.n[i]
     # don't add e.g. ``static`` or ``typeDesc`` parameters to the list
     if not n.typ.isCompileTimeOnly():
-      dest.params[j] = (n.sym.name.s, types.requestType(n.typ))
+      dest.params[j] = (n.sym.name, types.requestType(n.typ))
       inc j
 
   # shrink to the number of used parameters
@@ -1182,9 +1182,9 @@ func param*(e: ProcedureEnv, p: ProcId, i: Natural): lent ProcParam {.inline.} =
 func numParams*(e: ProcedureEnv, p: ProcId): int =
   e[p].params.len
 
-iterator params*(e: ProcedureEnv, p: ProcId): tuple[name: lent string, typ: TypeId] =
-  for n, t in e[p].params.items:
-    yield (n, t)
+iterator params*(e: ProcedureEnv, p: ProcId): ProcParam =
+  for it in e[p].params.items:
+    yield it
 
 iterator items*(e: ProcedureEnv): ProcId =
   var i = 0
