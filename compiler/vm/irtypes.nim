@@ -794,6 +794,13 @@ func addMagic*(e: var ProcedureEnv, typ: TypeId, name: string, m: TMagic): ProcI
   e.procs.add ProcHeader(returnType: typ, magic: m, decl: DeclarationV2(name: name))
   result = e.procs.len.ProcId
 
+iterator items*(e: SymbolEnv): SymId =
+  var i = 0
+  let L = e.symbols.len
+  while i < L:
+    yield toId(i, SymId)
+    inc i
+
 iterator msymbols*(e: var SymbolEnv): (SymId, var Symbol) =
   var i = 0
   let L = e.symbols.len
