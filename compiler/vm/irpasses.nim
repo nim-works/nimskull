@@ -1091,6 +1091,256 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
   else:
     discard
 
+
+const OpenArrayDataField = 0
+const OpenArrayLenField = 1
+
+type LowerOACtx = object
+  graph: PassEnv
+  env: ptr IrEnv
+
+  types: seq[TypeId]
+  paramMap: seq[uint32] ## maps the current parameter indices to the new ones
+
+func expandData(c: LowerOACtx, cr: var IrCursor, ir: IrStore3, src: IRIndex): IRIndex =
+  if ir.at(src).kind == ntkParam:
+    let pIdx = ir.at(src).paramIndex
+    cr.insertParam(c.paramMap[pIdx] + 0)
+  else:
+    cr.insertPathObj(src, OpenArrayDataField)
+
+func expand(c: LowerOACtx, cr: var IrCursor, ir: IrStore3, src: IRIndex): tuple[dataExpr, lenExpr: IRIndex] =
+  # XXX: verify that this doesn't lead to evaluation order issues
+  if ir.at(src).kind == ntkParam:
+    let pIdx = ir.at(src).paramIndex
+    result.dataExpr = cr.insertParam(c.paramMap[pIdx] + 0)
+    result.lenExpr = cr.insertParam(c.paramMap[pIdx] + 1)
+  else:
+    result.dataExpr = cr.insertPathObj(src, OpenArrayDataField)
+    result.lenExpr = cr.insertPathObj(src, OpenArrayLenField)
+
+# TODO: the openArray rewriting needs lots of tests (a sign that it's too complex/need to be done differently?)
+func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+  case n.kind
+  of ntkAsgn:
+    if c.env.types[c.types[n.wrLoc]].kind == tnkOpenArray:
+      # the lhs can only be a non-parameter
+      if ir.at(n.srcLoc).kind == ntkParam:
+        # -->
+        #   dst.data = srcData
+        #   dst.len = srcLen
+        cr.replace()
+        let
+          dest = expand(c, cr, ir, n.wrLoc)
+          src = expand(c, cr, ir, n.srcLoc)
+        cr.insertAsgn(n.asgnKind, dest.dataExpr, src.dataExpr)
+        cr.insertAsgn(n.asgnKind, dest.lenExpr, src.lenExpr)
+
+  of ntkCall:
+    case getMagic(ir, c.env[], n)
+    of mLengthOpenArray:
+      cr.replace()
+      if ir.at(n.args(0)).kind == ntkParam:
+        discard cr.insertParam(c.paramMap[ir.at(n.args(0)).paramIndex] + 1)
+      else:
+        # rewrite to field-access
+        discard cr.insertPathObj(n.args(0), OpenArrayLenField)
+
+      # TODO: this needs to be done differently
+      return # prevent the argument patching from running
+    of mSlice:
+      cr.replace()
+      let tmp = cr.newLocal(lkTemp, c.types[cr.position])
+      let arg = c.env.types.skipVarOrLent(c.types[n.args(0)])
+
+      let tmpAcc = cr.insertLocalRef(tmp)
+      let ex = block:
+        (dataExpr: cr.insertPathObj(tmpAcc, OpenArrayDataField),
+         lenExpr:  cr.insertPathObj(tmpAcc, OpenArrayLenField))
+
+      let p =
+        case c.env.types[arg].kind
+        of tnkArray:
+          cr.insertAddr(cr.insertPathArr(n.args(0), n.args(1)))
+
+        of tnkOpenArray:
+          cr.insertAddr(cr.insertPathArr(cr.insertDeref(expandData(c, cr, ir, n.args(0))), n.args(1)))
+
+        of tnkPtr:
+          assert c.env.types[c.env.types.baseType(arg)].kind == tnkUncheckedArray
+          cr.insertAddr(cr.insertPathArr(cr.insertDeref(n.args(0)), n.args(1)))
+
+        of tnkCString, tnkString, tnkSeq:
+          cr.insertAddr(cr.insertPathArr(n.args(0), n.args(1)))
+        else:
+          unreachable()
+
+      let lenExpr = cr.insertMagicCall(c.graph, mSubI, n.args(2), n.args(1))
+
+      # XXX: the pointer needs a cast, but we don't know the correct type yet...
+      cr.insertAsgn(askInit, ex.dataExpr, p)
+      cr.insertAsgn(askInit, ex.lenExpr, lenExpr)
+
+      discard cr.insertLocalRef(tmp)
+
+      return
+    else:
+      discard
+
+    var numOaParams = 0
+
+    for it in n.args:
+      let t = c.types[it]
+      if t != NoneType and c.env.types[c.env.types.skipVarOrLent(c.types[it])].kind == tnkOpenArray:
+        inc numOaParams
+
+    # we have to patch calls to procedures taking ``openArray``s
+    if numOaParams > 0:
+      cr.replace()
+      # TODO: re-use the seq
+      var newArgs = newSeq[IRIndex](n.argCount + numOaParams) # each openArray arguments is expanded into two arguments
+      var i = 0
+      for it in n.args:
+        if c.env.types[c.env.types.skipVarOrLent(c.types[it])].kind == tnkOpenArray:
+          # XXX: verify that this doesn't lead to evaluation order issues.
+          #      We're inserting the expansion _after_ the other arguments, but
+          #      might be able to get away with it since no more analysis is
+          #      performed beyond this point
+          let exp = expand(c, cr, ir, it)
+          newArgs[i + 0] = exp.dataExpr
+          newArgs[i + 1] = exp.lenExpr
+          i += 2
+        else:
+          newArgs[i] = it
+          inc i
+
+      # patch the call
+      if n.isBuiltIn:
+        discard cr.insertCallExpr(n.builtin, n.typ, newArgs)
+      else:
+        discard cr.insertCallExpr(n.callee, newArgs)
+
+  of ntkPathArr:
+    # XXX: the amount of workarounds to handle ``var openArray`` parameters
+    #      indicates that a different approach for representing mutable
+    #      ``openArray``s is needed
+    if c.env.types[c.env.types.skipVarOrLent(c.types[n.srcLoc])].kind == tnkOpenArray:
+      cr.replace()
+
+      let field =
+        if ir.at(n.srcLoc).kind == ntkParam:
+          cr.insertParam(c.paramMap[ir.at(n.srcLoc).paramIndex] + 0)
+        else:
+          # rewrite to field-access
+          cr.insertPathObj(n.srcLoc, OpenArrayDataField)
+
+      discard cr.insertPathArr(cr.insertDeref(field), n.arrIdx)
+
+  of ntkParam:
+    let orig = n.paramIndex
+    if c.paramMap[orig] != orig.uint32:
+      # reduce the amount of work by only rewriting parameters for which
+      # patching is necessary
+      cr.replace()
+      discard cr.insertParam(c.paramMap[orig])
+
+  else:
+    discard
+
+
+func genTransformedOpenArray(g: PassEnv, tenv: var TypeEnv, typ: Type): Type =
+  ## .. code-block:: nim
+  ##
+  ##   type X = object
+  ##     data: ptr UncheckedArray[T]
+  ##     len: int
+  let
+    arrTyp = tenv.requestGenericType(tnkUncheckedArray, typ.base)
+    ptrTyp = tenv.requestGenericType(tnkPtr, arrTyp)
+
+  result = tenv.genRecordType(base = NoneType, [(NoneSymbol, ptrTyp), (NoneSymbol, g.sysTypes[tyInt])])
+
+func lowerOpenArrayTypes*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: SymbolEnv) =
+  ## Transforms ``openArray[T]`` types
+
+  # XXX: there are two issues here. 1) we need two passes, and 2) we're
+  #      possibly creating lots of duplicate record types, due to both the
+  #      ``var`` indirections and the fact that we're getting lots of
+  #      duplicate types from sem
+
+  # ``var/lent openArray[T]`` needs to be lowered too. Since the types may be
+  # in the list in arbitrary order, this step has to happen first, as we
+  # otherwise wouldn't be able to easily detect if the target type is/was an
+  # ``openArray``
+  for id, typ in tenv.mtypes:
+    if typ.kind in {tnkVar, tnkLent} and tenv[typ.base].kind == tnkOpenArray:
+      typ = genTransformedOpenArray(c.graph, tenv, tenv[typ.base])
+
+  for id, typ in tenv.mtypes:
+    if typ.kind == tnkOpenArray:
+      typ = genTransformedOpenArray(c.graph, tenv, typ)
+
+
+proc lowerOpenArray*(g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
+  ## * transform ``openArray`` **parameters** (not the types in general) into
+  ##  an unpacked ``(ptr T, int)`` pair. That is:
+  ##
+  ## .. code-block:: nim
+  ##   proc a(x: openArray[int]) = ...
+  ##   # becomes
+  ##   proc a(xData: ptr int, xLen: int) = ...
+  ##
+  ## * patch ``openArray`` arguments
+  ## * transform all ``openArray`` related magics
+
+  # XXX: we don't modify the whole `env`, just the procedures. Passing in
+  #      each sub-environment separately won't work however, as we also need
+  #      access to the whole `env` for the lowering pass
+
+  var ctx = LowerOACtx(graph: g, env: addr env)
+  ctx.types = computeTypes(ir, env)
+
+  # TODO: don't create a new seq for each procedure we're modifying
+  ctx.paramMap.newSeq(env.procs.numParams(id))
+
+  var i, j = 0
+  for p in env.procs.params(id):
+    ctx.paramMap[i] = j.uint32
+    inc i
+
+    if env.types[env.types.skipVarOrLent(p.typ)].kind == tnkOpenArray:
+      # an openArray parameter gets expanded and then takes up two parameters
+      j += 2
+    else:
+      j += 1
+
+  const pass = LinearPass2[LowerOACtx](visit: lowerOpenArrayVisit)
+  runPass(ir, ctx, pass)
+
+  # only modify the signature if really necessary:
+  if j != i:
+    var old: typeof(ProcHeader.params)
+    old.newSeq(j)
+    swap(old, env.procs.mget(id).params)
+
+    i = 0
+    j = 0
+    for p in old.items:
+      let t = env.types.skipVarOrLent(p.typ)
+      if env.types[t].kind == tnkOpenArray:
+        # an openArray parameter gets expanded and then takes up two parameters
+        let dataType = env.types.requestGenericType(tnkPtr):
+          env.types.requestGenericType(tnkUncheckedArray, env.types[t].base)
+
+        env.procs.mget(id).params[j + 0] = (old[i].name & "Data_", dataType)
+        env.procs.mget(id).params[j + 1] = (old[i].name & "Len_", g.sysTypes[tyInt])
+        j += 2
+      else:
+        env.procs.mget(id).params[j] = old[i]
+        j += 1
+
+      inc i
+
 const hookPass* = LinearPass[HookCtx](visit: injectHooks)
 const refcPass* = LinearPass2[RefcPassCtx](visit: applyRefcPass)
 const seqV1Pass* = LinearPass2[RefcPassCtx](visit: lowerSeqsV1)

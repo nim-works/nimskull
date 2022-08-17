@@ -407,6 +407,16 @@ proc generateCode*(g: ModuleGraph) =
 
   var lpCtx = LiftPassCtx(graph: passEnv, idgen: g.idgen, cache: g.cache)
   lpCtx.env = addr env
+  var ttc = TypeTransformCtx(graph: passEnv)
+
+  # the openArray lowering has to happen separately
+  # TODO: explain why
+  for i in 0..<mlist.modules.len:
+    for s, irs in moduleProcs[i].mitems:
+      logError(irs, env, s):
+        lowerOpenArray(passEnv, s, irs, env)
+
+  lowerOpenArrayTypes(ttc, env.types, env.syms)
 
   for i in 0..<mlist.modules.len:
     for s, irs in moduleProcs[i].mitems:
@@ -435,7 +445,6 @@ proc generateCode*(g: ModuleGraph) =
 
 
   # type lowering passes
-  var ttc = TypeTransformCtx(graph: passEnv)
   if optSeqDestructors in conf.globalOptions:
     discard
   else:
