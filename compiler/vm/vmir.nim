@@ -1799,23 +1799,46 @@ func genCodeV2(ins: InputState) =
 
 # IrCursor interface
 
+type
+  SeqAdditions[T] = object
+    # TODO: needs a better name
+    data: seq[T]
+    start: int
+
 type IrCursor* = object
   pos: int
   actions: seq[(bool, Slice[IRIndex])] # true = replace, false = insert
-  newSyms: seq[PSym]
-  newLocals: seq[(LocalKind, PType, PSym)]
+  newSyms: SeqAdditions[PSym]
+  newLocals: SeqAdditions[(LocalKind, PType, PSym)]
   newNodes: seq[IrNode3]
 
   traces: seq[seq[StackTraceEntry]]
 
-  symStart: int
   nextIdx: IRIndex
-  nextLocal: int
+
+func add[T](x: var SeqAdditions[T], item: sink T): int {.inline.} =
+  result = x.start + x.data.len
+  x.data.add(item)
+
+func add[T](x: var SeqAdditions[T], other: openArray[T]) {.inline.} =
+  x.data.add(other)
+
+func setFrom[T](x: var SeqAdditions[T], s: seq[T]) =
+  # TODO: document
+  x.start = s.len
+
+func start[T](x: SeqAdditions[T]): int {.inline.} =
+  x.start
+
+func apply[T](dest: var seq[T], src: sink SeqAdditions[T]) =
+  # TODO: rename function or swap parameters?
+  dest.add(src.data)
 
 func setup*(cr: var IrCursor, ir: IrStore3) =
   cr.nextIdx = ir.len
-  cr.symStart = ir.syms.len
-  cr.nextLocal = ir.locals.len
+  cr.newSyms.setFrom(ir.syms)
+  cr.newLocals.setFrom(ir.locals)
+  cr.newLiterals.setFrom(ir.literals)
 
 func getNext(cr: var IrCursor): IRIndex {.inline.} =
   result = cr.nextIdx
@@ -1847,8 +1870,7 @@ func insert(cr: var IrCursor, n: sink IrNode3): IRIndex =
 
 func insertSym*(cr: var IrCursor, sym: PSym): IRIndex =
   assert sym != nil
-  result = cr.insert IrNode3(kind: ntkSym, symIdx: cr.symStart + cr.newSyms.len)
-  cr.newSyms.add sym
+  cr.insert IrNode3(kind: ntkSym, symIdx: cr.newSyms.add(sym))
 
 func insertCallExpr*(cr: var IrCursor, sym: PSym, args: varargs[IRIndex]): IRIndex =
   let c = cr.insertSym(sym)
@@ -1895,15 +1917,10 @@ func insertJoin*(cr: var IrCursor, t: JoinPoint) =
 
 func newLocal*(cr: var IrCursor, kind: LocalKind, s: PSym): int =
   cr.newLocals.add((kind, s.typ, s))
-  result = cr.nextLocal
-  inc cr.nextLocal
 
 func newLocal*(cr: var IrCursor, kind: LocalKind, t: PType): int =
   assert kind == lkTemp
   cr.newLocals.add((kind, t, nil))
-  result = cr.nextLocal
-  inc cr.nextLocal
-
 
 func insertLocalRef*(cr: var IrCursor, name: int): IRIndex =
   cr.insert IrNode3(kind: ntkLocal, local: name)
@@ -1975,15 +1992,13 @@ func inline*(cr: var IrCursor, other: IrStore3, args: varargs[IRIndex]): IRIndex
         # for simplicity, the original parameter reference node is left as is
         patchTable[i - oldLen] = args[s.position]
       else:
-        cr.newNodes[i].symIdx += cr.symStart + cr.newSyms.len
+        cr.newNodes[i].symIdx += cr.newSyms.start
 
     of ntkLocal:
-      cr.newNodes[i].local += cr.nextLocal
+      cr.newNodes[i].local += cr.newLocals.start
     else:
       patch(cr.newNodes[i], patchTable)
 
-  cr.nextIdx += other.len
-  cr.nextLocal += other.locals.len
 
 func update*(ir: var IrStore3, cr: sink IrCursor) =
   ## Integrates the changes collected by the cursor `cr` into `ir`
@@ -1991,10 +2006,10 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
   var patchTable: seq[IRIndex]
   let oldLen = ir.len
   patchTable.newSeq(cr.nextIdx) # old ir len + insert node count
-  ir.syms.add(cr.newSyms)
-  cr.newSyms.reset()
-  ir.locals.add(cr.newLocals)
-  cr.newLocals.reset()
+
+  ir.syms.apply(cr.newSyms)
+  ir.locals.apply(cr.newLocals)
+
   var currOff = 0
   var p = 0
   var p1 = 0
