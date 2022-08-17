@@ -17,6 +17,7 @@ import
     ast,
     idents,
     lineinfos,
+    nimsets, # for ``toBitSet``
     types
   ],
   compiler/modules/[
@@ -1325,6 +1326,33 @@ proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
 
     else:
       discard
+
+  of ntkLit:
+    let lit = getLit(ir, n)
+
+    if lit.val == nil or lit.typ == NoneType:
+      # TODO: remove the ``NoneType`` guard once all literals have type
+      #       information
+      return
+
+    # only transform ``set`` literals that fit into integer types. The ones
+    # requiring an array as the representation are lifted into constants in
+    # a separate pass
+    let typ = c.env.types[lit.typ]
+    if typ.kind == tnkSet and typ.length <= 64:
+      var data: array[8, uint8]
+      # XXX: we have no access to a `ConfigRef` here. In general, it would be
+      #      a better idea to translate literals and constant data into a
+      #      dedicated IR during ``irgen``
+      inclTreeSet(data, nil, lit.val)
+
+      var val: BiggestUInt
+      for i in 0..7:
+        val = val or (BiggestUInt(data[i]) shl i)
+
+      cr.replace()
+      discard cr.insertLit((newIntNode(nkUIntLit, cast[BiggestInt](val)), NoneType))
+
   else:
     discard
 
