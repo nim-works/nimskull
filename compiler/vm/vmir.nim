@@ -2065,9 +2065,10 @@ func inline*(cr: var IrCursor, other: IrStore3, sEnv: SymbolEnv, args: varargs[I
       patch(cr.newNodes[i], patchTable)
 
 
-func update*(ir: var IrStore3, cr: sink IrCursor) =
+func updateV1(ir: var IrStore3, cr: sink IrCursor) =
   ## Integrates the changes collected by the cursor `cr` into `ir`
   # XXX: non-descriptive name
+  # XXX: superseded and now unused
   var patchTable: seq[IRIndex]
   let oldLen = ir.len
   patchTable.newSeq(cr.nextIdx) # old ir len + insert node count
@@ -2134,3 +2135,119 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
   if p < oldLen:
     # patch the remaining nodes
     process(ir, p, oldLen)
+
+func moveMem[T](dst: var openArray[T], dstP, srcP: int, len: int) =
+  assert srcP + len <= dst.len
+  assert dstP + len <= dst.len
+  moveMem(addr dst[dstP], addr dst[srcP], len * sizeof(T))
+
+func copyMem[T](dst: var openArray[T], src: openArray[T], dstP, srcP: int, len: int) =
+  assert srcP + len <= src.len
+  assert dstP + len <= dst.len
+  copyMem(addr dst[dstP], unsafeAddr src[srcP], len * sizeof(T))
+
+func zeroMem[T](dst: var openArray[T]) =
+  if dst.len > 0:
+    zeroMem(addr dst[0], sizeof(T) * dst.len)
+
+func update*(ir: var IrStore3, cr: sink IrCursor) =
+  ## Integrates the changes collected by the cursor `cr` into `ir`
+  # XXX: non-descriptive name
+
+  if cr.newNodes.len == 0:
+    return
+
+  var patchTable: seq[IRIndex]
+  let oldLen = ir.len
+  patchTable.newSeq(cr.nextIdx) # old ir len + insert node count
+
+  #ir.syms.apply(cr.newSyms)
+  ir.locals.apply(cr.newLocals)
+  ir.literals.apply(cr.newLiterals)
+
+  let start = cr.actions[0][1].a
+
+  var numNew = 0
+  for kind, slice in cr.actions.items:
+    if kind:
+      numNew += slice.len - 1
+    else:
+      numNew += slice.len
+
+  ir.nodes.setLen(oldLen + numNew)
+  when useNodeTraces:
+    ir.sources.setLen(oldLen + numNew)
+
+  let L = oldLen - start
+  moveMem(ir.nodes, ir.nodes.len - L, start, L)
+  when useNodeTraces:
+    moveMem(ir.sources, ir.sources.len - L, start, L)
+
+  var copySrc = ir.nodes.len - L # where to take
+  var p = start # the position in the old node buffer where we're at
+  var insert = start # where to insert the next nodes
+  var np = 0 # the read position in the newNodes buffer
+
+  # fill the patchTable for the nodes that aren't moved
+  for i in 0..<start:
+    patchTable[i] = i
+
+  for i, (kind, slice) in cr.actions.pairs:
+    copyMem(ir.nodes, cr.newNodes, insert, np, slice.len)
+    when useNodeTraces:
+      copyMem(ir.sources, cr.traces, insert, np, slice.len)
+
+    for j in 0..<slice.len:
+      patchTable[oldLen + np] = insert + j
+      inc np
+
+    if kind: # replace
+      patchTable[p] = insert + slice.len - 1 # the replaced node
+
+      # nodes currently own GC'ed memory, so we have to reset the thrown-away
+      # node in order to prevent leaks
+      # BUGFIX: resetting the node at ``copySrc`` caused problems, since it is
+      #         possible for it to be part of the region we have just written
+      #         to above. No reset is done for now, but that means we're
+      #         leaking memory (we'd have to reset the node **before** the
+      #         copyMem above)
+      #reset(ir.nodes[copySrc])
+
+      # we replaced a node, prevent it from being included in the following move
+      inc p
+      inc copySrc
+
+      assert copySrc >= insert + slice.len
+
+    else: # insert
+      discard
+
+    inc insert, slice.len
+
+    let
+      next = (if i+1 < cr.actions.len: cr.actions[i+1][1].a else: oldLen)
+      num = next - p # number of elements to move
+    # regions can overlap -> use ``moveMem``
+    assert num >= 0
+    moveMem(ir.nodes, insert, copySrc, num)
+    when useNodeTraces:
+      moveMem(ir.sources, insert, copySrc, num)
+
+    let start = p
+    while p < next:
+      patchTable[p] = insert + (p - start)
+      inc p
+
+    copySrc += num
+    insert += num
+
+  # we've effectively done a ``move`` for all elements so we have to also zero
+  # the memory or else the garbage collector would clean up the nodes' GC'ed
+  # fields when collecting `cr.newNodes`
+  zeroMem(cr.newNodes)
+  when useNodeTraces:
+    zeroMem(cr.traces)
+
+  # patch the node indices
+  for i, n in ir.nodes.mpairs:
+    patch(n, patchTable)
