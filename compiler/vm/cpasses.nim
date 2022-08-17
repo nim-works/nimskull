@@ -155,6 +155,55 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
       else:
         discard
 
+  of ntkCast:
+    # TODO: needs to be revisited for compatibility with ``cgen``
+
+    const PtrLike = {tnkPtr, tnkRef, tnkProc, tnkCString}
+
+    var useBlit = false
+    case c.env.types.kind(n.typ):
+    of PtrLike, tnkInt, tnkUInt, tnkBool, tnkChar:
+      let srcTyp = c.env.types.kind(c.types[n.srcLoc])
+      case srcTyp
+      of tnkInt, tnkUInt, tnkBool, tnkChar, PtrLike:
+        useBlit = false
+      else:
+        # TODO: we need to work around the type of an ``addr x`` expression
+        #       being wrong (see ``computeTypes``). Remove the test here once
+        #       the type of 'addr' expressions is computed correctly
+        useBlit = ir.at(n.srcLoc).kind != ntkAddr
+    else:
+      useBlit = true
+
+    if useBlit:
+      # for the C-like targets, a value-type cast is implemented as a
+      # ``memcpy``. Compared to the type-punning-via-union approach, this is
+      # correct even when strict-aliasing is enabled
+
+      cr.replace()
+      let
+        tmp = cr.newLocal(lkTemp, n.typ)
+        tmpAcc = cr.insertLocalRef(tmp)
+
+      when true:
+        # TODO: ``cgen2`` currently doesn't respect the IR's semantics (i.e.
+        #       each node represents an lvalue) and thus generates faulty code
+        #       if the src expression doesn't represent an lvalue expression in
+        #       the C code.
+        #       We work around that here by introducing a temporary - but this
+        #       should be removed once ``cgen2`` works properly
+        let rhs = cr.insertLocalRef(cr.newLocal(lkTemp, c.types[n.srcLoc]))
+        cr.insertAsgn(askInit, rhs, n.srcLoc)
+
+      # XXX: casting from smaller to larger types will access invalid memory
+      # SPEC: the exact behaviour when casting between types of different size
+      #       is not specified
+      # XXX: what to do if one of the types' size is not known (e.g. if it's an
+      #      imported type)?
+      cr.insertCompProcCall(c.graph, "nimCopyMem", cr.insertAddr(tmpAcc), cr.insertAddr(rhs), cr.insertCallExpr(c.graph.magics[mSizeOf], cr.insertTypeLit(n.typ)))
+
+      discard cr.insertLocalRef(tmp)
+
   else:
     discard
 
