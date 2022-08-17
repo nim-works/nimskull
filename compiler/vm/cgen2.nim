@@ -175,6 +175,10 @@ type
 
     ctypes: seq[CTypeInfo] #
 
+  NameScope = object
+    ## Stores all identifiers defined in a C scope. Used for resolving name conflicts
+    # XXX: use a different name?
+    idents: PackedSet[CIdent]
 
   CAstBuilder = object
     ast: CAst
@@ -500,12 +504,46 @@ type GenCtx = object
   types: seq[TypeId]
   config: ConfigRef
 
+  scope: NameScope
   localNames: seq[CIdent]
 
   env: #[lent]# ptr IrEnv
 
   gl: GlobalGenCtx # XXX: temporary
   m: ModuleCtx # XXX: temporary
+
+func getUniqueName(scope: NameScope, cache: var IdentCache, name: string): CIdent =
+  ## Returns a name that is not already in use in the given `scope`. If the
+  ## given `name` is not in use, the corresponding identifier ID is returned.
+  ## Otherwise, `name` appended to with a number is returned.
+  ## Does **not** register the returned identifier with `scope`.
+
+  result = cache.getOrIncl(name)
+
+  if scope.idents.contains(result):
+    # an identifier with the requested name already exists
+    var buf = name
+    buf.add "_"
+    let origLen = buf.len
+
+    var next = 10
+    var i = 0
+    while true:
+      while i < next:
+        buf.setLen(origLen)
+        buf.addInt(i)
+        result = cache.getOrIncl(buf)
+        if not scope.idents.contains(result):
+          return
+
+        inc i
+
+      # no free name was found in the previous range. Expand the search range.
+      # Not resetting `i` back to 0 means that we're wasting character space,
+      # but it also prevents `a_1` and `a_01` from both existing in the same
+      # scope
+
+      next *= 10
 
 func gen(c: GenCtx, irs: IrStore3, n: IRIndex): CAst =
   c.names[n]
@@ -717,7 +755,12 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
   var numStmts = 0
   result.add cnkStmtList
 
+  c.scope.idents.clear()
   c.localNames.setLen(0)
+
+  # reserve the names used by the parameters
+  for p in c.gl.funcs[toIndex(irs.owner)].args.items:
+    c.scope.idents.incl p.name
 
   var tmp = 0
   for typ, sym in irs.locals:
@@ -731,16 +774,25 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
         continue
       ]#
 
-    let name =
-      if sym != NoneSymbol:
-        mangledName(c.env.syms[sym].decl)
-      else:
-        let i = tmp
-        inc tmp
-        fmt"_tmp{i}"
+    var ident: CIdent
 
-    let ident = c.gl.idents.getOrIncl(name)
+    if sym != NoneSymbol:
+      let decl = c.env.syms[sym].decl
 
+      ident =
+        if decl.forceName:
+          c.gl.idents.getOrIncl(decl.name)
+        else:
+          getUniqueName(c.scope, c.gl.idents, mangledName(decl))
+
+    else:
+      # can not clash with other user-defined identifier (except when the
+      # corresponding symbols use ``.extern`` or ``.exportc``) because of the
+      # leading '_'
+      ident = c.gl.idents.getOrIncl(fmt"_tmp{tmp}")
+      inc tmp
+
+    c.scope.idents.incl(ident)
     # TODO: use ``setLen`` + []
     c.localNames.add(ident)
 
