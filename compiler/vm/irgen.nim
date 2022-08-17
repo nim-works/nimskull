@@ -931,6 +931,29 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
       t = n[1].typ.skipTypes(abstractRange)
       s = c.genProcSym c.graph.getToStringProc(t)
     result = c.irs.irCall(s, c.genx(n[1]))
+
+  of mEcho:
+    # unpack the array expression here, so that the target-specific handling
+    # for ``echo`` is simpler
+    let arr = n[1]
+    var args = newSeq[IRIndex](arr.len)
+
+    for i in 0..<arr.len:
+      args[i] = c.genx(arr[i])
+
+    let prc = c.genProcSym(n[0].sym)
+    for it in args.items:
+      discard c.irs.irUse(it)
+
+    discard c.irs.irCall(prc, args.len.uint32)
+
+    # depending on how the target implements echo, the corrsponding IR pass
+    # might needs the array type of the original arguments. We make sure the
+    # type exists here so that the pass doesn't have to create it first.
+    assert n[1].typ.kind == tyArray
+    assert n[1].typ.elemType.kind == tyString
+    discard c.types.requestType(n[1].typ)
+
   else:
     # TODO: return a bool instead and let the callsite call `genCall` in case
     #       the magic doesn't use special logic here
