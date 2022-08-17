@@ -2,7 +2,10 @@
 
 import
   std/[
+    algorithm,
     hashes,
+    intsets,
+    packedsets,
     tables
   ],
   compiler/front/[
@@ -14,6 +17,7 @@ import
     types
   ]
 
+import std/options as stdoptions
 from compiler/vm/vmdef import unreachable
 
 const useGenTraces {.booldefine.} = false
@@ -32,6 +36,8 @@ type RecordNode* = object
   b*: uint32
 
 type RecordNodeIndex* = distinct uint32
+type TypeNodeIndex = uint32
+type CanonTypeId* = uint32
 
 type RecordId* = distinct uint32
 
@@ -80,7 +86,7 @@ type TypeNodeKind* = enum
 
 type FieldDesc* = object
   sym*: SymId # may be empty
-  typ*: TypeId
+  typ: TypeNodeIndex
   # XXX: bitsize should likely be stored as part of FieldDesc
 
 type FieldId* = distinct uint32
@@ -102,11 +108,7 @@ type Type* = object
   a*: uint32
   b*: uint32
   c*: uint32 # for records, a ``RecordNodeIndex``
-  sig: seq[TypeId] # for procedures
-
-  # XXX: even though ``DeclType`` exists, `Type` is used to store the
-  #      interface information for now
-  iface*: PSym
+  sig: seq[TypeNodeIndex] # for procedures
 
 type
   DeclTypeId* = distinct uint32
@@ -134,7 +136,7 @@ type
 
     # TODO: maybe rename to `DeclaredType`?
 
-    canonical: TypeId
+    canonical: TypeNodeIndex
 
     # XXX: the "interface" and extra part are both combined into a `PSym` for
     #      now. This makes the first implementation simpler and also helps
@@ -151,7 +153,17 @@ type TypeEnv* = object
   fields: seq[FieldDesc] ## all fields
   types: seq[Type] ## all types in one contiguous seq
 
-  decls: seq[DeclType] ## all declared types
+  attachMap: Table[TypeId, int32]
+  attachments: seq[tuple[name: string, forceName: bool]] # TODO: should use ``DeclarationV2``
+  ifaces: Table[TypeId, PSym]
+
+  # XXX: currently maps a unique structural represnetation of a type to it's
+  #      ID. What we actually want is a `seq[(Hash, TypeNodeIndex)]` which is
+  #      basically one half of a ``BiTable`` but that would require yet
+  #      another duplicate of the low-level ``Table`` implementation
+  structMap: Table[seq[int], TypeNodeIndex]
+
+  #canonical: seq[TypeNode]
 
   # XXX: maybe a redirection table for `tnkName` makes sense? Alternatively,
   #      indirections to another tnkName could be allowed
@@ -165,9 +177,14 @@ type
     map: Table[ItemId, TypeId] # type-id -> ``TypeId``
     list: seq[PType] ## the list of deferred types in the order they were requested
 
+    data: seq[TypeId]
+
     voidType*: PType ## a ``PType`` of kind ``tyVoid``. Requesting a nil type
                      ## is remapped to a request using this type
     charType*: PType
+
+    marker: IntSet
+    cache: Table[ItemId, TypeNodeIndex] # caches which canonical type a `PType` maps to
 
     when useGenTraces:
       traceMap: seq[int] ## stores the corresponding trace index for each
@@ -293,13 +310,43 @@ template toId[T: SomeId](index: Natural, id: typedesc[T]): T =
 func `[]`*(e: SymbolEnv, s: SymId): lent Symbol =
   e.symbols[s.int - 1]
 
+const TypeIdKindBit = 1'u32 shl 31
+const TypeIdMask = 0x7FFFFFFF
+
+template isDecl(id: TypeId): bool =
+  (id.uint32 and TypeIdKindBit) == 0
+
+template isNode(id: TypeId): bool =
+  (id.uint32 and TypeIdKindBit) != 0
+
+template maskedId[T](id: TypeId, typ: typedesc[T]): T =
+
+  # if the kind bit is set (i.e. the type-id is for a node) the value after
+  # applying the ``TypeIdKindBit`` mask is equal to the mask, otherwise it's
+  # '0'. Subtracting 1 will in both cases result in a bitmask that will
+  # eliminate the kind-bit
+  let idVal = id.uint32
+  cast[T](idVal and ((idVal and TypeIdKindBit) - 1))
+
+template toId(idx: TypeNodeIndex): TypeId =
+  TypeId(idx + 1)#discard TypeId(idx or TypeIdKindBit)
+
+func nodeId(e: TypeEnv, id: TypeId): TypeNodeIndex {.inline.} =
+  assert id != NoneType
+  #if isNode(id):
+  toIndex(id)
+  #TypeNodeIndex(id.uint32 and TypeIdMask)
+  #else:
+  #  e.decls[toIndex(id)].canonical
+
 func `[]`*(e: TypeEnv, t: TypeId): lent Type =
-  e.types[toIndex(t)]
+  e.types[t.toIndex]#nodeId(e, t)]
 
 func `[]`*(e: TypeEnv, t: DeclTypeId): lent Type =
   ## For the convenience of the IR processing steps, this procedure returns a
   ## ``Type`` instead of a ``DeclType``
-  e.types[e.decls[toIndex(t)].canonical.toIndex]
+  assert false
+  #e.types[e.decls[toIndex(t)].canonical]
 
 func `[]`*(e: TypeEnv, f: FieldId): lent FieldDesc =
   e.fields[f.int - 1]
@@ -319,7 +366,7 @@ func `[]`*(e: ProcedureEnv, i: ProcId): lent ProcHeader {.inline.} =
 func getReturnType*(e: TypeEnv, t: TypeId): TypeId =
   ## Returns the return type of the given procedure type `t`
   assert e[t].kind in ProcedureLike, $e[t].kind
-  e[t].sig[0]
+  e[t].sig[0].toId
 
 func elemType*(e: TypeEnv, t: TypeId): TypeId =
   e[t].base
@@ -334,6 +381,34 @@ func numFields*(n: RecordNode): int =
 func base*(t: Type): TypeId =
   t.base
 
+func kind*(t: Type): TypeNodeKind {.inline.} =
+  t.kind
+
+func fieldStart*(t: Type): int {.inline.} =
+  ## Returns the *index* (not the ID) of the first field for record types
+  assert t.kind == tnkRecord
+  t.a.int
+
+func base*(e: TypeEnv, id: TypeId): TypeId =
+  e[id].base
+
+#[
+func iface*(e: TypeEnv, id: DeclTypeId): PSym {.inline.} =
+  e.decls[id.toIndex].decl
+]#
+
+func iface*(e: TypeEnv, id: TypeId): PSym {.inline.} =
+  e.ifaces.getOrDefault(id, nil)
+  #[if isDecl(id):
+    e.decls[maskedId(id, DeclTypeId).toIndex].decl
+  else:
+    nil]#
+
+func kind*(e: TypeEnv, id: TypeId): TypeNodeKind {.inline.} =
+  e.types[nodeId(e, id)].kind
+
+func typ*(f: FieldDesc): TypeId {.inline.} =
+  f.typ.toId
 
 func record*(t: Type): RecordId =
   assert t.kind == tnkRecord
@@ -390,11 +465,11 @@ func callConv*(t: Type): TCallingConvention =
 
 func param*(e: TypeEnv, t: TypeId, i: BackwardsIndex): TypeId =
   assert e[t].kind in ProcedureLike
-  e[t].sig[i]
+  e[t].sig[i].toId
 
 func param*(e: TypeEnv, t: TypeId, i: Natural): TypeId =
   assert e[t].kind in ProcedureLike
-  e[t].sig[i]
+  e[t].sig[i].toId
 
 func size*(t: Type): uint =
   assert t.kind in {tnkFloat, tnkInt, tnkUInt}
@@ -408,7 +483,7 @@ iterator params*(e: TypeEnv, t: TypeId): TypeId =
   let typ = e[t]
   assert typ.kind in ProcedureLike
   for i in 1..<typ.sig.len:
-    yield typ.sig[i]
+    yield typ.sig[i].toId
 
 func numParams*(e: TypeEnv, t: TypeId): int =
   assert e[t].kind in ProcedureLike
@@ -419,8 +494,8 @@ func getSize*(e: TypeEnv, t: TypeId): uint =
   assert e[t].kind == tnkSet
   e[t].a.uint
 
-func nthField*(e: TypeEnv, t: TypeId, i: Natural): FieldId =
-  var t = toIndex(t)
+func nthField*(e: TypeEnv, id: TypeId, i: Natural): FieldId =
+  var t = nodeId(e, id)
   while true:
     let typ = e.types[t]
     if typ.b.int <= i:
@@ -429,7 +504,7 @@ func nthField*(e: TypeEnv, t: TypeId, i: Natural): FieldId =
       assert i < e[typ.c.RecordId].numFields, $e[typ.c.RecordId].numFields
       return FieldId(typ.a.int + i + 1)
     elif typ.base != NoneType:
-      t = toIndex(typ.base)
+      t = typ.base.toIndex
     else:
       return FieldId(0) # TODO: use a `NoneField`
 
@@ -440,7 +515,7 @@ func findField*(e: TypeEnv, t: TypeId, i: Natural): tuple[id: FieldId, steps: in
   ## that it's in the record's base type, etc.).
   ##
   ## If not found, returns a 'none' field ID.
-  var t = toIndex(t)
+  var t = nodeId(e, t)
 
   while true:
     let typ = e.types[t]
@@ -451,7 +526,7 @@ func findField*(e: TypeEnv, t: TypeId, i: Natural): tuple[id: FieldId, steps: in
       result.id = toId(typ.a.int + i, FieldId)
       return
     elif typ.base != NoneType:
-      t = toIndex(typ.base)
+      t = typ.base.toIndex
       inc result.steps
     else:
       return (FieldId(0), 0) # TODO: use a `NoneField`
@@ -488,7 +563,7 @@ func requestType*(gen: var DeferredTypeGen, t: PType): TypeId =
   # number of genrated types by 5%, the record nodes by 50%, and the fields
   # by 30%
   while true:
-    if t.sym != nil and t.sym.flags.overlaps({sfImportc, sfExportc}):
+    if t.sym != nil and sfImportc in t.sym.flags:
       # don't skip types that have an external interface attached
       break
 
@@ -498,11 +573,12 @@ func requestType*(gen: var DeferredTypeGen, t: PType): TypeId =
       break
 
   #[
-  if t.kind in {tyTyped, tyUntyped, tyGenericParam}:
-    debugEcho gen.traces[trace]
-  ]#
-
-  let next = TypeId(gen.nextTypeId + 1)
+  if gen.sysTypes != nil and (t.sym == nil or not t.sym.flags.overlaps({sfImportc, sfExportc})):
+    result = gen.sysTypes[][t.kind]
+    if result != NoneType:
+      return
+      ]#
+  let next = TypeId((gen.nextTypeId + 1) or TypeIdKindBit)
   result = gen.map.mgetOrPut(t.itemId, next)
   if result == next:
     gen.list.add(t)
@@ -534,8 +610,61 @@ func requestSym*(e: var SymbolEnv, s: PSym): SymId =
 type TypeGen = object
   syms: SymbolEnv
 
+  cache: Table[ItemId, TypeNodeIndex] # caches which canonical type a `PType` maps to
+
   def: ptr DeferredTypeGen
 
+func collectDeps(list: var seq[PType], marker: var IntSet, t: PType)
+
+func collectDeps(list: var seq[PType], marker: var IntSet, n: PNode) =
+  case n.kind
+  of nkSym:
+    collectDeps(list, marker, n.sym.typ)
+  of nkRecList:
+    for it in n:
+      collectDeps(list, marker, it)
+
+  of nkRecCase:
+    collectDeps(list, marker, n[0])
+    for i in 1..<n.len:
+      collectDeps(list, marker, lastSon(n[i]))
+
+  else:
+    unreachable(n.kind)
+
+const NominalTypes = {tyObject} ## ``PType``-kinds that are considered to be
+  ## nominal types in the context of type translation
+
+func collectDeps(list: var seq[PType], marker: var IntSet, t: PType) =
+  let t = t.skipTypes(irrelevantForBackend)
+
+  # TODO: imported types must not be skipped here.
+
+  if t.kind == tyObject and marker.containsOrIncl(t.id):
+    return
+
+  if t.kind == tyObject and t.n != nil:
+    collectDeps(list, marker, t.n)
+
+  for it in t.sons:
+    if it != nil:
+      collectDeps(list, marker, it)
+
+  case t.kind
+  of tyObject: list.add t
+  of tyTyped:
+    # because of ``varargs[typed]`` (used by ``system.echo``) we have to guard
+    # against ``typed`` here
+    discard
+  else:
+    if not marker.containsOrIncl(t.id):
+      list.add t
+
+func requestType(gen: TypeGen, t: PType): TypeNodeIndex =
+  result = gen.cache[t.skipTypes(irrelevantForBackend).itemId]
+
+type SOmeErr = object of CatchableError
+  info: TLineInfo
 
 func addField(dest: var TypeEnv, g: var TypeGen, s: PSym,
               numFields: var int): tuple[fields, entries: int] =
@@ -547,8 +676,11 @@ func addField(dest: var TypeEnv, g: var TypeGen, s: PSym,
     dest.records.add RecordNode(kind: rnkFields, a: numFields.uint32, b: numFields.uint32)
     result.entries = 1
 
+  # the order in which types are translated is such that each dependency was
+  # already translated before types referencing it, so we can directly look up
+  # the ID in the cache.
   dest.fields.add(FieldDesc(sym: g.syms.requestSym(s),
-                            typ: g.def[].requestType(s.typ)))
+                            typ: g.requestType(s.typ)))
 
   inc numFields
   result.fields = 1
@@ -588,30 +720,6 @@ func translate(dest: var TypeEnv, g: var TypeGen, n: PNode, numFields: var int):
   else:
     unreachable(n.kind)
 
-#[
-func canonical(dest: var TypeEnv, t: PType): seq[TypeNode] =
-  case t.kind
-
-
-  of tyObject:
-    result.add TypeNode(kind: tnkRecord, a: (t.kind.ord - tyInt8))
-
-  of tyTuple:
-
-  of tyGenericBody, tyGenericInst, tyGenericInvocation, tyDistinct, tyRange,
-     tyStatic, tyAlias, tySink, tyInferred, tyOwned, tyDistinct:
-    result.add canonical(dest, t.lastSon)
-
-  else:
-    unreachable(t.kind)
-
-func toCanon(dest: var TypeEnv, t: PType) =
-  let temp = canonical(dest, t)
-  hash(temp)
-
-  dest
-]#
-
 func split(x: uint64): tuple[lo, hi: uint32] {.inline.} =
   result.lo = uint32(x and 0xFFFFFFFF'u64)
   result.hi = uint32(x shr 32)
@@ -619,7 +727,7 @@ func split(x: uint64): tuple[lo, hi: uint32] {.inline.} =
 func combine(lo, hi: uint32): uint64 {.inline.} =
   result = lo.uint64 or (hi.uint64 shl 32)
 
-proc translate(dest: var TypeEnv, gen: var TypeGen, conf: ConfigRef, pos: int, t: PType) =
+proc translate(dest: var TypeEnv, gen: var TypeGen, conf: ConfigRef, pos: Natural, t: PType) =
   # XXX: translate needs to be a `proc` since ``getSize`` possibly mutates `t`
 
   assert t != nil
@@ -662,42 +770,42 @@ proc translate(dest: var TypeEnv, gen: var TypeGen, conf: ConfigRef, pos: int, t
     discard translate(dest, gen, t.n, tmp)
 
     if t[0] != nil:
-      # the base type might be a ``ref object``, but that's ok. A separate
-      # pass takes care of removing the indirection
-      dest.types[pos].base = gen.def[].requestType(t[0])
+      let base = gen.cache[t[0].skipTypes(skipPtrs).itemId]
+      dest.types[pos].base = base.toId
+
+      # fill in the information about the first field's position
+      let bt = dest.types[base]
+      dest.types[pos].b = bt.b + dest[bt.record].numFields.uint32
 
   of tyTuple:
     dest.types[pos] = Type(kind: tnkRecord, a: dest.fields.len.uint32, b: 0,
                            c: RecordId(dest.records.len + 1).uint32)
 
-    if t.n != nil:
-      var tmp: int
-      discard translate(dest, gen, t.n, tmp)
-    else:
+    block:
       dest.records.add RecordNode(kind: rnkList, len: 1, a: t.len.uint32)
       dest.records.add RecordNode(kind: rnkFields, a: 0, b: uint32(t.len - 1))
 
       let start = dest.fields.len
       dest.fields.setLen(start + t.len)
       for i in 0..<t.len:
-        dest.fields[start + i].typ = gen.def[].requestType(t[i])
+        dest.fields[start + i].typ = gen.requestType(t[i])
 
 
   of tyArray:
     let (lo, hi) = lengthOrd(conf, t).toUInt64().split()
-    dest.types[pos] = Type(kind: tnkArray, base: gen.def[].requestType(t.elemType), a: lo, b: hi)
+    dest.types[pos] = Type(kind: tnkArray, base: gen.requestType(t.elemType).toId, a: lo, b: hi)
 
   of tyString:
     # in order to simplify the IR passes, the string type uses ``char`` as the
     # base type. This makes it possible to use ``elemType`` on the string type
-    dest.types[pos] = Type(kind: tnkString, base: gen.def[].requestType(gen.def.charType))
+    dest.types[pos] = Type(kind: tnkString, base: gen.requestType(gen.def.charType).toId)
 
   of tyCstring:
-    dest.types[pos] = Type(kind: tnkCString, base: gen.def[].requestType(gen.def.charType))
+    dest.types[pos] = Type(kind: tnkCString, base: gen.requestType(gen.def.charType).toId)
 
   of tyRef, tyPtr, tyVar, tyLent, tySequence, tyOpenArray, tyUncheckedArray:
     const Map = {tyRef: tnkRef, tyPtr: tnkPtr, tyVar: tnkVar, tyLent: tnkLent, tySequence: tnkSeq, tyOpenArray: tnkOpenArray, tyUncheckedArray: tnkUncheckedArray}.toTable
-    dest.types[pos] = Type(kind: Map[t.kind], base: gen.def[].requestType(t.lastSon))
+    dest.types[pos] = Type(kind: Map[t.kind], base: gen.requestType(t.lastSon).toId)
 
   of tyVarargs:
     # HACK: `echo` uses `varargs[typed]` as the parameter and we have to work
@@ -706,16 +814,11 @@ proc translate(dest: var TypeEnv, gen: var TypeGen, conf: ConfigRef, pos: int, t
       if t.lastSon.kind == tyTyped: gen.def.voidType
       else: t.lastSon
 
-    dest.types[pos] = Type(kind: tnkOpenArray, base: gen.def[].requestType(elem))
-
-  of tyGenericBody, tyGenericInst, tyGenericInvocation, tyDistinct, tyRange,
-     tyStatic, tyAlias, tySink, tyInferred, tyOwned:
-
-    translate(dest, gen, conf, pos, t.lastSon)
+    dest.types[pos] = Type(kind: tnkOpenArray, base: gen.requestType(elem).toId)
 
   of tyNil, tyPointer:
     # treat an untyped pointer as a `ptr void`
-    dest.types[pos] = Type(kind: tnkPtr, base: gen.def[].requestType(gen.def.voidType))
+    dest.types[pos] = Type(kind: tnkPtr, base: gen.requestType(gen.def.voidType).toId)
 
   of tyProc:
     let kind =
@@ -725,10 +828,17 @@ proc translate(dest: var TypeEnv, gen: var TypeGen, conf: ConfigRef, pos: int, t
     var r = Type(kind: kind, a: t.callConv.ord.uint32)
     r.sig.newSeq(t.len)
 
-    for i in 0..<t.len:
-      r.sig[i] = gen.def[].requestType(t[i])
+    r.sig[0] = gen.requestType:
+      if t[0] != nil: t[0]
+      else:           gen.def.voidType
+
+    for i in 1..<t.len:
+      r.sig[i] = gen.requestType(t[i])
 
     dest.types[pos] = move r
+
+  of tyDistinct:
+    translate(dest, gen, conf, pos, t.skipTypes(irrelevantForBackend + {tyDistinct}))
 
   of tyTypeDesc:
     let itId = t.itemId
@@ -739,6 +849,33 @@ proc translate(dest: var TypeEnv, gen: var TypeGen, conf: ConfigRef, pos: int, t
     if t.sym != nil:
       debugEcho conf.toFileLineCol(t.sym.info)
     unreachable(t.kind)
+
+func hash(e: TypeEnv, hcode: var Hash, se: var seq[int], typ: Type)
+
+iterator sliceIt[T](x: seq[T], first, last: int): (int, lent T) =
+  var i = 0
+  let L = last
+  while i < L:
+    yield (i, x[i])
+    inc i
+
+proc addPrimitiveType*(env: var TypeEnv, gen: var DeferredTypeGen, conf: ConfigRef, t: PType): TypeId =
+  var ctx: TypeGen
+  ctx.def = addr gen
+  swap(gen.cache, ctx.cache)
+
+  env.types.setLen(env.types.len + 1)
+  translate(env, ctx, conf, env.types.high, t)
+
+  swap(gen.cache, ctx.cache)
+
+  var hcode: Hash
+  var se: seq[int]
+  hash(env, hcode, se, env.types[^1])
+  assert se notin env.structMap
+
+  result = toId(env.types.high, TypeId)
+  gen.cache[t.itemId] = env.types.high.TypeNodeIndex
 
 proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, symEnv: var SymbolEnv, conf: ConfigRef) =
   ## Generates all the types that were deferred. `types` may be
@@ -753,37 +890,84 @@ proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, symEnv: var SymbolEnv, c
   when useGenTraces:
     gen.isInGen = true
 
-  let start = env.types.len
-  var i = 0
-  while i < gen.list.len:
-    env.types.add(default(Type))
-    when useGenTraces:
-      gen.trace = gen.list[i][1]
+  var total: seq[PType]
 
-    translate(env, ctx, conf, start + i, gen.list[i])
-    env.types[start + i].iface = gen.list[i].sym
-    inc i
+  swap(gen.cache, ctx.cache)
 
-  # fix up pass. Remove ``tnkRef`` indirections when used as the base type of objects and also set the relative field offset.
-  # Since objects at a higher inheritance depth come _before_ their bases in
-  # the list we have to iterate in reverse in order to propagate the offset correctly
-  for j in countdown(env.types.high, start):
-    let t = addr env.types[j]
-    case t.kind
-    of tnkRecord:
-      if t.base != NoneType:
-        if env[t.base].kind == tnkRef:
-          t.base = env[t.base].base
+  for t in gen.list.items:
+    collectDeps(total, gen.marker, t)
 
-        let bt = env[t.base]
-        t.b = bt.b + env[bt.record].numFields.uint32
+  for t in total.items:
+    if t.kind == tyObject:
+      ctx.cache[t.itemId] = env.types.len.TypeNodeIndex
+      env.types.add default(Type)
+
+  for i, t in total.pairs:
+    let
+      pt = env.types.len
+      pr = env.records.len
+      pf = env.fields.len
+
+    var canonicalize = false
+
+    var idx: int
+    if t.kind == tyObject:
+      idx = ctx.cache[t.itemId].int
+
+      # create an attached declaration
+      env.attachMap[idx.TypeNodeIndex.toId] = env.attachments.len.int32
+      env.attachments.add (t.sym.name.s, sfExportc in t.sym.flags)
+
     else:
-      discard
+      idx = env.types.len
+      env.types.add default(Type)
 
-  debugEcho "after flush: "
-  debugEcho "  ", env.types.len
-  debugEcho "  ", env.records.len
-  debugEcho "  ", env.fields.len
+      # do not deduplicate imported types
+      canonicalize = t.sym == nil or sfImportc notin t.sym.flags
+
+    if t.sym != nil and sfImportc in t.sym.flags:
+      env.ifaces[idx.TypeNodeIndex.toId] = t.sym
+
+    translate(env, ctx, conf, idx, t)
+
+    var id = idx.TypeNodeIndex
+
+    # don't commit duplicate structural types
+    if canonicalize:
+      # XXX: enum types are nominal types too, but they're already lowered to
+      #      ints. Maybe the latter is not a good idea?
+      var hcode: Hash
+      var se: seq[int]
+      hash(env, hcode, se, env.types[^1])
+      let prevId = env.structMap.mgetOrPut(se, id)
+
+      if prevId != id:
+        # a duplicate --> undo the changes
+        assert env.types.len == pt + 1
+        env.types.setLen(pt)
+        env.records.setLen(pr)
+        env.fields.setLen(pf)
+
+        id = prevId
+
+    if t.kind != tyObject:
+      ctx.cache[t.itemId] = id
+
+  let start = gen.data.len
+  gen.data.setLen(start + gen.list.len)
+
+  for i, t in gen.list.pairs:
+    gen.data[start + i] = ctx.requestType(t).toId
+
+  assert gen.nextTypeId.int == gen.data.len
+
+  swap(gen.cache, ctx.cache)
+
+  when false:
+    debugEcho "after flush: "
+    debugEcho "  ", env.types.len
+    debugEcho "  ", env.records.len
+    debugEcho "  ", env.fields.len
 
   when useGenTraces:
     gen.isInGen = false
@@ -792,6 +976,15 @@ proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, symEnv: var SymbolEnv, c
 
   # support re-using
   gen.list.setLen(0)
+
+
+func getAttachmentIndex*(e: TypeEnv, id: TypeId): Option[int] =
+  let i = e.attachMap.getOrDefault(id, -1)
+  if i != -1: some(i.int)
+  else:       none(int)
+
+func getAttachment*(e: TypeEnv, i: Natural): auto {.inline.} =
+  e.attachments[i]
 
 func addSym*(e: var SymbolEnv, kind: TSymKind, typ: TypeId, name: string, flags: TSymFlags = {}): SymId =
   # XXX: temporary helper
@@ -832,6 +1025,29 @@ iterator types*(e: TypeEnv): TypeId =
 iterator fields*(e: TypeEnv, t: Type): lent FieldDesc =
   assert t.kind == tnkRecord
 
+func containsOrIncl(e: var TypeEnv, t: Type, idx: Natural): (bool, TypeNodeIndex) =
+  var se: seq[int]
+  var hcode: Hash
+  hash(e, hcode, se, t)
+
+  let idx = idx.TypeNodeIndex
+  result[1] = e.structMap.mgetOrPut(se, idx)
+  # if the retrieved index is not the same as the one passed to us, the type
+  # is already present in `e`
+  result[0] = result[1] != idx
+
+func add(e: var TypeEnv, t: sink Type): TypeNodeIndex {.inline.} =
+  result = e.types.len.TypeNodeIndex
+  e.types.add t
+
+func getOrPut(e: var TypeEnv, t: sink Type): TypeId =
+  ## If the given structural type already exists, the ID of the existing instance is returned. Otherwise, `t` is added to the environment and a new ID is returned.
+  let (exists, idx) = containsOrIncl(e, t, e.types.len)
+  if not exists:
+    e.types.add t
+
+  result = idx.toId
+
 func genRecordType*(e: var TypeEnv, base: TypeId, fields: varargs[(SymId, TypeId)]): Type =
   result.kind = tnkRecord
   result.a = e.fields.len.uint32
@@ -839,52 +1055,63 @@ func genRecordType*(e: var TypeEnv, base: TypeId, fields: varargs[(SymId, TypeId
   if base != NoneType:
     result.base = base
     result.b = e[base].b + e.numFields(base).uint32
+  else:
+    discard "that's a problem"
+    #result.base = #
 
   result.c = toId(e.records.len, RecordId).uint32
 
   # TODO: use `setLen` + []
   for s, t in fields.items:
-    e.fields.add FieldDesc(sym: s, typ: t)
+    e.fields.add FieldDesc(sym: s, typ: nodeId(e, t))
 
   e.records.add RecordNode(kind: rnkList, len: 1, a: fields.len.uint32)
   e.records.add RecordNode(kind: rnkFields, a: 0, b: fields.high.uint32)
 
+# TODO: genX is the wrong terminology here
 func genArrayType*(e: var TypeEnv, len: BiggestUInt, elem: TypeId): Type =
   let s = split(len.uint64)
   Type(kind: tnkArray, base: elem, a: s.lo, b: s.hi)
 
 func requestArrayType*(e: var TypeEnv, len: BiggestUInt, elem: TypeId): TypeId =
-  # TODO: don't add duplicate types
-  e.types.add(genArrayType(e, len, elem))
-  result = toId(e.types.high, TypeId)
+  getOrPut(e, genArrayType(e, len, elem))
 
 func requestRecordType*(e: var TypeEnv, base: TypeId, fields: varargs[(SymId, TypeId)]): TypeId =
-  let t = genRecordType(e, base, fields)
-  e.types.add(t)
-  result = toId(e.types.high, TypeId)
+  # TODO: instead of inserting the type first, calculating the hash, and then
+  #       rewinding if it's a duplicate, calculate the hash first and only
+  #       then call ``genRecordType``
+  let
+    pr = e.records.len
+    pf = e.fields.len
+    t = genRecordType(e, base, fields)
 
-func genGenericType*(kind: TypeNodeKind, elem: TypeId): Type =
+  let (exists, idx) = containsOrIncl(e, t, e.types.len)
+  if exists:
+    # already exists -> rewind
+    e.records.setLen(pr)
+    e.fields.setLen(pf)
+  else:
+    e.types.add t
+
+  result = toId(idx)
+
+func genGenericType*(e: TypeEnv, kind: TypeNodeKind, elem: TypeId): Type =
   assert kind in {tnkUncheckedArray, tnkSeq, tnkVar, tnkLent, tnkPtr, tnkRef, tnkOpenArray}
   Type(kind: kind, base: elem)
 
 func requestGenericType*(e: var TypeEnv, kind: TypeNodeKind, elem: TypeId): TypeId =
-  # TODO: first check if the type exists already
-  e.types.add(Type(kind: kind, base: elem))
-  result = toId(e.types.high, TypeId)
-
+  getOrPut(e, Type(kind: kind, base: elem))
 
 func requestProcType*(e: var TypeEnv, inherit: TypeId, cc: TCallingConvention, params: varargs[TypeId]): TypeId =
   ## `inherit` is a procedure type to inherit the signature from
-  # TODO: remove this procedure. How a closure procedure type looks is up the
-  #       code-generator and not something general
   assert inherit != NoneType
   assert e[inherit].kind in ProcedureLike
 
   var sig = e[inherit].sig
-  sig.add params
+  for p in params:
+    sig.add nodeId(e, p)
 
-  e.types.add Type(kind: tnkProc, a: cc.uint32, sig: sig)
-  result = toId(e.types.high, TypeId)
+  getOrPut(e, Type(kind: tnkProc, a: cc.uint32, sig: sig))
 
 func translateProc*(s: PSym, types: var DeferredTypeGen, dest: var ProcHeader) =
   assert s != nil
@@ -980,3 +1207,123 @@ iterator items*(e: ProcedureEnv): ProcId =
 #       differently
 func mget*(e: var ProcedureEnv, p: ProcId): var ProcHeader =
   e.procs[toIndex(p)]
+
+
+func hashV2(e: TypeEnv, hcode: var Hash, se: var seq[int], id: TypeNodeIndex) =
+  # since each type is unique, we can simply hash the id
+  hcode = hcode !& id.int
+  se.add(id.int)
+
+func hashV2(e: TypeEnv, hcode: var Hash, se: var seq[int], id: TypeId) =
+  # since each type is unique, we can simply hash the id
+  hcode = hcode !& id.int
+  se.add(id.int)
+
+func hashField(e: TypeEnv, hcode: var Hash, se: var seq[int], f: FieldId) =
+  # we take the field's symbol into account so that
+  # TODO: this is wrong! The symbol's name is what's relevant here; not the ID
+  # XXX: taking the name into account prevents object types from being
+  #      collapsed into one, but it also prevents named tuples from being
+  #      collapsed (which is problematic for the code-generators)
+  hcode = hcode !& e[f].sym.int
+  se.add(e[f].sym.int)
+  hashV2(e, hcode, se, e[f].typ)
+
+func hashRecord(e: TypeEnv, hcode: var Hash, se: var seq[int], ri: var int, fstart: int) =
+  let n = e.records[ri]
+  inc ri
+  hcode = hcode !& n.kind.ord !& n.len.int
+  se.add(n.kind.ord)
+  se.add(n.len.int)
+
+  case n.kind
+  of rnkEmpty:
+    discard
+  of rnkList, rnkBranch, rnkCase:
+    if n.kind == rnkList:
+      hcode = hcode !& n.a.int
+      se.add(n.a.int)
+
+    for _ in 0..<n.len:
+      hashRecord(e, hcode, se, ri, fstart)
+
+  of rnkFields:
+    for i in n.a..n.b:
+      hashField(e, hcode, se, toId(fstart + i.int, FieldId))
+
+func hash(e: TypeEnv, hcode: var Hash, se: var seq[int], typ: Type) =
+  hcode = hcode !& typ.kind.ord
+  se.add(typ.kind.ord)
+  hashV2(e, hcode, se, typ.base)
+
+  case typ.kind
+  of tnkEmpty, tnkVoid, tnkBool, tnkChar:
+    discard
+
+  of tnkInt, tnkUInt, tnkFloat:
+    hcode = hcode !& typ.a.int
+    se.add(typ.a.int)
+
+  of tnkRef, tnkPtr, tnkVar, tnkLent, tnkSeq, tnkOpenArray, tnkString, tnkCString, tnkUncheckedArray:
+    # only the `base` field is relevant
+    discard
+  of tnkRecord:
+    var ri = toIndex(typ.c.RecordId).int
+    hashRecord(e, hcode, se, ri, typ.a.int)
+
+  of tnkArray, tnkSet, tnkTypeDesc:
+    hcode = hcode !& typ.a.int !& typ.b.int
+    se.add(typ.a.int)
+    se.add(typ.b.int)
+
+  of tnkProc, tnkClosure:
+    hcode = hcode !& typ.a.int !& typ.sig.len
+    se.add(typ.a.int)
+    se.add(typ.sig.len)
+    for it in typ.sig.items:
+      hashV2(e, hcode, se, it)
+
+  of tnkName:
+    # TODO: remove
+    discard
+
+func map*(gen: DeferredTypeGen, id: TypeId): TypeId {.inline.} =
+  assert id != NoneType
+  result = gen.data[(id.uint32 and TypeIdMask) - 1]
+
+func commit*(e: var TypeEnv, remap: Table[TypeId, TypeId]) =
+  # XXX: skip fields and types that were added during type modification passes?
+
+  #debugEcho "remap: ", remap.len
+
+  # we need to copy the type nodes from the new position to the old ones
+  # since the original slots have external references that would also require
+  # patching. While this isn't impossible (it's done once after IR
+  # generation), we don't use this approach here, since commiting type changes
+  # may happen multiple times and patching type references does take some time
+  # (only a very small amount however)
+  for k, v in remap.pairs:
+    e.types[k.toIndex] = e.types[v.toIndex]
+
+  # XXX: currently doesn't work. Maybe it's not worth the hassle?
+  when false:
+    # replace the committed type nodes with an empty slot. This helps with detecting
+    # bugs and a future garbage collector could also make use of this
+    for v in remap.values:
+      e.types[v.toIndex] = Type(kind: tnkEmpty)
+
+  when false:
+    for it in e.types.mitems:
+      let nid = remap.getOrDefault(it.base.toId, NoneType)
+      if nid != NoneType:
+        it.base = nodeId(e, nid)
+
+      for it2 in it.sig.mitems:
+        let nid = remap.getOrDefault(it2.toId, NoneType)
+        if nid != NoneType:
+          it2 = nodeId(e, nid)
+
+    for it in e.fields.mitems:
+      let nid = remap.getOrDefault(it.typ.toId, NoneType)
+      if nid != NoneType:
+        it.typ = nodeId(e, nid)

@@ -300,8 +300,16 @@ proc resolveTypeBoundOps(p: PassEnv, g: ModuleGraph, tgen: DeferredTypeGen, proc
         discard#echo "missing type for type-bound operation"
 
 proc initSysTypes(p: PassEnv, g: ModuleGraph, types: var TypeEnv, tgen: var DeferredTypeGen) =
-  for t in { tyVoid, tyInt..tyFloat64, tyUInt..tyUInt64, tyBool, tyChar, tyString, tyCstring, tyPointer }.items:
-    result.sysTypes[t] = tgen.requestType(g.getSysType(unknownLineInfo, t))
+  template addPrim(tk: TTypeKind) =
+    p.sysTypes[tk] = types.addPrimitiveType(tgen, g.config, g.getSysType(unknownLineInfo, tk))
+
+  # it's important that ``tyChar`` and ``tyVoid`` are added first, since
+  # other primitive types depend on them already existing
+  addPrim(tyVoid)
+  addPrim(tyChar)
+
+  for t in {tyBool, tyPointer, tyInt..tyFloat64, tyUInt..tyUInt64, tyString, tyCstring}.items:
+    addPrim(t)
 
 proc logError(conf: ConfigRef, ir: IrStore3, prc: ProcId, env: IrEnv, pos: (bool, int)) =
   let sym = env.procs.orig.getOrDefault(prc)
