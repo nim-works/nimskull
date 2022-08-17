@@ -626,48 +626,40 @@ func isVarParam(t: PType): bool =
 
 func irConv(c: var TCtx, typ: PType, val: IRIndex): IRIndex
 
-func restoreConv(c: var TCtx, dest, src: PType, val: IRIndex): IRIndex =
-  ## Wraps the given `val` in a conversion if the `dest` type is an
-  ## ``openArray``-like type but the `src` type is not. Semantic analysis
-  ## did introduce a ``nkHiddenStdConv`` which we could have relied on, but
-  ## it was removed during ``transf``.
-  let
-    dest = dest.skipTypes(abstractVar)
-    src = src.skipTypes(abstractVar)
-
-  const OpenArrayLike = {tyOpenArray, tyVarargs}
-
-  if dest.kind in OpenArrayLike and src.kind notin OpenArrayLike:
-    c.irConv(dest, val)
-  else:
-    val
-
 proc genArg(c: var TCtx, formal: PType, useTemp: bool, n: PNode): IRIndex =
   # TODO: add a test to make sure that a ``move x`` passed to a var parameter
   #       doesn't reach here
-  let isMove = isMove(n)
-  var arg = c.genx(if isMove: n[1] else: n)
+  let destTyp =
+    if formal == nil: tyVoid
+    else:             formal.skipTypes(abstractVarRange-{tySink}).kind
 
-  if formal != nil:
-    arg = restoreConv(c, formal, n.typ, arg)
+  const OpenArrayLike = {tyOpenArray, tyVarargs}
 
-  if formal == nil or formal.isVarParam():
-    # no special handling for c-style varargs or ``var`` params
-    assert not isMove
-    result = arg
-  #[
-  elif useTemp:
-    # turn each immutable argument into a `let tmp = arg; tmp`. The
-    # subsequent passes take care of turning the `let` into an
-    # alias (if safe). Introducing a temporary makes sure that the "input must
-    # not alias with output" rule is not violated. The alternative would be
-    # to report a warning or error
-    let tmp = c.getTemp(n.typ)
-    c.irs.irAsgn(askInit, tmp, arg)
-    result = c.irs.irUse(tmp)
-  ]#
+  case destTyp
+  of OpenArrayLike:
+    # remove the hidden addr operator that gets introduced when passing
+    # something to a ``var openArray``
+    let arg = if n.kind == nkHiddenAddr: n[0] else: n
+    result = c.genx(arg)
+    # restore the conversion that was eliminated by ``transf``
+    if arg.typ.skipTypes(abstractVarRange).kind notin OpenArrayLike:
+      result = c.irConv(formal.skipTypes(abstractVar), result)
+
+  of tySink:
+    # TODO: there needs to be some way to mark an `ntkConsume` as forced (i.e.
+    #       no copy must be introduced by the move analyzer)
+    result = c.genx(if isMove(n): n[1] else: n)
   else:
-    result = arg
+    if isMove(n):
+      # TODO: the temporary must be destroyed immediately after the call (even
+      #       before the raise handling)
+      let tmp = c.getTemp(n.typ)
+      # TODO: the assignment is also an 'init'...
+      c.irs.irAsgn(askMove, tmp, c.genx(n[1]))
+      result = tmp
+    else:
+      result = c.genx(n)
+
 
 proc genCall(c: var TCtx; n: PNode): IRIndex =
   let fntyp = skipTypes(n[0].typ, abstractInst)
