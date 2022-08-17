@@ -5,7 +5,8 @@ import
     tables
   ],
   compiler/ast/[
-    ast
+    ast,
+    idents
   ],
   compiler/vm/[
     irpasses,
@@ -336,15 +337,46 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
   else:
     discard
 
+func lowerAccessEnv(ir: var IrStore3, env: IrEnv, envTyp: TypeId, envSym: SymId, param: Natural) =
+  assert envTyp != NoneType
+
+  var cr: IrCursor
+  cr.setup(ir)
+
+  # setup the correctly typed environment local
+  cr.setPos(0)
+  let envParam = cr.newLocal(lkLet, envTyp, envSym)
+  cr.insertAsgn(askInit, cr.insertLocalRef(envParam), cr.insertCast(envTyp, cr.insertParam(param)))
+
+  # replace all usages of ``bcAccessEnv``
+  var i = 0
+  for n in ir.nodes:
+    cr.setPos(i)
+
+    case n.kind
+    of ntkCall:
+      if n.isBuiltIn and n.builtin == bcAccessEnv:
+        cr.replace()
+        discard cr.insertLocalRef(envParam)
+
+    else:
+      discard
+
+    inc i
+
+  ir.update(cr)
 
 const transformPass = LinearPass2[CTransformCtx](visit: visit)
 const lowerClosuresPass = LinearPass2[CTransformCtx](visit: lowerClosuresVisit)
 
-proc applyCTransforms*(c: CTransformEnv, g: PassEnv, id: ProcId, ir: var IrStore3, env: IrEnv) =
+proc applyCTransforms*(c: CTransformEnv, ic: IdentCache, g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
   ## Applies lowerings to the IR that are specific to the C-like targets:
   ## * turn ``bcRaise`` into calls to ``raiseExceptionEx``/``reraiseException``
   ## * transform overflow checks
   ## * lower ``mWasMoved`` and ``mCStrToStr``
+
+  # XXX: only the procedure env is modified. Requiring the whole `env` to be
+  #      mutable is a bit meh...
 
   var ctx = CTransformCtx(graph: g, env: addr env, transEnv: addr c)
   ctx.types = computeTypes(ir, env)
@@ -353,6 +385,18 @@ proc applyCTransforms*(c: CTransformEnv, g: PassEnv, id: ProcId, ir: var IrStore
   ctx.types = computeTypes(ir, env)
 
   runPass(ir, ctx, lowerClosuresPass)
+
+  if env.procs[id].callConv == ccClosure:
+    # add the env param
+    let name = ic.getIdent("ClE")
+    env.procs.mget(id).params.add (name, g.sysTypes[tyPointer])
+
+    # only perform the transformation if the procedure really captures an
+    # environment, since no ``bcAccessEnv`` is present otherwise
+    let envTyp = env.procs[id].envType
+    if envTyp != NoneType:
+      let sym = env.syms.addSym(skLet, envTyp, ic.getIdent(":env"))
+      lowerAccessEnv(ir, env, envTyp, sym, env.procs.numParams(id) - 1)
 
 func applyCTypeTransforms*(c: var CTransformEnv, g: PassEnv, env: var TypeEnv, senv: var SymbolEnv) =
   # lower closures to a ``tuple[prc: proc, env: pointer]`` pair

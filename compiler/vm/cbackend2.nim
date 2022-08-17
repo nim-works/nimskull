@@ -507,7 +507,7 @@ proc generateCode*(g: ModuleGraph) =
     for i in 0..<mlist.modules.len:
       for s, irs in moduleProcs[i].mitems:
         logError(irs, env, s):
-          applyCTransforms(ctx, passEnv, s, irs, env)
+          applyCTransforms(ctx, g.cache, passEnv, s, irs, env)
 
     finish(ctx, env.types)
 
