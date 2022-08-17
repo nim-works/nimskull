@@ -577,20 +577,20 @@ func genBraced(elems: varargs[CAst]): CAst =
 func ident(c: var GlobalGenCtx, name: string): CAst =
   result.add cnkIdent, c.idents.getOrIncl(name).uint32
 
-func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IrNode3): (CAst, PType) =
+func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IrNode3): CAst =
   case bc
   of bcNewClosure:
-    (genBraced(c.gl.ident("NIM_NIL"), c.gl.ident("NIM_NIL")), nil) # XXX: hmm, closure type is known during irgen time...
+    genBraced(c.gl.ident("NIM_NIL"), c.gl.ident("NIM_NIL"))
   of bcOverflowCheck:
-    (genArithm(c, n.args(0), true), nil) # TODO: use the type of ``n.args(0)``
+    genArithm(c, n.args(0), true)
   of bcTestError:
     var ast = start()
-    (ast.add(cnkCall, 1).sub().ident(c.gl.idents, "NIM_UNLIKELY").emitDeref(c.gl.idents).sub().ident(c.gl.idents, "err").fin(), nil) # TODO: use tyBool
+    ast.add(cnkCall, 1).sub().ident(c.gl.idents, "NIM_UNLIKELY").emitDeref(c.gl.idents).sub().ident(c.gl.idents, "err").fin()
   of bcCast:
     let dstTyp = n.typ
     var ast = start()
     discard ast.add(cnkCast).add(cnkType, mapTypeV2(c, dstTyp).uint32).add(gen(c, irs, n.args(0)))
-    (ast.fin(), dstTyp)
+    ast.fin()
   of bcRaise:
     var ast = start()
     if argCount(n) == 0:
@@ -602,10 +602,10 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IrNode3): (CAs
       discard ast.add(c.gen(irs, n.args(0))).add(c.gen(irs, n.args(1)))
       discard ast.ident(c.gl.idents, "NIM_NIL").ident(c.gl.idents, "NIM_NIL").intLit(0)
 
-    (ast.fin(), nil)
+    ast.fin()
 
   else:
-    (genError(c, fmt"missing: {bc}"), nil)
+    genError(c, fmt"missing: {bc}")
     #unreachable(bc)
 
 type MagicKind = enum
