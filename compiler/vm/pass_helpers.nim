@@ -35,3 +35,14 @@ func access*(cr: var IrCursor, env: TypeEnv, val: IRIndex, typ: TypeId): IRIndex
     cr.insertDeref(val)
   else:
     val
+
+func getMagic*(ir: IrStore3, env: IrEnv, n: IrNode3): TMagic =
+  assert n.kind == ntkCall
+  if n.isBuiltIn:
+    mNone
+  else:
+    let callee = ir.at(n.callee)
+    if callee.kind == ntkProc:
+      env.procs[callee.procId].magic
+    else:
+      mNone

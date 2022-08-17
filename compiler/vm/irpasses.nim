@@ -542,17 +542,6 @@ func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
       debugEcho "computeTypes missing: ", n.kind
     inc i
 
-func getMagic(ir: IrStore3, env: IrEnv, n: IrNode3): TMagic =
-  assert n.kind == ntkCall
-  if n.isBuiltIn:
-    mNone
-  else:
-    let callee = ir.at(n.callee)
-    if callee.kind == ntkProc:
-      env.procs[callee.procId].magic
-    else:
-      mNone
-
 func insertLit(cr: var IrCursor, lit: string): IRIndex =
   cr.insertLit (newStrNode(nkStrLit, lit), NoneType)
 
