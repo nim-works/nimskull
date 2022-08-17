@@ -952,3 +952,8 @@ iterator items*(e: ProcedureEnv): ProcId =
   while i < L:
     yield toId(i, ProcId)
     inc i
+
+# TODO: used for modifying procedure arguments, but this needs to be done
+#       differently
+func mget*(e: var ProcedureEnv, p: ProcId): var ProcHeader =
+  e.procs[toIndex(p)]
