@@ -12,7 +12,7 @@ func calcStmt*(irs: IrStore3): seq[bool] =
     of ntkSym, ntkLocal, ntkJoin, ntkLit, ntkGoto, ntkProc, ntkParam:
       discard
     of ntkCall:
-      for it in n.args:
+      for it in irs.args(i):
         result[it] = true
 
       if not n.isBuiltIn:
@@ -96,7 +96,7 @@ proc printIr*(irs: IrStore3, e: IrEnv, exprs: seq[bool]) =
         line = fmt"call bi: {n.builtin}"
       else:
         line = fmt"call {n.callee} args: ["
-        for arg in n.args:
+        for arg in irs.args(i):
           line.add fmt"{arg} "
         line.add "]"
     of ntkBranch:

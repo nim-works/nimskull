@@ -654,19 +654,22 @@ func genBraced(elems: varargs[CAst]): CAst =
 func ident(c: var GlobalGenCtx, name: string): CAst =
   result.add cnkIdent, c.idents.getOrIncl(name).uint32
 
-func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IrNode3): CAst =
+func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IRIndex): CAst =
+  template arg(i: Natural): IRIndex =
+    irs.args(n, i)
+
   case bc
   of bcNewClosure:
     genBraced(c.gl.ident("NIM_NIL"), c.gl.ident("NIM_NIL"))
   of bcUnlikely:
-    start().add(cnkCall, 1).ident(c.gl.idents, "NIM_UNLIKELY").add(c.gen(irs, n.args(0))).fin()
+    start().add(cnkCall, 1).ident(c.gl.idents, "NIM_UNLIKELY").add(c.gen(irs, arg(0))).fin()
   of bcConv, bcCast:
     # both a conversion and a cast map to the same syntax here. Int-to-float
     # and vice-versa casts are already transformed into either a ``memcpy`` or
     # union at the IR level
-    let dstTyp = n.typ
+    let dstTyp = irs.at(n).typ
     var ast = start()
-    discard ast.add(cnkCast).add(cnkType, mapTypeV2(c, dstTyp).uint32).add(gen(c, irs, n.args(0)))
+    discard ast.add(cnkCast).add(cnkType, mapTypeV2(c, dstTyp).uint32).add(gen(c, irs, arg(0)))
     ast.fin()
   else:
     genError(c, fmt"missing: {bc}")
@@ -682,7 +685,10 @@ type MagicKind = enum
   mkBinary
   mkCall
 
-func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IrNode3): CAst =
+func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): CAst =
+  template arg(i: Natural): IRIndex =
+    irs.args(n, i)
+
   let (kind, sym) =
     case m
     of mNot: (mkUnary, "!")
@@ -706,8 +712,8 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IrNode3): CAst =
     of mMinI, mMaxI:
       # --> (a op b) ? a : b
       let
-        a = gen(c, irs, n.args(0))
-        b = gen(c, irs, n.args(1))
+        a = gen(c, irs, arg(0))
+        b = gen(c, irs, arg(1))
         op = if m == mMinI: ">=" else: "<="
       return start().add(cnkTernary).add(cnkInfix).add(a).ident(c.gl.idents, op).add(b).add(a).add(b).fin()
     of mIsNil:
@@ -720,12 +726,12 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IrNode3): CAst =
   case kind
   of mkUnary:
     # TODO: assert arg count == 1
-    result = start().add(cnkPrefix).ident(c.gl.idents, sym).add(gen(c, irs, n.args(0))).fin()
+    result = start().add(cnkPrefix).ident(c.gl.idents, sym).add(gen(c, irs, arg(0))).fin()
   of mkBinary:
-    result = start().add(cnkInfix).add(gen(c, irs, n.args(0))).ident(c.gl.idents, sym).add(gen(c, irs, n.args(1))).fin()
+    result = start().add(cnkInfix).add(gen(c, irs, arg(0))).ident(c.gl.idents, sym).add(gen(c, irs, arg(1))).fin()
   of mkCall:
-    var builder = start().add(cnkCall, n.argCount.uint32).ident(c.gl.idents, sym)
-    for arg in n.args:
+    var builder = start().add(cnkCall, irs.at(n).argCount.uint32).ident(c.gl.idents, sym)
+    for arg in irs.args(n):
       discard builder.add(gen(c, irs, arg))
 
     result = builder.fin()
@@ -930,15 +936,15 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
 
     of ntkCall:
       if n.isBuiltIn:
-        let name = genBuiltin(c, irs, n.builtin, n)
+        let name = genBuiltin(c, irs, n.builtin, i)
         names[i] = name
       else:
         let callee = irs.at(n.callee)
         if callee.kind == ntkProc and (let p = c.env.procs[callee.procId]; p.magic != mNone):
-          names[i] = genMagic(c, irs, p.magic, n)
+          names[i] = genMagic(c, irs, p.magic, i)
         else:
           var res = start().add(cnkCall, n.argCount.uint32).add(names[n.callee])
-          for it in n.args:
+          for it in irs.args(i):
             discard res.add names[it]
           names[i] = res.fin()
 

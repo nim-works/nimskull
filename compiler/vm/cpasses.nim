@@ -55,6 +55,9 @@ func insertReset(cr: var IrCursor, g: PassEnv, env: IrEnv, typ: TypeId, target: 
     cr.insertCompProcCall(g, "nimZeroMem", cr.insertAddr(target), cr.insertCallExpr(g.magics[mSizeOf], cr.insertLit((nil, typ))))
 
 func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+  template arg(i: Natural): IRIndex =
+    ir.args(cr.position, i)
+
   case n.kind
   of ntkCall:
     if n.isBuiltIn:
@@ -69,10 +72,14 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
           # TODO: fix the empty arguments
           let nilLit = cr.insertLit((newNode(nkNilLit), NoneType))
           cr.insertCompProcCall(c.graph, "raiseExceptionEx",
-                                n.args(0), n.args(1), nilLit, nilLit, cr.insertLit(0))
+                                arg(0), arg(1), nilLit, nilLit, cr.insertLit(0))
 
       of bcOverflowCheck:
-        let orig = ir.at(n.args(0))
+        let
+          orig = ir.at(arg(0))
+          lhs = ir.args(arg(0), 0)
+          rhs = ir.args(arg(0), 1)
+
         let m = c.env.procs[ir.at(orig.callee).procId].magic
         assert m in mAddI..mPred
 
@@ -91,17 +98,17 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
         func is64bit(t: Type): bool {.inline.} =
           t.kind == tnkInt and t.size == 0
 
-        let name = if is64bit(c.env.types[c.types[orig.args(0)]]): prc64[m] else: prc[m]
+        let name = if is64bit(c.env.types[c.types[lhs]]): prc64[m] else: prc[m]
 
         cr.replace()
 
         # perform the div-by-zero test first
         if m in {mDivI, mModI}:
-          cr.genIfNot(cr.wrapNot(c.graph, cr.insertMagicCall(c.graph, mEqI, orig.args(1), cr.insertLit(0)))):
+          cr.genIfNot(cr.wrapNot(c.graph, cr.insertMagicCall(c.graph, mEqI, rhs, cr.insertLit(0)))):
             cr.insertCompProcCall(c.graph, "raiseDivByZero")
 
-        let tmp = cr.newLocal(lkTemp, c.types[orig.args(0)])
-        cr.genIfNot(cr.wrapNot(c.graph, cr.insertCompProcCall(c.graph, name, orig.args(0), orig.args(1), cr.insertAddr(cr.insertLocalRef(tmp))))):
+        let tmp = cr.newLocal(lkTemp, c.types[lhs])
+        cr.genIfNot(cr.wrapNot(c.graph, cr.insertCompProcCall(c.graph, name, lhs, rhs, cr.insertAddr(cr.insertLocalRef(tmp))))):
           cr.insertCompProcCall(c.graph, "raiseOverflow")
 
         discard cr.insertLocalRef(tmp)
@@ -113,10 +120,10 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
       case c.env.procs[ir.at(n.callee).procId].magic
       of mWasMoved:
         cr.replace()
-        cr.insertReset(c.graph, c.env[], c.types[n.args(0)], n.args(0))
+        cr.insertReset(c.graph, c.env[], c.types[arg(0)], arg(0))
       of mCStrToStr:
         cr.replace()
-        cr.insertCompProcCall(c.graph, "cstrToNimstr", n.args(0))
+        cr.insertCompProcCall(c.graph, "cstrToNimstr", arg(0))
       else:
         discard
 

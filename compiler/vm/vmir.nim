@@ -656,11 +656,12 @@ func builtin*(n: IrNode3): BuiltinCall =
 func argCount*(n: IrNode3): int =
   n.args.len
 
-func args*(n: IrNode3, i: int): IRIndex =
-  n.args[i]
+# TODO: rename to `arg` or `getArg`
+func args*(ir: IrStore3, n: IRIndex, i: Natural): IRIndex =
+  ir.nodes[n].args[i]
 
-iterator args*(n: IrNode3): IRIndex =
-  for it in n.args:
+iterator args*(ir: IrStore3, n: IRIndex): IRIndex =
+  for it in ir.nodes[n].args:
     yield it
 
 

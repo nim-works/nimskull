@@ -635,11 +635,14 @@ proc genNewObj(cr: var IrCursor, g: PassEnv, env: IrEnv, ptrTyp: TypeId,
 
 proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMagic, n: IrNode3) =
   ## Lowers calls to various magics into calls to `compilerproc`s
+  template arg(i: Natural): IRIndex =
+    ir.args(cr.position, i)
+
   case getMagic(ir, c.env[], n)
   of mDestroy:
     # An untransformed `mDestroy` indicates a ref or string. `seq`
     # destructors were lifted into specialized procs already
-    let val = n.args(0)
+    let val = arg(0)
     case c.env.types[c.typeof(val)].kind
     of tnkRef, tnkString:
       # XXX: only non-injected destroys for refs should be turned
@@ -659,11 +662,11 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
 
   of mNew:
     let
-      arg = n.args(0)
+      arg = arg(0)
       ptrTyp = c.env.types.skipVarOrLent(c.typeof(arg))
       # ``unsafeNew`` also uses the ``mNew`` magic, so we have to handle
       # that here
-      size = if n.argCount > 1: n.args(1) else: InvalidIndex
+      size = if n.argCount > 1: arg(1) else: InvalidIndex
 
     cr.replace()
     # XXX: not sure about `askMove` here...
@@ -674,8 +677,8 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
                 mGCunref: "nimGCunref"]
 
     cr.replace()
-    genIfNot(cr, cr.insertMagicCall(c.extra, mIsNil, n.args(0))):
-      cr.insertCompProcCall(c.extra, op[m], n.args(0))
+    genIfNot(cr, cr.insertMagicCall(c.extra, mIsNil, arg(0))):
+      cr.insertCompProcCall(c.extra, op[m], arg(0))
 
   else:
     discard "ignore"
@@ -685,9 +688,9 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
     of bcNew:
       # XXX: duplicate of `mNew` handling...
       let
-        arg = n.args(0)
+        arg = arg(0)
         ptrTyp = c.env.types.skipVarOrLent(c.typeof(arg))
-        size = if n.argCount > 1: n.args(1) else: InvalidIndex
+        size = if n.argCount > 1: arg(1) else: InvalidIndex
 
       cr.replace()
       # XXX: not sure about `askMove` here...
@@ -884,20 +887,23 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
   ## implementation
   case n.kind
   of ntkCall:
+    template arg(i: Natural): IRIndex =
+      ir.args(cr.position, i)
+
     case getMagic(ir, c.env[], n)
     of mSetLengthStr:
       cr.replace()
       # TODO: is shallow correct here?
-      cr.insertAsgn(askShallow, n.args(0), cr.insertCompProcCall(c.extra, "setLengthStr", n.args(0), n.args(1)))
+      cr.insertAsgn(askShallow, arg(0), cr.insertCompProcCall(c.extra, "setLengthStr", arg(0), arg(1)))
     of mSetLengthSeq:
       cr.replace()
       # TODO: evaluation order might be violated here
-      cr.insertAsgn(askShallow, n.args(0), cr.insertCompProcCall(c.extra, "setLengthSeqV2", n.args(0), n.args(1), c.requestRtti(cr, c.typeof(n.args(0)))))
+      cr.insertAsgn(askShallow, arg(0), cr.insertCompProcCall(c.extra, "setLengthSeqV2", arg(0), arg(1), c.requestRtti(cr, c.typeof(arg(0)))))
 
     of mNewSeq:
       cr.replace()
 
-      let val = n.args(0)
+      let val = arg(0)
       let nilLit = cr.insertLit((newNode(nkNilLit), NoneType))
 
       let sl = c.storageLoc(val)
@@ -913,12 +919,12 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
         cr.insertGoto(target)
         cr.insertJoin(target)
 
-        var ns = cr.insertCompProcCall(c.extra, "newSeq", c.requestRtti(cr, c.typeof(val)), n.args(1))
+        var ns = cr.insertCompProcCall(c.extra, "newSeq", c.requestRtti(cr, c.typeof(val)), arg(1))
         ns = cr.insertCast(c.typeof(val), ns)
         cr.insertAsgn(askShallow, val, ns)
       of slStack:
 
-        var ns = cr.insertCompProcCall(c.extra, "newSeq", c.requestRtti(cr, c.typeof(val)), n.args(1))
+        var ns = cr.insertCompProcCall(c.extra, "newSeq", c.requestRtti(cr, c.typeof(val)), arg(1))
         ns = cr.insertCast(c.typeof(val), ns)
         cr.insertAsgn(askShallow, val, ns)
 
@@ -926,7 +932,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       cr.replace()
 
       let val = cr.position
-      discard cr.insertCast(c.typeof(val), cr.insertCompProcCall(c.extra, "nimNewSeqOfCap", c.requestRtti(cr, c.typeof(val)), n.args(0)))
+      discard cr.insertCast(c.typeof(val), cr.insertCompProcCall(c.extra, "nimNewSeqOfCap", c.requestRtti(cr, c.typeof(val)), arg(0)))
 
     of mAppendSeqElem:
       # ``seq &= x`` -->:
@@ -935,7 +941,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       #   inc seq[].len
       #   seq[].data[tmp] = move x
       cr.replace()
-      let seqVal = n.args(0)
+      let seqVal = arg(0)
       let typ = c.typeof(seqVal)#.skipTypes({tyVar})
 
       # XXX: if the refc pass would be run after the `lowerSeqV1` pass, a
@@ -950,7 +956,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       # the value is a sink parameter so we can use a move
       # XXX: we're running after the inject-hook pass, so we either need to
       #      reorder the passes or manually insert a hook call here
-      cr.insertAsgn(askMove, cr.insertPathArr(cr.accessSeqField(ir, seqVal, SeqV1DataField), cr.insertLocalRef(tmp)), n.args(1))
+      cr.insertAsgn(askMove, cr.insertPathArr(cr.accessSeqField(ir, seqVal, SeqV1DataField), cr.insertLocalRef(tmp)), arg(1))
 
     of mAppendStrStr:
       # -->
@@ -958,25 +964,25 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       #   appendString(lhs, rhs)
       cr.replace()
 
-      let lenTmp = genSeqLen(cr, c.extra, ir, n.args(1))
-      cr.insertCompProcCall(c.extra, "resizeString", n.args(0), lenTmp)
-      cr.insertCompProcCall(c.extra, "appendString", n.args(0), n.args(1))
+      let lenTmp = genSeqLen(cr, c.extra, ir, arg(1))
+      cr.insertCompProcCall(c.extra, "resizeString", arg(0), lenTmp)
+      cr.insertCompProcCall(c.extra, "appendString", arg(0), arg(1))
 
     of mAppendStrCh:
       # -->
       #   str = addChar(str, c)
 
       cr.replace()
-      let strVal = n.args(0)
+      let strVal = arg(0)
       let tmp = cr.genTempOf(strVal, c.typeof(strVal))
 
-      cr.genRefcRefAssign(c.extra, strVal, cr.insertCompProcCall(c.extra, "addChar", cr.insertLocalRef(tmp), n.args(1)), c.storageLoc(strVal))
+      cr.genRefcRefAssign(c.extra, strVal, cr.insertCompProcCall(c.extra, "addChar", cr.insertLocalRef(tmp), arg(1)), c.storageLoc(strVal))
 
     of mEqStr:
       # TODO: move into a common pass, since this shared between v1 and v2
       let
-        a = n.args(0)
-        b = n.args(1)
+        a = arg(0)
+        b = arg(1)
 
       func isEmptyStr(n: PNode): bool = n.strVal.len == 0
 
@@ -996,10 +1002,10 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       discard "lowered later"
 
     of mLengthStr:
-      case c.env.types[typeof(c, n.args(0))].kind
+      case c.env.types[typeof(c, arg(0))].kind
       of tnkString:
         cr.replace()
-        discard genSeqLen(cr, c.extra, ir, n.args(0))
+        discard genSeqLen(cr, c.extra, ir, arg(0))
       of tnkCString:
         discard "transformed later"
       else:
@@ -1007,7 +1013,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
 
     of mLengthSeq:
       cr.replace()
-      discard genSeqLen(cr, c.extra, ir, n.args(0))
+      discard genSeqLen(cr, c.extra, ir, arg(0))
 
     else:
       discard
@@ -1145,7 +1151,7 @@ proc liftTypeInfoV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurs
       cr.replace()
 
       let
-        typ = ir.getLit(ir.at(n.args(0))).typ
+        typ = ir.getLit(ir.at(ir.argAt(cr, 0))).typ
 
       assert typ != NoneType
 
@@ -1284,7 +1290,7 @@ proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
     of mInSet:
       cr.replace()
 
-      let setType = c.typeof(n.args(0))
+      let setType = c.typeof(ir.argAt(cr, 0))
       let size = c.env.types.getSize(setType).int
       case size
       of 1, 2, 4, 8:
@@ -1292,7 +1298,7 @@ proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
         cr.insertError("mInSet for small sets missing")
       else:
         let uintTyp = c.extra.getSysType(tyUInt)
-        let conv = cr.insertConv(uintTyp, n.args(1))
+        let conv = cr.insertConv(uintTyp, ir.argAt(cr, 1))
         cr.insertMagicCall(c.extra, mBitandI, cr.insertMagicCall(c.extra, mShrI, conv, cr.insertLit 3), cr.insertMagicCall(c.extra, mShlI, cr.insertLit 1, cr.insertMagicCall(c.extra, mBitandI, conv, cr.insertLit 7)))
         # TODO: unfinished
         #binaryExprIn(p, e, a, b, d, "(($1[(NU)($2)>>3] &(1U<<((NU)($2)&7U)))!=0)")
@@ -1312,7 +1318,12 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
   case n.kind
   of ntkCall:
     if n.isBuiltIn and n.builtin == bcRangeCheck:
-      let srcTyp = c.typeof(n.args(0))
+      let
+        val = ir.argAt(cr, 0)
+        lower = ir.argAt(cr, 1)
+        upper = ir.argAt(cr, 2)
+
+      let srcTyp = c.typeof(val)
 
       cr.replace()
       var cond: IRIndex
@@ -1322,7 +1333,7 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
       of tnkInt: # tyUInt, tyUInt64:
         # .. code:: nim
         #   cast[dstTyp](high) < val
-        cond = cr.insertMagicCall(c.extra, mLtU, cr.insertCast(srcTyp, n.args(0)), n.args(2))
+        cond = cr.insertMagicCall(c.extra, mLtU, cr.insertCast(srcTyp, upper), val)
         raiser = "raiseRangeErrorNoArgs"
       else:
         let dstTyp = c.typeof(cr.position)#skipTypes(c.typeof(cr.position), abstractVarRange)
@@ -1331,9 +1342,9 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
           raiser = "raiseRangeErrorU"
         of tnkFloat: #tyFloat..tyFloat128:
           raiser = "raiseRangeErrorF"
-          let conv = cr.insertConv(dstTyp, n.args(0))
+          let conv = cr.insertConv(dstTyp, val)
           # no need to lower the `or` into an `ntkBranch` + `ntkJoin` here; it has no impact on further analysis
-          cond = cr.insertMagicCall(c.extra, mOr, cr.insertMagicCall(c.extra, mLtF64, conv, n.args(1)), cr.insertMagicCall(c.extra, mLtF64, n.args(2), conv))
+          cond = cr.insertMagicCall(c.extra, mOr, cr.insertMagicCall(c.extra, mLtF64, conv, lower), cr.insertMagicCall(c.extra, mLtF64, upper, conv))
 
         else:
           cr.insertError("missing chkRange impl")
@@ -1354,12 +1365,12 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
 
         let target = cr.newJoinPoint()
         cr.insertBranch(cr.insertMagicCall(c.extra, mNot, cond), target)
-        cr.insertCompProcCall(c.extra, raiser, n.args(0), n.args(1), n.args(2))
+        cr.insertCompProcCall(c.extra, raiser, val, lower, upper)
         # XXX: it would be nice if we could also move the following
         #      ``if bcTestError(): goto error`` into the branch here
 
         cr.insertJoin(target)
-        discard cr.insertConv(dstTyp, n.args(0))
+        discard cr.insertConv(dstTyp, val)
 
   else:
     discard
@@ -1425,14 +1436,19 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
       else:
       ]#
       # rewrite to field-access
-      discard cr.insertPathObj(n.args(0), OpenArrayLenField)
+      discard cr.insertPathObj(ir.argAt(cr, 0), OpenArrayLenField)
 
       # TODO: this needs to be done differently
       return # prevent the argument patching from running
     of mSlice:
+      let
+        arr = ir.argAt(cr, 0)
+        first = ir.argAt(cr, 1)
+        last = ir.argAt(cr, 2)
+
       cr.replace()
       let tmp = cr.newLocal(lkTemp, c.types[cr.position])
-      let arg = c.env.types.skipVarOrLent(c.types[n.args(0)])
+      let arg = c.env.types.skipVarOrLent(c.types[arr])
 
       let tmpAcc = cr.insertLocalRef(tmp)
       let ex = block:
@@ -1442,21 +1458,21 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
       let p =
         case c.env.types[arg].kind
         of tnkArray:
-          cr.insertAddr(cr.insertPathArr(n.args(0), n.args(1)))
+          cr.insertAddr(cr.insertPathArr(arr, first))
 
         of tnkOpenArray:
-          cr.insertAddr(cr.insertPathArr(cr.insertDeref(expandData(c, cr, ir, n.args(0))), n.args(1)))
+          cr.insertAddr(cr.insertPathArr(cr.insertDeref(expandData(c, cr, ir, arr)), first))
 
         of tnkPtr:
           assert c.env.types[c.env.types.baseType(arg)].kind == tnkUncheckedArray
-          cr.insertAddr(cr.insertPathArr(cr.insertDeref(n.args(0)), n.args(1)))
+          cr.insertAddr(cr.insertPathArr(cr.insertDeref(arr), first))
 
         of tnkCString, tnkString, tnkSeq:
-          cr.insertAddr(cr.insertPathArr(n.args(0), n.args(1)))
+          cr.insertAddr(cr.insertPathArr(arr, first))
         else:
           unreachable()
 
-      let lenExpr = cr.insertMagicCall(c.graph, mSubI, n.args(2), n.args(1))
+      let lenExpr = cr.insertMagicCall(c.graph, mSubI, last, first)
 
       # XXX: the pointer needs a cast, but we don't know the correct type yet...
       cr.insertAsgn(askInit, ex.dataExpr, p)
@@ -1471,7 +1487,7 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
     #[
     var numOaParams = 0
 
-    for it in n.args:
+    for it in ir.args(cr.position):
       let t = c.types[it]
       if t != NoneType and c.env.types[c.env.types.skipVarOrLent(c.types[it])].kind == tnkOpenArray:
         inc numOaParams
@@ -1482,7 +1498,7 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
       # TODO: re-use the seq
       var newArgs = newSeq[IRIndex](n.argCount + numOaParams) # each openArray arguments is expanded into two arguments
       var i = 0
-      for it in n.args:
+      for it in ir.args(cr.position):
         if c.env.types[c.env.types.skipVarOrLent(c.types[it])].kind == tnkOpenArray:
           # XXX: verify that this doesn't lead to evaluation order issues.
           #      We're inserting the expansion _after_ the other arguments, but
