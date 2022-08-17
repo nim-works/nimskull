@@ -66,7 +66,9 @@ proc someInSet*(s: PNode, a, b: PNode): bool =
 
 proc inclTreeSet*(result: var TBitSetView, conf: ConfigRef; s: PNode) =
   ## Includes all elements from tree-set `s` into `result`
-  assert result.len == int(getSize(conf, s.typ))
+  # XXX: requiring the length to fit might help in catching some issues, but
+  #      it's too restrictive
+  assert result.len >= int(getSize(conf, s.typ))
   var first, j: Int128
   first = firstOrd(conf, s.typ[0])
   for i in 0..<s.len:
