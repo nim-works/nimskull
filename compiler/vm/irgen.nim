@@ -751,7 +751,9 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     let fwd = c.irs.irJoinFwd()
     result = c.genAndOr(n, isAnd = (m == mAnd), fwd)
     c.irs.irJoin(fwd)
-  of mAddI:
+  of mAddI..mModI:
+    # TODO: mPred and mSucc also need to be checked for overflow - but only if
+    #       the operand is signed
     # idea: also insert builtin calls to the various check functions here.
     #       Makes it easier to get uniformity across the back-ends.
     result = c.genCall(n)
