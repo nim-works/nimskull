@@ -791,6 +791,17 @@ func genLit(c: var GenCtx, literal: Literal): CAst =
   else:
     genError(c, fmt"missing lit: {lit.kind}")
 
+func accessSuper(ast: var CAstBuilder, depth: int, start: CAst, supName: CIdent): var CAstBuilder =
+  result = ast
+
+  for _ in 0..<depth:
+    discard ast.add(cnkDotExpr)
+
+  discard ast.add(start)
+
+  for _ in 0..<depth:
+    discard ast.ident(supName)
+
 template testNode(cond: bool, i: IRIndex) =
   if not cond:
     raise (ref PassError)(msg: fmt"{astToStr(cond)} failed", n: i)
@@ -997,10 +1008,18 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
         names[i] = start().add(cnkBracket).add(names[n.srcLoc]).add(names[n.arrIdx]).fin()
 
     of ntkConv, ntkCast:
-      # both a conversion and a cast map to the same syntax here. Int-to-float
-      # and vice-versa casts are already transformed into either a ``memcpy`` or
-      # union at the IR level
-      names[i] = start().add(cnkCast).add(cnkType, mapTypeV2(c, n.typ).uint32).add(names[n.srcLoc]).fin()
+      if n.kind == ntkConv and c.env.types[n.typ].kind == tnkRecord:
+        # XXX: handling object conversion this late is very meh, but I
+        #      currently don't see any other simple solution
+        let depth = c.env.types.inheritanceDiff(n.typ, c.types[n.srcLoc]).unsafeGet.abs
+        assert depth > 0
+
+        names[i] = start().accessSuper(depth, names[n.srcLoc], c.gl.idents.getOrIncl(BaseName)).fin()
+      else:
+        # both a conversion and a cast map to the same syntax here. Int-to-float
+        # and vice-versa casts are already transformed into either a ``memcpy`` or
+        # union at the IR level
+        names[i] = start().add(cnkCast).add(cnkType, mapTypeV2(c, n.typ).uint32).add(names[n.srcLoc]).fin()
 
     of ntkLit:
       names[i] = genLit(c, irs.getLit(n))

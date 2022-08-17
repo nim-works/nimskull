@@ -529,6 +529,29 @@ func findField*(e: TypeEnv, t: TypeId, i: Natural): tuple[id: FieldId, steps: in
     else:
       return (FieldId(0), 0) # TODO: use a `NoneField`
 
+func inheritanceDiff*(env: TypeEnv, a, b: TypeId): Option[int] =
+  ## Behaves the same as `inheritanceDiff <types#inheritanceDiff,PType,PType>`_
+  ## with the difference that 'none' is returned if the types are not related
+  assert env[a].kind == tnkRecord
+  assert env[b].kind == tnkRecord
+
+  let swap = env[a].fieldStart > env[b].fieldStart
+  var aa = a
+  var bb = b
+
+  if swap: swap(aa, bb)
+
+  var c = 0
+  while aa != bb and bb != NoneType:
+    bb = env[bb].base
+    dec c
+
+  result =
+    if aa == bb:
+      some(if swap: -c else: c)
+    else:
+      none(int)
+
 func skipTypesConsiderImported(t: PType, kinds: TTypeKinds): tuple[imported: bool, t: PType] =
   result.t = t
   while result.t.kind in kinds:
