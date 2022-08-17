@@ -860,13 +860,14 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
 
   of mConStrStr:
     # the `mConStrStr` magic is very special. Nested calls to it are flattened
-    # into a single call in ``transf``
+    # into a single call in ``transf``. It can't be passed on to ``genCall``
+    # since the number of arguments doesn't match with the number of parameters
     var args = newSeq[IRIndex](n.len - 1)
     for i in 1..<n.len:
       # we need no temporaries here since all arguments are read-only
       args[i-1] = c.genx(n[i])
 
-    result = c.irCall("&", mConStrStr, args)
+    result = c.irs.irCall(genProcSym(c, n[0].sym), args)
     # the proc doesn't raise so no ``raiseExit`` is needed here
   of mNew:
     # problem: ``lambdalifting`` inserts calls to ``internalNew`` by just
