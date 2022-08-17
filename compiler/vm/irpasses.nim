@@ -1343,31 +1343,93 @@ proc lowerTestError*(ir: var IrStore3, g: PassEnv, ic: IdentCache, types: TypeEn
 
   ir.update(cr)
 
+func genSetElemOp(cr: var IrCursor, g: PassEnv, m: TMagic, a, b: IRIndex): IRIndex =
+  case m
+  of mEqSet:
+    cr.insertMagicCall(g, mEqI, a, b)
+  of mMulSet:
+    cr.insertMagicCall(g, mBitandI, a, b)
+  of mPlusSet:
+    cr.insertMagicCall(g, mBitorI, a, b)
+  of mMinusSet:
+    cr.insertMagicCall(g, mBitandI, a, cr.insertMagicCall(g, mBitnotI, b))
+  else:
+    unreachable(m)
+
+func insertLoop(cr: var IrCursor): JoinPoint =
+  result = cr.newJoinPoint()
+  cr.insertJoin(result)
+
+func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var IrCursor) =
+  # TODO: sets with ``firstOrd != 0`` aren't taken into account yet.
+  #       ``irgen`` has to insert the required adjustment
+  let
+    setType = c.typeof(ir.argAt(cr, 0))
+    len = c.env.types.length(setType)
+
+  case len
+  of 0..64:
+    cr.insertError("missing set-op: " & $m)
+
+  else:
+    case m
+    of mEqSet, mMulSet, mPlusSet, mMinusSet:
+      let
+        arg0 = ir.argAt(cr, 0)
+        arg1 = ir.argAt(cr, 1)
+
+      let
+        res = cr.newLocal(lkTemp, if m == mEqSet: c.extra.getSysType(tyBool) else: setType)
+        counter = cr.insertLocalRef(cr.newLocal(lkTemp, c.extra.getSysType(tyInt)))
+        loopExit = cr.newJoinPoint()
+        loop = cr.insertLoop()
+
+      # loop condition
+      cr.genIfNot(cr.insertMagicCall(c.extra, mLeI, counter, cr.insertLit(0))):
+        cr.insertGoto(loopExit)
+
+      let v = genSetElemOp(cr, c.extra, m, cr.insertPathArr(arg0, counter), cr.insertPathArr(arg1, counter))
+
+      if m == mEqSet:
+        # --->
+        #   if a != b: break
+        cr.genIfNot(v):
+          cr.insertGoto(loopExit)
+
+      else:
+        cr.insertAsgn(askInit, cr.insertPathArr(cr.insertLocalRef(res), counter), v)
+
+      # counter
+      cr.insertAsgn(askCopy, counter, cr.insertMagicCall(c.extra, mAddI, counter, cr.insertLit(1)))
+
+      cr.insertJoin(loopExit)
+      discard cr.insertLocalRef(res)
+
+    of mInSet:
+        let uintTyp = c.extra.getSysType(tyUInt)
+        let conv = cr.insertConv(uintTyp, ir.argAt(cr, 1))
+        let
+          index = cr.insertMagicCall(c.extra, mShrI, conv, cr.insertLit 3)
+          mask = cr.insertMagicCall(c.extra, mShlI, cr.insertLit(1), cr.insertMagicCall(c.extra, mBitandI, conv, cr.insertLit 7))
+
+        let val = cr.insertMagicCall(c.extra, mBitandI, cr.insertPathArr(ir.argAt(cr, 0), index), mask)
+        discard cr.insertMagicCall(c.extra, mNot, cr.insertMagicCall(c.extra, mEqI, val, cr.insertLit(0)))
+    else:
+      cr.insertError("missing set-op: " & $m)
+
 proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers ``set`` operations into bit operations. Intended for the C-like targets
-  # XXX: ideally we'd also lower the ``set`` types used for locals and parameters
   # XXX: some set lowerings could be simplified by adding them as
   #      compiler-procs in ``system.nim`` and then doing something an
   #      `cr.inline` here
   case n.kind
   of ntkCall:
-    case getMagic(ir, c.env[], n)
-    of mInSet:
+    let m = getMagic(ir, c.env[], n)
+
+    case m
+    of mIncl, mExcl, mCard, mEqSet, mLeSet, mLtSet, mMulSet, mPlusSet, mMinusSet, mInSet:
       cr.replace()
-
-      let setType = c.typeof(ir.argAt(cr, 0))
-      let size = c.env.types.getSize(setType).int
-      case size
-      of 1, 2, 4, 8:
-        # small sets
-        cr.insertError("mInSet for small sets missing")
-      else:
-        let uintTyp = c.extra.getSysType(tyUInt)
-        let conv = cr.insertConv(uintTyp, ir.argAt(cr, 1))
-        cr.insertMagicCall(c.extra, mBitandI, cr.insertMagicCall(c.extra, mShrI, conv, cr.insertLit 3), cr.insertMagicCall(c.extra, mShlI, cr.insertLit 1, cr.insertMagicCall(c.extra, mBitandI, conv, cr.insertLit 7)))
-        # TODO: unfinished
-        #binaryExprIn(p, e, a, b, d, "(($1[(NU)($2)>>3] &(1U<<((NU)($2)&7U)))!=0)")
-
+      genSetOp(c, ir, m, n, cr)
     else:
       discard
 
