@@ -171,6 +171,8 @@ type
     funcMap: Table[int, int] ## symbol-id -> index into `procs` # TODO: a table is maybe the wrong data structure here.
     funcs: seq[CProcHeader]
 
+    symIdents: seq[CIdent] # maps each symbol *index* to an identifier
+
     ctypes: seq[CTypeInfo] #
 
 
@@ -199,9 +201,16 @@ func mangledName(sym: PSym): string =
   else:
     sym.name.s
 
-func mangledName(d: Declaration): string =
+func mangledName(d: DeclarationV2): string =
   # XXX: temporary
   d.name
+
+func mangledName(d: DeclarationV2, id: uint32): string =
+  # XXX: temporary
+  if d.forceName:
+    d.name
+  else:
+    fmt"{d.name}_{id}"
 
 func mangledName(procs: ProcedureEnv, id: ProcId): string =
   let decl = procs[id].decl
@@ -763,7 +772,7 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
       if sym.typ != NoneType:
         useType(c.m, sym.typ)
 
-      names[i] = start().ident(c.gl.idents, mangledName(sym.decl)).fin()
+      names[i] = start().ident(c.gl.symIdents[toIndex(sId)]).fin()
 
     of ntkParam:
       let name = c.gl.funcs[toIndex(irs.owner)].args[n.paramIndex].name
@@ -1202,6 +1211,10 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
   for id in env.procs.items:
     c.funcs.add genCProcHeader(c.idents, env.procs, id)
 
+  # TODO: use ``setLen`` + []
+  for id in env.syms.items:
+    c.symIdents.add c.idents.getOrIncl(mangledName(env.syms[id].decl, id.uint32))
+
 proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalGenCtx, env: IrEnv, procs: openArray[(ProcId, IrStore3)]) =
   let f = open(filename.string, fmWrite)
   defer: f.close()
@@ -1338,11 +1351,12 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
 
   for id in mCtx.syms.items:
     let sym = env.syms[id]
+    let ident = ctx.symIdents[toIndex(id)]
     case sym.kind
     of skLet, skVar:
       emitType(f, ctx, sym.typ)
       f.write " "
-      f.write mangledName(sym.decl)
+      f.write ctx.idents[ident]
       f.writeLine ";"
     of skConst:
       f.writeLine "EMIT_ERROR(\"missing logic: const\")"
