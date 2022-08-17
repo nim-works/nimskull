@@ -655,13 +655,14 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IrNode3): CAst
     genArithm(c, n.args(0), true)
   of bcUnlikely:
     start().add(cnkCall, 1).ident(c.gl.idents, "NIM_UNLIKELY").add(c.gen(irs, n.args(0))).fin()
-  of bcConv:
+  of bcConv, bcCast:
+    # both a conversion and a cast map to the same syntax here. Int-to-float
+    # and vice-versa casts are already transformed into either a ``memcpy`` or
+    # union at the IR level
     let dstTyp = n.typ
     var ast = start()
     discard ast.add(cnkCast).add(cnkType, mapTypeV2(c, dstTyp).uint32).add(gen(c, irs, n.args(0)))
     ast.fin()
-  of bcCast:
-    genError(c, "missing impl: cast")
   of bcRaise:
     var ast = start()
     if argCount(n) == 0:
