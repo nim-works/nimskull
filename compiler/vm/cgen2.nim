@@ -15,6 +15,9 @@ import
     ast_types,
     ast_query
   ],
+  compiler/backend/[
+    ccgutils
+  ],
   compiler/front/[
     options,
     msgs
@@ -203,18 +206,21 @@ func mangledName(sym: PSym): string =
   if {sfImportc, sfExportc} * sym.flags != {}:
     $sym.loc.r
   else:
-    fmt"{sym.owner.name.s}__{sym.name.s}_{sym.typ.id}"
+    fmt"{sym.owner.name.s}__{mangle(sym.name.s)}_{sym.typ.id}"
 
 func mangledName(d: DeclarationV2): string =
   # XXX: temporary
-  d.name
+  if d.forceName:
+    d.name
+  else:
+    mangle(d.name)
 
 func mangledName(d: DeclarationV2, id: uint32): string =
   # XXX: temporary
   if d.forceName:
     d.name
   else:
-    fmt"{d.name}_{id}"
+    fmt"{mangle(d.name)}_{id}"
 
 func mangledName(procs: ProcedureEnv, id: ProcId): string =
   let decl = procs[id].decl
@@ -222,7 +228,7 @@ func mangledName(procs: ProcedureEnv, id: ProcId): string =
     decl.name
   else:
     # XXX: temporary fix in order to make overloading work
-    fmt"{decl.name}_{id.uint32}"
+    fmt"{mangle(decl.name)}_{id.uint32}"
 
 const BaseName = "Sup" ## the name of the field for the base type
 
@@ -571,7 +577,8 @@ func genCProcHeader(idents: var IdentCache, env: ProcedureEnv, s: ProcId): CProc
   result.args.newSeq(env.numParams(s))
   var i = 0
   for p in env.params(s):
-    result.args[i] = (mapTypeV3(p.typ), idents.getOrIncl(p.name))
+    result.args[i] = (mapTypeV3(p.typ),
+                      idents.getOrIncl(mangle(p.name)))
     inc i
 
 
