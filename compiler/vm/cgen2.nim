@@ -1086,7 +1086,14 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
 
   of cnkStrLit:
     f.write '"'
-    f.write c.strings[n.a.LitId]
+    let str = c.strings[n.a.LitId]
+    # XXX: escape the string prior to adding to ``c.strings``?
+    for ch in str.items:
+      if ch in '\x20'..'\x7F':
+        f.write ch
+      else:
+        f.write &"\\x{ord(ch):02}"
+
     f.write '"'
 
   of cnkIntLit:
