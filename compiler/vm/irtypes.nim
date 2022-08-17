@@ -102,6 +102,10 @@ type Type* = object
   c*: uint32 # for records, a ``RecordNodeIndex``
   sig: seq[TypeId] # for procedures
 
+  # XXX: even though ``DeclType`` exists, `Type` is used to store the
+  #      interface information for now
+  iface*: PSym
+
 type
   DeclTypeId* = distinct uint32
 
@@ -706,6 +710,7 @@ proc flush*(gen: var DeferredTypeGen, symEnv: var SymbolEnv, conf: ConfigRef) =
       gen.trace = gen.list[i][1]
 
     translate(gen.env[], ctx, conf, start + i, gen.list[i])
+    gen.env.types[start + i].iface = gen.list[i].sym
     inc i
 
   # fix up pass. Remove ``tnkRef`` indirections when used as the base type of objects and also set the relative field offset.
