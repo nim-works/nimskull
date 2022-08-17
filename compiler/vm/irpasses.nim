@@ -1402,6 +1402,37 @@ proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
   else:
     discard
 
+func liftLargeSets(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+  case n.kind
+  of ntkLit:
+    let lit = getLit(ir, n)
+
+    if lit.val == nil or lit.typ == NoneType:
+      # TODO: remove the ``NoneType`` guard once all literals have type
+      #       information
+      return
+
+    let typ = c.env.types[lit.typ]
+    if typ.kind == tnkSet:
+      assert typ.length > 64, "untransformed small set literal"
+      {.cast(noSideEffect).}:
+        let bitset = toBitSet(nil, lit.val)
+
+      # XXX: very inefficient and wasteful, but until a dedicated literal IR
+      #      gets introduced, the simplest solution
+      let arr = newNode(nkBracket)
+      # iterate over the set's bytes and add them to the array
+      for it in bitset.items:
+        arr.add newIntNode(nkUInt8Lit, BiggestInt(it))
+
+      let s = c.addConst(lit.typ, "setConst", arr)
+
+      cr.replace()
+      discard cr.insertSym(s)
+
+  else:
+    discard
+
 func lowerSetTypes*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: SymbolEnv) =
   var remap: Table[TypeId, TypeId]
 
@@ -1809,5 +1840,6 @@ const seqV1Pass* = LinearPass2[RefcPassCtx](visit: lowerSeqsV1)
 const seqV2Pass* = LinearPass[GenericTransCtx](visit: lowerSeqsV2)
 const typeV1Pass* = LinearPass2[LiftPassCtx](visit: liftTypeInfoV1)
 const seqConstV1Pass* = LinearPass2[LiftPassCtx](visit: liftSeqConstsV1)
+const setConstPass* = LinearPass2[LiftPassCtx](visit: liftLargeSets)
 const lowerRangeCheckPass* = LinearPass2[RefcPassCtx](visit: lowerRangeChecks)
 const lowerSetsPass* = LinearPass2[RefcPassCtx](visit: lowerSets)
