@@ -24,7 +24,8 @@ import
   ],
   compiler/utils/[
     int128,
-    pathutils
+    pathutils,
+    ropes
   ],
   compiler/vm/[
     irtypes,
@@ -191,7 +192,10 @@ func `==`(a, b: CTypeId): bool {.borrow.}
 func mangledName(sym: PSym): string =
   # TODO: cache the mangled names (and don't use TLoc for it!)
   # TODO: implement
-  sym.name.s
+  if {sfImportc, sfExportc} * sym.flags != {}:
+    $sym.loc.r
+  else:
+    sym.name.s
 
 func mangledName(d: Declaration): string =
   # XXX: temporary
@@ -290,8 +294,6 @@ func genRecordNode(c: var TypeGenCtx, decl: var CDecl, i: var RecordNodeIndex, f
     unreachable(n.kind)
 
 
-func genCType(dest: var CDecl, cache: var IdentCache, t: Type)
-
 func addWeakType(dest: var CDecl, c: var TypeGenCtx, t: TypeId) =
   # don't use a weak-dependency for ptr-like types
   let kind =
@@ -356,60 +358,58 @@ func genCTypeDecl(c: var TypeGenCtx, t: TypeId): CDecl =
     # ``SEQ_DECL_SIZE`` is a macro defined in ``nimbase.h``
     result.add cdnkIdent, c.cache.getOrIncl("SEQ_DECL_SIZE").uint32
 
-  #[
-
-  of tyGenericInst, tyOwned:
-    result = genCTypeDecl(c, t.lastSon)
-  of tyDistinct, tyRange, tyOrdinal:
-    result = genCTypeDecl(c, t[0])
-
-  ]#
+  of tnkCString:
+    result.add cdnkPtr
+    result.add cdnkIdent, c.cache.getOrIncl("char").uint32
 
   else:
-    # XXX: using `genCType` doesn't feel right
-    genCType(result, c.cache, c.env.types[t])
+    let kind = c.env.types[t].kind
+    result.add cdnkIdent, c.cache.getOrIncl(fmt"genCType_missing_{kind}").uint32
 
   assert result.len > 0
 
-func getTypeName(c: var IdentCache, typ: Type, decl: Declaration): CIdent =
+func getTypeName(c: var IdentCache, id: TypeId, typ: Type, decl: Declaration): CIdent =
   # TODO: not finished
-  if decl.name.len > 0:
-    c.getOrIncl(mangledName(decl))
+  if typ.iface != nil:
+    assert sfImportc notin typ.iface.flags
+    c.getOrIncl(mangledName(typ.iface))
   else:
-    let h = 0#hashType(typ)
-    c.getOrIncl(fmt"{typ.kind}_{h}")
+    # some types require a definition and thus need a name
+    case typ.kind
+    of tnkProc:
+      c.getOrIncl(fmt"proc_{id.uint32}")
+    of tnkRecord:
+      # a record type without a name is always a tuple
+      c.getOrIncl(fmt"tuple_{id.uint32}")
+    of tnkArray, tnkUncheckedArray:
+      c.getOrIncl(fmt"array_{id.uint32}")
+    else:
+      # the other types don't need generated names
+      InvalidCIdent
 
-func genCType(dest: var CDecl, cache: var IdentCache, t: Type) =
-  template addIdentNode(n: string) =
-    dest.add cdnkIdent, cache.getOrIncl(n).uint32
+const AutoImported = {tnkVoid, tnkBool, tnkChar, tnkInt, tnkUInt, tnkFloat} # types that are treated as imported
 
-  const
-    NumericalTypeToStr: array[tyInt..tyUInt64, string] = [
-      "NI", "NI8", "NI16", "NI32", "NI64",
-      "NF", "NF32", "NF64", "NF128",
-      "NU", "NU8", "NU16", "NU32", "NU64"]
+func genCTypeInfo(gen: var TypeGenCtx, env: TypeEnv, id: TypeId): CTypeInfo =
+  let t = env[id]
+  if t.iface != nil and sfImportc in t.iface.flags:
+    result = CTypeInfo(name: gen.cache.getOrIncl(mangledName(t.iface)))
+  elif t.kind in AutoImported:
+    let name =
+      case t.kind
+      of tnkVoid: "void"
+      of tnkChar:  "NIM_CHAR"
+      of tnkBool:  "NIM_BOOL"
+      of tnkInt:
+        {.warning: "NI is never emitted anymore, as we can't detect an `int` here".}
+        fmt"NI{t.size}"
+      of tnkUInt:  fmt"NU{t.size}"
+      of tnkFloat: fmt"NF{t.size}"
+      else: unreachable()
 
-  case t.kind
-  of tnkVoid: addIdentNode("void")
-  of tnkInt:
-    {.warning: "NI is never emitted anymore, as we can't detect an `int` here".}
-    addIdentNode(fmt"NI{t.size}")
-  of tnkUInt:
-    addIdentNode(fmt"NU{t.size}")
-  of tnkCString:
-    dest.add cdnkPtr
-    addIdentNode("NIM_CHAR")
-  of tnkChar:
-    addIdentNode("NIM_CHAR")
-  of tnkBool:
-    addIdentNode("NIM_BOOL")
+    result = CTypeInfo(name: gen.cache.getOrIncl(name))
   else:
-    addIdentNode(fmt"genCType_missing_{t.kind}")
-
-func genCType(cache: var IdentCache, t: Type): CTypeInfo =
-  # TODO: name handling is unfinished
-  genCType(result.decl, cache, t)
-  result.name = getTypeName(cache, t, Declaration())
+    let decl = genCTypeDecl(gen, id)
+    result = CTypeInfo(decl: decl, name: getTypeName(gen.cache, id, t, Declaration()))
 
 
 func useFunction(c: var ModuleCtx, s: ProcId) =
@@ -1018,11 +1018,14 @@ proc emitCDecl(f: File, c: GlobalGenCtx, decl: CDecl, pos: var int) =
     let info {.cursor.} = c.ctypes[n.a.uint32]
     assert info.name != InvalidCIdent
 
-    f.write:
-      case info.decl[0].kind
-      of cdnkStruct: "struct "
-      of cdnkUnion: "union "
-      else: unreachable()
+    if info.decl.len > 0:
+      # only specify the namespace if the type has a declaration (it's an
+      # imported type otherwise)
+      f.write:
+        case info.decl[0].kind
+        of cdnkStruct: "struct "
+        of cdnkUnion: "union "
+        else: unreachable(info.decl[0].kind)
 
     f.write c.idents[info.name]
 
@@ -1124,10 +1127,8 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
   c.ctypes.add(CTypeInfo(name: gen.cache.getOrIncl("void"))) # the `VoidCType`
 
   # TODO: use ``setLen`` + []
-  var i = 0
   for id in types(env.types):
-    let decl = genCTypeDecl(gen, id)
-    c.ctypes.add CTypeInfo(decl: decl, name: getTypeName(gen.cache, env.types[id], Declaration()))
+    c.ctypes.add genCTypeInfo(gen, env.types, id)
 
   swap(gen.cache, c.idents)
 
@@ -1198,8 +1199,8 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       if n.kind == cdnkType:
         emitWithDeps(f, c, n.a.CTypeId, marker)
 
-    if info.decl.len > 0:
-      # only emit types that have a declaration
+    if info.decl.len > 0 and info.name != InvalidCIdent:
+      # only emit types that need a definition/declaration
       emitCType(f, c, info)
 
   var marker: PackedSet[CTypeId]
