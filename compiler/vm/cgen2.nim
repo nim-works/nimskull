@@ -224,7 +224,7 @@ func mangledName(procs: ProcedureEnv, id: ProcId): string =
     # XXX: temporary fix in order to make overloading work
     fmt"{decl.name}_{id.uint32}"
 
-const BaseName = "Sub" ## the name of the field for the base type
+const BaseName = "Sup" ## the name of the field for the base type
 
 const ArrayInnerName = "arr"
 
@@ -869,9 +869,21 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
       let
         typId = types[n.srcLoc]
         typ = c.env.types[typId]
-        field = c.env.types.field(c.env.types.nthField(typId, n.fieldIdx).toIndex)
+        (fieldId, steps) = c.env.types.findField(typId, n.fieldIdx)
+        field = c.env.types.field(fieldId.toIndex)
       let src = names[n.srcLoc]
-      var ast = start().add(cnkDotExpr).add(src)
+      var ast = start()
+
+      # `steps` is the relative depth in the type's hierarchy at which the
+      # field is located. E.g. `steps = 0` means it's in `typ`, `steps = 1`
+      # means it's in the base-type, etc.
+      for i in 0..steps:
+        discard ast.add(cnkDotExpr)
+
+      discard ast.add(src)
+
+      for i in 0..<steps:
+        discard ast.ident(c.gl.idents, BaseName)
 
       # accessing a record means that we need a complete type. While the type
       # we're marking as used here isn't necessarily the type that holds the
