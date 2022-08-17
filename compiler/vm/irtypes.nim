@@ -254,12 +254,16 @@ type
 
   ProcId* = distinct uint32
 
+  ProcParam = tuple
+    name: string
+    typ: TypeId
+
   ProcHeader* = object
     ## At the IR-level, there is no distinction done between ``func``s,
     ## ``proc``s, ``iterator``s, and ``method``s. They are all treated as a
     ## "procedure" and work the same.
 
-    params*: seq[tuple[name: string, typ: TypeId]]
+    params*: seq[ProcParam]
     returnType*: TypeId
 
     magic*: TMagic
@@ -1171,8 +1175,7 @@ func finish*(e: var ProcedureEnv, types: var DeferredTypeGen) =
 func getReturnType*(e: ProcedureEnv, p: ProcId): TypeId =
   e[p].returnType
 
-func param*(e: ProcedureEnv, p: ProcId, i: Natural): auto =
-  # XXX: costly string copy since ``lent`` is not used here
+func param*(e: ProcedureEnv, p: ProcId, i: Natural): lent ProcParam {.inline.} =
   e[p].params[i]
 
 func numParams*(e: ProcedureEnv, p: ProcId): int =
