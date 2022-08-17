@@ -744,6 +744,15 @@ func wrapIf(c: var TCtx, wrapper: BuiltinCall, typ: TypeId, expr: IRIndex, cond:
   if cond: c.irs.irCall(wrapper, typ, expr)
   else:    expr
 
+proc genOffset(c: var TCtx, n: PNode, off: Int128): IRIndex =
+  let off = off.toInt()
+  if n.kind in nkLiterals:
+    c.irLit(n.intVal - off)
+  else:
+    let tmp = genx(c, n)
+    # TODO: use mSubU for unsigned integers?
+    c.irCall("-", mSubI, tmp, c.irLit(off))
+
 proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
   result = InvalidIndex
   case m
@@ -796,6 +805,28 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     unreachable(n.kind)
   of mMove:
     unreachable("not handled here")
+  of mSlice:
+    # special-cased in order to handle array parameters that don't start at
+    # index '0'
+    let
+      prc = genProcSym(c, n[0].sym)
+      arg = genx(c, n[1])
+
+    let typ = n.typ.skipTypes(abstractVar)
+    if typ.kind == tyArray:
+      let first = c.config.firstOrd(typ)
+      if first != Zero:
+        # the IR transformations don't have access to this information, so we
+        # perform the 'first' and 'last' argument adjustment here
+        let
+          # the arguments need to be emitted in the right order (left-to-right)
+          lo = genOffset(c, n[2], first)
+          hi = genOffset(c, n[3], first)
+
+        return c.irs.irCall(prc, arg, lo, hi)
+
+    # no adjustments needed
+    result = c.irs.irCall(prc, arg, genx(c, n[2]), genx(c, n[3]))
   of mConStrStr:
     # the `mConStrStr` magic is very special. Nested calls to it are flattened
     # into a single call in ``transf``
