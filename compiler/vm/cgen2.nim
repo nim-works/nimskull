@@ -36,6 +36,8 @@ import
     irdbg
   ]
 
+import std/options as stdoptions
+
 from compiler/vm/vmdef import unreachable
 from compiler/vm/vmaux import getEnvParam
 
@@ -402,14 +404,17 @@ func genCTypeDecl(c: var TypeGenCtx, t: TypeId): CDecl =
 
   assert result.len > 0
 
-func getTypeName(c: var IdentCache, id: TypeId, typ: Type, decl: Declaration): CIdent =
+func getTypeName(c: var IdentCache, env: TypeEnv, id: TypeId, decl: Declaration): CIdent =
   # TODO: not finished
-  if typ.iface != nil:
-    assert sfImportc notin typ.iface.flags
-    c.getOrIncl(mangledName(typ.iface))
+  if (let a = env.getAttachmentIndex(id); a.isSome):
+    let attach = env.getAttachment(a.unsafeGet)
+    if attach[1]:
+      c.getOrIncl(attach[0])
+    else:
+      c.getOrIncl(fmt"{mangle(attach[0])}_{id.uint32}")
   else:
     # some types require a definition and thus need a name
-    case typ.kind
+    case env.kind(id)
     of tnkProc:
       c.getOrIncl(fmt"proc_{id.uint32}")
     of tnkRecord:
@@ -425,8 +430,8 @@ const AutoImported = {tnkVoid, tnkBool, tnkChar, tnkInt, tnkUInt, tnkFloat} # ty
 
 func genCTypeInfo(gen: var TypeGenCtx, env: TypeEnv, id: TypeId): CTypeInfo =
   let t = env[id]
-  if t.iface != nil and sfImportc in t.iface.flags:
-    result = CTypeInfo(name: gen.cache.getOrIncl(mangledName(t.iface)))
+  if (let iface = env.iface(id); iface != nil and sfImportc in iface.flags):
+    result = CTypeInfo(name: gen.cache.getOrIncl(mangledName(iface)))
   elif t.kind in AutoImported:
     let name =
       case t.kind
@@ -442,7 +447,7 @@ func genCTypeInfo(gen: var TypeGenCtx, env: TypeEnv, id: TypeId): CTypeInfo =
 
     result = CTypeInfo(name: gen.cache.getOrIncl(name))
   else:
-    let name = getTypeName(gen.cache, id, t, Declaration())
+    let name = getTypeName(gen.cache, env, id, Declaration())
     var decl = genCTypeDecl(gen, id)
 
     # set the identifier field for struct and union types:
@@ -1468,9 +1473,8 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
   #      could be combined with emitting the type definitions
 
   for _, id in typedefs.items:
-    let iface = env.types[id].iface
+    let iface = env.types.iface(id)
     if iface != nil and lfHeader in iface.loc.flags:
-      echo ctx.idents[ctx.ctypes[id.int].name], ": ", iface.loc.flags
       mCtx.headers.incl getStr(iface.annex.path)
 
   # collect the header dependencies of used functions
