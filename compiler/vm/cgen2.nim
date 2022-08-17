@@ -265,10 +265,6 @@ func requestType(c: var TypeGenCtx, t: TypeId): CTypeId =
   ## slot for it is reserved and it's added to the `c.forwared` list
   CTypeId(t)
 
-func requestFuncType(c: var TypeGenCtx, t: TypeId): CTypeId =
-  # XXX: this is going to be tricky
-  discard
-
 func genRecordNode(c: var TypeGenCtx, decl: var CDecl, i: var RecordNodeIndex, fstart: int): int =
   let n = c.env.types[i]
   inc i
@@ -367,13 +363,6 @@ func genCTypeDecl(c: var TypeGenCtx, t: TypeId): CDecl =
     result.add cdnkBracket
     result.add cdnkIdent, c.cache.getOrIncl(ArrayInnerName).uint32
     result.addIntLit c.env.types.length(t).uint64
-
-  of tnkClosure:
-      result.add cdnkStruct, 2
-      result.add cdnkEmpty
-
-      result.addField(c.cache, c.requestFuncType(t), "ClP_0")
-      result.addField(c.cache, c.requestType(c.env.types.param(t, ^1)), "ClE_0")
 
   of tnkProc:
       result.add cdnkFuncPtr, c.env.types.numParams(t).uint32
@@ -662,8 +651,6 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IRIndex): CAst
     irs.args(n, i)
 
   case bc
-  of bcNewClosure:
-    genBraced(c.gl.ident("NIM_NIL"), c.gl.ident("NIM_NIL"))
   of bcUnlikely:
     start().add(cnkCall, 1).ident(c.gl.idents, "NIM_UNLIKELY").add(c.gen(irs, arg(0))).fin()
   else:
