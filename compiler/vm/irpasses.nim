@@ -1103,19 +1103,22 @@ type LowerOACtx = object
   paramMap: seq[uint32] ## maps the current parameter indices to the new ones
 
 func expandData(c: LowerOACtx, cr: var IrCursor, ir: IrStore3, src: IRIndex): IRIndex =
-  if ir.at(src).kind == ntkParam:
+  #[if ir.at(src).kind == ntkParam:
     let pIdx = ir.at(src).paramIndex
     cr.insertParam(c.paramMap[pIdx] + 0)
   else:
+  ]#
     cr.insertPathObj(src, OpenArrayDataField)
 
 func expand(c: LowerOACtx, cr: var IrCursor, ir: IrStore3, src: IRIndex): tuple[dataExpr, lenExpr: IRIndex] =
   # XXX: verify that this doesn't lead to evaluation order issues
+  #[
   if ir.at(src).kind == ntkParam:
     let pIdx = ir.at(src).paramIndex
     result.dataExpr = cr.insertParam(c.paramMap[pIdx] + 0)
     result.lenExpr = cr.insertParam(c.paramMap[pIdx] + 1)
   else:
+  ]#
     result.dataExpr = cr.insertPathObj(src, OpenArrayDataField)
     result.lenExpr = cr.insertPathObj(src, OpenArrayLenField)
 
@@ -1123,6 +1126,7 @@ func expand(c: LowerOACtx, cr: var IrCursor, ir: IrStore3, src: IRIndex): tuple[
 func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   case n.kind
   of ntkAsgn:
+    #[
     if c.env.types[c.types[n.wrLoc]].kind == tnkOpenArray:
       # the lhs can only be a non-parameter
       if ir.at(n.srcLoc).kind == ntkParam:
@@ -1135,16 +1139,20 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
           src = expand(c, cr, ir, n.srcLoc)
         cr.insertAsgn(n.asgnKind, dest.dataExpr, src.dataExpr)
         cr.insertAsgn(n.asgnKind, dest.lenExpr, src.lenExpr)
+    ]#
+    discard
 
   of ntkCall:
     case getMagic(ir, c.env[], n)
     of mLengthOpenArray:
       cr.replace()
+      #[
       if ir.at(n.args(0)).kind == ntkParam:
         discard cr.insertParam(c.paramMap[ir.at(n.args(0)).paramIndex] + 1)
       else:
-        # rewrite to field-access
-        discard cr.insertPathObj(n.args(0), OpenArrayLenField)
+      ]#
+      # rewrite to field-access
+      discard cr.insertPathObj(n.args(0), OpenArrayLenField)
 
       # TODO: this needs to be done differently
       return # prevent the argument patching from running
@@ -1187,6 +1195,7 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
     else:
       discard
 
+    #[
     var numOaParams = 0
 
     for it in n.args:
@@ -1219,6 +1228,7 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
         discard cr.insertCallExpr(n.builtin, n.typ, newArgs)
       else:
         discard cr.insertCallExpr(n.callee, newArgs)
+    ]#
 
   of ntkPathArr:
     # XXX: the amount of workarounds to handle ``var openArray`` parameters
@@ -1228,14 +1238,16 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
       cr.replace()
 
       let field =
+        #[
         if ir.at(n.srcLoc).kind == ntkParam:
           cr.insertParam(c.paramMap[ir.at(n.srcLoc).paramIndex] + 0)
-        else:
+        else:]#
           # rewrite to field-access
           cr.insertPathObj(n.srcLoc, OpenArrayDataField)
 
       discard cr.insertPathArr(cr.insertDeref(field), n.arrIdx)
 
+  #[
   of ntkParam:
     let orig = n.paramIndex
     if c.paramMap[orig] != orig.uint32:
@@ -1243,7 +1255,7 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
       # patching is necessary
       cr.replace()
       discard cr.insertParam(c.paramMap[orig])
-
+  ]#
   else:
     discard
 
@@ -1280,7 +1292,6 @@ func lowerOpenArrayTypes*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: Symb
     if typ.kind == tnkOpenArray:
       typ = genTransformedOpenArray(c.graph, tenv, typ)
 
-
 proc lowerOpenArray*(g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
   ## * transform ``openArray`` **parameters** (not the types in general) into
   ##  an unpacked ``(ptr T, int)`` pair. That is:
@@ -1299,7 +1310,7 @@ proc lowerOpenArray*(g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
 
   var ctx = LowerOACtx(graph: g, env: addr env)
   ctx.types = computeTypes(ir, env)
-
+  #[
   # TODO: don't create a new seq for each procedure we're modifying
   ctx.paramMap.newSeq(env.procs.numParams(id))
 
@@ -1313,10 +1324,12 @@ proc lowerOpenArray*(g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
       j += 2
     else:
       j += 1
+  ]#
 
   const pass = LinearPass2[LowerOACtx](visit: lowerOpenArrayVisit)
   runPass(ir, ctx, pass)
 
+  #[
   # only modify the signature if really necessary:
   if j != i:
     var old: typeof(ProcHeader.params)
@@ -1340,6 +1353,7 @@ proc lowerOpenArray*(g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
         j += 1
 
       inc i
+  ]#
 
 const hookPass* = LinearPass[HookCtx](visit: injectHooks)
 const refcPass* = LinearPass2[RefcPassCtx](visit: applyRefcPass)
