@@ -1195,31 +1195,45 @@ proc liftSeqConstsV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCur
 
     case c.env.types[lit.typ].kind
     of tnkString:
-      # TODO: don't create multiple constants for the same string
-      # XXX: we're creating lots of single-use types here. Maybe there exists a better way?
-      # string v1 constants are represented as specialized seqs
-      let newType = c.env.types.requestRecordType(base = c.graph.getCompilerType("TGenericSeq")):
-        (NoneSymbol, c.env.types.requestArrayType(lit.val.strVal.len.uint, c.graph.sysTypes[tyChar]))
-
-      # XXX: temporary hack
-      const strlitFlag = 1 shl (sizeof(int)*8 - 2)
-
-      # XXX: a custom representation for constant data is probably a good idea...
-      let newVal = newTree(nkTupleConstr):
-        [newTree(nkTupleConstr,
-                 newIntNode(nkIntLit, lit.val.strVal.len),
-                 newIntNode(nkIntLit, lit.val.strVal.len or strlitFlag)),
-         newStrNode(nkStrLit, lit.val.strVal & "\0")]
-
-      let s = c.addConst(newType, "strConst", newVal)
+      let s = c.addConst(lit.typ, "strConst", lit.val)
 
       cr.replace()
+      # see the comment for ``tnkSeq`` below for why the addr + cast is done
       discard cr.insertCast(c.graph.getCompilerType("NimString"), cr.insertAddr(cr.insertSym(s)))
-      #discard cr.insertSym(s)
+
+      when false:
+        # TODO: don't create multiple constants for the same string
+        # XXX: we're creating lots of single-use types here. Maybe there exists a better way?
+        # string v1 constants are represented as specialized seqs
+        let newType = c.env.types.requestRecordType(base = c.graph.getCompilerType("TGenericSeq")):
+          (NoneSymbol, c.env.types.requestArrayType(lit.val.strVal.len.uint, c.graph.sysTypes[tyChar]))
+
+        # XXX: temporary hack
+        const strlitFlag = 1 shl (sizeof(int)*8 - 2)
+
+        # XXX: a custom representation for constant data is probably a good idea...
+        let newVal = newTree(nkTupleConstr):
+          [newTree(nkTupleConstr,
+                  newIntNode(nkIntLit, lit.val.strVal.len),
+                  newIntNode(nkIntLit, lit.val.strVal.len or strlitFlag)),
+          newStrNode(nkStrLit, lit.val.strVal & "\0")]
+
+        let s = c.addConst(newType, "strConst", newVal)
+
+        cr.replace()
+        discard cr.insertCast(c.graph.getCompilerType("NimString"), cr.insertAddr(cr.insertSym(s)))
+        #discard cr.insertSym(s)
 
     of tnkSeq:
+      let s = c.addConst(lit.typ, "seqConst", lit.val)
+
       cr.replace()
-      cr.insertError("missing impl: seq constants")
+      # at the current stage of processing, the cast would produce wrong
+      # behaviour. However, during later processing, the type of the constant
+      # is changed to a specialized fixed-length seq type who's type is
+      # compatible with the transformed seq's underlying object type
+      # XXX: the mentioned later processing doesn't exist yet
+      discard cr.insertCast(lit.typ, cr.insertAddr(cr.insertSym(s)))
 
     else:
       discard
