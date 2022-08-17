@@ -115,7 +115,7 @@ type
     cdnkWeakType # a "weak" reference to a type, meaning that a definition of
                  # the type doesn't have to be present in the translation unit
 
-    cdnkIntLit # a unsigned integer literal (`a` encodes the high and `b` the low bits)
+    cdnkIntLit # a unsigned integer literal (`a` encodes the low and `b` the high bits)
 
     cdnkFuncPtr # function-ptr type decl
     cdnkPtr # XXX: strictly speaking, the `*` is part of the declarator and not of the specifier
@@ -215,7 +215,7 @@ func addField(decl: var CDecl, cache: var IdentCache, typ: CTypeId, name: sink s
   decl.addField(typ, cache.getOrIncl(name))
 
 func addIntLit(decl: var CDecl, i: uint64) {.inline.} =
-  decl.add cdnkIntLit, uint32(i shl 32), uint32(i and 0xFFFFFFFF'u64)
+  decl.add cdnkIntLit, uint32(i and 0xFFFFFFFF'u64), uint32(i shr 32)
 
 type CTypeMap = Table[TypeKey, CTypeId]
 
@@ -1037,7 +1037,7 @@ proc emitCDecl(f: File, c: GlobalGenCtx, decl: CDecl, pos: var int) =
     f.write c.idents[n.a.CIdent]
 
   of cdnkIntLit:
-    let val = (n.a.uint64 shl 32) or n.b.uint64
+    let val = n.a.uint64 or (n.b.uint64 shl 32)
     f.write $val
 
   of cdnkBracket:
