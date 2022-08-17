@@ -1046,6 +1046,17 @@ func containsOrIncl(e: var TypeEnv, t: Type, idx: Natural): (bool, TypeNodeIndex
   # is already present in `e`
   result[0] = result[1] != idx
 
+func lookup(e: TypeEnv, t: Type): TypeId =
+  var se: seq[int]
+  var hcode: Hash
+  hash(e, hcode, se, t)
+
+  # XXX: double lookup
+  if se in e.structMap:
+    result = toId e.structMap[se]
+  else:
+    result = NoneType
+
 func add(e: var TypeEnv, t: sink Type): TypeNodeIndex {.inline.} =
   result = e.types.len.TypeNodeIndex
   e.types.add t
@@ -1079,9 +1090,12 @@ func genRecordType*(e: var TypeEnv, base: TypeId, fields: varargs[(SymId, TypeId
   e.records.add RecordNode(kind: rnkFields, a: 0, b: fields.high.uint32)
 
 # TODO: genX is the wrong terminology here
-func genArrayType*(e: var TypeEnv, len: BiggestUInt, elem: TypeId): Type =
+func genArrayType*(e: TypeEnv, len: BiggestUInt, elem: TypeId): Type =
   let s = split(len.uint64)
   Type(kind: tnkArray, base: elem, a: s.lo, b: s.hi)
+
+func lookupArrayType*(e: TypeEnv, len: BiggestUInt, elem: TypeId): TypeId =
+  result = e.lookup(genArrayType(e, len, elem))
 
 func requestArrayType*(e: var TypeEnv, len: BiggestUInt, elem: TypeId): TypeId =
   getOrPut(e, genArrayType(e, len, elem))
