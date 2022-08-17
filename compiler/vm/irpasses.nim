@@ -84,20 +84,11 @@ proc runPass*[T](irs: var IrStore3, ctx: T, pass: LinearPass[T]) =
   var cursor: IrCursor
   cursor.setup(irs)
 
-  try:
-    var i = 0
-    for n in irs.nodes:
-      cursor.setPos(i)
-      pass.visit(ctx, n, cursor)
-      inc i
-  except PassError as e:
-    echo e.getStackTrace()
-    echo "Msg: ", e.msg
-    echo "IR (error at node: ", e.n, "):"
-    #printIr(irs, calcStmt(irs))
-    echo "Node was added at: "
-    for e in irs.traceFor(e.n).items:
-      debugEcho e
+  var i = 0
+  for n in irs.nodes:
+    cursor.setPos(i)
+    pass.visit(ctx, n, cursor)
+    inc i
 
   irs.update(cursor)
 
@@ -105,20 +96,11 @@ proc runPass*[T](irs: var IrStore3, ctx: var T, pass: LinearPass2[T]) =
   var cursor: IrCursor
   cursor.setup(irs)
 
-  try:
-    var i = 0
-    for n in irs.nodes:
-      cursor.setPos(i)
-      pass.visit(ctx, n, irs, cursor)
-      inc i
-  except PassError as e:
-    echo e.getStackTrace()
-    echo "Msg: ", e.msg
-    echo "IR (error at node: ", e.n, "):"
-    #printIr(irs, calcStmt(irs))
-    echo "Node was added at: "
-    for e in irs.traceFor(e.n).items:
-      debugEcho e
+  var i = 0
+  for n in irs.nodes:
+    cursor.setPos(i)
+    pass.visit(ctx, n, irs, cursor)
+    inc i
 
   irs.update(cursor)
 
