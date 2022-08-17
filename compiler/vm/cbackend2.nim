@@ -340,6 +340,22 @@ template logError(ir: IrStore3, env: IrEnv, prc: ProcId, code: untyped) =
     logError(conf, ir, prc, env, (false, 0))
     raise
 
+func finishTypes*(g: PassEnv, types: DeferredTypeGen,
+                  procs: var openArray[seq[(ProcId, IrStore3)]],
+                  penv: var ProcedureEnv, syms: var SymbolEnv) =
+  ## Replaces all used placeholder type IDs generated during IR creation with the
+  ## correct ones
+
+  for i in 0..<procs.len:
+    for _, ir in procs[i].mitems:
+      mapTypes(ir, types)
+
+  mapTypes(penv, types)
+  mapTypes(syms, types)
+
+  for it in g.compilertypes.mvalues:
+    it = types.map(it)
+
 proc generateCode*(g: ModuleGraph) =
   ## The backend's entry point. Orchestrates code generation and linking. If
   ## all went well, the resulting binary is written to the project's output
@@ -422,6 +438,9 @@ proc generateCode*(g: ModuleGraph) =
   c.procs.finish(c.types)
 
   c.types.flush(env.types, c.symEnv, g.config)
+
+  # replace all placeholder type IDs
+  finishTypes(passEnv, c.types, moduleProcs, c.procs, c.symEnv)
 
   let entryPoint =
     generateMain(c, passEnv, mlist[])

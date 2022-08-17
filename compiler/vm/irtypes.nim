@@ -1291,6 +1291,14 @@ func map*(gen: DeferredTypeGen, id: TypeId): TypeId {.inline.} =
   assert id != NoneType
   result = gen.data[(id.uint32 and TypeIdMask) - 1]
 
+func maybeMap*(gen: DeferredTypeGen, id: TypeId): TypeId {.inline.} =
+  assert id != NoneType
+  result =
+    if id.uint32 >= TypeIdKindBit:
+      gen.data[(id.uint32 and TypeIdMask) - 1]
+    else:
+      id
+
 func commit*(e: var TypeEnv, remap: Table[TypeId, TypeId]) =
   # XXX: skip fields and types that were added during type modification passes?
 
@@ -1302,6 +1310,10 @@ func commit*(e: var TypeEnv, remap: Table[TypeId, TypeId]) =
   # generation), we don't use this approach here, since commiting type changes
   # may happen multiple times and patching type references does take some time
   # (only a very small amount however)
+  # XXX: copying the nodes is a problem if the target ID is that of an already
+  #      existing canonical type. If that's the case, we're introducing a
+  #      duplicate here. Either a ``tnkForward`` or something like
+  #      lookup-level redirection is needed in this case
   for k, v in remap.pairs:
     e.types[k.toIndex] = e.types[v.toIndex]
 
@@ -1327,3 +1339,18 @@ func commit*(e: var TypeEnv, remap: Table[TypeId, TypeId]) =
       let nid = remap.getOrDefault(it.typ.toId, NoneType)
       if nid != NoneType:
         it.typ = nodeId(e, nid)
+
+func mapTypes*(e: var ProcedureEnv, g: DeferredTypeGen) =
+  for it in e.procs.mitems:
+    for pa in it.params.mitems:
+      pa.typ = map(g, pa.typ)
+
+    # magics not created during sem don't have type information
+    if it.returnType != NoneType:
+      it.returnType = map(g, it.returnType)
+
+func mapTypes*(e: var SymbolEnv, g: DeferredTypeGen) =
+  for it in e.symbols.mitems:
+    # XXX: not all symbols have type information - why?
+    if it.typ != NoneType:
+      it.typ = map(g, it.typ)

@@ -1871,6 +1871,29 @@ func genCodeV2(ins: InputState) =
         c.gABC2(opcChkHandle, s.handle(n.loc))
 ]#
 
+
+func mapTypes*(ir: var IrStore3, tg: DeferredTypeGen) =
+  for n in ir.nodes.mitems:
+    case n.kind
+    of ntkCall:
+      if n.isBuiltin:
+        if n.typ != NoneType:
+          n.typ = tg.map(n.typ)
+    of ntkCast, ntkConv:
+      n.destTyp = tg.map(n.destTyp)
+    else:
+      discard
+
+  for lit in ir.literals.mitems:
+    if lit.typ != NoneType:
+      # literals can have a non-placeholder type ID already, so ``maybeMap``
+      # is used
+      lit.typ = tg.maybeMap(lit.typ)
+
+  for loc in ir.locals.mitems:
+    loc[1] = tg.map(loc[1])
+
+
 # IrCursor interface
 
 type
