@@ -65,11 +65,11 @@ iterator toStrIter*(irs: IrStore3, e: IrEnv, exprs: seq[bool]): string =
 
     case n.kind
     of ntkSym:
-      line = fmt"sym {e.syms[irs.sym(n)].decl.name}"
+      line = fmt"sym {e.syms[irs.sym(n)].decl.name.s}"
     of ntkProc:
-      line = fmt"proc '{e.procs[n.procId].decl.name}'"
+      line = fmt"proc '{e.procs[n.procId].decl.name.s}'"
     of ntkParam:
-      line = fmt"param {n.paramIndex}: '{e.procs.param(irs.owner, n.paramIndex).name}'"
+      line = fmt"param {n.paramIndex}: '{e.procs.param(irs.owner, n.paramIndex).name.s}'"
     of ntkAsgn:
       case n.asgnKind
       of askCopy, askDiscr:
