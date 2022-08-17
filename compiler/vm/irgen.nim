@@ -926,6 +926,19 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     else:
       # a normal new. Don't do any special transformation
       result = genCall(c, n)
+
+  of mEnumToStr:
+    # XXX: this works, but it also means that targets can't use dedicated
+    #      logic for how they handle enum-to-str conversion. A better approach
+    #      would be to not transform the magic here and let the targets use
+    #      some form of lifting pass to replace the magic with whatever they
+    #      want/need
+    # XXX: rtti-based memory management strategies used ``reprEnum`` for
+    #      this
+    let
+      t = n[1].typ.skipTypes(abstractRange)
+      s = c.genProcSym c.graph.getToStringProc(t)
+    result = c.irs.irCall(s, c.genx(n[1]))
   else:
     # TODO: return a bool instead and let the callsite call `genCall` in case
     #       the magic doesn't use special logic here
