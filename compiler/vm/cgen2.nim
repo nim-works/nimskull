@@ -658,9 +658,10 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IRIndex): CAst
     #unreachable(bc)
 
 
-const CallMagics = { mIsolate, mFinished, mDotDot, mEqCString, mNewString,
-                     mNewStringOfCap, mExit, mParseBiggestFloat } ##
-                     ## magics for which no special handling is needed
+const CallMagics = { mNone, mIsolate, mFinished, mDotDot, mEqCString,
+                     mNewString, mNewStringOfCap, mExit, mParseBiggestFloat }
+  ## magics for which no special handling is needed. ``mNone`` is not a "real"
+  ## magic, but it's included in the set in order to simplify various checks
 
 type MagicKind = enum
   mkUnary
@@ -909,7 +910,7 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
 
     of ntkProc:
       let prc = c.env.procs[n.procId]
-      if prc.magic == mNone:
+      if prc.magic in CallMagics:
         useFunction(c.m, n.procId)
 
       names[i] = start().ident(c.gl.funcs[toIndex(n.procId)].ident).fin()
@@ -922,7 +923,7 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
         names[i] = name
       else:
         let callee = irs.at(n.callee)
-        if callee.kind == ntkProc and (let p = c.env.procs[callee.procId]; p.magic != mNone):
+        if callee.kind == ntkProc and (let p = c.env.procs[callee.procId]; p.magic notin CallMagics):
           names[i] = genMagic(c, irs, p.magic, i)
         else:
           var res = start().add(cnkCall, n.argCount.uint32).add(names[n.callee])
