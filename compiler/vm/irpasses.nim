@@ -50,7 +50,7 @@ type
       discard#visit: proc (x: IrNode3, c: var IrCursor)
     else:
       # XXX: meh, a mutable env is not always necessary
-      visit: proc (env: var T, x: IrNode3, ir: IrStore3, c: var IrCursor)
+      visit*: proc (env: var T, x: IrNode3, ir: IrStore3, c: var IrCursor)
 
 type CfPass*[G; L] = object
   ## Static-control-flow based pass
@@ -554,10 +554,10 @@ func insertLit(cr: var IrCursor, lit: string): IRIndex =
 func insertLit(cr: var IrCursor, i: int): IRIndex =
   cr.insertLit (newIntNode(nkIntLit, i), NoneType)
 
-proc insertMagicCall(cr: var IrCursor, g: PassEnv, m: TMagic, args: varargs[IRIndex]): IRIndex {.discardable.} =
+proc insertMagicCall*(cr: var IrCursor, g: PassEnv, m: TMagic, args: varargs[IRIndex]): IRIndex {.discardable.} =
   cr.insertCallExpr(g.magics[m], args)
 
-proc insertCompProcCall(cr: var IrCursor, g: PassEnv, name: string, args: varargs[IRIndex]): IRIndex {.discardable.} =
+proc insertCompProcCall*(cr: var IrCursor, g: PassEnv, name: string, args: varargs[IRIndex]): IRIndex {.discardable.} =
   cr.insertCallExpr(g.compilerprocs[name], args)
 
 
