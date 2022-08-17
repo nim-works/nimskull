@@ -343,7 +343,6 @@ proc generateCode*(g: ModuleGraph) =
   var c = TCtx(config: g.config, graph: g, idgen: g.idgen)
   swap(c.symEnv, env.syms)
   swap(c.procs, env.procs)
-  c.types.env = addr env.types
   c.types.voidType = g.getSysType(unknownLineInfo, tyVoid)
   c.types.charType = g.getSysType(unknownLineInfo, tyChar)
 
@@ -386,7 +385,7 @@ proc generateCode*(g: ModuleGraph) =
       moduleProcs[realIdx][^1][1].owner = sId
 
     # flush deferred types already to reduce memory usage a bit
-    c.types.flush(c.symEnv, g.config)
+    c.types.flush(env.types, c.symEnv, g.config)
 
     nextProcs.setLen(0)
     swap(nextProcs, nextProcs2)
@@ -397,7 +396,7 @@ proc generateCode*(g: ModuleGraph) =
 
   c.procs.finish(c.types)
 
-  c.types.flush(c.symEnv, g.config)
+  c.types.flush(env.types, c.symEnv, g.config)
 
   let entryPoint =
     generateMain(c, passEnv, mlist[])

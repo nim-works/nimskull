@@ -162,9 +162,6 @@ type TypeLookup* = object
 
 type
   DeferredTypeGen* = object
-    env*: ptr TypeEnv # XXX: a `lent` should be used instead of a pointer. It
-                     #      would also make sure that the borrowed from
-                     #      `TypeEnv` is sealed for the lifetime of the `DeferredTypeGen`
     map: Table[ItemId, TypeId] # type-id -> ``TypeId``
     list: seq[PType] ## the list of deferred types in the order they were requested
 
@@ -743,7 +740,7 @@ proc translate(dest: var TypeEnv, gen: var TypeGen, conf: ConfigRef, pos: int, t
       debugEcho conf.toFileLineCol(t.sym.info)
     unreachable(t.kind)
 
-proc flush*(gen: var DeferredTypeGen, symEnv: var SymbolEnv, conf: ConfigRef) =
+proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, symEnv: var SymbolEnv, conf: ConfigRef) =
   ## Generates all the types that were deferred. `types` may be
   ## re-used after calling this procedure.
 
@@ -756,32 +753,37 @@ proc flush*(gen: var DeferredTypeGen, symEnv: var SymbolEnv, conf: ConfigRef) =
   when useGenTraces:
     gen.isInGen = true
 
-  let start = gen.env.types.len
+  let start = env.types.len
   var i = 0
   while i < gen.list.len:
-    gen.env.types.add(default(Type))
+    env.types.add(default(Type))
     when useGenTraces:
       gen.trace = gen.list[i][1]
 
-    translate(gen.env[], ctx, conf, start + i, gen.list[i])
-    gen.env.types[start + i].iface = gen.list[i].sym
+    translate(env, ctx, conf, start + i, gen.list[i])
+    env.types[start + i].iface = gen.list[i].sym
     inc i
 
   # fix up pass. Remove ``tnkRef`` indirections when used as the base type of objects and also set the relative field offset.
   # Since objects at a higher inheritance depth come _before_ their bases in
   # the list we have to iterate in reverse in order to propagate the offset correctly
-  for j in countdown(gen.env.types.high, start):
-    let t = addr gen.env.types[j]
+  for j in countdown(env.types.high, start):
+    let t = addr env.types[j]
     case t.kind
     of tnkRecord:
       if t.base != NoneType:
-        if gen.env[][t.base].kind == tnkRef:
-          t.base = gen.env[][t.base].base
+        if env[t.base].kind == tnkRef:
+          t.base = env[t.base].base
 
-        let bt = gen.env[][t.base]
-        t.b = bt.b + gen.env[][bt.record].numFields.uint32
+        let bt = env[t.base]
+        t.b = bt.b + env[bt.record].numFields.uint32
     else:
       discard
+
+  debugEcho "after flush: "
+  debugEcho "  ", env.types.len
+  debugEcho "  ", env.records.len
+  debugEcho "  ", env.fields.len
 
   when useGenTraces:
     gen.isInGen = false
