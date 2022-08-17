@@ -677,6 +677,11 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IrNode3): CAst
     genError(c, fmt"missing: {bc}")
     #unreachable(bc)
 
+
+const CallMagics = { mIsolate, mFinished, mDotDot, mEqCString, mNewString,
+                     mNewStringOfCap, mExit, mParseBiggestFloat } ##
+                     ## magics for which no special handling is needed
+
 type MagicKind = enum
   mkUnary
   mkBinary
@@ -686,7 +691,34 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IrNode3): CAst =
   let (kind, sym) =
     case m
     of mNot: (mkUnary, "!")
-    of mEqRef: (mkBinary, "==")
+    of mEqRef, mEqCh, mEqI, mEqB, mEqEnum, mEqF64: (mkBinary, "==")
+    of mBitandI: (mkBinary, "&")
+    of mBitorI: (mkBinary, "|")
+    of mBitxorI: (mkBinary, "^")
+    of mShlI: (mkBinary, "<<")
+    of mShrI, mAshrI: (mkBinary, ">>")
+    of mAddU, mAddI: (mkBinary, "+")
+    of mSubU, mSubI: (mkBinary, "-")
+    of mUnaryMinusI, mUnaryMinusI64, mUnaryMinusF64: (mkUnary, "-")
+    of mUnaryPlusI, mUnaryPlusF64: (mkUnary, "+")
+    of mLtI, mLtF64, mLtU, mLtB, mLtCh, mLtPtr: (mkBinary, "<")
+    of mLeI, mLeF64, mLeU, mLeB, mLeCh, mLePtr: (mkBinary, "<=")
+    of mMulI, mMulU, mMulF64: (mkBinary, "*")
+    of mDivI, mDivU, mDivF64: (mkBinary, "/")
+    of mNewString, mNewStringOfCap, mExit, mParseBiggestFloat: (mkCall, "")
+    of mSizeOf: (mkCall, "sizeof")
+    of mAlignOf: (mkCall, "NIM_ALIGNOF")
+    of mMinI, mMaxI:
+      # --> (a op b) ? a : b
+      let
+        a = gen(c, irs, n.args(0))
+        b = gen(c, irs, n.args(1))
+        op = if m == mMinI: ">=" else: "<="
+      return start().add(cnkTernary).add(cnkInfix).add(a).ident(c.gl.idents, op).add(b).add(a).add(b).fin()
+    of mIsNil:
+      # a pointer value is implicitly convertible to a bool, so we use ``!x``
+      # to test for nil
+      (mkUnary, "!")
     else:
       return genError(c, fmt"missing magic: {m}")
 
@@ -697,7 +729,11 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IrNode3): CAst =
   of mkBinary:
     result = start().add(cnkInfix).add(gen(c, irs, n.args(0))).ident(c.gl.idents, sym).add(gen(c, irs, n.args(1))).fin()
   of mkCall:
-    result = genError(c, fmt"missing magic call: {sym}")
+    var builder = start().add(cnkCall, n.argCount.uint32).ident(c.gl.idents, sym)
+    for arg in n.args:
+      discard builder.add(gen(c, irs, arg))
+
+    result = builder.fin()
 
 
 func genLit(c: var GenCtx, literal: Literal): CAst =
