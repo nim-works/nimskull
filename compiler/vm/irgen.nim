@@ -809,6 +809,28 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
       #       the IR level, not in the resulting generate code)
       # TODO: unfinished
       c.raiseExit()
+
+  of mInc, mDec:
+    # already do the lowering here since it's the same across all targets
+    let
+      isUnsigned = isUnsigned(n[1].typ.skipTypes({tyVar}))
+      dest = genx(c, n[1])
+      val = genx(c, n[2])
+
+    const Magic = [mInc: ("+", [false: mAddI, true: mAddU]),
+                   mDec: ("-", [false: mSubI, true: mSubU])]
+
+    var r = c.irCall(Magic[m][0], Magic[m][1][isUnsigned],
+                     dest, val)
+
+    let testOverflow = optOverflowCheck in c.options or not isUnsigned
+    r = c.wrapIf(bcOverflowCheck, c.types.requestType(n.typ), r, testOverflow)
+
+    if testOverflow:
+      c.raiseExit()
+
+    result = c.irs.irAsgn(askCopy, dest, r)
+
   of mSwap:
     let
       tmp = c.getTemp(n[1].typ)
