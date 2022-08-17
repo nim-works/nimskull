@@ -16,6 +16,8 @@ import
 
 from compiler/vm/vmdef import unreachable
 
+const useGenTraces {.booldefine.} = false
+
 type RecordNodeKind* = enum
   rnkEmpty # meant to be used by the garbage collector to fill cleaned slots
   rnkList
@@ -122,15 +124,19 @@ type
                      #      would also make sure that the borrowed from
                      #      `TypeEnv` is sealed for the lifetime of the `DeferredTypeGen`
     map: Table[ItemId, TypeId] # type-id -> ``TypeId``
-    list: seq[(PType, int)] ## the list of deferred types in the order they were requested
+    list: seq[PType] ## the list of deferred types in the order they were requested
 
     voidType*: PType ## a ``PType`` of kind ``tyVoid``. Requesting a nil type
                      ## is remapped to a request using this type
     charType*: PType
 
-    trace: int
-    traces: seq[seq[StackTraceEntry]]
-    isInGen: bool
+    when useGenTraces:
+      traceMap: seq[int] ## stores the corresponding trace index for each
+                         ## entry in `list`
+
+      trace: int
+      traces: seq[seq[StackTraceEntry]]
+      isInGen: bool
 
     nextTypeId: uint32
 
@@ -363,12 +369,8 @@ func skipTypesConsiderImported(t: PType, kinds: TTypeKinds): tuple[imported: boo
       return
     result.t = lastSon(result.t)
 
-func requestType*(gen: var DeferredTypeGen, t: PType): TypeId =
-  let t =
-    if t != nil: t
-    else: gen.voidType
-
-  let trace =
+when useGenTraces:
+  func requestTrace(gen: var DeferredTypeGen): int =
     if gen.isInGen:
       gen.trace
     else:
@@ -376,13 +378,23 @@ func requestType*(gen: var DeferredTypeGen, t: PType): TypeId =
         gen.traces.add getStackTraceEntries()
       gen.traces.high
 
+func requestType*(gen: var DeferredTypeGen, t: PType): TypeId =
+  let t =
+    if t != nil: t
+    else: gen.voidType
+
+  #[
   if t.kind in {tyTyped, tyUntyped, tyGenericParam}:
     debugEcho gen.traces[trace]
+  ]#
 
   let next = TypeId(gen.nextTypeId + 1)
   result = gen.map.mgetOrPut(t.itemId, next)
   if result == next:
-    gen.list.add((t, trace))
+    gen.list.add(t)
+    when useGenTraces:
+      gen.traceMap.add requestTrace(gen)
+
     inc gen.nextTypeId
 
 func lookupType*(gen: DeferredTypeGen, t: ItemId): TypeId =
@@ -620,14 +632,17 @@ proc flush*(gen: var DeferredTypeGen, symEnv: var SymbolEnv, conf: ConfigRef) =
   swap(symEnv, ctx.syms)
   defer: swap(symEnv, ctx.syms)
 
-  gen.isInGen = true
+  when useGenTraces:
+    gen.isInGen = true
 
   let start = gen.env.types.len
   var i = 0
   while i < gen.list.len:
     gen.env.types.add(default(Type))
-    gen.trace = gen.list[i][1]
-    translate(gen.env[], ctx, conf, start + i, gen.list[i][0])
+    when useGenTraces:
+      gen.trace = gen.list[i][1]
+
+    translate(gen.env[], ctx, conf, start + i, gen.list[i])
     inc i
 
   # fix up pass. Remove ``tnkRef`` indirections when used as the base type of objects and also set the relative field offset.
@@ -646,7 +661,11 @@ proc flush*(gen: var DeferredTypeGen, symEnv: var SymbolEnv, conf: ConfigRef) =
     else:
       discard
 
-  gen.isInGen = false
+  when useGenTraces:
+    gen.isInGen = false
+    gen.traceMap.setLen(0)
+    gen.traces.setLen(0)
+
   # support re-using
   gen.list.setLen(0)
 
