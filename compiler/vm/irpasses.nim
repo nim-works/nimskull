@@ -744,10 +744,6 @@ func setupTransCtx*(g: ModuleGraph, ir: IrStore3, env: IrEnv): GenericTransCtx =
   result.graph = g
   result.types = computeTypes(ir, env)
 
-# XXX: the field position is not necessarily 2; the value should be detected
-#      during compilation instead
-const SeqDataFieldPos = 2
-
 proc genTernaryIf(cr: var IrCursor, g: PassEnv, asgn: AssignKind, cond, dest, a, b: IRIndex) =
   # if cond:
   #   dest = a
@@ -767,6 +763,65 @@ proc genTernaryIf(cr: var IrCursor, g: PassEnv, asgn: AssignKind, cond, dest, a,
   cr.insertGoto(endP)
 
   cr.insertJoin(endP)
+
+const SeqV1LenField = 0
+# XXX: the field position is not necessarily 2; the value should be detected
+#      during compilation instead
+const SeqV1DataField = 2 # TODO: depends on the compiler flags
+
+proc isConst(ir: IrStore3, env: IrEnv, n: IRIndex): bool =
+  ## Returns if `n` refers to a ``const``
+  ir.at(n).kind == ntkSym and env.syms[ir.sym(ir.at(n))].kind == skConst
+
+proc isLiteral(ir: IrStore3, n: IRIndex): bool =
+  ## Returns if `n` is a literal value
+  ir.at(n).kind == ntkLit
+
+proc accessSeq(cr: var IrCursor, ir: IrStore3, env: IrEnv, n: IRIndex, typ: TypeId): IRIndex =
+  assert env.types[typ].kind in { tnkSeq, tnkString }
+  # XXX: as an alternative to handling this here, we could introduce a
+  #      ``bcLoadConst``, which would allow us to move the logic here
+  #      to a different pass
+  # XXX: yet another one would be to introduce a ``bcAccessSeq``
+
+  if false: #isLiteral(ir, n):
+    # seq/string literals are turned into constant seqs/strings. These are of
+    # specialized record type (not using an ``tnkUncheckedArray``), so we
+    # first have to take the address and then cast
+    cr.insertCast(typ, cr.insertAddr(n))
+
+  else:
+    # direct access
+    n
+
+proc accessSeqField(cr: var IrCursor, ir: IrStore3, src: IRIndex, f: int): IRIndex =
+  # a const is stores the underlying objec type directly, but other seqs are pointer types
+  let obj =
+    if false: src #isLiteral(ir, src): src
+    else:                  cr.insertDeref(src)
+
+  cr.insertPathObj(obj, f.uint16)
+
+proc genSeqLen(cr: var IrCursor, g: PassEnv, ir: IrStore3, src: IRIndex): IRIndex =
+  ## Generates a ``len`` getter expression for a V1 seq-like value
+  # result = if src.isNil: 0 else: src[].len
+
+  # idea: instead of manually inserting these predefined sequences, use a
+  #       template-like mechanism where the IR-node sequence is pre-generated
+  #       and then expanded here. The logic could be directly integrated into
+  #       the ``IrCursor`` API so that the expansion of templates only happens
+  #       when calling ``IrCursor.update``
+
+  let local = cr.newLocal(lkTemp, g.sysTypes[tyInt])
+  let tmp   = cr.insertLocalRef(local)
+
+  if false:#isLiteral(ir, src):
+    cr.insertAsgn(askInit, tmp, accessSeqField(cr, ir, src, SeqV1LenField))
+  else:
+    let cond = cr.insertMagicCall(g, mIsNil, src)
+    genTernaryIf(cr, g, askInit, cond, tmp, cr.insertLit(0), cr.insertPathObj(cr.insertDeref(src), SeqV1LenField))
+
+  result = cr.insertLocalRef(local)
 
 proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers the `seq`-related magic operations into calls to the v1 `seq`
@@ -818,9 +873,11 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       discard cr.insertCast(c.typeof(val), cr.insertCompProcCall(c.extra, "nimNewSeqOfCap", c.requestRtti(cr, c.typeof(val)), n.args(0)))
 
     of mAppendSeqElem:
-      # ``seq &= x`` is transformed into:
-      #   ``seq = cast[typeof(seq)](incrSeqV3(seq, getTypeInfo(2)))``
-      #   ``seq = ``
+      # ``seq &= x`` -->:
+      #   seq = cast[typeof(seq)](incrSeqV3(seq, getTypeInfo(2)))``
+      #   let tmp = seq[].len
+      #   inc seq[].len
+      #   seq[].data[tmp] = move x
       cr.replace()
       let seqVal = n.args(0)
       let typ = c.typeof(seqVal)#.skipTypes({tyVar})
@@ -830,21 +887,71 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       cr.genRefcRefAssign(c.extra, seqVal, cr.insertCast(typ, cr.insertCompProcCall(c.extra, "incrSeqV3", seqVal, c.requestRtti(cr, typ)) ), c.storageLoc(seqVal))
 
       # TODO: filling the element and adjusting the seq length is missing
-      cr.insertError("Not implemented: lowerSeqsV1.mAppendSeqElem")
+      let seqLen = cr.accessSeqField(ir, seqVal, SeqV1LenField)
+      let tmp = cr.genTempOf(seqLen, c.extra.sysTypes[tyInt])
+
+      cr.insertAsgn(askCopy, seqLen, cr.insertLit(1))#cr.insertMagicCall(c.extra, mAddI, cr.insertLocalRef(tmp), cr.insertLit(1)))
+      # the value is a sink parameter so we can use a move
+      # XXX: we're running after the inject-hook pass, so we either need to
+      #      reorder the passes or manually insert a hook call here
+      cr.insertAsgn(askMove, cr.insertPathArr(cr.accessSeqField(ir, seqVal, SeqV1DataField), cr.insertLocalRef(tmp)), n.args(1))
 
     of mAppendStrStr:
+      # -->
+      #   resizeString(lhs, len(rhs))
+      #   appendString(lhs, rhs)
       cr.replace()
-      var lens: array[2, IRIndex]
-      #lens[0] = genIfThanElse() # we `len` call needs to be lowered directly
-      cr.insertError("Not implemented: lowerSeqsV1.mAppendStrStr")
+
+      let lenTmp = genSeqLen(cr, c.extra, ir, n.args(1))
+      cr.insertCompProcCall(c.extra, "resizeString", n.args(0), lenTmp)
+      cr.insertCompProcCall(c.extra, "appendString", n.args(0), n.args(1))
+
+    of mAppendStrCh:
+      # -->
+      #   str = addChar(str, c)
+
+      cr.replace()
+      let strVal = n.args(0)
+      let tmp = cr.genTempOf(strVal, c.typeof(strVal))
+
+      cr.genRefcRefAssign(c.extra, strVal, cr.insertCompProcCall(c.extra, "addChar", cr.insertLocalRef(tmp), n.args(1)), c.storageLoc(strVal))
+
+    of mEqStr:
+      # TODO: move into a common pass, since this shared between v1 and v2
+      let
+        a = n.args(0)
+        b = n.args(1)
+
+      func isEmptyStr(n: PNode): bool = n.strVal.len == 0
+
+      cr.replace()
+      # optimize the case where either 'a' or 'b' is an empty string
+      # literal
+      # TODO: too much code duplication...
+      if isLiteral(ir, a) and ir.getLit(ir.at(a)).val.isEmptyStr():
+        cr.insertMagicCall(c.extra, mEqI, genSeqLen(cr, c.extra, ir, b), cr.insertLit(0))
+      elif isLiteral(ir, b) and ir.getLit(ir.at(b)).val.isEmptyStr():
+        cr.insertMagicCall(c.extra, mEqI, genSeqLen(cr, c.extra, ir, a), cr.insertLit(0))
+      else:
+        cr.insertCompProcCall(c.extra, "eqStrings", a, b)
+
+    of mLeStr, mLtStr:
+      # same implementation for v1 and v2
+      discard "lowered later"
 
     of mLengthStr:
-      cr.replace()
-      # XXX: might be a good idea to cache the `string` type
-      let strTyp = c.extra.getCompilerType("NimStringDesc")
-      #genIfThanElse(cr.insertMagicCall("isNil", mIsNil, a.val))
+      case c.env.types[typeof(c, n.args(0))].kind
+      of tnkString:
+        cr.replace()
+        discard genSeqLen(cr, c.extra, ir, n.args(0))
+      of tnkCString:
+        discard "transformed later"
+      else:
+        unreachable()
 
-      cr.insertError("Not implemented: lowerSeqsV1.mLengthStr")
+    of mLengthSeq:
+      cr.replace()
+      discard genSeqLen(cr, c.extra, ir, n.args(0))
 
     else:
       discard
@@ -855,20 +962,60 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
     # TODO: needs tests
     case c.env.types[arrTyp].kind#skipTypes(arrTyp, {tyVar, tyLent}).kind
     of tnkString, tnkSeq:
-      # --> x[].data[idx]
+      # -->
+      #   x[].data[idx] # if not a const
+      #   x.data[idx]   # if a cosnt
 
       cr.replace()
-      var r = cr.insertDeref(n.srcLoc)
+      var r = cr.insertDeref(cr.accessSeq(ir, c.env[], n.srcLoc, arrTyp))
       # a `lent seq` is not a treated as a `ptr NimSeq` but just as `NimSeq`
       # (`NimSeq` itself is a pointer type)
       if c.env.types[arrTyp].kind == tnkVar:
         r = cr.insertDeref(r)
 
-      r = cr.insertPathObj(r, SeqDataFieldPos)
+      r = cr.insertPathObj(r, SeqV1DataField)
       discard cr.insertPathArr(r, n.arrIdx)
 
     else:
       discard
+
+  # XXX: rewriting of `nktUse(ntkLit str)` is not done here anymore, but
+  #      during `liftSeqConstsV1` instead. This does have the downside of
+  #      also replacing string-literals only used in non-argument context with
+  #      ``cast[NimString](addr str)``
+  #[
+  of ntkUse:
+    if c.env.types[c.typeof(n.srcLoc)].kind == tnkString and isLiteral(ir, n.srcLoc):
+      # XXX: the design of `ntkUse` is not final yet and doing this kind of
+      #      rewrite might become a problem. Additionally, this prevents
+      #      many-to-one node relationships
+      # ideas:
+      # * introduce the concept of a virtual-replace (or non-destructive-replace). Basically:
+      #   * each node may be referenced by multiple other nodes
+      #   * replacing a node requires specifying a usage-site (node)
+      #   * if the node to replace only has one total usage site, it is
+      #     directly modified
+      #   * otherwise a new node is introduced and the given usage-site is
+      #     modified to reference the new node
+      # * collect usage-type information for each node (e.g. used as an
+      #   argument, used in a path-expression, etc.) and take this information
+      #   into account when interacting with the node. For example, if a
+      #   string-literal is only used in a path-expression context, it is
+      #   replaced with only a const-reference, but if it's used in an
+      #   argument context (either exclusively or additionally) the literal
+      #   is replaced with a ``cast[NimString](addr constString)``. Other
+      #   rewrites (e.g. ``accessSeqField``) would also have to take this into
+      #   account
+
+      # the literal is going to be replaced by a constant and since procedures
+      # taking strings will now expect a ``NimString`` (i.e. pointer type), we
+      # have to adjust the literal
+      cr.replace()
+      discard cr.insertCast(c.extra.getCompilerType("NimString"), cr.insertAddr(n.srcLoc))
+
+      # TODO: insertUse is missing?
+      #cr.insertUse()
+  ]#
 
   else:
     discard "ignore"
@@ -929,6 +1076,9 @@ func addGlobal*(c: var LiftPassCtx, t: TypeId, name: string): SymId =
   # XXX: temporary helper
   c.env.syms.addSym(skLet, t, name, {sfGlobal}) # XXX: uh-oh, hidden mutation
 
+func addConst*(c: var LiftPassCtx, t: TypeId, name: string, val: PNode): SymId =
+  c.env.syms.addSym(skConst, t, name)
+
 proc liftTypeInfoV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Turns all ``mGetTypeInfo`` calls into globals and collects the newly
   ## created symbols
@@ -960,6 +1110,54 @@ proc liftTypeInfoV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurs
 
       discard cr.insertSym(s)
 
+  else:
+    discard
+
+proc liftSeqConstsV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+  # XXX: we reuse the ``LiftPassCtx`` for now, but it's currently not really
+  #      meant for our usage here
+
+  case n.kind
+  of ntkLit:
+    let lit = getLit(ir, n)
+    if lit.typ == NoneType:
+      # TODO: remove this once all literals have type information
+      return
+
+    if lit.val == nil:
+      # a type literal
+      return
+
+    case c.env.types[lit.typ].kind
+    of tnkString:
+      # TODO: don't create multiple constants for the same string
+      # XXX: we're creating lots of single-use types here. Maybe there exists a better way?
+      # string v1 constants are represented as specialized seqs
+      let newType = c.env.types.requestRecordType(base = c.graph.getCompilerType("TGenericSeq")):
+        (NoneSymbol, c.env.types.requestArrayType(lit.val.strVal.len.uint, c.graph.sysTypes[tyChar]))
+
+      # XXX: temporary hack
+      const strlitFlag = 1 shl (sizeof(int)*8 - 2)
+
+      # XXX: a custom representation for constant data is probably a good idea...
+      let newVal = newTree(nkTupleConstr):
+        [newTree(nkTupleConstr,
+                 newIntNode(nkIntLit, lit.val.strVal.len),
+                 newIntNode(nkIntLit, lit.val.strVal.len or strlitFlag)),
+         newStrNode(nkStrLit, lit.val.strVal & "\0")]
+
+      let s = c.addConst(newType, "strConst", newVal)
+
+      cr.replace()
+      discard cr.insertCast(c.graph.getCompilerType("NimString"), cr.insertAddr(cr.insertSym(s)))
+      #discard cr.insertSym(s)
+
+    of tnkSeq:
+      cr.replace()
+      cr.insertError("missing impl: seq constants")
+
+    else:
+      discard
   else:
     discard
 
@@ -1379,5 +1577,6 @@ const refcPass* = LinearPass2[RefcPassCtx](visit: applyRefcPass)
 const seqV1Pass* = LinearPass2[RefcPassCtx](visit: lowerSeqsV1)
 const seqV2Pass* = LinearPass[GenericTransCtx](visit: lowerSeqsV2)
 const typeV1Pass* = LinearPass2[LiftPassCtx](visit: liftTypeInfoV1)
+const seqConstV1Pass* = LinearPass2[LiftPassCtx](visit: liftSeqConstsV1)
 const lowerRangeCheckPass* = LinearPass2[RefcPassCtx](visit: lowerRangeChecks)
 const lowerSetsPass* = LinearPass2[RefcPassCtx](visit: lowerSets)

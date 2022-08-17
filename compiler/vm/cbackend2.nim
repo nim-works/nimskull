@@ -441,6 +441,7 @@ proc generateCode*(g: ModuleGraph) =
           rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
           runPass(irs, rpCtx, seqV1Pass)
 
+        runPass(irs, lpCtx, seqConstV1Pass)
         runPass(irs, lpCtx, typeV1Pass)
 
 
