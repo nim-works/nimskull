@@ -268,6 +268,7 @@ type TypeGenCtx = object
   # inherited state
   cache: IdentCache
   env: ptr IrEnv
+  symIdents: seq[CIdent] # do not mutate
 
   # non-inherited state
   weakTypes: set[TypeNodeKind] # the set of types that can be turned into forward declarations when declared as a pointer
@@ -292,17 +293,14 @@ func genRecordNode(c: var TypeGenCtx, decl: var CDecl, i: var RecordNodeIndex, f
       let f = fstart + i.int
       let
         field = c.env.types.field(f)
-        name =
-          if field.sym == NoneSymbol:
-            # note: ignoring the records field offset means that unnamed
-            #       fields in ``object`` types using inheritance won't work
-            fmt"Field{i}"
-          else:
-            c.env.syms[field.sym].decl.name.s
+        typ = c.requestType(field.typ)
 
-      decl.addField(c.cache,
-                    c.requestType(field.typ),
-                    name)
+      if field.sym == NoneSymbol:
+        # note: ignoring the records field offset means that unnamed
+        #       fields in ``object`` types using inheritance won't work
+        decl.addField(c.cache, typ, fmt"Field{i}")
+      else:
+        decl.addField(typ, c.symIdents[field.sym.toIndex])
 
     result = int(n.b - n.a + 1)
 
@@ -981,8 +979,10 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
       # automatically also pulled in
       c.m.useType(typId)
 
+      # XXX: it might be a better idea to store the identfiers for each
+      #      field instead
       if field.sym != NoneSymbol:
-        discard ast.ident(c.gl.idents, mangledName(c.env.syms[field.sym].decl))
+        discard ast.ident(c.gl.symIdents[field.sym.toIndex])
       else:
         # TODO: this needs some name clash protection
         discard ast.ident(c.gl.idents, fmt"Field{n.fieldIdx}")
@@ -1357,8 +1357,17 @@ proc writeProcHeader(f: File, c: GlobalGenCtx, h: CProcHeader, decl: Declaration
 func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
   ## Initializes the ``GlobalGenCtx`` to use for all following ``emitModuleToFile`` calls. Creates the ``CTypeInfo`` for each IR type.
 
+  # TODO: use ``setLen`` + []
+  for id in env.syms.items:
+    if env.syms[id].kind == skField:
+      # TODO: don't use ``irtypes.Symbol`` for fields and remove this case
+      c.symIdents.add c.idents.getOrIncl(mangledName(env.syms[id].decl))
+    else:
+      c.symIdents.add c.idents.getOrIncl(mangledName(env.syms[id].decl, id.uint32))
+
   var gen = TypeGenCtx(weakTypes: {tnkRecord}, env: unsafeAddr env)
   swap(gen.cache, c.idents)
+  swap(gen.symIdents, c.symIdents)
 
   # XXX: a leftover from the CTypeId -> TypeId transition. Needs to be removed
   c.ctypes.add(CTypeInfo(name: gen.cache.getOrIncl("void"))) # the `VoidCType`
@@ -1375,15 +1384,13 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
       c.ctypes[id.int].decl = @[(cdnkType, target.uint32, 0'u32)]
 
   swap(gen.cache, c.idents)
+  swap(gen.symIdents, c.symIdents)
 
   # create the procedure headers
   # TODO: use ``setLen`` + []
   for id in env.procs.items:
     c.funcs.add genCProcHeader(c.idents, env.procs, id)
 
-  # TODO: use ``setLen`` + []
-  for id in env.syms.items:
-    c.symIdents.add c.idents.getOrIncl(mangledName(env.syms[id].decl, id.uint32))
 
 proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalGenCtx, env: IrEnv, procs: openArray[(ProcId, IrStore3)]) =
   let f = open(filename.string, fmWrite)
