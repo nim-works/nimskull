@@ -36,13 +36,13 @@ func calcStmt*(irs: IrStore3): seq[bool] =
     inc i
 
 
-proc printIr*(irs: IrStore3, exprs: seq[bool]) =
+proc printIr*(irs: IrStore3, e: IrEnv, exprs: seq[bool]) =
   var i = 0
   for n in irs.nodes:
     var line = ""
     case n.kind
     of ntkSym:
-      line = fmt"sym {irs.sym(n).name.s}"
+      line = fmt"sym {irs.sym(n).int}"
     of ntkAsgn:
       case n.asgnKind
       of askCopy, askDiscr:
@@ -56,14 +56,19 @@ proc printIr*(irs: IrStore3, exprs: seq[bool]) =
     of ntkDeref:
       line = fmt"deref {n.addrLoc}"
     of ntkLit:
-      line = fmt"lit {irs.getLit(n).kind}"
+      let val = irs.getLit(n).val
+      if val.isNil:
+        # a type literal
+        line = fmt"lit 'nil'"
+      else:
+        line = fmt"lit {val.kind}"
     of ntkUse:
       line = fmt"use {n.srcLoc}"
     of ntkGoto:
       line = fmt"goto label:{n.target}"
     of ntkLocal:
       let (k, t, _) = irs.getLocal(i)
-      line = fmt"local kind:{k} idx:{irs.getLocalIdx(i)} typ:{t.kind}"
+      line = fmt"local kind:{k} idx:{irs.getLocalIdx(i)} typ:{e.types[t].kind}"
     of ntkPathObj:
       line = fmt"path obj:{n.srcLoc} field:{n.fieldIdx}"
     of ntkPathArr:

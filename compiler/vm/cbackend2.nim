@@ -7,7 +7,7 @@ import
     ast,
     ast_types,
     astalgo, # for `getModule`
-    idents,
+    lineinfos,
     reports
   ],
   compiler/backend/[
@@ -30,6 +30,7 @@ import
   ],
   compiler/vm/[
     irgen,
+    irtypes,
     vmir,
     cgen2,
     irpasses,
@@ -56,9 +57,9 @@ type
     initGlobalsCode: CodeFragment ## the bytecode of `initGlobalsProc`. Each
       ## encountered `{.global.}`'s init statement gets code-gen'ed into the
       ## `initGlobalCode` of the module that owns it
-    initGlobalsProc: (PSym, IrStore3) ## the proc that initializes `{.global.}`
+    initGlobalsProc: (SymId, IrStore3) ## the proc that initializes `{.global.}`
       ## variables
-    initProc: (PSym, IrStore3) ## the module init proc (top-level statements)
+    initProc: (SymId, IrStore3) ## the module init proc (top-level statements)
 
   ModuleListRef = ref ModuleList
   ModuleList = object of RootObj
@@ -122,7 +123,7 @@ proc generateTopLevelStmts*(module: var Module, c: var TCtx,
   c.endProc()
 
   # the `initProc` symbol is missing a valid `ast` field
-  module.initProc[0] = newSym(skProc, getIdent(c.graph.cache, "init"), nextSymId c.idgen, module.sym, module.sym.info)
+  module.initProc[0] = c.symEnv.addSym(skProc, NoneType, "init") # TODO: non-obvious mutation, move this somewhere else
   module.initProc[1] = c.irs
 
 proc generateCodeForProc(c: var TCtx, s: PSym): IrGenResult =
@@ -166,18 +167,18 @@ proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]
 proc genInitProcCall(c: var IrStore3, m: Module) =
   discard c.irCall(c.irSym(m.initProc[0]))
 
-proc generateEntryProc(c: var TCtx, info: TLineInfo, mlist: ModuleList): IrStore3 =
+proc generateEntryProc(c: var TCtx, g: PassEnv, mlist: ModuleList): IrStore3 =
   ## Generates the entry function and returns it's function table index.
   ## The entry function simply calls all given `initProcs` (ordered from low
   ## to high by their function table index) and then returns the value of the
   ## ``programResult`` global
-  let
-    n = newNodeI(nkEmpty, info)
 
   # setup code-gen state. One register for the return value and one as a
   # temporary to hold the init procs
   c.prc = PProc()
   c.irs.reset()
+
+  let resultVar = c.irs.genLocal(lkVar, g.getSysType(tyInt))
 
   var systemIdx, mainIdx: int
   # XXX: can't use `pairs` since it copies
@@ -197,25 +198,25 @@ proc generateEntryProc(c: var TCtx, info: TLineInfo, mlist: ModuleList): IrStore
   genInitProcCall(c.irs, mlist.modules[mainIdx])
 
   # write ``programResult`` into the result variable
-  let prSym = magicsys.getCompilerProc(c.graph, "programResult")
-  c.irs.irAsgn(askInit, c.irs.irLocal(0), c.irs.irSym(prSym))
+  let prSym = g.getCompilerProc("programResult")
+  c.irs.irAsgn(askInit, c.irs.irLocal(resultVar), c.irs.irSym(prSym))
 
   # refc-compatible "move"
   swap(result, c.irs)
 
-proc generateMain(c: var TCtx, mainModule: PSym,
+proc generateMain(c: var TCtx, g: PassEnv,
                   mlist: ModuleList): IrStore3 =
   ## Generates and links in the main procedure (the entry point) along with
   ## setting up the required state.
 
   # lastly, generate the actual code:
-  result = generateEntryProc(c, mainModule.info, mlist)
+  result = generateEntryProc(c, g, mlist)
 
-func collectRoutineSyms(s: IrStore3, list: var seq[PSym], known: var IntSet) =
+func collectRoutineSyms(s: IrStore3, env: SymbolEnv, list: var seq[PSym], known: var IntSet) =
   for n in s.nodes:
     case n.kind
     of ntkSym:
-      let sym = s.sym(n)
+      let sym = env.orig[s.sym(n)] # XXX: inefficient
       # XXX: excluding all magics is wrong. Depending on which back-end is
       #      used, some magics are treated like any other routine
       if sym.kind in routineKinds and
@@ -242,10 +243,16 @@ proc generateCode*(g: ModuleGraph) =
 
   echo "starting codgen"
 
-  var moduleProcs: seq[seq[(PSym, IrStore3)]]
+  var moduleProcs: seq[seq[(SymId, IrStore3)]]
   moduleProcs.newSeq(mlist.modules.len)
 
+  var env = IrEnv()
+
   var c = TCtx(config: g.config, graph: g, idgen: g.idgen)
+  swap(c.symEnv, env.syms)
+  c.types.env = addr env.types
+  c.types.voidType = g.getSysType(unknownLineInfo, tyVoid)
+  c.types.charType = g.getSysType(unknownLineInfo, tyChar)
 
   # generate all module init procs (i.e. code for the top-level statements):
   for m in mlist.modules.mitems:
@@ -260,66 +267,110 @@ proc generateCode*(g: ModuleGraph) =
   var seenProcs: IntSet
 
   for it in mlist.modules.items:
-    collectRoutineSyms(it.initProc[1], nextProcs, seenProcs)
+    collectRoutineSyms(it.initProc[1], c.symEnv, nextProcs, seenProcs)
 
   var nextProcs2: seq[PSym]
   while nextProcs.len > 0:
     for it in nextProcs.items:
       let mIdx = it.itemId.module
       let realIdx = mlist.moduleMap[it.getModule().id]
+      let sId = c.symEnv.requestSym(it)
 
       if g.getBody(it).kind == nkEmpty:
         # a quick fix to not run `irgen` for 'importc'ed procs
-        moduleProcs[realIdx].add((it, IrStore3()))
+        moduleProcs[realIdx].add((sId, IrStore3()))
         continue
 
       let ir = generateCodeForProc(c, it)
-      collectRoutineSyms(c.unwrap ir, nextProcs2, seenProcs)
+      collectRoutineSyms(c.unwrap ir, c.symEnv, nextProcs2, seenProcs)
 
       #doAssert mIdx == realIdx
-      moduleProcs[realIdx].add((it, c.unwrap ir))
+      moduleProcs[realIdx].add((sId, c.unwrap ir))
+
+    # flush deferred types already to reduce memory usage a bit
+    c.types.flush(c.symEnv, g.config)
 
     nextProcs.setLen(0)
     swap(nextProcs, nextProcs2)
 
-  let entryPoint =
-    generateMain(c, g.getModule(conf.projectMainIdx), mlist[])
+  # setup a ``PassEnv``
+  let passEnv = PassEnv()
+  block:
+    for sym in g.compilerprocs.items:
+      passEnv.compilerprocs[sym.name.s] = c.symEnv.requestSym(sym)
 
-  var lpCtx = LiftPassCtx(graph: g, idgen: g.idgen, cache: g.cache)
+    # XXX: a magic is not necessarily a procedure - it can also be a type
+    # create a symbol for each magic to be used by the IR transformations
+    for m, id in passEnv.magics.mpairs:
+      # fetch the name from a "real" symbol
+      let sym = g.getSysMagic(unknownLineInfo, "", m)
+
+      let name =
+        if sym.isError():
+          # not every magic has symbol defined in ``system.nim`` (e.g. procs and
+          # types only used in the backend)
+          $m
+        else:
+          sym.name.s
+
+      id = c.symEnv.addMagic(skProc, NoneType, name, m)
+
+    for op, tbl in passEnv.attachedOps.mpairs:
+      for k, v in g.attachedOps[op].pairs:
+        let t = c.types.lookupType(k)
+        if t != NoneType:
+          tbl[t] = c.symEnv.requestSym(v)
+        else:
+          # XXX: is this case even possible
+          discard#echo "missing type for type-bound operation"
+
+    for t in { tyVoid, tyInt..tyFloat64, tyBool, tyChar, tyString, tyCstring, tyPointer }.items:
+      passEnv.sysTypes[t] = c.types.requestType(g.getSysType(unknownLineInfo, t))
+
+
+  let entryPoint =
+    generateMain(c, passEnv, mlist[])
+
+  swap(env.syms, c.symEnv)
+
+  var lpCtx = LiftPassCtx(graph: passEnv, idgen: g.idgen, cache: g.cache)
+  lpCtx.env = addr env
 
   for i in 0..<mlist.modules.len:
     for s, irs in moduleProcs[i].mitems:
       try:
-        runPass(irs, initHookCtx(g, irs), hookPass)
+        runPass(irs, initHookCtx(passEnv, irs, env), hookPass)
 
-        lowerTestError(irs, g, g.cache, g.idgen, s)
+        lowerTestError(irs, passEnv, env.types, env.syms)
         var rpCtx: RefcPassCtx
-        rpCtx.setupRefcPass(g, g.idgen, irs)
+        rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
         runPass(irs, rpCtx, lowerSetsPass)
 
-        rpCtx.setupRefcPass(g, g.idgen, irs)
+        rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
         runPass(irs, rpCtx, lowerRangeCheckPass)
 
-        rpCtx.setupRefcPass(g, g.idgen, irs)
+        rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
         #runV2(irs, rpCtx, refcPass)
         runPass(irs, rpCtx, refcPass)
         if optSeqDestructors in conf.globalOptions:
-          rpCtx.setupRefcPass(g, g.idgen, irs)
+          rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
         else:
-          rpCtx.setupRefcPass(g, g.idgen, irs)
+          rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
           runPass(irs, rpCtx, seqV1Pass)
 
         runPass(irs, lpCtx, typeV1Pass)
 
       except PassError as e:
-        echo conf.toFileLineCol(s.info)
+        let sym = env.syms.orig[s]
+        echo conf.toFileLineCol(sym.info)
         echo irs.traceFor(e.n)
-        printIr(irs, calcStmt(irs))
+        printIr(irs, env, calcStmt(irs))
         echo "At: ", e.n
         raise
       except:
-        echo conf.toFileLineCol(s.info)
-        printIr(irs, calcStmt(irs))
+        let sym = env.syms.orig[s]
+        echo conf.toFileLineCol(sym.info)
+        printIr(irs, env, calcStmt(irs))
         raise
 
   for i, m in mlist.modules.pairs:
@@ -327,7 +378,7 @@ proc generateCode*(g: ModuleGraph) =
     var cf = Cfile(nimname: m.sym.name.s, cname: cfile,
                    obj: completeCfilePath(conf, toObjFile(conf, cfile)), flags: {})
 
-    emitModuleToFile(conf, cfile, moduleProcs[i])
+    emitModuleToFile(conf, cfile, env, moduleProcs[i])
 
     addFileToCompile(conf, cf)
 

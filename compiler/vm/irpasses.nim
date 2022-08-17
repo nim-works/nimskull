@@ -62,6 +62,20 @@ template customAssert(cond: bool, node: IRIndex) =
   if not cond:
     raise (ref PassError)(msg: astToStr(cond), n: node)
 
+type PassEnv* = ref object # XXX: will be a non-`ref` later on
+  magics*: Table[TMagic, SymId]
+  compilerprocs*: Table[string, SymId]
+
+  attachedOps*: array[TTypeAttachedOp, Table[TypeId, SymId]]
+
+  sysTypes*: array[TTypeKind, TypeId]
+
+func getCompilerProc*(g: PassEnv, name: string): SymId =
+  g.compilerprocs[name]
+
+func getSysType*(g: PassEnv, kind: TTypeKind): TypeId =
+  g.sysTypes[kind]
+
 proc runPass*[T](irs: var IrStore3, ctx: T, pass: LinearPass[T]) =
   var cursor: IrCursor
   cursor.setup(irs)
@@ -76,7 +90,7 @@ proc runPass*[T](irs: var IrStore3, ctx: T, pass: LinearPass[T]) =
     echo e.getStackTrace()
     echo "Msg: ", e.msg
     echo "IR (error at node: ", e.n, "):"
-    printIr(irs, calcStmt(irs))
+    #printIr(irs, calcStmt(irs))
     echo "Node was added at: "
     for e in irs.traceFor(e.n).items:
       debugEcho e
@@ -97,7 +111,7 @@ proc runPass*[T](irs: var IrStore3, ctx: var T, pass: LinearPass2[T]) =
     echo e.getStackTrace()
     echo "Msg: ", e.msg
     echo "IR (error at node: ", e.n, "):"
-    printIr(irs, calcStmt(irs))
+    #printIr(irs, calcStmt(irs))
     echo "Node was added at: "
     for e in irs.traceFor(e.n).items:
       debugEcho e
@@ -479,7 +493,7 @@ func nthField(t: PType, pos: int): PSym =
   if result == nil and t.len > 0 and t[0] != nil:
     result = nthField(t[0].skipTypes(skipPtrs), pos)
 
-func computeTypes*(ir: IrStore3): seq[PType] =
+func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
   result.newSeq(ir.len)
   var i = 0
   for n in ir.nodes:
@@ -494,23 +508,23 @@ func computeTypes*(ir: IrStore3): seq[PType] =
         else:
           let callee = ir.at(n.callee)
           if callee.kind != ntkSym:
-            result[n.callee][0] # the callee's return type
-          elif (let s = ir.sym(callee); s.typ != nil):
-            s.typ[0]
+            env.types.getReturnType(result[n.callee]) # the callee's return type
+          elif (let t = env.syms[ir.sym(callee)].typ; t != NoneType):
+            env.types.getReturnType(t)
           else:
             # the symbol for magics created with ``createMagic`` don't have
             # type information
-            nil
+            NoneType
 
     of ntkLit:
       result[i] = ir.getLit(n).typ
     of ntkSym:
       let s = ir.sym(n)
-      customAssert s != nil, i
-      if s.kind notin routineKinds:
+      customAssert s != NoneSymbol, i
+      if env.syms[s].kind notin routineKinds:
         # don't compute the type for routine symbols. This makes it easier to
         # figure out the type dependencies later on.
-        result[i] = s.typ
+        result[i] = env.syms[s].typ
     of ntkUse, ntkConsume:
       result[i] = result[n.srcLoc]
     of ntkLocal:
@@ -520,70 +534,78 @@ func computeTypes*(ir: IrStore3): seq[PType] =
       #      the correct type without creating a new one
       result[i] = result[n.addrLoc]
     of ntkDeref:
-      let t = result[n.addrLoc].skipTypes(abstractInst)
-      customAssert t.kind in {tyPtr, tyRef, tyVar, tyLent}, i
-      result[i] = t.elemType
+      let t = result[n.addrLoc]
+      customAssert env.types[t].kind in {tnkPtr, tnkRef, tnkVar, tnkLent}, i
+      result[i] = env.types.elemType(t)
     of ntkPathObj:
-      customAssert result[n.srcLoc] != nil, n.srcLoc
-      let typ = result[n.srcLoc].skipTypes(abstractInst)
+      customAssert result[n.srcLoc] != NoneType, n.srcLoc
+      let typ = result[n.srcLoc]
       let idx = n.fieldIdx
-      case typ.kind
-      of tyObject:
-        let f = typ.nthField(n.fieldIdx)
-        result[i] = f.typ
-      of tyTuple:
-        result[i] = typ[idx]
+      case env.types[typ].kind
+      of tnkRecord:
+        let f = env.types.nthField(typ, n.fieldIdx)
+        result[i] = env.types[f].typ
       else:
         customAssert false, n.srcLoc
 
     of ntkPathArr:
-      result[i] = result[n.srcLoc].elemType()
+      result[i] = env.types.elemType(result[n.srcLoc])
 
     else:
       debugEcho "computeTypes missing: ", n.kind
     inc i
 
-func getMagic(ir: IrStore3, n: IrNode3): TMagic =
+func getMagic(ir: IrStore3, env: IrEnv, n: IrNode3): TMagic =
   assert n.kind == ntkCall
   if n.isBuiltIn:
     mNone
   else:
     let callee = ir.at(n.callee)
     if callee.kind == ntkSym:
-      ir.sym(callee).magic
+      env.syms[ir.sym(callee)].magic
     else:
       mNone
 
 func insertLit(cr: var IrCursor, lit: string): IRIndex =
-  cr.insertLit newStrNode(nkStrLit, lit)
+  cr.insertLit (newStrNode(nkStrLit, lit), NoneType)
 
 func insertLit(cr: var IrCursor, i: int): IRIndex =
-  cr.insertLit newIntNode(nkIntLit, i)
+  cr.insertLit (newIntNode(nkIntLit, i), NoneType)
 
-proc insertMagicCall(cr: var IrCursor, g: ModuleGraph, name: string, m: TMagic, args: varargs[IRIndex]): IRIndex {.discardable.} =
-  cr.insertCallExpr(createMagic(g, g.idgen, name, m), args)
+proc insertMagicCall(cr: var IrCursor, g: PassEnv, m: TMagic, args: varargs[IRIndex]): IRIndex {.discardable.} =
+  cr.insertCallExpr(g.magics[m], args)
 
-proc insertCompProcCall(cr: var IrCursor, g: ModuleGraph, name: string, args: varargs[IRIndex]): IRIndex {.discardable.} =
-  cr.insertCallExpr(g.getCompilerProc(name), args)
+proc insertCompProcCall(cr: var IrCursor, g: PassEnv, name: string, args: varargs[IRIndex]): IRIndex {.discardable.} =
+  cr.insertCallExpr(g.compilerprocs[name], args)
 
 
 type RefcPassCtx* = object
   graph: ModuleGraph
   idgen: IdGenerator
-  types: seq[PType]
+
+  extra: PassEnv
+
+  env: ptr IrEnv # XXX: in order to get to something working, a `ptr` for now
+  types: seq[TypeId]
 
   # XXX: only used for the ``lowerSeqs`` passes, but `RefcPassCtx` is
   #      currently (ab)-used as the context for most passes
   localMap: Table[int, int] # old local-name -> new local-name
 
-func setupRefcPass*(c: var RefcPassCtx, g: ModuleGraph, idgen: IdGenerator, ir: IrStore3) =
-  c.types = computeTypes(ir) # XXX: very bad
+func setupRefcPass*(c: var RefcPassCtx, pe: PassEnv, env: ptr IrEnv, g: ModuleGraph, idgen: IdGenerator, ir: IrStore3) =
+  c.types = computeTypes(ir, env[]) # XXX: very bad
   c.graph = g
   c.idgen = idgen
+  c.extra = pe
+  c.env = env
 
-func typeof(c: RefcPassCtx, val: IRIndex): PType =
-  customAssert c.types[val] != nil, val
+func typeof(c: RefcPassCtx, val: IRIndex): TypeId =
+  customAssert c.types[val] != NoneType, val
   c.types[val]
+
+func typeKindOf(c: RefcPassCtx, val: IRIndex): TypeNodeKind =
+  customAssert c.types[val] != NoneType, val
+  c.env.types[c.types[val]].kind
 
 type StorageLoc = enum
   slUnknown
@@ -595,57 +617,57 @@ func storageLoc(c: RefcPassCtx, val: IRIndex): StorageLoc =
   # TODO: missing
   slUnknown
 
-proc requestRtti(c: var RefcPassCtx, cr: var IrCursor, t: PType): IRIndex =
+proc requestRtti(c: var RefcPassCtx, cr: var IrCursor, t: TypeId): IRIndex =
   # refc uses the v1 type-info
-  cr.insertCallExpr(createMagic(c.graph, c.idgen, "getTypeInfo", mGetTypeInfo), cr.insertLit(newNodeIT(nkType, unknownLineInfo, t))) # TODO: bad; don't create a new mGetTypeInfo sym every time
+  cr.insertCallExpr(c.extra.magics[mGetTypeInfo], cr.insertLit((nil, t)))
   # TODO: collect for which types rtti was requested
 
 proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMagic, n: IrNode3) =
   ## Lowers calls to various magics into calls to `compilerproc`s
-  case getMagic(ir, n)
+  case getMagic(ir, c.env[], n)
   of mDestroy:
     # An untransformed `mDestroy` indicates a ref or string. `seq`
     # destructors were lifted into specialized procs already
     let val = n.args(0)
-    case c.typeof(val).kind
-    of tyString:
+    case c.env.types[c.typeof(val)].kind
+    of tnkString:
       cr.replace()
-      cr.insertCompProcCall(c.graph, "genericSeqAssign")
-    of tyRef:
+      cr.insertCompProcCall(c.extra, "genericSeqAssign")
+    of tnkRef:
       # XXX: only non-injected destroys for refs should be turned
       cr.replace()
-      let nilLit = cr.insertLit(newNode(nkNilLit))
+      let nilLit = cr.insertLit((newNode(nkNilLit), NoneType))
       let r = c.storageLoc(val)
       case r
       of slStack:
         # if it's on the stack, we can simply assign 'nil'
         cr.insertAsgn(askShallow, val, nilLit)
       of slHeap:
-        cr.insertCompProcCall(c.graph, "asgnRef", val, nilLit)
+        cr.insertCompProcCall(c.extra, "asgnRef", val, nilLit)
       of slUnknown:
-        cr.insertCompProcCall(c.graph, "unsureAsgnRef", val, nilLit)
+        cr.insertCompProcCall(c.extra, "unsureAsgnRef", val, nilLit)
     else:
       discard
 
   of mNew:
     cr.replace()
     # TODO: alignment value missing
-    let v = cr.insertCompProcCall(c.graph, "newObjRC1", c.requestRtti(cr, c.typeof(n.args(0))), cr.insertLit(0))
+    let v = cr.insertCompProcCall(c.extra, "newObjRC1", c.requestRtti(cr, c.typeof(n.args(0))), cr.insertLit(0))
     # XXX: not sure about `askMove` here...
     cr.insertAsgn(askMove, n.args(0), v)
 
   else:
     discard "ignore"
 
-proc genRefcRefAssign(cr: var IrCursor, g: ModuleGraph, dst, src: IRIndex, sl: StorageLoc) =
+proc genRefcRefAssign(cr: var IrCursor, e: PassEnv, dst, src: IRIndex, sl: StorageLoc) =
   # TODO: document
   case sl
   of slStack:
     cr.insertAsgn(askShallow, dst, src)
   of slHeap:
-    cr.insertCompProcCall(g, "asgnRef", dst, src)
+    cr.insertCompProcCall(e, "asgnRef", dst, src)
   of slUnknown:
-    cr.insertCompProcCall(g, "unsureAsgnRef", dst, src)
+    cr.insertCompProcCall(e, "unsureAsgnRef", dst, src)
 
 
 proc applyRefcPass(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
@@ -653,17 +675,17 @@ proc applyRefcPass(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurso
   of ntkAsgn:
     case n.asgnKind
     of askMove:
-      if c.typeof(n.wrLoc).kind in {tyString, tyRef, tySequence}:
-        genRefcRefAssign(cr, c.graph, n.wrLoc, n.srcLoc, c.storageLoc(n.wrLoc))
+      if c.typeKindOf(n.wrLoc) in {tnkString, tnkRef, tnkSeq}:
+        genRefcRefAssign(cr, c.extra, n.wrLoc, n.srcLoc, c.storageLoc(n.wrLoc))
         # XXX: source needs to be zeroed?
     of askCopy:
-      case c.typeof(n.wrLoc).kind
-      of tyString:
+      case c.typeKindOf(n.wrLoc)
+      of tnkString:
         cr.replace()
-        cr.insertCompProcCall(c.graph, "copyString", n.wrLoc, n.srcLoc)
-      of tySequence:
+        cr.insertCompProcCall(c.extra, "copyString", n.wrLoc, n.srcLoc)
+      of tnkSeq:
         cr.replace()
-        cr.insertCompProcCall(c.graph, "genericSeqAssign", n.wrLoc, n.srcLoc)
+        cr.insertCompProcCall(c.extra, "genericSeqAssign", n.wrLoc, n.srcLoc)
       else:
         discard
     of askInit, askShallow, askDiscr:
@@ -671,24 +693,28 @@ proc applyRefcPass(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurso
       discard
 
   of ntkCall:
-    processMagicCall(c, cr, ir, getMagic(ir, n), n)
+    processMagicCall(c, cr, ir, getMagic(ir, c.env[], n), n)
   else:
     discard
 
 type HookCtx* = object
-  graph: ModuleGraph
-  types: seq[PType]
+  graph: PassEnv
+  env: ptr IrEnv
+  types: seq[TypeId]
 
-func initHookCtx*(g: ModuleGraph, ir: IrStore3): HookCtx =
-  HookCtx(graph: g, types: computeTypes(ir))
+func initHookCtx*(g: PassEnv, ir: IrStore3, env: IrEnv): HookCtx =
+  HookCtx(graph: g, types: computeTypes(ir, env))
 
-func hasAttachedOp*(c: HookCtx, op: TTypeAttachedOp, typ: PType): bool =
-  assert typ != nil
-  c.graph.getAttachedOp(typ, op) != nil
+func hasAttachedOp*(c: HookCtx, op: TTypeAttachedOp, typ: TypeId): bool =
+  assert typ != NoneType
+  typ in c.graph.attachedOps[op]
 
+func getAttachedOp(c: HookCtx, op: TTypeAttachedOp, typ: TypeId): SymId =
+  assert typ != NoneType
+  c.graph.attachedOps[op][typ]
 
-func typeof(c: HookCtx, n: IRIndex): PType =
-  customAssert c.types[n] != nil, n
+func typeof(c: HookCtx, n: IRIndex): TypeId =
+  customAssert c.types[n] != NoneType, n
   c.types[n]
 
 func injectHooks(c: HookCtx, n: IrNode3, cr: var IrCursor) =
@@ -704,11 +730,11 @@ func injectHooks(c: HookCtx, n: IrNode3, cr: var IrCursor) =
     of askMove:
       if hasAttachedOp(c, attachedSink, typ):
         cr.replace()
-        cr.insertCallStmt(c.graph.getAttachedOp(typ, attachedSink), n.wrLoc, n.srcLoc)
+        cr.insertCallStmt(c.getAttachedOp(attachedSink, typ), n.wrLoc, n.srcLoc)
     of askCopy:
       if hasAttachedOp(c, attachedAsgn, typ):
         cr.replace()
-        cr.insertCallStmt(c.graph.getAttachedOp(typ, attachedAsgn), n.wrLoc, n.srcLoc)
+        cr.insertCallStmt(c.getAttachedOp(attachedAsgn, typ), n.wrLoc, n.srcLoc)
 
     of askShallow, askDiscr:
       discard "nothing to do"
@@ -726,16 +752,15 @@ func injectHooks(c: HookCtx, n: IrNode3, cr: var IrCursor) =
     discard
 
 func insertError(cr: var IrCursor, err: string): IRIndex {.discardable.} =
-  cr.insertCallExpr(bcError, nil, cr.insertLit err)
-
+  cr.insertCallExpr(bcError, NoneType, cr.insertLit err)
 
 type GenericTransCtx = object
   graph: ModuleGraph
-  types: seq[PType]
+  types: seq[TypeId]
 
-func setupTransCtx*(g: ModuleGraph, ir: IrStore3): GenericTransCtx =
+func setupTransCtx*(g: ModuleGraph, ir: IrStore3, env: IrEnv): GenericTransCtx =
   result.graph = g
-  result.types = computeTypes(ir)
+  result.types = computeTypes(ir, env)
 
 # XXX: the field position is not necessarily 2; the value should be detected
 #      during compilation instead
@@ -774,21 +799,21 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
   ## implementation
   case n.kind
   of ntkCall:
-    case getMagic(ir, n)
+    case getMagic(ir, c.env[], n)
     of mSetLengthStr:
       cr.replace()
       # TODO: is shallow correct here?
-      cr.insertAsgn(askShallow, n.args(0), cr.insertCompProcCall(c.graph, "setLengthStr", n.args(0), n.args(1)))
+      cr.insertAsgn(askShallow, n.args(0), cr.insertCompProcCall(c.extra, "setLengthStr", n.args(0), n.args(1)))
     of mSetLengthSeq:
       cr.replace()
       # TODO: evaluation order might be violated here
-      cr.insertAsgn(askShallow, n.args(0), cr.insertCompProcCall(c.graph, "setLengthSeqV2", n.args(0), c.requestRtti(cr, c.typeof(n.args(0))), n.args(1)))
+      cr.insertAsgn(askShallow, n.args(0), cr.insertCompProcCall(c.extra, "setLengthSeqV2", n.args(0), c.requestRtti(cr, c.typeof(n.args(0))), n.args(1)))
 
     of mNewSeq:
       cr.replace()
 
       let val = n.args(0)
-      let nilLit = cr.insertLit(newNode(nkNilLit))
+      let nilLit = cr.insertLit((newNode(nkNilLit), NoneType))
 
       let sl = c.storageLoc(val)
       case sl
@@ -796,19 +821,19 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
         # write barrier
         # TODO: document
         let target = cr.newJoinPoint()
-        cr.insertBranch(cr.insertMagicCall(c.graph, "isNil", mIsNil), target)
+        cr.insertBranch(cr.insertMagicCall(c.extra, mIsNil), target)
         # TODO: use nimGCunrefNoCylce when applicable
-        cr.insertCompProcCall(c.graph, "nimGCunrefRC1", val)
+        cr.insertCompProcCall(c.extra, "nimGCunrefRC1", val)
         cr.insertAsgn(askShallow, val, nilLit)
         cr.insertGoto(target)
         cr.insertJoin(target)
 
-        var ns = cr.insertCompProcCall(c.graph, "newSeq", c.requestRtti(cr, c.typeof(val)), n.args(1))
+        var ns = cr.insertCompProcCall(c.extra, "newSeq", c.requestRtti(cr, c.typeof(val)), n.args(1))
         ns = cr.insertCast(c.typeof(val), ns)
         cr.insertAsgn(askShallow, val, ns)
       of slStack:
 
-        var ns = cr.insertCompProcCall(c.graph, "newSeq", c.requestRtti(cr, c.typeof(val)), n.args(1))
+        var ns = cr.insertCompProcCall(c.extra, "newSeq", c.requestRtti(cr, c.typeof(val)), n.args(1))
         ns = cr.insertCast(c.typeof(val), ns)
         cr.insertAsgn(askShallow, val, ns)
 
@@ -816,7 +841,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       cr.replace()
 
       let val = cr.position
-      discard cr.insertCast(c.typeof(val), cr.insertCompProcCall(c.graph, "nimNewSeqOfCap", c.requestRtti(cr, c.typeof(val)), n.args(0)))
+      discard cr.insertCast(c.typeof(val), cr.insertCompProcCall(c.extra, "nimNewSeqOfCap", c.requestRtti(cr, c.typeof(val)), n.args(0)))
 
     of mAppendSeqElem:
       # ``seq &= x`` is transformed into:
@@ -824,32 +849,33 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       #   ``seq = ``
       cr.replace()
       let seqVal = n.args(0)
-      let typ = c.typeof(seqVal).skipTypes({tyVar})
+      let typ = c.typeof(seqVal)#.skipTypes({tyVar})
 
       # XXX: if the refc pass would be run after the `lowerSeqV1` pass, a
       #      `askMove` assignment could be used here instead
-      cr.genRefcRefAssign(c.graph, seqVal, cr.insertCast(typ, cr.insertCompProcCall(c.graph, "incrSeqV3", seqVal, c.requestRtti(cr, typ)) ), c.storageLoc(seqVal))
+      cr.genRefcRefAssign(c.extra, seqVal, cr.insertCast(typ, cr.insertCompProcCall(c.extra, "incrSeqV3", seqVal, c.requestRtti(cr, typ)) ), c.storageLoc(seqVal))
 
       # TODO: filling the element and adjusting the seq length is missing
-      discard cr.insertCallExpr(bcError, nil, cr.insertLit "Not implemented: lowerSeqsV1.mAppendSeqElem")
+      cr.insertError("Not implemented: lowerSeqsV1.mAppendSeqElem")
 
     of mAppendStrStr:
       cr.replace()
       var lens: array[2, IRIndex]
       #lens[0] = genIfThanElse() # we `len` call needs to be lowered directly
-      discard cr.insertCallExpr(bcError, nil, cr.insertLit "Not implemented: lowerSeqsV1.mAppendStrStr")
+      cr.insertError("Not implemented: lowerSeqsV1.mAppendStrStr")
 
     of mLengthStr:
       cr.replace()
       # XXX: might be a good idea to cache the `string` type
-      let strTyp = c.graph.getCompilerProc("NimStringDesc")
+      let strTyp = c.extra.compilerprocs["NimStringDesc"]
       #genIfThanElse(cr.insertMagicCall("isNil", mIsNil, a.val))
 
-      discard cr.insertCallExpr(bcError, nil, cr.insertLit "Not implemented: lowerSeqsV1.mLengthStr")
+      cr.insertError("Not implemented: lowerSeqsV1.mLengthStr")
 
     else:
       discard
 
+  #[
   of ntkLocal:
     # replace locals of `seq` and `string` type with locals of the lowered type
     # XXX: there's currently no way to replace an existing local (would be
@@ -857,7 +883,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
     #      introducing a new local and replacing all reference to the old one
     let (lk, origTyp, sym) = ir.getLocal(cr.position)
 
-    let typ = origTyp.skipTypes(abstractInst)
+    let typ = origTyp
 
     # TODO: handle ``var`` and ``lent`` wrapped types here
     case typ.kind
@@ -870,8 +896,6 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       let idx = ir.getLocalIdx(cr.position)
       var newName = c.localMap.getOrDefault(idx, -1)
       if newName == -1:
-        # XXX: ugly; the whole backend would probably benefit from it's own
-        #      symbol representation
         let nt = c.requestSeqType(typ)
         if sym != nil:
           let ns = copySym(sym, c.idgen.nextSymId())
@@ -940,20 +964,21 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
         sym.typ.add newType
       else:
         sym.typ = newType
+  ]#
 
   of ntkPathArr:
-    let arrTyp = c.typeof(n.srcLoc).skipTypes(abstractInst)
+    let arrTyp = c.typeof(n.srcLoc)
 
     # TODO: needs tests
-    case skipTypes(arrTyp, {tyVar, tyLent}).kind
-    of tyString, tySequence:
+    case c.env.types[arrTyp].kind#skipTypes(arrTyp, {tyVar, tyLent}).kind
+    of tnkString, tnkSeq:
       # --> x[].data[idx]
 
       cr.replace()
       var r = cr.insertDeref(n.srcLoc)
       # a `lent seq` is not a treated as a `ptr NimSeq` but just as `NimSeq`
       # (`NimSeq` itself is a pointer type)
-      if arrTyp.kind == tyVar:
+      if c.env.types[arrTyp].kind == tnkVar:
         r = cr.insertDeref(r)
 
       r = cr.insertPathObj(r, SeqDataFieldPos)
@@ -971,13 +996,19 @@ func lowerSeqsV2(c: GenericTransCtx, n: IrNode3, cr: var IrCursor) =
   doAssert false, "missing"
 
 type LiftPassCtx* = object
-  graph*: ModuleGraph
+  graph*: PassEnv
   idgen*: IdGenerator
   cache*: IdentCache
 
-  typeInfoMarker*: Table[SigHash, PSym] # sig hash -> type info sym
+  env*: ptr IrEnv
 
-  syms*: seq[(PSym, PType)] ## all lifted globals
+  typeInfoMarker*: Table[TypeId, SymId] # sig hash -> type info sym
+
+  syms*: seq[(SymId, TypeId)] ## all lifted globals
+
+func addGlobal*(c: var LiftPassCtx, t: TypeId, name: string): SymId =
+  # XXX: temporary helper
+  c.env.syms.addSym(skLet, t, name, {sfGlobal}) # XXX: uh-oh, hidden mutation
 
 proc liftTypeInfoV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Turns all ``mGetTypeInfo`` calls into globals and collects the newly
@@ -985,38 +1016,38 @@ proc liftTypeInfoV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurs
   # XXX: can this really be considered lifting?
   case n.kind
   of ntkCall:
-    if getMagic(ir, n) == mGetTypeInfo:
+    if getMagic(ir, c.env[], n) == mGetTypeInfo:
       cr.replace()
 
       let
         typ = ir.getLit(ir.at(n.args(0))).typ
-        sig = hashType(typ)
 
-      assert typ != nil
+      assert typ != NoneType
 
-      var s = c.typeInfoMarker.getOrDefault(sig)
-      if s == nil:
+      # XXX: the types weren't canonicalized, so we're creating lots of
+      #      duplicate type info globals for the same type
+      var s = c.typeInfoMarker.getOrDefault(typ)
+      if s == NoneSymbol:
         # TODO: either use a `Rope` here or use a string buffer stored in
         #       `LiftPassCtx` that is reserved for temporary usage like this
-        let name = "NTI" & $sig & "_" # XXX: too many short-lived and unnecessary allocations
+        let name = "NTI" & $(typ.int) & "_" # XXX: too many short-lived and unnecessary allocations
 
-        # the symbol is owned by the module the type is owned by
-        s = newSym(skVar, c.cache.getIdent(name), c.idgen.nextSymId(), typ.owner.getModule(), unknownLineInfo)
         # TODO: cache the `TNimType` type
-        s.typ = c.graph.getCompilerProc("TNimType").typ
-        s.flags.incl sfGlobal
+        let globalType = c.env.syms[c.graph.getCompilerProc("TNimType")].typ
+        # the symbol is owned by the module the type is owned by
+        s = c.addGlobal(globalType, name)
 
-        c.typeInfoMarker[sig] = s
+        c.typeInfoMarker[typ] = s
 
       # TODO: cache the `pointer` type
-      discard cr.insertCast(c.graph.getSysType(unknownLineInfo, tyPointer), cr.insertSym s)
+      discard cr.insertCast(c.graph.getSysType(tyPointer), cr.insertSym s)
 
   else:
     discard
 
 const ErrFlagName = "nimError"
 
-proc lowerTestError*(ir: var IrStore3, g: ModuleGraph, cache: IdentCache, idgen: IdGenerator, owner: PSym) =
+proc lowerTestError*(ir: var IrStore3, g: PassEnv, types: TypeEnv, syms: var SymbolEnv) =
   ## Lowers ``bcTestError`` builtin calls for the C-like targets. Turns
   ## ``bcTestError`` into ``unlikelyProc(ErrFlagName[])`` and inserts a
   ##
@@ -1050,24 +1081,19 @@ proc lowerTestError*(ir: var IrStore3, g: ModuleGraph, cache: IdentCache, idgen:
           cr.setPos 0
           let
             p = g.getCompilerProc("nimErrorFlag")
-            s = newSym(skLet, cache.getIdent(ErrFlagName), idgen.nextSymId(), owner, unknownLineInfo)
 
-          s.typ = p.getReturnType()
+            # TODO: this lookup yields the same across all calls to `lowerTestError`. Cache both the compiler proc and it's return type
+            typ = types.getReturnType(syms[p].typ)
+            s = syms.addSym(skLet, typ, ErrFlagName) # XXX: no caching is currently done for the symbol names, so a lot of duplicated strings are created here...
 
-          errFlag = cr.insertLocalRef(cr.newLocal(lkLet, s))
+
+          errFlag = cr.insertLocalRef(cr.newLocal(lkLet, typ, s))
           cr.insertAsgn(askInit, errFlag, cr.insertCallExpr(p))
 
           cr.setPos i # set cursor back to the current position
 
         cr.replace()
-        var up: PSym
-        # TODO: `systemModuleSyms` only picks up on the 'unlikelyProc' if it's exported...
-        for x in g.systemModuleSyms(cache.getIdent("unlikelyProc")):
-          up = x
-          break
-        assert up != nil
-
-        discard cr.insertCallExpr(up, cr.insertDeref(errFlag))
+        discard cr.insertCallExpr(bcUnlikely, NoneType, cr.insertDeref(errFlag)) # TODO: `NoneType` is wrong here
 
     else:
       discard
@@ -1082,20 +1108,20 @@ proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
   #      `cr.inline` here
   case n.kind
   of ntkCall:
-    case getMagic(ir, n)
+    case getMagic(ir, c.env[], n)
     of mInSet:
       cr.replace()
 
-      let setType = skipTypes(c.typeof(cr.position), abstractVar)
-      let size = getSize(c.graph.config, setType).int
+      let setType = c.typeof(n.args(0))
+      let size = c.env.types.getSize(setType).int
       case size
       of 1, 2, 4, 8:
         # small sets
         cr.insertError("mInSet for small sets missing")
       else:
-        let uintTyp = c.graph.getSysType(unknownLineInfo, tyUInt)
+        let uintTyp = c.extra.getSysType(tyUInt)
         let conv = cr.insertConv(uintTyp, n.args(1))
-        cr.insertMagicCall(c.graph, "and", mBitandI, cr.insertMagicCall(c.graph, "shr", mShrI, conv, cr.insertLit 3), cr.insertMagicCall(c.graph, "shl", mShlI, cr.insertLit 1, cr.insertMagicCall(c.graph, "and", mBitandI, conv, cr.insertLit 7)))
+        cr.insertMagicCall(c.extra, mBitandI, cr.insertMagicCall(c.extra, mShrI, conv, cr.insertLit 3), cr.insertMagicCall(c.extra, mShlI, cr.insertLit 1, cr.insertMagicCall(c.extra, mBitandI, conv, cr.insertLit 7)))
         # TODO: unfinished
         #binaryExprIn(p, e, a, b, d, "(($1[(NU)($2)>>3] &(1U<<((NU)($2)&7U)))!=0)")
 
@@ -1120,29 +1146,29 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
       var cond: IRIndex
       var raiser: string
 
-      case srcTyp.kind
-      of tyUInt, tyUInt64:
+      case c.env.types[srcTyp].kind
+      of tnkInt: # tyUInt, tyUInt64:
         # .. code:: nim
         #   cast[dstTyp](high) < val
-        cond = cr.insertMagicCall(c.graph, "<", mLtU, cr.insertCast(srcTyp, n.args(0)), n.args(2))
+        cond = cr.insertMagicCall(c.extra, mLtU, cr.insertCast(srcTyp, n.args(0)), n.args(2))
         raiser = "raiseRangeErrorNoArgs"
       else:
-        let dstTyp = skipTypes(c.typeof(cr.position), abstractVarRange)
-        case dstTyp.kind
-        of tyUInt8..tyUInt32, tyChar:
+        let dstTyp = c.typeof(cr.position)#skipTypes(c.typeof(cr.position), abstractVarRange)
+        case c.env.types[dstTyp].kind
+        of tnkInt: #tyUInt8..tyUInt32, tyChar:
           raiser = "raiseRangeErrorU"
-        of tyFloat..tyFloat128:
+        of tnkFloat: #tyFloat..tyFloat128:
           raiser = "raiseRangeErrorF"
           let conv = cr.insertConv(dstTyp, n.args(0))
           # no need to lower the `or` into an `ntkBranch` + `ntkJoin` here; it has no impact on further analysis
-          cond = cr.insertMagicCall(c.graph, "or", mOr, cr.insertMagicCall(c.graph, "<", mLtF64, conv, n.args(1)), cr.insertMagicCall(c.graph, "<", mLtF64, n.args(2), conv))
+          cond = cr.insertMagicCall(c.extra, mOr, cr.insertMagicCall(c.extra, mLtF64, conv, n.args(1)), cr.insertMagicCall(c.extra, mLtF64, n.args(2), conv))
 
         else:
           cr.insertError("missing chkRange impl")
 
         raiser =
-          case skipTypes(c.typeof(cr.position), abstractVarRange).kind
-          of tyFloat..tyFloat128: "raiseRangeErrorF"
+          case c.env.types[c.typeof(cr.position)].kind#skipTypes(c.typeof(cr.position), abstractVarRange).kind
+          of tnkFloat: "raiseRangeErrorF"#tyFloat..tyFloat128: "raiseRangeErrorF"
           else: "raiseRangeErrorI"
 
         #[
@@ -1155,8 +1181,8 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
             ]#
 
         let target = cr.newJoinPoint()
-        cr.insertBranch(cr.insertMagicCall(c.graph, "not", mNot, cond), target)
-        cr.insertCompProcCall(c.graph, raiser, n.args(0), n.args(1), n.args(2))
+        cr.insertBranch(cr.insertMagicCall(c.extra, mNot, cond), target)
+        cr.insertCompProcCall(c.extra, raiser, n.args(0), n.args(1), n.args(2))
         # XXX: it would be nice if we could also move the following
         #      ``if bcTestError(): goto error`` into the branch here
 

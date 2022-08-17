@@ -21,6 +21,7 @@ import
     options
   ],
   compiler/vm/[
+    irtypes,
     vmir
   ],
   experimental/[
@@ -73,6 +74,9 @@ type TCtx* = object
 
   options*: set[TOption]
 
+  symEnv*: SymbolEnv
+  types*: DeferredTypeGen
+
 
 type IrGenResult* = Result[IrStore3, SemReport]
 
@@ -109,18 +113,31 @@ func fail(
     info,
     loc)
 
-func irParam(ir: var IrStore3, sym: PSym): IRIndex =
-  ir.irSym(sym)
+func irSym(c: var TCtx, sym: PSym): IRIndex =
+  let id = c.symEnv.requestSym(sym)
+  c.irs.irSym(id)
 
-func irGlobal(ir: var IrStore3, sym: PSym): IRIndex =
-  ir.irSym(sym)
+func irParam(c: var TCtx, sym: PSym): IRIndex =
+  c.irSym(sym)
 
-func irConst(ir: var IrStore3, sym: PSym): IRIndex =
-  ir.irSym(sym)
+func irGlobal(c: var TCtx, sym: PSym): IRIndex =
+  c.irSym(sym)
+
+func irConst(c: var TCtx, sym: PSym): IRIndex =
+  c.irSym(sym)
+
+func irLit(c: var TCtx, n: PNode): IRIndex =
+  let typ =
+    if n.typ != nil:
+      c.types.requestType(n.typ)
+    else:
+      NoneType
+
+  c.irs.irLit((n, typ))
 
 proc irImm(c: var TCtx, val: SomeInteger): IRIndex =
   # XXX: getSysType has side-effects
-  c.irs.irLit newIntTypeNode(BiggestInt(val), c.graph.getSysType(unknownLineInfo, tyInt))
+  c.irLit newIntTypeNode(BiggestInt(val), c.graph.getSysType(unknownLineInfo, tyInt))
 
 template tryOrReturn(code): untyped =
   try:
@@ -145,27 +162,40 @@ func closeScope(c: var TCtx) =
 
 proc genProcSym(c: var TCtx, n: PNode): IRIndex =
   assert n.kind == nkSym
-  c.irs.irSym(n.sym)
+  c.irSym(n.sym)
 
 proc irCall(c: var TCtx, name: string, args: varargs[IRIndex]): IRIndex =
   # TODO: compiler procs should be cached here in `TCtx`
   let sym = c.graph.getCompilerProc(name)
-  c.irs.irCall(c.irs.irSym(sym), args)
+  c.irs.irCall(c.irSym(sym), args)
 
 func irCall(c: var TCtx, name: string, m: TMagic, args: varargs[IRIndex]): IRIndex {.inline.} =
   # TODO: instead of creating a new duplicate magic each time, all used magics
   #       should be only created once and then reused
   let sym = createMagic(c.graph, c.idgen, name, m)
-  c.irs.irCall(c.irs.irSym(sym), args)
+  c.irs.irCall(c.irSym(sym), args)
+
+func genLocal(c: var TCtx, kind: LocalKind, t: PType): IRIndex =
+  let
+    tid = c.types.requestType(t)
+
+  c.irs.genLocal(kind, tid)
+
+func genLocal(c: var TCtx, kind: LocalKind, s: PSym): IRIndex =
+  let
+    sid = c.symEnv.requestSym(s)
+    tid = c.types.requestType(s.typ)
+
+  c.irs.genLocal(kind, tid, sid)
 
 proc getTemp(cc: var TCtx; tt: PType): IRIndex =
-  let id = cc.irs.genLocal(lkTemp, tt)
+  let id = cc.genLocal(lkTemp, tt)
   cc.irs.irLocal(id)
 
-func irNull(c: var IrStore3, t: PType): IRIndex =
+func irNull(c: var TCtx, t: PType): IRIndex =
   # XXX: maybe `irNull` should be a dedicated IR node?
   let id = c.genLocal(lkTemp, t)
-  c.irLocal(id)
+  c.irs.irLocal(id)
 
 proc popBlock(c: var TCtx; oldLen: int) =
   #for f in c.prc.blocks[oldLen].fixups:
@@ -404,7 +434,7 @@ proc genCase(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
         # elif branches were eliminated during transformation
         doAssert branch.kind == nkOfBranch
 
-        let cond = c.irs.irCall(bcOf, nil, c.irs.irLit(branch))
+        let cond = c.irs.irCall(bcOf, NoneType, c.irLit(branch))
 
         c.irs.irBranch(cond, b)
         r = c.gen2(branch.lastSon)
@@ -510,10 +540,10 @@ proc genRaise(c: var TCtx; n: PNode) =
     # get the exception name
     let name = newStrNode(nkStrLit, typ.sym.name.s)#c.genLit(n[0], c.toStringCnst(typ.sym.name.s))
 
-    discard c.irs.irCall(bcRaise, nil, dest, c.irs.irLit name)
+    discard c.irs.irCall(bcRaise, NoneType, dest, c.irLit name)
   else:
     # reraise
-    discard c.irs.irCall(bcRaise, nil)
+    discard c.irs.irCall(bcRaise, NoneType)
 
   # XXX: if the exception's type is statically known, we could do the
   #      exception branch matching at compile-time (i.e. here)
@@ -529,11 +559,11 @@ proc genReturn(c: var TCtx; n: PNode): IRIndex =
   c.irs.irGoto(NormalExit)
 
 proc genLit(c: var TCtx; n: PNode): IRIndex =
-  c.irs.irLit(n)
+  c.irLit(n)
 
 
 proc genProcLit(c: var TCtx, n: PNode, s: PSym): IRIndex =
-  c.irs.irSym(s)
+  c.irSym(s)
 
 #[
 func doesAlias(c: TCtx, a, b: IRIndex): bool =
@@ -550,7 +580,7 @@ proc raiseExit(c: var TCtx) =
   # TODO: document
 
   # if isError: goto surrounding handler
-  let cond = c.irs.irCall(bcTestError, nil) # XXX: should pass tyBool
+  let cond = c.irs.irCall(bcTestError, NoneType) # XXX: should pass tyBool
   c.irs.irBranch(cond, c.prc.nextHandler())
 
 func isVarParam(t: PType): bool =
@@ -671,15 +701,15 @@ proc genField(c: TCtx; n: PNode): int =
 
   result = s.position
 
-func irLit(ir: var IrStore3, i: SomeInteger): IRIndex =
-  ir.irLit newIntNode(nkIntLit, BiggestInt(i))
+func irLit(c: var TCtx, i: SomeInteger): IRIndex =
+  c.irLit newIntNode(nkIntLit, BiggestInt(i))
 
 proc genIndex(c: var TCtx; n: PNode; arr: PType): IRIndex =
   if arr.skipTypes(abstractInst).kind == tyArray and (let x = firstOrd(c.config, arr);
       x != Zero):
     let tmp = c.genx(n)
 
-    result = c.irCall("-", mSubI, tmp, c.irs.irLit(toInt(x)))
+    result = c.irCall("-", mSubI, tmp, c.irLit(toInt(x)))
   else:
     result = c.genx(n)
 
@@ -698,7 +728,7 @@ proc isInt16Lit(n: PNode): bool =
   if n.kind in {nkCharLit..nkUInt64Lit}:
     result = n.intVal >= low(int16) and n.intVal <= high(int16)
 
-func wrapIf(c: var TCtx, wrapper: BuiltinCall, typ: PType, expr: IRIndex, cond: bool): IRIndex {.inline.} =
+func wrapIf(c: var TCtx, wrapper: BuiltinCall, typ: TypeId, expr: IRIndex, cond: bool): IRIndex {.inline.} =
   if cond: c.irs.irCall(wrapper, typ, expr)
   else:    expr
 
@@ -713,7 +743,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     # idea: also insert builtin calls to the various check functions here.
     #       Makes it easier to get uniformity across the back-ends.
     result = c.genCall(n)
-    result = c.wrapIf(bcOverflowCheck, n.typ, result, optOverflowCheck notin c.options)
+    result = c.wrapIf(bcOverflowCheck, c.types.requestType(n.typ), result, optOverflowCheck notin c.options)
     if optOverflowCheck in c.options:
       # idea: defects (or error in general) could be encoded as part of the values. I.e. a
       #       `bcOverflowCheck` call would return a result-like value (only on
@@ -738,7 +768,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     result = c.irCall("getTypeInfo", mGetTypeInfo, genTypeLit(c, n[1].typ))
 
   of mDefault:
-    result = c.irs.irNull(n.typ)
+    result = c.irNull(n.typ)
   of mRunnableExamples:
     discard "just ignore any call to runnableExamples"
   of mDestroy, mTrace:
@@ -841,11 +871,11 @@ proc genDiscrVal(c: var TCtx, discr: PSym, n: PNode, oty: PType): (IRIndex, IRIn
     assert b != -1 # no matching branch; should have been caught already
 
     result[0] = c.genLit(n) # discr value
-    result[1] = c.irs.irLit(b) # branch index
+    result[1] = c.irLit(b) # branch index
   else:
     let tmp = c.genx(n)
     result[0] = tmp
-    result[1] = c.irs.irCall(bcGetBranchIndex, nil, tmp, c.genTypeLit(oty), c.irs.irSym(discr))
+    result[1] = c.irs.irCall(bcGetBranchIndex, NoneType, tmp, c.genTypeLit(oty), c.irSym(discr))
 
 func isCursor(n: PNode): bool
 
@@ -866,7 +896,7 @@ proc genFieldAsgn(c: var TCtx, obj: IRIndex; le, ri: PNode) =
     #tmp = c.genDiscrVal(le[1], ri, le[0].typ)
     #c.irs.irAsgn(askDiscr, p, tmp)
     let (dVal, bVal) = c.genDiscrVal(s, ri, le[0].typ)
-    discard c.irs.irCall(bcSwitch, nil, p, dVal, bVal)
+    discard c.irs.irCall(bcSwitch, NoneType, p, dVal, bVal)
 
 func isCursor(n: PNode): bool =
   case n.kind
@@ -883,9 +913,9 @@ func isCursor(n: PNode): bool =
 proc genRdVar(c: var TCtx; n: PNode;): IRIndex =
   let s = n.sym
   if sfGlobal in s.flags:
-    c.irs.irGlobal(s)
+    c.irGlobal(s)
   elif s.kind == skParam:
-    c.irs.irParam(s)
+    c.irParam(s)
   elif s.kind == skResult: c.irs.irLocal(0) # TODO: don't hardcode
   else: c.irs.irLocal(c.prc.local(s))
 
@@ -958,13 +988,13 @@ proc genCheckedObjAccessAux(c: var TCtx; n: PNode; dest: var IRIndex) =
 
   if optFieldCheck in c.options:
     let discVal = c.irs.irUse(c.irs.irPathObj(dest, genField(c, disc)))
-    var cond = c.irCall("contains", mInSet, c.irs.irLit(checkExpr[1]), discVal)
+    var cond = c.irCall("contains", mInSet, c.irLit(checkExpr[1]), discVal)
     if negCheck:
       cond = c.irCall("not", mNot, cond)
 
     let lab1 = c.irs.irJoinFwd()
     c.irs.irBranch(cond, lab1)
-    discard c.irs.irCall(bcRaiseFieldErr, nil, discVal)
+    discard c.irs.irCall(bcRaiseFieldErr, NoneType, discVal)
     c.raiseExit()
     c.irs.irJoin(lab1)
 
@@ -985,7 +1015,7 @@ proc genCheckedObjAccess(c: var TCtx; n: PNode): IRIndex =
   c.irs.irPathObj(objR, fieldPos)
 
 func genTypeLit(c: var TCtx, t: PType): IRIndex =
-  c.irs.irLit(PNode(kind: nkType, typ: t))
+  c.irs.irLit((nil, c.types.requestType(t)))
 
 proc genArrAccess(c: var TCtx; n: PNode): IRIndex =
   let arrayType = n[0].typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind
@@ -1003,7 +1033,8 @@ proc genArrAccess(c: var TCtx; n: PNode): IRIndex =
 
 func addVariable(c: var TCtx, kind: LocalKind, s: PSym): IRIndex =
   assert kind != lkTemp
-  let id = c.irs.genLocal(kind, s)
+
+  let id = c.genLocal(kind, s)
   c.prc.locals[s.id] = id
   c.prc.variables.add(id)
   inc c.prc.numLocals[^1]
@@ -1021,7 +1052,7 @@ proc genVarTuple(c: var TCtx, kind: LocalKind, n: PNode) =
       if n[i].kind == nkSym:
         let s = n[i].sym
 
-        if s.isGlobal: c.irs.irGlobal(s)
+        if s.isGlobal: c.irGlobal(s)
         else: c.addVariable(kind, s)
       else:
         c.genx(n[i])
@@ -1055,14 +1086,14 @@ proc genLocalInit(c: var TCtx, kind: LocalKind, a: PNode) =
         # a function-level global
 
         if a[2].kind != nkEmpty:
-          let dest = c.irs.irGlobal(s)
+          let dest = c.irGlobal(s)
           # we don't know if the global was initialized already so we
           # always copy
           genAsgn(c, dest, a[2], requiresCopy=true)
       else:
         let local = c.addVariable(kind, s)
         let val =
-          if a[2].kind == nkEmpty: c.irs.irNull(s.typ)
+          if a[2].kind == nkEmpty: c.irNull(s.typ)
           else: genx(c, a[2])
 
         # TODO: assign kind handling needs to be rethought, an assign can be both an init _and_ a move (or shallow)
@@ -1130,16 +1161,16 @@ proc genSetConstr(c: var TCtx, n: PNode): IRIndex =
     if x.kind == nkRange:
       let a = c.genSetElem(x[0], first)
       let b = c.genSetElem(x[1], first)
-      discard c.irs.irCall(bcInclRange, nil, result, a, b)
+      discard c.irs.irCall(bcInclRange, NoneType, result, a, b)
     else:
       let a = c.genSetElem(x, first)
       discard c.irCall("incl", mIncl, result, a)
 
-func irConv(s: var IrStore3, typ: PType, val: IRIndex): IRIndex =
-  result = s.irCall(bcConv, typ, val)
+func irConv(c: var TCtx, typ: PType, val: IRIndex): IRIndex =
+  result = c.irs.irCall(bcConv, c.types.requestType(typ), val)
 
-func irCast(s: var IrStore3, typ: PType, val: IRIndex): IRIndex =
-  result = s.irCall(bcCast, typ, val)
+func irCast(c: var TCtx, typ: PType, val: IRIndex): IRIndex =
+  result = c.irs.irCall(bcCast, c.types.requestType(typ), val)
 
 
 proc genObjConstr(c: var TCtx, n: PNode): IRIndex =
@@ -1147,7 +1178,7 @@ proc genObjConstr(c: var TCtx, n: PNode): IRIndex =
   let t = n.typ.skipTypes(abstractRange+{tyOwned}-{tyTypeDesc})
   var obj: IRIndex
   if t.kind == tyRef:
-    let nSym = c.irs.irSym getSysSym(c.graph, n.info, "internalNew")
+    let nSym = c.irSym getSysSym(c.graph, n.info, "internalNew")
     discard c.irs.irCall(nSym, result)
     obj = c.irs.irDeref(result)
   else:
@@ -1167,7 +1198,7 @@ proc genObjConstr(c: var TCtx, n: PNode): IRIndex =
         # XXX: this is a hack to make `tests/vm/tconst_views` work for now.
         #      `transf` removes `nkHiddenStdConv` for array/seq to openArray
         #      conversions, which we could have otherwise relied on
-        tmp = c.irs.irConv(le, tmp)
+        tmp = c.irConv(le, tmp)
 
       c.irs.irAsgn(askInit, c.irs.irPathObj(obj, idx), tmp)
     else:
@@ -1196,10 +1227,10 @@ proc genTupleConstr(c: var TCtx, n: PNode): IRIndex =
 proc genClosureConstr(c: var TCtx, n: PNode): IRIndex =
   let tmp = c.genx(n[0])
   let env =
-    if n[1].kind == nkNilLit: c.irs.irNull(c.graph.getSysType(n.info, tyNil))
+    if n[1].kind == nkNilLit: c.irNull(c.graph.getSysType(n.info, tyNil))
     else: c.genx(n[1])
 
-  c.irs.irCall(bcNewClosure, n.typ, tmp, env)
+  c.irs.irCall(bcNewClosure, c.types.requestType(n.typ), tmp, env)
 
 template wrapCf(code) =
   let next {.inject.} = c.irs.irJoinFwd()
@@ -1209,6 +1240,10 @@ template wrapCf(code) =
 proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
   when defined(nimCompilerStacktraceHints):
     setFrameMsg c.config$n.info & " " & $n.kind
+
+  template nodeType(): TypeId =
+    c.types.requestType(n.typ)
+
   dest = InvalidIndex
   case n.kind
   of nkError:
@@ -1225,7 +1260,7 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
       dest = genProcLit(c, n, s)
     of skConst:
       # ``transf`` should've inlined all simple constants already
-      dest = c.irs.irConst(s)
+      dest = c.irConst(s)
 
     of skEnumField:
       unreachable("skEnumField not folded")
@@ -1254,7 +1289,7 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
     else:
       dest = genCall(c, n)
   of nkCharLit..nkInt64Lit:
-    dest = c.irs.irLit(n)
+    dest = c.irLit(n)
   of nkUIntLit..pred(nkNilLit): dest = genLit(c, n)
   of nkNilLit:
     if not n.typ.isEmptyType:
@@ -1262,7 +1297,7 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
       internalAssert(c.config,
         t.kind in {tyPtr, tyRef, tyPointer, tyNil, tyProc, tyCstring},
         n.info, $t.kind)
-      dest = c.irs.irNull(t)
+      dest = c.irNull(t)
     else: doAssert false, "why is this needed again?"#unused(c, n)
   of nkAsgn, nkFastAsgn:
     genAsgn(c, n[0], n[1], n.kind == nkAsgn)
@@ -1309,11 +1344,11 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
       discard genx(c, n[0])
     # TODO: something like `irVoid` might make sense...
   of nkHiddenStdConv, nkHiddenSubConv, nkConv:
-    dest = c.irs.irConv(n.typ, c.genx(n[1]))
+    dest = c.irConv(n.typ, c.genx(n[1]))
   of nkObjDownConv:
-    dest = c.irs.irConv(n.typ, c.genx(n[0]))
+    dest = c.irConv(n.typ, c.genx(n[0]))
   of nkObjUpConv:
-    dest = c.irs.irConv(n.typ, c.genx(n[0]))
+    dest = c.irConv(n.typ, c.genx(n[0]))
   of nkVarSection, nkLetSection:
     genVarSection(c, n)
   of nkLambdaKinds:
@@ -1331,9 +1366,9 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
     if optRangeCheck notin c.options or (destTyp.kind in {tyUInt..tyUInt64} and
        checkUnsignedConversions notin c.config.legacyFeatures):
       # skip the range-check if range-checks are disabled or not applicable
-      dest = c.irs.irConv(n.typ, tmp0)
+      dest = c.irConv(n.typ, tmp0)
     else:
-      dest = c.irs.irCall(bcRangeCheck, n.typ, tmp0, tmp1, tmp2)
+      dest = c.irs.irCall(bcRangeCheck, nodeType(), tmp0, tmp1, tmp2)
       raiseExit(c)
 
   of routineDefs:
@@ -1346,23 +1381,23 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
     gen(c, n[0], dest)
   of nkBracket:
     if isDeepConstExpr(n):
-      dest = c.irs.irLit(n)
+      dest = c.irLit(n)
     elif skipTypes(n.typ, abstractVarRange).kind == tySequence:
       # XXX: why is this even possible? It is, yes
-      #c.irs.irLit()
+      #c.irLit()
       doAssert false
     else:
       dest = genArrayConstr(c, n)
   of nkCurly:
     if isDeepConstExpr(n):
-      dest = c.irs.irLit(n)
+      dest = c.irLit(n)
     else:
       dest = genSetConstr(c, n)
   of nkObjConstr: dest = genObjConstr(c, n)
   of nkPar, nkTupleConstr: dest = genTupleConstr(c, n)
   of nkClosure: dest = genClosureConstr(c, n)
   of nkCast:
-    dest = c.irs.irCast(n.typ, c.genx(n[1]))
+    dest = c.irCast(n.typ, c.genx(n[1]))
   of nkTypeOfExpr:
     dest = genTypeLit(c, n.typ)
   else:
@@ -1484,7 +1519,7 @@ proc genProcBody(c: var TCtx; s: PSym, body: PNode) =
     # TODO: what's the sfPure flag check needed for?
     if not s.typ[0].isEmptyType() and sfPure notin s.flags:
       # important: the 'result' variable is not tracked in ``prc.variables``
-      discard c.irs.genLocal(lkVar, s.ast[resultPos].sym)
+      discard c.genLocal(lkVar, s.ast[resultPos].sym)
 
     gen(c, body)
 

@@ -2069,7 +2069,7 @@ func abs*(x: int64): int64 {.magic: "AbsI", inline.} =
 when not defined(js):
 
   proc likelyProc(val: bool): bool {.importc: "NIM_LIKELY", nodecl, noSideEffect.}
-  proc unlikelyProc*(val: bool): bool {.importc: "NIM_UNLIKELY", nodecl, noSideEffect.}
+  proc unlikelyProc(val: bool): bool {.importc: "NIM_UNLIKELY", nodecl, noSideEffect.}
 
 template likely*(val: bool): bool =
   ## Hints the optimizer that `val` is likely going to be true.

@@ -11,6 +11,10 @@ import std/tables
 import compiler/ast/ast_query
 import compiler/ic/bitabs
 
+import compiler/vm/irtypes
+
+export irtypes
+
 type IRIndex* = int
 const InvalidIndex* = -1 # XXX: it would be better for `InvalidIndex` to be '0'
 
@@ -186,6 +190,8 @@ type
     bcCast # XXX: cast and conv should become dedicated ir nodes
     bcOverflowCheck
 
+    bcUnlikely # XXX: alternatively, turn `system.unlikelyProc` into a .compilerproc
+
   IrNode3* = object
     case kind: IrNodeKind3
     of ntkAsgn:
@@ -195,7 +201,7 @@ type
     of ntkImm:
       immediate: uint32
     of ntkSym:
-      symIdx: int
+      sym: SymId
     of ntkPathObj:
       field: uint16
       objSrc: PathIndex
@@ -220,7 +226,7 @@ type
       case isBuiltin: bool
       of true:
         builtin: BuiltinCall
-        typ: PType # the return type
+        typ: TypeId # the return type
       of false: callee: IRIndex
 
       args: seq[IRIndex]
@@ -231,6 +237,8 @@ type
     else:
       discard
 
+  Literal* = tuple[val: PNode, typ: TypeId]
+
   LocalKind* = enum
     lkTemp
     lkVar
@@ -239,12 +247,18 @@ type
   IrStore3* = object
     nodes: seq[IrNode3]
     joins: seq[(IRIndex, bool)] # joint point id -> ir position
-    syms: seq[PSym]
-    literals: seq[PNode]
-    locals: seq[(LocalKind, PType, PSym)]
+    #syms: seq[PSym]
+    literals: seq[Literal]
+    locals: seq[(LocalKind, TypeId, SymId)]
 
     localSrc: seq[seq[StackTraceEntry]]
     sources: seq[seq[StackTraceEntry]] # the stack trace of where each node was added
+
+  IrEnv* = object
+    ##
+    syms*: SymbolEnv
+    types*: TypeEnv
+
   CodeFragment* = object
     code*: seq[TInstr]
     debug*: seq[TLineInfo]
@@ -350,17 +364,21 @@ func add(x: var IrStore3, n: sink IrNode3): IRIndex =
 ## version 2/3
 
 
-func genLocal*(c: var IrStore3, kind: LocalKind, typ: PType): int =
-  assert typ != nil
-  c.locals.add((kind, typ, nil))
+func genLocal*(c: var IrStore3, kind: LocalKind, typ: TypeId): int =
+  assert typ != NoneType
+  c.locals.add((kind, typ, NoneSymbol))
   result = c.locals.high
   {.noSideEffect.}:
     c.localSrc.add(getStackTraceEntries())
 
-func genLocal*(c: var IrStore3, kind: LocalKind, sym: PSym): int =
+func genLocal*(c: var IrStore3, kind: LocalKind, typ: TypeId, sym: SymId): int =
   ## A local that has a symbol
-  assert sym.typ != nil
-  c.locals.add((kind, sym.typ, sym))
+  # XXX: introduce an ``OptionalTypeId`` and ``OptionalSymId`` and make ``TypeId`` and ``SymId`` mean never none?
+  assert sym != NoneSymbol
+  assert typ != NoneType
+  # XXX: maybe not require `typ` here and only store either a type or symbol
+  #      for the local?
+  c.locals.add((kind, typ, sym))
   result = c.locals.high
   {.noSideEffect.}:
     c.localSrc.add(getStackTraceEntries())
@@ -371,11 +389,11 @@ func irContinue*(c: var IrStore3) =
 func irUse*(c: var IrStore3, loc: IRIndex): IRIndex =
   c.add(IrNode3(kind: ntkUse, theLoc: loc))
 
-proc irSym*(c: var IrStore3, sym: PSym): IRIndex =
+proc irSym*(c: var IrStore3, sym: SymId): IRIndex =
   # TODO: don't add duplicate items?
-  assert sym != nil
-  c.syms.add(sym)
-  c.add(IrNode3(kind: ntkSym, symIdx: c.syms.high))
+  assert sym != NoneSymbol
+  #c.syms.add(sym)
+  c.add(IrNode3(kind: ntkSym, sym: sym))
 
 func irDeref*(c: var IrStore3, val: IRIndex): IRIndex =
   c.add(IrNode3(kind: ntkDeref, addrLoc: val))
@@ -465,7 +483,7 @@ proc irStmt*(c: var IrStore, opc: TOpcode, args: varargs[IRIndex]): IRIndex {.di
 func irCall*(c: var IrStore3, callee: IRIndex, args: varargs[IRIndex]): IRIndex =
   c.add(IrNode3(kind: ntkCall, isBuiltin: false, callee: callee, args: @args))
 
-func irCall*(c: var IrStore3, callee: BuiltinCall, typ: PType, args: varargs[IRIndex]): IRIndex =
+func irCall*(c: var IrStore3, callee: BuiltinCall, typ: TypeId, args: varargs[IRIndex]): IRIndex =
   c.add(IrNode3(kind: ntkCall, isBuiltin: true, builtin: callee, typ: typ, args: @args))
 
 proc irCallExpr*(c: var IrStore, name: IRIndex, noSideEffect: bool, args: varargs[IRIndex]): IRIndex =
@@ -536,10 +554,10 @@ func irAddr*(c: var IrStore3, loc: IRIndex): IRIndex =
 
 # version 1 (old) transition helpers
 
-func irLit*(c: var IrStore3, n: PNode): IRIndex =
+func irLit*(c: var IrStore3, lit: Literal): IRIndex =
   #assert n.typ != nil
   result = c.add(IrNode3(kind: ntkLit, litIdx: c.literals.len))
-  c.literals.add(n)
+  c.literals.add(lit)
 
 # TODO: not related to the IR. Might need a better home
 proc append*(dst: var CodeFragment, f: CodeFragment) =
@@ -563,23 +581,23 @@ iterator nodes*(s: IrStore3): lent IrNode3 =
   for it in s.nodes:
     yield it
 
-iterator locals*(s: IrStore3): (PType, PSym) =
+iterator locals*(s: IrStore3): (TypeId, SymId) =
   for it in s.locals:
     yield (it[1], it[2])
 
 func at*(irs: IrStore3, i: IRIndex): lent IrNode3 =
   irs.nodes[i]
 
-func sym*(c: IrStore3, n: IrNode3): PSym =
-  c.syms[n.symIdx]
+func sym*(c: IrStore3, n: IrNode3): SymId =
+  n.sym #c.syms[n.symIdx]
 
-func getLocal*(irs: IrStore3, n: IRIndex): (LocalKind, PType, PSym) =
+func getLocal*(irs: IrStore3, n: IRIndex): (LocalKind, TypeId, SymId) =
   irs.locals[irs.nodes[n].local]
 
 func getLocalIdx*(irs: IrStore3, n: IRIndex): int =
   irs.nodes[n].local
 
-func getLit*(irs: IrStore3, n: IrNode3): PNode =
+func getLit*(irs: IrStore3, n: IrNode3): lent Literal =
   irs.literals[n.litIdx]
 
 func isLoop*(ir: IrStore3, j: JoinPoint): bool =
@@ -617,7 +635,7 @@ iterator args*(n: IrNode3): IRIndex =
     yield it
 
 
-func typ*(n: IrNode3): PType =
+func typ*(n: IrNode3): TypeId =
   ## The return type of a builtin call
   n.typ
 
@@ -1521,7 +1539,7 @@ type
 
 type
   LocIndex* = int
-  FieldId* = int
+  #FieldId* = int
   NewNodeId* = int
   ValueId* = int
 
@@ -1810,9 +1828,9 @@ type
 type IrCursor* = object
   pos: int
   actions: seq[(bool, Slice[IRIndex])] # true = replace, false = insert
-  newSyms: SeqAdditions[PSym]
-  newLocals: SeqAdditions[(LocalKind, PType, PSym)]
-  newLiterals: SeqAdditions[PNode]
+  #newSyms: SeqAdditions[PSym]
+  newLocals: SeqAdditions[(LocalKind, TypeId, SymId)]
+  newLiterals: SeqAdditions[Literal] # literal + type
   newNodes: seq[IrNode3]
 
   traces: seq[seq[StackTraceEntry]]
@@ -1839,7 +1857,7 @@ func apply[T](dest: var seq[T], src: sink SeqAdditions[T]) =
 
 func setup*(cr: var IrCursor, ir: IrStore3) =
   cr.nextIdx = ir.len
-  cr.newSyms.setFrom(ir.syms)
+  #cr.newSyms.setFrom(ir.syms)
   cr.newLocals.setFrom(ir.locals)
   cr.newLiterals.setFrom(ir.literals)
 
@@ -1871,31 +1889,30 @@ func insert(cr: var IrCursor, n: sink IrNode3): IRIndex =
     cr.actions.add (false, cr.pos..cr.pos)
   result = cr.getNext()
 
-func insertSym*(cr: var IrCursor, sym: PSym): IRIndex =
-  assert sym != nil
-  cr.insert IrNode3(kind: ntkSym, symIdx: cr.newSyms.add(sym))
+func insertSym*(cr: var IrCursor, sym: SymId): IRIndex =
+  assert sym != NoneSymbol
+  cr.insert IrNode3(kind: ntkSym, sym: sym)
 
-func insertCallExpr*(cr: var IrCursor, sym: PSym, args: varargs[IRIndex]): IRIndex =
+func insertCallExpr*(cr: var IrCursor, sym: SymId, args: varargs[IRIndex]): IRIndex =
   let c = cr.insertSym(sym)
   result = cr.insert IrNode3(kind: ntkCall, isBuiltin: false, callee: c, args: @args)
 
-func insertCallStmt*(cr: var IrCursor, sym: PSym, args: varargs[IRIndex]) =
+func insertCallStmt*(cr: var IrCursor, sym: SymId, args: varargs[IRIndex]) =
   discard insertCallExpr(cr, sym, args)
 
-func insertCallExpr*(cr: var IrCursor, bc: BuiltinCall, typ: PType, args: varargs[IRIndex]): IRIndex =
+func insertCallExpr*(cr: var IrCursor, bc: BuiltinCall, typ: TypeId, args: varargs[IRIndex]): IRIndex =
   result = cr.insert IrNode3(kind: ntkCall, isBuiltin: true, builtin: bc, typ: typ, args: @args)
 
-func insertLit*(cr: var IrCursor, lit: PNode): IRIndex =
-  assert lit != nil
+func insertLit*(cr: var IrCursor, lit: Literal): IRIndex =
   cr.insert IrNode3(kind: ntkLit, litIdx: cr.newLiterals.add(lit))
 
 func insertAsgn*(cr: var IrCursor, kind: AssignKind, a, b: IRIndex) =
   discard cr.insert IrNode3(kind: ntkAsgn, asgnKind: kind, wrDst: a, wrSrc: b)
 
-func insertCast*(cr: var IrCursor, t: PType, val: IRIndex): IRIndex =
+func insertCast*(cr: var IrCursor, t: TypeId, val: IRIndex): IRIndex =
   cr.insertCallExpr(bcCast, t, val)
 
-func insertConv*(cr: var IrCursor, t: PType, val: IRIndex): IRIndex =
+func insertConv*(cr: var IrCursor, t: TypeId, val: IRIndex): IRIndex =
   cr.insertCallExpr(bcConv, t, val)
 
 func insertDeref*(cr: var IrCursor, val: IRIndex): IRIndex =
@@ -1919,12 +1936,12 @@ func insertGoto*(cr: var IrCursor, t: JoinPoint) =
 func insertJoin*(cr: var IrCursor, t: JoinPoint) =
   discard
 
-func newLocal*(cr: var IrCursor, kind: LocalKind, s: PSym): int =
-  cr.newLocals.add((kind, s.typ, s))
+func newLocal*(cr: var IrCursor, kind: LocalKind, t: TypeId, s: SymId): int =
+  cr.newLocals.add((kind, t, s))
 
-func newLocal*(cr: var IrCursor, kind: LocalKind, t: PType): int =
+func newLocal*(cr: var IrCursor, kind: LocalKind, t: TypeId): int =
   assert kind == lkTemp
-  cr.newLocals.add((kind, t, nil))
+  cr.newLocals.add((kind, t, NoneSymbol))
 
 func insertLocalRef*(cr: var IrCursor, name: int): IRIndex =
   cr.insert IrNode3(kind: ntkLocal, local: name)
@@ -1964,7 +1981,7 @@ func patch(n: var IrNode3, patchTable: seq[IRIndex]) =
      ntkContinue, ntkGotoLink, ntkLoad, ntkWrite, ntkRoot, ntkLit:
     discard "nothing to patch"
 
-func inline*(cr: var IrCursor, other: IrStore3, args: varargs[IRIndex]): IRIndex =
+func inline*(cr: var IrCursor, other: IrStore3, sEnv: SymbolEnv, args: varargs[IRIndex]): IRIndex =
   ## Does NOT create temporaries for each arg
   # XXX: unfinished
 
@@ -1978,7 +1995,7 @@ func inline*(cr: var IrCursor, other: IrStore3, args: varargs[IRIndex]): IRIndex
   let oldLen = cr.newNodes.len
 
   cr.newNodes.add(other.nodes)
-  cr.newSyms.add(other.syms)
+  #cr.newSyms.add(other.syms)
   cr.newLocals.add(other.locals)
   cr.traces.add(other.sources) # use the traces of the original
 
@@ -1990,13 +2007,15 @@ func inline*(cr: var IrCursor, other: IrStore3, args: varargs[IRIndex]): IRIndex
     patchTable[i - oldLen] = i
     case cr.newNodes[i].kind
     of ntkSym:
-      let s = other.syms[cr.newNodes[i].symIdx]
+      let s = sEnv[cr.newNodes[i].sym]
+      # XXX: another indicator that a dedicated ``ntkParam`` would be
+      #      better: we need access to ``SymbolEnv`` here
       if s.kind == skParam:
         assert s.position < args.len, "not enough arguments"
         # for simplicity, the original parameter reference node is left as is
         patchTable[i - oldLen] = args[s.position]
-      else:
-        cr.newNodes[i].symIdx += cr.newSyms.start
+      #else:
+      #  cr.newNodes[i].symIdx += cr.newSyms.start
 
     of ntkLocal:
       cr.newNodes[i].local += cr.newLocals.start
@@ -2011,7 +2030,7 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
   let oldLen = ir.len
   patchTable.newSeq(cr.nextIdx) # old ir len + insert node count
 
-  ir.syms.apply(cr.newSyms)
+  #ir.syms.apply(cr.newSyms)
   ir.locals.apply(cr.newLocals)
   ir.literals.apply(cr.newLiterals)
 

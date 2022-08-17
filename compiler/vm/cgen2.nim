@@ -13,9 +13,7 @@ import
 
   compiler/ast/[
     ast_types,
-    ast_query,
-    types,
-    trees
+    ast_query
   ],
   compiler/front/[
     options,
@@ -24,29 +22,26 @@ import
   compiler/ic/[
     bitabs
   ],
-  compiler/sem/[
-    sighashes
-  ],
   compiler/utils/[
     int128,
     pathutils
   ],
   compiler/vm/[
+    irtypes,
     vmir,
     irdbg
   ]
 
-from compiler/modules/modulegraphs import `$`
 from compiler/vm/vmdef import unreachable
 from compiler/vm/vmaux import getEnvParam
 
 from compiler/vm/irpasses import computeTypes, PassError
 
 type
-  TypeKey = distinct PType
+  TypeKey = TypeId
 
-  TypeSet = Table[int, PType] # TODO: only store unique types?
-  SymSet = Table[int, PSym] # TODO: use a `HashSet`
+  TypeSet = Table[int, TypeId] # TODO: only store unique types?
+  SymSet = Table[int, SymId] # TODO: use a `HashSet`
 
   LocalGenCtx = object
     ## Mutable environmental state that only applies to the current item
@@ -56,12 +51,9 @@ type
     ## Environmental state that is local to the module the IR being processed
     ## lies in.
 
-    # TODO: use a data structure more efficient than `TIdTable`. Maybe
-    #       translating to unique type, similar to how types in the VM
-    #       are handled, make sense here
-    types: OrderedTable[int, PType] # all used type for the module
+    types: PackedSet[TypeId] # all used type for the module
 
-    syms: Table[int, PSym] ## symbol-id -> symbol. All used symbols that need to be declared in the C code. # TODO: should be a SymSet
+    syms: PackedSet[SymId] ## all used symbols that need to be declared in the C code. # TODO: should be a SymSet
 
     # TODO: header paths can be very regular. Maybe a CritBitTree[void} would make sense here?
     # TODO: the header includes are currently emitted in an arbitrary order, is that okay? (check the old cgen)
@@ -178,7 +170,7 @@ type
     ctypeMap: Table[TypeKey, CTypeId] #
     ctypes: seq[CTypeInfo] #
 
-    defered: seq[(PType, CTypeId)]
+    defered: seq[(TypeId, CTypeId)]
 
   CAstBuilder = object
     ast: CAst
@@ -188,11 +180,12 @@ const StringCType = CTypeId(1)
 
 const InvalidCIdent = CIdent(0) # warning: this depends on a implementation detail of `BiTable`
 
+#[
 func hash(a: TypeKey): Hash =
-  hash(PType(a).itemId)
-
+  hash(TypeId(a).itemId)
 func `==`(a, b: TypeKey): bool =
   a.PType.itemId == b.PType.itemId
+]#
 
 func `==`(a, b: CTypeId): bool {.borrow.}
 
@@ -200,6 +193,10 @@ func mangledName(sym: PSym): string =
   # TODO: cache the mangled names (and don't use TLoc for it!)
   # TODO: implement
   sym.name.s
+
+func mangledName(d: Declaration): string =
+  # XXX: temporary
+  d.name
 
 const BaseName = "Sub" ## the name of the field for the base type
 
@@ -225,15 +222,17 @@ type TypeGenCtx = object
   ctypes: seq[CTypeInfo] # mutated
   cache: IdentCache # mutated
 
+  env: ptr IrEnv
+
   # non-inherited state
-  weakTypes: set[TTypeKind] # the set of types that can be turned into forward declarations when declared as a pointer
+  weakTypes: set[TypeNodeKind] # the set of types that can be turned into forward declarations when declared as a pointer
 
   forwardBegin: int
-  forwarded: seq[PType] ## types who's creation was defered. THe first entry
+  forwarded: seq[TypeId] ## types who's creation was defered. THe first entry
                         ## has an ID of `forwardBegin`, the second
                         ## `forwardBegin + 1`, etc.
 
-func requestType(c: var TypeGenCtx, t: PType): CTypeId =
+func requestType(c: var TypeGenCtx, t: TypeId): CTypeId =
   ## Requests the type-id for `t`. If the c-type for `t` doesn't exist yet, a
   ## slot for it is reserved and it's added to the `c.forwared` list
   let next = c.ctypes.len.CTypeId
@@ -244,148 +243,155 @@ func requestType(c: var TypeGenCtx, t: PType): CTypeId =
     c.ctypes.setLen(c.ctypes.len + 1)
     c.forwarded.add(t)
 
-func requestFuncType(c: var TypeGenCtx, t: PType): CTypeId =
+func requestFuncType(c: var TypeGenCtx, t: TypeId): CTypeId =
   # XXX: this is going to be tricky
   discard
 
-func genRecordNode(c: var TypeGenCtx, decl: var CDecl, n: PNode): int =
+func genRecordNode(c: var TypeGenCtx, decl: var CDecl, i: var RecordNodeIndex, fstart: int): int =
+  let n = c.env.types[i]
+  inc i
+
   case n.kind
-  of nkSym:
-    let s = n.sym
-    decl.addField(c.cache, c.requestType(s.typ), s.name.s)
-    result = 1
-  of nkRecList:
-    for it in n.sons:
-      discard genRecordNode(c, decl, it)
+  of rnkList:
+    discard "ignore"
+    for _ in 0..<n.len:
+      result += genRecordNode(c, decl, i, fstart)
 
-    result = n.len
+  of rnkFields:
+    for i in n.a..n.b:
+      let f = fstart + i.int
+      let
+        field = c.env.types.field(f)
+        name =
+          if field.sym == NoneSymbol:
+            # note: ignoring the records field offset means that unnamed
+            #       fields in ``object`` types using inheritance won't work
+            fmt"Field{i}"
+          else:
+            c.env.syms[field.sym].decl.name
 
-  of nkRecCase:
+      decl.addField(c.cache,
+                    c.requestType(field.typ),
+                    name)
+
+    result = int(n.b - n.a + 1)
+
+  of rnkCase:
     # TODO: properly name the generated fields, unions, and structs
-    decl.addField(c.cache, c.requestType(n[0].sym.typ), n[0].sym.name.s)
-    decl.add cdnkUnion, uint32(n.len-1)
-    decl.add cdnkEmpty
-    for i in 1..<n.len:
-      let start = decl.len
-      decl.add cdnkStruct
-      decl.add cdnkEmpty
+    #[let discrField = c.env.types.field(f)
+    decl.addField(c.cache, c.requestType(discrField.typ), c.env.syms[discrField.sym].decl.name)
+    ]#
 
-      let count = genRecordNode(c, decl, n[i][^1])
-      decl[start].a = count.uint32
+    discard genRecordNode(c, decl, i, fstart) # discriminator; needs to come before the union
+
+    decl.add cdnkUnion, n.len - 1
+    decl.add cdnkEmpty
+    for _ in 1..<n.len:
+      discard genRecordNode(c, decl, i, fstart)
 
     result = 2 # discriminator field + union
+
+  of rnkBranch:
+    let start = decl.len
+    decl.add cdnkStruct
+    decl.add cdnkEmpty
+
+    let count = genRecordNode(c, decl, i, fstart)
+    decl[start].a = count.uint32
+
+    result = 1 # a single struct
+
   else:
     unreachable(n.kind)
 
 
-func genCType(dest: var CDecl, cache: var IdentCache, t: PType)
+func genCType(dest: var CDecl, cache: var IdentCache, t: Type)
 
-func addWeakType(dest: var CDecl, c: var TypeGenCtx, t: PType) =
-  let orig = t
-  let t = t.skipTypes(abstractInst)
-
+func addWeakType(dest: var CDecl, c: var TypeGenCtx, t: TypeId) =
   # don't use a weak-dependency for ptr-like types
   let kind =
-    if t.kind in c.weakTypes: cdnkWeakType
+    if c.env.types[t].kind in c.weakTypes: cdnkWeakType
     else: cdnkType
 
-  dest.add kind, c.requestType(orig).uint32
+  dest.add kind, c.requestType(t).uint32
 
-func genCTypeDecl(c: var TypeGenCtx, t: PType): CDecl =
-  case t.kind
-  of tyObject:
+func genCTypeDecl(c: var TypeGenCtx, t: TypeId): CDecl =
+  case c.env.types[t].kind
+  of tnkRecord:
     let kind =
-      if tfUnion in t.flags: cdnkUnion
+      if false #[tfUnion in t.flags]#: cdnkUnion
       else:                  cdnkStruct
 
-    result.add cdnkStruct, 0, cast[uint32](t.flags)
-    # TODO: typ.sym may be nil
-    if t.sym == nil:
-      result.add cdnkEmpty
-    else:
-      result.add cdnkIdent, c.cache.getOrIncl(mangledName(t.sym)).uint32
+    result.add kind, 0#, cast[uint32](t.flags)
+    result.add cdnkEmpty
+
     # base type
-    if t[0] != nil:
-      let base = t[0].skipTypes(skipPtrs)
+    if (let base = c.env.types.baseType(t); base != NoneType):
       result.addField(c.cache, c.requestType(base), BaseName)
       inc result[0].a
 
-    let count = genRecordNode(c, result, t.n)
+    var i = c.env.types[t].record.toIndex.RecordNodeIndex
+    let f = c.env.types[t].a.int
+    let count = genRecordNode(c, result, i, f)
     result[0].a += count.uint32
 
-  of tyTuple:
-    result.add cdnkStruct, t.len.uint32
-    # TODO: typ.sym may be nil. Edit: It is, but why again?
-    if t.sym == nil:
-      result.add cdnkEmpty
-    else:
-      result.add cdnkIdent, c.cache.getOrIncl(mangledName(t.sym)).uint32
-    if t.n != nil:
-      # a named tuple
-      discard genRecordNode(c, result, t.n)
-    else:
-      # an anonymous tuple
-      for i in 0..<t.len:
-        result.addField(c.cache, c.requestType(t[i]), fmt"Field{i}")
-
-  of tyArray:
+  of tnkArray:
     result.add cdnkBracket
     # not a weak-dep, since the a complete type is required
-    result.add cdnkType, c.requestType(t.elemType).uint32
+    result.add cdnkType, c.requestType(c.env.types.elemType(t)).uint32
     # TODO: pass a valid ConfigRef
     {.cast(noSideEffect).}:
-      result.addIntLit lengthOrd(nil, t).toUInt64()
+      result.addIntLit c.env.types.length(t).uint64
 
-  of tyProc:
-    case t.callConv
+  of tnkProc:
+    case c.env.types.callConv(t)
     of ccClosure:
       result.add cdnkStruct, 2
-      # TODO: typ.sym may be nil
-      if t.sym != nil:
-        result.add cdnkIdent, c.cache.getOrIncl(mangledName(t.sym)).uint32
-      else:
-        result.add cdnkEmpty
+      result.add cdnkEmpty
 
       result.addField(c.cache, c.requestFuncType(t), "ClP_0")
-      result.addField(c.cache, c.requestType(t.lastSon), "ClE_0")
+      result.addField(c.cache, c.requestType(c.env.types.param(t, ^1)), "ClE_0")
 
     else:
-      result.add cdnkFuncPtr, uint32(t.len - 1) # -1 for the always present return type
-      for it in t.sons:
-        if it == nil:
-          result.add cdnkType, VoidCType.uint32
-        else:
+      result.add cdnkFuncPtr, c.env.types.numParams(t).uint32
+      result.addWeakType(c, c.env.types.getReturnType(t))
+
+      for it in c.env.types.params(t):
           # function pointer declarations don't require complete types
           result.addWeakType(c, it)
 
-  of tyRef, tyPtr, tyVar, tyLent:
+  of tnkRef, tnkPtr, tnkVar, tnkLent:
     result.add cdnkPtr
     # we only need a weak-dep for the pointer's element type
-    result.addWeakType(c, t.elemType)
+    result.addWeakType(c, c.env.types.elemType(t))
 
-  of tyUncheckedArray:
+  of tnkUncheckedArray:
     result.add cdnkBracket
-    result.addWeakType(c, t.elemType)
+    result.addWeakType(c, c.env.types.elemType(t))
     # ``SEQ_DECL_SIZE`` is a macro defined in ``nimbase.h``
     result.add cdnkIdent, c.cache.getOrIncl("SEQ_DECL_SIZE").uint32
 
+  #[
+
   of tyGenericInst, tyOwned:
-    result = genCTypeDecl(c, t.lastSon.skipTypes(abstractInst))
+    result = genCTypeDecl(c, t.lastSon)
   of tyDistinct, tyRange, tyOrdinal:
-    result = genCTypeDecl(c, t[0].skipTypes(abstractInst))
+    result = genCTypeDecl(c, t[0])
+
+  ]#
 
   else:
     # XXX: using `genCType` doesn't feel right
-    genCType(result, c.cache, t)
+    genCType(result, c.cache, c.env.types[t])
 
   assert result.len > 0
 
-func getTypeName(c: var IdentCache, typ: PType): CIdent =
+func getTypeName(c: var IdentCache, typ: Type, decl: Declaration): CIdent =
   # TODO: not finished
-  if typ.sym != nil:
-    c.getOrIncl(mangledName(typ.sym))
+  if decl.name.len > 0:
+    c.getOrIncl(mangledName(decl))
   else:
-    let h = hashType(typ)
+    let h = 0#hashType(typ)
     c.getOrIncl(fmt"{typ.kind}_{h}")
 
 
@@ -398,14 +404,14 @@ func genForwarded(c: var TypeGenCtx) =
     let fwd = c.forwarded[i]
     # XXX: forwarded could be cleared when ``i == forwarded.high`` in
     #      order to cut down on allocations
-    let decl = genCTypeDecl(c, c.forwarded[i].skipTypes(abstractInst))
-    c.ctypes[c.forwardBegin + i] = CTypeInfo(decl: decl, name: getTypeName(c.cache, fwd))
+    let decl = genCTypeDecl(c, c.forwarded[i])
+    c.ctypes[c.forwardBegin + i] = CTypeInfo(decl: decl, name: getTypeName(c.cache, c.env.types[fwd], Declaration()))
     inc i
 
   c.forwarded.setLen(0)
   c.forwardBegin = c.ctypes.len # prepare for following ``requestType`` calls
 
-func genCType(dest: var CDecl, cache: var IdentCache, t: PType) =
+func genCType(dest: var CDecl, cache: var IdentCache, t: Type) =
   template addIdentNode(n: string) =
     dest.add cdnkIdent, cache.getOrIncl(n).uint32
 
@@ -416,34 +422,41 @@ func genCType(dest: var CDecl, cache: var IdentCache, t: PType) =
       "NU", "NU8", "NU16", "NU32", "NU64"]
 
   case t.kind
-  of tyVoid: addIdentNode("void")
-  of tyPointer, tyNil:
+  of tnkVoid: addIdentNode("void")
+  of tnkInt:
+    {.warning: "NI is never emitted anymore, as we can't detect an `int` here".}
+    addIdentNode(fmt"NI{t.size}")
+  of tnkUInt:
+    addIdentNode(fmt"NU{t.size}")
+  of tnkCString:
     dest.add cdnkPtr
-    addIdentNode("void")
-  of tyInt..tyUInt64:
-    addIdentNode(NumericalTypeToStr[t.kind])
-  of tyCstring:
     addIdentNode("NIM_CHAR")
-  of tyBool:
+  of tnkChar:
+    addIdentNode("NIM_CHAR")
+  of tnkBool:
     addIdentNode("NIM_BOOL")
   else:
     addIdentNode(fmt"genCType_missing_{t.kind}")
 
-func genCType(cache: var IdentCache, t: PType): CTypeInfo =
+func genCType(cache: var IdentCache, t: Type): CTypeInfo =
   # TODO: name handling is unfinished
   genCType(result.decl, cache, t)
-  result.name = getTypeName(cache, t)
+  result.name = getTypeName(cache, t, Declaration())
 
 
-func useFunction(c: var ModuleCtx, s: PSym) =
+func useFunction(c: var ModuleCtx, s: SymId) =
   ##
+  c.syms.incl s
+  #[
   if lfHeader in s.loc.flags:
     c.headers.incl getStr(s.annex.path)
   elif lfNoDecl notin s.loc.flags:
     discard c.syms.mgetOrPut(s.id, s)
+  ]#
 
-func useType(c: var ModuleCtx, t: PType) =
-  c.types[t.id] = t
+func useType(c: var ModuleCtx, t: TypeId) =
+  assert t != NoneType
+  c.types.incl t
 
 #[
 func useTypeWeak(c: var ModuleCtx, t: PType): CTypeId=
@@ -452,8 +465,10 @@ func useTypeWeak(c: var ModuleCtx, t: PType): CTypeId=
 func useType(c: var ModuleCtx, t: PType): CTypeId =
 ]#
 
-func requestFunction(c: var GlobalGenCtx, s: PSym): int =
+func requestFunction(c: var GlobalGenCtx, s: SymId): int =
   ## Requests the ID of the C-function `s` maps to
+  discard "now a no-op"
+  #[
   assert s.kind in routineKinds
   let nextId = c.funcs.len
   result = c.funcMap.mgetOrPut(s.id, nextId)
@@ -461,7 +476,7 @@ func requestFunction(c: var GlobalGenCtx, s: PSym): int =
     assert result < nextId
     # the header's content is generated later; we just reserve the slot here
     c.funcs.setLen(c.funcs.len + 1)
-
+  ]#
 
 func requestTypeName(c: var GlobalGenCtx, t: PType): CIdent =
   # TODO: not finished
@@ -473,11 +488,13 @@ func requestTypeName(c: var GlobalGenCtx, t: PType): CIdent =
 type GenCtx = object
   f: File
   tmp: int
-  sym: PSym
+  sym: SymId
 
   names: seq[CAst] # IRIndex -> expr
-  types: seq[PType]
+  types: seq[TypeId]
   config: ConfigRef
+
+  env: #[lent]# ptr IrEnv
 
   gl: GlobalGenCtx # XXX: temporary
   m: ModuleCtx # XXX: temporary
@@ -486,27 +503,36 @@ func gen(c: GenCtx, irs: IrStore3, n: IRIndex): CAst =
   c.names[n]
   #"gen_MISSING"
 
-func mapTypeV3(c: var GlobalGenCtx, t: PType): CTypeId
+func mapTypeV3(c: var GlobalGenCtx, t: TypeId): CTypeId
 
-func mapTypeV2(c: var GenCtx, t: PType): CTypeId =
+func mapTypeV2(c: var GenCtx, t: TypeId): CTypeId =
   # TODO: unfinished
   c.m.useType(t) # mark the type as used
 
-func mapTypeV3(c: var GlobalGenCtx, t: PType): CTypeId =
-  let k = t.TypeKey
-  result = c.ctypeMap[k]
+func mapTypeV3(c: var GlobalGenCtx, t: TypeId): CTypeId =
+  if t != NoneType:
+    # XXX: maybe just have a ``NoneType`` -> ``VoidCType`` mapping in the table instead?
+    c.ctypeMap[t]
+  else:
+    VoidCType
 
-func genProcHeader(c: var GlobalGenCtx, t: PType): ProcHeader =
-  assert t.kind == tyProc
+func genProcHeader(c: var GlobalGenCtx, senv: SymbolEnv, tenv: TypeEnv, s: SymId): ProcHeader =
+  let
+    sym = senv[s]
+    typ = sym.typ
+  assert tenv[typ].kind == tnkProc
 
-  result.returnType =
-    if t[0].isEmptyType(): VoidCType
-    else:                  mapTypeV3(c, t[0])
+  result.returnType = mapTypeV3(c, tenv.getReturnType(typ))
 
-  result.args.newSeq(t.len - 1)
-  for i in 1..<t.len:
-    result.args[i - 1] = (mapTypeV3(c, t[i]),
-                          c.idents.getOrIncl(t.n[i].sym.name.s))
+  result.args.newSeq(tenv.numParams(typ))
+  var i = 0
+  for pt in tenv.params(typ):
+    result.args[i] = (mapTypeV3(c, pt), c.idents.getOrIncl(fmt"Param{i}"))
+    #[
+    result.args[i] = (mapTypeV3(c, pt),
+                      c.idents.getOrIncl(env[env[env[t].c].a + i].sym, .t.n[i].sym.name.s))
+    ]#
+    inc i
 
 
 template start(): CAstBuilder =
@@ -561,7 +587,7 @@ func genError(c: var GenCtx, str: string): CAst =
 func genArithm(c: var GenCtx, i: IRIndex, check: bool): CAst =
   c.genError("genArithm_missing")
 
-func getTypeArg(irs: IrStore3, arg: IRIndex): PType =
+func getTypeArg(irs: IrStore3, arg: IRIndex): TypeId =
   let arg = irs.at(arg)
   case arg.kind
   of ntkLit:
@@ -583,9 +609,8 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IrNode3): CAst
     genBraced(c.gl.ident("NIM_NIL"), c.gl.ident("NIM_NIL"))
   of bcOverflowCheck:
     genArithm(c, n.args(0), true)
-  of bcTestError:
-    var ast = start()
-    ast.add(cnkCall, 1).sub().ident(c.gl.idents, "NIM_UNLIKELY").emitDeref(c.gl.idents).sub().ident(c.gl.idents, "err").fin()
+  of bcUnlikely:
+    start().add(cnkCall, 1).ident(c.gl.idents, "NIM_UNLIKELY").add(c.gen(irs, n.args(0))).fin()
   of bcCast:
     let dstTyp = n.typ
     var ast = start()
@@ -631,44 +656,12 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IrNode3): CAst =
     result = genError(c, fmt"missing magic call: {sym}")
 
 
-func nthField(n: PNode, pos: int): PSym =
-  case n.kind
-  of nkSym:
-    if n.sym.position == pos:
-      result = n.sym
-  of nkRecList:
-    for it in n.sons:
-      result = nthField(it, pos)
-      if result != nil:
-        return
-  of nkRecCase:
-    if n[0].sym.position == pos:
-      return n[0].sym
+func genLit(c: var GenCtx, literal: Literal): CAst =
+  let lit = literal.val
+  if lit == nil:
+    # `nil` as the value is used for type literals
+    return start().add(cnkType, mapTypeV2(c, literal.typ).uint32).fin()
 
-    for i in 1..<n.len:
-      result = nthField(n[i].lastSon, pos)
-      if result != nil:
-        return
-  else:
-    unreachable(n.kind)
-
-# XXX: I'm very sure there exists a proc that does the same in the compiler
-#      code already
-func nthField(t: PType, pos: int): PSym =
-  # TODO: also traverse base types
-  assert t.kind == tyObject
-
-  if t.n != nil:
-    result = nthField(t.n, pos)
-
-  if result == nil and t.len > 0 and t[0] != nil:
-    result = nthField(t[0].skipTypes(skipPtrs), pos)
-
-func safeKind(t: PType): TTypeKind {.inline.} =
-  if t == nil: tyVoid
-  else:        t.kind
-
-func genLit(c: var GenCtx, lit: PNode): CAst =
   case lit.kind
   of nkIntLit:
     start().intLit(lit.intVal).fin()
@@ -701,7 +694,7 @@ template testNode(cond: bool, i: IRIndex) =
   if not cond:
     debugEcho astToStr(cond), " failed"
     debugEcho "node: ", i
-    printIr(irs, exprs)
+    printIr(irs, c.env[], exprs)
     for e in irs.traceFor(i).items:
       debugEcho e
     if irs.at(i).kind == ntkLocal:
@@ -721,17 +714,20 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
 
   var tmp = 0
   for typ, sym in irs.locals:
-    if sym != nil:
+    if sym != NoneSymbol:
+      discard
+      #[
       if lfHeader in sym.loc.flags:
         let str = getStr(sym.annex.path)
         continue
       elif lfNoDecl in sym.loc.flags:
         continue
+      ]#
 
     result.add cnkDef
     result.add cnkType, mapTypeV2(c, typ).uint32
-    if sym != nil: # TODO: don't test for temps like this
-      result.add c.gl.ident mangledName(sym)
+    if sym != NoneSymbol: # TODO: don't test for temps like this
+      result.add c.gl.ident mangledName(c.env.syms[sym].decl)
 
     else:
       result.add c.gl.ident(fmt"_tmp{tmp}")
@@ -745,34 +741,35 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
   for n in irs.nodes:
     case n.kind
     of ntkSym:
-      let sym = irs.sym(n)
+      let sId = irs.sym(n)
+      let sym = c.env.syms[sId]
       # TODO: refactor
       if sym.kind in routineKinds and sym.magic == mNone:
-        useFunction(c.m, sym)
+        useFunction(c.m, sId)
       elif sym.kind in {skVar, skLet} and sfGlobal in sym.flags:
-        c.m.syms[sym.id] = sym
+        c.m.syms.incl sId
         #discard mapTypeV3(c.gl, sym.typ) # XXX: temporary
 
-      if sym.kind notin routineKinds and sym.typ != nil:
+      if sym.kind notin routineKinds and sym.typ != NoneType:
         useType(c.m, sym.typ)
 
-      names[i] = start().ident(c.gl.idents, mangledName(sym)).fin()
+      names[i] = start().ident(c.gl.idents, mangledName(sym.decl)).fin()
     of ntkLocal:
       let (kind, typ, sym) = irs.getLocal(i)
-      if sym == nil:
+      if sym == NoneSymbol:
         names[i] = start().ident(c.gl.idents, "_tmp" & $c.tmp).fin()
         inc c.tmp
       else:
-        names[i] = start().ident(c.gl.idents, mangledName(sym)).fin()
+        names[i] = start().ident(c.gl.idents, mangledName(c.env.syms[sym].decl)).fin()
 
     of ntkCall:
       if n.isBuiltIn:
-        let (name, typ) = genBuiltin(c, irs, n.builtin, n)
+        let name = genBuiltin(c, irs, n.builtin, n)
         names[i] = name
       else:
         let callee = irs.at(n.callee)
-        if callee.kind == ntkSym and irs.sym(callee).magic != mNone:
-          names[i] = genMagic(c, irs, irs.sym(callee).magic, n)
+        if callee.kind == ntkSym and (let s = c.env.syms[irs.sym(callee)]; s.magic != mNone):
+          names[i] = genMagic(c, irs, s.magic, n)
         else:
           var res = start().add(cnkCall, n.argCount.uint32).add(names[n.callee])
           for it in n.args:
@@ -786,30 +783,24 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
     of ntkAddr:
       names[i] = start().emitAddr(c.gl.idents).add(names[n.addrLoc]).fin()
     of ntkDeref:
-      let t = types[n.addrLoc].skipTypes(abstractInst)
-      testNode t.kind in {tyPtr, tyRef, tyVar, tyLent, tySink}, n.addrLoc
       names[i] = start().emitDeref(c.gl.idents).add(names[n.addrLoc]).fin()
     of ntkAsgn:
+      testNode names[n.srcLoc].len > 0, i
       result.add start().add(cnkInfix).add(names[n.wrLoc]).ident(c.gl.idents, "=").add(names[n.srcLoc]).fin()
       inc numStmts
     of ntkPathObj:
-      let typ = types[n.srcLoc].skipTypes(abstractInst)
+      let
+        typId = types[n.srcLoc]
+        typ = c.env.types[typId]
+        field = c.env.types.field(c.env.types.nthField(typId, n.fieldIdx).toIndex)
       let src = names[n.srcLoc]
-      let idx = n.fieldIdx
       var ast = start().add(cnkDotExpr).add(src)
-      case typ.kind
-      of tyObject:
-        let f = typ.nthField(n.fieldIdx)
-        discard ast.ident(c.gl.idents, mangledName(f))
-      of tyTuple:
-        if typ.n != nil:
-          discard ast.ident(c.gl.idents, typ.n[idx].sym.mangledName())
-        else:
-          # annonymous tuple
-          discard ast.ident(c.gl.idents, fmt"Field{idx}")
 
+      if field.sym != NoneSymbol:
+        discard ast.ident(c.gl.idents, mangledName(c.env.syms[field.sym].decl))
       else:
-        testNode false, n.srcLoc
+        # TODO: this needs some name clash protection
+        discard ast.ident(c.gl.idents, fmt"Field{n.fieldIdx}")
 
       names[i] = ast.fin()
 
@@ -850,7 +841,8 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
     inc i
 
   # exit
-  if c.sym.typ.n[0].typ.isEmptyType():
+  # TODO: ``NoneType`` should only mean "no type information", not "void"
+  if c.env.types.getReturnType(c.env.syms[c.sym].typ) != NoneType:
     result.add cnkReturn
   else:
     result.add cnkReturn, 1
@@ -1124,10 +1116,10 @@ proc emitCType(f: File, c: GlobalGenCtx, info: CTypeInfo) =
 
   assert pos == info.decl.len
 
-proc writeDecl(f: File, c: GlobalGenCtx, h: ProcHeader, name: PSym) =
+proc writeDecl(f: File, c: GlobalGenCtx, h: ProcHeader, decl: Declaration) =
   emitType(f, c, h.returnType)
   f.write(" ")
-  f.write(mangledName(name))
+  f.write(mangledName(decl))
   f.write("(")
   for i, it in h.args.pairs:
     if i > 0:
@@ -1137,10 +1129,10 @@ proc writeDecl(f: File, c: GlobalGenCtx, h: ProcHeader, name: PSym) =
 
   f.writeLine(");")
 
-proc writeDef(f: File, c: GlobalGenCtx, h: ProcHeader, name: PSym) =
+proc writeDef(f: File, c: GlobalGenCtx, h: ProcHeader, decl: Declaration) =
   emitType(f, c, h.returnType)
   f.write(" ")
-  f.write(mangledName(name))
+  f.write(mangledName(decl))
   f.write("(")
   for i, it in h.args.pairs:
     if i > 0:
@@ -1152,7 +1144,7 @@ proc writeDef(f: File, c: GlobalGenCtx, h: ProcHeader, name: PSym) =
 
   f.writeLine(") {")
 
-proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, procs: openArray[(PSym, IrStore3)]) =
+proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, env: IrEnv, procs: openArray[(SymId, IrStore3)]) =
   let f = open(filename.string, fmWrite)
   defer: f.close()
 
@@ -1163,7 +1155,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, procs: openArray
     mCtx: ModuleCtx
     asts: seq[CAst]
 
-    tgc = TypeGenCtx(weakTypes: {tyObject, tyTuple})
+    tgc = TypeGenCtx(weakTypes: {tnkRecord}, env: unsafeAddr env)
 
   template swapTypeCtx() =
     swap(tgc.tm, ctx.ctypeMap)
@@ -1180,16 +1172,16 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, procs: openArray
   for sym, irs in procs.items:
     useFunction(mCtx, sym)
 
-    if sfImportc in sym.flags:
+    if sfImportc in env.syms[sym].flags:
       asts.add(default(CAst))
       continue
 
-    echo "genFor: ", sym.name.s, " at ", conf.toFileLineCol(sym.info)
-    var c = GenCtx(f: f, config: conf, sym: sym)
+    echo "genFor: ", env.syms[sym].decl.name #, " at ", conf.toFileLineCol(sym.info)
+    var c = GenCtx(f: f, config: conf, sym: sym, env: unsafeAddr env)
     # doing a separate pass for the type computation instead of doing it in
     # `genCode` is probably a bit less efficient, but it's also simpler;
     # requires less code duplication; and is also good for modularity
-    c.types = computeTypes(irs)
+    c.types = computeTypes(irs, env)
 
     swapTypeCtx()
 
@@ -1197,7 +1189,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, procs: openArray
     # means that the C-type equivalents are created, not that the declarations
     # are also emitted in the output file
     for t in c.types.items:
-      if t != nil:
+      if t != NoneType:
         discard tgc.requestType(t)
 
     swapTypeCtx()
@@ -1212,11 +1204,14 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, procs: openArray
   # XXX: this might lead to an ordering problem, since we're not registering
   #      the types on the first occurence
   # mark the types used in routine signatures as used
-  for sym in mCtx.syms.values:
+  for id in mCtx.syms.items:
+    let sym = env.syms[id]
     case sym.kind
     of routineKinds:
-      for it in sym.typ.sons:
-        if it != nil:
+      if sym.typ == NoneType: continue
+
+      for it in env.types.params(sym.typ):
+        if it != NoneType:
           discard tgc.requestType(it)
           mCtx.useType(it)
     else:
@@ -1230,7 +1225,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, procs: openArray
   var used: seq[CTypeId]
 
   block:
-    for typ in mCtx.types.values:
+    for typ in mCtx.types.items:
       used.add ctx.ctypeMap[typ.TypeKey]
 
   for i, t in ctx.ctypes.pairs:
@@ -1266,17 +1261,18 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, procs: openArray
 
 
   # generate all procedure forward declarations
-  for sym in mCtx.syms.values:
+  for id in mCtx.syms.items:
+    let sym = env.syms[id]
     case sym.kind
     of routineKinds:
       #echo "decl: ", sym.name.s, " at ", conf.toFileLineCol(sym.info)
-      let hdr = genProcHeader(ctx, sym.typ)
+      let hdr = genProcHeader(ctx, env.syms, env.types, id)
 
-      writeDecl(f, ctx, hdr, sym)
+      writeDecl(f, ctx, hdr, sym.decl)
     of skLet, skVar:
       emitType(f, ctx, ctx.ctypeMap[sym.typ.TypeKey])
       f.write " "
-      f.write mangledName(sym)
+      f.write mangledName(sym.decl)
       f.writeLine ";"
     of skConst:
       f.writeLine "EMIT_ERROR(\"missing logic: const\")"
@@ -1289,13 +1285,15 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, procs: openArray
       inc i
       continue
 
-    let (sym, _) = procs[i]
-    let hdr = genProcHeader(ctx, sym.typ)
-    writeDef(f, ctx, hdr, sym)
+    let
+      (id, _) = procs[i]
+      sym = env.syms[id]
+    let hdr = genProcHeader(ctx, env.syms, env.types, id)
+    writeDef(f, ctx, hdr, sym.decl)
     try:
       emitCAst(f, ctx, it)
     except:
-      echo "emit: ", sym.name.s, " at ", conf.toFileLineCol(sym.info)
+      echo "emit: ", sym.decl.name#, " at ", conf.toFileLineCol(sym.info)
       raise
     f.writeLine "}"
     inc i
