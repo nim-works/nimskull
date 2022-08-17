@@ -110,9 +110,9 @@ type Type* = object
   c*: uint32 # for records, a ``RecordNodeIndex``
   sig: seq[TypeNodeIndex] # for procedures
 
+# XXX: obsolete, but the idea was good
+#[
 type
-  DeclTypeId* = distinct uint32
-
   DeclType* = object
     ## A `DeclType`  is a direct translation from ``PType``. It corresponds to
     ## the types defined in the source-code.
@@ -142,6 +142,8 @@ type
     #      now. This makes the first implementation simpler and also helps
     #      with reducing memory usage
     decl: PSym
+]#
+
 
 type TypeEnv* = object
   ## Holds the data for all types
@@ -281,7 +283,6 @@ type
 
 const NoneType* = TypeId(0)
 const NoneSymbol* = SymId(0)
-const NoneDType* = DeclTypeId(0)
 
 const ProcedureLike = {tnkProc, tnkClosure}
 
@@ -299,7 +300,7 @@ func `==`*(a, b: ProcId): bool {.borrow.}
 
 func `inc`*(a: var RecordNodeIndex, val: int = 1) {.borrow.}
 
-type SomeId = TypeId | SymId | RecordId | FieldId | ProcId | DeclTypeId
+type SomeId = TypeId | SymId | RecordId | FieldId | ProcId
 
 template toIndex*(id: SomeId): uint32 =
   id.uint32 - 1
@@ -341,12 +342,6 @@ func nodeId(e: TypeEnv, id: TypeId): TypeNodeIndex {.inline.} =
 
 func `[]`*(e: TypeEnv, t: TypeId): lent Type =
   e.types[t.toIndex]#nodeId(e, t)]
-
-func `[]`*(e: TypeEnv, t: DeclTypeId): lent Type =
-  ## For the convenience of the IR processing steps, this procedure returns a
-  ## ``Type`` instead of a ``DeclType``
-  assert false
-  #e.types[e.decls[toIndex(t)].canonical]
 
 func `[]`*(e: TypeEnv, f: FieldId): lent FieldDesc =
   e.fields[f.int - 1]
@@ -392,17 +387,8 @@ func fieldStart*(t: Type): int {.inline.} =
 func base*(e: TypeEnv, id: TypeId): TypeId =
   e[id].base
 
-#[
-func iface*(e: TypeEnv, id: DeclTypeId): PSym {.inline.} =
-  e.decls[id.toIndex].decl
-]#
-
 func iface*(e: TypeEnv, id: TypeId): PSym {.inline.} =
   e.ifaces.getOrDefault(id, nil)
-  #[if isDecl(id):
-    e.decls[maskedId(id, DeclTypeId).toIndex].decl
-  else:
-    nil]#
 
 func kind*(e: TypeEnv, id: TypeId): TypeNodeKind {.inline.} =
   e.types[nodeId(e, id)].kind
