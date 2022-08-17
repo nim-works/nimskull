@@ -433,6 +433,29 @@ func nthField*(e: TypeEnv, t: TypeId, i: Natural): FieldId =
     else:
       return FieldId(0) # TODO: use a `NoneField`
 
+func findField*(e: TypeEnv, t: TypeId, i: Natural): tuple[id: FieldId, steps: int] =
+  ## Searches for the field with index `i` in the given record type `t`.
+  ## If found, returns the field's ID together with the number of base types
+  ## that were traversed (e.g. '0' means the field is in the given record, '1'
+  ## that it's in the record's base type, etc.).
+  ##
+  ## If not found, returns a 'none' field ID.
+  var t = toIndex(t)
+
+  while true:
+    let typ = e.types[t]
+    if typ.b.int <= i:
+      let i = i - typ.b.int
+      assert e[typ.c.RecordId].kind == rnkList
+      assert i < e[typ.c.RecordId].numFields
+      result.id = toId(typ.a.int + i, FieldId)
+      return
+    elif typ.base != NoneType:
+      t = toIndex(typ.base)
+      inc result.steps
+    else:
+      return (FieldId(0), 0) # TODO: use a `NoneField`
+
 func skipTypesConsiderImported(t: PType, kinds: TTypeKinds): tuple[imported: bool, t: PType] =
   result.t = t
   while result.t.kind in kinds:
