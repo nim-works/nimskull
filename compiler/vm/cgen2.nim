@@ -735,16 +735,7 @@ func genLit(c: var GenCtx, literal: Literal): CAst =
 
 template testNode(cond: bool, i: IRIndex) =
   if not cond:
-    debugEcho astToStr(cond), " failed"
-    debugEcho "node: ", i
-    printIr(irs, c.env[], exprs)
-    for e in irs.traceFor(i).items:
-      debugEcho e
-    if irs.at(i).kind == ntkLocal:
-      debugEcho "trace for local:"
-      for e in irs.traceForLocal(irs.getLocalIdx(i)).items:
-        debugEcho e
-    doAssert false
+    raise (ref PassError)(msg: fmt"{astToStr(cond)} failed", n: i)
 
 proc genCode(c: var GenCtx, irs: IrStore3): CAst =
   var i = 0
