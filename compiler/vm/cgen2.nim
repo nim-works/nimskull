@@ -928,11 +928,9 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
         result.add names[i]
         inc numStmts
 
-    inc i
 
   # exit
-  # TODO: ``NoneType`` should only mean "no type information", not "void"
-  if c.env.procs.getReturnType(c.sym) != NoneType:
+  if c.env.types[c.env.procs.getReturnType(c.sym)].kind == tnkVoid:
     result.add cnkReturn
   else:
     result.add cnkReturn, 1
