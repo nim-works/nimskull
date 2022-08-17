@@ -781,7 +781,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
     of mSetLengthSeq:
       cr.replace()
       # TODO: evaluation order might be violated here
-      cr.insertAsgn(askShallow, n.args(0), cr.insertCompProcCall(c.extra, "setLengthSeqV2", n.args(0), c.requestRtti(cr, c.typeof(n.args(0))), n.args(1)))
+      cr.insertAsgn(askShallow, n.args(0), cr.insertCompProcCall(c.extra, "setLengthSeqV2", n.args(0), n.args(1), c.requestRtti(cr, c.typeof(n.args(0)))))
 
     of mNewSeq:
       cr.replace()
@@ -795,7 +795,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
         # write barrier
         # TODO: document
         let target = cr.newJoinPoint()
-        cr.insertBranch(cr.insertMagicCall(c.extra, mIsNil), target)
+        cr.insertBranch(cr.insertMagicCall(c.extra, mIsNil, val), target)
         # TODO: use nimGCunrefNoCylce when applicable
         cr.insertCompProcCall(c.extra, "nimGCunrefRC1", val)
         cr.insertAsgn(askShallow, val, nilLit)
