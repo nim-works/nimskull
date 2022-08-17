@@ -663,6 +663,8 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IRIndex): CAst
   case bc
   of bcUnlikely:
     start().add(cnkCall, 1).ident(c.gl.idents, "NIM_UNLIKELY").add(c.gen(irs, arg(0))).fin()
+  of bcError:
+    start().add(cnkCall, 1).ident(c.gl.idents, "IR_ERROR").add(cnkStrLit, c.gl.strings.getOrIncl(irs.getLit(irs.at(arg(0))).val.strVal).uint32).fin()
   else:
     genError(c, fmt"missing: {bc}")
     #unreachable(bc)
