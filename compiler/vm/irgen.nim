@@ -1300,10 +1300,10 @@ proc genSetConstr(c: var TCtx, n: PNode): IRIndex =
       discard c.irCall("incl", mIncl, result, a)
 
 func irConv(c: var TCtx, typ: PType, val: IRIndex): IRIndex =
-  result = c.irs.irCall(bcConv, c.types.requestType(typ), val)
+  result = c.irs.irConv(c.types.requestType(typ), val)
 
 func irCast(c: var TCtx, typ: PType, val: IRIndex): IRIndex =
-  result = c.irs.irCall(bcCast, c.types.requestType(typ), val)
+  result = c.irs.irCast(c.types.requestType(typ), val)
 
 
 proc genObjConstr(c: var TCtx, n: PNode): IRIndex =

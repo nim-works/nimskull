@@ -27,7 +27,7 @@ func calcStmt*(irs: IrStore3): seq[bool] =
     of ntkPathArr:
       result[n.srcLoc] = true
       result[n.arrIdx] = true
-    of ntkUse:
+    of ntkUse, ntkConv, ntkCast:
       result[n.srcLoc] = true
     of ntkBranch:
       result[n.cond] = true
@@ -49,6 +49,12 @@ proc printTypes*(ir: IrStore3, e: IrEnv) =
       t = e.types[t].base
 
     inc i
+
+func typeName(t: Type): string =
+  if t.iface != nil:
+    t.iface.name.s
+  else:
+    $t.kind
 
 proc printIr*(irs: IrStore3, e: IrEnv, exprs: seq[bool]) =
   var i = 0
@@ -91,6 +97,10 @@ proc printIr*(irs: IrStore3, e: IrEnv, exprs: seq[bool]) =
       line = fmt"path obj:{n.srcLoc} field:{n.fieldIdx}"
     of ntkPathArr:
       line = fmt"path arr:{n.srcLoc} idx:@{n.arrIdx}"
+    of ntkConv:
+      line = fmt"conv val:{n.srcLoc} typ:{typeName(e.types[n.typ])}"
+    of ntkCast:
+      line = fmt"cast val:{n.srcLoc} typ:{typeName(e.types[n.typ])}"
     of ntkCall:
       if n.isBuiltIn:
         line = fmt"call bi: {n.builtin}"

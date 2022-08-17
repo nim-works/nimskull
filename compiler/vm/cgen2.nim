@@ -663,14 +663,6 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IRIndex): CAst
     genBraced(c.gl.ident("NIM_NIL"), c.gl.ident("NIM_NIL"))
   of bcUnlikely:
     start().add(cnkCall, 1).ident(c.gl.idents, "NIM_UNLIKELY").add(c.gen(irs, arg(0))).fin()
-  of bcConv, bcCast:
-    # both a conversion and a cast map to the same syntax here. Int-to-float
-    # and vice-versa casts are already transformed into either a ``memcpy`` or
-    # union at the IR level
-    let dstTyp = irs.at(n).typ
-    var ast = start()
-    discard ast.add(cnkCast).add(cnkType, mapTypeV2(c, dstTyp).uint32).add(gen(c, irs, arg(0)))
-    ast.fin()
   else:
     genError(c, fmt"missing: {bc}")
     #unreachable(bc)
@@ -1000,6 +992,13 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
         names[i] = start().add(cnkBracket).add(cnkDotExpr).add(names[n.srcLoc]).ident(c.gl.idents, ArrayInnerName).add(names[n.arrIdx]).fin()
       else:
         names[i] = start().add(cnkBracket).add(names[n.srcLoc]).add(names[n.arrIdx]).fin()
+
+    of ntkConv, ntkCast:
+      # both a conversion and a cast map to the same syntax here. Int-to-float
+      # and vice-versa casts are already transformed into either a ``memcpy`` or
+      # union at the IR level
+      names[i] = start().add(cnkCast).add(cnkType, mapTypeV2(c, n.typ).uint32).add(names[n.srcLoc]).fin()
+
     of ntkLit:
       names[i] = genLit(c, irs.getLit(n))
     of ntkUse:

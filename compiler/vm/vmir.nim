@@ -159,6 +159,8 @@ type
 
     ntkPathArr
     ntkPathObj
+    ntkConv
+    ntkCast
 
     ntkBranch
     ntkGoto
@@ -190,8 +192,6 @@ type
     bcRaiseFieldErr
     bcInclRange
     bcRangeCheck
-    bcConv
-    bcCast # XXX: cast and conv should become dedicated ir nodes
     bcOverflowCheck
 
     bcNew
@@ -244,6 +244,10 @@ type
       numArgs: uint32
     of ntkUse, ntkConsume:
       theLoc: IRIndex
+    of ntkConv, ntkCast:
+      srcOp: IRIndex
+      destTyp: TypeId
+
     of ntkJoin:
       joinPoint: JoinPoint
     else:
@@ -465,6 +469,12 @@ proc irPathObj*(c: var IrStore3, src: IRIndex, idx: int): IRIndex =
   # TODO: `idx` should be a ``uint16``
   c.add(IrNode3(kind: ntkPathObj, objSrc: src, field: idx.uint16))
 
+func irConv*(c: var IrStore3, typ: TypeId, val: IRIndex): IRIndex =
+  c.add IrNode3(kind: ntkConv, destTyp: typ, srcOp: val)
+
+func irCast*(c: var IrStore3, typ: TypeId, val: IRIndex): IRIndex =
+  c.add IrNode3(kind: ntkCast, destTyp: typ, srcOp: val)
+
 proc irLd*(c: var IrStore, path: PathIndex#[, tk: TTypeKind, typ: VmTypeId]#): IRIndex =
   ## Represents the beginning of lifetime of a loaded location
   c.add(IrNode2(kind: inktLd, ldSrc: path#[, srcTyp: tk, srcVmTyp: typ]#))
@@ -673,7 +683,13 @@ iterator args*(ir: IrStore3, n: IRIndex): IRIndex =
 
 func typ*(n: IrNode3): TypeId =
   ## The return type of a builtin call
-  n.typ
+  case n.kind
+  of ntkCall:
+    n.typ
+  of ntkConv, ntkCast:
+    n.destTyp
+  else:
+    unreachable(n.kind)
 
 func asgnKind*(n: IrNode3): AssignKind =
   n.asgnKind
@@ -711,6 +727,8 @@ func srcLoc*(n: IrNode3): IRIndex =
     node.arrSrc
   of ntkUse, ntkConsume:
     node.theLoc
+  of ntkConv, ntkCast:
+    node.srcOp
   else:
     unreachable(node.kind)
 
@@ -1968,10 +1986,10 @@ func insertAsgn*(cr: var IrCursor, kind: AssignKind, a, b: IRIndex) =
   discard cr.insert IrNode3(kind: ntkAsgn, asgnKind: kind, wrDst: a, wrSrc: b)
 
 func insertCast*(cr: var IrCursor, t: TypeId, val: IRIndex): IRIndex =
-  cr.insertCallExpr(bcCast, t, val)
+  cr.insert IrNode3(kind: ntkCast, destTyp: t, srcOp: val)
 
 func insertConv*(cr: var IrCursor, t: TypeId, val: IRIndex): IRIndex =
-  cr.insertCallExpr(bcConv, t, val)
+  cr.insert IrNode3(kind: ntkConv, destTyp: t, srcOp: val)
 
 func insertDeref*(cr: var IrCursor, val: IRIndex): IRIndex =
   cr.insert IrNode3(kind: ntkDeref, addrLoc: val)
@@ -2040,6 +2058,9 @@ func patch(n: var IrNode3, patchTable: seq[IRIndex]) =
   of ntkPathArr:
     patchIdx(n.arrSrc)
     patchIdx(n.idx)
+
+  of ntkConv, ntkCast:
+    patchIdx(n.srcOp)
 
   of ntkJoin, ntkGoto, ntkSym, ntkLocal, ntkLocEnd, ntkImm, ntkGotoCont,
      ntkContinue, ntkGotoLink, ntkLoad, ntkWrite, ntkRoot, ntkLit, ntkProc,

@@ -534,6 +534,9 @@ func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
       let typ = env.types.skipVarOrLent(result[n.srcLoc])
       result[i] = env.types.elemType(typ)
 
+    of ntkConv, ntkCast:
+      result[i] = n.typ
+
     else:
       debugEcho "computeTypes missing: ", n.kind
     inc i
