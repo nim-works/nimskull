@@ -1952,10 +1952,12 @@ func insertJoin*(cr: var IrCursor, t: JoinPoint) =
   discard
 
 func newLocal*(cr: var IrCursor, kind: LocalKind, t: TypeId, s: SymId): int =
+  assert t != NoneType
   cr.newLocals.add((kind, t, s))
 
 func newLocal*(cr: var IrCursor, kind: LocalKind, t: TypeId): int =
   assert kind == lkTemp
+  assert t != NoneType
   cr.newLocals.add((kind, t, NoneSymbol))
 
 func insertLocalRef*(cr: var IrCursor, name: int): IRIndex =
