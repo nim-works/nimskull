@@ -655,11 +655,13 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IrNode3): CAst
     genArithm(c, n.args(0), true)
   of bcUnlikely:
     start().add(cnkCall, 1).ident(c.gl.idents, "NIM_UNLIKELY").add(c.gen(irs, n.args(0))).fin()
-  of bcCast:
+  of bcConv:
     let dstTyp = n.typ
     var ast = start()
     discard ast.add(cnkCast).add(cnkType, mapTypeV2(c, dstTyp).uint32).add(gen(c, irs, n.args(0)))
     ast.fin()
+  of bcCast:
+    genError(c, "missing impl: cast")
   of bcRaise:
     var ast = start()
     if argCount(n) == 0:
