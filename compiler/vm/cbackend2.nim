@@ -435,7 +435,7 @@ proc generateCode*(g: ModuleGraph) =
   #      ``finish``, but we can't since we're still adding procedures
   resolveTypeBoundOps(passEnv, g, c.types, c.procs)
 
-  c.procs.finish(c.types)
+  c.procs.finish(c.types, g.cache)
 
   c.types.flush(env.types, c.symEnv, g.config)
 

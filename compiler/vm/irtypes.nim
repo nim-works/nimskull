@@ -14,7 +14,11 @@ import
   compiler/ast/[
     ast_types,
     ast,
+    idents,
     types
+  ],
+  compiler/utils/[
+    ropes
   ]
 
 import std/options as stdoptions
@@ -1119,15 +1123,23 @@ func requestProcType*(e: var TypeEnv, inherit: TypeId, cc: TCallingConvention, p
 
   getOrPut(e, Type(kind: tnkProc, a: cc.uint32, sig: sig))
 
-func translateProc*(s: PSym, types: var DeferredTypeGen, dest: var ProcHeader) =
+func translateProc*(s: PSym, types: var DeferredTypeGen, ic: IdentCache, dest: var ProcHeader) =
   assert s != nil
 
   dest.magic = s.magic
   dest.flags = s.flags
 
   # fill in the declaration info
-  dest.decl.name = s.name
-  dest.decl.forceName = s.flags.overlaps({sfImportc, sfExportc})
+  if {sfImportc, sfInfixCall} * s.flags == {sfImportc} or
+     sfExportc in s.flags:
+    # either an imported procedure that doesn't use a pattern or an exported
+    # one --> the value in ``loc.r`` is an identifier
+    dest.decl.name = ic.getIdent($s.loc.r)
+    dest.decl.forceName = true
+  else:
+    dest.decl.name = s.name
+    dest.decl.forceName = false
+
   dest.decl.omit = lfNoDecl in s.loc.flags
   dest.decl.format = if s.constraint != nil: getStr(s.constraint) else: ""
 
@@ -1179,14 +1191,14 @@ func requestProc*(e: var ProcedureEnv, s: PSym): ProcId =
     e.procs.setLen(e.procs.len + 1)
     e.orig[next] = s
 
-func finish*(e: var ProcedureEnv, types: var DeferredTypeGen) =
+func finish*(e: var ProcedureEnv, types: var DeferredTypeGen, ic: IdentCache) =
   ## Performs the translation for all collected symbols and cleans up
   ## accumulated mappings from ``PSym`` to ``ProcId`` in order to reduce
   ## memory usage. After calling this procedure, ``requestProc`` must
   ## not be called again.
 
   for sym, id in e.map.pairs:
-    translateProc(sym, types, e.procs[toIndex(id)])
+    translateProc(sym, types, ic, e.procs[toIndex(id)])
 
 
   # TODO: use something like a ``DeferredProcGen`` instead (same as it works for types)
