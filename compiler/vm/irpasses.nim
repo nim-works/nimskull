@@ -1454,6 +1454,23 @@ func lowerSetTypes*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: SymbolEnv)
 
   commit(tenv, remap)
 
+func liftArrays(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+  case n.kind
+  of ntkLit:
+    let lit = getLit(ir, n)
+
+    if lit.val == nil or lit.typ == NoneType:
+      # TODO: remove the ``NoneType`` guard once all literals have type
+      #       information
+      return
+
+    if c.env.types[lit.typ].kind == tnkArray:
+      cr.replace()
+      discard cr.insertSym: c.addConst(lit.typ, "arrConst", lit.val)
+
+  else:
+    discard
+
 proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers ``bcRangeCheck`` (nkChckRange, nkChckRangeF, etc.) into simple comparisons
   # XXX: the lowering could be simplified by just replacing the range check
@@ -1838,6 +1855,7 @@ const seqV1Pass* = LinearPass2[RefcPassCtx](visit: lowerSeqsV1)
 const seqV2Pass* = LinearPass[GenericTransCtx](visit: lowerSeqsV2)
 const typeV1Pass* = LinearPass2[LiftPassCtx](visit: liftTypeInfoV1)
 const seqConstV1Pass* = LinearPass2[LiftPassCtx](visit: liftSeqConstsV1)
+const arrayConstPass* = LinearPass2[LiftPassCtx](visit: liftArrays)
 const setConstPass* = LinearPass2[LiftPassCtx](visit: liftLargeSets)
 const lowerRangeCheckPass* = LinearPass2[RefcPassCtx](visit: lowerRangeChecks)
 const lowerSetsPass* = LinearPass2[RefcPassCtx](visit: lowerSets)

@@ -496,6 +496,7 @@ proc generateCode*(g: ModuleGraph) =
 
         runPass(irs, lpCtx, setConstPass)
         runPass(irs, lpCtx, seqConstV1Pass)
+        runPass(irs, lpCtx, arrayConstPass)
         runPass(irs, lpCtx, typeV1Pass)
 
 
