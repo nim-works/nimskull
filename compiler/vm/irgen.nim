@@ -592,8 +592,12 @@ proc raiseExit(c: var TCtx) =
   # TODO: document
 
   # if isError: goto surrounding handler
-  let cond = c.irs.irCall(bcTestError, NoneType) # XXX: should pass tyBool
-  c.irs.irBranch(cond, c.prc.nextHandler())
+  let cond = c.irCall("not", mNot, c.irs.irCall(bcTestError, NoneType)) # XXX: should pass tyBool
+  let fwd = c.irs.irJoinFwd()
+  c.irs.irBranch(cond, fwd)
+  c.irs.irGoto(c.prc.nextHandler())
+
+  c.irs.irJoin(fwd)
 
 func isVarParam(t: PType): bool =
   # XXX: checking if a parameter type is mutable with the logic below is a
