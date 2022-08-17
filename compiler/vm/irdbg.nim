@@ -1,6 +1,7 @@
 import compiler/vm/vmir
 
 import std/strformat
+import std/options
 
 # TODO: not related to debugging, move proc somewhere else
 func calcStmt*(irs: IrStore3): seq[bool] =
@@ -56,6 +57,26 @@ func typeName(e: TypeEnv, t: TypeId): string =
   else:
     $e.kind(t)
 
+func typeToStr*(env: TypeEnv, id: TypeId): string =
+  var id = id
+  var d = -1
+  while id != NoneType:
+    inc d
+    let t = env[id]
+    if (let iface = env.iface(id); iface != nil):
+      result.add iface.name.s
+      break
+    elif (let a = env.getAttachmentIndex(id); a.isSome):
+      result.add env.getAttachment(a.unsafeGet)[0].s
+      break
+    else:
+      result.add $env.kind(id)
+      result.add "["
+      id = t.base
+
+  for _ in 0..<d:
+    result.add "]"
+
 iterator toStrIter*(irs: IrStore3, e: IrEnv, exprs: seq[bool]): string =
   var i = 0
   for n in irs.nodes:
@@ -83,10 +104,10 @@ iterator toStrIter*(irs: IrStore3, e: IrEnv, exprs: seq[bool]): string =
     of ntkDeref:
       line = fmt"deref {n.addrLoc}"
     of ntkLit:
-      let val = irs.getLit(n).val
+      let (val, typ) = irs.getLit(n)
       if val.isNil:
         # a type literal
-        line = fmt"lit 'nil'"
+        line = fmt"lit type:{typeToStr(e.types, typ)}"
       else:
         line = fmt"lit {val.kind}"
     of ntkUse:
