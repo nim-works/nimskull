@@ -1311,6 +1311,17 @@ iterator proxies*(e: TypeEnv): tuple[orig, target: TypeId] =
       yield (toId(i.TypeNodeIndex), e.proxies[i])
     inc i
 
+func resolve*(e: TypeEnv, id: TypeId): TypeId =
+  ## Skips to the underlying type if the given `id` is that of a proxy
+  let i = id.toIndex
+  result =
+    if e.proxies[i] == NoneType:
+      id
+    else:
+      e.proxies[i]
+
+  assert e.proxies[result.toIndex] == NoneType
+
 func commit*(e: var TypeEnv, remap: Table[TypeId, TypeId]) =
   # XXX: skip fields and types that were added during type modification passes?
 
