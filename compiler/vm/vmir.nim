@@ -255,8 +255,8 @@ type
 
   IrStore3* = object
     nodes: seq[IrNode3]
-    joins: seq[(IRIndex, bool)] # joint point id -> ir position
     #syms: seq[PSym]
+    numJoins: int
     literals: seq[Literal]
     locals: seq[(LocalKind, TypeId, SymId)]
 
@@ -518,19 +518,18 @@ func irJoinFwd*(c: var IrStore3): JoinPoint =
   ## TODO: document
   ## Helper to make modifications of the IR easier. During IR-gen when the
   ## target is not yet known (e.g. when generating an if-branch)
-  c.joins.add (0, false)
-  result = c.joins.high
+  result = c.numJoins
+  inc c.numJoins
 
 func irLoopJoin*(c: var IrStore3): JoinPoint =
-  result = c.joins.len
+  result = c.numJoins
   let pos = c.add IrNode3(kind: ntkJoin, joinPoint: result)
-  c.joins.add (pos, true)
+  inc c.numJoins
 
 func irJoin*(c: var IrStore3, jp: JoinPoint) =
   ## TODO: document
   ## A join point
   let pos = c.add(IrNode3(kind: ntkJoin, joinPoint: jp))
-  c.joins[jp][0] = pos
 
 func keys*(x: seq): Slice[int] =
   0..x.high
@@ -538,7 +537,7 @@ func keys*(x: seq): Slice[int] =
 func irBranch*(c: var IrStore3, cond: IRIndex, target: JoinPoint): IRIndex {.discardable.} =
   ## TODO: document
   ## A branch
-  assert target in c.joins.keys
+  assert target in 0..<c.numJoins
   c.add(IrNode3(kind: ntkBranch, cond: cond, target: target))
 
 func irGoto*(c: var IrStore3, target: JoinPoint): IRIndex {.discardable.} =
@@ -592,6 +591,9 @@ func len*(c: IrStore3): int =
 func numLocals*(s: IrStore3): int =
   s.locals.len
 
+func numJoins*(ir: IrStore3): int =
+  ir.numJoins
+
 func isLastAGoto*(ir: IrStore3): bool =
   ir.nodes.len > 0 and ir.nodes[^1].kind in {ntkGoto, ntkGotoCont}
 
@@ -622,10 +624,7 @@ func getLit*(irs: IrStore3, n: IrNode3): lent Literal =
   irs.literals[n.litIdx]
 
 func isLoop*(ir: IrStore3, j: JoinPoint): bool =
-  ir.joins[j][1]
-
-func position*(ir: IrStore3, j: JoinPoint): IRIndex =
-  ir.joins[j][0]
+  false#ir.joins[j][1]
 
 func kind*(n: IrNode3): IrNodeKind3 {.inline.} =
   n.kind
@@ -2119,7 +2118,3 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
   if p < oldLen:
     # patch the remaining nodes
     process(ir, p, oldLen)
-
-  # adjust the join points
-  for jp in ir.joins.mitems:
-    jp[0] = patchTable[jp[0]]
