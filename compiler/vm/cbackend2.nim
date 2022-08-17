@@ -407,7 +407,7 @@ proc generateCode*(g: ModuleGraph) =
       let realIdx = mlist.moduleMap[it.getModule().id]
       let sId = c.procs.requestProc(it)
 
-      if g.getBody(it).kind == nkEmpty:
+      if sfImportc in it.flags:
         # a quick fix to not run `irgen` for 'importc'ed procs
         moduleProcs[realIdx].add((sId, IrStore3(owner: sId)))
         continue
