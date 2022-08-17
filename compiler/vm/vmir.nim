@@ -1972,11 +1972,14 @@ func newLocal*(cr: var IrCursor, kind: LocalKind, t: TypeId): int =
 func insertLocalRef*(cr: var IrCursor, name: int): IRIndex =
   cr.insert IrNode3(kind: ntkLocal, local: name)
 
+func patchIdx(n: var IRIndex, patchTable: seq[IRIndex]) =
+  assert patchTable[n] != -1, "node was removed"
+  n = patchTable[n]
 
 func patch(n: var IrNode3, patchTable: seq[IRIndex]) =
-  func patchIdx(n: var IRIndex) =
-    assert patchTable[n] != -1, "node was removed"
-    n = patchTable[n]
+
+  template patchIdx(n: var IRIndex) =
+    patchIdx(n, patchTable)
 
   case n.kind
   of ntkCall:
