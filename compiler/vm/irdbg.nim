@@ -35,6 +35,20 @@ func calcStmt*(irs: IrStore3): seq[bool] =
       debugEcho "Skipping: ", n.kind
     inc i
 
+proc printTypes*(ir: IrStore3, e: IrEnv) =
+  var i = 0
+  for (id, sid) in ir.locals:
+    var visited: seq[TypeId]
+    var indent = ""
+    echo "local ", i, ":"
+    var t = id
+    while t != NoneType and t notin visited:
+      visited.add t
+      echo indent, e.types[t]
+      indent &= "  "
+      t = e.types[t].base
+
+    inc i
 
 proc printIr*(irs: IrStore3, e: IrEnv, exprs: seq[bool]) =
   var i = 0
@@ -42,7 +56,7 @@ proc printIr*(irs: IrStore3, e: IrEnv, exprs: seq[bool]) =
     var line = ""
     case n.kind
     of ntkSym:
-      line = fmt"sym {irs.sym(n).int}"
+      line = fmt"sym {e.syms[irs.sym(n)].decl.name}"
     of ntkAsgn:
       case n.asgnKind
       of askCopy, askDiscr:
@@ -98,3 +112,8 @@ proc printIr*(irs: IrStore3, e: IrEnv, exprs: seq[bool]) =
     else:
       echo "  ", line
     inc i
+
+proc echoTrace*(ir: IrStore3, n: IRIndex) =
+  let trace = ir.traceFor(n)
+  for e in trace.items:
+    echo fmt"{e.filename}({e.line}, 1) {e.procname}"

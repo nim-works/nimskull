@@ -367,6 +367,7 @@ proc generateCode*(g: ModuleGraph) =
 
   for i in 0..<mlist.modules.len:
     for s, irs in moduleProcs[i].mitems:
+      let orig = irs
       try:
         runPass(irs, initHookCtx(passEnv, irs, env), hookPass)
 
@@ -392,14 +393,22 @@ proc generateCode*(g: ModuleGraph) =
       except PassError as e:
         let sym = env.syms.orig[s]
         echo conf.toFileLineCol(sym.info)
-        echo irs.traceFor(e.n)
+        echoTrace(irs, e.n)
         printIr(irs, env, calcStmt(irs))
         echo "At: ", e.n
+        printTypes(irs, env)
         raise
       except:
-        let sym = env.syms.orig[s]
-        echo conf.toFileLineCol(sym.info)
+        let sym = env.syms.orig.getOrDefault(s)
+        if sym != nil:
+          echo conf.toFileLineCol(sym.info)
+        else:
+          echo "???"
+        echo "orig:"
+        printIr(orig, env, calcStmt(orig))
+        echo "new:"
         printIr(irs, env, calcStmt(irs))
+        printTypes(irs, env)
         raise
 
   for i, m in mlist.modules.pairs:
