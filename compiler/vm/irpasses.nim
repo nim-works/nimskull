@@ -28,6 +28,7 @@ import
   ],
   compiler/vm/[
     irdbg,
+    pass_helpers,
     vmir
   ]
 
