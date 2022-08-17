@@ -1064,7 +1064,7 @@ proc genDiscrVal(c: var TCtx, discr: PSym, n: PNode, oty: PType): (IRIndex, IRIn
   else:
     let tmp = c.genx(n)
     result[0] = tmp
-    result[1] = c.irs.irCall(bcGetBranchIndex, NoneType, tmp, c.genTypeLit(oty), c.irSym(discr))
+    result[1] = c.irs.irCall(bcGetBranchIndex, NoneType, tmp, c.genTypeLit(oty), c.irLit(discr.position))
 
 func isCursor(n: PNode): bool
 
