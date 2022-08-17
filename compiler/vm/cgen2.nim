@@ -1354,6 +1354,13 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
   for id in types(env.types):
     c.ctypes.add genCTypeInfo(gen, env.types, id)
 
+  # TODO: rewrite the type translation logic here; it's wasteful
+  for id, target in env.types.proxies:
+    # don't redirect types that have an interface (i.e. are imported)
+    if env.types.iface(id) == nil:
+      # replace with an alias
+      c.ctypes[id.int].decl = @[(cdnkType, target.uint32, 0'u32)]
+
   swap(gen.cache, c.idents)
 
   # create the procedure headers

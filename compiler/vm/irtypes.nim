@@ -165,10 +165,11 @@ type TypeEnv* = object
   #      another duplicate of the low-level ``Table`` implementation
   structMap: Table[seq[int], TypeNodeIndex]
 
-  #canonical: seq[TypeNode]
+  proxies: seq[TypeId] ## redirection for each type. If the slot has a value of
+    ## ``NoneType``, the corrsponding type is not a proxy. Proxies are
+    ## created/needed when replacing types, since the replaced type might have
+    ## other data attached to it's ID.
 
-  # XXX: maybe a redirection table for `tnkName` makes sense? Alternatively,
-  #      indirections to another tnkName could be allowed
   typdescs: Table[ItemId, PType] # type-id -> a `tyTypeDesc` type
 
 type TypeLookup* = object
@@ -1288,10 +1289,22 @@ func maybeMap*(gen: DeferredTypeGen, id: TypeId): TypeId {.inline.} =
     else:
       id
 
+iterator proxies*(e: TypeEnv): tuple[orig, target: TypeId] =
+  ## Iterates over all proxy types, i.e. types that were replaced with
+  ## others, and yields the original and target type ID.
+  var i = 0
+  let L = e.types.len
+  while i < L:
+    if e.proxies[i] != NoneType:
+      yield (toId(i.TypeNodeIndex), e.proxies[i])
+    inc i
+
 func commit*(e: var TypeEnv, remap: Table[TypeId, TypeId]) =
   # XXX: skip fields and types that were added during type modification passes?
 
   #debugEcho "remap: ", remap.len
+
+  e.proxies.setLen(e.types.len)
 
   # we need to copy the type nodes from the new position to the old ones
   # since the original slots have external references that would also require
@@ -1302,9 +1315,15 @@ func commit*(e: var TypeEnv, remap: Table[TypeId, TypeId]) =
   # XXX: copying the nodes is a problem if the target ID is that of an already
   #      existing canonical type. If that's the case, we're introducing a
   #      duplicate here. Either a ``tnkForward`` or something like
-  #      lookup-level redirection is needed in this case
+  #      lookup-level redirection is needed in this case. **edit:** somewhat
+  #      solved with "proxy"-types
   for k, v in remap.pairs:
     e.types[k.toIndex] = e.types[v.toIndex]
+
+    # we keep track of the remapping for the code-generators (they need types
+    # to be unique)
+    # XXX: this solves the problem for now - it's a bit awkward however
+    e.proxies[k.toIndex] = v
 
   # XXX: currently doesn't work. Maybe it's not worth the hassle?
   when false:
