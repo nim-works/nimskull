@@ -128,10 +128,27 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
         discard
 
     elif ir.at(n.callee).kind == ntkProc:
-      case c.env.procs[ir.at(n.callee).procId].magic
+      let m = c.env.procs[ir.at(n.callee).procId].magic
+      case m
       of mWasMoved:
         cr.replace()
         cr.insertReset(c.graph, c.env[], c.types[arg(0)], arg(0))
+      of mCharToStr..mInt64ToStr:
+        # XXX: the ``mInt64ToStr`` magic could be replaced with the usage
+        #      of ``mIntToStr``
+        const Prc = [mCharToStr: "nimCharToStr", mBoolToStr: "nimBoolToStr",
+                     mIntToStr: "nimIntToStr", mInt64ToStr: "nimInt64ToStr"]
+        cr.replace()
+        cr.insertCompProcCall(c.graph, Prc[m], arg(0))
+      of mFloatToStr:
+        let prc =
+          if c.env.types.getSize(c.types[arg(0)]) == 32:
+            "#imFloat32ToStr"
+          else:
+            "nimFloatToStr"
+
+        cr.replace()
+        cr.insertCompProcCall(c.graph, prc, arg(0))
       of mCStrToStr:
         cr.replace()
         cr.insertCompProcCall(c.graph, "cstrToNimstr", arg(0))
