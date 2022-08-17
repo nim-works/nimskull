@@ -766,6 +766,12 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
       let src = names[n.srcLoc]
       var ast = start().add(cnkDotExpr).add(src)
 
+      # accessing a record means that we need a complete type. While the type
+      # we're marking as used here isn't necessarily the type that holds the
+      # field we're accessing (i.e. inheritance is used), the base types are
+      # automatically also pulled in
+      c.m.useType(typId)
+
       if field.sym != NoneSymbol:
         discard ast.ident(c.gl.idents, mangledName(c.env.syms[field.sym].decl))
       else:
