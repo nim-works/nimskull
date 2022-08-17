@@ -354,7 +354,7 @@ func genCTypeDecl(c: var TypeGenCtx, t: TypeId): CDecl =
 
   of tnkUncheckedArray:
     result.add cdnkBracket
-    result.addWeakType(c, c.env.types.elemType(t))
+    result.add cdnkType, c.requestType(c.env.types.elemType(t)).uint32
     # ``SEQ_DECL_SIZE`` is a macro defined in ``nimbase.h``
     result.add cdnkIdent, c.cache.getOrIncl("SEQ_DECL_SIZE").uint32
 
