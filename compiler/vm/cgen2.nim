@@ -54,6 +54,7 @@ type
     types: PackedSet[TypeId] # all used type for the module
 
     syms: PackedSet[SymId] ## all used symbols that need to be declared in the C code. # TODO: should be a SymSet
+    funcs: PackedSet[ProcId] ## all used functions that need to be declared in the C code
 
     # TODO: header paths can be very regular. Maybe a CritBitTree[void} would make sense here?
     # TODO: the header includes are currently emitted in an arbitrary order, is that okay? (check the old cgen)
@@ -133,7 +134,7 @@ type
     decl: CDecl
     name: CIdent #
 
-  ProcHeader = object
+  CProcHeader = object
     returnType: CTypeId
     args: seq[tuple[typ: CTypeId, name: CIdent]]
 
@@ -165,7 +166,7 @@ type
     rttiV2: Table[TypeKey, CIdent]
 
     funcMap: Table[int, int] ## symbol-id -> index into `procs` # TODO: a table is maybe the wrong data structure here.
-    funcs: seq[ProcHeader]
+    funcs: seq[CProcHeader]
 
     ctypes: seq[CTypeInfo] #
 
@@ -411,9 +412,9 @@ func genCType(cache: var IdentCache, t: Type): CTypeInfo =
   result.name = getTypeName(cache, t, Declaration())
 
 
-func useFunction(c: var ModuleCtx, s: SymId) =
+func useFunction(c: var ModuleCtx, s: ProcId) =
   ##
-  c.syms.incl s
+  c.funcs.incl s
   #[
   if lfHeader in s.loc.flags:
     c.headers.incl getStr(s.annex.path)
@@ -424,6 +425,12 @@ func useFunction(c: var ModuleCtx, s: SymId) =
 func useType(c: var ModuleCtx, t: TypeId) =
   assert t != NoneType
   c.types.incl t
+
+func useTypeAllowNone(c: var ModuleCtx, t: TypeId) =
+  # XXX: this shouldn't be allowed, but back-end generated magics have no type
+  #      information
+  if t != NoneType:
+    c.types.incl t
 
 #[
 func useTypeWeak(c: var ModuleCtx, t: PType): CTypeId=
@@ -455,7 +462,7 @@ func requestTypeName(c: var GlobalGenCtx, t: PType): CIdent =
 type GenCtx = object
   f: File
   tmp: int
-  sym: SymId
+  sym: ProcId
 
   names: seq[CAst] # IRIndex -> expr
   types: seq[TypeId]
@@ -470,35 +477,27 @@ func gen(c: GenCtx, irs: IrStore3, n: IRIndex): CAst =
   c.names[n]
   #"gen_MISSING"
 
-func mapTypeV3(c: var GlobalGenCtx, t: TypeId): CTypeId
+func mapTypeV3(c: GlobalGenCtx, t: TypeId): CTypeId
 
 func mapTypeV2(c: var GenCtx, t: TypeId): CTypeId =
   # TODO: unfinished
   c.m.useType(t) # mark the type as used
+  mapTypeV3(c.gl, t)
 
-func mapTypeV3(c: var GlobalGenCtx, t: TypeId): CTypeId =
+func mapTypeV3(c: GlobalGenCtx, t: TypeId): CTypeId =
   if t != NoneType:
     # XXX: maybe just have a ``NoneType`` -> ``VoidCType`` mapping in the table instead?
     CTypeId(t)
   else:
     VoidCType
 
-func genProcHeader(c: var GlobalGenCtx, senv: SymbolEnv, tenv: TypeEnv, s: SymId): ProcHeader =
-  let
-    sym = senv[s]
-    typ = sym.typ
-  assert tenv[typ].kind == tnkProc
+func genCProcHeader(c: var GlobalGenCtx, env: ProcedureEnv, s: ProcId): CProcHeader =
+  result.returnType = mapTypeV3(c, env.getReturnType(s))
 
-  result.returnType = mapTypeV3(c, tenv.getReturnType(typ))
-
-  result.args.newSeq(tenv.numParams(typ))
+  result.args.newSeq(env.numParams(s))
   var i = 0
-  for pt in tenv.params(typ):
-    result.args[i] = (mapTypeV3(c, pt), c.idents.getOrIncl(fmt"Param{i}"))
-    #[
-    result.args[i] = (mapTypeV3(c, pt),
-                      c.idents.getOrIncl(env[env[env[t].c].a + i].sym, .t.n[i].sym.name.s))
-    ]#
+  for p in env.params(s):
+    result.args[i] = (mapTypeV3(c, p.typ), c.idents.getOrIncl(p.name))
     inc i
 
 
@@ -711,16 +710,20 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
       let sId = irs.sym(n)
       let sym = c.env.syms[sId]
       # TODO: refactor
-      if sym.kind in routineKinds and sym.magic == mNone:
-        useFunction(c.m, sId)
-      elif sym.kind in {skVar, skLet} and sfGlobal in sym.flags:
+      if sym.kind in {skVar, skLet} and sfGlobal in sym.flags:
         c.m.syms.incl sId
         #discard mapTypeV3(c.gl, sym.typ) # XXX: temporary
 
-      if sym.kind notin routineKinds and sym.typ != NoneType:
+      if sym.typ != NoneType:
         useType(c.m, sym.typ)
 
       names[i] = start().ident(c.gl.idents, mangledName(sym.decl)).fin()
+    of ntkProc:
+      let prc = c.env.procs[n.procId]
+      if prc.magic == mNone:
+        useFunction(c.m, n.procId)
+
+      names[i] = start().ident(c.gl.idents, mangledName(prc.decl)).fin()
     of ntkLocal:
       let (kind, typ, sym) = irs.getLocal(i)
       if sym == NoneSymbol:
@@ -735,8 +738,8 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
         names[i] = name
       else:
         let callee = irs.at(n.callee)
-        if callee.kind == ntkSym and (let s = c.env.syms[irs.sym(callee)]; s.magic != mNone):
-          names[i] = genMagic(c, irs, s.magic, n)
+        if callee.kind == ntkProc and (let p = c.env.procs[callee.procId]; p.magic != mNone):
+          names[i] = genMagic(c, irs, p.magic, n)
         else:
           var res = start().add(cnkCall, n.argCount.uint32).add(names[n.callee])
           for it in n.args:
@@ -809,7 +812,7 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
 
   # exit
   # TODO: ``NoneType`` should only mean "no type information", not "void"
-  if c.env.types.getReturnType(c.env.syms[c.sym].typ) != NoneType:
+  if c.env.procs.getReturnType(c.sym) != NoneType:
     result.add cnkReturn
   else:
     result.add cnkReturn, 1
@@ -1083,7 +1086,7 @@ proc emitCType(f: File, c: GlobalGenCtx, info: CTypeInfo) =
 
   assert pos == info.decl.len
 
-proc writeDecl(f: File, c: GlobalGenCtx, h: ProcHeader, decl: Declaration) =
+proc writeDecl(f: File, c: GlobalGenCtx, h: CProcHeader, decl: Declaration) =
   emitType(f, c, h.returnType)
   f.write(" ")
   f.write(mangledName(decl))
@@ -1096,7 +1099,7 @@ proc writeDecl(f: File, c: GlobalGenCtx, h: ProcHeader, decl: Declaration) =
 
   f.writeLine(");")
 
-proc writeDef(f: File, c: GlobalGenCtx, h: ProcHeader, decl: Declaration) =
+proc writeDef(f: File, c: GlobalGenCtx, h: CProcHeader, decl: Declaration) =
   emitType(f, c, h.returnType)
   f.write(" ")
   f.write(mangledName(decl))
@@ -1128,7 +1131,7 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
 
   swap(gen.cache, c.idents)
 
-proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalGenCtx, env: IrEnv, procs: openArray[(SymId, IrStore3)]) =
+proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalGenCtx, env: IrEnv, procs: openArray[(ProcId, IrStore3)]) =
   let f = open(filename.string, fmWrite)
   defer: f.close()
 
@@ -1143,11 +1146,11 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
   for sym, irs in procs.items:
     useFunction(mCtx, sym)
 
-    if sfImportc in env.syms[sym].flags:
+    if sfImportc in env.procs[sym].flags:
       asts.add(default(CAst))
       continue
 
-    echo "genFor: ", env.syms[sym].decl.name #, " at ", conf.toFileLineCol(sym.info)
+    echo "genFor: ", env.procs[sym].decl.name #, " at ", conf.toFileLineCol(sym.info)
     var c = GenCtx(f: f, config: conf, sym: sym, env: unsafeAddr env)
     # doing a separate pass for the type computation instead of doing it in
     # `genCode` is probably a bit less efficient, but it's also simpler;
@@ -1163,17 +1166,15 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
   # XXX: this might lead to an ordering problem, since we're not registering
   #      the types on the first occurence
   # mark the types used in routine signatures as used
-  for id in mCtx.syms.items:
-    let sym = env.syms[id]
-    case sym.kind
-    of routineKinds:
-      if sym.typ == NoneType: continue
+  for id in mCtx.funcs.items:
+    mCtx.useTypeAllowNone(env.procs.getReturnType(id))
 
-      for it in env.types.params(sym.typ):
-        if it != NoneType:
-          mCtx.useType(it)
-    else:
-      mCtx.useType(sym.typ)
+    for it in env.procs.params(id):
+      mCtx.useType(it.typ)
+
+  # mark the type of used non-proc symbols as used
+  for id in mCtx.syms.items:
+    mCtx.useType(env.syms[id].typ)
 
   let used = mCtx.types
 
@@ -1207,14 +1208,15 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
 
 
   # generate all procedure forward declarations
+  for id in mCtx.funcs.items:
+    #echo "decl: ", sym.name.s, " at ", conf.toFileLineCol(sym.info)
+    let hdr = genCProcHeader(ctx, env.procs, id)
+
+    writeDecl(f, ctx, hdr, env.procs[id].decl)
+
   for id in mCtx.syms.items:
     let sym = env.syms[id]
     case sym.kind
-    of routineKinds:
-      #echo "decl: ", sym.name.s, " at ", conf.toFileLineCol(sym.info)
-      let hdr = genProcHeader(ctx, env.syms, env.types, id)
-
-      writeDecl(f, ctx, hdr, sym.decl)
     of skLet, skVar:
       emitType(f, ctx, sym.typ)
       f.write " "
@@ -1233,13 +1235,13 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
 
     let
       (id, _) = procs[i]
-      sym = env.syms[id]
-    let hdr = genProcHeader(ctx, env.syms, env.types, id)
-    writeDef(f, ctx, hdr, sym.decl)
+      prc = env.procs[id]
+    let hdr = genCProcHeader(ctx, env.procs, id)
+    writeDef(f, ctx, hdr, prc.decl)
     try:
       emitCAst(f, ctx, it)
     except:
-      echo "emit: ", sym.decl.name#, " at ", conf.toFileLineCol(sym.info)
+      echo "emit: ", prc.decl.name#, " at ", conf.toFileLineCol(sym.info)
       raise
     f.writeLine "}"
     inc i

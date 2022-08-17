@@ -75,6 +75,7 @@ type TCtx* = object
   options*: set[TOption]
 
   symEnv*: SymbolEnv
+  procs*: ProcedureEnv
   types*: DeferredTypeGen
 
 
@@ -160,20 +161,19 @@ func closeScope(c: var TCtx) =
   let id = c.prc.scopeStack.pop()
   c.prc.scopes.add((true, id, c.irs.len))
 
-proc genProcSym(c: var TCtx, n: PNode): IRIndex =
-  assert n.kind == nkSym
-  c.irSym(n.sym)
+proc genProcSym(c: var TCtx, s: PSym): IRIndex =
+  c.irs.irProc(c.procs.requestProc(s))
 
 proc irCall(c: var TCtx, name: string, args: varargs[IRIndex]): IRIndex =
   # TODO: compiler procs should be cached here in `TCtx`
   let sym = c.graph.getCompilerProc(name)
-  c.irs.irCall(c.irSym(sym), args)
+  c.irs.irCall(genProcSym(c, sym), args)
 
 func irCall(c: var TCtx, name: string, m: TMagic, args: varargs[IRIndex]): IRIndex {.inline.} =
   # TODO: instead of creating a new duplicate magic each time, all used magics
   #       should be only created once and then reused
   let sym = createMagic(c.graph, c.idgen, name, m)
-  c.irs.irCall(c.irSym(sym), args)
+  c.irs.irCall(genProcSym(c, sym), args)
 
 func genLocal(c: var TCtx, kind: LocalKind, t: PType): IRIndex =
   let
@@ -563,7 +563,7 @@ proc genLit(c: var TCtx; n: PNode): IRIndex =
 
 
 proc genProcLit(c: var TCtx, n: PNode, s: PSym): IRIndex =
-  c.irSym(s)
+  c.irs.irProc(c.procs.requestProc(s))
 
 #[
 func doesAlias(c: TCtx, a, b: IRIndex): bool =
@@ -624,7 +624,7 @@ proc genCall(c: var TCtx; n: PNode): IRIndex =
 
   let callee =
     if n[0].kind == nkSym:
-      genProcSym(c, n[0])
+      genProcSym(c, n[0].sym)
     else:
       genx(c, n[0])
 

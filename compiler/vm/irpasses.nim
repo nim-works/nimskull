@@ -63,15 +63,19 @@ template customAssert(cond: bool, node: IRIndex) =
     raise (ref PassError)(msg: astToStr(cond), n: node)
 
 type PassEnv* = ref object # XXX: will be a non-`ref` later on
-  magics*: Table[TMagic, SymId]
-  compilerprocs*: Table[string, SymId]
+  magics*: Table[TMagic, ProcId]
+  compilerprocs*: Table[string, ProcId]
+  compilertypes*: Table[string, TypeId]
 
-  attachedOps*: array[TTypeAttachedOp, Table[TypeId, SymId]]
+  attachedOps*: array[TTypeAttachedOp, Table[TypeId, ProcId]]
 
   sysTypes*: array[TTypeKind, TypeId]
 
-func getCompilerProc*(g: PassEnv, name: string): SymId =
+func getCompilerProc*(g: PassEnv, name: string): ProcId =
   g.compilerprocs[name]
+
+func getCompilerType*(g: PassEnv, name: string): TypeId =
+  g.compilertypes[name]
 
 func getSysType*(g: PassEnv, kind: TTypeKind): TypeId =
   g.sysTypes[kind]
@@ -498,7 +502,7 @@ func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
   var i = 0
   for n in ir.nodes:
     case n.kind
-    of ntkAsgn, ntkJoin, ntkGoto, ntkBranch, ntkContinue:
+    of ntkAsgn, ntkJoin, ntkGoto, ntkBranch, ntkContinue, ntkProc:
       discard
     of ntkCall:
       result[i] =
@@ -507,24 +511,17 @@ func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
           n.typ
         else:
           let callee = ir.at(n.callee)
-          if callee.kind != ntkSym:
+          if callee.kind != ntkProc:
             env.types.getReturnType(result[n.callee]) # the callee's return type
-          elif (let t = env.syms[ir.sym(callee)].typ; t != NoneType):
-            env.types.getReturnType(t)
           else:
-            # the symbol for magics created with ``createMagic`` don't have
-            # type information
-            NoneType
+            env.procs.getReturnType(callee.procId)
 
     of ntkLit:
       result[i] = ir.getLit(n).typ
     of ntkSym:
       let s = ir.sym(n)
       customAssert s != NoneSymbol, i
-      if env.syms[s].kind notin routineKinds:
-        # don't compute the type for routine symbols. This makes it easier to
-        # figure out the type dependencies later on.
-        result[i] = env.syms[s].typ
+      result[i] = env.syms[s].typ
     of ntkUse, ntkConsume:
       result[i] = result[n.srcLoc]
     of ntkLocal:
@@ -561,8 +558,8 @@ func getMagic(ir: IrStore3, env: IrEnv, n: IrNode3): TMagic =
     mNone
   else:
     let callee = ir.at(n.callee)
-    if callee.kind == ntkSym:
-      env.syms[ir.sym(callee)].magic
+    if callee.kind == ntkProc:
+      env.procs[callee.procId].magic
     else:
       mNone
 
@@ -709,7 +706,7 @@ func hasAttachedOp*(c: HookCtx, op: TTypeAttachedOp, typ: TypeId): bool =
   assert typ != NoneType
   typ in c.graph.attachedOps[op]
 
-func getAttachedOp(c: HookCtx, op: TTypeAttachedOp, typ: TypeId): SymId =
+func getAttachedOp(c: HookCtx, op: TTypeAttachedOp, typ: TypeId): ProcId =
   assert typ != NoneType
   c.graph.attachedOps[op][typ]
 
@@ -867,7 +864,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
     of mLengthStr:
       cr.replace()
       # XXX: might be a good idea to cache the `string` type
-      let strTyp = c.extra.compilerprocs["NimStringDesc"]
+      let strTyp = c.extra.getCompilerType("NimStringDesc")
       #genIfThanElse(cr.insertMagicCall("isNil", mIsNil, a.val))
 
       cr.insertError("Not implemented: lowerSeqsV1.mLengthStr")
@@ -1033,7 +1030,7 @@ proc liftTypeInfoV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurs
         let name = "NTI" & $(typ.int) & "_" # XXX: too many short-lived and unnecessary allocations
 
         # TODO: cache the `TNimType` type
-        let globalType = c.env.syms[c.graph.getCompilerProc("TNimType")].typ
+        let globalType = c.graph.getCompilerType("TNimType")
         # the symbol is owned by the module the type is owned by
         s = c.addGlobal(globalType, name)
 
@@ -1047,7 +1044,7 @@ proc liftTypeInfoV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurs
 
 const ErrFlagName = "nimError"
 
-proc lowerTestError*(ir: var IrStore3, g: PassEnv, types: TypeEnv, syms: var SymbolEnv) =
+proc lowerTestError*(ir: var IrStore3, g: PassEnv, types: TypeEnv, procs: ProcedureEnv, syms: var SymbolEnv) =
   ## Lowers ``bcTestError`` builtin calls for the C-like targets. Turns
   ## ``bcTestError`` into ``unlikelyProc(ErrFlagName[])`` and inserts a
   ##
@@ -1083,7 +1080,7 @@ proc lowerTestError*(ir: var IrStore3, g: PassEnv, types: TypeEnv, syms: var Sym
             p = g.getCompilerProc("nimErrorFlag")
 
             # TODO: this lookup yields the same across all calls to `lowerTestError`. Cache both the compiler proc and it's return type
-            typ = types.getReturnType(syms[p].typ)
+            typ = procs.getReturnType(p)
             s = syms.addSym(skLet, typ, ErrFlagName) # XXX: no caching is currently done for the symbol names, so a lot of duplicated strings are created here...
 
 

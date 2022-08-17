@@ -199,8 +199,12 @@ proc generateEntryProc(c: var TCtx, g: PassEnv, mlist: ModuleList): IrStore3 =
   genInitProcCall(c.irs, mlist.modules[mainIdx])
 
   # write ``programResult`` into the result variable
+
+  # XXX: ``programResult`` is not a compiler*proc*
+  #[
   let prSym = g.getCompilerProc("programResult")
-  c.irs.irAsgn(askInit, c.irs.irLocal(resultVar), c.irs.irSym(prSym))
+  c.irs.irAsgn(askInit, c.irs.irLocal(resultVar), c.irs.irProc(prSym))
+  ]#
 
   # refc-compatible "move"
   swap(result, c.irs)
@@ -213,15 +217,14 @@ proc generateMain(c: var TCtx, g: PassEnv,
   # lastly, generate the actual code:
   result = generateEntryProc(c, g, mlist)
 
-func collectRoutineSyms(s: IrStore3, env: SymbolEnv, list: var seq[PSym], known: var IntSet) =
+func collectRoutineSyms(s: IrStore3, env: ProcedureEnv, list: var seq[PSym], known: var IntSet) =
   for n in s.nodes:
     case n.kind
-    of ntkSym:
-      let sym = env.orig[s.sym(n)] # XXX: inefficient
+    of ntkProc:
+      let sym = env.orig[n.procId] # XXX: inefficient
       # XXX: excluding all magics is wrong. Depending on which back-end is
       #      used, some magics are treated like any other routine
-      if sym.kind in routineKinds and
-         sym.magic == mNone and
+      if sym.magic == mNone and
          sym.id notin known:
         known.incl(sym.id)
         list.add(sym)
@@ -257,13 +260,14 @@ proc generateCode*(g: ModuleGraph) =
 
   echo "starting codgen"
 
-  var moduleProcs: seq[seq[(SymId, IrStore3)]]
+  var moduleProcs: seq[seq[(ProcId, IrStore3)]]
   moduleProcs.newSeq(mlist.modules.len)
 
   var env = IrEnv()
 
   var c = TCtx(config: g.config, graph: g, idgen: g.idgen)
   swap(c.symEnv, env.syms)
+  swap(c.procs, env.procs)
   c.types.env = addr env.types
   c.types.voidType = g.getSysType(unknownLineInfo, tyVoid)
   c.types.charType = g.getSysType(unknownLineInfo, tyChar)
@@ -281,14 +285,14 @@ proc generateCode*(g: ModuleGraph) =
   var seenProcs: IntSet
 
   for it in mlist.modules.items:
-    collectRoutineSyms(it.initProc[1], c.symEnv, nextProcs, seenProcs)
+    collectRoutineSyms(it.initProc[1], c.procs, nextProcs, seenProcs)
 
   var nextProcs2: seq[PSym]
   while nextProcs.len > 0:
     for it in nextProcs.items:
       let mIdx = it.itemId.module
       let realIdx = mlist.moduleMap[it.getModule().id]
-      let sId = c.symEnv.requestSym(it)
+      let sId = c.procs.requestProc(it)
 
       if g.getBody(it).kind == nkEmpty:
         # a quick fix to not run `irgen` for 'importc'ed procs
@@ -296,7 +300,7 @@ proc generateCode*(g: ModuleGraph) =
         continue
 
       let ir = generateCodeForProc(c, it)
-      collectRoutineSyms(c.unwrap ir, c.symEnv, nextProcs2, seenProcs)
+      collectRoutineSyms(c.unwrap ir, c.procs, nextProcs2, seenProcs)
 
       #doAssert mIdx == realIdx
       moduleProcs[realIdx].add((sId, c.unwrap ir))
@@ -311,7 +315,14 @@ proc generateCode*(g: ModuleGraph) =
   let passEnv = PassEnv()
   block:
     for sym in g.compilerprocs.items:
-      passEnv.compilerprocs[sym.name.s] = c.symEnv.requestSym(sym)
+      case sym.kind
+      of routineKinds:
+        passEnv.compilerprocs[sym.name.s] = c.procs.requestProc(sym)
+      of skType:
+        passEnv.compilertypes[sym.name.s] = c.types.requestType(sym.typ)
+      else:
+        # TODO: the rest (e.g. globals) also need to be handled
+        discard
 
     # XXX: a magic is not necessarily a procedure - it can also be a type
     # create a symbol for each magic to be used by the IR transformations
@@ -331,13 +342,13 @@ proc generateCode*(g: ModuleGraph) =
         # we don't care about magic types here
         continue
 
-      passEnv.magics[m] = c.symEnv.addMagic(skProc, NoneType, name, m)
+      passEnv.magics[m] = c.procs.addMagic(NoneType, name, m)
 
     for op, tbl in passEnv.attachedOps.mpairs:
       for k, v in g.attachedOps[op].pairs:
         let t = c.types.lookupType(k)
         if t != NoneType:
-          tbl[t] = c.symEnv.requestSym(v)
+          tbl[t] = c.procs.requestProc(v)
         else:
           # XXX: is this case even possible
           discard#echo "missing type for type-bound operation"
@@ -348,12 +359,9 @@ proc generateCode*(g: ModuleGraph) =
 
   for id, s in c.symEnv.msymbols:
     if (let orig = c.symEnv.orig.getOrDefault(id); orig != nil):
-      # a `nil` PType would get turned into a ``void`` and we explicitly
-      # don't want this behaviour here (that is, if the type is `nil`, it
-      # needs to map to ``NoneType``). ``irpasses.computeTypes`` depends on
-      # the type being empty if there is no type information
-      if orig.typ != nil:
-        s.typ = c.types.requestType(orig.typ)
+      s.typ = c.types.requestType(orig.typ)
+
+  c.procs.finish(c.types)
 
   c.types.flush(c.symEnv, g.config)
 
@@ -361,6 +369,7 @@ proc generateCode*(g: ModuleGraph) =
     generateMain(c, passEnv, mlist[])
 
   swap(env.syms, c.symEnv)
+  swap(c.procs, env.procs)
 
   var lpCtx = LiftPassCtx(graph: passEnv, idgen: g.idgen, cache: g.cache)
   lpCtx.env = addr env
@@ -371,7 +380,7 @@ proc generateCode*(g: ModuleGraph) =
       try:
         runPass(irs, initHookCtx(passEnv, irs, env), hookPass)
 
-        lowerTestError(irs, passEnv, env.types, env.syms)
+        lowerTestError(irs, passEnv, env.types, env.procs, env.syms)
         var rpCtx: RefcPassCtx
         rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
         runPass(irs, rpCtx, lowerSetsPass)
@@ -391,7 +400,7 @@ proc generateCode*(g: ModuleGraph) =
         runPass(irs, lpCtx, typeV1Pass)
 
       except PassError as e:
-        let sym = env.syms.orig[s]
+        let sym = env.procs.orig[s]
         echo conf.toFileLineCol(sym.info)
         echoTrace(irs, e.n)
         printIr(irs, env, calcStmt(irs))
@@ -399,7 +408,7 @@ proc generateCode*(g: ModuleGraph) =
         printTypes(irs, env)
         raise
       except:
-        let sym = env.syms.orig.getOrDefault(s)
+        let sym = env.procs.orig.getOrDefault(s)
         if sym != nil:
           echo conf.toFileLineCol(sym.info)
         else:

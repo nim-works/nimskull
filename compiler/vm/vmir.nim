@@ -147,6 +147,7 @@ type
     ntkDeref
     ntkLocEnd
 
+    ntkProc # reference to a procedure
     ntkSym
     ntkRoot # a handle
     ntkLocal # references a local
@@ -214,6 +215,8 @@ type
       litIdx: int
     of ntkLocal:
       local: int
+    of ntkProc:
+      procId: ProcId
     of ntkAddr, ntkDeref:
       addrLoc: PathIndex
     of ntkGoto, ntkGotoLink:
@@ -260,6 +263,7 @@ type
     ##
     syms*: SymbolEnv
     types*: TypeEnv
+    procs*: ProcedureEnv
 
   CodeFragment* = object
     code*: seq[TInstr]
@@ -550,6 +554,9 @@ func irLocal*(c: var IrStore3, name: int): IRIndex =
   ## references a local
   c.add(IrNode3(kind: ntkLocal, local: name))
 
+func irProc*(c: var IrStore3, p: ProcId): IRIndex =
+  c.add IrNode3(kind: ntkProc, procId: p)
+
 func irAddr*(c: var IrStore3, loc: IRIndex): IRIndex =
   ## Take the address of a location
   c.add(IrNode3(kind: ntkAddr, addrLoc: loc))
@@ -592,6 +599,9 @@ func at*(irs: IrStore3, i: IRIndex): lent IrNode3 =
 
 func sym*(c: IrStore3, n: IrNode3): SymId =
   n.sym #c.syms[n.symIdx]
+
+func procId*(n: IrNode3): ProcId =
+  n.procId
 
 func getLocal*(irs: IrStore3, n: IRIndex): (LocalKind, TypeId, SymId) =
   irs.locals[irs.nodes[n].local]
@@ -1895,12 +1905,15 @@ func insertSym*(cr: var IrCursor, sym: SymId): IRIndex =
   assert sym != NoneSymbol
   cr.insert IrNode3(kind: ntkSym, sym: sym)
 
-func insertCallExpr*(cr: var IrCursor, sym: SymId, args: varargs[IRIndex]): IRIndex =
-  let c = cr.insertSym(sym)
+func insertProcSym*(cr: var IrCursor, prc: ProcId): IRIndex =
+  cr.insert IrNode3(kind: ntkProc, procId: prc)
+
+func insertCallExpr*(cr: var IrCursor, prc: ProcId, args: varargs[IRIndex]): IRIndex =
+  let c = cr.insertProcSym(prc)
   result = cr.insert IrNode3(kind: ntkCall, isBuiltin: false, callee: c, args: @args)
 
-func insertCallStmt*(cr: var IrCursor, sym: SymId, args: varargs[IRIndex]) =
-  discard insertCallExpr(cr, sym, args)
+func insertCallStmt*(cr: var IrCursor, prc: ProcId, args: varargs[IRIndex]) =
+  discard insertCallExpr(cr, prc, args)
 
 func insertCallExpr*(cr: var IrCursor, bc: BuiltinCall, typ: TypeId, args: varargs[IRIndex]): IRIndex =
   result = cr.insert IrNode3(kind: ntkCall, isBuiltin: true, builtin: bc, typ: typ, args: @args)
@@ -1980,7 +1993,7 @@ func patch(n: var IrNode3, patchTable: seq[IRIndex]) =
     patchIdx(n.idx)
 
   of ntkJoin, ntkGoto, ntkSym, ntkLocal, ntkLocEnd, ntkImm, ntkGotoCont,
-     ntkContinue, ntkGotoLink, ntkLoad, ntkWrite, ntkRoot, ntkLit:
+     ntkContinue, ntkGotoLink, ntkLoad, ntkWrite, ntkRoot, ntkLit, ntkProc:
     discard "nothing to patch"
 
 func inline*(cr: var IrCursor, other: IrStore3, sEnv: SymbolEnv, args: varargs[IRIndex]): IRIndex =

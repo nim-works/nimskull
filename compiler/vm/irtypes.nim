@@ -2,6 +2,7 @@
 
 import
   std/[
+    hashes,
     tables
   ],
   compiler/front/[
@@ -172,6 +173,34 @@ type
     # XXX: `orig` will likely be removed/replaced later on
     orig*: Table[SymId, PSym] # stores the associated ``PSym`` for a symbol. Currently meant to be used by the code-generators.
 
+  ProcId* = distinct uint32
+
+  ProcHeader* = object
+    ## At the IR-level, there is no distinction done between ``func``s,
+    ## ``proc``s, ``iterator``s, and ``method``s. They are all treated as a
+    ## "procedure" and work the same.
+
+    params*: seq[tuple[name: string, typ: TypeId]]
+    returnType*: TypeId
+
+    magic*: TMagic
+
+    flags*: TSymFlags # XXX: uses `TSymFlags` for now, but this will be changed to something else later on
+
+    # XXX: each procedure requires a ``Declaration``, so it's stored as part of
+    #      the type in order to avoid indirections via a ``DeclId`` (or similar).
+    #      Since a ``Declaration`` object is quite large, this does mean that
+    #      less ``ProcHeader``s fit into a cache-line. The declration is only
+    #      needed by code-generators so it likely makes sense to move the
+    #      declaration into a separate seq in ``ProcedureEnv``
+    decl*: Declaration
+
+  ProcedureEnv* = object
+    # TODO: maybe rename
+    procs: seq[ProcHeader]
+    map: Table[PSym, ProcId]
+    orig*: Table[ProcId, PSym]
+
 const NoneType* = TypeId(0)
 const NoneSymbol* = SymId(0)
 
@@ -183,10 +212,11 @@ const
 
 func `==`*(a, b: TypeId): bool {.borrow.}
 func `==`*(a, b: SymId): bool {.borrow.}
+func `==`*(a, b: ProcId): bool {.borrow.}
 
 func `inc`*(a: var RecordNodeIndex, val: int = 1) {.borrow.}
 
-type SomeId = TypeId | SymId | RecordId | FieldId
+type SomeId = TypeId | SymId | RecordId | FieldId | ProcId
 
 template toIndex*(id: SomeId): uint32 =
   id.uint32 - 1
@@ -211,6 +241,9 @@ func `[]`*(e: TypeEnv, i: RecordNodeIndex): lent RecordNode =
 
 func `[]`*(e: TypeEnv, i: RecordId): lent RecordNode =
   e.records[toIndex(i)]
+
+func `[]`*(e: ProcedureEnv, i: ProcId): lent ProcHeader {.inline.} =
+  e.procs[toIndex(i)]
 
 func getReturnType*(e: TypeEnv, t: TypeId): TypeId =
   ## Returns the return type of the given procedure type `t`
@@ -361,6 +394,7 @@ func requestSym*(e: var SymbolEnv, s: PSym): SymId =
   #       the slot's id. The callsite of `requestSym` doesn't need
   #       to have access to everything required for creating a ``Symbol`` from
   #       a `PSym` then.
+  assert s.kind notin routineKinds
 
   let next = SymId(e.symbols.len + 1) # +1 since ID '0' is reserved for indicating 'none'
 
@@ -621,10 +655,10 @@ func addSym*(e: var SymbolEnv, kind: TSymKind, typ: TypeId, name: string, flags:
   e.symbols.add(Symbol(kind: kind, typ: typ, flags: flags, decl: Declaration(name: name)))
   result = e.symbols.len.SymId
 
-func addMagic*(e: var SymbolEnv, kind: TSymKind, typ: TypeId, name: string, m: TMagic): SymId =
+func addMagic*(e: var ProcedureEnv, typ: TypeId, name: string, m: TMagic): ProcId =
   # XXX: temporary helper
-  e.symbols.add(Symbol(kind: kind, typ: typ, magic: m, decl: Declaration(name: name)))
-  result = e.symbols.len.SymId
+  e.procs.add ProcHeader(returnType: typ, magic: m, decl: Declaration(name: name))
+  result = e.procs.len.ProcId
 
 iterator msymbols*(e: var SymbolEnv): (SymId, var Symbol) =
   var i = 0
@@ -687,3 +721,69 @@ func requestGenericType*(e: var TypeEnv, kind: TypeNodeKind, elem: TypeId): Type
   # TODO: first check if the type exists already
   e.types.add(Type(kind: kind, base: elem))
   result = toId(e.types.high, TypeId)
+
+func translateProc*(s: PSym, types: var DeferredTypeGen, dest: var ProcHeader) =
+  assert s != nil
+
+  dest.magic = s.magic
+  dest.flags = s.flags
+
+  # fill in the declaration info
+  dest.decl.name = s.name.s
+
+  # XXX: temporary workaround for manually created magic syms (e.g. via
+  #      ``createMagic``), as these have no type information. Those shouldn't
+  #      be passed to ``requestProc`` however and instead be handled differently
+  if s.typ == nil:
+    return
+
+  # type information
+  let t = s.typ
+
+  dest.returnType = types.requestType(t[0])
+
+  # walk the type node instead of the sons so that hidden parameters (used by
+  # closure procs) get added too
+  dest.params.setLen(t.n.len - 1) # skip the first node
+  for i in 1..<t.n.len:
+    let n = t.n[i]
+    dest.params[i - 1] = (n.sym.name.s, types.requestType(n.typ))
+
+func hash(s: PSym): Hash =
+  hash(s.itemId)
+
+func requestProc*(e: var ProcedureEnv, s: PSym): ProcId =
+  ## Requests the ID for the given procedure-like `s`. The ID is cached, so
+  ## multiple calls to ``requestProc`` with the same symbol will all yield the
+  ## same one.
+  assert s.kind in {skProc, skFunc, skMethod, skIterator, skConverter}, $s.kind
+
+  let next = toId(e.procs.len, ProcId)
+  result = e.map.mgetOrPut(s, next)
+  if result == next:
+    # the actual translation is deferred
+    e.procs.setLen(e.procs.len + 1)
+    e.orig[next] = s
+
+func finish*(e: var ProcedureEnv, types: var DeferredTypeGen) =
+  ## Performs the translation for all collected symbols and cleans up
+  ## accumulated mappings from ``PSym`` to ``ProcId`` in order to reduce
+  ## memory usage. After calling this procedure, ``requestProc`` must
+  ## not be called again.
+
+  for sym, id in e.map.pairs:
+    translateProc(sym, types, e.procs[toIndex(id)])
+
+
+  # TODO: use something like a ``DeferredProcGen`` instead (same as it works for types)
+  reset(e.map)
+
+func getReturnType*(e: ProcedureEnv, p: ProcId): TypeId =
+  e[p].returnType
+
+func numParams*(e: ProcedureEnv, p: ProcId): int =
+  e[p].params.len
+
+iterator params*(e: ProcedureEnv, p: ProcId): tuple[name: lent string, typ: TypeId] =
+  for n, t in e[p].params.items:
+    yield (n, t)
