@@ -501,6 +501,7 @@ type GenCtx = object
   sym: ProcId
 
   names: seq[CAst] # IRIndex -> expr
+  exprs: seq[bool]
   types: seq[TypeId]
   config: ConfigRef
 
@@ -737,15 +738,11 @@ template testNode(cond: bool, i: IRIndex) =
   if not cond:
     raise (ref PassError)(msg: fmt"{astToStr(cond)} failed", n: i)
 
+func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint, numStmts: var int, pos: var IRIndex)
+
 proc genCode(c: var GenCtx, irs: IrStore3): CAst =
-  var i = 0
-  template names: untyped = c.names
-  template types: untyped = c.types
-  template f: untyped = c.f
 
-  var numStmts = 0
-  result.add cnkStmtList
-
+  # reset the re-usable state
   c.scope.idents.clear()
   c.localNames.setLen(0)
 
@@ -753,6 +750,10 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
   for p in c.gl.funcs[toIndex(irs.owner)].args.items:
     c.scope.idents.incl p.name
 
+  var numStmts = 0
+  result.add cnkStmtList
+
+  # generate the local definition
   var tmp = 0
   for typ, sym in irs.locals:
     if sym != NoneSymbol:
@@ -793,10 +794,49 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
 
     inc numStmts
 
-  let exprs = calcStmt(irs)
-  names.newSeq(irs.len)
+  c.exprs = calcStmt(irs)
+  c.names.newSeq(irs.len)
 
-  for n in irs.nodes:
+  var pos = 0
+  genSection(result, c, irs, JoinPoint(0), numStmts, pos)
+
+  # exit
+  if c.env.types[c.env.procs.getReturnType(c.sym)].kind == tnkVoid:
+    result.add cnkReturn
+  else:
+    result.add cnkReturn, 1
+    result.add cnkIdent, c.gl.idents.getOrIncl("result").uint32
+
+  inc numStmts
+  result[0].a = numStmts.uint32
+
+
+func genStmtList(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint, pos: var IRIndex) =
+  let start = result.len
+  var numStmts = 0
+
+  result.add cnkStmtList
+  genSection(result, c, irs, merge, numStmts, pos)
+
+  # set the number of elements in the ``cnkStmtList``:
+  result[start].a = numStmts.uint32
+
+
+func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint, numStmts: var int, pos: var IRIndex) =
+  # TODO: `numStmts` should be the return value, but right now it can't, since
+  #       `result` is already in use
+  template names: untyped = c.names
+  template types: untyped = c.types
+  template exprs: untyped = c.exprs
+
+  let L = irs.len
+  while pos < L:
+    let
+      n = irs.at(pos)
+      i = pos
+
+    inc pos
+
     case n.kind
     of ntkSym:
       let sId = irs.sym(n)
@@ -905,40 +945,36 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
       result.add names[n.cond]
       result.add cnkStmtList, 1
       result.add cnkGoto, c.gl.idents.getOrIncl(fmt"label{n.target}").uint32
-      inc numStmts
-    of ntkJoin:
-      if irs.isLoop(n.joinPoint):
-        result.add genError(c, "loop impl missing")
-        discard#f.writeLine "while (true) {"
-      else:
-        result.add cnkLabel, c.gl.idents.getOrIncl(fmt"label{n.joinPoint}").uint32
-      inc numStmts
-    of ntkGoto:
-      if irs.isLoop(n.target):
-        # there exists only one `goto loop` and it's at the end of the loop
-        # XXX: very brittle
-        result.add genError(c, "loop impl missing")
-      else:
-        result.add cnkGoto, c.gl.idents.getOrIncl(fmt"label{n.target}").uint32
+
+      # XXX: doesn't work due to how a `x or y` is represented in the IR
+      #[
+      genStmtList(result, c, irs, n.target, pos)
+
+      # skip the join coming after the branch's section
+      testNode irs.at(pos).kind == ntkJoin, pos
+      inc pos
+      ]#
 
       inc numStmts
+    of ntkJoin:
+      # always create a label, even for loops
+      # XXX: loops should use 'while' loops in the generated code instead
+      result.add cnkLabel, c.gl.idents.getOrIncl(fmt"label{n.joinPoint}").uint32
+      inc numStmts
+    of ntkGoto:
+      result.add cnkGoto, c.gl.idents.getOrIncl(fmt"label{n.target}").uint32
+      inc numStmts
+
+      #[
+      # a goto always marks the end of a section
+      break
+      ]#
+
     else:
       names[i] = genError(c, fmt"missing impl: {n.kind}")
       if not exprs[i]:
         result.add names[i]
         inc numStmts
-
-
-  # exit
-  if c.env.types[c.env.procs.getReturnType(c.sym)].kind == tnkVoid:
-    result.add cnkReturn
-  else:
-    result.add cnkReturn, 1
-    result.add cnkIdent, c.gl.idents.getOrIncl("result").uint32
-  inc numStmts
-
-  echo numStmts
-  result[0].a = numStmts.uint32
 
 proc emitCDecl(f: File, c: GlobalGenCtx, decl: CDecl)
 
