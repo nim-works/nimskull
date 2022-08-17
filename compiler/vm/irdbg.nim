@@ -50,11 +50,11 @@ proc printTypes*(ir: IrStore3, e: IrEnv) =
 
     inc i
 
-func typeName(t: Type): string =
-  if t.iface != nil:
-    t.iface.name.s
+func typeName(e: TypeEnv, t: TypeId): string =
+  if (let iface = e.iface(t); iface != nil):
+    iface.name.s
   else:
-    $t.kind
+    $e.kind(t)
 
 iterator toStrIter*(irs: IrStore3, e: IrEnv, exprs: seq[bool]): string =
   var i = 0
@@ -95,15 +95,15 @@ iterator toStrIter*(irs: IrStore3, e: IrEnv, exprs: seq[bool]): string =
       line = fmt"goto label:{n.target}"
     of ntkLocal:
       let (k, t, _) = irs.getLocal(i)
-      line = fmt"local kind:{k} idx:{irs.getLocalIdx(i)} typ:{e.types[t].kind}"
+      line = fmt"local kind:{k} idx:{irs.getLocalIdx(i)}"
     of ntkPathObj:
       line = fmt"path obj:{n.srcLoc} field:{n.fieldIdx}"
     of ntkPathArr:
       line = fmt"path arr:{n.srcLoc} idx:@{n.arrIdx}"
     of ntkConv:
-      line = fmt"conv val:{n.srcLoc} typ:{typeName(e.types[n.typ])}"
+      line = fmt"conv val:{n.srcLoc} typ:{typeName(e.types, n.typ)}"
     of ntkCast:
-      line = fmt"cast val:{n.srcLoc} typ:{typeName(e.types[n.typ])}"
+      line = fmt"cast val:{n.srcLoc} typ:{typeName(e.types, n.typ)}"
     of ntkCall:
       if n.isBuiltIn:
         line = fmt"call bi: {n.builtin}"
