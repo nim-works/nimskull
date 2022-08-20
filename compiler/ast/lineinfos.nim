@@ -24,6 +24,15 @@ export FileIndex, TLineInfo
 
 import reports
 
+type
+  CompilerVerbosity* = enum
+    ## verbosity of the compiler, number is used as an array index and the
+    ## string matches what's passed on the CLI.
+    compVerbosityMin = (0, "0")
+    compVerbosityDefault = (1, "1")
+    compVerbosityHigh = (2, "2")
+    compVerbosityMax = (3, "3")
+
 const
   explanationsBaseUrl* = "https://nim-lang.github.io/Nim"
     # was: "https://nim-lang.org/docs" but we're now usually showing devel docs
@@ -38,7 +47,7 @@ proc createDocLink*(urlSuffix: string): string =
     result.add "/" & urlSuffix
 
 proc computeNotesVerbosity(): tuple[
-    main: array[0..3, ReportKinds],
+    main: array[CompilerVerbosity, ReportKinds],
     foreign: ReportKinds,
     base: ReportKinds
   ] =
@@ -76,7 +85,7 @@ proc computeNotesVerbosity(): tuple[
       rdbgTraceEnd # End report
     }
 
-  result.main[3] = result.base + repWarningKinds + repHintKinds - {
+  result.main[compVerbosityMax] = result.base + repWarningKinds + repHintKinds - {
     rsemObservableStores,
     rsemResultUsed,
     rsemAnyEnumConvert,
@@ -91,9 +100,9 @@ proc computeNotesVerbosity(): tuple[
   }
 
   if defined(release):
-    result.main[3].excl rintStackTrace
+    result.main[compVerbosityMax].excl rintStackTrace
 
-  result.main[2] = result.main[3] - {
+  result.main[compVerbosityHigh] = result.main[compVerbosityMax] - {
     rsemUninit,
     rsemExtendedContext,
     rsemProcessingStmt,
@@ -101,21 +110,23 @@ proc computeNotesVerbosity(): tuple[
     rextConf,
   }
 
-  result.main[1] = result.main[2] - repPerformanceHints - {
-    rsemProveField,
-    rsemErrGcUnsafe,
-    rsemHintLibDependency,
-    rsemGlobalVar,
+  result.main[compVerbosityDefault] = result.main[compVerbosityHigh] -
+    repPerformanceHints -
+    {
+      rsemProveField,
+      rsemErrGcUnsafe,
+      rsemHintLibDependency,
+      rsemGlobalVar,
 
-    rintGCStats,
-    rintMsgOrigin,
+      rintGCStats,
+      rintMsgOrigin,
 
-    rextPath,
+      rextPath,
 
-    rlexSourceCodeFilterOutput,
-  }
+      rlexSourceCodeFilterOutput,
+    }
 
-  result.main[0] = result.main[1] - {
+  result.main[compVerbosityMin] = result.main[compVerbosityDefault] - {
     rintSuccessX,
     rextConf,
     rsemProcessing,
@@ -138,15 +149,14 @@ proc computeNotesVerbosity(): tuple[
   for idx, n in @[
     result.foreign,
     # result.base,
-    result.main[3],
-    result.main[2],
-    result.main[1],
-    result.main[0],
+    result.main[compVerbosityMax],
+    result.main[compVerbosityHigh],
+    result.main[compVerbosityDefault],
+    result.main[compVerbosityMin],
   ]:
     assert rbackLinking notin n
     assert rsemImplicitObjConv in n, $idx
     assert rsemVmStackTrace in n, $idx
-
 
 const
   NotesVerbosity* = computeNotesVerbosity()

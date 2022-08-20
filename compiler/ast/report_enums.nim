@@ -236,8 +236,6 @@ type
     rparEnablePreviewDotOps = "DotLikeOps"
     # warnings END !! add reports BEFORE the last enum !!
 
-    rparName = "Name" ## Linter report about used identifier
-
     #-----------------------------  Sem reports  -----------------------------#
     # semantic fatal
     rsemFatalError
@@ -785,7 +783,7 @@ type
     rsemUnsafeSetLen           = "UnsafeSetLen"
     rsemUnsafeDefault          = "UnsafeDefault"
     rsemBindDeprecated
-    rsemUncollectableRefCycle  =  "CycleCreated"
+    rsemUncollectableRefCycle  = "CycleCreated"
     rsemObservableStores       = "ObservableStores"
     rsemCaseTransition         = "CaseTransition"
     rsemUseOfGc                = "GcMem" # last !
@@ -923,7 +921,7 @@ const rstWarnings* = {rbackRstTestUnsupported .. rbackRstRstStyle}
 
 type
   LexerReportKind* = range[rlexMalformedUnderscores .. rlexSourceCodeFilterOutput]
-  ParserReportKind* = range[rparInvalidIndentation .. rparName]
+  ParserReportKind* = range[rparInvalidIndentation .. rparEnablePreviewDotOps]
 
   SemReportKind* = range[rsemFatalError .. rsemImplicitObjConv]
   SemReportErrorKind* = range[rsemUserError .. rsemWrappedError]
@@ -949,7 +947,7 @@ const
 
   #-------------------------------  parser  --------------------------------#
   repParserKinds* = {low(ParserReportKind) .. high(ParserReportKind)}
-  rparHintKinds*    = {rparName}
+  rparHintKinds*    = {}
   rparErrorKinds*   = {rparInvalidIndentation .. rparInvalidFilter}
   rparWarningKinds* = {
     rparInconsistentSpacing .. rparEnablePreviewDotOps}
@@ -1034,7 +1032,6 @@ const
 
   repFatalKinds*: ReportKinds = rintFatalKinds
   repAllKinds* = {low(ReportKind) .. high(ReportKind)}
-
 
 
 const

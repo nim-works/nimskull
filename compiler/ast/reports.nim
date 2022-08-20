@@ -13,6 +13,10 @@
 ## Not using compiler-specific types also allows this report to be easily
 ## reused by external tooling - custom error pretty-printers, test runners
 ## and so on.
+## 
+## Debug Defines:
+## `compilerDebugCompilerReportStatistics`: output stats of counts for various
+##                                          report kinds
 
 import std/[options, packedsets]
 
@@ -28,7 +32,6 @@ export
   options.none,
   options.Option,
   int128.toInt128
-
 
 from compiler/front/in_options import TOption, TOptions
 type InstantiationInfo* = typeof(instantiationInfo())
@@ -179,7 +182,6 @@ type
     nilability*: Nilability ## the nilability
     kind*: NilTransition ## what kind of transition was that
     node*: PNode ## the node of the expression
-
 
   SemReport* = object of ReportBase
     ast*: PNode
@@ -352,7 +354,6 @@ type
 
       else:
         discard
-
 
 func severity*(report: SemReport): ReportSeverity =
   case SemReportKind(report.kind):
@@ -656,7 +657,6 @@ type
     cpu*: TSystemCPU ## Target CPU
     os*: TSystemOS ## Target OS
 
-
   InternalReport* = object of ReportBase
     ## Report generated for the internal compiler workings
     msg*: string
@@ -685,8 +685,6 @@ type
       else:
         discard
 
-
-
 func severity*(report: InternalReport): ReportSeverity =
   case InternalReportKind(report.kind):
     of rintFatalKinds:    rsevFatal
@@ -694,8 +692,6 @@ func severity*(report: InternalReport): ReportSeverity =
     of rintWarningKinds:  rsevWarning
     of rintErrorKinds:    rsevError
     of rintDataPassKinds: rsevTrace
-
-
 
 
 type
@@ -737,12 +733,11 @@ type
         externalReport*: ExternalReport
 
 static:
-  when false:
+  when defined(compilerDebugCompilerReportStatistics):
     echo(
       "Nimskull compiler outputs ",
-      ord(high(ReportKind)),
+      ord(high(ReportKind) + 1),
       " different kinds of diagnostics")
-
 
     echo "size of ReportBase     ", sizeof(ReportBase)
     echo "size of LexerReport    ", sizeof(LexerReport)
@@ -762,7 +757,6 @@ static:
 let reportEmpty* = Report(
   category: repInternal,
   internalReport: InternalReport(kind: repNone))
-
 
 template eachCategory*(report: Report, field: untyped): untyped =
   case report.category:
@@ -819,8 +813,6 @@ func severity*(
 
   else:
     severity(report)
-
-
 
 func severity*(
     report: Report,
@@ -899,7 +891,6 @@ func wrap*[R: ReportTypes](rep: sink R, iinfo: InstantiationInfo): Report =
   tmp.reportInst = toReportLineInfo(iinfo)
   return wrap(tmp)
 
-
 func wrap*[R: ReportTypes](
     rep: sink R, iinfo: ReportLineInfo, point: TLineInfo): Report =
   var tmp = rep
@@ -911,13 +902,12 @@ func wrap*[R: ReportTypes](
     rep: sink R, iinfo: InstantiationInfo, point: TLineInfo): Report =
   wrap(rep, toReportLineInfo(iinfo), point)
 
-
 func wrap*[R: ReportTypes](iinfo: InstantiationInfo, rep: sink R): Report =
   wrap(rep, iinfo)
 
-
 template wrap*(rep: ReportTypes): Report =
   wrap(rep, toReportLineInfo(instLoc()))
+
 
 func `$`*(point: ReportLineInfo): string =
   point.file & "(" & $point.line & ", " & $point.col & ")"
@@ -943,7 +933,6 @@ func addReport*(list: var ReportList, report: sink Report): ReportId =
 
 func addReport*[R: ReportTypes](list: var ReportList, report: R): ReportId =
   addReport(list, wrap(report))
-
 
 func getReport*(list: ReportList, id: ReportId): Report =
   ## Get report from the report list using it's id
