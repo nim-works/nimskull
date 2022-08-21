@@ -563,7 +563,6 @@ proc newQualifiedLookUpError(c: PContext, ident: PIdent, info: TLineInfo, err: P
   result = newSym(skError, ident, nextSymId(c.idgen), getCurrOwner(c), info)
   result.typ = c.errorType
   result.flags.incl(sfDiscardable)
-  # result.flags.incl(sfError)
   result.ast = err
 
 proc errorSym*(c: PContext, n, err: PNode): PSym =

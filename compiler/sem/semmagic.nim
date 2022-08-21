@@ -562,7 +562,7 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
             getAttachedOp(c.graph, t, attachedDestructor).owner == fin:
           discard "already turned this one into a finalizer"
         else:
-          bindTypeHook(c, turnFinalizerIntoDestructor(c, fin, n.info), n, attachedDestructor)
+          bindTypeHook(c, turnFinalizerIntoDestructor(c, fin, n.info), n.info, attachedDestructor)
     result = n
   of mDestroy:
     result = n

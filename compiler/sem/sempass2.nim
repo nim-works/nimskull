@@ -1418,12 +1418,16 @@ proc checkMethodEffects*(g: ModuleGraph; disp, branch: PSym) =
 
 proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
   var effects = t.n[0]
-  if t.kind != tyProc or effects.kind != nkEffectList: return
+  
+  if t.kind != tyProc or effects.kind != nkEffectList:
+    return
+  
   if n.kind != nkEmpty:
     internalAssert(g.config, effects.len == 0, "Starting effects list must be empty")
 
     newSeq(effects.sons, effectListLen)
     let raisesSpec = effectSpec(n, wRaises)
+  
     if not isNil(raisesSpec):
       effects[exceptionEffects] = raisesSpec
     elif s != nil and (s.magic != mNone or {sfImportc, sfExportc} * s.flags == {sfImportc}):
@@ -1436,6 +1440,7 @@ proc setEffectsForProcType*(g: ModuleGraph; t: PType, n: PNode; s: PSym = nil) =
       effects[tagEffects] = newNodeI(nkArgList, effects.info)
 
     effects[pragmasEffects] = n
+  
   if s != nil and s.magic != mNone:
     if s.magic != mEcho:
       t.flags.incl tfNoSideEffect

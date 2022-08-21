@@ -295,8 +295,6 @@ proc getCycleParam(c: TLiftCtx): PNode =
     result = boolLit(c.g, c.info, true)
 
 proc newHookCall(c: var TLiftCtx; op: PSym; x, y: PNode): PNode =
-  #if sfError in op.flags:
-  #  localReport(c.config, x.info, "usage of '$1' is a user-defined error" % op.name.s)
   result = newNodeI(nkCall, x.info)
   result.add newSymNode(op)
   if sfNeverRaises notin op.flags:

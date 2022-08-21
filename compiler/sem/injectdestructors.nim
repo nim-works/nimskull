@@ -322,7 +322,8 @@ proc genOp(c: var Con; t: PType; kind: TTypeAttachedOp; dest, ri: PNode): PNode 
   dbg:
     if kind == attachedDestructor:
       echo "destructor is ", op.id, " ", op.ast
-  if sfError in op.flags: checkForErrorPragma(c, t, ri, AttachedOpToStr[kind])
+  if sfError in op.flags:
+    checkForErrorPragma(c, t, ri, AttachedOpToStr[kind])
   c.genOp(op, dest)
 
 proc genDestroy(c: var Con; dest: PNode): PNode =
