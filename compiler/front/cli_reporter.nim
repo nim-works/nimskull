@@ -92,7 +92,6 @@ func wrap*(
 func wrap(conf: ConfigRef, text: ColText): string =
   toString(text, conf.useColor())
 
-
 proc formatTrace*(conf: ConfigRef, trace: seq[StackTraceEntry]): string =
   ## Format stack trace entries for reporting
   var paths: seq[string]
@@ -222,7 +221,6 @@ proc addPragmaAndCallConvMismatch*(
     expectedPragmas.setLen(max(0, expectedPragmas.len - 2)) # Remove ", "
     message.add "\n  Pragma mismatch: got '{.$1.}', but expected '{.$2.}'." % [gotPragmas, expectedPragmas]
 
-
 proc effectProblem(f, a: PType; result: var string) =
   ## Add effect difference annotation for `f` (aka formal/expected) and `a`
   ## (aka actual/provided) types
@@ -265,8 +263,6 @@ proc argTypeToString(arg: PNode; prefer: TPreferedDesc): string =
 
   else:
     result = arg.typ.typeToString(prefer)
-
-
 
 proc describeArgs(conf: ConfigRef, args: seq[PNode]; prefer = preferName): string =
   ## Generate comma-separated list of arguments
@@ -2516,10 +2512,10 @@ proc reportBody*(conf: ConfigRef, r: ParserReport): string =
       result = "invalid indentation; an export marker '*' follows the declared identifier"
 
     of rparTemplMissingEndClose:
-      result = "?"
+      result = "'end' does not close a control flow construct"
 
     of rparTemplInvalidExpression:
-      result = "?"
+      result = "invalid expression"
 
     of rparInconsistentSpacing:
       result = "Number of spaces around '$#' is not consistent"
@@ -2533,11 +2529,8 @@ proc reportBody*(conf: ConfigRef, r: ParserReport): string =
     of rparPragmaBeforeGenericParameters:
       result = "pragma must come after any generic parameter list"
 
-    of rparName:
-      result = "?"
-
     of rparInvalidFilter:
-      result = "?"
+      result = "invalid filter: $1" % r.node.renderTree
 
 proc reportFull*(conf: ConfigRef, r: ParserReport): string =
   assertKind r
@@ -3639,6 +3632,7 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       var indent {.global.}: int
       if r.kind == rdbgTraceStep:
         indent = r.debugReport.semstep.level
+
       case r.kind
       of rdbgTracerKinds:
         conf.writeln(conf.reportFull(r))

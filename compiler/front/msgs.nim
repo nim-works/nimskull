@@ -343,10 +343,10 @@ proc `$`*(conf: ConfigRef; info: TLineInfo): string = toFileLineCol(conf, info)
 proc `$`*(info: TLineInfo): string {.error.} = discard
 
 proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
-  ## Writes given message string to stderr by default.
+  ## Writes given message `s`tring to stderr by default.
   ## If ``--stdout`` option is given, writes to stdout instead. If message hook
   ## is present, then it is used to output message rather than stderr/stdout.
-  ## This behavior can be altered by given optional flags.
+  ## This behavior can be altered by given optional `flags`.
   ##
   ## This is used for 'nim dump' etc. where we don't have nimsuggest
   ## support.
@@ -410,7 +410,6 @@ proc errorActions(
     elif eh == doAbort and conf.cmd != cmdIdeTools:
       return (doAbort, false)
     elif eh == doRaise:
-      {.warning: "[IMPLEMENT] Convert report to string message?".}
       return (doRaise, false)
 
   return (doNothing, false)
@@ -475,22 +474,22 @@ proc getSurroundingSrc*(conf: ConfigRef; info: TLineInfo): string =
 
 proc handleReport*(
     conf: ConfigRef,
-    report: Report,
+    r: Report,
     reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing
   ) {.noinline.} =
 
-  var report = report
-  report.reportFrom = toReportLineInfo(reportFrom)
-  if report.category == repSem and report.location.isSome():
-    report.semReport.context = conf.getContext(report.location.get())
+  var rep = r
+  rep.reportFrom = toReportLineInfo(reportFrom)
+  if rep.category == repSem and rep.location.isSome():
+    rep.semReport.context = conf.getContext(rep.location.get())
 
   let
-    userAction = conf.report(report)
+    userAction = conf.report(rep)
     (action, trace) =
       case userAction
       of doDefault:
-        errorActions(conf, report, eh)
+        errorActions(conf, rep, eh)
       else:
         (userAction, false)
 

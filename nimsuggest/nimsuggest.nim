@@ -637,7 +637,7 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
         conf.incl optIdeDebug
       of "epc":
         gMode = mepc
-        conf.verbosity = 0          # Port number gotta be first.
+        conf.verbosity = compVerbosityMin  # Port number gotta be first.
       of "debug": conf.incl optIdeDebug
       of "v2": conf.suggestVersion = 0
       of "v1": conf.suggestVersion = 1
