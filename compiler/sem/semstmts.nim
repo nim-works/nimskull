@@ -697,7 +697,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
       typ = givenTyp
   
   elif haveGivenTyp and not haveInit: # eg: var foo: int
-    def = initExpr  # will be nkEmpty
+    def = initExpr  # will be nkEmpty or nkError
     typ = givenTyp
   
   elif not haveGivenTyp and haveInit: # eg: var foo = 1
@@ -762,6 +762,8 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
       hasError = true
       typ.n # retrieve the type error for def we left on `n`
     else:
+      if def.isError:
+        hasError = true
       def
 
   let
@@ -950,6 +952,8 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
   if hasError:
     # wrap the result if there is an embedded error
     result = c.config.wrapError(result)
+    # if def.id == 1944924:
+    #   debug result
 
 
 proc semLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
@@ -976,6 +980,8 @@ proc semLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
   assert n != nil, "nil node instead of let or var section"
   internalAssert(c.config, n.kind in nkVariableSections,
     "only let or var sections allowed, got: " & $n.kind)
+
+  var hasError = false
 
   let validPragmas =
         case symkind
@@ -1035,9 +1041,12 @@ proc semLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
         of nkLetSection, nkVarSection:
           # this means that it was untouched, sem it and then add
           result.add semNormalizedLetOrVar(c, pragmad, symkind)
+          if result[^1].isError:
+            hasError = true
         of nkError:
           # add as normal
           result.add pragmad
+          hasError = true
         else:
           c.config.internalError("Wrong node kind: " & $pragmad.kind)
     of nkVarTuple:
@@ -1059,8 +1068,11 @@ proc semLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
       singletonTupleNode.add a
 
       result.add semNormalizedLetOrVar(c, singletonTupleNode, symkind)
+      if result[^1].isError:
+        hasError = true
     of nkError:
       result.add a
+      hasError = true
     else:
       # TODO ill formed ast
       result.add:
@@ -1068,6 +1080,10 @@ proc semLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
   
   if result.kind == nkStmtList and result.len == 1:
     result = result[0] # unpack the result
+
+  if result.kind != nkError and hasError:
+    # error might have been unwrapped above, so only do so if needed
+    result = c.config.wrapError(result)
 
 
 proc semNormalizedConst(c: PContext, n: PNode): PNode =
@@ -2217,7 +2233,6 @@ proc addParams(c: PContext, n: PNode, kind: TSymKind) =
   for i in 1..<n.len:
     if n[i].kind == nkSym:
       addParamOrResult(c, n[i].sym, kind)
-
     else:
       semReportIllformedAst(c.config, n[i], {nkSym})
 
@@ -2348,6 +2363,10 @@ proc semProcAnnotation(c: PContext, prc: PNode;
 
 proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   ## used for resolving 'auto' in lambdas based on their callsite
+  if n.kind == nkError:
+    result = n
+    return
+
   var n = n
   let original = n[namePos].sym
   let s = original #copySym(original, false)
@@ -2369,7 +2388,6 @@ proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
       localReport(c.config, params[i].info, reportSym(
         rsemCannotInferTypeOfParameter, params[i].sym))
 
-    #params[i].sym.owner = s
   openScope(c)
   pushOwner(c, s)
   addParams(c, params, skProc)
@@ -2380,13 +2398,12 @@ proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   popProcCon(c)
   popOwner(c)
   closeScope(c)
+
   if optOwnedRefs in c.config.globalOptions and result.typ != nil:
     result.typ = makeVarType(c, result.typ, tyOwned)
-  # alternative variant (not quite working):
-  # var prc = arg[0].sym
-  # let inferred = c.semGenerateInstance(c, prc, m.bindings, arg.info)
-  # result = inferred.ast
-  # result.kind = arg.kind
+  
+  if s.ast[bodyPos].isError:
+    result = c.config.wrapError(result)
 
 proc activate(c: PContext, n: PNode) =
   # XXX: This proc is part of my plan for getting rid of
@@ -2622,7 +2639,9 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
 
   # setup the production
   result = copyNode(n)
-  result.sons.setLen(n.len)
+  result.sons.setLen(n.len) # xxx: done for incremental refactoring, allows
+                            #      indexing instead of add
+  
   when false:
     result.flags = n.flags # defensive copy, reintroduce if bugs found
 
@@ -2672,6 +2691,43 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
   if result[patternPos].kind == nkError:
     # c.config.localReport(n[patternPos])
     hasError = true
+  
+  # if result.len > namePos:
+  #   result[namePos] = n[namePos]
+  # if result.len > genericParamsPos:
+  #   result[genericParamsPos] = n[genericParamsPos]
+  if result[namePos].isError:
+    hasError = true
+  
+  if result.len > paramsPos:
+    if n[paramsPos].isError:
+      hasError = true
+    result[paramsPos] = n[paramsPos]
+  
+  if result.len > pragmasPos:
+    if n[pragmasPos].isError:
+      hasError = true
+    result[pragmasPos] = n[pragmasPos].copyTree
+  
+  if result.len > miscPos:
+    if n[miscPos].isError:
+      hasError = true
+    result[miscPos] = n[miscPos]
+  
+  if result.len > bodyPos:
+    if n[bodyPos].isError:
+      hasError = true
+    result[bodyPos] = n[bodyPos]
+  
+  if result.len > resultPos:
+    if n[resultPos].isError:
+      hasError = true
+    result[resultPos] = n[resultPos]
+  
+  if result.len > dispatcherPos:
+    if n[dispatcherPos].isError:
+      hasError = true
+    result[dispatcherPos] = n[dispatcherPos]
 
   # process parameters:
   # generic parameters, parameters, and also the implicit generic parameters
@@ -2697,11 +2753,16 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     else:
       semGenericParamList(c, n[genericParamsPos])
 
+  if hasError or result[genericParamsPos].isError:
+    closeScope(c)
+    popOwner(c)
+    return c.config.wrapError(result)
+
   # xxx: pragmasPos needs to be set because semParamList checks for `magic`,
   #      pragma processing needs to be broken up more so early things like this
   #      are handled correctly with less spooky action at a distance
-  result[pragmasPos] = copyTree(n[pragmasPos])
-  result[paramsPos] = n[paramsPos]
+  # result[pragmasPos] = copyTree(n[pragmasPos])
+  # result[paramsPos] = n[paramsPos]
   s.typ =
     case n[paramsPos].kind
     of nkEmpty:
@@ -2725,6 +2786,11 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     # instantiated and not immediately evaluated.
     result[genericParamsPos] = result[miscPos][1]
     result[miscPos] = c.graph.emptyNode
+
+  if n.len > resultPos:
+    # xxx: gets updated later in `addResult` or `maybeAddResult`
+    result[resultPos] = n[resultPos].copyTree
+    result[resultPos].sym.typ = s.typ[0]
 
   if tfTriggersCompileTime in s.typ.flags:
     incl(s.flags, sfCompileTime)
@@ -2778,8 +2844,20 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
   if not result.isErrorLike and not hasProto:
     s = implicitPragmas(c, s, n.info, validPragmas)
   
+  # template completeResultForEarlyExit(n, result: PNode, lastIdx = pragmasPos) =
+  #   ## replace nils in `result` (the production) with values not analysed
+  #   ## otherwise we'll have nil errors elsewhere
+    
+  #   # xxx: this template should be entirely unnecessary if we can refactor this
+  #   #      proc to correctly order query, analysis, and production work
+  #   if result.kind != nkError and n.len > lastIdx + 1:
+  #     for i in (lastIdx + 1)..<n.len:
+  #       if i notin [miscPos, resultPos]:   # already done
+  #         result[i] = n[i]
+
   # check if we got any errors and if so report them
   if s != nil and s.kind == skError:
+    # completeResultForEarlyExit(n, result)
     result = s.ast
   
   if result.isErrorLike:
@@ -2807,6 +2885,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       c.config.newError(n[pragmasPos],
                         reportSymbols(rsemUnexpectedPragmaInDefinitionOf,
                                       @[proto, s]))
+    # completeResultForEarlyExit(n, result)
     result = wrapError(c.config, result)
     closeScope(c)
     popOwner(c)
@@ -2871,6 +2950,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
                           reportSym(rsemEnableCallOperatorExperimental, s))
       
       if result.isError:
+        # completeResultForEarlyExit(n, result, bodyPos)
         # xxx: defer the close and pop
         closeScope(c)
         popOwner(c)
@@ -2881,6 +2961,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     if sfBorrow in s.flags:
       result[bodyPos] = newError(c.config, n[bodyPos],
                                  reportSym(rsemImplementationNotAllowed, s))
+      # completeResultForEarlyExit(n, result, bodyPos)
       result = c.config.wrapError(result)
       closeScope(c)
       popOwner(c)
@@ -2899,6 +2980,8 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
         pushProcCon(c, s)
         addResult(c, result, s.typ[0], skProc)
         s.ast[bodyPos] = hloBody(c, semProcBody(c, result[bodyPos]))
+        if s.ast[bodyPos].isError:
+          hasError = true
         trackProc(c, s, s.ast[bodyPos])
         popProcCon(c)
       elif efOperand notin flags:
@@ -2916,6 +2999,9 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
         # semantic checking also needed with importc in case used in VM
         s.ast[bodyPos] = hloBody(c, semProcBody(c, result[bodyPos]))
         
+        if s.ast[bodyPos].isError:
+          hasError = true
+
         # unfortunately we cannot skip this step when in 'system.compiles'
         # context as it may even be evaluated in 'system.compiles':
         trackProc(c, s, s.ast[bodyPos])
@@ -2925,7 +3011,6 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
 
         openScope(c)
         result[bodyPos] = semGenericStmt(c, result[bodyPos])
-        
         closeScope(c)
         
         if s.magic == mNone:
@@ -2963,6 +3048,9 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
 
   if hasError:
     result = c.config.wrapError(result)
+    if s.ast[bodyPos].isError:
+      # debug result
+      writeStackTrace()
     return
 
   if n[patternPos].kind != nkEmpty:
@@ -2975,6 +3063,9 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
 
       if optOwnedRefs in c.config.globalOptions:
         result.typ = makeVarType(c, result.typ, tyOwned)
+    else:
+      # debug result
+      discard
   elif isTopLevel(c) and s.kind != skIterator and s.typ.callConv == ccClosure:
     result = newError(c.config, result,
                       reportSym(rsemUnexpectedClosureOnToplevelProc, s),
@@ -3337,6 +3428,10 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
       x = semExpr(c, n[i], flags)
       last = lastInputChildIndex == i
     
+    # if x.id == 1944935:
+    #   echo i
+    #   echo result.id
+
     if c.matchedConcept != nil and x.typ != nil and
         (nfFromTemplate notin n.flags or not last):
       
@@ -3432,6 +3527,10 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   if hasError and result.kind != nkError:
     result = wrapError(c.config, result)
+  
+  # if result.kind == nkError:
+  #   if result.id == 1944464 or result[wrongNodePos].id == 1944464:
+  #     echo result.id
 
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if efInTypeof in flags:

@@ -828,7 +828,7 @@ proc trackBlock(tracked: PEffects, n: PNode) =
   if n.kind in {nkStmtList, nkStmtListExpr}:
     var oldState = -1
     for i in 0..<n.len:
-      if hasSubnodeWith(n[i], nkBreakStmt):
+      if n[i].kind != nkError and hasSubnodeWith(n[i], nkBreakStmt):
         # block:
         #   x = def
         #   if ...: ... break # some nested break

@@ -75,6 +75,10 @@ proc semExprCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
 proc semExprWithType(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   addInNimDebugUtils(c.config, "semExprWithType", n, result, flags)
   result = semExprCheck(c, n, flags)
+
+  if result.isError:
+    return
+
   if result.typ == nil and efInTypeof in flags:
     result.typ = c.voidType
 
@@ -1573,6 +1577,12 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
       return tryReadingTypeField(c, n, i, ty.base)
   elif isTypeExpr(n[0]):
     return tryReadingTypeField(c, n, i, ty)
+  elif n[0].isError:
+    # xxx: pass along nkErrors, the previous approach of return `nil` is unwise
+    result = c.config.wrapError(n)
+    # if n[0].id == 1944940:
+    #   echo result.id
+    return
   elif ty.kind == tyError:
     # a type error doesn't have any builtin fields
     return nil
@@ -2131,6 +2141,10 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
       borrowCheck(c, n, lhs, rhs)
 
       n[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))
+      if n[1].isError:
+        result = c.config.wrapError(n)
+        return # refactor: return is "needed" because of `result = n` below
+
       when false: liftTypeBoundOps(c, lhs.typ, lhs.info)
 
       result = fixAbstractType(c, n)
@@ -2574,6 +2588,10 @@ proc semCompiles(c: PContext, n: PNode, flags: TExprFlags): PNode =
       ## this is the one place where we don't propagate nkError, wrapping the
       ## parent because this is a `compiles` call and should not leak across
       ## the AST boundary
+
+  if exprVal.isError and exprVal.id == 1944943:
+    # debug exprVal
+    echo "didCompile: ", didCompile
 
   result = newIntNode(nkIntLit, ord(didCompile))
   result.info = n.info

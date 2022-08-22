@@ -42,8 +42,11 @@ import
     semfold,
     lowerings
   ],
-  compiler/backend/[
+  compiler/backend/[  # xxx: sigh
     cgmeth
+  ],
+  compiler/utils/[
+    astrepr
   ]
 
 proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
@@ -896,6 +899,10 @@ proc transformExceptBranch(c: PTransf, n: PNode): PNode =
 
 proc commonOptimizations*(g: ModuleGraph; idgen: IdGenerator; c: PSym, n: PNode): PNode =
   result = n
+  
+  if result.kind == nkError:
+    return
+
   for i in 0..<n.safeLen:
     result[i] = commonOptimizations(g, idgen, c, n[i])
   var op = getMergeOp(n)
@@ -936,6 +943,8 @@ proc transform(c: PTransf, n: PNode): PNode =
   of nkError:
     # XXX: yet another place to report on nkError
     result = n
+    # debug n
+    # echo n.compilerInstInfo
     c.graph.config.localReport(n)
     return
   of nkSym:
