@@ -2574,7 +2574,8 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
   ## params in `marker` by position. `m` and `marker` are out parameters and
   ## updated with the produced results.
 
-  assert n.kind in nkCallKinds, "sigmatch.matchesAux wrong kind: " & $n.kind
+  assert n.kind in nkCallKinds + {nkBracketExpr},
+         "sigmatch.matchesAux wrong kind: " & $n.kind
 
   template noMatch() =
     c.mergeShadowScope #merge so that we don't have to resem for later overloads

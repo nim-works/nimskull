@@ -2164,39 +2164,45 @@ proc semReturn(c: PContext, n: PNode): PNode =
 proc semProcBody(c: PContext, n: PNode): PNode =
   openScope(c)
   result = semExpr(c, n)
-  if c.p.resultSym != nil and not isEmptyType(result.typ):
-    if result.kind == nkNilLit:
-      # or ImplicitlyDiscardable(result):
-      # new semantic: 'result = x' triggers the void context
-      result.typ = nil
-    elif result.kind == nkStmtListExpr and result.typ.kind == tyNil:
-      # to keep backwards compatibility bodies like:
-      #   nil
-      #   # comment
-      # are not expressions:
-      fixNilType(c, result)
-    else:
-      var a = newNodeI(nkAsgn, n.info, 2)
-      a[0] = newSymNode(c.p.resultSym)
-      a[1] = result
-      result = semAsgn(c, a)
+
+  case result.kind
+  of nkError:
+    # xxx: refactor the rest of this proc so it uses nkError
+    discard
   else:
-    result = discardCheck(c, result, {})
-
-  if c.p.owner.kind notin {skMacro, skTemplate} and
-     c.p.resultSym != nil and c.p.resultSym.typ.isMetaType:
-    if isEmptyType(result.typ):
-      # we inferred a 'void' return type:
-      c.p.resultSym.typ = errorType(c)
-      c.p.owner.typ[0] = nil
+    if c.p.resultSym != nil and not isEmptyType(result.typ):
+      if result.kind == nkNilLit:
+        # or ImplicitlyDiscardable(result):
+        # new semantic: 'result = x' triggers the void context
+        result.typ = nil
+      elif result.kind == nkStmtListExpr and result.typ.kind == tyNil:
+        # to keep backwards compatibility bodies like:
+        #   nil
+        #   # comment
+        # are not expressions:
+        fixNilType(c, result)
+      else:
+        var a = newNodeI(nkAsgn, n.info, 2)
+        a[0] = newSymNode(c.p.resultSym)
+        a[1] = result
+        result = semAsgn(c, a)
     else:
-      localReport(c.config, c.p.resultSym.info, reportSym(
-        rsemCannotInferReturnType, c.p.owner))
+      result = discardCheck(c, result, {})
 
-  if isInlineIterator(c.p.owner.typ) and c.p.owner.typ[0] != nil and
-      c.p.owner.typ[0].kind == tyUntyped:
-    localReport(c.config, c.p.owner.info, reportSym(
-        rsemCannotInferReturnType, c.p.owner))
+    if c.p.owner.kind notin {skMacro, skTemplate} and
+      c.p.resultSym != nil and c.p.resultSym.typ.isMetaType:
+      if isEmptyType(result.typ):
+        # we inferred a 'void' return type:
+        c.p.resultSym.typ = errorType(c)
+        c.p.owner.typ[0] = nil
+      else:
+        localReport(c.config, c.p.resultSym.info, reportSym(
+          rsemCannotInferReturnType, c.p.owner))
+
+    if isInlineIterator(c.p.owner.typ) and c.p.owner.typ[0] != nil and
+        c.p.owner.typ[0].kind == tyUntyped:
+      localReport(c.config, c.p.owner.info, reportSym(
+          rsemCannotInferReturnType, c.p.owner))
 
   closeScope(c)
 

@@ -2223,18 +2223,23 @@ proc addParams(c: PContext, n: PNode, kind: TSymKind) =
 
 proc semBorrow(c: PContext, n: PNode, s: PSym) =
   # search for the correct alias:
-  var b = searchForBorrowProc(c, c.currentScope.parent, s)
-  if b != nil:
-    # store the alias:
-    n[bodyPos] = newSymNode(b)
-    # Carry over the original symbol magic, this is necessary in order to ensure
-    # the semantic pass is correct
-    s.magic = b.magic
-    if b.typ != nil and b.typ.len > 0:
-      s.typ.n[0] = b.typ.n[0]
-    s.typ.flags = b.typ.flags
+  case n.kind
+  of nkError:
+    discard   # xxx: convert this proc to return a PNode and nkError
   else:
-    localReport(c.config, n, reportSem rsemBorrowTargetNotFound)
+    var b = searchForBorrowProc(c, c.currentScope.parent, s)
+    if b != nil:
+      # store the alias:
+      n[bodyPos] = newSymNode(b)
+      
+      # Carry over the original symbol magic, this is necessary in order to
+      # ensure the semantic pass is correct
+      s.magic = b.magic
+      if b.typ != nil and b.typ.len > 0:
+        s.typ.n[0] = b.typ.n[0]
+      s.typ.flags = b.typ.flags
+    else:
+      localReport(c.config, n, reportSem rsemBorrowTargetNotFound)
 
 proc swapResult(n: PNode, sRes: PSym, dNode: PNode) =
   ## Swap nodes that are (skResult) symbols to d(estination)Node.
@@ -2691,9 +2696,11 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       newNodeI(nkGenericParams, n.info)
     else:
       semGenericParamList(c, n[genericParamsPos])
-  
-  setGenericParamsMisc(c, result)
 
+  # xxx: pragmasPos needs to be set because semParamList checks for `magic`,
+  #      pragma processing needs to be broken up more so early things like this
+  #      are handled correctly with less spooky action at a distance
+  result[pragmasPos] = copyTree(n[pragmasPos])
   result[paramsPos] = n[paramsPos]
   s.typ =
     case n[paramsPos].kind
@@ -2703,7 +2710,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       # xxx: semParamList should simply return than do this silly out param junk
       semParamList(c, result[paramsPos], result[genericParamsPos], s.kind)
 
-  if result[genericParamsPos].safeLen == 0:
+  if result[genericParamsPos].safeLen == 0 or result[genericParamsPos].isError:
     # if there exist no explicit or implicit generic parameters, then this is
     # at most a nullary generic (generic with no type params). Regardless of
     # whether it's a nullary generic or non-generic, we restore the original.
@@ -2714,7 +2721,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     # The difference between a non-generic and nullary generic is minor in
     # most cases but there are subtle and significant differences as well.
     # Due to instantiation that generic procs go through, a static echo in the
-    # body of a nullary  generic will not be executed immediately, as it's
+    # body of a nullary generic will not be executed immediately, as it's
     # instantiated and not immediately evaluated.
     result[genericParamsPos] = result[miscPos][1]
     result[miscPos] = c.graph.emptyNode
@@ -2765,11 +2772,12 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       addInterfaceOverloadableSymAt(c, declarationScope, s)
     else:
       addInterfaceDeclAt(c, declarationScope, s)
-
-  result = pragmaCallable(c, s, n, validPragmas)
+  
+  # xxx: pragmaCallable mutates the input PNode, so using result defensively
+  result = pragmaCallable(c, s, result, validPragmas)
   if not result.isErrorLike and not hasProto:
     s = implicitPragmas(c, s, n.info, validPragmas)
-
+  
   # check if we got any errors and if so report them
   if s != nil and s.kind == skError:
     result = s.ast
@@ -2780,9 +2788,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     return wrapError(c.config, result)
 
   if n[pragmasPos].kind != nkEmpty and sfBorrow notin s.flags:
-    # xxx: `setEffectsForProacType` shouldn't mutate `n`, but it does, hence
-    #      the defensive copy... ugh
-    result[pragmasPos] = copyTree(n[pragmasPos])
+    # xxx: `setEffectsForProacType` mutates `n`
     setEffectsForProcType(c.graph, s.typ, result[pragmasPos], s)
   s.typ.flags.incl tfEffectSystemWorkaround
 
@@ -2838,7 +2844,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     result[genericParamsPos] = proto.ast[genericParamsPos]
     result[paramsPos] = proto.ast[paramsPos]
     result[pragmasPos] = proto.ast[pragmasPos]
-    
+
     c.config.internalAssert(result[namePos].kind == nkSym, n.info, "semProcAux")
     result[namePos].sym = proto
 
@@ -2846,6 +2852,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       result.comment = proto.ast.comment
     
     proto.ast = result        # needed for code generation
+
     popOwner(c)
     pushOwner(c, s)
 
@@ -2869,8 +2876,6 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
         popOwner(c)
         return
 
-  # TODO: complete converting things below
-
   if n[bodyPos].kind != nkEmpty and sfError notin s.flags:
     # for DLL generation we allow sfImportc to have a body, for use in VM
     if sfBorrow in s.flags:
@@ -2887,29 +2892,29 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       if s.kind == skMethod:
         semMethodPrototype(c, s, result)
     elif isAnon:
-      let gp = n[genericParamsPos]
+      let gp = result[genericParamsPos]
       if gp.kind == nkEmpty or (gp.len == 1 and tfRetType in gp[0].typ.flags):
         # absolutely no generics (empty) or a single generic return type are
         # allowed, everything else, including a nullary generic is an error.
         pushProcCon(c, s)
-        addResult(c, n, s.typ[0], skProc)
-        s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
+        addResult(c, result, s.typ[0], skProc)
+        s.ast[bodyPos] = hloBody(c, semProcBody(c, result[bodyPos]))
         trackProc(c, s, s.ast[bodyPos])
         popProcCon(c)
       elif efOperand notin flags:
         localReport(c.config, n, reportSem rsemGenericLambdaNowAllowed)
     else:
       pushProcCon(c, s)
-      if n[genericParamsPos].kind == nkEmpty or s.kind in {skMacro, skTemplate}:
+      if result[genericParamsPos].kind == nkEmpty or s.kind in {skMacro, skTemplate}:
         # Macros and Templates can have generic parameters, but they are only
         # used for overload resolution (there is no instantiation of the symbol)
         if s.kind notin {skMacro, skTemplate} and s.magic == mNone:
           paramsTypeCheck(c, s.typ)
 
-        maybeAddResult(c, s, n)
-        
+        maybeAddResult(c, s, result)
+
         # semantic checking also needed with importc in case used in VM
-        s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
+        s.ast[bodyPos] = hloBody(c, semProcBody(c, result[bodyPos]))
         
         # unfortunately we cannot skip this step when in 'system.compiles'
         # context as it may even be evaluated in 'system.compiles':
@@ -2919,7 +2924,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
           addDecl(c, newSym(skUnknown, getIdent(c.cache, "result"), nextSymId c.idgen, nil, n.info))
 
         openScope(c)
-        n[bodyPos] = semGenericStmt(c, n[bodyPos])
+        result[bodyPos] = semGenericStmt(c, result[bodyPos])
         
         closeScope(c)
         
@@ -2927,31 +2932,30 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
           fixupInstantiatedSymbols(c, s)
       
       if s.kind == skMethod:
-        semMethodPrototype(c, s, n)
+        semMethodPrototype(c, s, result)
       
       popProcCon(c)
   else:
     if s.kind == skMethod:
-      semMethodPrototype(c, s, n)
+      semMethodPrototype(c, s, result)
     
     if hasProto:
-      result = c.config.newError(n, reportSym(rsemImplementationExpected, proto))
-      closeScope(c)
-      popOwner(c)
-      return
+      result = c.config.newError(result, reportSym(rsemImplementationExpected, proto))
+    else:
+      if {sfImportc, sfBorrow, sfError} * s.flags == {} and s.magic == mNone:
+        # this is a forward declaration and we're building the prototype
+        if s.kind in {skProc, skFunc} and
+           s.typ[0] != nil and
+           s.typ[0].kind == tyUntyped:
+          # `auto` is represented as `tyUntyped` at this point in compilation.
+          result[paramsPos][0] =
+            newError(c.config, result[paramsPos][0],
+                    reportSem rsemUnexpectedAutoInForwardDeclaration)
+          hasError = true
 
-    if {sfImportc, sfBorrow, sfError} * s.flags == {} and s.magic == mNone:
-      # this is a forward declaration and we're building the prototype
-      if s.kind in {skProc, skFunc} and s.typ[0] != nil and s.typ[0].kind == tyUntyped:
-        # `auto` is represented as `tyUntyped` at this point in compilation.
-        result[paramsPos][0] =
-          newError(c.config, result[paramsPos][0],
-                   reportSem rsemUnexpectedAutoInForwardDeclaration)
-        hasError = true
-
-      s.flags.incl {sfForward, sfWasForwarded}
-    elif sfBorrow in s.flags:
-      semBorrow(c, n, s)
+        s.flags.incl {sfForward, sfWasForwarded}
+      elif sfBorrow in s.flags:
+        semBorrow(c, result, s)
 
   sideEffectsCheck(c, s)
   closeScope(c)           # close scope for parameters
@@ -2965,11 +2969,12 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     c.patterns.add(s)
   
   if isAnon:
-    n.transitionSonsKind(nkLambda)
-    result.typ = s.typ
+    if result.kind != nkError:
+      result.transitionSonsKind(nkLambda)
+      result.typ = s.typ
 
-    if optOwnedRefs in c.config.globalOptions:
-      result.typ = makeVarType(c, result.typ, tyOwned)
+      if optOwnedRefs in c.config.globalOptions:
+        result.typ = makeVarType(c, result.typ, tyOwned)
   elif isTopLevel(c) and s.kind != skIterator and s.typ.callConv == ccClosure:
     result = newError(c.config, result,
                       reportSym(rsemUnexpectedClosureOnToplevelProc, s),
@@ -2978,7 +2983,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
 proc determineType(c: PContext, s: PSym) =
   if s.typ != nil:
     return
-  discard semProcAux(c, s.ast, s.kind, {})
+  s.ast = semProcAux(c, s.ast, s.kind, {})
 
 proc semIterator(c: PContext, n: PNode): PNode =
   # gensym'ed iterator?
@@ -3004,7 +3009,7 @@ proc semIterator(c: PContext, n: PNode): PNode =
     incl(s.typ.flags, tfCapturesEnv)
   else:
     s.typ.callConv = ccInline
-  if n[bodyPos].kind == nkEmpty and s.magic == mNone and c.inConceptDecl == 0:
+  if result[bodyPos].kind == nkEmpty and s.magic == mNone and c.inConceptDecl == 0:
     localReport(c.config, n.info, reportSym(
       rsemImplementationExpected, s))
 
@@ -3045,47 +3050,65 @@ proc semMethod(c: PContext, n: PNode): PNode =
 
 proc semConverterDef(c: PContext, n: PNode): PNode =
   if not isTopLevel(c):
-    localReport(c.config, n, reportSem rsemConverterRequiresToplevel)
+    result = c.config.newError(n, reportSem rsemConverterRequiresToplevel)
+    return
 
   checkSonsLen(n, bodyPos + 1, c.config)
+
   result = semProcAux(c, n, skConverter, converterPragmas)
+  
   # macros can transform converters to nothing:
-  if namePos >= result.safeLen: return result
+  if namePos >= result.safeLen: return
   # bug #7093: if after a macro transformation we don't have an
-  # nkIteratorDef aynmore, return. The iterator then might have been
+  # nkConverterDef aynmore, return. The converter then might have been
   # sem'checked already. (Or not, if the macro skips it.)
   if result.kind != nkConverterDef: return
-  var s = result[namePos].sym
-  var t = s.typ
-  if t[0] == nil:
-    localReport(c.config, n.info, reportSym(
-      rsemExpectedReturnTypeForConverter, s))
+  var
+    s = result[namePos].sym
+    t = s.typ
+    hasError = false
 
   if t.len != 2:
-    localReport(c.config, n.info, reportSym(
-      rsemExpectedOneArgumentForConverter, s))
+    result[paramsPos] =
+      newError(c.config, result[paramsPos],
+               reportSym(rsemExpectedOneArgumentForConverter, s))
+    hasError = true
 
-  addConverterDef(c, LazySym(sym: s))
+  if t[0] == nil:
+    result = newError(c.config, result,
+                      reportSym(rsemExpectedReturnTypeForConverter, s))
+
+  if hasError:
+    result = c.config.wrapError(result)
+  else:
+    addConverterDef(c, LazySym(sym: s))
 
 proc semMacroDef(c: PContext, n: PNode): PNode =
   checkSonsLen(n, bodyPos + 1, c.config)
   result = semProcAux(c, n, skMacro, macroPragmas)
-  # macros can transform macros to nothing:
-  if namePos >= result.safeLen: return result
-  # bug #7093: if after a macro transformation we don't have an
-  # nkIteratorDef aynmore, return. The iterator then might have been
-  # sem'checked already. (Or not, if the macro skips it.)
-  if result.kind != nkMacroDef: return
-  var s = result[namePos].sym
-  var t = s.typ
-  var allUntyped = true
+  
+  # macros can transform macros to nothing or result in an error:
+  if result.kind == nkError or
+     result.kind != nkMacroDef or
+     namePos >= result.safeLen:
+    return
+
+  var
+    s = result[namePos].sym
+    t = s.typ
+    allUntyped = true
+  
   for i in 1..<t.n.len:
     let param = t.n[i].sym
-    if param.typ.kind != tyUntyped: allUntyped = false
-  if allUntyped: incl(s.flags, sfAllUntyped)
-  if n[bodyPos].kind == nkEmpty:
-    localReport(c.config, n, reportSym(
-      rsemImplementationExpected, s))
+    if param.typ.kind != tyUntyped:
+      allUntyped = false
+  
+  if allUntyped:
+    incl(s.flags, sfAllUntyped)
+  
+  if result[bodyPos].kind == nkEmpty:
+    result = c.config.newError(result,
+                               reportSym(rsemImplementationExpected, s))
 
 proc incMod(c: PContext, n: PNode, it: PNode, includeStmtResult: PNode) =
   var f = checkModuleName(c.config, it)
