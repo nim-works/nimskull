@@ -188,7 +188,6 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
 
     # XXX: why don't we set the `typ` field to formal like above and below?
     result = typeMismatch(c.config, info, formal, arg.typ, arg)
-
   else:
     result = indexTypesMatch(c, formal, arg.typ, arg)
     if result == nil:
@@ -202,6 +201,8 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
       result = fitNodePostMatch(c, formal, result)
 
 proc fitNodeConsiderViewType(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
+  if arg.isError:
+    return arg
   let a = fitNode(c, formal, arg, info)
   if formal.kind in {tyVar, tyLent}:
     #classifyViewType(formal) != noView:
@@ -623,8 +624,12 @@ proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
   popInfoContext(c.config)
 
 proc forceBool(c: PContext, n: PNode): PNode =
-  result = fitNode(c, getSysType(c.graph, n.info, tyBool), n, n.info)
-  if result == nil: result = n
+  case n.kind
+  of nkError:
+    result = n
+  else:
+    result = fitNode(c, getSysType(c.graph, n.info, tyBool), n, n.info)
+    if result == nil: result = n
 
 proc semConstBoolExpr(c: PContext, n: PNode): PNode =
   result = forceBool(c, semConstExpr(c, n))

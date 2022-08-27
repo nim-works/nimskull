@@ -645,9 +645,13 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
         case temp.kind
         of nkSymChoices:
           if temp[0].typ.skipTypes(abstractInst).kind == tyEnum:
+            hasError = true
             newError(c.config, temp, newSymChoiceUseQualifierReport(temp))
           else:
             temp
+        of nkError:
+          hasError = true
+          temp
         else:
           temp
     initType =
@@ -2678,26 +2682,13 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
 
   # xxx: use a defer for pushOwner/openScope automatic closing
 
-  result[patternPos] =
-    case n[patternPos].kind
-    of nkEmpty:
-      c.graph.emptyNode
-    of nkError:
-      n[patternPos]
-    else:
-      # xxx: `semPattern` mutates `n[patternPos]`, this needs fixing
-      semPattern(c, n[patternPos], s)
-
-  if result[patternPos].kind == nkError:
-    # c.config.localReport(n[patternPos])
-    hasError = true
-  
-  # if result.len > namePos:
-  #   result[namePos] = n[namePos]
-  # if result.len > genericParamsPos:
-  #   result[genericParamsPos] = n[genericParamsPos]
   if result[namePos].isError:
     hasError = true
+  
+  if result.len > patternPos:
+    if n[patternPos].isError:
+      hasError = true
+    result[patternPos] = n[patternPos]
   
   if result.len > paramsPos:
     if n[paramsPos].isError:
@@ -2713,7 +2704,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     if n[miscPos].isError:
       hasError = true
     result[miscPos] = n[miscPos]
-  
+
   if result.len > bodyPos:
     if n[bodyPos].isError:
       hasError = true
@@ -2723,6 +2714,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     if n[resultPos].isError:
       hasError = true
     result[resultPos] = n[resultPos]
+    result[resultPos].sym.typ = s.typ[0]
   
   if result.len > dispatcherPos:
     if n[dispatcherPos].isError:
@@ -2787,13 +2779,29 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     result[genericParamsPos] = result[miscPos][1]
     result[miscPos] = c.graph.emptyNode
 
-  if n.len > resultPos:
-    # xxx: gets updated later in `addResult` or `maybeAddResult`
-    result[resultPos] = n[resultPos].copyTree
+  if result.len > resultPos:
+    # xxx: gets updated later in `addResult` or `maybeAddResult`, hack to make
+    #      `result` symbol swapping work when successively analysing the same
+    #      proc-like. all this because the legacy analysis approach mutated `n`
+    #      in-place.
     result[resultPos].sym.typ = s.typ[0]
 
   if tfTriggersCompileTime in s.typ.flags:
     incl(s.flags, sfCompileTime)
+
+  result[patternPos] =
+    case n[patternPos].kind
+    of nkEmpty:
+      c.graph.emptyNode
+    of nkError:
+      n[patternPos]
+    else:
+      # xxx: `semPattern` mutates `n[patternPos]`, this needs fixing
+      semPattern(c, n[patternPos], s)
+
+  if result[patternPos].kind == nkError:
+    # c.config.localReport(n[patternPos])
+    hasError = true
 
   if s.kind == skIterator:
     s.typ.flags.incl(tfIterator)
@@ -3048,9 +3056,6 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
 
   if hasError:
     result = c.config.wrapError(result)
-    if s.ast[bodyPos].isError:
-      # debug result
-      writeStackTrace()
     return
 
   if n[patternPos].kind != nkEmpty:
@@ -3527,10 +3532,6 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   if hasError and result.kind != nkError:
     result = wrapError(c.config, result)
-  
-  # if result.kind == nkError:
-  #   if result.id == 1944464 or result[wrongNodePos].id == 1944464:
-  #     echo result.id
 
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if efInTypeof in flags:

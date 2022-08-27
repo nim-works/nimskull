@@ -2578,6 +2578,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
          "sigmatch.matchesAux wrong kind: " & $n.kind
 
   template noMatch() =
+    # if c.compilesContextId == 0: # only merge if we're not in a compiles
     c.mergeShadowScope #merge so that we don't have to resem for later overloads
     m.state = csNoMatch
     m.error.firstMismatch.pos = a

@@ -1038,7 +1038,7 @@ template mapIt*(s: typed, op: untyped): untyped =
     #   [1, 2].mapIt((x: int) => it + x)
     # In this case, `mapIt` is just syntax sugar for `map`.
     type InType = typeof(items(s), typeOfIter)
-    # Use a help proc `f` to create closures for each element in `s`
+    # Use a helper proc `f` to create closures for each element in `s`
     let f = proc (x: InType): OutType =
               let it {.inject.} = x
               op

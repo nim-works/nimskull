@@ -1904,36 +1904,42 @@ proc semTypeOf(c: PContext; n: PNode; prev: PType): PType =
 
 proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
   openScope(c)
-  var m = BiggestInt 1 # typeOfIter
-  if n.len == 3:
-    let mode = semConstExpr(c, n[2])
-    if mode.kind != nkIntLit:
-      localReport(c.config, VMReport(
-        ast: n,
-        location: some(n.info),
-        kind: rvmCannotEvaluateAtComptime))
-
-    else:
-      m = mode.intVal
-  
-  case n[1].kind
+  case n.kind
   of nkError:
-    result = n[1].typ
+    result = n.typ
     if result.n.isNil:
-      result.n = n[1] # at time of writing: error in TType.n is a new thing
+      result.n = n
     closeScope(c)
   else:
-    let t = semExprWithType(c, n[1], if m == 1: {efInTypeof} else: {})
-    closeScope(c)
-
-    case t.kind
+    var m = BiggestInt 1 # typeOfIter
+    if n.len == 3:
+      let mode = semConstExpr(c, n[2])
+      if mode.kind != nkIntLit:
+        localReport(c.config, VMReport(
+          ast: n,
+          location: some(n.info),
+          kind: rvmCannotEvaluateAtComptime))
+      else:
+        m = mode.intVal
+    
+    case n[1].kind
     of nkError:
-      result = t.typ
+      result = n[1].typ
       if result.n.isNil:
-        result.n = t
+        result.n = n[1] # at time of writing: error in TType.n is a new thing
+      closeScope(c)
     else:
-      fixupTypeOf(c, prev, t)
-      result = t.typ
+      let t = semExprWithType(c, n[1], if m == 1: {efInTypeof} else: {})
+      closeScope(c)
+
+      case t.kind
+      of nkError:
+        result = t.typ
+        if result.n.isNil:
+          result.n = t
+      else:
+        fixupTypeOf(c, prev, t)
+        result = t.typ
 
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =

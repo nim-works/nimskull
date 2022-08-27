@@ -37,7 +37,7 @@ export ast_types, ast_idgen, ast_query, int128, ast_parsed_types
 var ggDebug* {.deprecated.}: bool ## convenience switch for trying out things
 
 when defined(useNodeIds):
-  const nodeIdToDebug* = 1944924 # 2322968
+  const nodeIdToDebug* = 1945378 # 2322968
 
 proc addAllowNil*(father, son: Indexable) {.inline.} =
   father.sons.add(son)

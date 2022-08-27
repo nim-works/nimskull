@@ -2112,6 +2112,13 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
       let
         lhs = n[0]
         rhs = semExprWithType(c, n[1], {})
+
+      if lhs.isError or rhs.isError:
+        n[0] = lhs
+        n[1] = rhs
+        result = c.config.wrapError(n)
+        return
+
       if lhs.kind == nkSym and lhs.sym.kind == skResult:
         n.typ = c.enforceVoidContext
         if c.p.owner.kind != skMacro and resultTypeIsInferrable(lhs.sym.typ):
@@ -2549,14 +2556,22 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   var err: string
   try:
     result = semExpr(c, n, flags)
-    if result != nil and efNoSem2Check notin flags:
-      trackStmt(c, c.module, result, isTopLevel = false)
-    if c.config.errorCounter != oldErrorCount and
-       result != nil and result.kind != nkError:
-      result = nil
+
+    if result.isNil or result.isError:
+      # xxx: we should eliminate nils being produced in the first place
+      discard  # just propogate the result
+    else:
+      # we got some non-error result, check for effects and error count
+      if efNoSem2Check notin flags:
+        trackStmt(c, c.module, result, isTopLevel = false)
+      
+      if c.config.errorCounter != oldErrorCount:
+        # xxx: this nil should be an nkError
+        result = nil
   except ERecoverableError:
     discard
   # undo symbol table changes (as far as it's possible):
+  # xxx: you'd think "as far as it's possible" above would have been a big clue
   c.compilesContextId = oldCompilesId
   c.generics = oldGenerics
   c.inGenericContext = oldInGenericContext
@@ -2576,22 +2591,19 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
 
 proc semCompiles(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # we replace this node by a 'true' or 'false' node:
-  if n.len != 2: return semDirectOp(c, n, flags)
+  if n.len != 2:
+    return semDirectOp(c, n, flags)
 
   # xxx: need to further confirm, but `n[1]` below might need to be copied
   #      defensively, as inclusion of nkError nodes may mutate the original AST
   #      that was passed in via the compiles call.
 
   let
-    exprVal = tryExpr(c, n[1], flags)
+    exprVal = tryExpr(c, n[1].copyTree, flags)
     didCompile = exprVal != nil and exprVal.kind != nkError
       ## this is the one place where we don't propagate nkError, wrapping the
       ## parent because this is a `compiles` call and should not leak across
       ## the AST boundary
-
-  if exprVal.isError and exprVal.id == 1944943:
-    # debug exprVal
-    echo "didCompile: ", didCompile
 
   result = newIntNode(nkIntLit, ord(didCompile))
   result.info = n.info
@@ -2635,6 +2647,8 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     result.typ = makePtrType(c, result[1].typ)
   of mTypeOf:
     markUsed(c, n.info, s)
+    # xxx: defensively copy `n` because sem has a habit of mutating things
+    # result = semTypeOf(c, n.copyTree)
     result = semTypeOf(c, n)
   of mDefined:
     markUsed(c, n.info, s)
@@ -2647,6 +2661,8 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     result = semDeclared(c, setMs(n, s), true)
   of mCompiles:
     markUsed(c, n.info, s)
+    # xxx: defensively copy `n` because sem has a habit of mutating things
+    # result = semCompiles(c, setMs(n.copyTree, s), flags)
     result = semCompiles(c, setMs(n, s), flags)
   of mIs:
     markUsed(c, n.info, s)
@@ -2725,17 +2741,26 @@ proc semWhen(c: PContext, n: PNode, semCheck = true): PNode =
   # when nimvm:
   #   ...
   # else:
-  #   ...
-  var whenNimvm = false
+  #   ...  
+  let whenNimvm =  
+    if n.len == 2 and n[0].kind == nkElifBranch and
+        n[1].kind == nkElse:
+      let exprNode = n[0][0]
+
+      case exprNode.kind
+      of nkIdent:
+        lookUp(c, exprNode).magic == mNimvm
+      of nkSym:
+        exprNode.sym.magic == mNimvm
+      else:
+        false
+    else:
+      false
+  
+  if whenNimvm:
+    n.flags.incl nfLL
+
   var typ = commonTypeBegin
-  if n.len == 2 and n[0].kind == nkElifBranch and
-      n[1].kind == nkElse:
-    let exprNode = n[0][0]
-    if exprNode.kind == nkIdent:
-      whenNimvm = lookUp(c, exprNode).magic == mNimvm
-    elif exprNode.kind == nkSym:
-      whenNimvm = exprNode.sym.magic == mNimvm
-    if whenNimvm: n.flags.incl nfLL
 
   for i in 0..<n.len:
     var it = n[i]
@@ -2749,13 +2774,24 @@ proc semWhen(c: PContext, n: PNode, semCheck = true): PNode =
         result = n # when nimvm is not elimited until codegen
       else:
         let e = forceBool(c, semConstExpr(c, it[0]))
-        if e.kind != nkIntLit:
-          # can happen for cascading errors, assume false
-          # InternalError(n.info, "semWhen")
-          discard
-        elif e.intVal != 0 and result == nil:
-          setResult(it[1])
-          return # we're not in nimvm and we already have a result
+
+        case e.kind
+        of nkError:
+          discard   # can happen for cascading errors, assume false
+        of nkIntLit:
+          if e.intVal != 0 and result == nil:
+            setResult(it[1])
+            return # we're not in nimvm and we already have a result
+        else:
+          discard # xxx: should probably internal error
+        
+        # if e.kind != nkIntLit:
+        #   # can happen for cascading errors, assume false
+        #   # InternalError(n.info, "semWhen")
+        #   discard
+        # elif e.intVal != 0 and result == nil:
+        #   setResult(it[1])
+        #   return # we're not in nimvm and we already have a result
     of nkElse, nkElseExpr:
       checkSonsLen(it, 1, c.config)
       if result == nil or whenNimvm:
@@ -3496,7 +3532,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     else:
       result = semIndirectOp(c, n, flags)
 
-    if nfDefaultRefsParam in result.flags:
+    if result.kind != nkError and nfDefaultRefsParam in result.flags:
       result = result.copyTree #XXX: Figure out what causes default param nodes to be shared.. (sigmatch bug?)
       # We've found a default value that references another param.
       # See the notes in `hoistParamsUsedInDefault` for more details.

@@ -399,6 +399,8 @@ proc indexTypesMatch(c: PContext, f, a: PType, arg: PNode): PNode =
 
 proc inferWithMetatype(c: PContext, formal: PType,
                        arg: PNode, coerceDistincts = false): PNode =
+  if arg.isError:
+    return arg
   var m = newCandidate(c, formal)
   m.coerceDistincts = coerceDistincts
   result = paramTypesMatch(m, formal, arg.typ, arg)

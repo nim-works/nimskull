@@ -478,10 +478,10 @@ proc semPrivateAccess(c: PContext, n: PNode): PNode =
 proc magicsAfterOverloadResolution(c: PContext, n: PNode,
                                    flags: TExprFlags): PNode =
   ## This is the preferred code point to implement magics.
-  ## ``c`` the current module, a symbol table to a very good approximation
-  ## ``n`` the ast like it would be passed to a real macro
-  ## ``flags`` Some flags for more contextual information on how the
-  ## "macro" is calld.
+  ## `c` the current module, a symbol table to a very good approximation
+  ## `n` the ast like it would be passed to a real macro
+  ## `flags` Some flags for more contextual information on how the
+  ## "macro" is called.
 
   if n.isError:
     result = n

@@ -945,6 +945,7 @@ proc transform(c: PTransf, n: PNode): PNode =
     result = n
     # debug n
     # echo n.compilerInstInfo
+    echo "report id: ", n.reportId
     c.graph.config.localReport(n)
     return
   of nkSym:
