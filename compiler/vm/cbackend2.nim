@@ -461,6 +461,23 @@ proc generateCode*(g: ModuleGraph) =
   swap(env.syms, c.symEnv)
   swap(c.procs, env.procs)
 
+  block:
+    # all alive globals are collected by now - register them with their
+    # owning module
+
+    for id in env.syms.items:
+      let s = env.syms[id]
+      case s.kind
+      of skVar, skLet, skForVar:
+        # TODO: remove the guard once locals are not stored in the symbol
+        #       table anymore
+        if sfGlobal in s.flags:
+          let mIdx = mlist.moduleMap[env.syms.orig[id].getModule().id]
+          modules[mIdx].syms.add(id)
+
+      else:
+        discard
+
   var lpCtx = LiftPassCtx(graph: passEnv, idgen: g.idgen, cache: g.cache)
   lpCtx.env = addr env
   var ttc = TypeTransformCtx(graph: passEnv, ic: g.cache)
