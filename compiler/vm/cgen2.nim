@@ -1578,7 +1578,11 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       f.write ctx.idents[ident]
       f.writeLine ";"
     of skConst:
-      f.writeLine "EMIT_ERROR(\"missing logic: const\")"
+      f.write "static "
+      emitType(f, ctx, sym.typ)
+      f.write " "
+      f.write ctx.idents[ident]
+      f.writeLine ";"
     else:
       unreachable(sym.kind)
 
