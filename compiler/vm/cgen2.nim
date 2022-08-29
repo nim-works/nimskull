@@ -1458,6 +1458,9 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
     for it in env.procs.params(id):
       mCtx.useType(it.typ)
 
+  for id in m.syms.items:
+    mCtx.useType(env.syms[id].typ)
+
   # mark the type of used non-proc symbols as used
   for id in mCtx.syms.items:
     mCtx.useType(env.syms[id].typ)
@@ -1551,11 +1554,28 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
     if writeProcHeader(f, ctx, ctx.funcs[id.toIndex], env.procs[id].decl, false):
       f.writeLine ";"
 
+  # globals of the current module
+  for id in m.syms.items:
+    let sym = env.syms[id]
+    case sym.kind
+    of skLet, skVar, skForVar:
+      emitType(f, ctx, sym.typ)
+      f.write " "
+      f.write ctx.idents[ctx.symIdents[toIndex(id)]]
+      f.writeLine ";"
+    else:
+      discard
+
+  # referenced globals and constants
   for id in mCtx.syms.items:
     let sym = env.syms[id]
     let ident = ctx.symIdents[toIndex(id)]
     case sym.kind
     of skLet, skVar, skForVar:
+      # XXX: the `mCtx.syms` set may also include globals that are *defined*
+      #      as part of this module in which case the declaration here is
+      #      redundant
+      f.write "extern "
       emitType(f, ctx, sym.typ)
       f.write " "
       f.write ctx.idents[ident]
