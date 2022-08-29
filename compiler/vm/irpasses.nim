@@ -1906,10 +1906,31 @@ proc lowerOpenArray*(g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
       inc i
   ]#
 
+proc lowerOfV1(c: var UntypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+  case n.kind
+  of ntkCall:
+    case getMagic(ir, c.env[], n)
+    of mOf:
+      # TODO: ``isObjWithCache`` should be used, but supporting it is non-trivial
+      # TODO: a simply equality test can be used if the object is marked as
+      #       ``.final``
+      # XXX: ``tyPointer`` is not correct, but since ``mAccessTypeField``
+      #      gets lowered before reaching code-gen, we should be able to get
+      #      away with it
+      cr.replace()
+      discard cr.insertCompProcCall(c.graph, "isObj", cr.insertMagicCall(c.graph, mAccessTypeField, tyPointer, ir.argAt(cr, 0)), requestRtti2(c.graph, cr, ir.getLit(ir.at(ir.argAt(cr, 1))).typ))
+
+    else:
+      discard
+
+  else:
+    discard
+
 const hookPass* = LinearPass[HookCtx](visit: injectHooks)
 const refcPass* = LinearPass2[RefcPassCtx](visit: applyRefcPass)
 const seqV1Pass* = LinearPass2[RefcPassCtx](visit: lowerSeqsV1)
 const seqV2Pass* = LinearPass[GenericTransCtx](visit: lowerSeqsV2)
+const ofV1Pass* = LinearPass2[UntypedPassCtx](visit: lowerOfV1)
 const seqConstV1Pass* = LinearPass2[LiftPassCtx](visit: liftSeqConstsV1)
 const arrayConstPass* = LinearPass2[LiftPassCtx](visit: liftArrays)
 const setConstPass* = LinearPass2[LiftPassCtx](visit: liftLargeSets)

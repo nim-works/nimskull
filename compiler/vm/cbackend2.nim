@@ -498,6 +498,10 @@ proc generateCode*(g: ModuleGraph) =
           rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
           runPass(irs, rpCtx, seqV1Pass)
 
+        block:
+          var upc = initUntypedCtx(passEnv, addr env)
+          runPass(irs, upc, ofV1Pass)
+
         runPass(irs, lpCtx, setConstPass)
         runPass(irs, lpCtx, seqConstV1Pass)
         runPass(irs, lpCtx, arrayConstPass)
