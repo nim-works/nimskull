@@ -722,8 +722,8 @@ proc genCall(c: var TCtx; n: PNode): IRIndex =
   if n.typ.isEmptyType():
     result = InvalidIndex
 
-template isGlobal(s: PSym): bool = sfGlobal in s.flags and s.kind != skForVar
-proc isGlobal(n: PNode): bool = n.kind == nkSym and isGlobal(n.sym)
+template isGlobal(s: PSym): bool = sfGlobal in s.flags
+proc isGlobal(n: PNode): bool = n.kind == nkSym and n.sym.isGlobal
 
 func local(prc: PProc, sym: PSym): int {.inline.} =
   ## Returns the register associated with the local variable `sym` (or -1 if

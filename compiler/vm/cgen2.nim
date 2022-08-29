@@ -915,7 +915,7 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
       let sym = c.env.syms[sId]
       # TODO: refactor
       case sym.kind
-      of skVar, skLet:
+      of skVar, skLet, skForVar:
         if sfGlobal in sym.flags:
           c.m.syms.incl sId
         #discard mapTypeV3(c.gl, sym.typ) # XXX: temporary
@@ -1555,7 +1555,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
     let sym = env.syms[id]
     let ident = ctx.symIdents[toIndex(id)]
     case sym.kind
-    of skLet, skVar:
+    of skLet, skVar, skForVar:
       emitType(f, ctx, sym.typ)
       f.write " "
       f.write ctx.idents[ident]
