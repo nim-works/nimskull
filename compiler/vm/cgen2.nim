@@ -711,7 +711,7 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): CAst =
       let
         a = gen(c, irs, arg(0))
         b = gen(c, irs, arg(1))
-        op = if m == mMinI: ">=" else: "<="
+        op = if m == mMinI: "<=" else: ">="
       return start().add(cnkTernary).add(cnkInfix).add(a).ident(c.gl.idents, op).add(b).add(a).add(b).fin()
     of mIsNil:
       # a pointer value is implicitly convertible to a bool, so we use ``!x``
