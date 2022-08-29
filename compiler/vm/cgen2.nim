@@ -1414,7 +1414,7 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
 
 
 proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalGenCtx, env: IrEnv,
-                       impls: openArray[IrStore3], procs: openArray[ProcId]) =
+                       impls: openArray[IrStore3], m: ModuleData) =
   let f = open(filename.string, fmWrite)
   defer: f.close()
 
@@ -1426,7 +1426,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
 
   mCtx.headers.incl("\"nimbase.h\"")
 
-  for sym in procs.items:
+  for sym in m.procs.items:
     let irs = impls[sym.toIndex]
     useFunction(mCtx, sym)
 
@@ -1570,7 +1570,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       continue
 
     let
-      id = procs[i]
+      id = m.procs[i]
       prc = env.procs[id]
 
     if writeProcHeader(f, ctx, ctx.funcs[id.toIndex], prc.decl, true):

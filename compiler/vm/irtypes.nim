@@ -293,6 +293,13 @@ type
     map: Table[PSym, ProcId]
     orig*: Table[ProcId, PSym]
 
+  # XXX: this might need a different home
+  ModuleData* = object
+
+    # XXX: constants don't belong to a module
+    syms*: seq[SymId] ## the globals and constants that belong to this module
+    procs*: seq[ProcId] ## the procedures that belong to this module
+
 const NoneType* = TypeId(0)
 const NoneSymbol* = SymId(0)
 

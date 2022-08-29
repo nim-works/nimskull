@@ -366,8 +366,8 @@ proc generateCode*(g: ModuleGraph) =
   echo "starting codgen"
 
   var procImpls: seq[IrStore3] ## proc-id -> IR representation
-  var moduleProcs: seq[seq[ProcId]]
-  moduleProcs.newSeq(mlist.modules.len)
+  var modules: seq[ModuleData]
+  modules.newSeq(mlist.modules.len)
 
   var env = IrEnv()
 
@@ -430,7 +430,7 @@ proc generateCode*(g: ModuleGraph) =
       procImpls[idx] = c.unwrap ir
       procImpls[idx].owner = sId
       #doAssert mIdx == realIdx
-      moduleProcs[realIdx].add(sId)
+      modules[realIdx].procs.add(sId)
 
     # flush deferred types already to reduce memory usage a bit
     c.types.flush(env.types, c.symEnv, g.config)
@@ -535,15 +535,15 @@ proc generateCode*(g: ModuleGraph) =
   initGlobalContext(gCtx, env)
 
   for i, m in mlist.modules.pairs:
-    if moduleProcs[i].len == 0:
-      # don't generate anything for modules that have no procedures
+    if modules[i].syms.len == 0 and modules[i].procs.len == 0:
+      # don't generate anything for modules that have no alive content
       continue
 
     let cfile = getCFile(conf, AbsoluteFile toFullPath(conf, m.sym.position.FileIndex))
     var cf = Cfile(nimname: m.sym.name.s, cname: cfile,
                    obj: completeCfilePath(conf, toObjFile(conf, cfile)), flags: {})
 
-    emitModuleToFile(conf, cfile, gCtx, env, procImpls, moduleProcs[i])
+    emitModuleToFile(conf, cfile, gCtx, env, procImpls, modules[i])
 
     addFileToCompile(conf, cf)
 
