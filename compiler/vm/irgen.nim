@@ -1016,6 +1016,12 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
 
     result = c.irs.irCall(mSubI, typ, c.irs.irCall(lenCall, typ, c.genx(n[1])), c.irLit(1))
 
+  of mOf:
+    # ``mOf`` uses a ``typedesc`` parameter which would be omitted by
+    # ``genCall``, so we manually translate it
+    assert n[2].typ.kind == tyTypeDesc
+    result = c.irs.irCall(mOf, c.types.requestType(n.typ), c.genx(n[1]), c.genTypeLit(n[2].typ[0]))
+
   else:
     # TODO: return a bool instead and let the callsite call `genCall` in case
     #       the magic doesn't use special logic here
