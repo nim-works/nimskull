@@ -483,11 +483,14 @@ proc genCase(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
 
   result = dest
 
+func genTypeLit(c: var TCtx, t: PType): IRIndex
+
 func genExceptCond(c: var TCtx, val: IRIndex, n: PNode, next: JoinPoint) =
   ## Lowers exception matching into an if
   # XXX: maybe too early for this kind of lowering
   for i in 0..<n.len-1:
-    let cond = c.irs.irCall(mOf, c.requestType(tyBool), val)
+    assert n[i].kind == nkType
+    let cond = c.irs.irCall(mOf, c.requestType(tyBool), val, genTypeLit(c, n[i].typ))
     c.irs.irBranch(cond, next)
 
 func nextHandler(c: PProc): JoinPoint =
@@ -779,8 +782,6 @@ proc genCheckedObjAccessAux(c: var TCtx; n: PNode; dest: var IRIndex)
 
 template sizeOfLikeMsg(name): string =
   "'$1' requires '.importc' types to be '.completeStruct'" % [name]
-
-func genTypeLit(c: var TCtx, t: PType): IRIndex
 
 proc isInt8Lit(n: PNode): bool =
   if n.kind in {nkCharLit..nkUInt64Lit}:
