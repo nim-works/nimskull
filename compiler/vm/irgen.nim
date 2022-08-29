@@ -712,11 +712,13 @@ proc genCall(c: var TCtx; n: PNode): IRIndex =
     {.warning: "The case where nkHiddenAddr was elided isn't handled here".}
     # TODO: elision of compile-time parameters (i.e. static, typeDesc) needs
     #       some further thought
-    if not n[i].typ.isCompileTimeOnly or shouldGenCT:
-      let t =
-        if i < fntyp.len: fntyp[i]
-        else: nil
+    let t =
+      if i < fntyp.len: fntyp[i]
+      else: nil
 
+    # if they're to be omitted, guard against arguments to compile-time-only
+    # parameters
+    if t == nil or not t.isCompileTimeOnly or shouldGenCT:
       c.config.internalAssert(t != nil or tfVarargs in fntyp.flags, n[i].info):
         "too many arguments"
 
