@@ -817,7 +817,7 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
   c.localNames.setLen(0)
 
   # reserve the names used by the parameters
-  for p in c.gl.funcs[toIndex(irs.owner)].args.items:
+  for p in c.gl.funcs[toIndex(c.sym)].args.items:
     c.scope.idents.incl p.name
 
   var numStmts = 0
@@ -928,7 +928,7 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
       names[i] = start().ident(c.gl.symIdents[toIndex(sId)]).fin()
 
     of ntkParam:
-      let name = c.gl.funcs[toIndex(irs.owner)].args[n.paramIndex].name
+      let name = c.gl.funcs[toIndex(c.sym)].args[n.paramIndex].name
       names[i] = start().ident(name).fin()
 
     of ntkProc:
