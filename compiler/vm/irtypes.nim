@@ -1037,11 +1037,6 @@ func addSym*(e: var SymbolEnv, kind: TSymKind, typ: TypeId, name: PIdent, flags:
   e.symbols.add(Symbol(kind: kind, typ: typ, flags: flags, decl: DeclarationV2(name: name)))
   result = e.symbols.len.SymId
 
-func addMagic*(e: var ProcedureEnv, typ: TypeId, name: PIdent, m: TMagic): ProcId =
-  # XXX: temporary helper
-  e.procs.add ProcHeader(returnType: typ, magic: m, decl: DeclarationV2(name: name))
-  result = e.procs.len.ProcId
-
 iterator items*(e: SymbolEnv): SymId =
   var i = 0
   let L = e.symbols.len
@@ -1195,12 +1190,6 @@ func translateProc*(s: PSym, types: var DeferredTypeGen, ic: IdentCache, dest: v
 
   if lfHeader in s.loc.flags:
     dest.iface.header = getStr(s.annex.path)
-
-  # XXX: temporary workaround for manually created magic syms (e.g. via
-  #      ``createMagic``), as these have no type information. Those shouldn't
-  #      be passed to ``requestProc`` however and instead be handled differently
-  if s.typ == nil:
-    return
 
   # type information
   let t = s.typ
@@ -1457,9 +1446,7 @@ func mapTypes*(e: var ProcedureEnv, g: DeferredTypeGen) =
     for pa in it.params.mitems:
       pa.typ = map(g, pa.typ)
 
-    # magics not created during sem don't have type information
-    if it.returnType != NoneType:
-      it.returnType = map(g, it.returnType)
+    it.returnType = map(g, it.returnType)
 
     if it.envType != NoneType:
       it.envType = map(g, it.envType)

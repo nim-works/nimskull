@@ -223,12 +223,10 @@ func collectRoutineSyms(s: IrStore3, env: ProcedureEnv, list: var seq[PSym], kno
   for n in s.nodes:
     case n.kind
     of ntkProc:
-      let sym = env.orig.getOrDefault(n.procId) # XXX: inefficient
+      let sym = env.orig[n.procId] # XXX: inefficient
       # XXX: excluding all magics is wrong. Depending on which back-end is
       #      used, some magics are treated like any other routine
-      if sym != nil and
-         sym.magic == mNone and
-         sym.id notin known:
+      if sym.magic == mNone and sym.id notin known:
         known.incl(sym.id)
         list.add(sym)
     else: discard
@@ -267,27 +265,6 @@ proc initCompilerProcs(p: PassEnv, g: ModuleGraph, tgen: var DeferredTypeGen,
     else:
       # TODO: the rest (e.g. globals) also need to be handled
       discard
-
-proc initMagics(p: PassEnv, g: ModuleGraph, procs: var ProcedureEnv) =
-  # XXX: a magic is not necessarily a procedure - it can also be a type
-  # create a symbol for each magic to be used by the IR transformations
-  for m in low(TMagic)..high(TMagic):
-    # fetch the name from a "real" symbol
-    let sym = g.getSysMagic2("", m)
-
-    let name =
-      if sym.isNil():
-        # not every magic has symbol defined in ``system.nim`` (e.g. procs and
-        # types only used in the backend)
-        g.cache.getIdent($m)
-      else:
-        sym.name
-
-    if sym != nil and sym.kind notin routineKinds:
-      # we don't care about magic types here
-      continue
-
-    p.magics[m] = procs.addMagic(NoneType, name, m)
 
 # TODO: needs a different name:
 proc resolveTypeBoundOps(p: PassEnv, g: ModuleGraph, tgen: DeferredTypeGen, procs: var ProcedureEnv) =
@@ -382,7 +359,6 @@ proc generateCode*(g: ModuleGraph) =
   let passEnv = PassEnv()
   passEnv.initSysTypes(g, env.types, c.types)
   passEnv.initCompilerProcs(g, c.types, c.procs)
-  passEnv.initMagics(g, c.procs)
 
   c.passEnv = passEnv
 

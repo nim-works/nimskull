@@ -65,7 +65,6 @@ template customAssert(cond: bool, node: IRIndex) =
     raise (ref PassError)(msg: astToStr(cond), n: node)
 
 type PassEnv* = ref object # XXX: will be a non-`ref` later on
-  magics*: Table[TMagic, ProcId]
   compilerprocs*: Table[string, ProcId]
   compilertypes*: Table[string, TypeId]
 

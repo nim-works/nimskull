@@ -470,12 +470,6 @@ func useType(c: var ModuleCtx, t: TypeId) =
   assert t != NoneType
   c.types.incl t
 
-func useTypeAllowNone(c: var ModuleCtx, t: TypeId) =
-  # XXX: this shouldn't be allowed, but back-end generated magics have no type
-  #      information
-  if t != NoneType:
-    c.types.incl t
-
 #[
 func useTypeWeak(c: var ModuleCtx, t: PType): CTypeId=
   c.types
@@ -1456,7 +1450,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
   #      the types on the first occurence
   # mark the types used in routine signatures as used
   for id in mCtx.funcs.items:
-    mCtx.useTypeAllowNone(env.procs.getReturnType(id))
+    mCtx.useType(env.procs.getReturnType(id))
 
     for it in env.procs.params(id):
       mCtx.useType(it.typ)
