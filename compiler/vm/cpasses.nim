@@ -46,7 +46,7 @@ func insertLit(cr: var IrCursor, f: float): IRIndex =
   cr.insertLit (newFloatNode(nkFloatLit, f), NoneType)
 
 func wrapNot(cr: var IrCursor, g: PassEnv, val: IRIndex): IRIndex =
-  cr.insertMagicCall(g, mNot, val)
+  cr.insertCallExpr(mNot, g.sysTypes[tyBool], val)
 
 const IntLikeTypes = {tnkBool, tnkChar, tnkInt, tnkUInt}
 
@@ -64,7 +64,7 @@ func insertReset(cr: var IrCursor, g: PassEnv, env: IrEnv, typ: TypeId, target: 
     cr.insertAsgn(askShallow, target, cr.insertLit((newNode(nkNilLit), NoneType)))
   else:
     # TODO: handle the case where `target` is a ``var`` type
-    cr.insertCompProcCall(g, "nimZeroMem", cr.insertAddr(target), cr.insertCallExpr(g.magics[mSizeOf], cr.insertLit((nil, typ))))
+    cr.insertCompProcCall(g, "nimZeroMem", cr.insertAddr(target), cr.insertMagicCall(g, mSizeOf, tyInt, cr.insertLit((nil, typ))))
 
 func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   template arg(i: Natural): IRIndex =
@@ -93,7 +93,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
           lhs = ir.args(arg(0), 0)
           rhs = ir.args(arg(0), 1)
 
-        let m = c.env.procs[ir.at(orig.callee).procId].magic
+        let m = getMagic(ir, c.env[], orig)
         assert m in mAddI..mPred
 
         const
@@ -117,7 +117,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
 
         # perform the div-by-zero test first
         if m in {mDivI, mModI}:
-          cr.genIfNot(cr.wrapNot(c.graph, cr.insertMagicCall(c.graph, mEqI, rhs, cr.insertLit(0)))):
+          cr.genIfNot(cr.wrapNot(c.graph, cr.insertMagicCall(c.graph, mEqI, tyBool, rhs, cr.insertLit(0)))):
             cr.insertCompProcCall(c.graph, "raiseDivByZero")
 
         let tmp = cr.newLocal(lkTemp, c.types[lhs])
@@ -202,7 +202,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
       #       is not specified
       # XXX: what to do if one of the types' size is not known (e.g. if it's an
       #      imported type)?
-      cr.insertCompProcCall(c.graph, "nimCopyMem", cr.insertAddr(tmpAcc), cr.insertAddr(rhs), cr.insertCallExpr(c.graph.magics[mSizeOf], cr.insertTypeLit(n.typ)))
+      cr.insertCompProcCall(c.graph, "nimCopyMem", cr.insertAddr(tmpAcc), cr.insertAddr(rhs), cr.insertMagicCall(c.graph, mSizeOf, tyInt, cr.insertTypeLit(n.typ)))
 
       discard cr.insertLocalRef(tmp)
 
@@ -253,7 +253,7 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
         let arg0 = ir.argAt(cr, 0)
         if c.env.types[c.types[arg0]].kind == tnkClosure:
           cr.replace()
-          discard cr.insertCallExpr(c.graph.magics[mIsNil], cr.insertPathObj(arg0, ClosureProcField))
+          discard cr.insertMagicCall(c.graph, mIsNil, tyBool, cr.insertPathObj(arg0, ClosureProcField))
 
       else:
         discard
@@ -269,7 +269,7 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
 
       cr.replace()
 
-      let cond = cr.insertMagicCall(c.graph, mIsNil, cr.insertPathObj(cl, ClosureEnvField))
+      let cond = cr.insertMagicCall(c.graph, mIsNil, tyBool, cr.insertPathObj(cl, ClosureEnvField))
       let
         elseP = cr.newJoinPoint()
         endP = cr.newJoinPoint()

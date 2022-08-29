@@ -155,6 +155,10 @@ template tryOrReturn(code): untyped =
   except VmGenError as e:
     return IrGenResult.err(move e.report)
 
+func requestType(c: var TCtx, k: TTypeKind): TypeId =
+  {.cast(noSideEffect).}:
+    # XXX: ``getSysType`` has error reporting related side-effects
+    c.types.requestType(c.graph.getSysType(unknownLineInfo, k))
 
 proc getTemp(cc: var TCtx; tt: PType): IRIndex
 
@@ -185,15 +189,16 @@ func irCall(ir: var IrStore3, bc: BuiltinCall, typ: TypeId, args: varargs[IRInde
     discard ir.irUse(arg)
   ir.irCall(bc, typ, args.len.uint32)
 
+func irCall(ir: var IrStore3, m: TMagic, typ: TypeId, args: varargs[IRIndex]): IRIndex =
+  ## A shortcut for procedures taking only immutable arguments
+  for arg in args.items:
+    discard ir.irUse(arg)
+  ir.irCall(m, typ, args.len.uint32)
 
 proc irCall(c: var TCtx, name: string, args: varargs[IRIndex]): IRIndex =
   # TODO: compiler procs should be cached here in `TCtx`
   let prc = c.passEnv.getCompilerProc(name)
   c.irs.irCall(c.irs.irProc(prc), args)
-
-func irCall(c: var TCtx, name: string, m: TMagic, args: varargs[IRIndex]): IRIndex {.inline.} =
-  # TODO: maybe store all used magics directly in ``TCtx``?
-  c.irs.irCall(c.irs.irProc(c.passEnv.magics[m]), args)
 
 func genLocal(c: var TCtx, kind: LocalKind, t: PType): IRIndex =
   let
@@ -214,11 +219,12 @@ proc getTemp(cc: var TCtx; tt: PType): IRIndex =
 
 func irNull(c: var TCtx, t: TypeId): IRIndex =
   # XXX: maybe `irNull` should be a dedicated IR node?
-  c.irCall("default", mDefault, c.irs.irLit((nil, t)))
+  c.irs.irCall(mDefault, t, c.irs.irLit((nil, t)))
 
 func irNull(c: var TCtx, t: PType): IRIndex =
   # XXX: maybe `irNull` should be a dedicated IR node?
-  c.irCall("default", mDefault, c.irs.irLit((nil, c.types.requestType(t))))
+  let t = c.types.requestType(t)
+  c.irs.irCall(mDefault, t, c.irs.irLit((nil, t)))
 
 proc popBlock(c: var TCtx; oldLen: int) =
   #for f in c.prc.blocks[oldLen].fixups:
@@ -284,7 +290,7 @@ proc genWhile(c: var TCtx; n: PNode, next: JoinPoint) =
     else:
       # TODO: omit the while loop if cond == false?
       var tmp = c.genx(n[0])
-      let lab2 = c.irs.irBranch(c.irCall("not", mNot, tmp), next)
+      let lab2 = c.irs.irBranch(c.irs.irCall(mNot, c.requestType(tyBool), tmp), next)
       #c.prc.blocks[^1].endings.add(lab2)
 
     let exits = c.genStmt2(n[1])
@@ -373,7 +379,7 @@ proc genIf(c: var TCtx, n: PNode, next: JoinPoint): IRIndex =
       # TODO: instead of having to use a magic call, the 'branch' should have
       #       a flag to indicate whether or not the condition should be
       #       inverted
-      discard c.irs.irBranch(c.irCall("not", mNot, tmp), prev)
+      discard c.irs.irBranch(c.irs.irCall(mNot, c.requestType(tyBool), tmp), prev)
 
       then = it[1]
     else:
@@ -405,7 +411,7 @@ proc genAndOr(c: var TCtx; n: PNode; isAnd: bool, next: JoinPoint): IRIndex =
   c.irs.irAsgn(askInit, tmp, a)
 
   let cond =
-    if isAnd: c.irCall("not", mNot, a)
+    if isAnd: c.irs.irCall(mNot, c.requestType(tyBool), a)
     else: a
 
   let p = c.irs.irBranch(cond, next)
@@ -481,7 +487,7 @@ func genExceptCond(c: var TCtx, val: IRIndex, n: PNode, next: JoinPoint) =
   ## Lowers exception matching into an if
   # XXX: maybe too early for this kind of lowering
   for i in 0..<n.len-1:
-    let cond = c.irCall("of", mOf, val)
+    let cond = c.irs.irCall(mOf, c.requestType(tyBool), val)
     c.irs.irBranch(cond, next)
 
 func nextHandler(c: PProc): JoinPoint =
@@ -613,7 +619,9 @@ proc raiseExit(c: var TCtx) =
   # TODO: document
 
   # if isError: goto surrounding handler
-  let cond = c.irCall("not", mNot, c.irs.irCall(bcTestError, NoneType)) # XXX: should pass tyBool
+  let
+    boolTy = c.requestType(tyBool)
+    cond = c.irs.irCall(mNot, boolTy, c.irs.irCall(bcTestError, boolTy))
   let fwd = c.irs.irJoinFwd()
   c.irs.irBranch(cond, fwd)
   c.irs.irGoto(c.prc.nextHandler())
@@ -758,11 +766,10 @@ func irLit(c: var TCtx, i: SomeInteger): IRIndex =
   c.irLit newIntNode(nkIntLit, BiggestInt(i))
 
 proc genIndex(c: var TCtx; n: PNode; arr: PType): IRIndex =
-  if arr.skipTypes(abstractInst).kind == tyArray and (let x = firstOrd(c.config, arr);
-      x != Zero):
+  let arr = arr.skipTypes(abstractInst)
+  if arr.kind == tyArray and (let x = firstOrd(c.config, arr); x != Zero):
     let tmp = c.genx(n)
-
-    result = c.irCall("-", mSubI, tmp, c.irLit(toInt(x)))
+    result = c.irs.irCall(mSubI, c.types.requestType(arr[0]), tmp, c.irLit(toInt(x)))
   else:
     result = c.genx(n)
 
@@ -792,7 +799,7 @@ proc genOffset(c: var TCtx, n: PNode, off: Int128): IRIndex =
   else:
     let tmp = genx(c, n)
     # TODO: use mSubU for unsigned integers?
-    c.irCall("-", mSubI, tmp, c.irLit(off))
+    c.irs.irCall(mSubI, c.types.requestType(n.typ), tmp, c.irLit(off))
 
 proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
   result = InvalidIndex
@@ -818,18 +825,19 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
   of mInc, mDec:
     # already do the lowering here since it's the same across all targets
     let
-      isUnsigned = isUnsigned(n[1].typ.skipTypes({tyVar}))
+      typ = n[1].typ.skipTypes({tyVar})
+      typId = c.types.requestType(typ)
+      isUnsigned = isUnsigned(typ)
       dest = genx(c, n[1])
       val = genx(c, n[2])
 
-    const Magic = [mInc: ("+", [false: mAddI, true: mAddU]),
-                   mDec: ("-", [false: mSubI, true: mSubU])]
+    const Magic = [mInc: [false: mAddI, true: mAddU],
+                   mDec: [false: mSubI, true: mSubU]]
 
-    var r = c.irCall(Magic[m][0], Magic[m][1][isUnsigned],
-                     dest, val)
+    var r = c.irs.irCall(Magic[m][isUnsigned], typId, dest, val)
 
     let testOverflow = optOverflowCheck in c.options or not isUnsigned
-    r = c.wrapIf(bcOverflowCheck, c.types.requestType(n.typ), r, testOverflow)
+    r = c.wrapIf(bcOverflowCheck, typId, r, testOverflow)
 
     if testOverflow:
       c.raiseExit()
@@ -857,7 +865,8 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     #   # -->
     #   addr getTypeInfo(typeof(x))
     #
-    result = c.irs.irAddr(c.irCall("getTypeInfo", mGetTypeInfo, genTypeLit(c, n[1].typ)))
+    let typ = c.types.requestType(c.graph.getCompilerProc("TNimType").typ)
+    result = c.irs.irAddr(c.irs.irCall(mGetTypeInfo, typ, genTypeLit(c, n[1].typ)))
 
   of mDefault:
     assert n[1].typ.kind == tyTypeDesc
@@ -917,7 +926,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
 
     result =
       if fixup != mLengthOpenArray:
-        c.irCall("len", fixup, genx(c, n[1]))
+        c.irs.irCall(fixup, c.types.requestType(n.typ), genx(c, n[1]))
       else:
         # emit the original
         c.irs.irCall(genProcSym(c, n[0].sym), genx(c, n[1]))
@@ -1195,9 +1204,9 @@ proc genCheckedObjAccessAux(c: var TCtx; n: PNode; dest: var IRIndex) =
 
   if optFieldCheck in c.options:
     let discVal = c.irs.irUse(c.irs.irPathObj(dest, genField(c, disc)))
-    var cond = c.irCall("contains", mInSet, c.irLit(checkExpr[1]), discVal)
+    var cond = c.irs.irCall(mInSet, c.requestType(tyBool), c.irLit(checkExpr[1]), discVal)
     if negCheck:
-      cond = c.irCall("not", mNot, cond)
+      cond = c.irs.irCall(mNot, c.requestType(tyBool), cond)
 
     let lab1 = c.irs.irJoinFwd()
     c.irs.irBranch(cond, lab1)
@@ -1350,11 +1359,14 @@ proc genSetElem(c: var TCtx, n: PNode, first: int): IRIndex =
       # a literal value
       result = c.irImm(int(n.intVal - first))
     else:
+      # XXX: the correct type would be ``typeof(ord(val) - ord(low(T)))``
+      let t = c.requestType(tyInt)
+
       result = genx(c, n)
       if first > 0:
-        result = c.irCall("-", mSubI, result, first)
+        result = c.irs.irCall(mSubI, t, result, c.irLit(first))
       else:
-        result = c.irCall("+", mAddI, result, -first)
+        result = c.irs.irCall(mAddI, t, result, c.irLit(-first))
 
   else:
     result = genx(c, n)
@@ -1371,7 +1383,7 @@ proc genSetConstr(c: var TCtx, n: PNode): IRIndex =
       discard c.irs.irCall(bcInclRange, NoneType, result, a, b)
     else:
       let a = c.genSetElem(x, first)
-      discard c.irCall("incl", mIncl, result, a)
+      discard c.irs.irCall(mIncl, c.types.requestType(nil), result, a)
 
 func irConv(c: var TCtx, typ: PType, val: IRIndex): IRIndex =
   result = c.irs.irConv(c.types.requestType(typ), val)

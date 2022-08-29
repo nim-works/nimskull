@@ -551,8 +551,11 @@ func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
       debugEcho "computeTypes missing: ", n.kind
     inc i
 
-proc insertMagicCall*(cr: var IrCursor, g: PassEnv, m: TMagic, args: varargs[IRIndex]): IRIndex {.discardable.} =
-  cr.insertCallExpr(g.magics[m], args)
+template binaryBoolOp*(cr: var IrCursor, g: PassEnv, op: TMagic; a, b: IRIndex): IRIndex =
+  cr.insertCallExpr(op, g.sysTypes[tyBool], a, b)
+
+proc insertMagicCall*(cr: var IrCursor, g: PassEnv, m: TMagic, t: TTypeKind, args: varargs[IRIndex]): IRIndex {.discardable.} =
+  cr.insertCallExpr(m, g.sysTypes[t], args)
 
 proc insertCompProcCall*(cr: var IrCursor, g: PassEnv, name: string, args: varargs[IRIndex]): IRIndex {.discardable.} =
   cr.insertCallExpr(g.compilerprocs[name], args)
@@ -598,12 +601,12 @@ func storageLoc(c: RefcPassCtx, val: IRIndex): StorageLoc =
 
 proc requestRtti(c: var RefcPassCtx, cr: var IrCursor, t: TypeId): IRIndex =
   # refc uses the v1 type-info
-  cr.insertAddr cr.insertCallExpr(c.extra.magics[mGetTypeInfo], cr.insertLit((nil, t)))
+  cr.insertAddr cr.insertCallExpr(mGetTypeInfo, c.extra.getCompilerType("TNimType"), cr.insertLit((nil, t)))
   # TODO: collect for which types rtti was requested
 
 func requestRtti2(g: PassEnv, cr: var IrCursor, t: TypeId): IRIndex =
   # refc uses the v1 type-info
-  cr.insertAddr cr.insertCallExpr(g.magics[mGetTypeInfo], cr.insertLit((nil, t)))
+  cr.insertAddr cr.insertCallExpr(mGetTypeInfo, g.getCompilerType("TNimType"), cr.insertLit((nil, t)))
 
 proc genRefcRefAssign(cr: var IrCursor, e: PassEnv, dst, src: IRIndex, sl: StorageLoc)
 
@@ -615,7 +618,7 @@ proc genNewObj(cr: var IrCursor, g: PassEnv, env: IrEnv, ptrTyp: TypeId,
 
   let sizeExpr =
     if sizeExpr == InvalidIndex:
-      cr.insertMagicCall(g, mSizeOf, cr.insertLit((nil, typ)))
+      cr.insertMagicCall(g, mSizeOf, tyInt, cr.insertLit((nil, typ)))
     else:
       sizeExpr
 
@@ -673,7 +676,7 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
                 mGCunref: "nimGCunref"]
 
     cr.replace()
-    genIfNot(cr, cr.insertMagicCall(c.extra, mIsNil, arg(0))):
+    genIfNot(cr, cr.insertMagicCall(c.extra, mIsNil, tyBool, arg(0))):
       cr.insertCompProcCall(c.extra, op[m], arg(0))
 
   of mDefault:
@@ -702,11 +705,13 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
 
       # XXX: should IR temporaries be specified to be zero-initialized by
       #      default? Sounds like a good idea
-      cr.insertCompProcCall(c.extra, "nimZeroMem", cr.insertAddr tmpAcc, cr.insertMagicCall(c.extra, mSizeOf, cr.insertLit((nil, typ))))
+      cr.insertCompProcCall(c.extra, "nimZeroMem", cr.insertAddr tmpAcc, cr.insertMagicCall(c.extra, mSizeOf, tyInt, cr.insertLit((nil, typ))))
       case hdr
       of none: discard
       of single:
-        cr.insertAsgn(askInit, cr.insertMagicCall(c.extra, mAccessTypeField, tmpAcc), c.requestRtti(cr, typ))
+        # XXX: ``mAccessTypeField`` returns a ``ptr TNimType``, but we don't
+        #      have access to that type here
+        cr.insertAsgn(askInit, cr.insertMagicCall(c.extra, mAccessTypeField, tyPointer, tmpAcc), c.requestRtti(cr, typ))
       of embedded:
         cr.insertCompProcCall(c.extra, "objectInit", cr.insertAddr tmpAcc, c.requestRtti(cr, typ))
 
@@ -842,7 +847,7 @@ proc genTernaryIf(cr: var IrCursor, g: PassEnv, asgn: AssignKind, cond, dest, a,
     elseP = cr.newJoinPoint()
     endP = cr.newJoinPoint()
 
-  cr.insertBranch(cr.insertMagicCall(g, mNot, cond), elseP)
+  cr.insertBranch(cr.insertMagicCall(g, mNot, tyBool, cond), elseP)
   cr.insertAsgn(asgn, dest, a)
   cr.insertGoto(endP)
 
@@ -906,7 +911,7 @@ proc genSeqLen(cr: var IrCursor, g: PassEnv, ir: IrStore3, src: IRIndex): IRInde
   if false:#isLiteral(ir, src):
     cr.insertAsgn(askInit, tmp, accessSeqField(cr, ir, src, SeqV1LenField))
   else:
-    let cond = cr.insertMagicCall(g, mIsNil, src)
+    let cond = cr.insertMagicCall(g, mIsNil, tyBool, src)
     genTernaryIf(cr, g, askInit, cond, tmp, cr.insertLit(0), cr.insertPathObj(cr.insertDeref(src), SeqV1LenField))
 
   result = cr.insertLocalRef(local)
@@ -937,7 +942,7 @@ proc genStrConcat(cr: var IrCursor, g: PassEnv, tm: seq[TypeId], ir: IrStore3, e
           if lenExpr == InvalidIndex:
             v
           else:
-            cr.insertMagicCall(g, mAddI, lenExpr, v)
+            cr.insertMagicCall(g, mAddI, tyInt, lenExpr, v)
 
     else: unreachable()
 
@@ -945,7 +950,7 @@ proc genStrConcat(cr: var IrCursor, g: PassEnv, tm: seq[TypeId], ir: IrStore3, e
     if lenExpr == InvalidIndex:
       cr.insertLit(staticLen)
     else:
-      cr.insertMagicCall(g, mAddI, lenExpr, cr.insertLit(staticLen))
+      cr.insertMagicCall(g, mAddI, tyInt, lenExpr, cr.insertLit(staticLen))
 
   let tmp = cr.newLocal(lkTemp, g.getCompilerType("NimString"))
   cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertCompProcCall(g, "rawNewString", lenExpr))
@@ -989,7 +994,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
         # write barrier
         # TODO: document
         let target = cr.newJoinPoint()
-        cr.insertBranch(cr.insertMagicCall(c.extra, mIsNil, val), target)
+        cr.insertBranch(cr.insertMagicCall(c.extra, mIsNil, tyBool, val), target)
         # TODO: use nimGCunrefNoCylce when applicable
         cr.insertCompProcCall(c.extra, "nimGCunrefRC1", val)
         cr.insertAsgn(askShallow, val, nilLit)
@@ -1072,9 +1077,9 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       # literal
       # TODO: too much code duplication...
       if isLiteral(ir, a) and ir.getLit(ir.at(a)).val.isEmptyStr():
-        cr.insertMagicCall(c.extra, mEqI, genSeqLen(cr, c.extra, ir, b), cr.insertLit(0))
+        cr.binaryBoolOp(c.extra, mEqI, genSeqLen(cr, c.extra, ir, b), cr.insertLit(0))
       elif isLiteral(ir, b) and ir.getLit(ir.at(b)).val.isEmptyStr():
-        cr.insertMagicCall(c.extra, mEqI, genSeqLen(cr, c.extra, ir, a), cr.insertLit(0))
+        cr.binaryBoolOp(c.extra, mEqI, genSeqLen(cr, c.extra, ir, a), cr.insertLit(0))
       else:
         cr.insertCompProcCall(c.extra, "eqStrings", a, b)
 
@@ -1334,16 +1339,16 @@ proc lowerTestError*(ir: var IrStore3, g: PassEnv, ic: IdentCache, types: TypeEn
 
   ir.update(cr)
 
-func genSetElemOp(cr: var IrCursor, g: PassEnv, m: TMagic, a, b: IRIndex): IRIndex =
+func genSetElemOp(cr: var IrCursor, g: PassEnv, m: TMagic, t: TypeId, a, b: IRIndex): IRIndex =
   case m
   of mEqSet:
-    cr.insertMagicCall(g, mEqI, a, b)
+    cr.binaryBoolOp(g, mEqI, a, b)
   of mMulSet:
-    cr.insertMagicCall(g, mBitandI, a, b)
+    cr.insertCallExpr(mBitandI, t, a, b)
   of mPlusSet:
-    cr.insertMagicCall(g, mBitorI, a, b)
+    cr.insertCallExpr(mBitorI, t, a, b)
   of mMinusSet:
-    cr.insertMagicCall(g, mBitandI, a, cr.insertMagicCall(g, mBitnotI, b))
+    cr.insertCallExpr(mBitandI, t, a, cr.insertCallExpr(mBitnotI, t, b))
   else:
     unreachable(m)
 
@@ -1376,10 +1381,10 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
         loop = cr.insertLoop()
 
       # loop condition
-      cr.genIfNot(cr.insertMagicCall(c.extra, mLeI, counter, cr.insertLit(0))):
+      cr.genIfNot(cr.binaryBoolOp(c.extra, mLeI, counter, cr.insertLit(0))):
         cr.insertGoto(loopExit)
 
-      let v = genSetElemOp(cr, c.extra, m, cr.insertPathArr(arg0, counter), cr.insertPathArr(arg1, counter))
+      let v = genSetElemOp(cr, c.extra, m, c.extra.sysTypes[tyUInt8], cr.insertPathArr(arg0, counter), cr.insertPathArr(arg1, counter))
 
       if m == mEqSet:
         # --->
@@ -1391,7 +1396,7 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
         cr.insertAsgn(askInit, cr.insertPathArr(cr.insertLocalRef(res), counter), v)
 
       # counter
-      cr.insertAsgn(askCopy, counter, cr.insertMagicCall(c.extra, mAddI, counter, cr.insertLit(1)))
+      cr.insertAsgn(askCopy, counter, cr.insertMagicCall(c.extra, mAddI, tyInt, counter, cr.insertLit(1)))
 
       cr.insertJoin(loopExit)
       discard cr.insertLocalRef(res)
@@ -1400,11 +1405,11 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
         let uintTyp = c.extra.getSysType(tyUInt)
         let conv = cr.insertConv(uintTyp, ir.argAt(cr, 1))
         let
-          index = cr.insertMagicCall(c.extra, mShrI, conv, cr.insertLit 3)
-          mask = cr.insertMagicCall(c.extra, mShlI, cr.insertLit(1), cr.insertMagicCall(c.extra, mBitandI, conv, cr.insertLit 7))
+          index = cr.insertCallExpr(mShrI, uintTyp, conv, cr.insertLit 3)
+          mask = cr.insertCallExpr(mShlI, uintTyp, cr.insertLit(1), cr.insertCallExpr(mBitandI, uintTyp, conv, cr.insertLit 7))
 
-        let val = cr.insertMagicCall(c.extra, mBitandI, cr.insertPathArr(ir.argAt(cr, 0), index), mask)
-        discard cr.insertMagicCall(c.extra, mNot, cr.insertMagicCall(c.extra, mEqI, val, cr.insertLit(0)))
+        let val = cr.insertCallExpr(mBitandI, c.extra.sysTypes[tyUInt8], cr.insertPathArr(ir.argAt(cr, 0), index), mask)
+        discard cr.insertMagicCall(c.extra, mNot, tyBool, cr.binaryBoolOp(c.extra, mEqI, val, cr.insertLit(0)))
     else:
       cr.insertError("missing set-op: " & $m)
 
@@ -1548,7 +1553,7 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
       of tnkInt: # tyUInt, tyUInt64:
         # .. code:: nim
         #   cast[dstTyp](high) < val
-        cond = cr.insertMagicCall(c.extra, mLtU, cr.insertCast(srcTyp, upper), val)
+        cond = cr.binaryBoolOp(c.extra, mLtU, cr.insertCast(srcTyp, upper), val)
         raiser = "raiseRangeErrorNoArgs"
       else:
         let dstTyp = c.typeof(cr.position)#skipTypes(c.typeof(cr.position), abstractVarRange)
@@ -1559,7 +1564,7 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
           raiser = "raiseRangeErrorF"
           let conv = cr.insertConv(dstTyp, val)
           # no need to lower the `or` into an `ntkBranch` + `ntkJoin` here; it has no impact on further analysis
-          cond = cr.insertMagicCall(c.extra, mOr, cr.insertMagicCall(c.extra, mLtF64, conv, lower), cr.insertMagicCall(c.extra, mLtF64, upper, conv))
+          cond = cr.binaryBoolOp(c.extra, mOr, cr.binaryBoolOp(c.extra, mLtF64, conv, lower), cr.binaryBoolOp(c.extra, mLtF64, upper, conv))
 
         else:
           cr.insertError("missing chkRange impl")
@@ -1579,7 +1584,7 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
             ]#
 
         let target = cr.newJoinPoint()
-        cr.insertBranch(cr.insertMagicCall(c.extra, mNot, cond), target)
+        cr.insertBranch(cr.insertMagicCall(c.extra, mNot, tyBool, cond), target)
         cr.insertCompProcCall(c.extra, raiser, val, lower, upper)
         # XXX: it would be nice if we could also move the following
         #      ``if bcTestError(): goto error`` into the branch here
@@ -1687,7 +1692,7 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
         else:
           unreachable()
 
-      let lenExpr = cr.insertMagicCall(c.graph, mSubI, last, first)
+      let lenExpr = cr.insertMagicCall(c.graph, mSubI, tyInt, last, first)
 
       # XXX: the pointer needs a cast, but we don't know the correct type yet...
       cr.insertAsgn(askInit, ex.dataExpr, p)
@@ -1784,9 +1789,9 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
         of tnkArray:
           cr.insertLit(c.env.types[srcTyp].length)
         of tnkSeq:
-          cr.insertMagicCall(c.graph, mLengthSeq, arr)
+          cr.insertMagicCall(c.graph, mLengthSeq, tyInt, arr)
         of tnkString:
-          cr.insertMagicCall(c.graph, mLengthStr, arr)
+          cr.insertMagicCall(c.graph, mLengthStr, tyInt, arr)
         else:
           unreachable(c.env.types[srcTyp].kind)
 
