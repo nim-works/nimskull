@@ -36,7 +36,8 @@ import
     vmir,
     cgen2,
     irpasses,
-    irdbg
+    irdbg,
+    typeinfogen
   ],
   experimental/[
     results

@@ -1217,40 +1217,6 @@ func addGlobal*(c: var LiftPassCtx, t: TypeId, name: string): SymId =
 func addConst*(c: var LiftPassCtx, t: TypeId, name: string, val: PNode): SymId =
   c.env.syms.addSym(skConst, t, c.cache.getIdent(name))
 
-proc liftTypeInfoV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
-  ## Turns all ``mGetTypeInfo`` calls into globals and collects the newly
-  ## created symbols
-  # XXX: can this really be considered lifting?
-  case n.kind
-  of ntkCall:
-    if getMagic(ir, c.env[], n) == mGetTypeInfo:
-      cr.replace()
-
-      let
-        typ = ir.getLit(ir.at(ir.argAt(cr, 0))).typ
-
-      assert typ != NoneType
-
-      # XXX: the types weren't canonicalized, so we're creating lots of
-      #      duplicate type info globals for the same type
-      var s = c.typeInfoMarker.getOrDefault(typ)
-      if s == NoneSymbol:
-        # TODO: either use a `Rope` here or use a string buffer stored in
-        #       `LiftPassCtx` that is reserved for temporary usage like this
-        let name = "NTI" & $(typ.int) & "_" # XXX: too many short-lived and unnecessary allocations
-
-        # TODO: cache the `TNimType` type
-        let globalType = c.graph.getCompilerType("TNimType")
-        # the symbol is owned by the module the type is owned by
-        s = c.addGlobal(globalType, name)
-
-        c.typeInfoMarker[typ] = s
-
-      discard cr.insertSym(s)
-
-  else:
-    discard
-
 proc liftSeqConstsV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   # XXX: we reuse the ``LiftPassCtx`` for now, but it's currently not really
   #      meant for our usage here
@@ -1939,7 +1905,6 @@ const hookPass* = LinearPass[HookCtx](visit: injectHooks)
 const refcPass* = LinearPass2[RefcPassCtx](visit: applyRefcPass)
 const seqV1Pass* = LinearPass2[RefcPassCtx](visit: lowerSeqsV1)
 const seqV2Pass* = LinearPass[GenericTransCtx](visit: lowerSeqsV2)
-const typeV1Pass* = LinearPass2[LiftPassCtx](visit: liftTypeInfoV1)
 const seqConstV1Pass* = LinearPass2[LiftPassCtx](visit: liftSeqConstsV1)
 const arrayConstPass* = LinearPass2[LiftPassCtx](visit: liftArrays)
 const setConstPass* = LinearPass2[LiftPassCtx](visit: liftLargeSets)
