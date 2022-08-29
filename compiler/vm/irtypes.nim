@@ -182,6 +182,13 @@ type TypeLookup* = object
 type
   DeferredTypeGen* = object
     map: Table[ItemId, TypeId] # type-id -> ``TypeId``
+    typeInstCache: Table[ItemId, seq[PType]] ## maps a symbol ID of a generic
+                                             ## type to all it's seen instances
+    # XXX: the ``typeInstCache`` has the same purpose as the one from
+    #      ``ModuleGraphs``, but the latter is entangled with IC bits and it's
+    #      also not possible to iterate it without modifying the
+    #      ``ModuleGraph``
+
     list: seq[PType] ## the list of deferred types in the order they were requested
 
     data: seq[TypeId]
@@ -585,8 +592,22 @@ when useGenTraces:
 template overlaps(a: set, b: set): bool =
   a * b != {}
 
+func getOrAddInst(s: var seq[PType], t: PType): PType =
+  ## Adds `t` to the list `s` if it's not yet present there. The equality is
+  ## computed via ``sameType``
+  assert t.kind == tyObject
+  for it in s.items:
+    {.cast(noSideEffect).}:
+      if t.itemId == it.itemId or sameType(t, it):
+        # an instance of the type instantiation already exists
+        return it
+
+  # instance not recorded yet
+  s.add t
+  result = t
+
 func requestType*(gen: var DeferredTypeGen, t: PType): TypeId =
-  var t = t
+  var t {.cursor.} = t
   if t == nil:
     t = gen.voidType
 
@@ -612,9 +633,24 @@ func requestType*(gen: var DeferredTypeGen, t: PType): TypeId =
     if result != NoneType:
       return
       ]#
+
+  # XXX: profiling shows that duplicating the insertion logic below and having
+  #      the common non-generic object case come first is a bit faster than the
+  #      current code
+  if t.kind == tyObject and tfFromGeneric in t.flags:
+    # For generic objects, structural equality checking is required in order
+    # to remove duplicate ``PType`` instances of the same instantiation.
+    #
+    # While the lower-level type translation also has facilities for
+    # structural hashing (that's likely also a bit faster than ``sameType``),
+    # the logic for object type translation in ``flush`` isn't written with
+    # deduplication in mind, so for simplicity, we're doing it here
+    t = getOrAddInst(gen.typeInstCache.mgetOrPut(t.sym.itemId, @[]), t)
+
   let next = TypeId((gen.nextTypeId + 1) or TypeIdKindBit)
   result = gen.map.mgetOrPut(t.itemId, next)
   if result == next:
+    # not yet seen type instance
     gen.list.add(t)
     when useGenTraces:
       gen.traceMap.add requestTrace(gen)
