@@ -341,14 +341,13 @@ template logError(ir: IrStore3, env: IrEnv, prc: ProcId, code: untyped) =
     raise
 
 func finishTypes*(g: PassEnv, types: DeferredTypeGen,
-                  procs: var openArray[seq[(ProcId, IrStore3)]],
+                  procs: var openArray[IrStore3],
                   penv: var ProcedureEnv, syms: var SymbolEnv) =
   ## Replaces all used placeholder type IDs generated during IR creation with the
   ## correct ones
 
-  for i in 0..<procs.len:
-    for _, ir in procs[i].mitems:
-      mapTypes(ir, types)
+  for ir in procs.mitems:
+    mapTypes(ir, types)
 
   mapTypes(penv, types)
   mapTypes(syms, types)
@@ -366,7 +365,8 @@ proc generateCode*(g: ModuleGraph) =
 
   echo "starting codgen"
 
-  var moduleProcs: seq[seq[(ProcId, IrStore3)]]
+  var procImpls: seq[IrStore3] ## proc-id -> IR representation
+  var moduleProcs: seq[seq[ProcId]]
   moduleProcs.newSeq(mlist.modules.len)
 
   var env = IrEnv()
@@ -400,24 +400,37 @@ proc generateCode*(g: ModuleGraph) =
   for it in mlist.modules.items:
     collectRoutineSyms(it.initProc[1], c.procs, nextProcs, seenProcs)
 
+  # XXX: a quick hack to make things work
+  func ensureSize[T](s: var seq[T], idx: Natural) =
+    ## Resizes `s` to be cover `idx` (but not higher value) if it doesn't
+    ## already
+    if idx >= s.len:
+      s.setLen(idx + 1)
+
   var nextProcs2: seq[PSym]
   while nextProcs.len > 0:
     for it in nextProcs.items:
       let mIdx = it.itemId.module
       let realIdx = mlist.moduleMap[it.getModule().id]
-      let sId = c.procs.requestProc(it)
+      let
+        sId = c.procs.requestProc(it)
+        idx = sId.toIndex
+
+      # XXX: needs to be handled differntly
+      ensureSize(procImpls, idx)
 
       if sfImportc in it.flags:
         # a quick fix to not run `irgen` for 'importc'ed procs
-        moduleProcs[realIdx].add((sId, IrStore3(owner: sId)))
+        procImpls[idx].owner = sId
         continue
 
       let ir = generateCodeForProc(c, it)
       collectRoutineSyms(c.unwrap ir, c.procs, nextProcs2, seenProcs)
 
+      procImpls[idx] = c.unwrap ir
+      procImpls[idx].owner = sId
       #doAssert mIdx == realIdx
-      moduleProcs[realIdx].add((sId, c.unwrap ir))
-      moduleProcs[realIdx][^1][1].owner = sId
+      moduleProcs[realIdx].add(sId)
 
     # flush deferred types already to reduce memory usage a bit
     c.types.flush(env.types, c.symEnv, g.config)
@@ -440,7 +453,7 @@ proc generateCode*(g: ModuleGraph) =
   c.types.flush(env.types, c.symEnv, g.config)
 
   # replace all placeholder type IDs
-  finishTypes(passEnv, c.types, moduleProcs, c.procs, c.symEnv)
+  finishTypes(passEnv, c.types, procImpls, c.procs, c.symEnv)
 
   let entryPoint =
     generateMain(c, passEnv, mlist[])
@@ -457,22 +470,19 @@ proc generateCode*(g: ModuleGraph) =
     # transforming ``openArray``s because the pass inserts code that needs to
     # also be transformed by the latter
     var ctx = initUntypedCtx(passEnv, addr env)
-    for i in 0..<mlist.modules.len:
-      for s, ir in moduleProcs[i].mitems:
+    for s, ir in mpairsId(procImpls, ProcId):
         logError(ir, env, s):
           runPass(ir, ctx, lowerEchoPass)
 
   # the openArray lowering has to happen separately
   # TODO: explain why
-  for i in 0..<mlist.modules.len:
-    for s, irs in moduleProcs[i].mitems:
+  for s, irs in mpairsId(procImpls, ProcId):
       logError(irs, env, s):
         lowerOpenArray(passEnv, s, irs, env)
 
   lowerOpenArrayTypes(ttc, env.types, env.syms)
 
-  for i in 0..<mlist.modules.len:
-    for s, irs in moduleProcs[i].mitems:
+  for s, irs in mpairsId(procImpls, ProcId):
       let orig = irs
       logError(irs, env, s):
         runPass(irs, initHookCtx(passEnv, irs, env), hookPass)
@@ -515,8 +525,7 @@ proc generateCode*(g: ModuleGraph) =
     var ctx: CTransformEnv
     applyCTypeTransforms(ctx, passEnv, env.types, env.syms)
 
-    for i in 0..<mlist.modules.len:
-      for s, irs in moduleProcs[i].mitems:
+    for s, irs in mpairsId(procImpls, ProcId):
         logError(irs, env, s):
           applyCTransforms(ctx, g.cache, passEnv, s, irs, env)
 
@@ -534,7 +543,7 @@ proc generateCode*(g: ModuleGraph) =
     var cf = Cfile(nimname: m.sym.name.s, cname: cfile,
                    obj: completeCfilePath(conf, toObjFile(conf, cfile)), flags: {})
 
-    emitModuleToFile(conf, cfile, gCtx, env, moduleProcs[i])
+    emitModuleToFile(conf, cfile, gCtx, env, procImpls, moduleProcs[i])
 
     addFileToCompile(conf, cf)
 

@@ -320,6 +320,12 @@ template toIndex*(id: SomeId): uint32 =
 template toId[T: SomeId](index: Natural, id: typedesc[T]): T =
   T(index + 1)
 
+iterator mpairsId*[T; ID: SomeId](x: var seq[T], _: typedesc[ID]): (ID, var T) =
+  ## `x` is deliberately kept as a `seq` in order to prevent accidentally
+  ## trying to iterate over slices
+  for i in 0..<x.len:
+    yield (toId(i, ID), x[i])
+
 func `[]`*(e: SymbolEnv, s: SymId): lent Symbol =
   e.symbols[s.int - 1]
 
