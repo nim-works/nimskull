@@ -550,15 +550,6 @@ func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
       debugEcho "computeTypes missing: ", n.kind
     inc i
 
-func insertLit(cr: var IrCursor, lit: string): IRIndex =
-  cr.insertLit (newStrNode(nkStrLit, lit), NoneType)
-
-func insertLit(cr: var IrCursor, i: int): IRIndex =
-  cr.insertLit (newIntNode(nkIntLit, i), NoneType)
-
-func insertLit(cr: var IrCursor, i: uint): IRIndex =
-  cr.insertLit (newIntNode(nkUIntLit, cast[BiggestInt](i)), NoneType)
-
 proc insertMagicCall*(cr: var IrCursor, g: PassEnv, m: TMagic, args: varargs[IRIndex]): IRIndex {.discardable.} =
   cr.insertCallExpr(g.magics[m], args)
 
@@ -831,9 +822,6 @@ func injectHooks(c: HookCtx, n: IrNode3, cr: var IrCursor) =
     discard
   else:
     discard
-
-func insertError(cr: var IrCursor, err: string): IRIndex {.discardable.} =
-  cr.insertCallExpr(bcError, NoneType, cr.insertLit err)
 
 type GenericTransCtx = object
   graph: ModuleGraph

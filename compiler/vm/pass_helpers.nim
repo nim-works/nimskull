@@ -8,6 +8,18 @@ func insertNilLit*(cr: var IrCursor, typ: TypeId): IRIndex =
 func insertTypeLit*(cr: var IrCursor, typ: TypeId): IRIndex =
   cr.insertLit (nil, typ)
 
+func insertLit*(cr: var IrCursor, lit: string): IRIndex =
+  cr.insertLit (newStrNode(nkStrLit, lit), NoneType)
+
+func insertLit*(cr: var IrCursor, i: int): IRIndex =
+  cr.insertLit (newIntNode(nkIntLit, i), NoneType)
+
+func insertLit*(cr: var IrCursor, i: uint): IRIndex =
+  cr.insertLit (newIntNode(nkUIntLit, cast[BiggestInt](i)), NoneType)
+
+func insertError*(cr: var IrCursor, err: string): IRIndex {.discardable.} =
+  cr.insertCallExpr(bcError, NoneType, cr.insertLit err)
+
 template genIfNot*(cr: var IrCursor, cond: IRIndex, code: untyped) =
   let condVal = cond
 
