@@ -763,25 +763,10 @@ func genLit(c: var GenCtx, literal: Literal): CAst =
   of nkIntLit:
     start().intLit(lit.intVal).fin()
   of nkStrLit:
-    if lit.typ == nil:
-      # XXX: some passes insert string literals without type information. It's supported for now
-      # treat as cstring
-      start().strLit(c.gl.strings, lit.strVal).fin()
-    else:
-      case lit.typ.kind
-      of tyString, tyDistinct:
-        # XXX: the string lit handling is probably too late here and should be
-        #      done as part of the `seq` lowering passes instead
-        # XXX: this currently only takes the old GC-based strings into account
-        if lit.strVal.len == 0:
-          # XXX: yeah, this is bad. The lowering needs to happen at the IR level
-          start().add(cnkCast).ident(c.gl.idents, "NimStringDesc*").ident(c.gl.idents, "NIM_NIL").fin()
-        else:
-          genError(c, fmt"missing lit: non-empty tyString")
-      of tyCstring:
-        start().strLit(c.gl.strings, lit.strVal).fin()
-      else:
-        unreachable(lit.typ.kind)
+    # XXX: some passes insert string literals without type information. It's supported for now
+    assert literal.typ == NoneType or c.env.types[literal.typ].kind == tnkCString
+    # treat as cstring
+    start().strLit(c.gl.strings, lit.strVal).fin()
   of nkNilLit:
     start().ident(c.gl.idents, "NIM_NIL").fin()
   of nkBracket, nkTupleConstr:
