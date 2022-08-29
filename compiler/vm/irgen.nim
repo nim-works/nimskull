@@ -802,7 +802,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     # idea: also insert builtin calls to the various check functions here.
     #       Makes it easier to get uniformity across the back-ends.
     result = c.genCall(n)
-    result = c.wrapIf(bcOverflowCheck, c.types.requestType(n.typ), result, optOverflowCheck notin c.options)
+    result = c.wrapIf(bcOverflowCheck, c.types.requestType(n.typ), result, optOverflowCheck in c.options)
     if optOverflowCheck in c.options:
       # idea: defects (or error in general) could be encoded as part of the values. I.e. a
       #       `bcOverflowCheck` call would return a result-like value (only on
