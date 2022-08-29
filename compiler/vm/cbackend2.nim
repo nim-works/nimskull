@@ -526,6 +526,15 @@ proc generateCode*(g: ModuleGraph) =
         runPass(irs, lpCtx, arrayConstPass)
         runPass(irs, lpCtx, typeV1Pass)
 
+  block:
+    # we don't know the owning module of the types corresponding to the
+    # lifted RTTI globals, so we simply add the globals to the system
+    # module
+    # XXX: this is different to what the current code-generator does
+    # XXX: instead, all RTTI globals and their initialization logic
+    #      could be registered to a dedicated module (.c file)
+    for id in lpCtx.typeInfoMarker.values:
+      modules[mlist.moduleMap[g.systemModule.id]].syms.add(id)
 
   # type lowering passes
   if optSeqDestructors in conf.globalOptions:
