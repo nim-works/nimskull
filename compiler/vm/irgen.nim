@@ -1515,7 +1515,7 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
       internalAssert(c.config,
         t.kind in {tyPtr, tyRef, tyPointer, tyNil, tyProc, tyCstring},
         n.info, $t.kind)
-      dest = c.irNull(t)
+      dest = c.irNull(n.typ)
     else: doAssert false, "why is this needed again?"#unused(c, n)
   of nkAsgn, nkFastAsgn:
     genAsgn(c, n[0], n[1], n.kind == nkAsgn)
