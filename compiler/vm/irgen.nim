@@ -991,6 +991,20 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     assert n[1].typ.elemType.kind == tyString
     discard c.types.requestType(n[1].typ)
 
+  of mHigh:
+    # --->
+    #   len(x) - 1
+    let lenCall =
+      case n[1].typ.skipTypes(abstractVar).kind:
+      of tySequence:  mLengthSeq
+      of tyString:    mLengthStr
+      of tyArray:     mLengthArray
+      of tyOpenArray, tyVarargs: mLengthOpenArray
+      else: unreachable()
+    let typ = c.types.requestType(n.typ)
+
+    result = c.irs.irCall(mSubI, typ, c.irs.irCall(lenCall, typ, c.genx(n[1])), c.irLit(1))
+
   else:
     # TODO: return a bool instead and let the callsite call `genCall` in case
     #       the magic doesn't use special logic here
