@@ -943,10 +943,13 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
       names[i] = start().ident(c.localNames[irs.getLocalIdx(i)]).fin()
 
     of ntkCall:
-      if n.isBuiltIn:
+      case n.callKind
+      of ckBuiltin:
         let name = genBuiltin(c, irs, n.builtin, i)
         names[i] = name
-      else:
+      of ckMagic:
+        names[i] = genMagic(c, irs, n.magic, i)
+      of ckNormal:
         let callee = irs.at(n.callee)
         if callee.kind == ntkProc and (let p = c.env.procs[callee.procId]; p.magic notin CallMagics):
           names[i] = genMagic(c, irs, p.magic, i)

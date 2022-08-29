@@ -182,6 +182,9 @@ type
     askDiscr # XXX: would be simpler if this would be a magic call instead (e.g. `switch`)
 
   BuiltinCall* = enum
+    ## Very similar to ``TMagic`` with the difference that a `BuiltinCall` is
+    ## only used by the back-end. This is meant as a way to leave ``TMagic``
+    ## unmodified
     bcError # encodes an error in the IR # XXX: make this a dedicated node?
     bcNewClosure # setup closure
     bcSwitch # switch variant branch
@@ -199,6 +202,11 @@ type
     bcAccessEnv ## access the current procedure's closure environment
 
     bcUnlikely # XXX: alternatively, turn `system.unlikelyProc` into a .compilerproc
+
+  CallKind* = enum
+    ckNormal
+    ckBuiltin
+    ckMagic
 
   IrNode3* = object
     case kind: IrNodeKind3
@@ -235,11 +243,17 @@ type
       contTarget: JoinPoint
       contThen: JoinPoint
     of ntkCall:
-      case isBuiltin: bool
-      of true:
+      case ckind: CallKind
+      of ckNormal: callee: IRIndex
+      of ckBuiltin:
         builtin: BuiltinCall
-        typ: TypeId # the return type
-      of false: callee: IRIndex
+      of ckMagic:
+        # used for compiler inserted magic calls
+        magic: TMagic
+
+      # XXX: only relevant for ckMagic and ckBuiltin
+      typ: TypeId ## the return type. Only valid for ``ckMagic``
+                  ## and ``ckBuiltin``
 
       numArgs: uint32
     of ntkUse, ntkConsume:
@@ -512,10 +526,15 @@ proc irStmt*(c: var IrStore, opc: TOpcode, args: varargs[IRIndex]): IRIndex {.di
   c.add(IrNode2(kind: inktStmt, opc: opc, opArgs: @args))
 
 func irCall*(c: var IrStore3, callee: IRIndex, numArgs: uint32): IRIndex =
-  c.add(IrNode3(kind: ntkCall, isBuiltin: false, callee: callee, numArgs: numArgs))
+  c.add(IrNode3(kind: ntkCall, ckind: ckNormal, callee: callee, numArgs: numArgs))
 
 func irCall*(c: var IrStore3, callee: BuiltinCall, typ: TypeId, numArgs: uint32): IRIndex =
-  c.add(IrNode3(kind: ntkCall, isBuiltin: true, builtin: callee, typ: typ, numArgs: numArgs))
+  c.add(IrNode3(kind: ntkCall, ckind: ckBuiltin, builtin: callee, typ: typ, numArgs: numArgs))
+
+func irCall*(c: var IrStore3, callee: TMagic, typ: TypeId, numArgs: uint32): IRIndex =
+  assert callee != mNone
+  assert typ != NoneType
+  c.add(IrNode3(kind: ntkCall, ckind: ckMagic, magic: callee, typ: typ, numArgs: numArgs))
 
 proc irCallExpr*(c: var IrStore, name: IRIndex, noSideEffect: bool, args: varargs[IRIndex]): IRIndex =
   ## A call producing a value. Can only be reordered with other calls if both have no side-effects
@@ -655,13 +674,19 @@ func arrIdx*(n: IrNode3): IRIndex =
   n.idx
 
 func isBuiltIn*(n: IrNode3): bool =
-  n.isBuiltin
+  n.ckind == ckBuiltin
+
+func callKind*(n: IrNode3): CallKind {.inline.} =
+  n.ckind
 
 func callee*(n: IrNode3): IRIndex =
   n.callee
 
 func builtin*(n: IrNode3): BuiltinCall =
   n.builtin
+
+func magic*(n: IrNode3): TMagic {.inline.} =
+  n.magic
 
 func argCount*(n: IrNode3): int =
   n.numArgs.int
@@ -685,6 +710,7 @@ func typ*(n: IrNode3): TypeId =
   ## The return type of a builtin call
   case n.kind
   of ntkCall:
+    assert n.ckind in {ckBuiltin, ckMagic}
     n.typ
   of ntkConv, ntkCast:
     n.destTyp
@@ -1876,9 +1902,11 @@ func mapTypes*(ir: var IrStore3, tg: DeferredTypeGen) =
   for n in ir.nodes.mitems:
     case n.kind
     of ntkCall:
-      if n.isBuiltin:
+      case n.ckind
+      of ckBuiltin, ckMagic:
         if n.typ != NoneType:
           n.typ = tg.map(n.typ)
+      of ckNormal: discard
     of ntkCast, ntkConv:
       n.destTyp = tg.map(n.destTyp)
     else:
@@ -1989,18 +2017,24 @@ func insertArgs(cr: var IrCursor, args: openArray[IRIndex]) =
 func insertCallExpr*(cr: var IrCursor, prc: ProcId, args: varargs[IRIndex]): IRIndex =
   let c = cr.insertProcSym(prc)
   cr.insertArgs(args)
-  result = cr.insert IrNode3(kind: ntkCall, isBuiltin: false, callee: c, numArgs: args.len.uint32)
+  result = cr.insert IrNode3(kind: ntkCall, ckind: ckNormal, callee: c, numArgs: args.len.uint32)
 
 func insertCallStmt*(cr: var IrCursor, prc: ProcId, args: varargs[IRIndex]) =
   discard insertCallExpr(cr, prc, args)
 
 func insertCallExpr*(cr: var IrCursor, callee: IRIndex, args: varargs[IRIndex]): IRIndex =
   cr.insertArgs(args)
-  cr.insert IrNode3(kind: ntkCall, isBuiltin: false, callee: callee, numArgs: args.len.uint32)
+  cr.insert IrNode3(kind: ntkCall, ckind: ckNormal, callee: callee, numArgs: args.len.uint32)
 
 func insertCallExpr*(cr: var IrCursor, bc: BuiltinCall, typ: TypeId, args: varargs[IRIndex]): IRIndex =
   cr.insertArgs(args)
-  result = cr.insert IrNode3(kind: ntkCall, isBuiltin: true, builtin: bc, typ: typ, numArgs: args.len.uint32)
+  result = cr.insert IrNode3(kind: ntkCall, ckind: ckBuiltin, builtin: bc, typ: typ, numArgs: args.len.uint32)
+
+func insertCallExpr*(cr: var IrCursor, m: TMagic, typ: TypeId, args: varargs[IRIndex]): IRIndex =
+  assert m != mNone
+  assert typ != NoneType
+  cr.insertArgs(args)
+  result = cr.insert IrNode3(kind: ntkCall, ckind: ckMagic, magic: m, typ: typ, numArgs: args.len.uint32)
 
 func insertLit*(cr: var IrCursor, lit: Literal): IRIndex =
   cr.insert IrNode3(kind: ntkLit, litIdx: cr.newLiterals.add(lit))
@@ -2062,7 +2096,7 @@ func patch(n: var IrNode3, patchTable: seq[IRIndex]) =
 
   case n.kind
   of ntkCall:
-    if not n.isBuiltin:
+    if n.ckind == ckNormal:
       patchIdx(n.callee)
 
   of ntkAsgn:

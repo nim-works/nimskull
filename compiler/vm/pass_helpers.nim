@@ -50,8 +50,9 @@ func access*(cr: var IrCursor, env: TypeEnv, val: IRIndex, typ: TypeId): IRIndex
 
 func getMagic*(ir: IrStore3, env: IrEnv, n: IrNode3): TMagic =
   assert n.kind == ntkCall
-  if n.isBuiltIn:
-    mNone
+  case n.callKind
+  of ckBuiltin: mNone
+  of ckMagic:   n.magic
   else:
     let callee = ir.at(n.callee)
     if callee.kind == ntkProc:

@@ -72,7 +72,8 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
 
   case n.kind
   of ntkCall:
-    if n.isBuiltIn:
+    case n.callKind
+    of ckBuiltin:
       case n.builtin
       of bcRaise:
         cr.replace()
@@ -128,8 +129,8 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
       else:
         discard
 
-    elif ir.at(n.callee).kind == ntkProc:
-      let m = c.env.procs[ir.at(n.callee).procId].magic
+    of ckMagic, ckNormal:
+      let m = getMagic(ir, c.env[], n)
       case m
       of mWasMoved:
         cr.replace()
@@ -246,7 +247,7 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
       else:
         discard
 
-    elif ir.at(n.callee).kind == ntkProc and (let m = c.env.procs[ir.at(n.callee).procId].magic; m != mNone):
+    elif (let m = getMagic(ir, c.env[], n); m != mNone):
       case m
       of mIsNil:
         let arg0 = ir.argAt(cr, 0)

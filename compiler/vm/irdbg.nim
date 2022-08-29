@@ -16,7 +16,7 @@ func calcStmt*(irs: IrStore3): seq[bool] =
       for it in irs.args(i):
         result[it] = true
 
-      if not n.isBuiltIn:
+      if n.callKind == ckNormal:
         result[n.callee] = true
     of ntkAddr, ntkDeref:
       result[n.addrLoc] = true
@@ -126,9 +126,12 @@ iterator toStrIter*(irs: IrStore3, e: IrEnv, exprs: seq[bool]): string =
     of ntkCast:
       line = fmt"cast val:{n.srcLoc} typ:{typeName(e.types, n.typ)}"
     of ntkCall:
-      if n.isBuiltIn:
+      case n.callKind
+      of ckBuiltin:
         line = fmt"call bi: {n.builtin}"
-      else:
+      of ckMagic:
+        line = fmt"call magic: {n.magic} args: {n.argCount}"
+      of ckNormal:
         line = fmt"call {n.callee} args: ["
         for arg in irs.args(i):
           line.add fmt"{arg} "

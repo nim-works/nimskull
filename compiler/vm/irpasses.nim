@@ -498,10 +498,11 @@ func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
       discard
     of ntkCall:
       result[i] =
-        if n.isBuiltIn:
+        case n.callKind
+        of ckBuiltin, ckMagic:
           # XXX: built-in calls feel wrong. Using magics instead might be better
           n.typ
-        else:
+        of ckNormal:
           let callee = ir.at(n.callee)
           if callee.kind != ntkProc:
             env.types.getReturnType(result[n.callee]) # the callee's return type
