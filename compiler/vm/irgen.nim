@@ -991,6 +991,16 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     assert n[1].typ.elemType.kind == tyString
     discard c.types.requestType(n[1].typ)
 
+  of mSizeOf:
+    # ``sizeof`` is a generic procedure that doesn't get instantiated during
+    # sem - the generic routine symbol is instead kept. For compiler-known
+    # sizes, the expression is folded into a literal, but for types with
+    # unknown size (e.g. `.incompleteStruct`), the raw call expression is left
+    # as is. Passing a non-instantiated routine to `requestProc` would cause
+    # an error during type translation because of the ``tyGenericParam``.
+    # Instead, we replace the original expression with a direct magic call.
+    result = c.irs.irCall(mSizeOf, c.types.requestType(n.typ), c.genx(n[1]))
+
   of mHigh:
     # --->
     #   len(x) - 1
