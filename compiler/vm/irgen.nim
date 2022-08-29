@@ -284,7 +284,7 @@ proc genWhile(c: var TCtx; n: PNode, next: JoinPoint) =
     else:
       # TODO: omit the while loop if cond == false?
       var tmp = c.genx(n[0])
-      let lab2 = c.irs.irBranch(tmp, next)
+      let lab2 = c.irs.irBranch(c.irCall("not", mNot, tmp), next)
       #c.prc.blocks[^1].endings.add(lab2)
 
     let exits = c.genStmt2(n[1])
@@ -368,7 +368,12 @@ proc genIf(c: var TCtx, n: PNode, next: JoinPoint): IRIndex =
         prev = next
 
       let tmp = c.genx(it[0]) # condition
-      discard c.irs.irBranch(tmp, prev)
+      # 'branch' currently means "branch if condition" so we have to wrap it
+      # in a 'not'
+      # TODO: instead of having to use a magic call, the 'branch' should have
+      #       a flag to indicate whether or not the condition should be
+      #       inverted
+      discard c.irs.irBranch(c.irCall("not", mNot, tmp), prev)
 
       then = it[1]
     else:
@@ -400,8 +405,8 @@ proc genAndOr(c: var TCtx; n: PNode; isAnd: bool, next: JoinPoint): IRIndex =
   c.irs.irAsgn(askInit, tmp, a)
 
   let cond =
-    if isAnd: a
-    else: c.irCall("not", mNot, a)
+    if isAnd: c.irCall("not", mNot, a)
+    else: a
 
   let p = c.irs.irBranch(cond, next)
 
