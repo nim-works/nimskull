@@ -1086,6 +1086,36 @@ func getAttachmentIndex*(e: TypeEnv, id: TypeId): Option[int] =
 func getAttachment*(e: TypeEnv, i: Natural): auto {.inline.} =
   e.attachments[i]
 
+func replaceRecord*(e: var TypeEnv, id: TypeId, fields: varargs[(SymId, TypeId)]) =
+  ## Replaces the layout of the record type with `id` with the provided flat one.
+  ##
+  ## .. note:: This is a very low-level procedure that, if misused, can easily
+  ##     break various invariants. Only use it if you know what you're doing
+  assert e.kind(id) == tnkRecord
+
+  let start = e.fields.len
+
+  # add the fields to the environment
+  e.fields.setLen(e.fields.len + fields.len)
+  for i, (sym, typ) in fields.pairs:
+    e.fields[start + i] = FieldDesc(sym: sym, typ: toIndex(typ))
+
+  # adjust the "first field" index
+  e.types[toIndex(id)].a = start.uint32
+  # adjust the record ID
+  e.types[toIndex(id)].c = toId(e.records.len, RecordId).uint32
+
+  e.records.add RecordNode(kind: rnkList, len: 1, a: fields.len.uint32)
+  e.records.add RecordNode(kind: rnkFields, a: 0, b: fields.high.uint32)
+
+func setBase*(e: var TypeEnv, id, newBase: TypeId) =
+  ## Low-level procedure for changing a type's base type
+  e.types[toIndex(id)].base = newBase
+
+func setFieldOffset*(e: var TypeEnv, id: TypeId, off: int32) =
+  assert e.kind(id) == tnkRecord
+  e.types[toIndex(id)].fieldOffset = off
+
 func addSym*(e: var SymbolEnv, kind: TSymKind, typ: TypeId, name: PIdent, flags: TSymFlags = {}): SymId =
   # XXX: temporary helper
   e.symbols.add(Symbol(kind: kind, typ: typ, flags: flags, decl: DeclarationV2(name: name)))
