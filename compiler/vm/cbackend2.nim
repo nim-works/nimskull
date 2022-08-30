@@ -373,6 +373,36 @@ func processObjects(g: PassEnv, ic: var IdentCache, types: var TypeEnv, syms: va
       #      embedded into the object
       types.setBase(id, rootType)
 
+proc drain(c: var TCtx, conf: ConfigRef, env: var IrEnv, code: var seq[IrStore3], a, b: var seq[PSym], seenProcs: var IntSet) =
+  # TODO: rename
+  assert b.len == 0
+
+  while a.len > 0:
+    # make sure that there's a slot for each known procedure in `code`
+    sync(code, c.procs)
+
+    for sym in a.items:
+      let
+        id = c.procs.requestProc(sym) # TODO: use non-mutating lookup
+        idx = id.toIndex
+
+      if sfImportc in sym.flags:
+        # a quick fix to not run `irgen` for 'importc'ed procs
+        code[idx].owner = id
+        continue
+
+      let ir = c.unwrap generateCodeForProc(c, sym)
+      collectRoutineSyms(ir, c.procs, b, seenProcs)
+
+      code[idx] = ir
+      code[idx].owner = id
+
+    # flush deferred types already to reduce memory usage a bit
+    c.types.flush(env.types, c.defSyms, conf)
+
+    a.setLen(0)
+    swap(a, b)
+
 proc generateCode*(g: ModuleGraph) =
   ## The backend's entry point. Orchestrates code generation and linking. If
   ## all went well, the resulting binary is written to the project's output
@@ -389,6 +419,9 @@ proc generateCode*(g: ModuleGraph) =
 
   var env = IrEnv()
 
+  var seenProcs: IntSet
+  var nextProcs, nextProcs2: seq[PSym]
+
   var c = TCtx(config: g.config, graph: g, idgen: g.idgen)
   swap(c.procs, env.procs)
   c.types.voidType = g.getSysType(unknownLineInfo, tyVoid)
@@ -400,6 +433,12 @@ proc generateCode*(g: ModuleGraph) =
   passEnv.initCompilerProcs(g, c.types, c.procs)
 
   c.passEnv = passEnv
+
+  # mark all compilerprocs as seen so that they don't get collected during
+  # the following dependency scanning
+  for it in g.compilerprocs.items:
+    if it.kind in routineKinds:
+      seenProcs.incl it.id
 
   # generate all module init procs (i.e. code for the top-level statements):
   for m in mlist.modules.mitems:
@@ -417,49 +456,39 @@ proc generateCode*(g: ModuleGraph) =
     # combine module list iteration with initialiazing `initGlobalsCode`:
     m.initGlobalsCode.prc = PProc()
 
-  var nextProcs: seq[PSym]
-  var seenProcs: IntSet
-
+  assert nextProcs.len == 0
   for it in mlist.modules.items:
     collectRoutineSyms(it.initProc[1], c.procs, nextProcs, seenProcs)
 
-  # XXX: a quick hack to make things work
-  func ensureSize[T](s: var seq[T], idx: Natural) =
-    ## Resizes `s` to be cover `idx` (but not higher value) if it doesn't
-    ## already
-    if idx >= s.len:
-      s.setLen(idx + 1)
+  var aliveRange = procImpls.len..0
+  # run the dependency collection/``irgen`` loop using the procedures
+  # referenced by top-level statements as the starting set
+  drain(c, g.config, env, procImpls, nextProcs, nextProcs2, seenProcs)
 
-  var nextProcs2: seq[PSym]
-  while nextProcs.len > 0:
-    for it in nextProcs.items:
-      let mIdx = it.itemId.module
-      let realIdx = mlist.moduleMap[it.getModule().id]
-      let
-        sId = c.procs.requestProc(it)
-        idx = sId.toIndex
+  aliveRange.b = procImpls.high
+  # `aliveRange` is now the slice of all definitely alive procedures
 
-      # XXX: needs to be handled differntly
-      ensureSize(procImpls, idx)
+  block:
+    # compilerprocs are a bit tricky to handle. We don't know if one of them can
+    # be considered 'alive' (used) until after all IR transformation took place.
+    # But at that point, it's too late for scanning/processing the used
+    # compilerprocs since all processing is already done. To solve this, we
+    # scan and process all compilerprocs and their dependencies upfront, but
+    # only queue them for code-generation after a separate scanning (run after
+    # all IR transformation took place) yields that they're part of the alive
+    # graph
 
-      if sfImportc in it.flags:
-        # a quick fix to not run `irgen` for 'importc'ed procs
-        procImpls[idx].owner = sId
-        continue
+    # XXX: the current approach has the downside that code which may end up
+    #      not being part of the alive graph is still put through all
+    #      processing. A different approach would be to run all processing
+    #      (dependency collection/irgen and the IR passes)
 
-      let ir = generateCodeForProc(c, it)
-      collectRoutineSyms(c.unwrap ir, c.procs, nextProcs2, seenProcs)
+    # run ``irgen`` for compilerprocs and their (not yet seen) dependencies
+    for it in g.compilerprocs.items:
+      if it.kind in routineKinds:
+        nextProcs.add it
 
-      procImpls[idx] = c.unwrap ir
-      procImpls[idx].owner = sId
-      #doAssert mIdx == realIdx
-      modules[realIdx].procs.add(sId)
-
-    # flush deferred types already to reduce memory usage a bit
-    c.types.flush(env.types, c.defSyms, g.config)
-
-    nextProcs.setLen(0)
-    swap(nextProcs, nextProcs2)
+    drain(c, g.config, env, procImpls, nextProcs, nextProcs2, seenProcs)
 
   # generate all deferred symbols and declarations. ``c.defSyms`` should not
   # be used past this point
@@ -598,6 +627,71 @@ proc generateCode*(g: ModuleGraph) =
           applyCTransforms(ctx, g.cache, passEnv, s, irs, env)
 
     finish(ctx, env.types)
+
+  template register(items: iterable[int]) =
+    ## Registers all procedures stored by index in `x` to the owning module
+    for it in items:
+      let
+        id = ProcId(it + 1) # TODO: not acceptable
+        sym = env.procs.orig[id]
+        mIdx = mlist.moduleMap[sym.getModule().id]
+
+      # XXX: hack
+      if sym.magic != mNone:
+        continue
+
+      modules[mIdx].procs.add id
+
+  # TODO: move this logic into a separate proc
+  block:
+    # `procImpls` is partitioned in the following way:
+    # +---------------+-----------------+------------+
+    # | compilerprocs | explicitly used | additional |
+    # +---------------+-----------------+------------+
+    #
+    # To figure out which procedures from the "compilerprocs" and "additional"
+    # partitions are actually used, an iterative dependency collection using
+    # the procedures in the "B" partition as the starting set is run
+    var collected: IntSet
+    var a, b: IntSet
+
+    template markImpl(extra: untyped) {.dirty.} =
+      for n in code.nodes:
+        case n.kind
+        of ntkProc:
+          let elem = toIndex(n.procId).int
+          if elem notin ignore and extra:
+            next.incl elem
+
+        else:
+          discard
+
+    func mark(code: IrStore3, ignore: Slice[int], next: var IntSet) =
+      markImpl():
+        true
+
+    func mark2(code: IrStore3, ignore: Slice[int], alive: IntSet, next: var IntSet) =
+      markImpl():
+        elem notin alive
+
+    # calculate the starting set
+    for i in aliveRange.items:
+      mark(procImpls[i], aliveRange, a)
+
+    # run the main collection
+    while a.len > 0:
+      collected.incl(a)
+      for it in a.items:
+        mark2(procImpls[it], aliveRange, collected, b)
+
+      a.clear()
+      swap(a, b)
+
+    # `collected` now stores all indirectly used procedures - register them
+    register(collected.items)
+
+  # register all explicitly used procedures
+  register(aliveRange.items)
 
   var gCtx: GlobalGenCtx
   initGlobalContext(gCtx, env)

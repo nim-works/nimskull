@@ -417,6 +417,10 @@ func `[]`*(e: TypeEnv, i: RecordId): lent RecordNode =
 func `[]`*(e: ProcedureEnv, i: ProcId): lent ProcHeader {.inline.} =
   e.procs[toIndex(i)]
 
+func sync*[T](x: var seq[T], e: ProcedureEnv) =
+  assert x.len <= e.procs.len
+  x.setLen(e.procs.len)
+
 template `fieldOffset=`(x: var Type, val: int) =
   ## Setter for a record type's field offset (that is, the position of the
   ## first field in the record)
