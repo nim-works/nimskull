@@ -892,7 +892,7 @@ proc accessSeqField(cr: var IrCursor, ir: IrStore3, src: IRIndex, f: int): IRInd
     if false: src #isLiteral(ir, src): src
     else:                  cr.insertDeref(src)
 
-  cr.insertPathObj(obj, f.uint16)
+  cr.insertPathObj(obj, f.int16)
 
 proc genSeqLen(cr: var IrCursor, g: PassEnv, ir: IrStore3, src: IRIndex): IRIndex =
   ## Generates a ``len`` getter expression for a V1 seq-like value

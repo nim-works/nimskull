@@ -390,6 +390,16 @@ func `[]`*(e: TypeEnv, i: RecordId): lent RecordNode =
 func `[]`*(e: ProcedureEnv, i: ProcId): lent ProcHeader {.inline.} =
   e.procs[toIndex(i)]
 
+template `fieldOffset=`(x: var Type, val: int) =
+  ## Setter for a record type's field offset (that is, the position of the
+  ## first field in the record)
+  # XXX: the interaction between inheritance and the field position is not
+  #      clear from the description
+  x.b = cast[uint32](int32(val))
+
+template fieldOffset(x: Type): int32 =
+  cast[int32](x.b)
+
 func getReturnType*(e: TypeEnv, t: TypeId): TypeId =
   ## Returns the return type of the given procedure type `t`
   assert e[t].kind in ProcedureLike, $e[t].kind
@@ -512,12 +522,12 @@ func getSize*(e: TypeEnv, t: TypeId): uint =
   assert e[t].kind == tnkSet
   e[t].a.uint
 
-func nthField*(e: TypeEnv, id: TypeId, i: Natural): FieldId =
+func nthField*(e: TypeEnv, id: TypeId, i: int): FieldId =
   var t = nodeId(e, id)
   while true:
     let typ = e.types[t]
-    if typ.b.int <= i:
-      let i = i - typ.b.int
+    if typ.fieldOffset <= i:
+      let i = i - typ.fieldOffset
       assert e[typ.c.RecordId].kind == rnkList
       assert i < e[typ.c.RecordId].numFields, $e[typ.c.RecordId].numFields
       return FieldId(typ.a.int + i + 1)
@@ -526,7 +536,7 @@ func nthField*(e: TypeEnv, id: TypeId, i: Natural): FieldId =
     else:
       return FieldId(0) # TODO: use a `NoneField`
 
-func findField*(e: TypeEnv, t: TypeId, i: Natural): tuple[id: FieldId, steps: int] =
+func findField*(e: TypeEnv, t: TypeId, i: int): tuple[id: FieldId, steps: int] =
   ## Searches for the field with index `i` in the given record type `t`.
   ## If found, returns the field's ID together with the number of base types
   ## that were traversed (e.g. '0' means the field is in the given record, '1'
@@ -537,8 +547,8 @@ func findField*(e: TypeEnv, t: TypeId, i: Natural): tuple[id: FieldId, steps: in
 
   while true:
     let typ = e.types[t]
-    if typ.b.int <= i:
-      let i = i - typ.b.int
+    if typ.fieldOffset <= i:
+      let i = i - typ.fieldOffset
       assert e[typ.c.RecordId].kind == rnkList
       assert i < e[typ.c.RecordId].numFields
       result.id = toId(typ.a.int + i, FieldId)
@@ -845,7 +855,7 @@ proc translate(dest: var TypeEnv, gen: var TypeGen, conf: ConfigRef, pos: Natura
 
       # fill in the information about the first field's position
       let bt = dest.types[base]
-      dest.types[pos].b = bt.b + dest[bt.record].numFields.uint32
+      dest.types[pos].fieldOffset = bt.fieldOffset + dest[bt.record].numFields
 
   of tyTuple:
     dest.types[pos] = Type(kind: tnkRecord, a: dest.fields.len.uint32, b: 0,
@@ -1142,7 +1152,7 @@ func genRecordType*(e: var TypeEnv, base: TypeId, fields: varargs[(SymId, TypeId
 
   if base != NoneType:
     result.base = base
-    result.b = e[base].b + e.numFields(base).uint32
+    result.fieldOffset = e[base].fieldOffset + e.numFields(base)
   else:
     discard "that's a problem"
     #result.base = #

@@ -219,7 +219,7 @@ type
     of ntkSym:
       sym: SymId
     of ntkPathObj:
-      field: uint16
+      field: int16
       objSrc: PathIndex
     of ntkPathArr:
       arrSrc: PathIndex
@@ -481,7 +481,7 @@ proc irPathObj*(c: var IrStore3, src: IRIndex, idx: int): IRIndex =
   ## Path constructor. `src` must be a location or path representing a
   ## record
   # TODO: `idx` should be a ``uint16``
-  c.add(IrNode3(kind: ntkPathObj, objSrc: src, field: idx.uint16))
+  c.add(IrNode3(kind: ntkPathObj, objSrc: src, field: idx.int16))
 
 func irConv*(c: var IrStore3, typ: TypeId, val: IRIndex): IRIndex =
   c.add IrNode3(kind: ntkConv, destTyp: typ, srcOp: val)
@@ -2054,7 +2054,7 @@ func insertDeref*(cr: var IrCursor, val: IRIndex): IRIndex =
 func insertAddr*(cr: var IrCursor, val: IRIndex): IRIndex =
   cr.insert IrNode3(kind: ntkAddr, addrLoc: val)
 
-func insertPathObj*(cr: var IrCursor, obj: IRIndex, field: uint16): IRIndex =
+func insertPathObj*(cr: var IrCursor, obj: IRIndex, field: int16): IRIndex =
   cr.insert IrNode3(kind: ntkPathObj, objSrc: obj, field: field)
 
 func insertPathArr*(cr: var IrCursor, arr, idx: IRIndex): IRIndex =
