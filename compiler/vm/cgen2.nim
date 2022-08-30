@@ -93,6 +93,7 @@ type
 
     cnkDotExpr
 
+    cnkCharLit
     cnkStrLit # string literal
     cnkIntLit
 
@@ -780,6 +781,9 @@ func genLit(c: var GenCtx, literal: Literal): CAst =
   case lit.kind
   of nkIntLit:
     start().intLit(lit.intVal).fin()
+  of nkCharLit:
+    assert lit.intVal in 0..255
+    start().add(cnkCharLit, lit.intVal.uint32).fin()
   of nkStrLit:
     # XXX: some passes insert string literals without type information. It's supported for now
     assert literal.typ == NoneType or c.env.types[literal.typ].kind == tnkCString
@@ -1160,7 +1164,11 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     emitAndEscapeIf(f, c, ast, pos, {cnkIdent, cnkCall, cnkDotExpr})
     f.write "."
     emitCAst(f, c, ast, pos)
+  of cnkCharLit:
+    var arr = ['\'', '\\', 'x', '0', '0', '\'']
+    formatHexChar(arr, 3, n.a.uint8)
 
+    f.writeChars arr
   of cnkStrLit:
     f.write '"'
     let str = c.strings[n.a.LitId]
