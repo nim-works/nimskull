@@ -1413,6 +1413,49 @@ func insertLoop(cr: var IrCursor): JoinPoint =
   result = cr.newJoinPoint()
   cr.insertJoin(result)
 
+func genMaskExpr(setType: TypeId, len: uint, val: IRIndex, cr: var IrCursor): IRIndex =
+  ## Generates the expression for calculating the bitmask of a set
+  ## element (`val`). `setType` is the type to use for the resulting
+  ## expression and `len` the number of elements in the set.
+  let mask =
+    case len
+    of 0..8:   7
+    of 9..16:  15
+    of 17..32: 31
+    of 33..64: 63
+    else: unreachable()
+
+  # ``1 shl (a and mask)``
+  cr.insertCallExpr(mShlI, setType, cr.insertLit(1), cr.insertCallExpr(mBitandI, setType, val, cr.insertLit(mask)))
+
+func genSubsetRelOp(setType: TypeId, a, b: IRIndex, testTrue: bool, g: PassEnv, cr: var IrCursor): IRIndex =
+  # compute if a is either a subset of or equal to b
+  let isSubsetExpr = cr.insertMagicCall(g, mEqI, tyBool, cr.insertCallExpr(mBitandI, setType, a, cr.insertCallExpr(mBitnotI, setType, b)), cr.insertLit(0))
+
+  if testTrue:
+    # if the test is for true subset relationship, we also need compare
+    # both sets for equality
+    # --->
+    #   var tmp = isSubsetExpr
+    #   if tmp:
+    #     tmp = a != b
+    #   tmp
+    let
+      tmp = cr.newLocal(lkTemp, g.sysTypes[tyBool])
+      exit = cr.newJoinPoint()
+
+    cr.insertAsgn(askInit, cr.insertLocalRef(tmp), isSubsetExpr)
+
+    cr.insertBranch(cr.insertMagicCall(g, mNot, tyBool, cr.insertLocalRef(tmp)), exit)
+    cr.insertAsgn(askCopy, cr.insertLocalRef(tmp), cr.insertMagicCall(g, mEqI, tyBool, a, b))
+    cr.insertGoto(exit)
+
+    cr.insertJoin(exit)
+
+    result = cr.insertLocalRef(tmp)
+  else:
+    result = isSubsetExpr
+
 func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var IrCursor) =
   # TODO: sets with ``firstOrd != 0`` aren't taken into account yet.
   #       ``irgen`` has to insert the required adjustment
@@ -1422,7 +1465,42 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
 
   case len
   of 0..64:
-    cr.insertError("missing set-op: " & $m)
+    case m
+    of mEqSet, mMulSet, mPlusSet, mMinusSet:
+      discard genSetElemOp(cr, c.extra, m, setType, ir.argAt(cr, 0), ir.argAt(cr, 1))
+    of mLeSet, mLtSet:
+      discard genSubsetRelOp(setType, ir.argAt(cr, 0), ir.argAt(cr, 1), testTrue=(m == mLtSet), c.extra, cr)
+    of mInSet:
+      let mask = genMaskExpr(setType, len, ir.argAt(cr, 1), cr)
+      discard cr.insertCallExpr(mBitandI, setType, ir.argAt(cr, 0), mask)
+    of mIncl, mExcl:
+      # mIncl --->
+      #   a = a or (1 shl b)
+      # mExcl --->
+      #   a = a and not(1 shl b)
+      let
+        a = ir.argAt(cr, 0)
+        b = ir.argAt(cr, 1)
+        mask = genMaskExpr(setType, len, b, cr)
+
+      let (op, rhs) =
+        case m
+        of mIncl: (mBitorI, mask)
+        of mExcl: (mBitandI, cr.insertCallExpr(mBitnotI, setType, mask))
+        else: unreachable()
+
+      cr.insertAsgn(askCopy, a, cr.insertCallExpr(op, setType, a, rhs))
+
+    of mCard:
+      let prc =
+        case len
+        of 0..32: "countBits32"
+        of 33..64: "countBits64"
+        else: unreachable()
+
+      cr.insertCompProcCall(c.extra, prc, ir.argAt(cr, 0))
+    else:
+      unreachable()
 
   else:
     case m
@@ -1458,6 +1536,42 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
       cr.insertJoin(loopExit)
       discard cr.insertLocalRef(res)
 
+    of mLeSet, mLtSet:
+      let
+        arg0 = ir.argAt(cr, 0)
+        arg1 = ir.argAt(cr, 1)
+
+      let
+        res = cr.newLocal(lkTemp, c.extra.getSysType(tyBool))
+        counter = cr.insertLocalRef(cr.newLocal(lkTemp, c.extra.getSysType(tyInt)))
+        loopExit = cr.newJoinPoint()
+        loop = cr.insertLoop()
+
+      # start with ``res = true``
+      cr.insertAsgn(askInit, cr.insertLocalRef(res), cr.insertLit(1))
+
+      # TODO: the loop is a basic for-loop. Move the common loop setup logic
+      #       into a template and replace all manual implementations with it
+
+      # loop condition
+      cr.genIfNot(cr.binaryBoolOp(c.extra, mLeI, counter, cr.insertLit(0))):
+        cr.insertGoto(loopExit)
+
+      let v = genSubsetRelOp(c.extra.sysTypes[tyUInt8], cr.insertPathArr(arg0, counter), cr.insertPathArr(arg1, counter), m == mLtSet, c.extra, cr)
+
+      # if the comparison for the partial sets doesn't succeed, set the result
+      # to false and exit the loop
+      cr.genIfNot(v):
+        cr.insertAsgn(askCopy, cr.insertLocalRef(res), cr.insertLit(0))
+        cr.insertGoto(loopExit)
+
+      # counter
+      cr.insertAsgn(askCopy, counter, cr.insertMagicCall(c.extra, mAddI, tyInt, counter, cr.insertLit(1)))
+      cr.insertGoto(loop)
+
+      cr.insertJoin(loopExit)
+      discard cr.insertLocalRef(res)
+
     of mInSet:
         let uintTyp = c.extra.getSysType(tyUInt)
         let conv = cr.insertConv(uintTyp, ir.argAt(cr, 1))
@@ -1467,8 +1581,40 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
 
         let val = cr.insertCallExpr(mBitandI, c.extra.sysTypes[tyUInt8], cr.insertPathArr(ir.argAt(cr, 0), index), mask)
         discard cr.insertMagicCall(c.extra, mNot, tyBool, cr.binaryBoolOp(c.extra, mEqI, val, cr.insertLit(0)))
+
+    of mIncl, mExcl:
+      # mIncl --->
+      #   a[b shr 2] = a[b shr 2] or (1 shl (b and 7))
+      # mExcl --->
+      #   a[b shr 2] = a[b shr 2] and not(1 shl (b and 7))
+
+      let
+        a = ir.argAt(cr, 0)
+        b = ir.argAt(cr, 1)
+        uintTy = c.extra.sysTypes[tyUInt]
+        dest = cr.insertPathArr(a, cr.insertCallExpr(mShrI, uintTy, b, cr.insertLit(3)))
+        bit = cr.insertCallExpr(mShlI, uintTy, cr.insertLit(1), cr.insertCallExpr(mBitandI, uintTy, b, cr.insertLit(7)))
+
+      let rhs =
+        case m
+        of mIncl: cr.insertCallExpr(mBitorI, uintTy, dest, bit)
+        of mExcl: cr.insertCallExpr(mBitandI, uintTy, dest, cr.insertCallExpr(mBitnotI, uintTy, bit))
+        else:     unreachable()
+
+      cr.insertAsgn(askCopy, dest, rhs)
+
+    of mCard:
+      # --->
+      #   cardSet2(cast[ptr UncheckedArray[uint8]](set), size)
+      let
+        size = (len + 7) div 8 # ceil-div by 8
+        arrTyp = c.env.types.lookupGenericType(tnkUncheckedArray, c.extra.sysTypes[tyUInt8])
+        ptrTyp = c.env.types.lookupGenericType(tnkPtr, arrTyp)
+
+      cr.insertCompProcCall(c.extra, "cardSetPtr", cr.insertCast(ptrTyp, cr.insertAddr(ir.argAt(cr, 0))), cr.insertLit(size))
+
     else:
-      cr.insertError("missing set-op: " & $m)
+      unreachable()
 
 proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers ``set`` operations into bit operations. Intended for the C-like targets

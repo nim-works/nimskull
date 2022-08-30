@@ -594,9 +594,6 @@ proc generateCode*(g: ModuleGraph) =
         lowerTestError(irs, passEnv, g.cache, env.types, env.procs, env.syms)
         var rpCtx: RefcPassCtx
         rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
-        runPass(irs, rpCtx, lowerSetsPass)
-
-        rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
         runPass(irs, rpCtx, lowerRangeCheckPass)
 
         block:
@@ -607,6 +604,13 @@ proc generateCode*(g: ModuleGraph) =
         rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
         #runV2(irs, rpCtx, refcPass)
         runPass(irs, rpCtx, refcPass)
+
+        # XXX: the ``lowerSets`` pass produces semantically invalid IR, but
+        #      the ``refcPass`` depends on the semantically valid IR, so the
+        #      set lowering has to happen after the latter
+        rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
+        runPass(irs, rpCtx, lowerSetsPass)
+
         if optSeqDestructors in conf.globalOptions:
           rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
         else:
