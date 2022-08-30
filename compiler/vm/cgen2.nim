@@ -1195,7 +1195,7 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     f.write '"'
 
   of cnkIntLit:
-    f.write (n.a.uint64 shl 64) or n.b.uint64
+    f.write (n.a.uint64 shl 32) or n.b.uint64
 
   of cnkType:
     emitType(f, c, n.a.CTypeId)
