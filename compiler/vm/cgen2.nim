@@ -736,10 +736,20 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): CAst =
         b = gen(c, irs, arg(1))
         op = if m == mMinI: "<=" else: ">="
       return start().add(cnkTernary).add(cnkInfix).add(a).ident(c.gl.idents, op).add(b).add(a).add(b).fin()
+    of mAbsI:
+      # -->
+      #   (a > 0) ? a : -a
+      let a = gen(c, irs, arg(0))
+      return start().add(cnkTernary).add(cnkInfix).add(a).ident(c.gl.idents, ">").intLit(0).add(a).add(cnkPrefix).ident(c.gl.idents, "-").add(a).fin()
     of mIsNil:
       # a pointer value is implicitly convertible to a bool, so we use ``!x``
       # to test for nil
       (mkUnary, "!")
+    of mChr:
+      return start().add(cnkCast).ident(c.gl.idents, "NIM_CHAR").add(gen(c, irs, arg(0))).fin()
+    of mOrd:
+      # no-op
+      return c.gen(irs, arg(0))
     else:
       return genError(c, fmt"missing magic: {m}")
 
