@@ -740,8 +740,23 @@ func requestSym*(def: var DeferredSymbols, s: PSym): SymId =
     # a not yet seen symbol
     inc def.nextSymId
 
+func init(decl: var DeclarationV2, ic: IdentCache, s: PSym) =
+  ## Initializes `decl` using the information provided by `s`
+  if {sfImportc, sfInfixCall} * s.flags == {sfImportc} or
+     sfExportc in s.flags:
+    # either something imported that doesn't use a pattern or something that's
+    # exported --> the value in ``loc.r`` is an identifier
+    decl.name = ic.getIdent($s.loc.r)
+    decl.forceName = true
+  else:
+    decl.name = s.name
+    decl.forceName = false
+
+  decl.omit = lfNoDecl in s.loc.flags
+  decl.format = if s.constraint != nil: getStr(s.constraint) else: ""
+
 # TODO: maybe rename to `commit`? Something else?
-func flush*(def: sink DeferredSymbols, env: var SymbolEnv) =
+func flush*(def: sink DeferredSymbols, ic: IdentCache, env: var SymbolEnv) =
   ## Translates all ``PSym``s from `def` to their back-end IR representation
   ## and adds them to `env`. `def` is consumed.
   assert env.symbols.len + def.map.len == def.nextSymId.int
@@ -752,8 +767,7 @@ func flush*(def: sink DeferredSymbols, env: var SymbolEnv) =
   for s, id in def.map.pairs:
     let idx = toIndex(id)
     env.symbols[idx] = Symbol(kind: s.kind, position: s.position, magic: s.magic, flags: s.flags)
-    # TODO: proper initialization is still missing
-    env.symbols[idx].decl.name = s.name
+    env.symbols[idx].decl.init(ic, s)
 
     # remember the source
     env.orig[id] = s
@@ -763,8 +777,7 @@ func flush*(def: sink DeferredSymbols, env: var SymbolEnv) =
   env.decls.setLen(def.nextDeclId)
 
   for i, s in def.decls.pairs:
-    # TODO: proper initialization is still missing
-    env.decls[start + i] = DeclarationV2(name: s.name)
+    env.decls[start + i].init(ic, s)
 
 type TypeGen = object
   syms: DeferredSymbols
@@ -1344,18 +1357,7 @@ func translateProc*(s: PSym, types: var DeferredTypeGen, ic: IdentCache, dest: v
   dest.flags = s.flags
 
   # fill in the declaration info
-  if {sfImportc, sfInfixCall} * s.flags == {sfImportc} or
-     sfExportc in s.flags:
-    # either an imported procedure that doesn't use a pattern or an exported
-    # one --> the value in ``loc.r`` is an identifier
-    dest.decl.name = ic.getIdent($s.loc.r)
-    dest.decl.forceName = true
-  else:
-    dest.decl.name = s.name
-    dest.decl.forceName = false
-
-  dest.decl.omit = lfNoDecl in s.loc.flags
-  dest.decl.format = if s.constraint != nil: getStr(s.constraint) else: ""
+  dest.decl.init(ic, s)
 
   if lfHeader in s.loc.flags:
     dest.iface.header = getStr(s.annex.path)

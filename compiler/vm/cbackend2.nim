@@ -463,7 +463,7 @@ proc generateCode*(g: ModuleGraph) =
 
   # generate all deferred symbols and declarations. ``c.defSyms`` should not
   # be used past this point
-  flush(c.defSyms, env.syms)
+  flush(c.defSyms, g.cache, env.syms)
 
   # XXX: it would be better to also set the type during
   #      ``DeferredSymbols.flush``. But then the procedure needs access to a
@@ -487,7 +487,7 @@ proc generateCode*(g: ModuleGraph) =
     var defSyms = initDeferredSyms(env.syms)
     c.types.flush(env.types, defSyms, g.config)
 
-    flush(defSyms, env.syms)
+    flush(defSyms, g.cache, env.syms)
 
   # replace all placeholder type IDs
   finishTypes(passEnv, c.types, procImpls, c.procs, env.syms)
