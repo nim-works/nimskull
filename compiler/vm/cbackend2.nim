@@ -100,11 +100,11 @@ func collectRoutineSyms(ast: PNode, syms: var seq[PSym]) =
   for i in 0..<ast.safeLen:
     collectRoutineSyms(ast[i], syms)
 
-proc generateTopLevelStmts*(module: var Module, c: var TCtx,
-                            config: ConfigRef) =
+proc generateTopLevelStmts*(module: Module, c: var TCtx,
+                            config: ConfigRef): Option[IrStore3] =
   ## Generates code for all collected top-level statements of `module` and
-  ## compiles the fragments into a single function. The resulting code is
-  ## stored in `module.initProc`
+  ## compiles the fragments into a single procedure. If the resulting
+  ## procedure is empty, a 'none' is returned.
   let n = newNodeI(nkEmpty, module.sym.info) # for line information
 
   c.prc = PProc(sym: module.sym)
@@ -125,9 +125,13 @@ proc generateTopLevelStmts*(module: var Module, c: var TCtx,
 
   c.endProc()
 
-  # the `initProc` symbol is missing a valid `ast` field
-  module.initProc[0] = c.symEnv.addSym(skProc, NoneType, c.graph.cache.getIdent("init")) # TODO: non-obvious mutation, move this somewhere else
-  module.initProc[1] = c.irs
+  # if the resulting procedure is empty, `irs` still has two items: the
+  # 'join's at the end
+  # TODO: use a more forward-compatible approach for testing if there's no
+  #       code
+  result =
+    if c.irs.len > 2: some(move c.irs)
+    else:             none(IrStore3)
 
 proc generateCodeForProc(c: var TCtx, s: PSym): IrGenResult =
   assert s != nil
@@ -168,7 +172,8 @@ proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]
   swapState()
 
 proc genInitProcCall(c: var IrStore3, m: Module) =
-  discard c.irCall(c.irSym(m.initProc[0]))
+  if m.initProc[0] != NoneSymbol:
+    discard c.irCall(c.irSym(m.initProc[0]))
 
 proc generateEntryProc(c: var TCtx, g: PassEnv, mlist: ModuleList): IrStore3 =
   ## Generates the entry function and returns it's function table index.
@@ -401,7 +406,14 @@ proc generateCode*(g: ModuleGraph) =
   for m in mlist.modules.mitems:
     c.module = m.sym
     c.idgen = g.idgen
-    generateTopLevelStmts(m, c, g.config)
+
+    var code = generateTopLevelStmts(m, c, g.config)
+    if code.isSome:
+      # XXX: maybe it's a better idea to store the code as `Option[IrStore3]`.
+      #      We need to later test if there exists code and querying the
+      #      length for that doesn't sound good.
+      # XXX: ``Option`` is missing a ``take`` procedure
+      m.initProc[1] = move code.get()
 
     # combine module list iteration with initialiazing `initGlobalsCode`:
     m.initGlobalsCode.prc = PProc()
