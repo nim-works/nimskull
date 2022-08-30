@@ -49,6 +49,9 @@ type TypeId* = distinct uint32
 
 type SymId* = distinct uint32
 
+type
+  DeclId* = distinct uint32
+
 type TypeNodeKind* = enum
   tnkEmpty
 
@@ -265,6 +268,10 @@ type
     # TODO: maybe split off `map` into a separate `SymbolLookup` type?
     map: Table[ItemId, SymId] # ``PSym``-id -> ``SymId``
 
+    # XXX: maybe `decls` should be moved to it's own environment type? There
+    #      exist quite a few already - it's located here for now
+    decls: seq[DeclarationV2] ## indexed by ``DeclId``
+
     # XXX: `orig` will likely be removed/replaced later on
     orig*: Table[SymId, PSym] # stores the associated ``PSym`` for a symbol. Currently meant to be used by the code-generators.
 
@@ -313,6 +320,7 @@ type
 
 const NoneType* = TypeId(0)
 const NoneSymbol* = SymId(0)
+const NoneDecl* = DeclId(0)
 
 const ProcedureLike = {tnkProc, tnkClosure}
 
@@ -327,10 +335,11 @@ const
 func `==`*(a, b: TypeId): bool {.borrow.}
 func `==`*(a, b: SymId): bool {.borrow.}
 func `==`*(a, b: ProcId): bool {.borrow.}
+func `==`*(a, b: DeclId): bool {.borrow.}
 
 func `inc`*(a: var RecordNodeIndex, val: int = 1) {.borrow.}
 
-type SomeId = TypeId | SymId | RecordId | FieldId | ProcId
+type SomeId = TypeId | SymId | RecordId | FieldId | ProcId | DeclId
 
 template toIndex*(id: SomeId): uint32 =
   id.uint32 - 1
@@ -346,6 +355,9 @@ iterator mpairsId*[T; ID: SomeId](x: var seq[T], _: typedesc[ID]): (ID, var T) =
 
 func `[]`*(e: SymbolEnv, s: SymId): lent Symbol =
   e.symbols[s.int - 1]
+
+func `[]`*(e: SymbolEnv, d: DeclId): lent DeclarationV2 {.inline.} =
+  e.decls[toIndex(d)]
 
 const TypeIdKindBit = 1'u32 shl 31
 const TypeIdMask = 0x7FFFFFFF
@@ -686,6 +698,15 @@ func requestType*(gen: var DeferredTypeGen, t: PType): TypeId =
 
 func lookupType*(gen: DeferredTypeGen, t: ItemId): TypeId =
   gen.map.getOrDefault(t, NoneType)
+
+func requestDecl*(e: var SymbolEnv, s: PSym): DeclId =
+  ## Creates a new declaration object from `s`. No caching is
+  ## performed - multiple calls to ``requestDecl`` with the same symbol will
+  ## result in duplicate declarations
+  result = toId(e.decls.len, DeclId)
+  # TODO: most of the declaration is currently left uninitialized. We need
+  #       access to extra environmental state (e.g. ``IdentCache``)
+  e.decls.add DeclarationV2(name: s.name)
 
 func requestSym*(e: var SymbolEnv, s: PSym): SymId =
   # TODO: a deferred approach is probably a better idea here. That is, just
@@ -1133,6 +1154,11 @@ func addSym*(e: var SymbolEnv, kind: TSymKind, typ: TypeId, name: PIdent, flags:
   # XXX: temporary helper
   e.symbols.add(Symbol(kind: kind, typ: typ, flags: flags, decl: DeclarationV2(name: name)))
   result = e.symbols.len.SymId
+
+func addDecl*(e: var SymbolEnv, name: PIdent): DeclId =
+  ## Adds a new declaration with the given `name` and returns it's ID
+  e.decls.add DeclarationV2(name: name)
+  result = e.decls.len.DeclId
 
 iterator items*(e: SymbolEnv): SymId =
   var i = 0
