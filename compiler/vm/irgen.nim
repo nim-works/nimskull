@@ -1,5 +1,6 @@
 import
   std/[
+    packedsets,
     tables,
     strutils
   ],
@@ -84,6 +85,12 @@ type TCtx* = object
 
   options*: set[TOption]
 
+  # XXX: if constants would use their own ID namespace, `seensConst` could be
+  #      a ``Slice[ConstId]``
+  seenConsts: PackedSet[SymId] ## used for keeping track of which constants
+                               ## still require scanning
+  collectedConsts*: seq[PSym]
+
   defSyms*: DeferredSymbols
   procs*: ProcedureEnv
   types*: DeferredTypeGen
@@ -135,7 +142,16 @@ func irGlobal(c: var TCtx, sym: PSym): IRIndex =
   c.irSym(sym)
 
 func irConst(c: var TCtx, sym: PSym): IRIndex =
-  c.irSym(sym)
+  assert sym.kind == skConst
+  let id = c.defSyms.requestSym(sym)
+
+  if not c.seenConsts.containsOrIncl(id):
+    # XXX: collecting constants should *not* be the responsibility of
+    #      ``irgen``. But with constants still sharing their ID namespace with
+    #      globals, it's the easiest solution for now
+    c.collectedConsts.add sym
+
+  c.irs.irSym(id)
 
 func irLit(c: var TCtx, n: PNode): IRIndex =
   let typ =

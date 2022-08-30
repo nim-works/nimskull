@@ -88,17 +88,25 @@ iterator cpairs[T](s: seq[T]): (int, lent T) =
     yield (i, s[i])
     inc i
 
-func collectRoutineSyms(ast: PNode, syms: var seq[PSym]) =
-  ## Traverses the `ast`, collects all symbols that are of routine kind and
-  ## appends them to `syms`
+func collect(list: var seq[PSym], s: sink PSym, marker: var IntSet) {.inline.} =
+  ## If `s.id` is not present in `marker`, adds `s` to `list` and remember it
+  ## in `markers`
+  if not marker.containsOrIncl(s.id):
+    list.add s
+
+func collectRoutineSyms(ast: PNode, syms: var seq[PSym], marker: var IntSet) =
+  ## Traverses the `ast` and collects all referenced symbols of routine kind
+  ## to `syms` and `marker`
   if ast.kind == nkSym:
-    if ast.sym.kind in routineKinds:
-      syms.add(ast.sym)
+    let s = ast.sym
+    # XXX: ignoring all magics is wrong
+    if s.kind in routineKinds and s.magic == mNone:
+      collect(syms, s, marker)
 
     return
 
   for i in 0..<ast.safeLen:
-    collectRoutineSyms(ast[i], syms)
+    collectRoutineSyms(ast[i], syms, marker)
 
 proc generateTopLevelStmts*(module: Module, c: var TCtx,
                             config: ConfigRef): Option[IrStore3] =
@@ -231,9 +239,9 @@ func collectRoutineSyms(s: IrStore3, env: ProcedureEnv, list: var seq[PSym], kno
       let sym = env.orig[n.procId] # XXX: inefficient
       # XXX: excluding all magics is wrong. Depending on which back-end is
       #      used, some magics are treated like any other routine
-      if sym.magic == mNone and sym.id notin known:
-        known.incl(sym.id)
-        list.add(sym)
+      if sym.magic == mNone:
+        collect(list, sym, known)
+
     else: discard
 
 # XXX: copied from `cgen.nim` and adjusted
@@ -396,6 +404,21 @@ proc drain(c: var TCtx, conf: ConfigRef, env: var IrEnv, code: var seq[IrStore3]
 
       code[idx] = ir
       code[idx].owner = id
+
+    block:
+      let start = b.len
+
+      # scan the collected constants for referenced routines. The list only
+      # contains not-yet-scanned constants
+      for sym in c.collectedConsts.items:
+        collectRoutineSyms(astdef(sym), b, seenProcs)
+
+      # clear the list so that the loop invariant mentioned above holds
+      c.collectedConsts.setLen(0)
+
+      # register the routines with the environment
+      for i in start..<b.len:
+        discard c.procs.requestProc(b[i])
 
     # flush deferred types already to reduce memory usage a bit
     c.types.flush(env.types, c.defSyms, conf)
