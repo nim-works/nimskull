@@ -1351,7 +1351,9 @@ proc genLocalInit(c: var TCtx, kind: LocalKind, a: PNode) =
       else:
         let local = c.addVariable(kind, s)
         let val =
-          if a[2].kind == nkEmpty: c.irNull(s.typ)
+          if a[2].kind == nkEmpty:
+            if sfNoInit in s.flags: return # don't initialize with empty
+            else:                   c.irNull(s.typ)
           else: genx(c, a[2])
 
         # TODO: assign kind handling needs to be rethought, an assign can be both an init _and_ a move (or shallow)
@@ -1806,6 +1808,7 @@ proc genProcBody(c: var TCtx; s: PSym, body: PNode) =
 
     # TODO: what's the sfPure flag check needed for?
     if not s.typ[0].isEmptyType() and sfPure notin s.flags:
+      # TODO: respect ``sfNoInit``
       # important: the 'result' variable is not tracked in ``prc.variables``
       discard c.genLocal(lkVar, s.ast[resultPos].sym)
 
