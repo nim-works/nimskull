@@ -84,7 +84,7 @@ type TCtx* = object
 
   options*: set[TOption]
 
-  symEnv*: SymbolEnv
+  defSyms*: DeferredSymbols
   procs*: ProcedureEnv
   types*: DeferredTypeGen
 
@@ -125,7 +125,7 @@ func fail(
     loc)
 
 func irSym(c: var TCtx, sym: PSym): IRIndex =
-  let id = c.symEnv.requestSym(sym)
+  let id = c.defSyms.requestSym(sym)
   c.irs.irSym(id)
 
 func irParam(c: var TCtx, sym: PSym): IRIndex =
@@ -208,7 +208,7 @@ func genLocal(c: var TCtx, kind: LocalKind, t: PType): IRIndex =
 
 func genLocal(c: var TCtx, kind: LocalKind, s: PSym): IRIndex =
   let
-    sid = c.symEnv.requestSym(s)
+    sid = c.defSyms.requestSym(s)
     tid = c.types.requestType(s.typ)
 
   c.irs.genLocal(kind, tid, sid)

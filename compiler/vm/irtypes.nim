@@ -218,6 +218,19 @@ type
 
     nextTypeId: uint32
 
+  DeferredSymbols* = object
+    ## Stores deferred symbols and declarations to be translated later
+    # XXX: during the effective lifetime of `DeferredSymbols`, the
+    #      ``SymbolEnv`` that this object is targeting should be sealed
+    #      against modifications. With view-types, this could be achieved by
+    #      adding a ``lent SymbolEnv`` field. That wouldn't protect against
+    #      creating another `DeferredSymbols` for the same env however.
+
+    map: Table[PSym, SymId]
+    decls: seq[PSym] ## the symbols to use for the deferred decls
+
+    nextSymId, nextDeclId: uint32
+
   Declaration* = object
     name*: string # the name to used for the declaration in the output of the
                  # code-generators. If `forceName` is false, the name may be
@@ -265,9 +278,6 @@ type
     # TODO: maybe rename?
 
     symbols*: seq[Symbol]
-
-    # TODO: maybe split off `map` into a separate `SymbolLookup` type?
-    map: Table[ItemId, SymId] # ``PSym``-id -> ``SymId``
 
     # XXX: maybe `decls` should be moved to it's own environment type? There
     #      exist quite a few already - it's located here for now
@@ -700,34 +710,64 @@ func requestType*(gen: var DeferredTypeGen, t: PType): TypeId =
 func lookupType*(gen: DeferredTypeGen, t: ItemId): TypeId =
   gen.map.getOrDefault(t, NoneType)
 
-func requestDecl*(e: var SymbolEnv, s: PSym): DeclId =
-  ## Creates a new declaration object from `s`. No caching is
-  ## performed - multiple calls to ``requestDecl`` with the same symbol will
-  ## result in duplicate declarations
-  result = toId(e.decls.len, DeclId)
-  # TODO: most of the declaration is currently left uninitialized. We need
-  #       access to extra environmental state (e.g. ``IdentCache``)
-  e.decls.add DeclarationV2(name: s.name)
+func initDeferredSyms*(e: SymbolEnv): DeferredSymbols =
+  ## Initializes and returns a new ``DeferredSymbols`` object. When calling
+  ## ``flush`` on it, the same ``SymbolEnv`` that was passed here has to be
+  ## used
+  result.nextSymId = e.symbols.len.uint32
+  result.nextDeclId = e.decls.len.uint32
 
-func requestSym*(e: var SymbolEnv, s: PSym): SymId =
-  # TODO: a deferred approach is probably a better idea here. That is, just
-  #       reserve a slot here, remember the `PSym` for the slot, and return
-  #       the slot's id. The callsite of `requestSym` doesn't need
-  #       to have access to everything required for creating a ``Symbol`` from
-  #       a `PSym` then.
+func requestDecl*(def: var DeferredSymbols, s: PSym): DeclId =
+  ## Defers the translation of a declaration object with `s` as the source
+  result = toId(def.nextDeclId, DeclId)
+  inc def.nextDeclId
+
+  def.decls.add s
+
+func hash(x: PSym): Hash {.inline.} =
+  hash(x.itemId)
+
+func requestSym*(def: var DeferredSymbols, s: PSym): SymId =
+  ## Registers `s` with `syms` so that it can be translated later and returns
+  ## the ID that the translated symbol will have. If `s` was already
+  ## registered with `syms`, it's *not* registered again
   assert s.kind notin routineKinds
 
-  let next = SymId(e.symbols.len + 1) # +1 since ID '0' is reserved for indicating 'none'
+  let next = toId(def.nextSymId, SymId) # +1 since ID '0' is reserved for indicating 'none'
 
-  result = e.map.mgetOrPut(s.itemId, next)
+  result = def.map.mgetOrPut(s, next)
   if result == next:
-    # a not yet translated symbol
-    e.symbols.add(Symbol(kind: s.kind, position: s.position, magic: s.magic, flags: s.flags))
-    e.symbols[^1].decl.name = s.name
-    e.orig[result] = s
+    # a not yet seen symbol
+    inc def.nextSymId
+
+# TODO: maybe rename to `commit`? Something else?
+func flush*(def: sink DeferredSymbols, env: var SymbolEnv) =
+  ## Translates all ``PSym``s from `def` to their back-end IR representation
+  ## and adds them to `env`. `def` is consumed.
+  assert env.symbols.len + def.map.len == def.nextSymId.int
+  assert env.decls.len + def.decls.len == def.nextDeclId.int
+
+  # process the deferred symbols:
+  env.symbols.setLen(def.nextSymId)
+  for s, id in def.map.pairs:
+    let idx = toIndex(id)
+    env.symbols[idx] = Symbol(kind: s.kind, position: s.position, magic: s.magic, flags: s.flags)
+    # TODO: proper initialization is still missing
+    env.symbols[idx].decl.name = s.name
+
+    # remember the source
+    env.orig[id] = s
+
+  # process the deferred declarations:
+  let start = env.decls.len
+  env.decls.setLen(def.nextDeclId)
+
+  for i, s in def.decls.pairs:
+    # TODO: proper initialization is still missing
+    env.decls[start + i] = DeclarationV2(name: s.name)
 
 type TypeGen = object
-  syms: SymbolEnv
+  syms: DeferredSymbols
 
   cache: Table[ItemId, TypeNodeIndex] # caches which canonical type a `PType` maps to
 
@@ -1008,15 +1048,17 @@ proc addPrimitiveType*(env: var TypeEnv, gen: var DeferredTypeGen, conf: ConfigR
   result = toId(r, TypeId)
   gen.cache[t.itemId] = r
 
-proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, symEnv: var SymbolEnv, conf: ConfigRef) =
+proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, syms: var DeferredSymbols, conf: ConfigRef) =
   ## Generates all the types that were deferred. `types` may be
   ## re-used after calling this procedure.
+  ##
+  ## No new symbols are deferred with `syms` - only declarations
 
   var ctx: TypeGen
   ctx.def = addr gen
 
-  swap(symEnv, ctx.syms)
-  defer: swap(symEnv, ctx.syms)
+  swap(syms, ctx.syms)
+  defer: swap(syms, ctx.syms)
 
   when useGenTraces:
     gen.isInGen = true
@@ -1340,9 +1382,6 @@ func translateProc*(s: PSym, types: var DeferredTypeGen, ic: IdentCache, dest: v
 
   # shrink to the number of used parameters
   dest.params.setLen(j)
-
-func hash(s: PSym): Hash =
-  hash(s.itemId)
 
 func requestProc*(e: var ProcedureEnv, s: PSym): ProcId =
   ## Requests the ID for the given procedure-like `s`. The ID is cached, so

@@ -390,7 +390,6 @@ proc generateCode*(g: ModuleGraph) =
   var env = IrEnv()
 
   var c = TCtx(config: g.config, graph: g, idgen: g.idgen)
-  swap(c.symEnv, env.syms)
   swap(c.procs, env.procs)
   c.types.voidType = g.getSysType(unknownLineInfo, tyVoid)
   c.types.charType = g.getSysType(unknownLineInfo, tyChar)
@@ -457,13 +456,21 @@ proc generateCode*(g: ModuleGraph) =
       modules[realIdx].procs.add(sId)
 
     # flush deferred types already to reduce memory usage a bit
-    c.types.flush(env.types, c.symEnv, g.config)
+    c.types.flush(env.types, c.defSyms, g.config)
 
     nextProcs.setLen(0)
     swap(nextProcs, nextProcs2)
 
-  for id, s in c.symEnv.msymbols:
-    if (let orig = c.symEnv.orig.getOrDefault(id); orig != nil):
+  # generate all deferred symbols and declarations. ``c.defSyms`` should not
+  # be used past this point
+  flush(c.defSyms, env.syms)
+
+  # XXX: it would be better to also set the type during
+  #      ``DeferredSymbols.flush``. But then the procedure needs access to a
+  #      ``DeferredTypeGen`` object - which is a bit awkward, since
+  #      ``DeferredTypeGen.flush`` requires a ``DeferredSymbol`` object
+  for id, s in env.syms.msymbols:
+    if (let orig = env.syms.orig.getOrDefault(id); orig != nil):
       s.typ = c.types.requestType(orig.typ)
 
   # XXX: this is a problem. Resolving the type-bounds operation requires
@@ -474,17 +481,22 @@ proc generateCode*(g: ModuleGraph) =
 
   c.procs.finish(c.types, g.cache)
 
-  c.types.flush(env.types, c.symEnv, g.config)
+  block:
+    # flush all remaining deferred types. ``c.symEnv`` was consumed when
+    # flushing it, so we create a temporary new ``DeferredSymbol`` object here
+    var defSyms = initDeferredSyms(env.syms)
+    c.types.flush(env.types, defSyms, g.config)
+
+    flush(defSyms, env.syms)
 
   # replace all placeholder type IDs
-  finishTypes(passEnv, c.types, procImpls, c.procs, c.symEnv)
+  finishTypes(passEnv, c.types, procImpls, c.procs, env.syms)
 
-  processObjects(passEnv, g.cache, env.types, c.symEnv, c.types.objects)
+  processObjects(passEnv, g.cache, env.types, env.syms, c.types.objects)
 
   let entryPoint =
     generateMain(c, passEnv, mlist[])
 
-  swap(env.syms, c.symEnv)
   swap(c.procs, env.procs)
 
   block:
