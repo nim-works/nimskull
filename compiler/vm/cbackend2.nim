@@ -353,7 +353,7 @@ func processObjects(g: PassEnv, ic: var IdentCache, types: var TypeEnv, syms: va
   # have a negative field offset
   types.setFieldOffset(rootType, -1)
   types.replaceRecord(rootType):
-    [(syms.addSym(skField, fieldType, ic.getIdent("m_type")), fieldType)]
+    [(syms.addDecl(ic.getIdent("m_type")), fieldType)]
 
   for id, t in objects.pairs:
     if id != rootType and types.base(id) == NoneType and

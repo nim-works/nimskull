@@ -1191,7 +1191,7 @@ func lowerSeqTypesV1*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: var Symb
       #
       let
         arr = tenv.requestGenericType(tnkUncheckedArray, typ.base)
-        sym = senv.addSym(skField, arr, fieldName)
+        sym = senv.addDecl(fieldName)
         rec = tenv.requestRecordType(base = seqTyp, [(sym, arr)])
       remap[id] = requestGenericType(tenv, tnkPtr, rec)
     else:
@@ -1822,7 +1822,7 @@ func genTransformedOpenArray(g: PassEnv, tenv: var TypeEnv, typ: Type): TypeId =
     arrTyp = tenv.requestGenericType(tnkUncheckedArray, typ.base)
     ptrTyp = tenv.requestGenericType(tnkPtr, arrTyp)
 
-  result = tenv.requestRecordType(base = NoneType, [(NoneSymbol, ptrTyp), (NoneSymbol, g.sysTypes[tyInt])])
+  result = tenv.requestRecordType(base = NoneType, [(NoneDecl, ptrTyp), (NoneDecl, g.sysTypes[tyInt])])
 
 func lowerOpenArrayTypes*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: SymbolEnv) =
   ## Transforms ``openArray[T]`` types

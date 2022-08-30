@@ -92,7 +92,8 @@ type TypeNodeKind* = enum
   #tnkAlias
 
 type FieldDesc* = object
-  sym*: SymId # may be empty
+  # TODO: `sym` should probably be renamed to `decl` now
+  sym*: DeclId # may be empty
   typ: TypeNodeIndex
   # XXX: bitsize should likely be stored as part of FieldDesc
 
@@ -797,7 +798,7 @@ func addField(dest: var TypeEnv, g: var TypeGen, s: PSym,
   # the order in which types are translated is such that each dependency was
   # already translated before types referencing it, so we can directly look up
   # the ID in the cache.
-  dest.fields.add(FieldDesc(sym: g.syms.requestSym(s),
+  dest.fields.add(FieldDesc(sym: g.syms.requestDecl(s),
                             typ: g.requestType(s.typ)))
 
   inc numFields
@@ -1120,7 +1121,7 @@ func getAttachmentIndex*(e: TypeEnv, id: TypeId): Option[int] =
 func getAttachment*(e: TypeEnv, i: Natural): auto {.inline.} =
   e.attachments[i]
 
-func replaceRecord*(e: var TypeEnv, id: TypeId, fields: varargs[(SymId, TypeId)]) =
+func replaceRecord*(e: var TypeEnv, id: TypeId, fields: varargs[(DeclId, TypeId)]) =
   ## Replaces the layout of the record type with `id` with the provided flat one.
   ##
   ## .. note:: This is a very low-level procedure that, if misused, can easily
@@ -1223,7 +1224,7 @@ func getOrPut(e: var TypeEnv, t: sink Type): TypeId =
 
   result = idx.toId
 
-func genRecordType*(e: var TypeEnv, base: TypeId, fields: varargs[(SymId, TypeId)]): Type =
+func genRecordType*(e: var TypeEnv, base: TypeId, fields: varargs[(DeclId, TypeId)]): Type =
   result.kind = tnkRecord
   result.a = e.fields.len.uint32
 
@@ -1254,7 +1255,7 @@ func lookupArrayType*(e: TypeEnv, len: BiggestUInt, elem: TypeId): TypeId =
 func requestArrayType*(e: var TypeEnv, len: BiggestUInt, elem: TypeId): TypeId =
   getOrPut(e, genArrayType(e, len, elem))
 
-func requestRecordType*(e: var TypeEnv, base: TypeId, fields: varargs[(SymId, TypeId)]): TypeId =
+func requestRecordType*(e: var TypeEnv, base: TypeId, fields: varargs[(DeclId, TypeId)]): TypeId =
   # TODO: instead of inserting the type first, calculating the hash, and then
   #       rewinding if it's a duplicate, calculate the hash first and only
   #       then call ``genRecordType``

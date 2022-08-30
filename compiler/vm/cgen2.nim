@@ -297,7 +297,7 @@ func genRecordNode(c: var TypeGenCtx, decl: var CDecl, i: var RecordNodeIndex, f
         typ = c.requestType(field.typ)
 
       var ident: CIdent
-      if field.sym == NoneSymbol:
+      if field.sym == NoneDecl:
         # note: ignoring the records field offset means that unnamed
         #       fields in ``object`` types using inheritance won't work
         ident = c.cache.getOrIncl(fmt"Field{i}")
@@ -1364,11 +1364,7 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
 
   # TODO: use ``setLen`` + []
   for id in env.syms.items:
-    if env.syms[id].kind == skField:
-      # TODO: don't use ``irtypes.Symbol`` for fields and remove this case
-      c.symIdents.add InvalidCIdent
-    else:
-      c.symIdents.add c.idents.getOrIncl(mangledName(env.syms[id].decl, id.uint32))
+    c.symIdents.add c.idents.getOrIncl(mangledName(env.syms[id].decl, id.uint32))
 
   block:
     # setup the field -> identifier map:
@@ -1384,8 +1380,8 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
       # anonymous fields (used by anonymous tuples) use a position-based
       # naming scheme, but since we don't know about field positions here, we
       # defer identifier creation for those to ``genRecordNode``
-      if f.sym != NoneSymbol:
-        c.fieldIdents[i] = c.idents.getOrIncl(mangledName(env.syms[f.sym].decl))
+      if f.sym != NoneDecl:
+        c.fieldIdents[i] = c.idents.getOrIncl(mangledName(env.syms[f.sym]))
 
   var gen = TypeGenCtx(weakTypes: {tnkRecord}, env: unsafeAddr env)
   swap(gen.cache, c.idents)

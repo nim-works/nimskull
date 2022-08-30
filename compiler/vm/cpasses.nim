@@ -447,8 +447,8 @@ func applyCTypeTransforms*(c: var CTransformEnv, g: PassEnv, env: var TypeEnv, s
       let prcTyp = env.requestProcType(id, ccNimCall, params=[pointerType])
 
       c.remap[id] = env.requestRecordType(base = NoneType):
-        [(NoneSymbol, prcTyp),
-         (NoneSymbol, pointerType)]
+        [(NoneDecl, prcTyp),
+         (NoneDecl, pointerType)]
 
       # needed for the lowering of closure invocations
       c.rawProcs[id] = env.requestProcType(id, ccNimCall)
