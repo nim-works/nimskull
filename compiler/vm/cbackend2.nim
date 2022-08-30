@@ -333,6 +333,41 @@ func finishTypes*(g: PassEnv, types: DeferredTypeGen,
   for it in g.compilertypes.mvalues:
     it = types.map(it)
 
+# TODO: needs a better name
+func processObjects(g: PassEnv, ic: var IdentCache, types: var TypeEnv, syms: var SymbolEnv,
+                    objects: Table[TypeId, PType]) =
+  ## Adds the ``m_type`` field to ``RootObj`` and rebases all non-final object
+  ## types that don't have a base type onto ``RootObj``. `objects` holds the
+  ## mappings from each object type to it's respective source type (i.e. the
+  ## ``PType`` it was translated from).
+  let rootType = g.getCompilerType("RootObj")
+
+  # XXX: we're depending on a ``ptr TNimType`` type existing here. The
+  #      ``.compilerproc`` global ``hti.nimTypeRoot`` is of that type,
+  #      so it's currently always available.
+  let fieldType = types.lookupGenericType(tnkPtr, g.getCompilerType("TNimType"))
+
+  # insert a field of type ``PNimType`` into ``RootObj``. In order to not make
+  # type processing more complex (by rewriting each record type inheriting
+  # from ``RootObj`` plus all ``ntkPathObj`` nodes), the type is changed to
+  # have a negative field offset
+  types.setFieldOffset(rootType, -1)
+  types.replaceRecord(rootType):
+    [(syms.addSym(skField, fieldType, ic.getIdent("m_type")), fieldType)]
+
+  for id, t in objects.pairs:
+    if id != rootType and types.base(id) == NoneType and
+       tfFinal notin t.flags and sfPure notin t.sym.flags:
+      # if an object has no ancestor, can be inherited from, and is not marked
+      # as pure, it needs a type field. Since inserting a new field into
+      # records is effectively not possible with how field access works (i.e.
+      # lookup by position), we resort to setting the type's base to
+      # ``RootObj`` (which provides the type field)
+      # XXX: the way this is implemented here differs from how it works in the
+      #      old back-end. There, a type field (a header) was directly
+      #      embedded into the object
+      types.setBase(id, rootType)
+
 proc generateCode*(g: ModuleGraph) =
   ## The backend's entry point. Orchestrates code generation and linking. If
   ## all went well, the resulting binary is written to the project's output
@@ -431,6 +466,8 @@ proc generateCode*(g: ModuleGraph) =
 
   # replace all placeholder type IDs
   finishTypes(passEnv, c.types, procImpls, c.procs, c.symEnv)
+
+  processObjects(passEnv, g.cache, env.types, c.symEnv, c.types.objects)
 
   let entryPoint =
     generateMain(c, passEnv, mlist[])

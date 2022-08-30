@@ -1238,6 +1238,9 @@ func genGenericType*(e: TypeEnv, kind: TypeNodeKind, elem: TypeId): Type =
   assert kind in {tnkUncheckedArray, tnkSeq, tnkVar, tnkLent, tnkPtr, tnkRef, tnkOpenArray}
   Type(kind: kind, base: elem)
 
+func lookupGenericType*(e: TypeEnv, kind: TypeNodeKind, elem: TypeId): TypeId =
+  e.lookup(genGenericType(e, kind, elem))
+
 func requestGenericType*(e: var TypeEnv, kind: TypeNodeKind, elem: TypeId): TypeId =
   getOrPut(e, Type(kind: kind, base: elem))
 
