@@ -7,6 +7,13 @@
 #    distribution, for details about the copyright.
 #
 
+when declared(ThisIsSystem):
+  {.pragma: myCompilerproc, compilerproc.}
+else:
+  # prevent types from being marked as ``.compilerproc`` if this module is not
+  # included from ``system.nim``
+  {.pragma: myCompilerproc.}
+
 type
   # This should be the same as ast.TTypeKind
   # many enum fields are not used at runtime
@@ -73,7 +80,7 @@ type
     tyVoidHidden
 
   TNimNodeKind = enum nkNone, nkSlot, nkList, nkCase
-  TNimNode {.compilerproc.} = object
+  TNimNode {.myCompilerproc.} = object
     kind: TNimNodeKind
     offset: int
     typ: ptr TNimType
@@ -86,7 +93,7 @@ type
     ntfAcyclic = 1,    # type cannot form a cycle
     ntfEnumHole = 2    # enum has holes and thus `$` for them needs the slow
                        # version
-  TNimType {.compilerproc.} = object
+  TNimType {.myCompilerproc.} = object
     when defined(gcHooks):
       head*: pointer
     size*: int
