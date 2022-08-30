@@ -926,6 +926,9 @@ proc genSeqLen(cr: var IrCursor, g: PassEnv, ir: IrStore3, src: IRIndex): IRInde
 
   result = cr.insertLocalRef(local)
 
+func genSeqAt(cr: var IrCursor, g: PassEnv, ir: IrStore3, src, idx: IRIndex): IRIndex =
+  cr.insertPathArr(accessSeqField(cr, ir, src, SeqV1DataField), idx)
+
 proc genStrConcat(cr: var IrCursor, g: PassEnv, tm: seq[TypeId], ir: IrStore3, env: IrEnv, n: IRIndex): IRIndex =
   # Input:
   #   s = "Abc" & "def" & str & 'g'
@@ -973,6 +976,8 @@ proc genStrConcat(cr: var IrCursor, g: PassEnv, tm: seq[TypeId], ir: IrStore3, e
     else: unreachable()
 
   result = cr.insertLocalRef(tmp)
+
+func insertLoop(cr: var IrCursor): JoinPoint
 
 proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers the `seq`-related magic operations into calls to the v1 `seq`
@@ -1025,6 +1030,48 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
 
       let val = cr.position
       discard cr.insertCast(c.typeof(val), cr.insertCompProcCall(c.extra, "nimNewSeqOfCap", c.requestRtti(cr, c.typeof(val)), arg(0)))
+
+    of mArrToSeq:
+      # XXX: passing a non-constant array construction expression as the
+      #      argument will produce rather inefficient code, but we can't do
+      #      much about it here because of how an ``nkBracket`` is lowered
+      #      during ``irgen``
+      cr.replace()
+
+      let
+        seqTyp = c.typeof(cr.position)
+        arrTyp = c.typeof(arg(0))
+
+      let
+        counter = cr.insertLocalRef(cr.newLocal(lkTemp, c.extra.sysTypes[tyInt]))
+        elemCount = cr.insertLit(c.env.types.length(arrTyp))
+        tmp = cr.newLocal(lkTemp, c.typeof(cr.position))
+        loopExit = cr.newJoinPoint()
+
+      # TODO: this transformation shoud likely happen in a pass before
+      #       seqs are lowered (maybe in ``irgen``)
+
+      # XXX: if we'd know about the destination location, we could use
+      #      ``newSeqRC1`` if the destination is on the heap
+
+      # construct the seq
+      cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertCast(seqTyp, cr.insertCompProcCall(c.extra, "newSeq", c.requestRtti(cr, seqTyp), elemCount)))
+
+      # TODO: don't emit a loop if the source array is empty
+      # TODO: maybe add back the small loop unrolling?
+      let start = cr.insertLoop()
+
+      # loop condition
+      cr.genIfNot(cr.binaryBoolOp(c.extra, mLeI, counter, elemCount)):
+        cr.insertGoto(loopExit)
+
+      cr.insertAsgn(askInit, cr.genSeqAt(c.extra, ir, cr.insertLocalRef(tmp), counter), cr.insertPathArr(arg(0), counter))
+      cr.insertAsgn(askCopy, counter, cr.insertMagicCall(c.extra, mAddI, tyInt, counter, cr.insertLit(1)))
+
+      cr.insertGoto(start)
+
+      cr.insertJoin(loopExit)
+      discard cr.insertLocalRef(tmp)
 
     of mAppendSeqElem:
       # ``seq &= x`` -->:
