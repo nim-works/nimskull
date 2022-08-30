@@ -341,12 +341,6 @@ proc genBlock(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
   withBlock(n[0].sym, next):
     c.gen(n[1], result)
 
-func irGotoRaise(c: var IrStore, i: IRIndex): IRIndex =
-  missingImpl()
-
-func irGotoLink(c: var IrStore, i: IRIndex): IRIndex =
-  missingImpl()
-
 iterator rmitems[T](x: var openArray[T]): var T =
   var i = x.high
   while i >= 0:
@@ -365,13 +359,6 @@ proc genBreak(c: var TCtx; n: PNode): IRIndex =
       fail(n.info, rsemVmCannotFindBreakTarget)
 
   c.irs.irGoto(c.prc.blocks[i].start)
-
-func irFwd(c: var TCtx): IRIndex =
-  missingImpl()
-
-func irEnd(c: var TCtx, target, value: IRIndex): IRIndex =
-  missingImpl()
-
 
 proc genIf(c: var TCtx, n: PNode, next: JoinPoint): IRIndex =
   #  if (!expr1) goto lab1;
@@ -1774,17 +1761,6 @@ func injectFinalizers(ir: var IrStore3, prc: PProc) =
 
   ir.update(cr)
 ]#
-
-func appendCode(c: var vmdef.TCtx, f: CodeFragment) =
-  var tmp: CodeFragment
-  swap(tmp.code, c.code)
-  swap(tmp.debug, c.debug)
-
-  tmp.append(f)
-
-  swap(tmp.code, c.code)
-  swap(tmp.debug, c.debug)
-
 
 proc genStmt*(c: var TCtx; n: PNode): IrGenResult =
   try:
