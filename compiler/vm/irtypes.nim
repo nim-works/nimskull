@@ -471,6 +471,19 @@ func numFields*(env: TypeEnv, t: TypeId): int =
   assert env[t].kind == tnkRecord
   env[env[t].record].a.int
 
+func totalFields*(env: TypeEnv): int =
+  ## Gets the total number of record fields that are stored in `env`
+  env.fields.len
+
+iterator allFields*(env: TypeEnv): (int, lent FieldDesc) =
+  ## Iterates over all record fields stored in `env`. Yields the
+  ## index + field description
+  var i = 0
+  let L = env.fields.len
+  while i < L:
+    yield (i, env.fields[i])
+    inc i
+
 func skipVarOrLent*(env: TypeEnv, t: TypeId): TypeId =
   if env[t].kind in {tnkVar, tnkLent}:
     # a ``var var T`` (same with ``lent``) is not possible so no need to use

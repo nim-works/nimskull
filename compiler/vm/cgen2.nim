@@ -178,6 +178,7 @@ type
     funcs: seq[CProcHeader]
 
     symIdents: seq[CIdent] # maps each symbol *index* to an identifier
+    fieldIdents: seq[CIdent] # maps each field *index* to an identifier
 
     ctypes: seq[CTypeInfo] #
 
@@ -268,7 +269,7 @@ type TypeGenCtx = object
   # inherited state
   cache: IdentCache
   env: ptr IrEnv
-  symIdents: seq[CIdent] # do not mutate
+  fieldIdents: seq[CIdent] # mutated
 
   # non-inherited state
   weakTypes: set[TypeNodeKind] # the set of types that can be turned into forward declarations when declared as a pointer
@@ -295,12 +296,16 @@ func genRecordNode(c: var TypeGenCtx, decl: var CDecl, i: var RecordNodeIndex, f
         field = c.env.types.field(f)
         typ = c.requestType(field.typ)
 
+      var ident: CIdent
       if field.sym == NoneSymbol:
         # note: ignoring the records field offset means that unnamed
         #       fields in ``object`` types using inheritance won't work
-        decl.addField(c.cache, typ, fmt"Field{i}")
+        ident = c.cache.getOrIncl(fmt"Field{i}")
+        c.fieldIdents[f] = ident
       else:
-        decl.addField(typ, c.symIdents[field.sym.toIndex])
+        ident = c.fieldIdents[f] # identifier was already created
+
+      decl.addField(typ, ident)
 
     result = int(n.b - n.a + 1)
 
@@ -609,6 +614,7 @@ func ident(c: var CAstBuilder, idents: var IdentCache, name: string): var CAstBu
   c.ast.add cnkIdent, idents.getOrIncl(name).uint32
 
 func ident(c: var CAstBuilder, ident: CIdent): var CAstBuilder =
+  assert ident != InvalidCIdent
   result = c
   c.ast.add cnkIdent, ident.uint32
 
@@ -976,13 +982,7 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
       # automatically also pulled in
       c.m.useType(typId)
 
-      # XXX: it might be a better idea to store the identfiers for each
-      #      field instead
-      if field.sym != NoneSymbol:
-        discard ast.ident(c.gl.symIdents[field.sym.toIndex])
-      else:
-        # TODO: this needs some name clash protection
-        discard ast.ident(c.gl.idents, fmt"Field{n.fieldIdx}")
+      discard ast.ident(c.gl.fieldIdents[toIndex(fieldId)])
 
       names[i] = ast.fin()
 
@@ -1366,13 +1366,30 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
   for id in env.syms.items:
     if env.syms[id].kind == skField:
       # TODO: don't use ``irtypes.Symbol`` for fields and remove this case
-      c.symIdents.add c.idents.getOrIncl(mangledName(env.syms[id].decl))
+      c.symIdents.add InvalidCIdent
     else:
       c.symIdents.add c.idents.getOrIncl(mangledName(env.syms[id].decl, id.uint32))
 
+  block:
+    # setup the field -> identifier map:
+    c.fieldIdents.newSeq(env.types.totalFields)
+
+    # we setup the identifiers for named fields here instead of in
+    # ``genRecordNode`` (as is done for anonymous fields). Why? Because
+    # no ``CDecl`` is generated for ``.nodecl`` object types, but their fields
+    # still need identifiers.
+    # XXX: with this approach, nodecl named tuple types will cause a compiler
+    #      crash since their fields are treated as anonymous
+    for i, f in env.types.allFields:
+      # anonymous fields (used by anonymous tuples) use a position-based
+      # naming scheme, but since we don't know about field positions here, we
+      # defer identifier creation for those to ``genRecordNode``
+      if f.sym != NoneSymbol:
+        c.fieldIdents[i] = c.idents.getOrIncl(mangledName(env.syms[f.sym].decl))
+
   var gen = TypeGenCtx(weakTypes: {tnkRecord}, env: unsafeAddr env)
   swap(gen.cache, c.idents)
-  swap(gen.symIdents, c.symIdents)
+  swap(gen.fieldIdents, c.fieldIdents)
 
   # XXX: a leftover from the CTypeId -> TypeId transition. Needs to be removed
   c.ctypes.add(CTypeInfo(name: gen.cache.getOrIncl("void"))) # the `VoidCType`
@@ -1389,7 +1406,7 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
       c.ctypes[id.int].decl = @[(cdnkType, target.uint32, 0'u32)]
 
   swap(gen.cache, c.idents)
-  swap(gen.symIdents, c.symIdents)
+  swap(gen.fieldIdents, c.fieldIdents)
 
   # create the procedure headers
   # TODO: use ``setLen`` + []
