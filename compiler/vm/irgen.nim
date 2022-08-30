@@ -477,7 +477,7 @@ proc genCase(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
         # elif branches were eliminated during transformation
         doAssert branch.kind == nkOfBranch
 
-        let cond = c.irs.irCall(bcMatch, NoneType, c.irLit(branch))
+        let cond = c.irs.irCall(bcMatch, NoneType, tmp, c.irLit(branch))
 
         c.irs.irBranch(cond, b)
         r = c.gen2(branch.lastSon)

@@ -406,8 +406,110 @@ func lowerAccessEnv(ir: var IrStore3, env: IrEnv, envTyp: TypeId, envSym: DeclId
 
   ir.update(cr)
 
+func genSliceListMatch(val: IRIndex; eq, lt: TMagic, ofBranch: PNode; typ, boolTy: TypeId, exit: JoinPoint, cr: var IrCursor) =
+  ## Generates the statements for matching `val` against the slice-list
+  ## represented by `ofBranch`.
+  ## `exit` is the join-point to branch to in case of a match.
+  ## `eq` and `lt` are the magics to use for comparisons.
+  for i in 0..<ofBranch.len-1:
+    let n = ofBranch[i]
+    if n.kind == nkRange:
+      let next = cr.newJoinPoint()
+      cr.insertBranch(cr.insertCallExpr(lt, boolTy, val, cr.insertLit((n[0], typ))), next)
+      cr.insertBranch(cr.insertCallExpr(lt, boolTy, cr.insertLit((n[1], typ)), val), next)
+      cr.insertGoto(exit) # a match was found
+      cr.insertJoin(next)
+    else:
+      # if the element matches, we're finished
+      cr.insertBranch(cr.insertCallExpr(eq, boolTy, val, cr.insertLit((n, typ))), exit)
+
+func lowerMatch(c: var TypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+  ## Lowers ``bcMatch`` into compare + 'branch' instructions
+  # XXX: the pass is also relevant target except the C-like ones - it should
+  #      be located somewhere else
+  case n.kind
+  of ntkCall:
+    if n.isBuiltIn and n.builtin == bcMatch:
+      let
+        val = ir.argAt(cr, 0)
+        boolTy = c.graph.sysTypes[tyBool]
+      # XXX: the ``PNode`` of the original ``nkOfBranch`` is used as the
+      #      literal here for now, but once literals get their own IR, this
+      #      will become a slice-list.
+      let ofBranch = ir.getLit(ir.at(ir.argAt(cr, 1))).val
+
+      cr.replace()
+
+      let tk = c.env.types[c.types[val]].kind
+      if ofBranch.len == 2 and ofBranch[0].kind != nkRange:
+        # a single comparison
+        let lit = cr.insertLit((ofBranch[0], NoneType))
+        let prc =
+          case tk
+          of tnkInt, tnkUInt: mEqI
+          of tnkChar: mEqCh
+          of tnkBool: mEqB
+          of tnkFloat: mEqF64
+          of tnkString: mEqStr
+          of tnkCString: mEqCString
+          else:
+            unreachable(tk)
+
+        discard cr.insertCallExpr(prc, boolTy, val, lit)
+
+      else:
+        # match the slice-list against the value -->
+        #   var tmp = true
+        #   if condA or condB or ...:
+        #     tmp = false
+        #   tmp
+        #
+        # for single items the condition is calculated via:
+        #   val != elem
+        #
+        # for ranges, it's the following:
+        #   val < range.a or range.b < val
+
+        let
+          tmp = cr.newLocal(lkTemp, boolTy)
+          exit = cr.newJoinPoint()
+
+        # TODO: add an ``insertLit`` overload that accepts a boolean
+        cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertLit(1)) # true
+
+        case tk
+        of tnkInt, tnkUInt, tnkChar, tnkBool, tnkFloat:
+          let (eq, lt) =
+            case tk
+            of tnkInt:   (mEqI,  mLtI)
+            of tnkUInt:  (mEqI,  mLtU)
+            of tnkChar:  (mEqCh, mLtCh)
+            of tnkBool:  (mEqB,  mEqB)
+            of tnkFloat: (mEqI,  mLtF64)
+            else:
+              unreachable(tk)
+
+          genSliceListMatch(val, eq, lt, ofBranch, c.types[val], boolTy, exit, cr)
+
+        of tnkString:
+          # TODO: implement the hash-table optimization present used by
+          #       ``ccgstmts``
+          genSliceListMatch(val, mEqStr, mLtStr, ofBranch, c.types[val], boolTy, exit, cr)
+
+        else:
+          unreachable(tk)
+
+        cr.insertAsgn(askCopy, cr.insertLocalRef(tmp), cr.insertLit(0)) # false
+        cr.insertJoin(exit)
+
+        discard cr.insertLocalRef(tmp)
+
+  else:
+    discard
+
 const transformPass = LinearPass2[CTransformCtx](visit: visit)
 const lowerClosuresPass = LinearPass2[CTransformCtx](visit: lowerClosuresVisit)
+const lowerMatchPass* = LinearPass2[TypedPassCtx](visit: lowerMatch)
 const lowerEchoPass* = LinearPass2[UntypedPassCtx](visit: lowerEchoVisit)
 
 proc applyCTransforms*(c: CTransformEnv, ic: IdentCache, g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =

@@ -579,6 +579,11 @@ proc generateCode*(g: ModuleGraph) =
         rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
         runPass(irs, rpCtx, lowerRangeCheckPass)
 
+        block:
+          var tpc: TypedPassCtx
+          tpc.init(passEnv, addr env, irs)
+          runPass(irs, tpc, lowerMatchPass)
+
         rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
         #runV2(irs, rpCtx, refcPass)
         runPass(irs, rpCtx, refcPass)
