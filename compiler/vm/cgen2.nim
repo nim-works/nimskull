@@ -710,7 +710,7 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): CAst =
     case m
     of mNot: (mkUnary, "!")
     of mXor: (mkBinary, "!=")
-    of mEqRef, mEqCh, mEqI, mEqB, mEqEnum, mEqF64: (mkBinary, "==")
+    of mEqRef, mEqCh, mEqI, mEqB, mEqEnum, mEqF64, mEqProc: (mkBinary, "==")
     of mBitandI: (mkBinary, "&")
     of mBitorI: (mkBinary, "|")
     of mBitxorI: (mkBinary, "^")

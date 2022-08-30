@@ -269,6 +269,31 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
           cr.replace()
           discard cr.insertMagicCall(c.graph, mIsNil, tyBool, cr.insertPathObj(arg0, ClosureProcField))
 
+      of mEqProc:
+        let
+          arg0 = ir.argAt(cr, 0)
+          arg1 = ir.argAt(cr, 1)
+
+        # only the equality operator for closures is lowered here - the one
+        # for non-closure procedures is translated in ``cgen2``
+        if c.env.types[c.types[arg0]].kind == tnkClosure:
+          # --->
+          #   var tmp: bool
+          #   if a.prc == b.prc:
+          #     tmp = a.env == b.env
+          #   tmp
+          cr.replace()
+          let
+            tmp = cr.newLocal(lkTemp, c.graph.sysTypes[tyBool])
+            tmpAcc = cr.insertLocalRef(tmp)
+            exit = cr.newJoinPoint()
+
+          cr.insertBranch(cr.insertMagicCall(c.graph, mNot, tyBool, cr.insertMagicCall(c.graph, mEqRef, tyBool, cr.insertPathObj(arg0, ClosureProcField), cr.insertPathObj(arg1, ClosureProcField))), exit)
+          cr.insertAsgn(askInit, tmpAcc, cr.insertMagicCall(c.graph, mEqRef, tyBool, cr.insertPathObj(arg0, ClosureEnvField), cr.insertPathObj(arg1, ClosureEnvField)))
+
+          cr.insertJoin(exit)
+          discard cr.insertLocalRef(tmp)
+
       else:
         discard
 
