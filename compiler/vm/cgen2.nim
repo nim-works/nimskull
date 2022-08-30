@@ -861,8 +861,10 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
   if c.env.types[c.env.procs.getReturnType(c.sym)].kind == tnkVoid:
     result.add cnkReturn
   else:
+    # by convention, if a procedure has a return value, the first local is the
+    # 'result' variable
     result.add cnkReturn, 1
-    result.add cnkIdent, c.gl.idents.getOrIncl("result").uint32
+    result.add cnkIdent, c.localNames[0].uint32
 
   inc numStmts
   result[0].a = numStmts.uint32
