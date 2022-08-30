@@ -200,6 +200,10 @@ type
     marker: IntSet
     cache: Table[ItemId, TypeNodeIndex] # caches which canonical type a `PType` maps to
 
+    objects*: Table[TypeId, PType] ## for each translated object type the
+                                   ## corresponding source ``PType``. Populated
+                                   ## during ``flush``
+
     when useGenTraces:
       traceMap: seq[int] ## stores the corresponding trace index for each
                          ## entry in `list`
@@ -991,8 +995,12 @@ proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, symEnv: var SymbolEnv, c
 
   for t in total.items:
     if t.kind == tyObject:
-      ctx.cache[t.itemId] = env.types.len.TypeNodeIndex
+      let idx = env.types.len.TypeNodeIndex
+      ctx.cache[t.itemId] = idx
       env.types.add default(Type)
+
+      # record the ``TypeId`` -> ``PType`` mapping
+      gen.objects[toId(idx)] = t
 
   for i, t in total.pairs:
     let
