@@ -188,7 +188,7 @@ type
     bcError # encodes an error in the IR # XXX: make this a dedicated node?
     bcNewClosure # setup closure
     bcSwitch # switch variant branch
-    bcOf # 'of' branch
+    bcMatch # 'of' branch
     bcGetBranchIndex # compute the branch index
     bcRaise
     bcTestError
