@@ -42,6 +42,8 @@ import std/options as stdoptions
 from compiler/vm/vmdef import unreachable
 from compiler/vm/vmaux import getEnvParam
 
+from compiler/sem/rodutils import toStrMaxPrecision
+
 from compiler/vm/irpasses import computeTypes, PassError
 
 type
@@ -97,6 +99,8 @@ type
     cnkStrLit # string literal
     cnkIntLit ## a 64-bit *unsigned* integer literal. ``a`` stores the high and
               ## ``b`` the low bits
+    cnkFloat32Lit ## stores a 32-bit float value
+    cnkFloat64Lit ## stores a 64-bit float value
 
     cnkDef
     cnkType
@@ -640,6 +644,11 @@ func strLit(c: var CAstBuilder, strs: var BiTable[string], s: sink string): var 
   result = c
   c.ast.add cnkStrLit, strs.getOrIncl(s).uint32
 
+func floatLit(c: var CAstBuilder, v: BiggestFloat): var CAstBuilder =
+  result = c
+  let bits = cast[uint64](v)
+  c.ast.add cnkFloat64Lit, uint32(bits shr 32), uint32(bits and 0xFFFFFFFF'u64)
+
 func sub(c: var CAstBuilder): var CAstBuilder =
   result = c
 
@@ -794,6 +803,11 @@ func genLit(c: var GenCtx, literal: Literal): CAst =
   of nkCharLit:
     assert lit.intVal in 0..255
     start().add(cnkCharLit, lit.intVal.uint32).fin()
+  of nkFloatLit, nkFloat64Lit:
+    start().floatLit(lit.floatVal).fin()
+  of nkFloat32Lit:
+    start().add(cnkFloat32Lit, cast[uint32](lit.floatVal.float32)).fin()
+  # TODO: what about ``nkFloat128Lit``? The other code-generators seem to be ignoring them/raising an internal error
   of nkStrLit:
     # XXX: some passes insert string literals without type information. It's supported for now
     assert literal.typ == NoneType or c.env.types[literal.typ].kind == tnkCString
@@ -1196,6 +1210,11 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
 
   of cnkIntLit:
     f.write (n.a.uint64 shl 32) or n.b.uint64
+
+  of cnkFloat32Lit:
+    f.write toStrMaxPrecision(cast[float32](n.a))
+  of cnkFloat64Lit:
+    f.write toStrMaxPrecision(cast[float64]((n.a.uint64 shl 32) or n.b.uint64))
 
   of cnkType:
     emitType(f, c, n.a.CTypeId)
