@@ -204,6 +204,12 @@ func `==`(a, b: TypeKey): bool =
 
 func `==`(a, b: CTypeId): bool {.borrow.}
 
+func iface(syms: SymbolEnv, id: SymId): PSym =
+  # XXX: temporary solution
+  let orig = syms.orig.getOrDefault(id)
+  if orig != nil and sfImportc in orig.flags:
+    result = orig
+
 func mangledName(sym: PSym): string =
   # TODO: cache the mangled names (and don't use TLoc for it!)
   # TODO: implement
@@ -1458,9 +1464,17 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
   for id in m.syms.items:
     mCtx.useType(env.syms[id].typ)
 
-  # mark the type of used non-proc symbols as used
+  # mark the type of used globals and constants as used and collect C-header
+  # dependencies
   for id in mCtx.syms.items:
+    # TODO: is it necessary to mark the type as used if the sym is
+    #       ``.nodecl``?
+    # XXX: the ``useType`` here is redundant - already happened when the
+    #      symbol was added to the set
     mCtx.useType(env.syms[id].typ)
+    if (let iface = env.syms.iface(id); iface != nil):
+      if lfHeader in iface.loc.flags:
+        mCtx.headers.incl getStr(iface.annex.path)
 
   # collect all types that we need to be defined in this translation unit (.c file)
 
