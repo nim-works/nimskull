@@ -154,6 +154,20 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
       of mCStrToStr:
         cr.replace()
         cr.insertCompProcCall(c.graph, "cstrToNimstr", arg(0))
+      of mAccessTypeField:
+        # replace with accessing the field at position '-1' (the type field)
+        cr.replace()
+
+        let src =
+          case c.env.types[c.types[arg(0)]].kind
+          of tnkRef, tnkPtr, tnkVar, tnkLent:
+            cr.insertDeref(arg(0))
+          of tnkRecord:
+            arg(0)
+          else:
+            unreachable()
+
+        discard cr.insertPathObj(src, -1)
       else:
         discard
 
