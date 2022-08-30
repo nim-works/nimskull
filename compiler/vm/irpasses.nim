@@ -1449,7 +1449,7 @@ proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
 
       var val: BiggestUInt
       for i in 0..7:
-        val = val or (BiggestUInt(data[i]) shl i)
+        val = val or (BiggestUInt(data[i]) shl (i*8))
 
       cr.replace()
       discard cr.insertLit((newIntNode(nkUIntLit, cast[BiggestInt](val)), NoneType))
