@@ -204,6 +204,12 @@ func `==`(a, b: TypeKey): bool =
 
 func `==`(a, b: CTypeId): bool {.borrow.}
 
+func formatHexChar(dst: var openArray[char], pos: int, x: uint8) =
+  const Chars = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+                 'a', 'b', 'c', 'd', 'e', 'f']
+  dst[pos + 0] = Chars[x shr 4]
+  dst[pos + 1] = Chars[x and 0x0F]
+
 func iface(syms: SymbolEnv, id: SymId): PSym =
   # XXX: temporary solution
   let orig = syms.orig.getOrDefault(id)
@@ -1065,6 +1071,8 @@ proc emitAndEscapeIf(f: File, c: GlobalGenCtx, ast: CAst, pos: var int, notSet: 
     emitCAst(f, c, ast, pos)
     f.write ")"
 
+proc writeChars[I: static int](f: File, arr: array[I, char]) {.inline.} =
+  discard f.writeBuffer(addr(arr), I)
 
 proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
   if pos >= ast.len:
@@ -1161,7 +1169,10 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
       if ch in '\x20'..'\x7F':
         f.write ch
       else:
-        f.write &"\\x{ord(ch):02}"
+        var arr = ['\\', 'x', '0', '0']
+        formatHexChar(arr, 2, ord(ch).uint8)
+
+        f.writeChars arr
 
     f.write '"'
 
