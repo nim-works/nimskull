@@ -95,7 +95,8 @@ type
 
     cnkCharLit
     cnkStrLit # string literal
-    cnkIntLit
+    cnkIntLit ## a 64-bit *unsigned* integer literal. ``a`` stores the high and
+              ## ``b`` the low bits
 
     cnkDef
     cnkType
@@ -631,10 +632,9 @@ func ident(c: var CAstBuilder, ident: CIdent): var CAstBuilder =
   result = c
   c.ast.add cnkIdent, ident.uint32
 
-func intLit(c: var CAstBuilder, v: BiggestInt): var CAstBuilder =
+func intLit(c: var CAstBuilder, v: BiggestUInt): var CAstBuilder =
   result = c
-  # TODO: int literals need some more development
-  c.ast.add cnkIntLit, uint32(cast[uint64](v) shr 32), uint32(cast[uint64](v) and 0xFFFFFFFF'u64)
+  c.ast.add cnkIntLit, uint32(v shr 32), uint32(v and 0xFFFFFFFF'u64)
 
 func strLit(c: var CAstBuilder, strs: var BiTable[string], s: sink string): var CAstBuilder =
   result = c
@@ -749,7 +749,7 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): CAst =
 func genLit(dest: var CAstBuilder, c: var GenCtx, val: PNode): var CAstBuilder =
   case val.kind
   of nkIntLit:
-    result = dest.intLit(val.intVal)
+    result = dest.intLit(val.intVal.BiggestUInt)
   else:
     result = dest.add genError(c, fmt"missing: {val.kind}")
 
@@ -779,8 +779,18 @@ func genLit(c: var GenCtx, literal: Literal): CAst =
     return start().add(cnkType, mapTypeV2(c, literal.typ).uint32).fin()
 
   case lit.kind
-  of nkIntLit:
-    start().intLit(lit.intVal).fin()
+  of nkIntLit..nkInt64Lit:
+    if lit.intVal < 0:
+      # compute the two's-complement, yielding the absolute value. This works
+      # even if ``lit.intVal == low(BiggestInt)``.
+      # XXX: Nim doesn't guarantee that a signed integer is stored in
+      #      two's-complement encoding
+      let abs = not(cast[BiggestUInt](lit.intVal)) + 1
+      start().add(cnkPrefix).ident(c.gl.idents, "-").intLit(abs).fin()
+    else:
+      start().intLit(lit.intVal.BiggestUInt).fin()
+  of nkUIntLit..nkUInt64Lit:
+    start().intLit(cast[BiggestUInt](lit.intVal)).fin()
   of nkCharLit:
     assert lit.intVal in 0..255
     start().add(cnkCharLit, lit.intVal.uint32).fin()
