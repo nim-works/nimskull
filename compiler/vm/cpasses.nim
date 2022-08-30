@@ -377,7 +377,7 @@ func lowerEchoVisit(c: var UntypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
   else:
     discard
 
-func lowerAccessEnv(ir: var IrStore3, env: IrEnv, envTyp: TypeId, envSym: SymId, param: Natural) =
+func lowerAccessEnv(ir: var IrStore3, env: IrEnv, envTyp: TypeId, envSym: DeclId, param: Natural) =
   assert envTyp != NoneType
 
   var cr: IrCursor
@@ -436,8 +436,8 @@ proc applyCTransforms*(c: CTransformEnv, ic: IdentCache, g: PassEnv, id: ProcId,
     # environment, since no ``bcAccessEnv`` is present otherwise
     let envTyp = env.procs[id].envType
     if envTyp != NoneType:
-      let sym = env.syms.addSym(skLet, envTyp, ic.getIdent(":env"))
-      lowerAccessEnv(ir, env, envTyp, sym, env.procs.numParams(id) - 1)
+      let decl = env.syms.addDecl(ic.getIdent(":env"))
+      lowerAccessEnv(ir, env, envTyp, decl, env.procs.numParams(id) - 1)
 
 func applyCTypeTransforms*(c: var CTransformEnv, g: PassEnv, env: var TypeEnv, senv: var SymbolEnv) =
   # lower closures to a ``tuple[prc: proc, env: pointer]`` pair

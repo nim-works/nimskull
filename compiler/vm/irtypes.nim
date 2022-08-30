@@ -255,8 +255,8 @@ type
   Symbol* = object
     ## The symbol representation used by the backend
 
-    # XXX: using one type (i.e. `Symbol` to describe procedures, locals,
-    #      globals and constants) might be the wrong approach for the backend.
+    # XXX: using one type (i.e. `Symbol` to describe globals and constants)
+    #      might be the wrong approach for the backend.
     #      They all require different kinds of information and while using an
     #      opaque handle and attaching data to it separately works, it's
     #      probably a better idea to put them in fully separate namespaces.
@@ -273,6 +273,19 @@ type
 
     # TODO: store the declarations separately
     decl*: DeclarationV2
+
+  # XXX: might need a better name
+  LocDesc* = object
+    ## Additional description of locations. Global variables, fields, and
+    ## locals are considered to be locations here
+    # XXX: it's not obvious from the doc-comment that a top-level
+    #      ``let x`` is also considered a location here
+
+    # XXX: only a small subset of all ``TSymFlag``s is used here, so it's
+    #      probably a good idea to use a custom enum type
+    flags*: TSymFlags
+    alignment*: uint32 ## the alignment requirements of the location. '0' if none
+                       ## is specified
 
   SymbolEnv* = object
     # TODO: maybe rename?

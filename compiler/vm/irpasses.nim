@@ -519,7 +519,7 @@ func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
     of ntkUse, ntkConsume:
       result[i] = result[n.srcLoc]
     of ntkLocal:
-      result[i] = ir.getLocal(i)[1]
+      result[i] = ir.getLocal(i).typ
     of ntkAddr:
       # XXX: completely wrong, but we're missing a way to get
       #      the correct type without creating a new one
@@ -1323,9 +1323,9 @@ proc lowerTestError*(ir: var IrStore3, g: PassEnv, ic: IdentCache, types: TypeEn
 
             # TODO: this lookup yields the same across all calls to `lowerTestError`. Cache both the compiler proc and it's return type
             typ = procs.getReturnType(p)
-            s = syms.addSym(skLet, typ, ic.getIdent(ErrFlagName))
+            decl = syms.addDecl(ic.getIdent(ErrFlagName))
 
-          errFlag = cr.insertLocalRef(cr.newLocal(lkLet, typ, s))
+          errFlag = cr.insertLocalRef(cr.newLocal(lkLet, typ, decl))
           cr.insertAsgn(askInit, errFlag, cr.insertCallExpr(p))
 
           cr.setPos i # set cursor back to the current position

@@ -186,7 +186,7 @@ proc generateEntryProc(c: var TCtx, g: PassEnv, mlist: ModuleList): IrStore3 =
   c.prc = PProc()
   c.irs.reset()
 
-  let resultVar = c.irs.genLocal(lkVar, g.getSysType(tyInt))
+  let resultVar = c.irs.addLocal Local(kind: lkVar, typ: g.getSysType(tyInt))
 
   var systemIdx, mainIdx: int
   # XXX: can't use `pairs` since it copies

@@ -115,8 +115,8 @@ iterator toStrIter*(irs: IrStore3, e: IrEnv, exprs: seq[bool]): string =
     of ntkGoto:
       line = fmt"goto label:{n.target}"
     of ntkLocal:
-      let (k, t, _) = irs.getLocal(i)
-      line = fmt"local kind:{k} idx:{irs.getLocalIdx(i)}"
+      let L = irs.getLocal(i)
+      line = fmt"local kind:{L.kind} idx:{irs.getLocalIdx(i)}"
     of ntkPathObj:
       line = fmt"path obj:{n.srcLoc} field:{n.fieldIdx}"
     of ntkPathArr:

@@ -274,12 +274,19 @@ type
     lkVar
     lkLet
 
+  Local* = object
+    ## Holds information about a procedure-local ``var|let``
+    kind*: LocalKind
+    typ*: TypeId
+    decl*: DeclId ## information for the code-generator
+    loc*: LocDesc ## additional information describing the location
+
   IrStore3* = object
     nodes: seq[IrNode3]
     #syms: seq[PSym]
     numJoins: int
     literals: seq[Literal]
-    locals: seq[(LocalKind, TypeId, SymId)]
+    locals: seq[Local]
 
     localSrc: seq[seq[StackTraceEntry]]
     sources: seq[seq[StackTraceEntry]] # the stack trace of where each node was added
@@ -401,26 +408,14 @@ func add(x: var IrStore3, n: sink IrNode3): IRIndex =
 ## version 2/3
 
 
-func genLocal*(c: var IrStore3, kind: LocalKind, typ: TypeId): int =
-  assert typ != NoneType
-  c.locals.add((kind, typ, NoneSymbol))
+func addLocal*(c: var IrStore3, data: Local): int =
+  assert data.typ != NoneType
+  c.locals.add data
   result = c.locals.high
   when useNodeTraces:
     {.noSideEffect.}:
       c.localSrc.add(getStackTraceEntries())
 
-func genLocal*(c: var IrStore3, kind: LocalKind, typ: TypeId, sym: SymId): int =
-  ## A local that has a symbol
-  # XXX: introduce an ``OptionalTypeId`` and ``OptionalSymId`` and make ``TypeId`` and ``SymId`` mean never none?
-  assert sym != NoneSymbol
-  assert typ != NoneType
-  # XXX: maybe not require `typ` here and only store either a type or symbol
-  #      for the local?
-  c.locals.add((kind, typ, sym))
-  result = c.locals.high
-  when useNodeTraces:
-    {.noSideEffect.}:
-      c.localSrc.add(getStackTraceEntries())
 
 func irContinue*(c: var IrStore3) =
   discard c.add(IrNode3(kind: ntkContinue))
@@ -636,9 +631,9 @@ iterator nodes*(s: IrStore3): lent IrNode3 =
   for it in s.nodes:
     yield it
 
-iterator locals*(s: IrStore3): (TypeId, SymId) =
+iterator locals*(s: IrStore3): (TypeId, DeclId) =
   for it in s.locals:
-    yield (it[1], it[2])
+    yield (it.typ, it.decl)
 
 func at*(irs: IrStore3, i: IRIndex): lent IrNode3 =
   irs.nodes[i]
@@ -652,7 +647,7 @@ func procId*(n: IrNode3): ProcId =
 func paramIndex*(n: IrNode3): int =
   n.param
 
-func getLocal*(irs: IrStore3, n: IRIndex): (LocalKind, TypeId, SymId) =
+func getLocal*(irs: IrStore3, n: IRIndex): lent Local =
   irs.locals[irs.nodes[n].local]
 
 func getLocalIdx*(irs: IrStore3, n: IRIndex): int =
@@ -1919,7 +1914,7 @@ func mapTypes*(ir: var IrStore3, tg: DeferredTypeGen) =
       lit.typ = tg.maybeMap(lit.typ)
 
   for loc in ir.locals.mitems:
-    loc[1] = tg.map(loc[1])
+    loc.typ = tg.map(loc.typ)
 
 
 # IrCursor interface
@@ -1934,7 +1929,7 @@ type IrCursor* = object
   pos: int
   actions: seq[(bool, Slice[IRIndex])] # true = replace, false = insert
   #newSyms: SeqAdditions[PSym]
-  newLocals: SeqAdditions[(LocalKind, TypeId, SymId)]
+  newLocals: SeqAdditions[Local]
   newLiterals: SeqAdditions[Literal] # literal + type
   newNodes: seq[IrNode3]
 
@@ -2073,14 +2068,14 @@ func insertGoto*(cr: var IrCursor, t: JoinPoint) =
 func insertJoin*(cr: var IrCursor, t: JoinPoint) =
   discard cr.insert IrNode3(kind: ntkJoin, joinPoint: t)
 
-func newLocal*(cr: var IrCursor, kind: LocalKind, t: TypeId, s: SymId): int =
+func newLocal*(cr: var IrCursor, kind: LocalKind, t: TypeId, d: DeclId): int =
   assert t != NoneType
-  cr.newLocals.add((kind, t, s))
+  cr.newLocals.add Local(kind: kind, typ: t, decl: d)
 
 func newLocal*(cr: var IrCursor, kind: LocalKind, t: TypeId): int =
   assert kind == lkTemp
   assert t != NoneType
-  cr.newLocals.add((kind, t, NoneSymbol))
+  cr.newLocals.add Local(kind: kind, typ: t)
 
 func insertLocalRef*(cr: var IrCursor, name: int): IRIndex =
   cr.insert IrNode3(kind: ntkLocal, local: name)

@@ -204,14 +204,23 @@ func genLocal(c: var TCtx, kind: LocalKind, t: PType): IRIndex =
   let
     tid = c.types.requestType(t)
 
-  c.irs.genLocal(kind, tid)
+  c.irs.addLocal Local(kind: kind, typ: tid)
 
 func genLocal(c: var TCtx, kind: LocalKind, s: PSym): IRIndex =
-  let
-    sid = c.defSyms.requestSym(s)
-    tid = c.types.requestType(s.typ)
+  # TODO: move `LocFlags` somewhere else
+  const LocFlags = {sfRegister, sfVolatile} ## flags that are relevant for locations
 
-  c.irs.genLocal(kind, tid, sid)
+  let alignment =
+    case s.kind
+    of skVar, skLet, skForVar: s.alignment
+    else: 0
+
+  let local = Local(kind: kind,
+                    typ: c.types.requestType(s.typ),
+                    decl: c.defSyms.requestDecl(s),
+                    loc: LocDesc(flags: s.flags * LocFlags, alignment: alignment.uint32))
+
+  c.irs.addLocal(local)
 
 proc getTemp(cc: var TCtx; tt: PType): IRIndex =
   let id = cc.genLocal(lkTemp, tt)

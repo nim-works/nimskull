@@ -819,20 +819,10 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
   # generate the local definition
   var tmp = 0
   for typ, sym in irs.locals:
-    if sym != NoneSymbol:
-      discard
-      #[
-      if lfHeader in sym.loc.flags:
-        let str = getStr(sym.annex.path)
-        continue
-      elif lfNoDecl in sym.loc.flags:
-        continue
-      ]#
-
     var ident: CIdent
 
-    if sym != NoneSymbol:
-      let decl = c.env.syms[sym].decl
+    if sym != NoneDecl:
+      let decl = c.env.syms[sym]
 
       ident =
         if decl.forceName:
