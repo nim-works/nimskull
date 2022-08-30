@@ -179,6 +179,42 @@ type
     types*: TypeEnv
     procs*: ProcedureEnv
 
+  IrNodeHdr = object
+    ## The format of a node header. The type is just meant as visualization.
+    kind {.bitsize: 8.}: int
+    len {.bitsize: 24.}: int
+
+  IrNode4* = distinct uint32
+    ## The not-yet-used next iteration of `IrNode`. ``IrNode3`` is quite large
+    ## (currently 32-byte, moving to ``uint32`` for ``IRIndex`` would reduce
+    ## it to 24), but not all node kinds require the same amount of storage.
+    ## So instead, a variable-length encoding is used. Each node starts
+    ## with a header (see ``IrNodeHdr``) followed by ``len`` 32-bit fields.
+    ##
+    ## The nodes indices are no longer monotonically increasing, but that's
+    ## not a problem. Iteration will become a bit slower, since the index
+    ## can't be incremented by static value and has a data-dependency on the
+    ## current node.
+    ##
+    ## Accessing the content of nodes will use one of the following
+    ## approaches (or a mix of them):
+    ##
+    ## .. code::nim
+    ##
+    ##    # approach 1
+    ##    func typ(nodes: IrNodes, n: IRIndex): TypeId
+    ##      ## Only allowed for ``ntkCall|ntkConv|ntkCast`` nodes
+    ##
+    ##    # approach 2
+    ##    type CallNode = object
+    ##      ...
+    ##
+    ##    func call(nodes: IrNodes, n: IRIndex): CallNode
+    ##      ## Casts the data at `n` into a ``CallNode``. It's illegal to use
+    ##      ## this procedure if the node a `n` is not an ``ntkCall`` node
+
+  IrNodes = object
+    data: seq[IrNode4]
 
 
 func traceFor*(s: IrStore3, i: IRIndex): seq[StackTraceEntry] =
@@ -489,6 +525,13 @@ func mapTypes*(ir: var IrStore3, tg: DeferredTypeGen) =
 
   for loc in ir.locals.mitems:
     loc.typ = tg.map(loc.typ)
+
+iterator nodes*(x: IrNodes): IRIndex =
+  var i = 0
+  let L = x.data.len
+  while i < L:
+    yield IRIndex(i)
+    i += cast[IrNodeHdr](x.data[i]).len
 
 
 # IrCursor interface
