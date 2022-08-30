@@ -178,6 +178,39 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
 
         cr.insertMagicCall(c.graph, prc, tyInt, val, cr.insertLit(0))
 
+      of mLengthStr:
+        # must be the ``len`` operator for a cstring. The one for normal
+        # strings was already lowered earlier
+        # --->
+        #   var tmp: int
+        #   if str != nil:
+        #     tmp = nimCStrLen(str)
+        #   else:
+        #     tmp = 0
+        #   tmp
+        let str = arg(0)
+        assert c.env.types.kind(c.types[str]) == tnkCString
+        cr.replace()
+
+        let
+          elsePart = cr.newJoinPoint()
+          exit = cr.newJoinPoint()
+          tmp = cr.newLocal(lkTemp, c.graph.sysTypes[tyInt])
+          tmpAcc = cr.insertLocalRef(tmp)
+
+        cr.insertBranch(cr.insertMagicCall(c.graph, mIsNil, tyBool, str), elsePart)
+        cr.insertAsgn(askInit, tmpAcc, cr.insertCompProcCall(c.graph, "nimCStrLen", str))
+        cr.insertGoto(exit)
+
+        cr.insertJoin(elsePart)
+        cr.insertAsgn(askInit, tmpAcc, cr.insertLit(0))
+        cr.insertGoto(exit)
+
+        cr.insertJoin(exit)
+
+        discard cr.insertLocalRef(tmp)
+
+
       else:
         discard
 
