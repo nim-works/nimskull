@@ -898,7 +898,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
 
   of mDefault:
     assert n[1].typ.kind == tyTypeDesc
-    result = c.irs.irCall(genProcSym(c, n[0].sym), genTypeLit(c, n[1].typ[0]))
+    result = c.irs.irCall(mDefault, c.types.requestType(n.typ), genTypeLit(c, n[1].typ[0]))
   of mRunnableExamples:
     discard "just ignore any call to runnableExamples"
   of mDestroy, mTrace:
@@ -910,7 +910,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     # special-cased in order to handle array parameters that don't start at
     # index '0'
     let
-      prc = genProcSym(c, n[0].sym)
+      typId = c.types.requestType(n.typ)
       arg = genx(c, n[1])
 
     let typ = n.typ.skipTypes(abstractVar)
@@ -924,10 +924,10 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
           lo = genOffset(c, n[2], first)
           hi = genOffset(c, n[3], first)
 
-        return c.irs.irCall(prc, arg, lo, hi)
+        return c.irs.irCall(mSlice, typId, arg, lo, hi)
 
     # no adjustments needed
-    result = c.irs.irCall(prc, arg, genx(c, n[2]), genx(c, n[3]))
+    result = c.irs.irCall(mSlice, typId, arg, genx(c, n[2]), genx(c, n[3]))
 
   of mLengthOpenArray:
     # Consider:
@@ -957,7 +957,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
         c.irs.irCall(fixup, c.types.requestType(n.typ), genx(c, n[1]))
       else:
         # emit the original
-        c.irs.irCall(genProcSym(c, n[0].sym), genx(c, n[1]))
+        c.irs.irCall(m, c.types.requestType(n.typ), genx(c, n[1]))
 
   of mConStrStr:
     # the `mConStrStr` magic is very special. Nested calls to it are flattened
@@ -968,7 +968,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
       # we need no temporaries here since all arguments are read-only
       args[i-1] = c.genx(n[i])
 
-    result = c.irs.irCall(genProcSym(c, n[0].sym), args)
+    result = c.irs.irCall(mConStrStr, c.types.requestType(n.typ), args)
     # the proc doesn't raise so no ``raiseExit`` is needed here
   of mNew:
     # problem: ``lambdalifting`` inserts calls to ``internalNew`` by just
@@ -1004,11 +1004,10 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     for i in 0..<arr.len:
       args[i] = c.genx(arr[i])
 
-    let prc = c.genProcSym(n[0].sym)
     for it in args.items:
       discard c.irs.irUse(it)
 
-    discard c.irs.irCall(prc, args.len.uint32)
+    discard c.irs.irCall(mEcho, c.requestType(tyVoid), args.len.uint32)
 
     # depending on how the target implements echo, the corrsponding IR pass
     # might needs the array type of the original arguments. We make sure the
