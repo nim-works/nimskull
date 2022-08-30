@@ -559,6 +559,17 @@ proc insertMagicCall*(cr: var IrCursor, g: PassEnv, m: TMagic, t: TTypeKind, arg
 proc insertCompProcCall*(cr: var IrCursor, g: PassEnv, name: string, args: varargs[IRIndex]): IRIndex {.discardable.} =
   cr.insertCallExpr(g.compilerprocs[name], args)
 
+type TypedPassCtx* = object
+  ## General context object for passes that require typed IR
+  graph*: PassEnv
+  env*: ptr IrEnv
+
+  types*: seq[TypeId]
+
+func init*(c: var TypedPassCtx, g: PassEnv, env: ptr IrEnv, ir: IrStore3) =
+  c.graph = g
+  c.env = env
+  c.types = computeTypes(ir, env[])
 
 type RefcPassCtx* = object
   graph: ModuleGraph
