@@ -129,8 +129,8 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
       else:
         discard
 
-    of ckMagic, ckNormal:
-      let m = getMagic(ir, c.env[], n)
+    of ckMagic:
+      let m = n.magic
       case m
       of mWasMoved:
         cr.replace()
@@ -214,6 +214,9 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
       else:
         discard
 
+    of ckNormal:
+      discard
+
   of ntkCast:
     # TODO: needs to be revisited for compatibility with ``cgen``
 
@@ -289,7 +292,8 @@ const
 func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   case n.kind
   of ntkCall:
-    if n.isBuiltIn:
+    case n.callKind
+    of ckBuiltin:
       case n.builtin
       of bcNewClosure:
         cr.replace()
@@ -304,7 +308,8 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
       else:
         discard
 
-    elif (let m = getMagic(ir, c.env[], n); m != mNone):
+    of ckMagic:
+      let m = n.magic
       case m
       of mIsNil:
         let arg0 = ir.argAt(cr, 0)

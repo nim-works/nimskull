@@ -963,8 +963,7 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
 
     of ntkProc:
       let prc = c.env.procs[n.procId]
-      if prc.magic in CallMagics:
-        useFunction(c.m, n.procId)
+      useFunction(c.m, n.procId)
 
       names[i] = start().ident(c.gl.funcs[toIndex(n.procId)].ident).fin()
     of ntkLocal:
@@ -979,9 +978,7 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
         names[i] = genMagic(c, irs, n.magic, i)
       of ckNormal:
         let callee = irs.at(n.callee)
-        if callee.kind == ntkProc and (let p = c.env.procs[callee.procId]; p.magic notin CallMagics):
-          names[i] = genMagic(c, irs, p.magic, i)
-        else:
+        block:
           var res = start().add(cnkCall, n.argCount.uint32).add(names[n.callee])
           for it in irs.args(i):
             discard res.add names[it]

@@ -99,8 +99,7 @@ func collectRoutineSyms(ast: PNode, syms: var seq[PSym], marker: var IntSet) =
   ## to `syms` and `marker`
   if ast.kind == nkSym:
     let s = ast.sym
-    # XXX: ignoring all magics is wrong
-    if s.kind in routineKinds and s.magic == mNone:
+    if s.kind in routineKinds:
       collect(syms, s, marker)
 
     return
@@ -237,10 +236,7 @@ func collectRoutineSyms(s: IrStore3, env: ProcedureEnv, list: var seq[PSym], kno
     case n.kind
     of ntkProc:
       let sym = env.orig[n.procId] # XXX: inefficient
-      # XXX: excluding all magics is wrong. Depending on which back-end is
-      #      used, some magics are treated like any other routine
-      if sym.magic == mNone:
-        collect(list, sym, known)
+      collect(list, sym, known)
 
     else: discard
 
@@ -663,10 +659,6 @@ proc generateCode*(g: ModuleGraph) =
         id = ProcId(it + 1) # TODO: not acceptable
         sym = env.procs.orig[id]
         mIdx = mlist.moduleMap[sym.getModule().id]
-
-      # XXX: hack
-      if sym.magic != mNone:
-        continue
 
       modules[mIdx].procs.add id
 
