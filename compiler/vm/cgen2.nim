@@ -1568,6 +1568,9 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
   # globals of the current module
   for id in m.syms.items:
     let sym = env.syms[id]
+    if sym.decl.omit:
+      continue
+
     case sym.kind
     of skLet, skVar, skForVar:
       emitType(f, ctx, sym.typ)
@@ -1575,16 +1578,20 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       f.write ctx.idents[ctx.symIdents[toIndex(id)]]
       f.writeLine ";"
     else:
-      discard
+      unreachable(sym.kind)
 
   # referenced globals and constants
   for id in mCtx.syms.items:
     let sym = env.syms[id]
     let ident = ctx.symIdents[toIndex(id)]
+
+    if sym.decl.omit:
+      continue
+
     case sym.kind
     of skLet, skVar, skForVar:
-      # XXX: the `mCtx.syms` set may also include globals that are *defined*
-      #      as part of this module in which case the declaration here is
+      # XXX: the `mCtx.syms` set might also include globals that are *defined*
+      #      as part of this module - in which case the declaration here is
       #      redundant
       f.write "extern "
       emitType(f, ctx, sym.typ)
