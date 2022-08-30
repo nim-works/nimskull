@@ -819,7 +819,7 @@ func genLit(c: var GenCtx, literal: Literal): CAst =
   of nkFloat32Lit:
     start().add(cnkFloat32Lit, cast[uint32](lit.floatVal.float32)).fin()
   # TODO: what about ``nkFloat128Lit``? The other code-generators seem to be ignoring them/raising an internal error
-  of nkStrLit:
+  of nkStrLit..nkTripleStrLit:
     # XXX: some passes insert string literals without type information. It's supported for now
     assert literal.typ == NoneType or c.env.types[literal.typ].kind == tnkCString
     # treat as cstring
