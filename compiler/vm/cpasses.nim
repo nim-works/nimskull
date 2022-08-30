@@ -168,6 +168,16 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
             unreachable()
 
         discard cr.insertPathObj(src, -1)
+      of mLtStr, mLeStr:
+        # --->
+        #   cmpStrings(a, b) (< | <=) 0
+        cr.replace()
+        let
+          val = cr.insertCompProcCall(c.graph, "cmpStrings", arg(0), arg(1))
+          prc = (if m == mLtStr: mLtI else: mLeI)
+
+        cr.insertMagicCall(c.graph, prc, tyInt, val, cr.insertLit(0))
+
       else:
         discard
 
