@@ -77,6 +77,12 @@ type TCtx* = object
   graph*: ModuleGraph # only needed for testing if a proc has a body
   idgen*: IdGenerator # needed for creating magics on-demand
 
+  magicPredicate*: proc (m: TMagic): bool {.noSideEffect, nimcall.} ##
+    ## Called to decided if a procedure with the given magic is to be treated
+    ## as a real procedure. Use 'true' to indicate yes - 'false' otherwise
+  # XXX: a proc is used instead of a ``set[TMagic]``, due to the latter being
+  #      33 bytes in size
+
   passEnv*: PassEnv
 
   module*: PSym
@@ -191,6 +197,8 @@ func closeScope(c: var TCtx) =
   c.prc.scopes.add((true, id, c.irs.len))
 
 proc genProcSym(c: var TCtx, s: PSym): IRIndex =
+  # prevent accidentally registering magics:
+  assert s.magic == mNone or c.magicPredicate(s.magic)
   c.irs.irProc(c.procs.requestProc(s))
 
 func irCall*(ir: var IrStore3, callee: IRIndex, args: varargs[IRIndex]): IRIndex =
@@ -699,6 +707,23 @@ proc genArg(c: var TCtx, formal: PType, useTemp: bool, n: PNode): IRIndex =
     else:
       result = c.genx(n)
 
+proc genCallee(c: var TCtx, n: PNode): tuple[loc: IRIndex, m: TMagic] =
+  ## Generates the code for the callee `n`, but only if `n` is not the symbol
+  ## of a non-real magic procedure. A real procedure is one that requires
+  ## a call in the final generated code
+  if n.kind == nkSym and n.sym.kind in routineKinds:
+    # a direct call
+    let s = n.sym
+    if s.magic == mNone or c.magicPredicate(s.magic):
+      # a call to a "real" procedure
+      (genProcSym(c, s), mNone)
+    else:
+      # a magic call
+      (InvalidIndex, s.magic)
+
+  else:
+    # an indirect call
+    (genx(c, n), mNone)
 
 proc genCall(c: var TCtx; n: PNode): IRIndex =
   let fntyp = skipTypes(n[0].typ, abstractInst)
@@ -709,11 +734,7 @@ proc genCall(c: var TCtx; n: PNode): IRIndex =
   let shouldGenCT = false ## whether static and typeDesc parameters should be
                           ## code-gen'ed
 
-  let callee =
-    if n[0].kind == nkSym and n[0].sym.kind in routineKinds:
-      genProcSym(c, n[0].sym)
-    else:
-      genx(c, n[0])
+  let callee = genCallee(c, n[0])
 
   # XXX: maybe the parameter aliasing rules should be enforced via
   #      compile-time errors or warnings, instead of silently introducing
@@ -758,7 +779,15 @@ proc genCall(c: var TCtx; n: PNode): IRIndex =
     # TODO: use ntkModify and ntkConsume where applicable
     discard c.irs.irUse(args[i])
 
-  result = c.irs.irCall(callee, L.uint32)
+  result =
+    if callee.loc == InvalidIndex:
+      # don't trust ``n.typ`` and instead use the return type of the procedure
+      c.irs.irCall(callee.m,
+                   c.types.requestType(n[0].sym.getReturnType()),
+                   L.uint32)
+    else:
+      c.irs.irCall(callee.loc, L.uint32)
+
   if canRaiseConservative(n[0]):
     raiseExit(c)
 
