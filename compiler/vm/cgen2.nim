@@ -692,10 +692,10 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IRIndex): CAst
     #unreachable(bc)
 
 
-const CallMagics = { mNone, mIsolate, mFinished, mDotDot, mEqCString,
-                     mNewString, mNewStringOfCap, mExit, mParseBiggestFloat }
-  ## magics for which no special handling is needed. ``mNone`` is not a "real"
-  ## magic, but it's included in the set in order to simplify various checks
+const CallMagics* = { mIsolate, mFinished, mDotDot, mEqCString,
+                      mNewString, mNewStringOfCap, mExit, mParseBiggestFloat }
+  ## magics for which no special handling is needed, that is, they're treated
+  ## as normal procedures
 
 type MagicKind = enum
   mkUnary

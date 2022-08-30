@@ -442,6 +442,7 @@ proc generateCode*(g: ModuleGraph) =
   var nextProcs, nextProcs2: seq[PSym]
 
   var c = TCtx(config: g.config, graph: g, idgen: g.idgen)
+  c.magicPredicate = proc(m: TMagic): bool = m in CallMagics
   swap(c.procs, env.procs)
   c.types.voidType = g.getSysType(unknownLineInfo, tyVoid)
   c.types.charType = g.getSysType(unknownLineInfo, tyChar)
