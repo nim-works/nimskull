@@ -74,7 +74,7 @@ proc parsePipe(filename: AbsoluteFile, inputStream: PLLStream; cache: IdentCache
         while i < line.len and line[i] in Whitespace: inc(i)
         var p: Parser
         openParser(p, filename, llStreamOpen(substr(line, i)), cache, config)
-        result = parseAll(p)
+        result = parseAll(p).toPNode()
         closeParser(p)
     llStreamClose(s)
 
@@ -149,5 +149,5 @@ proc setupParser*(p: var Parser; fileIdx: FileIndex; cache: IdentCache;
 proc parseFile*(fileIdx: FileIndex; cache: IdentCache; config: ConfigRef): PNode =
   var p: Parser
   if setupParser(p, fileIdx, cache, config):
-    result = parseAll(p)
+    result = parseAll(p).toPNode()
     closeParser(p)

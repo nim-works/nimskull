@@ -38,6 +38,7 @@ import
     ropes,
     pathutils,
     debugUtils,
+    astrepr
   ],
   compiler/sem/[
     semdata,
@@ -638,7 +639,8 @@ proc processDefine(c: PContext, n: PNode): PNode =
   ## `n` is not a pragma callable, and its argument isn't an identifier.
   if (n.kind in nkPragmaCallKinds and n.len == 2) and (n[1].kind == nkIdent):
     let str = n[1].ident.s
-    if defined(nimCompilerDebug) and str == "nimCompilerDebug":
+    if defined(nimDebugUtils) and
+       cmpIgnoreStyle(str, "nimCompilerDebug") == 0:
       c.config.localReport(
         n.info, DebugReport(kind: rdbgTraceDefined))
 
@@ -653,7 +655,8 @@ proc processUndef(c: PContext, n: PNode): PNode =
   ## `n` is not a pragma callable, and its argument isn't an identifier.
   if (n.kind in nkPragmaCallKinds and n.len == 2) and (n[1].kind == nkIdent):
     let str = n[1].ident.s
-    if defined(nimCompilerDebug) and str == "nimCompilerDebug":
+    if defined(nimDebugUtils) and
+       cmpIgnoreStyle(str, "nimCompilerDebug") == 0:
       c.config.localReport(
         n.info, DebugReport(kind: rdbgTraceUndefined))
 

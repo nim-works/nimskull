@@ -88,6 +88,7 @@ configuration if needed. There are several preset configurations of the
     debug node, onlyStructureTReprConf # Print only basic structure of the tree
     debug node, verboseTReprConf # Print all existing fields
     debug node, defaultTReprConf # Starting configuration
+    debug node, defaultTraceReprConf # Used for traced - rather compact
 
 In addition to implicit configuration of the tree printing functions there
 is also an implicit `ConfRef` variable that can be set via
@@ -113,8 +114,18 @@ debugging logic in the `if config.isCompilerDebug` check.
 
 **Print semantic trace for range of code**
 
-Define `nimDebugUtils` and `nimCompilerDebugCalltrace`. Don't forget to
-build the compiler with `-d=nimDebugUtils`.
+Define `nimCompilerDebug` and `nimCompilerDebugCalltrace`
+(`{.define(nimCompilerDebug), define(nimCompilerDebugCalltrace).}`). Don't
+forget to build the compiler with `-d=nimDebugUtils`.
+
+**Print short file names in trace**
+
+Compile test compiler with `--filenames=canonical`
+
+**Configure in-trace printing**
+
+Change fields in the `astrepr.implicitCompilerTraceReprConf` - it is
+implicitly used by the sem tracer.
 
 **Configure semantic trace parser**
 

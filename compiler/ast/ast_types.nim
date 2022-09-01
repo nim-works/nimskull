@@ -20,6 +20,10 @@ type
       offsetA*, offsetB*: int
       commentOffsetA*, commentOffsetB*: int
 
+const
+  InvalidFileIdx* = FileIndex(-1)
+  unknownLineInfo* = TLineInfo(line: 0, col: -1, fileIndex: InvalidFileIdx)
+
 type
   TCallingConvention* = enum
     ccNimCall = "nimcall"           ## nimcall, also the default

@@ -2143,7 +2143,7 @@ proc semAllTypeSections(c: PContext; n: PNode): PNode =
   proc gatherStmts(c: PContext; n: PNode; result: PNode) {.nimcall.} =
     case n.kind
     of nkIncludeStmt:
-      for i in 0..<n.len:
+      for i in 0 ..< n.len:
         var f = checkModuleName(c.config, n[i])
         if f != InvalidFileIdx:
           if containsOrIncl(c.includedFiles, f.int):
@@ -2259,6 +2259,7 @@ proc addResult(c: PContext, n: PNode, t: PType, owner: TSymKind) =
       c.p.resultSym = s
       n.add newSymNode(c.p.resultSym)
     addParamOrResult(c, c.p.resultSym, owner)
+
 
 proc semProcAnnotation(c: PContext, prc: PNode;
                        validPragmas: TSpecialWords): PNode =
@@ -3192,7 +3193,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
   #while last > 0 and n[last].kind in {nkPragma, nkCommentStmt,
   #                                         nkNilLit, nkEmpty}:
   #  dec last
-  for i in 0..<n.len:
+  for i in 0 ..< n.len:
     let 
       x = semExpr(c, n[i], flags)
       last = lastInputChildIndex == i
@@ -3298,3 +3299,4 @@ proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result = semExpr(c, n, flags)
   else:
     result = semExprNoType(c, n)
+

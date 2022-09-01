@@ -129,6 +129,10 @@ type
                           ## sem trace
     semTraceData*: bool   ## For each sem step show processed data, or only
                           ## procedure calls.
+    bypassWriteHookForTrace*: bool ## Output trace reports directly into
+    ## the `echo` instead of going through the `ConfigRef.writeln` hook.
+    ## This is useful for environments such as nimsuggest, which discard
+    ## the output.
 
   ConfigRef* {.acyclic.} = ref object
     ## every global configuration fields marked with '*' are subject to the
@@ -685,8 +689,8 @@ type
 
 func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
   const forceWrite = {
-    rsemExpandArc # Not considered a hint for now
-  }
+    rsemExpandArc, # Not considered a hint for now
+  } + repDebugTraceKinds # Unconditionally write debug tracing information
 
   let tryhack = conf.m.errorOutputs == {}
   # REFACTOR this check is an absolute hack, `errorOutputs` need to be
@@ -785,9 +789,10 @@ proc newProfileData(): ProfileData =
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 
 const defaultHackController = HackController(
-  semStack: on,
+  semStack: off,
   reportInTrace: off,
-  semTraceData: on
+  semTraceData: on,
+  bypassWriteHookForTrace: true
 )
 
 proc initConfigRefCommon(conf: ConfigRef) =

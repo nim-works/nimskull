@@ -191,14 +191,14 @@ template traceStepImpl*(
 
     handleReport(p.c, wrap(p.info, DebugReport(
       kind: rdbgTraceStep,
-      semstep: it
+      semstep: it,
+      reportInst: toReportLineInfo(p.info)
     )), p.info)
 
-const instDepth = -5
 template traceEnterIt*(
+    loc: InstantiationInfo,
     params: StepParams,
     body: untyped,
-    templateDepth: int = instDepth
   ): untyped =
   ## Convenience wrapper around the `traceStepImpl`. If called from user
   ## code `templateDepth` parameter must be specified as well - it controls
@@ -208,33 +208,38 @@ template traceEnterIt*(
   ## different (`-2` when called directly and `-1` for each wrapper template
   ## level).
   var tmp = params
-  tmp.info = instLoc(templateDepth)
-  traceStepImpl(params, semstepEnter, body)
+  tmp.info = loc
+  traceStepImpl(tmp, semstepEnter, body)
 
 template traceLeaveIt*(
+    loc: InstantiationInfo,
     params: StepParams,
     body: untyped,
-    templateDepth: int = instDepth
   ): untyped =
   ## Convenience wrapper for `traceStepImpl` - for mode details see the
   ## `traceEnterIt` and `traceStepImpl` documentation.
   var tmp = params
-  tmp.info = instLoc(instDepth)
+  tmp.info = loc
   traceStepImpl(tmp, semstepLeave, body)
 
+
+const locOffset = -2
 
 template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode;
                             flags: TExprFlags) =
   ## add tracing to procs that are primarily `PNode -> PNode`, with expr flags
   ## and can determine the type
   when defined(nimDebugUtils):
+    const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(c, stepNodeFlagsToNode, indentLevel, action)):
+      traceEnterIt(
+        loc, stepParams(c, stepNodeFlagsToNode, indentLevel, action)):
         it.node = n
         it.flags = flags
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(c, stepNodeFlagsToNode, indentLevel, action)):
+      traceLeaveIt(
+        loc, stepParams(c, stepNodeFlagsToNode, indentLevel, action)):
         it.node = r
         it.flags = flags
 
@@ -244,12 +249,15 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode) =
   ## add tracing to procs that are primarily `PNode -> PNode`, and can
   ## determine the type
   when defined(nimDebugUtils):
+    const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(c, stepNodeToNode, indentLevel, action)):
+      traceEnterIt(
+        loc, stepParams(c, stepNodeToNode, indentLevel, action)):
         it.node = n
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(c, stepNodeToNode, indentLevel, action)):
+      traceLeaveIt(
+        loc, stepParams(c, stepNodeToNode, indentLevel, action)):
         it.node = r
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
@@ -258,12 +266,15 @@ template addInNimDebugUtilsError*(c: ConfigRef; n, e: PNode) =
   ## add tracing error generation `PNode -> PNode`
   when defined(nimDebugUtils):
     const action = "newError"
+    const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(c, stepWrongNode, indentLevel, action)):
+      traceEnterIt(
+        loc, stepParams(c, stepWrongNode, indentLevel, action)):
         it.node = n
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(c, stepError, indentLevel, action)):
+      traceLeaveIt(
+        loc, stepParams(c, stepError, indentLevel, action)):
         it.node = e
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
@@ -273,13 +284,16 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
   ## add tracing to procs that are primarily `PNode, PType|nil -> PType`,
   ## determining a type node, with a possible previous type.
   when defined(nimDebugUtils):
+    const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(c, stepNodeTypeToNode, indentLevel, action)):
+      traceEnterIt(
+        loc, stepParams(c, stepNodeTypeToNode, indentLevel, action)):
         it.node = n
         it.typ = prev
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(c, stepNodeTypeToNode, indentLevel, action)):
+      traceLeaveIt(
+        loc, stepParams(c, stepNodeTypeToNode, indentLevel, action)):
         it.node = n
         it.typ = r
 
@@ -289,12 +303,32 @@ template addInNimDebugUtils*(
     c: ConfigRef; action: string; n: PNode; resSym: PSym) =
   ## add tracing to procs that are primarily `PNode -> PSym`,
   when defined(nimDebugUtils):
+    const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(c, stepNodeToSym, indentLevel, action)):
+      traceEnterIt(
+        loc, stepParams(c, stepNodeToSym, indentLevel, action)):
         it.node = n
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(c, stepNodeToSym, indentLevel, action)):
+      traceLeaveIt(
+        loc, stepParams(c, stepNodeToSym, indentLevel, action)):
+        it.sym = resSym
+
+    addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
+
+template addInNimDebugUtils*(
+    c: ConfigRef; action: string; id: PIdent; resSym: PSym) =
+  ## add tracing to procs that are primarily `PIdent -> PSym`,
+  when defined(nimDebugUtils):
+    const loc = instLoc(locOffset)
+    template enterMsg(indentLevel: int) =
+      traceEnterIt(
+        loc, stepParams(c, stepIdentToSym, indentLevel, action)):
+        it.ident = id
+
+    template leaveMsg(indentLevel: int) =
+      traceLeaveIt(
+        loc, stepParams(c, stepIdentToSym, indentLevel, action)):
         it.sym = resSym
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
@@ -304,13 +338,16 @@ template addInNimDebugUtils*(
   ## add tracing to procs that are primarily `PSym, PNode -> PNode`, such as
   ## applying pragmas to a symbol
   when defined(nimDebugUtils):
+    const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(c, stepSymNodeToNode, indentLevel, action)):
+      traceEnterIt(
+        loc, stepParams(c, stepSymNodeToNode, indentLevel, action)):
         it.sym = s
         it.node = n
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(c, stepSymNodeToNode, indentLevel, action)):
+      traceLeaveIt(
+        loc, stepParams(c, stepSymNodeToNode, indentLevel, action)):
         it.node = res
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
@@ -319,13 +356,16 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; x, y, r: PType) =
   ## add tracing to procs that are primarily `PType, PType -> PType`, looking
   ## for a common type
   when defined(nimDebugUtils):
+    const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(c, stepTypeTypeToType, indentLevel, action)):
+      traceEnterIt(
+        loc, stepParams(c, stepTypeTypeToType, indentLevel, action)):
         it.typ = x
         it.typ1 = y
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(c, stepTypeTypeToType, indentLevel, action)):
+      traceLeaveIt(
+        loc, stepParams(c, stepTypeTypeToType, indentLevel, action)):
         it.typ = r
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
@@ -341,13 +381,16 @@ template addInNimDebugUtils*(c: ConfigRef;
   when res is not TCandidate:
     {.error: "parameter `res` must be a `sigmatch.TCandidate`".}
   when defined(nimDebugUtils):
+    const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(c, stepResolveOverload, indentLevel, action)):
+      traceEnterIt(
+        loc, stepParams(c, stepResolveOverload, indentLevel, action)):
         it.node = n
         it.filters = filter
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(c, stepResolveOverload, indentLevel, action)):
+      traceLeaveIt(
+        loc, stepParams(c, stepResolveOverload, indentLevel, action)):
         it.candidate = toDebugCallableCandidate(res)
         it.errors = e
 
@@ -362,12 +405,13 @@ template addInNimDebugUtils*(c: ConfigRef;
   when res is not TCandidate:
     {.error: "parameter `res` must be a `sigmatch.TCandidate`".}
   when defined(nimDebugUtils):
+    const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(c, stepNodeSigMatch, indentLevel, action)):
+      traceEnterIt(loc, stepParams(c, stepNodeSigMatch, indentLevel, action)):
         it.node = n
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(c, stepNodeSigMatch, indentLevel, action)):
+      traceLeaveIt(loc, stepParams(c, stepNodeSigMatch, indentLevel, action)):
         it.candidate = toDebugCallableCandidate(res)
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
@@ -376,12 +420,13 @@ template addInNimDebugUtils*(c: ConfigRef; action: string) =
   ## add tracing to procs as a stop gap measure, not favour using one that
   ## provides more output for various parts
   when defined(nimDebugUtils):
+    const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
-      traceEnterIt(stepParams(c, stepTrack, indentLevel, action)):
+      traceEnterIt(loc, stepParams(c, stepTrack, indentLevel, action)):
         discard
 
     template leaveMsg(indentLevel: int) =
-      traceLeaveIt(stepParams(c, stepTrack, indentLevel, action)):
+      traceLeaveIt(loc, stepParams(c, stepTrack, indentLevel, action)):
         discard
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)

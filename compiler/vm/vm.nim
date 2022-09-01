@@ -2868,7 +2868,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
           c.config,
           toFullPath(c.config, c.debug[pc]),
           c.debug[pc].line.int
-        )
+        ).toPNode()
 
       except TemporaryExceptionHack:
         discard

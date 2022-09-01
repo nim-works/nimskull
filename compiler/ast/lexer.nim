@@ -517,6 +517,7 @@ proc getNumber(L: var Lexer, result: var Token) =
           # XXX: Test this on big endian machine!
         of tkFloat64Lit, tkFloatLit:
           setNumber result.fNumber, (cast[PFloat64](addr(xi)))[]
+
         else:
           L.config.internalError(getLineInfo(L), rintIce, "getNumber")
 

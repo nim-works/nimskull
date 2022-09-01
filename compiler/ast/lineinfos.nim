@@ -78,12 +78,7 @@ proc computeNotesVerbosity(): tuple[
     }
 
   when defined(nimDebugUtils):
-    result.base.incl {
-      rdbgTraceStart, # Begin report
-      rdbgTraceStep, # in/out
-      rdbgTraceLine,
-      rdbgTraceEnd # End report
-    }
+    result.base.incl repDebugTraceKinds
 
   result.main[compVerbosityMax] = result.base + repWarningKinds + repHintKinds - {
     rsemObservableStores,
@@ -200,10 +195,6 @@ proc hash*(i: TLineInfo): Hash =
 
 proc raiseRecoverableError*(msg: string) {.noinline.} =
   raise newException(ERecoverableError, msg)
-
-const
-  InvalidFileIdx* = FileIndex(-1)
-  unknownLineInfo* = TLineInfo(line: 0, col: -1, fileIndex: InvalidFileIdx)
 
 func isKnown*(info: TLineInfo): bool =
   ## Check if `info` represents valid source file location
