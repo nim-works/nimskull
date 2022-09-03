@@ -1,5 +1,5 @@
 discard """
-targets: "c !cpp"
+targets: "c cpp"
 labels: "atomics pragma union"
 description: '''
   . From https://github.com/nim-lang/Nim/issues/13062
