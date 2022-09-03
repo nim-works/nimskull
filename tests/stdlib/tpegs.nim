@@ -1,5 +1,5 @@
 discard """
-  targets: "c !cpp js"
+  targets: "c cpp js"
   output: '''
 PEG AST traversal output
 ------------------------
@@ -50,7 +50,7 @@ Event parser output
 @[-150.0]
 '''
 """
-# cpp: broken from implicit pragma removal
+
 when defined(nimHasEffectsOf):
   {.experimental: "strictEffects".}
 

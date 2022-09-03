@@ -1,8 +1,7 @@
 discard """
-  targets: "c !cpp"
+  targets: "c cpp"
   matrix: "--gc:refc; --gc:orc"
 """
-# cpp: broken from implicit pragma removal
 
 import std/[isolation, json]
 

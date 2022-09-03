@@ -3,7 +3,6 @@ discard """
   output: '''
 6.0
 0'''
-knownIssue: "Broken from this pragma removal"
 disabled: "windows" # pending bug #18011
 """
 
