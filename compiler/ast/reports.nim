@@ -86,10 +86,12 @@ type
 
     reportInst*: ReportLineInfo ## Information about instantiation location
     ## of the reports - present for all reports in order to track their
-    ## origins.
+    ## origins throught the compiler.
 
     reportFrom*: ReportLineInfo ## Information about submit location of the
-    ## report
+    ## report. Contains information about the place where report was
+    ## /submitted/ to the system - sometimes report might be created,
+    ## modified to add new information and only them put into the pipeline.
 
 
 type
@@ -444,6 +446,7 @@ type
   DebugSemStepKind* = enum
     stepNodeToNode
     stepNodeToSym
+    stepIdentToSym
     stepSymNodeToNode
     stepNodeFlagsToNode
     stepNodeTypeToNode
@@ -470,16 +473,16 @@ type
     node*: PNode ## Depending on the step direction this field stores
                  ## either input or output node
     steppedFrom*: ReportLineInfo
+    sym*: PSym
+
     case kind*: DebugSemStepKind
-      of stepNodeToNode, stepTrack, stepWrongNode, stepError:
-        discard
+      of stepIdentToSym:
+        ident*: PIdent
 
       of stepNodeTypeToNode, stepTypeTypeToType:
         typ*: PType
         typ1*: PType
 
-      of stepNodeToSym, stepSymNodeToNode:
-        sym*: PSym
 
       of stepNodeFlagsToNode:
         flags*: TExprFlags
@@ -488,6 +491,9 @@ type
         filters*: TSymKinds
         candidate*: DebugCallableCandidate
         errors*: seq[SemCallMismatch]
+
+      else:
+        discard
 
   DebugVmCodeEntry* = object
     isTarget*: bool

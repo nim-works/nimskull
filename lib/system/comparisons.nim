@@ -265,11 +265,11 @@ proc clamp*[T](x, a, b: T): T =
   if x > b: return b
   return x
 
-
 proc `==`*[I, T](x, y: array[I, T]): bool =
   for f in low(x)..high(x):
     if x[f] != y[f]:
       return
+
   result = true
 
 proc `==`*[T](x, y: openArray[T]): bool =
@@ -287,6 +287,7 @@ proc `==`*[T](x, y: seq[T]): bool {.noSideEffect.} =
   when nimvm:
     if x.len == 0 and y.len == 0:
       return true
+
   else:
     when not defined(js):
       proc seqToPtr[T](x: seq[T]): pointer {.inline, noSideEffect.} =

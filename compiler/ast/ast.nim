@@ -16,12 +16,15 @@ import
     ast_types, # Main ast type definitions
     ast_idgen, # Per module Id generation
     ast_query, # querying/reading the ast
+    ast_parsed_types, # Data types for the parsed node
+    lexer, # NumericalBase
   ],
   compiler/front/[
     options
   ],
   compiler/utils/[
     ropes,
+    astrepr,
     int128 # Values for integer nodes
   ],
   std/[
@@ -29,7 +32,7 @@ import
     tables # For symbol table mapping
   ]
 
-export ast_types, ast_idgen, ast_query, int128
+export ast_types, ast_idgen, ast_query, int128, ast_parsed_types
 
 var ggDebug* {.deprecated.}: bool ## convenience switch for trying out things
 
@@ -604,3 +607,42 @@ proc toHumanStr*(kind: TSymKind): string =
 proc toHumanStr*(kind: TTypeKind): string =
   ## strips leading `tk`
   result = toHumanStrImpl(kind, 2)
+
+
+proc setBaseFlags(n: PNode, base: NumericalBase) =
+  case base
+  of base10: discard
+  of base2: incl(n.flags, nfBase2)
+  of base8: incl(n.flags, nfBase8)
+  of base16: incl(n.flags, nfBase16)
+
+
+proc toPNode*(parsed: ParsedNode): PNode =
+  result = newNodeI(parsed.kind, parsed.info)
+  result.comment = parsed.comment
+  case parsed.kind:
+    of nkFloatKinds:
+      result.floatVal = parsed.token.fNumber
+      result.setBaseFlags(parsed.token.base)
+
+    of nkIntKinds - { nkCharLit }:
+      result.intVal = parsed.token.iNumber
+      result.setBaseFlags(parsed.token.base)
+
+    of nkCharLit:
+      result.intVal = ord(parsed.token.literal[0])
+
+    of nkStrKinds:
+      result.strVal = parsed.token.literal
+
+    of nkIdent:
+      result.ident = parsed.token.ident
+
+    else:
+      if parsed.isBlockArg:
+        result.flags.incl nfBlockArg
+
+
+      for sub in items(parsed):
+        result.add sub.toPNode()
+

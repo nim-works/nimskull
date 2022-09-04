@@ -973,6 +973,15 @@ const
 
   #--------------------------------  debug  --------------------------------#
   repDebugKinds* = {low(DebugReportKind) .. high(DebugReportKind)}
+  repDebugTraceKinds* = {
+    rdbgTraceStart, # Begin report
+    rdbgTraceStep, # in/out
+    rdbgTraceLine,
+    rdbgTraceEnd, # End report
+    rdbgTraceUndefined, # `.undef` triggered in code
+    rdbgTraceDefined, # `.define` triggered in code
+  }
+
 
   #-------------------------------  backend  -------------------------------#
   repBackendKinds* = {low(BackendReportKind) .. high(BackendReportKind)}

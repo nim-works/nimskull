@@ -1990,7 +1990,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "processing stmt"
 
     of rsemProcessing:
-      let path = toFilenameOption(conf, r.processing.fileIdx, conf.filenameOption)
+      let path = toFilenameOption(
+        conf, r.processing.fileIdx, conf.filenameOption)
       let indent = repeat(">", r.processing.importStackLen)
       let fromModule = r.sym
       let fromModule2 = if fromModule != nil: $fromModule.name.s else: "(toplevel)"
@@ -3132,17 +3133,23 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
       proc render(node: PNode): string =
         conf.wrap(conf.treeRepr(node,
                                 indent = indent + 2,
-                                rconf = compilerTraceReprConf))
+                                rconf = implicitCompilerTraceReprConf))
 
       proc render(typ: PType): string =
         conf.wrap(conf.treeRepr(typ,
                                 indent = indent + 2,
-                                rconf = compilerTraceReprConf))
+                                rconf = implicitCompilerTraceReprConf))
 
       proc render(sym: PSym): string =
         conf.wrap(conf.treeRepr(sym,
                                 indent = indent + 2,
-                                rconf = compilerTraceReprConf))
+                                rconf = implicitCompilerTraceReprConf))
+
+      proc render(sym: PIdent): string =
+        conf.wrap(conf.treeRepr(sym,
+                                indent = indent + 2,
+                                rconf = implicitCompilerTraceReprConf))
+
 
       result.addf("$1]", align($s.level, 2, '#'))
       result.add(
@@ -3218,6 +3225,14 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
             if enter:
               field("from node")
               result.add render(s.node)
+            else:
+              field("to sym")
+              result.add render(s.sym)
+
+          of stepIdentToSym:
+            if enter:
+              field("from ident")
+              result.add render(s.ident)
             else:
               field("to sym")
               result.add render(s.sym)
@@ -3578,8 +3593,10 @@ const
 
 var
   lastDot: bool = false
-  traceIndex = 0
   traceFile: File
+  fileIndex: int = 0
+
+var counter = 0
 
 proc rotatedTrace(conf: ConfigRef, r: Report) =
   ## Write out debug traces into separate files in directory defined by
@@ -3587,17 +3604,45 @@ proc rotatedTrace(conf: ConfigRef, r: Report) =
   # Dispatch each `{.define(nimCompilerDebug).}` section into separate file
   assert r.kind in rdbgTracerKinds, $r.kind
   case r.kind:
-    of rdbgTraceDefined, rdbgTraceStart:
+    of rdbgTraceStart, rdbgTraceEnd:
+      # Rotated trace is constrolled by the define-undefine pair, not by
+      # singular call to the nested recursion handling.
+      discard
+
+    of rdbgTraceDefined:
       if not dirExists(conf.getDefined(traceDir)):
         createDir conf.getDefined(traceDir)
-      traceFile = open(conf.getDefined(traceDir) / $traceIndex, fmWrite)
-    of rdbgTraceUndefined, rdbgTraceEnd:
+
+      counter = 0
+      let loc = r.location.get()
+      let path = conf.getDefined(traceDir) / "compiler_trace_$1_$2.nim" % [
+        conf.toFilename(loc).multiReplace({
+          "/": "_",
+          ".nim": ""
+        }),
+        $fileIndex
+      ]
+
+      echo "$1($2, $3): opening $4 trace" % [
+        conf.toFilename(loc), $loc.line, $loc.col, path]
+
+      traceFile = open(path, fmWrite)
+      inc fileIndex
+
+    of rdbgTraceUndefined:
+      let loc = r.location.get()
+      echo "$1($2, $3): closing trace, wrote $4 records" % [
+        conf.toFilename(loc), $loc.line, $loc.col, $counter]
+
       close(traceFile)
-      inc traceIndex
+
     else:
+      inc counter
       conf.excl optUseColors
       traceFile.write(conf.reportFull(r))
       traceFile.write("\n")
+      traceFile.flushFile() # Forcefully flush the file in case of abrupt
+      # exit by the compiler.
       conf.incl optUseColors
 
 proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
@@ -3606,7 +3651,6 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## category) `reportBody` overloads defined above
   assertKind r
   let wkind = conf.writabilityKind(r)
-
   # debug reports can be both enabled and force enabled, and sem tracer
   # first needs to be checked for the trace group rotation. So adding a
   # case here is not really useful, since report writability kind does not
@@ -3614,18 +3658,23 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   # be written.
   if wkind == writeDisabled:
     return
+
   elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
     rotatedTrace(conf, r)
+
   elif wkind == writeForceEnabled:
     echo conf.reportFull(r)
+
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
     # REFACTOR 'processing with dots' - requires special hacks, pretty
     # useless, need to be removed in the future.
     conf.write(".")
     lastDot = true
+
   else:
+    var msg: seq[string]
     if lastDot:
-      conf.writeln("")
+      msg.add("")
       lastDot = false
 
     if conf.hack.reportInTrace:
@@ -3633,16 +3682,28 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       if r.kind == rdbgTraceStep:
         indent = r.debugReport.semstep.level
 
-      case r.kind
-      of rdbgTracerKinds:
-        conf.writeln(conf.reportFull(r))
-      of repSemKinds:
-        if 0 < indent:
-          for line in conf.reportFull(r).splitLines():
-            conf.writeln("  ]", repeat("  ", indent), " ! ", line)
+      case r.kind:
+        of rdbgTracerKinds:
+          msg.add(conf.reportFull(r))
+
+        of repSemKinds:
+          if 0 < indent:
+            for line in conf.reportFull(r).splitLines():
+              msg.add("  ]" & repeat("  ", indent) & " ! " & line)
+
+          else:
+            msg.add(conf.reportFull(r))
+
         else:
-          conf.writeln(conf.reportFull(r))
-      else:
-        conf.writeln(conf.reportFull(r))
+          msg.add(conf.reportFull(r))
+
     else:
-      conf.writeln(conf.reportFull(r))
+      msg.add(conf.reportFull(r))
+
+    if conf.hack.bypassWriteHookForTrace:
+      for item in msg:
+        echo item
+
+    else:
+      for item in msg:
+        conf.writeln(item)

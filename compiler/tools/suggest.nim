@@ -64,7 +64,9 @@ import
     sigmatch,
   ],
   compiler/utils/[
-    prefixmatches
+    prefixmatches,
+    astrepr,
+    debugutils
   ]
 
 
@@ -548,6 +550,7 @@ proc suggestSym*(g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; i
 
 proc safeSemExpr*(c: PContext, n: PNode): PNode =
   # use only for idetools support!
+  addInNimDebugUtils(c.config, "safeSemExpr", n, result)
   try:
     result = c.semExpr(c, n)
   except ERecoverableError:

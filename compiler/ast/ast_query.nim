@@ -97,6 +97,8 @@ const
   callableDefs* = nkLambdaKinds + routineDefs
 
   nkSymChoices* = {nkClosedSymChoice, nkOpenSymChoice}
+  nkFloatKinds* = nkFloatLiterals # QUESTION remove float literals
+                                  # altogether?
   nkStrKinds* = {nkStrLit..nkTripleStrLit}
   nkIntKinds* = {nkCharLit .. nkUInt64Lit}
 
