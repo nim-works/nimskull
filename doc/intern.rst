@@ -9,6 +9,30 @@
 
   "Abstraction is layering ignorance on top of reality." -- Richard Gabriel
 
+Glossary
+========
+
+Some specific terms and names are used throughout this document and in the
+wider compiler codebase. In order to reduce confusion and specify internal
+naming consistency this section tries to provide a comprehensive list of
+said terms/names.
+
+Language-related terms
+----------------------
+
+- instantiation: substitution of the placeholder generic parameters in the
+  procedure or type definition.
+
+Compiler internal terms
+-----------------------
+
+Things that are *mostly* seen in the compiler codebase internally and not
+often used in the regular language.
+
+- formal: expected, "as defined" mostly mentioned in relation to the
+  function processing (`sigmatch.nim`), used to refer to the
+
+- callsite: location of the function call in the code
 
 Directory structure
 ===================
