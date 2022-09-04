@@ -257,17 +257,6 @@ proc maybeLiftType(t: var PType, c: PContext, info: TLineInfo) =
   closeScope(c)
   if lifted != nil: t = lifted
 
-proc isOwnedSym(c: PContext; n: PNode): bool =
-  ## checks to see if the `n`ode is the "owned" sym node
-  let s = qualifiedLookUp(c, n, {})
-  result =
-    if s.isError:
-      # XXX: move to propagating nkError, skError, and tyError
-      localReport(c.config, s.ast)
-      false
-    else:
-      s != nil and sfSystemModule in s.owner.flags and s.name.s == "owned"
-
 proc semConv(c: PContext, n: PNode): PNode =
   if n.len != 2:
     result = c.config.newError(n, semReportCountMismatch(
@@ -299,17 +288,34 @@ proc semConv(c: PContext, n: PNode): PNode =
 
   maybeLiftType(targetType, c, n[0].info)
 
-  if targetType.kind in {tySink, tyLent} or isOwnedSym(c, n[0]):
-    let baseType = semTypeNode(c, n[1], nil).skipTypes({tyTypeDesc})
-    let t = newTypeS(targetType.kind, c)
+  var hasError = false
+
+  template handleLentOwnedOrSunkType(c: PContext, op: PNode, info: TLineInfo, targetType: PType): PNode =
+    let
+      baseType = semTypeNode(c, op, nil).skipTypes({tyTypeDesc})
+      t = newTypeS(targetType.kind, c)
+      res = newNodeI(nkType, info)
+    
     if targetType.kind == tyOwned:
       t.flags.incl tfHasOwned
+    
     t.rawAddSonNoPropagationOfTypeFlags baseType
-    result = newNodeI(nkType, n.info)
-    result.typ = makeTypeDesc(c, t)
-    return
+    
+    res.typ = makeTypeDesc(c, t)
+    res
 
-  result.add copyTree(n[0])
+  if targetType.kind in {tySink, tyLent}:
+    return handleLentOwnedOrSunkType(c, n[1], n.info, targetType)
+  else:
+    let s = qualifiedLookUp(c, n[0], {})
+    if s.isError:
+      result.add s.ast
+      hasError = true
+    else:
+      if s != nil and sfSystemModule in s.owner.flags and s.name.s == "owned":
+        return handleLentOwnedOrSunkType(c, n[1], n.info, targetType)
+      else:
+        result.add copyTree(n[0])
 
   # special case to make MyObject(x = 3) produce a nicer error message:
   if n[1].kind == nkExprEqExpr and
@@ -317,12 +323,18 @@ proc semConv(c: PContext, n: PNode): PNode =
     result = c.config.newError(n, reportSem rsemUnexpectedEqInObjectConstructor, posInfo = n[1].info)
     return
 
+  template handleError(c: PContext, result: PNode, hasError: bool): PNode =
+    if hasError and result.kind != nkError:
+      c.config.wrapError(result)
+    else:
+      result
+
   var op = semExprWithType(c, n[1])
   if targetType.kind != tyGenericParam and targetType.isMetaType:
     let final = inferWithMetatype(c, targetType, op, true)
     result.add final
     result.typ = final.typ
-    return
+    return handleError(c, result, hasError)
 
   result.typ = targetType
   # XXX op is overwritten later on, this is likely added too early
@@ -331,7 +343,7 @@ proc semConv(c: PContext, n: PNode): PNode =
 
   if targetType.kind == tyGenericParam:
     result.typ = makeTypeFromExpr(c, copyTree(result))
-    return result
+    return handleError(c, result, hasError)
 
   if not isSymChoice(op):
     let status = checkConvertible(c, result.typ, op)
@@ -359,14 +371,17 @@ proc semConv(c: PContext, n: PNode): PNode =
         rsemCannotBeConvertedTo, op, typ = result.typ))
 
   else:
-    for i in 0..<op.len:
-      let it = op[i]
+    for it in op:
       let status = checkConvertible(c, result.typ, it)
       if status in {convOK, convNotNeedeed}:
         markUsed(c, n.info, it.sym)
         onUse(n.info, it.sym)
         markIndirect(c, it.sym)
-        return it
+        return
+          if hasError:
+            handleError(c, result, hasError)
+          else:
+            it
     errorUseQualifier(c, n.info, op[0].sym)
 
 proc semCast(c: PContext, n: PNode): PNode =
