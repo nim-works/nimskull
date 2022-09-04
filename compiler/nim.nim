@@ -41,11 +41,6 @@ import
   ]
 
 
-# import
-#   cli_reporter,
-#   commands, options, msgs,  main, idents, cmdlinehelper,
-#   pathutils, modulegraphs, reports
-
 from std/browsers import openDefaultBrowser
 from compiler/utils/nodejs import findNodeJs
 
@@ -145,7 +140,117 @@ when not defined(selftest):
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       conf.writeHook(conf, msg & "\n", flags)
 
+  when defined(nimCompilerBracketTrace):
+    import std/[strformat, tables, strutils]
+    const fileTable = getCompilerBracketTraceFileMap()
+
+    let
+      traceDir = "/tmp"
+      fileMap = traceDir / "file-map.csv"
+      nodeKind = traceDir / "node-kind.csv"
+      typeKind = traceDir / "type-kind.csv"
+      trace = traceDir / "trace.csv"
+      accessTraceKind = traceDir / "access-trace-kind.csv"
+      accessTraceData = traceDir / "access-trace-data.csv"
+
+    block writeFileMapping:
+      let fileMap = open(fileMap, fmWrite)
+      fileMap.writeLine("id,path")
+      for file, id in fileTable:
+        fileMap.writeLine(&"{id},\"{file}\"")
+
+      fileMap.close()
+
+    proc writeEnumMapping[E: enum](path: string) =
+      let file = open(path, fmWrite)
+      file.writeLine("id,name")
+      for kind in low(E) .. high(E):
+        file.writeLine(&"{kind.int},\"{kind}\"")
+
+      file.close()
+
+    writeEnumMapping[TNodeKind](nodeKind)
+    writeEnumMapping[TTypeKind](typeKind)
+    writeEnumMapping[AccessTraceKind](accessTraceKind)
+    writeEnumMapping[AccessTraceData](accessTraceData)
+
+    let csvFile = open(trace, fmWrite)
+    csvFile.writeLine(join([
+      "file",
+      "line",
+      "col",
+      "kind",
+      "index",
+      "is_backwards",
+      "data_kind",
+      "to_id",
+      "to_kind",
+      "from_id",
+      "from_kind"
+    ], ","))
+
+    var traceCount = 0
+    accessTraceHook = proc(t: AccessTraceEntry) =
+      inc traceCount
+      csvFile.writeLine(
+        &"{t.info.file},{t.info.line},{t.info.col},{t.kind.int},",
+        &"{t.index},{t.backwards.int},{t.data.int},",
+        if t.data == acdNode:
+          &"{t.toNodeId},{t.toNodeKind.int},{t.fromNodeId},{t.fromNodeKind.int}"
+        else:
+          &"{t.toTypeId},{t.toTypeKind.int},{t.fromTypeId},{t.fromTypeKind.int}"
+      )
+
   handleCmdLine(newIdentCache(), conf)
+
+  when defined(nimCompilerBracketTrace):
+    csvFile.close()
+    echo &"""
+Wrote {traceCount} traces into file - import it into sqlite using
+the following script. It can be entered line-by-line or fed into the
+`sqlite3` interpreter via pipe `sqlite3 trace.sqlite < script`
+
+
+.mode csv
+
+DROP TABLE IF EXISTS path_map;
+CREATE TABLE path_map (id int, abs_path text);
+.import --skip 1 "{fileMap}" path_map
+
+DROP TABLE IF EXISTS node_kind;
+CREATE TABLE node_kind (id int, kind_name text);
+.import --skip 1 "{nodeKind}" node_kind
+
+DROP TABLE IF EXISTS type_kind;
+CREATE TABLE type_kind (id int, type_name text);
+.import --skip 1 "{typeKind}" type_kind
+
+DROP TABLE IF EXISTS access_trace_kind;
+CREATE TABLE access_trace_kind(id int, kind_name text);
+.import --skip 1 "{accessTraceKind}" acces_trace_kind
+
+DROP TABLE IF EXISTS access_trace_data;
+CREATE TABLE access_trace_data(id int, data_name text);
+.import --skip 1 "{accessTraceData}" access_trace_data
+
+DROP TABLE IF EXISTS trace;
+CREATE TABLE trace (
+   file_id int, -- id of the file
+   line int, -- line number in file
+   col int, -- column in the file
+   kind int, -- kind of the trace entry
+   acces_index int, -- index that was used in access
+   is_backwards int, -- whether the index is backwards
+   data_kind int, -- kind of the data used
+   to_id int, --
+   to_kind int, -- node/type kind that was assigned/evaluated to
+   from_id int, --
+   from_kind int -- node/type kind that was read/assigned from
+);
+
+.import --skip 1 "{trace}" trace
+"""
+
   when declared(GC_setMaxPause):
     echo GC_getStatistics()
 

@@ -34,7 +34,6 @@ export
   int128.toInt128
 
 from compiler/front/in_options import TOption, TOptions
-type InstantiationInfo* = typeof(instantiationInfo())
 
 # Importing and reexporting enums and 'external' reports in order to avoid
 # needlessly cluttering the import lists of all modules that have to report

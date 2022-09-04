@@ -24,6 +24,18 @@ const
   InvalidFileIdx* = FileIndex(-1)
   unknownLineInfo* = TLineInfo(line: 0, col: -1, fileIndex: InvalidFileIdx)
 
+type InstantiationInfo* = typeof(instantiationInfo()) ## Information about
+  ## instantiation location - returned by the `instLoc()` template.
+
+template instLoc*(
+    depth: int = -2,
+    fullPaths: bool = compileOption"excessiveStackTrace"
+  ): InstantiationInfo =
+  ## grabs where in the compiler an error was instanced to ease debugging.
+  ##
+  ## whether to use full paths depends on --excessiveStackTrace compiler option.
+  instantiationInfo(depth, fullPaths)
+
 type
   TCallingConvention* = enum
     ccNimCall = "nimcall"           ## nimcall, also the default
@@ -38,8 +50,7 @@ type
     ccClosure  = "closure"          ## proc has a closure
     ccNoConvention = "noconv"       ## needed for generating proper C procs sometimes
 
-type
-  TNodeKind* = enum
+typind* = enum
     ## order is important, because ranges are used to check whether a node
     ## belongs to a certain class
 
@@ -1136,13 +1147,177 @@ proc add*(father, son: Indexable) =
   assert son != nil
   father.sons.add(son)
 
-template `[]`*(n: Indexable, i: int): Indexable = n.sons[i]
-template `[]=`*(n: Indexable, i: int; x: Indexable) = n.sons[i] = x
+type
+  AccessTraceKind* = enum
+    actRead ## `FROM[] -> TO` node kind whose subnode was indexed
+    actAssign ## `TO[]= FROM` node kind that was used to assign to a
+              ## subnode
 
-template `[]`*(n: Indexable, i: BackwardsIndex): Indexable =
-  n[n.len - i.int]
-template `[]=`*(n: Indexable, i: BackwardsIndex; x: Indexable) =
-  n[n.len - i.int] = x
+  AccessTraceData* = enum
+    acdNode
+    acdType
+
+  InstInfoInt* = tuple[file, line, col: int]
+
+  AccessTraceEntry* = object
+    info*: InstInfoInt
+    kind*: AccessTraceKind
+    index*: int
+    backwards*: bool
+
+    case data*: AccessTraceData:
+      of acdNode:
+        toNodeId*: int
+        toNodeKind*: TNodeKind
+        fromNodeId*: int
+        fromNodeKind*: TNodeKind
+
+      of acdType:
+        toTypeId*: int
+        toTypeKind*: TTypeKind
+        fromTypeId*: int
+        fromTypeKind*: TTypeKind
+
+
+when defined(nimCompilerBracketTrace):
+  import std/tables
+  var pathMap {.compileTime.}: Table[string, int]
+  var pathCounter {.compileTime.}: int
+
+  proc getCompilerBracketTraceFileMap*(): Table[string, int] =
+    return pathMap
+
+  proc internPath(loc: InstantiationInfo): InstInfoInt =
+    let (file, line, col) = loc
+    if file notin pathMap:
+      pathMap[file] = pathCounter
+      inc pathCounter
+
+    result.file = pathMap[file]
+    result.line = line
+    result.col = col
+
+  template traceLoc(): untyped =
+    block:
+      const outLoc = internPath(instLoc(-3, fullPaths = true))
+      outLoc
+
+  proc initTrace(
+      traceKind: AccessTraceKind,
+      traceData: AccessTraceData,
+      info: InstInfoInt
+    ): AccessTraceEntry =
+    result = AccessTraceEntry(
+      info: info, kind: traceKind, data: traceData)
+
+
+  proc setIndex(entry: var AccessTraceEntry, index: int) =
+    entry.index = index
+    entry.backwards = false
+
+  proc setIndex(entry: var AccessTraceEntry, index: BackwardsIndex) =
+    entry.index = index.int
+    entry.backwards = true
+
+  var accessTraceHook*: proc(trace: AccessTraceEntry)
+
+  proc writeTrace(trace: AccessTraceEntry) =
+    if not isNil(accessTraceHook):
+      accessTraceHook(trace)
+
+  proc accessFromTo(trace: var AccessTraceEntry, fromNode, toNode: PNode) =
+    if isNil(fromNode):
+      trace.fromNodeId = -1
+
+    else:
+      when defined(useNodeIds): trace.fromNodeId = fromNode.id
+      trace.fromNodeKind = fromNode.kind
+
+    if isNil(toNode):
+      trace.toNodeId = -1
+
+    else:
+      when defined(useNodeIds): trace.toNodeId = toNode.id
+      trace.toNodeKind = toNode.kind
+
+  func accessImpl(fromNode: PNode, i: int | BackwardsIndex, loc: InstInfoInt) =
+    {.cast(noSideEffect).}:
+      let toNode = fromNode.sons[i]
+      var trace = initTrace(actRead, acdNode, loc)
+      accessFromTo(trace, fromNode, toNode)
+      trace.setIndex(i)
+      writeTrace(trace)
+
+  func assignImpl(
+      toNode: PNode, i: int | BackwardsIndex, fromNode: PNode, loc: InstInfoInt) =
+
+    {.cast(noSideEffect).}:
+      var trace = initTrace(actAssign, acdNode, loc)
+      accessFromTo(trace, fromNode, toNode)
+      trace.setIndex(i)
+      writeTrace(trace)
+
+  template `[]`*(n: PNode, i: int | BackwardsIndex): PNode =
+    accessImpl(n, i, traceLoc())
+    n.sons[i]
+
+  template `[]=`*(n: PNode, i: int | BackwardsIndex, fromNode: PNode) =
+    let expr = fromNode
+    assignImpl(n, i, expr, traceLoc())
+    n.sons[i] = expr
+
+  proc accessFromTo(trace: var AccessTraceEntry, fromType, toType: PType) =
+    if isNil(fromType):
+      trace.fromTypeId = -1
+
+    else:
+      when defined(useTypeIds): trace.fromTypeId = fromType.id
+      trace.fromTypeKind = fromType.kind
+
+    if isNil(toType):
+      trace.toTypeId = -1
+
+    else:
+      when defined(useTypeIds): trace.toTypeId = toType.id
+      trace.toTypeKind = toType.kind
+
+  func accessImpl(fromType: PType, i: int | BackwardsIndex, loc: InstInfoInt) =
+    {.cast(noSideEffect).}:
+      let toType = fromType.sons[i]
+      var trace = initTrace(actRead, acdType, loc)
+      accessFromTo(trace, fromType, toType)
+      trace.setIndex(i)
+      writeTrace(trace)
+
+  func assignImpl(
+      toType: PType, i: int | BackwardsIndex, fromType: PType, loc: InstInfoInt) =
+
+    {.cast(noSideEffect).}:
+      var trace = initTrace(actAssign, acdType, loc)
+      accessFromTo(trace, fromType, toType)
+      trace.setIndex(i)
+      writeTrace(trace)
+
+  template `[]`*(n: PType, i: int | BackwardsIndex): PType =
+    accessImpl(n, i, traceLoc())
+    n.sons[i]
+
+  template `[]=`*(n: PType, i: int | BackwardsIndex, fromType: PType) =
+    assignImpl(n, i, fromType, traceLoc())
+    n.sons[i] = fromType
+
+else:
+  template `[]`*(n: Indexable, i: int): Indexable =
+    n.sons[i]
+
+  template `[]=`*(n: Indexable, i: int; x: Indexable) =
+      n.sons[i] = x
+
+  template `[]`*(n: Indexable, i: BackwardsIndex): Indexable =
+    n[n.len - i.int]
+
+  template `[]=`*(n: Indexable, i: BackwardsIndex; x: Indexable) =
+    n[n.len - i.int] = x
 
 const emptyReportId* = ReportId(0)
 
