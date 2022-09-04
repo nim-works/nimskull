@@ -591,64 +591,85 @@ proc overloadedCallOpr(c: PContext, n: PNode): PNode =
     for i in 0..<n.len: result.add n[i]
     result = semExpr(c, result)
 
-proc changeType(c: PContext; n: PNode, newType: PType, check: bool) =
+proc changeType(c: PContext, n: PNode, newType: PType, check: bool): PNode =
+  result = n  # xxx: typically avoid this but this doesn't look like a semantic
+              #      analysis proc resulting in a production but more an
+              #      operation/helper mutating an existing production
+
+  var hasError = false
+
   case n.kind
   of nkCurly, nkBracket:
-    for i in 0..<n.len:
-      changeType(c, n[i], elemType(newType), check)
+    for i, kid in n.pairs:
+      result[i] = changeType(c, kid, elemType(newType), check)
+      if result[i].isError:
+        hasError = true
   of nkPar, nkTupleConstr:
     let tup = newType.skipTypes({tyGenericInst, tyAlias, tySink, tyDistinct})
-    if tup.kind != tyTuple:
-      if tup.kind == tyObject:
-        return
+    
+    case tup.kind
+    of tyTuple:
+      if n.len > 0 and n[0].kind == nkExprColonExpr:
+        # named tuple
+        for i, colonExpr in n.pairs:
+          let
+            key = colonExpr[0]
+            val = colonExpr[1]
+            
+          case key.kind
+          of nkSym:
+            let elemTyp =
+              if tup.n.isNil:
+                tup[i]
+              else:
+                let f = getSymFromList(tup.n, key.sym.name)
+                if f.isNil:
+                  result = newError(c.config, n,
+                                    reportSym(rsemUnknownIdentifier, key.sym))
+                  return # hard error
+                f.typ
 
-      globalReport(c.config, n.info, reportAst(
-        rsemNoTupleTypeForConstructor, ast = n))
+            result[i][1] = changeType(c, val, elemTyp, check)
 
-    elif n.len > 0 and n[0].kind == nkExprColonExpr:
-      # named tuple?
-      for i in 0..<n.len:
-        var m = n[i][0]
-        if m.kind != nkSym:
-          globalReport(c.config, m.info, SemReport(
-            kind: rsemInvalidTupleConstructor))
+            if result[i].isError:
+              hasError = true
+          else:
+            result = newError(c.config, key,
+                              reportAst(rsemInvalidTupleConstructor, ast = n))
+            return # hard error
+      else:
+        # positional args
+        for i, elem in n.pairs:
+          result[i] = changeType(c, elem, tup[i], check)
 
-          return
-        if tup.n != nil:
-          var f = getSymFromList(tup.n, m.sym.name)
-          if f == nil:
-            globalReport(c.config, m.info, reportSym(
-              rsemUnknownIdentifier, m.sym))
-
-            return
-          changeType(c, n[i][1], f.typ, check)
-        else:
-          changeType(c, n[i][1], tup[i], check)
+          if result[i].isError:
+            hasError = true
+    of tyObject:
+      result = n    # xxx: feels like `changeType` the proc is a hack
+      return        # original bug: https://github.com/nim-lang/Nim/issues/2602
     else:
-      for i in 0..<n.len:
-        changeType(c, n[i], tup[i], check)
-        when false:
-          var m = n[i]
-          var a = newNodeIT(nkExprColonExpr, m.info, newType[i])
-          a.add newSymNode(newType.n[i].sym)
-          a.add m
-          changeType(m, tup[i], check)
+      result = newError(c.config, n,
+                        reportAst(rsemNoTupleTypeForConstructor, ast = n))
+      return # hard error
   of nkCharLit..nkUInt64Lit:
     if check and n.kind != nkUInt64Lit and not sameType(n.typ, newType):
-      let value = n.intVal
-      if value < firstOrd(c.config, newType) or value > lastOrd(c.config, newType):
-        localReport(c.config, n.info, reportAst(
-          rsemCannotBeConvertedTo, n, typ = newType))
-
+      let val = n.intVal
+      if val < firstOrd(c.config, newType) or val > lastOrd(c.config, newType):
+        result = newError(c.config, n,
+                          reportAst(rsemCannotBeConvertedTo, n, typ = newType))
   of nkFloatLit..nkFloat64Lit:
     if check and not floatRangeCheck(n.floatVal, newType):
-      localReport(c.config, n.info, reportAst(
-        rsemCannotBeConvertedTo, ast = n, typ = newType))
-
+      result = newError(c.config, n,
+                        reportAst(rsemCannotBeConvertedTo, n, typ = newType))
+  of nkError:
+    return    # return an error
   else:
     discard
+  
+  n.typ = newType # `n` is either the wrongNode in an error or same as `result`
+  if hasError and result.kind != nkError:
+    result = c.config.wrapError(result)
 
-  n.typ = newType
 
 proc arrayConstrType(c: PContext, n: PNode): PType =
   var typ = newTypeS(tyArray, c)
@@ -741,18 +762,35 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   result.typ[0] = makeRangeType(c, toInt64(firstIndex), toInt64(lastIndex), n.info,
                                      indexType)
 
-proc fixAbstractType(c: PContext, n: PNode) =
-  for i in 1..<n.len:
-    let it = n[i]
-    # do not get rid of nkHiddenSubConv for OpenArrays, the codegen needs it:
-    if it.kind == nkHiddenSubConv and
-        skipTypes(it.typ, abstractVar).kind notin {tyOpenArray, tyVarargs}:
-      if skipTypes(it[1].typ, abstractVar).kind in
-            {tyNil, tyTuple, tySet} or it[1].isArrayConstr:
-        var s = skipTypes(it.typ, abstractVar)
-        if s.kind != tyUntyped:
-          changeType(c, it[1], s, check=true)
-        n[i] = it[1]
+proc fixAbstractType(c: PContext, n: PNode): PNode =
+  assert n != nil
+  
+  var hasError = false
+
+  result = n
+  case n.kind
+  of nkError:
+    discard   # we'll just return below
+  else:
+    for i in 1..<n.len:
+      let it = n[i]
+      # do not get rid of nkHiddenSubConv for OpenArrays, codegen needs it:
+      if it.kind == nkHiddenSubConv and
+          skipTypes(it.typ, abstractVar).kind notin {tyOpenArray, tyVarargs}:
+        if skipTypes(it[1].typ, abstractVar).kind in {tyNil, tyTuple, tySet} or
+            it[1].isArrayConstr:
+          var s = skipTypes(it.typ, abstractVar)
+          
+          if s.kind != tyUntyped:
+            it[1] = changeType(c, it[1], s, check=true)
+          
+            if it[1].isError:
+              hasError = true
+
+          n[i] = it[1]
+  
+  if hasError and result.kind != nkError:
+    result = c.config.wrapError(n)
 
 proc isAssignable(c: PContext, n: PNode; isUnsafeAddr=false): TAssignableResult =
   result = parampatterns.isAssignable(c.p.owner, n, isUnsafeAddr)
@@ -837,6 +875,9 @@ proc analyseIfAddressTakenInCall(c: PContext, n: PNode) =
       mSetLengthStr, mSetLengthSeq, mAppendStrCh, mAppendStrStr, mSwap,
       mAppendSeqElem, mNewSeq, mReset, mShallowCopy, mDeepCopy, mMove,
       mWasMoved}
+
+  if n.isError:
+    return
 
   # get the real type of the callee
   # it may be a proc var with a generic alias type, so we skip over them
@@ -1054,7 +1095,7 @@ proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
   else:
     semFinishOperands(c, result)
     activate(c, result)
-    fixAbstractType(c, result)
+    result = fixAbstractType(c, result)
     analyseIfAddressTakenInCall(c, result)
     if callee.magic != mNone:
       result = magicsAfterOverloadResolution(c, result, flags)
@@ -1167,7 +1208,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
       else:
         afterCallActions(c, result, flags)
   else:
-    fixAbstractType(c, result)
+    result = fixAbstractType(c, result)
     analyseIfAddressTakenInCall(c, result)
 
 proc semDirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
@@ -1906,6 +1947,10 @@ proc takeImplicitAddr(c: PContext, n: PNode; isLent: bool): PNode =
 
 proc asgnToResultVar(c: PContext, n, le, ri: PNode) {.inline.} =
   # refactor: to return a PNode instead and handle nkError
+  
+  if n.isError:
+    return
+  
   case le.kind
   of nkHiddenDeref:
     let x = le[0]
@@ -2086,8 +2131,8 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
       n[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))
       when false: liftTypeBoundOps(c, lhs.typ, lhs.info)
 
-      fixAbstractType(c, n)
-      asgnToResultVar(c, n, n[0], n[1])
+      result = fixAbstractType(c, n)
+      asgnToResultVar(c, result, n[0], n[1])
   result = n
 
 proc semReturn(c: PContext, n: PNode): PNode =
@@ -2611,7 +2656,7 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
       if callee.magic == mNone:
         semFinishOperands(c, result)
       activate(c, result)
-      fixAbstractType(c, result)
+      result = fixAbstractType(c, result)
       analyseIfAddressTakenInCall(c, result)
       if callee.magic != mNone:
         result = magicsAfterOverloadResolution(c, result, flags)

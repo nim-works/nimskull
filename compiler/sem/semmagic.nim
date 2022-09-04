@@ -480,6 +480,10 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   ## ``flags`` Some flags for more contextual information on how the
   ## "macro" is calld.
 
+  if n.isError:
+    result = n
+    return
+
   case n[0].sym.magic
   of mAddr:
     checkSonsLen(n, 2, c.config)
