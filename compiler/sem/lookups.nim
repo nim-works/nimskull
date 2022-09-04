@@ -29,8 +29,7 @@ import
     modulegraphs
   ],
   compiler/utils/[
-    debugutils,
-    astrepr
+    debugutils
   ],
   compiler/front/[
     msgs,
@@ -741,7 +740,6 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       result = errorExpectedIdentifier(c, ident, wrongNode, errExprCtx)
     elif checkModule in flags:
       result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
-      # debug(result, verboseTReprConf)
       # xxx: search in scopes can return an skError -- this happens because
       # skError is a const referring to skUnknown, which gets used in resolving
       # `result`, which starts off as undeclared/unknown.

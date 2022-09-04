@@ -37,8 +37,7 @@ import
   compiler/utils/[
     ropes,
     pathutils,
-    debugUtils,
-    astrepr
+    debugutils
   ],
   compiler/sem/[
     semdata,

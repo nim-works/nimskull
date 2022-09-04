@@ -90,7 +90,6 @@ proc skipInd*(p: var Parser)
 proc optPar*(p: var Parser)
 proc optInd*(p: var Parser, n: ParsedNode)
 proc indAndComment*(p: var Parser, n: ParsedNode, maybeMissEquals = false)
-# proc setBaseFlags*(n: ParsedNode, base: NumericalBase)
 proc parseSymbol*(p: var Parser, mode = smNormal): ParsedNode
 proc parseTry(p: var Parser; isExpr: bool): ParsedNode
 proc parseCase(p: var Parser): ParsedNode

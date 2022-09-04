@@ -86,13 +86,12 @@ type
 
     reportInst*: ReportLineInfo ## Information about instantiation location
     ## of the reports - present for all reports in order to track their
-    ## origins throught the compiler.
+    ## origin withing the compiler.
 
     reportFrom*: ReportLineInfo ## Information about submit location of the
     ## report. Contains information about the place where report was
-    ## /submitted/ to the system - sometimes report might be created,
-    ## modified to add new information and only them put into the pipeline.
-
+    ## /submitted/ to the system - sometimes a report is created, modified
+    ## to add new information, and only then put into the pipeline.
 
 type
   LexerReport* = object of ReportBase

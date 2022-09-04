@@ -6,7 +6,7 @@ import
     lexer # For the token type definition
   ]
 
-# NOTE further refactoring considerations for the parser
+# NOTE further refactoring considerations for the parser:
 #
 # - store everything in tokens, do not require identifier interning for any
 #   purposes during the parsing stage, it must be done later, during
@@ -49,7 +49,7 @@ type
                       # flag in the first place?
 
 func len*(node: ParsedNode): int =
-  ## Number of the sons of a parsed node
+  ## Number of sons of the parsed node
   return node.sons.len()
 
 # NOTE added for the sake of API similarity between PNode
@@ -70,7 +70,7 @@ iterator pairs*(node: ParsedNode): (int, ParsedNode) =
     yield (idx, item)
 
 proc add*(node: ParsedNode, other: ParsedNode) =
-  ## Add new element to the sons
+  ## append `other` to `node`'s `sons`
   node.sons.add(other)
 
 proc transitionSonsKind*(n: ParsedNode, kind: TNodeKind) =
