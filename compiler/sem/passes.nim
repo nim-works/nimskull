@@ -26,8 +26,7 @@ import
     lineinfos,
   ],
   compiler/utils/[
-    pathutils,
-    astrepr
+    pathutils
   ]
 
 type
@@ -90,7 +89,7 @@ proc processTopLevelStmt(
     toProcess: PNode,
     a: var TPassContextArray): bool =
   ## Main processing pipeline entry point - accepts a toplevel node,
-  ## collection of pass contexts and main module graph which defines passes
+  ## collection of pass contexts and a main module graph which defines passes
   ## to use.
   # First step works with the base tree as entry point
   var processingResult = toProcess
@@ -100,9 +99,6 @@ proc processTopLevelStmt(
       # results each time.
       processingResult = graph.passes[i].process(a[i], processingResult)
       if isNil(processingResult):
-        # QUESTION this is an error/fatal diagnostic or some parts of the
-        # compiler are expected to return `nil` on failure? If the latter
-        # is true, which ones?
         return false
 
   result = true
@@ -185,7 +181,7 @@ proc processModule*(
   if defaultStream.isNil():
     let filename = toFullPathConsiderDirty(graph.config, fileIdx)
     stream = llStreamOpen(filename, fmRead)
-    if stream == nil:
+    if stream.isNil():
       localReport(
         graph.config,
         reportStr(rsemCannotOpenFile, filename.string))
@@ -280,7 +276,7 @@ proc processModule*(
         processingOk = processTopLevelStmt(
           graph, toplevelStatements, passesArray)
 
-        if rest != nil and processingOk:
+        if not rest.isNil() and processingOk:
           processingOk = processTopLevelStmt(
             graph, rest, passesArray)
 
