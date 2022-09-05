@@ -297,21 +297,19 @@ func requestType(c: var TypeGenCtx, t: TypeId): CTypeId =
   ## slot for it is reserved and it's added to the `c.forwared` list
   CTypeId(t)
 
-func genRecordNode(c: var TypeGenCtx, decl: var CDecl, i: var RecordNodeIndex, fstart: int): int =
-  let n = c.env.types[i]
-  inc i
+func genRecordNode(c: var TypeGenCtx, decl: var CDecl, iter: var RecordIter): int =
+  let n = next(c.env.types, iter)
 
   case n.kind
   of rnkList:
-    discard "ignore"
     for _ in 0..<n.len:
-      result += genRecordNode(c, decl, i, fstart)
+      result += genRecordNode(c, decl, iter)
 
   of rnkFields:
     for i in n.a..n.b:
-      let f = fstart + i.int
       let
-        field = c.env.types.field(f)
+        fId = iter.field(i)
+        field = c.env.types[fId]
         typ = c.requestType(field.typ)
 
       var ident: CIdent
@@ -319,9 +317,9 @@ func genRecordNode(c: var TypeGenCtx, decl: var CDecl, i: var RecordNodeIndex, f
         # note: ignoring the records field offset means that unnamed
         #       fields in ``object`` types using inheritance won't work
         ident = c.cache.getOrIncl(fmt"Field{i}")
-        c.fieldIdents[f] = ident
+        c.fieldIdents[fId.toIndex] = ident
       else:
-        ident = c.fieldIdents[f] # identifier was already created
+        ident = c.fieldIdents[fId.toIndex] # identifier was already created
 
       decl.addField(typ, ident)
 
@@ -333,12 +331,12 @@ func genRecordNode(c: var TypeGenCtx, decl: var CDecl, i: var RecordNodeIndex, f
     decl.addField(c.cache, c.requestType(discrField.typ), c.env.syms[discrField.sym].decl.name)
     ]#
 
-    discard genRecordNode(c, decl, i, fstart) # discriminator; needs to come before the union
+    discard genRecordNode(c, decl, iter) # discriminator; needs to come before the union
 
     decl.add cdnkUnion, n.len - 1
     decl.add cdnkEmpty
     for _ in 1..<n.len:
-      discard genRecordNode(c, decl, i, fstart)
+      discard genRecordNode(c, decl, iter)
 
     result = 2 # discriminator field + union
 
@@ -347,7 +345,7 @@ func genRecordNode(c: var TypeGenCtx, decl: var CDecl, i: var RecordNodeIndex, f
     decl.add cdnkStruct
     decl.add cdnkEmpty
 
-    let count = genRecordNode(c, decl, i, fstart)
+    let count = genRecordNode(c, decl, iter)
     decl[start].a = count.uint32
 
     result = 1 # a single struct
@@ -379,9 +377,8 @@ func genCTypeDecl(c: var TypeGenCtx, t: TypeId): CDecl =
       result.addField(c.cache, c.requestType(base), BaseName)
       inc result[0].a
 
-    var i = c.env.types[t].record.toIndex.RecordNodeIndex
-    let f = c.env.types[t].a.int
-    let count = genRecordNode(c, result, i, f)
+    var iter = initRecordIter(c.env.types, t)
+    let count = genRecordNode(c, result, iter)
     result[0].a += count.uint32
 
   of tnkArray:
