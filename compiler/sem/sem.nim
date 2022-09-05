@@ -98,7 +98,7 @@ proc semExprNoDeref(c: PContext, n: PNode, flags: TExprFlags = {}): PNode
 proc semProcBody(c: PContext, n: PNode): PNode
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode
-proc changeType(c: PContext; n: PNode, newType: PType, check: bool)
+proc changeType(c: PContext; n: PNode, newType: PType, check: bool): PNode
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode
@@ -158,11 +158,18 @@ template semIdeForTemplateOrGeneric(c: PContext; n: PNode;
       discard safeSemExpr(c, n)
 
 proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
-  let x = arg.skipConv
+  var
+    a = arg
+    x = a.mutableSkipConv
   if (x.kind == nkCurly and formal.kind == tySet and formal.base.kind != tyGenericParam) or
     (x.kind in {nkPar, nkTupleConstr}) and formal.kind notin {tyUntyped, tyBuiltInTypeClass}:
-    changeType(c, x, formal, check=true)
-  result = arg
+    x = changeType(c, x, formal, check=true)
+    
+    if x.isError:
+      result = c.config.wrapError(a)
+      return
+
+  result = a
   result = skipHiddenSubConv(result, c.graph, c.idgen)
 
 

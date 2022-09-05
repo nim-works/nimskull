@@ -293,22 +293,26 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
 
 proc fitRemoveHiddenConv(c: PContext, typ: PType, n: PNode): PNode =
   result = fitNode(c, typ, n, n.info)
-  if result.kind in {nkHiddenStdConv, nkHiddenSubConv}:
+  case result.kind
+  of nkHiddenStdConv, nkHiddenSubConv:
     let r1 = result[1]
     if r1.kind in {nkCharLit..nkUInt64Lit} and
        typ.skipTypes(abstractRange).kind in {tyFloat..tyFloat128}:
       result = newFloatNode(nkFloatLit, BiggestFloat r1.intVal)
       result.info = n.info
       result.typ = typ
-      if not floatRangeCheck(result.floatVal, typ):
-        localReport(c.config, n.info, reportAst(
-          rsemCannotConvertToRange, result, typ = typ))
 
+      if not floatRangeCheck(result.floatVal, typ):
+        result = newError(c.config, n,
+                          reportAst(rsemCannotConvertToRange, result,
+                                    typ = typ))
     else:
-      changeType(c, r1, typ, check=true)
-      result = r1
-  elif not sameType(result.typ, typ):
-    changeType(c, result, typ, check=false)
+      result = changeType(c, r1, typ, check=true)
+  of nkError:
+    discard   # already nkError
+  else:
+    if not sameType(result.typ, typ):
+      result = changeType(c, result, typ, check=false)
 
 proc findShadowedVar(c: PContext, v: PSym): PSym =
   for scope in localScopesFrom(c, c.currentScope.parent):

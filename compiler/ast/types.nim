@@ -1146,6 +1146,20 @@ proc skipConv*(n: PNode): PNode =
       result = n[1]
   else: discard
 
+proc mutableSkipConv*(n: var PNode): var PNode =
+  result = n
+  case n.kind
+  of nkObjUpConv, nkObjDownConv, nkChckRange, nkChckRangeF, nkChckRange64:
+    # only skip the conversion if it doesn't lose too important information
+    # (see bug #1334)
+    if n[0].typ.classify == n.typ.classify:
+      result = n[0]
+  of nkHiddenStdConv, nkHiddenSubConv, nkConv:
+    if n[1].typ.classify == n.typ.classify:
+      result = n[1]
+  else: discard
+
+
 proc skipHidden*(n: PNode): PNode =
   result = n
   while true:
