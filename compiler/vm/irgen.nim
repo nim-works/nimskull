@@ -491,7 +491,7 @@ proc genCase(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
 
         let cond = c.irs.irCall(bcMatch, NoneType, tmp, c.irLit(branch))
 
-        c.irs.irBranch(cond, b)
+        c.irs.irBranch(c.irs.irCall(mNot, c.requestType(tyBool), cond), b)
         r = c.gen2(branch.lastSon)
 
       if r[1]:
