@@ -169,6 +169,7 @@ func irLit(c: var TCtx, n: PNode): IRIndex =
   c.irs.irLit((n, typ))
 
 func irImm(c: var TCtx, val: SomeInteger): IRIndex =
+  # TODO: ``ntkImm(ediate)`` needs to be used here
   c.irs.irLit (newIntNode(nkIntLit, BiggestInt(val)), c.passEnv.sysTypes[tyInt])
 
 template tryOrReturn(code): untyped =
@@ -1061,6 +1062,29 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     # ``genCall``, so we manually translate it
     assert n[2].typ.kind == tyTypeDesc
     result = c.irs.irCall(mOf, c.types.requestType(n.typ), c.genx(n[1]), c.genTypeLit(n[2].typ[0]))
+
+  of mOffsetOf:
+    # ``offsetOf`` is folded into a literal if the offset is known during
+    # sem - if it's not, the magic reaches here. It's currently also inserted
+    # by ``injectdestructors``. The expression gets transformed into:
+    # 
+    # .. code-block::nim
+    #   
+    #   # `offsetOf(a.b)`
+    #   offset
+    let dotExpr =
+      case n[1].kind
+      of nkDotExpr:          n[1]
+      of nkCheckedFieldExpr: n[1][0]
+      else: unreachable()
+
+    let objTyp = dotExpr[0].typ.skipTypes(abstractVarRange)
+
+    # the type of the path expression on the left *must* be the record type
+    # the member is located in - base types won't work
+    assert lookupInRecord(objTyp.n, dotExpr[1].sym.name) != nil
+
+    result = c.irs.irCall(mOffsetOf, c.types.requestType(n.typ), c.genTypeLit(dotExpr[0].typ), c.irImm(c.genField(dotExpr[1])))
 
   else:
     # TODO: return a bool instead and let the callsite call `genCall` in case
