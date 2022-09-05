@@ -1852,9 +1852,11 @@ proc genProcBody(c: var TCtx; s: PSym, body: PNode) =
 
     # TODO: what's the sfPure flag check needed for?
     if not s.typ[0].isEmptyType() and sfPure notin s.flags:
-      # TODO: respect ``sfNoInit``
       # important: the 'result' variable is not tracked in ``prc.variables``
-      discard c.genLocal(lkVar, s.ast[resultPos].sym)
+      let r = c.genLocal(lkVar, s.ast[resultPos].sym)
+      # initialize 'result'
+      if sfNoInit notin s.flags:
+        c.irs.irAsgn(askInit, c.irs.irLocal(r), c.irNull(s.typ[0]))
 
     gen(c, body)
 
