@@ -245,39 +245,6 @@ func initUntypedCtx*(graph: PassEnv, env: ptr IrEnv): UntypedPassCtx =
 # phase 5: VM code gen
 
 
-func nthField(n: PNode, pos: int): PSym =
-  case n.kind
-  of nkSym:
-    if n.sym.position == pos:
-      result = n.sym
-  of nkRecList:
-    for it in n.sons:
-      result = nthField(it, pos)
-      if result != nil:
-        return
-  of nkRecCase:
-    if n[0].sym.position == pos:
-      return n[0].sym
-
-    for i in 1..<n.len:
-      result = nthField(n[i].lastSon, pos)
-      if result != nil:
-        return
-  else:
-    unreachable(n.kind)
-
-# XXX: I'm very sure there exists a proc that does the same in the compiler
-#      code already
-func nthField(t: PType, pos: int): PSym =
-  # TODO: also traverse base types
-  assert t.kind == tyObject
-
-  if t.n != nil:
-    result = nthField(t.n, pos)
-
-  if result == nil and t.len > 0 and t[0] != nil:
-    result = nthField(t[0].skipTypes(skipPtrs), pos)
-
 func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
   result.newSeq(ir.len)
   var i = 0
