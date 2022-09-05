@@ -870,6 +870,8 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
   if cr.newNodes.len == 0:
     return
 
+  assert cr.nextIdx == ir.len + cr.newNodes.len
+
   var patchTable: seq[IRIndex]
   let oldLen = ir.len
   patchTable.newSeq(cr.nextIdx) # old ir len + insert node count
@@ -902,6 +904,13 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
   var insert = start # where to insert the next nodes
   var np = 0 # the read position in the newNodes buffer
 
+  for v in patchTable.mitems:
+    v = -1
+
+  template setP(i: int, v: untyped) =
+    assert patchTable[i] == -1
+    patchTable[i] = v
+
   # fill the patchTable for the nodes that aren't moved
   for i in 0..<start:
     patchTable[i] = i
@@ -912,11 +921,11 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
       copyMem(ir.sources, cr.traces, insert, np, slice.len)
 
     for j in 0..<slice.len:
-      patchTable[oldLen + np] = insert + j
+      setP(oldLen + np): insert + j
       inc np
 
     if kind: # replace
-      patchTable[p] = insert + slice.len - 1 # the replaced node
+      setP(p): insert + slice.len - 1 # the replaced node
 
       # we replaced a node, prevent it from being included in the following move
       inc p
@@ -940,6 +949,255 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
 
     let start = p
     while p < next:
+      setP(p): insert + (p - start)
+      inc p
+
+    copySrc += num
+    insert += num
+
+  # we've effectively done a ``move`` for all elements so we have to also zero
+  # the memory or else the garbage collector would clean up the traces
+  when useNodeTraces:
+    zeroMem(cr.traces)
+
+  # patch the node indices
+  for i, n in ir.nodes.mpairs:
+    patch(n, patchTable)
+
+type
+  Span = Slice[uint32]
+
+  Lengths = tuple
+    diff, nodes, literals, locals: int
+
+  DiffEntry = tuple
+    dst, src: Span
+
+  # XXX: a better approach would be for ``IrCursor`` to store a ``Changes``
+  #      object directly. This would remove the need for ``mergeInternal``,
+  #      since the changes can be directly accumulated into the changeset then.
+  #
+  #      The way changes are currently represented in ``IrCursor`` is a bit
+  #      more efficient than the representation used by ``Changes`` however.
+  #      Some way to support both would be nice.
+
+  # TODO: rename
+  Changes* = object
+    diff: seq[DiffEntry]
+    nodes: seq[IrNode3]
+
+    locals: seq[Local]
+    literals: seq[Literal]
+
+    lenDiff: int         ## additions + removals
+    start: IRIndex       ## the node position of the first item in ``nodes``
+    numJoins: int        ## the number of new join points
+    joinStart: JoinPoint ## the name of the first new join point
+
+    lengths: Lengths
+
+func collect(x: varargs[IrCursor]): Lengths =
+  for it in x.items:
+    result.nodes += it.newNodes.len
+    result.locals += it.newLocals.data.len
+    result.literals += it.newLiterals.data.len
+    result.diff += it.actions.len
+
+func resize(c: var Changes, lengths: Lengths) =
+  c.diff.setLen(lengths.diff)
+  c.nodes.setLen(lengths.nodes)
+
+func mergeInternal(dest: var Changes, other: IrCursor) =
+  ## Merges the changes collected in `other` into
+  var npos = dest.lengths.nodes
+
+  func copy[T](d: var seq[T], src: seq[T], i, p: int) =
+    if src.len > 0:
+      copyMem(d, src, i, p, src.len)
+
+  # first copy the new nodes from `other` into the changeset
+  copy(dest.nodes, other.newNodes, npos, 0)
+
+  template doPatch(x: var IRIndex) =
+    # all node indices past `dest.start` name nodes that are in the addition
+    # buffer
+    if x >= dest.start:
+      x = dest.lengths.nodes + x
+
+  # adjust references to nodes, literals, locals, and join points for the node
+  # additions collected by `other`
+  for it in npos..<npos+other.newNodes.len:
+    # XXX: `n` should be a ``var IrNode3`` instead
+    let n = addr dest.nodes[it]
+    case n.kind
+    of ntkLit:
+      n.litIdx += dest.lengths.literals
+    of ntkLocal:
+      n.local += dest.lengths.locals
+    of ntkGoto:
+      if n.gotoTarget >= dest.joinStart:
+        n.gotoTarget += dest.numJoins
+
+    of ntkJoin:
+      if n.joinPoint >= dest.joinStart:
+        n.joinPoint += dest.numJoins
+
+    of ntkCall:
+      if n.ckind == ckNormal:
+        doPatch(n.callee)
+
+    of ntkAsgn:
+      doPatch(n.wrDst)
+      doPatch(n.wrSrc)
+    of ntkUse, ntkConsume:
+      doPatch(n.theLoc)
+    of ntkAddr, ntkDeref:
+      doPatch(n.addrLoc)
+    of ntkBranch:
+      doPatch(n.cond)
+    of ntkPathObj:
+      doPatch(n.objSrc)
+    of ntkPathArr:
+      doPatch(n.arrSrc)
+      doPatch(n.idx)
+    of ntkConv, ntkCast:
+      doPatch(n.srcOp)
+    else:
+      discard
+
+  var
+    difference = 0
+    insert = dest.lengths.diff ## the
+
+  # add the ordered changeset from `other` to `dest`
+  for kind, slice in other.actions.items:
+    let
+      len = slice.b - slice.a
+      b = slice.a + ord(kind)
+
+    dest.diff[insert] = (uint32(slice.a)..uint32(b), uint32(npos)..uint32(npos + len))
+    npos += len + 1
+    # if a node is replaced, subtract '1':
+    difference -= ord(kind)
+    difference += len + 1
+
+    inc insert
+
+  dest.lenDiff += difference
+
+  dest.lengths.nodes += other.newNodes.len
+  dest.lengths.diff += other.actions.len
+  dest.lengths.locals += other.newLocals.data.len
+  dest.lengths.literals += other.newLiterals.data.len
+  dest.numJoins += other.nextJoinPoint - dest.joinStart
+
+func merge*(dest: var Changes, other: IrCursor) =
+  if other.newNodes.len == 0:
+    # nothing to do
+    return
+
+  dest.locals.add(other.newLocals.data)
+  dest.literals.add(other.newLiterals.data)
+  dest.nodes.setLen(dest.nodes.len + other.newNodes.len)
+  dest.diff.setLen(dest.diff.len + other.actions.len)
+
+  mergeInternal(dest, other)
+
+proc partition(a: var openArray[DiffEntry], lo, hi: int): int =
+  ## Simple implementation of the Hoare partitioning scheme
+  let pivot = a[(hi + lo) shr 1].dst.a
+  var i = lo - 1
+  var j = hi + 1
+  while true:
+    while true:
+      inc i
+      if a[i].dst.a >= pivot: break
+    while true:
+      dec j
+      if a[j].dst.a <= pivot: break
+    if i >= j:
+      return j
+    swap(a[i], a[j])
+
+proc quicksort*(a: var openArray[DiffEntry], lo, hi: int) =
+  ## An implementation of QuickSort, specialized for ``DiffEntry``
+  if lo < hi:
+    let p = partition(a, lo, hi)
+    quicksort(a, lo, p)
+    quicksort(a, p + 1, hi)
+
+func applyInternal(ir: var IrStore3, c: Changes) =
+  ## Applies the changeset `c` to `ir`. `c` is expected to be in the correct
+  ## state and both locals and literals need to copied separately
+  var patchTable: seq[IRIndex]
+  let oldLen = ir.len
+  patchTable.newSeq(oldLen + c.nodes.len)
+
+  ir.numJoins += c.numJoins
+
+  let start = c.diff[0].dst.a.int
+
+  # XXX: more removals than additions is currently not supported
+  assert c.lenDiff >= 0
+
+  ir.nodes.setLen(oldLen + c.lenDiff)
+  when useNodeTraces:
+    #ir.sources.setLen(oldLen + c.lenDiff)
+    discard
+
+  let L = oldLen - start
+  moveMem(ir.nodes, ir.nodes.len - L, start, L)
+  when useNodeTraces:
+    moveMem(ir.sources, ir.sources.len - L, start, L)
+
+  var
+    copySrc = ir.nodes.len - L # where to take
+    p = start # the position in the old node buffer where we're at
+    insert = start # where to insert the next nodes
+
+  # fill the patchTable for the nodes that aren't moved
+  for i in 0..<start:
+    patchTable[i] = i
+
+  for i, (dst, src) in c.diff.pairs:
+    copyMem(ir.nodes, c.nodes, insert, src.a.int, src.len)
+    when useNodeTraces:
+      # TODO: add back support for node traces
+      #copyMem(ir.sources, c.traces, insert, src.a.int, src.len)
+      discard
+
+    assert dst.a.int <= oldLen
+
+    for j in dst.a..<dst.b:
+      # if replacing, all references to the replaced nodes are redirected to
+      # the last node of the nodes that we're replacing with
+      patchTable[j] = insert + src.len - 1
+
+    for j in src.items:
+      let j = j.int ## the index into the additions buffer
+      patchTable[oldLen + j] = insert + (j - src.a.int)
+
+    assert dst.a <= dst.b
+    # if we replaced nodes, prevent them from being included in the following move
+    let skip = int(dst.b - dst.a)
+    p += skip
+    copySrc += skip
+
+    assert copySrc >= insert + src.len
+
+    inc insert, src.len
+
+    let
+      next = (if i+1 < c.diff.len: c.diff[i+1].dst.a.int else: oldLen)
+      num = next - p # number of elements to move
+    # regions can overlap -> use ``moveMem``
+    assert num >= 0
+    moveMem(ir.nodes, insert, copySrc, num)
+    when useNodeTraces:
+      moveMem(ir.sources, insert, copySrc, num)
+
+    let start = p
+    while p < next:
       patchTable[p] = insert + (p - start)
       inc p
 
@@ -954,3 +1212,71 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
   # patch the node indices
   for i, n in ir.nodes.mpairs:
     patch(n, patchTable)
+
+func apply*(ir: var IrStore3, c: sink Changes) =
+  ## Applies the changeset `c` to `ir`, consuming `c`
+  if c.diff.len == 0:
+    # nothing to do
+    return
+
+  # add the additions to both locals and literals to `ir`
+  ir.locals.add(c.locals)
+  reset(c.locals)
+  ir.literals.add(c.literals)
+  reset(c.literals)
+
+  # the changeset needs to be sorted by the modification position in ascending
+  # order. Instead of sorting them separately, the ``DiffEntry``s could be
+  # merged in the correct order during ``mergeInternal``, but profiling
+  # showed that there's little to no difference in time efficiency
+  # XXX: QuickSort was chosen because it works in-place, is simple to
+  #      implement, and is reasonably fast. It's not necessarily the best for
+  #      the use-case here however (i.e. a sequence of N already sorted
+  #      partitions)
+  quicksort(c.diff, 0, c.diff.high)
+
+  applyInternal(ir, c)
+
+func initChanges*(ir: IrStore3): Changes =
+  result.start = ir.len
+  result.joinStart = ir.numJoins
+
+func applyAll*(ir: var IrStore3, changes: varargs[IrCursor]) =
+  ## Applies all the changes collected by the given cursor to `ir`. Using
+  ## ``applyAll`` is more efficient than first merging each cursor into a
+  ## ``Changes`` object and then applying it to the target
+  var c = Changes(start: ir.len, joinStart: ir.numJoins)
+
+  let lens = collect(changes)
+  c.resize(collect(changes))
+
+  if lens.nodes == 0:
+    return # nothing to do
+
+  var
+    p1 = ir.locals.len
+    p2 = ir.literals.len
+
+  # resize the destination sequences in one go
+  ir.locals.setLen(ir.locals.len + lens.locals)
+  ir.literals.setLen(ir.literals.len + lens.literals)
+
+  func arrayCopy[T](dst: var openArray[T], src: openArray[T], dstP: var int, srcP: Natural) =
+    let p = dstP
+    let len = src.len
+    for i in 0..<len:
+      dst[i + p] = src[i + srcP]
+
+    dstP += len
+
+  # merge all changesets into `c`. Instead of copying the locals and literals
+  # into `c` first, they're directly copied to `ir`
+  for cr in changes.items:
+    c.mergeInternal(cr)
+
+    arrayCopy(ir.locals, cr.newLocals.data, p1, 0)
+    arrayCopy(ir.literals, cr.newLiterals.data, p2, 0)
+
+  quicksort(c.diff, 0, c.diff.high)
+
+  applyInternal(ir, c)
