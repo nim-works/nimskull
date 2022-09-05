@@ -1302,68 +1302,42 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
       let
         arg0 = ir.argAt(cr, 0)
         arg1 = ir.argAt(cr, 1)
-
-      let
         res = cr.newLocal(lkTemp, setType)
-        counter = cr.insertLocalRef(cr.newLocal(lkTemp, c.extra.getSysType(tyInt)))
-        loopExit = cr.newJoinPoint()
-        loop = cr.insertLoop()
 
-      # loop condition
-      cr.genIfNot(cr.binaryBoolOp(c.extra, mLeI, counter, cr.insertLit(0))):
-        cr.insertGoto(loopExit)
+      # apply the set operation to each byte in the array-based ``set``
+      cr.genForLoop(c.extra, cr.insertLit((len + 7) div 8)):
+        let v = genSetElemOp(cr, c.extra, m, c.extra.sysTypes[tyUInt8], cr.insertPathArr(arg0, counter), cr.insertPathArr(arg1, counter))
+        cr.insertAsgn(askInit, cr.insertPathArr(cr.insertLocalRef(res), counter), v)
 
-      let v = genSetElemOp(cr, c.extra, m, c.extra.sysTypes[tyUInt8], cr.insertPathArr(arg0, counter), cr.insertPathArr(arg1, counter))
-      cr.insertAsgn(askInit, cr.insertPathArr(cr.insertLocalRef(res), counter), v)
-
-      # counter
-      cr.insertAsgn(askCopy, counter, cr.insertMagicCall(c.extra, mAddI, tyInt, counter, cr.insertLit(1)))
-
-      cr.insertJoin(loopExit)
       discard cr.insertLocalRef(res)
 
     of mEqSet, mLeSet, mLtSet:
       let
         arg0 = ir.argAt(cr, 0)
         arg1 = ir.argAt(cr, 1)
-
-      let
         res = cr.newLocal(lkTemp, c.extra.getSysType(tyBool))
-        counter = cr.insertLocalRef(cr.newLocal(lkTemp, c.extra.getSysType(tyInt)))
-        loopExit = cr.newJoinPoint()
-        loop = cr.insertLoop()
 
       # start with ``res = true``
       cr.insertAsgn(askInit, cr.insertLocalRef(res), cr.insertLit(1))
 
-      # TODO: the loop is a basic for-loop. Move the common loop setup logic
-      #       into a template and replace all manual implementations with it
+      # iterate over all bytes in the set and perform the comparison:
+      cr.genForLoop(c.extra, cr.insertLit((len + 7) div 8)):
+        let
+          a = cr.insertPathArr(arg0, counter)
+          b = cr.insertPathArr(arg1, counter)
 
-      # loop condition
-      cr.genIfNot(cr.binaryBoolOp(c.extra, mLeI, counter, cr.insertLit(0))):
-        cr.insertGoto(loopExit)
+        let v =
+          case m
+          of mEqSet:         cr.binaryBoolOp(c.extra, mEqI, a, b)
+          of mLtSet, mLeSet: genSubsetRelOp(c.extra.sysTypes[tyUInt8], a, b, m == mLtSet, c.extra, cr)
+          else:              unreachable()
 
-      let
-        a = cr.insertPathArr(arg0, counter)
-        b = cr.insertPathArr(arg1, counter)
+        # if the comparison for the partial sets doesn't succeed, set the result
+        # to false and exit the loop
+        cr.genIfNot(v):
+          cr.insertAsgn(askCopy, cr.insertLocalRef(res), cr.insertLit(0))
+          cr.insertGoto(loopExit)
 
-      let v =
-        case m
-        of mEqSet:         cr.binaryBoolOp(c.extra, mEqI, a, b)
-        of mLtSet, mLeSet: genSubsetRelOp(c.extra.sysTypes[tyUInt8], a, b, m == mLtSet, c.extra, cr)
-        else:              unreachable()
-
-      # if the comparison for the partial sets doesn't succeed, set the result
-      # to false and exit the loop
-      cr.genIfNot(v):
-        cr.insertAsgn(askCopy, cr.insertLocalRef(res), cr.insertLit(0))
-        cr.insertGoto(loopExit)
-
-      # counter
-      cr.insertAsgn(askCopy, counter, cr.insertMagicCall(c.extra, mAddI, tyInt, counter, cr.insertLit(1)))
-      cr.insertGoto(loop)
-
-      cr.insertJoin(loopExit)
       discard cr.insertLocalRef(res)
 
     of mInSet:
