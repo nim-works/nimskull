@@ -1298,13 +1298,13 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
 
   else:
     case m
-    of mEqSet, mMulSet, mPlusSet, mMinusSet:
+    of mMulSet, mPlusSet, mMinusSet:
       let
         arg0 = ir.argAt(cr, 0)
         arg1 = ir.argAt(cr, 1)
 
       let
-        res = cr.newLocal(lkTemp, if m == mEqSet: c.extra.getSysType(tyBool) else: setType)
+        res = cr.newLocal(lkTemp, setType)
         counter = cr.insertLocalRef(cr.newLocal(lkTemp, c.extra.getSysType(tyInt)))
         loopExit = cr.newJoinPoint()
         loop = cr.insertLoop()
@@ -1314,15 +1314,7 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
         cr.insertGoto(loopExit)
 
       let v = genSetElemOp(cr, c.extra, m, c.extra.sysTypes[tyUInt8], cr.insertPathArr(arg0, counter), cr.insertPathArr(arg1, counter))
-
-      if m == mEqSet:
-        # --->
-        #   if a != b: break
-        cr.genIfNot(v):
-          cr.insertGoto(loopExit)
-
-      else:
-        cr.insertAsgn(askInit, cr.insertPathArr(cr.insertLocalRef(res), counter), v)
+      cr.insertAsgn(askInit, cr.insertPathArr(cr.insertLocalRef(res), counter), v)
 
       # counter
       cr.insertAsgn(askCopy, counter, cr.insertMagicCall(c.extra, mAddI, tyInt, counter, cr.insertLit(1)))
@@ -1330,7 +1322,7 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
       cr.insertJoin(loopExit)
       discard cr.insertLocalRef(res)
 
-    of mLeSet, mLtSet:
+    of mEqSet, mLeSet, mLtSet:
       let
         arg0 = ir.argAt(cr, 0)
         arg1 = ir.argAt(cr, 1)
@@ -1351,7 +1343,15 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
       cr.genIfNot(cr.binaryBoolOp(c.extra, mLeI, counter, cr.insertLit(0))):
         cr.insertGoto(loopExit)
 
-      let v = genSubsetRelOp(c.extra.sysTypes[tyUInt8], cr.insertPathArr(arg0, counter), cr.insertPathArr(arg1, counter), m == mLtSet, c.extra, cr)
+      let
+        a = cr.insertPathArr(arg0, counter)
+        b = cr.insertPathArr(arg1, counter)
+
+      let v =
+        case m
+        of mEqSet:         cr.binaryBoolOp(c.extra, mEqI, a, b)
+        of mLtSet, mLeSet: genSubsetRelOp(c.extra.sysTypes[tyUInt8], a, b, m == mLtSet, c.extra, cr)
+        else:              unreachable()
 
       # if the comparison for the partial sets doesn't succeed, set the result
       # to false and exit the loop
