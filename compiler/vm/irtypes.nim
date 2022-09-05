@@ -184,6 +184,27 @@ type TypeLookup* = object
   ## Data needed for mapping ``PType`` to the ``TypeId``
 
 type
+  RecordIter* = object
+    ## A `RecordIter` is a lightweight abstraction meant for iterating over
+    ## the `RecordNode`s in a record and querying for field related
+    ## information
+    isStart: bool      ## if the iterator is in it's pre-start position.
+                       ## Querying the iterator for information about the
+                       ## currently pointer-to record node is illegal when
+                       ## `isStart = true` - the iterator has to be moved first
+    # XXX: instead of having `isStart`, `index` could start at the starting
+    #      index - 1. It would have to be signed integer then however and we'd
+    #      also lose the ability to detect if the iterator is in the pre-start
+    #      position
+
+    index: uint32
+
+    fieldStart: uint32 ## the index of the record's first field in the
+                       ## ``field`` seq
+    posOffset: int32   ## adding this to the a field's index yields the
+                       ## field's position
+
+type
   DeferredTypeGen* = object
     map: Table[ItemId, TypeId] # type-id -> ``TypeId``
     typeInstCache: Table[ItemId, seq[PType]] ## maps a symbol ID of a generic
@@ -360,6 +381,7 @@ func `==`*(a, b: TypeId): bool {.borrow.}
 func `==`*(a, b: SymId): bool {.borrow.}
 func `==`*(a, b: ProcId): bool {.borrow.}
 func `==`*(a, b: DeclId): bool {.borrow.}
+func `==`*(a, b: RecordId): bool {.borrow.}
 
 func `inc`*(a: var RecordNodeIndex, val: int = 1) {.borrow.}
 
@@ -1641,3 +1663,70 @@ func mapTypes*(e: var SymbolEnv, g: DeferredTypeGen) =
     # XXX: not all symbols have type information - why?
     if it.typ != NoneType:
       it.typ = map(g, it.typ)
+
+func initRecordIter*(e: TypeEnv, id: TypeId): RecordIter =
+  ## Intializes a ``RecordIter`` for the record type with `id`. A call to
+  ## ``next|nextId`` will make the iterator point to the first node, if one
+  ## exists, in the record
+  let t = e[id]
+  assert t.kind == tnkRecord
+  result = RecordIter(isStart: true, index: t.record.toIndex,
+                      fieldStart: t.fieldStart.uint32,
+                      posOffset: t.fieldOffset)
+
+template moveToNext(it: RecordIter) =
+  it.index += ord(not it.isStart).uint32
+  it.isStart = false
+
+func next*(e: TypeEnv, it: var RecordIter): lent RecordNode {.inline.} =
+  # XXX: it would make more sense for `it` to be the first parameter, but it
+  #      can't, since the result needs to borrow from the first parameter
+  moveToNext(it)
+  result = e.records[it.index]
+
+func nextId*(e: TypeEnv, it: var RecordIter): RecordId {.inline.} =
+  # XXX: for consistency with ``next``, this proc also has `e` as the first
+  #      parameter
+  moveToNext(it)
+  result = toId(it.index, RecordId)
+
+func peekId*(e: TypeEnv, it: RecordIter): RecordId {.inline.} =
+  toId(it.index + ord(not it.isStart).uint32, RecordId)
+
+func getId*(it: RecordIter): RecordId {.inline.} =
+  assert not it.isStart
+  toId(it.index, RecordId)
+
+func field*(it: RecordIter, index: Natural): FieldId {.inline.} =
+  ## Returns the ID of the field with the given `index`. `index` is relative
+  ## to the start of the record, ignoring base types, and must name a valid
+  ## field
+
+  # XXX: it would be better to (instead of storing only the field start) store
+  #      the slice of fields that are part of the record, because we can then
+  #      validate that the `index` is not out-of-bounds
+  result = toId(it.fieldStart + index.uint32, FieldId)
+
+func fieldPos*(it: RecordIter, index: Natural): int32 =
+  # note that `posOffset` can have a negative value
+  result = index.int32 + it.posOffset
+
+iterator children*(iter: RecordIter, env: TypeEnv): RecordId =
+  ## Iterates over all *direct* child nodes of the node `iter` is pointing to
+  ## and yields their IDs
+  let L = env.records[iter.index].len
+  var i = iter.index + 1 # start at the first child
+  for _ in 0..<L:
+    yield toId(i, RecordId)
+
+    # move to the next child:
+    var last = i
+    while i <= last:
+      let n = env.records[i]
+      case n.kind
+      of rnkList, rnkBranch, rnkCase:
+        last += n.len
+      of rnkFields, rnkEmpty:
+        discard "no children"
+
+      inc i
