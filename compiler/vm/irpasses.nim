@@ -106,6 +106,19 @@ proc runPass*[T](irs: var IrStore3, ctx: var T, pass: LinearPass2[T]) =
   irs.update(cursor)
 
 
+proc runPass2*[T](irs: IrStore3, diff: var Changes, ctx: var T, pass: LinearPass2[T]) =
+  ## Applies `pass` to the given `irs` and adds changes to `diff`
+  var cr: IrCursor
+  cr.setup(irs)
+
+  var i = 0
+  for n in irs.nodes:
+    cr.setPos(i)
+    pass.visit(ctx, n, irs, cr)
+    inc i
+
+  diff.merge(cr)
+
 proc runV2*[G, L](s: var IrStore3, gs: var G, pass: CfPass[G, L]) =
   #mixin mergeFrom
   #mixin exec
