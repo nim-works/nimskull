@@ -837,10 +837,8 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
         arrTyp = c.typeof(arg(0))
 
       let
-        counter = cr.insertLocalRef(cr.newLocal(lkTemp, c.extra.sysTypes[tyInt]))
         elemCount = cr.insertLit(c.env.types.length(arrTyp))
         tmp = cr.newLocal(lkTemp, c.typeof(cr.position))
-        loopExit = cr.newJoinPoint()
 
       # TODO: this transformation shoud likely happen in a pass before
       #       seqs are lowered (maybe in ``irgen``)
@@ -853,18 +851,9 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
 
       # TODO: don't emit a loop if the source array is empty
       # TODO: maybe add back the small loop unrolling?
-      let start = cr.insertLoop()
+      cr.genForLoop(c.extra, elemCount):
+        cr.insertAsgn(askInit, cr.genSeqAt(c.extra, ir, cr.insertLocalRef(tmp), counter), cr.insertPathArr(arg(0), counter))
 
-      # loop condition
-      cr.genIfNot(cr.binaryBoolOp(c.extra, mLeI, counter, elemCount)):
-        cr.insertGoto(loopExit)
-
-      cr.insertAsgn(askInit, cr.genSeqAt(c.extra, ir, cr.insertLocalRef(tmp), counter), cr.insertPathArr(arg(0), counter))
-      cr.insertAsgn(askCopy, counter, cr.insertMagicCall(c.extra, mAddI, tyInt, counter, cr.insertLit(1)))
-
-      cr.insertGoto(start)
-
-      cr.insertJoin(loopExit)
       discard cr.insertLocalRef(tmp)
 
     of mAppendSeqElem:
