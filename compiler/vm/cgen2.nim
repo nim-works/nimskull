@@ -729,6 +729,13 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): CAst =
     of mNewString, mNewStringOfCap, mExit, mParseBiggestFloat: (mkCall, "")
     of mSizeOf: (mkCall, "sizeof")
     of mAlignOf: (mkCall, "NIM_ALIGNOF")
+    of mOffsetOf:
+      # --> offsetof(typename, fieldname)
+      let
+        a = gen(c, irs, arg(0))
+        typ = irs.getLit(irs.at(arg(0))).typ
+        b = irs.getLit(irs.at(arg(1))).val
+      return start().add(cnkCall, 2).ident(c.gl.idents, "offsetof").add(a).ident(c.gl.fieldIdents[c.env.types.nthField(typ, b.intVal.int).toIndex]).fin()
     of mMinI, mMaxI:
       # --> (a op b) ? a : b
       let
