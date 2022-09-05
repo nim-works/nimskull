@@ -25,6 +25,12 @@ template declareIdType*(
     assert not isNil(id), $id
     result = int(BaseType(id) - 1)
 
+  func succ*(id: `Name Id`): `Name Id` =
+    `Name Id`(BaseType(id) + 1)
+
+  func pred*(id: `Name Id`): `Name Id` =
+    `Name Id`(BaseType(id) + 1)
+
   func `to Name Id`*(idx: int): `Name Id` =
     result = `Name Id`(idx + 1)
 
@@ -86,6 +92,9 @@ template declareStoreType*(Name: untyped): untyped {.dirty.} =
 
   template `[]`*(store: var `Name Store`, index: `Name Id`): Name =
     store.data[toIndex(index)]
+
+  template last*(store: `Name Store`): Name =
+    store.data[store.data.high]
 
   iterator items*(store: `Name Store`): Name =
     for item in items(store.data):

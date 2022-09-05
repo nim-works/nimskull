@@ -93,7 +93,10 @@ const
   IndentWidth = 2
   longIndentWid = IndentWidth * 2
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 939ca47f5 (transition lexer to the DOD implementation)
 const
   MaxLineLen = 80
   LineCommentColumn = 30

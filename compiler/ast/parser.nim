@@ -98,6 +98,12 @@ proc simpleExprAux(p: var Parser, limit: int, mode: PrimaryMode): ParsedNode
 
 # implementation
 
+<<<<<<< HEAD
+=======
+template prettySection(body) =
+  body
+
+>>>>>>> 939ca47f5 (transition lexer to the DOD implementation)
 proc getTok(p: var Parser) =
   ## Get the next token from the parser's lexer, and store it in the parser's
   ## `tok` member.
@@ -160,6 +166,7 @@ proc rawSkipComment(p: var Parser, node: ParsedNode) =
       node.comment = move rhs
     else:
       p.localError InternalReport(kind: rintUnreachable, msg: "skipComment")
+
     p.getTok
 
 proc skipComment(p: var Parser, node: ParsedNode) =
@@ -1119,6 +1126,7 @@ proc parseExpr(p: var Parser): ParsedNode =
   #|       | forExpr
   #|       | tryExpr)
   #|       / simpleExpr
+<<<<<<< HEAD
   case p.tok.tokType:
     of tkBlock: result = parseBlock(p)
     of tkIf: result = p.parseIfOrWhenExpr(nkIfExpr)
@@ -1127,6 +1135,16 @@ proc parseExpr(p: var Parser): ParsedNode =
     of tkCase: result = parseCase(p)
     of tkTry: result = p.parseTry(isExpr=true)
     else: result = simpleExpr(p)
+=======
+  case p.tok.tokType
+  of tkBlock: result = parseBlock(p)
+  of tkIf: result = p.parseIfOrWhenExpr(nkIfExpr)
+  of tkFor: result = parseFor(p)
+  of tkWhen: result = p.parseIfOrWhenExpr(nkWhenExpr)
+  of tkCase: result = parseCase(p)
+  of tkTry: result = p.parseTry(isExpr=true)
+  else: result = simpleExpr(p)
+>>>>>>> 939ca47f5 (transition lexer to the DOD implementation)
 
 proc parseEnum(p: var Parser): ParsedNode
 proc parseObject(p: var Parser): ParsedNode
@@ -2245,6 +2263,7 @@ proc parseTopLevelStmt(p: var Parser): ParsedNode =
           p.localError ParserReport(kind: rparInvalidIndentation)
     p.firstTok = false
     case p.tok.tokType
+
     of tkSemiColon:
       p.getTok
       if p.tok.indent <= 0:
@@ -2252,7 +2271,10 @@ proc parseTopLevelStmt(p: var Parser): ParsedNode =
       else:
         p.localError ParserReport(kind: rparInvalidIndentation)
       p.firstTok = true
-    of tkEof: break
+
+    of tkEof:
+      break
+
     else:
       result = complexOrSimpleStmt(p)
       if result.kind == nkEmpty:

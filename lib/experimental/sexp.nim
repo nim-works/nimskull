@@ -388,6 +388,21 @@ proc getCons*(n: SexpNode, defaults: Cons = (newSNil(), newSNil())): Cons =
   elif n.kind == SList: return (n.elems[0], n.elems[1])
   else: return defaults
 
+proc `as`*(node: SexpNode, typ: typedesc[string]): string =
+  assert node.kind in { SString, SSymbol }
+  if node.kind == SSymbol:
+    result = node.getSymbol()
+
+  else:
+    result = node.getStr()
+
+
+proc `as`*[T: SomeInteger](node: SexpNode, typ: typedesc[T]): T =
+  return T(node.getNum())
+
+proc `as`*[T: SomeFloat](node: SexpNode, typ: typedesc[T]): T =
+  return T(node.getFNum())
+
 proc sexp*(s: string): SexpNode =
   ## Generic constructor for SEXP data. Creates a new `SString SexpNode`.
   result = SexpNode(kind: SString, str: s)
