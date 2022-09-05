@@ -329,6 +329,32 @@ proc insertMagicCall*(cr: var IrCursor, g: PassEnv, m: TMagic, t: TTypeKind, arg
 proc insertCompProcCall*(cr: var IrCursor, g: PassEnv, name: string, args: varargs[IRIndex]): IRIndex {.discardable.} =
   cr.insertCallExpr(g.compilerprocs[name], args)
 
+func insertLoop(cr: var IrCursor): JoinPoint
+
+# TODO: move to ``pass_helpers``
+template genForLoop*(cr: var IrCursor, g: PassEnv, len: IRIndex, body: untyped) =
+  ## Generates a for-loop with counting from '0' till the given `len` - 1. The
+  ## counter is accessible in from `body` via ``counter`` and the loop-exit
+  ## point via ``loopExit``
+  block:
+    let
+      lenVal = len
+      counter {.inject.} = cr.insertLocalRef(cr.newLocal(lkTemp, g.sysTypes[tyInt]))
+      loopExit {.inject.} = cr.newJoinPoint()
+      loop = insertLoop(cr)
+
+    # loop condition
+    cr.genIfNot(cr.insertCallExpr(mLeI, g.sysTypes[tyBool], counter, lenVal)):
+      cr.insertGoto(loopExit)
+
+    body
+
+    # increment the counter
+    cr.insertAsgn(askCopy, counter, cr.insertMagicCall(g, mAddI, tyInt, counter, cr.insertLit(1)))
+    cr.insertGoto(loop)
+
+    cr.insertJoin(loopExit)
+
 type TypedPassCtx* = object
   ## General context object for passes that require typed IR
   graph*: PassEnv
@@ -746,8 +772,6 @@ proc genStrConcat(cr: var IrCursor, g: PassEnv, tm: seq[TypeId], ir: IrStore3, e
     else: unreachable()
 
   result = cr.insertLocalRef(tmp)
-
-func insertLoop(cr: var IrCursor): JoinPoint
 
 proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers the `seq`-related magic operations into calls to the v1 `seq`
