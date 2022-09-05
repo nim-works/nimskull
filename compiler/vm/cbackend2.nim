@@ -568,15 +568,15 @@ proc generateCode*(g: ModuleGraph) =
   var lpCtx = LiftPassCtx(graph: passEnv, idgen: g.idgen, cache: g.cache)
   lpCtx.env = addr env
   var ttc = TypeTransformCtx(graph: passEnv, ic: g.cache)
+  var upc = initUntypedCtx(passEnv, addr env) # XXX: not mutated - should be ``let``
 
   block:
     # the lowering of ``echo`` for the C-targets has to happen *before*
     # transforming ``openArray``s because the pass inserts code that needs to
     # also be transformed by the latter
-    var ctx = initUntypedCtx(passEnv, addr env)
     for s, ir in mpairsId(procImpls, ProcId):
         logError(ir, env, s):
-          runPass(ir, ctx, lowerEchoPass)
+          runPass(ir, upc, lowerEchoPass)
 
   # the openArray lowering has to happen separately
   # TODO: explain why
@@ -589,41 +589,52 @@ proc generateCode*(g: ModuleGraph) =
   for s, irs in mpairsId(procImpls, ProcId):
       let orig = irs
       logError(irs, env, s):
+        # TODO: the ``hookPass`` can be batched together with the
+        #       ``lowerMatchPass``
+        # hooks need to be resolved before injecting the garbage collector
+        # related logic
         runPass(irs, initHookCtx(passEnv, irs, env), hookPass)
 
+        # the error-handling pass inserts new nodes (instead of replacing
+        # them), which might cause conflicts with other changes if performed
+        # concurrently. To be on the safe side, the changes are applied separately.
         lowerTestError(irs, passEnv, g.cache, env.types, env.procs, env.syms)
-        var rpCtx: RefcPassCtx
-        rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
-        runPass(irs, rpCtx, lowerRangeCheckPass)
 
         block:
+          # the changes done by this pass need to be visible to further
+          # passes, so it can't be run in the same batch
           var tpc: TypedPassCtx
           tpc.init(passEnv, addr env, irs)
           runPass(irs, tpc, lowerMatchPass)
 
-        rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
-        #runV2(irs, rpCtx, refcPass)
-        runPass(irs, rpCtx, refcPass)
-
-        # XXX: the ``lowerSets`` pass produces semantically invalid IR, but
-        #      the ``refcPass`` depends on the semantically valid IR, so the
-        #      set lowering has to happen after the latter
-        rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
-        runPass(irs, rpCtx, lowerSetsPass)
-
-        if optSeqDestructors in conf.globalOptions:
-          rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
-        else:
-          rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
-          runPass(irs, rpCtx, seqV1Pass)
-
         block:
-          var upc = initUntypedCtx(passEnv, addr env)
-          runPass(irs, upc, ofV1Pass)
+          # the following passes all modify/replace different nodes and don't
+          # depend on each others changes, so they're run concurrently
+          var diff = initChanges(irs)
 
-        runPass(irs, lpCtx, setConstPass)
-        runPass(irs, lpCtx, seqConstV1Pass)
-        runPass(irs, lpCtx, arrayConstPass)
+          var rpCtx: RefcPassCtx
+          rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
+          runPass2(irs, diff, rpCtx, lowerRangeCheckPass)
+          runPass2(irs, diff, rpCtx, lowerSetsPass)
+
+          runPass2(irs, diff, rpCtx, refcPass)
+
+          if optSeqDestructors in conf.globalOptions:
+            runPass2(irs, diff, rpCtx, seqV1Pass) #seqV2Pass)
+          else:
+            runPass2(irs, diff, rpCtx, seqV1Pass)
+
+          runPass2(irs, diff, upc, ofV1Pass)
+
+          runPass2(irs, diff, lpCtx, setConstPass)
+          runPass2(irs, diff, lpCtx, seqConstV1Pass)
+          runPass2(irs, diff, lpCtx, arrayConstPass)
+
+          apply(irs, diff)
+
+        # TODO: lifting the type info needs to happen after the alive
+        #       procedure detection. Otherwise, we're creating RTTI that isn't
+        #       actually used
         runPass(irs, lpCtx, typeV1Pass)
 
   block:

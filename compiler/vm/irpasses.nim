@@ -1442,8 +1442,7 @@ func liftLargeSets(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurso
       return
 
     let typ = c.env.types[lit.typ]
-    if typ.kind == tnkSet:
-      assert typ.length > 64, "untransformed small set literal"
+    if typ.kind == tnkSet and typ.length > 64:
       {.cast(noSideEffect).}:
         let bitset = toBitSet(nil, lit.val)
 

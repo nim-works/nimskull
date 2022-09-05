@@ -597,10 +597,11 @@ proc applyCTransforms*(c: CTransformEnv, ic: IdentCache, g: PassEnv, id: ProcId,
   var ctx = CTransformCtx(graph: g, env: addr env, transEnv: addr c)
   ctx.types = computeTypes(ir, env)
 
-  runPass(ir, ctx, transformPass)
-  ctx.types = computeTypes(ir, env)
-
-  runPass(ir, ctx, lowerClosuresPass)
+  block:
+    var diff = initChanges(ir)
+    runPass2(ir, diff, ctx, transformPass)
+    runPass2(ir, diff, ctx, lowerClosuresPass)
+    apply(ir, diff)
 
   if env.procs[id].callConv == ccClosure:
     # add the env param
