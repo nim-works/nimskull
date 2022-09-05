@@ -163,6 +163,16 @@ func irLit(c: var TCtx, n: PNode): IRIndex =
   let typ =
     if n.typ != nil:
       c.types.requestType(n.typ)
+    elif n.kind in nkStrLit..nkTripleStrLit:
+      # XXX: without type information, we cannot know if the string literal
+      #      is supposed to be a Nim-string or cstring, and so fall back to
+      #      unconditionally treating it as a Nim-string. Not doing so
+      #      would result in the code-generator treating it as a cstring
+      # TODO: instead of this workaround, each occurence in the compiler where
+      #       a string literal without type information is inserted needs to
+      #       corrected instead. One such occurence is ``genEnumToStrProc``.
+      {.noSideEffect.}:
+        c.types.requestType(c.graph.getSysType(unknownLineInfo, tyString))
     else:
       NoneType
 
