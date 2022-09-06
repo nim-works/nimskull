@@ -1115,13 +1115,30 @@ proc liftSeqConstsV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCur
       cr.replace()
       # at the current stage of processing, the cast would produce wrong
       # behaviour. However, during later processing, the type of the constant
-      # is changed to a specialized fixed-length seq type who's type is
-      # compatible with the transformed seq's underlying object type
+      # is changed to a specialized fixed-length seq type that is pointer
+      # compatible with ``TGenericSeq``
       # XXX: the mentioned later processing doesn't exist yet
       discard cr.insertCast(lit.typ, cr.insertAddr(cr.insertSym(s)))
 
     else:
       discard
+
+  of ntkSym:
+    let
+      s = ir.sym(n)
+      typ = c.env.syms[s].typ
+
+    case c.env.types.kind(typ)
+    of tnkString, tnkSeq:
+      # see the documentation of the ``seq``-literal lifting for the reason
+      # behind this transformation
+      # XXX: strictly speaking, this transformation is not part of the actual
+      #      lifting. Moving it to a separate does seem a bit overkill however
+      cr.replace()
+      discard cr.insertCast(typ, cr.insertAddr(cr.insertSym(s)))
+    else:
+      discard
+
   else:
     discard
 
