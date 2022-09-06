@@ -463,7 +463,7 @@ template `fieldOffset=`(x: var Type, val: int) =
   #      clear from the description
   x.b = cast[uint32](int32(val))
 
-template fieldOffset(x: Type): int32 =
+template fieldOffset*(x: Type): int32 =
   cast[int32](x.b)
 
 func getReturnType*(e: TypeEnv, t: TypeId): TypeId =
