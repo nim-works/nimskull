@@ -1099,6 +1099,23 @@ proc emitAndEscapeIf(f: File, c: GlobalGenCtx, ast: CAst, pos: var int, notSet: 
 proc writeChars[I: static int](f: File, arr: array[I, char]) {.inline.} =
   discard f.writeBuffer(addr(arr), I)
 
+func formatCChar(a: var array[4, char], ch: char): range[0..4] {.inline.} =
+  ## Escapes the character with value `ch`, if necessary, and writes the
+  ## result to `a`. Returns the length of the resulting string
+  case ch
+  of '\x00'..'\x1F', '\x7F'..'\xFF':
+    a[0] = '\\'
+    a[1] = 'x'
+    formatHexChar(a, 2, ord(ch).uint8)
+    4
+  of '\\', '\'', '\"':
+    a[0] = '\\'
+    a[1] = ch
+    2
+  else:
+    a[0] = ch
+    1
+
 proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
   if pos >= ast.len:
     for it in ast:
@@ -1193,15 +1210,11 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
   of cnkStrLit:
     f.write '"'
     let str = c.strings[n.a.LitId]
-    # XXX: escape the string prior to adding to ``c.strings``?
+    # XXX: escape the string prior to adding it to ``c.strings``?
     for ch in str.items:
-      if ch in '\x20'..'\x7F':
-        f.write ch
-      else:
-        var arr = ['\\', 'x', '0', '0']
-        formatHexChar(arr, 2, ord(ch).uint8)
-
-        f.writeChars arr
+      var arr: array[4, char]
+      let len = formatCChar(arr, ch)
+      discard f.writeBuffer(addr arr, len)
 
     f.write '"'
 
