@@ -160,10 +160,16 @@ proc effectSpec*(n: PNode, effectType: TSpecialWord): PNode =
       return
 
 proc unnestStmts(n, result: PNode) =
-  if n.kind == nkStmtList:
-    for x in items(n): unnestStmts(x, result)
-  elif n.kind notin {nkCommentStmt, nkNilLit}:
-    result.add(n)
+  case n.kind
+  of nkStmtList:
+    # xxx: we don't handle nkStmtListExpr, hmm
+    for x in items(n):
+      unnestStmts(x, result)
+  of nkCommentStmt, nkNilLit:
+    # QUESTION: why don't we drop empties? what about defer?
+    discard
+  else:
+    result.add n
 
 proc flattenStmts*(n: PNode): PNode =
   result = newNodeI(nkStmtList, n.info)
