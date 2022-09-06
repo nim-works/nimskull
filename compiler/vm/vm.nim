@@ -2843,7 +2843,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
 
       type TemporaryExceptionHack = ref object of CatchableError
 
-      var error = reportEmpty
+      var error = emptyReport
       let oldHook = c.config.structuredReportHook
       var ast: PNode
       c.config.structuredReportHook = proc(
@@ -2911,7 +2911,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
                              # manally to stay consistent with the old
                              # output.
 
-      c.errorFlag = reportEmpty
+      c.errorFlag = emptyReport
 
 
     of opcCallSite:

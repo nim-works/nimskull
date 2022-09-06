@@ -3661,9 +3661,11 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
 
   elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
     rotatedTrace(conf, r)
+    conf.m.reports.freeReport(r)
 
   elif wkind == writeForceEnabled:
     echo conf.reportFull(r)
+    conf.m.reports.freeReport(r)
 
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
     # REFACTOR 'processing with dots' - requires special hacks, pretty
@@ -3687,7 +3689,7 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
           msg.add(conf.reportFull(r))
 
         of repSemKinds:
-          if 0 < indent:
+          if indent > 0:
             for line in conf.reportFull(r).splitLines():
               msg.add("  ]" & repeat("  ", indent) & " ! " & line)
 
@@ -3703,7 +3705,8 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
     if conf.hack.bypassWriteHookForTrace:
       for item in msg:
         echo item
-
     else:
       for item in msg:
         conf.writeln(item)
+
+    conf.m.reports.freeReport(r)

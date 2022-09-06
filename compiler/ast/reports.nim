@@ -712,6 +712,7 @@ type
 
   Report* = object
     ## Toplevel wrapper type for the compiler report
+    reportId: ReportId
     case category*: ReportCategory
       of repLexer:
         lexReport*: LexerReport
@@ -759,9 +760,16 @@ static:
     echo "parser reports   = ", len(repParserKinds)
     echo "internal reports = ", len(repInternalKinds)
 
-let reportEmpty* = Report(
+const
+  emptyReportId* = ReportId(0)
+    ## report id for the `emptyReport`
+
+let emptyReport* = Report(
+  reportId: emptyReportId,
   category: repInternal,
   internalReport: InternalReport(kind: repNone))
+  ## used either as a sentinel report value it's usually an error if attempting
+  ## to output an emptyReport.
 
 template eachCategory*(report: Report, field: untyped): untyped =
   case report.category:
@@ -931,17 +939,33 @@ type
 func incl*(s: var ReportSet, id: ReportId) = s.ids.incl uint32(id)
 func contains*(s: var ReportSet, id: ReportId): bool = s.ids.contains uint32(id)
 
-func addReport*(list: var ReportList, report: sink Report): ReportId =
+func isEmptyReport*(report: Report): bool {.inline.} =
+  report.category == repInternal and report.internalReport.kind == repNone
+
+proc addReport*(list: var ReportList, report: sink Report): ReportId =
   ## Add report to the report list
   list.list.add report
   result = ReportId(uint32(list.list.high) + 1)
+
+  # xxx: perhaps make an empty category instead?
+  if not report.isEmptyReport:
+    report.reportId = result
 
 func addReport*[R: ReportTypes](list: var ReportList, report: R): ReportId =
   addReport(list, wrap(report))
 
 func getReport*(list: ReportList, id: ReportId): Report =
-  ## Get report from the report list using it's id
+  ## Get report from the report list using its id
   list.list[int(uint32(id)) - 1]
+
+proc freeReport*(list: var ReportList, report: Report) =
+  ## In non-debug builds replaces the report in the report list with an
+  ## `emptyReport`, should improve performance
+  when defined(debug):
+    discard
+  else:
+    if report.reportId.uint32 > 0:
+      list.list[int(uint32(report.reportId)) - 1] = emptyReport
 
 
 func actualType*(r: SemReport): PType = r.typeMismatch[0].actualType

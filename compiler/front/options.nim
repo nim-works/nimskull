@@ -508,12 +508,12 @@ proc report*(conf: ConfigRef, id: ReportId): TErrorHandling =
   ## .. note:: This check is done only for reports that are generated via
   ##           IDs, because that's the only way report can (supposedly)
   ##           enter the error message system twice.
-  return conf.report(conf.m.reports.getReport(id))
+  result = conf.report(conf.m.reports.getReport(id))
 
 proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
   ## Write out report from the nkError node
   assert node.kind == nkError
-  return conf.report(node.reportId)
+  result = conf.report(node.reportId)
 
 template report*[R: ReportTypes](
     conf: ConfigRef, inReport: R): TErrorHandling =

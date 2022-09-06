@@ -725,7 +725,7 @@ proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph; idgen: IdGenerator
     loopIterations: g.config.maxLoopIterationsVM,
     comesFromHeuristic: unknownLineInfo,
     callbacks: @[],
-    errorFlag: reportEmpty,
+    errorFlag: emptyReport,
     cache: cache,
     config: g.config,
     graph: g,
