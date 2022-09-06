@@ -602,6 +602,16 @@ template start(): CAstBuilder =
   var b: CAstBuilder
   b
 
+template buildAst(code: untyped): CAst =
+  var builder {.inject.}: CAstBuilder
+  code
+  builder.fin()
+
+template void(c: CAstBuilder) =
+  ## Convenience routine meant for discarding the result of a builder call
+  ## chain
+  discard c
+
 func add(c: var CAstBuilder, kind: CAstNodeKind; a, b: uint32 = 0): var CAstBuilder =
   result = c
   c.ast.add (kind, a, b)
@@ -770,38 +780,7 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): CAst =
 
     result = builder.fin()
 
-func genLit(dest: var CAstBuilder, c: var GenCtx, val: PNode): var CAstBuilder =
-  case val.kind
-  of nkIntLit:
-    result = dest.intLit(val.intVal.BiggestUInt)
-  else:
-    result = dest.add genError(c, fmt"missing: {val.kind}")
-
-func genBracedInit(dest: var CAstBuilder, c: var GenCtx, n: PNode): var CAstBuilder {.discardable.} =
-  result = dest
-  case n.kind
-  of nkBracket, nkTupleConstr:
-    if n.kind == nkBracket:
-      # arrays are wrapped in a struct so a surrounding initializer is needed
-      discard dest.add(cnkBraced, 1)
-
-    discard dest.add(cnkBraced, n.len.uint32)
-    for it in n:
-      genBracedInit(dest, c, it)
-
-  of nkLiterals:
-    discard genLit(dest, c, n)
-
-  else:
-    discard dest.add genError(c, fmt"genBracedInit: {n.kind}")
-
-
-func genLit(c: var GenCtx, literal: Literal): CAst =
-  let lit = literal.val
-  if lit == nil:
-    # `nil` as the value is used for type literals
-    return start().add(cnkType, mapTypeV2(c, literal.typ).uint32).fin()
-
+func genLit(ast: var CAstBuilder, c: var GenCtx, lit: PNode, typ: TypeId) =
   case lit.kind
   of nkIntLit..nkInt64Lit:
     if lit.intVal < 0:
@@ -810,30 +789,36 @@ func genLit(c: var GenCtx, literal: Literal): CAst =
       # XXX: Nim doesn't guarantee that a signed integer is stored in
       #      two's-complement encoding
       let abs = not(cast[BiggestUInt](lit.intVal)) + 1
-      start().add(cnkPrefix).ident(c.gl.idents, "-").intLit(abs).fin()
+      ast.add(cnkPrefix).ident(c.gl.idents, "-").intLit(abs).void()
     else:
-      start().intLit(lit.intVal.BiggestUInt).fin()
+      ast.intLit(lit.intVal.BiggestUInt).void()
   of nkUIntLit..nkUInt64Lit:
-    start().intLit(cast[BiggestUInt](lit.intVal)).fin()
+    ast.intLit(cast[BiggestUInt](lit.intVal)).void()
   of nkCharLit:
     assert lit.intVal in 0..255
-    start().add(cnkCharLit, lit.intVal.uint32).fin()
+    ast.add(cnkCharLit, lit.intVal.uint32).void()
   of nkFloatLit, nkFloat64Lit:
-    start().floatLit(lit.floatVal).fin()
+    ast.floatLit(lit.floatVal).void()
   of nkFloat32Lit:
-    start().add(cnkFloat32Lit, cast[uint32](lit.floatVal.float32)).fin()
+    ast.add(cnkFloat32Lit, cast[uint32](lit.floatVal.float32)).void()
   # TODO: what about ``nkFloat128Lit``? The other code-generators seem to be ignoring them/raising an internal error
   of nkStrLit..nkTripleStrLit:
     # XXX: some passes insert string literals without type information. It's supported for now
-    assert literal.typ == NoneType or c.env.types[literal.typ].kind == tnkCString
+    assert typ == NoneType or c.env.types[typ].kind == tnkCString
     # treat as cstring
-    start().strLit(c.gl.strings, lit.strVal).fin()
+    ast.strLit(c.gl.strings, lit.strVal).void()
   of nkNilLit:
-    start().ident(c.gl.idents, "NIM_NIL").fin()
-  of nkBracket, nkTupleConstr:
-    start().genBracedInit(c, lit).fin()
+    ast.ident(c.gl.idents, "NIM_NIL").void()
   else:
-    genError(c, fmt"missing lit: {lit.kind}")
+    ast.add(genError(c, fmt"missing lit: {lit.kind}")).void()
+
+func genLit(c: var GenCtx, literal: Literal): CAst =
+  let lit = literal.val
+  if lit == nil:
+    # `nil` as the value is used for type literals
+    start().add(cnkType, mapTypeV2(c, literal.typ).uint32).fin()
+  else:
+    buildAst: genLit(builder, c, lit, literal.typ)
 
 func accessSuper(ast: var CAstBuilder, depth: int, start: CAst, supName: CIdent): var CAstBuilder =
   result = ast
