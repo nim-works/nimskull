@@ -810,6 +810,8 @@ func genLit(ast: var CAstBuilder, c: var GenCtx, lit: PNode, typ: TypeId) =
   of nkNilLit:
     ast.ident(c.gl.idents, "NIM_NIL").void()
   else:
+    # TODO: use ``unreachable`` again
+    #unreachable(lit.kind)
     ast.add(genError(c, fmt"missing lit: {lit.kind}")).void()
 
 func genLit(c: var GenCtx, literal: Literal): CAst =
@@ -819,6 +821,189 @@ func genLit(c: var GenCtx, literal: Literal): CAst =
     start().add(cnkType, mapTypeV2(c, literal.typ).uint32).fin()
   else:
     buildAst: genLit(builder, c, lit, literal.typ)
+
+func startArrayInitializer(ast: var CAstBuilder, len: uint) =
+  # arrays are wrapped into a struct, so double braces have to be used
+  ast.add(cnkBraced, 1).void() # <- for the wrapper struct
+  # XXX: only array literals with a len <= 2^32 are supported...
+  ast.add(cnkBraced, len.uint32).void()
+
+func genDefaultVal(ast: var CAstBuilder, c: var GenCtx, id: TypeId) =
+  ## Generates the default value for the type with the given `id`
+  case c.env.types.kind(id)
+  of tnkBool, tnkChar, tnkInt, tnkUInt:
+    ast.intLit(0).void()
+  of tnkPtr, tnkRef:
+    ast.ident(c.gl.idents, "NIM_NIL").void()
+
+  of tnkArray:
+    let L = c.env.types.length(id)
+    startArrayInitializer(ast, L)
+
+    if L == 0:
+      # empty array; early out
+      return
+
+    # the default value is the same across all elements, so we only create it
+    # once and then re-use it
+    let tmp = buildAst: builder.genDefaultVal(c, c.env.types.base(id))
+    for _ in 0..<L:
+      discard ast.add(tmp)
+
+  of tnkRecord:
+    let
+      t = c.env.types[id]
+      numFields = c.env.types.numFields(id)
+      # TODO: a ``RecordIter`` is often used to only query field related
+      #       information. Maybe we also need a ``FieldIter``?
+      iter = initRecordIter(c.env.types, id)
+
+    ast.add(cnkBraced, uint32(numFields + ord(t.base != NoneType))).void()
+    if t.base != NoneType:
+      # the base type is also stored as a field
+      ast.genDefaultVal(c, t.base)
+
+    # TODO: variant objects need to be supported too!
+
+    # fill in the default value for each field
+    for i in 0..<numFields:
+      ast.genDefaultVal(c, c.env.types[iter.field(i)].typ)
+
+  else:
+    unreachable(c.env.types.kind(id))
+
+func genBracedObjConstr(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data: PNode): int
+func genBracedObjConstrPos(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data: PNode)
+
+# TODO: rename to ``genBracedInitializer``
+func genConstInitializer(ast: var CAstBuilder, c: var GenCtx, data: PNode, id: TypeId): var CAstBuilder =
+  # XXX: the fact that a mutable context (`c`) is required is a bit meh
+  result = ast
+
+  # first check if the initializer is a reference to another constant 
+  case data.kind
+  of nkRefTy:
+    # a reference to a constant. The symbol *index* (not ID) is stored as an
+    # ``nkIntLit`` in the first sub-node
+    # XXX: we mis-use the ``ModuleCtx`` that is part of `c` to store the dependencies
+    c.m.syms.incl SymId(data[0].intVal + 1)
+    return ast.ident(c.gl.symIdents[data[0].intVal])
+  of nkPtrTy:
+    # similar to ``nkRefTy`` above, with the difference that we want the address
+    c.m.syms.incl SymId(data[0].intVal + 1)
+    return ast.emitAddr(c.gl.idents).ident(c.gl.symIdents[data[0].intVal])
+  else:
+    # no special handling
+    discard
+
+  case c.env.types.kind(id)
+  of tnkChar, tnkBool, tnkInt, tnkUInt, tnkFloat, tnkCString, tnkPtr:
+    assert data.kind notin {nkBracket, nkTupleConstr}
+    ast.genLit(c, data, id)
+  of tnkRef:
+    assert data.kind == nkNilLit
+    ast.genLit(c, data, id)
+  of tnkProc:
+    assert data.kind == nkProcTy
+    c.m.funcs.incl ProcId(data[0].intVal + 1)
+    discard ast.ident(c.gl.funcs[data[0].intVal].ident)
+  of tnkArray:
+    let elemType = c.env.types.base(id)
+    case data.kind
+    of nkStrLit..nkTripleStrLit:
+      # XXX: special case; will get much cleaner once we get a dedicated
+      #      literal-data IR
+      discard ast.strLit(c.gl.strings, data.strVal)
+    of nkBracket:
+      # --> {..., ..., ...}
+      startArrayInitializer(ast, data.len.uint)
+      for n in data.items:
+        discard genConstInitializer(ast, c, n, elemType)
+
+    else:
+      unreachable(data.kind)
+
+  of tnkRecord:
+    case data.kind
+    of nkObjConstr:
+      discard genBracedObjConstr(ast, c, id, data)
+    of nkTupleConstr:
+      genBracedObjConstrPos(ast, c, id, data)
+    else:
+      unreachable(data.kind)
+
+  of tnkString, tnkSeq:
+    # strings and seq are required to be lowered earlier
+    unreachable("untransformed seq literal")
+  else:
+    unreachable()
+
+func genBracedObjConstr(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data: PNode): int =
+  ## Returns the number of sub-nodes processed in `data` so far
+  let
+    base = c.env.types.base(id)
+    numFields = c.env.types.numFields(id)
+
+  # in the layout used for the C target, the base type is a member field
+  # itself
+  ast.add(cnkBraced, uint32(numFields + ord(base != NoneType))).void()
+
+  if base != NoneType:
+    result = genBracedObjConstr(ast, c, id, data)
+  else:
+    # the first child of a ``nkObjConstr`` is the type - skip it by starting
+    # at index 0
+    result = 1
+
+  let
+    # we use a ``RecordIter`` to query information about the fields
+    iter = c.env.types.initRecordIter(id)
+    start = iter.fieldPos(0)
+    last = start + numFields - 1
+
+  # TODO: support for variant objects is missing
+
+  # walk each field in the record type. For each field that doesn't have a
+  # corresponding value in `data`, the type's default value is used
+  for i in start..last:
+    let n = if result < data.len: data[result] else: nil
+    if n != nil and n[0].sym.position == i:
+      genConstInitializer(ast, c, n[1], c.env.types[iter.field(i)].typ).void()
+
+      # move the cursor into `data` to the next child
+      inc result
+    else:
+      assert n == nil or n[0].sym.position > i
+      # each field must have an initializer expression when using a braced
+      # initializer - use a default value if none is specified by `data`
+      genDefaultVal(ast, c, id)
+
+func genBracedObjConstrPos(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data: PNode) =
+  ## Generates the braced initializer for an object based using positional
+  ## construction (``nkTupleConstr``) 
+  assert data.kind == nkTupleConstr
+
+  #assert c.env.types.base(id) == NoneType
+  let 
+    base = c.env.types.base(id)
+    start = ord(base != NoneType)
+
+  assert c.env.types.numFields(id) + start == data.len
+  ast.add(cnkBraced, uint32(data.len)).void()
+
+  func skipColon(n: PNode): PNode {.inline.} =
+    if n.kind == nkExprColonExpr:
+      n[1]
+    else:
+      n
+
+  # if there's a base type, the first item is it's initializer 
+  if base != NoneType:
+    discard genConstInitializer(ast, c, data[0].skipColon(), base)
+
+  let iter = c.env.types.initRecordIter(id)
+  for i in start..<data.len:
+    discard genConstInitializer(ast, c, data[i].skipColon(), c.env.types[iter.field(i-start)].typ)
 
 func accessSuper(ast: var CAstBuilder, depth: int, start: CAst, supName: CIdent): var CAstBuilder =
   result = ast
