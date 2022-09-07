@@ -1425,17 +1425,7 @@ func liftLargeSets(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurso
 
     let typ = c.env.types[lit.typ]
     if typ.kind == tnkSet and typ.length > 64:
-      {.cast(noSideEffect).}:
-        let bitset = toBitSet(nil, lit.val)
-
-      # XXX: very inefficient and wasteful, but until a dedicated literal IR
-      #      gets introduced, the simplest solution
-      let arr = newNode(nkBracket)
-      # iterate over the set's bytes and add them to the array
-      for it in bitset.items:
-        arr.add newIntNode(nkUInt8Lit, BiggestInt(it))
-
-      let s = c.addConst(lit.typ, "setConst", arr)
+      let s = c.addConst(lit.typ, "setConst", lit.val)
 
       cr.replace()
       discard cr.insertSym(s)
@@ -2098,10 +2088,7 @@ func transformSetConsts*(pe: PassEnv, syms: var SymbolEnv, types: var TypeEnv) =
       if types.kind(s.typ) == tnkSet:
         let data = syms.data(id)
 
-        # lifted set literals are already transformed...
-        # TODO: ...but maybe they shouldn't be. Performing the set
-        #       transformation in one place (i.e. here) sounds much better
-        if data.kind == nkCurly:
+        block:
           if types.length(s.typ) > 64:
             {.cast(noSideEffect).}:
               let bitset = toBitSet(nil, data)
