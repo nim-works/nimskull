@@ -317,6 +317,8 @@ type
     #      exist quite a few already - it's located here for now
     decls: seq[DeclarationV2] ## indexed by ``DeclId``
 
+    constData: Table[SymId, PNode] ## stores the associated data for constants
+
     # XXX: `orig` will likely be removed/replaced later on
     orig*: Table[SymId, PSym] # stores the associated ``PSym`` for a symbol. Currently meant to be used by the code-generators.
 
@@ -808,6 +810,10 @@ func flush*(def: sink DeferredSymbols, ic: IdentCache, env: var SymbolEnv) =
     env.symbols[idx] = Symbol(kind: s.kind, position: s.position, magic: s.magic, flags: s.flags)
     env.symbols[idx].decl.init(ic, s)
 
+    if s.kind == skConst:
+      # associate a constant with it's data
+      env.constData[id] = s.astdef
+
     # remember the source
     env.orig[id] = s
 
@@ -1254,6 +1260,18 @@ func addDecl*(e: var SymbolEnv, name: PIdent): DeclId =
   ## Adds a new declaration with the given `name` and returns it's ID
   e.decls.add DeclarationV2(name: name)
   result = e.decls.len.DeclId
+
+func data*(e: SymbolEnv, id: SymId): PNode =
+  # TODO: globals and constants should each get their own namespace and seq.
+  #       If not, both should atleast get their own ID type (which would be a
+  #       ``distinct SymId``)
+  assert e[id].kind == skConst
+  result = e.constData[id]
+
+func setData*(e: var SymbolEnv, id: SymId, data: PNode) =
+  ## Sets the data that is associated with the constant name by `id` to `data`
+  assert e[id].kind == skConst
+  e.constData[id] = data
 
 iterator items*(e: SymbolEnv): SymId =
   var i = 0

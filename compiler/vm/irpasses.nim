@@ -1061,7 +1061,8 @@ func addGlobal*(c: var LiftPassCtx, t: TypeId, name: string): SymId =
   c.env.syms.addSym(skLet, t, c.cache.getIdent(name), {sfGlobal}) # XXX: uh-oh, hidden mutation
 
 func addConst*(c: var LiftPassCtx, t: TypeId, name: string, val: PNode): SymId =
-  c.env.syms.addSym(skConst, t, c.cache.getIdent(name))
+  result = c.env.syms.addSym(skConst, t, c.cache.getIdent(name))
+  c.env.syms.setData(result, val)
 
 proc liftSeqConstsV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   # XXX: we reuse the ``LiftPassCtx`` for now, but it's currently not really
