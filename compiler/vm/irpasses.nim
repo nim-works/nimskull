@@ -910,18 +910,26 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
         a = arg(0)
         b = arg(1)
 
-      func isEmptyStr(n: PNode): bool = n.strVal.len == 0
+      func isEmptyStr(ir: IrStore3, i: IRIndex): bool =
+        let n = ir.at(i)
+        n.kind == ntkLit and ir.getLit(n).val.strVal.len == 0
 
       cr.replace()
       # optimize the case where either 'a' or 'b' is an empty string
       # literal
-      # TODO: too much code duplication...
-      if isLiteral(ir, a) and ir.getLit(ir.at(a)).val.isEmptyStr():
-        cr.binaryBoolOp(c.extra, mEqI, genSeqLen(cr, c.extra, ir, b), cr.insertLit(0))
-      elif isLiteral(ir, b) and ir.getLit(ir.at(b)).val.isEmptyStr():
-        cr.binaryBoolOp(c.extra, mEqI, genSeqLen(cr, c.extra, ir, a), cr.insertLit(0))
-      else:
+      let nonEmptyIdx =
+        if   isEmptyStr(ir, a): b
+        elif isEmptyStr(ir, b): a
+        else: InvalidIndex
+
+      if nonEmptyIdx == InvalidIndex:
+        # both operands are not statically empty
         cr.insertCompProcCall(c.extra, "eqStrings", a, b)
+      else:
+        # we still call ``len`` for an empty string in the case that both
+        # operands are empty strings, but since that case is highly unlikely,
+        # it doesn't get special handling
+        discard cr.binaryBoolOp(c.extra, mEqI, genSeqLen(cr, c.extra, ir, nonEmptyIdx), cr.insertLit(0))
 
     of mLeStr, mLtStr:
       # same implementation for v1 and v2
