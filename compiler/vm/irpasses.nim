@@ -874,7 +874,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       let seqLen = cr.accessSeqField(ir, seqVal, SeqV1LenField)
       let tmp = cr.genTempOf(seqLen, c.extra.sysTypes[tyInt])
 
-      cr.insertAsgn(askCopy, seqLen, cr.insertLit(1))#cr.insertMagicCall(c.extra, mAddI, cr.insertLocalRef(tmp), cr.insertLit(1)))
+      cr.insertAsgn(askCopy, seqLen, cr.insertMagicCall(c.extra, mAddI, tyInt, cr.insertLocalRef(tmp), cr.insertLit(1)))
       # the value is a sink parameter so we can use a move
       # XXX: we're running after the inject-hook pass, so we either need to
       #      reorder the passes or manually insert a hook call here
