@@ -429,12 +429,21 @@ proc drain(c: var TCtx, conf: ConfigRef, env: var IrEnv, code: var seq[IrStore3]
       for sym in c.collectedConsts.items:
         collectRoutineSyms(astdef(sym), b, seenProcs)
 
-      # clear the list so that the loop invariant mentioned above holds
-      c.collectedConsts.setLen(0)
-
       # register the routines with the environment
       for i in start..<b.len:
         discard c.procs.requestProc(b[i])
+
+      if start < b.len:
+        # with the routines registered, we do an early transform pass over the
+        # constants that turns the ``nkSym`` nodes for routines into an
+        # representation that stores the proc's ID
+        for sym in c.collectedConsts.items:
+          # we need to persist the transformed node so that the deferred
+          # symbol translation knows about it later
+          sym.ast = earlyTransformConst(astdef(sym), c.procs)
+
+      # clear the list so that the loop invariant mentioned above holds
+      c.collectedConsts.setLen(0)
 
     # flush deferred types already to reduce memory usage a bit
     c.types.flush(env.types, c.defSyms, conf)
@@ -656,6 +665,22 @@ proc generateCode*(g: ModuleGraph) =
         #       procedure detection. Otherwise, we're creating RTTI that isn't
         #       actually used
         runPass(irs, lpCtx, typeV1Pass)
+
+
+  block:
+    # perform the C-target specific constant-data transformations. This has to
+    # happen *before* lowering types, as we need the original types
+
+    # first, lift ``set|string|seq`` literals that are part of other constants
+    # into their own constants
+    liftSetConsts(env.syms, g.cache.getIdent("setConst"), env.types)
+    liftSeqConstsV1(env.syms, g.cache.getIdent("seqConst"), env.types)
+
+    transformSetConsts(passEnv, env.syms, env.types)
+    if optSeqDestructors in conf.globalOptions:
+      discard
+    else:
+      transformSeqConstsV1(passEnv, env.syms, env.types)
 
   block:
     # we don't know the owning module of the types corresponding to the
