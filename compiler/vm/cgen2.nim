@@ -88,6 +88,16 @@ type
   # TODO: rename
   FuncId = distinct uint32
 
+  COperator = enum
+    ## Currently only meant to name operators without having to
+    ## use the string representations directly.
+    # XXX: these could be sorted by precedence
+    copAdd = "+", copSub = "-", copMul = "*", copDiv="/", copMod="%",
+    copNot = "!"
+    copBitnot = "~", copBitand="&", copBitor="|", copBitxor="^"
+    copShl="<<", copShr=">>"
+    copEq="==", copNEq="!=", copLt="<", copLe="<=", copGt=">", copGe=">=" # comparison
+    copAsgn="="
 
   CAstNodeKind = enum
     ## Syntactic node
@@ -104,6 +114,8 @@ type
     cnkGoto
 
     cnkBraced # braced anonymous initializer
+
+    cnkOpToken
 
     cnkCast
 
@@ -646,15 +658,15 @@ func add(c: var CAstBuilder, other: CAst): var CAstBuilder =
   result = c
   c.ast.add(other)
 
-func emitDeref(c: var CAstBuilder, idents: var IdentCache): var CAstBuilder =
+func emitDeref(c: var CAstBuilder): var CAstBuilder =
   result = c
   c.ast.add cnkPrefix
-  c.ast.add cnkIdent, idents.getOrIncl("*").uint32
+  c.ast.add cnkOpToken, copMul.ord.uint32
 
-func emitAddr(c: var CAstBuilder, idents: var IdentCache): var CAstBuilder =
+func emitAddr(c: var CAstBuilder): var CAstBuilder =
   result = c
   c.ast.add cnkPrefix
-  c.ast.add cnkIdent, idents.getOrIncl("&").uint32
+  c.ast.add cnkOpToken, copBitand.ord.uint32
 
 func ident(c: var CAstBuilder, idents: var IdentCache, name: string): var CAstBuilder =
   result = c
@@ -664,6 +676,10 @@ func ident(c: var CAstBuilder, ident: CIdent): var CAstBuilder =
   assert ident != InvalidCIdent
   result = c
   c.ast.add cnkIdent, ident.uint32
+
+func op(c: var CAstBuilder, op: COperator): var CAstBuilder =
+  result = c
+  c.ast.add cnkOpToken, op.ord.uint32
 
 func intLit(c: var CAstBuilder, v: BiggestUInt): var CAstBuilder =
   result = c
@@ -731,31 +747,62 @@ type MagicKind = enum
   mkBinary
   mkCall
 
+func genSimpleMagic(c: var CAstBuilder, ctx: GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): bool =
+  let (kind, op) =
+    case m
+    of mNot: (mkUnary, copNot)
+    of mXor: (mkBinary, copNEq)
+    of mEqRef, mEqCh, mEqI, mEqB, mEqEnum, mEqF64, mEqProc: (mkBinary, copEq)
+    of mBitandI: (mkBinary, copBitand)
+    of mBitorI: (mkBinary, copBitor)
+    of mBitxorI: (mkBinary, copBitxor)
+    of mBitnotI: (mkUnary, copBitnot)
+    of mShlI: (mkBinary, copShl)
+    of mShrI, mAshrI: (mkBinary, copShr)
+    of mAddU, mAddI, mSucc, mAddF64: (mkBinary, copAdd)
+    of mSubU, mSubI, mPred, mSubF64: (mkBinary, copSub)
+    of mUnaryMinusI, mUnaryMinusI64, mUnaryMinusF64: (mkUnary, copSub)
+    of mUnaryPlusI, mUnaryPlusF64: (mkUnary, copAdd)
+    of mLtI, mLtF64, mLtU, mLtB, mLtCh, mLtEnum, mLtPtr: (mkBinary, copLt)
+    of mLeI, mLeF64, mLeU, mLeB, mLeCh, mLeEnum, mLePtr: (mkBinary, copLe)
+    of mMulI, mMulU, mMulF64: (mkBinary, copMul)
+    of mDivI, mDivU, mDivF64: (mkBinary, copDiv)
+    of mModI, mModU: (mkBinary, copMod)
+    of mIsNil:
+      # a pointer value is implicitly convertible to a bool, so we use ``!x``
+      # to test for nil
+      (mkUnary, copNot)
+    else:
+      # not a simple operator
+      return false
+
+  template arg(i: Natural): IRIndex =
+    irs.args(n, i)
+
+  case kind
+  of mkUnary:
+    # TODO: assert arg count == 1
+    c.add(cnkPrefix).op(op).add(gen(ctx, irs, arg(0))).void()
+  of mkBinary:
+    c.add(cnkInfix).add(gen(ctx, irs, arg(0))).op(op).add(gen(ctx, irs, arg(1))).void()
+  else:
+    unreachable(kind)
+
+  result = true
+
 func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): CAst =
   template arg(i: Natural): IRIndex =
     irs.args(n, i)
 
+  block:
+    # see if the magic directly maps to a C operator
+    var ast = start()
+    if genSimpleMagic(ast, c, irs, m, n):
+      return ast.fin()
+
+  # it doesn't
   let (kind, sym) =
     case m
-    of mNot: (mkUnary, "!")
-    of mXor: (mkBinary, "!=")
-    of mEqRef, mEqCh, mEqI, mEqB, mEqEnum, mEqF64, mEqProc: (mkBinary, "==")
-    of mBitandI: (mkBinary, "&")
-    of mBitorI: (mkBinary, "|")
-    of mBitxorI: (mkBinary, "^")
-    of mBitnotI: (mkUnary, "~")
-    of mShlI: (mkBinary, "<<")
-    of mShrI, mAshrI: (mkBinary, ">>")
-    of mAddU, mAddI, mSucc, mAddF64: (mkBinary, "+")
-    of mSubU, mSubI, mPred, mSubF64: (mkBinary, "-")
-    of mUnaryMinusI, mUnaryMinusI64, mUnaryMinusF64: (mkUnary, "-")
-    of mUnaryPlusI, mUnaryPlusF64: (mkUnary, "+")
-    of mLtI, mLtF64, mLtU, mLtB, mLtCh, mLtEnum, mLtPtr: (mkBinary, "<")
-    of mLeI, mLeF64, mLeU, mLeB, mLeCh, mLeEnum, mLePtr: (mkBinary, "<=")
-    of mMulI, mMulU, mMulF64: (mkBinary, "*")
-    of mDivI, mDivU, mDivF64: (mkBinary, "/")
-    of mModI, mModU: (mkBinary, "%")
-    of mNewString, mNewStringOfCap, mExit, mParseBiggestFloat: (mkCall, "")
     of mSizeOf: (mkCall, "sizeof")
     of mAlignOf: (mkCall, "NIM_ALIGNOF")
     of mOffsetOf:
@@ -770,17 +817,13 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): CAst =
       let
         a = gen(c, irs, arg(0))
         b = gen(c, irs, arg(1))
-        op = if m == mMinI: "<=" else: ">="
-      return start().add(cnkTernary).add(cnkInfix).add(a).ident(c.gl.idents, op).add(b).add(a).add(b).fin()
+        op = if m == mMinI: copLe else: copGe
+      return start().add(cnkTernary).add(cnkInfix).add(a).op(op).add(b).add(a).add(b).fin()
     of mAbsI:
       # -->
       #   (a > 0) ? a : -a
       let a = gen(c, irs, arg(0))
-      return start().add(cnkTernary).add(cnkInfix).add(a).ident(c.gl.idents, ">").intLit(0).add(a).add(cnkPrefix).ident(c.gl.idents, "-").add(a).fin()
-    of mIsNil:
-      # a pointer value is implicitly convertible to a bool, so we use ``!x``
-      # to test for nil
-      (mkUnary, "!")
+      return start().add(cnkTernary).add(cnkInfix).add(a).op(copGt).intLit(0).add(a).add(cnkPrefix).op(copSub).add(a).fin()
     of mChr:
       return start().add(cnkCast).ident(c.gl.idents, "NIM_CHAR").add(gen(c, irs, arg(0))).fin()
     of mOrd:
@@ -811,7 +854,7 @@ func genLit(ast: var CAstBuilder, c: var GenCtx, lit: PNode, typ: TypeId) =
       # XXX: Nim doesn't guarantee that a signed integer is stored in
       #      two's-complement encoding
       let abs = not(cast[BiggestUInt](lit.intVal)) + 1
-      ast.add(cnkPrefix).ident(c.gl.idents, "-").intLit(abs).void()
+      ast.add(cnkPrefix).op(copSub).intLit(abs).void()
     else:
       ast.intLit(lit.intVal.BiggestUInt).void()
   of nkUIntLit..nkUInt64Lit:
@@ -913,7 +956,7 @@ func genConstInitializer(ast: var CAstBuilder, c: var GenCtx, data: PNode, id: T
   of nkPtrTy:
     # similar to ``nkRefTy`` above, with the difference that we want the address
     c.m.syms.incl SymId(data[0].intVal + 1)
-    return ast.emitAddr(c.gl.idents).ident(c.gl.symIdents[data[0].intVal])
+    return ast.emitAddr().ident(c.gl.symIdents[data[0].intVal])
   else:
     # no special handling
     discard
@@ -1191,12 +1234,12 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
         result.add names[i]
         inc numStmts
     of ntkAddr:
-      names[i] = start().emitAddr(c.gl.idents).add(names[n.addrLoc]).fin()
+      names[i] = start().emitAddr().add(names[n.addrLoc]).fin()
     of ntkDeref:
-      names[i] = start().emitDeref(c.gl.idents).add(names[n.addrLoc]).fin()
+      names[i] = start().emitDeref().add(names[n.addrLoc]).fin()
     of ntkAsgn:
       testNode names[n.srcLoc].len > 0, i
-      result.add start().add(cnkInfix).add(names[n.wrLoc]).ident(c.gl.idents, "=").add(names[n.srcLoc]).fin()
+      result.add start().add(cnkInfix).add(names[n.wrLoc]).op(copAsgn).add(names[n.srcLoc]).fin()
       inc numStmts
     of ntkPathObj:
       let
@@ -1447,6 +1490,12 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     emitCAst(f, c, ast, pos)
     f.write ") "
     emitAndEscapeIf(f, c, ast, pos, {cnkIdent})
+
+  of cnkOpToken:
+    # TODO: the standard enum-to-string logic is quite slow (and with
+    #       ``refc``, it also allocates each time) - a manual lookup table
+    #       should be used instead.
+    f.write $COperator(n.a)
 
   of cnkBraced:
     f.write "{"
