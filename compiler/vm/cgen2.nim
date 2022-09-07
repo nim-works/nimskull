@@ -235,6 +235,14 @@ const StringCType = CTypeId(1)
 
 const InvalidCIdent = CIdent(0) # warning: this depends on a implementation detail of `BiTable`
 
+func enumToStrTbl[E: enum](_: typedesc[E]): array[E, string] =
+  for e in low(E)..high(E):
+    result[e] = $e
+
+const COpToStr = enumToStrTbl(COperator)
+  ## Maps a ``COperator`` to it's string representation. More efficient than
+  ## ``$COperator``
+
 #[
 func hash(a: TypeKey): Hash =
   hash(TypeId(a).itemId)
@@ -1492,10 +1500,7 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     emitAndEscapeIf(f, c, ast, pos, {cnkIdent})
 
   of cnkOpToken:
-    # TODO: the standard enum-to-string logic is quite slow (and with
-    #       ``refc``, it also allocates each time) - a manual lookup table
-    #       should be used instead.
-    f.write $COperator(n.a)
+    f.write COpToStr[COperator(n.a)]
 
   of cnkBraced:
     f.write "{"
