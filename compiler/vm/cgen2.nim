@@ -60,6 +60,22 @@ type
     ## Environmental state that is local to the module the IR being processed
     ## lies in.
 
+    # XXX: instead of using ``PackedSet``s here, ``TBitSet`` might be the
+    #      better choice:
+    #      - all operations are faster on them
+    #      - it's simpler data-structure in general
+    #      - it's trivial to iterate them in the order of ID values
+    #      - better memory locality (it's just a seq)
+    #      - except for resizing, no operations require allocations
+    #
+    #      The only downside is that they on probably require more memory on
+    #      average.
+    #      The ordered iteration property could unlock alot of simplifications.
+    #      For example, if it'd be enforced that for types and constants,
+    #      items with a lower ID never depend on types with a higher ID, the
+    #      quite complex logic for emitting them in the correct order can be
+    #      turned into a simple for-loop
+
     types: PackedSet[TypeId] # all used type for the module
 
     syms: PackedSet[SymId] ## all used symbols that need to be declared in the C code. # TODO: should be a SymSet
@@ -185,6 +201,12 @@ type
 
     symIdents: seq[CIdent] # maps each symbol *index* to an identifier
     fieldIdents: seq[CIdent] # maps each field *index* to an identifier
+
+    constInit: Table[SymId, CAst] ## the initializer for each constant
+    constDeps: Table[SymId, seq[SymId]] ## the dependencies on other constants
+                                        ## for each constant
+    constProcDpes: Table[SymId, seq[ProcId]] ## the C-function dependencies
+                                             ## for each constant
 
     ctypes: seq[CTypeInfo] #
 
@@ -1122,6 +1144,12 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
           c.m.syms.incl sId
         #discard mapTypeV3(c.gl, sym.typ) # XXX: temporary
       of skConst:
+        for dep in c.gl.constDeps[sId].items:
+          c.m.syms.incl dep
+
+        for dep in c.gl.constProcDpes[sId].items:
+          useFunction(c.m, dep)
+
         c.m.syms.incl sId
       else:
         discard
@@ -1579,6 +1607,27 @@ proc emitCType(f: File, c: GlobalGenCtx, info: CTypeInfo, isFwd: bool) =
 
   assert pos == info.decl.len
 
+proc emitConst(f: File, ctx: GlobalGenCtx, syms: SymbolEnv, id: SymId, marker: var PackedSet[SymId]) =
+  ## Emits the definition for the constant named by `id` and remember it in
+  ## `marker`. If the constant is already present in `marker`, nothing is
+  ## emitted.
+  ## If the constant's intializer references other constants, those are
+  ## emitted first
+  if marker.containsOrIncl(id):
+    return
+
+  # recursively emit the constant's dependencies first
+  for dep in ctx.constDeps[id].items:
+    emitConst(f, ctx, syms, dep, marker)
+
+  f.write "static const "
+  emitType(f, ctx, syms[id].typ)
+  f.write " "
+  f.write ctx.idents[ctx.symIdents[id.toIndex]]
+  f.write " = "
+  emitCAst(f, ctx, ctx.constInit[id])
+  f.writeLine ";"
+
 proc writeProcHeader(f: File, c: GlobalGenCtx, h: CProcHeader, decl: DeclarationV2, withParamNames: bool): bool =
   if decl.omit:
     return false
@@ -1599,6 +1648,12 @@ proc writeProcHeader(f: File, c: GlobalGenCtx, h: CProcHeader, decl: Declaration
 
   f.write ")"
   result = true
+
+iterator pairs[T](x: PackedSet[T]): (int, T) =
+  var i = 0
+  for it in x.items:
+    yield (i, it)
+    inc i
 
 func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
   ## Initializes the ``GlobalGenCtx`` to use for all following ``emitModuleToFile`` calls. Creates the ``CTypeInfo`` for each IR type.
@@ -1650,6 +1705,47 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
   for id in env.procs.items:
     c.funcs.add genCProcHeader(c.idents, env.procs, id)
 
+  block:
+    # a constant needs to emitted in each module that references it. Instead
+    # of re-generating the ``CAst`` for each module the constant is used in,
+    # we create the initializer expression for all constants only once at the
+    # start.
+    # In this case, constant refers to *complex* constants (arrays, records,
+    # etc.) not simple ones (ints, floats, etc.). The latter were already
+    # inlined in ``transf``
+    # XXX: it's very bad that we need a full ``GenCtx`` here. Some
+    #      split-ups/reorderings are needed
+    var ctx = GenCtx(env: addr env)
+    swap(ctx.gl, c)
+
+    for id in env.syms.items:
+      let sym = env.syms[id]
+      if sym.kind == skConst:
+        # note: `c` is swapped with `ctx.gl`
+        ctx.gl.constInit[id] = start().genConstInitializer(ctx, env.syms.data(id), sym.typ).fin()
+
+        block:
+          # XXX: `ctx.m.syms` is used to accumulate dependencies on other
+          #      constants
+          var deps = newSeq[SymId](ctx.m.syms.len)
+          for i, it in ctx.m.syms.pairs:
+            deps[i] = it
+
+          ctx.gl.constDeps[id] = move deps
+
+        block:
+          # XXX: `ctx.m.funcs` is used to accumulate dependencies on
+          #      functions
+          var deps = newSeq[ProcId](ctx.m.funcs.len)
+          for i, it in ctx.m.funcs.pairs:
+            deps[i] = it
+
+          ctx.gl.constProcDpes[id] = move deps
+
+        # prepare for the next constant:
+        ctx.m.syms.clear()
+
+    swap(ctx.gl, c)
 
 proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalGenCtx, env: IrEnv,
                        impls: openArray[IrStore3], m: ModuleData) =
@@ -1813,7 +1909,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
     else:
       unreachable(sym.kind)
 
-  # referenced globals and constants
+  # referenced globals
   for id in mCtx.syms.items:
     let sym = env.syms[id]
     let ident = ctx.symIdents[toIndex(id)]
@@ -1832,13 +1928,18 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       f.write ctx.idents[ident]
       f.writeLine ";"
     of skConst:
-      f.write "static "
-      emitType(f, ctx, sym.typ)
-      f.write " "
-      f.write ctx.idents[ident]
-      f.writeLine ";"
+      discard "processed later"
     else:
       unreachable(sym.kind)
+
+  block:
+    # emit all used constants
+    var symMarker: PackedSet[SymId]
+    for id in mCtx.syms.items:
+      let s = env.syms[id]
+
+      if not s.decl.omit and s.kind == skConst:
+        emitConst(f, ctx, env.syms, id, symMarker)
 
   var i = 0
   for it in asts.items:
