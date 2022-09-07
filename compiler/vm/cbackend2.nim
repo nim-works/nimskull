@@ -107,6 +107,26 @@ func collectRoutineSyms(ast: PNode, syms: var seq[PSym], marker: var IntSet) =
   for i in 0..<ast.safeLen:
     collectRoutineSyms(ast[i], syms, marker)
 
+func earlyTransformConst(ast: PNode, procs: var ProcedureEnv): PNode =
+  ## Traverses the `ast` and replaces all routine symbol nodes with the
+  ## representation further processing expects. Returns the transformed node
+  ## (or `ast` if no transformation happened)
+  result = ast
+  if ast.kind == nkSym:
+    let s = ast.sym
+    if s.kind in routineKinds:
+      # encode references to procedures as a ``nkProcTy`` with an
+      # ``nkIntLit`` child holding the ID
+      result = PNode(kind: nkProcTy)
+      # XXX: ``ProcedureEnv`` doesn't allowe for mutable lookup (it should!)
+      #      so we - we have to use ``requestProc``
+      result.sons.add:
+        PNode(kind: nkIntLit, intVal: procs.requestProc(s).toIndex.BiggestInt)
+      return
+
+  for i in 0..<ast.safeLen:
+    ast[i] = earlyTransformConst(ast[i], procs)
+
 proc generateTopLevelStmts*(module: Module, c: var TCtx,
                             config: ConfigRef): Option[IrStore3] =
   ## Generates code for all collected top-level statements of `module` and
