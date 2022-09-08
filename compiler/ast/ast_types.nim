@@ -16,9 +16,6 @@ type
     line*: uint16
     col*: int16
     fileIndex*: FileIndex
-    when defined(nimpretty):
-      offsetA*, offsetB*: int
-      commentOffsetA*, commentOffsetB*: int
 
 const
   InvalidFileIdx* = FileIndex(-1)
