@@ -21,7 +21,6 @@ import
     ast,
     renderer,
     types,
-    lineinfos,
     reports
   ],
   compiler/modules/[

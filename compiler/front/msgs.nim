@@ -75,20 +75,6 @@ proc newFileInfo(fullPath: AbsoluteFile, projPath: RelativeFile): TFileInfo =
   result.quotedName = result.shortName.makeCString
   result.quotedFullName = fullPath.string.makeCString
   result.lines = @[]
-  when defined(nimpretty):
-    if not result.fullPath.isEmpty:
-      try:
-        result.fullContent = readFile(result.fullPath.string)
-      except IOError:
-        #rawMessage(errCannotOpenFile, result.fullPath)
-        # XXX fixme
-        result.fullContent = ""
-
-when defined(nimpretty):
-  # Wrapped in `when defined()` because `.fullContent` is not defined
-  # without it.
-  proc fileSection*(conf: ConfigRef; fid: FileIndex; a, b: int): string =
-    substr(conf[fid].fullContent, a, b)
 
 proc canonicalCase(path: var string) =
   ## the idea is to only use this for checking whether a path is already in

@@ -84,8 +84,6 @@ proc startOfLineInsideTriple(ldata: LineData, line: int): bool =
   else: ldata.lines[index]
 
 proc extractRunnableExamplesSource*(conf: ConfigRef; n: PNode, indent = 0): string =
-  ## TLineInfo.offsetA,offsetB would be cleaner but it's only enabled for nimpretty,
-  ## we'd need to check performance impact to enable it for nimdoc.
   var first = n.lastSon.info
   if first.line == n[0].info.line:
     #[

@@ -175,9 +175,7 @@ type
                                ## and parsed; usually "" but is used
                                ## for 'nimsuggest'
     hash*: string              ## the checksum of the file
-    dirty*: bool               ## for 'nimfix' / 'nimpretty' like tooling
-    when defined(nimpretty):
-      fullContent*: string
+    dirty*: bool               ## for 'nimfix' like tooling
 
   TErrorOutput* = enum
     eStdOut
