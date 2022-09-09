@@ -217,8 +217,6 @@ type
     constInit: Table[SymId, CAst] ## the initializer for each constant
     constDeps: Table[SymId, seq[SymId]] ## the dependencies on other constants
                                         ## for each constant
-    constProcDpes: Table[SymId, seq[ProcId]] ## the C-function dependencies
-                                             ## for each constant
 
     ctypes: seq[CTypeInfo] #
 
@@ -887,6 +885,48 @@ func genLit(ast: var CAstBuilder, c: var GenCtx, lit: PNode, typ: TypeId) =
     #unreachable(lit.kind)
     ast.add(genError(c, fmt"missing lit: {lit.kind}")).void()
 
+func genLit(ast: var CAstBuilder, c: var GenCtx, lit: LiteralId, typ: TypeId) =
+  case c.env.types.kind(typ)
+  of tnkInt:
+    let intVal = c.env.data.getInt(lit)
+    if intVal < 0:
+      # compute the two's-complement, yielding the absolute value. This works
+      # even if ``intVal == low(BiggestInt)``.
+      # XXX: Nim doesn't guarantee that a signed integer is stored in
+      #      two's-complement encoding
+      let abs = not(cast[BiggestUInt](intVal)) + 1
+      ast.add(cnkPrefix).ident(c.gl.idents, "-").intLit(abs).void()
+    else:
+      ast.intLit(intVal.BiggestUInt).void()
+  of tnkUInt, tnkBool:
+    # a bool is also stored and emitted as a uint
+    ast.intLit(c.env.data.getUInt(lit)).void()
+  of tnkChar:
+    ast.add(cnkCharLit, c.env.data.getUInt(lit).uint32).void()
+  of tnkFloat:
+    let floatVal = c.env.data.getFloat(lit)
+    case c.env.types[typ].size
+    of 32:
+      ast.add(cnkFloat32Lit, cast[uint32](floatVal.float32)).void()
+    of 64, 128:
+      ast.floatLit(floatVal).void()
+    else:
+      unreachable()
+  of tnkCString:
+    ast.strLit(c.gl.strings, c.env.data.getStr(lit)).void()
+  of tnkPtr, tnkRef:
+    let intVal = c.env.data.getUInt(lit)
+    # XXX: not strictly necessary - only done for improved readability
+    if intVal == 0:
+      ast.ident(c.gl.idents, "NIM_NIL").void()
+    else:
+      # TODO: make sure this works across compilers - a cast might be needed
+      ast.intLit(intVal).void()
+  else:
+    # TODO: use ``unreachable`` again
+    #unreachable(lit.kind)
+    ast.add(genError(c, fmt"missing lit: {c.env.types.kind(typ)}")).void()
+
 func genLit(c: var GenCtx, literal: Literal): CAst =
   let lit = literal.val
   if lit == nil:
@@ -900,6 +940,12 @@ func startArrayInitializer(ast: var CAstBuilder, len: uint) =
   ast.add(cnkBraced, 1).void() # <- for the wrapper struct
   # XXX: only array literals with a len <= 2^32 are supported...
   ast.add(cnkBraced, len.uint32).void()
+
+
+func genPackedArray(ast: var CAstBuilder, c: var GenCtx, data: LiteralData, lit: LiteralId) =
+  startArrayInitializer(ast, data.packedLen(lit).uint)
+  for u in data.uints(lit):
+    discard ast.intLit(u)
 
 func genDefaultVal(ast: var CAstBuilder, c: var GenCtx, id: TypeId) =
   ## Generates the default value for the type with the given `id`
@@ -945,74 +991,178 @@ func genDefaultVal(ast: var CAstBuilder, c: var GenCtx, id: TypeId) =
   else:
     unreachable(c.env.types.kind(id))
 
-func genBracedObjConstr(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data: PNode): int
-func genBracedObjConstrPos(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data: PNode)
+type
+  ArrayIter = object
+    iter: DataIter
+    pos: Option[int]
+    i: int
+    len: int
+
+type DataRecordIter = object
+  ## Encapsulates data relevant for iterating over the entries in a
+  ## ``conRecord`` structure in a convenient way
+  iter: #[var]# DataIter
+  pos: Option[int] ## the 'position' part of the currently pointed to pair
+  i: int   ## the index of the current pair
+  len: int ## the number of pairs
+
+func next(x: var DataRecordIter, d: LiteralData) =
+  if x.i < x.len:
+    x.iter.next() # move to the next 'position' part
+    x.pos = some d.getRecPos(x.iter)
+    inc x.i
+  else:
+    x.pos = none int
+
+func enter(x: var DataRecordIter, data: LiteralData): var DataIter =
+  result = x.iter
+
+func fork(x: var DataIter, data: LiteralData): DataRecordIter =
+  result.len = x.len.int
+  result.iter = x # XXX: swap instead?
+  result.i = 0
+  result.next(data)
+
+func join(x: var DataIter, y: sink DataRecordIter) =
+  # XXX: if it'd be possible to have `x.iter` be a view, ``DataRecordIter``
+  #      would be smaller and `join` would be unnecessary
+  x = y.iter
+
+
+func next(x: var ArrayIter, data: LiteralData): var DataIter =
+  if x.i < x.len:
+    #x.iter.next() # move to next item
+    #debugEcho "post: ", x.iter.get(data)
+    x.pos = some x.i
+
+    inc x.i
+  else:
+    x.pos = none(int)
+
+  result = x.iter
+
+func forkA(x: var DataIter, data: LiteralData): ArrayIter =
+  result.len = x.len.int
+  result.iter = x # XXX: swap instead?
+
+func join(x: var DataIter, y: sink ArrayIter) =
+  # XXX: if it'd be possible to have `x.iter` be a view, ``DataRecordIter``
+  #      would be smaller and `join` would be unnecessary
+  x = y.iter
+
+func genBracedObjConstr(ast: var CAstBuilder, c: var GenCtx, id: TypeId,
+                        data: LiteralData, iter: var DataRecordIter)
+func genBracedObjConstrPos(ast: var CAstBuilder, c: var GenCtx, id: TypeId,
+                           data: LiteralData, iter: var ArrayIter)
 
 # TODO: rename to ``genBracedInitializer``
-func genConstInitializer(ast: var CAstBuilder, c: var GenCtx, data: PNode, id: TypeId): var CAstBuilder =
+func genConstInitializer(ast: var CAstBuilder, c: var GenCtx,
+                         data: LiteralData, iter: var DataIter, id: TypeId
+                        ): var CAstBuilder =
   # XXX: the fact that a mutable context (`c`) is required is a bit meh
   result = ast
 
-  # first check if the initializer is a reference to another constant 
-  case data.kind
-  of nkRefTy:
+  let n = iter.next(data)
+  # first check if the initializer is a reference to another constant
+  case n.kind
+  of conConst:
     # a reference to a constant. The symbol *index* (not ID) is stored as an
     # ``nkIntLit`` in the first sub-node
     # XXX: we mis-use the ``ModuleCtx`` that is part of `c` to store the dependencies
-    c.m.syms.incl SymId(data[0].intVal + 1)
-    return ast.ident(c.gl.symIdents[data[0].intVal])
-  of nkPtrTy:
-    # similar to ``nkRefTy`` above, with the difference that we want the address
-    c.m.syms.incl SymId(data[0].intVal + 1)
-    return ast.emitAddr().ident(c.gl.symIdents[data[0].intVal])
+    let sId = data.sym(iter).SymId
+    c.m.syms.incl sId
+    return ast.ident(c.gl.symIdents[sId.toIndex])
+  of conConstAddr:
+    # similar to ``conConst`` above, with the difference that we want the address
+    let sId = data.sym(iter).SymId
+    c.m.syms.incl sId
+    return ast.emitAddr().ident(c.gl.symIdents[sId.toIndex])
   else:
     # no special handling
     discard
 
   case c.env.types.kind(id)
-  of tnkChar, tnkBool, tnkInt, tnkUInt, tnkFloat, tnkCString, tnkPtr:
-    assert data.kind notin {nkBracket, nkTupleConstr}
-    ast.genLit(c, data, id)
-  of tnkRef:
-    assert data.kind == nkNilLit
-    ast.genLit(c, data, id)
+  of tnkChar, tnkBool, tnkInt, tnkUInt, tnkFloat, tnkCString, tnkPtr, tnkRef:
+    ast.genLit(c, data.getLit(iter), id)
   of tnkProc:
-    assert data.kind == nkProcTy
-    c.m.funcs.incl ProcId(data[0].intVal + 1)
-    discard ast.ident(c.gl.funcs[data[0].intVal].ident)
+    ast.ident(c.gl.funcs[data.getExt(iter).ProcId.toIndex].ident).void()
   of tnkArray:
     let elemType = c.env.types.base(id)
-    case data.kind
-    of nkStrLit..nkTripleStrLit:
-      # XXX: special case; will get much cleaner once we get a dedicated
-      #      literal-data IR
-      discard ast.strLit(c.gl.strings, data.strVal)
-    of nkBracket:
+    var sub = iter.enter(data)
+    case sub.kind
+    of conLit:
+      # support string literals as the initializer for char arrays
+      let val = data.getLit(iter)
+      case val.kind
+      of lkString:
+        assert c.env.types.kind(elemType) == tnkChar, $c.env.types.kind(elemType)
+        ast.strLit(c.gl.strings, data.getStr(sub)).void()
+      of lkPacked:
+        assert data.packedLen(val).uint == c.env.types.length(id)
+        genPackedArray(ast, c, data, val)
+      else:
+        unreachable(val.kind)
+
+    of conArray:
       # --> {..., ..., ...}
-      startArrayInitializer(ast, data.len.uint)
-      for n in data.items:
-        discard genConstInitializer(ast, c, n, elemType)
+      startArrayInitializer(ast, sub.len.uint)
+      for _ in 0..<sub.len:
+        discard genConstInitializer(ast, c, data, sub, elemType)
 
     else:
-      unreachable(data.kind)
+      unreachable(n.kind)
 
+    iter.close(sub)
   of tnkRecord:
-    case data.kind
-    of nkObjConstr:
-      discard genBracedObjConstr(ast, c, id, data)
-    of nkTupleConstr:
-      genBracedObjConstrPos(ast, c, id, data)
+    var sub = iter.enter(data)
+    case sub.kind
+    of conRecord:
+      var obj = fork(sub, data)
+      genBracedObjConstr(ast, c, id, data, obj)
+      join(sub, obj)
+    of conArray:
+      var arr = forkA(sub, data)
+      genBracedObjConstrPos(ast, c, id, data, arr)
+      join(sub, arr)
     else:
-      unreachable(data.kind)
+      unreachable(n.kind)
 
+    iter.close(sub)
   of tnkString, tnkSeq:
     # strings and seq are required to be lowered earlier
     unreachable("untransformed seq literal")
   else:
-    unreachable()
+    unreachable(c.env.types.kind(id))
 
-func genBracedObjConstr(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data: PNode): int =
+
+
+func genBracedObjConstr(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data: LiteralData, iter: var DataRecordIter) =
   ## Returns the number of sub-nodes processed in `data` so far
+  ## Consider the following object hierarchy:
+  ##
+  ## .. code-block::nim
+  ##
+  ##   # each field is annotated with it's position
+  ##   type A = object of RootObj
+  ##     x: int # 0
+  ##     y: int # 1
+  ##
+  ##   type B = object of A
+  ##     z: int # 2
+  ##     q: int # 3
+  ##
+  ## Since in the layout used for the C target, the base record is stored in a
+  ## member field itself, so the following braced initializer is required:
+  ##
+  ## .. code-block::c
+  ##
+  ##   { /* B */ { /* A */ { /* RootObj */ }, x, y }, z, q }
+  ##
+  ## The data to initialize the fields with is stored in `data` as a
+  ## ``conRecord`` structure, which is an ordered collection of
+  ## (position, data).
+  ## If a field doesn't have corresponding pair entry in `data` the default
+  ## value for the field's type is used.
   let
     base = c.env.types.base(id)
     numFields = c.env.types.numFields(id)
@@ -1022,61 +1172,49 @@ func genBracedObjConstr(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data: P
   ast.add(cnkBraced, uint32(numFields + ord(base != NoneType))).void()
 
   if base != NoneType:
-    result = genBracedObjConstr(ast, c, id, data)
-  else:
-    # the first child of a ``nkObjConstr`` is the type - skip it by starting
-    # at index 0
-    result = 1
+    # process and consume the entries for the base record first
+    genBracedObjConstr(ast, c, id, data, iter)
 
   let
     # we use a ``RecordIter`` to query information about the fields
-    iter = c.env.types.initRecordIter(id)
-    start = iter.fieldPos(0)
+    rIter = c.env.types.initRecordIter(id)
+    start = rIter.fieldPos(0)
     last = start + numFields - 1
 
   # TODO: support for variant objects is missing
 
-  # walk each field in the record type. For each field that doesn't have a
-  # corresponding value in `data`, the type's default value is used
+  # walk each field in the record type
   for i in start..last:
-    let n = if result < data.len: data[result] else: nil
-    if n != nil and n[0].sym.position == i:
-      genConstInitializer(ast, c, n[1], c.env.types[iter.field(i)].typ).void()
+    let pos = iter.pos.get(last + 1)
 
-      # move the cursor into `data` to the next child
-      inc result
+    if i == pos:
+      genConstInitializer(ast, c, data, iter.enter(data), c.env.types[c.env.types.nthField(id, i.int)].typ).void()
+      iter.next(data)
     else:
-      assert n == nil or n[0].sym.position > i
+      assert pos > i
       # each field must have an initializer expression when using a braced
       # initializer - use a default value if none is specified by `data`
       genDefaultVal(ast, c, id)
 
-func genBracedObjConstrPos(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data: PNode) =
+func genBracedObjConstrPos(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data: LiteralData, iter: var ArrayIter) =
   ## Generates the braced initializer for an object based using positional
-  ## construction (``nkTupleConstr``) 
-  assert data.kind == nkTupleConstr
-
-  #assert c.env.types.base(id) == NoneType
-  let 
+  ## construction (``nkTupleConstr``)
+  let
     base = c.env.types.base(id)
-    start = ord(base != NoneType)
+    len = c.env.types.numFields(id)
 
-  assert c.env.types.numFields(id) + start == data.len
-  ast.add(cnkBraced, uint32(data.len)).void()
+  #assert c.env.types.numFields(id) + start == len
+  ast.add(cnkBraced, uint32(len + ord(base != NoneType))).void()
 
-  func skipColon(n: PNode): PNode {.inline.} =
-    if n.kind == nkExprColonExpr:
-      n[1]
-    else:
-      n
-
-  # if there's a base type, the first item is it's initializer 
+  # first consume the base type's fields
   if base != NoneType:
-    discard genConstInitializer(ast, c, data[0].skipColon(), base)
+    genBracedObjConstrPos(ast, c, base, data, iter)
 
-  let iter = c.env.types.initRecordIter(id)
-  for i in start..<data.len:
-    discard genConstInitializer(ast, c, data[i].skipColon(), c.env.types[iter.field(i-start)].typ)
+  let rIter = c.env.types.initRecordIter(id)
+  for i in 0..<len:
+    # note: `iter.next` modifies `iter.i`, so it's important to fetch the type first
+    let typ = c.env.types[c.env.types.nthField(id, iter.i)].typ
+    discard genConstInitializer(ast, c, data, iter.next(data), typ)
 
 func accessSuper(ast: var CAstBuilder, depth: int, start: CAst, supName: CIdent): var CAstBuilder =
   result = ast
@@ -1088,6 +1226,30 @@ func accessSuper(ast: var CAstBuilder, depth: int, start: CAst, supName: CIdent)
 
   for _ in 0..<depth:
     discard ast.ident(supName)
+
+func scanDeps(data: LiteralData, id: LiteralId, m: var ModuleCtx) =
+  if id.kind == lkComplex:
+    var iter = initDataIter(data, id)
+    iter.moveInto(data)
+    let L =
+      case iter.kind
+      of conRecord: iter.len * 2
+      of conArray: iter.len
+      else: 0
+    for _ in 0..<L:
+      let n = iter.next(data)
+      case n.kind
+      of conConst, conConstAddr:
+        m.syms.incl data.sym(iter).SymId
+      of conExt:
+        useFunction(m, data.getExt(iter).ProcId)
+      of conLit:
+        let lit = data.getLit(iter)
+        scanDeps(data, lit, m)
+      of conArray, conRecord:
+        assert false
+      else:
+        discard
 
 template testNode(cond: bool, i: IRIndex) =
   if not cond:
@@ -1195,11 +1357,7 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
           c.m.syms.incl sId
         #discard mapTypeV3(c.gl, sym.typ) # XXX: temporary
       of skConst:
-        for dep in c.gl.constDeps[sId].items:
-          c.m.syms.incl dep
-
-        for dep in c.gl.constProcDpes[sId].items:
-          useFunction(c.m, dep)
+        scanDeps(c.env.data, c.env.syms.data(sId), c.m)
 
         c.m.syms.incl sId
       else:
@@ -1775,8 +1933,15 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
     for id in env.syms.items:
       let sym = env.syms[id]
       if sym.kind == skConst:
+        let lit = env.syms.data(id)
+        if lit.kind != lkComplex:
+          ctx.gl.constInit[id] = buildAst: genLit(builder, ctx, lit, sym.typ)
+          ctx.gl.constDeps[id] = @[]
+          continue
+
         # note: `c` is swapped with `ctx.gl`
-        ctx.gl.constInit[id] = start().genConstInitializer(ctx, env.syms.data(id), sym.typ).fin()
+        var iter = initDataIter(env.data, env.syms.data(id))
+        ctx.gl.constInit[id] = start().genConstInitializer(ctx, env.data, iter, sym.typ).fin()
 
         block:
           # XXX: `ctx.m.syms` is used to accumulate dependencies on other
@@ -1786,15 +1951,6 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
             deps[i] = it
 
           ctx.gl.constDeps[id] = move deps
-
-        block:
-          # XXX: `ctx.m.funcs` is used to accumulate dependencies on
-          #      functions
-          var deps = newSeq[ProcId](ctx.m.funcs.len)
-          for i, it in ctx.m.funcs.pairs:
-            deps[i] = it
-
-          ctx.gl.constProcDpes[id] = move deps
 
         # prepare for the next constant:
         ctx.m.syms.clear()

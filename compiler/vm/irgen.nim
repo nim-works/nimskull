@@ -97,6 +97,8 @@ type TCtx* = object
                                ## still require scanning
   collectedConsts*: seq[PSym]
 
+  constData*: Table[SymId, PNode]
+
   defSyms*: DeferredSymbols
   procs*: ProcedureEnv
   types*: DeferredTypeGen
@@ -156,6 +158,7 @@ func irConst(c: var TCtx, sym: PSym): IRIndex =
     #      ``irgen``. But with constants still sharing their ID namespace with
     #      globals, it's the easiest solution for now
     c.collectedConsts.add sym
+    c.constData[id] = astdef(sym)
 
   c.irs.irSym(id)
 

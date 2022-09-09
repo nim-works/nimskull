@@ -179,6 +179,10 @@ type
     types*: TypeEnv
     procs*: ProcedureEnv
 
+    # XXX: storing a ``LiteralData`` object here feels a bit off. It a bit
+    #      less related to the back-end than the other fields here.
+    data*: LiteralData
+
   IrNodeHdr = object
     ## The format of a node header. The type is just meant as visualization.
     kind {.bitsize: 8.}: int

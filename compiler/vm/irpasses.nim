@@ -27,6 +27,7 @@ import
   compiler/sem/[
     sighashes
   ],
+  compiler/utils/bitsets,
   compiler/vm/[
     irdbg,
     pass_helpers,
@@ -1068,7 +1069,7 @@ func addGlobal*(c: var LiftPassCtx, t: TypeId, name: string): SymId =
   # XXX: temporary helper
   c.env.syms.addSym(skLet, t, c.cache.getIdent(name), {sfGlobal}) # XXX: uh-oh, hidden mutation
 
-func addConst*(c: var LiftPassCtx, t: TypeId, name: string, val: PNode): SymId =
+func addConst*(c: var LiftPassCtx, t: TypeId, name: string, val: LiteralId): SymId =
   result = c.env.syms.addSym(skConst, t, c.cache.getIdent(name))
   c.env.syms.setData(result, val)
 
@@ -1089,14 +1090,14 @@ proc liftSeqConstsV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCur
 
     case c.env.types[lit.typ].kind
     of tnkString:
-      let s = c.addConst(lit.typ, "strConst", lit.val)
+      let s = c.addConst(lit.typ, "strConst", c.env.data.add(lit.val))
 
       cr.replace()
       # see the comment for ``tnkSeq`` below for why the addr + cast is done
       discard cr.insertCast(c.graph.getCompilerType("NimString"), cr.insertAddr(cr.insertSym(s)))
 
     of tnkSeq:
-      let s = c.addConst(lit.typ, "seqConst", lit.val)
+      let s = c.addConst(lit.typ, "seqConst", c.env.data.add(lit.val))
 
       cr.replace()
       # at the current stage of processing, the cast would produce wrong
@@ -1433,7 +1434,7 @@ func liftLargeSets(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurso
 
     let typ = c.env.types[lit.typ]
     if typ.kind == tnkSet and typ.length > 64:
-      let s = c.addConst(lit.typ, "setConst", lit.val)
+      let s = c.addConst(lit.typ, "setConst", c.env.data.add(lit.val))
 
       cr.replace()
       discard cr.insertSym(s)
@@ -1476,7 +1477,7 @@ func liftArrays(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
 
     if c.env.types[lit.typ].kind == tnkArray:
       cr.replace()
-      discard cr.insertSym: c.addConst(lit.typ, "arrConst", lit.val)
+      discard cr.insertSym: c.addConst(lit.typ, "arrConst", c.env.data.add(lit.val))
 
   else:
     discard
@@ -1879,69 +1880,68 @@ proc lowerOfV1(c: var UntypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor
   else:
     discard
 
-type LiftAtomProc = proc(typ: TypeId, data: var PNode, syms: var SymbolEnv, types: TypeEnv)
+type LiftAtomProc = proc(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv): bool
 
-proc liftFrom(typ: TypeId, data: var PNode, syms: var SymbolEnv, types: TypeEnv, prc: LiftAtomProc)
+proc liftFrom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv, prc: LiftAtomProc)
+proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv, prc: LiftAtomProc)
 
-proc liftFromAux(typ: TypeId, data: PNode, syms: var SymbolEnv, types: TypeEnv, prc: LiftAtomProc) =
+proc liftFromStruct(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv, prc: LiftAtomProc) =
   ## Traverses the initializer AST `data` and applies `prc` to each sub-node
-  ## (via ``liftFrom``) 
+  ## (via ``liftFrom``)
   case types.kind(typ)
   of tnkArray, tnkSeq:
-    if data.kind == nkBracket:
-      for n in data.sons.mitems:
-        liftFrom(types.base(typ), n, syms, types, prc)
+    assert iter.kind == conArray
+    for _ in 0..<iter.len:
+      liftFrom(types.base(typ), iter, syms, data, types, prc)
 
   of tnkRecord:
-    case data.kind
-    of nkObjConstr:
-      for i in 1..<data.len:
-        let
-          n = data[i]
-          id = types.nthField(typ, n[0].sym.position)
+    case iter.kind
+    of conRecord:
+      for i in 0..<iter.len:
+        iter.next() # go to the position entry
+        let id = types.nthField(typ, data.getRecPos(iter))
+        liftFrom(types[id].typ, iter, syms, data, types, prc)
 
-        liftFrom(types[id].typ, n[1], syms, types, prc)
-
-    of nkTupleConstr:
-      # as a special rule, a ``nkTupleConstr`` is allowed to be used as the
-      # initializer for a record type using inheritance. If used as such, the
-      # first node is treated as the initializer for the base record
-      let start = 
-        if (let base = types.base(typ); base != NoneType):
-          liftFrom(base, data[0], syms, types, prc)
-          1
-        else:
-          0
-
-      let iter = initRecordIter(types, typ) # used for looking up the field
-                                            # by index
-      for i in start..<data.len:
-        let n = addr data[i]
-        let val =
-          case n.kind
-          of nkExprColonExpr: addr n.sons[1]
-          else: n
-
-        liftFrom(types[iter.field(i-start)].typ, val[], syms, types, prc)
-
-    of nkPtrTy, nkRefTy:
-      # a reference to a constant - ignore
-      discard
+    of conArray:
+      assert iter.len.int - types[typ].fieldOffset == types.numFields(typ)
+      for i in 0..<iter.len.int:
+        liftFrom(types[types.nthField(typ, i)].typ, iter, syms, data, types, prc)
 
     else:
-      unreachable(data.kind)
+      unreachable(iter.kind)
 
   else:
+    # ``liftFromStruct`` is also used as the entry procedure for constant
+    # lifting, where it's not known whether or not the literal is really a
+    # structure. Don't raise an error - just do nothing
     discard
 
-proc liftFrom(typ: TypeId, data: var PNode, syms: var SymbolEnv, types: TypeEnv, prc: LiftAtomProc) =
+proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv, prc: LiftAtomProc) =
+  ## Traverses the initializer AST `data` and applies `prc` to each sub-node
+  ## (via ``liftFrom``)
+  if iter.get(data).kind in {conConst, conConstAddr}:
+    # don't follow references to consts
+    return
+
+  case types.kind(typ)
+  of tnkArray, tnkSeq, tnkRecord:
+    var sub = iter.enter(data)
+    liftFromStruct(typ, sub, syms, data, types, prc)
+    close(iter, sub)
+  else:
+    iter.skipChildren(data)
+
+proc liftFrom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv,
+              data: var LiteralData, types: TypeEnv, prc: LiftAtomProc) =
   ## Recursively walks the initializer AST `data`, applying `prc` to all
   ## sub-nodes. After all sub-nodes were traversed, `prc` is applied to `data`
   ## itself
-  liftFromAux(typ, data, syms, types, prc)
-  prc(typ, data, syms, types)
+  iter.next()
+  if not prc(typ, iter, syms, data, types):
+    # if the item was not lifted/replaced, recurse into it
+    liftFromAux(typ, iter, syms, data, types, prc)
 
-proc liftSeqConstsV1*(syms: var SymbolEnv, name: PIdent, types: TypeEnv) =
+proc liftSeqConstsV1*(syms: var SymbolEnv, data: var LiteralData, name: PIdent, types: TypeEnv) =
   ## Lifts ``string|seq`` literals used by constant data into their own
   ## constants and replace the lifted-from location with a reference to the
   ## newly created string constant
@@ -1949,33 +1949,38 @@ proc liftSeqConstsV1*(syms: var SymbolEnv, name: PIdent, types: TypeEnv) =
   # TODO: same issue as with the other ``liftSeqConstsV1`` - we're creating
   #       duplicates
 
-  func liftAtom(typ: TypeId, data: var PNode, syms: var SymbolEnv, types: TypeEnv) =
+  func liftAtom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv): bool =
     let kind = types.kind(typ)
     case kind
     of tnkString, tnkSeq:
-      assert kind != tnkString or data.kind in nkStrLit..nkTripleStrLit
-
       let s = syms.addSym(skConst, typ, name)
-      syms.setData(s, data)
+      syms.setData(s, data.getLit(iter))
 
-      # the lifted constant needs to be referenced by address -> ``nkPtrTy``
-      data = PNode(kind: nkPtrTy)
-      data.sons.add(PNode(kind: nkIntLit, intVal: s.toIndex.BiggestInt))
+      data.replaceWithConstAddr(iter, s.uint32)
 
+      result = true
     else:
       discard
 
   for id, s in syms.msymbols:
     case s.kind
     of skConst:
-      var data = syms.data(id)
+      let lit = syms.data(id)
+
+      if lit.kind != lkComplex:
+        continue
+
+      var iter = initDataIter(data, lit)
+      moveInto(iter, data)
       # don't use ``liftFrom``, as that would also lift the data itself
-      liftFromAux(s.typ, data, syms, types, liftAtom)
+      liftFromStruct(s.typ, iter, syms, data, types, liftAtom)
 
+      # TODO: only set the data if it has changed
+      syms.setData(id, data.finish(iter))
     else:
-      discard 
+      discard
 
-func transformSeqConstsV1*(pe: PassEnv, syms: var SymbolEnv, types: var TypeEnv) =
+func transformSeqConstsV1*(pe: PassEnv, syms: var SymbolEnv, data: var LiteralData, types: var TypeEnv) =
   ## Transforms the data representation for seq|string constants to what is
   ## expected for v1 seqs. The type used for each the constants is equivalent
   ## to an instantiation of the following high-level type:
@@ -2002,7 +2007,7 @@ func transformSeqConstsV1*(pe: PassEnv, syms: var SymbolEnv, types: var TypeEnv)
     of skConst:
       case types.kind(s.typ)
       of tnkString:
-        let str = syms.data(id).strVal
+        let str = getStr(data, syms.data(id))
         s.typ = types.requestRecordType(base = seqType):
           (NoneDecl, types.requestArrayType(str.len.uint + 1,
                                             pe.sysTypes[tyChar]))
@@ -2010,27 +2015,33 @@ func transformSeqConstsV1*(pe: PassEnv, syms: var SymbolEnv, types: var TypeEnv)
         # the two most-significant-bits of ``TGenericSeq.reserved`` are a
         # bitfield. The ``strlitFlag`` bit indicates that the seq in question
         # is a literal
-        let newVal = newTree(nkTupleConstr):
-          [newTree(nkTupleConstr,
-                   newIntNode(nkIntLit, str.len), # length
-                   newIntNode(nkIntLit, str.len or strlitFlag)), # reserved
-          newStrNode(nkStrLit, str & "\0")]
+        let tupl = data.startArray(3)
+        data.addLit(tupl, data.newLit(str.len)) # length
+        data.addLit(tupl, data.newLit(str.len or strlitFlag)) # reserved
+        # TODO: don't create a full copy of the string here with just an
+        #       additional zero-terminator at the end. Either add a new literal
+        #       kind (e.g. `lkZtString`) or introduce the more general concept
+        #       of a rope-like data structure into ``LiteralData``
+        #       (e.g. ``conRope``)
+        data.addLit(tupl, data.newLit(str & '\0')) # data
 
-        syms.setData(id, newVal)
+        syms.setData(id, data.finish(tupl))
 
       of tnkSeq:
-        let data = syms.data(id)
-        let elemTyp = types.base(s.typ)
+        let
+          lit = syms.data(id)
+          len = data.len(lit)
+          elemTyp = types.base(s.typ)
+
         s.typ = types.requestRecordType(base = seqType):
-          (NoneDecl, types.requestArrayType(data.len.uint, elemTyp))
+          (NoneDecl, types.requestArrayType(len.uint, elemTyp))
 
-        let newVal = newTree(nkTupleConstr):
-          [newTree(nkTupleConstr,
-                   newIntNode(nkIntLit, data.len), # length
-                   newIntNode(nkIntLit, data.len or strlitFlag)), # reserved
-           data]
+        let tupl = data.startArray(3)
+        data.addLit(tupl, data.newLit(len)) # length
+        data.addLit(tupl, data.newLit(len or strlitFlag)) # reserved
+        data.addLit(tupl, lit) # data
 
-        syms.setData(id, newVal)
+        syms.setData(id, data.finish(tupl))
 
       else:
         discard
@@ -2038,91 +2049,87 @@ func transformSeqConstsV1*(pe: PassEnv, syms: var SymbolEnv, types: var TypeEnv)
     else:
       discard
 
-func setAsInt(env: TypeEnv, id: TypeId, lit: PNode): PNode =
+func incl(dst: var TBitSetView, data: LiteralData, lit: LiteralId) =
+  for a, b in sliceListIt(data, lit):
+    if a == b: bitSetIncl(dst, data.getInt(a))
+    else:      bitSetInclRange(dst, data.getInt(a) .. data.getInt(b))
+
+func setAsInt(env: TypeEnv, data: var LiteralData, id: TypeId, lit: LiteralId): LiteralId =
   ## Returns the set-literal `lit` represented as an unsigned integer if it
   ## fits into one. If it doesn't, `lit` is returned
   if env.length(id) <= 64:
-    var data: array[8, uint8]
-    {.cast(noSideEffect).}:
-      inclTreeSet(data, nil, lit)
+    var arr: array[8, uint8]
+    incl(arr, data, lit)
 
     var val: BiggestUInt
     for i in 0..7:
-      val = val or (BiggestUInt(data[i]) shl (i*8))
+      val = val or (BiggestUInt(arr[i]) shl (i*8))
 
-    result = newIntNode(nkUIntLit, cast[BiggestInt](val))
+    result = data.newLit(val)
 
   else:
     result = lit
 
-proc liftSetConsts*(syms: var SymbolEnv, name: PIdent, types: TypeEnv) =
+proc liftSetConsts*(syms: var SymbolEnv, data: var LiteralData, name: PIdent, types: TypeEnv) =
   ## Lifts ``set`` literals part of constant data into their own
   ## constants. `name` is the name to use for the produced constants
-  proc liftAtom(typ: TypeId, data: var PNode, syms: var SymbolEnv, types: TypeEnv) =
+  proc liftAtom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv): bool =
     case types.kind(typ)
     of tnkSet:
-      let val = setAsInt(types, typ, data)
-      if val.kind == nkCurly:
+      let lit = data.getLit(iter)
+      let val = setAsInt(types, data, typ, lit)
+      if lit == val:
         # the set requires an array
         let s = syms.addSym(skConst, typ, name)
         syms.setData(s, val)
 
-        # the set needs to be embedded -> ``nkRefTy``
-        data = PNode(kind: nkRefTy)
-        data.sons.add(PNode(kind: nkIntLit, intVal: s.toIndex.BiggestInt))
+        data.replaceWithConst(iter, s.uint32)
       else:
         # the set can be represented via an integer - we don't need an extra
         # constant
-        data = val
+        data.replaceWithLit(iter, val)
 
+      result = true
     else:
       discard
 
   for id, s in syms.msymbols:
     case s.kind
     of skConst:
-      var data = syms.data(id)
-      liftFromAux(s.typ, data, syms, types, liftAtom)
+      let lit = syms.data(id)
 
+      if lit.kind != lkComplex:
+        # we are only interested in complex data
+        continue
+
+      var iter = initDataIter(data, lit)
+      moveInto(iter, data)
+      liftFromStruct(s.typ, iter, syms, data, types, liftAtom)
+
+      syms.setData(id, data.finish(iter))
     else:
       discard
 
-func transformSetConsts*(pe: PassEnv, syms: var SymbolEnv, types: var TypeEnv) =
+func transformSetConsts*(pe: PassEnv, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv) =
   ## Transforms the data for ``set`` constants into either byte arrays or - if
   ## they're small enough to fit - unsigned integers
   for id, s in syms.msymbols:
     case s.kind
     of skConst:
       if types.kind(s.typ) == tnkSet:
-        let data = syms.data(id)
+        let lit = syms.data(id)
 
         block:
-          if types.length(s.typ) > 64:
-            {.cast(noSideEffect).}:
-              let bitset = toBitSet(nil, data)
-
-            # XXX: very inefficient and wasteful, but until a dedicated literal IR
-            #      gets introduced, the simplest solution
-            let arr = newNode(nkBracket)
-            # iterate over the set's bytes and add them to the array
-            for it in bitset.items:
-              arr.add newIntNode(nkUInt8Lit, BiggestInt(it))
-
-            syms.setData(id, arr)
+          if (let tfrmed = setAsInt(types, data, s.typ, lit); tfrmed != lit):
+            # a small set -> transformed into an unsigned integer
+            syms.setData(id, tfrmed)
           else:
-            # a small set literal
-            var arr: array[8, uint8]
-            # XXX: we have no access to a `ConfigRef` here. In general, it would be
-            #      a better idea to translate literals and constant data into a
-            #      dedicated IR during ``irgen``
-            {.cast(noSideEffect).}:
-              inclTreeSet(arr, nil, data)
+            # TODO: the size is wrong! It needs to be a multiple of the size of
+            #       an ``int``
+            var arr = addPackedArray[uint8](data, (types.length(s.typ) + 7) div 8)
+            incl(arr.get, data, lit)
 
-            var val: BiggestUInt
-            for i in 0..7:
-              val = val or (BiggestUInt(arr[i]) shl (i*8))
-
-            syms.setData(id, newIntNode(nkUIntLit, cast[BiggestInt](val)))
+            syms.setData(id, data.finish(arr))
 
     else:
       discard

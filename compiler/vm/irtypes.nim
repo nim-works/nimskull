@@ -19,6 +19,9 @@ import
   ],
   compiler/utils/[
     ropes
+  ],
+  compiler/vm/[
+    irliterals
   ]
 
 import std/options as stdoptions
@@ -317,7 +320,7 @@ type
     #      exist quite a few already - it's located here for now
     decls: seq[DeclarationV2] ## indexed by ``DeclId``
 
-    constData: Table[SymId, PNode] ## stores the associated data for constants
+    constData: Table[SymId, LiteralId] ## stores the associated data for constants
 
     # XXX: `orig` will likely be removed/replaced later on
     orig*: Table[SymId, PSym] # stores the associated ``PSym`` for a symbol. Currently meant to be used by the code-generators.
@@ -810,10 +813,6 @@ func flush*(def: sink DeferredSymbols, ic: IdentCache, env: var SymbolEnv) =
     env.symbols[idx] = Symbol(kind: s.kind, position: s.position, magic: s.magic, flags: s.flags)
     env.symbols[idx].decl.init(ic, s)
 
-    if s.kind == skConst:
-      # associate a constant with it's data
-      env.constData[id] = s.astdef
-
     # remember the source
     env.orig[id] = s
 
@@ -1261,14 +1260,14 @@ func addDecl*(e: var SymbolEnv, name: PIdent): DeclId =
   e.decls.add DeclarationV2(name: name)
   result = e.decls.len.DeclId
 
-func data*(e: SymbolEnv, id: SymId): PNode =
+func data*(e: SymbolEnv, id: SymId): LiteralId =
   # TODO: globals and constants should each get their own namespace and seq.
   #       If not, both should atleast get their own ID type (which would be a
   #       ``distinct SymId``)
   assert e[id].kind == skConst
   result = e.constData[id]
 
-func setData*(e: var SymbolEnv, id: SymId, data: PNode) =
+func setData*(e: var SymbolEnv, id: SymId, data: LiteralId) =
   ## Sets the data that is associated with the constant name by `id` to `data`
   assert e[id].kind == skConst
   e.constData[id] = data
@@ -1748,3 +1747,164 @@ iterator children*(iter: RecordIter, env: TypeEnv): RecordId =
         discard "no children"
 
       inc i
+
+export irliterals
+
+# XXX: the code duplication is unacceptable, but without resorting to a
+#      template it's quite tricky to get around it
+func translateAux(n: PNode, orig: var SessionBase, data: var LiteralData): LiteralId =
+  template withSession(s: typed, code: untyped): LiteralId =
+    var session {.inject.} = s
+    code
+    data.finish(session)
+
+  case n.kind
+  of nkTupleConstr:
+    assert n.typ.kind == tyTuple
+    withSession data.startArray(orig, n.len):
+      for i in 0..<n.len:
+        let it =
+          case n[i].kind
+          of nkExprColonExpr: n[i][1]
+          else: n[i]
+
+        data.addLit(session, translateAux(it, session, data))
+
+  of nkObjConstr:
+    withSession data.startRecord(orig):
+      for i in 1..<n.len:
+        let it = n[i]
+        data.add(session, it[0].sym.position.int32)
+        data.addLit(session, translateAux(it[1], session, data))
+
+  of nkBracket:
+    assert n.typ.kind in {tyArray, tySequence}
+    withSession data.startArray(orig, n.len):
+      for it in n:
+        data.addLit(session, translateAux(it, session, data))
+
+  of nkIntLit..nkInt64Lit, nkUIntLit..nkUInt64Lit:
+    data.newLit(n.intVal)
+  of nkFloatLit..nkFloat128Lit:
+    data.newLit(n.floatVal)
+
+  of nkNilLit:
+    # XXX: introduce ``conImmediate`` for storing small integers inline?
+    data.newLit(0'u)
+  of nkCharLit:
+    # XXX: ``conImmediate`` sounds like an even better idea now!
+    data.newLit(n.intVal and 255)
+  of nkStrLit..nkTripleStrLit:
+    data.newLit(asStrNode(n))
+  of nkCurly:
+    assert n.typ.kind == tySet
+    {.cast(noSideEffect).}:
+      let first = firstOrd(nil, n.typ.skipTypes(abstractVarRange)) # TODO: don't pass nil
+    template adjusted(n: PNode): LiteralId =
+      data.newLit(toUInt(n.intVal - first))
+
+    withSession data.startArray(orig, n.len * 2):
+      for it in n:
+        case it.kind
+        of nkRange:
+          data.addLit session, adjusted(it[0])
+          data.addLit session, adjusted(it[1])
+        else:
+          let lit = adjusted(it)
+          data.addLit session, lit
+          data.addLit session, lit
+
+  else:
+    unreachable(n.kind)
+
+func add*(data: var LiteralData, n: PNode): LiteralId =
+  var s = data.begin()
+  result = translateAux(n, s, data)
+  discard data.finish(s)
+
+proc translate*(n: PNode, orig: var SessionBase, data: var LiteralData, conf: ConfigRef, procs: ProcedureEnv): LiteralId =
+  template withSession(s: typed, code: untyped): LiteralId =
+    var session {.inject.} = s
+    code
+    data.finish(session)
+
+  template sub(s: typed, it: PNode) =
+    let id = translate(it, s, data, conf, procs)
+    if id != NoneLit:
+      data.addLit(s, id)
+
+  let t = n.typ.skipTypes(irrelevantForBackend + {tyDistinct})
+
+  case n.kind
+  of nkTupleConstr:
+    assert t.kind == tyTuple
+    withSession data.startArray(orig, n.len):
+      for i in 0..<n.len:
+        let it =
+          case n[i].kind
+          of nkExprColonExpr: n[i][1]
+          else: n[i]
+
+        sub(session, it)
+
+  of nkObjConstr:
+    assert t.kind in {tyObject}, $t.kind
+    withSession data.startRecord(orig):
+      for i in 1..<n.len:
+        let it = n[i]
+        data.add(session, it[0].sym.position.int32)
+        sub(session, it[1])
+
+  of nkBracket:
+    assert t.kind in {tyArray, tySequence}
+    withSession data.startArray(orig, n.len):
+      for it in n:
+        sub(session, it)
+
+  of nkIntLit..nkInt64Lit, nkUIntLit..nkUInt64Lit:
+    assert t.kind in {tyChar, tyBool, tyInt..tyInt64, tyUInt..tyUInt64, tyEnum, tyOrdinal}, $t.kind
+    data.newLit(n.intVal)
+  of nkFloatLit..nkFloat128Lit:
+    assert t.kind in {tyFloat..tyFloat128}
+    data.newLit(n.floatVal)
+
+  of nkNilLit:
+    # XXX: introduce ``conImmediate`` for storing small integers inline?
+    data.newLit(0'u)
+  of nkCharLit:
+    assert t.kind == tyChar
+    # XXX: ``conImmediate`` sounds like an even better idea now!
+    data.newLit(n.intVal and 255)
+  of nkSym:
+    assert n.sym.kind in routineKinds
+    # TODO: don't access ``map`` directly - add a ``lookup`` procedure for
+    #       ``ProcedureEnv`` instead
+    data.addExt(orig, procs.map[n.sym].uint32)
+    NoneLit
+  of nkStrLit..nkTripleStrLit:
+    assert t.kind in {tyString, tyCstring}, $t.kind
+    data.newLit(asStrNode(n))
+  of nkCurly:
+    assert t.kind == tySet
+    let first = firstOrd(conf, t)
+    template adjusted(n: PNode): LiteralId =
+      data.newLit(toUInt(n.intVal - first))
+
+    withSession data.startArray(orig, n.len * 2):
+      for it in n:
+        case it.kind
+        of nkRange:
+          data.addLit session, adjusted(it[0])
+          data.addLit session, adjusted(it[1])
+        else:
+          let lit = adjusted(it)
+          data.addLit session, lit
+          data.addLit session, lit
+
+  else:
+    unreachable(n.kind)
+
+proc add*(data: var LiteralData, procs: ProcedureEnv, conf: ConfigRef, n: PNode): LiteralId =
+  var s = data.begin()
+  result = translate(n, s, data, conf, procs)
+  discard data.finish(s)
