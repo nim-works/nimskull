@@ -1070,12 +1070,10 @@ func genConstInitializer(ast: var CAstBuilder, c: var GenCtx,
     # ``nkIntLit`` in the first sub-node
     # XXX: we mis-use the ``ModuleCtx`` that is part of `c` to store the dependencies
     let sId = data.sym(iter).SymId
-    c.m.syms.incl sId
     return ast.ident(c.gl.symIdents[sId.toIndex])
   of conConstAddr:
     # similar to ``conConst`` above, with the difference that we want the address
     let sId = data.sym(iter).SymId
-    c.m.syms.incl sId
     return ast.emitAddr().ident(c.gl.symIdents[sId.toIndex])
   else:
     # no special handling
@@ -1944,16 +1942,32 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
         ctx.gl.constInit[id] = start().genConstInitializer(ctx, env.data, iter, sym.typ).fin()
 
         block:
-          # XXX: `ctx.m.syms` is used to accumulate dependencies on other
-          #      constants
+          # collect the dependencies on other constants for the constant and
+          # store the result in a lookup-table for later
+          # XXX: the pre-calculated dependency list is only used for emitting
+          #      constant definitions in the right order, but there's a better
+          #      solution for the ordering problem.
+          #      Due to how constants are generated and later transformed, the
+          #      following is true:
+          #        for constants 'a' and 'b', if `a.id < b.id`, then 'b'
+          #        *cannot* depend on 'a'
+          #
+          #      Emitting the used constants for a module in descending ID
+          #      order would thus be enough to ensure correct definition order.
+          #      ``PackedSet`` doesn't support iterating over it's items in
+          #      that order however - ``TBitSet`` probably needs to be used
+          #      instead
+          scanDeps(env.data, lit, ctx.m)
+
           var deps = newSeq[SymId](ctx.m.syms.len)
           for i, it in ctx.m.syms.pairs:
             deps[i] = it
 
           ctx.gl.constDeps[id] = move deps
 
-        # prepare for the next constant:
-        ctx.m.syms.clear()
+          # prepare for the next constant:
+          ctx.m.syms.clear()
+          ctx.m.funcs.clear()
 
     swap(ctx.gl, c)
 
