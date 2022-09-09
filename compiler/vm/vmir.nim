@@ -104,7 +104,7 @@ type
       arrSrc: PathIndex
       idx: IRIndex
     of ntkLit:
-      litIdx: int
+      lit: Literal
     of ntkLocal:
       local: int
     of ntkProc:
@@ -146,9 +146,13 @@ type
     else:
       discard
 
-  # TODO: now that ``Literal`` is a non-GC'ed type, it should be stored
-  #       directly in ``IrNode3``
   Literal* = tuple[val: LiteralId, typ: TypeId]
+    ## A typed reference to literal data. Literal data itself has no type
+    ## information - it only knows about it's shape. How the data is to be
+    ## interpreted (e.g. whether a number is a float, int, or uint) is
+    ## described by the type
+    # XXX: the doc comment is a bit off. `Literal` is more like a "view" than
+    #      a "reference".
 
   LocalKind* = enum
     lkTemp
@@ -166,7 +170,6 @@ type
     nodes: seq[IrNode3]
     #syms: seq[PSym]
     numJoins: int
-    literals: seq[Literal]
     locals: seq[Local]
 
     localSrc: seq[seq[StackTraceEntry]]
@@ -366,8 +369,7 @@ func irAddr*(c: var IrStore3, loc: IRIndex): IRIndex =
 
 func irLit*(c: var IrStore3, lit: Literal): IRIndex =
   #assert n.typ != nil
-  result = c.add(IrNode3(kind: ntkLit, litIdx: c.literals.len))
-  c.literals.add(lit)
+  result = c.add(IrNode3(kind: ntkLit, lit: lit))
 
 # ------ query procs
 
@@ -409,8 +411,8 @@ func getLocal*(irs: IrStore3, n: IRIndex): lent Local =
 func getLocalIdx*(irs: IrStore3, n: IRIndex): int =
   irs.nodes[n].local
 
-func getLit*(irs: IrStore3, n: IrNode3): lent Literal =
-  irs.literals[n.litIdx]
+func getLit*(irs: IrStore3, n: IrNode3): Literal =
+  n.lit
 
 func isLoop*(ir: IrStore3, j: JoinPoint): bool =
   false#ir.joins[j][1]
@@ -518,16 +520,15 @@ func mapTypes*(ir: var IrStore3, tg: DeferredTypeGen) =
         if n.typ != NoneType:
           n.typ = tg.map(n.typ)
       of ckNormal: discard
+    of ntkLit:
+      if n.lit.typ != NoneType:
+        # literals can have a non-placeholder type ID already, so ``maybeMap``
+        # is used
+        n.lit.typ = tg.maybeMap(n.lit.typ)
     of ntkCast, ntkConv:
       n.destTyp = tg.map(n.destTyp)
     else:
       discard
-
-  for lit in ir.literals.mitems:
-    if lit.typ != NoneType:
-      # literals can have a non-placeholder type ID already, so ``maybeMap``
-      # is used
-      lit.typ = tg.maybeMap(lit.typ)
 
   for loc in ir.locals.mitems:
     loc.typ = tg.map(loc.typ)
@@ -553,7 +554,6 @@ type IrCursor* = object
   actions: seq[(bool, Slice[IRIndex])] # true = replace, false = insert
   #newSyms: SeqAdditions[PSym]
   newLocals: SeqAdditions[Local]
-  newLiterals: SeqAdditions[Literal] # literal + type
   newNodes: seq[IrNode3]
 
   traces: seq[seq[StackTraceEntry]]
@@ -584,7 +584,6 @@ func setup*(cr: var IrCursor, ir: IrStore3) =
   cr.nextJoinPoint = ir.numJoins
   #cr.newSyms.setFrom(ir.syms)
   cr.newLocals.setFrom(ir.locals)
-  cr.newLiterals.setFrom(ir.literals)
 
 func getNext(cr: var IrCursor): IRIndex {.inline.} =
   result = cr.nextIdx
@@ -655,7 +654,7 @@ func insertCallExpr*(cr: var IrCursor, m: TMagic, typ: TypeId, args: varargs[IRI
   result = cr.insert IrNode3(kind: ntkCall, ckind: ckMagic, magic: m, typ: typ, numArgs: args.len.uint32)
 
 func insertLit*(cr: var IrCursor, lit: Literal): IRIndex =
-  cr.insert IrNode3(kind: ntkLit, litIdx: cr.newLiterals.add(lit))
+  cr.insert IrNode3(kind: ntkLit, lit: lit)
 
 func insertAsgn*(cr: var IrCursor, kind: AssignKind, a, b: IRIndex) =
   discard cr.insert IrNode3(kind: ntkAsgn, asgnKind: kind, wrDst: a, wrSrc: b)
@@ -794,7 +793,6 @@ func updateV1(ir: var IrStore3, cr: sink IrCursor) =
 
   #ir.syms.apply(cr.newSyms)
   ir.locals.apply(cr.newLocals)
-  ir.literals.apply(cr.newLiterals)
 
   var currOff = 0
   var p = 0
@@ -884,7 +882,6 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
 
   #ir.syms.apply(cr.newSyms)
   ir.locals.apply(cr.newLocals)
-  ir.literals.apply(cr.newLiterals)
   ir.numJoins = cr.nextJoinPoint
 
   let start = cr.actions[0][1].a
@@ -974,7 +971,7 @@ type
   Span = Slice[uint32]
 
   Lengths = tuple
-    diff, nodes, literals, locals: int
+    diff, nodes, locals: int
 
   DiffEntry = tuple
     dst, src: Span
@@ -993,7 +990,6 @@ type
     nodes: seq[IrNode3]
 
     locals: seq[Local]
-    literals: seq[Literal]
 
     lenDiff: int         ## additions + removals
     start: IRIndex       ## the node position of the first item in ``nodes``
@@ -1006,7 +1002,6 @@ func collect(x: varargs[IrCursor]): Lengths =
   for it in x.items:
     result.nodes += it.newNodes.len
     result.locals += it.newLocals.data.len
-    result.literals += it.newLiterals.data.len
     result.diff += it.actions.len
 
 func resize(c: var Changes, lengths: Lengths) =
@@ -1036,8 +1031,6 @@ func mergeInternal(dest: var Changes, other: IrCursor) =
     # XXX: `n` should be a ``var IrNode3`` instead
     let n = addr dest.nodes[it]
     case n.kind
-    of ntkLit:
-      n.litIdx += dest.lengths.literals
     of ntkLocal:
       n.local += dest.lengths.locals
     of ntkGoto:
@@ -1094,7 +1087,6 @@ func mergeInternal(dest: var Changes, other: IrCursor) =
   dest.lengths.nodes += other.newNodes.len
   dest.lengths.diff += other.actions.len
   dest.lengths.locals += other.newLocals.data.len
-  dest.lengths.literals += other.newLiterals.data.len
   dest.numJoins += other.nextJoinPoint - dest.joinStart
 
 func merge*(dest: var Changes, other: IrCursor) =
@@ -1103,7 +1095,6 @@ func merge*(dest: var Changes, other: IrCursor) =
     return
 
   dest.locals.add(other.newLocals.data)
-  dest.literals.add(other.newLiterals.data)
   dest.nodes.setLen(dest.nodes.len + other.newNodes.len)
   dest.diff.setLen(dest.diff.len + other.actions.len)
 
@@ -1228,8 +1219,6 @@ func apply*(ir: var IrStore3, c: sink Changes) =
   # add the additions to both locals and literals to `ir`
   ir.locals.add(c.locals)
   reset(c.locals)
-  ir.literals.add(c.literals)
-  reset(c.literals)
 
   # the changeset needs to be sorted by the modification position in ascending
   # order. Instead of sorting them separately, the ``DiffEntry``s could be
@@ -1259,13 +1248,10 @@ func applyAll*(ir: var IrStore3, changes: varargs[IrCursor]) =
   if lens.nodes == 0:
     return # nothing to do
 
-  var
-    p1 = ir.locals.len
-    p2 = ir.literals.len
+  var p1 = ir.locals.len
 
   # resize the destination sequences in one go
   ir.locals.setLen(ir.locals.len + lens.locals)
-  ir.literals.setLen(ir.literals.len + lens.literals)
 
   func arrayCopy[T](dst: var openArray[T], src: openArray[T], dstP: var int, srcP: Natural) =
     let p = dstP
@@ -1281,7 +1267,6 @@ func applyAll*(ir: var IrStore3, changes: varargs[IrCursor]) =
     c.mergeInternal(cr)
 
     arrayCopy(ir.locals, cr.newLocals.data, p1, 0)
-    arrayCopy(ir.literals, cr.newLiterals.data, p2, 0)
 
   quicksort(c.diff, 0, c.diff.high)
 
