@@ -1054,6 +1054,9 @@ func lowerSeqsV2(c: GenericTransCtx, n: IrNode3, cr: var IrCursor) =
   ## implementation. Enabled by the `optSeqDestructors` toggle
   doAssert false, "missing"
 
+type
+  ConstCache = Table[(LiteralId, TypeId), SymId]
+
 type LiftPassCtx* = object
   graph*: PassEnv
   idgen*: IdGenerator
@@ -1065,13 +1068,33 @@ type LiftPassCtx* = object
 
   syms*: seq[(SymId, TypeId)] ## all lifted globals
 
+  constCache*: ConstCache ## caches the created constants corresponding to
+                          ## (literal, type) pairs
+
 func addGlobal*(c: var LiftPassCtx, t: TypeId, name: string): SymId =
   # XXX: temporary helper
   c.env.syms.addSym(skLet, t, c.cache.getIdent(name), {sfGlobal}) # XXX: uh-oh, hidden mutation
 
-func addConst*(c: var LiftPassCtx, t: TypeId, name: string, val: LiteralId): SymId =
-  result = c.env.syms.addSym(skConst, t, c.cache.getIdent(name))
-  c.env.syms.setData(result, val)
+func addConst(syms: var SymbolEnv, c: var ConstCache, name: PIdent, t: TypeId, val: LiteralId): SymId =
+  ## If there doesn't exists a constant for the ``(val, t)`` pair in `c`, adds
+  ## one to `syms` and stores a mapping for it in `c`.
+  ## `name` only provides the identifier to use during the creation of the
+  ## constant - it has no effect on the caching. E.g. multiple calls to
+  ## ``addConst`` with the same ``(val, t)`` pair but a different `name` will
+  ## all yield the same symbol
+  # XXX: since it not always adds a const, rename?
+  let pair = (val, t)
+  result = c.getOrDefault(pair, NoneSymbol)
+  if result == NoneSymbol:
+    # not lifted into a constant yet
+    result = syms.addSym(skConst, t, name)
+    syms.setData(result, val)
+
+    # XXX: double table lookup
+    c[pair] = result
+
+func addConst(c: var LiftPassCtx, t: TypeId, name: string, val: LiteralId): SymId {.inline.} =
+  addConst(c.env.syms, c.constCache, c.cache.getIdent(name), t, val)
 
 proc liftSeqConstsV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   # XXX: we reuse the ``LiftPassCtx`` for now, but it's currently not really
@@ -1880,19 +1903,19 @@ proc lowerOfV1(c: var UntypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor
   else:
     discard
 
-type LiftAtomProc = proc(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv): bool
+type LiftAtomProc = proc(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, c: var ConstCache, data: LiteralData, types: TypeEnv): bool
 
-proc liftFrom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv, prc: LiftAtomProc)
-proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv, prc: LiftAtomProc)
+proc liftFrom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, c: var ConstCache, data: LiteralData, types: TypeEnv, prc: LiftAtomProc)
+proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, c: var ConstCache, data: LiteralData, types: TypeEnv, prc: LiftAtomProc)
 
-proc liftFromStruct(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv, prc: LiftAtomProc) =
+proc liftFromStruct(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, c: var ConstCache, data: LiteralData, types: TypeEnv, prc: LiftAtomProc) =
   ## Traverses the initializer AST `data` and applies `prc` to each sub-node
   ## (via ``liftFrom``)
   case types.kind(typ)
   of tnkArray, tnkSeq:
     assert iter.kind == conArray
     for _ in 0..<iter.len:
-      liftFrom(types.base(typ), iter, syms, data, types, prc)
+      liftFrom(types.base(typ), iter, syms, c, data, types, prc)
 
   of tnkRecord:
     case iter.kind
@@ -1900,12 +1923,12 @@ proc liftFromStruct(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: 
       for i in 0..<iter.len:
         iter.next() # go to the position entry
         let id = types.nthField(typ, data.getRecPos(iter))
-        liftFrom(types[id].typ, iter, syms, data, types, prc)
+        liftFrom(types[id].typ, iter, syms, c, data, types, prc)
 
     of conArray:
       assert iter.len.int - types[typ].fieldOffset == types.numFields(typ)
       for i in 0..<iter.len.int:
-        liftFrom(types[types.nthField(typ, i)].typ, iter, syms, data, types, prc)
+        liftFrom(types[types.nthField(typ, i)].typ, iter, syms, c, data, types, prc)
 
     else:
       unreachable(iter.kind)
@@ -1916,7 +1939,9 @@ proc liftFromStruct(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: 
     # structure. Don't raise an error - just do nothing
     discard
 
-proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv, prc: LiftAtomProc) =
+proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv,
+                 c: var ConstCache, data: LiteralData, types: TypeEnv,
+                 prc: LiftAtomProc) =
   ## Traverses the initializer AST `data` and applies `prc` to each sub-node
   ## (via ``liftFrom``)
   if iter.get(data).kind in {conConst, conConstAddr}:
@@ -1926,22 +1951,23 @@ proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: Lit
   case types.kind(typ)
   of tnkArray, tnkSeq, tnkRecord:
     var sub = iter.enter(data)
-    liftFromStruct(typ, sub, syms, data, types, prc)
+    liftFromStruct(typ, sub, syms, c, data, types, prc)
     close(iter, sub)
   else:
     iter.skipChildren(data)
 
-proc liftFrom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv,
+proc liftFrom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, c: var ConstCache,
               data: LiteralData, types: TypeEnv, prc: LiftAtomProc) =
   ## Recursively walks the initializer AST `data`, applying `prc` to all
   ## sub-nodes. After all sub-nodes were traversed, `prc` is applied to `data`
   ## itself
   iter.next()
-  if not prc(typ, iter, syms, data, types):
+  if not prc(typ, iter, syms, c, data, types):
     # if the item was not lifted/replaced, recurse into it
-    liftFromAux(typ, iter, syms, data, types, prc)
+    liftFromAux(typ, iter, syms, c, data, types, prc)
 
-proc liftSeqConstsV1*(syms: var SymbolEnv, data: var LiteralData, name: PIdent, types: TypeEnv) =
+proc liftSeqConstsV1*(syms: var SymbolEnv, data: var LiteralData,
+                      c: var ConstCache, name: PIdent, types: TypeEnv) =
   ## Lifts ``string|seq`` literals used by constant data into their own
   ## constants and replace the lifted-from location with a reference to the
   ## newly created string constant
@@ -1949,12 +1975,11 @@ proc liftSeqConstsV1*(syms: var SymbolEnv, data: var LiteralData, name: PIdent, 
   # TODO: same issue as with the other ``liftSeqConstsV1`` - we're creating
   #       duplicates
 
-  func liftAtom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv): bool =
+  func liftAtom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, c: var ConstCache, data: LiteralData, types: TypeEnv): bool =
     let kind = types.kind(typ)
     case kind
     of tnkString, tnkSeq:
-      let s = syms.addSym(skConst, typ, name)
-      syms.setData(s, data.getLit(iter))
+      let s = syms.addConst(c, name, typ, data.getLit(iter))
 
       replaceWithConstAddr(iter, s.uint32)
 
@@ -1973,7 +1998,7 @@ proc liftSeqConstsV1*(syms: var SymbolEnv, data: var LiteralData, name: PIdent, 
       var iter = initDataIter(data, lit)
       moveInto(iter, data)
       # don't use ``liftFrom``, as that would also lift the data itself
-      liftFromStruct(s.typ, iter, syms, data, types, liftAtom)
+      liftFromStruct(s.typ, iter, syms, c, data, types, liftAtom)
 
       # TODO: only set the data if it has changed
       syms.setData(id, data.finish(iter))
@@ -2070,10 +2095,10 @@ func setAsInt(env: TypeEnv, data: var LiteralData, id: TypeId, lit: LiteralId): 
   else:
     result = lit
 
-proc liftSetConsts*(syms: var SymbolEnv, data: var LiteralData, name: PIdent, types: TypeEnv) =
+proc liftSetConsts*(syms: var SymbolEnv, data: var LiteralData, c: var ConstCache, name: PIdent, types: TypeEnv) =
   ## Lifts ``set`` literals part of constant data into their own
   ## constants. `name` is the name to use for the produced constants
-  proc liftAtom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv): bool =
+  proc liftAtom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, c: var ConstCache, data: LiteralData, types: TypeEnv): bool =
     case types.kind(typ)
     of tnkSet:
       let lit = data.getLit(iter)
@@ -2082,8 +2107,7 @@ proc liftSetConsts*(syms: var SymbolEnv, data: var LiteralData, name: PIdent, ty
       #      `data` object however, which is why it's not done anymore. The
       #      downside is that the memory usage is higher (due to a larger
       #      amount of constants)
-      let s = syms.addSym(skConst, typ, name)
-      syms.setData(s, lit)
+      let s = syms.addConst(c, name, typ, data.getLit(iter))
 
       replaceWithConst(iter, s.uint32)
       #[
@@ -2115,7 +2139,7 @@ proc liftSetConsts*(syms: var SymbolEnv, data: var LiteralData, name: PIdent, ty
 
       var iter = initDataIter(data, lit)
       moveInto(iter, data)
-      liftFromStruct(s.typ, iter, syms, data, types, liftAtom)
+      liftFromStruct(s.typ, iter, syms, c, data, types, liftAtom)
 
       syms.setData(id, data.finish(iter))
     else:

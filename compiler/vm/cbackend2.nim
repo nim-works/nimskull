@@ -673,8 +673,8 @@ proc generateCode*(g: ModuleGraph) =
 
     # first, lift ``set|string|seq`` literals that are part of other constants
     # into their own constants
-    liftSetConsts(env.syms, env.data, g.cache.getIdent("setConst"), env.types)
-    liftSeqConstsV1(env.syms, env.data, g.cache.getIdent("seqConst"), env.types)
+    liftSetConsts(env.syms, env.data, lpCtx.constCache, g.cache.getIdent("setConst"), env.types)
+    liftSeqConstsV1(env.syms, env.data, lpCtx.constCache, g.cache.getIdent("seqConst"), env.types)
 
     # TODO: merge the changes from both passes before applying them
     transformSetConsts(passEnv, env.syms, env.data, env.types)
