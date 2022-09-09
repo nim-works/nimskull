@@ -1880,12 +1880,12 @@ proc lowerOfV1(c: var UntypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor
   else:
     discard
 
-type LiftAtomProc = proc(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv): bool
+type LiftAtomProc = proc(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv): bool
 
-proc liftFrom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv, prc: LiftAtomProc)
-proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv, prc: LiftAtomProc)
+proc liftFrom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv, prc: LiftAtomProc)
+proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv, prc: LiftAtomProc)
 
-proc liftFromStruct(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv, prc: LiftAtomProc) =
+proc liftFromStruct(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv, prc: LiftAtomProc) =
   ## Traverses the initializer AST `data` and applies `prc` to each sub-node
   ## (via ``liftFrom``)
   case types.kind(typ)
@@ -1916,7 +1916,7 @@ proc liftFromStruct(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: 
     # structure. Don't raise an error - just do nothing
     discard
 
-proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv, prc: LiftAtomProc) =
+proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv, prc: LiftAtomProc) =
   ## Traverses the initializer AST `data` and applies `prc` to each sub-node
   ## (via ``liftFrom``)
   if iter.get(data).kind in {conConst, conConstAddr}:
@@ -1932,7 +1932,7 @@ proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var
     iter.skipChildren(data)
 
 proc liftFrom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv,
-              data: var LiteralData, types: TypeEnv, prc: LiftAtomProc) =
+              data: LiteralData, types: TypeEnv, prc: LiftAtomProc) =
   ## Recursively walks the initializer AST `data`, applying `prc` to all
   ## sub-nodes. After all sub-nodes were traversed, `prc` is applied to `data`
   ## itself
@@ -1949,14 +1949,14 @@ proc liftSeqConstsV1*(syms: var SymbolEnv, data: var LiteralData, name: PIdent, 
   # TODO: same issue as with the other ``liftSeqConstsV1`` - we're creating
   #       duplicates
 
-  func liftAtom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv): bool =
+  func liftAtom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv): bool =
     let kind = types.kind(typ)
     case kind
     of tnkString, tnkSeq:
       let s = syms.addSym(skConst, typ, name)
       syms.setData(s, data.getLit(iter))
 
-      data.replaceWithConstAddr(iter, s.uint32)
+      replaceWithConstAddr(iter, s.uint32)
 
       result = true
     else:
@@ -2073,21 +2073,32 @@ func setAsInt(env: TypeEnv, data: var LiteralData, id: TypeId, lit: LiteralId): 
 proc liftSetConsts*(syms: var SymbolEnv, data: var LiteralData, name: PIdent, types: TypeEnv) =
   ## Lifts ``set`` literals part of constant data into their own
   ## constants. `name` is the name to use for the produced constants
-  proc liftAtom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: var LiteralData, types: TypeEnv): bool =
+  proc liftAtom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, data: LiteralData, types: TypeEnv): bool =
     case types.kind(typ)
     of tnkSet:
       let lit = data.getLit(iter)
+      # XXX: the case where the set can be represented by an int was
+      #      previously optimized to not use a const. It did require a mutable
+      #      `data` object however, which is why it's not done anymore. The
+      #      downside is that the memory usage is higher (due to a larger
+      #      amount of constants)
+      let s = syms.addSym(skConst, typ, name)
+      syms.setData(s, lit)
+
+      replaceWithConst(iter, s.uint32)
+      #[
       let val = setAsInt(types, data, typ, lit)
       if lit == val:
         # the set requires an array
         let s = syms.addSym(skConst, typ, name)
         syms.setData(s, val)
 
-        data.replaceWithConst(iter, s.uint32)
+        replaceWithConst(iter, s.uint32)
       else:
         # the set can be represented via an integer - we don't need an extra
         # constant
-        data.replaceWithLit(iter, val)
+        replaceWithLit(iter, val)
+      ]#
 
       result = true
     else:
