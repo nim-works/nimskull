@@ -105,11 +105,11 @@ iterator toStrIter*(irs: IrStore3, e: IrEnv, exprs: seq[bool]): string =
       line = fmt"deref {n.addrLoc}"
     of ntkLit:
       let (val, typ) = irs.getLit(n)
-      if val.isNil:
+      if val == NoneLit:
         # a type literal
         line = fmt"lit type:{typeToStr(e.types, typ)}"
       else:
-        line = fmt"lit {val.kind}"
+        line = fmt"lit ID: {val}"
     of ntkUse:
       line = fmt"use {n.srcLoc}"
     of ntkGoto:

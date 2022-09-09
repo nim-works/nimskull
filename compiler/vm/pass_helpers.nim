@@ -1,24 +1,19 @@
 
-import compiler/vm/vmir
+import compiler/vm/[vmir, irliterals]
 import compiler/ast/ast
 
-func insertNilLit*(cr: var IrCursor, typ: TypeId): IRIndex =
-  cr.insertLit (newNode(nkNilLit), typ)
+func insertNilLit*(cr: var IrCursor, d: var LiteralData, typ: TypeId): IRIndex =
+  assert typ != NoneType
+  cr.insertLit (d.newLit(0'u), typ)
 
 func insertTypeLit*(cr: var IrCursor, typ: TypeId): IRIndex =
-  cr.insertLit (nil, typ)
+  cr.insertLit (NoneLit, typ)
 
-func insertLit*(cr: var IrCursor, lit: string): IRIndex =
-  cr.insertLit (newStrNode(nkStrLit, lit), NoneType)
+func insertLit*(cr: var IrCursor, d: var LiteralData, v: SomeInteger|float|string, typ = NoneType): IRIndex {.inline.} =
+  cr.insertLit (d.newLit(v), typ)
 
-func insertLit*(cr: var IrCursor, i: int): IRIndex =
-  cr.insertLit (newIntNode(nkIntLit, i), NoneType)
-
-func insertLit*(cr: var IrCursor, i: uint): IRIndex =
-  cr.insertLit (newIntNode(nkUIntLit, cast[BiggestInt](i)), NoneType)
-
-func insertError*(cr: var IrCursor, err: string): IRIndex {.discardable.} =
-  cr.insertCallExpr(bcError, NoneType, cr.insertLit err)
+func insertError*(cr: var IrCursor, d: var LiteralData, err: string): IRIndex {.discardable.} =
+  cr.insertCallExpr(bcError, NoneType, cr.insertLit(d, err))
 
 template genIfNot*(cr: var IrCursor, cond: IRIndex, code: untyped) =
   let condVal = cond

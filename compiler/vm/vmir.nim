@@ -146,7 +146,9 @@ type
     else:
       discard
 
-  Literal* = tuple[val: PNode, typ: TypeId]
+  # TODO: now that ``Literal`` is a non-GC'ed type, it should be stored
+  #       directly in ``IrNode3``
+  Literal* = tuple[val: LiteralId, typ: TypeId]
 
   LocalKind* = enum
     lkTemp

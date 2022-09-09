@@ -333,7 +333,7 @@ proc insertCompProcCall*(cr: var IrCursor, g: PassEnv, name: string, args: varar
 func insertLoop(cr: var IrCursor): JoinPoint
 
 # TODO: move to ``pass_helpers``
-template genForLoop*(cr: var IrCursor, g: PassEnv, len: IRIndex, body: untyped) =
+template genForLoop*(cr: var IrCursor, d: var LiteralData, g: PassEnv, len: IRIndex, body: untyped) =
   ## Generates a for-loop with counting from '0' till the given `len` - 1. The
   ## counter is accessible in from `body` via ``counter`` and the loop-exit
   ## point via ``loopExit``
@@ -351,7 +351,7 @@ template genForLoop*(cr: var IrCursor, g: PassEnv, len: IRIndex, body: untyped) 
     body
 
     # increment the counter
-    cr.insertAsgn(askCopy, counter, cr.insertMagicCall(g, mAddI, tyInt, counter, cr.insertLit(1)))
+    cr.insertAsgn(askCopy, counter, cr.insertMagicCall(g, mAddI, tyInt, counter, cr.insertLit(d, 1)))
     cr.insertGoto(loop)
 
     cr.insertJoin(loopExit)
@@ -408,12 +408,12 @@ func storageLoc(c: RefcPassCtx, val: IRIndex): StorageLoc =
 
 proc requestRtti(c: var RefcPassCtx, cr: var IrCursor, t: TypeId): IRIndex =
   # refc uses the v1 type-info
-  cr.insertAddr cr.insertCallExpr(mGetTypeInfo, c.extra.getCompilerType("TNimType"), cr.insertLit((nil, t)))
+  cr.insertAddr cr.insertCallExpr(mGetTypeInfo, c.extra.getCompilerType("TNimType"), cr.insertTypeLit(t))
   # TODO: collect for which types rtti was requested
 
 func requestRtti2(g: PassEnv, cr: var IrCursor, t: TypeId): IRIndex =
   # refc uses the v1 type-info
-  cr.insertAddr cr.insertCallExpr(mGetTypeInfo, g.getCompilerType("TNimType"), cr.insertLit((nil, t)))
+  cr.insertAddr cr.insertCallExpr(mGetTypeInfo, g.getCompilerType("TNimType"), cr.insertTypeLit(t))
 
 proc genRefcRefAssign(cr: var IrCursor, e: PassEnv, dst, src: IRIndex, sl: StorageLoc)
 
@@ -425,7 +425,7 @@ proc genNewObj(cr: var IrCursor, g: PassEnv, env: IrEnv, ptrTyp: TypeId,
 
   let sizeExpr =
     if sizeExpr == InvalidIndex:
-      cr.insertMagicCall(g, mSizeOf, tyInt, cr.insertLit((nil, typ)))
+      cr.insertMagicCall(g, mSizeOf, tyInt, cr.insertTypeLit(typ))
     else:
       sizeExpr
 
@@ -453,7 +453,7 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
     of tnkRef, tnkString:
       # XXX: only non-injected destroys for refs should be turned
       cr.replace()
-      let nilLit = cr.insertLit((newNode(nkNilLit), NoneType))
+      let nilLit = cr.insertNilLit(c.env.data, c.typeof(val))
       let r = c.storageLoc(val)
       case r
       of slStack:
@@ -495,11 +495,11 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
     case c.env.types[typ].kind
     of tnkBool, tnkChar, tnkInt, tnkUInt:
       # TODO: bool and char need their own literal
-      discard cr.insertLit(0)
+      discard cr.insertLit(c.env.data, 0, typ)
     of tnkFloat:
-      discard cr.insertLit((newFloatNode(nkFloatLit, 0), typ))
+      discard cr.insertLit(c.env.data, 0.0, typ)
     of tnkPtr, tnkRef, tnkProc:
-      discard cr.insertNilLit(typ)
+      discard cr.insertNilLit(c.env.data, typ)
     else:
       # a complex type
       type TypeHeaderKind = enum
@@ -512,7 +512,7 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
 
       # XXX: should IR temporaries be specified to be zero-initialized by
       #      default? Sounds like a good idea
-      cr.insertCompProcCall(c.extra, "nimZeroMem", cr.insertAddr tmpAcc, cr.insertMagicCall(c.extra, mSizeOf, tyInt, cr.insertLit((nil, typ))))
+      cr.insertCompProcCall(c.extra, "nimZeroMem", cr.insertAddr tmpAcc, cr.insertMagicCall(c.extra, mSizeOf, tyInt, cr.insertTypeLit(typ)))
       case hdr
       of none: discard
       of single:
@@ -702,7 +702,7 @@ proc accessSeqField(cr: var IrCursor, ir: IrStore3, src: IRIndex, f: int): IRInd
 
   cr.insertPathObj(obj, f.int16)
 
-proc genSeqLen(cr: var IrCursor, g: PassEnv, ir: IrStore3, src: IRIndex): IRIndex =
+proc genSeqLen(cr: var IrCursor, d: var LiteralData, g: PassEnv, ir: IrStore3, src: IRIndex): IRIndex =
   ## Generates a ``len`` getter expression for a V1 seq-like value
   # result = if src.isNil: 0 else: src[].len
 
@@ -719,14 +719,14 @@ proc genSeqLen(cr: var IrCursor, g: PassEnv, ir: IrStore3, src: IRIndex): IRInde
     cr.insertAsgn(askInit, tmp, accessSeqField(cr, ir, src, SeqV1LenField))
   else:
     let cond = cr.insertMagicCall(g, mIsNil, tyBool, src)
-    genTernaryIf(cr, g, askInit, cond, tmp, cr.insertLit(0), cr.insertPathObj(cr.insertDeref(src), SeqV1LenField))
+    genTernaryIf(cr, g, askInit, cond, tmp, cr.insertLit(d, 0.int), cr.insertPathObj(cr.insertDeref(src), SeqV1LenField))
 
   result = cr.insertLocalRef(local)
 
 func genSeqAt(cr: var IrCursor, g: PassEnv, ir: IrStore3, src, idx: IRIndex): IRIndex =
   cr.insertPathArr(accessSeqField(cr, ir, src, SeqV1DataField), idx)
 
-proc genStrConcat(cr: var IrCursor, g: PassEnv, tm: seq[TypeId], ir: IrStore3, env: IrEnv, n: IRIndex): IRIndex =
+proc genStrConcat(cr: var IrCursor, g: PassEnv, tm: seq[TypeId], ir: IrStore3, env: var IrEnv, n: IRIndex): IRIndex =
   # Input:
   #   s = "Abc" & "def" & str & 'g'
   # Transformed:
@@ -735,6 +735,10 @@ proc genStrConcat(cr: var IrCursor, g: PassEnv, tm: seq[TypeId], ir: IrStore3, e
   #   appendString(tmp, "def")
   #   appendString(tmp, name)
   #   appendChar(tmp, 'g')
+
+  # XXX: with the introduction of the literal IR, the `env` parameter was
+  #      changed to be mutable - but that is much too broad! Only the literal
+  #      data is mutated
 
   var staticLen = 0
   var lenExpr = InvalidIndex
@@ -745,9 +749,9 @@ proc genStrConcat(cr: var IrCursor, g: PassEnv, tm: seq[TypeId], ir: IrStore3, e
       inc staticLen
     of tnkString:
       if ir.at(arg).kind == ntkLit:
-        staticLen += getLit(ir, ir.at(arg)).val.strVal.len
+        staticLen += env.data.getStr(getLit(ir, ir.at(arg)).val).len
       else:
-        let v = genSeqLen(cr, g, ir, arg)
+        let v = genSeqLen(cr, env.data, g, ir, arg)
         lenExpr =
           if lenExpr == InvalidIndex:
             v
@@ -756,11 +760,12 @@ proc genStrConcat(cr: var IrCursor, g: PassEnv, tm: seq[TypeId], ir: IrStore3, e
 
     else: unreachable()
 
+  let staticLenExpr = cr.insertLit(env.data, staticLen)
   lenExpr =
     if lenExpr == InvalidIndex:
-      cr.insertLit(staticLen)
+      staticLenExpr
     else:
-      cr.insertMagicCall(g, mAddI, tyInt, lenExpr, cr.insertLit(staticLen))
+      cr.insertMagicCall(g, mAddI, tyInt, lenExpr, staticLenExpr)
 
   let tmp = cr.newLocal(lkTemp, g.getCompilerType("NimString"))
   cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertCompProcCall(g, "rawNewString", lenExpr))
@@ -796,7 +801,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       cr.replace()
 
       let val = arg(0)
-      let nilLit = cr.insertLit((newNode(nkNilLit), NoneType))
+      let nilLit = cr.insertNilLit(c.env.data, c.typeof(val))
 
       let sl = c.storageLoc(val)
       case sl
@@ -838,7 +843,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
         arrTyp = c.typeof(arg(0))
 
       let
-        elemCount = cr.insertLit(c.env.types.length(arrTyp))
+        elemCount = cr.insertLit(c.env.data, c.env.types.length(arrTyp))
         tmp = cr.newLocal(lkTemp, c.typeof(cr.position))
 
       # TODO: this transformation shoud likely happen in a pass before
@@ -852,7 +857,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
 
       # TODO: don't emit a loop if the source array is empty
       # TODO: maybe add back the small loop unrolling?
-      cr.genForLoop(c.extra, elemCount):
+      cr.genForLoop(c.env.data, c.extra, elemCount):
         cr.insertAsgn(askInit, cr.genSeqAt(c.extra, ir, cr.insertLocalRef(tmp), counter), cr.insertPathArr(arg(0), counter))
 
       discard cr.insertLocalRef(tmp)
@@ -875,7 +880,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       let seqLen = cr.accessSeqField(ir, seqVal, SeqV1LenField)
       let tmp = cr.genTempOf(seqLen, c.extra.sysTypes[tyInt])
 
-      cr.insertAsgn(askCopy, seqLen, cr.insertMagicCall(c.extra, mAddI, tyInt, cr.insertLocalRef(tmp), cr.insertLit(1)))
+      cr.insertAsgn(askCopy, seqLen, cr.insertMagicCall(c.extra, mAddI, tyInt, cr.insertLocalRef(tmp), cr.insertLit(c.env.data, 1)))
       # the value is a sink parameter so we can use a move
       # XXX: we're running after the inject-hook pass, so we either need to
       #      reorder the passes or manually insert a hook call here
@@ -887,7 +892,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       #   appendString(lhs, rhs)
       cr.replace()
 
-      let lenTmp = genSeqLen(cr, c.extra, ir, arg(1))
+      let lenTmp = genSeqLen(cr, c.env.data, c.extra, ir, arg(1))
       cr.insertCompProcCall(c.extra, "resizeString", arg(0), lenTmp)
       cr.insertCompProcCall(c.extra, "appendString", arg(0), arg(1))
 
@@ -911,16 +916,16 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
         a = arg(0)
         b = arg(1)
 
-      func isEmptyStr(ir: IrStore3, i: IRIndex): bool =
+      func isEmptyStr(ir: IrStore3, data: LiteralData, i: IRIndex): bool =
         let n = ir.at(i)
-        n.kind == ntkLit and ir.getLit(n).val.strVal.len == 0
+        n.kind == ntkLit and getStr(data, ir.getLit(n).val).len == 0
 
       cr.replace()
       # optimize the case where either 'a' or 'b' is an empty string
       # literal
       let nonEmptyIdx =
-        if   isEmptyStr(ir, a): b
-        elif isEmptyStr(ir, b): a
+        if   isEmptyStr(ir, c.env.data, a): b
+        elif isEmptyStr(ir, c.env.data, b): a
         else: InvalidIndex
 
       if nonEmptyIdx == InvalidIndex:
@@ -930,7 +935,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
         # we still call ``len`` for an empty string in the case that both
         # operands are empty strings, but since that case is highly unlikely,
         # it doesn't get special handling
-        discard cr.binaryBoolOp(c.extra, mEqI, genSeqLen(cr, c.extra, ir, nonEmptyIdx), cr.insertLit(0))
+        discard cr.binaryBoolOp(c.extra, mEqI, genSeqLen(cr, c.env.data, c.extra, ir, nonEmptyIdx), cr.insertLit(c.env.data, 0))
 
     of mLeStr, mLtStr:
       # same implementation for v1 and v2
@@ -940,7 +945,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       case c.env.types[typeof(c, arg(0))].kind
       of tnkString:
         cr.replace()
-        discard genSeqLen(cr, c.extra, ir, arg(0))
+        discard genSeqLen(cr, c.env.data, c.extra, ir, arg(0))
       of tnkCString:
         discard "transformed later"
       else:
@@ -948,7 +953,7 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
 
     of mLengthSeq:
       cr.replace()
-      discard genSeqLen(cr, c.extra, ir, arg(0))
+      discard genSeqLen(cr, c.env.data, c.extra, ir, arg(0))
 
     else:
       discard
@@ -1107,20 +1112,20 @@ proc liftSeqConstsV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCur
       # TODO: remove this once all literals have type information
       return
 
-    if lit.val == nil:
+    if lit.val == NoneLit:
       # a type literal
       return
 
     case c.env.types[lit.typ].kind
     of tnkString:
-      let s = c.addConst(lit.typ, "strConst", c.env.data.add(lit.val))
+      let s = c.addConst(lit.typ, "strConst", lit.val)
 
       cr.replace()
       # see the comment for ``tnkSeq`` below for why the addr + cast is done
       discard cr.insertCast(c.graph.getCompilerType("NimString"), cr.insertAddr(cr.insertSym(s)))
 
     of tnkSeq:
-      let s = c.addConst(lit.typ, "seqConst", c.env.data.add(lit.val))
+      let s = c.addConst(lit.typ, "seqConst", lit.val)
 
       cr.replace()
       # at the current stage of processing, the cast would produce wrong
@@ -1223,7 +1228,7 @@ func insertLoop(cr: var IrCursor): JoinPoint =
   result = cr.newJoinPoint()
   cr.insertJoin(result)
 
-func genMaskExpr(setType: TypeId, len: uint, val: IRIndex, cr: var IrCursor): IRIndex =
+func genMaskExpr(setType: TypeId, len: uint, val: IRIndex, data: var LiteralData, cr: var IrCursor): IRIndex =
   ## Generates the expression for calculating the bitmask of a set
   ## element (`val`). `setType` is the type to use for the resulting
   ## expression and `len` the number of elements in the set.
@@ -1236,11 +1241,11 @@ func genMaskExpr(setType: TypeId, len: uint, val: IRIndex, cr: var IrCursor): IR
     else: unreachable()
 
   # ``1 shl (a and mask)``
-  cr.insertCallExpr(mShlI, setType, cr.insertLit(1), cr.insertCallExpr(mBitandI, setType, val, cr.insertLit(mask)))
+  cr.insertCallExpr(mShlI, setType, cr.insertLit(data, 1), cr.insertCallExpr(mBitandI, setType, val, cr.insertLit(data, mask)))
 
-func genSubsetRelOp(setType: TypeId, a, b: IRIndex, testTrue: bool, g: PassEnv, cr: var IrCursor): IRIndex =
+func genSubsetRelOp(setType: TypeId, a, b: IRIndex, testTrue: bool, g: PassEnv, data: var LiteralData, cr: var IrCursor): IRIndex =
   # compute if a is either a subset of or equal to b
-  let isSubsetExpr = cr.insertMagicCall(g, mEqI, tyBool, cr.insertCallExpr(mBitandI, setType, a, cr.insertCallExpr(mBitnotI, setType, b)), cr.insertLit(0))
+  let isSubsetExpr = cr.insertMagicCall(g, mEqI, tyBool, cr.insertCallExpr(mBitandI, setType, a, cr.insertCallExpr(mBitnotI, setType, b)), cr.insertLit(data, 0))
 
   if testTrue:
     # if the test is for true subset relationship, we also need compare
@@ -1279,9 +1284,9 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
     of mEqSet, mMulSet, mPlusSet, mMinusSet:
       discard genSetElemOp(cr, c.extra, m, setType, ir.argAt(cr, 0), ir.argAt(cr, 1))
     of mLeSet, mLtSet:
-      discard genSubsetRelOp(setType, ir.argAt(cr, 0), ir.argAt(cr, 1), testTrue=(m == mLtSet), c.extra, cr)
+      discard genSubsetRelOp(setType, ir.argAt(cr, 0), ir.argAt(cr, 1), testTrue=(m == mLtSet), c.extra, c.env.data, cr)
     of mInSet:
-      let mask = genMaskExpr(setType, len, ir.argAt(cr, 1), cr)
+      let mask = genMaskExpr(setType, len, ir.argAt(cr, 1), c.env.data, cr)
       discard cr.insertCallExpr(mBitandI, setType, ir.argAt(cr, 0), mask)
     of mIncl, mExcl:
       # mIncl --->
@@ -1291,7 +1296,7 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
       let
         a = ir.argAt(cr, 0)
         b = ir.argAt(cr, 1)
-        mask = genMaskExpr(setType, len, b, cr)
+        mask = genMaskExpr(setType, len, b, c.env.data, cr)
 
       let (op, rhs) =
         case m
@@ -1321,7 +1326,7 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
         res = cr.newLocal(lkTemp, setType)
 
       # apply the set operation to each byte in the array-based ``set``
-      cr.genForLoop(c.extra, cr.insertLit((len + 7) div 8)):
+      cr.genForLoop(c.env.data, c.extra, cr.insertLit(c.env.data, (len + 7) div 8)):
         let v = genSetElemOp(cr, c.extra, m, c.extra.sysTypes[tyUInt8], cr.insertPathArr(arg0, counter), cr.insertPathArr(arg1, counter))
         cr.insertAsgn(askInit, cr.insertPathArr(cr.insertLocalRef(res), counter), v)
 
@@ -1334,10 +1339,10 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
         res = cr.newLocal(lkTemp, c.extra.getSysType(tyBool))
 
       # start with ``res = true``
-      cr.insertAsgn(askInit, cr.insertLocalRef(res), cr.insertLit(1))
+      cr.insertAsgn(askInit, cr.insertLocalRef(res), cr.insertLit(c.env.data, 1))
 
       # iterate over all bytes in the set and perform the comparison:
-      cr.genForLoop(c.extra, cr.insertLit((len + 7) div 8)):
+      cr.genForLoop(c.env.data, c.extra, cr.insertLit(c.env.data, (len + 7) div 8)):
         let
           a = cr.insertPathArr(arg0, counter)
           b = cr.insertPathArr(arg1, counter)
@@ -1345,13 +1350,13 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
         let v =
           case m
           of mEqSet:         cr.binaryBoolOp(c.extra, mEqI, a, b)
-          of mLtSet, mLeSet: genSubsetRelOp(c.extra.sysTypes[tyUInt8], a, b, m == mLtSet, c.extra, cr)
+          of mLtSet, mLeSet: genSubsetRelOp(c.extra.sysTypes[tyUInt8], a, b, m == mLtSet, c.extra, c.env.data, cr)
           else:              unreachable()
 
         # if the comparison for the partial sets doesn't succeed, set the result
         # to false and exit the loop
         cr.genIfNot(v):
-          cr.insertAsgn(askCopy, cr.insertLocalRef(res), cr.insertLit(0))
+          cr.insertAsgn(askCopy, cr.insertLocalRef(res), cr.insertLit(c.env.data, 0))
           cr.insertGoto(loopExit)
 
       discard cr.insertLocalRef(res)
@@ -1360,11 +1365,11 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
         let uintTyp = c.extra.getSysType(tyUInt)
         let conv = cr.insertConv(uintTyp, ir.argAt(cr, 1))
         let
-          index = cr.insertCallExpr(mShrI, uintTyp, conv, cr.insertLit 3)
-          mask = cr.insertCallExpr(mShlI, uintTyp, cr.insertLit(1), cr.insertCallExpr(mBitandI, uintTyp, conv, cr.insertLit 7))
+          index = cr.insertCallExpr(mShrI, uintTyp, conv, cr.insertLit(c.env.data, 3))
+          mask = cr.insertCallExpr(mShlI, uintTyp, cr.insertLit(c.env.data, 1), cr.insertCallExpr(mBitandI, uintTyp, conv, cr.insertLit(c.env.data, 7)))
 
         let val = cr.insertCallExpr(mBitandI, c.extra.sysTypes[tyUInt8], cr.insertPathArr(ir.argAt(cr, 0), index), mask)
-        discard cr.insertMagicCall(c.extra, mNot, tyBool, cr.binaryBoolOp(c.extra, mEqI, val, cr.insertLit(0)))
+        discard cr.insertMagicCall(c.extra, mNot, tyBool, cr.binaryBoolOp(c.extra, mEqI, val, cr.insertLit(c.env.data, 0)))
 
     of mIncl, mExcl:
       # mIncl --->
@@ -1376,8 +1381,8 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
         a = ir.argAt(cr, 0)
         b = ir.argAt(cr, 1)
         uintTy = c.extra.sysTypes[tyUInt]
-        dest = cr.insertPathArr(a, cr.insertCallExpr(mShrI, uintTy, b, cr.insertLit(3)))
-        bit = cr.insertCallExpr(mShlI, uintTy, cr.insertLit(1), cr.insertCallExpr(mBitandI, uintTy, b, cr.insertLit(7)))
+        dest = cr.insertPathArr(a, cr.insertCallExpr(mShrI, uintTy, b, cr.insertLit(c.env.data, 3)))
+        bit = cr.insertCallExpr(mShlI, uintTy, cr.insertLit(c.env.data, 1), cr.insertCallExpr(mBitandI, uintTy, b, cr.insertLit(c.env.data, 7)))
 
       let rhs =
         case m
@@ -1395,10 +1400,12 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
         arrTyp = c.env.types.lookupGenericType(tnkUncheckedArray, c.extra.sysTypes[tyUInt8])
         ptrTyp = c.env.types.lookupGenericType(tnkPtr, arrTyp)
 
-      cr.insertCompProcCall(c.extra, "cardSetPtr", cr.insertCast(ptrTyp, cr.insertAddr(ir.argAt(cr, 0))), cr.insertLit(size))
+      cr.insertCompProcCall(c.extra, "cardSetPtr", cr.insertCast(ptrTyp, cr.insertAddr(ir.argAt(cr, 0))), cr.insertLit(c.env.data, size))
 
     else:
       unreachable()
+
+func setAsInt(env: TypeEnv, data: var LiteralData, id: TypeId, lit: LiteralId): LiteralId
 
 proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers ``set`` operations into bit operations. Intended for the C-like targets
@@ -1419,7 +1426,7 @@ proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
   of ntkLit:
     let lit = getLit(ir, n)
 
-    if lit.val == nil or lit.typ == NoneType:
+    if lit.val == NoneLit or lit.typ == NoneType:
       # TODO: remove the ``NoneType`` guard once all literals have type
       #       information
       return
@@ -1429,18 +1436,10 @@ proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
     # a separate pass
     let typ = c.env.types[lit.typ]
     if typ.kind == tnkSet and typ.length <= 64:
-      var data: array[8, uint8]
-      # XXX: we have no access to a `ConfigRef` here. In general, it would be
-      #      a better idea to translate literals and constant data into a
-      #      dedicated IR during ``irgen``
-      inclTreeSet(data, nil, lit.val)
-
-      var val: BiggestUInt
-      for i in 0..7:
-        val = val or (BiggestUInt(data[i]) shl (i*8))
+      let newLit = setAsInt(c.env.types, c.env.data, lit.typ, lit.val)
 
       cr.replace()
-      discard cr.insertLit((newIntNode(nkUIntLit, cast[BiggestInt](val)), NoneType))
+      discard cr.insertLit((newLit, NoneType))
 
   else:
     discard
@@ -1450,14 +1449,14 @@ func liftLargeSets(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurso
   of ntkLit:
     let lit = getLit(ir, n)
 
-    if lit.val == nil or lit.typ == NoneType:
+    if lit.val == NoneLit or lit.typ == NoneType:
       # TODO: remove the ``NoneType`` guard once all literals have type
       #       information
       return
 
     let typ = c.env.types[lit.typ]
     if typ.kind == tnkSet and typ.length > 64:
-      let s = c.addConst(lit.typ, "setConst", c.env.data.add(lit.val))
+      let s = c.addConst(lit.typ, "setConst", lit.val)
 
       cr.replace()
       discard cr.insertSym(s)
@@ -1493,14 +1492,14 @@ func liftArrays(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
   of ntkLit:
     let lit = getLit(ir, n)
 
-    if lit.val == nil or lit.typ == NoneType:
+    if lit.val == NoneLit or lit.typ == NoneType:
       # TODO: remove the ``NoneType`` guard once all literals have type
       #       information
       return
 
     if c.env.types[lit.typ].kind == tnkArray:
       cr.replace()
-      discard cr.insertSym: c.addConst(lit.typ, "arrConst", c.env.data.add(lit.val))
+      discard cr.insertSym: c.addConst(lit.typ, "arrConst", lit.val)
 
   else:
     discard
@@ -1543,7 +1542,7 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
           cond = cr.binaryBoolOp(c.extra, mOr, cr.binaryBoolOp(c.extra, mLtF64, conv, lower), cr.binaryBoolOp(c.extra, mLtF64, upper, conv))
 
         else:
-          cr.insertError("missing chkRange impl")
+          cr.insertError(c.env.data, "missing chkRange impl")
 
         raiser =
           case c.env.types[c.typeof(cr.position)].kind#skipTypes(c.typeof(cr.position), abstractVarRange).kind
@@ -1756,14 +1755,16 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
       # TODO: this will fail if the source has a length of zero
       let p =
         if c.env.types[srcTyp].kind == tnkArray and c.env.types.length(srcTyp) == 0:
-          cr.insertLit (newNode(nkNilLit), NoneType)
+          # XXX: the type is wrong, but we don't have access to the correct
+          #      one
+          cr.insertNilLit(c.env.data, c.graph.sysTypes[tyPointer])
         else:
-          cr.insertAddr cr.insertPathArr(arr, cr.insertLit(0))
+          cr.insertAddr cr.insertPathArr(arr, cr.insertLit(c.env.data, 0))
 
       let lenExpr =
         case c.env.types[srcTyp].kind
         of tnkArray:
-          cr.insertLit(c.env.types[srcTyp].length)
+          cr.insertLit(c.env.data, c.env.types[srcTyp].length)
         of tnkSeq:
           cr.insertMagicCall(c.graph, mLengthSeq, tyInt, arr)
         of tnkString:

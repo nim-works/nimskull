@@ -39,32 +39,27 @@ type CTransformCtx = object
   paramMap: seq[uint32] ## maps the current parameter indices to the new ones
 
 
-func insertLit(cr: var IrCursor, i: int): IRIndex =
-  cr.insertLit (newIntNode(nkIntLit, i), NoneType)
-
-func insertLit(cr: var IrCursor, f: float): IRIndex =
-  cr.insertLit (newFloatNode(nkFloatLit, f), NoneType)
-
 func wrapNot(cr: var IrCursor, g: PassEnv, val: IRIndex): IRIndex =
   cr.insertCallExpr(mNot, g.sysTypes[tyBool], val)
 
 const IntLikeTypes = {tnkBool, tnkChar, tnkInt, tnkUInt}
 
-func insertReset(cr: var IrCursor, g: PassEnv, env: IrEnv, typ: TypeId, target: IRIndex) =
+func insertReset(cr: var IrCursor, g: PassEnv, env: var IrEnv, typ: TypeId, target: IRIndex) =
   ## Inserts a low-level reset. Depending on the target type, this is either
   ## an assignment or a call to ``nimZeroMem``
+  # XXX: a mutable `env` is too broad. Only literal data is mutated here
   case env.types[typ].kind
   of IntLikeTypes:
-    cr.insertAsgn(askShallow, target, cr.insertLit(0))
+    cr.insertAsgn(askShallow, target, cr.insertLit(env.data, 0))
   of tnkFloat:
-    cr.insertAsgn(askShallow, target, cr.insertLit(0.0))
+    cr.insertAsgn(askShallow, target, cr.insertLit(env.data, 0.0))
   of tnkPtr, tnkRef:
     # XXX: ``tnkRef`` seems wrong to handle here? Instead, it should be
     #      handled during the GC transforms
-    cr.insertAsgn(askShallow, target, cr.insertLit((newNode(nkNilLit), NoneType)))
+    cr.insertAsgn(askShallow, target, cr.insertNilLit(env.data, typ))
   else:
     # TODO: handle the case where `target` is a ``var`` type
-    cr.insertCompProcCall(g, "nimZeroMem", cr.insertAddr(target), cr.insertMagicCall(g, mSizeOf, tyInt, cr.insertLit((nil, typ))))
+    cr.insertCompProcCall(g, "nimZeroMem", cr.insertAddr(target), cr.insertMagicCall(g, mSizeOf, tyInt, cr.insertTypeLit(typ)))
 
 func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   template arg(i: Natural): IRIndex =
@@ -82,10 +77,10 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
           # re-raise
           cr.insertCompProcCall(c.graph, "reraiseException")
         else:
-          # TODO: fix the empty arguments
-          let nilLit = cr.insertLit((newNode(nkNilLit), NoneType))
+          let typ = c.env.types.lookupGenericType(tnkRef, c.graph.getCompilerType("Exception"))
+          let nilLit = cr.insertNilLit(c.env.data, typ)
           cr.insertCompProcCall(c.graph, "raiseExceptionEx",
-                                arg(0), arg(1), nilLit, nilLit, cr.insertLit(0))
+                                arg(0), arg(1), nilLit, nilLit, cr.insertLit(c.env.data, 0))
 
       of bcOverflowCheck:
         let
@@ -117,7 +112,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
 
         # perform the div-by-zero test first
         if m in {mDivI, mModI}:
-          cr.genIfNot(cr.wrapNot(c.graph, cr.insertMagicCall(c.graph, mEqI, tyBool, rhs, cr.insertLit(0)))):
+          cr.genIfNot(cr.wrapNot(c.graph, cr.insertMagicCall(c.graph, mEqI, tyBool, rhs, cr.insertLit(c.env.data, 0)))):
             cr.insertCompProcCall(c.graph, "raiseDivByZero")
 
         let tmp = cr.newLocal(lkTemp, c.types[lhs])
@@ -176,7 +171,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
           val = cr.insertCompProcCall(c.graph, "cmpStrings", arg(0), arg(1))
           prc = (if m == mLtStr: mLtI else: mLeI)
 
-        cr.insertMagicCall(c.graph, prc, tyInt, val, cr.insertLit(0))
+        cr.insertMagicCall(c.graph, prc, tyInt, val, cr.insertLit(c.env.data, 0))
 
       of mLengthStr:
         # must be the ``len`` operator for a cstring. The one for normal
@@ -203,7 +198,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
         cr.insertGoto(exit)
 
         cr.insertJoin(elsePart)
-        cr.insertAsgn(askInit, tmpAcc, cr.insertLit(0))
+        cr.insertAsgn(askInit, tmpAcc, cr.insertLit(c.env.data, 0))
         cr.insertGoto(exit)
 
         cr.insertJoin(exit)
@@ -439,7 +434,7 @@ func lowerEchoVisit(c: var UntypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
         arrAcc = cr.insertLocalRef(arr)
 
       for i in 0..<n.argCount:
-        cr.insertAsgn(askInit, cr.insertPathArr(arrAcc, cr.insertLit(i)), ir.argAt(cr, i))
+        cr.insertAsgn(askInit, cr.insertPathArr(arrAcc, cr.insertLit(c.env.data, i)), ir.argAt(cr, i))
 
       let prc = c.graph.getCompilerProc("echoBinSafe")
       cr.insertCallStmt(prc, cr.insertConv(c.env.procs.param(prc, 0).typ, arrAcc))
@@ -479,22 +474,21 @@ func lowerAccessEnv(ir: var IrStore3, env: IrEnv, envTyp: TypeId, envSym: DeclId
 
   ir.update(cr)
 
-func genSliceListMatch(val: IRIndex; eq, lt: TMagic, ofBranch: PNode; typ, boolTy: TypeId, exit: JoinPoint, cr: var IrCursor) =
+func genSliceListMatch(val: IRIndex; eq, lt: TMagic, data: LiteralData, ofBranch: LiteralId; typ, boolTy: TypeId, exit: JoinPoint, cr: var IrCursor) =
   ## Generates the statements for matching `val` against the slice-list
   ## represented by `ofBranch`.
   ## `exit` is the join-point to branch to in case of a match.
   ## `eq` and `lt` are the magics to use for comparisons.
-  for i in 0..<ofBranch.len-1:
-    let n = ofBranch[i]
-    if n.kind == nkRange:
+  for (a, b) in sliceListIt(data, ofBranch):
+    if a != b:
       let next = cr.newJoinPoint()
-      cr.insertBranch(cr.insertCallExpr(lt, boolTy, val, cr.insertLit((n[0], typ))), next)
-      cr.insertBranch(cr.insertCallExpr(lt, boolTy, cr.insertLit((n[1], typ)), val), next)
+      cr.insertBranch(cr.insertCallExpr(lt, boolTy, val, cr.insertLit((a, typ))), next)
+      cr.insertBranch(cr.insertCallExpr(lt, boolTy, cr.insertLit((b, typ)), val), next)
       cr.insertGoto(exit) # a match was found
       cr.insertJoin(next)
     else:
       # if the element matches, we're finished
-      cr.insertBranch(cr.insertCallExpr(eq, boolTy, val, cr.insertLit((n, typ))), exit)
+      cr.insertBranch(cr.insertCallExpr(eq, boolTy, val, cr.insertLit((a, typ))), exit)
 
 func lowerMatch(c: var TypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   ## Lowers ``bcMatch`` into compare + 'branch' instructions
@@ -514,9 +508,10 @@ func lowerMatch(c: var TypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
       cr.replace()
 
       let tk = c.env.types[c.types[val]].kind
-      if ofBranch.len == 2 and ofBranch[0].kind != nkRange:
+      case ofBranch.kind:
+      of lkNumber, lkString:
         # a single comparison
-        let lit = cr.insertLit((ofBranch[0], NoneType))
+        let lit = cr.insertLit((ofBranch, c.types[val]))
         let prc =
           case tk
           of tnkInt, tnkUInt: mEqI
@@ -530,7 +525,7 @@ func lowerMatch(c: var TypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
 
         discard cr.insertCallExpr(prc, boolTy, val, lit)
 
-      else:
+      of lkComplex, lkPacked:
         # match the slice-list against the value -->
         #   var tmp = true
         #   if condA or condB or ...:
@@ -548,7 +543,7 @@ func lowerMatch(c: var TypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
           exit = cr.newJoinPoint()
 
         # TODO: add an ``insertLit`` overload that accepts a boolean
-        cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertLit(1)) # true
+        cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertLit(c.env.data, 1)) # true
 
         case tk
         of tnkInt, tnkUInt, tnkChar, tnkBool, tnkFloat:
@@ -562,17 +557,17 @@ func lowerMatch(c: var TypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
             else:
               unreachable(tk)
 
-          genSliceListMatch(val, eq, lt, ofBranch, c.types[val], boolTy, exit, cr)
+          genSliceListMatch(val, eq, lt, c.env.data, ofBranch, c.types[val], boolTy, exit, cr)
 
         of tnkString:
           # TODO: implement the hash-table optimization present used by
           #       ``ccgstmts``
-          genSliceListMatch(val, mEqStr, mLtStr, ofBranch, c.types[val], boolTy, exit, cr)
+          genSliceListMatch(val, mEqStr, mLtStr, c.env.data, ofBranch, c.types[val], boolTy, exit, cr)
 
         else:
           unreachable(tk)
 
-        cr.insertAsgn(askCopy, cr.insertLocalRef(tmp), cr.insertLit(0)) # false
+        cr.insertAsgn(askCopy, cr.insertLocalRef(tmp), cr.insertLit(c.env.data, 0)) # false
         cr.insertJoin(exit)
 
         discard cr.insertLocalRef(tmp)

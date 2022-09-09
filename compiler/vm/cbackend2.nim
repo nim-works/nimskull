@@ -464,6 +464,7 @@ proc generateCode*(g: ModuleGraph) =
   var c = TCtx(config: g.config, graph: g, idgen: g.idgen)
   c.magicPredicate = proc(m: TMagic): bool = m in CallMagics
   swap(c.procs, env.procs)
+  swap(c.data, env.data)
   c.types.voidType = g.getSysType(unknownLineInfo, tyVoid)
   c.types.charType = g.getSysType(unknownLineInfo, tyChar)
 
@@ -549,11 +550,10 @@ proc generateCode*(g: ModuleGraph) =
   resolveTypeBoundOps(passEnv, g, c.types, c.procs)
 
   block:
-    # translate the literal data
-
+    # translate the literal data from their ``PNode``-based representation
     for id, data in c.constData.pairs:
       assert env.syms[id].kind == skConst
-      env.syms.setData(id): add(env.data, c.procs, g.config, data)
+      env.syms.setData(id): add(c.data, c.procs, g.config, data)
 
     reset c.constData # no longer needed
 
@@ -576,6 +576,7 @@ proc generateCode*(g: ModuleGraph) =
     generateMain(c, passEnv, mlist[])
 
   swap(c.procs, env.procs)
+  swap(c.data, env.data)
 
   block:
     # all alive globals are collected by now - register them with their

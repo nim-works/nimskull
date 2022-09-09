@@ -22,6 +22,7 @@ import
     options
   ],
   compiler/vm/[
+    irliterals,
     irtypes,
     vmir
   ],
@@ -102,6 +103,7 @@ type TCtx* = object
   defSyms*: DeferredSymbols
   procs*: ProcedureEnv
   types*: DeferredTypeGen
+  data*: LiteralData
 
 
 type IrGenResult* = Result[IrStore3, SemReport]
@@ -179,11 +181,11 @@ func irLit(c: var TCtx, n: PNode): IRIndex =
     else:
       NoneType
 
-  c.irs.irLit((n, typ))
+  c.irs.irLit (c.data.add(n), typ)
 
 func irImm(c: var TCtx, val: SomeInteger): IRIndex =
   # TODO: ``ntkImm(ediate)`` needs to be used here
-  c.irs.irLit (newIntNode(nkIntLit, BiggestInt(val)), c.passEnv.sysTypes[tyInt])
+  c.irs.irLit (c.data.newLit(val), c.passEnv.sysTypes[tyInt])
 
 template tryOrReturn(code): untyped =
   try:
@@ -276,12 +278,12 @@ proc getTemp(cc: var TCtx; tt: PType): IRIndex =
 
 func irNull(c: var TCtx, t: TypeId): IRIndex =
   # XXX: maybe `irNull` should be a dedicated IR node?
-  c.irs.irCall(mDefault, t, c.irs.irLit((nil, t)))
+  c.irs.irCall(mDefault, t, c.irs.irLit((NoneLit, t)))
 
 func irNull(c: var TCtx, t: PType): IRIndex =
   # XXX: maybe `irNull` should be a dedicated IR node?
   let t = c.types.requestType(t)
-  c.irs.irCall(mDefault, t, c.irs.irLit((nil, t)))
+  c.irs.irCall(mDefault, t, c.irs.irLit((NoneLit, t)))
 
 proc popBlock(c: var TCtx; oldLen: int) =
   #for f in c.prc.blocks[oldLen].fixups:
@@ -465,6 +467,52 @@ proc genAndOr(c: var TCtx; n: PNode; isAnd: bool, next: JoinPoint): IRIndex =
 
   result = tmp
 
+proc ofBranchToLit(d: var LiteralData, n: PNode, kind: TTypeKind): LiteralId =
+  ## Generates a literal from the given ``nkOfBranch`` node. If the branch has
+  ## only a single value, an atomic literal (int, string, float) is
+  ## generated - a slice-list otherwise
+  assert n.kind == nkOfBranch
+  const
+    IntTypes = {tyBool, tyChar, tyInt..tyInt64, tyUInt..tyUInt64, tyEnum}
+    FloatTypes = {tyFloat..tyFloat128}
+
+  if n.len == 2 and n[0].kind != nkRange:
+    # a single-valued of-branch
+    result =
+      case kind
+      of IntTypes:   d.newLit n[0].intVal
+      of FloatTypes: d.newLit n[0].floatVal
+      # TODO: also support cstrings
+      of tyString:   d.newLit n[0].strVal
+      else: unreachable(kind)
+
+  else:
+    # the branch uses a slice-list. They're stored as an array of pairs
+    var arr = d.startArray((n.len - 1) * 2)
+
+    template addAll(field: untyped, kinds: set[TNodeKind]) =
+      for i in 0..<n.len-1:
+        let it = n[i]
+        case it.kind
+        of nkRange:
+          d.addLit(arr): d.newLit(it[0].field)
+          d.addLit(arr): d.newLit(it[1].field)
+        of kinds:
+          let lit = d.newLit(it.field)
+          d.addLit(arr): lit
+          d.addLit(arr): lit
+        else:
+          unreachable(it.kind)
+
+    case kind
+    of IntTypes:   addAll(intVal, nkIntKinds)
+    of FloatTypes: addAll(floatVal, nkFloatLiterals)
+    of tyString:   addAll(strVal, nkStrKinds)
+    else:          unreachable(kind)
+
+    result = d.finish(arr)
+
+
 proc genCase(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
   #  if (!expr1) goto lab1;
   #    thenPart
@@ -512,7 +560,8 @@ proc genCase(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
         # elif branches were eliminated during transformation
         doAssert branch.kind == nkOfBranch
 
-        let cond = c.irs.irCall(bcMatch, NoneType, tmp, c.irLit(branch))
+        let lit = ofBranchToLit(c.data, branch, selType.kind)
+        let cond = c.irs.irCall(bcMatch, NoneType, tmp, c.irs.irLit((lit, NoneType)))
 
         c.irs.irBranch(c.irs.irCall(mNot, c.requestType(tyBool), cond), b)
         r = c.gen2(branch.lastSon)
@@ -1351,7 +1400,7 @@ proc genCheckedObjAccess(c: var TCtx; n: PNode): IRIndex =
   c.irs.irPathObj(objR, fieldPos)
 
 func genTypeLit(c: var TCtx, t: PType): IRIndex =
-  c.irs.irLit((nil, c.types.requestType(t)))
+  c.irs.irLit((NoneLit, c.types.requestType(t)))
 
 proc genArrAccess(c: var TCtx; n: PNode): IRIndex =
   let arrayType = n[0].typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind

@@ -203,6 +203,7 @@ type
     #       also a `ref` type). Maybe a hash-table overlay (see
     #       ``vmdef.TypeTable``) is a better choice here
     idents: IdentCache # identifiers used in the generated C-code
+    # XXX: the only remaining use for `strings` is error messages
     strings: BiTable[string]
 
     rttiV1: Table[TypeKey, CIdent] # run-time-type-information requested by the IR being processed.
@@ -691,9 +692,10 @@ func intLit(c: var CAstBuilder, v: BiggestUInt): var CAstBuilder =
   result = c
   c.ast.add cnkIntLit, uint32(v shr 32), uint32(v and 0xFFFFFFFF'u64)
 
-func strLit(c: var CAstBuilder, strs: var BiTable[string], s: sink string): var CAstBuilder =
+func strLit(c: var CAstBuilder, id: LiteralId): var CAstBuilder =
+  assert id.kind == lkString
   result = c
-  c.ast.add cnkStrLit, strs.getOrIncl(s).uint32
+  c.ast.add cnkStrLit, id.uint32
 
 func floatLit(c: var CAstBuilder, v: BiggestFloat): var CAstBuilder =
   result = c
@@ -737,7 +739,7 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IRIndex): CAst
   of bcUnlikely:
     start().add(cnkCall, 1).ident(c.gl.idents, "NIM_UNLIKELY").add(c.gen(irs, arg(0))).fin()
   of bcError:
-    start().add(cnkCall, 1).ident(c.gl.idents, "IR_ERROR").add(cnkStrLit, c.gl.strings.getOrIncl(irs.getLit(irs.at(arg(0))).val.strVal).uint32).fin()
+    start().add(cnkCall, 1).ident(c.gl.idents, "IR_ERROR").strLit(irs.getLit(irs.at(arg(0))).val).fin()
   else:
     genError(c, fmt"missing: {bc}")
     #unreachable(bc)
@@ -816,8 +818,9 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): CAst =
       let
         a = gen(c, irs, arg(0))
         typ = irs.getLit(irs.at(arg(0))).typ
-        b = irs.getLit(irs.at(arg(1))).val
-      return start().add(cnkCall, 2).ident(c.gl.idents, "offsetof").add(a).ident(c.gl.fieldIdents[c.env.types.nthField(typ, b.intVal.int).toIndex]).fin()
+        # TODO: the field position argument needs to a ``ntkImm``
+        b = c.env.data.getInt(irs.getLit(irs.at(arg(1))).val)
+      return start().add(cnkCall, 2).ident(c.gl.idents, "offsetof").add(a).ident(c.gl.fieldIdents[c.env.types.nthField(typ, b.int).toIndex]).fin()
     of mMinI, mMaxI:
       # --> (a op b) ? a : b
       let
@@ -851,39 +854,33 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): CAst =
 
     result = builder.fin()
 
-func genLit(ast: var CAstBuilder, c: var GenCtx, lit: PNode, typ: TypeId) =
+func genLit(ast: var CAstBuilder, c: var GenCtx, lit: LiteralId) =
+  ## Generates the AST for the given untyped literal `lit`
+
+  # without type information, the only available piece of information we have
+  # is the shape of the literal
   case lit.kind
-  of nkIntLit..nkInt64Lit:
-    if lit.intVal < 0:
-      # compute the two's-complement, yielding the absolute value. This works
-      # even if ``lit.intVal == low(BiggestInt)``.
-      # XXX: Nim doesn't guarantee that a signed integer is stored in
-      #      two's-complement encoding
-      let abs = not(cast[BiggestUInt](lit.intVal)) + 1
-      ast.add(cnkPrefix).op(copSub).intLit(abs).void()
+  of lkNumber:
+    # assume that it's a signed integer
+    let intVal = c.env.data.getInt(lit)
+    if intVal >= 0:
+      ast.intLit(intVal.BiggestUInt).void()
     else:
-      ast.intLit(lit.intVal.BiggestUInt).void()
-  of nkUIntLit..nkUInt64Lit:
-    ast.intLit(cast[BiggestUInt](lit.intVal)).void()
-  of nkCharLit:
-    assert lit.intVal in 0..255
-    ast.add(cnkCharLit, lit.intVal.uint32).void()
-  of nkFloatLit, nkFloat64Lit:
-    ast.floatLit(lit.floatVal).void()
-  of nkFloat32Lit:
-    ast.add(cnkFloat32Lit, cast[uint32](lit.floatVal.float32)).void()
-  # TODO: what about ``nkFloat128Lit``? The other code-generators seem to be ignoring them/raising an internal error
-  of nkStrLit..nkTripleStrLit:
-    # XXX: some passes insert string literals without type information. It's supported for now
-    assert typ == NoneType or c.env.types[typ].kind == tnkCString
+      let abs = not(cast[BiggestUInt](intVal)) + 1
+      ast.add(cnkPrefix).op(copSub).intLit(abs).void()
+  of lkString:
     # treat as cstring
-    ast.strLit(c.gl.strings, lit.strVal).void()
-  of nkNilLit:
-    ast.ident(c.gl.idents, "NIM_NIL").void()
-  else:
+    ast.strLit(lit).void()
+  of lkPacked, lkComplex:
+    # XXX: those can reach here, which is a symptom of proper garbage
+    #      collection still missing for the procedure body IR. For
+    #      example, the of-branch matching makes use of complex literals (a
+    #      slice-list), but it's used as a leaf node, so it stays around as
+    #      garbage.
+    #      For now, we simply ignore them here
     # TODO: use ``unreachable`` again
     #unreachable(lit.kind)
-    ast.add(genError(c, fmt"missing lit: {lit.kind}")).void()
+    discard
 
 func genLit(ast: var CAstBuilder, c: var GenCtx, lit: LiteralId, typ: TypeId) =
   case c.env.types.kind(typ)
@@ -913,7 +910,7 @@ func genLit(ast: var CAstBuilder, c: var GenCtx, lit: LiteralId, typ: TypeId) =
     else:
       unreachable()
   of tnkCString:
-    ast.strLit(c.gl.strings, c.env.data.getStr(lit)).void()
+    ast.strLit(lit).void()
   of tnkPtr, tnkRef:
     let intVal = c.env.data.getUInt(lit)
     # XXX: not strictly necessary - only done for improved readability
@@ -922,6 +919,13 @@ func genLit(ast: var CAstBuilder, c: var GenCtx, lit: LiteralId, typ: TypeId) =
     else:
       # TODO: make sure this works across compilers - a cast might be needed
       ast.intLit(intVal).void()
+
+  of tnkProc:
+    # only 'nil' procedural literals use a ``LiteralId``
+    # XXX: maybe that's not a good idea and an ``ntkProc`` with ``NoneProc``
+    #      should be used instead?
+    assert c.env.data.getUInt(lit) == 0
+    ast.ident(c.gl.idents, "NIM_NIL").void()
   else:
     # TODO: use ``unreachable`` again
     #unreachable(lit.kind)
@@ -929,11 +933,16 @@ func genLit(ast: var CAstBuilder, c: var GenCtx, lit: LiteralId, typ: TypeId) =
 
 func genLit(c: var GenCtx, literal: Literal): CAst =
   let lit = literal.val
-  if lit == nil:
+  if lit == NoneLit:
     # `nil` as the value is used for type literals
     start().add(cnkType, mapTypeV2(c, literal.typ).uint32).fin()
-  else:
+  elif literal.typ != NoneType:
+    # a typed literal
     buildAst: genLit(builder, c, lit, literal.typ)
+  else:
+    # an untyped literal
+    # XXX: ideally, these shouldn't exist
+    buildAst: genLit(builder, c, lit)
 
 func startArrayInitializer(ast: var CAstBuilder, len: uint) =
   # arrays are wrapped into a struct, so double braces have to be used
@@ -1094,7 +1103,7 @@ func genConstInitializer(ast: var CAstBuilder, c: var GenCtx,
       case val.kind
       of lkString:
         assert c.env.types.kind(elemType) == tnkChar, $c.env.types.kind(elemType)
-        ast.strLit(c.gl.strings, data.getStr(sub)).void()
+        ast.strLit(val).void()
       of lkPacked:
         assert data.packedLen(val).uint == c.env.types.length(id)
         genPackedArray(ast, c, data, val)
@@ -1506,14 +1515,19 @@ proc emitType(f: File, c: GlobalGenCtx, t: CTypeId) =
     # the declaration is emitted directly if a type has no name
     emitCDecl(f, c, info.decl)
 
-proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int)
+# XXX: since strings are now stored as part of `LiteralData`, we need access
+#      to it during emitting. To shorten the signatures a bit it might make
+#      sense to store the `LiteralData` object as part of `GlobalGenCtx`.
+#      That would more or less require splitting `LiteralData` out of
+#      ``IrEnv``, but that probably a good idea anyway.
+proc emitCAst(f: File, c: GlobalGenCtx, data: LiteralData, ast: CAst, pos: var int)
 
-proc emitAndEscapeIf(f: File, c: GlobalGenCtx, ast: CAst, pos: var int, notSet: set[CAstNodeKind]) =
+proc emitAndEscapeIf(f: File, c: GlobalGenCtx, data: LiteralData, ast: CAst, pos: var int, notSet: set[CAstNodeKind]) =
   if ast[pos].kind in notSet:
-    emitCAst(f, c, ast, pos)
+    emitCAst(f, c, data, ast, pos)
   else:
     f.write "("
-    emitCAst(f, c, ast, pos)
+    emitCAst(f, c, data, ast, pos)
     f.write ")"
 
 proc writeChars[I: static int](f: File, arr: array[I, char]) {.inline.} =
@@ -1536,10 +1550,16 @@ func formatCChar(a: var array[4, char], ch: char): range[0..4] {.inline.} =
     a[0] = ch
     1
 
-proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
+proc emitCAst(f: File, c: GlobalGenCtx, data: LiteralData, ast: CAst, pos: var int) =
   if pos >= ast.len:
     for it in ast:
       echo it
+
+  template emitSub() =
+    emitCAst(f, c, data, ast, pos)
+
+  template emitSub(s: set[CAstNodeKind]) =
+    emitAndEscapeIf(f, c, data, ast, pos, s)
 
   let n = ast[pos]
   inc pos
@@ -1551,66 +1571,66 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     f.write "\")"
   of cnkStmtList:
     for _ in 0..<n.a:
-      emitCAst(f, c, ast, pos)
+      emitSub()
       f.writeLine ";"
 
   of cnkDef:
-    emitCAst(f, c, ast, pos) # type
+    emitSub() # type
     f.write " "
-    emitCAst(f, c, ast, pos) # ident
+    emitSub() # ident
     if n.a != 0'u32:
       f.write " = "
-      emitCAst(f, c, ast, pos) # initializer
+      emitSub() # initializer
 
   of cnkIdent:
     f.write c.idents[n.a.LitId]
 
   of cnkInfix:
-    emitAndEscapeIf(f, c, ast, pos, {cnkIdent, cnkIntLit, cnkStrLit}) # lhs
+    emitSub({cnkIdent, cnkIntLit, cnkStrLit}) # lhs
     f.write " "
-    emitCAst(f, c, ast, pos) # infix
+    emitSub() # infix
     f.write " "
-    emitAndEscapeIf(f, c, ast, pos, {cnkIdent, cnkIntLit, cnkStrLit}) # rhs
+    emitSub({cnkIdent, cnkIntLit, cnkStrLit}) # rhs
 
   of cnkPrefix:
-    emitCAst(f, c, ast, pos)
-    emitAndEscapeIf(f, c, ast, pos, {cnkIdent})
+    emitSub()
+    emitSub({cnkIdent})
 
   of cnkBracket:
-    emitAndEscapeIf(f, c, ast, pos, {cnkIdent, cnkDotExpr})
+    emitSub({cnkIdent, cnkDotExpr})
     f.write "["
-    emitCAst(f, c, ast, pos)
+    emitSub()
     f.write "]"
 
   of cnkCall:
-    emitAndEscapeIf(f, c, ast, pos, {cnkIdent}) # callee
+    emitSub({cnkIdent}) # callee
     f.write "("
     for i in 0..<n.a:
       if i > 0:
         f.write ", "
 
-      emitCAst(f, c, ast, pos)
+      emitSub()
 
     f.write ")"
 
   of cnkIf:
     f.write "if ("
-    emitCAst(f, c, ast, pos) # condition
+    emitSub() # condition
     f.writeLine ") {"
-    emitCAst(f, c, ast, pos) # stmt list
+    emitSub() # stmt list
     f.write "}"
 
   of cnkWhile:
     f.write "while ("
-    emitCAst(f, c, ast, pos) # condition
+    emitSub() # condition
     f.write ") {"
-    emitCAst(f, c, ast, pos) # stmt list
+    emitSub() # stmt list
     f.write "}"
 
   of cnkReturn:
     f.write "return "
     if n.a == 1:
-      emitCAst(f, c, ast, pos)
+      emitSub()
 
   of cnkLabel:
     f.write c.idents[n.a.LitId]
@@ -1619,9 +1639,9 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     f.write "goto "
     f.write c.idents[n.a.LitId]
   of cnkDotExpr:
-    emitAndEscapeIf(f, c, ast, pos, {cnkIdent, cnkCall, cnkDotExpr})
+    emitSub({cnkIdent, cnkCall, cnkDotExpr})
     f.write "."
-    emitCAst(f, c, ast, pos)
+    emitSub()
   of cnkCharLit:
     var arr = ['\'', '\\', 'x', '0', '0', '\'']
     formatHexChar(arr, 3, n.a.uint8)
@@ -1629,7 +1649,7 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     f.writeChars arr
   of cnkStrLit:
     f.write '"'
-    let str = c.strings[n.a.LitId]
+    let str = data.getStr(n.a.LiteralId)
     # XXX: escape the string prior to adding it to ``c.strings``?
     for ch in str.items:
       var arr: array[4, char]
@@ -1651,9 +1671,9 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
 
   of cnkCast:
     f.write "("
-    emitCAst(f, c, ast, pos)
+    emitSub()
     f.write ") "
-    emitAndEscapeIf(f, c, ast, pos, {cnkIdent})
+    emitSub({cnkIdent})
 
   of cnkOpToken:
     f.write COpToStr[COperator(n.a)]
@@ -1663,24 +1683,24 @@ proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst, pos: var int) =
     for i in 0..<n.a:
       if i > 0:
         f.write ", "
-      emitCAst(f, c, ast, pos)
+      emitSub()
     f.write "}"
 
   of cnkTernary:
     f.write "("
-    emitCAst(f, c, ast, pos) # condition
+    emitSub() # condition
     f.write ") ? "
-    emitAndEscapeIf(f, c, ast, pos, {cnkIdent}) # a
+    emitSub({cnkIdent}) # a
     f.write " : "
-    emitAndEscapeIf(f, c, ast, pos, {cnkIdent}) # b
+    emitSub({cnkIdent}) # b
 
   else:
     f.write "EMIT_ERROR(\"missing " & $n.kind & "\")"
 
-proc emitCAst(f: File, c: GlobalGenCtx, ast: CAst) =
+proc emitCAst(f: File, c: GlobalGenCtx, data: LiteralData, ast: CAst) =
   var pos = 0
   while pos < ast.len:
-    emitCAst(f, c, ast, pos)
+    emitCAst(f, c, data, ast, pos)
 
 
 proc emitCDecl(f: File, c: GlobalGenCtx, decl: CDecl, pos: var int)
@@ -1817,7 +1837,7 @@ proc emitCType(f: File, c: GlobalGenCtx, info: CTypeInfo, isFwd: bool) =
 
   assert pos == info.decl.len
 
-proc emitConst(f: File, ctx: GlobalGenCtx, syms: SymbolEnv, id: SymId, marker: var PackedSet[SymId]) =
+proc emitConst(f: File, ctx: GlobalGenCtx, data: LiteralData, syms: SymbolEnv, id: SymId, marker: var PackedSet[SymId]) =
   ## Emits the definition for the constant named by `id` and remember it in
   ## `marker`. If the constant is already present in `marker`, nothing is
   ## emitted.
@@ -1828,14 +1848,14 @@ proc emitConst(f: File, ctx: GlobalGenCtx, syms: SymbolEnv, id: SymId, marker: v
 
   # recursively emit the constant's dependencies first
   for dep in ctx.constDeps[id].items:
-    emitConst(f, ctx, syms, dep, marker)
+    emitConst(f, ctx, data, syms, dep, marker)
 
   f.write "static const "
   emitType(f, ctx, syms[id].typ)
   f.write " "
   f.write ctx.idents[ctx.symIdents[id.toIndex]]
   f.write " = "
-  emitCAst(f, ctx, ctx.constInit[id])
+  emitCAst(f, ctx, data, ctx.constInit[id])
   f.writeLine ";"
 
 proc writeProcHeader(f: File, c: GlobalGenCtx, h: CProcHeader, decl: DeclarationV2, withParamNames: bool): bool =
@@ -2163,7 +2183,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       let s = env.syms[id]
 
       if not s.decl.omit and s.kind == skConst:
-        emitConst(f, ctx, env.syms, id, symMarker)
+        emitConst(f, ctx, env.data, env.syms, id, symMarker)
 
   var i = 0
   for it in asts.items:
@@ -2180,7 +2200,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       # as `.noDecl`)
       # XXX: forbid using the .noDecl pragma on a procedure with body?
       f.writeLine "{"
-      emitCAst(f, ctx, it)
+      emitCAst(f, ctx, env.data, it)
       f.writeLine "}"
 
     inc i
