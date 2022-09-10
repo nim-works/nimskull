@@ -964,6 +964,14 @@ type
     attachedDeepCopy
 
   NewTypeKind* = enum
+    # terminology that you'll see used below:
+    # - `scalar` a singular type
+    # - `product` a type containing many types, prime example is a tuple
+    # - `vector` a type that repeats the same type over and over again, a
+    #            special case of a tuple
+    # - `static` known at compile time, not necessarily at runtime
+    # - `dynamic` known at runtime and not at compile time
+
     # uninitialized types
     ntkNone          ## not yet typed
     ntkUnspecified   ## no type was specified; a refinement on not yet typed,
@@ -1025,7 +1033,10 @@ type
     ntkString
     ntkCString
     
-    # vector addr type
+    # dynamic or static vector type
+    ntkOpenArray
+
+    # vector addr type (AKA unbounded homogeneous tuple)
     ntkUncheckedArray
 
     # monomorphs - "type classes"
@@ -1044,7 +1055,6 @@ type
     ntkMonoOrdinal
     ntkMonoRange
     ntkMonoIterable   # xxx: this could well be a Timmy mistake
-    ntkMonoOpenArray
     ntkMonoUserDef    ## holds a type expression to check
 
     # generics - universal and existentials
@@ -1057,7 +1067,8 @@ type
     # metaprogramming
     ntkUntypedCode    ## untyped chunk of code
     ntkTypedCode      ## typed chunk of code
-    ntkAstConstraint  ## for ast overloading and term rewriting
+    # unclear if ast constraint needs to be modeled like this
+    # ntkAstConstraint  ## for ast overloading and term rewriting
 
     ntkMacro
     ntkTemplate
@@ -1119,6 +1130,8 @@ type
       discard
     of ntkSeq, ntkString, ntkCString:  # dynamic vectors
       discard
+    of ntkOpenArray:                   # dynamic or static vectors
+      discard
     of ntkUncheckedArray:              # addr vector
       discard
     of ntkMonoObject, ntkMonoTuple,    # monomorphs
@@ -1128,7 +1141,7 @@ type
        ntkMonoArray, ntkMonoSet,
        ntkMonoSeq, ntkMonoAuto,
        ntkMonoOrdinal, ntkMonoRange,
-       ntkMonoIterable, ntkMonoOpenArray,
+       ntkMonoIterable,
        ntkMonoUserDef:
       discard
     of ntkGenericUniversal,            # generics - universals & existentials
@@ -1137,8 +1150,7 @@ type
       discard
     of ntkAny:                         # generics - any
       discard
-    of ntkUntypedCode, ntkTypedCode,   # metaprogramming data
-       ntkAstConstraint:
+    of ntkUntypedCode, ntkTypedCode:   # metaprogramming data
       discard
     of ntkMacro, ntkTemplate:          # metaprogramming routines
       discard
