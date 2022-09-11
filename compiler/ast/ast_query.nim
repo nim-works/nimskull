@@ -18,8 +18,15 @@ import
   ]
 
 const
-  OverloadableSyms* = {skProc, skFunc, skMethod, skIterator,
-    skConverter, skTemplate, skMacro, skEnumField,
+  OverloadableSyms* = {
+    skProc,
+    skFunc,
+    skMethod,
+    skIterator,
+    skConverter,
+    skTemplate,
+    skMacro,
+    skEnumField,
 
     # BUGFIX: a module is overloadable so that a proc can have the
     # same name as an imported module. This is necessary because of
