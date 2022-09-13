@@ -381,9 +381,12 @@ proc errorActions(
     eh: TErrorHandling
   ): tuple[action: TErrorHandling, withTrace: bool] =
 
+
+  result = (doNothing, false)
   if conf.isCompilerFatal(report):
     # Fatal message such as ICE (internal compiler), errFatal,
-    return (doAbort, true)
+    result = (doAbort, true)
+
   elif conf.isCodeError(report):
     # Regular code error
     inc(conf.errorCounter)
@@ -392,13 +395,14 @@ proc errorActions(
     if conf.errorMax <= conf.errorCounter:
       # only really quit when we're not in the new 'nim check --def' mode:
       if conf.ideCmd == ideNone:
-        return (doAbort, false)
-    elif eh == doAbort and conf.cmd != cmdIdeTools:
-      return (doAbort, false)
-    elif eh == doRaise:
-      return (doRaise, false)
+        result = (doAbort, false)
 
-  return (doNothing, false)
+    elif eh == doAbort and conf.cmd != cmdIdeTools:
+      result = (doAbort, false)
+
+    elif eh == doRaise:
+      result = (doRaise, false)
+
 
 proc `==`*(a, b: TLineInfo): bool =
   result = a.line == b.line and a.fileIndex == b.fileIndex
@@ -467,11 +471,11 @@ proc handleReport*(
 
   var rep = r
   rep.reportFrom = toReportLineInfo(reportFrom)
-  if rep.category == repSem and rep.location.isSome():
-    rep.semReport.context = conf.getContext(rep.location.get())
+  if rep.category in { repSem, repVM } and rep.location.isSome():
+    rep.context = conf.getContext(rep.location.get())
 
+  let userAction = conf.report(rep)
   let
-    userAction = conf.report(rep)
     (action, trace) =
       case userAction
       of doDefault:

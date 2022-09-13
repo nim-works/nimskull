@@ -26,31 +26,31 @@ template testLocal(t, code) =
     wrapper()
 
 testLocal(int): discard p[] #[tt.Error
-                        ^ (SemVmAccessOutOfBounds)]#
+                        ^ (VMAccessOutOfBounds)]#
 
 testLocal(int): p[] = 1 #[tt.Error
-                ^ (SemVmAccessOutOfBounds)]#
+                ^ (VMAccessOutOfBounds)]#
 
 testLocal(float): discard p[] #[tt.Error
-                          ^ (SemVmAccessOutOfBounds)]#
+                          ^ (VMAccessOutOfBounds)]#
 
 testLocal(float): p[] = 1.0 #[tt.Error
-                  ^ (SemVmAccessOutOfBounds)]#
+                  ^ (VMAccessOutOfBounds)]#
 
 testLocal(ptr int): discard p[] #[tt.Error
-                            ^ (SemVmAccessOutOfBounds)]#
+                            ^ (VMAccessOutOfBounds)]#
 
 testLocal(ptr int): p[] = nil #[tt.Error
-                    ^ (SemVmAccessOutOfBounds)]#
+                    ^ (VMAccessOutOfBounds)]#
 
 testLocal(pointer): discard p[] #[tt.Error
-                            ^ (SemVmAccessOutOfBounds)]#
+                            ^ (VMAccessOutOfBounds)]#
 
 testLocal(pointer): p[] = nil #[tt.Error
-                    ^ (SemVmAccessOutOfBounds)]#
+                    ^ (VMAccessOutOfBounds)]#
 
 testLocal(NimNode): discard p[] #[tt.Error
-                            ^ (SemVmAccessOutOfBounds)]#
+                            ^ (VMAccessOutOfBounds)]#
 
 testLocal(NimNode): p[] = newEmptyNode() #[tt.Error
-                    ^ (SemVmAccessOutOfBounds)]#
+                    ^ (VMAccessOutOfBounds)]#

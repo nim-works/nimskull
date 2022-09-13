@@ -18,11 +18,11 @@ import
 
 
 type VmError* = object of CatchableError
-  report*: SemReport
+  report*: VMReport
 
 
 func raiseVmError*(
-  report: sink SemReport;
+  report: sink VMReport;
   inst:   InstantiationInfo = instLoc()
   ) {.noinline, noreturn.} =
   ## Raises a `VmError`. If the report has location information already,
@@ -33,7 +33,7 @@ func raiseVmError*(
 
 
 func raiseVmError*(
-  report:   sink SemReport;
+  report:   sink VMReport;
   location: TLineInfo,
   inst:     InstantiationInfo = instLoc()
   ) {.noinline, noreturn.} =

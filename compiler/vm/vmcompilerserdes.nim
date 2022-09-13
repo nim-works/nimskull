@@ -80,7 +80,7 @@ proc deserializeRef*(c: TCtx, slot: HeapSlotHandle, vt: PVmType; f, con: PType, 
     else:
       result = c.config.newError(
         wrongNode(base),
-        SemReport(kind: rsemVmUnsupportedNonNil, typ: con))
+        SemReport(kind: rvmUnsupportedNonNil, typ: con))
 
   else:
     let e = r.takeErr()
@@ -288,7 +288,7 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
     else:
       result = c.config.newError(
         wrongNode(),
-        SemReport(kind: rsemVmUnsupportedNonNil, typ: t))
+        SemReport(kind: rvmUnsupportedNonNil, typ: t))
   of tyRef:
     if t.sym == nil or t.sym.magic != mPNimrodNode:
       # TODO: cyclic references will lead to infinite recursion

@@ -57,11 +57,12 @@ proc computeNotesVerbosity(): tuple[
   # settings
   result.base = (repErrorKinds + repInternalKinds)
 
+
   # Somewhat awkward handing - stack trace report cannot be error (because
   # actual error report must follow), so it is a hint-level report (can't
   # be debug because it is a user-facing, can't be "trace" because it is
   # not for compiler developers use only)
-  result.base.incl {rsemVmStackTrace}
+  result.base.incl {rvmStackTrace}
 
   when defined(debugOptions):
     # debug report for transition of the configuration options
@@ -78,9 +79,12 @@ proc computeNotesVerbosity(): tuple[
     }
 
   when defined(nimDebugUtils):
+    # By default enable only semantic debug trace reports - other changes
+    # might be put in there *temporarily* to aid the debugging.
     result.base.incl repDebugTraceKinds
 
-  result.main[compVerbosityMax] = result.base + repWarningKinds + repHintKinds - {
+  result.main[compVerbosityMax] =
+    result.base + repWarningKinds + repHintKinds - {
     rsemObservableStores,
     rsemResultUsed,
     rsemAnyEnumConvert,
@@ -151,7 +155,7 @@ proc computeNotesVerbosity(): tuple[
   ]:
     assert rbackLinking notin n
     assert rsemImplicitObjConv in n, $idx
-    assert rsemVmStackTrace in n, $idx
+    assert rvmStackTrace in n, $idx
 
 const
   NotesVerbosity* = computeNotesVerbosity()
