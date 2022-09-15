@@ -30,8 +30,7 @@
 import
   std/[
     tables,
-    strutils,
-    intsets
+    strutils
   ],
   compiler/ast/[
     renderer,
@@ -118,72 +117,6 @@ template isUnset(x: TDest): bool = x < 0
 
 proc debugInfo(c: TCtx; info: TLineInfo): string =
   result = toFileLineCol(c.config, info)
-
-proc codeListing*(c: TCtx, prc: PSym, ast: PNode, start=0; last = -1) =
-  ## for debugging purposes
-  # first iteration: compute all necessary labels:
-  var jumpTargets = initIntSet()
-  let last = if last < 0: c.code.len-1 else: min(last, c.code.len-1)
-  for i in start..last:
-    let x = c.code[i]
-    if x.opcode in relativeJumps:
-      jumpTargets.incl(i+x.regBx-wordExcess)
-
-  var rep = DebugReport(kind: rdbgVmCodeListing)
-  rep.vmgenListing.sym = prc
-  rep.vmgenListing.ast = ast
-
-  var i = start
-  while i <= last:
-    let x = c.code[i]
-    let opc = opcode(x)
-    var code = DebugVmCodeEntry(
-      pc: i,
-      opc: opc,
-      ra: x.regA,
-      rb: x.regB,
-      rc: x.regC,
-      idx: x.regBx - wordExcess,
-      info: c.debug[i]
-    )
-
-    code.isTarget = i in jumpTargets
-
-    case opc:
-      of {opcConv, opcCast}:
-        let y = c.code[i + 1]
-        let z = c.code[i + 2]
-        code.types = (c.rtti[y.regBx-wordExcess].nimType,
-                      c.rtti[z.regBx-wordExcess].nimType)
-        inc i, 2
-
-      of {opcLdConst, opcAsgnConst}:
-        let cnst = c.constants[code.idx]
-        # XXX: maybe the constant should be stored in `DebugVmCodeEntry`
-        #      directly? Would be a problem for `cnstString` however, as
-        #      the underlying memory might have been freed already when the
-        #      actual reporting happens
-        code.ast =
-          case cnst.kind
-          of cnstInt:
-            newIntNode(nkIntLit, cnst.intVal)
-          of cnstFloat:
-            newFloatNode(nkFloatLit, cnst.floatVal)
-          of cnstString:
-            newStrNode(nkStrLit, cnst.strVal)
-          of cnstNode:
-            cnst.node
-          of cnstSliceListInt..cnstSliceListStr:
-            # XXX: translate into an `nkOfBranch`?
-            newNode(nkEmpty)
-
-      else:
-        discard
-
-    rep.vmgenListing.entries.add code
-    inc i
-
-  c.config.localReport(rep)
 
 func registerLinkItem(tbl: var Table[int, LinkIndex], list: var seq[PSym],
                       sym: PSym, next: var LinkIndex): int =

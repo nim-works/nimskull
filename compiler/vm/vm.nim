@@ -71,6 +71,9 @@ import
     results
   ]
 
+when defined(nimVMDebugGenerate):
+  import compiler/vm/vmutils
+
 # XXX: instead of `assert` a special `vmAssert` could be used for internal
 #      checks. This would allow for also reporting things like the current
 #      executed instruction
@@ -86,8 +89,6 @@ const
 
 const
   errIllegalConvFromXtoY = "illegal conversion from '$1' to '$2'"
-
-
 
 proc createStackTrace(
     c:          TCtx,
@@ -3519,8 +3520,9 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
 
   if c.code[start].opcode == opcEof: return newNodeI(nkEmpty, n.info)
   assert c.code[start].opcode != opcEof
-  when debugEchoCode:
-    c.codeListing(prc, n)
+  when defined(nimVMDebugGenerate):
+    c.config.localReport():
+      initVmCodeListingReport(c[], prc, n)
 
   var tos = TStackFrame(prc: prc, comesFrom: 0, next: -1)
   tos.slots.newSeq(regCount)
