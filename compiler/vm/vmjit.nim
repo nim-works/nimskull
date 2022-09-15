@@ -33,11 +33,12 @@ import
     results
   ]
 
+when defined(nimVMDebugGenerate):
+  import
+    compiler/front/msgs,
+    compiler/vm/vmutils
+
 export VmGenResult
-
-const
-  debugEchoCode* = defined(nimVMDebugGenerate)
-
 
 # TODO: use `stdlib.pairs` instead once it uses `lent`
 iterator lpairs[T](x: seq[T]): tuple[key: int, value: lent T] =
@@ -173,8 +174,11 @@ proc compile*(c: var TCtx, fnc: FunctionIndex): VmGenResult =
 
   fillProcEntry(c.functions[fnc.int], result.unsafeGet)
 
-  when debugEchoCode:
-    c.codeListing(s, nil, start = result.unsafeGet.start)
+  when defined(nimVMDebugGenerate):
+    # XXX: ``compile`` shouldn't be responsible for neither the generating nor
+    #      the reporting of a code-listing
+    c.config.localReport():
+      initVmCodeListingReport(c, prc.sym, nil, start = result.unsafeGet.start)
 
 proc loadProc*(c: var TCtx, sym: PSym): VmGenResult =
   ## The main entry point into the JIT code-generator. Retrieves the
