@@ -15,6 +15,8 @@
     <a href="https://github.com/nim-works/nimskull/blob/devel/CODE_OF_CONDUCT.md">Code of Conduct</a>
     ·
     <a href="https://github.com/nim-works/nimskull/blob/devel/ETHOS.md">Code of Ethics</a>
+    ·
+    <a href="https://nim-works.github.io/nimskull/index.html">Documentation</a>
   </p>
 
 [![Matrix](https://img.shields.io/badge/matrix-nim--works-success?style=flat&logo=matrix)][nim-works-matrix]
