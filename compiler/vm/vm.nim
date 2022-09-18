@@ -3373,12 +3373,12 @@ proc reportIfError(config: ConfigRef, n: PNode) =
   ## `nkError`
   if n.isError:
     # Errors from direct vmgen invocations don't have a stack-trace
-    if n.len == 4 and n[3].kind == nkIntLit:
+    if n.kids.len == 4 and n.kids[3].kind == nkIntLit:
       # XXX: testing for the presence of a stack-trace report like this is
       #      not a good idea. Error node layout might change, making the test
       #      invalid. VM errors should get their own report object with the
       #      stack-trace embedded as part of it.
-      config.handleReport(n[3].intVal.ReportId, instLoc(-1)) # stack-trace
+      config.handleReport(n.kids[3].intVal.ReportId, instLoc(-1)) # stack-trace
     config.localReport(n)
 
 

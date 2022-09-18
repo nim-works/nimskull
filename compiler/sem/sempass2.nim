@@ -1171,10 +1171,11 @@ proc track(tracked: PEffects, n: PNode) =
       setLen(tracked.guards.s, oldFacts)
   of nkForStmt:
     # we are very conservative here and assume the loop is never executed:
-    let oldState = tracked.init.len
-
-    let oldFacts = tracked.guards.s.len
-    let iterCall = n[n.len-2]
+    let
+      oldState = tracked.init.len
+      oldFacts = tracked.guards.s.len
+      iterCall = n[n.len-2]
+    
     if optStaticBoundsCheck in tracked.currOptions and iterCall.kind in nkCallKinds:
       let op = iterCall[0]
       if op.kind == nkSym and fromSystem(op.sym):
@@ -1203,11 +1204,15 @@ proc track(tracked: PEffects, n: PNode) =
             createTypeBoundOps(tracked, x.typ, x.info)
         else:
           createTypeBoundOps(tracked, it.typ, it.info)
+
     let loopBody = n[^1]
-    if tracked.owner.kind != skMacro and iterCall.safeLen > 1:
+    if tracked.owner.kind != skMacro and
+       iterCall.kind != nkError and iterCall.safeLen > 1:
       # XXX this is a bit hacky:
-      if iterCall[1].typ != nil and iterCall[1].typ.skipTypes(abstractVar).kind notin {tyVarargs, tyOpenArray}:
+      if iterCall[1].typ != nil and
+         iterCall[1].typ.skipTypes(abstractVar).kind notin {tyVarargs, tyOpenArray}:
         createTypeBoundOps(tracked, iterCall[1].typ, iterCall[1].info)
+    
     track(tracked, iterCall)
     track(tracked, loopBody)
     setLen(tracked.init, oldState)

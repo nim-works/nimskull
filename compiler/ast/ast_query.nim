@@ -390,7 +390,13 @@ proc containsNode*(n: PNode, kinds: TNodeKinds): bool =
 
 proc hasSubnodeWith*(n: PNode, kind: TNodeKind): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkFormalParams: result = n.kind == kind
+  of nkEmpty..nkNilLit, nkFormalParams:
+    result = n.kind == kind
+  of nkError:
+    for i in 0..<n.kids.len:
+      if (n.kids[i].kind == kind) or hasSubnodeWith(n.kids[i], kind):
+        return true
+    result = false
   else:
     for i in 0..<n.len:
       if (n[i].kind == kind) or hasSubnodeWith(n[i], kind):
@@ -598,12 +604,14 @@ proc skipColon*(n: PNode): PNode =
 
 proc findUnresolvedStatic*(n: PNode): PNode =
   # n.typ == nil: see issue #14802
-  if n.kind == nkSym and n.typ != nil and n.typ.kind == tyStatic and n.typ.n == nil:
+  if n.kind == nkSym and n.typ != nil and
+     n.typ.kind == tyStatic and n.typ.n == nil:
     return n
 
-  for son in n:
-    let n = son.findUnresolvedStatic
-    if n != nil: return n
+  if n.kind != nkError:
+    for son in n:
+      let n = son.findUnresolvedStatic
+      if n != nil: return n
 
   return nil
 

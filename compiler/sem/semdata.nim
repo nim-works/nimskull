@@ -792,13 +792,17 @@ proc getGenSym*(c: PContext; s: PSym): PSym =
 proc considerGenSyms*(c: PContext; n: PNode) =
   if n == nil:
     discard "can happen for nkFormalParams/nkArgList"
-  elif n.kind == nkSym:
-    let s = getGenSym(c, n.sym)
-    if n.sym != s:
-      n.sym = s
   else:
-    for i in 0..<n.safeLen:
-      considerGenSyms(c, n[i])
+    case n.kind
+    of nkSym:
+      let s = getGenSym(c, n.sym)
+      if n.sym != s:
+        n.sym = s
+    of nkError:
+      discard
+    else:
+      for i in 0..<n.safeLen:
+        considerGenSyms(c, n[i])
 
 proc newOptionEntry*(conf: ConfigRef): POptionEntry =
   new(result)

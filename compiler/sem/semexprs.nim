@@ -824,6 +824,8 @@ proc hasUnresolvedArgs(c: PContext, n: PNode): bool =
       return isUnresolvedSym(sym)
     else:
       return false
+  of nkError:
+    return false
   else:
     for i in 0..<n.safeLen:
       if hasUnresolvedArgs(c, n[i]): return true

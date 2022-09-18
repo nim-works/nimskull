@@ -516,8 +516,12 @@ include hlo, seminst, semcall
 proc resetSemFlag(n: PNode) =
   if n != nil:
     excl n.flags, nfSem
-    for i in 0..<n.safeLen:
-      resetSemFlag(n[i])
+    case n.kind
+    of nkError:
+      discard
+    else:
+      for i in 0..<n.safeLen:
+        resetSemFlag(n[i])
 
 proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
                        s: PSym, flags: TExprFlags): PNode =

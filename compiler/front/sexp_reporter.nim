@@ -121,6 +121,9 @@ proc sexp*(node: PNode): SexpNode =
     of nkStrLit..nkTripleStrLit:  result.add sexp(node.strVal)
     of nkSym:                     result.add newSSymbol(node.sym.name.s)
     of nkIdent:                   result.add newSSymbol(node.ident.s)
+    of nkError:
+      for node in node.kids:
+        result.add sexp(node)
     else:
       for node in node.sons:
         result.add sexp(node)

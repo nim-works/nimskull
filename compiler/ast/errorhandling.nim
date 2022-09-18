@@ -67,13 +67,16 @@ func errorKind*(e: PNode): SemOrVMReportKind {.inline.} =
   assert e != nil, "can't have a nil error node"
   assert e.kind == nkError, "must be an error node to have an ErrorKind"
 
-  result = SemOrVMReportKind(e[errorKindPos].intVal)
+  result = SemOrVMReportKind(e.kids[errorKindPos].intVal)
 
 func compilerInstInfo*(e: PNode): InstantiationInfo {.inline.} =
   ## return where the error was instantiated in the compiler
   let i = e[compilerInfoPos]
   assert i != nil, "we should always have compiler diagnositics"
   (filename: i.strVal, line: i.info.line.int, column: i.info.col.int)
+
+proc errAdd(e: PNode, kid: PNode) {.inline.} =
+  e.kids.add kid
 
 proc newError*(
     conf: ConfigRef;
@@ -103,13 +106,13 @@ proc newError*(
 
   addInNimDebugUtilsError(conf, wrongNode, result)
 
-  result.add #[ 0 ]# wrongNode # wrapped wrong node
-  result.add #[ 1 ]# newIntNode(nkIntLit, ord(errorKind)) # errorKindPos
-  result.add #[ 2 ]# newStrNode(inst.filename, TLineInfo(
+  result.errAdd #[ 0 ]# wrongNode # wrapped wrong node
+  result.errAdd #[ 1 ]# newIntNode(nkIntLit, ord(errorKind)) # errorKindPos
+  result.errAdd #[ 2 ]# newStrNode(inst.filename, TLineInfo(
     line: uint16(inst.line), col: int16(inst.column))) # compilerInfoPos
 
   for a in args:
-    result.add #[ 3+ ]# a
+    result.errAdd #[ 3+ ]# a
 
   when defined(nimDebugUnreportedErrors):
     if errorKind != rsemWrappedError:
@@ -186,7 +189,7 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
   of nkEmpty .. nkNilLit:
     discard
   of nkError:
-    buildErrorList(config, n[wrongNodePos], errs)
+    buildErrorList(config, n.kids[wrongNodePos], errs)
     when defined(nimDebugUnreportedErrors):
       if n.errorKind == rsemWrappedError and errs.len == 0:
         echo "Empty WrappedError: ", config $ n.info
@@ -198,7 +201,7 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
 iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   ## traverses the ast and yields errors from innermost to outermost. this is a
   ## linear traversal and two, or more, sibling errors will result in only the
-  ## first error (per `PNode.sons`) being yielded.
+  ## first error (per `PNode.kids`) being yielded.
   assert n != nil
   var errNodes: seq[PNode] = @[]
   buildErrorList(config, n, errNodes)
