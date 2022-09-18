@@ -665,7 +665,10 @@ func isEnabled*(conf: ConfigRef, report: ReportKind): bool =
           result = true
 
         of repTraceKinds:
-          result = true
+          # Semantic trace kinds are enabled by default and probably should
+          # not be changed - but these reports might (in theory) be
+          # modified at runtime.
+          result = report in conf.notes
 
         else:
           result = (report in conf.notes) and

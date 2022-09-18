@@ -1908,7 +1908,11 @@ proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
   if n.len == 3:
     let mode = semConstExpr(c, n[2])
     if mode.kind != nkIntLit:
-      localReport(c.config, n, reportSem rsemVmCannotEvaluateAtComptime)
+      localReport(c.config, VMReport(
+        ast: n,
+        location: some(n.info),
+        kind: rvmCannotEvaluateAtComptime))
+
     else:
       m = mode.intVal
   

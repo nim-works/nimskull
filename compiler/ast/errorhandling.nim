@@ -62,12 +62,12 @@ proc errorSubNode*(n: PNode): PNode =
       result = errorSubNode(s)
       if result != nil: break
 
-func errorKind*(e: PNode): SemReportKind {.inline.} =
+func errorKind*(e: PNode): SemOrVMReportKind {.inline.} =
   ## property to retrieve the error kind
   assert e != nil, "can't have a nil error node"
   assert e.kind == nkError, "must be an error node to have an ErrorKind"
 
-  result = SemReportKind(e[errorKindPos].intVal)
+  result = SemOrVMReportKind(e[errorKindPos].intVal)
 
 func compilerInstInfo*(e: PNode): InstantiationInfo {.inline.} =
   ## return where the error was instantiated in the compiler
@@ -84,7 +84,13 @@ proc newError*(
     args: varargs[PNode]
   ): PNode =
   ## Create `nkError` node with given error report and additional subnodes.
-  assert errorKind in repSemKinds
+  assert(
+    errorKind in (
+      set[ReportKind](repSemKinds) +
+      set[ReportKind](repVMKinds)),
+    $errorKind
+  )
+
   assert wrongNode != nil, "can't have a nil node for `wrongNode`"
   assert not report.isEmpty(), $report
 

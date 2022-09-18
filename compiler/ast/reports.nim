@@ -247,12 +247,6 @@ type
       of rsemEffectsListingHint:
         effectListing*: tuple[tags, exceptions: seq[PType]]
 
-      of rsemVmStackTrace:
-        currentExceptionA*, currentExceptionB*: PNode
-        traceReason*: ReportKind
-        stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
-        skipped*: int
-
       of rsemReportCountMismatch,
          rsemWrongNumberOfVariables:
         countMismatch*: tuple[expected, got: Int128]
@@ -308,7 +302,6 @@ type
          rsemSemfoldInvalidConversion,
          rsemCannotConvertTypes,
          rsemImplicitObjConv,
-         rsemVmCannotCast,
          rsemIllegalConversion,
          rsemConceptInferenceFailed,
          rsemCannotCastTypes,
@@ -333,7 +326,7 @@ type
         callMismatches*: seq[SemCallMismatch] ## Description of all the
         ## failed candidates.
 
-      of rsemStaticOutOfBounds, rsemVmIndexError:
+      of rsemStaticOutOfBounds:
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
 
 
@@ -361,7 +354,6 @@ func severity*(report: SemReport): ReportSeverity =
     of rsemErrorKinds:   result = rsevError
     of rsemWarningKinds: result = rsevWarning
     of rsemHintKinds:    result = rsevHint
-    of rsemVmStackTrace: result = rsevTrace
     of rsemFatalError:   result = rsevFatal
 
 proc reportSymbols*(
@@ -408,6 +400,36 @@ func reportSym*(
   ): SemReport =
 
   SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
+
+type
+  VMReport* = object of ReportBase
+    ast*: PNode
+    typ*: PType
+    str*: string
+    sym*: PSym
+    case kind*: ReportKind
+      of rvmStackTrace:
+        currentExceptionA*, currentExceptionB*: PNode
+        traceReason*: ReportKind
+        stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
+        skipped*: int
+
+      of rvmCannotCast:
+        typeMismatch*: seq[SemTypeMismatch]
+
+      of rvmIndexError:
+        indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
+
+      else:
+        discard
+
+
+func severity*(vm: VMReport): ReportSeverity =
+  case VMReportKind(vm.kind):
+    of rvmStackTrace:    result = rsevTrace
+    else: result = rsevError
+
+
 
 template withIt*(expr: untyped, body: untyped): untyped =
   block:
@@ -704,6 +726,7 @@ type
     LexerReport    |
     ParserReport   |
     SemReport      |
+    VMReport       |
     CmdReport      |
     DebugReport    |
     InternalReport |
@@ -721,6 +744,9 @@ type
 
       of repSem:
         semReport*: SemReport
+
+      of repVM:
+        vmReport*: VMReport
 
       of repCmd:
         cmdReport*: CmdReport
@@ -768,16 +794,39 @@ template eachCategory*(report: Report, field: untyped): untyped =
     of repLexer:    report.lexReport.field
     of repParser:   report.parserReport.field
     of repCmd:      report.cmdReport.field
+    of repVM:       report.vmReport.field
     of repSem:      report.semReport.field
     of repDebug:    report.debugReport.field
     of repInternal: report.internalReport.field
     of repBackend:  report.backendReport.field
     of repExternal: report.externalReport.field
 
-func kind*(report: Report): ReportKind = eachCategory(report, kind)
-func location*(report: Report): Option[TLineInfo] = eachCategory(report, location)
-func reportInst*(report: Report): ReportLineInfo = eachCategory(report, reportInst)
-func reportFrom*(report: Report): ReportLineInfo = eachCategory(report, reportFrom)
+func kind*(report: Report): ReportKind =
+  eachCategory(report, kind)
+
+func location*(report: Report): Option[TLineInfo] =
+  eachCategory(report, location)
+
+func reportInst*(report: Report): ReportLineInfo =
+  eachCategory(report, reportInst)
+
+func reportFrom*(report: Report): ReportLineInfo =
+  eachCategory(report, reportFrom)
+
+func context*(report: Report): seq[ReportContext] =
+  eachCategory(report, context)
+
+func `context=`*(report: var Report, context: seq[ReportContext]) =
+  case report.category:
+    of repLexer:    report.lexReport.context = context
+    of repParser:   report.parserReport.context = context
+    of repCmd:      report.cmdReport.context = context
+    of repSem:      report.semReport.context = context
+    of repVM:       report.vmReport.context = context
+    of repDebug:    report.debugReport.context = context
+    of repInternal: report.internalReport.context = context
+    of repBackend:  report.backendReport.context = context
+    of repExternal: report.externalReport.context = context
 
 func `reportFrom=`*(report: var Report, loc: ReportLineInfo) =
   case report.category:
@@ -785,6 +834,7 @@ func `reportFrom=`*(report: var Report, loc: ReportLineInfo) =
     of repParser:   report.parserReport.reportFrom = loc
     of repCmd:      report.cmdReport.reportFrom = loc
     of repSem:      report.semReport.reportFrom = loc
+    of repVM:       report.vmReport.reportFrom = loc
     of repDebug:    report.debugReport.reportFrom = loc
     of repInternal: report.internalReport.reportFrom = loc
     of repBackend:  report.backendReport.reportFrom = loc
@@ -801,6 +851,7 @@ func category*(kind: ReportKind): ReportCategory =
     of repParserKinds:   result = repParser
     of repSemKinds:      result = repSem
     of repBackendKinds:  result = repBackend
+    of repVMKinds:       result = repVM
 
     of repNone: assert false, "'none' report does not have category"
 
@@ -835,6 +886,7 @@ func severity*(
       of repParser:   report.parserReport.severity()
       of repSem:      report.semReport.severity()
       of repCmd:      report.cmdReport.severity()
+      of repVM:       report.vmReport.severity()
       of repInternal: report.internalReport.severity()
       of repBackend:  report.backendReport.severity()
       of repDebug:    report.debugReport.severity()
@@ -866,6 +918,10 @@ func wrap*(rep: sink LexerReport): Report =
 func wrap*(rep: sink ParserReport): Report =
   assert rep.kind in repParserKinds, $rep.kind
   Report(category: repParser, parserReport: rep)
+
+func wrap*(rep: sink VMReport): Report =
+  assert rep.kind in repVMKinds, $rep.kind
+  Report(category: repVM, vmReport: rep)
 
 func wrap*(rep: sink SemReport): Report =
   assert rep.kind in repSemKinds, $rep.kind
@@ -944,7 +1000,7 @@ func getReport*(list: ReportList, id: ReportId): Report =
   list.list[int(uint32(id)) - 1]
 
 
-func actualType*(r: SemReport): PType = r.typeMismatch[0].actualType
-func formalType*(r: SemReport): PType = r.typeMismatch[0].formalType
+func actualType*(r: SemReport | VMReport): PType = r.typeMismatch[0].actualType
+func formalType*(r: SemReport | VMReport): PType = r.typeMismatch[0].formalType
 func formalTypeKind*(r: SemReport): set[TTypeKind] = r.typeMismatch[0].formalTypeKind
-func symstr*(r: SemReport): string = r.sym.name.s
+func symstr*(r: SemReport | VMReport): string = r.sym.name.s

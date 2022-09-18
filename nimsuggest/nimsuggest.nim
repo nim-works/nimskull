@@ -116,7 +116,7 @@ proc reportHook(conf: ConfigRef, report: Report): TErrorHandling =
   case report.category
   of repCmd, repDebug, repInternal, repExternal:
     myLog(conf, $report)
-  of repParser, repLexer, repSem:
+  of repParser, repLexer, repSem, repVM:
     if report.category == repSem and
        report.kind in {rsemProcessing, rsemProcessingStmt}:
       # skip processing statements
