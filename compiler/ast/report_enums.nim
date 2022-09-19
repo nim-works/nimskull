@@ -289,6 +289,7 @@ type
     rvmNoType
     rvmNotAField
     rvmUnsupportedNonNil
+    rvmQuit
 
     rvmTooManyIterations
 

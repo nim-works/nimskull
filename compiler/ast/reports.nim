@@ -420,6 +420,9 @@ type
       of rvmIndexError:
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
 
+      of rvmQuit:
+        exitCode*: BiggestInt
+
       else:
         discard
 
