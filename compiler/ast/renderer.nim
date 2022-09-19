@@ -1643,7 +1643,7 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
     if renderWithoutErrorPrefix notin g.flags:
       putWithSpace(g, tkSymbol, "error")
     #gcomma(g, n, c)
-    gsub(g, n[0], c)
+    gsub(g, n.kids[0], c)
   else:
     #nkNone, nkExplicitTypeListCall:
     g.config.localReport InternalReport(

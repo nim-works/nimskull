@@ -189,8 +189,11 @@ proc instGenericContainer(c: PContext, info: TLineInfo, header: PType,
   closeScope(c)
 
 proc referencesAnotherParam(n: PNode, p: PSym): bool =
-  if n.kind == nkSym:
+  case n.kind
+  of nkSym:
     return n.sym.kind == skParam and n.sym.owner == p
+  of nkError:
+    return false
   else:
     for i in 0..<n.safeLen:
       if referencesAnotherParam(n[i], p): return true

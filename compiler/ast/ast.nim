@@ -51,11 +51,23 @@ template setNodeId() =
       echo "KIND ", result.kind
       writeStackTrace()
 
-func newNodeI*(kind: TNodeKind, info: TLineInfo): PNode =
-  ## new node with line info, no type, and no children
-  result = PNode(kind: kind, info: info, reportId: emptyReportId)
+proc newNodeAux(
+    kind: TNodeKind, info: TLineInfo, typ: PType, children: int
+  ): PNode {.inline.} =
+  ## Base proc to create new nodes. This does the main work - the exported procs
+  ## below act as the interfaces, also capturing intention for tracing/debugging
+  result = PNode(kind: kind, info: info, typ: typ)
+  
   {.cast(noSideEffect).}:
     setNodeId()
+  
+    if children > 0:
+      case kind
+      of nkError:
+        newSeq(result.kids, children)
+      else:
+        newSeq(result.sons, children)
+  
   when false:
     # this would add overhead, so we skip it; it results in a small amount of leaked entries
     # for old PNode that gets re-allocated at the same address as a PNode that
@@ -64,40 +76,56 @@ func newNodeI*(kind: TNodeKind, info: TLineInfo): PNode =
     # can contain extra entries for deleted PNode's with comments.
     gconfig.comments.del(result.id)
 
-proc newNode*(kind: TNodeKind): PNode =
-  ## new node with unknown line info, no type, and no children
-  result = newNodeI(kind, unknownLineInfo)
-
-proc newNodeI*(kind: TNodeKind, info: TLineInfo, children: int): PNode =
-  ## new node with line info, no type, and children
-  result = newNodeI(kind, info)
-  if children > 0:
-    newSeq(result.sons, children)
+proc newNodeIT*(kind: TNodeKind, info: TLineInfo, typ: PType, children: int): PNode =
+  ## new node with line info, type, and children
+  newNodeAux(kind, info, typ, children)
 
 proc newNodeIT*(kind: TNodeKind, info: TLineInfo, typ: PType): PNode =
   ## new node with line info, type, and no children
-  result = newNodeI(kind, info)
-  result.typ = typ
+  result = newNodeAux(kind, info, typ, 0)
 
-proc newNodeIT*(kind: TNodeKind, info: TLineInfo, typ: PType, children: int): PNode =
-  ## new node with line info, type, and children
-  result = newNodeIT(kind, info, typ)
-  if children > 0:
-    newSeq(result.sons, children)
+proc newNodeI*(kind: TNodeKind, info: TLineInfo, children: int): PNode =
+  ## new node with line info, no type, and children
+  result = newNodeAux(kind, info, nil, children)
+
+func newNodeI*(kind: TNodeKind, info: TLineInfo): PNode {.inline.} =
+  ## new node with line info, no type, and no children
+  result = newNodeAux(kind, info, nil, 0)
+
+proc newNode*(kind: TNodeKind): PNode {.inline.} =
+  ## new node with unknown line info, no type, and no children
+  result = newNodeAux(kind, unknownLineInfo, nil, 0)
+
+proc newTreeAux(
+    kind: TNodeKind; info: TLineInfo; typ: PType; children: varargs[PNode]
+  ): PNode {.inline.} =
+  ## Base proc to create a new tree. This does the main work - the exported
+  ## procedures below act as the interfaces, also capturing intention for
+  ## tracing/debugging
+  result = newNodeAux(kind, info, typ, 0)
+
+  case kind
+  of nkError:
+    result.kids = @children
+  else:
+    result.sons = @children
 
 proc newTree*(kind: TNodeKind; children: varargs[PNode]): PNode =
-  result = newNode(kind)
-  if children.len > 0:
-    result.info = children[0].info
-  result.sons = @children
+  let info =
+    if children.len > 0:
+      children[0].info
+    else:
+      unknownLineInfo
+  
+  result = newTreeAux(kind, info, nil, children)
 
 proc newTreeI*(kind: TNodeKind; info: TLineInfo; children: varargs[PNode]): PNode =
-  result = newNodeI(kind, info)
-  result.sons = @children
+  result = newTreeAux(kind, info, nil, children)
 
-proc newTreeIT*(kind: TNodeKind; info: TLineInfo; typ: PType; children: varargs[PNode]): PNode =
-  result = newNodeIT(kind, info, typ)
-  result.sons = @children
+proc newTreeIT*(
+    kind: TNodeKind; info: TLineInfo; typ: PType; children: varargs[PNode]
+  ): PNode =
+  result = newTreeAux(kind, info, typ, children)
 
 when false:
   import tables, strutils
@@ -446,7 +474,6 @@ template copyNodeImpl(dst, src, processSonsStmt) =
   dst.typ = src.typ
   dst.flags = src.flags * PersistentNodeFlags
   dst.comment = src.comment
-  dst.reportId = src.reportId
   when defined(useNodeIds):
     if dst.id == nodeIdToDebug:
       echo "COMES FROM ", src.id
@@ -457,6 +484,9 @@ template copyNodeImpl(dst, src, processSonsStmt) =
   of nkIdent: dst.ident = src.ident
   of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
   of nkEmpty, nkNone: discard # no children, nothing to do
+  of nkError:
+    dst.kids = src.kids
+    dst.reportId = src.reportId
   else: processSonsStmt
 
 proc copyNode*(src: PNode): PNode =

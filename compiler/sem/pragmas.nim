@@ -1806,7 +1806,7 @@ proc pragmaRec(c: PContext, sym: PSym, n: PNode, validPragmas: TSpecialWords;
 
     if p.isErrorLike:
       assert not cyclicTree(result)
-      if p.isError and p[0] == result:
+      if p.isError and p.kids[0] == result:
         # This can happen because processPush for example may
         # return the whole pragma node wrapped in an error.
         # We don't want to accidently create a cycle in that case.
