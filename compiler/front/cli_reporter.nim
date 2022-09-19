@@ -3543,6 +3543,9 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
       else:
         result = "index " & $i & " not in " & $a & " .. " & $b
 
+    of rvmQuit:
+      result = "`quit` called with exit-code: " & $r.exitCode
+
 
 proc reportFull*(conf: ConfigRef, r: VMReport): string =
   assertKind r

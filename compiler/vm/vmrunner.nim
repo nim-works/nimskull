@@ -10,7 +10,8 @@ import
 
   compiler/ast/[
     ast_types,
-    ast
+    ast,
+    report_enums
   ],
   compiler/front/[
     cli_reporter,
@@ -264,10 +265,15 @@ proc main*(args: seq[string]): int =
     result = r.unsafeGet.intVal.int
   else:
     let err = r.takeErr
-    # an uncaught error occurred
-    c.config.localReport(err.stackTrace)
-    c.config.localReport(err.report)
-    result = 1
+    case err.report.kind
+    of rvmQuit:
+      # abnormal exit via ``quit``
+      result = err.report.exitCode.int
+    else:
+      # an uncaught error occurred
+      c.config.localReport(err.stackTrace)
+      c.config.localReport(err.report)
+      result = 1
 
 when isMainModule:
   programResult = main(commandLineParams())

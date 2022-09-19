@@ -2471,16 +2471,18 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       regs[ra].initLocReg(c.typeInfoCache.stringType, c.memory)
       regs[ra].strVal.newVmString(str, c.allocator)
     of opcQuit:
-      if c.mode in {emRepl, emStaticExpr, emStaticStmt}:
+      case c.mode
+      of emRepl, emStaticExpr, emStaticStmt:
         localReport(c.config, c.debug[pc], InternalReport(kind: rintQuitCalled))
         # TODO: this will crash the compiler/vm (RangeDefect) if `quit` is
         #       called with a value outside of int8 range!
         msgQuit(int8(regs[ra].intVal))
-      else:
-        # TODO: we need to tell the caller that register zero isn't valid in
-        #       this case. In general, the caller must be informed of
-        #       non-default vm exits via `rawExecute`'s return value
-        return 0
+      of emConst, emOptimize, emStandalone:
+        # calling ``quit`` in the VM is an abnormal exit and thus reported
+        # via an error
+        raiseVmError(
+          VMReport(kind: rvmQuit, exitCode: regs[ra].intVal), c.debug[pc])
+
     of opcInvalidField:
       # REFACTOR this opcode is filled in the
       # `vmgen.genCheckedObjAccessAux` and contains expression for the
