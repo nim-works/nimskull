@@ -211,10 +211,6 @@ proc isImportedCppType(t: PType): bool =
 
 proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKind): Rope
 
-proc isObjLackingTypeField(typ: PType): bool {.inline.} =
-  result = (typ.kind == tyObject) and ((tfFinal in typ.flags) and
-      (typ[0] == nil) or isPureObject(typ))
-
 proc isInvalidReturnType(conf: ConfigRef; rettype: PType): bool =
   # Arrays and sets cannot be returned by a C procedure, because C is
   # such a poor programming language.
