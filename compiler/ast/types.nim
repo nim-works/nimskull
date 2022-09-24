@@ -1390,4 +1390,12 @@ proc isCharArrayPtr*(t: PType; allowPointerToChar: bool): bool =
       discard
 
 proc lacksMTypeField*(typ: PType): bool {.inline.} =
+  ## Tests if `typ` has a type field *itself* . Doesn't consider base types
   (typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags
+
+proc isObjLackingTypeField*(typ: PType): bool {.inline.} =
+  ## Tests if `typ` has no type field (header). The only types that store a
+  ## type header are non-final ``object`` types where the inheritance root
+  ## is not marked as ``.pure`` (the ``sfPure`` flags is not present on it)
+  result = (typ.kind == tyObject) and ((tfFinal in typ.flags) and
+      (typ[0] == nil) or isPureObject(typ))
