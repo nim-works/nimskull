@@ -2656,9 +2656,9 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
   checkMinSonsLen(n, bodyPos + 1, c.config)
 
   # setup the production
-  result = copyNode(n)
-  result.sons.setLen(n.len) # xxx: done for incremental refactoring, allows
-                            #      indexing instead of add
+  result = n
+  # result.sons.setLen(n.len) # xxx: done for incremental refactoring, allows
+  #                           #      indexing instead of add
   
   when false:
     result.flags = n.flags # defensive copy, reintroduce if bugs found
@@ -2675,7 +2675,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     s.flags.incl sfUsed
     result[namePos] = newSymNode(s)
   of nkSym:
-    result[namePos] = copyNode(n[namePos])
+    # result[namePos] = copyNode(n[namePos])
     s = result[namePos].sym
     s.owner = c.getCurrOwner
 
@@ -2705,44 +2705,44 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
 
   # xxx: use a defer for pushOwner/openScope automatic closing
 
-  if result[namePos].isError:
-    hasError = true
+  # if result[namePos].isError:
+  #   hasError = true
   
-  if result.len > patternPos:
-    if n[patternPos].isError:
-      hasError = true
-    result[patternPos] = n[patternPos]
+  # if result.len > patternPos:
+  #   if n[patternPos].isError:
+  #     hasError = true
+  #   result[patternPos] = n[patternPos]
   
-  if result.len > paramsPos:
-    if n[paramsPos].isError:
-      hasError = true
-    result[paramsPos] = n[paramsPos]
+  # if result.len > paramsPos:
+  #   if n[paramsPos].isError:
+  #     hasError = true
+  #   result[paramsPos] = n[paramsPos]
   
-  if result.len > pragmasPos:
-    if n[pragmasPos].isError:
-      hasError = true
-    result[pragmasPos] = n[pragmasPos].copyTree
+  # if result.len > pragmasPos:
+  #   if n[pragmasPos].isError:
+  #     hasError = true
+  #   result[pragmasPos] = n[pragmasPos].copyTree
   
-  if result.len > miscPos:
-    if n[miscPos].isError:
-      hasError = true
-    result[miscPos] = n[miscPos]
+  # if result.len > miscPos:
+  #   if n[miscPos].isError:
+  #     hasError = true
+  #   result[miscPos] = n[miscPos]
 
-  if result.len > bodyPos:
-    if n[bodyPos].isError:
-      hasError = true
-    result[bodyPos] = n[bodyPos]
+  # if result.len > bodyPos:
+  #   if n[bodyPos].isError:
+  #     hasError = true
+  #   result[bodyPos] = n[bodyPos]
   
-  if result.len > resultPos:
-    if n[resultPos].isError:
-      hasError = true
-    result[resultPos] = n[resultPos]
-    result[resultPos].sym.typ = s.typ[0]
+  # if result.len > resultPos:
+  #   if n[resultPos].isError:
+  #     hasError = true
+  #   result[resultPos] = n[resultPos]
+  #   result[resultPos].sym.typ = s.typ[0]
   
-  if result.len > dispatcherPos:
-    if n[dispatcherPos].isError:
-      hasError = true
-    result[dispatcherPos] = n[dispatcherPos]
+  # if result.len > dispatcherPos:
+  #   if n[dispatcherPos].isError:
+  #     hasError = true
+  #   result[dispatcherPos] = n[dispatcherPos]
 
   # process parameters:
   # generic parameters, parameters, and also the implicit generic parameters
@@ -2768,25 +2768,30 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     else:
       semGenericParamList(c, n[genericParamsPos])
 
-  if hasError or result[genericParamsPos].isError:
-    closeScope(c)
-    popOwner(c)
-    result = c.config.wrapError(result)
-    s.transitionToError(result)
-    return
+  # if hasError or genericParams.isError:
+  #   closeScope(c)
+  #   popOwner(c)
+  #   result = c.config.wrapError(result)
+  #   s.transitionToError(result)
+  #   return
 
   # xxx: pragmasPos needs to be set because semParamList checks for `magic`,
   #      pragma processing needs to be broken up more so early things like this
   #      are handled correctly with less spooky action at a distance
   # result[pragmasPos] = copyTree(n[pragmasPos])
   # result[paramsPos] = n[paramsPos]
-  s.typ =
+  let symTyp =
     case n[paramsPos].kind
     of nkEmpty:
       newProcType(c, n.info)
     else:
       # xxx: semParamList should simply return than do this silly out param junk
       semParamList(c, result[paramsPos], result[genericParamsPos], s.kind)
+
+  ## setting `typ` for an existing symbol to a `tyError` during an
+  ## `efDetermineType` means we're likely corrupting already analysed AST
+  if not (efDetermineType in flags and symTyp.isError):
+    s.typ = symTyp
 
   if result[genericParamsPos].safeLen == 0 or result[genericParamsPos].isError:
     # if there exist no explicit or implicit generic parameters, then this is
@@ -2801,32 +2806,42 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     # Due to instantiation that generic procs go through, a static echo in the
     # body of a nullary generic will not be executed immediately, as it's
     # instantiated and not immediately evaluated.
+    #
+    # this is also relevant to ensure existing syms are not polluted during a
+    # type determination
     result[genericParamsPos] = result[miscPos][1]
     result[miscPos] = c.graph.emptyNode
 
-  if result.len > resultPos:
-    # xxx: gets updated later in `addResult` or `maybeAddResult`, hack to make
-    #      `result` symbol swapping work when successively analysing the same
-    #      proc-like. all this because the legacy analysis approach mutated `n`
-    #      in-place.
-    result[resultPos].sym.typ = s.typ[0]
+  # we don't want to mutate `result`/`n` with `nkError` nodes right now because
+  # we're still gathering enough information to know if there is a prototype
+  # and/or we might be altering an existing definition inside a type check.
+  if efDetermineType in flags and result[genericParamsPos].isError:
+    c.config.localReport(result[genericParamsPos])
+
+  # if result.len > resultPos:
+  #   # xxx: gets updated later in `addResult` or `maybeAddResult`, hack to make
+  #   #      `result` symbol swapping work when successively analysing the same
+  #   #      proc-like. all this because the legacy analysis approach mutated `n`
+  #   #      in-place.
+  #   result[resultPos].sym.typ = s.typ[0]
 
   if tfTriggersCompileTime in s.typ.flags:
     incl(s.flags, sfCompileTime)
 
-  result[patternPos] =
-    case n[patternPos].kind
-    of nkEmpty:
-      c.graph.emptyNode
-    of nkError:
-      n[patternPos]
-    else:
-      # xxx: `semPattern` mutates `n[patternPos]`, this needs fixing
-      semPattern(c, n[patternPos], s)
+  if efDetermineType notin flags:
+    result[patternPos] =
+      case n[patternPos].kind
+      of nkEmpty:
+        c.graph.emptyNode
+      of nkError:
+        n[patternPos]
+      else:
+        # xxx: `semPattern` mutates `n[patternPos]`, this needs fixing
+        semPattern(c, n[patternPos], s)
 
-  if result[patternPos].kind == nkError:
-    # c.config.localReport(n[patternPos])
-    hasError = true
+    if result[patternPos].kind == nkError:
+      # c.config.localReport(n[patternPos])
+      hasError = true
 
   if s.kind == skIterator:
     s.typ.flags.incl(tfIterator)
@@ -2871,7 +2886,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       addInterfaceOverloadableSymAt(c, declarationScope, s)
     else:
       addInterfaceDeclAt(c, declarationScope, s)
-  
+
   # xxx: pragmaCallable mutates the input PNode, so using result defensively
   result = pragmaCallable(c, s, result, validPragmas)
   if not result.isErrorLike and not hasProto:
@@ -2897,7 +2912,8 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     closeScope(c)
     popOwner(c)
     result = wrapError(c.config, result)
-    s.transitionToError(result)
+    if efDetermineType notin flags:
+      s.transitionToError(result)
 
     return
 
@@ -2923,7 +2939,8 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
                                       @[proto, s]))
     # completeResultForEarlyExit(n, result)
     result = wrapError(c.config, result)
-    s.transitionToError(result)
+    if efDetermineType notin flags:
+      s.transitionToError(result)
     closeScope(c)
     popOwner(c)
     return
@@ -2989,7 +3006,8 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       if result.isError:
         # completeResultForEarlyExit(n, result, bodyPos)
         # xxx: defer the close and pop
-        s.transitionToError(result)
+        if efDetermineType notin flags:
+          s.transitionToError(result)
         closeScope(c)
         popOwner(c)
         return
@@ -3001,7 +3019,8 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
                                  reportSym(rsemImplementationNotAllowed, s))
       # completeResultForEarlyExit(n, result, bodyPos)
       result = c.config.wrapError(result)
-      s.transitionToError(result)
+      if efDetermineType notin flags:
+        s.transitionToError(result)
       closeScope(c)
       popOwner(c)
       return
@@ -3090,7 +3109,8 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       echo "where is went wrong: ", c.config $ n.info
       result = c.config.wrapError(result)
 
-    s.transitionToError(result)
+    if efDetermineType notin flags:
+      s.transitionToError(result)
 
     if s.ast.id == 1973029:
       echo "here, yay!"
