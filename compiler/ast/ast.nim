@@ -37,10 +37,48 @@ export ast_types, ast_idgen, ast_query, int128, ast_parsed_types
 var ggDebug* {.deprecated.}: bool ## convenience switch for trying out things
 
 when defined(useNodeIds):
-  const nodeIdToDebug* = 1945378 # 2322968
+  # error node lineage
+  # const nodeIdToDebug* = 1973029 # 2322968
+  # const nodeIdToDebug* = 1974076 # 2322968
+  # const nodeIdToDebug* = 1970808 # 2322968
+  # const nodeIdToDebug* = 1969943 # 2322968
+  # const nodeIdToDebug* = 1969113 # 2322968
+  # const nodeIdToDebug* = 1969074 # 2322968
+  # const nodeIdToDebug* = 1968236 # 2322968
+  # const nodeIdToDebug* = 1643461 # 2322968
 
-proc addAllowNil*(father, son: Indexable) {.inline.} =
-  father.sons.add(son)
+  # sym node lineage
+  # const nodeIdToDebug* = 1974077 # 2322968
+  # const nodeIdToDebug* = 1970808 # 2322968
+  # const nodeIdToDebug* = 1969943 # 2322968
+  # const nodeIdToDebug* = 1969114 # 2322968
+
+  # sym node lineage old
+  # const nodeIdToDebug* = 1974077 # 2322968
+  # const nodeIdToDebug* = 1970809 # 2322968
+  # const nodeIdToDebug* = 1969944 # 2322968
+  # const nodeIdToDebug* = 1969114 # 2322968
+
+  # sym error node lineage
+  # const nodeIdToDebug* = 1973029 # 2322968
+  # const nodeIdToDebug* = 1972974 # 2322968
+  # const nodeIdToDebug* = 1972933 # 2322968
+
+  # const nodeIdToDebug* = 1977361 # 2322968
+
+  # nested error node
+  # const nodeIdToDebug* = 1977350 # 2322968
+
+  # field access issues?
+  # const nodeIdToDebug* = 451496 # 2322968
+  # const nodeIdToDebug* = 451493 # 2322968
+  # const nodeIdToDebug* = 451490 # 2322968
+
+  # const nodeIdToDebug* = 451471 # 2322968 # pragma block
+  # const nodeIdToDebug* = 450986 # 2322968 # outer not found
+  # const nodeIdToDebug* = 451483 # 2322968 # inner not found
+
+  const nodeIdToDebug* = 1977350 # 2322968 # inner not found
 
 var gNodeId: int
 template setNodeId() =
@@ -50,6 +88,32 @@ template setNodeId() =
     if result.id == nodeIdToDebug:
       echo "KIND ", result.kind
       writeStackTrace()
+
+const debugOldNodeModification = false
+var lastAnalysedNodeId = 0
+  ## track largest node id we've seen at key points in the compiler to guard
+  ## against modifying the past
+
+when debugOldNodeModification:
+  proc markLastAnalysedNode*() {.inline.} =
+    {.cast(noSideEffect)}:
+      lastAnalysedNodeId = gNodeId
+
+  proc checkpointLastAnalysedNode*(): int {.inline.} =
+    {.cast(noSideEffect)}:
+      lastAnalysedNodeId = gNodeId
+      lastAnalysedNodeId
+
+  proc modifyingAnalysedNode*(n: PNode): bool {.inline.} =
+    {.cast(noSideEffect)}:
+      return n.id <= lastAnalysedNodeId
+else:
+  template markLastAnalysedNode*() = discard
+  template checkpointLastAnalysedNode*(): int = discard
+  template modifyingAnalysedNode*(n: PNode): bool = discard
+
+proc addAllowNil*(father, son: Indexable) {.inline.} =
+  father.sons.add(son)
 
 proc newNodeAux(
     kind: TNodeKind, info: TLineInfo, typ: PType, children: int
@@ -533,6 +597,14 @@ proc transitionToLet*(s: PSym) =
   s.guard = obj.guard
   s.bitsize = obj.bitsize
   s.alignment = obj.alignment
+
+proc transitionToError*(s: PSym, ast: PNode) =
+  ## convert `PSym` into an `skError` with error `ast`
+  assert s != nil
+  assert not s.ast.isError
+  transitionSymKindCommon(skError)
+  s.ast = ast
+  s.typ = ast.typ
 
 proc shallowCopy*(src: PNode): PNode =
   # does not copy its sons, but provides space for them:

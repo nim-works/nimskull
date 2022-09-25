@@ -36,7 +36,8 @@ import
   ],
   compiler/front/[
     options,
-    msgs
+    msgs,
+    cli_reporter
   ],
   compiler/sem/[
     semfold,
@@ -109,6 +110,12 @@ proc newAsgnStmt(c: PTransf, kind: TNodeKind, le: PNode, ri: PNode): PNode =
 
 proc transformSymAux(c: PTransf, n: PNode): PNode =
   let s = n.sym
+
+  if s.ast.isError or s.kind == skError:
+    echo "transformSymAux: error sym node id: ", n.id, " info: ", c.graph.config $ n.info, " stack trace: "
+    writeStackTrace()
+    # debug s.ast
+
   if s.typ != nil and s.typ.callConv == ccClosure:
     if s.kind in routineKinds:
       discard transformBody(c.graph, c.idgen, s, true)
@@ -956,6 +963,24 @@ proc transform(c: PTransf, n: PNode): PNode =
   of nkBracketExpr: result = transformArrayAccess(c, n)
   of procDefs:
     var s = n[namePos].sym
+
+    if s.ast.isError or s.kind == skError:
+      echo "transform: error sym node id: ", n[namePos].id,
+           " wrong node pos id: ", s.ast.kids[wrongNodePos].id,
+           " error node id: ", s.ast.id, " node id: ", n.id,
+           " namePos is error: ", n[namePos].isError, " node is error: ", n.isError,
+           " sym is error: ", s.isError,
+           " info: ", c.graph.config $ n.info, " error: "
+
+      for err in walkErrors(c.graph.config, s.ast):
+        let r = c.graph.config.getReport(err)
+
+        echo:
+          if r.kind == rsemWrappedError:
+            "wrapped"
+          else:
+            "nested error id: " & $err.id & "\n" & c.graph.config.reportFull(r)
+
     if n.typ != nil and s.typ.callConv == ccClosure:
       result = transformSym(c, n[namePos])
       # use the same node as before if still a symbol:

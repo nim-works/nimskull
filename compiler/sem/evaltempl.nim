@@ -25,7 +25,8 @@ import
     msgs
   ],
   compiler/utils/[
-    debugutils
+    debugutils,
+    astrepr
   ]
 
 type
@@ -50,6 +51,8 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
     case x.kind
     of nkArgList:
       for y in items(x): result.add(y)
+    of nkError:
+      c.config.localReport(param)
     else:
       result.add copyTree(x)
 
@@ -188,6 +191,9 @@ proc evalTemplate*(n: PNode, tmpl, genSymOwner: PSym;
       kind: rsemTemplateInstantiationTooNested))
 
     result = n
+
+  if n.kind == nkError:
+    return
 
   # replace each param by the corresponding node:
   let args = evalTemplateArgs(n, tmpl, conf, fromHlo)

@@ -20,6 +20,9 @@ import
     reports,
   ]
 
+when defined(nimCompilerStacktraceHints):
+  import std/stackframes
+
 proc isCompilerDebug*(conf: ConfigRef): bool {.inline.} =
   ##[
   Provides a simple way for user code to enable/disable logging in the compiler
@@ -106,7 +109,7 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
           var startFrom = 0
           for i in countdown(endsWith, 0):
             let e = entries[i]
-            if i != endsWith and $e.procname == stopProc: # found the previous
+            if i != endsWith and $e.procName == stopProc: # found the previous
               startFrom = i + 1
               break                                       # skip the rest
 
@@ -229,6 +232,9 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode;
                             flags: TExprFlags) =
   ## add tracing to procs that are primarily `PNode -> PNode`, with expr flags
   ## and can determine the type
+  when defined(nimCompilerStacktraceHints):
+    setFrameMsg c$n.info & " " & $n.kind
+
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
@@ -248,6 +254,9 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode;
 template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode) =
   ## add tracing to procs that are primarily `PNode -> PNode`, and can
   ## determine the type
+  when defined(nimCompilerStacktraceHints):
+    setFrameMsg c$n.info & " " & $n.kind
+
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
@@ -264,6 +273,9 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode) =
 
 template addInNimDebugUtilsError*(c: ConfigRef; n, e: PNode) =
   ## add tracing error generation `PNode -> PNode`
+  when defined(nimCompilerStacktraceHints):
+    setFrameMsg c$n.info & " " & $n.kind
+
   when defined(nimDebugUtils):
     const action = "newError"
     const loc = instLoc(locOffset)
@@ -283,6 +295,9 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
                             prev, r: PType) =
   ## add tracing to procs that are primarily `PNode, PType|nil -> PType`,
   ## determining a type node, with a possible previous type.
+  when defined(nimCompilerStacktraceHints):
+    setFrameMsg c$n.info & " " & $n.kind
+
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
@@ -301,7 +316,10 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
 
 template addInNimDebugUtils*(
     c: ConfigRef; action: string; n: PNode; resSym: PSym) =
-  ## add tracing to procs that are primarily `PNode -> PSym`,
+  ## add tracing to procs that are primarily `PNode -> PSym`
+  when defined(nimCompilerStacktraceHints):
+    setFrameMsg c$n.info & " " & $n.kind
+
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
@@ -318,7 +336,7 @@ template addInNimDebugUtils*(
 
 template addInNimDebugUtils*(
     c: ConfigRef; action: string; id: PIdent; resSym: PSym) =
-  ## add tracing to procs that are primarily `PIdent -> PSym`,
+  ## add tracing to procs that are primarily `PIdent -> PSym`
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
@@ -337,6 +355,9 @@ template addInNimDebugUtils*(
     c: ConfigRef; action: string; s: PSym; n: PNode; res: PNode) =
   ## add tracing to procs that are primarily `PSym, PNode -> PNode`, such as
   ## applying pragmas to a symbol
+  when defined(nimCompilerStacktraceHints):
+    setFrameMsg c$n.info & " " & $n.kind
+
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =

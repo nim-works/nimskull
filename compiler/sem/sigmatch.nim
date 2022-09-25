@@ -2798,7 +2798,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
 
           if arg.isNil() or arg.isErrorLike: # invalid arg
             noMatch()
-          elif n[a].isErrorLike:            # invalid operand
+          elif n[a].isError:                 # invalid operand
             noMatchDueToError()
 
           if m.baseTypeMatch: # var args

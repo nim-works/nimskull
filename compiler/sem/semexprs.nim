@@ -19,12 +19,16 @@ proc semTemplateExpr(c: PContext, n: PNode, s: PSym,
   let info = getCallLineInfo(n)
   markUsed(c, info, s)
   onUse(info, s)
+
   # Note: This is n.info on purpose. It prevents template from creating an info
   # context when called from an another template
   pushInfoContext(c.config, n.info, s)
   result = evalTemplate(n, s, getCurrOwner(c), c.config, c.cache,
                         c.templInstCounter, c.idgen, efFromHlo in flags)
-  if efNoSemCheck notin flags: result = semAfterMacroCall(c, n, result, s, flags)
+  
+  if efNoSemCheck notin flags:
+    result = semAfterMacroCall(c, n, result, s, flags)
+
   popInfoContext(c.config)
 
   # XXX: A more elaborate line info rewrite might be needed
@@ -1089,12 +1093,26 @@ proc setGenericParams(c: PContext, n: PNode) =
 proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
   if n.kind == nkError:
     return n
-  if efNoSemCheck notin flags and n.typ != nil and n.typ.kind == tyError:
-    # XXX: legacy path, remove once nkError is everywhere
-    return errorNode(c, n)
+
+  if efNoSemCheck notin flags and n.typ != nil:
+    if n.typ.isError:
+      result = n.typ.n
+
+      c.config.internalError "shouldn't have happened - typ"
+      
+      return
+    elif n.typ.kind == tyError:
+      # XXX: legacy path, remove once nkError is everywhere
+      return errorNode(c, n)
 
   result = n
   let callee = result[0].sym
+  
+  if callee.isError or callee.ast.isError:  # we received an error sym
+    result = callee.ast
+    c.config.internalError "shouldn't have happened - callee"
+    return
+
   case callee.kind
   of skMacro: result = semMacroExpr(c, result, callee, flags)
   of skTemplate: result = semTemplateExpr(c, result, callee, flags)
@@ -1902,7 +1920,7 @@ proc semArrayAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
 proc propertyWriteAccess(c: PContext, n, a: PNode): PNode =
   var id = legacyConsiderQuotedIdent(c, a[1],a)
   var setterId = newIdentNode(getIdent(c.cache, id.s & '='), a[1].info)
-  # a[0] is already checked for semantics, that does ``builtinFieldAccess``
+  # a[0] is already checked for semantics, that does `builtinFieldAccess`
   # this is ugly. XXX Semantic checking should use the ``nfSem`` flag for
   # nodes?
   result = newTreeI(nkCall, n.info, setterId, a[0], semExprWithType(c, n[1]))
@@ -2039,19 +2057,30 @@ proc goodLineInfo(arg: PNode): TLineInfo =
 
 proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
   checkSonsLen(n, 2, c.config)
+
+  if n.isError:
+    result = n
+    return
+  
+  result = copyNode(n)
+
   var a = n[0]
   case a.kind
   of nkDotExpr:
     # r.f = x
     # --> `f=` (r, x)
     a = builtinFieldAccess(c, a, {efLValue})
+    
     if a.isNil:
       result = propertyWriteAccess(c, n, n[0])
+      
       if result != nil:
         return
+      
       # we try without the '='; proc that return 'var' or macros are still
       # possible:
       a = dotTransformation(c, n[0])
+      
       if a.kind == nkDotCall:
         a.transitionSonsKind(nkCall)
         a = semExprWithType(c, a, {efLValue})
@@ -2059,19 +2088,21 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
     # a[i] = x
     # --> `[]=`(a, i, x)
     a = semSubscript(c, a, {efLValue})
+    
     if a.isNil:
       case mode
       of noOverloadedSubscript:
         result = bracketNotFoundError(c, n)
       else:
         result = buildOverloadedSubscripts(n[0], getIdent(c.cache, "[]="))
-        result.add(n[1])
+        result.add(copyTree(n[1]))
         result = semExprNoType(c, result)
+
       return
   of nkCurlyExpr:
     # a{i} = x -->  `{}=`(a, i, x)
     result = buildOverloadedSubscripts(n[0], getIdent(c.cache, "{}="))
-    result.add(n[1])
+    result.add(copyTree(n[1]))
     return semExprNoType(c, result)
   of nkPar, nkTupleConstr:
     if a.len >= 2:
@@ -2083,11 +2114,13 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
       a = semExprWithType(c, a, {efLValue})
   else:
     a = semExprWithType(c, a, {efLValue})
-  n[0] = a
+
+  result.add a
 
   case a.kind
   of nkError:
-    result = c.config.wrapError(n)
+    result.add n[1]
+    result = c.config.wrapError(result)
     return # refactor: return is "needed" because of final `result = n` below
   else:
     # a = b # both are vars, means: a[] = b[]
@@ -2095,32 +2128,30 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
     let le = a.typ
 
     if le.isNil:
-      n[0] = c.config.newError(a, reportSem rsemExpressionHasNoType)
-      result = c.config.wrapError(n)
+      result[0] = c.config.newError(a, reportSem rsemExpressionHasNoType)
+      result = c.config.wrapError(result)
       return # refactor: return is "needed" because of final `result = n` below
-
     elif (skipTypes(le, {tyGenericInst, tyAlias, tySink}).kind notin {tyVar} and
           isAssignable(c, a) in {arNone, arLentValue}) or
          (skipTypes(le, abstractVar).kind in {tyOpenArray, tyVarargs} and
           views notin c.features):
       # Direct assignment to a discriminant is allowed!
-      n[0] = c.config.newError(a, reportAst(rsemCannotAssignTo, a, typ = le))
-      result = c.config.wrapError(n)
+      result[0] = c.config.newError(a, reportAst(rsemCannotAssignTo, a, typ = le))
+      result = c.config.wrapError(result)
       return
-
     else:
       let
-        lhs = n[0]
+        lhs = result[0]
         rhs = semExprWithType(c, n[1], {})
 
       if lhs.isError or rhs.isError:
-        n[0] = lhs
-        n[1] = rhs
-        result = c.config.wrapError(n)
+        result[0] = lhs
+        result[1] = rhs
+        result = c.config.wrapError(result)
         return
 
       if lhs.kind == nkSym and lhs.sym.kind == skResult:
-        n.typ = c.enforceVoidContext
+        result.typ = c.enforceVoidContext
         if c.p.owner.kind != skMacro and resultTypeIsInferrable(lhs.sym.typ):
           let rhsTyp =
             if rhs.typ.kind in tyUserTypeClasses and
@@ -2140,23 +2171,26 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
             # XXX: if this is an nkError, should we modify the rhs and the
             #      overall assignment and return that, cascading upward?
             let r = typeMismatch(c.config, n.info, lhs.typ, rhsTyp, rhs)
+            
             if r.kind == nkError:
-              result = n
               result[1] = r # rhs error
               result = c.config.wrapError(result)
               return
-      borrowCheck(c, n, lhs, rhs)
+      
+      result.add rhs
 
-      n[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))
-      if n[1].isError:
-        result = c.config.wrapError(n)
+      borrowCheck(c, result, lhs, rhs)
+
+      result[1] = fitNode(c, le, rhs, goodLineInfo(result[1]))
+      
+      if result[1].isError:
+        result = c.config.wrapError(result)
         return # refactor: return is "needed" because of `result = n` below
 
       when false: liftTypeBoundOps(c, lhs.typ, lhs.info)
 
-      result = fixAbstractType(c, n)
-      asgnToResultVar(c, result, n[0], n[1])
-  result = n
+      result = fixAbstractType(c, result)
+      asgnToResultVar(c, result, result[0], result[1])
 
 proc semReturn(c: PContext, n: PNode): PNode =
   result = n
@@ -2177,7 +2211,9 @@ proc semReturn(c: PContext, n: PNode): PNode =
         return
       result[0] = semAsgn(c, n[0])
       # optimize away ``result = result``:
-      if result[0][1].kind == nkSym and result[0][1].sym == c.p.resultSym:
+      if result[0].isError:
+        result = c.config.wrapError(result)
+      elif result[0][1].kind == nkSym and result[0][1].sym == c.p.resultSym:
         result[0] = c.graph.emptyNode
   else:
     localReport(c.config, n, reportSem rsemReturnNotAllowed)
@@ -2593,6 +2629,8 @@ proc semCompiles(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # we replace this node by a 'true' or 'false' node:
   if n.len != 2:
     return semDirectOp(c, n, flags)
+  
+  c.openShadowScope()
 
   # xxx: need to further confirm, but `n[1]` below might need to be copied
   #      defensively, as inclusion of nkError nodes may mutate the original AST
@@ -2604,6 +2642,14 @@ proc semCompiles(c: PContext, n: PNode, flags: TExprFlags): PNode =
       ## this is the one place where we don't propagate nkError, wrapping the
       ## parent because this is a `compiles` call and should not leak across
       ## the AST boundary
+
+  if exprVal.isError:
+    if exprVal.id == 1973048:
+      # debug n
+      discard
+    c.closeShadowScope()
+  else:
+    c.mergeShadowScope()
 
   result = newIntNode(nkIntLit, ord(didCompile))
   result.info = n.info
@@ -3365,8 +3411,6 @@ proc enumFieldSymChoice(c: PContext, n: PNode, s: PSym): PNode =
       a = nextOverloadIter(o, c, n)
 
 proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
-  when defined(nimCompilerStacktraceHints):
-    setFrameMsg c.config$n.info & " " & $n.kind
   addInNimDebugUtils(c.config, "semExpr", n, result, flags)
 
   result = n

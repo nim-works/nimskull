@@ -123,6 +123,12 @@ proc `<=`(a, b: TLockLevel): bool {.borrow.}
 proc `==`(a, b: TLockLevel): bool {.borrow.}
 proc max(a, b: TLockLevel): TLockLevel {.borrow.}
 
+template debugSymNode(prefix: string, config: ConfigRef, n: PNode) =
+  if n.sym.isError:
+    echo prefix, " sym is error, n.id: ", n.id, " at info: ", config $ n.info
+  elif n.sym.ast.isError:
+    echo prefix, " only sym ast is error, n.id: ", n.id, " at info: ", config $ n.info
+
 proc createTypeBoundOps(tracked: PEffects, typ: PType; info: TLineInfo) =
   if typ == nil: return
   when false:
@@ -1072,10 +1078,15 @@ proc track(tracked: PEffects, n: PNode) =
   case n.kind
   of nkSym:
     useVar(tracked, n)
+
+    debugSymNode("track", tracked.config, n)
+
     if n.sym.typ != nil and tfHasAsgn in n.sym.typ.flags:
       tracked.owner.flags.incl sfInjectDestructors
+      
       # bug #15038: ensure consistency
-      if not hasDestructor(n.typ) and sameType(n.typ, n.sym.typ): n.typ = n.sym.typ
+      if not hasDestructor(n.typ) and sameType(n.typ, n.sym.typ):
+        n.typ = n.sym.typ
   of nkHiddenAddr, nkAddr:
     if n[0].kind == nkSym and isLocalVar(tracked, n[0].sym):
       useVarNoInitCheck(tracked, n[0], n[0].sym)
@@ -1163,8 +1174,6 @@ proc track(tracked: PEffects, n: PNode) =
       let oldState = tracked.init.len
       let oldFacts = tracked.guards.s.len
       addFact(tracked.guards, n[0])
-      if n[0].kind == nkError:
-        echo n.id
       track(tracked, n[0])
       track(tracked, n[1])
       setLen(tracked.init, oldState)
@@ -1328,6 +1337,9 @@ proc track(tracked: PEffects, n: PNode) =
 
     inc tracked.leftPartOfAsgn
   of nkError:
+    echo "track n id: ", n.id, " wrongNodePos id: ", n.kids[wrongNodePos].id
+    for err in walkErrors(tracked.config, n):
+      echo "nested error id: ", err.id, " nested wrongNodePos id: ", err.kids[wrongNodePos].id
     localReport(tracked.config, n)
   else:
     for i in 0 ..< n.safeLen:
@@ -1476,6 +1488,9 @@ proc hasRealBody(s: PSym): bool =
 proc trackProc*(c: PContext; s: PSym, body: PNode) =
   addInNimDebugUtils(c.config, "trackProc")
   let g = c.graph
+  
+  debugSymNode("trackProc", c.config, s.ast[namePos])
+
   var effects = s.typ.n[0]
   if effects.kind != nkEffectList: return
   # effects already computed?

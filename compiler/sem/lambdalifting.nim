@@ -23,6 +23,7 @@ import
     types,
     lineinfos
   ],
+  compiler/utils/astrepr,
   compiler/modules/[
     magicsys,
     modulegraphs
@@ -528,6 +529,10 @@ proc detectCapturedVars(n: PNode; owner: PSym; c: var DetectionPass) =
       detectCapturedVars(n[namePos], owner, c)
   of nkReturnStmt:
     detectCapturedVars(n[0], owner, c)
+  # of nkError:
+  #   echo "error node id: ", n.id, " info: ", c.graph.config $ n.info, 
+  #        "\n  inst: ", c.graph.config.getReport(n.reportId).reportInst,
+  #        "\n  from: ", c.graph.config.getReport(n.reportId).reportFrom
   else:
     for i in 0..<n.len:
       detectCapturedVars(n[i], owner, c)

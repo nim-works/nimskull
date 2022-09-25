@@ -1070,11 +1070,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
       result.add " but expected '$1'" % x
 
-      result.add " node id: $1" % $r.ast.id
-      result.add " from: $1" % $r.reportInst
+      # result.add " node id: $1" % $r.ast.id
+      # result.add " from: $1" % $r.reportInst
 
-      if r.ast.id == 1956360:
-        debug r.ast
+      # if r.ast.id == 1956360:
+      #   debug r.ast
 
       if verbose:
         result.addDeclaredLoc(conf, formal)

@@ -1228,6 +1228,13 @@ proc genProcNoForward(m: BModule, prc: PSym) =
       symInDynamicLibPartial(m, prc)
   elif sfImportc notin prc.flags:
     var q = findPendingModule(m, prc)
+
+    if prc.ast.isError:
+      let n = prc.ast
+      echo "error node id: ", n.id, " info: ", m.g.graph.config $ n.info, 
+         "\n  inst: ", m.g.graph.config.getReport(n.reportId).reportInst,
+         "\n  from: ", m.g.graph.config.getReport(n.reportId).reportFrom
+
     fillProcLoc(q, prc.ast[namePos])
     # generate a getProc call to initialize the pointer for this
     # externally-to-the-current-module defined proc, also important

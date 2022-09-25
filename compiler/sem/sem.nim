@@ -197,6 +197,11 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
         # XXX: is this "error correction" or actually "fitting" the node?
         result = copyTree(arg)
         result.typ = formal
+      
+      if result.id == 1977350:
+        echo "fitNode arg id: ", arg.id,
+              " arg info: ", c.config $ arg.info,
+              " info: ", c.config $ info
     else:
       result = fitNodePostMatch(c, formal, result)
 
@@ -531,12 +536,21 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
   ## coherence, making sure that variables declared with 'let' aren't
   ## reassigned, and binding the unbound identifiers that the macro output
   ## contains.
+  assert not s.isError
+
   inc(c.config.evalTemplateCounter)
+  
   if c.config.evalTemplateCounter > evalTemplateLimit:
     globalReport(c.config, s.info, SemReport(kind: rsemTemplateInstantiationTooNested))
-  c.friendModules.add(s.owner.getModule)
+  
   result = macroResult
   resetSemFlag result
+
+  if result.isError:
+    return
+
+  c.friendModules.add(s.owner.getModule)
+  
   if s.typ[0] == nil:
     result = semStmt(c, result, flags)
   else:

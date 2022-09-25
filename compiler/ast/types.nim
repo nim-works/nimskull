@@ -1293,11 +1293,11 @@ proc typeMismatch*(
     result = newError(conf, n, rsemTypeMismatch, conf.store(info, rep), instLoc())
     result.info = info
 
-    if true or result.reportId.int == 24:
-      echo "error source stack trace start"
-      writeStackTrace()
-      echo "error source stack trace end"
-      echo "n id: ", n.id, " report id: ", result.reportId
+    # if true or result.reportId.int == 24:
+    #   echo "error source stack trace start"
+    #   writeStackTrace()
+    #   echo "error source stack trace end"
+    #   echo "n id: ", n.id, " report id: ", result.reportId
 
     # conf.localReport(result)
 
