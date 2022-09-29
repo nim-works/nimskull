@@ -527,22 +527,6 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
   else:
     discard "ignore"
 
-  if n.isBuiltIn:
-    case n.builtin
-    of bcNew:
-      # XXX: duplicate of `mNew` handling...
-      let
-        arg = arg(0)
-        ptrTyp = c.env.types.skipVarOrLent(c.typeof(arg))
-        size = if n.argCount > 1: arg(1) else: InvalidIndex
-
-      cr.replace()
-      # XXX: not sure about `askMove` here...
-      genNewObj(cr, c.extra, c.env[], ptrTyp, arg, size, c.storageLoc(arg))
-
-    else:
-      discard
-
 proc genRefcRefAssign(cr: var IrCursor, e: PassEnv, dst, src: IRIndex, sl: StorageLoc) =
   # TODO: document
   case sl

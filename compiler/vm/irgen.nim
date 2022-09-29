@@ -1065,8 +1065,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     #          type translation following after the IR-gen step, since it
     #          can't handle `tyGenericParam` types.
     if n[0].sym.name.s == "internalNew":
-      let t = c.types.requestType(n[1].typ)
-      discard c.irs.irCall(bcNew, t, genx(c, n[1]))
+      discard c.irs.irCall(mNew, c.requestType(tyVoid), genx(c, n[1]))
     else:
       # a normal new. Don't do any special transformation
       result = genCall(c, n)
@@ -1566,7 +1565,7 @@ proc genObjConstr(c: var TCtx, n: PNode): IRIndex =
   let t = n.typ.skipTypes(abstractRange+{tyOwned}-{tyTypeDesc})
   var obj: IRIndex
   if t.kind == tyRef:
-    discard c.irs.irCall(bcNew, NoneType, result)
+    discard c.irs.irCall(mNew, c.requestType(tyVoid), result)
     obj = c.irs.irDeref(result)
   else:
     obj = result
