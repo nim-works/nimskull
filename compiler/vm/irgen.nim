@@ -1876,8 +1876,6 @@ proc genArrayConstr(c: var TCtx, n: PNode): IRIndex =
   #discard c.irs.irCall(bcFinishConstr, c.requestType(tyVoid), result)
 
 proc genSetElem(c: var TCtx, n: PNode, first: int): IRIndex =
-  result = c.getTemp(n.typ)
-
   if first != 0:
     if n.kind in nkIntKinds:
       # a literal value
