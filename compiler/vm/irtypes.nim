@@ -1013,7 +1013,7 @@ proc translate(dest: var TypeEnv, gen: var TypeGen, conf: ConfigRef, pos: Natura
     dest.types[pos] = Type(kind: tnkRecord, a: dest.fields.len.uint32, b: 0,
                            c: RecordId(dest.records.len + 1).uint32)
 
-    block:
+    if t.len > 0:
       dest.records.add RecordNode(kind: rnkList, len: 1, a: t.len.uint32)
       dest.records.add RecordNode(kind: rnkFields, a: 0, b: uint32(t.len - 1))
 
@@ -1022,6 +1022,8 @@ proc translate(dest: var TypeEnv, gen: var TypeGen, conf: ConfigRef, pos: Natura
       for i in 0..<t.len:
         dest.fields[start + i].typ = gen.requestType(t[i])
 
+    else:
+      dest.records.add RecordNode(kind: rnkList, len: 0)
 
   of tyArray:
     let (lo, hi) = lengthOrd(conf, t).toUInt64().split()
@@ -1394,8 +1396,11 @@ func genRecordType*(e: var TypeEnv, base: TypeId, fields: varargs[(DeclId, TypeI
   for s, t in fields.items:
     e.fields.add FieldDesc(sym: s, typ: nodeId(e, t))
 
-  e.records.add RecordNode(kind: rnkList, len: 1, a: fields.len.uint32)
-  e.records.add RecordNode(kind: rnkFields, a: 0, b: fields.high.uint32)
+  if fields.len > 0:
+    e.records.add RecordNode(kind: rnkList, len: 1, a: fields.len.uint32)
+    e.records.add RecordNode(kind: rnkFields, a: 0, b: fields.high.uint32)
+  else:
+    e.records.add RecordNode(kind: rnkList, len: 0)
 
 # TODO: genX is the wrong terminology here
 func genArrayType*(e: TypeEnv, len: BiggestUInt, elem: TypeId): Type =
