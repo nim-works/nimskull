@@ -1081,11 +1081,14 @@ func genConstInitializer(ast: var CAstBuilder, c: var GenCtx,
   # first check if the initializer is a reference to another constant
   case n.kind
   of conConst:
-    # a reference to a constant. The symbol *index* (not ID) is stored as an
-    # ``nkIntLit`` in the first sub-node
-    # XXX: we mis-use the ``ModuleCtx`` that is part of `c` to store the dependencies
+    # a reference to a constant. The C standard doesn't mandate that
+    # non-address lvalue expressions are *constant expressions* in the context
+    # of static initializers, and not all C compilers treat them as such, so
+    # they're embedded directly
     let sId = data.sym(iter).SymId
-    return ast.ident(c.gl.symIdents[sId.toIndex])
+    assert c.gl.constInit[sId].len > 0, "initializer missing"
+
+    return ast.add(c.gl.constInit[sId])
   of conConstAddr:
     # similar to ``conConst`` above, with the difference that we want the address
     let sId = data.sym(iter).SymId
@@ -1970,7 +1973,10 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
     var ctx = GenCtx(env: addr env)
     swap(ctx.gl, c)
 
-    for id in env.syms.items:
+    # iterate the items in reverse so that the initializer AST for all
+    # dependencies is generated before their dependees. Constants can
+    # only reference other constants with a higher ID
+    for id in env.syms.ritems:
       let sym = env.syms[id]
       if sym.kind == skConst:
         let lit = env.syms.data(id)

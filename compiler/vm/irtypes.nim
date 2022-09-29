@@ -1279,6 +1279,12 @@ iterator items*(e: SymbolEnv): SymId =
     yield toId(i, SymId)
     inc i
 
+iterator ritems*(e: SymbolEnv): SymId =
+  var i = e.symbols.len - 1
+  while i >= 0:
+    yield toId(i, SymId)
+    dec i
+
 iterator msymbols*(e: var SymbolEnv): (SymId, var Symbol) =
   var i = 0
   let L = e.symbols.len
