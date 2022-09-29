@@ -828,7 +828,7 @@ proc generateCode*(g: ModuleGraph) =
           # TODO: don't swap the seqs in and out inside the loop -- do it once
           #       outside the loop
           var rpCtx: RefcPassCtx
-          rpCtx.setupRefcPass(passEnv)
+          rpCtx.setupRefcPass(passEnv, typeCtx, env, irs)
           template swapState() =
             swap(rpCtx.tfInfo, tfInfo)
             swap(rpCtx.gcLookup, gcInfo)

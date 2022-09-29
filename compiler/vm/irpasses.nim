@@ -502,8 +502,97 @@ template genForLoop*(cr: var IrCursor, d: var LiteralData, g: PassEnv, len: IRIn
 
     cr.insertJoin(loopExit)
 
+
+type StorageLoc = enum
+  # TODO: add ``slMissing`` to distinguish between "location unknown" and
+  #       "not computed"?
+  slUnknown ## it's not know where the location is located
+  slStack   ## located on the stack
+  slHeap    ## located on the heap
+  # TODO: also add `slStatic`, used for constants?
+
+func computeStorageLocs(result: var seq[StorageLoc], code: IrStore3,
+                        types: seq[TypeId], syms: SymbolEnv, env: TypeEnv) =
+  ## Computes the storage location for each instruction yielding a value.
+  ## A simple linear single-iteration scan is used -- control-flow is not
+  ## taken into account.
+  ## The computation is conservative: if a location is on the heap, it is never
+  ## computed to be on the stack and vice versa.
+
+  # re-use the memory
+  result.newSeqReuse(code.len)
+
+  # TODO: ``tnkSeq`` and ``tnkString`` are only ``ref``-like types for seqsv1
+  const RefTypes = {tnkSeq, tnkString, tnkRef}
+    ## all types that are effectively ``ref`` types
+
+  for i, n in code.pairs:
+    case n.kind
+    of ntkCall:
+      # TODO: remove the ``NoneType`` guard once all call nodes have type
+      #       information
+      if types[i] != NoneType and env.kind(types[i]) != tnkVoid:
+        # calls effectively yield a temporary, which is always located on the
+        # stack
+        result[i] = slStack
+
+    of ntkAddr:
+      # when taking the address, we use the storage location of the memory
+      # location we're take the address of
+      result[i] = result[n.addrLoc]
+    of ntkDeref:
+      if code[i].kind == ntkAddr:
+        result[i] = result[n.addrLoc]
+      elif env.kind(types[n.addrLoc]) in RefTypes:
+        # XXX: dereferncing a seq or string might also yield a constant
+        #      location...
+        # dereferencing a ``ref``-like types always yields a heap location
+        result[i] = slHeap
+      else:
+        result[i] = slUnknown
+
+    of ntkParam:
+      # TODO: when using pass-by-reference, this no longer holds true
+      # parameters itself are always located on the stack
+      result[i] = slStack
+    of ntkLocal:
+      result[i] = slStack
+    of ntkSym:
+      let sym = code.sym(code[i])
+      case syms[sym].kind
+      of skVar, skLet, skForVar:
+        # globals are, strictly speaking, located in non-constant static memory
+        # (at least for C) instead of on the heap. The storage location is only
+        # used to decide when to use ref-counting however, and in that case,
+        # it doesn't make a difference
+        result[i] = slHeap
+      of skConst:
+        # XXX: should something like a ``slConst`` be used here? What for?
+        result[i] = slUnknown
+      else:
+        unreachable()
+
+    of ntkPathObj, ntkPathArr, ntkUse, ntkConsume:
+      # XXX: depending on how it's going to be implemented, ``ntkConsume``
+      #      might need to be adjusted
+      result[i] = result[n.srcLoc]
+    of ntkCast:
+      # cast yields a temporary, which is located on the stack
+      result[i] = slStack
+    of ntkConv:
+      # conversion are lvalue-conversions, so inheriting the state of the
+      # source location is correct (both locations have the same identity)
+      result[i] = result[n.srcLoc]
+
+    of ntkAsgn, ntkLocEnd, ntkProc, ntkLit, ntkImm, ntkBranch, ntkGoto,
+       ntkJoin, ntkGotoLink, ntkContinue:
+      discard "statement or name; they don't have a storage location"
+
 type RefcPassCtx* = object
   extra: PassEnv
+
+  locs: seq[StorageLoc] ## ``IRIndex`` -> ``StorageLoc``
+  # TODO: use a packed seq
 
   tfInfo*: TypeFieldInfo
   gcLookup*: BitSet[TypeId]
@@ -515,18 +604,13 @@ func initTypeContext*(code: IrStore3, env: IrEnv, map: TypeMap): TypeContext =
   assert map.len > 0
   result.computeTypes(code, env, map)
 
-func setupRefcPass*(c: var RefcPassCtx, pe: PassEnv) =
+func setupRefcPass*(c: var RefcPassCtx, pe: PassEnv, types: TypeContext,
+                    env: IrEnv, ir: IrStore3) =
   c.extra = pe
+  computeStorageLocs(c.locs, ir, types.orig, env.syms, env.types)
 
-type StorageLoc = enum
-  slUnknown
-  slStack
-  slHeap
-  # TODO: also add `slStatic`, used for constants?
-
-func storageLoc(c: RefcPassCtx, val: IRIndex): StorageLoc =
-  # TODO: missing
-  slUnknown
+func storageLoc(c: RefcPassCtx, val: IRIndex): StorageLoc {.inline.} =
+  c.locs[val]
 
 proc requestRtti(c: RefcPassCtx, cr: var IrCursor, t: TypeId): IRIndex =
   # refc uses the v1 type-info
