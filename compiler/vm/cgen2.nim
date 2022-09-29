@@ -512,7 +512,7 @@ const AutoImported = {tnkVoid, tnkBool, tnkChar, tnkInt, tnkUInt, tnkFloat} # ty
 func genCTypeInfo(gen: var TypeGenCtx, env: TypeEnv, id: TypeId): CTypeInfo =
   let t = env[id]
   if (let iface = env.iface(id); iface != nil and sfImportc in iface.flags):
-    result = CTypeInfo(name: gen.cache.getOrIncl(mangledName(iface)))
+    result = CTypeInfo(name: gen.cache.getOrIncl($iface.loc.r))
   elif t.kind in AutoImported:
     let name =
       case t.kind
