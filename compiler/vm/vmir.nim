@@ -1,3 +1,10 @@
+## This module contains the type definitions of the intermediate language used
+## by the compiler back-end. Procedures and auxiliary types for interacting
+## with the languages's IR are also located here.
+
+# XXX: the module's name and it's location are a remnant of where it
+#      originated
+
 import compiler/ast/ast_types
 import std/tables
 
@@ -9,7 +16,8 @@ export irtypes
 
 const useNodeTraces {.booldefine.} = false
 
-type IRIndex* = int
+
+type IRIndex* = int # TODO: turn into a ``distinct uint32``
 const InvalidIndex* = -1 # XXX: it would be better for `InvalidIndex` to be '0'
 
 type
@@ -17,6 +25,8 @@ type
     ## The ID of a path expression. Currently an `IRIndex`, but paths might be
     ## stored in a separate list later on
 
+  # TODO: `JointPoint` is completely unrelated to ``IRIndex`` now and needs to
+  #       be it's own distinct type
   JoinPoint* = #[distinct]# IRIndex
 
   IrNodeKind3* = enum
@@ -105,6 +115,40 @@ type
     ckBuiltin
     ckMagic
 
+  # XXX: maybe `IrNode` should be renamed to something like 'Instruction'? It
+  #      would fit the usage/meaning much better than 'node' (but also only for
+  #      some)
+
+  # XXX: the node kinds can be divided into two categories: declarative and
+  #      imperative.
+  #
+  #      Declarative nodes (such as ``ntkSym``, ``ntkParam``, etc.)
+  #      name external entities and may be located anywhere in the code.
+  #      Removing an unreferenced declarative node doesn't affect the
+  #      behaviour of the code.
+  #
+  #      Imperative nodes (instructions?), such as ``ntkAsgn`` and ``ntkGoto``,
+  #      describe what the program does. Their position in the code relative to
+  #      other instruction has meaning, and removing an otherwise unreferenced
+  #      instruction (that has side-effects) alters the programs behaviour
+  #      (although not necessarily the observable one).
+  #
+  #      Nodes like ``ntkUse``, ``ntkPathObj``, etc. don't really fit with any
+  #      of the two. They don't alter program state directly and don't have
+  #      side-effects themselves. Maybe they're part of a third category
+  #      (expressions?)
+  #
+  #      Separating the nodes by category at the storage level might make
+  #      sense. For example, the node buffer in ``IrStore3`` could be
+  #      partitioned in a way so that all declarations come first and then the
+  #      imperative nodes. This would make processing that only operates on one
+  #      of the two more efficient (less nodes need to be skipped)
+
+  # XXX: making side-effects explicit (via an extra parameter to calls that do
+  #      have them for example) could be an interesting path to explore. It
+  #      would likely make things like code-reordering (not something that is
+  #      planned right now) easier
+
   IrNode3* = object
     case kind: IrNodeKind3
     of ntkAsgn:
@@ -188,9 +232,11 @@ type
     locals: seq[Local]
 
     localSrc: seq[seq[StackTraceEntry]]
-    sources: seq[seq[StackTraceEntry]] # the stack trace of where each node was added
+    sources: seq[seq[StackTraceEntry]] # the stack trace of where each node
+                                       # was added
 
-    # XXX: to temporarily make things easier, the owning procedure's ID is stored here (will be moved elsewhere later)
+    # XXX: to temporarily make things easier, the owning procedure's ID is
+    #      stored here (will be moved elsewhere later)
     owner*: ProcId
 
   IrEnv* = object
@@ -199,8 +245,11 @@ type
     types*: TypeEnv
     procs*: ProcedureEnv
 
-    # XXX: storing a ``LiteralData`` object here feels a bit off. It a bit
-    #      less related to the back-end than the other fields here.
+    # XXX: storing a ``LiteralData`` object here feels a bit off. It's a bit
+    #      less related to the IR environment than the other fields here.
+    #      It's also often the case that only the ``LiteralData`` object
+    #      is required to be mutable, while the others environment objects
+    #      should be immutable
     data*: LiteralData
 
   IrNodeHdr = object
@@ -216,9 +265,9 @@ type
     ## with a header (see ``IrNodeHdr``) followed by ``len`` 32-bit fields.
     ##
     ## The nodes indices are no longer monotonically increasing, but that's
-    ## not a problem. Iteration will become a bit slower, since the index
-    ## can't be incremented by static value and has a data-dependency on the
-    ## current node.
+    ## not a problem. Iteration will become a bit slower, since the value
+    ## the index needs to be incremented by is no longer a compile-time-known
+    ## value but is dependent on the current node.
     ##
     ## Accessing the content of nodes will use one of the following
     ## approaches (or a mix of them):
@@ -235,7 +284,7 @@ type
     ##
     ##    func call(nodes: IrNodes, n: IRIndex): CallNode
     ##      ## Casts the data at `n` into a ``CallNode``. It's illegal to use
-    ##      ## this procedure if the node a `n` is not an ``ntkCall`` node
+    ##      ## this procedure if the node at `n` is not an ``ntkCall`` node
 
   IrNodes = object
     data: seq[IrNode4]
@@ -282,7 +331,6 @@ func irUse*(c: var IrStore3, loc: IRIndex): IRIndex =
 proc irSym*(c: var IrStore3, sym: SymId): IRIndex =
   # TODO: don't add duplicate items?
   assert sym != NoneSymbol
-  #c.syms.add(sym)
   c.add(IrNode3(kind: ntkSym, sym: sym))
 
 func irDeref*(c: var IrStore3, val: IRIndex): IRIndex =
@@ -293,9 +341,6 @@ func irParam*(c: var IrStore3, pos: uint32): IRIndex =
   c.add IrNode3(kind: ntkParam, param: pos.int)
 
 proc irImm*(c: var IrStore3, val: uint32): IRIndex =
-  ## Load an immediate int value.
-  ## TODO: maybe store the `PNode` in the IR for a `irkConst` instead? And
-  ##       move const handling to stage 2?
   c.add(IrNode3(kind: ntkImm, immediate: val))
 
 proc irPathArr*(c: var IrStore3, src: IRIndex, idx: IRIndex): IRIndex =
@@ -384,8 +429,6 @@ func irProc*(c: var IrStore3, p: ProcId): IRIndex =
 func irAddr*(c: var IrStore3, loc: IRIndex): IRIndex =
   ## Take the address of a location
   c.add(IrNode3(kind: ntkAddr, addrLoc: loc))
-
-# version 1 (old) transition helpers
 
 func irLit*(c: var IrStore3, lit: Literal): IRIndex =
   #assert n.typ != nil
@@ -800,7 +843,8 @@ func patch(n: var IrNode3, patchTable: seq[IRIndex]) =
 
 func inline*(cr: var IrCursor, other: IrStore3, sEnv: SymbolEnv, args: varargs[IRIndex]): IRIndex =
   ## Does NOT create temporaries for each arg
-  # XXX: unfinished
+  # XXX: unfinished and also outdated. A lot of the comments here don't apply
+  #      anymore
 
   # register the insertion
   if cr.actions.len > 0 and cr.actions[^1][1].a == cr.pos:
@@ -1045,7 +1089,7 @@ type
 
     locals: seq[Local]
 
-    lenDiff: int         ## additions + removals
+    lenDiff: int         ## additions - removals
     start: IRIndex       ## the node position of the first item in ``nodes``
     numJoins: int        ## the number of new join points
     joinStart: JoinPoint ## the name of the first new join point
@@ -1077,7 +1121,7 @@ func resize(c: var Changes, lengths: Lengths) =
   c.nodes.setLen(lengths.nodes)
 
 func mergeInternal(dest: var Changes, other: IrCursor) =
-  ## Merges the changes collected in `other` into
+  ## Merges the changes collected in `other` into `dest`
   var npos = dest.lengths.nodes
 
   func copy[T](d: var seq[T], src: seq[T], i, p: int) =
@@ -1135,7 +1179,7 @@ func mergeInternal(dest: var Changes, other: IrCursor) =
 
   var
     difference = 0
-    insert = dest.lengths.diff ## the
+    insert = dest.lengths.diff
 
   # add the ordered changeset from `other` to `dest`
   for kind, slice in other.actions.items:
@@ -1270,7 +1314,7 @@ func applyInternal(ir: var IrStore3, c: Changes) =
     copySrc += num
     insert += num
 
-  # we've effectively done a ``move`` for all elements so we have to also zero
+  # we've effectively done a ``move`` for all elements, so we have to also zero
   # the memory or else the garbage collector would clean up the traces
   when useNodeTraces:
     zeroMem(cr.traces)
