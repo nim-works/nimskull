@@ -750,6 +750,9 @@ proc generateCode*(g: ModuleGraph) =
   block:
     # the ``openArray`` lowering has to happen separately
     # TODO: explain why
+    # TODO: since the ``lowerOpenArrayPass`` doesn't mutate the procedures'
+    #       parameters anymore, it should be possible to run it in a batch
+    #       with others
     var ctx: LowerOACtx
     ctx.init(passEnv)
 
@@ -759,7 +762,19 @@ proc generateCode*(g: ModuleGraph) =
 
   lowerOpenArrayTypes(ttc, env.types, env.syms)
 
-  for s, irs in mpairsId(procImpls, ProcId):
+  let destructorSeq = optSeqDestructors in conf.globalOptions
+
+  block:
+    # if a non-v2 garbage collector (e.g. ``refc``, ``markAndSweep``,
+    # everything else that uses ``unsureAsgnRef``) is active, the sequence
+    # operation lowering has to happen before GC transform pass
+    let seqPass =
+      if destructorSeq:
+        seqV1Pass #seqV2Pass
+      else:
+        seqV1Pass
+
+    for s, irs in mpairsId(procImpls, ProcId):
       logError(irs, env, s):
         # the error-handling pass inserts new nodes (instead of replacing
         # them), which might cause conflicts with other changes if performed
@@ -768,7 +783,7 @@ proc generateCode*(g: ModuleGraph) =
 
         block:
           var diff = initChanges(irs)
-          let typeCtx = initTypeContext(irs, env, remap)
+          let typeCtx = initTypeContext(irs, env)
           # TODO: resue the ``TypeContext`` object across the batches (and maybe
           #       the loop)
           # hooks need to be resolved before injecting the garbage collector
@@ -782,11 +797,36 @@ proc generateCode*(g: ModuleGraph) =
           apply(irs, diff)
 
         block:
+          # TODO: reuse the ``TypeContext`` object across the loop
+          # TODO: resue the ``Changes`` object
+          var diff = initChanges(irs)
+          runPass2(irs, initTypeContext(irs, env), env, passEnv, diff, seqPass)
+          runPass2(irs, diff, lpCtx, seqConstV1Pass)
+
+          apply(irs, diff)
+
+  if destructorSeq:
+    discard #lowerSeqTypesV2(ttc, env.types, env.syms)
+  else:
+    lowerSeqTypesV1(ttc, env.types, env.syms)
+
+  # don't commit the type changes yet. The following passes still need access
+  # to the original type
+  # XXX: ideally they shouldn't. If sequence types were lowered to ``ref``
+  #      types, it wouldn't be necessary
+  var remap: TypeMap
+  swap(remap, ttc.remap)
+
+  for s, irs in mpairsId(procImpls, ProcId):
+      logError(irs, env, s):
+        block:
           # the following passes all modify/replace different nodes and don't
           # depend on each others changes, so they're run concurrently
           var diff = initChanges(irs)
           let typeCtx = initTypeContext(irs, env, remap)
 
+          # TODO: don't swap the seqs in and out inside the loop -- do it once
+          #       outside the loop
           var rpCtx: RefcPassCtx
           rpCtx.setupRefcPass(passEnv)
           template swapState() =
@@ -799,15 +839,9 @@ proc generateCode*(g: ModuleGraph) =
 
           runPass2(irs, typeCtx, env, rpCtx, diff, refcPass)
 
-          if optSeqDestructors in conf.globalOptions:
-            runPass2(irs, typeCtx, env, rpCtx, diff, seqV1Pass) #seqV2Pass)
-          else:
-            runPass2(irs, typeCtx, env, rpCtx, diff, seqV1Pass)
-
           runPass2(irs, diff, upc, ofV1Pass)
 
           runPass2(irs, diff, lpCtx, setConstPass)
-          runPass2(irs, diff, lpCtx, seqConstV1Pass)
           runPass2(irs, diff, lpCtx, arrayConstPass)
 
           apply(irs, diff)
@@ -846,12 +880,7 @@ proc generateCode*(g: ModuleGraph) =
     for id in lpCtx.typeInfoMarker.values:
       modules[mlist.moduleMap[g.systemModule.moduleId]].syms.add(id)
 
-  # type lowering passes
-  if optSeqDestructors in conf.globalOptions:
-    discard
-  else:
-    lowerSeqTypesV1(ttc, env.types, env.syms)
-
+  # now commit the lowered sequence-types
   commit(env.types, remap)
 
   lowerSetTypes(ttc, env.types, env.syms)
