@@ -1725,11 +1725,12 @@ func liftArrays(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
   else:
     discard
 
-proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+proc lowerRangeChecks*(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, cr: var IrCursor) =
   ## Lowers ``bcRangeCheck`` (nkChckRange, nkChckRangeF, etc.) into simple comparisons
   # XXX: the lowering could be simplified by just replacing the range check
   #      with a call to a ``chkRange`` inline function that'd be defined in
   #      ``system.nim`` for the C-like targets
+  let n = ir[cr]
 
   case n.kind
   of ntkCall:
@@ -1739,34 +1740,34 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
         lower = ir.argAt(cr, 1)
         upper = ir.argAt(cr, 2)
 
-      let srcTyp = c.typeof(val)
+      let srcTyp = types[val]
 
       cr.replace()
       var cond: IRIndex
       var raiser: string
 
-      case c.env.types[srcTyp].kind
+      case env.types[srcTyp].kind
       of tnkInt: # tyUInt, tyUInt64:
         # .. code:: nim
         #   cast[dstTyp](high) < val
-        cond = cr.binaryBoolOp(c.extra, mLtU, cr.insertCast(srcTyp, upper), val)
+        cond = cr.binaryBoolOp(pe, mLtU, cr.insertCast(srcTyp, upper), val)
         raiser = "raiseRangeErrorNoArgs"
       else:
-        let dstTyp = c.typeof(cr.position)#skipTypes(c.typeof(cr.position), abstractVarRange)
-        case c.env.types[dstTyp].kind
+        let dstTyp = types[cr.position]#skipTypes(c.typeof(cr.position), abstractVarRange)
+        case env.types[dstTyp].kind
         of tnkInt: #tyUInt8..tyUInt32, tyChar:
           raiser = "raiseRangeErrorU"
         of tnkFloat: #tyFloat..tyFloat128:
           raiser = "raiseRangeErrorF"
           let conv = cr.insertConv(dstTyp, val)
           # no need to lower the `or` into an `ntkBranch` + `ntkJoin` here; it has no impact on further analysis
-          cond = cr.binaryBoolOp(c.extra, mOr, cr.binaryBoolOp(c.extra, mLtF64, conv, lower), cr.binaryBoolOp(c.extra, mLtF64, upper, conv))
+          cond = cr.binaryBoolOp(pe, mOr, cr.binaryBoolOp(pe, mLtF64, conv, lower), cr.binaryBoolOp(pe, mLtF64, upper, conv))
 
         else:
-          cr.insertError(c.env.data, "missing chkRange impl")
+          cr.insertError(env.data, "missing chkRange impl")
 
         raiser =
-          case c.env.types[c.typeof(cr.position)].kind#skipTypes(c.typeof(cr.position), abstractVarRange).kind
+          case env.types[types[cr.position]].kind#skipTypes(c.typeof(cr.position), abstractVarRange).kind
           of tnkFloat: "raiseRangeErrorF"#tyFloat..tyFloat128: "raiseRangeErrorF"
           else: "raiseRangeErrorI"
 
@@ -1780,8 +1781,8 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
             ]#
 
         let target = cr.newJoinPoint()
-        cr.insertBranch(cr.insertMagicCall(c.extra, mNot, tyBool, cond), target)
-        cr.insertCompProcCall(c.extra, raiser, val, lower, upper)
+        cr.insertBranch(cr.insertMagicCall(pe, mNot, tyBool, cond), target)
+        cr.insertCompProcCall(pe, raiser, val, lower, upper)
         # XXX: it would be nice if we could also move the following
         #      ``if bcTestError(): goto error`` into the branch here
 
@@ -2403,6 +2404,6 @@ const ofV1Pass* = LinearPass2[UntypedPassCtx](visit: lowerOfV1)
 const seqConstV1Pass* = LinearPass2[LiftPassCtx](visit: liftSeqConstsV1)
 const arrayConstPass* = LinearPass2[LiftPassCtx](visit: liftArrays)
 const setConstPass* = LinearPass2[LiftPassCtx](visit: liftLargeSets)
-const lowerRangeCheckPass* = LinearPass2[RefcPassCtx](visit: lowerRangeChecks)
+const lowerRangeCheckPass* = TypedPass[PassEnv](visit: lowerRangeChecks)
 const lowerSetsPass* = TypedPass[PassEnv](visit: lowerSets)
 const lowerOpenArrayPass* = LinearPass2[LowerOACtx](visit: lowerOpenArrayVisit)
