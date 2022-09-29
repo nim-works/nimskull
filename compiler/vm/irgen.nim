@@ -38,31 +38,34 @@ from compiler/utils/ropes import `$`
 # XXX: temporary import; needed for ``PassEnv``
 import compiler/vm/irpasses
 
-type TBlock = object
-  label: PSym
-  start: JoinPoint
+type
+  LocalId = int
+  ScopeId = int
 
-type LocalId = int
-type ScopeId = uint32
+  Scope = object
+    firstLocal: int ## an index into ``PProc.activeLocals``
+
+    # TODO: using -1 to represent unset for ``JoinPoint`` is problematic for a
+    #       multitude of reasons. An ID-like distinct type should be used for
+    #       it too!
+    finalizer: JoinPoint
+    handler: JoinPoint
+
+  TBlock = object
+    label: PSym
+    start: JoinPoint
+
+    scope: ScopeId ## the scope attached to this block
 
 type PProc* = object
   sym*: PSym
 
-  excHandlers: seq[JoinPoint]
   blocks: seq[TBlock]
   variables: seq[LocalId] ## each non-temporary local in the order of their definition
 
-  # each local has an owning scope (the smallest enclosing one). When the
-  # control-flow leaves a scope, all locals it owns need be destroyed
-  scopes: seq[(bool, ScopeId, IRIndex)]
+  scopes: seq[Scope]
 
-  finalizers: seq[(Slice[IRIndex], JoinPoint)] #
-
-  numLocals: seq[uint32] # the number of locals for each scope
-
-  scopeStack: seq[ScopeId]
-  nextScopeId: ScopeId
-
+  activeLocals: seq[LocalId]
   locals: Table[int, int]
 
   paramRemap: seq[int] # maps the parameter position given by ``TSym.position``
@@ -75,7 +78,6 @@ type TCtx* = object
   irs*: IrStore3
 
   prc*: PProc
-  handlers: seq[PNode] # the defered exception handlers
 
   graph*: ModuleGraph # only needed for testing if a proc has a body
   idgen*: IdGenerator # needed for creating magics on-demand
@@ -119,7 +121,6 @@ type
 
 const
   NormalExit = 0
-  ExceptionalExit = 1
 
 func raiseVmGenError(
   report: sink SemReport,
@@ -202,17 +203,87 @@ func requestType(c: var TCtx, k: TTypeKind): TypeId =
 
 proc getTemp(cc: var TCtx; tt: PType): IRIndex
 
-func openScope(c: var TCtx) =
-  let id = c.prc.nextScopeId
-  inc c.prc.nextScopeId
+func pushScope(p: var PProc; finalizer, handler = JoinPoint(-1)) =
+  p.scopes.add Scope(firstLocal: p.activeLocals.len,
+                     finalizer: finalizer, handler: handler)
 
-  c.prc.numLocals.add(0)
-  c.prc.scopes.add((false, id, c.irs.len))
-  c.prc.scopeStack.add(id)
+func popScope(p: var PProc) =
+  # TODO: take ``PProc`` instead of ``TCtx``
+  let scope = p.scopes.pop()
+  p.activeLocals.setLen(scope.firstLocal)
 
-func closeScope(c: var TCtx) =
-  let id = c.prc.scopeStack.pop()
-  c.prc.scopes.add((true, id, c.irs.len))
+# XXX: the emission of ``ntkLocEnd`` instructions is disabled for now. When
+#      building the compiler with ``enableLocEnd = true``, the total code IR
+#      memory usage increases by 70 MB (!) and the time taken to execute for
+#      all code passes increases by ~50%. There are two approaches on how to
+#      continue here:
+#      1. reduce the amount of emitted ``ntkLocEnd`` instructions. Reuse
+#        duplicated cleanup sections (of which there are likely a lot) by
+#        leveraging the linked section.
+#        Reducing the amount of raise exits by taking ``sfNeverRaises`` and
+#        etc. into account will also reduce the amount of cleanup code.
+#        ``ntkLocEnd`` is a very small instruction and will only take up
+#        8-byte instead of the current 32-byte after the packed code
+#        representation is used. Specifying a range of locals instead of only
+#        a single one would also help with reducing the amount of instructions.
+#      2. use a different approach for transporting lifetime information to
+#        the analysis passes. For example, an out-of-band approach where the
+#        slice of locals for which the lifetime ends is attached to each
+#        '(goto|goto-link|continue)' instruction. That will be a problem if the
+#        code is changed between ``irgen`` and the analysis passes however.
+const enableLocEnd = false
+
+proc handleExit(code: var IrStore3, prc: PProc, numScopes: int = 1) =
+  ## Emits the cleanup code for exiting the provided number of scopes
+  ## (`numScopes`). ``handleExit`` should be used before emitting control-flow
+  ## for leaving a scope in the non-exceptional case
+  var localsEnd = prc.activeLocals.len
+  for i in countdown(prc.scopes.high, prc.scopes.len-numScopes):
+    let s = prc.scopes[i]
+    # first destroy the locals in the scope, and only then execute the
+    # finalizer
+    when enableLocEnd:
+      for j in countdown(localsEnd - 1, s.firstLocal):
+        code.irLocEnd(prc.activeLocals[j])
+
+      localsEnd = s.firstLocal
+
+    if s.finalizer != -1:
+      # the scope has a finalizer attached - visit it
+      code.irGotoLink(s.finalizer)
+
+proc cleanupScope(code: var IrStore3, prc: PProc) =
+  ## Emits a ``ntkLocEnd`` for each local in the current scope
+  let s = prc.scopes[^1]
+  when enableLocEnd:
+    for j in countdown(prc.activeLocals.high, s.firstLocal):
+      code.irLocEnd(prc.activeLocals[j])
+
+proc handleRaise(code: var IrStore3, prc: PProc) =
+  ## Searches for the nearest scope that has an exception handler attached and
+  ## emits the cleanup logic for all scopes leading up to and including the
+  ## one with the found handler. Emits a 'goto' to the exception handler at the
+  ## end
+  var localsEnd = prc.activeLocals.len
+  for i in countdown(prc.scopes.high, 0):
+    let s = prc.scopes[i]
+    # first destroy the locals in the block
+    when enableLocEnd:
+      for j in countdown(localsEnd - 1, s.firstLocal):
+        code.irLocEnd(j)
+
+      localsEnd = s.firstLocal
+
+    if s.handler != -1:
+      # do not invoke the finalizer - that's the responsiblity of the
+      # exception handler
+      code.irGoto(s.handler)
+      return
+
+    if s.finalizer != -1:
+      code.irGotoLink(s.finalizer)
+
+  unreachable("no handler was found")
 
 proc genProcSym(c: var TCtx, s: PSym): IRIndex =
   # prevent accidentally registering magics:
@@ -300,11 +371,17 @@ proc popBlock(c: var TCtx; oldLen: int) =
   #  c.patch(f)
   c.prc.blocks.setLen(oldLen)
 
+template withScope(body: untyped) {.dirty.} =
+  pushScope(c.prc)
+  body
+  popScope(c.prc)
+
 template withBlock(labl: PSym; next: JoinPoint; body: untyped) {.dirty.} =
   var oldLen {.gensym.} = c.prc.blocks.len
-  c.prc.blocks.add TBlock(label: labl, start: next)
-  body
-  popBlock(c, oldLen)
+  withScope:
+    c.prc.blocks.add TBlock(label: labl, start: next, scope: c.prc.scopes.high)
+    body
+    popBlock(c, oldLen)
 
 proc gen(c: var TCtx; n: PNode; dest: var IRIndex)
 
@@ -347,11 +424,10 @@ proc genWhile(c: var TCtx; n: PNode, next: JoinPoint) =
   #   jmp lab1
   # lab2:
   var entrances: seq[IRIndex]
+  # XXX: the ``withBlock`` usage here is probably wrong now
   withBlock(nil, next):
 
-    # the scope needs to be opened _before_ emitting the join, or else a loop
-    # iteration would be treated as leaving the scope
-    c.openScope()
+    c.prc.pushScope()
     let loop = c.irs.irLoopJoin()
     if isTrue(n[0]):
       # don't emit a branch if the condition is always true
@@ -368,15 +444,19 @@ proc genWhile(c: var TCtx; n: PNode, next: JoinPoint) =
       #      just a branch? A ``ntkBranch`` is currently required to never
       #      jump out of the current logical scope
       c.irs.irBranch(tmp, fwd)
+      # TODO: the condition expression might introduce locals. Are they part
+      #       of the while's scope or of it's enclosing one?
       c.irs.irGoto(next)
       c.irs.irJoin(fwd)
 
     let exits = c.genStmt2(n[1])
     if exits:
+      # destroy locals defined inside the loop once an iteration finishes
+      handleExit(c.irs, c.prc)
       discard c.irs.irGoto(loop)
       #entrances.add(c.irs.irGetCf())
 
-    c.closeScope()
+    c.prc.popScope()
 
   #c.irs.irPatchStart(start, entrances)
 
@@ -403,6 +483,8 @@ proc genBreak(c: var TCtx; n: PNode): IRIndex =
       # XXX: this isn't a user error
       fail(n.info, rsemVmCannotFindBreakTarget)
 
+  # exit all scopes including the one of the block we're breaking out of
+  handleExit(c.irs, c.prc, c.prc.scopes.len - c.prc.blocks[i].scope)
   c.irs.irGoto(c.prc.blocks[i].start)
 
 proc genIf(c: var TCtx, n: PNode, next: JoinPoint): IRIndex =
@@ -461,6 +543,9 @@ proc genIf(c: var TCtx, n: PNode, next: JoinPoint): IRIndex =
         # if `then` ends in a void `noreturn` call, `r.r` is unset
         c.irs.irAsgn(askInit, value, r.r)
 
+      # destroy locals inside the if's scope *after* the result variable
+      # has been initialized
+      handleExit(c.irs, c.prc)
       c.irs.irGoto(next)
 
   result = value
@@ -591,6 +676,7 @@ proc genCase(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
           # have to guard against that case
           c.irs.irAsgn(askInit, dest, r[0])
 
+        handleExit(c.irs, c.prc)
         c.irs.irGoto(next)
 
   result = dest
@@ -600,30 +686,33 @@ func genTypeLit(c: var TCtx, t: PType): IRIndex
 func genExceptCond(c: var TCtx, val: IRIndex, n: PNode, next: JoinPoint) =
   ## Lowers exception matching into an if
   # XXX: maybe too early for this kind of lowering
+  # XXX: how the exception matching is implemented should be left to a later
+  #      phase. That is, something like a ``bcMatchException`` should be
+  #      emitted here instead
   for i in 0..<n.len-1:
     assert n[i].kind == nkType
     let cond = c.irs.irCall(mOf, c.requestType(tyBool), val, genTypeLit(c, n[i].typ))
-    c.irs.irBranch(cond, next)
-
-func nextHandler(c: PProc): JoinPoint =
-  if c.excHandlers.len > 0:
-    c.excHandlers[^1]
-  else:
-    ExceptionalExit
-
+    c.irs.irBranch(c.irs.irCall(mNot, c.requestType(tyBool), cond), next)
 
 proc genTry(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
-
   let
     hasFinally = n.lastSon.kind == nkFinally
     hasExcept = n[1].kind == nkExceptBranch
 
-  if hasFinally:
-    # the finally also applies for the ``except`` blocks
-    discard #c.prc.finalizers.add(c.irs.irJoinFwd())
+    finalizer =
+      if hasFinally: c.irs.irJoinFwd()
+      else:          -1
 
-  if hasExcept:
-    c.prc.excHandlers.add(c.irs.irJoinFwd())
+    handler =
+      if hasExcept: c.irs.irJoinFwd()
+      else:         -1
+
+  # the finally also applies for the ``except`` blocks
+  pushScope(c.prc, finalizer=finalizer) # the scope for the exception handler
+
+  # TODO: move the translation of the ``try``'s body into a separate
+  #       procedure
+  pushScope(c.prc, handler=handler) # scope for the try
 
   let dest =
     if not isEmptyType(n.typ): c.getTemp(n.typ)
@@ -631,6 +720,9 @@ proc genTry(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
 
   let r = c.gen2(n[0])
 
+  # XXX: instead of handling the omission of dead code before emitting the
+  #      code (e.g. here), it's maybe a better idea to use a separate pass
+  #      for that
   if r.exits:
     if dest != InvalidIndex:
       # TODO: assert that gen2 doesn't return a value
@@ -639,31 +731,45 @@ proc genTry(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
       if hasFinally: c.prc.finalizers[^1]
       else: next]#
 
+    handleExit(c.irs, c.prc, 2) # invokes the finally block if one exists
     c.irs.irGoto(next)
+
+  popScope(c.prc)
 
   let len =
     if hasFinally: n.len-1
     else: n.len
 
   if hasExcept:
-    let handler = c.prc.excHandlers.pop() # pop the handler we registered at
-                                          # the start
-
     c.irs.irJoin(handler)
-    let eVal = c.irCall("getCurrentException")
+    let
+      # TODO: don't use ``getCurrentException`` here; introduce and emit a new
+      #       builtin instead
+      # XXX: ``cgen`` uses ``nimBorrowCurrentException``
+      eVal = c.irCall("getCurrentException")
+      exit = c.irs.irJoinFwd() # where to exit to in case of a sucessfully
+                               # processed exception
 
-    var currNext = handler
+    # if the last exception clause has only one sub-node, it's a general
+    # catch-all handler in which case we don't need to generate one ourselves
+    let needsUnhandled = n[len - 1].len > 1
+
+    var currNext = JoinPoint(-1)
     for i in 1..<len:
       let it = n[i]
 
-      if currNext != handler:
+      if currNext != JoinPoint(-1):
         c.irs.irJoin(currNext)
 
       currNext =
-        if i < len-1: c.irs.irJoinFwd()
-        else:         c.prc.nextHandler()
+        if i < len - 1 or needsUnhandled:
+          # the next matcher (or the "didn't match" branch):
+          c.irs.irJoinFwd()
+        else:
+          exit
 
       c.genExceptCond(eVal, it, currNext)
+      discard c.irs.irCall(bcEnterExcHandler, c.requestType(tyVoid))
 
       let r = c.gen2(it.lastSon)
       if r.exits:
@@ -672,16 +778,48 @@ proc genTry(c: var TCtx; n: PNode, next: JoinPoint): IRIndex =
           #      error in this case
           if dest != InvalidIndex:
             c.irs.irAsgn(askInit, dest, r.r)
-        c.irs.irGoto(next)
+
+        c.irs.irGoto(exit)
+
+    # XXX: there's an optimization possible where if ``handleRaise`` is nested
+    #      inside an 'except' section, it jumps to the 'unhandled' handler of
+    #      the exception handler it's nested inside. This would reduce the
+    #      amount of emitted cleanup code and also simplify control-flow a bit.
+    #      ``cgen`` implements this optimization
+    if needsUnhandled:
+      # the "unhandled" branch. The exception didn't match any of the provided types,
+      # so we continue raising the exception
+      c.irs.irJoin(currNext)
+      handleRaise(c.irs, c.prc)
+
+    # the "exception was handled" path
+    block:
+      c.irs.irJoin(exit)
+      discard c.irs.irCall(bcExitRaise, c.requestType(tyVoid))
+
+      handleExit(c.irs, c.prc)
+      c.irs.irGoto(next)
+
+  # pop the scope before generating the finalizer, as the finalizer would
+  # otherwise apply to itself
+  popScope(c.prc)
 
   if hasFinally:
-    # TODO: join is missing
+    # TODO: error mode needs to be disabled for the duration of the 'finally'
+    #       section. ``cgen`` omits the error mode disabling if no statement
+    #       in the body of the 'finally' raises
+    pushScope(c.prc)
+    c.irs.irJoin(finalizer)
+
     let r = c.gen2(lastSon(n)[0])
-    # a finally block never has a result
+    # a 'finally' section never has a result
     if r.exits:
-      # where execution resumes after the finally depends on
+      cleanupScope(c.irs, c.prc)
+      # where execution resumes after the 'finally' depends on
       # run-time control-flow
       c.irs.irContinue()
+
+    popScope(c.prc)
 
   result = dest
 
@@ -702,7 +840,7 @@ proc genRaise(c: var TCtx; n: PNode) =
 
   # XXX: if the exception's type is statically known, we could do the
   #      exception branch matching at compile-time (i.e. here)
-  c.irs.irGoto(c.prc.nextHandler())
+  handleRaise(c.irs, c.prc)
 
 func resultVar(p: PProc): IRIndex =
   doAssert false
@@ -711,6 +849,8 @@ proc genReturn(c: var TCtx; n: PNode): IRIndex =
   if n[0].kind != nkEmpty:
     discard genStmt2(c, n[0])
 
+  # exit all scopes
+  handleExit(c.irs, c.prc, numScopes = c.prc.scopes.len)
   c.irs.irGoto(NormalExit)
 
 proc genLit(c: var TCtx; n: PNode): IRIndex =
@@ -738,9 +878,10 @@ proc raiseExit(c: var TCtx) =
   let
     boolTy = c.requestType(tyBool)
     cond = c.irs.irCall(mNot, boolTy, c.irs.irCall(bcTestError, boolTy))
-  let fwd = c.irs.irJoinFwd()
+    fwd = c.irs.irJoinFwd()
+
   c.irs.irBranch(cond, fwd)
-  c.irs.irGoto(c.prc.nextHandler())
+  handleRaise(c.irs, c.prc)
 
   c.irs.irJoin(fwd)
 
@@ -1172,9 +1313,9 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     # ``offsetOf`` is folded into a literal if the offset is known during
     # sem - if it's not, the magic reaches here. It's currently also inserted
     # by ``injectdestructors``. The expression gets transformed into:
-    # 
+    #
     # .. code-block::nim
-    #   
+    #
     #   # `offsetOf(a.b)`
     #   offset
     let dotExpr =
@@ -1472,7 +1613,7 @@ func addVariable(c: var TCtx, kind: LocalKind, s: PSym): IRIndex =
   let id = c.genLocal(kind, s)
   c.prc.locals[s.id] = id
   c.prc.variables.add(id)
-  inc c.prc.numLocals[^1]
+  c.prc.activeLocals.add(id)
 
   c.irs.irLocal(id)
 
@@ -1895,59 +2036,6 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
   else:
     unreachable(n.kind)
 
-iterator iterate(ir: IrStore3, cr: var IrCursor): (int, lent IrNode3) =
-  # XXX: `cr` makes more sense as the first parameter, but then we can't use
-  #      `lent IrNode3` (since we'd be borrowing from the second parameter)
-  var i = 0
-  let L = ir.len
-  while i < L:
-    cr.setPos(i)
-    yield (i, ir.at(i))
-    inc i
-
-# not working yet
-#[
-func injectFinalizers(ir: var IrStore3, prc: PProc) =
-  ## Adjust ``ntkGoto``s to consider finalizers and also inject scope
-  ## finalizers for scopes that have locals defined. A scope finalizer is
-  ## basically a 'finally' with a `ntkLocEnd` for each local in the order
-  ## their definitions appear in the code
-  if prc.finalizers.len == 0 and prc.variables.len == 0:
-    # neither finalizers nor locals are used so we can exit early
-    return
-
-  var cr: IrCursor
-  cr.setup(ir)
-
-  var s = 1
-
-  var localIndex = 0
-
-  for i, n in iterate(ir, cr):
-    # TODO: invert the loop; have the outer loop iterate over the scopes and the inner moving the cursor
-    if i == prc.scopes[s]:
-      i == 1
-
-    case n.kind
-    of ntkGoto:
-      let p = ir.position(n.target)
-      if p notin
-
-      n = ir.position(n.target)
-
-    if isScopeExit:
-      let next = localIndex + numLocals[s]
-      if next > localIndex:
-        let f = cr.newJoinPoint()
-        cr.insertJoin(f)
-        for v in localIndex..<next:
-          cr.insertLocEnd()
-
-        cr.insertContinue()
-
-
-  ir.update(cr)
-]#
 
 proc genStmt*(c: var TCtx; n: PNode): IrGenResult =
   try:
@@ -1969,16 +2057,15 @@ proc genExpr*(c: var TCtx; n: PNode): Result[IRIndex, SemReport] =
 
 proc startProc*(c: var TCtx) =
   discard c.irs.irJoinFwd() # the target for return
-  discard c.irs.irJoinFwd() # the target for raise
+  let errorExit = c.irs.irJoinFwd() # the target for raise
 
-  c.openScope()
+  pushScope(c.prc, handler = errorExit)
 
 func endProc*(c: var TCtx) =
-  # important: the prodecure's scope needs to be closed _before_ the final
-  #            joins
-  c.closeScope()
+  assert c.prc.scopes.len == 1
+  let scope = c.prc.scopes.pop()
 
-  c.irs.irJoin(ExceptionalExit)
+  c.irs.irJoin(scope.handler)
   c.irs.irJoin(NormalExit)
 
 proc genProcBody(c: var TCtx; s: PSym, body: PNode) =
