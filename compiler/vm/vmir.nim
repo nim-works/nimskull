@@ -425,6 +425,9 @@ func getLocalIdx*(irs: IrStore3, n: IRIndex): int =
 func getLit*(irs: IrStore3, n: IrNode3): Literal =
   n.lit
 
+func getLit*(irs: IrStore3, n: IRIndex): Literal {.inline.} =
+  irs[n].lit
+
 func isLoop*(ir: IrStore3, j: JoinPoint): bool =
   false#ir.joins[j][1]
 

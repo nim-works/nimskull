@@ -629,11 +629,6 @@ proc processMagicCall(c: RefcPassCtx, cr: var IrCursor, ir: IrStore3, types: Typ
       discard cr.insertLit(env.data, 0.0, typ)
     of tnkPtr, tnkRef, tnkProc, tnkCString:
       discard cr.insertNilLit(env.data, typ)
-    of tnkString, tnkSeq:
-      # XXX: only v1 seqs can be initialized with a 'nil' pointer. The
-      #      transformation here should leave ``mDefault`` for them untouched
-      #      and let the seq lowering pass take care of it
-      discard cr.insertNilLit(env.data, typ)
     of tnkSet, tnkClosure:
       # XXX: the 'default' lowering for these should be moved to their
       #      respective lowering passes (``lowerSets`` and ``lowerClosures``)
@@ -661,8 +656,10 @@ proc processMagicCall(c: RefcPassCtx, cr: var IrCursor, ir: IrStore3, types: Typ
       # XXX: allowed for now. Needs some further thought
       discard cr.insertNilLit(env.data, c.extra.sysTypes[tyPointer])
 
-    of tnkOpenArray, tnkTypeDesc, tnkUncheckedArray, tnkVoid, tnkEmpty:
-      # these don't have a default representation
+    of tnkOpenArray, tnkTypeDesc, tnkUncheckedArray, tnkVoid, tnkString,
+       tnkSeq, tnkEmpty:
+      # these either have to be transformed away already or don't have a
+      # default representation
       unreachable(env.types[typ].kind)
 
   else:
@@ -681,26 +678,7 @@ proc genRefcRefAssign(cr: var IrCursor, e: PassEnv, dst, src: IRIndex, sl: Stora
 func genAssignmentV1(cr: var IrCursor, c: RefcPassCtx, env: IrEnv, dst, src: IRIndex, typ: TypeId, loc: StorageLoc) =
   ## Generates the assignment logic between `dst` and `src` of the given `typ`,
   ## emitting the RTTI-based ``genericAssign`` if necessary
-  # TODO: move the logic for string and seq into the ``lowerSeqsV1`` pass
   case env.types.kind(typ)
-  of tnkString:
-    cr.replace()
-    genRefcRefAssign(cr, c.extra, dst, cr.insertCompProcCall(c.extra, "copyString", src), loc)
-    # XXX: if `dst` is on the heap, this will result in the following code:
-    #      ``asgnRef(copyString(...))``
-    #      Which is inefficient because the string is added to the ZCT just
-    #      to have it's refcount set to '1' immediately after. There already
-    #      exists a ``copyStringRC1`` procedure specifically for use in this
-    #      situation, but whether or not it can be used depends on the
-    #      selected GC.
-    #      A seperate pass that fuses ``asgnRef``+``copyString|newObj|newSeq``
-    #      pairs into just ``copyStringRC1|newObjRC1|newSeqRC1`` might make
-    #      sense (it'd be a trade of efficiency for modularity)
-  of tnkSeq:
-    # it's not obvious from the procedure's signature, but ``genericSeqAssign``
-    # expects a ``ptr pointer`` as the first argument
-    cr.replace()
-    cr.insertCompProcCall(c.extra, "genericSeqAssign", cr.insertAddr(dst), src, c.requestRtti(cr, typ))
   of tnkRef:
     cr.replace()
     genRefcRefAssign(cr, c.extra, dst, src, loc)
@@ -739,7 +717,7 @@ func genAssignmentV1(cr: var IrCursor, c: RefcPassCtx, env: IrEnv, dst, src: IRI
      tnkCString, tnkOpenArray, tnkSet:
     # no special behaviour. A blit copy is enough
     discard
-  of tnkEmpty, tnkVoid, tnkUncheckedArray, tnkTypeDesc:
+  of tnkEmpty, tnkVoid, tnkString, tnkSeq, tnkUncheckedArray, tnkTypeDesc:
     unreachable()
 
 proc applyRefcPass(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCtx, cr: var IrCursor) =
@@ -748,11 +726,16 @@ proc applyRefcPass(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPass
   of ntkAsgn:
     case n.asgnKind
     of askMove:
+      # XXX: it'd be better if for v1 seqs, string and seq were lowered to
+      #      ``ref`` types (because that's what they really are) instead of
+      #      ``ptr``. The only reason this hasn't happened yet is because
+      #      lowered strings and seqs are declared as pointer types in
+      #      ``system``
       if env.types.kind(types[n.wrLoc]) in {tnkString, tnkRef, tnkSeq}:
         genRefcRefAssign(cr, c.extra, n.wrLoc, n.srcLoc, c.storageLoc(n.wrLoc))
         # XXX: source needs to be zeroed?
     of askCopy, askInit:
-      genAssignmentV1(cr, c, env, n.wrLoc, n.srcLoc, types[n.wrLoc], c.storageLoc(n.wrLoc))
+      genAssignmentV1(cr, c, env, n.wrLoc, n.srcLoc, types.real(n.wrLoc), c.storageLoc(n.wrLoc))
     of askShallow, askDiscr:
       discard
 
@@ -944,11 +927,46 @@ proc genStrConcat(cr: var IrCursor, g: PassEnv, types: TypeContext, ir: IrStore3
 
   result = cr.insertLocalRef(tmp)
 
-proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCtx, cr: var IrCursor) =
+func genSeqAssign(cr: var IrCursor, pe: PassEnv, env: TypeEnv, dst, src: IRIndex, typ: TypeId) =
+  case env.kind(typ)
+  of tnkString:
+    cr.insertAsgn(askMove, dst, cr.insertCompProcCall(pe, "copyString", src))
+    # XXX: if `dst` is on the heap, this will result in the following code:
+    #      ``asgnRef(copyString(...))``
+    #      Which is inefficient because the string is added to the ZCT just
+    #      to have it's refcount set to '1' immediately after. There already
+    #      exists a ``copyStringRC1`` procedure specifically for use in this
+    #      situation, but whether or not it can be used depends on the
+    #      selected GC.
+    #      A seperate pass that fuses ``asgnRef``+``copyString|newObj|newSeq``
+    #      pairs into just ``copyStringRC1|newObjRC1|newSeqRC1`` might make
+    #      sense (it'd be a trade of efficiency for modularity)
+  of tnkSeq:
+    # it's not obvious from the procedure's signature, but ``genericSeqAssign``
+    # expects a ``ptr pointer`` as the first argument
+    cr.insertCompProcCall(pe, "genericSeqAssign", cr.insertAddr(dst), src, pe.requestRtti2(cr, typ))
+  else:
+    unreachable()
+
+proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, cr: var IrCursor) =
   ## Lowers the `seq`-related magic operations into calls to the v1 `seq`
   ## implementation
   let n = ir[cr]
   case n.kind
+  of ntkAsgn:
+    case n.asgnKind
+    of askCopy, askInit:
+      let typ = types[n.wrLoc]
+      if env.types.kind(typ) in {tnkString, tnkSeq}:
+        cr.replace()
+        genSeqAssign(cr, c, env.types, n.wrLoc, n.srcLoc, typ)
+
+    of askMove:
+      # v1 seqs are ``ref``-based, so a move amounts to a move of the ref
+      discard
+    of askShallow, askDiscr:
+      discard
+
   of ntkCall:
     template arg(i: Natural): IRIndex =
       ir.args(cr.position, i)
@@ -960,18 +978,17 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCt
         len = arg(1)
 
       cr.replace()
-      # TODO: don't process ``lowerSeqsV1`` in the same batch as the
-      #       garbage-collector. An ``askCopy`` could be used here then
-      #       instead of the ``genRefcRefAssign``
-      genRefcRefAssign(cr, c.extra, dst, cr.insertCompProcCall(c.extra, "setLengthStr", dst, len), c.storageLoc(dst))
+      cr.insertAsgn(askMove, dst, cr.insertCompProcCall(c, "setLengthStr", dst, len))
     of mSetLengthSeq:
+      # -->
+      #  dst = cast[seqType](setLengthSeqV2(dst, len, rtti))
       let
         dst = arg(0)
         len = arg(1)
+        typ = types[dst]
 
-      # TODO: same as the todo above
       cr.replace()
-      genRefcRefAssign(cr, c.extra, dst, cr.insertCompProcCall(c.extra, "setLengthSeqV2", dst, len, c.requestRtti(cr, types[dst])), c.storageLoc(dst))
+      cr.insertAsgn(askMove, dst, cr.insertCast(typ, cr.insertCompProcCall(c, "setLengthSeqV2", dst, len, c.requestRtti2(cr, typ))))
 
     of mNewSeq:
       cr.replace()
@@ -981,33 +998,14 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCt
         typ = types[val]
         nilLit = cr.insertNilLit(env.data, typ)
 
-      let sl = c.storageLoc(val)
-      case sl
-      of slHeap, slUnknown:
-        # write barrier
-        # TODO: document
-        let target = cr.newJoinPoint()
-        cr.insertBranch(cr.insertMagicCall(c.extra, mIsNil, tyBool, val), target)
-        # TODO: use nimGCunrefNoCylce when applicable
-        cr.insertCompProcCall(c.extra, "nimGCunrefRC1", val)
-        cr.insertAsgn(askShallow, val, nilLit)
-        cr.insertGoto(target)
-        cr.insertJoin(target)
-
-        var ns = cr.insertCompProcCall(c.extra, "newSeq", c.requestRtti(cr, typ), arg(1))
-        ns = cr.insertCast(typ, ns)
-        cr.insertAsgn(askShallow, val, ns)
-      of slStack:
-
-        var ns = cr.insertCompProcCall(c.extra, "newSeq", c.requestRtti(cr, typ), arg(1))
-        ns = cr.insertCast(typ, ns)
-        cr.insertAsgn(askShallow, val, ns)
+      let ns = cr.insertCast(typ, cr.insertCompProcCall(c, "newSeq", c.requestRtti2(cr, typ), arg(1)))
+      cr.insertAsgn(askMove, val, ns)
 
     of mNewSeqOfCap:
       cr.replace()
 
       let typ = types[cr.position]
-      discard cr.insertCast(typ, cr.insertCompProcCall(c.extra, "nimNewSeqOfCap", c.requestRtti(cr, typ), arg(0)))
+      discard cr.insertCast(typ, cr.insertCompProcCall(c, "nimNewSeqOfCap", c.requestRtti2(cr, typ), arg(0)))
 
     of mArrToSeq:
       # XXX: passing a non-constant array construction expression as the
@@ -1019,6 +1017,7 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCt
       let
         seqTyp = types[cr.position]
         arrTyp = types[arg(0)]
+        elemTyp = env.types.base(seqTyp)
 
       let
         elemCount = cr.insertLit(env.data, env.types.length(arrTyp))
@@ -1027,16 +1026,23 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCt
       # TODO: this transformation shoud likely happen in a pass before
       #       seqs are lowered (maybe in ``irgen``)
 
-      # XXX: if we'd know about the destination location, we could use
-      #      ``newSeqRC1`` if the destination is on the heap
-
       # construct the seq
-      cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertCast(seqTyp, cr.insertCompProcCall(c.extra, "newSeq", c.requestRtti(cr, seqTyp), elemCount)))
+      cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertCast(seqTyp, cr.insertCompProcCall(c, "newSeq", c.requestRtti2(cr, seqTyp), elemCount)))
 
       # TODO: don't emit a loop if the source array is empty
       # TODO: maybe add back the small loop unrolling?
-      cr.genForLoop(env.data, c.extra, elemCount):
-        cr.insertAsgn(askInit, cr.genSeqAt(c.extra, ir, cr.insertLocalRef(tmp), counter), cr.insertPathArr(arg(0), counter))
+      cr.genForLoop(env.data, c, elemCount):
+        # we need to handle ``seq`` or ``string`` directly here
+        let
+          dst = cr.genSeqAt(c, ir, cr.insertLocalRef(tmp), counter)
+          src = cr.insertPathArr(arg(0), counter)
+
+        case env.types.kind(elemTyp)
+        of tnkString, tnkSeq:
+          genSeqAssign(cr, c, env.types, dst, src, elemTyp)
+        else:
+          # leave the assignment to be transformed by a subsequent pass
+          cr.insertAsgn(askInit, dst, src)
 
       discard cr.insertLocalRef(tmp)
 
@@ -1050,15 +1056,13 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCt
       let seqVal = arg(0)
       let typ = types[seqVal]#.skipTypes({tyVar})
 
-      # XXX: if the refc pass would be run after the `lowerSeqV1` pass, a
-      #      `askMove` assignment could be used here instead
-      cr.genRefcRefAssign(c.extra, seqVal, cr.insertCast(typ, cr.insertCompProcCall(c.extra, "incrSeqV3", seqVal, c.requestRtti(cr, typ)) ), c.storageLoc(seqVal))
+      cr.insertAsgn(askMove, seqVal, cr.insertCast(typ, cr.insertCompProcCall(c, "incrSeqV3", seqVal, c.requestRtti2(cr, typ)) ))
 
       # TODO: filling the element and adjusting the seq length is missing
       let seqLen = cr.accessSeqField(ir, seqVal, SeqV1LenField)
-      let tmp = cr.genTempOf(seqLen, c.extra.sysTypes[tyInt])
+      let tmp = cr.genTempOf(seqLen, c.sysTypes[tyInt])
 
-      cr.insertAsgn(askCopy, seqLen, cr.insertMagicCall(c.extra, mAddI, tyInt, cr.insertLocalRef(tmp), cr.insertLit(env.data, 1)))
+      cr.insertAsgn(askCopy, seqLen, cr.insertMagicCall(c, mAddI, tyInt, cr.insertLocalRef(tmp), cr.insertLit(env.data, 1)))
       # the value is a sink parameter so we can use a move
       # XXX: we're running after the inject-hook pass, so we either need to
       #      reorder the passes or manually insert a hook call here
@@ -1070,9 +1074,9 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCt
       #   appendString(lhs, rhs)
       cr.replace()
 
-      let lenTmp = genSeqLen(cr, env.data, c.extra, ir, arg(1))
-      cr.insertCompProcCall(c.extra, "resizeString", arg(0), lenTmp)
-      cr.insertCompProcCall(c.extra, "appendString", arg(0), arg(1))
+      let lenTmp = genSeqLen(cr, env.data, c, ir, arg(1))
+      cr.insertCompProcCall(c, "resizeString", arg(0), lenTmp)
+      cr.insertCompProcCall(c, "appendString", arg(0), arg(1))
 
     of mAppendStrCh:
       # -->
@@ -1082,11 +1086,11 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCt
       let strVal = arg(0)
       let tmp = cr.genTempOf(strVal, types[strVal])
 
-      cr.genRefcRefAssign(c.extra, strVal, cr.insertCompProcCall(c.extra, "addChar", cr.insertLocalRef(tmp), arg(1)), c.storageLoc(strVal))
+      cr.insertAsgn(askMove, strVal, cr.insertCompProcCall(c, "addChar", cr.insertLocalRef(tmp), arg(1)))
 
     of mConStrStr:
       cr.replace()
-      discard genStrConcat(cr, c.extra, types, ir, env, cr.position)
+      discard genStrConcat(cr, c, types, ir, env, cr.position)
 
     of mEqStr:
       # TODO: move into a common pass, since this shared between v1 and v2
@@ -1108,12 +1112,12 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCt
 
       if nonEmptyIdx == InvalidIndex:
         # both operands are not statically empty
-        cr.insertCompProcCall(c.extra, "eqStrings", a, b)
+        cr.insertCompProcCall(c, "eqStrings", a, b)
       else:
         # we still call ``len`` for an empty string in the case that both
         # operands are empty strings, but since that case is highly unlikely,
         # it doesn't get special handling
-        discard cr.binaryBoolOp(c.extra, mEqI, genSeqLen(cr, env.data, c.extra, ir, nonEmptyIdx), cr.insertLit(env.data, 0))
+        discard cr.binaryBoolOp(c, mEqI, genSeqLen(cr, env.data, c, ir, nonEmptyIdx), cr.insertLit(env.data, 0))
 
     of mLeStr, mLtStr:
       # same implementation for v1 and v2
@@ -1123,7 +1127,7 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCt
       case env.types[types[arg(0)]].kind
       of tnkString:
         cr.replace()
-        discard genSeqLen(cr, env.data, c.extra, ir, arg(0))
+        discard genSeqLen(cr, env.data, c, ir, arg(0))
       of tnkCString:
         discard "transformed later"
       else:
@@ -1131,7 +1135,18 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCt
 
     of mLengthSeq:
       cr.replace()
-      discard genSeqLen(cr, env.data, c.extra, ir, arg(0))
+      discard genSeqLen(cr, env.data, c, ir, arg(0))
+
+    of mDefault:
+      let typ = ir.getLit(arg(0))[1]
+
+      case env.types.kind(typ)
+      of tnkString, tnkSeq:
+        cr.replace()
+        discard cr.insertNilLit(env.data, typ)
+      else:
+        # transformed by other passes
+        discard
 
     else:
       discard
@@ -1191,7 +1206,7 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPassCt
       # taking strings will now expect a ``NimString`` (i.e. pointer type), we
       # have to adjust the literal
       cr.replace()
-      discard cr.insertCast(c.extra.getCompilerType("NimString"), cr.insertAddr(n.srcLoc))
+      discard cr.insertCast(c.getCompilerType("NimString"), cr.insertAddr(n.srcLoc))
 
       # TODO: insertUse is missing?
       #cr.insertUse()
@@ -2355,7 +2370,7 @@ func transformSetConsts*(pe: PassEnv, syms: var SymbolEnv, data: var LiteralData
 
 const hookPass* = TypedPass[PassEnv](visit: injectHooks)
 const refcPass* = TypedPass[RefcPassCtx](visit: applyRefcPass)
-const seqV1Pass* = TypedPass[RefcPassCtx](visit: lowerSeqsV1)
+const seqV1Pass* = TypedPass[PassEnv](visit: lowerSeqsV1)
 const seqV2Pass* = LinearPass[GenericTransCtx](visit: lowerSeqsV2)
 const ofV1Pass* = LinearPass2[UntypedPassCtx](visit: lowerOfV1)
 const seqConstV1Pass* = LinearPass2[LiftPassCtx](visit: liftSeqConstsV1)
