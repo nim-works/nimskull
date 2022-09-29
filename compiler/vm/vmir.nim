@@ -387,6 +387,10 @@ iterator locals*(s: IrStore3): (TypeId, DeclId) =
     yield (it.typ, it.decl)
 
 func at*(irs: IrStore3, i: IRIndex): lent IrNode3 =
+  # TODO: deprecate and remove this procedure
+  irs.nodes[i]
+
+func `[]`*(irs: IrStore3, i: IRIndex): lent IrNode3 {.inline.} =
   irs.nodes[i]
 
 func sym*(c: IrStore3, n: IrNode3): SymId =
