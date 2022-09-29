@@ -396,6 +396,13 @@ iterator nodes*(s: IrStore3): lent IrNode3 =
   for it in s.nodes:
     yield it
 
+iterator pairs*(code: IrStore3): (int, lent IrNode3) =
+  var i = 0
+  let L = code.len
+  while i < L:
+    yield (i, code.nodes[i])
+    inc i
+
 iterator locals*(s: IrStore3): (TypeId, DeclId) =
   for it in s.locals:
     yield (it.typ, it.decl)
