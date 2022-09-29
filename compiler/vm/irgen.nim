@@ -33,6 +33,8 @@ import
 from compiler/vm/vmaux import findRecCase, findMatchingBranch, getEnvParam
 from compiler/vm/vmdef import unreachable
 
+from compiler/utils/ropes import `$`
+
 # XXX: temporary import; needed for ``PassEnv``
 import compiler/vm/irpasses
 
@@ -215,7 +217,14 @@ func closeScope(c: var TCtx) =
 proc genProcSym(c: var TCtx, s: PSym): IRIndex =
   # prevent accidentally registering magics:
   assert s.magic == mNone or c.magicPredicate(s.magic)
-  c.irs.irProc(c.procs.requestProc(s))
+  c.irs.irProc():
+    if lfImportCompilerProc notin s.loc.flags:
+      # common case
+      c.procs.requestProc(s)
+    else:
+      # the procedure is an importc'ed ``.compilerproc`` --> use the
+      # referenced ``.compilerproc`` directly
+      c.passEnv.getCompilerProc($s.loc.r)
 
 func irCall*(ir: var IrStore3, callee: IRIndex, args: varargs[IRIndex]): IRIndex =
   ## A shortcut for procedures taking only immutable arguments
@@ -698,7 +707,7 @@ proc genLit(c: var TCtx; n: PNode): IRIndex =
 
 
 proc genProcLit(c: var TCtx, n: PNode, s: PSym): IRIndex =
-  c.irs.irProc(c.procs.requestProc(s))
+  genProcSym(c, s)
 
 #[
 func doesAlias(c: TCtx, a, b: IRIndex): bool =
