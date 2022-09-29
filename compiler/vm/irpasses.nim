@@ -600,27 +600,6 @@ proc processMagicCall(c: RefcPassCtx, cr: var IrCursor, ir: IrStore3, types: Typ
     ir.args(cr.position, i)
 
   case getMagic(ir, env, n)
-  of mDestroy:
-    # An untransformed `mDestroy` indicates a ref or string. `seq`
-    # destructors were lifted into specialized procs already
-    let val = arg(0)
-    case env.types[types[val]].kind
-    of tnkRef, tnkString:
-      # XXX: only non-injected destroys for refs should be turned
-      cr.replace()
-      let nilLit = cr.insertNilLit(env.data, types[val])
-      let r = c.storageLoc(val)
-      case r
-      of slStack:
-        # if it's on the stack, we can simply assign 'nil'
-        cr.insertAsgn(askShallow, val, nilLit)
-      of slHeap:
-        cr.insertCompProcCall(c.extra, "asgnRef", val, nilLit)
-      of slUnknown:
-        cr.insertCompProcCall(c.extra, "unsureAsgnRef", val, nilLit)
-    else:
-      discard
-
   of mNew:
     let
       arg = arg(0)
