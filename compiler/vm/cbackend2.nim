@@ -68,19 +68,32 @@ type
     fileIdx: FileIndex
     flags: TSymFlags
 
-    initProc: (SymId, IrStore3) ## the 'init' procedure for the module
+    initProc: ProcId ## the 'init' procedure for the module. May be unset
+    dataInitProc: ProcId ##
+      ## the procedure responsible for:
+      ## * intializing RTTI related to the module
+      ## * running dynamic-library loading logic
+
+    # XXX: ``dataInitProc`` is not relevant to the VM target. Maybe the field
+    #      should be split off?
+
+  # TODO: turn into a ``distinct uint32``
+  ModuleId = int ## The ID of a module in the back-end
 
   ModuleListRef = ref ModuleList
   ModuleList = object of RootObj
-    modules: seq[Module]
+    modules: seq[Module] ## ``ModuleId`` -> data collected via the ``passes``
+                         ## interface
 
     # XXX: ``modulesClosed`` and ``moduleMap`` should be split off into a
     #      separate object. They're relevant until the end of ``generateCode``,
     #      while ``modules`` gets processed at the start and is then discarded
-    modulesClosed: seq[int] ## indices into `modules` in the order the modules
-                            ## were closed. The first closed module comes
-                            ## first, then the next, etc.
-    moduleMap: Table[int32, int] ## module id -> index into `modules`
+    modulesClosed: seq[ModuleId] ## the modules in the order they were closed.
+                                 ## The first closed module comes first, then
+                                 ## the next, etc.
+    moduleMap: Table[int32, ModuleId] ## maps the module IDs used by semantic
+                                      ## analysis to the ones used in the
+                                      ## back-end
     # TODO: use a ``seq`` instead of a ``Table``
 
   ModuleRef = ref object of TPassContext
@@ -209,59 +222,39 @@ proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]
   # Swap back once done
   swapState()
 
-proc genInitProcCall(c: var IrStore3, m: ModuleDataExtra) =
-  if m.initProc[0] != NoneSymbol:
-    discard c.irCall(c.irSym(m.initProc[0]))
-
-proc generateEntryProc(c: var TCtx, g: PassEnv, mlist: ModuleList,
+proc generateEntryProc(g: PassEnv, mlist: ModuleList,
                        modules: seq[ModuleDataExtra]): IrStore3 =
-  ## Generates the entry function and returns it's function table index.
-  ## The entry function simply calls all given `initProcs` (ordered from low
-  ## to high by their function table index) and then returns the value of the
+  ## Generates and returns the code for the entry procedure. The entry
+  ## procedure is responsible for calling the data-init and init procedures
+  ## of each module. On exit, the entry procedure returns the value of the
   ## ``programResult`` global
 
-  # setup code-gen state. One register for the return value and one as a
-  # temporary to hold the init procs
-  c.prc = PProc()
-  c.irs.reset()
+  # first, emit calls to the modules' data-init procedure
+  for id in mlist.modulesClosed.items:
+    let m {.cursor.} = modules[id]
+    if m.dataInitProc != NoneProc:
+      discard result.irCall(result.irProc(m.dataInitProc))
 
-  let resultVar = c.irs.addLocal Local(kind: lkVar, typ: g.getSysType(tyInt))
+    if sfSystemModule in m.flags:
+      # the 'init' procedure for the ``system`` module must be called right
+      # after the data init procedure
+      # XXX: that's what ``cgen`` does, but what's the reason behind this
+      #      requirement?
+      discard result.irCall(result.irProc(m.initProc))
 
-  var systemIdx, mainIdx: int
-  # XXX: can't use `pairs` since it copies
-  for i in 0..<modules.len:
-    let flags = modules[i].flags
-    if sfMainModule     in flags: mainIdx = i
-    elif sfSystemModule in flags: systemIdx = i
+  # then call the init procedures
+  for id in mlist.modulesClosed.items:
+    let m {.cursor.} = modules[id]
+    # a call to the ``system`` module's init procedure was generated already
+    if m.initProc != NoneProc and sfSystemModule notin m.flags:
+      discard result.irCall(result.irProc(m.initProc))
 
-  # Call the init procs int the right order. That is, module-closed-order with
-  # special handling for the main and system module
-  genInitProcCall(c.irs, modules[systemIdx])
-  for mI in mlist.modulesClosed.items:
-    let m = modules[mI]
-    if {sfMainModule, sfSystemModule} * m.flags == {}:
-      genInitProcCall(c.irs, m)
+  # TODO: setting the stack-bottom is missing
 
-  genInitProcCall(c.irs, modules[mainIdx])
-
-  # write ``programResult`` into the result variable
-
-  # XXX: ``programResult`` is not a compiler*proc*
-  #[
-  let prSym = g.getCompilerProc("programResult")
-  c.irs.irAsgn(askInit, c.irs.irLocal(resultVar), c.irs.irProc(prSym))
-  ]#
-
-  # refc-compatible "move"
-  swap(result, c.irs)
-
-proc generateMain(c: var TCtx, g: PassEnv, mlist: ModuleList,
-                  modules: seq[ModuleDataExtra]): IrStore3 =
-  ## Generates and links in the main procedure (the entry point) along with
-  ## setting up the required state.
-
-  # lastly, generate the actual code:
-  result = generateEntryProc(c, g, mlist, modules)
+  # use the ``programResult`` global as the return value
+  let resultVar = result.addLocal Local(kind: lkVar, typ: g.getSysType(tyInt))
+  discard result.irAsgn(askInit, result.irLocal(resultVar),
+                        result.irSym(g.compilerglobals["programResult"]))
 
 func collectRoutineSyms(s: IrStore3, env: ProcedureEnv, list: var seq[PSym], known: var IntSet) =
   for n in s.nodes:
@@ -466,6 +459,11 @@ proc drain(c: var TCtx, conf: ConfigRef, env: var IrEnv, code: var seq[IrStore3]
     a.setLen(0)
     swap(a, b)
 
+func addProcedure(codeList: var seq[IrStore3], id: ProcId, code: sink IrStore3) =
+  let idx = id.toIndex
+  codeList.setLen(idx + 1)
+  codeList[idx] = move code
+
 proc generateCode*(g: ModuleGraph) =
   ## The backend's entry point. Orchestrates code generation and linking. If
   ## all went well, the resulting binary is written to the project's output
@@ -525,11 +523,24 @@ proc generateCode*(g: ModuleGraph) =
 
     var code = generateTopLevelStmts(m, c, g.config)
     if code.isSome:
-      # XXX: maybe it's a better idea to store the code as `Option[IrStore3]`.
-      #      We need to later test if there exists code and querying the
-      #      length for that doesn't sound good.
+      # the module needs an 'init' procedure
+      let id = c.procs.add(c.types.requestType(c.types.voidType),
+                           g.cache.getIdent("init"),
+                           keepName=false)
+
+      # the logic for registering procedures with modules uses the source
+      # symbol tracked by ``ProcedureEnv.orig`` as the entity providing which
+      # module the procedure is owned by/attached to. We just pass the
+      # symbol of the module
+      # XXX: ``orig`` needs to be phased out. It's only reamining purpose is
+      #      to keep hacks working. To provide the "attached-to" information,
+      #      either store the procedure's associated ``ModuleId`` in
+      #      ``ProcHeader`` or attach it via a side-channel
+      c.procs.orig[id] = m.sym
+
+      modulesExtra[i].initProc = id
       # XXX: ``Option`` is missing a ``take`` procedure
-      modulesExtra[i].initProc[1] = move code.get()
+      addProcedure(procImpls, id, move code.get())
 
   # we no longer need the ``mlist.modules`` list, so we reset it so that the
   # the memory used by the collected top-level nodes can be reclaimed already
@@ -537,7 +548,9 @@ proc generateCode*(g: ModuleGraph) =
 
   assert nextProcs.len == 0
   for it in modulesExtra.items:
-    collectRoutineSyms(it.initProc[1], c.procs, nextProcs, seenProcs)
+    if it.initProc != NoneProc:
+      collectRoutineSyms(procImpls[it.initProc.toIndex],
+                        c.procs, nextProcs, seenProcs)
 
   # run the dependency collection/``irgen`` loop using the procedures
   # referenced by top-level statements as the starting set
@@ -608,9 +621,6 @@ proc generateCode*(g: ModuleGraph) =
   finishTypes(passEnv, c.types, procImpls, c.procs, env.syms)
 
   processObjects(passEnv, g.cache, env.types, env.syms, c.types.objects)
-
-  let entryPoint =
-    generateMain(c, passEnv, mlist[], modulesExtra)
 
   swap(c.procs, env.procs)
   swap(c.data, env.data)
@@ -752,6 +762,22 @@ proc generateCode*(g: ModuleGraph) =
 
     finish(ctx, env.types)
 
+  var mainProc: ProcId
+  block:
+    # generate and register the 'main' procedure
+
+    # the code-generator must not mangle the name
+    mainProc = env.procs.add(passEnv.sysTypes[tyInt],
+                             g.cache.getIdent("main"), keepName=true)
+
+    # TODO: the 'argc', 'args', and 'env' parameters are missing, as well as
+    #       the logic for assigning them to the corresponding globals
+
+    addProcedure(procImpls, mainProc):
+      generateEntryProc(passEnv, mlist[], modulesExtra)
+
+    env.procs.orig[mainProc] = g.ifaces[g.config.projectMainIdx2.int32].module
+
   template register(items: iterable[int]) =
     ## Registers all procedures stored by index in `x` to the owning module
     for it in items:
@@ -797,6 +823,10 @@ proc generateCode*(g: ModuleGraph) =
     # calculate the starting set
     for i in aliveRange.items:
       mark(procImpls[i], aliveRange, a)
+
+    # also include the main procedure in order for the data-init procs to be
+    # marked as alive
+    a.incl mainProc.toIndex.int
 
     # run the main collection
     while a.len > 0:

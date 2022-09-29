@@ -371,6 +371,7 @@ type
 const NoneType* = TypeId(0)
 const NoneSymbol* = SymId(0)
 const NoneDecl* = DeclId(0)
+const NoneProc* = ProcId(0)
 
 const ProcedureLike = {tnkProc, tnkClosure}
 
@@ -1472,6 +1473,15 @@ func finish*(e: var ProcedureEnv, types: var DeferredTypeGen, ic: IdentCache) =
 
   # TODO: use something like a ``DeferredProcGen`` instead (same as it works for types)
   reset(e.map)
+
+func add*(e: var ProcedureEnv, rtyp: TypeId, name: PIdent, keepName: bool
+         ): ProcId =
+  ## Adds a procedure with no parameters and the given return type + `name` to
+  ## the environment. If `keepName` is 'true', then the code-generator is not
+  ## allowed to perform any form of mangling on the name
+  e.procs.add ProcHeader(returnType: rtyp,
+                         decl: DeclarationV2(name: name, forceName: keepName))
+  result = e.procs.len.ProcId
 
 func getReturnType*(e: ProcedureEnv, p: ProcId): TypeId =
   e[p].returnType
