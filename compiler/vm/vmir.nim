@@ -574,6 +574,7 @@ type
 
 type IrCursor* = object
   pos: int
+  # TODO: use ``Span`` for the region
   actions: seq[(bool, Slice[IRIndex])] # true = replace, false = insert
   #newSyms: SeqAdditions[PSym]
   newLocals: SeqAdditions[Local]
@@ -987,7 +988,10 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
     patch(n, patchTable)
 
 type
-  Span = Slice[uint32]
+  Span = object
+    ## Half-open range. `b` is not included.
+    # XXX: use a different name?
+    a, b: uint32
 
   Lengths = tuple
     diff, nodes, locals: int
@@ -1016,6 +1020,20 @@ type
     joinStart: JoinPoint ## the name of the first new join point
 
     lengths: Lengths
+
+func span(a, b: SomeInteger): Span {.inline.} =
+  ## Constructor for ``Span``
+  rangeCheck(a >= 0)
+  rangeCheck(b >= 0)
+  rangeCheck(b >= a)
+  Span(a: a.uint32, b: b.uint32)
+
+func len(x: Span): int {.inline.} =
+  int(x.b - x.a)
+
+iterator items*(s: Span): uint32 =
+  for i in s.a..<s.b:
+    yield i
 
 func collect(x: varargs[IrCursor]): Lengths =
   for it in x.items:
@@ -1091,14 +1109,14 @@ func mergeInternal(dest: var Changes, other: IrCursor) =
   # add the ordered changeset from `other` to `dest`
   for kind, slice in other.actions.items:
     let
-      len = slice.b - slice.a
+      len = slice.len
       b = slice.a + ord(kind)
 
-    dest.diff[insert] = (uint32(slice.a)..uint32(b), uint32(npos)..uint32(npos + len))
-    npos += len + 1
+    dest.diff[insert] = (span(slice.a, b), span(npos, npos + len))
+    npos += len
     # if a node is replaced, subtract '1':
     difference -= ord(kind)
-    difference += len + 1
+    difference += len
 
     inc insert
 
@@ -1185,18 +1203,18 @@ func applyInternal(ir: var IrStore3, c: Changes) =
 
     assert dst.a.int <= oldLen
 
-    for j in dst.a..<dst.b:
-      # if replacing, all references to the replaced nodes are redirected to
-      # the last node of the nodes that we're replacing with
-      patchTable[j] = insert + src.len - 1
+    # when replacing, all references to the replaced nodes are redirected to
+    # the last item of the nodes that we're replacing with
+    let rep = insert + src.len - 1
+    for j in dst.items:
+      patchTable[j] = rep
 
     for j in src.items:
       let j = j.int ## the index into the additions buffer
       patchTable[oldLen + j] = insert + (j - src.a.int)
 
-    assert dst.a <= dst.b
     # if we replaced nodes, prevent them from being included in the following move
-    let skip = int(dst.b - dst.a)
+    let skip = dst.len
     p += skip
     copySrc += skip
 
