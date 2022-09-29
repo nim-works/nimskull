@@ -1307,6 +1307,11 @@ iterator types*(e: TypeEnv): TypeId =
 
 iterator fields*(e: TypeEnv, t: Type): lent FieldDesc =
   assert t.kind == tnkRecord
+  var i = t.fieldStart
+  let hi = i + e.records[t.record.toIndex].a.int
+  while i < hi:
+    yield e.fields[i]
+    inc i
 
 func containsOrIncl(e: var TypeEnv, t: Type, idx: Natural): (bool, TypeNodeIndex) =
   var se: seq[int]
