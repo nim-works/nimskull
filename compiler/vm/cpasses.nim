@@ -146,7 +146,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
       of mFloatToStr:
         let prc =
           if c.env.types.getSize(c.types[arg(0)]) == 32:
-            "#imFloat32ToStr"
+            "nimFloat32ToStr"
           else:
             "nimFloatToStr"
 
