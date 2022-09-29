@@ -121,6 +121,12 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
 
         discard cr.insertLocalRef(tmp)
 
+      of bcStrToCStr:
+        cr.replace()
+        cr.insertCompProcCall(c.graph, "nimToCStringConv", arg(0))
+      of bcCStrToStr:
+        cr.replace()
+        cr.insertCompProcCall(c.graph, "cstrToNimstr", arg(0))
       else:
         discard
 

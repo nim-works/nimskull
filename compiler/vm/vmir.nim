@@ -77,6 +77,11 @@ type
 
     bcAccessEnv ## access the current procedure's closure environment
 
+    # XXX: as an alternative to builtin calls, these two could use use
+    #      ``ntkConv`` instead
+    bcStrToCStr
+    bcCStrToStr
+
     bcUnlikely # XXX: alternatively, turn `system.unlikelyProc` into a .compilerproc
 
   CallKind* = enum

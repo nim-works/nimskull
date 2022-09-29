@@ -1769,8 +1769,12 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
      nkIncludeStmt, nkImportStmt, nkFromStmt, nkExportStmt,
      nkMixinStmt, nkBindStmt:
     dest = InvalidIndex
-  of nkStringToCString, nkCStringToString:
-    gen(c, n[0], dest)
+  of nkStringToCString:
+    dest = c.irs.irCall(bcStrToCStr, nodeType(), genx(c, n[0]))
+    raiseExit(c)
+  of nkCStringToString:
+    dest = c.irs.irCall(bcCStrToStr, nodeType(), genx(c, n[0]))
+    raiseExit(c)
   of nkBracket:
     if isDeepConstExpr(n):
       dest = c.irLit(n)
