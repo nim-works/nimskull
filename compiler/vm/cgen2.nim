@@ -368,7 +368,7 @@ func genRecordNode(c: var TypeGenCtx, decl: var CDecl, iter: var RecordIter): in
       result += genRecordNode(c, decl, iter)
 
   of rnkFields:
-    for i in n.a..n.b:
+    for i in n.slice.items:
       let
         fId = iter.field(i)
         field = c.env.types[fId]
@@ -385,7 +385,7 @@ func genRecordNode(c: var TypeGenCtx, decl: var CDecl, iter: var RecordIter): in
 
       decl.addField(typ, ident)
 
-    result = int(n.b - n.a + 1)
+    result = n.slice.len
 
   of rnkCase:
     # TODO: properly name the generated fields, unions, and structs

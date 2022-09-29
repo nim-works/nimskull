@@ -39,8 +39,10 @@ type RecordNodeKind* = enum
 type RecordNode* = object
   kind*: RecordNodeKind
   len*: uint32 ## the number of items
-  a*: uint32   ##
-  b*: uint32
+  a: uint32    ## top-level `rnkList`: the total number of fields in the
+               ##                      record
+               ## `rnkFields`: the index of the first field
+  b: uint32    ## `rnkFields`: the index of the last field
 
 type RecordNodeIndex* = distinct uint32
 type TypeNodeIndex = uint32
@@ -493,6 +495,12 @@ func baseType*(e: TypeEnv, t: TypeId): TypeId =
 func numFields*(n: RecordNode): int =
   assert n.kind == rnkList
   n.a.int
+
+func slice*(n: RecordNode): Slice[uint32] {.inline.} =
+  ## Returns the field indices covered by the given ``rnkFields`` node as a
+  ## slice
+  assert n.kind == rnkFields
+  result = n.a .. n.b
 
 func base*(t: Type): TypeId =
   t.base
@@ -1575,7 +1583,7 @@ func hashRecord(e: TypeEnv, hcode: var Hash, se: var seq[int], ri: var int, fsta
       hashRecord(e, hcode, se, ri, fstart)
 
   of rnkFields:
-    for i in n.a..n.b:
+    for i in n.slice.items:
       hashField(e, hcode, se, toId(fstart + i.int, FieldId))
 
 func hash(e: TypeEnv, hcode: var Hash, se: var seq[int], typ: Type) =
