@@ -484,10 +484,14 @@ template genForLoop*(cr: var IrCursor, d: var LiteralData, g: PassEnv, len: IRIn
       lenVal = len
       counter {.inject.} = cr.insertLocalRef(cr.newLocal(lkTemp, g.sysTypes[tyInt]))
       loopExit {.inject.} = cr.newJoinPoint()
-      loop = insertLoop(cr)
 
+    # XXX: temporaries should start zero-initialized, but they currently
+    #      don't - manually set the counter to zero for now
+    cr.insertAsgn(askInit, counter, cr.insertLit(d, 0))
+
+    let loop = insertLoop(cr)
     # loop condition
-    cr.genIfNot(cr.insertCallExpr(mLeI, g.sysTypes[tyBool], counter, lenVal)):
+    cr.genIfNot(cr.insertCallExpr(mLtI, g.sysTypes[tyBool], counter, lenVal)):
       cr.insertGoto(loopExit)
 
     body
