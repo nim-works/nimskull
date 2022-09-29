@@ -1764,7 +1764,7 @@ proc emitAndEscapeIf(f: File, c: GlobalGenCtx, data: LiteralData, ast: CAst, pos
     f.write ")"
 
 proc writeChars[I: static int](f: File, arr: array[I, char]) {.inline.} =
-  discard f.writeBuffer(addr(arr), I)
+  discard f.writeBuffer(unsafeAddr(arr), I)
 
 func formatCChar(a: var array[4, char], ch: char): range[1..4] {.inline.} =
   ## Escapes the character with value `ch`, if necessary, and writes the
@@ -1889,7 +1889,7 @@ proc emitCAst(f: File, c: GlobalGenCtx, data: LiteralData, ast: CAst, pos: var i
     for ch in str.items:
       var arr: array[4, char]
       let len = formatCChar(arr, ch)
-      discard f.writeBuffer(addr arr, len)
+      discard f.writeBuffer(unsafeAddr arr, len)
 
     f.write '"'
 
@@ -2180,7 +2180,7 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
     # inlined in ``transf``
     # XXX: it's very bad that we need a full ``GenCtx`` here. Some
     #      split-ups/reorderings are needed
-    var ctx = GenCtx(env: addr env)
+    var ctx = GenCtx(env: unsafeAddr env)
     swap(ctx.gl, c)
 
     # iterate the items in reverse so that the initializer AST for all
