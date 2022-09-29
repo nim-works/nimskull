@@ -1088,6 +1088,94 @@ proc genOffset(c: var TCtx, n: PNode, off: Int128): IRIndex =
     # TODO: use mSubU for unsigned integers?
     c.irs.irCall(mSubI, c.types.requestType(n.typ), tmp, c.irLit(off))
 
+proc fewCmps(conf: ConfigRef; s: PNode): bool =
+  # XXX: copied from ``ccgexprs.nim``
+
+  # this function estimates whether it is better to emit code
+  # for constructing the set or generating a bunch of comparisons directly
+  if s.kind != nkCurly:
+    result = false
+  elif (getSize(conf, s.typ) <= conf.target.intSize) and
+       (nfAllConst in s.flags):
+    result = false
+  elif elemType(s.typ).kind in {tyInt, tyInt16..tyInt64}:
+    result = true
+  else:
+    result = s.len <= 8
+
+proc irLit(c: var TCtx, b: bool): IRIndex =
+  c.irs.irLit (c.data.newLit(ord(b)), c.requestType(tyBool))
+
+# TODO: implement this as an IR pass instead
+proc genSetCmp(c: var TCtx, setExpr, elem: PNode): IRIndex =
+  ## Generates an if-then-else chain for testing if `elem` is present in the
+  ## ``set`` that `setExpr` evaluates to
+  assert setExpr.kind == nkCurly
+  # note: do not use ``genSetElem`` here
+  # XXX: emitting the `elem` expression first is an evaluation-order violation
+  #      (``cgen`` has the same problem). Turning this fixup into an IR pass
+  #      will allow us to fix the order
+  let e = genx(c, elem)
+
+  if setExpr.len > 0:
+    # --->
+    #   result = true
+    #    a := ...
+    #    b := ...
+    #    cond := elem < a
+    #    branch cond, next_1
+    #    cond := b < elem
+    #    branch cond, next_1
+    #    goto exit # a match
+    #   next_1:
+    #    a := ...
+    #    cond := elem == a
+    #    branch cond, next_2
+    #    ...
+    #    result = false # no match
+    #   exit:
+
+    let (lt, eq) =
+      case elem.typ.skipTypes(abstractVarRange).kind
+      of tyInt, tyInt8..tyInt64:    (mLtI, mEqI)
+      of tyUInt, tyUInt8..tyUInt64: (mLtU, mEqI)
+      of tyChar: (mLtCh,   mLtCh)
+      of tyBool: (mLtB,    mEqB)
+      of tyEnum: (mLtEnum, mEqEnum)
+      else:      unreachable()
+
+    let
+      tmp = c.getTemp(c.graph.getSysType(unknownLineInfo, tyBool))
+      boolTy = c.requestType(tyBool)
+      exit = c.irs.irJoinFwd()
+
+    c.irs.irAsgn(askInit, tmp, c.irLit(true))
+
+    for n in setExpr.items:
+      if n.kind == nkRange:
+        let
+          a = genx(c, n[0])
+          b = genx(c, n[1])
+          next = c.irs.irJoinFwd()
+
+        c.irs.irBranch(c.irs.irCall(lt, boolTy, e, a), next)
+        c.irs.irBranch(c.irs.irCall(lt, boolTy, b, e), next)
+        c.irs.irGoto(exit) # a match is found
+        c.irs.irJoin(next)
+
+      else:
+        # if the element matches, we're finished
+        c.irs.irBranch(c.irs.irCall(eq, boolTy, e, genx(c, n)), exit)
+
+    c.irs.irAsgn(askCopy, tmp, c.irLit(false)) # no match was found
+    c.irs.irJoin(exit)
+
+    result = tmp
+
+  else:
+    # handle the case of an empty set
+    result = c.irLit(false) # always false
+
 proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
   result = InvalidIndex
   case m
@@ -1331,6 +1419,38 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     assert lookupInRecord(objTyp.n, dotExpr[1].sym.name) != nil
 
     result = c.irs.irCall(mOffsetOf, c.types.requestType(n.typ), c.genTypeLit(dotExpr[0].typ), c.irImm(c.genField(dotExpr[1])))
+
+  of mInSet:
+    if fewCmps(c.config, n[1]):
+      # WARNING: the range-check is omitted for all signed-integer-based sets,
+      #          allowing code that would otherwise fail at run-time to pass!
+      #          For example:
+      #
+      #          .. code-block::nim
+      #
+      #            let i = -1
+      #            assert i notin {1, 2}
+      #
+      #          would raise a ``RangeDefect`` without this special case
+      let elem =
+        if n[2].kind in {nkChckRange, nkChckRange64}:
+          n[2][0]
+        else:
+          n[2]
+
+      if isDeepConstExpr(n[1]):
+        # note: don't inline `a` and `b` - the evaluation order would be
+        #       violated
+        let
+          a = genx(c, n[1])
+          b = genx(c, elem)
+
+        result = c.irs.irCall(bcMatch, c.requestType(tyBool), b, a)
+      else:
+        result = genSetCmp(c, n[1], elem)
+
+    else:
+      result = c.irs.irCall(mInSet, c.types.requestType(n.typ), genx(c, n[1]), genx(c, n[2]))
 
   else:
     # TODO: return a bool instead and let the callsite call `genCall` in case

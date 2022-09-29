@@ -18,3 +18,9 @@ block setops:
   doAssert (set[Elem])({}) <= tmp({a})
   doAssert tmp({a}) <= {a, b}
   doAssert tmp({a}) <= {a}
+
+  # this must not raise a ``RangeDefect``. Note that '-1' has to be provided
+  # by a temporary because ``semfold`` would report a ``RangeDefect``
+  # otherwise
+  let x = -1
+  doAssert x notin {1, 2}
