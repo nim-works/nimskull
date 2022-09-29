@@ -211,6 +211,18 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
 
         discard cr.insertLocalRef(tmp)
 
+      of mParseBiggestFloat:
+        # problem: ``parseBiggestFloat`` is only a forward declaration --
+        # the actual implementation being a ``.compilerproc``
+        # (``nimParseBiggestFloat``). The new back-end doesn't support this
+        # kind of indirection, but there already exists a solution: the
+        # ``.importCompilerProc`` pragma, which is supported by ``irgen``.
+        # The problem with the pragma: ``cgen`` doesn't properly support it, so
+        # using it on ``parseBiggestFloat`` breaks bootstrapping.
+        # XXX: fix the issue with ``cgen`` and use the ``importCompilerProc``
+        #      pragma instead of working around the issue here
+        cr.replace()
+        cr.insertCompProcCall(c.graph, "nimParseBiggestFloat", arg(0), arg(1), arg(2))
 
       else:
         discard

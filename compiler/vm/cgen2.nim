@@ -764,9 +764,10 @@ func genBuiltin(c: var GenCtx, irs: IrStore3, bc: BuiltinCall, n: IRIndex): CAst
     genError(c, fmt"missing: {bc}")
     #unreachable(bc)
 
-
+# TODO: include ``mParseBiggestFloat`` back in the set once the issue
+#       described in ``cpasses`` is fixed
 const CallMagics* = { mIsolate, mFinished, mDotDot, mEqCString,
-                      mNewString, mNewStringOfCap, mExit, mParseBiggestFloat }
+                      mNewString, mNewStringOfCap, mExit #[, mParseBiggestFloat]# }
   ## magics for which no special handling is needed, that is, they're treated
   ## as normal procedures
 
