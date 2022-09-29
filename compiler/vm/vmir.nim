@@ -749,6 +749,17 @@ func newLocal*(cr: var IrCursor, kind: LocalKind, t: TypeId): int =
 func insertLocalRef*(cr: var IrCursor, name: int): IRIndex =
   cr.insert IrNode3(kind: ntkLocal, local: name)
 
+func redirect*(cr: var IrCursor, target: IRIndex) =
+  ## Inserts a redirect from the current position to the specified `target`.
+  ## All nodes referencing the node at the current cursor position will
+  ## reference `target` instead then
+  cr.replace()
+  # XXX: using an ``ntkUse`` for the redirection is wrong and *will* cause
+  #      problems. 'use' is not required to yield a value with same identity as
+  #      the source operand, which goes against what ``redirect`` is supposed
+  #      to do. Maybe we need an ``ntkRedirect``?
+  discard cr.insert IrNode3(kind: ntkUse, theLoc: target)
+
 func patchIdx(n: var IRIndex, patchTable: seq[IRIndex]) =
   assert patchTable[n] != -1, "node was removed"
   n = patchTable[n]

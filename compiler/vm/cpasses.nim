@@ -291,12 +291,14 @@ func visit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: CTransformCtx, c
       # types and their base or when previously different types become the
       # same after lowering
 
-      # XXX: the ``IrCursor`` API currently doesn't support replacing a node
-      #      with an existing one, so we have to work around that here
-      cr.replace()
-      let tmp = cr.newLocal(lkTemp, n.typ)
-      cr.insertAsgn(askInit, cr.insertLocalRef(tmp), n.srcLoc)
-      discard cr.insertLocalRef(tmp)
+      # XXX: maybe we need a way to distinguish between *value* conversions
+      #      (i.e. yielding a value) and *lvalue* conversions (i.e. yielding
+      #      an lvalue with the same identity but different type as the source
+      #      operand)
+
+      # note: do not introduce a temporary here. If the conversion is an lvalue
+      # conversion, the result must have the same identity as the input
+      cr.redirect(n.srcLoc)
 
   else:
     discard
