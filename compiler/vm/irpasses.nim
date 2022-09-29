@@ -498,18 +498,6 @@ template genForLoop*(cr: var IrCursor, d: var LiteralData, g: PassEnv, len: IRIn
 
     cr.insertJoin(loopExit)
 
-type TypedPassCtx* = object
-  ## General context object for passes that require typed IR
-  graph*: PassEnv
-  env*: ptr IrEnv
-
-  types*: seq[TypeId]
-
-func init*(c: var TypedPassCtx, g: PassEnv, env: ptr IrEnv, ir: IrStore3) =
-  c.graph = g
-  c.env = env
-  c.types = computeTypes(ir, env[])
-
 type RefcPassCtx* = object
   extra: PassEnv
 
