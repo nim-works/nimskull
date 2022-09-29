@@ -1711,6 +1711,10 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
       break
       ]#
 
+    of ntkContinue, ntkGotoLink:
+      # both are required to be lowered earlier
+      unreachable(n.kind)
+
     else:
       names[i] = genError(c, fmt"missing impl: {n.kind}")
       if c.exprs[i].rc == 0:

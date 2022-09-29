@@ -904,6 +904,7 @@ proc generateCode*(g: ModuleGraph) =
 
           runPass2(irs, typeCtx, env, ctx, diff, ctransformPass)
           runPass2(irs, typeCtx, env, ctx, diff, lowerClosuresPass)
+          transformContinue(irs, passEnv, env.data, diff)
 
           apply(irs, diff)
 

@@ -662,3 +662,94 @@ func applyCTypeTransforms*(c: var CTransformEnv, g: PassEnv, env: var TypeEnv, s
 func finish*(c: var CTransformEnv, env: var TypeEnv) =
   ## Commit the type modifications
   commit(env, c.remap)
+
+func transformContinue*(code: IrStore3, pe: PassEnv, data: var LiteralData, changes: var Changes) =
+  ## Transforms ``ntkGotoLink`` and ``ntkContinue`` into simple gotos.
+  # TODO: improved the documentation. Explain what a "linked section" is, how
+  #       they're detected, and how the transformation works
+  var cr: IrCursor
+  cr.setup(code)
+
+  type SecInfo = object
+    ## Information about a linked section
+    tmp: IRIndex ## the reference of the temporary used for remembering the
+                  ## section
+    items: seq[JoinPoint] ## possible targets for the continue
+
+  var
+    sections: Table[JoinPoint, SecInfo]
+    stack: seq[JoinPoint] ## the stack of active linked sections. An item is
+      ## pushed when the entry point (i.e. ``ntkJoin``) of a linked section is
+      ## encountered, and popped when an ``ntkContinue`` is encountered
+      # XXX: use recursion instead? It would requires less heap allocations -
+      #      but also make the code more complex
+
+  # TODO: move `sections` and `stack` into an object of which an isntance is
+  #       then passed to ``transformContinue`` in order to reuse the memory?
+  #       I attempted this when building the compiler itself, and it brought a
+  #       measurable (but very likely insignificant) performance improvement.
+  #       ``finally`` is only very seldomly used in the compiler code, so it's
+  #       likely that the improvement will be much more pronounced with
+  #       code-bases that make heavy use of ``finally``
+
+  # XXX: the ordering requirements of ``IrCursor`` (i.e. changes are recorded
+  #      in ascending order) are violated here. The resulting changeset thus
+  #      can't be merged via ``update``.
+
+  for i, n in code.pairs:
+    case n.kind
+    of ntkGotoLink:
+      let sec = addr sections.mgetOrPut(n.target, default(SecInfo))
+      let tmp = block:
+        # if `sec.items` is empty, the sections was just added to the table
+        if sec.items.len > 0:
+          sec.tmp
+        else:
+          sec.tmp = cr.insertLocalRef cr.newLocal(lkTemp, pe.sysTypes[tyInt])
+          sec.tmp
+
+      let join = cr.newJoinPoint()
+      cr.setPos(i)
+      cr.replace()
+      cr.insertAsgn(askCopy, tmp, cr.insertLit(data, sec.items.len))
+      cr.insertGoto(n.target)
+      cr.insertJoin(join)
+
+      # record the join point
+      sec.items.add(join)
+
+    of ntkJoin:
+      if n.joinPoint in sections:
+        # the start of a linked sections
+        stack.add(n.joinPoint)
+
+    of ntkContinue:
+      let
+        item = stack.pop()
+        sec = unsafeAddr sections[item]
+
+      cr.setPos(i)
+      cr.replace()
+
+      # generate the dispatcher logic
+      let tmp = sec.tmp
+      for i, it in sec.items.pairs:
+        let join = cr.newJoinPoint()
+        cr.insertBranch(wrapNot(cr, pe, cr.insertMagicCall(pe, mEqI, tyBool, tmp, cr.insertLit(data, i))), join)
+        cr.insertGoto(it)
+
+        cr.insertJoin(join)
+
+      # a ``ntkGotoLink`` must never be a jump backwards. We take advantage of
+      # this knowledge to reduce memory usage by removing the section's table
+      # entry once the ``ntkContinue`` (the end of the linked section) is
+      # encountered
+      sections.del(item)
+
+    else:
+      discard
+
+  assert stack.len == 0
+  assert sections.len == 0
+
+  changes.merge(cr)
