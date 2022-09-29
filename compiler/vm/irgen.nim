@@ -358,9 +358,18 @@ proc genWhile(c: var TCtx; n: PNode, next: JoinPoint) =
       discard
     else:
       # TODO: omit the while loop if cond == false?
-      var tmp = c.genx(n[0])
-      let lab2 = c.irs.irBranch(c.irs.irCall(mNot, c.requestType(tyBool), tmp), next)
-      #c.prc.blocks[^1].endings.add(lab2)
+      let
+        tmp = c.genx(n[0])
+        fwd = c.irs.irJoinFwd()
+
+      # XXX: the following pattern is quite common. Maybe ``ntkBranch`` should
+      #      get an extra flag for indicating that it's an "unstructured branch"
+      #      (or "conditional goto") so that the pattern can be replaced with
+      #      just a branch? A ``ntkBranch`` is currently required to never
+      #      jump out of the current logical scope
+      c.irs.irBranch(tmp, fwd)
+      c.irs.irGoto(next)
+      c.irs.irJoin(fwd)
 
     let exits = c.genStmt2(n[1])
     if exits:
