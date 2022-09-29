@@ -864,7 +864,8 @@ func updateV1(ir: var IrStore3, cr: sink IrCursor) =
 func moveMem[T](dst: var openArray[T], dstP, srcP: int, len: int) =
   assert srcP + len <= dst.len
   assert dstP + len <= dst.len
-  moveMem(addr dst[dstP], addr dst[srcP], len * sizeof(T))
+  if len > 0:
+    moveMem(addr dst[dstP], addr dst[srcP], len * sizeof(T))
 
 func copyMem[T](dst: var openArray[T], src: openArray[T], dstP, srcP: int, len: int) =
   assert srcP + len <= src.len
