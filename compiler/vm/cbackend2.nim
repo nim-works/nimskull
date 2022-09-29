@@ -764,9 +764,11 @@ proc generateCode*(g: ModuleGraph) =
       logError(irs, env, s):
         # TODO: the ``hookPass`` can be batched together with the
         #       ``lowerMatchPass``
+        # TODO: resue the ``TypeContext`` object across the batches (and maybe
+        #       the loop)
         # hooks need to be resolved before injecting the garbage collector
         # related logic
-        runPass(irs, initHookCtx(passEnv, irs, env), hookPass)
+        runPass(irs, initTypeContext(irs, env, remap), env, passEnv, hookPass)
 
         # the error-handling pass inserts new nodes (instead of replacing
         # them), which might cause conflicts with other changes if performed

@@ -774,44 +774,33 @@ proc applyRefcPass(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPass
   else:
     discard
 
-type HookCtx* = object
-  graph: PassEnv
-  env: ptr IrEnv
-  types: seq[TypeId]
-
-func initHookCtx*(g: PassEnv, ir: IrStore3, env: IrEnv): HookCtx =
-  HookCtx(graph: g, types: computeTypes(ir, env))
-
-func hasAttachedOp*(c: HookCtx, op: TTypeAttachedOp, typ: TypeId): bool =
+func hasAttachedOp*(c: PassEnv, op: TTypeAttachedOp, typ: TypeId): bool =
   assert typ != NoneType
-  typ in c.graph.attachedOps[op]
+  typ in c.attachedOps[op]
 
-func getAttachedOp(c: HookCtx, op: TTypeAttachedOp, typ: TypeId): ProcId =
+func getAttachedOp(c: PassEnv, op: TTypeAttachedOp, typ: TypeId): ProcId =
   assert typ != NoneType
-  c.graph.attachedOps[op][typ]
+  c.attachedOps[op][typ]
 
-func typeof(c: HookCtx, n: IRIndex): TypeId =
-  customAssert c.types[n] != NoneType, n
-  c.types[n]
-
-func injectHooks(c: HookCtx, n: IrNode3, cr: var IrCursor) =
+func injectHooks(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, cr: var IrCursor) =
   ## Replaces assignments and destroys with calls to the copy, sink, and destroy hooks.
   # TODO: rename. We're not injecting anything, just replacing
+  let n = ir[cr]
   case n.kind
   of ntkAsgn:
-    let typ = c.typeof(n.wrLoc)
+    let typ = types[n.wrLoc]
     case n.asgnKind
     of askInit:
       # TODO: missing
       discard
     of askMove:
-      if hasAttachedOp(c, attachedSink, typ):
+      if hasAttachedOp(pe, attachedSink, typ):
         cr.replace()
-        cr.insertCallStmt(c.getAttachedOp(attachedSink, typ), n.wrLoc, n.srcLoc)
+        cr.insertCallStmt(pe.getAttachedOp(attachedSink, typ), n.wrLoc, n.srcLoc)
     of askCopy:
-      if hasAttachedOp(c, attachedAsgn, typ):
+      if hasAttachedOp(pe, attachedAsgn, typ):
         cr.replace()
-        cr.insertCallStmt(c.getAttachedOp(attachedAsgn, typ), n.wrLoc, n.srcLoc)
+        cr.insertCallStmt(pe.getAttachedOp(attachedAsgn, typ), n.wrLoc, n.srcLoc)
 
     of askShallow, askDiscr:
       discard "nothing to do"
@@ -2383,7 +2372,7 @@ func transformSetConsts*(pe: PassEnv, syms: var SymbolEnv, data: var LiteralData
     else:
       discard
 
-const hookPass* = LinearPass[HookCtx](visit: injectHooks)
+const hookPass* = TypedPass[PassEnv](visit: injectHooks)
 const refcPass* = TypedPass[RefcPassCtx](visit: applyRefcPass)
 const seqV1Pass* = TypedPass[RefcPassCtx](visit: lowerSeqsV1)
 const seqV2Pass* = LinearPass[GenericTransCtx](visit: lowerSeqsV2)
