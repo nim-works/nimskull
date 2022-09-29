@@ -751,10 +751,9 @@ proc applyRefcPass(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPass
       if env.types.kind(types[n.wrLoc]) in {tnkString, tnkRef, tnkSeq}:
         genRefcRefAssign(cr, c.extra, n.wrLoc, n.srcLoc, c.storageLoc(n.wrLoc))
         # XXX: source needs to be zeroed?
-    of askCopy:
+    of askCopy, askInit:
       genAssignmentV1(cr, c, env, n.wrLoc, n.srcLoc, types[n.wrLoc], c.storageLoc(n.wrLoc))
-    of askInit, askShallow, askDiscr:
-      # XXX: init might need special handling
+    of askShallow, askDiscr:
       discard
 
   of ntkCall:
@@ -778,14 +777,11 @@ func injectHooks(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, 
   of ntkAsgn:
     let typ = types[n.wrLoc]
     case n.asgnKind
-    of askInit:
-      # TODO: missing
-      discard
     of askMove:
       if hasAttachedOp(pe, attachedSink, typ):
         cr.replace()
         cr.insertCallStmt(pe.getAttachedOp(attachedSink, typ), n.wrLoc, n.srcLoc)
-    of askCopy:
+    of askCopy, askInit:
       if hasAttachedOp(pe, attachedAsgn, typ):
         cr.replace()
         cr.insertCallStmt(pe.getAttachedOp(attachedAsgn, typ), n.wrLoc, n.srcLoc)

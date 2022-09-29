@@ -51,6 +51,17 @@ type
     #ntkLoad
     #ntkWrite
 
+  # TODO: rework assignments. Rename 'shallow' to 'blit' and turn 'init' into
+  #       a flag. A proposal of what the new kinds should be:
+  #       - blit: a blit-copy. Nothing more than a bit-wise copy must happen for
+  #               these
+  #       - move: similar to 'blit', but transformations are allowed to inject
+  #               some additional logic for the destination location (e.g.
+  #               ``unsureAsgnRef``)
+  #       - copy: a full copy from source to destination
+  #
+  #       If the 'init' flag is set, the destination may be assumed to be in the
+  #       zero'ed state
   AssignKind* = enum
     askShallow
     askInit # XXX: an assign can be both an init assign and a shallow assign
