@@ -661,8 +661,12 @@ func genCProcHeader(idents: var IdentCache, env: ProcedureEnv, s: ProcId): CProc
   result.args.newSeq(env.numParams(s))
   var i = 0
   for p in env.params(s):
+    let ident =
+      if p.name != nil: idents.getOrIncl(mangledName(p.name))
+      else:             idents.getOrIncl("_param" & $i)
+
     result.args[i] = (mapTypeV3(p.typ),
-                      idents.getOrIncl(mangledName(p.name)))
+                      ident)
     inc i
 
 

@@ -355,7 +355,9 @@ type
   ProcId* = distinct uint32
 
   ProcParam = tuple
-    name: PIdent
+    name: PIdent ## may be 'nil', in which case it's an unnamed parameter. If
+                 ## the code-generator always requires a name for parameters,
+                 ## it is allowed to freely choose one
     typ: TypeId
 
   ProcHeader* = object

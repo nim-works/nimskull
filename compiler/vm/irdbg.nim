@@ -90,7 +90,12 @@ iterator toStrIter*(irs: IrStore3, e: IrEnv, exprs: seq[bool]): string =
     of ntkProc:
       line = fmt"proc '{e.procs[n.procId].decl.name.s}'"
     of ntkParam:
-      line = fmt"param {n.paramIndex}: '{e.procs.param(irs.owner, n.paramIndex).name.s}'"
+      let name = e.procs.param(irs.owner, n.paramIndex).name
+      if name != nil:
+        line = fmt"param {n.paramIndex}: '{name.s}'"
+      else:
+        line = fmt"param {n.paramIndex}"
+
     of ntkAsgn:
       case n.asgnKind
       of askCopy:
