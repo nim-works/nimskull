@@ -509,6 +509,10 @@ proc generateCode*(g: ModuleGraph) =
     if it.kind in routineKinds:
       seenProcs.incl it.id
 
+  # the range of definitely alive procedures starts after the compilerprocs
+  sync(procImpls, c.procs)
+  var aliveRange = procImpls.len..0
+
   # generate all module init procs (i.e. code for the top-level statements):
   for i, m in mlist.modules.cpairs:
     # TODO: use ``lpairs`` (or ``pairs`` once it uses ``lent``) instead of
@@ -535,7 +539,6 @@ proc generateCode*(g: ModuleGraph) =
   for it in modulesExtra.items:
     collectRoutineSyms(it.initProc[1], c.procs, nextProcs, seenProcs)
 
-  var aliveRange = procImpls.len..0
   # run the dependency collection/``irgen`` loop using the procedures
   # referenced by top-level statements as the starting set
   drain(c, g.config, env, procImpls, nextProcs, nextProcs2, seenProcs)
