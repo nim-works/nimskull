@@ -483,7 +483,7 @@ func lowerEchoVisit(c: var UntypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
   else:
     discard
 
-func lowerAccessEnv(ir: var IrStore3, env: IrEnv, envTyp: TypeId, envSym: DeclId, param: Natural) =
+func lowerAccessEnv(ir: var IrStore3, envTyp: TypeId, envSym: DeclId, param: Natural) =
   assert envTyp != NoneType
 
   var cr: IrCursor
@@ -619,7 +619,7 @@ const lowerClosuresPass = TypedPass[CTransformCtx](visit: lowerClosuresVisit)
 const lowerMatchPass* = TypedPass[PassEnv](visit: lowerMatch)
 const lowerEchoPass* = LinearPass2[UntypedPassCtx](visit: lowerEchoVisit)
 
-proc applyCTransforms*(c: CTransformEnv, ic: IdentCache, g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
+proc applyCTransforms*(c: CTransformEnv, g: PassEnv, ir: var IrStore3, env: var IrEnv) =
   ## Applies lowerings to the IR that are specific to the C-like targets:
   ## * turn ``bcRaise`` into calls to ``raiseExceptionEx``/``reraiseException``
   ## * transform overflow checks
@@ -637,17 +637,28 @@ proc applyCTransforms*(c: CTransformEnv, ic: IdentCache, g: PassEnv, id: ProcId,
     runPass2(ir, types, env, ctx, diff, lowerClosuresPass)
     apply(ir, diff)
 
-  if env.procs[id].callConv == ccClosure:
+func transformClosureProc*(g: PassEnv, paramName: PIdent, localName: DeclId,
+                           id: ProcId, procs: var ProcedureEnv,
+                           code: var IrStore3) =
+  ## If the procedure named by `id` has the calling convention ``ccClosure``,
+  ## adds an additional paramter with the name `paramName` used for passing
+  ## the closure's environment, and also lowers ``bcAccessEnv`` magic calls
+  ## present in the body (`code`).
+  ## `localName` is the name to use for the local storing the correctly typed
+  ## environment reference.
+
+  # XXX: is it really necessary for the local to have a name? It only helps
+  #      with reading the C code and doesn't serve any other purpose
+
+  if procs[id].callConv == ccClosure:
     # add the env param
-    let name = ic.getIdent("ClE")
-    env.procs.mget(id).params.add (name, g.sysTypes[tyPointer])
+    procs.mget(id).params.add (paramName, g.sysTypes[tyPointer])
 
     # only perform the transformation if the procedure really captures an
-    # environment, since no ``bcAccessEnv`` is present otherwise
-    let envTyp = env.procs[id].envType
+    # environment - no ``bcAccessEnv`` is present otherwise
+    let envTyp = procs[id].envType
     if envTyp != NoneType:
-      let decl = env.syms.addDecl(ic.getIdent(":env"))
-      lowerAccessEnv(ir, env, envTyp, decl, env.procs.numParams(id) - 1)
+      lowerAccessEnv(code, envTyp, localName, procs.numParams(id) - 1)
 
 func applyCTypeTransforms*(c: var CTransformEnv, g: PassEnv, env: var TypeEnv, senv: var SymbolEnv) =
   # lower closures to a ``tuple[prc: proc, env: pointer]`` pair

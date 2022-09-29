@@ -892,9 +892,14 @@ proc generateCode*(g: ModuleGraph) =
     var ctx: CTransformEnv
     applyCTypeTransforms(ctx, passEnv, env.types, env.syms)
 
+    let
+      paramName = g.cache.getIdent("ClE")
+      envName = env.syms.addDecl(g.cache.getIdent(":env"))
+
     for s, irs in mpairsId(procImpls, ProcId):
-        logError(irs, env, s):
-          applyCTransforms(ctx, g.cache, passEnv, s, irs, env)
+      logError(irs, env, s):
+        applyCTransforms(ctx, passEnv, irs, env)
+        transformClosureProc(passEnv, paramName, envName, s, env.procs, irs)
 
     finish(ctx, env.types)
 
