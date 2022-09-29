@@ -2408,6 +2408,23 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       f.write h
       f.writeLine "\""
 
+  # undefine some macros defined by either the C-compiler or by some included
+  # headers that could otherwise clash with identifiers were emitting
+  f.write """#undef LANGUAGE_C
+#undef MIPSEB
+#undef MIPSEL
+#undef PPC
+#undef R3000
+#undef R4000
+#undef i386
+#undef linux
+#undef mips
+#undef near
+#undef far
+#undef powerpc
+#undef unix
+"""
+
   # type section
 
   for fwd, id in typedefs.items:
