@@ -33,6 +33,7 @@ import
     cpasses,
     irgen,
     irtypes,
+    markergen,
     vmir,
     cgen2,
     irpasses,
@@ -886,6 +887,24 @@ proc generateCode*(g: ModuleGraph) =
     #      could be registered to a dedicated module (.c file)
     for id in lpCtx.typeInfoMarker.values:
       modules[mlist.moduleMap[g.systemModule.moduleId]].syms.add(id)
+
+    let markers = generateMarkerProcs(lpCtx.typeInfoMarker, passEnv, gcInfo,
+                                      env.types, g.cache.getIdent("marker"),
+                                      env.procs, env.data, procImpls)
+
+    # even though we know the marker procedures are all alive, we don't
+    # register them here, but defer that to the later alive analysis instead.
+    # XXX: maybe the `collected` set should already be available at this
+    #      point, so that we can at least mark the procedures as alive
+    # the procedure registration logic needs information about the owning
+    # module
+    for id in markers.values:
+      # use the symbol of the system module as the original symbol for the
+      # marker procs.
+      # This is of course incorrect, but past this point, ``orig`` is only
+      # used to supply the module the proc is attached to, so this doesn't
+      # cause any problems
+      env.procs.orig[id] = g.systemModule
 
   # now commit the lowered sequence-types
   commit(env.types, remap)

@@ -2,6 +2,8 @@
 import compiler/vm/[vmir, irliterals]
 import compiler/ast/ast
 
+from compiler/vm/vmdef import unreachable
+
 func insertNilLit*(cr: var IrCursor, d: var LiteralData, typ: TypeId): IRIndex =
   assert typ != NoneType
   cr.insertLit (d.newLit(0'u), typ)
@@ -54,3 +56,26 @@ func safeBuiltin*(n: IrNode3): BuiltinCall =
   case n.callKind
   of ckBuiltin:         n.builtin
   of ckNormal, ckMagic: bcNone
+
+# TODO: only indirectly related to passes - this iterator needs a better home
+iterator branchValues*(d: LiteralData, id: LiteralId): int =
+  ## Iterates over all integers in the literal representing an 'of'-branch
+  # TODO: rename to something more fitting. Implementation-wise, this has
+  #       nothing to do with 'of'-branches
+  # XXX: only works for integer-based discriminators
+  case id.kind
+  of lkNumber:
+    yield getInt(d, id).int
+
+  of lkComplex:
+    for a, b in sliceListIt(d, id):
+      # a little bit less efficient, but we only need one ``yield`` this way
+      let slice =
+        if a != b: getInt(d, a)..getInt(d, b)
+        else:      (let v = getInt(d, a); v..v)
+
+      for v in slice.items:
+        yield v.int
+
+  else:
+    unreachable(id.kind)
