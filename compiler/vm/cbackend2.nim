@@ -120,6 +120,7 @@ func collect(list: var seq[PSym], s: sink PSym, marker: var IntSet) {.inline.} =
   if not marker.containsOrIncl(s.id):
     list.add s
 
+# TODO: rename to ``collectProcedureSyms``
 func collectRoutineSyms(ast: PNode, syms: var seq[PSym], marker: var IntSet) =
   ## Traverses the `ast` and collects all referenced symbols of routine kind
   ## to `syms` and `marker`
@@ -133,33 +134,11 @@ func collectRoutineSyms(ast: PNode, syms: var seq[PSym], marker: var IntSet) =
   for i in 0..<ast.safeLen:
     collectRoutineSyms(ast[i], syms, marker)
 
-func earlyTransformConst(ast: PNode, procs: var ProcedureEnv): PNode =
-  ## Traverses the `ast` and replaces all routine symbol nodes with the
-  ## representation further processing expects. Returns the transformed node
-  ## (or `ast` if no transformation happened)
-  result = ast
-  if ast.kind == nkSym:
-    let s = ast.sym
-    if s.kind in routineKinds:
-      # encode references to procedures as a ``nkProcTy`` with an
-      # ``nkIntLit`` child holding the ID
-      result = PNode(kind: nkProcTy)
-      # XXX: ``ProcedureEnv`` doesn't allowe for mutable lookup (it should!)
-      #      so we - we have to use ``requestProc``
-      result.sons.add:
-        PNode(kind: nkIntLit, intVal: procs.requestProc(s).toIndex.BiggestInt)
-      return
-
-  for i in 0..<ast.safeLen:
-    ast[i] = earlyTransformConst(ast[i], procs)
-
 proc generateTopLevelStmts*(module: Module, c: var TCtx,
                             config: ConfigRef): Option[IrStore3] =
   ## Generates code for all collected top-level statements of `module` and
   ## compiles the fragments into a single procedure. If the resulting
   ## procedure is empty, a 'none' is returned.
-  let n = newNodeI(nkEmpty, module.sym.info) # for line information
-
   c.prc = PProc(sym: module.sym)
   c.irs.reset()
 
@@ -276,8 +255,8 @@ func collectRoutineSyms(s: IrStore3, env: ProcedureEnv, list: var seq[PSym], kno
 
 func moduleId(o: PIdObj): int32 {.inline.} =
   ## Returns the ID of the module `o` is *attached* to. Do note that in the
-  ## case generic instantiations, this is not the necessarily the same module
-  ## as the one returned by ``getModule(o)``
+  ## case of generic instantiations, this is not the necessarily the same
+  ## module as the one returned by ``getModule(o)``
   o.itemId.module
 
 # XXX: copied from `cgen.nim` and adjusted
@@ -286,18 +265,6 @@ proc getCFile(config: ConfigRef, filename: AbsoluteFile): AbsoluteFile =
   let ext = ".nim.c"
   result = changeFileExt(
     completeCfilePath(config, withPackageName(config, filename)), ext)
-
-
-proc getSysMagic2(g: ModuleGraph, name: string, m: TMagic): PSym =
-  ## Same as ``magicsys.getSysMagic``, except that:
-  ## * it doesn't use ``localReport``.
-  ## * procedures returning int don't have higher precedence
-  ## * `nil` is returned if no matching magic is found
-  ## * no line info is required
-  let id = getIdent(g.cache, name)
-  for r in systemModuleSyms(g, id):
-    if r.magic == m:
-      result = r
 
 proc initCompilerProcs(p: PassEnv, g: ModuleGraph, tgen: var DeferredTypeGen,
                        procs: var ProcedureEnv, syms: var DeferredSymbols,
@@ -325,15 +292,14 @@ proc resolveTypeBoundOps(p: PassEnv, g: ModuleGraph, tgen: DeferredTypeGen, proc
       if t != NoneType:
         tbl[t] = procs.requestProc(v)
       else:
-        # XXX: is this case even possible
         discard#echo "missing type for type-bound operation"
 
 proc initSysTypes(p: PassEnv, g: ModuleGraph, types: var TypeEnv, tgen: var DeferredTypeGen) =
   template addPrim(tk: TTypeKind) =
     p.sysTypes[tk] = types.addPrimitiveType(tgen, g.config, g.getSysType(unknownLineInfo, tk))
 
-  # it's important that ``tyChar`` and ``tyVoid`` are added first, since
-  # other primitive types depend on them already existing
+  # it's important that ``tyChar`` and ``tyVoid`` are added first - other
+  # primitive types depend on their presence
   addPrim(tyVoid)
   addPrim(tyChar)
 
@@ -393,9 +359,7 @@ func processObjects(g: PassEnv, ic: var IdentCache, types: var TypeEnv, syms: va
   ## ``PType`` it was translated from).
   let rootType = g.getCompilerType("RootObj")
 
-  # XXX: we're depending on a ``ptr TNimType`` type existing here. The
-  #      ``.compilerproc`` global ``hti.nimTypeRoot`` is of that type,
-  #      so it's currently always available.
+  # XXX: we're depending on a ``ptr TNimType`` type existing here
   let fieldType = types.lookupGenericType(tnkPtr, g.getCompilerType("TNimType"))
 
   # insert a field of type ``PNimType`` into ``RootObj``. In order to not make
@@ -443,7 +407,7 @@ func computeTypeFieldStatus(pe: PassEnv, types: TypeEnv,
 
   # we depend on the following ``TypeEnv`` properties present after
   # translation here:
-  # 1. *structural* types are visited in such an order as that each direct
+  # 1. *structural* types are visited in an order such that each direct
   #   dependency is visited before the types dependent on it
   # 2. nominal record types are are visited after all their base types
   #
@@ -494,13 +458,13 @@ func computeTypeFieldStatus(pe: PassEnv, types: TypeEnv,
       result[id].incl tfsEmbedded
 
 
-proc drain(c: var TCtx, conf: ConfigRef, env: var IrEnv, code: var seq[IrStore3], a, b: var seq[PSym], seenProcs: var IntSet) =
+proc drain(c: var TCtx, conf: ConfigRef, env: var IrEnv, bodies: var seq[IrStore3], a, b: var seq[PSym], seenProcs: var IntSet) =
   # TODO: rename
   assert b.len == 0
 
   while a.len > 0:
-    # make sure that there's a slot for each known procedure in `code`
-    sync(code, c.procs)
+    # make sure that there's a slot for each known procedure in `bodies`
+    sync(bodies, c.procs)
 
     for sym in a.items:
       let
@@ -509,19 +473,19 @@ proc drain(c: var TCtx, conf: ConfigRef, env: var IrEnv, code: var seq[IrStore3]
 
       if sfImportc in sym.flags:
         # a quick fix to not run `irgen` for 'importc'ed procs
-        code[idx].owner = id
+        bodies[idx].owner = id
         continue
 
       let ir = c.unwrap generateCodeForProc(c, sym)
       collectRoutineSyms(ir, c.procs, b, seenProcs)
 
-      code[idx] = ir
-      code[idx].owner = id
+      bodies[idx] = ir
+      bodies[idx].owner = id
 
     block:
       let start = b.len
 
-      # scan the collected constants for referenced routines. The list only
+      # scan the collected constants for referenced procedures. The list only
       # contains not-yet-scanned constants
       for sym in c.collectedConsts.items:
         collectRoutineSyms(astdef(sym), b, seenProcs)
@@ -542,10 +506,10 @@ proc drain(c: var TCtx, conf: ConfigRef, env: var IrEnv, code: var seq[IrStore3]
 func finish(cr: sink IrCursor): IrStore3 {.inline.} =
   update(result, cr)
 
-func addProcedure(codeList: var seq[IrStore3], id: ProcId, code: sink IrStore3) =
+func addProcedure(bodies: var seq[IrStore3], id: ProcId, body: sink IrStore3) =
   let idx = id.toIndex
-  codeList.setLen(idx + 1)
-  codeList[idx] = move code
+  bodies.setLen(idx + 1)
+  bodies[idx] = move body
 
 func lookupModule(mlist: ModuleList, s: PSym): ModuleId =
   mlist.moduleMap[getModule(s).moduleId]
@@ -560,6 +524,7 @@ proc generateCode*(g: ModuleGraph) =
 
   echo "starting codgen"
 
+  # TODO: rename `procImpls` to `bodies`
   var procImpls: seq[IrStore3] ## proc-id -> IR representation
   var modules: seq[ModuleData]
   var modulesExtra: seq[ModuleDataExtra]
@@ -597,7 +562,8 @@ proc generateCode*(g: ModuleGraph) =
   sync(procImpls, c.procs)
   var aliveRange = procImpls.len..0
 
-  # generate all module init procs (i.e. code for the top-level statements):
+  # generate all module init procecudres (i.e. code for the top-level
+  # statements):
   for i, m in mlist.modules.cpairs:
     # TODO: use ``lpairs`` (or ``pairs`` once it uses ``lent``) instead of
     #       ``cpairs``
@@ -658,7 +624,8 @@ proc generateCode*(g: ModuleGraph) =
     # XXX: the current approach has the downside that code which may end up
     #      not being part of the alive graph is still put through all
     #      processing. A different approach would be to run all processing
-    #      (dependency collection/irgen and the IR passes)
+    #      (dependency collection/irgen and the IR passes) in a loop until no
+    #      more new dependencies are found
 
     # run ``irgen`` for compilerprocs and their (not yet seen) dependencies
     for it in g.compilerprocs.items:
@@ -686,7 +653,7 @@ proc generateCode*(g: ModuleGraph) =
   resolveTypeBoundOps(passEnv, g, c.types, c.procs)
 
   block:
-    # translate the literal data from their ``PNode``-based representation
+    # translate the literal data from it's ``PNode``-based representation
     for id, data in c.constData.pairs:
       assert env.syms[id].kind == skConst
       env.syms.setData(id): add(c.data, c.procs, g.config, data)
@@ -726,11 +693,8 @@ proc generateCode*(g: ModuleGraph) =
       let s = env.syms[id]
       case s.kind
       of skVar, skLet, skForVar:
-        # TODO: remove the guard once locals are not stored in the symbol
-        #       table anymore
-        if sfGlobal in s.flags:
-          let mIdx = mlist[].lookupModule(env.syms.orig[id])
-          modules[mIdx].syms.add(id)
+        let mIdx = mlist[].lookupModule(env.syms.orig[id])
+        modules[mIdx].syms.add(id)
 
       else:
         discard
@@ -743,10 +707,9 @@ proc generateCode*(g: ModuleGraph) =
   # tables
   let fakeClosure = genFakeClosureType(env.types, passEnv)
 
-  # XXX: mutable because it needs to swapped in and out of the ``RefcPassCtx``.
-  #      The way immutable data is passed to passses needs an overhaul in
-  #      general. In the case of ``tfInfo``, ``shallowCopy`` could be used, but
-  #      it's only available for refc. For ARC/ORC ``.cursor`` would have to be
+  # XXX: mutable because they need to be swapped in and out of the ``RefcPassCtx``.
+  #      In the case of ``tfInfo``, ``shallowCopy`` could be used, but it's
+  #      only available for refc. For ARC/ORC ``.cursor`` would have to be
   #      used instead
   var
     tfInfo = computeTypeFieldStatus(passEnv, env.types, objects)
@@ -756,6 +719,11 @@ proc generateCode*(g: ModuleGraph) =
   lpCtx.env = addr env
   var ttc = TypeTransformCtx(graph: passEnv, ic: g.cache)
   var upc = initUntypedCtx(passEnv, addr env) # XXX: not mutated - should be ``let``
+
+  # XXX: instead of manually figuring out out passes are to be batched
+  #      together, each pass should describe it's expectations and what it
+  #      modifies/transforms, so that we can then let an algorithm figure out
+  #      how to optimally batch a given set of passes
 
   block:
     # the lowering of ``echo`` for the C-targets has to happen *before*
@@ -785,7 +753,7 @@ proc generateCode*(g: ModuleGraph) =
   block:
     # if a non-v2 garbage collector (e.g. ``refc``, ``markAndSweep``,
     # everything else that uses ``unsureAsgnRef``) is active, the sequence
-    # operation lowering has to happen before GC transform pass
+    # operation lowering has to happen before the GC transform pass
     let seqPass =
       if destructorSeq:
         seqV1Pass #seqV2Pass
@@ -832,7 +800,8 @@ proc generateCode*(g: ModuleGraph) =
   # don't commit the type changes yet. The following passes still need access
   # to the original type
   # XXX: ideally they shouldn't. If sequence types were lowered to ``ref``
-  #      types, it wouldn't be necessary
+  #      types, it wouldn't be necessary. *EDIT*: not quite. The RTTI bits
+  #      still need to know about the original types
   var remap: TypeMap
   swap(remap, ttc.remap)
 
@@ -898,7 +867,7 @@ proc generateCode*(g: ModuleGraph) =
 
     # create a RTTI global for the fake closure type. This has to happen
     # before the call to ``generateDependencies`` so that the latter includes
-    # the  `fakeClosure` type in it's scanning
+    # the `fakeClosure` type in it's scanning
     discard liftRttiGlobal(lpCtx, fakeClosure)
 
     generateDependencies(lpCtx.typeInfoMarker, env.syms, g.cache, passEnv,
@@ -1002,6 +971,8 @@ proc generateCode*(g: ModuleGraph) =
     addProcedure(procImpls, mainProc):
       generateEntryProc(passEnv, mlist[], modulesExtra)
 
+    # use the symbol of the project's main module as the source of the
+    # generated main procedure
     env.procs.orig[mainProc] = g.ifaces[g.config.projectMainIdx2.int32].module
 
   template register(items: iterable[int]) =
@@ -1087,7 +1058,6 @@ proc generateCode*(g: ModuleGraph) =
 
     addFileToCompile(conf, cf)
 
-
   # code generation is finished
 
 
@@ -1115,6 +1085,7 @@ proc myProcess(b: PPassContext, n: PNode): PNode =
   result = n
   let m = ModuleRef(b)
 
+  # TODO: this doesn't work for modules consisting of only a single statement
   if n.kind == nkStmtList:
     m.list.modules[m.index].stmts.add(n)
 
