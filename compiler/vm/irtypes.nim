@@ -462,6 +462,14 @@ func sync*[T](x: var seq[T], e: ProcedureEnv) =
   assert x.len <= e.procs.len
   x.setLen(e.procs.len)
 
+# TODO: introduce something like an ``IdMap[SomeId, T]`` and use that here
+#       instead of the ``seq``
+func sync*[T](x: var seq[T], env: TypeEnv) =
+  ## Resizes `x` to match the number of types in `env`. Using ``sync`` is only
+  ## legal if the resize would be non-destructive, i.e. if `x` is not truncated
+  assert x.len <= env.types.len
+  x.setLen(env.types.len)
+
 template `fieldOffset=`(x: var Type, val: int) =
   ## Setter for a record type's field offset (that is, the position of the
   ## first field in the record)

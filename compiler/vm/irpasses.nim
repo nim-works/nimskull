@@ -95,6 +95,12 @@ type
     tfsEmbedded ## there are one or more sub-objects that have type headers
                 ## and the object itself might also have a type header
 
+  TypeFieldInfo* = seq[TypeFieldStatus]
+    ## The status of if and in what form type-fields are present for each
+    ## object type. ``none`` if the type is not a record or array type.
+    # XXX: only 2 out of the 8 bit are used; a ``PackedSeq`` would make sense
+    #      here
+
 proc runPass*[T](irs: var IrStore3, ctx: T, pass: LinearPass[T]) =
   var cursor: IrCursor
   cursor.setup(irs)
@@ -390,6 +396,8 @@ type RefcPassCtx* = object
   env: ptr IrEnv # XXX: in order to get to something working, a `ptr` for now
   types: seq[TypeId]
 
+  tfInfo*: TypeFieldInfo
+
   # XXX: only used for the ``lowerSeqs`` passes, but `RefcPassCtx` is
   #      currently (ab)-used as the context for most passes
   localMap: Table[int, int] # old local-name -> new local-name
@@ -537,7 +545,7 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
     of tnkArray, tnkRecord:
       # a compound type
       let
-        hdr = tfsEmbedded # XXX: wrong, obviously
+        hdr = c.tfInfo[typ.toIndex]
         tmp = cr.newTemp(c.extra, typ)
         tmpAcc = cr.insertLocalRef(tmp)
 

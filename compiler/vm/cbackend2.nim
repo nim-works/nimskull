@@ -414,6 +414,82 @@ func processObjects(g: PassEnv, ic: var IdentCache, types: var TypeEnv, syms: va
       #      embedded into the object
       types.setBase(id, rootType)
 
+func computeTypeFieldStatus(pe: PassEnv, types: TypeEnv,
+                            objects: Table[TypeId, PType]): TypeFieldInfo =
+  ## Computes and returns the type-field status for each type in `types`. This
+  ## procedure must be called after ``processObjects`` as it depends on the
+  ## type transformations done by the latter
+  # TODO: move this procedure somewhere else
+  let rootType = pe.getCompilerType("RootObj")
+
+  template `[]`(x: TypeFieldInfo, i: TypeId): untyped =
+    x[toIndex(i)]
+  template `[]=`(x: TypeFieldInfo, i: TypeId, v: TypeFieldStatus) =
+    x[toIndex(i)] = v
+
+  func hasEmbedded(types: TypeEnv, id: TypeId, tf: TypeFieldInfo): bool =
+    for f in types.fields(types[id]):
+      if tf[f.typ] in {tfsHeader, tfsEmbedded}:
+        return true
+
+    result = false
+
+  sync(result, types)
+
+  # we depend on the following ``TypeEnv`` properties present after
+  # translation here:
+  # 1. *structural* types are visited in such an order as that each direct
+  #   dependency is visited before the types dependent on it
+  # 2. nominal record types are are visited after all their base types
+  #
+  # Since ``processObjects`` already took place, 2. is only partially
+  # fulfilled
+
+  # set the type-field state for ``RootObj`` to ``header``. All objects
+  # inheriting from ``RootObj`` will start off in the ``header`` state then
+  result[toIndex(rootType)] = tfsHeader
+
+  # first iteration: propagate the 'header' status (originating from
+  # ``RootObj``). Each ``object`` type is visited *after* it's base type(s)
+  for id, t in types.items:
+    if t.kind == tnkRecord and t.base != NoneType:
+      # the type-header status is inherited from the the base type. That is,
+      # if the base has a type-header, the inheriting object is treated as
+      # having one too
+      assert t.base == rootType or t.base.toIndex < id.toIndex # sanity check
+      result[id] = result[t.base]
+
+  # second iteration: compute the 'embedded' status for structural types and
+  # propagate it
+  for id, t in types.items:
+    case t.kind
+    of tnkArray:
+      result[id] =
+        case result[t.base]
+        of tfsNone: tfsNone
+        of tfsHeader, tfsEmbedded: tfsEmbedded
+
+    of tnkRecord:
+      # don't iterate over nominal record types (``object``) yet, they're not
+      # ordered before their dependencies
+      if id notin objects and hasEmbedded(types, id, result):
+        result[id] = tfsEmbedded
+
+    else:
+      # an atom -- has no type-header nor embedded objects
+      discard
+
+  # third iteration: compute the 'embedded' status for nominal record types
+  # and propagate it
+  # XXX: if `objects` would be an ``OrderedTable``, we could iterate it
+  #      directly
+  for id, t in types.items:
+    if id in objects and
+      ((t.base != NoneType and result[t.base] == tfsEmbedded) or
+       hasEmbedded(types, id, result)):
+      result[id] = tfsEmbedded
+
+
 proc drain(c: var TCtx, conf: ConfigRef, env: var IrEnv, code: var seq[IrStore3], a, b: var seq[PSym], seenProcs: var IntSet) =
   # TODO: rename
   assert b.len == 0
@@ -625,6 +701,8 @@ proc generateCode*(g: ModuleGraph) =
   swap(c.procs, env.procs)
   swap(c.data, env.data)
 
+  let objects = move c.types.objects
+
   # TODO: ``generateCode`` needs to be split up. Freeing the ``TCtx`` should
   #       happen automatically as part of stack-frame clean up
   reset(c) # we no longer need the irgen context
@@ -645,6 +723,13 @@ proc generateCode*(g: ModuleGraph) =
 
       else:
         discard
+
+  # XXX: mutable because it needs to swapped in and out of the ``RefcPassCtx``.
+  #      The way immutable data is passed to passses needs an overhaul in
+  #      general. In the case of ``tfInfo``, ``shallowCopy`` could be used, but
+  #      it's only available for refc. For ARC/ORC ``.cursor`` would have to be
+  #      used instead
+  var tfInfo = computeTypeFieldStatus(passEnv, env.types, objects)
 
   var lpCtx = LiftPassCtx(graph: passEnv, idgen: g.idgen, cache: g.cache)
   lpCtx.env = addr env
@@ -695,6 +780,8 @@ proc generateCode*(g: ModuleGraph) =
 
           var rpCtx: RefcPassCtx
           rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
+          swap(rpCtx.tfInfo, tfInfo)
+
           runPass2(irs, diff, rpCtx, lowerRangeCheckPass)
           runPass2(irs, diff, rpCtx, lowerSetsPass)
 
@@ -712,6 +799,8 @@ proc generateCode*(g: ModuleGraph) =
           runPass2(irs, diff, lpCtx, arrayConstPass)
 
           apply(irs, diff)
+
+          swap(rpCtx.tfInfo, tfInfo)
 
         # TODO: lifting the type info needs to happen after the alive
         #       procedure detection. Otherwise, we're creating RTTI that isn't
