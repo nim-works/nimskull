@@ -818,13 +818,23 @@ proc lowerSeqsV1(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
 
     case getMagic(ir, c.env[], n)
     of mSetLengthStr:
+      let
+        dst = arg(0)
+        len = arg(1)
+
       cr.replace()
-      # TODO: is shallow correct here?
-      cr.insertAsgn(askShallow, arg(0), cr.insertCompProcCall(c.extra, "setLengthStr", arg(0), arg(1)))
+      # TODO: don't process ``lowerSeqsV1`` in the same batch as the
+      #       garbage-collector. An ``askCopy`` could be used here then
+      #       instead of the ``genRefcRefAssign``
+      genRefcRefAssign(cr, c.extra, dst, cr.insertCompProcCall(c.extra, "setLengthStr", dst, len), c.storageLoc(dst))
     of mSetLengthSeq:
+      let
+        dst = arg(0)
+        len = arg(1)
+
+      # TODO: same as the todo above
       cr.replace()
-      # TODO: evaluation order might be violated here
-      cr.insertAsgn(askShallow, arg(0), cr.insertCompProcCall(c.extra, "setLengthSeqV2", arg(0), arg(1), c.requestRtti(cr, c.typeof(arg(0)))))
+      genRefcRefAssign(cr, c.extra, dst, cr.insertCompProcCall(c.extra, "setLengthSeqV2", dst, len, c.requestRtti(cr, c.typeof(dst))), c.storageLoc(dst))
 
     of mNewSeq:
       cr.replace()
