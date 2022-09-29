@@ -1379,6 +1379,16 @@ func setData*(e: var SymbolEnv, id: SymId, data: LiteralId) =
   assert e[id].kind == skConst
   e.constData[id] = data
 
+func setType*(e: var SymbolEnv, id: SymId, typ: TypeId) =
+  # TODO: this procedure makes it much too easy to mutate the environment.
+  #       ``setType`` is only used as a way to defer setting the type (in
+  #       situations where one needs a symbol before knowing the type), for
+  #       which a better API could be used. For example: add a
+  #       ``addPartialSym`` procedure that returns a ``PartialSymId`` which
+  #       can then be passed to
+  #       ``proc finish(s: PartialSymId, typ: TypeId): SymId``
+  e.symbols[toIndex(id)].typ = typ
+
 iterator items*(e: SymbolEnv): SymId =
   var i = 0
   let L = e.symbols.len

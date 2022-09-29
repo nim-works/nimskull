@@ -539,6 +539,9 @@ proc drain(c: var TCtx, conf: ConfigRef, env: var IrEnv, code: var seq[IrStore3]
     a.setLen(0)
     swap(a, b)
 
+func finish(cr: sink IrCursor): IrStore3 {.inline.} =
+  update(result, cr)
+
 func addProcedure(codeList: var seq[IrStore3], id: ProcId, code: sink IrStore3) =
   let idx = id.toIndex
   codeList.setLen(idx + 1)
@@ -732,6 +735,14 @@ proc generateCode*(g: ModuleGraph) =
       else:
         discard
 
+  # HACK: in the context of RTTI, closure types are represented via a "fake"
+  #       tuple type (one not matching the type they're lowered to).
+  # the later RTTI setup logic generation requires the types it processes to
+  # have corresponding entries in the `tfInfo` and `gcInfo` lookup tables,
+  # so the type has to be added to the environment before computing the
+  # tables
+  let fakeClosure = genFakeClosureType(env.types, passEnv)
+
   # XXX: mutable because it needs to swapped in and out of the ``RefcPassCtx``.
   #      The way immutable data is passed to passses needs an overhaul in
   #      general. In the case of ``tfInfo``, ``shallowCopy`` could be used, but
@@ -878,7 +889,21 @@ proc generateCode*(g: ModuleGraph) =
     else:
       transformSeqConstsV1(passEnv, env.syms, env.data, env.types)
 
+  # the ``set`` types need to be lowered before starting RTTI
+  # processing/generation
+  lowerSetTypes(ttc, env.types, env.syms)
+
   block:
+    let sysModuleId = mlist.moduleMap[g.systemModule.moduleId]
+
+    # create a RTTI global for the fake closure type. This has to happen
+    # before the call to ``generateDependencies`` so that the latter includes
+    # the  `fakeClosure` type in it's scanning
+    discard liftRttiGlobal(lpCtx, fakeClosure)
+
+    generateDependencies(lpCtx.typeInfoMarker, env.syms, g.cache, passEnv,
+                         env.types)
+
     # we don't know the owning module of the types corresponding to the
     # lifted RTTI globals, so we simply add the globals to the system
     # module
@@ -886,7 +911,7 @@ proc generateCode*(g: ModuleGraph) =
     # XXX: instead, all RTTI globals and their initialization logic
     #      could be registered to a dedicated module (.c file)
     for id in lpCtx.typeInfoMarker.values:
-      modules[mlist.moduleMap[g.systemModule.moduleId]].syms.add(id)
+      modules[sysModuleId].syms.add(id)
 
     let markers = generateMarkerProcs(lpCtx.typeInfoMarker, passEnv, gcInfo,
                                       env.types, g.cache.getIdent("marker"),
@@ -906,10 +931,36 @@ proc generateCode*(g: ModuleGraph) =
       # cause any problems
       env.procs.orig[id] = g.systemModule
 
+    var cr: IrCursor ## the cursor is used to accumulate the generated code
+    let (nodeArr, nodePtrArr) =
+      generateRttiInit(g, passEnv, gcInfo, tfInfo, fakeClosure,
+                       lpCtx.typeInfoMarker, markers, env.data, env.syms,
+                       g.cache, env.types, cr)
+
+    # register the extra globals to the system module:
+    modules[sysModuleId].syms.add(nodeArr)
+    modules[sysModuleId].syms.add(nodePtrArr)
+
+    # if enabled, generate the type names:
+    if isDefined(g.config, "nimTypeNames"):
+      generateTypeNames(lpCtx.typeInfoMarker, env.types, env.data, passEnv, g,
+                        passEnv.compilerglobals["nimTypeRoot"], cr)
+
+    # wrap the generated code into a procedure. For now, the data-init
+    # procedure of the ``system`` module is used for this
+    block:
+      let
+        code = finish(cr)
+        id = env.procs.add(passEnv.sysTypes[tyVoid],
+                           g.cache.getIdent("DatInit"), keepName=false)
+
+      addProcedure(procImpls, id, code)
+
+      env.procs.orig[id] = g.systemModule
+      modulesExtra[sysModuleId].dataInitProc = id
+
   # now commit the lowered sequence-types
   commit(env.types, remap)
-
-  lowerSetTypes(ttc, env.types, env.syms)
 
   block:
     # apply transformations meant for the C-like targets
