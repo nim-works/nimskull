@@ -547,6 +547,9 @@ func addProcedure(codeList: var seq[IrStore3], id: ProcId, code: sink IrStore3) 
   codeList.setLen(idx + 1)
   codeList[idx] = move code
 
+func lookupModule(mlist: ModuleList, s: PSym): ModuleId =
+  mlist.moduleMap[getModule(s).moduleId]
+
 proc generateCode*(g: ModuleGraph) =
   ## The backend's entry point. Orchestrates code generation and linking. If
   ## all went well, the resulting binary is written to the project's output
@@ -725,7 +728,7 @@ proc generateCode*(g: ModuleGraph) =
         # TODO: remove the guard once locals are not stored in the symbol
         #       table anymore
         if sfGlobal in s.flags:
-          let mIdx = mlist.moduleMap[env.syms.orig[id].getModule().moduleId]
+          let mIdx = mlist[].lookupModule(env.syms.orig[id])
           modules[mIdx].syms.add(id)
 
       else:
@@ -940,7 +943,7 @@ proc generateCode*(g: ModuleGraph) =
       let
         id = ProcId(it + 1) # TODO: not acceptable
         sym = env.procs.orig[id]
-        mIdx = mlist.moduleMap[sym.getModule().moduleId]
+        mIdx = mlist[].lookupModule(sym)
 
       modules[mIdx].procs.add id
 
