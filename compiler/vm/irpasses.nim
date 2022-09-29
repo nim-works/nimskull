@@ -2066,7 +2066,14 @@ func lowerOpenArrayVisit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: Lo
         else:
           unreachable()
 
-      let lenExpr = cr.insertMagicCall(c.graph, mSubI, tyInt, last, first)
+      var lenExpr = last
+      # TODO: if both `first` and `last` are literals, compute the length here
+      # optimization: no need to insert a ``last - first`` if `first` is known
+      # to be zero
+      if ir[first].kind != ntkLit or env.data.getInt(ir.getLit(first).val) != 0:
+        lenExpr = cr.insertMagicCall(c.graph, mSubI, tyInt, lenExpr, first)
+
+      lenExpr = cr.insertMagicCall(c.graph, mAddI, tyInt, lenExpr, cr.insertLit(env.data, 1))
 
       # XXX: the pointer needs a cast, but we don't know the correct type yet...
       cr.insertAsgn(askInit, ex.dataExpr, p)
