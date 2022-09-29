@@ -916,13 +916,6 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
   var insert = start # where to insert the next nodes
   var np = 0 # the read position in the newNodes buffer
 
-  for v in patchTable.mitems:
-    v = -1
-
-  template setP(i: int, v: untyped) =
-    assert patchTable[i] == -1
-    patchTable[i] = v
-
   # fill the patchTable for the nodes that aren't moved
   for i in 0..<start:
     patchTable[i] = i
@@ -933,11 +926,11 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
       copyMem(ir.sources, cr.traces, insert, np, slice.len)
 
     for j in 0..<slice.len:
-      setP(oldLen + np): insert + j
+      patchTable[oldLen + np] = insert + j
       inc np
 
     if kind: # replace
-      setP(p): insert + slice.len - 1 # the replaced node
+      patchTable[p] = insert + slice.len - 1 # the replaced node
 
       # we replaced a node, prevent it from being included in the following move
       inc p
@@ -961,7 +954,7 @@ func update*(ir: var IrStore3, cr: sink IrCursor) =
 
     let start = p
     while p < next:
-      setP(p): insert + (p - start)
+      patchTable[p] = insert + (p - start)
       inc p
 
     copySrc += num
