@@ -8,6 +8,11 @@
 ## A static-control-flow-based transform collects state for each node base on static control-flow and performs modifications based on the gathered data
 ##
 
+# XXX: static-control-flow-based transforms are going to be deprecated and
+#      eventually. Mixing analysis and transformation this way is not a good
+#      idea
+# TOOD: this module needs to be split up
+
 import
   std/[
     tables
@@ -66,7 +71,12 @@ template customAssert(cond: bool, node: IRIndex) =
   if not cond:
     raise (ref PassError)(msg: astToStr(cond), n: node)
 
-type PassEnv* = ref object # XXX: will be a non-`ref` later on
+type PassEnv* = ref object
+  # XXX: shared mutable ownership is not needed for ``PassEnv``. There's only
+  #      one owner, and after the initial setup, ``PassEnv`` is never mutated
+  #      again. A lot of places need access to the instance however, and since
+  #      view-types aren't available yet, ``ref`` is the second-best solution
+  #      to passing the instance around without having to worry about copies
   compilerprocs*: Table[string, ProcId]
   compilertypes*: Table[string, TypeId]
 
@@ -96,7 +106,7 @@ type
 
   TypeFieldInfo* = seq[set[TypeFieldStatus]]
     ## The status of if and in what form type-fields are present for each
-    ## object type. ``none`` if the type is not a record or array type.
+    ## object type
     # XXX: only 2 out of the 8 bit are used; a ``PackedSeq`` would make sense
     #      here
 
@@ -111,10 +121,10 @@ type
 
   TypedPass*[T] = object
     # XXX: going just by the name, a ``TypedPass`` would be a pass that is
-    #      typed, which doesn't match at all with what the type actually
-    #      represents. A better name is needed
+    #      typed, which doesn't match at all with what the ``TypedPass``
+    #      actually represents. A better name is needed
     # TODO: the ``IrEnv`` parameter must not be mutable. It currently has to be
-    #       because ``IrEnv`` also stores the ``LiteralData`` object, which
+    #       because ``IrEnv`` also stores the ``LiteralData`` object - which
     #       needs to be mutable in order for new literal data to be added.
     #       In order to stay forward-compatible, do **not** modify anything
     #       besides ``LiteralData`` in `env`
@@ -165,8 +175,8 @@ proc runPass2*[T](irs: IrStore3, diff: var Changes, ctx: var T, pass: LinearPass
 
 proc runPass*[T: not void](code: var IrStore3, types: TypeContext,
                            env: var IrEnv, extra: T, pass: TypedPass[T]) =
-  ## Applies `pass` to the given `code`, directly merging the changes into
-  ## `code`
+  ## Applies `pass` to the given `code`, merging the changes into
+  ## `code` at the end
   var cr: IrCursor
   cr.setup(code)
 
@@ -195,7 +205,7 @@ proc runV2*[G, L](s: var IrStore3, gs: var G, pass: CfPass[G, L]) =
   #mixin mergeFrom
   #mixin exec
 
-  # XXX: see if using a diff-based approach to the thread state makes is more
+  # XXX: see if using a diff-based approach to the thread state is more
   #      efficient. There's an unfinished attempt of this in `vmir.run`
   var states: seq[(L, bool)]
   var visited: seq[uint8] # visit state for each join point. used to abort loops
@@ -301,12 +311,14 @@ type
     graph*: PassEnv
     env*: ptr IrEnv
 
+# TODO: introduce a ``UntypedPass`` that uses an interface similar to the one
+#       used by ``TypedPass``
 func initUntypedCtx*(graph: PassEnv, env: ptr IrEnv): UntypedPassCtx =
   result = UntypedPassCtx(graph: graph, env: env)
 
 # location and value lifetimes are different things. A location can live
 # longer than it's value, but accessing a location past it's values' lifetime
-# is illegal. A `ntkLocEnd` signifies the end-of-life of a location
+# is illegal. A `ntkLocEnd` signals the end-of-life of a location
 
 # OUTDATED IDEA, mostly obsolete now (some things still apply)
 # phase 1:
@@ -354,7 +366,6 @@ template computeTypesImpl(ir: IrStore3, env: IrEnv) =
       asgnTo(i):
         case n.callKind
         of ckBuiltin, ckMagic:
-          # XXX: built-in calls feel wrong. Using magics instead might be better
           n.typ
         of ckNormal:
           let callee = ir.at(n.callee)
@@ -474,8 +485,8 @@ func insertLoop(cr: var IrCursor): JoinPoint
 
 # TODO: move to ``pass_helpers``
 template genForLoop*(cr: var IrCursor, d: var LiteralData, g: PassEnv, len: IRIndex, body: untyped) =
-  ## Generates a for-loop with counting from '0' till the given `len` - 1. The
-  ## counter is accessible in from `body` via ``counter`` and the loop-exit
+  ## Generates a for-loop that counts from '0' to the `len` - 1. The temporary
+  ## used for the counter can be accessed via ``counter`` and the loop-exit
   ## point via ``loopExit``
   block:
     let
@@ -504,7 +515,7 @@ template genForLoop*(cr: var IrCursor, d: var LiteralData, g: PassEnv, len: IRIn
 type StorageLoc = enum
   # TODO: add ``slMissing`` to distinguish between "location unknown" and
   #       "not computed"?
-  slUnknown ## it's not know where the location is located
+  slUnknown ## it's not known where the location is located
   slStack   ## located on the stack
   slHeap    ## located on the heap
   # TODO: also add `slStatic`, used for constants?
@@ -536,7 +547,7 @@ func computeStorageLocs(result: var seq[StorageLoc], code: IrStore3,
 
     of ntkAddr:
       # when taking the address, we use the storage location of the memory
-      # location we're take the address of
+      # location we're taking the address of
       result[i] = result[n.addrLoc]
     of ntkDeref:
       if code[i].kind == ntkAddr:
@@ -571,14 +582,14 @@ func computeStorageLocs(result: var seq[StorageLoc], code: IrStore3,
         unreachable()
 
     of ntkPathObj, ntkPathArr, ntkUse, ntkConsume:
-      # XXX: depending on how it's going to be implemented, ``ntkConsume``
-      #      might need to be adjusted
+      # XXX: depending on how it's going to be implemented, the computation
+      #      for ``ntkConsume`` might need to be adjusted
       result[i] = result[n.srcLoc]
     of ntkCast:
       # cast yields a temporary, which is located on the stack
       result[i] = slStack
     of ntkConv:
-      # conversion are lvalue-conversions, so inheriting the state of the
+      # conversions are lvalue-conversions, so inheriting the state of the
       # source location is correct (both locations have the same identity)
       result[i] = result[n.srcLoc]
 
@@ -613,7 +624,6 @@ func storageLoc(c: RefcPassCtx, val: IRIndex): StorageLoc {.inline.} =
 proc requestRtti(c: RefcPassCtx, cr: var IrCursor, t: TypeId): IRIndex =
   # refc uses the v1 type-info
   cr.insertAddr cr.insertCallExpr(mGetTypeInfo, c.extra.getCompilerType("TNimType"), cr.insertTypeLit(t))
-  # TODO: collect for which types rtti was requested
 
 func requestRtti2(g: PassEnv, cr: var IrCursor, t: TypeId): IRIndex =
   # refc uses the v1 type-info
@@ -636,8 +646,11 @@ proc genNewObj(cr: var IrCursor, g: PassEnv, env: IrEnv, ptrTyp: TypeId,
 
   case loc
   of slHeap:
+    # TODO: this is incorrect and causes memory leaks. For it to work, the
+    #       ref-count of the ref still stored in `dest` needs to decremented
+    #       first (a write-barrier is also needed) and then a blit copy has
+    #       to be used
     let v = cr.insertCompProcCall(g, "newObjRC1", rttiExpr, sizeExpr)
-    # XXX: not sure about `askMove` here...
     cr.insertAsgn(askMove, dest, cr.insertCast(ptrTyp, v))
   of slStack, slUnknown:
     let v = cr.insertCompProcCall(g, "newObj", rttiExpr, sizeExpr)
@@ -648,9 +661,9 @@ func genInitCompound(cr: var IrCursor, c: RefcPassCtx, loc: IRIndex, isPtr: bool
   ## location
   let flags = c.tfInfo[typ.toIndex]
   if tfsEmbedded in flags:
-    # if the compound location has type field embedded, use ``objectInit``. It
-    # will also take care of initializing the type field in compound location's
-    # header (if one exists)
+    # if the compound location has a type field embedded, use ``objectInit``.
+    # It will also take care of initializing the type field in compound
+    # location's header (if one exists)
     let dst =
       if isPtr: loc
       else:     cr.insertAddr(loc)
@@ -672,6 +685,7 @@ proc newTemp(cr: var IrCursor, pe: PassEnv, typ: TypeId): int =
   ## and returns it's name
   result = cr.newLocal(lkTemp, typ)
 
+  # TODO: use ``bcInitLoc`` now that it was added
   # XXX: temporaries should be specified to start as zero-initialized at the
   #      back-end code-IR level. The code-generators (or dedicated
   #      pre-code-generator transformations) are then responsible for
@@ -680,7 +694,7 @@ proc newTemp(cr: var IrCursor, pe: PassEnv, typ: TypeId): int =
   cr.insertCompProcCall(pe, "nimZeroMem", cr.insertAddr(cr.insertLocalRef(result)), cr.insertMagicCall(pe, mSizeOf, tyInt, cr.insertTypeLit(typ)))
 
 proc processMagicCall(c: RefcPassCtx, cr: var IrCursor, ir: IrStore3, types: TypeContext, env: var IrEnv, m: TMagic, n: IrNode3) =
-  ## Lowers calls to various magics into calls to `compilerproc`s
+  ## Lowers calls to various magics into calls to ``.compilerproc``s
   template arg(i: Natural): IRIndex =
     ir.args(cr.position, i)
 
@@ -694,7 +708,6 @@ proc processMagicCall(c: RefcPassCtx, cr: var IrCursor, ir: IrStore3, types: Typ
       size = if n.argCount > 1: arg(1) else: InvalidIndex
 
     cr.replace()
-    # XXX: not sure about `askMove` here...
     genNewObj(cr, c.extra, env, ptrTyp, arg, size, c.storageLoc(arg))
 
   of mGCref, mGCunref:
@@ -738,7 +751,7 @@ proc processMagicCall(c: RefcPassCtx, cr: var IrCursor, ir: IrStore3, types: Typ
 
     of tnkOpenArray, tnkTypeDesc, tnkUncheckedArray, tnkVoid, tnkString,
        tnkSeq, tnkEmpty:
-      # these either have to be transformed away already or don't have a
+      # these are either transformed away already or they don't have a (valid)
       # default representation
       unreachable(env.types[typ].kind)
 
@@ -761,8 +774,8 @@ proc processMagicCall(c: RefcPassCtx, cr: var IrCursor, ir: IrStore3, types: Typ
         cr.replace()
         # XXX: ``genericReset`` is described as "incredibly slow" (which is
         #      very likely true) and is not used by ``cgen`` anymore. It
-        #      still exists however, and we're using it for now in order to
-        #      make things work.
+        #      still exists however, and we're using it here for now in order
+        #      to make things work.
         #      The better solution is to use a separate lifting pass that
         #      lifts the reset logic for types that need it into a dedicated
         #      procedure
@@ -824,7 +837,7 @@ func genAssignmentV1(cr: var IrCursor, c: RefcPassCtx, env: IrEnv, dst, src: IRI
 
   of tnkBool, tnkChar, tnkInt, tnkUInt, tnkFloat, tnkLent, tnkVar, tnkPtr, tnkProc,
      tnkCString, tnkOpenArray, tnkSet:
-    # no special behaviour. A blit copy is enough
+    # a blit copy is enough
     discard
   of tnkEmpty, tnkVoid, tnkString, tnkSeq, tnkUncheckedArray, tnkTypeDesc:
     unreachable()
@@ -835,7 +848,7 @@ proc applyRefcPass(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPass
   of ntkAsgn:
     case n.asgnKind
     of askMove:
-      # XXX: it'd be better if for v1 seqs, string and seq were lowered to
+      # XXX: it'd be better if for seqsv1, string and seq were lowered to
       #      ``ref`` types (because that's what they really are) instead of
       #      ``ptr``. The only reason this hasn't happened yet is because
       #      lowered strings and seqs are declared as pointer types in
@@ -920,6 +933,8 @@ func getAttachedOp(c: PassEnv, op: TTypeAttachedOp, typ: TypeId): ProcId =
   assert typ != NoneType
   c.attachedOps[op][typ]
 
+# XXX: hooks don't really work yet. The pass is run, but effectively does
+#      nothing
 func injectHooks(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, cr: var IrCursor) =
   ## Replaces assignments and destroys with calls to the copy, sink, and destroy hooks.
   # TODO: rename. We're not injecting anything, just replacing
@@ -983,7 +998,8 @@ proc genTernaryIf(cr: var IrCursor, g: PassEnv, asgn: AssignKind, cond, dest, a,
 const SeqV1LenField = 0
 # XXX: the field position is not necessarily 2; the value should be detected
 #      during compilation instead
-const SeqV1DataField = 2 # TODO: depends on the compiler flags
+const SeqV1DataField = 2 # TODO: depends on flags provided to the compiler at
+                         #       run-time
 
 proc isConst(ir: IrStore3, env: IrEnv, n: IRIndex): bool =
   ## Returns if `n` refers to a ``const``
@@ -996,7 +1012,7 @@ proc isLiteral(ir: IrStore3, n: IRIndex): bool =
 proc accessSeq(cr: var IrCursor, ir: IrStore3, env: IrEnv, n: IRIndex, typ: TypeId): IRIndex =
   assert env.types[typ].kind in { tnkSeq, tnkString }
   # XXX: as an alternative to handling this here, we could introduce a
-  #      ``bcLoadConst``, which would allow us to move the logic here
+  #      ``bcLoadConst``. That would allow us to move the logic here
   #      to a different pass
   # XXX: yet another one would be to introduce a ``bcAccessSeq``
 
@@ -1011,7 +1027,8 @@ proc accessSeq(cr: var IrCursor, ir: IrStore3, env: IrEnv, n: IRIndex, typ: Type
     n
 
 proc accessSeqField(cr: var IrCursor, ir: IrStore3, src: IRIndex, f: int): IRIndex =
-  # a const is stores the underlying objec type directly, but other seqs are pointer types
+  # ``seq``s that are stored as constants are of the lowered-to object type -
+  # the others are pointers
   let obj =
     if false: src #isLiteral(ir, src): src
     else:                  cr.insertDeref(src)
@@ -1118,7 +1135,7 @@ func genSeqAssign(cr: var IrCursor, pe: PassEnv, data: var LiteralData,
     unreachable()
 
 proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, cr: var IrCursor) =
-  ## Lowers the `seq`-related magic operations into calls to the v1 `seq`
+  ## Lowers the ``seq``-related magic operations into calls to the v1 ``seq``
   ## implementation
   let n = ir[cr]
   case n.kind
@@ -1131,7 +1148,7 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
         genSeqAssign(cr, c, env.data, env.types, n.wrLoc, n.srcLoc, typ)
 
     of askMove, askBlit:
-      # v1 seqs are ``ref``-based, so we defer the handling of 'move' and
+      # seqsv1 are ``ref``-based, so we defer the handling of 'move' and
       # 'blit' to the GC transform pass
       discard
 
@@ -1234,7 +1251,7 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
       #       then
 
       # XXX: ``sink`` parameters aren't processed by the earlier stages yet so
-      #      we have to manually account for that here for now
+      #      we have to manually account for them here for now
       let tmpCopy = cr.insertLocalRef(cr.newTemp(c, elemTyp))
       case env.types.kind(elemTyp)
       of tnkSeq, tnkString:
@@ -1248,7 +1265,6 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
 
       cr.insertAsgn(askMove, seqVal, cr.insertCast(typ, cr.insertCompProcCall(c, "incrSeqV3", seqVal, c.requestRtti2(cr, typ)) ))
 
-      # TODO: filling the element and adjusting the seq length is missing
       let seqLen = cr.accessSeqField(ir, seqVal, SeqV1LenField)
       let tmp = cr.genTempOf(seqLen, c.sysTypes[tyInt])
 
@@ -1288,7 +1304,8 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
       discard genStrConcat(cr, c, types, ir, env, cr.position)
 
     of mEqStr:
-      # TODO: move into a common pass, since this shared between v1 and v2
+      # TODO: since this shared between seqsv1 and seqsv2 -> move it into a
+      #       common pass
       let
         a = arg(0)
         b = arg(1)
@@ -1306,7 +1323,7 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
         else: InvalidIndex
 
       if nonEmptyIdx == InvalidIndex:
-        # both operands are not statically empty
+        # it's not statically know about if either of the operands is empty
         cr.insertCompProcCall(c, "eqStrings", a, b)
       else:
         # we still call ``len`` for an empty string in the case that both
@@ -1315,7 +1332,7 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
         discard cr.binaryBoolOp(c, mEqI, genSeqLen(cr, env.data, c, ir, nonEmptyIdx), cr.insertLit(env.data, 0))
 
     of mLeStr, mLtStr:
-      # same implementation for v1 and v2
+      # same implementation for seqsv1 and seqsv2
       discard "lowered later"
 
     of mLengthStr:
@@ -1360,6 +1377,8 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
       var r = cr.insertDeref(cr.accessSeq(ir, env, n.srcLoc, arrTyp))
       # a `lent seq` is not a treated as a `ptr NimSeq` but just as `NimSeq`
       # (`NimSeq` itself is a pointer type)
+      # TODO: this is very likely wrong (no issues have surfaced so far
+      #       however)
       if env.types[arrTyp].kind == tnkVar:
         r = cr.insertDeref(r)
 
@@ -1369,10 +1388,9 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
     else:
       discard
 
-  # XXX: rewriting of `nktUse(ntkLit str)` is not done here anymore, but
-  #      during `liftSeqConstsV1` instead. This does have the downside of
-  #      also replacing string-literals only used in non-argument context with
-  #      ``cast[NimString](addr str)``
+  # XXX: rewriting of `nktUse(ntkLit str)` is not done here anymore. This does
+  #      have the downside that string-literals only used in a non-argument
+  #      context with are also replaced with ``cast[NimString](addr str)``
   #[
   of ntkUse:
     if c.env.types[c.typeof(n.srcLoc)].kind == tnkString and isLiteral(ir, n.srcLoc):
@@ -1434,7 +1452,8 @@ func lowerSeqTypesV1*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: var Symb
       # replace a ``seq[T]`` with the following:
       #
       # .. code:: nim
-      #   type PSeq = ptr object of TGenericSeq # name is just an example
+      #   type PSeq = ptr object of TGenericSeq
+      #     # name is just an example
       #     data: UncheckedArray[T]
       #
       let
@@ -1455,14 +1474,11 @@ type
 
 type LiftPassCtx* = object
   graph*: PassEnv
-  idgen*: IdGenerator
   cache*: IdentCache
 
   env*: ptr IrEnv
 
-  typeInfoMarker*: Table[TypeId, SymId] # sig hash -> type info sym
-
-  syms*: seq[(SymId, TypeId)] ## all lifted globals
+  typeInfoMarker*: Table[TypeId, SymId] # type id -> symbol of the lifted global
 
   constCache*: ConstCache ## caches the created constants corresponding to
                           ## (literal, type) pairs
@@ -1507,6 +1523,9 @@ proc liftSeqConstsV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCur
       # a type literal
       return
 
+    # TODO: don't lift empty string/seq literals into constants but just
+    #       replace them with a correctly typed 'nil' literal
+
     case c.env.types[lit.typ].kind
     of tnkString:
       let s = c.addConst(lit.typ, "strConst", lit.val)
@@ -1523,7 +1542,6 @@ proc liftSeqConstsV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCur
       # behaviour. However, during later processing, the type of the constant
       # is changed to a specialized fixed-length seq type that is pointer
       # compatible with ``TGenericSeq``
-      # XXX: the mentioned later processing doesn't exist yet
       discard cr.insertCast(lit.typ, cr.insertAddr(cr.insertSym(s)))
 
     else:
@@ -1564,7 +1582,7 @@ proc lowerErrorFlag*(ir: var IrStore3, g: PassEnv, ic: IdentCache,
   ## is inserted at the start of the procedure - but only if the error flag
   ## is actually accessed!
   # XXX: a `LinearPass` can't be used here, since we need to insert
-  # XXX: "lower" is the wrong terminology here
+  # XXX: "lower" is the wrong terminology here (?)
   # XXX: maybe this should happen as part of ``irgen`` instead?
   # XXX: move the ``bcRaise`` and ``bcExitRaise`` transformation from
   #      ``cpasses`` to here and rename the pass to ``lowerRaiseHandling``?
@@ -1589,7 +1607,9 @@ proc lowerErrorFlag*(ir: var IrStore3, g: PassEnv, ic: IdentCache,
           let
             p = g.getCompilerProc("nimErrorFlag")
 
-            # TODO: this lookup yields the same across all calls to `lowerTestError`. Cache both the compiler proc and it's return type
+            # TODO: this lookup yields the same across all calls to
+            #       `lowerTestError`. Cache both the compiler proc and it's
+            #       return type
             typ = procs.getReturnType(p)
             decl = syms.addDecl(ic.getIdent(ErrFlagName))
 
@@ -1678,8 +1698,8 @@ func genSubsetRelOp(setType: TypeId, a, b: IRIndex, testTrue: bool, g: PassEnv, 
     result = isSubsetExpr
 
 func genSetOp(ir: IrStore3, pe: PassEnv, env: var IrEnv, setType: TypeId, m: TMagic, n: IrNode3, cr: var IrCursor) =
-  # TODO: sets with ``firstOrd != 0`` aren't taken into account yet.
-  #       ``irgen`` has to insert the required adjustment
+  # set elements of sets where the first element has a value > 0 were already
+  # pre-processed by ``irgen``
   let len = env.types.length(setType)
 
   case len
@@ -1883,7 +1903,8 @@ func lowerSetTypes*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: SymbolEnv)
       let L = typ.length
 
       if L <= 64:
-        # sets smaller than 64 bits are turned into fitting uint types
+        # sets that fit into 64 bits are turned into the smallest fitting uint
+        # type
         let r =
           if L <= 8:    c.graph.sysTypes[tyUInt8]
           elif L <= 16: c.graph.sysTypes[tyUInt16]
@@ -2187,7 +2208,7 @@ func lowerOpenArrayVisit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: Lo
       let p =
         if env.types[srcTyp].kind == tnkArray and env.types.length(srcTyp) == 0:
           # XXX: the type is wrong, but we don't have access to the correct
-          #      one
+          #      one. **EDIT**: with ``TypeContext`` we now do
           cr.insertNilLit(env.data, c.graph.sysTypes[tyPointer])
         else:
           cr.insertAddr cr.insertPathArr(arr, cr.insertLit(env.data, 0))
@@ -2203,7 +2224,9 @@ func lowerOpenArrayVisit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: Lo
         else:
           unreachable(env.types[srcTyp].kind)
 
-      # XXX: the pointer needs a cast, but we don't know the correct type yet...
+      # XXX: the pointer needs a cast, but we don't know the correct type
+      #      yet...
+      #      **EDIT**: with the introduction of ``TypeContext`` we now do
       cr.insertAsgn(askInit, ex.dataExpr, p)
       cr.insertAsgn(askInit, ex.lenExpr, lenExpr)
 
@@ -2252,6 +2275,7 @@ func lowerOpenArrayTypes*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: Symb
 
   commit(tenv, remap)
 
+# XXX: the ``openArray`` parameter expansion is currently not applied
 proc lowerOpenArray*(g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
   ## * transform ``openArray`` **parameters** (not the types in general) into
   ##  an unpacked ``(ptr T, int)`` pair. That is:
@@ -2366,7 +2390,7 @@ proc liftFromStruct(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, c: var
 
   else:
     # ``liftFromStruct`` is also used as the entry procedure for constant
-    # lifting, where it's not known whether or not the literal is really a
+    # lifting where it's not known whether or not the literal is really a
     # structure. Don't raise an error - just do nothing
     discard
 
@@ -2390,7 +2414,7 @@ proc liftFromAux(typ: TypeId, iter: var DataIter, syms: var SymbolEnv,
 proc liftFrom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, c: var ConstCache,
               data: LiteralData, types: TypeEnv, prc: LiftAtomProc) =
   ## Recursively walks the initializer AST `data`, applying `prc` to all
-  ## sub-nodes. After all sub-nodes were traversed, `prc` is applied to `data`
+  ## sub-nodes. After all sub-nodes are traversed, `prc` is applied to `data`
   ## itself
   iter.next()
   if not prc(typ, iter, syms, c, data, types):
@@ -2400,11 +2424,8 @@ proc liftFrom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, c: var Const
 proc liftSeqConstsV1*(syms: var SymbolEnv, data: var LiteralData,
                       c: var ConstCache, name: PIdent, types: TypeEnv) =
   ## Lifts ``string|seq`` literals used by constant data into their own
-  ## constants and replace the lifted-from location with a reference to the
+  ## constants and replaces the lifted-from location with a reference to the
   ## newly created string constant
-
-  # TODO: same issue as with the other ``liftSeqConstsV1`` - we're creating
-  #       duplicates
 
   func liftAtom(typ: TypeId, iter: var DataIter, syms: var SymbolEnv, c: var ConstCache, data: LiteralData, types: TypeEnv): bool =
     let kind = types.kind(typ)
@@ -2438,7 +2459,7 @@ proc liftSeqConstsV1*(syms: var SymbolEnv, data: var LiteralData,
 
 func transformSeqConstsV1*(pe: PassEnv, syms: var SymbolEnv, data: var LiteralData, types: var TypeEnv) =
   ## Transforms the data representation for seq|string constants to what is
-  ## expected for v1 seqs. The type used for each the constants is equivalent
+  ## expected for seqsv1. The type used for each the constants is equivalent
   ## to an instantiation of the following high-level type:
   ##
   ## .. code-block::nim

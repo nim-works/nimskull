@@ -715,8 +715,7 @@ proc generateCode*(g: ModuleGraph) =
     tfInfo = computeTypeFieldStatus(passEnv, env.types, objects)
     gcInfo = computeGcLookup(env.types)
 
-  var lpCtx = LiftPassCtx(graph: passEnv, idgen: g.idgen, cache: g.cache)
-  lpCtx.env = addr env
+  var lpCtx = LiftPassCtx(graph: passEnv, cache: g.cache, env: addr env)
   var ttc = TypeTransformCtx(graph: passEnv, ic: g.cache)
   var upc = initUntypedCtx(passEnv, addr env) # XXX: not mutated - should be ``let``
 
