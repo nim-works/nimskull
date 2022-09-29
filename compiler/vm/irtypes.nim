@@ -77,7 +77,6 @@ type TypeNodeKind* = enum
   tnkString
   tnkCString
   tnkUncheckedArray
-  #tnkSink # XXX: ?
 
   tnkSet
 
@@ -89,10 +88,6 @@ type TypeNodeKind* = enum
              ## reference)
 
   tnkTypeDesc ## only relevant for compile-time function evaluation
-
-  tnkName # a reference to named type
-
-  #tnkAlias
 
 type FieldDesc* = object
   # TODO: `sym` should probably be renamed to `decl` now
@@ -1595,10 +1590,6 @@ func hash(e: TypeEnv, hcode: var Hash, se: var seq[int], typ: Type) =
     se.add(typ.sig.len)
     for it in typ.sig.items:
       hashV2(e, hcode, se, it)
-
-  of tnkName:
-    # TODO: remove
-    discard
 
 
 iterator items*(x: TypeEnv): (TypeId, lent Type) =

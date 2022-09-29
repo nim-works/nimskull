@@ -564,8 +564,7 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
       # XXX: allowed for now. Needs some further thought
       discard cr.insertNilLit(c.env.data, c.extra.sysTypes[tyPointer])
 
-    of tnkOpenArray, tnkTypeDesc, tnkUncheckedArray, tnkVoid, tnkEmpty,
-       tnkName:
+    of tnkOpenArray, tnkTypeDesc, tnkUncheckedArray, tnkVoid, tnkEmpty:
       # these don't have a default representation
       unreachable(c.env.types[typ].kind)
 
