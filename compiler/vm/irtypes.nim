@@ -1945,6 +1945,14 @@ proc translate*(n: PNode, orig: var SessionBase, data: var LiteralData, conf: Co
           data.addLit session, lit
           data.addLit session, lit
 
+  of nkClosure:
+    assert n[1].kind == nkNilLit # closure must have a nil environment
+    # treat it as a tuple with two elements
+    withSession data.startArray(2):
+      sub(session, n[0]) # procedure pointer
+      # use nil for the environment
+      data.addLit session, data.newLit(0'u) # environment
+
   else:
     unreachable(n.kind)
 
