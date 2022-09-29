@@ -1229,6 +1229,20 @@ func genBracedObjConstrPos(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data
     let typ = c.env.types[c.env.types.nthField(id, iter.i)].typ
     discard genConstInitializer(ast, c, data, iter.next(data), typ)
 
+func genInitializerExpr(ast: var CAstBuilder, c: var GenCtx, data: LiteralData,
+                        lit: LiteralId, typ: TypeId): var CAstBuilder =
+  ## Generates an expression from the literal to use as an initializer
+  case lit.kind
+  of lkNumber, lkString:
+    ast.genLit(c, lit, typ)
+  of lkPacked:
+    ast.genPackedArray(c, data, lit)
+  of lkComplex:
+    var iter = initDataIter(data, lit)
+    ast.genConstInitializer(c, data, iter, typ).void()
+
+  result = ast
+
 func accessSuper(ast: var CAstBuilder, depth: int, start: CAst, supName: CIdent): var CAstBuilder =
   result = ast
 
@@ -1960,16 +1974,10 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
       let sym = env.syms[id]
       if sym.kind == skConst:
         let lit = env.syms.data(id)
-        if lit.kind != lkComplex:
-          ctx.gl.constInit[id] = buildAst: genLit(builder, ctx, lit, sym.typ)
-          ctx.gl.constDeps[id] = @[]
-          continue
-
         # note: `c` is swapped with `ctx.gl`
-        var iter = initDataIter(env.data, env.syms.data(id))
-        ctx.gl.constInit[id] = start().genConstInitializer(ctx, env.data, iter, sym.typ).fin()
+        ctx.gl.constInit[id] = start().genInitializerExpr(ctx, env.data, lit, sym.typ).fin()
 
-        block:
+        if lit.kind == lkComplex:
           # collect the dependencies on other constants for the constant and
           # store the result in a lookup-table for later
           # XXX: the pre-calculated dependency list is only used for emitting
@@ -1996,6 +2004,9 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
           # prepare for the next constant:
           ctx.m.syms.clear()
           ctx.m.funcs.clear()
+        else:
+          # non-complex constants don't have dependencies
+          ctx.gl.constDeps[id] = @[]
 
     swap(ctx.gl, c)
 
