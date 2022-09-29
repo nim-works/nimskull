@@ -987,9 +987,11 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
       b = c.genx(n[2])
     # TODO: maybe don't lower this early?
     # XXX: a swap could be treated as a rename...
-    c.irs.irAsgn(askShallow, tmp, a)
-    c.irs.irAsgn(askShallow, a, b)
-    c.irs.irAsgn(askShallow, b, tmp)
+    # XXX: data-flow-analysis should know about the swap, so lowering it here
+    #      is a problem
+    c.irs.irAsgn(askBlit, tmp, a)
+    c.irs.irAsgn(askMove, a, b)
+    c.irs.irAsgn(askMove, b, tmp)
   of mReset:
     var d = c.genx(n[1])
     unreachable("missing")
