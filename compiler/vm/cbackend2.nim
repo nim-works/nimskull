@@ -756,7 +756,6 @@ proc generateCode*(g: ModuleGraph) =
   lowerOpenArrayTypes(ttc, env.types, env.syms)
 
   for s, irs in mpairsId(procImpls, ProcId):
-      let orig = irs
       logError(irs, env, s):
         # TODO: the ``hookPass`` can be batched together with the
         #       ``lowerMatchPass``
