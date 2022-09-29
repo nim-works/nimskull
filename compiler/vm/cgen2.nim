@@ -407,8 +407,8 @@ func genRecordNode(c: var TypeGenCtx, decl: var CDecl, iter: var RecordIter): in
     decl.add cdnkStruct
     decl.add cdnkEmpty
 
-    let count = genRecordNode(c, decl, iter)
-    decl[start].a = count.uint32
+    assert n.len == 1
+    decl[start].a = genRecordNode(c, decl, iter).uint32
 
     result = 1 # a single struct
 
