@@ -86,6 +86,8 @@ type
     bcRangeCheck
     bcOverflowCheck
 
+    bcInitLoc ## initialize a location to it's zero-representation
+
     bcAccessEnv ## access the current procedure's closure environment
 
     # XXX: as an alternative to builtin calls, these two could use use

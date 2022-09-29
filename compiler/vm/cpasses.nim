@@ -117,6 +117,10 @@ func visit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: CTransformCtx, c
 
         discard cr.insertLocalRef(tmp)
 
+      of bcInitLoc:
+        cr.replace()
+        cr.insertReset(c.graph, env, types[arg(0)], arg(0))
+
       of bcStrToCStr:
         cr.replace()
         cr.insertCompProcCall(c.graph, "nimToCStringConv", arg(0))

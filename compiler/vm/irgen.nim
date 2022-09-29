@@ -275,14 +275,15 @@ func irNull(c: var TCtx, t: PType): IRIndex
 
 proc getTemp(cc: var TCtx; tt: PType): IRIndex =
   let id = cc.genLocal(lkTemp, tt)
-  # TODO: temporaries are now default-initialized here, but I'd consider that
-  #       to be the wrong approach. Temporaries are meant to used when a
-  #       scratch location is needed, so what we'd actually want is
-  #       zero-initialization. It'd be best to leave how the location is
-  #       zero-initialized to the actual back-end, but that currently not
-  #       possible, since the back-end doesn't know when the location's
-  #       lifetime begins. Maybe a ``ntkLocStart`` is needed?
-  cc.irs.irAsgn(askInit, cc.irs.irLocal(id), cc.irNull(tt))
+  # XXX: zero-initializing the temporaries is better than the previous
+  #      default-initialization, but there are still a few issues:
+  #      - if the temporary is fully initialized (all of it's bits are written
+  #        to prior to the first usage) it's unnecessary
+  #      - the temporary should be implicitly zero-initialized. That is, a later
+  #        pass that maps the IR's semantics to the target's semantics should
+  #        be responsible for zero-initializing if required. With something
+  #        like a ``ntkLocStart``, that's not going to be possible however.
+  discard cc.irs.irCall(bcInitLoc, cc.requestType(tyVoid), cc.irs.irLocal(id))
   cc.irs.irLocal(id)
 
 func irNull(c: var TCtx, t: TypeId): IRIndex =
