@@ -779,7 +779,8 @@ proc generateCode*(g: ModuleGraph) =
         # the error-handling pass inserts new nodes (instead of replacing
         # them), which might cause conflicts with other changes if performed
         # concurrently. To be on the safe side, the changes are applied separately.
-        lowerTestError(irs, passEnv, g.cache, env.types, env.procs, env.syms)
+        lowerErrorFlag(irs, passEnv, g.cache, env.types, env.procs, env.data,
+                       env.syms)
 
         block:
           var diff = initChanges(irs)

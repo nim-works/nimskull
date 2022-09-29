@@ -1527,18 +1527,22 @@ proc liftSeqConstsV1(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCur
 
 const ErrFlagName = "nimError"
 
-proc lowerTestError*(ir: var IrStore3, g: PassEnv, ic: IdentCache, types: TypeEnv, procs: ProcedureEnv, syms: var SymbolEnv) =
-  ## Lowers ``bcTestError`` builtin calls for the C-like targets. Turns
-  ## ``bcTestError`` into ``unlikelyProc(ErrFlagName[])`` and inserts a
+proc lowerErrorFlag*(ir: var IrStore3, g: PassEnv, ic: IdentCache,
+                         types: TypeEnv, procs: ProcedureEnv,
+                         data: var LiteralData, syms: var SymbolEnv) =
+  ## Lowers the ``bcTestError`` and ``bcEnterExcHandler`` builtins.
+  ## ``bcTestError`` is turned into ``unlikelyProc(ErrFlagName[])`` and
   ##
   ## .. code:: nim
   ##   let ErrFlagName = nimErrorFlag()
   ##
-  ## at the top, but only if the error flag is actually accessed!
+  ## is inserted at the start of the procedure - but only if the error flag
+  ## is actually accessed!
   # XXX: a `LinearPass` can't be used here, since we need to insert
   # XXX: "lower" is the wrong terminology here
   # XXX: maybe this should happen as part of ``irgen`` instead?
-
+  # XXX: move the ``bcRaise`` and ``bcExitRaise`` transformation from
+  #      ``cpasses`` to here and rename the pass to ``lowerRaiseHandling``?
   var
     cr: IrCursor
     addedErr: bool
@@ -1546,18 +1550,16 @@ proc lowerTestError*(ir: var IrStore3, g: PassEnv, ic: IdentCache, types: TypeEn
 
   cr.setup(ir)
 
-  for i in 0..<ir.len:
-    cr.setPos i
-    let n = ir.at(i)
+  for i, n in ir.pairs:
     case n.kind
     of ntkCall:
-      # XXX: maybe introduce a bcNone and return that from `n.builtin` in case
-      #      the call is no builtin call? Would simplify some callsites
-      if n.isBuiltIn and n.builtin == bcTestError:
+      let bic = n.safeBuiltin
+      case bic
+      of bcTestError, bcEnterExcHandler:
         if not addedErr:
           addedErr = true
           # since modifications have to happen in increasing order, we have
-          # to first jump back and insert the error flag
+          # to first go back and insert the error flag
           cr.setPos 0
           let
             p = g.getCompilerProc("nimErrorFlag")
@@ -1569,10 +1571,21 @@ proc lowerTestError*(ir: var IrStore3, g: PassEnv, ic: IdentCache, types: TypeEn
           errFlag = cr.insertLocalRef(cr.newLocal(lkLet, typ, decl))
           cr.insertAsgn(askInit, errFlag, cr.insertCallExpr(p))
 
-          cr.setPos i # set cursor back to the current position
-
+        cr.setPos i
         cr.replace()
-        discard cr.insertCallExpr(bcUnlikely, NoneType, cr.insertDeref(errFlag)) # TODO: `NoneType` is wrong here
+        case bic
+        of bcTestError:
+          discard cr.insertCallExpr(bcUnlikely, g.sysTypes[tyBool],
+                                    cr.insertDeref(errFlag))
+        of bcEnterExcHandler:
+          # reset the error flag back to 'false'
+          cr.insertAsgn(askCopy,
+                        cr.insertDeref(errFlag), cr.insertLit(data, 0))
+        else:
+          unreachable()
+
+      else:
+        discard
 
     else:
       discard

@@ -71,10 +71,15 @@ func visit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: CTransformCtx, c
           # re-raise
           cr.insertCompProcCall(c.graph, "reraiseException")
         else:
+          assert argCount(n) == 2
           let typ = env.types.lookupGenericType(tnkRef, c.graph.getCompilerType("Exception"))
           let nilLit = cr.insertNilLit(env.data, typ)
           cr.insertCompProcCall(c.graph, "raiseExceptionEx",
                                 arg(0), arg(1), nilLit, nilLit, cr.insertLit(env.data, 0))
+
+      of bcExitRaise:
+        cr.replace()
+        cr.insertCompProcCall(c.graph, "popCurrentException")
 
       of bcOverflowCheck:
         let

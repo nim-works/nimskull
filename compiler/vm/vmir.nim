@@ -74,8 +74,15 @@ type
     bcSwitch # switch variant branch
     bcMatch # 'of' branch
     bcGetBranchIndex # compute the branch index
-    bcRaise
-    bcTestError
+
+    # TODO: rename ``bcRaise`` to ``bcEnterRaise``
+    bcRaise ## enter error mode. If the call has no arguments, the error mode
+            ## is resumed with the still pending exception (one must exist).
+            ## Otherwise, the exception instance and it's name are provided
+    bcEnterExcHandler ## signals the beginning of an exception handler
+    bcExitRaise ## leave error mode and pop the active exception
+    bcTestError ## tests if the error mode is active
+
     bcRaiseFieldErr
     bcInclRange
     bcRangeCheck
