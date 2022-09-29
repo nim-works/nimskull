@@ -31,7 +31,6 @@ type
     ntkProc # reference to a procedure
     ntkParam # reference to a parameter
     ntkSym
-    ntkRoot # a handle
     ntkLocal # references a local
     ntkLit
     ntkImm
@@ -45,12 +44,12 @@ type
     ntkGoto
     ntkJoin
     ntkGotoLink
-    ntkGotoCont # goto with continuation
     ntkContinue # goto the active continuation
 
-    # phase 4
-    ntkLoad
-    ntkWrite
+    # XXX: these aren't used anymore, but depending on developments in the
+    #      analysis area, it might make sense to reinstate them
+    #ntkLoad
+    #ntkWrite
 
   AssignKind* = enum
     askShallow
@@ -118,9 +117,6 @@ type
     of ntkBranch:
       cond: IRIndex
       target: JoinPoint
-    of ntkGotoCont:
-      contTarget: JoinPoint
-      contThen: JoinPoint
     of ntkCall:
       case ckind: CallKind
       of ckNormal: callee: IRIndex
@@ -348,9 +344,6 @@ func irGoto*(c: var IrStore3, target: JoinPoint): IRIndex {.discardable.} =
   ## Unstructured control-flow.
   c.add(IrNode3(kind: ntkGoto, gotoTarget: target))
 
-func irCont*(c: var IrStore3, target: JoinPoint, then: JoinPoint) =
-  discard c.add(IrNode3(kind: ntkGotoCont, contTarget: target, contThen: then))
-
 func irGotoLink*(c: var IrStore3, target: JoinPoint) =
   discard
 
@@ -383,7 +376,7 @@ func numJoins*(ir: IrStore3): int =
   ir.numJoins
 
 func isLastAGoto*(ir: IrStore3): bool =
-  ir.nodes.len > 0 and ir.nodes[^1].kind in {ntkGoto, ntkGotoCont}
+  ir.nodes.len > 0 and ir.nodes[^1].kind in {ntkGoto}
 
 iterator nodes*(s: IrStore3): lent IrNode3 =
   for it in s.nodes:
@@ -736,9 +729,8 @@ func patch(n: var IrNode3, patchTable: seq[IRIndex]) =
   of ntkConv, ntkCast:
     patchIdx(n.srcOp)
 
-  of ntkJoin, ntkGoto, ntkSym, ntkLocal, ntkLocEnd, ntkImm, ntkGotoCont,
-     ntkContinue, ntkGotoLink, ntkLoad, ntkWrite, ntkRoot, ntkLit, ntkProc,
-     ntkParam:
+  of ntkJoin, ntkGoto, ntkSym, ntkLocal, ntkLocEnd, ntkImm, ntkContinue,
+     ntkGotoLink, ntkLit, ntkProc, ntkParam:
     discard "nothing to patch"
 
 func inline*(cr: var IrCursor, other: IrStore3, sEnv: SymbolEnv, args: varargs[IRIndex]): IRIndex =
