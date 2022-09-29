@@ -625,6 +625,10 @@ proc generateCode*(g: ModuleGraph) =
   swap(c.procs, env.procs)
   swap(c.data, env.data)
 
+  # TODO: ``generateCode`` needs to be split up. Freeing the ``TCtx`` should
+  #       happen automatically as part of stack-frame clean up
+  reset(c) # we no longer need the irgen context
+
   block:
     # all alive globals are collected by now - register them with their
     # owning module
