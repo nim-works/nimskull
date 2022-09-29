@@ -761,24 +761,25 @@ proc generateCode*(g: ModuleGraph) =
 
   for s, irs in mpairsId(procImpls, ProcId):
       logError(irs, env, s):
-        # TODO: the ``hookPass`` can be batched together with the
-        #       ``lowerMatchPass``
-        # TODO: resue the ``TypeContext`` object across the batches (and maybe
-        #       the loop)
-        # hooks need to be resolved before injecting the garbage collector
-        # related logic
-        runPass(irs, initTypeContext(irs, env, remap), env, passEnv, hookPass)
-
         # the error-handling pass inserts new nodes (instead of replacing
         # them), which might cause conflicts with other changes if performed
         # concurrently. To be on the safe side, the changes are applied separately.
         lowerTestError(irs, passEnv, g.cache, env.types, env.procs, env.syms)
 
         block:
+          var diff = initChanges(irs)
+          let typeCtx = initTypeContext(irs, env, remap)
+          # TODO: resue the ``TypeContext`` object across the batches (and maybe
+          #       the loop)
+          # hooks need to be resolved before injecting the garbage collector
+          # related logic
+          runPass2(irs, typeCtx, env, passEnv, diff, hookPass)
+
           # the changes done by this pass need to be visible to further
           # passes, so it can't be run in the same batch
-          let typeCtx = initTypeContext(irs, env, remap)
-          runPass(irs, typeCtx, env, passEnv, lowerMatchPass)
+          runPass2(irs, typeCtx, env, passEnv, diff, lowerMatchPass)
+
+          apply(irs, diff)
 
         block:
           # the following passes all modify/replace different nodes and don't
