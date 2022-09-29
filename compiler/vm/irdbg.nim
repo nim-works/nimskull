@@ -59,9 +59,8 @@ func typeName(e: TypeEnv, t: TypeId): string =
 
 func typeToStr*(env: TypeEnv, id: TypeId): string =
   var id = id
-  var d = -1
+  var d = 0
   while id != NoneType:
-    inc d
     let t = env[id]
     if (let iface = env.iface(id); iface != nil):
       result.add iface.name.s
@@ -70,6 +69,7 @@ func typeToStr*(env: TypeEnv, id: TypeId): string =
       result.add env.getAttachment(a.unsafeGet)[0].s
       break
     else:
+      inc d
       result.add $env.kind(id)
       result.add "["
       id = t.base
