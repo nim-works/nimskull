@@ -29,6 +29,7 @@ import
   ],
   compiler/utils/bitsets,
   compiler/vm/[
+    bitsetutils,
     irdbg,
     pass_helpers,
     vmir
@@ -397,6 +398,7 @@ type RefcPassCtx* = object
   types: seq[TypeId]
 
   tfInfo*: TypeFieldInfo
+  gcLookup*: BitSet[TypeId]
 
   # XXX: only used for the ``lowerSeqs`` passes, but `RefcPassCtx` is
   #      currently (ab)-used as the context for most passes
@@ -581,6 +583,69 @@ proc genRefcRefAssign(cr: var IrCursor, e: PassEnv, dst, src: IRIndex, sl: Stora
   of slUnknown:
     cr.insertCompProcCall(e, "unsureAsgnRef", cr.insertAddr(dst), src)
 
+func genAssignmentV1(cr: var IrCursor, c: var RefcPassCtx, dst, src: IRIndex, typ: TypeId, loc: StorageLoc) =
+  ## Generates the assignment logic between `dst` and `src` of the given `typ`,
+  ## emitting the RTTI-based ``genericAssign`` if necessary
+  # TODO: move the logic for string and seq into the ``lowerSeqsV1`` pass
+  case c.env.types.kind(typ)
+  of tnkString:
+    cr.replace()
+    genRefcRefAssign(cr, c.extra, dst, cr.insertCompProcCall(c.extra, "copyString", src), loc)
+    # XXX: if `dst` is on the heap, this will result in the following code:
+    #      ``asgnRef(copyString(...))``
+    #      Which is inefficient because the string is added to the ZCT just
+    #      to have it's refcount set to '1' immediately after. There already
+    #      exists a ``copyStringRC1`` procedure specifically for use in this
+    #      situation, but whether or not it can be used depends on the
+    #      selected GC.
+    #      A seperate pass that fuses ``asgnRef``+``copyString|newObj|newSeq``
+    #      pairs into just ``copyStringRC1|newObjRC1|newSeqRC1`` might make
+    #      sense (it'd be a trade of efficiency for modularity)
+  of tnkSeq:
+    # it's not obvious from the procedure's signature, but ``genericSeqAssign``
+    # expects a ``ptr pointer`` as the first argument
+    cr.replace()
+    cr.insertCompProcCall(c.extra, "genericSeqAssign", cr.insertAddr(dst), src, c.requestRtti(cr, typ))
+  of tnkRef:
+    cr.replace()
+    genRefcRefAssign(cr, c.extra, dst, src, loc)
+  of tnkArray:
+    if typ in c.gcLookup:
+      # a ``genericAssign`` is only necessary if the array contains GC'ed
+      # memory
+      cr.replace()
+      cr.insertCompProcCall(c.extra, "genericAssign", cr.insertAddr(dst), cr.insertAddr(src), c.requestRtti(cr, typ))
+
+  of tnkRecord:
+    # TODO: shallow semantics are not respected (i.e. objects marked as
+    #       ``.shallow``)
+    if c.tfInfo[typ.toIndex] == tfsHeader or typ in c.gcLookup:
+      # we need a ``genericAssign`` if the record contains GC'ed memory or if
+      # it has a type-header
+      # TODO: the object type check logic should be removed from
+      #       ``genericAssign`` and instead be executed separately. With how
+      #       it currently is, the check doesn't respect ``optObjCheck`` and a
+      #       ``genericAssign`` is forced even if the record doesn't contain
+      #       GC'ed memory
+      cr.replace()
+      cr.insertCompProcCall(c.extra, "genericAssign", cr.insertAddr(dst), cr.insertAddr(src), c.requestRtti(cr, typ))
+
+  of tnkClosure:
+    # note: don't replace the assignment - it gets transformed into an
+    #       assignment of just the procedure field during a later pass
+
+    # closure objects have reference semantics
+    genRefcRefAssign(cr, c.extra,
+                     cr.insertMagicCall(c.extra, mAccessEnv, tyPointer, dst),
+                     cr.insertMagicCall(c.extra, mAccessEnv, tyPointer, src),
+                     loc)
+
+  of tnkBool, tnkChar, tnkInt, tnkUInt, tnkFloat, tnkLent, tnkVar, tnkPtr, tnkProc,
+     tnkCString, tnkOpenArray, tnkSet:
+    # no special behaviour. A blit copy is enough
+    discard
+  of tnkEmpty, tnkVoid, tnkUncheckedArray, tnkTypeDesc:
+    unreachable()
 
 proc applyRefcPass(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   case n.kind
@@ -591,16 +656,7 @@ proc applyRefcPass(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCurso
         genRefcRefAssign(cr, c.extra, n.wrLoc, n.srcLoc, c.storageLoc(n.wrLoc))
         # XXX: source needs to be zeroed?
     of askCopy:
-      case c.typeKindOf(n.wrLoc)
-      of tnkString:
-        cr.replace()
-        # TODO: this is only correct for strings on the stack
-        cr.insertAsgn(askShallow, n.wrLoc, cr.insertCompProcCall(c.extra, "copyString", n.srcLoc))
-      of tnkSeq:
-        cr.replace()
-        cr.insertCompProcCall(c.extra, "genericSeqAssign", n.wrLoc, n.srcLoc, c.requestRtti(cr, c.typeof(n.wrLoc)))
-      else:
-        discard
+      genAssignmentV1(cr, c, n.wrLoc, n.srcLoc, c.typeof(n.wrLoc), c.storageLoc(n.wrLoc))
     of askInit, askShallow, askDiscr:
       # XXX: init might need special handling
       discard

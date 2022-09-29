@@ -304,6 +304,23 @@ const
 
 func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   case n.kind
+  of ntkAsgn:
+    if c.env.types[c.types[n.wrLoc]].kind == tnkClosure:
+      case n.asgnKind
+      of askCopy:
+        # an earlier pass is responsible for lowering the environment
+        # assignment part
+        cr.replace()
+        cr.insertAsgn(askCopy, cr.insertPathObj(n.wrLoc, ClosureProcField),
+                      cr.insertPathObj(n.srcLoc, ClosureProcField))
+
+      of askMove, askInit:
+        # TODO: it's not clear yet what these two should do for closure
+        #       objects
+        discard
+      of askShallow, askDiscr:
+        discard
+
   of ntkCall:
     case n.callKind
     of ckBuiltin:

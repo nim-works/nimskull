@@ -37,7 +37,8 @@ import
     cgen2,
     irpasses,
     irdbg,
-    typeinfogen
+    typeinfogen,
+    typeprocessing
   ],
   experimental/[
     results
@@ -729,7 +730,9 @@ proc generateCode*(g: ModuleGraph) =
   #      general. In the case of ``tfInfo``, ``shallowCopy`` could be used, but
   #      it's only available for refc. For ARC/ORC ``.cursor`` would have to be
   #      used instead
-  var tfInfo = computeTypeFieldStatus(passEnv, env.types, objects)
+  var
+    tfInfo = computeTypeFieldStatus(passEnv, env.types, objects)
+    gcInfo = computeGcLookup(env.types)
 
   var lpCtx = LiftPassCtx(graph: passEnv, idgen: g.idgen, cache: g.cache)
   lpCtx.env = addr env
@@ -780,7 +783,10 @@ proc generateCode*(g: ModuleGraph) =
 
           var rpCtx: RefcPassCtx
           rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
-          swap(rpCtx.tfInfo, tfInfo)
+          template swapState() =
+            swap(rpCtx.tfInfo, tfInfo)
+            swap(rpCtx.gcLookup, gcInfo)
+          swapState()
 
           runPass2(irs, diff, rpCtx, lowerRangeCheckPass)
           runPass2(irs, diff, rpCtx, lowerSetsPass)
@@ -800,7 +806,7 @@ proc generateCode*(g: ModuleGraph) =
 
           apply(irs, diff)
 
-          swap(rpCtx.tfInfo, tfInfo)
+          swapState()
 
         # TODO: lifting the type info needs to happen after the alive
         #       procedure detection. Otherwise, we're creating RTTI that isn't
