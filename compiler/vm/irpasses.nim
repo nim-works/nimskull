@@ -1691,12 +1691,16 @@ proc lowerRangeChecks*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrC
 const OpenArrayDataField = 0
 const OpenArrayLenField = 1
 
-type LowerOACtx = object
+type LowerOACtx* = object
   graph: PassEnv
   env: ptr IrEnv
 
-  types: seq[TypeId]
+  types*: seq[TypeId]
   paramMap: seq[uint32] ## maps the current parameter indices to the new ones
+
+func init*(x: var LowerOACtx, g: PassEnv, env: ptr IrEnv) =
+  x.graph = g
+  x.env = env
 
 func expandData(c: LowerOACtx, cr: var IrCursor, ir: IrStore3, src: IRIndex): IRIndex =
   #[if ir.at(src).kind == ntkParam:
@@ -2297,3 +2301,4 @@ const arrayConstPass* = LinearPass2[LiftPassCtx](visit: liftArrays)
 const setConstPass* = LinearPass2[LiftPassCtx](visit: liftLargeSets)
 const lowerRangeCheckPass* = LinearPass2[RefcPassCtx](visit: lowerRangeChecks)
 const lowerSetsPass* = LinearPass2[RefcPassCtx](visit: lowerSets)
+const lowerOpenArrayPass* = LinearPass2[LowerOACtx](visit: lowerOpenArrayVisit)

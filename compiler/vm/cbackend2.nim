@@ -747,11 +747,16 @@ proc generateCode*(g: ModuleGraph) =
         logError(ir, env, s):
           runPass(ir, upc, lowerEchoPass)
 
-  # the openArray lowering has to happen separately
-  # TODO: explain why
-  for s, irs in mpairsId(procImpls, ProcId):
+  block:
+    # the ``openArray`` lowering has to happen separately
+    # TODO: explain why
+    var ctx: LowerOACtx
+    ctx.init(passEnv, addr env)
+
+    for s, irs in mpairsId(procImpls, ProcId):
       logError(irs, env, s):
-        lowerOpenArray(passEnv, s, irs, env)
+        ctx.types = computeTypes(irs, env)
+        runPass(irs, ctx, lowerOpenArrayPass)
 
   lowerOpenArrayTypes(ttc, env.types, env.syms)
 
