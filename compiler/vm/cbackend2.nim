@@ -177,6 +177,12 @@ proc generateTopLevelStmts*(module: Module, c: var TCtx,
 
   c.endProc()
 
+  if c.irs.len > 2:
+    # call to ``nimTestErrorFlag`` at the very end of every 'init' procedure
+    # in order to report any unhandled exception
+    discard c.irs.irCall(
+      c.irs.irProc(c.passEnv.getCompilerProc("nimTestErrorFlag")))
+
   # if the resulting procedure is empty, `irs` still has two items: the
   # 'join's at the end
   # TODO: use a more forward-compatible approach for testing if there's no
