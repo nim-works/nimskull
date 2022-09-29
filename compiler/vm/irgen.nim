@@ -1372,7 +1372,7 @@ proc genCheckedObjAccessAux(c: var TCtx; n: PNode; dest: var IRIndex) =
   dest = c.genx(accessExpr[0])
 
   if optFieldCheck in c.options:
-    let discVal = c.irs.irUse(c.irs.irPathObj(dest, genField(c, disc)))
+    let discVal = c.irs.irPathObj(dest, genField(c, disc))
     var cond = c.irs.irCall(mInSet, c.requestType(tyBool), c.irLit(checkExpr[1]), discVal)
     if negCheck:
       cond = c.irs.irCall(mNot, c.requestType(tyBool), cond)
@@ -1410,10 +1410,10 @@ proc genArrAccess(c: var TCtx; n: PNode): IRIndex =
   of tyTuple:
     let a = c.genx(n[0])
     let b = n[1].intVal
-    c.irs.irUse(c.irs.irPathObj(a, b.int))
+    c.irs.irPathObj(a, b.int)
   of tyArray, tySequence, tyOpenArray, tyVarargs, tyUncheckedArray, tyString, tyCstring:
     let acc = genArrAccessOpcode(c, n)
-    c.irs.irUse(c.irs.irPathArr(acc.arr, acc.idx))
+    c.irs.irPathArr(acc.arr, acc.idx)
   else: unreachable(arrayType)
 
 func addVariable(c: var TCtx, kind: LocalKind, s: PSym): IRIndex =
@@ -1520,8 +1520,6 @@ proc genArrayConstr(c: var TCtx, n: PNode): IRIndex =
       #      for the code-generators
       c.irs.irAsgn(askInit, c.irs.irPathArr(result, idx), a)
 
-  result = c.irs.irUse(result)
-
 proc genSetElem(c: var TCtx, n: PNode, first: int): IRIndex =
   result = c.getTemp(n.typ)
 
@@ -1594,8 +1592,6 @@ proc genObjConstr(c: var TCtx, n: PNode): IRIndex =
       let (dVal, bVal) = c.genDiscrVal(it[0].sym, it[1], n.typ)
       # TODO: askDiscr should be replaced with a magic call (e.g. bcInitDiscr)
       c.irs.irAsgn(askDiscr, c.irs.irPathObj(obj, idx), dVal)
-
-  result = c.irs.irUse(result)
 
 proc genTupleConstr(c: var TCtx, n: PNode): IRIndex =
   result = c.getTemp(n.typ)
