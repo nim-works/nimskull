@@ -24,3 +24,23 @@ block setops:
   # otherwise
   let x = -1
   doAssert x notin {1, 2}
+
+block set_offset:
+  type Enum = enum
+    # for the test, it's important that the values are outside the uint8
+    # range
+    a = 1024, b = 1025
+
+  doAssert sizeof(set[Enum]) == 1
+
+  var s: set[Enum]
+  doAssert a notin s
+
+  s.incl a
+  doAssert a in s
+  doAssert s == {a}
+
+  s.incl b
+  s.excl a
+  doAssert a notin s
+  doAssert s == {b}

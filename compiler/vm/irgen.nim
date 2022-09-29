@@ -1176,6 +1176,8 @@ proc genSetCmp(c: var TCtx, setExpr, elem: PNode): IRIndex =
     # handle the case of an empty set
     result = c.irLit(false) # always false
 
+proc genSetElem(c: var TCtx, n: PNode, typ: PType): IRIndex {.inline.}
+
 proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
   result = InvalidIndex
   case m
@@ -1443,14 +1445,22 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
         #       violated
         let
           a = genx(c, n[1])
-          b = genx(c, elem)
+          b = genSetElem(c, elem, n[1].typ)
 
         result = c.irs.irCall(bcMatch, c.requestType(tyBool), b, a)
       else:
         result = genSetCmp(c, n[1], elem)
 
     else:
-      result = c.irs.irCall(mInSet, c.types.requestType(n.typ), genx(c, n[1]), genx(c, n[2]))
+      # the offset to zero needs to be accounted for for set-element operands
+      result = c.irs.irCall(mInSet, c.types.requestType(n.typ),
+                            genx(c, n[1]), genSetElem(c, n[2], n[1].typ))
+
+  of mIncl, mExcl:
+    # TODO: the first paramter is mutable and thus requires an ``ntkModify``
+    #       instead of ``ntkUse``
+    result = c.irs.irCall(m, c.types.requestType(n.typ),
+                          genx(c, n[1]), genSetElem(c, n[2], n[1].typ))
 
   else:
     # TODO: return a bool instead and let the callsite call `genCall` in case
@@ -1884,6 +1894,17 @@ proc genSetElem(c: var TCtx, n: PNode, first: int): IRIndex =
 
   else:
     result = genx(c, n)
+
+proc genSetElem(c: var TCtx, n: PNode, typ: PType): IRIndex {.inline.} =
+  ## `typ` is the type to derive the lower bound from
+  let t = typ.skipTypes(abstractInst)
+  assert t.kind == tySet
+
+  # `first` can't be reliably derived from `n.typ` since the type may not
+  # match the set element type. This happens with the set in a
+  # `nkCheckedFieldExpr` for example
+  let first = toInt(c.config.firstOrd(t))
+  genSetElem(c, n, first)
 
 proc genSetConstr(c: var TCtx, n: PNode): IRIndex =
   result = c.getTemp(n.typ)
