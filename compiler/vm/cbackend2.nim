@@ -43,6 +43,8 @@ import
     results
   ]
 
+from compiler/vm/vmdef import unreachable
+
 import std/options as stdoptions
 
 type
@@ -284,16 +286,22 @@ proc newPassEnv(g: ModuleGraph, tgen: var DeferredTypeGen, syms: var SymbolEnv,
   new(result)
 
 proc initCompilerProcs(p: PassEnv, g: ModuleGraph, tgen: var DeferredTypeGen,
-                       procs: var ProcedureEnv) =
+                       procs: var ProcedureEnv, syms: var DeferredSymbols,
+                       data: var LiteralData) =
+  ## Registers all ``.compilerproc`` symbols with `p`
+  # TODO: rename
   for sym in g.compilerprocs.items:
     case sym.kind
     of routineKinds:
       p.compilerprocs[sym.name.s] = procs.requestProc(sym)
     of skType:
       p.compilertypes[sym.name.s] = tgen.requestType(sym.typ)
+    of skVar, skLet:
+      p.compilerglobals[sym.name.s] = syms.requestSym(sym)
+    of skConst:
+      p.compilerconsts[sym.name.s] = data.add(sym.astdef)
     else:
-      # TODO: the rest (e.g. globals) also need to be handled
-      discard
+      unreachable(sym.kind)
 
 # TODO: needs a different name:
 proc resolveTypeBoundOps(p: PassEnv, g: ModuleGraph, tgen: DeferredTypeGen, procs: var ProcedureEnv) =
@@ -471,7 +479,7 @@ proc generateCode*(g: ModuleGraph) =
   # setup a ``PassEnv``
   let passEnv = PassEnv()
   passEnv.initSysTypes(g, env.types, c.types)
-  passEnv.initCompilerProcs(g, c.types, c.procs)
+  passEnv.initCompilerProcs(g, c.types, c.procs, c.defSyms, c.data)
 
   c.passEnv = passEnv
 

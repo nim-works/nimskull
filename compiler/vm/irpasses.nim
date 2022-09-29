@@ -69,6 +69,12 @@ type PassEnv* = ref object # XXX: will be a non-`ref` later on
   compilerprocs*: Table[string, ProcId]
   compilertypes*: Table[string, TypeId]
 
+  # XXX: both names are a bit awkward and it's not immediately clear what
+  #      their meaning is
+  compilerconsts*: Table[string, LiteralId] ## constants marked as ``.core``
+                                            ## or ``.compilerproc``
+  compilerglobals*: Table[string, SymId] ## globals marked as ``.compilerproc``
+
   attachedOps*: array[TTypeAttachedOp, Table[TypeId, ProcId]]
 
   sysTypes*: array[TTypeKind, TypeId]
