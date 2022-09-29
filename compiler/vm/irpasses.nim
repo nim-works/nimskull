@@ -1112,8 +1112,30 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
       #   inc seq[].len
       #   seq[].data[tmp] = move x
       cr.replace()
-      let seqVal = arg(0)
-      let typ = types[seqVal]#.skipTypes({tyVar})
+      let
+        seqVal = arg(0)
+        typ = types[seqVal]#.skipTypes({tyVar})
+        elemTyp = env.types.base(typ)
+
+      # TODO: instead of implementing ``mAppendSeqElem`` as a magic, it should
+      #       just be implemented in ``sysstr.nim`` (same as how it's done
+      #       for seqsv2). That'd get rid of the phase ordering problems here.
+      #       It would also cause a slight performance regression however, as
+      #       the storage location of the ``seq`` is no longer statically known
+      #       then
+
+      # XXX: ``sink`` parameters aren't processed by the earlier stages yet so
+      #      we have to manually account for that here for now
+      let tmpCopy = cr.insertLocalRef(cr.newTemp(c, elemTyp))
+      case env.types.kind(elemTyp)
+      of tnkSeq, tnkString:
+        # copies for seqs and strings are only processed by this pass, so
+        # we can't just use an ``askCopy`` for them
+        # XXX: this could also be solved by applying the visit procedure
+        #      recursively...
+        genSeqAssign(cr, c, env.data, env.types, tmpCopy, arg(1), elemTyp)
+      else:
+        cr.insertAsgn(askCopy, tmpCopy, arg(1))
 
       cr.insertAsgn(askMove, seqVal, cr.insertCast(typ, cr.insertCompProcCall(c, "incrSeqV3", seqVal, c.requestRtti2(cr, typ)) ))
 
@@ -1125,7 +1147,10 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
       # the value is a sink parameter so we can use a move
       # XXX: we're running after the inject-hook pass, so we either need to
       #      reorder the passes or manually insert a hook call here
-      cr.insertAsgn(askMove, cr.insertPathArr(cr.accessSeqField(ir, seqVal, SeqV1DataField), cr.insertLocalRef(tmp)), arg(1))
+      # note: ``string`` and ``seq`` don't need to be special-cased here
+      cr.insertAsgn(askMove, cr.insertPathArr(cr.accessSeqField(ir, seqVal, SeqV1DataField), cr.insertLocalRef(tmp)), tmpCopy)
+      # since we're doing a "real" move, `tmpCopy` needs to be destroyed
+      discard cr.insertMagicCall(c, mWasMoved, tyVoid, tmpCopy)
 
     of mAppendStrStr:
       # -->
