@@ -1797,6 +1797,11 @@ func translateAux(n: PNode, orig: var SessionBase, data: var LiteralData): Liter
     code
     data.finish(session)
 
+  template sub(s: typed, sub: PNode) =
+    let lit = translateAux(it, s, data)
+    if lit != NoneLit:
+      data.addLit(s, lit)
+
   case n.kind
   of nkTupleConstr:
     assert n.typ.kind == tyTuple
@@ -1807,20 +1812,20 @@ func translateAux(n: PNode, orig: var SessionBase, data: var LiteralData): Liter
           of nkExprColonExpr: n[i][1]
           else: n[i]
 
-        data.addLit(session, translateAux(it, session, data))
+        sub(session, it)
 
   of nkObjConstr:
     withSession data.startRecord(orig):
       for i in 1..<n.len:
         let it = n[i]
         data.add(session, it[0].sym.position.int32)
-        data.addLit(session, translateAux(it[1], session, data))
+        sub(session, it)
 
   of nkBracket:
     assert n.typ.kind in {tyArray, tySequence}
     withSession data.startArray(orig, n.len):
       for it in n:
-        data.addLit(session, translateAux(it, session, data))
+        sub(session, it)
 
   of nkIntLit..nkInt64Lit, nkUIntLit..nkUInt64Lit:
     data.newLit(n.intVal)
