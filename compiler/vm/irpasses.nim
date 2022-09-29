@@ -981,14 +981,14 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
       cr.insertAsgn(askMove, dst, cr.insertCompProcCall(c, "setLengthStr", dst, len))
     of mSetLengthSeq:
       # -->
-      #  dst = cast[seqType](setLengthSeqV2(dst, len, rtti))
+      #  dst = cast[seqType](setLengthSeqV2(dst, rtti, len))
       let
         dst = arg(0)
         len = arg(1)
         typ = types[dst]
 
       cr.replace()
-      cr.insertAsgn(askMove, dst, cr.insertCast(typ, cr.insertCompProcCall(c, "setLengthSeqV2", dst, len, c.requestRtti2(cr, typ))))
+      cr.insertAsgn(askMove, dst, cr.insertCast(typ, cr.insertCompProcCall(c, "setLengthSeqV2", dst, c.requestRtti2(cr, typ), len)))
 
     of mNewSeq:
       cr.replace()
