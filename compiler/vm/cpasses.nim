@@ -31,12 +31,7 @@ type CTransformCtx = object
   # immutable external state shared across all ``applyCTransforms``
   # invocations
   graph: PassEnv
-  env: ptr IrEnv
   transEnv*: ptr CTransformEnv
-
-  # immutable state local to the current procedure being transformed
-  types: seq[TypeId]
-  paramMap: seq[uint32] ## maps the current parameter indices to the new ones
 
 
 func wrapNot(cr: var IrCursor, g: PassEnv, val: IRIndex): IRIndex =
@@ -61,10 +56,11 @@ func insertReset(cr: var IrCursor, g: PassEnv, env: var IrEnv, typ: TypeId, targ
     # TODO: handle the case where `target` is a ``var`` type
     cr.insertCompProcCall(g, "nimZeroMem", cr.insertAddr(target), cr.insertMagicCall(g, mSizeOf, tyInt, cr.insertTypeLit(typ)))
 
-func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+func visit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: CTransformCtx, cr: var IrCursor) =
   template arg(i: Natural): IRIndex =
     ir.args(cr.position, i)
 
+  let n = ir[cr]
   case n.kind
   of ntkCall:
     case n.callKind
@@ -77,10 +73,10 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
           # re-raise
           cr.insertCompProcCall(c.graph, "reraiseException")
         else:
-          let typ = c.env.types.lookupGenericType(tnkRef, c.graph.getCompilerType("Exception"))
-          let nilLit = cr.insertNilLit(c.env.data, typ)
+          let typ = env.types.lookupGenericType(tnkRef, c.graph.getCompilerType("Exception"))
+          let nilLit = cr.insertNilLit(env.data, typ)
           cr.insertCompProcCall(c.graph, "raiseExceptionEx",
-                                arg(0), arg(1), nilLit, nilLit, cr.insertLit(c.env.data, 0))
+                                arg(0), arg(1), nilLit, nilLit, cr.insertLit(env.data, 0))
 
       of bcOverflowCheck:
         let
@@ -88,7 +84,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
           lhs = ir.args(arg(0), 0)
           rhs = ir.args(arg(0), 1)
 
-        let m = getMagic(ir, c.env[], orig)
+        let m = getMagic(ir, env, orig)
         assert m in mAddI..mPred
 
         const
@@ -106,16 +102,16 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
         func is64bit(t: Type): bool {.inline.} =
           t.kind == tnkInt and t.size == 0
 
-        let name = if is64bit(c.env.types[c.types[lhs]]): prc64[m] else: prc[m]
+        let name = if is64bit(env.types[types[lhs]]): prc64[m] else: prc[m]
 
         cr.replace()
 
         # perform the div-by-zero test first
         if m in {mDivI, mModI}:
-          cr.genIfNot(cr.wrapNot(c.graph, cr.insertMagicCall(c.graph, mEqI, tyBool, rhs, cr.insertLit(c.env.data, 0)))):
+          cr.genIfNot(cr.wrapNot(c.graph, cr.insertMagicCall(c.graph, mEqI, tyBool, rhs, cr.insertLit(env.data, 0)))):
             cr.insertCompProcCall(c.graph, "raiseDivByZero")
 
-        let tmp = cr.newLocal(lkTemp, c.types[lhs])
+        let tmp = cr.newLocal(lkTemp, types[lhs])
         cr.genIfNot(cr.wrapNot(c.graph, cr.insertCompProcCall(c.graph, name, lhs, rhs, cr.insertAddr(cr.insertLocalRef(tmp))))):
           cr.insertCompProcCall(c.graph, "raiseOverflow")
 
@@ -135,7 +131,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
       case m
       of mWasMoved:
         cr.replace()
-        cr.insertReset(c.graph, c.env[], c.types[arg(0)], arg(0))
+        cr.insertReset(c.graph, env, types[arg(0)], arg(0))
       of mCharToStr..mInt64ToStr:
         # XXX: the ``mInt64ToStr`` magic could be replaced with the usage
         #      of ``mIntToStr``
@@ -145,7 +141,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
         cr.insertCompProcCall(c.graph, Prc[m], arg(0))
       of mFloatToStr:
         let prc =
-          if c.env.types.getSize(c.types[arg(0)]) == 32:
+          if env.types.getSize(types[arg(0)]) == 32:
             "nimFloat32ToStr"
           else:
             "nimFloatToStr"
@@ -160,7 +156,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
         cr.replace()
 
         let src =
-          case c.env.types[c.types[arg(0)]].kind
+          case env.types[types[arg(0)]].kind
           of tnkRef, tnkPtr, tnkVar, tnkLent:
             cr.insertDeref(arg(0))
           of tnkRecord:
@@ -177,7 +173,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
           val = cr.insertCompProcCall(c.graph, "cmpStrings", arg(0), arg(1))
           prc = (if m == mLtStr: mLtI else: mLeI)
 
-        cr.insertMagicCall(c.graph, prc, tyInt, val, cr.insertLit(c.env.data, 0))
+        cr.insertMagicCall(c.graph, prc, tyInt, val, cr.insertLit(env.data, 0))
 
       of mLengthStr:
         # must be the ``len`` operator for a cstring. The one for normal
@@ -190,7 +186,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
         #     tmp = 0
         #   tmp
         let str = arg(0)
-        assert c.env.types.kind(c.types[str]) == tnkCString
+        assert env.types.kind(types[str]) == tnkCString
         cr.replace()
 
         let
@@ -204,7 +200,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
         cr.insertGoto(exit)
 
         cr.insertJoin(elsePart)
-        cr.insertAsgn(askInit, tmpAcc, cr.insertLit(c.env.data, 0))
+        cr.insertAsgn(askInit, tmpAcc, cr.insertLit(env.data, 0))
         cr.insertGoto(exit)
 
         cr.insertJoin(exit)
@@ -236,9 +232,9 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
     const PtrLike = {tnkPtr, tnkRef, tnkProc, tnkCString}
 
     var useBlit = false
-    case c.env.types.kind(n.typ):
+    case env.types.kind(n.typ):
     of PtrLike, tnkInt, tnkUInt, tnkBool, tnkChar:
-      let srcTyp = c.env.types.kind(c.types[n.srcLoc])
+      let srcTyp = env.types.kind(types[n.srcLoc])
       case srcTyp
       of tnkInt, tnkUInt, tnkBool, tnkChar, PtrLike:
         useBlit = false
@@ -267,7 +263,7 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
         #       the C code.
         #       We work around that here by introducing a temporary - but this
         #       should be removed once ``cgen2`` works properly
-        let rhs = cr.insertLocalRef(cr.newLocal(lkTemp, c.types[n.srcLoc]))
+        let rhs = cr.insertLocalRef(cr.newLocal(lkTemp, types[n.srcLoc]))
         cr.insertAsgn(askInit, rhs, n.srcLoc)
 
       # XXX: casting from smaller to larger types will access invalid memory
@@ -282,8 +278,8 @@ func visit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
   of ntkConv:
     # we need to guard against closures since that conversion is handled
     # separately by the closure lowering pass
-    if c.env.types.kind(n.typ) != tnkClosure and
-       c.env.types.resolve(n.typ) == c.env.types.resolve(c.types[n.srcLoc]):
+    if env.types.kind(n.typ) != tnkClosure and
+       env.types.resolve(n.typ) == env.types.resolve(types[n.srcLoc]):
       # conversion to itself. This happens for conversion between distinct
       # types and their base or when previously different types become the
       # same after lowering
@@ -302,10 +298,11 @@ const
   ClosureProcField = 0
   ClosureEnvField = 1
 
-func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+func lowerClosuresVisit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: CTransformCtx, cr: var IrCursor) =
+  let n = ir[cr]
   case n.kind
   of ntkAsgn:
-    if c.env.types[c.types[n.wrLoc]].kind == tnkClosure:
+    if env.types[types[n.wrLoc]].kind == tnkClosure:
       case n.asgnKind
       of askCopy:
         # an earlier pass is responsible for lowering the environment
@@ -343,7 +340,7 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
       case m
       of mIsNil:
         let arg0 = ir.argAt(cr, 0)
-        if c.env.types[c.types[arg0]].kind == tnkClosure:
+        if env.types[types[arg0]].kind == tnkClosure:
           cr.replace()
           discard cr.insertMagicCall(c.graph, mIsNil, tyBool, cr.insertPathObj(arg0, ClosureProcField))
 
@@ -354,7 +351,7 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
 
         # only the equality operator for closures is lowered here - the one
         # for non-closure procedures is translated in ``cgen2``
-        if c.env.types[c.types[arg0]].kind == tnkClosure:
+        if env.types[types[arg0]].kind == tnkClosure:
           # --->
           #   var tmp: bool
           #   if a.prc == b.prc:
@@ -380,7 +377,7 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
         discard
 
     # rewrite calls using closures as the callee
-    elif ir.at(n.callee).kind != ntkProc and c.env.types[c.types[n.callee]].kind == tnkClosure:
+    elif ir.at(n.callee).kind != ntkProc and env.types[types[n.callee]].kind == tnkClosure:
       # --->
       #   if cl.env != nil:
       #     cl.prc(args, cl.env)
@@ -396,10 +393,10 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
         endP = cr.newJoinPoint()
 
       let (tmp, tmpAcc) =
-        if c.env.types[c.types[cr.position]].kind == tnkVoid:
+        if env.types[types[cr.position]].kind == tnkVoid:
           (0, InvalidIndex)
         else:
-          let l = cr.newLocal(lkTemp, c.types[cr.position])
+          let l = cr.newLocal(lkTemp, types[cr.position])
           (l, cr.insertLocalRef(l))
 
       # XXX: meh, unnecessary allocation. The ``IrCursor`` API needs to
@@ -428,7 +425,7 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
       block:
         # the closure procedure needs to be cast to the non-closure
         # counterpart first
-        let prc = cr.insertCast(c.transEnv.rawProcs[c.types[n.callee]],
+        let prc = cr.insertCast(c.transEnv.rawProcs[types[n.callee]],
                                 cr.insertPathObj(cl, ClosureProcField))
 
         # remove the env arg
@@ -443,7 +440,7 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
         discard cr.insertLocalRef(tmp)
 
   of ntkConv:
-    if c.env.types[n.typ].kind == tnkClosure:
+    if env.types[n.typ].kind == tnkClosure:
       # ``sigmatch`` introduces a ``nkHiddenSubConv`` when assigning a
       # procedural value of non-closure calling convention to a closure. It
       # subsequently gets translated into a 'conv' by ``irgen`` and
@@ -451,7 +448,7 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
       # Since all proc types using the ``ccClosure`` calling-convention are
       # translated into ``tnkClosure`` (which renders the conversion wrong) we
       # have to rewrite it to use the correct type here
-      let prcTyp = c.env.types[c.env.types.nthField(c.transEnv.remap[n.typ], ClosureProcField)].typ
+      let prcTyp = env.types[env.types.nthField(c.transEnv.remap[n.typ], ClosureProcField)].typ
 
       cr.replace()
       discard cr.insertCast(prcTyp, n.srcLoc)
@@ -615,8 +612,8 @@ func lowerMatch(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, c
   else:
     discard
 
-const transformPass = LinearPass2[CTransformCtx](visit: visit)
-const lowerClosuresPass = LinearPass2[CTransformCtx](visit: lowerClosuresVisit)
+const transformPass = TypedPass[CTransformCtx](visit: visit)
+const lowerClosuresPass = TypedPass[CTransformCtx](visit: lowerClosuresVisit)
 const lowerMatchPass* = TypedPass[PassEnv](visit: lowerMatch)
 const lowerEchoPass* = LinearPass2[UntypedPassCtx](visit: lowerEchoVisit)
 
@@ -629,13 +626,13 @@ proc applyCTransforms*(c: CTransformEnv, ic: IdentCache, g: PassEnv, id: ProcId,
   # XXX: only the procedure env is modified. Requiring the whole `env` to be
   #      mutable is a bit meh...
 
-  var ctx = CTransformCtx(graph: g, env: addr env, transEnv: addr c)
-  ctx.types = computeTypes(ir, env)
+  var ctx = CTransformCtx(graph: g, transEnv: addr c)
+  let types = initTypeContext(ir, env)
 
   block:
     var diff = initChanges(ir)
-    runPass2(ir, diff, ctx, transformPass)
-    runPass2(ir, diff, ctx, lowerClosuresPass)
+    runPass2(ir, types, env, ctx, diff, transformPass)
+    runPass2(ir, types, env, ctx, diff, lowerClosuresPass)
     apply(ir, diff)
 
   if env.procs[id].callConv == ccClosure:
