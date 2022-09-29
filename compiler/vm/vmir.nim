@@ -1030,6 +1030,10 @@ func mergeInternal(dest: var Changes, other: IrCursor) =
     if x >= dest.start:
       x = dest.lengths.nodes + x
 
+  template patchJoin(x: var JoinPoint) =
+    if x >= dest.joinStart:
+      x += dest.numJoins
+
   # adjust references to nodes, literals, locals, and join points for the node
   # additions collected by `other`
   for it in npos..<npos+other.newNodes.len:
@@ -1039,13 +1043,9 @@ func mergeInternal(dest: var Changes, other: IrCursor) =
     of ntkLocal:
       n.local += dest.lengths.locals
     of ntkGoto:
-      if n.gotoTarget >= dest.joinStart:
-        n.gotoTarget += dest.numJoins
-
+      patchJoin(n.gotoTarget)
     of ntkJoin:
-      if n.joinPoint >= dest.joinStart:
-        n.joinPoint += dest.numJoins
-
+      patchJoin(n.joinPoint)
     of ntkCall:
       if n.ckind == ckNormal:
         doPatch(n.callee)
@@ -1058,6 +1058,7 @@ func mergeInternal(dest: var Changes, other: IrCursor) =
     of ntkAddr, ntkDeref:
       doPatch(n.addrLoc)
     of ntkBranch:
+      patchJoin(n.target)
       doPatch(n.cond)
     of ntkPathObj:
       doPatch(n.objSrc)
