@@ -249,6 +249,12 @@ const StringCType = CTypeId(1)
 
 const InvalidCIdent = CIdent(0) # warning: this depends on a implementation detail of `BiTable`
 
+# ``char`` is an unsigned 8-bit value in NimSkull, so we just use ``NU8``
+# XXX: if this causes issues with ``cstring`` (which now is an
+#      ``unsigned char*``), ``unsigned char`` could be used
+#      instead
+const CharType = "NU8"
+
 func enumToStrTbl[E: enum](_: typedesc[E]): array[E, string] =
   for e in low(E)..high(E):
     result[e] = $e
@@ -477,7 +483,7 @@ func genCTypeDecl(c: var TypeGenCtx, t: TypeId): CDecl =
 
   of tnkCString:
     result.add cdnkPtr
-    result.add cdnkIdent, c.cache.getOrIncl("char").uint32
+    result.add cdnkIdent, c.cache.getOrIncl("unsigned char").uint32
 
   else:
     let kind = c.env.types[t].kind
@@ -517,7 +523,7 @@ func genCTypeInfo(gen: var TypeGenCtx, env: TypeEnv, id: TypeId): CTypeInfo =
     let name =
       case t.kind
       of tnkVoid: "void"
-      of tnkChar:  "NIM_CHAR"
+      of tnkChar:  CharType
       of tnkBool:  "NIM_BOOL"
       of tnkInt:
         {.warning: "NI is never emitted anymore, as we can't detect an `int` here".}
@@ -857,7 +863,7 @@ func genMagic(c: var GenCtx, irs: IrStore3, m: TMagic, n: IRIndex): CAst =
       let a = gen(c, irs, arg(0))
       return start().add(cnkTernary).add(cnkInfix).add(a).op(copGt).intLit(0).add(a).add(cnkPrefix).op(copSub).add(a).fin()
     of mChr:
-      return start().add(cnkCast).ident(c.gl.idents, "NIM_CHAR").add(gen(c, irs, arg(0))).fin()
+      return start().add(cnkCast).ident(c.gl.idents, CharType).add(gen(c, irs, arg(0))).fin()
     of mOrd:
       # no-op
       return c.gen(irs, arg(0))
