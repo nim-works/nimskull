@@ -1128,12 +1128,14 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
 
     of mAppendStrStr:
       # -->
-      #   resizeString(lhs, len(rhs))
+      #   lhs = resizeString(lhs, len(rhs))
       #   appendString(lhs, rhs)
       cr.replace()
 
-      let lenTmp = genSeqLen(cr, env.data, c, ir, arg(1))
-      cr.insertCompProcCall(c, "resizeString", arg(0), lenTmp)
+      let
+        lenTmp = genSeqLen(cr, env.data, c, ir, arg(1))
+        tmp = cr.insertCompProcCall(c, "resizeString", arg(0), lenTmp)
+      cr.insertAsgn(askMove, arg(0), tmp)
       cr.insertCompProcCall(c, "appendString", arg(0), arg(1))
 
     of mAppendStrCh:
