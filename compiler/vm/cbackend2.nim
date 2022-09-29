@@ -59,16 +59,24 @@ type
     stmts: seq[PNode] ## top level statements in the order they were parsed
     sym: PSym ## module symbol
 
-    initGlobalsCode: CodeFragment ## the bytecode of `initGlobalsProc`. Each
-      ## encountered `{.global.}`'s init statement gets code-gen'ed into the
-      ## `initGlobalCode` of the module that owns it
-    initGlobalsProc: (SymId, IrStore3) ## the proc that initializes `{.global.}`
-      ## variables
-    initProc: (SymId, IrStore3) ## the module init proc (top-level statements)
+  ModuleDataExtra = object
+    ## Extra data associated with a module
+    # XXX: since this is data that's somewhat relevant to all targets, it
+    #      might be a good idea to merge ``ModuleDataExtra`` with
+    #      ``ModuleData``. The way in which the data for modules is organized
+    #      needs an overhaul in general.
+    fileIdx: FileIndex
+    flags: TSymFlags
+
+    initProc: (SymId, IrStore3) ## the 'init' procedure for the module
 
   ModuleListRef = ref ModuleList
   ModuleList = object of RootObj
     modules: seq[Module]
+
+    # XXX: ``modulesClosed`` and ``moduleMap`` should be split off into a
+    #      separate object. They're relevant until the end of ``generateCode``,
+    #      while ``modules`` gets processed at the start and is then discarded
     modulesClosed: seq[int] ## indices into `modules` in the order the modules
                             ## were closed. The first closed module comes
                             ## first, then the next, etc.
@@ -201,11 +209,12 @@ proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]
   # Swap back once done
   swapState()
 
-proc genInitProcCall(c: var IrStore3, m: Module) =
+proc genInitProcCall(c: var IrStore3, m: ModuleDataExtra) =
   if m.initProc[0] != NoneSymbol:
     discard c.irCall(c.irSym(m.initProc[0]))
 
-proc generateEntryProc(c: var TCtx, g: PassEnv, mlist: ModuleList): IrStore3 =
+proc generateEntryProc(c: var TCtx, g: PassEnv, mlist: ModuleList,
+                       modules: seq[ModuleDataExtra]): IrStore3 =
   ## Generates the entry function and returns it's function table index.
   ## The entry function simply calls all given `initProcs` (ordered from low
   ## to high by their function table index) and then returns the value of the
@@ -220,20 +229,20 @@ proc generateEntryProc(c: var TCtx, g: PassEnv, mlist: ModuleList): IrStore3 =
 
   var systemIdx, mainIdx: int
   # XXX: can't use `pairs` since it copies
-  for i in 0..<mlist.modules.len:
-    let sym = mlist.modules[i].sym
-    if sfMainModule     in sym.flags: mainIdx = i
-    elif sfSystemModule in sym.flags: systemIdx = i
+  for i in 0..<modules.len:
+    let flags = modules[i].flags
+    if sfMainModule     in flags: mainIdx = i
+    elif sfSystemModule in flags: systemIdx = i
 
   # Call the init procs int the right order. That is, module-closed-order with
   # special handling for the main and system module
-  genInitProcCall(c.irs, mlist.modules[systemIdx])
+  genInitProcCall(c.irs, modules[systemIdx])
   for mI in mlist.modulesClosed.items:
-    let m = mlist.modules[mI]
-    if {sfMainModule, sfSystemModule} * m.sym.flags == {}:
+    let m = modules[mI]
+    if {sfMainModule, sfSystemModule} * m.flags == {}:
       genInitProcCall(c.irs, m)
 
-  genInitProcCall(c.irs, mlist.modules[mainIdx])
+  genInitProcCall(c.irs, modules[mainIdx])
 
   # write ``programResult`` into the result variable
 
@@ -246,13 +255,13 @@ proc generateEntryProc(c: var TCtx, g: PassEnv, mlist: ModuleList): IrStore3 =
   # refc-compatible "move"
   swap(result, c.irs)
 
-proc generateMain(c: var TCtx, g: PassEnv,
-                  mlist: ModuleList): IrStore3 =
+proc generateMain(c: var TCtx, g: PassEnv, mlist: ModuleList,
+                  modules: seq[ModuleDataExtra]): IrStore3 =
   ## Generates and links in the main procedure (the entry point) along with
   ## setting up the required state.
 
   # lastly, generate the actual code:
-  result = generateEntryProc(c, g, mlist)
+  result = generateEntryProc(c, g, mlist, modules)
 
 func collectRoutineSyms(s: IrStore3, env: ProcedureEnv, list: var seq[PSym], known: var IntSet) =
   for n in s.nodes:
@@ -469,7 +478,11 @@ proc generateCode*(g: ModuleGraph) =
 
   var procImpls: seq[IrStore3] ## proc-id -> IR representation
   var modules: seq[ModuleData]
+  var modulesExtra: seq[ModuleDataExtra]
+  # XXX: since both of them associate data with a module ID, and also share the
+  #      same lifetime, merge them into a single sequence?
   modules.newSeq(mlist.modules.len)
+  modulesExtra.newSeq(mlist.modules.len)
 
   var env = IrEnv()
 
@@ -497,7 +510,12 @@ proc generateCode*(g: ModuleGraph) =
       seenProcs.incl it.id
 
   # generate all module init procs (i.e. code for the top-level statements):
-  for m in mlist.modules.mitems:
+  for i, m in mlist.modules.cpairs:
+    # TODO: use ``lpairs`` (or ``pairs`` once it uses ``lent``) instead of
+    #       ``cpairs``
+    modulesExtra[i] =
+      ModuleDataExtra(fileIdx: m.sym.position.FileIndex, flags: m.sym.flags)
+
     c.module = m.sym
     c.idgen = g.idgen
 
@@ -507,13 +525,14 @@ proc generateCode*(g: ModuleGraph) =
       #      We need to later test if there exists code and querying the
       #      length for that doesn't sound good.
       # XXX: ``Option`` is missing a ``take`` procedure
-      m.initProc[1] = move code.get()
+      modulesExtra[i].initProc[1] = move code.get()
 
-    # combine module list iteration with initialiazing `initGlobalsCode`:
-    m.initGlobalsCode.prc = PProc()
+  # we no longer need the ``mlist.modules`` list, so we reset it so that the
+  # the memory used by the collected top-level nodes can be reclaimed already
+  reset(mlist.modules)
 
   assert nextProcs.len == 0
-  for it in mlist.modules.items:
+  for it in modulesExtra.items:
     collectRoutineSyms(it.initProc[1], c.procs, nextProcs, seenProcs)
 
   var aliveRange = procImpls.len..0
@@ -588,7 +607,7 @@ proc generateCode*(g: ModuleGraph) =
   processObjects(passEnv, g.cache, env.types, env.syms, c.types.objects)
 
   let entryPoint =
-    generateMain(c, passEnv, mlist[])
+    generateMain(c, passEnv, mlist[], modulesExtra)
 
   swap(c.procs, env.procs)
   swap(c.data, env.data)
@@ -794,16 +813,18 @@ proc generateCode*(g: ModuleGraph) =
   var gCtx: GlobalGenCtx
   initGlobalContext(gCtx, env)
 
-  for i, m in mlist.modules.pairs:
+  for i, m in modulesExtra.pairs:
     if modules[i].syms.len == 0 and modules[i].procs.len == 0:
       # don't generate anything for modules that have no alive content
       continue
 
-    let cfile = getCFile(conf, AbsoluteFile toFullPath(conf, m.sym.position.FileIndex))
-    var cf = Cfile(nimname: m.sym.name.s, cname: cfile,
-                   obj: completeCfilePath(conf, toObjFile(conf, cfile)), flags: {})
+    let
+      cname = getCFile(conf, AbsoluteFile toFullPath(conf, m.fileIdx))
+      cf = Cfile(nimname: g.ifaces[m.fileIdx.int].module.name.s, cname: cname,
+                 obj: completeCfilePath(conf, toObjFile(conf, cname)),
+                 flags: {})
 
-    emitModuleToFile(conf, cfile, gCtx, env, procImpls, modules[i])
+    emitModuleToFile(conf, cname, gCtx, env, procImpls, modules[i])
 
     addFileToCompile(conf, cf)
 
