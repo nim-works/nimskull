@@ -95,6 +95,7 @@ type
     copAdd = "+", copSub = "-", copMul = "*", copDiv="/", copMod="%",
     copNot = "!"
     copBitnot = "~", copBitand="&", copBitor="|", copBitxor="^"
+    copOr = "||"
     copShl="<<", copShr=">>"
     copEq="==", copNEq="!=", copLt="<", copLe="<=", copGt=">", copGe=">=" # comparison
     copAsgn="="
@@ -797,6 +798,7 @@ func genSimpleMagic(c: var CAstBuilder, ctx: GenCtx, irs: IrStore3, m: TMagic, n
     of mMulI, mMulU, mMulF64: (mkBinary, copMul)
     of mDivI, mDivU, mDivF64: (mkBinary, copDiv)
     of mModI, mModU: (mkBinary, copMod)
+    of mOr: (mkBinary, copOr)
     of mIsNil:
       # a pointer value is implicitly convertible to a bool, so we use ``!x``
       # to test for nil
