@@ -419,9 +419,6 @@ func init*(c: var TypedPassCtx, g: PassEnv, env: ptr IrEnv, ir: IrStore3) =
   c.types = computeTypes(ir, env[])
 
 type RefcPassCtx* = object
-  graph: ModuleGraph
-  idgen: IdGenerator
-
   extra: PassEnv
 
   env: ptr IrEnv # XXX: in order to get to something working, a `ptr` for now
@@ -430,14 +427,8 @@ type RefcPassCtx* = object
   tfInfo*: TypeFieldInfo
   gcLookup*: BitSet[TypeId]
 
-  # XXX: only used for the ``lowerSeqs`` passes, but `RefcPassCtx` is
-  #      currently (ab)-used as the context for most passes
-  localMap: Table[int, int] # old local-name -> new local-name
-
-func setupRefcPass*(c: var RefcPassCtx, pe: PassEnv, env: ptr IrEnv, g: ModuleGraph, idgen: IdGenerator, ir: IrStore3) =
+func setupRefcPass*(c: var RefcPassCtx, pe: PassEnv, env: ptr IrEnv, ir: IrStore3) =
   c.types = computeTypes(ir, env[]) # XXX: very bad
-  c.graph = g
-  c.idgen = idgen
   c.extra = pe
   c.env = env
 

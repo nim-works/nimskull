@@ -781,7 +781,7 @@ proc generateCode*(g: ModuleGraph) =
           var diff = initChanges(irs)
 
           var rpCtx: RefcPassCtx
-          rpCtx.setupRefcPass(passEnv, addr env, g, g.idgen, irs)
+          rpCtx.setupRefcPass(passEnv, addr env, irs)
           template swapState() =
             swap(rpCtx.tfInfo, tfInfo)
             swap(rpCtx.gcLookup, gcInfo)
