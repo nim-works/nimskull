@@ -87,6 +87,7 @@ type
     bcOverflowCheck
 
     bcInitLoc ## initialize a location to it's zero-representation
+    bcFinishConstr ## invoked at once a construction of a location is finished
 
     bcAccessEnv ## access the current procedure's closure environment
 

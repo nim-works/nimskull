@@ -1539,6 +1539,16 @@ proc genArrayConstr(c: var TCtx, n: PNode): IRIndex =
       #      for the code-generators
       c.irs.irAsgn(askInit, c.irs.irPathArr(result, idx), a)
 
+  # XXX: the array construction is considered to be finished if the
+  #      construction of all it's sub-locations is finished.
+  #      ``genTupleConstr`` and ``genObjConstr`` already take care of that,
+  #      so using ``bcFinishConstr`` here would be redundant. For efficiency,
+  #      it might be a good idea to prevent the emission of ``bcFinishConstr``
+  #      instructions for arrays, tuples, and objects if they're constructed
+  #      in the context of another construction, and then only invoke
+  #      ``bcFinishConstr`` once for the outermost construction
+  #discard c.irs.irCall(bcFinishConstr, c.requestType(tyVoid), result)
+
 proc genSetElem(c: var TCtx, n: PNode, first: int): IRIndex =
   result = c.getTemp(n.typ)
 
@@ -1612,7 +1622,16 @@ proc genObjConstr(c: var TCtx, n: PNode): IRIndex =
       # TODO: askDiscr should be replaced with a magic call (e.g. bcInitDiscr)
       c.irs.irAsgn(askDiscr, c.irs.irPathObj(obj, idx), dVal)
 
+  let loc =
+    if t.kind == tyRef: c.irs.irDeref(result)
+    else:               result
+
+  # TODO: for non-refs, ``bcFinishConstr`` only needs to be used on the
+  #       outermost locations for which the value is constructed
+  discard c.irs.irCall(bcFinishConstr, c.requestType(tyVoid), loc)
+
 proc genTupleConstr(c: var TCtx, n: PNode): IRIndex =
+  # TODO: don't create a temporary for typedescs
   result = c.getTemp(n.typ)
   # a ``nkTupleConstr`` might also represent a tuple type. Don't perform
   # code-gen for those
@@ -1627,6 +1646,8 @@ proc genTupleConstr(c: var TCtx, n: PNode): IRIndex =
 
       let tmp = c.genx(src)
       c.irs.irAsgn(askInit, c.irs.irPathObj(result, idx), tmp)
+
+    discard c.irs.irCall(bcFinishConstr, c.requestType(tyVoid), result)
 
 proc genClosureConstr(c: var TCtx, n: PNode): IRIndex =
   let tmp = c.genx(n[0])

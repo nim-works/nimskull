@@ -557,6 +557,26 @@ proc genNewObj(cr: var IrCursor, g: PassEnv, env: IrEnv, ptrTyp: TypeId,
     let v = cr.insertCompProcCall(g, "newObj", rttiExpr, sizeExpr)
     genRefcRefAssign(cr, g, dest, v, loc)
 
+func genInitCompound(cr: var IrCursor, c: RefcPassCtx, loc: IRIndex, isPtr: bool, typ: TypeId) =
+  ## Generates the code for initializing the type field(s) of a compound
+  ## location
+  case c.tfInfo[typ.toIndex]
+  of tfsNone: discard
+  of tfsHeader:
+    let dst =
+      if isPtr: cr.insertDeref(loc)
+      else:     loc
+
+    # XXX: ``mAccessTypeField`` returns a ``ptr TNimType``, but we don't
+    #      have access to that type here
+    cr.insertAsgn(askInit, cr.insertMagicCall(c.extra, mAccessTypeField, tyPointer, dst), c.requestRtti(cr, typ))
+  of tfsEmbedded:
+    let dst =
+      if isPtr: loc
+      else:     cr.insertAddr(loc)
+
+    cr.insertCompProcCall(c.extra, "objectInit", cr.insertCast(c.extra.sysTypes[tyPointer], dst), c.requestRtti(cr, typ))
+
 # TODO: add and use a ``LocalId`` for naming locals
 proc newTemp(cr: var IrCursor, pe: PassEnv, typ: TypeId): int =
   ## Creates a new zero-initialized temporary variable of the given `typ`
@@ -637,18 +657,10 @@ proc processMagicCall(c: RefcPassCtx, cr: var IrCursor, ir: IrStore3, types: Typ
     of tnkArray, tnkRecord:
       # a compound type
       let
-        hdr = c.tfInfo[typ.toIndex]
         tmp = cr.newTemp(c.extra, typ)
         tmpAcc = cr.insertLocalRef(tmp)
 
-      case hdr
-      of tfsNone: discard
-      of tfsHeader:
-        # XXX: ``mAccessTypeField`` returns a ``ptr TNimType``, but we don't
-        #      have access to that type here
-        cr.insertAsgn(askInit, cr.insertMagicCall(c.extra, mAccessTypeField, tyPointer, tmpAcc), c.requestRtti(cr, typ))
-      of tfsEmbedded:
-        cr.insertCompProcCall(c.extra, "objectInit", cr.insertAddr tmpAcc, c.requestRtti(cr, typ))
+      genInitCompound(cr, c, tmpAcc, isPtr=false, typ)
 
       discard cr.insertLocalRef(tmp)
 
@@ -771,7 +783,41 @@ proc applyRefcPass(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPass
       discard
 
   of ntkCall:
-    processMagicCall(c, cr, ir, types, env, getMagic(ir, env, n), n)
+    case n.callKind
+    of ckMagic:
+      processMagicCall(c, cr, ir, types, env, n.magic, n)
+    of ckBuiltin:
+      case n.builtin
+      of bcFinishConstr:
+        let
+          loc = ir.argAt(cr, 0)
+          typ = types[loc]
+
+        # TODO: the call needs be removed in the case that no special handling
+        #       is needed. The only reason that this is currently not done is
+        #       because ``IrCursor`` (``vmir.applyInternal`` to be precise)
+        #       doesn't support pure removals (i.e. a ``replace`` followed by
+        #       no insertions)
+        case env.types.kind(typ)
+        of tnkRecord, tnkArray:
+          # XXX: the way object/tuple construction is lowered prevents some
+          #      optimizations done by ``cgen``. For example, ``cgen``
+          #      initializes an object with type fields from a constant with
+          #      the type fields set, instead of doing a ``nimZeroMem`` +
+          #      ``objectInit``
+          if c.tfInfo[typ.toIndex] != tfsNone:
+            cr.replace()
+            genInitCompound(cr, c, loc, isPtr=false, typ)
+
+        else:
+          discard
+
+      else:
+        discard
+
+    of ckNormal:
+      discard
+
   else:
     discard
 
