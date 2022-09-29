@@ -166,6 +166,10 @@ type TypeEnv* = object
   attachMap: Table[TypeId, int32]
   attachments: seq[tuple[name: PIdent, forceName: bool]] # TODO: should use ``DeclarationV2``
   ifaces: Table[TypeId, PSym]
+  flags: Table[TypeId, TTypeFlags]
+    # XXX: temporary solution for carrying flags for object types to the
+    #      code-generator. The currently only use case is the detection of
+    #      ``.union``s - those should be handled differently however
 
   # XXX: currently maps a unique structural represnetation of a type to it's
   #      ID. What we actually want is a `seq[(Hash, TypeNodeIndex)]` which is
@@ -518,6 +522,9 @@ func base*(e: TypeEnv, id: TypeId): TypeId =
 
 func iface*(e: TypeEnv, id: TypeId): PSym {.inline.} =
   e.ifaces.getOrDefault(id, nil)
+
+func flags*(e: TypeEnv, id: TypeId): TTypeFlags {.inline.} =
+  e.flags.getOrDefault(id, {})
 
 func kind*(e: TypeEnv, id: TypeId): TypeNodeKind {.inline.} =
   e.types[nodeId(e, id)].kind
@@ -1178,6 +1185,8 @@ proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, syms: var DeferredSymbol
       let idx = env.types.len.TypeNodeIndex
       ctx.cache[t.itemId] = idx
       env.types.add default(Type)
+
+      env.flags[toId(idx)] = t.flags
 
       # record the ``TypeId`` -> ``PType`` mapping
       gen.objects[toId(idx)] = t

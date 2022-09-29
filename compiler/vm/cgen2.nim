@@ -428,8 +428,8 @@ func genCTypeDecl(c: var TypeGenCtx, t: TypeId): CDecl =
   case c.env.types[t].kind
   of tnkRecord:
     let kind =
-      if false #[tfUnion in t.flags]#: cdnkUnion
-      else:                  cdnkStruct
+      if tfUnion in c.env.types.flags(t): cdnkUnion
+      else:                               cdnkStruct
 
     result.add kind, 0#, cast[uint32](t.flags)
     result.add cdnkEmpty
