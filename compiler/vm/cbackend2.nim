@@ -196,6 +196,7 @@ proc generateCodeForProc(c: var TCtx, s: PSym): IrGenResult =
   #debugEcho s.name.s, "(", s.kind, "): ", c.config.toFileLineCol(s.info)
   let body = transformBody(c.graph, c.idgen, s, cache = false)
   c.irs.reset()
+  c.options = s.options
   result = genProc(c, s, body)
 
 proc unwrap[T](c: TCtx, r: Result[T, SemReport]): T =
