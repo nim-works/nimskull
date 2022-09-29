@@ -425,6 +425,9 @@ when gotoBasedExceptions:
     ## It also must be called at the end of every thread to ensure no
     ## error is swallowed.
     if nimInErrorMode and currException != nil:
+      # clear the error flag so that calls to procedures that might raise
+      # don't exit immediately
+      nimInErrorMode = false
       reportUnhandledError(currException)
       currException = nil
       quit(1)
