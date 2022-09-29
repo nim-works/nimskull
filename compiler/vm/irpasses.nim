@@ -1891,10 +1891,14 @@ func liftArrays(c: var LiftPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
     discard
 
 proc lowerRangeChecks*(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, cr: var IrCursor) =
-  ## Lowers ``bcRangeCheck`` (nkChckRange, nkChckRangeF, etc.) into simple comparisons
+  ## Lowers ``bcRangeCheck`` (``nkChckRange``, ``nkChckRangeF``, etc.) into
+  ## simple comparisons
+  # TODO: document the procedure
   # XXX: the lowering could be simplified by just replacing the range check
   #      with a call to a ``chkRange`` inline function that'd be defined in
-  #      ``system.nim`` for the C-like targets
+  #      ``system.nim`` for the C-like targets.
+  #      **Edit**: they already exist - consider using them. The call
+  #      overhead might be significant however
   let n = ir[cr]
 
   case n.kind
@@ -1905,54 +1909,60 @@ proc lowerRangeChecks*(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: Pas
         lower = ir.argAt(cr, 1)
         upper = ir.argAt(cr, 2)
 
-      let srcTyp = types[val]
+        srcTyp = types[val]
+        dstTyp = types[cr.position]
+
+      var
+        cond = InvalidIndex
+        raiser: string
 
       cr.replace()
-      var cond: IRIndex
-      var raiser: string
 
       case env.types[srcTyp].kind
-      of tnkInt: # tyUInt, tyUInt64:
-        # .. code:: nim
-        #   cast[dstTyp](high) < val
-        cond = cr.binaryBoolOp(pe, mLtU, cr.insertCast(srcTyp, upper), val)
-        raiser = "raiseRangeErrorNoArgs"
+      of tnkUInt:
+        if env.types[srcTyp].size == 64:
+          # .. code:: nim
+          #
+          #   val <= cast[dstTyp](high)
+          cond = cr.binaryBoolOp(pe, mLeU, val, cr.insertCast(srcTyp, upper))
+          raiser = "raiseRangeErrorNoArgs"
+
       else:
-        let dstTyp = types[cr.position]#skipTypes(c.typeof(cr.position), abstractVarRange)
-        case env.types[dstTyp].kind
-        of tnkInt: #tyUInt8..tyUInt32, tyChar:
-          raiser = "raiseRangeErrorU"
-        of tnkFloat: #tyFloat..tyFloat128:
-          raiser = "raiseRangeErrorF"
-          let conv = cr.insertConv(dstTyp, val)
-          # no need to lower the `or` into an `ntkBranch` + `ntkJoin` here; it has no impact on further analysis
-          cond = cr.binaryBoolOp(pe, mOr, cr.binaryBoolOp(pe, mLtF64, conv, lower), cr.binaryBoolOp(pe, mLtF64, upper, conv))
-
-        else:
-          cr.insertError(env.data, "missing chkRange impl")
-
-        raiser =
-          case env.types[types[cr.position]].kind#skipTypes(c.typeof(cr.position), abstractVarRange).kind
-          of tnkFloat: "raiseRangeErrorF"#tyFloat..tyFloat128: "raiseRangeErrorF"
-          else: "raiseRangeErrorI"
-
-        #[
-        let boundaryCast =
-          if n0t.skipTypes(abstractVarRange).kind in {tyUInt, tyUInt32, tyUInt64} or
-              (n0t.sym != nil and sfSystemModule in n0t.sym.owner.flags and n0t.sym.name.s == "csize"):
-            "(NI64)"
+        var op: TMagic
+        (op, raiser) =
+          case env.types[dstTyp].kind
+          of tnkInt:   (mLtI,   "raiseRangeErrorI")
+          of tnkChar:  (mLtCh,  "raiseRangeErrorU")
+          of tnkUInt:  (mLtU,   "raiseRangeErrorU")
+          of tnkFloat: (mLtF64, "raiseRangeErrorF")
           else:
-            ""
-            ]#
+            unreachable()
 
+        let conv =
+          if env.types.kind(srcTyp) == tnkUInt and env.types[srcTyp].size in {32, 64}:
+            # TODO: ``ccgexprs`` also applies this handling to the ``csize``
+            #       type defined in system
+            cr.insertConv(pe.sysTypes[tyInt64], val)
+          else:
+            val
+
+        # no need to lower the ``or`` into an ``ntkBranch`` + ``ntkJoin``
+        # here; it has no impact on further analysis
+        cond = cr.binaryBoolOp(pe, mOr, cr.binaryBoolOp(pe, op, conv, lower), cr.binaryBoolOp(pe, op, upper, conv))
+        cond = cr.insertMagicCall(pe, mNot, tyBool, cond)
+
+      if cond != InvalidIndex:
         let target = cr.newJoinPoint()
-        cr.insertBranch(cr.insertMagicCall(pe, mNot, tyBool, cond), target)
+        cr.insertBranch(cond, target)
         cr.insertCompProcCall(pe, raiser, val, lower, upper)
         # XXX: it would be nice if we could also move the following
-        #      ``if bcTestError(): goto error`` into the branch here
+        #      ``if bcTestError(): goto error`` into the branch here.
+        #      A pre-pass that removes the ``call bcTestError; branch X``
+        #      might work
 
         cr.insertJoin(target)
-        discard cr.insertConv(dstTyp, val)
+
+      discard cr.insertConv(dstTyp, val)
 
   else:
     discard
