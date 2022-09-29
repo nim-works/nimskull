@@ -1,3 +1,9 @@
+## The module implements the tranlsation from semantically analysed and
+## transformed NimSkull AST to the intermediate langauge used by the back-end
+
+# XXX: this module was based off of ``vmgen``. There's still a lot of VM
+#      related code present here that needs to be removed
+
 import
   std/[
     packedsets,
@@ -316,7 +322,6 @@ func irCall(ir: var IrStore3, m: TMagic, typ: TypeId, args: varargs[IRIndex]): I
   ir.irCall(m, typ, args.len.uint32)
 
 proc irCall(c: var TCtx, name: string, args: varargs[IRIndex]): IRIndex =
-  # TODO: compiler procs should be cached here in `TCtx`
   let prc = c.passEnv.getCompilerProc(name)
   c.irs.irCall(c.irs.irProc(prc), args)
 
@@ -400,7 +405,8 @@ proc genx(c: var TCtx; n: PNode): IRIndex =
 proc gen2(c: var TCtx, n: PNode): tuple[r: IRIndex, exits: bool] =
   c.gen(n, result.r)
 
-  # if the statement ends with a goto, it's not a normal exit
+  # if the statement ends with a goto, the section doesn't have a structured
+  # exit
   # XXX: it's probably a better idea to look at the `n` instead
   result.exits = not c.irs.isLastAGoto()
 
@@ -511,8 +517,6 @@ proc genIf(c: var TCtx, n: PNode, next: JoinPoint): IRIndex =
     var then: PNode
     if it.len == 2:
       if prev != next:
-        # join state from previous condition code
-        # XXX: maybe not necessary?
         c.irs.irJoin(prev)
 
       if i < n.len - 1:
@@ -1058,6 +1062,8 @@ proc genIndex(c: var TCtx; n: PNode; arr: PType): IRIndex =
   let arr = arr.skipTypes(abstractInst)
   if arr.kind == tyArray and (let x = firstOrd(c.config, arr); x != Zero):
     let tmp = c.genx(n)
+    # TODO: compute the adjusted index here if the value is known at
+    #       compile-time
     result = c.irs.irCall(mSubI, c.types.requestType(arr[0]), tmp, c.irLit(toInt(x)))
   else:
     result = c.genx(n)
@@ -1188,15 +1194,12 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
   of mAddI..mModI:
     # TODO: mPred and mSucc also need to be checked for overflow - but only if
     #       the operand is signed
-    # idea: also insert builtin calls to the various check functions here.
-    #       Makes it easier to get uniformity across the back-ends.
     result = c.genCall(n)
     result = c.wrapIf(bcOverflowCheck, c.types.requestType(n.typ), result, optOverflowCheck in c.options)
     if optOverflowCheck in c.options:
       # idea: defects (or error in general) could be encoded as part of the values. I.e. a
       #       `bcOverflowCheck` call would return a result-like value (only on
       #       the IR level, not in the resulting generate code)
-      # TODO: unfinished
       c.raiseExit()
 
   of mInc, mDec:
@@ -1341,8 +1344,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     #      would be to not transform the magic here and let the targets use
     #      some form of lifting pass to replace the magic with whatever they
     #      want/need
-    # XXX: rtti-based memory management strategies used ``reprEnum`` for
-    #      this
+    # XXX: dialects that use the v1 RTTI used ``reprEnum`` for this
     let
       t = n[1].typ.skipTypes(abstractRange)
       s = c.genProcSym c.graph.getToStringProc(t)
@@ -1363,7 +1365,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     discard c.irs.irCall(mEcho, c.requestType(tyVoid), args.len.uint32)
 
     # depending on how the target implements echo, the corrsponding IR pass
-    # might needs the array type of the original arguments. We make sure the
+    # might need the array type of the original arguments. We make sure the
     # type exists here so that the pass doesn't have to create it first.
     assert n[1].typ.kind == tyArray
     assert n[1].typ.elemType.kind == tyString
@@ -1371,8 +1373,8 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
 
   of mSizeOf:
     # ``sizeof`` is a generic procedure that doesn't get instantiated during
-    # sem - the generic routine symbol is instead kept. For compiler-known
-    # sizes, the expression is folded into a literal, but for types with
+    # sem - the generic routine symbol is instead kept. For complete types,
+    # the expression is folded into a literal, but for types with
     # unknown size (e.g. `.incompleteStruct`), the raw call expression is left
     # as is. Passing a non-instantiated routine to `requestProc` would cause
     # an error during type translation because of the ``tyGenericParam``.
@@ -1407,7 +1409,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     # .. code-block::nim
     #
     #   # `offsetOf(a.b)`
-    #   offset
+    #   offsetOf(typeof(a), positionOfB)
     let dotExpr =
       case n[1].kind
       of nkDotExpr:          n[1]
@@ -2081,7 +2083,8 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
     c.irs.irJoin(fwd)
 
   of nkWhenStmt:
-    # TODO: wrong
+    # TODO: wrong. What branch is active depends on whether or not we're
+    #       generating code meant for compile-time execution
     # This is "when nimvm" node. Choose the second branch.
     gen(c, n[1][0], dest)
   of nkCaseStmt:
@@ -2156,7 +2159,8 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
     if isDeepConstExpr(n):
       dest = c.irLit(n)
     elif skipTypes(n.typ, abstractVarRange).kind == tySequence:
-      # XXX: why is this even possible? It is, yes
+      # TODO: see if the branch is dead code (seems like it) and remove it
+      #       in the case that it is
       #c.irLit()
       doAssert false
     else:
@@ -2178,6 +2182,8 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
 
 
 proc genStmt*(c: var TCtx; n: PNode): IrGenResult =
+  # TODO: ``irgen`` should not be responsible for testing for semantic
+  #       errors (``IrGenResult`` should be unnecessary)
   try:
     let r = c.gen2(n)
   except VmGenError as e:
@@ -2232,11 +2238,6 @@ proc genProcBody(c: var TCtx; s: PSym, body: PNode) =
               -1
             else:
               let tmp = j; inc j; tmp
-
-    if tfCapturesEnv in s.typ.flags:
-      #let env = s.ast[paramsPos].lastSon.sym
-      #assert env.position == 2
-      discard#c.prc.regInfo.add RegInfo(refCount: 1, kind: slotFixedLet)
 
     startProc(c)
 
