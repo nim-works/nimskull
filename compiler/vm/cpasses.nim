@@ -529,16 +529,17 @@ func genSliceListMatch(val: IRIndex; eq, lt: TMagic, data: LiteralData, ofBranch
       # if the element matches, we're finished
       cr.insertBranch(cr.insertCallExpr(eq, boolTy, val, cr.insertLit((a, typ))), exit)
 
-func lowerMatch(c: var TypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+func lowerMatch(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, cr: var IrCursor) =
   ## Lowers ``bcMatch`` into compare + 'branch' instructions
   # XXX: the pass is also relevant target except the C-like ones - it should
   #      be located somewhere else
+  let n = ir[cr]
   case n.kind
   of ntkCall:
     if n.isBuiltIn and n.builtin == bcMatch:
       let
         val = ir.argAt(cr, 0)
-        boolTy = c.graph.sysTypes[tyBool]
+        boolTy = pe.sysTypes[tyBool]
       # XXX: the ``PNode`` of the original ``nkOfBranch`` is used as the
       #      literal here for now, but once literals get their own IR, this
       #      will become a slice-list.
@@ -546,11 +547,11 @@ func lowerMatch(c: var TypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
 
       cr.replace()
 
-      let tk = c.env.types[c.types[val]].kind
+      let tk = env.types[types[val]].kind
       case ofBranch.kind:
       of lkNumber, lkString:
         # a single comparison
-        let lit = cr.insertLit((ofBranch, c.types[val]))
+        let lit = cr.insertLit((ofBranch, types[val]))
         let prc =
           case tk
           of tnkInt, tnkUInt: mEqI
@@ -582,7 +583,7 @@ func lowerMatch(c: var TypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
           exit = cr.newJoinPoint()
 
         # TODO: add an ``insertLit`` overload that accepts a boolean
-        cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertLit(c.env.data, 1)) # true
+        cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertLit(env.data, 1)) # true
 
         case tk
         of tnkInt, tnkUInt, tnkChar, tnkBool, tnkFloat:
@@ -596,17 +597,17 @@ func lowerMatch(c: var TypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
             else:
               unreachable(tk)
 
-          genSliceListMatch(val, eq, lt, c.env.data, ofBranch, c.types[val], boolTy, exit, cr)
+          genSliceListMatch(val, eq, lt, env.data, ofBranch, types[val], boolTy, exit, cr)
 
         of tnkString:
           # TODO: implement the hash-table optimization present used by
           #       ``ccgstmts``
-          genSliceListMatch(val, mEqStr, mLtStr, c.env.data, ofBranch, c.types[val], boolTy, exit, cr)
+          genSliceListMatch(val, mEqStr, mLtStr, env.data, ofBranch, types[val], boolTy, exit, cr)
 
         else:
           unreachable(tk)
 
-        cr.insertAsgn(askCopy, cr.insertLocalRef(tmp), cr.insertLit(c.env.data, 0)) # false
+        cr.insertAsgn(askCopy, cr.insertLocalRef(tmp), cr.insertLit(env.data, 0)) # false
         cr.insertJoin(exit)
 
         discard cr.insertLocalRef(tmp)
@@ -616,7 +617,7 @@ func lowerMatch(c: var TypedPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor)
 
 const transformPass = LinearPass2[CTransformCtx](visit: visit)
 const lowerClosuresPass = LinearPass2[CTransformCtx](visit: lowerClosuresVisit)
-const lowerMatchPass* = LinearPass2[TypedPassCtx](visit: lowerMatch)
+const lowerMatchPass* = TypedPass[PassEnv](visit: lowerMatch)
 const lowerEchoPass* = LinearPass2[UntypedPassCtx](visit: lowerEchoVisit)
 
 proc applyCTransforms*(c: CTransformEnv, ic: IdentCache, g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =

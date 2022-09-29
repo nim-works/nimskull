@@ -776,9 +776,8 @@ proc generateCode*(g: ModuleGraph) =
         block:
           # the changes done by this pass need to be visible to further
           # passes, so it can't be run in the same batch
-          var tpc: TypedPassCtx
-          tpc.init(passEnv, addr env, irs)
-          runPass(irs, tpc, lowerMatchPass)
+          let typeCtx = initTypeContext(irs, env, remap)
+          runPass(irs, typeCtx, env, passEnv, lowerMatchPass)
 
         block:
           # the following passes all modify/replace different nodes and don't
