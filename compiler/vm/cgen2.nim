@@ -2357,7 +2357,16 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
 
   # headers
   for h in mCtx.headers.items:
-    f.writeLine fmt"#include {h}"
+    # the provided header string is allowed to not have the extra include
+    # syntax:
+    if h[0] in {'<', '"'}:
+      f.write "#include "
+      f.writeLine h
+    else:
+      # no '"' or '<' is present -> wrap the string in a '"' pair
+      f.write "#include \""
+      f.write h
+      f.writeLine "\""
 
   # type section
 
