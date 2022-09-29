@@ -1643,7 +1643,7 @@ func genSubsetRelOp(setType: TypeId, a, b: IRIndex, testTrue: bool, g: PassEnv, 
     cr.insertAsgn(askInit, cr.insertLocalRef(tmp), isSubsetExpr)
 
     cr.insertBranch(cr.insertMagicCall(g, mNot, tyBool, cr.insertLocalRef(tmp)), exit)
-    cr.insertAsgn(askCopy, cr.insertLocalRef(tmp), cr.insertMagicCall(g, mEqI, tyBool, a, b))
+    cr.insertAsgn(askCopy, cr.insertLocalRef(tmp), cr.insertMagicCall(g, mNot, tyBool, cr.binaryBoolOp(g, mEqI, a, b)))
     cr.insertGoto(exit)
 
     cr.insertJoin(exit)
