@@ -298,10 +298,6 @@ proc getSysMagic2(g: ModuleGraph, name: string, m: TMagic): PSym =
     if r.magic == m:
       result = r
 
-proc newPassEnv(g: ModuleGraph, tgen: var DeferredTypeGen, syms: var SymbolEnv,
-                procs: var ProcedureEnv): PassEnv =
-  new(result)
-
 proc initCompilerProcs(p: PassEnv, g: ModuleGraph, tgen: var DeferredTypeGen,
                        procs: var ProcedureEnv, syms: var DeferredSymbols,
                        data: var LiteralData) =
