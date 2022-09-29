@@ -898,7 +898,7 @@ func genLit(ast: var CAstBuilder, c: var GenCtx, lit: LiteralId, typ: TypeId) =
       # XXX: Nim doesn't guarantee that a signed integer is stored in
       #      two's-complement encoding
       let abs = not(cast[BiggestUInt](intVal)) + 1
-      ast.add(cnkPrefix).ident(c.gl.idents, "-").intLit(abs).void()
+      ast.add(cnkPrefix).op(copSub).intLit(abs).void()
     else:
       ast.intLit(intVal.BiggestUInt).void()
   of tnkUInt, tnkBool:
