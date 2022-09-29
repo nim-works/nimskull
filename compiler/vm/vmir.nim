@@ -456,6 +456,15 @@ iterator args*(ir: IrStore3, n: IRIndex): IRIndex =
     yield ir.nodes[i].theLoc
     inc i
 
+iterator rawArgs*(ir: IrStore3, n: IRIndex): IRIndex =
+  ## Yields the arguments from low to high without skipping
+  ## ``ntkUse|ntkConsume`` nodes
+  var i = n - ir.at(n).numArgs.int
+  let hi = n
+  while i < hi:
+    yield i
+    inc i
+
 func typ*(n: IrNode3): TypeId =
   ## The return type of a builtin call
   case n.kind

@@ -229,6 +229,20 @@ type
   CAstBuilder = object
     ast: CAst
 
+  ExprInfo = object
+    # TODO: manually implement the bitfield. C doesn't make guarantees
+    #       regarding the layout and ``bitsize`` also doesn't work on the
+    #       VM target
+    # TODO: only 4 bits are used - making use of a ``PackedSeq`` would reduce
+    #       the amount of storage required  
+    rc {.bitsize: 2.}: uint ## 0 = no referenced
+                            ## 1 = referenced only once
+                            ## 2 = referenced more than once
+    disjoint {.bitsize: 1.}: bool ## whether the expression is used in a
+      ## partition different from the one it's located in
+    hasSideEffect {.bitsize: 1.}: bool ## whether the expression has
+                                       ## side-effects
+
 const VoidCType = CTypeId(0)
 const StringCType = CTypeId(1)
 
@@ -570,7 +584,7 @@ type GenCtx = object
   sym: ProcId
 
   names: seq[CAst] # IRIndex -> expr
-  exprs: seq[bool]
+  exprs: seq[ExprInfo]
   types: seq[TypeId]
   config: ConfigRef
 
@@ -1287,6 +1301,142 @@ template testNode(cond: bool, i: IRIndex) =
 
 func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint, numStmts: var int, pos: var IRIndex)
 
+
+func needsTemp(x: ExprInfo): bool {.inline.} =
+  ## If the value of an expression is referenced multiple times or if
+  ## the expression is used in a partition different from the one it's located
+  ## in, a temporary is introduced. For expressions with side-effects, this is
+  ## required in order to adhere to the semantics of the code IR - for
+  ## expressions without side-effects, it's not necessary
+  x.rc == 2 or x.disjoint
+
+# XXX: as can be seen by all the todo/xxx comments, there's still a lot to do
+#      in this area. For a prototype, it's acceptable however.
+func computeExpressions(code: IrStore3): seq[ExprInfo] =
+  ## Computes the information about the expressions in `code` that are necessary
+  ## for deciding what expressions have to go through temporaries in order for
+  ## the generated code to match the code IR's evaluation order semantics
+  # TODO: rename
+  # TODO: add to the documentation concrete examples of what this procedure does
+  # TODO: the places where temporaries are inserted is still not correct
+  #       (especially in the area of function argument evaluation). Nim
+  #       guarantees left-to-right evaluation of both side-effects and values for
+  #       procedure arguments while C does **not**.
+  # TODO: the documentation needs to be reworked here in general
+  result.newSeq(code.len)
+  var usesite: seq[uint32]
+  usesite.newSeq(code.len)
+
+  const Atoms = {ntkSym, ntkLit, ntkImm, ntkLocal, ntkParam, ntkProc}
+
+  # XXX: ``ntkLocal`` and ``ntkSym`` (with the symbol of a global) don't
+  #      mean "load local/global" - they just name them. The question now is:
+  #      at which abstract machine instruction are the corresponding locations
+  #      (or locations derived from them) loaded (i.e. their values observed)?
+  #      The two possible solutions are:
+  #      - directly at the instruction they're referenced from (this would
+  #        include ``nktPathObj|ntkPathArr``)
+  #      - at a ``ntkUse|ntkConsume|ntkModify`` or, if it's used as the callee
+  #        of a procedure, right before the arguments are evaluated
+  #
+  #      A previous iteration of the code IR had the ``ntkLoad`` instruction
+  #      to make this explicit, but it was phased out (maybe reinstate it?). 
+
+  # since we're iterating backwards, we start with the highest possible
+  # partition value. The value itself doesn't matter - the important thing is
+  # that ``partition(x) < partition(y)`` if there exists one or more
+  # - control-flow statement
+  # - call with side-effects
+  # - assignment
+  # between ``x`` and ``y`` (where ``y`` comes after ``x`` in the code).
+  var part = uint32(code.len-1)
+
+  for i in countdown(code.len-1, 0):
+    template use(other: IRIndex) =
+      let idx = other
+      usesite[idx] = max(usesite[idx], part)
+      result[idx].rc += ord(result[idx].rc < 2).uint
+
+    let n = code[i]
+    result[i].disjoint = part != usesite[i]
+
+    case n.kind
+    of Atoms:
+      discard "atoms"
+    of ntkAsgn:
+      use(n.srcLoc)
+      dec part # TODO: is this really correct?
+      use(n.wrLoc)
+    of ntkAddr, ntkDeref:
+      use(n.addrLoc)
+    of ntkUse, ntkConsume:
+      use(n.srcLoc)
+    of ntkCall:
+      # everything that has side-effects starts a new partition. Magics and
+      # built-ins are treated as side-effect free
+      if n.callKind == ckNormal:
+        dec part
+        use(n.callee)
+
+      for it in code.rawArgs(i):
+        use(it)
+
+    of ntkPathObj:
+      use(n.srcLoc)
+
+    of ntkPathArr:
+      use(n.srcLoc)
+      use(n.arrIdx)
+
+    of ntkConv, ntkCast:
+      use(n.srcLoc)
+
+    of ntkBranch:
+      dec part
+      use(n.cond)
+    of ntkGoto, ntkGotoLink, ntkContinue, ntkJoin:
+      # control-flow starts a new partition
+      dec part
+    of ntkLocEnd:
+      discard "not relevant"
+
+  # TODO: the documentation needs a bit more tweaking here. The wording needs
+  #       to be very concise and precise, and the used terminology needs to be
+  #       correct
+
+  # propagate the side-effectness. If an expression with side-effects is
+  # materialized (it's value is written to a temporary location), usage of
+  # it is not considered to have side-effects, because with the
+  # materialization, the side-effects of the expression were observed
+  for i in 0..<code.len:
+    template se(i: IRIndex): bool =
+      bool(ord(result[i].hasSideEffect) and ord(not result[i].needsTemp))
+
+    let n = code[i]
+
+    result[i].hasSideEffect =
+      case code[i].kind
+      of Atoms: false
+      of ntkAddr, ntkDeref:  se(n.addrLoc)
+      of ntkPathArr:         se(n.srcLoc) or se(n.arrIdx)
+      of ntkUse, ntkConsume, ntkPathObj, ntkConv, ntkCast:
+        se(n.srcLoc)
+      of ntkCall:
+        case n.callKind
+        of ckNormal: true # treated as always having side-effects
+        of ckMagic, ckBuiltin:
+          # calls to magics and built-ins have side-effects if one of their
+          # operands have them
+          var r = false
+          for it in code.rawArgs(i):
+            if se(it):
+              r = true
+              break
+
+          r
+
+      of ntkGoto, ntkGotoLink, ntkContinue, ntkBranch, ntkJoin, ntkAsgn, ntkLocEnd: false
+
 proc genCode(c: var GenCtx, irs: IrStore3): CAst =
 
   # reset the re-usable state
@@ -1331,7 +1481,8 @@ proc genCode(c: var GenCtx, irs: IrStore3): CAst =
 
     inc numStmts
 
-  c.exprs = calcStmt(irs)
+  # TODO: re-use the ``exprs`` and ``names`` seqs
+  c.exprs = computeExpressions(irs)
   c.names.newSeq(irs.len)
 
   var pos = 0
@@ -1361,9 +1512,15 @@ func genStmtList(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoin
   result[start].a = numStmts.uint32
 
 
+func isEmptyType(env: TypeEnv, id: TypeId): bool =
+  # TODO: properly set the type for all built-in calls and remove the test
+  #       for ``NoneType``
+  id == NoneType or env.kind(id) == tnkVoid
+
 func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint, numStmts: var int, pos: var IRIndex) =
   # TODO: `numStmts` should be the return value, but right now it can't, since
   #       `result` is already in use
+  # TODO: refactor this procedure
   template names: untyped = c.names
   template types: untyped = c.types
   template exprs: untyped = c.exprs
@@ -1375,6 +1532,13 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
       i = pos
 
     inc pos
+
+    const Stmts = {ntkAsgn, ntkBranch, ntkGoto, ntkGotoLink, ntkJoin, ntkContinue, ntkLocEnd}
+
+    # XXX: skipping unreferenced expressions probably hides some bugs...
+    if n.kind notin Stmts and c.exprs[i].rc == 0 and not c.exprs[i].hasSideEffect:
+      # an expression that is not used and has no side-effects -> skip it
+      continue
 
     case n.kind
     of ntkSym:
@@ -1425,10 +1589,18 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
             discard res.add names[it]
           names[i] = res.fin()
 
-      # TODO: we're missing a proper way to check whether a call is a statement
-      if not exprs[i]:#irs.isStmt(n):
+      if c.exprs[i].rc == 0:
+        assert c.exprs[i].hasSideEffect
         result.add names[i]
+        names[i].reset()
         inc numStmts
+
+        # XXX: for instructions with ``rc == 0``, ``disjoint`` is always true
+        #      (due to how it's computed), which would cause the logic below
+        #      to try and emit a temporary. We short-circuit the logic for
+        #      now, but a cleaner solution is needed. 
+        continue
+
     of ntkAddr:
       names[i] = start().emitAddr().add(names[n.addrLoc]).fin()
     of ntkDeref:
@@ -1524,9 +1696,24 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
 
     else:
       names[i] = genError(c, fmt"missing impl: {n.kind}")
-      if not exprs[i]:
+      if c.exprs[i].rc == 0:
+        # make sure the error is present in the generated code by emitting it
+        # as a statement
         result.add names[i]
         inc numStmts
+
+    if n.kind notin Stmts and needsTemp(c.exprs[i]) and
+       c.exprs[i].hasSideEffect:
+      testNode(not isEmptyType(c.env.types, c.types[i]), i)
+
+      let ident = c.gl.idents.getOrIncl(fmt"_cr{i}")
+      result.add cnkDef, 1
+      result.add cnkType, c.types[i].uint32
+      result.add cnkIdent, ident.uint32
+      result.add names[i]
+
+      names[i] = start().ident(ident).fin()
+      inc numStmts
 
 proc emitCDecl(f: File, c: GlobalGenCtx, decl: CDecl)
 
