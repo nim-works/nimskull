@@ -27,10 +27,8 @@ type CTransformEnv* = object
     ## without the environment parameter
   remap: Table[TypeId, TypeId]
 
-type CTransformCtx = object
-  # immutable external state shared across all ``applyCTransforms``
-  # invocations
-  graph: PassEnv
+type CTransformCtx* {.requiresInit.} = object
+  graph*: PassEnv
   transEnv*: ptr CTransformEnv
 
 
@@ -614,28 +612,10 @@ func lowerMatch(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, c
   else:
     discard
 
-const transformPass = TypedPass[CTransformCtx](visit: visit)
-const lowerClosuresPass = TypedPass[CTransformCtx](visit: lowerClosuresVisit)
+const ctransformPass* = TypedPass[CTransformCtx](visit: visit)
+const lowerClosuresPass* = TypedPass[CTransformCtx](visit: lowerClosuresVisit)
 const lowerMatchPass* = TypedPass[PassEnv](visit: lowerMatch)
 const lowerEchoPass* = LinearPass2[UntypedPassCtx](visit: lowerEchoVisit)
-
-proc applyCTransforms*(c: CTransformEnv, g: PassEnv, ir: var IrStore3, env: var IrEnv) =
-  ## Applies lowerings to the IR that are specific to the C-like targets:
-  ## * turn ``bcRaise`` into calls to ``raiseExceptionEx``/``reraiseException``
-  ## * transform overflow checks
-  ## * lower ``mWasMoved`` and ``mCStrToStr``
-
-  # XXX: only the procedure env is modified. Requiring the whole `env` to be
-  #      mutable is a bit meh...
-
-  var ctx = CTransformCtx(graph: g, transEnv: addr c)
-  let types = initTypeContext(ir, env)
-
-  block:
-    var diff = initChanges(ir)
-    runPass2(ir, types, env, ctx, diff, transformPass)
-    runPass2(ir, types, env, ctx, diff, lowerClosuresPass)
-    apply(ir, diff)
 
 func transformClosureProc*(g: PassEnv, paramName: PIdent, localName: DeclId,
                            id: ProcId, procs: var ProcedureEnv,

@@ -886,22 +886,29 @@ proc generateCode*(g: ModuleGraph) =
   lowerSetTypes(ttc, env.types, env.syms)
 
   block:
-    # apply transformations meant for the C-like targets. This has to happen
-    # separately, since we need valid typed IR which we only have again after
-    # the type transformations took place
-    var ctx: CTransformEnv
-    applyCTypeTransforms(ctx, passEnv, env.types, env.syms)
+    # apply transformations meant for the C-like targets
+    var cenv: CTransformEnv
+    applyCTypeTransforms(cenv, passEnv, env.types, env.syms)
 
     let
+      ctx = CTransformCtx(graph: passEnv, transEnv: addr cenv)
       paramName = g.cache.getIdent("ClE")
       envName = env.syms.addDecl(g.cache.getIdent(":env"))
 
     for s, irs in mpairsId(procImpls, ProcId):
       logError(irs, env, s):
-        applyCTransforms(ctx, passEnv, irs, env)
+        block:
+          let typeCtx = initTypeContext(irs, env)
+          var diff = initChanges(irs)
+
+          runPass2(irs, typeCtx, env, ctx, diff, ctransformPass)
+          runPass2(irs, typeCtx, env, ctx, diff, lowerClosuresPass)
+
+          apply(irs, diff)
+
         transformClosureProc(passEnv, paramName, envName, s, env.procs, irs)
 
-    finish(ctx, env.types)
+    finish(cenv, env.types)
 
   var mainProc: ProcId
   block:
