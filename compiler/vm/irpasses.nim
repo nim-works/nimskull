@@ -662,6 +662,37 @@ proc processMagicCall(c: RefcPassCtx, cr: var IrCursor, ir: IrStore3, types: Typ
       # default representation
       unreachable(env.types[typ].kind)
 
+  of mWasMoved:
+    let
+      dst = ir.argAt(cr, 0)
+      typ = types[dst]
+
+    case env.types.kind(typ)
+    of tnkRef, tnkSeq, tnkString:
+      # XXX: same as what's mentioned for the ``refc`` assignment
+      #      handling: we shouldn't need to care about seq and string here
+      cr.replace()
+      genRefcRefAssign(cr, c.extra, dst, cr.insertNilLit(env.data, typ), c.storageLoc(dst))
+    of tnkArray, tnkRecord:
+      # we only need special handling if the location contains GC'ed
+      # memory and if it's not located on the stack. If no special handling is
+      # required, the ``mWasMoved`` magic is passed on
+      if typ in c.gcLookup and c.storageLoc(dst) != slStack:
+        cr.replace()
+        # XXX: ``genericReset`` is described as "incredibly slow" (which is
+        #      very likely true) and is not used by ``cgen`` anymore. It
+        #      still exists however, and we're using it for now in order to
+        #      make things work.
+        #      The better solution is to use a separate lifting pass that
+        #      lifts the reset logic for types that need it into a dedicated
+        #      procedure
+        cr.insertCompProcCall(c.extra, "genericReset", cr.insertAddr(dst), c.requestRtti(cr, typ))
+
+    else:
+      # no garbage collector related handling needed - let a later pass take
+      # care of the magic
+      discard
+
   else:
     discard "ignore"
 
