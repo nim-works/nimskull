@@ -279,15 +279,21 @@ func initUntypedCtx*(graph: PassEnv, env: ptr IrEnv): UntypedPassCtx =
 # phase 5: VM code gen
 
 
-func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
-  result.newSeq(ir.len)
+type
+  TypeMap* = Table[TypeId, TypeId]
+  # XXX: a specialized table implementation could be used for tables mapping
+  #      an ID to something else (especially if we're treating the ID itself
+  #      as the hash)
+
+template computeTypesImpl(ir: IrStore3, env: IrEnv) =
+  mixin asgnTo, get
   var i = 0
   for n in ir.nodes:
     case n.kind
     of ntkAsgn, ntkJoin, ntkGoto, ntkBranch, ntkContinue, ntkProc:
       discard
     of ntkCall:
-      result[i] =
+      asgnTo(i):
         case n.callKind
         of ckBuiltin, ckMagic:
           # XXX: built-in calls feel wrong. Using magics instead might be better
@@ -295,51 +301,75 @@ func computeTypes*(ir: IrStore3, env: IrEnv): seq[TypeId] =
         of ckNormal:
           let callee = ir.at(n.callee)
           if callee.kind != ntkProc:
-            env.types.getReturnType(result[n.callee]) # the callee's return type
+            env.types.getReturnType(get(n.callee)) # the callee's return type
           else:
             env.procs.getReturnType(callee.procId)
 
     of ntkLit:
-      result[i] = ir.getLit(n).typ
+      asgnTo(i): ir.getLit(n).typ
     of ntkSym:
       let s = ir.sym(n)
       customAssert s != NoneSymbol, i
-      result[i] = env.syms[s].typ
+      asgnTo(i): env.syms[s].typ
     of ntkParam:
-      result[i] = env.procs.param(ir.owner, n.paramIndex).typ
+      asgnTo(i): env.procs.param(ir.owner, n.paramIndex).typ
     of ntkUse, ntkConsume:
-      result[i] = result[n.srcLoc]
+      asgnTo(i): get(n.srcLoc)
     of ntkLocal:
-      result[i] = ir.getLocal(i).typ
+      asgnTo(i): ir.getLocal(i).typ
     of ntkAddr:
       # XXX: completely wrong, but we're missing a way to get
       #      the correct type without creating a new one
-      result[i] = result[n.addrLoc]
+      asgnTo(i): get(n.addrLoc)
     of ntkDeref:
-      let t = result[n.addrLoc]
+      let t = get(n.addrLoc)
       customAssert env.types[t].kind in {tnkPtr, tnkRef, tnkVar, tnkLent}, i
-      result[i] = env.types.elemType(t)
+      asgnTo(i): env.types.elemType(t)
     of ntkPathObj:
-      customAssert result[n.srcLoc] != NoneType, n.srcLoc
-      let typ = result[n.srcLoc]
+      let typ = get(n.srcLoc)
+      customAssert typ != NoneType, n.srcLoc
       let idx = n.fieldIdx
       case env.types[typ].kind
       of tnkRecord:
         let f = env.types.nthField(typ, n.fieldIdx)
-        result[i] = env.types[f].typ
+        asgnTo(i): env.types[f].typ
       else:
         customAssert false, n.srcLoc
 
     of ntkPathArr:
-      let typ = env.types.skipVarOrLent(result[n.srcLoc])
-      result[i] = env.types.elemType(typ)
+      let typ = env.types.skipVarOrLent(get(n.srcLoc))
+      asgnTo(i): env.types.elemType(typ)
 
     of ntkConv, ntkCast:
-      result[i] = n.typ
+      asgnTo(i): n.typ
 
     else:
       debugEcho "computeTypes missing: ", n.kind
     inc i
+
+func computeTypes*(code: IrStore3, env: IrEnv): seq[TypeId] =
+  template asgnTo(i: IRIndex, id: TypeId) =
+    result[i] = id
+
+  template get(i: IRIndex): TypeId =
+    result[i]
+
+  # TODO: don't return a new sequence but accept a mutable one instead (so
+  #       that it's memory can be reused)
+  result.newSeq(code.len)
+  computeTypesImpl(code, env)
+
+func computeTypes*(code: IrStore3, env: IrEnv, map: TypeMap): seq[TypeId] =
+  ## Compute the type for each expression, applying the given `map` to the
+  ## type of each sub-expression
+  template asgnTo(i: IRIndex, id: TypeId) =
+    result[i] = map.getOrDefault(id, id)
+
+  template get(i: IRIndex): TypeId =
+    result[i]
+
+  result.newSeq(code.len)
+  computeTypesImpl(code, env)
 
 template binaryBoolOp*(cr: var IrCursor, g: PassEnv, op: TMagic; a, b: IRIndex): IRIndex =
   cr.insertCallExpr(op, g.sysTypes[tyBool], a, b)
