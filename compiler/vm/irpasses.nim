@@ -1482,8 +1482,12 @@ func genSetOp(ir: IrStore3, pe: PassEnv, env: var IrEnv, setType: TypeId, m: TMa
     of mLeSet, mLtSet:
       discard genSubsetRelOp(setType, ir.argAt(cr, 0), ir.argAt(cr, 1), testTrue=(m == mLtSet), pe, env.data, cr)
     of mInSet:
-      let mask = genMaskExpr(setType, len, ir.argAt(cr, 1), env.data, cr)
-      discard cr.insertCallExpr(mBitandI, setType, ir.argAt(cr, 0), mask)
+      # -->
+      #   (set and (1 shl elem)) == (1 shl elem)
+      let
+        bit = genMaskExpr(setType, len, ir.argAt(cr, 1), env.data, cr)
+        masked = cr.insertCallExpr(mBitandI, setType, ir.argAt(cr, 0), bit)
+      discard cr.binaryBoolOp(pe, mEqI, masked, bit)
     of mIncl, mExcl:
       # mIncl --->
       #   a = a or (1 shl b)
