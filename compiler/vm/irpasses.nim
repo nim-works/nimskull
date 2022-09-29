@@ -578,9 +578,9 @@ proc genRefcRefAssign(cr: var IrCursor, e: PassEnv, dst, src: IRIndex, sl: Stora
   of slStack:
     cr.insertAsgn(askShallow, dst, src)
   of slHeap:
-    cr.insertCompProcCall(e, "asgnRef", dst, src)
+    cr.insertCompProcCall(e, "asgnRef", cr.insertAddr(dst), src)
   of slUnknown:
-    cr.insertCompProcCall(e, "unsureAsgnRef", dst, src)
+    cr.insertCompProcCall(e, "unsureAsgnRef", cr.insertAddr(dst), src)
 
 
 proc applyRefcPass(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
