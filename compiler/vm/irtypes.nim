@@ -1,4 +1,5 @@
-## The definitions for the type representation used by the compiler back-end (mid-end?) IR.
+## The type definitions for the various intermediate representations used by
+## the compiler back-end (mid-end?) IR.
 
 import
   std/[
@@ -27,7 +28,7 @@ import
 import std/options as stdoptions
 from compiler/vm/vmdef import unreachable
 
-const useGenTraces {.booldefine.} = false
+const useGenTraces {.booldefine.} = false # XXX: defunct
 
 type RecordNodeKind* = enum
   rnkEmpty # meant to be used by the garbage collector to fill cleaned slots
@@ -95,7 +96,6 @@ type FieldDesc* = object
   # TODO: `sym` should probably be renamed to `decl` now
   sym*: DeclId # may be empty
   typ: TypeNodeIndex
-  # XXX: bitsize should likely be stored as part of FieldDesc
 
 type FieldId* = distinct uint32
 
@@ -104,18 +104,14 @@ type TypeNode* = object
   a: uint32
   b: uint32
 
-# XXX: there actually exist two kinds of types of which the backend cares
-#      about the distinction:
-#      * "declared type": the entity that is defined in a 'type' section in the source code. Not relevant at the IR-level, only for the code-generators. Represents information such as the type's name, if it's imported, which C-header it depends on, etc.
-#      * type (haven't found a good name for this one yet): the raw type information used by the IR
-
-
 type Type* = object
   kind*: TypeNodeKind
   base: TypeId
   a*: uint32
   b*: uint32
   c*: uint32 # for records, a ``RecordNodeIndex``
+  # TODO: store `sig` elsewhere. The signature could just be stored as a
+  #       sequence of ``FieldDesc``
   sig: seq[TypeNodeIndex] # for procedures
 
 # XXX: obsolete, but the idea was good
@@ -177,7 +173,8 @@ type TypeEnv* = object
   #      `types`. This would make access a bit simpler; require less copying
   #      on resize; and make garbge collection easier. It would also increase
   #      memory fragmentation and reduce cache locality
-  records: seq[RecordNode] ## the bodies for all record-like types (objects and tuples) in one contiguous seq
+  records: seq[RecordNode] ## the bodies for all record-like types (objects
+                           ## and tuples) in one contiguous seq
   fields: seq[FieldDesc] ## all fields
   types: seq[Type] ## all types in one contiguous seq
 
@@ -189,7 +186,7 @@ type TypeEnv* = object
     #      code-generator. The currently only use case is the detection of
     #      ``.union``s - those should be handled differently however
 
-  # XXX: currently maps a unique structural represnetation of a type to it's
+  # XXX: currently maps a unique structural representation of a type to it's
   #      ID. What we actually want is a `seq[(Hash, TypeNodeIndex)]` which is
   #      basically one half of a ``BiTable`` but that would require yet
   #      another duplicate of the low-level ``Table`` implementation
@@ -213,7 +210,7 @@ type
     ## A `RecordIter` is a lightweight abstraction meant for iterating over
     ## the `RecordNode`s in a record and querying for field related
     ## information
-    isStart: bool      ## if the iterator is in it's pre-start position.
+    isStart: bool      ## whether the iterator is in it's pre-start position.
                        ## Querying the iterator for information about the
                        ## currently pointer-to record node is illegal when
                        ## `isStart = true` - the iterator has to be moved first
@@ -282,7 +279,7 @@ type
 
     nextSymId, nextDeclId: uint32
 
-  Declaration* = object
+  Declaration* {.deprecated: "use `DeclarationV2`".} = object
     name*: string # the name to used for the declaration in the output of the
                  # code-generators. If `forceName` is false, the name may be
                  # escaped if deemed necessary. `name` is allowed be empty.
@@ -306,13 +303,8 @@ type
   Symbol* = object
     ## The symbol representation used by the backend
 
-    # XXX: using one type (i.e. `Symbol` to describe globals and constants)
-    #      might be the wrong approach for the backend.
-    #      They all require different kinds of information and while using an
-    #      opaque handle and attaching data to it separately works, it's
-    #      probably a better idea to put them in fully separate namespaces.
-    #      This would also allow eaiser dependency scanning without requiring
-    #      and indirection (at the cost of more enum values in `IrNodeKind3`)
+    # TODO: globals and constants both still use ``Symbol``. They should each
+    #       use their own representation.  ``Symbol`` is outdated in general.
 
     kind*: TSymKind
     typ*: TypeId
@@ -368,16 +360,16 @@ type
     params*: seq[ProcParam]
     returnType*: TypeId
     envType*: TypeId ## the ``ref`` type of the captured environment, or
-      ##``NoneType`` if the procedure doesn't capture an environment
+      ## ``NoneType`` if the procedure doesn't capture an environment
 
     callConv*: TCallingConvention
     magic*: TMagic
 
     flags*: TSymFlags # XXX: uses `TSymFlags` for now, but this will be changed to something else later on
 
-    # XXX: each procedure requires a ``Declaration``, so it's stored as part of
+    # XXX: each procedure requires a ``DeclarationV2``, so it's stored as part of
     #      the type in order to avoid indirections via a ``DeclId`` (or similar).
-    #      Since a ``Declaration`` object is quite large, this does mean that
+    #      Since a ``DeclarationV2`` object is quite large, this does mean that
     #      less ``ProcHeader``s fit into a cache-line. The declration is only
     #      needed by code-generators so it likely makes sense to move the
     #      declaration into a separate seq in ``ProcedureEnv``
@@ -390,12 +382,12 @@ type
     map: Table[PSym, ProcId]
     orig*: Table[ProcId, PSym]
 
-  # XXX: this might need a different home
+  # XXX: this type might need a different home
   ModuleData* = object
 
-    # XXX: constants don't belong to a module
-    syms*: seq[SymId] ## the globals and constants that belong to this module
-    procs*: seq[ProcId] ## the procedures that belong to this module
+    # XXX: constants aren't really attached to a module
+    syms*: seq[SymId] ## the globals and constants that are attached to this module
+    procs*: seq[ProcId] ## the procedures that are attached to this module
 
 const NoneType* = TypeId(0)
 const NoneSymbol* = SymId(0)
@@ -443,25 +435,10 @@ func `[]`*(e: SymbolEnv, d: DeclId): lent DeclarationV2 {.inline.} =
 const TypeIdKindBit = 1'u32 shl 31
 const TypeIdMask = 0x7FFFFFFF
 
-template isDecl(id: TypeId): bool =
-  (id.uint32 and TypeIdKindBit) == 0
-
-template isNode(id: TypeId): bool =
-  (id.uint32 and TypeIdKindBit) != 0
-
-template maskedId[T](id: TypeId, typ: typedesc[T]): T =
-
-  # if the kind bit is set (i.e. the type-id is for a node) the value after
-  # applying the ``TypeIdKindBit`` mask is equal to the mask, otherwise it's
-  # '0'. Subtracting 1 will in both cases result in a bitmask that will
-  # eliminate the kind-bit
-  let idVal = id.uint32
-  cast[T](idVal and ((idVal and TypeIdKindBit) - 1))
-
 template toId(idx: TypeNodeIndex): TypeId =
   TypeId(idx + 1)#discard TypeId(idx or TypeIdKindBit)
 
-func nodeId(e: TypeEnv, id: TypeId): TypeNodeIndex {.inline.} =
+func nodeId(e: TypeEnv, id: TypeId): TypeNodeIndex {.inline, deprecated.} =
   assert id != NoneType
   #if isNode(id):
   toIndex(id)
@@ -590,7 +567,7 @@ func numFields*(env: TypeEnv, t: TypeId): int =
   env[env[t].record].a.int
 
 func totalFields*(env: TypeEnv): int =
-  ## Gets the total number of record fields that are stored in `env`
+  ## Returns the total number of record fields that are stored in `env`
   env.fields.len
 
 iterator allFields*(env: TypeEnv): (int, lent FieldDesc) =
@@ -695,7 +672,7 @@ func findField*(e: TypeEnv, t: TypeId, i: int): tuple[id: FieldId, steps: int] =
       return (FieldId(0), 0) # TODO: use a `NoneField`
 
 func inheritanceDiff*(env: TypeEnv, a, b: TypeId): Option[int] =
-  ## Behaves the same as `inheritanceDiff <types#inheritanceDiff,PType,PType>`_
+  ## Behaves similar to `inheritanceDiff <types#inheritanceDiff,PType,PType>`_
   ## with the difference that 'none' is returned if the types are not related
   assert env[a].kind == tnkRecord
   assert env[b].kind == tnkRecord
@@ -823,12 +800,12 @@ func hash(x: PSym): Hash {.inline.} =
   hash(x.itemId)
 
 func requestSym*(def: var DeferredSymbols, s: PSym): SymId =
-  ## Registers `s` with `syms` so that it can be translated later and returns
+  ## Registers `s` with `syms` so that it can be translated later, and returns
   ## the ID that the translated symbol will have. If `s` was already
   ## registered with `syms`, it's *not* registered again
   assert s.kind notin routineKinds
 
-  let next = toId(def.nextSymId, SymId) # +1 since ID '0' is reserved for indicating 'none'
+  let next = toId(def.nextSymId, SymId)
 
   result = def.map.mgetOrPut(s, next)
   if result == next:
@@ -953,8 +930,8 @@ func addField(dest: var TypeEnv, g: var TypeGen, s: PSym,
     cl.blockField = false
     result.entries = 1
 
-  # the order in which types are translated is such that each dependency was
-  # already translated before types referencing it, so we can directly look up
+  # the order in which types are translated is such that each dependency is
+  # translated before types referencing it, so we can directly look up
   # the ID in the cache.
   dest.fields.add(FieldDesc(sym: g.syms.requestDecl(s),
                             typ: g.requestType(s.typ)))
@@ -1200,7 +1177,7 @@ proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, syms: var DeferredSymbol
   for t in gen.list.items:
     collectDeps(total, gen.marker, t)
 
-  # XXX: first creating all object types is a problem, because it breaks
+  # XXX: first creating all object types is a problem because it breaks
   #      the dependencies-come-before-dependents assumption. Various type
   #      processing could be simplified if that property would apply.
   #      A possible solution: translate ``object`` types together with the
@@ -1259,7 +1236,8 @@ proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, syms: var DeferredSymbol
     # don't commit duplicate structural types
     if canonicalize:
       # XXX: enum types are nominal types too, but they're already lowered to
-      #      ints. Maybe the latter is not a good idea?
+      #      ints. Maybe that's not a good idea? **EDIT**: no problems related
+      #      to this have surfaced so far
       var hcode: Hash
       var se: seq[int]
       hash(env, hcode, se, env.types[^1])
@@ -1456,7 +1434,9 @@ func add(e: var TypeEnv, t: sink Type): TypeNodeIndex {.inline.} =
   e.types.add t
 
 func getOrPut(e: var TypeEnv, t: sink Type): TypeId =
-  ## If the given structural type already exists, the ID of the existing instance is returned. Otherwise, `t` is added to the environment and a new ID is returned.
+  ## If the given structural type already exists, the ID of the existing
+  ## instance is returned. Otherwise, `t` is added to the environment and a
+  ## new ID is returned.
   let (exists, idx) = containsOrIncl(e, t, e.types.len)
   if not exists:
     e.types.add t
@@ -1470,9 +1450,6 @@ func genRecordType*(e: var TypeEnv, base: TypeId, fields: varargs[(DeclId, TypeI
   if base != NoneType:
     result.base = base
     result.fieldOffset = e[base].fieldOffset + e.numFields(base)
-  else:
-    discard "that's a problem"
-    #result.base = #
 
   result.c = toId(e.records.len, RecordId).uint32
 
@@ -1575,7 +1552,7 @@ func translateProc*(s: PSym, types: var DeferredTypeGen, ic: IdentCache, dest: v
 func requestProc*(e: var ProcedureEnv, s: PSym): ProcId =
   ## Requests the ID for the given procedure-like `s`. The ID is cached, so
   ## multiple calls to ``requestProc`` with the same symbol will all yield the
-  ## same one.
+  ## same ID.
   assert s.kind in {skProc, skFunc, skMethod, skIterator, skConverter}, $s.kind
 
   let next = toId(e.procs.len, ProcId)
@@ -1632,6 +1609,8 @@ iterator items*(e: ProcedureEnv): ProcId =
 func mget*(e: var ProcedureEnv, p: ProcId): var ProcHeader =
   e.procs[toIndex(p)]
 
+# TODO: the hashing logic still needs to be refactored so that no
+#       ``seq[int]`` is required
 
 func hashV2(e: TypeEnv, hcode: var Hash, se: var seq[int], id: TypeNodeIndex) =
   # since each type is unique, we can simply hash the id
@@ -1646,9 +1625,6 @@ func hashV2(e: TypeEnv, hcode: var Hash, se: var seq[int], id: TypeId) =
 func hashField(e: TypeEnv, hcode: var Hash, se: var seq[int], f: FieldId) =
   # we take the field's symbol into account so that
   # TODO: this is wrong! The symbol's name is what's relevant here; not the ID
-  # XXX: taking the name into account prevents object types from being
-  #      collapsed into one, but it also prevents named tuples from being
-  #      collapsed (which is problematic for the code-generators)
   hcode = hcode !& e[f].sym.int
   se.add(e[f].sym.int)
   hashV2(e, hcode, se, e[f].typ)
@@ -1752,6 +1728,11 @@ func resolve*(e: TypeEnv, id: TypeId): TypeId =
 
   assert e.proxies[result.toIndex] == NoneType
 
+# XXX: ``commit`` is still awkward. Modifying already added types makes things
+#      harder to reason about. See if it makes sense to either use a Table or a
+#      seq to transparently redirect type lookups instead. ``proxies`` somewhat
+#      does this already, but it requires the query-site to use ``resolve``.
+
 func commit*(e: var TypeEnv, remap: Table[TypeId, TypeId]) =
   # XXX: skip fields and types that were added during type modification passes?
 
@@ -1813,9 +1794,7 @@ func mapTypes*(e: var ProcedureEnv, g: DeferredTypeGen) =
 
 func mapTypes*(e: var SymbolEnv, g: DeferredTypeGen) =
   for it in e.symbols.mitems:
-    # XXX: not all symbols have type information - why?
-    if it.typ != NoneType:
-      it.typ = map(g, it.typ)
+    it.typ = map(g, it.typ)
 
 func discrLength*(e: TypeEnv, id: RecordId): int {.inline.} =
   assert e[id].kind == rnkCase
