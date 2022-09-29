@@ -431,12 +431,12 @@ func computeTypeFieldStatus(pe: PassEnv, types: TypeEnv,
 
   template `[]`(x: TypeFieldInfo, i: TypeId): untyped =
     x[toIndex(i)]
-  template `[]=`(x: TypeFieldInfo, i: TypeId, v: TypeFieldStatus) =
+  template `[]=`(x: TypeFieldInfo, i: TypeId, v: set[TypeFieldStatus]) =
     x[toIndex(i)] = v
 
   func hasEmbedded(types: TypeEnv, id: TypeId, tf: TypeFieldInfo): bool =
     for f in types.fields(types[id]):
-      if tf[f.typ] in {tfsHeader, tfsEmbedded}:
+      if tf[f.typ] != {}:
         return true
 
     result = false
@@ -454,7 +454,7 @@ func computeTypeFieldStatus(pe: PassEnv, types: TypeEnv,
 
   # set the type-field state for ``RootObj`` to ``header``. All objects
   # inheriting from ``RootObj`` will start off in the ``header`` state then
-  result[toIndex(rootType)] = tfsHeader
+  result[toIndex(rootType)] = {tfsHeader}
 
   # first iteration: propagate the 'header' status (originating from
   # ``RootObj``). Each ``object`` type is visited *after* it's base type(s)
@@ -472,15 +472,14 @@ func computeTypeFieldStatus(pe: PassEnv, types: TypeEnv,
     case t.kind
     of tnkArray:
       result[id] =
-        case result[t.base]
-        of tfsNone: tfsNone
-        of tfsHeader, tfsEmbedded: tfsEmbedded
+        if result[t.base] != {}: {tfsEmbedded}
+        else:                    {}
 
     of tnkRecord:
       # don't iterate over nominal record types (``object``) yet, they're not
       # ordered before their dependencies
       if id notin objects and hasEmbedded(types, id, result):
-        result[id] = tfsEmbedded
+        result[id].incl tfsEmbedded
 
     else:
       # an atom -- has no type-header nor embedded objects
@@ -492,9 +491,9 @@ func computeTypeFieldStatus(pe: PassEnv, types: TypeEnv,
   #      directly
   for id, t in types.items:
     if id in objects and
-      ((t.base != NoneType and result[t.base] == tfsEmbedded) or
+      ((t.base != NoneType and result[t.base] != {}) or
        hasEmbedded(types, id, result)):
-      result[id] = tfsEmbedded
+      result[id].incl tfsEmbedded
 
 
 proc drain(c: var TCtx, conf: ConfigRef, env: var IrEnv, code: var seq[IrStore3], a, b: var seq[PSym], seenProcs: var IntSet) =

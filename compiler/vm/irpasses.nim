@@ -91,12 +91,10 @@ func getSysType*(g: PassEnv, kind: TTypeKind): TypeId =
 
 type
   TypeFieldStatus* = enum
-    tfsNone     ## no type field
-    tfsHeader   ## only the object itself has a type header
-    tfsEmbedded ## there are one or more sub-objects that have type headers
-                ## and the object itself might also have a type header
+    tfsHeader   ## the object has a type field in the header
+    tfsEmbedded ## there are one or more sub-objects that have type fields
 
-  TypeFieldInfo* = seq[TypeFieldStatus]
+  TypeFieldInfo* = seq[set[TypeFieldStatus]]
     ## The status of if and in what form type-fields are present for each
     ## object type. ``none`` if the type is not a record or array type.
     # XXX: only 2 out of the 8 bit are used; a ``PackedSeq`` would make sense
@@ -648,9 +646,18 @@ proc genNewObj(cr: var IrCursor, g: PassEnv, env: IrEnv, ptrTyp: TypeId,
 func genInitCompound(cr: var IrCursor, c: RefcPassCtx, loc: IRIndex, isPtr: bool, typ: TypeId) =
   ## Generates the code for initializing the type field(s) of a compound
   ## location
-  case c.tfInfo[typ.toIndex]
-  of tfsNone: discard
-  of tfsHeader:
+  let flags = c.tfInfo[typ.toIndex]
+  if tfsEmbedded in flags:
+    # if the compound location has type field embedded, use ``objectInit``. It
+    # will also take care of initializing the type field in compound location's
+    # header (if one exists)
+    let dst =
+      if isPtr: loc
+      else:     cr.insertAddr(loc)
+
+    cr.insertCompProcCall(c.extra, "objectInit", cr.insertCast(c.extra.sysTypes[tyPointer], dst), c.requestRtti(cr, typ))
+
+  elif tfsHeader in flags:
     let dst =
       if isPtr: cr.insertDeref(loc)
       else:     loc
@@ -658,12 +665,6 @@ func genInitCompound(cr: var IrCursor, c: RefcPassCtx, loc: IRIndex, isPtr: bool
     # XXX: ``mAccessTypeField`` returns a ``ptr TNimType``, but we don't
     #      have access to that type here
     cr.insertAsgn(askInit, cr.insertMagicCall(c.extra, mAccessTypeField, tyPointer, dst), c.requestRtti(cr, typ))
-  of tfsEmbedded:
-    let dst =
-      if isPtr: loc
-      else:     cr.insertAddr(loc)
-
-    cr.insertCompProcCall(c.extra, "objectInit", cr.insertCast(c.extra.sysTypes[tyPointer], dst), c.requestRtti(cr, typ))
 
 # TODO: add and use a ``LocalId`` for naming locals
 proc newTemp(cr: var IrCursor, pe: PassEnv, typ: TypeId): int =
@@ -800,7 +801,7 @@ func genAssignmentV1(cr: var IrCursor, c: RefcPassCtx, env: IrEnv, dst, src: IRI
       cr.insertCompProcCall(c.extra, "genericAssign", cr.insertAddr(dst), cr.insertAddr(src), c.requestRtti(cr, typ))
 
   of tnkRecord:
-    if c.tfInfo[typ.toIndex] == tfsHeader or typ in c.gcLookup:
+    if tfsHeader in c.tfInfo[typ.toIndex] or typ in c.gcLookup:
       # we need a ``genericAssign`` if the record contains GC'ed memory or if
       # it has a type-header
       # TODO: the object type check logic should be removed from
@@ -895,7 +896,7 @@ proc applyRefcPass(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPass
           #      initializes an object with type fields from a constant with
           #      the type fields set, instead of doing a ``nimZeroMem`` +
           #      ``objectInit``
-          if c.tfInfo[typ.toIndex] != tfsNone:
+          if c.tfInfo[typ.toIndex] != {}:
             cr.replace()
             genInitCompound(cr, c, loc, isPtr=false, typ)
 
