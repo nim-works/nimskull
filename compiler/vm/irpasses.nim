@@ -514,7 +514,7 @@ type RefcPassCtx* = object
   extra: PassEnv
 
   env: ptr IrEnv # XXX: in order to get to something working, a `ptr` for now
-  types: seq[TypeId]
+  typeCtx*: TypeContext # XXX: temporarily exported
 
   tfInfo*: TypeFieldInfo
   gcLookup*: BitSet[TypeId]
@@ -526,8 +526,12 @@ func initTypeContext*(code: IrStore3, env: IrEnv, map: TypeMap): TypeContext =
   assert map.len > 0
   result.computeTypes(code, env, map)
 
+template types(x: RefcPassCtx): untyped =
+  ## Transition helper
+  x.typeCtx.orig
+
 func setupRefcPass*(c: var RefcPassCtx, pe: PassEnv, env: ptr IrEnv, ir: IrStore3) =
-  c.types = computeTypes(ir, env[]) # XXX: very bad
+  c.typesCtx.orig = computeTypes(ir, env[]) # XXX: very bad
   c.extra = pe
   c.env = env
 
