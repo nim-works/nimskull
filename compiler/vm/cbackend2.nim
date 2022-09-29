@@ -784,23 +784,24 @@ proc generateCode*(g: ModuleGraph) =
           # the following passes all modify/replace different nodes and don't
           # depend on each others changes, so they're run concurrently
           var diff = initChanges(irs)
+          let typeCtx = initTypeContext(irs, env, remap)
 
           var rpCtx: RefcPassCtx
-          rpCtx.setupRefcPass(passEnv, addr env, irs)
+          rpCtx.setupRefcPass(passEnv)
           template swapState() =
             swap(rpCtx.tfInfo, tfInfo)
             swap(rpCtx.gcLookup, gcInfo)
           swapState()
 
-          runPass2(irs, diff, rpCtx, lowerRangeCheckPass)
-          runPass(irs, rpCtx.typeCtx, env, passEnv, diff, lowerSetsPass)
+          runPass2(irs, typeCtx, env, passEnv, diff, lowerRangeCheckPass)
+          runPass2(irs, typeCtx, env, passEnv, diff, lowerSetsPass)
 
-          runPass2(irs, diff, rpCtx, refcPass)
+          runPass2(irs, typeCtx, env, rpCtx, diff, refcPass)
 
           if optSeqDestructors in conf.globalOptions:
-            runPass2(irs, diff, rpCtx, seqV1Pass) #seqV2Pass)
+            runPass2(irs, typeCtx, env, rpCtx, diff, seqV1Pass) #seqV2Pass)
           else:
-            runPass2(irs, diff, rpCtx, seqV1Pass)
+            runPass2(irs, typeCtx, env, rpCtx, diff, seqV1Pass)
 
           runPass2(irs, diff, upc, ofV1Pass)
 
