@@ -898,14 +898,22 @@ func requestType(gen: TypeGen, t: PType): TypeNodeIndex =
 type SOmeErr = object of CatchableError
   info: TLineInfo
 
+type
+  RecordTranslateCl = object
+    blockField: bool
+    numFields: uint32 ## the total number of fields added to the record so far
+
 func addField(dest: var TypeEnv, g: var TypeGen, s: PSym,
-              numFields: var int): tuple[fields, entries: int] =
-  if dest.records[^1].kind == rnkFields:
-    # append to the active field section
+              cl: var RecordTranslateCl): tuple[fields, entries: int] =
+  if dest.records[^1].kind == rnkFields and not cl.blockField:
+    # append to the active field section - but only if we're allowed to
     inc dest.records[^1].b
   else:
     # a new field section
-    dest.records.add RecordNode(kind: rnkFields, a: numFields.uint32, b: numFields.uint32)
+    dest.records.add RecordNode(kind: rnkFields,
+                                a: cl.numFields, b: cl.numFields)
+    # allow following fields to be appended to this section
+    cl.blockField = false
     result.entries = 1
 
   # the order in which types are translated is such that each dependency was
@@ -914,39 +922,44 @@ func addField(dest: var TypeEnv, g: var TypeGen, s: PSym,
   dest.fields.add(FieldDesc(sym: g.syms.requestDecl(s),
                             typ: g.requestType(s.typ)))
 
-  inc numFields
+  inc cl.numFields
   result.fields = 1
 
-func translate(dest: var TypeEnv, g: var TypeGen, n: PNode, numFields: var int): tuple[fields, entries: int] =
+func translate(dest: var TypeEnv, g: var TypeGen, n: PNode, cl: var RecordTranslateCl): tuple[fields, entries: int] =
   func `+=`(a: var (int, int), b: (int, int)) {.inline.} =
     a[0] += b[0]
     a[1] += b[1]
 
   case n.kind
   of nkSym:
-    result += addField(dest, g, n.sym, numFields)
+    result += addField(dest, g, n.sym, cl)
   of nkRecList:
     let start = dest.records.len
     dest.records.add RecordNode(kind: rnkList)
 
     for it in n.sons:
-      result += translate(dest, g, it, numFields)
+      result += translate(dest, g, it, cl)
+
+    # require the next field that follows to start a new section. This is
+    # necessary so that fields following the last branch in a record-case do
+    # not get merged into the ``rnkFields`` node of the last branch
+    cl.blockField = true
 
     dest.records[start].len = result.entries.uint32
-    dest.records[start].a = numFields.uint32#result.fields.uint32
+    dest.records[start].a = cl.numFields#result.fields.uint32
 
     result.entries = 1
   of nkRecCase:
     dest.records.add RecordNode(kind: rnkCase, len: n.len.uint32)
     result.entries = 1
 
-    discard addField(dest, g, n[0].sym, numFields) # discriminator
+    discard addField(dest, g, n[0].sym, cl) # discriminator
 
     for i in 1..<n.len:
       let start = dest.records.len
       dest.records.add RecordNode(kind: rnkBranch)
 
-      let r = translate(dest, g, lastSon(n[i]), numFields)
+      let r = translate(dest, g, lastSon(n[i]), cl)
       dest.records[start].len = r.entries.uint32
 
   else:
@@ -998,7 +1011,7 @@ proc translate(dest: var TypeEnv, gen: var TypeGen, conf: ConfigRef, pos: Natura
   of tyObject:
     dest.types[pos] = Type(kind: tnkRecord, a: dest.fields.len.uint32, b: 0,
                            c: RecordId(dest.records.len + 1).uint32)
-    var tmp: int
+    var tmp: RecordTranslateCl
     discard translate(dest, gen, t.n, tmp)
 
     if t[0] != nil:
