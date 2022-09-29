@@ -453,6 +453,10 @@ func `[]`*(e: TypeEnv, i: RecordId): lent RecordNode =
 func `[]`*(e: ProcedureEnv, i: ProcId): lent ProcHeader {.inline.} =
   e.procs[toIndex(i)]
 
+func numTypes*(e: TypeEnv): int =
+  ## Returns the number of types in `e`
+  e.types.len
+
 func sync*[T](x: var seq[T], e: ProcedureEnv) =
   assert x.len <= e.procs.len
   x.setLen(e.procs.len)
@@ -1130,6 +1134,21 @@ proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, syms: var DeferredSymbol
 
   for t in gen.list.items:
     collectDeps(total, gen.marker, t)
+
+  # XXX: first creating all object types is a problem, because it breaks
+  #      the dependencies-come-before-dependents assumption. Various type
+  #      processing could be simplified if that property would apply.
+  #      A possible solution: translate ``object`` types together with the
+  #      other types (in the order provided by the `total` list), but defer the
+  #      translation (not the ID allocation) of types through which a cycle is
+  #      introduced (seq, ref, and ptr types) until after the all other types
+  #      are translated. The following properties apply then:
+  #      - for compound types (records and arrays): all dependencies have a
+  #        lower ID than the type itself
+  #      - for ptr-like types (including ``seq``): if the base type has a
+  #        higher ID than the type itself, the type introduces a cycle
+  #      For more efficient lookup of cyclic record types, we could also
+  #      remember them in a separate list
 
   for t in total.items:
     if t.kind == tyObject:
