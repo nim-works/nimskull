@@ -1622,7 +1622,7 @@ func genMaskExpr(setType: TypeId, len: uint, val: IRIndex, data: var LiteralData
     else: unreachable()
 
   # ``1 shl (a and mask)``
-  cr.insertCallExpr(mShlI, setType, cr.insertLit(data, 1), cr.insertCallExpr(mBitandI, setType, val, cr.insertLit(data, mask)))
+  cr.insertCallExpr(mShlI, setType, cr.insertLit(data, 1, setType), cr.insertCallExpr(mBitandI, setType, val, cr.insertLit(data, mask, setType)))
 
 func genSubsetRelOp(setType: TypeId, a, b: IRIndex, testTrue: bool, g: PassEnv, data: var LiteralData, cr: var IrCursor): IRIndex =
   # compute if a is either a subset of or equal to b
