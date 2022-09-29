@@ -682,10 +682,11 @@ proc genRaise(c: var TCtx; n: PNode) =
       dest = c.genx(n[0])
       typ = skipTypes(n[0].typ, abstractPtrs)
 
-    # get the exception name
-    let name = newStrNode(nkStrLit, typ.sym.name.s)#c.genLit(n[0], c.toStringCnst(typ.sym.name.s))
+    # create a string literal with the exception's name
+    let nameLit = (c.data.newLit(typ.sym.name.s),
+                   c.passEnv.sysTypes[tyCstring])
 
-    discard c.irs.irCall(bcRaise, NoneType, dest, c.irLit name)
+    discard c.irs.irCall(bcRaise, NoneType, dest, c.irs.irLit nameLit)
   else:
     # reraise
     discard c.irs.irCall(bcRaise, NoneType)
