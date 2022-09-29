@@ -152,6 +152,24 @@ type
     decl: PSym
 ]#
 
+type
+  RecAttachment = object
+    ## Extra data for a ``RecordNode``. Used for two things:
+    ## * store the labels for a ``rnkBranch``
+    ## * store the length of the covered value range for a ``rnkCase``
+
+    # XXX: only one of these is active at a time. Using a variant object
+    #      would be wasteful in this case, since which branch is active is
+    #      already known from the record node the instance is attached to. A
+    #      union should be used
+
+    # TODO: rename to `labels`?
+    branch: LiteralId ## an 'of' branch's labels or ``NoneLit`` if it's an
+                      ## 'else' branch. Either an atomic literal or a
+                      ## slice-list
+
+    # TODO: needs a better name
+    discrLen: int ## the number of elements in ``low(discr)..high(discr)``
 
 type TypeEnv* = object
   ## Holds the data for all types
@@ -181,6 +199,9 @@ type TypeEnv* = object
     ## ``NoneType``, the corrsponding type is not a proxy. Proxies are
     ## created/needed when replacing types, since the replaced type might have
     ## other data attached to it's ID.
+
+  # XXX: use a different name?
+  recAttachments: Table[RecordId, RecAttachment]
 
   typdescs: Table[ItemId, PType] # type-id -> a `tyTypeDesc` type
 
@@ -232,6 +253,11 @@ type
     objects*: Table[TypeId, PType] ## for each translated object type the
                                    ## corresponding source ``PType``. Populated
                                    ## during ``flush``
+
+    recAttachments: seq[(RecordId, PNode)]
+      ## collected nodes for discriminators and branches. Populated during
+      ## ``flush`` and translated into the corresponding IR counteparts by
+      ## ``flush2``
 
     when useGenTraces:
       traceMap: seq[int] ## stores the corresponding trace index for each
@@ -851,6 +877,8 @@ type TypeGen = object
 
   cache: Table[ItemId, TypeNodeIndex] # caches which canonical type a `PType` maps to
 
+  recAttachments: seq[(RecordId, PNode)] ## inherited from ``DeferredTypeGen``
+
   def: ptr DeferredTypeGen
 
 func collectDeps(list: var seq[PType], marker: var IntSet, t: PType)
@@ -960,11 +988,15 @@ func translate(dest: var TypeEnv, g: var TypeGen, n: PNode, cl: var RecordTransl
     dest.records.add RecordNode(kind: rnkCase, len: n.len.uint32)
     result.entries = 1
 
-    discard addField(dest, g, n[0].sym, cl) # discriminator
+    let discr = n[0].sym
+    g.recAttachments.add (toId(dest.records.high, RecordId), n[0])
+
+    discard addField(dest, g, discr, cl) # discriminator
 
     for i in 1..<n.len:
       let start = dest.records.len
       dest.records.add RecordNode(kind: rnkBranch)
+      g.recAttachments.add (toId(start, RecordId), n[i])
 
       let r = translate(dest, g, lastSon(n[i]), cl)
       dest.records[start].len = r.entries.uint32
@@ -1161,6 +1193,7 @@ proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, syms: var DeferredSymbol
   var total: seq[PType]
 
   swap(gen.cache, ctx.cache)
+  swap(gen.recAttachments, ctx.recAttachments)
 
   for t in gen.list.items:
     collectDeps(total, gen.marker, t)
@@ -1251,6 +1284,7 @@ proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, syms: var DeferredSymbol
   assert gen.nextTypeId.int == gen.data.len
 
   swap(gen.cache, ctx.cache)
+  swap(gen.recAttachments, ctx.recAttachments)
 
   when false:
     debugEcho "after flush: "
@@ -1266,6 +1300,22 @@ proc flush*(gen: var DeferredTypeGen, env: var TypeEnv, syms: var DeferredSymbol
   # support re-using
   gen.list.setLen(0)
 
+proc recBranchToLit(d: var LiteralData, n: PNode): LiteralId
+
+proc flush2*(gen: var DeferredTypeGen, env: var TypeEnv, data: var LiteralData,
+             conf: ConfigRef) =
+  ## Translates the collected record-node attachements to their corresponding
+  ## intermediate representation. Calling ``flush2`` multiple times is
+  ## supported
+  # TODO: rename
+  for id, n in gen.recAttachments.items:
+    env.recAttachments[id] =
+      case env[id].kind
+      of rnkCase:   RecAttachment(discrLen: lengthOrd(conf, n.sym.typ).toInt())
+      of rnkBranch: RecAttachment(branch: recBranchToLit(data, n))
+      else:         unreachable()
+
+  gen.recAttachments.setLen(0)
 
 func getAttachmentIndex*(e: TypeEnv, id: TypeId): Option[int] =
   let i = e.attachMap.getOrDefault(id, -1)
@@ -1755,6 +1805,15 @@ func mapTypes*(e: var SymbolEnv, g: DeferredTypeGen) =
     if it.typ != NoneType:
       it.typ = map(g, it.typ)
 
+func discrLength*(e: TypeEnv, id: RecordId): int {.inline.} =
+  assert e[id].kind == rnkCase
+  e.recAttachments[id].discrLen
+
+func rawBranch*(e: TypeEnv, id: RecordId): LiteralId {.inline.} =
+  ## Returns the ID of the literal data representing the branch's labels
+  assert e[id].kind == rnkBranch
+  result = e.recAttachments[id].branch
+
 func initRecordIter*(e: TypeEnv, id: TypeId): RecordIter =
   ## Intializes a ``RecordIter`` for the record type with `id`. A call to
   ## ``next|nextId`` will make the iterator point to the first node, if one
@@ -1823,6 +1882,43 @@ iterator children*(iter: RecordIter, env: TypeEnv): RecordId =
       inc i
 
 export irliterals
+
+# TODO: move the whole literal data translation logic into a separate module
+proc recBranchToLit(d: var LiteralData, n: PNode): LiteralId =
+  ## For a ``nkOfBranch`` nodes, generates a literal from it. For ``nkElse``,
+  ## returns a ``NoneLit`.
+  ##
+  ## If the branch has only a single label, a single int literal is
+  ## generated - a slice-list otherwise
+  case n.kind
+  of nkOfBranch:
+    if n.len == 2 and n[0].kind != nkRange:
+      # of-branch with a single label
+      result = d.newLit n[0].intVal
+
+    else:
+      # the branch uses a slice-list. They're stored as an array of pairs
+      var arr = d.startArray((n.len - 1) * 2)
+
+      for i in 0..<n.len-1:
+        let it = n[i]
+        case it.kind
+        of nkRange:
+          d.addLit(arr): d.newLit(it[0].intVal)
+          d.addLit(arr): d.newLit(it[1].intVal)
+        of nkIntKinds:
+          let lit = d.newLit(it.intVal)
+          d.addLit(arr): lit
+          d.addLit(arr): lit
+        else:
+          unreachable(it.kind)
+
+      result = d.finish(arr)
+
+  of nkElse:
+    result = NoneLit
+  else:
+    unreachable(n.kind)
 
 # XXX: the code duplication is unacceptable, but without resorting to a
 #      template it's quite tricky to get around it

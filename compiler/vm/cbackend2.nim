@@ -696,6 +696,7 @@ proc generateCode*(g: ModuleGraph) =
     # flushing it, so we create a temporary new ``DeferredSymbol`` object here
     var defSyms = initDeferredSyms(env.syms)
     c.types.flush(env.types, defSyms, g.config)
+    c.types.flush2(env.types, c.data, g.config)
 
     flush(defSyms, g.cache, env.syms)
 
