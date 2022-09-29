@@ -93,14 +93,13 @@ iterator toStrIter*(irs: IrStore3, e: IrEnv, exprs: seq[bool]): string =
       line = fmt"param {n.paramIndex}: '{e.procs.param(irs.owner, n.paramIndex).name.s}'"
     of ntkAsgn:
       case n.asgnKind
-      of askCopy, askDiscr:
+      of askCopy:
         line = fmt"{n.wrLoc} = {n.srcLoc}"
       of askMove:
         line = fmt"{n.wrLoc} = move {n.srcLoc}"
-      of askShallow:
-        line = fmt"{n.wrLoc} = shallow {n.srcLoc}"
-      of askInit:
-        line = fmt"{n.wrLoc} := {n.srcLoc}"
+      of askBlit:
+        line = fmt"{n.wrLoc} = blit {n.srcLoc}"
+
     of ntkDeref:
       line = fmt"deref {n.addrLoc}"
     of ntkLit:

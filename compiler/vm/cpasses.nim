@@ -315,11 +315,9 @@ func lowerClosuresVisit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: CTr
         cr.insertAsgn(askCopy, cr.insertPathObj(n.wrLoc, ClosureProcField),
                       cr.insertPathObj(n.srcLoc, ClosureProcField))
 
-      of askMove, askInit:
+      of askMove, askBlit:
         # TODO: it's not clear yet what these two should do for closure
         #       objects
-        discard
-      of askShallow, askDiscr:
         discard
 
   of ntkCall:

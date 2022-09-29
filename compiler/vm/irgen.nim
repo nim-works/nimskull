@@ -1220,11 +1220,19 @@ proc genDeref(c: var TCtx, n: PNode): IRIndex =
 
 proc genAsgn(c: var TCtx; dest: IRIndex; ri: PNode; requiresCopy: bool) =
   if isMove(ri):
-    # a moving assign
+    # a moving assign. The special handling here is only an
+    # optimization, meant to reduce the amount of work the move analyser has
+    # to do
     genMove(c, dest, genx(c, ri[1]))
   else:
+    # TODO: make sure that ``nkFastAsgn(dst, move src)`` does the right thing,
+    #       i.e. moving `src` into a temporary and then performing a shallow
+    #       copy of the temporary into `dst`
+    let kind =
+      if requiresCopy: askCopy else: askMove
+
     let tmp = c.genx(ri)
-    c.irs.irAsgn(askCopy, dest, tmp)
+    c.irs.irAsgn(kind, dest, tmp)
 
 func cannotEval(c: TCtx; n: PNode) {.noinline, noreturn.} =
   raiseVmGenError(
@@ -1270,7 +1278,7 @@ proc genDiscrVal(c: var TCtx, discr: PSym, n: PNode, oty: PType): (IRIndex, IRIn
 
 func isCursor(n: PNode): bool
 
-proc genFieldAsgn(c: var TCtx, obj: IRIndex; le, ri: PNode) =
+proc genFieldAsgn(c: var TCtx, obj: IRIndex; le, ri: PNode, requiresCopy: bool) =
   c.config.internalAssert(le.kind == nkDotExpr)
 
   let idx = c.genField(le[1])
@@ -1281,7 +1289,7 @@ proc genFieldAsgn(c: var TCtx, obj: IRIndex; le, ri: PNode) =
   let p = c.irs.irPathObj(obj, idx)
 
   if sfDiscriminant notin s.flags:
-    genAsgn(c, p, ri, requiresCopy = not isCursor(le))
+    genAsgn(c, p, ri, requiresCopy)
   else:
     # Can't use `s.owner.typ` since it may be a `tyGenericBody`
     #tmp = c.genDiscrVal(le[1], ri, le[0].typ)
@@ -1323,13 +1331,24 @@ proc genRdVar(c: var TCtx; n: PNode;): IRIndex =
   elif s.kind == skResult: c.irs.irLocal(0) # TODO: don't hardcode
   else: c.irs.irLocal(c.prc.local(s))
 
+# XXX: it's not clear yet whether or not the removal of ``askInit`` will turn
+#      out to be a mistake
+# TODO: all assignments need to go through ``genAsgn`` (or a similar but more
+#       low-level facility) so that all assignment-related processing logic
+#       is located in one place
 proc genAsgn(c: var TCtx; le, ri: PNode; requiresCopy: bool) =
-  # TODO: move and cursor handling is missing
-  case le.kind
-  of nkError:
-    # XXX: do a better job with error generation
-    fail(le.info, rsemVmCannotGenerateCode, le)
+  # XXX: assignment handling is still unfinished
+  # TODO: cursor handling is missing
+  let typ = skipTypes(le.typ, abstractVarRange)
+  # only consider ``tfShallow`` for array and record types
+  # XXX: sem should prevent the ``tfShallow`` flag on all other types
+  let requiresCopy =
+    if typ.kind in {tyArray, tyTuple, tyObject} and tfShallow in typ.flags:
+      false
+    else:
+      requiresCopy
 
+  case le.kind
   of nkBracketExpr:
     let typ = le[0].typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind
     let dest = c.genx(le[0])
@@ -1340,21 +1359,21 @@ proc genAsgn(c: var TCtx; le, ri: PNode; requiresCopy: bool) =
       else:
         c.irs.irPathArr(dest, c.genIndex(le[1], le[0].typ))
 
-    genAsgn(c, x, ri, requiresCopy = not isCursor(le))
+    genAsgn(c, x, ri, requiresCopy)
 
   of nkCheckedFieldExpr:
     var objR: IRIndex
     genCheckedObjAccessAux(c, le, objR)
-    c.genFieldAsgn(objR, le[0], ri)
+    c.genFieldAsgn(objR, le[0], ri, requiresCopy)
   of nkDotExpr:
     let dest = c.genx(le[0])
-    c.genFieldAsgn(dest, le, ri)
+    c.genFieldAsgn(dest, le, ri, requiresCopy)
   of nkSym:
     let dest = genRdVar(c, le)
-    genAsgn(c, dest, ri, requiresCopy = not isCursor(le))
+    genAsgn(c, dest, ri, requiresCopy)
   of nkDerefExpr, nkHiddenDeref:
     let dest = c.genx(le[0])
-    genAsgn(c, c.irs.irDeref(dest), ri, requiresCopy = true) # XXX: is `requiresCopy = true` correct?
+    genAsgn(c, c.irs.irDeref(dest), ri, requiresCopy)
   else:
     unreachable(le.kind)
 
@@ -1445,6 +1464,25 @@ func addVariable(c: var TCtx, kind: LocalKind, s: PSym): IRIndex =
 
   c.irs.irLocal(id)
 
+func prepareForInit(c: var TCtx, dest: IRIndex, typ: PType) =
+  ## Generates the code for preparing `dest` for the following initializing
+  ## assignment
+  const Scalar = {tyBool, tyChar, tyInt..tyInt64, tyUInt..tyUInt64,
+                  tyFloat..tyFloat128, tyPtr, tyPointer}
+
+  # for simple scalar types, the assignment itself acts as the complete
+  # initialization, so there's no need to first call ``bcInitLoc`` for them.
+  # Globals don't need to be prepared via ``bcInitLoc`` too, as that happens
+  # implicitly at program startup
+  # XXX: this part needs some further iteration. What we're actually interested
+  #      in here is whether or not the following assignment:
+  #      - completely initializes the location (i.e. each bit that's part of
+  #        the location is written to)
+  #      - requires a zero'ed location (``genericAssign`` does for example)
+  if c.irs[dest].kind != ntkSym and
+     typ.skipTypes(abstractRange).kind notin Scalar:
+    discard c.irs.irCall(bcInitLoc, c.requestType(tyVoid), dest)
+
 proc genVarTuple(c: var TCtx, kind: LocalKind, n: PNode) =
   ## Generates the code for a ``let/var (a, b) = c`` statement
   assert n.kind == nkVarTuple
@@ -1459,8 +1497,10 @@ proc genVarTuple(c: var TCtx, kind: LocalKind, n: PNode) =
         if s.isGlobal: c.irGlobal(s)
         else: c.addVariable(kind, s)
       else:
+        # XXX: what is this case needed for?
         c.genx(n[i])
 
+    prepareForInit(c, e, n[i].typ)
     lhs[i] = e
 
   # then, generate the initialization
@@ -1471,16 +1511,17 @@ proc genVarTuple(c: var TCtx, kind: LocalKind, n: PNode) =
     c.config.internalAssert(lhs.len == initExpr.len, n.info)
     for i, left in lhs.pairs:
       let val = c.genx(initExpr[i].skipColon())
-      c.irs.irAsgn(askInit, left, val)
+      c.irs.irAsgn(askCopy, left, val)
 
   of nkEmpty:
+    # TODO: is this even valid?
     discard "do nothing for empty tuple initializers"
   else:
     let val = c.genx(initExpr)
 
     for i, left in lhs.pairs:
       let p = c.irs.irPathObj(val, i)
-      c.irs.irAsgn(askInit, left, p)
+      c.irs.irAsgn(askCopy, left, p)
 
 proc genLocalInit(c: var TCtx, kind: LocalKind, a: PNode) =
       ## Generate code for a ``let/var a = b`` statement
@@ -1496,14 +1537,17 @@ proc genLocalInit(c: var TCtx, kind: LocalKind, a: PNode) =
           genAsgn(c, dest, a[2], requiresCopy=true)
       else:
         let local = c.addVariable(kind, s)
-        let val =
-          if a[2].kind == nkEmpty:
-            if sfNoInit in s.flags: return # don't initialize with empty
-            else:                   c.irNull(s.typ)
-          else: genx(c, a[2])
+        if a[2].kind == nkEmpty:
+          if sfNoInit notin s.flags:
+            let voidTy = c.requestType(tyVoid)
+            discard c.irs.irCall(bcInitLoc, voidTy, local)
+            # an empty value is constructed here, so ``bcFinishConstr`` needs
+            # to be emitted
+            discard c.irs.irCall(bcFinishConstr, voidTy, local)
 
-        # TODO: assign kind handling needs to be rethought, an assign can be both an init _and_ a move (or shallow)
-        c.irs.irAsgn(askInit, local, val)
+        else:
+          prepareForInit(c, local, s.typ)
+          genAsgn(c, local, a[2], requiresCopy = true)
 
 proc genVarSection(c: var TCtx; n: PNode) =
   let lk =
@@ -1520,8 +1564,9 @@ proc genVarSection(c: var TCtx; n: PNode) =
         genLocalInit(c, lk, a)
       else:
         # initialization of a local that was lifted into a closure's env
-        # TODO: tell `genAsgn` that we want initialization
         if a[2].kind != nkEmpty:
+          # the setup of the environment already zero-initialized the
+          # location - there's no need to use ``prepareForInit`` here
           genAsgn(c, a[0], a[2], true)
     else:
       unreachable(a.kind)
@@ -1531,13 +1576,11 @@ proc genArrayConstr(c: var TCtx, n: PNode): IRIndex =
 
   if n.len > 0:
     for i, x in n.pairs:
-      let
-        a = c.genx(x)
-        idx = c.irImm(i)
+      let idx = c.irImm(i)
 
       # XXX: the loss of information due to the lowering might be a problem
       #      for the code-generators
-      c.irs.irAsgn(askInit, c.irs.irPathArr(result, idx), a)
+      genAsgn(c, c.irs.irPathArr(result, idx), x, requiresCopy = true)
 
   # XXX: the array construction is considered to be finished if the
   #      construction of all it's sub-locations is finished.
@@ -1616,11 +1659,12 @@ proc genObjConstr(c: var TCtx, n: PNode): IRIndex =
         #      conversions, which we could have otherwise relied on
         tmp = c.irConv(le, tmp)
 
-      c.irs.irAsgn(askInit, c.irs.irPathObj(obj, idx), tmp)
+      # TODO: ``genAsgn`` should be used here instead
+      c.irs.irAsgn(askCopy, c.irs.irPathObj(obj, idx), tmp)
     else:
       let (dVal, bVal) = c.genDiscrVal(it[0].sym, it[1], n.typ)
-      # TODO: askDiscr should be replaced with a magic call (e.g. bcInitDiscr)
-      c.irs.irAsgn(askDiscr, c.irs.irPathObj(obj, idx), dVal)
+      # TODO: askCopy should be replaced with a magic call here (e.g. bcInitDiscr)
+      c.irs.irAsgn(askCopy, c.irs.irPathObj(obj, idx), dVal)
 
   let loc =
     if t.kind == tyRef: c.irs.irDeref(result)
@@ -1644,8 +1688,7 @@ proc genTupleConstr(c: var TCtx, n: PNode): IRIndex =
         else:
           (i, it)
 
-      let tmp = c.genx(src)
-      c.irs.irAsgn(askInit, c.irs.irPathObj(result, idx), tmp)
+      genAsgn(c, c.irs.irPathObj(result, idx), src, requiresCopy = true)
 
     discard c.irs.irCall(bcFinishConstr, c.requestType(tyVoid), result)
 
@@ -1968,7 +2011,8 @@ proc genProcBody(c: var TCtx; s: PSym, body: PNode) =
       let r = c.genLocal(lkVar, s.ast[resultPos].sym)
       # initialize 'result'
       if sfNoInit notin s.flags:
-        c.irs.irAsgn(askInit, c.irs.irLocal(r), c.irNull(s.typ[0]))
+        # TODO: ``genAsgn`` should be used here instead
+        c.irs.irAsgn(askCopy, c.irs.irLocal(r), c.irNull(s.typ[0]))
 
     gen(c, body)
 
