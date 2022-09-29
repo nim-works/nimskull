@@ -973,7 +973,7 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
 
     var r = c.irs.irCall(Magic[m][isUnsigned], typId, dest, val)
 
-    let testOverflow = optOverflowCheck in c.options or not isUnsigned
+    let testOverflow = optOverflowCheck in c.options and not isUnsigned
     r = c.wrapIf(bcOverflowCheck, typId, r, testOverflow)
 
     if testOverflow:
