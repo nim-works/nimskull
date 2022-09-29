@@ -852,6 +852,8 @@ proc generateCode*(g: ModuleGraph) =
   else:
     lowerSeqTypesV1(ttc, env.types, env.syms)
 
+  commit(env.types, remap)
+
   lowerSetTypes(ttc, env.types, env.syms)
 
   block:

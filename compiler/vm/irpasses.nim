@@ -1219,13 +1219,18 @@ type TypeTransformCtx* = object
   graph*: PassEnv
   ic*: IdentCache
 
+  remap*: TypeMap ## maps the original types to their lowered version
+  # XXX: rename?
+
 func lowerSeqTypesV1*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: var SymbolEnv) =
+  ## Lowers all sequence types (``seq`` and ``string``). Does not perform a
+  ## commit yet but instead adds the resulting mappings to `c.mappings`
   let
     strTyp = c.graph.getCompilerType("NimString")
     seqTyp = c.graph.getCompilerType("TGenericSeq")
     fieldName = c.ic.getIdent("data")
 
-  var remap: Table[TypeId, TypeId]
+  template remap: untyped = c.remap
   for id, typ in tenv.items:
     case typ.kind
     of tnkString:
@@ -1244,8 +1249,6 @@ func lowerSeqTypesV1*(c: var TypeTransformCtx, tenv: var TypeEnv, senv: var Symb
       remap[id] = requestGenericType(tenv, tnkPtr, rec)
     else:
       discard
-
-  commit(tenv, remap)
 
 func lowerSeqsV2(c: GenericTransCtx, n: IrNode3, cr: var IrCursor) =
   ## Lowers the `seq`-related magic operations into calls to the v2 `seq`
