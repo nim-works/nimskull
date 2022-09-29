@@ -533,29 +533,38 @@ func genSliceListMatch(val: IRIndex; eq, lt: TMagic, data: LiteralData, ofBranch
       # if the element matches, we're finished
       cr.insertBranch(cr.insertCallExpr(eq, boolTy, val, cr.insertLit((a, typ))), exit)
 
+func genMatch*(val: IRIndex, typ: TypeId, ofBranch: LiteralId, data: var LiteralData, env: TypeEnv, g: PassEnv, cr: var IrCursor): IRIndex
+
 func lowerMatch(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, cr: var IrCursor) =
   ## Lowers ``bcMatch`` into compare + 'branch' instructions
-  # XXX: the pass is also relevant target except the C-like ones - it should
-  #      be located somewhere else
+  # XXX: the pass is also relevant for targets languages not part of the
+  #      C-family - it should be located somewhere else
   let n = ir[cr]
   case n.kind
   of ntkCall:
     if n.isBuiltIn and n.builtin == bcMatch:
       let
         val = ir.argAt(cr, 0)
-        boolTy = pe.sysTypes[tyBool]
       # XXX: the ``PNode`` of the original ``nkOfBranch`` is used as the
       #      literal here for now, but once literals get their own IR, this
       #      will become a slice-list.
       let ofBranch = ir.getLit(ir.at(ir.argAt(cr, 1))).val
 
       cr.replace()
+      discard genMatch(val, types[val], ofBranch, env.data, env.types, pe, cr)
 
-      let tk = env.types[types[val]].kind
+  else:
+    discard
+
+func genMatch*(val: IRIndex, typ: TypeId, ofBranch: LiteralId, data: var LiteralData, env: TypeEnv, g: PassEnv, cr: var IrCursor): IRIndex =
+      let
+        boolTy = g.sysTypes[tyBool]
+        tk = env[typ].kind
+
       case ofBranch.kind:
       of lkNumber, lkString:
         # a single comparison
-        let lit = cr.insertLit((ofBranch, types[val]))
+        let lit = cr.insertLit((ofBranch, typ))
         let prc =
           case tk
           of tnkInt, tnkUInt: mEqI
@@ -567,7 +576,7 @@ func lowerMatch(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, c
           else:
             unreachable(tk)
 
-        discard cr.insertCallExpr(prc, boolTy, val, lit)
+        result = cr.insertCallExpr(prc, boolTy, val, lit)
 
       of lkComplex, lkPacked:
         # match the slice-list against the value -->
@@ -587,7 +596,7 @@ func lowerMatch(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, c
           exit = cr.newJoinPoint()
 
         # TODO: add an ``insertLit`` overload that accepts a boolean
-        cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertLit(env.data, 1)) # true
+        cr.insertAsgn(askInit, cr.insertLocalRef(tmp), cr.insertLit(data, 1)) # true
 
         case tk
         of tnkInt, tnkUInt, tnkChar, tnkBool, tnkFloat:
@@ -601,23 +610,20 @@ func lowerMatch(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, c
             else:
               unreachable(tk)
 
-          genSliceListMatch(val, eq, lt, env.data, ofBranch, types[val], boolTy, exit, cr)
+          genSliceListMatch(val, eq, lt, data, ofBranch, typ, boolTy, exit, cr)
 
         of tnkString:
           # TODO: implement the hash-table optimization present used by
           #       ``ccgstmts``
-          genSliceListMatch(val, mEqStr, mLtStr, env.data, ofBranch, types[val], boolTy, exit, cr)
+          genSliceListMatch(val, mEqStr, mLtStr, data, ofBranch, typ, boolTy, exit, cr)
 
         else:
           unreachable(tk)
 
-        cr.insertAsgn(askCopy, cr.insertLocalRef(tmp), cr.insertLit(env.data, 0)) # false
+        cr.insertAsgn(askCopy, cr.insertLocalRef(tmp), cr.insertLit(data, 0)) # false
         cr.insertJoin(exit)
 
-        discard cr.insertLocalRef(tmp)
-
-  else:
-    discard
+        result = cr.insertLocalRef(tmp)
 
 const ctransformPass* = TypedPass[CTransformCtx](visit: visit)
 const lowerClosuresPass* = TypedPass[CTransformCtx](visit: lowerClosuresVisit)
