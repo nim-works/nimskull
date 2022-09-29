@@ -931,7 +931,16 @@ func genLit(ast: var CAstBuilder, c: var GenCtx, lit: LiteralId, typ: TypeId) =
     else:
       unreachable()
   of tnkCString:
-    ast.strLit(lit).void()
+    case lit.kind
+    of lkNumber:
+      # must be a nil-literal
+      assert c.env.data.getUInt(lit) == 0
+      ast.ident(c.gl.idents, "NIM_NIL").void()
+    of lkString:
+      ast.strLit(lit).void()
+    else:
+      unreachable(lit.kind)
+
   of tnkPtr, tnkRef:
     let intVal = c.env.data.getUInt(lit)
     # XXX: not strictly necessary - only done for improved readability
