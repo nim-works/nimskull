@@ -718,18 +718,32 @@ proc genRefcRefAssign(cr: var IrCursor, e: PassEnv, dst, src: IRIndex, sl: Stora
   of slUnknown:
     cr.insertCompProcCall(e, "unsureAsgnRef", cr.insertAddr(dst), src)
 
-func genAssignmentV1(cr: var IrCursor, c: RefcPassCtx, env: IrEnv, dst, src: IRIndex, typ: TypeId, loc: StorageLoc) =
+func genAssignmentV1(cr: var IrCursor, c: RefcPassCtx, env: IrEnv, dst, src: IRIndex, typ: TypeId, init: bool, loc: StorageLoc) =
   ## Generates the assignment logic between `dst` and `src` of the given `typ`,
   ## emitting the RTTI-based ``genericAssign`` if necessary
+
+  template prepare() =
+    if init:
+      # if this is an initializing assignment, the destination might be in a
+      # non-zero state (depending on the target language), so we have to set
+      # it to zero first
+      # XXX: this can be considered a large hack. Inserting the necessary
+      #      instructions for zero-initialization should be handled by
+      #      ``irgen`` (because it's responsible for mapping NimSkull
+      #      semantics to the IR semantics)
+      discard cr.insertCallExpr(bcInitLoc, c.extra.sysTypes[tyVoid], dst)
+
   case env.types.kind(typ)
   of tnkRef:
     cr.replace()
+    prepare()
     genRefcRefAssign(cr, c.extra, dst, src, loc)
   of tnkArray:
     if typ in c.gcLookup:
       # a ``genericAssign`` is only necessary if the array contains GC'ed
       # memory
       cr.replace()
+      prepare()
       cr.insertCompProcCall(c.extra, "genericAssign", cr.insertAddr(dst), cr.insertAddr(src), c.requestRtti(cr, typ))
 
   of tnkRecord:
@@ -744,12 +758,14 @@ func genAssignmentV1(cr: var IrCursor, c: RefcPassCtx, env: IrEnv, dst, src: IRI
       #       ``genericAssign`` is forced even if the record doesn't contain
       #       GC'ed memory
       cr.replace()
+      prepare()
       cr.insertCompProcCall(c.extra, "genericAssign", cr.insertAddr(dst), cr.insertAddr(src), c.requestRtti(cr, typ))
 
   of tnkClosure:
     # note: don't replace the assignment - it gets transformed into an
     #       assignment of just the procedure field during a later pass
 
+    prepare()
     # closure objects have reference semantics
     genRefcRefAssign(cr, c.extra,
                      cr.insertMagicCall(c.extra, mAccessEnv, tyPointer, dst),
@@ -778,7 +794,7 @@ proc applyRefcPass(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPass
         genRefcRefAssign(cr, c.extra, n.wrLoc, n.srcLoc, c.storageLoc(n.wrLoc))
         # XXX: source needs to be zeroed?
     of askCopy, askInit:
-      genAssignmentV1(cr, c, env, n.wrLoc, n.srcLoc, types.real(n.wrLoc), c.storageLoc(n.wrLoc))
+      genAssignmentV1(cr, c, env, n.wrLoc, n.srcLoc, types.real(n.wrLoc), n.asgnKind == askInit, c.storageLoc(n.wrLoc))
     of askShallow, askDiscr:
       discard
 
@@ -1004,7 +1020,13 @@ proc genStrConcat(cr: var IrCursor, g: PassEnv, types: TypeContext, ir: IrStore3
 
   result = cr.insertLocalRef(tmp)
 
-func genSeqAssign(cr: var IrCursor, pe: PassEnv, env: TypeEnv, dst, src: IRIndex, typ: TypeId) =
+func genSeqAssign(cr: var IrCursor, pe: PassEnv, data: var LiteralData,
+                  env: TypeEnv, dst, src: IRIndex, init: bool, typ: TypeId) =
+  if init:
+    # XXX: see the documentation in ``genAssignmentV1`` for why this is
+    #      currently necessary
+    cr.insertAsgn(askInit, dst, cr.insertNilLit(data, typ))
+
   case env.kind(typ)
   of tnkString:
     cr.insertAsgn(askMove, dst, cr.insertCompProcCall(pe, "copyString", src))
@@ -1036,7 +1058,8 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
       let typ = types[n.wrLoc]
       if env.types.kind(typ) in {tnkString, tnkSeq}:
         cr.replace()
-        genSeqAssign(cr, c, env.types, n.wrLoc, n.srcLoc, typ)
+        genSeqAssign(cr, c, env.data, env.types, n.wrLoc, n.srcLoc,
+                     n.asgnKind == askInit, typ)
 
     of askMove:
       # v1 seqs are ``ref``-based, so a move amounts to a move of the ref
@@ -1116,7 +1139,7 @@ proc lowerSeqsV1(ir: IrStore3, types: TypeContext, env: var IrEnv, c: PassEnv, c
 
         case env.types.kind(elemTyp)
         of tnkString, tnkSeq:
-          genSeqAssign(cr, c, env.types, dst, src, elemTyp)
+          genSeqAssign(cr, c, env.data, env.types, dst, src, false, elemTyp)
         else:
           # leave the assignment to be transformed by a subsequent pass
           cr.insertAsgn(askInit, dst, src)
