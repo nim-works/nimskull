@@ -839,9 +839,33 @@ proc applyRefcPass(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPass
       #      ``ptr``. The only reason this hasn't happened yet is because
       #      lowered strings and seqs are declared as pointer types in
       #      ``system``
-      if env.types.kind(types[n.wrLoc]) in {tnkString, tnkRef, tnkSeq}:
+      # TODO: try merging the move logic into ``genAssignmentV1``
+      let
+        src = n.srcLoc
+        dst = n.wrLoc
+        typ = types[dst]
+
+      case env.types.kind(typ)
+      of tnkString, tnkRef, tnkSeq:
         cr.replace()
-        genRefcRefAssign(cr, c.extra, n.wrLoc, n.srcLoc, c.storageLoc(n.wrLoc))
+        genRefcRefAssign(cr, c.extra, dst, src, c.storageLoc(dst))
+
+      of tnkArray, tnkRecord:
+        if types[dst] in c.gcLookup:
+          cr.replace()
+          cr.insertCompProcCall(c.extra, "genericShallowAssign", cr.insertAddr(dst), cr.insertAddr(src), c.requestRtti(cr, typ))
+
+      of tnkClosure:
+        # don't replace the original node - it means "copy the procedure
+        # pointer" past this point
+        genRefcRefAssign(cr, c.extra,
+                         cr.insertMagicCall(c.extra, mAccessEnv, tyPointer, dst),
+                         cr.insertMagicCall(c.extra, mAccessEnv, tyPointer, src),
+                         c.storageLoc(dst))
+
+      else:
+        # not relevant to this pass
+        discard
 
     of askCopy:
       genAssignmentV1(cr, c, env, n.wrLoc, n.srcLoc, types.real(n.wrLoc), c.storageLoc(n.wrLoc))
