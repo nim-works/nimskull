@@ -968,7 +968,9 @@ func genLit(c: var GenCtx, literal: Literal): CAst =
     start().add(cnkType, mapTypeV2(c, literal.typ).uint32).fin()
   elif literal.typ != NoneType:
     # a typed literal
-    buildAst: genLit(builder, c, lit, literal.typ)
+    # a cast to the given type is used in order to communicate the literal's
+    # type to C
+    buildAst: builder.add(cnkCast).add(cnkType, mapTypeV2(c, literal.typ).uint32).genLit(c, lit, literal.typ)
   else:
     # an untyped literal
     # XXX: ideally, these shouldn't exist
