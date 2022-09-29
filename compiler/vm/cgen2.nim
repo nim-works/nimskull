@@ -1676,6 +1676,11 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
       names[i] = genLit(c, irs.getLit(n))
     of ntkUse:
       names[i] = names[n.srcLoc]
+    of ntkLocEnd:
+      # do nothing; we can't communicate to the C compiler that the
+      # referenced local isn't used anymore in the currrent control-flow path
+      discard
+
     of ntkBranch:
       result.add cnkIf
       result.add names[n.cond]
