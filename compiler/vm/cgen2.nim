@@ -2,6 +2,18 @@
 ## * code-gen: IR -> CAst, CDecl
 ## * emit: write CAst and CDecl to file
 
+# XXX: the current implementation still unnecessarily uses a separate
+#      ``CAst`` (a seq) for each sub-expression, causing a very large
+#      amount of temporary allocations. ``cgen2`` is very inefficient in
+#      general and is in need of an overhaul. Right now, more time is
+#      spent in the code-generator than in the other parts of the back-end
+#      *combined*.
+#      The improved design will likely consist of 3 ``seq[CAstNode]`` (1 for
+#      constants, 1 for the top-level statements of inline procedures, and 1
+#      for their sub-expressions/statements) that are part of the
+#      ``GlobalGenCtx`` and 2 ``seq[CAstNode]`` that are part of a
+#      ``ModuleCtx``
+
 import
   std/[
     hashes,
@@ -49,9 +61,6 @@ from compiler/vm/irpasses import computeTypes, PassError
 type
   TypeKey = TypeId
 
-  TypeSet = Table[int, TypeId] # TODO: only store unique types?
-  SymSet = Table[int, SymId] # TODO: use a `HashSet`
-
   LocalGenCtx = object
     ## Mutable environmental state that only applies to the current item
     ## (routine) that is being code-gen'ed
@@ -78,15 +87,12 @@ type
 
     types: PackedSet[TypeId] # all used type for the module
 
-    syms: PackedSet[SymId] ## all used symbols that need to be declared in the C code. # TODO: should be a SymSet
+    syms: PackedSet[SymId] ## all used symbols that need to be declared in the C code.
     funcs: PackedSet[ProcId] ## all used functions that need to be declared in the C code
 
     # TODO: header paths can be very regular. Maybe a CritBitTree[void} would make sense here?
     # TODO: the header includes are currently emitted in an arbitrary order, is that okay? (check the old cgen)
     headers: HashSet[string] ## all headers the module depends on
-
-  # TODO: rename
-  FuncId = distinct uint32
 
   COperator = enum
     ## Currently only meant to name operators without having to
@@ -165,9 +171,6 @@ type
 
   CDecl = seq[tuple[kind: CDeclAstNodeKind, a, b: uint32]]
 
-  CTypeDesc = distinct CDecl
-
-
   CTypeId = TypeId
 
   CIdent = LitId ## An identifier in the generated code
@@ -184,33 +187,19 @@ type
 
   IdentCache = BiTable[string]
 
-  CTypeNode = object
-    # TODO: encode whether the type is a pointer via the `name` field
-    case isPtr: bool
-    of true: nil
-    of false:
-      name: CIdent
-
-    isImmutable: bool # TODO: merge both bools into a `set`
-    isVolatile: bool
-
   GlobalGenCtx* = object
     ## Environment state that applies to all to all code, independent from
     ## which routine or module the code is in.
 
     # TODO: BiTable might not be the best choice. It recomputes the hash for the
-    #       key on each entry comparision, since it doesn't store key hashes.
+    #       key on each entry comparison, as it doesn't store key hashes.
     #       `idents.IdentCache` could be used here, but it's very tailored to Nim (and
     #       also a `ref` type). Maybe a hash-table overlay (see
-    #       ``vmdef.TypeTable``) is a better choice here
+    #       ``vmdef.TypeTable``) is the better choice here
     idents: IdentCache # identifiers used in the generated C-code
     # XXX: the only remaining use for `strings` is error messages
     strings: BiTable[string]
 
-    rttiV1: Table[TypeKey, CIdent] # run-time-type-information requested by the IR being processed.
-    rttiV2: Table[TypeKey, CIdent]
-
-    funcMap: Table[int, int] ## symbol-id -> index into `procs` # TODO: a table is maybe the wrong data structure here.
     funcs: seq[CProcHeader]
 
     symIdents: seq[CIdent] # maps each symbol *index* to an identifier
@@ -235,7 +224,7 @@ type
     #       regarding the layout and ``bitsize`` also doesn't work on the
     #       VM target
     # TODO: only 4 bits are used - making use of a ``PackedSeq`` would reduce
-    #       the amount of storage required  
+    #       the amount of storage required
     rc {.bitsize: 2.}: uint ## 0 = no referenced
                             ## 1 = referenced only once
                             ## 2 = referenced more than once
@@ -245,7 +234,6 @@ type
                                        ## side-effects
 
 const VoidCType = CTypeId(0)
-const StringCType = CTypeId(1)
 
 const InvalidCIdent = CIdent(0) # warning: this depends on a implementation detail of `BiTable`
 
@@ -262,13 +250,6 @@ func enumToStrTbl[E: enum](_: typedesc[E]): array[E, string] =
 const COpToStr = enumToStrTbl(COperator)
   ## Maps a ``COperator`` to it's string representation. More efficient than
   ## ``$COperator``
-
-#[
-func hash(a: TypeKey): Hash =
-  hash(TypeId(a).itemId)
-func `==`(a, b: TypeKey): bool =
-  a.PType.itemId == b.PType.itemId
-]#
 
 func `==`(a, b: CTypeId): bool {.borrow.}
 
@@ -291,8 +272,6 @@ func iface(syms: SymbolEnv, id: SymId): PSym =
     result = orig
 
 func mangledName(sym: PSym): string =
-  # TODO: cache the mangled names (and don't use TLoc for it!)
-  # TODO: implement
   if {sfImportc, sfExportc} * sym.flags != {}:
     $sym.loc.r
   else:
@@ -358,11 +337,13 @@ type TypeGenCtx = object
   fieldIdents: seq[CIdent] # mutated
 
   # non-inherited state
-  weakTypes: set[TypeNodeKind] # the set of types that can be turned into forward declarations when declared as a pointer
+  weakTypes: set[TypeNodeKind] #ä the set of types that can be turned into
+    ## forward declarations when declared as a pointer
 
 func requestType(c: var TypeGenCtx, t: TypeId): CTypeId =
   ## Requests the type-id for `t`. If the c-type for `t` doesn't exist yet, a
   ## slot for it is reserved and it's added to the `c.forwared` list
+  # TODO: remove the procedure (or update it's doc comment)
   CTypeId(t)
 
 func genRecordNode(c: var TypeGenCtx, decl: var CDecl, iter: var RecordIter): int =
@@ -394,7 +375,8 @@ func genRecordNode(c: var TypeGenCtx, decl: var CDecl, iter: var RecordIter): in
     result = n.slice.len
 
   of rnkCase:
-    # TODO: properly name the generated fields, unions, and structs
+    # TODO: properly name the generated fields, unions, and structs.
+    #       *EDIT*: what for?
     #[let discrField = c.env.types.field(f)
     decl.addField(c.cache, c.requestType(discrField.typ), c.env.syms[discrField.sym].decl.name)
     ]#
@@ -492,7 +474,6 @@ func genCTypeDecl(c: var TypeGenCtx, t: TypeId): CDecl =
   assert result.len > 0
 
 func getTypeName(c: var IdentCache, env: TypeEnv, id: TypeId, decl: Declaration): CIdent =
-  # TODO: not finished
   if (let a = env.getAttachmentIndex(id); a.isSome):
     let attach = env.getAttachment(a.unsafeGet)
     if attach[1]:
@@ -545,49 +526,13 @@ func genCTypeInfo(gen: var TypeGenCtx, env: TypeEnv, id: TypeId): CTypeInfo =
 
 
 func useFunction(c: var ModuleCtx, s: ProcId) =
-  ##
   c.funcs.incl s
-  #[
-  if lfHeader in s.loc.flags:
-    c.headers.incl getStr(s.annex.path)
-  elif lfNoDecl notin s.loc.flags:
-    discard c.syms.mgetOrPut(s.id, s)
-  ]#
 
 func useType(c: var ModuleCtx, t: TypeId) =
   assert t != NoneType
   c.types.incl t
 
-#[
-func useTypeWeak(c: var ModuleCtx, t: PType): CTypeId=
-  c.types
-
-func useType(c: var ModuleCtx, t: PType): CTypeId =
-]#
-
-func requestFunction(c: var GlobalGenCtx, s: SymId): int =
-  ## Requests the ID of the C-function `s` maps to
-  discard "now a no-op"
-  #[
-  assert s.kind in routineKinds
-  let nextId = c.funcs.len
-  result = c.funcMap.mgetOrPut(s.id, nextId)
-  if result != nextId:
-    assert result < nextId
-    # the header's content is generated later; we just reserve the slot here
-    c.funcs.setLen(c.funcs.len + 1)
-  ]#
-
-func requestTypeName(c: var GlobalGenCtx, t: PType): CIdent =
-  # TODO: not finished
-  if t.sym != nil:
-    c.idents.getOrIncl(mangledName(t.sym))
-  else:
-    c.idents.getOrIncl(fmt"requestTypeName_missing_{t.kind}")
-
 type GenCtx = object
-  f: File
-  tmp: int
   sym: ProcId
 
   names: seq[CAst] # IRIndex -> expr
@@ -638,7 +583,6 @@ func getUniqueName(scope: NameScope, cache: var IdentCache, name: string): CIden
 
 func gen(c: GenCtx, irs: IrStore3, n: IRIndex): CAst =
   c.names[n]
-  #"gen_MISSING"
 
 func mapTypeV3(t: TypeId): CTypeId
 
@@ -649,6 +593,7 @@ func mapTypeV2(c: var GenCtx, t: TypeId): CTypeId =
 
 func mapTypeV3(t: TypeId): CTypeId =
   if t != NoneType:
+    # TODO: no ``NoneType`` should reach here
     # XXX: maybe just have a ``NoneType`` -> ``VoidCType`` mapping in the table instead?
     CTypeId(t)
   else:
@@ -901,6 +846,7 @@ func genLit(ast: var CAstBuilder, c: var GenCtx, lit: LiteralId) =
     else:
       let abs = not(cast[BiggestUInt](intVal)) + 1
       ast.add(cnkPrefix).op(copSub).intLit(abs).void()
+
   of lkString:
     # treat as cstring
     ast.strLit(lit).void()
@@ -911,6 +857,8 @@ func genLit(ast: var CAstBuilder, c: var GenCtx, lit: LiteralId) =
     #      slice-list), but it's used as a leaf node, so it stays around as
     #      garbage.
     #      For now, we simply ignore them here
+    # XXX: with the addition of the unreferenced detection, untyped packed or
+    #      complex literals should not be able to reach here anymore
     # TODO: use ``unreachable`` again
     #unreachable(lit.kind)
     discard
@@ -928,6 +876,7 @@ func genLit(ast: var CAstBuilder, c: var GenCtx, lit: LiteralId, typ: TypeId) =
       ast.add(cnkPrefix).op(copSub).intLit(abs).void()
     else:
       ast.intLit(intVal.BiggestUInt).void()
+
   of tnkUInt, tnkBool:
     # a bool is also stored and emitted as a uint
     ast.intLit(c.env.data.getUInt(lit)).void()
@@ -942,6 +891,7 @@ func genLit(ast: var CAstBuilder, c: var GenCtx, lit: LiteralId, typ: TypeId) =
       ast.floatLit(floatVal).void()
     else:
       unreachable()
+
   of tnkCString:
     case lit.kind
     of lkNumber:
@@ -1099,7 +1049,7 @@ func forkA(x: var DataIter, data: LiteralData): ArrayIter =
   result.iter = x # XXX: swap instead?
 
 func join(x: var DataIter, y: sink ArrayIter) =
-  # XXX: if it'd be possible to have `x.iter` be a view, ``DataRecordIter``
+  # XXX: if it'd be possible to have `x.iter` be a view, ``ArrayIter``
   #      would be smaller and `join` would be unnecessary
   x = y.iter
 
@@ -1112,7 +1062,7 @@ func genBracedObjConstrPos(ast: var CAstBuilder, c: var GenCtx, id: TypeId,
 func genConstInitializer(ast: var CAstBuilder, c: var GenCtx,
                          data: LiteralData, iter: var DataIter, id: TypeId
                         ): var CAstBuilder =
-  # XXX: the fact that a mutable context (`c`) is required is a bit meh
+  # TODO: don't require a mutable ``GenCtx``
   result = ast
 
   let n = iter.next(data)
@@ -1205,7 +1155,7 @@ func genBracedObjConstr(ast: var CAstBuilder, c: var GenCtx, id: TypeId, data: L
   ##     z: int # 2
   ##     q: int # 3
   ##
-  ## Since in the layout used for the C target, the base record is stored in a
+  ## In the layout used for the C target, the base record is stored in a
   ## member field itself, so the following braced initializer is required:
   ##
   ## .. code-block::c
@@ -1364,7 +1314,7 @@ func computeExpressions(code: IrStore3): seq[ExprInfo] =
   #        of a procedure, right before the arguments are evaluated
   #
   #      A previous iteration of the code IR had the ``ntkLoad`` instruction
-  #      to make this explicit, but it was phased out (maybe reinstate it?). 
+  #      to make this explicit, but it was phased out (maybe reinstate it?).
 
   # since we're iterating backwards, we start with the highest possible
   # partition value. The value itself doesn't matter - the important thing is
@@ -1592,9 +1542,7 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
       # TODO: refactor
       case sym.kind
       of skVar, skLet, skForVar:
-        if sfGlobal in sym.flags:
-          c.m.syms.incl sId
-        #discard mapTypeV3(c.gl, sym.typ) # XXX: temporary
+        c.m.syms.incl sId
       of skConst:
         scanDeps(c.env.data, c.env.syms.data(sId), c.m)
 
@@ -1602,8 +1550,7 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
       else:
         discard
 
-      if sym.typ != NoneType:
-        useType(c.m, sym.typ)
+      useType(c.m, sym.typ)
 
       names[i] = start().ident(c.gl.symIdents[toIndex(sId)]).fin()
 
@@ -1652,7 +1599,7 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
         # XXX: for instructions with ``rc == 0``, ``disjoint`` is always true
         #      (due to how it's computed), which would cause the logic below
         #      to try and emit a temporary. We short-circuit the logic for
-        #      now, but a cleaner solution is needed. 
+        #      now, but a cleaner solution is needed.
         continue
 
     of ntkAddr:
@@ -1709,9 +1656,9 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
 
         names[i] = start().accessSuper(depth, names[n.srcLoc], c.gl.idents.getOrIncl(BaseName)).fin()
       else:
-        # both a conversion and a cast map to the same syntax here. Int-to-float
-        # and vice-versa casts are already transformed into either a ``memcpy`` or
-        # union at the IR level
+        # both a conversion and a cast map to the same syntax here. Conversions
+        # not expressable in C were already transformed into either a ``memcpy``
+        # or union at the IR level
         names[i] = start().add(cnkCast).add(cnkType, mapTypeV2(c, n.typ).uint32).add(names[n.srcLoc]).fin()
 
     of ntkLit:
@@ -1789,10 +1736,10 @@ proc emitType(f: File, c: GlobalGenCtx, t: CTypeId) =
     emitCDecl(f, c, info.decl)
 
 # XXX: since strings are now stored as part of `LiteralData`, we need access
-#      to it during emitting. To shorten the signatures a bit it might make
+#      to it during emitting. To shorten the signatures a bit, it might make
 #      sense to store the `LiteralData` object as part of `GlobalGenCtx`.
 #      That would more or less require splitting `LiteralData` out of
-#      ``IrEnv``, but that probably a good idea anyway.
+#      ``IrEnv`` - but that's probably a good idea anyway.
 proc emitCAst(f: File, c: GlobalGenCtx, data: LiteralData, ast: CAst, pos: var int)
 
 proc emitAndEscapeIf(f: File, c: GlobalGenCtx, data: LiteralData, ast: CAst, pos: var int, notSet: set[CAstNodeKind]) =
@@ -2113,7 +2060,7 @@ proc emitCType(f: File, c: GlobalGenCtx, info: CTypeInfo, isFwd: bool) =
   assert pos == info.decl.len
 
 proc emitConst(f: File, ctx: GlobalGenCtx, data: LiteralData, syms: SymbolEnv, id: SymId, marker: var PackedSet[SymId]) =
-  ## Emits the definition for the constant named by `id` and remember it in
+  ## Emits the definition for the constant named by `id` and remembers it in
   ## `marker`. If the constant is already present in `marker`, nothing is
   ## emitted.
   ## If the constant's intializer references other constants, those are
@@ -2161,7 +2108,8 @@ iterator pairs[T](x: PackedSet[T]): (int, T) =
     inc i
 
 func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
-  ## Initializes the ``GlobalGenCtx`` to use for all following ``emitModuleToFile`` calls. Creates the ``CTypeInfo`` for each IR type.
+  ## Initializes the ``GlobalGenCtx`` to use for all following
+  ## ``emitModuleToFile`` calls. Creates the ``CTypeInfo`` for each IR type.
 
   # TODO: use ``setLen`` + []
   for id in env.syms.items:
@@ -2175,12 +2123,10 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
     # ``genRecordNode`` (as is done for anonymous fields). Why? Because
     # no ``CDecl`` is generated for ``.nodecl`` object types, but their fields
     # still need identifiers.
-    # XXX: with this approach, nodecl named tuple types will cause a compiler
-    #      crash since their fields are treated as anonymous
     for i, f in env.types.allFields:
-      # anonymous fields (used by anonymous tuples) use a position-based
-      # naming scheme, but since we don't know about field positions here, we
-      # defer identifier creation for those to ``genRecordNode``
+      # anonymous fields (used by tuples) use a position-based naming scheme,
+      # but since we don't know about field positions here, we defer identifier
+      # creation for those to ``genRecordNode``
       if f.sym != NoneDecl:
         c.fieldIdents[i] = c.idents.getOrIncl(mangledName(env.syms[f.sym]))
 
@@ -2195,7 +2141,7 @@ func initGlobalContext*(c: var GlobalGenCtx, env: IrEnv) =
   for id in types(env.types):
     c.ctypes.add genCTypeInfo(gen, env.types, id)
 
-  # TODO: rewrite the type translation logic here; it's wasteful
+  # TODO: rewrite the type translation logic here; it's inefficient
   for id, target in env.types.proxies:
     # don't redirect types that have an interface (i.e. are imported)
     if env.types.iface(id) == nil:
@@ -2271,7 +2217,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
   let f = open(filename.string, fmWrite)
   defer: f.close()
 
-  echo "Here: ", filename.string
+  #echo "Here: ", filename.string
 
   var
     mCtx: ModuleCtx
@@ -2287,8 +2233,8 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       asts.add(default(CAst))
       continue
 
-    echo "genFor: ", env.procs[sym].decl.name.s #, " at ", conf.toFileLineCol(sym.info)
-    var c = GenCtx(f: f, config: conf, sym: sym, env: unsafeAddr env)
+    #echo "genFor: ", env.procs[sym].decl.name.s #, " at ", conf.toFileLineCol(sym.info)
+    var c = GenCtx(config: conf, sym: sym, env: unsafeAddr env)
     # doing a separate pass for the type computation instead of doing it in
     # `genCode` is probably a bit less efficient, but it's also simpler;
     # requires less code duplication; and is also good for modularity
@@ -2300,9 +2246,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
     swap(c.m, mCtx)
     swap(c.gl, ctx)
 
-  # XXX: this might lead to an ordering problem, since we're not registering
-  #      the types on the first occurence
-  # mark the types used in routine signatures as used
+  # mark the types used in procedure signatures as used
   for id in mCtx.funcs.items:
     mCtx.useType(env.procs.getReturnType(id))
 
@@ -2324,7 +2268,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
       if lfHeader in iface.loc.flags:
         mCtx.headers.incl getStr(iface.annex.path)
 
-  # collect all types that we need to be defined in this translation unit (.c file)
+  # collect all types that need to be defined in this translation unit (.c file)
 
   type TypeDef = tuple[fwd: bool, id: CTypeId]
 
@@ -2361,7 +2305,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
         discard
 
     # XXX: the used headers could also be collected here, but that would grow
-    # the required state even more
+    #      the required state even more
 
     if info.name != InvalidCIdent:
       # only collect types that have an identifier. The others don't need a
@@ -2379,7 +2323,6 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
   # collect the header dependencies from the used types
   # XXX: to be more efficient, writing out the header includes for the types
   #      could be combined with emitting the type definitions
-
   for _, id in typedefs.items:
     let iface = env.types.iface(id)
     if iface != nil and lfHeader in iface.loc.flags:
@@ -2433,7 +2376,7 @@ proc emitModuleToFile*(conf: ConfigRef, filename: AbsoluteFile, ctx: var GlobalG
     if info.decl.len > 0:
       emitCType(f, ctx, ctx.ctypes[id.int], isFwd=fwd)
 
-  # generate all procedure forward declarations
+  # emit prototypes for all used functions
   for id in mCtx.funcs.items:
     #echo "decl: ", sym.name.s, " at ", conf.toFileLineCol(sym.info)
     if writeProcHeader(f, ctx, ctx.funcs[id.toIndex], env.procs[id].decl, false):
