@@ -756,8 +756,9 @@ proc applyRefcPass(ir: IrStore3, types: TypeContext, env: var IrEnv, c: RefcPass
       #      lowered strings and seqs are declared as pointer types in
       #      ``system``
       if env.types.kind(types[n.wrLoc]) in {tnkString, tnkRef, tnkSeq}:
+        cr.replace()
         genRefcRefAssign(cr, c.extra, n.wrLoc, n.srcLoc, c.storageLoc(n.wrLoc))
-        # XXX: source needs to be zeroed?
+
     of askCopy:
       genAssignmentV1(cr, c, env, n.wrLoc, n.srcLoc, types.real(n.wrLoc), c.storageLoc(n.wrLoc))
     of askBlit:
