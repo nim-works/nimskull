@@ -1531,6 +1531,27 @@ func isEmptyType(env: TypeEnv, id: TypeId): bool =
   #       for ``NoneType``
   id == NoneType or env.kind(id) == tnkVoid
 
+func genArgs(ast: var CAstBuilder, c: GenCtx, code: IrStore3, call: IRIndex) =
+  ## Generate the arguments for a non-imported function
+  for it in code.args(call):
+    discard ast.add(c.names[it])
+
+func safeKind(env: TypeEnv, id: TypeId): TypeNodeKind {.inline.} =
+  if id != NoneType: env.kind(id)
+  else:              tnkVoid
+
+func genArgsImported(ast: var CAstBuilder, c: var GenCtx, code: IrStore3,
+                     call: IRIndex) =
+  ## Generate the arguments for an imported function
+  for it in code.args(call):
+    case c.env.types.safeKind(c.types[it])
+    of tnkArray:
+      # the function expects a pure C-array
+      ast.add(cnkDotExpr).add(c.names[it]).ident(c.gl.idents, ArrayInnerName).void()
+    else:
+      discard ast.add(c.names[it])
+
+
 func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint, numStmts: var int, pos: var IRIndex) =
   # TODO: `numStmts` should be the return value, but right now it can't, since
   #       `result` is already in use
@@ -1599,8 +1620,17 @@ func genSection(result: var CAst, c: var GenCtx, irs: IrStore3, merge: JoinPoint
         let callee = irs.at(n.callee)
         block:
           var res = start().add(cnkCall, n.argCount.uint32).add(names[n.callee])
-          for it in irs.args(i):
-            discard res.add names[it]
+          let isImported = callee.kind == ntkProc and
+                           sfImportc in c.env.procs[callee.procId].flags and
+                           c.env.procs[callee.procId].decl.omit
+
+          # XXX: this ``isImported`` hack makes sure that calls to
+          #      ``posix.pipe`` compile for now
+          if not isImported:
+            genArgs(res, c, irs, i)
+          else:
+            genArgsImported(res, c, irs, i)
+
           names[i] = res.fin()
 
       if c.exprs[i].rc == 0:
