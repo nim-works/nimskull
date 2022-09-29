@@ -350,7 +350,7 @@ template computeTypesImpl(ir: IrStore3, env: IrEnv) =
   var i = 0
   for n in ir.nodes:
     case n.kind
-    of ntkAsgn, ntkJoin, ntkGoto, ntkBranch, ntkContinue, ntkLocEnd, ntkProc:
+    of ntkAsgn, ntkJoin, ntkGoto, ntkGotoLink, ntkBranch, ntkContinue, ntkLocEnd, ntkProc:
       discard
     of ntkCall:
       asgnTo(i):

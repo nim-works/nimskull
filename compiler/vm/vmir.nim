@@ -363,7 +363,7 @@ func irGoto*(c: var IrStore3, target: JoinPoint): IRIndex {.discardable.} =
   c.add(IrNode3(kind: ntkGoto, gotoTarget: target))
 
 func irGotoLink*(c: var IrStore3, target: JoinPoint) =
-  discard
+  discard c.add IrNode3(kind: ntkGotoLink, gotoTarget: target)
 
 func irLocal*(c: var IrStore3, name: int): IRIndex =
   ## references a local
@@ -518,7 +518,7 @@ func target*(n: IrNode3): JoinPoint =
   case n.kind
   of ntkBranch:
     n.target
-  of ntkGoto:
+  of ntkGoto, ntkGotoLink:
     n.gotoTarget
   else:
     unreachable(n.kind)
