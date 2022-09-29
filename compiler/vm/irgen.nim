@@ -1012,7 +1012,10 @@ proc genMagic(c: var TCtx; n: PNode; m: TMagic): IRIndex =
     # these should not exist yet
     unreachable(n.kind)
   of mMove:
-    unreachable("not handled here")
+    # create a temporary and move into it
+    # TODO: the lifetime of said temporary needs to be figured out
+    result = getTemp(c, n.typ)
+    genMove(c, result, genx(c, n[1]))
   of mSlice:
     # special-cased in order to handle array parameters that don't start at
     # index '0'
@@ -1217,7 +1220,6 @@ proc genDeref(c: var TCtx, n: PNode): IRIndex =
 proc genAsgn(c: var TCtx; dest: IRIndex; ri: PNode; requiresCopy: bool) =
   if isMove(ri):
     # a moving assign
-    # TODO: a `move(move(a))` would wreak havoc
     genMove(c, dest, genx(c, ri[1]))
   else:
     let tmp = c.genx(ri)
