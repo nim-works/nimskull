@@ -257,6 +257,12 @@ func formatHexChar(dst: var openArray[char], pos: int, x: uint8) =
   dst[pos + 0] = Chars[x shr 4]
   dst[pos + 1] = Chars[x and 0x0F]
 
+func formatOctChar(dst: var openArray[char], pos: int, x: uint8) =
+  const Chars = ['0', '1', '2', '3', '4', '5', '6', '7']
+  dst[pos + 0] = Chars[x shr 6]
+  dst[pos + 1] = Chars[(x shr 3) and 0x07]
+  dst[pos + 2] = Chars[x and 0x07]
+
 func iface(syms: SymbolEnv, id: SymId): PSym =
   # XXX: temporary solution
   let orig = syms.orig.getOrDefault(id)
@@ -1533,14 +1539,16 @@ proc emitAndEscapeIf(f: File, c: GlobalGenCtx, data: LiteralData, ast: CAst, pos
 proc writeChars[I: static int](f: File, arr: array[I, char]) {.inline.} =
   discard f.writeBuffer(addr(arr), I)
 
-func formatCChar(a: var array[4, char], ch: char): range[0..4] {.inline.} =
+func formatCChar(a: var array[4, char], ch: char): range[1..4] {.inline.} =
   ## Escapes the character with value `ch`, if necessary, and writes the
   ## result to `a`. Returns the length of the resulting string
   case ch
   of '\x00'..'\x1F', '\x7F'..'\xFF':
     a[0] = '\\'
-    a[1] = 'x'
-    formatHexChar(a, 2, ord(ch).uint8)
+    # clang doesn't accept strings like "\x000" and complains with the
+    # message "hex escape sequence out of range". So instead, we use octal
+    # escape sequences
+    formatOctChar(a, 1, ord(ch).uint8)
     4
   of '\\', '\'', '\"':
     a[0] = '\\'
