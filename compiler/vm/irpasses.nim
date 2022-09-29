@@ -543,7 +543,7 @@ proc genNewObj(cr: var IrCursor, g: PassEnv, env: IrEnv, ptrTyp: TypeId,
                dest, sizeExpr: IRIndex; loc: StorageLoc) =
   let
     typ = env.types[ptrTyp].base
-    rttiExpr = g.requestRtti2(cr, typ)
+    rttiExpr = g.requestRtti2(cr, ptrTyp)
 
   let sizeExpr =
     if sizeExpr == InvalidIndex:
