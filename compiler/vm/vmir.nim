@@ -605,6 +605,9 @@ func setPos*(cr: var IrCursor, pos: IRIndex) {.inline.} =
 func position*(cr: IrCursor): int {.inline.} =
   cr.pos
 
+func `[]`*(x: IrStore3, cr: IrCursor): lent IrNode3 {.inline.} =
+  x.nodes[cr.pos]
+
 func replace*(cr: var IrCursor) =
   ## Switches to replace mode. The next insert will overwrite the node at the cursor position
   assert cr.actions.len == 0 or cr.actions[^1][0] == false or cr.actions[^1][1].a != cr.pos, "replace already called"

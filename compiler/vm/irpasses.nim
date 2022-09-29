@@ -102,6 +102,31 @@ type
     # XXX: only 2 out of the 8 bit are used; a ``PackedSeq`` would make sense
     #      here
 
+  TypeContext* = object
+    ## Stores the type information for a procedure's body
+
+    # TODO: introduce the ``IdMap[SomeId, T]`` type that's already mentioned
+    #       elsewhere and use it here
+    orig: seq[TypeId] ## ``IRIndex`` -> unmapped type of the expression
+    mapped: seq[TypeId] ## ``IRIndex`` -> mapped type of the expression. A
+      ## mapped type is the type after lowering/transformation.
+
+  TypedPass*[T] = object
+    # XXX: going just by the name, a ``TypedPass`` would be a pass that is
+    #      typed, which doesn't match at all with what the type actually
+    #      represents. A better name is needed
+    # TODO: the ``IrEnv`` parameter must not be mutable. It currently has to be
+    #       because ``IrEnv`` also stores the ``LiteralData`` object, which
+    #       needs to be mutable in order for new literal data to be added.
+    #       In order to stay forward-compatible, do **not** modify anything
+    #       besides ``LiteralData`` in `env`
+    when T is void:
+      visit*: proc (code: IrStore3, types: TypeContext, env: var IrEnv,
+                    cr: var IrCursor)
+    else:
+      visit*: proc (code: IrStore3, types: TypeContext, env: var IrEnv,
+                    extra: T, cr: var IrCursor)
+
 proc runPass*[T](irs: var IrStore3, ctx: T, pass: LinearPass[T]) =
   var cursor: IrCursor
   cursor.setup(irs)
@@ -137,6 +162,34 @@ proc runPass2*[T](irs: IrStore3, diff: var Changes, ctx: var T, pass: LinearPass
     cr.setPos(i)
     pass.visit(ctx, n, irs, cr)
     inc i
+
+  diff.merge(cr)
+
+proc runPass*[T: not void](code: var IrStore3, types: TypeContext,
+                           env: var IrEnv, extra: T, pass: TypedPass[T]) =
+  ## Applies `pass` to the given `code`, directly merging the changes into
+  ## `code`
+  var cr: IrCursor
+  cr.setup(code)
+
+  for i in 0..<code.len:
+    cr.setPos(i)
+    # XXX: the change to not using the `nodes` iterator and looking up the
+    #      pointed to node in the visit procedure increased the run time of
+    #      the main passes by around 5%. That's quite a lot.
+    pass.visit(code, types, env, extra, cr)
+
+  code.update(cr)
+
+proc runPass2*[T: not void](code: IrStore3, types: TypeContext, env: var IrEnv,
+                           extra: T, diff: var Changes, pass: TypedPass[T]) =
+  ## Applies `pass` to the given `code` and merges the changes into `diff`
+  var cr: IrCursor
+  cr.setup(code)
+
+  for i in 0..<code.len:
+    cr.setPos(i)
+    pass.visit(code, types, env, extra, cr)
 
   diff.merge(cr)
 
@@ -279,6 +332,13 @@ func initUntypedCtx*(graph: PassEnv, env: ptr IrEnv): UntypedPassCtx =
 # phase 5: VM code gen
 
 
+func `[]`*(x: TypeContext, i: IRIndex): TypeId {.inline.} =
+  x.orig[i]
+
+func real(x: TypeContext, i: IRIndex): TypeId {.inline.} =
+  # TODO: rename
+  x.mapped[i]
+
 type
   TypeMap* = Table[TypeId, TypeId]
   # XXX: a specialized table implementation could be used for tables mapping
@@ -371,6 +431,38 @@ func computeTypes*(code: IrStore3, env: IrEnv, map: TypeMap): seq[TypeId] =
   result.newSeq(code.len)
   computeTypesImpl(code, env)
 
+func newSeqReuse[T](x: var seq[T], size: Natural) {.inline.} =
+  when defined(nimv2):
+    # TODO: verify that this really works. The implementation of ``shrink``
+    #       makes it seem like it doesn't
+    x.newSeq(size)
+  else:
+    # zero out the occupied memory:
+    x.setLen(0)
+    # now resize to the requested size:
+    x.setLen(size)
+
+func computeTypes*(res: var TypeContext, code: IrStore3, env: IrEnv,
+                   map: TypeMap) =
+  ## Computes the type for each expression in `code`, applying the given `map`
+  ## to the type of each sub-expression. The previous contents of `res` are
+  ## overwritten
+  template asgnTo(i: IRIndex, id: TypeId) =
+    let
+      v = i
+      v2 = id
+    res.orig[v] = v2
+    res.mapped[v] = map.getOrDefault(v2, v2)
+
+  template get(i: IRIndex): TypeId =
+    res.mapped[i]
+
+  res.orig.newSeqReuse(code.len)
+  res.mapped.newSeqReuse(code.len)
+
+  computeTypesImpl(code, env)
+
+
 template binaryBoolOp*(cr: var IrCursor, g: PassEnv, op: TMagic; a, b: IRIndex): IRIndex =
   cr.insertCallExpr(op, g.sysTypes[tyBool], a, b)
 
@@ -426,6 +518,13 @@ type RefcPassCtx* = object
 
   tfInfo*: TypeFieldInfo
   gcLookup*: BitSet[TypeId]
+
+func initTypeContext*(code: IrStore3, env: IrEnv): TypeContext =
+  result.orig = computeTypes(code, env)
+
+func initTypeContext*(code: IrStore3, env: IrEnv, map: TypeMap): TypeContext =
+  assert map.len > 0
+  result.computeTypes(code, env, map)
 
 func setupRefcPass*(c: var RefcPassCtx, pe: PassEnv, env: ptr IrEnv, ir: IrStore3) =
   c.types = computeTypes(ir, env[]) # XXX: very bad
