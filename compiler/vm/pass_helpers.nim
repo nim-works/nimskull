@@ -48,3 +48,9 @@ func getMagic*(ir: IrStore3, env: IrEnv, n: IrNode3): TMagic =
   case n.callKind
   of ckBuiltin, ckNormal: mNone
   of ckMagic:             n.magic
+
+func safeBuiltin*(n: IrNode3): BuiltinCall =
+  assert n.kind == ntkCall
+  case n.callKind
+  of ckBuiltin:         n.builtin
+  of ckNormal, ckMagic: bcNone

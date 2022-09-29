@@ -67,6 +67,8 @@ type
     ## Very similar to ``TMagic`` with the difference that a `BuiltinCall` is
     ## only used by the back-end. This is meant as a way to leave ``TMagic``
     ## unmodified
+    bcNone # indicates the absence of a builtin
+
     bcError # encodes an error in the IR # XXX: make this a dedicated node?
     bcNewClosure # setup closure
     bcSwitch # switch variant branch
