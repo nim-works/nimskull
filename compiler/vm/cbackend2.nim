@@ -72,7 +72,8 @@ type
     modulesClosed: seq[int] ## indices into `modules` in the order the modules
                             ## were closed. The first closed module comes
                             ## first, then the next, etc.
-    moduleMap: Table[int, int] ## module sym-id -> index into `modules`
+    moduleMap: Table[int32, int] ## module id -> index into `modules`
+    # TODO: use a ``seq`` instead of a ``Table``
 
   ModuleRef = ref object of TPassContext
     ## The pass context for the VM backend. Represents a reference to a
@@ -261,6 +262,12 @@ func collectRoutineSyms(s: IrStore3, env: ProcedureEnv, list: var seq[PSym], kno
       collect(list, sym, known)
 
     else: discard
+
+func moduleId(o: PIdObj): int32 {.inline.} =
+  ## Returns the ID of the module `o` is *attached* to. Do note that in the
+  ## case generic instantiations, this is not the necessarily the same module
+  ## as the one returned by ``getModule(o)``
+  o.itemId.module
 
 # XXX: copied from `cgen.nim` and adjusted
 proc getCFile(config: ConfigRef, filename: AbsoluteFile): AbsoluteFile =
@@ -597,7 +604,7 @@ proc generateCode*(g: ModuleGraph) =
         # TODO: remove the guard once locals are not stored in the symbol
         #       table anymore
         if sfGlobal in s.flags:
-          let mIdx = mlist.moduleMap[env.syms.orig[id].getModule().id]
+          let mIdx = mlist.moduleMap[env.syms.orig[id].getModule().moduleId]
           modules[mIdx].syms.add(id)
 
       else:
@@ -700,7 +707,7 @@ proc generateCode*(g: ModuleGraph) =
     # XXX: instead, all RTTI globals and their initialization logic
     #      could be registered to a dedicated module (.c file)
     for id in lpCtx.typeInfoMarker.values:
-      modules[mlist.moduleMap[g.systemModule.id]].syms.add(id)
+      modules[mlist.moduleMap[g.systemModule.moduleId]].syms.add(id)
 
   # type lowering passes
   if optSeqDestructors in conf.globalOptions:
@@ -729,7 +736,7 @@ proc generateCode*(g: ModuleGraph) =
       let
         id = ProcId(it + 1) # TODO: not acceptable
         sym = env.procs.orig[id]
-        mIdx = mlist.moduleMap[sym.getModule().id]
+        mIdx = mlist.moduleMap[sym.getModule().moduleId]
 
       modules[mIdx].procs.add id
 
@@ -813,11 +820,14 @@ proc myOpen(graph: ModuleGraph, module: PSym, idgen: IdGenerator): PPassContext 
   let
     mlist = ModuleListRef(graph.backend)
     next = mlist.modules.len
+    id = module.itemId.module
+
+  assert id >= 0 and id == module.position # sanity check
 
   # append an empty module to the list
   mlist.modules.growBy(1)
   mlist.modules[next] = Module(sym: module)
-  mlist.moduleMap[module.id] = next
+  mlist.moduleMap[id] = next
 
   result = ModuleRef(list: mlist, index: next)
 
