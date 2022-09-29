@@ -114,7 +114,7 @@ type
       idx: IRIndex
     of ntkLit:
       lit: Literal
-    of ntkLocal:
+    of ntkLocal, ntkLocEnd:
       local: int
     of ntkProc:
       procId: ProcId
@@ -333,6 +333,10 @@ func irJoinFwd*(c: var IrStore3): JoinPoint =
   ## target is not yet known (e.g. when generating an if-branch)
   result = c.numJoins
   inc c.numJoins
+
+func irLocEnd*(c: var IrStore3, local: int) =
+  ## TODO: document
+  discard c.add IrNode3(kind: ntkLocEnd, local: local)
 
 func irLoopJoin*(c: var IrStore3): JoinPoint =
   result = c.numJoins
