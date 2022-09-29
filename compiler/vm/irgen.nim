@@ -742,6 +742,15 @@ func isVarParam(t: PType): bool =
 
 func irConv(c: var TCtx, typ: PType, val: IRIndex): IRIndex
 
+func genMove(c: var TCtx, dest, src: IRIndex) =
+  # TODO: inserting ``mWasMoved`` here is too early! The move analyser should
+  #       be responsible for this. In order for that to work, we'll probably
+  #       have to leave the ``mMove`` magic as is during ``irgen`` so that
+  #       the move analyser can correctly handle it (``askMove`` and ``mMove``
+  #       do *not* have the same meaning)
+  c.irs.irAsgn(askMove, dest, src)
+  discard c.irs.irCall(mWasMoved, c.requestType(tyVoid), src)
+
 proc genArg(c: var TCtx, formal: PType, useTemp: bool, n: PNode): IRIndex =
   # TODO: add a test to make sure that a ``move x`` passed to a var parameter
   #       doesn't reach here
@@ -771,7 +780,7 @@ proc genArg(c: var TCtx, formal: PType, useTemp: bool, n: PNode): IRIndex =
       #       before the raise handling)
       let tmp = c.getTemp(n.typ)
       # TODO: the assignment is also an 'init'...
-      c.irs.irAsgn(askMove, tmp, c.genx(n[1]))
+      genMove(c, tmp, c.genx(n[1]))
       result = tmp
     else:
       result = c.genx(n)
@@ -1209,8 +1218,7 @@ proc genAsgn(c: var TCtx; dest: IRIndex; ri: PNode; requiresCopy: bool) =
   if isMove(ri):
     # a moving assign
     # TODO: a `move(move(a))` would wreak havoc
-    let tmp = c.genx(ri[1])
-    c.irs.irAsgn(askMove, dest, tmp)
+    genMove(c, dest, genx(c, ri[1]))
   else:
     let tmp = c.genx(ri)
     c.irs.irAsgn(askCopy, dest, tmp)
