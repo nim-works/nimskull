@@ -1884,11 +1884,7 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
   of nkTypeOfExpr:
     dest = genTypeLit(c, n.typ)
   else:
-    if n.typ != nil and n.typ.isCompileTimeOnly:
-      doAssert false, "why is this needed?"
-      dest = genTypeLit(c, n.typ)
-    else:
-      fail(n.info, rsemVmCannotGenerateCode, n)
+    unreachable(n.kind)
 
 iterator iterate(ir: IrStore3, cr: var IrCursor): (int, lent IrNode3) =
   # XXX: `cr` makes more sense as the first parameter, but then we can't use
