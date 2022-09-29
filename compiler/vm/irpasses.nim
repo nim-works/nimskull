@@ -1491,22 +1491,20 @@ func genSubsetRelOp(setType: TypeId, a, b: IRIndex, testTrue: bool, g: PassEnv, 
   else:
     result = isSubsetExpr
 
-func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var IrCursor) =
+func genSetOp(ir: IrStore3, pe: PassEnv, env: var IrEnv, setType: TypeId, m: TMagic, n: IrNode3, cr: var IrCursor) =
   # TODO: sets with ``firstOrd != 0`` aren't taken into account yet.
   #       ``irgen`` has to insert the required adjustment
-  let
-    setType = c.typeof(ir.argAt(cr, 0))
-    len = c.env.types.length(setType)
+  let len = env.types.length(setType)
 
   case len
   of 0..64:
     case m
     of mEqSet, mMulSet, mPlusSet, mMinusSet:
-      discard genSetElemOp(cr, c.extra, m, setType, ir.argAt(cr, 0), ir.argAt(cr, 1))
+      discard genSetElemOp(cr, pe, m, setType, ir.argAt(cr, 0), ir.argAt(cr, 1))
     of mLeSet, mLtSet:
-      discard genSubsetRelOp(setType, ir.argAt(cr, 0), ir.argAt(cr, 1), testTrue=(m == mLtSet), c.extra, c.env.data, cr)
+      discard genSubsetRelOp(setType, ir.argAt(cr, 0), ir.argAt(cr, 1), testTrue=(m == mLtSet), pe, env.data, cr)
     of mInSet:
-      let mask = genMaskExpr(setType, len, ir.argAt(cr, 1), c.env.data, cr)
+      let mask = genMaskExpr(setType, len, ir.argAt(cr, 1), env.data, cr)
       discard cr.insertCallExpr(mBitandI, setType, ir.argAt(cr, 0), mask)
     of mIncl, mExcl:
       # mIncl --->
@@ -1516,7 +1514,7 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
       let
         a = ir.argAt(cr, 0)
         b = ir.argAt(cr, 1)
-        mask = genMaskExpr(setType, len, b, c.env.data, cr)
+        mask = genMaskExpr(setType, len, b, env.data, cr)
 
       let (op, rhs) =
         case m
@@ -1533,7 +1531,7 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
         of 33..64: "countBits64"
         else: unreachable()
 
-      cr.insertCompProcCall(c.extra, prc, ir.argAt(cr, 0))
+      cr.insertCompProcCall(pe, prc, ir.argAt(cr, 0))
     else:
       unreachable()
 
@@ -1546,8 +1544,8 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
         res = cr.newLocal(lkTemp, setType)
 
       # apply the set operation to each byte in the array-based ``set``
-      cr.genForLoop(c.env.data, c.extra, cr.insertLit(c.env.data, (len + 7) div 8)):
-        let v = genSetElemOp(cr, c.extra, m, c.extra.sysTypes[tyUInt8], cr.insertPathArr(arg0, counter), cr.insertPathArr(arg1, counter))
+      cr.genForLoop(env.data, pe, cr.insertLit(env.data, (len + 7) div 8)):
+        let v = genSetElemOp(cr, pe, m, pe.sysTypes[tyUInt8], cr.insertPathArr(arg0, counter), cr.insertPathArr(arg1, counter))
         cr.insertAsgn(askInit, cr.insertPathArr(cr.insertLocalRef(res), counter), v)
 
       discard cr.insertLocalRef(res)
@@ -1556,40 +1554,40 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
       let
         arg0 = ir.argAt(cr, 0)
         arg1 = ir.argAt(cr, 1)
-        res = cr.newLocal(lkTemp, c.extra.getSysType(tyBool))
+        res = cr.newLocal(lkTemp, pe.getSysType(tyBool))
 
       # start with ``res = true``
-      cr.insertAsgn(askInit, cr.insertLocalRef(res), cr.insertLit(c.env.data, 1))
+      cr.insertAsgn(askInit, cr.insertLocalRef(res), cr.insertLit(env.data, 1))
 
       # iterate over all bytes in the set and perform the comparison:
-      cr.genForLoop(c.env.data, c.extra, cr.insertLit(c.env.data, (len + 7) div 8)):
+      cr.genForLoop(env.data, pe, cr.insertLit(env.data, (len + 7) div 8)):
         let
           a = cr.insertPathArr(arg0, counter)
           b = cr.insertPathArr(arg1, counter)
 
         let v =
           case m
-          of mEqSet:         cr.binaryBoolOp(c.extra, mEqI, a, b)
-          of mLtSet, mLeSet: genSubsetRelOp(c.extra.sysTypes[tyUInt8], a, b, m == mLtSet, c.extra, c.env.data, cr)
+          of mEqSet:         cr.binaryBoolOp(pe, mEqI, a, b)
+          of mLtSet, mLeSet: genSubsetRelOp(pe.sysTypes[tyUInt8], a, b, m == mLtSet, pe, env.data, cr)
           else:              unreachable()
 
         # if the comparison for the partial sets doesn't succeed, set the result
         # to false and exit the loop
         cr.genIfNot(v):
-          cr.insertAsgn(askCopy, cr.insertLocalRef(res), cr.insertLit(c.env.data, 0))
+          cr.insertAsgn(askCopy, cr.insertLocalRef(res), cr.insertLit(env.data, 0))
           cr.insertGoto(loopExit)
 
       discard cr.insertLocalRef(res)
 
     of mInSet:
-        let uintTyp = c.extra.getSysType(tyUInt)
+        let uintTyp = pe.getSysType(tyUInt)
         let conv = cr.insertConv(uintTyp, ir.argAt(cr, 1))
         let
-          index = cr.insertCallExpr(mShrI, uintTyp, conv, cr.insertLit(c.env.data, 3))
-          mask = cr.insertCallExpr(mShlI, uintTyp, cr.insertLit(c.env.data, 1), cr.insertCallExpr(mBitandI, uintTyp, conv, cr.insertLit(c.env.data, 7)))
+          index = cr.insertCallExpr(mShrI, uintTyp, conv, cr.insertLit(env.data, 3))
+          mask = cr.insertCallExpr(mShlI, uintTyp, cr.insertLit(env.data, 1), cr.insertCallExpr(mBitandI, uintTyp, conv, cr.insertLit(env.data, 7)))
 
-        let val = cr.insertCallExpr(mBitandI, c.extra.sysTypes[tyUInt8], cr.insertPathArr(ir.argAt(cr, 0), index), mask)
-        discard cr.insertMagicCall(c.extra, mNot, tyBool, cr.binaryBoolOp(c.extra, mEqI, val, cr.insertLit(c.env.data, 0)))
+        let val = cr.insertCallExpr(mBitandI, pe.sysTypes[tyUInt8], cr.insertPathArr(ir.argAt(cr, 0), index), mask)
+        discard cr.insertMagicCall(pe, mNot, tyBool, cr.binaryBoolOp(pe, mEqI, val, cr.insertLit(env.data, 0)))
 
     of mIncl, mExcl:
       # mIncl --->
@@ -1600,9 +1598,9 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
       let
         a = ir.argAt(cr, 0)
         b = ir.argAt(cr, 1)
-        uintTy = c.extra.sysTypes[tyUInt]
-        dest = cr.insertPathArr(a, cr.insertCallExpr(mShrI, uintTy, b, cr.insertLit(c.env.data, 3)))
-        bit = cr.insertCallExpr(mShlI, uintTy, cr.insertLit(c.env.data, 1), cr.insertCallExpr(mBitandI, uintTy, b, cr.insertLit(c.env.data, 7)))
+        uintTy = pe.sysTypes[tyUInt]
+        dest = cr.insertPathArr(a, cr.insertCallExpr(mShrI, uintTy, b, cr.insertLit(env.data, 3)))
+        bit = cr.insertCallExpr(mShlI, uintTy, cr.insertLit(env.data, 1), cr.insertCallExpr(mBitandI, uintTy, b, cr.insertLit(env.data, 7)))
 
       let rhs =
         case m
@@ -1617,29 +1615,32 @@ func genSetOp(c: var RefcPassCtx, ir: IrStore3, m: TMagic, n: IrNode3, cr: var I
       #   cardSet2(cast[ptr UncheckedArray[uint8]](set), size)
       let
         size = (len + 7) div 8 # ceil-div by 8
-        arrTyp = c.env.types.lookupGenericType(tnkUncheckedArray, c.extra.sysTypes[tyUInt8])
-        ptrTyp = c.env.types.lookupGenericType(tnkPtr, arrTyp)
+        arrTyp = env.types.lookupGenericType(tnkUncheckedArray, pe.sysTypes[tyUInt8])
+        ptrTyp = env.types.lookupGenericType(tnkPtr, arrTyp)
 
-      cr.insertCompProcCall(c.extra, "cardSetPtr", cr.insertCast(ptrTyp, cr.insertAddr(ir.argAt(cr, 0))), cr.insertLit(c.env.data, size))
+      cr.insertCompProcCall(pe, "cardSetPtr", cr.insertCast(ptrTyp, cr.insertAddr(ir.argAt(cr, 0))), cr.insertLit(env.data, size))
 
     else:
       unreachable()
 
 func setAsInt(env: TypeEnv, data: var LiteralData, id: TypeId, lit: LiteralId): LiteralId
 
-proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
-  ## Lowers ``set`` operations into bit operations. Intended for the C-like targets
-  # XXX: some set lowerings could be simplified by adding them as
-  #      compiler-procs in ``system.nim`` and then doing something an
-  #      `cr.inline` here
+proc lowerSets*(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv,
+                cr: var IrCursor) =
+  ## Lowers ``set`` operations into bit operations. Intended for the C-like
+  ## targets
+  # XXX: some set lowerings could be simplified by adding their resulting
+  #      logic as ``.compilerprocs`` to ``system`` and then integrating them
+  #      via ``cr.inline`` here
+  let n = ir[cr]
   case n.kind
   of ntkCall:
-    let m = getMagic(ir, c.env[], n)
+    let m = getMagic(ir, env, n)
 
     case m
     of mIncl, mExcl, mCard, mEqSet, mLeSet, mLtSet, mMulSet, mPlusSet, mMinusSet, mInSet:
       cr.replace()
-      genSetOp(c, ir, m, n, cr)
+      genSetOp(ir, pe, env, types[ir.argAt(cr, 0)], m, n, cr)
     else:
       discard
 
@@ -1654,9 +1655,9 @@ proc lowerSets*(c: var RefcPassCtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) 
     # only transform ``set`` literals that fit into integer types. The ones
     # requiring an array as the representation are lifted into constants in
     # a separate pass
-    let typ = c.env.types[lit.typ]
+    let typ = env.types[lit.typ]
     if typ.kind == tnkSet and typ.length <= 64:
-      let newLit = setAsInt(c.env.types, c.env.data, lit.typ, lit.val)
+      let newLit = setAsInt(env.types, env.data, lit.typ, lit.val)
 
       cr.replace()
       discard cr.insertLit((newLit, NoneType))
@@ -2403,5 +2404,5 @@ const seqConstV1Pass* = LinearPass2[LiftPassCtx](visit: liftSeqConstsV1)
 const arrayConstPass* = LinearPass2[LiftPassCtx](visit: liftArrays)
 const setConstPass* = LinearPass2[LiftPassCtx](visit: liftLargeSets)
 const lowerRangeCheckPass* = LinearPass2[RefcPassCtx](visit: lowerRangeChecks)
-const lowerSetsPass* = LinearPass2[RefcPassCtx](visit: lowerSets)
+const lowerSetsPass* = TypedPass[PassEnv](visit: lowerSets)
 const lowerOpenArrayPass* = LinearPass2[LowerOACtx](visit: lowerOpenArrayVisit)

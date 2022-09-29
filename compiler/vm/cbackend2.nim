@@ -793,7 +793,7 @@ proc generateCode*(g: ModuleGraph) =
           swapState()
 
           runPass2(irs, diff, rpCtx, lowerRangeCheckPass)
-          runPass2(irs, diff, rpCtx, lowerSetsPass)
+          runPass(irs, rpCtx.typeCtx, env, passEnv, diff, lowerSetsPass)
 
           runPass2(irs, diff, rpCtx, refcPass)
 
