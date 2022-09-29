@@ -1774,14 +1774,11 @@ const OpenArrayLenField = 1
 
 type LowerOACtx* = object
   graph: PassEnv
-  env: ptr IrEnv
 
-  types*: seq[TypeId]
   paramMap: seq[uint32] ## maps the current parameter indices to the new ones
 
-func init*(x: var LowerOACtx, g: PassEnv, env: ptr IrEnv) =
+func init*(x: var LowerOACtx, g: PassEnv) =
   x.graph = g
-  x.env = env
 
 func expandData(c: LowerOACtx, cr: var IrCursor, ir: IrStore3, src: IRIndex): IRIndex =
   #[if ir.at(src).kind == ntkParam:
@@ -1804,11 +1801,12 @@ func expand(c: LowerOACtx, cr: var IrCursor, ir: IrStore3, src: IRIndex): tuple[
     result.lenExpr = cr.insertPathObj(src, OpenArrayLenField)
 
 # TODO: the openArray rewriting needs lots of tests (a sign that it's too complex/need to be done differently?)
-func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var IrCursor) =
+func lowerOpenArrayVisit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: LowerOACtx, cr: var IrCursor) =
+  let n = ir[cr]
   case n.kind
   of ntkAsgn:
     #[
-    if c.env.types[c.types[n.wrLoc]].kind == tnkOpenArray:
+    if env.types[types[n.wrLoc]].kind == tnkOpenArray:
       # the lhs can only be a non-parameter
       if ir.at(n.srcLoc).kind == ntkParam:
         # -->
@@ -1824,7 +1822,7 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
     discard
 
   of ntkCall:
-    case getMagic(ir, c.env[], n)
+    case getMagic(ir, env, n)
     of mLengthOpenArray:
       cr.replace()
       #[
@@ -1844,8 +1842,8 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
         last = ir.argAt(cr, 2)
 
       cr.replace()
-      let tmp = cr.newLocal(lkTemp, c.types[cr.position])
-      let arg = c.env.types.skipVarOrLent(c.types[arr])
+      let tmp = cr.newLocal(lkTemp, types[cr.position])
+      let arg = env.types.skipVarOrLent(types[arr])
 
       let tmpAcc = cr.insertLocalRef(tmp)
       let ex = block:
@@ -1853,7 +1851,7 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
          lenExpr:  cr.insertPathObj(tmpAcc, OpenArrayLenField))
 
       let p =
-        case c.env.types[arg].kind
+        case env.types[arg].kind
         of tnkArray:
           cr.insertAddr(cr.insertPathArr(arr, first))
 
@@ -1861,7 +1859,7 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
           cr.insertAddr(cr.insertPathArr(cr.insertDeref(expandData(c, cr, ir, arr)), first))
 
         of tnkPtr:
-          assert c.env.types[c.env.types.baseType(arg)].kind == tnkUncheckedArray
+          assert env.types[env.types.baseType(arg)].kind == tnkUncheckedArray
           cr.insertAddr(cr.insertPathArr(cr.insertDeref(arr), first))
 
         of tnkCString, tnkString, tnkSeq:
@@ -1885,8 +1883,8 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
     var numOaParams = 0
 
     for it in ir.args(cr.position):
-      let t = c.types[it]
-      if t != NoneType and c.env.types[c.env.types.skipVarOrLent(c.types[it])].kind == tnkOpenArray:
+      let t = types[it]
+      if t != NoneType and env.types[env.types.skipVarOrLent(types[it])].kind == tnkOpenArray:
         inc numOaParams
 
     # we have to patch calls to procedures taking ``openArray``s
@@ -1896,7 +1894,7 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
       var newArgs = newSeq[IRIndex](n.argCount + numOaParams) # each openArray arguments is expanded into two arguments
       var i = 0
       for it in ir.args(cr.position):
-        if c.env.types[c.env.types.skipVarOrLent(c.types[it])].kind == tnkOpenArray:
+        if env.types[env.types.skipVarOrLent(types[it])].kind == tnkOpenArray:
           # XXX: verify that this doesn't lead to evaluation order issues.
           #      We're inserting the expansion _after_ the other arguments, but
           #      might be able to get away with it since no more analysis is
@@ -1920,7 +1918,7 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
     # XXX: the amount of workarounds to handle ``var openArray`` parameters
     #      indicates that a different approach for representing mutable
     #      ``openArray``s is needed
-    if c.env.types[c.env.types.skipVarOrLent(c.types[n.srcLoc])].kind == tnkOpenArray:
+    if env.types[env.types.skipVarOrLent(types[n.srcLoc])].kind == tnkOpenArray:
       cr.replace()
 
       let field =
@@ -1934,8 +1932,8 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
       discard cr.insertPathArr(cr.insertDeref(field), n.arrIdx)
 
   of ntkConv:
-    let typ = c.env.types.skipVarOrLent(n.typ)
-    if c.env.types[typ].kind == tnkOpenArray:
+    let typ = env.types.skipVarOrLent(n.typ)
+    if env.types[typ].kind == tnkOpenArray:
       # Transform to:
       #   var tmp: OpenArrayTuple
       #   tmp[0] = addr src[0]
@@ -1944,35 +1942,35 @@ func lowerOpenArrayVisit(c: var LowerOACtx, n: IrNode3, ir: IrStore3, cr: var Ir
       cr.replace()
       let
         tmp = cr.newLocal(lkTemp, n.typ)
-        arr = cr.access(c.env.types, n.srcLoc, c.types[n.srcLoc])
-        srcTyp = c.env.types.skipVarOrLent(c.types[n.srcLoc])
+        arr = cr.access(env.types, n.srcLoc, types[n.srcLoc])
+        srcTyp = env.types.skipVarOrLent(types[n.srcLoc])
 
       let tmpAcc = cr.insertLocalRef(tmp)
       let ex = block:
         (dataExpr: cr.insertPathObj(tmpAcc, OpenArrayDataField),
          lenExpr:  cr.insertPathObj(tmpAcc, OpenArrayLenField))
 
-      assert c.env.types[srcTyp].kind in {tnkArray, tnkString, tnkSeq}, $c.env.types[srcTyp].kind
+      assert env.types[srcTyp].kind in {tnkArray, tnkString, tnkSeq}, $env.types[srcTyp].kind
 
       # TODO: this will fail if the source has a length of zero
       let p =
-        if c.env.types[srcTyp].kind == tnkArray and c.env.types.length(srcTyp) == 0:
+        if env.types[srcTyp].kind == tnkArray and env.types.length(srcTyp) == 0:
           # XXX: the type is wrong, but we don't have access to the correct
           #      one
-          cr.insertNilLit(c.env.data, c.graph.sysTypes[tyPointer])
+          cr.insertNilLit(env.data, c.graph.sysTypes[tyPointer])
         else:
-          cr.insertAddr cr.insertPathArr(arr, cr.insertLit(c.env.data, 0))
+          cr.insertAddr cr.insertPathArr(arr, cr.insertLit(env.data, 0))
 
       let lenExpr =
-        case c.env.types[srcTyp].kind
+        case env.types[srcTyp].kind
         of tnkArray:
-          cr.insertLit(c.env.data, c.env.types[srcTyp].length)
+          cr.insertLit(env.data, env.types[srcTyp].length)
         of tnkSeq:
           cr.insertMagicCall(c.graph, mLengthSeq, tyInt, arr)
         of tnkString:
           cr.insertMagicCall(c.graph, mLengthStr, tyInt, arr)
         else:
-          unreachable(c.env.types[srcTyp].kind)
+          unreachable(env.types[srcTyp].kind)
 
       # XXX: the pointer needs a cast, but we don't know the correct type yet...
       cr.insertAsgn(askInit, ex.dataExpr, p)
@@ -2039,8 +2037,7 @@ proc lowerOpenArray*(g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
   #      each sub-environment separately won't work however, as we also need
   #      access to the whole `env` for the lowering pass
 
-  var ctx = LowerOACtx(graph: g, env: addr env)
-  ctx.types = computeTypes(ir, env)
+  var ctx = LowerOACtx(graph: g)
   #[
   # TODO: don't create a new seq for each procedure we're modifying
   ctx.paramMap.newSeq(env.procs.numParams(id))
@@ -2057,8 +2054,8 @@ proc lowerOpenArray*(g: PassEnv, id: ProcId, ir: var IrStore3, env: var IrEnv) =
       j += 1
   ]#
 
-  const pass = LinearPass2[LowerOACtx](visit: lowerOpenArrayVisit)
-  runPass(ir, ctx, pass)
+  const pass = TypedPass[LowerOACtx](visit: lowerOpenArrayVisit)
+  runPass(ir, initTypeContext(ir, env), env, ctx, pass)
 
   #[
   # only modify the signature if really necessary:
@@ -2382,4 +2379,4 @@ const arrayConstPass* = LinearPass2[LiftPassCtx](visit: liftArrays)
 const setConstPass* = LinearPass2[LiftPassCtx](visit: liftLargeSets)
 const lowerRangeCheckPass* = TypedPass[PassEnv](visit: lowerRangeChecks)
 const lowerSetsPass* = TypedPass[PassEnv](visit: lowerSets)
-const lowerOpenArrayPass* = LinearPass2[LowerOACtx](visit: lowerOpenArrayVisit)
+const lowerOpenArrayPass* = TypedPass[LowerOACtx](visit: lowerOpenArrayVisit)
