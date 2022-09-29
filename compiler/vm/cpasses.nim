@@ -1,4 +1,7 @@
-## IR passes that are meant for the C-like targets
+## IR passes that are meant for the C-family targets.
+
+# XXX: what passes are located here is for the most part arbitrary at the
+#      moment
 
 import
   std/[
@@ -47,8 +50,6 @@ func insertReset(cr: var IrCursor, g: PassEnv, env: var IrEnv, typ: TypeId, targ
   of tnkFloat:
     cr.insertAsgn(askShallow, target, cr.insertLit(env.data, 0.0))
   of tnkPtr, tnkRef:
-    # XXX: ``tnkRef`` seems wrong to handle here? Instead, it should be
-    #      handled during the GC transforms
     cr.insertAsgn(askShallow, target, cr.insertNilLit(env.data, typ))
   else:
     # TODO: handle the case where `target` is a ``var`` type
@@ -215,13 +216,16 @@ func visit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: CTransformCtx, c
         discard cr.insertLocalRef(tmp)
 
       of mParseBiggestFloat:
-        # problem: ``parseBiggestFloat`` is only a forward declaration --
-        # the actual implementation being a ``.compilerproc``
-        # (``nimParseBiggestFloat``). The new back-end doesn't support this
-        # kind of indirection, but there already exists a solution: the
-        # ``.importCompilerProc`` pragma, which is supported by ``irgen``.
-        # The problem with the pragma: ``cgen`` doesn't properly support it, so
-        # using it on ``parseBiggestFloat`` breaks bootstrapping.
+        # problem: ``parseBiggestFloat`` is a magic procedure that imports
+        #          (via importc) a ``.compilerproc`` (``nimParseBiggestFloat``).
+        #          The new back-end doesn't support this kind of indirect
+        #          dependency, but there already exists a solution: the
+        #          ``.importCompilerProc`` pragma, which is already supported
+        #          by ``irgen``. The problem with the pragma: ``cgen`` doesn't
+        #          properly support it (neither does ``jsgen``), so using it on
+        #          ``parseBiggestFloat`` breaks bootstrapping.
+        #          **EDIT**: ``.importCompilerProc`` would only work if it's
+        #          conditionally applied depending on the used target language
         # XXX: fix the issue with ``cgen`` and use the ``importCompilerProc``
         #      pragma instead of working around the issue here
         cr.replace()
@@ -254,7 +258,7 @@ func visit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: CTransformCtx, c
       useBlit = true
 
     if useBlit:
-      # for the C-like targets, a value-type cast is implemented as a
+      # for the C-family targets, a value-type cast is implemented as a
       # ``memcpy``. Compared to the type-punning-via-union approach, this is
       # correct even when strict-aliasing is enabled
 
@@ -270,6 +274,13 @@ func visit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: CTransformCtx, c
         #       the C code.
         #       We work around that here by introducing a temporary - but this
         #       should be removed once ``cgen2`` works properly
+        # XXX: allowing non-lvalues to be implicitly promoted to lvalues (by
+        #      introducing a temporary) doesn't sound so good anymore. The
+        #      explicit temporary approach we're using here is probably better.
+        #      To not unnecessarily introduce a temporary (in the case that
+        #      the source operand is an lvalue), we could either only look at
+        #      the source operand's node kind or introduce an analysis pre-pass
+        #      that computes the category of each value
         let rhs = cr.insertLocalRef(cr.newLocal(lkTemp, types[n.srcLoc]))
         cr.insertAsgn(askInit, rhs, n.srcLoc)
 
@@ -452,9 +463,9 @@ func lowerClosuresVisit(ir: IrStore3, types: TypeContext, env: var IrEnv, c: CTr
       # procedural value of non-closure calling convention to a closure. It
       # subsequently gets translated into a 'conv' by ``irgen`` and
       # then reaches here.
-      # Since all proc types using the ``ccClosure`` calling-convention are
-      # translated into ``tnkClosure`` (which renders the conversion wrong) we
-      # have to rewrite it to use the correct type here
+      # Since all procedural types using the ``ccClosure`` calling-convention
+      # are translated into ``tnkClosure`` (which renders the conversion wrong),
+      # we have to rewrite the conversion to use the correct type:
       let prcTyp = env.types[env.types.nthField(c.transEnv.remap[n.typ], ClosureProcField)].typ
 
       cr.replace()
@@ -537,7 +548,7 @@ func genMatch*(val: IRIndex, typ: TypeId, ofBranch: LiteralId, data: var Literal
 
 func lowerMatch(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, cr: var IrCursor) =
   ## Lowers ``bcMatch`` into compare + 'branch' instructions
-  # XXX: the pass is also relevant for targets languages not part of the
+  # XXX: the pass is also relevant for target languages not part of the
   #      C-family - it should be located somewhere else
   let n = ir[cr]
   case n.kind
@@ -545,10 +556,7 @@ func lowerMatch(ir: IrStore3, types: TypeContext, env: var IrEnv, pe: PassEnv, c
     if n.isBuiltIn and n.builtin == bcMatch:
       let
         val = ir.argAt(cr, 0)
-      # XXX: the ``PNode`` of the original ``nkOfBranch`` is used as the
-      #      literal here for now, but once literals get their own IR, this
-      #      will become a slice-list.
-      let ofBranch = ir.getLit(ir.at(ir.argAt(cr, 1))).val
+        ofBranch = ir.getLit(ir.at(ir.argAt(cr, 1))).val
 
       cr.replace()
       discard genMatch(val, types[val], ofBranch, env.data, env.types, pe, cr)
@@ -613,8 +621,7 @@ func genMatch*(val: IRIndex, typ: TypeId, ofBranch: LiteralId, data: var Literal
           genSliceListMatch(val, eq, lt, data, ofBranch, typ, boolTy, exit, cr)
 
         of tnkString:
-          # TODO: implement the hash-table optimization present used by
-          #       ``ccgstmts``
+          # TODO: implement the hash-table optimization employed by ``ccgstmts``
           genSliceListMatch(val, mEqStr, mLtStr, data, ofBranch, typ, boolTy, exit, cr)
 
         else:
@@ -680,8 +687,8 @@ func transformContinue*(code: IrStore3, pe: PassEnv, data: var LiteralData, chan
 
   type SecInfo = object
     ## Information about a linked section
-    tmp: IRIndex ## the reference of the temporary used for remembering the
-                  ## section
+    tmp: IRIndex ## the temporary used for remembering the "name" of the
+                 ## previous section
     items: seq[JoinPoint] ## possible targets for the continue
 
   var
@@ -696,8 +703,8 @@ func transformContinue*(code: IrStore3, pe: PassEnv, data: var LiteralData, chan
   #       then passed to ``transformContinue`` in order to reuse the memory?
   #       I attempted this when building the compiler itself, and it brought a
   #       measurable (but very likely insignificant) performance improvement.
-  #       ``finally`` is only very seldomly used in the compiler code, so it's
-  #       likely that the improvement will be much more pronounced with
+  #       ``finally`` is only very seldomly used in the compiler's code, so
+  #       it's likely that the improvement will be much more pronounced with
   #       code-bases that make heavy use of ``finally``
 
   # XXX: the ordering requirements of ``IrCursor`` (i.e. changes are recorded
