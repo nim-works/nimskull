@@ -355,6 +355,10 @@ func lowerClosuresVisit(c: var CTransformCtx, n: IrNode3, ir: IrStore3, cr: var 
           cr.insertJoin(exit)
           discard cr.insertLocalRef(tmp)
 
+      of mAccessEnv:
+        cr.replace()
+        discard cr.insertPathObj(ir.argAt(cr, 0), ClosureEnvField)
+
       else:
         discard
 
