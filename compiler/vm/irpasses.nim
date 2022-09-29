@@ -88,6 +88,13 @@ func getCompilerType*(g: PassEnv, name: string): TypeId =
 func getSysType*(g: PassEnv, kind: TTypeKind): TypeId =
   g.sysTypes[kind]
 
+type
+  TypeFieldStatus* = enum
+    tfsNone     ## no type field
+    tfsHeader   ## only the object itself has a type header
+    tfsEmbedded ## there are one or more sub-objects that have type headers
+                ## and the object itself might also have a type header
+
 proc runPass*[T](irs: var IrStore3, ctx: T, pass: LinearPass[T]) =
   var cursor: IrCursor
   cursor.setup(irs)
@@ -445,6 +452,19 @@ proc genNewObj(cr: var IrCursor, g: PassEnv, env: IrEnv, ptrTyp: TypeId,
     let v = cr.insertCompProcCall(g, "newObj", rttiExpr, sizeExpr)
     genRefcRefAssign(cr, g, dest, v, loc)
 
+# TODO: add and use a ``LocalId`` for naming locals
+proc newTemp(cr: var IrCursor, pe: PassEnv, typ: TypeId): int =
+  ## Creates a new zero-initialized temporary variable of the given `typ`
+  ## and returns it's name
+  result = cr.newLocal(lkTemp, typ)
+
+  # XXX: temporaries should be specified to start as zero-initialized at the
+  #      back-end code-IR level. The code-generators (or dedicated
+  #      pre-code-generator transformations) are then responsible for
+  #      initializing the temporaries to zero, which makes sense from a
+  #      modularity perspective
+  cr.insertCompProcCall(pe, "nimZeroMem", cr.insertAddr(cr.insertLocalRef(result)), cr.insertMagicCall(pe, mSizeOf, tyInt, cr.insertTypeLit(typ)))
+
 proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMagic, n: IrNode3) =
   ## Lowers calls to various magics into calls to `compilerproc`s
   template arg(i: Natural): IRIndex =
@@ -493,42 +513,53 @@ proc processMagicCall(c: var RefcPassCtx, cr: var IrCursor, ir: IrStore3, m: TMa
       cr.insertCompProcCall(c.extra, op[m], arg(0))
 
   of mDefault:
-    # XXX: temporary implementation
-
+    # TODO: move the lowering of ``mDefault`` to a separate pass
     cr.replace()
     let typ = ir.getLit(ir.at(arg(0)))[1]
 
     case c.env.types[typ].kind
     of tnkBool, tnkChar, tnkInt, tnkUInt:
-      # TODO: bool and char need their own literal
       discard cr.insertLit(c.env.data, 0, typ)
     of tnkFloat:
       discard cr.insertLit(c.env.data, 0.0, typ)
-    of tnkPtr, tnkRef, tnkProc:
+    of tnkPtr, tnkRef, tnkProc, tnkCString:
       discard cr.insertNilLit(c.env.data, typ)
-    else:
-      # a complex type
-      type TypeHeaderKind = enum
-        none, single, embedded
-      var hdr = embedded # XXX: wrong, obviously
-
+    of tnkString, tnkSeq:
+      # XXX: only v1 seqs can be initialized with a 'nil' pointer. The
+      #      transformation here should leave ``mDefault`` for them untouched
+      #      and let the seq lowering pass take care of it
+      discard cr.insertNilLit(c.env.data, typ)
+    of tnkSet, tnkClosure:
+      # XXX: the 'default' lowering for these should be moved to their
+      #      respective lowering passes (``lowerSets`` and ``lowerClosures``)
+      #      too
+      discard cr.insertLocalRef(cr.newTemp(c.extra, typ))
+    of tnkArray, tnkRecord:
+      # a compound type
       let
-        tmp = cr.newLocal(lkTemp, typ)
+        hdr = tfsEmbedded # XXX: wrong, obviously
+        tmp = cr.newTemp(c.extra, typ)
         tmpAcc = cr.insertLocalRef(tmp)
 
-      # XXX: should IR temporaries be specified to be zero-initialized by
-      #      default? Sounds like a good idea
-      cr.insertCompProcCall(c.extra, "nimZeroMem", cr.insertAddr tmpAcc, cr.insertMagicCall(c.extra, mSizeOf, tyInt, cr.insertTypeLit(typ)))
       case hdr
-      of none: discard
-      of single:
+      of tfsNone: discard
+      of tfsHeader:
         # XXX: ``mAccessTypeField`` returns a ``ptr TNimType``, but we don't
         #      have access to that type here
         cr.insertAsgn(askInit, cr.insertMagicCall(c.extra, mAccessTypeField, tyPointer, tmpAcc), c.requestRtti(cr, typ))
-      of embedded:
+      of tfsEmbedded:
         cr.insertCompProcCall(c.extra, "objectInit", cr.insertAddr tmpAcc, c.requestRtti(cr, typ))
 
       discard cr.insertLocalRef(tmp)
+
+    of tnkVar, tnkLent:
+      # XXX: allowed for now. Needs some further thought
+      discard cr.insertNilLit(c.env.data, c.extra.sysTypes[tyPointer])
+
+    of tnkOpenArray, tnkTypeDesc, tnkUncheckedArray, tnkVoid, tnkEmpty,
+       tnkName:
+      # these don't have a default representation
+      unreachable(c.env.types[typ].kind)
 
   else:
     discard "ignore"
