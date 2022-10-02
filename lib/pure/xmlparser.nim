@@ -9,7 +9,7 @@
 
 ## This module parses an XML document and creates its XML tree representation.
 
-import streams, parsexml, strtabs, xmltree
+import std/[streams, parsexml, strtabs, xmltree]
 
 type
   XmlError* = object of ValueError ## Exception that is raised
@@ -147,7 +147,7 @@ proc loadXml*(path: string, options: set[XmlParseOption] = {reportComments}): Xm
   if errors.len > 0: raiseInvalidXml(errors)
 
 when isMainModule:
-  import os
+  import std/os
 
   var
     errors: seq[string] = @[]

@@ -364,7 +364,7 @@ proc impMod(c: PContext; it: PNode; importStmtResult: PNode): PNode =
     afterImport(c, m)
 
   if hasError:
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)
 
 proc evalImport*(c: PContext, n: PNode): PNode =
   checkMinSonsLen(n, 1, c.config)
@@ -400,7 +400,7 @@ proc evalImport*(c: PContext, n: PNode): PNode =
       hasError = impMod(c, it, result).kind == nkError
 
   if hasError:
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)
 
 proc evalFrom*(c: PContext, n: PNode): PNode =
   checkMinSonsLen(n, 2, c.config)
@@ -433,7 +433,7 @@ proc evalFrom*(c: PContext, n: PNode): PNode =
     afterImport(c, m)
 
   if hasError:
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)
 
 proc readExceptSet(c: PContext, n: PNode): IntSet =
   assert n.kind in {nkImportExceptStmt, nkExportExceptStmt}
@@ -459,4 +459,4 @@ proc evalImportExcept*(c: PContext, n: PNode): PNode =
     afterImport(c, m)
 
   if hasError:
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)

@@ -10,7 +10,7 @@
 
 ## This is an internal helper module. Do not use.
 
-import macros
+import std/macros
 
 proc underscoredCall(n, arg0: NimNode): NimNode =
   proc underscorePos(n: NimNode): int =

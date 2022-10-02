@@ -74,9 +74,9 @@ proc writeTo*[T](v: T, dest: LocHandle, mm: var VmMemoryManager) =
   if tryWriteTo(v, dest, mm):
     return
 
-  raiseVmError(reportStr(
-    rsemVmErrInternal,
-    "Writing to location failed: " & $T))
+  raiseVmError(VMReport(
+    kind: rvmErrInternal,
+    str: "Writing to location failed: " & $T))
 
 
 func tryReadTo*[T](src: LocHandle, dst: var set[T]): bool =
@@ -92,4 +92,6 @@ func readAs*[T](src: LocHandle, t: typedesc[T]): T =
   if tryReadTo(src, result):
     return
 
-  raiseVmError(reportStr(rsemVmErrInternal, "Reading from location failed"))
+  raiseVmError(VMReport(
+    kind: rvmErrInternal,
+    str: "Reading from location failed"))

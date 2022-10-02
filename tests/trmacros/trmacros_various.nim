@@ -1,5 +1,7 @@
 discard """
 output: '''
+can't hide: 11
+can't hide: lol
 12false3ha
 21
 optimized
@@ -8,6 +10,13 @@ optimized
 
 import macros, pegs
 
+block constraints:
+  block atoms:
+    template noDiscardForYou{discard a}(a: untyped{atom}): untyped =
+      echo "can't hide: ", a
+
+    discard 11
+    discard "lol"
 
 block arglist:
   proc f(x: varargs[string, `$`]) = discard

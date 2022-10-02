@@ -3,6 +3,8 @@ import std/[hashes]
 
 from compiler/front/in_options import TOption, TOptions # Stored in `PSym`
 
+const maxInstantiation* = 100
+  ## maximum number of nested generic instantiations or macro pragma expansions
 
 type
   FileIndex* = distinct int32
@@ -14,9 +16,10 @@ type
     line*: uint16
     col*: int16
     fileIndex*: FileIndex
-    when defined(nimpretty):
-      offsetA*, offsetB*: int
-      commentOffsetA*, commentOffsetB*: int
+
+const
+  InvalidFileIdx* = FileIndex(-1)
+  unknownLineInfo* = TLineInfo(line: 0, col: -1, fileIndex: InvalidFileIdx)
 
 type
   TCallingConvention* = enum
@@ -331,7 +334,6 @@ const
   sfWrittenTo*     = sfBorrow         ## param is assigned to
   sfEscapes*       = sfProcvar        ## param escapes
   sfBase*          = sfDiscriminant
-  sfIsSelf*        = sfOverriden      ## param is 'self'
   sfCustomPragma*  = sfRegister       ## symbol is custom pragma template
 
 const
@@ -346,6 +348,9 @@ const
   effectListLen* = 3    ## list of effects list
   nkLastBlockStmts* = {nkRaiseStmt, nkReturnStmt, nkBreakStmt, nkContinueStmt}
                         ## these must be last statements in a block
+  nkVariableSections* = {nkLetSection, nkVarSection}
+                        # xxx: doesn't include const because const section
+                        #      analysis isn't unified with them
 
 type
   TTypeKind* = enum  # order is important!
@@ -432,7 +437,6 @@ type
       ## instantiation and prior to this it has the potential to
       ## be any type.
 
-    tyConcept ## new style concept.
     tyVoid ## now different from tyEmpty, hurray!
     tyIterable
 
@@ -491,7 +495,6 @@ type
     nfDotField  ## the call can use a dot operator
     nfDotSetter ## the call can use a setter dot operarator
     nfExplicitCall ## `x.y()` was used instead of x.y
-    nfExprCall  ## this is an attempt to call a regular expression
     nfIsRef     ## this node is a 'ref' node; used for the VM
     nfIsPtr     ## this node is a 'ptr' node; used for the VM
     nfPreventCg ## this node should be ignored by the codegen
@@ -795,7 +798,6 @@ type
     typ*: PType
     info*: TLineInfo
     flags*: TNodeFlags
-    reportId*:  ReportId
     case kind*: TNodeKind
     of nkCharLit..nkUInt64Lit:
       intVal*: BiggestInt
@@ -807,6 +809,11 @@ type
       sym*: PSym
     of nkIdent:
       ident*: PIdent
+    of nkEmpty, nkNone:
+      discard
+    of nkError:
+      reportId*: ReportId
+      kids*: TNodeSeq
     else:
       sons*: TNodeSeq
 
@@ -887,8 +894,6 @@ type
     allowPrivateAccess*: seq[PSym] #  # enable access to private fields
 
   PScope* = ref TScope
-
-
 
   PLib* = ref TLib
   TSym* {.acyclic.} = object of TIdObj # Keep in sync with PackedSym
@@ -972,6 +977,7 @@ type
                               ## for procs and tyGenericBody, it's the
                               ## formal param list
                               ## for concepts, the concept body
+                              ## for errors, nkError or nil if legacy
                               ## else: unused
     owner*: PSym              ## the 'owner' of the type
     sym*: PSym                ## types have the sym associated with them
@@ -983,7 +989,7 @@ type
     lockLevel*: TLockLevel    ## lock level as required for deadlock checking
     loc*: TLoc
     typeInst*: PType          ## for generic instantiations the tyGenericInst that led to this
-                              ## type.
+                              ## type; for tyError the previous type if avaiable
     uniqueId*: ItemId         ## due to a design mistake, we need to keep the real ID here as it
                               ## is required by the --incremental:on mode.
 
@@ -1029,7 +1035,14 @@ type
   TImplication* = enum
     impUnknown, impNo, impYes
 
-
+const
+  nkWithoutSons* =
+    {nkCharLit..nkUInt64Lit} +
+    {nkFloatLit..nkFloat128Lit} +
+    {nkStrLit..nkTripleStrLit} +
+    {nkSym} +
+    {nkIdent} +
+    {nkEmpty, nkNone}
 
 type
   EffectsCompat* = enum
@@ -1115,7 +1128,7 @@ type
 
 type Indexable* = PNode | PType
 
-proc len*(n: Indexable): int {.inline.} =
+func len*(n: Indexable): int {.inline.} =
   result = n.sons.len
 
 proc add*(father, son: Indexable) =
@@ -1125,8 +1138,10 @@ proc add*(father, son: Indexable) =
 template `[]`*(n: Indexable, i: int): Indexable = n.sons[i]
 template `[]=`*(n: Indexable, i: int; x: Indexable) = n.sons[i] = x
 
-template `[]`*(n: Indexable, i: BackwardsIndex): Indexable = n[n.len - i.int]
-template `[]=`*(n: Indexable, i: BackwardsIndex; x: Indexable) = n[n.len - i.int] = x
+template `[]`*(n: Indexable, i: BackwardsIndex): Indexable =
+  n[n.len - i.int]
+template `[]=`*(n: Indexable, i: BackwardsIndex; x: Indexable) =
+  n[n.len - i.int] = x
 
 const emptyReportId* = ReportId(0)
 

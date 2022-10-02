@@ -223,17 +223,6 @@ template main() =
     delete(s, 0..0)
     doAssert s == "b"
 
-  block: # delete(first, last)
-    {.push warning[deprecated]:off.}
-    var s = "0123456789ABCDEFGH"
-    delete(s, 4, 5)
-    doAssert s == "01236789ABCDEFGH"
-    delete(s, s.len-1, s.len-1)
-    doAssert s == "01236789ABCDEFG"
-    delete(s, 0, 0)
-    doAssert s == "1236789ABCDEFG"
-    {.pop.}
-
   block: # find
     doAssert "0123456789ABCDEFGH".find('A') == 10
     doAssert "0123456789ABCDEFGH".find('A', 5) == 10

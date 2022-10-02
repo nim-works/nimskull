@@ -142,9 +142,9 @@
 ## * `strscans module<strscans.html>`_ for ``scanf`` and ``scanp`` macros, which
 ##   offer easier substring extraction than regular expressions
 
-import strutils, times
+import std/[strutils, times]
 when not defined(js):
-  import os
+  import std/os
 
 type
   Level* = enum ## \

@@ -27,10 +27,10 @@ type DerefFailureCode* = enum
   dfcTypeMismatch ## ref's type is not compatible with the target's type
 
 const FailureCodeToReport* = [
-  dfcNil:          rsemVmNilAccess,
-  dfcInvalid:      rsemVmAccessOutOfBounds,
-  dfcFreed:        rsemVmAccessOutOfBounds,
-  dfcTypeMismatch: rsemVmAccessTypeMismatch
+  dfcNil:          rvmNilAccess,
+  dfcInvalid:      rvmAccessOutOfBounds,
+  dfcFreed:        rvmAccessOutOfBounds,
+  dfcTypeMismatch: rvmAccessTypeMismatch
 ]
 
 # TODO: rename to `allocUntypedMemory`

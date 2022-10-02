@@ -39,8 +39,10 @@
 ##   No backreferences are generated since finding all references of a footnote
 ##   can be done by simply searching for [footnoteName].
 
-import strutils, os, hashes, strtabs, rstast, rst, highlite, tables, sequtils,
-  algorithm, parseutils, std/strbasics
+import std/[strutils, os, hashes, strtabs, tables, sequtils, algorithm,
+            parseutils, strbasics]
+
+import rstast, rst, highlite
 
 import ../../std/private/since
 
@@ -757,7 +759,7 @@ proc stripTocHtml(s: string): string =
     if last < 0:
       # Abort, since we didn't found a closing angled bracket.
       return
-    result.delete(first, last)
+    result.delete(first..last)
     first = result.find('<', first)
 
 proc renderHeadline(d: PDoc, n: PRstNode, result: var string) =

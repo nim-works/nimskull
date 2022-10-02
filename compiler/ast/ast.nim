@@ -16,12 +16,15 @@ import
     ast_types, # Main ast type definitions
     ast_idgen, # Per module Id generation
     ast_query, # querying/reading the ast
+    ast_parsed_types, # Data types for the parsed node
+    lexer, # NumericalBase
   ],
   compiler/front/[
     options
   ],
   compiler/utils/[
     ropes,
+    astrepr,
     int128 # Values for integer nodes
   ],
   std/[
@@ -29,7 +32,7 @@ import
     tables # For symbol table mapping
   ]
 
-export ast_types, ast_idgen, ast_query, int128
+export ast_types, ast_idgen, ast_query, int128, ast_parsed_types
 
 var ggDebug* {.deprecated.}: bool ## convenience switch for trying out things
 
@@ -48,11 +51,23 @@ template setNodeId() =
       echo "KIND ", result.kind
       writeStackTrace()
 
-func newNodeI*(kind: TNodeKind, info: TLineInfo): PNode =
-  ## new node with line info, no type, and no children
-  result = PNode(kind: kind, info: info, reportId: emptyReportId)
+proc newNodeAux(
+    kind: TNodeKind, info: TLineInfo, typ: PType, children: int
+  ): PNode {.inline.} =
+  ## Base proc to create new nodes. This does the main work - the exported procs
+  ## below act as the interfaces, also capturing intention for tracing/debugging
+  result = PNode(kind: kind, info: info, typ: typ)
+  
   {.cast(noSideEffect).}:
     setNodeId()
+  
+    if children > 0:
+      case kind
+      of nkError:
+        newSeq(result.kids, children)
+      else:
+        newSeq(result.sons, children)
+  
   when false:
     # this would add overhead, so we skip it; it results in a small amount of leaked entries
     # for old PNode that gets re-allocated at the same address as a PNode that
@@ -61,40 +76,56 @@ func newNodeI*(kind: TNodeKind, info: TLineInfo): PNode =
     # can contain extra entries for deleted PNode's with comments.
     gconfig.comments.del(result.id)
 
-proc newNode*(kind: TNodeKind): PNode =
-  ## new node with unknown line info, no type, and no children
-  result = newNodeI(kind, unknownLineInfo)
-
-proc newNodeI*(kind: TNodeKind, info: TLineInfo, children: int): PNode =
-  ## new node with line info, no type, and children
-  result = newNodeI(kind, info)
-  if children > 0:
-    newSeq(result.sons, children)
+proc newNodeIT*(kind: TNodeKind, info: TLineInfo, typ: PType, children: int): PNode =
+  ## new node with line info, type, and children
+  newNodeAux(kind, info, typ, children)
 
 proc newNodeIT*(kind: TNodeKind, info: TLineInfo, typ: PType): PNode =
   ## new node with line info, type, and no children
-  result = newNodeI(kind, info)
-  result.typ = typ
+  result = newNodeAux(kind, info, typ, 0)
 
-proc newNodeIT*(kind: TNodeKind, info: TLineInfo, typ: PType, children: int): PNode =
-  ## new node with line info, type, and children
-  result = newNodeIT(kind, info, typ)
-  if children > 0:
-    newSeq(result.sons, children)
+proc newNodeI*(kind: TNodeKind, info: TLineInfo, children: int): PNode =
+  ## new node with line info, no type, and children
+  result = newNodeAux(kind, info, nil, children)
+
+func newNodeI*(kind: TNodeKind, info: TLineInfo): PNode {.inline.} =
+  ## new node with line info, no type, and no children
+  result = newNodeAux(kind, info, nil, 0)
+
+proc newNode*(kind: TNodeKind): PNode {.inline.} =
+  ## new node with unknown line info, no type, and no children
+  result = newNodeAux(kind, unknownLineInfo, nil, 0)
+
+proc newTreeAux(
+    kind: TNodeKind; info: TLineInfo; typ: PType; children: varargs[PNode]
+  ): PNode {.inline.} =
+  ## Base proc to create a new tree. This does the main work - the exported
+  ## procedures below act as the interfaces, also capturing intention for
+  ## tracing/debugging
+  result = newNodeAux(kind, info, typ, 0)
+
+  case kind
+  of nkError:
+    result.kids = @children
+  else:
+    result.sons = @children
 
 proc newTree*(kind: TNodeKind; children: varargs[PNode]): PNode =
-  result = newNode(kind)
-  if children.len > 0:
-    result.info = children[0].info
-  result.sons = @children
+  let info =
+    if children.len > 0:
+      children[0].info
+    else:
+      unknownLineInfo
+  
+  result = newTreeAux(kind, info, nil, children)
 
 proc newTreeI*(kind: TNodeKind; info: TLineInfo; children: varargs[PNode]): PNode =
-  result = newNodeI(kind, info)
-  result.sons = @children
+  result = newTreeAux(kind, info, nil, children)
 
-proc newTreeIT*(kind: TNodeKind; info: TLineInfo; typ: PType; children: varargs[PNode]): PNode =
-  result = newNodeIT(kind, info, typ)
-  result.sons = @children
+proc newTreeIT*(
+    kind: TNodeKind; info: TLineInfo; typ: PType; children: varargs[PNode]
+  ): PNode =
+  result = newTreeAux(kind, info, typ, children)
 
 when false:
   import tables, strutils
@@ -106,15 +137,20 @@ when false:
       echo v
 
 proc newSym*(symKind: TSymKind, name: PIdent, id: ItemId, owner: PSym,
-             info: TLineInfo; options: TOptions = {}): PSym =
+             info: TLineInfo, typ: PType; options: TOptions = {}): PSym =
   # generates a symbol and initializes the hash field too
   result = PSym(name: name, kind: symKind, flags: {}, info: info, itemId: id,
-                options: options, owner: owner, offset: defaultOffset)
+                typ: typ, options: options, owner: owner, offset: defaultOffset)
   when false:
     if id.module == 48 and id.item == 39:
       writeStackTrace()
       echo "kind ", symKind, " ", name.s
       if owner != nil: echo owner.name.s
+
+proc newSym*(symKind: TSymKind, name: PIdent, id: ItemId, owner: PSym,
+             info: TLineInfo; options: TOptions = {}): PSym {.inline.} =
+  # generates a symbol and initializes the hash field too
+  result = newSym(symKind, name, id, owner, info, typ = nil, options)
 
 proc linkTo*(t: PType, s: PSym): PType {.discardable.} =
   t.sym = s
@@ -168,17 +204,45 @@ proc newIdentNode*(ident: PIdent, info: TLineInfo): PNode =
   result.ident = ident
   result.info = info
 
-proc newSymNode*(sym: PSym): PNode =
-  result = newNode(nkSym)
-  result.sym = sym
-  result.typ = sym.typ
-  result.info = sym.info
+proc newSymNode2*(sym: PSym): PNode =
+  ## creates a new `nkSym` node, unless sym.kind is an skError where an nkError
+  ## is extracted from the sym and returned instead.
+  # TODO replace newSymNode with this
+  if sym.isError:
+    result = sym.ast
+  else:
+    result = newNode(nkSym)
+    result.sym = sym
+    result.typ = sym.typ
+    result.info = sym.info
 
-proc newSymNode*(sym: PSym, info: TLineInfo): PNode =
-  result = newNode(nkSym)
+proc newSymNode2*(sym: PSym, info: TLineInfo): PNode =
+  ## creates a new `nkSym` node, unless sym.kind is an skError where an nkError
+  ## is extracted from the sym and returned instead. In either case sets the
+  ## node info to the one provided
+  
+  # TODO replace newSymNode with this
+  if sym.isError:
+    result = sym.ast
+    result.info = info
+  else:
+    result = newNode(nkSym)
+    result.sym = sym
+    result.typ = sym.typ
+    result.info = info
+
+proc newSymNodeIT*(sym: PSym, info: TLineInfo, typ: PType): PNode =
+  ## create a new sym node with the supplied `info` and `typ`
+  result = newNodeIT(nkSym, info, typ)
   result.sym = sym
-  result.typ = sym.typ
-  result.info = info
+
+proc newSymNode*(sym: PSym, info: TLineInfo): PNode {.inline.} =
+  ## create a new sym node from `sym` with its type and supplied `info`
+  result = newSymNodeIT(sym, info, sym.typ)
+
+proc newSymNode*(sym: PSym): PNode {.inline.} =
+  ## create a new sym node from `sym` with its info and type
+  result = newSymNode(sym, sym.info)
 
 proc newIntNode*(kind: TNodeKind, intVal: BiggestInt): PNode =
   result = newNode(kind)
@@ -234,6 +298,17 @@ proc newProcNode*(kind: TNodeKind, info: TLineInfo, body: PNode,
   result = newNodeI(kind, info)
   result.sons = @[name, pattern, genericParams, params,
                   pragmas, exceptions, body]
+
+proc newTypeError*(prev: PType,
+                   id: ItemId, 
+                   owner: PSym = if prev.isNil: nil else: prev.owner,
+                   err: PNode): PType =
+  ## create a new error type, with an optional `prev`ious type (can be nil) and
+  ## `err`or node for the error msg
+  result = PType(kind: tyError, owner: owner, size: defaultSize,
+                 align: defaultAlignment, itemId: id,
+                 lockLevel: UnspecifiedLockLevel, uniqueId: id, n: err)
+  result.typeInst = prev
 
 proc newType*(kind: TTypeKind, id: ItemId; owner: PSym): PType =
   result = PType(kind: kind, owner: owner, size: defaultSize,
@@ -386,8 +461,10 @@ proc addSonNilAllowed*(father, son: PNode) =
   father.sons.add(son)
 
 proc delSon*(father: PNode, idx: int) =
-  if father.len == 0: return
-  for i in idx..<father.len - 1: father[i] = father[i + 1]
+  if father.len == 0:
+    return
+  for i in idx..<father.len - 1:
+    father[i] = father[i + 1]
   father.sons.setLen(father.len - 1)
 
 template copyNodeImpl(dst, src, processSonsStmt) =
@@ -397,7 +474,6 @@ template copyNodeImpl(dst, src, processSonsStmt) =
   dst.typ = src.typ
   dst.flags = src.flags * PersistentNodeFlags
   dst.comment = src.comment
-  dst.reportId = src.reportId
   when defined(useNodeIds):
     if dst.id == nodeIdToDebug:
       echo "COMES FROM ", src.id
@@ -407,6 +483,10 @@ template copyNodeImpl(dst, src, processSonsStmt) =
   of nkSym: dst.sym = src.sym
   of nkIdent: dst.ident = src.ident
   of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
+  of nkEmpty, nkNone: discard # no children, nothing to do
+  of nkError:
+    dst.kids = src.kids
+    dst.reportId = src.reportId
   else: processSonsStmt
 
 proc copyNode*(src: PNode): PNode =
@@ -557,3 +637,42 @@ proc toHumanStr*(kind: TSymKind): string =
 proc toHumanStr*(kind: TTypeKind): string =
   ## strips leading `tk`
   result = toHumanStrImpl(kind, 2)
+
+
+proc setBaseFlags(n: PNode, base: NumericalBase) =
+  case base
+  of base10: discard
+  of base2: incl(n.flags, nfBase2)
+  of base8: incl(n.flags, nfBase8)
+  of base16: incl(n.flags, nfBase16)
+
+
+proc toPNode*(parsed: ParsedNode): PNode =
+  result = newNodeI(parsed.kind, parsed.info)
+  result.comment = parsed.comment
+  case parsed.kind:
+    of nkFloatKinds:
+      result.floatVal = parsed.token.fNumber
+      result.setBaseFlags(parsed.token.base)
+
+    of nkIntKinds - { nkCharLit }:
+      result.intVal = parsed.token.iNumber
+      result.setBaseFlags(parsed.token.base)
+
+    of nkCharLit:
+      result.intVal = ord(parsed.token.literal[0])
+
+    of nkStrKinds:
+      result.strVal = parsed.token.literal
+
+    of nkIdent:
+      result.ident = parsed.token.ident
+
+    else:
+      if parsed.isBlockArg:
+        result.flags.incl nfBlockArg
+
+
+      for sub in items(parsed):
+        result.add sub.toPNode()
+

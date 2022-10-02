@@ -43,6 +43,7 @@ import
   ],
   compiler/utils/[
     pathutils,
+    astrepr,
   ]
 
 export TExprFlag, TExprFlags
@@ -63,7 +64,6 @@ type
                                  ## statements
     owner*: PSym              ## the symbol this context belongs to
     resultSym*: PSym          ## the result symbol (if we are in a proc)
-    selfSym*: PSym            ## the 'self' symbol (if available)
     nestedLoopCounter*: int   ## whether we are in a loop or not
     nestedBlockCounter*: int  ## whether we are in a block or not
     next*: PProcCon           ## used for stacking procedure contexts
@@ -354,14 +354,6 @@ type
     # -------------------------------------------------------------------------
     # start: module env; module lifetime
     # -------------------------------------------------------------------------
-    selfName*: PIdent 
-      ## used for the experimental `this` pragma support (remove me!)
-      ## 
-      ## written:
-      ##  - pragmas: `prepareSinglePragma` writes the name of the `this` param
-      ## read:
-      ##  - seminst: `rawHandleSelf` reads the name of the `this` param
-      # xxx: remove the pragma features and this field
 
     # lookups: imports / scopes
     module*: PSym
@@ -765,6 +757,14 @@ proc popOwner*(c: PContext) =
 proc lastOptionEntry*(c: PContext): POptionEntry =
   result = c.optionStack[^1]
 
+proc pushProcCon*(c: PContext, owner: PSym) {.inline.} =
+  c.config.internalAssert(owner != nil, "owner is nil")
+  var x: PProcCon
+  new(x)
+  x.owner = owner
+  x.next = c.p
+  c.p = x
+
 proc popProcCon*(c: PContext) {.inline.} = c.p = c.p.next
 
 proc put*(p: PProcCon; key, val: PSym) =
@@ -792,13 +792,17 @@ proc getGenSym*(c: PContext; s: PSym): PSym =
 proc considerGenSyms*(c: PContext; n: PNode) =
   if n == nil:
     discard "can happen for nkFormalParams/nkArgList"
-  elif n.kind == nkSym:
-    let s = getGenSym(c, n.sym)
-    if n.sym != s:
-      n.sym = s
   else:
-    for i in 0..<n.safeLen:
-      considerGenSyms(c, n[i])
+    case n.kind
+    of nkSym:
+      let s = getGenSym(c, n.sym)
+      if n.sym != s:
+        n.sym = s
+    of nkError:
+      discard
+    else:
+      for i in 0..<n.safeLen:
+        considerGenSyms(c, n[i])
 
 proc newOptionEntry*(conf: ConfigRef): POptionEntry =
   new(result)
@@ -947,6 +951,14 @@ proc makeVarType*(owner: PSym, baseType: PType; idgen: IdGenerator; kind = tyVar
     result = newType(kind, nextTypeId(idgen), owner)
     addSonSkipIntLit(result, baseType, idgen)
 
+proc makeTypeDesc*(c: PContext, typ: PType): PType =
+  if typ.kind == tyTypeDesc:
+    result = typ
+  else:
+    result = newTypeS(tyTypeDesc, c)
+    incl result.flags, tfCheckedForDestructor
+    result.addSonSkipIntLit(typ, c.idgen)
+
 proc makeTypeSymNode*(c: PContext, typ: PType, info: TLineInfo): PNode =
   let typedesc = newTypeS(tyTypeDesc, c)
   incl typedesc.flags, tfCheckedForDestructor
@@ -1028,6 +1040,7 @@ proc errorType*(c: PContext): PType =
   result.flags.incl tfCheckedForDestructor
 
 proc errorNode*(c: PContext, n: PNode): PNode =
+  # xxx: convert to `nkError` instead of `nkEmpty`
   result = newNodeI(nkEmpty, n.info)
   result.typ = errorType(c)
 
@@ -1123,11 +1136,16 @@ proc extractPragma(s: PSym): PNode =
       if s.ast[0].kind == nkPragmaExpr and s.ast[0].len > 1:
         # s.ast = nkTypedef / nkPragmaExpr / [nkSym, nkPragma]
         result = s.ast[0][1]
-  doAssert result == nil or result.kind == nkPragma
+  doAssert result == nil or result.kind in {nkPragma, nkEmpty}
 
 proc warnAboutDeprecated(conf: ConfigRef; info: TLineInfo; s: PSym) =
   var pragmaNode: PNode
-  pragmaNode = if s.kind == skEnumField: extractPragma(s.owner) else: extractPragma(s)
+  pragmaNode =
+    if s.kind == skEnumField:
+      extractPragma(s.owner)
+    else:
+      extractPragma(s)
+
   if pragmaNode != nil:
     for it in pragmaNode:
       if whichPragma(it) == wDeprecated and it.safeLen == 2 and
@@ -1135,6 +1153,7 @@ proc warnAboutDeprecated(conf: ConfigRef; info: TLineInfo; s: PSym) =
         localReport(conf, info, reportSym(
           rsemDeprecated, s, str = it[1].strVal))
         return
+
   localReport(conf, info, reportSym(rsemDeprecated, s))
 
 proc userError(conf: ConfigRef; info: TLineInfo; s: PSym) =

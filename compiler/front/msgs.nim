@@ -75,20 +75,6 @@ proc newFileInfo(fullPath: AbsoluteFile, projPath: RelativeFile): TFileInfo =
   result.quotedName = result.shortName.makeCString
   result.quotedFullName = fullPath.string.makeCString
   result.lines = @[]
-  when defined(nimpretty):
-    if not result.fullPath.isEmpty:
-      try:
-        result.fullContent = readFile(result.fullPath.string)
-      except IOError:
-        #rawMessage(errCannotOpenFile, result.fullPath)
-        # XXX fixme
-        result.fullContent = ""
-
-when defined(nimpretty):
-  # Wrapped in `when defined()` because `.fullContent` is not defined
-  # without it.
-  proc fileSection*(conf: ConfigRef; fid: FileIndex; a, b: int): string =
-    substr(conf[fid].fullContent, a, b)
 
 proc canonicalCase(path: var string) =
   ## the idea is to only use this for checking whether a path is already in
@@ -154,12 +140,6 @@ proc newLineInfo*(conf: ConfigRef; filename: AbsoluteFile, line, col: int): TLin
   result = newLineInfo(fileInfoIdx(conf, filename), line, col)
 
 const gCmdLineInfo* = newLineInfo(commandLineIdx, 1, 1)
-
-proc concat(strings: openArray[string]): string =
-  var totalLen = 0
-  for s in strings: totalLen += s.len
-  result = newStringOfCap totalLen
-  for s in strings: result.add s
 
 proc suggestWriteln*(conf: ConfigRef; s: string) =
   if eStdOut in conf.m.errorOutputs:
@@ -326,7 +306,7 @@ proc toLinenumber*(info: TLineInfo): int {.inline.} =
 proc toColumn*(info: TLineInfo): int {.inline.} =
   result = info.col
 
-proc toFileLineCol(info: InstantiationInfo): string {.inline.} =
+proc toFileLineCol*(info: InstantiationInfo): string {.inline.} =
   result.toLocation(info.filename, info.line, info.column + ColOffset)
 
 proc toFileLineCol*(conf: ConfigRef; info: TLineInfo): string {.inline.} =
@@ -349,10 +329,10 @@ proc `$`*(conf: ConfigRef; info: TLineInfo): string = toFileLineCol(conf, info)
 proc `$`*(info: TLineInfo): string {.error.} = discard
 
 proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
-  ## Writes given message string to stderr by default.
+  ## Writes given message `s`tring to stderr by default.
   ## If ``--stdout`` option is given, writes to stdout instead. If message hook
   ## is present, then it is used to output message rather than stderr/stdout.
-  ## This behavior can be altered by given optional flags.
+  ## This behavior can be altered by given optional `flags`.
   ##
   ## This is used for 'nim dump' etc. where we don't have nimsuggest
   ## support.
@@ -401,9 +381,12 @@ proc errorActions(
     eh: TErrorHandling
   ): tuple[action: TErrorHandling, withTrace: bool] =
 
+
+  result = (doNothing, false)
   if conf.isCompilerFatal(report):
     # Fatal message such as ICE (internal compiler), errFatal,
-    return (doAbort, true)
+    result = (doAbort, true)
+
   elif conf.isCodeError(report):
     # Regular code error
     inc(conf.errorCounter)
@@ -412,14 +395,14 @@ proc errorActions(
     if conf.errorMax <= conf.errorCounter:
       # only really quit when we're not in the new 'nim check --def' mode:
       if conf.ideCmd == ideNone:
-        return (doAbort, false)
-    elif eh == doAbort and conf.cmd != cmdIdeTools:
-      return (doAbort, false)
-    elif eh == doRaise:
-      {.warning: "[IMPLEMENT] Convert report to string message?".}
-      return (doRaise, false)
+        result = (doAbort, false)
 
-  return (doNothing, false)
+    elif eh == doAbort and conf.cmd != cmdIdeTools:
+      result = (doAbort, false)
+
+    elif eh == doRaise:
+      result = (doRaise, false)
+
 
 proc `==`*(a, b: TLineInfo): bool =
   result = a.line == b.line and a.fileIndex == b.fileIndex
@@ -472,7 +455,7 @@ proc sourceLine*(conf: ConfigRef; i: TLineInfo): string =
 
   result = conf[i.fileIndex].lines[i.line.int - 1]
 
-proc getSurroundingSrc(conf: ConfigRef; info: TLineInfo): string =
+proc getSurroundingSrc*(conf: ConfigRef; info: TLineInfo): string =
   if conf.hasHint(rintSource) and info != unknownLineInfo:
     const indent = "  "
     result = "\n" & indent & $sourceLine(conf, info)
@@ -481,22 +464,22 @@ proc getSurroundingSrc(conf: ConfigRef; info: TLineInfo): string =
 
 proc handleReport*(
     conf: ConfigRef,
-    report: Report,
+    r: Report,
     reportFrom: InstantiationInfo,
     eh: TErrorHandling = doNothing
   ) {.noinline.} =
 
-  var report = report
-  report.reportFrom = toReportLineInfo(reportFrom)
-  if report.category == repSem and report.location.isSome():
-    report.semReport.context = conf.getContext(report.location.get())
+  var rep = r
+  rep.reportFrom = toReportLineInfo(reportFrom)
+  if rep.category in { repSem, repVM } and rep.location.isSome():
+    rep.context = conf.getContext(rep.location.get())
 
+  let userAction = conf.report(rep)
   let
-    userAction = conf.report(report)
     (action, trace) =
       case userAction
       of doDefault:
-        errorActions(conf, report, eh)
+        errorActions(conf, rep, eh)
       else:
         (userAction, false)
 
@@ -572,12 +555,15 @@ proc semReportCountMismatch*(
   result = SemReport(kind: kind, ast: node)
   result.countMismatch = (toInt128(expected), toInt128(got))
 
+proc illformedAstReport*(node: PNode, explain: string): SemReport {.inline.} =
+  SemReport(kind: rsemIllformedAst, ast: node, str: explain)
+
 template semReportIllformedAst*(
     conf: ConfigRef, node: PNode, explain: string): untyped =
   handleReport(
     conf,
     wrap(
-      SemReport(kind: rsemIllformedAst, ast: node, str: explain),
+      illformedAstReport(node, explain),
       instLoc(),
       node.info),
     instLoc(),
@@ -611,6 +597,10 @@ template createSemIllformedAstMsg*(node: PNode,
     exp.add e
 
   "Expected $1, but found $2" % [joinAnyOf(exp), $node.kind]
+
+proc illformedAstReport*(node: PNode, 
+                         expected: set[TNodeKind]): SemReport {.inline.} =
+  illformedAstReport(node, createSemIllformedAstMsg(node, expected))
 
 template semReportIllformedAst*(
   conf: ConfigRef, node: PNode, expected: set[TNodeKind]): untyped =

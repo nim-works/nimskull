@@ -7,14 +7,16 @@
     <img src="https://raw.githubusercontent.com/nim-lang/assets/master/Art/logo-crown.png" height="80px"/>
   </a>
 
-  <h3 align="center">NimSkull</h3>
+  <h3 align="center">Nimskull (eventually Cyo)</h3>
   <p align="center">
-    The Nim-Works compiler, stdlib, tools, and documentation repository.
+    The Nimskull compiler, stdlib, tools, and documentation repository.
     <br />
     <br />
     <a href="https://github.com/nim-works/nimskull/blob/devel/CODE_OF_CONDUCT.md">Code of Conduct</a>
     ·
     <a href="https://github.com/nim-works/nimskull/blob/devel/ETHOS.md">Code of Ethics</a>
+    ·
+    <a href="https://nim-works.github.io/nimskull/index.html">Documentation</a>
   </p>
 
 [![Matrix](https://img.shields.io/badge/matrix-nim--works-success?style=flat&logo=matrix)][nim-works-matrix]
@@ -28,27 +30,32 @@
 
 ## About the Project
 
-The Nim-Works compiler, stdlib, tools, and documentation repository. Nim-Works
-is presently a derivative of [Nim][nim-site]. Its intention is best described by:
+The Nimskull (temporary name) compiler, stdlib, tools, and documentation
+repository. Nimskull is starting off as a derivative [Nim][nim-site], with the
+intention of becoming a different language called Cyo.
 
-> Nimskull is not an alternative implementation; it's a reimaging of the language
-> that aims for a community where if one uses the language then they also
-> contribute directly to the language. This is a community effort with a strong
-> emphasis on sustainability, the contributor community comes first.
->
-> As to why this fork exists, it's a matter of taste and this would not exist
-> if governance, language design, type system, implementation choices, standard
-> library, package management, and more had an acceptable trajectory.
+The goal is to have a *statically typed* *structured* programming language to
+create software (including itself) that is sustainable, it aims to be:
 
-Ultimately this will mean a different community, language, standard library,
-and much more. For now it's closer to an alternative with most deviations
-appearing in the standard library, mostly in the form of deleting old and unmaintained modules from it.
+- *Safe:* statically typed, nil safe, with structured approach to resources and
+  concurrency
+- *Scalable:* target a variety of hardware architectures, with zero or low cost
+  abstractions to run in constrained environments.
+- *Adaptable:* producing native executables, running via the built-in VM, or
+  with in a JS/WASM runtime.
+- *Evolving:* developed and maintained by its community of users, with a self-
+  hosted compiler, support for metaprogramming to safely attempt language
+  extension outside of the core, and support code migration to avoid legacy.
 
-PS. the name `Nimskull` is temporary
-
-See the [FAQ](#FAQ).
-
-<p align="right">(<a href="#top">back to top</a>)</p>
+We are currently working on the first phase of this, by slimming down the
+language and compiler to a workable core and increasing compiler development
+productivity. The following phase will starting with one of the following
+possible features:
+- Introduce Continuation Passing Style transform and Structured Concurrency
+  into the language, this will undoubtedly lead to dramatic changes in memory
+  management and FFI
+- Ease Data Oriented Design through memory regions to support the common handle
+  instead of reference approach
 
 ## Near-Term Development
 
@@ -58,17 +65,17 @@ For updates on the progress see the roadmap progress [thread](https://github.com
 
 The current and key areas of development are as follows:
 
-1. improve tests - clarify the language specification and memorialize it in tests.
+1. improve tests - core specification as tests (see `slim the core` below).
    Reorganize existing tests. [Project](https://github.com/nim-works/nimskull/projects/2)
    to track progress.
-2. nkError - replace `localError` etc approach with an AST (`nkError`) one
+2. nkError/tyError/skerror - replace `localError` etc approach with an AST
+   (`nkError`) one [Project](https://github.com/nim-works/nimskull/projects/1)
 3. comments - incrementally document compiler source for easier learning
-
-<details><summary><b>Show more</b></summary><br />
+4. slim the core - remove dialects, backwards compatibility, etc [Discussion](https://github.com/nim-works/nimskull/discussions/289)
 
 There are more, the above have been carefully chosen based on the direction of
-the language; moreover, their impact is further beyond than described and the
-intention is to create a virtuous cycle. Examples:
+the language; moreover, their impact goes beyond what's been described and
+intends to create a virtuous cycle. Examples:
 
 * clarifying the language specification will identify bugs and design flaws that
   in turn will be fixed.
@@ -77,8 +84,6 @@ intention is to create a virtuous cycle. Examples:
   design fixes due to a broad audit, ease compiler as a library usage for tools
 
 <p align="right">(<a href="#top">back to top</a>)</p>
-
-</details>
 
 ## Community
 
@@ -155,10 +160,27 @@ Contributing is simplified thanks to our [contribution guide](https://nim-works.
 Right now, the easiest and most important contribution is test suite improvement, also
 [described](https://nim-works.github.io/nimskull/contributing.html#writing-or-improving-tests) in the guide.
 
+## Koch
+
+``koch`` is the build tool used to build various parts of Nim and to generate
+documentation, among other things. The ``koch`` tool can also
+be used to run the Nim test suite.
+
+<details>
+<summary>Show</summary>
+
+You may execute the tests using ``./koch.py tests``. The tests take a while to
+run, but you can run a subset of tests by specifying a category (for example
+``./koch.py tests cat lang``).
+
+For more information on the ``koch`` build tool please see the documentation
+within the [doc/koch.rst](doc/koch.rst) file.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+</details>
+
 ## Direction
-
-<!-- This is quite a large block of text to have so close to the top; I reckon it should be summarised in a much shorter version with a show more following it -->
-
 
 A language (community, compiler, etc) that is *sustained* through the
 *collective* efforts of its practitioners and their *diverse* backgrounds.
@@ -180,8 +202,6 @@ Practitioner collaboration and combining collective efforts is assisted through
 logical contracts provided by a *static type system* that supports local
 inference, tuples, sum, and generic types, along with effect analysis.
 
-<details><summary><b>Show</b></summary>
-
 A language that develops in such a manner is going to encounter what some might
 term as 'instability' via numerous backwards-compatibility breaking changes.
 We consider this a feature, instead we:
@@ -196,56 +216,29 @@ of free labour from a few, we're not interested in that either. Instead as is
 described this language will focus on practitioners able to affect their tools
 and community.
 
-</details>
-
 <p align="right">(<a href="#top">back to top</a>)</p>
 
-## Koch
-
-``koch`` is the build tool used to build various parts of Nim and to generate
-documentation, among other things. The ``koch`` tool can also
-be used to run the Nim test suite.
-
-<details>
-<summary>Show</summary>
-
-You may execute the tests using ``./koch.py tests``. The tests take a while to
-run, but you can run a subset of tests by specifying a category (for example
-``./koch.py tests cat lang``).
-
-For more information on the ``koch`` build tool please see the documentation
-within the [doc/koch.rst](doc/koch.rst) file.
-
-<p align="right">(<a href="#top">back to top</a>)</p>
-
-</details>
 
 ## FAQ
 <details>
+<summary class"blue">Why start with Nim?</summary>
+</br>
+It's convenient. Creating a compiler from scratch is labour intensive and the
+existing contributors are already familiar with the current code base. We chose
+to evolve it.
+</details>
+
+<details>
 <summary class="blue">What's the rationale for this fork?</summary>
 </br>
-We love the original vision behind nim-lang; we believe that an element of the
-vision was lost. We simply believe a different development process was needed to that which was being used and decided that the best way to see this vision materialize was to enforce that process ourselves.
+It's more a starting point and eventually the languages will have diverged so
+as to no longer being compatible.
 </details>
 
 <details>
 <summary class="blue">What are you going to do now?</summary>
 </br>
-
 For the moment, please see our [projects board](https://github.com/nim-works/nimskull/projects) and [direction](#direction) for more information. We envisage great things; however, all great things come with time, and we have a large foundation that was never properly solidified.
-
-</details>
-
-<details>
-<summary class="blue">Will this break my Nim code?</summary>
-</br>
-Maybe. Many experienced users will know that a lot of current code 'works' because of various hacks, or create hacks themselves to make code work. See <a href="https://github.com/nim-works/nimskull/issues/8">#8</a> and the <a href="https://github.com/nim-works/nimskull#direction">direction</a> for more on this.
-</details>
-
-<details>
-<summary class="blue">Do you plan to merge Nim upstream changes?</summary>
-</br>
-Generally? No. There will likely be exceptions to this. Our current focus remains on solidifying the foundations before moving forward.
 </details>
 
 <details>
@@ -257,15 +250,7 @@ Presently we're very interested in people contributing; a good start is to help 
 <details>
 <summary class="blue">Any chat room on matrix/irc/discord?</summary>
 </br>
-
 Yes! Feel free to join us on our [nim-works channel!][nim-works-matrix] Please have a read of our [Code of Conduct](https://github.com/nim-works/nimskull/blob/devel/CODE_OF_CONDUCT.md)
-
-</details>
-
-<details>
-<summary class="blue">So the aim isn't just for a different compiler, but a new language?</summary>
-</br>
-For the moment, we are aiming for a more well-defined spec through excessive testing which might lead to slight language changes to make it more correct.
 </details>
 <p align="right">(<a href="#top">back to top</a>)</p>
 

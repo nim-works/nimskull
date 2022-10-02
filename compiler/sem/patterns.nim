@@ -236,7 +236,7 @@ proc matchStmtList(c: PPatternContext, p, n: PNode): PNode =
         result[1] = extractRange(nkStmtList, n, i, i+p.len-1)
         result[2] = extractRange(nkStmtList, n, i+p.len, n.len-1)
         break
-  elif matches(c, p, n):
+  elif n.isError or matches(c, p, n):
     result = n
 
 proc aliasAnalysisRequested(params: PNode): bool =

@@ -255,16 +255,20 @@ proc expectNoArg(conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, info:
 
 proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
                          info: TLineInfo; orig: string; conf: ConfigRef) =
-  var id = ""  # arg = key or [key] or key:val or [key]:val;  with val=on|off
-  var i = 0
-  var notes: ReportKinds
-  var isBracket = false
+  var
+    id = ""  # arg = key or [key] or key:val or [key]:val;  with val=on|off
+    i = 0
+    notes: ReportKinds
+    isBracket = false
+  
   if i < arg.len and arg[i] == '[':
     isBracket = true
     inc(i)
+  
   while i < arg.len and (arg[i] notin {':', '=', ']'}):
     id.add(arg[i])
     inc(i)
+  
   if isBracket:
     if i < arg.len and arg[i] == ']': inc(i)
     else: invalidCmdLineOption(conf, pass, orig, info)
@@ -288,7 +292,6 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
     let x = findStr(noteSet, id, onFail)
     if x != onFail:
       notes = {x}
-
     else:
       var r = ExternalReport(kind: onFail)
       r.cmdlineProvided = id
@@ -312,7 +315,6 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
     # `hints|warnings|warningAsErrors` for all the code they depend on.
     conf.localReport ExternalReport(
       kind: rextExpectedOnOrOff, cmdlineProvided: arg)
-
   else:
     let isOn = val == "on"
     if isOn and id.normalize == "all":
@@ -328,7 +330,6 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
         if state in {wWarningAsError, wHintAsError}:
           # xxx rename warningAsErrors to noteAsErrors
           conf.flip(cnWarnAsError, n, isOn)
-
         else:
           conf.flip(cnCurrent, n, isOn)
           conf.flip(cnMainPackage, n, isOn)
@@ -1057,7 +1058,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     if verbosity notin {0 .. 3}:
       conf.localReport(
         info, invalidSwitchValue @["0", "1", "2", "3"])
-    conf.verbosity = verbosity
+    conf.verbosity = CompilerVerbosity(verbosity)
     var verb = NotesVerbosity.main[conf.verbosity]
     ## We override the default `verb` by explicitly modified (set/unset) notes.
     conf.notes = (conf.modifiedyNotes * conf.notes + verb) -

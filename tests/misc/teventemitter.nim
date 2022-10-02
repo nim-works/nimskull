@@ -17,7 +17,7 @@ proc on*(emitter: var EventEmitter, event: string,
          fn: proc(e: EventArgs) {.nimcall.}) =
   if not hasKey(emitter.events, event):
     var list: DoublyLinkedList[proc(e: EventArgs) {.nimcall.}]
-    add(emitter.events, event, list) #if not, add it.
+    emitter.events[event] = list #if not, add it.
   append(emitter.events[event], fn)
 
 proc initEmitter(emitter: var EventEmitter) =

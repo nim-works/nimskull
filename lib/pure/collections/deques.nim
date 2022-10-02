@@ -51,7 +51,7 @@ runnableExamples:
 
 import std/private/since
 
-import math
+import std/math
 
 type
   Deque*[T] = object

@@ -10,8 +10,8 @@
 ## Implements a representation of Unicode with the limited
 ## ASCII character subset.
 
-import strutils
-import unicode
+import std/strutils
+import std/unicode
 
 # issue #3045
 

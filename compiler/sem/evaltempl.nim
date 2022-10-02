@@ -17,7 +17,8 @@ import
     idents,
     renderer,
     reports,
-    errorhandling
+    errorhandling,
+    errorreporting
   ],
   compiler/front/[
     options,
@@ -44,9 +45,10 @@ proc copyNode(ctx: TemplCtx, a, b: PNode): PNode =
   if ctx.instLines: result.info = b.info
 
 proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
-  template handleParam(param) =
+  template handleParam(param: PNode) =
     let x = param
-    if x.kind == nkArgList:
+    case x.kind
+    of nkArgList:
       for y in items(x): result.add(y)
     else:
       result.add copyTree(x)
@@ -90,6 +92,8 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
       result.add res
     else:
       result.add newNodeI(nkEmpty, templ.info)
+  of nkError:
+    c.config.localReport(templ)
   else:
     let parentIsDeclarative = c.isDeclarative
     if templ.kind in routineDefs + {nkTypeSection, nkVarSection, nkLetSection, nkConstSection}:
@@ -105,11 +109,9 @@ proc evalTemplateAux(templ, actual: PNode, c: var TemplCtx, result: PNode) =
 proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode =
   # if the template has zero arguments, it can be called without ``()``
   # `n` is then a nkSym or something similar
-  var totalParams = case n.kind
-    of nkCallKinds: n.len-1
-    else: 0
-
-  var
+  let
+    totalParams = if n.kind in nkCallKinds: n.len-1
+                  else: 0
     # XXX: Since immediate templates are not subject to the
     # standard sigmatching algorithm, they will have a number
     # of deficiencies when it comes to generic params:
@@ -119,10 +121,9 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
     # wiser to just deprecate immediate templates and macros
     # now that we have working untyped parameters.
     genericParams = if fromHlo: 0
-                    else: s.ast[genericParamsPos].len
-    expectedRegularParams = s.typ.len-1
-    givenRegularParams = totalParams - genericParams
-  if givenRegularParams < 0: givenRegularParams = 0
+                    else: s.ast[genericParamsPos].safeLen
+    expectedRegularParams = s.typ.len-1 
+    givenRegularParams = max(totalParams - genericParams, 0)
 
   if totalParams > expectedRegularParams + genericParams:
     globalReport(conf, n.info, reportAst(rsemWrongNumberOfArguments, n))
@@ -132,13 +133,19 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
       rsemMissingGenericParamsForTemplate, n, sym = s))
 
   result = newNodeI(nkArgList, n.info)
+  
   for i in 1..givenRegularParams:
+    # xxx: propagate nkError
+    if n[1].isError:
+      conf.localReport(n[1])
+    
     result.add n[i]
 
   # handle parameters with default values, which were
   # not supplied by the user
   for i in givenRegularParams+1..expectedRegularParams:
     let default = s.typ.n[i].sym.ast
+    
     if default.isNil or default.kind == nkEmpty:
       result.add newNodeI(nkEmpty, n.info)
       return newError(conf, result, reportSem rsemWrongNumberOfArguments)
@@ -147,7 +154,13 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
 
   # add any generic parameters
   for i in 1..genericParams:
-    result.add n[givenRegularParams + i]
+    let it = n[givenRegularParams + i]
+    
+    # xxx: propagate nkError
+    if it.isError:
+      conf.localReport(it)
+    
+    result.add it
 
 # to prevent endless recursion in template instantiation
 const evalTemplateLimit* = 1000

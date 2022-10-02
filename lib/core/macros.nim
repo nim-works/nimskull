@@ -120,9 +120,14 @@ type
     ntyError,
     ntyBuiltinTypeClass, ntyUserTypeClass, ntyUserTypeClassInst,
     ntyCompositeTypeClass, ntyInferred, ntyAnd, ntyOr, ntyNot,
-    ntyAnything, ntyStatic, ntyFromExpr, ntyOptDeprecated, ntyVoid
+    ntyAnything, ntyStatic, ntyFromExpr,
+    ntyVoid = when defined(nimHasTyConceptRemoved):
+                ord(ntyFromExpr) + 1
+              else:
+                # Skip what would be ntyConcept, if compiled with a compiler
+                # compiler that still has ntyConcept (e.g. in bootstrapping)
+                ord(ntyFromExpr) + 2
 
-  TNimTypeKinds* {.deprecated.} = set[NimTypeKind]
   NimSymKind* = enum
     nskUnknown, nskConditional, nskDynLib, nskParam,
     nskGenericParam, nskTemp, nskModule, nskType, nskVar, nskLet,
@@ -131,8 +136,6 @@ type
     nskConverter, nskMacro, nskTemplate, nskField,
     nskEnumField, nskForVar, nskLabel,
     nskStub
-
-  TNimSymKinds* {.deprecated.} = set[NimSymKind]
 
 const
   nnkLiterals* = {nnkCharLit..nnkNilLit}
@@ -1005,9 +1008,14 @@ proc newStmtList*(stmts: varargs[NimNode]): NimNode =
   ## Create a new statement list.
   result = newNimNode(nnkStmtList).add(stmts)
 
-proc newPar*(exprs: varargs[NimNode]): NimNode =
+proc newPar*(expr: NimNode): NimNode =
   ## Create a new parentheses-enclosed expression.
-  newNimNode(nnkPar).add(exprs)
+  ##
+  ## This does not construct tuples, for that use `nnkTupleConstr` nodes.
+  newNimNode(nnkPar).add(expr)
+
+proc newPar*(exprs: varargs[NimNode]): NimNode {.error:
+  "newPar/nnkPar does not construct tuples anymore, for that use nnkTupleConstr nodes."}
 
 proc newBlockStmt*(label, body: NimNode): NimNode =
   ## Create a new block statement with label.
@@ -1459,11 +1467,18 @@ proc customPragmaNode(n: NimNode): NimNode =
     else:
       return impl[0] # handle types which don't have macro at all
 
-  if n.kind == nnkSym: # either an variable or a proc
+  if n.kind == nnkSym: # either a variable or a proc
     let impl = n.getImpl()
     if impl.kind in RoutineNodes:
       return impl.pragma
-    elif impl.kind == nnkIdentDefs and impl[0].kind == nnkPragmaExpr:
+    # xxx: this and the next branch are a hack, it may seem "helpful" to lookup
+    #      pragmas on the type, but that doesn't actually make sense. metadata
+    #      on the type is not metadata on the symbol. This also demonstrates
+    #      how compiler internals are leaking out unnecessarily, as the
+    #      compiler further normalizes the ast, the implied schema of NimNode
+    #      will keep churning and these traversals are all very fragile.
+    elif impl.kind == nnkIdentDefs and impl[0].kind == nnkPragmaExpr and
+         impl[0][1].len > 0:
       return impl[0][1]
     else:
       let timpl = typ.getImpl()
@@ -1567,7 +1582,7 @@ macro getCustomPragmaVal*(n: typed, cp: typed{nkSym}): untyped =
         result = p[1]
       else:
         let def = p[0].getImpl[3]
-        result = newTree(nnkPar)
+        result = newTree(nnkTupleConstr)
         for i in 1 ..< def.len:
           let key = def[i][0]
           let val = p[i]

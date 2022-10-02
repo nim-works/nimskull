@@ -61,7 +61,7 @@ proc semAsm(c: PContext, n: PNode): PNode =
   else:
     result = n
     result[0] = err
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)
 
 proc semWhile(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
@@ -157,14 +157,14 @@ proc semIf(c: PContext, n: PNode; flags: TExprFlags): PNode =
         "Expected one or two subnodes for if statement, but found " & $it.len)
 
   if hasError:
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)
 
   elif isEmptyType(typ) or typ.kind in {tyNil, tyUntyped} or
       (not hasElse and efInTypeof notin flags):
     for it in n:
       it[^1] = discardCheck(c, it[^1], flags)
       if it[^1].isError:
-        return wrapErrorInSubTree(c.config, result)
+        return wrapError(c.config, result)
     result.transitionSonsKind(nkIfStmt)
     # propagate any enforced VoidContext:
     if typ == c.enforceVoidContext: result.typ = c.enforceVoidContext
@@ -270,11 +270,11 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if isEmptyType(typ) or typ.kind in {tyNil, tyUntyped}:
     n[0] = discardCheck(c, n[0], flags)
     if n[0].isError:
-      return wrapErrorInSubTree(c.config, n)
+      return wrapError(c.config, n)
     for i in 1 ..< n.len:
       n[i][^1] = discardCheck(c, n[i][^1], flags)
       if n[i][^1].isError:
-        return wrapErrorInSubTree(c.config, n)
+        return wrapError(c.config, n)
 
     if typ == c.enforceVoidContext:
       result.typ = c.enforceVoidContext
@@ -282,7 +282,7 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
     if n.lastSon.kind == nkFinally:
       n[^1][^1] = discardCheck(c, n[^1][^1], flags)
       if n[^1][^1].isError:
-        return wrapErrorInSubTree(c.config, n)
+        return wrapError(c.config, n)
     n[0] = fitNode(c, typ, n[0], n[0].info)
     for i in 1..last:
       var it = n[i]
@@ -293,22 +293,26 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
 
 proc fitRemoveHiddenConv(c: PContext, typ: PType, n: PNode): PNode =
   result = fitNode(c, typ, n, n.info)
-  if result.kind in {nkHiddenStdConv, nkHiddenSubConv}:
+  case result.kind
+  of nkHiddenStdConv, nkHiddenSubConv:
     let r1 = result[1]
     if r1.kind in {nkCharLit..nkUInt64Lit} and
        typ.skipTypes(abstractRange).kind in {tyFloat..tyFloat128}:
       result = newFloatNode(nkFloatLit, BiggestFloat r1.intVal)
       result.info = n.info
       result.typ = typ
-      if not floatRangeCheck(result.floatVal, typ):
-        localReport(c.config, n.info, reportAst(
-          rsemCannotConvertToRange, result, typ = typ))
 
+      if not floatRangeCheck(result.floatVal, typ):
+        result = newError(c.config, n,
+                          reportAst(rsemCannotConvertToRange, result,
+                                    typ = typ))
     else:
-      changeType(c, r1, typ, check=true)
-      result = r1
-  elif not sameType(result.typ, typ):
-    changeType(c, result, typ, check=false)
+      result = changeType(c, r1, typ, check=true)
+  of nkError:
+    discard   # already nkError
+  else:
+    if not sameType(result.typ, typ):
+      result = changeType(c, result, typ, check=false)
 
 proc findShadowedVar(c: PContext, v: PSym): PSym =
   for scope in localScopesFrom(c, c.currentScope.parent):
@@ -348,6 +352,26 @@ proc semIdentDef(c: PContext, n: PNode, kind: TSymKind): PSym =
 
   let info = getLineInfo(n)
   suggestSym(c.graph, info, result, c.graph.usageSym)
+
+proc checkNilableOrError(c: PContext; def: PNode): PNode =
+  ## checks if a symbol node is nilable, on success returns def, else nkError
+  # xxx: this is a terrible name
+  result = def
+
+  case def.kind
+  of nkSym:
+    let v = def.sym
+    if {sfGlobal, sfImportc} * v.flags == {sfGlobal} and v.typ.requiresInit:
+      if v.astdef.isNil:
+        result = c.config.newError(def, reportSym(rsemProveInit, v))
+
+      elif tfNotNil in v.typ.flags and
+          not v.astdef.typ.isNil and
+          tfNotNil notin v.astdef.typ.flags:
+        result = c.config.newError(def, reportSym(rsemProveInit, v))
+  else:
+    # xxx: maybe assert instead
+    discard
 
 proc checkNilable(c: PContext; v: PSym) =
   if {sfGlobal, sfImportc} * v.flags == {sfGlobal} and v.typ.requiresInit:
@@ -454,465 +478,993 @@ proc setVarType(c: PContext; v: PSym, typ: PType) =
 
   v.typ = typ
 
-proc errorSymChoiceUseQualifier(c: PContext; n: PNode) =
+proc newSymChoiceUseQualifierReport(n: PNode): SemReport =
   assert n.kind in nkSymChoices
-  var rep = reportAst(rsemAmbiguousIdent, n, sym = n[0].sym)
+  result = reportAst(rsemAmbiguousIdent, n, sym = n[0].sym)
   for child in n:
-    rep.symbols.add child.sym
+    result.symbols.add child.sym
 
-  localReport(c.config, n.info, rep)
+proc errorSymChoiceUseQualifier(c: PContext; n: PNode) =
+  localReport(c.config, n.info, newSymChoiceUseQualifierReport(n))
 
-proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
-  addInNimDebugUtils(c.config, "semVarOrLet", n, result)
+proc copyExcept(n: PNode, i: int): PNode {.inline.} =
+  result = copyNode(n)
+  for j in 0..<n.len:
+    if j != i: result.add(n[j])
 
-  assert n != nil, "nil node instead of a var or let section"
-  internalAssert(c.config, n.kind in {nkLetSection, nkVarSection},
-    "only let or var sections allowed, got: " & $n.kind)
+proc semConstLetOrVarAnnotation(c: PContext, n: PNode): PNode =
+  ## analyses normalized const, let, or var section for pragma annotations and
+  ## applies the first macro pragma producing the transform wrapped in an
+  ## nkStmtList, if none are applied `n`, otherwise an error. If an nkStmtList
+  ## is returned the caller must unwrap it and execute a semExpr prior to
+  ## inserting it into the AST.
 
-  var hasError = false
-    ## not fully converted to using nkError, so track this flag and then wrap
-    ## the result if true in an nkError.
-    ## xxx: this should be replaced once nkError is more pervasive
+  addInNimDebugUtils(c.config, "semConstLetOrVarAnnotation", n, result)
+
+  # we don't preemptively set `result` to `n` so we can check to see if we did
+  # produce something new or not via a nil check on `result`.
+
+  internalAssert(c.config, n.kind in nkVariableSections + {nkConstSection},
+    "only const, let, or var sections allowed, got: " & $n.kind)
+  checkSonsLen(n, 1, c.config)
+
+  assert n[0].kind in {nkConstDef, nkIdentDefs}
+
+  let pragExpr = n[0][0]
+  if pragExpr.kind != nkPragmaExpr:
+    # no pragmas, return unevaluated `n`
+    return n
+  
+  let pragmas = pragExpr[1] # get the pragma node
+  
+  for i, prag in pragmas.pairs:
+    let key = if prag.kind in nkPragmaCallKinds and prag.len >= 0:
+                prag[0]
+              else:
+                prag
+
+    # we only want to process macro pragmas (ast transforms)
+    # xxx: this dance to filter through them is another sign that pragmas
+    #      shouldn't be associated to symbols as the syntax hints
+    if whichPragma(prag) == wInvalid and key.kind in nkIdentKinds:
+      # a custom pragma as opposed to a built-in
+      let (ident, err) = considerQuotedIdent(c, key)
+
+      if err != nil:
+        # TODO convert to nkError
+        localReport(c.config, err)
+      elif strTableGet(c.userPragmas, ident) != nil:
+        continue # User defined pragma
+      else:
+        var amb = false
+        let sym = searchInScopes(c, ident, amb)
+        if sym != nil and sfCustomPragma in sym.flags:
+          continue # User custom pragma
+    else:
+      # not a custom pragma, we can ignore it
+      continue
+
+    # transform `let l {.m, rest.}` to `m(do: let l {.rest.})` and let the
+    # semantic checker deal with the it:
+    var x = newNodeI(nkCall, key.info)
+    x.add(key)
+
+    if prag.kind in nkPragmaCallKinds and prag.len > 1:
+      # pass pragma arguments to the macro too:
+      for j in 1..<prag.len:
+        x.add prag[j]
+    
+    # Drop the pragma from the list, this prevents getting caught in endless
+    # recursion when the nkCall is semanticized
+    n[0][0][1] = copyExcept(pragmas, i)
+    if n[0][0][1].kind != nkEmpty and n[0][0][1].len == 0:
+      # if all pragma are gone replace them with an empty node
+      n[0][0][1] = c.graph.emptyNode
+
+    x.add(n)
+
+    # recursion assures that this works for multiple macro annotations too:
+    var r = semOverloadedCall(c, x, {skMacro, skTemplate}, {efNoUndeclared})
+    if r.isNil:
+      # Restore the old list of pragmas since we couldn't process this one
+      n[0][0][1] = pragmas
+      # No matching macro was found but there's always a possibility this may
+      # be a .pragma. template instead
+      continue
+
+    # TODO: temporarily handle nkError here, rather than proper propagation
+    case r.kind
+    of nkError:
+      localReport(c.config, r)
+      return # the rest is likely too broken, don't bother continuing
+    of nkCall:
+      doAssert r[0].kind == nkSym
+
+      let m = r[0].sym
+
+      case m.kind
+      of skMacro: result = semMacroExpr(c, r, m, {})
+      of skTemplate: result = semTemplateExpr(c, r, m, {})
+      else:
+        n[0][0][1] = pragmas # restore the originals
+        continue # we need to keep looking for macros pragmas
+
+      doAssert result != nil,
+        "a macro/template pragma must produce a non-nil result"
+
+      # the macro/template can entirely transform the node, so return the
+      # result and let the caller sem it again
+      break
+    else:
+      # TODO: set result to an error
+      discard
+
+  result =
+    if result.isNil:
+      n
+    elif result.kind == nkError:
+      result
+    else:
+      newTreeI(nkStmtList, n.info, result)
+
+proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
+  ## Semantically analyse a let or var section that's been normalized to
+  ## a single identdefs with only one ident or an tuple unpacking line.
+  ## Produces a typed nkLet or nkVar Section on success, otherwise
+  ## an nkError.
+
+  assert n != nil
+
+  c.config.internalAssert(n.kind in nkVariableSections,
+                          "expected let or var section, got: " & $n.kind)
+  checkSonsLen(n, 1, c.config)
+
+  c.config.internalAssert(n[0].kind in {nkIdentDefs, nkVarTuple},
+                          "expected identdefs or var tuple, got:" & $n[0].kind)
+  checkMinSonsLen(n[0], 3, c.config)
 
   result = copyNode(n)
 
-  # a section can contain one or more definitions
-  const allowedNodeKinds = {nkIdentDefs, nkVarTuple}
-  for i, a in n.pairs:
-    if c.config.cmd == cmdIdeTools:
-      suggestStmt(c, a)
-    
-    # early filtering and error handling
-    case a.kind
-    of nkCommentStmt: continue   # skip comments
-    of allowedNodeKinds:         # ensure well formed
-      checkMinSonsLen(a, 3, c.config)
-    of nkError:
-      hasError = true
-      addToVarSection(c, result, a, a)
-      continue
-    else:                        # whoops
-      hasError = true
-      semReportIllformedAst(c.config, a, allowedNodeKinds)
+  var hasError = false
 
-    # with ast level filtering/errors done on to analysis
+  let defPart = n[0]
 
-    let
-      givenTypExpr = a[^2]
-      givenTyp =
-        case givenTypExpr.kind
-        of nkEmpty:
-          # xxx: replace with an emptyType?
-          nil
-        of nkError:
-          hasError = true
-          givenTypExpr.typ
-        else:
-          semTypeNode(c, givenTypExpr, nil)
-      initExpr =
-        case a[^1].kind
-        of nkEmpty:
-          a[^1] # because semExprWithType errors on empty... sigh
-        else:
-          semExprWithType(c, a[^1], {})
-      initType =
-        case initExpr.kind
-        of nkEmpty:
-          # xxx: replace with an emptyType?
-          nil
-        of nkError:
-          hasError = true
-          initExpr.typ
-        else:
-          initExpr.typ
-
-    if initExpr.isError or initType.isErrorLike or
-       givenTypExpr.isError or givenTyp.isErrorLike:
-      hasError = true
-
-    var typFlags: TTypeAllowedFlags
-
-    case initExpr.kind
-    of nkSymChoices:
-      if initExpr[0].typ.skipTypes(abstractInst).kind == tyEnum:
-        errorSymChoiceUseQualifier(c, initExpr)
-    of nkSym:
-      if initExpr.sym.kind in {skTemplate, skMacro}:
-        # xxx: feels like a design flaw that we need to pass this along
-        typFlags.incl taIsTemplateOrMacro
-    else:
-      discard
-
-    # figure out the init value and types we're working with
-    let
-      haveGivenTyp = givenTyp != nil and not givenTyp.isError
-      haveInit = initType != nil and not initType.isError
-    
-    # xxx: this was hacked in to disallow typedesc in arrays outside of macros
-    if haveInit and initType.kind == tyTypeDesc and c.p.owner.kind != skMacro:
-      typFlags.incl taProcContextIsNotMacro
-
-    var
-      def: PNode
-      typ: PType
-    
-    if haveGivenTyp and haveInit:       # eg: var foo: int = 1
-      if givenTyp.isMetaType:
-        def = inferWithMetatype(c, givenTyp, initExpr)
-        typ = def.typ
-      else:
-        def = fitNodeConsiderViewType(c, givenTyp, initExpr, initExpr.info)
-        typ = givenTyp
-    
-    elif haveGivenTyp and not haveInit: # eg: var foo: int
-      def = initExpr  # will be nkEmpty
-      typ = givenTyp
-    
-    elif not haveGivenTyp and haveInit: # eg: var foo = 1
-      def = initExpr
-      typ = initType.skipTypes({tyStatic, tySink}).skipIntLit(c.idgen)
-      if typ.kind in tyUserTypeClasses and typ.isResolvedUserTypeClass:
-        typ = typ.lastSon
-
-      if hasEmpty(typ):
-        localReport(c.config, def.info, reportTyp(
-          rsemCannotInferTypeOfLiteral, typ))
-      elif typ.kind == tyProc and
-            def.kind == nkSym and
-            isGenericRoutine(def.sym.ast):
-        localReport(c.config, def, reportAst(
-          rsemProcHasNoConcreteType, def))
-    
-    else:                               # eg: var foo <-- lol, no
-      # xxx: should we error out here or report it later, might recover via
-      #      macros/template pragmas: `var foo {.mymacro.}` generating a proper
-      #      defintion after evaluation
-      def = initExpr
-      typ = 
-          if givenTyp.isNil:
-            c.errorType() # xxx: not sure if this is correct in all cases, such
-                          #      as do we end up here in templates?
+  # expansion of init part
+  let
+    defInitPart = defPart[^1]
+    initExpr =
+      block:
+        let temp =
+          case defInitPart.kind
+          of nkEmpty:
+            defInitPart.info = defPart.info # xxx: produces better error msgs
+            defInitPart # because semExprWithType errors on empty... sigh
           else:
-            givenTyp
+            semExprWithType(c, defInitPart, {})
+        
+        case temp.kind
+        of nkSymChoices:
+          if temp[0].typ.skipTypes(abstractInst).kind == tyEnum:
+            newError(c.config, temp, newSymChoiceUseQualifierReport(temp))
+          else:
+            temp
+        else:
+          temp
+    initType =
+      case defInitPart.kind
+      of nkEmpty:
+        # xxx: replace with an emptyType?
+        nil
+      of nkError:
+        hasError = true
+        defInitPart.typ
+      else:
+        initExpr.typ
+    haveInit = initType != nil and not initType.isError
 
-    if c.matchedConcept != nil:
-      typFlags.incl taConcept
+  # expansion of the given type
+  let
+    defTypePart = defPart[^2]
+    givenTyp =
+      case defTypePart.kind
+      of nkEmpty:
+        # xxx: replace with an emptyType?
+        nil
+      of nkError:
+        # hasError is set further on
+        defTypePart.typ
+      else:
+        semTypeNode(c, defTypePart, nil)
+        # xxx: semTypeNode sometimes produces a tyError, with PType.n set to an
+        #      nkError, we should use this fact in production, and can likely
+        #      short circuit some processing without losing good error messages.
+        #      feels a bit cleaner and perhaps more evidence that node, types,
+        #      and symbols should all have an error kind.
+    haveGivenTyp = givenTyp != nil and not givenTyp.isError
 
-    typeAllowedCheck(c, a.info, typ, symkind, typFlags)
+  # reduce init and type parts and figure out the definition production and
+  # final type we're working with
+  var
+    def: PNode
+    typ: PType
 
-    var b: PNode
+  if haveGivenTyp and haveInit:       # eg: var foo: int = 1
+    if givenTyp.isMetaType:
+      def = inferWithMetatype(c, givenTyp, initExpr)
+      typ = def.typ
+    else:
+      def = fitNodeConsiderViewType(c, givenTyp, initExpr, initExpr.info)
+      typ = givenTyp
+  
+  elif haveGivenTyp and not haveInit: # eg: var foo: int
+    def = initExpr  # will be nkEmpty
+    typ = givenTyp
+  
+  elif not haveGivenTyp and haveInit: # eg: var foo = 1
+    def = initExpr
+    typ = initType.skipTypes({tyStatic, tySink}).skipIntLit(c.idgen)
+    if typ.kind in tyUserTypeClasses and typ.isResolvedUserTypeClass:
+      typ = typ.lastSon
+
+    if hasEmpty(typ):
+      typ =
+        newTypeError(typ, nextTypeId(c.idgen)):
+          c.config.newError(def, reportTyp(rsemCannotInferTypeOfLiteral, typ))
+    elif typ.kind == tyProc and
+          def.kind == nkSym and
+          isGenericRoutine(def.sym.ast):
+      typ =
+        newTypeError(typ, nextTypeId(c.idgen)):
+          c.config.newError(def, reportTyp(rsemProcHasNoConcreteType, typ))
+  
+  else:                               # eg: var foo <-- lol, no
+    # xxx: should we error out here or report it later, might recover via
+    #      macros/template pragmas: `var foo {.mymacro.}` generating a proper
+    #      defintion after evaluation
+    def = initExpr
+    typ = 
+        if givenTyp.isNil:
+          c.errorType() # xxx: not sure if this is correct in all cases, such
+                        #      as do we end up here in templates?
+        else:
+          givenTyp
+
+  var typFlags: TTypeAllowedFlags
+  # xxx: check to see an error sym/typ snuck by without an nkError
+  if initExpr.kind == nkSym and initExpr.sym.kind in {skTemplate, skMacro}:
+    # xxx: feels like a design flaw that we need to pass this along
+    typFlags.incl taIsTemplateOrMacro
+
+  # xxx: this was hacked in to disallow typedesc in arrays outside of macros
+  if haveInit and initType.kind == tyTypeDesc and
+      c.p.owner.kind != skMacro:
+    typFlags.incl taProcContextIsNotMacro
+
+  if c.matchedConcept != nil:
+    typFlags.incl taConcept
+
+  typ = typeAllowedOrError(typ, symkind, c, def, typFlags)
+
+  # always construct a `producedDecl`, even on error, as we still need to
+  # include all the preceding child nodes from `defPart`, without potentially
+  # altering them later on.
+  let producedDecl = newNodeI(defPart.kind, defPart.info, defPart.len)
+    ## create the nkIdentDefs or nkVarTuple production
+
+  if importantComments(c.config):
+    # keep documentation information:
+    producedDecl.comment = defPart.comment
+
+  # keep type desc for doc gen, but always empty for nkVarTuple, see parser.nim
+  producedDecl[^2] = defTypePart 
+  producedDecl[^1] =
+    if typ.isError and typ.n.isError:
+      hasError = true
+      typ.n # retrieve the type error for def we left on `n`
+    else:
+      def
+
+  let
+    tupTyp = typ.skipTypes({tyGenericInst, tyAlias, tySink})
+    isTupleUnpacking = defPart.kind == nkVarTuple
+    defCount = defPart.len - 2
+    sameTupleTypeAndDefAirity = isTupleUnpacking and defCount == tupTyp.len
+
+  for i in 0..<defCount:
+    let r = defPart[i]
+
+    if isTupleUnpacking and r.kind == nkPragmaExpr:
+      # disallow pragmas during tuple unpacking, they're fundamentally broken.
+      # macros pragmas can't meaningfully return anything valid and pragma
+      # such as `compileTime` result in NPE and suffer from ambiguities. Also
+      # the RHS expression is replicated per pragma call which is the wrong
+      # semantics, as the RHS should only be evaluated once and not per
+      # unpacking assignment.
+      hasError = true
+      producedDecl[i] =
+        newError(c.config, r, reportSem rsemPragmaDisallowedForTupleUnpacking)
+
+      continue
 
     let
-      tupTyp = skipTypes(typ, {tyGenericInst, tyAlias, tySink})
-      isTupleUnpacking = a.kind == nkVarTuple
-    case a.kind
-    of nkVarTuple:
-      # always construct a `b`, even on error, as we still need to include all
-      # the preceding child nodes from `a`, without potentially altering them
-      # later on.
-      b = newNodeI(nkVarTuple, a.info)
-      newSons(b, a.len)
-      # keep type desc for doc generator
-      # NOTE: at the moment this is always ast.emptyNode, see parser.nim
-      b[^2] = givenTypExpr
-      b[^1] = def
+      v = semIdentDef(c, r, symkind)
+      vTyp =
+        if typ.kind == tyError:
+          # tyError means we just set the type on v later
+          typ
+        elif isTupleUnpacking and i < tupTyp.len:
+          # there is a type at the same offset as the definition
+          tupTyp[i]
+        else:
+          # otherwise this is a single let/var being declared or element count
+          # mistmatch for a tuple unpack vs tuple type
+          typ
 
-      # these transform `b` into an `nkError` if required, we use this when
-      # populating all the children
-      if tupTyp.kind != tyTuple:
-        hasError = true
-        b = newError(
-              c.config,
-              b,
-              c.config.semReportTypeMismatch(b, {tyTuple}, tupTyp))
-      elif a.len - 2 != tupTyp.len:
-        hasError = true
-        b = newError(
-              c.config,
-              b,
-              semReportCountMismatch(
-                rsemWrongNumberOfVariables,
-                expected = a.len - 2,
-                got = tupTyp.len, node = b))
+    styleCheckDef(c.config, v)
+    onDef(r.info, v)
 
-      # we can now add `b` to the var section
-      addToVarSection(c, result, n, b)
-    of nkIdentDefs:
-      if tupTyp.kind == tyTuple and def.kind in {nkPar, nkTupleConstr} and
-          a.len > 3:
-        # xxx: helpful hints like this should likely be associated to an id/pos
-        #      instead of reporting
-        localReport(c.config, a.info, reportSem rsemEachIdentIsTuple)
+    if sfGenSym notin v.flags:
+      if not isDiscardUnderscore(v):
+        addInterfaceDecl(c, v)
+    elif v.owner == nil:
+      v.owner = c.p.owner
+
+    if c.inUnrolledContext > 0:
+      v.flags.incl(sfShadowed)
     else:
+      let shadowed = findShadowedVar(c, v)
+      if shadowed != nil:
+        shadowed.flags.incl(sfShadowed)
+        if shadowed.kind == skResult and sfGenSym notin v.flags:
+          # xxx: helpful hints like this should call a proc with a better name
+          localReport(c.config, defPart.info, reportSem(rsemResultShadowed))
+
+    if v.isError:
       discard
-
-    for j in 0..<a.len-2:
-      let r = a[j] ## variable names or a parens for tuple unpacking
-
-      if isTupleUnpacking and r.kind == nkPragmaExpr:
-        # disallow pragmas during tuple unpacking as they fundamentally break
-        # macros pragmas can't meaningfully return anything valid and pragma
-        # such as `compileTime` result in NPE and suffer from ambiguities. Also
-        # the RHS expression is replicated per pragma call which is the wrong
-        # semantics, as the RHS should only be evaluated once and not per
-        # unpacking assignment.
-        hasError = true
-        b[j] = newError(c.config,
-                        r,
-                        reportSem rsemPragmaDisallowedForTupleUnpacking)
-        continue
-
-      let v = semIdentDef(c, r, symkind)
-
-      styleCheckDef(c.config, v)
-      onDef(r.info, v)
-
-      if sfGenSym notin v.flags:
-        if not isDiscardUnderscore(v):
-          addInterfaceDecl(c, v)
-      else:
-        if v.owner == nil: v.owner = c.p.owner
-
-      if c.inUnrolledContext > 0:
-        v.flags.incl(sfShadowed)
-      else:
-        let shadowed = findShadowedVar(c, v)
-        if shadowed != nil:
-          shadowed.flags.incl(sfShadowed)
-          if shadowed.kind == skResult and sfGenSym notin v.flags:
-            localReport(c.config, a.info, reportSem(rsemResultShadowed))
-
-      case a.kind
+    else:
+      case defPart.kind
       of nkVarTuple:
         if def.kind in {nkPar, nkTupleConstr}:
-          v.ast = def[j]
-        
-        case b.kind
-        of nkError:
-          v.typ = tupTyp # set the type after for nim check to limp along
-          b[wrongNodePos][j] = newSymNode(v)
-        of nkVarTuple:
-          setVarType(c, v, tupTyp[j]) # set the type so it gets copied over
-          b[j] = newSymNode(v)
-        else:
-          internalError(c.config, "should never happen")
-          discard
+          v.ast = def[i]
       of nkIdentDefs:
-        setVarType(c, v, typ)
-        
-        if def.kind != nkEmpty and sfThread in v.flags:
-          localReport(c.config, def, reportSem rsemThreadvarCannotInit)
+        v.ast = producedDecl
+      else:
+        internalError(c.config, "should never happen")
 
-        b = newNodeI(nkIdentDefs, a.info)
+    # set the symbol type and add the symbol to the production
+    producedDecl[i] =
+      if v.typ != nil and not sameTypeOrNil(v.typ, vTyp):
+
+        c.config.newError(
+          r,
+          SemReport(
+            kind: rsemDifferentTypeForReintroducedSymbol,
+            sym: v,
+            typeMismatch: @[c.config.typeMismatch(
+              actual = vTyp, formal = v.typ)]))
+      else:
+        v.typ = vTyp
+
+        newSymNode2(v)
+
+    case defPart.kind
+    of nkVarTuple:
+      if def.kind in {nkPar, nkTupleConstr}:
+        v.ast = def[i]
+    of nkIdentDefs:
+      # normalize to always have a pragma expr, even if empty
+      let (info, pragma) =
+            case r.kind
+            of nkPragmaExpr: (r[1].info, r[1].copyTree)
+            else: (r.info, c.graph.emptyNode)
+      
+      v.ast =
+        newTreeI(nkIdentDefs, producedDecl.info,
+          newTreeI(nkPragmaExpr, info,
+              newSymNode2(v),          # symbol
+              pragma                   # pragmas or empty
+            ),
+          producedDecl[^2].copyTree,   # macros pragmas can mess with the type
+          producedDecl[^1]             # keep the same because eval
+        )
+    else:
+      internalError(c.config, "should never happen")
+
+    case def.kind
+    of nkEmpty:
+      let actualType = v.typ.skipTypes({tyGenericInst, tyAlias,
+                                        tyUserTypeClassInst})
+
+      producedDecl[i] =
+        if actualType.kind in {tyObject, tyDistinct} and
+            actualType.requiresInit:
+          defaultConstructionError2(c, v.typ, r)
+        else:
+          checkNilableOrError(c, producedDecl[i])
+    else:
+      if sfThread in v.flags:
+        hasError = true
+        producedDecl[^1] = c.config.newError(n[^1],
+                                             reportSem rsemThreadvarCannotInit)
+    
+    if producedDecl[i].isError:
+      hasError = true
+
+    if not hasError and sfCompileTime in v.flags:
+      var x = newNodeI(result.kind, v.info)
+      x.add producedDecl
+      vm.setupCompileTimeVar(c.module, c.idgen, c.graph, x)
+
+    if v.flags * {sfGlobal, sfThread} == {sfGlobal}:
+      # this is just logging, doesn't need to be converted to an error
+      localReport(c.config, v.info, reportSym(rsemGlobalVar, v))
+
+  case defPart.kind
+  of nkVarTuple:
+    # these transform `b` into an `nkError` if required, we use this when
+    # populating all the children
+    result.add:
+      if tupTyp.kind != tyTuple:
+        hasError = true
+        newError(
+              c.config,
+              producedDecl,
+              c.config.semReportTypeMismatch(producedDecl, {tyTuple}, tupTyp))
+      elif not sameTupleTypeAndDefAirity:
+        hasError = true
+        newError(
+              c.config,
+              producedDecl,
+              semReportCountMismatch(
+                rsemWrongNumberOfVariables,
+                expected = defCount,
+                got = tupTyp.len, node = producedDecl))
+      else:
+        producedDecl
+
+  of nkIdentDefs:
+    # we rely on the fact that the ident definitions are singletons
+    
+    case producedDecl[0].kind
+    of nkSym:
+      let s = producedDecl[0].sym
+      
+      result.add:
+        # allow let to not be initialised if imported from C:
+        if s.kind == skLet and def.kind == nkEmpty and sfImportc notin s.flags:
+          hasError = true
+          c.config.newError(producedDecl, reportSem rsemLetNeedsInit)
+        else:
+          producedDecl
+    else:
+      result.add producedDecl
+
+    if tupTyp.kind == tyTuple and def.kind in {nkPar, nkTupleConstr} and
+        defPart.len > 3:
+      # xxx: helpful hints like this should likely be associated to an id/pos
+      #      instead of reporting
+      localReport(c.config, defPart.info, reportSem rsemEachIdentIsTuple)
+  else:
+    discard
+
+  if hasError:
+    # wrap the result if there is an embedded error
+    result = c.config.wrapError(result)
+
+
+proc semLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
+  ## semantically analyses let or var sections, analysis follows these steps:
+  ##
+  ## 0. results are accumulated into a statement list and holds the section
+  ## 1. for each entry in the section to analyse:
+  ##    - if it's an identdefs with a single ident or a vartuple it's analysed
+  ##    - multiple idents are decomposed and analysed one at a time
+  ## 2. analysis is first done on the untyped version (macro pragma)
+  ## 3. typed analysis (interleaved with typed macro pragmas):
+  ##    1. expansion: rhs and lhs are analysed
+  ##    2. reduction: combined into an identdefs, then final analysis
+  ##
+  ## If successful a singleton let/var section with a singleton identdefs or
+  ## varTuple is produced, otherwise nkError. IdentDefs's name part is
+  ## normalized to always contain have a pragmaExprs, even with an empty
+  ## pragmas section.
+  
+  addInNimDebugUtils(c.config, "semLetOrVar", n, result)
+
+  # initial basic validation
+  
+  assert n != nil, "nil node instead of let or var section"
+  internalAssert(c.config, n.kind in nkVariableSections,
+    "only let or var sections allowed, got: " & $n.kind)
+
+  let validPragmas =
+        case symkind
+        of skLet: letPragmas
+        of skVar: varPragmas
+        else: {} # empty set as this is invalid
+        ## map the pragmas based on the section type
+  
+  # setup for untyped pragma processing
+
+  result = newNodeI(nkStmtList, n.info) # accumulate the result here
+
+  for i, a in n.pairs:
+    const allowedNodeKinds = {nkIdentDefs, nkVarTuple}
+      ## valid definitions allowed in let or var sections
+
+    if c.config.cmd == cmdIdeTools:
+      suggestStmt(c, a)
+
+    case a.kind
+    of nkCommentStmt: continue # skip comments
+    of nkIdentDefs:
+      checkMinSonsLen(a, 3, c.config)
+      
+      for j in 0..<a.len - 2:
+        # assemble a var section per ident defined
+        let
+          info = a[j].info
+          singletonNode = copyNode(n)
+          singletonDef = newNodeI(nkIdentDefs, info, 3)
+
+        singletonNode.info = info # set the info to the ident start
 
         if importantComments(c.config):
           # keep documentation information:
-          b.comment = a.comment
+          singletonDef.comment = a.comment
 
-        b.add newSymNode(v)
-        # keep type desc for doc generator
-        b.add givenTypExpr
-        b.add copyTree(def)
+        singletonDef[0] = a[j]
+        singletonDef[1] = copyTree(a[^2])
+        singletonDef[2] = copyTree(a[^1])
 
-        addToVarSection(c, result, n, b)
+        singletonNode.add singletonDef
 
-        # needed for the evaluation pass, guard checking, and custom pragmas
-        let ast = newNodeI(nkIdentDefs, a.info)
-        if r.kind == nkPragmaExpr:
-          let p = newNodeI(nkPragmaExpr, a.info)
-          p.add newSymNode(v)
-          p.add r[1].copyTree
-          ast.add p
+        # process pragmas and based on that direct further analysis
+        let pragmad = semConstLetOrVarAnnotation(c, singletonNode)
+          ## a single def after pragma macros (annotations) are applied, which
+          ## can be anything after transformation
+        case pragmad.kind
+        of nkEmpty:
+          discard # skip adding it
+        of nkStmtList:
+          # an nkStmtList contains annotation processing results
+          c.config.internalAssert(pragmad.len == 1,
+                                  "must have one node, got: " & $pragmad.len)
+
+          result.add semExpr(c, pragmad[0], {})
+        of nkLetSection, nkVarSection:
+          # this means that it was untouched, sem it and then add
+          result.add semNormalizedLetOrVar(c, pragmad, symkind)
+        of nkError:
+          # add as normal
+          result.add pragmad
         else:
-          ast.add newSymNode(v)
-        ast.add givenTypExpr.copyTree
-        ast.add def
-        v.ast = ast
-      else:
-        internalError(c.config, "should never happen")
+          c.config.internalError("Wrong node kind: " & $pragmad.kind)
+    of nkVarTuple:
+      checkMinSonsLen(a, 3, c.config)
 
-      if def.kind == nkEmpty:
-        let actualType = v.typ.skipTypes({tyGenericInst, tyAlias,
-                                          tyUserTypeClassInst})
-        if actualType.kind in {tyObject, tyDistinct} and
-          actualType.requiresInit:
-          defaultConstructionError(c, v.typ, v.info)
-        else:
-          checkNilable(c, v)
-        
-        # allow let to not be initialised if imported from C:
-        if v.kind == skLet and sfImportc notin v.flags:
-          # TODO: make nkError
-          localReport(c.config, a, reportSem rsemLetNeedsInit)
-      
-      if sfCompileTime in v.flags:
-        var x = newNodeI(result.kind, v.info)
-        x.add result[i]
-        vm.setupCompileTimeVar(c.module, c.idgen, c.graph, x)
+      # no pragmas for nkVarTuple so jump straight to sem
 
-      if v.flags * {sfGlobal, sfThread} == {sfGlobal}:
-        # this is just logging, doesn't need to be converted to an error
-        localReport(c.config, v.info, reportSym(rsemGlobalVar, v))
+      # xxx: we don't allow pragmas in nkVarTuple case as they're poorly
+      #      thought out. the whole thing needs to be rethought where pragmas
+      #      that apply to the whole let or var (eg: compileTime or ast
+      #      transforms) vs ones that apply to the symbol or its type. prior
+      #      to this restriction you got compiler crashes
+      #
+      #      this is enforced in semNormalizedLetOrVar at time of writing
 
-  if hasError:
-    # xxx: hasError is here until we've converted the whole proc to use nkError
-    #      until then we check at the end to ensure we capture any nkErrors
-    #      embedded within the section.
-    #
-    #      we also need to use the conditional version `wrapIfErrorInSubTree`
-    #      because we use `isErrorLike` earlier in the proc and that means we
-    #      don't necessarily have an nkError node, but it could be an error
-    #      symbol or type.
-    result = c.config.wrapIfErrorInSubTree(result)
+      let singletonTupleNode = copyNode(n)
+      singletonTupleNode.info = a.info # set the info to the tuple start
+
+      singletonTupleNode.add a
+
+      result.add semNormalizedLetOrVar(c, singletonTupleNode, symkind)
+    of nkError:
+      result.add a
+    else:
+      # TODO ill formed ast
+      result.add:
+        c.config.newError(a, illformedAstReport(a, allowedNodeKinds))
+  
+  if result.kind == nkStmtList and result.len == 1:
+    result = result[0] # unpack the result
 
 
-proc semConst(c: PContext, n: PNode): PNode =
-  # xxx - likely mergeable with proc `semVarOrLetSection`
+proc semNormalizedConst(c: PContext, n: PNode): PNode =
+  ## semantically analyse a const section that's been normalized to a single
+  ## constDef with only one ident or a tuple unpacking line. Produces a typed
+  ## nkConstSection on success, otherwise an nkError.
+  
+  # xxx: combine with semLetOrVar
+  
+  assert n != nil
 
-  addInNimDebugUtils(c.config, "semConst", n, result)
+  c.config.internalAssert(n.kind == nkConstSection,
+                          "expected const section, got: " & $n.kind)
+  checkSonsLen(n, 1, c.config)
 
-  assert n != nil, "nil node instead of a const section"
-  internalAssert(c.config, n.kind in {nkConstSection},
-    "only let or var sections allowed, got: " & $n.kind)
-
-  var hasError = false
-    ## not fully converted to using nkError, so track this flag and then wrap
-    ## the result if true in an nkError.
-    ## xxx: this should be replaced once nkError is more pervasive
+  c.config.internalAssert(n[0].kind in {nkConstDef, nkVarTuple},
+                          "expected constdef or vartuple, got: " & $n[0].kind)
+  checkMinSonsLen(n[0], 3, c.config)
 
   result = copyNode(n)
+
+  var hasError = false
+
+  let defPart = n[0]
   
   inc c.inStaticContext
 
-  const allowedNodeKinds = {nkConstDef, nkVarTuple}
-  for i, a in n.pairs:
-    if c.config.cmd == cmdIdeTools:
-      suggestStmt(c, a)
-    
-    # early filtering and error handling
-    case a.kind
-    of nkCommentStmt: continue # skip comments
-    of allowedNodeKinds:
-      checkMinSonsLen(a, 3, c.config)
-    of nkError:
-      hasError = true
-      addToVarSection(c, result, a, a)
-      continue
-    else:                      # whoops
-      hasError = true
-      semReportIllformedAst(c.config, a, allowedNodeKinds)
+  # expansion of the init part
+  let
+    defInitPart = defPart[^1]
+    initExpr =
+      block:
+        # don't evaluate here since the type compatibility check below may add
+        # a converter
+        let temp = semExprWithType(c, defInitPart)
 
-    # with ast level filtering/errors done on to analysis
-
-    var typ: PType = nil
-    if a[^2].kind != nkEmpty:
-      typ = semTypeNode(c, a[^2], nil)
-
-    var typFlags: TTypeAllowedFlags
-
-    # don't evaluate here since the type compatibility check below may add a converter
-    var def = semExprWithType(c, a[^1])
-
-    if def.kind == nkSym and def.sym.kind in {skTemplate, skMacro}:
-      typFlags.incl taIsTemplateOrMacro
-    elif def.typ.kind == tyTypeDesc and c.p.owner.kind != skMacro:
-      typFlags.incl taProcContextIsNotMacro
-
-    # check type compatibility between def.typ and typ:
-    if typ != nil:
-      if typ.isMetaType:
-        def = inferWithMetatype(c, typ, def)
-        typ = def.typ
-      else:
-        def = fitRemoveHiddenConv(c, typ, def)
-    else:
-      typ = def.typ
-
-    # evaluate the node
-    def = semConstExpr(c, def)
-    if def == nil:
-      localReport(c.config, a[^1], reportSem rsemConstExpressionExpected)
-      continue
-    if def.kind != nkNilLit:
-      if c.matchedConcept != nil:
-        typFlags.incl taConcept
-      typeAllowedCheck(c, a.info, typ, skConst, typFlags)
-
-    var b: PNode
-    let isTupleUnpacking = a.kind == nkVarTuple
-    if isTupleUnpacking:
-      # xxx: is this missing the `skipTypes` for generic instance, alias, and
-      #      sink? akin to what's done in `semVarOrLet`?
-      if typ.kind != tyTuple:
-        localReport(c.config, a.info, c.config.semReportTypeMismatch(
-          a, {tyTuple}, typ))
-      elif a.len - 2 != typ.len:
-        localReport(c.config, a.info, semReportCountMismatch(
-          rsemWrongNumberOfVariables, expected = typ.len, got = a.len - 2, a))
-
-      b = newNodeI(nkVarTuple, a.info)
-      newSons(b, a.len)
-      b[^2] = a[^2]
-      b[^1] = def
-    else:
-      # xxx: is this missing the unpacking hint `rsemEachIdentIsTuple`, see
-      #      `semVarOrLet`
-      discard
-
-    for j in 0..<a.len-2:
-      if isTupleUnpacking and a[j].kind == nkPragmaExpr:
-        # disallow pragmas during tuple unpacking as they fundamentally break
-        # macros pragmas can't meaningfully return anything valid and pragma
-        # such as `compileTime` result in NPE and suffer from ambiguities. Also
-        # the RHS expression is replicated per pragma call which is the wrong
-        # semantics, as the RHS should only be evaluated once and not per
-        # unpacking assignment.
+        case temp.kind
+        of nkSymChoices:
+          if temp[0].typ.skipTypes(abstractInst).kind == tyEnum:
+            newError(c.config, temp, newSymChoiceUseQualifierReport(temp))
+          else:
+            temp
+        else:
+          temp
+    initType =
+      case defInitPart.kind
+      of nkError:
         hasError = true
-        b[j] = newError(c.config,
-                        a[j],
-                        reportSem rsemPragmaDisallowedForTupleUnpacking)
-        continue
-        
-      var v = semIdentDef(c, a[j], skConst)
-      
-      if sfGenSym notin v.flags:
-        addInterfaceDecl(c, v)
-      elif v.owner == nil:
-        v.owner = getCurrOwner(c)
-      
-      styleCheckDef(c.config, v)
-      onDef(a[j].info, v)
+        defInitPart.typ
+      else:
+        initExpr.typ
+    haveInit = not initType.isError
+  
+  # expansion of the given type
+  let
+    defTypePart = defPart[^2]
+    givenTyp =
+      case defTypePart.kind
+      of nkEmpty:
+        # xxx: replace with an emptyType?
+        nil
+      of nkError:
+        defInitPart.typ
+      else:
+        semTypeNode(c, defTypePart, nil)
+    hasGivenTyp = givenTyp != nil and not givenTyp.isError
 
-      case a.kind
-      of nkConstDef:
-        setVarType(c, v, typ)
-        v.ast = def               # no need to copy
-        b = newNodeI(nkConstDef, a.info)
-        
-        if importantComments(c.config):
-          b.comment = a.comment
-        
-        b.add newSymNode(v)
-        b.add a[1]
-        b.add copyTree(def)
+  # reduce init and type parts and figure out the definition production and
+  # final type we're working with
+  var
+    def = initExpr
+    typ = givenTyp
+  
+  if hasGivenTyp and haveInit:       # eg: const foo: int = 1
+    if typ.isMetaType:
+      def = inferWithMetatype(c, typ, def)
+      typ = def.typ
+    else:
+      def = fitRemoveHiddenConv(c, typ, def)
+  elif not hasGivenTyp and haveInit: # eg: const foo = 1
+    def = initExpr
+    typ = def.typ
+  elif hasGivenTyp and not haveInit: # eg: const foo: int # this is malformed
+    def = c.config.newError(defInitPart, reportSem rsemConstExpressionExpected)
+    hasError = true
+    typ = def.typ
+  else:                              # eg: const foo <-- lol, no
+    # xxx: should we error out here or report it later, might recover via
+    #      macros/template pragmas: `var foo {.mymacro.}` generating a proper
+    #      defintion after evaluation
+    typ =
+      if givenTyp.isNil:
+        c.errorType() # xxx: not sure if this is correct in all cases, such
+                      #      as do we end up here in templates?
+      else:
+        givenTyp
+  
+  var typFlags: TTypeAllowedFlags
+  
+  # xxx: check to see an error sym/typ snuck by without an nkError
+  if initExpr.kind == nkSym and initExpr.sym.kind in {skTemplate, skMacro}:
+    # xxx: feels like a design flaw that we need to pass this along
+    typFlags.incl taIsTemplateOrMacro
+
+  # xxx: this was hacked in to disallow typedesc in arrays outside of macros
+  if haveInit and initType.kind == tyTypeDesc and
+      c.p.owner.kind != skMacro:
+    typFlags.incl taProcContextIsNotMacro
+
+  def = semConstExpr(c, def)
+
+  if def.kind != nkNilLit:
+    # xxx: this seems wrong, instead of guarding on nil, maybe it should be
+    #      inferred from `typ`? then we still do the rest of the checks?
+    if c.matchedConcept != nil:
+      typFlags.incl taConcept
+    typ = typeAllowedOrError(typ, skConst, c, def, typFlags)
+
+  # always construct a `producedDecl`, even on error, as we still need to
+  # include all the preceding child nodes from `defPart`, without potentially
+  # altering them later on.
+  let producedDecl = newNodeI(defPart.kind, defPart.info, defPart.len)
+    ## create the nkConstDef or nkVarTuple production
+
+  if importantComments(c.config):
+    # keep documentation information:
+    producedDecl.comment = defPart.comment
+
+  # keep type desc for doc gen, but always empty for nkVarTuple, see parser.nim
+  producedDecl[^2] = defTypePart 
+  producedDecl[^1] =
+    if typ.isError and typ.n.isError:
+      hasError = true
+      typ.n # retrieve the type error for def we left on `n`
+    else:
+      def
+
+  let
+    tupTyp = typ.skipTypes({tyGenericInst, tyAlias, tySink})
+    isTupleUnpacking = defPart.kind == nkVarTuple
+    defCount = defPart.len - 2
+    sameTupleTypeAndDefAirity = isTupleUnpacking and defCount == tupTyp.len
+
+  for i in 0..<defCount:
+    let r = defPart[i]
+
+    if isTupleUnpacking and r.kind == nkPragmaExpr:
+      # disallow pragmas during tuple unpacking, they're fundamentally broken.
+      # macros pragmas can't meaningfully return anything valid and pragma
+      # such as `compileTime` result in NPE and suffer from ambiguities. Also
+      # the RHS expression is replicated per pragma call which is the wrong
+      # semantics, as the RHS should only be evaluated once and not per
+      # unpacking assignment.
+      hasError = true
+      producedDecl[i] =
+        newError(c.config, r, reportSem rsemPragmaDisallowedForTupleUnpacking)
+
+      continue
+
+    let
+      v = semIdentDef(c, r, skConst)
+      vTyp =
+        if typ.kind == tyError:
+          # tyError means we just set the type on v later
+          typ
+        elif isTupleUnpacking and i < tupTyp.len:
+          # there is a type at the same offset as the definition
+          tupTyp[i]
+        else:
+          # otherwise this is a single let/var being declared or element count
+          # mistmatch for a tuple unpack vs tuple type
+          typ
+
+    styleCheckDef(c.config, v)
+    onDef(r.info, v)
+
+    if sfGenSym notin v.flags:
+      if not isDiscardUnderscore(v):
+        addInterfaceDecl(c, v)
+    elif v.owner == nil:
+      v.owner = c.p.owner
+
+    if c.inUnrolledContext > 0:
+      v.flags.incl(sfShadowed)
+    else:
+      let shadowed = findShadowedVar(c, v)
+      if shadowed != nil:
+        shadowed.flags.incl(sfShadowed)
+        if shadowed.kind == skResult and sfGenSym notin v.flags:
+          # xxx: helpful hints like this should call a proc with a better name
+          localReport(c.config, defPart.info, reportSem(rsemResultShadowed))
+
+    if v.isError:
+      discard
+    else:
+      # xxx: this needs to be symmetric with let and var in order to unify
+      #      semantic analysis, also the fact that it likely implies bugs... :/
+      case defPart.kind
       of nkVarTuple:
-        setVarType(c, v, typ[j])
         v.ast =
-          if def[j].kind != nkExprColonExpr: def[j]
-          else: def[j][1]
-        b[j] = newSymNode(v)
+          case def[i].kind
+          of nkExprColonExpr:
+            def[i][1]
+          else:
+            def[i]
+      of nkConstDef:
+        v.ast = def
       else:
         internalError(c.config, "should never happen")
 
-    result.add b
+    # set the symbol type and add the symbol to the production
+    producedDecl[i] =
+      if v.typ != nil and not sameTypeOrNil(v.typ, vTyp):
+
+        c.config.newError(
+          r,
+          SemReport(
+            kind: rsemDifferentTypeForReintroducedSymbol,
+            sym: v,
+            typeMismatch: @[c.config.typeMismatch(
+              actual = vTyp, formal = v.typ)]))
+      else:
+        v.typ = vTyp
+
+        newSymNode2(v)
+
+    case def.kind
+    of nkEmpty:
+      let actualType = v.typ.skipTypes({tyGenericInst, tyAlias,
+                                        tyUserTypeClassInst})
+
+      producedDecl[i] =
+        if actualType.kind in {tyObject, tyDistinct} and
+            actualType.requiresInit:
+          defaultConstructionError2(c, v.typ, r)
+        else:
+          checkNilableOrError(c, producedDecl[i])
+    else:
+      discard # no action required
+    
+    if producedDecl[i].isError:
+      hasError = true
+
+  case defPart.kind
+  of nkVarTuple:
+    # these transform `b` into an `nkError` if required, we use this when
+    # populating all the children
+    result.add:
+      if tupTyp.kind != tyTuple:
+        hasError = true
+        newError(
+              c.config,
+              producedDecl,
+              c.config.semReportTypeMismatch(producedDecl, {tyTuple}, tupTyp))
+      elif not sameTupleTypeAndDefAirity:
+        hasError = true
+        newError(
+              c.config,
+              producedDecl,
+              semReportCountMismatch(
+                rsemWrongNumberOfVariables,
+                expected = defCount,
+                got = tupTyp.len, node = producedDecl))
+      else:
+        producedDecl
+
+  of nkConstDef:
+    # we rely on the fact that the const definitions are singletons
+    
+    result.add producedDecl
+
+    if tupTyp.kind == tyTuple and def.kind in {nkPar, nkTupleConstr} and
+        defPart.len > 3:
+      # xxx: helpful hints like this should likely be associated to an id/pos
+      #      instead of reporting
+      localReport(c.config, defPart.info, reportSem rsemEachIdentIsTuple)
+  else:
+    discard
 
   if hasError:
-    # xxx: hasError is here until we've converted the whole proc to use nkError
-    #      until then we check at the end to ensure we capture any nkErrors
-    #      embedded within the section
-    result = c.config.wrapErrorInSubTree(result)
+    # wrap the result if there is an embedded error
+    result = c.config.wrapError(result)
 
   dec c.inStaticContext
+
+
+proc semConst(c: PContext, n: PNode): PNode =
+  ## semantically analyses const sections, analysis follows these steps:
+  ##
+  ## 0. results are accumulated into a statement list and holds the section
+  ## 1. for each entry in the section to analyse:
+  ##    - if it's a constdef with a single ident or a vartuple it's analysed
+  ##    - multiple idents are decomposed and analysed one at a time
+  ## 2. analysis is first done on the untyped version (macro pragma)
+  ## 3. typed analysis (interleaved with typed macro pragmas):
+  ##    1. expansion: rhs and lhs are analysed
+  ##    2. reduction: combined into an constdef, then final analysis
+  ##
+  ## If successful a singleton const section with a singleton constDef or
+  ## varTuple is produced, otherwise nkError. ConstDef's name part is
+  ## normalized to always contain a pragmaExprs, even with an empty pragmas
+  ## section.
+
+  # xxx - likely mergeable with proc `semLetOrVar`
+
+  addInNimDebugUtils(c.config, "semConst", n, result)
+
+  # initial basic validation
+
+  assert n != nil, "nil node instead of a const section"
+  internalAssert(c.config, n.kind in {nkConstSection},
+    "only const sections allowed, got: " & $n.kind)
+  
+  # setup for untyped pragma processing
+
+  result = newNodeI(nkStmtList, n.info) # accumulate the result here
+
+  for i, a in n.pairs:
+    const allowedNodeKinds = {nkConstDef, nkVarTuple}
+      ## valid definitions allowed in let or var sections
+
+    if c.config.cmd == cmdIdeTools:
+      suggestStmt(c, a)
+
+    case a.kind
+    of nkCommentStmt: continue # skip comments
+    of nkConstDef:
+      checkMinSonsLen(a, 3, c.config)
+      
+      for j in 0..<a.len - 2:
+        # assemble a var section per ident defined
+        let
+          info = a[j].info
+          singletonNode = copyNode(n)
+          singletonDef = newNodeI(nkConstDef, info, 3)
+
+        singletonNode.info = info # set the info to the ident start
+
+        if importantComments(c.config):
+          # keep documentation information:
+          singletonDef.comment = a.comment
+
+        singletonDef[0] = a[j]
+        singletonDef[1] = copyTree(a[^2])
+        singletonDef[2] = copyTree(a[^1])
+
+        singletonNode.add singletonDef
+
+        # process pragmas and based on that direct further analysis
+        let pragmad = semConstLetOrVarAnnotation(c, singletonNode)
+          ## a single def after pragma macros (annotations) are applied, which
+          ## can be anything after transformation
+        case pragmad.kind
+        of nkEmpty:
+          discard # skip adding it
+        of nkStmtList:
+          # an nkStmtList contains annotation processing results
+          c.config.internalAssert(pragmad.len == 1,
+                                  "must have one node, got: " & $pragmad.len)
+
+          result.add semExpr(c, pragmad[0], {})
+        of nkConstSection:
+          # this means that it was untouched, sem it and then add
+          result.add semNormalizedConst(c, pragmad)
+        of nkError:
+          # add as normal
+          result.add pragmad
+        else:
+          c.config.internalError("Wrong node kind: " & $pragmad.kind)
+    of nkVarTuple:
+      checkMinSonsLen(a, 3, c.config)
+
+      # no pragmas for nkVarTuple so jump straight to sem
+
+      # xxx: we don't allow pragmas in nkVarTuple case as they're poorly
+      #      thought out. the whole thing needs to be rethought where pragmas
+      #      that apply to the whole let or var (eg: compileTime or ast
+      #      transforms) vs ones that apply to the symbol or its type. prior
+      #      to this restriction you got compiler crashes
+      #
+      #      this is enforced in semNormalizedConst at time of writing
+
+      let singletonTupleNode = copyNode(n)
+      singletonTupleNode.info = a.info # set the info to the tuple start
+
+      singletonTupleNode.add a
+
+      result.add semNormalizedConst(c, singletonTupleNode)
+    of nkError:
+      result.add a
+    else:
+      # TODO ill formed ast
+      result.add:
+        c.config.newError(a, illformedAstReport(a, allowedNodeKinds))
+  
+  if result.kind == nkStmtList and result.len == 1:
+    result = result[0] # unpack the result
 
 
 include semfields
@@ -1047,7 +1599,7 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if efInTypeof notin flags:
     n[^1] = discardCheck(c, n[^1], flags)
     if n[^1].isError:
-      result = wrapErrorInSubTree(c.config, n)
+      result = wrapError(c.config, n)
   closeScope(c)
   dec(c.p.nestedLoopCounter)
 
@@ -1066,83 +1618,8 @@ proc isTrivalStmtExpr(n: PNode): bool =
       return false
   result = true
 
-proc handleStmtMacro(c: PContext; n, selector: PNode; magicType: string;
-                     flags: TExprFlags): PNode =
-  if selector.kind in nkCallKinds:
-    # we transform
-    # n := for a, b, c in m(x, y, z): Y
-    # to
-    # m(n)
-    let maType = magicsys.getCompilerProc(c.graph, magicType)
-    if maType == nil: return
-
-    let headSymbol = selector[0]
-    var o: TOverloadIter
-    var match: PSym = nil
-    var symx = initOverloadIter(o, c, headSymbol)
-    while symx != nil:
-      if symx.kind in {skTemplate, skMacro}:
-        if symx.typ.len == 2 and symx.typ[1] == maType.typ:
-          if match == nil:
-            match = symx
-          else:
-            localReport(
-              c.config, n.info,
-              reportSymbols(rsemAmbiguous, @[match, symx]).withIt do:
-                it.ast = selector
-            )
-      elif symx.isError:
-        localReport(c.config, symx.ast)
-
-      symx = nextOverloadIter(o, c, headSymbol)
-
-    if match == nil: return
-    var callExpr = newNodeI(nkCall, n.info)
-    callExpr.add newSymNode(match)
-    callExpr.add n
-    case match.kind
-    of skMacro: result = semMacroExpr(c, callExpr, match, flags)
-    of skTemplate: result = semTemplateExpr(c, callExpr, match, flags)
-    else: result = nil
-
-proc handleForLoopMacro(c: PContext; n: PNode; flags: TExprFlags): PNode =
-  result = handleStmtMacro(c, n, n[^2], "ForLoopStmt", flags)
-
-proc handleCaseStmtMacro(c: PContext; n: PNode; flags: TExprFlags): PNode =
-  # n[0] has been sem'checked and has a type. We use this to resolve
-  # '`case`(n[0])' but then we pass 'n' to the `case` macro. This seems to
-  # be the best solution.
-  var toResolve = newNodeI(nkCall, n.info)
-  toResolve.add newIdentNode(getIdent(c.cache, "case"), n.info)
-  toResolve.add n[0]
-
-  var errors: seq[SemCallMismatch]
-  var r = resolveOverloads(c, toResolve, {skTemplate, skMacro}, {}, errors)
-  if r.state == csMatch:
-    var match = r.calleeSym
-    markUsed(c, n[0].info, match)
-    onUse(n[0].info, match)
-
-    # but pass 'n' to the `case` macro, not 'n[0]':
-    r.call[1] = n
-    let toExpand = semResolvedCall(c, r, r.call, {})
-    case match.kind
-    of skMacro: result = semMacroExpr(c, toExpand, match, flags)
-    of skTemplate: result = semTemplateExpr(c, toExpand, match, flags)
-    else: result = nil
-  else:
-    assert r.call.kind == nkError
-    result = r.call # xxx: hope this is nkError
-  # this would be the perfectly consistent solution with 'for loop macros',
-  # but it kinda sucks for pattern matching as the matcher is not attached to
-  # a type then:
-  when false:
-    result = handleStmtMacro(c, n, n[0], "CaseStmt")
-
 proc semFor(c: PContext, n: PNode; flags: TExprFlags): PNode =
   checkMinSonsLen(n, 3, c.config)
-  result = handleForLoopMacro(c, n, flags)
-  if result != nil: return result
   openScope(c)
   result = n
   n[^2] = semExprNoDeref(c, n[^2], {efWantIterator})
@@ -1200,9 +1677,6 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   else:
     popCaseContext(c)
     closeScope(c)
-    result = handleCaseStmtMacro(c, n, flags)
-    if result != nil:
-      return result
     result[0] = c.config.newError(n[0], reportSem rsemSelectorMustBeOfCertainTypes)
     return
   for i in 1..<n.len:
@@ -1255,7 +1729,7 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
     for i in 1..<n.len:
       n[i][^1] = discardCheck(c, n[i][^1], flags)
       if n[i][^1].isError:
-        return wrapErrorInSubTree(c.config, n)
+        return wrapError(c.config, n)
     # propagate any enforced VoidContext:
     if typ == c.enforceVoidContext:
       result.typ = c.enforceVoidContext
@@ -1489,7 +1963,9 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       localReport(c.config, a.info, reportSym(
         rsemImplementationExpected, s))
 
-    if s.magic != mNone: processMagicType(c, s)
+    if s.magic != mNone:
+      processMagicType(c, s)
+
     if a[1].kind != nkEmpty:
       # We have a generic type declaration here. In generic types,
       # symbol lookup needs to be done here.
@@ -1540,6 +2016,12 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       # process the type's body:
       pushOwner(c, s)
       var t = semTypeNode(c, a[2], s.typ)
+      
+      if t.kind == tyError and t.n.isError:
+        # we've got a tyError with a report in n
+        # xxx: we should probably propagate tyError like nkError
+        c.config.localReport(t.n)
+      
       if s.typ == nil:
         s.typ = t
       elif t != s.typ and (s.typ == nil or s.typ.kind != tyAlias):
@@ -1552,6 +2034,7 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
       # final pass
       if a[2].kind in nkCallKinds:
         incl a[2].flags, nfSem # bug #10548
+    
     if sfExportc in s.flags and s.typ.kind == tyAlias:
       localReport(c.config, name.info, reportSym(
         rsemUnexpectedExportcInAlias, s))
@@ -1664,7 +2147,7 @@ proc semAllTypeSections(c: PContext; n: PNode): PNode =
   proc gatherStmts(c: PContext; n: PNode; result: PNode) {.nimcall.} =
     case n.kind
     of nkIncludeStmt:
-      for i in 0..<n.len:
+      for i in 0 ..< n.len:
         var f = checkModuleName(c.config, n[i])
         if f != InvalidFileIdx:
           if containsOrIncl(c.includedFiles, f.int):
@@ -1781,10 +2264,6 @@ proc addResult(c: PContext, n: PNode, t: PType, owner: TSymKind) =
       n.add newSymNode(c.p.resultSym)
     addParamOrResult(c, c.p.resultSym, owner)
 
-proc copyExcept(n: PNode, i: int): PNode =
-  result = copyNode(n)
-  for j in 0..<n.len:
-    if j != i: result.add(n[j])
 
 proc semProcAnnotation(c: PContext, prc: PNode;
                        validPragmas: TSpecialWords): PNode =
@@ -1794,10 +2273,10 @@ proc semProcAnnotation(c: PContext, prc: PNode;
     let it = n[i]
     let key = if it.kind in nkPragmaCallKinds and it.len >= 1: it[0] else: it
 
-    if whichPragma(it) != wInvalid:
-      # Not a custom pragma
-      continue
-    else:
+    # we only want to process macro pragmas (ast transforms)
+    # xxx: this dance to filter through them is another sign that pragmas
+    #      shouldn't be associated to symbols as the syntax hints
+    if whichPragma(it) == wInvalid and key.kind in nkIdentKinds:
       let (ident, err) = considerQuotedIdent(c, key)
       if err != nil:
         localReport(c.config, err)
@@ -1808,8 +2287,11 @@ proc semProcAnnotation(c: PContext, prc: PNode;
         let sym = searchInScopes(c, ident, amb)
         if sym != nil and sfCustomPragma in sym.flags:
           continue # User custom pragma
+    else:
+      # Not a custom pragma
+      continue
 
-    # we transform ``proc p {.m, rest.}`` into ``m(do: proc p {.rest.})`` and
+    # we transform `proc p {.m, rest.}` into `m(do: proc p {.rest.})` and
     # let the semantic checker deal with it:
     var x = newNodeI(nkCall, key.info)
     x.add(key)
@@ -1853,17 +2335,7 @@ proc semProcAnnotation(c: PContext, prc: PNode;
 
     doAssert result != nil
 
-    # since a proc annotation can set pragmas, we process these here again.
-    # This is required for SqueakNim-like export pragmas.
-    if result.kind in procDefs and result[namePos].kind == nkSym and
-        result[pragmasPos].kind != nkEmpty:
-      result[pragmasPos] = pragma(c, result[namePos].sym, result[pragmasPos],
-                                  validPragmas)
-      # check if we got any errors and if so report them
-      for e in ifErrorWalkErrors(c.config, result[pragmasPos]):
-        localReport(c.config, e)
-
-    return
+    return # breaks the loop on the first macro pragma, then we'll reprocess
 
 proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   ## used for resolving 'auto' in lambdas based on their callsite
@@ -2188,8 +2660,13 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     n[miscPos] = c.graph.emptyNode
 
   if tfTriggersCompileTime in s.typ.flags: incl(s.flags, sfCompileTime)
+  
   if n[patternPos].kind != nkEmpty:
     n[patternPos] = semPattern(c, n[patternPos], s)
+    if n[patternPos].kind == nkError:
+      # xxx: convert to nkError propagation
+      c.config.localReport(n[patternPos])
+  
   if s.kind == skIterator:
     s.typ.flags.incl(tfIterator)
   elif s.kind == skFunc:
@@ -2244,7 +2721,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
   if result.isErrorLike:
     closeScope(c)
     popOwner(c)
-    return wrapErrorInSubTree(c.config, result)
+    return wrapError(c.config, result)
 
   if n[pragmasPos].kind != nkEmpty and sfBorrow notin s.flags:
     setEffectsForProcType(c.graph, s.typ, n[pragmasPos], s)
@@ -2542,43 +3019,109 @@ proc setLine(n: PNode, info: TLineInfo) =
     n.info = info
 
 proc semPragmaBlock(c: PContext, n: PNode): PNode =
+  ## analyses a pragma block and emits either a block or the inner content
+  ## based on pragma evaluation, or an error on failure.
+  ## 
+  ## The analysis should be equivalent to:
+  ## 1. normalize the block {.line, cast(noSideEffect).}: ... to
+  ##    {.line.}: {.cast(noSideEffect).}: ...  cast is applied (see below)
+  ##    then the line is applied to the result
+  ## 2. apply pragmas to the semantically checked body, with uncheckedAssign
+  ##    being processed first to ensure sem is correct, otherwise apply pragmas
+  ##    to the semantically analysed body
+  ## 3. finally all pragma should be processed and only the body of the block
+  ##    should be included in the production
+
+  # xxx: currently this proc is buggy and it doesn't conform to the spec above
+
+  addInNimDebugUtils(c.config, "semPragmaBlock", n, result)
+
+  assert n != nil
+  assert n.kind == nkPragmaBlock, "expected nkPragmaBlock, got: " & $n.kind
+
   checkSonsLen(n, 2, c.config)
+  
   let pragmaList = pragma(c, nil, n[0], exprPragmas, isStatement = true)
 
-  if pragmaList != nil and pragmaList.kind == nkError:
+  if pragmaList.isError:
     n[0] = pragmaList
-    result = wrapErrorInSubTree(c.config, n)
+    result = wrapError(c.config, n)
     return
 
-  var inUncheckedAssignSection = 0
+  # build up result for production or emitting a nice error
+  result = copyNode(n)
+  result.flags = n.flags # preserve flags as copyNode doesn't
+  result.add copyNode(pragmaList)
+  result[0].flags = pragmaList.flags # preserve flags as copyNode doesn't
+  result.add n[1]
+
+  var
+    inUncheckedAssignSection = 0
+    hasError = false
   for i, p in pragmaList.pairs:
     if p.kind == nkError:
-      n[0] = pragmaList
-      result = wrapErrorInSubTree(c.config, n)
-      return
-    elif whichPragma(p) == wCast:
+      result[0] = pragmaList # restore it and error out
+      return wrapError(c.config, result)
+
+    case whichPragma(p)
+    of wCast:
       case whichPragma(p[1])
       of wGcSafe, wNoSideEffect, wTags, wRaises:
-        discard "handled in sempass2"
+        # xxx: this is a design bug, pragma blocks, shouldn't be blocks, they
+        #      are not a scope start, activation, or a change in control, at
+        #      most they're a region over which some facts are true. The way
+        #      they're currently implemented they screw up defer handling
+        
+        # we handle this in sempass2, so keep it for later processing
+        # this does cause issues as semPass2 won't have quite the same ast
+        result[0].add p
       of wUncheckedAssign:
         inUncheckedAssignSection = 1
+        # don't add it to the result as we've consumed it
       else:
         let e = c.config.newError(p, reportAst(rsemInvalidPragmaBlock, p))
         pragmaList[i] = e
-        n[0] = pragmaList
-        result = wrapErrorInSubTree(c.config, n)
-        return
+        result[0] = pragmaList # restore it for a nice error msg
+        return wrapError(c.config, result)
+    else:
+      result[0].add p
+      # we'll process it below perhaps
 
   inc c.inUncheckedAssignSection, inUncheckedAssignSection
-  n[1] = semExpr(c, n[1])
+  result[1] = semExpr(c, result[1])
   dec c.inUncheckedAssignSection, inUncheckedAssignSection
-  result = n
-  result.typ = n[1].typ
-  for i in 0..<pragmaList.len:
-    case whichPragma(pragmaList[i])
-    of wLine: setLine(result, pragmaList[i].info)
-    of wNoRewrite: incl(result.flags, nfNoRewrite)
-    else: discard
+  result.typ = result[1].typ
+
+  case result[1].kind
+  of nkError:
+    hasError = true
+  elif hasError:
+    discard "wrapped at the end of proc"
+  else: # no errors
+    var
+      i = 0
+      last = result[0].len
+    
+    while i < last:
+      let p = result[0][i]
+
+      case whichPragma(p)
+      of wLine:
+        setLine(result, p.info)
+        result[0].delSon(i)
+      of wNoRewrite:
+        result.flags.incl nfNoRewrite
+        result[0].flags.incl nfNoRewrite
+        result[0].delSon(i)
+      else:
+        inc i # this preserves the pragma
+
+      last = result[0].len
+
+  if hasError:
+    result = wrapError(c.config, result)
+  elif result[0].len == 0:
+    result = result[1] # unwrap the block
 
 proc semStaticStmt(c: PContext, n: PNode): PNode =
   #echo "semStaticStmt"
@@ -2623,28 +3166,50 @@ proc inferConceptStaticParam(c: PContext, inferred, n: PNode) =
   typ.n = res
 
 proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
-  result = n
+  ## analyses `n`, a statement list or list expression, producing a statement
+  ## list or expression with appropriate type and flattening all immediate
+  ## children statment list or expressions where possible. on failure an
+  ## nkError is produced instead.
+  addInNimDebugUtils(c.config, "semStmtList", n, result, flags)
+
+  assert n != nil
+
+  if n.kind == nkError:
+    return n # pass through errors
+
+  assert n.kind in {nkStmtList, nkStmtListExpr}
+
+  result = copyNode(n)
+  result.flags = n.flags # preserve flags as copyNode is selective
   result.transitionSonsKind(nkStmtList)
+  
   var
     voidContext = false
-    last = n.len-1
     hasError = false
+  
+  let lastInputChildIndex = n.len - 1
+
   # by not allowing for nkCommentStmt etc. we ensure nkStmtListExpr actually
   # really *ends* in the expression that produces the type: The compiler now
   # relies on this fact and it's too much effort to change that. And arguably
   #  'R(); #comment' shouldn't produce R's type anyway.
+  #var last = n.len - 1
   #while last > 0 and n[last].kind in {nkPragma, nkCommentStmt,
   #                                         nkNilLit, nkEmpty}:
   #  dec last
-  for i in 0..<n.len:
-    var x = semExpr(c, n[i], flags)
-    n[i] = x
-    if efNoSemCheck notin flags and x.kind == nkError:
-      hasError = true
+  for i in 0 ..< n.len:
+    let 
+      x = semExpr(c, n[i], flags)
+      last = lastInputChildIndex == i
+    
     if c.matchedConcept != nil and x.typ != nil and
-        (nfFromTemplate notin n.flags or i != last):
+        (nfFromTemplate notin n.flags or not last):
+      
       if x.isError:
-        n[i] = newError(c.config, n[i], reportSem rsemConceptPredicateFailed)
+        result.add:
+          newError(c.config, n[i], reportSem rsemConceptPredicateFailed)
+        hasError = true
+
       case x.typ.kind
       of tyBool:
         if x.kind == nkInfix and
@@ -2657,32 +3222,65 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
             inferConceptStaticParam(c, x[2], x[1])
             continue
 
-        let verdict = semConstExpr(c, n[i])
+        let verdict = semConstExpr(c, x)
+        
         if verdict == nil or verdict.kind != nkIntLit or verdict.intVal == 0:
-          n[i] = newError(c.config, n[i], reportSem rsemConceptPredicateFailed)
-
+          result.add:
+            newError(c.config, n[i], reportSem rsemConceptPredicateFailed)
+          hasError = true
       of tyUnknown: continue
       else: discard
-    if n[i].typ == c.enforceVoidContext: #or usesResult(n[i]):
+
+    if x.typ == c.enforceVoidContext: # or usesResult(n[i]):
       voidContext = true
-      n.typ = c.enforceVoidContext
-    if i == last and (n.len == 1 or ({efWantValue, efInTypeof} * flags != {}) or not voidContext):
-      n.typ = n[i].typ
-      if not isEmptyType(n.typ): n.transitionSonsKind(nkStmtListExpr)
-    else:
-      n[i] = discardCheck(c, n[i], flags)
-      if n[i].isError:
+      result.typ = c.enforceVoidContext
+
+    if last and (n.len == 1 or
+                 ({efWantValue, efInTypeof} * flags != {}) or
+                 not voidContext):
+      result.typ = x.typ
+      if not isEmptyType(result.typ):
+        result.transitionSonsKind(nkStmtListExpr)
+
+    template addStmt(kid) =
+      result.add:
+        if not last or voidContext:
+          discardCheck(c, kid, flags)
+        else:
+          kid
+      
+      if result[^1].isError:
         hasError = true
-    if n[i].kind in nkLastBlockStmts or
-        n[i].kind in nkCallKinds and n[i][0].kind == nkSym and
-        sfNoReturn in n[i][0].sym.flags:
+
+    case x.kind
+    of nkError:
+      result.add x
+      hasError = true
+    of nkStmtList, nkStmtListExpr:
+      # this can be flattened, because of the earlier semExpr call we are
+      # assured that the maximum nesting is of depth 1
+
+      if nfBlockArg in x.flags:
+        addStmt(x)
+      else:
+        for j, a in x.pairs:
+          # TODO: guard against last node being an nkStmtList?
+          addStmt(a)        
+    else:
+      addStmt(x)
+  
+    if x.kind in nkLastBlockStmts or
+       x.kind in nkCallKinds and x[0].kind == nkSym and
+       sfNoReturn in x[0].sym.flags:
       for j in i + 1..<n.len:
         case n[j].kind
-        of nkPragma, nkCommentStmt, nkNilLit, nkEmpty, nkState: discard
+        of nkPragma, nkCommentStmt, nkNilLit, nkEmpty, nkState:
+          discard
         else:
-          localReport(c.config, n[j].info, SemReport(kind: rsemUnreachableCode))
+          localReport(c.config, n[j].info,
+                      SemReport(kind: rsemUnreachableCode))
 
-  if result.len == 1 and
+  if result.kind != nkError and result.len == 1 and
      # concept bodies should be preserved as a stmt list:
      c.matchedConcept == nil and
      # also, don't make life complicated for macros.
@@ -2697,11 +3295,12 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
       # it is an old-style comment statement: we replace it with 'discard ""':
       prettybase.replaceComment(result.info)
 
-  if hasError:
-    result = wrapErrorInSubTree(c.config, result)
+  if hasError and result.kind != nkError:
+    result = wrapError(c.config, result)
 
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode =
   if efInTypeof in flags:
     result = semExpr(c, n, flags)
   else:
     result = semExprNoType(c, n)
+

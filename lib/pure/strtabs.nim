@@ -43,7 +43,6 @@ runnableExamples:
 
 ## **See also:**
 ## * `tables module <tables.html>`_ for general hash tables
-## * `sharedtables module<sharedtables.html>`_ for shared hash table support
 ## * `strutils module<strutils.html>`_ for common string functions
 ## * `json module<json.html>`_ for table-like structure which allows
 ##   heterogeneous members
@@ -51,13 +50,13 @@ runnableExamples:
 import std/private/since
 
 import
-  hashes, strutils
+  std/[hashes, strutils]
 
 when defined(js) or defined(nimscript) or defined(Standalone):
   {.pragma: rtlFunc.}
 else:
   {.pragma: rtlFunc, rtl.}
-  import os
+  import std/os
 
 include "system/inclrtl"
 

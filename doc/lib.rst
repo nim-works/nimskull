@@ -459,9 +459,6 @@ Miscellaneous
 * `colors <colors.html>`_
   This module implements color handling for Nim.
 
-* `enumerate <enumerate.html>`_
-  This module implements `enumerate` syntactic sugar based on Nim's macro system.
-
 * `logging <logging.html>`_
   This module implements a simple logger.
 

@@ -45,6 +45,9 @@ import
     options
   ]
 
+when defined(nimDebugUnreportedErrors):
+  import std/tables
+
 proc errorSubNode*(n: PNode): PNode =
   ## find the first error node, or nil, under `n` using a depth first traversal
   case n.kind
@@ -59,18 +62,21 @@ proc errorSubNode*(n: PNode): PNode =
       result = errorSubNode(s)
       if result != nil: break
 
-func errorKind*(e: PNode): SemReportKind {.inline.} =
+func errorKind*(e: PNode): SemOrVMReportKind {.inline.} =
   ## property to retrieve the error kind
   assert e != nil, "can't have a nil error node"
   assert e.kind == nkError, "must be an error node to have an ErrorKind"
 
-  result = SemReportKind(e[errorKindPos].intVal)
+  result = SemOrVMReportKind(e.kids[errorKindPos].intVal)
 
 func compilerInstInfo*(e: PNode): InstantiationInfo {.inline.} =
   ## return where the error was instantiated in the compiler
   let i = e[compilerInfoPos]
   assert i != nil, "we should always have compiler diagnositics"
   (filename: i.strVal, line: i.info.line.int, column: i.info.col.int)
+
+proc errAdd(e: PNode, kid: PNode) {.inline.} =
+  e.kids.add kid
 
 proc newError*(
     conf: ConfigRef;
@@ -81,26 +87,32 @@ proc newError*(
     args: varargs[PNode]
   ): PNode =
   ## Create `nkError` node with given error report and additional subnodes.
-  assert errorKind in repSemKinds
+  assert(
+    errorKind in (
+      set[ReportKind](repSemKinds) +
+      set[ReportKind](repVMKinds)),
+    $errorKind
+  )
+
   assert wrongNode != nil, "can't have a nil node for `wrongNode`"
   assert not report.isEmpty(), $report
 
-  result = PNode(
-    kind: nkError,
-    info: wrongNode.info,
-    typ: newType(tyError, ItemId(module: -2, item: -1), nil),
-    reportId: report
+  result = newNodeIT(
+    nkError,
+    wrongNode.info,
+    newType(tyError, ItemId(module: -2, item: -1), nil)
   )
+  result.reportId = report
 
   addInNimDebugUtilsError(conf, wrongNode, result)
 
-  result.add #[ 0 ]# wrongNode # wrapped wrong node
-  result.add #[ 1 ]# newIntNode(nkIntLit, ord(errorKind)) # errorKindPos
-  result.add #[ 2 ]# newStrNode(inst.filename, TLineInfo(
+  result.errAdd #[ 0 ]# wrongNode # wrapped wrong node
+  result.errAdd #[ 1 ]# newIntNode(nkIntLit, ord(errorKind)) # errorKindPos
+  result.errAdd #[ 2 ]# newStrNode(inst.filename, TLineInfo(
     line: uint16(inst.line), col: int16(inst.column))) # compilerInfoPos
 
   for a in args:
-    result.add #[ 3+ ]# a
+    result.errAdd #[ 3+ ]# a
 
   when defined(nimDebugUnreportedErrors):
     if errorKind != rsemWrappedError:
@@ -137,7 +149,7 @@ template newError*(
   ): untyped =
   newError(conf, wrongNode, report, instLoc(), args, posInfo)
 
-template wrapErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode =
+template wrapError*(conf: ConfigRef, wrongNodeContainer: PNode): PNode =
   ## `wrongNodeContainer` doesn't directly have an error but one exists further
   ## down the tree, this is used to wrap the `wrongNodeContainer` in an nkError
   ## node but no message will be reported for it.
@@ -177,7 +189,10 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
   of nkEmpty .. nkNilLit:
     discard
   of nkError:
-    buildErrorList(config, n[wrongNodePos], errs)
+    buildErrorList(config, n.kids[wrongNodePos], errs)
+    when defined(nimDebugUnreportedErrors):
+      if n.errorKind == rsemWrappedError and errs.len == 0:
+        echo "Empty WrappedError: ", config $ n.info
     errs.add n
   else:
     for i in 0..<n.len:
@@ -186,7 +201,7 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
 iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   ## traverses the ast and yields errors from innermost to outermost. this is a
   ## linear traversal and two, or more, sibling errors will result in only the
-  ## first error (per `PNode.sons`) being yielded.
+  ## first error (per `PNode.kids`) being yielded.
   assert n != nil
   var errNodes: seq[PNode] = @[]
   buildErrorList(config, n, errNodes)

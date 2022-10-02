@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - id: run_cond
-        uses: fkirc/skip-duplicate-actions@v4.0.0
+        uses: fkirc/skip-duplicate-actions@v5.1.0
         with:
           # Cancel CI on outdated commits
           cancel_others: true
@@ -86,7 +86,7 @@ jobs:
             },
             {
               "name": "macOS",
-              "runner": "macos-10.15"
+              "runner": "macos-11"
             }
           ]
           EOF

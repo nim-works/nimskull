@@ -5,7 +5,6 @@
 import
   experimental/[
     sexp,
-    diff,
     colortext,
     sexp_diff
   ],
@@ -122,6 +121,9 @@ proc sexp*(node: PNode): SexpNode =
     of nkStrLit..nkTripleStrLit:  result.add sexp(node.strVal)
     of nkSym:                     result.add newSSymbol(node.sym.name.s)
     of nkIdent:                   result.add newSSymbol(node.ident.s)
+    of nkError:
+      for node in node.kids:
+        result.add sexp(node)
     else:
       for node in node.sons:
         result.add sexp(node)
@@ -147,6 +149,7 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       "rsem": "Sem",
       "rpar": "Par",
       "rlex": "Lex",
+      "rvm": "VM",
       "rint": "Int",
       "rext": "Ext",
       "rdbg": "Dbg",
@@ -161,6 +164,7 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       of repLexer:    s.addFields(r.lexReport, f)
       of repParser:   s.addFields(r.parserReport, f)
       of repCmd:      s.addFields(r.cmdReport, f)
+      of repVM:       s.addFields(r.vmReport, f)
       of repSem:
         if r.kind == rsemProcessingStmt:
           s.addFields(r.semReport, f & "node")

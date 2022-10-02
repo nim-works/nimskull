@@ -1813,14 +1813,6 @@ when not declared(sysFatal):
 when not isNimVmTarget:
   {.push stackTrace: off, profiler: off.}
 
-  proc atomicInc*(memLoc: var int, x: int = 1): int {.inline,
-    discardable, benign.}
-    ## Atomic increment of `memLoc`. Returns the value after the operation.
-
-  proc atomicDec*(memLoc: var int, x: int = 1): int {.inline,
-    discardable, benign.}
-    ## Atomic decrement of `memLoc`. Returns the value after the operation.
-
   include "system/atomics"
 
   {.pop.}
@@ -1905,7 +1897,7 @@ proc `<`*[T: tuple](x, y: T): bool =
 include "system/gc_interface"
 
 # we have to compute this here before turning it off in except.nim anyway ...
-const NimStackTrace = compileOption("stacktrace")
+const NimStackTrace {.used.} = compileOption("stacktrace")
 
 {.push checks: off.}
 # obviously we cannot generate checking operations here :-)
@@ -3109,11 +3101,6 @@ proc toOpenArrayByte*(x: openArray[char]; first, last: int): openArray[byte] {.
   magic: "Slice".}
 proc toOpenArrayByte*(x: seq[char]; first, last: int): openArray[byte] {.
   magic: "Slice".}
-
-type
-  ForLoopStmt* {.compilerproc.} = object ## \
-    ## A special type that marks a macro as a `for-loop macro`:idx:.
-    ## See `"For Loop Macro" <manual.html#macros-for-loop-macro>`_.
 
 when defined(genode):
   var componentConstructHook*: proc (env: GenodeEnv) {.nimcall.}

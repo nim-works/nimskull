@@ -196,9 +196,9 @@
 ## .. _Sphinx roles: https://www.sphinx-doc.org/en/master/usage/restructuredtext/roles.html
 
 import
-  os, strutils, rstast, std/enumutils, algorithm, lists, sequtils,
-  std/private/miscdollars, tables
-
+  std/[os, strutils, enumutils, algorithm, lists, sequtils, tables],
+  std/private/miscdollars,
+  rstast
 
 from highlite import SourceLanguage, getSourceLanguage
 

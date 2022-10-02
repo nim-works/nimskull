@@ -65,7 +65,7 @@
 ## * `parsesql module <parsesql.html>`_ for a SQL parser
 ## * `other parsers <lib.html#pure-libraries-parsers>`_ for other parsers
 
-import lexbase, streams
+import std/[lexbase, streams]
 
 type
   CsvRow* = seq[string] ## A row in a CSV file.
@@ -344,7 +344,7 @@ proc rowEntry*(self: var CsvParser, entry: string): var string =
     raise newException(KeyError, "Entry `" & entry & "` doesn't exist")
 
 when not defined(testing) and isMainModule:
-  import os
+  import std/os
   var s = newFileStream(paramStr(1), fmRead)
   if s == nil: quit("cannot open the file" & paramStr(1))
   var x: CsvParser

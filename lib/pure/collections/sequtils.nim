@@ -82,7 +82,7 @@ runnableExamples:
 
 import std/private/since
 
-import macros
+import std/macros
 
 when defined(nimHasEffectsOf):
   {.experimental: "strictEffects".}
@@ -562,30 +562,6 @@ func delete*[T](s: var seq[T]; slice: Slice[int]) =
         {.emit: "`s`.splice(`first`, `n`);".}
       else:
         defaultImpl()
-
-func delete*[T](s: var seq[T]; first, last: Natural) {.deprecated: "use `delete(s, first..last)`".} =
-  ## Deletes the items of a sequence `s` at positions `first..last`
-  ## (including both ends of the range).
-  ## This modifies `s` itself, it does not return a copy.
-  runnableExamples("--warning:deprecated:off"):
-    let outcome = @[1, 1, 1, 1, 1, 1, 1, 1]
-    var dest = @[1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1]
-    dest.delete(3, 8)
-    assert outcome == dest
-  doAssert first <= last
-  if first >= s.len:
-    return
-  var i = first
-  var j = min(len(s), last + 1)
-  var newLen = len(s) - j + i
-  while i < newLen:
-    when defined(gcDestructors):
-      s[i] = move(s[j])
-    else:
-      s[i].shallowCopy(s[j])
-    inc(i)
-    inc(j)
-  setLen(s, newLen)
 
 func insert*[T](dest: var seq[T], src: openArray[T], pos = 0) =
   ## Inserts items from `src` into `dest` at position `pos`. This modifies

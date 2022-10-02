@@ -70,12 +70,12 @@ runnableExamples:
 ##   easier substring extraction than regular expressions
 
 
-import parseutils
-from math import pow, floor, log10
-from algorithm import fill, reverse
+import std/parseutils
+from std/math import pow, floor, log10
+from std/algorithm import fill, reverse
 import std/enumutils
 
-from unicode import toLower, toUpper
+from std/unicode import toLower, toUpper
 export toLower, toUpper
 
 include "system/inclrtl"
@@ -1506,29 +1506,6 @@ func delete*(s: var string, slice: Slice[int]) =
       inc(i)
       inc(j)
     setLen(s, newLen)
-
-func delete*(s: var string, first, last: int) {.rtl, extern: "nsuDelete", deprecated: "use `delete(s, first..last)`".} =
-  ## Deletes in `s` the characters at positions `first .. last` (both ends included).
-  runnableExamples("--warning:deprecated:off"):
-    var a = "abracadabra"
-
-    a.delete(4, 5)
-    doAssert a == "abradabra"
-
-    a.delete(1, 6)
-    doAssert a == "ara"
-
-    a.delete(2, 999)
-    doAssert a == "ar"
-
-  var i = first
-  var j = min(len(s), last+1)
-  var newLen = len(s)-j+i
-  while i < newLen:
-    s[i] = s[j]
-    inc(i)
-    inc(j)
-  setLen(s, newLen)
 
 func startsWith*(s: string, prefix: char): bool {.inline.} =
   ## Returns true if `s` starts with character `prefix`.

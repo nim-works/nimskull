@@ -230,9 +230,7 @@ proc semVarargs(c: PContext, n: PNode, prev: PType): PType =
 proc semVarOutType(c: PContext, n: PNode, prev: PType; kind: TTypeKind): PType =
   if n.len == 1:
     result = newOrPrevType(kind, prev, c)
-    var base = semTypeNode(c, n[0], nil)
-    if base.kind == tyTypeDesc and not isSelf(base):
-      base = base[0]
+    var base = semTypeNode(c, n[0], nil).skipTypes({tyTypeDesc})
     if base.kind == tyVar:
       localReport(c.config, n, reportSem(rsemVarVarNotAllowed))
       base = base[0]
@@ -1321,7 +1319,7 @@ proc liftParamType(c: PContext, procKind: TSymKind, genericParams: PNode,
       result = recurse(expanded, true)
 
   of tyUserTypeClasses, tyBuiltInTypeClass, tyCompositeTypeClass,
-     tyAnd, tyOr, tyNot, tyConcept:
+     tyAnd, tyOr, tyNot:
     result = addImplicitGeneric(c,
         copyType(paramType, nextTypeId c.idgen, getCurrOwner(c)), paramTypId,
         info, genericParams, paramName)
@@ -1407,6 +1405,8 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       block determineType:
         if genericParams.isGenericParams:
           def = semGenericStmt(c, def)
+          if def.isError:
+            localReport(c.config, def)
           if hasUnresolvedArgs(c, def):
             def.typ = makeTypeFromExpr(c, def.copyTree)
             break determineType
@@ -1742,12 +1742,6 @@ template modifierTypeKindOfNode(n: PNode): TTypeKind =
 
 proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
   # if n.len == 0: return newConstraint(c, tyTypeClass)
-  if isNewStyleConcept(n):
-    result = newOrPrevType(tyConcept, prev, c)
-    result.flags.incl tfCheckedForDestructor
-    result.n = semConceptDeclaration(c, n)
-    return result
-
   let
     pragmas = n[1]
     inherited = n[2]
@@ -1794,6 +1788,8 @@ proc semTypeClass(c: PContext, n: PNode, prev: PType): PType =
     addDecl(c, dummyParam)
 
   result.n[3] = semConceptBody(c, n[3])
+  if result.n[3].isError:
+    localReport(c.config, result.n[3])
   closeScope(c)
 
 proc applyTypeSectionPragmas(c: PContext; pragmas, operand: PNode): PNode =
@@ -1885,11 +1881,26 @@ proc semStaticType(c: PContext, childNode: PNode, prev: PType): PType =
   result.flags.incl tfHasStatic
 
 proc semTypeOf(c: PContext; n: PNode; prev: PType): PType =
+  # xxx: this should be folded into semTypeOf2
   openScope(c)
-  let t = semExprWithType(c, n, {efInTypeof})
-  closeScope(c)
-  fixupTypeOf(c, prev, t)
-  result = t.typ
+  case n.kind
+  of nkError:
+    result = n.typ
+    if result.n.isNil:
+      result.n = n
+    closeScope(c)
+  else:
+    let t = semExprWithType(c, n, {efInTypeof})
+    closeScope(c)
+    
+    case t.kind
+    of nkError:
+      result = t.typ
+      if result.n.isNil:
+        result.n = t
+    else:
+      fixupTypeOf(c, prev, t)
+      result = t.typ
 
 proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
   openScope(c)
@@ -1897,13 +1908,33 @@ proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
   if n.len == 3:
     let mode = semConstExpr(c, n[2])
     if mode.kind != nkIntLit:
-      localReport(c.config, n, reportSem rsemVmCannotEvaluateAtComptime)
+      localReport(c.config, VMReport(
+        ast: n,
+        location: some(n.info),
+        kind: rvmCannotEvaluateAtComptime))
+
     else:
       m = mode.intVal
-  let t = semExprWithType(c, n[1], if m == 1: {efInTypeof} else: {})
-  closeScope(c)
-  fixupTypeOf(c, prev, t)
-  result = t.typ
+  
+  case n[1].kind
+  of nkError:
+    result = n[1].typ
+    if result.n.isNil:
+      result.n = n[1] # at time of writing: error in TType.n is a new thing
+    closeScope(c)
+  else:
+    let t = semExprWithType(c, n[1], if m == 1: {efInTypeof} else: {})
+    closeScope(c)
+
+    case t.kind
+    of nkError:
+      result = t.typ
+      if result.n.isNil:
+        result.n = t
+    else:
+      fixupTypeOf(c, prev, t)
+      result = t.typ
+
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
   addInNimDebugUtils(c.config, "semTypeNode", n, prev, result)
@@ -1919,7 +1950,8 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     result = semTypeOf(c, n[0], prev)
     if result.kind == tyTypeDesc: result.flags.incl tfExplicit
   of nkPar:
-    if n.len == 1: result = semTypeNode(c, n[0], prev)
+    if n.len == 1:
+      result = semTypeNode(c, n[0], prev)
     else:
       result = semAnonTuple(c, n, prev)
   of nkTupleConstr: result = semAnonTuple(c, n, prev)
@@ -2029,7 +2061,8 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
           result = semTypeExpr(c, n, prev)
   of nkWhenStmt:
     var whenResult = semWhen(c, n, false)
-    if whenResult.kind == nkStmtList: whenResult.transitionSonsKind(nkStmtListType)
+    if whenResult.kind == nkStmtList:
+      whenResult.transitionSonsKind(nkStmtListType)
     result = semTypeNode(c, whenResult, prev)
   of nkBracketExpr:
     checkMinSonsLen(n, 2, c.config)
@@ -2094,6 +2127,8 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
            # the dot expression may refer to a concept type in
            # a different module. allow a normal alias then.
         let preprocessed = semGenericStmt(c, n)
+        if preprocessed.isError:
+          localReport(c.config, preprocessed)
         result = makeTypeFromExpr(c, preprocessed.copyTree)
       else:
         let alias = maybeAliasType(c, result, prev)
@@ -2177,6 +2212,10 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
   of nkType: result = n.typ
   of nkStmtListType: result = semStmtListType(c, n, prev)
   of nkBlockType: result = semBlockType(c, n, prev)
+  of nkError:
+    localReport(c.config, n, reportSem rsemTypeExpected)
+    result = newOrPrevType(tyError, prev, c)
+    result.n = n # set the error and read it out else where
   else:
     localReport(c.config, n, reportSem rsemTypeExpected)
     result = newOrPrevType(tyError, prev, c)

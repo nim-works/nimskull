@@ -26,7 +26,7 @@ import
     lineinfos,
   ],
   compiler/utils/[
-    pathutils,
+    pathutils
   ]
 
 type
@@ -84,13 +84,23 @@ proc closePasses(graph: ModuleGraph; a: var TPassContextArray) =
       m = graph.passes[i].close(graph, a[i], m)
     a[i] = nil                # free the memory here
 
-proc processTopLevelStmt(graph: ModuleGraph, n: PNode, a: var TPassContextArray): bool =
-  # this implements the code transformation pipeline
-  var m = n
-  for i in 0..<graph.passes.len:
+proc processTopLevelStmt(
+    graph: ModuleGraph,
+    toProcess: PNode,
+    a: var TPassContextArray): bool =
+  ## Main processing pipeline entry point - accepts a toplevel node,
+  ## collection of pass contexts and a main module graph which defines passes
+  ## to use.
+  # First step works with the base tree as entry point
+  var processingResult = toProcess
+  for i in 0 ..< graph.passes.len:
     if not isNil(graph.passes[i].process):
-      m = graph.passes[i].process(a[i], m)
-      if isNil(m): return false
+      # Iterate over all processing passes, re-assigning the evaluation
+      # results each time.
+      processingResult = graph.passes[i].process(a[i], processingResult)
+      if isNil(processingResult):
+        return false
+
   result = true
 
 proc resolveMod(conf: ConfigRef; module, relativeTo: string): FileIndex =
@@ -100,8 +110,14 @@ proc resolveMod(conf: ConfigRef; module, relativeTo: string): FileIndex =
   else:
     result = fileInfoIdx(conf, fullPath)
 
-proc processImplicits(graph: ModuleGraph; implicits: seq[string], nodeKind: TNodeKind,
-                      a: var TPassContextArray; m: PSym) =
+proc processImplicits(
+    graph: ModuleGraph,
+    implicits: seq[string],
+    nodeKind: TNodeKind,
+    a: var TPassContextArray,
+    m: PSym
+  ) =
+
   # XXX fixme this should actually be relative to the config file!
   let relativeTo = toFullPath(graph.config, m.info)
   for module in items(implicits):
@@ -144,30 +160,42 @@ proc partOfStdlib(x: PSym): bool =
     it = it.owner
   result = it != nil and it.name.s == "stdlib"
 
-proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
-                    stream: PLLStream): bool {.discardable.} =
-  if graph.stopCompile(): return true
+proc processModule*(
+    graph: ModuleGraph,
+    module: PSym,
+    idgen: IdGenerator,
+    defaultStream: PLLStream
+  ): bool {.discardable.} =
+
+  if graph.stopCompile():
+    return true
+
   var
-    p: Parser
-    a: TPassContextArray
-    s: PLLStream
+    parser: Parser
+    passesArray: TPassContextArray
+    stream: PLLStream
     fileIdx = module.fileIdx
 
   prepareConfigNotes(graph, module)
-  openPasses(graph, a, module, idgen)
-  if stream == nil:
+  openPasses(graph, passesArray, module, idgen)
+  if defaultStream.isNil():
     let filename = toFullPathConsiderDirty(graph.config, fileIdx)
-    s = llStreamOpen(filename, fmRead)
-    if s == nil:
+    stream = llStreamOpen(filename, fmRead)
+    if stream.isNil():
       localReport(
         graph.config,
         reportStr(rsemCannotOpenFile, filename.string))
 
       return false
+
   else:
-    s = stream
-  while true:
-    openParser(p, fileIdx, s, graph.cache, graph.config)
+    stream = defaultStream
+
+  # Loop over all top-level statements in the file
+  var hasContent = true
+  while hasContent:
+    # Start file parsing
+    openParser(parser, fileIdx, stream, graph.cache, graph.config)
 
     if not partOfStdlib(module) or module.name.s == "distros":
       # XXX what about caching? no processing then? what if I change the
@@ -176,39 +204,99 @@ proc processModule*(graph: ModuleGraph; module: PSym; idgen: IdGenerator;
       # for the interactive mode.
       if module.name.s != "nimscriptapi":
         processImplicits(
-          graph, graph.config.active.implicitImports, nkImportStmt, a, module)
-        processImplicits(
-          graph, graph.config.active.implicitIncludes, nkIncludeStmt, a, module)
+          graph, graph.config.active.implicitImports,
+          nkImportStmt, passesArray, module)
 
-    while true:
-      if graph.stopCompile(): break
-      var n = parseTopLevelStmt(p)
-      if n.kind == nkEmpty: break
-      if n.kind in imperativeCode:
+        processImplicits(
+          graph, graph.config.active.implicitIncludes,
+          nkIncludeStmt, passesArray, module)
+
+    # Until toplevel compilation fails (returns `false` from processing),
+    # execute the compilation
+    var processingOk = true
+    while processingOk:
+      # Processing was ok but compilation was halted via something else.
+      if graph.stopCompile():
+        break
+
+      # Get next 'first' statement in the file
+      var firstStatement = parser.parseTopLevelStmt().toPNode()
+      if firstStatement.kind == nkEmpty:
+        break
+
+      # if this is some kind of imperative code - collect subsequent
+      # statements as well
+      #
+      # TODO:BUG despite looking similar feature-wise these two branches
+      # actually process the code in different manner - there is a BUG in
+      # phase ordering which makes the following scenario possible:
+      # sequence of imperative code blocks `I2 I1 I3` is concatenated in
+      # one group and processed by the semantic pass in one go. `when` is
+      # also considered an imperative node kind, which means conditional
+      # declarations are concatenated together. In most use cases it is not
+      # particularly problemantic, but when declaration of the symbols such
+      # as `nimGCvisit` is concerned this means if `I1` defines symbol and
+      # `I2` uses it *in the backend* grouping enables this code to be
+      # processed:
+      #
+      # - `I2` is compiled, does not need  in sem
+      # - `I1` defines symbol
+      # - `I2` in `[I2, I1, I3]` needs  in backend -  is present
+      #
+      # without ordering
+      #
+      # - `I2` is compiled, does not need symbol in sem
+      # - `I2` needs symbol in backend - it is not present yet => fail
+      #
+      # This can be reproduced by disabling first branch and compiling any
+      # file - should fail in `system.nim` processing with `system needs
+      # 'nimGCvisit'` error.
+      if firstStatement.kind in imperativeCode:
         # read everything until the next proc declaration etc.
-        var sl = newNodeI(nkStmtList, n.info)
-        sl.add n
+        var toplevelStatements = newNodeI(nkStmtList, firstStatement.info)
+        toplevelStatements.add firstStatement
+
+        # Tail data that is would have already been parsed by the time we
+        # collect all the necessary statements - it should be processed as
+        # a separate trailing action.
         var rest: PNode = nil
-        while true:
-          var n = parseTopLevelStmt(p)
-          if n.kind == nkEmpty or n.kind notin imperativeCode:
-            rest = n
-            break
-          sl.add n
-        #echo "-----\n", sl
-        if not processTopLevelStmt(graph, sl, a): break
-        if rest != nil:
-          #echo "-----\n", rest
-          if not processTopLevelStmt(graph, rest, a): break
+
+        # Iterate until non-imperative statement is found (or end is
+        # reached, in which case parser retuns an empty node)
+        while rest.isNil():
+          let top = parser.parseTopLevelStmt()
+          let nextStatement = top.toPNode()
+          if nextStatement.kind == nkEmpty or
+             nextStatement.kind notin imperativeCode:
+            rest = nextStatement
+
+          else:
+            toplevelStatements.add nextStatement
+
+        processingOk = processTopLevelStmt(
+          graph, toplevelStatements, passesArray)
+
+        if not rest.isNil() and processingOk:
+          processingOk = processTopLevelStmt(
+            graph, rest, passesArray)
+
       else:
-        #echo "----- single\n", n
-        if not processTopLevelStmt(graph, n, a): break
-    closeParser(p)
-    if s.kind != llsStdIn: break
-  closePasses(graph, a)
+        # Otherwise evaluate the code
+        processingOk = processTopLevelStmt(
+          graph, firstStatement, passesArray)
+
+    parser.closeParser()
+
+    # Ended parsing for the current file - more text can be expected only
+    # on the stdin-driven input stream.
+    hasContent = stream.kind == llsStdIn
+
+  closePasses(graph, passesArray)
+
   if graph.config.backend notin {backendC, backendCpp, backendObjc}:
     # We only write rod files here if no C-like backend is active.
     # The C-like backends have been patched to support the IC mechanism.
     # They are responsible for closing the rod files. See `cbackend.nim`.
     closeRodFile(graph, module)
+
   result = true

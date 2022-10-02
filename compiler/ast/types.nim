@@ -914,8 +914,6 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
     cycleCheck()
     result = sameTypeAux(a.lastSon, b.lastSon, c)
   of tyNone: result = false
-  of tyConcept:
-    result = exprStructuralEquivalent(a.n, b.n)
 
 proc sameBackendType*(x, y: PType): bool =
   var c = initSameTypeClosure()
@@ -1148,6 +1146,20 @@ proc skipConv*(n: PNode): PNode =
       result = n[1]
   else: discard
 
+proc mutableSkipConv*(n: var PNode): var PNode =
+  result = n
+  case n.kind
+  of nkObjUpConv, nkObjDownConv, nkChckRange, nkChckRangeF, nkChckRange64:
+    # only skip the conversion if it doesn't lose too important information
+    # (see bug #1334)
+    if n[0].typ.classify == n.typ.classify:
+      result = n[0]
+  of nkHiddenStdConv, nkHiddenSubConv, nkConv:
+    if n[1].typ.classify == n.typ.classify:
+      result = n[1]
+  else: discard
+
+
 proc skipHidden*(n: PNode): PNode =
   result = n
   while true:
@@ -1165,13 +1177,20 @@ proc skipConvTakeType*(n: PNode): PNode =
   result.typ = n.typ
 
 proc isEmptyContainer*(t: PType): bool =
+  ## true if the type is considered a container and is empty, otherwise false.
+  ## container types are untyped, nil, `array/seq/set/etc[T]` with an emtpy
+  ## type for `T`.
   case t.kind
-  of tyUntyped, tyNil: result = true
-  of tyArray: result = t[1].kind == tyEmpty
+  of tyUntyped, tyNil:
+    true
+  of tyArray:
+    t[1].kind == tyEmpty
   of tySet, tySequence, tyOpenArray, tyVarargs:
-    result = t[0].kind == tyEmpty
-  of tyGenericInst, tyAlias, tySink: result = isEmptyContainer(t.lastSon)
-  else: result = false
+    t[0].kind == tyEmpty
+  of tyGenericInst, tyAlias, tySink:
+    isEmptyContainer(t.lastSon)
+  else:
+    false
 
 proc takeType*(formal, arg: PType; g: ModuleGraph; idgen: IdGenerator): PType =
   # param: openArray[string] = []
@@ -1371,4 +1390,12 @@ proc isCharArrayPtr*(t: PType; allowPointerToChar: bool): bool =
       discard
 
 proc lacksMTypeField*(typ: PType): bool {.inline.} =
+  ## Tests if `typ` has a type field *itself* . Doesn't consider base types
   (typ.sym != nil and sfPure in typ.sym.flags) or tfFinal in typ.flags
+
+proc isObjLackingTypeField*(typ: PType): bool {.inline.} =
+  ## Tests if `typ` has no type field (header). The only types that store a
+  ## type header are non-final ``object`` types where the inheritance root
+  ## is not marked as ``.pure`` (the ``sfPure`` flags is not present on it)
+  result = (typ.kind == tyObject) and ((tfFinal in typ.flags) and
+      (typ[0] == nil) or isPureObject(typ))

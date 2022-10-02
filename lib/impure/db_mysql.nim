@@ -83,9 +83,9 @@
 ##  theDb.close()
 
 
-import strutils, mysql
+import std/[strutils, mysql]
 
-import db_common
+import std/db_common
 export db_common
 
 import std/private/since

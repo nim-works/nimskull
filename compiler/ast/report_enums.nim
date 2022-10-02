@@ -17,6 +17,8 @@ type
     repCmd = "Cmd" ## Report related to execution of the external command -
     ## start of the command, execution failure, succes and so on.
 
+    repVM = "VM" ## Report related to embedded virtual machine
+
     repDebug = "Debug" ## Side channel for the compiler debug report. Sem
     ## expansion traces and other helper messages designed specifically to
     ## aid development of the compiler
@@ -194,7 +196,7 @@ type
     rlexLineTooLong = "LineTooLong"
     rlexLinterReport = "Name"
 
-    rlexSyntaxesCode
+    rlexSourceCodeFilterOutput = "SourceCodeFilterOutput"
     # hints END !! add reports BEFORE the last enum !!
 
     # Lexer report end
@@ -220,6 +222,8 @@ type
     rparPragmaAlreadyPresent
     rparMisplacedExport
 
+    rparPragmaBeforeGenericParameters
+
     # template parser `filter_tmpl.nim`
     rparTemplMissingEndClose
     rparTemplInvalidExpression
@@ -230,12 +234,69 @@ type
 
     # warnings begin
     rparInconsistentSpacing = "Spacing"
-    rparEnablePreviewDotOps = "DotLikeOps"
     rparPragmaNotFollowingTypeName
-    rparPragmaBeforeGenericParameters
+    rparEnablePreviewDotOps = "DotLikeOps"
     # warnings END !! add reports BEFORE the last enum !!
 
-    rparName = "Name" ## Linter report about used identifier
+
+    #-----------------------------  VM reports  ------------------------------#
+    # VM
+    rvmOpcParseExpectedExpression
+    rvmTooManyRegistersRequired
+    rvmMissingImportcCompleteStruct
+    rvmCannotFindBreakTarget
+    rvmNotUnused
+    rvmUserError
+    rvmNotAFieldSymbol
+    rvmTooLargetOffset
+    rvmUnhandledException
+    rvmCannotGenerateCode
+    rvmCannotCast
+    rvmGlobalError ## Error report that was declared as 'global' in the
+    ## VM - with current 'globalError-is-a-control-flow-mechanism' approach
+    ## this report is largely meaningless, and used only to raise exception.
+    rvmInvalidBindSym
+    rvmBadExpandToAst
+    rvmCannotEvaluateAtComptime
+    rvmCannotImportc
+    rvmCannotCreateNullElement
+    rvmInvalidObjectConstructor
+    rvmNoClosureIterators
+    rvmCannotCallMethod
+    rvmCallingNonRoutine
+    rvmCannotModifyTypechecked
+    rvmNilAccess
+    rvmAccessOutOfBounds
+    rvmAccessTypeMismatch
+    rvmAccessNoLocation
+    rvmDerefUnsupportedPtr
+    rvmErrInternal
+    rvmIndexError
+    rvmOutOfRange
+    rvmOverOrUnderflow
+    rvmDivisionByConstZero
+    rvmNodeNotASymbol
+    rvmNodeNotAProcSymbol
+    rvmNodeNotAFieldSymbol
+    rvmIllegalConv
+    rvmMissingCacheKey
+    rvmCacheKeyAlreadyExists
+    rvmFieldNotFound
+    rvmFieldInavailable
+    rvmCannotSetChild
+    rvmCannotAddChild
+    rvmCannotGetChild
+    rvmNoType
+    rvmNotAField
+    rvmUnsupportedNonNil
+    rvmQuit
+
+    rvmTooManyIterations
+
+    # trace
+    rvmStackTrace
+    # trace
+
 
     #-----------------------------  Sem reports  -----------------------------#
     # semantic fatal
@@ -588,58 +649,6 @@ type
     rsemBorrowOutlivesSource
     rsemImmutableBorrowMutation
 
-    # VM
-    rsemVmOpcParseExpectedExpression
-    rsemTooManyRegistersRequired
-    rsemVmCannotFindBreakTarget
-    rsemVmNotUnused
-    rsemNotAFieldSymbol
-    rsemVmTooLargetOffset
-    rsemVmUnhandledException
-    rsemVmCannotGenerateCode
-    rsemVmCannotCast
-    rsemVmGlobalError ## Error report that was declared as 'global' in the
-    ## VM - with current 'globalError-is-a-control-flow-mechanism' approach
-    ## this report is largely meaningless, and used only to raise exception.
-    rsemVmInvalidBindSym
-    rsemVmBadExpandToAst
-    rsemVmCannotEvaluateAtComptime
-    rsemVmCannotImportc
-    rsemVmCannotCreateNullElement
-    rsemVmInvalidObjectConstructor
-    rsemVmNoClosureIterators
-    rsemVmCannotCallMethod
-    rsemVmCallingNonRoutine
-    rsemVmCannotModifyTypechecked
-    rsemVmNilAccess
-    rsemVmAccessOutOfBounds
-    rsemVmAccessTypeMismatch
-    rsemVmAccessNoLocation
-    rsemVmDerefUnsupportedPtr
-    rsemVmErrInternal
-    rsemVmIndexError
-    rsemVmOutOfRange
-    rsemVmOverOrUnderflow
-    rsemVmDivisionByConstZero
-    rsemVmNodeNotASymbol
-    rsemVmNodeNotAProcSymbol
-    rsemVmNodeNotAFieldSymbol
-    rsemVmIllegalConv
-    rsemVmMissingCacheKey
-    rsemVmCacheKeyAlreadyExists
-    rsemVmFieldNotFound
-    rsemVmFieldInavailable
-    rsemVmCannotSetChild
-    rsemVmCannotAddChild
-    rsemVmCannotGetChild
-    rsemVmNoType
-    rsemVmNotAField
-    rsemVmUnsupportedNonNil
-
-    rsemVmTooManyIterations
-
-    rsemMissingImportcCompleteStruct
-
     rsemCyclicTree
     rsemCyclicDependency
     rsemConstExprExpected
@@ -784,15 +793,12 @@ type
     rsemUnsafeSetLen           = "UnsafeSetLen"
     rsemUnsafeDefault          = "UnsafeDefault"
     rsemBindDeprecated
-    rsemUncollectableRefCycle  =  "CycleCreated"
+    rsemUncollectableRefCycle  = "CycleCreated"
     rsemObservableStores       = "ObservableStores"
     rsemCaseTransition         = "CaseTransition"
     rsemUseOfGc                = "GcMem" # last !
     # END !! add reports BEFORE the last enum !!
 
-    # trace
-    rsemVmStackTrace
-    # trace
 
     # Semantic hints begin
     rsemUserHint = "User" ## `{.hint: .}` pragma encountereed
@@ -921,10 +927,14 @@ type
 const rstWarnings* = {rbackRstTestUnsupported .. rbackRstRstStyle}
 
 type
-  LexerReportKind* = range[rlexMalformedUnderscores .. rlexSyntaxesCode]
-  ParserReportKind* = range[rparInvalidIndentation .. rparName]
+  LexerReportKind* = range[
+    rlexMalformedUnderscores .. rlexSourceCodeFilterOutput]
 
+  ParserReportKind* = range[rparInvalidIndentation .. rparEnablePreviewDotOps]
+  VMReportKind* = range[rvmOpcParseExpectedExpression .. rvmStackTrace]
   SemReportKind* = range[rsemFatalError .. rsemImplicitObjConv]
+  SemOrVMReportKind* = range[low(VMReportKind) .. high(SemReportKind)]
+
   SemReportErrorKind* = range[rsemUserError .. rsemWrappedError]
 
   CmdReportKind* = range[rcmdFailedExecution .. rcmdRunnableExamplesSuccess]
@@ -941,17 +951,24 @@ type
 const
   #--------------------------------  lexer  --------------------------------#
   repLexerKinds*    = {low(LexerReportKind) .. high(LexerReportKind)}
-  rlexHintKinds*    = {rlexLineTooLong .. rlexSyntaxesCode}
+  rlexHintKinds*    = {rlexLineTooLong .. rlexSourceCodeFilterOutput}
   rlexWarningKinds* = {rlexDeprecatedOctalPrefix .. rlexDeprecatedOctalPrefix}
   rlexErrorKinds*   = {rlexMalformedUnderscores .. rlexUnclosedComment}
 
 
   #-------------------------------  parser  --------------------------------#
   repParserKinds* = {low(ParserReportKind) .. high(ParserReportKind)}
-  rparHintKinds*    = {rparName}
+  rparHintKinds*    = {}
   rparErrorKinds*   = {rparInvalidIndentation .. rparInvalidFilter}
   rparWarningKinds* = {
-    rparInconsistentSpacing .. rparPragmaBeforeGenericParameters}
+    rparInconsistentSpacing .. rparEnablePreviewDotOps}
+
+  #---------------------------------  sem  ---------------------------------#
+  repVMKinds* = {low(VMReportKind) .. high(VMReportKind)}
+  rvmHintKinds* = default(set[ReportKind])
+  rvmTraceKinds* = {rvmStackTrace}
+  rvmWarningKinds* = default(set[ReportKind])
+  rvmErrorKinds* = repVMKinds - rvmTraceKinds
 
   #---------------------------------  sem  ---------------------------------#
   repSemKinds* = {low(SemReportKind) .. high(SemReportKind)}
@@ -974,6 +991,15 @@ const
 
   #--------------------------------  debug  --------------------------------#
   repDebugKinds* = {low(DebugReportKind) .. high(DebugReportKind)}
+  repDebugTraceKinds* = {
+    rdbgTraceStart, # Begin report
+    rdbgTraceStep, # in/out
+    rdbgTraceLine,
+    rdbgTraceEnd, # End report
+    rdbgTraceUndefined, # `.undef` triggered in code
+    rdbgTraceDefined, # `.define` triggered in code
+  }
+
 
   #-------------------------------  backend  -------------------------------#
   repBackendKinds* = {low(BackendReportKind) .. high(BackendReportKind)}
@@ -1008,16 +1034,20 @@ const
       rparWarningKinds +
       rbackWarningKinds +
       rextWarningKinds +
+      rvmWarningKinds +
       rcmdWarningKinds +
       rintWarningKinds
 
-  repTraceKinds*: ReportKinds = {rsemVmStackTrace, rintStackTrace}
+  repTraceKinds*: ReportKinds =
+    {rvmStackTrace, rintStackTrace} +
+    repDebugKinds
 
   repHintKinds*: ReportKinds    =
     rsemHintKinds +
       rlexHintKinds +
       rparHintKinds +
       rbackHintKinds +
+      rvmHintKinds +
       rextHintKinds +
       rcmdHintKinds +
       rintHintKinds
@@ -1027,14 +1057,52 @@ const
       rlexErrorKinds +
       rparErrorKinds +
       rbackErrorKinds +
+      rvmErrorKinds +
       rextErrorKinds +
       rcmdErrorKinds +
       rintErrorKinds
 
-  repFatalKinds*: ReportKinds = rintFatalKinds
+  repDataPassKinds*: ReportKinds =
+    rintDataPassKinds
+
+  repFatalKinds*: ReportKinds = rintFatalKinds + {rsemFatalError}
   repAllKinds* = {low(ReportKind) .. high(ReportKind)}
 
+static:
+  block:
+    let diff = repAllKinds - (
+      repWarningKinds +
+      repHintKinds +
+      repTraceKinds +
+      repErrorKinds +
+      repDataPassKinds +
+      repFatalKinds +
+      { repNone }
+    )
 
+    assert(
+      len(diff) == 0,
+      "Severity grouping is missing some elements: " & $diff
+    )
+
+  block:
+    let diff = repAllKinds - (
+      set[ReportKind](repVMKinds) +
+      set[ReportKind](repSemKinds) +
+      set[ReportKind](repLexerKinds) +
+      set[ReportKind](repParserKinds) +
+      set[ReportKind](repInternalKinds) +
+      set[ReportKind](repExternalKinds) +
+      set[ReportKind](repDebugKinds) +
+      set[ReportKind](repBackendKinds) +
+      set[ReportKind](repCmdKinds) +
+      { repNone }
+    )
+
+    assert(
+      len(diff) == 0,
+      "Report ranges are missing some elements: " & $diff
+    )
 
 const
   rsemReportTwoSym* = {

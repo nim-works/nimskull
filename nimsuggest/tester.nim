@@ -268,12 +268,14 @@ proc runEpcTest(filename: string): int =
     when defined(posix):
       var a = newStringOfCap(120)
       discard outp.readLine(a)
+
     else:
       var i = 0
       while not osproc.hasData(p) and i < 100:
         os.sleep(50)
         inc i
       let a = outp.readAll().strip()
+
     let port =
       try:
         parseInt(a)

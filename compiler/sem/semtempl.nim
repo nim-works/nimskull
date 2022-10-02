@@ -31,14 +31,18 @@ type
     spNone, spGenSym, spInject
 
 proc symBinding(n: PNode): TSymBinding =
-  for i in 0..<n.len:
-    let it = n[i]
+  result = spNone
+  for it in n:
     let key = if it.kind == nkExprColonExpr: it[0] else: it
-    if key.kind == nkIdent:
+
+    case key.kind
+    of nkIdent:
       case whichKeyword(key.ident)
       of wGensym: return spGenSym
       of wInject: return spInject
       else: discard
+    else:
+      discard
 
 type
   TSymChoiceRule = enum
@@ -70,7 +74,7 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
     else:
       result = n
   else:
-    # semantic checking requires a type; ``fitNode`` deals with it
+    # semantic checking requires a type; `fitNode` deals with it
     # appropriately
     let kind = if r == scClosed or n.kind == nkDotExpr: nkClosedSymChoice
                else: nkOpenSymChoice
@@ -87,21 +91,29 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
       a = nextOverloadIter(o, c, n)
 
 proc semBindStmt(c: PContext, n: PNode, toBind: var IntSet): PNode =
+  ## Analyses a bind statement `n` in a template body and procduces a checked
+  ## node, otherwise an `nkErrror` on failure. Additionally, tracks idents
+  ## `toBind`.
   result = copyNode(n)
-  for i in 0..<n.len:
-    var a = n[i]
-    # If 'a' is an overloaded symbol, we used to use the first symbol
+  var hasError = false
+  for a in n.items:
+    # If `a` is an overloaded symbol, we used to use the first symbol
     # as a 'witness' and use the fact that subsequent lookups will yield
     # the same symbol!
     # This is however not true anymore for hygienic templates as semantic
     # processing for them changes the symbol table...
     let s = qualifiedLookUp(c, a, {checkUndeclared})
-    if s.isError:
-      # XXX: move to propagating nkError, skError, and tyError
-      localReport(c.config, s.ast)
-    elif s != nil:
+    
+    if s.isNil:
+      result.add c.config.newError(a, illformedAstReport(a, ""))
+      hasError = true
+    elif s.isError:
+      result.add s.ast
+      hasError = true
+    else:
       # we need to mark all symbols:
       let sc = symChoice(c, n, s, scClosed)
+
       if sc.kind == nkSym:
         toBind.incl(sc.sym.id)
         result.add sc
@@ -109,30 +121,49 @@ proc semBindStmt(c: PContext, n: PNode, toBind: var IntSet): PNode =
         for x in items(sc):
           toBind.incl(x.sym.id)
           result.add x
-    else:
-      semReportIllformedAst(c.config, a, "")
+  
+  if hasError and result.kind != nkError:
+    result = c.config.wrapError(result)
 
 proc semMixinStmt(c: PContext, n: PNode, toMixin: var IntSet): PNode =
+  ## Analyses a mixin statment in a template body and produces a checked node,
+  ## otherwise an `nkError` on failure. Additionally, tracks idents `toMixin`.
   result = copyNode(n)
-  var count = 0
-  for i in 0..<n.len:
-    let (ident, err) = considerQuotedIdent(c, n[i])
-    if err != nil:
-      localReport(c.config, err)
-    toMixin.incl(ident.id)
-    let x = symChoice(c, n[i], nil, scForceOpen)
-    inc count, x.len
-    result.add x
-  if count == 0:
-    result = newNodeI(nkEmpty, n.info)
+  
+  var
+    count = 0
+    hasError = false
+
+  for it in n.items:
+    let (ident, err) = considerQuotedIdent(c, it)
+  
+    if err.isNil:
+      toMixin.incl(ident.id)
+      let x = symChoice(c, it, nil, scForceOpen)
+      inc count, x.len
+      result.add x
+    else:
+      result.add err
+      hasError = true
+  
+  if hasError:
+    result = c.config.wrapError(result)
+  else:
+    if count == 0:
+      result = newNodeI(nkEmpty, n.info)
 
 proc replaceIdentBySym(c: PContext; n: var PNode, s: PNode) =
+  ## Replaces the symbol node in `n` (postfix, pragmaExpr, ident, accQuoted, or
+  ## sym) with node `s` via in-place mutation, otherwise mutates `n` into an
+  ## `nkError` node.
   case n.kind
   of nkPostfix: replaceIdentBySym(c, n[1], s)
   of nkPragmaExpr: replaceIdentBySym(c, n[0], s)
   of nkIdent, nkAccQuoted, nkSym: n = s
-  else: semReportIllformedAst(
-    c.config, n, "Expected postfix, pragma or indent, but found " & $n.kind)
+  else:
+    n = newError(c.config, n):
+      illformedAstReport(n, "Expected postfix, pragma or indent, but found " &
+                            $n.kind)
 
 type
   TemplCtx = object
@@ -145,26 +176,41 @@ type
     inTemplateHeader: int
 
 proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
-  case n.kind
-  of nkPostfix: result = getIdentNode(c, n[1])
-  of nkPragmaExpr: result = getIdentNode(c, n[0])
-  of nkIdent:
-    result = n
-    let s = qualifiedLookUp(c.c, n, {})
-    if s.isError:
-      # XXX: move to propagating nkError, skError, and tyError
-      localReport(c.c.config, s.ast)
-    elif s != nil:
-      if s.owner == c.owner and s.kind == skParam:
-        result = newSymNode(s, n.info)
-  of nkAccQuoted, nkSym: result = n
-  else:
-    semReportIllformedAst(c.c.config, n, {
-      nkPostfix, nkPragmaExpr, nkIdent, nkAccQuoted})
+  ## gets the ident node, will mutate `n` if it's an `nkPostfix` or
+  ## `nkPragmaExpr` and there is an error (return an nkError).
 
+  case n.kind
+  of nkPostfix:
+    result = getIdentNode(c, n[1])
+    if result.isError:
+      n[1] = result
+      result = c.c.config.wrapError(n)
+  of nkPragmaExpr:
+    result = getIdentNode(c, n[0])
+    if result.isError:
+      n[0] = result
+      result = c.c.config.wrapError(n)
+  of nkIdent:
+    let s = qualifiedLookUp(c.c, n, {})
+
+    if s.isNil:
+      result = n
+    elif s.isError:
+      result = s.ast
+    elif s.owner == c.owner and s.kind == skParam:
+      result = newSymNode(s, n.info)
+    else:
+      result = n
+  of nkAccQuoted, nkSym, nkError:
     result = n
+  else:
+    result = newError(c.c.config, n,
+                      illformedAstReport(n, {nkPostfix, nkPragmaExpr, nkIdent,
+                                             nkAccQuoted}))
+
 
 proc isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
+  ## True if `n` is a parameter symbol of the current template.
   result = n.kind == nkSym and n.sym.kind == skParam and
            n.sym.owner == c.owner and sfTemplateParam in n.sym.flags
 
@@ -177,38 +223,56 @@ proc closeScope(c: var TemplCtx) =
   closeScope(c.c)
 
 proc semTemplBodyScope(c: var TemplCtx, n: PNode): PNode =
+  ## Same as `semTemplBody` except wrapped in a scope.
   openScope(c)
   result = semTemplBody(c, n)
   closeScope(c)
 
 proc onlyReplaceParams(c: var TemplCtx, n: PNode): PNode =
+  ## Produces a node with `n`'s parameter symbols replaced based on the current
+  ## template `c`ontext, otherwise an `nkError`.
   result = n
-  if n.kind == nkIdent:
+  case n.kind
+  of nkIdent:
     let s = qualifiedLookUp(c.c, n, {})
-    if s.isError:
-      # XXX: move to propagating nkError, skError, and tyError
-      localReport(c.c.config, s.ast)
-    elif s != nil:
+    if s.isNil:
+      discard    # simply return n?
+    elif s.isError:
+      result = s.ast
+    else:
       if s.owner == c.owner and s.kind == skParam:
         incl(s.flags, sfUsed)
         result = newSymNode(s, n.info)
         onUse(n.info, s)
+  of nkError:
+    result = n
   else:
+    var hasError = false
     for i in 0..<n.safeLen:
       result[i] = onlyReplaceParams(c, n[i])
 
+      if result[i].isError:
+        hasError = true
+    
+    if hasError:
+      result = c.c.config.wrapError(result)
+
 proc newGenSym(kind: TSymKind, n: PNode, c: var TemplCtx): PSym =
   let (ident, err) = considerQuotedIdent(c.c, n)
-  if err != nil:
-    localReport(c.c.config, err)
-  result = newSym(kind, ident, nextSymId c.c.idgen, c.owner, n.info)
-  result.flags.incl {sfGenSym, sfShadowed}
+  if err.isNil:
+    result = newSym(kind, ident, nextSymId c.c.idgen, c.owner, n.info)
+    result.flags.incl {sfGenSym, sfShadowed}
+  else:
+    result = newSym(skError, ident, nextSymId c.c.idgen, c.owner, n.info)
+    result.typ = c.c.errorType
+    result.ast = err
 
 proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
+  ## Adds local declarations to a template body `n` via in-place mutation, note
+  ## upon error `n` is replaced with an `nkError` node.
   # locals default to 'gensym':
   if n.kind == nkPragmaExpr and symBinding(n[1]) == spInject:
     # even if injected, don't produce a sym choice here:
-    #n = semTemplBody(c, n)
     var x = n[0]
     while true:
       case x.kind
@@ -220,20 +284,32 @@ proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
         # it suffices to return to treat it like 'inject':
         n = onlyReplaceParams(c, n)
         return
+      of nkError: break
       else:
-        semReportIllformedAst(c.c.config, x, {
-          nkPostfix, nkPragmaExpr, nkIdent, nkAccQuoted})
+        x = newError(c.c.config, x,
+                     illformedAstReport(x, {nkPostfix, nkPragmaExpr, nkIdent,
+                                            nkAccQuoted}))
 
     let ident = getIdentNode(c, x)
-    if not isTemplParam(c, ident):
-      c.toInject.incl(x.ident.id)
+
+    case ident.kind:
+    of nkError:
+      n = ident
     else:
-      replaceIdentBySym(c.c, n, ident)
+      if not isTemplParam(c, ident):
+        c.toInject.incl(x.ident.id)
+      else:
+        replaceIdentBySym(c.c, n, ident)
+
   else:
+    var hasError = false
+
     if (n.kind == nkPragmaExpr and n.len >= 2 and n[1].kind == nkPragma):
+
       let pragmaNode = n[1]
       for i in 0..<pragmaNode.len:
         let ni = pragmaNode[i]
+
         # see D20210801T100514
         var found = false
         if ni.kind == nkIdent:
@@ -241,24 +317,48 @@ proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
             if ni.ident == getIdent(c.c.cache, $a):
               found = true
               break
+
         if not found:
           openScope(c)
           pragmaNode[i] = semTemplBody(c, pragmaNode[i])
           closeScope(c)
+
+          if pragmaNode[i].isError:
+            hasError = true
+
     let ident = getIdentNode(c, n)
-    if not isTemplParam(c, ident):
-      if n.kind != nkSym:
-        let local = newGenSym(k, ident, c)
-        addPrelimDecl(c.c, local)
-        styleCheckDef(c.c.config, n.info, local)
-        onDef(n.info, local)
-        replaceIdentBySym(c.c, n, newSymNode(local, n.info))
-        if k == skParam and c.inTemplateHeader > 0:
-          local.flags.incl sfTemplateParam
+
+    case ident.kind:
+    of nkError:
+      n = ident
     else:
-      replaceIdentBySym(c.c, n, ident)
+      if not isTemplParam(c, ident):
+        if n.kind != nkSym:
+          let local = newGenSym(k, ident, c)
+
+          addPrelimDecl(c.c, local)
+          styleCheckDef(c.c.config, n.info, local)
+          onDef(n.info, local)
+          replaceIdentBySym(c.c, n):
+            if local.isError:
+              hasError = true
+              local.ast
+            else:
+              newSymNode(local, n.info)
+
+          if k == skParam and c.inTemplateHeader > 0:
+            local.flags.incl sfTemplateParam
+      else:
+        replaceIdentBySym(c.c, n, ident)
+
+    if hasError and n.kind != nkError:
+      n = c.c.config.wrapError(n)
+
 
 proc semTemplSymbol(c: PContext, n: PNode, s: PSym; isField: bool): PNode =
+  ## Analyses a symbol occurring in a template body and produces a checked node
+  ## or an `nkError`, the `isField` parameter tailors analysis for fields of
+  ## genSyms.
   incl(s.flags, sfUsed)
   # bug #12885; ideally sem'checking is performed again afterwards marking
   # the symbol as used properly, but the nfSem mechanism currently prevents
@@ -268,8 +368,11 @@ proc semTemplSymbol(c: PContext, n: PNode, s: PSym; isField: bool): PNode =
   # resolved here. We will fixup the used identifiers later.
   case s.kind
   of skUnknown:
-    # Introduced in this pass! Leave it as an identifier.
-    result = n
+    result =
+      if s.isError:
+        s.ast       # error symbols have an nkError ast
+      else:
+        n           # Introduced in this pass! Leave it as an identifier.
   of OverloadableSyms-{skEnumField}:
     result = symChoice(c, n, s, scOpen, isField)
   of skGenericParam:
@@ -295,28 +398,49 @@ proc semTemplSymbol(c: PContext, n: PNode, s: PSym; isField: bool): PNode =
       styleCheckUse(c.config, n.info, s)
 
 proc semRoutineInTemplName(c: var TemplCtx, n: PNode): PNode =
+  ## Analyses the `namePos` in a routine-like occurring in a template body,
+  ## producing a checked name node or an `nkError`.
   result = n
-  if n.kind == nkIdent:
+  var hasError = false
+  case n.kind
+  of nkIdent:
     let s = qualifiedLookUp(c.c, n, {})
-    if s.isError:
-      # XXX: move to propagating nkError, skError, and tyError
-      localReport(c.c.config, s.ast)
-    elif s != nil:
+    if s.isNil:
+      discard
+    elif s.isError:
+      result = s.ast
+    else:
       if s.owner == c.owner and (s.kind == skParam or sfGenSym in s.flags):
         incl(s.flags, sfUsed)
         result = newSymNode(s, n.info)
         onUse(n.info, s)
+  of nkError:
+    discard    # return the error
   else:
     for i in 0..<n.safeLen:
       result[i] = semRoutineInTemplName(c, n[i])
 
+      if result[i].isError:
+        hasError = true
+  
+  if hasError:
+    result = c.c.config.wrapError(result)
+
 proc semRoutineInTemplBody(c: var TemplCtx, n: PNode, k: TSymKind): PNode =
+  ## Analyses a routine-like occurring in a template body producing a checked
+  ## node or an `nkError`.
   result = n
   checkSonsLen(n, bodyPos + 1, c.c.config)
+  
+  var hasError = false
+  
   # routines default to 'inject':
   if n.kind notin nkLambdaKinds and symBinding(n[pragmasPos]) == spGenSym:
     let ident = getIdentNode(c, n[namePos])
-    if not isTemplParam(c, ident):
+
+    if ident.isError:
+      n[namePos] = ident
+    elif not isTemplParam(c, ident):
       var s = newGenSym(k, ident, c)
       s.ast = n
       addPrelimDecl(c.c, s)
@@ -327,65 +451,134 @@ proc semRoutineInTemplBody(c: var TemplCtx, n: PNode, k: TSymKind): PNode =
       n[namePos] = ident
   else:
     n[namePos] = semRoutineInTemplName(c, n[namePos])
+
+  if n[namePos].isError:
+    hasError = true
+
   # open scope for parameters
   openScope(c)
   for i in patternPos..paramsPos-1:
     n[i] = semTemplBody(c, n[i])
 
+    if n[i].isError:
+      hasError = true
+
   if k == skTemplate: inc(c.inTemplateHeader)
   n[paramsPos] = semTemplBody(c, n[paramsPos])
   if k == skTemplate: dec(c.inTemplateHeader)
+  
+  if n[paramsPos].isError:
+    hasError = true
 
   for i in paramsPos+1..miscPos:
     n[i] = semTemplBody(c, n[i])
+
+    if n[i].isError:
+      hasError = true
+  
   # open scope for locals
   inc c.scopeN
   openScope(c)
   n[bodyPos] = semTemplBody(c, n[bodyPos])
+  if n[bodyPos].isError:
+    hasError = true
+
   # close scope for locals
   closeScope(c)
   dec c.scopeN
   # close scope for parameters
   closeScope(c)
 
-proc semTemplSomeDecl(c: var TemplCtx, n: PNode, symKind: TSymKind; start = 0) =
+  if hasError:
+    result = c.c.config.wrapError(result)
+
+proc semTemplSomeDecl(c: var TemplCtx, n: PNode, symKind: TSymKind,
+                      start = 0): PNode =
+  ## Analyses a const/let/var section occuring in a template body, producing a
+  ## checked section or an `nkError`. A `start` parameter can be provided to
+  ## allow for incremental processing of such sections.
+  assert n.kind in {nkConstSection, nkFormalParams, nkLetSection, nkVarSection}
+
+  result = n
+
+  var hasError = false
+
   for i in start..<n.len:
     var a = n[i]
     case a.kind:
     of nkCommentStmt: continue
+    of nkError:
+      hasError = true
     of nkIdentDefs, nkVarTuple, nkConstDef:
       checkMinSonsLen(a, 3, c.c.config)
+      
       when defined(nimsuggest):
         inc c.c.inTypeContext
+      
       a[^2] = semTemplBody(c, a[^2])
+
+      if a[^2].isError:
+        hasError = true
+      
       when defined(nimsuggest):
         dec c.c.inTypeContext
+      
       a[^1] = semTemplBody(c, a[^1])
+
+      if a[^1].isError:
+        hasError = true
+      
       for j in 0..<a.len-2:
         addLocalDecl(c, a[j], symKind)
-    else:
-      semReportIllformedAst(c.c.config, a, {
-        nkCommentStmt, nkIdentDefs, nkVarTuple, nkConstDef})
 
+        if a[j].isError:
+          hasError = true
+    else:
+      n[i] = newError(c.c.config, a, illformedAstReport(a, {
+              nkCommentStmt, nkIdentDefs, nkVarTuple, nkConstDef}))
+
+  if hasError:
+    result = c.c.config.wrapError(result)
 
 proc semPattern(c: PContext, n: PNode; s: PSym): PNode
 
 proc semTemplBodySons(c: var TemplCtx, n: PNode): PNode =
+  ## Analyses child nodes of `n` with the production being `n` updated in-place
+  ## otherwise an `nkError` wrapping `n` for non-dirty and non-immediate
+  ## templates.
+  var hasError = false
+
   result = n
-  for i in 0..<n.len:
-    result[i] = semTemplBody(c, n[i])
+  case n.kind
+  of nkError:
+    discard   # return the error in result
+  else:
+    for i in 0..<n.len:
+      result[i] = semTemplBody(c, n[i])
+
+      if result[i].isError:
+        hasError = true
+  
+  if hasError:
+    result = c.c.config.wrapError(result)
 
 proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
+  ## Analyses a template body `n` for a template producing a semantically
+  ## checked body otherwise and `nkError`. This is for non-dirty and
+  ## non-immediate template bodies.
+  var hasError = false
+
   result = n
   semIdeForTemplateOrGenericCheck(c.c.config, n, c.cursorInBody)
   case n.kind
   of nkIdent:
     if n.ident.id in c.toInject: return n
     let s = qualifiedLookUp(c.c, n, {})
-    if s.isError:
-      # XXX: move to propagating nkError, skError, and tyError
-      localReport(c.c.config, s.ast)
-    elif s != nil:
+    if s.isNil:
+      discard     # result is already set to n
+    elif s.isError:
+      result = s.ast
+    else:
       if s.owner == c.owner and s.kind == skParam and sfTemplateParam in s.flags:
         incl(s.flags, sfUsed)
         result = newSymNode(s, n.info)
@@ -419,41 +612,82 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
         it[0] = semTemplBody(c, it[0])
         it[1] = semTemplBody(c, it[1])
         closeScope(c)
+        if nkError in {it[0].kind, it[1].kind}:
+          hasError = true
       else:
         n[i] = semTemplBodyScope(c, it)
+        if n[i].isError:
+          hasError = true
   of nkWhileStmt:
     openScope(c)
     for i in 0..<n.len:
       n[i] = semTemplBody(c, n[i])
+      if n[i].isError:
+          hasError = true
     closeScope(c)
   of nkCaseStmt:
     openScope(c)
     n[0] = semTemplBody(c, n[0])
+    
+    if n[0].isError:
+      hasError = true
+    
     for i in 1..<n.len:
       var a = n[i]
       checkMinSonsLen(a, 1, c.c.config)
+      
       for j in 0..<a.len-1:
         a[j] = semTemplBody(c, a[j])
+
+        if a[j].isError:
+          hasError = true
+      
       a[^1] = semTemplBodyScope(c, a[^1])
+      
+      if a[^1].isError:
+        hasError = true
     closeScope(c)
   of nkForStmt:
     openScope(c)
     n[^2] = semTemplBody(c, n[^2])
+    if n[^2].isError:
+      hasError = true
+
     for i in 0..<n.len - 2:
       if n[i].kind == nkVarTuple:
         for j in 0..<n[i].len-1:
           addLocalDecl(c, n[i][j], skForVar)
+
+          if n[i][j].isError:
+            hasError = true
       else:
         addLocalDecl(c, n[i], skForVar)
+
+        if n[i].isError:
+          hasError = true
+    
     openScope(c)
     n[^1] = semTemplBody(c, n[^1])
     closeScope(c)
+
+    if n[^1].isError:
+      hasError = true
+
     closeScope(c)
   of nkBlockStmt, nkBlockExpr, nkBlockType:
     checkSonsLen(n, 2, c.c.config)
     openScope(c)
-    if n[0].kind != nkEmpty:
+    case n[0].kind
+    of nkError:
+      hasError = true
+    of nkEmpty:
+      discard
+    else:
       addLocalDecl(c, n[0], skLabel)
+
+      if n[0].isError:
+        hasError = true
+      
       when false:
         # labels are always 'gensym'ed:
         let s = newGenSym(skLabel, n[0], c)
@@ -461,42 +695,78 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
         styleCheckDef(c.c.config, s)
         onDef(n[0].info, s)
         n[0] = newSymNode(s, n[0].info)
+    
     n[1] = semTemplBody(c, n[1])
+
+    if n[1].isError:
+      hasError = true
+
     closeScope(c)
   of nkTryStmt, nkHiddenTryStmt:
     checkMinSonsLen(n, 2, c.c.config)
     n[0] = semTemplBodyScope(c, n[0])
+
+    if n[0].isError:
+      hasError = true
+
     for i in 1..<n.len:
       var a = n[i]
       checkMinSonsLen(a, 1, c.c.config)
       openScope(c)
+
       for j in 0..<a.len-1:
         if a[j].isInfixAs():
           addLocalDecl(c, a[j][2], skLet)
+
+          if a[j][2].isError:
+            hasError = true
+
           a[j][1] = semTemplBody(c, a[j][1])
+
+          if a[j][1].isError:
+            hasError = true
         else:
           a[j] = semTemplBody(c, a[j])
+
+          if a[j].isError:
+            hasError = true
+
       a[^1] = semTemplBodyScope(c, a[^1])
+
+      if a[^1].isError:
+        hasError = true
+
       closeScope(c)
-  of nkVarSection: semTemplSomeDecl(c, n, skVar)
-  of nkLetSection: semTemplSomeDecl(c, n, skLet)
+  of nkConstSection: result = semTemplSomeDecl(c, n, skConst)
+  of nkLetSection:   result = semTemplSomeDecl(c, n, skLet)
+  of nkVarSection:   result = semTemplSomeDecl(c, n, skVar)
   of nkFormalParams:
     checkMinSonsLen(n, 1, c.c.config)
-    semTemplSomeDecl(c, n, skParam, 1)
+    result = semTemplSomeDecl(c, n, skParam, 1)
     n[0] = semTemplBody(c, n[0])
-  of nkConstSection: semTemplSomeDecl(c, n, skConst)
+    if n[0].isError and result.kind != nkError:
+      result = c.c.config.wrapError(result)
   of nkTypeSection:
     for i in 0..<n.len:
       var a = n[i]
-      if a.kind == nkCommentStmt: continue
+      if a.kind == nkCommentStmt:
+        continue
+
       if (a.kind != nkTypeDef):
         semReportIllformedAst(c.c.config, a, {nkTypeDef})
 
       checkSonsLen(a, 3, c.c.config)
       addLocalDecl(c, a[0], skType)
+
+      if a[0].isError:
+        hasError = true
+
     for i in 0..<n.len:
       var a = n[i]
-      if a.kind == nkCommentStmt: continue
+
+      if a.kind == nkCommentStmt:
+        continue
+      
       if (a.kind != nkTypeDef):
         semReportIllformedAst(c.c.config, a, {nkTypeDef})
 
@@ -508,6 +778,9 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
         closeScope(c)
       else:
         a[2] = semTemplBody(c, a[2])
+
+      if nkError in {a[1].kind, a[2].kind}:
+        hasError = true
   of nkProcDef, nkLambdaKinds:
     result = semRoutineInTemplBody(c, n, skProc)
   of nkFuncDef:
@@ -524,12 +797,26 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     result = semRoutineInTemplBody(c, n, skConverter)
   of nkPragmaExpr:
     result[0] = semTemplBody(c, n[0])
+
+    if result[0].isError:
+      hasError = true
   of nkPostfix:
     result[1] = semTemplBody(c, n[1])
+
+    if result[1].isError:
+      hasError = true
   of nkPragma:
     for x in n:
-      if x.kind == nkExprColonExpr:
+      case x.kind
+      of nkExprColonExpr:
         x[1] = semTemplBody(c, x[1])
+
+        if x[1].isError:
+          hasError = true
+      of nkError:
+        hasError = true
+      else:
+        discard
   of nkBracketExpr:
     result = newNodeI(nkCall, n.info)
     result.add newIdentNode(getIdent(c.c.cache, "[]"), n.info)
@@ -570,10 +857,12 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     # dotExpr is ambiguous: note that we explicitly allow 'x.TemplateParam',
     # so we use the generic code for nkDotExpr too
     let s = qualifiedLookUp(c.c, n, {})
-    if s.isError:
-      # XXX: move to propagating nkError, skError, and tyError
-      localReport(c.c.config, s.ast)
-    elif s != nil:
+
+    if s.isNil:
+      discard
+    elif s.isError:
+      result = s.ast
+    else:
       # do not symchoice a quoted template parameter (bug #2390):
       if s.owner == c.owner and s.kind == skParam and
           n.kind == nkAccQuoted and n.len == 1:
@@ -586,14 +875,23 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
         return symChoice(c.c, n, s, scForceOpen, c.noGenSym > 0)
       else:
         return symChoice(c.c, n, s, scOpen, c.noGenSym > 0)
-    if n.kind == nkDotExpr:
+
+    case n.kind
+    of nkDotExpr:
       result = n
+
       result[0] = semTemplBody(c, n[0])
+      
       inc c.noGenSym
       result[1] = semTemplBody(c, n[1])
       dec c.noGenSym
-    else:
+
+      if nkError in {result[0].kind, result[1].kind}:
+        result = c.c.config.wrapError(result)
+    of nkAccQuoted:
       result = semTemplBodySons(c, n)
+    else:
+      c.c.config.internalError("should never have gotten here")
   of nkExprColonExpr, nkExprEqExpr:
     if n.len == 2:
       inc c.noGenSym
@@ -606,19 +904,54 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
     # also transform the keys (bug #12595)
     for i in 0..<n.len:
       result[i] = semTemplBodySons(c, n[i])
+
+      if result[i].isError:
+        hasError = true
+  of nkError:
+    result = n
   else:
     result = semTemplBodySons(c, n)
+  
+  if hasError:
+    result = c.c.config.wrapError(result)
+
+proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode
+
+proc semTemplBodyDirtyKids(c: var TemplCtx, n: PNode): PNode =
+  ## Analyses child nodes of `n` with the production being `n` updated in-place
+  ## otherwise an `nkError` wrapping `n` for dirty templates.
+  var hasError = false
+  
+  result = n
+  case n.kind
+  of nkError:
+    discard    # result is already assigned n
+  else:
+    for i in 0..<n.len:
+      result[i] = semTemplBodyDirty(c, n[i])
+      
+      if result[i].isError:
+        hasError = true
+  
+  if hasError:
+    result = c.c.config.wrapError(result)
 
 proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode =
+  ## Analyses a template body `n` for a `dirty` template producing a
+  ## semantically checked body otherwise and `nkError`.
   result = n
+
   semIdeForTemplateOrGenericCheck(c.c.config, n, c.cursorInBody)
+
   case n.kind
   of nkIdent:
     let s = qualifiedLookUp(c.c, n, {})
-    if s.isError:
-      # XXX: move to propagating nkError, skError, and tyError
-      localReport(c.c.config, s.ast)
-    elif s != nil:
+
+    if s.isNil:
+      discard
+    elif s.isError:
+      result = s.ast
+    else:
       if s.owner == c.owner and s.kind == skParam:
         result = newSymNode(s, n.info)
       elif contains(c.toBind, s.id):
@@ -627,30 +960,49 @@ proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode =
     result = semTemplBodyDirty(c, n[0])
   of nkBindStmt:
     result = semBindStmt(c.c, n, c.toBind)
-  of nkEmpty, nkSym..nkNilLit:
+  of nkEmpty, nkSym..nkNilLit, nkError:
     discard
-  else:
+  of nkDotExpr, nkAccQuoted:
     # dotExpr is ambiguous: note that we explicitly allow 'x.TemplateParam',
     # so we use the generic code for nkDotExpr too
-    if n.kind == nkDotExpr or n.kind == nkAccQuoted:
-      let s = qualifiedLookUp(c.c, n, {})
-      if s.isError:
-        # XXX: move to propagating nkError, skError, and tyError
-        localReport(c.c.config, s.ast)
-      elif s != nil and contains(c.toBind, s.id):
-        return symChoice(c.c, n, s, scClosed)
-    result = n
-    for i in 0..<n.len:
-      result[i] = semTemplBodyDirty(c, n[i])
+    let s = qualifiedLookUp(c.c, n, {})
+
+    if s.isNil:
+      result = semTemplBodyDirtyKids(c, n)
+    elif s.isError:
+      result = s.ast
+    elif contains(c.toBind, s.id):
+      result = symChoice(c.c, n, s, scClosed)
+    else:
+      result = semTemplBodyDirtyKids(c, n)
+  else:
+    result = semTemplBodyDirtyKids(c, n)
+
+
+proc semProcAnnotation(c: PContext, prc: PNode; validPragmas: TSpecialWords): PNode
+# from semstmts
 
 proc semTemplateDef(c: PContext, n: PNode): PNode =
-  result = n
-  var s: PSym
-  if isTopLevel(c):
-    s = semIdentVis(c, skTemplate, n[namePos], {sfExported})
+  ## Analyse `n` a template definition producing a callable template.
+  addInNimDebugUtils(c.config, "semTemplateDef", n, result)
+
+  assert n.kind == nkTemplateDef, "template def expected, got: " & $n.kind
+
+  result = semProcAnnotation(c, n, templatePragmas)
+  if result != nil:
+    return result
+
+  # setup node for production
+  result = copyNode(n)      # not all flags copied, let's see how that works
+  result.sons.newSeq(n.len) # make space for the kids
+
+  var hasError = false
+
+  var s = semIdentVis(c, skTemplate, n[namePos],
+                      allowed = (if c.isTopLevel: {sfExported} else: {}))
+  if c.isTopLevel:
     incl(s.flags, sfGlobal)
-  else:
-    s = semIdentVis(c, skTemplate, n[namePos], {})
+
   assert s.kind == skTemplate
 
   if s.owner != nil:
@@ -661,26 +1013,38 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
 
   styleCheckDef(c.config, s)
   onDef(n[namePos].info, s)
+
   # check parameter list:
-  #s.scope = c.currentScope
   pushOwner(c, s)
   openScope(c)
-  n[namePos] = newSymNode(s)
-  result = pragmaCallable(c, s, n, templatePragmas)
-  if result.kind != nkError:
-    s = implicitPragmas(c, s, n.info, templatePragmas)
 
-  # check if we got any errors and if so report them
-  if s != nil and s.kind == skError:
-    result = s.ast
-  for e in ifErrorWalkErrors(c.config, result):
-    localReport(c.config, e)
+  result[namePos] = newSymNode(s)
+  result[pragmasPos] = n[pragmasPos]
 
-  setGenericParamsMisc(c, n)
+  discard pragmaCallable(c, s, result, templatePragmas) # just check pragmasPos
+
+  if result[pragmasPos].kind == nkError:
+    hasError = true
+  
+  # this should return the same `s` if there were no errors
+  s = implicitPragmas(c, s, n.info, templatePragmas)
+
+  if s.isError:
+    result[namePos] = s.ast
+    hasError = true
+  
+  result[genericParamsPos] = n[genericParamsPos]
+  result[miscPos] = n[miscPos]
+
+  setGenericParamsMisc(c, result)
+
+  result[paramsPos] = n[paramsPos]
+
   # process parameters:
   var allUntyped = true
-  if n[paramsPos].kind != nkEmpty:
-    semParamList(c, n[paramsPos], n[genericParamsPos], s)
+  case n[paramsPos].kind
+  of nkFormalParams:
+    semParamList(c, result[paramsPos], result[genericParamsPos], s)
     # a template's parameters are not gensym'ed even if that was originally the
     # case as we determine whether it's a template parameter in the template
     # body by the absence of the sfGenSym flag:
@@ -688,62 +1052,106 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
       let param = s.typ.n[i].sym
       param.flags.incl sfTemplateParam
       param.flags.excl sfGenSym
-      if param.typ.kind != tyUntyped: allUntyped = false
-  else:
+      if param.typ.kind != tyUntyped:
+        allUntyped = false
+  of nkEmpty:
     s.typ = newTypeS(tyProc, c)
     # XXX why do we need tyTyped as a return type again?
     s.typ.n = newNodeI(nkFormalParams, n.info)
     rawAddSon(s.typ, newTypeS(tyTyped, c))
     s.typ.n.add newNodeIT(nkType, n.info, s.typ[0])
-  if n[genericParamsPos].safeLen == 0:
-    # restore original generic type params as no explicit or implicit were found
-    n[genericParamsPos] = n[miscPos][1]
-    n[miscPos] = c.graph.emptyNode
-  if allUntyped: incl(s.flags, sfAllUntyped)
-
-  if n[patternPos].kind != nkEmpty:
-    n[patternPos] = semPattern(c, n[patternPos], s)
-
-  var ctx: TemplCtx
-  ctx.toBind = initIntSet()
-  ctx.toMixin = initIntSet()
-  ctx.toInject = initIntSet()
-  ctx.c = c
-  ctx.owner = s
-  if sfDirty in s.flags:
-    n[bodyPos] = semTemplBodyDirty(ctx, n[bodyPos])
   else:
-    n[bodyPos] = semTemplBody(ctx, n[bodyPos])
-  # only parameters are resolved, no type checking is performed
-  semIdeForTemplateOrGeneric(c, n[bodyPos], ctx.cursorInBody)
+    discard # error out?
+  
+  if result[genericParamsPos].safeLen == 0:
+    # restore original generic type params as no explicit or implicit params
+    # were found
+    result[genericParamsPos] = result[miscPos][1]
+    result[miscPos] = c.graph.emptyNode
+  
+  if allUntyped:
+    incl(s.flags, sfAllUntyped)
+  
+  result[patternPos] = semPattern(c, n[patternPos], s)
+  if result[patternPos].isError:
+    hasError = true
+
+  var ctx = TemplCtx(c: c, toBind: initIntSet(), toMixin: initIntSet(),
+                     toInject: initIntSet(), owner: s)
+  result[bodyPos] =
+    if sfDirty in s.flags:
+      semTemplBodyDirty(ctx, n[bodyPos])
+    else:
+      semTemplBody(ctx, n[bodyPos])
+  
+  # only parameters are resolve, no type checking is performed
+  semIdeForTemplateOrGeneric(c, result[bodyPos], ctx.cursorInBody)
   closeScope(c)
   popOwner(c)
 
   # set the symbol AST after pragmas, at least. This stops pragma that have
   # been pushed (implicit) to be explicitly added to the template definition
-  # and misapplied to the body. see #18113
-  s.ast = n
+  # and misapplied to the body.
+  s.ast = result
 
-  if sfCustomPragma in s.flags:
-    if n[bodyPos].kind != nkEmpty:
-      localReport(c.config, n[bodyPos].info, reportSym(
-        rsemImplementationNotAllowed, s))
+  case result[bodyPos].kind
+  of nkError:
+    hasError = true
+  of nkEmpty:
+    if sfCustomPragma notin s.flags:
+      result[bodyPos] = newError(c.config, result[bodyPos],
+                                 reportSym(rsemImplementationExpected, s),
+                                 posInfo = result.info)
+      hasError = true
+  else:
+    if sfCustomPragma in s.flags:      
+      result[bodyPos] = newError(c.config, result[bodyPos],
+                                 reportSym(rsemImplementationNotAllowed, s))
+      hasError = true
 
-  elif n[bodyPos].kind == nkEmpty:
-    localReport(c.config, n.info, reportSym(
-      rsemImplementationExpected, s))
+  let (proto, comesFromShadowScope) = searchForProc(c, c.currentScope, s)
 
-  var (proto, comesFromShadowscope) = searchForProc(c, c.currentScope, s)
-  if proto == nil:
+  if proto.isNil:
     addInterfaceOverloadableSymAt(c, c.currentScope, s)
-  elif not comesFromShadowscope:
+  elif not comesFromShadowScope:
     symTabReplace(c.currentScope.symbols, proto, s)
-  if n[patternPos].kind != nkEmpty:
+  
+  case result[patternPos].kind
+  of nkEmpty:
+    discard # no pattern, nothing to do
+  else:
     c.patterns.add(s)
 
+  if hasError:
+    result = c.config.wrapError(result)
+
 proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
+  ## Analyse `n` a term rewriting pattern body producing an instantiable
+  ## template, otherwise an error.
+  ##
+  ## The body itself will be applied when the associated pattern is matched see
+  ## `semPattern`.
+  var hasError = false
+
   template templToExpand(s: untyped): untyped =
     s.kind == skTemplate and (s.typ.len == 1 or sfAllUntyped in s.flags)
+
+  proc semPatternBodyKids(c: var TemplCtx, n: PNode): PNode {.inline.} =
+    var hasError = false
+  
+    result = n
+    case n.kind
+    of nkError:
+      discard    # result is already assigned n
+    else:
+      for i in 0..<n.len:
+        result[i] = semPatternBody(c, n[i])
+        
+        if result[i].isError:
+          hasError = true
+    
+    if hasError:
+      result = c.c.config.wrapError(result)
 
   proc newParam(c: var TemplCtx, n: PNode, s: PSym): PNode =
     # the param added in the current scope is actually wrong here for
@@ -756,73 +1164,81 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
     assert x.name == s.name
     result = newSymNode(x, n.info)
 
-  proc handleSym(c: var TemplCtx, n: PNode, s: PSym): PNode =
-    result = n
-    if s.isError:
-      # XXX: move to propagating nkError, skError, and tyError
-      localReport(c.c.config, s.ast)
-    elif s != nil:
-      if s.owner == c.owner and s.kind == skParam:
-        result = newParam(c, n, s)
-      elif contains(c.toBind, s.id):
-        result = symChoice(c.c, n, s, scClosed)
-      elif templToExpand(s):
-        result = semPatternBody(c, semTemplateExpr(c.c, n, s, {efNoSemCheck}))
-      else:
-        discard
-        # we keep the ident unbound for matching instantiated symbols and
-        # more flexibility
-
   proc expectParam(c: var TemplCtx, n: PNode): PNode =
     let s = qualifiedLookUp(c.c, n, {})
+
     if s != nil and s.owner == c.owner and s.kind == skParam:
       result = newParam(c, n, s)
     else:
       if s.isError:
-        # XXX: move to propagating nkError, skError, and tyError
-        localReport(c.c.config, s.ast)
-      localReport(c.c.config, n, reportSem rsemInvalidExpression)
-      result = n
+        result = s.ast
+      else:
+        result = n
+
+      result = c.c.config.newError(result, reportSem rsemInvalidExpression)
 
   result = n
   case n.kind
   of nkIdent:
     let s = qualifiedLookUp(c.c, n, {})
-    result = handleSym(c, n, s)
+    result =
+      if s.isNil:
+        n
+      elif s.isError:
+        s.ast
+      else:
+        if s.owner == c.owner and s.kind == skParam:
+          newParam(c, n, s)
+        elif contains(c.toBind, s.id):
+          symChoice(c.c, n, s, scClosed)
+        elif templToExpand(s):
+          semPatternBody(c, semTemplateExpr(c.c, n, s, {efNoSemCheck}))
+        else:
+          n
+          # we keep the ident unbound for matching instantiated symbols and
+          # more flexibility
   of nkBindStmt:
     result = semBindStmt(c.c, n, c.toBind)
-  of nkEmpty, nkSym..nkNilLit: discard
+  of nkEmpty, nkSym..nkNilLit:
+    discard
   of nkCurlyExpr:
     # we support '(pattern){x}' to bind a subpattern to a parameter 'x';
     # '(pattern){|x}' does the same but the matches will be gathered in 'x'
     if n.len != 2:
-      localReport(c.c.config, n, reportSem rsemInvalidExpression)
+      result = c.c.config.newError(n, reportSem rsemInvalidExpression)
     elif n[1].kind == nkIdent:
       n[0] = semPatternBody(c, n[0])
       n[1] = expectParam(c, n[1])
+
+      if nkError in {n[0].kind, n[1].kind}:
+        hasError = true
     elif n[1].kind == nkPrefix and n[1][0].kind == nkIdent:
       let opr = n[1][0]
+      
       if opr.ident.s == "|":
         n[0] = semPatternBody(c, n[0])
         n[1][1] = expectParam(c, n[1][1])
+
+        if nkError in {n[0].kind, n[1][1].kind}:
+          hasError = true
       else:
-        localReport(c.c.config, n, reportSem rsemInvalidExpression)
-
+        result = c.c.config.newError(n, reportSem rsemInvalidExpression)
     else:
-      localReport(c.c.config, n, reportSem rsemInvalidExpression)
-
+      result = c.c.config.newError(n, reportSem rsemInvalidExpression)
   of nkStmtList, nkStmtListExpr:
-    if stupidStmtListExpr(n):
-      result = semPatternBody(c, n.lastSon)
-    else:
-      for i in 0..<n.len:
-        result[i] = semPatternBody(c, n[i])
+    result =
+      if stupidStmtListExpr(n):
+        semPatternBody(c, n.lastSon)
+      else:
+        semPatternBodyKids(c, n)
   of nkCallKinds:
     let s = qualifiedLookUp(c.c, n[0], {})
-    if s.isError:
+    if s.isNil:
+      discard  # n is already assigned
+    elif s.isError:
       # XXX: move to propagating nkError, skError, and tyError
-      localReport(c.c.config, s.ast)
-    elif s != nil:
+      result = s.ast
+    else:
       if s.owner == c.owner and s.kind == skParam: discard
       elif contains(c.toBind, s.id): discard
       elif templToExpand(s):
@@ -837,12 +1253,20 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
           [newIdentNode(id, n.info),
            semPatternBody(c, n[1]),
            expectParam(c, n[2])]
+
+        if nkError in {result[1].kind, result[2].kind}:
+          result = c.c.config.wrapError(result)
+
         return
       elif id.s == "|":
         result = newTreeI(nkPattern, n.info):
           [newIdentNode(id, n.info),
            semPatternBody(c, n[1]),
            semPatternBody(c, n[2])]
+
+        if nkError in {result[1].kind, result[2].kind}:
+          result = c.c.config.wrapError(result)
+
         return
 
     if n.kind == nkPrefix and
@@ -851,44 +1275,71 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
         result = newTreeI(nkPattern, n.info):
           [newIdentNode(id, n.info),
            semPatternBody(c, n[1])]
+
+        if result[1].isError:
+          result = c.c.config.wrapError(result)
+
         return
 
-    for i in 0..<n.len:
-      result[i] = semPatternBody(c, n[i])
-  else:
+    result = semPatternBodyKids(c, n)
+  of nkDotExpr, nkAccQuoted:
     # dotExpr is ambiguous: note that we explicitly allow 'x.TemplateParam',
     # so we use the generic code for nkDotExpr too
-    case n.kind
-    of nkDotExpr, nkAccQuoted:
-      let s = qualifiedLookUp(c.c, n, {})
-      if s.isError:
-        # XXX: move to propagating nkError, skError, and tyError
-        localReport(c.c.config, s.ast)
-      elif s != nil:
-        if contains(c.toBind, s.id):
-          return symChoice(c.c, n, s, scClosed)
-        else:
-          return newIdentNode(s.name, n.info)
-    of nkPar:
-      if n.len == 1: return semPatternBody(c, n[0])
-    else: discard
-    for i in 0..<n.len:
-      result[i] = semPatternBody(c, n[i])
+    let s = qualifiedLookUp(c.c, n, {})
+
+    result =
+      if s.isNil:
+        semPatternBodyKids(c, n)
+      elif s.isError:
+        s.ast
+      elif contains(c.toBind, s.id):
+        symChoice(c.c, n, s, scClosed)
+      else:
+        newIdentNode(s.name, n.info)
+  of nkPar:
+    result =
+      if n.len == 1:
+        semPatternBody(c, n[0])
+      else:
+        semPatternBodyKids(c, n)
+  else:
+    result = semPatternBodyKids(c, n)
+
+  if hasError and result.kind != nkError:
+    result = c.c.config.wrapError(result)
 
 proc semPattern(c: PContext, n: PNode; s: PSym): PNode =
-  openScope(c)
-  var ctx = TemplCtx(
-    toBind: initIntSet(),
-    toMixin: initIntSet(),
-    toInject: initIntSet(),
-    c: c,
-    owner: getCurrOwner(c)
-  )
-  result = flattenStmts(semPatternBody(ctx, n))
-  if result.kind in {nkStmtList, nkStmtListExpr}:
-    if result.len == 1:
-      result = result[0]
-    elif result.len == 0:
-      localReport(c.config, n, reportSem rsemExpectedNonemptyPattern)
-  closeScope(c)
-  addPattern(c, LazySym(sym: s))
+  ## Analyses `n` and produces an analysed pattern or `nkError` upon failure.
+  ##
+  ## `n` should be the AST from a `patternPos` of a template definition. The
+  ## analysed pattern is addd to the current `c`ontext for term matching during
+  ## `hlo` (high level optimization) phase.
+  
+  case n.kind
+  of nkError, nkEmpty: # treated as no-ops
+    result = n
+  else:
+    openScope(c)
+    
+    var ctx = TemplCtx(
+      toBind: initIntSet(),
+      toMixin: initIntSet(),
+      toInject: initIntSet(),
+      c: c,
+      owner: getCurrOwner(c)
+    )
+    
+    result = flattenStmts(semPatternBody(ctx, n))
+    
+    if result.kind in {nkStmtList, nkStmtListExpr}:
+      result =
+        case result.len
+        of 1:
+          result[0] # unwrap
+        of 0:
+          c.config.newError(n, reportSem rsemExpectedNonemptyPattern)
+        else:
+          result    # leave as is
+    closeScope(c)
+    
+    addPattern(c, LazySym(sym: s))

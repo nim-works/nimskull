@@ -49,7 +49,7 @@
 ##
 ##     writeFile("output.html", $html)
 
-import strutils, streams, parsexml, xmltree, unicode, strtabs
+import std/[strutils, streams, parsexml, xmltree, unicode, strtabs]
 
 type
   HtmlTag* = enum  ## list of all supported HTML tags; order will always be
@@ -2061,7 +2061,7 @@ proc loadHtml*(path: string): XmlNode =
   result = loadHtml(path, errors)
 
 when not defined(testing) and isMainModule:
-  import os
+  import std/os
 
   var errors: seq[string] = @[]
   var x = loadHtml(paramStr(1), errors)

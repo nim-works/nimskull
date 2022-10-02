@@ -90,7 +90,7 @@ template decTypeSize(cell, t) =
 
 template incTypeSize(typ, size) =
   when defined(nimTypeNames):
-    atomicInc typ.instances
+    discard atomicInc typ.instances
     atomicInc typ.sizes, size+sizeof(Cell)
 
 proc dispose*(x: ForeignCell) =

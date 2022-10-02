@@ -21,7 +21,7 @@ when defined(nimHasUsed):
 # We don't want to profile the profiling code ...
 {.push profiler: off.}
 
-import hashes, algorithm, strutils, tables, sets
+import std/[hashes, algorithm, strutils, tables, sets]
 
 when not defined(memProfiler):
   include "system/timers"
@@ -67,7 +67,7 @@ when not defined(memProfiler):
     else: interval = intervalInUs * 1000 - tickCountCorrection
 
 when withThreads:
-  import locks
+  import std/locks
   var
     profilingLock: Lock
 
@@ -214,7 +214,7 @@ var
 
 proc disableProfiling*() =
   when declared(system.StackTrace):
-    atomicDec disabled
+    discard atomicDec disabled
     system.profilingRequestedHook = nil
 
 proc enableProfiling*() =

@@ -59,8 +59,6 @@ type
     inGenericParams: bool
     checkAnon: bool        # we're in a context that can contain sfAnon
     inPragma: int
-    when defined(nimpretty):
-      pendingNewlineCount: int
     fid*: FileIndex
     config*: ConfigRef
     mangler: seq[PSym]
@@ -95,22 +93,6 @@ const
   IndentWidth = 2
   longIndentWid = IndentWidth * 2
 
-when defined(nimpretty):
-  proc minmaxLine(n: PNode): (int, int) =
-    case n.kind
-    of nkTripleStrLit:
-      result = (n.info.line.int, n.info.line.int + countLines(n.strVal))
-    of nkCommentStmt:
-      result = (n.info.line.int, n.info.line.int + countLines(n.comment))
-    else:
-      result = (n.info.line.int, n.info.line.int)
-    for i in 0..<n.safeLen:
-      let (currMin, currMax) = minmaxLine(n[i])
-      if currMin < result[0]: result[0] = currMin
-      if currMax > result[1]: result[1] = currMax
-
-  proc lineDiff(a, b: PNode): int =
-    result = minmaxLine(b)[0] - minmaxLine(a)[1]
 
 const
   MaxLineLen = 80
@@ -138,10 +120,7 @@ proc addTok(g: var TSrcGen, kind: TokType, s: string; sym: PSym = nil) =
 
 proc addPendingNL(g: var TSrcGen) =
   if g.pendingNL >= 0:
-    when defined(nimpretty):
-      let newlines = repeat("\n", clamp(g.pendingNewlineCount, 1, 3))
-    else:
-      const newlines = "\n"
+    const newlines = "\n"
     addTok(g, tkSpaces, newlines & spaces(g.pendingNL))
     g.lineLen = g.pendingNL
     g.col = g.pendingNL
@@ -161,17 +140,12 @@ proc putNL(g: var TSrcGen, indent: int) =
   g.lineLen = indent
   g.pendingWhitespace = -1
 
-proc previousNL(g: TSrcGen): bool =
-  result = g.pendingNL >= 0 or (g.tokens.len > 0 and
-                                g.tokens[^1].kind == tkSpaces)
-
 proc putNL(g: var TSrcGen) =
   putNL(g, g.indent)
 
 proc optNL(g: var TSrcGen, indent: int) =
   g.pendingNL = indent
   g.lineLen = indent
-  when defined(nimpretty): g.pendingNewlineCount = 0
 
 proc optNL(g: var TSrcGen) =
   optNL(g, g.indent)
@@ -179,7 +153,6 @@ proc optNL(g: var TSrcGen) =
 proc optNL(g: var TSrcGen; a, b: PNode) =
   g.pendingNL = g.indent
   g.lineLen = g.indent
-  when defined(nimpretty): g.pendingNewlineCount = lineDiff(a, b)
 
 proc indentNL(g: var TSrcGen) =
   inc(g.indent, IndentWidth)
@@ -266,28 +239,6 @@ proc maxLineLength(s: string): int =
       inc(lineLen)
       inc(i)
 
-proc putRawStr(g: var TSrcGen, kind: TokType, s: string) =
-  var i = 0
-  let hi = s.len - 1
-  var str = ""
-  while i <= hi:
-    case s[i]
-    of '\r':
-      put(g, kind, str)
-      str = ""
-      inc(i)
-      if i <= hi and s[i] == '\n': inc(i)
-      optNL(g, 0)
-    of '\n':
-      put(g, kind, str)
-      str = ""
-      inc(i)
-      optNL(g, 0)
-    else:
-      str.add(s[i])
-      inc(i)
-  put(g, kind, str)
-
 proc containsNL(s: string): bool =
   for i in 0..<s.len:
     case s[i]
@@ -368,16 +319,6 @@ proc ulitAux(g: TSrcGen; n: PNode, x: BiggestInt, size: int): string =
   else: result = $cast[BiggestUInt](x)
 
 proc atom(g: TSrcGen; n: PNode): string =
-  when defined(nimpretty):
-    doAssert g.config != nil, "g.config not initialized!"
-    let comment = if n.info.commentOffsetA < n.info.commentOffsetB:
-                    " " & fileSection(g.config, g.fid, n.info.commentOffsetA, n.info.commentOffsetB)
-                  else:
-                    ""
-    if n.info.offsetA <= n.info.offsetB:
-      # for some constructed tokens this can not be the case and we're better
-      # off to not mess with the offset then.
-      return fileSection(g.config, g.fid, n.info.offsetA, n.info.offsetB) & comment
   var f: float32
   case n.kind
   of nkEmpty: result = ""
@@ -1557,7 +1498,6 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
   of nkPragma:
     if g.inPragma <= 0:
       inc g.inPragma
-      #if not previousNL(g):
       put(g, tkSpaces, Space)
       put(g, tkCurlyDotLe, "{.")
       gcomma(g, n, emptyContext)
@@ -1703,7 +1643,7 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
     if renderWithoutErrorPrefix notin g.flags:
       putWithSpace(g, tkSymbol, "error")
     #gcomma(g, n, c)
-    gsub(g, n[0], c)
+    gsub(g, n.kids[0], c)
   else:
     #nkNone, nkExplicitTypeListCall:
     g.config.localReport InternalReport(

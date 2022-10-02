@@ -92,7 +92,6 @@ func wrap*(
 func wrap(conf: ConfigRef, text: ColText): string =
   toString(text, conf.useColor())
 
-
 proc formatTrace*(conf: ConfigRef, trace: seq[StackTraceEntry]): string =
   ## Format stack trace entries for reporting
   var paths: seq[string]
@@ -222,7 +221,6 @@ proc addPragmaAndCallConvMismatch*(
     expectedPragmas.setLen(max(0, expectedPragmas.len - 2)) # Remove ", "
     message.add "\n  Pragma mismatch: got '{.$1.}', but expected '{.$2.}'." % [gotPragmas, expectedPragmas]
 
-
 proc effectProblem(f, a: PType; result: var string) =
   ## Add effect difference annotation for `f` (aka formal/expected) and `a`
   ## (aka actual/provided) types
@@ -234,23 +232,23 @@ proc effectProblem(f, a: PType; result: var string) =
       result.add "\n  This expression can have side effects. Annotate the " &
           "proc with {.noSideEffect.} to get extended error information."
     else:
-      case compatibleEffects(f, a)
-      of efCompat: discard
-      of efRaisesDiffer:
-        result.add "\n  The `.raises` requirements differ."
-      of efRaisesUnknown:
-        result.add "\n  The `.raises` requirements differ. Annotate the " &
-            "proc with {.raises: [].} to get extended error information."
-      of efTagsDiffer:
-        result.add "\n  The `.tags` requirements differ."
-      of efTagsUnknown:
-        result.add "\n  The `.tags` requirements differ. Annotate the " &
-            "proc with {.tags: [].} to get extended error information."
-      of efLockLevelsDiffer:
-        result.add "\n  The `.locks` requirements differ. Annotate the " &
-            "proc with {.locks: 0.} to get extended error information."
-      of efEffectsDelayed:
-        result.add "\n  The `.effectsOf` annotations differ."
+      case compatibleEffects(f, a):
+        of efCompat: discard
+        of efRaisesDiffer:
+          result.add "\n  The `.raises` requirements differ."
+        of efRaisesUnknown:
+          result.add "\n  The `.raises` requirements differ. Annotate the " &
+              "proc with {.raises: [].} to get extended error information."
+        of efTagsDiffer:
+          result.add "\n  The `.tags` requirements differ."
+        of efTagsUnknown:
+          result.add "\n  The `.tags` requirements differ. Annotate the " &
+              "proc with {.tags: [].} to get extended error information."
+        of efLockLevelsDiffer:
+          result.add "\n  The `.locks` requirements differ. Annotate the " &
+              "proc with {.locks: 0.} to get extended error information."
+        of efEffectsDelayed:
+          result.add "\n  The `.effectsOf` annotations differ."
 
 proc argTypeToString(arg: PNode; prefer: TPreferedDesc): string =
   ## Convert argument node type to string
@@ -265,8 +263,6 @@ proc argTypeToString(arg: PNode; prefer: TPreferedDesc): string =
 
   else:
     result = arg.typ.typeToString(prefer)
-
-
 
 proc describeArgs(conf: ConfigRef, args: seq[PNode]; prefer = preferName): string =
   ## Generate comma-separated list of arguments
@@ -352,13 +348,13 @@ proc getProcHeader(
   if getDeclarationPath: result.addDeclaredLoc(conf, sym)
 
 proc getSymRepr*(conf: ConfigRef; s: PSym, getDeclarationPath = true): string =
-  case s.kind
-  of routineKinds, skType:
-    result = getProcHeader(conf, s, getDeclarationPath = getDeclarationPath)
-  else:
-    result = "'$1'" % s.name.s
-    if getDeclarationPath:
-      result.addDeclaredLoc(conf, s)
+  case s.kind:
+    of routineKinds, skType:
+      result = getProcHeader(conf, s, getDeclarationPath = getDeclarationPath)
+    else:
+      result = "'$1'" % s.name.s
+      if getDeclarationPath:
+        result.addDeclaredLoc(conf, s)
 
 proc addTypeDeclVerboseMaybe(result: var string, conf: ConfigRef; typ: PType) =
   ## Calls `typeToString` on given `typ`.
@@ -397,13 +393,16 @@ proc presentSpellingCandidates*(
 
     result.addDeclaredLoc(conf, candidate.sym)
 
-proc presentDiagnostics(conf: ConfigRef, d: SemDiagnostics, startWithNewLine: bool): string
+proc presentDiagnostics(
+  conf: ConfigRef, d: SemDiagnostics, startWithNewLine: bool): string
+
+const defaultRenderFlags: set[TRenderFlag] = {
+    renderNoComments,
+    renderWithoutErrorPrefix
+  }
+
 
 proc reportBody*(conf: ConfigRef, r: SemReport): string =
-  const defaultRenderFlags: set[TRenderFlag] = {
-      renderNoComments,
-      renderWithoutErrorPrefix
-    }
   proc render(n: PNode, rf = defaultRenderFlags): string = renderTree(n, rf)
   proc render(t: PType): string = typeToString(t)
 
@@ -500,29 +499,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         result.add(" = ", typeToString(r.typ, preferDesc))
 
 
-    of rsemVmStackTrace:
-      result = "stack trace: (most recent call last)\n"
-      for idx in countdown(r.stacktrace.high, 0):
-        let (sym, loc) = r.stacktrace[idx]
-        result.add(
-          conf.toStr(loc),
-          " ",
-          if sym != nil: sym.name.s else: "???"
-        )
-        if r.skipped > 0 and idx == r.stacktrace.high:
-          # The entry point is always the last element in the list
-          result.add("\nSkipped ", r.skipped, " entries, calls that led up to printing")
-
-        if idx > 0: 
-          result.add("\n")
-
-    of rsemVmUnhandledException:
-      result.addf(
-        "unhandled exception: $1 [$2]",
-        r.ast[3].skipColon.strVal,
-        r.ast[2].skipColon.strVal
-      )
-
     of rsemExpandArc:
       result.add(
         "--expandArc: ",
@@ -548,84 +524,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           "\n",
           conf.toStr(r.borrowPair.connectedVia),
           " is the statement that connected the mutation to the parameter")
-
-    of rsemVmNodeNotASymbol:
-      result = "node is not a symbol"
-
-    of rsemVmNodeNotAProcSymbol:
-      result = "node is not a proc symbol"
-
-    of rsemVmDerefUnsupportedPtr:
-      result = "deref unsupported ptr type: $1 $2" % [r.typ.render, $r.typ.kind]
-
-    of rsemVmNilAccess:
-      result = "attempt to access a nil address"
-
-    of rsemVmAccessOutOfBounds:
-      result = "trying to access a location outside of the VM's memory"
-
-    of rsemVmAccessTypeMismatch:
-        # TODO: provide both dynamic and static type in the message
-      result = "trying to access a location with a handle of incompatible type"
-
-    of rsemVmAccessNoLocation:
-      result = "handle doesn't reference a valid location"
-
-    of rsemVmOverOrUnderflow:
-      result = "over- or underflow"
-
-    of rsemVmDivisionByConstZero:
-      result = "division by zero"
-
-    of rsemVmTooManyIterations:
-      result = "interpretation requires too many iterations; " &
-        "if you are sure this is not a bug in your code, compile " &
-        "with `--maxLoopIterationsVM:number` (current value: $1)" %
-        $conf.maxLoopIterationsVM
-
-    of rsemVmCannotModifyTypechecked:
-      result = "typechecked nodes may not be modified"
-
-    of rsemVmNoType:
-      result = "node has no type"
-
-    of rsemVmIllegalConv:
-      result = r.str
-
-    of rsemVmFieldNotFound:
-      result = "node lacks field: " & r.str
-
-    of rsemVmNodeNotAFieldSymbol:
-      result = "symbol is not a field (nskField)"
-
-    of rsemVmCannotSetChild:
-      result = "cannot set child of node kind: n" & $r.ast.kind
-
-    of rsemVmCannotAddChild:
-      result = "cannot add to node kind: n" & $r.ast.kind
-
-    of rsemVmCannotGetChild:
-      result = "cannot get child of node kind: n" & $r.ast.kind
-
-    of rsemVmMissingCacheKey:
-      result = "key does not exist: " & r.str
-
-    of rsemVmCacheKeyAlreadyExists:
-      result = "key already exists: " & r.str
-
-    of rsemVmFieldInavailable:
-      result = r.str
-
-    of rsemVmUnsupportedNonNil:
-      case r.typ.kind
-      of tyRef:
-        result = "static expressions yielding non-nil 'ref' values that are" &
-                " not of 'object'-type are not supported"
-      of tyPtr, tyPointer:
-        result = "static expressions yielding non-nil pointer values are " &
-                "not supported"
-      else:
-        assert false
 
     of rsemBorrowOutlivesSource:
       result.add(
@@ -699,30 +597,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemThisPragmaRequires01Args:
       # FIXME remove this report kind, reuse "wrong number of arguments"
       result = "'this' pragma is allowed to have zero or one arguments"
-
-    of rsemTooManyRegistersRequired:
-      result = "VM problem: too many registers required"
-
-    of rsemVmCannotFindBreakTarget:
-      result = "VM problem: cannot find 'break' target"
-
-    of rsemVmNotUnused:
-      result = "not unused"
-
-    of rsemVmTooLargetOffset:
-      result = "too large offset! cannot generate code for: " &
-        r.sym.name.s
-
-    of rsemVmCannotGenerateCode:
-      result = "cannot generate code for: " &
-        $r.ast
-
-    of rsemVmCannotCast:
-      result = "VM does not support 'cast' from " &
-        $r.actualType.kind & " to " & $r.formalType.kind
-
-    of rsemVmInvalidBindSym:
-      result = "invalid bindSym usage"
 
     of rsemSymbolKindMismatch:
       var ask: string
@@ -854,7 +728,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         inc i
 
 
-    of rsemStaticOutOfBounds, rsemVmIndexError:
+    of rsemStaticOutOfBounds:
       let (i, a, b) = r.indexSpec
       if b < a:
         result = "index out of bounds, the container is empty"
@@ -928,9 +802,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "expression has no address"
       if r.isUnsafeAddr:
         result.add "; maybe use 'unsafeAddr'"
-
-    of rsemVmCannotEvaluateAtComptime:
-      result = "cannot evaluate at compile time: " & r.ast.render
 
     of rsemIntLiteralExpected:
       result = "integer literal expected"
@@ -1312,9 +1183,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         "public implementation '$1' has non-public forward declaration at $2"
       ) % [getProcHeader(conf, r.sym, getDeclarationPath = false), conf $ r.sym.info]
 
-    of rsemVmInvalidObjectConstructor:
-      result = "invalid object constructor"
-
     of rsemImplementationNotAllowed:
       result = "implementation of '$1' is not allowed" % r.symstr
 
@@ -1653,24 +1521,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemObjectConstructorIncorrect:
       result = "Invalid object constructor: '$1'" % r.ast.render
 
-    of rsemVmBadExpandToAst:
-      result = "expandToAst requires 1 argument"
-
-    of rsemMissingImportcCompleteStruct:
-      result = "'$1' requires '.importc' types to be '.completeStruct'" % r.str
-
-    of rsemVmCannotImportc:
-      result = "cannot 'importc' variable/proc at compile time: " & r.symstr
-
-    of rsemVmCannotCreateNullElement:
-      result = "cannot create null element for: " & r.typ.render
-
-    of rsemVmNoClosureIterators:
-      result = "Closure iterators are not supported by VM!"
-
-    of rsemVmCannotCallMethod:
-      result = "cannot call method " & r.symstr & " at compile time"
-
     of rsemBorrowTargetNotFound:
       result = "no symbol to borrow from found"
 
@@ -1994,7 +1844,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "processing stmt"
 
     of rsemProcessing:
-      let path = toFilenameOption(conf, r.processing.fileIdx, conf.filenameOption)
+      let path = toFilenameOption(
+        conf, r.processing.fileIdx, conf.filenameOption)
       let indent = repeat(">", r.processing.importStackLen)
       let fromModule = r.sym
       let fromModule2 = if fromModule != nil: $fromModule.name.s else: "(toplevel)"
@@ -2151,27 +2002,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemRttiRequestForIncompleteObject:
       result = "request for RTTI generation for incomplete object: " & r.typ.render
-
-    of rsemVmNotAField:
-      result = "symbol is not a field (nskField)"
-
-    of rsemVmOutOfRange:
-      result = "unhandled exception: value out of range"
-
-    of rsemVmErrInternal:
-      result = r.str
-
-    of rsemVmCallingNonRoutine:
-      result = "NimScript: attempt to call non-routine: " & r.symstr
-
-    of rsemVmGlobalError:
-      result = r.str
-
-    of rsemNotAFieldSymbol:
-      result = "no field symbol"
-
-    of rsemVmOpcParseExpectedExpression:
-      result = "expected expression, but got multiple statements"
 
     of rsemCannotDetermineBorrowTarget:
       result = "cannot determine the target of the borrow"
@@ -2390,7 +2220,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
 const standalone = {
   rsemExpandArc, # Original compiler did not consider it as a hint
-  rsemVmStackTrace, # Always associated with extra report
+  rvmStackTrace, # Always associated with extra report
   rsemDiagnostics, # Wraps other reports
 }
 
@@ -2495,7 +2325,8 @@ proc reportBody*(conf: ConfigRef, r: ParserReport): string =
       result = r.msg
 
     of rparFuncNotAllowed:
-      result = "func keyword is not allowed in type descriptions, use proc with {.noSideEffect.} pragma instead"
+      result = "func keyword is not allowed in type descriptions, " &
+        "use proc with {.noSideEffect.} pragma instead"
 
     of rparTupleTypeWithPar:
       result = "the syntax for tuple types is 'tuple[...]', not 'tuple(...)'"
@@ -2513,31 +2344,31 @@ proc reportBody*(conf: ConfigRef, r: ParserReport): string =
       result = "pragma already present"
 
     of rparMisplacedExport:
-      result = "invalid indentation; an export marker '*' follows the declared identifier"
+      result = "invalid indentation; an export marker '*' " &
+        "follows the declared identifier"
 
     of rparTemplMissingEndClose:
-      result = "?"
+      result = "'end' does not close a control flow construct"
 
     of rparTemplInvalidExpression:
-      result = "?"
+      result = "invalid expression"
 
     of rparInconsistentSpacing:
       result = "Number of spaces around '$#' is not consistent"
 
     of rparEnablePreviewDotOps:
-      result = "?"
+      result = "dot-like operators will be parsed differently " &
+        "with `-d:nimPreviewDotLikeOps`"
 
     of rparPragmaNotFollowingTypeName:
-      result = "?"
+      result = "type pragmas follow the type name; this form of " &
+        "writing pragmas is deprecated"
 
     of rparPragmaBeforeGenericParameters:
-      result = "?"
-
-    of rparName:
-      result = "?"
+      result = "pragma must come after any generic parameter list"
 
     of rparInvalidFilter:
-      result = "?"
+      result = "invalid filter: $1" % r.node.renderTree
 
 proc reportFull*(conf: ConfigRef, r: ParserReport): string =
   assertKind r
@@ -2990,7 +2821,7 @@ proc reportBody*(conf: ConfigRef, r: LexerReport): string =
       assert false
 
     of rlexCfgInvalidDirective:
-      result.add "?"
+      result.addf("invalid directive: '$1'", r.msg)
 
     of rlexUnclosedComment:
       result.add "end of multiline comment expected"
@@ -3004,8 +2835,10 @@ proc reportBody*(conf: ConfigRef, r: LexerReport): string =
     of rlexLineTooLong:
       result.add "line too long"
 
-    of rlexSyntaxesCode:
-      result.add "?"
+    of rlexSourceCodeFilterOutput:
+      result.add "generated code listing:"
+      result.add r.msg
+      result.add "end of listing"
 
 proc reportFull*(conf: ConfigRef, r: LexerReport): string    =
   assertKind r
@@ -3135,13 +2968,25 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
         )
 
       proc render(node: PNode): string =
-        conf.wrap(conf.treeRepr(node, indent = indent + 2))
+        conf.wrap(conf.treeRepr(node,
+                                indent = indent + 2,
+                                rconf = implicitCompilerTraceReprConf))
 
       proc render(typ: PType): string =
-        conf.wrap(conf.treeRepr(typ, indent = indent + 2))
+        conf.wrap(conf.treeRepr(typ,
+                                indent = indent + 2,
+                                rconf = implicitCompilerTraceReprConf))
 
       proc render(sym: PSym): string =
-        conf.wrap(conf.treeRepr(sym, indent = indent + 2))
+        conf.wrap(conf.treeRepr(sym,
+                                indent = indent + 2,
+                                rconf = implicitCompilerTraceReprConf))
+
+      proc render(sym: PIdent): string =
+        conf.wrap(conf.treeRepr(sym,
+                                indent = indent + 2,
+                                rconf = implicitCompilerTraceReprConf))
+
 
       result.addf("$1]", align($s.level, 2, '#'))
       result.add(
@@ -3221,6 +3066,14 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
               field("to sym")
               result.add render(s.sym)
 
+          of stepIdentToSym:
+            if enter:
+              field("from ident")
+              result.add render(s.ident)
+            else:
+              field("to sym")
+              result.add render(s.sym)
+
           of stepTypeTypeToType:
             if enter:
               field("from type")
@@ -3240,10 +3093,12 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
               if s.candidate.call.isNil:
                 field("mismatch kind", $s.candidate.error.firstMismatch.kind)
               else:
-                field("callee")
-                result.add render(s.candidate.callee)
-                field("calleeSym")
-                result.add render(s.candidate.calleeSym)
+                if s.candidate.calleeSym.isNil:
+                  field("callee")
+                  result.add render(s.candidate.callee)
+                else:
+                  field("calleeSym")
+                  result.add render(s.candidate.calleeSym)
                 field("call")
                 result.add render(s.candidate.call)
 
@@ -3499,6 +3354,214 @@ proc reportShort*(conf: ConfigRef, r: BackendReport): string =
     result.add conf.suffixShort(r)
 
 
+
+proc reportBody*(conf: ConfigRef, r: VMReport): string =
+  proc render(n: PNode, rf = defaultRenderFlags): string = renderTree(n, rf)
+  proc render(t: PType): string = typeToString(t)
+
+  case VMReportKind(r.kind):
+    of rvmUserError:
+      result = r.str
+
+    of rvmMissingImportcCompleteStruct:
+      result = "'$1' requires '.importc' types to be '.completeStruct'" % r.str
+
+    of rvmNotAFieldSymbol:
+      result = "no field symbol"
+
+    of rvmBadExpandToAst:
+      result = "expandToAst requires 1 argument"
+
+    of rvmCannotImportc:
+      result = "cannot 'importc' variable/proc at compile time: " & r.symstr
+
+    of rvmCannotCreateNullElement:
+      result = "cannot create null element for: " & r.typ.render
+
+    of rvmInvalidObjectConstructor:
+      result = "invalid object constructor"
+
+    of rvmNoClosureIterators:
+      result = "Closure iterators are not supported by VM!"
+
+    of rvmStackTrace:
+      result = "stack trace: (most recent call last)\n"
+      for idx in countdown(r.stacktrace.high, 0):
+        let (sym, loc) = r.stacktrace[idx]
+        result.add(
+          conf.toStr(loc),
+          " ",
+          if sym != nil: sym.name.s else: "???"
+        )
+        if r.skipped > 0 and idx == r.stacktrace.high:
+          # The entry point is always the last element in the list
+          result.add(
+            "\nSkipped ", r.skipped,
+            " entries, calls that led up to printing")
+
+        if idx > 0:
+          result.add("\n")
+
+    of rvmUnhandledException:
+      result.addf(
+        "unhandled exception: $1 [$2]",
+        r.ast[3].skipColon.strVal,
+        r.ast[2].skipColon.strVal
+      )
+
+    of rvmNodeNotASymbol:
+      result = "node is not a symbol"
+
+    of rvmNodeNotAProcSymbol:
+      result = "node is not a proc symbol"
+
+    of rvmDerefUnsupportedPtr:
+      result = "deref unsupported ptr type: $1 $2" % [
+        r.typ.render, $r.typ.kind]
+
+    of rvmNilAccess:
+      result = "attempt to access a nil address"
+
+    of rvmAccessOutOfBounds:
+      result = "trying to access a location outside of the VM's memory"
+
+    of rvmAccessTypeMismatch:
+        # TODO: provide both dynamic and static type in the message
+      result = "trying to access a location with a handle of incompatible type"
+
+    of rvmAccessNoLocation:
+      result = "handle doesn't reference a valid location"
+
+    of rvmOverOrUnderflow:
+      result = "over- or underflow"
+
+    of rvmDivisionByConstZero:
+      result = "division by zero"
+
+    of rvmTooManyIterations:
+      result = "interpretation requires too many iterations; " &
+        "if you are sure this is not a bug in your code, compile " &
+        "with `--maxLoopIterationsVM:number` (current value: $1)" %
+        $conf.maxLoopIterationsVM
+
+    of rvmCannotModifyTypechecked:
+      result = "typechecked nodes may not be modified"
+
+    of rvmNoType:
+      result = "node has no type"
+
+    of rvmIllegalConv:
+      result = r.str
+
+    of rvmFieldNotFound:
+      result = "node lacks field: " & r.str
+
+    of rvmNodeNotAFieldSymbol:
+      result = "symbol is not a field (nskField)"
+
+    of rvmCannotSetChild:
+      result = "cannot set child of node kind: n" & $r.ast.kind
+
+    of rvmCannotAddChild:
+      result = "cannot add to node kind: n" & $r.ast.kind
+
+    of rvmCannotGetChild:
+      result = "cannot get child of node kind: n" & $r.ast.kind
+
+    of rvmMissingCacheKey:
+      result = "key does not exist: " & r.str
+
+    of rvmCacheKeyAlreadyExists:
+      result = "key already exists: " & r.str
+
+    of rvmFieldInavailable:
+      result = r.str
+
+    of rvmUnsupportedNonNil:
+      case r.typ.kind
+      of tyRef:
+        result = "static expressions yielding non-nil 'ref' values that are" &
+                " not of 'object'-type are not supported"
+      of tyPtr, tyPointer:
+        result = "static expressions yielding non-nil pointer values are " &
+                "not supported"
+      else:
+        assert false
+
+    of rvmCannotFindBreakTarget:
+      result = "VM problem: cannot find 'break' target"
+
+    of rvmNotUnused:
+      result = "not unused"
+
+    of rvmTooLargetOffset:
+      result = "too large offset! cannot generate code for: " &
+        r.sym.name.s
+
+    of rvmCannotGenerateCode:
+      result = "cannot generate code for: " &
+        $r.ast
+
+    of rvmCannotCast:
+      result = "VM does not support 'cast' from " &
+        $r.actualType.kind & " to " & $r.formalType.kind
+
+    of rvmInvalidBindSym:
+      result = "invalid bindSym usage"
+
+    of rvmCannotEvaluateAtComptime:
+      result = "cannot evaluate at compile time: " & r.ast.render
+
+    of rvmTooManyRegistersRequired:
+      result = "VM problem: too many registers required"
+
+    of rvmCannotCallMethod:
+      result = "cannot call method " & r.symstr & " at compile time"
+
+    of rvmNotAField:
+      result = "symbol is not a field (nskField)"
+
+    of rvmOutOfRange:
+      result = "unhandled exception: value out of range"
+
+    of rvmErrInternal:
+      result = r.str
+
+    of rvmCallingNonRoutine:
+      result = "NimScript: attempt to call non-routine: " & r.symstr
+
+    of rvmGlobalError:
+      result = r.str
+
+    of rvmOpcParseExpectedExpression:
+      result = "expected expression, but got multiple statements"
+
+    of rvmIndexError:
+      let (i, a, b) = r.indexSpec
+      if b < a:
+        result = "index out of bounds, the container is empty"
+      else:
+        result = "index " & $i & " not in " & $a & " .. " & $b
+
+    of rvmQuit:
+      result = "`quit` called with exit-code: " & $r.exitCode
+
+
+proc reportFull*(conf: ConfigRef, r: VMReport): string =
+  assertKind r
+  result.add(
+    conf.getContext(r.context),
+    conf.prefix(r),
+    reportBody(conf, r),
+    conf.suffix(r)
+  )
+
+proc reportShort*(conf: ConfigRef, r: VMReport): string =
+  # mostly created for nimsuggest
+  assertKind r
+  reportBody(conf, r) & suffixShort(conf, r)
+
+
 proc reportBody*(conf: ConfigRef, r: CmdReport): string =
   assertKind r
   case CmdReportKind(r.kind):
@@ -3523,7 +3586,7 @@ proc reportFull*(conf: ConfigRef, r: CmdReport): string =
   assertKind r
   reportBody(conf, r)
 
-proc reportShort*(conf: ConfigRef, r: CmdReport): string {.inline.} =
+proc reportShort*(conf: ConfigRef, r: CmdReport): string =
   # mostly created for nimsuggest
   reportBody(conf, r)
 
@@ -3541,6 +3604,7 @@ proc reportBody*(conf: ConfigRef, r: Report): string =
     of repInternal: result = conf.reportBody(r.internalReport)
     of repBackend:  result = conf.reportBody(r.backendReport)
     of repExternal: result = conf.reportBody(r.externalReport)
+    of repVM:       result = conf.reportBody(r.vmReport)
 
 proc reportFull*(conf: ConfigRef, r: Report): string =
   ## Generate full version of the report (location, severity, body,
@@ -3555,6 +3619,7 @@ proc reportFull*(conf: ConfigRef, r: Report): string =
     of repInternal: result = conf.reportFull(r.internalReport)
     of repBackend:  result = conf.reportFull(r.backendReport)
     of repExternal: result = conf.reportFull(r.externalReport)
+    of repVM:       result = conf.reportFull(r.vmReport)
 
 proc reportShort*(conf: ConfigRef, r: Report): string =
   ## Generate short report version of the report
@@ -3568,6 +3633,7 @@ proc reportShort*(conf: ConfigRef, r: Report): string =
     of repInternal: result = conf.reportShort(r.internalReport)
     of repBackend:  result = conf.reportShort(r.backendReport)
     of repExternal: result = conf.reportShort(r.externalReport)
+    of repVM:       result = conf.reportShort(r.vmReport)
 
 const
   rdbgTracerKinds* = {rdbgTraceDefined .. rdbgTraceEnd}
@@ -3575,8 +3641,10 @@ const
 
 var
   lastDot: bool = false
-  traceIndex = 0
   traceFile: File
+  fileIndex: int = 0
+
+var counter = 0
 
 proc rotatedTrace(conf: ConfigRef, r: Report) =
   ## Write out debug traces into separate files in directory defined by
@@ -3584,17 +3652,45 @@ proc rotatedTrace(conf: ConfigRef, r: Report) =
   # Dispatch each `{.define(nimCompilerDebug).}` section into separate file
   assert r.kind in rdbgTracerKinds, $r.kind
   case r.kind:
-    of rdbgTraceDefined, rdbgTraceStart:
+    of rdbgTraceStart, rdbgTraceEnd:
+      # Rotated trace is constrolled by the define-undefine pair, not by
+      # singular call to the nested recursion handling.
+      discard
+
+    of rdbgTraceDefined:
       if not dirExists(conf.getDefined(traceDir)):
         createDir conf.getDefined(traceDir)
-      traceFile = open(conf.getDefined(traceDir) / $traceIndex, fmWrite)
-    of rdbgTraceUndefined, rdbgTraceEnd:
+
+      counter = 0
+      let loc = r.location.get()
+      let path = conf.getDefined(traceDir) / "compiler_trace_$1_$2.nim" % [
+        conf.toFilename(loc).multiReplace({
+          "/": "_",
+          ".nim": ""
+        }),
+        $fileIndex
+      ]
+
+      echo "$1($2, $3): opening $4 trace" % [
+        conf.toFilename(loc), $loc.line, $loc.col, path]
+
+      traceFile = open(path, fmWrite)
+      inc fileIndex
+
+    of rdbgTraceUndefined:
+      let loc = r.location.get()
+      echo "$1($2, $3): closing trace, wrote $4 records" % [
+        conf.toFilename(loc), $loc.line, $loc.col, $counter]
+
       close(traceFile)
-      inc traceIndex
+
     else:
+      inc counter
       conf.excl optUseColors
       traceFile.write(conf.reportFull(r))
       traceFile.write("\n")
+      traceFile.flushFile() # Forcefully flush the file in case of abrupt
+      # exit by the compiler.
       conf.incl optUseColors
 
 proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
@@ -3603,7 +3699,6 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## category) `reportBody` overloads defined above
   assertKind r
   let wkind = conf.writabilityKind(r)
-
   # debug reports can be both enabled and force enabled, and sem tracer
   # first needs to be checked for the trace group rotation. So adding a
   # case here is not really useful, since report writability kind does not
@@ -3611,34 +3706,52 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   # be written.
   if wkind == writeDisabled:
     return
+
   elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
     rotatedTrace(conf, r)
+
   elif wkind == writeForceEnabled:
     echo conf.reportFull(r)
+
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
     # REFACTOR 'processing with dots' - requires special hacks, pretty
     # useless, need to be removed in the future.
     conf.write(".")
     lastDot = true
+
   else:
+    var msg: seq[string]
     if lastDot:
-      conf.writeln("")
+      msg.add("")
       lastDot = false
 
     if conf.hack.reportInTrace:
       var indent {.global.}: int
       if r.kind == rdbgTraceStep:
         indent = r.debugReport.semstep.level
-      case r.kind
-      of rdbgTracerKinds:
-        conf.writeln(conf.reportFull(r))
-      of repSemKinds:
-        if 0 < indent:
-          for line in conf.reportFull(r).splitLines():
-            conf.writeln("  ]", repeat("  ", indent), " ! ", line)
+
+      case r.kind:
+        of rdbgTracerKinds:
+          msg.add(conf.reportFull(r))
+
+        of repSemKinds:
+          if 0 < indent:
+            for line in conf.reportFull(r).splitLines():
+              msg.add("  ]" & repeat("  ", indent) & " ! " & line)
+
+          else:
+            msg.add(conf.reportFull(r))
+
         else:
-          conf.writeln(conf.reportFull(r))
-      else:
-        conf.writeln(conf.reportFull(r))
+          msg.add(conf.reportFull(r))
+
     else:
-      conf.writeln(conf.reportFull(r))
+      msg.add(conf.reportFull(r))
+
+    if conf.hack.bypassWriteHookForTrace:
+      for item in msg:
+        echo item
+
+    else:
+      for item in msg:
+        conf.writeln(item)

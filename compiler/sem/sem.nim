@@ -55,7 +55,6 @@ import
   ],
   compiler/sem/[
     semfold,
-    concepts,
     typeallowed,
     isolation_check,
     procfind,
@@ -99,7 +98,7 @@ proc semExprNoDeref(c: PContext, n: PNode, flags: TExprFlags = {}): PNode
 proc semProcBody(c: PContext, n: PNode): PNode
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode
-proc changeType(c: PContext; n: PNode, newType: PType, check: bool)
+proc changeType(c: PContext; n: PNode, newType: PType, check: bool): PNode
 
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode
@@ -118,6 +117,7 @@ proc semStaticType(c: PContext, childNode: PNode, prev: PType): PType
 proc semTypeOf(c: PContext; n: PNode): PNode
 proc computeRequiresInit(c: PContext, t: PType): bool
 proc defaultConstructionError(c: PContext, t: PType, info: TLineInfo)
+proc defaultConstructionError2(c: PContext, t: PType, n: PNode): PNode
 proc hasUnresolvedArgs(c: PContext, n: PNode): bool
 proc isArrayConstr(n: PNode): bool {.inline.} =
   result = n.kind == nkBracket and
@@ -158,11 +158,18 @@ template semIdeForTemplateOrGeneric(c: PContext; n: PNode;
       discard safeSemExpr(c, n)
 
 proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
-  let x = arg.skipConv
+  var
+    a = arg
+    x = a.mutableSkipConv
   if (x.kind == nkCurly and formal.kind == tySet and formal.base.kind != tyGenericParam) or
     (x.kind in {nkPar, nkTupleConstr}) and formal.kind notin {tyUntyped, tyBuiltInTypeClass}:
-    changeType(c, x, formal, check=true)
-  result = arg
+    x = changeType(c, x, formal, check=true)
+    
+    if x.isError:
+      result = c.config.wrapError(a)
+      return
+
+  result = a
   result = skipHiddenSubConv(result, c.graph, c.idgen)
 
 
@@ -315,7 +322,8 @@ proc newSymS(kind: TSymKind, n: PNode, c: PContext): PSym =
 
 proc newSymG*(kind: TSymKind, n: PNode, c: PContext): PSym =
   # like newSymS, but considers gensym'ed symbols
-  if n.kind == nkSym:
+  case n.kind
+  of nkSym:
     # and sfGenSym in n.sym.flags:
     result = n.sym
     if result.kind notin {kind, skTemp}:
@@ -330,11 +338,12 @@ proc newSymG*(kind: TSymKind, n: PNode, c: PContext): PSym =
         result = copySym(result)
         result.ast = n.sym.ast
         put(c.p, n.sym, result)
+
     # when there is a nested proc inside a template, semtmpl
     # will assign a wrong owner during the first pass over the
     # template; we must fix it here: see #909
     result.owner = getCurrOwner(c)
-  else:
+  else: # xxx: should know the kinds and error out if not valid
     let (ident, err) = considerQuotedIdent(c, n)
     if err != nil:
       localReport(c.config, err)
@@ -448,18 +457,25 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
   c.config.m.errorOutputs = oldErrorOutputs
 
 proc semConstExpr(c: PContext, n: PNode): PNode =
+  addInNimDebugUtils(c.config, "semConstExpr", n, result)
+
   var e = semExprWithType(c, n)
   if e == nil:
     localReport(c.config, n.info, reportAst(rsemConstExprExpected, n))
 
     return n
+
   if e.kind in nkSymChoices and e[0].typ.skipTypes(abstractInst).kind == tyEnum:
     return e
+  
   result = getConstExpr(c.module, e, c.idgen, c.graph)
+  
   if result == nil:
     #if e.kind == nkEmpty: globalReport(n.info, errConstExprExpected)
     result = evalConstExpr(c.module, c.idgen, c.graph, e)
+    
     assert result != nil
+
     case result.kind
     of {nkEmpty, nkError}:
       let withContext = e.info != n.info
@@ -500,8 +516,12 @@ include hlo, seminst, semcall
 proc resetSemFlag(n: PNode) =
   if n != nil:
     excl n.flags, nfSem
-    for i in 0..<n.safeLen:
-      resetSemFlag(n[i])
+    case n.kind
+    of nkError:
+      discard
+    else:
+      for i in 0..<n.safeLen:
+        resetSemFlag(n[i])
 
 proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
                        s: PSym, flags: TExprFlags): PNode =
@@ -572,8 +592,9 @@ proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
   if sym == c.p.owner:
     globalReport(c.config, info, reportSym(rsemCyclicDependency, sym))
 
-  let genericParams = sym.ast[genericParamsPos].len
-  let suppliedParams = max(n.safeLen - 1, 0)
+  let
+    genericParams = sym.ast[genericParamsPos].safeLen
+    suppliedParams = max(n.safeLen - 1, 0)
 
   if suppliedParams < genericParams:
     globalReport(
@@ -595,7 +616,7 @@ proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
     c.config.localReport(n.info, SemReport(
       sym: sym,
       kind: rsemExpandMacro,
-      ast: n,
+      ast: original,
       expandedAst: result))
 
   result = wrapInComesFrom(n.info, sym, result)

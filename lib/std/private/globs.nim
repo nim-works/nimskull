@@ -4,9 +4,9 @@ this can eventually be moved to std/os and `walkDirRec` can be implemented in te
 to avoid duplication
 ]##
 
-import os
+import std/os
 when defined(windows):
-  from strutils import replace
+  from std/strutils import replace
 
 when defined(nimHasEffectsOf):
   {.experimental: "strictEffects".}
@@ -61,6 +61,6 @@ proc nativeToUnixPath*(path: string): string =
     result = replace(result, '\\', '/')
 
 when isMainModule:
-  import sugar
+  import std/sugar
   for a in walkDirRecFilter(".", follow = a=>a.path.lastPathPart notin ["nimcache", ".git", "csources_v1", "csources", "bin"]):
     echo a

@@ -17,7 +17,9 @@ import
   compiler/ast/[
     ast,
     renderer,
-    types
+    types,
+    reports,
+    errorhandling,
   ],
   compiler/front/[
     options,
@@ -196,15 +198,28 @@ proc typeAllowedAux(marker: var IntSet, typ: PType, kind: TSymKind,
       result = typeAllowedAux(marker, t.lastSon, kind, c, flags+{taHeap})
     else:
       result = t
-  of tyConcept:
-    if kind != skParam: result = t
-    else: result = nil
 
 proc typeAllowed*(t: PType, kind: TSymKind; c: PContext; flags: TTypeAllowedFlags = {}): PType =
-  # returns 'nil' on success and otherwise the part of the type that is
-  # wrong!
+  ## returns 'nil' on success and otherwise the part of the type that is wrong!
   var marker = initIntSet()
   result = typeAllowedAux(marker, t, kind, c, flags)
+
+proc typeAllowedOrError*(t: PType, kind: TSymKind, c: PContext,
+                         def: PNode, flags: TTypeAllowedFlags = {}): PType =
+  ## returns the original `t` if allowed, otherwise a type not allowed error
+  let temp = typeAllowed(t, kind, c, flags)
+  if temp.isNil:
+    t
+  else:
+    newTypeError(t, nextTypeId(c.idgen)):
+              c.config.newError(def,
+                                SemReport(
+                                  kind: rsemTypeNotAllowed,
+                                  allowedType: (
+                                    allowed: temp,
+                                    actual: t,
+                                    kind: kind,
+                                    allowedFlags: flags)))
 
 type
   ViewTypeKind* = enum

@@ -11,7 +11,7 @@
 ##
 ## **Since** version 1.2.
 
-import deques, streams
+import std/[deques, streams]
 
 type
   PipeOutStream*[T] = ref object of T

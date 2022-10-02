@@ -151,30 +151,46 @@ block: # ttimes
     usingTimezone("Europe/Stockholm"):
       # In case of an impossible time, the time is moved to after the
       # impossible time period
-      check initDateTime(26, mMar, 2017, 02, 30, 00).format(f) ==
+      check dateTime(2017, mMar, 26, 02, 30, 00).format(f) ==
         "2017-03-26 03:30 +02:00"
       # In case of an ambiguous time, the earlier time is chosen
-      check initDateTime(29, mOct, 2017, 02, 00, 00).format(f) ==
+      check dateTime(2017, mOct, 29, 02, 00, 00).format(f) ==
         "2017-10-29 02:00 +02:00"
       # These are just dates on either side of the dst switch
-      check initDateTime(29, mOct, 2017, 01, 00, 00).format(f) ==
+      check dateTime(2017, mOct, 29, 01, 00, 00).format(f) ==
         "2017-10-29 01:00 +02:00"
-      check initDateTime(29, mOct, 2017, 01, 00, 00).isDst
-      check initDateTime(29, mOct, 2017, 03, 01, 00).format(f) ==
+      check dateTime(2017, mOct, 29, 01, 00, 00).isDst
+      check dateTime(2017, mOct, 29, 03, 01, 00).format(f) ==
         "2017-10-29 03:01 +01:00"
-      check (not initDateTime(29, mOct, 2017, 03, 01, 00).isDst)
+      check (not dateTime(2017, mOct, 29, 03, 01, 00).isDst)
 
-      check initDateTime(21, mOct, 2017, 01, 00, 00).format(f) ==
+      check dateTime(2017, mOct, 21, 01, 00, 00).format(f) ==
         "2017-10-21 01:00 +02:00"
 
   block: # issue #6520
     usingTimezone("Europe/Stockholm"):
-      var local = fromUnix(1469275200).local
-      var utc = fromUnix(1469275200).utc
+      let
+        local = fromUnix(1469275200).local
+          ## local DateTime from a unix time, on c backends this respects
+          ## historic time zone changes, hence the TZ and unix time choices
+        utc = fromUnix(1469275200).utc
+          ## utc DateTime for the same unix time
+        claimedOffset = initDuration(seconds = local.utcOffset)
+          ## the offset between the local and utc DateTime
+        localShifted = dateTime(local.year, local.month, local.monthday,
+                                    local.hour, local.minute, local.second,
+                                    local.nanosecond, utc()).local
+          ## local DateTime data except we pretend it's UTC and then convert it
+          ## back to local
+      
+      # if the conversions are correctly done, historic time zone data should
+      # not cause claimedOffset to disagree with the original utc less the
+      # locally shifted time
 
-      let claimedOffset = initDuration(seconds = local.utcOffset)
-      local.utcOffset = 0
-      check claimedOffset == utc.toTime - local.toTime
+      # this catches issues where conversions use current UTC offset where it
+      # should have used the historic UTC offset (stored in the DateTime object
+
+      check claimedOffset == utc.toTime - localShifted.toTime
 
   block: # issue #5704
     usingTimezone("Asia/Seoul"):
@@ -190,10 +206,10 @@ block: # ttimes
 
   block: # adding/subtracting time across dst
     usingTimezone("Europe/Stockholm"):
-      let dt1 = initDateTime(26, mMar, 2017, 03, 00, 00)
+      let dt1 = dateTime(2017, mMar, 26, 03, 00, 00)
       check $(dt1 - 1.seconds) == "2017-03-26T01:59:59+01:00"
 
-      var dt2 = initDateTime(29, mOct, 2017, 02, 59, 59)
+      var dt2 = dateTime(2017, mOct, 29, 02, 59, 59)
       check  $(dt2 + 1.seconds) == "2017-10-29T02:00:00+01:00"
 
   block: # datetime before epoch
@@ -266,7 +282,7 @@ block: # ttimes
 
   block: # dynamic timezone
     let tz = staticTz(seconds = -9000)
-    let dt = initDateTime(1, mJan, 2000, 12, 00, 00, tz)
+    let dt = dateTime(2000, mJan, 1, 12, 00, 00, zone = tz)
     check dt.utcOffset == -9000
     check dt.isDst == false
     check $dt == "2000-01-01T12:00:00+02:30"
@@ -292,18 +308,19 @@ block: # ttimes
     check (t - 1.hours).toTime.toUnix == t.toTime.toUnix - 60 * 60
 
   block: # TimeInterval - months
-    var dt = initDateTime(1, mFeb, 2017, 00, 00, 00, utc())
+    var dt = dateTime(2017, mFeb, 1, 00, 00, 00, zone = utc())
     check $(dt - initTimeInterval(months = 1)) == "2017-01-01T00:00:00Z"
-    dt = initDateTime(15, mMar, 2017, 00, 00, 00, utc())
+    dt = dateTime(2017, mMar, 15, 00, 00, 00, zone = utc())
     check $(dt - initTimeInterval(months = 1)) == "2017-02-15T00:00:00Z"
-    dt = initDateTime(31, mMar, 2017, 00, 00, 00, utc())
+    dt = dateTime(2017, mMar, 31, 00, 00, 00, zone = utc())
     # This happens due to monthday overflow. It's consistent with Phobos.
     check $(dt - initTimeInterval(months = 1)) == "2017-03-03T00:00:00Z"
 
   block: # duration
     let d = initDuration
     check d(hours = 48) + d(days = 5) == d(weeks = 1)
-    let dt = initDateTime(01, mFeb, 2000, 00, 00, 00, 0, utc()) + d(milliseconds = 1)
+    let dt = dateTime(2000, mFeb, 01, 00, 00, 00, 0, zone = utc()) + 
+               d(milliseconds = 1)
     check dt.nanosecond == convert(Milliseconds, Nanoseconds, 1)
     check d(seconds = 1, milliseconds = 500) * 2 == d(seconds = 3)
     check d(seconds = 3) div 2 == d(seconds = 1, milliseconds = 500)
@@ -321,12 +338,12 @@ block: # ttimes
       initDuration(seconds = 1, nanoseconds = 1)).not
 
   block: # large/small dates
-    discard initDateTime(1, mJan, -35_000, 12, 00, 00, utc())
+    discard dateTime(-35_000, mJan, 1, 12, 00, 00, zone = utc())
     # with local tz
-    discard initDateTime(1, mJan, -35_000, 12, 00, 00)
-    discard initDateTime(1, mJan,  35_000, 12, 00, 00)
+    discard dateTime(-35_000, mJan, 1, 12, 00, 00)
+    discard dateTime( 35_000, mJan, 1, 12, 00, 00)
     # with duration/timeinterval
-    let dt = initDateTime(1, mJan, -35_000, 12, 00, 00, utc()) +
+    let dt = dateTime(-35_000, mJan, 1, 12, 00, 00, zone = utc()) +
       initDuration(seconds = 1)
     check dt.second == 1
     let dt2 = dt + 35_001.years
@@ -386,7 +403,7 @@ block: # ttimes
     check t7620_pm.format(layout) == "4/15/2017 12:01:02 PM Z"
 
   block: # format
-    var dt = initDateTime(1, mJan, -0001,
+    var dt = dateTime(-0001, mJan, 1,
                           17, 01, 02, 123_456_789,
                           staticTz(hours = 1, minutes = 2, seconds = 3))
     check dt.format("d") == "1"
@@ -421,15 +438,15 @@ block: # ttimes
     check dt.format("fff") == "123"
     check dt.format("ffffff") == "123456"
     check dt.format("fffffffff") == "123456789"
-    dt.nanosecond = 1
+    dt -= initDuration(nanoseconds = dt.nanosecond - 1)
     check dt.format("fff") == "000"
     check dt.format("ffffff") == "000000"
     check dt.format("fffffffff") == "000000001"
 
-    dt.year = 12345
+    dt += initTimeInterval(years = 12345 - dt.year)
     check dt.format("yyyy") == "+12345"
     check dt.format("uuuu") == "+12345"
-    dt.year = -12345
+    dt += initTimeInterval(years = -12345 - dt.year)
     check dt.format("yyyy") == "+12346"
     check dt.format("uuuu") == "-12345"
 
@@ -449,7 +466,7 @@ block: # ttimes
         (staticTz(seconds = -1800), "+0", "+00", "+00:30"), # half an hour
         (staticTz(seconds = 7200), "-2", "-02", "-02:00"), # positive
         (staticTz(seconds = 38700), "-10", "-10", "-10:45")]: # positive with three quaters hour
-      let dt = initDateTime(1, mJan, 2000, 00, 00, 00, tz[0])
+      let dt = dateTime(2000, mJan, 1, 00, 00, 00, zone = tz[0])
       doAssert dt.format("z") == tz[1]
       doAssert dt.format("zz") == tz[2]
       doAssert dt.format("zzz") == tz[3]
@@ -461,7 +478,7 @@ block: # ttimes
       ddd: ["Red", "Ora.", "Yel.", "Gre.", "Blu.", "Vio.", "Whi."],
       dddd: ["Red", "Orange", "Yellow", "Green", "Blue", "Violet", "White"],
     )
-    var dt = initDateTime(5, mJan, 2010, 17, 01, 02, utc())
+    var dt = dateTime(2010, mJan, 5, 17, 01, 02, zone = utc())
     check dt.format("d", loc) == "5"
     check dt.format("dd", loc) == "05"
     check dt.format("ddd", loc) == "Ora."
@@ -520,14 +537,14 @@ block: # ttimes
     check getDayOfWeek(01, mJan, 2021) == dFri
 
   block: # between - simple
-    let x = initDateTime(10, mJan, 2018, 13, 00, 00)
-    let y = initDateTime(11, mJan, 2018, 12, 00, 00)
+    let x = dateTime(2018, mJan, 10, 13, 00, 00)
+    let y = dateTime(2018, mJan, 11, 12, 00, 00)
     doAssert x + between(x, y) == y
 
   block: # between - dst start
     usingTimezone("Europe/Stockholm"):
-      let x = initDateTime(25, mMar, 2018, 00, 00, 00)
-      let y = initDateTime(25, mMar, 2018, 04, 00, 00)
+      let x = dateTime(2018, mMar, 25, 00, 00, 00)
+      let y = dateTime(2018, mMar, 25, 04, 00, 00)
       doAssert x + between(x, y) == y
 
   block: # between - empty interval
@@ -537,15 +554,15 @@ block: # ttimes
 
   block: # between - dst end
     usingTimezone("Europe/Stockholm"):
-      let x = initDateTime(27, mOct, 2018, 02, 00, 00)
-      let y = initDateTime(28, mOct, 2018, 01, 00, 00)
+      let x = dateTime(2018, mOct, 27, 02, 00, 00)
+      let y = dateTime(2018, mOct, 28, 01, 00, 00)
       doAssert x + between(x, y) == y
 
   block: # between - long day
     usingTimezone("Europe/Stockholm"):
       # This day is 25 hours long in Europe/Stockholm
-      let x = initDateTime(28, mOct, 2018, 00, 30, 00)
-      let y = initDateTime(29, mOct, 2018, 00, 00, 00)
+      let x = dateTime(2018, mOct, 28, 00, 30, 00)
+      let y = dateTime(2018, mOct, 29, 00, 00, 00)
       doAssert between(x, y) == 24.hours + 30.minutes
       doAssert x + between(x, y) == y
 
@@ -553,62 +570,62 @@ block: # ttimes
     # This test case is important because in this case
     # `x + between(x.utc, y.utc) == y` is not true, which is very rare.
     usingTimezone("America/Belem"):
-      let x = initDateTime(24, mOct, 1987, 00, 00, 00)
-      let y = initDateTime(26, mOct, 1987, 23, 00, 00)
+      let x = dateTime(1987, mOct, 24, 00, 00, 00)
+      let y = dateTime(1987, mOct, 26, 23, 00, 00)
       doAssert x + between(x, y) == y
       doAssert y + between(y, x) == x
 
   block: # between - all units
-    let x = initDateTime(1, mJan, 2000, 00, 00, 00, utc())
+    let x = dateTime(2000, mJan, 1, 00, 00, 00, zone = utc())
     let ti = initTimeInterval(1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
     let y = x + ti
     doAssert between(x, y) == ti
     doAssert between(y, x) == -ti
 
   block: # between - monthday overflow
-      let x = initDateTime(31, mJan, 2001, 00, 00, 00, utc())
-      let y = initDateTime(1, mMar, 2001, 00, 00, 00, utc())
+      let x = dateTime(2001, mJan, 31, 00, 00, 00, zone = utc())
+      let y = dateTime(2001, mMar, 1, 00, 00, 00, zone = utc())
       doAssert x + between(x, y) == y
 
   block: # between - misc
     block:
-      let x = initDateTime(31, mDec, 2000, 12, 00, 00, utc())
-      let y = initDateTime(01, mJan, 2001, 00, 00, 00, utc())
+      let x = dateTime(2000, mDec, 31, 12, 00, 00, zone = utc())
+      let y = dateTime(2001, mJan, 01, 00, 00, 00, zone = utc())
       doAssert between(x, y) == 12.hours
 
     block:
-      let x = initDateTime(31, mDec, 2000, 12, 00, 00, utc())
-      let y = initDateTime(02, mJan, 2001, 00, 00, 00, utc())
+      let x = dateTime(2000, mDec, 31, 12, 00, 00, zone = utc())
+      let y = dateTime(2001, mJan, 02, 00, 00, 00, zone = utc())
       doAssert between(x, y) == 1.days + 12.hours
 
     block:
-      let x = initDateTime(31, mDec, 1995, 00, 00, 00, utc())
-      let y = initDateTime(01, mFeb, 2000, 00, 00, 00, utc())
+      let x = dateTime(1995, mDec, 31, 00, 00, 00, zone = utc())
+      let y = dateTime(2000, mFeb, 01, 00, 00, 00, zone = utc())
       doAssert x + between(x, y) == y
 
     block:
-      let x = initDateTime(01, mDec, 1995, 00, 00, 00, utc())
-      let y = initDateTime(31, mJan, 2000, 00, 00, 00, utc())
+      let x = dateTime(1995, mDec, 01, 00, 00, 00, zone = utc())
+      let y = dateTime(2000, mJan, 31, 00, 00, 00, zone = utc())
       doAssert x + between(x, y) == y
 
     block:
-      let x = initDateTime(31, mJan, 2000, 00, 00, 00, utc())
-      let y = initDateTime(01, mFeb, 2000, 00, 00, 00, utc())
+      let x = dateTime(2000, mJan, 31, 00, 00, 00, zone = utc())
+      let y = dateTime(2000, mFeb, 01, 00, 00, 00, zone = utc())
       doAssert x + between(x, y) == y
 
     block:
-      let x = initDateTime(01, mJan, 1995, 12, 00, 00, utc())
-      let y = initDateTime(01, mFeb, 1995, 00, 00, 00, utc())
+      let x = dateTime(1995, mJan, 01, 12, 00, 00, zone = utc())
+      let y = dateTime(1995, mFeb, 01, 00, 00, 00, zone = utc())
       doAssert between(x, y) == 4.weeks + 2.days + 12.hours
 
     block:
-      let x = initDateTime(31, mJan, 1995, 00, 00, 00, utc())
-      let y = initDateTime(10, mFeb, 1995, 00, 00, 00, utc())
+      let x = dateTime(1995, mJan, 31, 00, 00, 00, zone = utc())
+      let y = dateTime(1995, mFeb, 10, 00, 00, 00, zone = utc())
       doAssert x + between(x, y) == y
 
     block:
-      let x = initDateTime(31, mJan, 1995, 00, 00, 00, utc())
-      let y = initDateTime(10, mMar, 1995, 00, 00, 00, utc())
+      let x = dateTime(1995, mJan, 31, 00, 00, 00, zone = utc())
+      let y = dateTime(1995, mMar, 10, 00, 00, 00, zone = utc())
       doAssert x + between(x, y) == y
       doAssert between(x, y) == 1.months + 1.weeks
 

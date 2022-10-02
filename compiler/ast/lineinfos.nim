@@ -24,6 +24,15 @@ export FileIndex, TLineInfo
 
 import reports
 
+type
+  CompilerVerbosity* = enum
+    ## verbosity of the compiler, number is used as an array index and the
+    ## string matches what's passed on the CLI.
+    compVerbosityMin = (0, "0")
+    compVerbosityDefault = (1, "1")
+    compVerbosityHigh = (2, "2")
+    compVerbosityMax = (3, "3")
+
 const
   explanationsBaseUrl* = "https://nim-lang.github.io/Nim"
     # was: "https://nim-lang.org/docs" but we're now usually showing devel docs
@@ -38,7 +47,7 @@ proc createDocLink*(urlSuffix: string): string =
     result.add "/" & urlSuffix
 
 proc computeNotesVerbosity(): tuple[
-    main: array[0..3, ReportKinds],
+    main: array[CompilerVerbosity, ReportKinds],
     foreign: ReportKinds,
     base: ReportKinds
   ] =
@@ -48,11 +57,12 @@ proc computeNotesVerbosity(): tuple[
   # settings
   result.base = (repErrorKinds + repInternalKinds)
 
+
   # Somewhat awkward handing - stack trace report cannot be error (because
   # actual error report must follow), so it is a hint-level report (can't
   # be debug because it is a user-facing, can't be "trace" because it is
   # not for compiler developers use only)
-  result.base.incl {rsemVmStackTrace}
+  result.base.incl {rvmStackTrace}
 
   when defined(debugOptions):
     # debug report for transition of the configuration options
@@ -69,14 +79,12 @@ proc computeNotesVerbosity(): tuple[
     }
 
   when defined(nimDebugUtils):
-    result.base.incl {
-      rdbgTraceStart, # Begin report
-      rdbgTraceStep, # in/out
-      rdbgTraceLine,
-      rdbgTraceEnd # End report
-    }
+    # By default enable only semantic debug trace reports - other changes
+    # might be put in there *temporarily* to aid the debugging.
+    result.base.incl repDebugTraceKinds
 
-  result.main[3] = result.base + repWarningKinds + repHintKinds - {
+  result.main[compVerbosityMax] =
+    result.base + repWarningKinds + repHintKinds - {
     rsemObservableStores,
     rsemResultUsed,
     rsemAnyEnumConvert,
@@ -90,12 +98,10 @@ proc computeNotesVerbosity(): tuple[
     rintErrKind
   }
 
-
   if defined(release):
-    result.main[3].excl rintStackTrace
+    result.main[compVerbosityMax].excl rintStackTrace
 
-
-  result.main[2] = result.main[3] - {
+  result.main[compVerbosityHigh] = result.main[compVerbosityMax] - {
     rsemUninit,
     rsemExtendedContext,
     rsemProcessingStmt,
@@ -103,17 +109,23 @@ proc computeNotesVerbosity(): tuple[
     rextConf,
   }
 
-  result.main[1] = result.main[2] - repPerformanceHints - {
-    rsemProveField,
-    rsemErrGcUnsafe,
-    rextPath,
-    rsemHintLibDependency,
-    rsemGlobalVar,
-    rintGCStats,
-    rintMsgOrigin,
-  }
+  result.main[compVerbosityDefault] = result.main[compVerbosityHigh] -
+    repPerformanceHints -
+    {
+      rsemProveField,
+      rsemErrGcUnsafe,
+      rsemHintLibDependency,
+      rsemGlobalVar,
 
-  result.main[0] = result.main[1] - {
+      rintGCStats,
+      rintMsgOrigin,
+
+      rextPath,
+
+      rlexSourceCodeFilterOutput,
+    }
+
+  result.main[compVerbosityMin] = result.main[compVerbosityDefault] - {
     rintSuccessX,
     rextConf,
     rsemProcessing,
@@ -136,15 +148,14 @@ proc computeNotesVerbosity(): tuple[
   for idx, n in @[
     result.foreign,
     # result.base,
-    result.main[3],
-    result.main[2],
-    result.main[1],
-    result.main[0],
+    result.main[compVerbosityMax],
+    result.main[compVerbosityHigh],
+    result.main[compVerbosityDefault],
+    result.main[compVerbosityMin],
   ]:
     assert rbackLinking notin n
     assert rsemImplicitObjConv in n, $idx
-    assert rsemVmStackTrace in n, $idx
-
+    assert rvmStackTrace in n, $idx
 
 const
   NotesVerbosity* = computeNotesVerbosity()
@@ -168,9 +179,7 @@ type
                                ## and parsed; usually "" but is used
                                ## for 'nimsuggest'
     hash*: string              ## the checksum of the file
-    dirty*: bool               ## for 'nimfix' / 'nimpretty' like tooling
-    when defined(nimpretty):
-      fullContent*: string
+    dirty*: bool               ## for 'nimfix' like tooling
 
   TErrorOutput* = enum
     eStdOut
@@ -188,10 +197,6 @@ proc hash*(i: TLineInfo): Hash =
 
 proc raiseRecoverableError*(msg: string) {.noinline.} =
   raise newException(ERecoverableError, msg)
-
-const
-  InvalidFileIdx* = FileIndex(-1)
-  unknownLineInfo* = TLineInfo(line: 0, col: -1, fileIndex: InvalidFileIdx)
 
 func isKnown*(info: TLineInfo): bool =
   ## Check if `info` represents valid source file location

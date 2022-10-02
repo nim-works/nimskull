@@ -202,7 +202,7 @@ import std/private/since
 include "system/inclrtl"
 
 when defined(js):
-  import jscore
+  import std/jscore
 
   # This is really bad, but overflow checks are broken badly for
   # ints on the JS backend. See #6752.
@@ -226,7 +226,7 @@ when defined(js):
   {.pop.}
 
 elif defined(posix):
-  import posix
+  import std/posix
 
   type CTime = posix.Time
 
@@ -235,7 +235,7 @@ elif defined(posix):
       {.importc: "gettimeofday", header: "<sys/time.h>", sideEffect.}
 
 elif defined(windows):
-  import winlean, std/time_t
+  import std/[winlean, time_t]
 
   type
     CTime = time_t.Time
@@ -1352,23 +1352,6 @@ proc dateTime*(year: int, month: Month, monthday: MonthdayRange,
     nanosecond: nanosecond
   )
   result = initDateTime(zone.zonedTimeFromAdjTime(dt.toAdjTime), zone)
-
-proc initDateTime*(monthday: MonthdayRange, month: Month, year: int,
-                   hour: HourRange, minute: MinuteRange, second: SecondRange,
-                   nanosecond: NanosecondRange,
-                   zone: Timezone = local()): DateTime {.deprecated: "use `dateTime`".} =
-  ## Create a new `DateTime <#DateTime>`_ in the specified timezone.
-  runnableExamples("--warning:deprecated:off"):
-    assert $initDateTime(30, mMar, 2017, 00, 00, 00, 00, utc()) == "2017-03-30T00:00:00Z"
-  dateTime(year, month, monthday, hour, minute, second, nanosecond, zone)
-
-proc initDateTime*(monthday: MonthdayRange, month: Month, year: int,
-                   hour: HourRange, minute: MinuteRange, second: SecondRange,
-                   zone: Timezone = local()): DateTime {.deprecated: "use `dateTime`".} =
-  ## Create a new `DateTime <#DateTime>`_ in the specified timezone.
-  runnableExamples("--warning:deprecated:off"):
-    assert $initDateTime(30, mMar, 2017, 00, 00, 00, utc()) == "2017-03-30T00:00:00Z"
-  dateTime(year, month, monthday, hour, minute, second, 0, zone)
 
 proc `+`*(dt: DateTime, dur: Duration): DateTime =
   runnableExamples:
@@ -2650,44 +2633,3 @@ when not defined(js):
         toFloat(ts.tv_nsec.int) / 1_000_000_000
     else:
       result = toFloat(int(getClock())) / toFloat(clocksPerSec)
-
-
-#
-# Deprecations
-#
-
-proc `nanosecond=`*(dt: var DateTime, value: NanosecondRange) {.deprecated: "Deprecated since v1.3.1".} =
-  dt.nanosecond = value
-
-proc `second=`*(dt: var DateTime, value: SecondRange) {.deprecated: "Deprecated since v1.3.1".} =
-  dt.second = value
-
-proc `minute=`*(dt: var DateTime, value: MinuteRange) {.deprecated: "Deprecated since v1.3.1".} =
-  dt.minute = value
-
-proc `hour=`*(dt: var DateTime, value: HourRange) {.deprecated: "Deprecated since v1.3.1".} =
-  dt.hour = value
-
-proc `monthdayZero=`*(dt: var DateTime, value: int) {.deprecated: "Deprecated since v1.3.1".} =
-  dt.monthdayZero = value
-
-proc `monthZero=`*(dt: var DateTime, value: int) {.deprecated: "Deprecated since v1.3.1".} =
-  dt.monthZero = value
-
-proc `year=`*(dt: var DateTime, value: int) {.deprecated: "Deprecated since v1.3.1".} =
-  dt.year = value
-
-proc `weekday=`*(dt: var DateTime, value: WeekDay) {.deprecated: "Deprecated since v1.3.1".} =
-  dt.weekday = value
-
-proc `yearday=`*(dt: var DateTime, value: YeardayRange) {.deprecated: "Deprecated since v1.3.1".} =
-  dt.yearday = value
-
-proc `isDst=`*(dt: var DateTime, value: bool) {.deprecated: "Deprecated since v1.3.1".} =
-  dt.isDst = value
-
-proc `timezone=`*(dt: var DateTime, value: Timezone) {.deprecated: "Deprecated since v1.3.1".} =
-  dt.timezone = value
-
-proc `utcOffset=`*(dt: var DateTime, value: int) {.deprecated: "Deprecated since v1.3.1".} =
-  dt.utcOffset = value

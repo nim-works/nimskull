@@ -30,14 +30,17 @@ proc semTypeOf(c: PContext; n: PNode): PNode =
   if n.len == 3:
     let mode = semConstExpr(c, n[2])
     if mode.kind != nkIntLit:
-      localReport(c.config, n, reportSem rsemVmCannotEvaluateAtComptime)
+      localReport(c.config, VMReport(
+        kind: rvmCannotEvaluateAtComptime,
+        ast: n,
+        location: some(n.info)))
     else:
       m = mode.intVal
   result = newNodeI(nkTypeOfExpr, n.info)
   let typExpr = semExprWithType(c, n[1], if m == 1: {efInTypeof} else: {})
   result.add typExpr
   if typExpr.isError:
-    result = c.config.wrapErrorInSubTree(result)
+    result = c.config.wrapError(result)
   else:
     result.typ = makeTypeDesc(c, typExpr.typ)
 
@@ -479,6 +482,10 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   ## ``n`` the ast like it would be passed to a real macro
   ## ``flags`` Some flags for more contextual information on how the
   ## "macro" is calld.
+
+  if n.isError:
+    result = n
+    return
 
   case n[0].sym.magic
   of mAddr:

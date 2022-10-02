@@ -254,8 +254,8 @@ proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
     let name = extractFilename(file)
     if name.splitFile.ext != ".nim": return false
     for namei in disabledFiles:
-      # because of `LockFreeHash.nim` which has case
-      if namei.cmpPaths(name) == 0: return false
+      if namei.cmpPaths(name) == 0:
+        return false
     return true
 
   for testFile in os.walkDirRec(pattern):

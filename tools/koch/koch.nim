@@ -166,10 +166,6 @@ proc buildVccTool(args: string) =
   else:
     nimCompileFold("Compile Vcc", input, options = args)
 
-proc bundleNimpretty(args: string) =
-  nimCompileFold("Compile nimpretty", "nimpretty/nimpretty.nim",
-                 options = "-d:release " & defineSourceMetadata() & " " & args)
-
 proc bundleWinTools(args: string) =
   nimCompile("tools/finish.nim", outputDir = "", options = args)
 
@@ -182,7 +178,8 @@ proc bundleWinTools(args: string) =
                options = r"--cc:vcc --app:gui -d:ssl --noNimblePath --path:..\ui " & args)
 
 proc ensureCleanGit() =
-  let (outp, status) = osproc.execCmdEx("git diff")
+  discard osproc.execCmdEx("git diff")
+  # let (outp, status) = osproc.execCmdEx("git diff")
   #if outp.len != 0:
   #  quit "Not a clean git repository; 'git diff' not empty!"
   #if status != 0:
@@ -205,7 +202,6 @@ proc buildTools(args: string = "") =
   nimCompileFold("Compile nimgrep", "tools/nimgrep.nim",
                  options = "-d:release " & defineSourceMetadata() & " " & args)
   when defined(windows): buildVccTool(args)
-  bundleNimpretty(args)
 
   # the VM runs into `setjmp`-related stack-corruption issues when using the
   # MinGW runtime. ``exceptions:goto`` is used as a workaround
@@ -536,7 +532,6 @@ proc installDeps(dep: string, commit = "") =
 proc testTools(cmd: string) =
   nimexecFold("Run nimdoc tests", "r nimdoc/tester")
   nimexecFold("Run rst2html tests", "r nimdoc/rsttester")
-  nimexecFold("Run nimpretty tests", "r nimpretty/tester.nim")
   # refs #18385, build with -d:release instead of -d:danger for testing
   # We could also skip building nimsuggest in buildTools, or build it with -d:release
   # in bundleNimsuggest depending on some environment variable when we are in CI. One advantage

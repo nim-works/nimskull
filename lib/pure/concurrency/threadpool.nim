@@ -22,7 +22,7 @@
 when not compileOption("threads"):
   {.error: "Threadpool requires --threads:on option.".}
 
-import cpuinfo, cpuload, locks, os
+import std/[cpuinfo, cpuload, locks, os]
 
 {.push stackTrace:off.}
 
@@ -70,7 +70,7 @@ proc barrierEnter(b: ptr Barrier) {.compilerproc, inline.} =
   # will be called which already will perform a fence for us.
 
 proc barrierLeave(b: ptr Barrier) {.compilerproc, inline.} =
-  atomicInc b.left
+  discard atomicInc b.left
   when not defined(x86): fence()
   # We may not have seen the final value of b.entered yet,
   # so we need to check for >= instead of ==.
@@ -340,7 +340,7 @@ proc slave(w: ptr Worker) {.thread.} =
   while true:
     if w.shutdown:
       w.shutdown = false
-      atomicDec currentPoolSize
+      discard atomicDec currentPoolSize
       while true:
         if w.data != nil:
           sleep(threadpoolWaitMs)
@@ -502,7 +502,7 @@ proc nimSpawn3(fn: WorkerProc; data: pointer) {.compilerproc.} =
           if not workersData[currentPoolSize].initialized:
             activateWorkerThread(currentPoolSize)
           let w = addr(workersData[currentPoolSize])
-          atomicInc currentPoolSize
+          discard atomicInc currentPoolSize
           if selectWorker(w, fn, data):
             release(stateLock)
             return
@@ -514,7 +514,7 @@ proc nimSpawn3(fn: WorkerProc; data: pointer) {.compilerproc.} =
             if not workersData[currentPoolSize].initialized:
               activateWorkerThread(currentPoolSize)
             let w = addr(workersData[currentPoolSize])
-            atomicInc currentPoolSize
+            discard atomicInc currentPoolSize
             if selectWorker(w, fn, data):
               release(stateLock)
               return
@@ -540,7 +540,7 @@ proc nimSpawn3(fn: WorkerProc; data: pointer) {.compilerproc.} =
             if not workersData[currentPoolSize].initialized:
               activateWorkerThread(currentPoolSize)
             let w = addr(workersData[currentPoolSize])
-            atomicInc currentPoolSize
+            discard atomicInc currentPoolSize
             if selectWorker(w, fn, data):
               return
           else:

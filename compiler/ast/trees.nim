@@ -16,7 +16,15 @@ proc cyclicTreeAux(n: PNode, visited: var seq[PNode]): bool =
   if n == nil: return
   for v in visited:
     if v == n: return true
-  if not (n.kind in {nkEmpty..nkNilLit}):
+  case n.kind
+  of nkEmpty..nkNilLit:
+    discard
+  of nkError:
+    visited.add(n)
+    for kid in n.kids:
+      if cyclicTreeAux(kid, visited): return true
+    discard visited.pop()
+  else:
     visited.add(n)
     for nSon in n.sons:
       if cyclicTreeAux(nSon, visited): return true
@@ -151,8 +159,7 @@ proc findPragma*(n: PNode, which: TSpecialWord): PNode =
         return son
 
 proc effectSpec*(n: PNode, effectType: TSpecialWord): PNode =
-  for i in 0..<n.len:
-    var it = n[i]
+  for it in n:
     if it.kind == nkExprColonExpr and whichPragma(it) == effectType:
       result = it[1]
       if result.kind notin {nkCurly, nkBracket}:
@@ -161,10 +168,16 @@ proc effectSpec*(n: PNode, effectType: TSpecialWord): PNode =
       return
 
 proc unnestStmts(n, result: PNode) =
-  if n.kind == nkStmtList:
-    for x in items(n): unnestStmts(x, result)
-  elif n.kind notin {nkCommentStmt, nkNilLit}:
-    result.add(n)
+  case n.kind
+  of nkStmtList:
+    # xxx: we don't handle nkStmtListExpr, hmm
+    for x in items(n):
+      unnestStmts(x, result)
+  of nkCommentStmt, nkNilLit:
+    # QUESTION: why don't we drop empties? what about defer?
+    discard
+  else:
+    result.add n
 
 proc flattenStmts*(n: PNode): PNode =
   result = newNodeI(nkStmtList, n.info)

@@ -18,8 +18,15 @@ import
   ]
 
 const
-  OverloadableSyms* = {skProc, skFunc, skMethod, skIterator,
-    skConverter, skTemplate, skMacro, skEnumField,
+  OverloadableSyms* = {
+    skProc,
+    skFunc,
+    skMethod,
+    skIterator,
+    skConverter,
+    skTemplate,
+    skMacro,
+    skEnumField,
 
     # BUGFIX: a module is overloadable so that a proc can have the
     # same name as an imported module. This is necessary because of
@@ -97,6 +104,8 @@ const
   callableDefs* = nkLambdaKinds + routineDefs
 
   nkSymChoices* = {nkClosedSymChoice, nkOpenSymChoice}
+  nkFloatKinds* = nkFloatLiterals # QUESTION remove float literals
+                                  # altogether?
   nkStrKinds* = {nkStrLit..nkTripleStrLit}
   nkIntKinds* = {nkCharLit .. nkUInt64Lit}
 
@@ -381,7 +390,13 @@ proc containsNode*(n: PNode, kinds: TNodeKinds): bool =
 
 proc hasSubnodeWith*(n: PNode, kind: TNodeKind): bool =
   case n.kind
-  of nkEmpty..nkNilLit, nkFormalParams: result = n.kind == kind
+  of nkEmpty..nkNilLit, nkFormalParams:
+    result = n.kind == kind
+  of nkError:
+    for i in 0..<n.kids.len:
+      if (n.kids[i].kind == kind) or hasSubnodeWith(n.kids[i], kind):
+        return true
+    result = false
   else:
     for i in 0..<n.len:
       if (n[i].kind == kind) or hasSubnodeWith(n[i], kind):
@@ -589,12 +604,14 @@ proc skipColon*(n: PNode): PNode =
 
 proc findUnresolvedStatic*(n: PNode): PNode =
   # n.typ == nil: see issue #14802
-  if n.kind == nkSym and n.typ != nil and n.typ.kind == tyStatic and n.typ.n == nil:
+  if n.kind == nkSym and n.typ != nil and
+     n.typ.kind == tyStatic and n.typ.n == nil:
     return n
 
-  for son in n:
-    let n = son.findUnresolvedStatic
-    if n != nil: return n
+  if n.kind != nkError:
+    for son in n:
+      let n = son.findUnresolvedStatic
+      if n != nil: return n
 
   return nil
 
@@ -659,10 +676,6 @@ proc canRaise*(fn: PNode): bool =
 
 proc skipAddr*(n: PNode): PNode {.inline.} =
   if n.kind == nkHiddenAddr: n[0] else: n
-
-proc isNewStyleConcept*(n: PNode): bool {.inline.} =
-  assert n.kind == nkTypeClassTy
-  result = n[0].kind == nkEmpty
 
 
 

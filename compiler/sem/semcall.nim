@@ -293,7 +293,7 @@ proc resolveOverloads(c: PContext, n: PNode,
     let hasError = semOpAux(c, f)
     initialBinding = f
     if hasError:
-      f = c.config.wrapErrorInSubTree(f)
+      f = c.config.wrapError(f)
     else:
       f = f[0]
   else:
@@ -301,7 +301,7 @@ proc resolveOverloads(c: PContext, n: PNode,
 
   if f.isError:
     n[0] = f
-    result.call = c.config.wrapErrorInSubTree(n)
+    result.call = c.config.wrapError(n)
     return
 
   template pickBest(headSymbol) =
@@ -311,20 +311,6 @@ proc resolveOverloads(c: PContext, n: PNode,
 
   let overloadsState = result.state
   if overloadsState != csMatch:
-    if c.p != nil and c.p.selfSym != nil:
-      # we need to enforce semchecking of selfSym again because it
-      # might need auto-deref:
-      var hiddenArg = newSymNode(c.p.selfSym)
-      hiddenArg.typ = nil
-      n.sons.insert(hiddenArg, 1)
-
-      pickBest(f)
-
-      if result.state != csMatch:
-        n.sons.delete(1)
-        excl n.flags, nfExprCall
-      else: return
-
     template tryOp(x) =
       let op = newIdentNode(getIdent(c.cache, x), n.info)
       n[0] = op
@@ -361,22 +347,17 @@ proc resolveOverloads(c: PContext, n: PNode,
             n[2] = c.config.newError(n[2], SemReport(
               kind: rsemUndeclaredField, ast: n[2], sym: sym, typ: sym.typ))
 
-            result.call = wrapErrorInSubTree(c.config, n)
+            result.call = wrapError(c.config, n)
         else:
           let msg = getMsgDiagnostic(c, flags, n, f)
           result.call = c.config.newError(n, msg)
 
       return
     elif result.state != csMatch:
-      if nfExprCall in n.flags:
-        result.call = c.config.newError(
-          n, reportAst(rsemExpressionCannotBeCalled, n))
-
-      else:
-        if {nfDotField, nfDotSetter} * n.flags != {}:
-          # clean up the inserted ops
-          n.sons.delete(2)
-          n[0] = f
+      if {nfDotField, nfDotSetter} * n.flags != {}:
+        # clean up the inserted ops
+        n.sons.delete(2)
+        n[0] = f
       return
   if alt.state == csMatch and cmpCandidates(result, alt) == 0 and
       not sameMethodDispatcher(result.calleeSym, alt.calleeSym):
@@ -595,7 +576,7 @@ proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
     let e = semExpr(c, n[i])
     if e.isError:
       n[i] = e
-      result = c.config.wrapErrorInSubTree(n)
+      result = c.config.wrapError(n)
       return
     elif e.typ == nil:
       n[i].typ = errorType(c)

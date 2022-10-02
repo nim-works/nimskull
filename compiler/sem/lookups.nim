@@ -351,9 +351,7 @@ proc wrongRedefinition*(
     c.config.localReport(info, reportSymbols(
       rsemRedefinitionOf, @[s, conflictsWith]))
 
-# xxx pending bootstrap >= 1.4, replace all those overloads with a single one:
-# proc addDecl*(c: PContext, sym: PSym, info = sym.info, scope = c.currentScope) {.inline.} =
-proc addDeclAt*(c: PContext; scope: PScope, sym: PSym, info: TLineInfo) =
+proc addDecl*(c: PContext, sym: PSym, info = sym.info, scope = c.currentScope) =
   let conflict = scope.addUniqueSym(sym)
   if conflict != nil:
     if sym.kind == skModule and
@@ -368,15 +366,6 @@ proc addDeclAt*(c: PContext; scope: PScope, sym: PSym, info: TLineInfo) =
         previous: conflict))
     else:
       wrongRedefinition(c, info, sym, conflict)
-
-proc addDeclAt*(c: PContext; scope: PScope, sym: PSym) {.inline.} =
-  addDeclAt(c, scope, sym, sym.info)
-
-proc addDecl*(c: PContext, sym: PSym, info: TLineInfo) {.inline.} =
-  addDeclAt(c, c.currentScope, sym, info)
-
-proc addDecl*(c: PContext, sym: PSym) {.inline.} =
-  addDeclAt(c, c.currentScope, sym)
 
 proc addPrelimDecl*(c: PContext, sym: PSym) =
   discard c.currentScope.addUniqueSym(sym)
@@ -397,7 +386,7 @@ proc addInterfaceDeclAux(c: PContext, sym: PSym) =
 
 proc addInterfaceDeclAt*(c: PContext, scope: PScope, sym: PSym) =
   ## adds a symbol on the scope and the interface if appropriate
-  addDeclAt(c, scope, sym)
+  addDecl(c, sym, scope = scope)
   if not scope.isShadowScope:
     # adding into a non-shadow scope, we need to handle exports, etc
     addInterfaceDeclAux(c, sym)
@@ -594,7 +583,7 @@ proc errorSym*(c: PContext, n, err: PNode): PSym =
   if c.config.cmd != cmdInteractive and c.compilesContextId == 0:
     c.moduleScope.addSym(result)
 
-proc createUndeclaredIdentifierError(
+proc createUndeclaredIdentifierError*(
     c:PContext; n: PNode; name:string;
     candidates: seq[SemSpellCandidate] = @[]
   ): PNode =
@@ -733,6 +722,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
     var
       amb = false
       (ident, errNode) = considerQuotedIdent(c, n)
+
     if isNotFound(c.cache, ident):
       let
         wrongNode =
@@ -840,7 +830,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       # create a copy of n with the error from `m`'s lookup
       var err = copyTreeWithoutNode(n, n[0])
       err[0] = m.ast
-      err = wrapErrorInSubTree(c.config, err)
+      err = wrapError(c.config, err)
       result = errorSym(c, n, err)
   else:
     result = nil
@@ -886,7 +876,7 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
       errDotExpr.add o.m.ast
       errDotExpr.add n[1]
       result = newQualifiedLookUpError(c, o.m.name, n.info,
-                  c.config.wrapErrorInSubTree(errDotExpr))
+                  c.config.wrapError(errDotExpr))
     elif o.m != nil and o.m.kind == skModule:
       let (ident, err) = considerQuotedIdent(c, n[1])
 
@@ -904,7 +894,7 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
         errDotExpr.add o.m.ast
         errDotExpr.add err
         result = newQualifiedLookUpError(c, ident, n.info,
-                    c.config.wrapErrorInSubTree(errDotExpr))
+                    c.config.wrapError(errDotExpr))
         # pretend it's from the top level scope to prevent cascading errors:
         if c.config.cmd != cmdInteractive and c.compilesContextId == 0:
           c.moduleScope.addSym(result)

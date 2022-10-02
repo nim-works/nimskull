@@ -94,8 +94,9 @@ proc c_fclose(f: File): cint {.
   importc: "fclose", header: "<stdio.h>".}
 proc c_clearerr(f: File) {.
   importc: "clearerr", header: "<stdio.h>".}
-proc c_feof(f: File): cint {.
-  importc: "feof", header: "<stdio.h>".}
+# restore if needed, don't want to mark as used
+# proc c_feof(f: File): cint {.
+#   importc: "feof", header: "<stdio.h>".}
 
 when not declared(c_fwrite):
   proc c_fwrite(buf: pointer, size, n: csize_t, f: File): cint {.
@@ -141,8 +142,10 @@ proc c_setvbuf(f: File, buf: pointer, mode: cint, size: csize_t): cint {.
 
 proc c_fprintf(f: File, frmt: cstring): cint {.
   importc: "fprintf", header: "<stdio.h>", varargs, discardable.}
-proc c_fputc(c: char, f: File): cint {.
-  importc: "fputc", header: "<stdio.h>".}
+when defined(windows):
+  # also available elsewhere, but we're only using it on windows at the moment
+  proc c_fputc(c: char, f: File): cint {.
+    importc: "fputc", header: "<stdio.h>".}
 
 # When running nim in android app, stdout goes nowhere, so echo gets ignored
 # To redirect echo to the android logcat, use -d:androidNDK
@@ -564,7 +567,6 @@ proc endOfFile*(f: File): bool {.tags: [], benign.} =
   var c = c_fgetc(f)
   discard c_ungetc(c, f)
   return c < 0'i32
-  #result = c_feof(f) != 0
 
 proc readAllFile(file: File, len: int64): string =
   # We acquire the filesize beforehand and hope it doesn't change.
@@ -578,10 +580,6 @@ proc readAllFile(file: File, len: int64): string =
     # We read all the bytes but did not reach the EOF
     # Try to read it as a buffer
     result.add(readAllBuffer(file))
-
-proc readAllFile(file: File): string =
-  var len = rawFileSize(file)
-  result = readAllFile(file, len)
 
 proc readAll*(file: File): string {.tags: [ReadIOEffect], benign.} =
   ## Reads all data from the stream `file`.

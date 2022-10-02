@@ -92,7 +92,7 @@ Each hint can be activated individually with `--hint:NAME:on|off`:option: or in 
 Name                             Description
 ==========================       ============================================
 CC                               Shows when the C compiler is called.
-CodeBegin
+SourceCodeFilterOutput           Shows the output of an source code filters
 CodeEnd
 CondTrue
 Conf                             A config file was loaded.

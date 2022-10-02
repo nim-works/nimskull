@@ -335,7 +335,7 @@ proc `*`(a: Int128, b: uint32): Int128 =
 
 proc `*`*(a: Int128, b: int32): Int128 =
   result = a * cast[uint32](abs(b))
-  if b < 0:
+  if b.isNegative:
     result = -result
 
 proc `*=`*(a: var Int128, b: int32): Int128 =
@@ -355,21 +355,10 @@ proc low64(a: Int128): uint64 =
 
 proc `*`*(lhs, rhs: Int128): Int128 =
   let
-    a = cast[uint64](lhs.udata[0])
-    b = cast[uint64](lhs.udata[1])
-    c = cast[uint64](lhs.udata[2])
-    d = cast[uint64](lhs.udata[3])
-
-    e = cast[uint64](rhs.udata[0])
-    f = cast[uint64](rhs.udata[1])
-    g = cast[uint64](rhs.udata[2])
-    h = cast[uint64](rhs.udata[3])
-
-
-  let a32 = cast[uint64](lhs.udata[1])
-  let a00 = cast[uint64](lhs.udata[0])
-  let b32 = cast[uint64](rhs.udata[1])
-  let b00 = cast[uint64](rhs.udata[0])
+    a32 = cast[uint64](lhs.udata[1])
+    a00 = cast[uint64](lhs.udata[0])
+    b32 = cast[uint64](rhs.udata[1])
+    b00 = cast[uint64](rhs.udata[0])
 
   result = makeInt128(high64(lhs) * low64(rhs) + low64(lhs) * high64(rhs) + a32 * b32, a00 * b00)
   result += toInt128(a32 * b00) shl 32
@@ -441,11 +430,11 @@ proc divMod*(dividend, divisor: Int128): tuple[quotient, remainder: Int128] =
     result.remainder = dividend
 
 proc `div`*(a, b: Int128): Int128 =
-  let (a, b) = divMod(a, b)
+  let (a, _) = divMod(a, b)
   return a
 
 proc `mod`*(a, b: Int128): Int128 =
-  let (a, b) = divMod(a, b)
+  let (_, b) = divMod(a, b)
   return b
 
 proc addInt128*(result: var string; value: Int128) =

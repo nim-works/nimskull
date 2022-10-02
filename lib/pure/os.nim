@@ -32,7 +32,7 @@ runnableExamples:
 include system/inclrtl
 import std/private/since
 
-import strutils, pathnorm
+import std/[strutils, pathnorm]
 
 const weirdTarget = defined(nimscript) or defined(js)
 
@@ -53,9 +53,9 @@ since (1, 1):
 when weirdTarget:
   discard
 elif defined(windows):
-  import winlean, times
+  import std/[winlean, times]
 elif defined(posix):
-  import posix, times
+  import std/[posix, times]
 
   proc toTime(ts: Timespec): times.Time {.inline.} =
     result = initTime(ts.tv_sec.int64, ts.tv_nsec.int)
@@ -3522,12 +3522,3 @@ func isValidFilename*(filename: string, maxLen = 259.Positive): bool {.since: (1
     find(f.name, invalidFilenameChars) != -1): return false
   for invalid in invalidFilenames:
     if cmpIgnoreCase(f.name, invalid) == 0: return false
-
-# deprecated declarations
-when not defined(nimscript):
-  when not defined(js): # `noNimJs` doesn't work with templates, this should improve.
-    template existsFile*(args: varargs[untyped]): untyped {.deprecated: "use fileExists".} =
-      fileExists(args)
-    template existsDir*(args: varargs[untyped]): untyped {.deprecated: "use dirExists".} =
-      dirExists(args)
-  # {.deprecated: [existsFile: fileExists].} # pending bug #14819; this would avoid above mentioned issue

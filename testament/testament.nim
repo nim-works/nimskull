@@ -1139,15 +1139,12 @@ proc makeTestWithDummySpec(test, options: string, cat: Category): TTest =
 
 # TODO: fix these files
 const disabledFilesDefault = @[
-  "LockFreeHash.nim",
   "tableimpl.nim",
   "setimpl.nim",
   "hashcommon.nim",
 
-  # Requires compiling with '--threads:on`
+  # Requires compiling with '--threads:on'
   "sharedlist.nim",
-  "sharedtables.nim",
-
   # Error: undeclared identifier: 'hasThreadSupport'
   "ioselectors_epoll.nim",
   "ioselectors_kqueue.nim",

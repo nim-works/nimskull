@@ -193,6 +193,10 @@ proc hashFileCached(conf: ConfigRef; fileIdx: FileIndex): string =
     result = $secureHashFile(fullpath)
     msgs.setHash(conf, fileIdx, result)
 
+proc toLitId(x: string; m: var PackedModule): LitId {.inline.} =
+  ## store a string as a literal
+  result = getOrIncl(m.strings, x)
+
 proc toLitId(x: FileIndex; c: var PackedEncoder; m: var PackedModule): LitId =
   ## store a file index as a literal
   if x == c.lastFile:
@@ -201,7 +205,7 @@ proc toLitId(x: FileIndex; c: var PackedEncoder; m: var PackedModule): LitId =
     result = c.filenames.getOrDefault(x)
     if result == LitId(0):
       let p = msgs.toFullPath(c.config, x)
-      result = getOrIncl(m.strings, p)
+      result = toLitId(p, m)
       c.filenames[x] = result
     c.lastFile = x
     c.lastLit = result
@@ -288,14 +292,6 @@ proc flush(c: var PackedEncoder; m: var PackedModule) =
       discard storeSym(c.pendingSyms.pop, c, m)
     else:
       break
-
-proc toLitId(x: string; m: var PackedModule): LitId =
-  ## store a string as a literal
-  result = getOrIncl(m.strings, x)
-
-proc toLitId(x: BiggestInt; m: var PackedModule): LitId =
-  ## store an integer as a literal
-  result = getOrIncl(m.numbers, x)
 
 proc toPackedInfo(x: TLineInfo; c: var PackedEncoder; m: var PackedModule): PackedLineInfo =
   PackedLineInfo(line: x.line, col: x.col, file: toLitId(x.fileIndex, c, m))
@@ -945,13 +941,11 @@ proc loadType(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int; t
     assert result.itemId.item > 0
 
 proc newPackage(config: ConfigRef; cache: IdentCache; fileIdx: FileIndex): PSym =
-  let filename = AbsoluteFile toFullPath(config, fileIdx)
-  let name = getIdent(cache, splitFile(filename).name)
-  let info = newLineInfo(fileIdx, 1, 1)
   let
+    filename = AbsoluteFile toFullPath(config, fileIdx)
+    info = newLineInfo(fileIdx, 1, 1)
     pck = getPackageName(config, filename.string)
     pck2 = if pck.len > 0: pck else: "unknown"
-    pack = getIdent(cache, pck2)
   result = newSym(skPackage, getIdent(cache, pck2),
     ItemId(module: PackageModuleId, item: int32(fileIdx)), nil, info)
 
@@ -1107,7 +1101,8 @@ proc translateId*(id: PackedItemId; g: PackedModuleGraph; thisModule: int; confi
   else:
     ItemId(module: toFileIndex(id.module, g[thisModule].fromDisk, config).int32, item: id.item)
 
-proc checkForHoles(m: PackedModule; config: ConfigRef; moduleId: int) =
+proc checkForHoles*(m: PackedModule; config: ConfigRef; moduleId: int)
+    {.deprecated: "for debugging".} =
   var bugs = 0
   for i in 1 .. high(m.syms):
     if m.syms[i].kind == skUnknown:

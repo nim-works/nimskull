@@ -37,7 +37,7 @@ import
   compiler/utils/[
     ropes,
     pathutils,
-    debugUtils
+    debugutils
   ],
   compiler/sem/[
     semdata,
@@ -88,9 +88,9 @@ const
     wPassl, wPassc, wLocalPassc,
     wDeadCodeElimUnused,  # deprecated, always on
     wDeprecated,
-    wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit, wUnroll,
+    wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit,
     wLinearScanEnd, wPatterns, wTrMacros, wEffects, wComputedGoto,
-    wExperimental, wThis, wUsed, wAssert}
+    wExperimental, wUsed, wAssert}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
     wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
     wThread, wAsmNoStackFrame,
@@ -154,8 +154,7 @@ proc pragmaAsm*(c: PContext, n: PNode): tuple[marker: char, err: PNode] =
   ## Returns ` as the default marker if no other markers are found
   result.marker = '`'
   if n != nil:
-    for i in 0..<n.len:
-      let it = n[i]
+    for it in n:
       if it.kind in nkPragmaCallKinds and it.len == 2 and it[0].kind == nkIdent:
         case whichKeyword(it[0].ident)
         of wSubsChar:
@@ -515,9 +514,9 @@ proc processExperimental(c: PContext; n: PNode): PNode =
         n[1] = c.config.newError(
           n[1], reportAst(rsemUnknownExperimental, n[1]))
 
-        result = wrapErrorInSubTree(c.config, n)
+        result = wrapError(c.config, n)
     of nkError:
-      result = wrapErrorInSubTree(c.config, n)
+      result = wrapError(c.config, n)
     else:
       result = c.config.newError(n, reportSem(rsemStringLiteralExpected))
 
@@ -611,7 +610,7 @@ proc processPush(c: PContext, n: PNode, start: int): PNode =
         x.otherPragmas.add n[i]
     else:
       n[i] = err
-      result = wrapErrorInSubTree(c.config, n)
+      result = wrapError(c.config, n)
       assert not cyclicTree(result)
       return
 
@@ -639,7 +638,8 @@ proc processDefine(c: PContext, n: PNode): PNode =
   ## `n` is not a pragma callable, and its argument isn't an identifier.
   if (n.kind in nkPragmaCallKinds and n.len == 2) and (n[1].kind == nkIdent):
     let str = n[1].ident.s
-    if defined(nimCompilerDebug) and str == "nimCompilerDebug":
+    if defined(nimDebugUtils) and
+       cmpIgnoreStyle(str, "nimCompilerDebug") == 0:
       c.config.localReport(
         n.info, DebugReport(kind: rdbgTraceDefined))
 
@@ -654,7 +654,8 @@ proc processUndef(c: PContext, n: PNode): PNode =
   ## `n` is not a pragma callable, and its argument isn't an identifier.
   if (n.kind in nkPragmaCallKinds and n.len == 2) and (n[1].kind == nkIdent):
     let str = n[1].ident.s
-    if defined(nimCompilerDebug) and str == "nimCompilerDebug":
+    if defined(nimDebugUtils) and
+       cmpIgnoreStyle(str, "nimCompilerDebug") == 0:
       c.config.localReport(
         n.info, DebugReport(kind: rdbgTraceUndefined))
 
@@ -826,20 +827,6 @@ proc noVal(c: PContext; n: PNode): PNode =
   else:
     n
 
-proc pragmaUnroll(c: PContext, n: PNode): PNode =
-  result = n
-  if c.p.nestedLoopCounter <= 0:
-    result = invalidPragma(c, n)
-  elif n.kind in nkPragmaCallKinds and n.len == 2:
-    var (unrollFactor, err) = intLitToIntOrErr(c, n)
-    if err.isNil:
-      if unrollFactor <% 32:
-        n[1] = newIntNode(nkIntLit, unrollFactor)
-      else:
-        result = invalidPragma(c, n)
-    else:
-      result = err
-
 proc pragmaLine(c: PContext, n: PNode): PNode =
   result = n
   if n.kind in nkPragmaCallKinds and n.len == 2:
@@ -902,13 +889,13 @@ proc pragmaRaisesOrTags(c: PContext, n: PNode): PNode =
       let r = processExc(c, it)
       if r.kind == nkError:
         n[1] = r
-        result = wrapErrorInSubTree(c.config, n)
+        result = wrapError(c.config, n)
     else:
       for i, e in it.pairs:
         let r = processExc(c, e)
         if r.kind == nkError:
           n[i] = r
-          result = wrapErrorInSubTree(c.config, n)
+          result = wrapError(c.config, n)
           return
   else:
     result = invalidPragma(c, n)
@@ -922,7 +909,7 @@ proc pragmaLockStmt(c: PContext; it: PNode): PNode =
     if n.kind != nkBracket:
       # xxx: was errGenerated
       it[1] = c.config.newError(n, reportSem(rsemLocksPragmaExpectsList))
-      result = wrapErrorInSubTree(c.config, it)
+      result = wrapError(c.config, it)
     else:
       for i in 0..<n.len:
         n[i] = c.semExpr(c, n[i])
@@ -939,7 +926,7 @@ proc pragmaLocks(c: PContext, it: PNode): (TLockLevel, PNode) =
         it[1] = c.config.newError(it[1], reportStr(
           rsemLocksPragmaBadLevel,
           "invalid string literal for locks pragma (only allowed string is \"unknown\")"))
-        result = (UnknownLockLevel, wrapErrorInSubTree(c.config, it))
+        result = (UnknownLockLevel, wrapError(c.config, it))
     else:
       let (x, err) = intLitToIntOrErr(c, it)
       if err.isNil:
@@ -947,7 +934,7 @@ proc pragmaLocks(c: PContext, it: PNode): (TLockLevel, PNode) =
           it[1] = c.config.newError(it[1], reportStr(
             rsemLocksPragmaBadLevel,
             "integer must be within 0.." & $MaxLockLevel))
-          result = (UnknownLockLevel, wrapErrorInSubTree(c.config, it))
+          result = (UnknownLockLevel, wrapError(c.config, it))
         else:
           result = (TLockLevel(x), nil)
 
@@ -984,40 +971,53 @@ proc markCompilerProc(c: PContext; s: PSym): PNode =
 proc deprecatedStmt(c: PContext; outerPragma: PNode): PNode =
   result = outerPragma
   let pragma = outerPragma[1]
+  
   if pragma.kind in {nkStrLit..nkTripleStrLit}:
     incl(c.module.flags, sfDeprecated)
     c.module.constraint = getStrLitNode(c, outerPragma)
+  
     if c.module.constraint.kind == nkError:
-      result = wrapErrorInSubTree(c.config, outerPragma)
+      result = wrapError(c.config, outerPragma)
+
     return
   elif pragma.kind != nkBracket:
     result = c.config.newError(pragma, reportStr(
       rsemBadDeprecatedArgs, "list of key:value pairs expected"))
+  
     return
+
   for n in pragma:
     if n.kind in nkPragmaCallKinds and n.len == 2:
       let dest = qualifiedLookUp(c, n[1], {checkUndeclared})
+  
       if dest == nil or dest.kind in routineKinds or dest.kind == skError:
         # xxx: warnings need to be figured out, also this is just silly, why
         #      are they unreliable?
         localReport(c.config, n.info, SemReport(kind: rsemUserWarning))
+  
       let (src, err) = considerQuotedIdent(c, n[0])
+
       if err.isNil:
         let alias = newSym(skAlias, src, nextSymId(c.idgen), dest, n[0].info, c.config.options)
         incl(alias.flags, sfExported)
+  
         if sfCompilerProc in dest.flags:
           let e = markCompilerProc(c, alias)
+  
           if e != nil:
             result = e
             return
+  
         addInterfaceDecl(c, alias)
         n[1] = newSymNode(dest)
       else:
         result = err
+
         return
     else:
       result = c.config.newError(n, reportStr(
         rsemBadDeprecatedArgs, "key:value pair expected"))
+
       return
 
 proc pragmaGuard(c: PContext; it: PNode; kind: TSymKind): PSym =
@@ -1163,7 +1163,7 @@ proc prepareSinglePragma(
 
     # number of pragmas increase/decrease with user pragma expansion
     inc c.instCounter
-    if c.instCounter > 100:
+    if c.instCounter > maxInstantiation:
       result = c.config.newError(
         it, reportSym(rsemPragmaRecursiveDependency, userPragma))
 
@@ -1637,8 +1637,6 @@ proc prepareSinglePragma(
           sym.typ.flags.incl tfExplicitCallConv
       of wEmit:
         result = pragmaEmit(c, it)
-      of wUnroll:
-        result = pragmaUnroll(c, it)
       of wLinearScanEnd, wComputedGoto:
         result = noVal(c, it)
       of wEffects:
@@ -1747,24 +1745,6 @@ proc prepareSinglePragma(
         if not isTopLevel(c):
           result = c.config.newError(it, reportSem rsemExperimentalRequiresToplevel)
         result = processExperimental(c, it)
-      of wThis:
-        if it.kind in nkPragmaCallKinds and it.len == 2:
-          (c.selfName, result) = considerQuotedIdent(c, it[1])
-          if result == nil:
-            result = it
-            localReport(
-              c.config, n.info,
-              reportStr(rsemDeprecated, "'.this' pragma is deprecated"))
-          else:
-            it[1] = result # we retrieved it above from `it[1]`, so making sure return the same node
-            result = wrapErrorInSubTree(c.config, it)
-        elif it.kind == nkIdent or it.len == 1:
-          c.selfName = getIdent(c.cache, "self")
-          localReport(
-            c.config, n.info,
-            reportStr(rsemDeprecated, "'.this' pragma is deprecated"))
-        else:
-          result = c.config.newError(it, reportSem rsemThisPragmaRequires01Args)
       of wNoRewrite:
         result = noVal(c, it)
       of wBase:
@@ -1826,7 +1806,7 @@ proc pragmaRec(c: PContext, sym: PSym, n: PNode, validPragmas: TSpecialWords;
 
     if p.isErrorLike:
       assert not cyclicTree(result)
-      if p.isError and p[0] == result:
+      if p.isError and p.kids[0] == result:
         # This can happen because processPush for example may
         # return the whole pragma node wrapped in an error.
         # We don't want to accidently create a cycle in that case.
@@ -1834,7 +1814,7 @@ proc pragmaRec(c: PContext, sym: PSym, n: PNode, validPragmas: TSpecialWords;
       else:
         result[i] = p
       assert not cyclicTree(result)
-      result = wrapErrorInSubTree(c.config, result)
+      result = wrapError(c.config, result)
       return
     elif p != nil and nfImplicitPragma in p.flags:
       break
@@ -1907,4 +1887,4 @@ proc pragmaCallable*(c: PContext, sym: PSym, n: PNode,
     let p = pragmaRec(c, sym, n[pragmasPos], validPragmas, false)
     if p.kind == nkError:
       n[pragmasPos] = p
-      result = wrapErrorInSubTree(c.config, n)
+      result = wrapError(c.config, n)

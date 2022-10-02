@@ -32,7 +32,7 @@ runnableExamples:
     # can't match start of string since we're starting at 1
 
 import
-  pcre, strutils, rtarrays
+  std/[pcre, strutils, rtarrays]
 
 const
   MaxSubpatterns* = 20

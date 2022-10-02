@@ -25,7 +25,6 @@ const
   useEffectSystem* = true
   useWriteTracking* = false
   copyrightYear* = "2022"
-
   nimEnableCovariance* = defined(nimEnableCovariance)
 
 const
@@ -63,8 +62,8 @@ type
     External   ## file was introduced via .compile pragma
 
   Cfile* = object
-    nimname*: string ## Original name of the nim file, constructed from the
-    ## module name.
+    nimname*: string           ## Original name of the nim file, constructed
+                               ## from the module name.
     cname*, obj*: AbsoluteFile
     flags*: set[CfileFlag]
     customArgs*: string
@@ -74,19 +73,20 @@ type
   Suggest* = ref object
     section*: IdeCmd
     qualifiedPath*: seq[string]
-    name*: ptr string         ## not used beyond sorting purposes; name is also
-                              ## part of 'qualifiedPath'
+    name*: ptr string           ## not used beyond sorting purposes; name is
+                                ## also part of 'qualifiedPath'
     filePath*: string
-    line*: int                   ## Starts at 1
-    column*: int                 ## Starts at 0
-    doc*: string           ## Unescaped documentation string
-    forth*: string               ## type
-    quality*: range[0..100]   ## matching quality
-    isGlobal*: bool ## is a global variable
-    contextFits*: bool ## type/non-type context matches
+    line*: int                  ## Starts at 1
+    column*: int                ## Starts at 0
+    doc*: string                ## Unescaped documentation string
+    forth*: string              ## type
+    quality*: range[0..100]     ## matching quality
+    isGlobal*: bool             ## is a global variable
+    contextFits*: bool          ## type/non-type context matches
     prefix*: PrefixMatch
     symkind*: byte
-    scope*, localUsages*, globalUsages*: int # more usages is better
+    scope*:int
+    localUsages*, globalUsages*: int # usage counters
     tokenLen*: int
     version*: int
   Suggestions* = seq[Suggest]
@@ -104,7 +104,7 @@ type
 
   MsgFlag* = enum  ## flags altering msgWriteln behavior
     msgStdout,     ## force writing to stdout, even stderr is default
-    msgNoUnitSep  ## the message is a complete "paragraph".
+    msgNoUnitSep   ## the message is a complete "paragraph".
   MsgFlags* = set[MsgFlag]
 
   TErrorHandling* = enum
@@ -112,8 +112,8 @@ type
               ## order for automatic handing to decide appropriate
               ## reaction.
     doNothing ## Don't do anything
-    doAbort ## Immediately abort compilation
-    doRaise ## Raise recoverable error
+    doAbort   ## Immediately abort compilation
+    doRaise   ## Raise recoverable error
 
   ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
 
@@ -123,18 +123,20 @@ type
     ## they can't be set up from the cli/defines - in the future this will
     ## be changed. For now you can just edit `defaultHackController` value
     ## in this module as you see fit.
-    semStack*: bool  ## Show `| context` entries in the call tracer
+    semStack*: bool       ## Show `| context` entries in the call tracer
+    reportInTrace*: bool  ## Error messages are shown with matching indentation
+                          ## if report was triggered during execution of the
+                          ## sem trace
+    semTraceData*: bool   ## For each sem step show processed data, or only
+                          ## procedure calls.
+    bypassWriteHookForTrace*: bool ## Output trace reports directly into
+    ## the `echo` instead of going through the `ConfigRef.writeln` hook.
+    ## This is useful for environments such as nimsuggest, which discard
+    ## the output.
 
-    reportInTrace*: bool ## Error messages are shown with matching indentation
-    ## if report was triggered during execution of the sem trace
-
-    semTraceData*: bool ## For each sem step show processed data, or only
-    ## procedure calls.
-
-  ConfigRef* {.acyclic.} = ref object ## every global configuration
-                          ## fields marked with '*' are subject to
-                          ## the incremental compilation mechanisms
-                          ## (+) means "part of the dependency"
+  ConfigRef* {.acyclic.} = ref object
+    ## every global configuration fields marked with '*' are subject to the
+    ## incremental compilation mechanisms (+) means "part of the dependency"
 
     # active configuration handling
     active*: CurrentConf
@@ -145,13 +147,12 @@ type
 
     # Set and only read for `testCompileOptionArg`, so not sure if this is
     # 'active' configuration
-    verbosity*: int           ## how verbose the compiler is
+    verbosity*: CompilerVerbosity     ## how verbose the compiler is
 
     # 'arguments' aka a single string aka 'joining strings for external
     # program is bad'
     arguments*: string ## the arguments to be passed to the program that
                        ## should be run
-
 
     linesCompiled*: int   # all lines that have been compiled
     m*: MsgConfig
@@ -162,15 +163,12 @@ type
     ## against infinite macro expansion recursion
     exitcode*: int8
 
-
     # `--eval` flag handling
     cmdInput*: string    ## Code to evaluate from `--eval` switch
     projectIsCmd*: bool  ## whether we're compiling from a command input (`--eval` switch)
     implicitCmd*: bool   ## whether some flag triggered an implicit `command` (`--eval`)
 
-
     hintProcessingDots*: bool ## true for dots, false for filenames
-
 
     lastCmdTime*: float       ## Start of the last compiler commmand - set
     ## in the `main.mainCommand` and then read to generate 'successX'
@@ -179,7 +177,6 @@ type
     headerFile*: string
     ideCmd*: IdeCmd
     oldNewlines*: bool
-
 
     mainPackageId*: int
     errorCounter*: int
@@ -281,7 +278,6 @@ template passSeqField(fieldname, itemtype: untyped): untyped =
   passField(fieldname, seq[itemtype])
   proc `fieldname Add`*(conf: ConfigRef, item: itemtype | seq[itemtype]) =
     conf.active.fieldname.add item
-
 
 passField backend,            TBackend
 passField symbolFiles,        SymbolFilesOption
@@ -637,7 +633,6 @@ func isEnabled*(conf: ConfigRef, report: ReportKind): bool =
   ## Uses `options.hasHint`, `options.hasWarn` to check whether particular
   ## report is enabled, otherwise use query global/local options.
 
-
   # Reports related to experimental features and inconsistent CLI flags
   # (such as `--styleCheck` which controls both CLI flags and hints) are
   # checked for with higher priority
@@ -670,7 +665,10 @@ func isEnabled*(conf: ConfigRef, report: ReportKind): bool =
           result = true
 
         of repTraceKinds:
-          result = true
+          # Semantic trace kinds are enabled by default and probably should
+          # not be changed - but these reports might (in theory) be
+          # modified at runtime.
+          result = report in conf.notes
 
         else:
           result = (report in conf.notes) and
@@ -694,8 +692,8 @@ type
 
 func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
   const forceWrite = {
-    rsemExpandArc # Not considered a hint for now
-  }
+    rsemExpandArc, # Not considered a hint for now
+  } + repDebugTraceKinds # Unconditionally write debug tracing information
 
   let tryhack = conf.m.errorOutputs == {}
   # REFACTOR this check is an absolute hack, `errorOutputs` need to be
@@ -794,23 +792,24 @@ proc newProfileData(): ProfileData =
 proc isDefined*(conf: ConfigRef; symbol: string): bool
 
 const defaultHackController = HackController(
-  semStack: on,
+  semStack: off,
   reportInTrace: off,
-  semTraceData: on
+  semTraceData: on,
+  bypassWriteHookForTrace: true
 )
 
 proc initConfigRefCommon(conf: ConfigRef) =
   conf.symbols = newStringTable(modeStyleInsensitive)
   conf.selectedGC = gcRefc
-  conf.verbosity = 1
+  conf.verbosity = compVerbosityDefault
   conf.hintProcessingDots = true
   conf.options = DefaultOptions
   conf.globalOptions = DefaultGlobalOptions
   conf.filenameOption = foAbs
   conf.foreignPackageNotes = NotesVerbosity.foreign
-  conf.notes = NotesVerbosity.main[1]
+  conf.notes = NotesVerbosity.main[conf.verbosity]
   conf.hack = defaultHackController
-  conf.mainPackageNotes = NotesVerbosity.main[1]
+  conf.mainPackageNotes = NotesVerbosity.main[conf.verbosity]
   when defined(nimDebugUtils):
     # ensures that `nimDebugUtils` is defined for the compiled code so it can
     # access the `system.nimCompilerDebugRegion` template

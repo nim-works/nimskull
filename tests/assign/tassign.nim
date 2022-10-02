@@ -1,4 +1,5 @@
 discard """
+  matrix: "; --gc:arc"
   output:
 '''
 TEMP=C:\Programs\xyz\bin
@@ -216,3 +217,21 @@ block tgeneric_assign_varargs:
     stdout.write('\n')
 
   fatal "abc", "123"
+
+block assign_pure_subobject:
+
+  type
+    PureBase {.pure, inheritable.} = object
+    PureSub = object of PureBase
+      # for this test, it's important that ``PureSub`` is not annotated with
+      # ``.pure`` itself
+      r: ref int
+      # the type of `r`doesn't matter as long as it makes ``PureSub`` require
+      # a complex assignment (either via a lifted ``=copy`` hook or via
+      # ``genericAssign``)
+
+  var x = PureSub(r: new int)
+  var y = x
+  doAssert x.r != nil # prevent a sink for the assignment by using `x`
+                      # afterwards
+  doAssert y.r != nil

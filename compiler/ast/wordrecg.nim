@@ -77,7 +77,7 @@ type
     wCompileTime = "compileTime", wNoInit = "noinit", wPassc = "passc", wPassl = "passl",
     wLocalPassc = "localPassC", wBorrow = "borrow", wDiscardable = "discardable",
     wFieldChecks = "fieldChecks", wSubsChar = "subschar", wAcyclic = "acyclic",
-    wShallow = "shallow", wUnroll = "unroll", wLinearScanEnd = "linearScanEnd",
+    wShallow = "shallow", wLinearScanEnd = "linearScanEnd",
     wComputedGoto = "computedGoto", wExperimental = "experimental",
     wWrite = "write", wGensym = "gensym", wInject = "inject", wDirty = "dirty",
     wInheritable = "inheritable", wThreadVar = "threadvar", wEmit = "emit",

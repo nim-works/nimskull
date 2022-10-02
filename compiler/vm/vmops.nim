@@ -310,8 +310,8 @@ proc registerBasicOps*(c: var TCtx) =
 
     if ePos >= seqVal.length:
       raiseVmError(
-        SemReport(
-          kind: rsemVmIndexError,
+        VMReport(
+          kind: rvmIndexError,
           indexSpec: (
             usedIdx: toInt128(ePos),
             minIdx: toInt128(0),
@@ -437,16 +437,18 @@ proc registerMacroOps*(c: var TCtx) =
   registerCallback c, "stdlib.macros.symBodyHash", proc (a: VmArgs) =
     let n = getNode(a, 0)
     if n.kind != nkSym:
-      raiseVmError(reportAst(
-        rsemVmNodeNotASymbol, n, str = "symBodyHash()"), n.info)
+      raiseVmError(VMReport(
+        kind: rvmNodeNotASymbol,
+        ast: n,
+        str: "symBodyHash()"), n.info)
 
     setResult(a, $symBodyDigest(graph, n.sym))
 
   registerCallback c, "stdlib.macros.isExported", proc(a: VmArgs) =
     let n = getNode(a, 0)
     if n.kind != nkSym:
-      raiseVmError(reportAst(
-        rsemVmNodeNotASymbol, n, str = "isExported()"), n.info)
+      raiseVmError(VMReport(
+        kind: rvmNodeNotASymbol, ast: n, str: "isExported()"), n.info)
 
     setResult(a, sfExported in n.sym.flags)
 

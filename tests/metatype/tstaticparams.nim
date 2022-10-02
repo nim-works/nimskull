@@ -194,4 +194,4 @@ block: # #12864
 
 when true: #12864 original snippet
   import times
-  discard times.format(initDateTime(30, mMar, 2017, 0, 0, 0, 0, utc()), TimeFormat())
+  discard times.format(dateTime(2017, mMar, 30, 0, 0, 0, 0, utc()), TimeFormat())

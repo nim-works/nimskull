@@ -10,7 +10,7 @@ when not defined(nimscript):
     importc: "strerror", header: "<string.h>".}
 
   when defined(windows):
-    import winlean
+    import std/winlean
 
 proc `==`*(err1, err2: OSErrorCode): bool {.borrow.}
 proc `$`*(err: OSErrorCode): string {.borrow.}

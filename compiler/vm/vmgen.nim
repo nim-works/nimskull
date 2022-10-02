@@ -30,8 +30,7 @@
 import
   std/[
     tables,
-    strutils,
-    intsets
+    strutils
   ],
   compiler/ast/[
     renderer,
@@ -70,13 +69,13 @@ when defined(nimCompilerStacktraceHints):
   import std/stackframes
 
 type
-  VmGenResult* = Result[CodeInfo, SemReport] ## The result of a vmgen invocation
+  VmGenResult* = Result[CodeInfo, VMReport] ## The result of a vmgen invocation
 
   VmGenError = object of CatchableError
-    report: SemReport
+    report: VMReport
 
 func raiseVmGenError(
-  report: sink SemReport,
+  report: sink VMReport,
   loc:    TLineInfo,
   inst:   InstantiationInfo
   ) {.noinline, noreturn.} =
@@ -93,10 +92,9 @@ func fail(
   loc:  InstantiationInfo = instLoc()
   ) {.noinline, noreturn.} =
   raiseVmGenError(
-    SemReport(kind: kind, ast: ast, sym: sym, str: str),
+    VMReport(kind: kind, ast: ast, sym: sym, str: str),
     info,
     loc)
-
 
 template tryOrReturn(code): untyped =
   try:
@@ -118,72 +116,6 @@ template isUnset(x: TDest): bool = x < 0
 
 proc debugInfo(c: TCtx; info: TLineInfo): string =
   result = toFileLineCol(c.config, info)
-
-proc codeListing*(c: TCtx, prc: PSym, ast: PNode, start=0; last = -1) =
-  ## for debugging purposes
-  # first iteration: compute all necessary labels:
-  var jumpTargets = initIntSet()
-  let last = if last < 0: c.code.len-1 else: min(last, c.code.len-1)
-  for i in start..last:
-    let x = c.code[i]
-    if x.opcode in relativeJumps:
-      jumpTargets.incl(i+x.regBx-wordExcess)
-
-  var rep = DebugReport(kind: rdbgVmCodeListing)
-  rep.vmgenListing.sym = prc
-  rep.vmgenListing.ast = ast
-
-  var i = start
-  while i <= last:
-    let x = c.code[i]
-    let opc = opcode(x)
-    var code = DebugVmCodeEntry(
-      pc: i,
-      opc: opc,
-      ra: x.regA,
-      rb: x.regB,
-      rc: x.regC,
-      idx: x.regBx - wordExcess,
-      info: c.debug[i]
-    )
-
-    code.isTarget = i in jumpTargets
-
-    case opc:
-      of {opcConv, opcCast}:
-        let y = c.code[i + 1]
-        let z = c.code[i + 2]
-        code.types = (c.rtti[y.regBx-wordExcess].nimType,
-                      c.rtti[z.regBx-wordExcess].nimType)
-        inc i, 2
-
-      of {opcLdConst, opcAsgnConst}:
-        let cnst = c.constants[code.idx]
-        # XXX: maybe the constant should be stored in `DebugVmCodeEntry`
-        #      directly? Would be a problem for `cnstString` however, as
-        #      the underlying memory might have been freed already when the
-        #      actual reporting happens
-        code.ast =
-          case cnst.kind
-          of cnstInt:
-            newIntNode(nkIntLit, cnst.intVal)
-          of cnstFloat:
-            newFloatNode(nkFloatLit, cnst.floatVal)
-          of cnstString:
-            newStrNode(nkStrLit, cnst.strVal)
-          of cnstNode:
-            cnst.node
-          of cnstSliceListInt..cnstSliceListStr:
-            # XXX: translate into an `nkOfBranch`?
-            newNode(nkEmpty)
-
-      else:
-        discard
-
-    rep.vmgenListing.entries.add code
-    inc i
-
-  c.config.localReport(rep)
 
 func registerLinkItem(tbl: var Table[int, LinkIndex], list: var seq[PSym],
                       sym: PSym, next: var LinkIndex): int =
@@ -323,7 +255,7 @@ proc getFreeRegister(cc: var TCtx; k: TSlotKind; start: int): TRegister =
         c.regInfo[i] = RegInfo(refCount: 1, kind: k)
         return TRegister(i)
   if c.regInfo.len >= high(TRegister):
-    fail(cc.bestEffort, rsemTooManyRegistersRequired)
+    fail(cc.bestEffort, rvmTooManyRegistersRequired)
 
   result = TRegister(max(c.regInfo.len, start))
   c.regInfo.setLen int(result)+1
@@ -418,13 +350,16 @@ proc getTempRange(cc: var TCtx; n: int; kind: TSlotKind): TRegister =
           for k in result..result+n-1: c.regInfo[k] = RegInfo(refCount: 1, kind: kind)
           return
   if c.regInfo.len+n >= high(TRegister):
-    fail(cc.bestEffort, rsemTooManyRegistersRequired)
+    fail(cc.bestEffort, rvmTooManyRegistersRequired)
+
   result = TRegister(c.regInfo.len)
   setLen c.regInfo, c.regInfo.len+n
-  for k in result..result+n-1: c.regInfo[k] = RegInfo(refCount: 1, kind: kind)
+  for k in result .. result + n - 1:
+    c.regInfo[k] = RegInfo(refCount: 1, kind: kind)
 
 proc freeTempRange(c: var TCtx; start: TRegister, n: int) =
-  for i in start..start+n-1: c.freeTemp(TRegister(i))
+  for i in start .. start + n - 1:
+    c.freeTemp(TRegister(i))
 
 template withTemp(tmp, typ, body: untyped) {.dirty.} =
   var tmp = getTemp(c, typ)
@@ -532,7 +467,7 @@ proc genBreak(c: var TCtx; n: PNode) =
       if c.prc.blocks[i].label == n[0].sym:
         c.prc.blocks[i].fixups.add lab1
         return
-    fail(n.info, rsemVmCannotFindBreakTarget)
+    fail(n.info, rvmCannotFindBreakTarget)
   else:
     c.prc.blocks[c.prc.blocks.high].fixups.add lab1
 
@@ -723,7 +658,7 @@ proc genBranchLit(c: var TCtx, n: PNode, t: PType): int =
 
 proc unused(c: TCtx; n: PNode; x: TDest) {.inline.} =
   if x >= 0:
-    fail(n.info, rsemVmNotUnused, n)
+    fail(n.info, rvmNotUnused, n)
 
 proc genCase(c: var TCtx; n: PNode; dest: var TDest) =
   #  if (!expr1) goto lab1;
@@ -945,11 +880,11 @@ proc needsAsgnPatch(n: PNode): bool =
 
 proc genField(c: TCtx; n: PNode): TRegister =
   if n.kind != nkSym or n.sym.kind != skField:
-    fail(n.info, rsemNotAFieldSymbol, ast = n)
+    fail(n.info, rvmNotAFieldSymbol, ast = n)
 
   let s = n.sym
   if s.position > high(typeof(result)):
-    fail(n.info, rsemVmTooLargetOffset, sym = s)
+    fail(n.info, rvmTooLargetOffset, sym = s)
 
   result = s.position
 
@@ -1008,7 +943,7 @@ proc genAsgnPatch(c: var TCtx; le: PNode, value: TRegister) =
       c.freeTemp(dest)
   of nkError:
     # XXX: do a better job with error generation
-    fail(le.info, rsemVmCannotGenerateCode, le)
+    fail(le.info, rvmCannotGenerateCode, le)
 
   else:
     discard
@@ -1265,8 +1200,8 @@ proc genCastIntFloat(c: var TCtx; n: PNode; dest: var TDest) =
   else:
     # todo: support cast from tyInt to tyRef
     raiseVmGenError(
-      SemReport(
-        kind: rsemVmCannotCast,
+      VMReport(
+        kind: rvmCannotCast,
         typeMismatch: @[c.config.typeMismatch(
           actual = dst, formal = src)]),
       n.info,
@@ -1294,7 +1229,8 @@ proc genBindSym(c: var TCtx; n: PNode; dest: var TDest) =
       if dest.isUnset: dest = c.getTemp(n.typ)
       c.gABx(n, opcNBindSym, dest, idx)
     else:
-      localReport(c.config, n.info, reportAst(rsemVmInvalidBindSym, n))
+      localReport(c.config, n.info, VMReport(
+        kind: rvmInvalidBindSym, ast: n))
 
   else:
     # experimental bindSym
@@ -1767,7 +1703,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genCall(n, dest)
   of mExpandToAst:
     if n.len != 2:
-      fail(n.info, rsemVmBadExpandToAst,
+      fail(n.info, rvmBadExpandToAst,
         str = "expandToAst requires 1 argument")
 
     let arg = n[1]
@@ -1797,17 +1733,17 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
       # do not call clearDest(n, dest) here as getAst has a meta-type as such
       # produces a value
     else:
-      fail(n.info, rsemVmBadExpandToAst,
+      fail(n.info, rvmBadExpandToAst,
         str = "expandToAst requires a call expression")
 
   of mSizeOf:
-    fail(n.info, rsemMissingImportcCompleteStruct, str = "sizeof")
+    fail(n.info, rvmMissingImportcCompleteStruct, str = "sizeof")
 
   of mAlignOf:
-    fail(n.info, rsemMissingImportcCompleteStruct, str = "alignof")
+    fail(n.info, rvmMissingImportcCompleteStruct, str = "alignof")
 
   of mOffsetOf:
-    fail(n.info, rsemMissingImportcCompleteStruct, str = "offsetof")
+    fail(n.info, rvmMissingImportcCompleteStruct, str = "offsetof")
 
   of mRunnableExamples:
     discard "just ignore any call to runnableExamples"
@@ -1827,7 +1763,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genUnaryABC(n, dest, opcNodeId)
   else:
     # mGCref, mGCunref,
-    fail(n.info, rsemVmCannotGenerateCode, str = $m)
+    fail(n.info, rvmCannotGenerateCode, str = $m)
 
 
 proc unneededIndirection(n: PNode): bool =
@@ -1910,7 +1846,7 @@ func setSlot(c: var TCtx; v: PSym): TRegister {.discardable.} =
 
 func cannotEval(c: TCtx; n: PNode) {.noinline, noreturn.} =
   raiseVmGenError(
-    reportAst(rsemVmCannotEvaluateAtComptime, n),
+    VMReport(kind: rvmCannotEvaluateAtComptime, ast: n),
     n.info,
     instLoc())
 
@@ -2066,7 +2002,7 @@ proc genAsgn(c: var TCtx; le, ri: PNode; requiresCopy: bool) =
   case le.kind
   of nkError:
     # XXX: do a better job with error generation
-    fail(le.info, rsemVmCannotGenerateCode, le)
+    fail(le.info, rvmCannotGenerateCode, le)
 
   of nkBracketExpr:
     let typ = le[0].typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind
@@ -2146,7 +2082,7 @@ proc genRdVar(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
     if importcCondVar(s) or c.importcCond(s):
       # Using importc'ed symbols on the left or right side of an expression is
       # not allowed
-      fail(n.info, rsemVmCannotImportc, sym = s)
+      fail(n.info, rvmCannotImportc, sym = s)
 
     var pos: int
     if s.id in c.symToIndexTbl:
@@ -2347,11 +2283,13 @@ proc genArrAccess(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
 
 proc genVarSection(c: var TCtx; n: PNode) =
   for a in n:
-    if a.kind == nkCommentStmt: continue
-    #assert(a[0].kind == nkSym) can happen for transformed vars
-    if a.kind == nkVarTuple:
+    case a.kind
+    of nkCommentStmt:
+      continue
+    of nkVarTuple:
       for i in 0..<a.len-2:
-        if a[i].kind == nkSym:
+        case a[i].kind
+        of nkSym:
           checkCanEval(c, a[i])
           let s = a[i].sym
 
@@ -2362,64 +2300,66 @@ proc genVarSection(c: var TCtx; n: PNode) =
             discard c.getOrCreate(s.typ)
           else:
             setSlot(c, s)
+        else:
+          discard # xxx: seems weird we don't know what to expect here
 
       c.gen(lowerTupleUnpacking(c.graph, a, c.idgen, c.getOwner))
-    elif a[0].kind == nkSym:
-      let s = a[0].sym
-      checkCanEval(c, a[0])
-      if s.isGlobal:
-        if importcCondVar(s):
-          # Ignore definitions of importc'ed variables
-          continue
+    of nkIdentDefs:
+      if a[0].kind == nkSym:
+        let s = a[0].sym
+        checkCanEval(c, a[0])
+        if s.isGlobal:
+          if importcCondVar(s):
+            # Ignore definitions of importc'ed variables
+            continue
 
-        # XXX: during NimScript execution, top-level ``.compileTime``
-        #      variables are code-gen'ed twice, once via `setupCompileTimeVar`
-        #      called from `sem.semVarOrLet` and once through `vm.myProcess`.
-        #      This leads to the global's symbol already being present in the
-        #      table. For the VM back-end, the symbol is also already present
-        #      if the global was used somewhere in another module
-        #c.config.internalAssert(s.id notin c.symToIndexTbl, a[0].info)
-        discard c.registerGlobal(s)
-        discard c.getOrCreate(s.typ)
+          # XXX: during NimScript execution, top-level ``.compileTime``
+          #      variables are code-gen'ed twice, once via `setupCompileTimeVar`
+          #      called from `sem.semVarOrLet` and once through `vm.myProcess`.
+          #      This leads to the global's symbol already being present in the
+          #      table. For the VM back-end, the symbol is also already present
+          #      if the global was used somewhere in another module
+          #c.config.internalAssert(s.id notin c.symToIndexTbl, a[0].info)
+          discard c.registerGlobal(s)
+          discard c.getOrCreate(s.typ)
 
-        # no need to generate or collect if the global has no initializer
-        if a[2].kind == nkEmpty:
-          continue
+          # no need to generate or collect if the global has no initializer
+          if a[2].kind == nkEmpty:
+            continue
 
-        if cgfCollectGlobals in c.codegenInOut.flags and
-           s.owner != nil and
-           s.owner.kind in routineKinds:
-          # we encountered a function-level global and code generation for
-          # them is defered
-          c.codegenInOut.globalDefs.add a
-        else:
-          let tmp = c.genx(a[0], {gfNodeAddr})
-          let val = c.genx(a[2])
-          c.genAdditionalCopy(a[2], opcWrDeref, tmp, 0, val)
-          c.freeTemp(val)
-          c.freeTemp(tmp)
-      else:
-        let reg = setSlot(c, s)
-        if a[2].kind == nkEmpty:
-          c.gABx(a, ldNullOpcode(s.typ), reg, c.genType(s.typ))
-        else:
-          assert s.typ != nil
-          if not fitsRegister(s.typ):
-            c.gABx(a, ldNullOpcode(s.typ), reg, c.genType(s.typ))
-          let le = a[0]
-          assert le.typ != nil
-          # XXX: also perform a copy for `let` for now. With the current
-          #      vmgen, it's too complex to make it work otherwise 
-          if not fitsRegister(le.typ) and s.kind in {skResult, skLet, skVar, skParam}:
-            var cc = c.getTemp(le.typ)
-            gen(c, a[2], cc)
-            c.gABC(le, whichAsgnOpc(le), reg, cc)
-            c.freeTemp(cc)
+          if cgfCollectGlobals in c.codegenInOut.flags and
+            s.owner != nil and
+            s.owner.kind in routineKinds:
+            # we encountered a function-level global and code generation for
+            # them is defered
+            c.codegenInOut.globalDefs.add a
           else:
-            gen(c, a[2], reg)
-    else:
-      # assign to a[0]; happens for closures
-      if a[2].kind == nkEmpty:
+            let tmp = c.genx(a[0], {gfNodeAddr})
+            let val = c.genx(a[2])
+            c.genAdditionalCopy(a[2], opcWrDeref, tmp, 0, val)
+            c.freeTemp(val)
+            c.freeTemp(tmp)
+        else:
+          let reg = setSlot(c, s)
+          if a[2].kind == nkEmpty:
+            c.gABx(a, ldNullOpcode(s.typ), reg, c.genType(s.typ))
+          else:
+            assert s.typ != nil
+            if not fitsRegister(s.typ):
+              c.gABx(a, ldNullOpcode(s.typ), reg, c.genType(s.typ))
+            let le = a[0]
+            assert le.typ != nil
+            # XXX: also perform a copy for `let` for now. With the current
+            #      vmgen, it's too complex to make it work otherwise 
+            if not fitsRegister(le.typ) and s.kind in {skResult, skLet, skVar, skParam}:
+              var cc = c.getTemp(le.typ)
+              gen(c, a[2], cc)
+              c.gABC(le, whichAsgnOpc(le), reg, cc)
+              c.freeTemp(cc)
+            else:
+              gen(c, a[2], reg)
+      
+      elif a[2].kind == nkEmpty:
         # The closure's captured value is automatically zero-initialized when
         # creating the closure environment object; nothing left to do here
         discard
@@ -2428,8 +2368,13 @@ proc genVarSection(c: var TCtx; n: PNode) =
         c.gABx(a, ldNullOpcode(a[0].typ), tmp, c.genType(a[0].typ))
         c.freeTemp(tmp)
         ]#
+      
       else:
+        # assign to a[0]; happens for closures
         genAsgn(c, a[0], a[2], true)
+    else:
+      # xxx: error out
+      discard
 
 proc genArrayConstr(c: var TCtx, n: PNode, dest: var TDest) =
   if dest.isUnset: dest = c.getTemp(n.typ)
@@ -2513,7 +2458,7 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
                           dest, idx, tmp)
       c.freeTemp(tmp)
     else:
-      fail(n.info, rsemVmInvalidObjectConstructor, it)
+      fail(n.info, rvmInvalidObjectConstructor, it)
 
   if t.kind == tyRef:
     swap(refTemp, dest)
@@ -2559,7 +2504,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
   case n.kind
   of nkError:
     # XXX: do a better job with error generation
-    fail(n.info, rsemVmCannotGenerateCode, n)
+    fail(n.info, rvmCannotGenerateCode, n)
 
   of nkSym:
     let s = n.sym
@@ -2570,9 +2515,9 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
 
     of skProc, skFunc, skConverter, skMacro, skMethod, skIterator:
       if s.kind == skIterator and s.typ.callConv == TCallingConvention.ccClosure:
-        fail(n.info, rsemVmNoClosureIterators, sym = s)
+        fail(n.info, rvmNoClosureIterators, sym = s)
       if importcCond(c, s) and lookup(c.callbackKeys, s) == -1:
-        fail(n.info, rsemVmCannotImportc, sym = s)
+        fail(n.info, rvmCannotImportc, sym = s)
 
       genProcLit(c, n, s, dest)
     of skTemplate:
@@ -2608,14 +2553,14 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
         genRdVar(c, n, dest, flags)
       else:
         fail(n.info,
-          rsemVmCannotGenerateCode,
+          rvmCannotGenerateCode,
           sym = s,
           str = "Attempt to generate VM code for generic parameter in non-macro proc"
         )
 
     else:
       fail(n.info,
-        rsemVmCannotGenerateCode,
+        rvmCannotGenerateCode,
         sym = s,
         str = "Unexpected symbol for VM code - " & $s.kind
       )
@@ -2625,7 +2570,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       if s.magic != mNone:
         genMagic(c, n, dest, s.magic)
       elif s.kind == skMethod:
-        localReport(c.config, n.info, reportSym(rsemVmCannotCallMethod, s))
+        localReport(c.config, n.info, VMReport(kind: rvmCannotCallMethod, sym: s))
       else:
         genCall(c, n, dest)
         clearDest(c, n, dest)
@@ -2691,7 +2636,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     genConv(c, n, n[0], dest)
   of nkObjUpConv:
     genConv(c, n, n[0], dest)
-  of nkVarSection, nkLetSection:
+  of nkLetSection, nkVarSection:
     unused(c, n, dest)
     genVarSection(c, n)
   of declarativeDefs, nkMacroDef:
@@ -2736,9 +2681,9 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     if n.typ != nil and n.typ.isCompileTimeOnly:
       genTypeLit(c, n.typ, dest)
     else:
-      fail(n.info, rsemVmCannotGenerateCode, n)
+      fail(n.info, rvmCannotGenerateCode, n)
 
-proc genStmt*(c: var TCtx; n: PNode): Result[void, SemReport] =
+proc genStmt*(c: var TCtx; n: PNode): Result[void, VMReport] =
   var d: TDest = -1
   try:
     c.gen(n, d)

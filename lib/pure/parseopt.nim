@@ -151,7 +151,7 @@
 
 include "system/inclrtl"
 
-import os
+import std/os
 
 type
   CmdLineKind* = enum ## The detected command line token.
