@@ -487,7 +487,7 @@ proc genBreak(c: var TCtx; n: PNode): IRIndex =
 
     if i < 0:
       # XXX: this isn't a user error
-      fail(n.info, rsemVmCannotFindBreakTarget)
+      fail(n.info, rvmCannotFindBreakTarget)
 
   # exit all scopes including the one of the block we're breaking out of
   handleExit(c.irs, c.prc, c.prc.scopes.len - c.prc.blocks[i].scope)
@@ -1047,11 +1047,11 @@ func local(prc: PProc, sym: PSym): int {.inline.} =
 
 proc genField(c: TCtx; n: PNode): int =
   if n.kind != nkSym or n.sym.kind != skField:
-    fail(n.info, rsemNotAFieldSymbol, ast = n)
+    fail(n.info, rvmNotAFieldSymbol, ast = n)
 
   let s = n.sym
   if s.position > high(typeof(result)):
-    fail(n.info, rsemVmTooLargetOffset, sym = s)
+    fail(n.info, rvmTooLargetOffset, sym = s)
 
   result = s.position
 
@@ -1518,12 +1518,6 @@ proc genAsgn(c: var TCtx; dest: IRIndex; ri: PNode; requiresCopy: bool) =
 
     let tmp = c.genx(ri)
     c.irs.irAsgn(kind, dest, tmp)
-
-func cannotEval(c: TCtx; n: PNode) {.noinline, noreturn.} =
-  raiseVmGenError(
-    reportAst(rsemVmCannotEvaluateAtComptime, n),
-    n.info,
-    instLoc())
 
 func isOwnedBy(a, b: PSym): bool =
   var a = a.owner
@@ -2011,7 +2005,7 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
   case n.kind
   of nkError:
     # XXX: do a better job with error generation
-    fail(n.info, rsemVmCannotGenerateCode, n)
+    fail(n.info, rvmCannotGenerateCode, n)
 
   of nkSym:
     let s = n.sym
@@ -2034,7 +2028,7 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
         dest = genRdVar(c, n)
       else:
         fail(n.info,
-          rsemVmCannotGenerateCode,
+          rvmCannotGenerateCode,
           sym = s,
           str = "Attempt to generate VM code for generic parameter in non-macro proc"
         )
@@ -2042,7 +2036,7 @@ proc gen(c: var TCtx; n: PNode; dest: var IRIndex) =
     else:
       # TODO: shouldn't be a user-error
       fail(n.info,
-        rsemVmCannotGenerateCode,
+        rvmCannotGenerateCode,
         sym = s,
         str = "Unexpected symbol for VM code - " & $s.kind
       )
