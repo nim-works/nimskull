@@ -1044,7 +1044,7 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
   var allUntyped = true
   case n[paramsPos].kind
   of nkFormalParams:
-    semParamList(c, result[paramsPos], result[genericParamsPos], s)
+    s.typ = semParamList(c, result[paramsPos], result[genericParamsPos], s.kind)
     # a template's parameters are not gensym'ed even if that was originally the
     # case as we determine whether it's a template parameter in the template
     # body by the absence of the sfGenSym flag:

@@ -64,7 +64,6 @@ type
     sckInstantiationOf
     sckInstantiationFrom
 
-
   ReportContext* = object
     location*: TLineInfo ## Report context instantiation
     case kind*: ReportContextKind
@@ -234,14 +233,12 @@ type
         ]
 
       of rsemHasSideEffects:
-        sideEffectTrace*: seq[tuple[
-          isUnsafe: PSym,
-          unsafeVia: PSym,
-          trace: SemSideEffectCallKind,
-          location: TLineInfo,
-          level: int
-        ]]
-
+        sideEffectTrace*: seq[tuple[isUnsafe: PSym,
+                                    unsafeVia: PSym,
+                                    trace: SemSideEffectCallKind,
+                                    location: TLineInfo,
+                                    level: int
+                                  ]]
         sideEffectMutateConnection*: TLineInfo
 
       of rsemEffectsListingHint:
@@ -257,18 +254,14 @@ type
       of rsemWrongIdent:
         expectedIdents*: seq[string]
 
-
       of rsemStaticIndexLeqUnprovable, rsemStaticIndexGeProvable:
         rangeExpression*: tuple[a, b: PNode]
 
       of rsemExprHasNoAddress:
         isUnsafeAddr*: bool
 
-      of rsemUndeclaredIdentifier,
-         rsemCallNotAProcOrField,
-           :
+      of rsemUndeclaredIdentifier, rsemCallNotAProcOrField:
         potentiallyRecursive*: bool
-
         explicitCall*: bool ## Whether `rsemCallNotAProcOrField` error was
         ## caused by expression with explicit dot call: `obj.cal()`
         unexpectedCandidate*: seq[PSym] ## Symbols that are syntactically
@@ -310,7 +303,6 @@ type
          rsemDifferentTypeForReintroducedSymbol:
         typeMismatch*: seq[SemTypeMismatch]
 
-
       of rsemSymbolKindMismatch:
         expectedSymbolKind*: set[TSymKind]
 
@@ -328,8 +320,6 @@ type
 
       of rsemStaticOutOfBounds:
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
-
-
 
       of rsemProcessing:
         processing*: tuple[

@@ -41,17 +41,15 @@ proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   # same as 'semExprWithType' but doesn't check for proc vars
   rejectEmptyNode(n)
   result = semExpr(c, n, flags + {efOperand})
+  
   if result.typ != nil:
     # XXX tyGenericInst here?
     if result.typ.kind == tyProc and hasUnresolvedParams(result, {efOperand}):
       result = c.config.newError(n, reportAst(rsemProcHasNoConcreteType, n))
-
     elif result.typ.kind in {tyVar, tyLent}:
       result = newDeref(result)
-
   elif {efWantStmt, efAllowStmt} * flags != {}:
     result.typ = newTypeS(tyVoid, c)
-
   else:
     result = c.config.newError(n, reportAst(rsemExpressionHasNoType, result))
 
@@ -1436,7 +1434,7 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
 
     markUsed(c, n.info, s)
     onUse(n.info, s)
-    result = newSymNode(s, n.info)
+    result = newSymNode2(s, n.info)
     # We cannot check for access to outer vars for example because it's still
     # not sure the symbol really ends up being used:
     # var len = 0 # but won't be called
@@ -1470,7 +1468,7 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
     result = newSymNode(s, n.info)
   else:
     if s.kind == skError and not s.ast.isNil and s.ast.kind == nkError:
-      # XXX: at the time or writing only `lookups.qualifiedlookup` sets up the
+      # XXX: at the time of writing only `lookups.qualifiedlookup` sets up the
       #      PSym so the error is in the ast field
       result = s.ast
     else:
@@ -3350,7 +3348,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
       else:
         result = semSym(c, n, s, flags)
     of skError:
-      result = semSym(c, s.ast, s, flags)
+      result = semSym(c, n, s, flags)
       # XXX: propogate the error type as it might not have been set, this
       #      should not be required.
       result.typ = s.typ
@@ -3560,9 +3558,9 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkBlockStmt, nkBlockExpr: result = semBlock(c, n, flags)
   of nkStmtList, nkStmtListExpr: result = semStmtList(c, n, flags)
   of nkRaiseStmt: result = semRaise(c, n)
-  of nkVarSection: result = semLetOrVar(c, n, skVar)
-  of nkLetSection: result = semLetOrVar(c, n, skLet)
-  of nkConstSection: result = semConst(c, n)
+  of nkVarSection: result = semConstLetOrVar(c, n, skVar)
+  of nkLetSection: result = semConstLetOrVar(c, n, skLet)
+  of nkConstSection: result = semConstLetOrVar(c, n, skConst)
   of nkTypeSection: result = semTypeSection(c, n)
   of nkDiscardStmt: result = semDiscard(c, n)
   of nkWhileStmt: result = semWhile(c, n, flags)

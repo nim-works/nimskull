@@ -576,9 +576,9 @@ proc treeRepr*(
 
   proc aux(typ: PType, level: int) =
     let indent = level * 2 + indent
+
     if typ.isNil():
       addi indent, "<nil>" + style.nilIt
-
     else:
       addi indent, rconf.formatKind(typ.kind) + style.kind
       field("itemId", trfShowTypeId)
@@ -620,9 +620,22 @@ proc cyclicTreeAux(n: AstNode, visited: var seq[AstNode], count: var int): bool 
       return true
 
   inc count
-  if n.kind notin {nkEmpty..nkNilLit}:
+  case n.kind
+  of {nkEmpty..nkNilLit}:
+    discard
+  else:
     visited.add(n)
-    for nSon in n.sons:
+    
+    let sons =
+      when n is PNode:
+        if n.kind == nkError:
+          n.kids
+        else:
+          n.sons
+      else:
+        n.sons
+
+    for nSon in sons:
       if cyclicTreeAux(nSon, visited, count):
         return true
 
@@ -823,7 +836,7 @@ proc treeRepr*(
         if isNil(conf):
           field(
             "err", trfDescFlag,
-            rconf.formatKind(SemReportKind(n[errorKindPos].intVal)) + style.errKind)
+            rconf.formatKind(SemReportKind(n.kids[errorKindPos].intVal)) + style.errKind)
 
         else:
           let report = conf.getReport(n).semReport
@@ -832,7 +845,7 @@ proc treeRepr*(
             rconf.formatKind(report.kind) + style.errKind)
           hfield("errid", trfDescFlag, $n.reportId.int + style.err)
 
-        let i = n[compilerInfoPos]
+        let i = n.kids[compilerInfoPos]
         let
           file = i.strVal
           line = i.info.line.int
@@ -846,22 +859,31 @@ proc treeRepr*(
       of nkType:
         postLiteral()
 
-
       else:
         discard
 
 
     if n.kind notin {nkNone .. nkNilLit, nkCommentStmt}:
       addFlags()
-      if n.len > 0:
+      if n.kind == nkError and n.kids.len > 0 or n.len > 0:
         add "\n"
 
       if hasComment:
         addComment(false)
-        if len(n) == 0:
+        if n.len == 0:
           add "\n"
 
-      for newIdx, subn in n:
+      let
+        sons =
+          when n is PNode:
+            if n.kind == nkError:
+              n.kids
+            else:
+              n.sons
+          else:
+            n.sons
+
+      for newIdx, subn in sons:
         if trfSkipAuxError in rconf and
            n.kind == nkError and
            newIdx in {1, 2}:
@@ -877,14 +899,13 @@ proc treeRepr*(
 
         aux(subn, idx & newIdx)
 
-
         if idx.len + 1 > rconf.maxDepth:
           break
 
         if newIdx > rconf.maxLen:
           break
 
-        if newIdx < n.len - 1:
+        if newIdx < sons.len - 1:
           add "\n"
 
   aux(pnode, @[])
@@ -1048,12 +1069,20 @@ proc treeRepr*(
         if len(n) == 0:
           add "\n"
 
-      for newIdx, subn in n:
+      let sons =
+        when n is PNode:
+          if n.kind == nkError:
+            n.kids
+          else:
+            n.sons
+        else:
+          n.sons
+
+      for newIdx, subn in sons.pairs:
         if trfSkipAuxError in rconf and n.kind == nkError and newIdx in {1, 2}:
           continue
 
         aux(subn, idx & newIdx)
-
 
         if idx.len + 1 > rconf.maxDepth:
           break

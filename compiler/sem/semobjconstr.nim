@@ -441,7 +441,7 @@ proc computeRequiresInit(c: PContext, t: PType): bool =
   let initResult = semConstructTypeAux(c, constrCtx, {})
   constrCtx.missingFields.len > 0
 
-proc defaultConstructionError2(c: PContext, t: PType, n: PNode): PNode =
+proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode =
   var objType = t
   
   while objType.kind notin {tyObject, tyDistinct}:
@@ -461,31 +461,6 @@ proc defaultConstructionError2(c: PContext, t: PType, n: PNode): PNode =
   
   of tyDistinct:
     result = c.config.newError(n, reportTyp(
-      rsemDistinctDoesNotHaveDefaultValue, t))
-  
-  else:
-    assert false, "Must not enter here."
-
-proc defaultConstructionError(c: PContext, t: PType, info: TLineInfo) =
-  var objType = t
-  
-  while objType.kind notin {tyObject, tyDistinct}:
-    objType = objType.lastSon
-    assert objType != nil
-  
-  case objType.kind
-  of tyObject:
-    var constrCtx = initConstrContext(objType, newNodeI(nkObjConstr, info))
-    let initResult = semConstructTypeAux(c, constrCtx, {})
-    if constrCtx.missingFields.len > 0:
-      localReport(
-        c.config, info,
-        reportSymbols(
-          rsemObjectRequiresFieldInitNoDefault,
-          constrCtx.missingFields, typ = t))
-  
-  of tyDistinct:
-    localReport(c.config, info, reportTyp(
       rsemDistinctDoesNotHaveDefaultValue, t))
   
   else:

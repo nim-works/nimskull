@@ -55,7 +55,6 @@ type
     rintUnreachable ## State in the compiler code that must not be reached
     rintAssert ## Failed internal assert in the compiler
 
-
     rintIce ## Internal compilation error
     # fatal end
 
@@ -76,15 +75,15 @@ type
     rintSource = "Source" ## Show source in the report
                           # REFACTOR this is a global configuration option,
                           # not a hint.
-
+    rintMsgOrigin = "MsgOrigin" # REFACTOR this is a global option not a hint
+    rintErrKind = "ErrKind" ## Show report kind in error messages
+                            # REFACTOR this is a global option not a hint
 
     rintGCStats = "GCStats" ## Print GC statistics for the compiler run
     rintQuitCalled = "QuitCalled" ## `quit()` called by the macro code
     ## compilation error handling and similar
     rintMissingStackTrace ## Stack trace would've been generated in the
     ## debug compiler build
-    rintMsgOrigin = "MsgOrigin"
-    rintErrKind = "ErrKind" ## Show report kind in error messages
 
     rintSuccessX = "SuccessX" ## Succesfull compilation
     # hints END !! add reports BEFORE the last enum !!
@@ -607,6 +606,7 @@ type
     rsemUndeclaredIdentifier
     rsemExpectedIdentifier
     rsemExpectedIdentifierInExpr
+    rsemOnlyDeclaredIdentifierFoundIsError
 
     # Object and Object Construction
     rsemFieldNotAccessible

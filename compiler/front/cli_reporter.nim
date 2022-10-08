@@ -676,9 +676,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
         result = "undeclared field: '$1'" % r.str & typeHint & suffix
 
-
-
-
     of rsemUndeclaredField:
       result =  "undeclared field: '$1' for type $2" % [
         $r.ast.ident.s, $getProcHeader(conf, r.sym)]
@@ -1828,6 +1825,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         result.add presentSpellingCandidates(
           conf, r.spellingCandidates)
 
+    of rsemOnlyDeclaredIdentifierFoundIsError:
+      result = "identifier '$1' found but it has errors, see: $2" %
+                [r.str, conf.toStr(r.ast.info)]
+
     of rsemXDeclaredButNotUsed:
       result = "'$1' is declared but not used" % r.symstr
 
@@ -2294,7 +2295,6 @@ proc reportShort*(conf: ConfigRef, r: SemReport): string =
     "."
   else:
     reportBody(conf, r) & suffixShort(conf, r)
-
 
 proc reportBody*(conf: ConfigRef, r: ParserReport): string =
   assertKind r

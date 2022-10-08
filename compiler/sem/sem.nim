@@ -103,7 +103,7 @@ proc changeType(c: PContext; n: PNode, newType: PType, check: bool): PNode
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode
 proc semOpAux(c: PContext, n: PNode): bool
-proc semParamList(c: PContext, n, genericParams: PNode, s: PSym)
+proc semParamList(c: PContext, n, genericParams: PNode, kind: TSymKind): PType
 proc addParams(c: PContext, n: PNode, kind: TSymKind)
 proc maybeAddResult(c: PContext, s: PSym, n: PNode)
 proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode
@@ -116,8 +116,7 @@ proc semStaticExpr(c: PContext, n: PNode): PNode
 proc semStaticType(c: PContext, childNode: PNode, prev: PType): PType
 proc semTypeOf(c: PContext; n: PNode): PNode
 proc computeRequiresInit(c: PContext, t: PType): bool
-proc defaultConstructionError(c: PContext, t: PType, info: TLineInfo)
-proc defaultConstructionError2(c: PContext, t: PType, n: PNode): PNode
+proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode
 proc hasUnresolvedArgs(c: PContext, n: PNode): bool
 proc isArrayConstr(n: PNode): bool {.inline.} =
   result = n.kind == nkBracket and
@@ -174,6 +173,10 @@ proc fitNodePostMatch(c: PContext, formal: PType, arg: PNode): PNode =
 
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
+  if arg.kind == nkError:
+    result = arg
+    return
+
   if arg.typ.isNil:
     c.config.localReport(arg.info, reportAst(rsemExpressionHasNoType, arg))
 
@@ -188,7 +191,6 @@ proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode =
 
     # XXX: why don't we set the `typ` field to formal like above and below?
     result = typeMismatch(c.config, info, formal, arg.typ, arg)
-
   else:
     result = indexTypesMatch(c, formal, arg.typ, arg)
     if result == nil:
@@ -208,6 +210,9 @@ proc fitNodeConsiderViewType(c: PContext, formal: PType, arg: PNode; info: TLine
     result = newNodeIT(nkHiddenAddr, a.info, formal)
     result.add a
     formal.flags.incl tfVarIsPtr
+
+    if a.kind == nkError:
+      result = c.config.wrapError(result)
   else:
    result = a
 

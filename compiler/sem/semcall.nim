@@ -145,14 +145,14 @@ proc maybeResemArgs*(c: PContext, n: PNode, startIdx: int = 1): seq[PNode] =
   # that "made some tests green" (+98/-77)
   for i in startIdx ..< n.len:
     var arg = n[i]
-    if n[i].kind == nkExprEqExpr:
+    case n[i].kind
+    of nkExprEqExpr:
       if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
         # XXX we really need to 'tryExpr' here!
         arg = c.semOperand(c, n[i][1])
         arg = n[i][1]
         n[i].typ = arg.typ
         n[i][1] = arg
-
     else:
       if arg.typ.isNil and arg.kind notin {
            nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch
@@ -401,9 +401,16 @@ proc inferWithMetatype(c: PContext, formal: PType,
                        arg: PNode, coerceDistincts = false): PNode =
   var m = newCandidate(c, formal)
   m.coerceDistincts = coerceDistincts
+  
+  if arg.kind == nkError:
+    result = arg
+    return
+
   result = paramTypesMatch(m, formal, arg.typ, arg)
+
   if m.genericConverter and result != nil:
     instGenericConvertersArg(c, result, m)
+
   if result != nil:
     # This almost exactly replicates the steps taken by the compiler during
     # param matching. It performs an embarrassing amount of back-and-forth
@@ -584,39 +591,48 @@ proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
       n[i].typ = e.typ.skipTypes({tyTypeDesc})
   var s = s
   var a = n[0]
-  if a.kind == nkSym:
+  case a.kind
+  of nkSym:
     # common case; check the only candidate has the right
     # number of generic type parameters:
-    if s.ast[genericParamsPos].safeLen != n.len-1:
-      let expected = s.ast[genericParamsPos].safeLen
-      localReport(c.config, getCallLineInfo(n), SemReport(
-        kind: rsemWrongNumberOfGenericParams,
-        ast: n,
-        countMismatch: (
-          expected: toInt128(expected),
-          got: toInt128(n.len - 1))))
-
-      return n
-    result = explicitGenericSym(c, n, s)
-    if result == nil: result = explicitGenericInstError(c, n)
-  elif a.kind in {nkClosedSymChoice, nkOpenSymChoice}:
+    result =
+      if s.ast[genericParamsPos].safeLen != n.len-1:
+        let expected = s.ast[genericParamsPos].safeLen
+        c.config.newError(
+          n,
+          SemReport(kind: rsemWrongNumberOfGenericParams,
+                    ast: n,
+                    countMismatch: (
+                      expected: toInt128(expected),
+                      got: toInt128(n.len - 1))),
+          posInfo = getCallLineInfo(n))
+      else:
+        explicitGenericSym(c, n, s)
+    
+    if result.isNil:
+      result = explicitGenericInstError(c, n)
+  of nkClosedSymChoice, nkOpenSymChoice:
     # choose the generic proc with the proper number of type parameters.
     # XXX I think this could be improved by reusing sigmatch.paramTypesMatch.
     # It's good enough for now.
     result = newNodeI(a.kind, getCallLineInfo(n))
     for i in 0..<a.len:
       var candidate = a[i].sym
+      
       if candidate.kind in {skProc, skMethod, skConverter,
                             skFunc, skIterator}:
         # it suffices that the candidate has the proper number of generic
         # type parameters:
         if candidate.ast[genericParamsPos].safeLen == n.len-1:
           let x = explicitGenericSym(c, n, candidate)
-          if x != nil: result.add(x)
+          if x != nil:
+            result.add(x)
+    
     # get rid of nkClosedSymChoice if not ambiguous:
     if result.len == 1 and a.kind == nkClosedSymChoice:
       result = result[0]
-    elif result.len == 0: result = explicitGenericInstError(c, n)
+    elif result.len == 0:
+      result = explicitGenericInstError(c, n)
     # candidateCount != 1: return explicitGenericInstError(c, n)
   else:
     result = explicitGenericInstError(c, n)
