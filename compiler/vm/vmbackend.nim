@@ -21,6 +21,7 @@ import
   compiler/ast/[
     ast,
     ast_types,
+    lineinfos,
     astalgo, # for `getModule`
     reports
   ],

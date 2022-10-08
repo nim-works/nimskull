@@ -21,7 +21,8 @@ import
     ast,
     renderer,
     types,
-    reports
+    reports,
+    lineinfos,
   ],
   compiler/modules/[
     magicsys,

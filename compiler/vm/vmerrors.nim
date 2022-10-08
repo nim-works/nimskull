@@ -10,7 +10,8 @@
 
 import
   compiler/ast/[
-    reports
+    reports,
+    lineinfos,
   ],
   compiler/front/[
     msgs

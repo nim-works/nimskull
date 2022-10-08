@@ -11,13 +11,13 @@
 
 import
   compiler/ast/[
-    lineinfos, # Positional information
-    idents,    # Ast identifiers
-    ast_types, # Main ast type definitions
-    ast_idgen, # Per module Id generation
-    ast_query, # querying/reading the ast
+    lineinfos,        # Positional information
+    idents,           # Ast identifiers
+    ast_types,        # Main ast type definitions
+    ast_idgen,        # Per module Id generation
+    ast_query,        # querying/reading the ast
     ast_parsed_types, # Data types for the parsed node
-    lexer, # NumericalBase
+    numericbase       # NumericalBase
   ],
   compiler/front/[
     options

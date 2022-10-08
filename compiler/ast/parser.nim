@@ -51,17 +51,17 @@ import
   ]
 
 type
-  Parser* = object            # A Parser object represents a file that
-                              # is being parsed
-    currInd: int              # current indentation level
-    firstTok: bool            # Has the first token been read?
-    hasProgress: bool         # some while loop requires progress ensurance
-    lex*: Lexer               # The lexer that is used for parsing
-    tok*: Token               # The current token
+  Parser* = object            ## A Parser object represents a file that
+                              ## is being parsed
+    currInd: int              ## current indentation level
+    firstTok: bool            ## Has the first token been read?
+    hasProgress: bool         ## some while loop requires progress ensurance
+    lex*: Lexer               ## The lexer that is used for parsing
+    tok*: Token               ## The current token
     lineStartPrevious*: int
     lineNumberPrevious*: int
     bufposPrevious*: int
-    inPragma*: int            # Pragma level
+    inPragma*: int            ## Pragma level
     inSemiStmtList*: int
     emptyNode: ParsedNode
 
@@ -104,7 +104,17 @@ proc getTok(p: var Parser) =
   p.lineNumberPrevious = p.lex.lineNumber
   p.lineStartPrevious = p.lex.lineStart
   p.bufposPrevious = p.lex.bufpos
+  
+  let lexDiagOffset = p.lex.diagOffset # capture before using the lexer
+
   p.lex.rawGetTok(p.tok)
+
+  if p.tok.tokType == tkError:
+    p.lex.config.handleReport(p.tok.error, instLoc(-1), doAbort)
+  
+  for d in p.lex.errorsHintsAndWarnings(lexDiagOffset):
+    p.lex.config.handleReport(d, instLoc(-1))
+  
   p.hasProgress = true
 
 proc openParser*(p: var Parser, fileIdx: FileIndex, inputStream: PLLStream,
@@ -360,7 +370,6 @@ proc parseSymbol(p: var Parser, mode = smNormal): ParsedNode =
         break
 
     p.eat(tkAccent)
-
   else:
     p.localError ParserReport(kind: rparIdentExpected)
     # BUGFIX: We must consume a token here to prevent endless loops!
@@ -2253,6 +2262,9 @@ proc parseTopLevelStmt(p: var Parser): ParsedNode =
         p.localError ParserReport(kind: rparInvalidIndentation)
       p.firstTok = true
     of tkEof: break
+    # of tkError:
+    #   p.lex.config.handleReport(p.tok.error, instLoc(-1))
+    #   break
     else:
       result = complexOrSimpleStmt(p)
       if result.kind == nkEmpty:

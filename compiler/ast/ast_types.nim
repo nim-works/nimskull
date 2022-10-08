@@ -1,3 +1,4 @@
+import compiler/ast/lineinfos
 import compiler/utils/ropes
 import std/[hashes]
 
@@ -5,21 +6,6 @@ from compiler/front/in_options import TOption, TOptions # Stored in `PSym`
 
 const maxInstantiation* = 100
   ## maximum number of nested generic instantiations or macro pragma expansions
-
-type
-  FileIndex* = distinct int32
-  TLineInfo* = object          ## This is designed to be as small as
-    ## possible, because it is used in syntax nodes. We save space here by
-    ## using two int16 and an int32. On 64 bit and on 32 bit systems this
-    ## is only 8 bytes.
-
-    line*: uint16
-    col*: int16
-    fileIndex*: FileIndex
-
-const
-  InvalidFileIdx* = FileIndex(-1)
-  unknownLineInfo* = TLineInfo(line: 0, col: -1, fileIndex: InvalidFileIdx)
 
 type
   TCallingConvention* = enum

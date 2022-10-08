@@ -212,7 +212,7 @@ proc toLitId(x: FileIndex; c: var PackedEncoder; m: var PackedModule): LitId =
   assert result != LitId(0)
 
 proc toFileIndex*(x: LitId; m: PackedModule; config: ConfigRef): FileIndex =
-  result = msgs.fileInfoIdx(config, AbsoluteFile m.strings[x])
+  result = options.fileInfoIdx(config, AbsoluteFile m.strings[x])
 
 proc includesIdentical(m: var PackedModule; config: ConfigRef): bool =
   for it in mitems(m.includes):
