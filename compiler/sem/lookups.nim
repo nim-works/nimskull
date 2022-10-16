@@ -579,9 +579,6 @@ proc errorSym*(c: PContext, n, err: PNode): PSym =
     else:
       getIdent(c.cache, "err:" & renderTree(m))
   result = newQualifiedLookUpError(c, ident, n.info, err)
-  # pretend it's from the top level scope to prevent cascading errors:
-  if c.config.cmd != cmdInteractive and c.compilesContextId == 0:
-    c.moduleScope.addSym(result)
 
 proc createUndeclaredIdentifierError*(
     c:PContext; n: PNode; name:string;
@@ -744,8 +741,9 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       # skError is a const referring to skUnknown, which gets used in resolving
       # `result`, which starts off as undeclared/unknown.
       if result.isError and not amb and checkUndeclared in flags:
-        var rep = reportStr(rsemUndeclaredIdentifier, ident.s)
-        rep.spellingCandidates = c.fixSpelling(ident)
+        let rep = reportStr(rsemOnlyDeclaredIdentifierFoundIsError, 
+                            ident.s,
+                            result.ast)
         result.ast = c.config.newError(n, rep)
     else:
       let candidates = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
@@ -895,10 +893,6 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
         errDotExpr.add err
         result = newQualifiedLookUpError(c, ident, n.info,
                     c.config.wrapError(errDotExpr))
-        # pretend it's from the top level scope to prevent cascading errors:
-        if c.config.cmd != cmdInteractive and c.compilesContextId == 0:
-          c.moduleScope.addSym(result)
-        # result = errorSym(c, n[1], err)
 
   of nkClosedSymChoice, nkOpenSymChoice:
     case n[0].kind

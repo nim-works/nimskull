@@ -207,7 +207,7 @@ proc newIdentNode*(ident: PIdent, info: TLineInfo): PNode =
 proc newSymNode2*(sym: PSym): PNode =
   ## creates a new `nkSym` node, unless sym.kind is an skError where an nkError
   ## is extracted from the sym and returned instead.
-  # TODO replace newSymNode with this
+  ## NB: not a `newSymNode` replacement, it's for when symbol sem fails
   if sym.isError:
     result = sym.ast
   else:
@@ -220,8 +220,7 @@ proc newSymNode2*(sym: PSym, info: TLineInfo): PNode =
   ## creates a new `nkSym` node, unless sym.kind is an skError where an nkError
   ## is extracted from the sym and returned instead. In either case sets the
   ## node info to the one provided
-  
-  # TODO replace newSymNode with this
+  ## NB: not a `newSymNode` replacement, it's for when symbol sem fails
   if sym.isError:
     result = sym.ast
     result.info = info
@@ -533,6 +532,12 @@ proc transitionToLet*(s: PSym) =
   s.guard = obj.guard
   s.bitsize = obj.bitsize
   s.alignment = obj.alignment
+
+proc transitionToError*(s: PSym, err: PNode) =
+  ## transition `s`ymbol to an `skError` with `err`or node
+  assert err.kind == nkError
+  transitionSymKindCommon(skError)
+  s.ast = err
 
 proc shallowCopy*(src: PNode): PNode =
   # does not copy its sons, but provides space for them:
