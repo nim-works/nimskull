@@ -32,8 +32,6 @@ import
 import vm_enums
 export vm_enums
 
-from std/private/miscdollars import toLocation
-
 type TInstrType* = uint64
 
 const
@@ -874,33 +872,3 @@ func safeZeroMem*(dest: var openArray[byte], numBytes: Natural) =
   if numBytes > 0:
     # Calling `safeZeroMem` with empty `dest` would erroneously raise without this check
     zeroMem(addr dest[0], numBytes)
-
-
-# XXX: `unreachable` and it's implementation details don't really belong here.
-#      They're also useful outside of VM related code
-type IInfo = typeof(instantiationInfo())
-
-func unreachableImpl(str: string, loc: IInfo) {.noinline, noreturn.} =
-  var msg: string
-  msg.toLocation(loc.filename, loc.line, loc.column + 1)
-  msg.add:
-    if str.len > 0: " unreachable: "
-    else: " unreachable"
-  msg.add str
-  raiseAssert(msg)
-
-func unreachableImpl(e: enum, loc: IInfo) {.noinline, noreturn.} =
-  ## More efficient than `unreachable($e)`, as the stringification code is
-  ## placed in a different function, reducing I-cache pressure at the callsite
-  unreachableImpl($e, loc)
-
-template unreachable*() =
-  unreachableImpl("", instantiationInfo(-1))
-
-template unreachable*(msg: string) =
-  unreachableImpl(msg, instantiationInfo(-1))
-
-template unreachable*(e: enum) =
-  ## More efficient than `unreachable($e)`. See `unreachableImpl` for more
-  ## info
-  unreachableImpl(e, instantiationInfo(-1))

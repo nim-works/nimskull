@@ -51,6 +51,9 @@ import
   compiler/sem/[
     lowerings
   ],
+  compiler/utils/[
+    idioms
+  ],
   compiler/vm/[
     vmaux,
     vmdef,

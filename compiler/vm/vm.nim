@@ -40,6 +40,7 @@ import
   ],
   compiler/utils/[
     debugutils,
+    idioms,
     int128,
     btrees,
     bitsets
