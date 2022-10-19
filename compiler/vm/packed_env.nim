@@ -27,6 +27,7 @@ import
     rodfiles
   ],
   compiler/utils/[
+    idioms,
     pathutils # for `AbsoluteFile`
   ],
   compiler/vm/[

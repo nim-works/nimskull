@@ -19,6 +19,9 @@ import
   compiler/front/[
     msgs
   ],
+  compiler/utils/[
+    idioms
+  ],
   compiler/vm/[
     vmaux,
     vmdef,

@@ -11,6 +11,9 @@
 ## disciminator(s) there.
 
 import
+  compiler/utils/[
+    idioms
+  ],
   compiler/vm/[
     vmdef,
     vmmemory
