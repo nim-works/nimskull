@@ -38,7 +38,7 @@ jobs:
 
     steps:
       - id: run_cond
-        uses: fkirc/skip-duplicate-actions@v5.1.0
+        uses: fkirc/skip-duplicate-actions@v5.2.0
         with:
           # Cancel CI on outdated commits
           cancel_others: true
