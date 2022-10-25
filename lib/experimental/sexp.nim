@@ -51,8 +51,8 @@ type
     errEofExpected,        ## EOF expected
 
   SexpParser* = object of BaseLexer ## the parser object.
-    a: string
-    tok: TTokKind
+    str: string
+    tok: TTokKind ## Current token that lexer has processed
     kind: SexpEventKind
     err: SexpError
 
@@ -77,184 +77,202 @@ const
     "(", ")", "space"
   ]
 
-proc close*(my: var SexpParser) {.inline.} =
-  ## closes the parser `my` and its associated input stream.
-  lexbase.close(my)
+proc close*(parser: var SexpParser) {.inline.} =
+  ## closes the parser `parser` and its associated input stream.
+  lexbase.close(parser)
 
-proc str*(my: SexpParser): string {.inline.} =
+proc str*(parser: SexpParser): string {.inline.} =
   ## returns the character data for the events: ``sexpInt``, ``sexpFloat``,
   ## ``sexpString``
-  assert(my.kind in {sexpInt, sexpFloat, sexpString})
-  result = my.a
+  assert(parser.kind in {sexpInt, sexpFloat, sexpString})
+  result = parser.str
 
-proc getInt*(my: SexpParser): BiggestInt {.inline.} =
+proc getInt*(parser: SexpParser): BiggestInt {.inline.} =
   ## returns the number for the event: ``sexpInt``
-  assert(my.kind == sexpInt)
-  result = parseBiggestInt(my.a)
+  assert(parser.kind == sexpInt)
+  result = parseBiggestInt(parser.str)
 
-proc getFloat*(my: SexpParser): float {.inline.} =
+proc getFloat*(parser: SexpParser): float {.inline.} =
   ## returns the number for the event: ``sexpFloat``
-  assert(my.kind == sexpFloat)
-  result = parseFloat(my.a)
+  assert(parser.kind == sexpFloat)
+  result = parseFloat(parser.str)
 
-proc kind*(my: SexpParser): SexpEventKind {.inline.} =
+proc kind*(parser: SexpParser): SexpEventKind {.inline.} =
   ## returns the current event type for the SEXP parser
-  result = my.kind
+  result = parser.kind
 
-proc getColumn*(my: SexpParser): int {.inline.} =
+proc getColumn*(parser: SexpParser): int {.inline.} =
   ## get the current column the parser has arrived at.
-  result = getColNumber(my, my.bufpos)
+  result = getColNumber(parser, parser.bufpos)
 
-proc getLine*(my: SexpParser): int {.inline.} =
+proc getLine*(parser: SexpParser): int {.inline.} =
   ## get the current line the parser has arrived at.
-  result = my.lineNumber
+  result = parser.lineNumber
 
-proc errorMsg*(my: SexpParser): string =
+proc errorMsg*(parser: SexpParser): string =
   ## returns a helpful error message for the event ``sexpError``
-  assert(my.kind == sexpError)
-  result = "($1, $2) Error: $3" % [$getLine(my), $getColumn(my), errorMessages[my.err]]
+  assert(parser.kind == sexpError)
+  result = "($1, $2) Error: $3" % [$getLine(parser), $getColumn(parser), errorMessages[parser.err]]
 
-proc errorMsgExpected*(my: SexpParser, e: string): string =
+proc errorMsgExpected*(parser: SexpParser, e: string): string =
   ## returns an error message "`e` expected" in the same format as the
   ## other error messages
   result = "($1, $2) Error: $3, but found '$4' ($5)" % [
-    $getLine(my), $getColumn(my), e & " expected", $my.a, $my.tok]
+    $getLine(parser),
+    $getColumn(parser),
+    e & " expected",
+    $parser.str,
+    $parser.tok
+  ]
 
-proc parseString(my: var SexpParser): TTokKind =
+proc parseString(parser: var SexpParser): TTokKind =
   result = tkString
-  var pos = my.bufpos + 1
+  var pos = parser.bufpos + 1
   while true:
-    case my.buf[pos]
+    case parser.buf[pos]
     of '\0':
-      my.err = errQuoteExpected
+      parser.err = errQuoteExpected
       result = tkError
       break
     of '"':
       inc(pos)
       break
     of '\\':
-      case my.buf[pos+1]
+      case parser.buf[pos+1]
       of '\\', '"', '\'', '/':
-        add(my.a, my.buf[pos+1])
+        add(parser.str, parser.buf[pos+1])
         inc(pos, 2)
       of 'b':
-        add(my.a, '\b')
+        add(parser.str, '\b')
         inc(pos, 2)
       of 'f':
-        add(my.a, '\f')
+        add(parser.str, '\f')
         inc(pos, 2)
       of 'n':
-        add(my.a, '\L')
+        add(parser.str, '\L')
         inc(pos, 2)
       of 'r':
-        add(my.a, '\C')
+        add(parser.str, '\C')
         inc(pos, 2)
       of 't':
-        add(my.a, '\t')
+        add(parser.str, '\t')
         inc(pos, 2)
       of 'u':
         inc(pos, 2)
         var r: int
-        if handleHexChar(my.buf[pos], r): inc(pos)
-        if handleHexChar(my.buf[pos], r): inc(pos)
-        if handleHexChar(my.buf[pos], r): inc(pos)
-        if handleHexChar(my.buf[pos], r): inc(pos)
-        add(my.a, toUTF8(Rune(r)))
+        if handleHexChar(parser.buf[pos], r): inc(pos)
+        if handleHexChar(parser.buf[pos], r): inc(pos)
+        if handleHexChar(parser.buf[pos], r): inc(pos)
+        if handleHexChar(parser.buf[pos], r): inc(pos)
+        add(parser.str, toUTF8(Rune(r)))
       else:
         # don't bother with the error
-        add(my.a, my.buf[pos])
+        add(parser.str, parser.buf[pos])
         inc(pos)
     of '\c':
-      pos = lexbase.handleCR(my, pos)
-      add(my.a, '\c')
+      pos = lexbase.handleCR(parser, pos)
+      add(parser.str, '\c')
     of '\L':
-      pos = lexbase.handleLF(my, pos)
-      add(my.a, '\L')
+      pos = lexbase.handleLF(parser, pos)
+      add(parser.str, '\L')
     else:
-      add(my.a, my.buf[pos])
+      add(parser.str, parser.buf[pos])
       inc(pos)
-  my.bufpos = pos # store back
+  parser.bufpos = pos # store back
 
-proc parseNumber(my: var SexpParser) =
-  var pos = my.bufpos
-  if my.buf[pos] == '-':
-    add(my.a, '-')
+proc parseNumber(parser: var SexpParser) =
+  var pos = parser.bufpos
+  if parser.buf[pos] == '-':
+    add(parser.str, '-')
     inc(pos)
-  if my.buf[pos] == '.':
-    add(my.a, "0.")
+  if parser.buf[pos] == '.':
+    add(parser.str, "0.")
     inc(pos)
   else:
-    while my.buf[pos] in Digits:
-      add(my.a, my.buf[pos])
+    while parser.buf[pos] in Digits:
+      add(parser.str, parser.buf[pos])
       inc(pos)
-    if my.buf[pos] == '.':
-      add(my.a, '.')
+    if parser.buf[pos] == '.':
+      add(parser.str, '.')
       inc(pos)
   # digits after the dot:
-  while my.buf[pos] in Digits:
-    add(my.a, my.buf[pos])
+  while parser.buf[pos] in Digits:
+    add(parser.str, parser.buf[pos])
     inc(pos)
-  if my.buf[pos] in {'E', 'e'}:
-    add(my.a, my.buf[pos])
+  if parser.buf[pos] in {'E', 'e'}:
+    add(parser.str, parser.buf[pos])
     inc(pos)
-    if my.buf[pos] in {'+', '-'}:
-      add(my.a, my.buf[pos])
+    if parser.buf[pos] in {'+', '-'}:
+      add(parser.str, parser.buf[pos])
       inc(pos)
-    while my.buf[pos] in Digits:
-      add(my.a, my.buf[pos])
+    while parser.buf[pos] in Digits:
+      add(parser.str, parser.buf[pos])
       inc(pos)
-  my.bufpos = pos
+  parser.bufpos = pos
 
-proc parseSymbol(my: var SexpParser) =
+proc parseSymbol(parser: var SexpParser) =
   # Using symbol definition from
   # http://www.lispworks.com/documentation/HyperSpec/Body/02_cd.htm
-  var pos = my.bufpos
-  while my.buf[pos] notin Whitespace + {')', '('}:
-    add(my.a, my.buf[pos])
+  var pos = parser.bufpos
+  while parser.buf[pos] notin Whitespace + {')', '('}:
+    add(parser.str, parser.buf[pos])
     inc(pos)
-  my.bufpos = pos
+  parser.bufpos = pos
 
-proc getTok(my: var SexpParser): TTokKind =
-  setLen(my.a, 0)
-  case my.buf[my.bufpos]
+proc getTok(parser: var SexpParser): TTokKind =
+  # echo ">> ", parser.tok, " ", parser.bufpos, " @ ", parser.buf[parser.bufpos]
+  setLen(parser.str, 0)
+  case parser.buf[parser.bufpos]
   of '-', '0'..'9': # numbers that start with a . are not parsed
                     # correctly.
-    parseNumber(my)
-    if {'.', 'e', 'E'} in my.a:
+    parseNumber(parser)
+    if {'.', 'e', 'E'} in parser.str:
       result = tkFloat
     else:
       result = tkInt
   of '"': #" # gotta fix nim-mode
-    result = parseString(my)
+    result = parseString(parser)
   of '(':
-    inc(my.bufpos)
+    inc(parser.bufpos)
     result = tkParensLe
   of ')':
-    inc(my.bufpos)
+    inc(parser.bufpos)
     result = tkParensRi
   of '\0':
     result = tkEof
   of ':':
-    parseSymbol(my)
+    parseSymbol(parser)
     result = tkKeyword
   of {'\x01' .. '\x1F'} - Whitespace:
-    inc(my.bufpos)
+    inc(parser.bufpos)
     result = tkError
   of Whitespace:
     result = tkSpace
-    inc(my.bufpos)
-    while my.bufpos < my.buf.len and my.buf[my.bufpos] in Whitespace:
-      inc my.bufpos
+    if parser.buf[parser.bufpos] in lexbase.NewLines:
+      parser.bufpos = parser.handleRefillChar(parser.bufpos)
+
+    else:
+      inc(parser.bufpos)
+
+    while parser.bufpos < parser.buf.len and
+          parser.buf[parser.bufpos] in Whitespace:
+      if parser.buf[parser.bufpos] in lexbase.NewLines:
+        parser.bufpos = parser.handleRefillChar(parser.bufpos)
+
+      else:
+        inc parser.bufpos
+
   of '.':
     result = tkDot
-    inc(my.bufpos)
+    inc(parser.bufpos)
   else:
-    parseSymbol(my)
-    if my.a == "nil":
+    parseSymbol(parser)
+    if parser.str == "nil":
       result = tkNil
     else:
       result = tkSymbol
-  my.tok = result
+  parser.tok = result
+  # echo " << ", parser.tok, " ", parser.bufpos
 
 # ------------- higher level interface ---------------------------------------
 
@@ -713,26 +731,32 @@ proc eat(p: var SexpParser, tok: TTokKind) =
   if p.tok == tok: discard getTok(p)
   else: raiseParseErr(p, tokToStr[tok])
 
+proc space(p: var SexpParser) =
+  ## Skip all space tokens from the current point onwards
+  while p.tok == tkSpace:
+    discard getTok(p)
+
 proc parseSexp(p: var SexpParser): SexpNode =
   ## Parses SEXP from a SEXP Parser `p`.
+  p.space()
   case p.tok
   of tkString:
-    # we capture 'p.a' here, so we need to give it a fresh buffer afterwards:
-    result = newSStringMove(p.a)
-    p.a = ""
+    # we capture 'p.str' here, so we need to give it a fresh buffer afterwards:
+    result = newSStringMove(p.str)
+    p.str = ""
     discard getTok(p)
   of tkInt:
-    result = newSInt(parseBiggestInt(p.a))
+    result = newSInt(parseBiggestInt(p.str))
     discard getTok(p)
   of tkFloat:
-    result = newSFloat(parseFloat(p.a))
+    result = newSFloat(parseFloat(p.str))
     discard getTok(p)
   of tkNil:
     result = newSNil()
     discard getTok(p)
   of tkSymbol:
-    result = newSSymbolMove(p.a)
-    p.a = ""
+    result = newSSymbolMove(p.str)
+    p.str = ""
     discard getTok(p)
 
   of tkParensLe:
@@ -740,8 +764,9 @@ proc parseSexp(p: var SexpParser): SexpNode =
     discard getTok(p)
     while p.tok notin {tkParensRi, tkDot}:
       result.add(parseSexp(p))
-      if p.tok != tkSpace: break
-      discard getTok(p)
+      # Account for possible space in the list elements.
+      p.space()
+
     if p.tok == tkDot:
       eat(p, tkDot)
       eat(p, tkSpace)
@@ -751,19 +776,20 @@ proc parseSexp(p: var SexpParser): SexpNode =
 
   of tkKeyword:
     # `:key (value)`
-    let key = p.a[1 .. ^1]
+    let key = p.str[1 .. ^1]
     discard getTok(p)
     eat(p, tkSpace)
     result = newSKeyword(key, parseSexp(p))
 
   of tkSpace, tkDot, tkError, tkParensRi, tkEof:
-    raiseParseErr(p, "(")
+    raiseParseErr(p,
+      "':key', '(', 'symbol', '<float>', '<string>' or '<int>'")
 
-proc open*(my: var SexpParser, input: Stream) =
+proc open*(parser: var SexpParser, input: Stream) =
   ## initializes the parser with an input stream.
-  lexbase.open(my, input)
-  my.kind = sexpError
-  my.a = ""
+  lexbase.open(parser, input)
+  parser.kind = sexpError
+  parser.str = ""
 
 proc parseSexp*(s: Stream): SexpNode =
   ## Parses from a buffer `s` into a `SexpNode`.
@@ -804,3 +830,25 @@ when isMainModule:
     "(Sem:ExpandMacro :expression (___) :original (___))"
 
   doAssert $parseSexp("(> 12 2)") == "(> 12 2)"
+  doAssert $parseSexp("((12) 2 (3))") == "((12) 2 (3))"
+
+  block:
+    # Spaces between list elements can be optional
+    let node = parseSexp("((tt)(tt))")
+    doAssert $node == "((tt) (tt))", $treeRepr(node)
+
+  block:
+    # Apparently S-expression parser is having some mild troubles with
+    # expressions that are longer than a lexer buffer length, so its
+    # ability to parse things need to be checked as well.
+    for withNl in [true, false]:
+      let count = 128
+      let size = 64
+      let text = "(" & repeat("(" & (
+        if withNl: "\n" else: ""
+      )  & repeat("t", size) & (
+        if withNl: "\n" else: ""
+      ) & ")", count) & ")"
+
+      let node = parseSexp(text)
+      doAssert node.len == count, $node
