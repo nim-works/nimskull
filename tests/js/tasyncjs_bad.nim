@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   exitCode: 1
  outputsub: "Error: unhandled exception: foobar: 13"
 """

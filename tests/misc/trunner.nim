@@ -55,10 +55,10 @@ when not defined(nimTestsTrunnerDebugging):
 
   block: # tests with various options `nim doc --project --index --docroot`
     # regression tests for issues and PRS: #14376 #13223 #6583 ##13647
-    let file = testsDir / "nimdoc/sub/mmain.nim"
+    let file = testsDir / "tools/nimdoc/sub/mmain.nim"
     let mainFname = "mmain.html"
     let htmldocsDirCustom = nimcache / "htmldocsCustom"
-    let docroot = testsDir / "nimdoc"
+    let docroot = testsDir / "tools/nimdoc"
     let options = [
       0: "--project",
       1: "--project --docroot",
@@ -100,14 +100,14 @@ mmain.idx
       of 1: assertEquals ret, fmt"""
 {docHackJsFname}
 {nimdocOutCss}
-tests/nimdoc/imp.html
-tests/nimdoc/imp.idx
-tests/nimdoc/sub/imp.html
-tests/nimdoc/sub/imp.idx
-tests/nimdoc/sub/imp2.html
-tests/nimdoc/sub/imp2.idx
-tests/nimdoc/sub/{mainFname}
-tests/nimdoc/sub/mmain.idx
+tests/tools/nimdoc/imp.html
+tests/tools/nimdoc/imp.idx
+tests/tools/nimdoc/sub/imp.html
+tests/tools/nimdoc/sub/imp.idx
+tests/tools/nimdoc/sub/imp2.html
+tests/tools/nimdoc/sub/imp2.idx
+tests/tools/nimdoc/sub/{mainFname}
+tests/tools/nimdoc/sub/mmain.idx
 {theindexFname}"""
       of 2, 3: assertEquals ret, fmt"""
 {docHackJsFname}
@@ -125,7 +125,8 @@ sub/mmain.idx""", context
       else: doAssert false
 
   block: # mstatic_assert
-    let (output, exitCode) = runNimCmd("ccgbugs/mstatic_assert.nim", "-d:caseBad")
+    let (output, exitCode) = runNimCmd(
+      "ccgbugs/mstatic_assert.nim", "-d:caseBad")
     check2 "sizeof(bool) == 2"
     check exitCode != 0
 
@@ -175,7 +176,7 @@ sub/mmain.idx""", context
   block: # nim doc --backend:$backend --doccmd:$cmd
     # test for https://github.com/nim-lang/Nim/issues/13129
     # test for https://github.com/nim-lang/Nim/issues/13891
-    let file = testsDir / "nimdoc/m13129.nim"
+    let file = testsDir / "tools/nimdoc/m13129.nim"
     for backend in fmt"{mode} js".split:
       # pending #14343 this fails on windows: --doccmd:"-d:m13129Foo2 --hints:off"
       let cmd = fmt"""{nim} doc -b:{backend} --nimcache:{nimcache} -d:m13129Foo1 "--doccmd:-d:m13129Foo2 --hints:off" --usenimcache --hints:off {file}"""
@@ -204,16 +205,19 @@ sub/mmain.idx""", context
     check execCmdEx(cmd) == ("witness\n", 0)
 
   block: # config.nims, nim.cfg, hintConf, bug #16557
-    let cmd = fmt"{nim} r --skipUserCfg --hints=on --hint=all:off --hint=conf:on tests/newconfig/bar/mfoo.nim"
+    let cmd = fmt"{nim} r --skipUserCfg --hints=on --hint=all:off --hint=conf:on tests/compile_user_facing/newconfig/bar/mfoo.nim"
     let (outp, exitCode) = execCmdEx(cmd, options = {poStdErrToStdOut})
+    if exitCode != 0:
+      echo outp
+
     doAssert exitCode == 0
     let dir = getCurrentDir()
     let files = """
 tests/config.nims
-tests/newconfig/bar/nim.cfg
-tests/newconfig/bar/config.nims
-tests/newconfig/bar/mfoo.nim.cfg
-tests/newconfig/bar/mfoo.nims""".splitLines
+tests/compile_user_facing/newconfig/bar/nim.cfg
+tests/compile_user_facing/newconfig/bar/config.nims
+tests/compile_user_facing/newconfig/bar/mfoo.nim.cfg
+tests/compile_user_facing/newconfig/bar/mfoo.nims""".splitLines
     var expected = ""
     for a in files:
       let b = dir / a
@@ -221,7 +225,7 @@ tests/newconfig/bar/mfoo.nims""".splitLines
     doAssert outp.endsWith expected, outp & "\n" & expected
 
   block: # mfoo2.customext
-    let filename = testsDir / "newconfig/foo2/mfoo2.customext"
+    let filename = testsDir / "compile_user_facing/newconfig/foo2/mfoo2.customext"
     let cmd = fmt"{nim} e --skipUserCfg --hints=on --hint=all:off --hint:conf {filename}"
     let (outp, exitCode) = execCmdEx(cmd, options = {poStdErrToStdOut})
     doAssert exitCode == 0
@@ -305,7 +309,7 @@ running: v2
   block: # UnusedImport
     proc fn(opt: string, expected: string) =
       let output = runNimCmdChk(
-        "pragmas/mused3.nim",
+        "lang_extra/pragmas/mused3.nim",
         fmt"--skipUserCfg --warning:all:off --warning:UnusedImport --hint:DuplicateModuleImport {opt}")
 
       doAssert output == expected, opt & "\noutput:\n" & output & "expected:\n" & expected

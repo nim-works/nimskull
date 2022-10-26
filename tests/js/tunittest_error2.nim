@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   exitcode: 1
   outputsub: '''
 [<foreign exception>]

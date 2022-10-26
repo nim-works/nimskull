@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   output: '''foo
 js 3.14
 7

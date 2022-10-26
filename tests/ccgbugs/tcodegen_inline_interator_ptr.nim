@@ -1,5 +1,5 @@
 discard """
-labels: "array backend_c codegen inline iterators pragma ptr"
+labels: "array backend_c codegen inline iterator pragma ptr"
 description: '''
   . From https://github.com/nim-lang/Nim/issues/8616
     Incomplete types being generated in C code from ptr to unchecked array

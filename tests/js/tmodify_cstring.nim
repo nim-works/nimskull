@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   errormsg: "cstring doesn't support `[]=` operator"
 """
 

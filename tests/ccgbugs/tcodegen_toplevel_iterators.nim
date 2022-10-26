@@ -1,6 +1,6 @@
 discard """
 matrix: "--gc:refc; --gc:orc"
-labels: "error_compile iterators table top_level"
+labels: "error_compile iterator table top_level"
 description: '''
   . From https://github.com/nim-lang/Nim/pull/16374
     Codegen bug with Table mvalues in loop and ARC & ORC GC

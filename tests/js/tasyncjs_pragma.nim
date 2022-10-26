@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   output: '''
 0
 t

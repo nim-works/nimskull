@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   errormsg: "`{.union.}` is not implemented for js backend."
 """
 

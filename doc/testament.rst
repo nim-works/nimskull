@@ -198,6 +198,110 @@ Binary output assertions
 * `Nim itself uses Testament, so there are plenty of test examples. <https://github.com/nim-works/nimskull/tree/devel/tests>`_
 * `Testament supports inlined error messages on tests, basically comments with the expected error directly on the code. <https://github.com/nim-works/nimskull/blob/9a110047cbe2826b1d4afe63e3a1f5a08422b73f/tests/effects/teffects1.nim>`_
 
+Labels
+------
+
+Testament specification supports a `labels:` tag that allows for
+non-hierarchical categorization of tests. Things can be split in different
+directories, but still properly mention involved language features.
+
+Tags should be added if the test specifically targets one of the features
+(such as code generation failure in certain case that was added as a text)
+or involves high-level language feature (such as macros, procedures, enums
+etc). For example -- unless the test specifically deals with some for-loop
+feature there is no need to add `for_loop` tag.
+
+General rule of tag construction is -- avoid long and overly specific tags,
+since it would be impossible to break down every single tests accordingly.
+There is a clear need to balance out precision and usability. Use your best
+judgement and don't hesitate to ask for clarification if you are stuck.
+
+Tag names can consist *one or more lowercase words in a singular form*
+separated by underscores, each word either narrowing down the scope
+(`interop_c`, `interop_cpp`, `backend_c`, `gc`, `gc_orc` etc.) or simply
+being a part of a longer phrase (`top_level`).
+
+Please do check whether the tag is already present before adding new one.
+To generate a new list of all tags used in the code you can run code below.
+If you notice any seemingly duplicate tags (e.g. `error_compile` and
+`error_compilation`) please correct the code to leave the most common one.
+
+.. code-block:: cmd
+
+    rg --no-filename  -g "*.nim" "labels: " | sd 'labels:\s+"(.*?)"' '$1' | tr ' ' '\n' | sort | uniq -c
+
+- Type-related
+  - ``array``: Array type is tested
+  - ``distinct``: `distinct` type is involved
+  - ``enum``: Enumeration type is involved
+  - ``ptr``: Default `ptr T` type
+  - ``range``: Default `range[low..high]` type
+  - ``ref``: Default `ref T` type
+  - ``char``: Character type is involved
+  - ``seq``: Default `seq[T]` type
+  - ``int``: Integer or other integral type is used
+  - ``float``: `float` or other floating point type is used
+- Compiler diagnostics
+  - ``error_compilation``:
+  - ``error_compile``:
+  - ``error_message``: Test is specifically targeting formatting or content
+    of the error message.
+- Code detail
+  - ``local``:
+  - ``top_level``: Language construct is specifically tested when it is
+    placed in the top level of the module -- and not inside
+    procedure/method definition.
+  - ``32_bit``: Test explicitly involves 32-bit data handling
+- Language feature
+  - Definitions
+    - ``proc``:
+    - ``template``:
+    - ``union``:
+    - ``macro``:
+    - ``iterator``:
+
+  - Code detail
+    - ``overload``:
+    - ``exception``:
+    - ``generic``:
+    - ``const``:
+    - ``import``:
+    - ``module``:
+  - Other
+    - ``pragma``:
+    - ``subtyping``:
+    - ``resolution``: Overloading resolution
+    - ``typedesc``:
+    - ``var``:
+    - ``conversion``:
+    - ``alias``:
+    - ``constructor``:
+    - ``identifier``:
+    - ``scope``:
+- Expectations
+  - ``error_runtime``: Runtime error expected
+- Compilation details
+  - ``gc``: Garbage collector is involved
+  - ``backend_c``: Testing something directly related or requiring C backend
+  - ``codegen``: Code generation is involved
+  - ``mode_release``: Compiled in release mode
+  - ``js``:
+- Standard library
+  - ``stdlib``: Standard library module
+  - ``system``: Types and procedures imported by default in every compiled
+    module
+  - ``table``: Standard library `std/table` module tested
+  - ``macro_API``: Publicly exposed macro API for operations on the AST
+- Other:
+  - ``alignment``:
+  - ``arithmetic``:
+  - ``atomics``:
+  - ``bitwise``:
+  - ``gensym``:
+  - ``index``:
+  - ``inline``:
+  - ``shift``:
+
 Reading test outputs
 ====================
 

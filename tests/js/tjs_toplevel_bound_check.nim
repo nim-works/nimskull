@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
 description: '''
   . From https://github.com/nim-lang/Nim/issues/14153
     JS: no bound checks at top level

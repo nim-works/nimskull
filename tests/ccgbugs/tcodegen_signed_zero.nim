@@ -1,6 +1,6 @@
 discard """
 targets: "c js"
-labels: "codegen floating_point"
+labels: "codegen float"
 description: '''
   . From https://github.com/nim-lang/Nim/issues/7079
     -0.0 doesn't result in negative zero in VM

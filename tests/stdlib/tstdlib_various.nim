@@ -31,6 +31,10 @@ true
 '''
 """
 
+# FIXME use proper `std/` import prefix in tests, format modules on
+# a single line instead of the current joined mess. Move testing from
+# echo-based to a more proper `assert` or `assertAll` validation
+
 import
   critbits, sets, strutils, tables, random, algorithm, re, ropes,
   segfaults, lists, parsesql, streams, os, htmlgen, xmltree, strtabs

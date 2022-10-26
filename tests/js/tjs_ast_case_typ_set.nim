@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
 description: '''
   . From https://github.com/nim-lang/Nim/issues/7534
     case expression with if generates AST nkIfStmt without typ, breaking JS backend

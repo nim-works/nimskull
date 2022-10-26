@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   description: '''
   . From https://github.com/nim-lang/Nim/issues/6612
     Issue with javascript compiler, var parameters and case fields

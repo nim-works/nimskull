@@ -1,6 +1,6 @@
 discard """
 matrix: "-d:release"
-labels: "code_gen mode_release"
+labels: "codegen mode_release"
 description: '''
   . From https://github.com/nim-lang/Nim/issues/5296
     Compiling in release mode prevents valid code execution.

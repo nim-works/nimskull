@@ -1,5 +1,5 @@
 discard """
-labels: "array codegen error_compile generics seq"
+labels: "array codegen error_compile generic seq"
 description: '''
   . From https://github.com/nim-lang/Nim/issues/8967
     marshal.nim can't be compiled for the cpp backend

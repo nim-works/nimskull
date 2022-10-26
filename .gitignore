@@ -116,3 +116,4 @@ nimdoc.out.css
 # For anyone who wants to make a workspace out of nimskull repo
 *.code-workspace
 *.vscode
+**/*.bin

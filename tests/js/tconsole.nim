@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   output: '''
 Hello, console
 1 2 3

@@ -1,3 +1,7 @@
+discard """
+  targets: "js"
+"""
+
 #[
 merge into tests/system/tdollars.nim once https://github.com/nim-lang/Nim/pull/14122
 is merged

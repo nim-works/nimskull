@@ -1,7 +1,7 @@
 discard """
 ccodecheck: "__restrict__"
 joinable: false
-labels: "codegen iterators pragma"
+labels: "codegen iterator pragma"
 description: '''
   . From https://github.com/nim-lang/Nim/issues/6497
     Pragma codegenDecl doesn't work inside iterators

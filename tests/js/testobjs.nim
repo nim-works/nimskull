@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   output: '''{"columns":[{"t":null},{"t":null}]}
 {"columns":[{"t":null},{"t":null}]}
 '''

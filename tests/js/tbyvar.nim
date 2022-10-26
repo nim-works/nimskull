@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   output: '''
 foo 12
 bar 12

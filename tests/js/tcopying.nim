@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   output: '''123
 2 9
 2 9

@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   output: '''idx out of bounds: -1
 month out of bounds: 0
 Jan

@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   cmd: "nim $target $options --stackTrace:on --lineTrace:on $file"
   outputsub: '''
 t7224.nim(25) at module t7224

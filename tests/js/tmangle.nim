@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   output: '''true
 true
 true

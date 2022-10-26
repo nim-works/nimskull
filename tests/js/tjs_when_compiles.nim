@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
 description: '''
   . From https://github.com/nim-lang/Nim/issues/11166
     Compiler crash when using jsffi and compiles

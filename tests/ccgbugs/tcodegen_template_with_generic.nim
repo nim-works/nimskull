@@ -1,5 +1,5 @@
 discard """
-labels: "codegen error_compilation generics template"
+labels: "codegen error_compilation generic template"
 description: '''
   . From https://github.com/nim-lang/Nim/issues/6756
     Error in template when using the type of the parameter inside it

@@ -1,4 +1,5 @@
 discard """
+  targets: "js"
   output: '''ABCDC
 1
 14
