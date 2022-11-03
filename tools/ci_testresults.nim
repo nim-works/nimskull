@@ -1,8 +1,24 @@
 ## Print summary of failed tests for CI
 
-import os, json, sets, strformat, strutils
+import
+  std/[
+    os,
+    json,
+    sets,
+    strformat,
+    strutils
+  ]
 
-const skip = toHashSet(["reDisabled", "reIgnored", "reSuccess", "reJoined"])
+const skip = toHashSet([
+  "reDisabled",
+  "reIgnored",
+  "reSuccess",
+  "reJoined",
+  "reKnownIssue"
+  # The test is a known issue that failed to execute, to avoud
+  # cluttering the CI output they are skipped.
+])
+
 let githubActions = existsEnv"GITHUB_ACTIONS"
 
 func formatResult(j: JsonNode): string =

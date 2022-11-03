@@ -142,23 +142,6 @@ proc trimUnitSep(x: var string) =
   if L > 0 and x[^1] == '\31':
     setLen x, L-1
 
-type
-  TOutReport = object
-    inline: Option[InlineError]
-    node: SexpNode
-    file: string
-
-  TOutCompare = ref object
-    ## Result of comparing two data outputs for a given spec
-    match: bool
-    expectedReports: seq[TOutReport]
-    givenReports: seq[TOutReport]
-    sortedMapping: seq[tuple[pair: (int, int), cost: int]]
-    diffMap: Table[(int, int), seq[SexpMismatch]]
-    ignoredExpected: seq[int]
-    ignoredGiven: seq[int]
-    cantIgnoreGiven: bool
-
 proc diffStrings*(a, b: string): tuple[output: string, same: bool] =
   let a = a.split("\n")
   let b = b.split("\n")
@@ -441,21 +424,6 @@ proc getName(run: TestRun): string =
   if run.test.options.len > 0:
     result.add ' ' & run.test.options
 
-type
-  ReportParams = object
-    ## Contains additional data about report execution state.
-    duration: float
-    name: string
-    origName: string
-    cat: string
-    action: TTestAction
-    targetStr: string
-    debugInfo: string
-    outCompare: TOutCompare
-    success: TResultEnum
-    inCurrentBatch: bool
-    expected, given: string
-
 proc logToConsole(param: ReportParams, givenSpec: ptr TSpec = nil) =
   ## Format test infomation to the console. `test` contains information
   ## about the test itself, `param` contains additional data about test
@@ -529,13 +497,7 @@ proc logToConsole(param: ReportParams, givenSpec: ptr TSpec = nil) =
 
 proc logToBackend(param: ReportParams) =
   if backendLogging:
-    backend.writeTestResult(name = param.name,
-                            category = param.cat,
-                            target = param.targetStr,
-                            action = $param.action,
-                            result = $param.success,
-                            expected = param.expected,
-                            given = param.given)
+    backend.writeTestResult(param)
 
 
 proc addResult(r: var TResults, param: ReportParams, givenSpec: ptr TSpec) =
@@ -584,6 +546,7 @@ proc addResult(
       debugInfo: run.debugInfo,
       outCompare: outCompare,
       success: success,
+      knownIssues: if isNil(givenSpec): @[] else: givenSpec[].knownIssues,
       inCurrentBatch: run.test.spec.inCurrentBatch,
       expected: expected,
       given: given
@@ -614,6 +577,7 @@ proc addResult(r: var TResults, test: TTest) =
       debugInfo: "",
       success: test.spec.err,
       inCurrentBatch: test.spec.inCurrentBatch,
+      knownIssues: test.spec.knownIssues,
       expected: "",
       given: given,
       outCompare: nil

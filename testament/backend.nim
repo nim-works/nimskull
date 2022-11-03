@@ -6,7 +6,55 @@
 #    Look at license.txt for more info.
 #    All rights reserved.
 
-import strutils, os, osproc, json
+import
+  std/[
+    strutils,
+    os,
+    osproc,
+    json,
+    options,
+    tables
+  ],
+  specs, # Basic testament types
+  experimental/[
+    sexp,
+    sexp_diff
+  ]
+
+type
+  TOutReport* = object
+    inline*: Option[InlineError]
+    node*: SexpNode
+    file*: string
+
+  TOutCompare* = ref object
+    ## Result of comparing two data outputs for a given spec
+    match*: bool
+    expectedReports*: seq[TOutReport]
+    givenReports*: seq[TOutReport]
+    sortedMapping*: seq[tuple[pair: (int, int), cost: int]]
+    diffMap*: Table[(int, int), seq[SexpMismatch]]
+    ignoredExpected*: seq[int]
+    ignoredGiven*: seq[int]
+    cantIgnoreGiven*: bool
+
+  ReportParams* = object
+    ## Contains additional data about report execution state.
+    duration*: float ## Test execution duration
+    name*: string ## Name of the test
+    origName*: string
+    cat*: string ## Test category
+    action*: TTestAction ## Test action type
+    targetStr*: string
+    debugInfo*: string
+    outCompare*: TOutCompare
+    success*: TResultEnum
+    knownIssues*: seq[string] ## Whether the test was marked as a 'known
+                              ## issue'
+    inCurrentBatch*: bool
+    expected*: string ## Expected run output
+    given*: string ## Given run output
+
 
 type
   MachineId* = distinct string
@@ -40,7 +88,16 @@ var
   results: JsonNode
   currentCategory: string
 
-proc writeTestResult*(name, category, target, action, result, expected, given: string) =
+proc writeTestResult*(param: ReportParams) =
+  let
+    name = param.name
+    category = param.cat
+    target = param.targetStr
+    action = $param.action
+    result = $param.success
+    expected = param.expected
+    given = param.given
+
   createDir("testresults")
   if currentCategory != category:
     if currentCategory.len > 0:
@@ -53,9 +110,19 @@ proc writeTestResult*(name, category, target, action, result, expected, given: s
   if results.isNil():
     results = newJArray()
 
-  results.add %*{"name": name, "category": category, "target": target,
-    "action": action, "result": result, "expected": expected, "given": given,
-    "machine": thisMachine.string, "commit": thisCommit.string, "branch": thisBranch}
+  results.add %*{
+    "name": name,
+    "category": category,
+    "target": target,
+    "action": action,
+    "result": result,
+    "expected": expected,
+    "given": given,
+    "machine": thisMachine.string,
+    "commit": thisCommit.string,
+    "branch": thisBranch,
+    "knownIssues": %param.knownIssues
+  }
 
 proc open*() =
   thisMachine = getMachine()
