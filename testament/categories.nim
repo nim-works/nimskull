@@ -434,13 +434,16 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
     ##
     ## We expect the program to exit soon after
     if backendLogging:
-      backend.writeTestResult(name = MegaTestCat,
-                              category = MegaTestCat,
-                              target = "c",
-                              action = "run",
-                              result = $res,
-                              expected = "",
-                              given = errorOutput)
+      backend.writeTestResult(ReportParams(
+        name: MegaTestCat,
+        cat: MegaTestCat,
+        targetStr: "c",
+        action: actionRun,
+        success: res,
+        expected: "",
+        given: errorOutput,
+        knownIssues: @[]
+      ))
 
       # Flush all buffers
       backend.close()

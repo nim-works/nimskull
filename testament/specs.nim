@@ -7,8 +7,18 @@
 #    distribution, for details about the copyright.
 #
 
-import sequtils, parseutils, strutils, os, streams, parsecfg,
-  tables, hashes, sets
+import
+  std/[
+    sequtils,
+    parseutils,
+    strutils,
+    os,
+    streams,
+    parsecfg,
+    tables,
+    hashes,
+    sets
+  ]
 
 type TestamentData* = ref object
   # better to group globals under 1 object; could group the other ones here too
