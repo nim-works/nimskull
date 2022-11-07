@@ -229,6 +229,12 @@ to evolve it.
 </details>
 
 <details>
+<summary class="blue">Will this break my Nim code?</summary>
+</br>
+This project aims to become a different programming language, so do not expect source code compatibility. If you want Nim then use it.
+</details>
+
+<details>
 <summary class="blue">What's the rationale for this fork?</summary>
 </br>
 It's more a starting point and eventually the languages will have diverged so
