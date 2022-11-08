@@ -1052,8 +1052,8 @@ proc trackInnerProc(tracked: PEffects, n: PNode) =
       trackInnerProc(tracked, getBody(tracked.graph, n[0].sym))
   of nkTypeSection, nkMacroDef, nkTemplateDef, nkError,
      nkConstSection, nkConstDef, nkIncludeStmt, nkImportStmt,
-     nkExportStmt, nkPragma, nkCommentStmt, nkBreakState,
-     nkTypeOfExpr, nkMixinStmt, nkBindStmt:
+     nkExportStmt, nkPragma, nkCommentStmt, nkTypeOfExpr, nkMixinStmt,
+     nkBindStmt:
     discard
   else:
     for ch in n: trackInnerProc(tracked, ch)
