@@ -89,15 +89,73 @@ Cleaning up existing tests
 
 Original collection of tests in the test suite contained a lot of files
 that did not conform to the requirements listed above, and should
-eventually be fixed. See `Clean up and reorder tests #41
-<https://github.com/nim-works/nimskull/issues/41>`_ issue on github for
-more context and relevant discussion.
+eventually be fixed. List of known issues that should be fixed includes,
+but not limited to:
+
+- Check if test name makes sense - `t123123_b.nim` does not make sense,
+  change it to something matching what is being tested. File names usually
+  refer to the numbers of issues in the original repository.
+
+- Reduce number of echo-based error testing. If you see direct echo in test
+  consider changing it to the `doAssert` check instead.
+
+  Added assertions should replace original sequence of checks with
+  `doAssert a == <expected>` expression. If original check printed multiple
+  values in sequence (for example in a for loop) you can collect them into
+  a `seq[string]` variable and compare using `==` later.
+
+- Link relevant issues in the test description (`description` field) or in
+  comments.
+
+  Huge number of original tests "referred" to issue numbers using file
+  names or highly illegible comments such as `# XYZ123` placed at arbitrary
+  locations all over the code. You should replace them with actual `url`
+  links so people can see the context quickly.
+
+
+
+- If possible, provide explanation to the test logic. You can use
+  explanation to the linked issues as a basis for explanation.
+
+- Adding labels to existing tests. For guidelines on test label usage and
+  list of existing tags with documentation please see testament
+  documentation `Labels` section.
+
+If you write new tests make sure they don't have these issues. Entries from
+this list should be *removed* from old tests and should *not be introduced*
+into new ones.
+
+Writing new tests
+-----------------
+
+Short list of common patters for text implementation. Documentation for
+usage of specific features can be found in the `testament` tool and
+`std/unittest` module docs: this list provides a brief overview of
+different methods one can use to write a new test.
+
+- *Test that is supposed to fail*: There are several different ways a test
+  can "fail":
+
+  - *Known issue that should be fixed later*: Write a test for code as it
+    *should* work and annotate the specification using `knownIssue` with
+    provided explanation.
+
+  - *Exception must be thrown*: Either use `try ... except` construct and
+    check for type/field of the exception captured or use `expect` macro
+    from `std/unittest`
+
+  - *Specific compilation error*: Use `errormsg: "<error>"` and `line:
+    <line>` fields in the specification.
+
+- *Test for specific values*: Either use `doAssert <given> == <expected>`
+  or `check` from `std/unittest`
+
 
 Improving Language specification
 --------------------------------
 
 In order to have the confidence in the compiler implementation and it's
-behaviour we must provide a comprehensive suite of checks for the compiler
+behavior we must provide a comprehensive suite of checks for the compiler
 behavior. This is a complex undertaking as a whole, but it can be easily
 split in a smaller contributions.
 
