@@ -216,7 +216,7 @@ block tsplit2:
 
 block tsqlparser:
   # Just check that we can parse 'somesql' and render it without crashes.
-  var tree = parseSql(newFileStream( parentDir(currentSourcePath) / "somesql.sql"), "somesql")
+  var tree = parseSql(newFileStream( parentDir(currentSourcePath) / "formats/somesql.sql"), "somesql")
   discard renderSql(tree)
 
 
