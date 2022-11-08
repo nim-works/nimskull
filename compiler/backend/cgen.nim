@@ -1012,7 +1012,7 @@ proc allPathsAsgnResult(n: PNode): InitResultEnum =
       if result == InitSkippable: result = Unknown
   of harmless:
     result = Unknown
-  of nkGotoState, nkBreakState:
+  of nkGotoState:
     # give up for now.
     result = InitRequired
   of nkSym:

@@ -22,6 +22,27 @@ import std/private/since
 # If you look for the implementation of the magic symbol
 # ``{.magic: "Foo".}``, search for `mFoo` and `opcFoo`.
 
+template skipEnumValue(define: untyped, predecessor: untyped): untyped =
+  ## This template is used to keep the ordinal values of the ``TNodeKind``
+  ## enum in sync with the ``NimNodeKind`` enum.
+  ##
+  ## It is expected that each ``nkX`` has the same underlying value as the
+  ## corresponding ``nnkX``, but this expectation is violated when removing
+  ## a ``TNodeKind`` entry (plus the corresponding ``NimNodeKind``) and then
+  ## compiling with a compiler that still has the removed ``TNodeKind`` entry
+  ## (this can happen when bootstrapping, for example).
+  ##
+  ## To keep the required compatibility, when a ``TNodeKind`` and corresponding
+  ## ``NimNodeKind`` are removed, the successor of the removed enum entry uses
+  ## ``skipEnumValue`` to leave a gap in the case that `define`, which is used
+  ## to indicate that the enum entry is not present in the compiler, is not
+  ## defined
+  when defined(define):
+    ord(predecessor) + 1
+  else:
+    # leave a gap where the removed node kind is located
+    ord(predecessor) + 2
+
 type
   NimNodeKind* = enum
     nnkNone, nnkEmpty, nnkIdent, nnkSym,
@@ -30,12 +51,7 @@ type
     nnkUInt16Lit, nnkUInt32Lit, nnkUInt64Lit, nnkFloatLit,
     nnkFloat32Lit, nnkFloat64Lit, nnkFloat128Lit, nnkStrLit, nnkRStrLit,
     nnkTripleStrLit, nnkNilLit,
-    nnkDotCall = when defined(nimHasNkComesFromNodeRemoved):
-                   ord(nnkNilLit) + 1
-                 else:
-                   # Skip what would be nnkComesFrom, if compiled with a
-                   # compiler that still has nkComesFrom (e.g. in bootstrapping)
-                   ord(nnkNilLit) + 2
+    nnkDotCall = skipEnumValue(nimHasNkComesFromNodeRemoved, nnkNilLit)
     nnkCommand, nnkCall, nnkCallStrLit, nnkInfix,
     nnkPrefix, nnkPostfix, nnkHiddenCallConv,
     nnkExprEqExpr,
@@ -58,12 +74,7 @@ type
     nnkElifBranch, nnkExceptBranch, nnkElse,
     nnkAsmStmt, nnkPragma, nnkPragmaBlock, nnkIfStmt, nnkWhenStmt,
     nnkForStmt,
-    nnkWhileStmt = when defined(nimHasNkParForStmtNodeRemoved):
-                     ord(nnkForStmt) + 1
-                   else:
-                     # Skip what would be nnkParForStmt, if compiled with a compiler
-                     # compiler that still has nkParForStmt (e.g. in bootstrapping)
-                     ord(nnkForStmt) + 2
+    nnkWhileStmt = skipEnumValue(nimHasNkParForStmtNodeRemoved, nnkForStmt)
     nnkCaseStmt,
     nnkTypeSection, nnkVarSection, nnkLetSection, nnkConstSection,
     nnkConstDef, nnkTypeDef,
@@ -96,8 +107,7 @@ type
     nnkClosure,
     nnkGotoState,
     nnkState,
-    nnkBreakState,
-    nnkFuncDef,
+    nnkFuncDef = skipEnumValue(nimHasNkBreakStateNodeRemoved, nnkState)
     nnkTupleConstr,
     nnkError,  ## erroneous AST node
 

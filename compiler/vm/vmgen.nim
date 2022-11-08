@@ -1365,7 +1365,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.gABC(n, opcArrCopy, dest, temp, L)
     c.freeTemp(temp)
     c.freeTemp(L)
-  of mIsolate, mFinished:
+  of mIsolate:
     genCall(c, n, dest)
   of mNew, mNewFinalize:
     unused(c, n, dest)
@@ -1765,7 +1765,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mNodeId:
     c.genUnaryABC(n, dest, opcNodeId)
   else:
-    # mGCref, mGCunref,
+    # mGCref, mGCunref, mFinished, etc.
     fail(n.info, rvmCannotGenerateCode, str = $m)
 
 

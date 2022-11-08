@@ -255,14 +255,18 @@ proc genGotoState(p: BProc, n: PNode) =
   lineF(p, cpsStmts, "}$n", [])
 
 proc genBreakState(p: BProc, n: PNode, d: var TLoc) =
+  ## Generates the code for the ``mFinished`` magic, which tests if a
+  ## closure iterator is in the "finished" state (i.e. the internal
+  ## ``state`` field has a value < 0)
   var a: TLoc
   initLoc(d, locExpr, n, OnUnknown)
 
-  if n[0].kind == nkClosure:
-    initLocExpr(p, n[0][1], a)
+  let arg = n[1]
+  if arg.kind == nkClosure:
+    initLocExpr(p, arg[1], a)
     d.r = "(((NI*) $1)[1] < 0)" % [rdLoc(a)]
   else:
-    initLocExpr(p, n[0], a)
+    initLocExpr(p, arg, a)
     # the environment is guaranteed to contain the 'state' field at offset 1:
     d.r = "((((NI*) $1.ClE_0)[1]) < 0)" % [rdLoc(a)]
 

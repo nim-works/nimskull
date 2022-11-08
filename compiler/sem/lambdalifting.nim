@@ -931,7 +931,7 @@ proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator; owner: PSym):
       cl = createClosure()
       while true:
         let i = foo(cl)
-        if (nkBreakState(cl.state)):
+        if (finished(cl.state)):
           break
         ...
     """
@@ -991,8 +991,10 @@ proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator; owner: PSym):
   v2.add vpart
 
   loopBody[0] = v2
-  var bs = newNodeI(nkBreakState, body.info)
-  bs.add call[0]
+  let
+    finishedPrc = getSysMagic(g, body.info, "finished", mFinished)
+    bs = newTreeIT(nkCall, body.info, getSysType(g, body.info, tyBool),
+                   newSymNode(finishedPrc), call[0])
 
   let ibs = newNodeI(nkIfStmt, body.info)
   let elifBranch = newNodeI(nkElifBranch, body.info)

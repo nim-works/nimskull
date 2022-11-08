@@ -1632,11 +1632,6 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
     indentNL(g)
     gsons(g, n, c, 1)
     dedent(g)
-
-  of nkBreakState:
-    put(g, tkTuple, "breakstate")
-    if renderIds in g.flags:
-      gsons(g, n, c, 0)
   of nkTypeClassTy:
     gTypeClassTy(g, n)
   of nkError:
