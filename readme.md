@@ -42,7 +42,7 @@ create software (including itself) that is sustainable, it aims to be:
 - *Scalable:* target a variety of hardware architectures, with zero or low cost
   abstractions to run in constrained environments.
 - *Adaptable:* producing native executables, running via the built-in VM, or
-  with in a JS/WASM runtime.
+  with in a JS runtime.
 - *Evolving:* developed and maintained by its community of users, with a self-
   hosted compiler, support for metaprogramming to safely attempt language
   extension outside of the core, and support code migration to avoid legacy.
