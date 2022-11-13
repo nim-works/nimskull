@@ -33,6 +33,7 @@ Command:
   c|cat|category <category>   run all the tests of a certain category
   r|run <test>                run single test file
   html                        generate $1 from the database
+  cache                       generate execution cache results
 Arguments:
   arguments are passed to the compiler
 Options:
@@ -101,17 +102,20 @@ type
   TestFilterKind {.pure.} = enum
     tfkAll = "all"        ## all tests
     tfkHtml = "html"      ## generate html, yes not really a 'filter'
+    tfkCache = "cache"    ## Create execution cache, not a filter
     tfkCategories = "cat" ## one or more categories
     tfkPCats = "pcat"     ## legacy support for parallel category
     tfkSingle = "r"       ## single test
 
   TestFilter = object
     case kind: TestFilterKind
-    of tfkAll, tfkHtml:
+    of tfkAll, tfkHtml, tfkCache:
       discard
+
     of tfkCategories, tfkPCats:
       # xxx: currently multiple categories are unsupported
       cats: Categories
+
     of tfkSingle:
       test: string
 
@@ -1210,6 +1214,11 @@ proc parseArgs(execState: var Execution, p: var OptParser): ParseCliResult =
   of "html":
     # generate html
     execState.filter = TestFilter(kind: tfkHtml)
+
+  of "cache":
+    # generate html
+    execState.filter = TestFilter(kind: tfkCache)
+
   else:
     return parseQuitWithUsage
 
@@ -1326,6 +1335,10 @@ proc main() =
       if backendLogging:
         backend.cacheResults()
       quit qval
+
+  of "cache":
+    # Create cached result directory from stored files
+    backend.cacheResults()
 
   of "c", "cat", "category": # Run all tests of a certain category
     skips = loadSkipFrom(skipFrom)

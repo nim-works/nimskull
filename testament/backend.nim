@@ -195,8 +195,10 @@ proc getRetries*(): (seq[string], seq[(string, string)]) =
     jdata = cacheFile.parseFile()
   except IOError:
     echo getCurrentExceptionMsg()
-    echo "Failed to open/parse the cached results. It is likely the file does",
-          " not exist yet. Try running testament without '--retry' first."
+    echo(
+      "Failed to open/parse the cached results from file '", cacheFile,
+      "'. It is likely the file does",
+      " not exist yet. Try running testament without '--retry' first.")
   except JsonParsingError:
     echo getCurrentExceptionMsg()
     echo "Failed to parse the cached results. It is likely the file was not ",
