@@ -15,7 +15,7 @@ import
   std/options as std_options
 
 import
-  compiler/utils/[ropes, pathutils, strutils2],
+  compiler/utils/[ropes, pathutils],
   compiler/ast/[reports, lineinfos],
   compiler/front/[options]
 
@@ -23,12 +23,6 @@ from compiler/ast/ast_types import PSym
 
 export InstantiationInfo
 export TErrorHandling
-
-template instLoc*(depth: int = -2): InstantiationInfo =
-  ## grabs where in the compiler an error was instanced to ease debugging.
-  ##
-  ## whether to use full paths depends on --excessiveStackTrace compiler option.
-  instantiationInfo(depth, fullPaths = compileOption"excessiveStackTrace")
 
 template toStdOrrKind(stdOrr): untyped =
   if stdOrr == stdout: stdOrrStdout else: stdOrrStderr
@@ -40,104 +34,6 @@ proc flushDot*(conf: ConfigRef) =
   if stdOrrKind in conf.lastMsgWasDot:
     conf.lastMsgWasDot.excl stdOrrKind
     write(stdOrr, "\n")
-
-proc toCChar*(c: char; result: var string) {.inline.} =
-  case c
-  of '\0'..'\x1F', '\x7F'..'\xFF':
-    result.add '\\'
-    result.add toOctal(c)
-  of '\'', '\"', '\\', '?':
-    result.add '\\'
-    result.add c
-  else:
-    result.add c
-
-proc makeCString*(s: string): Rope =
-  result = nil
-  var res = newStringOfCap(int(s.len.toFloat * 1.1) + 1)
-  res.add("\"")
-  for i in 0..<s.len:
-    # line wrapping of string litterals in cgen'd code was a bad idea, e.g. causes: bug #16265
-    # It also makes reading c sources or grepping harder, for zero benefit.
-    # const MaxLineLength = 64
-    # if (i + 1) mod MaxLineLength == 0:
-    #   res.add("\"\L\"")
-    toCChar(s[i], res)
-  res.add('\"')
-  result.add(rope(res))
-
-proc newFileInfo(fullPath: AbsoluteFile, projPath: RelativeFile): TFileInfo =
-  result.fullPath = fullPath
-  #shallow(result.fullPath)
-  result.projPath = projPath
-  #shallow(result.projPath)
-  result.shortName = fullPath.extractFilename
-  result.quotedName = result.shortName.makeCString
-  result.quotedFullName = fullPath.string.makeCString
-  result.lines = @[]
-
-proc canonicalCase(path: var string) =
-  ## the idea is to only use this for checking whether a path is already in
-  ## the table but otherwise keep the original case
-  when FileSystemCaseSensitive: discard
-  else: toLowerAscii(path)
-
-proc fileInfoKnown*(conf: ConfigRef; filename: AbsoluteFile): bool =
-  var
-    canon: AbsoluteFile
-  try:
-    canon = canonicalizePath(conf, filename)
-  except OSError:
-    canon = filename
-  canon.string.canonicalCase
-  result = conf.m.filenameToIndexTbl.hasKey(canon.string)
-
-proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile; isKnownFile: var bool): FileIndex =
-  var
-    canon: AbsoluteFile
-    pseudoPath = false
-
-  try:
-    canon = canonicalizePath(conf, filename)
-    shallow(canon.string)
-  except OSError:
-    canon = filename
-    # The compiler uses "filenames" such as `command line` or `stdin`
-    # This flag indicates that we are working with such a path here
-    pseudoPath = true
-
-  var canon2: string
-  forceCopy(canon2, canon.string) # because `canon` may be shallow
-  canon2.canonicalCase
-
-  if conf.m.filenameToIndexTbl.hasKey(canon2):
-    isKnownFile = true
-    result = conf.m.filenameToIndexTbl[canon2]
-  else:
-    isKnownFile = false
-    result = conf.m.fileInfos.len.FileIndex
-    #echo "ID ", result.int, " ", canon2
-    conf.m.fileInfos.add(newFileInfo(canon, if pseudoPath: RelativeFile filename
-                                            else: relativeTo(canon, conf.projectPath)))
-    conf.m.filenameToIndexTbl[canon2] = result
-
-proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile): FileIndex =
-  var dummy: bool
-  result = fileInfoIdx(conf, filename, dummy)
-
-proc newLineInfo*(fileInfoIdx: FileIndex, line, col: int): TLineInfo =
-  result.fileIndex = fileInfoIdx
-  if line < int high(uint16):
-    result.line = uint16(line)
-  else:
-    result.line = high(uint16)
-  if col < int high(int16):
-    result.col = int16(col)
-  else:
-    result.col = -1
-
-proc newLineInfo*(conf: ConfigRef; filename: AbsoluteFile, line, col: int): TLineInfo {.inline.} =
-  result = newLineInfo(fileInfoIdx(conf, filename), line, col)
 
 const gCmdLineInfo* = newLineInfo(commandLineIdx, 1, 1)
 
@@ -474,8 +370,8 @@ proc handleReport*(
   if rep.category in { repSem, repVM } and rep.location.isSome():
     rep.context = conf.getContext(rep.location.get())
 
-  let userAction = conf.report(rep)
   let
+    userAction = conf.report(rep)
     (action, trace) =
       case userAction
       of doDefault:
@@ -546,6 +442,68 @@ template localReport*(conf: ConfigRef, report: ReportTypes) =
 
 template localReport*(conf: ConfigRef, report: Report) =
   handleReport(conf, report, instLoc(), doNothing)
+
+# xxx: All the LexerReport stuff needs to go, it should just be the lexer
+#      defined/provided diagnostics/etc that we shouldn't muck with. The
+#      code below is a temporary bridge to work around this until fixed.
+
+from compiler/ast/lexer import LexerDiag, LexerDiagKind
+
+func lexDiagToLegacyReportKind*(diag: LexerDiagKind): ReportKind {.inline.} =
+  case diag
+  of lexDiagInternalError: rintIce
+  of lexDiagMalformedUnderscores: rlexMalformedUnderscores
+  of lexDiagMalformedTrailingUnderscre: rlexMalformedTrailingUnderscre
+  of lexDiagInvalidToken: rlexInvalidToken
+  of lexDiagNoTabs: rlexNoTabs
+  of lexDiagInvalidIntegerPrefix: rlexInvalidIntegerPrefix
+  of lexDiagInvalidIntegerSuffix: rlexInvalidIntegerSuffix
+  of lexDiagNumberNotInRange: rlexNumberNotInRange
+  of lexDiagExpectedHex: rlexExpectedHex
+  of lexDiagInvalidIntegerLiteral: rlexInvalidIntegerLiteral
+  of lexDiagInvalidCharLiteral: rlexInvalidCharLiteral
+  of lexDiagMissingClosingApostrophe: rlexMissingClosingApostrophe
+  of lexDiagInvalidUnicodeCodepoint: rlexInvalidUnicodeCodepoint
+  of lexDiagUnclosedTripleString: rlexUnclosedTripleString
+  of lexDiagUnclosedSingleString: rlexUnclosedSingleString
+  of lexDiagUnclosedComment: rlexUnclosedComment
+  of lexDiagDeprecatedOctalPrefix: rlexDeprecatedOctalPrefix
+  of lexDiagLineTooLong: rlexLineTooLong
+  of lexDiagNameXShouldBeY: rlexLinterReport
+
+func lexerDiagToLegacyReport*(diag: LexerDiag): Report {.inline.} =
+  let
+    kind = diag.kind.lexDiagToLegacyReportKind()
+    rep =
+      case kind
+      of rlexLinterReport:
+        LexerReport(
+            location: std_options.some diag.location,
+            reportInst: diag.instLoc.toReportLineInfo,
+            msg: diag.msg,
+            kind: kind,
+            wanted: diag.wanted,
+            got: diag.got)
+      else:
+        LexerReport(
+          location: std_options.some diag.location,
+          reportInst: diag.instLoc.toReportLineInfo,
+          msg: diag.msg,
+          kind: kind)
+
+  result = Report(category: repLexer, lexReport: rep)
+
+proc handleReport*(
+    conf: ConfigRef,
+    diag: LexerDiag,
+    reportFrom: InstantiationInfo,
+    eh: TErrorHandling = doNothing
+  ) {.inline.} =
+  # REFACTOR: this is a temporary bridge into existing reporting
+
+  let rep = diag.lexerDiagToLegacyReport()
+
+  handleReport(conf, rep, reportFrom, eh)
 
 proc semReportCountMismatch*(
     kind: ReportKind,

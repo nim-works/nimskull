@@ -447,6 +447,8 @@ proc nodeToHighlightedHtml(d: PDoc; n: PNode; result: var string;
     case kind
     of tkEof:
       break
+    of tkError:
+      d.conf.internalError(n.info, "encountered unhandled tkError")
     of tkComment:
       dispA(d.conf, result, "<span class=\"Comment\">$1</span>", "\\spanComment{$1}",
             [escLit])

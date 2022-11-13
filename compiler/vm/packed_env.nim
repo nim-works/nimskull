@@ -20,7 +20,8 @@ import
   ],
   compiler/ast/[
     ast_query,
-    ast_types
+    ast_types,
+    lineinfos
   ],
   compiler/ic/[
     bitabs,

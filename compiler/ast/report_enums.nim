@@ -179,6 +179,8 @@ type
     rlexUnclosedTripleString
     rlexUnclosedSingleString
 
+    # xxx: expected token and invalid direct are not really "lexer" errors, it
+    #      is `nimconf` module abusing error reporting facilities
     rlexExpectedToken
     rlexCfgInvalidDirective
 

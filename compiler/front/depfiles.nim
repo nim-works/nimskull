@@ -11,7 +11,7 @@ import
 import
   compiler/utils/[pathutils],
   compiler/modules/[modulegraphs],
-  compiler/ast/[ast_types],
+  compiler/ast/[lineinfos],
   compiler/front/[msgs, options]
 
 proc writeDepsFile*(g: ModuleGraph) =

@@ -9,7 +9,7 @@
 
 import
   std/[os, strutils, strtabs, sets, tables],
-  compiler/utils/[prefixmatches, pathutils, platform],
+  compiler/utils/[prefixmatches, pathutils, platform, strutils2, ropes],
   compiler/ast/[reports, lineinfos],
   compiler/modules/nimpaths
 
@@ -19,6 +19,10 @@ export in_options
 from terminal import isatty
 from times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
+
+from compiler/ast/ast_types import
+  PSym  # Contextual details of the instantiation stack optionally refer to
+        # the used symbol
 
 const
   hasTinyCBackend* = defined(tinyc)
@@ -48,6 +52,42 @@ const
 const
   cmdBackends* = {cmdCompileToC, cmdCompileToCpp, cmdCompileToOC, cmdCompileToJS, cmdCompileToVM, cmdCrun}
   cmdDocLike* = {cmdDoc, cmdDoc2tex, cmdJsondoc, cmdCtags, cmdBuildindex}
+
+type
+  MsgConfig* = object ## does not need to be stored in the incremental cache
+    trackPos*: TLineInfo
+    trackPosAttached*: bool ## whether the tracking position was attached to
+                            ## some close token.
+
+    errorOutputs*: TErrorOutputs ## Allowed output streams for messages.
+    # REFACTOR this field is mostly touched in sem for 'performance'
+    # reasons - don't write out error messages when compilation failed,
+    # don't generate list of call candidates when `compiles()` fails and so
+    # on. This should be replaced with `.inTryExpr` or something similar,
+    # and let the reporting hook deal with all the associated heuristics.
+
+    msgContext*: seq[tuple[info: TLineInfo, detail: PSym]] ## \ Contextual
+    ## information about instantiation stack - "template/generic
+    ## instantiation of" message is constructed from this field. Right now
+    ## `.detail` field is only used in the `sem.semMacroExpr()`,
+    ## `seminst.generateInstance()` and `semexprs.semTemplateExpr()`. In
+    ## all other cases this field is left empty (SemReport is `skUnknown`)
+    reports*: ReportList ## Intermediate storage for the
+    writtenSemReports*: ReportSet
+    lastError*: TLineInfo
+    filenameToIndexTbl*: Table[string, FileIndex]
+    fileInfos*: seq[TFileInfo] ## Information about all known source files
+    ## is stored in this field - full/relative paths, list of line etc.
+    ## (For full list see `TFileInfo`)
+    systemFileIdx*: FileIndex
+
+proc initMsgConfig*(): MsgConfig =
+  result.msgContext = @[]
+  result.lastError = unknownLineInfo
+  result.filenameToIndexTbl = initTable[string, FileIndex]()
+  result.fileInfos = @[]
+  result.errorOutputs = {eStdOut, eStdErr}
+  result.filenameToIndexTbl["???"] = FileIndex(-1)
 
 type
   NimVer* = tuple[major: int, minor: int, patch: int]
@@ -798,6 +838,119 @@ const defaultHackController = HackController(
   bypassWriteHookForTrace: true
 )
 
+proc computeNotesVerbosity(): tuple[
+    main: array[CompilerVerbosity, ReportKinds],
+    foreign: ReportKinds,
+    base: ReportKinds
+  ] =
+  ## Create configuration sets for the default compilation report verbosity
+
+  # Mandatory reports - cannot be turned off, present in all verbosity
+  # settings
+  result.base = (repErrorKinds + repInternalKinds)
+
+  # Somewhat awkward handing - stack trace report cannot be error (because
+  # actual error report must follow), so it is a hint-level report (can't
+  # be debug because it is a user-facing, can't be "trace" because it is
+  # not for compiler developers use only)
+  result.base.incl {rvmStackTrace}
+
+  when defined(debugOptions):
+    # debug report for transition of the configuration options
+    result.base.incl {rdbgOptionsPush, rdbgOptionsPop}
+
+  when defined(nimVMDebugExecute):
+    result.base.incl {
+      rdbgVmExecTraceFull # execution of the generated code listings
+    }
+
+  when defined(nimVMDebugGenerate):
+    result.base.incl {
+      rdbgVmCodeListing    # immediately generated code listings
+    }
+
+  when defined(nimDebugUtils):
+    # By default enable only semantic debug trace reports - other changes
+    # might be put in there *temporarily* to aid the debugging.
+    result.base.incl repDebugTraceKinds
+
+  result.main[compVerbosityMax] =
+    result.base + repWarningKinds + repHintKinds - {
+    rsemObservableStores,
+    rsemResultUsed,
+    rsemAnyEnumConvert,
+    rbackLinking,
+
+    rbackLinking,
+    rbackCompiling,
+    rcmdLinking,
+    rcmdCompiling,
+
+    rintErrKind
+  }
+
+  if defined(release):
+    result.main[compVerbosityMax].excl rintStackTrace
+
+  result.main[compVerbosityHigh] = result.main[compVerbosityMax] - {
+    rsemUninit,
+    rsemExtendedContext,
+    rsemProcessingStmt,
+    rsemWarnGcUnsafe,
+    rextConf,
+  }
+
+  result.main[compVerbosityDefault] = result.main[compVerbosityHigh] -
+    repPerformanceHints -
+    {
+      rsemProveField,
+      rsemErrGcUnsafe,
+      rsemHintLibDependency,
+      rsemGlobalVar,
+
+      rintGCStats,
+      rintMsgOrigin,
+
+      rextPath,
+
+      rlexSourceCodeFilterOutput,
+    }
+
+  result.main[compVerbosityMin] = result.main[compVerbosityDefault] - {
+    rintSuccessX,
+    rextConf,
+    rsemProcessing,
+    rsemPattern,
+    rcmdExecuting,
+    rbackLinking,
+  }
+
+  result.foreign = result.base + {
+    rsemProcessing,
+    rsemUserHint,
+    rsemUserWarning,
+    rsemUserHint,
+    rsemUserWarning,
+    rsemUserError,
+    rintQuitCalled,
+    rsemImplicitObjConv
+  }
+
+  for idx, n in @[
+    result.foreign,
+    # result.base,
+    result.main[compVerbosityMax],
+    result.main[compVerbosityHigh],
+    result.main[compVerbosityDefault],
+    result.main[compVerbosityMin],
+  ]:
+    assert rbackLinking notin n
+    assert rsemImplicitObjConv in n, $idx
+    assert rvmStackTrace in n, $idx
+
+const
+  NotesVerbosity* = computeNotesVerbosity()
+
 proc initConfigRefCommon(conf: ConfigRef) =
   conf.symbols = newStringTable(modeStyleInsensitive)
   conf.selectedGC = gcRefc
@@ -1034,6 +1187,93 @@ proc removeTrailingDirSep*(path: string): string =
     result = substr(path, 0, path.len - 2)
   else:
     result = path
+
+proc toCChar*(c: char; result: var string) {.inline.} =
+  case c
+  of '\0'..'\x1F', '\x7F'..'\xFF':
+    result.add '\\'
+    result.add toOctal(c)
+  of '\'', '\"', '\\', '?':
+    result.add '\\'
+    result.add c
+  else:
+    result.add c
+
+proc makeCString*(s: string): Rope =
+  result = nil
+  var res = newStringOfCap(int(s.len.toFloat * 1.1) + 1)
+  res.add("\"")
+  for i in 0..<s.len:
+    # line wrapping of string litterals in cgen'd code was a bad idea, e.g. causes: bug #16265
+    # It also makes reading c sources or grepping harder, for zero benefit.
+    # const MaxLineLength = 64
+    # if (i + 1) mod MaxLineLength == 0:
+    #   res.add("\"\L\"")
+    toCChar(s[i], res)
+  res.add('\"')
+  result.add(rope(res))
+
+proc newFileInfo(fullPath: AbsoluteFile, projPath: RelativeFile): TFileInfo =
+  result.fullPath = fullPath
+  #shallow(result.fullPath)
+  result.projPath = projPath
+  #shallow(result.projPath)
+  result.shortName = fullPath.extractFilename
+  result.quotedName = result.shortName.makeCString
+  result.quotedFullName = fullPath.string.makeCString
+  result.lines = @[]
+
+proc canonicalCase(path: var string) =
+  ## the idea is to only use this for checking whether a path is already in
+  ## the table but otherwise keep the original case
+  when FileSystemCaseSensitive: discard
+  else: toLowerAscii(path)
+
+proc fileInfoKnown*(conf: ConfigRef; filename: AbsoluteFile): bool =
+  var
+    canon: AbsoluteFile
+  try:
+    canon = canonicalizePath(conf, filename)
+  except OSError:
+    canon = filename
+  canon.string.canonicalCase
+  result = conf.m.filenameToIndexTbl.hasKey(canon.string)
+
+proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile; isKnownFile: var bool): FileIndex =
+  var
+    canon: AbsoluteFile
+    pseudoPath = false
+
+  try:
+    canon = canonicalizePath(conf, filename)
+    shallow(canon.string)
+  except OSError:
+    canon = filename
+    # The compiler uses "filenames" such as `command line` or `stdin`
+    # This flag indicates that we are working with such a path here
+    pseudoPath = true
+
+  var canon2: string
+  forceCopy(canon2, canon.string) # because `canon` may be shallow
+  canon2.canonicalCase
+
+  if conf.m.filenameToIndexTbl.hasKey(canon2):
+    isKnownFile = true
+    result = conf.m.filenameToIndexTbl[canon2]
+  else:
+    isKnownFile = false
+    result = conf.m.fileInfos.len.FileIndex
+    #echo "ID ", result.int, " ", canon2
+    conf.m.fileInfos.add(newFileInfo(canon, if pseudoPath: RelativeFile filename
+                                            else: relativeTo(canon, conf.projectPath)))
+    conf.m.filenameToIndexTbl[canon2] = result
+
+proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile): FileIndex =
+  var dummy: bool
+  result = fileInfoIdx(conf, filename, dummy)
+
+proc newLineInfo*(conf: ConfigRef; filename: AbsoluteFile, line, col: int): TLineInfo {.inline.} =
+  result = newLineInfo(fileInfoIdx(conf, filename), line, col)
 
 proc disableNimblePath*(conf: ConfigRef) =
   conf.incl optNoNimblePath

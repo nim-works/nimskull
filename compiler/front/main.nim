@@ -27,6 +27,7 @@ import
     options,
     condsyms,
     msgs,
+    cmdlinehelper,
     nimconf,     # Configuration file reading
     depfiles
   ],
@@ -377,7 +378,6 @@ proc mainCommand*(graph: ModuleGraph) =
     else:
       globalReport(conf, ExternalReport(
         kind: rextExpectedTinyCForRun))
-
   of cmdDoc:
     docLikeCmd():
       conf.setNoteDefaults(rsemLockLevelMismatch, false) # issue #13218

@@ -3,7 +3,8 @@
 import
   compiler/ast/[
     ast_types, # For the node kinds
-    lexer # For the token type definition
+    lexer,     # For the token type definition
+    lineinfos  # For TLineInfo
   ]
 
 # NOTE further refactoring considerations for the parser:

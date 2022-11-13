@@ -20,7 +20,6 @@ import
     trees
   ],
   compiler/front/[
-    msgs,
     options
   ],
   compiler/utils/[

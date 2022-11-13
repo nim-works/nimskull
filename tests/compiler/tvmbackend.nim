@@ -8,7 +8,7 @@ discard """
 
 import std/[os, tables]
 
-import compiler/ast/ast_types
+import compiler/ast/[ast_types, lineinfos]
 import compiler/ic/bitabs
 import compiler/utils/pathutils
 import compiler/vm/vmdef

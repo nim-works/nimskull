@@ -13,7 +13,9 @@ import
   std/[
     os
   ],
+  std/options as std_options,
   compiler/ast/[
+    ast_idgen,
     idents,
     reports
   ],
@@ -28,12 +30,12 @@ import
     condsyms
   ],
   compiler/utils/[
-    pathutils
+    pathutils,
+    idioms
   ],
   compiler/backend/[
     extccomp
   ]
-
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
   when defined(unix):
@@ -47,6 +49,97 @@ type
     suggestMode*: bool
     supportsStdinFile*: bool
     processCmdLine*: proc(pass: TCmdLinePass, cmd: string; config: ConfigRef)
+
+proc handleConfigEvent(
+    conf: ConfigRef,
+    evt: ConfigFileEvent,
+    reportFrom: InstantiationInfo,
+    eh: TErrorHandling = doNothing
+  ) =
+  # REFACTOR: this is a temporary bridge into existing reporting
+
+  let kind =
+    case evt.kind
+    of cekParseExpectedX, cekParseExpectedCloseX:
+      # xxx: rlexExpectedToken is not a "lexer" error, but a misguided
+      #      attempt at code reuse -- fix after reporting is untangled.
+      rlexExpectedToken
+    of cekParseExpectedIdent:
+      rparIdentExpected
+    of cekInvalidDirective:
+      rlexCfgInvalidDirective
+    of cekWriteConfig:
+      rintNimconfWrite
+    of cekDebugTrace:
+      rdbgCfgTrace
+    of cekInternalError:
+      rintIce
+    of cekLexerErrorDiag, cekLexerWarningDiag, cekLexerHintDiag:
+      evt.lexerDiag.kind.lexDiagToLegacyReportKind
+    of cekDebugReadStart:
+      rdbgStartingConfRead
+    of cekDebugReadStop:
+      rdbgFinishedConfRead
+    of cekProgressConfStart:
+      rextConf
+
+  let rep =
+    case evt.kind
+    of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag,
+        cekLexerHintDiag:
+      evt.lexerDiag.lexerDiagToLegacyReport
+    else:
+      case kind
+      of rlexCfgInvalidDirective:
+        Report(
+          category: repLexer,
+          lexReport: LexerReport(
+            location: std_options.some evt.location,
+            reportInst: evt.instLoc.toReportLineInfo,
+            msg: evt.msg,
+            kind: kind))
+      of rparIdentExpected:
+        Report(
+          category: repParser,
+          parserReport: ParserReport(
+            location: std_options.some evt.location,
+            reportInst: evt.instLoc.toReportLineInfo,
+            msg: evt.msg,
+            kind: kind))
+      of rintNimconfWrite:
+        Report(
+          category: repInternal,
+          internalReport: InternalReport(
+            location: std_options.some evt.location,
+            reportInst: evt.instLoc.toReportLineInfo,
+            msg: evt.msg,
+            kind: kind))
+      of rdbgCfgTrace:
+        Report(
+          category: repDebug,
+          debugReport: DebugReport(
+            location: std_options.some evt.location,
+            reportInst: evt.instLoc.toReportLineInfo,
+            kind: kind,
+            str: evt.msg))
+      of rdbgStartingConfRead, rdbgFinishedConfRead:
+        Report(
+          category: repDebug,
+          debugReport: DebugReport(
+            reportInst: evt.instLoc.toReportLineInfo,
+            kind: kind,
+            filename: evt.msg))
+      of rextConf:
+        Report(
+          category: repExternal,
+          externalReport: ExternalReport(
+            reportInst: evt.instLoc.toReportLineInfo,
+            kind: kind,
+            msg: evt.msg))
+      else:
+        unreachable("handleConfigEvent unexpected kind: " & $kind)
+  
+  handleReport(conf, rep, reportFrom, eh)
 
 proc initDefinesProg*(self: NimProg, conf: ConfigRef, name: string) =
   condsyms.initDefines(conf.symbols)
@@ -63,6 +156,12 @@ proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef, cmd: string =
   else:
     conf.projectPath = AbsoluteDir canonicalizePath(conf, AbsoluteFile getCurrentDir())
 
+proc loadConfigs*(
+  cfg: RelativeFile, cache: IdentCache,
+  conf: ConfigRef, idgen: IdGenerator) {.inline.} =
+  ## wrapper around `nimconf.loadConfigs` to connect to legacy reporting
+  loadConfigs(cfg, cache, conf, idgen, handleConfigEvent)
+
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph): bool =
   ## Load all the necessary configuration files and command-line options.
@@ -72,7 +171,8 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
   if conf.cmd == cmdNimscript:
     incl(conf, optWasNimscript)
 
-  loadConfigs(DefaultConfig, cache, conf, graph.idgen) # load all config files
+  # load all config files
+  loadConfigs(DefaultConfig, cache, conf, graph.idgen)
 
   if not self.suggestMode:
     let scriptFile = conf.projectFull.changeFileExt("nims")
