@@ -128,18 +128,26 @@ proc open*() =
   thisMachine = getMachine()
   thisCommit = getCommit()
 
+const testResults = "testresults"
+
 proc close*() =
   if currentCategory.len > 0:
-    var resFile = open("testresults" / currentCategory.addFileExt"json", fmWrite)
+    # To handle `testament cat stdlib/os` testing. There is no reason to
+    # ban this because (surprise!) test directory can actually have more
+    # than one level of nesting.
+    createDir(joinPath(testResults, parentDir(currentCategory)))
+
+    var resFile = open(testResults / currentCategory.addFileExt"json", fmWrite)
     resFile.write pretty(results)
     close resFile
 
 proc cacheResults*() =
   ## Traverses the testresults directory and extracts any failed json entries
   ## and inserts them into a new file within the cacheresults directory.
-  createDir("testresults/cacheresults")
+  createDir(joinPath(testResults, "cacheresults"))
   # We will ignore any entries that have this as their result
-  const passResults = ["reJoined", "reSuccess", "reDisabled", "reKnownIssue", ""] # "" is defaulted to if result field not found
+  const passResults = [
+    "reJoined", "reSuccess", "reDisabled", "reKnownIssue", ""] # "" is defaulted to if result field not found
   let searchPattern = "testresults" / "*.json"
   # Prepare json array which will be written to our new cache file
   var fresults = newJArray()

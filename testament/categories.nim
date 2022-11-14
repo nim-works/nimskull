@@ -494,7 +494,7 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
 proc processCategory(r: var TResults, cat: Category,
                      options, testsDir: string,
                      runJoinableTests: bool) =
-  let cat2 = cat.string.normalize
+  let cat2 = cat.string.split("/")[0].normalize
   case cat2
   of "js":
     # only run the JS tests on Windows or Linux because some CI and other OSes
