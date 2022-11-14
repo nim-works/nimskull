@@ -22,6 +22,6 @@ The standard distribution ships with the following tools:
 - | `nimgrep <nimgrep.html>`_
   | Nim search and replace utility.
 
-- | nimpretty
-  | `nimpretty`:cmd: is a |NimSkull| source code beautifier,
-    to format code according to the official style guide.
+- | `testament <testament.html>`_
+  | Compiler test execution tools
+
