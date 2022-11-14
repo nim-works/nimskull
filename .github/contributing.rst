@@ -84,6 +84,27 @@ forward:
 .. note:: Progress of the test suite improvements is tracked in the github
           `project <https://github.com/nim-works/nimskull/projects/2>`_.
 
+Running test suite locally
+--------------------------
+
+You can use `./koch.py` tool to execute tests:
+
+- `./koch.py test all`: run all available tests from scratch.
+
+- `./koch.py test cat <directory>`: run all tests in the tests
+  subdirectory. Tests are sorted into different directories based on their
+  categories so command itself is documented as "execute test category".
+
+After running specific test category you can generate *retry cache* to
+avoid re-running tests that are already ok. In order to generate the cache
+run `./koch.py test cache` after which you can use `./koch.py test --retry`
+to only execute failing tests.
+
+.. note:: Cache re-generation happens automatically when "all" tests are
+          executed.
+
+
+
 Cleaning up existing tests
 --------------------------
 
