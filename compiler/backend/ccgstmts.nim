@@ -252,7 +252,7 @@ proc genBracedInit(p: BProc, n: PNode; isConst: bool; optionalType: PType): Rope
 proc potentialValueInit(p: BProc; v: PSym; value: PNode): Rope =
   if lfDynamicLib in v.loc.flags or sfThread in v.flags:
     result = nil
-  elif sfGlobal in v.flags and value != nil and isDeepConstExpr(value, p.module.compileToCpp) and
+  elif sfGlobal in v.flags and value != nil and isDeepConstExpr(value) and
       p.withinLoop == 0 and not containsGarbageCollectedRef(v.typ):
     #echo "New code produced for ", v.name.s, " ", p.config $ value.info
     result = genBracedInit(p, value, isConst = false, v.typ)
@@ -301,31 +301,6 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
       registerTraverseProc(p, v, traverseProc)
   else:
     let imm = isAssignedImmediately(p.config, value)
-    if imm and p.module.compileToCpp and p.splitDecls == 0 and
-        not containsHiddenPointer(v.typ):
-      # C++ really doesn't like things like 'Foo f; f = x' as that invokes a
-      # parameterless constructor followed by an assignment operator. So we
-      # generate better code here: 'Foo f = x;'
-      genLineDir(p, vn)
-      let decl = localVarDecl(p, vn)
-      var tmp: TLoc
-      if value.kind in nkCallKinds and value[0].kind == nkSym and
-           sfConstructor in value[0].sym.flags:
-        var params: Rope
-        let typ = skipTypes(value[0].typ, abstractInst)
-        assert(typ.kind == tyProc)
-        for i in 1..<value.len:
-          if params != nil: params.add(~", ")
-          assert(typ.len == typ.n.len)
-          params.add(genOtherArg(p, value, i, typ))
-        if params == nil:
-          lineF(p, cpsStmts, "$#;$n", [decl])
-        else:
-          lineF(p, cpsStmts, "$#($#);$n", [decl, params])
-      else:
-        initLocExprSingleUse(p, value, tmp)
-        lineF(p, cpsStmts, "$# = $#;$n", [decl, tmp.rdLoc])
-      return
     assignLocalVar(p, vn)
     initLocalVar(p, v, imm)
 
@@ -398,13 +373,7 @@ proc genIf(p: BProc, n: PNode, d: var TLoc) =
       inc(p.labels)
       lineF(p, cpsStmts, "if (!$1) goto $2;$n",
             [rdLoc(a), lelse])
-      if p.module.compileToCpp:
-        # avoid "jump to label crosses initialization" error:
-        p.s(cpsStmts).add "{"
-        expr(p, it[1], d)
-        p.s(cpsStmts).add "}"
-      else:
-        expr(p, it[1], d)
+      expr(p, it[1], d)
       endBlock(p)
       if n.len > 1:
         lineF(p, cpsStmts, "goto $1;$n", [lend])
@@ -661,10 +630,6 @@ proc genRaiseStmt(p: BProc, t: PNode) =
     var e = rdLoc(a)
     discard getTypeDesc(p.module, t[0].typ)
     var typ = skipTypes(t[0].typ, abstractPtrs)
-    # XXX For reasons that currently escape me, this is only required by the new
-    # C++ based exception handling:
-    if p.config.exc == excCpp:
-      blockLeaveActions(p, howManyTrys = 0, howManyExcepts = p.inExceptBlockLen)
     genLineDir(p, t)
     if isImportedException(typ, p.config):
       lineF(p, cpsStmts, "throw $1;$n", [e])
@@ -678,10 +643,7 @@ proc genRaiseStmt(p: BProc, t: PNode) =
     finallyActions(p)
     genLineDir(p, t)
     # reraise the last exception:
-    if p.config.exc == excCpp:
-      line(p, cpsStmts, ~"throw;$n")
-    else:
-      linefmt(p, cpsStmts, "#reraiseException();$n", [])
+    linefmt(p, cpsStmts, "#reraiseException();$n", [])
   let gotoInstr = raiseInstr(p)
   if gotoInstr != nil:
     line(p, cpsStmts, gotoInstr)
@@ -879,245 +841,6 @@ proc genRestoreFrameAfterException(p: BProc) =
       p.procSec(cpsInit).add(ropecg(p.module, "\t_nimCurFrame = #getFrame();$n", []))
     linefmt(p, cpsStmts, "#setFrame(_nimCurFrame);$n", [])
 
-proc genTryCpp(p: BProc, t: PNode, d: var TLoc) =
-  #[ code to generate:
-
-    std::exception_ptr error = nullptr;
-    try {
-      body;
-    } catch (Exception e) {
-      error = std::current_exception();
-      if (ofExpr(e, TypeHere)) {
-
-        error = nullptr; // handled
-      } else if (...) {
-
-      } else {
-        throw;
-      }
-    } catch(...) {
-      // C++ exception occured, not under Nim's control.
-    }
-    {
-      /* finally: */
-      printf('fin!\n');
-      if (error) std::rethrow_exception(error); // re-raise the exception
-    }
-  ]#
-  p.module.includeHeader("<exception>")
-
-  if not isEmptyType(t.typ) and d.k == locNone:
-    getTemp(p, t.typ, d)
-  genLineDir(p, t)
-
-  inc(p.labels, 2)
-  let etmp = p.labels
-
-  p.procSec(cpsInit).add(ropecg(p.module, "\tstd::exception_ptr T$1_ = nullptr;", [etmp]))
-
-  let fin = if t[^1].kind == nkFinally: t[^1] else: nil
-  p.nestedTryStmts.add((fin, false, 0.Natural))
-
-  if t.kind == nkHiddenTryStmt:
-    lineCg(p, cpsStmts, "try {$n", [])
-    expr(p, t[0], d)
-    lineCg(p, cpsStmts, "}$n", [])
-  else:
-    startBlock(p, "try {$n")
-    expr(p, t[0], d)
-    endBlock(p)
-
-  # First pass: handle Nim based exceptions:
-  lineCg(p, cpsStmts, "catch (#Exception* T$1_) {$n", [etmp+1])
-  genRestoreFrameAfterException(p)
-  # an unhandled exception happened!
-  lineCg(p, cpsStmts, "T$1_ = std::current_exception();$n", [etmp])
-  p.nestedTryStmts[^1].inExcept = true
-  var hasImportedCppExceptions = false
-  var i = 1
-  var hasIf = false
-  var hasElse = false
-  while (i < t.len) and (t[i].kind == nkExceptBranch):
-    # bug #4230: avoid false sharing between branches:
-    if d.k == locTemp and isEmptyType(t.typ): d.k = locNone
-    if t[i].len == 1:
-      hasImportedCppExceptions = true
-      # general except section:
-      hasElse = true
-      if hasIf: lineF(p, cpsStmts, "else ", [])
-      startBlock(p)
-      # we handled the error:
-      linefmt(p, cpsStmts, "T$1_ = nullptr;$n", [etmp])
-      expr(p, t[i][0], d)
-      linefmt(p, cpsStmts, "#popCurrentException();$n", [])
-      endBlock(p)
-    else:
-      var orExpr = Rope(nil)
-      var exvar = PNode(nil)
-      for j in 0..<t[i].len - 1:
-        var typeNode = t[i][j]
-        if t[i][j].isInfixAs():
-          typeNode = t[i][j][1]
-          exvar = t[i][j][2] # ex1 in `except ExceptType as ex1:`
-        assert(typeNode.kind == nkType)
-        if isImportedException(typeNode.typ, p.config):
-          hasImportedCppExceptions = true
-        else:
-          if orExpr != nil: orExpr.add("||")
-          let checkFor = if optTinyRtti in p.config.globalOptions:
-            genTypeInfo2Name(p.module, typeNode.typ)
-          else:
-            genTypeInfoV1(p.module, typeNode.typ, typeNode.info)
-          let memberName = if p.module.compileToCpp: "m_type" else: "Sup.m_type"
-          appcg(p.module, orExpr, "#isObj(#nimBorrowCurrentException()->$1, $2)", [memberName, checkFor])
-
-      if orExpr != nil:
-        if hasIf:
-          startBlock(p, "else if ($1) {$n", [orExpr])
-        else:
-          startBlock(p, "if ($1) {$n", [orExpr])
-          hasIf = true
-        if exvar != nil:
-          fillLoc(exvar.sym.loc, locTemp, exvar, mangleLocalName(p, exvar.sym), OnStack)
-          linefmt(p, cpsStmts, "$1 $2 = T$3_;$n", [getTypeDesc(p.module, exvar.sym.typ),
-            rdLoc(exvar.sym.loc), rope(etmp+1)])
-        # we handled the error:
-        linefmt(p, cpsStmts, "T$1_ = nullptr;$n", [etmp])
-        expr(p, t[i][^1], d)
-        linefmt(p, cpsStmts, "#popCurrentException();$n", [])
-        endBlock(p)
-    inc(i)
-  if hasIf and not hasElse:
-    linefmt(p, cpsStmts, "else throw;$n", [etmp])
-  linefmt(p, cpsStmts, "}$n", [])
-
-  # Second pass: handle C++ based exceptions:
-  template genExceptBranchBody(body: PNode) {.dirty.} =
-    genRestoreFrameAfterException(p)
-    #linefmt(p, cpsStmts, "T$1_ = std::current_exception();$n", [etmp])
-    expr(p, body, d)
-
-  var catchAllPresent = false
-  incl p.flags, noSafePoints # mark as not needing 'popCurrentException'
-  if hasImportedCppExceptions:
-    for i in 1..<t.len:
-      if t[i].kind != nkExceptBranch: break
-
-      # bug #4230: avoid false sharing between branches:
-      if d.k == locTemp and isEmptyType(t.typ): d.k = locNone
-
-      if t[i].len == 1:
-        # general except section:
-        startBlock(p, "catch (...) {", [])
-        genExceptBranchBody(t[i][0])
-        endBlock(p)
-        catchAllPresent = true
-      else:
-        for j in 0..<t[i].len-1:
-          var typeNode = t[i][j]
-          if t[i][j].isInfixAs():
-            typeNode = t[i][j][1]
-            if isImportedException(typeNode.typ, p.config):
-              let exvar = t[i][j][2] # ex1 in `except ExceptType as ex1:`
-              fillLoc(exvar.sym.loc, locTemp, exvar, mangleLocalName(p, exvar.sym), OnStack)
-              startBlock(p, "catch ($1& $2) {$n", getTypeDesc(p.module, typeNode.typ), rdLoc(exvar.sym.loc))
-              genExceptBranchBody(t[i][^1])  # exception handler body will duplicated for every type
-              endBlock(p)
-          elif isImportedException(typeNode.typ, p.config):
-            startBlock(p, "catch ($1&) {$n", getTypeDesc(p.module, t[i][j].typ))
-            genExceptBranchBody(t[i][^1])  # exception handler body will duplicated for every type
-            endBlock(p)
-
-  excl p.flags, noSafePoints
-  discard pop(p.nestedTryStmts)
-  # general finally block:
-  if t.len > 0 and t[^1].kind == nkFinally:
-    if not catchAllPresent:
-      startBlock(p, "catch (...) {", [])
-      genRestoreFrameAfterException(p)
-      linefmt(p, cpsStmts, "T$1_ = std::current_exception();$n", [etmp])
-      endBlock(p)
-
-    startBlock(p)
-    genStmts(p, t[^1][0])
-    linefmt(p, cpsStmts, "if (T$1_) std::rethrow_exception(T$1_);$n", [etmp])
-    endBlock(p)
-
-proc genTryCppOld(p: BProc, t: PNode, d: var TLoc) =
-  # There are two versions we generate, depending on whether we
-  # catch C++ exceptions, imported via .importcpp or not. The
-  # code can be easier if there are no imported C++ exceptions
-  # to deal with.
-
-  # code to generate:
-  #
-  #   try
-  #   {
-  #      myDiv(4, 9);
-  #   } catch (NimExceptionType1&) {
-  #      body
-  #   } catch (NimExceptionType2&) {
-  #      finallyPart()
-  #      raise;
-  #   }
-  #   catch(...) {
-  #     general_handler_body
-  #   }
-  #   finallyPart();
-
-  template genExceptBranchBody(body: PNode) {.dirty.} =
-    genRestoreFrameAfterException(p)
-    expr(p, body, d)
-
-  if not isEmptyType(t.typ) and d.k == locNone:
-    getTemp(p, t.typ, d)
-  genLineDir(p, t)
-  discard cgsym(p.module, "popCurrentExceptionEx")
-  let fin = if t[^1].kind == nkFinally: t[^1] else: nil
-  p.nestedTryStmts.add((fin, false, 0.Natural))
-  startBlock(p, "try {$n")
-  expr(p, t[0], d)
-  endBlock(p)
-
-  var catchAllPresent = false
-
-  p.nestedTryStmts[^1].inExcept = true
-  for i in 1..<t.len:
-    if t[i].kind != nkExceptBranch: break
-
-    # bug #4230: avoid false sharing between branches:
-    if d.k == locTemp and isEmptyType(t.typ): d.k = locNone
-
-    if t[i].len == 1:
-      # general except section:
-      catchAllPresent = true
-      startBlock(p, "catch (...) {$n")
-      genExceptBranchBody(t[i][0])
-      endBlock(p)
-    else:
-      for j in 0..<t[i].len-1:
-        if t[i][j].isInfixAs():
-          let exvar = t[i][j][2] # ex1 in `except ExceptType as ex1:`
-          fillLoc(exvar.sym.loc, locTemp, exvar, mangleLocalName(p, exvar.sym), OnUnknown)
-          startBlock(p, "catch ($1& $2) {$n", getTypeDesc(p.module, t[i][j][1].typ), rdLoc(exvar.sym.loc))
-        else:
-          startBlock(p, "catch ($1&) {$n", getTypeDesc(p.module, t[i][j].typ))
-        genExceptBranchBody(t[i][^1])  # exception handler body will duplicated for every type
-        endBlock(p)
-
-  discard pop(p.nestedTryStmts)
-
-  if t[^1].kind == nkFinally:
-    # c++ does not have finally, therefore code needs to be generated twice
-    if not catchAllPresent:
-      # finally requires catch all presence
-      startBlock(p, "catch (...) {$n")
-      genStmts(p, t[^1][0])
-      line(p, cpsStmts, ~"throw;$n")
-      endBlock(p)
-
-    genSimpleBlock(p, t[^1][0])
-
 proc bodyCanRaise(p: BProc; n: PNode): bool =
   case n.kind
   of nkCallKinds:
@@ -1183,7 +906,7 @@ proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
           genTypeInfo2Name(p.module, t[i][j].typ)
         else:
           genTypeInfoV1(p.module, t[i][j].typ, t[i][j].info)
-        let memberName = if p.module.compileToCpp: "m_type" else: "Sup.m_type"
+        let memberName = "Sup.m_type"
         appcg(p.module, orExpr, "#isObj(#nimBorrowCurrentException()->$1, $2)", [memberName, checkFor])
 
       if i > 1: line(p, cpsStmts, "else ")
@@ -1322,7 +1045,7 @@ proc genTrySetjmp(p: BProc, t: PNode, d: var TLoc) =
           genTypeInfo2Name(p.module, t[i][j].typ)
         else:
           genTypeInfoV1(p.module, t[i][j].typ, t[i][j].info)
-        let memberName = if p.module.compileToCpp: "m_type" else: "Sup.m_type"
+        let memberName = "Sup.m_type"
         appcg(p.module, orExpr, "#isObj(#nimBorrowCurrentException()->$1, $2)", [memberName, checkFor])
 
       if i > 1: line(p, cpsStmts, "else ")

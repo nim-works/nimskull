@@ -40,15 +40,6 @@ when defined(windows):
     stdout.write(prompt)
     result = readLine(stdin, line)
 
-elif defined(genode):
-  proc readLineFromStdin*(prompt: string): string {.
-                          tags: [ReadIOEffect, WriteIOEffect].} =
-    stdin.readLine()
-
-  proc readLineFromStdin*(prompt: string, line: var string): bool {.
-                          tags: [ReadIOEffect, WriteIOEffect].} =
-    stdin.readLine(line)
-
 else:
   import std/linenoise
 

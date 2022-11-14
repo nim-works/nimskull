@@ -609,16 +609,10 @@ proc writeLine*[Ty](f: File, x: varargs[Ty, `$`]) {.inline,
 # interface to the C procs:
 
 when defined(windows) and not defined(useWinAnsi):
-  when defined(cpp):
-    proc wfopen(filename, mode: WideCString): pointer {.
-      importcpp: "_wfopen((const wchar_t*)#, (const wchar_t*)#)", nodecl.}
-    proc wfreopen(filename, mode: WideCString, stream: File): File {.
-      importcpp: "_wfreopen((const wchar_t*)#, (const wchar_t*)#, #)", nodecl.}
-  else:
-    proc wfopen(filename, mode: WideCString): pointer {.
-      importc: "_wfopen", nodecl.}
-    proc wfreopen(filename, mode: WideCString, stream: File): File {.
-      importc: "_wfreopen", nodecl.}
+  proc wfopen(filename, mode: WideCString): pointer {.
+    importc: "_wfopen", nodecl.}
+  proc wfreopen(filename, mode: WideCString, stream: File): File {.
+    importc: "_wfreopen", nodecl.}
 
   proc fopen(filename, mode: cstring): pointer =
     var f = newWideCString(filename)

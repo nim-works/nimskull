@@ -1,12 +1,13 @@
+.. include:: rstcommon.rst
+
 ================================
-   Nim Backend Integration
+  |NimSkull| Backend Integration
 ================================
 
 :Author: Puppet Master
 :Version: |nimversion|
 
 .. default-role:: code
-.. include:: rstcommon.rst
 .. no syntax highlighting here by default:
 
 .. contents::
@@ -21,50 +22,39 @@ compiler invocation, using the `compile`:option:
 or `c`:option: command to transform a
 ``.nim`` file into one or more ``.c`` files which are then compiled with the
 platform's C compiler into a static binary. However, there are other commands
-to compile to C++, Objective-C, or JavaScript. This document tries to
+to compile to JavaScript or the VM. This document tries to
 concentrate in a single place all the backend and interfacing options.
 
-The Nim compiler supports mainly two backend families: the C, C++ and
-Objective-C targets and the JavaScript target. `The C like targets
-<#backends-the-c-like-targets>`_ creates source files that can be compiled
-into a library or a final executable. `The JavaScript target
-<#backends-the-javascript-target>`_ can generate a ``.js`` file which you
-reference from an HTML file or create a `standalone Node.js program
+The Nim compiler supports three backends: C, JavaScript, and VM target.
+`The C target <#the-c-target>`_ generates C source files that are compiled
+into an executable. `The JavaScript target
+<#the-javascript-target>`_ generates a ``.js`` file which you can reference
+from an HTML file or create a `standalone Node.js program
 <http://nodejs.org>`_.
 
-On top of generating libraries or standalone applications, Nim offers
-bidirectional interfacing with the backend targets through generic and
-specific pragmas.
-
+TODO: document the VM target
 
 Backends
 ========
 
-The C like targets
-------------------
+The C target
+------------
 
-The commands to compile to either C, C++ or Objective-C are:
+The command to compile to C:
 
 //compileToC, cc          compile project with C code generator
-//compileToCpp, cpp       compile project to C++ code
-//compileToOC, objc       compile project to Objective C code
 
-The most significant difference between these commands is that if you look
-into the ``nimcache`` directory you will find ``.c``, ``.cpp`` or ``.m``
-files, other than that all of them will produce a native binary for your
-project. This allows you to take the generated code and place it directly
-into a project using any of these languages. Here are some typical command-
-line invocations:
+Produces a native binary for your project. This allows you to take the
+generated code and place it directly into a project using any of these
+languages. Here are some typical command-line invocations:
 
 .. code:: cmd
 
    nim c hallo.nim
-   nim cpp hallo.nim
-   nim objc hallo.nim
 
 The compiler commands select the target backend, but if needed you can
 `specify additional switches for cross-compilation
-<nimc.html#crossminuscompilation>`_ to select the target CPU, operative system
+<nimc.html#crossminuscompilation>`_ to select the target CPU, operating system,
 or compiler/linker commands.
 
 
@@ -123,11 +113,10 @@ Nim code can interface with the backend through the `Foreign function
 interface <manual.html#foreign-function-interface>`_ mainly through the
 `importc pragma <manual.html#foreign-function-interface-importc-pragma>`_.
 The `importc` pragma is the *generic* way of making backend symbols available
-in Nim and is available in all the target backends (JavaScript too). The C++
-or Objective-C backends have their respective `ImportCpp
-<manual.html#implementation-specific-pragmas-importcpp-pragma>`_ and
-`ImportObjC <manual.html#implementation-specific-pragmas-importobjc-pragma>`_
-pragmas to call methods from classes.
+in Nim and is available in all the target backends (JavaScript too). The JS
+backend also has `importjs
+<manual.html#implementation-specific-pragmas-importjs-pragma>`_ to call methods
+from classes.
 
 Whenever you use any of these pragmas you need to integrate native code into
 your final binary. In the case of JavaScript this is no problem at all, the

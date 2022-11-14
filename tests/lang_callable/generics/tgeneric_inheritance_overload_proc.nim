@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "c"
   description: '''
   . From https://github.com/nim-lang/Nim/issues/5570
     inheriting from specialized generic object and calling generic proc
@@ -8,7 +8,6 @@ discard """
     Wrong type substituted for generic parameter
 '''
 """
-
 
 
 import typetraits, module_with_generics

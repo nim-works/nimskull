@@ -3,6 +3,10 @@ action: compile
 targets: "c"
 """
 
+# The following comment was left in regards to the C++ backend showing that
+# covariance is not type safe, merits some more investigation later, leaving
+# for easy reference. Old comment follows:
+#
 # Covariance is not type safe:
 # Note: `nim cpp` makes it a compile error (after codegen), even with:
 # `var f = cast[proc (x: var TA) {.nimcall.}](cast[pointer](bp))`, which

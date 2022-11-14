@@ -111,14 +111,14 @@ Naming Conventions
     type
       FooBar = object
 
-  For constants coming from a C/C++ wrapper, `ALL_UPPERCASE` are allowed,
+  For constants coming from a C wrapper, `ALL_UPPERCASE` are allowed,
   but ugly. (Why shout `CONSTANT`? Constants do no harm, variables do!)
 
 - When naming types that come in value, pointer, and reference varieties, use a
   regular name for the variety that is to be used the most, and add a "Obj",
   "Ref", or "Ptr" suffix for the other varieties. If there is no single variety
   that will be used the most, add the suffixes to the pointer variants only. The
-  same applies to C/C++ wrappers.
+  same applies to C wrappers.
 
   .. code-block:: nim
     type

@@ -1,5 +1,5 @@
 discard """
-targets: "c cpp js"
+targets: "c js"
 output: '''
 ok4
 ok3

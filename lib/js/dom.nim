@@ -1376,18 +1376,18 @@ since (1, 3):
     fileReaderLoading* = 1.FileReaderState
     fileReaderDone* = 2.FileReaderState
 
-proc id*(n: Node): cstring {.importcpp: "#.id", nodecl.}
-proc `id=`*(n: Node; x: cstring) {.importcpp: "#.id = #", nodecl.}
-proc class*(n: Node): cstring {.importcpp: "#.className", nodecl.}
-proc `class=`*(n: Node; v: cstring) {.importcpp: "#.className = #", nodecl.}
+proc id*(n: Node): cstring {.importjs: "#.id", nodecl.}
+proc `id=`*(n: Node; x: cstring) {.importjs: "#.id = #", nodecl.}
+proc class*(n: Node): cstring {.importjs: "#.className", nodecl.}
+proc `class=`*(n: Node; v: cstring) {.importjs: "#.className = #", nodecl.}
 
-proc value*(n: Node): cstring {.importcpp: "#.value", nodecl.}
-proc `value=`*(n: Node; v: cstring) {.importcpp: "#.value = #", nodecl.}
+proc value*(n: Node): cstring {.importjs: "#.value", nodecl.}
+proc `value=`*(n: Node; v: cstring) {.importjs: "#.value = #", nodecl.}
 
-proc checked*(n: Node): bool {.importcpp: "#.checked", nodecl.}
-proc `checked=`*(n: Node; v: bool) {.importcpp: "#.checked = #", nodecl.}
+proc checked*(n: Node): bool {.importjs: "#.checked", nodecl.}
+proc `checked=`*(n: Node; v: bool) {.importjs: "#.checked = #", nodecl.}
 
-proc `disabled=`*(n: Node; v: bool) {.importcpp: "#.disabled = #", nodecl.}
+proc `disabled=`*(n: Node; v: bool) {.importjs: "#.disabled = #", nodecl.}
 
 when defined(nodejs):
   # we provide a dummy DOM for nodejs for testing purposes
@@ -1465,26 +1465,26 @@ when defined(nodejs):
     result.nodeType = NodeType.CommentNode
 
 else:
-  proc len*(x: Node): int {.importcpp: "#.childNodes.length".}
-  proc `[]`*(x: Node; idx: int): Element {.importcpp: "#.childNodes[#]".}
+  proc len*(x: Node): int {.importjs: "#.childNodes.length".}
+  proc `[]`*(x: Node; idx: int): Element {.importjs: "#.childNodes[#]".}
   proc getElementById*(id: cstring): Element {.importc: "document.getElementById", nodecl.}
-  proc appendChild*(n, child: Node) {.importcpp.}
-  proc removeChild*(n, child: Node) {.importcpp.}
-  proc remove*(child: Node) {.importcpp.}
-  proc replaceChild*(n, newNode, oldNode: Node) {.importcpp.}
-  proc insertBefore*(n, newNode, before: Node) {.importcpp.}
-  proc getElementById*(d: Document, id: cstring): Element {.importcpp.}
-  proc createElement*(d: Document, identifier: cstring): Element {.importcpp.}
-  proc createElementNS*(d: Document, namespaceURI, qualifiedIdentifier: cstring): Element {.importcpp.}
-  proc createTextNode*(d: Document, identifier: cstring): Node {.importcpp.}
-  proc createComment*(d: Document, data: cstring): Node {.importcpp.}
+  proc appendChild*(n, child: Node) {.importjs.}
+  proc removeChild*(n, child: Node) {.importjs.}
+  proc remove*(child: Node) {.importjs.}
+  proc replaceChild*(n, newNode, oldNode: Node) {.importjs.}
+  proc insertBefore*(n, newNode, before: Node) {.importjs.}
+  proc getElementById*(d: Document, id: cstring): Element {.importjs.}
+  proc createElement*(d: Document, identifier: cstring): Element {.importjs.}
+  proc createElementNS*(d: Document, namespaceURI, qualifiedIdentifier: cstring): Element {.importjs.}
+  proc createTextNode*(d: Document, identifier: cstring): Node {.importjs.}
+  proc createComment*(d: Document, data: cstring): Node {.importjs.}
 
 proc setTimeout*(action: proc(); ms: int): TimeOut {.importc, nodecl.}
 proc clearTimeout*(t: TimeOut) {.importc, nodecl.}
 proc setInterval*(action: proc(); ms: int): Interval {.importc, nodecl.}
 proc clearInterval*(i: Interval) {.importc, nodecl.}
 
-{.push importcpp.}
+{.push importjs.}
 
 # EventTarget "methods"
 proc addEventListener*(et: EventTarget, ev: cstring, cb: proc(ev: Event), useCapture: bool = false)
@@ -1687,7 +1687,7 @@ proc removeItem*(s: Storage, key: cstring)
 
 {.pop.}
 
-proc setAttr*(n: Node; key, val: cstring) {.importcpp: "#.setAttribute(@)".}
+proc setAttr*(n: Node; key, val: cstring) {.importjs: "#.setAttribute(@)".}
 
 var
   window* {.importc, nodecl.}: Window
@@ -1709,10 +1709,10 @@ proc isFinite*(x: BiggestFloat): bool {.importc, nodecl.}
 proc isNaN*(x: BiggestFloat): bool {.importc, nodecl.}
   ## see also `math.isNaN`.
 
-proc newEvent*(name: cstring): Event {.importcpp: "new Event(@)", constructor.}
+proc newEvent*(name: cstring): Event {.importjs: "new Event(@)".}
 
 proc getElementsByClass*(n: Node; name: cstring): seq[Node] {.
-  importcpp: "#.getElementsByClassName(#)", nodecl.}
+  importjs: "#.getElementsByClassName(#)", nodecl.}
 
 
 type
@@ -1720,11 +1720,11 @@ type
     top*, bottom*, left*, right*, x*, y*, width*, height*: float
 
 proc getBoundingClientRect*(e: Node): BoundingRect {.
-  importcpp: "getBoundingClientRect", nodecl.}
+  importjs: "getBoundingClientRect", nodecl.}
 proc clientHeight*(): int {.
-  importcpp: "(window.innerHeight || document.documentElement.clientHeight)@", nodecl.}
+  importjs: "(window.innerHeight || document.documentElement.clientHeight)@", nodecl.}
 proc clientWidth*(): int {.
-  importcpp: "(window.innerWidth || document.documentElement.clientWidth)@", nodecl.}
+  importjs: "(window.innerWidth || document.documentElement.clientWidth)@", nodecl.}
 
 proc inViewport*(el: Node): bool =
   let rect = el.getBoundingClientRect()
@@ -1732,45 +1732,45 @@ proc inViewport*(el: Node): bool =
            rect.bottom <= clientHeight().float and
            rect.right <= clientWidth().float
 
-proc scrollTop*(e: Node): int {.importcpp: "#.scrollTop", nodecl.}
-proc `scrollTop=`*(e: Node, value: int) {.importcpp: "#.scrollTop = #", nodecl.}
-proc scrollLeft*(e: Node): int {.importcpp: "#.scrollLeft", nodecl.}
-proc scrollHeight*(e: Node): int {.importcpp: "#.scrollHeight", nodecl.}
-proc scrollWidth*(e: Node): int {.importcpp: "#.scrollWidth", nodecl.}
-proc offsetHeight*(e: Node): int {.importcpp: "#.offsetHeight", nodecl.}
-proc offsetWidth*(e: Node): int {.importcpp: "#.offsetWidth", nodecl.}
-proc offsetTop*(e: Node): int {.importcpp: "#.offsetTop", nodecl.}
-proc offsetLeft*(e: Node): int {.importcpp: "#.offsetLeft", nodecl.}
+proc scrollTop*(e: Node): int {.importjs: "#.scrollTop", nodecl.}
+proc `scrollTop=`*(e: Node, value: int) {.importjs: "#.scrollTop = #", nodecl.}
+proc scrollLeft*(e: Node): int {.importjs: "#.scrollLeft", nodecl.}
+proc scrollHeight*(e: Node): int {.importjs: "#.scrollHeight", nodecl.}
+proc scrollWidth*(e: Node): int {.importjs: "#.scrollWidth", nodecl.}
+proc offsetHeight*(e: Node): int {.importjs: "#.offsetHeight", nodecl.}
+proc offsetWidth*(e: Node): int {.importjs: "#.offsetWidth", nodecl.}
+proc offsetTop*(e: Node): int {.importjs: "#.offsetTop", nodecl.}
+proc offsetLeft*(e: Node): int {.importjs: "#.offsetLeft", nodecl.}
 
 since (1, 3):
-  func newDomParser*(): DomParser {.importcpp: "new DOMParser()".}
+  func newDomParser*(): DomParser {.importjs: "new DOMParser()".}
     ## DOM Parser constructor.
-  func parseFromString*(this: DomParser; str: cstring; mimeType: cstring): Document {.importcpp.}
+  func parseFromString*(this: DomParser; str: cstring; mimeType: cstring): Document {.importjs.}
     ## Parse from string to `Document`.
 
-  proc newDomException*(): DomException {.importcpp: "new DomException()", constructor.}
+  proc newDomException*(): DomException {.importjs: "new DomException()".}
     ## DOM Exception constructor
-  proc message*(ex: DomException): cstring {.importcpp: "#.message", nodecl.}
+  proc message*(ex: DomException): cstring {.importjs: "#.message", nodecl.}
     ## https://developer.mozilla.org/en-US/docs/Web/API/DOMException/message
-  proc name*(ex: DomException): cstring  {.importcpp: "#.name", nodecl.}
+  proc name*(ex: DomException): cstring  {.importjs: "#.name", nodecl.}
     ## https://developer.mozilla.org/en-US/docs/Web/API/DOMException/name
 
-  proc newFileReader*(): FileReader {.importcpp: "new FileReader()", constructor.}
+  proc newFileReader*(): FileReader {.importjs: "new FileReader()".}
     ## File Reader constructor
-  proc error*(f: FileReader): DomException {.importcpp: "#.error", nodecl.}
+  proc error*(f: FileReader): DomException {.importjs: "#.error", nodecl.}
     ## https://developer.mozilla.org/en-US/docs/Web/API/FileReader/error
-  proc readyState*(f: FileReader): FileReaderState {.importcpp: "#.readyState", nodecl.}
+  proc readyState*(f: FileReader): FileReaderState {.importjs: "#.readyState", nodecl.}
     ## https://developer.mozilla.org/en-US/docs/Web/API/FileReader/readyState
-  proc resultAsString*(f: FileReader): cstring {.importcpp: "#.result", nodecl.}
+  proc resultAsString*(f: FileReader): cstring {.importjs: "#.result", nodecl.}
     ## https://developer.mozilla.org/en-US/docs/Web/API/FileReader/result
-  proc abort*(f: FileReader) {.importcpp: "#.abort()".}
+  proc abort*(f: FileReader) {.importjs: "#.abort()".}
     ## https://developer.mozilla.org/en-US/docs/Web/API/FileReader/abort
-  proc readAsBinaryString*(f: FileReader, b: Blob) {.importcpp: "#.readAsBinaryString(#)".}
+  proc readAsBinaryString*(f: FileReader, b: Blob) {.importjs: "#.readAsBinaryString(#)".}
     ## https://developer.mozilla.org/en-US/docs/Web/API/FileReader/readAsBinaryString
-  proc readAsDataURL*(f: FileReader, b: Blob) {.importcpp: "#.readAsDataURL(#)".}
+  proc readAsDataURL*(f: FileReader, b: Blob) {.importjs: "#.readAsDataURL(#)".}
     ## https://developer.mozilla.org/en-US/docs/Web/API/FileReader/readAsDataURL
-  proc readAsText*(f: FileReader, b: Blob|File, encoding = cstring"UTF-8") {.importcpp: "#.readAsText(#, #)".}
+  proc readAsText*(f: FileReader, b: Blob|File, encoding = cstring"UTF-8") {.importjs: "#.readAsText(#, #)".}
     ## https://developer.mozilla.org/en-US/docs/Web/API/FileReader/readAsText
 
 since (1, 5):
-  proc elementsFromPoint*(n: DocumentOrShadowRoot; x, y: float): seq[Element] {.importcpp.}
+  proc elementsFromPoint*(n: DocumentOrShadowRoot; x, y: float): seq[Element] {.importjs.}

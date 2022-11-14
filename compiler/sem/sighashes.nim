@@ -122,7 +122,8 @@ proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
       c.hashSym(t.sym)
   of tyGenericInst:
     if sfInfixCall in t.base.sym.flags:
-      # This is an imported C++ generic type.
+      # QUESTION: C++ needed this, but can it go or does JS need it?
+      # This is an imported JS(?) generic type.
       # We cannot trust the `lastSon` to hold a properly populated and unique
       # value for each instantiation, so we hash the generic parameters here:
       let normalizedType = t.skipGenericAlias
@@ -190,7 +191,6 @@ proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
   of tyRef, tyPtr, tyGenericBody, tyVar:
     c &= char(t.kind)
     c.hashType t.lastSon, flags
-    if tfVarIsPtr in t.flags: c &= ".varisptr"
   of tyFromExpr:
     c &= char(t.kind)
     c.hashTree(t.n, {})
@@ -396,9 +396,8 @@ proc symBodyDigest*(graph: ModuleGraph, sym: PSym): SigHash =
 proc idOrSig*(s: PSym, currentModule: string,
               sigCollisions: var CountTable[SigHash]): Rope =
   if s.kind in routineKinds and s.typ != nil:
-    # signatures for exported routines are reliable enough to
-    # produce a unique name and this means produced C++ is more stable regarding
-    # Nim changes:
+    # signatures for exported routines should be reliable enough to produce a
+    # unique name but because of some clowns we have hacks, read on:
     let sig = hashProc(s)
     result = rope($sig)
     #let m = if s.typ.callConv != ccInline: findPendingModule(m, s) else: m
@@ -407,6 +406,7 @@ proc idOrSig*(s: PSym, currentModule: string,
     #  echo "counter ", counter, " ", s.id
     if counter != 0:
       result.add "_" & rope(counter+1)
+    # xxx: fix the "minor hack", it's so dumb to have these things slide
     # this minor hack is necessary to make tests/collections/thashes compile.
     # The inlined hash function's original module is ambiguous so we end up
     # generating duplicate names otherwise:

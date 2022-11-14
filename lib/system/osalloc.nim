@@ -90,9 +90,6 @@ elif defined(emscripten) and not defined(StandaloneHeapSize):
     var mmapDescr = cast[EmscriptenMMapBlock](mmapDescrPos)
     munmap(mmapDescr.realPointer, mmapDescr.realSize)
 
-elif defined(genode) and not defined(StandaloneHeapSize):
-  include genode/alloc # osAllocPages, osTryAllocPages, osDeallocPages
-
 elif defined(posix) and not defined(StandaloneHeapSize):
   const
     PROT_READ  = 1             # page can be read

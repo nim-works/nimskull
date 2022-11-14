@@ -43,9 +43,6 @@
 .. role:: c(code)
    :language: c
 
-.. role:: cpp(code)
-   :language: cpp
-
 .. role:: yaml(code)
    :language: yaml
 

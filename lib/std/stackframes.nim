@@ -2,8 +2,8 @@ const NimStackTrace = compileOption("stacktrace")
 const NimStackTraceMsgs = compileOption("stacktraceMsgs")
 
 template procName*(): string =
-  ## returns current C/C++ function name
-  when defined(c) or defined(cpp):
+  ## returns current C function name
+  when defined(c):
     var name {.inject, noinit.}: cstring
     {.emit: "`name` = __func__;".}
     $name

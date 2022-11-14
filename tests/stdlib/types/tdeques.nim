@@ -1,6 +1,6 @@
 discard """
   matrix: "--gc:refc; --gc:orc"
-  targets: "c cpp js"
+  targets: "c js"
 """
 
 import std/deques

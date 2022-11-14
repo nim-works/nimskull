@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "c"
   output: "OK"
   description: '''
     . From https://github.com/nim-lang/Nim/issues/4799

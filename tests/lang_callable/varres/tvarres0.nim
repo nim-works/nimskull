@@ -123,7 +123,6 @@ block: # #13848
   when false:
     # BUG:
     # c: SIGSEGV
-    # cpp: error: call to implicitly-deleted default constructor of 'tyTuple__ILZebuYefUeQLAzY85QkHA'
     proc test7[T](o: var T): (var int,) =
       (o[1], )
     var m = @[1,2]

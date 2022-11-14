@@ -1,6 +1,6 @@
 
 discard """
-  targets: "c cpp"
+  targets: "c"
   joinable: false
 """
 

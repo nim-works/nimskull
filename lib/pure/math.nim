@@ -60,7 +60,7 @@ import std/private/since
 
 import std/[bitops, fenv]
 
-when defined(c) or defined(cpp):
+when defined(c):
   proc c_isnan(x: float): bool {.importc: "isnan", header: "<math.h>".}
     # a generic like `x: SomeFloat` might work too if this is implemented via a C macro.
 
@@ -116,7 +116,7 @@ func fac*(n: int): int =
 
 {.push checks: off, line_dir: off, stack_trace: off.}
 
-when defined(posix) and not defined(genode):
+when defined(posix):
   {.passl: "-lm".}
 
 const

@@ -779,7 +779,7 @@ no need to write `title: string = "unknown"`, for example.
 Overloaded procedures
 ---------------------
 
-Nim provides the ability to overload procedures similar to C++:
+Nim provides the ability to overload procedures:
 
 .. code-block:: nim
   proc toString(x: int): string =

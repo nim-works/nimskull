@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp js"
+  targets: "c js"
 """
 
 from std/sequtils import toSeq, map

@@ -413,7 +413,7 @@ import system/countbits_impl
 
 const useBuiltinsRotate = (defined(amd64) or defined(i386)) and
                           (defined(gcc) or defined(clang) or defined(vcc) or
-                           (defined(icl) and not defined(cpp))) and useBuiltins
+                           (defined(icl))) and useBuiltins
 
 template parityImpl[T](value: T): int =
   # formula id from: https://graphics.stanford.edu/%7Eseander/bithacks.html#ParityParallel

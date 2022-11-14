@@ -3,9 +3,6 @@ discard """
   cmd: '''nim c --gc:arc $file'''
 """
 
-when defined(cpp):
-  {.passC: "-std=gnu++2a".}
-
 type
   TokenKind* = enum
     tkColon

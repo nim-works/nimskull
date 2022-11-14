@@ -17,7 +17,6 @@ type
     ccInline = "inline"             ## proc should be inlined
     ccNoInline = "noinline"         ## proc should not be inlined
     ccFastCall = "fastcall"         ## fastcall (pass parameters in registers)
-    ccThisCall = "thiscall"         ## thiscall (parameters are pushed right-to-left)
     ccClosure  = "closure"          ## proc has a closure
     ccNoConvention = "noconv"       ## needed for generating proper C procs sometimes
 
@@ -232,7 +231,6 @@ type
                       ## (implies it's too dangerous to patch its type signature)
     sfImportc         ## symbol is external; imported
     sfExportc         ## symbol is exported (under a specified name)
-    sfMangleCpp       ## mangle as cpp (combines with `sfExportc`)
     sfVolatile        ## variable is volatile
     sfRegister        ## variable should be placed in a register
     sfPure            ## object is "pure" that means it has no type-information
@@ -256,20 +254,12 @@ type
     sfShadowed        ## a symbol that was shadowed in some inner scope
     sfThread          ## proc will run as a thread
                       ## variable is a thread variable
-    sfCppNonPod       ## tells compiler to treat such types as non-pod's,
-                      ## so that `thread_local` is used instead of
-                      ## `__thread` for {.threadvar.} + `--threads`. Only
-                      ## makes sense for importcpp types. This has a
-                      ## performance impact so isn't set by default.
     sfCompileTime     ## proc can be evaluated at compile time
-    sfConstructor     ## proc is a C++ constructor
     sfDispatcher      ## copied method symbol is the dispatcher
                       ## deprecated and unused, except for the con
     sfBorrow          ## proc is borrowed
     sfInfixCall       ## symbol needs infix call syntax in target language;
-                      ## for interfacing with C++, JS
-    sfNamedParamCall  ## symbol needs named parameter call syntax in target
-                      ## language; for interfacing with Objective C
+                      ## for interfacing with JS
     sfDiscardable     ## returned value may be discarded implicitly
     sfOverriden       ## proc is overridden
     sfCallsite        ## A flag for template symbols to tell the
@@ -309,8 +299,6 @@ const
     ## in user messages.
 
   sfNoForward*     = sfRegister       ## forward declarations are not required (per module)
-  sfCompileToCpp*  = sfInfixCall      ## compile the module as C++ code
-  sfCompileToObjc* = sfNamedParamCall ## compile the module as Objective-C code
   sfExperimental*  = sfOverriden      ## module uses the .experimental switch
   sfGoto*          = sfOverriden      ## var is used for 'goto' code generation
   sfWrittenTo*     = sfBorrow         ## param is assigned to
@@ -529,7 +517,6 @@ type
                       ## is not appropriate
     tfNeedsFullInit,  ## object type marked with {.requiresInit.}
                       ## all fields must be initialized
-    tfVarIsPtr,       ## 'var' type is translated like 'ptr' even in C++ mode
     tfHasMeta,        ## type contains "wildcard" sub-types such as generic params
                       ## or other type classes
     tfHasGCedMem,     ## type contains GC'ed memory
@@ -619,7 +606,6 @@ var
   eqTypeFlags* = {
     tfIterator,
     tfNotNil,
-    tfVarIsPtr, # so that we don't unify T& and T* in C++ land
     tfGcSafe,
     tfNoSideEffect
   }

@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp js"
+  targets: "c js"
 """
 
 # TODO: in future work move existing arithmetic tests (tests/arithm/*) into this file

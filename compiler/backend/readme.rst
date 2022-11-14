@@ -1,1 +1,1 @@
-Backend code generation for C, C++ and javascript targets
+Backend code generation for C and javascript targets

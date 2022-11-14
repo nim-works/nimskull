@@ -50,7 +50,7 @@ const
   spellSuggestSecretSauce* = -1
 
 const
-  cmdBackends* = {cmdCompileToC, cmdCompileToCpp, cmdCompileToOC, cmdCompileToJS, cmdCompileToVM, cmdCrun}
+  cmdBackends* = {cmdCompileToC, cmdCompileToJS, cmdCompileToVM, cmdCrun}
   cmdDocLike* = {cmdDoc, cmdDoc2tex, cmdJsondoc, cmdCtags, cmdBuildindex}
 
 type
@@ -338,7 +338,6 @@ passField depfile,            AbsoluteFile
 passField projectPath,        AbsoluteDir
 passField projectName,        string
 passField projectFull,        AbsoluteFile
-passField cppCustomNamespace, string
 
 passSeqField implicitImports,   string
 passSeqField implicitIncludes,  string

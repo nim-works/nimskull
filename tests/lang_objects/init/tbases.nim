@@ -1,7 +1,7 @@
 discard """
   description: "Test the initialization of type fields in parent objects"
   matrix: "--gc:arc; --gc:refc"
-  targets: c cpp js
+  targets: c js
 """
 
 type

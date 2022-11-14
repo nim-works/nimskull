@@ -88,9 +88,6 @@ when true: # runnableExamples with rdoccmd
     import std/compilesettings
     proc startsWith*(s, prefix: cstring): bool {.noSideEffect, importjs: "#.startsWith(#)".}
     doAssert querySetting(backend) == "js"
-  runnableExamples "-b:cpp":
-    static: doAssert defined(cpp)
-    type std_exception {.importcpp: "std::exception", header: "<exception>".} = object
 
   proc fun2*() =
     runnableExamples "-d:foo": discard # checks that it also works inside procs
@@ -104,14 +101,6 @@ when true: # runnableExamples with rdoccmd
 
   proc fun3*[T]() =
     fun3Impl()
-
-  when false: # future work
-    # passing non-string-litterals (for reuse)
-    const a = "-b:cpp"
-    runnableExamples(a): discard
-
-    # passing seq (to run with multiple compilation options)
-    runnableExamples(@["-b:cpp", "-b:js"]): discard
 
 when true: # bug #16993
   template examplesInTemplate1*(cond: untyped) =

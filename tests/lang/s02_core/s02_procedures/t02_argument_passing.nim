@@ -2,10 +2,7 @@ discard """
 description: '''
 Covers the multitude of ways you can pass arguments to procedures.
 '''
-targets: "!cpp"
 """
-
-# knownIssue: broken in cpp
 
 
 block different_number_of_arguments:

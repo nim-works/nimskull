@@ -1,6 +1,6 @@
 discard """
   matrix: "--experimental:vmopsDanger"
-  targets: "c cpp js"
+  targets: "c js"
 """
 
 #[

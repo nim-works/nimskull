@@ -1,8 +1,8 @@
 discard """
-targets: "c cpp js"
+targets: "c js"
 """
 
-when defined(c) or defined(cpp):
+when defined(c):
   {.emit:"""
   const int TEST1 = 123;
   #define TEST2 321

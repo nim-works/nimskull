@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp js"
+  targets: "c js"
   description: '''
     . From https://github.com/nim-lang/Nim/issues/6163
       Wrong JavaScript code generation

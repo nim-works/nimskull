@@ -1,6 +1,6 @@
 discard """
 joinable: false
-target: "c cpp js"
+target: "c js"
 labels: "array"
 description: '''
   . From https://github.com/nim-lang/Nim/issues/1669

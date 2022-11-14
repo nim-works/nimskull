@@ -49,7 +49,7 @@ suite "Basic command parsing":
     check conf.cmd == cmdCompileToC
 
   test "Backend resetting":
-    let conf = parse("c --backend:cpp --backend:js file.nim").conf
+    let conf = parse("c --backend:c --backend:js file.nim").conf
     check conf.projectName == "file.nim"
     check conf.backend == backendJs
 

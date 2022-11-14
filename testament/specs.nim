@@ -66,18 +66,12 @@ type
 
   TTarget* = enum
     targetC = "c"
-    targetCpp = "cpp"
-    targetObjC = "objc"
     targetJS = "js"
     targetVM = "vm"
 
   SpecifiedTarget* = enum
     addTargetC = "c"
     remTargetC = "!c"
-    addTargetCpp = "cpp"
-    remTargetCpp = "!cpp"
-    addTargetObjC = "objc"
-    remTargetObjC = "!objc"
     addTargetJS = "js"
     remTargetJS = "!js"
     addTargetVM = "vm"
@@ -156,8 +150,6 @@ func ext*(t: TTarget): string {.inline.} =
   ## read-only field providing the extension string for the given target
   case t:
     of targetC:    "nim.c"
-    of targetCpp:  "nim.cpp"
-    of targetObjC: "nim.m"
     of targetJS:   "js"
     of targetVM:   ""
 
@@ -165,8 +157,6 @@ func cmd*(t: TTarget): string {.inline.} =
   ## read-only field providing the command string for the given target
   case t:
     of targetC:    "c"
-    of targetCpp:  "cpp"
-    of targetObjC: "objc"
     of targetJS:   "js"
     of targetVM:   "vm"
 
@@ -298,8 +288,6 @@ proc parseTargets*(value: string): set[TTarget] =
     result.incl:
       case v
       of "c":          targetC
-      of "cpp", "c++": targetCpp
-      of "objc":       targetObjC
       of "js":         targetJS
       of "vm":         targetVM
       else: raise newException(ValueError, "invalid target: '$#'" % v)
@@ -310,15 +298,11 @@ proc parseSpecifiedTargets*(value: string): set[SpecifiedTarget] =
     result.incl:
       case v
       of "c":            addTargetC
-      of "cpp", "c++":   addTargetCpp
-      of "objc":         addTargetObjC
       of "js":           addTargetJS
       of "vm":           addTargetVM
       of "native":       addTargetNative
       of "default":      addCategoryTargets
       of "!c":           remTargetC
-      of "!cpp", "!c++": remTargetCpp
-      of "!objc":        remTargetObjC
       of "!js":          remTargetJS
       of "!vm":          remTargetVM
       of "!default":     remCategoryTargets
@@ -511,13 +495,11 @@ proc parseSpec*(filename: string,
         for st in result.specifiedTargets:
           case st
           of addTargetC: result.targets.incl targetC
-          of addTargetCpp: result.targets.incl targetCpp
-          of addTargetObjc: result.targets.incl targetObjC
           of addTargetJS: result.targets.incl targetJS
           of addTargetVM: result.targets.incl targetVM
           of addTargetNative: result.targets.incl nativeTarget
           of addCategoryTargets: result.targets = result.targets + catTargets
-          of remTargetC, remTargetCpp, remTargetObjc, remTargetJS, remTargetVM,
+          of remTargetC, remTargetJS, remTargetVM,
              remCategoryTargets:
                discard
         
@@ -529,12 +511,10 @@ proc parseSpec*(filename: string,
         for st in result.specifiedTargets:
           case st
           of remTargetC: result.targets.excl targetC
-          of remTargetCpp: result.targets.excl targetCpp
-          of remTargetObjc: result.targets.excl targetObjC
           of remTargetJS: result.targets.excl targetJS
           of remTargetVM: result.targets.excl targetVM
           of remCategoryTargets: result.targets = result.targets - catTargets
-          of addTargetC, addTargetCpp, addTargetObjc, addTargetJS, addTargetVM,
+          of addTargetC, addTargetJS, addTargetVM,
              addTargetNative, addCategoryTargets:
                discard
         

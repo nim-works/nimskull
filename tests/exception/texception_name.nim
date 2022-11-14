@@ -1,6 +1,6 @@
 discard """
   description: "Tests to make sure that the Exception.name field is set"
-  targets: "c cpp js"
+  targets: "c js"
   matrix: "--gc:refc; --gc:arc"
 """
 

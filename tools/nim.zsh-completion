@@ -12,8 +12,6 @@ _nim() {
   local -a nimCommands=(
     {compile,c}:'compile project with default code generator C'
     {compileToC,cc}:'compile project with C code generator'
-    {compileToCpp,cpp}:'compile project to C++ code'
-    {compileToOC,objc}:'compile project to Objective C code'
     'js:compile project to Javascript'
     'e:run a Nimscript file'
     'doc:generate the HTML documentation for inputfile'
@@ -85,7 +83,7 @@ _nim() {
   )
 
   case "$words[1]" in
-    compile|c|compileToC|cpp|compileToCpp|compileToOC|objc)
+    compile|c|compileToC)
       _arguments $codeOpts $runOpts $sharedOpts $nativeOpts \
           '*:filename:_files -g"*.nim"'
     ;;

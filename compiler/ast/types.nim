@@ -897,7 +897,7 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
     result = sameChildrenAux(a, b, c)
     if result:
       if IgnoreTupleFields in c.flags:
-        result = a.flags * {tfVarIsPtr} == b.flags * {tfVarIsPtr}
+        result = true
       else:
         result = sameFlags(a, b)
     if result and ExactGcSafety in c.flags:

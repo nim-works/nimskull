@@ -708,7 +708,7 @@ proc isAnalysableFieldAccess*(orig: PNode; owner: PSym): bool =
   # could be written without the ``move self.root``. However, this would be
   # wrong! Then the write barrier for the ``self.root`` assignment would
   # free the old data and all is lost! Lesson: Don't be too smart, trust the
-  # lower level C++ optimizer to specialize this code.
+  # lower level optimizer to specialize this code.
 
 proc skipTrivials(c: var Con, n: PNode): PNode =
   result = n

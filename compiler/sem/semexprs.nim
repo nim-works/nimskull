@@ -1946,16 +1946,12 @@ proc asgnToResultVar(c: PContext, n, le, ri: PNode) {.inline.} =
     let x = le[0]
     case x.kind
     of nkSym:
-      if sfGlobal in x.sym.flags:
-        x.typ.flags.incl tfVarIsPtr
-
       case x.sym.kind
       of skResult:
         if classifyViewType(x.typ) != noView:
           n[0] = x # 'result[]' --> 'result'
           n[1] = takeImplicitAddr(c, ri, x.typ.kind == tyLent)
           #echo x.info, " setting it for this type ", typeToString(x.typ), " ", n.info
-          x.typ.flags.incl tfVarIsPtr # might not be global, so ensure it here
       else:
         discard
     else:
@@ -2150,7 +2146,6 @@ proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
   let t = skipTypes(restype, {tyGenericInst, tyAlias, tySink})
   case t.kind
   of tyVar, tyLent:
-    t.flags.incl tfVarIsPtr # bugfix for #4048, #4910, #6892
     let unwrappedValue =
       case result[0].kind
       of nkHiddenStdConv, nkHiddenSubConv:
@@ -2166,7 +2161,6 @@ proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
     for i in 0..<t.len:
       let e = skipTypes(t[i], {tyGenericInst, tyAlias, tySink})
       if e.kind in {tyVar, tyLent}:
-        e.flags.incl tfVarIsPtr # bugfix for #4048, #4910, #6892
         let tupleConstr = 
           case result[0].kind
           of nkHiddenStdConv, nkHiddenSubConv:

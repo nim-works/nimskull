@@ -75,9 +75,9 @@ proc runnableExamples*(rdoccmd = "", body: untyped) {.magic: "RunnableExamples".
         assert timesTwo(5) == 10
         block: # at block scope
           defer: echo "done"
-      runnableExamples "-d:foo -b:cpp":
+      runnableExamples "-d:foo -b:c":
         import std/compilesettings
-        assert querySetting(backend) == "cpp"
+        assert querySetting(backend) == "c"
         assert defined(foo)
       runnableExamples "-r:off": ## this one is only compiled
          import std/browsers
@@ -617,7 +617,7 @@ proc sizeof*[T](x: T): int {.magic: "SizeOf", noSideEffect.}
   ## As a special semantic rule, `x` may also be a type identifier
   ## (`sizeof(int)` is valid).
   ##
-  ## Limitations: If used for types that are imported from C or C++,
+  ## Limitations: If used for types that are imported from C,
   ## sizeof should fallback to the `sizeof` in the C compiler. The
   ## result isn't available for the Nim compiler and therefore can't
   ## be used inside of macros.
@@ -1191,20 +1191,6 @@ when defined(nimdoc):
     ##   raised by an `addExitProc` proc, as well as cleanup code in other threads.
     ##   It does *not* call the garbage collector to free all the memory,
     ##   unless an `addExitProc` proc calls `GC_fullCollect <#GC_fullCollect>`_.
-
-elif defined(genode):
-  include genode/env
-
-  var systemEnv {.exportc: runtimeEnvSym.}: GenodeEnvPtr
-
-  type GenodeEnv* = GenodeEnvPtr
-    ## Opaque type representing Genode environment.
-
-  proc quit*(env: GenodeEnv; errorcode: int) {.magic: "Exit", noreturn,
-    importcpp: "#->parent().exit(@); Genode::sleep_forever()", header: "<base/sleep.h>".}
-
-  proc quit*(errorcode: int = QuitSuccess) =
-    systemEnv.quit(errorcode)
 
 elif defined(js) and defined(nodejs) and not isNimVmTarget:
   proc quit*(errorcode: int = QuitSuccess) {.magic: "Exit",
@@ -2411,11 +2397,10 @@ when notJSnotNims:
 
   proc rawProc*[T: proc](x: T): pointer {.noSideEffect, inline.} =
     ## Retrieves the raw proc pointer of the closure `x`. This is
-    ## useful for interfacing closures with C/C++, hash compuations, etc.
+    ## useful for interfacing closures with C, hash compuations, etc.
     when T is "closure":
       #[
-      The conversion from function pointer to `void*` is a tricky topic, but this
-      should work at least for c++ >= c++11, e.g. for `dlsym` support.
+      The conversion from function pointer to `void*` is a tricky topic.
       refs: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=57869,
       https://stackoverflow.com/questions/14125474/casts-between-pointer-to-function-and-pointer-to-object-in-c-and-c
       ]#
@@ -3071,27 +3056,6 @@ proc toOpenArrayByte*(x: openArray[char]; first, last: int): openArray[byte] {.
   magic: "Slice".}
 proc toOpenArrayByte*(x: seq[char]; first, last: int): openArray[byte] {.
   magic: "Slice".}
-
-when defined(genode):
-  var componentConstructHook*: proc (env: GenodeEnv) {.nimcall.}
-    ## Hook into the Genode component bootstrap process.
-    ##
-    ## This hook is called after all globals are initialized.
-    ## When this hook is set the component will not automatically exit,
-    ## call `quit` explicitly to do so. This is the only available method
-    ## of accessing the initial Genode environment.
-
-  proc nim_component_construct(env: GenodeEnv) {.exportc.} =
-    ## Procedure called during `Component::construct` by the loader.
-    if componentConstructHook.isNil:
-      env.quit(programResult)
-        # No native Genode application initialization,
-        # exit as would POSIX.
-    else:
-      componentConstructHook(env)
-        # Perform application initialization
-        # and return to thread entrypoint.
-
 
 import system/widestrs
 export widestrs

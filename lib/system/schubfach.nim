@@ -37,7 +37,7 @@ const
   signMask: BitsType = not (not BitsType(0) shr 1)
 
 
-proc constructSingle(value: ValueType): Single {.constructor.} =
+proc constructSingle(value: ValueType): Single =
   result.bits = cast[typeof(result.bits)](value)
 
 proc physicalSignificand(this: Single): BitsType {.noSideEffect.} =
@@ -50,7 +50,7 @@ proc signBit(this: Single): int {.noSideEffect.} =
   return int((this.bits and signMask) != 0)
 
 # handy procs, restore if needed
-# proc constructSingle(bits: BitsType): Single {.constructor.} =
+# proc constructSingle(bits: BitsType): Single =
 #   result.bits = bits
 # proc isFinite(this: Single): bool {.noSideEffect.} =
 #   return (this.bits and exponentMask) != exponentMask

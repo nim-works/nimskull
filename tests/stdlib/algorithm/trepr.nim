@@ -1,9 +1,7 @@
 discard """
-  targets: "c cpp js"
+  targets: "c js"
   matrix: ";--gc:arc"
 """
-
-# if excessive, could remove 'cpp' from targets
 
 from strutils import endsWith, contains, strip
 from std/macros import newLit
@@ -40,7 +38,7 @@ template main() =
   BUG:
   --gc:arc returns `"abc"`
   regular gc returns with address, e.g. 0x1068aae60"abc", but only 
-  for c,cpp backends (not js, vm)
+  for c backend (not js, vm)
   ]#
   block:
     doAssert repr("abc").endsWith "\"abc\""

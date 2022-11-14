@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-## New entry point into our C/C++ code generator. Ideally
+## New entry point into our C code generator. Ideally
 ## somebody would rewrite the old backend (which is 8000 lines of crufty Nim code)
 ## to work on packed trees directly and produce the C code as an AST which can
 ## then be rendered to text in a very simple manner. Unfortunately nobody wrote
@@ -80,10 +80,7 @@ proc replayTypeInfo(g: ModuleGraph; m: var LoadedModule; origin: FileIndex) =
 
 proc addFileToLink(config: ConfigRef; m: PSym) =
   let filename = AbsoluteFile toFullPath(config, m.position.FileIndex)
-  let ext =
-      if config.backend == backendCpp: ".nim.cpp"
-      elif config.backend == backendObjc: ".nim.m"
-      else: ".nim.c"
+  let ext = ".nim.c"
   let cfile = changeFileExt(completeCfilePath(config, withPackageName(config, filename)), ext)
   let objFile = completeCfilePath(config, toObjFile(config, cfile))
   if fileExists(objFile):

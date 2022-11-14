@@ -240,11 +240,11 @@ proc cstrToNimstr(c: cstring): string {.asmNoStackFrame, compilerproc.} =
 proc toJSStr(s: string): cstring {.compilerproc.} =
   proc fromCharCode(c: char): cstring {.importc: "String.fromCharCode".}
   proc join(x: openArray[cstring]; d = cstring""): cstring {.
-    importcpp: "#.join(@)".}
+    importjs: "#.join(@)".}
   proc decodeURIComponent(x: cstring): cstring {.
     importc: "decodeURIComponent".}
 
-  proc toHexString(c: char; d = 16): cstring {.importcpp: "#.toString(@)".}
+  proc toHexString(c: char; d = 16): cstring {.importjs: "#.toString(@)".}
 
   proc log(x: cstring) {.importc: "console.log".}
 

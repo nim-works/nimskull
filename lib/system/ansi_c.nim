@@ -55,8 +55,8 @@ when defined(windows):
     SIG_DFL* = cast[CSighandlerT](0)
 elif defined(macosx) or defined(linux) or defined(freebsd) or
      defined(openbsd) or defined(netbsd) or defined(solaris) or
-     defined(dragonfly) or defined(nintendoswitch) or defined(genode) or
-     defined(aix) or hostOS == "standalone":
+     defined(dragonfly) or defined(nintendoswitch) or defined(aix) or
+     hostOS == "standalone":
   const
     SIGABRT* = cint(6)
     SIGFPE* = cint(8)
@@ -110,7 +110,7 @@ elif defined(nimBuiltinSetjmp):
     # to be very explicit here.
     proc c_builtin_longjmp(jmpb: ptr pointer, retval: cint) {.
       importc: "__builtin_longjmp", nodecl.}
-    # The second parameter needs to be 1 and sometimes the C/C++ compiler checks it.
+    # The second parameter needs to be 1 and sometimes the C compiler checks it.
     c_builtin_longjmp(unsafeAddr jmpb[0], 1)
   proc c_setjmp*(jmpb: C_JmpBuf): cint =
     proc c_builtin_setjmp(jmpb: ptr pointer): cint {.

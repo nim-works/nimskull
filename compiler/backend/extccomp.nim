@@ -8,7 +8,7 @@
 #
 
 ## Module providing functions for calling the different external C
-## compilers Uses some hard-wired facts about each C/C++ compiler, plus
+## compilers Uses some hard-wired facts about each C compiler, plus
 ## options read from a lineinfos file, to provide generalized procedures to
 ## compile nim files.
 
@@ -48,7 +48,6 @@ type
   TInfoCCProp* = enum         ## properties of the C compiler:
     hasSwitchRange            ## CC allows ranges in switch statements (GNU C)
     hasComputedGoto           ## CC has computed goto (GNU C extension)
-    hasCpp                    ## CC is/contains a C++ compiler
     hasAssume                 ## CC has `__assume` (Visual C extension)
     hasGcGuard                ## CC supports GC_GUARD to keep stack roots
     hasGnuAsm                 ## CC's asm uses the absurd GNU assembler syntax
@@ -62,7 +61,6 @@ type
     optSpeed*: string       ## the options for optimization for speed
     optSize*: string        ## the options for optimization for size
     compilerExe*: string    ## the compiler's executable
-    cppCompiler*: string    ## name of the C++ compiler's executable (if supported)
     compileTmpl*: string    ## the compile command template
     buildGui*: string       ## command to build a GUI application
     buildDll*: string       ## command to build a shared library
@@ -78,7 +76,6 @@ type
     asmStmtFrmt*: string    ## format of ASM statement
     structStmtFmt*: string  ## Format for struct statement
     produceAsm*: string     ## Format how to produce assembler listings
-    cppXsupport*: string    ## what to do to enable C++X support
     props*: TInfoCCProps    ## properties of the C compiler
 
 
@@ -92,7 +89,7 @@ template compiler(name, settings: untyped): untyped =
 const
   gnuAsmListing = "-Wa,-acdl=$asmfile -g -fverbose-asm -masm=intel"
 
-# GNU C and C++ Compiler
+# GNU C Compiler
 compiler gcc:
   result = TInfoCC(
     name: "gcc",
@@ -100,7 +97,6 @@ compiler gcc:
     optSpeed: " -O3 -fno-ident",
     optSize: " -Os -fno-ident",
     compilerExe: "gcc",
-    cppCompiler: "g++",
     compileTmpl: "-c $options $include -o $objfile $file",
     buildGui: " -mwindows",
     buildDll: " -shared",
@@ -115,8 +111,7 @@ compiler gcc:
     asmStmtFrmt: "asm($1);$n",
     structStmtFmt: "$1 $3 $2 ", # struct|union [packed] $name
     produceAsm: gnuAsmListing,
-    cppXsupport: "-std=gnu++14 -funsigned-char",
-    props: {hasSwitchRange, hasComputedGoto, hasCpp, hasGcGuard, hasGnuAsm,
+    props: {hasSwitchRange, hasComputedGoto, hasGcGuard, hasGnuAsm,
             hasAttribute})
 
 # GNU C and C++ Compiler
@@ -127,7 +122,6 @@ compiler nintendoSwitchGCC:
     optSpeed: " -O3 ",
     optSize: " -Os ",
     compilerExe: "aarch64-none-elf-gcc",
-    cppCompiler: "aarch64-none-elf-g++",
     compileTmpl: "-w -MMD -MP -MF $dfile -c $options $include -o $objfile $file",
     buildGui: " -mwindows",
     buildDll: " -shared",
@@ -142,8 +136,7 @@ compiler nintendoSwitchGCC:
     asmStmtFrmt: "asm($1);$n",
     structStmtFmt: "$1 $3 $2 ", # struct|union [packed] $name
     produceAsm: gnuAsmListing,
-    cppXsupport: "-std=gnu++14 -funsigned-char",
-    props: {hasSwitchRange, hasComputedGoto, hasCpp, hasGcGuard, hasGnuAsm,
+    props: {hasSwitchRange, hasComputedGoto, hasGcGuard, hasGnuAsm,
             hasAttribute})
 
 # LLVM Frontend for GCC/G++
@@ -152,20 +145,18 @@ compiler llvmGcc:
 
   result.name = "llvm_gcc"
   result.compilerExe = "llvm-gcc"
-  result.cppCompiler = "llvm-g++"
   when defined(macosx) or defined(openbsd):
     # `llvm-ar` not available
     result.buildLib = "ar rcs $libfile $objfiles"
   else:
     result.buildLib = "llvm-ar rcs $libfile $objfiles"
 
-# Clang (LLVM) C/C++ Compiler
+# Clang (LLVM) C Compiler
 compiler clang:
   result = llvmGcc() # Uses settings from llvmGcc
 
   result.name = "clang"
   result.compilerExe = "clang"
-  result.cppCompiler = "clang++"
 
 # Microsoft Visual C/C++ Compiler
 compiler vcc:
@@ -175,7 +166,6 @@ compiler vcc:
     optSpeed: " /Ogityb2 ",
     optSize: " /O1 ",
     compilerExe: "cl",
-    cppCompiler: "cl",
     compileTmpl: "/c$vccplatform $options $include /nologo /Fo$objfile $file",
     buildGui: " /SUBSYSTEM:WINDOWS user32.lib ",
     buildDll: " /LD",
@@ -190,14 +180,12 @@ compiler vcc:
     asmStmtFrmt: "__asm{$n$1$n}$n",
     structStmtFmt: "$3$n$1 $2",
     produceAsm: "/Fa$asmfile",
-    cppXsupport: "",
-    props: {hasCpp, hasAssume, hasDeclspec})
+    props: {hasAssume, hasDeclspec})
 
 compiler clangcl:
   result = vcc()
   result.name = "clang_cl"
   result.compilerExe = "clang-cl"
-  result.cppCompiler = "clang-cl"
   result.linkerExe = "clang-cl"
   result.linkTmpl = "-fuse-ld=lld " & result.linkTmpl
 
@@ -223,7 +211,6 @@ compiler bcc:
     optSpeed: " -O3 -6 ",
     optSize: " -O1 -6 ",
     compilerExe: "bcc32c",
-    cppCompiler: "cpp32c",
     compileTmpl: "-c $options $include -o$objfile $file",
     buildGui: " -tW",
     buildDll: " -tWD",
@@ -238,9 +225,7 @@ compiler bcc:
     asmStmtFrmt: "__asm{$n$1$n}$n",
     structStmtFmt: "$1 $2",
     produceAsm: "",
-    cppXsupport: "",
-    props: {hasSwitchRange, hasComputedGoto, hasCpp, hasGcGuard,
-            hasAttribute})
+    props: {hasSwitchRange, hasComputedGoto, hasGcGuard, hasAttribute})
 
 # Tiny C Compiler
 compiler tcc:
@@ -250,7 +235,6 @@ compiler tcc:
     optSpeed: "",
     optSize: "",
     compilerExe: "tcc",
-    cppCompiler: "",
     compileTmpl: "-c $options $include -o $objfile $file",
     buildGui: "-Wl,-subsystem=gui",
     buildDll: " -shared",
@@ -265,7 +249,6 @@ compiler tcc:
     asmStmtFrmt: "asm($1);$n",
     structStmtFmt: "$1 $2",
     produceAsm: gnuAsmListing,
-    cppXsupport: "",
     props: {hasSwitchRange, hasComputedGoto, hasGnuAsm})
 
 # Your C Compiler
@@ -276,7 +259,6 @@ compiler envcc:
     optSpeed: " -O3 ",
     optSize: " -O1 ",
     compilerExe: "",
-    cppCompiler: "",
     compileTmpl: "-c $ccenvflags $options $include -o $objfile $file",
     buildGui: "",
     buildDll: " -shared ",
@@ -291,7 +273,6 @@ compiler envcc:
     asmStmtFrmt: "__asm{$n$1$n}$n",
     structStmtFmt: "$1 $2",
     produceAsm: "",
-    cppXsupport: "",
     props: {hasGnuAsm})
 
 const
@@ -337,7 +318,7 @@ proc getConfigVar(conf: ConfigRef; c: TSystemCC, suffix: string): string =
   # for niminst support
   var fullSuffix = suffix
   case conf.backend
-  of backendCpp, backendJs, backendObjc, backendNimVm: fullSuffix = "." & $conf.backend & suffix
+  of backendJs, backendNimVm: fullSuffix = "." & $conf.backend & suffix
   of backendC: discard
   of backendInvalid:
     # during parsing of cfg files; we don't know the backend yet, no point in
@@ -526,31 +507,15 @@ proc needsExeExt(conf: ConfigRef): bool {.inline.} =
   result = (optGenScript in conf.globalOptions and conf.target.targetOS == osWindows) or
            (conf.target.hostOS == osWindows)
 
-proc useCpp(conf: ConfigRef; cfile: AbsoluteFile): bool =
-  conf.backend == backendCpp and not cfile.string.endsWith(".c")
-
 proc envFlags(conf: ConfigRef): string =
-  result = if conf.backend == backendCpp:
-            getEnv("CXXFLAGS")
-          else:
-            getEnv("CFLAGS")
+  result = getEnv("CFLAGS")
 
 proc getCompilerExe(conf: ConfigRef; compiler: TSystemCC; cfile: AbsoluteFile): string =
-  var target: string
+  let target = "c"
   if compiler == ccEnv:
-    result = if useCpp(conf, cfile):
-               target = "c++"
-               getEnv("CXX")
-             else:
-               target = "c"
-               getEnv("CC")
+    result = getEnv("CC")
   else:
-    result = if useCpp(conf, cfile):
-               target = "c++"
-               CC[compiler].cppCompiler
-             else:
-               target = "c"
-               CC[compiler].compilerExe
+    result = CC[compiler].compilerExe
 
   if result.len == 0:
     conf.globalReport BackendReport(
@@ -587,20 +552,18 @@ proc ccHasSaneOverflow*(conf: ConfigRef): bool =
     result = conf.cCompiler == ccCLang
 
 proc getLinkerExe(conf: ConfigRef; compiler: TSystemCC): string =
-  result = if CC[compiler].linkerExe.len > 0: CC[compiler].linkerExe
-           elif optMixedMode in conf.globalOptions and conf.backend != backendCpp: CC[compiler].cppCompiler
-           else: getCompilerExe(conf, compiler, AbsoluteFile"")
+  result =
+    if CC[compiler].linkerExe.len > 0:
+      CC[compiler].linkerExe
+    else:
+      getCompilerExe(conf, compiler, AbsoluteFile"")
 
 proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
                          isMainFile = false; produceOutput = false): string =
   let c = conf.cCompiler
-  # We produce files like module.nim.cpp, so the absolute Nim filename is not
+  # We produce files like module.nim.c, so the absolute Nim filename is not
   # cfile.name but `cfile.cname.changeFileExt("")`:
   var options = cFileSpecificOptions(conf, cfile.nimname, cfile.cname.changeFileExt("").string)
-  if useCpp(conf, cfile.cname):
-    # needs to be prepended so that --passc:-std=c++17 can override default.
-    # we could avoid allocation by making cFileSpecificOptions inplace
-    options = CC[c].cppXsupport & ' ' & options
 
   var exe = getConfigVar(conf, c, ".exe")
   if exe.len == 0: exe = getCompilerExe(conf, c, cfile.cname)

@@ -293,7 +293,7 @@ proc processModule*(
 
   closePasses(graph, passesArray)
 
-  if graph.config.backend notin {backendC, backendCpp, backendObjc}:
+  if graph.config.backend != backendC:
     # We only write rod files here if no C-like backend is active.
     # The C-like backends have been patched to support the IC mechanism.
     # They are responsible for closing the rod files. See `cbackend.nim`.

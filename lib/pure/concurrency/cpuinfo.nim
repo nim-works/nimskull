@@ -39,12 +39,6 @@ when defined(macosx) or defined(bsd):
               a: var csize_t, b: pointer, c: csize_t): cint {.
               importc: "sysctl", nodecl.}
 
-when defined(genode):
-  include genode/env
-
-  proc affinitySpaceTotal(env: GenodeEnvPtr): cuint {.
-    importcpp: "@->cpu().affinity_space().total()".}
-
 when defined(haiku):
   type
     SystemInfo {.importc: "system_info", header: "<OS.h>".} = object
@@ -78,8 +72,6 @@ proc countProcessors*(): int {.rtl, extern: "ncpi$1".} =
   elif defined(irix):
     var SC_NPROC_ONLN {.importc: "_SC_NPROC_ONLN", header: "<unistd.h>".}: cint
     result = sysconf(SC_NPROC_ONLN)
-  elif defined(genode):
-    result = runtimeEnv.affinitySpaceTotal().int
   elif defined(haiku):
     var sysinfo: SystemInfo
     if getSystemInfo(addr sysinfo) == 0:

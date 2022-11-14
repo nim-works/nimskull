@@ -7,7 +7,7 @@ init_order2
 init_order1
 main
 '''
-  targets: c cpp js vm
+  targets: c js vm
 """
 
 # `minit_order1` imports `minit_order2` which imports `minit_order1` again,

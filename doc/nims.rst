@@ -159,7 +159,7 @@ Task          Description
 =========     ===================================================
 `help`        List all the available NimScript tasks along with their docstrings.
 `build`       Build the project with the required
-              backend (`c`:option:, `cpp`:option: or `js`:option:).
+              backend (`c`:option:, `js`:option: or `vm`:option:).
 `tests`       Runs the tests belonging to the project.
 `bench`       Runs benchmarks belonging to the project.
 =========     ===================================================

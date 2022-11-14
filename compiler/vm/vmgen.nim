@@ -1016,9 +1016,6 @@ proc genBinaryABCD(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode) =
   c.freeTemp(tmp2)
   c.freeTemp(tmp3)
 
-template sizeOfLikeMsg(name): string =
-  "'$1' requires '.importc' types to be '.completeStruct'" % [name]
-
 proc genNarrow(c: var TCtx; n: PNode; dest: TDest) =
   let t = skipTypes(n.typ, abstractVar-{tyTypeDesc})
   # uint is uint64 in the VM, we we only need to mask the result for

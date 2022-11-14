@@ -2022,7 +2022,6 @@ proc userConvMatch(c: PContext, m: var TCandidate, f, a: PType,
                   copyTree(arg))
 
       if dest.kind in {tyVar, tyLent}:
-        dest.flags.incl tfVarIsPtr
         result = newDeref(result)
 
       inc(m.convMatches)

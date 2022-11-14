@@ -81,7 +81,7 @@
 ##   ``index`` [cmp:Sphinx]_
 ## * predefined roles
 ##   - ``:nim:`` (default), ``:c:`` (C programming language),
-##     ``:python:``, ``:yaml:``, ``:java:``, ``:cpp:`` (C++), ``:csharp`` (C#).
+##     ``:python:``, ``:yaml:``, ``:java:``, ``:csharp`` (C#).
 ##     That is every language that `highlite <highlite.html>`_ supports.
 ##     They turn on appropriate syntax highlighting in inline code.
 ##
@@ -584,7 +584,7 @@ proc whichRoleAux(sym: string): RstNodeKind =
   # literal and code are the same in our implementation
   of "code": result = rnInlineLiteral
   of "program", "option", "tok": result = rnCodeFragment
-  # c++ currently can be spelled only as cpp, c# only as csharp
+  # c# currently can be spelled only as csharp
   elif getSourceLanguage(r) != langNone:
     result = rnInlineCode
   else:  # unknown role
@@ -1210,8 +1210,7 @@ proc toInlineCode(n: PRstNode, language: string): PRstNode =
   result = newRstNode(rnInlineCode, info=n.info)
   let args = newRstNode(rnDirArg)
   var lang = language
-  if language == "cpp": lang = "c++"
-  elif language == "csharp": lang = "c#"
+  if language == "csharp": lang = "c#"
   args.add newLeaf(lang)
   result.add args
   result.add PRstNode(nil)

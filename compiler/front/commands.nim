@@ -169,8 +169,7 @@ const optNames = @[
   "context", "usages", "defusages", "stdout", "filenames", "processing",
   "unitsep", "listfullpaths", "spellsuggest", "declaredlocs",
   "dynliboverride", "dynliboverrideall", "experimental", "legacy",
-  "nocppexceptions", "exceptions", "cppdefine", "seqsv2",
-  "stylecheck", "showallmismatches", "cppcompiletonamespace",
+  "exceptions", "cppdefine", "seqsv2", "stylecheck", "showallmismatches",
   "docinternal", "multimethods", "expandmacro", "expandarc", "useversion",
   "benchmarkvm", "profilevm", "sinkinference", "cursorinference", "panics",
   "sourcemap", "deepcopy", "nilseqs",
@@ -364,7 +363,7 @@ const gcNames = @[
 
 
 const cmdNames = @[
-  "c", "cc", "compile", "compiletoc", "cpp", "compiletocpp", "objc",
+  "c", "cc", "compile", "compiletoc",
   "compiletooc", "js", "compiletojs", "r", "run", "check", "e",
   "doc2", "doc", "doc2tex", "rst2html", "rst2tex", "jsondoc2",
   "jsondoc", "ctags", "buildindex", "gendepend", "dump", "parse", "rod",
@@ -425,7 +424,7 @@ proc testCompileOptionArg*(conf: ConfigRef; switch, arg: string, info: TLineInfo
     result = isDynlibOverride(conf, arg)
   of "exceptions":
     case arg.normalize
-    of "cpp": result = conf.exc == excCpp
+    of "native": result = conf.exc == excNative
     of "setjmp": result = conf.exc == excSetjmp
     of "quirky": result = conf.exc == excQuirky
     of "goto": result = conf.exc == excGoto
@@ -434,7 +433,7 @@ proc testCompileOptionArg*(conf: ConfigRef; switch, arg: string, info: TLineInfo
         kind: rextUnexpectedValue,
         cmdlineSwitch: "exceptions",
         cmdlineProvided: arg,
-        cmdlineAllowed: @["cpp", "setjmp", "quirky", "goto"]))
+        cmdlineAllowed: @["native", "setjmp", "quirky", "goto"]))
 
   else: invalidCmdLineOption(conf, passCmd1, switch, info)
 
@@ -591,8 +590,6 @@ proc parseCommand*(command: string): Command =
   # NOTE when adding elements to this list, sync with `cmdNames` const
   case command.normalize
   of "c", "cc", "compile", "compiletoc": cmdCompileToC
-  of "cpp", "compiletocpp": cmdCompileToCpp
-  of "objc", "compiletooc": cmdCompileToOC
   of "js", "compiletojs": cmdCompileToJS
   of "vm", "compiletovm": cmdCompileToVM
   of "r": cmdCrun
@@ -621,8 +618,6 @@ proc setCmd*(conf: ConfigRef, cmd: Command) =
   conf.cmd = cmd
   case cmd
   of cmdCompileToC, cmdCrun, cmdTcc: conf.backend = backendC
-  of cmdCompileToCpp: conf.backend = backendCpp
-  of cmdCompileToOC: conf.backend = backendObjc
   of cmdCompileToJS: conf.backend = backendJs
   of cmdCompileToVM: conf.backend = backendNimVm
   else: discard
@@ -731,7 +726,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     let backend = parseEnum(arg.normalize, TBackend.default)
     if backend == TBackend.default:
       conf.localReport(
-        info, invalidSwitchValue @["c", "cpp", "js", "objc"])
+        info, invalidSwitchValue @["c", "js", "vm"])
 
     conf.backend = backend
   of "doccmd": conf.docCmd = arg
@@ -792,7 +787,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
         if pass in {passCmd2, passPP}:
           defineSymbol(conf, "nimSeqsV2")
           defineSymbol(conf, "nimV2")
-        if conf.exc == excNone and conf.backend != backendCpp:
+        if conf.exc in {excNone, excNative}:
           conf.exc = excGoto
       of "orc":
         conf.selectedGC = gcOrc
@@ -803,7 +798,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
         if pass in {passCmd2, passPP}:
           defineSymbol(conf, "nimSeqsV2")
           defineSymbol(conf, "nimV2")
-        if conf.exc == excNone and conf.backend != backendCpp:
+        if conf.exc in {excNone, excNative}:
           conf.exc = excGoto
       of "hooks":
         conf.selectedGC = gcHooks
@@ -1186,18 +1181,14 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
         info, invalidSwitchValue(
           getEnumNames({low(LegacyFeature) .. high(LegacyFeature)}),
           "unknown obsolete feature"))
-  of "nocppexceptions":
-    expectNoArg(conf, switch, arg, pass, info)
-    conf.exc = low(ExceptionSystem)
-    defineSymbol(conf, "noCppExceptions")
   of "exceptions":
     case arg.normalize
-    of "cpp": conf.exc = excCpp
+    of "native": conf.exc = excNative
     of "setjmp": conf.exc = excSetjmp
     of "quirky": conf.exc = excQuirky
     of "goto": conf.exc = excGoto
     else:
-      conf.localReport(info, invalidSwitchValue @["cpp", "setjmp", "quirky", "goto"])
+      conf.localReport(info, invalidSwitchValue @["native", "setjmp", "quirky", "goto"])
   of "cppdefine":
     expectArg(conf, switch, arg, pass, info)
     if conf != nil:
@@ -1221,12 +1212,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
         info, invalidSwitchValue @["off", "hint", "error", "usages"])
   of "showallmismatches":
     processOnOffSwitchG(conf, {optShowAllMismatches}, arg, pass, info, switch)
-  of "cppcompiletonamespace":
-    if arg.len > 0:
-      conf.cppCustomNamespace = arg
-    else:
-      conf.cppCustomNamespace = "Nim"
-    defineSymbol(conf, "cppCompileToNamespace", conf.cppCustomNamespace)
   of "docinternal":
     processOnOffSwitchG(conf, {optDocInternal}, arg, pass, info, switch)
   of "multimethods":
