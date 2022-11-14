@@ -46,7 +46,7 @@ proc nimLoadLibraryError(path: string) =
   cstderr.rawWrite("\n")
   quit(1)
 
-proc procAddrError(name: cstring) {.compilerproc, nonReloadable, hcrInline.} =
+proc procAddrError(name: cstring) {.compilerproc.} =
   # carefully written to avoid memory allocation:
   cstderr.rawWrite("could not import: ")
   cstderr.rawWrite(name)

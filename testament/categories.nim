@@ -52,9 +52,6 @@ proc runBasicDLLTest(c, r: var TResults, cat: Category, options: string) =
   var test2 = makeTest("tests/dll/server.nim", options & " --threads:on" & rpath, cat)
   test2.spec.action = actionCompile
   testSpec c, test2
-  var test3 = makeTest("lib/nimhcr.nim", options & " --outdir:tests/dll" & rpath, cat)
-  test3.spec.action = actionCompile
-  testSpec c, test3
   var test4 = makeTest("tests/dll/visibility.nim", options & " --app:lib" & rpath, cat)
   test4.spec.action = actionCompile
   testSpec c, test4
@@ -70,7 +67,6 @@ proc runBasicDLLTest(c, r: var TResults, cat: Category, options: string) =
     defer: putEnv(libpathenv, libpath)
 
   testSpec r, makeTest("tests/dll/client.nim", options & " --threads:on" & rpath, cat)
-  testSpec r, makeTest("tests/dll/nimhcr_unit.nim", options & rpath, cat)
   testSpec r, makeTest("tests/dll/visibility.nim", options & rpath, cat)
 
   if "boehm" notin options:

@@ -69,20 +69,6 @@ proc genVarTuple(p: BProc, n: PNode) =
       genStmts(p, lowerTupleUnpacking(p.module.g.graph, n, p.module.idgen, p.prc))
       return
 
-  # check only the first son
-  var forHcr = treatGlobalDifferentlyForHCR(p.module, n[0].sym)
-  let hcrCond = if forHcr: getTempName(p.module) else: nil
-  var hcrGlobals: seq[tuple[loc: TLoc, tp: Rope]]
-  # determine if the tuple is constructed at top-level scope or inside of a block (if/while/block)
-  let isGlobalInBlock = forHcr and p.blocks.len > 2
-  # do not close and reopen blocks if this is a 'global' but inside of a block (if/while/block)
-  forHcr = forHcr and not isGlobalInBlock
-
-  if forHcr:
-    # check with the boolean if the initializing code for the tuple should be ran
-    lineCg(p, cpsStmts, "if ($1)$n", [hcrCond])
-    startBlock(p)
-
   genLineDir(p, n)
   initLocExpr(p, n[^1], tup)
   var t = tup.t.skipTypes(abstractInst)
@@ -95,7 +81,7 @@ proc genVarTuple(p: BProc, n: PNode) =
       assignGlobalVar(p, vn, nil)
       genObjectInit(p, cpsInit, v.typ, v.loc, constructObj)
       traverseProc = getTraverseProc(p, v)
-      if traverseProc != nil and not p.hcrOn:
+      if traverseProc != nil:
         registerTraverseProc(p, v, traverseProc)
     else:
       assignLocalVar(p, vn)
@@ -107,21 +93,6 @@ proc genVarTuple(p: BProc, n: PNode) =
       p.config.internalAssert(t.n[i].kind == nkSym, n.info, "genVarTuple")
       field.r = "$1.$2" % [rdLoc(tup), mangleRecFieldName(p.module, t.n[i].sym)]
     putLocIntoDest(p, v.loc, field)
-    if forHcr or isGlobalInBlock:
-      hcrGlobals.add((loc: v.loc, tp: if traverseProc == nil: ~"NULL" else: traverseProc))
-
-  if forHcr:
-    # end the block where the tuple gets initialized
-    endBlock(p)
-  if forHcr or isGlobalInBlock:
-    # insert the registration of the globals for the different parts of the tuple at the
-    # start of the current scope (after they have been iterated) and init a boolean to
-    # check if any of them is newly introduced and the initializing code has to be ran
-    lineCg(p, cpsLocals, "NIM_BOOL $1 = NIM_FALSE;$n", [hcrCond])
-    for curr in hcrGlobals:
-      lineCg(p, cpsLocals, "$1 |= hcrRegisterGlobal($4, \"$2\", sizeof($3), $5, (void**)&$2);$N",
-              [hcrCond, curr.loc.r, rdLoc(curr.loc), getModuleDllPath(p.module, n[0].sym), curr.tp])
-
 
 proc loadInto(p: BProc, le, ri: PNode, a: var TLoc) {.inline.} =
   if ri.kind in nkCallKinds and (ri[0].kind != nkSym or
@@ -280,7 +251,7 @@ proc genGotoVar(p: BProc; value: PNode) =
 proc genBracedInit(p: BProc, n: PNode; isConst: bool; optionalType: PType): Rope
 
 proc potentialValueInit(p: BProc; v: PSym; value: PNode): Rope =
-  if lfDynamicLib in v.loc.flags or sfThread in v.flags or p.hcrOn:
+  if lfDynamicLib in v.loc.flags or sfThread in v.flags:
     result = nil
   elif sfGlobal in v.flags and value != nil and isDeepConstExpr(value, p.module.compileToCpp) and
       p.withinLoop == 0 and not containsGarbageCollectedRef(v.typ):
@@ -327,7 +298,7 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
     if sfExportc in v.flags and p.module.g.generatedHeader != nil:
       genVarPrototype(p.module.g.generatedHeader, vn)
     traverseProc = getTraverseProc(p, v)
-    if traverseProc != nil and not p.hcrOn:
+    if traverseProc != nil:
       registerTraverseProc(p, v, traverseProc)
   else:
     let imm = isAssignedImmediately(p.config, value)
@@ -359,31 +330,12 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
     assignLocalVar(p, vn)
     initLocalVar(p, v, imm)
 
-  if traverseProc == nil: traverseProc = ~"NULL"
-  # If the var is in a block (control flow like if/while or a block) in global scope just
-  # register the so called "global" so it can be used later on. There is no need to close
-  # and reopen of if (nim_hcr_do_init_) blocks because we are in one already anyway.
-  var forHcr = treatGlobalDifferentlyForHCR(p.module, v)
-  if forHcr and targetProc.blocks.len > 3 and v.owner.kind == skModule:
-    # put it in the locals section - mainly because of loops which
-    # use the var in a call to resetLoc() in the statements section
-    lineCg(targetProc, cpsLocals, "hcrRegisterGlobal($3, \"$1\", sizeof($2), $4, (void**)&$1);$n",
-           [v.loc.r, rdLoc(v.loc), getModuleDllPath(p.module, v), traverseProc])
-    # nothing special left to do later on - let's avoid closing and reopening blocks
-    forHcr = false
+  if traverseProc == nil:
+    traverseProc = ~"NULL"
 
-  # we close and reopen the global if (nim_hcr_do_init_) blocks in the main Init function
-  # for the module so we can have globals and top-level code be interleaved and still
-  # be able to re-run it but without the top level code - just the init of globals
-  if forHcr:
-    lineCg(targetProc, cpsStmts, "if (hcrRegisterGlobal($3, \"$1\", sizeof($2), $4, (void**)&$1))$N",
-           [v.loc.r, rdLoc(v.loc), getModuleDllPath(p.module, v), traverseProc])
-    startBlock(targetProc)
   if value.kind != nkEmpty and valueAsRope == nil:
     genLineDir(targetProc, vn)
     loadInto(targetProc, vn, value, v.loc)
-  if forHcr:
-    endBlock(targetProc)
 
 proc genSingleVar(p: BProc, a: PNode) =
   let v = a[0].sym

@@ -529,11 +529,6 @@ proc `..`*[T](b: sink T): HSlice[int, T]
   ##   echo a[.. 2] # @[10, 20, 30]
   result = HSlice[int, T](a: 0, b: b)
 
-when defined(hotCodeReloading):
-  {.pragma: hcrInline, inline.}
-else:
-  {.pragma: hcrInline.}
-
 {.push profiler: off.}
 let nimvm* {.magic: "Nimvm", compileTime.}: bool = false
   ## May be used only in `when` expression.
@@ -3128,9 +3123,6 @@ export widestrs
 
 import system/io
 export io
-
-when not defined(createNimHcr) and not isNimVmTarget:
-  include nimhcr
 
 when notJSnotNims and not defined(nimSeqsV2):
   proc prepareMutation*(s: var string) {.inline.} =

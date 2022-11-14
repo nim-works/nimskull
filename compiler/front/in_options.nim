@@ -50,7 +50,6 @@ type
     optMixedMode              ## true if some module triggered C++ codegen
     optDeclaredLocs           ## show declaration locations in messages
     optNoNimblePath
-    optHotCodeReloading
     optDynlibOverrideAll
     optSeqDestructors         ## active if the implementation uses the new
                               ## string/seq implementation based on destructors

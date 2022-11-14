@@ -86,9 +86,6 @@ when not declared(dynlib.libCandidates):
 when options.hasTinyCBackend:
   import backend/tccgen
 
-proc hcrOn(m: BModule): bool = m.config.hcrOn
-proc hcrOn(p: BProc): bool = p.module.config.hcrOn
-
 proc addForwardedProc(m: BModule, prc: PSym) =
   m.g.forwardedProcs.add(prc)
 
@@ -136,17 +133,6 @@ proc useHeader(m: BModule, sym: PSym) =
 proc cgsym(m: BModule, name: string): Rope
 
 proc getCFile(m: BModule): AbsoluteFile
-
-proc getModuleDllPath(m: BModule): Rope =
-  let (dir, name, ext) = splitFile(getCFile(m))
-  let filename = strutils.`%`(platform.OS[m.g.config.target.targetOS].dllFrmt, [name & ext])
-  result = makeCString(dir.string & "/" & filename)
-
-proc getModuleDllPath(m: BModule, module: int): Rope =
-  result = getModuleDllPath(m.g.modules[module])
-
-proc getModuleDllPath(m: BModule, s: PSym): Rope =
-  result = getModuleDllPath(m.g.modules[s.itemId.module])
 
 import macros
 
@@ -582,17 +568,10 @@ include ccgthreadvars
 
 proc varInDynamicLib(m: BModule, sym: PSym)
 
-proc treatGlobalDifferentlyForHCR(m: BModule, s: PSym): bool =
-  return m.hcrOn and {sfThread, sfGlobal} * s.flags == {sfGlobal} and
-      ({lfNoDecl, lfHeader} * s.loc.flags == {})
-      # and s.owner.kind == skModule # owner isn't always a module (global pragma on local var)
-      # and s.loc.k == locGlobalVar  # loc isn't always initialized when this proc is used
-
 proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
   let s = n.sym
   if s.loc.k == locNone:
     fillLoc(s.loc, locGlobalVar, n, mangleName(p.module, s), OnHeap)
-    if treatGlobalDifferentlyForHCR(p.module, s): incl(s.loc.flags, lfIndirect)
 
   if lfDynamicLib in s.loc.flags:
     var q = findPendingModule(p.module, s)
@@ -614,13 +593,11 @@ proc assignGlobalVar(p: BProc, n: PNode; value: Rope) =
       if s.constraint.isNil:
         if s.kind in {skLet, skVar, skField, skForVar} and s.alignment > 0:
           decl.addf "NIM_ALIGN($1) ", [rope(s.alignment)]
-        if p.hcrOn: decl.add("static ")
-        elif sfImportc in s.flags: decl.add("extern ")
+        if sfImportc in s.flags: decl.add("extern ")
         elif lfExportLib in s.loc.flags: decl.add("N_LIB_EXPORT_VAR ")
         else: decl.add("N_LIB_PRIVATE ")
         if s.kind == skLet and value != nil: decl.add("NIM_CONST ")
         decl.add(td)
-        if p.hcrOn: decl.add("*")
         if sfRegister in s.flags: decl.add(" register")
         if sfVolatile in s.flags: decl.add(" volatile")
         if sfNoalias in s.flags: decl.add(" NIM_NOALIAS")
@@ -849,8 +826,6 @@ proc cgsym(m: BModule, name: string): Rope =
     localReport(m.config, reportStr(rsemSystemNeeds, name))
 
   result = sym.loc.r
-  if m.hcrOn and sym != nil and sym.kind in {skProc..skIterator}:
-    result.addActualSuffixForHCR(m.module, sym)
 
 proc generateHeaders(m: BModule) =
   m.s[cfsHeaders].add("\L#include \"nimbase.h\"\L")
@@ -1039,14 +1014,6 @@ proc allPathsAsgnResult(n: PNode): InitResultEnum =
     for i in 0..<n.safeLen:
       allPathsInBranch(n[i])
 
-proc getProcTypeCast(m: BModule, prc: PSym): Rope =
-  result = getTypeDesc(m, prc.loc.t)
-  if prc.typ.callConv == ccClosure:
-    var rettype, params: Rope
-    var check = initIntSet()
-    genProcParams(m, prc.typ, rettype, params, check)
-    result = "$1(*)$2" % [rettype, params]
-
 proc genProcBody(p: BProc; procBody: PNode) =
   genStmts(p, procBody) # modifies p.locals, p.init, etc.
   if {nimErrorFlagAccessed, nimErrorFlagDeclared} * p.flags == {nimErrorFlagAccessed}:
@@ -1119,11 +1086,6 @@ proc genProcAux(m: BModule, prc: PSym) =
     generatedProc.add ropecg(p.module, "$1 {$n$2$3$4}$N$N",
                          [header, p.s(cpsLocals), p.s(cpsInit), p.s(cpsStmts)])
   else:
-    if m.hcrOn and isReloadable(m, prc):
-      # Add forward declaration for "_actual"-suffixed functions defined in the same module (or inline).
-      # This fixes the use of methods and also the case when 2 functions within the same module
-      # call each other using directly the "_actual" versions (an optimization) - see issue #11608
-      m.s[cfsProcHeaders].addf("$1;\n", [header])
     generatedProc.add ropecg(p.module, "$1 {$n", [header])
     if optStackTrace in prc.options:
       generatedProc.add(p.s(cpsLocals))
@@ -1144,9 +1106,6 @@ proc genProcAux(m: BModule, prc: PSym) =
     generatedProc.add(returnStmt)
     generatedProc.add(~"}$N")
   m.s[cfsProcs].add(generatedProc)
-  if isReloadable(m, prc):
-    m.s[cfsDynLibInit].addf("\t$1 = ($3) hcrRegisterProc($4, \"$1\", (void*)$2);$n",
-         [prc.loc.r, prc.loc.r & "_actual", getProcTypeCast(m, prc), getModuleDllPath(m, prc)])
 
 proc requiresExternC(m: BModule; sym: PSym): bool {.inline.} =
   result = (sfCompileToCpp in m.module.flags and
@@ -1164,15 +1123,12 @@ proc genProcPrototype(m: BModule, sym: PSym) =
     if sym.itemId.module != m.module.position and
         not containsOrIncl(m.declaredThings, sym.id):
       m.s[cfsVars].add(ropecg(m, "$1 $2 $3;$n",
-                        [(if isReloadable(m, sym): "static" else: "extern"),
+                        ["extern",
                         getTypeDesc(m, sym.loc.t), mangleDynLibProc(sym)]))
-      if isReloadable(m, sym):
-        m.s[cfsDynLibInit].addf("\t$1 = ($2) hcrGetProc($3, \"$1\");$n",
-             [mangleDynLibProc(sym), getTypeDesc(m, sym.loc.t), getModuleDllPath(m, sym)])
+
   elif not containsOrIncl(m.declaredProtos, sym.id):
-    let asPtr = isReloadable(m, sym)
-    var header = genProcHeader(m, sym, asPtr)
-    if not asPtr:
+    var header = genProcHeader(m, sym)
+    block:
       if isNoReturn(m, sym) and hasDeclspec in extccomp.CC[m.config.cCompiler].props:
         header = "__declspec(noreturn) " & header
       if sym.typ.callConv != ccInline and requiresExternC(m, sym):
@@ -1218,30 +1174,13 @@ proc genProcNoForward(m: BModule, prc: PSym) =
     genProcPrototype(m, prc)
     if q != nil and not containsOrIncl(q.declaredThings, prc.id):
       symInDynamicLib(q, prc)
-      # register the procedure even though it is in a different dynamic library and will not be
-      # reloadable (and has no _actual suffix) - other modules will need to be able to get it through
-      # the hcr dynlib (also put it in the DynLibInit section - right after it gets loaded)
-      if isReloadable(q, prc):
-        q.s[cfsDynLibInit].addf("\t$1 = ($2) hcrRegisterProc($3, \"$1\", (void*)$1);$n",
-            [prc.loc.r, getTypeDesc(q, prc.loc.t), getModuleDllPath(m, q.module)])
     else:
       symInDynamicLibPartial(m, prc)
   elif sfImportc notin prc.flags:
-    var q = findPendingModule(m, prc)
+    let q = findPendingModule(m, prc)
     fillProcLoc(q, prc.ast[namePos])
-    # generate a getProc call to initialize the pointer for this
-    # externally-to-the-current-module defined proc, also important
-    # to do the declaredProtos check before the call to genProcPrototype
-    if isReloadable(m, prc) and prc.id notin m.declaredProtos and
-      q != nil and q.module.id != m.module.id:
-      m.s[cfsDynLibInit].addf("\t$1 = ($2) hcrGetProc($3, \"$1\");$n",
-           [prc.loc.r, getProcTypeCast(m, prc), getModuleDllPath(m, prc)])
     genProcPrototype(m, prc)
     if q != nil and not containsOrIncl(q.declaredThings, prc.id):
-      # make sure there is a "prototype" in the external module
-      # which will actually become a function pointer
-      if isReloadable(m, prc):
-        genProcPrototype(q, prc)
       genProcAux(q, prc)
   else:
     fillProcLoc(m, prc.ast[namePos])
@@ -1281,7 +1220,6 @@ proc genVarPrototype(m: BModule, n: PNode) =
   let sym = n.sym
   useHeader(m, sym)
   fillLoc(sym.loc, locGlobalVar, n, mangleName(m, sym), OnHeap)
-  if treatGlobalDifferentlyForHCR(m, sym): incl(sym.loc.flags, lfIndirect)
 
   if (lfNoDecl in sym.loc.flags) or contains(m.declaredThings, sym.id):
     return
@@ -1294,17 +1232,13 @@ proc genVarPrototype(m: BModule, n: PNode) =
       incl(m.declaredThings, sym.id)
       if sym.kind in {skLet, skVar, skField, skForVar} and sym.alignment > 0:
         m.s[cfsVars].addf "NIM_ALIGN($1) ", [rope(sym.alignment)]
-      m.s[cfsVars].add(if m.hcrOn: "static " else: "extern ")
+      m.s[cfsVars].add("extern ")
       m.s[cfsVars].add(getTypeDesc(m, sym.loc.t, skVar))
-      if m.hcrOn: m.s[cfsVars].add("*")
       if lfDynamicLib in sym.loc.flags: m.s[cfsVars].add("*")
       if sfRegister in sym.flags: m.s[cfsVars].add(" register")
       if sfVolatile in sym.flags: m.s[cfsVars].add(" volatile")
       if sfNoalias in sym.flags: m.s[cfsVars].add(" NIM_NOALIAS")
       m.s[cfsVars].addf(" $1;$n", [sym.loc.r])
-      if m.hcrOn: m.initProc.procSec(cpsLocals).addf(
-        "\t$1 = ($2*)hcrGetGlobal($3, \"$1\");$n", [sym.loc.r,
-        getTypeDesc(m, sym.loc.t, skVar), getModuleDllPath(m, sym)])
 
 proc addNimDefines(result: var Rope; conf: ConfigRef) {.inline.} =
   result.addf("#define NIM_INTBITS $1\L", [
@@ -1331,7 +1265,6 @@ proc getCopyright(conf: ConfigRef; cfile: Cfile): Rope =
 
 proc getFileHeader(conf: ConfigRef; cfile: Cfile): Rope =
   result = getCopyright(conf, cfile)
-  if conf.hcrOn: result.add("#define NIM_HOT_CODE_RELOADING\L")
   addNimDefines(result, conf)
 
 proc getSomeNameForModule(m: PSym): Rope =
@@ -1343,8 +1276,7 @@ proc getSomeNameForModule(m: PSym): Rope =
   result.add m.name.s.mangle
 
 proc getSomeInitName(m: BModule, suffix: string): Rope =
-  if not m.hcrOn:
-    result = getSomeNameForModule(m.module)
+  result = getSomeNameForModule(m.module)
   result.add suffix
 
 proc getInitName(m: BModule): Rope =
@@ -1355,9 +1287,6 @@ proc getInitName(m: BModule): Rope =
     result = getSomeInitName(m, "Init000")
 
 proc getDatInitName(m: BModule): Rope = getSomeInitName(m, "DatInit000")
-proc getHcrInitName(m: BModule): Rope = getSomeInitName(m, "HcrInit000")
-
-proc hcrGetProcLoadCode(m: BModule, sym, prefix, handle, getProcFunc: string): Rope
 
 proc genMainProc(m: BModule) =
   ## this function is called in cgenWriteModules after all modules are closed,
@@ -1365,25 +1294,7 @@ proc genMainProc(m: BModule) =
   ## into other modules, only simple rope manipulations are allowed
 
   var preMainCode: Rope
-  if m.hcrOn:
-    proc loadLib(handle: string, name: string): Rope =
-      let prc = magicsys.getCompilerProc(m.g.graph, name)
-      assert prc != nil
-      let n = newStrNode(nkStrLit, prc.annex.path.strVal)
-      n.info = prc.annex.path.info
-      appcg(m, result, "\tif (!($1 = #nimLoadLibrary($2)))$N" &
-                       "\t\t#nimLoadLibraryError($2);$N",
-                       [handle, genStringLiteral(m, n)])
-
-    preMainCode.add(loadLib("hcr_handle", "hcrGetProc"))
-    preMainCode.add("\tvoid* rtl_handle;\L")
-    preMainCode.add(loadLib("rtl_handle", "nimGC_setStackBottom"))
-    preMainCode.add(hcrGetProcLoadCode(m, "nimGC_setStackBottom", "nimrtl_", "rtl_handle", "nimGetProcAddr"))
-    preMainCode.add("\tinner = PreMain;\L")
-    preMainCode.add("\tinitStackBottomWith_actual((void *)&inner);\L")
-    preMainCode.add("\t(*inner)();\L")
-  else:
-    preMainCode.add("\tPreMain();\L")
+  preMainCode.add("\tPreMain();\L")
 
   const
     # not a big deal if we always compile these 3 global vars... makes the HCR code easier
@@ -1529,7 +1440,7 @@ proc genMainProc(m: BModule) =
         m.config.globalOptions * {optGenGuiApp, optGenDynLib} != {}:
       if optGenGuiApp in m.config.globalOptions:
         const otherMain = WinCMain
-        appcg(m, m.s[cfsProcs], otherMain, [if m.hcrOn: "*" else: ""])
+        appcg(m, m.s[cfsProcs], otherMain, [""])
       else:
         const otherMain = WinCDllMain
         appcg(m, m.s[cfsProcs], otherMain, [])
@@ -1544,7 +1455,7 @@ proc genMainProc(m: BModule) =
       appcg(m, m.s[cfsProcs], otherMain, [])
     else:
       const otherMain = PosixCMain
-      appcg(m, m.s[cfsProcs], otherMain, [if m.hcrOn: "*" else: ""])
+      appcg(m, m.s[cfsProcs], otherMain, [""])
 
 
     if m.config.cppCustomNamespace.len > 0:
@@ -1570,7 +1481,7 @@ proc registerInitProcs*(g: BModuleList; m: PSym; flags: set[ModuleBackendFlag]) 
 proc whichInitProcs*(m: BModule): set[ModuleBackendFlag] =
   # called from IC.
   result = {}
-  if m.hcrOn or m.preInitProc.s(cpsInit).len > 0 or m.preInitProc.s(cpsStmts).len > 0:
+  if m.preInitProc.s(cpsInit).len > 0 or m.preInitProc.s(cpsStmts).len > 0:
     result.incl HasModuleInitProc
   for i in cfsTypeInit1..cfsDynLibInit:
     if m.s[i].len != 0:
@@ -1581,50 +1492,6 @@ proc registerModuleToMain(g: BModuleList; m: BModule) =
   let
     init = m.getInitName
     datInit = m.getDatInitName
-
-  if m.hcrOn:
-    var hcrModuleMeta = "$nN_LIB_PRIVATE const char* hcr_module_list[] = {$n" % []
-    let systemModulePath = getModuleDllPath(m, g.modules[g.graph.config.m.systemFileIdx.int].module)
-    let mainModulePath = getModuleDllPath(m, m.module)
-    if sfMainModule in m.module.flags:
-      hcrModuleMeta.addf("\t$1,$n", [systemModulePath])
-    g.graph.importDeps.withValue(FileIndex(m.module.position), deps):
-      for curr in deps[]:
-        hcrModuleMeta.addf("\t$1,$n", [getModuleDllPath(m, g.modules[curr.int].module)])
-    hcrModuleMeta.addf("\t\"\"};$n", [])
-    hcrModuleMeta.addf("$nN_LIB_EXPORT N_NIMCALL(void**, HcrGetImportedModules)() { return (void**)hcr_module_list; }$n", [])
-    hcrModuleMeta.addf("$nN_LIB_EXPORT N_NIMCALL(char*, HcrGetSigHash)() { return \"$1\"; }$n$n",
-                          [($sigHash(m.module)).rope])
-    if sfMainModule in m.module.flags:
-      g.mainModProcs.add(hcrModuleMeta)
-      g.mainModProcs.addf("static void* hcr_handle;$N", [])
-      g.mainModProcs.addf("N_LIB_EXPORT N_NIMCALL(void, $1)(void);$N", [init])
-      g.mainModProcs.addf("N_LIB_EXPORT N_NIMCALL(void, $1)(void);$N", [datInit])
-      g.mainModProcs.addf("N_LIB_EXPORT N_NIMCALL(void, $1)(void*, N_NIMCALL_PTR(void*, getProcAddr)(void*, char*));$N", [m.getHcrInitName])
-      g.mainModProcs.addf("N_LIB_EXPORT N_NIMCALL(void, HcrCreateTypeInfos)(void);$N", [])
-      g.mainModInit.addf("\t$1();$N", [init])
-      g.otherModsInit.addf("\thcrInit((void**)hcr_module_list, $1, $2, $3, hcr_handle, nimGetProcAddr);$n",
-                            [mainModulePath, systemModulePath, datInit])
-      g.mainDatInit.addf("\t$1(hcr_handle, nimGetProcAddr);$N", [m.getHcrInitName])
-      g.mainDatInit.addf("\thcrAddModule($1);\n", [mainModulePath])
-      g.mainDatInit.addf("\tHcrCreateTypeInfos();$N", [])
-      # nasty nasty hack to get the command line functionality working with HCR
-      # register the 2 variables on behalf of the os module which might not even
-      # be loaded (in which case it will get collected but that is not a problem)
-      # EDIT: indeed, this hack, in combination with another un-necessary one
-      # (`makeCString` was doing line wrap of string litterals) was root cause for
-      # bug #16265.
-      let osModulePath = ($systemModulePath).replace("stdlib_system", "stdlib_os").rope
-      g.mainDatInit.addf("\thcrAddModule($1);\n", [osModulePath])
-      g.mainDatInit.add("\tint* cmd_count;\n")
-      g.mainDatInit.add("\tchar*** cmd_line;\n")
-      g.mainDatInit.addf("\thcrRegisterGlobal($1, \"cmdCount\", sizeof(cmd_count), NULL, (void**)&cmd_count);$N", [osModulePath])
-      g.mainDatInit.addf("\thcrRegisterGlobal($1, \"cmdLine\", sizeof(cmd_line), NULL, (void**)&cmd_line);$N", [osModulePath])
-      g.mainDatInit.add("\t*cmd_count = cmdCount;\n")
-      g.mainDatInit.add("\t*cmd_line = cmdLine;\n")
-    else:
-      m.s[cfsInitProc].add(hcrModuleMeta)
-    return
 
   if m.s[cfsDatInitProc].len > 0:
     g.mainModProcs.addf("N_LIB_PRIVATE N_NIMCALL(void, $1)(void);$N", [datInit])
@@ -1653,14 +1520,15 @@ proc genDatInitCode(m: BModule) =
   ## it means raising dependency on the symbols is too late as it will not propagate
   ## into other modules, only simple rope manipulations are allowed
 
-  var moduleDatInitRequired = m.hcrOn
+  var moduleDatInitRequired = false
 
   var prc = "$1 N_NIMCALL(void, $2)(void) {$N" %
-    [rope(if m.hcrOn: "N_LIB_EXPORT" else: "N_LIB_PRIVATE"), getDatInitName(m)]
+    [rope("N_LIB_PRIVATE"), getDatInitName(m)]
 
   # we don't want to break into such init code - could happen if a line
   # directive from a function written by the user spills after itself
   genCLineDir(prc, "generated_not_to_break_here", 999999, m.config)
+
 
   for i in cfsTypeInit1..cfsDynLibInit:
     if m.s[i].len != 0:
@@ -1673,59 +1541,29 @@ proc genDatInitCode(m: BModule) =
     m.s[cfsDatInitProc].add(prc)
     #rememberFlag(m.g.graph, m.module, HasDatInitProc)
 
-# Very similar to the contents of symInDynamicLib - basically only the
-# things needed for the hot code reloading runtime procs to be loaded
-proc hcrGetProcLoadCode(m: BModule, sym, prefix, handle, getProcFunc: string): Rope =
-  let prc = magicsys.getCompilerProc(m.g.graph, sym)
-  assert prc != nil
-  fillProcLoc(m, prc.ast[namePos])
-
-  var extname = prefix & sym
-  var tmp = mangleDynLibProc(prc)
-  prc.loc.r = tmp
-  prc.typ.sym = nil
-
-  if not containsOrIncl(m.declaredThings, prc.id):
-    m.s[cfsVars].addf("static $2 $1;$n", [prc.loc.r, getTypeDesc(m, prc.loc.t, skVar)])
-
-  result = "\t$1 = ($2) $3($4, $5);$n" %
-      [tmp, getTypeDesc(m, prc.typ, skVar), getProcFunc.rope, handle.rope, makeCString(prefix & sym)]
-
 proc genInitCode(m: BModule) =
   ## this function is called in cgenWriteModules after all modules are closed,
   ## it means raising dependency on the symbols is too late as it will not propagate
   ## into other modules, only simple rope manipulations are allowed
-  var moduleInitRequired = m.hcrOn
+  var moduleInitRequired = false
   let initname = getInitName(m)
   var prc = "$1 N_NIMCALL(void, $2)(void) {$N" %
-    [rope(if m.hcrOn: "N_LIB_EXPORT" else: "N_LIB_PRIVATE"), initname]
+    [rope("N_LIB_PRIVATE"), initname]
   # we don't want to break into such init code - could happen if a line
   # directive from a function written by the user spills after itself
   genCLineDir(prc, "generated_not_to_break_here", 999999, m.config)
   if m.typeNodes > 0:
-    if m.hcrOn:
-      appcg(m, m.s[cfsTypeInit1], "\t#TNimNode* $1;$N", [m.typeNodesName])
-      appcg(m, m.s[cfsTypeInit1], "\thcrRegisterGlobal($3, \"$1_$2\", sizeof(TNimNode) * $2, NULL, (void**)&$1);$N",
-            [m.typeNodesName, m.typeNodes, getModuleDllPath(m, m.module)])
-    else:
-      appcg(m, m.s[cfsTypeInit1], "static #TNimNode $1[$2];$n",
-            [m.typeNodesName, m.typeNodes])
+    appcg(m, m.s[cfsTypeInit1], "static #TNimNode $1[$2];$n",
+          [m.typeNodesName, m.typeNodes])
+
   if m.nimTypes > 0:
     appcg(m, m.s[cfsTypeInit1], "static #TNimType $1[$2];$n",
           [m.nimTypesName, m.nimTypes])
 
-  if m.hcrOn:
-    prc.addf("\tint* nim_hcr_dummy_ = 0;$n" &
-              "\tNIM_BOOL nim_hcr_do_init_ = " &
-                  "hcrRegisterGlobal($1, \"module_initialized_\", 1, NULL, (void**)&nim_hcr_dummy_);$n",
-      [getModuleDllPath(m, m.module)])
-
-  template writeSection(thing: untyped, section: TCProcSection, addHcrGuards = false) =
+  template writeSection(thing: untyped, section: TCProcSection) =
     if m.thing.s(section).len > 0:
       moduleInitRequired = true
-      if addHcrGuards: prc.add("\tif (nim_hcr_do_init_) {\n\n")
       prc.add(m.thing.s(section))
-      if addHcrGuards: prc.add("\n\t} // nim_hcr_do_init_\n")
 
   if m.preInitProc.s(cpsInit).len > 0 or m.preInitProc.s(cpsStmts).len > 0:
     # Give this small function its own scope
@@ -1734,7 +1572,7 @@ proc genInitCode(m: BModule) =
     prc.add(~"\tTFrame FR_; FR_.len = 0;$N")
 
     writeSection(preInitProc, cpsLocals)
-    writeSection(preInitProc, cpsInit, m.hcrOn)
+    writeSection(preInitProc, cpsInit)
     writeSection(preInitProc, cpsStmts)
     prc.addf("}/* preInitProc end */$N", [])
     when false:
@@ -1759,7 +1597,7 @@ proc genInitCode(m: BModule) =
       else:
         prc.add(~"\tTFrame FR_; FR_.len = 0;$N")
 
-    writeSection(initProc, cpsInit, m.hcrOn)
+    writeSection(initProc, cpsInit)
     writeSection(initProc, cpsStmts)
 
     if beforeRetNeeded in m.initProc.flags:
@@ -1780,19 +1618,6 @@ proc genInitCode(m: BModule) =
   # that would lead to a *nesting* of merge sections which the merger does
   # not support. So we add it to another special section: ``cfsInitProc``
 
-  if m.hcrOn:
-    var procsToLoad = @["hcrRegisterProc", "hcrGetProc", "hcrRegisterGlobal", "hcrGetGlobal"]
-
-    m.s[cfsInitProc].addf("N_LIB_EXPORT N_NIMCALL(void, $1)(void* handle, N_NIMCALL_PTR(void*, getProcAddr)(void*, char*)) {$N", [getHcrInitName(m)])
-    if sfMainModule in m.module.flags:
-      # additional procs to load
-      procsToLoad.add("hcrInit")
-      procsToLoad.add("hcrAddModule")
-    # load procs
-    for curr in procsToLoad:
-      m.s[cfsInitProc].add(hcrGetProcLoadCode(m, curr, "", "handle", "getProcAddr"))
-    m.s[cfsInitProc].addf("}$N$N", [])
-
   for i, el in pairs(m.extensionLoaders):
     if el != nil:
       let ex = "NIM_EXTERNC N_NIMCALL(void, nimLoadProcs$1)(void) {$2}$N$N" %
@@ -1805,11 +1630,6 @@ proc genInitCode(m: BModule) =
     #rememberFlag(m.g.graph, m.module, HasModuleInitProc)
 
   genDatInitCode(m)
-
-  if m.hcrOn:
-    m.s[cfsInitProc].addf("N_LIB_EXPORT N_NIMCALL(void, HcrCreateTypeInfos)(void) {$N", [])
-    m.s[cfsInitProc].add(m.hcrCreateTypeInfosProc)
-    m.s[cfsInitProc].addf("}$N$N", [])
 
   registerModuleToMain(m.g, m)
 
@@ -1836,7 +1656,7 @@ proc genModule(m: BModule, cfile: Cfile): Rope =
   if m.s[cfsInitProc].len > 0:
     moduleIsEmpty = false
     result.add(m.s[cfsInitProc])
-  if m.s[cfsDatInitProc].len > 0 or m.hcrOn:
+  if m.s[cfsDatInitProc].len > 0:
     moduleIsEmpty = false
     result.add(m.s[cfsDatInitProc])
 
@@ -1947,25 +1767,6 @@ when false:
     readMergeInfo(getCFile(m), m)
     result = m
 
-proc addHcrInitGuards(p: BProc, n: PNode, inInitGuard: var bool) =
-  if n.kind == nkStmtList:
-    for child in n:
-      addHcrInitGuards(p, child, inInitGuard)
-  else:
-    let stmtShouldExecute = n.kind in {nkVarSection, nkLetSection} or
-                            nfExecuteOnReload in n.flags
-    if inInitGuard:
-      if stmtShouldExecute:
-        endBlock(p)
-        inInitGuard = false
-    else:
-      if not stmtShouldExecute:
-        line(p, cpsStmts, "if (nim_hcr_do_init_)\n")
-        startBlock(p)
-        inInitGuard = true
-
-    genStmts(p, n)
-
 proc genTopLevelStmt*(m: BModule; n: PNode) =
   ## Also called from `ic/cbackend.nim`.
   if passes.skipCodegen(m.config, n): return
@@ -1976,10 +1777,7 @@ proc genTopLevelStmt*(m: BModule; n: PNode) =
   if sfInjectDestructors in m.module.flags:
     transformedN = injectDestructorCalls(m.g.graph, m.idgen, m.module, transformedN)
 
-  if m.hcrOn:
-    addHcrInitGuards(m.initProc, transformedN, m.inHcrInitGuard)
-  else:
-    genProcBody(m.initProc, transformedN)
+  genProcBody(m.initProc, transformedN)
 
 proc myProcess(b: PPassContext, n: PNode): PNode =
   result = n
@@ -2076,24 +1874,7 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
       m.initProc.options = initProcOptions(m)
       genProcBody(m.initProc, n)
 
-    if m.hcrOn:
-      # make sure this is pulled in (meaning hcrGetGlobal() is called for it during init)
-      discard cgsym(m, "programResult")
-      if m.inHcrInitGuard:
-        endBlock(m.initProc)
-
     if sfMainModule in m.module.flags:
-      if m.hcrOn:
-        # pull ("define" since they are inline when HCR is on) these functions in the main file
-        # so it can load the HCR runtime and later pass the library handle to the HCR runtime which
-        # will in turn pass it to the other modules it initializes so they can initialize the
-        # register/get procs so they don't have to have the definitions of these functions as well
-        discard cgsym(m, "nimLoadLibrary")
-        discard cgsym(m, "nimLoadLibraryError")
-        discard cgsym(m, "nimGetProcAddr")
-        discard cgsym(m, "procAddrError")
-        discard cgsym(m, "rawWrite")
-
       # raise dependencies on behalf of genMainProc
       if m.config.target.targetOS != osStandalone and m.config.selectedGC != gcNone:
         discard cgsym(m, "initStackBottomWith")

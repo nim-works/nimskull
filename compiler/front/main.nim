@@ -173,9 +173,7 @@ proc commandCompileToC(graph: ModuleGraph) =
       cgenWriteModules(graph.backend, conf)
   if conf.cmd != cmdTcc and graph.backend != nil:
     extccomp.callCCompiler(conf)
-    # for now we do not support writing out a .json file with the build instructions when HCR is on
-    if not conf.hcrOn:
-      extccomp.writeJsonBuildInstructions(conf)
+    extccomp.writeJsonBuildInstructions(conf)
     if conf.depfile.string.len != 0:
       writeGccDepfile(conf)
     if optGenScript in graph.config.globalOptions:
@@ -317,15 +315,8 @@ proc mainCommand*(graph: ModuleGraph) =
       if conf.exc == excNone: conf.exc = excSetjmp
     of backendCpp:
       if conf.exc == excNone: conf.exc = excCpp
-    of backendObjc: discard
-    of backendJs:
-      if conf.hcrOn:
-        # XXX: At the moment, system.nim cannot be compiled in JS mode
-        # with "-d:useNimRtl". The HCR option has been processed earlier
-        # and it has added this define implictly, so we must undo that here.
-        # A better solution might be to fix system.nim
-        undefSymbol(conf, "useNimRtl")
-    of backendNimVm: discard
+    of backendObjc, backendJs, backendNimVm:
+      discard
     of backendInvalid: doAssert false
 
   proc compileToBackend() =

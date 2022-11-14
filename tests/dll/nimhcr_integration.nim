@@ -2,6 +2,7 @@ discard """
   knownIssue: "https://github.com/nim-lang/Nim/pull/12105"
   knownIssue: "https://github.com/nim-lang/Nim/pull/17311"
   knownIssue: "https://github.com/nim-lang/Nim/pull/15458"
+  knownIssue: "HCR is removed"
   output: '''
 main: HELLO!
 main: hasAnyModuleChanged? true

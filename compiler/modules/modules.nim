@@ -159,10 +159,6 @@ proc importModule*(graph: ModuleGraph; s: PSym, fileIdx: FileIndex): PSym =
   result = compileModule(graph, fileIdx, {}, s)
   graph.addDep(s, fileIdx)
 
-  # keep track of import relationships
-  if graph.config.hcrOn:
-    graph.importDeps.mgetOrPut(FileIndex(s.position), @[]).add(fileIdx)
-
   # restore the notes for outer module:
   if s.getnimblePkgId == graph.config.mainPackageId or
      isDefined(graph.config, "booting"):

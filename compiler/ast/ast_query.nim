@@ -68,7 +68,7 @@ const
                                       nfDotSetter, nfDotField,
                                       nfIsRef, nfIsPtr, nfPreventCg, nfLL,
                                       nfFromTemplate, nfDefaultRefsParam,
-                                      nfExecuteOnReload, nfLastRead, nfFirstWrite}
+                                      nfLastRead, nfFirstWrite}
   
   namePos*          = 0 ## Name of the type/proc-like node
   patternPos*       = 1 ## empty except for term rewriting macros
