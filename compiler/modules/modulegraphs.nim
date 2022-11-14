@@ -99,7 +99,6 @@ type
     packageSyms*: TStrTable
     modulesPerPackage*: Table[ItemId, TStrTable]
     deps*: IntSet # the dependency graph or potentially its transitive closure.
-    importDeps*: Table[FileIndex, seq[FileIndex]] # explicit import module dependencies
     suggestMode*: bool # whether we are in nimsuggest mode or not.
     invalidTransitiveClosure: bool
     inclToMod*: Table[FileIndex, FileIndex] # mapping of include file to the
@@ -481,7 +480,6 @@ proc newModuleGraph*(cache: IdentCache; config: ConfigRef): ModuleGraph =
   result.idgen = IdGenerator(module: -1'i32, symId: 0'i32, typeId: 0'i32)
   initStrTable(result.packageSyms)
   result.deps = initIntSet()
-  result.importDeps = initTable[FileIndex, seq[FileIndex]]()
   result.ifaces = @[]
   result.importStack = @[]
   result.inclToMod = initTable[FileIndex, FileIndex]()

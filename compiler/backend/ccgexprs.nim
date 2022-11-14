@@ -2563,23 +2563,10 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
     if lfNoDecl notin opr.loc.flags:
       let prc = magicsys.getCompilerProc(p.module.g.graph, $opr.loc.r)
       assert prc != nil, $opr.loc.r
-      # HACK:
-      # Explicitly add this proc as declared here so the cgsym call doesn't
-      # add a forward declaration - without this we could end up with the same
-      # 2 forward declarations. That happens because the magic symbol and the original
-      # one that shall be used have different ids (even though a call to one is
-      # actually a call to the other) so checking into m.declaredProtos with the 2 different ids doesn't work.
-      # Why would 2 identical forward declarations be a problem?
-      # - in the case of hot code-reloading we generate function pointers instead
-      #   of forward declarations and in C++ it is an error to redefine a global
-      let wasDeclared = containsOrIncl(p.module.declaredProtos, prc.id)
       # Make the function behind the magic get actually generated - this will
       # not lead to a forward declaration! The genCall will lead to one.
       discard cgsym(p.module, $opr.loc.r)
-      # make sure we have pointer-initialising code for hot code reloading
-      if not wasDeclared and p.hcrOn:
-        p.module.s[cfsDynLibInit].addf("\t$1 = ($2) hcrGetProc($3, \"$1\");$n",
-             [mangleDynLibProc(prc), getTypeDesc(p.module, prc.loc.t), getModuleDllPath(p.module, prc)])
+
     genCall(p, e, d)
   of mDefault: genDefault(p, e, d)
   of mReset: genReset(p, e)
@@ -2814,19 +2801,15 @@ proc genConstSetup(p: BProc; sym: PSym): bool =
   useHeader(m, sym)
   if sym.loc.k == locNone:
     fillLoc(sym.loc, locData, sym.ast, mangleName(p.module, sym), OnStatic)
-  if m.hcrOn: incl(sym.loc.flags, lfIndirect)
+
   result = lfNoDecl notin sym.loc.flags
 
 proc genConstHeader(m, q: BModule; p: BProc, sym: PSym) =
-  if sym.loc.r == nil:
-    if not genConstSetup(p, sym): return
+  if sym.loc.r == nil and not genConstSetup(p, sym):
+    return
+
   assert(sym.loc.r != nil, $sym.name.s & $sym.itemId)
-  if m.hcrOn:
-    m.s[cfsVars].addf("static $1* $2;$n", [getTypeDesc(m, sym.loc.t, skVar), sym.loc.r]);
-    m.initProc.procSec(cpsLocals).addf(
-      "\t$1 = ($2*)hcrGetGlobal($3, \"$1\");$n", [sym.loc.r,
-      getTypeDesc(m, sym.loc.t, skVar), getModuleDllPath(q, sym)])
-  else:
+  block:
     let headerDecl = "extern NIM_CONST $1 $2;$n" %
         [getTypeDesc(m, sym.loc.t, skVar), sym.loc.r]
     m.s[cfsData].add(headerDecl)
@@ -2834,23 +2817,9 @@ proc genConstHeader(m, q: BModule; p: BProc, sym: PSym) =
       p.module.g.generatedHeader.s[cfsData].add(headerDecl)
 
 proc genConstDefinition(q: BModule; p: BProc; sym: PSym) =
-  # add a suffix for hcr - will later init the global pointer with this data
-  let actualConstName = if q.hcrOn: sym.loc.r & "_const" else: sym.loc.r
   q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
-      [getTypeDesc(q, sym.typ), actualConstName,
+      [getTypeDesc(q, sym.typ), sym.loc.r,
       genBracedInit(q.initProc, sym.ast, isConst = true, sym.typ)])
-  if q.hcrOn:
-    # generate the global pointer with the real name
-    q.s[cfsVars].addf("static $1* $2;$n", [getTypeDesc(q, sym.loc.t, skVar), sym.loc.r])
-    # register it (but ignore the boolean result of hcrRegisterGlobal)
-    q.initProc.procSec(cpsLocals).addf(
-      "\thcrRegisterGlobal($1, \"$2\", sizeof($3), NULL, (void**)&$2);$n",
-      [getModuleDllPath(q, sym), sym.loc.r, rdLoc(sym.loc)])
-    # always copy over the contents of the actual constant with the _const
-    # suffix ==> this means that the constant is reloadable & updatable!
-    q.initProc.procSec(cpsLocals).add(ropecg(q,
-      "\t#nimCopyMem((void*)$1, (NIM_CONST void*)&$2, sizeof($3));$n",
-      [sym.loc.r, actualConstName, rdLoc(sym.loc)]))
 
 proc genConstStmt(p: BProc, n: PNode) =
   # This code is only used in the new DCE implementation.

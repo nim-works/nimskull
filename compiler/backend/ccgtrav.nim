@@ -137,9 +137,8 @@ proc genTraverseProc(m: BModule, origTyp: PType; sig: SigHash): Rope =
   var p = newProc(nil, m)
   result = "Marker_" & getTypeName(m, origTyp, sig)
   let
-    hcrOn = m.hcrOn
     typ = origTyp.skipTypes(abstractInstOwned)
-    markerName = if hcrOn: result & "_actual" else: result
+    markerName = result
     header = "static N_NIMCALL(void, $1)(void* p, NI op)" % [markerName]
     t = getTypeDesc(m, typ)
 
@@ -164,11 +163,6 @@ proc genTraverseProc(m: BModule, origTyp: PType; sig: SigHash): Rope =
 
   m.s[cfsProcHeaders].addf("$1;\n", [header])
   m.s[cfsProcs].add(generatedProc)
-
-  if hcrOn:
-    m.s[cfsProcHeaders].addf("N_NIMCALL_PTR(void, $1)(void*, NI);\n", [result])
-    m.s[cfsDynLibInit].addf("\t$1 = (N_NIMCALL_PTR(void, )(void*, NI)) hcrRegisterProc($3, \"$1\", (void*)$2);\n",
-         [result, markerName, getModuleDllPath(m)])
 
 proc genTraverseProcForGlobal(m: BModule, s: PSym; info: TLineInfo): Rope =
   discard genTypeInfoV1(m, s.loc.t, info)

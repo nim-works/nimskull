@@ -155,7 +155,7 @@ const optNames = @[
   "project", "warnings", "w", "warning", "hint", "warningaserror",
   "hintaserror", "hints", "threadanalysis", "stacktrace",
   "stacktracemsgs", "excessivestacktrace", "linetrace",
-  "debugger", "g", "profiler", "memtracker", "hotcodereloading", "checks",
+  "debugger", "g", "profiler", "memtracker", "checks",
   "floatchecks", "infchecks", "nanchecks", "objchecks", "fieldchecks",
   "rangechecks", "boundchecks", "refchecks", "overflowchecks",
   "staticboundchecks", "stylechecks", "linedir", "assertions", "threads",
@@ -882,18 +882,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       defineSymbol(conf, "memtracker")
     else:
       undefSymbol(conf, "memtracker")
-  of "hotcodereloading":
-    processOnOffSwitchG(conf, {optHotCodeReloading}, arg, pass, info, switch)
-    if conf.hcrOn:
-      defineSymbol(conf, "hotcodereloading")
-      defineSymbol(conf, "useNimRtl")
-      # hardcoded linking with dynamic runtime for MSVC for smaller binaries
-      # should do the same for all compilers (wherever applicable)
-      if isVSCompatible(conf):
-        extccomp.addCompileOptionCmd(conf, "/MD")
-    else:
-      undefSymbol(conf, "hotcodereloading")
-      undefSymbol(conf, "useNimRtl")
   of "checks", "x":
     processOnOffSwitch(conf, ChecksOptions, arg, pass, info, switch)
   of "floatchecks":

@@ -417,11 +417,6 @@ proc genParams(p: BProc, ri: PNode, typ: PType): Rope =
       if result != nil: result.add(~", ")
       result.add(genArgNoParam(p, ri[i], needTmp[i-1]))
 
-proc addActualSuffixForHCR(res: var Rope, module: PSym, sym: PSym) =
-  if sym.flags * {sfImportc, sfNonReloadable} == {} and sym.loc.k == locProc and
-      (sym.typ.callConv == ccInline or sym.owner.id == module.id):
-    res = res & "_actual".rope
-
 proc genPrefixCall(p: BProc, le, ri: PNode, d: var TLoc) =
   var op: TLoc
   # this is a hotspot in the compiler
@@ -431,11 +426,10 @@ proc genPrefixCall(p: BProc, le, ri: PNode, d: var TLoc) =
   assert(typ.kind == tyProc)
   assert(typ.len == typ.n.len)
 
-  var params = genParams(p, ri, typ)
+  let
+    params = genParams(p, ri, typ)
+    callee = rdLoc(op)
 
-  var callee = rdLoc(op)
-  if p.hcrOn and ri[0].kind == nkSym:
-    callee.addActualSuffixForHCR(p.module.module, ri[0].sym)
   fixupCall(p, le, ri, d, callee, params)
 
 proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =

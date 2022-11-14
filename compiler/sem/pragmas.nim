@@ -61,7 +61,7 @@ const
     ## common pragmas for declarations, to a good approximation
   procPragmas* = declPragmas + {FirstCallConv..LastCallConv,
     wMagic, wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
-    wCompilerProc, wNonReloadable, wCore, wProcVar, wVarargs, wCompileTime, wMerge,
+    wCompilerProc, wCore, wProcVar, wVarargs, wCompileTime, wMerge,
     wBorrow, wImportCompilerProc, wThread,
     wAsmNoStackFrame, wDiscardable, wNoInit, wCodegenDecl,
     wGensym, wInject, wRaises, wEffectsOf, wTags, wLocks, wDelegator, wGcSafe,
@@ -72,7 +72,7 @@ const
   templatePragmas* = {wDeprecated, wError, wGensym, wInject, wDirty,
     wDelegator, wExportNims, wUsed, wPragma}
   macroPragmas* = declPragmas + {FirstCallConv..LastCallConv,
-    wMagic, wNoSideEffect, wCompilerProc, wNonReloadable, wCore,
+    wMagic, wNoSideEffect, wCompilerProc, wCore,
     wDiscardable, wGensym, wInject, wDelegator}
   iteratorPragmas* = declPragmas + {FirstCallConv..LastCallConv, wNoSideEffect, wSideEffect,
     wMagic, wBorrow,
@@ -1425,9 +1425,6 @@ proc prepareSinglePragma(
         if sfFromGeneric notin sym.flags:
           let e = markCompilerProc(c, sym)
           result = if e.isNil: it else: e
-      of wNonReloadable:
-        result = it
-        sym.flags.incl sfNonReloadable
       of wProcVar:
         result = noVal(c, it)
         incl(sym.flags, sfProcvar)

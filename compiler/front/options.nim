@@ -786,9 +786,6 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
   else:
     return writeEnabled
 
-proc hcrOn*(conf: ConfigRef): bool =
-  return optHotCodeReloading in conf.globalOptions
-
 const
   oldExperimentalFeatures* = {implicitDeref, dotOperators, callOperator}
 

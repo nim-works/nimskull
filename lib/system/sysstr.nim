@@ -89,7 +89,7 @@ proc copyStr(s: NimString, start: int): NimString {.compilerproc.} =
   if s == nil: return nil
   result = copyStrLast(s, start, s.len-1)
 
-proc nimToCStringConv(s: NimString): cstring {.compilerproc, nonReloadable, inline.} =
+proc nimToCStringConv(s: NimString): cstring {.compilerproc, inline.} =
   if s == nil or s.len == 0: result = cstring""
   else: result = cstring(addr s.data)
 

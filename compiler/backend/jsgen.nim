@@ -297,13 +297,9 @@ proc mangleName(m: BModule, s: PSym): Rope =
       result = rope(x)
     # From ES5 on reserved words can be used as object field names
     if s.kind != skField:
-      if m.config.hcrOn:
-        # When hot reloading is enabled, we must ensure that the names
-        # of functions and types will be preserved across rebuilds:
-        result.add(idOrSig(s, m.module.name.s, m.sigConflicts))
-      else:
-        result.add("_")
-        result.add(rope(s.id))
+      result.add("_")
+      result.add(rope(s.id))
+
     s.loc.r = result
 
 proc escapeJSString(s: string): string =
@@ -1824,16 +1820,10 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
     s: Rope
     varCode: string
     varName = mangleName(p.module, v)
-    useReloadingGuard = sfGlobal in v.flags and p.config.hcrOn
     useGlobalPragmas = sfGlobal in v.flags and ({sfPure, sfThread} * v.flags != {})
 
   if v.constraint.isNil:
-    if useReloadingGuard:
-      lineF(p, "var $1;$n", varName)
-      lineF(p, "if ($1 === undefined) {$n", varName)
-      varCode = $varName
-      inc p.extraIndent
-    elif useGlobalPragmas:
+    if useGlobalPragmas:
       lineF(p, "if (globalThis.$1 === undefined) {$n", varName)
       varCode = "globalThis." & $varName
       inc p.extraIndent
@@ -1889,7 +1879,7 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
     else:
       line(p, runtimeFormat(varCode & " = $3;$n", [returnType, v.loc.r, s]))
 
-  if useReloadingGuard or useGlobalPragmas:
+  if useGlobalPragmas:
     dec p.extraIndent
     lineF(p, "}$n")
 
@@ -2488,16 +2478,6 @@ proc genProc(oldProc: PProc, prc: PSym): Rope =
     # if optLineDir in p.config.options:
       # result.add(~"\L")
 
-    if p.config.hcrOn:
-      # Here, we introduce thunks that create the equivalent of a jump table
-      # for all global functions, because references to them may be stored
-      # in JavaScript variables. The added indirection ensures that such
-      # references will end up calling the reloaded code.
-      var thunkName = name
-      name = name & "IMLP"
-      result.add("\Lfunction $#() { return $#.apply(this, arguments); }$n" %
-                 [thunkName, name])
-
     def = "\Lfunction $#($#) {$n$#$#$#$#$#" %
             [ name,
               header,
@@ -2735,29 +2715,6 @@ proc genHeader(): Rope =
     var lastJSError = null;
   """.unindent.format(VersionAsString))
 
-proc addHcrInitGuards(p: PProc, n: PNode,
-                      moduleLoadedVar: Rope, inInitGuard: var bool) =
-  if n.kind == nkStmtList:
-    for child in n:
-      addHcrInitGuards(p, child, moduleLoadedVar, inInitGuard)
-  else:
-    let stmtShouldExecute = n.kind in {
-      nkProcDef, nkFuncDef, nkMethodDef,nkConverterDef,
-      nkVarSection, nkLetSection} or nfExecuteOnReload in n.flags
-
-    if inInitGuard:
-      if stmtShouldExecute:
-        dec p.extraIndent
-        line(p, "}\L")
-        inInitGuard = false
-    else:
-      if not stmtShouldExecute:
-        lineF(p, "if ($1 == undefined) {$n", [moduleLoadedVar])
-        inc p.extraIndent
-        inInitGuard = true
-
-    genStmt(p, n)
-
 proc genModule(p: PProc, n: PNode) =
   if optStackTrace in p.options:
     p.body.add(frameCreate(p,
@@ -2766,22 +2723,8 @@ proc genModule(p: PProc, n: PNode) =
   var transformedN = transformStmt(p.module.graph, p.module.idgen, p.module.module, n)
   if sfInjectDestructors in p.module.module.flags:
     transformedN = injectDestructorCalls(p.module.graph, p.module.idgen, p.module.module, transformedN)
-  if p.config.hcrOn and n.kind == nkStmtList:
-    let moduleSym = p.module.module
-    var moduleLoadedVar = rope(moduleSym.name.s) & "_loaded" &
-                          idOrSig(moduleSym, moduleSym.name.s, p.module.sigConflicts)
-    lineF(p, "var $1;$n", [moduleLoadedVar])
-    var inGuardedBlock = false
 
-    addHcrInitGuards(p, transformedN, moduleLoadedVar, inGuardedBlock)
-
-    if inGuardedBlock:
-      dec p.extraIndent
-      line(p, "}\L")
-
-    lineF(p, "$1 = true;$n", [moduleLoadedVar])
-  else:
-    genStmt(p, transformedN)
+  genStmt(p, transformedN)
 
   if optStackTrace in p.options:
     p.body.add(frameDestroy(p))

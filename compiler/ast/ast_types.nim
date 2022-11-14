@@ -277,9 +277,6 @@ type
                       ## the calling side of the macro, not from the
                       ## implementation.
     sfGenSym          ## symbol is 'gensym'ed; do not add to symbol table
-    sfNonReloadable   ## symbol will be left as-is when hot code reloading
-                      ## is on - meaning that it won't be renamed and/or
-                      ## changed in any way
     sfGeneratedOp     ## proc is a generated '='; do not inject destructors
                       ## in it variable is generated closure environment;
                       ## requires early destruction for --newruntime.
@@ -488,7 +485,6 @@ type
     nfDefaultParam ## an automatically inserter default parameter
     nfDefaultRefsParam ## a default param value references another parameter
                        ## the flag is applied to proc default values and to calls
-    nfExecuteOnReload  ## A top-level statement that will be executed during reloads
     nfLastRead  ## this node is a last read
     nfFirstWrite## this node is a first write
     nfHasComment ## node has a comment

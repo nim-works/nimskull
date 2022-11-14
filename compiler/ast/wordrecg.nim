@@ -63,8 +63,7 @@ type
     wOn = "on", wOff = "off", wChecks = "checks", wRangeChecks = "rangeChecks",
     wBoundChecks = "boundChecks", wOverflowChecks = "overflowChecks", wNilChecks = "nilChecks",
     wFloatChecks = "floatChecks", wNanChecks = "nanChecks", wInfChecks = "infChecks",
-    wStyleChecks = "styleChecks", wStaticBoundchecks = "staticBoundChecks",
-    wNonReloadable = "nonReloadable", wExecuteOnReload = "executeOnReload",
+    wStyleChecks = "styleChecks", wStaticBoundchecks = "staticBoundChecks"
 
     wAssertions = "assertions", wPatterns = "patterns", wTrMacros = "trmacros",
     wSinkInference = "sinkInference", wWarnings = "warnings",
