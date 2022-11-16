@@ -1,4 +1,5 @@
 discard """
 output: ""
 """
-import "../template/utemplates", "../closure/uclosures"
+import utemplates
+import uclosures

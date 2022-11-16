@@ -1067,7 +1067,8 @@ proc testSpec(r: var TResults, test: TTest) =
       run.matrixEntry = noMatrixEntry
       targetHelper(r, run)
 
-proc testSpecWithNimcache(r: var TResults, test: TTest; nimcache: string) {.used.} =
+proc testSpecWithNimcache(
+    r: var TResults, test: TTest; nimcache: string) {.used.} =
   if not checkDisabled(r, test): return
   for target in (test.spec.targets * gTargets):
     inc(r.total)
