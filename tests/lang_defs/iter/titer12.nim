@@ -1,13 +1,3 @@
-discard """
-output: '''
-Selecting 2
-1.0
-Selecting 4
-2.0
-'''
-"""
-
-
 # bug #5522
 import macros, sugar, sequtils
 
@@ -70,13 +60,22 @@ proc where[A](input: seq[A], filter: (A) -> bool): iterator (): A =
       if filter(item):
         yield item
 
+var actionList: seq[string]
+
 proc select[A,B](input: iterator(): A {.closure.}, selector: (A) -> B): iterator (): B {.closure.} = 
   result = iterator (): B =
     for item in input():
-      echo "Selecting " & $item
+      actionList.add "Selecting " & $item
       yield selector(item)
 
 let query = @[1,2,3,4].where(x=>x mod 2==0).select((x)=>x/2)
 
 for i in query():
-  echo $i
+  actionList.add $i
+
+doAssert actionList == @[
+  "Selecting 2",
+  "1.0",
+  "Selecting 4",
+  "2.0"
+]
