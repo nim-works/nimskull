@@ -230,22 +230,26 @@ If you notice any seemingly duplicate tags (e.g. `error_compile` and
 
 .. code-block:: cmd
 
-    rg --no-filename  -g "*.nim" "labels: " | sd 'labels:\s+"(.*?)"' '$1' | tr ' ' '\n' | sort | uniq -c
+    grep -R "labels: " |
+        sed -r 's/labels:\s+"(.*?)"/\1/' |
+        tr ' ' '\n' |
+        sort |
+        uniq -c
+
 
 - Type-related
   - ``array``: Array type is tested
   - ``distinct``: `distinct` type is involved
-  - ``enum``: Enumeration type is involved
+  - ``enum``: `enum` type is involved
   - ``ptr``: Default `ptr T` type
   - ``range``: Default `range[low..high]` type
   - ``ref``: Default `ref T` type
   - ``char``: Character type is involved
   - ``seq``: Default `seq[T]` type
-  - ``int``: Integer or other integral type is used
+  - ``int``: `int` or other integral type is used
   - ``float``: `float` or other floating point type is used
 - Compiler diagnostics
-  - ``error_compilation``:
-  - ``error_compile``:
+  - ``error_compile``: Test is expecting compilation error.
   - ``error_message``: Test is specifically targeting formatting or content
     of the error message.
 - Code detail
@@ -261,7 +265,6 @@ If you notice any seemingly duplicate tags (e.g. `error_compile` and
     - ``union``:
     - ``macro``:
     - ``iterator``:
-
   - Code detail
     - ``overload``:
     - ``exception``:
@@ -272,9 +275,13 @@ If you notice any seemingly duplicate tags (e.g. `error_compile` and
   - Other
     - ``pragma``:
     - ``subtyping``:
-    - ``resolution``: Overloading resolution
+    - ``resolution``: Overloading resolution for procedure calls.
     - ``typedesc``:
-    - ``var``: Mutable variable declaration
+    - ``var``: Mutable variable declaration -- variable declaration
+      statement, not to be confused with ``var_arg`` tag which refers to
+      the mutable argument in a callable declaration.
+    - ``var_arg``: Mutable argument to in a callable declaration
+      (procedure, method, convert, iterator etc.)
     - ``conversion``:
     - ``alias``:
     - ``constructor``:
@@ -287,7 +294,9 @@ If you notice any seemingly duplicate tags (e.g. `error_compile` and
   - ``backend_c``: Testing something directly related or requiring C backend
   - ``codegen``: Code generation is involved
   - ``mode_release``: Compiled in release mode
+  - ``mode_danger``
   - ``js``:
+  - ``cpp``
 - Standard library
   - ``stdlib``: Standard library module
   - ``system``: Types and procedures imported by default in every compiled
