@@ -110,7 +110,7 @@ Cleaning up existing tests
 
 Original collection of tests in the test suite contained a lot of files
 that did not conform to the requirements listed above, and should
-eventually be fixed. List of known issues that should be fixed includes,
+eventually be fixed. A list of known issues that should be fixed includes,
 but not limited to:
 
 - Check if test name makes sense - `t123123_b.nim` does not make sense,
@@ -131,16 +131,18 @@ but not limited to:
   Huge number of original tests "referred" to issue numbers using file
   names or highly illegible comments such as `# XYZ123` placed at arbitrary
   locations all over the code. You should replace them with actual `url`
-  links so people can see the context quickly.
+  links from https://github.com/nim-lang/Nim/issues so people can see the
+  context quickly.
 
 
 
-- If possible, provide explanation to the test logic. You can use
-  explanation to the linked issues as a basis for explanation.
+- If possible, provide explanation to the test logic. You can use the description of the linked issue as a basis.
 
 - Adding labels to existing tests. For guidelines on test label usage and
   list of existing tags with documentation please see testament
-  documentation `Labels` section.
+  documentation `Labels
+  <https://nim-works.github.io/nimskull/testament.html#writing-tests-labels>`_
+  section.
 
 If you write new tests make sure they don't have these issues. Entries from
 this list should be *removed* from old tests and should *not be introduced*
@@ -171,6 +173,13 @@ different methods one can use to write a new test.
 - *Test for specific values*: Either use `doAssert <given> == <expected>`
   or `check` from `std/unittest`
 
+.. tip:: If the test already uses `std/unittest` or you plan to rewrite it
+         to use the library you should prefer `check` and `expect` macros,
+         otherwise you can stick to `try..except` and `doAssert`.
+
+         Another reason why might opt to use simpler solution is reducing
+         number of dependencies for the test -- if you want your test to
+         include as little additional details as possible.
 
 Improving Language specification
 --------------------------------
