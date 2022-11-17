@@ -1,4 +1,4 @@
-import distros
+import std/distros
 
 discard """
   exitcode: 0
