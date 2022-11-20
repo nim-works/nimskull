@@ -1,7 +1,7 @@
 import std/[os, osproc, strformat]
 
 
-const dir = "tests/compiles"
+const dir = "tests/lang_exprs/compiles"
 const fileName = dir / "mstaticlib.nim"
 const nim = getCurrentCompilerExe()
 
