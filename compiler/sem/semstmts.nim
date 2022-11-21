@@ -453,18 +453,18 @@ proc makeDeref(n: PNode): PNode =
   var t = n.typ
   if t.kind in tyUserTypeClasses and t.isResolvedUserTypeClass:
     t = t.lastSon
-  t = skipTypes(t, {tyGenericInst, tyAlias, tySink, tyOwned})
+  t = skipTypes(t, {tyGenericInst, tyAlias, tySink})
   result = n
   if t.kind in {tyVar, tyLent}:
     result = newNodeIT(nkHiddenDeref, n.info, t[0])
     result.add n
-    t = skipTypes(t[0], {tyGenericInst, tyAlias, tySink, tyOwned})
+    t = skipTypes(t[0], {tyGenericInst, tyAlias, tySink})
   while t.kind in {tyPtr, tyRef}:
     var a = result
     let baseTyp = t.lastSon
     result = newNodeIT(nkHiddenDeref, n.info, baseTyp)
     result.add a
-    t = skipTypes(baseTyp, {tyGenericInst, tyAlias, tySink, tyOwned})
+    t = skipTypes(baseTyp, {tyGenericInst, tyAlias, tySink})
 
 proc setVarType(c: PContext; v: PSym, typ: PType) =
   if v.typ != nil and not sameTypeOrNil(v.typ, typ):
@@ -1419,7 +1419,7 @@ proc symForVar(c: PContext, n: PNode): PSym =
 proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
   result = n
   let iterBase = n[^2].typ
-  var iter = skipTypes(iterBase, {tyGenericInst, tyAlias, tySink, tyOwned})
+  var iter = skipTypes(iterBase, {tyGenericInst, tyAlias, tySink})
   var iterAfterVarLent = iter.skipTypes({tyGenericInst, tyAlias, tyLent, tyVar})
   # n.len == 3 means that there is one for loop variable
   # and thus no tuple unpacking:
@@ -1683,7 +1683,7 @@ proc semRaise(c: PContext, n: PNode): PNode =
     n[0] = semExprWithType(c, n[0])
     var typ = n[0].typ
     if not isImportedException(typ, c.config):
-      typ = typ.skipTypes({tyAlias, tyGenericInst, tyOwned})
+      typ = typ.skipTypes({tyAlias, tyGenericInst})
       if typ.kind != tyRef:
         localReport(c.config, n.info, reportTyp(
           rsemCannotBeRaised, typ))
@@ -1874,7 +1874,7 @@ proc checkCovariantParamsUsages(c: PContext; genericType: PType) =
       if t.base.kind == tyGenericParam: return true
       return traverseSubTypes(c, t.base)
 
-    of tyDistinct, tyAlias, tySink, tyOwned:
+    of tyDistinct, tyAlias, tySink:
       return traverseSubTypes(c, t.lastSon)
 
     of tyGenericInst:
@@ -2027,7 +2027,7 @@ proc checkForMetaFields(c: PContext; n: PNode) =
     let t = n.sym.typ
     case t.kind
     of tySequence, tySet, tyArray, tyOpenArray, tyVar, tyLent, tyPtr, tyRef,
-       tyProc, tyGenericInvocation, tyGenericInst, tyAlias, tySink, tyOwned:
+       tyProc, tyGenericInvocation, tyGenericInst, tyAlias, tySink:
       let start = ord(t.kind in {tyGenericInvocation, tyGenericInst})
       for i in start..<t.len:
         checkMeta(c, n, t[i])
@@ -2306,8 +2306,6 @@ proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
   popProcCon(c)
   popOwner(c)
   closeScope(c)
-  if optOwnedRefs in c.config.globalOptions and result.typ != nil:
-    result.typ = makeVarType(c, result.typ, tyOwned)
   # alternative variant (not quite working):
   # var prc = arg[0].sym
   # let inferred = c.semGenerateInstance(c, prc, m.bindings, arg.info)
@@ -2511,7 +2509,7 @@ proc semMethodPrototype(c: PContext; s: PSym; n: PNode) =
       if t != nil and t.kind == tyGenericInvocation:
         var x = skipTypes(t[0], {tyVar, tyLent, tyPtr, tyRef, tyGenericInst,
                                  tyGenericInvocation, tyGenericBody,
-                                 tyAlias, tySink, tyOwned})
+                                 tyAlias, tySink})
         if x.kind == tyObject and t.len-1 == n[genericParamsPos].len:
           foundObj = true
           addMethodToGeneric(c.graph, c.module.position, x, col, s)
@@ -2800,8 +2798,6 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
   if isAnon:
     n.transitionSonsKind(nkLambda)
     result.typ = s.typ
-    if optOwnedRefs in c.config.globalOptions:
-      result.typ = makeVarType(c, result.typ, tyOwned)
   elif isTopLevel(c) and s.kind != skIterator and s.typ.callConv == ccClosure:
     localReport(c.config, s.info, reportSym(
       rsemUnexpectedClosureOnToplevelProc, s))
@@ -2839,10 +2835,6 @@ proc semIterator(c: PContext, n: PNode): PNode =
   if n[bodyPos].kind == nkEmpty and s.magic == mNone and c.inConceptDecl == 0:
     localReport(c.config, n.info, reportSym(
       rsemImplementationExpected, s))
-
-  if optOwnedRefs in c.config.globalOptions and result.typ != nil:
-    result.typ = makeVarType(c, result.typ, tyOwned)
-    result.typ.callConv = ccClosure
 
 proc semProc(c: PContext, n: PNode): PNode =
   result = semProcAux(c, n, skProc, procPragmas)

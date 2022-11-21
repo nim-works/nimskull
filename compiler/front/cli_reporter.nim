@@ -410,6 +410,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemTypelessParam:
       result = "typeless param"
 
+    of rsemOwnedTypeDeprecated:
+      result = "the `owned` type-operator is deprecated and treated as a no-op"
+
     of rsemLinterReport:
       result.addf("'$1' should be: '$2'", r.linterFail.got, r.linterFail.wanted)
 
@@ -1451,13 +1454,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemImplicitAddrIsNotFirstParam:
       result = "'$1' is not the first parameter; context: '$2'" % [r.symstr, r.ast.render]
 
-    of rsemExpectedOwnerReturn:
-      result = "cannot return an owned pointer as an unowned pointer; " &
-        "use 'owned(" & r.typ.render & ")' as the return type"
-
-    of rsemExpectedUnownedRef:
-      result = "assignment produces a dangling ref: the unowned ref lives longer than the owned ref"
-
     of rsemCannotAssignTo:
       result = "'$1' cannot be assigned to" % r.ast.render
 
@@ -1962,7 +1958,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "unexpected pragma"
 
     of rsemDisallowedReprForNewruntime:
-      result = "'repr' is not available for --newruntime"
+      result = "'repr' is not available for --gc:arc|orc"
 
     of rsemDisallowedOfForPureObjects:
       result = "no 'of' operator available for pure objects"

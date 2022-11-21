@@ -399,42 +399,6 @@ proc semOf(c: PContext, n: PNode): PNode =
   n.typ = getSysType(c.graph, n.info, tyBool)
   result = n
 
-proc semUnown(c: PContext; n: PNode): PNode =
-  proc unownedType(c: PContext; t: PType): PType =
-    case t.kind
-    of tyTuple:
-      var elems = newSeq[PType](t.len)
-      var someChange = false
-      for i in 0..<t.len:
-        elems[i] = unownedType(c, t[i])
-        if elems[i] != t[i]: someChange = true
-      if someChange:
-        result = newType(tyTuple, nextTypeId c.idgen, t.owner)
-        # we have to use 'rawAddSon' here so that type flags are
-        # properly computed:
-        for e in elems: result.rawAddSon(e)
-      else:
-        result = t
-    of tyOwned: result = t[0]
-    of tySequence, tyOpenArray, tyArray, tyVarargs, tyVar, tyLent,
-       tyGenericInst, tyAlias:
-      let b = unownedType(c, t[^1])
-      if b != t[^1]:
-        result = copyType(t, nextTypeId c.idgen, t.owner)
-        copyTypeProps(c.graph, c.idgen.module, result, t)
-
-        result[^1] = b
-        result.flags.excl tfHasOwned
-      else:
-        result = t
-    else:
-      result = t
-
-  result = copyTree(n[1])
-  result.typ = unownedType(c, result.typ)
-  # little hack for injectdestructors.nim (see bug #11350):
-  #result[0].typ = nil
-
 proc turnFinalizerIntoDestructor(c: PContext; orig: PSym; info: TLineInfo): PSym =
   # We need to do 2 things: Replace n.typ which is a 'ref T' by a 'var T' type.
   # Replace nkDerefExpr by nkHiddenDeref
@@ -576,12 +540,11 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
     let op = getAttachedOp(c.graph, t, attachedTrace)
     if op != nil:
       result[0] = newSymNode(op)
-  of mUnown:
-    result = semUnown(c, n)
+
   of mSetLengthSeq:
     result = n
     let seqType = result[1].typ.skipTypes({tyPtr, tyRef, # in case we had auto-dereferencing
-                                           tyVar, tyGenericInst, tyOwned, tySink,
+                                           tyVar, tyGenericInst, tySink,
                                            tyAlias, tyUserTypeClassInst})
     if seqType.kind == tySequence and seqType.base.requiresInit:
       localReport(c.config, n.info, reportTyp(

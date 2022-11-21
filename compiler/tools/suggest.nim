@@ -429,7 +429,7 @@ proc suggestFieldAccess(c: PContext, n, field: PNode, outputs: var Suggestions) 
       suggestEverything(c, n, field, outputs)
   else:
     let orig = typ
-    typ = skipTypes(orig, {tyTypeDesc, tyGenericInst, tyVar, tyLent, tyPtr, tyRef, tyAlias, tySink, tyOwned})
+    typ = skipTypes(orig, {tyTypeDesc, tyGenericInst, tyVar, tyLent, tyPtr, tyRef, tyAlias, tySink})
 
     if typ.kind == tyEnum and n.kind == nkSym and n.sym.kind == skType:
       # look up if the identifier belongs to the enum:

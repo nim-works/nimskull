@@ -114,7 +114,7 @@ proc isDeepConstExpr*(n: PNode; preventInheritance = false): bool =
       if not isDeepConstExpr(n[i], preventInheritance): return false
     if n.typ.isNil: result = true
     else:
-      let t = n.typ.skipTypes({tyGenericInst, tyDistinct, tyAlias, tySink, tyOwned})
+      let t = n.typ.skipTypes({tyGenericInst, tyDistinct, tyAlias, tySink})
       if t.kind in {tyRef, tyPtr} or tfUnion in t.flags: return false
       if t.kind == tyObject:
         if preventInheritance and t[0] != nil:

@@ -90,7 +90,7 @@ proc scopeMangledParam(p: BProc; param: PSym) =
 const
   irrelevantForBackend = {tyGenericBody, tyGenericInst, tyGenericInvocation,
                           tyDistinct, tyRange, tyStatic, tyAlias, tySink,
-                          tyInferred, tyOwned}
+                          tyInferred}
 
 proc typeName(typ: PType): Rope =
   let typ = typ.skipTypes(irrelevantForBackend)
@@ -110,7 +110,7 @@ proc getTypeName(m: BModule; typ: PType; sig: SigHash): Rope =
       t = t.lastSon
     else:
       break
-  let typ = if typ.kind in {tyAlias, tySink, tyOwned}: typ.lastSon else: typ
+  let typ = if typ.kind in {tyAlias, tySink}: typ.lastSon else: typ
   if typ.loc.r == nil:
     typ.loc.r = typ.typeName & $sig
   else:
@@ -145,7 +145,7 @@ proc mapType(conf: ConfigRef; typ: PType; kind: TSymKind): TCTypeKind =
     doAssert typ.isResolvedUserTypeClass
     return mapType(conf, typ.lastSon, kind)
   of tyGenericBody, tyGenericInst, tyGenericParam, tyDistinct, tyOrdinal,
-     tyTypeDesc, tyAlias, tySink, tyInferred, tyOwned:
+     tyTypeDesc, tyAlias, tySink, tyInferred:
     result = mapType(conf, lastSon(typ), kind)
   of tyEnum:
     if firstOrd(conf, typ) < 0:
@@ -277,7 +277,7 @@ proc getSimpleTypeDesc(m: BModule, typ: PType): Rope =
   of tyStatic:
     m.config.internalAssert(typ.n != nil, "tyStatic for getSimpleTypeDesc")
     result = getSimpleTypeDesc(m, lastSon typ)
-  of tyGenericInst, tyAlias, tySink, tyOwned:
+  of tyGenericInst, tyAlias, tySink:
     result = getSimpleTypeDesc(m, lastSon typ)
   else: result = nil
 
@@ -653,7 +653,7 @@ proc getOpenArrayDesc(m: BModule, t: PType, check: var IntSet; kind: TSymKind): 
 proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKind): Rope =
   # returns only the type's name
 
-  var t = origTyp.skipTypes(irrelevantForBackend-{tyOwned})
+  var t = origTyp.skipTypes(irrelevantForBackend)
   if containsOrIncl(check, t.id):
     m.config.internalAssert(isImportedCppType(origTyp) or isImportedCppType(t),
                             "cannot generate C type for: " & typeToString(origTyp))
@@ -871,7 +871,7 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKin
       of 1, 2, 4, 8: m.s[cfsTypes].addf("typedef NU$2 $1;$n", [result, rope(s*8)])
       else: m.s[cfsTypes].addf("typedef NU8 $1[$2];$n",
              [result, rope(getSize(m.config, t))])
-  of tyGenericInst, tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink, tyOwned,
+  of tyGenericInst, tyDistinct, tyOrdinal, tyTypeDesc, tyAlias, tySink,
      tyUserTypeClass, tyUserTypeClassInst, tyInferred:
     result = getTypeDescAux(m, lastSon(t), check, kind)
   else:

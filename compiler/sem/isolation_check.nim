@@ -64,7 +64,7 @@ proc canAlias(arg, ret: PType; marker: var IntSet): bool =
       result = canAlias(arg, ret[i], marker)
       if result: break
   of tyArray, tySequence, tyDistinct, tyGenericInst,
-     tyAlias, tyInferred, tySink, tyLent, tyOwned, tyRef:
+     tyAlias, tyInferred, tySink, tyLent, tyRef:
     result = canAlias(arg, ret.lastSon, marker)
   of tyProc:
     result = ret.callConv == ccClosure

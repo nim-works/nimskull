@@ -51,7 +51,7 @@ proc specializeResetT(p: BProc, accessor: Rope, typ: PType) =
 
   case typ.kind
   of tyGenericInst, tyGenericBody, tyTypeDesc, tyAlias, tyDistinct, tyInferred,
-     tySink, tyOwned:
+     tySink:
     specializeResetT(p, accessor, lastSon(typ))
   of tyArray:
     let arraySize = lengthOrd(p.config, typ[0])

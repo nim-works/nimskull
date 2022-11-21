@@ -339,7 +339,7 @@ proc canFormAcycleAux(marker: var IntSet, typ: PType, startId: int): bool =
   result = false
   if typ == nil: return
   if tfAcyclic in typ.flags: return
-  var t = skipTypes(typ, abstractInst+{tyOwned}-{tyTypeDesc})
+  var t = skipTypes(typ, abstractInst-{tyTypeDesc})
   if tfAcyclic in t.flags: return
   case t.kind
   of tyTuple, tyObject, tyRef, tySequence, tyArray, tyOpenArray, tyVarargs:
@@ -365,7 +365,7 @@ proc isFinal*(t: PType): bool =
 
 proc canFormAcycle*(typ: PType): bool =
   var marker = initIntSet()
-  let t = skipTypes(typ, abstractInst+{tyOwned}-{tyTypeDesc})
+  let t = skipTypes(typ, abstractInst-{tyTypeDesc})
   result = canFormAcycleAux(marker, t, t.id)
 
 proc mutateTypeAux(marker: var IntSet, t: PType, iter: TTypeMutator,
@@ -891,7 +891,7 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
   of tyGenericInvocation, tyGenericBody, tySequence, tyOpenArray, tySet, tyRef,
      tyPtr, tyVar, tyLent, tySink, tyUncheckedArray, tyArray, tyProc, tyVarargs,
      tyOrdinal, tyCompositeTypeClass, tyUserTypeClass, tyUserTypeClassInst,
-     tyAnd, tyOr, tyNot, tyAnything, tyOwned:
+     tyAnd, tyOr, tyNot, tyAnything:
     cycleCheck()
     if a.kind == tyUserTypeClass and a.n != nil: return a.n == b.n
     result = sameChildrenAux(a, b, c)
@@ -1033,7 +1033,7 @@ proc baseOfDistinct*(t: PType; g: ModuleGraph; idgen: IdGenerator): PType =
     copyTypeProps(g, idgen.module, result, t)
     var parent: PType = nil
     var it = result
-    while it.kind in {tyPtr, tyRef, tyOwned}:
+    while it.kind in {tyPtr, tyRef}:
       parent = it
       it = it.lastSon
     if it.kind == tyDistinct and parent != nil:
@@ -1354,9 +1354,8 @@ proc isDefectException*(t: PType): bool =
   return false
 
 proc isSinkTypeForParam*(t: PType): bool =
-  # a parameter like 'seq[owned T]' must not be used only once, but its
-  # elements must, so we detect this case here:
-  result = t.skipTypes({tyGenericInst, tyAlias}).kind in {tySink, tyOwned}
+  ## Returns whether the using `t` as the type of a parameter makes it a sink-like
+  result = t.skipTypes({tyGenericInst, tyAlias}).kind == tySink
   when false:
     if isSinkType(t):
       if t.skipTypes({tyGenericInst, tyAlias}).kind in {tyArray, tyVarargs, tyOpenArray, tySequence}:

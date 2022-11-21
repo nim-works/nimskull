@@ -477,7 +477,7 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
   ## the result in the location referenced by `dest`. Required extra memory
   ## (`string`, `seq`, closures, etc.) is automatically created and populated
   let origTyp = if t != nil: t else: n.typ
-  let t = origTyp.skipTypes(abstractRange+{tyStatic, tyOwned}-{tyTypeDesc})
+  let t = origTyp.skipTypes(abstractRange+{tyStatic}-{tyTypeDesc})
 
   case t.kind
   of tyBool, tyChar, tyEnum, tyInt..tyInt64, tyUInt..tyUInt64:

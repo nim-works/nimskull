@@ -17,7 +17,6 @@ const
 
 proc getTraverseProc(p: BProc, v: PSym): Rope =
   if p.config.selectedGC in {gcMarkAndSweep, gcHooks, gcV2, gcRefc} and
-      optOwnedRefs notin p.config.globalOptions and
       containsGarbageCollectedRef(v.loc.t):
     # we register a specialized marked proc here; this has the advantage
     # that it works out of the box for thread local storage then :-)
@@ -674,8 +673,7 @@ proc genRaiseStmt(p: BProc, t: PNode) =
           [e, makeCString(typ.sym.name.s),
           makeCString(if p.prc != nil: p.prc.name.s else: p.module.module.name.s),
           quotedFilename(p.config, t.info), toLinenumber(t.info)])
-      if optOwnedRefs in p.config.globalOptions:
-        lineCg(p, cpsStmts, "$1 = NIM_NIL;$n", [e])
+
   else:
     finallyActions(p)
     genLineDir(p, t)

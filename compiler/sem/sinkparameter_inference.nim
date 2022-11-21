@@ -26,7 +26,7 @@ proc checkForSink*(config: ConfigRef; idgen: IdGenerator; owner: PSym; arg: PNod
         arg.sym.owner == owner and
         owner.typ != nil and owner.typ.kind == tyProc and
         arg.sym.typ.hasDestructor and
-        arg.sym.typ.kind notin {tyVar, tySink, tyOwned}:
+        arg.sym.typ.kind notin {tyVar, tySink}:
       # Watch out: cannot do this inference for procs with forward
       # declarations.
       if sfWasForwarded notin owner.flags:

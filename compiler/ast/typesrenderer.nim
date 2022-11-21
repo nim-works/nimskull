@@ -167,7 +167,7 @@ const
     "int", "int8", "int16", "int32", "int64",
     "float", "float32", "float64", "float128",
     "uint", "uint8", "uint16", "uint32", "uint64",
-    "owned", "sink",
+    "sink",
     "lent ", "varargs[$1]", "UncheckedArray[$1]", "Error Type",
     "BuiltInTypeClass", "UserTypeClass",
     "UserTypeClassInst", "CompositeTypeClass", "inferred",
@@ -418,8 +418,6 @@ proc typeToString*(typ: PType, prefer: TPreferedDesc = preferName): string =
       result = typeToStr[t.kind] % typeToString(t[0])
     of tySink:
       result = "sink " & typeToString(t[0])
-    of tyOwned:
-      result = "owned " & typeToString(t[0])
     else:
       result = typeToStr[t.kind]
     result.addTypeFlags(t)
