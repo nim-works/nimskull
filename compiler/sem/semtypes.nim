@@ -983,7 +983,7 @@ proc skipGenericInvocation(t: PType): PType {.inline.} =
   result = t
   if result.kind == tyGenericInvocation:
     result = result[0]
-  while result.kind in {tyGenericInst, tyGenericBody, tyRef, tyPtr, tyAlias, tySink, tyOwned}:
+  while result.kind in {tyGenericInst, tyGenericBody, tyRef, tyPtr, tyAlias, tySink}:
     result = lastSon(result)
 
 proc addInheritedFields(c: PContext, check: var IntSet, pos: var int,
@@ -1085,7 +1085,7 @@ proc semAnyRef(c: PContext; n: PNode; kind: TTypeKind; prev: PType): PType =
         isNilable = true
       else:
         let region = semTypeNode(c, ni, nil)
-        if region.kind in {tyOwned, tySink}:
+        if region.kind == tySink:
           wrapperKind = region.kind
         elif region.skipTypes({tyGenericInst, tyAlias, tySink}).kind notin {
               tyError, tyObject}:
@@ -1099,17 +1099,12 @@ proc semAnyRef(c: PContext; n: PNode; kind: TTypeKind; prev: PType): PType =
     addSonSkipIntLit(result, t, c.idgen)
     # if not isNilable: result.flags.incl tfNotNil
     case wrapperKind
-    of tyOwned:
-      if optOwnedRefs in c.config.globalOptions:
-        let t = newTypeS(tyOwned, c)
-        t.flags.incl tfHasOwned
-        t.rawAddSonNoPropagationOfTypeFlags result
-        result = t
     of tySink:
       let t = newTypeS(tySink, c)
       t.rawAddSonNoPropagationOfTypeFlags result
       result = t
     else: discard
+
     if result.kind == tyRef and c.config.selectedGC in {gcArc, gcOrc}:
       result.flags.incl tfHasAsgn
 
@@ -1231,7 +1226,7 @@ proc liftParamType(c: PContext, procKind: TSymKind, genericParams: PNode,
         paramType[i] = t
         result = paramType
 
-  of tyAlias, tyOwned, tySink:
+  of tyAlias, tySink:
     result = recurse(paramType.base)
 
   of tySequence, tySet, tyArray, tyOpenArray,
@@ -1970,7 +1965,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
       result = semRangeAux(c, n, prev)
     elif n[0].kind == nkNilLit and n.len == 2:
       result = semTypeNode(c, n[1], prev)
-      if result.skipTypes({tyGenericInst, tyAlias, tySink, tyOwned}).kind in NilableTypes+GenericTypes:
+      if result.skipTypes({tyGenericInst, tyAlias, tySink}).kind in NilableTypes+GenericTypes:
         if tfNotNil in result.flags:
           result = freshType(c, result, prev)
           result.flags.excl(tfNotNil)
@@ -2007,7 +2002,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
             localReport(c.config, n, reportSem rsemMalformedNotNilType)
           if notnil notin c.features and strictNotNil notin c.features:
             localReport(c.config, n, reportSem rsemEnableNotNilExperimental)
-          let resolvedType = result.skipTypes({tyGenericInst, tyAlias, tySink, tyOwned})
+          let resolvedType = result.skipTypes({tyGenericInst, tyAlias, tySink})
           case resolvedType.kind
           of tyGenericParam, tyTypeDesc, tyFromExpr:
             # XXX: This is a really inappropraite hack, but it solves
@@ -2052,7 +2047,9 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
         result = semTypeOf(c, n[1], prev)
       elif op.s == "typeof" and n[0].kind == nkSym and n[0].sym.magic == mTypeOf:
         result = semTypeOf2(c, n, prev)
-      elif op.s == "owned" and optOwnedRefs notin c.config.globalOptions and n.len == 2:
+      elif op.s == "owned" and n.len == 2:
+        # skip 'owned' in type expressions and produce a warning
+        localReport(c.config, n, reportSem rsemOwnedTypeDeprecated)
         result = semTypeExpr(c, n[1], prev)
       else:
         if c.inGenericContext > 0 and n.kind == nkCall:
@@ -2318,9 +2315,6 @@ proc processMagicType(c: PContext, m: PSym) =
     case m.name.s
     of "lent": setMagicType(c.config, m, tyLent, c.config.target.ptrSize)
     of "sink": setMagicType(c.config, m, tySink, szUncomputedSize)
-    of "owned":
-      setMagicType(c.config, m, tyOwned, c.config.target.ptrSize)
-      incl m.typ.flags, tfHasOwned
 
     else:
       localReport(c.config, m.info, reportSym(rsemTypeExpected, m))

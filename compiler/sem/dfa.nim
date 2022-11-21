@@ -692,8 +692,7 @@ proc isAnalysableFieldAccess*(orig: PNode; owner: PSym): bool =
       # bug #14159, we cannot reason about sinkParam[].location as it can
       # still be shared for tyRef.
       n = n[0]
-      return n.kind == nkSym and n.sym.owner == owner and
-         (n.sym.typ.skipTypes(abstractInst-{tyOwned}).kind in {tyOwned})
+      return false
     else: break
   # XXX Allow closure deref operations here if we know
   # the owner controlled the closure allocation?

@@ -567,8 +567,6 @@ type
     rsemInvalidTupleSubscript
     rsemLocalEscapesStackFrame
     rsemImplicitAddrIsNotFirstParam
-    rsemExpectedOwnerReturn
-    rsemExpectedUnownedRef
     rsemCannotAssignTo
     rsemNoReturnTypeDeclared
     rsemReturnNotAllowed
@@ -760,6 +758,7 @@ type
     rsemDeprecated             = "Deprecated"
     rsemLockLevelMismatch      = "LockLevel"
     rsemTypelessParam          = "TypelessParam"
+    rsemOwnedTypeDeprecated
 
     rsemWarnUnlistedRaises = "Effect" ## `sempass2.checkRaisesSpec` had
     ## `emitWarnings: bool` parameter which was supposedly used to control

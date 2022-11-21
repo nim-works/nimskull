@@ -1316,7 +1316,7 @@ proc ldNullOpcode(t: PType): TOpcode =
   if fitsRegister(t): opcLdNullReg else: opcLdNull
 
 proc whichAsgnOpc(n: PNode; requiresCopy = true): TOpcode =
-  case n.typ.skipTypes(abstractRange+{tyOwned}-{tyTypeDesc}).kind
+  case n.typ.skipTypes(abstractRange-{tyTypeDesc}).kind
   of tyBool, tyChar, tyEnum, tyOrdinal, tyInt..tyInt64, tyUInt..tyUInt64:
     opcAsgnInt
   of tyFloat..tyFloat128:
@@ -1351,7 +1351,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genNarrow(n[1], d)
     c.genAsgnPatch(n[1], d)
     c.freeTemp(d)
-  of mOrd, mChr, mUnown: c.gen(n[1], dest)
+  of mOrd, mChr: c.gen(n[1], dest)
   of mArrToSeq:
     let temp = c.genx(n[1])
     let L = c.getTemp(c.graph.getSysType(n.info, tyInt))
@@ -1771,7 +1771,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
 
 proc unneededIndirection(n: PNode): bool =
   # TODO: remove this proc, refs are ptr-like now
-  false#n.typ.skipTypes(abstractInstOwned-{tyTypeDesc}).kind == tyRef
+  false#n.typ.skipTypes(abstractInst-{tyTypeDesc}).kind == tyRef
 
 proc canElimAddr(n: PNode): PNode =
   if n[0].typ.skipTypes(abstractInst).kind in {tyObject, tyTuple, tyArray}:
@@ -2422,7 +2422,7 @@ proc genSetConstr(c: var TCtx, n: PNode, dest: var TDest) =
 
 proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
   if dest.isUnset: dest = c.getTemp(n.typ)
-  let t = n.typ.skipTypes(abstractRange+{tyOwned}-{tyTypeDesc})
+  let t = n.typ.skipTypes(abstractRange-{tyTypeDesc})
   var refTemp: TDest
   if t.kind == tyRef:
     refTemp = c.getTemp(t[0]) # The temporary register to hold the

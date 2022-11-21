@@ -55,8 +55,6 @@ type
                               ## string/seq implementation based on destructors
     optTinyRtti               ## active if we use the new "tiny RTTI"
                               ## implementation
-    optOwnedRefs              ## active if the Nim compiler knows about
-                              ## 'owned'.
     optMultiMethods
     optBenchmarkVM            ## Enables cpuTime() in the VM
     optProduceAsm             ## produce assembler code
@@ -101,8 +99,6 @@ type
     optBoundsCheck ## Control generation of the array boundary checks in
                    ## the backend
     optOverflowCheck ## Integer overflow check control
-    optRefCheck ## Deprecated option, does something with refs in te
-                ## `liftdestructors.nim`, need to investigate further
     optNaNCheck ## Raise float invalid defect C backend if operation
                 ## returned nan
     optInfCheck ## Raise float overflow in C backend if operation reaturned

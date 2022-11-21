@@ -234,8 +234,7 @@ type
     ## Stores run-time-type-information (RTTI) for types. Similiar to the
     ## `PNimType` used by the other backends, with the difference that
     ## `VmTypeInfo` is not exposed to user-code.
-    ## Only used internally for implementing `repr` (only when not compiling
-    ## with `--newruntime`; implied by `mm:arc/orc`) and `opcConv`
+    ## Only used internally for implementing `repr` and `opcConv`
 
     internal*: PVmType ## the `VmType` the type maps to
     nimType*: PType

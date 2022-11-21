@@ -1,15 +1,18 @@
 discard """
-  cmd: '''nim cpp -d:nimAllocStats --newruntime --threads:on $file'''
-  output: '''(field: "value")
-Indeed
+  matrix: "-d:nimAllocStats --gc:arc --threads:on"
+  targets: "c"
+  output: '''Indeed
 axc
 (v: 10)
 ...
 destroying GenericObj[T] GenericObj[system.int]
 test
-(allocCount: 12, deallocCount: 10)
+(allocCount: 8, deallocCount: 6)
 3'''
 """
+
+# TODO: not all tests here are for bugs, and none of them directly related to
+#       ARC. Move the test cases to other test files that better fit them
 
 import system / ansi_c
 
@@ -25,15 +28,7 @@ putEnv("HEAPTRASHING", "Indeed")
 
 let s1 = getAllocStats()
 
-
-proc newTableOwned[A, B](initialSize = defaultInitialSize): owned(TableRef[A, B]) =
-  new(result)
-  result[] = initTable[A, B](initialSize)
-
 proc main =
-  var w = newTableOwned[string, owned Node]()
-  w["key"] = Node(field: "value")
-  echo w["key"][]
   echo getEnv("HEAPTRASHING")
 
   # bug #11891
@@ -64,7 +59,7 @@ type
 var t: MyType
 
 # bug #11254
-proc test(p: owned proc()) =
+proc test(p: sink proc()) =
   let x = (proc())p
 
 test(proc() = discard)
@@ -111,7 +106,7 @@ let table = {"a": new(int)}.toTable()
 type
   GenericObj[T] = object
     val: T
-  Generic[T] = owned ref GenericObj[T]
+  Generic[T] = ref GenericObj[T]
 
 proc `=destroy`[T](x: var GenericObj[T]) =
   echo "destroying GenericObj[T] ", x.typeof # to know when its being destroyed

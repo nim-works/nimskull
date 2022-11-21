@@ -68,7 +68,7 @@ proc genTraverseProc(c: TTraversalClosure, accessor: Rope, typ: PType) =
   var p = c.p
   case typ.kind
   of tyGenericInst, tyGenericBody, tyTypeDesc, tyAlias, tyDistinct, tyInferred,
-     tySink, tyOwned:
+     tySink:
     genTraverseProc(c, accessor, lastSon(typ))
   of tyArray:
     let arraySize = lengthOrd(c.p.config, typ[0])
@@ -137,7 +137,7 @@ proc genTraverseProc(m: BModule, origTyp: PType; sig: SigHash): Rope =
   var p = newProc(nil, m)
   result = "Marker_" & getTypeName(m, origTyp, sig)
   let
-    typ = origTyp.skipTypes(abstractInstOwned)
+    typ = origTyp.skipTypes(abstractInst)
     markerName = result
     header = "static N_NIMCALL(void, $1)(void* p, NI op)" % [markerName]
     t = getTypeDesc(m, typ)
@@ -152,7 +152,7 @@ proc genTraverseProc(m: BModule, origTyp: PType; sig: SigHash): Rope =
   if typ.kind == tySequence:
     genTraverseProcSeq(c, "a".rope, typ)
   else:
-    if skipTypes(typ[0], typedescInst+{tyOwned}).kind == tyArray:
+    if skipTypes(typ[0], typedescInst).kind == tyArray:
       # C's arrays are broken beyond repair:
       genTraverseProc(c, "a".rope, typ[0])
     else:

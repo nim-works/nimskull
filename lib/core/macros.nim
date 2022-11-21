@@ -124,19 +124,15 @@ type
     ntyInt8, ntyInt16, ntyInt32, ntyInt64,
     ntyFloat, ntyFloat32, ntyFloat64, ntyFloat128,
     ntyUInt, ntyUInt8, ntyUInt16, ntyUInt32, ntyUInt64,
-    ntyUnused0, ntyUnused1, ntyUnused2,
+    ntyUnused1 = skipEnumValue(nimHasTyOwnedRemoved, ntyUInt64),
+    ntyUnused2,
     ntyVarargs,
     ntyUncheckedArray,
     ntyError,
     ntyBuiltinTypeClass, ntyUserTypeClass, ntyUserTypeClassInst,
     ntyCompositeTypeClass, ntyInferred, ntyAnd, ntyOr, ntyNot,
     ntyAnything, ntyStatic, ntyFromExpr,
-    ntyVoid = when defined(nimHasTyConceptRemoved):
-                ord(ntyFromExpr) + 1
-              else:
-                # Skip what would be ntyConcept, if compiled with a compiler
-                # compiler that still has ntyConcept (e.g. in bootstrapping)
-                ord(ntyFromExpr) + 2
+    ntyVoid = skipEnumValue(nimHasTyConceptRemoved, ntyFromExpr)
 
   NimSymKind* = enum
     nskUnknown, nskConditional, nskDynLib, nskParam,

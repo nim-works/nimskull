@@ -315,7 +315,6 @@ proc mapTypeToAstX(cache: IdentCache; t: PType; info: TLineInfo;
       result.add atomicType("static", mNone)
       if t.n != nil:
         result.add t.n.copyTree
-  of tyOwned: result = mapTypeToBracket("owned", mBuiltinType, t, info)
 
 proc opMapTypeToAst*(cache: IdentCache; t: PType; info: TLineInfo; idgen: IdGenerator): PNode =
   result = mapTypeToAstX(cache, t, info, idgen, inst=false, allowRecursionX=true)

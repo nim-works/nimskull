@@ -47,7 +47,6 @@ type
     CoType
     CoOwnerSig
     CoIgnoreRange
-    CoConsiderOwned
     CoDistinct
     CoHashTypeInsideNode
 
@@ -132,10 +131,6 @@ proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
     else:
       c.hashType t.lastSon, flags
   of tyAlias, tySink, tyUserTypeClasses, tyInferred:
-    c.hashType t.lastSon, flags
-  of tyOwned:
-    if CoConsiderOwned in flags:
-      c &= char(t.kind)
     c.hashType t.lastSon, flags
   of tyBool, tyChar, tyInt..tyUInt64:
     # no canonicalization for integral types, so that e.g. ``pid_t`` is

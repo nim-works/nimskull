@@ -769,7 +769,7 @@ func copyRegister(r: var TFullReg, other: TFullReg, mm: var VmMemoryManager) =
 proc putIntoReg(dest: var TFullReg; c: var TCtx, n: PNode, formal: PType) =
   ## Put the value that is represented by `n` (but not the node itself) into
   ## `dest`. Implicit conversion is also performed, if necessary.
-  let t = formal.skipTypes(abstractInst+{tyStatic, tyOwned}-{tyTypeDesc})
+  let t = formal.skipTypes(abstractInst+{tyStatic}-{tyTypeDesc})
 
   # XXX: instead of performing conversion here manually, sem could generate a
   #      small thunk for macro invocations that sets up static arguments and

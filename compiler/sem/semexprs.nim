@@ -134,14 +134,10 @@ proc checkConvertible(c: PContext, targetTyp: PType, src: PNode): TConvStatus =
   var s = srcTyp
   if s.kind in tyUserTypeClasses and s.isResolvedUserTypeClass:
     s = s.lastSon
-  s = skipTypes(s, abstractVar-{tyTypeDesc, tyOwned})
-  if s.kind == tyOwned and d.kind != tyOwned:
-    s = s.lastSon
+  s = skipTypes(s, abstractVar-{tyTypeDesc})
   var pointers = 0
-  while (d != nil) and (d.kind in {tyPtr, tyRef, tyOwned}):
-    if s.kind == tyOwned and d.kind != tyOwned:
-      s = s.lastSon
-    elif d.kind != s.kind:
+  while (d != nil) and (d.kind in {tyPtr, tyRef}):
+    if d.kind != s.kind:
       break
     else:
       d = d.lastSon
@@ -189,7 +185,7 @@ proc checkConvertible(c: PContext, targetTyp: PType, src: PNode): TConvStatus =
     of isNone, isGeneric:
       if not compareTypes(
         targetTyp.skipTypes(abstractVar),
-        srcTyp.skipTypes({tyOwned}),
+        srcTyp,
         dcEqIgnoreDistinct
       ):
         result = convNotLegal
@@ -288,14 +284,11 @@ proc semConv(c: PContext, n: PNode): PNode =
 
   var hasError = false
 
-  template handleLentOwnedOrSunkType(c: PContext, op: PNode, info: TLineInfo, targetType: PType): PNode =
+  template handleLentOrSunkType(c: PContext, op: PNode, info: TLineInfo, targetType: PType): PNode =
     let
       baseType = semTypeNode(c, op, nil).skipTypes({tyTypeDesc})
       t = newTypeS(targetType.kind, c)
       res = newNodeI(nkType, info)
-    
-    if targetType.kind == tyOwned:
-      t.flags.incl tfHasOwned
     
     t.rawAddSonNoPropagationOfTypeFlags baseType
     
@@ -303,17 +296,14 @@ proc semConv(c: PContext, n: PNode): PNode =
     res
 
   if targetType.kind in {tySink, tyLent}:
-    return handleLentOwnedOrSunkType(c, n[1], n.info, targetType)
+    return handleLentOrSunkType(c, n[1], n.info, targetType)
   else:
     let s = qualifiedLookUp(c, n[0], {})
     if s.isError:
       result.add s.ast
       hasError = true
     else:
-      if s != nil and sfSystemModule in s.owner.flags and s.name.s == "owned":
-        return handleLentOwnedOrSunkType(c, n[1], n.info, targetType)
-      else:
-        result.add copyTree(n[0])
+      result.add copyTree(n[0])
 
   # special case to make MyObject(x = 3) produce a nicer error message:
   if n[1].kind == nkExprEqExpr and
@@ -1147,7 +1137,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
   discard semOpAux(c, n)
   var t: PType = nil
   if n[0].typ != nil:
-    t = skipTypes(n[0].typ, abstractInst+{tyOwned}-{tyTypeDesc, tyDistinct})
+    t = skipTypes(n[0].typ, abstractInst-{tyTypeDesc, tyDistinct})
   if t != nil and t.kind == tyProc:
     # This is a proc variable, apply normal overload resolution
     let m = resolveIndirectCall(c, n, t)
@@ -1320,7 +1310,7 @@ proc lookupInRecordAndBuildCheck(c: PContext, n, r: PNode, field: PIdent,
 
 const
   tyTypeParamsHolders = {tyGenericInst, tyCompositeTypeClass}
-  tyDotOpTransparent = {tyVar, tyLent, tyPtr, tyRef, tyOwned, tyAlias, tySink}
+  tyDotOpTransparent = {tyVar, tyLent, tyPtr, tyRef, tyAlias, tySink}
 
 proc readTypeParameter(c: PContext, typ: PType,
                        paramName: PIdent, info: TLineInfo): PNode =
@@ -1577,7 +1567,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
   if ty.kind in tyUserTypeClasses and ty.isResolvedUserTypeClass:
     ty = ty.lastSon
-  ty = skipTypes(ty, {tyGenericInst, tyVar, tyLent, tyPtr, tyRef, tyOwned, tyAlias, tySink, tyStatic})
+  ty = skipTypes(ty, {tyGenericInst, tyVar, tyLent, tyPtr, tyRef, tyAlias, tySink, tyStatic})
   while tfBorrowDot in ty.flags: ty = ty.skipTypes({tyDistinct, tyGenericInst, tyAlias})
   var check: PNode = nil
   if ty.kind == tyObject:
@@ -1684,7 +1674,7 @@ proc semDeref(c: PContext, n: PNode): PNode =
   proc semDerefEval(c: PContext, n: PNode): PNode {.inline.} =
     result = n # we allow mutation because we're evaluating `n`
 
-    const tySkippedToGetRefType = {tyAlias, tyGenericInst, tyLent, tyOwned,
+    const tySkippedToGetRefType = {tyAlias, tyGenericInst, tyLent,
                                    tySink, tyVar}
     # xxx: should tySkippedToGetRefType be based off of `ast_types.skipPtrs`
     #      doing `skipPtrs - {tyRef, tyPtr}`? Also, not sure if tyVar and
@@ -1783,8 +1773,8 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # make sure we don't evaluate generic macros/templates
   n[0] = semExprWithType(c, n[0],
                               {efNoEvaluateGeneric})
-  var arr = skipTypes(n[0].typ, {tyGenericInst, tyUserTypeClassInst, tyOwned,
-                                      tyVar, tyLent, tyPtr, tyRef, tyAlias, tySink})
+  var arr = skipTypes(n[0].typ, {tyGenericInst, tyUserTypeClassInst,
+                                 tyVar, tyLent, tyPtr, tyRef, tyAlias, tySink})
   if arr.kind == tyStatic:
     if arr.base.kind == tyNone:
       result = n
@@ -1973,49 +1963,6 @@ proc asgnToResultVar(c: PContext, n, le, ri: PNode) {.inline.} =
   else:
     discard
 
-proc borrowCheck(c: PContext, n, le, ri: PNode) =
-  const
-    PathKinds0 = {nkDotExpr, nkCheckedFieldExpr,
-                  nkBracketExpr, nkAddr, nkHiddenAddr,
-                  nkObjDownConv, nkObjUpConv}
-    PathKinds1 = {nkHiddenStdConv, nkHiddenSubConv}
-
-  proc getRoot(n: PNode; followDeref: bool): PNode =
-    result = n
-    while true:
-      case result.kind
-      of nkDerefExpr, nkHiddenDeref:
-        if followDeref: result = result[0]
-        else: break
-      of PathKinds0:
-        result = result[0]
-      of PathKinds1:
-        result = result[1]
-      else: break
-
-  proc scopedLifetime(c: PContext; ri: PNode): bool {.inline.} =
-    let n = getRoot(ri, followDeref = false)
-    result = (ri.kind in nkCallKinds+{nkObjConstr}) or
-      (n.kind == nkSym and n.sym.owner == c.p.owner and n.sym.kind != skResult)
-
-  proc escapes(c: PContext; le: PNode): bool {.inline.} =
-    # param[].foo[] = self  definitely escapes, we don't need to
-    # care about pointer derefs:
-    let n = getRoot(le, followDeref = true)
-    result = n.kind == nkSym and n.sym.kind == skParam
-
-  # Special typing rule: do not allow to pass 'owned T' to 'T' in 'result = x':
-  const absInst = abstractInst - {tyOwned}
-  if ri.typ != nil and ri.typ.skipTypes(absInst).kind == tyOwned and
-      le.typ != nil and le.typ.skipTypes(absInst).kind != tyOwned and
-      scopedLifetime(c, ri):
-    if le.kind == nkSym and le.sym.kind == skResult:
-      localReport(c.config, n.info, reportTyp(
-        rsemExpectedOwnerReturn, le.typ))
-
-    elif escapes(c, le):
-      localReport(c.config, n, reportSem rsemExpectedUnownedRef)
-
 template resultTypeIsInferrable(typ: PType): untyped =
   typ.isMetaType and typ.kind != tyTypeDesc
 
@@ -2126,7 +2073,6 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
               result[1] = r # rhs error
               result = c.config.wrapError(result)
               return
-      borrowCheck(c, n, lhs, rhs)
 
       n[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))
       when false: liftTypeBoundOps(c, lhs.typ, lhs.info)
@@ -3339,9 +3285,6 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
       result = symChoice(c, n, s, scClosed)
       if result.kind == nkSym:
         markIndirect(c, result.sym)
-      # "procs literals" are 'owned'
-      if optOwnedRefs in c.config.globalOptions:
-        result.typ = makeVarType(c, result.typ, tyOwned)
     of skEnumField:
       if overloadableEnums in c.features:
         result = enumFieldSymChoice(c, n, s)

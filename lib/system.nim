@@ -862,35 +862,10 @@ template `isnot`*(x, y: untyped): untyped = not (x is y)
   ##   assert 42 isnot float
   ##   assert @[1, 2] isnot enum
 
-when (defined(nimOwnedEnabled) and not isNimVmTarget) or defined(nimFixedOwned):
-  type owned*[T]{.magic: "BuiltinType".} ## type constructor to mark a ref/ptr or a closure as `owned`.
-else:
-  template owned*(t: typedesc): typedesc = t
+template owned*(t: typedesc): typedesc {.deprecated.} = t
 
-when defined(nimOwnedEnabled) and not isNimVmTarget:
-  proc new*[T](a: var owned(ref T)) {.magic: "New", noSideEffect.}
-    ## Creates a new object of type `T` and returns a safe (traced)
-    ## reference to it in `a`.
-
-  proc new*(t: typedesc): auto =
-    ## Creates a new object of type `T` and returns a safe (traced)
-    ## reference to it as result value.
-    ##
-    ## When `T` is a ref type then the resulting type will be `T`,
-    ## otherwise it will be `ref T`.
-    when (t is ref):
-      var r: owned t
-    else:
-      var r: owned(ref t)
-    new(r)
-    return r
-
-  proc unown*[T](x: T): T {.magic: "Unown", noSideEffect.}
-    ## Use the expression `x` ignoring its ownership attribute.
-
-
-else:
-  template unown*(x: typed): untyped = x
+when true:
+  template unown*(x: typed): untyped {.deprecated.} = x
 
   proc new*[T](a: var ref T) {.magic: "New", noSideEffect.}
     ## Creates a new object of type `T` and returns a safe (traced)

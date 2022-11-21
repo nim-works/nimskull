@@ -307,7 +307,7 @@ proc genOp(c: var Con; t: PType; kind: TTypeAttachedOp; dest, ri: PNode): PNode 
   var op = getAttachedOp(c.graph, t, kind)
   if op == nil or op.ast.isGenericRoutine:
     # give up and find the canonical type instead:
-    let h = sighashes.hashType(t, {CoType, CoConsiderOwned, CoDistinct})
+    let h = sighashes.hashType(t, {CoType, CoDistinct})
     let canon = c.graph.canonTypes.getOrDefault(h)
     if canon != nil:
       op = getAttachedOp(c.graph, canon, kind)
@@ -331,10 +331,7 @@ proc genDestroy(c: var Con; dest: PNode): PNode =
 
 proc canBeMoved(c: Con; t: PType): bool {.inline.} =
   let t = t.skipTypes({tyGenericInst, tyAlias, tySink})
-  if optOwnedRefs in c.graph.config.globalOptions:
-    result = t.kind != tyRef and getAttachedOp(c.graph, t, attachedSink) != nil
-  else:
-    result = getAttachedOp(c.graph, t, attachedSink) != nil
+  result = getAttachedOp(c.graph, t, attachedSink) != nil
 
 proc isNoInit(dest: PNode): bool {.inline.} =
   result = dest.kind == nkSym and sfNoInit in dest.sym.flags
@@ -399,9 +396,6 @@ proc genCopyNoCheck(c: var Con; dest, ri: PNode): PNode =
 
 proc genCopy(c: var Con; dest, ri: PNode): PNode =
   let t = dest.typ
-  if tfHasOwned in t.flags and ri.kind != nkNilLit:
-    # try to improve the error message here:
-    c.checkForErrorPragma(t, ri, "=copy")
   result = c.genCopyNoCheck(dest, ri)
   assert ri.typ != nil
 
@@ -503,7 +497,7 @@ proc passCopyToSink(n: PNode; c: var Con; s: var Scope): PNode =
 
 proc isDangerousSeq(t: PType): bool {.inline.} =
   let t = t.skipTypes(abstractInst)
-  result = t.kind == tySequence and tfHasOwned notin t[0].flags
+  result = t.kind == tySequence
 
 proc containsConstSeq(n: PNode): bool =
   if n.kind == nkBracket and n.len > 0 and n.typ != nil and isDangerousSeq(n.typ):
@@ -724,28 +718,12 @@ template handleNestedTempl(n, processCall: untyped, willProduceStmt = false) =
   else: assert(false)
 
 proc pRaiseStmt(n: PNode, c: var Con; s: var Scope): PNode =
-  if optOwnedRefs in c.graph.config.globalOptions and n[0].kind != nkEmpty:
-    if n[0].kind in nkCallKinds:
-      let call = p(n[0], c, s, normal)
-      result = copyNode(n)
-      result.add call
-    else:
-      let tmp = c.getTemp(s, n[0].typ, n.info)
-      var m = c.genCopyNoCheck(tmp, n[0])
-      m.add p(n[0], c, s, normal)
-      c.finishCopy(m, n[0], isFromSink = false)
-      result = newTree(nkStmtList, c.genWasMoved(tmp), m)
-      var toDisarm = n[0]
-      if toDisarm.kind == nkStmtListExpr: toDisarm = toDisarm.lastSon
-      if toDisarm.kind == nkSym and toDisarm.sym.owner == c.owner:
-        result.add c.genWasMoved(toDisarm)
-      result.add newTree(nkRaiseStmt, tmp)
+  result = copyNode(n)
+  if n[0].kind != nkEmpty:
+    result.add p(n[0], c, s, sinkArg)
   else:
-    result = copyNode(n)
-    if n[0].kind != nkEmpty:
-      result.add p(n[0], c, s, sinkArg)
-    else:
-      result.add copyNode(n[0])
+    result.add copyNode(n[0])
+
   s.needsTry = true
 
 proc p(n: PNode; c: var Con; s: var Scope; mode: ProcessMode): PNode =
@@ -769,15 +747,7 @@ proc p(n: PNode; c: var Con; s: var Scope; mode: ProcessMode): PNode =
       result = destructiveMoveVar(n, c, s)
     elif n.kind in {nkHiddenSubConv, nkHiddenStdConv, nkConv}:
       result = copyTree(n)
-      if n.typ.skipTypes(abstractInst-{tyOwned}).kind != tyOwned and
-          n[1].typ.skipTypes(abstractInst-{tyOwned}).kind == tyOwned:
-        # allow conversions from owned to unowned via this little hack:
-        let nTyp = n[1].typ
-        n[1].typ = n.typ
-        result[1] = p(n[1], c, s, sinkArg)
-        result[1].typ = nTyp
-      else:
-        result[1] = p(n[1], c, s, sinkArg)
+      result[1] = p(n[1], c, s, sinkArg)
     elif n.kind in {nkObjDownConv, nkObjUpConv}:
       result = copyTree(n)
       result[0] = p(n[0], c, s, sinkArg)
@@ -936,15 +906,7 @@ proc p(n: PNode; c: var Con; s: var Scope; mode: ProcessMode): PNode =
       # we need to destroy 'x' but the function call handling ensures that
       # already.
       result = copyTree(n)
-      if n.typ.skipTypes(abstractInst-{tyOwned}).kind != tyOwned and
-          n[1].typ.skipTypes(abstractInst-{tyOwned}).kind == tyOwned:
-        # allow conversions from owned to unowned via this little hack:
-        let nTyp = n[1].typ
-        n[1].typ = n.typ
-        result[1] = p(n[1], c, s, mode)
-        result[1].typ = nTyp
-      else:
-        result[1] = p(n[1], c, s, mode)
+      result[1] = p(n[1], c, s, mode)
 
     of nkObjDownConv, nkObjUpConv:
       result = copyTree(n)

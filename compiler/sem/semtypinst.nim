@@ -640,7 +640,7 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
           var r = replaceTypeVarsT(cl, result[i])
           if result.kind == tyObject:
             # carefully coded to not skip the precious tyGenericInst:
-            let r2 = r.skipTypes({tyAlias, tySink, tyOwned})
+            let r2 = r.skipTypes({tyAlias, tySink})
             if r2.kind in {tyPtr, tyRef}:
               r = skipTypes(r2, {tyPtr, tyRef})
           result[i] = r

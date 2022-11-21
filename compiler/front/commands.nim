@@ -157,7 +157,7 @@ const optNames = @[
   "stacktracemsgs", "excessivestacktrace", "linetrace",
   "debugger", "g", "profiler", "memtracker", "checks",
   "floatchecks", "infchecks", "nanchecks", "objchecks", "fieldchecks",
-  "rangechecks", "boundchecks", "refchecks", "overflowchecks",
+  "rangechecks", "boundchecks", "overflowchecks",
   "staticboundchecks", "stylechecks", "linedir", "assertions", "threads",
   "tlsemulation", "implicitstatic", "patterns", "opt", "app", "passc",
   "passl", "cincludes", "clibdir", "clib", "header", "index", "import",
@@ -169,7 +169,7 @@ const optNames = @[
   "context", "usages", "defusages", "stdout", "filenames", "processing",
   "unitsep", "listfullpaths", "spellsuggest", "declaredlocs",
   "dynliboverride", "dynliboverrideall", "experimental", "legacy",
-  "nocppexceptions", "exceptions", "cppdefine", "newruntime", "seqsv2",
+  "nocppexceptions", "exceptions", "cppdefine", "seqsv2",
   "stylecheck", "showallmismatches", "cppcompiletonamespace",
   "docinternal", "multimethods", "expandmacro", "expandarc", "useversion",
   "benchmarkvm", "profilevm", "sinkinference", "cursorinference", "panics",
@@ -463,10 +463,6 @@ proc testCompileOption*(conf: ConfigRef; switch: string, info: TLineInfo): bool 
   of "fieldchecks": result = contains(conf.options, optFieldCheck)
   of "rangechecks": result = contains(conf.options, optRangeCheck)
   of "boundchecks": result = contains(conf.options, optBoundsCheck)
-  of "refchecks":
-    conf.localReport ExternalReport(
-      kind: rextDeprecated, msg: "refchecks option is deprecated")
-    result = contains(conf.options, optRefCheck)
   of "overflowchecks": result = contains(conf.options, optOverflowCheck)
   of "staticboundchecks": result = contains(conf.options, optStaticBoundsCheck)
   of "stylechecks": result = contains(conf.options, optStyleCheck)
@@ -899,8 +895,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     processOnOffSwitch(conf, {optRangeCheck}, arg, pass, info, switch)
   of "boundchecks":
     processOnOffSwitch(conf, {optBoundsCheck}, arg, pass, info, switch)
-  of "refchecks":
-    processOnOffSwitch(conf, {optRefCheck}, arg, pass, info, switch)
   of "overflowchecks":
     processOnOffSwitch(conf, {optOverflowCheck}, arg, pass, info, switch)
   of "staticboundchecks":
@@ -1208,19 +1202,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     expectArg(conf, switch, arg, pass, info)
     if conf != nil:
       conf.cppDefine(arg)
-  of "newruntime":
-    expectNoArg(conf, switch, arg, pass, info)
-    if pass in {passCmd2, passPP}:
-      doAssert(conf != nil)
-      incl(conf, destructor)
-      incl(conf, optTinyRtti)
-      incl(conf, optOwnedRefs)
-      incl(conf, optSeqDestructors)
-      defineSymbol(conf, "nimV2")
-      conf.selectedGC = gcHooks
-      defineSymbol(conf, "gchooks")
-      defineSymbol(conf, "nimSeqsV2")
-      defineSymbol(conf, "nimOwnedEnabled")
   of "seqsv2":
     processOnOffSwitchG(conf, {optSeqDestructors}, arg, pass, info, switch)
     if pass in {passCmd2, passPP}:

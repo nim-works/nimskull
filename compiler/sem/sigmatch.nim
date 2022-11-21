@@ -217,7 +217,7 @@ proc sumGeneric(t: PType): int =
     case t.kind
     of tyGenericInst, tyArray, tyRef, tyPtr, tyDistinct, tyUncheckedArray,
         tyOpenArray, tyVarargs, tySet, tyRange, tySequence, tyGenericBody,
-        tyLent, tyOwned:
+        tyLent:
       t = t.lastSon
       inc result
     of tyOr:
@@ -328,13 +328,6 @@ proc concreteType(c: TCandidate, t: PType; f: PType = nil): PType =
       if result.kind != tyGenericParam: break
   of tyGenericInvocation:
     result = nil
-  of tyOwned:
-    # bug #11257: the comparison system.`==`[T: proc](x, y: T) works
-    # better without the 'owned' type:
-    if f != nil and f.len > 0 and f[0].skipTypes({tyBuiltInTypeClass}).kind == tyProc:
-      result = t.lastSon
-    else:
-      result = t
   else:
     result = t                # Note: empty is valid here
 
@@ -451,7 +444,7 @@ proc skipToObject(t: PType; skipped: var SkippedPtr): PType =
       inc ptrs
       skipped = skippedPtr
       r = r.lastSon
-    of tyGenericBody, tyGenericInst, tyAlias, tySink, tyOwned:
+    of tyGenericBody, tyGenericInst, tyAlias, tySink:
       r = r.lastSon
     else:
       break
@@ -889,7 +882,7 @@ proc inferStaticsInRange(c: var TCandidate,
 
 template subtypeCheck() =
   if result <= isSubrange and f.lastSon.skipTypes(abstractInst).kind in {
-      tyRef, tyPtr, tyVar, tyLent, tyOwned}:
+      tyRef, tyPtr, tyVar, tyLent}:
     result = isNone
 
 proc isCovariantPtr(c: var TCandidate, f, a: PType): bool =
@@ -897,11 +890,11 @@ proc isCovariantPtr(c: var TCandidate, f, a: PType): bool =
   assert f.kind == a.kind
 
   template baseTypesCheck(lhs, rhs: PType): bool =
-    lhs.kind notin {tyPtr, tyRef, tyVar, tyLent, tyOwned} and
+    lhs.kind notin {tyPtr, tyRef, tyVar, tyLent} and
       typeRel(c, lhs, rhs, {trNoCovariance}) == isSubtype
 
   case f.kind
-  of tyRef, tyPtr, tyOwned:
+  of tyRef, tyPtr:
     return baseTypesCheck(f.base, a.base)
   of tyGenericInst:
     let body = f.base
@@ -931,9 +924,6 @@ when false:
     of tyFloat32: greater({tyFloat64, tyFloat128})
     of tyFloat64: greater({tyFloat128})
     else: discard
-
-template skipOwned(a) =
-  if a.kind == tyOwned: a = a.skipTypes({tyOwned, tyGenericInst})
 
 proc typeRel(c: var TCandidate, f, aOrig: PType,
              flags: TTypeRelFlags = {}): TTypeRelation =
@@ -1303,7 +1293,6 @@ typeRel can be used to establish various relationships between types:
     #internalError("forward type in typeRel()")
     result = isNone
   of tyNil:
-    skipOwned(a)
     if a.kind == f.kind:
       result = isEqual
   of tyTuple:
@@ -1320,7 +1309,7 @@ typeRel can be used to establish various relationships between types:
           inc(c.inheritancePenalty, depth)
           result = isSubtype
   of tyDistinct:
-    a = a.skipTypes({tyOwned, tyGenericInst, tyRange})
+    a = a.skipTypes({tyGenericInst, tyRange})
     if a.kind == tyDistinct:
       if sameDistinctTypes(f, a):
         result = isEqual
@@ -1346,7 +1335,6 @@ typeRel can be used to establish various relationships between types:
             result = isNone
 
   of tyPtr, tyRef:
-    skipOwned(a)
     if a.kind == f.kind:
       # ptr[R, T] can be passed to ptr[T], but not the other way round:
       if a.len < f.len:
@@ -1368,20 +1356,10 @@ typeRel can be used to establish various relationships between types:
     else:
       discard
   of tyProc:
-    skipOwned(a)
     result = procTypeRel(c, f, a)
     if result != isNone and tfNotNil in f.flags and tfNotNil notin a.flags:
       result = isNilConversion
-  of tyOwned:
-    case a.kind
-    of tyOwned:
-      result = typeRel(c, lastSon(f), lastSon(a), flags)
-    of tyNil:
-      result = f.allowsNil
-    else:
-      discard
   of tyPointer:
-    skipOwned(a)
     case a.kind
     of tyPointer:
       if tfNotNil in f.flags and tfNotNil notin a.flags:
@@ -1544,16 +1522,11 @@ typeRel can be used to establish various relationships between types:
   of tyGenericInvocation:
     var x = a.skipGenericAlias
     let concpt = f[0].skipTypes({tyGenericBody})
-    var preventHack = false
-
-    if x.kind == tyOwned and f[0].kind != tyOwned:
-      preventHack = true
-      x = x.lastSon
 
     # XXX: This is very hacky. It should be moved back into liftTypeParam
     if x.kind in {tyGenericInst, tyArray} and
       c.calleeSym != nil and
-      c.calleeSym.kind in {skProc, skFunc} and c.call != nil and not preventHack:
+      c.calleeSym.kind in {skProc, skFunc} and c.call != nil:
       let inst = prepareMetatypeForSigmatch(c.c, c.bindings, c.call.info, f)
       #echo "inferred ", typeToString(inst), " for ", f
       return typeRel(c, inst, a, flags)
@@ -1685,7 +1658,7 @@ typeRel can be used to establish various relationships between types:
         targetKind = f[0].kind
         effectiveArgType = a.skipTypes({tyRange, tyGenericInst,
                                         tyBuiltInTypeClass, tyAlias,
-                                        tySink, tyOwned})
+                                        tySink})
         typeClassMatches = targetKind == effectiveArgType.kind and
                              not effectiveArgType.isEmptyContainer
       if typeClassMatches or

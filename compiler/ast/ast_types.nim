@@ -370,7 +370,7 @@ type
     tyInt, tyInt8, tyInt16, tyInt32, tyInt64, # signed integers
     tyFloat, tyFloat32, tyFloat64, tyFloat128,
     tyUInt, tyUInt8, tyUInt16, tyUInt32, tyUInt64,
-    tyOwned, tySink, tyLent,
+    tySink, tyLent,
     tyVarargs,
     tyUncheckedArray ## An array with boundaries [0,+∞]
 
@@ -445,18 +445,17 @@ const
   # TODO: Remove tyTypeDesc from each abstractX and (where necessary)
   # replace with typedescX
   abstractInst* = {tyGenericInst, tyDistinct, tyOrdinal, tyTypeDesc, tyAlias,
-                   tyInferred, tySink, tyOwned} # xxx what about tyStatic?
+                   tyInferred, tySink} # xxx what about tyStatic?
   abstractPtrs* = abstractInst + {tyVar, tyPtr, tyRef, tyLent}
   abstractVar* = abstractInst + {tyVar, tyLent}
   abstractRange* = abstractInst + {tyRange}
   # consider renaming as `tyAbstractVarRange`
   abstractVarRange* = abstractVar + abstractRange - {tyLent}
-  abstractInstOwned* = abstractInst + {tyOwned}
   skipPtrs* = {tyVar, tyPtr, tyRef, tyGenericInst, tyTypeDesc, tyAlias,
-               tyInferred, tySink, tyLent, tyOwned}
+               tyInferred, tySink, tyLent}
   # typedescX is used if we're sure tyTypeDesc should be included (or skipped)
   typedescPtrs* = abstractPtrs + {tyTypeDesc}
-  typedescInst* = abstractInst + {tyTypeDesc, tyOwned, tyUserTypeClass}
+  typedescInst* = abstractInst + {tyTypeDesc, tyUserTypeClass}
 
 
 type
@@ -503,7 +502,6 @@ type
     tfNoSideEffect,   ## procedure type does not allow side effects
     tfFinal,          ## is the object final?
     tfInheritable,    ## is the object inheritable?
-    tfHasOwned,       ## type contains an 'owned' type and must be moved
     tfEnumHasHoles,   ## enum cannot be mapped into a range
     tfShallow,        ## type can be shallow copied on assignment
     tfThread,         ## proc type is marked as ``thread``; alias for ``gcsafe``
@@ -676,7 +674,7 @@ type
     mSwap, mIsNil, mArrToSeq,
     mNewString, mNewStringOfCap, mParseBiggestFloat,
     mMove, mWasMoved, mDestroy, mTrace,
-    mDefault, mUnown, mFinished, mIsolate, mAccessEnv, mAccessTypeField, mReset,
+    mDefault, mFinished, mIsolate, mAccessEnv, mAccessTypeField, mReset,
     mArray, mOpenArray, mRange, mSet, mSeq, mVarargs,
     mRef, mPtr, mVar, mDistinct, mVoid, mTuple,
     mOrdinal, mIterableType,

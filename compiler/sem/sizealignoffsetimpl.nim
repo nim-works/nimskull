@@ -411,7 +411,7 @@ proc computeSizeAlign(conf: ConfigRef; typ: PType) =
       typ.align = typ.lastSon.align
       typ.paddingAtEnd = typ.lastSon.paddingAtEnd
 
-  of tyGenericInst, tyDistinct, tyGenericBody, tyAlias, tySink, tyOwned:
+  of tyGenericInst, tyDistinct, tyGenericBody, tyAlias, tySink:
     computeSizeAlign(conf, typ.lastSon)
     typ.size = typ.lastSon.size
     typ.align = typ.lastSon.align

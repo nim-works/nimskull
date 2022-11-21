@@ -330,7 +330,7 @@ proc usesBuiltinArc(t: PType): bool =
 
 proc useNoGc(c: TLiftCtx; t: PType): bool {.inline.} =
   result = optSeqDestructors in c.g.config.globalOptions and
-    ({tfHasGCedMem, tfHasOwned} * t.flags != {} or usesBuiltinArc(t))
+    (tfHasGCedMem in t.flags or usesBuiltinArc(t))
 
 proc requiresDestructor(c: TLiftCtx; t: PType): bool {.inline.} =
   result = optSeqDestructors in c.g.config.globalOptions and
@@ -543,7 +543,7 @@ proc useSeqOrStrOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   # operation here:
   var t = t
   if t.assignment == nil or t.destructor == nil:
-    let h = sighashes.hashType(t, {CoType, CoConsiderOwned, CoDistinct})
+    let h = sighashes.hashType(t, {CoType, CoDistinct})
     let canon = c.g.canonTypes.getOrDefault(h)
     if canon != nil: t = canon
 
@@ -728,55 +728,6 @@ proc atomicClosureOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   of attachedTrace:
     body.add callCodegenProc(c.g, "nimTraceRefDyn", c.info, genAddrOf(xenv, c.idgen), y)
 
-proc weakrefOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
-  case c.kind
-  of attachedSink:
-    # we 'nil' y out afterwards so we *need* to take over its reference
-    # count value:
-    body.add genIf(c, x, callCodegenProc(c.g, "nimDecWeakRef", c.info, x))
-    body.add newAsgnStmt(x, y)
-  of attachedAsgn:
-    body.add genIf(c, y, callCodegenProc(c.g, "nimIncRef", c.info, y))
-    body.add genIf(c, x, callCodegenProc(c.g, "nimDecWeakRef", c.info, x))
-    body.add newAsgnStmt(x, y)
-  of attachedDestructor:
-    # it's better to prepend the destruction of weak refs in order to
-    # prevent wrong "dangling refs exist" problems:
-    var actions = newTreeI(nkStmtList, c.info):
-      callCodegenProc(c.g, "nimDecWeakRef", c.info, x)
-    let des = genIf(c, x, actions)
-    if body.len == 0:
-      body.add des
-    else:
-      body.sons.insert(des, 0)
-  of attachedDeepCopy: assert(false, "cannot happen")
-  of attachedTrace: discard
-
-proc ownedRefOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
-  var actions = newNodeI(nkStmtList, c.info)
-
-  let elemType = t.lastSon
-  #fillBody(c, elemType, actions, genDeref(x), genDeref(y))
-  #var disposeCall = genBuiltin(c, mDispose, "dispose", x)
-
-  if isFinal(elemType):
-    addDestructorCall(c, elemType, actions, genDeref(x, nkDerefExpr))
-    var alignOf = genBuiltin(c, mAlignOf, "alignof", newNodeIT(nkType, c.info, elemType))
-    alignOf.typ = getSysType(c.g, c.info, tyInt)
-    actions.add callCodegenProc(c.g, "nimRawDispose", c.info, x, alignOf)
-  else:
-    addDestructorCall(c, elemType, newNodeI(nkStmtList, c.info), genDeref(x, nkDerefExpr))
-    actions.add callCodegenProc(c.g, "nimDestroyAndDispose", c.info, x)
-
-  case c.kind
-  of attachedSink, attachedAsgn:
-    body.add genIf(c, x, actions)
-    body.add newAsgnStmt(x, y)
-  of attachedDestructor:
-    body.add genIf(c, x, actions)
-  of attachedDeepCopy: assert(false, "cannot happen")
-  of attachedTrace: discard
-
 proc closureOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   if c.kind == attachedDeepCopy:
     # a big problem is that we don't know the environment's type here, so we
@@ -784,8 +735,7 @@ proc closureOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
     let call = newTreeIT(nkCall, c.info, t):
       [newSymNode(createMagic(c.g, c.idgen, "deepCopy", mDeepCopy)), y]
     body.add newAsgnStmt(x, call)
-  elif (optOwnedRefs in c.g.config.globalOptions and
-      optRefCheck in c.g.config.options) or c.g.config.selectedGC in {gcArc, gcOrc}:
+  elif c.g.config.selectedGC in {gcArc, gcOrc}:
     let xx = genBuiltin(c, mAccessEnv, "accessEnv", x)
     xx.typ = getSysType(c.g, c.info, tyPointer)
     case c.kind
@@ -809,21 +759,6 @@ proc closureOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
     of attachedDeepCopy: assert(false, "cannot happen")
     of attachedTrace: discard
 
-proc ownedClosureOp(c: var TLiftCtx; t: PType; body, x, y: PNode) =
-  let xx = genBuiltin(c, mAccessEnv, "accessEnv", x)
-  xx.typ = getSysType(c.g, c.info, tyPointer)
-  var actions = newNodeI(nkStmtList, c.info)
-  #discard addDestructorCall(c, elemType, newNodeI(nkStmtList, c.info), genDeref(xx))
-  actions.add callCodegenProc(c.g, "nimDestroyAndDispose", c.info, xx)
-  case c.kind
-  of attachedSink, attachedAsgn:
-    body.add genIf(c, xx, actions)
-    body.add newAsgnStmt(x, y)
-  of attachedDestructor:
-    body.add genIf(c, xx, actions)
-  of attachedDeepCopy: assert(false, "cannot happen")
-  of attachedTrace: discard
-
 proc fillBody(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   case t.kind
   of tyNone, tyEmpty, tyVoid: discard
@@ -833,9 +768,6 @@ proc fillBody(c: var TLiftCtx; t: PType; body, x, y: PNode) =
   of tyRef:
     if c.g.config.selectedGC in {gcArc, gcOrc}:
       atomicRefOp(c, t, body, x, y)
-    elif (optOwnedRefs in c.g.config.globalOptions and
-        optRefCheck in c.g.config.options):
-      weakrefOp(c, t, body, x, y)
     else:
       defaultOp(c, t, body, x, y)
   of tyProc:
@@ -846,19 +778,6 @@ proc fillBody(c: var TLiftCtx; t: PType; body, x, y: PNode) =
         closureOp(c, t, body, x, y)
     else:
       defaultOp(c, t, body, x, y)
-  of tyOwned:
-    let base = t.skipTypes(abstractInstOwned)
-    if optOwnedRefs in c.g.config.globalOptions:
-      case base.kind
-      of tyRef:
-        ownedRefOp(c, base, body, x, y)
-        return
-      of tyProc:
-        if base.callConv == ccClosure:
-          ownedClosureOp(c, base, body, x, y)
-          return
-      else: discard
-    defaultOp(c, base, body, x, y)
   of tyArray:
     if tfHasAsgn in t.flags or useNoGc(c, t):
       forallElements(c, t, body, x, y)
@@ -1083,7 +1002,7 @@ proc createTypeBoundOps(g: ModuleGraph; c: PContext; orig: PType; info: TLineInf
   let skipped = orig.skipTypes({tyGenericInst, tyAlias, tySink})
   if isEmptyContainer(skipped) or skipped.kind == tyStatic: return
 
-  let h = sighashes.hashType(skipped, {CoType, CoConsiderOwned, CoDistinct})
+  let h = sighashes.hashType(skipped, {CoType, CoDistinct})
   var canon = g.canonTypes.getOrDefault(h)
   if canon == nil:
     g.canonTypes[h] = skipped

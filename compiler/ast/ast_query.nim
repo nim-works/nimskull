@@ -623,7 +623,7 @@ when false:
       if n[i].containsNil: return true
 
 
-template hasDestructor*(t: PType): bool = {tfHasAsgn, tfHasOwned} * t.flags != {}
+template hasDestructor*(t: PType): bool = tfHasAsgn in t.flags
 
 template incompleteType*(t: PType): bool =
   t.sym != nil and {sfForward, sfNoForward} * t.sym.flags == {sfForward}
@@ -644,10 +644,10 @@ proc isClosure*(typ: PType): bool {.inline.} =
   typ.kind == tyProc and typ.callConv == ccClosure
 
 proc isSinkParam*(s: PSym): bool {.inline.} =
-  s.kind == skParam and (s.typ.kind == tySink or tfHasOwned in s.typ.flags)
+  s.kind == skParam and s.typ.kind == tySink
 
 proc isSinkType*(t: PType): bool {.inline.} =
-  t.kind == tySink or tfHasOwned in t.flags
+  t.kind == tySink
 
 const magicsThatCanRaise = {
   mNone, mSlurp, mStaticExec, mParseExprToAst, mParseStmtToAst, mEcho}

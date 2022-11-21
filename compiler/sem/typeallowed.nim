@@ -193,11 +193,6 @@ proc typeAllowedAux(marker: var IntSet, typ: PType, kind: TSymKind,
     # for now same as error node; we say it's a valid type as it should
     # prevent cascading errors:
     result = nil
-  of tyOwned:
-    if t.len == 1 and t[0].skipTypes(abstractInst).kind in {tyRef, tyPtr, tyProc}:
-      result = typeAllowedAux(marker, t.lastSon, kind, c, flags+{taHeap})
-    else:
-      result = t
 
 proc typeAllowed*(t: PType, kind: TSymKind; c: PContext; flags: TTypeAllowedFlags = {}): PType =
   ## returns 'nil' on success and otherwise the part of the type that is wrong!
@@ -253,7 +248,7 @@ proc classifyViewTypeAux(marker: var IntSet, t: PType): ViewTypeKind =
     result = mutableView
   of tyLent, tyOpenArray, tyVarargs:
     result = immutableView
-  of tyGenericInst, tyDistinct, tyAlias, tyInferred, tySink, tyOwned,
+  of tyGenericInst, tyDistinct, tyAlias, tyInferred, tySink,
      tyUncheckedArray, tySequence, tyArray, tyRef, tyStatic:
     result = classifyViewTypeAux(marker, lastSon(t))
   of tyFromExpr:

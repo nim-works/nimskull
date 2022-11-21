@@ -1,5 +1,5 @@
 discard """
-  cmd: '''nim c -d:nimAllocStats --newruntime $file'''
+  matrix: "-d:nimAllocStats --gc:arc"
   output: '''0
 (allocCount: 5, deallocCount: 5)'''
 """

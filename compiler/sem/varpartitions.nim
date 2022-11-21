@@ -722,7 +722,7 @@ proc traverse(c: var Partitions; n: PNode) =
       let it = n[i]
       if i < L:
         let paramType = parameters[i].skipTypes({tyGenericInst, tyAlias})
-        if not paramType.isCompileTimeOnly and paramType.kind in {tyVar, tySink, tyOwned}:
+        if not paramType.isCompileTimeOnly and paramType.kind in {tyVar, tySink}:
           var roots: seq[(PSym, int)]
           allRoots(it, roots, RootEscapes)
           if paramType.kind == tyVar:
@@ -954,8 +954,7 @@ proc computeCursors*(s: PSym; n: PNode; g: ModuleGraph) =
     let v = addr(par.s[i])
     if v.flags * {ownsData, preventCursor, isConditionallyReassigned} == {} and
         v.sym.kind notin {skParam, skResult} and
-        v.sym.flags * {sfThread, sfGlobal} == {} and hasDestructor(v.sym.typ) and
-        v.sym.typ.skipTypes({tyGenericInst, tyAlias}).kind != tyOwned:
+        v.sym.flags * {sfThread, sfGlobal} == {} and hasDestructor(v.sym.typ):
       let rid = root(par, i)
       if par.s[rid].con.kind == isRootOf and
          dangerousMutation(par.graphs[par.s[rid].con.graphIndex], par.s[i]):
