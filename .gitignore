@@ -16,6 +16,7 @@ dnimcache/
 *.lib
 *.dll
 *.exe
+*.bin
 *.so
 *.dylib
 *.zip
