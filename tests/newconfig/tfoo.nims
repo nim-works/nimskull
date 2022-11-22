@@ -6,7 +6,7 @@ exec "gcc -v"
 --define:release
 
 --forceBuild
---path: "../friends"
+--path: "../lang_objects/friends"
 
 warning("uninit", off)
 
