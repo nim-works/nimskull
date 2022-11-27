@@ -40,7 +40,8 @@ proc isTestFile*(file: string): bool =
 
 # --------------------- DLL generation tests ----------------------------------
 
-proc runBasicDLLTest(c, r: var TResults, cat: Category, options: string) =
+proc runBasicDLLTest(
+    c, r: var TResults, cat: Category, options: string, execution: Execution) =
   const rpath = when defined(macosx):
       " --passL:-rpath --passL:@loader_path"
     else:
@@ -48,13 +49,13 @@ proc runBasicDLLTest(c, r: var TResults, cat: Category, options: string) =
 
   var test1 = makeTest("lib/nimrtl.nim", options & " --outdir:tests/dll", cat)
   test1.spec.action = actionCompile
-  testSpec c, test1
+  testSpec c, test1, execution
   var test2 = makeTest("tests/dll/server.nim", options & " --threads:on" & rpath, cat)
   test2.spec.action = actionCompile
-  testSpec c, test2
+  testSpec c, test2, execution
   var test4 = makeTest("tests/dll/visibility.nim", options & " --app:lib" & rpath, cat)
   test4.spec.action = actionCompile
-  testSpec c, test4
+  testSpec c, test4, execution
 
   # windows looks in the dir of the exe (yay!):
   when not defined(windows):
@@ -66,8 +67,10 @@ proc runBasicDLLTest(c, r: var TResults, cat: Category, options: string) =
     putEnv(libpathenv, "tests/dll" & (if libpath.len > 0: ":" & libpath else: ""))
     defer: putEnv(libpathenv, libpath)
 
-  testSpec r, makeTest("tests/dll/client.nim", options & " --threads:on" & rpath, cat)
-  testSpec r, makeTest("tests/dll/visibility.nim", options & rpath, cat)
+  testSpec(
+    r, makeTest("tests/dll/client.nim", options & " --threads:on" & rpath, cat), execution)
+  testSpec(
+    r, makeTest("tests/dll/visibility.nim", options & rpath, cat), execution)
 
   if "boehm" notin options:
     # force build required - see the comments in the .nim file for more details
@@ -75,41 +78,41 @@ proc runBasicDLLTest(c, r: var TResults, cat: Category, options: string) =
       var hcri = makeTest("tests/dll/nimhcr_integration.nim",
                                     options & " --forceBuild --hotCodeReloading:on" & rpath, cat)
       let nimcache = nimcacheDir(hcri.name, hcri.options, target)
-      let cmd = prepareTestCmd(hcri.spec.getCmd, hcri.name,
+      let cmd = prepareTestCompileCmd(hcri.spec.getCmd, hcri.name,
                                   hcri.options, nimcache, target)
       hcri.testArgs = cmd.parseCmdLine
-      testSpec r, hcri
+      testSpec r, hcri, execution
 
-proc dllTests(r: var TResults, cat: Category, options: string) =
+proc dllTests(r: var TResults, cat: Category, options: string, execution: Execution) =
   # dummy compile result:
   var c = initResults()
 
-  runBasicDLLTest c, r, cat, options
-  runBasicDLLTest c, r, cat, options & " -d:release"
+  runBasicDLLTest c, r, cat, options, execution
+  runBasicDLLTest c, r, cat, options & " -d:release", execution
   when not defined(windows):
     # still cannot find a recent Windows version of boehm.dll:
-    runBasicDLLTest c, r, cat, options & " --gc:boehm"
-    runBasicDLLTest c, r, cat, options & " -d:release --gc:boehm"
+    runBasicDLLTest c, r, cat, options & " --gc:boehm", execution
+    runBasicDLLTest c, r, cat, options & " -d:release --gc:boehm", execution
 
 # ------------------------------ GC tests -------------------------------------
 
-proc gcTests(r: var TResults, cat: Category, options: string) =
+proc gcTests(r: var TResults, cat: Category, options: string, execution: Execution) =
   template testWithoutMs(filename: untyped) =
-    testSpec r, makeTest("tests/gc" / filename, options, cat)
+    testSpec r, makeTest("tests/gc" / filename, options, cat), execution
     testSpec r, makeTest("tests/gc" / filename, options &
-                  " -d:release -d:useRealtimeGC", cat)
+                  " -d:release -d:useRealtimeGC", cat), execution
     when filename != "gctest":
       testSpec r, makeTest("tests/gc" / filename, options &
-                    " --gc:orc", cat)
+                    " --gc:orc", cat), execution
       testSpec r, makeTest("tests/gc" / filename, options &
-                    " --gc:orc -d:release", cat)
+                    " --gc:orc -d:release", cat), execution
 
   template testWithoutBoehm(filename: untyped) =
     testWithoutMs filename
     testSpec r, makeTest("tests/gc" / filename, options &
-                  " --gc:markAndSweep", cat)
+                  " --gc:markAndSweep", cat), execution
     testSpec r, makeTest("tests/gc" / filename, options &
-                  " -d:release --gc:markAndSweep", cat)
+                  " -d:release --gc:markAndSweep", cat), execution
 
   template test(filename: untyped) =
     testWithoutBoehm filename
@@ -117,9 +120,9 @@ proc gcTests(r: var TResults, cat: Category, options: string) =
       # AR: cannot find any boehm.dll on the net, right now, so disabled
       # for windows:
       testSpec r, makeTest("tests/gc" / filename, options &
-                    " --gc:boehm", cat)
+                    " --gc:boehm", cat), execution
       testSpec r, makeTest("tests/gc" / filename, options &
-                    " -d:release --gc:boehm", cat)
+                    " -d:release --gc:boehm", cat), execution
 
   testWithoutBoehm "foreign_thr"
   test "gcemscripten"
@@ -144,33 +147,100 @@ proc gcTests(r: var TResults, cat: Category, options: string) =
   test "cyclecollector"
   testWithoutBoehm "trace_globals"
 
+
+type
+  GcTestKinds = enum
+    gcOther,
+    gcMarkSweep,
+    gcBoehm
+
+proc setupGcTests(execState: var Execution, catId: CategoryId) =
+  ## setup tests for the gc category, requires special handling due to
+  ## testament limitations.
+
+  const
+    withoutMs = {gcOther}
+    withoutBoehm = {gcOther, gcMarkSweep}
+    noConditions = {gcOther, gcMarkSweep, gcBoehm}
+
+  let testData = [
+    ("foreign_thr.nim", withoutBoehm),
+    ("gcemscripten.nim", noConditions),
+    ("growobjcrash.nim", noConditions),
+    ("gcbench.nim", noConditions),
+    ("gcleak.nim", noConditions),
+    ("gcleak2.nim", noConditions),
+    ("gctest.nim", withoutBoehm),
+    ("gcleak3.nim", noConditions),
+    ("gcleak4.nim", noConditions),
+    ("weakrefs.nim", withoutBoehm),
+    ("cycleleak.nim", noConditions),
+    ("closureleak.nim", withoutBoehm),
+    ("refarrayleak.nim", withoutMs),
+    ("tlists.nim", withoutBoehm),
+    ("thavlak.nim", withoutBoehm),
+    ("stackrefleak.nim", noConditions),
+    ("cyclecollector.nim", noConditions),
+    ("trace_globals.nim", withoutBoehm)
+  ]
+
+  for (testFile, gcConditions) in testData:
+    let testId: TestId = execState.testFiles.len
+    execState.testFiles.add TestFile(file: "tests/gc" / testFile, catId: catId)
+    execState.testOpts[testId] = TestOptionData()
+
+    if gcMarkSweep in gcConditions:
+      execState.testOpts[testId].optMatrix.add "" # run the test as is
+      execState.testOpts[testId].optMatrix.add " -d:release --gc:useRealtimeGC"
+      if testFile != "gctest":
+        execState.testOpts[testId].optMatrix.add " --gc:orc"
+        execState.testOpts[testId].optMatrix.add " -d:release --gc:orc"
+
+    if gcMarkSweep in gcConditions:
+      execState.testOpts[testId].optMatrix.add " --gc:markAndSweep"
+      execState.testOpts[testId].optMatrix.add " -d:release --gc:markAndSweep"
+
+    if gcBoehm in gcConditions:
+      when not defined(windows) and not defined(android):
+        # cannot find any boehm.dll on the net, right now, so disabled for
+        # windows:
+        execState.testOpts[testId].optMatrix.add " --gc:boehm"
+        execState.testOpts[testId].optMatrix.add " -d:release --gc:boehm"
+
 # ------------------------- threading tests -----------------------------------
 
-proc threadTests(r: var TResults, cat: Category, options: string) =
+proc threadTests(r: var TResults, cat: Category, options: string, execution: Execution) =
   template test(filename: untyped) =
-    testSpec r, makeTest(filename, options, cat)
-    testSpec r, makeTest(filename, options & " -d:release", cat)
-    testSpec r, makeTest(filename, options & " --tlsEmulation:on", cat)
+    testSpec r, makeTest(filename, options, cat), execution
+    testSpec r, makeTest(filename, options & " -d:release", cat), execution
+    testSpec r, makeTest(filename, options & " --tlsEmulation:on", cat), execution
   for t in os.walkFiles("tests/threads/t*.nim"):
     test(t)
 
+proc setupThreadTests(execState: var Execution, catId: CategoryId) =
+  for t in os.walkFiles("tests/threads/t*.nim"):
+    let testId: TestId = execState.testFiles.len
+    execState.testFiles.add TestFile(file: t, catId: catId)
+    execState.testOpts[testId] = TestOptionData(
+      optMatrix: @["", "-d:release", "--tlsEmulation:on"])
+
 # ------------------------- debugger tests ------------------------------------
 
-proc debuggerTests(r: var TResults, cat: Category, options: string) =
+proc debuggerTests(r: var TResults, cat: Category, options: string, execution: Execution) =
   if fileExists("tools/nimgrep.nim"):
     var t = makeTest("tools/nimgrep", options & " --debugger:on", cat)
     t.spec.action = actionCompile
     # force target to C because of MacOS 10.15 SDK headers bug
     # https://github.com/nim-lang/Nim/pull/15612#issuecomment-712471879
     t.spec.targets = {targetC}
-    testSpec r, t
+    testSpec r, t, execution
 
 # ------------------------- JS tests ------------------------------------------
 
-proc jsTests(r: var TResults, cat: Category, options: string) =
+proc jsTests(r: var TResults, cat: Category, options: string, execution: Execution) =
   template test(filename: untyped) =
-    testSpec r, makeTest(filename, options, cat)
-    testSpec r, makeTest(filename, options & " -d:release", cat)
+    testSpec r, makeTest(filename, options, cat), execution
+    testSpec r, makeTest(filename, options & " -d:release", cat), execution
 
   for t in os.walkFiles("tests/js/t*.nim"):
     test(t)
@@ -202,7 +272,7 @@ proc findMainFile(dir: string): string =
         inc nimFiles
   if nimFiles != 1: result.setLen(0)
 
-proc manyLoc(r: var TResults, cat: Category, options: string) =
+proc manyLoc(r: var TResults, cat: Category, options: string, execution: Execution) =
   for kind, dir in os.walkDir("tests/manyloc"):
     if kind == pcDir:
       when defined(windows):
@@ -212,7 +282,7 @@ proc manyLoc(r: var TResults, cat: Category, options: string) =
       if mainfile != "":
         var test = makeTest(mainfile, options, cat)
         test.spec.action = actionCompile
-        testSpec r, test
+        testSpec r, test, execution
 
 
 const stdlibToExcludeFromJS = [
@@ -239,7 +309,8 @@ const stdlibToExcludeFromJS = [
   "lib/pure/terminal.nim",
 ] ## these can't run on the JS target
 
-proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
+proc testStdlib(
+    r: var TResults, pattern, options: string, cat: Category, execution: Execution) =
   var files: seq[string]
 
   proc isValid(file: string): bool =
@@ -269,12 +340,38 @@ proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
     if name in stdlibToExcludeFromJS:
       testObj.spec.targets.excl targetJS
     
-    testSpec r, testObj
+    testSpec r, testObj, execution
+
+proc setupStdlibTests(execState: var Execution, catId: CategoryId) =
+  proc isValid(file: string): bool =
+    for dir in parentDirs(file, inclusive = false):
+      if dir.lastPathPart in ["includes", "nimcache"]:
+        # e.g.: lib/pure/includes/osenv.nim gives: Error: This is an include file for os.nim!
+        return false
+    let name = extractFilename(file)
+    if name.splitFile.ext != ".nim": return false
+    for namei in disabledFiles:
+      # because of `LockFreeHash.nim` which has case
+      if namei.cmpPaths(name) == 0: return false
+    return true
+
+  for testFile in os.walkDirRec("lib/pure/"):
+    if isValid(testFile):
+      let testId: TestId = execState.testFiles.len
+      execState.testFiles.add TestFile(file: testFile, catId: catId)
+      execState.testOpts[testId] = TestOptionData(action: some(actionCompile))
 
 # ---------------- IC tests ---------------------------------------------
 
-proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
-             isNavigatorTest: bool) =
+proc icTests(
+    r: var TResults,
+    testsDir: string,
+    cat: Category,
+    options: string,
+    isNavigatorTest: bool,
+    execution: Execution
+  ) =
+
   const
     tooltests = ["compiler/nim.nim"]
     incrementalOn = " --incremental:on -d:nimIcIntegrityChecks "
@@ -291,12 +388,12 @@ proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
     if isNavigatorTest:
       test.spec.action = actionCompile
     test.spec.targets = targets
-    testSpecWithNimcache(r, test, nimcache)
+    testSpecWithNimcache(r, test, nimcache, execution)
 
   template checkTest() =
     var test = makeTestWithDummySpec(file, options, cat)
     test.spec.cmd = compilerPrefix & " check --hint:Conf:off --warnings:off --ic:on $options " & file
-    testSpecWithNimcache(r, test, nimcache)
+    testSpecWithNimcache(r, test, nimcache, execution)
 
   if not isNavigatorTest:
     for file in tooltests:
@@ -338,9 +435,10 @@ proc `&.?`(a, b: string): string =
   # candidate for the stdlib?
   result = if b.startsWith(a): b else: a & b
 
-proc processSingleTest(r: var TResults, cat: Category, options, test: string) =
+proc processSingleTest(
+    r: var TResults, cat: Category, options, test: string, execution: Execution) =
   doAssert fileExists(test), test & " test does not exist"
-  testSpec r, makeTest(test, options, cat)
+  testSpec r, makeTest(test, options, cat), execution
 
 proc isJoinableSpec(spec: TSpec): bool =
   # xxx simplify implementation using an allow list of fields that are allowed
@@ -489,7 +587,7 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
 
 proc processCategory(r: var TResults, cat: Category,
                      options, testsDir: string,
-                     runJoinableTests: bool) =
+                     runJoinableTests: bool, execution: Execution) =
   let cat2 = cat.string.split("/")[0].normalize
   case cat2
   of "js":
@@ -498,23 +596,23 @@ proc processCategory(r: var TResults, cat: Category,
     if not defined(linux) or not defined(windows):
       discard
     else:
-      jsTests(r, cat, options)
+      jsTests(r, cat, options, execution)
   of "dll":
-    dllTests(r, cat, options)
+    dllTests(r, cat, options, execution)
   of "gc":
-    gcTests(r, cat, options)
+    gcTests(r, cat, options, execution)
   of "debugger":
-    debuggerTests(r, cat, options)
+    debuggerTests(r, cat, options, execution)
   of "manyloc":
-    manyLoc r, cat, options
+    manyLoc(r, cat, options, execution)
   of "threads":
-    threadTests r, cat, options & " --threads:on"
+    threadTests(r, cat, options & " --threads:on", execution)
   of "lib":
-    testStdlib(r, "lib/pure/", options, cat)
+    testStdlib(r, "lib/pure/", options, cat, execution)
   of "ic":
-    icTests(r, testsDir / cat2, cat, options, isNavigatorTest=false)
+    icTests(r, testsDir / cat2, cat, options, isNavigatorTest=false, execution)
   of "navigator":
-    icTests(r, testsDir / cat2, cat, options, isNavigatorTest=true)
+    icTests(r, testsDir / cat2, cat, options, isNavigatorTest=true, execution)
   of "untestable":
     # These require special treatment e.g. because they depend on a third party
     # dependency; see `trunner_special` which runs some of those.
@@ -533,7 +631,7 @@ proc processCategory(r: var TResults, cat: Category,
         discard "run the test"
       else:
         test.spec.err = reJoined
-      testSpec r, test
+      testSpec(r, test, execution)
       inc testsRun
     if testsRun == 0:
       const allowedDirs = ["deps", "htmldocs", "pkgs"]
