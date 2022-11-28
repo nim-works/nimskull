@@ -17,7 +17,6 @@ import
     ast,
     idents,
     lineinfos,
-    reports,
   ],
   compiler/modules/[
     modulegraphs
@@ -569,7 +568,6 @@ type
     callbackKeys*: seq[IdentPattern] ## The matcher patterns corresponding to
       ## each entry in `callbacks`. Written during VM environment setup or
       ## inbetween invocations. Read during code-generation.
-    errorFlag*: Report
     cache*: IdentCache
     config*: ConfigRef
     graph*: ModuleGraph
@@ -722,7 +720,6 @@ proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph; idgen: IdGenerator
     loopIterations: g.config.maxLoopIterationsVM,
     comesFromHeuristic: unknownLineInfo,
     callbacks: @[],
-    errorFlag: reportEmpty,
     cache: cache,
     config: g.config,
     graph: g,

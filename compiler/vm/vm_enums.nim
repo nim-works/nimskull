@@ -120,7 +120,6 @@ type
     opcGorge,
     opcParseExprToAst,
     opcParseStmtToAst,
-    opcQueryErrorFlag,
     opcNError,
     opcNWarning,
     opcNHint,

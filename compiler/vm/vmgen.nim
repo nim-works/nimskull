@@ -1069,6 +1069,27 @@ proc genBinaryStmtVar(c: var TCtx; n: PNode; opc: TOpcode) =
   c.freeTemp(tmp)
   c.freeTemp(dest)
 
+proc genParseOp(c: var TCtx; n: PNode; dest: var TDest,
+                opc: range[opcParseExprToAst..opcParseStmtToAst]) =
+  ## Generates the code for a ``parseExpr``/``parseStmt`` magic call
+  if dest.isUnset:
+    dest = c.getTemp(n.typ)
+
+  # the second parameter is a ``var`` parameter. We want to access the
+  # register directly, so the used addr operation is skipped (if it hasn't
+  # been eliminated by ``transf``)
+  var x = n[2]
+  if x.kind in {nkAddr, nkHiddenAddr}:
+    x = x[0]
+
+  let
+    in1 = c.genx(n[1])
+    in2 = c.genx(x)
+
+  c.gABC(n, opc, dest, in1, in2)
+  c.freeTemp(in1)
+  c.freeTemp(in2)
+
 proc genUnaryStmt(c: var TCtx; n: PNode; opc: TOpcode) =
   let tmp = c.genx(n[1])
   c.gABC(n, opc, tmp, 0, 0)
@@ -1589,9 +1610,9 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     unused(c, n, dest)
     genBinaryStmtVar(c, n, opcAddSeqElem)
   of mParseExprToAst:
-    genUnaryABC(c, n, dest, opcParseExprToAst)
+    genParseOp(c, n, dest, opcParseExprToAst)
   of mParseStmtToAst:
-    genUnaryABC(c, n, dest, opcParseStmtToAst)
+    genParseOp(c, n, dest, opcParseStmtToAst)
   of mTypeTrait:
     let tmp = c.genx(n[1])
     if dest.isUnset: dest = c.getTemp(n.typ)
@@ -1688,13 +1709,8 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     unused(c, n, dest)
     genBinaryStmt(c, n, opcNWarning)
   of mNError:
-    if n.len <= 1:
-      # query error condition:
-      c.gABC(n, opcQueryErrorFlag, dest)
-    else:
-      # setter
-      unused(c, n, dest)
-      genBinaryStmt(c, n, opcNError)
+    unused(c, n, dest)
+    genBinaryStmt(c, n, opcNError)
   of mNCallSite:
     if dest.isUnset: dest = c.getTemp(n.typ)
     c.gABC(n, opcCallSite, dest)
