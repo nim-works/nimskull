@@ -1,6 +1,6 @@
 discard """
   description: "Tests for the serialization/deserialization"
-  targets: "c cpp !js"
+  targets: "c !js"
 """
 
 # knownIssue: fails with JS backend due to code-gen issues as well as due to
@@ -81,7 +81,7 @@ block non_nil_closure_in_object:
     result = proc(): int =
       x
 
-  # Fails on the c/cpp and VM backend (what about JS?) since closures with
+  # Fails on the C and VM backend (what about JS?) since closures with
   # non-nil environments are not supported
   const disableBackend = true
   testCase(v, A, A(c: mkClosure())):

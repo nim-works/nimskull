@@ -1,7 +1,7 @@
 discard """
 targets: "!js !vm"
 description: '''
-Enable or disable safety checks applicable to C and C++ targets
+Enable or disable safety checks applicable to C targets
 '''
 """
 

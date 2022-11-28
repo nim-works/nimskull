@@ -83,7 +83,7 @@ block:
                   n: PNode(kind: nkStmtList), callConv: ccClosure)
   let sym = PSym(kind: skProc, magic: mSlice, name: PIdent(s: "slice"),
                  typ: typ,  offset: 1, position: 2)
-  let typ2 = PType(kind: tyString, flags: {tfVarIsPtr}, sons: @[typ],
+  let typ2 = PType(kind: tyString, flags: {tfVarargs}, sons: @[typ],
                    n: PNode(kind: nkStrLit, flags: {nfBase2}, typ: typ),
                    sym: sym)
 

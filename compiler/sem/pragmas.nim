@@ -56,8 +56,8 @@ const
   LastCallConv* = wNoconv
 
 const
-  declPragmas = {wImportc, wImportObjC, wImportCpp, wImportJs, wExportc, wExportCpp,
-    wExportNims, wExtern, wDeprecated, wNodecl, wError, wUsed}
+  declPragmas = {wImportc, wImportJs, wExportc, wExportNims, wExtern,
+    wDeprecated, wNodecl, wError, wUsed}
     ## common pragmas for declarations, to a good approximation
   procPragmas* = declPragmas + {FirstCallConv..LastCallConv,
     wMagic, wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
@@ -65,10 +65,10 @@ const
     wBorrow, wImportCompilerProc, wThread,
     wAsmNoStackFrame, wDiscardable, wNoInit, wCodegenDecl,
     wGensym, wInject, wRaises, wEffectsOf, wTags, wLocks, wDelegator, wGcSafe,
-    wConstructor, wStackTrace, wLineTrace, wNoDestroy,
+    wStackTrace, wLineTrace, wNoDestroy,
     wEnforceNoRaises}
   converterPragmas* = procPragmas
-  methodPragmas* = procPragmas+{wBase}-{wImportCpp}
+  methodPragmas* = procPragmas+{wBase}-{wOverride}
   templatePragmas* = {wDeprecated, wError, wGensym, wInject, wDirty,
     wDelegator, wExportNims, wUsed, wPragma}
   macroPragmas* = declPragmas + {FirstCallConv..LastCallConv,
@@ -100,7 +100,7 @@ const
     wPure, wHeader, wCompilerProc, wCore, wFinal, wSize, wShallow,
     wIncompleteStruct, wCompleteStruct, wByCopy, wByRef,
     wInheritable, wGensym, wInject, wRequiresInit, wUnchecked, wUnion, wPacked,
-    wCppNonPod, wBorrow, wGcSafe, wExplain, wPackage}
+    wBorrow, wGcSafe, wExplain, wPackage}
   fieldPragmas* = declPragmas + {wGuard, wBitsize, wCursor,
     wRequiresInit, wNoalias, wAlign} - {wExportNims, wNodecl} # why exclude these?
   varPragmas* = declPragmas + {wVolatile, wRegister, wThreadVar,
@@ -221,29 +221,6 @@ proc processImportCompilerProc(c: PContext; s: PSym, ext: string): SetExternName
   incl(s.flags, sfImportc)
   excl(s.flags, sfForward)
   incl(s.loc.flags, lfImportCompilerProc)
-
-proc processImportCpp(c: PContext; s: PSym, ext: string): SetExternNameStatus =
-  ## produces (mutates) `s`'s `loc`ation setting the imported cpp proc
-  ## name `ext`. marks it as import c, an infix call (dot), and no forward
-  ## declaration. If the backend is configured to C, marks the symbol as
-  ## compiles to C++, and sets the global options to generate mixed C/C++ code,
-  ## and returns a success/failure
-  result = setExternName(c, s, ext)
-  s.flags.incl {sfImportc, sfInfixCall}
-  s.flags.excl sfForward
-  if c.config.backend == backendC:
-    s.getModule().flags.incl sfCompileToCpp
-  incl c.config, optMixedMode
-
-proc processImportObjC(c: PContext; s: PSym, ext: string): SetExternNameStatus =
-  ## produces (mutates) `s`'s `loc`ation setting the imported objc proc
-  ## name `ext`. marks it as import c, named param call, and no forward
-  ## declaration, sets the current module to comiple to objc, and
-  ## returns a success/failure.
-  result = setExternName(c, s, ext)
-  s.flags.incl {sfImportc, sfNamedParamCall}
-  s.flags.excl sfForward
-  s.getModule().flags.incl sfCompileToObjc
 
 proc newEmptyStrNode(c: PContext; n: PNode): PNode {.noinline.} =
   result = newNodeIT(nkStrLit, n.info, getSysType(c.graph, n.info, tyString))
@@ -1184,7 +1161,7 @@ proc prepareSinglePragma(
       if {optStyleHint, optStyleError} * c.config.globalOptions != {}:
         checkPragmaUse(c.config, key.info, k, ident.s)
       case k
-      of wExportc, wExportCpp:
+      of wExportc:
         let extLit = getOptionalStrLit(c, it, "$1")
         if extLit.kind == nkError:
           result = it
@@ -1192,12 +1169,6 @@ proc prepareSinglePragma(
           let ext = extLit.strVal
           case makeExternExport(c, sym, ext)
           of ExternNameSet:
-            if k == wExportCpp:
-              if c.config.backend != backendCpp:
-                result = c.config.newError(it, reportSem rsemExportcppRequiresCpp)
-                return
-              else:
-                incl(sym.flags, sfMangleCpp)
             result = it
           of ExternNameSetFailed:
             result = c.config.newError(
@@ -1255,23 +1226,6 @@ proc prepareSinglePragma(
             it
           else:
             invalidPragma(c, it)
-      of wImportCpp:
-        let nameLit = getOptionalStrLit(c, it, "$1")
-        case nameLit.kind
-        of nkError:
-          result = nameLit
-        else:
-          let name = nameLit.strVal
-          result =
-            case processImportCpp(c, sym, name)
-            of ExternNameSet:
-              it
-            of ExternNameSetFailed:
-              c.config.newError(
-                it, SemReport(kind: rsemInvalidExtern, externName: name))
-      of wCppNonPod:
-        incl(sym.flags, sfCppNonPod)
-        result = it
       of wImportJs:
         let nameLit = getOptionalStrLit(c, it, "$1")
         case nameLit.kind
@@ -1282,8 +1236,6 @@ proc prepareSinglePragma(
           result =
             if c.config.backend != backendJs:
               c.config.newError(it, reportSem rsemImportjsRequiresJs)
-            elif sym.kind in skProcKinds and {'(', '#', '@'} notin name:
-              c.config.newError(it, reportSem rsemImportjsRequiresPattern)
             else:
               sym.flags.incl {sfImportc, sfInfixCall}
               case setExternName(c, sym, name)
@@ -1292,20 +1244,6 @@ proc prepareSinglePragma(
               of ExternNameSetFailed:
                 c.config.newError(
                   it, SemReport(kind: rsemInvalidExtern, externName: name))
-      of wImportObjC:
-        let nameLit = getOptionalStrLit(c, it, "$1")
-        case nameLit.kind
-        of nkError:
-          result = nameLit
-        else:
-          let name = nameLit.strVal
-          result =
-            case processImportObjC(c, sym, name)
-            of ExternNameSet:
-              it
-            of ExternNameSetFailed:
-              c.config.newError(
-                it, SemReport(kind: rsemInvalidExtern, externName: name))
       of wSize:
         result =
           if sym.typ == nil:
@@ -1383,9 +1321,6 @@ proc prepareSinglePragma(
       of wMerge:
         # only supported for backwards compat, doesn't do anything anymore
         result = noVal(c, it)
-      of wConstructor:
-        result = noVal(c, it)
-        incl(sym.flags, sfConstructor)
       of wHeader:
         result = getStrLitNode(c, it) # the path or an error
         var lib = getLib(c, libHeader, result)

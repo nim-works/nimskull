@@ -56,10 +56,7 @@ proc genTraverseProc(c: TTraversalClosure, accessor: Rope, n: PNode;
   else: internalError(c.p.config, n.info, "genTraverseProc()")
 
 proc parentObj(accessor: Rope; m: BModule): Rope {.inline.} =
-  if not m.compileToCpp:
-    result = "$1.Sup" % [accessor]
-  else:
-    result = accessor
+  result = "$1.Sup" % [accessor]
 
 proc genTraverseProcSeq(c: TTraversalClosure, accessor: Rope, typ: PType)
 proc genTraverseProc(c: TTraversalClosure, accessor: Rope, typ: PType) =

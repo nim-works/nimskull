@@ -8,8 +8,10 @@
 #
 
 ## This implements the first pass over the generic body; it resolves some
-## symbols. Thus for generics there is a two-phase symbol lookup just like
-## in C++.
+## symbols. Thus for generics there is a two-phase symbol lookup.
+##
+## A two-phase lookup as today is templates and not generics, AKA mistake.
+##
 ## A problem is that it cannot be detected if the symbol is introduced
 ## as in ``var x = ...`` or used because macros/templates can hide this!
 ## So we have to eval templates/macros right here so that symbol

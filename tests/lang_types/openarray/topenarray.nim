@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp js"
+  targets: "c js"
 """
 
 proc fn1[T](a: openArray[T]): seq[T] =

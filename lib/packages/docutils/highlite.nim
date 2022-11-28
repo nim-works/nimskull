@@ -35,7 +35,7 @@
 ## The proc `getSourceLanguage` can get the language `enum` from a string:
 ##
 ## .. code:: Nim
-##   for l in ["C", "c++", "jAvA", "Nim", "c#"]: echo getSourceLanguage(l)
+##   for l in ["C", "jAvA", "Nim", "c#"]: echo getSourceLanguage(l)
 ##
 ## There is also a `Cmd` pseudo-language supported, which is a simple generic
 ## shell/cmdline tokenizer (UNIX shell/Powershell/Windows Command):
@@ -61,7 +61,7 @@ from std/algorithm import binarySearch
 
 type
   SourceLanguage* = enum
-    langNone, langNim, langCpp, langCsharp, langC, langJava,
+    langNone, langNim, langCsharp, langC, langJava,
     langYaml, langPython, langCmd, langConsole
   TokenClass* = enum
     gtEof, gtNone, gtWhitespace, gtDecNumber, gtBinNumber, gtHexNumber,
@@ -81,9 +81,9 @@ type
 
 const
   sourceLanguageToStr*: array[SourceLanguage, string] = ["none",
-    "Nim", "C++", "C#", "C", "Java", "Yaml", "Python", "Cmd", "Console"]
+    "Nim", "C#", "C", "Java", "Yaml", "Python", "Cmd", "Console"]
   sourceLanguageToAlpha*: array[SourceLanguage, string] = ["none",
-    "Nim", "cpp", "csharp", "C", "Java", "Yaml", "Python", "Cmd", "Console"]
+    "Nim", "csharp", "C", "Java", "Yaml", "Python", "Cmd", "Console"]
     ## list of languages spelled with alpabetic characters
   tokenClassToStr*: array[TokenClass, string] = ["Eof", "None", "Whitespace",
     "DecNumber", "BinNumber", "HexNumber", "OctNumber", "FloatNumber",
@@ -575,17 +575,6 @@ proc cNextToken(g: var GeneralTokenizer) =
       "volatile", "while"]
   clikeNextToken(g, keywords, {hasPreprocessor})
 
-proc cppNextToken(g: var GeneralTokenizer) =
-  const
-    keywords: array[0..47, string] = ["asm", "auto", "break", "case", "catch",
-      "char", "class", "const", "continue", "default", "delete", "do", "double",
-      "else", "enum", "extern", "float", "for", "friend", "goto", "if",
-      "inline", "int", "long", "new", "operator", "private", "protected",
-      "public", "register", "return", "short", "signed", "sizeof", "static",
-      "struct", "switch", "template", "this", "throw", "try", "typedef",
-      "union", "unsigned", "virtual", "void", "volatile", "while"]
-  clikeNextToken(g, keywords, {hasPreprocessor})
-
 proc csharpNextToken(g: var GeneralTokenizer) =
   const
     keywords: array[0..76, string] = ["abstract", "as", "base", "bool", "break",
@@ -995,7 +984,6 @@ proc getNextToken*(g: var GeneralTokenizer, lang: SourceLanguage) =
   case lang
   of langNone: assert false
   of langNim: nimNextToken(g)
-  of langCpp: cppNextToken(g)
   of langCsharp: csharpNextToken(g)
   of langC: cNextToken(g)
   of langJava: javaNextToken(g)

@@ -304,7 +304,7 @@ lib/system/widestrs.nim
 
   proc follow(a: PathEntry): bool =
     result = a.path.lastPathPart notin ["nimcache", htmldocsDirname,
-                                        "includes", "deprecated", "genode"] and
+                                        "includes", "deprecated"] and
       not a.path.isRelativeTo("lib/fusion") # fusion was un-bundled but we need to keep this in case user has it installed
   for entry in walkDirRecFilter("lib", follow = follow):
     let a = entry.path

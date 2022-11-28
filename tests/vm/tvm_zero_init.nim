@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "c"
   matrix: "--gc:refc; --gc:arc"
   description: '''
     . From https://github.com/nim-lang/Nim/issues/9622

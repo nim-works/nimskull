@@ -571,8 +571,8 @@ With the `cursor` pragma one can break up cycles declaratively:
       left: Node # owning ref
       right {.cursor.}: Node # non-owning ref
 
-But please notice that this is not C++'s weak_ptr, it means the right field is not
-involved in the reference counting, it is a raw pointer without runtime checks.
+Note that this is not a weak pointer, it means the right field is not involved
+in the reference counting, it is a raw pointer without runtime checks.
 
 Automatic reference counting also has the disadvantage that it introduces overhead
 when iterating over linked structures. The `cursor` pragma can also be used

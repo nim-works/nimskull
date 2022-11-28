@@ -1,11 +1,11 @@
 discard """
-  targets: "c cpp js"
+  targets: "c js"
 """
 
 import std/hashes
 from stdtest/testutils import disableVm, whenVMorJs
 
-when not defined(js) and not defined(cpp):
+when not defined(js):
   block:
     var x = 12
     iterator hello(): int {.closure.} =

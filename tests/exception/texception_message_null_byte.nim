@@ -20,7 +20,7 @@ else:
   proc main =
     const nim = getCurrentCompilerExe()
     const file = currentSourcePath
-    for b in "c js cpp".split:
+    for b in "c js".split:
       when defined(openbsd):
         if b == "js":
           # xxx bug: pending #13115

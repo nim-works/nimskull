@@ -47,7 +47,6 @@ type
     optWholeProject           ## for 'doc': output any dependency
     optDocInternal            ## generate documentation for non-exported
                               ## symbols
-    optMixedMode              ## true if some module triggered C++ codegen
     optDeclaredLocs           ## show declaration locations in messages
     optNoNimblePath
     optDynlibOverrideAll
@@ -131,9 +130,7 @@ type
     ## Target compilation backend
     backendInvalid = "" # for parseEnum
     backendC = "c"
-    backendCpp = "cpp"
     backendJs = "js"
-    backendObjc = "objc"
     backendNimVm = "vm"
     # backendNimscript = "nimscript" # this could actually work
     # backendLlvm = "llvm" # probably not well supported; was cmdCompileToLLVM
@@ -143,8 +140,6 @@ type
     cmdNone        ## not yet processed command
     cmdUnknown     ## command unmapped
     cmdCompileToC
-    cmdCompileToCpp
-    cmdCompileToOC
     cmdCompileToJS
     cmdCompileToVM
     cmdCrun        ## compile and run in nimache
@@ -211,7 +206,7 @@ type
   ExceptionSystem* = enum
     excNone,   ## no exception system selected yet
     excSetjmp, ## setjmp based exception handling
-    excCpp,    ## use C++'s native exception handling
+    excNative, ## use backend native exception handling
     excGoto,   ## exception handling based on goto (should become the new default for C)
     excQuirky  ## quirky exception handling
 
@@ -244,7 +239,7 @@ type
     ## be set via command-line or using region-local pragmas.
     globalOptions*: TGlobalOptions ## Global configuration options that can
     ## only be supplied from the command line or the configuration files.
-    cppDefines*: HashSet[string] #[ (*) ]# ## `--cppdefine` ??
+    cppDefines*: HashSet[string] #[ (*) ]# ## C pre-processor defines
     features*: set[Feature]
     legacyFeatures*: set[LegacyFeature]
 
@@ -317,8 +312,6 @@ type
     compileOptionsCmd*: seq[string] ## `passc` on the command line.
     ## Compilation options that would be used for every single file. They
     ## are placed in front of the file-specific options.
-
-    cppCustomNamespace*: string
 
     configVars*: StringTableRef ## Additional configuration variables for
     ## providing extra options for different compiler subsystems.

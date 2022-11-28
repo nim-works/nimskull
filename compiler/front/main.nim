@@ -188,9 +188,8 @@ proc commandCompileToJS(graph: ModuleGraph) =
     globalReport(conf, unknownLineInfo, InternalReport(
       kind: rintUsingLeanCompiler,
       msg: "Compiler was not build with js support"))
-
   else:
-    conf.exc = excCpp
+    conf.exc = excNative
     conf.target = conf.target.withIt do:
       setTarget(it, osJS, cpuJS)
 
@@ -206,9 +205,9 @@ proc commandCompileToJS(graph: ModuleGraph) =
 proc commandCompileToVM(graph: ModuleGraph) =
   let conf = graph.config
   # XXX: there doesn't exist an exception mode for "external" (maybe excQuirky
-  #      would fit?) so excCpp is used, since the same is done for the
+  #      would fit?) so excNative is used, since the same is done for the
   #      JS backend
-  conf.exc = excCpp
+  conf.exc = excNative
 
   semanticPasses(graph)
   registerPass(graph, vmgenPass)
@@ -306,16 +305,14 @@ proc mainCommand*(graph: ModuleGraph) =
     ## Sets backend specific options but don't compile to backend yet in
     ## case command doesn't require it. This must be called by all commands.
     if conf.backend == backendInvalid:
-      # only set if wasn't already set, to allow override via `nim c -b:cpp`
+      # only set if wasn't already set, to allow override via `nim c -b:js`
       conf.backend = backend
 
     defineSymbol(graph.config, $conf.backend)
     case conf.backend
     of backendC:
       if conf.exc == excNone: conf.exc = excSetjmp
-    of backendCpp:
-      if conf.exc == excNone: conf.exc = excCpp
-    of backendObjc, backendJs, backendNimVm:
+    of backendJs, backendNimVm:
       discard
     of backendInvalid: doAssert false
 
@@ -324,8 +321,6 @@ proc mainCommand*(graph: ModuleGraph) =
     setOutFile(conf)
     case conf.backend
     of backendC: commandCompileToC(graph)
-    of backendCpp: commandCompileToC(graph)
-    of backendObjc: commandCompileToC(graph)
     of backendJs: commandCompileToJS(graph)
     of backendNimVm: commandCompileToVM(graph)
     of backendInvalid: doAssert false

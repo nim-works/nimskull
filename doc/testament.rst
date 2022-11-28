@@ -8,7 +8,7 @@
 
 Testament is a test runner for running tests in the development of |NimSkull| itself.
 It offers process isolation for tests, it can generate statistics about test cases,
-supports multiple targets (C, C++, ObjectiveC, JavaScript, etc),
+supports multiple targets (C, JavaScript, or VM),
 simulated `Dry-Runs <https://en.wikipedia.org/wiki/Dry_run_(testing)>`_,
 has logging, can generate HTML reports, skip tests from a file, and more.
 
@@ -33,7 +33,7 @@ Options
 --simulate                See what tests would be run but don't run them
                           (for debugging)
 --failing                 Only show failing/ignored tests
---targets:"c cpp js objc"
+--targets:"c js vm"
                           Run tests for specified targets (default: all)
 --nim:path                Use a particular nim executable (default: $PATH/nim)
 --directory:dir           Change to directory dir before reading the tests
@@ -105,10 +105,10 @@ Test execution options
 
   example: ``"nim c -r $file"``
 
-- ``targets`` supported backend compilation targets for test into (c,
-  cpp, objc, js). Targets can be excluded via a `!`, eg: `!js` to exclude js.
-  Additionally, a `native` target is supported in order to use the same target
-  used for the compiler itself.
+- ``targets`` supported backend compilation targets for test into (c, js, vm).
+  Targets can be excluded via a `!`, eg: `!js` to exclude js. Additionally,
+  a `native` target is supported in order to use the same target used for the
+  compiler itself.
 
 - ``matrix`` flags with which to run the test, delimited by `;`
 
@@ -220,8 +220,8 @@ judgement and don't hesitate to ask for clarification if you are stuck.
 
 Tag names can consist *one or more lowercase words in a singular form*
 separated by underscores, each word either narrowing down the scope
-(`interop_c`, `interop_cpp`, `backend_c`, `gc`, `gc_orc` etc.) or simply
-being a part of a longer phrase (`top_level`).
+(`interop_c`, `backend_c`, `gc`, `gc_orc` etc.) or simply being a part of a
+longer phrase (`top_level`).
 
 Please do check whether the tag is already present before adding new one.
 To generate a new list of all tags used in the code you can run code below.

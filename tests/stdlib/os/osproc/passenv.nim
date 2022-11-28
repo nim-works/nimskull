@@ -1,7 +1,7 @@
 discard """
   file: "passenv.nim"
   output: "123"
-  targets: "c cpp objc"
+  targets: "c"
 """
 
 import osproc, os, strtabs

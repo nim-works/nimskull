@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "c"
 """
 
 var closureIterResult = newSeq[int]()

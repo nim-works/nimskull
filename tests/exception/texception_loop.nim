@@ -1,7 +1,7 @@
 discard """
   action: run
   exitcode: 1
-  targets: "c cpp"
+  targets: "c"
   disabled: "openbsd"
   disabled: "netbsd"
   description: '''
@@ -13,9 +13,6 @@ discard """
   . And here's the culprit:
     https://github.com/nim-lang/Nim/blob/e844e536bf29d3b18333d7ed4c53bb54b75a2d75/lib/system/excpt.nim#L21
   . I think the error message writer should be annotated with {.raises: [].}...
-
-  . From https://github.com/nim-lang/Nim/issues/10343
-    nim cpp -r tests/exception/t9657 hangs
  '''
 """
 

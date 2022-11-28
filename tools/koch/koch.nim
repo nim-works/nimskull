@@ -294,8 +294,6 @@ proc findStartNim: string =
 proc thVersion(i: int): string =
   result = ("compiler" / "nim" & $i).exe
 
-template doUseCpp(): bool = getEnv("NIM_COMPILE_TO_CPP", "false") == "true"
-
 proc boot(args: string) =
   ## bootstrapping is a process that involves 3 steps:
   ## 1. use csourcesAny to produce nim1.exe. This nim1.exe is buggy but
@@ -307,18 +305,12 @@ proc boot(args: string) =
   var output = "compiler" / "nim".exe
   var finalDest = "bin" / "nim".exe
   # default to use the 'c' command:
-  let useCpp = doUseCpp()
   let smartNimcache = (if "release" in args or "danger" in args: "nimcache/r_" else: "nimcache/d_") &
                       hostOS & "_" & hostCPU
 
   let nimStart = findStartNim().quoteShell()
   for i in 0..2:
-    # Nim versions < (1, 1) expect Nim's exception type to have a 'raiseId' field for
-    # C++ interop. Later Nim versions do this differently and removed the 'raiseId' field.
-    # Thus we always bootstrap the first iteration with "c" and not with "cpp" as
-    # a workaround.
-    let defaultCommand = if useCpp and i > 0: "cpp" else: "c"
-    let bootOptions = if args.len == 0 or args.startsWith("-"): defaultCommand else: ""
+    let bootOptions = if args.len == 0 or args.startsWith("-"): "c" else: ""
     echo "iteration: ", i+1
     # The configs are skipped for bootstrap
     var extraOption = " --skipUserCfg --skipParentCfg" & " " & defineSourceMetadata()
@@ -507,7 +499,7 @@ proc icTest(args: string) =
   for fragment in content.split("#!EDIT!#"):
     let file = inp.replace(".nim", "_temp.nim")
     writeFile(file, fragment)
-    var cmd = nimExe & " cpp --ic:on -d:nimIcIntegrityChecks --listcmd "
+    var cmd = nimExe & " c --ic:on -d:nimIcIntegrityChecks --listcmd "
     if i == 0:
       cmd.add "-f "
     cmd.add quoteShell(file)
@@ -554,7 +546,7 @@ proc runCI(cmd: string) =
   ## run tests
   nimexecFold("Test nimscript", "e tests/test_nimscript.nims")
   when defined(windows):
-    nimexecFold("Compile tester", "c --usenimcache --os:genode -d:posix --compileOnly testament/testament")
+    nimexecFold("Compile tester", "c --usenimcache -d:posix --compileOnly testament/testament")
 
   # main bottleneck here
   # xxx: even though this is the main bottleneck, we could speedup the rest via batching with `--batch`.

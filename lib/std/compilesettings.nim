@@ -23,13 +23,13 @@ type
     projectName,      ## the project's name that is being compiled
     projectPath,      ## experimental: some path to the project that is being compiled
     projectFull,      ## the full path to the project that is being compiled
-    command,          ## experimental: the command (e.g. 'c', 'cpp', 'doc') passed to
+    command,          ## experimental: the command (e.g. 'c', 'doc') passed to
                       ## the Nim compiler
     commandLine,      ## experimental: the command line passed to Nim
     linkOptions,      ## additional options passed to the linker
-    compileOptions,   ## additional options passed to the C/C++ compiler
-    ccompilerPath     ## the path to the C/C++ compiler
-    backend           ## the backend (eg: c|cpp|objc|js); both `nim doc --backend:js`
+    compileOptions,   ## additional options passed to the C compiler
+    ccompilerPath     ## the path to the C compiler
+    backend           ## the backend (eg: c|js); both `nim doc --backend:js`
                       ## and `nim js` would imply backend=js
     libPath           ## the absolute path to the stdlib library, i.e. nim's `--lib`, since 1.5.1
     gc                ## gc selected
@@ -40,8 +40,8 @@ type
     searchPaths,      ## the search path for modules
     lazyPaths,        ## experimental: even more paths
     commandArgs,      ## the arguments passed to the Nim compiler
-    cincludes,        ## the #include paths passed to the C/C++ compiler
-    clibs             ## libraries passed to the C/C++ compiler
+    cincludes,        ## the #include paths passed to the C compiler
+    clibs             ## libraries passed to the C compiler
 
 proc querySetting*(setting: SingleValueSetting): string {.
   compileTime, noSideEffect.} =

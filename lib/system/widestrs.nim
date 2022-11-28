@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-# Nim support for C/C++'s `wide strings`:idx:. This is part of the system
+# Nim support for C's `wide strings`:idx:. This is part of the system
 # module! Do not import it directly!
 
 #when not declared(ThisIsSystem):

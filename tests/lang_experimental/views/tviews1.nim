@@ -8,7 +8,7 @@ discard """
 3
 15
 (oa: [1, 3, 4])'''
-  targets: "c cpp"
+  targets: "c"
 """
 
 {.experimental: "views".}

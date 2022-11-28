@@ -1,6 +1,6 @@
 discard """
 ccodeCheck: "\\i @'NIM_ALIGN(128) NI mylocal1' .*"
-targets: "c cpp"
+targets: "c"
 labels: "pragma alignment generic"
 description: '''
   . First one is is for Azure. The keyword ``alignof`` only exists in ``c++11``

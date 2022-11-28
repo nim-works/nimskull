@@ -166,6 +166,6 @@ proc computeAliveSyms*(g: PackedModuleGraph; conf: ConfigRef): AliveSyms =
 
 proc isAlive*(a: AliveSyms; module: int, item: int32): bool =
   ## Backends use this to query if a symbol is `alive` which means
-  ## we need to produce (C/C++/etc) code for it.
+  ## we need to produce (C/JS/etc) code for it.
   result = a[module].contains(item)
 

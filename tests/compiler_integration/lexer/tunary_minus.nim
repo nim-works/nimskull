@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp js"
+  targets: "c js"
 """
 
 # Test numeric literals and handling of minus symbol

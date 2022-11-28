@@ -1440,10 +1440,6 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
           of tyVar, tyLent:
             v.typ = newTypeS(iter.kind, c)
             v.typ.add iterAfterVarLent[i]
-
-            if tfVarIsPtr in iter.flags:
-              v.typ.flags.incl tfVarIsPtr
-
           else:
             v.typ = iter[i]
 
@@ -1520,8 +1516,6 @@ proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
         of tyVar, tyLent:
           v.typ = newTypeS(iter.kind, c)
           v.typ.add iterAfterVarLent[i]
-          if tfVarIsPtr in iter.flags:
-            v.typ.flags.incl tfVarIsPtr
         else:
           v.typ = iter[i]
         n[i] = newSymNode(v)
@@ -1935,10 +1929,6 @@ proc typeSectionRightSidePass(c: PContext, n: PNode) =
           # The codegen currently produces various failures with
           # generic imported types that have fields, but we need
           # the fields specified in order to detect weak covariance.
-          # The proper solution is to teach the codegen how to handle
-          # such types, because this would offer various interesting
-          # possibilities such as instantiating C++ generic types with
-          # garbage collected Nim types.
           if sfImportc in s.flags:
             var body = s.typ.lastSon
             if body.kind == tyObject:

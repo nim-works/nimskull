@@ -2,10 +2,10 @@ import dom
 import fuzzysearch
 
 proc textContent(e: Element): cstring {.
-  importcpp: "#.textContent", nodecl.}
+  importjs: "#.textContent", nodecl.}
 
 proc textContent(e: Node): cstring {.
-  importcpp: "#.textContent", nodecl.}
+  importjs: "#.textContent", nodecl.}
 
 proc tree(tag: string; kids: varargs[Element]): Element =
   result = document.createElement tag
@@ -42,14 +42,14 @@ proc findNodeWith(x: Element; tag, content: cstring): Element =
     if y != nil: return y
   return nil
 
-proc clone(e: Element): Element {.importcpp: "#.cloneNode(true)", nodecl.}
-proc parent(e: Element): Element {.importcpp: "#.parentNode", nodecl.}
-proc markElement(x: Element) {.importcpp: "#.__karaxMarker__ = true", nodecl.}
+proc clone(e: Element): Element {.importjs: "#.cloneNode(true)", nodecl.}
+proc parent(e: Element): Element {.importjs: "#.parentNode", nodecl.}
+proc markElement(x: Element) {.importjs: "#.__karaxMarker__ = true", nodecl.}
 proc isMarked(x: Element): bool {.
-  importcpp: "#.hasOwnProperty('__karaxMarker__')", nodecl.}
-proc title(x: Element): cstring {.importcpp: "#.title", nodecl.}
+  importjs: "#.hasOwnProperty('__karaxMarker__')", nodecl.}
+proc title(x: Element): cstring {.importjs: "#.title", nodecl.}
 
-proc sort[T](x: var openArray[T]; cmp: proc(a, b: T): int) {.importcpp:
+proc sort[T](x: var openArray[T]; cmp: proc(a, b: T): int) {.importjs:
   "#.sort(#)", nodecl.}
 
 proc parentWith(x: Element; tag: cstring): Element =

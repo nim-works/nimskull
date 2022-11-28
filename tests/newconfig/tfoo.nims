@@ -65,8 +65,8 @@ when false:
 mode = ScriptMode.Verbose
 
 doAssert getCommand() == "c"
-setCommand("cpp")
-doAssert getCommand() == "cpp"
+setCommand("js")
+doAssert getCommand() == "js"
 setCommand("c")
 
 doAssert cmpic("HeLLO", "hello") == 0

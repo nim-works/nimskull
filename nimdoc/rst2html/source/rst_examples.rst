@@ -286,10 +286,6 @@ deprecated pragma
 
 The deprecated pragma is used to mark a symbol as deprecated:
 
-**Note**: `c2nim <https://github.com/nim-lang/c2nim/blob/master/doc/c2nim.rst>`_ can parse a large subset of C++ and knows
-about the ``importcpp`` pragma pattern language. It is not necessary
-to know all the details described here.
-
 
 
 Pure libraries do not depend on any external ``*.dll`` or ``lib*.so`` binary
@@ -342,11 +338,11 @@ pragmas:
 3) Locks and routines can be annotated with `lock levels`:idx: to allow
    potential deadlocks to be detected during semantic analysis.
 
-1. Two output parameters should never be aliased.
-2. An input and an output parameter should not be aliased.
-3. An output parameter should never be aliased with a global or thread local
+4. Two output parameters should never be aliased.
+5. An input and an output parameter should not be aliased.
+6. An output parameter should never be aliased with a global or thread local
    variable referenced by the called proc.
-4. An input parameter should not be aliased with a global or thread local
+7. An input parameter should not be aliased with a global or thread local
    variable updated by the called proc.
 
 One problem with rules 3 and 4 is that they affect specific global or thread

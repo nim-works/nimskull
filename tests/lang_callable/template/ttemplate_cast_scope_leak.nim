@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "c"
   description: '''
     . From https://github.com/nim-lang/Nim/issues/9534
       symbol used in casting a proc leaks into outer scope

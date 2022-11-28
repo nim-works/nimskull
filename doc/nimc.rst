@@ -308,7 +308,6 @@ The default compiler is defined at the top of ``config\nim.cfg``.
 Changing this setting affects the compiler used by `koch`:cmd: to (re)build Nim.
 
 To use the `CC` environment variable, use `nim c --cc:env myfile.nim`:cmd:.
-To use the `CXX` environment variable, use `nim cpp --cc:env myfile.nim`:cmd:.
 `--cc:env`:option: is available since Nim version 1.4.
 
 
@@ -406,8 +405,8 @@ Cross-compilation for iOS
 
 To cross-compile for iOS you need to be on a macOS computer and use XCode.
 Normal languages for iOS development are Swift and Objective C. Both of these
-use LLVM and can be compiled into object files linked together with C, C++
-or Objective C code produced by Nim.
+use LLVM and can be compiled into object files linked together with C code
+produced by Nim.
 
 Use `nim c -c --os:ios --noMain:on`:cmd: to generate C files and include them in
 your XCode project. Then you can use XCode to compile, link, package and
@@ -434,7 +433,7 @@ Cross-compilation for Nintendo Switch
 =====================================
 
 Simply add `--os:nintendoswitch`:option:
-to your usual `nim c`:cmd: or `nim cpp`:cmd: command and set the `passC`:option:
+to your usual `nim c`:cmd: command and set the `passC`:option:
 and `passL`:option: command line switches to something like:
 
 .. code-block:: cmd
@@ -662,7 +661,7 @@ DynlibOverride
 ==============
 
 By default Nim's `dynlib` pragma causes the compiler to generate
-`GetProcAddress`:cpp: (or their Unix counterparts)
+`GetProcAddress`:c: (or their Unix counterparts)
 calls to bind to a DLL. With the `dynlibOverride`:option: command line switch this
 can be prevented and then via `--passL`:option: the static library can be linked
 against. For instance, to link statically against Lua this command might work
@@ -679,7 +678,7 @@ Backend language options
 The typical compiler usage involves using the `compile`:option: or `c`:option:
 command to transform a ``.nim`` file into one or more ``.c`` files which are then
 compiled with the platform's C compiler into a static binary. However, there
-are other commands to compile to C++, Objective-C, or JavaScript. More details
+are other commands to compile to JavaScript or the VM. More details
 can be read in the `Nim Backend Integration document <backends.html>`_.
 
 

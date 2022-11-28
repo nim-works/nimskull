@@ -1,10 +1,6 @@
 # issue #13129
 
-when defined(cpp):
-  {.push header: "<vector>".}
-  type
-    Vector[T] {.importcpp: "std::vector".} = object
-elif defined(js):
+when defined(js):
   proc endsWith*(s, suffix: cstring): bool {.noSideEffect,importjs: "#.endsWith(#)".}
 elif defined(c):
   proc c_printf*(frmt: cstring): cint {.

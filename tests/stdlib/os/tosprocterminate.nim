@@ -1,6 +1,6 @@
 discard """
   cmd: "nim $target $options -r $file"
-  targets: "c cpp"
+  targets: "c"
   matrix: "--threads:on; "
 """
 

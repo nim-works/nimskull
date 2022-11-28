@@ -49,11 +49,7 @@ when not declared(ThisIsSystem):
 
 const
   StackGuardSize = 4096
-  ThreadStackMask =
-    when defined(genode):
-      1024*64*sizeof(int)-1
-    else:
-      1024*256*sizeof(int)-1
+  ThreadStackMask = 1024*256*sizeof(int)-1
   ThreadStackSize = ThreadStackMask+1 - StackGuardSize
 
 #const globalsSlot = ThreadVarSlot(0)
@@ -189,9 +185,6 @@ when defined(windows):
   proc threadProcWrapper[TArg](closure: pointer): int32 {.stdcall.} =
     threadProcWrapperBody(closure)
     # implicitly return 0
-elif defined(genode):
-  proc threadProcWrapper[TArg](closure: pointer) {.noconv.} =
-    threadProcWrapperBody(closure)
 else:
   proc threadProcWrapper[TArg](closure: pointer): pointer {.noconv.} =
     threadProcWrapperBody(closure)
@@ -222,15 +215,6 @@ when hostOS == "windows":
       discard waitForMultipleObjects(int32(count),
                                      cast[ptr SysThread](addr(a)), 1, -1)
       inc(k, MAXIMUM_WAIT_OBJECTS)
-
-elif defined(genode):
-  proc joinThread*[TArg](t: Thread[TArg]) {.importcpp.}
-    ## Waits for the thread `t` to finish.
-
-  proc joinThreads*[TArg](t: varargs[Thread[TArg]]) =
-    ## Waits for every thread in `t` to finish.
-    for i in 0..t.high: joinThread(t[i])
-
 else:
   proc joinThread*[TArg](t: Thread[TArg]) {.inline.} =
     ## Waits for the thread `t` to finish.
@@ -282,28 +266,6 @@ when hostOS == "windows":
     ## In other words sets a thread's `affinity`:idx:.
     ## If you don't know what this means, you shouldn't use this proc.
     setThreadAffinityMask(t.sys, uint(1 shl cpu))
-
-elif defined(genode):
-  var affinityOffset: cuint = 1
-    ## CPU affinity offset for next thread, safe to roll-over.
-
-  proc createThread*[TArg](t: var Thread[TArg],
-                           tp: proc (arg: TArg) {.thread, nimcall.},
-                           param: TArg) =
-    t.core = cast[PGcThread](allocShared0(sizeof(GcThread)))
-
-    when TArg isnot void: t.data = param
-    t.dataFn = tp
-    when hasSharedHeap: t.stackSize = ThreadStackSize
-    t.sys.initThread(
-      runtimeEnv,
-      ThreadStackSize.culonglong,
-      threadProcWrapper[TArg], addr(t), affinityOffset)
-    inc affinityOffset
-
-  proc pinToCpu*[Arg](t: var Thread[Arg]; cpu: Natural) =
-    {.hint: "cannot change Genode thread CPU affinity after initialization".}
-    discard
 
 else:
   proc createThread*[TArg](t: var Thread[TArg],

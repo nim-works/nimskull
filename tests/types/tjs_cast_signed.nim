@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp js"
+  targets: "c js"
   description: '''
     . From https://github.com/nim-lang/Nim/issues/14127
       cast[int8] treated as cast[uint8] with nim js plus related issues with

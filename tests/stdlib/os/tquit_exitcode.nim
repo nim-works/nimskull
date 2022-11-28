@@ -3,7 +3,7 @@ discard """
   output: "quit called"
   exitcode: 1
 
-  targets: "c cpp vm js"
+  targets: "c vm js"
 """
 
 quit("quit called", 1)

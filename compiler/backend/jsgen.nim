@@ -1596,7 +1596,7 @@ proc genOtherArg(p: PProc; n: PNode; i: int; typ: PType;
                  generated: var int; r: var TCompRes) =
   if i >= n.len:
     globalReport(p.config, n.info, semReportCountMismatch(
-      rsemExpectedParameterForCxxPattern,
+      rsemExpectedParameterForJsPattern,
       expected = i,
       got = n.len - 1,
       node = n))

@@ -9,7 +9,6 @@ const
 const
   CurDir* =
     when defined(macos): ':'
-    elif defined(genode): '/'
     else: '.'
     ## The constant character used by the operating system to refer to the
     ## current directory.
@@ -79,7 +78,6 @@ const
     elif doslikeFileSystem or defined(atari): "$1.dll"
     elif defined(MorphOS): "$1.prc"
     elif defined(PalmOS): "$1.prc" # platform has lib$1.so
-    elif defined(genode): "$1.lib.so"
     elif defined(netware): "$1.nlm"
     elif defined(amiga): "$1.Library"
     else: "lib$1.so"

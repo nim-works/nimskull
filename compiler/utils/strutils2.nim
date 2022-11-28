@@ -6,14 +6,13 @@ for other routines.
 
 Un-necessary allocations are avoided and appropriate algorithms are used at the
 expense of code clarity when justified.
+
+xxx: this is Tim's stuff, it's likely all a bad idea and should be removed.
 ]##
 
 proc dataPointer*[T](a: T): pointer =
-  ## same as C++ `data` that works with std::string, std::vector etc.
   ## Note: safe to use when a.len == 0 but whether the result is nil or not
   ## is implementation defined for performance reasons.
-  # this could be improved with ocmpiler support to avoid the `if`, e.g. in C++
-  # `&a[0]` is well defined even if a.size() == 0
   when T is string | seq:
     if a.len == 0: nil else: cast[pointer](a[0].unsafeAddr)
   elif T is array:

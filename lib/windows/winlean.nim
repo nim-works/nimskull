@@ -539,14 +539,9 @@ type
 
   SockLen* = cuint
 
-when defined(cpp):
-  type
-    Timeval* {.importc: "timeval", header: "<time.h>".} = object
-      tv_sec*, tv_usec*: int32
-else:
-  type
-    Timeval* = object
-      tv_sec*, tv_usec*: int32
+type
+  Timeval* = object
+    tv_sec*, tv_usec*: int32
 
 var
   SOMAXCONN* {.importc, header: "winsock2.h".}: cint

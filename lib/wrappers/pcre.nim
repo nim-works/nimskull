@@ -22,8 +22,6 @@ const
 
 # By default, we use the standard "extern" declarations.
 
-# Allow for C++ users
-
 # Public options. Some are compile-time only, some are run-time only, and some
 # are both. Most of the compile-time options are saved with the compiled regex
 # so that they can be inspected during studying (and therefore JIT compiling).

@@ -2353,7 +2353,7 @@ iterator walkDir*(dir: string; relative = false, checkDir = false):
                 k = getSymlinkFileKind(path)
 
             when defined(linux) or defined(macosx) or
-                 defined(bsd) or defined(genode) or defined(nintendoswitch):
+                 defined(bsd) or defined(nintendoswitch):
               case x.d_type
               of DT_DIR: k = pcDir
               of DT_LNK:
@@ -2937,13 +2937,6 @@ elif defined(windows):
       result = ownArgv[i]
     else:
       raise newException(IndexDefect, formatErrorIndexBound(i, ownArgv.len-1))
-
-elif defined(genode):
-  proc paramStr*(i: int): string =
-    raise newException(OSError, "paramStr is not implemented on Genode")
-
-  proc paramCount*(): int =
-    raise newException(OSError, "paramCount is not implemented on Genode")
 elif weirdTarget:
   proc paramStr*(i: int): string {.tags: [ReadIOEffect].} =
     raise newException(OSError, "paramStr is not implemented on current platform")
@@ -3183,8 +3176,6 @@ proc getAppFilename*(): string {.rtl, extern: "nos$1", tags: [ReadIOEffect], noW
       result = getApplAux("/proc/self/exe")
     elif defined(solaris):
       result = getApplAux("/proc/" & $getpid() & "/path/a.out")
-    elif defined(genode):
-      raiseOSError(OSErrorCode(-1), "POSIX command line not supported")
     elif defined(freebsd) or defined(dragonfly) or defined(netbsd):
       result = getApplFreebsd()
     elif defined(haiku):

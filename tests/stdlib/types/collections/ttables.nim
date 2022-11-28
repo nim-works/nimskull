@@ -7,7 +7,7 @@ And we get here
 3
 '''
 joinable: false
-targets: "c cpp js"
+targets: "c js"
 """
 
 # xxx wrap in a template to test in VM, see https://github.com/timotheecour/Nim/issues/534#issuecomment-769565033

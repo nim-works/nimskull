@@ -38,10 +38,8 @@ type
     wUncheckedAssign = "uncheckedAssign",
 
     wImmediate = "immediate", wConstructor = "constructor", wDestructor = "destructor",
-    wDelegator = "delegator", wOverride = "override", wImportCpp = "importcpp",
-    wCppNonPod = "cppNonPod",
-    wImportObjC = "importobjc", wImportCompilerProc = "importCompilerProc",
-    wImportc = "importc", wImportJs = "importjs", wExportc = "exportc", wExportCpp = "exportcpp",
+    wDelegator = "delegator", wOverride = "override", wImportCompilerProc = "importCompilerProc",
+    wImportc = "importc", wImportJs = "importjs", wExportc = "exportc",
     wExportNims = "exportnims",
     wIncompleteStruct = "incompleteStruct", # deprecated
     wCompleteStruct = "completeStruct", wRequiresInit = "requiresInit", wAlign = "align",
@@ -59,7 +57,7 @@ type
     wLinksys = "linksys", wDeprecated = "deprecated", wVarargs = "varargs", wCallconv = "callconv",
     wDebugger = "debugger", wNimcall = "nimcall", wStdcall = "stdcall", wCdecl = "cdecl",
     wSafecall = "safecall", wSyscall = "syscall", wInline = "inline", wNoInline = "noinline",
-    wFastcall = "fastcall", wThiscall = "thiscall", wClosure = "closure", wNoconv = "noconv",
+    wFastcall = "fastcall", wClosure = "closure", wNoconv = "noconv",
     wOn = "on", wOff = "off", wChecks = "checks", wRangeChecks = "rangeChecks",
     wBoundChecks = "boundChecks", wOverflowChecks = "overflowChecks", wNilChecks = "nilChecks",
     wFloatChecks = "floatChecks", wNanChecks = "nanChecks", wInfChecks = "infChecks",
@@ -120,10 +118,6 @@ const
 
   ccgKeywordsLow* = ord(wAuto)
   ccgKeywordsHigh* = ord(wOneWay)
-
-  cppNimSharedKeywords* = {
-    wAsm, wBreak, wCase, wConst, wContinue, wDo, wElse, wEnum, wExport,
-    wFor, wIf, wReturn, wStatic, wTemplate, wTry, wWhile, wUsing}
 
 
 const enumUtilsExist = compiles:

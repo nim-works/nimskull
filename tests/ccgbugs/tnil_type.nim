@@ -1,5 +1,5 @@
 discard """
-  targets: "c cpp"
+  targets: "c"
 """
 
 proc f1(v: typeof(nil)) = discard

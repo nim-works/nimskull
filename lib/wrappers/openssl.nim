@@ -81,10 +81,6 @@ else:
     const
       DLLSSLName* = "libssl" & versions & ".dylib"
       DLLUtilName* = "libcrypto" & versions & ".dylib"
-  elif defined(genode):
-    const
-      DLLSSLName* = "libssl.lib.so"
-      DLLUtilName* = "libcrypto.lib.so"
   else:
     const
       DLLSSLName* = "libssl.so" & versions

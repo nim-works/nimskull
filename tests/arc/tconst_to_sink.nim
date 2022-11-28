@@ -1,7 +1,7 @@
 discard """
   output: '''@[(s1: "333", s2: ""), (s1: "abc", s2: "def"), (s1: "3x", s2: ""), (s1: "3x", s2: ""), (s1: "3x", s2: ""), (s1: "3x", s2: ""), (s1: "lastone", s2: "")]'''
   matrix: "--gc:arc"
-  targets: "c cpp"
+  targets: "c"
 """
 
 # bug #13240

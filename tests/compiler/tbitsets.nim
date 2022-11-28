@@ -1,6 +1,6 @@
 discard """
   description: "Test the utils/bitsets compiler module"
-  targets: "c cpp js"
+  targets: "c js"
 """
 
 import compiler/utils/bitsets

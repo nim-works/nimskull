@@ -1,5 +1,4 @@
 discard """
-targets: "cpp"
 output: '''
 cat
 cat
@@ -292,126 +291,130 @@ proc wantsVarPointer2(x: var AnimalPtr) =
 reject wantsVarPointer1(pdog)
 reject wantsVarPointer2(pcat)
 
-# covariance may be allowed for certain extern types
+when false:
+  # xxx: Bring these back by creating specific emit and type sections for C vs
+  #      JS, then the various tests should work on those
 
-{.emit: """/*TYPESECTION*/
-template <class T> struct FN { typedef void (*type)(T); };
-template <class T> struct ARR { typedef T DataType[2]; DataType data; };
-""".}
+  # covariance may be allowed for certain extern types
 
-type
-  MyPtr[out T] {.importcpp: "'0 *"}  = object
+  {.emit: """/*TYPESECTION*/
+  template <class T> struct FN { typedef void (*type)(T); };
+  template <class T> struct ARR { typedef T DataType[2]; DataType data; };
+  """.}
 
-  MySeq[out T] {.importcpp: "ARR<'0>", nodecl}  = object
-    data: array[2, T]
+  type
+    MyPtr[out T] {.importcpp: "'0 *"}  = object
 
-  MyAction[in T] {.importcpp: "FN<'0>::type"}  = object
+    MySeq[out T] {.importcpp: "ARR<'0>", nodecl}  = object
+      data: array[2, T]
 
-var
-  cAnimal: MyPtr[Animal]
-  cDog: MyPtr[Dog]
-  cCat: MyPtr[Cat]
+    MyAction[in T] {.importcpp: "FN<'0>::type"}  = object
 
-  cAnimalFn: MyAction[Animal]
-  cCatFn: MyAction[Cat]
-  cDogFn: MyAction[Dog]
+  var
+    cAnimal: MyPtr[Animal]
+    cDog: MyPtr[Dog]
+    cCat: MyPtr[Cat]
 
-  cRefAnimalFn: MyAction[ref Animal]
-  cRefCatFn: MyAction[ref Cat]
-  cRefDogFn: MyAction[ref Dog]
+    cAnimalFn: MyAction[Animal]
+    cCatFn: MyAction[Cat]
+    cDogFn: MyAction[Dog]
 
-accept:
-  cAnimal = cDog
-  cAnimal = cCat
+    cRefAnimalFn: MyAction[ref Animal]
+    cRefCatFn: MyAction[ref Cat]
+    cRefDogFn: MyAction[ref Dog]
 
-  cDogFn = cAnimalFn
-  cCatFn = cAnimalFn
+  accept:
+    cAnimal = cDog
+    cAnimal = cCat
 
-  cRefDogFn = cRefAnimalFn
-  cRefCatFn = cRefAnimalFn
+    cDogFn = cAnimalFn
+    cCatFn = cAnimalFn
 
-reject: cDogFn = cRefAnimalFn
-reject: cCatFn = cRefAnimalFn
+    cRefDogFn = cRefAnimalFn
+    cRefCatFn = cRefAnimalFn
 
-reject: cCat = cDog
-reject: cAnimalFn = cDogFn
-reject: cAnimalFn = cCatFn
-reject: cRefAnimalFn = cRefDogFn
-reject: cRefAnimalFn = cRefCatFn
-reject: cRefAnimalFn = cDogFn
+  reject: cDogFn = cRefAnimalFn
+  reject: cCatFn = cRefAnimalFn
 
-var
-  ptrPtrDog: ptr ptr Dog
-  ptrPtrAnimal: ptr ptr Animal
+  reject: cCat = cDog
+  reject: cAnimalFn = cDogFn
+  reject: cAnimalFn = cCatFn
+  reject: cRefAnimalFn = cRefDogFn
+  reject: cRefAnimalFn = cRefCatFn
+  reject: cRefAnimalFn = cDogFn
 
-reject: ptrPtrDog = ptrPtrAnimal
+  var
+    ptrPtrDog: ptr ptr Dog
+    ptrPtrAnimal: ptr ptr Animal
 
-# Try to break the rules by introducing some tricky
-# double indirection types:
-var
-  cPtrRefAnimal: MyPtr[ref Animal]
-  cPtrRefDog: MyPtr[ref Dog]
+  reject: ptrPtrDog = ptrPtrAnimal
 
-  cPtrAliasRefAnimal: MyPtr[RefAlias[Animal]]
-  cPtrAliasRefDog: MyPtr[RefAlias[Dog]]
+  # Try to break the rules by introducing some tricky
+  # double indirection types:
+  var
+    cPtrRefAnimal: MyPtr[ref Animal]
+    cPtrRefDog: MyPtr[ref Dog]
 
-  cDoublePtrAnimal: MyPtr[MyPtr[Animal]]
-  cDoublePtrDog: MyPtr[MyPtr[Dog]]
+    cPtrAliasRefAnimal: MyPtr[RefAlias[Animal]]
+    cPtrAliasRefDog: MyPtr[RefAlias[Dog]]
 
-reject: cPtrRefAnimal = cPtrRefDog
-reject: cDoublePtrAnimal = cDoublePtrDog
-reject: cRefAliasPtrAnimal = cRefAliasPtrDog
-reject: cPtrRefAnimal = cRefAliasPtrDog
-reject: cPtrAliasRefAnimal = cPtrRefDog
+    cDoublePtrAnimal: MyPtr[MyPtr[Animal]]
+    cDoublePtrDog: MyPtr[MyPtr[Dog]]
 
-var
-  # Array and Sequence types are covariant only
-  # when instantiated with ref or ptr types:
-  cAnimals: MySeq[ref Animal]
-  cDogs: MySeq[ref Dog]
+  reject: cPtrRefAnimal = cPtrRefDog
+  reject: cDoublePtrAnimal = cDoublePtrDog
+  reject: cRefAliasPtrAnimal = cRefAliasPtrDog
+  reject: cPtrRefAnimal = cRefAliasPtrDog
+  reject: cPtrAliasRefAnimal = cPtrRefDog
 
-  # "User-defined" pointer types should be OK too:
-  cAnimalPtrSeq: MySeq[MyPtr[Animal]]
-  cDogPtrSeq: MySeq[MyPtr[Dog]]
+  var
+    # Array and Sequence types are covariant only
+    # when instantiated with ref or ptr types:
+    cAnimals: MySeq[ref Animal]
+    cDogs: MySeq[ref Dog]
 
-  # Value types shouldn't work:
-  cAnimalValues: MySeq[Animal]
-  cDogValues: MySeq[Dog]
+    # "User-defined" pointer types should be OK too:
+    cAnimalPtrSeq: MySeq[MyPtr[Animal]]
+    cDogPtrSeq: MySeq[MyPtr[Dog]]
 
-  # Double pointer types should not work either:
-  cAnimalRefPtrSeq: MySeq[ref MyPtr[Animal]]
-  cDogRefPtrSeq: MySeq[ref MyPtr[Dog]]
-  cAnimalPtrPtrSeq: MySeq[ptr ptr Animal]
-  cDogPtrPtrSeq: MySeq[ptr ptr Dog]
+    # Value types shouldn't work:
+    cAnimalValues: MySeq[Animal]
+    cDogValues: MySeq[Dog]
 
-accept:
-  cAnimals = cDogs
-  cAnimalPtrSeq = cDogPtrSeq
+    # Double pointer types should not work either:
+    cAnimalRefPtrSeq: MySeq[ref MyPtr[Animal]]
+    cDogRefPtrSeq: MySeq[ref MyPtr[Dog]]
+    cAnimalPtrPtrSeq: MySeq[ptr ptr Animal]
+    cDogPtrPtrSeq: MySeq[ptr ptr Dog]
 
-reject: cAnimalValues = cDogValues
-reject: cAnimalRefPtrSeq = cDogRefPtrSeq
-reject: cAnimalPtrPtrSeq = cDogPtrPtrSeq
+  accept:
+    cAnimals = cDogs
+    cAnimalPtrSeq = cDogPtrSeq
 
-proc wantsAnimalSeq(x: MySeq[Animal]) = discard
-proc wantsAnimalRefSeq(x: MySeq[ref Animal]) = discard
-proc modifiesAnimalRefSeq(x: var MySeq[ref Animal]) = discard
-proc usesAddressOfAnimalRefSeq(x: ptr MySeq[ref Animal]) = discard
+  reject: cAnimalValues = cDogValues
+  reject: cAnimalRefPtrSeq = cDogRefPtrSeq
+  reject: cAnimalPtrPtrSeq = cDogPtrPtrSeq
 
-accept wantsAnimalSeq(cAnimalValues)
-reject wantsAnimalSeq(cDogValues)
-reject wantsAnimalSeq(cAnimals)
+  proc wantsAnimalSeq(x: MySeq[Animal]) = discard
+  proc wantsAnimalRefSeq(x: MySeq[ref Animal]) = discard
+  proc modifiesAnimalRefSeq(x: var MySeq[ref Animal]) = discard
+  proc usesAddressOfAnimalRefSeq(x: ptr MySeq[ref Animal]) = discard
 
-reject wantsAnimalRefSeq(cAnimalValues)
-reject wantsAnimalRefSeq(cDogValues)
-accept wantsAnimalRefSeq(cAnimals)
-accept wantsAnimalRefSeq(cDogs)
+  accept wantsAnimalSeq(cAnimalValues)
+  reject wantsAnimalSeq(cDogValues)
+  reject wantsAnimalSeq(cAnimals)
 
-reject modifiesAnimalRefSeq(cAnimalValues)
-reject modifiesAnimalRefSeq(cDogValues)
-accept modifiesAnimalRefSeq(cAnimals)
-reject modifiesAnimalRefSeq(cDogs)
+  reject wantsAnimalRefSeq(cAnimalValues)
+  reject wantsAnimalRefSeq(cDogValues)
+  accept wantsAnimalRefSeq(cAnimals)
+  accept wantsAnimalRefSeq(cDogs)
 
-reject usesAddressOfAnimalRefSeq(addr cAnimalValues)
-reject usesAddressOfAnimalRefSeq(addr cDogValues)
-accept usesAddressOfAnimalRefSeq(addr cAnimals)
-reject usesAddressOfAnimalRefSeq(addr cDogs)
+  reject modifiesAnimalRefSeq(cAnimalValues)
+  reject modifiesAnimalRefSeq(cDogValues)
+  accept modifiesAnimalRefSeq(cAnimals)
+  reject modifiesAnimalRefSeq(cDogs)
+
+  reject usesAddressOfAnimalRefSeq(addr cAnimalValues)
+  reject usesAddressOfAnimalRefSeq(addr cDogValues)
+  accept usesAddressOfAnimalRefSeq(addr cAnimals)
+  reject usesAddressOfAnimalRefSeq(addr cDogs)

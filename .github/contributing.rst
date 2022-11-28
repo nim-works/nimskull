@@ -465,9 +465,9 @@ To avoid accidental highlighting follow this rule in ``*.nim`` files:
   programming languages, including identifiers, in ``*.nim`` files.
 
   For languages other than |NimSkull| add a role after final backtick,
-  e.g. for C++ inline highlighting::
+  e.g. for C inline highlighting::
 
-    `#include <stdio.h>`:cpp:
+    `#include <stdio.h>`:c:
 
   For a currently unsupported language add the `:code:` role,
   like for SQL in this example::

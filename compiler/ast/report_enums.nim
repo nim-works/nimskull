@@ -662,8 +662,7 @@ type
     rsemExpectedLow0ForComputedGoto
     rsemExpectedCaseForComputedGoto
     rsemDisallowedRangeForComputedGoto
-    rsemExpectedCallForCxxPattern
-    rsemExpectedParameterForCxxPattern
+    rsemExpectedParameterForJsPattern
     rsemExpectedLiteralForGoto
     rsemRequiresDeepCopyEnabled
     rsemDisallowedOfForPureObjects
@@ -711,10 +710,8 @@ type
     rsemUnexpectedPushArgument
     rsemCannotPushCast
     rsemCastRequiresStatement
-    rsemExportcppRequiresCpp
     rsemDynlibRequiresExportc
     rsemImportjsRequiresJs
-    rsemImportjsRequiresPattern
     rsemBitsizeRequires1248
     rsemBitsizeRequiresPositive
     rsemAlignRequiresPowerOfTwo
@@ -1143,7 +1140,6 @@ const
     rsemTypeConversionArgumentMismatch,
     rsemInvalidTupleSubscript,
     rsemExpectedTemplateWithNArgs,
-    rsemExpectedParameterForCxxPattern,
     rsemWrongNumberOfQuoteArguments,
     rsemIndexOutOfBounds,
     rsemExpectedHighCappedDiscriminant

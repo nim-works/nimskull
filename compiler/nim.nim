@@ -100,7 +100,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
       var cmdPrefix: string
       if nimRunExe.len > 0: cmdPrefix.add nimRunExe.quoteShell
       case conf.backend
-      of backendC, backendCpp, backendObjc: discard
+      of backendC: discard
       of backendJs:
         # D20210217T215950:here this flag is needed for node < v15.0.0, otherwise
         # tasyncjs_fail` would fail, refs https://nodejs.org/api/cli.html#cli_unhandled_rejections_mode

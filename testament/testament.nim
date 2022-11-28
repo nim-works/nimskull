@@ -42,7 +42,7 @@ Options:
   --verbose                    print commands (compiling and running tests)
   --simulate                   see what tests would be run but don't run them (for debugging)
   --failing                    only show failing/ignored tests
-  --targets:"c cpp js objc vm" run tests for specified targets (default: all)
+  --targets:"c js vm"          run tests for specified targets (default: all)
   --nim:path                   use a particular nim executable (default: $$PATH/nim)
   --directory:dir              Change to directory dir before reading the tests or doing anything else.
   --colors:on|off              Turn messages coloring on|off.
@@ -1012,16 +1012,13 @@ proc targetHelper(r: var TResults, run: var TestRun) =
     testSpecHelper(r, run)
 
 func nativeTarget(): TTarget =
-  if getEnv("NIM_COMPILE_TO_CPP", "false") == "true":
-    targetCpp
-  else:
-    targetC
+  targetC
 
 func defaultTargets(category: Category): set[TTarget] =
   const standardTargets = {nativeTarget()}
   case category.string
   of "lang":
-    {targetC, targetJs, targetCpp, targetVM}
+    {targetC, targetJs, targetVM}
   of "arc", "avr", "destructor", "distros", "dll", "gc", "osproc", "parallel",
      "realtimeGC", "threads", "views", "valgrind":
     standardTargets - {targetJs}
@@ -1029,8 +1026,6 @@ func defaultTargets(category: Category): set[TTarget] =
     {nativeTarget()}
   of "js":
     {targetJs}
-  of "cpp":
-    {targetCpp}
   else:
     standardTargets
 

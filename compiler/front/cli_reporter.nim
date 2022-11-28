@@ -1924,17 +1924,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemMismatchedPopPush:
       result = "{.pop.} without a corresponding {.push.}"
 
-    of rsemImportjsRequiresPattern:
-      result = "`importjs` for routines requires a pattern"
-
     of rsemImportjsRequiresJs:
       result = "`importjs` pragma requires the JavaScript target"
 
     of rsemDynlibRequiresExportc:
       assert false, "UNUSED?"
-
-    of rsemExportcppRequiresCpp:
-      result = "exportcpp requires `cpp` backend, got: " & $conf.backend
 
     of rsemTypeInvalid:
       result = "invalid type"
@@ -1969,12 +1963,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemExpectedLiteralForGoto:
       result = "'goto' target must be a literal value"
 
-    of rsemExpectedParameterForCxxPattern:
-      result =  "wrong importcpp pattern; expected parameter at position " &
+    of rsemExpectedParameterForJsPattern:
+      result =  "wrong importjs pattern; expected parameter at position " &
         $r.countMismatch.expected & " but got only: " & $r.countMismatch.got
-
-    of rsemExpectedCallForCxxPattern:
-      result = "call expression expected for C++ pattern"
 
     of rsemDisallowedRangeForComputedGoto:
       result = "range notation not available for computed goto"

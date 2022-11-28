@@ -51,11 +51,7 @@ proc showErrorMessage(data: cstring, length: int) {.gcsafe, raises: [].} =
     except:
       discard
   if toWrite:
-    when defined(genode):
-      # stderr not available by default, use the LOG session
-      echo data
-    else:
-      writeToStdErr(data, length)
+    writeToStdErr(data, length)
 
 proc showErrorMessage2(data: string) {.inline.} =
   showErrorMessage(data.cstring, data.len)
@@ -405,14 +401,11 @@ proc reportUnhandledError(e: ref Exception) {.nodestroy.} =
     reportUnhandledErrorAux(e)
 
 proc nimLeaveFinally() {.compilerRtl.} =
-  when defined(cpp) and not defined(noCppExceptions) and not gotoBasedExceptions:
-    {.emit: "throw;".}
+  if excHandler != nil:
+    c_longjmp(excHandler.context, 1)
   else:
-    if excHandler != nil:
-      c_longjmp(excHandler.context, 1)
-    else:
-      reportUnhandledError(currException)
-      quit(1)
+    reportUnhandledError(currException)
+    quit(1)
 
 when gotoBasedExceptions:
   var nimInErrorMode {.threadvar.}: bool
@@ -439,13 +432,7 @@ proc raiseExceptionAux(e: sink(ref Exception)) {.nodestroy.} =
     if not localRaiseHook(e): return
   if globalRaiseHook != nil:
     if not globalRaiseHook(e): return
-  when defined(cpp) and not defined(noCppExceptions) and not gotoBasedExceptions:
-    if e == currException:
-      {.emit: "throw;".}
-    else:
-      pushCurrentException(e)
-      {.emit: "throw `e`;".}
-  elif defined(nimQuirky) or gotoBasedExceptions:
+  when defined(nimQuirky) or gotoBasedExceptions:
     pushCurrentException(e)
     when gotoBasedExceptions:
       inc nimInErrorMode
@@ -553,48 +540,6 @@ proc nimFrame(s: PFrame) {.compilerRtl, inl, raises: [].} =
   s.prev = framePtr
   framePtr = s
   if s.calldepth == nimCallDepthLimit: callDepthLimitReached()
-
-when defined(cpp) and appType != "lib" and not gotoBasedExceptions and
-    not defined(js) and not defined(nimscript) and
-    hostOS != "standalone" and hostOS != "any" and not defined(noCppExceptions) and
-    not defined(nimQuirky):
-
-  type
-    StdException {.importcpp: "std::exception", header: "<exception>".} = object
-
-  proc what(ex: StdException): cstring {.importcpp: "((char *)#.what())", nodecl.}
-
-  proc setTerminate(handler: proc() {.noconv.})
-    {.importc: "std::set_terminate", header: "<exception>".}
-
-  setTerminate proc() {.noconv.} =
-    # Remove ourself as a handler, reinstalling the default handler.
-    setTerminate(nil)
-
-    var msg = "Unknown error in unexpected exception handler"
-    try:
-      {.emit: "#if !defined(_MSC_VER) || (_MSC_VER >= 1923)".}
-      raise
-      {.emit: "#endif".}
-    except Exception:
-      msg = currException.getStackTrace() & "Error: unhandled exception: " &
-        currException.msg & " [" & $currException.name & "]"
-    except StdException as e:
-      msg = "Error: unhandled cpp exception: " & $e.what()
-    except:
-      msg = "Error: unhandled unknown cpp exception"
-
-    {.emit: "#if defined(_MSC_VER) && (_MSC_VER < 1923)".}
-    msg = "Error: unhandled unknown cpp exception"
-    {.emit: "#endif".}
-
-    when defined(genode):
-      # stderr not available by default, use the LOG session
-      echo msg
-    else:
-      writeToStdErr msg & "\n"
-
-    quit 1
 
 when not defined(noSignalHandler) and not defined(useNimRtl):
   type Sighandler = proc (a: cint) {.noconv, benign.}

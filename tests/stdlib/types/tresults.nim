@@ -1,7 +1,7 @@
 discard """
   description: "Tests for the std/experimental/results module"
   matrix: "--gc:refc; --gc:arc"
-  targets: "c cpp !js"
+  targets: "c !js"
 """
 
 # knownIssue: fails on the JS back-end due to a code-gen issue. The issue

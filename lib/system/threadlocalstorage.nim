@@ -60,52 +60,6 @@ when defined(windows):
   proc setThreadAffinityMask(hThread: SysThread, dwThreadAffinityMask: uint) {.
     importc: "SetThreadAffinityMask", stdcall, header: "<windows.h>".}
 
-elif defined(genode):
-  import genode/env
-  const
-    GenodeHeader = "genode_cpp/threads.h"
-  type
-    SysThread* {.importcpp: "Nim::SysThread",
-                 header: GenodeHeader, final, pure.} = object
-    GenodeThreadProc = proc (x: pointer) {.noconv.}
-    ThreadVarSlot = int
-
-  proc initThread(s: var SysThread,
-                  env: GenodeEnv,
-                  stackSize: culonglong,
-                  entry: GenodeThreadProc,
-                  arg: pointer,
-                  affinity: cuint) {.
-    importcpp: "#.initThread(@)".}
-
-  proc threadVarAlloc(): ThreadVarSlot = 0
-
-  proc offMainThread(): bool {.
-    importcpp: "Nim::SysThread::offMainThread",
-    header: GenodeHeader.}
-
-  proc threadVarSetValue(value: pointer) {.
-    importcpp: "Nim::SysThread::threadVarSetValue(@)",
-    header: GenodeHeader.}
-
-  proc threadVarGetValue(): pointer {.
-    importcpp: "Nim::SysThread::threadVarGetValue()",
-    header: GenodeHeader.}
-
-  var mainTls: pointer
-
-  proc threadVarSetValue(s: ThreadVarSlot, value: pointer) {.inline.} =
-    if offMainThread():
-      threadVarSetValue(value);
-    else:
-      mainTls = value
-
-  proc threadVarGetValue(s: ThreadVarSlot): pointer {.inline.} =
-    if offMainThread():
-      threadVarGetValue();
-    else:
-      mainTls
-
 else:
   when not (defined(macosx) or defined(haiku)):
     {.passl: "-pthread".}

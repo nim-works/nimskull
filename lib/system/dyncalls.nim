@@ -109,17 +109,10 @@ elif defined(windows) or defined(dos):
   # Native Windows Implementation
   # =======================================================================
   #
-  when defined(cpp):
-    type
-      THINSTANCE {.importc: "HINSTANCE".} = object
-        x: pointer
-    proc getProcAddress(lib: THINSTANCE, name: cstring): ProcAddr {.
-        importcpp: "(void*)GetProcAddress(@)", header: "<windows.h>", stdcall.}
-  else:
-    type
-      THINSTANCE {.importc: "HINSTANCE".} = pointer
-    proc getProcAddress(lib: THINSTANCE, name: cstring): ProcAddr {.
-        importc: "GetProcAddress", header: "<windows.h>", stdcall.}
+  type
+    THINSTANCE {.importc: "HINSTANCE".} = pointer
+  proc getProcAddress(lib: THINSTANCE, name: cstring): ProcAddr {.
+      importc: "GetProcAddress", header: "<windows.h>", stdcall.}
 
   proc freeLibrary(lib: THINSTANCE) {.
       importc: "FreeLibrary", header: "<windows.h>", stdcall.}
@@ -162,17 +155,6 @@ elif defined(windows) or defined(dos):
       result = getProcAddress(cast[THINSTANCE](lib), addr decorated)
       if result != nil: return
     procAddrError(name)
-
-elif defined(genode):
-
-  proc nimUnloadLibrary(lib: LibHandle) =
-    raiseAssert("nimUnloadLibrary not implemented")
-
-  proc nimLoadLibrary(path: string): LibHandle =
-    raiseAssert("nimLoadLibrary not implemented")
-
-  proc nimGetProcAddr(lib: LibHandle, name: cstring): ProcAddr =
-    raiseAssert("nimGetProcAddr not implemented")
 
 elif defined(nintendoswitch) or defined(freertos):
   proc nimUnloadLibrary(lib: LibHandle) =

@@ -586,12 +586,12 @@ proc skipStmtList*(n: PNode): PNode =
 
 proc isImportedException*(t: PType; conf: ConfigRef): bool =
   assert t != nil
-  if conf.exc != excCpp:
+  if conf.exc != excNative:
     return false
 
   let base = t.skipTypes({tyAlias, tyPtr, tyDistinct, tyGenericInst})
 
-  if base.sym != nil and {sfCompileToCpp, sfImportc} * base.sym.flags != {}:
+  if base.sym != nil and sfImportc in base.sym.flags:
     result = true
 
 proc isInfixAs*(n: PNode): bool =
