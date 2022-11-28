@@ -16,14 +16,19 @@ import
     ast,
     idents,
     lineinfos,
+    parser,
     reports
   ],
   compiler/front/[
+    cli_reporter,
     msgs,
     options
   ],
   compiler/utils/[
     pathutils
+  ],
+  experimental/[
+    results
   ]
 
 proc opSlurp*(file: string, info: TLineInfo, module: PSym; conf: ConfigRef): string =
@@ -328,3 +333,68 @@ proc opMapTypeInstToAst*(cache: IdentCache; t: PType; info: TLineInfo; idgen: Id
 # and also tries to look like the corresponding Nim type implementation
 proc opMapTypeImplToAst*(cache: IdentCache; t: PType; info: TLineInfo; idgen: IdGenerator): PNode =
   result = mapTypeToAstX(cache, t, info, idgen, inst=true, allowRecursionX=true)
+
+proc parseCode*(code: string, cache: IdentCache, config: ConfigRef,
+                filename: string, line: int): Result[PNode, Report] =
+  ## Invokes the parser for the given `code` and returns either the parsed AST
+  ## or the first error that occurred during parsing
+
+  # @haxscramper: REFACTOR because parsing can expectedly fail (for example
+  # `"{a+}"` in strformat module) we need to handle failure and report it as
+  # a *VM* exception, so user can properly handle this.
+  #
+  # Previous implementation also relied on the report hook override -
+  # in the future this need to be completely removed, since I
+  # personally find exceptions-as-control-flow extremely ugly and unfit
+  # for any serious work. Technically it does the job, one might argue
+  # this is a good compromized, but I'd much rather have a paser
+  # template that (1) writes out error message with correction location
+  # information and (2) if parser is in 'speculative' mode, aborts the
+  # parsing completely (via early exit checks in the parser module).
+  # Yes, more work, but it avoids rebouncing exceptions through two (or
+  # even three) compiler subsystems (`Lexer?->Parser->Vm`)
+
+  type TemporaryExceptionHack = ref object of CatchableError
+    report: Report
+
+  let oldHook = config.structuredReportHook
+
+  config.structuredReportHook = proc(
+      conf: ConfigRef, report: Report
+  ): TErrorHandling =
+    # @haxscramper: QUESTION This check might be affected by current severity
+    # configurations, maybe it makes sense to do a hack-in that would
+    # ignore all user-provided CLI otions?
+    if report.category in {repParser, repLexer} and
+        conf.severity(report) == rsevError:
+      raise TemporaryExceptionHack(report: report)
+    else:
+      return oldHook(conf, report)
+
+  try:
+    let ast = parseString(code, cache, config, filename, line).toPNode()
+    result.initSuccess(ast)
+  except TemporaryExceptionHack as e:
+    result.initFailure(move e.report)
+
+  # restore the previous report hook:
+  config.structuredReportHook = oldHook
+
+proc parseCode*(code: string, cache: IdentCache, config: ConfigRef,
+                info: TLineInfo): Result[PNode, Report] {.inline.} =
+  ## Version of ``parseCode`` that accepts a ``TLineInfo``
+  parseCode(code, cache, config, config.toFullPath(info), info.line.int)
+
+proc errorReportToString*(c: ConfigRef, error: Report): string =
+  ## Turns the given `error` report into text that is meant to be passed on to
+  ## the user
+  assert error.kind != repNone
+  # @haxscramper: Not sure if there is any better solution - I /do/ want to
+  # make sure that error reported to the user in the VM is the same as one
+  # I would report on the CLI, but at the same time this still looks like an
+  # overly hacky approach
+  result = "Error: " & c.reportBody(error)
+              # ^ `reportBody()` only returns main part of
+              # the report, so need to add `"Error: "`
+              # manally to stay consistent with the old
+              # output.

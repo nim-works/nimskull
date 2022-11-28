@@ -468,29 +468,27 @@ proc lineInfo*(arg: NimNode): string =
   ## Return line info in the form `filepath(line, column)`.
   $arg.lineInfoObj
 
-proc internalParseExpr(s: string): NimNode {.
+proc internalParseExpr(s: string, err: var string): NimNode {.
   magic: "ParseExprToAst", noSideEffect.}
 
-proc internalParseStmt(s: string): NimNode {.
+proc internalParseStmt(s: string, err: var string): NimNode {.
   magic: "ParseStmtToAst", noSideEffect.}
-
-proc internalErrorFlag*(): string {.magic: "NError", noSideEffect.}
-  ## Some builtins set an error flag. This is then turned into a proper
-  ## exception. **Note**: Ordinary application code should not call this.
 
 proc parseExpr*(s: string): NimNode {.noSideEffect.} =
   ## Compiles the passed string to its AST representation.
   ## Expects a single expression. Raises `ValueError` for parsing errors.
-  result = internalParseExpr(s)
-  let x = internalErrorFlag()
-  if x.len > 0: raise newException(ValueError, x)
+  var errmsg: string
+  result = internalParseExpr(s, errmsg)
+  if errmsg.len > 0:
+    raise newException(ValueError, errmsg)
 
 proc parseStmt*(s: string): NimNode {.noSideEffect.} =
   ## Compiles the passed string to its AST representation.
   ## Expects one or more statements. Raises `ValueError` for parsing errors.
-  result = internalParseStmt(s)
-  let x = internalErrorFlag()
-  if x.len > 0: raise newException(ValueError, x)
+  var errmsg: string
+  result = internalParseStmt(s, errmsg)
+  if errmsg.len > 0:
+    raise newException(ValueError, errmsg)
 
 proc getAst*(macroOrTemplate: untyped): NimNode {.magic: "ExpandToAst", noSideEffect.}
   ## Obtains the AST nodes returned from a macro or template invocation.
