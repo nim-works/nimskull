@@ -417,10 +417,8 @@ proc flip*(
   ## `state`
   if state:
     conf.incl(nset, note)
-
   else:
     conf.excl(nset, note)
-
 
 func options*(conf: ConfigRef): TOptions =
   ## Get list of active local options

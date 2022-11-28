@@ -15,34 +15,15 @@ import
   compiler/front/[
     msgs
   ],
-  std/options
-
-# xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_vm import VMReport
-from compiler/ast/reports import toReportLineInfo
+  compiler/vm/vmdef
 
 type VmError* = object of CatchableError
-  report*: VMReport
-
-
-func raiseVmError*(
-  report: sink VMReport;
-  inst:   InstantiationInfo = instLoc()
-  ) {.noinline, noreturn.} =
-  ## Raises a `VmError`. If the report has location information already,
-  ## it's reset to none.
-  report.location = none(TLineInfo)
-  report.reportInst = toReportLineInfo(inst)
-  raise (ref VmError)(report: report)
-
+  event*: VmEvent
 
 func raiseVmError*(
-  report:   sink VMReport;
-  location: TLineInfo,
-  inst:     InstantiationInfo = instLoc()
+  event: sink VmEvent;
+  inst:  InstantiationInfo = instLoc()
   ) {.noinline, noreturn.} =
-  ## Raises a `VmError`. If the report has location information already,
-  ## it's replaced with `location`.
-  report.location = some(location)
-  report.reportInst = toReportLineInfo(inst)
-  raise (ref VmError)(report: report)
+  ## Raises a `VmError`.
+  event.instLoc = inst
+  raise (ref VmError)(event: event)

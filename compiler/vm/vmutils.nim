@@ -16,6 +16,30 @@ import
     vmdef
   ]
 
+type
+  VmGenCodeListing* = tuple[
+      sym: PSym,
+      ast: PNode,
+      entries: seq[DebugVmCodeEntry]
+    ]
+
+  VmDebugCodeEntry* = object
+    isTarget*: bool
+    info*: TLineInfo
+    pc*: int
+    idx*: int
+    case opc*: TOpcode:
+      of opcConv, opcCast:
+        types*: tuple[tfrom, tto: PType]
+      of opcLdConst, opcAsgnConst:
+        ast*: PNode
+      else:
+        discard
+    ra*: int
+    rb*: int
+    rc*: int
+
+
 func codeListing*(c: TCtx; start = 0; last = -1): seq[DebugVmCodeEntry] =
   ## Produces a listing of the instructions in `c` that are located in the
   ## instruction range ``start..last``. If ``last < 0``, then all instructions
@@ -59,7 +83,6 @@ func codeListing*(c: TCtx; start = 0; last = -1): seq[DebugVmCodeEntry] =
       code.types = (c.rtti[c.code[i + 1].regBx-wordExcess].nimType,
                     c.rtti[c.code[i + 2].regBx-wordExcess].nimType)
       inc i, 2
-
     of opcLdConst, opcAsgnConst:
       let cnst = c.constants[code.idx]
       code.ast =
@@ -71,7 +94,6 @@ func codeListing*(c: TCtx; start = 0; last = -1): seq[DebugVmCodeEntry] =
         of cnstSliceListInt..cnstSliceListStr:
           # XXX: translate into an `nkOfBranch`?
           newNode(nkEmpty)
-
     else:
       discard
 

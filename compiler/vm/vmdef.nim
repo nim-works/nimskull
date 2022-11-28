@@ -10,7 +10,7 @@
 ## This module contains the type definitions for the new evaluation engine.
 ## An instruction is 1-3 int32s in memory, it is a register based VM.
 
-import tables
+import std/tables
 
 import
   compiler/ast/[
@@ -25,8 +25,10 @@ import
     options,
   ],
   compiler/utils/[
-    debugutils
+    debugutils,
   ]
+
+import std/options as std_options
 
 import vm_enums
 export vm_enums
@@ -62,6 +64,9 @@ const
   regBxMax* =  wordExcess-1
 
 type
+  PrgCtr* = int  ## Program Counter, aliased as it's self-documenting and supports
+                 ## changing the type in the future (distinct/width)
+
   TRegister* = range[0..regAMask.int]
   TDest* = range[-1..regAMask.int]
   TInstr* = distinct TInstrType
@@ -519,6 +524,131 @@ type
                             ## is active
 
     flags*: set[CodeGenFlag] ## input
+  
+  VmGenDiagKind* = enum
+    vmGenDiagMissingImportcCompleteStruct
+    vmGenDiagTooManyRegistersRequired
+    vmGenDiagCannotFindBreakTarget
+    vmGenDiagNotUnused
+    vmGenDiagNotAFieldSymbol
+    vmGenDiagTooLargeOffset
+    vmGenDiagCannotGenerateCode
+    vmGenDiagCannotCast
+    vmGenDiagBadExpandToAst
+    vmGenDiagCannotEvaluateAtComptime
+    vmGenDiagCannotImportc
+    vmGenDiagInvalidObjectConstructor
+    vmGenDiagNoClosureIterators
+    vmGenDiagCannotCallMethod
+    vmGenDiagNotAField
+  
+  VmTypeMismatch* = object
+    actualType*, formalType*: PType
+
+  VmGenDiag* = object
+    ## `Diag`nostic data from VM Gen, mostly errors
+    # TODO: bloated type, move fields into specialized variants
+    ast*: PNode
+    typ*: PType
+    msg*: string
+    sym*: PSym
+    location*: TLineInfo        ## diagnostic location
+    instLoc*: InstantiationInfo ## instantiation in VM Gen's source
+    case kind*: VmGenDiagKind
+      of vmGenDiagCannotCast:
+        typeMismatch*: VmTypeMismatch
+      else:
+        discard
+
+  VmEventKind* = enum
+    # errors
+    vmEvtOpcParseExpectedExpression
+    vmEvtUserError
+    vmEvtUnhandledException
+    vmEvtCannotCast
+    vmEvtCallingNonRoutine
+    vmEvtCannotModifyTypechecked
+    vmEvtNilAccess
+    vmEvtAccessOutOfBounds
+    vmEvtAccessTypeMismatch
+    vmEvtAccessNoLocation
+    vmEvtErrInternal
+    vmEvtIndexError
+    vmEvtOutOfRange
+    vmEvtOverOrUnderflow
+    vmEvtDivisionByConstZero
+    vmEvtArgNodeNotASymbol
+    vmEvtNodeNotASymbol
+    vmEvtNodeNotAProcSymbol
+    vmEvtIllegalConv
+    vmEvtMissingCacheKey
+    vmEvtCacheKeyAlreadyExists
+    vmEvtFieldNotFound
+    vmEvtNotAField
+    vmEvtFieldUnavailable
+    vmEvtCannotSetChild
+    vmEvtCannotAddChild
+    vmEvtCannotGetChild
+    vmEvtNoType
+    vmEvtUnsupportedNonNil
+    vmEvtTooManyIterations
+    vmEvtQuit
+
+  VmEventKindAccessError* = range[vmEvtAccessOutOfBounds .. vmEvtAccessNoLocation]
+
+  VmEvent* = object
+    ## Event data from a VM instance, mostly errors
+    instLoc*: InstantiationInfo    ## instantiation in VM's source
+    case kind*: VmEventKind
+      of vmEvtUserError:
+        errLoc*: TLineInfo
+        errMsg*: string
+      of vmEvtArgNodeNotASymbol:
+        callName*: string
+        argAst*: PNode
+        argPos*: int
+      of vmEvtCannotCast:
+        typeMismatch*: VmTypeMismatch
+      of vmEvtIndexError:
+        indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
+      of vmEvtQuit:
+        exitCode*: BiggestInt
+      of vmEvtErrInternal, vmEvtNilAccess, vmEvtIllegalConv,
+          vmEvtFieldUnavailable, vmEvtFieldNotFound,
+          vmEvtCacheKeyAlreadyExists, vmEvtMissingCacheKey:
+        msg*: string
+      of vmEvtCannotSetChild, vmEvtCannotAddChild, vmEvtCannotGetChild,
+          vmEvtUnhandledException, vmEvtNoType, vmEvtNodeNotASymbol:
+        ast*: PNode
+      of vmEvtUnsupportedNonNil:
+        typ*: PType
+      of vmEvtNotAField:
+        sym*: PSym
+      else:
+        discard
+
+  VmExecTraceKind* = enum
+    vmTraceMin  ## minimal data execution trace, lighter/faster
+    vmTraceFull ## full data execution trace, more info/heavier likely slower
+
+  VmExecTrace* = object
+    pc*: PrgCtr
+    case kind*: VmExecTraceKind:
+      of vmTraceMin:
+        discard
+      of vmTraceFull:
+        ra*, rb*, rc*: TRegisterKind
+
+  TraceHandler* = proc(c: TCtx, t: VmExecTrace): void
+
+  VmStackTrace* = object
+    # xxx: if possible remove `currentExceptionA` and `currentExceptionB` as
+    #      they're not queried.
+    currentExceptionA*, currentExceptionB*: PNode
+    # TODO: remove as the vm event isn't always the reason for the trace
+    traceReason*: VmEventKind
+    stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
+    skipped*: int
 
   PCtx* = ref TCtx
   TCtx* = object of TPassContext
@@ -575,6 +705,7 @@ type
     profiler*: Profiler
     templInstCounter*: ref int # gives every template instantiation a unique ID, needed here for getAst
     vmstateDiff*: seq[(PSym, PNode)] # we remember the "diff" to global state here (feature for IC)
+    vmTraceHandler*: TraceHandler ## handle trace output from an executing vm
 
   StackFrameIndex* = int
 
@@ -709,7 +840,11 @@ template isNil*(x: VmFunctionPtr): bool = int(x) == 0
 
 func `==`*(a, b: RoutineSigId): bool {.borrow.}
 
-proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph; idgen: IdGenerator): PCtx =
+proc defaultTracer(c: TCtx, t: VmExecTrace) =
+  echo "default echo tracer" & $t
+
+proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph;
+             idgen: IdGenerator, tracer: TraceHandler = defaultTracer): PCtx =
   result = PCtx(
     code: @[],
     debug: @[],
@@ -723,7 +858,8 @@ proc newCtx*(module: PSym; cache: IdentCache; g: ModuleGraph; idgen: IdGenerator
     cache: cache,
     config: g.config,
     graph: g,
-    idgen: idgen
+    idgen: idgen,
+    vmtraceHandler: tracer
   )
 
   # The first slot (index 0) is reserved so that index == 0 means nil access

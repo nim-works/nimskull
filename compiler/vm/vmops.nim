@@ -16,6 +16,7 @@ import
     ast_types,
     ast,
     idents,
+    lineinfos,
   ],
   compiler/front/[
     options
@@ -37,8 +38,10 @@ import
     results
   ]
 
+from compiler/front/msgs import localReport
+
 # xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_vm import VMReport
+from compiler/ast/reports_sem import SemReport
 from compiler/ast/report_enums import ReportKind
 
 from std/math import sqrt, ln, log10, log2, exp, round, arccos, arcsin,
@@ -61,6 +64,7 @@ from std/md5 import getMD5
 from std/times import cpuTime
 from std/hashes import hash
 from std/osproc import nil
+from std/options as std_options import some
 from system/formatfloat import writeFloatToBufferSprintf
 
 from compiler/modules/modulegraphs import `$`
@@ -313,8 +317,8 @@ proc registerBasicOps*(c: var TCtx) =
 
     if ePos >= seqVal.length:
       raiseVmError(
-        VMReport(
-          kind: rvmIndexError,
+        VmEvent(
+          kind: vmEvtIndexError,
           indexSpec: (
             usedIdx: toInt128(ePos),
             minIdx: toInt128(0),
@@ -440,18 +444,22 @@ proc registerMacroOps*(c: var TCtx) =
   registerCallback c, "stdlib.macros.symBodyHash", proc (a: VmArgs) =
     let n = getNode(a, 0)
     if n.kind != nkSym:
-      raiseVmError(VMReport(
-        kind: rvmNodeNotASymbol,
-        ast: n,
-        str: "symBodyHash()"), n.info)
+      raiseVmError(VmEvent(
+        kind: vmEvtArgNodeNotASymbol,
+        callName: "symBodyHash",
+        argAst: n,
+        argPos: 0))
 
     setResult(a, $symBodyDigest(graph, n.sym))
 
   registerCallback c, "stdlib.macros.isExported", proc(a: VmArgs) =
     let n = getNode(a, 0)
     if n.kind != nkSym:
-      raiseVmError(VMReport(
-        kind: rvmNodeNotASymbol, ast: n, str: "isExported()"), n.info)
+      raiseVmError(VmEvent(
+        kind: vmEvtArgNodeNotASymbol,
+        callName: "isExported",
+        argAst: n,
+        argPos: 0))
 
     setResult(a, sfExported in n.sym.flags)
 
@@ -472,6 +480,30 @@ proc registerMacroOps*(c: var TCtx) =
   registerCallback c, "stdlib.typetraits.hasClosureImpl", proc (a: VmArgs) =
     let fn = getNode(a, 0)
     setResult(a, fn.kind == nkClosure or (fn.typ != nil and fn.typ.callConv == ccClosure))
+
+  template userStrMsg(a: VmArgs): string =
+    let r = a.slots[a.ra]
+    {.line.}:
+      assert r.handle.typ.kind == akString
+    $deref(r.handle).strVal
+  
+  template getInfo(a: VmArgs): TLineInfo =
+    let b = getNode(a, 1)
+    if b.kind == nkNilLit: a.currentLineInfo else: b.info
+
+  registerCallback c, "stdlib.macros.error", proc (a: VmArgs) =
+    raiseVmError(VmEvent(
+      kind: vmEvtUserError,
+      errMsg: getString(a, 0),
+      errLoc: a.getInfo()))
+  
+  registerCallback c, "stdlib.macros.warning", proc (a: VmArgs) =
+    config.localReport(a.getInfo(),
+                       SemReport(kind: rsemUserWarning, str: getString(a, 0)))
+  
+  registerCallback c, "stdlib.macros.hint", proc (a: VmArgs) =
+    config.localReport(a.getInfo(),
+                       SemReport(kind: rsemUserHint, str: getString(a, 0)))
 
 proc registerAdditionalOps*(c: var TCtx, disallowDangerous: bool) =
   ## Convenience proc used for setting up the callbacks relevant during

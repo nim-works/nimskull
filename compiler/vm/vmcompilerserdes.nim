@@ -27,7 +27,8 @@ import
     vmmemory,
     vmobjects,
     vmtypegen,
-    vmtypes
+    vmtypes,
+    vmlegacy
   ],
   std/[
     options
@@ -48,7 +49,7 @@ from compiler/ast/trees import exprStructuralEquivalent, cyclicTree
 const SkipSet = abstractRange + {tyStatic} - {tyTypeDesc}
 
 template toReport(c: DerefFailureCode): SemReport =
-  SemReport(kind: FailureCodeToReport[c])
+  SemReport(kind: FailureCodeToEvent[c].vmEventToLegacyReportKind())
 
 # Functions for VM to PNode conversion
 

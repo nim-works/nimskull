@@ -23,6 +23,7 @@ import
     vm,
     vmdef,
     vmhooks,
+    vmlegacy,
     vmmemory,
     vmobjects,
     vmops,
@@ -41,6 +42,10 @@ import
   ]
 
 import std/options as std_options
+
+# TODO: legacy report cruft remove from here
+from compiler/ast/reports_vm import VMReport
+from compiler/ast/reports import ReportKind, toReportLineInfo
 
 proc loadDiscrConst(s: PackedEnv, constIdx: int, dst: LocHandle,
                     objTyp: PVmType, fieldPos: FieldPosition): int =
@@ -225,6 +230,23 @@ proc registerCallbacks(c: var TCtx): bool =
       echo "expected '$#' callback but got '$#'" % [p.string, other[i].string]
       result = false
 
+proc createLegacyStackTrace(
+    c: TCtx, 
+    thread: VmThread, 
+    instLoc: InstantiationInfo = instLoc(-1)
+  ): VMReport =
+  # TODO: duplicated from `compilerbridge`, consolidate after all the reports
+  #       bits are untangled.
+  let st = createStackTrace(c, thread)
+  result = VMReport(kind: rvmStackTrace,
+                    currentExceptionA: st.currentExceptionA,
+                    currentExceptionB: st.currentExceptionB,
+                    traceReason: vmEventToLegacyReportKind(st.traceReason),
+                    stacktrace: st.stacktrace,
+                    skipped: st.skipped,
+                    location: some source(c, thread),
+                    reportInst: toReportLineInfo(instLoc))
+
 proc main*(args: seq[string]): int =
   let config = newConfigRef(cli_reporter.reportHook)
   config.writeHook =
@@ -275,8 +297,16 @@ proc main*(args: seq[string]): int =
       break
     of yrkError:
       # an uncaught error occurred
-      c.config.localReport(createStackTrace(c, thread))
-      c.config.localReport(r.error)
+      c.config.localReport(createLegacyStackTrace(c, thread))
+      let location = 
+        case r.error.kind
+        of vmEvtUserError:
+          r.error.errLoc
+        of vmEvtArgNodeNotASymbol:
+          r.error.argAst.info
+        else:
+          source(c, thread)
+      c.config.localReport(vmEventToLegacyVmReport(r.error, some location))
       result = 1
     of yrkQuit:
       # ``quit`` was called
@@ -284,7 +314,7 @@ proc main*(args: seq[string]): int =
     of yrkMissingProcedure:
       # a procedure stub was encountered -- this shouldn't happen. We print
       # the current stack-trace, write out an error message, and then quit
-      c.config.localReport(createStackTrace(c, thread))
+      c.config.localReport(createLegacyStackTrace(c, thread))
       c.config.msgWrite("trying to call a procedure that is a stub: $1" %
                         [c.functions[r.entry.int].sym.name.s])
       result = 1

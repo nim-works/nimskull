@@ -631,7 +631,7 @@ proc moduleFromRodFile*(g: ModuleGraph; fileIdx: FileIndex;
 proc configComplete*(g: ModuleGraph) =
   rememberStartupConfig(g.startupPackedConfig, g.config)
 
-proc onProcessing*(graph: ModuleGraph, fileIdx: FileIndex, moduleStatus: string, fromModule: PSym, ) =
+proc onProcessing*(graph: ModuleGraph, fileIdx: FileIndex, moduleStatus: string, fromModule: PSym) =
   let conf = graph.config
   let isNimscript = conf.isDefined("nimscript")
   if (not isNimscript) or rsemProcessing in conf.cmdlineNotes:

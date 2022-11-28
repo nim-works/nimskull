@@ -3384,9 +3384,6 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
   of rvmCannotImportc:
     result = "cannot 'importc' variable/proc at compile time: " & r.symstr
 
-  of rvmCannotCreateNullElement:
-    result = "cannot create null element for: " & r.typ.render
-
   of rvmInvalidObjectConstructor:
     result = "invalid object constructor"
 
@@ -3424,10 +3421,6 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
   of rvmNodeNotAProcSymbol:
     result = "node is not a proc symbol"
 
-  of rvmDerefUnsupportedPtr:
-    result = "deref unsupported ptr type: $1 $2" % [
-      r.typ.render, $r.typ.kind]
-
   of rvmNilAccess:
     result = "attempt to access a nil address"
 
@@ -3464,9 +3457,6 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
 
   of rvmFieldNotFound:
     result = "node lacks field: " & r.str
-
-  of rvmNodeNotAFieldSymbol:
-    result = "symbol is not a field (nskField)"
 
   of rvmCannotSetChild:
     result = "cannot set child of node kind: n" & $r.ast.kind

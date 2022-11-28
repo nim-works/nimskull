@@ -7,7 +7,6 @@
 import
   compiler/ast/[
     ast_types,
-    report_enums
   ],
   compiler/vm/[
     vmdef,
@@ -26,11 +25,11 @@ type DerefFailureCode* = enum
   dfcFreed        ## ref's target was already freed
   dfcTypeMismatch ## ref's type is not compatible with the target's type
 
-const FailureCodeToReport* = [
-  dfcNil:          rvmNilAccess,
-  dfcInvalid:      rvmAccessOutOfBounds,
-  dfcFreed:        rvmAccessOutOfBounds,
-  dfcTypeMismatch: rvmAccessTypeMismatch
+const FailureCodeToEvent* = [
+  dfcNil:          vmEvtNilAccess,
+  dfcInvalid:      vmEvtAccessOutOfBounds,
+  dfcFreed:        vmEvtAccessOutOfBounds,
+  dfcTypeMismatch: vmEvtAccessTypeMismatch
 ]
 
 # TODO: rename to `allocUntypedMemory`
