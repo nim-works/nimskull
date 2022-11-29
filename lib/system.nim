@@ -560,7 +560,7 @@ when not defined(js) and not defined(nimSeqsV2):
     # len and space without counting the terminating zero:
     NimStringDesc {.compilerproc, final.} = object of TGenericSeq
       data: UncheckedArray[char]
-    NimString = ptr NimStringDesc
+    NimString {.compilerproc.} = ptr NimStringDesc
 
 when notJSnotNims and not defined(nimSeqsV2):
   template space(s: PGenericSeq): int {.dirty.} =

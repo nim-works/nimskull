@@ -165,6 +165,7 @@ func defaultOptions*(a: TTarget): string {.inline.} =
   of targetJS: "-d:nodejs"
     # once we start testing for `nim js -d:nimbrowser` (eg selenium or similar),
     # we can adapt this logic; or a given js test can override with `-u:nodejs`.
+  of targetC: "-d:cbackend2"
   else: ""
 
 when not declared(parseCfgBool):

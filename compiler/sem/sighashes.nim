@@ -50,9 +50,9 @@ type
     CoDistinct
     CoHashTypeInsideNode
 
-proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag])
+func hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag])
 
-proc hashSym(c: var MD5Context, s: PSym) =
+func hashSym(c: var MD5Context, s: PSym) =
   if sfAnon in s.flags or s.kind == skGenericParam:
     c &= ":anon"
   else:
@@ -62,7 +62,7 @@ proc hashSym(c: var MD5Context, s: PSym) =
       c &= "."
       it = it.owner
 
-proc hashTypeSym(c: var MD5Context, s: PSym) =
+func hashTypeSym(c: var MD5Context, s: PSym) =
   if sfAnon in s.flags or s.kind == skGenericParam:
     c &= ":anon"
   else:
@@ -75,7 +75,7 @@ proc hashTypeSym(c: var MD5Context, s: PSym) =
       c &= "."
       it = it.owner
 
-proc hashTree(c: var MD5Context, n: PNode; flags: set[ConsiderFlag]) =
+func hashTree(c: var MD5Context, n: PNode; flags: set[ConsiderFlag]) =
   if n == nil:
     c &= "\255"
     return
@@ -102,7 +102,7 @@ proc hashTree(c: var MD5Context, n: PNode; flags: set[ConsiderFlag]) =
   else:
     for i in 0..<n.len: hashTree(c, n[i], flags)
 
-proc hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
+func hashType(c: var MD5Context, t: PType; flags: set[ConsiderFlag]) =
   if t == nil:
     c &= "\254"
     return
@@ -260,7 +260,7 @@ when defined(debugSigHashes):
   #  select hash, type from sighashes where hash in
   # (select hash from sighashes group by hash having count(*) > 1) order by hash;
 
-proc hashType*(t: PType; flags: set[ConsiderFlag] = {CoType}): SigHash =
+func hashType*(t: PType; flags: set[ConsiderFlag] = {CoType}): SigHash =
   var c: MD5Context
   md5Init c
   hashType c, t, flags+{CoOwnerSig}
