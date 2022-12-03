@@ -106,7 +106,9 @@ type
     ccodeCheck*: seq[string] ## List of peg patterns that need to be
     ## searched for in the generated code. Used for backend code testing.
     maxCodeSize*: int ## Maximum allowed code size (in bytes) for the test.
-    err*: TResultEnum
+    err*: TResultEnum # REFACTOR Separate into 'expected output' (they can
+                      # be specified in the real test) and 'real output'
+                      # (they can actually happen - "invlid peg" etc.)
     inCurrentBatch*: bool
     targets*: set[TTarget]
     specifiedTargets*: set[SpecifiedTarget] ## targets as described by the spec

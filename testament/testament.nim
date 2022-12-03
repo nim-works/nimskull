@@ -91,7 +91,7 @@ type
 
   TResults = object
     total, passed, knownIssuesSucceded, skipped: int
-      ## xxx rename passed to passedOrAllowedFailure
+      ## TODO rename passed to passedOrAllowedFailure
     data: string
 
   TTest = object
@@ -144,7 +144,7 @@ type
   #   target: TestTarget       ## which target to run for
   #   matrixEntry: EntryId     ## which item from the matrix was used
 
-  # xxx: add 'check' to remove `cmd: "nim check"...` from tests
+  # IMPLEMENT add 'check' to remove `cmd: "nim check"...` from tests
   # TestActionKind = enum
   #   testActionSkip           ## skip this test; check the spec for why
   #   testActionReject,        ## reject the compilation
@@ -699,7 +699,13 @@ proc logToBackend(param: ReportParams) =
 
 proc addResult(r: var TResults, param: ReportParams, givenSpec: ptr TSpec) =
   ## Report results to backend, end user (write to command-line) and so on.
-  
+
+  # REFACTOR: first of all, name: it does not /add/ it fucking *writes*
+  # output. "write" and "add" are two different things. Second: determine
+  # why `givenSpec` is an optional in the first place -- aren't we printing
+  # out results of the test? And each test has a spec attached to it.
+
+  # REFACTOR (old note, leaving it out until this whole mess is cleaned)
   # instead of `ptr tspec` we could also use `option[tspec]`; passing
   # `givenspec` makes it easier to get what we need instead of having to
   # pass individual fields, or abusing existing ones like expected vs
@@ -708,7 +714,8 @@ proc addResult(r: var TResults, param: ReportParams, givenSpec: ptr TSpec) =
 
   logToBackend(param)
 
-  # TODO DOC what is this
+  # REFACTOR what is this, no string interpolation until the data is
+  # properly collected into a DOD group; then it can be reported.
   r.data.addf("$#\t$#\t$#\t$#", param.name, param.expected, param.given,
                                 $param.success)
 
@@ -723,7 +730,15 @@ proc addResult(
     givenSpec: ptr TSpec = nil,
     outCompare: TOutCompare = nil
   ) =
-  ## Report final test run to backend, end user (write to command-line) and etc
+  ## Report final test run to backend, end user (write to command-line) and
+  ## etc
+
+  # REFACTOR this is a legacy garbage that needs to be turned into
+  # something like `initTestReport()` which will return `TestReport` which
+  # is then added into a `dod` sequence of reports (and written out so the
+  # user can see the progress instead of waiting in front of the dead
+  # prompt, but that's basically the same as `echo done` at the end of this
+  # proc, from the data flow perspective it is largely irrelevant IMO)
   let
     duration = epochTime() - run.startTime
     timeout = run.expected.timeout
@@ -754,6 +769,9 @@ proc addResult(
 proc addResult(r: var TResults, test: TTest) =
   ## Report test failure/skip etc to backend, end user (write to command-line)
   ## and so on.
+  # REFACTOR same as previous procedure -- convert into `initTestReport()`
+  # and return the data. Unroll the reportig stack and streamline the data
+  # flow.
   const allowedTestStatus = {reInvalidSpec, reDisabled, reKnownIssue, reJoined}
   doAssert test.spec.err in allowedTestStatus,
            "Test: $1 with status: $2, should have ran" %
@@ -786,6 +804,7 @@ proc addResult(r: var TResults, test: TTest) =
 proc checkForInlineErrors(r: var TResults, run: TestRun, given: TSpec) =
   ## Check for inline error annotations in the nimout results, comparing
   ## them with the output of the compiler.
+  # REFACTOR refactor to return results
 
   let pegLine = peg"{[^(]*} '(' {\d+} ', ' {\d+} ') ' {[^:]*} ':' \s* {.*}"
   var covered = initIntSet()
@@ -842,7 +861,11 @@ proc nimoutCheck(expected, given: TSpec): bool =
   if expected.nimoutFull:
     if expected.nimout != given.nimout:
       result = false
-  elif expected.nimout.len > 0 and not greedyOrderedSubsetLines(expected.nimout, given.nimout):
+  elif expected.nimout.len > 0 and
+       # NOTE this function should be made more generic and moved into the
+       # diff library, it might have some pretty interesting use-cases in
+       # places where determinization of the output gives UX improvements.
+       not greedyOrderedSubsetLines(expected.nimout, given.nimout):
     result = false
 
 proc sexpCheck(test: TTest, expected, given: TSpec): TOutCompare =
@@ -862,7 +885,8 @@ proc sexpCheck(test: TTest, expected, given: TSpec): TOutCompare =
 
     parsed.addField("location", loc)
     parsed.addField("severity", newSSymbol(exp.kind))
-    r.expectedReports.add TOutReport(inline: some exp, node: parsed, file: expected.file)
+    r.expectedReports.add TOutReport(
+      inline: some exp, node: parsed, file: expected.file)
 
   for line in splitLines(expected.nimout):
     if 0 < line.len:
@@ -907,6 +931,7 @@ proc cmpMsgs(r: var TResults, run: TestRun, given: TSpec) =
   ##
   ## It is used to for performing 'reject' action checks - it compares
   ## both inline and regular messages - in addition to `nimoutCheck`
+  # REFACTOR remove results, turn into data producer procedure
 
   # If structural comparison is requested - drop directly to it and handle
   # the success/failure modes in the branch
@@ -1001,7 +1026,13 @@ proc codegenCheck(
   ) =
   ## Check for any codegen mismatches in file generated from `test` run.
   ## Only file that was immediately generated is tested.
+  # REFACTOR convert into procedure that creates `CodegenCheckResult`
+  # object which contains the required information in a structured manner.
+  # No need to pass mutable strings that get appended to. Also
+  # specification should not be edited under any circumstances (aside from
+  # initial construction) nor should it be passed as a mutable parameter.
   try:
+    # CLEAN single section
     let genFile = generatedFile(test, target)
     let contents = readFile(genFile)
     for check in spec.ccodeCheck:
@@ -1017,6 +1048,8 @@ proc codegenCheck(
       given.msg = "generated code size: " & $contents.len
       expectedMsg = "max allowed size: " & $spec.maxCodeSize
   except ValueError:
+    # NOTE REFACTOR that's an excellent candidate for separation into the
+    # test report kind.
     given.err = reInvalidPeg
     msg Undefined: getCurrentExceptionMsg()
   except IOError:
@@ -1024,7 +1057,12 @@ proc codegenCheck(
     msg Undefined: getCurrentExceptionMsg()
 
 proc compilerOutputTests(run: TestRun, given: var TSpec; r: var TResults) =
-  ## Test output of the compiler for correctness
+  ## Test output of the compiler for correctness and add comparison results
+  ## to the `TResults` output.
+  # REFACTOR into a functio that returns result of the output test
+  # comparison instead of mutating `TResults` in-place.
+
+  # CLEAN into single block
   var expectedmsg: string = ""
   var givenmsg: string = ""
   var outCompare: TOutCompare
@@ -1096,6 +1134,7 @@ func extraOptions(run: TestRun): string =
 proc exeFile(
     testRun: TestRun, specFilePath: string, rootDir: string): string =
   ## Get name of the executable file for the test run
+  # CLEAN into a smaller blocks without huge if/else gaps
   let
     target = testRun.target
     isJsTarget = target == targetJs
@@ -1124,10 +1163,11 @@ proc exeFile(
 
 proc testSpecHelper(r: var TResults, run: var TestRun, execution: Execution) =
   run.startTime = epochTime()
-  run.test.startTime = run.startTime # REFACTOR set the same for legacy reasons
+  run.test.startTime = run.startTime # REFACTOR set the same for legacy
+                                     # reasons
 
   proc callCompilerImpl(run: TestRun): TSpec =
-    # xxx this used to also pass: `--stdout --hint:Path:off`, but was done
+    # NOTE this used to also pass: `--stdout --hint:Path:off`, but was done
     # inconsistently with other branches
     callCompiler(
       run.expected.getCmd,
@@ -1577,10 +1617,18 @@ proc prepareTestFilesAndSpecs(execState: var Execution) =
         of 0:
           optMatrix
         else:
-          # REFACTOR - this is a hack, we shouldn't modify the spec.matrix
+          # (saem)REFACTOR - this is a hack, we shouldn't modify the
+          # spec.matrix
+
+          # (haxscramper)QUESTION Doesn't "specify additional test matrix
+          # parameter" imply modification of the test matrix? It seems like
+          # the most direct way to implement this feature: additional test
+          # matrix parameter is ... added to the test matrix, seems pretty
+          # logical to me.
           var tmp: seq[string] = @[]
           for o in optMatrix.items:
             for e in execState.testSpecs[testId].matrix.items:
+              # REFACTOR Switch to `seq[string]` for matrix flags
               tmp.add o & " " & e
           tmp
 
@@ -1706,8 +1754,9 @@ proc reportTestRunResult(
     cmd: string,
     debugInfo: string
   ) =
-  ## birdge newer testament internals (`ExecutionState` and friends) to the
-  ## legacy reporting and generate output accordingly.
+  ## Report results of a single test run
+  # REFACTOR birdge newer testament internals (`ExecutionState` and
+  # friends) to the legacy reporting and generate output accordingly.
 
   let
     duration = runTime.compileEnd - runTime.compileStart +
@@ -1716,6 +1765,9 @@ proc reportTestRunResult(
     allowFailure = spec.err == reKnownIssue
 
   var
+    # REFACTOR test run should contianer ID of the specification it was
+    # used for as well as information about it's matrix parameters. The ID
+    # should be used instead of this copy.
     givenAsSpec = TSpec(
       cmd: cmd,
       nimout: runActual.nimout,
@@ -1842,7 +1894,7 @@ proc runTestBatch(
       execState.runTimes[runId].compileStart = startTimes[id]
       execState.runTimes[runId].compileEnd = endTimes[id]
 
-      # xxx - refactor into a proc
+      # REFACTOR into a proc
 
       # look for compilation errors or success messages
       let output = newStringStream(outputs[id])
@@ -1859,6 +1911,11 @@ proc runTestBatch(
         elif line.isSuccess:
           foundSuccessMsg = true
       output.close
+
+      # REFACTOR Highly likely this can be turned into a procedure that
+      # returns `typeof(execState.runActuals[runId])` as a result which is
+      # then assigned to the real `runActuals` sequence at the specified
+      # run ID.
 
       # validate exit code and collect action debug info
       execState.runActuals[runId].nimExit = exitCodes[id]
@@ -1909,14 +1966,13 @@ proc runTestBatch(
 
       execState.runActuals[runId].prgExit = exitCodes[id]
 
-      # xxx - very ridiculous approach to comparing output, legacy junk
-      #       sorry, i can't even being to explain this mess; brought over
-      #       from `testSpecHelper`
+      # REFACTOR very ridiculous approach to comparing output, legacy junk
+      # sorry, i can't even being to explain this mess; brought over from
+      # `testSpecHelper`
       let
         expect = spec.output
         exitCode =
           if execState.runActuals[runId].prgExit != 0:
-            # xxx - sigh... weird legacy
             # Treat all failure codes from nodejs as 1. Older versions of
             # nodejs used to return other codes, but for us it is sufficient
             # to know that it's not 0.
@@ -1955,6 +2011,7 @@ proc runTestBatch(
 
     var legacyResults = execState.legacyTestResults
 
+    # REFACTOR reduce number of arguments in this function.
     reportTestRunResult(
       legacyResults = legacyResults,
       execution = execState,
@@ -1981,13 +2038,14 @@ proc runTestBatch(
 
 proc runTests(execState: var Execution) =
   ## execute test runs in batches of test actions
-  # IMPLEMENT: create specific type to avoid accidental mutation
+  # <<mutation>> IMPLEMENT: create specific type to avoid accidental
+  # mutation
 
   let
     testRuns = execState.testRuns   ## immutable view of test runs
     testActions = execState.actions ## immutable view of test actions
     batchSize = defaultBatchSize    ## parallel processes to execute
-                                    # xxx: use processor count
+                                    # TODO: use processor count
     testArgs = execState.testArgs   ## arguments from the cli for each test
     verbose = outputVerbose in execState.flags
     dryRun = ExecutionFlag.dryRun in execState.flags
@@ -2005,6 +2063,11 @@ proc runTests(execState: var Execution) =
     nextCmdIdToActId = newSeqOfCap[int](batchSize)
     nextCmdIdToActKind = newSeqOfCap[TTestAction](batchSize)
     nextCmdIdToInput = newSeqOfCap[Option[string]](batchSize)
+    # QUESTION ASSUME I assume thread war is added here because of the
+    # subsequent `execProcesses`, but IIRC they do not use threading -- at
+    # least on unix platforms the implementation is done as a combination
+    # of `fork`, `exec` and `wait` which then collects all the required
+    # data and triggers callbacks.
     exitCodes {.threadvar.}: seq[int]
     outputs {.threadvar.}: seq[string]
     startTimes {.threadvar.}: seq[float]
@@ -2017,6 +2080,17 @@ proc runTests(execState: var Execution) =
   startTimes = newSeq[float](batchSize)
   endTimes = newSeq[float](batchSize)
 
+  # REFACTOR: this function requires additional context to be available,
+  # making it harder to move out of body. It mutates some of the state as
+  # well, so one possible solution would be to make the surrounding state
+  # of the `runTest` function *explicit* -- create a private
+  # `RunTestContext` ref object and then create a `initOnTestRunStartCb`
+  # which takes a context and returns a closure.
+  #
+  # NOTE: This approach might also address the [[mutation]] question above,
+  # although as usual, lack of proper `const`-ness for fields will make it
+  # harder at places. And this function is unlikely to work under `func` so
+  # ...
   proc onTestRunStart(id: int) =
     if verbose:
       msg Undefined: "executing: " & testCmds[id]
@@ -2167,6 +2241,17 @@ proc runTests(execState: var Execution) =
       # REFACTOR this is an absolute abomination of an implementation, it
       # should be refactored into something that uses 3-4 arguments, not
       # fucking 15.
+      #
+      # IDEA a possible solution would be to introduce a "TestBatch" object
+      # which is populated with the required procedures. In this case part
+      # of the function above could also me moved elsewhere and turned into
+      # constructor-like procedure.
+      #
+      # NOTE each batch contains a fair bit of mutable state that gets
+      # reset at the end of the `runTestBatch` implementation
+      # (`testCmds.setLen(0)`), but I think this can be changed into the
+      # dod sequence of test batches that is iterated over. Batch execution
+      # results are stored
       runTestBatch(execState,
                    testCmds,
                    processOpts,
@@ -2249,6 +2334,8 @@ proc runTests(execState: var Execution) =
     elapsed = latest - earliest
     avgCompTime = compEffortTotal / float execState.runTimes.len
 
+  # REFACTOR structured output etc; format using standalone procs --
+  # default cleanup requirements.
   echo "requested targets: $1, specs: $2, runs: $3, actions: $4, batches: $5, elapsed: $6, effort: $7, compEffort: $8, averageCompTime: $9, compLow: $10, compHigh: $11" % [
       $execState.requestedTargets,
       $execState.testSpecs.len,
