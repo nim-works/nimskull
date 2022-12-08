@@ -1469,6 +1469,13 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemUnexpectedYield:
       result = "'yield' only allowed in an iterator"
 
+    of rsemYieldExpectedTupleConstr:
+      # TODO: make the error message more helpful by also showing which
+      #       elements are of view type
+      result = "literal tuple constructor expected for 'yield', as the " &
+               "iterator returns a tuple directly containing a view. Got: " &
+               r.ast.render
+
     of rsemCannotReturnTypeless:
       result = "current routine cannot return an expression"
 
