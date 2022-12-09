@@ -1892,7 +1892,7 @@ proc propertyWriteAccess(c: PContext, n, a: PNode): PNode =
     #fixAbstractType(c, result)
     #analyseIfAddressTakenInCall(c, result)
 
-proc takeImplicitAddr(c: PContext, n: PNode; isLent: bool): PNode =
+proc takeImplicitAddr(c: PContext, formal: PType, n: PNode): PNode =
   ## See RFC #7373, calls returning 'var T' are assumed to
   ## return a view into the first argument (if there is one):
   addInNimDebugUtils(c.config, "takeImplicitAddr", n, result)
@@ -1900,40 +1900,37 @@ proc takeImplicitAddr(c: PContext, n: PNode; isLent: bool): PNode =
   let root = exprRoot(n)
   if root != nil and root.owner == c.p.owner:
     if root.kind in {skLet, skVar, skTemp} and sfGlobal notin root.flags:
-      localReport(c.config, n.info, reportSym(
+      return newError(c.config, n, reportSym(
         rsemLocalEscapesStackFrame, root, ast = n))
 
     elif root.kind == skParam and root.position != 0:
-      localReport(c.config, n.info, reportSym(
+      return newError(c.config, n, reportSym(
         rsemImplicitAddrIsNotFirstParam, root, ast = n))
 
-  case n.kind
-  of nkHiddenAddr, nkAddr: return n
-  of nkDerefExpr: return n[0]
-  of nkBracketExpr:
-    if n.len == 1: return n[0]
-  of nkHiddenDeref:
-    # issue #13848
-    # `proc fun(a: var int): var int = a`
-    discard
-  else: discard
-  
-  case isAssignable(c, n, isLent)
+  # TODO: what about expressions where ``root == nil`` (e.g. the root is a
+  #       pointer dereference)?
+
+  case isAssignable(c, n, formal.kind == tyLent)
   of arLValue:
     discard
   of arLocalLValue:
-    localReport(c.config, n, reportSem rsemLocalEscapesStackFrame)
+    # FIXME: this is not entirely correct. If inside an iterator (both inline
+    #        and closure) and yielding a local as a ``var|lent``, it doesn't
+    #        escape its stack frame. Yielding a local as a view is not an
+    #        error
+    return newError(c.config, n, reportSem rsemLocalEscapesStackFrame)
   else:
-    localReport(c.config, n, reportSem rsemExprHasNoAddress)
+    return newError(c.config, n, reportSem rsemExprHasNoAddress)
 
-  let typ =
-    case n.typ.kind
-    of {tyVar, tyLent}:
-      n.typ
+  if n.kind == nkHiddenAddr:
+    if sameType(formal, n.typ):
+      result = n
     else:
-      makePtrType(c, n.typ)
-  result = newNodeIT(nkHiddenAddr, n.info, typ)
-  result.add(n)
+      # the input is already a view, but it is of different type. While
+      # correctable, this shouldn't happen in the first place
+      result = newError(c.config, n, reportSem rsemExprHasNoAddress)
+  else:
+    result = newTreeIT(nkHiddenAddr, n.info, formal): n
 
 proc asgnToResultVar(c: PContext, n, le, ri: PNode) {.inline.} =
   # refactor: to return a PNode instead and handle nkError
@@ -1950,7 +1947,7 @@ proc asgnToResultVar(c: PContext, n, le, ri: PNode) {.inline.} =
       of skResult:
         if classifyViewType(x.typ) != noView:
           n[0] = x # 'result[]' --> 'result'
-          n[1] = takeImplicitAddr(c, ri, x.typ.kind == tyLent)
+          n[1] = takeImplicitAddr(c, x.typ, ri)
           #echo x.info, " setting it for this type ", typeToString(x.typ), " ", n.info
       else:
         discard
@@ -2141,55 +2138,83 @@ proc semProcBody(c: PContext, n: PNode): PNode =
   closeScope(c)
 
 proc semYieldVarResult(c: PContext, n: PNode, restype: PType): PNode =
+  ## Validates that the yield's expression is a tuple constructor when `restype`
+  ## is a tuple type that contains views. Also introduces ``nkHiddenAddr``
+  ## where needed
   addInNimDebugUtils(c.config, "semYieldVarResult", n, result)
-  result = n
+  result = copyNode(n)
+
   let t = skipTypes(restype, {tyGenericInst, tyAlias, tySink})
+  var hasError = false
+
   case t.kind
   of tyVar, tyLent:
     let unwrappedValue =
-      case result[0].kind
+      case n[0].kind
       of nkHiddenStdConv, nkHiddenSubConv:
-        result[0][1]
+        n[0][1]
       else:
-        result[0]
-    result[0] = takeImplicitAddr(c, unwrappedValue, t.kind == tyLent)
-  of tyTuple:
-    var illformedAst = false
-      ## in some cases syntax issues that we can diagnose precisely enough
-      ## occur, this happens often with tuples (parentheses) so we use this to
-      ## flag if we end up in such a scenario
-    for i in 0..<t.len:
-      let e = skipTypes(t[i], {tyGenericInst, tyAlias, tySink})
-      if e.kind in {tyVar, tyLent}:
-        let tupleConstr = 
-          case result[0].kind
-          of nkHiddenStdConv, nkHiddenSubConv:
-            result[0][1]
-          else:
-            result[0]
+        n[0]
 
-        case tupleConstr.kind
-        of nkPar, nkTupleConstr:
+    result.add takeImplicitAddr(c, t, unwrappedValue)
+    hasError = result[0].isError
+  of tyTuple:
+    # first, check if the tuple contains a *direct* view-type. If it does, the
+    # 'yield' expression *must* be a literal tuple constructor.
+    # NOTE: once moving view types out of the experimental state, this rule
+    #       becomes obsolete
+    var containsView = false
+    for i in 0..<t.len:
+      if t[i].kind in {tyVar, tyLent}:
+        containsView = true
+        break
+
+    let tupleConstr =
+      case n[0].kind
+      of nkHiddenStdConv, nkHiddenSubConv:
+        n[0][1]
+      else:
+        n[0]
+
+    if containsView and tupleConstr.kind in {nkPar, nkTupleConstr}:
+      # insert an ``nkHiddenAddr`` node (i.e. create a view) for each element
+      # that is a view
+      for i in 0..<t.len:
+        let e = t[i]
+
+        template useAddr(node: PNode) =
+          let a = takeImplicitAddr(c, e, node)
+          node = a
+          hasError = hasError or a.isError
+
+        if e.kind in {tyVar, tyLent}:
           case tupleConstr[i].kind
           of nkExprColonExpr:
-            tupleConstr[i][1] = takeImplicitAddr(c, tupleConstr[i][1], e.kind == tyLent)
+            useAddr tupleConstr[i][1]
           else:
-            tupleConstr[i] = takeImplicitAddr(c, tupleConstr[i], e.kind == tyLent)
-        else:
-          illformedAst = true # ast is too broken to figure out
-    
-    if illformedAst:
-      result[0] = c.config.newError(result[0],
-                    reportAst(
-                      rsemIllformedAst,
-                      result[0],
-                      createSemIllformedAstMsg(n[0], {nkPar, nkTupleConstr})))
-      result = c.config.wrapError(result)
+            useAddr tupleConstr[i]
+
+      result.add n[0]
+    elif containsView:
+      # the tuple contains a view type but the expression is not a literal
+      # tuple constructor
+      # FIXME: this is confusing and inconsistent. For example, why is
+      #        ``(x, y)`` allowed as the 'yield' expression for an iterator
+      #        with return type ``(int, (int, var int))``, but ``x`` is not
+      #        for ``(int, var int)``?
+      hasError = true
+      result.add newError(c.config, n[0],
+                          SemReport(kind: rsemYieldExpectedTupleConstr,
+                                    typ: t,
+                                    ast: n[0]))
+    else:
+      result.add n[0]
+
   else:
-    when false:
-      # xxx: investigate what we really need here.
-      if isViewType(t):
-        result[0] = takeImplicitAddr(c, result[0], false)
+    result.add n[0]
+
+  if hasError:
+    result = c.config.wrapError(result)
 
 proc semYield(c: PContext, n: PNode): PNode =
   result = n

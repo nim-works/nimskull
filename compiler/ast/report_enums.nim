@@ -573,6 +573,9 @@ type
     rsemCannotInferReturnType
     rsemExpectedValueForYield
     rsemUnexpectedYield
+    rsemYieldExpectedTupleConstr
+      ## a literal tuple constructor is required when the iterator returns a
+      ## tuple containing a view
     rsemCannotReturnTypeless
     rsemExpectedMacroOrTemplate
     rsemAmbiguousGetAst
