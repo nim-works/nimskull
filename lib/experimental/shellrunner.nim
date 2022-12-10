@@ -1,7 +1,16 @@
 ## Module implements wrapper for execution of the external command-line
 ## applications.
 
-import std/[strutils, tables, osproc, streams, os, algorithm]
+import
+  std/[
+    strutils,
+    tables,
+    osproc,
+    streams,
+    os,
+    algorithm,
+    options
+  ]
 
 when defined(windows):
   import std/winlean
@@ -13,6 +22,7 @@ when defined(linux) and defined(useClone):
 
 type
   ShellResult* = object
+    ## Result of the shell command execution
     cmd*: ShellCmd
     cwd*: string ## Absolute path of initial command execution directory
     retcode*: int ## Exit code
@@ -20,14 +30,17 @@ type
     stdout*: string ## Stdout for command
 
   ShellArgKind* = enum
+    ## Type of the shell command argument
     cpkArgument ## String argument to command
-    cpkTemplated ## Interpolated parameter
+    cpkTemplated ## Interpolated parameter that can be replaced later.
 
   ShellArg* = object
+    ## Single shell command argument
     cmd*: string ## Shell command argument string
-    kind*: ShellArgKind
+    kind*: ShellArgKind ## Type of the shell command argument
 
   ShellCmd* = object
+    ## Shell command with associated arguments
     bin*: string ## Binary name or absolute path
     opts*: seq[ShellArg] ## Arguments
 
@@ -57,12 +70,15 @@ func args*(cmd: var ShellCmd, args: openArray[string]) =
 func arg*(cmd: var ShellCmd, format: string, args: varargs[string]) =
   cmd.args([format(format, args)])
 
+func empty*(cmd: ShellCmd): bool =
+  cmd.bin.len() == 0 and cmd.opts.len() == 0
+
 func shell*(bin: string, args: openArray[string] = @[]): ShellCmd =
   ## Create shell command with given bin and it's arguments
   result = ShellCmd(bin: bin)
   result.args args
 
-func shell*(bin: string, args: openArray[ShellArg]): ShellCmd =
+func shell*(bin: string, args: varargs[ShellArg]): ShellCmd =
   ## Create shell command with given bin and it's arguments
   result = ShellCmd(bin: bin, opts: @args)
 
@@ -76,37 +92,65 @@ func add*(cmd: var ShellCmd, args: openarray[ShellArg]) =
 
 func toStr*(part: ShellArg): string =
   ## Convert non-templated shell argument to string
-  assert part.kind == cpkArgument, "Interpolation on the shell part '$" &
-    part.cmd & "' wasn't finished. Use `interpolate()` on the command " &
-    "in order to splice the arguments"
+  if part.kind != cpkArgument:
+    raise newException(
+      ValueError,
+      "Interpolation on the shell part '$" &
+        part.cmd &
+        "' wasn't finished. Use `interpolate()` on the command " &
+        "in order to splice the arguments"
+    )
 
   part.cmd
 
 type
   ShInterpolate* = Table[string, seq[ShellArg]]
 
-func interpolate*(part: ShellArg, map: ShInterpolate): seq[ShellArg] =
+func interpolate*(
+    part: ShellArg,
+    map: ShInterpolate,
+    default: Option[seq[string]] = some(newSeq[string]())
+  ): seq[ShellArg] =
   ## Replace all templated arguments with appropriate substitutions.
   if part.kind == cpkTemplated:
     if part.cmd in map:
       result.add map[part.cmd]
 
+    elif default.isSome():
+      for it in default.get():
+        result.add shArg(it)
+
+    else:
+      raise newException(
+        KeyError, "Interpolated varible '$#' is missing from the map "
+      )
+
   else:
     result.add part
 
-func interpolate*(cmd: ShellCmd, map: ShInterpolate): ShellCmd =
+func interpolate*(
+    cmd: ShellCmd,
+    map: ShInterpolate,
+    default: Option[seq[string]] = some(newSeq[string]())
+  ): ShellCmd =
+  ## Replace all tar
   result.bin = cmd.bin
   for part in cmd.opts:
-    for res in part.interpolate(map):
+    for res in part.interpolate(map, default):
       result.add res
 
-func interpolate*(cmd: ShellCmd, map: openArray[(string, seq[string])]): ShellCmd =
+func interpolate*(
+    cmd: ShellCmd,
+    map: openArray[(string, seq[string])],
+    default: Option[seq[string]] = some(newSeq[string]())
+  ): ShellCmd =
+
   var tab: ShInterpolate
   for (key, vals) in map:
     for val in vals:
       tab.mgetOrPut(key, @[]).add shArg(val)
 
-  return cmd.interpolate(tab)
+  return cmd.interpolate(tab, default)
 
 func argsToStr*(cmd: ShellCmd): seq[string] =
   ## Get command arguments as list of strings
@@ -116,6 +160,14 @@ func argsToStr*(cmd: ShellCmd): seq[string] =
 func toStr*(cmd: ShellCmd): seq[string] =
   ## Get command as a linst of stirngs
   @[cmd.bin] & cmd.argsToStr()
+
+proc parseShellArgs*(str: string): seq[ShellArg] =
+  for it in str.split(" "):
+    result.add shArg(it)
+
+proc parseShellCmd*(str: string): ShellCmd =
+  let split = str.split(" ")
+  result = shell(split[0], split[1..^1])
 
 proc exec*(
     cmd: ShellCmd, dir: string = "",

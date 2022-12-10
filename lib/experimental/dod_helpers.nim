@@ -73,35 +73,40 @@ template declareHighMasking*(
       id = `Name Id`(BaseType(id) or (mask.BaseType shl shift))
 
 
-template declareStoreType*(Name: untyped): untyped {.dirty.} =
+template declareStoreType*(
+    ValueName, StoreName, IdName: untyped): untyped {.dirty.} =
+
   type
-    `Name Store`* = object
-      data: seq[Name]
+    StoreName* = object
+      data: seq[ValueName]
 
-  func len*(store: `Name Store`): int = store.data.len
+  func len*(store: StoreName): int = store.data.len
 
-  func add*(store: var `Name Store`, item: `Name`): `Name Id` =
-    result = `to Name Id`(store.data.len)
+  func add*(store: var StoreName, item: ValueName): IdName =
+    result = `to IdName`(store.data.len)
     store.data.add item
 
-  template `[]`*(store: var `Name Store`, index: `Name Id`): Name =
+  template `[]`*(store: var StoreName, index: IdName): var ValueName =
     store.data[toIndex(index)]
 
-  iterator items*(store: `Name Store`): Name =
+  template `[]`*(store: StoreName, index: IdName): ValueName =
+    store.data[toIndex(index)]
+
+  iterator items*(store: StoreName): ValueName =
     for item in items(store.data):
       yield item
 
-  iterator mitems*(store: var `Name Store`): var Name =
+  iterator mitems*(store: var StoreName): var ValueName =
     for item in mitems(store.data):
       yield item
 
-  iterator pairs*(store: `Name Store`): (`Name Id`, Name) =
+  iterator pairs*(store: StoreName): (IdName, ValueName) =
     for idx, item in pairs(store.data):
-      yield (`to Name Id`(idx), item)
+      yield (`to IdName`(idx), item)
 
-  iterator mpairs*(store: var `Name Store`): (`Name Id`, var Name) =
+  iterator mpairs*(store: var StoreName): (IdName, var ValueName) =
     for idx, item in mpairs(store.data):
-      yield (`to Name Id`(idx), item)
+      yield (`to IdName`(idx), item)
 
 template declareStoreField*(Type, field, Name: untyped): untyped {.dirty.} =
   func add*(main: var Type, typ: `Name`): `Name Id` = main.field.add typ

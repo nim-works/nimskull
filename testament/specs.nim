@@ -18,7 +18,11 @@ import
     tables,
     hashes,
     sets
-  ]
+  ],
+  experimental/[
+    shellrunner
+  ],
+  test_diff
 
 type TestamentData* = ref object
   # better to group globals under 1 object; could group the other ones here too
@@ -34,93 +38,118 @@ var
 let testamentData0* = TestamentData()
 
 type
-  TTestAction* = enum
-    actionRun = "run"
-    actionCompile = "compile"
-    actionReject = "reject"
+  GivenTestAction* = enum
+    ## Test action that is specified in the file. All types of test actions
+    ## can have their runtime and compile-time results checked afterwards.
+    actionRun = "run" ## Compile and run the file
+    actionCompile = "compile" ## Only compile file, but don't run.
+    actionReject = "reject" ## Reject file compilation -- test should fail
+                            ## because it contains code that is invalid.
 
-  TOutputCheck* = enum
-    ocIgnore = "ignore"
-    ocEqual = "equal"
-    ocSubstr = "substr"
+  GivenOutputCheck* = enum
+    ## How runtime test output should be checked against the Spec output
+    ## string.
+    ocIgnore = "ignore" ## Runtime output is ignored
+    ocEqual = "equal" ## Runtime output should be fully equal to the
+                      ## specified one.
+    ocSubstr = "substr" ## Specified output is a substring of the runtime
+                        ## output.
 
+  GivenResultKind* = enum
+    grKnownIssue
+    grDisabled
+    grInvalidSpec
 
-  TResultEnum* = enum
-    reNimcCrash        # nim compiler seems to have crashed
-    reMsgsDiffer       # error messages differ
-    reFilesDiffer      # expected and given filenames differ
-    reLinesDiffer      # expected and given line numbers differ
-    reOutputsDiffer
-    reExitcodesDiffer  # exit codes of program or of valgrind differ
-    reTimeout
-    reInvalidPeg
+  TestedResultKind* = enum
+    ## Possible test execution and validation results.
+    reNimcCrash        ## nim compiler seems to have crashed
+    reMsgsDiffer       ## error messages differ
+    reFilesDiffer      ## expected and given filenames differ
+                       # (DOC given where? what filenames are checked
+                       # against each other? something to do with misplaced
+                       # error message annotations or?)
+    reLinesDiffer      ## expected and given line numbers differ
+    reOutputsDiffer    ## Runtime output string did not pass the check
+    reExitcodesDiffer  ## exit codes of program or of valgrind differ
+    reTimeout          ## Test run time exceeded the limit
+    reInvalidPeg       ## Incorrectly specified peg pattern in the
+                       ## specification
     reCodegenFailure
     reCodeNotFound
-    reExeNotFound
-    reInstallFailed    # package installation failed
-    reBuildFailed      # package building failed
-    reDisabled         # test is disabled
-    reJoined           # test is disabled because it was joined into the
-                       # megatest
-    reInvalidSpec      # test had problems to parse the spec
-    reKnownIssue       # test has a known issue(s) and is expected to fail
-    reSuccess          # test was successful
+    reExeNotFound      ## Specified compiler exec could not be found
+    reInstallFailed    ## package installation failed
+    reBuildFailed      ## package building failed
+    reDisabled         ## test is disabled
+    reJoined           ## test is disabled because it was joined into the
+                       ## megatest
+    reInvalidSpec      ## test had problems to parse the spec
+    reKnownIssue       ## test has a known issue(s) and is expected to fail
+    reSuccess          ## test was successful
 
-  TTarget* = enum
-    targetC = "c"
-    targetJS = "js"
-    targetVM = "vm"
+  GivenTarget* = enum
+    ## Target to compile and run tests
+    targetC = "c" ## Native compilation
+    targetJS = "js" ## Javascript backend
+    targetVM = "vm" ## Built-in interpreter VM
 
   SpecifiedTarget* = enum
+    ## Possible target names that can be provided in the test
+    ## specification. Subtractions have a higher priority compared to the
+    ## additions and processed in the second pass.
     addTargetC = "c"
     remTargetC = "!c"
     addTargetJS = "js"
     remTargetJS = "!js"
     addTargetVM = "vm"
     remTargetVM = "!vm"
-    addTargetNative = "native"
-    addCategoryTargets = "default"
+    addTargetNative = "native" # TODO DOC what is native target for
+                               # `parseSpec` -- it is not a constant value,
+                               # this thing can be different.
+    addCategoryTargets = "default" # TODO DOC 'default' target -- same
+                                   # question as for 'native'
     remCategoryTargets = "!default"
-
-  InlineError* = object
-    kind*: string
-    msg*: string
-    line*, col*: int
 
   ValgrindSpec* = enum
     disabled, enabled, leaking
 
-  TSpec* = object
+  DeclaredSpec* = object
+    ## Test specification written in the user-provided test file.
     # xxx make sure `isJoinableSpec` takes into account each field here.
-    description*: string        ## document the purpose of the test
-    action*: TTestAction
+    description*: string ## document the purpose of the test
+    action*: GivenTestAction ## Test action specified in the test file
     file*: string ## File that test spec has been parsed from
-    cmd*: string ## Command to execute for the test
+    cmd*: ShellCmd ## Command to execute for the test
     input*: string ## `stdin` input that will be piped into program after
                    ## it has been compiled.
-    outputCheck*: TOutputCheck ## Kind of the output checking for the
-                               ## executed compiled program.
-    sortoutput*: bool ## Sort runtime output
-    output*: string ## Expected runtime output
-    line*, column*: int
+    outputCheck*: GivenOutputCheck ## Kind of the output checking for the
+    ## executed compiled program.
+    sortoutput*: bool ## Sort runtime output before checking it against
+                      ## given one.
+    output*: string ## Expected runtime output for the test run.
+
+    # REFACTOR Use inline error object instead?
+    line*: int ## Expected line for the diagnostics message issued during
+               ## test compilation.
+    column*: int ## Expected column for compile-time diagnostics
+    msg*: string ## Expected compile-time diagnostics message
+
     exitCode*: int
-    msg*: string
     ccodeCheck*: seq[string] ## List of peg patterns that need to be
     ## searched for in the generated code. Used for backend code testing.
     maxCodeSize*: int ## Maximum allowed code size (in bytes) for the test.
-    err*: TResultEnum # REFACTOR Separate into 'expected output' (they can
-                      # be specified in the real test) and 'real output'
-                      # (they can actually happen - "invlid peg" etc.)
+    err*: GivenResultKind # REFACTOR Separate into 'expected output' (they
+    # can be specified in the real test) and 'real output' (they can
+    # actually happen - "invlid peg" etc.)
     inCurrentBatch*: bool
-    targets*: set[TTarget]
+    targets*: set[GivenTarget] ## Collection of targets to run test on.
     specifiedTargets*: set[SpecifiedTarget] ## targets as described by the spec
-    matrix*: seq[string]
-    nimoutSexp*: bool
-    nimout*: string
+    matrix*: seq[seq[ShellArg]] ## Collection of additional flags that will
+    ## be used to create multiple run configurations from a single test.
+    nimoutSexp*: bool ## Structured S-expression of compile-time output.
+    nimout*: string ## Subsequence of the compile-time output.
     nimoutFull*: bool    ## whether nimout is all compiler output or a subset
     parseErrors*: string ## when the spec definition is invalid, this is
                          ## not empty.
-    unjoinable*: bool
     unbatchable*: bool
       ## whether this test can be batchable via `NIM_TESTAMENT_BATCH`; only
       ## very few tests are not batchable; the ones that are not could be
@@ -128,7 +157,8 @@ type
     useValgrind*: ValgrindSpec
     timeout*: float ## in seconds, fractions possible, but don't rely on
     ## much precision
-    inlineErrors*: seq[InlineError] ## line information to error message
+    inlineErrors*: seq[GivenInlineError] ## line information to error
+                                              ## message
     debugInfo*: string ## debug info to give more context
     knownIssues*: seq[string] ## known issues to be fixed
     labels*: seq[string] ## user-added metadata
@@ -136,40 +166,53 @@ type
   RetryContainer* = object
     ## Global object which contains information related to the --retry flag.
     ## See `var retryContainer`.
-    retry*: bool  # true when --retry flag has been passed
-    cats*: seq[string] # contains categories with failed tests
-    names*: seq[(string, string)] # contains pair of failed test name and its target
+    retry*: bool  ## true when --retry flag has been passed
+    cats*: seq[string] ## contains categories with failed tests
+    names*: seq[(string, string)] ## contains pair of failed test name and
+                                  ## its target
 
-# Exported global RetryContainer object.
+# Exported global RetryContainer object. REFACTOR move to the execution
+# field.
 var retryContainer* = RetryContainer(retry: false)
 
-proc getCmd*(s: TSpec): string =
-  ## Get runner command for a given test specification
-  if s.cmd.len == 0:
-    result = compilerPrefix & " $target --hints:on -d:testing --clearNimblePath --nimblePath:build/deps/pkgs $options $file"
+proc getCmd*(s: DeclaredSpec): ShellCmd =
+  ## Get runner command for a Spec test specification
+  if s.cmd.empty():
+    result = shell(
+      compilerPrefix,
+      shSub("target"),
+      shArg("--hints=on"),
+      shArg("--define=testing"),
+      shArg("--clearNimblePath"),
+      shArg("--nimblePath=build/deps/pks"),
+      shSub("options"),
+      shSub("file")
+    )
+
   else:
     result = s.cmd
 
-func ext*(t: TTarget): string {.inline.} =
-  ## read-only field providing the extension string for the given target
+func ext*(t: GivenTarget): string =
+  ## read-only field providing the extension string for the Spec target
   case t:
     of targetC:    "nim.c"
     of targetJS:   "js"
     of targetVM:   ""
 
-func cmd*(t: TTarget): string {.inline.} =
-  ## read-only field providing the command string for the given target
+func cmd*(t: GivenTarget): ShellArg =
+  ## read-only field providing the command string for the Spec target
   case t:
-    of targetC:    "c"
-    of targetJS:   "js"
-    of targetVM:   "vm"
+    of targetC:    shArg("c")
+    of targetJS:   shArg("js")
+    of targetVM:   shArg("vm")
 
-func defaultOptions*(a: TTarget): string {.inline.} =
-  case a
-  of targetJS: "-d:nodejs"
-    # once we start testing for `nim js -d:nimbrowser` (eg selenium or similar),
-    # we can adapt this logic; or a given js test can override with `-u:nodejs`.
-  else: ""
+func defaultOptions*(a: GivenTarget): seq[ShellArg] =
+  case a:
+    of targetJS: @[shArg("-d:nodejs")]
+      # once we start testing for `nim js -d:nimbrowser` (eg selenium or
+      # similar), we can adapt this logic; or a Spec js test can override
+      # with `-u:nodejs`.
+    else: @[]
 
 when not declared(parseCfgBool):
   # candidate for the stdlib:
@@ -180,58 +223,60 @@ when not declared(parseCfgBool):
     else: raise newException(ValueError, "cannot interpret as a bool: " & s)
 
 const
-  inlineErrorMarker = "#[tt."
+  InlineErrorMarker = "#[tt."
 
-proc extractErrorMsg(s: string; i: int; line: var int; col: var int; spec: var TSpec): int =
-  ## Get position of the error message in input text `s`.
-  result = i + len(inlineErrorMarker)
-  inc col, len(inlineErrorMarker)
+proc extractErrorMsg(
+    s: string, i: int, line: var int, col: var int
+  ): tuple[nextpos: int, errors: seq[GivenInlineError]] =
+  ## Extract error message starting from the current position and return
+  ## the next position to start parsing from.
+  result.nextpos = i + len(InlineErrorMarker)
+  inc col, len(InlineErrorMarker)
   var kind = ""
-  while result < s.len and s[result] in IdentChars:
-    kind.add s[result]
-    inc result
+  while result.nextpos < s.len and s[result.nextpos] in IdentChars:
+    kind.add s[result.nextpos]
+    inc result.nextpos
     inc col
 
   var caret = (line, -1)
 
   template skipWhitespace =
-    while result < s.len and s[result] in Whitespace:
-      if s[result] == '\n':
+    while result.nextpos < s.len and s[result.nextpos] in Whitespace:
+      if s[result.nextpos] == '\n':
         col = 1
         inc line
       else:
         inc col
-      inc result
+      inc result.nextpos
 
   skipWhitespace()
-  if result < s.len and s[result] == '^':
+  if result.nextpos < s.len and s[result.nextpos] == '^':
     caret = (line-1, col)
-    inc result
+    inc result.nextpos
     inc col
     skipWhitespace()
 
   var msg = ""
-  while result < s.len-1:
-    if s[result] == '\n':
-      inc result
+  while result.nextpos < s.len-1:
+    if s[result.nextpos] == '\n':
+      inc result.nextpos
       inc line
       col = 1
-    elif s[result] == ']' and s[result+1] == '#':
+    elif s[result.nextpos] == ']' and s[result.nextpos+1] == '#':
       while msg.len > 0 and msg[^1] in Whitespace:
         setLen msg, msg.len - 1
 
-      inc result
+      inc result.nextpos
       inc col, 2
-      if kind == "Error": spec.action = actionReject
-      spec.unjoinable = true
-      spec.inlineErrors.add InlineError(kind: kind, msg: msg, line: caret[0], col: caret[1])
+      result.errors.add GivenInlineError(
+        kind: kind, msg: msg, line: caret[0], col: caret[1])
       break
     else:
-      msg.add s[result]
-      inc result
+      msg.add s[result.nextpos]
+      inc result.nextpos
       inc col
 
-proc extractSpec(filename: string; spec: var TSpec): string =
+proc extractSpec(filename: string; spec: var DeclaredSpec): string =
   const
     tripleQuote = "\"\"\""
     specStart = "discard " & tripleQuote
@@ -269,9 +314,15 @@ proc extractSpec(filename: string; spec: var TSpec): string =
       inc line
       inc i
       col = 1
-    elif s.continuesWith(inlineErrorMarker, i):
+    elif s.continuesWith(InlineErrorMarker, i):
       # Found `#[tt.` - extract it
-      i = extractErrorMsg(s, i, line, col, spec)
+      let (nextpos, errors) = extractErrorMsg(s, i, line, col)
+      i = nextpos
+      spec.inlineErrors = errors
+      for err in errors:
+        if err.kind == "Error":
+          spec.action = actionReject
+
     else:
       inc col
       inc i
@@ -286,7 +337,7 @@ proc extractSpec(filename: string; spec: var TSpec): string =
   else:
     result = ""
 
-proc parseTargets*(value: string): set[TTarget] =
+proc parseTargets*(value: string): set[GivenTarget] =
   ## Get list of allowed run targets for the testament
   for v in value.normalize.splitWhitespace:
     result.incl:
@@ -322,27 +373,29 @@ proc addLine*(self: var string; a, b: string) =
   self.add b
   self.add "\n"
 
-proc initSpec*(filename: string): TSpec =
+proc initSpec*(filename: string): DeclaredSpec =
   result.file = filename
 
-proc isCurrentBatch*(testamentData: TestamentData; filename: string): bool =
+proc isCurrentBatch*(
+    testamentData: TestamentData, filename: string): bool =
   if testamentData.testamentNumBatch != 0:
     hash(filename) mod testamentData.testamentNumBatch == testamentData.testamentBatch
   else:
     true
 
 proc parseSpec*(filename: string,
-                catTargets: set[TTarget],
-                nativeTarget: TTarget): TSpec =
-  ## Extract and parse specification for a given file path
+                caGivenTargets: set[GivenTarget],
+                nativeTarget: GivenTarget): DeclaredSpec =
+  ## Extract and parse specification for a Spec file path
   result.file = filename
 
   when defined(windows):
     let cmpString = result.file.replace(r"\", r"/")
   else:
     let cmpString = result.file
-  if retryContainer.retry and not retryContainer.names.anyIt(cmpString == it[0]):
-    result.err = reDisabled
+  if retryContainer.retry and
+     not retryContainer.names.anyIt(cmpString == it[0]):
+    result.err = grDisabled
     return result
 
   let specStr = extractSpec(filename, result)
@@ -428,13 +481,10 @@ proc parseSpec*(filename: string,
         result.nimoutFull = parseCfgBool(e.value)
       of "batchable":
         result.unbatchable = not parseCfgBool(e.value)
-      of "joinable":
-        result.unjoinable = not parseCfgBool(e.value)
       of "valgrind":
         when defined(linux) and sizeof(int) == 8:
           result.useValgrind = if e.value.normalize == "leaks": leaking
                                else: ValgrindSpec(parseCfgBool(e.value))
-          result.unjoinable = true
           if result.useValgrind != disabled:
             result.outputCheck = ocSubstr
         else:
@@ -443,40 +493,42 @@ proc parseSpec*(filename: string,
           result.useValgrind = disabled
       of "disabled":
         case e.value.normalize
-        of "y", "yes", "true", "1", "on": result.err = reDisabled
+        of "y", "yes", "true", "1", "on": result.err = grDisabled
         of "n", "no", "false", "0", "off": discard
         of "win", "windows":
-          when defined(windows): result.err = reDisabled
+          when defined(windows): result.err = grDisabled
         of "linux":
-          when defined(linux): result.err = reDisabled
+          when defined(linux): result.err = grDisabled
         of "bsd":
-          when defined(bsd): result.err = reDisabled
+          when defined(bsd): result.err = grDisabled
         of "osx", "macosx": # xxx remove `macosx` alias?
-          when defined(osx): result.err = reDisabled
+          when defined(osx): result.err = grDisabled
         of "unix":
-          when defined(unix): result.err = reDisabled
+          when defined(unix): result.err = grDisabled
         of "posix":
-          when defined(posix): result.err = reDisabled
+          when defined(posix): result.err = grDisabled
         of "32bit":
           if sizeof(int) == 4:
-            result.err = reDisabled
+            result.err = grDisabled
         of "freebsd":
-          when defined(freebsd): result.err = reDisabled
+          when defined(freebsd): result.err = grDisabled
         of "arm64":
-          when defined(arm64): result.err = reDisabled
+          when defined(arm64): result.err = grDisabled
         of "i386":
-          when defined(i386): result.err = reDisabled
+          when defined(i386): result.err = grDisabled
         of "openbsd":
-          when defined(openbsd): result.err = reDisabled
+          when defined(openbsd): result.err = grDisabled
         of "netbsd":
-          when defined(netbsd): result.err = reDisabled
+          when defined(netbsd): result.err = grDisabled
         else:
-          result.parseErrors.addLine "cannot interpret as a bool or platform name: ", e.value
+          result.parseErrors.addLine(
+            "cannot interpret as a bool or platform name: ", e.value)
       of "cmd":
-        if e.value.startsWith("nim "):
-          result.cmd = compilerPrefix & e.value[3..^1]
-        else:
-          result.cmd = e.value
+        result.cmd = parseShellCmd(e.value)
+
+        if result.cmd.bin == "nim":
+          result.cmd.bin = compilerPrefix
+
       of "ccodecheck":
         result.ccodeCheck.add e.value
       of "maxcodesize":
@@ -502,14 +554,14 @@ proc parseSpec*(filename: string,
           of addTargetJS: result.targets.incl targetJS
           of addTargetVM: result.targets.incl targetVM
           of addTargetNative: result.targets.incl nativeTarget
-          of addCategoryTargets: result.targets = result.targets + catTargets
+          of addCategoryTargets: result.targets = result.targets + caGivenTargets
           of remTargetC, remTargetJS, remTargetVM,
              remCategoryTargets:
                discard
         
         if result.targets == {}:
           # nothing was specified, so assume the defaults
-          result.targets = catTargets
+          result.targets = caGivenTargets
 
         # do the removals next
         for st in result.specifiedTargets:
@@ -517,7 +569,7 @@ proc parseSpec*(filename: string,
           of remTargetC: result.targets.excl targetC
           of remTargetJS: result.targets.excl targetJS
           of remTargetVM: result.targets.excl targetVM
-          of remCategoryTargets: result.targets = result.targets - catTargets
+          of remCategoryTargets: result.targets = result.targets - caGivenTargets
           of addTargetC, addTargetJS, addTargetVM,
              addTargetNative, addCategoryTargets:
                discard
@@ -528,13 +580,15 @@ proc parseSpec*(filename: string,
 
       of "matrix":
         for v in e.value.split(';'):
-          result.matrix.add(v.strip)
+          result.matrix.add(parseShellArgs(v.strip()))
+
       of "knownissue":
         case e.value.normalize
-        of "n", "no", "false", "0": discard
-        else:
+          of "n", "no", "false", "0": discard
+          else:
             result.knownIssues.add e.value
-            result.err = reKnownIssue
+            result.err = grKnownIssue
+
       of "labels":
          discard """
          Adding only key support for now.
@@ -554,14 +608,18 @@ proc parseSpec*(filename: string,
       break
   close(p)
 
+  # IMPLEMENT spec parser diagnostics -- missing description, malformed
+  # test specification and so on.
   if skips.anyIt(it in result.file):
-    result.err = reDisabled
+    result.err = grDisabled
   if nimoutFound and result.nimout.len == 0 and not result.nimoutFull:
     result.parseErrors.addLine "empty `nimout` is vacuously true, use `nimoutFull:true` if intentional"
 
   if result.parseErrors.len > 0:
-    result.err = reInvalidSpec
+    result.err = grInvalidSpec
 
-  result.inCurrentBatch = isCurrentBatch(testamentData0, filename) or result.unbatchable
+  result.inCurrentBatch = isCurrentBatch(testamentData0, filename) or
+                          result.unbatchable
+
   if not result.inCurrentBatch:
-    result.err = reDisabled
+    result.err = grDisabled

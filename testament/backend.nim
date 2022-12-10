@@ -21,23 +21,6 @@ import
     sexp_diff
   ]
 
-type
-  TOutReport* = object
-    inline*: Option[InlineError]
-    node*: SexpNode
-    file*: string
-
-  TOutCompare* = ref object
-    ## Result of comparing two data outputs for a given spec
-    match*: bool
-    expectedReports*: seq[TOutReport]
-    givenReports*: seq[TOutReport]
-    sortedMapping*: seq[tuple[pair: (int, int), cost: int]]
-    diffMap*: Table[(int, int), seq[SexpMismatch]]
-    ignoredExpected*: seq[int]
-    ignoredGiven*: seq[int]
-    cantIgnoreGiven*: bool
-
   ReportParams* = object
     ## Contains additional data about report execution state.
     duration*: float ## Test execution duration
