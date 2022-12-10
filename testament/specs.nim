@@ -44,22 +44,24 @@ type
     ocEqual = "equal"
     ocSubstr = "substr"
 
+
   TResultEnum* = enum
-    reNimcCrash,       # nim compiler seems to have crashed
-    reMsgsDiffer,      # error messages differ
-    reFilesDiffer,     # expected and given filenames differ
-    reLinesDiffer,     # expected and given line numbers differ
-    reOutputsDiffer,
-    reExitcodesDiffer, # exit codes of program or of valgrind differ
-    reTimeout,
-    reInvalidPeg,
-    reCodegenFailure,
-    reCodeNotFound,
-    reExeNotFound,
+    reNimcCrash        # nim compiler seems to have crashed
+    reMsgsDiffer       # error messages differ
+    reFilesDiffer      # expected and given filenames differ
+    reLinesDiffer      # expected and given line numbers differ
+    reOutputsDiffer
+    reExitcodesDiffer  # exit codes of program or of valgrind differ
+    reTimeout
+    reInvalidPeg
+    reCodegenFailure
+    reCodeNotFound
+    reExeNotFound
     reInstallFailed    # package installation failed
     reBuildFailed      # package building failed
-    reDisabled,        # test is disabled
-    reJoined,          # test is disabled because it was joined into the megatest
+    reDisabled         # test is disabled
+    reJoined           # test is disabled because it was joined into the
+                       # megatest
     reInvalidSpec      # test had problems to parse the spec
     reKnownIssue       # test has a known issue(s) and is expected to fail
     reSuccess          # test was successful
