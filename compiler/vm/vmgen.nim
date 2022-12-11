@@ -36,9 +36,8 @@ import
     renderer,
     types,
     ast,
-    reports,
     lineinfos,
-    astmsgs
+    astmsgs,
   ],
   compiler/modules/[
     magicsys,
@@ -64,6 +63,13 @@ import
   experimental/[
     results
   ]
+
+import std/options as std_options
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_vm import VMReport
+from compiler/ast/report_enums import ReportKind
+from compiler/ast/reports import toReportLineInfo
 
 from std/bitops import bitor
 

@@ -25,8 +25,10 @@ import
     ast,
     filters,
     lineinfos,
-    reports
   ]
+
+from compiler/ast/reports_parser import ParserReport
+from compiler/ast/report_enums import ReportKind
 
 type
   TParseState = enum

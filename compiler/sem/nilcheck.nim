@@ -23,7 +23,6 @@ import
     renderer,
     lineinfos,
     idents,
-    reports,
     treetab,
   ],
   compiler/modules/[
@@ -36,6 +35,12 @@ import
   compiler/sem/[
     nilcheck_enums
   ]
+
+# TODO: the `SemNilHistory` data type was put into reporting even though it
+#       _clearly_ belongs here, in the module that makes it.
+from compiler/ast/reports_sem import SemNilHistory,
+  SemReport
+from compiler/ast/report_enums import ReportKind
 
 # IMPORTANT: notes not up to date, i'll update this comment again
 #

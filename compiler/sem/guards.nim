@@ -19,7 +19,6 @@ import
     trees,
     types,
     lineinfos,
-    reports
   ],
   compiler/utils/[
     saturate,
@@ -34,7 +33,9 @@ import
     options,
   ]
 
-
+from compiler/ast/reports_sem import reportAst,
+  reportTyp
+from compiler/ast/report_enums import ReportKind
 
 const
   someEq = {mEqI, mEqF64, mEqEnum, mEqCh, mEqB, mEqRef, mEqProc,

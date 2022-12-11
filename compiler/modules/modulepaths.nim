@@ -16,7 +16,6 @@ import
     ast,
     lineinfos,
     renderer,
-    reports,
   ],
   compiler/utils/[
     pathutils,
@@ -26,6 +25,10 @@ import
     options,
   ]
 
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import reportAst
+from compiler/ast/reports_internal import InternalReport
+from compiler/ast/report_enums import ReportKind
 
 when false:
   const

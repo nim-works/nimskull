@@ -22,12 +22,16 @@ import
     ast,
     llstream,
     syntaxes,
-    reports,
     lineinfos,
   ],
   compiler/utils/[
     pathutils
   ]
+
+# TODO: `reportStr` is being abused, it's not quite a sem error
+from compiler/ast/reports_sem import reportStr
+from compiler/ast/report_enums import ReportKind
+
 
 type
   TPassData* = tuple[input: PNode, closeOutput: PNode]
@@ -37,11 +41,9 @@ proc makePass*(open: TPassOpen = nil,
                process: TPassProcess = nil,
                close: TPassClose = nil,
                isFrontend = false): TPass =
-
   ## a pass is a tuple of procedure vars ``TPass.close`` may produce additional
   ## nodes. These are passed to the other close procedures.
   ## This mechanism used to be used for the instantiation of generics.
-
   result.open = open
   result.close = close
   result.process = process
@@ -138,7 +140,6 @@ proc prepareConfigNotes(graph: ModuleGraph; module: PSym) =
   # don't be verbose unless the module belongs to the main package:
   if module.getnimblePkgId == graph.config.mainPackageId:
     graph.config.asgn(cnCurrent, cnMainPackage)
-
   else:
     # QUESTION what are the exact conditions that lead to this branch being
     # executed? For example, if I compile `tests/arc/thard_alignment.nim`,
@@ -185,9 +186,7 @@ proc processModule*(
       localReport(
         graph.config,
         reportStr(rsemCannotOpenFile, filename.string))
-
       return false
-
   else:
     stream = defaultStream
 

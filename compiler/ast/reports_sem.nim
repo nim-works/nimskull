@@ -1,0 +1,353 @@
+## module with semantic analysis legacy reports definitions
+
+import
+  compiler/ast/[
+    ast_types,
+    lineinfos,
+    reports_base_sem,
+  ],
+  compiler/sem/[
+    nilcheck_enums,
+  ],
+  compiler/utils/[
+    int128,
+  ],
+  std/options
+
+export ReportContext, ReportContextKind, SemTypeMismatch
+
+type
+  SemGcUnsafetyKind* = enum
+    sgcuCallsUnsafe
+    sgcuAccessesGcGlobal
+    sgcuIndirectCallVia
+    sgcuIndirectCallHere
+
+  SemSideEffectCallKind* = enum
+    ssefUsesGlobalState
+    ssefCallsSideEffect
+    ssefCallsViaHiddenIndirection
+    ssefCallsViaIndirection
+    ssefParameterMutation
+
+  SemDiagnostics* = object
+    diagnosticsTarget*: PSym ## The concept sym that didn't match
+    reports*: seq[SemReport] ## The reports that explain why the concept didn't match
+
+  MismatchInfo* = object
+    kind*: MismatchKind ## reason for mismatch
+    pos*: int           ## position of provided argument that mismatches. This doesn't always correspond to
+                        ## the *expression* subnode index (e.g. `.=`) nor the *target parameter* index (varargs)
+    arg*: PNode         ## the node of the mismatching provided argument
+    formal*: PSym       ## parameter that mismatches against provided argument
+                        ## its position can differ from `arg` because of varargs
+
+  SemCallMismatch* = object
+    ## Description of the single candidate mismatch. This type is later
+    ## used to construct meaningful type mismatch message, and must contain
+    ## all the necessary information to provide meaningful sorting,
+    ## collapse and other operations.
+    target*: PSym ## Procedure that was tried for an overload resolution
+    firstMismatch*: MismatchInfo ## mismatch info for better error messages
+
+    diag*: SemDiagnostics
+    diagnosticsEnabled*: bool ## Set by sfExplain. efExplain or notFoundError ignore this
+
+  SemSpellCandidate* = object
+    dist*: int
+    depth*: int
+    sym*: PSym
+    isLocal*: bool
+
+  SemNilHistory* = object
+    ## keep history for each transition
+    info*: TLineInfo ## the location
+    nilability*: Nilability ## the nilability
+    kind*: NilTransition ## what kind of transition was that
+    node*: PNode ## the node of the expression
+
+  SemReport* = object of SemishReportBase
+    ast*: PNode
+    typ*: PType
+    sym*: PSym
+    str*: string
+    spellingCandidates*: seq[SemSpellCandidate]
+
+    case kind*: ReportKind
+      of rsemDuplicateModuleImport:
+        previous*: PSym
+
+      of rsemCannotInstantiateWithParameter:
+        arguments*: tuple[got, expected: seq[PNode]]
+
+      of rsemUnavailableTypeBound:
+        missingTypeBoundElaboration*: tuple[
+          anotherRead: Option[TLineInfo],
+          tryMakeSinkParam: bool
+        ]
+
+      of rsemDuplicateCaseLabel:
+        overlappingGroup*: PNode
+
+      of rsemCannotBorrow:
+        borrowPair*: tuple[mutatedHere, connectedVia: TLineInfo]
+
+      of rsemXCannotRaiseY:
+        raisesList*: PNode
+
+      of rsemUncollectableRefCycle:
+        cycleField*: PNode
+
+      of rsemStrictNotNilExpr, rsemStrictNotNilResult:
+        nilIssue*: Nilability
+        nilHistory*: seq[SemNilHistory]
+
+      of rsemExpectedIdentifierInExpr,
+         rsemExpectedOrdinal,
+         rsemIdentExpectedInExpr,
+         rsemFieldOkButAssignedValueInvalid:
+        wrongNode*: PNode
+
+      of rsemWarnGcUnsafeListing, rsemErrGcUnsafeListing:
+        gcUnsafeTrace*: tuple[
+          isUnsafe: PSym,
+          unsafeVia: PSym,
+          unsafeRelation: SemGcUnsafetyKind,
+        ]
+
+      of rsemHasSideEffects:
+        sideEffectTrace*: seq[tuple[isUnsafe: PSym,
+                                    unsafeVia: PSym,
+                                    trace: SemSideEffectCallKind,
+                                    location: TLineInfo,
+                                    level: int
+                                  ]]
+        sideEffectMutateConnection*: TLineInfo
+
+      of rsemEffectsListingHint:
+        effectListing*: tuple[tags, exceptions: seq[PType]]
+
+      of rsemReportCountMismatch,
+         rsemWrongNumberOfVariables:
+        countMismatch*: tuple[expected, got: Int128]
+
+      of rsemInvalidExtern:
+        externName*: string
+
+      of rsemWrongIdent:
+        expectedIdents*: seq[string]
+
+      of rsemStaticIndexLeqUnprovable, rsemStaticIndexGeProvable:
+        rangeExpression*: tuple[a, b: PNode]
+
+      of rsemExprHasNoAddress:
+        isUnsafeAddr*: bool
+
+      of rsemUndeclaredIdentifier, rsemCallNotAProcOrField:
+        potentiallyRecursive*: bool
+        explicitCall*: bool ## Whether `rsemCallNotAProcOrField` error was
+        ## caused by expression with explicit dot call: `obj.cal()`
+        unexpectedCandidate*: seq[PSym] ## Symbols that are syntactically
+        ## valid in this context, but semantically are not allowed - for
+        ## example `object.iterator()` call outside of the `for` loop.
+
+      of rsemDisjointFields,
+         rsemUnsafeRuntimeDiscriminantInit,
+         rsemConflictingDiscriminantInit,
+         rsemMissingCaseBranches,
+         rsemConflictingDiscriminantValues:
+        fieldMismatches*: tuple[first, second: seq[PSym]]
+        nodes*: seq[PNode]
+
+      of rsemCannotInstantiate:
+        ownerSym*: PSym
+
+      of rsemReportTwoSym + rsemReportOneSym + rsemReportListSym:
+        symbols*: seq[PSym]
+
+      of rsemExpandMacro, rsemPattern, rsemExpandArc:
+        expandedAst*: PNode
+
+      of rsemLockLevelMismatch, rsemMethodLockMismatch:
+        anotherMethod*: PSym
+        lockMismatch*: tuple[expected, got: string]
+
+      of rsemTypeMismatch,
+         rsemSuspiciousEnumConv,
+         rsemTypeKindMismatch,
+         rsemSemfoldInvalidConversion,
+         rsemCannotConvertTypes,
+         rsemImplicitObjConv,
+         rsemIllegalConversion,
+         rsemConceptInferenceFailed,
+         rsemCannotCastTypes,
+         rsemGenericTypeExpected,
+         rsemCannotBeOfSubtype,
+         rsemDifferentTypeForReintroducedSymbol:
+        typeMismatch*: seq[SemTypeMismatch]
+
+      of rsemSymbolKindMismatch:
+        expectedSymbolKind*: set[TSymKind]
+
+      of rsemTypeNotAllowed:
+        allowedType*: tuple[
+          allowed: PType,
+          actual: PType,
+          kind: TSymKind,
+          allowedFlags: TTypeAllowedFlags
+        ]
+
+      of rsemCallTypeMismatch, rsemNonMatchingCandidates:
+        callMismatches*: seq[SemCallMismatch] ## Description of all the
+        ## failed candidates.
+
+      of rsemStaticOutOfBounds:
+        indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
+
+      of rsemProcessing:
+        processing*: tuple[
+          isNimscript: bool,
+          importStackLen: int,
+          moduleStatus: string,
+          fileIdx: FileIndex
+        ]
+
+      of rsemLinterReport, rsemLinterReportUse:
+        info*: TLineInfo
+        linterFail*: tuple[wanted, got: string]
+
+      of rsemDiagnostics:
+        diag*: SemDiagnostics
+
+      else:
+        discard
+  
+  # xxx: compiler execution tracing is a general thing, not semantic analysis
+  #      specific. The types below to be renamed with prefix `Trace` are
+  #      general and should move accordingly. This will require further
+  #      refactoring of all the report types prefixed with `Debug`... sigh.
+
+  # TODO: rename to `TraceStepDirection` or something, it's not sem specific
+  DebugSemStepDirection* = enum semstepEnter, semstepLeave
+  
+  # TODO: rename to `TraceStepKind` or something, it's not sem specific
+  DebugSemStepKind* = enum
+    stepNodeToNode
+    stepNodeToSym
+    stepIdentToSym
+    stepSymNodeToNode
+    stepNodeFlagsToNode
+    stepNodeTypeToNode
+    stepTypeTypeToType
+    stepResolveOverload
+    stepNodeSigMatch
+    stepWrongNode
+    stepError
+    stepTrack
+
+  DebugCallableCandidate* = object
+    ## stripped down version of `sigmatch.TCandidate`
+    state*: string
+    callee*: PType
+    calleeSym*: PSym
+    calleeScope*: int
+    call*: PNode
+    error*: SemCallMismatch
+
+  DebugSemStep* = object
+    direction*: DebugSemStepDirection
+    level*: int
+    name*: string
+    node*: PNode ## Depending on the step direction this field stores
+                 ## either input or output node
+    steppedFrom*: ReportLineInfo
+    sym*: PSym
+    case kind*: DebugSemStepKind
+      of stepIdentToSym:
+        ident*: PIdent
+
+      of stepNodeTypeToNode, stepTypeTypeToType:
+        typ*: PType
+        typ1*: PType
+
+      of stepNodeFlagsToNode:
+        flags*: TExprFlags
+      
+      of stepNodeSigMatch, stepResolveOverload:
+        filters*: TSymKinds
+        candidate*: DebugCallableCandidate
+        errors*: seq[SemCallMismatch]
+
+      else:
+        discard
+  
+  TraceSemReport* = object of DebugReportBase
+    case kind*: ReportKind:
+      of rdbgTraceStep:
+        semstep*: DebugSemStep
+
+      of rdbgTraceLine, rdbgTraceStart:
+        ctraceData*: tuple[level: int, entries: seq[StackTraceEntry]]
+
+      of rdbgStartingConfRead, rdbgFinishedConfRead:
+        filename*: string
+
+      else:
+        discard
+
+
+func severity*(report: SemReport): ReportSeverity =
+  case SemReportKind(report.kind)
+  of rsemErrorKinds:   rsevError
+  of rsemWarningKinds: rsevWarning
+  of rsemHintKinds:    rsevHint
+  of rsemFatalError:   rsevFatal
+
+proc reportSymbols*(
+    kind: ReportKind,
+    symbols: seq[PSym],
+    typ: PType = nil,
+    ast: PNode = nil
+  ): SemReport =
+  case kind
+  of rsemReportTwoSym: assert symbols.len == 2
+  of rsemReportOneSym: assert symbols.len == 1
+  of rsemReportListSym: discard
+  else: assert false, $kind
+
+  result = SemReport(kind: kind, ast: ast)
+  result.symbols = symbols
+  result.typ = typ
+
+func reportSem*(kind: ReportKind): SemReport = SemReport(kind: kind)
+
+func reportAst*(
+    kind: ReportKind,
+    ast: PNode, str: string = "", typ: PType = nil, sym: PSym = nil
+  ): SemReport =
+
+  SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
+
+func reportTyp*(
+    kind: ReportKind,
+    typ: PType, ast: PNode = nil, sym: PSym = nil, str: string = ""
+  ): SemReport =
+  SemReport(kind: kind, typ: typ, ast: ast, sym: sym, str: str)
+
+func reportStr*(
+    kind: ReportKind,
+    str: string, ast: PNode = nil, typ: PType = nil, sym: PSym = nil
+  ): SemReport =
+
+  SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
+
+func reportSym*(
+    kind: ReportKind,
+    sym: PSym, ast: PNode = nil, str: string = "", typ: PType = nil,
+  ): SemReport =
+
+  SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
+
+
+func severity*(report: TraceSemReport): ReportSeverity {.inline.} =
+  rsevTrace

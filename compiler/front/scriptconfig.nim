@@ -21,7 +21,6 @@ import
     ast,
     idents,
     wordrecg,
-    reports,
     llstream,
   ],
   compiler/modules/[
@@ -46,6 +45,10 @@ import
   compiler/utils/[
     pathutils
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_debug import DebugReport
+from compiler/ast/report_enums import ReportKind
 
 # we support 'cmpIgnoreStyle' natively for efficiency:
 from std/strutils import cmpIgnoreStyle, contains

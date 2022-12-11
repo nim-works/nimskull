@@ -40,8 +40,13 @@ import
     sugar
   ]
 
-# import ropes, platform, condsyms, options, msgs, lineinfos, pathutils, reports
-
+# TODO: does it really make sense that this module should produce all these
+#       types of "reports"? Unlikely, it's probably creating a bunch of false
+#       dependencies with other modules... yay!
+#       Also, diagnostic, telemetry, and event are better terms
+from compiler/ast/reports_external import ExternalReport
+from compiler/ast/reports_cmd import CmdReport
+from compiler/ast/reports_backend import BackendReport
 
 
 type

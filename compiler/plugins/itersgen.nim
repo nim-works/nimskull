@@ -11,7 +11,6 @@
 
 import
   compiler/ast/[
-    reports,
     ast
   ],
   compiler/modules/[
@@ -25,6 +24,10 @@ import
     semdata,
     lambdalifting
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import reportAst
+from compiler/ast/report_enums import ReportKind
 
 proc iterToProcImpl*(c: PContext, n: PNode): PNode =
   result = newNodeI(nkStmtList, n.info)

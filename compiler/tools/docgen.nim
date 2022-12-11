@@ -35,7 +35,6 @@ import
     astalgo,
     lineinfos,
     renderverbatim,
-    reports
   ],
   compiler/modules/[
     nimpaths
@@ -47,6 +46,13 @@ import
   compiler/utils/[
     pathutils,
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import reportAst
+from compiler/ast/reports_backend import BackendReport
+from compiler/ast/reports_cmd import CmdReport
+from compiler/ast/reports_internal import InternalReport
+from compiler/ast/report_enums import ReportKind
 
 
 import

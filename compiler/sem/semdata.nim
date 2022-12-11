@@ -27,7 +27,6 @@ import
     renderer,
     lineinfos,
     linter,
-    reports,
     trees,
     wordrecg,
   ],
@@ -45,6 +44,13 @@ import
     pathutils,
     astrepr,
   ]
+
+from compiler/ast/reports_sem import reportAst,
+  reportSym
+
+# TODO: `ReportKinds` is being abused for notes again, it covers far too much
+from compiler/ast/report_enums import ReportKinds,
+  ReportKind
 
 export TExprFlag, TExprFlags
 

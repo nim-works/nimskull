@@ -12,13 +12,25 @@ useful debugging flags:
 ]#
 
 import
+  compiler/ast/[
+    ast_types
+  ],
   compiler/front/[
     options,
     msgs
-  ],
-  compiler/ast/[
-    reports,
   ]
+
+from compiler/ast/reports_sem import TraceSemReport,
+  DebugSemStep, 
+  DebugSemStepKind, 
+  DebugSemStepDirection,
+  SemCallMismatch
+
+from compiler/ast/report_enums import ReportKind
+
+from compiler/ast/reports import calledFromInfo,
+  toReportLineInfo,
+  wrap
 
 proc isCompilerDebug*(conf: ConfigRef): bool {.inline.} =
   ##[
@@ -111,7 +123,7 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
               break                                       # skip the rest
 
           # print the trace oldest (startFrom) to newest (endsWith)
-          var rep = DebugReport(kind: rdbgTraceLine)
+          var rep = TraceSemReport(kind: rdbgTraceLine)
           rep.ctraceData.level = indentLevel
           for i in startFrom .. endsWith:
             rep.ctraceData.entries.add entries[i]
@@ -125,7 +137,7 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
           # meaning we just analysed a `{.define(nimCompilerDebug).}`
           # it started of as false, now after the proc's work (`semExpr`) this
           # `defer`red logic is seeing `true`, so we must have just started.
-          var report = DebugReport(kind: rdbgTraceStart)
+          var report = TraceSemReport(kind: rdbgTraceStart)
           {.line.}:
             # don't let the template show up in the StackTrace gives context
             # to the rest of the partial traces we do a full one instead
@@ -136,7 +148,7 @@ template addInNimDebugUtilsAux(conf: ConfigRef; prcname: string;
           # meaning we just analysed an `{.undef(nimCompilerDebug).}`
           # it started of as true, now in the `defer` it's false
           discard conf.debugUtilsStack.pop()
-          conf.localReport(DebugReport(kind: rdbgTraceEnd))
+          conf.localReport(TraceSemReport(kind: rdbgTraceEnd))
         elif isDebug:
           discard conf.debugUtilsStack.pop()
           leaveMsg(indentLevel)
@@ -189,7 +201,7 @@ template traceStepImpl*(
     block:
       body
 
-    handleReport(p.c, wrap(p.info, DebugReport(
+    handleReport(p.c, wrap(p.info, TraceSemReport(
       kind: rdbgTraceStep,
       semstep: it,
       reportInst: toReportLineInfo(p.info)

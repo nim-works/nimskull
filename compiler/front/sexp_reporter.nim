@@ -168,10 +168,9 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       of repSem:
         if r.kind == rsemProcessingStmt:
           s.addFields(r.semReport, f & "node")
-
         else:
           s.addFields(r.semReport, f)
-
+      of repDbgTrace: s.addFields(r.dbgTraceReport, f)
       of repDebug:    s.addFields(r.debugReport, f)
       of repInternal: s.addFields(r.internalReport, f)
       of repBackend:  s.addFields(r.backendReport, f)

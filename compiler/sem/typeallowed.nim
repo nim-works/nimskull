@@ -18,7 +18,6 @@ import
     ast,
     renderer,
     types,
-    reports,
     errorhandling,
   ],
   compiler/front/[
@@ -27,6 +26,9 @@ import
   compiler/sem/[
     semdata,
   ]
+
+from compiler/ast/reports_sem import SemReport
+from compiler/ast/report_enums import ReportKind
 
 export TTypeAllowedFlag, TTypeAllowedFlags
 

@@ -17,7 +17,6 @@ import
   compiler/ast/[
     ast,
     astalgo,
-    reports,
     idents,
     renderer,
     types,
@@ -37,6 +36,12 @@ import
     transf,
     lowerings
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import SemReport,
+  reportSem,
+  reportSymbols
+from compiler/ast/report_enums import ReportKind
 
 discard """
   The basic approach is that captured vars need to be put on the heap and

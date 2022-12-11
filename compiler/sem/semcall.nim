@@ -200,7 +200,7 @@ proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
 
   if f.kind in {nkSym, nkIdent}:
     report.spellingCandidates = fixSpelling(
-      c, tern(f.kind == nkSym, f.sym.name, f.ident))
+      c, if f.kind == nkSym: f.sym.name else: f.ident)
 
   discard maybeResemArgs(c, n, 1)
   report.callMismatches = errors

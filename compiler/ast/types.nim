@@ -21,7 +21,6 @@ import
     renderer,
     lineinfos,
     errorhandling,
-    reports
   ],
   compiler/front/[
     msgs,
@@ -34,6 +33,15 @@ import
   compiler/modules/[
     modulegraphs,
   ]
+
+# TODO: switch to internalError/Assert or better yet emit the appropriate
+#       diagnostic/event/telemetry data instead, then drop this dependency
+from compiler/ast/reports_internal import InternalReport
+from compiler/ast/report_enums import ReportKind
+
+from compiler/ast/reports_sem import SemReport,
+  SemTypeMismatch,
+  reportSem
 
 export EffectsCompat, TTypeRelation, ProcConvMismatch
 

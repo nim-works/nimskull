@@ -10,13 +10,16 @@
 
 import
   compiler/ast/[
-    reports,
     lineinfos,
   ],
   compiler/front/[
     msgs
-  ]
+  ],
+  std/options
 
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_vm import VMReport
+from compiler/ast/reports import toReportLineInfo
 
 type VmError* = object of CatchableError
   report*: VMReport

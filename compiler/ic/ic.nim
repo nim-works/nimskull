@@ -19,7 +19,6 @@ import
     ast,
     idents,
     lineinfos,
-    reports
   ],
   compiler/front/[
     msgs,
@@ -29,6 +28,11 @@ import
     ropes,
     pathutils
   ]
+
+# TODO: at least switch to internalAssert/Error or better have its own
+#       diag/event/telemetry types
+from compiler/ast/reports_internal import InternalReport
+from compiler/ast/report_enums import ReportKind
 
 from std/os import removeFile, isAbsolute
 

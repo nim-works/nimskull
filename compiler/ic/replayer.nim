@@ -15,7 +15,6 @@ import
   compiler/ast/[
     ast,
     trees,
-    reports,
   ],
   compiler/modules/[
     modulegraphs,
@@ -32,6 +31,9 @@ import
     extccomp,
     cgmeth
   ]
+
+from compiler/ast/reports_sem import reportStr
+from compiler/ast/report_enums import ReportKind
 
 import std/tables
 

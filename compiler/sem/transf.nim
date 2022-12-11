@@ -23,7 +23,6 @@ import
     ast,
     astalgo,
     trees,
-    reports,
     idents,
     renderer,
     types,
@@ -45,6 +44,11 @@ import
   compiler/backend/[
     cgmeth
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import SemReport,
+  reportAst
+from compiler/ast/report_enums import ReportKind
 
 proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
 

@@ -23,7 +23,6 @@ import
     ast_types,
     lineinfos,
     astalgo, # for `getModule`
-    reports
   ],
   compiler/front/[
     msgs,
@@ -49,6 +48,10 @@ import
   experimental/[
     results
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_backend import BackendReport
+from compiler/ast/report_enums import ReportKind
 
 import std/options as stdoptions
 

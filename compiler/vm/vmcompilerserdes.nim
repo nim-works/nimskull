@@ -13,7 +13,6 @@ import
     errorhandling,
     lineinfos,
     nimsets,
-    reports,
     types
   ],
   compiler/front/[
@@ -36,6 +35,11 @@ import
   experimental/[
     results
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import SemReport,
+  reportAst
+from compiler/ast/report_enums import ReportKind
 
 # XXX: the function signatures are a bit cumbersome here
 

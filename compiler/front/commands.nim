@@ -39,7 +39,6 @@ import
   ],
   compiler/ast/[
     lineinfos,
-    reports,
     wordrecg,
   ],
   compiler/front/[
@@ -59,6 +58,19 @@ import
 
 
 from compiler/ast/ast import setUseIc, eqTypeFlags, tfGcSafe, tfNoSideEffect
+
+# TODO: all this to output help/error messages and internal state... smh. Also,
+#       why doesn't this module or a real module own the data format?! At least
+#       the `reports_internal` module is small.
+from compiler/ast/reports_internal import InternalReport,
+  InternalCliData
+from compiler/ast/reports_external import ExternalReport
+from compiler/ast/report_enums import ReportKind,
+  ReportKinds,
+  repHintKinds,
+  repHintGroups,
+  repWarningKinds,
+  repWarningGroups
 
 bootSwitch(usedTinyC, hasTinyCBackend, "-d:tinyc")
 
@@ -275,6 +287,10 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
   if i == arg.len: discard
   elif i < arg.len and (arg[i] in {':', '='}): inc(i)
   else: invalidCmdLineOption(conf, pass, orig, info)
+
+  # TODO: `ReportKinds` being used for notes/groups/etc is just wrong, it
+  #        defines far more elements than one can actually control. A purpose
+  #        built enum is required.
 
   proc findNote(noteSet: ReportKinds, onFail: ReportKind, groups: seq[(string, ReportKinds)]) =
     # Check groups like `--hint/warning[all]` or `--hint[Performance]` (very
@@ -989,7 +1005,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     if pass in {passCmd2, passPP}:
       conf.implicitIncludesAdd findModule(
         conf, arg, toFullPath(conf, info)).string
-
   of "listcmd":
     processOnOffSwitchG(conf, {optListCmd}, arg, pass, info, switch)
   of "asm":
@@ -1003,19 +1018,23 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       conf.localReport(
         info, invalidSwitchValue platform.listOSnames())
     else:
-      conf.target = conf.target.withIt do:
-        setTarget(it, theOS, conf.target.targetCPU)
+      conf.target =
+        block:
+          var t = conf.target
+          setTarget(t, theOS, conf.target.targetCPU)
+          t
   of "cpu":
     expectArg(conf, switch, arg, pass, info)
     let cpu = platform.nameToCPU(arg)
     if cpu == cpuNone:
       conf.localReport(
         info, invalidSwitchValue platform.listCPUnames())
-
     else:
-      conf.target = conf.target.withIt do:
-        setTarget(it, conf.target.targetOS, cpu)
-
+      conf.target =
+        block:
+          var t = conf.target
+          setTarget(t, conf.target.targetOS, cpu)
+          t
   of "run", "r":
     processOnOffSwitchG(conf, {optRun}, arg, pass, info, switch)
   of "maxloopiterationsvm":

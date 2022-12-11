@@ -20,7 +20,6 @@ import
     types,
     idents,
     wordrecg,
-    reports,
     errorreporting,
     errorhandling,
     lineinfos,
@@ -46,6 +45,16 @@ import
     semdata,
     nilcheck,
   ]
+
+from compiler/ast/reports_sem import SemReport,
+  SemGcUnsafetyKind, # xxx: data type taken over by "reports", unwind this crap
+  SemSideEffectCallKind, # xxx: data type taken over by "reports", again...
+  reportAst,
+  reportSem,
+  reportStr,
+  reportSym,
+  reportSymbols
+from compiler/ast/report_enums import ReportKind
 
 when defined(useDfa):
   import dfa
@@ -296,10 +305,8 @@ proc listGcUnsafety(
       of skLet, skVar:
         if u.typ.skipTypes(abstractInst).kind == tyProc:
           reason = sgcuCallsUnsafe
-
         else:
           reason = sgcuAccessesGcGlobal
-
       of routineKinds:
         # recursive call *always* produces only a warning so the full error
         # message is printed:
@@ -307,15 +314,14 @@ proc listGcUnsafety(
         reason = sgcuCallsUnsafe
       of skParam, skForVar:
         reason = sgcuIndirectCallVia
-
       else:
         reason = sgcuIndirectCallHere
 
-
-      var report = reportSem(tern(
-        onlyWarning,
-        rsemWarnGcUnsafeListing,
-        rsemErrGcUnsafeListing))
+      var report = reportSem:
+        if onlyWarning:
+          rsemWarnGcUnsafeListing
+        else:
+          rsemErrGcUnsafeListing
 
       report.gcUnsafeTrace = (
         isUnsafe: s,
@@ -324,7 +330,7 @@ proc listGcUnsafety(
       )
 
       conf.localReport(
-        tern(reason == sgcuIndirectCallHere, u.info, s.info),
+        if reason == sgcuIndirectCallHere: u.info else: s.info,
         report)
 
   aux(s, onlyWarning, cycleCheck, conf)
@@ -849,14 +855,18 @@ proc checkLe(c: PEffects; a, b: PNode) =
   case proveLe(c.guards, a, b)
   of impUnknown:
     c.config.localReport(a.info):
-      reportSem(rsemStaticIndexLeqUnprovable).withIt do:
-        it.rangeExpression = (a, b)
+      block:
+        var r = reportSem(rsemStaticIndexLeqUnprovable)
+        r.rangeExpression = (a, b)
+        r
   of impYes:
     discard
   of impNo:
     c.config.localReport(a.info):
-      reportSem(rsemStaticIndexGeProvable).withIt do:
-        it.rangeExpression = (a, b)
+      block:
+        var r = reportSem(rsemStaticIndexGeProvable)
+        r.rangeExpression = (a, b)
+        r
 
 proc checkBounds(c: PEffects; arr, idx: PNode) =
   checkLe(c, lowBound(c.config, arr), idx)

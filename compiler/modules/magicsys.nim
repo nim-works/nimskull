@@ -29,6 +29,16 @@ import
     options
   ]
 
+# TODO: `reportStr` is being abused, it's not quite a sem error
+from compiler/ast/reports_sem import reportStr,
+  reportSymbols,
+  reportTyp
+
+# TODO: at least use internalAssert/Error better still have its own data type
+#       for diag/event/telemetry
+from compiler/ast/reports_internal import InternalReport
+# from compiler/ast/report_enums import ReportKind
+
 export createMagic
 
 proc nilOrSysInt*(g: ModuleGraph): PType = g.sysTypes[tyInt]
@@ -150,7 +160,7 @@ proc registerNimScriptSymbol*(g: ModuleGraph; s: PSym) =
       rsemConflictingExportnims, @[s, conflict]))
 
 proc registerNimScriptSymbol2*(g: ModuleGraph; s: PSym): PNode =
-  # Nimscript symbols must be al unique:
+  # Nimscript symbols must be all unique:
   result = g.emptyNode
   let conflict = strTableGet(g.exposed, s.name)
   if conflict == nil:

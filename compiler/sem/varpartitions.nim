@@ -34,7 +34,6 @@ import
     lineinfos,
     types,
     renderer,
-    reports
   ],
   compiler/front/[
     options,
@@ -46,6 +45,13 @@ import
   compiler/modules/[
     modulegraphs,
   ]
+
+
+from compiler/ast/reports_sem import SemReport,
+  reportAst,
+  reportSym,
+  reportSymbols
+from compiler/ast/report_enums import ReportKind
 
 from compiler/ast/trees import getMagic, isNoSideEffectPragma,
                                stupidStmtListExpr

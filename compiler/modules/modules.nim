@@ -20,7 +20,6 @@ import
     lexer,
     llstream,
     lineinfos,
-    reports,
     syntaxes,
   ],
   compiler/front/[
@@ -41,6 +40,10 @@ import
     replayer
   ]
 
+# TODO: `modules` shouldn't report "semantic analysis" errors
+from compiler/ast/reports_sem import reportSym
+from compiler/ast/reports_external import ExternalReport
+from compiler/ast/report_enums import ReportKind
 
 proc resetSystemArtifacts*(g: ModuleGraph) =
   magicsys.resetSysTypes(g)
@@ -52,14 +55,16 @@ template packageId(): untyped {.dirty.} = ItemId(module: PackageModuleId, item: 
 
 proc getPackage(graph: ModuleGraph; fileIdx: FileIndex): PSym =
   ## returns package symbol (skPackage) for yet to be defined module for fileIdx
-  let filename = AbsoluteFile toFullPath(graph.config, fileIdx)
-  let name = getModuleIdent(graph, filename)
-  let info = newLineInfo(fileIdx, 1, 1)
   let
+    filename = AbsoluteFile toFullPath(graph.config, fileIdx)
+    name = getModuleIdent(graph, filename)
+    info = newLineInfo(fileIdx, 1, 1)
     pck = getPackageName(graph.config, filename.string)
     pck2 = if pck.len > 0: pck else: "unknown"
     pack = getIdent(graph.cache, pck2)
+  
   result = graph.packageSyms.strTableGet(pack)
+  
   if result == nil:
     result = newSym(skPackage, getIdent(graph.cache, pck2), packageId(), nil, info)
     #initStrTable(packSym.tab)

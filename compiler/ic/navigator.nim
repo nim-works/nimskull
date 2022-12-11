@@ -14,7 +14,6 @@
 import
   compiler/ast/[
     ast,
-    reports
   ],
   compiler/modules/[
     modulegraphs
@@ -24,6 +23,11 @@ import
     options
   ],
   std/sets
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import SemReport
+from compiler/ast/reports_external import ExternalReport
+from compiler/ast/report_enums import ReportKind
 
 
 from std/os import nil

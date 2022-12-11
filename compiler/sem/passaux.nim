@@ -12,7 +12,6 @@
 import
   compiler/ast/[
     ast,
-    reports
   ],
   compiler/modules/[
     modulegraphs
@@ -24,6 +23,10 @@ import
   compiler/sem/[
     passes
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import reportSem
+from compiler/ast/report_enums import ReportKind
 
 type
   VerboseRef = ref object of PPassContext

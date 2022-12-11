@@ -589,6 +589,10 @@ template store*(
   ## Add report with given location information to the postponed list
   conf.addReport(wrap(report, instLoc(), linfo))
 
+# REFACTOR: we shouldn't need to dig into the internalReport and query severity
+#           directly
+from compiler/ast/reports_internal import severity
+
 func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
   ## Check if report stores fatal compilation error
   report.category == repInternal and
@@ -732,7 +736,7 @@ type
 func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
   const forceWrite = {
     rsemExpandArc, # Not considered a hint for now
-  } + repDebugTraceKinds # Unconditionally write debug tracing information
+  } + repDbgTraceKinds # Unconditionally write debug tracing information
 
   let tryhack = conf.m.errorOutputs == {}
   # REFACTOR this check is an absolute hack, `errorOutputs` need to be
@@ -868,7 +872,7 @@ proc computeNotesVerbosity(): tuple[
   when defined(nimDebugUtils):
     # By default enable only semantic debug trace reports - other changes
     # might be put in there *temporarily* to aid the debugging.
-    result.base.incl repDebugTraceKinds
+    result.base.incl repDbgTraceKinds
 
   result.main[compVerbosityMax] =
     result.base + repWarningKinds + repHintKinds - {

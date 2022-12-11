@@ -21,7 +21,6 @@ import
     idents,
     lineinfos,
     wordrecg,
-    reports,
     errorhandling,
     errorreporting,
   ],
@@ -37,6 +36,12 @@ import
     lookups,
     semdata,
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import reportAst,
+  reportSem,
+  reportSym
+from compiler/ast/report_enums import ReportKind
 
 proc declarePureEnumField*(c: PContext; s: PSym) =
   # XXX Remove the outer 'if' statement and see what breaks.

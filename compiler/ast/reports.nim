@@ -21,413 +21,43 @@
 import std/[options, packedsets]
 
 import
-  compiler/vm/vm_enums,
-  compiler/ast/[ast_types, lineinfos],
-  compiler/utils/[idioms, int128, platform],
-  compiler/sem/nilcheck_enums
+  compiler/ast/[
+    ast_types, 
+    lineinfos,
+    report_enums,
+    reports_lexer,
+    reports_parser,
+    reports_sem,
+    reports_vm,
+    reports_debug,
+    reports_backend,
+    reports_internal,
+    reports_external,
+    reports_cmd,
+  ],
+  compiler/utils/[
+    idioms,
+  ]
+
+from compiler/ast/reports_base import ReportLineInfo, ReportSeverity
+
+from compiler/utils/int128 import toInt128
 
 export
   ast_types,
   options.some,
   options.none,
   options.Option,
-  int128.toInt128
+  int128.toInt128,
+  reports_base.ReportLineInfo,
+  reports_base.ReportSeverity
 
-from compiler/front/in_options import TOption, TOptions
+# from compiler/front/in_options import TOption, TOptions
 
 # Importing and reexporting enums and 'external' reports in order to avoid
 # needlessly cluttering the import lists of all modules that have to report
 # something (and that would be almost all modules)
-import report_enums
 export report_enums
-
-type
-  ReportLineInfo* = object
-    ## Location expressed in terms of a single point in the file
-    file*: string
-    line*: uint16
-    col*: int16
-
-  ReportSeverity* = enum
-    rsevDebug = "Debug" ## Internal compiler debug information
-
-    rsevHint = "Hint" ## User-targeted hint
-    rsevWarning = "Warning" ## User-targeted warnings
-    rsevError = "Error" ## User-targeted error
-
-    rsevFatal = "Fatal"
-    rsevTrace = "Trace" ## Additional information about compiler actions -
-    ## external commands mostly.
-
-  ReportBase* = object of RootObj
-    location*: Option[TLineInfo] ## Location associated with report. Some
-    ## reports do not have any locations associated with them (most (but
-    ## not all, due to `gorge`) of the external command executions, sem
-    ## tracing etc). Some reports might have additional associated location
-    ## information (view type sealing reasons) - those are handled on the
-    ## per-report-kind basis.
-
-    reportInst*: ReportLineInfo ## Information about instantiation location
-    ## of the reports - present for all reports in order to track their
-    ## origin withing the compiler.
-
-    reportFrom*: ReportLineInfo ## Information about submit location of the
-    ## report. Contains information about the place where report was
-    ## /submitted/ to the system - sometimes a report is created, modified
-    ## to add new information, and only then put into the pipeline.
-
-type
-  LexerReport* = object of ReportBase
-    msg*: string
-    case kind*: ReportKind
-      of rlexLinterReport:
-        wanted*: string
-        got*: string
-      else:
-        discard
-
-func severity*(rep: LexerReport): ReportSeverity =
-  case LexerReportKind(rep.kind):
-    of rlexHintKinds: rsevHint
-    of rlexErrorKinds: rsevError
-    of rlexWarningKinds: rsevWarning
-
-
-type
-  ParserReport* = object of ReportBase
-    msg*: string
-    found*: string
-    case kind*: ReportKind
-      of rparIdentExpected .. rparUnexpectedToken:
-        expected*: seq[string]
-
-      of rparInvalidFilter:
-        node*: PNode
-
-      else:
-        discard
-
-func severity*(parser: ParserReport): ReportSeverity =
-  case ParserReportKind(parser.kind):
-    of rparHintKinds: rsevHint
-    of rparWarningKinds: rsevWarning
-    of rparErrorKinds: rsevError
-
-type
-  SemishReportBase* = object of ReportBase
-    ## Base for Sem and VM reports which may require additional contextual
-    ## data. Created as part of a refactor to extract diagnostic data out of
-    ## `reports` and put it back into the appropriate modules. The name is
-    ## temporary and ideally we no longer will need inheritance.
-    ## 
-    ## For refactor info: https://github.com/nim-works/nimskull/issues/443
-    context*: seq[ReportContext]
-
-  ReportContextKind* = enum
-    sckInstantiationOf
-    sckInstantiationFrom
-
-  ReportContext* = object
-    location*: TLineInfo ## Report context instantiation
-    case kind*: ReportContextKind
-      of sckInstantiationOf:
-        entry*: PSym ## Instantiated entry symbol
-      of sckInstantiationFrom:
-        discard
-
-type
-  SemGcUnsafetyKind* = enum
-    sgcuCallsUnsafe
-    sgcuAccessesGcGlobal
-    sgcuIndirectCallVia
-    sgcuIndirectCallHere
-
-  SemSideEffectCallKind* = enum
-    ssefUsesGlobalState
-    ssefCallsSideEffect
-    ssefCallsViaHiddenIndirection
-    ssefCallsViaIndirection
-    ssefParameterMutation
-
-  SemTypeMismatch* = object
-    formalTypeKind*: set[TTypeKind]
-    actualType*, formalType*: PType
-
-  SemDiagnostics* = object
-    diagnosticsTarget*: PSym ## The concept sym that didn't match
-    reports*: seq[SemReport] ## The reports that explain why the concept didn't match
-
-  MismatchInfo* = object
-    kind*: MismatchKind ## reason for mismatch
-    pos*: int           ## position of provided argument that mismatches. This doesn't always correspond to
-                        ## the *expression* subnode index (e.g. `.=`) nor the *target parameter* index (varargs)
-    arg*: PNode         ## the node of the mismatching provided argument
-    formal*: PSym       ## parameter that mismatches against provided argument
-                        ## its position can differ from `arg` because of varargs
-
-  SemCallMismatch* = object
-    ## Description of the single candidate mismatch. This type is later
-    ## used to construct meaningful type mismatch message, and must contain
-    ## all the necessary information to provide meaningful sorting,
-    ## collapse and other operations.
-    target*: PSym ## Procedure that was tried for an overload resolution
-    firstMismatch*: MismatchInfo ## mismatch info for better error messages
-
-    diag*: SemDiagnostics
-    diagnosticsEnabled*: bool ## Set by sfExplain. efExplain or notFoundError ignore this
-
-  SemSpellCandidate* = object
-    dist*: int
-    depth*: int
-    sym*: PSym
-    isLocal*: bool
-
-  SemNilHistory* = object
-    ## keep history for each transition
-    info*: TLineInfo ## the location
-    nilability*: Nilability ## the nilability
-    kind*: NilTransition ## what kind of transition was that
-    node*: PNode ## the node of the expression
-
-  SemReport* = object of SemishReportBase
-    ast*: PNode
-    typ*: PType
-    sym*: PSym
-    str*: string
-    spellingCandidates*: seq[SemSpellCandidate]
-
-    case kind*: ReportKind
-      of rsemDuplicateModuleImport:
-        previous*: PSym
-
-      of rsemCannotInstantiateWithParameter:
-        arguments*: tuple[got, expected: seq[PNode]]
-
-      of rsemUnavailableTypeBound:
-        missingTypeBoundElaboration*: tuple[
-          anotherRead: Option[TLineInfo],
-          tryMakeSinkParam: bool
-        ]
-
-      of rsemDuplicateCaseLabel:
-        overlappingGroup*: PNode
-
-      of rsemCannotBorrow:
-        borrowPair*: tuple[mutatedHere, connectedVia: TLineInfo]
-
-      of rsemXCannotRaiseY:
-        raisesList*: PNode
-
-      of rsemUncollectableRefCycle:
-        cycleField*: PNode
-
-      of rsemStrictNotNilExpr, rsemStrictNotNilResult:
-        nilIssue*: Nilability
-        nilHistory*: seq[SemNilHistory]
-
-      of rsemExpectedIdentifierInExpr,
-         rsemExpectedOrdinal,
-         rsemIdentExpectedInExpr,
-         rsemFieldOkButAssignedValueInvalid:
-        wrongNode*: PNode
-
-      of rsemWarnGcUnsafeListing, rsemErrGcUnsafeListing:
-        gcUnsafeTrace*: tuple[
-          isUnsafe: PSym,
-          unsafeVia: PSym,
-          unsafeRelation: SemGcUnsafetyKind,
-        ]
-
-      of rsemHasSideEffects:
-        sideEffectTrace*: seq[tuple[isUnsafe: PSym,
-                                    unsafeVia: PSym,
-                                    trace: SemSideEffectCallKind,
-                                    location: TLineInfo,
-                                    level: int
-                                  ]]
-        sideEffectMutateConnection*: TLineInfo
-
-      of rsemEffectsListingHint:
-        effectListing*: tuple[tags, exceptions: seq[PType]]
-
-      of rsemReportCountMismatch,
-         rsemWrongNumberOfVariables:
-        countMismatch*: tuple[expected, got: Int128]
-
-      of rsemInvalidExtern:
-        externName*: string
-
-      of rsemWrongIdent:
-        expectedIdents*: seq[string]
-
-      of rsemStaticIndexLeqUnprovable, rsemStaticIndexGeProvable:
-        rangeExpression*: tuple[a, b: PNode]
-
-      of rsemExprHasNoAddress:
-        isUnsafeAddr*: bool
-
-      of rsemUndeclaredIdentifier, rsemCallNotAProcOrField:
-        potentiallyRecursive*: bool
-        explicitCall*: bool ## Whether `rsemCallNotAProcOrField` error was
-        ## caused by expression with explicit dot call: `obj.cal()`
-        unexpectedCandidate*: seq[PSym] ## Symbols that are syntactically
-        ## valid in this context, but semantically are not allowed - for
-        ## example `object.iterator()` call outside of the `for` loop.
-
-      of rsemDisjointFields,
-         rsemUnsafeRuntimeDiscriminantInit,
-         rsemConflictingDiscriminantInit,
-         rsemMissingCaseBranches,
-         rsemConflictingDiscriminantValues:
-        fieldMismatches*: tuple[first, second: seq[PSym]]
-        nodes*: seq[PNode]
-
-      of rsemCannotInstantiate:
-        ownerSym*: PSym
-
-      of rsemReportTwoSym + rsemReportOneSym + rsemReportListSym:
-        symbols*: seq[PSym]
-
-      of rsemExpandMacro, rsemPattern, rsemExpandArc:
-        expandedAst*: PNode
-
-      of rsemLockLevelMismatch, rsemMethodLockMismatch:
-        anotherMethod*: PSym
-        lockMismatch*: tuple[expected, got: string]
-
-      of rsemTypeMismatch,
-         rsemSuspiciousEnumConv,
-         rsemTypeKindMismatch,
-         rsemSemfoldInvalidConversion,
-         rsemCannotConvertTypes,
-         rsemImplicitObjConv,
-         rsemIllegalConversion,
-         rsemConceptInferenceFailed,
-         rsemCannotCastTypes,
-         rsemGenericTypeExpected,
-         rsemCannotBeOfSubtype,
-         rsemDifferentTypeForReintroducedSymbol:
-        typeMismatch*: seq[SemTypeMismatch]
-
-      of rsemSymbolKindMismatch:
-        expectedSymbolKind*: set[TSymKind]
-
-      of rsemTypeNotAllowed:
-        allowedType*: tuple[
-          allowed: PType,
-          actual: PType,
-          kind: TSymKind,
-          allowedFlags: TTypeAllowedFlags
-        ]
-
-      of rsemCallTypeMismatch, rsemNonMatchingCandidates:
-        callMismatches*: seq[SemCallMismatch] ## Description of all the
-        ## failed candidates.
-
-      of rsemStaticOutOfBounds:
-        indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
-
-      of rsemProcessing:
-        processing*: tuple[
-          isNimscript: bool,
-          importStackLen: int,
-          moduleStatus: string,
-          fileIdx: FileIndex
-        ]
-
-      of rsemLinterReport, rsemLinterReportUse:
-        info*: TLineInfo
-        linterFail*: tuple[wanted, got: string]
-
-      of rsemDiagnostics:
-        diag*: SemDiagnostics
-
-      else:
-        discard
-
-func severity*(report: SemReport): ReportSeverity =
-  case SemReportKind(report.kind):
-    of rsemErrorKinds:   result = rsevError
-    of rsemWarningKinds: result = rsevWarning
-    of rsemHintKinds:    result = rsevHint
-    of rsemFatalError:   result = rsevFatal
-
-proc reportSymbols*(
-    kind: ReportKind,
-    symbols: seq[PSym],
-    typ: PType = nil,
-    ast: PNode = nil
-  ): SemReport =
-  case kind:
-    of rsemReportTwoSym: assert symbols.len == 2
-    of rsemReportOneSym: assert symbols.len == 1
-    of rsemReportListSym: discard
-    else: assert false, $kind
-
-  result = SemReport(kind: kind, ast: ast)
-  result.symbols = symbols
-  result.typ = typ
-
-func reportSem*(kind: ReportKind): SemReport = SemReport(kind: kind)
-
-func reportAst*(
-    kind: ReportKind,
-    ast: PNode, str: string = "", typ: PType = nil, sym: PSym = nil
-  ): SemReport =
-
-  SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
-
-func reportTyp*(
-    kind: ReportKind,
-    typ: PType, ast: PNode = nil, sym: PSym = nil, str: string = ""
-  ): SemReport =
-  SemReport(kind: kind, typ: typ, ast: ast, sym: sym, str: str)
-
-func reportStr*(
-    kind: ReportKind,
-    str: string, ast: PNode = nil, typ: PType = nil, sym: PSym = nil
-  ): SemReport =
-
-  SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
-
-func reportSym*(
-    kind: ReportKind,
-    sym: PSym, ast: PNode = nil, str: string = "", typ: PType = nil,
-  ): SemReport =
-
-  SemReport(kind: kind, ast: ast, str: str, typ: typ, sym: sym)
-
-type
-  VMReport* = object of SemishReportBase
-    ast*: PNode
-    typ*: PType
-    str*: string
-    sym*: PSym
-    case kind*: ReportKind
-      of rvmStackTrace:
-        currentExceptionA*, currentExceptionB*: PNode
-        traceReason*: ReportKind
-        stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
-        skipped*: int
-
-      of rvmCannotCast:
-        typeMismatch*: seq[SemTypeMismatch]
-
-      of rvmIndexError:
-        indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
-
-      of rvmQuit:
-        exitCode*: BiggestInt
-
-      else:
-        discard
-
-func severity*(vm: VMReport): ReportSeverity =
-  case VMReportKind(vm.kind):
-    of rvmStackTrace:    result = rsevTrace
-    else: result = rsevError
-
-
 
 template withIt*(expr: untyped, body: untyped): untyped =
   block:
@@ -442,282 +72,6 @@ template tern*(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
     block:
       if predicate: tBranch else: fBranch
 
-type
-  CmdReport* = object of ReportBase
-    cmd*: string
-    msg*: string
-    code*: int
-    case kind*: ReportKind
-      of rcmdFailedExecution:
-        exitOut*, exitErr*: string
-
-      else:
-        discard
-
-func severity*(report: CmdReport): ReportSeverity =
-  case CmdReportKind(report.kind):
-    of rcmdHintKinds: rsevHint
-    of rcmdWarningKinds: rsevWarning
-    of rcmdErrorKinds: rsevError
-
-type
-  DebugSemStepDirection* = enum semstepEnter, semstepLeave
-  DebugSemStepKind* = enum
-    stepNodeToNode
-    stepNodeToSym
-    stepIdentToSym
-    stepSymNodeToNode
-    stepNodeFlagsToNode
-    stepNodeTypeToNode
-    stepTypeTypeToType
-    stepResolveOverload
-    stepNodeSigMatch
-    stepWrongNode
-    stepError
-    stepTrack
-
-  DebugCallableCandidate* = object
-    ## stripped down version of `sigmatch.TCandidate`
-    state*: string
-    callee*: PType
-    calleeSym*: PSym
-    calleeScope*: int
-    call*: PNode
-    error*: SemCallMismatch
-
-  DebugSemStep* = object
-    direction*: DebugSemStepDirection
-    level*: int
-    name*: string
-    node*: PNode ## Depending on the step direction this field stores
-                 ## either input or output node
-    steppedFrom*: ReportLineInfo
-    sym*: PSym
-
-    case kind*: DebugSemStepKind
-      of stepIdentToSym:
-        ident*: PIdent
-
-      of stepNodeTypeToNode, stepTypeTypeToType:
-        typ*: PType
-        typ1*: PType
-
-
-      of stepNodeFlagsToNode:
-        flags*: TExprFlags
-      
-      of stepNodeSigMatch, stepResolveOverload:
-        filters*: TSymKinds
-        candidate*: DebugCallableCandidate
-        errors*: seq[SemCallMismatch]
-
-      else:
-        discard
-
-  DebugVmCodeEntry* = object
-    isTarget*: bool
-    info*: TLineInfo
-    pc*: int
-    idx*: int
-    case opc*: TOpcode:
-      of opcConv, opcCast:
-        types*: tuple[tfrom, tto: PType]
-      of opcLdConst, opcAsgnConst:
-        ast*: PNode
-      else:
-        discard
-    ra*: int
-    rb*: int
-    rc*: int
-
-  DebugReport* = object of ReportBase
-    case kind*: ReportKind
-      of rdbgOptionsPush, rdbgOptionsPop:
-        optionsNow*: TOptions
-
-      of rdbgVmExecTraceFull:
-        vmgenExecFull*: tuple[
-          pc: int,
-          opc: TOpcode,
-          info: TLineInfo,
-          ra, rb, rc: TRegisterKind
-        ]
-
-      of rdbgTraceStep:
-        semstep*: DebugSemStep
-
-      of rdbgTraceLine, rdbgTraceStart:
-        ctraceData*: tuple[level: int, entries: seq[StackTraceEntry]]
-
-      of rdbgStartingConfRead, rdbgFinishedConfRead:
-        filename*: string
-
-      of rdbgCfgTrace:
-        str*: string
-
-      of rdbgVmCodeListing:
-        vmgenListing*: tuple[
-          sym: PSym,
-          ast: PNode,
-          entries: seq[DebugVmCodeEntry]
-        ]
-
-      of rdbgVmExecTraceMinimal:
-        vmgenExecMinimal*: tuple[
-          info: TLineInfo,
-          opc: TOpcode
-        ]
-
-      else:
-        discard
-
-func severity*(report: DebugReport): ReportSeverity =
-  rsevDebug
-
-type
-  BackendReport* = object of ReportBase
-    msg*: string
-    usedCompiler*: string
-    case kind*: ReportKind
-      of rbackCannotWriteScript,
-         rbackProducedAssembly,
-         rbackCannotWriteMappingFile:
-        filename*: string
-
-      of rbackTargetNotSupported:
-        requestedTarget*: string
-
-      of rbackJsonScriptMismatch:
-        jsonScriptParams*: tuple[
-          outputCurrent, output, jsonFile: string
-        ]
-
-      of rbackVmFileWriteFailed:
-        outFilename*: string
-        failureMsg*: string ## string rep of the ``RodFileError``, so that
-                           ## ``rodfiles`` doesn't need to be imported here
-
-      else:
-        discard
-
-func severity*(report: BackendReport): ReportSeverity =
-  case BackendReportKind(report.kind):
-    of rbackErrorKinds: rsevError
-    of rbackHintKinds: rsevHint
-    of rbackWarningKinds: rsevWarning
-
-type
-  ExternalReport* = object of ReportBase
-    ## Report about external environment reads, passed configuration
-    ## options etc.
-    msg*: string
-
-    case kind*: ReportKind
-      of rextInvalidHint .. rextInvalidPath:
-        cmdlineSwitch*: string ## Switch in processing
-        cmdlineProvided*: string ## Value passed to the command-line
-        cmdlineAllowed*: seq[string] ## Allowed command-line values
-        cmdlineError*: string ## Textual description of the cmdline failure
-
-      of rextUnknownCCompiler:
-        knownCompilers*: seq[string]
-        passedCompiler*: string
-
-      of rextInvalidPackageName:
-        packageName*: string
-
-      of rextPath:
-        packagePath*: string
-
-      else:
-        discard
-
-func severity*(report: ExternalReport): ReportSeverity =
-  case ExternalReportKind(report.kind):
-    of rextErrorKinds: rsevError
-    of rextWarningKinds: rsevWarning
-    of rextHintKinds: rsevHint
-
-type
-  UsedBuildParams* = object
-    project*: string
-    output*: string
-    linesCompiled*: int
-    mem*: int
-    isMaxMem*: bool
-    sec*: float
-    case isCompilation*: bool
-      of true:
-        threads*: bool
-        backend*: string
-        buildMode*: string
-        optimize*: string
-        gc*: string
-
-      of false:
-        discard
-
-  InternalStateDump* = ref object
-    version*: string
-    nimExe*: string
-    prefixdir*: string
-    libpath*: string
-    projectPath*: string
-    definedSymbols*: seq[string]
-    libPaths*: seq[string]
-    lazyPaths*: seq[string]
-    nimbleDir*: string
-    outdir*: string
-    `out`*: string
-    nimcache*: string
-    hints*, warnings*: seq[tuple[name: string, enabled: bool]]
-
-  InternalCliData* = object
-    ## Information used to construct messages for CLI reports - `--help`,
-    ## `--fullhelp`
-    version*: string ## Language version
-    sourceHash*: string ## Compiler source code git hash
-    sourceDate*: string ## Compiler source code date
-    boot*: seq[string] ## nim compiler boot flags
-    cpu*: TSystemCPU ## Target CPU
-    os*: TSystemOS ## Target OS
-
-  InternalReport* = object of ReportBase
-    ## Report generated for the internal compiler workings
-    msg*: string
-    case kind*: ReportKind
-      of rintStackTrace:
-        trace*: seq[StackTraceEntry] ## Generated stack trace entries
-
-      of rintDumpState:
-        stateDump*: InternalStateDump
-
-      of rintAssert:
-        expression*: string
-
-      of rintSuccessX:
-        buildParams*: UsedBuildParams
-
-      of rintCannotOpenFile .. rintWarnFileChanged:
-        file*: string
-
-      of rintListWarnings, rintListHints:
-        enabledOptions*: set[ReportKind]
-
-      of rintCliKinds:
-        cliData*: InternalCliData
-
-      else:
-        discard
-
-func severity*(report: InternalReport): ReportSeverity =
-  case InternalReportKind(report.kind):
-    of rintFatalKinds:    rsevFatal
-    of rintHintKinds:     rsevHint
-    of rintWarningKinds:  rsevWarning
-    of rintErrorKinds:    rsevError
-    of rintDataPassKinds: rsevTrace
-
 
 type
   ReportTypes* =
@@ -726,6 +80,7 @@ type
     SemReport      |
     VMReport       |
     CmdReport      |
+    TraceSemReport |
     DebugReport    |
     InternalReport |
     BackendReport  |
@@ -749,6 +104,9 @@ type
       of repCmd:
         cmdReport*: CmdReport
 
+      of repDbgTrace:
+        dbgTraceReport*: TraceSemReport
+
       of repDebug:
         debugReport*: DebugReport
 
@@ -763,6 +121,7 @@ type
 
 static:
   when defined(compilerDebugCompilerReportStatistics):
+    # TODO: some else fix this, but without adding imports, good luck
     echo(
       "Nimskull compiler outputs ",
       ord(high(ReportKind) + 1),
@@ -773,6 +132,7 @@ static:
     echo "size of ParserReport   ", sizeof(ParserReport)
     echo "size of SemReport      ", sizeof(SemReport)
     echo "size of CmdReport      ", sizeof(CmdReport)
+    echo "size of DbgTraceReport ", sizeof(TraceSemReport)
     echo "size of DebugReport    ", sizeof(DebugReport)
     echo "size of InternalReport ", sizeof(InternalReport)
     echo "size of BackendReport  ", sizeof(BackendReport)
@@ -794,6 +154,7 @@ template eachCategory*(report: Report, field: untyped): untyped =
     of repCmd:      report.cmdReport.field
     of repVM:       report.vmReport.field
     of repSem:      report.semReport.field
+    of repDbgTrace: report.dbgTraceReport.field
     of repDebug:    report.debugReport.field
     of repInternal: report.internalReport.field
     of repBackend:  report.backendReport.field
@@ -827,42 +188,41 @@ func `context=`*(report: var Report, context: seq[ReportContext]) =
   else: unreachable "context get on category: " & $report.category
 
 func `reportFrom=`*(report: var Report, loc: ReportLineInfo) =
-  case report.category:
-    of repLexer:    report.lexReport.reportFrom = loc
-    of repParser:   report.parserReport.reportFrom = loc
-    of repCmd:      report.cmdReport.reportFrom = loc
-    of repSem:      report.semReport.reportFrom = loc
-    of repVM:       report.vmReport.reportFrom = loc
-    of repDebug:    report.debugReport.reportFrom = loc
-    of repInternal: report.internalReport.reportFrom = loc
-    of repBackend:  report.backendReport.reportFrom = loc
-    of repExternal: report.externalReport.reportFrom = loc
+  case report.category
+  of repLexer:    report.lexReport.reportFrom = loc
+  of repParser:   report.parserReport.reportFrom = loc
+  of repCmd:      report.cmdReport.reportFrom = loc
+  of repSem:      report.semReport.reportFrom = loc
+  of repVM:       report.vmReport.reportFrom = loc
+  of repDebug:    report.debugReport.reportFrom = loc
+  of repDbgTrace: report.dbgTraceReport.reportFrom = loc
+  of repInternal: report.internalReport.reportFrom = loc
+  of repBackend:  report.backendReport.reportFrom = loc
+  of repExternal: report.externalReport.reportFrom = loc
 
 func category*(kind: ReportKind): ReportCategory =
-  case kind:
-    of repDebugKinds:    result = repDebug
-    of repInternalKinds: result = repInternal
-    of repExternalKinds: result = repExternal
-    of repCmdKinds:      result = repCmd
-    of repLexerKinds:    result = repLexer
-    of repParserKinds:   result = repParser
-    of repSemKinds:      result = repSem
-    of repBackendKinds:  result = repBackend
-    of repVMKinds:       result = repVM
-    of repNone: assert false, "'none' report does not have category"
+  case kind
+  of repDbgTraceKinds: result = repDbgTrace
+  of repDebugKinds:    result = repDebug
+  of repInternalKinds: result = repInternal
+  of repExternalKinds: result = repExternal
+  of repCmdKinds:      result = repCmd
+  of repLexerKinds:    result = repLexer
+  of repParserKinds:   result = repParser
+  of repSemKinds:      result = repSem
+  of repBackendKinds:  result = repBackend
+  of repVMKinds:       result = repVM
+  of repNone: assert false, "'none' report does not have category"
 
 func severity*(
     report: ReportTypes,
     asError: ReportKinds,
     asWarning: ReportKinds = default(ReportKinds)
   ): ReportSeverity =
-
   if report.kind in asError:
     rsevError
-
   elif report.kind in asWarning:
     rsevWarning
-
   else:
     severity(report)
 
@@ -886,6 +246,7 @@ func severity*(
       of repInternal: report.internalReport.severity()
       of repBackend:  report.backendReport.severity()
       of repDebug:    report.debugReport.severity()
+      of repDbgTrace: report.dbgTraceReport.severity()
       of repExternal: report.externalReport.severity()
 
 func toReportLineInfo*(iinfo: InstantiationInfo): ReportLineInfo =
@@ -931,6 +292,10 @@ func wrap*(rep: sink CmdReport): Report =
   assert rep.kind in repCmdKinds, $rep.kind
   Report(category: repCmd, cmdReport: rep)
 
+func wrap*(rep: sink TraceSemReport): Report =
+  assert rep.kind in repDbgTraceKinds, $rep.kind
+  Report(category: repDbgTrace, dbgTraceReport: rep)
+
 func wrap*(rep: sink DebugReport): Report =
   assert rep.kind in repDebugKinds, $rep.kind
   Report(category: repDebug, debugreport: rep)
@@ -965,10 +330,8 @@ func wrap*[R: ReportTypes](iinfo: InstantiationInfo, rep: sink R): Report =
 template wrap*(rep: ReportTypes): Report =
   wrap(rep, toReportLineInfo(instLoc()))
 
-
 func `$`*(point: ReportLineInfo): string =
   point.file & "(" & $point.line & ", " & $point.col & ")"
-
 
 type
   ReportList* = object

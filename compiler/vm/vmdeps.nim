@@ -17,7 +17,6 @@ import
     idents,
     lineinfos,
     parser,
-    reports
   ],
   compiler/front/[
     cli_reporter,
@@ -30,6 +29,17 @@ import
   experimental/[
     results
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import reportStr
+from compiler/ast/report_enums import ReportKind,
+  ReportCategory
+
+# xxx: `Report` is faaaar too wide a type for what the VM needs, even with all
+#      the ground that can cover.
+from compiler/ast/reports import Report,
+  ReportSeverity,
+  kind
 
 proc opSlurp*(file: string, info: TLineInfo, module: PSym; conf: ConfigRef): string =
   try:
