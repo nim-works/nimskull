@@ -259,44 +259,50 @@ proc semOrd(c: PContext, n: PNode): PNode =
     result.typ = errorType(c)
 
 proc semBindSym(c: PContext, n: PNode): PNode =
-  result = copyNode(n)
-  result.add(n[0])
+  ## Evaluates a ``mNBindSym`` magic call, expanding it into either a
+  ## symbol/symbol-choice or a ``NimNode`` literal, depending on the context
+  addInNimDebugUtils(c.config, "semBindSym", n, result)
 
+  # TODO: instead of manually testing whether the expression evaluates to a
+  #       literal here, it would be simpler to explicitly use ``static``
+  #       parameters for ``macros.bindSym``. That won't work with
+  #       ``dynamicBindSym``, but it might be a better idea to use a
+  #       separate procedure (and magic) for the dynamic version anyway
   let sl = semConstExpr(c, n[1])
   if sl.kind notin {nkStrLit, nkRStrLit, nkTripleStrLit}:
     return newError(c.config, n, reportSem rsemStringLiteralExpected)
 
-  let isMixin = semConstExpr(c, n[2])
-  if isMixin.kind != nkIntLit or isMixin.intVal < 0 or
-      isMixin.intVal > high(TSymChoiceRule).int:
+  let rule = semConstExpr(c, n[2])
+  if rule.kind != nkIntLit or rule.intVal < 0 or
+      rule.intVal > high(TSymChoiceRule).int:
     return newError(c.config, n, reportSem rsemConstExprExpected)
 
   let id = newIdentNode(getIdent(c.cache, sl.strVal), n.info)
   let s = qualifiedLookUp(c, id, {checkUndeclared})
   if s.isError:
-    # XXX: move to propagating nkError, skError, and tyError
-    localReport(c.config, s.ast)
-  elif s != nil:
-    # we need to mark all symbols:
-    var sc = symChoice(c, id, s, TSymChoiceRule(isMixin.intVal))
-    if not (c.inStaticContext > 0 or getCurrOwner(c).isCompileTimeProc):
-      # inside regular code, bindSym resolves to the sym-choice
-      # nodes (see tinspectsymbol)
-      return sc
-    result.add(sc)
-  
-  if s.isNil or s.isError:
-    errorUndeclaredIdentifier(c, n[1].info, sl.strVal)
+    return s.ast
+  elif s.isNil:
+    return createUndeclaredIdentifierError(c, n[1], sl.strVal)
 
-proc opBindSym(c: PContext, scope: PScope, n: PNode, isMixin: int, info: PNode): PNode =
+  let sc = symChoice(c, id, s, TSymChoiceRule(rule.intVal))
+  if not (c.inStaticContext > 0 or getCurrOwner(c).isCompileTimeProc):
+    # outside of static evaluation and macros, ``bindSym`` resolves to the
+    # sym-choice nodes
+    result = sc
+  else:
+    # inside static evaluation contexts and macros, the magic resolves to a
+    # ``NimNode`` literal
+    result = newTreeIT(nkNimNodeLit, n.info, n.typ): sc
+
+proc opBindSym(c: PContext, scope: PScope, n: PNode, isMixin: int, info: TLineInfo): PNode =
   if n.kind notin {nkStrLit, nkRStrLit, nkTripleStrLit, nkIdent}:
-    return newError(c.config, n, reportSem rsemStringOrIdentNodeExpected, posInfo = info.info)
+    return newError(c.config, n, reportSem rsemStringOrIdentNodeExpected, posInfo = info)
 
   if isMixin < 0 or isMixin > high(TSymChoiceRule).int:
-    return newError(c.config, n, reportSem rsemConstExprExpected, posInfo = info.info)
+    return newError(c.config, n, reportSem rsemConstExprExpected, posInfo = info)
 
   let id = if n.kind == nkIdent: n
-    else: newIdentNode(getIdent(c.cache, n.strVal), info.info)
+    else: newIdentNode(getIdent(c.cache, n.strVal), info)
 
   let tmpScope = c.currentScope
   c.currentScope = scope
@@ -309,7 +315,7 @@ proc opBindSym(c: PContext, scope: PScope, n: PNode, isMixin: int, info: PNode):
     result = symChoice(c, id, s, TSymChoiceRule(isMixin))
   
   if s.isNil or s.isError:
-    errorUndeclaredIdentifier(c, info.info, if n.kind == nkIdent: n.ident.s
+    errorUndeclaredIdentifier(c, info, if n.kind == nkIdent: n.ident.s
       else: n.strVal)
   c.currentScope = tmpScope
 
@@ -336,8 +342,8 @@ proc semDynamicBindSym(c: PContext, n: PNode): PNode =
     # param description:
     #   0. ident, a string literal / computed string / or ident node
     #   1. bindSym rule
-    #   2. info node
-    a.setResult opBindSym(c, scope, a.getNode(0), a.getInt(1).int, a.getNode(2))
+    a.setResult opBindSym(c, scope, a.getNode(0), a.getInt(1).int,
+                          a.currentLineInfo)
 
   let
     # although we use VM callback here, it is not
@@ -347,8 +353,9 @@ proc semDynamicBindSym(c: PContext, n: PNode): PNode =
     idxNode = newIntTypeNode(idx, c.graph.getSysType(TLineInfo(), tyInt))
 
   result = copyNode(n)
-  for x in n: result.add x
-  result.add n # info node
+  for x in n:
+    result.add x
+
   result.add idxNode
 
 proc semShallowCopy(c: PContext, n: PNode, flags: TExprFlags): PNode

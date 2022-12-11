@@ -848,8 +848,7 @@ proc transformCall(c: PTransf, n: PNode): PNode =
   elif magic == mAddr:
     result = newTreeIT(nkAddr, n.info, n.typ): n[1]
     result = transformAddrDeref(c, result, nkDerefExpr, nkHiddenDeref)
-  elif magic in {mNBindSym, mTypeOf, mRunnableExamples}:
-    # for bindSym(myconst) we MUST NOT perform constant folding:
+  elif magic in {mTypeOf, mRunnableExamples}:
     result = n
   elif magic == mProcCall:
     # but do not change to its dispatcher:
@@ -1054,6 +1053,9 @@ proc transform(c: PTransf, n: PNode): PNode =
     if result[0].kind != nkDotExpr:
       # simplfied beyond a dot expression --> simplify further.
       result = result[0]
+  of nkNimNodeLit:
+    # do not transform the content of a ``NimNode`` literal
+    result = n
   else:
     result = transformSons(c, n)
   when false:

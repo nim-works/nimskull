@@ -3500,9 +3500,6 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
       result = "VM does not support 'cast' from " &
         $r.actualType.kind & " to " & $r.formalType.kind
 
-    of rvmInvalidBindSym:
-      result = "invalid bindSym usage"
-
     of rvmCannotEvaluateAtComptime:
       result = "cannot evaluate at compile time: " & r.ast.render
 
