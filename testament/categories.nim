@@ -10,8 +10,6 @@
 ## Include for the tester that contains test suites that test special features
 ## of the compiler.
 
-# included from testament.nim
-
 import std/strformat
 import std/private/gitutils
 
@@ -37,6 +35,39 @@ const
 proc isTestFile*(file: string): bool =
   let (_, name, ext) = splitFile(file)
   result = ext == ".nim" and name.startsWith("t")
+
+
+proc initTest(
+    name: string,
+    options: seq[ShellArg],
+    cat: Category,
+    spec: SpecId
+  ): GivenTest =
+  ## make a test with the given spec, meant to be used internally as a
+  ## constructor mostly
+  result.cat = cat
+  result.name = name
+  result.options = options
+  result.spec = spec
+
+proc makeTest(
+    test: string, options: seq[ShellArg], cat: CategoryId): GivenTest =
+  ## make a test from inferring the test's filename from `test` and parsing the
+  ## spec within that file.
+  initTest(test, options, cat,
+           parseSpec(
+             addFileExt(test, ".nim"),
+             cat.defaultTargets,
+             nativeTarget()))
+
+proc makeTestWithDummySpec(test, options: string, cat: Category): TTest =
+  var spec = initSpec(addFileExt(test, ".nim"))
+  spec.action = actionCompile
+  spec.targets = cat.defaultTargets()
+
+  initTest(test, options, cat, spec)
+
+
 
 # --------------------- DLL generation tests ----------------------------------
 
@@ -150,8 +181,8 @@ proc gcTests(r: var TResults, cat: Category, options: string, execution: Executi
 
 type
   GcTestKinds = enum
-    gcOther,
-    gcMarkSweep,
+    gcOther
+    gcMarkSweep
     gcBoehm
 
 proc setupGcTests(execState: var Execution, catId: CategoryId) =

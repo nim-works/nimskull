@@ -17,7 +17,8 @@ import
     parsecfg,
     tables,
     hashes,
-    sets
+    sets,
+    pegs
   ],
   experimental/[
     shellrunner
@@ -530,7 +531,18 @@ proc parseSpec*(filename: string,
           result.cmd.bin = compilerPrefix
 
       of "ccodecheck":
-        result.ccodeCheck.add e.value
+        try:
+          # Preemptively check for the peg correctness and report parsing
+          # error if found.
+          let peg = peg(e.value)
+          result.ccodeCheck.add e.value
+        except ValueError as err:
+          result.parseErrors.addLine(
+            "invalid peg for the 'ccodecheck' field:  $#" % [
+              err.msg
+            ]
+          )
+
       of "maxcodesize":
         discard parseInt(e.value, result.maxCodeSize)
       of "timeout":

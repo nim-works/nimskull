@@ -21,13 +21,14 @@ import
     sexp_diff
   ]
 
+type
   ReportParams* = object
     ## Contains additional data about report execution state.
     duration*: float ## Test execution duration
     name*: string ## Name of the test
     origName*: string
     cat*: string ## Test category
-    action*: TTestAction ## Test action type
+    action*: GivenTestAction ## Test action type
     targetStr*: string
     debugInfo*: string
     outCompare*: TOutCompare
@@ -42,13 +43,13 @@ import
 type
   MachineId* = distinct string
   CommitId = distinct string
+  Backend* = object
+    thisMachine: MachineId
+    thisCommit: CommitId
+    thisBranch: string
 
 proc `$`*(id: MachineId): string {.borrow.}
 
-var
-  thisMachine: MachineId
-  thisCommit: CommitId
-  thisBranch: string
 
 proc getMachine*(): MachineId =
   var name = execProcess("hostname").strip
@@ -107,13 +108,13 @@ proc writeTestResult*(param: ReportParams) =
     "knownIssues": %param.knownIssues
   }
 
-proc open*() =
-  thisMachine = getMachine()
-  thisCommit = getCommit()
+proc openBackend*(): Backend =
+  result.thisMachine = getMachine()
+  result.thisCommit = getCommit()
 
 const testResults = "testresults"
 
-proc close*() =
+proc close*(back: var Backend) =
   if currentCategory.len > 0:
     # To handle `testament cat stdlib/os` testing. There is no reason to
     # ban this because (surprise!) test directory can actually have more

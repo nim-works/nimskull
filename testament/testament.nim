@@ -2,13 +2,20 @@ import
   std/[
     options,
     tables,
-    strutils
+    strutils,
+    os,
+    md5,
+    pegs,
+    parseopt
   ],
   experimental/[
-    dod_helpers
+    dod_helpers,
+    shellrunner
   ]
 
 import specs, test_diff
+import compiler/utils/nodejs
+
 
 declareIdType(Test)
 declareIdType(File)
@@ -17,13 +24,6 @@ declareIdType(Spec)
 declareIdType(Entry)
 declareIdType(Action)
 declareIdType(Category)
-
-# TestId = int         # TODO: make this a distinct
-# RunId = int          ## test run's id/index # TODO: make this a distinct
-# EntryId = int        ## matrix entry index # TODO: make this a distinct
-# ActionId = int       ## a test action's id # TODO: make this a distinct
-# CategoryId = int     ## a category's id # TODO: make this a distinct
-
 
 type
   Category = distinct string ## Name of the test category
@@ -37,12 +37,14 @@ type
   GivenTest = object
     name: string
     cat: Category
-    options: string
+    options: seq[ShellArg]
     testArgs: seq[string]
     spec: SpecId
     file: FileId
 
   TestRun = object
+    ## a test run: reject, compile, or compile + run along with time to
+    ## check; runs for a test must be contiguous and ordered
     test: TestId
     matrixEntry: EntryId
     target: GivenTarget
@@ -60,24 +62,6 @@ type
   TestFile = object
     file: string
     catId: CategoryId
-
-  # GivenSpec is in specs.nim
-  # GivenSpec is the the spec in a single test file, but we run (`TestRun`) a test
-  # for every target and matrix entry, which itself is a number of actions and
-  # checks.
-
-  # TestRun = object
-  #   testId: TestId           ## test id for which this belongs
-  #   target: TestTarget       ## which target to run for
-  #   matrixEntry: EntryId     ## which item from the matrix was used
-
-  # IMPLEMENT add 'check' to remove `cmd: "nim check"...` from tests
-  # TestActionKind = enum
-  #   testActionSkip           ## skip this test; check the spec for why
-  #   testActionReject,        ## reject the compilation
-  #   testActionCompile,       ## compile some source
-  #   testActionRun            ## run the compiled program
-
 
   TestAction = object
     runId: RunId
@@ -100,10 +84,8 @@ type
     runCheckStart: float     ## start of run output check
     runCheckEnd: float       ## end of run output check
 
-  RunResult = object # CLEAN rename ot the 'RunResults' ("actual" implies
-                     # there is something like "fake" run, which is not the
-                     # case if I understand the implementation correctly.)
-    ## actual data for a run
+  RunResult = object
+    ## Final result of the test run
     nimout: string           ## nimout from compile, empty if not required
     nimExit: int             ## exit code produced by the compiler
     nimMsg: string           ## last message, if any, from the compiler
@@ -117,7 +99,16 @@ type
     lastAction: ActionId     ## last action in this run
 
   RunCompare = object
+
+  CompileOutCompare* = object
+    ## Result of the compiler diagnostics comparison
     runResult: TestedResultKind
+
+  CodegenCheckCompare* = object
+    ## Result of the codegen check comparison
+    codeSizeOverflow: Option[tuple[generated, allowed: int]]
+    missingPegs: seq[string]
+    missingCode: Option[string]
 
   TestOptionData = object
     optMatrix: seq[string]   ## matrix of cli options for this test
@@ -133,14 +124,20 @@ type
     ## sophisticated enough to support spare configuration like this needs
 
 
-declareStoreType(TestRun, TestRuns, RunId)
 declareStoreType(TestFile, Files, FileId)
-declareStoreType(DeclaredSpec, Specs, SpecId)
 declareStoreType(TestAction, Actions, ActionId)
+declareStoreType(DeclaredSpec, Specs, SpecId)
+declareStoreType(GivenTest, Tests, TestId)
+
+# Run configurations, their direct output results, comparisons and times
+# are all indexed usin the same `RunId` key type.
+declareStoreType(TestRun, TestRuns, RunId)
 declareStoreType(RunResult, Results, RunId)
 declareStoreType(RunCompare, Compares, RunId)
 declareStoreType(RunTime, Times, RunId)
-declareStoreType(GivenTest, Tests, TestId)
+
+
+
 
 type
   TestamentConf = object
@@ -155,6 +152,8 @@ type
   Execution = object
     ## state object to data relevant for a testament run
     conf: TestamentConf
+    gTargets: set[GivenTarget]
+    skips: seq[string]
 
     userTestOptions: string ## options passed to tests by the user
     flags: ExecutionFlags   ## various options set by the user
@@ -167,9 +166,6 @@ type
     nodeJs: string           ## path to nodejs binary
     nimSpecified: bool       ## whether the user specified the nim
     testArgs: string         ## arguments passed to tests by the user
-    isCompilerRepo: bool     ## whether this is the compiler repository, used
-                             ## to legacy to handle `AdditionalCategories`
-
     # environment input / setup
     compilerPath: string     ## compiler command to use
     testsDir: string         ## where to look for tests
@@ -183,17 +179,17 @@ type
     testOpts: TestOptions ## per test options, because legacy category magic
 
     # test execution data
-    tests: Tests
-    runs: TestRuns ## a test run: reject, compile, or compile + run along
-    ## with time to check; runs for a test must be contiguous and ordered
-    times: Results   ## run timing information for each test run
-    results: Results   ## actual information for a given run
+    tests: Tests     ## Original collection of tests
+    runs: TestRuns   ## All test runs that need to be executed
+    times: Times     ## run timing information for each test run
+    results: Results ## actual information for a given run
+    actions: Actions ## test actions for each run, phases of a run; actions
+                     ## for a run must be continugous and ordered
+
     debugInfo: DebugInfo     ## debug info related to runs for tests, should be
                              ## per action instead of per run.
     runProgress: RunProgress ## current run progress based on action progress
 
-    actions: Actions ## test actions for each run, phases of a run; actions
-                     ## for a run must be continugous and ordered
 
     # test execution related data
     retryList: RetryList     ## list of failures to potentially retry later
@@ -253,7 +249,15 @@ func `$`*(cat: Category): string = "Category($#)" % $cat.string
 
 const noMatrixEntry = -1
 
-proc cmpMsgs(e: Execution, id: RunId): RunCompare =
+func getRunContext(e: Execution, id: RunId): tuple[
+    run: TestRun, res: RunResult, test: GivenTest, spec: DeclaredSpec] =
+  result.run = e.runs[id]
+  result.res = e.results[id]
+  result.test = e.tests[result.run.test]
+  result.spec = e.specs[result.test.spec]
+
+
+proc compileOutCheck(e: Execution, id: RunId): CompileOutCompare =
   ## Compare all test output messages. This proc does structured or
   ## unstructured comparison comparison and immediately reports it's
   ## results.
@@ -264,84 +268,449 @@ proc cmpMsgs(e: Execution, id: RunId): RunCompare =
 
   # If structural comparison is requested - drop directly to it and handle
   # the success/failure modes in the branch
-  let
-    run = e.runs[id]
-    test = e.tests[run.test]
-    spec = e.specs[test.spec]
+  let (run, res, test, spec) = e.getRunContext(id)
 
-  if spec.nimoutSexp:
-    let data = SexpCheckData(
+  if spec.nimoutSexp or 0 < spec.inlineErrors.len():
+    let data = CompileOutputCheck(
       enforceFullMatch: spec.nimoutFull,
       inlineErrors: spec.inlineErrors,
       testName: test.name,
-      givenNimout: e.results[id].nimout,
+      givenNimout: res.nimout,
       expectedFile: e.files[test.file].file,
       expectedNimout: spec.nimout,
     )
 
-    let outCompare = sexpCheck(data)
-    # Full match of the output results.
-    if outCompare.match:
-      result.runResult = reSuccess
-    else:
-      # Write out error message.
-      result.runResult = reMsgsDiffer
-      # result.nimout = given.msg
-      # TODO figure out how these argumens are mapped to the real report
-      # content.
-      #
-      # r.addResult(
-      #   run, run.expected.msg, given.msg,
-      #   ,
-      #   givenSpec = unsafeAddr given,
-      #   outCompare = outCompare
-      # )
+    if spec.nimoutSexp:
+      let outCompare = sexpCheck(data)
+      # Full match of the output results.
+      if outCompare.match:
+        result.runResult = reSuccess
+      else:
+        # Write out error message.
+        result.runResult = reMsgsDiffer
+        # result.nimout = given.msg
+        # TODO figure out how these argumens are mapped to the real report
+        # content.
+        #
+        # r.addResult(
+        #   run, run.expected.msg, given.msg,
+        #   ,
+        #   givenSpec = unsafeAddr given,
+        #   outCompare = outCompare
+        # )
 
-  # Checking for inline errors.
-  elif 0 < spec.inlineErrors.len():
-    # QUESTION - `checkForInlineErrors` does not perform any comparisons
-    # for the regular message spec, it just compares annotated messages.
-    # How can it report anything properly then?
-    #
-    # MAYBE it is related the fact testament misuses the `inlineErrors`,
-    # and wrongly assumes they are /only/ errors, despite actually parsing
-    # anything that starts with `#[tt.` as inline annotation? Even in this
-    # case this does not make any sense, because comparisons is done only
-    # for inline error messages.
-    #
-    # MAYBE this is just a way to mitigate the more complex problem of
-    # mixing in inline error messages and regular `.nimout`? I 'solved' it
-    # using `stablematch` and weighted ordering, so most likely the person
-    # who wrote this solved the same problem using "I don't care" approach.
-    #
-    # https://github.com/nim-lang/Nim/commit/9a110047cbe2826b1d4afe63e3a1f5a08422b73f#diff-a161d4667e86146f2f8003f08f765b8d9580ae92ec5fb6679c80c07a5310a551R362-R364
-    checkForInlineErrors(r, run, given)
+    # Checking for inline errors.
+    else:
+      # QUESTION - `checkForInlineErrors` does not perform any comparisons
+      # for the regular message spec, it just compares annotated messages.
+      # How can it report anything properly then?
+      #
+      # MAYBE it is related the fact testament misuses the `inlineErrors`,
+      # and wrongly assumes they are /only/ errors, despite actually parsing
+      # anything that starts with `#[tt.` as inline annotation? Even in this
+      # case this does not make any sense, because comparisons is done only
+      # for inline error messages.
+      #
+      # MAYBE this is just a way to mitigate the more complex problem of
+      # mixing in inline error messages and regular `.nimout`? I 'solved' it
+      # using `stablematch` and weighted ordering, so most likely the person
+      # who wrote this solved the same problem using "I don't care" approach.
+      #
+      # https://github.com/nim-lang/Nim/commit/9a110047cbe2826b1d4afe63e3a1f5a08422b73f#diff-a161d4667e86146f2f8003f08f765b8d9580ae92ec5fb6679c80c07a5310a551R362-R364
+      let outCompare = checkForInlineErrors(data)
+      # TODO generate run report
 
   # Check for `.errormsg` in expected and given spec first
-  elif strip(run.expected.msg) notin strip(given.msg):
-    r.addResult(run, run.expected.msg, given.msg, reMsgsDiffer)
+  elif strip(spec.msg) notin strip(res.nimout):
+    discard
+    # IMPLEMENT create run output message
+    # r.addResult(run, run.expected.msg, given.msg, reMsgsDiffer)
 
   # Compare expected and resulted spec messages
-  elif not nimoutCheck(run.expected, given):
+  elif not compileOutputCheck(
+    full = spec.nimoutFull,
+    expected = spec.nimout,
+    given = res.nimout
+  ):
     # Report general message mismatch error
-    r.addResult(run, run.expected.nimout, given.nimout, reMsgsDiffer)
+    # TODO IMPLEMENT
+    discard
+    # r.addResult(run, run.expected.nimout, given.nimout, reMsgsDiffer)
 
   # Check for filename mismatches
-  elif extractFilename(run.expected.file) != extractFilename(given.file) and
-      "internal error:" notin run.expected.msg:
+  elif extractFilename(
+    e.files[test.file].file
+  ) != extractFilename(
+    res.nimFile
+  ) and "internal error:" notin spec.msg:
     # Report error for the the error file mismatch
-    r.addResult(run, run.expected.file, given.file, reFilesDiffer)
+    # TODO IMPLEMENT
+    discard
+    # r.addResult(run, run.expected.file, given.file, reFilesDiffer)
 
   # Check for produced and given error message locations
-  elif run.expected.line != given.line and
-       run.expected.line != 0 or
-       run.expected.column != given.column and
-       run.expected.column != 0:
+  elif spec.line != res.nimLine and spec.line != 0 or
+       spec.column != res.nimColumn and spec.column != 0:
     # Report error for the location mismatch
-    r.addResult(run, $run.expected.line & ':' & $run.expected.column,
-                $given.line & ':' & $given.column, reLinesDiffer)
+    # TODO IMPLEMENT
+    discard
+    # r.addResult(run, $run.expected.line & ':' & $run.expected.column,
+    #             $given.line & ':' & $given.column, reLinesDiffer)
 
   # None of the unstructured checks found mismatches, reporting test passed
   else:
-    r.addResult(run, run.expected.msg, given.msg, reSuccess)
-    inc(r.passed)
+    # TODO IMPLEMENT ok
+    discard
+    # r.addResult(run, run.expected.msg, given.msg, reSuccess)
+    # inc(r.passed)
+
+proc nimcacheDir(
+    filename: string,
+    options: seq[ShellArg],
+    target: GivenTarget
+  ): string =
+  ## Give each test a private nimcache dir so they don't clobber each other's.
+  let hashInput = options.toStr().join("") & $target
+  result = "nimcache" / (filename & '_' & hashInput.getMD5())
+
+proc generatedFile(
+    file: TestFile,
+    options: seq[ShellArg],
+    target: GivenTarget
+  ): string =
+  ## Get path to the generated file name from the test.
+  case target:
+    of targetJS:
+      result = file.file.changeFileExt("js")
+    else:
+      let
+        (_, name, _) = file.file.splitFile
+        ext = target.ext
+      result = "$#@m$#" % [
+        nimcacheDir(file.file, options, target),
+        name.changeFileExt(ext)
+      ]
+
+proc needsCodegenCheck(spec: DeclaredSpec): bool =
+  ## If there is any checks that need to be performed for a generated code
+  ## file
+  spec.maxCodeSize > 0 or spec.ccodeCheck.len > 0
+
+proc codegenCheck(
+    e: Execution,
+    id: RunId
+  ): CodegenCheckCompare =
+  ## Check for any codegen mismatches in file generated from `test` run.
+  ## Only file that was immediately generated is tested.
+  let (run, res, test, spec) = e.getRunContext(id)
+  let genFile = generatedFile(e.files[test.file], test.options, run.target)
+
+  try:
+    let contents = readFile(genFile)
+    for check in spec.ccodeCheck:
+      if check.len > 0 and check[0] == '\\':
+        # little hack to get 'match' support:
+        if not contents.match(check.peg):
+          result.missingPegs.add check
+
+      elif contents.find(check.peg) < 0:
+        result.missingPegs.add check
+
+    if spec.maxCodeSize > 0 and contents.len > spec.maxCodeSize:
+      result.codeSizeOverflow = some((
+        generated: contents.len,
+        allowed: spec.maxCodeSize
+      ))
+
+  except IOError:
+    result.missingCode = some genFile
+
+include categories
+
+proc loadSkipFrom(name: string): seq[string] =
+  if name.len == 0: return
+  # One skip per line, comments start with #
+  # used by `nlvm` (at least)
+  for line in lines(name):
+    let sline = line.strip()
+    if sline.len > 0 and not sline.startsWith('#'):
+      result.add sline
+
+proc prepareTestFilesAndSpecs(execState: var Execution) =
+  ## for the filters specified load all the specs
+  # IMPLEMENT create specific type to avoid accidental mutation
+
+  # NOTE read-only state in let to avoid mutation, put into types
+  let
+    testsDir = execState.testsDir
+    filter = execState.filter
+
+  execState.skips = loadSkipFrom(execState.skipsFile)
+
+  proc testFilesFromCat(execState: var Execution, cat: Category) =
+    if cat.string notin ["testdata", "nimcache"]:
+      let catId = execState.categories.len
+      execState.categories.add cat
+
+      case cat.string.normalize():
+        of "gc":
+          setupGcTests(execState, catId)
+        of "threads":
+          setupThreadTests(execState, catId)
+        of "lib":
+          # IMPLEMENT: implement this proc and all the subsequent handling
+          setupStdlibTests(execState, catId)
+        else:
+          for file in walkDirRec(testsDir & cat.string):
+            if file.isTestFile:
+              execState.testFiles.add:
+                TestFile(file: file, catId: catId)
+
+  case filter.kind:
+    of tfkAll:
+      let testsDir = testsDir
+      for kind, dir in walkDir(testsDir):
+        if kind == pcDir:
+          # The category name is extracted from the directory
+          # eg: 'tests/compiler' -> 'compiler'
+          let cat = dir[testsDir.len .. ^1]
+          testFilesFromCat(execState, Category(cat))
+      if isCompilerRepo: # handle `AdditionalCategories`
+        for cat in AdditionalCategories:
+          testFilesFromCat(execState, Category(cat))
+
+    of tfkCategories:
+      for cat in filter.cats:
+        testFilesFromCat(execState, cat)
+
+    of tfkGlob:
+      execState.categories = @[Category "<glob>"]
+      let pattern = filter.pattern
+      if dirExists(pattern):
+        for kind, name in walkDir(pattern):
+          if kind in {pcFile, pcLinkToFile} and name.endsWith(".nim"):
+            execState.testFiles.add TestFile(file: name)
+      else:
+        for name in walkPattern(pattern):
+          execState.testFiles.add TestFile(file: name)
+
+    of tfkSingle:
+      execState.categories = @[Category parentDir(filter.test)]
+      let test = filter.test
+      # IMPLEMENT: replace with proper error handling
+      doAssert fileExists(test), test & " test does not exist"
+      if isTestFile(test):
+        execState.testFiles.add TestFile(file: test)
+
+    else:
+      assert false, "TODO ???"
+
+  execState.testFiles.sort # ensures we have a reproducible ordering
+
+  # parse all specs
+  for testId, test in pairs(execState.testFiles):
+    execState.testSpecs.add parseSpec(
+      addFileExt(test.file, ".nim"),
+      execState.categories[test.catId].defaultTargets(),
+      nativeTarget()
+    )
+
+    if execState.testOpts.hasKey(testId):
+      # apply additional test matrix, if specified
+      let optMatrix = execState.testOpts[testId].optMatrix
+      execState.testSpecs[testId].matrix =
+        case execState.testSpecs[testId].matrix.len
+        of 0:
+          optMatrix
+        else:
+          # (saem)REFACTOR - this is a hack, we shouldn't modify the
+          # spec.matrix
+
+          # (haxscramper)QUESTION Doesn't "specify additional test matrix
+          # parameter" imply modification of the test matrix? It seems like
+          # the most direct way to implement this feature: additional test
+          # matrix parameter is ... added to the test matrix, seems pretty
+          # logical to me.
+          var tmp: seq[string] = @[]
+          for o in optMatrix.items:
+            for e in execState.testSpecs[testId].matrix.items:
+              # REFACTOR Switch to `seq[string]` for matrix flags
+              tmp.add o & " " & e
+          tmp
+
+      # apply action override, if specified
+      let actionOverride = execState.testOpts[testId].action
+      if actionOverride.isSome:
+        execState.testSpecs[testId].action = actionOverride.get
+
+
+
+const
+  failString* = "FAIL: " # ensures all failures can be searched with 1 keyword in CI logs
+  testsDir = "tests" & DirSep
+  knownIssueSuccessString* = "KNOWNISSUE: "
+  resultsFile = "testresults.html"
+  Usage = """Usage:
+  testament [options] command [arguments]
+
+Command:
+  p|pat|pattern <glob>        run all the tests matching the given pattern
+  all                         run all tests
+  c|cat|category <category>   run all the tests of a certain category
+  r|run <test>                run single test file
+  html                        generate $1 from the database
+  cache                       generate execution cache results
+Arguments:
+  arguments are passed to the compiler
+Options:
+  --retry                      runs tests that failed the last run
+  --print                      print results to the console
+  --verbose                    print commands (compiling and running tests)
+  --simulate                   see what tests would be run but don't run them (for debugging)
+  --failing                    only show failing/ignored tests
+  --targets:"c js vm"          run tests for specified targets (default: all)
+  --nim:path                   use a particular nim executable (default: $$PATH/nim)
+  --directory:dir              Change to directory dir before reading the tests or doing anything else.
+  --colors:on|off              Turn messages coloring on|off.
+  --backendLogging:on|off      Disable or enable backend logging. By default turned on.
+  --megatest:on|off            Enable or disable megatest. Default is on.
+  --skipFrom:file              Read tests to skip from `file` - one test per line, # comments ignored
+  --includeKnownIssues         runs tests that are marked as known issues
+
+On Azure Pipelines, testament will also publish test results via Azure Pipelines' Test Management API
+provided that System.AccessToken is made available via the environment variable SYSTEM_ACCESSTOKEN.
+
+Experimental: using environment variable `NIM_TESTAMENT_REMOTE_NETWORKING=1` enables
+tests with remote networking (as in CI).
+""" % resultsFile
+
+
+proc parseOpts(execState: var Execution, p: var OptParser): ParseCliResult =
+  result = parseSuccess
+  p.next()
+  while p.kind in {cmdLongOption, cmdShortOption}:
+    # read options agnostic of casing
+    case p.key.normalize
+    of "print": execState.flags.incl outputResults
+    of "verbose": execState.flags.incl outputVerbose
+    of "failing": execState.flags.incl outputFailureOnly
+    of "targets":
+      execState.targetsStr = p.val
+      execState.gTargets = parseTargets(execState.targetsStr)
+    of "nim":
+      compilerPrefix = addFileExt(p.val.absolutePath, ExeExt)
+    of "directory":
+      setCurrentDir(p.val)
+    of "colors":
+      case p.val:
+      of "on":  execState.flags.incl outputColour
+      of "off": execState.flags.excl outputColour
+      else: return parseQuitWithUsage
+    of "batch":
+      testamentData0.batchArg = p.val
+      if p.val != "_" and p.val.len > 0 and p.val[0] in {'0'..'9'}:
+        let s = p.val.split("_")
+        doAssert s.len == 2, $(p.val, s)
+        testamentData0.testamentBatch = s[0].parseInt
+        testamentData0.testamentNumBatch = s[1].parseInt
+        doAssert testamentData0.testamentNumBatch > 0
+        doAssert testamentData0.testamentBatch >= 0 and testamentData0.testamentBatch < testamentData0.testamentNumBatch
+    of "simulate":
+      execState.flags.incl dryRun
+    of "megatest":
+      case p.val:
+      of "on": execState.conf.useMegatest = true
+      of "off": execState.conf.useMegatest = false
+      else: return parseQuitWithUsage
+    of "backendlogging":
+      case p.val:
+      of "on": execState.flags.incl logBackend
+      of "off": execState.flags.excl logBackend
+      else: return parseQuitWithUsage
+    of "skipfrom": execState.skipsFile = p.val
+    of "retry": execState.flags.incl rerunFailed
+    else:
+      return parseQuitWithUsage
+    p.next()
+
+proc parseArgs(execState: var Execution, p: var OptParser): ParseCliResult =
+  result = parseSuccess
+
+  var filterAction: string
+  if p.kind != cmdArgument:
+    return parseQuitWithUsage
+  filterAction = p.key.normalize
+  p.next()
+
+  case filterAction
+  of "all":
+    # filter nothing, run everything
+    execState.filter = TestFilter(kind: tfkAll)
+  of "c", "cat", "category":
+    # only specified category
+    # HACK consider removing pcat concept or make parallel the default
+    execState.filter = TestFilter(
+        kind: tfkCategories,
+        cats: @[Category(p.key)])
+  of "pcat":
+    execState.filter = TestFilter(
+        kind: tfkPCats,
+        cats: @[Category(p.key)])
+  of "r", "run":
+    # single test
+    execState.filter = TestFilter(kind: tfkSingle, test: p.key)
+  of "html":
+    # generate html
+    execState.filter = TestFilter(kind: tfkHtml)
+
+  of "cache":
+    # generate html
+    execState.filter = TestFilter(kind: tfkCache)
+
+  else:
+    return parseQuitWithUsage
+
+  execState.userTestOptions = p.cmdLineRest
+
+const
+  testResultsDir = "testresults"
+  cacheResultsDir = testResultsDir / "cacheresults"
+  noTargetsSpecified: set[GivenTarget] = {}
+  defaultExecFlags = {outputColour}
+  defaultBatchSize = 10
+  defaultCatId = CategoryId(0)
+
+proc main() =
+  var
+    p         = initOptParser() # cli parser
+    execState = Execution(
+      flags: defaultExecFlags,
+      testsDir: "tests" & DirSep,
+      rootDir: getCurrentDir(),
+      gTargets: {low(GivenTarget) .. high(GivenTarget)}
+    )
+
+  case parseOpts(execState, p):
+    of parseQuitWithUsage: quit Usage
+    of parseSuccess:       discard
+
+  # next part should be the the filter action, eg: cat, r, etc...
+  case parseArgs(execState, p):
+    of parseQuitWithUsage: quit Usage
+    of parseSuccess:       discard
+
+  if execState.workingDir != "":
+    setCurrentDir(execState.workingDir)
+
+  if targetJS in execState.targets:
+    let nodeExe = findNodeJs()
+    if nodeExe == "":
+      quit "Failed to find nodejs binary in path", 1
+    execState.nodejs = nodeExe
+
+  prepareTestFilesAndSpecs(execState)
+  prepareTestRuns(execState)
+  prepareTestActions(execState)
+  runTests(execState)
+
+main2()

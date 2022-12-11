@@ -103,6 +103,10 @@ func toStr*(part: ShellArg): string =
 
   part.cmd
 
+func toStr*(args: seq[ShellArg]): seq[string] =
+  for arg in args:
+    result.add toStr(arg)
+
 type
   ShInterpolate* = Table[string, seq[ShellArg]]
 

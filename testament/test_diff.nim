@@ -4,7 +4,10 @@ import
     terminal,
     options,
     tables,
-    algorithm
+    algorithm,
+    pegs,
+    intsets,
+    os
   ],
   experimental/[
     sexp,
@@ -13,6 +16,7 @@ import
     colordiff
   ]
 
+import lib/stdtest/testutils
 
 type
   GivenInlineError* = object
@@ -39,6 +43,31 @@ type
     ignoredExpected*: seq[int]
     ignoredGiven*: seq[int]
     cantIgnoreGiven*: bool
+
+  CompileTextCompare* = object
+    match*: bool
+    excessiveMessages*: seq[GivenInlineError] ## Errors that weren't
+    ## expected but occurred during the compilation.
+    missingMessages*: seq[GivenInlineError] ## Inline errors that were
+    ## expected in the specification but weren't found in the actual
+    ## compiler output.
+
+  CompileOutputCheck* = object
+    ## Input parameters for S-expression diff
+    enforceFullMatch* {.requiresInit.}: bool
+    inlineErrors* {.requiresInit.}: seq[GivenInlineError] ## List of
+                                                          ## expected
+                                                          ## inline errors
+    testName* {.requiresInit.}: string ## Name of the test
+    expectedNimout* {.requiresInit.}: string ## Expected compiler output,
+                            ## added together with inline error conversion
+                            ## results.
+    givenNimout* {.requiresInit.}: string ## Compiler output given
+    expectedFile* {.requiresInit.}: string ## File name expected in the
+                                           ## inline errors
+
+
+
 
 proc trimUnitSep(x: var string) =
   let L = x.len
@@ -128,23 +157,7 @@ proc format*(tcmp: CompileSexpCompare): ColText =
         tcmp.expectedReports[give].node.toLine(sortfield = true)
       )
 
-type
-  SexpCheckData* = object
-    ## Input parameters for S-expression diff
-    enforceFullMatch* {.requiresInit.}: bool
-    inlineErrors* {.requiresInit.}: seq[GivenInlineError] ## List of
-                                                          ## expected
-                                                          ## inline errors
-    testName* {.requiresInit.}: string ## Name of the test
-    expectedNimout* {.requiresInit.}: string ## Expected compiler output,
-                            ## added together with inline error conversion
-                            ## results.
-    givenNimout* {.requiresInit.}: string ## Compiler output given
-    expectedFile* {.requiresInit.}: string ## File name expected in the
-                                           ## inline errors
-
-
-proc sexpCheck*(data: SexpCheckData): CompileSexpCompare =
+proc sexpCheck*(data: CompileOutputCheck): CompileSexpCompare =
   ## Check if expected nimout values match with specified ones. Thish check
   ## implements a structured comparison of the data and returns full report
   ## about all the mismatches that can be formatted as needed.
@@ -201,3 +214,69 @@ proc sexpCheck*(data: SexpCheckData): CompileSexpCompare =
     r.match = true
 
   return r
+
+proc checkForInlineErrors*(data: CompileOutputCheck): CompileTextCompare =
+  ## Check for inline error annotations in the nimout results, comparing
+  ## them with the output of the compiler.
+  let pegLine = peg"{[^(]*} '(' {\d+} ', ' {\d+} ') ' {[^:]*} ':' \s* {.*}"
+  var covered = initIntSet()
+  for line in splitLines(data.givenNimout):
+    # Iterate over each line in the output
+
+    # Searching for the `file(line, col) Severity: text` pattern
+    if line =~ pegLine:
+      let
+        file = extractFilename(matches[0])
+        line = try: parseInt(matches[1]) except: -1
+        col  = try: parseInt(matches[2]) except: -1
+        kind = matches[3]
+        msg  = matches[4]
+
+      if file == extractFilename data.testName:
+        # If annotation comes from the target file
+        var isCovered: bool = false
+        for idx, expected in data.inlineErrors:
+          if expected.line == line and
+             (expected.col == col or expected.col < 0) and
+             expected.kind == kind and
+             expected.msg in msg:
+            # And annotaiton has matching line, column and message
+            # information, register it as 'covered'
+            covered.incl idx
+            isCovered = true
+            # WARNING original implementation considered all matching
+            # inline errors as covered, which means if the same error was
+            # printed twice in the same location it was an "ok". Direct
+            # `break` fixes this (feature? bug?). IF the test suite doesn't
+            # fail after this change THEN TODO: clean up this comment.
+            break
+
+        if not isCovered:
+          result.excessiveMessages.add GivenInlineError(
+            line: line, col: col, msg: msg, kind: kind)
+
+  for idx, expected in data.inlineErrors:
+    # For each output message that was not covered by annotations, add it
+    # to the output as 'missing'
+    if idx notin covered:
+      result.missingMessages.add(expected)
+
+  result.match = (
+    result.missingMessages.len() == 0
+  ) and (
+    not data.enforceFullMatch or result.excessiveMessages.len() == 0
+  )
+
+proc compileOutputCheck*(full: bool, expected, given: string): bool =
+  ## Check if expected nimout values match with specified ones. This check
+  ## implements comparison of the unstructured data.
+  result = true
+  if full:
+    if expected != given:
+      result = false
+  elif 0 < expected.len() and
+       # NOTE this function should be made more generic and moved into the
+       # diff library, it might have some pretty interesting use-cases in
+       # places where determinization of the output gives UX improvements.
+       not greedyOrderedSubsetLines(expected, given):
+    result = false
