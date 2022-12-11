@@ -32,9 +32,6 @@ const
     "destructor"
   ]
 
-proc isTestFile*(file: string): bool =
-  let (_, name, ext) = splitFile(file)
-  result = ext == ".nim" and name.startsWith("t")
 
 
 proc initTest(
@@ -51,51 +48,67 @@ proc initTest(
   result.spec = spec
 
 proc makeTest(
-    test: string, options: seq[ShellArg], cat: CategoryId): GivenTest =
+    e: var Execution,
+    test: string,
+    options: seq[ShellArg],
+    cat: Category
+  ): GivenTest =
   ## make a test from inferring the test's filename from `test` and parsing the
   ## spec within that file.
-  initTest(test, options, cat,
-           parseSpec(
-             addFileExt(test, ".nim"),
-             cat.defaultTargets,
-             nativeTarget()))
+  initTest(
+    test, options, cat,
+    e.specs.add parseSpec(
+      addFileExt(test, ".nim"), cat.defaultTargets(), nativeTarget()))
 
-proc makeTestWithDummySpec(test, options: string, cat: Category): TTest =
+proc makeTestWithDummySpec(
+    e: var Execution,
+    test: string,
+    options: seq[ShellArg],
+    cat: Category
+  ): GivenTest =
   var spec = initSpec(addFileExt(test, ".nim"))
   spec.action = actionCompile
   spec.targets = cat.defaultTargets()
 
-  initTest(test, options, cat, spec)
+  initTest(test, options, cat, e.specs.add(spec))
 
 
 
 # --------------------- DLL generation tests ----------------------------------
 
 proc runBasicDLLTest(
-    c, r: var TResults, cat: Category, options: string, execution: Execution) =
-  const rpath = when defined(macosx):
-      " --passL:-rpath --passL:@loader_path"
+    e: var Execution,
+    cat: Category,
+    options: seq[ShellArg]
+  ) =
+
+  const rpath: seq[ShellArg] = when defined(macosx):
+      @[shArg("--passL:-rpath"), shArg("--passL:@loader_path")]
     else:
-      ""
+      @[]
 
-  var test1 = makeTest("lib/nimrtl.nim", options & " --outdir:tests/dll", cat)
-  test1.spec.action = actionCompile
-  testSpec c, test1, execution
-  var test2 = makeTest("tests/dll/server.nim", options & " --threads:on" & rpath, cat)
-  test2.spec.action = actionCompile
-  testSpec c, test2, execution
-  var test4 = makeTest("tests/dll/visibility.nim", options & " --app:lib" & rpath, cat)
-  test4.spec.action = actionCompile
-  testSpec c, test4, execution
+  let tests: seq[TestId] = @[
+    e.tests.add e.makeTest(
+      "lib/nimrtl.nim",
+      options & @[shArg"--outdir:tests/dll"], cat),
+    e.tests.add e.makeTest(
+      "tests/dll/server.nim",
+      options & @[shArg"--threads:on"] & rpath, cat),
+    e.tests.add e.makeTest(
+      "tests/dll/visibility.nim",
+      options & @[shArg"--app:lib"] & rpath, cat)
+  ]
 
-  # windows looks in the dir of the exe (yay!):
+  for id in tests:
+    e.specs[e.tests[id].spec].action = actionCompile
+
   when not defined(windows):
-    # posix relies on crappy LD_LIBRARY_PATH (ugh!):
     const libpathenv = when defined(haiku): "LIBRARY_PATH"
                        else: "LD_LIBRARY_PATH"
     var libpath = getEnv(libpathenv)
     # Temporarily add the lib directory to LD_LIBRARY_PATH:
-    putEnv(libpathenv, "tests/dll" & (if libpath.len > 0: ":" & libpath else: ""))
+    putEnv(
+      libpathenv, "tests/dll" & (if libpath.len > 0: ":" & libpath else: ""))
     defer: putEnv(libpathenv, libpath)
 
   testSpec(
@@ -216,27 +229,40 @@ proc setupGcTests(execState: var Execution, catId: CategoryId) =
   ]
 
   for (testFile, gcConditions) in testData:
-    let testId: TestId = execState.testFiles.len
-    execState.testFiles.add TestFile(file: "tests/gc" / testFile, catId: catId)
+    let testId = execState.testFiles.add(
+      TestFile(file: "tests/gc" / testFile, catId: catId))
+
     execState.testOpts[testId] = TestOptionData()
 
     if gcMarkSweep in gcConditions:
-      execState.testOpts[testId].optMatrix.add "" # run the test as is
-      execState.testOpts[testId].optMatrix.add " -d:release --gc:useRealtimeGC"
+      execState.testOpts[testId].optMatrix.add @[]
+      execState.testOpts[testId].optMatrix.add @[
+        shArg("--define=release"),
+        shArg("--gc=useRealtimeGC")
+      ]
       if testFile != "gctest":
-        execState.testOpts[testId].optMatrix.add " --gc:orc"
-        execState.testOpts[testId].optMatrix.add " -d:release --gc:orc"
+        execState.testOpts[testId].optMatrix.add @[shArg("--gc=orc")]
+        execState.testOpts[testId].optMatrix.add @[
+          shArg("--define=release"),
+          shArg("--gc=orc")
+        ]
 
     if gcMarkSweep in gcConditions:
-      execState.testOpts[testId].optMatrix.add " --gc:markAndSweep"
-      execState.testOpts[testId].optMatrix.add " -d:release --gc:markAndSweep"
+      execState.testOpts[testId].optMatrix.add @[shArg("--gc=markAndSweep")]
+      execState.testOpts[testId].optMatrix.add @[
+        shArg("--define=release"),
+        shArg("--gc=markAndSweep")
+      ]
 
     if gcBoehm in gcConditions:
       when not defined(windows) and not defined(android):
         # cannot find any boehm.dll on the net, right now, so disabled for
         # windows:
-        execState.testOpts[testId].optMatrix.add " --gc:boehm"
-        execState.testOpts[testId].optMatrix.add " -d:release --gc:boehm"
+        execState.testOpts[testId].optMatrix.add @[shArg("--gc=boehm")]
+        execState.testOpts[testId].optMatrix.add @[
+          shArg("--define=release"),
+          shArg("--gc=boehm")
+        ]
 
 # ------------------------- threading tests -----------------------------------
 
@@ -459,7 +485,6 @@ proc icTests(
 # ----------------------------------------------------------------------------
 
 # const AdditionalCategories = ["debugger", "lib", "ic", "navigator"]
-const AdditionalCategories = ["debugger", "lib"]
 const MegaTestCat = "megatest"
 
 proc `&.?`(a, b: string): string =
@@ -616,9 +641,13 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
 
 # ---------------------------------------------------------------------------
 
-proc processCategory(r: var TResults, cat: Category,
-                     options, testsDir: string,
-                     runJoinableTests: bool, execution: Execution) =
+proc processCategory(
+    e: var Execution,
+    cat: Category,
+    options: seq[ShellArg],
+    testsDir: string,
+    runJoinableTests: bool,
+  ) =
   let cat2 = cat.string.split("/")[0].normalize
   case cat2
   of "js":

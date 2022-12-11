@@ -605,23 +605,6 @@ proc targetHelper(r: var TResults, run: var TestRun, execution: Execution) =
   else:
     testSpecHelper(r, run, execution)
 
-func nativeTarget(): TTarget =
-  targetC
-
-func defaultTargets(category: Category): set[TTarget] =
-  const standardTargets = {nativeTarget()}
-  case category.string
-  of "lang":
-    {targetC, targetJs, targetVM}
-  of "arc", "avr", "destructor", "distros", "dll", "gc", "osproc", "parallel",
-     "realtimeGC", "threads", "views", "valgrind":
-    standardTargets - {targetJs}
-  of "compilerapi", "compilerunits", "ic", "navigator", "lexer", "testament":
-    {nativeTarget()}
-  of "js":
-    {targetJs}
-  else:
-    standardTargets
 
 proc testSpec(r: var TResults, test: TTest, execution: Execution) =
   var expected = test.spec
@@ -710,10 +693,6 @@ func requestedTargets(execState: Execution): set[TTarget] =
   else:
     execState.targets
 
-func `<`(a, b: TestFile): bool {.inline.} =
-  a.file < b.file
-func cmp(a, b: TestFile): int {.inline.} =
-  cmp(a.file, b.file)
 
 
 proc makeName(test: TestFile,

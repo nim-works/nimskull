@@ -6,7 +6,8 @@ import
     os,
     md5,
     pegs,
-    parseopt
+    parseopt,
+    algorithm
   ],
   experimental/[
     dod_helpers,
@@ -18,7 +19,6 @@ import compiler/utils/nodejs
 
 
 declareIdType(Test)
-declareIdType(File)
 declareIdType(Run)
 declareIdType(Spec)
 declareIdType(Entry)
@@ -40,7 +40,7 @@ type
     options: seq[ShellArg]
     testArgs: seq[string]
     spec: SpecId
-    file: FileId
+    file: TestId
 
   TestRun = object
     ## a test run: reject, compile, or compile + run along with time to
@@ -111,7 +111,8 @@ type
     missingCode: Option[string]
 
   TestOptionData = object
-    optMatrix: seq[string]   ## matrix of cli options for this test
+    ## Additional configuration for the test execution
+    optMatrix: seq[seq[ShellArg]]   ## matrix of cli options for this test
     action: Option[GivenTestAction] ## possible action override
 
 
@@ -124,10 +125,12 @@ type
     ## sophisticated enough to support spare configuration like this needs
 
 
-declareStoreType(TestFile, Files, FileId)
+# Files and tests are indexed using the same key
+declareStoreType(TestFile, Files, TestId)
+declareStoreType(GivenTest, Tests, TestId)
+
 declareStoreType(TestAction, Actions, ActionId)
 declareStoreType(DeclaredSpec, Specs, SpecId)
-declareStoreType(GivenTest, Tests, TestId)
 
 # Run configurations, their direct output results, comparisons and times
 # are all indexed usin the same `RunId` key type.
@@ -136,7 +139,7 @@ declareStoreType(RunResult, Results, RunId)
 declareStoreType(RunCompare, Compares, RunId)
 declareStoreType(RunTime, Times, RunId)
 
-
+declareStoreType(Category, Categories, CategoryId)
 
 
 type
@@ -238,14 +241,15 @@ type
     of tfkSingle:
       test: string
 
-  Categories = seq[Category]
-
   ParseCliResult = enum
     parseSuccess       ## successfully parsed cli params
     parseQuitWithUsage ## parsing failed, quit with usage message
 
 
 func `$`*(cat: Category): string = "Category($#)" % $cat.string
+func `<`(a, b: TestFile): bool = a.file < b.file
+func cmp(a, b: TestFile): int = cmp(a.file, b.file)
+
 
 const noMatrixEntry = -1
 
@@ -425,7 +429,35 @@ proc codegenCheck(
   except IOError:
     result.missingCode = some genFile
 
-include categories
+func nativeTarget(): GivenTarget =
+  targetC
+
+func defaultTargets*(category: Category): set[GivenTarget] =
+  ## Return list of targets for a given category
+  const standardTargets = {nativeTarget()}
+  case category.string:
+    of "lang":
+      {targetC, targetJs, targetVM}
+    of "arc", "avr", "destructor", "distros",
+       "dll", "gc", "osproc", "parallel",
+       "realtimeGC", "threads", "views",
+       "valgrind":
+      standardTargets - {targetJs}
+    of "compilerapi", "compilerunits", "ic",
+       "navigator", "lexer", "testament":
+      {nativeTarget()}
+    of "js":
+      {targetJs}
+    else:
+      standardTargets
+
+proc isTestFile*(file: string): bool =
+  let (_, name, ext) = splitFile(file)
+  result = ext == ".nim" and name.startsWith("t")
+
+const AdditionalCategories = ["debugger", "lib"]
+
+# include categories
 
 proc loadSkipFrom(name: string): seq[string] =
   if name.len == 0: return
@@ -436,35 +468,36 @@ proc loadSkipFrom(name: string): seq[string] =
     if sline.len > 0 and not sline.startsWith('#'):
       result.add sline
 
-proc prepareTestFilesAndSpecs(execState: var Execution) =
+proc prepareTestFilesAndSpecs(e: var Execution) =
   ## for the filters specified load all the specs
   # IMPLEMENT create specific type to avoid accidental mutation
 
   # NOTE read-only state in let to avoid mutation, put into types
   let
-    testsDir = execState.testsDir
-    filter = execState.filter
+    testsDir = e.testsDir
+    filter = e.filter
 
-  execState.skips = loadSkipFrom(execState.skipsFile)
+  e.skips = loadSkipFrom(e.skipsFile)
 
-  proc testFilesFromCat(execState: var Execution, cat: Category) =
+  proc testFilesFromCat(e: var Execution, cat: Category) =
     if cat.string notin ["testdata", "nimcache"]:
-      let catId = execState.categories.len
-      execState.categories.add cat
-
+      let catId = e.categories.add(cat)
       case cat.string.normalize():
         of "gc":
-          setupGcTests(execState, catId)
+          assert false, "TODO"
+          # setupGcTests(e, catId)
         of "threads":
-          setupThreadTests(execState, catId)
+          assert false, "TODO"
+          # setupThreadTests(e, catId)
         of "lib":
+          assert false, "TODO"
           # IMPLEMENT: implement this proc and all the subsequent handling
-          setupStdlibTests(execState, catId)
+          # setupStdlibTests(e, catId)
         else:
           for file in walkDirRec(testsDir & cat.string):
             if file.isTestFile:
-              execState.testFiles.add:
-                TestFile(file: file, catId: catId)
+              e.files.add TestFile(
+                file: file, catId: catId)
 
   case filter.kind:
     of tfkAll:
@@ -474,52 +507,53 @@ proc prepareTestFilesAndSpecs(execState: var Execution) =
           # The category name is extracted from the directory
           # eg: 'tests/compiler' -> 'compiler'
           let cat = dir[testsDir.len .. ^1]
-          testFilesFromCat(execState, Category(cat))
-      if isCompilerRepo: # handle `AdditionalCategories`
-        for cat in AdditionalCategories:
-          testFilesFromCat(execState, Category(cat))
+          testFilesFromCat(e, Category(cat))
+
+      for cat in AdditionalCategories:
+        testFilesFromCat(e, Category(cat))
 
     of tfkCategories:
       for cat in filter.cats:
-        testFilesFromCat(execState, cat)
+        testFilesFromCat(e, cat)
 
     of tfkGlob:
-      execState.categories = @[Category "<glob>"]
+      e.categories = initCategories [Category("<glob>")]
       let pattern = filter.pattern
       if dirExists(pattern):
         for kind, name in walkDir(pattern):
           if kind in {pcFile, pcLinkToFile} and name.endsWith(".nim"):
-            execState.testFiles.add TestFile(file: name)
+            e.files.add TestFile(file: name)
       else:
         for name in walkPattern(pattern):
-          execState.testFiles.add TestFile(file: name)
+          e.files.add TestFile(file: name)
 
     of tfkSingle:
-      execState.categories = @[Category parentDir(filter.test)]
+      e.categories = initCategories [Category(parentDir(filter.test))]
       let test = filter.test
       # IMPLEMENT: replace with proper error handling
       doAssert fileExists(test), test & " test does not exist"
       if isTestFile(test):
-        execState.testFiles.add TestFile(file: test)
+        e.files.add TestFile(file: test)
 
     else:
       assert false, "TODO ???"
 
-  execState.testFiles.sort # ensures we have a reproducible ordering
+  e.files.data.sort()
 
   # parse all specs
-  for testId, test in pairs(execState.testFiles):
-    execState.testSpecs.add parseSpec(
+  for testId, test in pairs(e.files):
+    e.specs.add parseSpec(
       addFileExt(test.file, ".nim"),
-      execState.categories[test.catId].defaultTargets(),
+      e.categories[test.catId].defaultTargets(),
       nativeTarget()
     )
 
-    if execState.testOpts.hasKey(testId):
+    if e.testOpts.hasKey(testId):
       # apply additional test matrix, if specified
-      let optMatrix = execState.testOpts[testId].optMatrix
-      execState.testSpecs[testId].matrix =
-        case execState.testSpecs[testId].matrix.len
+      let optMatrix = e.testOpts[testId].optMatrix
+      let specId = e.tests[testId].spec
+      e.specs[specId].matrix =
+        case e.specs[specId].matrix.len
         of 0:
           optMatrix
         else:
@@ -531,17 +565,17 @@ proc prepareTestFilesAndSpecs(execState: var Execution) =
           # the most direct way to implement this feature: additional test
           # matrix parameter is ... added to the test matrix, seems pretty
           # logical to me.
-          var tmp: seq[string] = @[]
-          for o in optMatrix.items:
-            for e in execState.testSpecs[testId].matrix.items:
+          var tmp: seq[seq[ShellArg]] = @[]
+          for options in optMatrix.items:
+            for entry in e.specs[specId].matrix.items:
               # REFACTOR Switch to `seq[string]` for matrix flags
-              tmp.add o & " " & e
+              tmp.add options & entry
           tmp
 
       # apply action override, if specified
-      let actionOverride = execState.testOpts[testId].action
+      let actionOverride = e.testOpts[testId].action
       if actionOverride.isSome:
-        execState.testSpecs[testId].action = actionOverride.get
+        e.specs[specId].action = actionOverride.get
 
 
 
@@ -651,11 +685,11 @@ proc parseArgs(execState: var Execution, p: var OptParser): ParseCliResult =
     # HACK consider removing pcat concept or make parallel the default
     execState.filter = TestFilter(
         kind: tfkCategories,
-        cats: @[Category(p.key)])
+        cats: initCategories [Category(p.key)])
   of "pcat":
     execState.filter = TestFilter(
         kind: tfkPCats,
-        cats: @[Category(p.key)])
+        cats: initCategories [Category(p.key)])
   of "r", "run":
     # single test
     execState.filter = TestFilter(kind: tfkSingle, test: p.key)
@@ -709,8 +743,9 @@ proc main() =
     execState.nodejs = nodeExe
 
   prepareTestFilesAndSpecs(execState)
-  prepareTestRuns(execState)
-  prepareTestActions(execState)
-  runTests(execState)
+  # prepareTestRuns(execState)
+  # prepareTestActions(execState)
+  # runTests(execState)
 
-main2()
+when isMainModule:
+  main()

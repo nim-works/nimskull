@@ -78,11 +78,14 @@ template declareStoreType*(
 
   type
     StoreName* = object
-      data: seq[ValueName]
+      data*: seq[ValueName]
 
   func len*(store: StoreName): int = store.data.len
+  func clear*(store: var StoreName) = store.data.setLen(0)
+  func `init StoreName`(values: openarray[ValueName]): StoreName =
+    StoreName(data: @values)
 
-  func add*(store: var StoreName, item: ValueName): IdName =
+  func add*(store: var StoreName, item: ValueName): IdName {.discardable.} =
     result = `to IdName`(store.data.len)
     store.data.add item
 

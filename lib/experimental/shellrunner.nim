@@ -107,6 +107,13 @@ func toStr*(args: seq[ShellArg]): seq[string] =
   for arg in args:
     result.add toStr(arg)
 
+func contains*(args: seq[ShellArg], str: string): bool =
+  ## Check whether any of the arguments contain `str` as substring. Can be
+  ## used to avoid supplying duplicate commands
+  for arg in args:
+    if str in arg.toStr():
+      return true
+
 type
   ShInterpolate* = Table[string, seq[ShellArg]]
 
