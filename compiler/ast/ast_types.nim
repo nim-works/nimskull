@@ -211,6 +211,8 @@ type
     nkFuncDef             ## a func
     nkTupleConstr         ## a tuple constructor
     nkError               ## erroneous AST node see `errorhandling`
+    nkNimNodeLit          ## a ``NimNode`` literal. Stores a single sub node
+                          ## that represents the ``NimNode`` AST
     nkModuleRef           ## for .rod file support: A (moduleId, itemId) pair
     nkReplayAction        ## for .rod file support: A replay action
     nkNilRodNode          ## for .rod file support: a 'nil' PNode

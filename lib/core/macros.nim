@@ -110,6 +110,7 @@ type
     nnkFuncDef = skipEnumValue(nimHasNkBreakStateNodeRemoved, nnkState)
     nnkTupleConstr,
     nnkError,  ## erroneous AST node
+    nnkNimNodeLit
 
   NimNodeKinds* = set[NimNodeKind]
   NimTypeKind* = enum  # some types are no longer used, see ast.nim

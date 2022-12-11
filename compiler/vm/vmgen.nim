@@ -551,15 +551,20 @@ template cmpFloatRep(a, b: BiggestFloat): bool =
   # else: result = a.floatVal == b.floatVal
 
 func cmpNodeCnst(a, b: PNode): bool {.inline.} =
+  ## Compares two trees for structural equality, also taking the type of
+  ## ``nkType`` nodes into account. This procedure is used to prevent the same
+  ## AST from being added as a node constant more than once
   if a == b:
     return true
   elif a.kind == b.kind:
     case a.kind
-    of nkSym: result = a.sym == b.sym
-    of nkIdent: result = a.ident.id == b.ident.id
-    of nkEmpty: result = true # TODO: is this case ever needed?
-    of nkType: result = a.typ == b.typ
-    of nkStrLit..nkTripleStrLit: result = a.strVal == b.strVal
+    of nkSym:           result = a.sym == b.sym
+    of nkIdent:         result = a.ident.id == b.ident.id
+    of nkEmpty:         result = true
+    of nkType:          result = a.typ == b.typ
+    of nkStrKinds:      result = a.strVal == b.strVal
+    of nkIntKinds:      result = a.intVal == b.intVal
+    of nkFloatLiterals: result = cmpFloatRep(a.floatVal, b.floatVal)
     else:
       if a.len == b.len:
         for i in 0..<a.len:
@@ -1240,42 +1245,35 @@ proc genVoidABC(c: var TCtx, n: PNode, dest: TDest, opcode: TOpcode) =
   c.freeTemp(tmp3)
 
 proc genBindSym(c: var TCtx; n: PNode; dest: var TDest) =
-  # nah, cannot use c.config.features because sempass context
-  # can have local experimental switch
-  # if dynamicBindSym notin c.config.features:
-  if n.len == 2: # hmm, reliable?
-    # bindSym with static input
-    if n[1].kind in {nkClosedSymChoice, nkOpenSymChoice, nkSym}:
-      let idx = c.toNodeCnst(n[1])
-      if dest.isUnset: dest = c.getTemp(n.typ)
-      c.gABx(n, opcNBindSym, dest, idx)
-    else:
-      localReport(c.config, n.info, VMReport(
-        kind: rvmInvalidBindSym, ast: n))
-
-  else:
-    # experimental bindSym
+    ## Generates the code for a ``mNBindSym`` magic call (the version where
+    ## the arguments are evaluated at run-time)
+    assert n.len == 4
     if dest.isUnset: dest = c.getTemp(n.typ)
     let x = c.getTempRange(n.len, slotTempUnknown)
 
-    template genNodeLit(node, r) =
-      c.genLit(node, c.toNodeCnst(node), r)
+    # XXX: ``opcNDynBindSym`` does nothing more than invoking a VM callback
+    #      directly. It could make sense to generalise it into
+    #      ``opcInvokeCallback``
 
-    # callee symbol
-    var tmp0 = TDest(x)
-    genNodeLit(n[0], tmp0)
+    # since ``opcNDynBindSym`` calls a VM callback, it uses the same register
+    # passing convention as ``opcIndCall``
+
+    # the first register holds the callee. But since the callback to invoke is
+    # specified by the third argument, we simply leave the first register
+    # uninitialized
 
     # original parameter (ident)
     if n[1].typ.kind == tyString:
       # `semmagic.bindSymWrapper` expects a NimNode, so turn
-      # the string into a ident node here
-      var r = TRegister(x+1)
-      var tmp = c.getTemp(n[1].typ)
+      # the string into an ``nnkIdent`` node here
+      let
+        r = TRegister(x+1)
+        tmp = c.getTemp(n[1].typ)
       c.gen(n[1], tmp)
       c.gABC(n[1], opcStrToIdent, r, tmp)
       c.freeTemp(tmp)
     else:
-      # Must be NimNode then
+      # must be a ``NimNode`` then
       var r = TRegister(x+1)
       c.gen(n[1], r)
 
@@ -1284,11 +1282,7 @@ proc genBindSym(c: var TCtx; n: PNode; dest: var TDest) =
       var r = TRegister(x+2)
       c.gen(n[2], r)
 
-    # info node
-    var tmp1 = TDest(x+n.len-2)
-    genNodeLit(n[^2], tmp1)
-
-    # payload idx
+    # the third argument is the index of the callback to invoke:
     var tmp2 = TDest(x+n.len-1)
     c.genLit(n[^1], tmp2)
 
@@ -2610,6 +2604,19 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       if dest.isUnset: dest = c.getTemp(t)
       c.gABx(n, ldNullOpcode(t), dest, c.genType(n.typ))
     else: unused(c, n, dest)
+  of nkNimNodeLit:
+    # the VM does not copy the tree when loading a ``PNode`` constant (which
+    # is correct). ``NimNode``s not marked with `nfSem` can be freely modified
+    # inside macros, so in order to prevent mutations of the AST part of the
+    # constant, we perform a defensive tree copy before assigning the literal
+    # to the destination
+    if dest.isUnset:
+      dest = c.getTemp(n.typ)
+
+    var tmp: TDest = c.getTemp(n.typ)
+    c.genLit(n, c.toNodeCnst(n[0]), tmp)
+    c.gABC(n, opcNCopyNimTree, dest, tmp)
+    freeTemp(c, tmp)
   of nkAsgn, nkFastAsgn:
     unused(c, n, dest)
     genAsgn(c, n[0], n[1], n.kind == nkAsgn)

@@ -294,21 +294,18 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
         SemReport(kind: rvmUnsupportedNonNil, typ: t))
   of tyRef:
     if t.sym == nil or t.sym.magic != mPNimrodNode:
-      # TODO: cyclic references will lead to infinite recursion
+      # FIXME: cyclic references will lead to infinite recursion
       result = deserializeRef(c, atom.refVal, vt, formal, t, info)
     else:
       assert vt.kind == akPNode
-      # XXX: not doing a full tree-copy here might lead to issues
-      result = copyNode(atom.nodeVal)
 
-      if unlikely(cyclicTree(result)):
+      if unlikely(cyclicTree(atom.nodeVal)):
         result = c.config.newError(
           wrongNode(),
-          reportAst(rsemCyclicTree, result))
+          reportAst(rsemCyclicTree, atom.nodeVal))
       else:
-        result.typ = formal
-        if result.info.fileIndex == InvalidFileIdx:
-          result.info = info
+        # XXX: not doing a full tree-copy here might lead to issues
+        result = newTreeIT(nkNimNodeLit, info, formal): atom.nodeVal
 
   of tyProc:
     case vt.kind
@@ -514,9 +511,10 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
         c.serialize(n, c.heap.unsafeDeref(r), t[0])
       else: unreachable()
     else:
-      # A NimNode
+      # a ``NimNode``
       assert dest.typ.kind == akPNode
-      deref(dest).nodeVal = n
+      assert n.kind == nkNimNodeLit
+      deref(dest).nodeVal = n[0]
   of tyProc:
     case t.callConv
     of ccClosure:

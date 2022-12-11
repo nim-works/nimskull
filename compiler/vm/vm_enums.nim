@@ -163,7 +163,6 @@ type
     opcLdCmplxConst, # dest = complexConsts[Bx]
 
     opcLdImmInt,  # dest = immediate value
-    opcNBindSym,
     opcSetType,   # dest.typ = types[Bx]
     opcNSetType,  # dest.nimNode.typ = types[Bx]
     opcTypeTrait,
