@@ -2,9 +2,6 @@
 ## locations. These are useful when writing VM callbacks.
 
 import
-  compiler/ast/[
-    reports
-  ],
   compiler/front/[
     options
   ],
@@ -17,6 +14,10 @@ import
     vmobjects,
     vmmemory
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_vm import VMReport
+from compiler/ast/report_enums import ReportKind
 
 # XXX: A better approach than `tryWrite` is needed if the plan is to wrap
 #      large parts of the stdlib... (macros come to mind)

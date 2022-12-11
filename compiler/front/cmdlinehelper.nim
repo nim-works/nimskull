@@ -17,7 +17,6 @@ import
   compiler/ast/[
     ast_idgen,
     idents,
-    reports
   ],
   compiler/modules/[
     modulegraphs
@@ -36,6 +35,17 @@ import
   compiler/backend/[
     extccomp
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_lexer import LexerReport
+from compiler/ast/reports_parser import ParserReport
+from compiler/ast/reports_internal import InternalReport
+from compiler/ast/reports_external import ExternalReport
+from compiler/ast/reports_debug import DebugReport
+from compiler/ast/report_enums import ReportKind
+from compiler/ast/reports import Report,
+  ReportCategory,
+  toReportLineInfo
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
   when defined(unix):

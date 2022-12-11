@@ -688,7 +688,10 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
       if not isOrdinalType(idx.typ):
         result = n
         result[0][0] = c.config.newError(x[0]):
-          reportTyp(rsemExpectedOrdinal, idx.typ, ast = result).withIt: it.wrongNode = idx
+          block:
+            var r = reportTyp(rsemExpectedOrdinal, idx.typ, ast = result)
+            r.wrongNode = idx
+            r
         result = c.config.wrapError(result)
         return
 
@@ -1632,8 +1635,10 @@ proc dotTransformation(c: PContext, n: PNode): PNode =
       else:
         # we have an error, set it in the first pos handle on return
         c.config.newError(n):
-          reportAst(rsemIdentExpectedInExpr, n[1]).withIt do:
-                      it.wrongNode = n
+          block:
+            var r = reportAst(rsemIdentExpectedInExpr, n[1])
+            r.wrongNode = n
+            r
 
   result.add copyTree(n[0])
 

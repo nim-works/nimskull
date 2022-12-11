@@ -19,7 +19,6 @@ import
     types,
     renderer,
     lineinfos,
-    reports,
   ],
   compiler/modules/[
     magicsys,
@@ -35,6 +34,11 @@ import
   compiler/utils/[
     astrepr
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import reportAst,
+  reportTyp
+from compiler/ast/report_enums import ReportKind
 
 const tfInstClearedFlags = {tfHasMeta, tfUnresolved}
 
@@ -633,9 +637,11 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
       for i in 0..<result.len:
         if result[i] != nil:
           if result[i].kind == tyGenericBody:
-            localReport(cl.c.config, tern(t.sym.isNil, cl.info, t.sym.info)):
-              reportTyp(rsemCannotInstantiate, result[i]).withIt do:
-                it.ownerSym = t.owner
+            localReport(cl.c.config, if t.sym.isNil: cl.info else: t.sym.info):
+              block:
+                var r = reportTyp(rsemCannotInstantiate, result[i])
+                r.ownerSym = t.owner
+                r
 
           var r = replaceTypeVarsT(cl, result[i])
           if result.kind == tyObject:

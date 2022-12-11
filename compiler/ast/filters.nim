@@ -14,7 +14,6 @@ import
     llstream,
     ast,
     renderer,
-    reports
   ],
   std/[
     strutils,
@@ -27,8 +26,13 @@ import
     options,
   ]
 
+# TODO: abusing `reportSem`, this isn't event a semantic analysis error
+from compiler/ast/reports_sem import reportAst
+from compiler/ast/report_enums import ReportKind
+
 
 proc invalidPragma(conf: ConfigRef; n: PNode) =
+  # TODO: this isn't a semantic analysis error, we're in a _source filter_.
   conf.localReport(n.info, reportAst(rsemNodeNotAllowed, n))
 
 proc getArg(conf: ConfigRef; n: PNode, name: string, pos: int): PNode =

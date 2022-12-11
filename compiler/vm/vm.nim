@@ -24,7 +24,6 @@ import
     renderer, # toStrLit implementation
     trees,
     idents,
-    reports,
     typesrenderer,
     types,
   ],
@@ -68,6 +67,21 @@ import
   experimental/[
     results
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_vm import VMReport
+from compiler/ast/reports_sem import SemReport,
+  reportAst,
+  reportSym
+from compiler/ast/reports_debug import DebugReport
+from compiler/ast/reports_internal import InternalReport
+from compiler/ast/report_enums import ReportKind
+
+# xxx: `Report` is faaaar too wide a type for what the VM needs, even with all
+#      the ground that can cover.
+from compiler/ast/reports import Report,
+  toReportLineInfo,
+  wrap
 
 when defined(nimVMDebugGenerate):
   import compiler/vm/vmutils

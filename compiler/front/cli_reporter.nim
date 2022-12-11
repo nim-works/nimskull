@@ -34,7 +34,16 @@ import
     types,
     typesrenderer,
     ast,
-    reports
+    reports,
+    reports_cmd,
+    reports_lexer,
+    reports_parser,
+    reports_sem,
+    reports_vm,
+    reports_backend,
+    reports_debug,
+    reports_internal,
+    reports_external,
   ],
   compiler/utils/[
     platform,
@@ -52,6 +61,7 @@ import
   ]
 
 import compiler/front/options as compiler_options
+
 
 func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
 
@@ -2948,285 +2958,291 @@ const
   dropTraceExt = off
   reportCaller = on
 
+proc reportBody*(conf: ConfigRef, r: TraceSemReport): string =
+  assertKind r
+
+  case DbgTraceReportKind(r.kind):
+  of rdbgTraceStep:
+    let
+      s = r.semstep
+      indent = s.level * 2 + (
+        2 #[ Item indentation ]# +
+        5 #[ Global entry indentation ]#
+      )
+
+    proc render(node: PNode): string =
+      conf.wrap(conf.treeRepr(node,
+                              indent = indent + 2,
+                              rconf = implicitCompilerTraceReprConf))
+
+    proc render(typ: PType): string =
+      conf.wrap(conf.treeRepr(typ,
+                              indent = indent + 2,
+                              rconf = implicitCompilerTraceReprConf))
+
+    proc render(sym: PSym): string =
+      conf.wrap(conf.treeRepr(sym,
+                              indent = indent + 2,
+                              rconf = implicitCompilerTraceReprConf))
+
+    proc render(sym: PIdent): string =
+      conf.wrap(conf.treeRepr(sym,
+                              indent = indent + 2,
+                              rconf = implicitCompilerTraceReprConf))
+
+
+    result.addf("$1]", align($s.level, 2, '#'))
+    result.add(
+      repeat("  ", s.level),
+      tern(s.direction == semstepEnter, "> ", "< "),
+      conf.wrap(s.name, tern(s.direction == semstepEnter, fgGreen, fgRed)),
+      " @ ",
+      conf.wrap(conf.toStr(r.reportInst, dropTraceExt), fgCyan),
+      tern(
+        reportCaller and s.steppedFrom.isValid(),
+        " from " & conf.toStr(s.steppedFrom, dropTraceExt),
+        ""))
+
+    var res = addr result
+    proc field(name: string, value: string = "\n") =
+      res[].add "\n"
+      res[].add repeat(" ", indent)
+      res[].add name
+      res[].add ":"
+      res[].add value
+
+    let enter = s.direction == semstepEnter
+    if conf.hack.semTraceData:
+      # field("kind", $s.kind) # if you're new to reading traces, uncomment
+      
+      case s.kind:
+        of stepNodeToNode:
+          if enter:
+            field("from node")
+          else:
+            field("to node")
+
+          result.add render(s.node)
+
+        of stepSymNodeToNode:
+          if enter:
+            field("from sym")
+            result.add render(s.sym)
+            field("from node")
+            result.add render(s.node)
+          else:
+            field("to node")
+            result.add render(s.node)
+
+        of stepNodeTypeToNode:
+          if enter:
+            field("from node")
+            result.add render(s.node)
+            field("from type")
+            result.add render(s.typ)
+          else:
+            field("to node")
+            result.add render(s.node)
+
+        of stepNodeFlagsToNode:
+          if enter:
+            field("from flags",  " " & conf.wrap($s.flags + fgCyan))
+            result.add
+            field("from node")
+            result.add render(s.node)
+          else:
+            field("to node")
+            result.add render(s.node)
+
+        of stepTrack:
+          discard #[ 'track' has no extra data fields ]#
+
+        of stepError, stepWrongNode:
+          field("node")
+          result.add render(s.node)
+
+        of stepNodeToSym:
+          if enter:
+            field("from node")
+            result.add render(s.node)
+          else:
+            field("to sym")
+            result.add render(s.sym)
+
+        of stepIdentToSym:
+          if enter:
+            field("from ident")
+            result.add render(s.ident)
+          else:
+            field("to sym")
+            result.add render(s.sym)
+
+        of stepTypeTypeToType:
+          if enter:
+            field("from type")
+            result.add render(s.typ)
+            field("from type1")
+            result.add render(s.typ1)
+          else:
+            field("to type")
+            result.add render(s.typ)
+        
+        of stepNodeSigMatch, stepResolveOverload:
+          if enter:
+            field("from node")
+            result.add render(s.node)
+          else:
+            field("match status", s.candidate.state)
+
+            if s.candidate.call.isNil:
+              field("mismatch kind", $s.candidate.error.firstMismatch.kind)
+            else:
+              if s.candidate.calleeSym.isNil:
+                field("callee")
+                result.add render(s.candidate.callee)
+              else:
+                field("calleeSym")
+                result.add render(s.candidate.calleeSym)
+              field("call")
+              result.add render(s.candidate.call)
+  of rdbgTraceLine:
+    let ind = repeat("  ", r.ctraceData.level)
+    var
+      paths: seq[string]
+      width = 0
+    for entry in r.ctraceData.entries:
+      paths.add "$1($2)" % [
+        formatPath(conf, $entry.filename), $entry.line]
+
+      width = max(paths[^1].len, width)
+
+    for idx, entry in r.ctraceData.entries:
+      result.add(
+        "  ]",
+        ind, " | ",
+        alignLeft(paths[idx], width + 1),
+        conf.wrap($entry.procname, fgGreen),
+        tern(idx < r.ctraceData.entries.high, "\n", "")
+      )
+
+  of rdbgTraceStart:
+    result = ">>] trace start"
+
+  of rdbgTraceEnd:
+    result = "<<] trace end"
+
+  of rdbgTraceDefined:
+    result = ">>] debug trace defined at " & toStr(conf, r.location.get())
+
+  of rdbgTraceUndefined:
+    result = "<<] debug trace undefined " & toStr(conf, r.location.get())
+
+proc reportFull*(conf: ConfigRef, r: TraceSemReport): string =
+  assertKind r
+  result = reportBody(conf, r)
+
+proc reportShort*(conf: ConfigRef, r: TraceSemReport): string =
+  # mostly created for nimsuggest
+  assertKind r
+  result = reportBody(conf, r)
+
 proc reportBody*(conf: ConfigRef, r: DebugReport): string =
   assertKind r
   func toStr(opc: TOpcode): string = substr($opc, 3)
 
-  case DebugReportKind(r.kind):
-    of rdbgTraceStep:
-      let
-        s = r.semstep
-        indent = s.level * 2 + (
-          2 #[ Item indentation ]# +
-          5 #[ Global entry indentation ]#
-        )
+  case DebugReportKind(r.kind)
+  of rdbgVmExecTraceMinimal:
+    result.addf(
+      "$# [$#] $#",
+      conf.toStr(r.vmgenExecMinimal.info),
+      r.vmgenExecMinimal.opc.toStr,
+      conf.sourceLine(r.vmgenExecMinimal.info),
+    )
 
-      proc render(node: PNode): string =
-        conf.wrap(conf.treeRepr(node,
-                                indent = indent + 2,
-                                rconf = implicitCompilerTraceReprConf))
+  of rdbgOptionsPush:
+    result = "PUSH: " & $r.optionsNow
 
-      proc render(typ: PType): string =
-        conf.wrap(conf.treeRepr(typ,
-                                indent = indent + 2,
-                                rconf = implicitCompilerTraceReprConf))
+  of rdbgOptionsPop:
+    result = "POP: " & $r.optionsNow
 
-      proc render(sym: PSym): string =
-        conf.wrap(conf.treeRepr(sym,
-                                indent = indent + 2,
-                                rconf = implicitCompilerTraceReprConf))
+  of rdbgVmExecTraceFull:
+    let exec = r.vmgenExecFull
+    result.addf(
+      "PC:$1 $2 $3 $4 $5",
+      $exec.pc,
+      $exec.opc.toStr,
+      tern(exec.ra == rkNone, "", $exec.ra),
+      tern(exec.rb == rkNone, "", $exec.rb),
+      tern(exec.rc == rkNone, "", $exec.rc)
+    )
 
-      proc render(sym: PIdent): string =
-        conf.wrap(conf.treeRepr(sym,
-                                indent = indent + 2,
-                                rconf = implicitCompilerTraceReprConf))
+  of rdbgFinishedConfRead:
+    result = "finished configuration file read $1" % r.filename
 
+  of rdbgStartingConfRead:
+    result = "starting configuration file read $1" % r.filename
 
-      result.addf("$1]", align($s.level, 2, '#'))
-      result.add(
-        repeat("  ", s.level),
-        tern(s.direction == semstepEnter, "> ", "< "),
-        conf.wrap(s.name, tern(s.direction == semstepEnter, fgGreen, fgRed)),
-        " @ ",
-        conf.wrap(conf.toStr(r.reportInst, dropTraceExt), fgCyan),
-        tern(
-          reportCaller and s.steppedFrom.isValid(),
-          " from " & conf.toStr(s.steppedFrom, dropTraceExt),
-          ""))
+  of rdbgCfgTrace:
+    result = "cfg trace '" & r.str & "'"
 
-      var res = addr result
-      proc field(name: string, value: string = "\n") =
-        res[].add "\n"
-        res[].add repeat(" ", indent)
-        res[].add name
-        res[].add ":"
-        res[].add value
+  of rdbgVmCodeListing:
+    result.add "Code listing"
+    let l = r.vmgenListing
 
-      let enter = s.direction == semstepEnter
-      if conf.hack.semTraceData and
-         s.kind != stepTrack #[ 'track' has no extra data fields ]#:
-        # field("kind", $s.kind) # useful if you're new to reading traces
-        case s.kind:
-          of stepNodeToNode:
-            if enter:
-              field("from node")
-            else:
-              field("to node")
-
-            result.add render(s.node)
-
-          of stepSymNodeToNode:
-            if enter:
-              field("from sym")
-              result.add render(s.sym)
-              field("from node")
-              result.add render(s.node)
-            else:
-              field("to node")
-              result.add render(s.node)
-
-          of stepNodeTypeToNode:
-            if enter:
-              field("from node")
-              result.add render(s.node)
-              field("from type")
-              result.add render(s.typ)
-            else:
-              field("to node")
-              result.add render(s.node)
-
-          of stepNodeFlagsToNode:
-            if enter:
-              field("from flags",  " " & conf.wrap($s.flags + fgCyan))
-              result.add
-              field("from node")
-              result.add render(s.node)
-            else:
-              field("to node")
-              result.add render(s.node)
-
-          of stepTrack:
-            discard
-
-          of stepError, stepWrongNode:
-            field("node")
-            result.add render(s.node)
-
-          of stepNodeToSym:
-            if enter:
-              field("from node")
-              result.add render(s.node)
-            else:
-              field("to sym")
-              result.add render(s.sym)
-
-          of stepIdentToSym:
-            if enter:
-              field("from ident")
-              result.add render(s.ident)
-            else:
-              field("to sym")
-              result.add render(s.sym)
-
-          of stepTypeTypeToType:
-            if enter:
-              field("from type")
-              result.add render(s.typ)
-              field("from type1")
-              result.add render(s.typ1)
-            else:
-              field("to type")
-              result.add render(s.typ)
-          
-          of stepNodeSigMatch, stepResolveOverload:
-            if enter:
-              field("from node")
-              result.add render(s.node)
-            else:
-              field("match status", s.candidate.state)
-              if s.candidate.call.isNil:
-                field("mismatch kind", $s.candidate.error.firstMismatch.kind)
-              else:
-                if s.candidate.calleeSym.isNil:
-                  field("callee")
-                  result.add render(s.candidate.callee)
-                else:
-                  field("calleeSym")
-                  result.add render(s.candidate.calleeSym)
-                field("call")
-                result.add render(s.candidate.call)
-
-
-    of rdbgTraceLine:
-      let ind = repeat("  ", r.ctraceData.level)
-      var
-        paths: seq[string]
-        width = 0
-      for entry in r.ctraceData.entries:
-        paths.add "$1($2)" % [
-          formatPath(conf, $entry.filename), $entry.line]
-
-        width = max(paths[^1].len, width)
-
-      for idx, entry in r.ctraceData.entries:
-        result.add(
-          "  ]",
-          ind, " | ",
-          alignLeft(paths[idx], width + 1),
-          conf.wrap($entry.procname, fgGreen),
-          tern(idx < r.ctraceData.entries.high, "\n", "")
-        )
-
-    of rdbgTraceStart:
-      result = ">>] trace start"
-
-    of rdbgTraceEnd:
-      result = "<<] trace end"
-
-    of rdbgTraceDefined:
-      result = ">>] debug trace defined at " & toStr(conf, r.location.get())
-
-    of rdbgTraceUndefined:
-      result = "<<] debug trace undefined " & toStr(conf, r.location.get())
-
-    of rdbgVmExecTraceMinimal:
+    if not l.sym.isNil():
       result.addf(
-        "$# [$#] $#",
-        conf.toStr(r.vmgenExecMinimal.info),
-        r.vmgenExecMinimal.opc.toStr,
-        conf.sourceLine(r.vmgenExecMinimal.info),
-      )
+        " for the '$#' $#\n\n",
+        l.sym.name.s,
+        conf.toStr(l.sym.info))
+    else:
+      result.add "\n\n"
 
-    of rdbgOptionsPush:
-      result = "PUSH: " & $r.optionsNow
+    for e in r.vmgenListing.entries:
+      if e.isTarget:
+        result.add("L:", e.pc, "\n")
 
-    of rdbgOptionsPop:
-      result = "POP: " & $r.optionsNow
+      func `$<`[T](arg: T): string = alignLeft($arg, 5)
+      func `$<`(opc: TOpcode): string = alignLeft(opc.toStr, 12)
 
-    of rdbgVmExecTraceFull:
-      let exec = r.vmgenExecFull
-      result.addf(
-        "PC:$1 $2 $3 $4 $5",
-        $exec.pc,
-        $exec.opc.toStr,
-        tern(exec.ra == rkNone, "", $exec.ra),
-        tern(exec.rb == rkNone, "", $exec.rb),
-        tern(exec.rc == rkNone, "", $exec.rc)
-      )
+      var line: string
 
-    of rdbgFinishedConfRead:
-      result = "finished configuration file read $1" % r.filename
-
-    of rdbgStartingConfRead:
-      result = "starting configuration file read $1" % r.filename
-
-    of rdbgCfgTrace:
-      result = "cfg trace '" & r.str & "'"
-
-    of rdbgVmCodeListing:
-      result.add "Code listing"
-      let l = r.vmgenListing
-      if not l.sym.isNil():
-        result.addf(
-          " for the '$#' $#\n\n",
-          l.sym.name.s,
-          conf.toStr(l.sym.info))
-
+      case e.opc
+      of {opcIndCall, opcIndCallAsgn}:
+        line.addf("  $# r$# r$# #$#", $<e.opc, $<e.ra, $<e.rb, $<e.rc)
+      of {opcConv, opcCast}:
+        line.addf(
+          "  $# r$# r$# $# $#",
+          $<e.opc,
+          $<e.ra,
+          $<e.rb,
+          $<e.types[0].typeToString(),
+          $<e.types[1].typeToString())
+      elif e.opc < firstABxInstr:
+        line.addf("  $# r$# r$# r$#", $<e.opc, $<e.ra, $<e.rb, $<e.rc)
+      elif e.opc in relativeJumps + {opcTry}:
+        line.addf("  $# r$# L$#", $<e.opc, $<e.ra, $<e.idx)
+      elif e.opc in {opcExcept}:
+        line.addf("  $# $# $#", $<e.opc, $<e.ra, $<e.idx)
+      elif e.opc in {opcLdConst, opcAsgnConst}:
+        line.addf(
+          "  $# r$# $# $#",
+          $<e.opc, $<e.ra, $<e.ast.renderTree(), $<e.idx)
       else:
-        result.add "\n\n"
+        line.addf("  $# r$# $#", $<e.opc, $<e.ra, $<e.idx)
 
-      for e in r.vmgenListing.entries:
-        if e.isTarget:
-          result.add("L:", e.pc, "\n")
-
-        func `$<`[T](arg: T): string = alignLeft($arg, 5)
-        func `$<`(opc: TOpcode): string = alignLeft(opc.toStr, 12)
-
-        var line: string
-        case e.opc:
-          of {opcIndCall, opcIndCallAsgn}:
-            line.addf("  $# r$# r$# #$#", $<e.opc, $<e.ra, $<e.rb, $<e.rc)
-
-          of {opcConv, opcCast}:
-            line.addf(
-              "  $# r$# r$# $# $#",
-              $<e.opc,
-              $<e.ra,
-              $<e.rb,
-              $<e.types[0].typeToString(),
-              $<e.types[1].typeToString())
-
-          elif e.opc < firstABxInstr:
-            line.addf("  $# r$# r$# r$#", $<e.opc, $<e.ra, $<e.rb, $<e.rc)
-
-          elif e.opc in relativeJumps + {opcTry}:
-            line.addf("  $# r$# L$#", $<e.opc, $<e.ra, $<e.idx)
-
-          elif e.opc in {opcExcept}:
-            line.addf("  $# $# $#", $<e.opc, $<e.ra, $<e.idx)
-
-          elif e.opc in {opcLdConst, opcAsgnConst}:
-            line.addf(
-              "  $# r$# $# $#",
-              $<e.opc, $<e.ra, $<e.ast.renderTree(), $<e.idx)
-
-          else:
-            line.addf("  $# r$# $#", $<e.opc, $<e.ra, $<e.idx)
-
-        result.add(
-          line,
-          tern(line.len <= 48, repeat(" ", 48 - line.len), ""),
-          toStr(conf, e.info),
-          "\n")
+      result.add(
+        line,
+        tern(line.len <= 48, repeat(" ", 48 - line.len), ""),
+        toStr(conf, e.info),
+        "\n")
 
 proc reportFull*(conf: ConfigRef, r: DebugReport): string =
   assertKind r
-  case r.kind:
-    of rdbgCfgTrace:
-      result.add(prefix(conf, r), reportBody(conf, r), suffix(conf, r))
-
-    else:
-      result = reportBody(conf, r)
+  case r.kind
+  of rdbgCfgTrace:
+    result.add(prefix(conf, r), reportBody(conf, r), suffix(conf, r))
+  else:
+    result = reportBody(conf, r)
 
 proc reportShort*(conf: ConfigRef, r: DebugReport): string =
   # mostly created for nimsuggest
@@ -3238,106 +3254,105 @@ proc reportShort*(conf: ConfigRef, r: DebugReport): string =
 proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
   assertKind r
   case BackendReportKind(r.kind):
-    of rbackJsUnsupportedClosureIter:
-      result = "Closure iterators are not supported by JS backend!"
+  of rbackJsUnsupportedClosureIter:
+    "Closure iterators are not supported by JS backend!"
 
-    of rbackJsTooCaseTooLarge:
-      result = "Your case statement contains too many branches, consider using if/else instead!"
+  of rbackJsTooCaseTooLarge:
+    "Your case statement contains too many branches, consider using if/else instead!"
 
-    of rbackCannotWriteScript, rbackCannotWriteMappingFile:
-      result = "could not write to file: " & r.filename
+  of rbackCannotWriteScript, rbackCannotWriteMappingFile:
+    "could not write to file: " & r.filename
 
-    of rbackTargetNotSupported:
-      result = "Compiler '$1' doesn't support the requested target" % r.usedCompiler
+  of rbackTargetNotSupported:
+    "Compiler '$1' doesn't support the requested target" % r.usedCompiler
 
-    of rbackJsonScriptMismatch:
-      result = (
-        "jsonscript command outputFile '$1' must " &
-          "match '$2' which was specified during --compileOnly, see \"outputFile\" entry in '$3' "
-      ) % [
-        r.jsonScriptParams[0],
-        r.jsonScriptParams[1],
-        r.jsonScriptParams[2],
-      ]
+  of rbackJsonScriptMismatch:
+    (
+      "jsonscript command outputFile '$1' must " &
+        "match '$2' which was specified during --compileOnly, see \"outputFile\" entry in '$3' "
+    ) % [
+      r.jsonScriptParams[0],
+      r.jsonScriptParams[1],
+      r.jsonScriptParams[2],
+    ]
 
-    of rbackVmFileWriteFailed:
-      result = "writing to output file '$1' failed with error: '$2'" %
-               [r.outFilename, r.failureMsg]
+  of rbackVmFileWriteFailed:
+    "writing to output file '$1' failed with error: '$2'" %
+              [r.outFilename, r.failureMsg]
 
-    of rbackRstCannotOpenFile:
-      result = "cannot open '$1'" % r.msg
+  of rbackRstCannotOpenFile:
+    "cannot open '$1'" % r.msg
 
-    of rbackRstExpected:
-      result = "'$1' expected" % r.msg
+  of rbackRstExpected:
+    "'$1' expected" % r.msg
 
-    of rbackRstGridTableNotImplemented:
-      result = "grid table is not implemented"
+  of rbackRstGridTableNotImplemented:
+    "grid table is not implemented"
 
-    of rbackRstMarkdownIllformedTable:
-      result = "illformed delimiter row of a Markdown table"
+  of rbackRstMarkdownIllformedTable:
+    "illformed delimiter row of a Markdown table"
 
-    of rbackRstNewSectionExpected:
-      result = "new section expected $1" % r.msg
+  of rbackRstNewSectionExpected:
+    "new section expected $1" % r.msg
 
-    of rbackRstGeneralParseError:
-      result = "general parse error" % r.msg
+  of rbackRstGeneralParseError:
+    "general parse error" % r.msg
 
-    of rbackRstInvalidDirective:
-      result = "invalid directive: '$1'" % r.msg
+  of rbackRstInvalidDirective:
+    "invalid directive: '$1'" % r.msg
 
-    of rbackRstInvalidField:
-      result = "invalid field: $1" % r.msg
+  of rbackRstInvalidField:
+    "invalid field: $1" % r.msg
 
-    of rbackRstFootnoteMismatch:
-      result = "mismatch in number of footnotes and their refs: $1" % r.msg
+  of rbackRstFootnoteMismatch:
+    "mismatch in number of footnotes and their refs: $1" % r.msg
 
-    of rbackCannotProduceAssembly:
-      result = "Couldn't produce assembler listing " &
-        "for the selected C compiler: " & r.usedCompiler
+  of rbackCannotProduceAssembly:
+    "Couldn't produce assembler listing " &
+      "for the selected C compiler: " & r.usedCompiler
 
-    of rbackRstTestUnsupported:
-      result = "the ':test:' attribute is not supported by this backend"
+  of rbackRstTestUnsupported:
+    "the ':test:' attribute is not supported by this backend"
 
-    of rbackRstRedefinitionOfLabel:
-      result = "redefinition of label '$1'" % r.msg
+  of rbackRstRedefinitionOfLabel:
+    "redefinition of label '$1'" % r.msg
 
-    of rbackRstUnknownSubstitution:
-      result = "unknown substitution '$1'" % r.msg
+  of rbackRstUnknownSubstitution:
+    "unknown substitution '$1'" % r.msg
 
-    of rbackRstBrokenLink:
-      result = "unknown substitution '$1'" % r.msg
+  of rbackRstBrokenLink:
+    "unknown substitution '$1'" % r.msg
 
-    of rbackRstUnsupportedLanguage:
-      result = "language '$1' not supported" % r.msg
+  of rbackRstUnsupportedLanguage:
+    "language '$1' not supported" % r.msg
 
-    of rbackRstUnsupportedField:
-      result = "field '$1' not supported" % r.msg
+  of rbackRstUnsupportedField:
+    "field '$1' not supported" % r.msg
 
-    of rbackRstRstStyle:
-      result = "RST style: $1" % r.msg
+  of rbackRstRstStyle:
+    "RST style: $1" % r.msg
 
-    of rbackProducedAssembly:
-      result = "Produced assembler here: " & r.filename
+  of rbackProducedAssembly:
+    "Produced assembler here: " & r.filename
 
-    of rbackLinking:
-      result = ""
+  of rbackLinking:
+    ""
 
-    of rbackCompiling:
-      result = ""
+  of rbackCompiling:
+    ""
 
 proc reportFull*(conf: ConfigRef, r: BackendReport): string =
   assertKind r
   case BackendReportKind(r.kind):
-    of rbackJsUnsupportedClosureIter,
-       rbackJsTooCaseTooLarge:
-      result.add(
-        conf.prefix(r),
-        conf.reportBody(r),
-        conf.suffix(r)
-      )
-
-    else:
-      result = reportBody(conf, r)
+  of rbackJsUnsupportedClosureIter,
+      rbackJsTooCaseTooLarge:
+    result.add(
+      conf.prefix(r),
+      conf.reportBody(r),
+      conf.suffix(r)
+    )
+  else:
+    result = reportBody(conf, r)
 
 proc reportShort*(conf: ConfigRef, r: BackendReport): string =
   # mostly created for nimsuggest
@@ -3353,189 +3368,189 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
   proc render(n: PNode, rf = defaultRenderFlags): string = renderTree(n, rf)
   proc render(t: PType): string = typeToString(t)
 
-  case VMReportKind(r.kind):
-    of rvmUserError:
-      result = r.str
+  case VMReportKind(r.kind)
+  of rvmUserError:
+    result = r.str
 
-    of rvmMissingImportcCompleteStruct:
-      result = "'$1' requires '.importc' types to be '.completeStruct'" % r.str
+  of rvmMissingImportcCompleteStruct:
+    result = "'$1' requires '.importc' types to be '.completeStruct'" % r.str
 
-    of rvmNotAFieldSymbol:
-      result = "no field symbol"
+  of rvmNotAFieldSymbol:
+    result = "no field symbol"
 
-    of rvmBadExpandToAst:
-      result = "expandToAst requires 1 argument"
+  of rvmBadExpandToAst:
+    result = "expandToAst requires 1 argument"
 
-    of rvmCannotImportc:
-      result = "cannot 'importc' variable/proc at compile time: " & r.symstr
+  of rvmCannotImportc:
+    result = "cannot 'importc' variable/proc at compile time: " & r.symstr
 
-    of rvmCannotCreateNullElement:
-      result = "cannot create null element for: " & r.typ.render
+  of rvmCannotCreateNullElement:
+    result = "cannot create null element for: " & r.typ.render
 
-    of rvmInvalidObjectConstructor:
-      result = "invalid object constructor"
+  of rvmInvalidObjectConstructor:
+    result = "invalid object constructor"
 
-    of rvmNoClosureIterators:
-      result = "Closure iterators are not supported by VM!"
+  of rvmNoClosureIterators:
+    result = "Closure iterators are not supported by VM!"
 
-    of rvmStackTrace:
-      result = "stack trace: (most recent call last)\n"
-      for idx in countdown(r.stacktrace.high, 0):
-        let (sym, loc) = r.stacktrace[idx]
-        result.add(
-          conf.toStr(loc),
-          " ",
-          if sym != nil: sym.name.s else: "???"
-        )
-        if r.skipped > 0 and idx == r.stacktrace.high:
-          # The entry point is always the last element in the list
-          result.add(
-            "\nSkipped ", r.skipped,
-            " entries, calls that led up to printing")
-
-        if idx > 0:
-          result.add("\n")
-
-    of rvmUnhandledException:
-      result.addf(
-        "unhandled exception: $1 [$2]",
-        r.ast[3].skipColon.strVal,
-        r.ast[2].skipColon.strVal
+  of rvmStackTrace:
+    result = "stack trace: (most recent call last)\n"
+    for idx in countdown(r.stacktrace.high, 0):
+      let (sym, loc) = r.stacktrace[idx]
+      result.add(
+        conf.toStr(loc),
+        " ",
+        if sym != nil: sym.name.s else: "???"
       )
+      if r.skipped > 0 and idx == r.stacktrace.high:
+        # The entry point is always the last element in the list
+        result.add(
+          "\nSkipped ", r.skipped,
+          " entries, calls that led up to printing")
 
-    of rvmNodeNotASymbol:
-      result = "node is not a symbol"
+      if idx > 0:
+        result.add("\n")
 
-    of rvmNodeNotAProcSymbol:
-      result = "node is not a proc symbol"
+  of rvmUnhandledException:
+    result.addf(
+      "unhandled exception: $1 [$2]",
+      r.ast[3].skipColon.strVal,
+      r.ast[2].skipColon.strVal
+    )
 
-    of rvmDerefUnsupportedPtr:
-      result = "deref unsupported ptr type: $1 $2" % [
-        r.typ.render, $r.typ.kind]
+  of rvmNodeNotASymbol:
+    result = "node is not a symbol"
 
-    of rvmNilAccess:
-      result = "attempt to access a nil address"
+  of rvmNodeNotAProcSymbol:
+    result = "node is not a proc symbol"
 
-    of rvmAccessOutOfBounds:
-      result = "trying to access a location outside of the VM's memory"
+  of rvmDerefUnsupportedPtr:
+    result = "deref unsupported ptr type: $1 $2" % [
+      r.typ.render, $r.typ.kind]
 
-    of rvmAccessTypeMismatch:
-        # TODO: provide both dynamic and static type in the message
-      result = "trying to access a location with a handle of incompatible type"
+  of rvmNilAccess:
+    result = "attempt to access a nil address"
 
-    of rvmAccessNoLocation:
-      result = "handle doesn't reference a valid location"
+  of rvmAccessOutOfBounds:
+    result = "trying to access a location outside of the VM's memory"
 
-    of rvmOverOrUnderflow:
-      result = "over- or underflow"
+  of rvmAccessTypeMismatch:
+      # TODO: provide both dynamic and static type in the message
+    result = "trying to access a location with a handle of incompatible type"
 
-    of rvmDivisionByConstZero:
-      result = "division by zero"
+  of rvmAccessNoLocation:
+    result = "handle doesn't reference a valid location"
 
-    of rvmTooManyIterations:
-      result = "interpretation requires too many iterations; " &
-        "if you are sure this is not a bug in your code, compile " &
-        "with `--maxLoopIterationsVM:number` (current value: $1)" %
-        $conf.maxLoopIterationsVM
+  of rvmOverOrUnderflow:
+    result = "over- or underflow"
 
-    of rvmCannotModifyTypechecked:
-      result = "typechecked nodes may not be modified"
+  of rvmDivisionByConstZero:
+    result = "division by zero"
 
-    of rvmNoType:
-      result = "node has no type"
+  of rvmTooManyIterations:
+    result = "interpretation requires too many iterations; " &
+      "if you are sure this is not a bug in your code, compile " &
+      "with `--maxLoopIterationsVM:number` (current value: $1)" %
+      $conf.maxLoopIterationsVM
 
-    of rvmIllegalConv:
-      result = r.str
+  of rvmCannotModifyTypechecked:
+    result = "typechecked nodes may not be modified"
 
-    of rvmFieldNotFound:
-      result = "node lacks field: " & r.str
+  of rvmNoType:
+    result = "node has no type"
 
-    of rvmNodeNotAFieldSymbol:
-      result = "symbol is not a field (nskField)"
+  of rvmIllegalConv:
+    result = r.str
 
-    of rvmCannotSetChild:
-      result = "cannot set child of node kind: n" & $r.ast.kind
+  of rvmFieldNotFound:
+    result = "node lacks field: " & r.str
 
-    of rvmCannotAddChild:
-      result = "cannot add to node kind: n" & $r.ast.kind
+  of rvmNodeNotAFieldSymbol:
+    result = "symbol is not a field (nskField)"
 
-    of rvmCannotGetChild:
-      result = "cannot get child of node kind: n" & $r.ast.kind
+  of rvmCannotSetChild:
+    result = "cannot set child of node kind: n" & $r.ast.kind
 
-    of rvmMissingCacheKey:
-      result = "key does not exist: " & r.str
+  of rvmCannotAddChild:
+    result = "cannot add to node kind: n" & $r.ast.kind
 
-    of rvmCacheKeyAlreadyExists:
-      result = "key already exists: " & r.str
+  of rvmCannotGetChild:
+    result = "cannot get child of node kind: n" & $r.ast.kind
 
-    of rvmFieldInavailable:
-      result = r.str
+  of rvmMissingCacheKey:
+    result = "key does not exist: " & r.str
 
-    of rvmUnsupportedNonNil:
-      case r.typ.kind
-      of tyRef:
-        result = "static expressions yielding non-nil 'ref' values that are" &
-                " not of 'object'-type are not supported"
-      of tyPtr, tyPointer:
-        result = "static expressions yielding non-nil pointer values are " &
-                "not supported"
-      else:
-        assert false
+  of rvmCacheKeyAlreadyExists:
+    result = "key already exists: " & r.str
 
-    of rvmCannotFindBreakTarget:
-      result = "VM problem: cannot find 'break' target"
+  of rvmFieldInavailable:
+    result = r.str
 
-    of rvmNotUnused:
-      result = "not unused"
+  of rvmUnsupportedNonNil:
+    case r.typ.kind
+    of tyRef:
+      result = "static expressions yielding non-nil 'ref' values that are" &
+              " not of 'object'-type are not supported"
+    of tyPtr, tyPointer:
+      result = "static expressions yielding non-nil pointer values are " &
+              "not supported"
+    else:
+      assert false
 
-    of rvmTooLargetOffset:
-      result = "too large offset! cannot generate code for: " &
-        r.sym.name.s
+  of rvmCannotFindBreakTarget:
+    result = "VM problem: cannot find 'break' target"
 
-    of rvmCannotGenerateCode:
-      result = "cannot generate code for: " &
-        $r.ast
+  of rvmNotUnused:
+    result = "not unused"
 
-    of rvmCannotCast:
-      result = "VM does not support 'cast' from " &
-        $r.actualType.kind & " to " & $r.formalType.kind
+  of rvmTooLargetOffset:
+    result = "too large offset! cannot generate code for: " &
+      r.sym.name.s
 
-    of rvmCannotEvaluateAtComptime:
-      result = "cannot evaluate at compile time: " & r.ast.render
+  of rvmCannotGenerateCode:
+    result = "cannot generate code for: " &
+      $r.ast
 
-    of rvmTooManyRegistersRequired:
-      result = "VM problem: too many registers required"
+  of rvmCannotCast:
+    result = "VM does not support 'cast' from " &
+      $r.actualType.kind & " to " & $r.formalType.kind
 
-    of rvmCannotCallMethod:
-      result = "cannot call method " & r.symstr & " at compile time"
+  of rvmCannotEvaluateAtComptime:
+    result = "cannot evaluate at compile time: " & r.ast.render
 
-    of rvmNotAField:
-      result = "symbol is not a field (nskField)"
+  of rvmTooManyRegistersRequired:
+    result = "VM problem: too many registers required"
 
-    of rvmOutOfRange:
-      result = "unhandled exception: value out of range"
+  of rvmCannotCallMethod:
+    result = "cannot call method " & r.symstr & " at compile time"
 
-    of rvmErrInternal:
-      result = r.str
+  of rvmNotAField:
+    result = "symbol is not a field (nskField)"
 
-    of rvmCallingNonRoutine:
-      result = "NimScript: attempt to call non-routine: " & r.symstr
+  of rvmOutOfRange:
+    result = "unhandled exception: value out of range"
 
-    of rvmGlobalError:
-      result = r.str
+  of rvmErrInternal:
+    result = r.str
 
-    of rvmOpcParseExpectedExpression:
-      result = "expected expression, but got multiple statements"
+  of rvmCallingNonRoutine:
+    result = "NimScript: attempt to call non-routine: " & r.symstr
 
-    of rvmIndexError:
-      let (i, a, b) = r.indexSpec
-      if b < a:
-        result = "index out of bounds, the container is empty"
-      else:
-        result = "index " & $i & " not in " & $a & " .. " & $b
+  of rvmGlobalError:
+    result = r.str
 
-    of rvmQuit:
-      result = "`quit` called with exit-code: " & $r.exitCode
+  of rvmOpcParseExpectedExpression:
+    result = "expected expression, but got multiple statements"
+
+  of rvmIndexError:
+    let (i, a, b) = r.indexSpec
+    if b < a:
+      result = "index out of bounds, the container is empty"
+    else:
+      result = "index " & $i & " not in " & $a & " .. " & $b
+
+  of rvmQuit:
+    result = "`quit` called with exit-code: " & $r.exitCode
 
 
 proc reportFull*(conf: ConfigRef, r: VMReport): string =
@@ -3555,23 +3570,23 @@ proc reportShort*(conf: ConfigRef, r: VMReport): string =
 
 proc reportBody*(conf: ConfigRef, r: CmdReport): string =
   assertKind r
-  case CmdReportKind(r.kind):
-    of rcmdCompiling:
-      result = "CC: " & r.msg
+  case CmdReportKind(r.kind)
+  of rcmdCompiling:
+    result = "CC: " & r.msg
 
-    of rcmdLinking:
-      result = conf.prefix(r) & conf.suffix(r)
+  of rcmdLinking:
+    result = conf.prefix(r) & conf.suffix(r)
 
-    of rcmdFailedExecution:
-      result = "execution of an external program '$1' failed with exit code '$2'" % [
-        r.cmd, $r.code
-      ]
+  of rcmdFailedExecution:
+    result = "execution of an external program '$1' failed with exit code '$2'" % [
+      r.cmd, $r.code
+    ]
 
-    of rcmdExecuting:
-      result = r.cmd
+  of rcmdExecuting:
+    result = r.cmd
 
-    of rcmdRunnableExamplesSuccess:
-      result = "runnableExamples: " & r.msg
+  of rcmdRunnableExamplesSuccess:
+    result = "runnableExamples: " & r.msg
 
 proc reportFull*(conf: ConfigRef, r: CmdReport): string =
   assertKind r
@@ -3587,44 +3602,47 @@ proc reportBody*(conf: ConfigRef, r: Report): string =
   ## specific report categories.
   assertKind r
   case r.category:
-    of repLexer:    result = conf.reportBody(r.lexReport)
-    of repParser:   result = conf.reportBody(r.parserReport)
-    of repCmd:      result = conf.reportBody(r.cmdReport)
-    of repSem:      result = conf.reportBody(r.semReport)
-    of repDebug:    result = conf.reportBody(r.debugReport)
-    of repInternal: result = conf.reportBody(r.internalReport)
-    of repBackend:  result = conf.reportBody(r.backendReport)
-    of repExternal: result = conf.reportBody(r.externalReport)
-    of repVM:       result = conf.reportBody(r.vmReport)
+  of repLexer:    conf.reportBody(r.lexReport)
+  of repParser:   conf.reportBody(r.parserReport)
+  of repCmd:      conf.reportBody(r.cmdReport)
+  of repSem:      conf.reportBody(r.semReport)
+  of repDbgTrace: conf.reportBody(r.dbgTraceReport)
+  of repDebug:    conf.reportBody(r.debugReport)
+  of repInternal: conf.reportBody(r.internalReport)
+  of repBackend:  conf.reportBody(r.backendReport)
+  of repExternal: conf.reportBody(r.externalReport)
+  of repVM:       conf.reportBody(r.vmReport)
 
 proc reportFull*(conf: ConfigRef, r: Report): string =
   ## Generate full version of the report (location, severity, body,
   ## optional suffix)
   assertKind r
   case r.category:
-    of repLexer:    result = conf.reportFull(r.lexReport)
-    of repParser:   result = conf.reportFull(r.parserReport)
-    of repCmd:      result = conf.reportFull(r.cmdReport)
-    of repSem:      result = conf.reportFull(r.semReport)
-    of repDebug:    result = conf.reportFull(r.debugReport)
-    of repInternal: result = conf.reportFull(r.internalReport)
-    of repBackend:  result = conf.reportFull(r.backendReport)
-    of repExternal: result = conf.reportFull(r.externalReport)
-    of repVM:       result = conf.reportFull(r.vmReport)
+  of repLexer:    conf.reportFull(r.lexReport)
+  of repParser:   conf.reportFull(r.parserReport)
+  of repCmd:      conf.reportFull(r.cmdReport)
+  of repSem:      conf.reportFull(r.semReport)
+  of repDbgTrace: conf.reportFull(r.dbgTraceReport)
+  of repDebug:    conf.reportFull(r.debugReport)
+  of repInternal: conf.reportFull(r.internalReport)
+  of repBackend:  conf.reportFull(r.backendReport)
+  of repExternal: conf.reportFull(r.externalReport)
+  of repVM:       conf.reportFull(r.vmReport)
 
 proc reportShort*(conf: ConfigRef, r: Report): string =
   ## Generate short report version of the report
   assertKind r
   case r.category:
-    of repLexer:    result = conf.reportShort(r.lexReport)
-    of repParser:   result = conf.reportShort(r.parserReport)
-    of repCmd:      result = conf.reportShort(r.cmdReport)
-    of repSem:      result = conf.reportShort(r.semReport)
-    of repDebug:    result = conf.reportShort(r.debugReport)
-    of repInternal: result = conf.reportShort(r.internalReport)
-    of repBackend:  result = conf.reportShort(r.backendReport)
-    of repExternal: result = conf.reportShort(r.externalReport)
-    of repVM:       result = conf.reportShort(r.vmReport)
+  of repLexer:    conf.reportShort(r.lexReport)
+  of repParser:   conf.reportShort(r.parserReport)
+  of repCmd:      conf.reportShort(r.cmdReport)
+  of repSem:      conf.reportShort(r.semReport)
+  of repDbgTrace: conf.reportShort(r.dbgTraceReport)
+  of repDebug:    conf.reportShort(r.debugReport)
+  of repInternal: conf.reportShort(r.internalReport)
+  of repBackend:  conf.reportShort(r.backendReport)
+  of repExternal: conf.reportShort(r.externalReport)
+  of repVM:       conf.reportShort(r.vmReport)
 
 const
   rdbgTracerKinds* = {rdbgTraceDefined .. rdbgTraceEnd}
@@ -3642,47 +3660,45 @@ proc rotatedTrace(conf: ConfigRef, r: Report) =
   ## `nimCompilerDebugTraceDir`
   # Dispatch each `{.define(nimCompilerDebug).}` section into separate file
   assert r.kind in rdbgTracerKinds, $r.kind
-  case r.kind:
-    of rdbgTraceStart, rdbgTraceEnd:
-      # Rotated trace is constrolled by the define-undefine pair, not by
-      # singular call to the nested recursion handling.
-      discard
+  
+  case r.kind
+  of rdbgTraceStart, rdbgTraceEnd:
+    # Rotated trace is constrolled by the define-undefine pair, not by
+    # singular call to the nested recursion handling.
+    discard
+  of rdbgTraceDefined:
+    if not dirExists(conf.getDefined(traceDir)):
+      createDir conf.getDefined(traceDir)
 
-    of rdbgTraceDefined:
-      if not dirExists(conf.getDefined(traceDir)):
-        createDir conf.getDefined(traceDir)
+    counter = 0
+    let loc = r.location.get()
+    let path = conf.getDefined(traceDir) / "compiler_trace_$1_$2.nim" % [
+      conf.toFilename(loc).multiReplace({
+        "/": "_",
+        ".nim": ""
+      }),
+      $fileIndex
+    ]
 
-      counter = 0
-      let loc = r.location.get()
-      let path = conf.getDefined(traceDir) / "compiler_trace_$1_$2.nim" % [
-        conf.toFilename(loc).multiReplace({
-          "/": "_",
-          ".nim": ""
-        }),
-        $fileIndex
-      ]
+    echo "$1($2, $3): opening $4 trace" % [
+      conf.toFilename(loc), $loc.line, $loc.col, path]
 
-      echo "$1($2, $3): opening $4 trace" % [
-        conf.toFilename(loc), $loc.line, $loc.col, path]
+    traceFile = open(path, fmWrite)
+    inc fileIndex
+  of rdbgTraceUndefined:
+    let loc = r.location.get()
+    echo "$1($2, $3): closing trace, wrote $4 records" % [
+      conf.toFilename(loc), $loc.line, $loc.col, $counter]
 
-      traceFile = open(path, fmWrite)
-      inc fileIndex
-
-    of rdbgTraceUndefined:
-      let loc = r.location.get()
-      echo "$1($2, $3): closing trace, wrote $4 records" % [
-        conf.toFilename(loc), $loc.line, $loc.col, $counter]
-
-      close(traceFile)
-
-    else:
-      inc counter
-      conf.excl optUseColors
-      traceFile.write(conf.reportFull(r))
-      traceFile.write("\n")
-      traceFile.flushFile() # Forcefully flush the file in case of abrupt
-      # exit by the compiler.
-      conf.incl optUseColors
+    close(traceFile)
+  else:
+    inc counter
+    conf.excl optUseColors
+    traceFile.write(conf.reportFull(r))
+    traceFile.write("\n")
+    traceFile.flushFile() # Forcefully flush the file in case of abrupt
+    # exit by the compiler.
+    conf.incl optUseColors
 
 proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## Default implementation of the report hook. Dispatches into
@@ -3697,19 +3713,15 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   # be written.
   if wkind == writeDisabled:
     return
-
   elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
     rotatedTrace(conf, r)
-
   elif wkind == writeForceEnabled:
     echo conf.reportFull(r)
-
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
     # REFACTOR 'processing with dots' - requires special hacks, pretty
     # useless, need to be removed in the future.
     conf.write(".")
     lastDot = true
-
   else:
     var msg: seq[string]
     if lastDot:
@@ -3719,30 +3731,25 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
     if conf.hack.reportInTrace:
       var indent {.global.}: int
       if r.kind == rdbgTraceStep:
-        indent = r.debugReport.semstep.level
+        indent = r.dbgTraceReport.semstep.level
 
       case r.kind:
         of rdbgTracerKinds:
           msg.add(conf.reportFull(r))
-
         of repSemKinds:
           if 0 < indent:
             for line in conf.reportFull(r).splitLines():
               msg.add("  ]" & repeat("  ", indent) & " ! " & line)
-
           else:
             msg.add(conf.reportFull(r))
-
         else:
           msg.add(conf.reportFull(r))
-
     else:
       msg.add(conf.reportFull(r))
 
     if conf.hack.bypassWriteHookForTrace:
       for item in msg:
         echo item
-
     else:
       for item in msg:
         conf.writeln(item)

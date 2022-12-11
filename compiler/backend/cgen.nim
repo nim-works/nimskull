@@ -29,7 +29,6 @@ import
     wordrecg,
     treetab,
     renderer,
-    reports,
     lineinfos,
     astmsgs,
     ndi
@@ -64,6 +63,16 @@ import
   ],
   compiler/plugins/[
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced...
+#      like the backend report sem errors.
+from compiler/ast/reports_sem import SemReport,
+  reportSem,
+  reportStr,
+  reportSym,
+  reportTyp
+from compiler/ast/reports_backend import BackendReport
+from compiler/ast/report_enums import ReportKind
 
 import std/strutils except `%` # collides with ropes.`%`
 

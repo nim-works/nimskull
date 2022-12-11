@@ -23,7 +23,6 @@ import std/options as std_options
 
 import
   compiler/ast/[
-    reports,
     idents,
     lineinfos,
     ast
@@ -48,6 +47,18 @@ import
     passes,
     passaux,
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import reportSem
+from compiler/ast/report_enums import ReportCategory,
+  ReportKind
+
+# TODO: `Report` is far too broad a type, includes help messages (wtf), the
+#       structured report hook is overly broad and lost the plot
+from compiler/ast/reports import Report,
+  category,
+  kind,
+  location
 
 from compiler/tools/suggest import isTracked, listUsages, suggestSym, `$`
 
@@ -114,7 +125,7 @@ proc myLog(conf: ConfigRef, s: string, flags: MsgFlags = {}) =
 proc reportHook(conf: ConfigRef, report: Report): TErrorHandling =
   result = doNothing
   case report.category
-  of repCmd, repDebug, repInternal, repExternal:
+  of repCmd, repDebug, repDbgTrace, repInternal, repExternal:
     myLog(conf, $report)
   of repParser, repLexer, repSem, repVM:
     if report.category == repSem and

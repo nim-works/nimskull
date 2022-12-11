@@ -28,7 +28,6 @@ import
     typesrenderer,
     idents,
     lineinfos,
-    reports
   ],
   compiler/modules/[
     magicsys,
@@ -47,6 +46,14 @@ import
     optimizer,
     varpartitions
   ]
+
+from std/options as std_options import some, none
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import SemReport,
+  reportAst,
+  reportSem
+from compiler/ast/report_enums import ReportKind
 
 from compiler/ast/trees import exprStructuralEquivalent, getRoot
 
@@ -550,9 +557,10 @@ proc cycleCheck(n: PNode; c: var Con) =
       break
     if exprStructuralEquivalent(x, value, strictSymEquality = true):
       localReport(c.graph.config, n.info):
-        reportAst(rsemUncollectableRefCycle, field).withIt do:
-          it.cycleField = field
-
+        block:
+          var r = reportAst(rsemUncollectableRefCycle, field)
+          r.cycleField = field
+          r
 
       break
 

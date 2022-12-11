@@ -16,7 +16,6 @@ import
     ast_types,
     ast,
     idents,
-    reports,
   ],
   compiler/front/[
     options
@@ -37,6 +36,10 @@ import
   experimental/[
     results
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_vm import VMReport
+from compiler/ast/report_enums import ReportKind
 
 from std/math import sqrt, ln, log10, log2, exp, round, arccos, arcsin,
   arctan, arctan2, cos, cosh, hypot, sinh, sin, tan, tanh, pow, trunc,

@@ -45,7 +45,6 @@ import
     renderer,
     lineinfos,
     astmsgs,
-    reports
   ],
   compiler/modules/[
     magicsys,
@@ -76,6 +75,13 @@ import
   ],
   compiler/vm/[
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import reportSem,
+  reportStr,
+  reportSym
+from compiler/ast/reports_backend import BackendReport
+from compiler/ast/report_enums import ReportKind
 
 
 type

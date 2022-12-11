@@ -37,14 +37,14 @@ import
     pathutils
   ],
   compiler/ast/[
-    reports, idents
+    idents
   ]
 
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_internal import InternalReport
+from compiler/ast/reports_external import ExternalReport
+from compiler/ast/report_enums import ReportKind
 
-# import
-#   cli_reporter,
-#   commands, options, msgs,  main, idents, cmdlinehelper,
-#   pathutils, modulegraphs, reports
 
 from std/browsers import openDefaultBrowser
 from compiler/utils/nodejs import findNodeJs

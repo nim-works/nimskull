@@ -20,7 +20,6 @@ import
     ast,
     renderer,
     types,
-    reports,
     trees
   ],
   compiler/modules/[
@@ -41,6 +40,12 @@ import
   compiler/backend/[
     ccgutils
   ]
+
+from compiler/ast/reports_sem import reportAst,
+  reportSem,
+  reportSym,
+  reportTyp
+from compiler/ast/report_enums import ReportKind
 
 type
   TLiftCtx = object

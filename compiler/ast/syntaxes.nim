@@ -21,7 +21,6 @@ import
     filter_tmpl,
     renderer,
     lineinfos,
-    reports
   ],
   compiler/front/[
     options,
@@ -30,6 +29,16 @@ import
   compiler/utils/[
     pathutils,
   ]
+
+# TODO: reporting lexer and parser errors tangles it up with filters, break
+#       this up into it's own diag/event/telemetry
+from compiler/ast/reports_lexer import LexerReport
+from compiler/ast/reports_parser import ParserReport
+
+# TODO: replace with internalError/Assert, at the very least, its own
+#       diag/event/telemetry is better
+from compiler/ast/reports_internal import InternalReport
+from compiler/ast/report_enums import ReportKind
 
 export Parser, parseAll, parseTopLevelStmt, closeParser
 

@@ -23,7 +23,6 @@ import
     lineinfos,
     errorreporting,
     errorhandling,
-    reports,
   ],
   compiler/modules/[
     modulegraphs,
@@ -44,6 +43,22 @@ import
     debugutils,
   ]
 
+# xxx: reports are a code smell meaning data types are misplaced, for example
+#      SemCallMismatch, SemDiagnostics, MismatchInfo, and
+#      DebugCallableCandidate
+from compiler/ast/reports_sem import SemReport,
+  MismatchInfo,
+  SemCallMismatch,
+  SemDiagnostics,
+  DebugCallableCandidate,
+  reportAst,
+  reportSym
+from compiler/ast/report_enums import ReportKind,
+  repSem
+
+# TODO: this report hook is bonkers, we're looking at any possible "report" for
+#       errors to include in diagnostics, it's far too broad
+from compiler/ast/reports import Report
 
 type
   TCandidateState* = enum

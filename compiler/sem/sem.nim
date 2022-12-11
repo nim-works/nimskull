@@ -29,7 +29,6 @@ import
     errorreporting,
     errorhandling,
     astmsgs,
-    reports,
     lineinfos,
     idents,
     enumtostr,
@@ -83,6 +82,29 @@ import
     vmdef,
     vm
   ]
+
+from std/options as std_options import some, none
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import SemReport,
+  SemCallMismatch, # xxx: used by `semcall` at least
+  MismatchInfo,    # xxx: used by `semcall` at least
+  reportAst,
+  reportSem,       # xxx: used by `semcall` at least
+  reportStr,       # xxx: used by `semtypes` at least
+  reportSym,
+  reportSymbols,   # xxx: used by `semcall` at least
+  reportTyp        # xxx: used by `semtypes` at least
+
+# TODO: `semtypes` misuses `VMReport` to indicate a compile time error, it's a
+#       semantic analysis error born of compile time evaluation
+from compiler/ast/reports_vm import VMReport
+from compiler/ast/report_enums import ReportKind
+
+when defined(nimsuggest):
+  # TODO: used in `semexprs.tryIt` for the report hook, it's far too broad and
+  #       it's silly that the compiler hook looks so broadly
+  from compiler/ast/reports import Report
 
 import compiler/tools/suggest
 

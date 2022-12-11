@@ -20,12 +20,15 @@ import
     renderer,
     wordrecg,
     trees,
-    reports
   ],
   compiler/front/[
     msgs,
     options
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import reportAst
+from compiler/ast/report_enums import ReportKind
 
 # we precompile the pattern here for efficiency into some internal
 # stack based VM :-) Why? Because it's fun; I did no benchmarks to see if that

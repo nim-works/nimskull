@@ -16,7 +16,6 @@ import
     lineinfos,
     idents,
     renderer,
-    reports,
     errorhandling,
     errorreporting
   ],
@@ -27,6 +26,12 @@ import
   compiler/utils/[
     debugutils
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import SemReport,
+  reportAst,
+  reportSem
+from compiler/ast/report_enums import ReportKind
 
 type
   TemplCtx = object

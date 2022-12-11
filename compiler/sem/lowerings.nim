@@ -19,7 +19,6 @@ import
     types,
     idents,
     lineinfos,
-    reports
   ],
   compiler/modules/[
     modulegraphs,
@@ -29,6 +28,9 @@ import
     msgs,
     options
   ]
+
+from compiler/ast/reports_sem import reportStr
+from compiler/ast/report_enums import ReportKind
 
 proc newDeref*(n: PNode): PNode {.inline.} =
   result = newTreeIT(nkHiddenDeref, n.info, n.typ[0]): n

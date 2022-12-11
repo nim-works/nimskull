@@ -16,8 +16,18 @@ import
 
 import
   compiler/utils/[ropes, pathutils],
-  compiler/ast/[reports, lineinfos],
+  compiler/ast/[reports, lineinfos, reports_internal],
   compiler/front/[options]
+
+# TODO: `ReportContext` is used for "context setting", it happening in `msgs`
+#       and it involving `ConfigRef`, all seems off. Likely a dependency that
+#       can be simplified out, also the functionality itself could be ill
+#       conceived.
+from compiler/ast/reports_base_sem import ReportContext, ReportContextKind
+
+# when you have data where it belongs, it's easy to see this stuff... should
+# `msgs` really depend upon `SemReport`?
+from compiler/ast/reports_sem import SemReport 
 
 from compiler/ast/ast_types import PSym
 
@@ -448,6 +458,7 @@ template localReport*(conf: ConfigRef, report: Report) =
 #      code below is a temporary bridge to work around this until fixed.
 
 from compiler/ast/lexer import LexerDiag, LexerDiagKind
+from compiler/ast/reports_lexer import LexerReport
 
 func lexDiagToLegacyReportKind*(diag: LexerDiagKind): ReportKind {.inline.} =
   case diag

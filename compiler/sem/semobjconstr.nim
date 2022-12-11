@@ -117,12 +117,12 @@ proc semConstrField(c: PContext, flags: TExprFlags,
       result = newError(
         c.config,
         result,
-        reportSym(
-          rsemFieldOkButAssignedValueInvalid,
-          field,
-          ast = initValue
-        ).withIt do:
-          it.wrongNode = result
+        block:
+          var r = reportSym(rsemFieldOkButAssignedValueInvalid,
+                            field,
+                            ast = initValue)
+          r.wrongNode = result
+          r
       )
 
 

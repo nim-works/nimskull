@@ -21,9 +21,11 @@ proc semAddrArg(c: PContext; n: PNode; isUnsafeAddr = false): PNode =
   else:
     # Do not suggest the use of unsafeAddr if this expression already is a
     # unsafeAddr
-    result = newError(c.config, n,
-      reportSem(rsemExprHasNoAddress).withIt do:
-        it.isUnsafeAddr = true)
+    result = newError(c.config, n):
+      block:
+        var r = reportSem(rsemExprHasNoAddress)
+        r.isUnsafeAddr = true
+        r
 
 proc semTypeOf(c: PContext; n: PNode): PNode =
   var m = BiggestInt 1 # typeOfIter

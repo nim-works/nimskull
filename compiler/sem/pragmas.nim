@@ -24,7 +24,6 @@ import
     trees,
     linter,
     errorhandling,
-    reports,
     lineinfos
   ],
   compiler/modules/[
@@ -47,7 +46,18 @@ import
     extccomp
   ]
 
-
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import SemReport,
+  reportAst,
+  reportSem,
+  reportStr,
+  reportSym,
+  reportTyp
+from compiler/ast/reports_debug import DebugReport
+from compiler/ast/report_enums import ReportKind,
+  ReportKinds,
+  repHintKinds,
+  repWarningKinds
 
 from compiler/ic/ic import addCompilerProc
 

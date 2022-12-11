@@ -23,7 +23,6 @@ import
     lineinfos,
     errorhandling,
     errorreporting,
-    reports
   ],
   compiler/modules/[
     modulegraphs
@@ -42,6 +41,17 @@ import
     prettybase
   ]
 
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import SemReport,
+  SemSpellCandidate,  # TODO: "reports" shouldn't own this data type
+  reportAst,
+  reportSem,
+  reportStr,
+  reportSym,
+  reportSymbols
+from compiler/ast/report_enums import ReportKind
+
 proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope)
 
 type
@@ -55,9 +65,11 @@ proc noidentError(conf: ConfigRef; n, origin: PNode): PNode =
   ## the the expression within which `n` resides, if `origin` is the same then
   ## a simplified error is generated.
   assert n != nil, "`n` must be provided"
-  conf.newError(tern(origin.isNil, n, origin)):
-    reportAst(rsemIdentExpectedInExpr, n).withIt do:
-      it.wrongNode = origin
+  conf.newError(if origin.isNil: n else: origin):
+    block:
+      var r = reportAst(rsemIdentExpectedInExpr, n)
+      r.wrongNode = origin
+      r
 
 proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
   ## Retrieve a PIdent from a PNode, taking into account accent nodes.
@@ -124,8 +136,11 @@ template legacyConsiderQuotedIdent*(c: PContext; n, origin: PNode): PIdent =
               n[0]
             else:
               n
-          errRep = reportAst(rsemIdentExpectedInExpr, errTarget).withIt do:
-                    it.wrongNode = origin
+          errRep =
+            block:
+              var r = reportAst(rsemIdentExpectedInExpr, errTarget)
+              r.wrongNode = origin
+              r
         localReport(c.config, c.config.newError(origin, errRep))
     ident
 
@@ -644,8 +659,10 @@ proc errorExpectedIdentifier(
       c.config.newError(n, SemReport(kind: rsemExpectedIdentifier))
     else:
       c.config.newError(exp):
-        reportAst(rsemExpectedIdentifierInExpr, n).withIt do:
-          it.wrongNode = exp
+        block:
+          var r = reportAst(rsemExpectedIdentifierInExpr, n)
+          r.wrongNode = exp
+          r
 
   result = newQualifiedLookUpError(c, ident, n.info, ast)
 

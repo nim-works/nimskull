@@ -20,7 +20,6 @@ import
     lexer,
     idents,
     syntaxes,
-    reports,     # Error report information
     lineinfos    # Positional data
   ],
   compiler/front/[
@@ -62,6 +61,15 @@ import compiler/ic/[
     navigator
   ]
 from compiler/ic/ic import rodViewer
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_internal import InternalReport,
+  InternalStateDump
+from compiler/ast/reports_external import ExternalReport
+from compiler/ast/report_enums import ReportKind,
+  repHintKinds,
+  repWarningKinds,
+  rstWarnings
 
 when not defined(leanCompiler):
   import
@@ -190,8 +198,11 @@ proc commandCompileToJS(graph: ModuleGraph) =
       msg: "Compiler was not build with js support"))
   else:
     conf.exc = excNative
-    conf.target = conf.target.withIt do:
-      setTarget(it, osJS, cpuJS)
+    conf.target =
+      block:
+        var t = conf.target
+        setTarget(t, osJS, cpuJS)
+        t
 
     defineSymbol(conf, "ecmascript") # For backward compatibility
     semanticPasses(graph)

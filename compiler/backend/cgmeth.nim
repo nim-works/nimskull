@@ -21,7 +21,6 @@ import
     ast,
     renderer,
     types,
-    reports,
     lineinfos,
   ],
   compiler/modules/[
@@ -31,6 +30,14 @@ import
   compiler/sem/[
     sempass2,
   ]
+
+# TODO: reporting semantic errors from the backend... awesome
+from compiler/ast/reports_sem import SemReport,
+  reportAst,
+  reportSem,
+  reportSym,
+  reportSymbols
+from compiler/ast/report_enums import ReportKind
 
 proc genConv(n: PNode, d: PType, downcast: bool; conf: ConfigRef): PNode =
   var dest = skipTypes(d, abstractPtrs)

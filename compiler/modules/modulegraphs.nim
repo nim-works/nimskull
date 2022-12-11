@@ -27,7 +27,6 @@ import
     astalgo,
     lineinfos,
     idents,
-    reports
   ],
   compiler/utils/[
     pathutils,
@@ -38,6 +37,10 @@ import
     packed_ast,
     ic
   ]
+
+# xxx: all this to output '.' on the command line... it's not even sem
+from compiler/ast/reports_sem import SemReport
+from compiler/ast/report_enums import ReportKind
 
 type
   SigHash* = distinct MD5Digest

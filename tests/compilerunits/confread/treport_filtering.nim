@@ -34,6 +34,10 @@ import
     nimconf
   ]
 
+# xxx: all the `reports` bits are legacy
+from compiler/ast/reports_debug import DebugReport
+
+
 var reported: seq[Report]
 
 proc hook(conf: ConfigRef, report: Report): TErrorHandling =
@@ -67,7 +71,6 @@ proc cfgPass*(file: string, args: seq[string]): ConfigRef =
 
 proc assertInter[T](inters: set[T], want: set[T] = {}) =
   doAssert inters == want, $want
-
 block fist_pass_tests:
   block:
     let conf = firstPass(@["compile", "--hint=all:off"])
@@ -104,14 +107,10 @@ block first_and_cfg_pass:
       case r.kind:
         of rdbgStartingConfRead:
           result.reads.add r.debugReport
-
         of rdbgCfgTrace:
           result.trace.add r.debugReport
-
         else:
           discard
-
-
 
   block:
     var conf = cfgPass(file, @["compile"])

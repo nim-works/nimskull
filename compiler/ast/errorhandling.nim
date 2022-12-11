@@ -34,16 +34,22 @@
 import
   compiler/ast/[
     ast,
-    reports,
-    lineinfos
+    lineinfos,
   ],
   compiler/utils/[
     debugutils,
   ],
   compiler/front/[
     msgs,
-    options
+    options,
   ]
+
+from compiler/ast/reports_sem import SemReport, reportSem
+from compiler/ast/report_enums import ReportKind,
+  SemOrVMReportKind,
+  repSemKinds,
+  repVMKinds
+from compiler/ast/reports import wrap
 
 when defined(nimDebugUnreportedErrors):
   import std/tables

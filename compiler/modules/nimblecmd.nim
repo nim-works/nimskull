@@ -30,6 +30,9 @@ import
     pathutils
   ]
 
+# TODO: implement this modules own diag/event/telemetry types
+from compiler/ast/reports_external import ExternalReport
+from compiler/ast/report_enums import ReportKind
 
 proc addPath*(conf: ConfigRef; path: AbsoluteDir, info: TLineInfo) =
   if not conf.searchPaths.contains(path):

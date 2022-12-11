@@ -16,7 +16,6 @@ import
     astalgo,
     types,
     trees,
-    reports
   ],
   compiler/front/[
      msgs,
@@ -25,6 +24,10 @@ import
      semdata,
      lookups,
   ]
+
+# xxx: reports are a code smell meaning data types are misplaced
+from compiler/ast/reports_sem import reportSym
+from compiler/ast/report_enums import ReportKind
 
 proc equalGenericParams(procA, procB: PNode): bool =
   if procA.len != procB.len: return false

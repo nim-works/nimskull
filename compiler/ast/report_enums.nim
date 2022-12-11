@@ -19,9 +19,11 @@ type
 
     repVM = "VM" ## Report related to embedded virtual machine
 
-    repDebug = "Debug" ## Side channel for the compiler debug report. Sem
-    ## expansion traces and other helper messages designed specifically to
-    ## aid development of the compiler
+    repDbgTrace = "Trace" ## compiler execution expansion traces for debugging
+    ## or understaning the compiler
+
+    repDebug = "Debug" ## Side channel for the compiler debug report. Helper
+    ## messages designed specifically to aid development of the compiler
 
     repInternal = "Internal" ## Reports constructed during hanling of the
     ## internal compilation errors. Separate from debugging reports since
@@ -322,6 +324,7 @@ type
 
     rsemNodeNotAllowed
       ## Generated in `filters.nim`
+      ## TODO: this is not a sem error, it's a source filters error
 
     rsemCannotProveNotNil
     rsemProvablyNil
@@ -858,18 +861,19 @@ type
     rcmdRunnableExamplesSuccess
     # hints END !! add reports BEFORE the last enum !!
 
+    #----------------------------  Trace reports  ----------------------------#
+
+    rdbgTraceDefined # first ! trace begin
+    rdbgTraceUndefined
+    rdbgTraceStart
+    rdbgTraceStep
+    rdbgTraceLine
+    rdbgTraceEnd # last ! trace end
 
     #----------------------------  Debug reports  ----------------------------#
     rdbgVmExecTraceFull
     rdbgVmExecTraceMinimal
     rdbgVmCodeListing
-
-    rdbgTraceDefined # first ! tracer begin
-    rdbgTraceUndefined
-    rdbgTraceStart
-    rdbgTraceStep
-    rdbgTraceLine
-    rdbgTraceEnd # last ! tracer end
 
     rdbgStartingConfRead
     rdbgFinishedConfRead
@@ -939,6 +943,8 @@ type
 
   CmdReportKind* = range[rcmdFailedExecution .. rcmdRunnableExamplesSuccess]
 
+  DbgTraceReportKind* = range[rdbgTraceDefined .. rdbgTraceEnd]
+  
   DebugReportKind* = range[rdbgVmExecTraceFull .. rdbgOptionsPop]
 
   BackendReportKind* = range[rbackCannotWriteScript .. rbackLinking]
@@ -989,17 +995,11 @@ const
   rcmdWarningKinds* = default(set[ReportKind])
   rcmdHintKinds* = {rcmdCompiling .. rcmdRunnableExamplesSuccess}
 
+  #--------------------------------  trace  --------------------------------#
+  repDbgTraceKinds* = {low(DbgTraceReportKind) .. high(DbgTraceReportKind)}
+
   #--------------------------------  debug  --------------------------------#
   repDebugKinds* = {low(DebugReportKind) .. high(DebugReportKind)}
-  repDebugTraceKinds* = {
-    rdbgTraceStart, # Begin report
-    rdbgTraceStep, # in/out
-    rdbgTraceLine,
-    rdbgTraceEnd, # End report
-    rdbgTraceUndefined, # `.undef` triggered in code
-    rdbgTraceDefined, # `.define` triggered in code
-  }
-
 
   #-------------------------------  backend  -------------------------------#
   repBackendKinds* = {low(BackendReportKind) .. high(BackendReportKind)}
@@ -1040,6 +1040,7 @@ const
 
   repTraceKinds*: ReportKinds =
     {rvmStackTrace, rintStackTrace} +
+    repDbgTraceKinds +
     repDebugKinds
 
   repHintKinds*: ReportKinds    =
@@ -1093,6 +1094,7 @@ static:
       set[ReportKind](repParserKinds) +
       set[ReportKind](repInternalKinds) +
       set[ReportKind](repExternalKinds) +
+      set[ReportKind](repDbgTraceKinds) +
       set[ReportKind](repDebugKinds) +
       set[ReportKind](repBackendKinds) +
       set[ReportKind](repCmdKinds) +

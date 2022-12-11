@@ -23,7 +23,6 @@ import
     ast,
     trees,
     lineinfos,
-    reports
   ],
   compiler/modules/[
     magicsys,
@@ -37,6 +36,12 @@ import
   compiler/utils/[
     platform,
   ]
+
+from compiler/ast/reports_sem import SemReport,
+  reportAst,
+  reportStr,
+  reportTyp
+from compiler/ast/report_enums import ReportKind
 
 from system/memory import nimCStrLen
 

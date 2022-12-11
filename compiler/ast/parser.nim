@@ -36,7 +36,7 @@ import
     idents,
     ast,
     lineinfos,
-    reports
+    reports_parser,
   ],
   std/[
     strutils,
@@ -49,6 +49,12 @@ import
     pathutils,
     astrepr
   ]
+
+# TODO: switch to internalError/Assert or better yet emit the appropriate
+#       diagnostic/event/telemetry data instead, then drop this dependency
+from compiler/ast/reports_internal import InternalReport
+
+from compiler/ast/reports import wrap
 
 type
   Parser* = object            ## A Parser object represents a file that
@@ -145,7 +151,7 @@ template localError(p: Parser, report: ParserReport): untyped =
     wrap(rep, instLoc(), p.lex.getLineInfo(p.tok)), instLoc())
 
 
-template localError(p: Parser, report: ReportTypes): untyped =
+template localError(p: Parser, report: InternalReport): untyped =
   p.lex.config.handleReport(
     wrap(report, instLoc(), p.lex.getLineInfo(p.tok)), instLoc())
 

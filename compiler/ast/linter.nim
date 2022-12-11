@@ -23,6 +23,8 @@ import
     msgs
   ]
 
+# TODO: linter should have it's own diag/event/telemetry types
+from compiler/ast/reports_sem import SemReport
 
 const
   Letters* = {'a'..'z', 'A'..'Z', '0'..'9', '\x80'..'\xFF', '_'}
