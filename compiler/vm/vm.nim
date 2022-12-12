@@ -96,6 +96,28 @@ from std/math import round
 # these were includes previously, so they're re-exported for compatibility
 export vmhooks, vmops
 
+type
+  ExecResultKind = enum
+    erkDone
+      ## execution is done. There is no more code to execute
+    #ekError # TODO: also communicate whether execution was aborted due to an
+             #       error via ``ExecResult``
+    erkMissingProcedure
+      ## a procedure stub was called. The stub has to be resolved before
+      ## continuing execution
+
+  ExecResult = object
+    ## The internal result of a single execution step (i.e. a call to
+    ## ``rawExecute``)
+    # TODO: remove ``ExecutionResult`` in its current form and use its name
+    #       for ``ExecResult``
+    case kind: ExecResultKind:
+    of erkDone:
+      reg: Option[TRegister] ## the register that holds the result, or
+                             ## 'none', if there is no result
+    of erkMissingProcedure:
+      entry: FunctionIndex   ## the entry of the procedure that is a stub
+
 const
   traceCode = defined(nimVMDebugExecute)
 
@@ -894,12 +916,11 @@ template checkHandle(a: VmAllocator, handle: LocHandle) =
 when not defined(nimHasSinkInference):
   {.pragma: nosinks.}
 
-
-type RegisterIndex = int
-
-proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterIndex =
+proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): ExecResult =
   ## Runs the execution loop, starting in frame `tos` at program counter `pc`.
-  ## In the case of an error, raises an exception of type `VmError`.
+  ## In the case of an error, raises an exception of type `VmError`. If no
+  ## fatal error occurred, the reason for why the loop was left plus extra
+  ## data related to it is returned.
   ##
   ## If the loop was exited due to an error, `pc` and `tos` will point to the
   ## faulting instruction and the active stack-frame respectively.
@@ -907,7 +928,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
   ## If the loop exits without errors, `pc` points to the last executed
   ## instruction and `tos` refers to the stack-frame it executed on
   ##
-  ## tos means top-of-stack
+  ## "tos" is the abbreviation for "top of stack"
 
   # Used to keep track of where the execution is resumed.
   var savedPC = -1
@@ -1022,14 +1043,15 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
     case instr.opcode
     of opcEof:
       # XXX: eof shouldn't be used to return a register
-      return ra
+      return ExecResult(kind: erkDone, reg: some(ra))
     of opcRet:
       let newPc = c.cleanUpOnReturn(c.sframes[tos])
       # Perform any cleanup action before returning
       if newPc < 0:
         pc = c.sframes[tos].comesFrom
         if tos == 0:
-          return 0 # opcRet always returns it's value in register zero
+          # opcRet always returns its value in register '0'
+          return ExecResult(kind: erkDone, reg: some(TRegister 0))
 
         assert c.code[pc].opcode in {opcIndCall, opcIndCallAsgn}
         if c.code[pc].opcode == opcIndCallAsgn:
@@ -2162,12 +2184,14 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
                  mem: addr c.memory,
                  heap: addr c.heap))
       of ckDefault:
-        let (newPc, regCount) =
-          if entry.start >= 0:
-            (entry.start, entry.regCount.int)
-          else:
-            let r = compile(c, toFuncIndex(fPtr))
-            r.value()
+        # the instruction may be executed a second time, so everything leading
+        # up to the yield (i.e. ``return``) must not modify any VM state
+        if entry.start < 0:
+          # the procedure entry is a stub. Yield back control to the VM's
+          # callsite, so that it can decide what do to
+          return ExecResult(kind: erkMissingProcedure, entry: toFuncIndex(fPtr))
+
+        let (newPc, regCount) = (entry.start, entry.regCount.int)
 
         # tricky: a recursion is also a jump back, so we use the same
         # logic as for loops:
@@ -2483,6 +2507,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): RegisterInd
       regs[ra].initLocReg(c.typeInfoCache.stringType, c.memory)
       regs[ra].strVal.newVmString(str, c.allocator)
     of opcQuit:
+      # TODO: move the handling of ``quit`` outside the execution loop by
+      #       introducing ``erkQuit`` and yielding execution with it as the
+      #       result code here
       case c.mode
       of emRepl, emStaticExpr, emStaticStmt:
         localReport(c.config, c.debug[pc], InternalReport(kind: rintQuitCalled))
@@ -3256,9 +3283,34 @@ proc execute*(c: var TCtx, start: int, frame: sink TStackFrame; cb: proc(c: TCtx
   var pc = start
   var sframe = c.sframes.high
   try:
-    let r = rawExecute(c, pc, sframe)
+    var r: ExecResult
+    # run the VM until either no code is left to execute or an unrecoverable
+    # error occurred
+    while true:
+      r = rawExecute(c, pc, sframe)
+      case r.kind
+      of erkDone:
+        # execution is finished
+        break
+      of erkMissingProcedure:
+        # a stub entry was encountered -> generate the code for the
+        # corresponding procedure
+        let res = compile(c, r.entry)
+        if res.isErr:
+          # code-generation failed. Raise the error as an exception so that
+          # the surrounding ``except`` branch turns it into an
+          # ``ExecutionResult`` object
+          # TODO: the ``execute`` procedure and architecture surrounding it
+          #       needs to rewritten from the ground up. It should not be
+          #       responsible for reporting ``vmgen`` errors, nor invoking
+          #       ``compile`` in the first place
+          raise toException(res.takeErr)
+
+        # success! ``compile`` updated the procedure's entry, so we can
+        # continue execution
+
     assert c.sframes.len == 1
-    let n = cb(c, c.sframes[0].slots[r])
+    let n = cb(c, c.sframes[0].slots[r.reg.get])
     result = ExecutionResult.ok(n)
   except VmError as e:
     # Execution failed, generate a stack-trace and wrap the error payload
@@ -3285,6 +3337,9 @@ proc execute*(c: var TCtx, start: int, frame: sink TStackFrame; cb: proc(c: TCtx
 
     # Free pending
     cleanUpPending(c.memory)
+
+# TODO: all code below is unrelated to the core VM and is instead part of the
+#       internal compiler-to-VM interface -- move it to a separate module
 
 proc unpackResult(res: sink ExecutionResult; config: ConfigRef, node: PNode): PNode =
   ## Unpacks the execution result. If the result represents a failure, returns
