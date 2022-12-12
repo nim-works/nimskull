@@ -1103,24 +1103,6 @@ object inheritance syntax involving the `of` keyword:
   the documentation of `spawn <#parallel-amp-spawn-spawn-statement>`_ for details.
 
 
-Dynamic arguments for bindSym
-=============================
-
-This experimental feature allows the symbol name argument of `macros.bindSym`
-to be computed dynamically.
-
-.. code-block:: nim
-  {.experimental: "dynamicBindSym".}
-
-  import macros
-
-  macro callOp(opName, arg1, arg2): untyped =
-    result = newCall(bindSym($opName), arg1, arg2)
-
-  echo callOp("+", 1, 2)
-  echo callOp("-", 5, 4)
-
-
 Term rewriting macros
 =====================
 

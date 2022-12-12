@@ -179,7 +179,6 @@ type
     callOperator,
     destructor,
     notnil,
-    dynamicBindSym,
     vmopsDanger,
     strictFuncs,
     views,

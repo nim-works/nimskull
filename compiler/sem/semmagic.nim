@@ -267,9 +267,7 @@ proc semBindSym(c: PContext, n: PNode): PNode =
 
   # TODO: instead of manually testing whether the expression evaluates to a
   #       literal here, it would be simpler to explicitly use ``static``
-  #       parameters for ``macros.bindSym``. That won't work with
-  #       ``dynamicBindSym``, but it might be a better idea to use a
-  #       separate procedure (and magic) for the dynamic version anyway
+  #       parameters for ``macros.bindSym``
   let sl = semConstExpr(c, n[1])
   if sl.kind notin {nkStrLit, nkRStrLit, nkTripleStrLit}:
     return newError(c.config, n, reportSem rsemStringLiteralExpected)
@@ -295,70 +293,6 @@ proc semBindSym(c: PContext, n: PNode): PNode =
     # inside static evaluation contexts and macros, the magic resolves to a
     # ``NimNode`` literal
     result = newTreeIT(nkNimNodeLit, n.info, n.typ): sc
-
-proc opBindSym(c: PContext, scope: PScope, n: PNode, isMixin: int, info: TLineInfo): PNode =
-  if n.kind notin {nkStrLit, nkRStrLit, nkTripleStrLit, nkIdent}:
-    return newError(c.config, n, reportSem rsemStringOrIdentNodeExpected, posInfo = info)
-
-  if isMixin < 0 or isMixin > high(TSymChoiceRule).int:
-    return newError(c.config, n, reportSem rsemConstExprExpected, posInfo = info)
-
-  let id = if n.kind == nkIdent: n
-    else: newIdentNode(getIdent(c.cache, n.strVal), info)
-
-  let tmpScope = c.currentScope
-  c.currentScope = scope
-  let s = qualifiedLookUp(c, id, {checkUndeclared})
-  if s.isError:
-    # XXX: move to propagating nkError, skError, and tyError
-    localReport(c.config, s.ast)
-  elif s != nil:
-    # we need to mark all symbols:
-    result = symChoice(c, id, s, TSymChoiceRule(isMixin))
-  
-  if s.isNil or s.isError:
-    errorUndeclaredIdentifier(c, info, if n.kind == nkIdent: n.ident.s
-      else: n.strVal)
-  c.currentScope = tmpScope
-
-proc semDynamicBindSym(c: PContext, n: PNode): PNode =
-  # inside regular code, bindSym resolves to the sym-choice
-  # nodes (see tinspectsymbol)
-  if not (c.inStaticContext > 0 or getCurrOwner(c).isCompileTimeProc):
-    return semBindSym(c, n)
-
-  if c.graph.vm.isNil:
-    setupGlobalCtx(c.module, c.graph, c.idgen)
-
-  let
-    vm = PCtx c.graph.vm
-    # cache the current scope to
-    # prevent it lost into oblivion
-    scope = c.currentScope
-
-  # cannot use this
-  # vm.config.features.incl dynamicBindSym
-
-  proc bindSymWrapper(a: VmArgs) =
-    # capture PContext and currentScope
-    # param description:
-    #   0. ident, a string literal / computed string / or ident node
-    #   1. bindSym rule
-    a.setResult opBindSym(c, scope, a.getNode(0), a.getInt(1).int,
-                          a.currentLineInfo)
-
-  let
-    # although we use VM callback here, it is not
-    # executed like 'normal' VM callback
-    idx = vm.registerCallback("bindSymImpl", bindSymWrapper)
-    # dummy node to carry idx information to VM
-    idxNode = newIntTypeNode(idx, c.graph.getSysType(TLineInfo(), tyInt))
-
-  result = copyNode(n)
-  for x in n:
-    result.add x
-
-  result.add idxNode
 
 proc semShallowCopy(c: PContext, n: PNode, flags: TExprFlags): PNode
 
@@ -494,10 +428,7 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
   of mHigh, mLow: result = semLowHigh(c, n, n[0].sym.magic)
   of mShallowCopy: result = semShallowCopy(c, n, flags)
   of mNBindSym:
-    if dynamicBindSym notin c.features:
-      result = semBindSym(c, n)
-    else:
-      result = semDynamicBindSym(c, n)
+    result = semBindSym(c, n)
   of mProcCall:
     result = n
     result.typ = n[1].typ

@@ -1250,51 +1250,6 @@ proc genVoidABC(c: var TCtx, n: PNode, dest: TDest, opcode: TOpcode) =
   c.freeTemp(tmp2)
   c.freeTemp(tmp3)
 
-proc genBindSym(c: var TCtx; n: PNode; dest: var TDest) =
-    ## Generates the code for a ``mNBindSym`` magic call (the version where
-    ## the arguments are evaluated at run-time)
-    assert n.len == 4
-    if dest.isUnset: dest = c.getTemp(n.typ)
-    let x = c.getTempRange(n.len, slotTempUnknown)
-
-    # XXX: ``opcNDynBindSym`` does nothing more than invoking a VM callback
-    #      directly. It could make sense to generalise it into
-    #      ``opcInvokeCallback``
-
-    # since ``opcNDynBindSym`` calls a VM callback, it uses the same register
-    # passing convention as ``opcIndCall``
-
-    # the first register holds the callee. But since the callback to invoke is
-    # specified by the third argument, we simply leave the first register
-    # uninitialized
-
-    # original parameter (ident)
-    if n[1].typ.kind == tyString:
-      # `semmagic.bindSymWrapper` expects a NimNode, so turn
-      # the string into an ``nnkIdent`` node here
-      let
-        r = TRegister(x+1)
-        tmp = c.getTemp(n[1].typ)
-      c.gen(n[1], tmp)
-      c.gABC(n[1], opcStrToIdent, r, tmp)
-      c.freeTemp(tmp)
-    else:
-      # must be a ``NimNode`` then
-      var r = TRegister(x+1)
-      c.gen(n[1], r)
-
-    # original parameter (rule)
-    block:
-      var r = TRegister(x+2)
-      c.gen(n[2], r)
-
-    # the third argument is the index of the callback to invoke:
-    var tmp2 = TDest(x+n.len-1)
-    c.genLit(n[^1], tmp2)
-
-    c.gABC(n, opcNDynBindSym, dest, x, n.len)
-    c.freeTempRange(x, n.len)
-
 proc genSetElem(c: var TCtx, n: PNode, first: int): TRegister =
   result = c.getTemp(n.typ)
 
@@ -1684,7 +1639,6 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mNNewNimNode: genBinaryABC(c, n, dest, opcNNewNimNode)
   of mNCopyNimNode: genUnaryABC(c, n, dest, opcNCopyNimNode)
   of mNCopyNimTree: genUnaryABC(c, n, dest, opcNCopyNimTree)
-  of mNBindSym: genBindSym(c, n, dest)
   of mStrToIdent: genUnaryABC(c, n, dest, opcStrToIdent)
   of mEqIdent: genBinaryABC(c, n, dest, opcEqIdent)
   of mEqNimrodNode: genBinaryABC(c, n, dest, opcEqNimNode)

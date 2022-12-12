@@ -128,7 +128,6 @@ type
     opcStrToIdent,
     opcGetImpl,
     opcGetImplTransf,
-    opcNDynBindSym,
 
     opcExpandToAst,
 
