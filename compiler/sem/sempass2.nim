@@ -931,7 +931,7 @@ proc trackCall(tracked: PEffects; n: PNode) =
         mergeRaises(tracked, effectList[exceptionEffects], n)
         mergeTags(tracked, effectList[tagEffects], n)
         gcsafeAndSideeffectCheck()
-    if a.kind != nkSym or a.sym.magic notin {mNBindSym, mFinished}:
+    if a.kind != nkSym or a.sym.magic notin {mFinished}:
       for i in 1..<n.len:
         trackOperandForIndirectCall(tracked, n[i], op, i, a)
     if a.kind == nkSym and a.sym.magic in {mNew, mNewFinalize, mNewSeq}:

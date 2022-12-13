@@ -5896,10 +5896,7 @@ However, the symbols `write`, `writeLine` and `stdout` are already bound
 and are not looked up again. As the example shows, `bindSym` does work with
 overloaded symbols implicitly.
 
-Note that the symbol names passed to `bindSym` have to be constant. The
-experimental feature `dynamicBindSym` (`experimental manual
-<manual_experimental.html#dynamic-arguments-for-bindsym>`_)
-allows this value to be computed dynamically.
+Note that the symbol names passed to `bindSym` have to be constant.
 
 Post-statement blocks
 ---------------------

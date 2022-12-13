@@ -277,7 +277,6 @@ type
       ## read:
       ##  - evalAtCompileTime: guard compile time eval
       ##  - semBindSym: whether to resolve the binding or not
-      ##  - semDynamicSym: whether to bind the sym or not
 
     # hlo??
     inUnrolledContext*: int    ## > 0 if we are unrolling a loop
