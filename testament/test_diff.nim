@@ -58,7 +58,6 @@ type
     inlineErrors* {.requiresInit.}: seq[GivenInlineError] ## List of
                                                           ## expected
                                                           ## inline errors
-    testName* {.requiresInit.}: string ## Name of the test
     expectedNimout* {.requiresInit.}: string ## Expected compiler output,
                             ## added together with inline error conversion
                             ## results.
@@ -170,7 +169,7 @@ proc sexpCheck*(data: CompileOutputCheck): CompileSexpCompare =
 
   for exp in data.inlineErrors:
     var parsed = parseSexp(exp.msg)
-    var loc = convertSexp([sexp(data.testName), sexp(exp.line)])
+    var loc = convertSexp([sexp(data.expectedFile), sexp(exp.line)])
     if exp.col > 0:
       loc.add sexp(exp.col)
 
@@ -232,7 +231,7 @@ proc checkForInlineErrors*(data: CompileOutputCheck): CompileTextCompare =
         kind = matches[3]
         msg  = matches[4]
 
-      if file == extractFilename data.testName:
+      if file == extractFilename data.expectedFile:
         # If annotation comes from the target file
         var isCovered: bool = false
         for idx, expected in data.inlineErrors:

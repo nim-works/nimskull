@@ -7,7 +7,8 @@ import
     md5,
     pegs,
     parseopt,
-    algorithm
+    algorithm,
+    packedsets
   ],
   experimental/[
     dod_helpers,
@@ -20,13 +21,12 @@ import compiler/utils/nodejs
 
 declareIdType(Test)
 declareIdType(Run)
-declareIdType(Spec)
-declareIdType(Entry)
 declareIdType(Action)
 declareIdType(Category)
 
 type
   Category = distinct string ## Name of the test category
+  EntryId = int ## Index of the selected matrix entry
 
   TResults = object
     # DOC WTF why is this even necessary?
@@ -35,11 +35,11 @@ type
     data: string
 
   GivenTest = object
-    name: string
+    # name: string
     cat: Category
     options: seq[ShellArg]
     testArgs: seq[string]
-    spec: SpecId
+    spec: TestId
     file: TestId
 
   TestRun = object
@@ -128,9 +128,9 @@ type
 # Files and tests are indexed using the same key
 declareStoreType(TestFile, Files, TestId)
 declareStoreType(GivenTest, Tests, TestId)
+declareStoreType(DeclaredSpec, Specs, TestId)
 
 declareStoreType(TestAction, Actions, ActionId)
-declareStoreType(DeclaredSpec, Specs, SpecId)
 
 # Run configurations, their direct output results, comparisons and times
 # are all indexed usin the same `RunId` key type.
@@ -163,7 +163,7 @@ type
     skipsFile: string       ## test files to skip loaded from `--skipFrom`
     targetsStr: string      ## targets as specified by the user
     filter: TestFilter      ## fitler used to assemble the test suite
-    targets: seq[GivenTarget]    ## specified targets or `noTargetsSpecified`
+    targets: set[GivenTarget]    ## specified targets or `noTargetsSpecified`
 
     workingDir: string       ## working directory to begin execution in
     nodeJs: string           ## path to nodejs binary
@@ -278,7 +278,7 @@ proc compileOutCheck(e: Execution, id: RunId): CompileOutCompare =
     let data = CompileOutputCheck(
       enforceFullMatch: spec.nimoutFull,
       inlineErrors: spec.inlineErrors,
-      testName: test.name,
+      # testName: test.name,
       givenNimout: res.nimout,
       expectedFile: e.files[test.file].file,
       expectedNimout: spec.nimout,
@@ -577,6 +577,137 @@ proc prepareTestFilesAndSpecs(e: var Execution) =
       if actionOverride.isSome:
         e.specs[specId].action = actionOverride.get
 
+const
+  testResultsDir = "testresults"
+  cacheResultsDir = testResultsDir / "cacheresults"
+  noTargetsSpecified: set[GivenTarget] = {}
+  defaultExecFlags = {outputColour}
+  defaultBatchSize = 10
+  defaultCatId = CategoryId(0)
+
+
+func requestedTargets(execState: Execution): set[GivenTarget] =
+  ## get the requested targets by the user or the defaults
+  if execState.targets == noTargetsSpecified:
+    {targetC, targetJS}
+  else:
+    execState.targets
+
+
+proc makeName(e: Execution, id: RunId): string =
+  let
+    run = e.runs[id]
+    test = e.tests[run.test]
+    spec = e.specs[test.spec]
+    target = run.target
+    matrixEntry = e.runs[id].matrixEntry
+    file = e.files[test.file].file
+    allowFailure = spec.err in { grKnownIssue }
+
+  result = file.changeFileExt("").replace(DirSep, '/')
+  result.add '_' & $target
+  if matrixEntry != noMatrixEntry:
+    result.add "[$1]" % $matrixEntry.int
+  if allowFailure:
+    result.add " (allowed to fail) "
+  if test.options.len > 0:
+    result.add ' ' & test.options.toStr().join(" ")
+
+  if matrixEntry != noMatrixEntry:
+    result.add ' ' & spec.matrix[run.matrixEntry].toStr().join(" ")
+
+
+proc prepareTestRuns(execState: var Execution) =
+  ## create a list of necessary testRuns
+  # IMPLEMENT: create specific type to avoid accidental mutation
+
+  # NOTE: read-only items; only testRuns are written
+  let
+    testSpecs = execState.specs
+    testFiles = execState.files
+    tests = execState.tests
+    categories = execState.categories
+
+  for testId, spec in testSpecs.pairs:
+    let
+      specTargets =
+        if spec.targets == noTargetsSpecified:
+          categories[testFiles[tests[testId].file].catId].defaultTargets
+        else:
+          spec.targets
+      targetsToRun = specTargets * execState.requestedTargets
+
+    for target in targetsToRun:
+      # TODO: create a "target matrix" to cover both js release vs non-release
+
+      var entryIndices: seq[EntryId]
+      case spec.matrix.len:
+        of 0: # no tests to run
+          entryIndices.add noMatrixEntry
+
+        else:
+          for entryId, _ in spec.matrix.pairs():
+            entryIndices.add(entryId)
+
+      for entryId in entryIndices:
+        execState.runs.add TestRun(
+          test: testId,
+          target: target,
+          matrixEntry: entryId,
+        )
+
+        execState.times.add RunTime()
+        execState.results.add RunResult()
+
+proc prepareTestActions(execState: var Execution) =
+  ## create a list of necessary test actions
+  # IMPLEMENT : create specific type to avoid accidental mutation
+
+  # NOTE: these are what are read, so a dedicate type would offer a
+  # read-only view of those, but allow actions mutation
+  let
+    testRuns = execState.runs
+    testSpecs = execState.specs
+
+  # TODO: handle disabled and known issue
+
+  for runId, run in testRuns.pairs:
+    let actionKind = testSpecs[run.test].action
+    case actionKind:
+      of actionReject, actionCompile:
+        execState.actions.add:
+          TestAction(runId: runId, kind: actionKind)
+
+      of actionRun:
+        let compileActionId = execState.actions.add:
+          TestAction(runId: runId, kind: actionCompile, partOfRun: true)
+
+        execState.actions.add:
+          TestAction(
+            runId: runId, kind: actionRun, compileActionId: compileActionId)
+
+
+proc runTests(e: var Execution) =
+  var actionQueue: seq[ActionId]
+  for id, _ in e.actions:
+    actionQueue.add(id)
+
+  var processedActions: PackedSet[ActionId]
+
+  proc pickNextAction(): ActionId =
+    for idx in
+
+  while hasActionsToProcess():
+    while batchNotFull and 0 < len.actionQueue():
+      batch.add actionQueue.pickFirstActionWithNoDependenciesOrCorrectlyProcessedDependencies()
+
+#   batch.execute()
+#   batch.processExecutionResults()
+#   for run in getTestRunsThatWereCompletedJustNow():
+#     logInformationToTheUser()
+
+# reportFullRunStatitisticsAndBackendInformation()
+
 
 
 const
@@ -706,13 +837,6 @@ proc parseArgs(execState: var Execution, p: var OptParser): ParseCliResult =
 
   execState.userTestOptions = p.cmdLineRest
 
-const
-  testResultsDir = "testresults"
-  cacheResultsDir = testResultsDir / "cacheresults"
-  noTargetsSpecified: set[GivenTarget] = {}
-  defaultExecFlags = {outputColour}
-  defaultBatchSize = 10
-  defaultCatId = CategoryId(0)
 
 proc main() =
   var
@@ -743,9 +867,9 @@ proc main() =
     execState.nodejs = nodeExe
 
   prepareTestFilesAndSpecs(execState)
-  # prepareTestRuns(execState)
-  # prepareTestActions(execState)
-  # runTests(execState)
+  prepareTestRuns(execState)
+  prepareTestActions(execState)
+  runTests(execState)
 
 when isMainModule:
   main()

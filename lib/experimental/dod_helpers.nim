@@ -89,10 +89,10 @@ template declareStoreType*(
     result = `to IdName`(store.data.len)
     store.data.add item
 
-  template `[]`*(store: var StoreName, index: IdName): var ValueName =
+  func `[]`*(store: var StoreName, index: IdName): var ValueName =
     store.data[toIndex(index)]
 
-  template `[]`*(store: StoreName, index: IdName): ValueName =
+  func `[]`*(store: StoreName, index: IdName): ValueName =
     store.data[toIndex(index)]
 
   iterator items*(store: StoreName): ValueName =
