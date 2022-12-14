@@ -22,6 +22,7 @@ import
     packed_env,
     vm,
     vmdef,
+    vmhooks,
     vmmemory,
     vmobjects,
     vmops,

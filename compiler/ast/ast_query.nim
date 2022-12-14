@@ -677,7 +677,15 @@ proc canRaise*(fn: PNode): bool =
 proc skipAddr*(n: PNode): PNode {.inline.} =
   if n.kind == nkHiddenAddr: n[0] else: n
 
-
+iterator genericParamsInMacroCall*(macroSym: PSym, call: PNode): (PSym, PNode) =
+  ## For a macro call, yields the symbol for each generic parameter toghether
+  ## with the *argument* provided to it
+  let gp = macroSym.ast[genericParamsPos]
+  for i in 0..<gp.len:
+    let genericParam = gp[i].sym
+    let posInCall = macroSym.typ.len + i
+    if posInCall < call.len:
+      yield (genericParam, call[posInCall])
 
 type
   NodePosName* = enum

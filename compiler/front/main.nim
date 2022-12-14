@@ -50,8 +50,8 @@ import
     pathutils    # Input file handling
   ],
   compiler/vm/[
-    vm,          # Configuration file evaluation, `nim e`
-    vmbackend,   # VM code generation
+    compilerbridge, # Configuration file evaluation, `nim e`
+    vmbackend,      # VM code generation
     vmprofiler
   ]
 

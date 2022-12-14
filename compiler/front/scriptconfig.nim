@@ -32,9 +32,11 @@ import
     sem,
   ],
   compiler/vm/[
-    vm,
+    compilerbridge,
     vmconv,
     vmdef,
+    vmhooks,
+    vmops
   ],
   compiler/front/[
     msgs,

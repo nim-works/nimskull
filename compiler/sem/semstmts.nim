@@ -915,7 +915,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
     if not hasError and sfCompileTime in v.flags:
       var x = newNodeI(result.kind, v.info)
       x.add producedDecl
-      vm.setupCompileTimeVar(c.module, c.idgen, c.graph, x)
+      setupCompileTimeVar(c.module, c.idgen, c.graph, x)
 
     if v.flags * {sfGlobal, sfThread} == {sfGlobal}:
       # this is just logging, doesn't need to be converted to an error
