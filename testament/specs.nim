@@ -27,16 +27,6 @@ import
 
 type TestamentData* = ref object
   # better to group globals under 1 object; could group the other ones here too
-  batchArg*: string
-  testamentNumBatch*: int
-  testamentBatch*: int
-
-# global mutable state for funsies
-var
-  compilerPrefix* = findExe("nim")
-  skips*: seq[string]
-
-let testamentData0* = TestamentData()
 
 type
   GivenTestAction* = enum
@@ -141,7 +131,6 @@ type
     err*: GivenResultKind # REFACTOR Separate into 'expected output' (they
     # can be specified in the real test) and 'real output' (they can
     # actually happen - "invlid peg" etc.)
-    inCurrentBatch*: bool
     targets*: set[GivenTarget] ## Collection of targets to run test on.
     specifiedTargets*: set[SpecifiedTarget] ## targets as described by the spec
     matrix*: seq[seq[ShellArg]] ## Collection of additional flags that will
@@ -172,11 +161,7 @@ type
     names*: seq[(string, string)] ## contains pair of failed test name and
                                   ## its target
 
-# Exported global RetryContainer object. REFACTOR move to the execution
-# field.
-var retryContainer* = RetryContainer(retry: false)
-
-proc getCmd*(s: DeclaredSpec): ShellCmd =
+proc getCmd*(compilerPrefix: string, s: DeclaredSpec): ShellCmd =
   ## Get runner command for a Spec test specification
   if s.cmd.empty():
     result = shell(
@@ -377,34 +362,38 @@ proc addLine*(self: var string; a, b: string) =
 proc initSpec*(filename: string): DeclaredSpec =
   result.file = filename
 
-proc isCurrentBatch*(
-    testamentData: TestamentData, filename: string): bool =
-  if testamentData.testamentNumBatch != 0:
-    hash(filename) mod testamentData.testamentNumBatch == testamentData.testamentBatch
-  else:
-    true
+type
+  SpecParseConfig* = object
+    retryContainer* {.requiresinit.}: RetryContainer # (retry: false)
+    filename* {.requiresinit.}: string # DOC
+    caGivenTargets* {.requiresinit.}: set[GivenTarget] # DOC
+    nativeTarget* {.requiresinit.}: GivenTarget # DOC
+    compilerPrefix* {.requiresinit.}: string # DOC
+    skips* {.requiresinit.}: seq[string] # DOC
 
-proc parseSpec*(filename: string,
-                caGivenTargets: set[GivenTarget],
-                nativeTarget: GivenTarget): DeclaredSpec =
+
+proc parseSpec*(conf: SpecParseConfig): DeclaredSpec =
   ## Extract and parse specification for a Spec file path
-  result.file = filename
+  result.file = conf.filename
 
   when defined(windows):
     let cmpString = result.file.replace(r"\", r"/")
   else:
     let cmpString = result.file
-  if retryContainer.retry and
-     not retryContainer.names.anyIt(cmpString == it[0]):
+
+  if conf.retryContainer.retry and
+     not conf.retryContainer.names.anyIt(cmpString == it[0]):
     result.err = grDisabled
     return result
 
-  let specStr = extractSpec(filename, result)
-  var ss = newStringStream(specStr)
-  var p: CfgParser
-  open(p, ss, filename, 1)
-  var flags: HashSet[string]
-  var nimoutFound = false
+  let specStr = extractSpec(conf.filename, result)
+  var
+    ss = newStringStream(specStr)
+    p: CfgParser
+    flags: HashSet[string]
+    nimoutFound = false
+
+  open(p, ss, conf.filename, 1)
   while true:
     var e = next(p)
     case e.kind
@@ -414,7 +403,7 @@ proc parseSpec*(filename: string,
         ## list of flags that are correctly handled when passed multiple times
         ## (instead of being overwritten)
       if key notin allowMultipleOccurences:
-        doAssert key notin flags, $(key, filename)
+        doAssert key notin flags, $(key, conf.filename)
       flags.incl key
       case key
       of "description":
@@ -431,7 +420,8 @@ proc parseSpec*(filename: string,
             result.nimoutSexp = false
 
           else:
-            result.parseErrors.addLine "unexpected nimout format: got ", e.value
+            result.parseErrors.addLine(
+              "unexpected nimout format: got ", e.value)
 
       of "action":
         case e.value.normalize
@@ -442,18 +432,22 @@ proc parseSpec*(filename: string,
         of "reject":
           result.action = actionReject
         else:
-          result.parseErrors.addLine "cannot interpret as action: ", e.value
+          result.parseErrors.addLine(
+            "cannot interpret as action: ", e.value)
       of "file":
         if result.msg.len == 0 and result.nimout.len == 0:
-          result.parseErrors.addLine "errormsg or msg needs to be specified before file"
+          result.parseErrors.addLine(
+            "errormsg or msg needs to be specified before file")
         result.file = e.value
       of "line":
         if result.msg.len == 0 and result.nimout.len == 0:
-          result.parseErrors.addLine "errormsg, msg or nimout needs to be specified before line"
+          result.parseErrors.addLine(
+            "errormsg, msg or nimout needs to be specified before line")
         discard parseInt(e.value, result.line)
       of "column":
         if result.msg.len == 0 and result.nimout.len == 0:
-          result.parseErrors.addLine "errormsg or msg needs to be specified before column"
+          result.parseErrors.addLine(
+            "errormsg or msg needs to be specified before column")
         discard parseInt(e.value, result.column)
       of "output":
         if result.outputCheck != ocSubstr:
@@ -528,7 +522,7 @@ proc parseSpec*(filename: string,
         result.cmd = parseShellCmd(e.value)
 
         if result.cmd.bin == "nim":
-          result.cmd.bin = compilerPrefix
+          result.cmd.bin = conf.compilerPrefix
 
       of "ccodecheck":
         try:
@@ -565,15 +559,18 @@ proc parseSpec*(filename: string,
           of addTargetC: result.targets.incl targetC
           of addTargetJS: result.targets.incl targetJS
           of addTargetVM: result.targets.incl targetVM
-          of addTargetNative: result.targets.incl nativeTarget
-          of addCategoryTargets: result.targets = result.targets + caGivenTargets
+          of addTargetNative: result.targets.incl conf.nativeTarget
+
+          of addCategoryTargets:
+            result.targets = result.targets + conf.caGivenTargets
+
           of remTargetC, remTargetJS, remTargetVM,
              remCategoryTargets:
                discard
         
         if result.targets == {}:
           # nothing was specified, so assume the defaults
-          result.targets = caGivenTargets
+          result.targets = conf.caGivenTargets
 
         # do the removals next
         for st in result.specifiedTargets:
@@ -581,7 +578,9 @@ proc parseSpec*(filename: string,
           of remTargetC: result.targets.excl targetC
           of remTargetJS: result.targets.excl targetJS
           of remTargetVM: result.targets.excl targetVM
-          of remCategoryTargets: result.targets = result.targets - caGivenTargets
+          of remCategoryTargets:
+            result.targets = result.targets - conf.caGivenTargets
+
           of addTargetC, addTargetJS, addTargetVM,
              addTargetNative, addCategoryTargets:
                discard
@@ -622,7 +621,7 @@ proc parseSpec*(filename: string,
 
   # IMPLEMENT spec parser diagnostics -- missing description, malformed
   # test specification and so on.
-  if skips.anyIt(it in result.file):
+  if conf.skips.anyIt(it in result.file):
     result.err = grDisabled
   if nimoutFound and result.nimout.len == 0 and not result.nimoutFull:
     result.parseErrors.addLine "empty `nimout` is vacuously true, use `nimoutFull:true` if intentional"
@@ -630,8 +629,3 @@ proc parseSpec*(filename: string,
   if result.parseErrors.len > 0:
     result.err = grInvalidSpec
 
-  result.inCurrentBatch = isCurrentBatch(testamentData0, filename) or
-                          result.unbatchable
-
-  if not result.inCurrentBatch:
-    result.err = grDisabled

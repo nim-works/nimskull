@@ -84,6 +84,20 @@ type
     runCheckStart: float     ## start of run output check
     runCheckEnd: float       ## end of run output check
 
+
+  CompileOutCompare* = object
+    ## Result of the compiler diagnostics comparison
+    compileSuccess: bool ## Whether compilation succeded in the first
+    ## place, irrespective of the subsequent spec checks.
+    runResult: TestedResultKind
+    codegen: CodegenCheckCompare
+
+  CodegenCheckCompare* = object
+    ## Result of the codegen check comparison
+    codeSizeOverflow: Option[tuple[generated, allowed: int]]
+    missingPegs: seq[string]
+    missingCode: Option[string]
+
   RunResult = object
     ## Final result of the test run
     nimout: string           ## nimout from compile, empty if not required
@@ -97,18 +111,11 @@ type
                              ## reason, remove when no longer necessary
     prgExit: int             ## program exit, if any
     lastAction: ActionId     ## last action in this run
+    compileCmp: CompileOutCompare
+    runCmp: RunCompare
+
 
   RunCompare = object
-
-  CompileOutCompare* = object
-    ## Result of the compiler diagnostics comparison
-    runResult: TestedResultKind
-
-  CodegenCheckCompare* = object
-    ## Result of the codegen check comparison
-    codeSizeOverflow: Option[tuple[generated, allowed: int]]
-    missingPegs: seq[string]
-    missingCode: Option[string]
 
   TestOptionData = object
     ## Additional configuration for the test execution
@@ -150,12 +157,18 @@ type
     optVerbose: bool # = false
     useMegatest: bool # = true
     optFailing: bool # = false
+    batchArg: string
+    testamentNumBatch: int
+    testamentBatch: int
+    compilerPrefix: string
+    skips: seq[string]
 
 
   Execution = object
     ## state object to data relevant for a testament run
     conf: TestamentConf
     gTargets: set[GivenTarget]
+    retryContainer: RetryContainer
     skips: seq[string]
 
     userTestOptions: string ## options passed to tests by the user
@@ -543,9 +556,14 @@ proc prepareTestFilesAndSpecs(e: var Execution) =
   # parse all specs
   for testId, test in pairs(e.files):
     e.specs.add parseSpec(
-      addFileExt(test.file, ".nim"),
-      e.categories[test.catId].defaultTargets(),
-      nativeTarget()
+      SpecParseConfig(
+        filename: addFileExt(test.file, ".nim"),
+        caGivenTargets: e.categories[test.catId].defaultTargets(),
+        nativeTarget: nativeTarget(),
+        skips: e.conf.skips,
+        compilerPrefix: e.conf.compilerPrefix,
+        retryContainer: e.retryContainer
+      )
     )
 
     if e.testOpts.hasKey(testId):
@@ -688,18 +706,30 @@ proc prepareTestActions(execState: var Execution) =
 
 
 proc runTests(e: var Execution) =
-  var actionQueue: seq[ActionId]
+  var next: seq[ActionId]
   for id, _ in e.actions:
-    actionQueue.add(id)
+    next.add(id)
 
-  var processedActions: PackedSet[ActionId]
+  var completedCompile: PackedSet[ActionId]
+  proc pickNextAction(e: var Execution): ActionId =
+    for idx in countdown(next.high(), 0):
+      let act = next[idx]
+      case e.actions[act].kind:
+        of actionCompile, actionReject:
+          next.delete(idx)
+          return act
 
-  proc pickNextAction(): ActionId =
-    for idx in
+        of actionRun:
+          if act in completedCompile:
+            next.delete(idx)
+            if e.results[e.actions[act].runId].compileCmp.compileSuccess:
+              return act
 
-  while hasActionsToProcess():
-    while batchNotFull and 0 < len.actionQueue():
-      batch.add actionQueue.pickFirstActionWithNoDependenciesOrCorrectlyProcessedDependencies()
+
+  while 0 < next.len():
+    var batch: seq[ActionId]
+    while 0 < next.len() and batch.len() < defaultBatchSize:
+      batch.add e.pickNextAction()
 
 #   batch.execute()
 #   batch.processExecutionResults()
@@ -763,7 +793,7 @@ proc parseOpts(execState: var Execution, p: var OptParser): ParseCliResult =
       execState.targetsStr = p.val
       execState.gTargets = parseTargets(execState.targetsStr)
     of "nim":
-      compilerPrefix = addFileExt(p.val.absolutePath, ExeExt)
+      execState.conf.compilerPrefix = addFileExt(p.val.absolutePath, ExeExt)
     of "directory":
       setCurrentDir(p.val)
     of "colors":
@@ -772,14 +802,7 @@ proc parseOpts(execState: var Execution, p: var OptParser): ParseCliResult =
       of "off": execState.flags.excl outputColour
       else: return parseQuitWithUsage
     of "batch":
-      testamentData0.batchArg = p.val
-      if p.val != "_" and p.val.len > 0 and p.val[0] in {'0'..'9'}:
-        let s = p.val.split("_")
-        doAssert s.len == 2, $(p.val, s)
-        testamentData0.testamentBatch = s[0].parseInt
-        testamentData0.testamentNumBatch = s[1].parseInt
-        doAssert testamentData0.testamentNumBatch > 0
-        doAssert testamentData0.testamentBatch >= 0 and testamentData0.testamentBatch < testamentData0.testamentNumBatch
+      discard
     of "simulate":
       execState.flags.incl dryRun
     of "megatest":
@@ -845,7 +868,10 @@ proc main() =
       flags: defaultExecFlags,
       testsDir: "tests" & DirSep,
       rootDir: getCurrentDir(),
-      gTargets: {low(GivenTarget) .. high(GivenTarget)}
+      gTargets: {low(GivenTarget) .. high(GivenTarget)},
+      conf: TestamentConf(
+        compilerPrefix: findExe("nim")
+      )
     )
 
   case parseOpts(execState, p):
