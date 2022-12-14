@@ -530,23 +530,24 @@ proc prepareTestFilesAndSpecs(e: var Execution) =
         testFilesFromCat(e, cat)
 
     of tfkGlob:
-      e.categories = initCategories [Category("<glob>")]
+      let cat = e.categories.add Category("<glob>")
       let pattern = filter.pattern
       if dirExists(pattern):
         for kind, name in walkDir(pattern):
           if kind in {pcFile, pcLinkToFile} and name.endsWith(".nim"):
-            e.files.add TestFile(file: name)
+            e.files.add TestFile(file: name, catId: cat)
+
       else:
         for name in walkPattern(pattern):
-          e.files.add TestFile(file: name)
+          e.files.add TestFile(file: name, catId: cat)
 
     of tfkSingle:
-      e.categories = initCategories [Category(parentDir(filter.test))]
+      let cat = e.categories.add Category(parentDir(filter.test))
       let test = filter.test
       # IMPLEMENT: replace with proper error handling
       doAssert fileExists(test), test & " test does not exist"
       if isTestFile(test):
-        e.files.add TestFile(file: test)
+        e.files.add TestFile(file: test, catId: cat)
 
     else:
       assert false, "TODO ???"
@@ -555,6 +556,7 @@ proc prepareTestFilesAndSpecs(e: var Execution) =
 
   # parse all specs
   for testId, test in pairs(e.files):
+    e.tests.add GivenTest(file: testId, spec: testId)
     e.specs.add parseSpec(
       SpecParseConfig(
         filename: addFileExt(test.file, ".nim"),
@@ -675,7 +677,7 @@ proc prepareTestRuns(execState: var Execution) =
         )
 
         execState.times.add RunTime()
-        execState.results.add RunResult()
+        execState.results.add RunResult(lastAction: EmptyActionId)
 
 proc prepareTestActions(execState: var Execution) =
   ## create a list of necessary test actions
@@ -692,13 +694,18 @@ proc prepareTestActions(execState: var Execution) =
   for runId, run in testRuns.pairs:
     let actionKind = testSpecs[run.test].action
     case actionKind:
-      of actionReject, actionCompile:
+      of actionReject:
         execState.actions.add:
-          TestAction(runId: runId, kind: actionKind)
+          TestAction(runId: runId, kind: actionReject)
+
+      of actionCompile:
+        execState.actions.add:
+          TestAction(runId: runId, kind: actionCompile)
 
       of actionRun:
         let compileActionId = execState.actions.add:
-          TestAction(runId: runId, kind: actionCompile, partOfRun: true)
+          TestAction(
+            runId: runId, kind: actionCompile, partOfRun: true)
 
         execState.actions.add:
           TestAction(
@@ -712,6 +719,7 @@ proc runTests(e: var Execution) =
 
   var completedCompile: PackedSet[ActionId]
   proc pickNextAction(e: var Execution): ActionId =
+    result = EmptyActionId
     for idx in countdown(next.high(), 0):
       let act = next[idx]
       case e.actions[act].kind:
@@ -865,10 +873,15 @@ proc main() =
   var
     p         = initOptParser() # cli parser
     execState = Execution(
+      runProgress: RunProgress(
+        lastCheckedRun: EmptyRunId,
+        mostRecentRun: EmptyRunId,
+      ),
       flags: defaultExecFlags,
       testsDir: "tests" & DirSep,
       rootDir: getCurrentDir(),
       gTargets: {low(GivenTarget) .. high(GivenTarget)},
+      retryContainer: RetryContainer(retry: false),
       conf: TestamentConf(
         compilerPrefix: findExe("nim")
       )

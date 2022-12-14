@@ -3,33 +3,39 @@ import std/[macros, strutils, options]
 template declareIdType*(
     Name: untyped,
     addHash: static[bool] = false,
-    BaseType: typed = uint64
-  ): untyped {.dirty.} =
+    BaseType: typed = uint64,
+    zeroIsEmpty: static[bool] = true
+  ): untyped =
 
-  type
-    `Name Id`* = distinct BaseType
+  when zeroIsEmpty:
+    type `Name Id`* {.requiresinit, inject.} = distinct BaseType
+    const `Empty Name Id`* {.inject.} = `Name Id`(0)
+    const idxOffset = 1
 
-  const `Empty Name Id`* = `Name Id`(0)
+  else:
+    type `Name Id`* {.inject.} = distinct BaseType
+    const `Empty Name Id`* {.inject.} = `Name Id`(-1)
+    const idxOffset = 0
 
-  func `==`*(i1, i2: `Name Id`): bool = i1.int == i2.int
-  func isNil*(i: `Name Id`): bool = i == `Empty Name Id`
+  func `==`*(i1, i2: `Name Id`): bool {.inject.} = i1.int == i2.int
+  func isNil*(i: `Name Id`): bool {.inject.} = i == `Empty Name Id`
 
-  func `$`*(id: `Name Id`): string =
+  func `$`*(id: `Name Id`): string {.inject.} =
     if id == `Empty Name Id`:
-      result = "<empty- " & astToStr(Name) & "Id>"
+      result = "<empty-(" & $id.int & ")-" & astToStr(Name) & "Id>"
 
     else:
       result = "<" & astToStr(Name) & "-" & $id.int & ">"
 
-  func toIndex*(id: `Name Id`): int =
+  func toIndex*(id: `Name Id`): int {.inject.} =
     assert not isNil(id), $id
-    result = int(BaseType(id) - 1)
+    result = int(BaseType(id) - idxOffset)
 
-  func `to Name Id`*(idx: int): `Name Id` =
-    result = `Name Id`(idx + 1)
+  func `to Name Id`*(idx: int): `Name Id` {.inject.} =
+    result = `Name Id`(idx + idxOffset)
 
   when addHash:
-    func hash(id: `Name Id`): Hash = Hash(id.int)
+    func hash(id: `Name Id`): Hash {.inject.} = Hash(id.int)
 
 import std/bitops
 
@@ -81,9 +87,16 @@ template declareStoreType*(
       data*: seq[ValueName]
 
   func len*(store: StoreName): int = store.data.len
-  func clear*(store: var StoreName) = store.data.setLen(0)
+
+  func clear*(store: var StoreName) =
+    {.warning[UnsafeSetLen]: off.}
+    store.data.setLen(0)
+    {.warning[UnsafeSetLen]: on.}
+
   func `init StoreName`(values: openarray[ValueName]): StoreName =
-    StoreName(data: @values)
+    {.warning[ProveInit]: off.}
+    result = StoreName(data: @values)
+    {.warning[ProveInit]: on.}
 
   func add*(store: var StoreName, item: ValueName): IdName {.discardable.} =
     result = `to IdName`(store.data.len)
