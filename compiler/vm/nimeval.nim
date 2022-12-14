@@ -38,9 +38,12 @@ import
     passaux
   ],
   compiler/vm/[
+    compilerbridge,
     vmdef,
-    vm
+    vmops
   ]
+
+export compilerbridge
 
 type
   Interpreter* = ref object ## Use Nim as an interpreter with this object
@@ -81,16 +84,16 @@ proc selectRoutine*(i: Interpreter; name: string): PSym =
 proc callRoutine*(i: Interpreter; routine: PSym; args: openArray[PNode]): PNode =
   assert i != nil
   let c = PCtx(i.graph.vm)
-  result = vm.execProc(c[], routine, args)
+  result = execProc(c[], routine, args)
 
 proc getGlobalValue*(i: Interpreter; letOrVar: PSym): PNode =
   let c = PCtx(i.graph.vm)
-  result = vm.getGlobalValue(c[], letOrVar)
+  result = getGlobalValue(c[], letOrVar)
 
 proc setGlobalValue*(i: Interpreter; letOrVar: PSym, val: PNode) =
   ## Sets a global value to a given PNode, does not do any type checking.
   let c = PCtx(i.graph.vm)
-  vm.setGlobalValue(c[], letOrVar, val)
+  setGlobalValue(c[], letOrVar, val)
 
 proc implementRoutine*(i: Interpreter; pkg, module, name: string;
                        impl: proc (a: VmArgs) {.closure, gcsafe.}) =

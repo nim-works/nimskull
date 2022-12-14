@@ -30,7 +30,7 @@ import
   ],
   compiler/vm/[
     vmdef,
-    vm,
+    vmhooks,
     nimeval,
   ]
 

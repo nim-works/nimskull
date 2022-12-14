@@ -79,8 +79,9 @@ import
     active
   ],
   compiler/vm/[
+    compilerbridge,
     vmdef,
-    vm
+    vmhooks
   ]
 
 from std/options as std_options import some, none
