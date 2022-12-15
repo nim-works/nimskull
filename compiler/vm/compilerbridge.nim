@@ -35,7 +35,8 @@ import
     transf
   ],
   compiler/utils/[
-    debugutils
+    debugutils,
+    idioms
   ],
   compiler/vm/[
     vmcompilerserdes,
@@ -49,13 +50,26 @@ import
     results
   ]
 
-from compiler/ast/reports import wrap
+import std/options as std_options
+
+from compiler/ast/reports import wrap, toReportLineInfo
 from compiler/ast/reports_vm import VMReport
 from compiler/ast/reports_sem import SemReport
+from compiler/ast/reports_internal import InternalReport
 from compiler/ast/report_enums import ReportKind
+
+type
+  ExecErrorReport* = object
+    stackTrace*: VMReport ## The report storing the stack-trace
+    report*: VMReport     ## The report detailing the error
+
+  ExecutionResult* = Result[PNode, ExecErrorReport]
 
 # to prevent endless recursion in macro instantiation
 const evalMacroLimit = 1000
+
+# prevent a default `$` implementation from being generated
+func `$`(e: ExecErrorReport): string {.error.}
 
 proc putIntoReg(dest: var TFullReg; c: var TCtx, n: PNode, formal: PType) =
   ## Put the value that is represented by `n` (but not the node itself) into
@@ -137,6 +151,73 @@ proc unpackResult(res: sink ExecutionResult; config: ConfigRef, node: PNode): PN
 
     result = config.newError(node, errKind, rId, instLoc(-1)):
                              [newIntNode(nkIntLit, ord(stId))]
+
+proc buildError(c: var TCtx, thread: VmThread, event: sink VMReport): ExecErrorReport  =
+  ## Creates an `ExecErrorReport` with the `event` and a stack-trace for
+  ## `thread`
+  result.stackTrace = createStackTrace(c, thread)
+  result.report = event
+
+  if result.report.location.isNone():
+    # use the location info of the failing instruction if none is provided
+    result.report.location = some source(c, thread)
+
+  # set the stack-trace report information
+  result.stackTrace.location = some source(c, thread)
+  result.stackTrace.reportInst = toReportLineInfo(instLoc(-1))
+
+proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
+             cb: proc(c: TCtx, r: TFullReg): PNode
+            ): ExecutionResult {.inline.} =
+  ## This is the entry point for invoking the VM to execute code at
+  ## compile-time. The `cb` callback is used to deserialize the result stored
+  ## as VM data into ``PNode`` AST, and is invoked with the register that
+  ## holds the result
+  var thread = initVmThread(c, start, frame)
+
+  # run the VM until either no code is left to execute or an event implying
+  # execution can't go on occurs
+  while true:
+    var r = execute(c, thread)
+    case r.kind
+    of yrkDone:
+      # execution is finished
+      result.initSuccess cb(c, c.sframes[0].slots[r.reg.get])
+      break
+    of yrkError:
+      result.initFailure buildError(c, thread, r.error)
+      break
+    of yrkQuit:
+      case c.mode
+      of emRepl, emStaticExpr, emStaticStmt:
+        # XXX: should code run at compile time really be able to force-quit
+        #      the compiler? It currently can.
+        localReport(c.config, createStackTrace(c, thread))
+        localReport(c.config, InternalReport(kind: rintQuitCalled))
+        # FIXME: this will crash the compiler (RangeDefect) if `quit` is
+        #        called with a value outside of int8 range!
+        msgQuit(int8(r.exitCode))
+      of emConst, emOptimize:
+        # XXX: the report is not really VM-related anymore
+        let rep = VMReport(kind: rvmQuit, exitCode: r.exitCode)
+        result.initFailure buildError(c, thread, rep)
+        break
+      of emStandalone:
+        unreachable("not valid at compile-time")
+
+    of yrkMissingProcedure:
+      # a stub entry was encountered -> generate the code for the
+      # corresponding procedure
+      let res = compile(c, r.entry)
+      if res.isErr:
+        # code-generation failed
+        result.initFailure buildError(c, thread, res.takeErr)
+        break
+
+      # success! ``compile`` updated the procedure's entry, so we can
+      # continue execution
+
+  dispose(c, thread)
 
 proc execute(c: var TCtx, info: CodeInfo): ExecutionResult =
   var tos = TStackFrame(prc: nil, comesFrom: 0, next: -1)

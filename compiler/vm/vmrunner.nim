@@ -11,7 +11,7 @@ import
   compiler/ast/[
     ast_types,
     ast,
-    report_enums
+    lineinfos
   ],
   compiler/front/[
     cli_reporter,
@@ -40,6 +40,7 @@ import
     results
   ]
 
+import std/options as std_options
 
 proc loadDiscrConst(s: PackedEnv, constIdx: int, dst: LocHandle,
                     objTyp: PVmType, fieldPos: FieldPosition): int =
@@ -260,22 +261,35 @@ proc main*(args: seq[string]): int =
   var frame = TStackFrame(prc: entryPoint.sym, next: -1)
   frame.slots.newSeq(entryPoint.regCount)
 
-  let r = c.execute(entryPoint.start, frame, cb)
-  if r.isOk:
-    # on successful execution, the executable's main function returns the
-    # value of ``programResult``, which we use as the runner's exit code
-    result = r.unsafeGet.intVal.int
-  else:
-    let err = r.takeErr
-    case err.report.kind
-    of rvmQuit:
-      # abnormal exit via ``quit``
-      result = err.report.exitCode.int
-    else:
+  # the execution part. Set up a thread and run it until it either exits
+  # normally or abnormally
+  var thread = initVmThread(c, entryPoint.start, frame)
+  block:
+    let r = execute(c, thread)
+    case r.kind
+    of yrkDone:
+      # on successful execution, the executable's main function returns the
+      # value of ``programResult``, which we use as the runner's exit code
+      let reg = c.sframes[0].slots[r.reg.get]
+      result = regToNode(c, reg, nil, TLineInfo()).intVal.int
+      break
+    of yrkError:
       # an uncaught error occurred
-      c.config.localReport(err.stackTrace)
-      c.config.localReport(err.report)
+      c.config.localReport(createStackTrace(c, thread))
+      c.config.localReport(r.error)
       result = 1
+    of yrkQuit:
+      # ``quit`` was called
+      result = r.exitCode
+    of yrkMissingProcedure:
+      # a procedure stub was encountered -- this shouldn't happen. We print
+      # the current stack-trace, write out an error message, and then quit
+      c.config.localReport(createStackTrace(c, thread))
+      c.config.msgWrite("trying to call a procedure that is a stub: $1" %
+                        [c.functions[r.entry.int].sym.name.s])
+      result = 1
+
+  dispose(c, thread)
 
 when isMainModule:
   programResult = main(commandLineParams())

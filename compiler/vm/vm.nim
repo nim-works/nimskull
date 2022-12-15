@@ -9,6 +9,13 @@
 
 ## This file implements the new evaluation engine for Nim code.
 ## An instruction is 1-3 int32s in memory, it is a register based VM.
+## # TODO: update the above -- it doesn't reflect reality anymore
+##
+## To use the VM once has to first set up an execution environment, which is
+## represented by ``TCtx``. In order to execute something, a ``VmThread``
+## instance is required and can be created with ``initVmThread``. Only a single
+## thread may exist for a given ``TCtx`` at a time -- creating multiple ones,
+## even if the others are not used, is not allowed.
 
 import
   std/[
@@ -53,7 +60,6 @@ import
     vmdef,
     vmdeps,
     vmerrors,
-    vmjit,
     vmmemory,
     vmobjects,
     vmtypes
@@ -86,26 +92,41 @@ import std/options as stdoptions
 from std/math import round
 
 type
-  ExecResultKind = enum
-    erkDone
+  VmThread* = object
+    ## This is beginning of splitting up ``TCtx``. A ``VmThread`` is
+    ## meant to encapsulate the state that makes up a single execution. This
+    ## includes things like the program counter, stack frames, active
+    ## exception, etc.
+    pc: int ## the program counter. Points to the instruction to execute next
+    frame: StackFrameIndex ## the index of the active stack frame
+    # TODO: as mentioned in the doc comment of the type, the actual stack frame
+    #       data (i.e. the ``slots`` seq) should also be moved here
+
+  YieldReasonKind* = enum
+    yrkDone
       ## execution is done. There is no more code to execute
-    #ekError # TODO: also communicate whether execution was aborted due to an
-             #       error via ``ExecResult``
-    erkMissingProcedure
+    yrkError
+      ## an error occurred. No clear distinction between fatal (the thread
+      ## must not be resumed) and non-fatal (the thread may be resumed) is
+      ## made yet, so all errors should be treated as fatal
+    yrkQuit
+      ## a call to ``quit`` was executed. The thread can't be resumed
+    yrkMissingProcedure
       ## a procedure stub was called. The stub has to be resolved before
       ## continuing execution
 
-  ExecResult = object
-    ## The internal result of a single execution step (i.e. a call to
-    ## ``rawExecute``)
-    # TODO: remove ``ExecutionResult`` in its current form and use its name
-    #       for ``ExecResult``
-    case kind: ExecResultKind:
-    of erkDone:
-      reg: Option[TRegister] ## the register that holds the result, or
-                             ## 'none', if there is no result
-    of erkMissingProcedure:
-      entry: FunctionIndex   ## the entry of the procedure that is a stub
+  YieldReason* = object
+    ## The result of a single execution step (i.e. a call to ``execute``)
+    case kind*: YieldReasonKind:
+    of yrkDone:
+      reg*: Option[TRegister] ## the register that holds the result, or
+                              ## 'none', if there is no result
+    of yrkError:
+      error*: VMReport
+    of yrkQuit:
+      exitCode*: int
+    of yrkMissingProcedure:
+      entry*: FunctionIndex   ## the entry of the procedure that is a stub
 
 const
   traceCode = defined(nimVMDebugExecute)
@@ -113,10 +134,9 @@ const
 const
   errIllegalConvFromXtoY = "illegal conversion from '$1' to '$2'"
 
-proc createStackTrace(
+proc createStackTrace*(
     c:          TCtx,
-    sframe:     StackFrameIndex,
-    pc:         int,
+    thread:     VmThread,
     recursionLimit: int = 100
   ): VMReport =
   ## Generates a stack-trace report starting at frame `sframe` (inclusive).
@@ -131,9 +151,9 @@ proc createStackTrace(
   result.currentExceptionB = nil
 
   block:
-    var i = sframe
+    var i = thread.frame
     var count = 0
-    var pc = pc
+    var pc = thread.pc
     # Traverse the stack formed via the `next` field
     while i >= 0:
       # XXX: unsafeAddr is used due to nocopy-let-in-loop issue
@@ -214,11 +234,6 @@ proc toVmError(c: DerefFailureCode, inst: InstantiationInfo): ref VmError =
 template toException(x: DerefFailureCode): untyped =
   ## `Result` -> exception translation
   toVmError(x, instLoc())
-
-func toException*(r: sink VMReport): ref VmError {.noinline.} =
-  ## Implements the `toException` interface for use with `Result`
-  new(result)
-  result.report = r
 
 proc reportException(c: TCtx; sframe: StackFrameIndex, raised: LocHandle) =
   ## Reports the exception represented by `raised` by raising a `VmError`
@@ -843,7 +858,7 @@ template checkHandle(a: VmAllocator, handle: LocHandle) =
 when not defined(nimHasSinkInference):
   {.pragma: nosinks.}
 
-proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): ExecResult =
+proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason =
   ## Runs the execution loop, starting in frame `tos` at program counter `pc`.
   ## In the case of an error, raises an exception of type `VmError`. If no
   ## fatal error occurred, the reason for why the loop was left plus extra
@@ -970,7 +985,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): ExecResult 
     case instr.opcode
     of opcEof:
       # XXX: eof shouldn't be used to return a register
-      return ExecResult(kind: erkDone, reg: some(ra))
+      return YieldReason(kind: yrkDone, reg: some(ra))
     of opcRet:
       let newPc = c.cleanUpOnReturn(c.sframes[tos])
       # Perform any cleanup action before returning
@@ -978,7 +993,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): ExecResult 
         pc = c.sframes[tos].comesFrom
         if tos == 0:
           # opcRet always returns its value in register '0'
-          return ExecResult(kind: erkDone, reg: some(TRegister 0))
+          return YieldReason(kind: yrkDone, reg: some(TRegister 0))
 
         assert c.code[pc].opcode in {opcIndCall, opcIndCallAsgn}
         if c.code[pc].opcode == opcIndCallAsgn:
@@ -1931,7 +1946,12 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): ExecResult 
         raiseVmError(VMReport(kind: rvmNodeNotAProcSymbol))
 
     of opcEcho:
-      # XXX: could be a candidate for turning into a callback
+      # TODO: ``echo`` is a "syscall" and the VM should not be responsible for
+      #       implementing it. How the syscall operates is up the context the
+      #       VM is used in.
+      #       Either use the already existing callback mechanism or (better)
+      #       implement it via a generalized syscall facility that makes use of
+      #       VM yields
 
       let rb = instr.regB
       template fn(s: string) =
@@ -2116,7 +2136,8 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): ExecResult 
         if entry.start < 0:
           # the procedure entry is a stub. Yield back control to the VM's
           # callsite, so that it can decide what do to
-          return ExecResult(kind: erkMissingProcedure, entry: toFuncIndex(fPtr))
+          return YieldReason(kind: yrkMissingProcedure,
+                             entry: toFuncIndex(fPtr))
 
         let (newPc, regCount) = (entry.start, entry.regCount.int)
 
@@ -2434,21 +2455,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): ExecResult 
       regs[ra].initLocReg(c.typeInfoCache.stringType, c.memory)
       regs[ra].strVal.newVmString(str, c.allocator)
     of opcQuit:
-      # TODO: move the handling of ``quit`` outside the execution loop by
-      #       introducing ``erkQuit`` and yielding execution with it as the
-      #       result code here
-      case c.mode
-      of emRepl, emStaticExpr, emStaticStmt:
-        localReport(c.config, c.debug[pc], InternalReport(kind: rintQuitCalled))
-        # TODO: this will crash the compiler/vm (RangeDefect) if `quit` is
-        #       called with a value outside of int8 range!
-        msgQuit(int8(regs[ra].intVal))
-      of emConst, emOptimize, emStandalone:
-        # calling ``quit`` in the VM is an abnormal exit and thus reported
-        # via an error
-        raiseVmError(
-          VMReport(kind: rvmQuit, exitCode: regs[ra].intVal), c.debug[pc])
-
+      return YieldReason(kind: yrkQuit, exitCode: regs[ra].intVal.int)
     of opcInvalidField:
       # REFACTOR this opcode is filled in the
       # `vmgen.genCheckedObjAccessAux` and contains expression for the
@@ -2753,6 +2760,12 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): ExecResult 
                                         c.debug[pc], c.config)[0]
         else:
           regs[ra].strVal = ""
+          # TODO: this is neither an internal error nor should ``globalReport``
+          #       be used to report it. As an improvement, it could be
+          #       treated as a normal VM error. ``opcGorge`` implements a part
+          #       of the compiler's compile-time interface, so it should be
+          #       eventually moved out of the VM via either callbacks or a
+          #       better mechanism for "system calls"
           globalReport(c.config, c.debug[pc], InternalReport(
             kind: rintNotUsingNimcore,
             msg: "VM is not built with 'gorge' support"))
@@ -3157,77 +3170,49 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): ExecResult 
 
     inc pc
 
-type
-  ExecErrorReport* = object
-    stackTrace*: VMReport ## The report storing the stack-trace
-    report*: VMReport     ## The report detailing the error
+proc `=copy`*(x: var VmThread, y: VmThread) {.error.}
 
-  ExecutionResult* = Result[PNode, ExecErrorReport]
-
-# prevent a default `$` implmenentation from being generated
-func `$`(e: ExecErrorReport): string {.error.}
-
-# XXX: the execution procs together with the result value processing needs
-#      some refactoring
-
-proc execute*(c: var TCtx, start: int, frame: sink TStackFrame; cb: proc(c: TCtx, r: TFullReg): PNode): ExecutionResult {.inline.} =
+proc initVmThread*(c: var TCtx, pc: int, frame: sink TStackFrame): VmThread =
+  ## Sets up a ``VmThread`` instance that will start execution at `pc`.
+  ## `frame` provides the initial stack frame.
+  ##
+  ## .. note:: due to an implementation limitation, there can currently only
+  ##           exist a single ``VmThread`` instance for a ``TCtx``
   assert c.sframes.len == 0
   c.sframes.add frame
 
-  var pc = start
-  var sframe = c.sframes.high
+  result = VmThread(pc: pc, frame: 0)
+
+proc dispose*(c: var TCtx, t: sink VmThread) =
+  ## Cleans up and frees all VM data owned by `t`
+  for f in c.sframes.mitems:
+    c.memory.cleanUpLocations(f)
+  c.sframes.setLen(0)
+
+  # free heap slots that are pending cleanup
+  cleanUpPending(c.memory)
+
+proc execute*(c: var TCtx, thread: var VmThread): YieldReason {.inline.} =
+  ## Executes the VM thread until it yields. The reason for yielding together
+  ## with associated data is returned as a ``YieldReason`` object
+
+  # both `pc` and `sframe` are modified and queried *very* often, so we move
+  # them to close stack locations for better spatial memory locality (the
+  # `thread` instance could be located in a far away memory location)
+  var
+    pc = thread.pc
+    sframe = thread.frame
+
   try:
-    var r: ExecResult
-    # run the VM until either no code is left to execute or an unrecoverable
-    # error occurred
-    while true:
-      r = rawExecute(c, pc, sframe)
-      case r.kind
-      of erkDone:
-        # execution is finished
-        break
-      of erkMissingProcedure:
-        # a stub entry was encountered -> generate the code for the
-        # corresponding procedure
-        let res = compile(c, r.entry)
-        if res.isErr:
-          # code-generation failed. Raise the error as an exception so that
-          # the surrounding ``except`` branch turns it into an
-          # ``ExecutionResult`` object
-          # TODO: the ``execute`` procedure and architecture surrounding it
-          #       needs to rewritten from the ground up. It should not be
-          #       responsible for reporting ``vmgen`` errors, nor invoking
-          #       ``compile`` in the first place
-          raise toException(res.takeErr)
-
-        # success! ``compile`` updated the procedure's entry, so we can
-        # continue execution
-
-    assert c.sframes.len == 1
-    let n = cb(c, c.sframes[0].slots[r.reg.get])
-    result = ExecutionResult.ok(n)
+    result = rawExecute(c, pc, sframe)
   except VmError as e:
-    # Execution failed, generate a stack-trace and wrap the error payload
-    # into an `ExecutionResult`
-    var err: ExecErrorReport
-    err.stackTrace = createStackTrace(c, sframe, pc)
-    err.report = move e.report
-
-    if err.report.location.isNone():
-      # Use the location info of the failing instruction if none is provided
-      err.report.location = some(c.debug[pc])
-
-    # Set stack-trace report information
-    err.stackTrace.location = some(c.debug[pc])
-    err.stackTrace.reportInst = toReportLineInfo(instLoc(-1))
-
-    result = ExecutionResult.err(err)
-
+    # an error occurred during execution
+    result = YieldReason(kind: yrkError, error: move e.report)
   finally:
-    # Clean up frames whenever leaving execution
-    for f in c.sframes.mitems:
-      c.memory.cleanUpLocations(f)
-    c.sframes.setLen(0)
+    thread.pc = pc
+    thread.frame = sframe
 
-    # Free pending
-    cleanUpPending(c.memory)
+template source*(c: TCtx, t: VmThread): TLineInfo =
+  ## Gets the source-code information for the instruction the program counter
+  ## of `t` currently points to
+  c.debug[t.pc]
