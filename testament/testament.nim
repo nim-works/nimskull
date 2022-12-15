@@ -8,7 +8,10 @@ import
     pegs,
     parseopt,
     algorithm,
-    packedsets
+    packedsets,
+    osproc,
+    times,
+    streams
   ],
   experimental/[
     dod_helpers,
@@ -17,12 +20,30 @@ import
 
 import specs, test_diff
 import compiler/utils/nodejs
-
+import hmisc/core/all
+startHax()
 
 declareIdType(Test)
 declareIdType(Run)
 declareIdType(Action)
 declareIdType(Category)
+
+## Blanket method to encaptsulate all echos while testament is detangled.
+## Using this means echo cannot be called with separation of args and must
+## instead pass a single concatenated string so that optional parameters
+## can be included
+type
+  MessageType = enum
+    Undefined
+    Progress
+    ProcessCmdCall
+
+template msg(msgType: MessageType, parts: varargs[string, `$`]): untyped =
+  let (file, line, col) = instantiationInfo()
+  stdout.write "$#($#): " % [ file, $line ]
+  stdout.writeLine parts
+  flushFile stdout
+
 
 type
   Category = distinct string ## Name of the test category
@@ -64,7 +85,7 @@ type
     catId: CategoryId
 
   TestAction = object
-    runId: RunId
+    run: RunId
     case kind: GivenTestAction      # NOTE: might not need `partOfRun` at all
     of actionReject:
       discard
@@ -101,12 +122,14 @@ type
   RunResult = object
     ## Final result of the test run
     nimout: string           ## nimout from compile, empty if not required
+    nimErr: string           ## Stderr from the compiler
     nimExit: int             ## exit code produced by the compiler
     nimMsg: string           ## last message, if any, from the compiler
     nimFile: string          ## filename from last compiler message, if present
     nimLine: int             ## line from last compiler message, if present
     nimColumn: int           ## colunn from last compiler message, if present
     prgOut: string           ## program output, if any
+    prgErr: string           ## Stderr from the compiler
     prgOutSorted: string     ## sorted version of `prgOut`; kept for legacy
                              ## reason, remove when no longer necessary
     prgExit: int             ## program exit, if any
@@ -157,14 +180,12 @@ type
     optVerbose: bool # = false
     useMegatest: bool # = true
     optFailing: bool # = false
-    batchArg: string
-    testamentNumBatch: int
-    testamentBatch: int
+    batchSize: int
     compilerPrefix: string
     skips: seq[string]
 
 
-  Execution = object
+  Execution = ref object
     ## state object to data relevant for a testament run
     conf: TestamentConf
     gTargets: set[GivenTarget]
@@ -181,7 +202,7 @@ type
     workingDir: string       ## working directory to begin execution in
     nodeJs: string           ## path to nodejs binary
     nimSpecified: bool       ## whether the user specified the nim
-    testArgs: string         ## arguments passed to tests by the user
+    testArgs: seq[ShellArg] ## arguments passed to tests by the user
     # environment input / setup
     compilerPath: string     ## compiler command to use
     testsDir: string         ## where to look for tests
@@ -602,7 +623,6 @@ const
   cacheResultsDir = testResultsDir / "cacheresults"
   noTargetsSpecified: set[GivenTarget] = {}
   defaultExecFlags = {outputColour}
-  defaultBatchSize = 10
   defaultCatId = CategoryId(0)
 
 
@@ -696,21 +716,228 @@ proc prepareTestActions(execState: var Execution) =
     case actionKind:
       of actionReject:
         execState.actions.add:
-          TestAction(runId: runId, kind: actionReject)
+          TestAction(run: runId, kind: actionReject)
 
       of actionCompile:
         execState.actions.add:
-          TestAction(runId: runId, kind: actionCompile)
+          TestAction(run: runId, kind: actionCompile)
 
       of actionRun:
         let compileActionId = execState.actions.add:
           TestAction(
-            runId: runId, kind: actionCompile, partOfRun: true)
+            run: runId, kind: actionCompile, partOfRun: true)
 
         execState.actions.add:
           TestAction(
-            runId: runId, kind: actionRun, compileActionId: compileActionId)
+            run: runId, kind: actionRun, compileActionId: compileActionId)
 
+
+type
+  TestBatch = ref object
+    cmdToActId: seq[ActionId]
+
+
+proc exeFile(
+    testRun: TestRun, specFilePath: string, rootDir: string): string =
+  ## Get name of the executable file for the test run
+  # CLEAN into a smaller blocks without huge if/else gaps
+  let
+    target = testRun.target
+    isJsTarget = target == targetJs
+    (dirPart, specName, _) = splitFile(specFilePath)
+    matrixEntry = testRun.matrixEntry
+
+  let exeName = join(
+    if matrixEntry == noMatrixEntry:
+      @[specName, target.cmd.toStr()]
+    else:
+      @[specName, $matrixEntry, target.cmd.toStr()],
+    "_"
+  )
+
+  let exeExt =
+    if isJsTarget:
+      "js"
+    else:
+      ExeExt
+
+  let fileDir =
+    if dirPart.isAbsolute():
+      dirPart
+
+    else:
+      joinPath(rootDir, dirPart)
+
+  result = changeFileExt(joinPath(fileDir, exeName), exeExt)
+
+proc getFileDir(filename: string): string =
+  result = filename.splitFile().dir
+  if not result.isAbsolute():
+    result = getCurrentDir() / result
+
+proc getCmd(e: Execution, id: ActionId): ShellCmd =
+  let
+    action = e.actions[id]
+    runId = action.run
+    testRun = e.runs[runId]
+    testId = testRun.test
+    spec = e.specs[testId]
+    testFile = e.files[testId]
+    filename = testFile.file
+    target = testRun.target
+
+  let matrixOptions =
+    if testRun.matrixEntry == noMatrixEntry:
+      newSeq[ShellArg]()
+    else:
+      spec.matrix[testRun.matrixEntry]
+
+  result = getCmd(e.conf.compilerPrefix, spec)
+  let nimcache = nimcacheDir(
+    testFile.file, matrixOptions & e.testArgs, target)
+
+  var options = target.defaultOptions() & e.testArgs
+  if 0 < nimcache.len():
+    options.add shArg("--nimCache=$#" % nimcache)
+
+  options.add shArg(
+    "--out=$#" % testRun.exeFile(filename, e.rootDir))
+
+  result = result.interpolate({
+    "target": @[$target],
+    "nim": @[e.conf.compilerPrefix],
+    "options": options.toStr(),
+    "file": @[filename],
+    "filedir": @[filename.getFileDir()]
+  })
+
+
+
+
+
+
+
+proc actionInput(e: Execution, act: ActionId): Option[string] =
+  if e.actions[act].kind == actionRun:
+    return some e.specs[e.runs[e.actions[act].run].test].input
+
+proc setTime(
+    e: var Execution,
+    act: ActionId,
+    isCheck: bool,
+    isStart: bool
+  ) =
+  let run = e.actions[act].run
+  case e.actions[act].kind:
+    of actionRun:
+      if isStart:
+        if isCheck:
+          e.times[run].runCheckStart = epochTime()
+        else:
+          e.times[run].runStart = epochTime()
+
+      else:
+        if isCheck:
+          e.times[run].runCheckEnd = epochTime()
+        else:
+          e.times[run].runEnd = epochTime()
+
+    of actionCompile, actionReject:
+      if isStart:
+        if isCheck:
+          e.times[run].compileCheckStart = epochTime()
+
+        else:
+          e.times[run].compileStart = epochTime()
+
+      else:
+        if isCheck:
+          e.times[run].compileCheckEnd = epochTime()
+
+        else:
+          e.times[run].compileEnd = epochTime()
+
+proc addOut(
+    e: var Execution, act: ActionId, outs: string, isErr: bool) =
+  let run = e.actions[act].run
+  case e.actions[act].kind:
+    of actionRun:
+      if isErr:
+        e.results[run].prgOut.add outs
+      else:
+        e.results[run].prgErr.add outs
+
+    of actionCompile, actionReject:
+      if isErr:
+        e.results[run].nimOut.add outs
+      else:
+        e.results[run].nimErr.add outs
+
+proc setExit(e: var Execution, act: ActionId, exit: int) =
+  let run = e.actions[act].run
+  case e.actions[act].kind:
+    of actionRun: e.results[run].prgExit = exit
+    of actionCompile, actionReject: e.results[run].nimExit = exit
+
+proc getCmd(e: Execution, batch: TestBatch, id: int): ShellCmd =
+  e.getCmd(batch.cmdToActId[id])
+
+proc initBatchHooks(e: Execution, batch: TestBatch): tuple[
+    onRunStart: proc(id: int),
+    onProcess: proc(id: int, p: Process),
+    onComplete: proc(id: int, p: Process)
+  ] =
+
+  var e = e
+  proc act(id: int): ActionId = batch.cmdToActId[id]
+
+  proc onTestRunStart(id: int) =
+    if e.conf.optVerbose:
+      msg Undefined: "executing: " & e.getCmd(batch, id).toStr()
+
+    e.setTime(act(id), isStart = true, isCheck = false)
+    e.setExit(act(id), 0)
+
+  proc onTestProcess(id: int, p: Process) =
+    let testInput = e.actionInput(act(id))
+    if testInput.isSome():
+      let instream = inputStream(p)
+      instream.write(testInput.get())
+      close instream
+
+  proc onTestRunComplete(id: int, p: Process) =
+    if e.conf.optVerbose:
+      msg Undefined: "finished execution of '$#' with code $#" % [
+        e.getCmd(batch, id).toStr().join(" "),
+        $p.peekExitCode()
+      ]
+
+    e.setTime(act(id), isStart = false, isCheck = false)
+
+  result.onRunStart = onTestRunStart
+  result.onProcess = onTestProcess
+  result.onComplete = onTestRunComplete
+
+proc initBatch(actions: seq[ActionId]): TestBatch =
+  TestBatch(cmdToActId: actions)
+
+proc runBatch(e: Execution, batch: TestBatch): seq[ShellResult] =
+  let (onStart, onProcess, onEnd) = e.initBatchHooks(batch)
+  var cmds: seq[ShellCmd]
+  for act in batch.cmdToActId:
+    cmds.add e.getCmd(act)
+
+  result = cmds.exec(
+    maxParallel = e.conf.batchSize,
+    beforeRunEvent = onStart,
+    startRunEvent = onProcess,
+    afterRunEvent = onEnd
+  )
+
+proc parseBatchOuts(
+  e: var Execution, batch: TestBatch, results: seq[ShellResult]) =
+
+  discard
 
 proc runTests(e: var Execution) =
   var next: seq[ActionId]
@@ -720,6 +947,7 @@ proc runTests(e: var Execution) =
   var completedCompile: PackedSet[ActionId]
   proc pickNextAction(e: var Execution): ActionId =
     result = EmptyActionId
+
     for idx in countdown(next.high(), 0):
       let act = next[idx]
       case e.actions[act].kind:
@@ -730,14 +958,28 @@ proc runTests(e: var Execution) =
         of actionRun:
           if act in completedCompile:
             next.delete(idx)
-            if e.results[e.actions[act].runId].compileCmp.compileSuccess:
+            if e.results[e.actions[act].run].compileCmp.compileSuccess:
               return act
 
 
   while 0 < next.len():
-    var batch: seq[ActionId]
-    while 0 < next.len() and batch.len() < defaultBatchSize:
-      batch.add e.pickNextAction()
+    var actions: seq[ActionId]
+    while actions.len() < e.conf.batchSize:
+      let act = e.pickNextAction()
+      if act.isNil():
+        # Could not find next action to execute -- dependencies are not
+        # resolved, not enough content in the list.
+        break
+
+      else:
+        actions.add act
+
+    let batch = initBatch(actions)
+    let results = e.runBatch(batch)
+    e.parseBatchOuts(batch, results)
+    echov batch
+    assert false
+
 
 #   batch.execute()
 #   batch.processExecutionResults()
@@ -883,7 +1125,8 @@ proc main() =
       gTargets: {low(GivenTarget) .. high(GivenTarget)},
       retryContainer: RetryContainer(retry: false),
       conf: TestamentConf(
-        compilerPrefix: findExe("nim")
+        compilerPrefix: findExe("nim"),
+        batchSize: 10
       )
     )
 
@@ -912,3 +1155,4 @@ proc main() =
 
 when isMainModule:
   main()
+  echo "done"

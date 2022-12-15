@@ -4,11 +4,18 @@ template declareIdType*(
     Name: untyped,
     addHash: static[bool] = false,
     BaseType: typed = uint64,
-    zeroIsEmpty: static[bool] = true
+    zeroIsEmpty: static[bool] = true,
+    requireInit: static[bool] = true
   ): untyped =
 
   when zeroIsEmpty:
-    type `Name Id`* {.requiresinit, inject.} = distinct BaseType
+    when requireInit:
+      type `Name Id`* {.requiresinit, inject.} = distinct BaseType
+
+    else:
+      type `Name Id`* {.inject.} = distinct BaseType
+
+
     const `Empty Name Id`* {.inject.} = `Name Id`(0)
     const idxOffset = 1
 

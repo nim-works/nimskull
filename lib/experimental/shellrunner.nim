@@ -90,9 +90,10 @@ func add*(cmd: var ShellCmd, args: openarray[ShellArg]) =
   ## Add arguments to shell command
   cmd.opts.add args
 
-func toStr*(part: ShellArg): string =
-  ## Convert non-templated shell argument to string
-  if part.kind != cpkArgument:
+func toStr*(
+    part: ShellArg, validateInterpolation: bool = true): string =
+  ## Convert shell argument to string
+  if part.kind != cpkArgument and validateInterpolation:
     raise newException(
       ValueError,
       "Interpolation on the shell part '$" &
@@ -101,11 +102,27 @@ func toStr*(part: ShellArg): string =
         "in order to splice the arguments"
     )
 
-  part.cmd
+  case part.kind:
+    of cpkArgument: part.cmd
+    of cpkTemplated: "<" & part.cmd & ">"
 
-func toStr*(args: seq[ShellArg]): seq[string] =
+func toStr*(
+    args: seq[ShellArg], validateInterpolation: bool = true): seq[string] =
   for arg in args:
-    result.add toStr(arg)
+    result.add toStr(arg, validateInterpolation)
+
+func argsToStr*(
+    cmd: ShellCmd, validateInterpolation: bool = true): seq[string] =
+  ## Get command arguments as list of strings
+  for part in cmd.opts:
+    result.add part.toStr(validateInterpolation)
+
+func toStr*(
+    cmd: ShellCmd, validateInterpolation: bool = true): seq[string] =
+  ## Get command as a linst of stirngs
+  @[cmd.bin] & cmd.argsToStr(validateInterpolation)
+
+
 
 func contains*(args: seq[ShellArg], str: string): bool =
   ## Check whether any of the arguments contain `str` as substring. Can be
@@ -163,22 +180,28 @@ func interpolate*(
 
   return cmd.interpolate(tab, default)
 
-func argsToStr*(cmd: ShellCmd): seq[string] =
-  ## Get command arguments as list of strings
-  for part in cmd.opts:
-    result.add part.toStr()
+import hmisc/core/all
 
-func toStr*(cmd: ShellCmd): seq[string] =
-  ## Get command as a linst of stirngs
-  @[cmd.bin] & cmd.argsToStr()
+proc splitRawCmd*(cmd: string): tuple[bin: string, args: seq[string]] =
+  # TODO use cli parser
+  let split = cmd.split(" ")
+  return (split[0], split[1..^1])
+
+proc parseShellArgs*(str: seq[string]): seq[ShellArg] =
+  for it in str:
+    let arg = it.strip()
+    if arg.startsWith("$"):
+      result.add shSub(arg[1..^1])
+    else:
+      result.add shArg(it)
 
 proc parseShellArgs*(str: string): seq[ShellArg] =
-  for it in str.split(" "):
-    result.add shArg(it)
+  let (bin, args) = splitRawCmd("CMD " & str)
+  return parseShellArgs(args)
 
 proc parseShellCmd*(str: string): ShellCmd =
-  let split = str.split(" ")
-  result = shell(split[0], split[1..^1])
+  let (bin, args) = splitRawCmd(str)
+  result = shell(bin, parseShellArgs(args))
 
 proc exec*(
     cmd: ShellCmd, dir: string = "",
@@ -246,7 +269,8 @@ proc exec*(
     maxParallel: int = countProcessors(),
     dir: string = "",
     beforeRunEvent: proc(idx: int) = nil,
-    afterRunEvent: proc(idx: int, p: Process) = nil
+    afterRunEvent: proc(idx: int, p: Process) = nil,
+    startRunEvent: proc(idx: int, p: Process) = nil
   ): seq[ShellResult] =
   ## Execute multiple shell commands in paralell, return full list of
   ## results in the same order as the original commands.
@@ -256,7 +280,7 @@ proc exec*(
   var q = newSeq[Process](maxParallel)
   var idxs = newSeq[int](maxParallel) # map process index to cmds index
 
-  var tmpResult: seq[(int, ShellResult)]
+  result = newSeq[ShellResult](len(cmds))
   when defined(windows):
     var w: WOHandleArray
     var m = min(min(maxParallel, MAXIMUM_WAIT_OBJECTS), cmds.len)
@@ -268,6 +292,8 @@ proc exec*(
     if beforeRunEvent != nil:
       beforeRunEvent(i)
     q[i] = start(cmds[i], dir = dir, options = options)
+    if startRunEvent != nil:
+      startRunEvent(i, q[i])
     idxs[i] = i
     when defined(windows):
       w[i] = q[i].fProcessHandle
@@ -335,7 +361,7 @@ proc exec*(
       res.retcode = q[rexit].peekExitCode()
       res.stdout = outputStream(q[rexit]).readAll()
       res.stderr = errorStream(q[rexit]).readAll()
-      tmpResult.add((idxs[rexit], res))
+      result[idxs[rexit]] = res
       close(q[rexit])
 
       if i < len(cmds):
@@ -356,7 +382,4 @@ proc exec*(
               break
         q[rexit] = nil
       dec(ecount)
-
-  for (idx, cmd) in sortedByIt(tmpResult, it[0]):
-    result.add cmd
 

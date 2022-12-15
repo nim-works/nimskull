@@ -50,22 +50,6 @@ proc isNimRepoTests(): bool =
 
 # ----------------------------------------------------------------------------
 
-## Blanket method to encaptsulate all echos while testament is detangled.
-## Using this means echo cannot be called with separation of args and must
-## instead pass a single concatenated string so that optional parameters
-## can be included
-type
-  MessageType = enum
-    Undefined,
-    Progress,
-    ProcessCmdCall
-
-proc msg(msgType: MessageType; parts: varargs[string, `$`]) =
-  if optFailing and not optVerbose and msgType == ProcessCmdCall:
-    return
-  stdout.writeLine parts
-  flushFile stdout
-
 
 proc verboseCmd(cmd: string) =
   if optVerbose:
@@ -89,10 +73,6 @@ proc isSuccess(input: string): bool =
   # https://wiki.archlinux.org/index.php/XDG_Base_Directory
   input.startsWith("Hint: ") and input.endsWith("[SuccessX]")
 
-proc getFileDir(filename: string): string =
-  result = filename.splitFile().dir
-  if not result.isAbsolute():
-    result = getCurrentDir() / result
 
 proc execCmdEx2(command: string, args: openArray[string]; workingDir, input: string = ""): tuple[
                 cmdLine: string,
@@ -714,6 +694,32 @@ proc makeName(test: TestFile,
 
 
 
+proc prepareTestActions(execState: var Execution) =
+  ## create a list of necessary test actions
+  # IMPLEMENT : create specific type to avoid accidental mutation
+
+  # NOTE: these are what are read, so a dedicate type would offer a
+  # read-only view of those, but allow actions mutation
+  let
+    testRuns = execState.testRuns
+    testSpecs = execState.testSpecs
+
+  # TODO: handle disabled and known issue
+
+  for runId, run in testRuns.pairs:
+    let actionKind = testSpecs[run.testId].action
+    case actionKind
+    of actionReject, actionCompile:
+      execState.actions.add:
+        TestAction(runId: runId, kind: actionKind)
+    of actionRun:
+      let compileActionId = execState.actions.len
+      execState.actions.add:
+        TestAction(runId: runId, kind: actionCompile, partOfRun: true)
+      execState.actions.add:
+        TestAction(runId: runId,
+                   kind: actionRun,
+                   compileActionId: compileActionId)
 
 proc reportTestRunResult(
     legacyResults: var TResults,
@@ -1071,52 +1077,8 @@ proc runTests(execState: var Execution) =
   # although as usual, lack of proper `const`-ness for fields will make it
   # harder at places. And this function is unlikely to work under `func` so
   # ...
-  proc onTestRunStart(id: int) =
-    if verbose:
-      msg Undefined: "executing: " & testCmds[id]
-
-    startTimes[id] = epochTime()
-    # reset
-    exitCodes[id] = 0
-    outputs[id] = ""
-    endTimes[id] = 0.0
-
-  proc onTestProcess(id: int, p: Process) =
-    let testInput = cmdIdToInput[id]
-    if testInput.isSome:
-      let instream = inputStream(p)
-      instream.write(testInput.get())
-      close instream
-    else:
-      discard
-
-  proc onTestRunComplete(id: int, p: Process) =
-    if verbose:
-      msg Undefined: "finished execution of '$#' with code $#" % [
-        testCmds[id],
-        $p.peekExitCode()
-      ]
-
-    endTimes[id] = epochTime()
-    exitCodes[id] = p.peekExitCode()
-    let outp = p.outputStream
-    outputs[id] = outp.readAll
-    outp.close()
 
   for actionId, action in testActions:
-    let
-      runId = action.runId
-      testRun = testRuns[runId]
-      testId = testRun.testId
-      spec = execState.testSpecs[testId]
-      testFile = execState.testFiles[testId]
-      matrixOptions =
-        if testRun.matrixEntry == noMatrixEntry:
-          ""
-        else:
-          spec.matrix[testRun.matrixEntry]
-      target = testRun.target
-      nimcache = nimcacheDir(testFile.file, matrixOptions & testArgs, target)
       compileCmd = prepareTestCompileCmd(
         cmdTemplate = spec.getCmd,
         filename = testFile.file,
