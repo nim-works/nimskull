@@ -1404,133 +1404,163 @@ proc semConstLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
 
 include semfields
 
-
 proc symForVar(c: PContext, n: PNode): PSym =
-  let m = if n.kind == nkPragmaExpr: n[0] else: n
-  result = newSymG(skForVar, m, c)
+  let hasPragma = n.kind == nkPragmaExpr
+
+  result = newSymG(skForVar, (if hasPragma: n[0] else: n), c)
   styleCheckDef(c.config, result)
   onDef(n.info, result)
-  if n.kind == nkPragmaExpr:
-    n[1] = pragma(c, result, n[1], forVarPragmas)
-    # check if we got any errors and if so report them
-    for e in ifErrorWalkErrors(c.config, n[1]):
-      localReport(c.config, e)
 
-proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
-  result = n
-  let iterBase = n[^2].typ
-  var iter = skipTypes(iterBase, {tyGenericInst, tyAlias, tySink})
-  var iterAfterVarLent = iter.skipTypes({tyGenericInst, tyAlias, tyLent, tyVar})
-  # n.len == 3 means that there is one for loop variable
-  # and thus no tuple unpacking:
-  if n.len == 3:
-    if n[0].kind == nkVarTuple:
-      if n[0].len - 1 != iterAfterVarLent.len:
-        return newError(c.config, n, semReportCountMismatch(
-          rsemWrongNumberOfVariables,
-          expected = iterAfterVarLent.len,
-          got = n[0].len - 1))
+  if hasPragma:
+    let pragma = pragma(c, result, n[1], forVarPragmas)
+    if pragma.kind == nkError:
+      n[1] = pragma
 
-      for i in 0..<n[0].len-1:
-        var v = symForVar(c, n[0][i])
-        if getCurrOwner(c).kind == skModule:
-          incl(v.flags, sfGlobal)
+      result = newSym(skError, result.name, nextSymId(c.idgen), result.owner,
+                      n.info)
+      result.typ = c.errorType
+      result.ast = c.config.wrapError(n)
 
-        case iter.kind:
-          of tyVar, tyLent:
-            v.typ = newTypeS(iter.kind, c)
-            v.typ.add iterAfterVarLent[i]
-          else:
-            v.typ = iter[i]
+proc semSingleForVar(c: PContext, formal: PType, view: ViewTypeKind, n: PNode): PNode =
+  ## Semantically analyses a single definition of a variable in the context of
+  ## a ``for`` statement
+  addInNimDebugUtils(c.config, "semSingleForVar", n, result)
 
-        n[0][i] = newSymNode(v)
+  let v = symForVar(c, n)
+  if v.kind == skError:
+    return c.config.wrapError(n)
 
-        if sfGenSym notin v.flags and not isDiscardUnderscore(v):
-          addDecl(c, v)
+  if getCurrOwner(c).kind == skModule:
+    incl(v.flags, sfGlobal)
 
-        elif v.owner == nil:
-          v.owner = getCurrOwner(c)
+  if formal.kind in {tyVar, tyLent}:
+    # the element is already of view type
+    # TODO: it might make sense to reject the code if a tuple element is a view
+    #       with different mutability than the enclosing tuple, e.g.
+    #       ``var (int, lent int)``
+    v.typ = formal
+  else:
+    # the element is not a view -- turn it into one if requested
+    case view
+    of noView:
+      v.typ = formal
+    of immutableView:
+      v.typ = newTypeS(tyLent, c)
+      v.typ.add formal
+    of mutableView:
+      v.typ = newTypeS(tyVar, c)
+      v.typ.add formal
 
-    else:
-      var v = symForVar(c, n[0])
-      if getCurrOwner(c).kind == skModule: incl(v.flags, sfGlobal)
-      # BUGFIX: don't use `iter` here as that would strip away
-      # the ``tyGenericInst``! See ``tests/compile/tgeneric.nim``
-      # for an example:
-      v.typ = iterBase
-      n[0] = newSymNode(v)
-      if sfGenSym notin v.flags and not isDiscardUnderscore(v): addDecl(c, v)
-      elif v.owner == nil: v.owner = getCurrOwner(c)
+  if sfGenSym notin v.flags and not isDiscardUnderscore(v):
+    addDecl(c, v)
+  elif v.owner == nil:
+    v.owner = getCurrOwner(c)
 
-  elif iterAfterVarLent.kind != tyTuple:
+  result = newSymNode(v)
+
+func inheritViewKind(t: PType, prev: ViewTypeKind): ViewTypeKind =
+  case prev
+  of noView:
+    case t.kind
+    of tyLent: immutableView
+    of tyVar:  mutableView
+    else:      noView
+  of immutableView, mutableView:
+    prev
+
+proc semForVar(c: PContext, formal: PType, view: ViewTypeKind, n: PNode): PNode
+
+proc semForVarUnpacked(c: PContext, formal: PType, view: ViewTypeKind,
+                       n: PNode, len: Natural): PNode =
+  ## Semantically analyse an unpacking expression in a ``for``-loop header,
+  ## which means creating and typing the symbols, while applying the view-ness
+  ## of unpacked tuples to their elements
+  addInNimDebugUtils(c.config, "semForVarUnpacked", n, result)
+  assert n.kind in {nkVarTuple, nkForStmt}
+
+  if formal.kind != tyTuple:
     return newError(c.config, n, semReportCountMismatch(
       rsemWrongNumberOfVariables,
       expected = 3,
       got = n.len))
-
-  elif n.len - 2 != iterAfterVarLent.len:
+  elif len != formal.len:
     return newError(c.config, n, semReportCountMismatch(
       rsemWrongNumberOfVariables,
-      expected = iterAfterVarLent.len,
-      got = n.len - 2))
+      expected = formal.len,
+      got = len))
 
+  # analyse all elements:
+  var hasError = false
+  for i in 0..<len:
+    n[i] = semForVar(c, formal[i], view, n[i])
+    hasError = hasError or n[i].isError
+
+  result =
+    if hasError: c.config.wrapError(n)
+    else:        n
+
+proc semForVar(c: PContext, formal: PType, view: ViewTypeKind, n: PNode): PNode =
+  ## Semantically analyses a single definition of variable in the context of
+  ## a ``for``-loop statement header.
+  ## `view` is relevant when typing symbols resulting from tuple unpacking --
+  ## unpacking a ``var|lent`` tuple turns each element (that is not a view
+  ## itself) into a view with the same mutability
+  if n.kind == nkVarTuple:
+    # an unpacked tuple
+    checkMinSonsLen(n, 3, c.config)
+
+    let
+      view = inheritViewKind(formal, noView)
+      typ = formal.skipTypes({tyGenericInst, tyAlias, tyLent, tyVar})
+
+    semForVarUnpacked(c, typ, view, n, n.len - 1)
   else:
-    for i in 0..<n.len - 2:
-      if n[i].kind == nkVarTuple:
-        var mutable = false
-        var isLent = false
-        case iter[i].kind
-        of tyVar:
-          mutable = true
-          iter[i] = iter[i].skipTypes({tyVar})
-        of tyLent:
-          isLent = true
-          iter[i] = iter[i].skipTypes({tyLent})
-        else: discard
+    semSingleForVar(c, formal, view, n)
 
-        if n[i].len - 1 != iter[i].len:
-          localReport(c.config, n[i].info, semReportCountMismatch(
-            rsemWrongNumberOfVariables,
-            expected = iter[i].len,
-            got = n[i].len - 1,
-            node = n[i]))
+proc semForVars(c: PContext, n: PNode; flags: TExprFlags): PNode =
+  ## Semantically analyses a normal ``for`` statement
+  addInNimDebugUtils(c.config, "semForVars", n, result, flags)
 
-        for j in 0..<n[i].len-1:
-          var v = symForVar(c, n[i][j])
-          if getCurrOwner(c).kind == skModule: incl(v.flags, sfGlobal)
-          if mutable:
-            v.typ = newTypeS(tyVar, c)
-            v.typ.add iter[i][j]
-          elif isLent:
-            v.typ = newTypeS(tyLent, c)
-            v.typ.add iter[i][j]
-          else:
-            v.typ = iter[i][j]
-          n[i][j] = newSymNode(v)
-          if not isDiscardUnderscore(v): addDecl(c, v)
-          elif v.owner == nil: v.owner = getCurrOwner(c)
-      else:
-        var v = symForVar(c, n[i])
-        if getCurrOwner(c).kind == skModule: incl(v.flags, sfGlobal)
-        case iter.kind
-        of tyVar, tyLent:
-          v.typ = newTypeS(iter.kind, c)
-          v.typ.add iterAfterVarLent[i]
-        else:
-          v.typ = iter[i]
-        n[i] = newSymNode(v)
-        if sfGenSym notin v.flags:
-          if not isDiscardUnderscore(v): addDecl(c, v)
-        elif v.owner == nil: v.owner = getCurrOwner(c)
+  # note: despite the implementation here supporting an infinite number of
+  # nested unpacking, the parser does not, so the maximum unpacking depth is
+  # two:
+  #
+  # .. code-block:: nim
+  #
+  #   for x, (y, z) in ...: ...
+
+  let formal = n[^2].typ
+  var hasError = false
+
+  result = n
+  # ``n.len == 3`` means that there is one for loop variable and thus no
+  # (direct) tuple unpacking. There can still be a ``nkVarTuple`` however
+  if result.len == 3:
+    # we're not unpacking, so pass ``noView``
+    result[0] = semForVar(c, formal, noView, n[0])
+  else:
+    let typ = formal.skipTypes({tyGenericInst, tyAlias, tyLent, tyVar})
+    result = semForVarUnpacked(c, typ, inheritViewKind(formal, noView), n,
+                               n.len - 2)
+
+    if result.isError:
+      return
+
   inc(c.p.nestedLoopCounter)
   openScope(c)
-  n[^1] = semExprBranch(c, n[^1], flags)
-  if efInTypeof notin flags:
-    n[^1] = discardCheck(c, n[^1], flags)
-    if n[^1].isError:
-      result = wrapError(c.config, n)
+  block:
+    var body = semExprBranch(c, n[^1], flags)
+    if efInTypeof notin flags:
+      body = discardCheck(c, body, flags)
+      hasError = hasError or body.isError
+
+    result[^1] = body
+
   closeScope(c)
   dec(c.p.nestedLoopCounter)
+
+  if hasError:
+    result = c.config.wrapError(result)
 
 proc implicitIterator(c: PContext, it: string, arg: PNode): PNode =
   result = newNodeI(nkCall, arg.info)

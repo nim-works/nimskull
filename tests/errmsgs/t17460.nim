@@ -1,6 +1,7 @@
 discard """
-  cmd: "nim check $options $file"
-  errormsg: "wrong number of variables"
+  cmd: "nim check --msgFormat=sexp --filenames=canonical $options $file"
+  nimoutFormat: sexp
+  action: reject
 """
 
 iterator xclusters*[T](a: openarray[T]; s: static[int]): array[s, T] {.inline.} =
@@ -13,7 +14,8 @@ iterator xclusters*[T](a: openarray[T]; s: static[int]): array[s, T] {.inline.} 
     inc(i)
 
 proc m =
-  for (i, j, k) in xclusters([1, 2, 3, 4, 5], 3):
+  for (i, j, k) in xclusters([1, 2, 3, 4, 5], 3): #[tt.Error
+     ^ (SemWrongNumberOfVariables) ]#
     echo i, j, k
 
 m()
