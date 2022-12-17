@@ -43,6 +43,9 @@ import
   ],
   compiler/backend/[
     cgmeth
+  ],
+  compiler/utils/[
+    idioms
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
@@ -366,92 +369,83 @@ proc transformAsgn(c: PTransf, n: PNode): PNode =
   result = newTreeI(nkStmtList, n.info):
     [letSection, asgnNode]
 
-proc transformYield(c: PTransf, n: PNode): PNode =
-  proc asgnTo(lhs: PNode, rhs: PNode): PNode =
-    # Choose the right assignment instruction according to the given ``lhs``
-    # node since it may not be a nkSym (a stack-allocated skForVar) but a
-    # nkDotExpr (a heap-allocated slot into the envP block)
-    case lhs.kind
-    of nkSym:
-      internalAssert(
-        c.graph.config, lhs.sym.kind == skForVar, "assign lhs must be mutable")
-
-      result = newAsgnStmt(c, nkFastAsgn, lhs, rhs)
-    of nkDotExpr:
-      result = newAsgnStmt(c, nkAsgn, lhs, rhs)
+proc newTupleAccess(n: PNode, formal: PType, i: Natural): PNode =
+  ## Creates a new expression for accessing the `i`-th tuple element, taking
+  ## views into account. `formal` is the target type
+  let access =
+    if n.typ.kind in {tyVar, tyLent}:
+      # we need to get the underlying location first
+      newTreeIT(nkHiddenDeref, n.info, n.typ.lastSon): n
     else:
-      internalAssert(
-        c.graph.config, false, "Unexpected symbol for assign")
+      n
 
-  result = newNodeI(nkStmtList, n.info)
-  var e = n[0]
-  # c.transCon.forStmt.len == 3 means that there is one for loop variable
-  # and thus no tuple unpacking:
-  if e.typ.isNil: return result # can happen in nimsuggest for unknown reasons
-  if c.transCon.forStmt.len != 3:
-    e = skipConv(e)
-    if e.kind == nkTupleConstr:
-      for i in 0..<e.len:
-        var v = e[i]
-        if v.kind == nkExprColonExpr: v = v[1]
-        if c.transCon.forStmt[i].kind == nkVarTuple:
-          for j in 0..<c.transCon.forStmt[i].len-1:
-            let lhs = c.transCon.forStmt[i][j]
-            let rhs = transform(c, newTupleAccess(c.graph, v, j))
-            result.add(asgnTo(lhs, rhs))
-        else:
-          let lhs = c.transCon.forStmt[i]
-          let rhs = transform(c, v)
-          result.add(asgnTo(lhs, rhs))
-    elif e.kind notin {nkAddr, nkHiddenAddr}: # no need to generate temp for address operation
-      # TODO do not use temp for nodes which cannot have side-effects
-      var tmp = newTemp(c, e.typ, e.info)
-      let v = newTreeI(nkVarSection, e.info):
-        newIdentDefs(tmp, e)
+  result = newTupleAccessRaw(access, i)
+  result.typ = access.typ.skipTypes({tyGenericInst, tyAlias})[i]
 
-      result.add transform(c, v)
+  # consider an iterator with ``var (int, var int)`` as the return type and
+  # a yield with an expression that is not a literal tuple constructor. The
+  # second element is already a view itself, so we must not create a new one
+  # from it
+  if formal.kind in {tyVar, tyLent} and result.typ.kind != formal.kind:
+    assert result.typ.kind notin {tyVar, tyLent},
+           "mismatching view type; sem should have rejected this"
+    result = newTreeIT(nkHiddenAddr, n.info, formal): result
 
-      for i in 0..<c.transCon.forStmt.len - 2:
-        let lhs = c.transCon.forStmt[i]
-        let rhs = transform(c, newTupleAccess(c.graph, tmp, i))
-        result.add(asgnTo(lhs, rhs))
+proc transformYieldAsgn(c: PTransf, dest, rhs: PNode, result: PNode) =
+  ## Transforms an implicit assignment to the for-loop variables, generating
+  ## code for tuple unpacking, if necessary
+
+  template addTransf(n: PNode) =
+    result.add transform(c, n)
+
+  case dest.kind
+  of nkForStmt, nkVarTuple:
+    # ignore conversions when unpacking
+    let rhs = skipConv(rhs)
+
+    if rhs.kind == nkTupleConstr:
+      # assign each element directly, without going through a temporary location
+      for i in 0..<rhs.len:
+        transformYieldAsgn(c, dest[i], skipColon(rhs[i]), result)
+
     else:
-      for i in 0..<c.transCon.forStmt.len - 2:
-        let lhs = c.transCon.forStmt[i]
-        let rhs = transform(c, newTupleAccess(c.graph, e, i))
-        result.add(asgnTo(lhs, rhs))
+      # something that is not a literal tuple constructor. Assign it to a
+      # temporary first, which is then unpacked into the destination variables
+      let
+        tmp = newTemp(c, rhs.typ, rhs.info)
+        tupTyp = rhs.typ.skipTypes({tyGenericInst, tyAlias, tyLent, tyVar})
+
+      addTransf newTreeI(nkLetSection, rhs.info, [newIdentDefs(tmp, rhs)])
+
+      for i in 0..<tupTyp.len:
+        transformYieldAsgn(c, dest[i],
+                           newTupleAccess(tmp, dest[i].typ, i),
+                           result)
+
+  of nkSym, nkDotExpr:
+    # ``nkDotExpr`` occurs for yields from closure iterators
+    addTransf newAsgnStmt(dest, rhs)
   else:
-    if c.transCon.forStmt[0].kind == nkVarTuple:
-      var notLiteralTuple = false # we don't generate temp for tuples with const value: (1, 2, 3)
-      let ev = e.skipConv
-      if ev.kind == nkTupleConstr:
-        for i in ev:
-          if not isConstExpr(i):
-            notLiteralTuple = true
-            break
-      else:
-        notLiteralTuple = true
+    unreachable()
 
-      if e.kind notin {nkAddr, nkHiddenAddr} and notLiteralTuple:
-        # TODO do not use temp for nodes which cannot have side-effects
-        var tmp = newTemp(c, e.typ, e.info)
-        let v = newTreeI(nkVarSection, e.info):
-          newIdentDefs(tmp, e)
+proc transformYield(c: PTransf, n: PNode): PNode =
+  result = newNodeI(nkStmtList, n.info)
 
-        result.add transform(c, v)
-        for i in 0..<c.transCon.forStmt[0].len-1:
-          let lhs = c.transCon.forStmt[0][i]
-          let rhs = transform(c, newTupleAccess(c.graph, tmp, i))
-          result.add(asgnTo(lhs, rhs))
-      else:
-        for i in 0..<c.transCon.forStmt[0].len-1:
-          let lhs = c.transCon.forStmt[0][i]
-          let rhs = transform(c, newTupleAccess(c.graph, e, i))
-          result.add(asgnTo(lhs, rhs))
+  let e = n[0]
+  if e.typ.isNil:
+    # can happen in nimsuggest for unknown reasons
+    return result
+
+  let dest =
+    if c.transCon.forStmt.len == 3:
+      # a for loop with a single item. Note that this doesn't mean that no
+      # tuple unpacking is used, e.g. ``for (x, y) in z``
+      c.transCon.forStmt[0]
     else:
-      let lhs = c.transCon.forStmt[0]
-      let rhs = transform(c, e)
-      result.add(asgnTo(lhs, rhs))
+      # tuple unpacking is used
+      c.transCon.forStmt
+
+  transformYieldAsgn(c, dest, e, result)
 
   inc(c.transCon.yieldStmts)
   if c.transCon.yieldStmts <= 1:
