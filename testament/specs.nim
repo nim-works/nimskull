@@ -47,6 +47,7 @@ type
                         ## output.
 
   GivenResultKind* = enum
+    grDefault
     grKnownIssue
     grDisabled
     grInvalidSpec
@@ -54,7 +55,10 @@ type
   TestedResultKind* = enum
     ## Possible test execution and validation results.
     reNimcCrash        ## nim compiler seems to have crashed
-    reMsgsDiffer       ## error messages differ
+    reMsgSubstringNotFound ## Specified `error:` output was not found in
+    ## the compiler output
+    reMsgsDiffer ## General fallback for the compiler output messages
+    ## mismatch.
     reFilesDiffer      ## expected and given filenames differ
                        # (DOC given where? what filenames are checked
                        # against each other? something to do with misplaced
@@ -74,7 +78,6 @@ type
     reJoined           ## test is disabled because it was joined into the
                        ## megatest
     reInvalidSpec      ## test had problems to parse the spec
-    reKnownIssue       ## test has a known issue(s) and is expected to fail
     reSuccess          ## test was successful
 
   GivenTarget* = enum
@@ -624,8 +627,11 @@ proc parseSpec*(conf: SpecParseConfig): DeclaredSpec =
   if conf.skips.anyIt(it in result.file):
     result.err = grDisabled
   if nimoutFound and result.nimout.len == 0 and not result.nimoutFull:
-    result.parseErrors.addLine "empty `nimout` is vacuously true, use `nimoutFull:true` if intentional"
+    result.parseErrors.addLine(
+      "empty `nimout` is true by default, use `nimoutFull:true` if intentional")
 
   if result.parseErrors.len > 0:
     result.err = grInvalidSpec
 
+func isKnownIssue*(spec: DeclaredSpec): bool = spec.err == grKnownIssue
+func isSkipped*(spec: DeclaredSpec): bool = spec.err == grDisabled

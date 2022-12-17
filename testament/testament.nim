@@ -15,10 +15,11 @@ import
   ],
   experimental/[
     dod_helpers,
-    shellrunner
+    shellrunner,
+    colortext
   ]
 
-import specs, test_diff
+import specs, test_diff, backend
 import compiler/utils/nodejs
 import hmisc/core/all
 startHax()
@@ -87,12 +88,12 @@ type
   TestAction = object
     run: RunId
     case kind: GivenTestAction      # NOTE: might not need `partOfRun` at all
-    of actionReject:
-      discard
-    of actionRun:
-      compileActionId: ActionId ## id of the preceeding compile action
-    of actionCompile:
-      partOfRun: bool
+      of actionReject:
+        discard
+      of actionRun:
+        compileAction: ActionId ## id of the preceeding compile action
+      of actionCompile:
+        partOfRun: bool
 
   RunTime = object
     ## time tracking for test run activities
@@ -118,27 +119,46 @@ type
     codeSizeOverflow: Option[tuple[generated, allowed: int]]
     missingPegs: seq[string]
     missingCode: Option[string]
+    runResult: TestedResultKind
 
-  RunResult = object
+  CompileCompare* = object
+    compileOut: CompileOutCompare
+    codegenOut: CodegenCheckCompare
+
+  RunCompare = object
+    runResult: TestedResultKind
+
+  ResultCategory = enum
+    rcNone
+    rcPass
+    rcSkip
+    rcFail
+    rcKnownIssue
+    rcKnownIssuePassed
+
+  Result = object
     ## Final result of the test run
     nimout: string           ## nimout from compile, empty if not required
     nimErr: string           ## Stderr from the compiler
     nimExit: int             ## exit code produced by the compiler
+    # CLEAN rename to 'last message', repack into the separate
+    # structure/tuple with sane field names. Something like "last diag" or
+    # something.
     nimMsg: string           ## last message, if any, from the compiler
-    nimFile: string          ## filename from last compiler message, if present
+    nimFile: string          ## filename from last compiler message, if
+                             ## present
     nimLine: int             ## line from last compiler message, if present
     nimColumn: int           ## colunn from last compiler message, if present
     prgOut: string           ## program output, if any
     prgErr: string           ## Stderr from the compiler
-    prgOutSorted: string     ## sorted version of `prgOut`; kept for legacy
-                             ## reason, remove when no longer necessary
     prgExit: int             ## program exit, if any
     lastAction: ActionId     ## last action in this run
-    compileCmp: CompileOutCompare
+    compileCmp: CompileCompare
+    foundSuccess: bool ## "success" message was found in the compiler
+                       ## output.
     runCmp: RunCompare
+    compareCategory: ResultCategory
 
-
-  RunCompare = object
 
   TestOptionData = object
     ## Additional configuration for the test execution
@@ -165,7 +185,7 @@ declareStoreType(TestAction, Actions, ActionId)
 # Run configurations, their direct output results, comparisons and times
 # are all indexed usin the same `RunId` key type.
 declareStoreType(TestRun, TestRuns, RunId)
-declareStoreType(RunResult, Results, RunId)
+declareStoreType(Result, Results, RunId)
 declareStoreType(RunCompare, Compares, RunId)
 declareStoreType(RunTime, Times, RunId)
 
@@ -287,8 +307,22 @@ func cmp(a, b: TestFile): int = cmp(a.file, b.file)
 
 const noMatrixEntry = -1
 
+func getRun(e: Execution, id: RunId): TestRun = e.runs[id]
+func getAct(e: Execution, id: ActionId): TestAction = e.actions[id]
+func getRun(e: Execution, id: Actionid): TestRun = e.getRun(e.getAct(id).run)
+func getSpec(e: Execution, id: TestId): DeclaredSpec = e.specs[id]
+func getSpec(e: Execution, id: RunId): DeclaredSpec =
+  e.getSpec(e.getRun(id).test)
+func getSpec(e: Execution, id: ActionId): DeclaredSpec =
+  e.getSpec(e.getRun(id).test)
+
+func getResult(e: Execution, id: RunId): Result = e.results[id]
+func getResult(e: Execution, id: Actionid): Result =
+  e.getResult(e.getAct(id).run)
+
+
 func getRunContext(e: Execution, id: RunId): tuple[
-    run: TestRun, res: RunResult, test: GivenTest, spec: DeclaredSpec] =
+    run: TestRun, res: Result, test: GivenTest, spec: DeclaredSpec] =
   result.run = e.runs[id]
   result.res = e.results[id]
   result.test = e.tests[result.run.test]
@@ -324,18 +358,7 @@ proc compileOutCheck(e: Execution, id: RunId): CompileOutCompare =
       if outCompare.match:
         result.runResult = reSuccess
       else:
-        # Write out error message.
         result.runResult = reMsgsDiffer
-        # result.nimout = given.msg
-        # TODO figure out how these argumens are mapped to the real report
-        # content.
-        #
-        # r.addResult(
-        #   run, run.expected.msg, given.msg,
-        #   ,
-        #   givenSpec = unsafeAddr given,
-        #   outCompare = outCompare
-        # )
 
     # Checking for inline errors.
     else:
@@ -360,9 +383,7 @@ proc compileOutCheck(e: Execution, id: RunId): CompileOutCompare =
 
   # Check for `.errormsg` in expected and given spec first
   elif strip(spec.msg) notin strip(res.nimout):
-    discard
-    # IMPLEMENT create run output message
-    # r.addResult(run, run.expected.msg, given.msg, reMsgsDiffer)
+    result.runResult = reMsgSubstringNotFound
 
   # Compare expected and resulted spec messages
   elif not compileOutputCheck(
@@ -371,9 +392,7 @@ proc compileOutCheck(e: Execution, id: RunId): CompileOutCompare =
     given = res.nimout
   ):
     # Report general message mismatch error
-    # TODO IMPLEMENT
-    discard
-    # r.addResult(run, run.expected.nimout, given.nimout, reMsgsDiffer)
+    result.runResult = reMsgsDiffer
 
   # Check for filename mismatches
   elif extractFilename(
@@ -381,26 +400,20 @@ proc compileOutCheck(e: Execution, id: RunId): CompileOutCompare =
   ) != extractFilename(
     res.nimFile
   ) and "internal error:" notin spec.msg:
+    echov res.nimFile
+    echov e.files[test.file].file
     # Report error for the the error file mismatch
-    # TODO IMPLEMENT
-    discard
-    # r.addResult(run, run.expected.file, given.file, reFilesDiffer)
+    result.runResult = reFilesDiffer
 
   # Check for produced and given error message locations
   elif spec.line != res.nimLine and spec.line != 0 or
        spec.column != res.nimColumn and spec.column != 0:
     # Report error for the location mismatch
-    # TODO IMPLEMENT
-    discard
-    # r.addResult(run, $run.expected.line & ':' & $run.expected.column,
-    #             $given.line & ':' & $given.column, reLinesDiffer)
+    result.runResult = reLinesDiffer
 
   # None of the unstructured checks found mismatches, reporting test passed
   else:
-    # TODO IMPLEMENT ok
-    discard
-    # r.addResult(run, run.expected.msg, given.msg, reSuccess)
-    # inc(r.passed)
+    result.runResult = reSuccess
 
 proc nimcacheDir(
     filename: string,
@@ -462,6 +475,37 @@ proc codegenCheck(
 
   except IOError:
     result.missingCode = some genFile
+
+proc compileCheck(e: var Execution, run: RunId): CompileCompare =
+  result.compileOut = compileOutCheck(e, run)
+  result.codegenOut = codegenCheck(e, run)
+  if e.results[run].nimExit == 0:
+    result.compileOut.compileSuccess = true
+
+func getPrgOutput(e: Execution, run: RunId): string =
+  if e.specs[e.runs[run].test].sortOutput:
+    var text = e.results[run].prgOut
+    text.stripLineEnd()
+    result = splitLines(text).sorted().join("\n") & "\n"
+
+  else:
+    result = e.results[run].prgOut
+
+
+proc runCheck(e: var Execution, run: RunId): RunCompare =
+  let
+    spec = e.specs[e.runs[run].test]
+    prgOut = e.getPrgOutput(run)
+
+  if e.results[run].prgExit != spec.exitCode:
+    result.runResult = reExitcodesDiffer
+
+  elif spec.outputCheck == ocEqual and
+     not spec.output.equalModuloLastNewline(prgOut):
+    result.runResult = reOutputsDiffer
+
+  elif spec.outputCheck == ocSubstr and spec.output notin prgOut:
+    result.runResult = reOutputsDiffer
 
 func nativeTarget(): GivenTarget =
   targetC
@@ -697,7 +741,7 @@ proc prepareTestRuns(execState: var Execution) =
         )
 
         execState.times.add RunTime()
-        execState.results.add RunResult(lastAction: EmptyActionId)
+        execState.results.add Result(lastAction: EmptyActionId)
 
 proc prepareTestActions(execState: var Execution) =
   ## create a list of necessary test actions
@@ -713,24 +757,27 @@ proc prepareTestActions(execState: var Execution) =
 
   for runId, run in testRuns.pairs:
     let actionKind = testSpecs[run.test].action
+    var last = EmptyActionId
+
     case actionKind:
       of actionReject:
-        execState.actions.add:
+        last = execState.actions.add:
           TestAction(run: runId, kind: actionReject)
 
       of actionCompile:
-        execState.actions.add:
+        last = execState.actions.add:
           TestAction(run: runId, kind: actionCompile)
 
       of actionRun:
-        let compileActionId = execState.actions.add:
+        let compileAction = execState.actions.add:
           TestAction(
             run: runId, kind: actionCompile, partOfRun: true)
 
-        execState.actions.add:
+        last = execState.actions.add:
           TestAction(
-            run: runId, kind: actionRun, compileActionId: compileActionId)
+            run: runId, kind: actionRun, compileAction: compileAction)
 
+    execState.results[runId].lastAction = last
 
 type
   TestBatch = ref object
@@ -857,21 +904,35 @@ proc setTime(
         else:
           e.times[run].compileEnd = epochTime()
 
+
+proc decolorize(str: string): string =
+  ## Remove ANSI SGR escape sequences from the text and return plan version
+  ## of the text.
+  # IMPLEMENT
+  result = str
+
+
 proc addOut(
-    e: var Execution, act: ActionId, outs: string, isErr: bool) =
-  let run = e.actions[act].run
+    e: var Execution, act: ActionId, str: string, isErr: bool) =
+  ## Add new piece of text to the corresponding field of the run results.
+  ## Input string is stripped of the SGR characters in order to make
+  ## further output comparisons function properly.
+  let
+    run = e.actions[act].run
+    str = str.decolorize()
+
   case e.actions[act].kind:
     of actionRun:
       if isErr:
-        e.results[run].prgOut.add outs
+        e.results[run].prgOut.add str
       else:
-        e.results[run].prgErr.add outs
+        e.results[run].prgErr.add str
 
     of actionCompile, actionReject:
       if isErr:
-        e.results[run].nimOut.add outs
+        e.results[run].nimOut.add str
       else:
-        e.results[run].nimErr.add outs
+        e.results[run].nimErr.add str
 
 proc setExit(e: var Execution, act: ActionId, exit: int) =
   let run = e.actions[act].run
@@ -934,61 +995,187 @@ proc runBatch(e: Execution, batch: TestBatch): seq[ShellResult] =
     afterRunEvent = onEnd
   )
 
+proc trimUnitSep(x: sink string): string =
+  result = x
+  let start = result.len()
+  if 0 < start and result[^1] == '\31':
+    setLen(result, start - 1)
+
+proc isSuccess(input: string): bool =
+  # not clear how to do the equivalent of pkg/regex's: re"FOO(.*?)BAR" in
+  # pegs note: this doesn't handle colors, eg: `\e[1m\e[0m\e[32mHint:`;
+  # while we could handle colors, there would be other issues such as
+  # handling other flags that may appear in user config (eg:
+  # `--filenames`). Passing `XDG_CONFIG_HOME= testament args...` can be
+  # used to ignore user config stored in XDG_CONFIG_HOME, refs
+  # https://wiki.archlinux.org/index.php/XDG_Base_Directory
+  input.startsWith("Hint: ") and input.endsWith("[SuccessX]")
+
+proc setPegFields(e: var Execution, act: ActionId) =
+  let
+    lineError =
+      peg"{[^(]*} '(' {\d+} ', ' {\d+} ') ' ('Error') ':' \s* {.*}"
+    otherError = peg"'Error:' \s* {.*}"
+    diagnostics = lineError / otherError
+
+  let run = e.actions[act].run
+
+  var err = none(string)
+  for line in e.results[run].nimout.splitLines():
+    let line = trimUnitSep(line)
+    if line =~ diagnostics:
+      err = some(line)
+
+    elif line.isSuccess():
+      e.results[run].foundSuccess = true
+
+  if err.isSome():
+    let err = err.get().trimUnitSep()
+
+    e.results[run].nimMsg = err
+    if err =~ lineError:
+      e.results[run].nimMsg = matches[3]
+      e.results[run].nimFile = extractFilename(matches[0])
+      e.results[run].nimLine = parseInt(matches[1])
+      e.results[run].nimColumn = parseInt(matches[2])
+
+    elif err =~ otherError:
+      e.results[run].nimMsg = matches[0]
+
+proc classifyActionResult(e: Execution, act: ActionId): ResultCategory =
+  let
+    rcmp = e.getResult(act).runCmp
+    ccmp = e.getResult(act).compileCmp
+    spec = e.getSpec(act)
+
+  proc aux(tested: TestedResultKind): ResultCategory =
+    if tested == reSuccess: rcPass
+    elif spec.isSkipped(): rcSkip
+    else: rcFail
+
+  let results = {
+    aux(rcmp.runResult),
+    aux(ccmp.compileOut.runResult),
+    aux(ccmp.codegenOut.runResult)
+  }
+
+  if spec.isKnownIssue():
+    # If this is a known issue then at least *something* must fail
+    if len(results * {rcFail, rcSkip}) == 0:
+      result = rcKnownIssuePassed
+
+    else:
+      result = rcKnownIssue
+
+  else:
+    if spec.err == grDisabled:
+      result = rcSkip
+
+    elif len(results * {rcFail}) == 0:
+      # If nothing failed, consider test to be passed
+      result = rcPass
+
+    else:
+      result = rcFail
+
+proc setActionResults(
+  e: var Execution, act: ActionId, res: ShellResult) =
+  ## Set result of the action execution
+  let run = e.actions[act].run
+
+  e.addOut(act, res.stdout, isErr = false)
+  e.addOut(act, res.stderr, isErr = true)
+  e.setExit(act, res.retcode)
+  e.setPegFields(act)
+
+  case e.actions[act].kind:
+    of actionRun:
+      e.results[run].runCmp = runCheck(e, run)
+
+    of actionCompile, actionReject:
+      e.results[run].compileCmp = compileCheck(e, run)
+
+  e.results[run].compareCategory = e.classifyActionResult(act)
+
+proc formatCompare(e: Execution, act: ActionId): ColText =
+  coloredResult()
+  case e.getResult(act).compareCategory:
+    of rcPass:
+      add "PASS: " + fgGreen
+      add e.makeName(e.getAct(act).run)
+
+    of rcFail:
+      add "FAIL: " + fgRed
+      add e.makeName(e.getAct(act).run)
+      let res = e.getResult(act)
+      echov res.compileCmp.compileOut
+      echov res.compileCmp.codegenOut
+      echov res.runCmp
+
+    of rcSkip:
+      add "SKIP: " + fgYellow
+      add e.makeName(e.getAct(act).run)
+
+    of rcKnownIssue:
+      add "KNOWN ISSUE: " + fgYellow
+      add e.makeName(e.getAct(act).run)
+
+    else:
+      assert false
+
+
+proc immediateReport(e: Execution, act: ActionId) =
+  ## Print immediate report on the action or test completion.
+  let
+    run = e.runs[e.actions[act].run]
+    last = e.results[e.actions[act].run].lastAction
+  if act != last:
+    return
+
+  echo formatCompare(e, act)
+
 proc parseBatchOuts(
   e: var Execution, batch: TestBatch, results: seq[ShellResult]) =
 
-  discard
+  for idx, act in batch.cmdToActId:
+    setActionResults(e, act, results[idx])
 
 proc runTests(e: var Execution) =
   var next: seq[ActionId]
   for id, _ in e.actions:
     next.add(id)
 
-  var completedCompile: PackedSet[ActionId]
+  var completed: PackedSet[ActionId]
   proc pickNextAction(e: var Execution): ActionId =
+    assert globalTick() < 20
     result = EmptyActionId
 
+  while 0 < next.len():
+    var actions: seq[ActionId]
     for idx in countdown(next.high(), 0):
+      if actions.len() == e.conf.batchSize:
+        break
+
       let act = next[idx]
       case e.actions[act].kind:
         of actionCompile, actionReject:
           next.delete(idx)
-          return act
+          actions.add(act)
 
         of actionRun:
-          if act in completedCompile:
+          if e.actions[act].compileAction in completed:
             next.delete(idx)
-            if e.results[e.actions[act].run].compileCmp.compileSuccess:
-              return act
+            if e.results[e.actions[
+              act].run].compileCmp.compileOut.compileSuccess:
+              actions.add(act)
 
-
-  while 0 < next.len():
-    var actions: seq[ActionId]
-    while actions.len() < e.conf.batchSize:
-      let act = e.pickNextAction()
-      if act.isNil():
-        # Could not find next action to execute -- dependencies are not
-        # resolved, not enough content in the list.
-        break
-
-      else:
-        actions.add act
 
     let batch = initBatch(actions)
     let results = e.runBatch(batch)
     e.parseBatchOuts(batch, results)
-    echov batch
-    assert false
-
-
-#   batch.execute()
-#   batch.processExecutionResults()
-#   for run in getTestRunsThatWereCompletedJustNow():
-#     logInformationToTheUser()
-
-# reportFullRunStatitisticsAndBackendInformation()
-
-
+    for act in actions:
+      completed.incl(act)
+      e.immediateReport(act)
 
 const
   failString* = "FAIL: " # ensures all failures can be searched with 1 keyword in CI logs

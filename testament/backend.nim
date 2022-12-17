@@ -31,8 +31,7 @@ type
     action*: GivenTestAction ## Test action type
     targetStr*: string
     debugInfo*: string
-    outCompare*: TOutCompare
-    success*: TResultEnum
+    success*: TestedResultKind
     knownIssues*: seq[string] ## Whether the test was marked as a 'known
                               ## issue'
     inCurrentBatch*: bool
@@ -61,18 +60,20 @@ proc getMachine*(): MachineId =
 
   result = MachineId(name)
 
-proc getCommit(): CommitId =
+proc getCommit(back: var Backend): CommitId =
   const commLen = "commit ".len
   let hash = execProcess("git log -n 1").strip[commLen..commLen+10]
-  thisBranch = execProcess("git symbolic-ref --short HEAD").strip
-  if hash.len == 0 or thisBranch.len == 0: quit "cannot determine git HEAD"
+  back.thisBranch = execProcess("git symbolic-ref --short HEAD").strip
+  if hash.len == 0 or back.thisBranch.len == 0:
+    quit "cannot determine git HEAD"
+
   result = CommitId(hash)
 
 var
   results: JsonNode
   currentCategory: string
 
-proc writeTestResult*(param: ReportParams) =
+proc writeTestResult*(back: Backend, param: ReportParams) =
   let
     name = param.name
     category = param.cat
@@ -102,15 +103,15 @@ proc writeTestResult*(param: ReportParams) =
     "result": result,
     "expected": expected,
     "given": given,
-    "machine": thisMachine.string,
-    "commit": thisCommit.string,
-    "branch": thisBranch,
+    "machine": back.thisMachine.string,
+    "commit": back.thisCommit.string,
+    "branch": back.thisBranch,
     "knownIssues": %param.knownIssues
   }
 
 proc openBackend*(): Backend =
   result.thisMachine = getMachine()
-  result.thisCommit = getCommit()
+  result.thisCommit = result.getCommit()
 
 const testResults = "testresults"
 

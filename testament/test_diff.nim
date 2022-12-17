@@ -68,10 +68,6 @@ type
 
 
 
-proc trimUnitSep(x: var string) =
-  let L = x.len
-  if L > 0 and x[^1] == '\31':
-    setLen x, L-1
 
 proc diffStrings*(
     a, b: string, useColors: bool = true
@@ -279,3 +275,8 @@ proc compileOutputCheck*(full: bool, expected, given: string): bool =
        # places where determinization of the output gives UX improvements.
        not greedyOrderedSubsetLines(expected, given):
     result = false
+
+proc equalModuloLastNewline*(a, b: string): bool =
+  # allow lazy output spec that omits last newline, but really those should
+  # be fixed instead
+  result = a == b or b.endsWith("\n") and a == b[0 ..< ^1]
