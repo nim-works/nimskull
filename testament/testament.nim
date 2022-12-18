@@ -11,7 +11,8 @@ import
     packedsets,
     osproc,
     times,
-    streams
+    streams,
+    sugar
   ],
   experimental/[
     dod_helpers,
@@ -112,7 +113,6 @@ type
     compileSuccess: bool ## Whether compilation succeded in the first
     ## place, irrespective of the subsequent spec checks.
     runResult: TestedResultKind
-    codegen: CodegenCheckCompare
 
   CodegenCheckCompare* = object
     ## Result of the codegen check comparison
@@ -139,7 +139,6 @@ type
   Result = object
     ## Final result of the test run
     nimout: string           ## nimout from compile, empty if not required
-    nimErr: string           ## Stderr from the compiler
     nimExit: int             ## exit code produced by the compiler
     # CLEAN rename to 'last message', repack into the separate
     # structure/tuple with sane field names. Something like "last diag" or
@@ -150,7 +149,6 @@ type
     nimLine: int             ## line from last compiler message, if present
     nimColumn: int           ## colunn from last compiler message, if present
     prgOut: string           ## program output, if any
-    prgErr: string           ## Stderr from the compiler
     prgExit: int             ## program exit, if any
     lastAction: ActionId     ## last action in this run
     compileCmp: CompileCompare
@@ -315,6 +313,9 @@ func getSpec(e: Execution, id: RunId): DeclaredSpec =
   e.getSpec(e.getRun(id).test)
 func getSpec(e: Execution, id: ActionId): DeclaredSpec =
   e.getSpec(e.getRun(id).test)
+func getFile(e: Execution, id: TestId): TestFile = e.files[id]
+func getFile(e: Execution, id: ActionId): TestFile =
+  e.getFile(e.getRun(id).test)
 
 func getResult(e: Execution, id: RunId): Result = e.results[id]
 func getResult(e: Execution, id: Actionid): Result =
@@ -381,10 +382,6 @@ proc compileOutCheck(e: Execution, id: RunId): CompileOutCompare =
       let outCompare = checkForInlineErrors(data)
       # TODO generate run report
 
-  # Check for `.errormsg` in expected and given spec first
-  elif strip(spec.msg) notin strip(res.nimout):
-    result.runResult = reMsgSubstringNotFound
-
   # Compare expected and resulted spec messages
   elif not compileOutputCheck(
     full = spec.nimoutFull,
@@ -394,26 +391,42 @@ proc compileOutCheck(e: Execution, id: RunId): CompileOutCompare =
     # Report general message mismatch error
     result.runResult = reMsgsDiffer
 
-  # Check for filename mismatches
-  elif extractFilename(
-    e.files[test.file].file
-  ) != extractFilename(
-    res.nimFile
-  ) and "internal error:" notin spec.msg:
-    echov res.nimFile
-    echov e.files[test.file].file
-    # Report error for the the error file mismatch
-    result.runResult = reFilesDiffer
-
-  # Check for produced and given error message locations
-  elif spec.line != res.nimLine and spec.line != 0 or
-       spec.column != res.nimColumn and spec.column != 0:
-    # Report error for the location mismatch
-    result.runResult = reLinesDiffer
-
-  # None of the unstructured checks found mismatches, reporting test passed
-  else:
+  # No explicit diagnostics target specified in the test, all other checks
+  # passed successfully, the whole test is considered 'ok'
+  elif spec.targetDiag.isNone():
     result.runResult = reSuccess
+
+  # Target diagnosic was specified explicitly -- either partially (only
+  # message) or completely (line, file, column, message etc.)
+  else:
+    let diag = spec.targetDiag.get()
+    if diag.msg != res.nimMsg:
+      if res.nimMsg.len() == 0:
+        result.runResult = reNoDiagnostic
+
+      # Check for `.errormsg` in expected and given spec first
+      elif strip(diag.msg) notin strip(res.nimout):
+        result.runResult = reMsgSubstringNotFound
+
+      else:
+        result.runResult = reMsgsDiffer
+
+    elif extractFilename(spec.file) != extractFilename(res.nimFile):
+      # File name is missing from the compiler diagnostic
+      if res.nimFile.len() == 0:
+        result.runResult = reNoDiagnosticFile
+
+      else:
+        result.runResult = reFilesDiffer
+
+    # Check for produced and given error message locations
+    elif diag.line != res.nimLine and diag.line != 0 or
+         diag.col != res.nimColumn and diag.col != 0:
+      # Report error for the location mismatch
+      result.runResult = reLinesDiffer
+
+    else:
+      result.runResult = reSuccess
 
 proc nimcacheDir(
     filename: string,
@@ -424,11 +437,15 @@ proc nimcacheDir(
   let hashInput = options.toStr().join("") & $target
   result = "nimcache" / (filename & '_' & hashInput.getMD5())
 
+proc absoluteNimcache(e: Execution, nimcache: string): string =
+  if nimcache.isAbsolute():
+    nimcache
+
+  else:
+    joinpath(e.rootDir, nimcache)
+
 proc generatedFile(
-    file: TestFile,
-    options: seq[ShellArg],
-    target: GivenTarget
-  ): string =
+    file: TestFile, target: GivenTarget, nimcache: string): string =
   ## Get path to the generated file name from the test.
   case target:
     of targetJS:
@@ -437,15 +454,13 @@ proc generatedFile(
       let
         (_, name, _) = file.file.splitFile
         ext = target.ext
-      result = "$#@m$#" % [
-        nimcacheDir(file.file, options, target),
-        name.changeFileExt(ext)
-      ]
+
+      result = joinpath(nimcache, "@m" & name.changeFileExt(ext))
 
 proc needsCodegenCheck(spec: DeclaredSpec): bool =
   ## If there is any checks that need to be performed for a generated code
   ## file
-  spec.maxCodeSize > 0 or spec.ccodeCheck.len > 0
+  0 < spec.maxCodeSize or 0 < spec.ccodeCheck.len()
 
 proc codegenCheck(
     e: Execution,
@@ -454,12 +469,17 @@ proc codegenCheck(
   ## Check for any codegen mismatches in file generated from `test` run.
   ## Only file that was immediately generated is tested.
   let (run, res, test, spec) = e.getRunContext(id)
-  let genFile = generatedFile(e.files[test.file], test.options, run.target)
+  let genFile = generatedFile(
+    e.files[test.file],
+    run.target,
+    e.absoluteNimcache(nimcacheDir(
+      e.files[test.file].file, test.options, run.target))
+  )
 
   try:
     let contents = readFile(genFile)
     for check in spec.ccodeCheck:
-      if check.len > 0 and check[0] == '\\':
+      if 0 < check.len() and check[0] == '\\':
         # little hack to get 'match' support:
         if not contents.match(check.peg):
           result.missingPegs.add check
@@ -467,18 +487,27 @@ proc codegenCheck(
       elif contents.find(check.peg) < 0:
         result.missingPegs.add check
 
-    if spec.maxCodeSize > 0 and contents.len > spec.maxCodeSize:
+    if 0 < spec.maxCodeSize and contents.len > spec.maxCodeSize:
+      result.runResult = reExcessiveCodeSize
       result.codeSizeOverflow = some((
         generated: contents.len,
         allowed: spec.maxCodeSize
       ))
 
+    else:
+      result.runResult = reSuccess
+
   except IOError:
+    result.runResult = reCodeNotFound
     result.missingCode = some genFile
+
+  assert result.runResult != reNone
 
 proc compileCheck(e: var Execution, run: RunId): CompileCompare =
   result.compileOut = compileOutCheck(e, run)
+  assert result.compileOut.runResult != reNone
   result.codegenOut = codegenCheck(e, run)
+  assert result.codegenOut.runResult != reNone
   if e.results[run].nimExit == 0:
     result.compileOut.compileSuccess = true
 
@@ -506,6 +535,9 @@ proc runCheck(e: var Execution, run: RunId): RunCompare =
 
   elif spec.outputCheck == ocSubstr and spec.output notin prgOut:
     result.runResult = reOutputsDiffer
+
+  else:
+    result.runResult = reSuccess
 
 func nativeTarget(): GivenTarget =
   targetC
@@ -822,7 +854,7 @@ proc getFileDir(filename: string): string =
   if not result.isAbsolute():
     result = getCurrentDir() / result
 
-proc getCmd(e: Execution, id: ActionId): ShellCmd =
+proc getCompileCmd(e: Execution, id: ActionId): ShellCmd =
   let
     action = e.actions[id]
     runId = action.run
@@ -844,9 +876,7 @@ proc getCmd(e: Execution, id: ActionId): ShellCmd =
     testFile.file, matrixOptions & e.testArgs, target)
 
   var options = target.defaultOptions() & e.testArgs
-  if 0 < nimcache.len():
-    options.add shArg("--nimCache=$#" % nimcache)
-
+  options.add shArg("--nimCache=$#" % e.absoluteNimcache(nimcache))
   options.add shArg(
     "--out=$#" % testRun.exeFile(filename, e.rootDir))
 
@@ -858,6 +888,48 @@ proc getCmd(e: Execution, id: ActionId): ShellCmd =
     "filedir": @[filename.getFileDir()]
   })
 
+
+proc getRunCmd(e: Execution, id: ActionId): ShellCmd =
+  let
+    run = e.getRun(id)
+    spec = e.getSpec(id)
+    isJsTarget = run.target == targetJs
+    # specFile = execState.testSpecs[testId].file
+    exeFile = run.exeFile(e.getFile(id).file, e.rootDir)
+
+  let exeCmd =
+    if isJsTarget:
+      findNodeJs()
+    elif spec.useValgrind != disabled:
+      "valgrind"
+    else:
+      exeFile.dup(normalizeExe)
+
+  let leakCheck =
+    if spec.useValgrind == leaking:
+      "yes"
+    else:
+      "no"
+
+  let args =
+    if isJsTarget:
+      @[shArg"--unhandled-rejections=strict", shArg(exeFile)]
+    elif spec.useValgrind != disabled:
+      @[shArg("--error-exitcode=1"),
+        shArg("--leak-check=" & leakCheck),
+        shArg(exeFile)]
+    else:
+      @[]
+
+  result = shell(exeCmd, args)
+
+proc getCmd(e: Execution, id: ActionId): ShellCmd =
+  case e.getAct(id).kind:
+    of actionCompile, actionReject:
+      result = getCompileCmd(e, id)
+
+    of actionRun:
+      result = getRunCmd(e, id)
 
 
 
@@ -912,8 +984,7 @@ proc decolorize(str: string): string =
   result = str
 
 
-proc addOut(
-    e: var Execution, act: ActionId, str: string, isErr: bool) =
+proc addOut(e: var Execution, act: ActionId, str: string) =
   ## Add new piece of text to the corresponding field of the run results.
   ## Input string is stripped of the SGR characters in order to make
   ## further output comparisons function properly.
@@ -923,16 +994,10 @@ proc addOut(
 
   case e.actions[act].kind:
     of actionRun:
-      if isErr:
-        e.results[run].prgOut.add str
-      else:
-        e.results[run].prgErr.add str
+      e.results[run].prgOut.add str
 
     of actionCompile, actionReject:
-      if isErr:
-        e.results[run].nimOut.add str
-      else:
-        e.results[run].nimErr.add str
+      e.results[run].nimOut.add str
 
 proc setExit(e: var Execution, act: ActionId, exit: int) =
   let run = e.actions[act].run
@@ -1051,7 +1116,15 @@ proc classifyActionResult(e: Execution, act: ActionId): ResultCategory =
   proc aux(tested: TestedResultKind): ResultCategory =
     if tested == reSuccess: rcPass
     elif spec.isSkipped(): rcSkip
+    elif tested == reNone: assert(false) ; rcFail
     else: rcFail
+
+  # echov rcmp.runResult
+  # echov aux(rcmp.runResult)
+  # echov ccmp.compileOut.runResult
+  # echov aux(ccmp.compileOut.runResult)
+  # echov ccmp.codegenOut.runResult
+  # echov aux(ccmp.codegenOut.runResult)
 
   let results = {
     aux(rcmp.runResult),
@@ -1083,11 +1156,12 @@ proc setActionResults(
   ## Set result of the action execution
   let run = e.actions[act].run
 
-  e.addOut(act, res.stdout, isErr = false)
-  e.addOut(act, res.stderr, isErr = true)
+  e.addOut(act, res.stdout)
+  e.addOut(act, res.stderr)
   e.setExit(act, res.retcode)
   e.setPegFields(act)
 
+  # echov e.actions[act].kind
   case e.actions[act].kind:
     of actionRun:
       e.results[run].runCmp = runCheck(e, run)
@@ -1095,9 +1169,17 @@ proc setActionResults(
     of actionCompile, actionReject:
       e.results[run].compileCmp = compileCheck(e, run)
 
-  e.results[run].compareCategory = e.classifyActionResult(act)
+  if act == e.getResult(act).lastAction:
+    e.results[run].compareCategory = e.classifyActionResult(act)
 
 proc formatCompare(e: Execution, act: ActionId): ColText =
+  let
+    res = e.getResult(act)
+    spec = e.getSpec(act)
+
+  assert res.compileCmp.compileOut.runResult != reNone
+  assert res.compileCmp.codegenOut.runResult != reNone
+  assert res.runCmp.runResult != reNone
   coloredResult()
   case e.getResult(act).compareCategory:
     of rcPass:
@@ -1108,9 +1190,38 @@ proc formatCompare(e: Execution, act: ActionId): ColText =
       add "FAIL: " + fgRed
       add e.makeName(e.getAct(act).run)
       let res = e.getResult(act)
-      echov res.compileCmp.compileOut
-      echov res.compileCmp.codegenOut
-      echov res.runCmp
+      # echov res.compileCmp.compileOut
+      # echov res.compileCmp.codegenOut
+      # echov res.runCmp
+
+      # echov res.compileCmp
+      block:
+        let r = res.compileCmp.codegenOut
+        case r.runResult:
+          of reCodeNotFound:
+            add "\n"
+            add "Generated code not found "
+            add r.missingCode.get() + fgCyan
+            add "\n"
+            add "command was "
+            add e.getCompileCmd(act).toStr().join(" ") + fgYellow
+
+          else:
+            echov r.runResult
+
+      block:
+        let r = res.runCmp
+        echov r
+        case r.runResult:
+          of reOutputsDiffer:
+            add "\n"
+            add "Expected and given output mismatch"
+            add "\n"
+            let (diff, same) = diffStrings(res.prgOut, spec.output)
+            add diff
+
+          else:
+            echov $r.runResult
 
     of rcSkip:
       add "SKIP: " + fgYellow

@@ -69,9 +69,7 @@ type
 
 
 
-proc diffStrings*(
-    a, b: string, useColors: bool = true
-  ): tuple[output: string, same: bool] =
+proc diffStrings*(a, b: string): tuple[output: Coltext, same: bool] =
   let
     a = a.split("\n")
     b = b.split("\n")
@@ -96,8 +94,7 @@ proc diffStrings*(
 
   else:
     result.same = false
-    result.output = diff.shiftDiffed(a, b).
-      formatDiffed(a, b, conf).toString(useColors)
+    result.output = diff.shiftDiffed(a, b).formatDiffed(a, b, conf)
 
 proc format*(tcmp: CompileSexpCompare): ColText =
   ## Pretty-print structured output comparison for further printing.

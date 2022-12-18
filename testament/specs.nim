@@ -18,7 +18,8 @@ import
     tables,
     hashes,
     sets,
-    pegs
+    pegs,
+    options
   ],
   experimental/[
     shellrunner
@@ -53,10 +54,14 @@ type
     grInvalidSpec
 
   TestedResultKind* = enum
+    reNone
     ## Possible test execution and validation results.
     reNimcCrash        ## nim compiler seems to have crashed
     reMsgSubstringNotFound ## Specified `error:` output was not found in
     ## the compiler output
+    reNoDiagnosticFile ## File name is missing from the diagnostic
+    reNoDiagnostic ## Diagnostic message is entirely missing from the
+                   ## output
     reMsgsDiffer ## General fallback for the compiler output messages
     ## mismatch.
     reFilesDiffer      ## expected and given filenames differ
@@ -71,6 +76,7 @@ type
                        ## specification
     reCodegenFailure
     reCodeNotFound
+    reExcessiveCodeSize
     reExeNotFound      ## Specified compiler exec could not be found
     reInstallFailed    ## package installation failed
     reBuildFailed      ## package building failed
@@ -111,7 +117,6 @@ type
     # xxx make sure `isJoinableSpec` takes into account each field here.
     description*: string ## document the purpose of the test
     action*: GivenTestAction ## Test action specified in the test file
-    file*: string ## File that test spec has been parsed from
     cmd*: ShellCmd ## Command to execute for the test
     input*: string ## `stdin` input that will be piped into program after
                    ## it has been compiled.
@@ -121,11 +126,10 @@ type
                       ## given one.
     output*: string ## Expected runtime output for the test run.
 
-    # REFACTOR Use inline error object instead?
-    line*: int ## Expected line for the diagnostics message issued during
-               ## test compilation.
-    column*: int ## Expected column for compile-time diagnostics
-    msg*: string ## Expected compile-time diagnostics message
+    file*: string ## Filename of the diagnostics message -- defaults to the
+    ## name of the file content has been parsed from.
+    targetDiag*: Option[GivenInlineError] ## Compile-time diagnostic
+    ## explicitly specified in the test specification.
 
     exitCode*: int
     ccodeCheck*: seq[string] ## List of peg patterns that need to be
@@ -437,21 +441,28 @@ proc parseSpec*(conf: SpecParseConfig): DeclaredSpec =
         else:
           result.parseErrors.addLine(
             "cannot interpret as action: ", e.value)
-      of "file":
-        if result.msg.len == 0 and result.nimout.len == 0:
-          result.parseErrors.addLine(
-            "errormsg or msg needs to be specified before file")
-        result.file = e.value
-      of "line":
-        if result.msg.len == 0 and result.nimout.len == 0:
+
+      of "column", "line", "file":
+        if result.targetDiag.isNone() or (
+          result.targetDiag.get().msg.len == 0 and
+          result.nimout.len == 0
+        ):
           result.parseErrors.addLine(
             "errormsg, msg or nimout needs to be specified before line")
-        discard parseInt(e.value, result.line)
-      of "column":
-        if result.msg.len == 0 and result.nimout.len == 0:
-          result.parseErrors.addLine(
-            "errormsg or msg needs to be specified before column")
-        discard parseInt(e.value, result.column)
+
+        if result.targetDiag.isNone():
+          result.targetDiag = some GivenInlineError()
+
+        case key:
+          of "file":
+            result.file = e.value
+
+          of "line":
+            discard parseInt(e.value, result.targetDiag.get().line)
+
+          of "column":
+            discard parseInt(e.value, result.targetDiag.get().col)
+
       of "output":
         if result.outputCheck != ocSubstr:
           result.outputCheck = ocEqual
@@ -470,7 +481,10 @@ proc parseSpec*(conf: SpecParseConfig): DeclaredSpec =
         discard parseInt(e.value, result.exitCode)
         result.action = actionRun
       of "errormsg":
-        result.msg = e.value
+        if result.targetDiag.isNone():
+          result.targetDiag = some GivenInlineError()
+
+        result.targetDiag.get().msg = e.value
         result.action = actionReject
       of "nimout":
         result.nimout = e.value

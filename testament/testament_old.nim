@@ -1108,34 +1108,6 @@ proc runTests(execState: var Execution) =
 
     case action.kind:
       of actionRun:
-        let
-          isJsTarget = target == targetJs
-          # specFile = execState.testSpecs[testId].file
-          exeFile = testRun.exeFile(testFile.file, execState.rootDir)
-          exeCmd =
-            if isJsTarget:
-              findNodeJs()
-            elif spec.useValgrind != disabled:
-              "valgrind"
-            else:
-              exeFile.dup(normalizeExe)
-          args =
-            if isJsTarget:
-              @["--unhandled-rejections=strict", exeFile]
-            elif spec.useValgrind != disabled:
-              let leakCheck =
-                if spec.useValgrind == leaking:
-                  "yes"
-                else:
-                  "no"
-
-              @["--error-exitcode=1", "--leak-check=" & leakCheck, exeFile]
-            else:
-              @[]
-          # REFACTOR remove string-based operatoins, use shell helper
-          # instead.
-          runCmd = map(@[exeCmd] & args, quoteShell).join(" ")
-
         if testCmds.len == 0: # we've already processed its dependency
           testCmds.add runCmd
           cmdIdToActId.add actionId
