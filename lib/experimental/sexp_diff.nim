@@ -57,6 +57,10 @@ proc stableMatch*(
   var tmp: IdxCostMap
   while 0 < len(canTry):
     let l = canTry.randomKey()
+    if canTry[l].len() == 0:
+      canTry.del l
+      continue
+
     let r = canTry[l].pop()
     if r in rmap:
       let (oldL, _) = rmap[r]

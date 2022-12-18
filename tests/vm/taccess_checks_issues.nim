@@ -12,7 +12,7 @@ discard """
 import std/macros
 import maccess_checks
 
-# XXX: once these tests fail, move them to `tsafety_checks`
+# TODO: once these tests fail, move them to `tsafety_checks`
 
 template testLocal(t, code) =
   static:

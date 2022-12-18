@@ -357,6 +357,7 @@ proc compileOutCheck(e: Execution, id: RunId): CompileOutCompare =
     )
 
     if spec.nimoutSexp:
+      echov res.nimout
       let outCompare = sexpCheck(data)
       # Full match of the output results.
       if outCompare.match:
@@ -438,7 +439,8 @@ proc nimcacheDir(
   ): RelativeDir =
   ## Give each test a private nimcache dir so they don't clobber each other's.
   let hashInput = options.toStr().join("") & $target
-  result = RelativeDir("nimcache" / (filename & '_' & hashInput.getMD5()))
+  result = RelativeDir("nimcache" / (
+    filename.splitFile().name & '_' & hashInput.getMD5()))
 
 proc absoluteNimcache(e: Execution, nimcache: RelativeDir): AbsoluteDir =
   if nimcache.string().isAbsolute():
@@ -512,7 +514,12 @@ proc codegenCheck(
 proc compileCheck(e: var Execution, run: RunId): CompileCompare =
   result.compileOut = compileOutCheck(e, run)
   assert result.compileOut.runResult != reNone
-  result.codegenOut = codegenCheck(e, run)
+  if e.getSpec(run).needsCodegenCheck():
+    result.codegenOut = codegenCheck(e, run)
+
+  else:
+    result.codegenOut.runResult = reSuccess
+
   assert result.codegenOut.runResult != reNone
   if e.results[run].nimExit == 0:
     result.compileOut.compileSuccess = true
@@ -577,8 +584,7 @@ const AdditionalCategories = ["debugger", "lib"]
 
 proc loadSkipFrom(name: string): seq[string] =
   if name.len == 0: return
-  # One skip per line, comments start with #
-  # used by `nlvm` (at least)
+  # One skip per line, comments start with `#` used by `nlvm` (at least)
   for line in lines(name):
     let sline = line.strip()
     if sline.len > 0 and not sline.startsWith('#'):
@@ -600,15 +606,18 @@ proc prepareTestFilesAndSpecs(e: var Execution) =
       let catId = e.categories.add(cat)
       case cat.string.normalize():
         of "gc":
-          assert false, "TODO"
+          discard # assert false, "TODO"
           # setupGcTests(e, catId)
         of "threads":
-          assert false, "TODO"
+          discard # assert false, "TODO"
           # setupThreadTests(e, catId)
         of "lib":
-          assert false, "TODO"
+          discard # assert false, "TODO"
           # IMPLEMENT: implement this proc and all the subsequent handling
           # setupStdlibTests(e, catId)
+        of "ic":
+          discard
+
         else:
           for file in walkDirRec(
             string(testsDir / RelativeDir(cat.string)),
@@ -625,8 +634,8 @@ proc prepareTestFilesAndSpecs(e: var Execution) =
         if kind == pcDir:
           # The category name is extracted from the directory
           # eg: 'tests/compiler' -> 'compiler'
-          let cat = dir[testsDir.string().len .. ^1]
-          testFilesFromCat(e, Category(cat))
+          let cat = relativeTo(AbsoluteFile(dir), testsDir)
+          testFilesFromCat(e, Category(cat.string()))
 
       for cat in AdditionalCategories:
         testFilesFromCat(e, Category(cat))
@@ -654,12 +663,8 @@ proc prepareTestFilesAndSpecs(e: var Execution) =
       # IMPLEMENT: replace with proper error handling
       doAssert fileExists(test), test & " test does not exist"
       if isTestFile(test):
-        if test.isAbsolute():
-          e.files.add TestFile(file: AbsoluteFile(test), catId: cat)
-
-        else:
-          e.files.add TestFile(
-            file: testsDir / RelativeFile(test), catId: cat)
+        e.files.add TestFile(
+          file: AbsoluteFile(expandFilename(test)), catId: cat)
 
     else:
       assert false, "TODO ???"
@@ -766,35 +771,63 @@ proc prepareTestRuns(execState: var Execution) =
     categories = execState.categories
 
   for testId, spec in testSpecs.pairs:
-    let
-      specTargets =
-        if spec.targets == noTargetsSpecified:
-          categories[testFiles[tests[testId].file].catId].defaultTargets
-        else:
-          spec.targets
-      targetsToRun = specTargets * execState.requestedTargets
-
-    for target in targetsToRun:
-      # TODO: create a "target matrix" to cover both js release vs non-release
-
-      var entryIndices: seq[EntryId]
-      case spec.matrix.len:
-        of 0: # no tests to run
-          entryIndices.add noMatrixEntry
-
-        else:
-          for entryId, _ in spec.matrix.pairs():
-            entryIndices.add(entryId)
-
-      for entryId in entryIndices:
+    if not spec.cmd.empty() and
+       spec.cmd.opts[0] != shSub("target") and
+       spec.cmd.opts[0].cmd notin ["c", "js", "vm"]:
         execState.runs.add TestRun(
           test: testId,
-          target: target,
-          matrixEntry: entryId,
+          target: targetC,
+          matrixEntry: noMatrixEntry,
         )
 
         execState.times.add RunTime()
         execState.results.add Result(lastAction: EmptyActionId)
+
+    else:
+      var specTargets: set[GivenTarget]
+      if not spec.cmd.empty():
+        # If custom command contains a '$target' placeholder, return all
+        # available targets to run
+        if shSub("target") in spec.cmd.opts:
+          specTargets = categories[
+            testFiles[tests[testId].file].catId].defaultTargets()
+
+        else:
+          case spec.cmd.opts[0].cmd:
+            of "c": specTargets = {targetC}
+            of "js": specTargets = {targetJs}
+            else: assert false, $spec.cmd.opts[0]
+
+      elif spec.targets == noTargetsSpecified:
+        specTargets = categories[
+          testFiles[tests[testId].file].catId].defaultTargets()
+
+      else:
+        specTargets = spec.targets
+
+      let targetsToRun = specTargets * execState.requestedTargets
+
+      for target in targetsToRun:
+        # TODO: create a "target matrix" to cover both js release vs
+        # non-release
+        var entryIndices: seq[EntryId]
+        case spec.matrix.len:
+          of 0: # no tests to run
+            entryIndices.add noMatrixEntry
+
+          else:
+            for entryId, _ in spec.matrix.pairs():
+              entryIndices.add(entryId)
+
+        for entryId in entryIndices:
+          execState.runs.add TestRun(
+            test: testId,
+            target: target,
+            matrixEntry: entryId,
+          )
+
+          execState.times.add RunTime()
+          execState.results.add Result(lastAction: EmptyActionId)
 
 proc prepareTestActions(execState: var Execution) =
   ## create a list of necessary test actions
@@ -856,12 +889,7 @@ proc exeFile(
     "_"
   )
 
-  let exeExt =
-    if isJsTarget:
-      "js"
-    else:
-      ExeExt
-
+  let exeExt = if isJsTarget: "js" else: ExeExt
   result = changeFileExt(dirPart / RelativeFile(exeName), exeExt)
 
 proc getFileDir(filename: string): string =
@@ -873,18 +901,17 @@ proc getCompileCmd(e: Execution, id: ActionId): ShellCmd =
   let
     action = e.actions[id]
     runId = action.run
-    testRun = e.runs[runId]
-    testId = testRun.test
-    spec = e.specs[testId]
-    testFile = e.files[testId]
+    run = e.runs[runId]
+    spec = e.specs[run.test]
+    testFile = e.files[run.test]
     filename = testFile.file
-    target = testRun.target
+    target = run.target
 
   let matrixOptions =
-    if testRun.matrixEntry == noMatrixEntry:
-      newSeq[ShellArg]()
+    if run.matrixEntry == noMatrixEntry:
+      newSeq[ShellArg](0)
     else:
-      spec.matrix[testRun.matrixEntry]
+      spec.matrix[run.matrixEntry]
 
   result = getCmd(e.conf.compilerPrefix, spec)
   let nimcache = nimcacheDir(
@@ -894,8 +921,14 @@ proc getCompileCmd(e: Execution, id: ActionId): ShellCmd =
   options.add shArg(
     "--nimCache=$#" % e.absoluteNimcache(nimcache).string())
 
-  options.add shArg(
-    "--out=$#" % testRun.exeFile(filename, e.rootDir).string())
+  let outf = shArg(
+    "--out=$#" % run.exeFile(filename, e.rootDir).string())
+
+  if shSub("options") in result:
+    options.add(outf)
+
+  else:
+    result.add outf
 
   result = result.interpolate({
     "target": @[$target],
@@ -1145,10 +1178,14 @@ proc classifyActionResult(e: Execution, act: ActionId): ResultCategory =
   # echov aux(ccmp.codegenOut.runResult)
 
   let results = {
-    aux(rcmp.runResult),
     aux(ccmp.compileOut.runResult),
     aux(ccmp.codegenOut.runResult)
-  }
+  } + (
+    if e.getAct(act).kind == actionRun:
+      {aux(rcmp.runResult)}
+    else:
+      {}
+  )
 
   if spec.isKnownIssue():
     # If this is a known issue then at least *something* must fail
@@ -1195,9 +1232,51 @@ proc formatCompare(e: Execution, act: ActionId): ColText =
     res = e.getResult(act)
     spec = e.getSpec(act)
 
-  assert res.compileCmp.compileOut.runResult != reNone
-  assert res.compileCmp.codegenOut.runResult != reNone
-  assert res.runCmp.runResult != reNone
+
+  proc format(r: CodegenCheckCompare): ColText =
+    coloredResult()
+    case r.runResult:
+      of reCodeNotFound:
+        add "\n"
+        add "Generated code not found "
+        add r.missingCode.get().string() + fgCyan
+        add "\n"
+        add "command was "
+        add e.getCompileCmd(act).toStr().join(" ") + fgYellow
+
+      else:
+        add "CODE "
+        add $r.runResult
+
+  proc format(r: RunCompare): ColText =
+    coloredResult()
+    case r.runResult:
+      of reOutputsDiffer:
+        add "\n"
+        add "Expected and given output mismatch"
+        add "\n"
+        let (diff, same) = diffStrings(res.prgOut, spec.output)
+        add diff
+
+      else:
+        add "RUN "
+        add $r.runResult
+
+  proc format(r: CompileOutCompare): ColText =
+    coloredResult()
+    case r.runResult:
+      of reMsgSubstringNotFound:
+        add "Could not find expected message in the compiler output\n"
+        add "Wanted "
+        add spec.targetDiag.get().msg + fgRed
+        add "\n"
+        add "Compiler output was\n"
+        add res.nimout + fgGreen
+
+      else:
+        add "COMPILE "
+        add $r.runResult
+
   coloredResult()
   case e.getResult(act).compareCategory:
     of rcPass:
@@ -1208,38 +1287,18 @@ proc formatCompare(e: Execution, act: ActionId): ColText =
       add "FAIL: " + fgRed
       add e.makeName(e.getAct(act).run)
       let res = e.getResult(act)
-      # echov res.compileCmp.compileOut
-      # echov res.compileCmp.codegenOut
-      # echov res.runCmp
 
-      # echov res.compileCmp
-      block:
-        let r = res.compileCmp.codegenOut
-        case r.runResult:
-          of reCodeNotFound:
-            add "\n"
-            add "Generated code not found "
-            add r.missingCode.get().string() + fgCyan
-            add "\n"
-            add "command was "
-            add e.getCompileCmd(act).toStr().join(" ") + fgYellow
-
-          else:
-            echov r.runResult
+      if e.getSpec(act).needsCodegenCheck:
+        add "\n"
+        add format(res.compileCmp.codegenOut)
 
       block:
-        let r = res.runCmp
-        echov r
-        case r.runResult:
-          of reOutputsDiffer:
-            add "\n"
-            add "Expected and given output mismatch"
-            add "\n"
-            let (diff, same) = diffStrings(res.prgOut, spec.output)
-            add diff
+        add "\n"
+        add format(res.compileCmp.compileOut)
 
-          else:
-            echov $r.runResult
+      if e.getAct(e.getResult(act).lastAction).kind == actionRun:
+        add "\n"
+        add format(res.runCmp)
 
     of rcSkip:
       add "SKIP: " + fgYellow
@@ -1249,8 +1308,16 @@ proc formatCompare(e: Execution, act: ActionId): ColText =
       add "KNOWN ISSUE: " + fgYellow
       add e.makeName(e.getAct(act).run)
 
-    else:
+    of rcKnownIssuePassed:
+      add "KNOWN ISSUE PASSED: " + fgRed
+      add e.makeName(e.getAct(act).run)
+
+    of rcNone:
+      echov res.compileCmp.compileOut
+      echov res.compileCmp.codegenOut
+      echov res.runCmp
       assert false
+
 
 
 proc immediateReport(e: Execution, act: ActionId) =
@@ -1425,7 +1492,6 @@ proc parseArgs(execState: var Execution, p: var OptParser): ParseCliResult =
     return parseQuitWithUsage
 
   execState.userTestOptions = p.cmdLineRest
-
 
 proc main() =
   var

@@ -198,7 +198,9 @@ proc sexpCheck*(data: CompileOutputCheck): CompileSexpCompare =
     Descending
   )
 
-  if 0 < r.sortedMapping[0].cost:
+  if r.sortedMapping.len() == 0:
+    r.match = r.expectedReports.len() == 0
+  elif 0 < r.sortedMapping[0].cost:
     r.match = false
   elif 0 < r.ignoredGiven.len and data.enforceFullMatch:
     r.match = false
