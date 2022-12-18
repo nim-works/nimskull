@@ -24,6 +24,9 @@ import
   experimental/[
     shellrunner
   ],
+  compiler/utils/[
+    pathutils
+  ],
   test_diff
 
 type TestamentData* = ref object
@@ -269,11 +272,11 @@ proc extractErrorMsg(
       inc result.nextpos
       inc col
 
-proc extractSpec(filename: string; spec: var DeclaredSpec): string =
+proc extractSpec(filename: AbsoluteFile, spec: var DeclaredSpec): string =
   const
     tripleQuote = "\"\"\""
     specStart = "discard " & tripleQuote
-  var s = readFile(filename)
+  var s = readFile(filename.string())
 
   var i = 0
   var a = -1
@@ -372,7 +375,7 @@ proc initSpec*(filename: string): DeclaredSpec =
 type
   SpecParseConfig* = object
     retryContainer* {.requiresinit.}: RetryContainer # (retry: false)
-    filename* {.requiresinit.}: string # DOC
+    filename* {.requiresinit.}: AbsoluteFile # DOC
     caGivenTargets* {.requiresinit.}: set[GivenTarget] # DOC
     nativeTarget* {.requiresinit.}: GivenTarget # DOC
     compilerPrefix* {.requiresinit.}: string # DOC
@@ -381,7 +384,7 @@ type
 
 proc parseSpec*(conf: SpecParseConfig): DeclaredSpec =
   ## Extract and parse specification for a Spec file path
-  result.file = conf.filename
+  result.file = conf.filename.string()
 
   when defined(windows):
     let cmpString = result.file.replace(r"\", r"/")
@@ -400,7 +403,7 @@ proc parseSpec*(conf: SpecParseConfig): DeclaredSpec =
     flags: HashSet[string]
     nimoutFound = false
 
-  open(p, ss, conf.filename, 1)
+  open(p, ss, conf.filename.string(), 1)
   while true:
     var e = next(p)
     case e.kind

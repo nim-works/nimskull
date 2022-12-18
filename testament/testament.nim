@@ -18,6 +18,9 @@ import
     dod_helpers,
     shellrunner,
     colortext
+  ],
+  compiler/utils/[
+    pathutils
   ]
 
 import specs, test_diff, backend
@@ -83,7 +86,7 @@ type
       ## record failures in here so the user can choose to retry them
 
   TestFile = object
-    file: string
+    file: AbsoluteFile
     catId: CategoryId
 
   TestAction = object
@@ -118,7 +121,7 @@ type
     ## Result of the codegen check comparison
     codeSizeOverflow: Option[tuple[generated, allowed: int]]
     missingPegs: seq[string]
-    missingCode: Option[string]
+    missingCode: Option[AbsoluteFile]
     runResult: TestedResultKind
 
   CompileCompare* = object
@@ -222,9 +225,9 @@ type
     nimSpecified: bool       ## whether the user specified the nim
     testArgs: seq[ShellArg] ## arguments passed to tests by the user
     # environment input / setup
-    compilerPath: string     ## compiler command to use
-    testsDir: string         ## where to look for tests
-    rootDir: string          ## Absolute path to root directory for `testsDir`
+    compilerPath: AbsoluteFile ## compiler command to use
+    testsDir: AbsoluteDir    ## where to look for tests
+    rootDir: AbsoluteDir     ## Absolute path to root directory for `testsDir`
 
     # test discovery data
     categories: Categories ## categories discovered for this execution
@@ -299,8 +302,8 @@ type
 
 
 func `$`*(cat: Category): string = "Category($#)" % $cat.string
-func `<`(a, b: TestFile): bool = a.file < b.file
-func cmp(a, b: TestFile): int = cmp(a.file, b.file)
+func `<`(a, b: TestFile): bool = a.file.string() < b.file.string()
+func cmp(a, b: TestFile): int = cmp(a.file.string(), b.file.string())
 
 
 const noMatrixEntry = -1
@@ -349,7 +352,7 @@ proc compileOutCheck(e: Execution, id: RunId): CompileOutCompare =
       inlineErrors: spec.inlineErrors,
       # testName: test.name,
       givenNimout: res.nimout,
-      expectedFile: e.files[test.file].file,
+      expectedFile: e.files[test.file].file.string(),
       expectedNimout: spec.nimout,
     )
 
@@ -432,20 +435,21 @@ proc nimcacheDir(
     filename: string,
     options: seq[ShellArg],
     target: GivenTarget
-  ): string =
+  ): RelativeDir =
   ## Give each test a private nimcache dir so they don't clobber each other's.
   let hashInput = options.toStr().join("") & $target
-  result = "nimcache" / (filename & '_' & hashInput.getMD5())
+  result = RelativeDir("nimcache" / (filename & '_' & hashInput.getMD5()))
 
-proc absoluteNimcache(e: Execution, nimcache: string): string =
-  if nimcache.isAbsolute():
-    nimcache
+proc absoluteNimcache(e: Execution, nimcache: RelativeDir): AbsoluteDir =
+  if nimcache.string().isAbsolute():
+    AbsoluteDir(nimcache)
 
   else:
-    joinpath(e.rootDir, nimcache)
+    e.rootDir / nimcache
 
 proc generatedFile(
-    file: TestFile, target: GivenTarget, nimcache: string): string =
+    file: TestFile, target: GivenTarget, nimcache: AbsoluteDir
+  ): AbsoluteFile =
   ## Get path to the generated file name from the test.
   case target:
     of targetJS:
@@ -455,7 +459,8 @@ proc generatedFile(
         (_, name, _) = file.file.splitFile
         ext = target.ext
 
-      result = joinpath(nimcache, "@m" & name.changeFileExt(ext))
+      result = AbsoluteFile(
+        joinpath(nimcache.string(), "@m" & name.changeFileExt(ext)))
 
 proc needsCodegenCheck(spec: DeclaredSpec): bool =
   ## If there is any checks that need to be performed for a generated code
@@ -473,11 +478,12 @@ proc codegenCheck(
     e.files[test.file],
     run.target,
     e.absoluteNimcache(nimcacheDir(
-      e.files[test.file].file, test.options, run.target))
+      e.files[test.file].file.string(),
+      test.options, run.target))
   )
 
   try:
-    let contents = readFile(genFile)
+    let contents = readFile(genFile.string())
     for check in spec.ccodeCheck:
       if 0 < check.len() and check[0] == '\\':
         # little hack to get 'match' support:
@@ -604,19 +610,22 @@ proc prepareTestFilesAndSpecs(e: var Execution) =
           # IMPLEMENT: implement this proc and all the subsequent handling
           # setupStdlibTests(e, catId)
         else:
-          for file in walkDirRec(testsDir & cat.string):
+          for file in walkDirRec(
+            string(testsDir / RelativeDir(cat.string)),
+            relative = false
+          ):
             if file.isTestFile:
               e.files.add TestFile(
-                file: file, catId: catId)
+                file: AbsoluteFile(file), catId: catId)
 
   case filter.kind:
     of tfkAll:
       let testsDir = testsDir
-      for kind, dir in walkDir(testsDir):
+      for kind, dir in walkDir(testsDir.string(), relative = false):
         if kind == pcDir:
           # The category name is extracted from the directory
           # eg: 'tests/compiler' -> 'compiler'
-          let cat = dir[testsDir.len .. ^1]
+          let cat = dir[testsDir.string().len .. ^1]
           testFilesFromCat(e, Category(cat))
 
       for cat in AdditionalCategories:
@@ -630,13 +639,14 @@ proc prepareTestFilesAndSpecs(e: var Execution) =
       let cat = e.categories.add Category("<glob>")
       let pattern = filter.pattern
       if dirExists(pattern):
-        for kind, name in walkDir(pattern):
+        for kind, name in walkDir(pattern, relative = false):
           if kind in {pcFile, pcLinkToFile} and name.endsWith(".nim"):
-            e.files.add TestFile(file: name, catId: cat)
+            e.files.add TestFile(file: AbsoluteFile(name), catId: cat)
 
       else:
         for name in walkPattern(pattern):
-          e.files.add TestFile(file: name, catId: cat)
+          e.files.add TestFile(
+            file: testsDir / RelativeFile(name), catId: cat)
 
     of tfkSingle:
       let cat = e.categories.add Category(parentDir(filter.test))
@@ -644,7 +654,12 @@ proc prepareTestFilesAndSpecs(e: var Execution) =
       # IMPLEMENT: replace with proper error handling
       doAssert fileExists(test), test & " test does not exist"
       if isTestFile(test):
-        e.files.add TestFile(file: test, catId: cat)
+        if test.isAbsolute():
+          e.files.add TestFile(file: AbsoluteFile(test), catId: cat)
+
+        else:
+          e.files.add TestFile(
+            file: testsDir / RelativeFile(test), catId: cat)
 
     else:
       assert false, "TODO ???"
@@ -653,10 +668,13 @@ proc prepareTestFilesAndSpecs(e: var Execution) =
 
   # parse all specs
   for testId, test in pairs(e.files):
+    assert test.file.string().isAbsolute()
+    assert test.file.string().endsWith("nim")
+
     e.tests.add GivenTest(file: testId, spec: testId)
     e.specs.add parseSpec(
       SpecParseConfig(
-        filename: addFileExt(test.file, ".nim"),
+        filename: test.file,
         caGivenTargets: e.categories[test.catId].defaultTargets(),
         nativeTarget: nativeTarget(),
         skips: e.conf.skips,
@@ -720,7 +738,10 @@ proc makeName(e: Execution, id: RunId): string =
     file = e.files[test.file].file
     allowFailure = spec.err in { grKnownIssue }
 
-  result = file.changeFileExt("").replace(DirSep, '/')
+
+  let rel = file.relativeTo(e.rootDir)
+
+  result = rel.string().changeFileExt("").replace(DirSep, '/')
   result.add '_' & $target
   if matrixEntry != noMatrixEntry:
     result.add "[$1]" % $matrixEntry.int
@@ -817,13 +838,14 @@ type
 
 
 proc exeFile(
-    testRun: TestRun, specFilePath: string, rootDir: string): string =
+    testRun: TestRun, testFile: AbsoluteFile, rootDir: AbsoluteDir
+  ): AbsoluteFile =
   ## Get name of the executable file for the test run
   # CLEAN into a smaller blocks without huge if/else gaps
   let
     target = testRun.target
     isJsTarget = target == targetJs
-    (dirPart, specName, _) = splitFile(specFilePath)
+    (dirPart, specName, _) = splitFile(testFile)
     matrixEntry = testRun.matrixEntry
 
   let exeName = join(
@@ -840,14 +862,7 @@ proc exeFile(
     else:
       ExeExt
 
-  let fileDir =
-    if dirPart.isAbsolute():
-      dirPart
-
-    else:
-      joinPath(rootDir, dirPart)
-
-  result = changeFileExt(joinPath(fileDir, exeName), exeExt)
+  result = changeFileExt(dirPart / RelativeFile(exeName), exeExt)
 
 proc getFileDir(filename: string): string =
   result = filename.splitFile().dir
@@ -873,19 +888,21 @@ proc getCompileCmd(e: Execution, id: ActionId): ShellCmd =
 
   result = getCmd(e.conf.compilerPrefix, spec)
   let nimcache = nimcacheDir(
-    testFile.file, matrixOptions & e.testArgs, target)
+    testFile.file.string(), matrixOptions & e.testArgs, target)
 
   var options = target.defaultOptions() & e.testArgs
-  options.add shArg("--nimCache=$#" % e.absoluteNimcache(nimcache))
   options.add shArg(
-    "--out=$#" % testRun.exeFile(filename, e.rootDir))
+    "--nimCache=$#" % e.absoluteNimcache(nimcache).string())
+
+  options.add shArg(
+    "--out=$#" % testRun.exeFile(filename, e.rootDir).string())
 
   result = result.interpolate({
     "target": @[$target],
     "nim": @[e.conf.compilerPrefix],
     "options": options.toStr(),
-    "file": @[filename],
-    "filedir": @[filename.getFileDir()]
+    "file": @[filename.string()],
+    "filedir": @[filename.string().getFileDir()]
   })
 
 
@@ -903,7 +920,7 @@ proc getRunCmd(e: Execution, id: ActionId): ShellCmd =
     elif spec.useValgrind != disabled:
       "valgrind"
     else:
-      exeFile.dup(normalizeExe)
+      exeFile.string().dup(normalizeExe)
 
   let leakCheck =
     if spec.useValgrind == leaking:
@@ -913,11 +930,12 @@ proc getRunCmd(e: Execution, id: ActionId): ShellCmd =
 
   let args =
     if isJsTarget:
-      @[shArg"--unhandled-rejections=strict", shArg(exeFile)]
+      @[shArg("--unhandled-rejections=strict"),
+        shArg(exeFile.string())]
     elif spec.useValgrind != disabled:
       @[shArg("--error-exitcode=1"),
         shArg("--leak-check=" & leakCheck),
-        shArg(exeFile)]
+        shArg(exeFile.string())]
     else:
       @[]
 
@@ -1201,7 +1219,7 @@ proc formatCompare(e: Execution, act: ActionId): ColText =
           of reCodeNotFound:
             add "\n"
             add "Generated code not found "
-            add r.missingCode.get() + fgCyan
+            add r.missingCode.get().string() + fgCyan
             add "\n"
             add "command was "
             add e.getCompileCmd(act).toStr().join(" ") + fgYellow
@@ -1418,8 +1436,8 @@ proc main() =
         mostRecentRun: EmptyRunId,
       ),
       flags: defaultExecFlags,
-      testsDir: "tests" & DirSep,
-      rootDir: getCurrentDir(),
+      testsDir: getCurrentDir().AbsoluteDir() / RelativeDir("tests"),
+      rootDir: getCurrentDir().AbsoluteDir(),
       gTargets: {low(GivenTarget) .. high(GivenTarget)},
       retryContainer: RetryContainer(retry: false),
       conf: TestamentConf(
