@@ -790,7 +790,7 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
     return writeEnabled
 
 const
-  oldExperimentalFeatures* = {implicitDeref, dotOperators, callOperator}
+  oldExperimentalFeatures* = {dotOperators, callOperator}
 
   ChecksOptions* = {optObjCheck, optFieldCheck, optRangeCheck,
     optOverflowCheck, optBoundsCheck, optAssert, optNaNCheck, optInfCheck,

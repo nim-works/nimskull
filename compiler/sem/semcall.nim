@@ -506,18 +506,6 @@ proc semOverloadedCall(c: PContext, n: PNode,
   var errors: seq[SemCallMismatch]
 
   var r = resolveOverloads(c, n, filter, flags, errors)
-
-  if r.state != csMatch and implicitDeref in c.features and canDeref(n):
-    # try to deref the first argument and then try overloading resolution again:
-    #
-    # XXX: why is this here?
-    #      it could be added to the long list of alternatives tried
-    #      inside `resolveOverloads` or it could be moved all the way
-    #      into sigmatch with hidden conversion produced there
-
-    n[1] = genDeref(n[1])
-    r = resolveOverloads(c, n, filter, flags, errors)
-
   if r.state == csMatch:
     # this may be triggered, when the explain pragma is used
     if errors.len > 0:

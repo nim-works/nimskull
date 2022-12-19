@@ -179,28 +179,6 @@ generally not recommended.
 See also the experimental `importutils <importutils.html>`_ module.
 
 
-Automatic dereferencing
-=======================
-
-Automatic dereferencing is performed for the first argument of a routine call.
-This feature has to be enabled via `{.experimental: "implicitDeref".}`:
-
-.. code-block:: nim
-
-  {.experimental: "implicitDeref".}
-
-  type
-    NodeObj = object
-      # ...
-    Node = ref NodeObj
-
-  proc depth(x: NodeObj): int = ...
-
-  let n = Node()
-  echo n.depth
-  # no need to write n[].depth
-
-
 Special Operators
 =================
 

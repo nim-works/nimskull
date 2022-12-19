@@ -234,23 +234,6 @@ let pOD = parseOD()
 dump pOD.text
 dump pOD.toks
 
-when false:
-  # Bug would only pop up with owned refs and implicit derefs, but since they don't work together..
-  {.experimental: "implicitDeref".}
-  proc tokenizeOHD(c: Cursor): seq[string] =
-    dump c.text
-    return c.text.splitWhitespace()
-
-  proc parseOHD(): Parsed =
-    var c = new Cursor
-    c[] = Cursor(text: "hello")
-    dump c.text
-    return Parsed(text: c.text, toks: c.tokenizeOHD) # note: c.tokenized uses c.text
-
-  let pOHD = parseOHD()
-  dump pOHD.text
-  dump pOHD.toks
-
 # bug #13456
 
 iterator combinations[T](s: openarray[T], k: int): seq[T] =
