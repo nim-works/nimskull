@@ -106,7 +106,7 @@ type
     flags: TNodeFlags
     operand: int32  # for kind in {nkSym}: SymId
                     # for kind in {nkStrLit, nkIdent, nkNumberLit}: LitId
-                    # for non-atom kinds: the number of children
+                    # for all others: the number of children
     typeId: TypeId
 
   SliceListType* = BiggestInt|BiggestFloat|ConstantId
@@ -601,14 +601,17 @@ func storeNode(enc: var TypeInfoEncoder, ps: var PackedEnv, n: PNode): NodeId =
   var hasSons = false
   let item =
     case n.kind
-    of nkCharLit..nkUInt64Lit:    ps.getLitId(n.intVal).int32
-    of nkFloatLit..nkFloat128Lit: ps.getLitId(n.floatVal).int32
-    of nkStrLit..nkTripleStrLit:  ps.getLitId(n.strVal).int32
+    of nkEmpty: 0'i32 # zero children
     of nkIdent: ps.getLitId(n.ident.s).int32
     of nkSym:   enc.storeSymLater(ps, n.sym).int32
-    else:
+    of nkIntKinds:   ps.getLitId(n.intVal).int32
+    of nkFloatKinds: ps.getLitId(n.floatVal).int32
+    of nkStrKinds:   ps.getLitId(n.strVal).int32
+    of nkWithSons:
       hasSons = true
       n.sons.len.int32
+    of nkError, nkNone:
+      unreachable("errors and invalid nodes must not reach here")
 
   result = ps.nimNodes.len.NodeId
   ps.nimNodes.add(PackedNodeLite(kind: n.kind, flags: n.flags,
@@ -671,6 +674,8 @@ proc loadNode(dec: var TypeInfoDecoder, ps: PackedEnv, id: NodeId): (PNode, int3
                 typ: loadType(dec, ps, n.typeId))
 
   case n.kind
+  of nkEmpty:
+    discard "do nothing"
   of nkCharLit..nkUInt64Lit:
     r.intVal = ps.numbers[n.operand.LitId]
   of nkFloatLit..nkFloat128Lit:
@@ -682,7 +687,7 @@ proc loadNode(dec: var TypeInfoDecoder, ps: PackedEnv, id: NodeId): (PNode, int3
     r.sym = dec.loadSym(ps, n.operand.SymId)
   of nkIdent:
     r.ident = PIdent(s: ps.strings[n.operand.LitId])
-  else:
+  of nkWithSons:
     r.sons.newSeq(n.operand)
     var nextId = id.int32 + 1
     for i in 0..<n.operand:
@@ -691,6 +696,9 @@ proc loadNode(dec: var TypeInfoDecoder, ps: PackedEnv, id: NodeId): (PNode, int3
       nextId += skip
 
     return (r, nextId - id.int32)
+  of nkNone, nkError:
+    # should have not been stored in the first place
+    unreachable()
 
   result = (r, 1'i32)
 
