@@ -1009,7 +1009,10 @@ const
     {nkStrLit..nkTripleStrLit} +
     {nkSym} +
     {nkIdent} +
+    {nkError} +
     {nkEmpty, nkNone}
+
+  nkWithSons* = {low(TNodeKind) .. high(TNodeKind)} - nkWithoutSons
 
 type
   EffectsCompat* = enum
