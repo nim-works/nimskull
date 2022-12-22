@@ -127,6 +127,9 @@ func toStr*(
 func contains*(cmd: ShellCmd, arg: ShellArg): bool =
   cmd.opts.contains(arg)
 
+func `[]`*(cmd: ShellCmd, idx: int): ShellArg = cmd.opts[0]
+func `==`*(arg: ShellArg, str: string): bool = arg.cmd == str
+
 func contains*(args: seq[ShellArg], str: string): bool =
   ## Check whether any of the arguments contain `str` as substring. Can be
   ## used to avoid supplying duplicate commands
