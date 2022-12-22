@@ -2031,7 +2031,8 @@ proc userConvMatch(c: PContext, m: var TCandidate, f, a: PType,
                 if srca == isSubtype:
                   implicitConv(nkHiddenSubConv, src, copyTree(arg), m, c)
                 elif src.kind in {tyVar}:
-                  # Analyse the converter return type
+                  # create a mutable reference if the converter takes a 'var'
+                  # as input
                   newTreeIT(nkHiddenAddr, arg.info, conv.typ[1], copyTree(arg))
                 else:
                   copyTree(arg))

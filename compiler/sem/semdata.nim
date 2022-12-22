@@ -339,9 +339,8 @@ type
       ## read:
       ##  - sigmatch: islvalue
       ##  - semobjconstr: errors for case object/discriminator assignments
-      ##  - newHiddenAddrTaken: check to see if we're in an unsafe assignment
-      ##                        cast xxx: seems overly broad
-      ##  - analyseIfAddressTakenInCall: same check as newHiddenAddrTaken
+      ##  - analyseIfAddressTakenInCall: check to see if we're in an unsafe
+      ##                                 assignment block
 
     # using statement parameter tracking
     signatures*: TStrTable

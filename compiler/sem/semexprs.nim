@@ -830,87 +830,170 @@ proc newHiddenAddrTaken(c: PContext, n: PNode): PNode =
   else:
     result = newNodeIT(nkHiddenAddr, n.info, makeVarType(c, n.typ))
     result.add n
-    let aa = isAssignable(c, n)
-    if aa notin {arLValue, arLocalLValue}:
-      if aa == arDiscriminant and c.inUncheckedAssignSection > 0:
-        discard "allow access within a cast(unsafeAssign) section"
+
+func isVarParam(t: PType): bool =
+  # watch out: ``typeDesc[var int]`` is **not** a 'var' parameter
+  t.skipTypes(abstractInst - {tyTypeDesc}).kind == tyVar
+
+proc analyseIfAddressTaken(n: PNode) =
+  ## Analyses if taking the address of lvalue expression `n` counts as an
+  ## "address taken" and if it does, marks the symbol of the underlying
+  ## location (if it's associated with a symbol) with the ``sfAddrTaken``
+  ## flag.
+  ## XXX: the exact meaning of "address taken" is rather fuzzy at the moment,
+  ##      and the whole thing is likely not a good idea in the first place.
+  ##      For locations, only ``guards.nim`` and the JS code-generator make use
+  ##      of ``sfAddrTaken``, with both attaching slightly different meaning to
+  ##      it, it seems. The JS code-generator uses the flag to know whether the
+  ##      location has to be stored in a way that allows for indirectly
+  ##      mutating it, and is generally only interested in whether the *whole*
+  ##      location either has its address taken or is passed to a 'var'
+  ##      parameter (e.g. it depends on the flag being present for ``x`` in
+  ##      ``addr x``, but for ``addr x.y`` it does not). It's likely a better
+  ##      idea to let the JS code-generator perform its own analysis instead of
+  ##      relying on ``sfAddrTaken``
+  ##      For ``guards``, it *seems* like the ``sfAddrTaken`` information is
+  ##      used to know whether a fact cannot be made untrue through an
+  ##      undetectable indirect mutation
+  ##
+  ## XXX: including the flag here has the additional issue of letting AST that
+  ##      might turn out erroneous (e.g. ``(var i = 0; discard addr(i); error)``)
+  ##      modify a symbol. Performing this analysis in ``sempass2`` would be the
+  ##      better approach
+  ##
+  var
+    n {.cursor.} = n
+    hadBracket = false
+
+  while true:
+    case n.kind
+    of nkConv:
+      # skip lvalue conversion. We know that all conversions we encounter here
+      # are lvalue conversions because the input `n` is an lvalue. In addition
+      # we explicitly only consider ``nkConv`` (and not ``nkHiddenSubConv``,
+      # etc.), as it's the only conversion operator used for lvalue conversion
+      # (ignoring things like ``openArray`` conversion, but we're not
+      # interested in those)
+      n = n[1]
+    of nkBracketExpr:
+      # skip a single array-like access operation
+      # XXX: the previous implementation did the same, but the "why" is not
+      #      clear. The underlying issue is that the meaning of ``sfAddrTaken``
+      #      for locals and globals is not really specified
+      if hadBracket:
+        break
       else:
-        result = c.config.newError(n, reportAst(rsemVarForOutParamNeeded, n))
+        n = n[0]
+        hadBracket = true
+    of nkStmtListExpr:
+      n = n.lastSon
+    else:
+      break
 
-proc analyseIfAddressTaken(c: PContext, n: PNode): PNode =
-  result = n
-  case n.kind
-  of nkSym:
-    # n.sym.typ can be nil in 'check' mode ...
-    if n.sym.typ != nil and
-        skipTypes(n.sym.typ, abstractInst-{tyTypeDesc}).kind notin {tyVar, tyLent}:
-      incl(n.sym.flags, sfAddrTaken)
-      result = newHiddenAddrTaken(c, n)
-  of nkDotExpr:
-    checkSonsLen(n, 2, c.config)
-    c.config.internalAssert(n[1].kind == nkSym, n.info, "analyseIfAddressTaken")
+  if n.kind == nkSym:
+    incl(n.sym.flags, sfAddrTaken)
 
-    if skipTypes(n[1].sym.typ, abstractInst-{tyTypeDesc}).kind notin {tyVar, tyLent}:
-      incl(n[1].sym.flags, sfAddrTaken)
-      result = newHiddenAddrTaken(c, n)
-  of nkBracketExpr:
-    checkMinSonsLen(n, 1, c.config)
-    if skipTypes(n[0].typ, abstractInst-{tyTypeDesc}).kind notin {tyVar, tyLent}:
-      if n[0].kind == nkSym: incl(n[0].sym.flags, sfAddrTaken)
-      result = newHiddenAddrTaken(c, n)
-  else:
+proc passToVarParameter(c: PContext, n: PNode): PNode =
+  ## Analyses the lvalue expression `n` that is meant to be passed to a ``var``
+  ## parameter, wrapping it in an ``nkHiddenAddr`` node, if necessary
+  # only create a mutable reference (i.e. ``nkHiddenAddr``) if the source isn't
+  # one already
+  if n.typ.skipTypes(abstractInst).kind != tyVar:
+    analyseIfAddressTaken(n)
     result = newHiddenAddrTaken(c, n)
+  elif n.kind in {nkHiddenSubConv, nkHiddenStdConv}:
+    # this happens when passing a sub-type to super-type parameter or something
+    # that is implictly convertible to an ``openArray`` to an ``openArray``
+    # parameter
+    result = newHiddenAddrTaken(c, n)
+  else:
+    result = n
 
-proc analyseIfAddressTakenInCall(c: PContext, n: PNode) =
+proc analyseIfAddressTakenInCall(n: PNode) =
+  ## Performs the "is address taken" analysis for all immediate arguments of
+  ## the call `n`. The input AST is, except for the symbols that get marked
+  ## with ``sfAddrTaken``, not mutated
+  for i in 1..<n.len:
+    if n[i].kind == nkHiddenAddr:
+      analyseIfAddressTaken(n[i][0])
+
+proc fixVarArgumentsAndAnalyse(c: PContext, n: PNode): PNode =
+  ## Introduces an ``nkHiddenAddr`` node for each immediate argument part of
+  ## the call expression `n` that is passed to a 'var' parameter. Only the
+  ## immediate. The fixup has to be applied *after* overload is done and the
+  ## arguments are otherwise sem-checked already.
+  ##
+  ## Also performs the "is address taken" analysis for each argument passed to
+  ## a ``var`` parameter.
+  ##
+  ## Note that not all ``var`` parameters are considered, certain magics are
+  ## ignored during this fixup
+  addInNimDebugUtils(c.config, "fixVarArgumentsAndAnalyse", n, result)
   checkMinSonsLen(n, 1, c.config)
-  const
-    FakeVarParams = {mNew, mNewFinalize, mInc, ast.mDec, mIncl, mExcl,
-      mSetLengthStr, mSetLengthSeq, mAppendStrCh, mAppendStrStr, mSwap,
-      mAppendSeqElem, mNewSeq, mReset, mShallowCopy, mDeepCopy, mMove,
-      mWasMoved}
 
   if n.isError:
-    return
+    return n
+
+  func skipDeref(n: PNode): PNode =
+    if n.kind == nkHiddenDeref: n[0]
+    else:                       n
+
+  result = n
 
   # get the real type of the callee
   # it may be a proc var with a generic alias type, so we skip over them
-  var t = n[0].typ.skipTypes({tyGenericInst, tyAlias, tySink})
+  let
+    t = n[0].typ.skipTypes({tyGenericInst, tyAlias, tySink})
+    magic = getMagic(n)
 
-  if n[0].kind == nkSym and n[0].sym.magic in FakeVarParams:
-    # BUGFIX: check for L-Value still needs to be done for the arguments!
-    # note sometimes this is eval'ed twice so we check for nkHiddenAddr here:
-    for i in 1..<n.len:
-      if i < t.len and t[i] != nil and
-          skipTypes(t[i], abstractInst-{tyTypeDesc}).kind in {tyVar}:
-        let it = n[i]
-        let aa = isAssignable(c, it)
-        if aa notin {arLValue, arLocalLValue}:
-          if it.kind != nkHiddenAddr:
-            if aa == arDiscriminant and c.inUncheckedAssignSection > 0:
-              discard "allow access within a cast(unsafeAssign) section"
-            else:
-              localReport(c.config, it.info, reportAst(
-                rsemVarForOutParamNeeded, it))
+  var hasError = false
 
+  if magic in {mNew, mNewFinalize, mNewSeq}:
+    # XXX: this check doesn't really fit here. ``magicsAfterOverloadResolution``
+    #       would be a better place for it
     # bug #5113: disallow newSeq(result) where result is a 'var T':
-    if n[0].sym.magic in {mNew, mNewFinalize, mNewSeq}:
-      var arg = n[1] #.skipAddr
-      if arg.kind == nkHiddenDeref: arg = arg[0]
-      if arg.kind == nkSym and arg.sym.kind == skResult and
-          arg.typ.skipTypes(abstractInst).kind in {tyVar, tyLent}:
-        localReport(c.config, n.info, reportAst(rsemStackEscape, n[1]))
+    let arg = skipDeref(n[1])
 
-    return
+    if arg.kind == nkSym and arg.sym.kind == skResult and
+       arg.typ.skipTypes(abstractInst).kind == tyVar:
+      n[1] = c.config.newError(n[1], reportAst(rsemStackEscape, n[1]))
+      hasError = true
+
+  let allow =
+    if c.inUncheckedAssignSection > 0:
+      # allow passing a discriminator location to a 'var' parameter
+      {arLValue, arLocalLValue, arDiscriminant}
+    else:
+      {arLValue, arLocalLValue}
+
   for i in 1 ..< n.len:
-    let n = if n.kind == nkHiddenDeref: n[0] else: n
-    if n[i].kind == nkHiddenCallConv:
-      # we need to recurse explicitly here as converters can create nested
-      # calls and then they wouldn't be analysed otherwise
-      analyseIfAddressTakenInCall(c, n[i])
-    if i < t.len and
-        skipTypes(t[i], abstractInst-{tyTypeDesc}).kind in {tyVar}:
-      if n[i].kind != nkHiddenAddr:
-        n[i] = analyseIfAddressTaken(c, n[i])
+    let arg = n[i]
+
+    if i >= t.len or              # unsafe varargs -> no formal type
+       magic in FakeVarParams or  # not really a 'var' parameter
+       not isVarParam(t[i]) or
+       arg.kind == nkHiddenAddr: # already analysed
+       # TODO: according to the commit (3620155d937bb5d3ffe79ca9a62e4552ed7bca1b)
+       #       that added the "already analysed" check, this can happen for
+       #       'var' parameters in (to?) templates. Check if this is still the
+       #       case, and if it is, add a test
+      continue
+
+    if isAssignable(c, arg) in allow:
+      let arg1 = skipDeref(arg)
+      # make sure to analyse converter calls introduced by ``sigmatch``. They
+      # might return a 'var T' themselves, hence the deref skipping above
+      if arg1.kind == nkHiddenCallConv:
+        analyseIfAddressTakenInCall(arg1)
+
+      result[i] = passToVarParameter(c, arg)
+    else:
+      hasError = true
+      result[i] = c.config.newError(arg):
+        reportAst(rsemVarForOutParamNeeded, arg)
+
+  if hasError:
+    result = wrapError(c.config, result)
 
 include semmagic
 
@@ -1083,7 +1166,7 @@ proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
     semFinishOperands(c, result)
     activate(c, result)
     result = fixAbstractType(c, result)
-    analyseIfAddressTakenInCall(c, result)
+    result = fixVarArgumentsAndAnalyse(c, result)
     if callee.magic != mNone:
       result = magicsAfterOverloadResolution(c, result, flags)
     when false:
@@ -1178,7 +1261,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
       # do we really need to try the overload resolution?
       n[0] = prc
       result = semOverloadedCallAnalyseEffects(c, n, flags)
-      
+
       if result == nil:
         return c.config.newError(n, reportAst(rsemExpressionCannotBeCalled, n))
     elif result.kind notin nkCallKinds:
@@ -1196,7 +1279,7 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
         afterCallActions(c, result, flags)
   else:
     result = fixAbstractType(c, result)
-    analyseIfAddressTakenInCall(c, result)
+    result = fixVarArgumentsAndAnalyse(c, result)
 
 proc semDirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # this seems to be a hotspot in the compiler!
@@ -2569,7 +2652,7 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
     markUsed(c, n.info, s)
     checkSonsLen(n, 2, c.config)
     result[0] = newSymNode(s, n[0].info)
-    result[1] = semAddrArg(c, n[1], s.name.s == "unsafeAddr")
+    result[1] = semAddrArg(c, n[1])
     result.typ = makePtrType(c, result[1].typ)
   of mTypeOf:
     markUsed(c, n.info, s)
@@ -2621,7 +2704,7 @@ proc semMagic(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
         semFinishOperands(c, result)
       activate(c, result)
       result = fixAbstractType(c, result)
-      analyseIfAddressTakenInCall(c, result)
+      result = fixVarArgumentsAndAnalyse(c, result)
       if callee.magic != mNone:
         result = magicsAfterOverloadResolution(c, result, flags)
   of mRunnableExamples:
