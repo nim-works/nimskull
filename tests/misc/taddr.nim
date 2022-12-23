@@ -259,6 +259,57 @@ proc test15939() = # bug #15939 (v2)
   else: # can't take address of cstring element in js
     when not defined(js): cstringTest()
 
+block immutable_parameter:
+  proc testArg[T](x: ptr T, val: T) =
+    doAssert x[] == val
+
+  proc test[T](x: T) =
+    # test initializing assignment:
+    var p = unsafeAddr x
+    doAssert p[] == x
+
+    # test a normal assignment:
+    p = unsafeAddr x
+    doAssert p[] == x
+
+    # test passing to a ptr parameter:
+    testArg(unsafeAddr x, x)
+
+  type Obj = object
+    val: int
+
+  when not defined(js):
+    # XXX: invalid code is generated with the JS back-end
+    test(1)                 # int
+    test(1.0)               # float
+    test(@[1, 2])           # seq
+    test("str")             # string
+    test(cstring"str")      # cstring
+    test[range[0..1]](1)    # range
+    test(new int)           # ref to int
+    test((ref Obj)(val: 1)) # ref to object
+
+    test(proc() {.nimcall.} = discard) # normal procedure
+    test(proc() {.closure.} = discard) # closure
+
+  test([1, 2])      # array
+  test({false})     # set
+  test(Obj(val: 1)) # object
+
+block immutable_for_var_addr:
+  template test() =
+    for val in [1]:
+      let p = unsafeAddr val
+      doAssert p[] == val
+
+  # test with a global for-var
+  test()
+
+  # test with a local for-var
+  proc prc() =
+    test()
+  prc()
+
 template main =
   # xxx wrap all other tests here like that so they're also tested in VM
   test14420()

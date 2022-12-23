@@ -1229,7 +1229,7 @@ proc genFieldAccess(p: PProc, n: PNode, r: var TCompRes) =
 
 proc genAddr(p: PProc, n: PNode, r: var TCompRes)
 
-proc genCheckedFieldOp(p: PProc, n: PNode, addrTyp: PType, r: var TCompRes) =
+proc genCheckedFieldOp(p: PProc, n: PNode, takeAddr: bool, r: var TCompRes) =
   internalAssert p.config, n.kind == nkCheckedFieldExpr
   # nkDotExpr to access the requested field
   let accessExpr = n[0]
@@ -1267,7 +1267,7 @@ proc genCheckedFieldOp(p: PProc, n: PNode, addrTyp: PType, r: var TCompRes) =
     setx.res, tmp, disc.loc.r, if negCheck: ~"!==" else: ~"===",
     makeJSString(msg), genTypeInfo(p, disc.typ))
 
-  if addrTyp != nil and mapType(p, addrTyp) == etyBaseIndex:
+  if takeAddr:
     r.typ = etyBaseIndex
     r.res = makeJSString($field.loc.r)
     r.address = tmp
@@ -1336,35 +1336,28 @@ template isIndirect(x: PSym): bool =
     #(mapType(v.typ) != etyObject) and
     {sfImportc, sfExportc} * v.flags == {} and
     v.kind notin {skProc, skFunc, skConverter, skMethod, skIterator,
-                  skConst, skTemp, skLet})
+                  skConst, skTemp, skLet, skParam})
 
-proc genSymAddr(p: PProc, n: PNode, typ: PType, r: var TCompRes) =
-  ## Generates a dereferenced symbol,
-  ## as many things in the JS gen'd code
-  ## are stored in an arrays they have different dereference methods.
+proc genSymAddr(p: PProc, n: PNode, r: var TCompRes) =
+  ## Generates the code for taking the address of the location identified by
+  ## symbol node `n`
   let s = n.sym
   p.config.internalAssert(s.loc.r != nil, n.info, "genAddr: 3")
   case s.kind
   of skParam:
+    # FIXME: this is a hack. Only ``genAsgnAux`` handles this special encoding
+    #        (and gets it wrong), ``genVarInit`` (var sections) and ``genArg``
+    #        (arguments) do not. Instead of misusing ``etyNone``, it'd be better
+    #        to either:
+    #        1. emit a temporary base and index
+    #        2. introduce a dedicated ``TJsTypeKind`` enum field for this case
     r.res = s.loc.r
     r.address = nil
     r.typ = etyNone
-  of skVar, skLet, skResult:
+  of skVar, skLet, skResult, skForVar:
     r.kind = resExpr
-    let jsType = mapType(p):
-      if typ.isNil:
-        n.typ
-      else:
-        typ
-    if jsType == etyObject:
-      # make addr() a no-op:
-      r.typ = etyNone
-      if isIndirect(s):
-        r.res = s.loc.r & "[0]"
-      else:
-        r.res = s.loc.r
-      r.address = nil
-    elif {sfGlobal, sfAddrTaken} * s.flags != {} or jsType == etyBaseIndex:
+    let jsType = mapType(p): n.typ
+    if {sfGlobal, sfAddrTaken} * s.flags != {} or jsType == etyBaseIndex:
       # for ease of code generation, we do not distinguish between
       # sfAddrTaken and sfGlobal.
       r.typ = etyBaseIndex
@@ -1377,53 +1370,47 @@ proc genSymAddr(p: PProc, n: PNode, typ: PType, r: var TCompRes) =
   else: internalError(p.config, n.info, $("genAddr: 2", s.kind))
 
 proc genAddr(p: PProc, n: PNode, r: var TCompRes) =
-  if n.kind == nkSym:
-    genSymAddr(p, n, nil, r)
-  else:
-    case n[0].kind
-    of nkSym:
-      genSymAddr(p, n[0], n.typ, r)
-    of nkCheckedFieldExpr:
-      genCheckedFieldOp(p, n[0], n.typ, r)
-    of nkDotExpr:
-      if mapType(p, n.typ) == etyBaseIndex:
-        genFieldAddr(p, n[0], r)
-      else:
-        genFieldAccess(p, n[0], r)
-    of nkBracketExpr:
-      var ty = skipTypes(n[0].typ, abstractVarRange)
-      if ty.kind in MappedToObject:
-        gen(p, n[0], r)
-      else:
-        let kindOfIndexedExpr = skipTypes(n[0][0].typ, abstractVarRange).kind
-        case kindOfIndexedExpr
-        of tyArray, tyOpenArray, tySequence, tyString, tyCstring, tyVarargs:
-          genArrayAddr(p, n[0], r)
-        of tyTuple:
-          genFieldAddr(p, n[0], r)
-        of tyGenericBody:
-          genAddr(p, n[^1], r)
-        else: internalError(p.config, n[0].info, "expr(nkBracketExpr, " & $kindOfIndexedExpr & ')')
-    of nkObjDownConv:
-      gen(p, n[0], r)
-    of nkHiddenDeref:
-      gen(p, n[0], r)
-    of nkHiddenAddr:
-      gen(p, n[0], r)
-    of nkConv:
-      genAddr(p, n[0], r)
-    of nkStmtListExpr:
-      p.config.internalAssert(n.len == 1, n[0].info, "genAddr for complex nkStmtListExpr")
-      gen(p, n[0], r)
-    of nkCallKinds:
-      if n[0].typ.kind == tyOpenArray:
-        # 'var openArray' for instance produces an 'addr' but this is harmless:
-        # namely toOpenArray(a, 1, 3)
-        gen(p, n[0], r)
-      else:
-        internalError(p.config, n[0].info, "genAddr: " & $n[0].kind)
+  ## Dispatches to the appropriate procedure for generating the address-of
+  ## operation based on the kind of node `n`
+  case n.kind
+  of nkSym:
+    genSymAddr(p, n, r)
+  of nkCheckedFieldExpr:
+    genCheckedFieldOp(p, n, takeAddr=true, r)
+  of nkDotExpr:
+    genFieldAddr(p, n, r)
+  of nkBracketExpr:
+    let kind = skipTypes(n[0].typ, abstractVarRange).kind
+    case kind
+    of tyArray, tyOpenArray, tySequence, tyString, tyCstring, tyVarargs:
+      genArrayAddr(p, n, r)
+    of tyTuple:
+      genFieldAddr(p, n, r)
     else:
-      internalError(p.config, n[0].info, "genAddr: " & $n[0].kind)
+      internalError(p.config, n[0].info, "expr(nkBracketExpr, " & $kind & ')')
+  of nkHiddenDeref, nkDerefExpr:
+    # attemping to take the address of a deref expression -> skip both the
+    # addr and deref
+    gen(p, n[0], r)
+  of nkConv:
+    # an explicit lvalue conversion. Conversion between lvalues of different
+    # underlying type is not possible, so we simply skip the conversion and
+    # apply the operation to the source expression
+    genAddr(p, n[1], r)
+  of nkStmtListExpr:
+    for i in 0..<n.len-1:
+      genStmt(p, n[i])
+
+    genAddr(p, n[^1], r)
+  of nkCallKinds:
+    if n.typ.kind == tyOpenArray:
+      # 'var openArray' for instance produces an 'addr' but this is harmless:
+      # namely toOpenArray(a, 1, 3)
+      gen(p, n, r)
+    else:
+      internalError(p.config, n.info, "genAddr: " & $n.kind)
+  else:
+    internalError(p.config, n.info, "genAddr: " & $n.kind)
 
 proc attachProc(p: PProc; content: Rope; s: PSym) =
   p.g.code.add(content)
@@ -2620,10 +2607,15 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkObjConstr: genObjConstr(p, n, r)
   of nkHiddenStdConv, nkHiddenSubConv, nkConv: genConv(p, n, r)
   of nkAddr, nkHiddenAddr:
-    if n.typ.kind in {tyLent}:
+    if mapType(n.typ) != etyBaseIndex:
+      # the operation doesn't produce an address-like value (e.g. because the
+      # operand is a JS object and those already have reference semantics)
+      # FIXME: this won't work for ``lent`` views (outside of return values),
+      #        as ``lent`` is skipped by ``mapType``, meaning that a
+      #        ``lent int`` is an ``etyInt``
       gen(p, n[0], r)
     else:
-      genAddr(p, n, r)
+      genAddr(p, n[0], r)
   of nkDerefExpr, nkHiddenDeref:
     if n.typ.kind in {tyLent}:
       gen(p, n[0], r)
@@ -2631,7 +2623,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       genDeref(p, n, r)
   of nkBracketExpr: genArrayAccess(p, n, r)
   of nkDotExpr: genFieldAccess(p, n, r)
-  of nkCheckedFieldExpr: genCheckedFieldOp(p, n, nil, r)
+  of nkCheckedFieldExpr: genCheckedFieldOp(p, n, takeAddr=false, r)
   of nkObjDownConv: gen(p, n[0], r)
   of nkObjUpConv: upConv(p, n, r)
   of nkCast: genCast(p, n, r)
