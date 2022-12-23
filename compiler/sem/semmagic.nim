@@ -12,20 +12,15 @@
 
 import compiler/ast/typesrenderer
 
-proc semAddrArg(c: PContext; n: PNode; isUnsafeAddr = false): PNode =
-  let x = semExprWithType(c, n)
-  if x.kind == nkSym:
-    x.sym.flags.incl(sfAddrTaken)
-  if isAssignable(c, x, true) in {arLValue, arLocalLValue}:
-    result = x
+proc semAddrArg(c: PContext; n: PNode): PNode =
+  let n = semExprWithType(c, n)
+  if n.isError:
+    result = n
+  elif isAssignable(c, n, true) in {arLValue, arLocalLValue}:
+    analyseIfAddressTaken(n)
+    result = n
   else:
-    # Do not suggest the use of unsafeAddr if this expression already is a
-    # unsafeAddr
-    result = newError(c.config, n):
-      block:
-        var r = reportSem(rsemExprHasNoAddress)
-        r.isUnsafeAddr = true
-        r
+    result = newError(c.config, n, SemReport(kind: rsemExprHasNoAddress))
 
 proc semTypeOf(c: PContext; n: PNode): PNode =
   var m = BiggestInt 1 # typeOfIter
@@ -396,9 +391,10 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
 
   case n[0].sym.magic
   of mAddr:
+    # XXX: wasn't this magic already processed in ``semMagic``?
     checkSonsLen(n, 2, c.config)
     result = n
-    result[1] = semAddrArg(c, n[1], n[0].sym.name.s == "unsafeAddr")
+    result[1] = semAddrArg(c, n[1])
     result.typ = makePtrType(c, result[1].typ)
   of mTypeOf:
     result = semTypeOf(c, n)

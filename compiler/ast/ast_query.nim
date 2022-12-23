@@ -207,6 +207,17 @@ const
     nkUsingStmt,
   }
 
+  FakeVarParams* = {mNew, mNewFinalize, mInc, mDec, mIncl, mExcl,
+    mSetLengthStr, mSetLengthSeq, mAppendStrCh, mAppendStrStr, mSwap,
+    mAppendSeqElem, mNewSeq, mReset, mShallowCopy, mDeepCopy, mMove,
+    mWasMoved}
+    ## An arguments to these magics never uses ``nkHiddenAddr``, even if the
+    ## corresponding parameter is a 'var' parameter. The reason for this is
+    ## that these magics are lowered into code that, because it gets inlined
+    ## directly, doesn't mutate the arguments through indirection. This also
+    ## implies that the "is address taken" analysis (see ``sfAddrTaken``) must
+    ## not be performed for arguments to these magics.
+
 proc getPIdent*(a: PNode): PIdent {.inline.} =
   ## Returns underlying `PIdent` for `{nkSym, nkIdent}`, or `nil`.
   # xxx consider whether also returning the 1st ident for {nkOpenSymChoice, nkClosedSymChoice}
