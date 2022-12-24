@@ -1,5 +1,5 @@
 discard """
-  target: "c js vm"
+  target: "c js !vm"
   labels: "var_arg"
   description: '''
     Tests to make sure arguments are properly passed to var parameter and that
@@ -7,6 +7,8 @@ discard """
     location
   '''
 """
+
+# knownIssue: ``vmgen`` generates incorrect code in some cases
 
 template disableIf(cond: bool, body: untyped) =
   when defined(tryBrokenSpecification) or not cond:

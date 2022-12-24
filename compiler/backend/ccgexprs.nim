@@ -753,6 +753,9 @@ proc genDeref(p: BProc, e: PNode, d: var TLoc) =
       # so the '&' and '*' cancel out:
       putIntoDest(p, d, e, rdLoc(a), a.storage)
     else:
+      # in C89, dereferencing a pointer requires a pointer to complete type.
+      # Make sure that the element type is fully defined by querying its name:
+      discard getTypeDesc(p.module, e.typ, skVar)
       putIntoDest(p, d, e, "(*$1)" % [rdLoc(a)], a.storage)
 
 proc cowBracket(p: BProc; n: PNode) =
@@ -2919,7 +2922,13 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
   of nkObjConstr: genObjConstr(p, n, d)
   of nkCast: genCast(p, n, d)
   of nkHiddenStdConv, nkHiddenSubConv, nkConv: genConv(p, n, d)
-  of nkHiddenAddr, nkAddr: genAddr(p, n, d)
+  of nkHiddenAddr, nkAddr:
+    if n[0].kind in {nkHiddenDeref, nkDerefExpr}:
+      # views and ``ref``s also map to pointers at the C level. We collapse
+      # ``&(*x)`` to just ``x``
+      expr(p, n[0][0], d)
+    else:
+      genAddr(p, n, d)
   of nkBracketExpr: genBracketExpr(p, n, d)
   of nkDerefExpr, nkHiddenDeref: genDeref(p, n, d)
   of nkDotExpr: genRecordField(p, n, d)
