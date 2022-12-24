@@ -461,36 +461,15 @@ proc transformYield(c: PTransf, n: PNode): PNode =
     for i, child in changeNode:
       child.info = changeNode.info
 
-proc transformAddrDeref(c: PTransf, n: PNode, a, b: TNodeKind): PNode =
+proc transformAddr(c: PTransf, n: PNode): PNode =
   result = transformSons(c, n)
-  var n = result
-  case n[0].kind
-  of nkObjUpConv, nkObjDownConv, nkChckRange, nkChckRangeF, nkChckRange64:
-    var m = n[0][0]
-    if m.kind == a or m.kind == b:
-      # addr ( nkConv ( deref ( x ) ) ) --> nkConv(x)
-      n[0][0] = m[0]
-      result = n[0]
-      if n.typ.skipTypes(abstractVar).kind != tyOpenArray:
-        result.typ = n.typ
-      elif n.typ.skipTypes(abstractInst).kind in {tyVar}:
-        result.typ = toVar(result.typ, n.typ.skipTypes(abstractInst).kind, c.idgen)
-  of nkHiddenStdConv, nkHiddenSubConv, nkConv:
-    var m = n[0][1]
-    if m.kind == a or m.kind == b:
-      # addr ( nkConv ( deref ( x ) ) ) --> nkConv(x)
-      n[0][1] = m[0]
-      result = n[0]
-      if n.typ.skipTypes(abstractVar).kind != tyOpenArray:
-        result.typ = n.typ
-      elif n.typ.skipTypes(abstractInst).kind in {tyVar}:
-        result.typ = toVar(result.typ, n.typ.skipTypes(abstractInst).kind, c.idgen)
-  else:
-    if n[0].kind == a or n[0].kind == b:
-      # addr ( deref ( x )) --> x
-      result = n[0][0]
-      if n.typ.skipTypes(abstractVar).kind != tyOpenArray:
-        result.typ = n.typ
+  let n = result
+  # collapse ``nkAddr( nkDerefExpr(x) )`` to ``x``, but only if ``x`` is of
+  # pointer type. Performing the collapsing when ``x`` is a ``ref`` would be
+  # incorrect, as there'd be a formal vs. actual type mismatch then
+  if n[0].kind == nkDerefExpr and
+     n[0][0].typ.skipTypes(abstractInst).kind == tyPtr:
+    result = n[0][0]
 
 proc generateThunk(c: PTransf; prc: PNode, dest: PType): PNode =
   ## Converts 'prc' into '(thunk, nil)' so that it's compatible with
@@ -845,7 +824,7 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     if result.len == 2: result = result[1]
   elif magic == mAddr:
     result = newTreeIT(nkAddr, n.info, n.typ): n[1]
-    result = transformAddrDeref(c, result, nkDerefExpr, nkHiddenDeref)
+    result = transformAddr(c, result)
   elif magic in {mTypeOf, mRunnableExamples}:
     result = n
   elif magic == mProcCall:
@@ -987,10 +966,29 @@ proc transform(c: PTransf, n: PNode): PNode =
   of nkBreakStmt: result = transformBreak(c, n)
   of nkCallKinds:
     result = transformCall(c, n)
-  of nkAddr, nkHiddenAddr:
-    result = transformAddrDeref(c, n, nkDerefExpr, nkHiddenDeref)
-  of nkDerefExpr, nkHiddenDeref:
-    result = transformAddrDeref(c, n, nkAddr, nkHiddenAddr)
+  of nkAddr:
+    result = transformAddr(c, n)
+  of nkDerefExpr:
+    result = transformSons(c, n)
+    # collapse ``nkDerefExpr( nkAddr(x) )`` to just ``x``
+    if result[0].kind == nkAddr:
+      result = result[0][0]
+  of nkHiddenDeref:
+    # collapsing a ``nkHiddenDeref( nkHiddenAddr(x) )`` to ``x`` is safe.
+    # This is because:
+    # - ``nkHiddenAddr`` is only used for views or in a ``var`` parameter
+    #   context and it's thus known that the result is a view. For
+    #   ``nkHiddenDeref``, this is not always the case: it's also emitted for
+    #   implicit pointer or ref dereferencing
+    # - we know that the ``nkHiddenAddr`` is not used to signal that something
+    #   is an argument to a ``var`` parameter, due to it not appearing directly
+    #   in an argument context
+    # XXX: because of a cgen issues related to ``openArray``, this is not only
+    #      an optimization, but a requirement, as invalid C code would be
+    #      generated without the collapsing
+    result = transformSons(c, n)
+    if result[0].kind == nkHiddenAddr:
+      result = result[0][0]
   of nkHiddenStdConv, nkHiddenSubConv, nkConv:
     result = transformConv(c, n)
   of nkDiscardStmt:

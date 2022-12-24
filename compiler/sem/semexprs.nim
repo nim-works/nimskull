@@ -823,13 +823,9 @@ proc hasUnresolvedArgs(c: PContext, n: PNode): bool =
     return false
 
 proc newHiddenAddrTaken(c: PContext, n: PNode): PNode =
-  case n.kind
-  of nkHiddenDeref:
-    checkSonsLen(n, 1, c.config)
-    result = n[0]
-  else:
-    result = newNodeIT(nkHiddenAddr, n.info, makeVarType(c, n.typ))
-    result.add n
+  ## Wraps the expression `n` in an ``nkHiddenAddr`` and assigns a ``var`` type
+  ## derived from the source type to the resulting expression
+  result = newTreeIT(nkHiddenAddr, n.info, makeVarType(c, n.typ)): n
 
 func isVarParam(t: PType): bool =
   # watch out: ``typeDesc[var int]`` is **not** a 'var' parameter
