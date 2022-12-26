@@ -15,9 +15,6 @@ import
     vmmemory
   ]
 
-# xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_vm import VMReport
-from compiler/ast/report_enums import ReportKind
 
 # XXX: A better approach than `tryWrite` is needed if the plan is to wrap
 #      large parts of the stdlib... (macros come to mind)
@@ -75,9 +72,9 @@ proc writeTo*[T](v: T, dest: LocHandle, mm: var VmMemoryManager) =
   if tryWriteTo(v, dest, mm):
     return
 
-  raiseVmError(VMReport(
-    kind: rvmErrInternal,
-    str: "Writing to location failed: " & $T))
+  raiseVmError(VmEvent(
+    kind: vmEvtErrInternal,
+    msg: "Writing to location failed: " & $T))
 
 
 func tryReadTo*[T](src: LocHandle, dst: var set[T]): bool =
@@ -93,6 +90,6 @@ func readAs*[T](src: LocHandle, t: typedesc[T]): T =
   if tryReadTo(src, result):
     return
 
-  raiseVmError(VMReport(
-    kind: rvmErrInternal,
-    str: "Reading from location failed"))
+  raiseVmError(VmEvent(
+    kind: vmEvtErrInternal,
+    msg: "Reading from location failed"))

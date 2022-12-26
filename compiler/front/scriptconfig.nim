@@ -48,6 +48,8 @@ import
     pathutils
   ]
 
+from compiler/vm/vmlegacy import legacyReportsVmTracer
+
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_debug import DebugReport
 from compiler/ast/report_enums import ReportKind
@@ -66,7 +68,7 @@ proc listDirs(a: VmArgs, filter: set[PathComponent]) =
 proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
               graph: ModuleGraph; idgen: IdGenerator): PEvalContext =
   # For Nimble we need to export 'setupVM'.
-  result = newCtx(module, cache, graph, idgen)
+  result = newCtx(module, cache, graph, idgen, legacyReportsVmTracer)
   # for backwards compatibility, allow meta expressions in nimscript (this
   # matches the previous behaviour)
   result.codegenInOut.flags = {cgfAllowMeta}

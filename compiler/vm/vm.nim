@@ -62,24 +62,20 @@ import
     vmerrors,
     vmmemory,
     vmobjects,
-    vmtypes
+    vmtypes,
   ],
   experimental/[
     results
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_vm import VMReport
 from compiler/ast/reports_sem import SemReport
-from compiler/ast/reports_debug import DebugReport
 from compiler/ast/reports_internal import InternalReport
 from compiler/ast/report_enums import ReportKind
 
 # xxx: `Report` is faaaar too wide a type for what the VM needs, even with all
 #      the ground that can cover.
-from compiler/ast/reports import Report,
-  toReportLineInfo,
-  wrap
+from compiler/ast/reports import Report, wrap
 
 when defined(nimVMDebugGenerate):
   import compiler/vm/vmutils
@@ -122,7 +118,7 @@ type
       reg*: Option[TRegister] ## the register that holds the result, or
                               ## 'none', if there is no result
     of yrkError:
-      error*: VMReport
+      error*: VmEvent
     of yrkQuit:
       exitCode*: int
     of yrkMissingProcedure:
@@ -138,14 +134,14 @@ proc createStackTrace*(
     c:          TCtx,
     thread:     VmThread,
     recursionLimit: int = 100
-  ): VMReport =
+  ): VmStackTrace =
   ## Generates a stack-trace report starting at frame `sframe` (inclusive).
   ## The amount of entries in the trace is limited to `recursionLimit`, further
   ## entries are skipped, though the entry function is always included in the
   ## trace
   assert c.sframes.len > 0
 
-  result = VMReport(kind: rvmStackTrace)
+  result = VmStackTrace()
   # Just leave the exceptions empty, they aren't used anyways
   result.currentExceptionA = nil
   result.currentExceptionB = nil
@@ -227,9 +223,9 @@ func loadFromLoc(reg: var TFullReg, h: LocHandle) =
 proc toVmError(c: DerefFailureCode, inst: InstantiationInfo): ref VmError =
   ## Creates a `VmError` for the failure code
   new(result)
-  result.report = VMReport(
-    kind: FailureCodeToReport[c],
-    reportInst: toReportLineInfo(inst))
+  result.event = VmEvent(
+    kind: FailureCodeToEvent[c],
+    instLoc: inst)
 
 template toException(x: DerefFailureCode): untyped =
   ## `Result` -> exception translation
@@ -253,7 +249,7 @@ proc reportException(c: TCtx; sframe: StackFrameIndex, raised: LocHandle) =
                     empty, # unused
                     newStrNode(nkStrLit, name),
                     newStrNode(nkStrLit, msg))
-  raiseVmError(VMReport(kind: rvmUnhandledException, ast: ast))
+  raiseVmError(VmEvent(kind: vmEvtUnhandledException, ast: ast))
 
 when not defined(nimComputedGoto):
   {.pragma: computedGoto.}
@@ -776,7 +772,7 @@ template handleJmpBack() {.dirty.} =
     if allowInfiniteLoops in c.features:
       c.loopIterations = c.config.maxLoopIterationsVM
     else:
-      raiseVmError(VMReport(kind: rvmTooManyIterations))
+      raiseVmError(VmEvent(kind: vmEvtTooManyIterations))
 
   dec(c.loopIterations)
 
@@ -827,14 +823,14 @@ func loadEmptyReg*(r: var TFullReg, typ: PVmType, info: TLineInfo, mm: var VmMem
 func raiseAccessViolation(
   reason: AccessViolationReason,
   inst: InstantiationInfo) {.noinline.} =
-  let k =
+  let k: VmEventKindAccessError =
     case reason
     of avrNoError: unreachable()
-    of avrOutOfBounds: rvmAccessOutOfBounds
-    of avrTypeMismatch: rvmAccessTypeMismatch
-    of avrNoLocation: rvmAccessNoLocation
+    of avrOutOfBounds: vmEvtAccessOutOfBounds
+    of avrTypeMismatch: vmEvtAccessTypeMismatch
+    of avrNoLocation: vmEvtAccessNoLocation
 
-  raiseVmError(VMReport(kind: k), inst)
+  raiseVmError(VmEvent(kind: k), inst)
 
 template checkHandle(a: VmAllocator, re: TFullReg) =
   ## Tests if the handle in `re` is valid and raises an access violation error
@@ -857,6 +853,12 @@ template checkHandle(a: VmAllocator, handle: LocHandle) =
 
 when not defined(nimHasSinkInference):
   {.pragma: nosinks.}
+
+
+template source(c: TCtx, pc: PrgCtr): TLineInfo =
+  ## Gets the source-code information for the instruction the provided program
+  ## counter `pc` currently points to
+  c.debug[pc]
 
 proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason =
   ## Runs the execution loop, starting in frame `tos` at program counter `pc`.
@@ -921,20 +923,20 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
     tos = nf
     updateRegsAlias
 
-  template guestValidate(cond: bool, msg: string) =
+  template guestValidate(cond: bool, strMsg: string) =
     ## Ensures that a guest-input related condition holds true and raises
     ## a `VmError` if it doesn't
     if unlikely(not cond): # Treat input violations as unlikely
       # TODO: don't use a string message here; use proper reports
-      raiseVmError(VMReport(kind: rvmErrInternal, str: msg))
+      raiseVmError(VmEvent(kind: vmEvtErrInternal, msg: strMsg))
 
   template checkHandle(re: TFullReg) =
     {.line.}:
       checkHandle(c.allocator, re)
 
-  proc reportVmIdx(usedIdx, maxIdx: SomeInteger): VMReport =
-    VMReport(
-      kind: rvmIndexError,
+  proc reportVmIdx(usedIdx, maxIdx: SomeInteger): VmEvent =
+    VmEvent(
+      kind: vmEvtIndexError,
       indexSpec: (
         usedIdx: toInt128(usedIdx),
         minIdx: toInt128(0),
@@ -960,26 +962,19 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       template regDescr(r): TRegisterKind =
         if r < regs.len: regs[r].kind else: rkNone
 
-      c.config.localReport(DebugReport(
-        kind: rdbgVmExecTraceFull,
-        vmgenExecFull: (
-          pc: pc,
-          opc: c.code[pc].opcode,
-          info: c.debug[pc],
-          ra: regDescr(instr.regA),
-          rb: regDescr(instr.regB),
-          rc: regDescr(instr.regC)
-      )))
+      c.vmTraceHandler(c, VmExecTrace(
+        kind: vmTraceFull,
+        pc: pc,
+        ra: regDesc(instr.regA),
+        rb: regDesc(instr.regB),
+        rc: regDesc(instr.regC)))
 
     if c.config.active.isVmTrace:
       # unlike nimVMDebug, this doesn't require re-compiling nim and is
       # controlled by user code
-      c.config.localReport(DebugReport(
-        kind: rdbgVmExecTraceMinimal,
-        vmgenExecMinimal: (
-          info: c.debug[pc],
-          opc: instr.opcode
-      )))
+      c.vmTraceHandler(c, VmExecTrace(
+          kind: vmTraceMin,
+          pc: pc))
 
     c.profiler.enter(c, tos)
     case instr.opcode
@@ -1045,9 +1040,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         of rkAddress:
           intVal = cast[int](regs[rb].addrVal.rawPointer)
         else:
-          raiseVmError(VMReport(
-            kind: rvmErrInternal,
-            str: "opcCastPtrToInt: got " & $regs[rb].kind))
+          raiseVmError(VmEvent(
+            kind: vmEvtErrInternal,
+            msg: "opcCastPtrToInt: got " & $regs[rb].kind))
 
       of 2: # tyRef
         case regs[rb].kind
@@ -1074,9 +1069,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         # vmgen abuses this opcode for ptr-to-ptr casting
         ptrVal = regs[rb].addrVal.rawPointer
       else:
-        raiseVmError(VMReport(
-          kind: rvmErrInternal,
-          str: "opcCastIntToPtr: regs[rb].kind: " & $regs[rb].kind))
+        raiseVmError(VmEvent(
+          kind: vmEvtErrInternal,
+          msg: "opcCastIntToPtr: regs[rb].kind: " & $regs[rb].kind))
 
       regs[ra].setAddress(makeMemPtr(ptrVal, 0), nil)
     of opcAsgnComplex:
@@ -1370,9 +1365,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       of rkHandle:
         regs[ra].setAddress(regs[rb].handle.h, regs[rb].handle.typ)
       else:
-        raiseVmError(VMReport(
-          kind: rvmErrInternal,
-          str: "limited VM support for 'addr', got kind: " & $regs[rb].kind))
+        raiseVmError(VmEvent(
+          kind: vmEvtErrInternal,
+          msg: "limited VM support for 'addr', got kind: " & $regs[rb].kind))
 
     of opcLdDeref:
       # a = b[]
@@ -1388,7 +1383,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
           let p = makeMemPtr(r.addrVal.rawPointer, r.addrTyp.sizeInBytes)
           regs[ra].setHandle(makeLocHandle(p, r.addrTyp))
         else:
-          raiseVmError(VMReport(kind: rvmNilAccess))
+          raiseVmError(VmEvent(kind: vmEvtNilAccess))
 
       of rkRegAddr:
         # HACK: rkRegAddr is a hack
@@ -1403,9 +1398,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
 
         regs[ra].setHandle(h)
       else:
-        raiseVmError(VMReport(
-          kind: rvmNilAccess,
-          str: " kind: " & $regs[rb].kind))
+        raiseVmError(VmEvent(
+          kind: vmEvtNilAccess,
+          msg:  " kind: " & $regs[rb].kind))
 
     of opcWrDeref:
       # a[] = c; b unused
@@ -1432,7 +1427,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
             raiseAccessViolation(cr, instLoc(0))
 
         elif r.addrVal.isNil:
-          raiseVmError(VMReport(kind: rvmNilAccess))
+          raiseVmError(VmEvent(kind: vmEvtNilAccess))
 
       of rkRegAddr:
         # HACK: remove this once vmgen is adjusted
@@ -1450,9 +1445,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         writeLoc(h, regs[rc], c.memory)
 
       else:
-        raiseVmError(VMReport(
-          kind: rvmErrInternal,
-          str: "opcWrDeref: regs[ra].kind: " & $r.kind))
+        raiseVmError(VmEvent(
+          kind: vmEvtErrInternal,
+          msg:  "opcWrDeref: regs[ra].kind: " & $r.kind))
 
     of opcAddInt:
       decodeBC(rkInt)
@@ -1463,7 +1458,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       if (sum xor bVal) >= 0 or (sum xor cVal) >= 0:
         regs[ra].intVal = sum
       else:
-        raiseVmError(VMReport(kind: rvmOverOrUnderflow))
+        raiseVmError(VmEvent(kind: vmEvtOverOrUnderflow))
     of opcAddImmInt:
       decodeBImm(rkInt)
       #message(c.config, c.debug[pc], warnUser, "came here")
@@ -1475,7 +1470,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       if (sum xor bVal) >= 0 or (sum xor cVal) >= 0:
         regs[ra].intVal = sum
       else:
-        raiseVmError(VMReport(kind: rvmOverOrUnderflow))
+        raiseVmError(VmEvent(kind: vmEvtOverOrUnderflow))
     of opcSubInt:
       decodeBC(rkInt)
       let
@@ -1485,7 +1480,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       if (diff xor bVal) >= 0 or (diff xor not cVal) >= 0:
         regs[ra].intVal = diff
       else:
-        raiseVmError(VMReport(kind: rvmOverOrUnderflow))
+        raiseVmError(VmEvent(kind: vmEvtOverOrUnderflow))
     of opcSubImmInt:
       decodeBImm(rkInt)
       let
@@ -1495,7 +1490,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       if (diff xor bVal) >= 0 or (diff xor not cVal) >= 0:
         regs[ra].intVal = diff
       else:
-        raiseVmError(VMReport(kind: rvmOverOrUnderflow))
+        raiseVmError(VmEvent(kind: vmEvtOverOrUnderflow))
     of opcLenSeq:
       decodeBImm(rkInt)
       #assert regs[rb].kind == nkBracket
@@ -1566,16 +1561,16 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       elif 32.0 * abs(resAsFloat - floatProd) <= abs(floatProd):
         regs[ra].intVal = product
       else:
-        raiseVmError(VMReport(kind: rvmOverOrUnderflow))
+        raiseVmError(VmEvent(kind: vmEvtOverOrUnderflow))
     of opcDivInt:
       decodeBC(rkInt)
       if regs[rc].intVal == 0:
-        raiseVmError(VMReport(kind: rvmDivisionByConstZero))
+        raiseVmError(VmEvent(kind: vmEvtDivisionByConstZero))
       else: regs[ra].intVal = regs[rb].intVal div regs[rc].intVal
     of opcModInt:
       decodeBC(rkInt)
       if regs[rc].intVal == 0:
-        raiseVmError(VMReport(kind: rvmDivisionByConstZero))
+        raiseVmError(VmEvent(kind: vmEvtDivisionByConstZero))
       else:
         regs[ra].intVal = regs[rb].intVal mod regs[rc].intVal
     of opcAddFloat:
@@ -1724,7 +1719,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       if val != int64.low:
         regs[ra].intVal = -val
       else:
-        raiseVmError(VMReport(kind: rvmOverOrUnderflow))
+        raiseVmError(VmEvent(kind: vmEvtOverOrUnderflow))
     of opcUnaryMinusFloat:
       decodeB(rkFloat)
 
@@ -1879,7 +1874,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         regs[ra].nimNode = if a.sym.ast.isNil: newNode(nkNilLit)
                           else: copyTree(a.sym.ast)
       else:
-        raiseVmError(VMReport(kind: rvmNodeNotASymbol))
+        raiseVmError(VmEvent(kind: vmEvtNodeNotASymbol))
 
     of opcGetImplTransf:
       decodeB(rkNimNode)
@@ -1895,7 +1890,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
             ast[bodyPos] = transformBody(c.graph, c.idgen, a.sym, cache=true)
             ast.copyTree()
       else:
-        raiseVmError(VMReport(kind: rvmNodeNotASymbol))
+        raiseVmError(VmEvent(kind: vmEvtNodeNotASymbol))
 
     of opcExpandToAst:
       decodeBC(rkNimNode)
@@ -1932,7 +1927,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         regs[ra].nimNode = if a.sym.owner.isNil: newNode(nkNilLit)
                           else: newSymNode(a.sym.skipGenericOwner)
       else:
-        raiseVmError(VMReport(kind: rvmNodeNotASymbol))
+        raiseVmError(VmEvent(kind: vmEvtNodeNotASymbol))
     of opcSymIsInstantiationOf:
       decodeBC(rkInt)
       let a = regs[rb].nimNode
@@ -1943,7 +1938,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
           if sfFromGeneric in a.sym.flags and a.sym.owner == b.sym: 1
           else: 0
       else:
-        raiseVmError(VMReport(kind: rvmNodeNotAProcSymbol))
+        raiseVmError(VmEvent(kind: vmEvtNodeNotAProcSymbol))
 
     of opcEcho:
       # TODO: ``echo`` is a "syscall" and the VM should not be responsible for
@@ -2034,9 +2029,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         # TODO: are range errors `Exception`s or `Defect`s in normal Nim? If
         #       they are `Exception`s we should raise a user catchable error
         #       here
-        raiseVmError(VMReport(
-          kind: rvmIllegalConv,
-          str: errIllegalConvFromXtoY % [
+        raiseVmError(VmEvent(
+          kind: vmEvtIllegalConv,
+          msg: errIllegalConvFromXtoY % [
             regs[ra].toStr,
             "[" & regs[rb].toStr & ".." & regs[rc].toStr & "]"
           ]))
@@ -2101,7 +2096,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
           (default(VmFunctionPtr), false)
 
       if unlikely(fPtr.isNil):
-        raiseVmError(VMReport(kind: rvmNilAccess))
+        raiseVmError(VmEvent(kind: vmEvtNilAccess))
 
       let entry = c.functions[int toFuncIndex(fPtr)]
       assert entry.sig == h.typ.routineSig
@@ -2168,9 +2163,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
             else:
               # Since the closure env is protected from to the guest, it
               # should not be possible that it becomes invalid.
-              raiseVmError(VMReport(
-                kind: rvmErrInternal,
-                str: "closure env is invalid"))
+              raiseVmError(VmEvent(
+                kind: vmEvtErrInternal,
+                msg:  "closure env is invalid"))
 
           else:
             assert envPType == noneType # A programming error that should have
@@ -2469,7 +2464,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       let msg = $regs[ra].strVal
       let discr = $regs[instr.regB].strVal
       let msg2 = formatFieldDefect(msg, discr)
-      raiseVmError(VMReport(kind: rvmFieldInavailable, str: msg2))
+      raiseVmError(VmEvent(kind: vmEvtFieldUnavailable, msg: msg2))
     of opcSetLenStr:
       # a.setLen(b)
       let rb = instr.regB
@@ -2510,7 +2505,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       let min = -(1.BiggestInt shl (rb-1))
       let max = (1.BiggestInt shl (rb-1))-1
       if regs[ra].intVal < min or regs[ra].intVal > max:
-        raiseVmError(VMReport(kind: rvmOutOfRange))
+        raiseVmError(VmEvent(kind: vmEvtOutOfRange))
     of opcNarrowU:
       decodeB(rkInt)
       regs[ra].intVal = regs[ra].intVal and ((1'i64 shl rb)-1)
@@ -2566,7 +2561,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       # TODO: This if-else block should be reordered so as to match the
       #       expectation of occurence
       if src.kind in {nkEmpty..nkNilLit}:
-        raiseVmError(VMReport(kind: rvmCannotGetChild, ast: src))
+        raiseVmError(VmEvent(kind: vmEvtCannotGetChild, ast: src))
       elif idx >=% src.len:
         raiseVmError(reportVmIdx(idx, src.len - 1))
       else:
@@ -2576,9 +2571,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       let idx = regs[rb].intVal.int
       var dest = regs[ra].nimNode
       if nfSem in dest.flags and allowSemcheckedAstModification notin c.config.legacyFeatures:
-        raiseVmError(VMReport(kind: rvmCannotModifyTypechecked))
+        raiseVmError(VmEvent(kind: vmEvtCannotModifyTypechecked))
       elif dest.kind in {nkEmpty..nkNilLit}:
-        raiseVmError(VMReport(kind: rvmCannotSetChild, ast: dest))
+        raiseVmError(VmEvent(kind: vmEvtCannotSetChild, ast: dest))
       elif idx >=% dest.len:
         raiseVmError(reportVmIdx(idx, dest.len - 1))
       else:
@@ -2587,10 +2582,10 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       decodeBC(rkNimNode)
       var u = regs[rb].nimNode
       if nfSem in u.flags and allowSemcheckedAstModification notin c.config.legacyFeatures:
-        raiseVmError(VMReport(kind: rvmCannotModifyTypechecked))
+        raiseVmError(VmEvent(kind: vmEvtCannotModifyTypechecked))
       elif u.kind in {nkEmpty..nkNilLit}:
         echo c.config $ c.debug[pc]
-        raiseVmError(VMReport(kind: rvmCannotAddChild, ast: u))
+        raiseVmError(VmEvent(kind: vmEvtCannotAddChild, ast: u))
       else:
         u.add(regs[rc].nimNode)
       regs[ra].nimNode = u
@@ -2604,9 +2599,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       let x = regs[rc].handle
       var u = regs[rb].nimNode
       if nfSem in u.flags and allowSemcheckedAstModification notin c.config.legacyFeatures:
-        raiseVmError(VMReport(kind: rvmCannotModifyTypechecked))
+        raiseVmError(VmEvent(kind: vmEvtCannotModifyTypechecked))
       elif u.kind in {nkEmpty..nkNilLit}:
-        raiseVmError(VMReport(kind: rvmCannotAddChild, ast: u))
+        raiseVmError(VmEvent(kind: vmEvtCannotAddChild, ast: u))
       else:
         let L = arrayLen(x)
         for i in 0..<L:
@@ -2624,7 +2619,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       if a.kind == nkSym:
         regs[ra].intVal = ord(a.sym.kind)
       else:
-        raiseVmError(VMReport(kind: rvmNodeNotASymbol))
+        raiseVmError(VmEvent(kind: vmEvtNodeNotASymbol))
       c.comesFromHeuristic = a.info
 
     of opcNIntVal:
@@ -2635,13 +2630,13 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       elif a.kind == nkSym and a.sym.kind == skEnumField:
         regs[ra].intVal = a.sym.position
       else:
-        raiseVmError(VMReport(kind: rvmFieldNotFound, str: "intVal"))
+        raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "intVal"))
     of opcNFloatVal:
       decodeB(rkFloat)
       let a = regs[rb].nimNode
       case a.kind
       of nkFloatLit..nkFloat64Lit: regs[ra].floatVal = a.floatVal
-      else: raiseVmError(VMReport(kind: rvmFieldNotFound, str: "floatVal"))
+      else: raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "floatVal"))
     of opcNodeId:
       decodeB(rkInt)
       regs[ra].intVal = regs[rb].nimNode.id
@@ -2662,7 +2657,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         elif b.kind == nkSym and b.sym.typ != nil:
           regs[ra].nimNode = opMapTypeToAst(c.cache, b.sym.typ, c.debug[pc], c.idgen)
         else:
-          raiseVmError(VMReport(kind: rvmNoType))
+          raiseVmError(VmEvent(kind: vmEvtNoType))
       of 1:
         # typeKind opcode:
         ensureKind(rkInt)
@@ -2682,7 +2677,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         elif b.kind == nkSym and b.sym.typ != nil:
           regs[ra].nimNode = opMapTypeInstToAst(c.cache, b.sym.typ, c.debug[pc], c.idgen)
         else:
-          raiseVmError(VMReport(kind: rvmNoType))
+          raiseVmError(VmEvent(kind: vmEvtNoType))
       else:
         # getTypeImpl opcode:
         ensureKind(rkNimNode)
@@ -2691,26 +2686,26 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         elif b.kind == nkSym and b.sym.typ != nil:
           regs[ra].nimNode = opMapTypeImplToAst(c.cache, b.sym.typ, c.debug[pc], c.idgen)
         else:
-          raiseVmError(VMReport(kind: rvmNoType))
+          raiseVmError(VmEvent(kind: vmEvtNoType))
     of opcNGetSize:
       decodeBImm(rkInt)
       let n = regs[rb].nimNode
       case imm
       of 0: # size
         if n.typ == nil:
-          raiseVmError(VMReport(kind: rvmNoType, ast: n))
+          raiseVmError(VmEvent(kind: vmEvtNoType, ast: n))
         else:
           regs[ra].intVal = getSize(c.config, n.typ)
       of 1: # align
         if n.typ == nil:
-          raiseVmError(VMReport(kind: rvmNoType, ast: n))
+          raiseVmError(VmEvent(kind: vmEvtNoType, ast: n))
         else:
           regs[ra].intVal = getAlign(c.config, n.typ)
       else: # offset
         if n.kind != nkSym:
-          raiseVmError(VMReport(kind: rvmNodeNotASymbol, ast: n))
+          raiseVmError(VmEvent(kind: vmEvtNodeNotASymbol, ast: n))
         elif n.sym.kind != skField:
-          raiseVmError(VMReport(kind: rvmNotAField, sym: n.sym))
+          raiseVmError(VmEvent(kind: vmEvtNotAField, sym: n.sym))
         else:
           regs[ra].intVal = n.sym.offset
 
@@ -2727,15 +2722,15 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       of nkSym:
         regs[ra].strVal = a.sym.name.s
       else:
-        raiseVmError(VMReport(kind: rvmFieldNotFound, str: "strVal"))
+        raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "strVal"))
 
     of opcNSigHash:
       decodeB(akString)
       if regs[rb].nimNode.kind == nkSym:
         regs[ra].strVal = $sigHash(regs[rb].nimNode.sym)
       else:
-        raiseVmError(VMReport(
-          kind: rvmNodeNotASymbol, ast: regs[rb].nimNode))
+        raiseVmError(VmEvent(
+          kind: vmEvtNodeNotASymbol, ast: regs[rb].nimNode))
 
     of opcSlurp:
       decodeB(akString)
@@ -2770,25 +2765,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
             kind: rintNotUsingNimcore,
             msg: "VM is not built with 'gorge' support"))
 
-    of opcNError, opcNWarning, opcNHint:
-      let rb = instr.regB
-      checkHandle(regs[ra])
-      let a = $regs[ra].strVal
-      let b = regs[rb].nimNode
-      let info = if b.kind == nkNilLit: c.debug[pc] else: b.info
-      case instr.opcode:
-        of opcNError:
-          raiseVmError(
-            VMReport(kind: rvmUserError, str: a), info)
-
-        of opcNWarning:
-          localReport(c.config, info, SemReport(kind: rsemUserWarning, str: a))
-
-        of opcNHint:
-          localReport(c.config, info, SemReport(kind: rsemUserHint, str: a))
-
-        else: discard
-
     of opcParseExprToAst, opcParseStmtToAst:
       decodeBC(rkNimNode)
 
@@ -2822,11 +2798,8 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       ensureKind(rkNimNode)
       if c.callsite != nil:
         regs[ra].nimNode = c.callsite
-
       else:
-        raiseVmError(VMReport(
-          kind: rvmFieldNotFound, str: "callsite"))
-
+        raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "callsite"))
     of opcNGetLineInfo:
       decodeBImm()
       let n = regs[rb].nimNode
@@ -2924,9 +2897,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       let dt = (desttyp.nimType, desttyp.internal)
       let st = (srctyp.nimType, srctyp.internal)
       if opConv(c, regs[ra], regs[rb], dt, st):
-        raiseVmError(VMReport(
-          kind: rvmIllegalConv,
-          str: errIllegalConvFromXtoY % [
+        raiseVmError(VmEvent(
+          kind: vmEvtIllegalConv,
+          msg: errIllegalConvFromXtoY % [
             typeToString(srctyp.nimType),
             typeToString(desttyp.nimType)
           ]))
@@ -2941,7 +2914,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       # Since we're soon storing objects in a flat representation, doing the
       # cast in a safe manner becomes possible, but I'm unsure if this feature
       # is really needed, so an error is always reported here for now
-      raiseVmError(VMReport(kind: rvmCannotCast))
+      raiseVmError(VmEvent(kind: vmEvtCannotCast))
 
     of opcNSetIntVal:
       decodeB(rkNimNode)
@@ -2949,19 +2922,18 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       if dest.kind in {nkCharLit..nkUInt64Lit}:
         dest.intVal = regs[rb].intVal
       elif dest.kind == nkSym and dest.sym.kind == skEnumField:
-        raiseVmError(VMReport(
-          kind: rvmErrInternal,
-          str: "`intVal` cannot be changed for an enum symbol."))
-
+        raiseVmError(VmEvent(
+          kind: vmEvtErrInternal,
+          msg: "`intVal` cannot be changed for an enum symbol."))
       else:
-        raiseVmError(VMReport(kind: rvmFieldNotFound, str: "intVal"))
+        raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "intVal"))
     of opcNSetFloatVal:
       decodeB(rkNimNode)
       var dest = regs[ra].nimNode
       if dest.kind in {nkFloatLit..nkFloat64Lit}:
         dest.floatVal = regs[rb].floatVal
       else:
-        raiseVmError(VMReport(kind: rvmFieldNotFound, str: "floatVal"))
+        raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "floatVal"))
     of opcNSetStrVal:
       decodeB(rkNimNode)
       checkHandle(regs[rb])
@@ -2972,7 +2944,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       elif dest.kind == nkCommentStmt:
         dest.comment = $regs[rb].strVal
       else:
-        raiseVmError(VMReport(kind: rvmFieldNotFound, str: "strVal"))
+        raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "strVal"))
     of opcNNewNimNode:
       decodeBC(rkNimNode)
       var k = regs[rb].intVal
@@ -3080,7 +3052,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         regs[ra].nimNode = g.cacheSeqs[destKey][idx.int]
       else:
         raiseVmError(reportVmIdx(idx, g.cacheSeqs[destKey].len-1))
-
     of opcNctPut:
       let g = c.graph
       checkHandle(regs[ra])
@@ -3095,10 +3066,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         g.cacheTables[destKey].add(key, val)
         recordPut(c, c.debug[pc], destKey, key, val)
       else:
-        raiseVmError(VMReport(
-          kind: rvmCacheKeyAlreadyExists,
-          str: destKey))
-
+        raiseVmError(VmEvent(
+          kind: vmEvtCacheKeyAlreadyExists,
+          msg:  destKey))
     of opcNctLen:
       let g = c.graph
       decodeB(rkInt)
@@ -3118,13 +3088,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         if contains(g.cacheTables[destKey], key):
           regs[ra].nimNode = getOrDefault(g.cacheTables[destKey], key)
         else:
-          raiseVmError(VMReport(
-            kind: rvmMissingCacheKey, str: destKey))
-
+          raiseVmError(VmEvent(kind: vmEvtMissingCacheKey, msg: destKey))
       else:
-        raiseVmError(VMReport(
-          kind: rvmMissingCacheKey, str: destKey))
-
+        raiseVmError(VmEvent(kind: vmEvtMissingCacheKey, msg: destKey))
     of opcNctHasNext:
       let g = c.graph
       decodeBC(rkInt)
@@ -3152,8 +3118,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         deref(handle.getFieldHandle(FieldIndex(1))).nodeVal = v
         writeInt(handle.getFieldHandle(FieldIndex(2)).byteView(), nextIndex)
       else:
-        raiseVmError(VMReport(
-          kind: rvmMissingCacheKey, str: destKey))
+        raiseVmError(VmEvent(kind: vmEvtMissingCacheKey, msg: destKey))
 
     of opcTypeTrait:
       # XXX only supports 'name' for now; we can use regC to encode the
@@ -3161,7 +3126,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       decodeB(akString)
       var typ = regs[rb].nimNode.typ
       if unlikely(typ != nil):
-        raiseVmError(VMReport(kind: rvmNoType))
+        raiseVmError(VmEvent(kind: vmEvtNoType))
       while typ.kind == tyTypeDesc and typ.len > 0: typ = typ[0]
       #createStr regs[ra]
       regs[ra].strVal = typ.typeToString(preferExported)
@@ -3207,7 +3172,7 @@ proc execute*(c: var TCtx, thread: var VmThread): YieldReason {.inline.} =
     result = rawExecute(c, pc, sframe)
   except VmError as e:
     # an error occurred during execution
-    result = YieldReason(kind: yrkError, error: move e.report)
+    result = YieldReason(kind: yrkError, error: move e.event)
   finally:
     thread.pc = pc
     thread.frame = sframe

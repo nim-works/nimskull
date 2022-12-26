@@ -42,6 +42,7 @@ import
     vmcompilerserdes,
     vmdef,
     vmjit,
+    vmlegacy,
     vmops,
     vmtypegen,
     vm
@@ -52,6 +53,7 @@ import
 
 import std/options as std_options
 
+# TODO: legacy report cruft remove from here
 from compiler/ast/reports import wrap, toReportLineInfo
 from compiler/ast/reports_vm import VMReport
 from compiler/ast/reports_sem import SemReport
@@ -60,8 +62,10 @@ from compiler/ast/report_enums import ReportKind
 
 type
   ExecErrorReport* = object
-    stackTrace*: VMReport ## The report storing the stack-trace
-    report*: VMReport     ## The report detailing the error
+    stackTrace*: VmStackTrace ## The VM stack-trace
+    location*: TLineInfo      ## Source location of the trace
+    instLoc*: InstantiationInfo ## report instantiation location
+    report*: VMReport         ## The report detailing the error
 
   ExecutionResult* = Result[PNode, ExecErrorReport]
 
@@ -145,26 +149,64 @@ proc unpackResult(res: sink ExecutionResult; config: ConfigRef, node: PNode): PN
     let
       err = res.takeErr
       errKind = err.report.kind
-
-      stId = config.addReport(wrap(err.stackTrace))
+      stId = config.addReport(wrap(
+        VMReport(
+          kind: rvmStackTrace,
+          currentExceptionA: err.stackTrace.currentExceptionA,
+          currentExceptionB: err.stackTrace.currentExceptionB,
+          traceReason: vmEventToLegacyReportKind(err.stackTrace.traceReason),
+          stacktrace: err.stackTrace.stacktrace,
+          skipped: err.stackTrace.skipped,
+          location: some err.location,
+          reportInst: toReportLineInfo(err.instLoc)
+          )))
       rId = config.addReport(wrap(err.report))
 
     result = config.newError(node, errKind, rId, instLoc(-1)):
                              [newIntNode(nkIntLit, ord(stId))]
 
-proc buildError(c: var TCtx, thread: VmThread, event: sink VMReport): ExecErrorReport  =
+proc buildError(c: TCtx, thread: VmThread, event: sink VMReport): ExecErrorReport  =
   ## Creates an `ExecErrorReport` with the `event` and a stack-trace for
   ## `thread`
   result.stackTrace = createStackTrace(c, thread)
+  result.location = source(c, thread)
+  result.instLoc = instLoc(-1)
   result.report = event
 
   if result.report.location.isNone():
     # use the location info of the failing instruction if none is provided
-    result.report.location = some source(c, thread)
+    result.report.location = some result.location
 
-  # set the stack-trace report information
-  result.stackTrace.location = some source(c, thread)
-  result.stackTrace.reportInst = toReportLineInfo(instLoc(-1))
+proc buildError(c: TCtx, thread: VmThread, event: sink VmEvent): ExecErrorReport  =
+  ## Creates an `ExecErrorReport` with the `event` and a stack-trace for
+  ## `thread`
+  result.stackTrace = createStackTrace(c, thread)
+  result.instLoc = instLoc(-1)
+  result.location = source(c, thread)
+  let location =
+    case event.kind
+    of vmEvtUserError:
+      event.errLoc
+    of vmEvtArgNodeNotASymbol:
+      event.argAst.info
+    else:
+      result.location
+  result.report = vmEventToLegacyVmReport(event, some location)
+
+proc createLegacyStackTrace(
+    c: TCtx, 
+    thread: VmThread, 
+    instLoc: InstantiationInfo = instLoc(-1)
+  ): VMReport =
+  let st = createStackTrace(c, thread)
+  result = VMReport(kind: rvmStackTrace,
+                    currentExceptionA: st.currentExceptionA,
+                    currentExceptionB: st.currentExceptionB,
+                    traceReason: vmEventToLegacyReportKind(st.traceReason),
+                    stacktrace: st.stacktrace,
+                    skipped: st.skipped,
+                    location: some source(c, thread),
+                    reportInst: toReportLineInfo(instLoc))
 
 proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
              cb: proc(c: TCtx, r: TFullReg): PNode
@@ -192,26 +234,26 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
       of emRepl, emStaticExpr, emStaticStmt:
         # XXX: should code run at compile time really be able to force-quit
         #      the compiler? It currently can.
-        localReport(c.config, createStackTrace(c, thread))
+        localReport(c.config, createLegacyStackTrace(c, thread))
         localReport(c.config, InternalReport(kind: rintQuitCalled))
         # FIXME: this will crash the compiler (RangeDefect) if `quit` is
         #        called with a value outside of int8 range!
         msgQuit(int8(r.exitCode))
       of emConst, emOptimize:
         # XXX: the report is not really VM-related anymore
-        let rep = VMReport(kind: rvmQuit, exitCode: r.exitCode)
-        result.initFailure buildError(c, thread, rep)
+        let evt = VmEvent(kind: vmEvtQuit, exitCode: r.exitCode)
+        result.initFailure buildError(c, thread, evt)
         break
       of emStandalone:
         unreachable("not valid at compile-time")
-
     of yrkMissingProcedure:
       # a stub entry was encountered -> generate the code for the
       # corresponding procedure
       let res = compile(c, r.entry)
       if res.isErr:
         # code-generation failed
-        result.initFailure buildError(c, thread, res.takeErr)
+        result.initFailure:
+          buildError(c, thread, vmGenDiagToLegacyVmReport(res.takeErr))
         break
 
       # success! ``compile`` updated the procedure's entry, so we can
@@ -233,7 +275,7 @@ template returnOnErr(res: VmGenResult, config: ConfigRef, node: PNode): CodeInfo
     r.take
   else:
     let
-      report = r.takeErr
+      report = vmGenDiagToLegacyVmReport(r.takeErr)
       kind = report.kind
       rid = config.addReport(wrap(report))
 
@@ -274,7 +316,7 @@ proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
   addInNimDebugUtils(graph.config, "setupGlobalCtx")
   if graph.vm.isNil:
     let
-      ctx = newCtx(module, graph.cache, graph, idgen)
+      ctx = newCtx(module, graph.cache, graph, idgen, legacyReportsVmTracer)
       disallowDangerous =
         defined(nimsuggest) or graph.config.cmd == cmdCheck or
         vmopsDanger notin ctx.config.features
@@ -458,7 +500,7 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
         #      backwards compatiblity
         let r = loadProc(c, sym)
         if unlikely(r.isErr):
-          localReport(c.config, r.takeErr)
+          localReport(c.config, vmGenDiagToLegacyVmReport(r.takeErr))
           return nil
         r.unsafeGet
 

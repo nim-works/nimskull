@@ -261,7 +261,6 @@ type
     rvmBadExpandToAst
     rvmCannotEvaluateAtComptime
     rvmCannotImportc
-    rvmCannotCreateNullElement
     rvmInvalidObjectConstructor
     rvmNoClosureIterators
     rvmCannotCallMethod
@@ -271,7 +270,6 @@ type
     rvmAccessOutOfBounds
     rvmAccessTypeMismatch
     rvmAccessNoLocation
-    rvmDerefUnsupportedPtr
     rvmErrInternal
     rvmIndexError
     rvmOutOfRange
@@ -279,7 +277,6 @@ type
     rvmDivisionByConstZero
     rvmNodeNotASymbol
     rvmNodeNotAProcSymbol
-    rvmNodeNotAFieldSymbol
     rvmIllegalConv
     rvmMissingCacheKey
     rvmCacheKeyAlreadyExists

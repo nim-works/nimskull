@@ -58,7 +58,7 @@ import
     vmdef,
     vmobjects,
     vmtypegen,
-    vmtypes
+    vmtypes,
   ],
   experimental/[
     results
@@ -66,42 +66,44 @@ import
 
 import std/options as std_options
 
-# xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_vm import VMReport
-from compiler/ast/report_enums import ReportKind
-from compiler/ast/reports import toReportLineInfo
-
 from std/bitops import bitor
-
 
 when defined(nimCompilerStacktraceHints):
   import std/stackframes
 
+
 type
-  VmGenResult* = Result[CodeInfo, VMReport] ## The result of a vmgen invocation
+  VmGenResult* = Result[CodeInfo, VmGenDiag] ## Result of a vmgen invocation
 
   VmGenError = object of CatchableError
-    report: VMReport
+    diag: VmGenDiag
+
+func raiseVmGenError(diag: sink VmGenDiag) {.noinline, noreturn.} =
+  raise (ref VmGenError)(diag: diag)
+
+func raiseVmGenError(diag: VmGenDiagKind, n: PNode, instLoc = instLoc(-1)) =
+  let d = VmGenDiag(kind: diag, location: n.info, ast: n, instLoc: instLoc)
+  raise (ref VmGenError)(diag: d)
 
 func raiseVmGenError(
-  report: sink VMReport,
-  loc:    TLineInfo,
-  inst:   InstantiationInfo
+  diag: sink VmGenDiag,
+  loc:  TLineInfo,
+  inst: InstantiationInfo
   ) {.noinline, noreturn.} =
-  report.location = some(loc)
-  report.reportInst = toReportLineInfo(inst)
-  raise (ref VmGenError)(report: report)
+  diag.location = loc
+  diag.instLoc = inst
+  raise (ref VmGenError)(diag: diag)
 
 func fail(
   info: TLineInfo,
-  kind: ReportKind,
+  kind: VmGenDiagKind,
   ast:  PNode = nil,
   sym:  PSym = nil,
   str:  string = "",
   loc:  InstantiationInfo = instLoc()
   ) {.noinline, noreturn.} =
   raiseVmGenError(
-    VMReport(kind: kind, ast: ast, sym: sym, str: str),
+    VmGenDiag(kind: kind, ast: ast, sym: sym, msg: str),
     info,
     loc)
 
@@ -109,7 +111,7 @@ template tryOrReturn(code): untyped =
   try:
     code
   except VmGenError as e:
-    return VmGenResult.err(move e.report)
+    return VmGenResult.err(move e.diag)
 
 type
   TGenFlag = enum
@@ -264,7 +266,7 @@ proc getFreeRegister(cc: var TCtx; k: TSlotKind; start: int): TRegister =
         c.regInfo[i] = RegInfo(refCount: 1, kind: k)
         return TRegister(i)
   if c.regInfo.len >= high(TRegister):
-    fail(cc.bestEffort, rvmTooManyRegistersRequired)
+    fail(cc.bestEffort, vmGenDiagTooManyRegistersRequired)
 
   result = TRegister(max(c.regInfo.len, start))
   c.regInfo.setLen int(result)+1
@@ -359,7 +361,7 @@ proc getTempRange(cc: var TCtx; n: int; kind: TSlotKind): TRegister =
           for k in result..result+n-1: c.regInfo[k] = RegInfo(refCount: 1, kind: kind)
           return
   if c.regInfo.len+n >= high(TRegister):
-    fail(cc.bestEffort, rvmTooManyRegistersRequired)
+    fail(cc.bestEffort, vmGenDiagTooManyRegistersRequired)
 
   result = TRegister(c.regInfo.len)
   setLen c.regInfo, c.regInfo.len+n
@@ -476,7 +478,7 @@ proc genBreak(c: var TCtx; n: PNode) =
       if c.prc.blocks[i].label == n[0].sym:
         c.prc.blocks[i].fixups.add lab1
         return
-    fail(n.info, rvmCannotFindBreakTarget)
+    fail(n.info, vmGenDiagCannotFindBreakTarget)
   else:
     c.prc.blocks[c.prc.blocks.high].fixups.add lab1
 
@@ -672,7 +674,7 @@ proc genBranchLit(c: var TCtx, n: PNode, t: PType): int =
 
 proc unused(c: TCtx; n: PNode; x: TDest) {.inline.} =
   if x >= 0:
-    fail(n.info, rvmNotUnused, n)
+    fail(n.info, vmGenDiagNotUnused, n)
 
 proc genCase(c: var TCtx; n: PNode; dest: var TDest) =
   #  if (!expr1) goto lab1;
@@ -894,11 +896,11 @@ proc needsAsgnPatch(n: PNode): bool =
 
 proc genField(c: TCtx; n: PNode): TRegister =
   if n.kind != nkSym or n.sym.kind != skField:
-    fail(n.info, rvmNotAFieldSymbol, ast = n)
+    fail(n.info, vmGenDiagNotAFieldSymbol, ast = n)
 
   let s = n.sym
   if s.position > high(typeof(result)):
-    fail(n.info, rvmTooLargetOffset, sym = s)
+    fail(n.info, vmGenDiagTooLargeOffset, sym = s)
 
   result = s.position
 
@@ -957,7 +959,7 @@ proc genAsgnPatch(c: var TCtx; le: PNode, value: TRegister) =
       c.freeTemp(dest)
   of nkError:
     # XXX: do a better job with error generation
-    fail(le.info, rvmCannotGenerateCode, le)
+    fail(le.info, vmGenDiagCannotGenerateCode, le)
 
   else:
     discard
@@ -1231,13 +1233,12 @@ proc genCastIntFloat(c: var TCtx; n: PNode; dest: var TDest) =
     c.gABx(n, opcode, dest, c.genType(dst))
   else:
     # todo: support cast from tyInt to tyRef
-    raiseVmGenError(
-      VMReport(
-        kind: rvmCannotCast,
-        typeMismatch: @[c.config.typeMismatch(
-          actual = dst, formal = src)]),
-      n.info,
-      instLoc())
+    raiseVmGenError:
+      VmGenDiag(
+        kind: vmGenDiagCannotCast,
+        location: n.info,
+        instLoc: instLoc(),
+        typeMismatch: VmTypeMismatch(actualType: dst, formalType: src))
 
 proc genVoidABC(c: var TCtx, n: PNode, dest: TDest, opcode: TOpcode) =
   unused(c, n, dest)
@@ -1655,16 +1656,9 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     else:
       internalAssert(
         c.config, false, "Unexpected mNLineInfo symbol name - " & n[0].sym.name.s)
-
-  of mNHint:
+  of mNHint, mNWarning, mNError:
     unused(c, n, dest)
-    genBinaryStmt(c, n, opcNHint)
-  of mNWarning:
-    unused(c, n, dest)
-    genBinaryStmt(c, n, opcNWarning)
-  of mNError:
-    unused(c, n, dest)
-    genBinaryStmt(c, n, opcNError)
+    c.genCall(n, dest)
   of mNCallSite:
     if dest.isUnset: dest = c.getTemp(n.typ)
     c.gABC(n, opcCallSite, dest)
@@ -1673,7 +1667,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genCall(n, dest)
   of mExpandToAst:
     if n.len != 2:
-      fail(n.info, rvmBadExpandToAst,
+      fail(n.info, vmGenDiagBadExpandToAst,
         str = "expandToAst requires 1 argument")
 
     let arg = n[1]
@@ -1703,17 +1697,17 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
       # do not call clearDest(n, dest) here as getAst has a meta-type as such
       # produces a value
     else:
-      fail(n.info, rvmBadExpandToAst,
+      fail(n.info, vmGenDiagBadExpandToAst,
         str = "expandToAst requires a call expression")
 
   of mSizeOf:
-    fail(n.info, rvmMissingImportcCompleteStruct, str = "sizeof")
+    fail(n.info, vmGenDiagMissingImportcCompleteStruct, str = "sizeof")
 
   of mAlignOf:
-    fail(n.info, rvmMissingImportcCompleteStruct, str = "alignof")
+    fail(n.info, vmGenDiagMissingImportcCompleteStruct, str = "alignof")
 
   of mOffsetOf:
-    fail(n.info, rvmMissingImportcCompleteStruct, str = "offsetof")
+    fail(n.info, vmGenDiagMissingImportcCompleteStruct, str = "offsetof")
 
   of mRunnableExamples:
     discard "just ignore any call to runnableExamples"
@@ -1733,7 +1727,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genUnaryABC(n, dest, opcNodeId)
   else:
     # mGCref, mGCunref, mFinished, etc.
-    fail(n.info, rvmCannotGenerateCode, str = $m)
+    fail(n.info, vmGenDiagCannotGenerateCode, str = $m)
 
 
 proc unneededIndirection(n: PNode): bool =
@@ -1815,10 +1809,7 @@ func setSlot(c: var TCtx; v: PSym): TRegister {.discardable.} =
   c.prc.locals[v.id] = result
 
 func cannotEval(c: TCtx; n: PNode) {.noinline, noreturn.} =
-  raiseVmGenError(
-    VMReport(kind: rvmCannotEvaluateAtComptime, ast: n),
-    n.info,
-    instLoc())
+  raiseVmGenError(vmGenDiagCannotEvaluateAtComptime, n)
 
 func isOwnedBy(a, b: PSym): bool =
   var a = a.owner
@@ -1972,7 +1963,7 @@ proc genAsgn(c: var TCtx; le, ri: PNode; requiresCopy: bool) =
   case le.kind
   of nkError:
     # XXX: do a better job with error generation
-    fail(le.info, rvmCannotGenerateCode, le)
+    fail(le.info, vmGenDiagCannotGenerateCode, le)
 
   of nkBracketExpr:
     let typ = le[0].typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind
@@ -2052,7 +2043,7 @@ proc genRdVar(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags) =
     if importcCondVar(s) or c.importcCond(s):
       # Using importc'ed symbols on the left or right side of an expression is
       # not allowed
-      fail(n.info, rvmCannotImportc, sym = s)
+      fail(n.info, vmGenDiagCannotImportc, sym = s)
 
     var pos: int
     if s.id in c.symToIndexTbl:
@@ -2428,7 +2419,7 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
                           dest, idx, tmp)
       c.freeTemp(tmp)
     else:
-      fail(n.info, rvmInvalidObjectConstructor, it)
+      fail(n.info, vmGenDiagInvalidObjectConstructor, it)
 
   if t.kind == tyRef:
     swap(refTemp, dest)
@@ -2474,7 +2465,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
   case n.kind
   of nkError:
     # XXX: do a better job with error generation
-    fail(n.info, rvmCannotGenerateCode, n)
+    fail(n.info, vmGenDiagCannotGenerateCode, n)
 
   of nkSym:
     let s = n.sym
@@ -2485,9 +2476,9 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
 
     of skProc, skFunc, skConverter, skMacro, skMethod, skIterator:
       if s.kind == skIterator and s.typ.callConv == TCallingConvention.ccClosure:
-        fail(n.info, rvmNoClosureIterators, sym = s)
+        fail(n.info, vmGenDiagNoClosureIterators, sym = s)
       if importcCond(c, s) and lookup(c.callbackKeys, s) == -1:
-        fail(n.info, rvmCannotImportc, sym = s)
+        fail(n.info, vmGenDiagCannotImportc, sym = s)
 
       genProcLit(c, n, s, dest)
     of skTemplate:
@@ -2523,14 +2514,14 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
         genRdVar(c, n, dest, flags)
       else:
         fail(n.info,
-          rvmCannotGenerateCode,
+          vmGenDiagCannotGenerateCode,
           sym = s,
           str = "Attempt to generate VM code for generic parameter in non-macro proc"
         )
 
     else:
       fail(n.info,
-        rvmCannotGenerateCode,
+        vmGenDiagCannotGenerateCode,
         sym = s,
         str = "Unexpected symbol for VM code - " & $s.kind
       )
@@ -2540,7 +2531,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       if s.magic != mNone:
         genMagic(c, n, dest, s.magic)
       elif s.kind == skMethod:
-        localReport(c.config, n.info, VMReport(kind: rvmCannotCallMethod, sym: s))
+        fail(n.info, vmGenDiagCannotCallMethod, sym = s)
       else:
         genCall(c, n, dest)
         clearDest(c, n, dest)
@@ -2664,14 +2655,14 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     if n.typ != nil and n.typ.isCompileTimeOnly:
       genTypeLit(c, n.typ, dest)
     else:
-      fail(n.info, rvmCannotGenerateCode, n)
+      fail(n.info, vmGenDiagCannotGenerateCode, n)
 
-proc genStmt*(c: var TCtx; n: PNode): Result[void, VMReport] =
+proc genStmt*(c: var TCtx; n: PNode): Result[void, VmGenDiag] =
   var d: TDest = -1
   try:
     c.gen(n, d)
   except VmGenError as e:
-    return typeof(result).err(move e.report)
+    return typeof(result).err(move e.diag)
 
   c.config.internalAssert(d < 0, n.info, "VM problem: dest register is set")
   result = typeof(result).ok()

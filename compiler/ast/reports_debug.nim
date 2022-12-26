@@ -45,11 +45,11 @@ type
           ra, rb, rc: TRegisterKind
         ]
 
-      of rdbgStartingConfRead, rdbgFinishedConfRead:
-        filename*: string
-
-      of rdbgCfgTrace:
-        str*: string
+      of rdbgVmExecTraceMinimal:
+        vmgenExecMinimal*: tuple[
+          info: TLineInfo,
+          opc: TOpcode
+        ]
 
       of rdbgVmCodeListing:
         vmgenListing*: tuple[
@@ -58,11 +58,11 @@ type
           entries: seq[DebugVmCodeEntry]
         ]
 
-      of rdbgVmExecTraceMinimal:
-        vmgenExecMinimal*: tuple[
-          info: TLineInfo,
-          opc: TOpcode
-        ]
+      of rdbgStartingConfRead, rdbgFinishedConfRead:
+        filename*: string
+
+      of rdbgCfgTrace:
+        str*: string
 
       else:
         discard

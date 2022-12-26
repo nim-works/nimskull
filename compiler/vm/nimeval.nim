@@ -43,6 +43,8 @@ import
     vmops
   ]
 
+from compiler/vm/vmlegacy import legacyReportsVmTracer
+
 export compilerbridge
 
 type
@@ -161,7 +163,7 @@ proc createInterpreter*(
   var m = graph.makeModule(scriptName)
   incl(m.flags, sfMainModule)
   var idgen = idGeneratorFromModule(m)
-  var vm = newCtx(m, cache, graph, idgen)
+  var vm = newCtx(m, cache, graph, idgen, legacyReportsVmTracer)
   vm.codegenInOut.flags = {cgfAllowMeta}
   vm.mode = emRepl
   vm.features = flags

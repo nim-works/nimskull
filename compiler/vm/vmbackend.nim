@@ -41,6 +41,7 @@ import
     vmaux,
     vmdef,
     vmgen,
+    vmlegacy,
     vmobjects,
     vmops,
     vmtypegen
@@ -162,7 +163,7 @@ proc generateTopLevelStmts*(module: var Module, c: var TCtx,
     let r = c.genStmt(tn)
 
     if unlikely(r.isErr):
-      config.localReport(r.takeErr)
+      config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
   c.gABC(n, opcRet)
 
@@ -194,7 +195,7 @@ proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]
         r = genStmt(c, asgn)
 
       if unlikely(r.isErr):
-        c.config.localReport(r.takeErr)
+        c.config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
   # Swap back once done
   swapState()
@@ -237,7 +238,7 @@ proc generateAliveProcs(c: var TCtx, mlist: var ModuleList) =
     if r.isOk:
       fillProcEntry(c.functions[i], r.unsafeGet)
     else:
-      c.config.localReport(r.takeErr)
+      c.config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
     # `{.global.}` initialization is done here, since the initializer
     # expression might contain references to other functions (which can
