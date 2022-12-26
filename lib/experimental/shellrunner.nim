@@ -122,7 +122,8 @@ func toStr*(
   ## Get command as a linst of stirngs
   @[cmd.bin] & cmd.argsToStr(validateInterpolation)
 
-
+func `$`*(cmd: ShellCmd): string = toStr(cmd, false).join(" ")
+func `$`*(arg: ShellArg): string = toStr(arg, false).join(" ")
 
 func contains*(cmd: ShellCmd, arg: ShellArg): bool =
   cmd.opts.contains(arg)
@@ -185,6 +186,10 @@ func interpolate*(
       tab.mgetOrPut(key, @[]).add shArg(val)
 
   return cmd.interpolate(tab, default)
+
+func interpolate*(
+    cmd: ShellCmd, key: string, value: openarray[string]): ShellCmd =
+  interpolate(cmd, {key: @value})
 
 import hmisc/core/all
 

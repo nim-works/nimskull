@@ -944,9 +944,14 @@ proc getCompileCmd(e: Execution, id: ActionId): ShellCmd =
     "target": @[$target],
     "nim": @[e.conf.compilerPrefix],
     "options": options.toStr(),
-    "file": @[filename.string()],
     "filedir": @[filename.string().getFileDir()]
   })
+
+  if shSub("file") in result:
+    result = result.interpolate("file", @[])
+
+  result.add shArg(filename.string())
+
 
 
 proc getRunCmd(e: Execution, id: ActionId): ShellCmd =
@@ -1221,12 +1226,12 @@ proc setActionResults(
   ## Set result of the action execution
   let run = e.actions[act].run
 
+  echov "setting action result for", e.getFile(act).file
   e.addOut(act, res.stdout)
   e.addOut(act, res.stderr)
   e.setExit(act, res.retcode)
   e.setPegFields(act)
 
-  # echov e.actions[act].kind
   case e.actions[act].kind:
     of actionRun:
       e.results[run].runCmp = runCheck(e, run)

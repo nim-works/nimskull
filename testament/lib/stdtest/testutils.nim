@@ -5,13 +5,14 @@ else:
   from std/os import getEnv
 import std/[macros, genasts]
 
-template flakyAssert*(cond: untyped, msg = "", notifySuccess = true) =
-  ## API to deal with flaky or failing tests. This avoids disabling entire tests
-  ## altogether so that at least the parts that are working are kept being
-  ## tested. This also avoids making CI fail periodically for tests known to
-  ## be flaky. Finally, for known failures, passing `notifySuccess = true` will
-  ## log that the test succeeded, which may indicate that a bug was fixed
-  ## "by accident" and should be looked into.
+template flakyAssert*(
+    cond: untyped, msg = "", notifySuccess = true): untyped =
+  ## API to deal with flaky or failing tests. This avoids disabling entire
+  ## tests altogether so that at least the parts that are working are kept
+  ## being tested. This also avoids making CI fail periodically for tests
+  ## known to be flaky. Finally, for known failures, passing `notifySuccess
+  ## = true` will log that the test succeeded, which may indicate that a
+  ## bug was fixed "by accident" and should be looked into.
   const info = instantiationInfo(-1, true)
   const expr = astToStr(cond)
   if cond and not notifySuccess:
@@ -32,41 +33,53 @@ template flakyAssert*(cond: untyped, msg = "", notifySuccess = true) =
 when not defined(js) and not defined(nimscript):
   import std/strutils
 
-  proc greedyOrderedSubsetLines*(lhs, rhs: string, allowPrefixMatch = false): bool =
-    ## Returns true if each stripped line in `lhs` appears in rhs, using a greedy matching.
-    # xxx improve error reporting by showing the last matched pair
-    iterator splitLinesClosure(): string {.closure.} =
-      for line in splitLines(rhs.strip):
-        yield line
-    template isMatch(lhsi, rhsi): bool =
+  import hmisc/core/all
+  proc greedyOrderedSubsetLines*(
+      lhs, rhs: string, allowPrefixMatch: bool = false): bool =
+    ## Returns true if each stripped line in `lhs` appears in rhs, using a
+    ## greedy matching.
+    # TODO improve error reporting by showing the last matched pair
+    proc isMatch(lhsi, rhsi: string): bool =
       if allowPrefixMatch:
         startsWith(rhsi, lhsi):
       else:
         lhsi == rhsi
 
-    var rhsIter = splitLinesClosure
-    var currentLine = strip(rhsIter())
+    let rhs = rhs.strip().splitLines()
+    let lhs = lhs.strip().splitLines()
+    # echov lhs
+    # echov rhs
+    var rhsIdx = 0
 
-    for line in lhs.strip.splitLines:
-      let line = line.strip
-      if line.len != 0:
+    var currentLine = strip(rhs[rhsIdx])
+    for lhsIdx, line in lhs:
+      let line = line.strip()
+      if line.len() != 0:
+        # Search for the line in RHS
         while not isMatch(line, currentLine):
-          currentLine = strip(rhsIter())
-          if rhsIter.finished:
+          inc rhsIdx
+          if rhs.len() <= rhsIdx:
             return false
 
-      if rhsIter.finished:
+          else:
+            currentLine = strip(rhs[rhsIdx])
+
+      if rhs.len() <= rhsIdx:
+        # Some lines from the lhs weren't matched to the RHS -- since we
+        # are in the loop it is guaranteed that `lhsIdx < lhs.len()`
         return false
+
     return true
 
-template enableRemoteNetworking*: bool =
-  ## Allows contolling whether to run some test at a statement-level granularity.
-  ## Using environment variables simplifies propagating this all the way across
-  ## process calls, e.g. `testament all` calls itself, which in turns invokes
-  ## a `nim` invocation (possibly via additional intermediate processes).
+template enableRemoteNetworking*(): bool =
+  ## Allows contolling whether to run some test at a statement-level
+  ## granularity. Using environment variables simplifies propagating this
+  ## all the way across process calls, e.g. `testament all` calls itself,
+  ## which in turns invokes a `nim` invocation (possibly via additional
+  ## intermediate processes).
   getEnv("NIM_TESTAMENT_REMOTE_NETWORKING") == "1"
 
-template whenRuntimeJs*(bodyIf, bodyElse) =
+template whenRuntimeJs*(bodyIf, bodyElse: untyped): untyped =
   ##[
   Behaves as `when defined(js) and not nimvm` (which isn't legal yet).
   pending improvements to `nimvm`, this sugar helps; use as follows:
@@ -83,24 +96,24 @@ template whenRuntimeJs*(bodyIf, bodyElse) =
     when defined(js): bodyIf
     else: bodyElse
 
-template whenVMorJs*(bodyIf, bodyElse) =
+template whenVMorJs*(bodyIf, bodyElse: untyped): untyped =
   ## Behaves as: `when defined(js) or nimvm`
   when nimvm: bodyIf
   else:
     when defined(js): bodyIf
     else: bodyElse
 
-template accept*(a) =
+template accept*(a: untyped): untyped =
   doAssert compiles(a)
 
-template reject*(a) =
+template reject*(a: untyped): untyped =
   doAssert not compiles(a)
 
-template disableVm*(body) =
+template disableVm*(body: untyped): untyped =
   when nimvm: discard
   else: body
 
-macro assertAll*(body) =
+macro assertAll*(body: untyped): untyped =
   ## works in VM, unlike `check`, `require`
   runnableExamples:
     assertAll:
