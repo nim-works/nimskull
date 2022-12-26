@@ -116,6 +116,9 @@ type
     compileSuccess: bool ## Whether compilation succeded in the first
     ## place, irrespective of the subsequent spec checks.
     runResult: TestedResultKind
+    sexpDiff: Option[CompileSexpCompare]
+    textDiff: Option[CompileTextCompare]
+
 
   CodegenCheckCompare* = object
     ## Result of the codegen check comparison
@@ -317,6 +320,7 @@ func getSpec(e: Execution, id: RunId): DeclaredSpec =
 func getSpec(e: Execution, id: ActionId): DeclaredSpec =
   e.getSpec(e.getRun(id).test)
 func getFile(e: Execution, id: TestId): TestFile = e.files[id]
+func getFile(e: Execution, id: RunId): TestFile = e.getFile(e.getRun(id).test)
 func getFile(e: Execution, id: ActionId): TestFile =
   e.getFile(e.getRun(id).test)
 
@@ -357,13 +361,13 @@ proc compileOutCheck(e: Execution, id: RunId): CompileOutCompare =
     )
 
     if spec.nimoutSexp:
-      echov res.nimout
       let outCompare = sexpCheck(data)
       # Full match of the output results.
       if outCompare.match:
         result.runResult = reSuccess
       else:
         result.runResult = reMsgsDiffer
+        result.sexpDiff = some outCompare
 
     # Checking for inline errors.
     else:
@@ -384,7 +388,13 @@ proc compileOutCheck(e: Execution, id: RunId): CompileOutCompare =
       #
       # https://github.com/nim-lang/Nim/commit/9a110047cbe2826b1d4afe63e3a1f5a08422b73f#diff-a161d4667e86146f2f8003f08f765b8d9580ae92ec5fb6679c80c07a5310a551R362-R364
       let outCompare = checkForInlineErrors(data)
-      # TODO generate run report
+      if outCompare.match:
+        result.runResult = reSuccess
+
+      else:
+        result.runResult = reMsgsDiffer
+        result.textDiff = some outCompare
+
 
   # Compare expected and resulted spec messages
   elif not compileOutputCheck(
@@ -513,7 +523,7 @@ proc codegenCheck(
 
 proc compileCheck(e: var Execution, run: RunId): CompileCompare =
   result.compileOut = compileOutCheck(e, run)
-  assert result.compileOut.runResult != reNone
+  assert result.compileOut.runResult != reNone, $e.getFile(run).file
   if e.getSpec(run).needsCodegenCheck():
     result.codegenOut = codegenCheck(e, run)
 
