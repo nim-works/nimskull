@@ -27,12 +27,12 @@
 
 <br />
 
+This repository contains the Nimskull compiler, stdlib, tools, and documentation.
 
 ## About the Project
 
-The Nimskull (temporary name) compiler, stdlib, tools, and documentation
-repository. Nimskull is starting off as a derivative [Nim][nim-site], with the
-intention of becoming a different language called Cyo.
+Nimskull (temporary name) is a *statically typed* *structured* programming
+language to create software (including itself) that is sustainable.
 
 The goal is to have a *statically typed* *structured* programming language to
 create software (including itself) that is sustainable, it aims to be:
@@ -46,6 +46,10 @@ create software (including itself) that is sustainable, it aims to be:
 - *Evolving:* developed and maintained by its community of users, with a self-
   hosted compiler, support for metaprogramming to safely attempt language
   extension outside of the core, and support code migration to avoid legacy.
+
+The project was started as a fork of [Nim][nim-site] as it provides a bootstrapped
+compiler as a starting point. The overall language will be evolved into something
+entirely different and incompatible.
 
 We are currently working on the first phase of this, by slimming down the
 language and compiler to a workable core and increasing compiler development
@@ -88,7 +92,7 @@ intends to create a virtuous cycle. Examples:
 ## Community
 
 Currently, this repository and our [matrix/irc][nim-works-matrix] are our primary community hubs; we'll introduce more as things grow. At this time our community is small but
-passionate and close. We welcome any who are able and eager to collaborate on improving the compiler and associated tools.
+passionate We welcome any who are able and eager to collaborate on improving the compiler and associated tools.
 
 Check the [FAQ](#FAQ), or [Project Board](https://github.com/nim-works/nimskull/projects) for an idea of where to help.
 
@@ -102,12 +106,11 @@ documentation! We look forward to seeing introductions and pull requests!
 The compiler currently aims to support the following platform and
 architecture combinations:
 
-  * Windows (Windows XP or later) - x86 and x86_64
   * Linux (most, if not all, distributions) - x86, x86_64, ppc64 and armv6l
   * Mac OS X (10.04 or greater) - x86, x86_64, ppc64 and Apple Silicon (based on the ARM64 architecture)
+  * Windows (Windows XP or later) - x86 and x86_64
 
-More platforms will be supported, however, they are not tested regularly and they
-may not be as stable as the above-listed platforms.
+Other platforms may work but aren't regularly tested.
 
 Compiling the compiler is quite straightforward if you follow these steps:
 
@@ -115,12 +118,7 @@ Compiling the compiler is quite straightforward if you follow these steps:
   <summary>Show</summary>
   <br />
 
-First, the C source of an older version of the compiler is needed to
-bootstrap the latest version because the compiler itself is written in the
-programming language. Those C sources are available within the
-[``nim-lang/csources_v1``][csources-v1-repo] repository.
-
-Next, to build from source you will need:
+To build from source you will need:
 
   * A C compiler such as ``gcc`` 3.x/later or an alternative such as ``clang``,
     ``Visual C++`` or ``Intel C++``. It is recommended to use ``gcc`` 3.x or
@@ -136,9 +134,7 @@ Next, to build from source you will need:
 **Windows Note: Cygwin and similar POSIX runtime environments are not supported.**
 
 Then, if you are on a \*nix system or Windows, the following steps should compile
-Nim from source using ``gcc``, ``git``, and the ``koch`` build tool.
-
-**Note: The following commands are for the development version of the compiler.**
+Nimskull from source using ``gcc``, ``git``, and the ``koch`` build tool.
 
 ```bash
 git clone https://github.com/nim-works/nimskull.git
@@ -186,7 +182,7 @@ A language (community, compiler, etc) that is *sustained* through the
 *collective* efforts of its practitioners and their *diverse* backgrounds.
 
 Attracting practitioners with diversity of experience and perspectives
-requires a language with broad applicability, from the *Web to Systems*
+requires a language with broad applicability, from *Web* to *Systems*
 *Programming* all the while remaining *efficient*.
 
 Onboarding practitioners requires a language that is familiar enough to get
@@ -196,18 +192,18 @@ started in terms of syntax and initial concepts such as *structured and*
 Supporting practitioner-driven innovation requires a language that allows for
 experimentation without necessarily being an expert in all aspects of language
 development. Compile time facilities integrated into the language, such as
-*compile time evaluation* and a *macro system* provide a sandbox.
+*compile time evaluation* and a *macro system* provide an extension sandbox.
 
-Practitioner collaboration and combining collective efforts is assisted through
-logical contracts provided by a *static type system* that supports local
-inference, tuples, sum, and generic types, along with effect analysis.
+Practitioner collaborating and combining their software is assisted by a
+*static type system* that supports local inference, tuples, sum, and generic types,
+along with effect analysis.
 
 A language that develops in such a manner is going to encounter what some might
-term as 'instability' via numerous backwards-compatibility breaking changes.
+term as 'instability' via numerous backwards incompatible changes.
 We consider this a feature, instead we:
 * favour designs (language or API) that are resilient in the face of change
 * employ tools that automatically migrate legacy code or assist in migration
-* not ossify poor choices and be honest that we can't make such guarantees
+* not cement poor choices and be honest that we can't make such guarantees
 
 Popular languages are maintained through incredible amounts of funding from
 various entities; we do not see, nor seek, this happening for us.
@@ -231,26 +227,24 @@ to evolve it.
 <details>
 <summary class="blue">Will this break my Nim code?</summary>
 </br>
-This project aims to become a different programming language, so do not expect source code compatibility. If you want Nim then use it.
-</details>
-
-<details>
-<summary class="blue">What's the rationale for this fork?</summary>
-</br>
-It's more a starting point and eventually the languages will have diverged so
-as to no longer being compatible.
-</details>
-
-<details>
-<summary class="blue">What are you going to do now?</summary>
-</br>
-For the moment, please see our [projects board](https://github.com/nim-works/nimskull/projects) and [direction](#direction) for more information. We envisage great things; however, all great things come with time, and we have a large foundation that was never properly solidified.
+This project aims to become a different programming language, if you want Nim go use that.
 </details>
 
 <details>
 <summary class="blue">Can I help somehow?</summary>
 </br>
-Presently we're very interested in people contributing; a good start is to help the <a href="https://github.com/nim-works/nimskull/projects/2">"language spec as tests" effort which is being led by @haxscramper</a>. If you're willing to dive deeper into the compiler then see the <a href="https://github.com/nim-works/nimskull/projects">"nkError refactor to make the compiler approachable"</a> project.
+There is lots to do, and we're very interested in people contributing to the compiler.
+First step is getting a development environment setup, then join the
+<a href="https://matrix.to/#/#nimworks:envs.net?client=element.io">matrix chat</a> and introduce yourself. It's a small community so time
+zones might not align, so please be patient.
+
+We're presently reworking much of the compiler, removing dialects and half-baked
+features to end up with a slim down core. Some areas of contribution:
+
+- <a href="https://github.com/nim-works/nimskull/projects">reworking the internal error handling</a>
+- improving the compiler internal [debugging and tracing tools](https://nim-works.github.io/nimskull/debug.html)
+- <a href="https://github.com/nim-works/nimskull/projects/2">"language spec as tests" effort</a>
+
 </details>
 
 <details>
@@ -264,5 +258,5 @@ Yes! Feel free to join us on our [nim-works channel!][nim-works-matrix] Please h
 MIT
 
 [nim-site]: https://nim-lang.org
-[csources-v1-repo]: https://github.com/nim-lang/csources_v1
+[csources-v1-repo]: https://github.com/nim-works/csources_v1
 [nim-works-matrix]: https://matrix.to/#/#nimworks:envs.net?client=element.io
