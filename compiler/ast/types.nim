@@ -40,7 +40,6 @@ from compiler/ast/reports_internal import InternalReport
 from compiler/ast/report_enums import ReportKind
 
 from compiler/ast/reports_sem import SemReport,
-  SemTypeMismatch,
   reportSem
 
 export EffectsCompat, TTypeRelation, ProcConvMismatch
@@ -569,6 +568,7 @@ proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
     false
 
 proc lengthOrd*(conf: ConfigRef; t: PType): Int128 =
+  # xxx: Seriously, Int128... wouldn't failing fast when it matters be smarter?
   if t.skipTypes(tyUserTypeClasses).kind == tyDistinct:
     result = lengthOrd(conf, t[0])
   else:
@@ -1273,16 +1273,15 @@ proc getProcConvMismatch*(
        # but it's a pragma mismatch reason which is why it's here
        result[0].incl pcmLockDifference
 
-proc typeMismatch*(conf: ConfigRef, formal, actual: PType): SemTypeMismatch =
+proc typeMismatch*(formal, actual: PType): SemTypeMismatch =
   SemTypeMismatch(
     actualType: actual,
-    formalType: formal,
-  )
+    formalType: formal)
 
-proc typeMismatch*(
-    conf: ConfigRef, formal: set[TTypeKind], actual: PType
-  ): SemTypeMismatch =
-  SemTypeMismatch(actualType: actual, formalTypeKind: formal)
+proc typeMismatch*(formal: set[TTypeKind], actual: PType): SemTypeMismatch =
+  SemTypeMismatch(
+    actualType: actual,
+    formalTypeKind: formal)
 
 proc typeMismatch*(
     conf: ConfigRef; info: TLineInfo, formal, actual: PType, n: PNode): PNode =
@@ -1290,30 +1289,25 @@ proc typeMismatch*(
   ## `nkError` node and construct type mismatch report for it.
   result = n
   if formal.kind != tyError and actual.kind != tyError:
-    var rep = SemReport(
-      kind: rsemTypeMismatch,
-      ast: n,
-      typeMismatch: @[typeMismatch(conf, formal, actual)])
-
     assert not n.isNil, "Type mismatch requires non-nil AST for expression"
-    result = newError(conf, n, rsemTypeMismatch, conf.store(info, rep), instLoc())
-    result.info = info
+    result = newError(
+              conf,
+              n,
+              PAstDiag(kind: adSemTypeMismatch,
+                       typeMismatch: @[typeMismatch(formal, actual)]),
+              instLoc())
+    result.info = info    # TODO: never override info, handle in diag data
 
-    # conf.localReport(result)
-
-proc semReportTypeMismatch*(
-    conf: ConfigRef,
-    node: PNode,
-    formal: PType | set[TTypeKind],
-    actual: PType
-  ): SemReport =
-
-  result = SemReport(
-    kind: when formal is PType: rsemTypeMismatch else: rsemTypeKindMismatch,
-    ast: node,
-    typeMismatch: @[typeMismatch(
-      conf, formal = formal, actual = actual)]
-  )
+proc semDiagTypeMismatch*(
+  node: PNode,
+  expected: set[TTypeKind],
+  received: PType
+  ): PAstDiag =
+  PAstDiag(
+    kind: adSemTypeKindMismatch,
+    wrongNode: node,
+    expectedTypKinds: expected,
+    givenTyp: received)
 
 proc isTupleRecursive(t: PType, cycleDetector: var IntSet): bool =
   if t == nil:

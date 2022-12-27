@@ -20,7 +20,7 @@ proc semAddrArg(c: PContext; n: PNode): PNode =
     analyseIfAddressTaken(n)
     result = n
   else:
-    result = newError(c.config, n, SemReport(kind: rsemExprHasNoAddress))
+    result = newError(c.config, n, PAstDiag(kind: adSemExprHasNoAddress))
 
 proc semTypeOf(c: PContext; n: PNode): PNode =
   var m = BiggestInt 1 # typeOfIter
@@ -202,7 +202,7 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
         traitCall.info,
         SemReport(
           kind: rsemGenericTypeExpected,
-          typeMismatch: @[c.config.typeMismatch({tyGenericInst}, arg)]))
+          typeMismatch: @[typeMismatch({tyGenericInst}, arg)]))
 
       result = newType(tyError, nextTypeId c.idgen, context).toNode(traitCall.info)
   of "stripGenericParams":
@@ -251,7 +251,8 @@ proc semOrd(c: PContext, n: PNode): PNode =
   if isOrdinalType(parType, allowEnumWithHoles=true):
     discard
   else:
-    result = c.config.newError(n, reportTyp(rsemExpectedOrdinal, parType))
+    result = c.config.newError(n, PAstDiag(kind: adSemExpectedOrdinal,
+                                           nonOrdTyp: parType))
 
     result.typ = errorType(c)
 
@@ -265,12 +266,12 @@ proc semBindSym(c: PContext, n: PNode): PNode =
   #       parameters for ``macros.bindSym``
   let sl = semConstExpr(c, n[1])
   if sl.kind notin {nkStrLit, nkRStrLit, nkTripleStrLit}:
-    return newError(c.config, n, reportSem rsemStringLiteralExpected)
+    return newError(c.config, n, PAstDiag(kind: adSemStringLiteralExpected))
 
   let rule = semConstExpr(c, n[2])
   if rule.kind != nkIntLit or rule.intVal < 0 or
       rule.intVal > high(TSymChoiceRule).int:
-    return newError(c.config, n, reportSem rsemConstExprExpected)
+    return newError(c.config, n, PAstDiag(kind: adSemConstExprExpected))
 
   let id = newIdentNode(getIdent(c.cache, sl.strVal), n.info)
   let s = qualifiedLookUp(c, id, {checkUndeclared})
@@ -323,7 +324,7 @@ proc semOf(c: PContext, n: PNode): PNode =
         if commonSuperclass(a, b) == nil:
           localReport(c.config, n.info, SemReport(
             kind: rsemCannotBeOfSubtype,
-            typeMismatch: @[c.config.typeMismatch(actual = a, formal = b)]))
+            typeMismatch: @[typeMismatch(actual = a, formal = b)]))
 
         else:
           localReport(c.config, n, reportSem rsemConditionAlwaysFalse)

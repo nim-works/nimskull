@@ -1,6 +1,7 @@
 discard """
   errormsg: "type mismatch: got <string>"
   nimout: "twrapconcept.nim(10, 13) Foo: concept predicate failed"
+  knownIssue: "Requires Report/SemReport removal, see: https://github.com/nim-works/nimskull/issues/443"
 """
 
 # https://github.com/nim-lang/Nim/issues/5127

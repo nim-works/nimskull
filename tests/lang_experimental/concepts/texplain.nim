@@ -1,5 +1,6 @@
 discard """
   description: "Tests {.explain.} attached to concept types, to expressions, and diagnostics reporting on failed overload resolution"
+  knownIssue: "Requires Report/SemReport removal, see: https://github.com/nim-works/nimskull/issues/443"
   nimout: '''
 texplain.nim(144, 10) Hint: Non-matching candidates for e(y)
 proc e(i: int): int

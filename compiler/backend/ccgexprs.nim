@@ -3018,7 +3018,8 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
   of nkGotoState:
     genGotoState(p, n)
   of nkMixinStmt, nkBindStmt: discard
-  else: internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
+  else:
+    internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
 
 proc genNamedConstExpr(p: BProc, n: PNode; isConst: bool): Rope =
   if n.kind == nkExprColonExpr: result = genBracedInit(p, n[1], isConst, n[0].typ)

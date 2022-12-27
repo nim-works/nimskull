@@ -1,6 +1,6 @@
 discard """
-  errormsg: "unhandled exception:"
-  file: "system/fatal.nim"
+  errormsg: "unhandled exception: t9768.nim(23, 12) `a < 4`"
+  file: "fatal.nim"
   nimout: '''
 stack trace: (most recent call last)
 t9768.nim(28, 33) main

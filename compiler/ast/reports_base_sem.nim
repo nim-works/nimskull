@@ -3,9 +3,8 @@
 import compiler/ast/[
     ast_types,
     reports_base,
+    lineinfos,
   ]
-
-export reports_base
 
 type
   SemishReportBase* = object of ReportBase
@@ -28,7 +27,3 @@ type
         entry*: PSym ## Instantiated entry symbol
       of sckInstantiationFrom:
         discard
-
-  SemTypeMismatch* = object
-    formalTypeKind*: set[TTypeKind]
-    actualType*, formalType*: PType

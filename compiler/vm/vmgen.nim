@@ -81,7 +81,11 @@ type
 func raiseVmGenError(diag: sink VmGenDiag) {.noinline, noreturn.} =
   raise (ref VmGenError)(diag: diag)
 
-func raiseVmGenError(diag: VmGenDiagKind, n: PNode, instLoc = instLoc(-1)) =
+func raiseVmGenError(
+  diag: VmGenDiagKindAstRelated,
+  n: PNode,
+  instLoc = instLoc()
+  ) =
   let d = VmGenDiag(kind: diag, location: n.info, ast: n, instLoc: instLoc)
   raise (ref VmGenError)(diag: d)
 
@@ -97,13 +101,45 @@ func raiseVmGenError(
 func fail(
   info: TLineInfo,
   kind: VmGenDiagKind,
-  ast:  PNode = nil,
-  sym:  PSym = nil,
-  str:  string = "",
   loc:  InstantiationInfo = instLoc()
   ) {.noinline, noreturn.} =
   raiseVmGenError(
-    VmGenDiag(kind: kind, ast: ast, sym: sym, msg: str),
+    VmGenDiag(kind: kind),
+    info,
+    loc)
+
+func fail(
+  info: TLineInfo,
+  kind: VmGenDiagKindAstRelated,
+  ast:  PNode,
+  loc:  InstantiationInfo = instLoc()
+  ) {.noinline, noreturn.} =
+  raiseVmGenError(
+    VmGenDiag(kind: kind, ast: ast),
+    info,
+    loc)
+
+func fail(
+  info: TLineInfo,
+  kind: VmGenDiagKindSymRelated,
+  sym:  PSym,
+  loc:  InstantiationInfo = instLoc()
+  ) {.noinline, noreturn.} =
+  raiseVmGenError(
+    VmGenDiag(kind: kind, sym: sym),
+    info,
+    loc)
+
+func fail(
+  info:  TLineInfo,
+  kind:  VmGenDiagKindMagicRelated,
+  magic: TMagic,
+  loc:   InstantiationInfo = instLoc()
+  ) {.noinline, noreturn.} =
+  assert kind in {vmGenDiagMissingImportcCompleteStruct,
+                  vmGenDiagCodeGenUnhandledMagic}, "Diag needs magic field"
+  raiseVmGenError(
+    VmGenDiag(kind: kind, magic: magic),
     info,
     loc)
 
@@ -1656,8 +1692,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genCall(n, dest)
   of mExpandToAst:
     if n.len != 2:
-      fail(n.info, vmGenDiagBadExpandToAst,
-        str = "expandToAst requires 1 argument")
+      fail(n.info, vmGenDiagBadExpandToAstArgRequired)
 
     let arg = n[1]
     if arg.kind in nkCallKinds:
@@ -1686,17 +1721,10 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
       # do not call clearDest(n, dest) here as getAst has a meta-type as such
       # produces a value
     else:
-      fail(n.info, vmGenDiagBadExpandToAst,
-        str = "expandToAst requires a call expression")
+      fail(n.info, vmGenDiagBadExpandToAstCallExprRequired)
 
-  of mSizeOf:
-    fail(n.info, vmGenDiagMissingImportcCompleteStruct, str = "sizeof")
-
-  of mAlignOf:
-    fail(n.info, vmGenDiagMissingImportcCompleteStruct, str = "alignof")
-
-  of mOffsetOf:
-    fail(n.info, vmGenDiagMissingImportcCompleteStruct, str = "offsetof")
+  of mSizeOf, mAlignOf, mOffsetOf:
+    fail(n.info, vmGenDiagMissingImportcCompleteStruct, m)
 
   of mRunnableExamples:
     discard "just ignore any call to runnableExamples"
@@ -1716,7 +1744,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.genUnaryABC(n, dest, opcNodeId)
   else:
     # mGCref, mGCunref, mFinished, etc.
-    fail(n.info, vmGenDiagCannotGenerateCode, str = $m)
+    fail(n.info, vmGenDiagCodeGenUnhandledMagic, m)
 
 
 proc unneededIndirection(n: PNode): bool =
@@ -2503,16 +2531,14 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
         genRdVar(c, n, dest, flags)
       else:
         fail(n.info,
-          vmGenDiagCannotGenerateCode,
-          sym = s,
-          str = "Attempt to generate VM code for generic parameter in non-macro proc"
+          vmGenDiagCodeGenGenericInNonMacro,
+          sym = s
         )
 
     else:
       fail(n.info,
-        vmGenDiagCannotGenerateCode,
-        sym = s,
-        str = "Unexpected symbol for VM code - " & $s.kind
+        vmGenDiagCodeGenUnexpectedSym,
+        sym = s
       )
   of nkCallKinds:
     if n[0].kind == nkSym:
@@ -2799,3 +2825,62 @@ proc genProc*(c: var TCtx; s: PSym, body: PNode): VmGenResult =
 
   result = VmGenResult.ok:
     (start: start, regCount: regCount)
+
+func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.} =
+  let kind =
+    case diag.kind
+    of vmGenDiagBadExpandToAstArgRequired: adVmGenBadExpandToAstArgRequired
+    of vmGenDiagBadExpandToAstCallExprRequired: adVmGenBadExpandToAstCallExprRequired
+    of vmGenDiagTooManyRegistersRequired: adVmGenTooManyRegistersRequired
+    of vmGenDiagCannotFindBreakTarget: adVmGenCannotFindBreakTarget
+    of vmGenDiagNotUnused: adVmGenNotUnused
+    of vmGenDiagNotAFieldSymbol: adVmGenNotAFieldSymbol
+    of vmGenDiagCannotGenerateCode: adVmGenCannotGenerateCode
+    of vmGenDiagCannotEvaluateAtComptime: adVmGenCannotEvaluateAtComptime
+    of vmGenDiagInvalidObjectConstructor: adVmGenInvalidObjectConstructor
+    of vmGenDiagMissingImportcCompleteStruct: adVmGenMissingImportcCompleteStruct
+    of vmGenDiagCodeGenUnhandledMagic: adVmGenCodeGenUnhandledMagic
+    of vmGenDiagCodeGenGenericInNonMacro: adVmGenCodeGenGenericInNonMacro
+    of vmGenDiagCodeGenUnexpectedSym: adVmGenCodeGenUnexpectedSym
+    of vmGenDiagCannotImportc: adVmGenCannotImportc
+    of vmGenDiagTooLargeOffset: adVmGenTooLargeOffset
+    of vmGenDiagNoClosureIterators: adVmGenNoClosureIterators
+    of vmGenDiagCannotCallMethod: adVmGenCannotCallMethod
+    of vmGenDiagCannotCast: adVmGenCannotCast
+  
+  {.cast(uncheckedAssign).}: # discriminants on both sides lead to saddness
+    result =
+      case diag.kind
+      of vmGenDiagCodeGenGenericInNonMacro,
+          vmGenDiagCodeGenUnexpectedSym,
+          vmGenDiagCannotImportc,
+          vmGenDiagTooLargeOffset,
+          vmGenDiagNoClosureIterators,
+          vmGenDiagCannotCallMethod:
+        AstDiagVmGenError(
+          kind: kind,
+          sym: diag.sym)
+      of vmGenDiagCannotCast:
+        AstDiagVmGenError(
+          kind: kind,
+          formalType: diag.typeMismatch.formalType,
+          actualType: diag.typeMismatch.actualType)
+      of vmGenDiagMissingImportcCompleteStruct,
+          vmGenDiagCodeGenUnhandledMagic:
+        AstDiagVmGenError(
+          kind: kind,
+          magic: diag.magic)
+      of vmGenDiagNotUnused,
+          vmGenDiagNotAFieldSymbol,
+          vmGenDiagCannotGenerateCode,
+          vmGenDiagCannotEvaluateAtComptime,
+          vmGenDiagInvalidObjectConstructor:
+        AstDiagVmGenError(
+          kind: kind,
+          ast: diag.ast)
+      of vmGenDiagBadExpandToAstArgRequired,
+          vmGenDiagBadExpandToAstCallExprRequired,
+          vmGenDiagTooManyRegistersRequired,
+          vmGenDiagCannotFindBreakTarget:
+        AstDiagVmGenError(kind: kind)
+ 

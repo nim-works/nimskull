@@ -8,17 +8,16 @@ import compiler/vm/vmdef
 
 import std/options as std_options
 
-from compiler/front/options import ConfigRef, TErrorHandling
+from compiler/ast/ast_types import TMagic, SemTypeMismatch
 from compiler/ast/lineinfos import TLineInfo, InstantiationInfo
 
 from compiler/ast/reports import Report, ReportKind, toReportLineInfo
 from compiler/ast/reports_vm import VMReport
 from compiler/ast/reports_debug import DebugReport
-from compiler/ast/reports_sem import SemTypeMismatch
 from compiler/ast/report_enums import ReportCategory
-from compiler/front/msgs import handleReport, localReport
+from compiler/front/msgs import localReport
 
-func vmGenDiagToLegacyReportKind*(diag: VmGenDiagKind): ReportKind {.inline.} =
+func vmGenDiagToLegacyReportKind(diag: VmGenDiagKind): ReportKind {.inline.} =
   case diag
   of vmGenDiagMissingImportcCompleteStruct: rvmMissingImportcCompleteStruct
   of vmGenDiagTooManyRegistersRequired: rvmTooManyRegistersRequired
@@ -27,177 +26,92 @@ func vmGenDiagToLegacyReportKind*(diag: VmGenDiagKind): ReportKind {.inline.} =
   of vmGenDiagNotAFieldSymbol: rvmNotAFieldSymbol
   of vmGenDiagTooLargeOffset: rvmTooLargetOffset
   of vmGenDiagCannotGenerateCode: rvmCannotGenerateCode
+  of vmGenDiagCodeGenUnhandledMagic: rvmCannotGenerateCode
+  of vmGenDiagCodeGenGenericInNonMacro: rvmCannotGenerateCode
+  of vmGenDiagCodeGenUnexpectedSym: rvmCannotGenerateCode
   of vmGenDiagCannotCast: rvmCannotCast
-  of vmGenDiagBadExpandToAst: rvmBadExpandToAst
+  of vmGenDiagBadExpandToAstArgRequired: rvmBadExpandToAst
+  of vmGenDiagBadExpandToAstCallExprRequired: rvmBadExpandToAst
   of vmGenDiagCannotEvaluateAtComptime: rvmCannotEvaluateAtComptime
   of vmGenDiagCannotImportc: rvmCannotImportc
   of vmGenDiagInvalidObjectConstructor: rvmInvalidObjectConstructor
   of vmGenDiagNoClosureIterators: rvmNoClosureIterators
   of vmGenDiagCannotCallMethod: rvmCannotCallMethod
-  of vmGenDiagNotAField: rvmNotAField
+
+template magicToString(m: TMagic): string =
+  case m
+  of mSizeOf:   "sizeOf"
+  of mAlignOf:  "align"
+  of mOffsetOf: "offset"
+  else:         $m
 
 func vmGenDiagToLegacyVmReport*(diag: VmGenDiag): VMReport {.inline.} =
   let kind = diag.kind.vmGenDiagToLegacyReportKind()
   result =
-    case kind
-    of rvmCannotCast:
+    case diag.kind
+    of vmGenDiagCannotCast:
       VMReport(
-        ast: diag.ast,
-        typ: diag.typ,
-        str: diag.msg,
-        sym: diag.sym,
         location: std_options.some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
-        kind: kind,
+        kind: rvmCannotCast,
         typeMismatch:
           @[SemTypeMismatch(actualType: diag.typeMismatch.actualType,
                             formalType: diag.typeMismatch.formalType)])
-    else:
+    of vmGenDiagCodeGenUnhandledMagic,
+        vmGenDiagMissingImportcCompleteStruct:
+      VMReport(
+        str: magicToString(diag.magic),
+        kind: kind,
+        location: std_options.some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    of vmGenDiagCodeGenGenericInNonMacro,
+        vmGenDiagCodeGenUnexpectedSym,
+        vmGenDiagNoClosureIterators,
+        vmGenDiagCannotImportc,
+        vmGenDiagCannotCallMethod,
+        vmGenDiagTooLargeOffset:
+      VMReport(
+        str: case diag.kind
+              of vmGenDiagCodeGenGenericInNonMacro:
+                "Attempt to generate VM code for generic parameter in non-macro proc"
+              of vmGenDiagCodeGenUnexpectedSym:
+                "Unexpected symbol for VM code - " & $diag.sym.kind
+              else:
+                "",
+        sym: diag.sym,
+        location: std_options.some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind)
+    of vmGenDiagBadExpandToAstArgRequired:
+      VMReport(
+        str: "expandToAst requires 1 argument",
+        kind: kind,
+        location: std_options.some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    of vmGenDiagBadExpandToAstCallExprRequired:
+      VMReport(
+        str: "expandToAst requires a call expression",
+        kind: kind,
+        location: std_options.some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    of vmGenDiagNotUnused,
+        vmGenDiagNotAFieldSymbol,
+        vmGenDiagCannotGenerateCode,
+        vmGenDiagCannotEvaluateAtComptime,
+        vmGenDiagInvalidObjectConstructor:
       VMReport(
         ast: diag.ast,
-        typ: diag.typ,
-        str: diag.msg,
-        sym: diag.sym,
+        kind: kind,
+        location: std_options.some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    else:
+      VMReport(
         kind: kind,
         location: std_options.some diag.location,
         reportInst: diag.instLoc.toReportLineInfo)
 
 func vmGenDiagToLegacyReport*(diag: VmGenDiag): Report {.inline.} =
   result = Report(category: repVM, vmReport: vmGenDiagToLegacyVmReport(diag))
-
-proc handleReport*(
-    conf: ConfigRef,
-    diag: VmGenDiag,
-    reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing
-  ) {.inline.} =
-  # REFACTOR: this is a temporary bridge into existing reporting
-  let rep = diag.vmGenDiagToLegacyReport()
-
-  handleReport(conf, rep, reportFrom, eh)
-
-
-func vmEventToLegacyReportKind*(evt: VmEventKind): ReportKind {.inline.} =
-  case evt
-  of vmEvtOpcParseExpectedExpression: rvmOpcParseExpectedExpression
-  of vmEvtUserError: rvmUserError
-  of vmEvtUnhandledException: rvmUnhandledException
-  of vmEvtCannotCast: rvmCannotCast
-  of vmEvtCallingNonRoutine: rvmCallingNonRoutine
-  of vmEvtCannotModifyTypechecked: rvmCannotModifyTypechecked
-  of vmEvtNilAccess: rvmNilAccess
-  of vmEvtAccessOutOfBounds: rvmAccessOutOfBounds
-  of vmEvtAccessTypeMismatch: rvmAccessTypeMismatch
-  of vmEvtAccessNoLocation: rvmAccessNoLocation
-  of vmEvtErrInternal: rvmErrInternal
-  of vmEvtIndexError: rvmIndexError
-  of vmEvtOutOfRange: rvmOutOfRange
-  of vmEvtOverOrUnderflow: rvmOverOrUnderflow
-  of vmEvtDivisionByConstZero: rvmDivisionByConstZero
-  of vmEvtArgNodeNotASymbol: rvmNodeNotASymbol
-  of vmEvtNodeNotASymbol: rvmNodeNotASymbol
-  of vmEvtNodeNotAProcSymbol: rvmNodeNotAProcSymbol
-  of vmEvtIllegalConv: rvmIllegalConv
-  of vmEvtMissingCacheKey: rvmMissingCacheKey
-  of vmEvtCacheKeyAlreadyExists: rvmCacheKeyAlreadyExists
-  of vmEvtFieldNotFound: rvmFieldNotFound
-  of vmEvtNotAField: rvmNotAField
-  of vmEvtFieldUnavailable: rvmFieldInavailable
-  of vmEvtCannotSetChild: rvmCannotSetChild
-  of vmEvtCannotAddChild: rvmCannotAddChild
-  of vmEvtCannotGetChild: rvmCannotGetChild
-  of vmEvtNoType: rvmNoType
-  of vmEvtUnsupportedNonNil: rvmUnsupportedNonNil
-  of vmEvtTooManyIterations: rvmTooManyIterations
-  of vmEvtQuit: rvmQuit
-
-func vmEventToLegacyVmReport*(
-    evt: VmEvent,
-    location: Option[TLineInfo] = std_options.none[TLineInfo]()
-  ): VMReport {.inline.} =
-  let kind = evt.kind.vmEventToLegacyReportKind()
-  result =
-    case kind
-    of rvmCannotCast:
-      VMReport(
-        kind: kind,
-        location: location,
-        reportInst: evt.instLoc.toReportLineInfo,
-        typeMismatch:
-          @[SemTypeMismatch(actualType: evt.typeMismatch.actualType,
-                            formalType: evt.typeMismatch.formalType)])
-    of rvmIndexError:
-      VMReport(
-        location: location,
-        reportInst: evt.instLoc.toReportLineInfo,
-        kind: kind,
-        indexSpec: evt.indexSpec)
-    of rvmQuit:
-      VMReport(
-        location: location,
-        reportInst: evt.instLoc.toReportLineInfo,
-        kind: kind,
-        exitCode: evt.exitCode)
-    of rvmCannotSetChild, rvmCannotAddChild, rvmCannotGetChild,
-        rvmUnhandledException, rvmNoType, rvmNodeNotASymbol:
-      case evt.kind
-      of vmEvtArgNodeNotASymbol:
-        VMReport(
-          location: some evt.argAst.info,
-          reportInst: evt.instLoc.toReportLineInfo,
-          kind: kind,
-          str: evt.callName & "()",
-          ast: evt.argAst)
-      else:
-        VMReport(
-          location: location,
-          reportInst: evt.instLoc.toReportLineInfo,
-          kind: kind,
-          ast: evt.ast)
-    of rvmUserError:
-      VMReport(
-        kind: kind,
-        str: evt.errMsg,
-        location: location,
-        reportInst: evt.instLoc.toReportLineInfo)
-    of rvmErrInternal, rvmNilAccess, rvmIllegalConv, rvmFieldInavailable,
-        rvmFieldNotFound, rvmCacheKeyAlreadyExists, rvmMissingCacheKey:
-      VMReport(
-        kind: kind,
-        str: evt.msg,
-        location: location,
-        reportInst: evt.instLoc.toReportLineInfo)
-    of rvmUnsupportedNonNil:
-      VMReport(
-        kind: kind,
-        typ: evt.typ,
-        location: location,
-        reportInst: evt.instLoc.toReportLineInfo)
-    of rvmNotAField:
-      VMReport(
-        kind: kind,
-        sym: evt.sym,
-        location: location,
-        reportInst: evt.instLoc.toReportLineInfo)
-    else:
-      VMReport(
-        kind: kind,
-        location: location,
-        reportInst: evt.instLoc.toReportLineInfo)
-
-func vmEventToLegacyReport*(evt: VmEvent): Report {.inline.} =
-  Report(category: repVM, vmReport: vmEventToLegacyVmReport(evt))
-
-proc handleReport*(
-    conf: ConfigRef,
-    evt: VmEvent,
-    reportFrom: InstantiationInfo,
-    eh: TErrorHandling = doNothing
-  ) {.inline.} =
-  # REFACTOR: this is a temporary bridge into existing reporting
-  let rep = evt.vmEventToLegacyReport()
-
-  handleReport(conf, rep, reportFrom, eh)
 
 proc legacyReportsVmTracer*(c: TCtx, t: VmExecTrace) =
   case t.kind

@@ -1,5 +1,6 @@
 discard """
 description: "From https://github.com/nim-lang/Nim/issues/3330"
+knownIssue: "Requires Report/SemReport removal, see: https://github.com/nim-works/nimskull/issues/443"
 errormsg: "type mismatch: got <Bar[system.int]>"
 nimout: '''
 t3330.nim(70, 4) Error: type mismatch: got <Bar[system.int]>

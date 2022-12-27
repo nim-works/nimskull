@@ -44,7 +44,6 @@ import
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_sem import SemReport,
-  SemSpellCandidate,  # TODO: "reports" shouldn't own this data type
   reportAst,
   reportSem,
   reportStr,
@@ -65,11 +64,12 @@ proc noidentError(conf: ConfigRef; n, origin: PNode): PNode =
   ## the the expression within which `n` resides, if `origin` is the same then
   ## a simplified error is generated.
   assert n != nil, "`n` must be provided"
-  conf.newError(if origin.isNil: n else: origin):
-    block:
-      var r = reportAst(rsemIdentExpectedInExpr, n)
-      r.wrongNode = origin
-      r
+  result =
+    if origin.isNil:
+      conf.newError(n, PAstDiag(kind: adSemExpectedIdentifier))
+    else:
+      conf.newError(origin, PAstDiag(kind: adSemExpectedIdentifierInExpr,
+                                    notIdent: n))
 
 proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
   ## Retrieve a PIdent from a PNode, taking into account accent nodes.
@@ -112,37 +112,41 @@ proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
 
   # this handles the case where in an `nkAccQuoted` node we "dig"
   if result[1] != nil:
-    result[1] = noidentError(c.config, result[1], n)
+    case result[1].kind
+    of nkError:
+      discard    # nothing to do, it's already an error
+    else:
+      result[1] = noidentError(c.config, result[1], n)
 
-template legacyConsiderQuotedIdent*(c: PContext; n, origin: PNode): PIdent =
+proc legacyConsiderQuotedIdent*(c: PContext; n, origin: PNode): PIdent =
   ## Legacy/Transition Code: avoid using this
   ##
   ## `considerQuotedIdent` used to allow providing an `origin` for "better"
   ## error reporting, but it was an awkward API. This template creates a block
   ## to replicate the previous behaviour of fetching and doing inline error
   ## with an `origin` parameter for the purposes of transition.
-  block:
-    let (ident, err) = considerQuotedIdent(c, n)
-    if not err.isNil:
-      if origin.isNil or n == origin:
-        localReport(c.config, err)
-      else:
-        # xxx: janky error gen, the way to fix is this by starting at the
-        #      callsites and reworking how things are consumed/passed in.
-        #      also, the nkAccQuote handling likely requires alpha-rewriting
-        let
-          errTarget =
-            if n.kind == nkAccQuoted and n.len == 1:
-              n[0]
-            else:
-              n
-          errRep =
-            block:
-              var r = reportAst(rsemIdentExpectedInExpr, errTarget)
-              r.wrongNode = origin
-              r
-        localReport(c.config, c.config.newError(origin, errRep))
-    ident
+  let (ident, err) = considerQuotedIdent(c, n)
+  result = ident
+  if err != nil:
+    if origin.isNil or n == origin:
+      localReport(c.config, err)
+    else:
+      # xxx: janky error gen, the way to fix is this by starting at the
+      #      callsites and reworking how things are consumed/passed in.
+      #      also, the nkAccQuote handling likely requires alpha-rewriting
+      if origin.isError: c.config.localReport(origin)
+      if n.kind == nkError: c.config.localReport(n)
+      let
+        errTarget =
+          if n.kind == nkAccQuoted and n.len == 1:
+            n[0]
+          else:
+            n
+        errDiag = PAstDiag(kind: adSemExpectedIdentifierInExpr,
+                            notIdent: errTarget)
+        finalErr = c.config.newError(origin, errDiag)
+
+      localReport(c.config, finalErr)
 
 template addSym*(scope: PScope, s: PSym) =
   strTableAdd(scope.symbols, s)
@@ -526,7 +530,7 @@ proc errorUseQualifier(
   var
     i = 0
     ignoredModules = 0
-    rep = SemReport(kind: rsemAmbiguousIdent, sym: s)
+    rep = SemReport(kind: rsemAmbiguousIdentWithCandidates, sym: s)
 
   for candidate in importedItems(c, s.name):
     rep.symbols.add candidate
@@ -547,31 +551,37 @@ proc errorUseQualifier*(c: PContext; info: TLineInfo; s: PSym) =
   discard errorUseQualifier(c, info, s, amb)
 
 proc errorUseQualifier(c: PContext; info: TLineInfo; candidates: seq[PSym]) =
-  var
-    i = 0
-    rep = reportSym(rsemAmbiguousIdent, candidates[0])
-
-  for candidate in candidates:
-    rep.symbols.add candidate
-    inc i
+  var rep = reportSym(rsemAmbiguousIdentWithCandidates, candidates[0])
+  rep.symbols = candidates
 
   c.config.localReport(info, rep)
+
+proc clearRecursiveDeps(c: PContext) =
+  ## clears the recursive dependency stack being tracked, this was done to make
+  ## `nim check` less spammy. The storage for this info is much lighter now and
+  ## we should clear another way
+  
+  # what used to happen was some undeclared identifier error would be
+  # triggered, as there would be recursive deps detected and populated by the
+  # `importer` module in `myImport` we'd pass it along as hints with the error.
+  # as part of creating the error the error logic would run the logic in this
+  # proc to clear the deps tracking so `nim check` spam was reduced.
+
+  when false:
+    if c.recursiveDep.len > 0:
+      c.recursiveDep.setLen 0
 
 proc errorUndeclaredIdentifier*(
     c: PContext; info: TLineInfo; name: string,
     candidates: seq[SemSpellCandidate] = @[]
   ) =
-
   c.config.localReport(info, SemReport(
     kind: rsemUndeclaredIdentifier,
     str: name,
     spellingCandidates: candidates,
-    potentiallyRecursive: c.recursiveDep.len > 0
-  ))
+    recursiveDeps: c.recursiveDep))
 
-  if c.recursiveDep.len > 0:
-    # prevent excessive errors for 'nim check'
-    c.recursiveDep.setLen 0
+  c.clearRecursiveDeps()
 
 proc newQualifiedLookUpError(c: PContext, ident: PIdent, info: TLineInfo, err: PNode): PSym =
   ## create an error symbol for `qualifiedLookUp` related errors
@@ -599,17 +609,13 @@ proc createUndeclaredIdentifierError*(
     c:PContext; n: PNode; name:string;
     candidates: seq[SemSpellCandidate] = @[]
   ): PNode =
-  
-  result = c.config.newError(n, SemReport(
-              kind: rsemUndeclaredIdentifier,
-              str: name,
-              spellingCandidates: candidates,
-              potentiallyRecursive: c.recursiveDep.len > 0
-            ))
+  result = c.config.newError(n, PAstDiag(
+                      kind: adSemUndeclaredIdentifier,
+                      name: name,
+                      spellingCandidates: candidates,
+                      recursiveDeps: c.recursiveDep))
 
-  if c.recursiveDep.len > 0:
-    # prevent excessive errors for 'nim check'
-    c.recursiveDep.setLen 0
+  c.clearRecursiveDeps()
 
 proc errorUndeclaredIdentifierHint*(
     c: PContext; n: PNode, ident: PIdent): PSym =
@@ -644,7 +650,6 @@ proc lookUp*(c: PContext, n: PNode): PSym =
     c.config.internalError("lookUp")
     return
   if amb:
-    #contains(c.ambiguousSymbols, result.id):
     result = errorUseQualifier(c, n.info, result, amb)
   when false:
     if result.kind == skStub: loadStub(result)
@@ -656,13 +661,10 @@ proc errorExpectedIdentifier(
   ## expression (`exp`). non-nil `exp` leads to better error messages.
   let ast =
     if exp.isNil:
-      c.config.newError(n, SemReport(kind: rsemExpectedIdentifier))
+      c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifier))
     else:
       c.config.newError(exp):
-        block:
-          var r = reportAst(rsemExpectedIdentifierInExpr, n)
-          r.wrongNode = exp
-          r
+        PAstDiag(kind: adSemExpectedIdentifierInExpr, notIdent: n)
 
   result = newQualifiedLookUpError(c, ident, n.info, ast)
 
@@ -674,24 +676,22 @@ proc errorUndeclaredIdentifierWithHint*(
   ## imports
   result = errorSym(c, n, c.config.newError(
     n,
-    SemReport(
-      kind: rsemUndeclaredIdentifier,
-      potentiallyRecursive: c.recursiveDep.len > 0,
+    PAstDiag(
+      kind: adSemUndeclaredIdentifier,
+      recursiveDeps: c.recursiveDep,
       spellingCandidates: candidates,
-      str: name)))
+      name: name)))
 
-  if c.recursiveDep.len > 0:
-    c.recursiveDep.setLen 0
+  c.clearRecursiveDeps()
 
 proc errorAmbiguousUseQualifier(
-    c: PContext; ident: PIdent, n: PNode, candidates: seq[PSym]
+    c: PContext; ident: PIdent, n: PNode, candidates: sink seq[PSym]
   ): PSym =
   ## create an error symbol for an ambiguous unqualified lookup
-  var rep = reportSym(rsemAmbiguousIdent, candidates[0])
-  for i, candidate in candidates.pairs:
-    rep.symbols.add candidate
-
-  let err = c.config.newError(n, rep)
+  let
+    diag = PAstDiag(kind: adSemAmbiguousIdentWithCandidates,
+                    candidateSyms: candidates)
+    err = c.config.newError(n, diag)
   result = newQualifiedLookUpError(c, ident, n.info, err)
 
 type
@@ -758,10 +758,10 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       # skError is a const referring to skUnknown, which gets used in resolving
       # `result`, which starts off as undeclared/unknown.
       if result.isError and not amb and checkUndeclared in flags:
-        let rep = reportStr(rsemOnlyDeclaredIdentifierFoundIsError, 
-                            ident.s,
-                            result.ast)
-        result.ast = c.config.newError(n, rep)
+        let diag = PAstDiag(kind:      adSemOnlyDeclaredIdentifierFoundIsError, 
+                            identName: ident.s,
+                            err:       result.ast)
+        result.ast = c.config.newError(n, diag)
     else:
       let candidates = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
       result = symFromCandidates(c, candidates, ident, n, flags, amb)
@@ -827,7 +827,6 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       if ident != nil and errNode.isNil:
         if m == c.module:
           result = strTableGet(c.topLevelScope.symbols, ident).skipAlias(n, c.config)
-
         else:
           result = someSym(c.graph, m, ident).skipAlias(n, c.config)
 
@@ -838,9 +837,8 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         result = n[1].sym
       elif checkUndeclared in flags and
           n[1].kind notin {nkOpenSymChoice, nkClosedSymChoice}:
-        result = errorSym(c, n[1],
-          c.config.newError(
-            n[1], reportSem(rsemExpectedIdentifier)))
+        result = errorSym(c, n[1]):
+          c.config.newError(n[1], PAstDiag(kind: adSemExpectedIdentifier))
     elif m.isError:
       # create a copy of n with the error from `m`'s lookup
       var err = copyTreeWithoutNode(n, n[0])

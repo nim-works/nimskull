@@ -8,9 +8,9 @@
 #
 
 import
-  std/[os, strutils, strtabs, sets, tables],
+  std/[os, strutils, strtabs, sets, tables, packedsets],
   compiler/utils/[prefixmatches, pathutils, platform, strutils2, ropes],
-  compiler/ast/[reports, lineinfos],
+  compiler/ast/[lineinfos],
   compiler/modules/nimpaths
 
 import compiler/front/in_options
@@ -21,8 +21,18 @@ from times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
 
 from compiler/ast/ast_types import
-  PSym  # Contextual details of the instantiation stack optionally refer to
-        # the used symbol
+  NodeId, # used as a reportId/diagId proxy
+  PNode,  # because of reports, more leakage
+  PSym    # Contextual details of the instantiation stack optionally refer to
+          # the used symbol
+
+# xxx: legacy Reports to be removed
+import compiler/ast/report_enums
+from compiler/ast/reports import
+  Report,
+  wrap,
+  kind, severity,
+  ReportTypes
 
 const
   hasTinyCBackend* = defined(tinyc)
@@ -54,6 +64,9 @@ const
   cmdDocLike* = {cmdDoc, cmdDoc2tex, cmdJsondoc, cmdCtags, cmdBuildindex}
 
 type
+  ReportSet* = object
+    ids: PackedSet[uint32]
+
   MsgConfig* = object ## does not need to be stored in the incremental cache
     trackPos*: TLineInfo
     trackPosAttached*: bool ## whether the tracking position was attached to
@@ -72,7 +85,6 @@ type
     ## `.detail` field is only used in the `sem.semMacroExpr()`,
     ## `seminst.generateInstance()` and `semexprs.semTemplateExpr()`. In
     ## all other cases this field is left empty (SemReport is `skUnknown`)
-    reports*: ReportList ## Intermediate storage for the
     writtenSemReports*: ReportSet
     lastError*: TLineInfo
     filenameToIndexTbl*: Table[string, FileIndex]
@@ -88,6 +100,9 @@ proc initMsgConfig*(): MsgConfig =
   result.fileInfos = @[]
   result.errorOutputs = {eStdOut, eStdErr}
   result.filenameToIndexTbl["???"] = FileIndex(-1)
+
+func incl*(s: var ReportSet, id: NodeId) = s.ids.incl uint32(id)
+func contains*(s: var ReportSet, id: NodeId): bool = s.ids.contains uint32(id)
 
 type
   NimVer* = tuple[major: int, minor: int, patch: int]
@@ -280,7 +295,7 @@ type
       ## len is also used for output indent level
 
     when defined(nimDebugUnreportedErrors):
-      unreportedErrors*: OrderedTable[ReportId, PNode]
+      unreportedErrors*: OrderedTable[NodeId, PNode]
 
 template `[]`*(conf: ConfigRef, idx: FileIndex): TFileInfo =
   conf.m.fileInfos[idx.uint32]
@@ -291,7 +306,6 @@ template passField(fieldname, fieldtype: untyped): untyped =
 
   proc `fieldname=`*(conf: ConfigRef, val: fieldtype) =
     conf.active.fieldname = val
-
 
 template passSetField(fieldname, fieldtype, itemtype: untyped): untyped =
   passField(fieldname, fieldtype)
@@ -513,7 +527,7 @@ proc write*(conf: ConfigRef, args: varargs[string, `$`]) =
 
 proc setReportHook*(conf: ConfigRef, hook: ReportHook) =
   ## Set active report hook. Must not be nil
-  assert not hook.isNil
+  assert hook != nil
   conf.structuredReportHook = hook
 
 proc getReportHook*(conf: ConfigRef): ReportHook =
@@ -523,12 +537,11 @@ proc getReportHook*(conf: ConfigRef): ReportHook =
 proc report*(conf: ConfigRef, inReport: Report): TErrorHandling =
   ## Write `inReport`
   assert inReport.kind != repNone, "Cannot write out empty report"
-  assert(
-    not conf.structuredReportHook.isNil,
-    "Cannot write report with empty report hook")
+  assert(conf.structuredReportHook != nil,
+         "Cannot write report with empty report hook")
   return conf.structuredReportHook(conf, inReport)
 
-proc canReport*(conf: ConfigRef, id: ReportId): bool =
+proc canReport*(conf: ConfigRef, id: NodeId): bool =
   ## Check whether report with given ID can actually be written out, or it
   ## has already been seen. This check is used to prevent multiple reports
   ## from the `nkError` node.
@@ -536,21 +549,8 @@ proc canReport*(conf: ConfigRef, id: ReportId): bool =
 
 proc canReport*(conf: ConfigRef, node: PNode): bool =
   ## Check whether `nkError` node can be reported
-  conf.canReport(node.reportId)
-
-proc report*(conf: ConfigRef, id: ReportId): TErrorHandling =
-  ## Write out existing stored report unless it has already been reported
-  ## (can happen with multiple `nkError` visitations).
-  ##
-  ## .. note:: This check is done only for reports that are generated via
-  ##           IDs, because that's the only way report can (supposedly)
-  ##           enter the error message system twice.
-  return conf.report(conf.m.reports.getReport(id))
-
-proc report*(conf: ConfigRef, node: PNode): TErrorHandling =
-  ## Write out report from the nkError node
-  assert node.kind == nkError
-  return conf.report(node.reportId)
+  # conf.canReport(node.nodeId)
+  true # xxx: short circuit this nonsense
 
 template report*[R: ReportTypes](
     conf: ConfigRef, inReport: R): TErrorHandling =
@@ -563,29 +563,6 @@ template report*[R: ReportTypes](
   ## Write out new report, updating it's location info using `tinfo` and
   ## it's instantiation info with `instantiationInfo()` of the template.
   report(conf, wrap(inReport, instLoc(), tinfo))
-
-proc addReport*(conf: ConfigRef, report: Report): ReportId =
-  ## Add new postponed report, return it's stored ID
-  result = conf.m.reports.addReport(report)
-  assert not result.isEmpty(), $result
-
-proc getReport*(conf: ConfigRef, report: ReportId): Report =
-  ## Get postponed report from the current report list
-  assert not report.isEmpty(), $report
-  result = conf.m.reports.getReport(report)
-
-proc getReport*(conf: ConfigRef, err: PNode): Report =
-  ## Get postponed report from the nkError node
-  conf.getReport(err.reportId)
-
-template store*(conf: ConfigRef, report: ReportTypes): untyped =
-  ## Add report to the postponed list, return new report ID
-  conf.addReport(wrap(report, instLoc()))
-
-template store*(
-    conf: ConfigRef, linfo: TLineInfo, report: ReportTypes): untyped =
-  ## Add report with given location information to the postponed list
-  conf.addReport(wrap(report, instLoc(), linfo))
 
 # REFACTOR: we shouldn't need to dig into the internalReport and query severity
 #           directly
@@ -666,7 +643,7 @@ proc hasHint*(conf: ConfigRef, note: ReportKind): bool =
 
 proc hasWarn*(conf: ConfigRef, note: ReportKind): bool {.inline.} =
   ## Check if warnings are enabled and specific report kind is contained in
-  ## the
+  ## the notes
   optWarns in conf.options and note in conf.notes
 
 func isEnabled*(conf: ConfigRef, report: ReportKind): bool =
@@ -677,53 +654,39 @@ func isEnabled*(conf: ConfigRef, report: ReportKind): bool =
   # Reports related to experimental features and inconsistent CLI flags
   # (such as `--styleCheck` which controls both CLI flags and hints) are
   # checked for with higher priority
-  case report:
-    of repNilcheckKinds:
-      result = strictNotNil in conf.features
-
-    of rdbgVmExecTraceMinimal:
-      result = conf.active.isVmTrace
-
-    of rlexLinterReport, rsemLinterReport, :
-      # Regular linter report is enabled if style check is either hint or
-      # error, AND not `usages`
-      result = 0 < len({optStyleHint, optStyleError} * conf.globalOptions) and
-               optStyleUsages notin conf.globalOptions
-
-    of rsemLinterReportUse:
-      result = 0 < len({optStyleHint, optStyleError} * conf.globalOptions)
-
+  case report
+  of repNilcheckKinds:
+    strictNotNil in conf.features
+  of rdbgVmExecTraceMinimal:
+    conf.active.isVmTrace
+  of rlexLinterReport, rsemLinterReport:
+    # Regular linter report is enabled if style check is either hint or
+    # error, AND not `usages`
+    {optStyleHint, optStyleError} * conf.globalOptions != {} and
+    optStyleUsages notin conf.globalOptions
+  of rsemLinterReportUse:
+    {optStyleHint, optStyleError} * conf.globalOptions != {}
+  else:
+    case report
+    # All other reports follow default hint category handing:
+    of repHintKinds:                 conf.hasHint(report)
+    of repWarningKinds:              conf.hasWarn(report)
+    of repErrorKinds, repFatalKinds: true
+    of repTraceKinds:
+      # Semantic trace kinds are enabled by default and probably should
+      # not be changed - but these reports might (in theory) be
+      # modified at runtime.
+      report in conf.notes
     else:
-      # All other reports follow default hint category handing:
-      case report:
-        of repHintKinds:
-          result = conf.hasHint(report)
-
-        of repWarningKinds:
-          result = conf.hasWarn(report)
-
-        of repErrorKinds, repFatalKinds:
-          result = true
-
-        of repTraceKinds:
-          # Semantic trace kinds are enabled by default and probably should
-          # not be changed - but these reports might (in theory) be
-          # modified at runtime.
-          result = report in conf.notes
-
-        else:
-          result = (report in conf.notes) and
-          not ignoreMsgBecauseOfIdeTools(conf, report)
+      (report in conf.notes) and
+        not ignoreMsgBecauseOfIdeTools(conf, report)
 
 func isEnabled*(conf: ConfigRef, report: Report): bool =
   ## Macro expansion configuration is done via `--expandMacro=name`
   ## configuration, and requires full report information to check.
-  if report.kind == rsemExpandMacro and
-     conf.macrosToExpand.hasKey(report.semReport.sym.name.s):
-    result = true
-
-  else:
-    result = conf.isEnabled(report.kind)
+  report.kind == rsemExpandMacro and
+    conf.macrosToExpand.hasKey(report.semReport.sym.name.s) or
+    conf.isEnabled(report.kind)
 
 type
   ReportWritabilityKind* = enum
@@ -732,9 +695,9 @@ type
     writeForceEnabled
 
 func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
-  const forceWrite = {
-    rsemExpandArc, # Not considered a hint for now
-  } + repDbgTraceKinds # Unconditionally write debug tracing information
+  const forceWrite =
+    {rsemExpandArc} + # Not considered a hint for now
+    repDbgTraceKinds  # Unconditionally write debug tracing information
 
   let tryhack = conf.m.errorOutputs == {}
   # REFACTOR this check is an absolute hack, `errorOutputs` need to be
@@ -802,15 +765,14 @@ const
 
 proc getSrcTimestamp(): DateTime =
   try:
-    result = utc(fromUnix(parseInt(getEnv("SOURCE_DATE_EPOCH",
-                                          "not a number"))))
+    utc(fromUnix(parseInt(getEnv("SOURCE_DATE_EPOCH", "not a number"))))
   except ValueError:
     # Environment variable malformed.
     # https://reproducible-builds.org/specs/source-date-epoch/: "If the
     # value is malformed, the build process SHOULD exit with a non-zero
     # error code", which this doesn't do. This uses local time, because
     # that maintains compatibility with existing usage.
-    result = utc getTime()
+    utc getTime()
 
 proc getDateStr*(): string =
   result = format(getSrcTimestamp(), "yyyy-MM-dd")
@@ -847,7 +809,7 @@ proc computeNotesVerbosity(): tuple[
   # settings
   result.base = (repErrorKinds + repInternalKinds)
 
-  # Somewhat awkward handing - stack trace report cannot be error (because
+  # Somewhat awkward handling - stack trace report cannot be error (because
   # actual error report must follow), so it is a hint-level report (can't
   # be debug because it is a user-facing, can't be "trace" because it is
   # not for compiler developers use only)
@@ -1001,8 +963,11 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
     spellSuggestMax: spellSuggestSecretSauce,
   )
   initConfigRefCommon(result)
-  result.target = result.target.withIt do:
-    setTargetFromSystem(it)
+
+  # xxx: do a silly dance because the APIs are dumb
+  var target = result.target
+  setTargetFromSystem(target)
+  result.target = target
 
   # enable colors by default on terminals
   if terminal.isatty(stderr):

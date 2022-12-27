@@ -266,6 +266,13 @@ const IntTypes = {
 
 const CompressedBuiltinTypes = {tyBool, tyChar, tyPointer, tyString} + IntTypes
 
+template tern(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
+  ## Shorthand for inline if/else. Allows use of conditions in strformat,
+  ## simplifies use in expressions. Less picky with formatting
+  {.line: instantiationInfo(fullPaths = true).}:
+    block:
+      if predicate: tBranch else: fBranch
+
 func contains(rconf: TReprConf, flag: TReprFlag): bool = flag in rconf.flags
 func packed(conf: TReprConf): bool = trfPackedFields in conf
 
@@ -628,8 +635,13 @@ proc cyclicTreeAux(n: AstNode, visited: var seq[AstNode], count: var int): bool 
     
     let sons =
       when n is PNode:
-        if n.kind == nkError:
-          n.kids
+        case n.kind
+        of nkError:
+          case n.diag.wrongNode.kind
+          of nkWithSons:
+            n.diag.wrongNode.sons
+          else:
+            @[]
         else:
           n.sons
       else:
@@ -833,24 +845,16 @@ proc treeRepr*(
         addComment()
 
       of nkError:
-        if isNil(conf):
-          field(
-            "err", trfDescFlag,
-            rconf.formatKind(SemReportKind(n.kids[errorKindPos].intVal)) + style.errKind)
-
-        else:
-          let report = conf.getReport(n).semReport
-          field(
-            "err", trfDescFlag,
-            rconf.formatKind(report.kind) + style.errKind)
-          hfield("errid", trfDescFlag, $n.reportId.int + style.err)
-
-        let i = n.kids[compilerInfoPos]
         let
-          file = i.strVal
-          line = i.info.line.int
-          column = i.info.col.int
+          diag = n.diag
+          reportKind = diag.astDiagToLegacyReportKind
+          i = diag.instLoc
+          file = i.filename
+          line = i.line.int
+          column = i.column.int
 
+        field("err", trfDescFlag, rconf.formatKind(reportKind) + style.errKind)
+        hfield("diagId", trfDescFlag, $diag.diagId.int + style.err)
         field("info", trfDescFlag, formatPath(conf, file) + style.ident)
         add "(", $line + style.number
         add ",", $column + style.number
@@ -865,7 +869,9 @@ proc treeRepr*(
 
     if n.kind notin {nkNone .. nkNilLit, nkCommentStmt}:
       addFlags()
-      if n.kind == nkError and n.kids.len > 0 or n.len > 0:
+      if (n.kind == nkError and
+          n.diag.wrongNode.kind notin {nkNone .. nkNilLit, nkCommentStmt}) or
+          (n.kind != nkError and n.len > 0):
         add "\n"
 
       if hasComment:
@@ -876,8 +882,13 @@ proc treeRepr*(
       let
         sons =
           when n is PNode:
-            if n.kind == nkError:
-              n.kids
+            case n.kind
+            of nkError:
+              # TODO: rework diag rendering
+              if n.diag.wrongNode.kind notin {nkNone..nkNilLit, nkCommentStmt}:
+                n.diag.wrongNode.sons
+              else:
+                @[]
             else:
               n.sons
           else:

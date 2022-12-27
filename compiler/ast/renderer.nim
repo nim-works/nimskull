@@ -1642,7 +1642,7 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
     if renderWithoutErrorPrefix notin g.flags:
       putWithSpace(g, tkSymbol, "error")
     #gcomma(g, n, c)
-    gsub(g, n.kids[0], c)
+    gsub(g, n.diag.wrongNode, c)
   of nkNimNodeLit:
     gsub(g, n.sons[0], c)
   else:

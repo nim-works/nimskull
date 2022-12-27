@@ -44,13 +44,6 @@ import
     options,
   ]
 
-from compiler/ast/reports_sem import SemReport, reportSem
-from compiler/ast/report_enums import ReportKind,
-  SemOrVMReportKind,
-  repSemKinds,
-  repVMKinds
-from compiler/ast/reports import wrap
-
 when defined(nimDebugUnreportedErrors):
   import std/tables
 
@@ -68,12 +61,12 @@ proc errorSubNode*(n: PNode): PNode =
       result = errorSubNode(s)
       if result != nil: break
 
-func errorKind*(e: PNode): SemOrVMReportKind {.inline.} =
+func errorKind*(e: PNode): AstDiagKind {.inline.} =
   ## property to retrieve the error kind
   assert e != nil, "can't have a nil error node"
   assert e.kind == nkError, "must be an error node to have an ErrorKind"
 
-  result = SemOrVMReportKind(e.kids[errorKindPos].intVal)
+  result = e.diag.kind
 
 func compilerInstInfo*(e: PNode): InstantiationInfo {.inline.} =
   ## return where the error was instantiated in the compiler
@@ -81,79 +74,61 @@ func compilerInstInfo*(e: PNode): InstantiationInfo {.inline.} =
   assert i != nil, "we should always have compiler diagnositics"
   (filename: i.strVal, line: i.info.line.int, column: i.info.col.int)
 
-proc errAdd(e: PNode, kid: PNode) {.inline.} =
-  e.kids.add kid
+const unsetLineInfo = default(TLineInfo)
+
+func isValid(info: TLineInfo): bool {.inline.} =
+  info != unknownLineInfo and info != unsetLineInfo
 
 proc newError*(
     conf: ConfigRef;
     wrongNode: PNode;
-    errorKind: ReportKind,
-    report: ReportId,
+    diag: PAstDiag,
     inst: InstantiationInfo,
-    args: varargs[PNode]
+    posInfo: TLineInfo = unknownLineInfo
   ): PNode =
-  ## Create `nkError` node with given error report and additional subnodes.
-  assert(
-    errorKind in (
-      set[ReportKind](repSemKinds) +
-      set[ReportKind](repVMKinds)),
-    $errorKind
-  )
-
+  ## Create `nkError` node with given diag, and sets the `wrongNode` on `diag`
   assert wrongNode != nil, "can't have a nil node for `wrongNode`"
-  assert not report.isEmpty(), $report
+  assert diag != nil, "can't have a nil `diag`"
+  assert posInfo == unknownLineInfo,
+    "move specific location data to diag variant branches or in display logic"
+  
+  addInNimDebugUtilsError(conf, wrongNode, result)
 
   result = newNodeIT(
     nkError,
     wrongNode.info,
     newType(tyError, ItemId(module: -2, item: -1), nil)
   )
-  result.reportId = report
 
-  addInNimDebugUtilsError(conf, wrongNode, result)
+  result.diag = diag
 
-  result.errAdd #[ 0 ]# wrongNode # wrapped wrong node
-  result.errAdd #[ 1 ]# newIntNode(nkIntLit, ord(errorKind)) # errorKindPos
-  result.errAdd #[ 2 ]# newStrNode(inst.filename, TLineInfo(
-    line: uint16(inst.line), col: int16(inst.column))) # compilerInfoPos
+  if diag.diagId == invalidNodeId:
+    diag.diagId = result.id
+  diag.wrongNode = wrongNode
 
-  for a in args:
-    result.errAdd #[ 3+ ]# a
+  # TODO: this guard is kinda lame, why can't we always have info?
+  diag.location =
+    if diag.location.isValid:
+      diag.location
+    else:
+      wrongNode.info
+
+  # TODO: These guards are likely a bad idea, figure out what to do instead.
+  #       Especially the check on `diag.location`
+  if diag.instLoc.filename in ["???", ""]:
+    diag.instLoc = inst # compilerInfoPos
 
   when defined(nimDebugUnreportedErrors):
-    if errorKind != rsemWrappedError:
-      conf.unreportedErrors[result.reportId] = result
-
-proc newError*(
-    conf: ConfigRef,
-    wrongNode: PNode,
-    report: SemReport,
-    inst: InstantiationInfo,
-    args: seq[PNode] = @[],
-    posInfo: TLineInfo = unknownLineInfo,
-  ): PNode =
-
-  var rep = report
-  if isNil(rep.ast):
-    rep.ast = wrongNode
-
-  let tmp = wrap(
-    rep,
-    inst,
-    if posInfo == unknownLineInfo: wrongNode.info else: posInfo)
-
-  let id = conf.addReport(tmp)
-  assert not id.isEmpty(), $id
-  newError(conf, wrongNode, tmp.semReport.kind, id, inst, args)
+    if diag.kind != adWrappedError:
+      conf.unreportedErrors[result.diag.diagId] = result
 
 template newError*(
     conf: ConfigRef,
     wrongNode: PNode,
-    report: SemReport,
-    args: seq[PNode] = @[],
+    diag: PAstDiag,
     posInfo: TLineInfo = unknownLineInfo,
   ): untyped =
-  newError(conf, wrongNode, report, instLoc(), args, posInfo)
+  newError(conf, wrongNode, diag, instLoc(), posInfo)
 
 template wrapError*(conf: ConfigRef, wrongNodeContainer: PNode): PNode =
   ## `wrongNodeContainer` doesn't directly have an error but one exists further
@@ -165,8 +140,7 @@ template wrapError*(conf: ConfigRef, wrongNodeContainer: PNode): PNode =
   newError(
     conf,
     wrongNodeContainer,
-    rsemWrappedError,
-    conf.store reportSem(rsemWrappedError),
+    PAstDiag(kind: adWrappedError),
     instLoc())
 
 proc wrapIfErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode
@@ -184,8 +158,7 @@ proc wrapIfErrorInSubTree*(conf: ConfigRef, wrongNodeContainer: PNode): PNode
       newError(
         conf,
         wrongNodeContainer,
-        rsemWrappedError,
-        conf.store reportSem(rsemWrappedError),
+        PAstDiag(kind: adWrappedError),
         instLoc())
 
 proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
@@ -195,9 +168,9 @@ proc buildErrorList(config: ConfigRef, n: PNode, errs: var seq[PNode]) =
   of nkEmpty .. nkNilLit:
     discard
   of nkError:
-    buildErrorList(config, n.kids[wrongNodePos], errs)
+    buildErrorList(config, n.diag.wrongNode, errs)
     when defined(nimDebugUnreportedErrors):
-      if n.errorKind == rsemWrappedError and errs.len == 0:
+      if n.errorKind == adWrappedError and errs.len == 0:
         echo "Empty WrappedError: ", config $ n.info
     errs.add n
   else:
@@ -216,13 +189,13 @@ iterator walkErrors*(config: ConfigRef; n: PNode): PNode =
   for i in 0..<errNodes.len:
     # reverse index so we go from the innermost to outermost
     let e = errNodes[i]
-    if e.errorKind == rsemWrappedError:
+    if e.diag.kind == adWrappedError:
       continue
 
     assert(
-      not e.reportId.isEmpty(),
+      e.diag != nil,
       "Error node of kind" & $e.errorKind & "created in " &
-        $n.compilerInstInfo() & " has empty report id")
+        $n.compilerInstInfo() & " has empty diag")
 
     yield e
 

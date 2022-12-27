@@ -148,16 +148,13 @@ proc recordPragma(c: PContext; n: PNode; args: varargs[string]) =
 
 proc invalidPragma*(c: PContext; n: PNode): PNode =
   ## create an error node (`nkError`) for an invalid pragma error
-  c.config.newError(n, reportAst(rsemInvalidPragma, n))
+  c.config.newError(n, PAstDiag(kind: adSemInvalidPragma))
 
 proc illegalCustomPragma*(c: PContext; n: PNode, s: PSym): PNode =
   ## create an error node (`nkError`) for an illegal custom pragma error
   c.config.newError(
     n,
-    reportSym(rsemIllegalCustomPragma, s, ast = n),
-    @[newSymNode(s)],
-    n.info
-  )
+    PAstDiag(kind: adSemIllegalCustomPragma, customPragma: s))
 
 proc pragmaAsm*(c: PContext, n: PNode): tuple[marker: char, err: PNode] =
   ## Gets the marker out of an asm stmts pragma list
@@ -239,7 +236,7 @@ proc newEmptyStrNode(c: PContext; n: PNode): PNode {.noinline.} =
 proc getStrLitNode(c: PContext, n: PNode): PNode =
   ## returns a PNode that's either an error or a string literal node
   if n.kind notin nkPragmaCallKinds or n.len != 2:
-    c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
+    c.config.newError(n, PAstDiag(kind: adSemStringLiteralExpected))
   else:
     n[1] = c.semConstExpr(c, n[1])
     case n[1].kind
@@ -249,7 +246,7 @@ proc getStrLitNode(c: PContext, n: PNode): PNode =
       # xxx: this is a potential bug, but requires a lot more tests in place
       #      for pragmas prior to changing, but we're meant to return n[1], yet
       #      on error we return a wrapped `n`, that's the wrong level of AST.
-      c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
+      c.config.newError(n, PAstDiag(kind: adSemStringLiteralExpected))
 
 
 proc strLitToStrOrErr(c: PContext, n: PNode): (string, PNode) =
@@ -262,20 +259,20 @@ proc strLitToStrOrErr(c: PContext, n: PNode): (string, PNode) =
   of nkError:
     ("", r)
   else:
-    ("", c.config.newError(n, SemReport(kind: rsemStringLiteralExpected)))
+    ("", c.config.newError(n, PAstDiag(kind: adSemStringLiteralExpected)))
 
 proc intLitToIntOrErr(c: PContext, n: PNode): (int, PNode) =
   ## extracts the int from an int literal, or errors if it's not an int
   ## literal or doesn't evaluate to one
   if n.kind notin nkPragmaCallKinds or n.len != 2:
-    (-1, c.config.newError(n, SemReport(kind: rsemIntLiteralExpected)))
+    (-1, c.config.newError(n, PAstDiag(kind: adSemIntLiteralExpected)))
   else:
     n[1] = c.semConstExpr(c, n[1])
     case n[1].kind
     of nkIntLit..nkInt64Lit:
       (int(n[1].intVal), nil)
     else:
-      (-1, c.config.newError(n, SemReport(kind: rsemIntLiteralExpected)))
+      (-1, c.config.newError(n, PAstDiag(kind: adSemIntLiteralExpected)))
 
 proc getOptionalStrLit(c: PContext, n: PNode, defaultStr: string): PNode =
   ## gets an optional strlit node, used for optional arguments to pragmas,
@@ -295,7 +292,7 @@ proc processMagic(c: PContext, n: PNode, s: PSym): PNode =
   ## the `magic` field with the name of the magic in `n` as a string literal.
   result = n
   if n.kind notin nkPragmaCallKinds or n.len != 2:
-    result = c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
+    result = c.config.newError(n, PAstDiag(kind: adSemStringLiteralExpected))
   else:
     var v: string
     if n[1].kind == nkIdent:
@@ -327,9 +324,9 @@ proc isTurnedOn(c: PContext, n: PNode): (bool, PNode) =
     if x.kind == nkIntLit:
       (x.intVal != 0, nil)
     else:
-      (false, c.config.newError(n, SemReport(kind: rsemOnOrOffExpected)))
+      (false, c.config.newError(n, PAstDiag(kind: adSemOnOrOffExpected)))
   else:
-    (false, c.config.newError(n, SemReport(kind: rsemOnOrOffExpected)))
+    (false, c.config.newError(n, PAstDiag(kind: adSemOnOrOffExpected)))
 
 proc onOff(c: PContext, n: PNode, op: TOptions, resOptions: var TOptions): PNode =
   ## produces an error, or toggles the setting in `resOptions` param
@@ -349,9 +346,9 @@ proc processCallConv(c: PContext, n: PNode): PNode =
     of FirstCallConv..LastCallConv:
       c.optionStack[^1].defaultCC = wordToCallConv(sw)
     else:
-      result = c.config.newError(n, SemReport(kind: rsemCallconvExpected))
+      result = c.config.newError(n, PAstDiag(kind: adSemCallconvExpected))
   else:
-    result = c.config.newError(n, SemReport(kind: rsemCallconvExpected))
+    result = c.config.newError(n, PAstDiag(kind: adSemCallconvExpected))
 
 proc getLib(c: PContext, kind: TLibKind, path: PNode): PLib =
   for it in c.libs:
@@ -368,7 +365,7 @@ proc expectDynlibNode(c: PContext, n: PNode): PNode =
   ## `n` must be a callable, this will produce the ast for the callable or
   ## produce a `StringLiteralExpected` error node.
   if n.kind notin nkPragmaCallKinds or n.len != 2:
-    result = c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
+    result = c.config.newError(n, PAstDiag(kind: adSemStringLiteralExpected))
   else:
     # For the OpenGL wrapper we support:
     # {.dynlib: myGetProcAddr(...).}
@@ -376,7 +373,7 @@ proc expectDynlibNode(c: PContext, n: PNode): PNode =
     if result.kind == nkSym and result.sym.kind == skConst:
       result = result.sym.ast # look it up
     if result.typ == nil or result.typ.kind notin {tyPointer, tyString, tyProc}:
-      result = c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
+      result = c.config.newError(n, PAstDiag(kind: adSemStringLiteralExpected))
 
 proc processDynLib(c: PContext, n: PNode, sym: PSym): PNode =
   ## produces (mutates) the `sym` with all the dynamic libraries specified in
@@ -419,10 +416,10 @@ proc processNote(c: PContext, n: PNode): PNode =
     case x:
       of repNone:
         invalidPragma(c, n)
-
       else:
-        let nk = x
-        let x = c.semConstBoolExpr(c, n[1])
+        let
+          nk = x
+          x = c.semConstBoolExpr(c, n[1])
         n[1] = x
 
         if x.kind == nkIntLit and x.intVal != 0:
@@ -447,11 +444,11 @@ proc processNote(c: PContext, n: PNode): PNode =
     if isBracketExpr:
       let cw = whichKeyword(n[0][0].ident)
       case cw:
-        of wHint:           handleNote(repHintKinds,    cnCurrent)
-        of wWarning:        handleNote(repWarningKinds, cnCurrent)
-        of wWarningAsError: handleNote(repWarningKinds, cnWarnAsError)
-        of wHintAsError:    handleNote(repHintKinds,    cnHintAsError)
-        else: invalidPragma(c, n)
+      of wHint:           handleNote(repHintKinds,    cnCurrent)
+      of wWarning:        handleNote(repWarningKinds, cnCurrent)
+      of wWarningAsError: handleNote(repWarningKinds, cnWarnAsError)
+      of wHintAsError:    handleNote(repHintKinds,    cnHintAsError)
+      else: invalidPragma(c, n)
     else:
       bracketExpr
 
@@ -499,13 +496,13 @@ proc processExperimental(c: PContext; n: PNode): PNode =
         c.features.incl feature
       except ValueError:
         n[1] = c.config.newError(
-          n[1], reportAst(rsemUnknownExperimental, n[1]))
+          n[1], PAstDiag(kind: adSemUnknownExperimental))
 
         result = wrapError(c.config, n)
     of nkError:
       result = wrapError(c.config, n)
     else:
-      result = c.config.newError(n, reportSem(rsemStringLiteralExpected))
+      result = c.config.newError(n, PAstDiag(kind: adSemStringLiteralExpected))
 
 proc tryProcessOption(c: PContext, n: PNode, resOptions: var TOptions): (bool, PNode) =
   ## try to process callable pragmas that are also compiler options, the value
@@ -558,9 +555,9 @@ proc tryProcessOption(c: PContext, n: PNode, resOptions: var TOptions): (bool, P
             excl(resOptions, optOptimizeSpeed)
             excl(resOptions, optOptimizeSize)
           else:
-            result = (false, c.config.newError(n, SemReport(
-              kind: rsemWrongIdent,
-              expectedIdents: @["none", "speed", "size"])))
+            result = (false, c.config.newError(n, PAstDiag(
+              kind: adSemWrongIdent,
+              allowedIdents: @["none", "speed", "size"])))
       else:
         result = (false, nil)
 
@@ -573,7 +570,7 @@ proc processOption(c: PContext, n: PNode, resOptions: var TOptions): PNode =
       n
     else:
       # calling conventions (boring...):
-      c.config.newError(n, SemReport(kind: rsemPragmaOptionExpected))
+      c.config.newError(n, PAstDiag(kind: adSemPragmaOptionExpected))
 
 proc processPush(c: PContext, n: PNode, start: int): PNode =
   ## produces (mutates) `n`, or an error, `start` indicates which of the
@@ -581,7 +578,7 @@ proc processPush(c: PContext, n: PNode, start: int): PNode =
   ## child and `n` each in errors.
   result = n
   if n[start-1].kind in nkPragmaCallKinds:
-    result = c.config.newError(n, reportSem(rsemUnexpectedPushArgument))
+    result = c.config.newError(n, PAstDiag(kind: adSemUnexpectedPushArgument))
     return
   var x = pushOptionEntry(c)
   for i in start..<n.len:
@@ -612,7 +609,7 @@ proc processPop(c: PContext, n: PNode): PNode =
   # process a pop pragma, produces (mutates) `n` or an error wrapping `n`
   result = n
   if c.optionStack.len <= 1:
-    result = c.config.newError(n, SemReport(kind: rsemMismatchedPopPush))
+    result = c.config.newError(n, PAstDiag(kind: adSemMismatchedPopPush))
   else:
     popOptionEntry(c)
 
@@ -687,7 +684,7 @@ proc processCompile(c: PContext, n: PNode): PNode =
       result[1] = nil
     else:
       result = ("", c.config.newError(
-        n, SemReport(kind: rsemStringLiteralExpected)))
+        n, PAstDiag(kind: adSemStringLiteralExpected)))
 
   let it = if n.kind in nkPragmaCallKinds and n.len == 2: n[1] else: n
   if it.kind in {nkPar, nkTupleConstr} and it.len == 2:
@@ -718,8 +715,8 @@ proc processCompile(c: PContext, n: PNode): PNode =
             result = err
             return
         else:
-          result = c.config.newError(n, SemReport(
-            kind: rsemExcessiveCompilePragmaArgs))
+          result = c.config.newError(n, PAstDiag(
+            kind: adSemExcessiveCompilePragmaArgs))
           return
       else:
         result = err
@@ -755,7 +752,7 @@ proc semAsmOrEmit*(con: PContext, n: PNode, marker: char): PNode =
     result = newNodeI(if n.kind == nkAsmStmt: nkAsmStmt else: nkArgList, n.info)
     var str = n[1].strVal
     if str == "":
-      result = con.config.newError(n, SemReport(kind: rsemEmptyAsm))
+      result = con.config.newError(n, PAstDiag(kind: adSemEmptyAsm))
       return
     # now parse the string literal and substitute symbols:
     var a = 0
@@ -782,16 +779,14 @@ proc semAsmOrEmit*(con: PContext, n: PNode, marker: char): PNode =
       if c < 0: break
       a = c + 1
   else:
-    result = con.config.newError(n, SemReport(
-      ast: n,
-      kind: rsemIllformedAst,
-      str: "Expected string string literal for asm/emit statement [1] " &
-        "but AST contains '$1'" % [$n[1].kind]))
+    result = con.config.newError(n, PAstDiag(
+      kind: adSemAsmEmitExpectsStringLiteral,
+      unexpectedKind: n[1].kind))
 
 proc pragmaEmit(c: PContext, n: PNode): PNode =
   result = n
   if n.kind notin nkPragmaCallKinds or n.len != 2:
-    result = c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
+    result = c.config.newError(n, PAstDiag(kind: adSemStringLiteralExpected))
   else:
     let n1 = n[1]
     if n1.kind == nkBracket:
@@ -805,7 +800,7 @@ proc pragmaEmit(c: PContext, n: PNode): PNode =
       of nkStrLit, nkRStrLit, nkTripleStrLit:
         n[1] = semAsmOrEmit(c, n, '`')
       else:
-        result = c.config.newError(n, SemReport(kind: rsemStringLiteralExpected))
+        result = c.config.newError(n, PAstDiag(kind: adSemStringLiteralExpected))
 
 proc noVal(c: PContext; n: PNode): PNode =
   ## ensure that this pragma does not produce a value
@@ -826,15 +821,16 @@ proc pragmaLine(c: PContext, n: PNode): PNode =
       if x.kind == nkExprColonExpr: x = x[1]
       if y.kind == nkExprColonExpr: y = y[1]
       if x.kind != nkStrLit:
-        result = c.config.newError(n, reportSem(rsemStringLiteralExpected))
+        result = c.config.newError(n,
+                    PAstDiag(kind: adSemStringLiteralExpected))
       elif y.kind != nkIntLit:
-        result = c.config.newError(n, reportSem(rsemIntLiteralExpected))
+        result = c.config.newError(n, PAstDiag(kind: adSemIntLiteralExpected))
       else:
         n.info.fileIndex = fileInfoIdx(c.config, AbsoluteFile(x.strVal))
         n.info.line = uint16(y.intVal)
     else:
       result = c.config.newError(
-        n, reportAst(rsemLinePragmaExpectsTuple, n))
+        n, PAstDiag(kind: adSemLinePragmaExpectsTuple))
   else:
     # sensible default:
     n.info = getInfoContext(c.config, -1)
@@ -864,8 +860,8 @@ proc pragmaRaisesOrTags(c: PContext, n: PNode): PNode =
       var t = skipTypes(c.semTypeNode(c, x, nil), skipPtrs)
       if t.kind != tyObject and not t.isMetaType:
         # xxx: was errGenerated
-        result = c.config.newError(x, reportTyp(
-          rsemRaisesPragmaExpectsObject, t))
+        result = c.config.newError(x, PAstDiag(
+          kind: adSemRaisesPragmaExpectsObject, wrongType: t))
 
         return
       x.typ = t
@@ -895,7 +891,7 @@ proc pragmaLockStmt(c: PContext; it: PNode): PNode =
     let n = it[1]
     if n.kind != nkBracket:
       # xxx: was errGenerated
-      it[1] = c.config.newError(n, reportSem(rsemLocksPragmaExpectsList))
+      it[1] = c.config.newError(n, PAstDiag(kind: adSemLocksPragmaExpectsList))
       result = wrapError(c.config, it)
     else:
       for i in 0..<n.len:
@@ -910,17 +906,15 @@ proc pragmaLocks(c: PContext, it: PNode): (TLockLevel, PNode) =
       if it[1].strVal == "unknown":
         result = (UnknownLockLevel, nil)
       else:
-        it[1] = c.config.newError(it[1], reportStr(
-          rsemLocksPragmaBadLevel,
-          "invalid string literal for locks pragma (only allowed string is \"unknown\")"))
+        it[1] = c.config.newError(it[1], PAstDiag(
+          kind: adSemLocksPragmaBadLevelString))
         result = (UnknownLockLevel, wrapError(c.config, it))
     else:
       let (x, err) = intLitToIntOrErr(c, it)
       if err.isNil:
         if x < 0 or x > MaxLockLevel:
-          it[1] = c.config.newError(it[1], reportStr(
-            rsemLocksPragmaBadLevel,
-            "integer must be within 0.." & $MaxLockLevel))
+          it[1] = c.config.newError(it[1], PAstDiag(
+            kind: adSemLocksPragmaBadLevelRange))
           result = (UnknownLockLevel, wrapError(c.config, it))
         else:
           result = (TLockLevel(x), nil)
@@ -930,7 +924,7 @@ proc typeBorrow(c: PContext; sym: PSym, n: PNode): PNode =
   if n.kind in nkPragmaCallKinds and n.len == 2:
     let it = n[1]
     if it.kind != nkAccQuoted:
-      result = c.config.newError(n, SemReport(kind: rsemBorrowPragmaNonDot))
+      result = c.config.newError(n, PAstDiag(kind: adSemBorrowPragmaNonDot))
       return
   incl(sym.typ.flags, tfBorrowDot)
 
@@ -948,7 +942,7 @@ proc markCompilerProc(c: PContext; s: PSym): PNode =
     of ExternNameSetFailed:
       result = c.config.newError(
         newSymNode(s),
-        SemReport(kind: rsemInvalidExtern, sym: s, externName: name))
+        PAstDiag(kind: adSemInvalidExtern, compProcToBe: s, externName: name))
 
   s.flags.incl {sfCompilerProc, sfUsed}
   registerCompilerProc(c.graph, s)
@@ -968,8 +962,7 @@ proc deprecatedStmt(c: PContext; outerPragma: PNode): PNode =
 
     return
   elif pragma.kind != nkBracket:
-    result = c.config.newError(pragma, reportStr(
-      rsemBadDeprecatedArgs, "list of key:value pairs expected"))
+    result = c.config.newError(pragma, PAstDiag(kind: adSemBadDeprecatedArgs))
   
     return
 
@@ -1002,8 +995,7 @@ proc deprecatedStmt(c: PContext; outerPragma: PNode): PNode =
 
         return
     else:
-      result = c.config.newError(n, reportStr(
-        rsemBadDeprecatedArgs, "key:value pair expected"))
+      result = c.config.newError(n, PAstDiag(kind: adSemBadDeprecatedArgs))
 
       return
 
@@ -1076,14 +1068,14 @@ proc processEffectsOf(c: PContext, n: PNode; owner: PSym): PNode =
           n
         else:
           # xxx: was errGenerated for error handling
-          c.config.newError(n, reportAst(rsemMisplacedEffectsOf, n))
+          c.config.newError(n, PAstDiag(kind: adSemMisplacedEffectsOf))
       else:
         # xxx: was errGenerated for error handling
-        c.config.newError(n, reportAst(rsemMissingPragmaArg, n))
+        c.config.newError(n, PAstDiag(kind: adSemMissingPragmaArg))
 
   if n.kind notin nkPragmaCallKinds or n.len != 2:
     # xxx: was errGenerated for error handling
-    result = c.config.newError(n, reportAst(rsemMissingPragmaArg, n))
+    result = c.config.newError(n, PAstDiag(kind: adSemMissingPragmaArg))
   else:
     let it = n[1]
     if it.kind in {nkCurly, nkBracket}:
@@ -1119,9 +1111,9 @@ proc prepareSinglePragma(
   of nkCast:
     result =
       if comesFromPush:
-        c.config.newError(n, reportAst(rsemCannotPushCast, nil))
+        c.config.newError(n, PAstDiag(kind: adSemCannotPushCast))
       elif not isStatement:
-        c.config.newError(n, reportAst(rsemCastRequiresStatement, nil))
+        c.config.newError(n, PAstDiag(kind: adSemCastRequiresStatement))
       elif whichPragma(key[1]) in {wRaises, wTags}:
         pragmaRaisesOrTags(c, key[1])
       else:
@@ -1152,7 +1144,8 @@ proc prepareSinglePragma(
     inc c.instCounter
     if c.instCounter > maxInstantiation:
       result = c.config.newError(
-        it, reportSym(rsemPragmaRecursiveDependency, userPragma))
+        it, PAstDiag(kind: adSemPragmaRecursiveDependency,
+                     userPragma: userPragma))
 
       return # xxx: under the legacy error scheme, this was a
              #      `msgs.globalReport`, which means `doRaise`, or throw an
@@ -1182,7 +1175,7 @@ proc prepareSinglePragma(
             result = it
           of ExternNameSetFailed:
             result = c.config.newError(
-              it, SemReport(kind: rsemInvalidExtern, externName: ext))
+              it, PAstDiag(kind: adSemInvalidExtern, externName: ext))
 
         incl(sym.flags, sfUsed) # avoid wrong hints
       of wImportc:
@@ -1200,7 +1193,7 @@ proc prepareSinglePragma(
               it
             of ExternNameSetFailed:
               c.config.newError(
-                it, SemReport(kind: rsemInvalidExtern, externName: name))
+                it, PAstDiag(kind: adSemInvalidExtern, externName: name))
       of wImportCompilerProc:
         let nameLit = getOptionalStrLit(c, it, "$1")
         case nameLit.kind
@@ -1216,7 +1209,7 @@ proc prepareSinglePragma(
               it
             of ExternNameSetFailed:
               c.config.newError(
-                it, SemReport(kind: rsemInvalidExtern, externName: name))
+                it, PAstDiag(kind: adSemInvalidExtern, externName: name))
       of wExtern:
         let (name, err) = strLitToStrOrErr(c, it)
         if err.isNil:
@@ -1226,7 +1219,7 @@ proc prepareSinglePragma(
               it
             of ExternNameSetFailed:
               c.config.newError(
-                it, SemReport(kind: rsemInvalidExtern, externName: name))
+                it, PAstDiag(kind: adSemInvalidExtern, externName: name))
         else:
           result = err
       of wDirty:
@@ -1245,7 +1238,7 @@ proc prepareSinglePragma(
           let name = nameLit.strVal
           result =
             if c.config.backend != backendJs:
-              c.config.newError(it, reportSem rsemImportjsRequiresJs)
+              c.config.newError(it, PAstDiag(kind: adSemImportjsRequiresJs))
             else:
               sym.flags.incl {sfImportc, sfInfixCall}
               case setExternName(c, sym, name)
@@ -1253,7 +1246,7 @@ proc prepareSinglePragma(
                 it
               of ExternNameSetFailed:
                 c.config.newError(
-                  it, SemReport(kind: rsemInvalidExtern, externName: name))
+                  it, PAstDiag(kind: adSemInvalidExtern, externName: name))
       of wSize:
         result =
           if sym.typ == nil:
@@ -1274,7 +1267,7 @@ proc prepareSinglePragma(
             sym.typ.align = floatInt64Align(c.config)
             it
           else:
-            c.config.newError(it, reportSem rsemBitsizeRequires1248)
+            c.config.newError(it, PAstDiag(kind: adSemBitsizeRequires1248))
       of wAlign:
         let (alignment, err) = intLitToIntOrErr(c, it)
         result =
@@ -1282,12 +1275,12 @@ proc prepareSinglePragma(
           of -1:
             err
           of 0:
-            c.config.newError(it, reportSem rsemAlignRequiresPowerOfTwo)
+            c.config.newError(it, PAstDiag(kind: adSemAlignRequiresPowerOfTwo))
           elif isPowerOfTwo(alignment):
             sym.alignment = max(sym.alignment, alignment)
             it
           else:
-            c.config.newError(it, reportSem rsemAlignRequiresPowerOfTwo)
+            c.config.newError(it, PAstDiag(kind: adSemAlignRequiresPowerOfTwo))
       of wNodecl:
         result = noVal(c, it)
         incl(sym.loc.flags, lfNoDecl)
@@ -1354,7 +1347,7 @@ proc prepareSinglePragma(
           incl(sym.flags, sfNoReturn)
         if sym.typ[0] != nil:
           # xxx: the info for this node used to be: sym.ast[paramsPos][0].info
-          result = c.config.newError(it, reportSem rsemNoReturnHasReturn)
+          result = c.config.newError(it, PAstDiag(kind: adSemNoReturnHasReturn))
       of wNoDestroy:
         result = noVal(c, it)
         incl(sym.flags, sfGeneratedOp)
@@ -1386,7 +1379,7 @@ proc prepareSinglePragma(
         elif sym != nil and sym.kind != skModule:
           # We don't support the extra annotation field
           if it.kind in nkPragmaCallKinds:
-            result = c.config.newError(it, reportSem rsemMisplacedDeprecation)
+            result = c.config.newError(it, PAstDiag(kind: adSemMisplacedDeprecation))
           incl(sym.flags, sfDeprecated)
           # At this point we're quite sure this is a statement and applies to the
           # whole module
@@ -1492,10 +1485,9 @@ proc prepareSinglePragma(
             else:
               recordPragma(c, it, "error", s.strVal)
               result = c.config.newError(
-                it, reportStr(rsemCustomUserError, s.strVal))
+                it, PAstDiag(kind: adSemCustomUserError, errmsg: s.strVal))
       of wFatal:
-        result = c.config.newError(
-          it, SemReport(kind: rsemFatalError), args = @[getStrLitNode(c, it)])
+        result = c.config.newError(it, PAstDiag(kind: adSemFatalError))
       of wDefine:
         result = processDefine(c, it)
       of wUndef:
@@ -1604,7 +1596,7 @@ proc prepareSinglePragma(
           sym.typ.kind = tyUncheckedArray
       of wUnion:
         if c.config.backend == backendJs:
-          result = c.config.newError(it, reportSem rsemNoUnionForJs)
+          result = c.config.newError(it, PAstDiag(kind: adSemNoUnionForJs))
         else:
           result = noVal(c, it)
           if sym.typ == nil:
@@ -1658,7 +1650,8 @@ proc prepareSinglePragma(
           (sym.bitsize, result) = intLitToIntOrErr(c, it)
           if result.isNil: result = it
           if sym.bitsize <= 0:
-            result = c.config.newError(it, reportSem rsemBitsizeRequiresPositive)
+            result = c.config.newError(it,
+                      PAstDiag(kind: adSemBitsizeRequiresPositive))
       of wGuard:
         result = it
         if sym == nil or sym.kind notin {skVar, skLet, skField}:
@@ -1685,7 +1678,8 @@ proc prepareSinglePragma(
             result = it
       of wExperimental:
         if not isTopLevel(c):
-          result = c.config.newError(it, reportSem rsemExperimentalRequiresToplevel)
+          result = c.config.newError(it,
+                      PAstDiag(kind: adSemExperimentalRequiresToplevel))
         result = processExperimental(c, it)
       of wNoRewrite:
         result = noVal(c, it)
@@ -1748,7 +1742,7 @@ proc pragmaRec(c: PContext, sym: PSym, n: PNode, validPragmas: TSpecialWords;
 
     if p.isErrorLike:
       assert not cyclicTree(result)
-      if p.isError and p.kids[0] == result:
+      if p.isError and p.diag.wrongNode == result:
         # This can happen because processPush for example may
         # return the whole pragma node wrapped in an error.
         # We don't want to accidently create a cycle in that case.
@@ -1789,7 +1783,7 @@ proc implicitPragmas*(c: PContext, sym: PSym, info: TLineInfo,
             result = newSym(skError, sym.name, nextSymId(c.idgen), sym.owner, sym.info)
             result.typ = c.errorType
             result.ast = c.config.newError(
-              p, reportSem rsemImplicitPragmaError, args = @[newSymNode(sym)])
+              p, PAstDiag(kind: adSemImplicitPragmaError, implicitPragma: sym))
             return
           c.config.internalAssert(nfImplicitPragma notin p.flags, info, "implicitPragmas")
           inc i
@@ -1800,7 +1794,8 @@ proc implicitPragmas*(c: PContext, sym: PSym, info: TLineInfo,
     if lfExportLib in sym.loc.flags and sfExportc notin sym.flags:
       result = newSym(skError, sym.name, nextSymId(c.idgen), sym.owner, sym.info)
       result.typ = c.errorType
-      result.ast = c.config.newError(newSymNode(sym), reportSem rsemPragmaDynlibRequiresExportc)
+      result.ast = c.config.newError(newSymNode(sym),
+                      PAstDiag(kind: adSemPragmaDynlibRequiresExportc))
       return
     var lib = c.optionStack[^1].dynlib
     if {lfDynamicLib, lfHeader} * sym.loc.flags == {} and

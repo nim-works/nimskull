@@ -3,6 +3,7 @@
 import
   compiler/ast/[
     reports_base,
+    report_enums,
   ]
 
 type

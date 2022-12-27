@@ -176,7 +176,7 @@ proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
     # xxx: this is a hack to detect we're evaluating a constant expression or
     #      some other vm code, it seems
     # fail fast:
-    result = c.config.newError(n, reportSem rsemRawTypeMismatch)
+    result = c.config.newError(n, PAstDiag(kind: adSemRawTypeMismatch))
     return # xxx: under the legacy error scheme, this was a `msgs.globalReport`,
            #      which means `doRaise`, but that made sense because we did a
            #      double pass, now we simply return for fast exit.
@@ -185,10 +185,8 @@ proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
     #
     # QUESTION I wonder if it makes sense to still attempt spelling
     # correction here.
-    result = c.config.newError(n, reportSem rsemExpressionCannotBeCalled)
+    result = c.config.newError(n, PAstDiag(kind: adSemExpressionCannotBeCalled))
     return
-
-  var report = reportAst(rsemCallTypeMismatch, n)
 
   # attempt to handle spelling
   var f = n[0]
@@ -198,14 +196,19 @@ proc notFoundError(c: PContext, n: PNode, errors: seq[SemCallMismatch]): PNode =
   if f.kind in {nkOpenSymChoice, nkClosedSymChoice}:
     f = f[0]
 
-  if f.kind in {nkSym, nkIdent}:
-    report.spellingCandidates = fixSpelling(
-      c, if f.kind == nkSym: f.sym.name else: f.ident)
-
+  let
+    spellingCandidates =
+      if f.kind in {nkSym, nkIdent}:
+        fixSpelling(c, if f.kind == nkSym: f.sym.name else: f.ident)
+      else:
+        @[]
+    diag = PAstDiag(kind: adSemCallTypeMismatch,
+                    callSpellingCandidates: spellingCandidates,
+                    callMismatches: errors)
+  
   discard maybeResemArgs(c, n, 1)
-  report.callMismatches = errors
 
-  result = newError(c.config, n, report)
+  result = c.config.newError(n, diag)
 
 proc bracketNotFoundError(c: PContext; n: PNode): PNode =
   var errors: seq[SemCallMismatch]
@@ -223,8 +226,8 @@ proc bracketNotFoundError(c: PContext; n: PNode): PNode =
   result = notFoundError(c, n, errors)
 
 proc getMsgDiagnostic(
-    c: PContext, flags: TExprFlags, n, origF: PNode): SemReport =
-  ## Generate report for
+    c: PContext, flags: TExprFlags, n, origF: PNode): PAstDiag =
+  ## Generate diagnostics for
   ## - `foo.bar()` in case of missing `bar()` overloads
   ## - `iter()` for inline iterators outside of the loop
   ## - `obj.field` for missing fields
@@ -238,45 +241,54 @@ proc getMsgDiagnostic(
   # HACK apparently this call is still necessary to provide some additional
   # input validation and optionally raise the 'identifier expected but
   # found' error.
-  discard legacyConsiderQuotedIdent(c, f, n)
-
+  case f.kind
+  of nkIdent, nkSym, nkAccQuoted, nkOpenSymChoice, nkClosedSymChoice:
+    let (_, err) = considerQuotedIdent(c, f)
+    if err != nil:
+      return PAstDiag(kind: adSemExpectedIdentifierInExpr,
+                      notIdent: if f.kind == nkAccQuoted and f.len == 1: f[0]
+                                else: f,
+                      instloc: instLoc())
+  else:
+    return PAstDiag(kind: adSemExpectedIdentifierInExpr,
+                    notIdent: f,
+                    instLoc: instLoc()) # set instLoc as it's being lost, see
+                                        # tests/errmsgs/twrongcolon
+  
   if c.compilesContextId > 0 and efExplain notin flags:
     # we avoid running more diagnostic when inside a `compiles(expr)`, to
     # errors while running diagnostic (see test D20180828T234921), and
     # also avoid slowdowns in evaluating `compiles(expr)`.
-    result = SemReport(kind: rsemCompilesReport)
-
+    result = PAstDiag(kind: adSemCallInCompilesContextNotAProcOrField)
   else:
-    var o: TOverloadIter
-    if {nfDotField, nfExplicitCall} * n.flags == {nfDotField}:
-      result = SemReport(
-        typ: n[1].typ,
-        str: $f,
-        ast: n,
-        explicitCall: false,
-        kind: rsemCallNotAProcOrField)
-
-    else:
-      result = SemReport(
-        str: $f,
-        ast: n,
-        explicitCall: true,
-        kind: rsemCallNotAProcOrField)
+    result =
+      if {nfDotField, nfExplicitCall} * n.flags == {nfDotField}:
+        PAstDiag(
+          kind: adSemImplicitDotCallNotAProcOrField,
+          notProcOrField: f,
+          instLoc: instLoc())
+      else:
+        PAstDiag(
+          kind: adSemCallNotAProcOrField,
+          notProcOrField: f,
+          instLoc: instLoc())
 
     # store list of potential overload candidates that might be misuesd -
     # for example `obj.iterator()` call outside of the for loop.
-    var sym = initOverloadIter(o, c, f)
+    var
+      o: TOverloadIter
+      sym = initOverloadIter(o, c, f)
     while sym != nil:
       if not sym.isError:
         # xxx: unlikely we need to do a localReport here, should be earlier
-        result.unexpectedCandidate.add(sym)
+        result.unexpectedCandidates.add(sym)
       sym = nextOverloadIter(o, c, f)
 
     if f.kind == nkIdent:
       # Throw in potential typos - `obj.cull()` or `obj.lenghh` might
       # potentially be caused by this. This error is also called for `4
       # +2`, so command is not always an identifier.
-      result.spellingCandidates = fixSpelling(c, f.ident)
+      result.spellingAlts = fixSpelling(c, f.ident)
 
 proc resolveOverloads(c: PContext, n: PNode,
                       filter: TSymKinds, flags: TExprFlags,
@@ -344,8 +356,8 @@ proc resolveOverloads(c: PContext, n: PNode,
             let msg = getMsgDiagnostic(c, flags, n, f)
             result.call = c.config.newError(n, msg)
           else:
-            n[2] = c.config.newError(n[2], SemReport(
-              kind: rsemUndeclaredField, ast: n[2], sym: sym, typ: sym.typ))
+            n[2] = c.config.newError(n[2], PAstDiag(
+              kind: adSemUndeclaredField, givenSym: sym, symTyp: sym.typ))
 
             result.call = wrapError(c.config, n)
         else:
@@ -539,7 +551,8 @@ proc semOverloadedCall(c: PContext, n: PNode,
     result = r.call
 
 proc explicitGenericInstError(c: PContext; n: PNode): PNode =
-  c.config.newError(n, reportAst(rsemCannotInstantiate, n), posInfo = getCallLineInfo(n))
+  c.config.newError(n, PAstDiag(kind: adSemCannotInstantiate,
+                                callLineInfo: getCallLineInfo(n)))
 
 proc explicitGenericSym(c: PContext, n: PNode, s: PSym): PNode =
   # binding has to stay 'nil' for this to work!
@@ -588,12 +601,11 @@ proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
         let expected = s.ast[genericParamsPos].safeLen
         c.config.newError(
           n,
-          SemReport(kind: rsemWrongNumberOfGenericParams,
-                    ast: n,
+          PAstDiag(kind: adSemWrongNumberOfGenericParams,
+                    gnrcCallLineInfo: getCallLineInfo(n),
                     countMismatch: (
-                      expected: toInt128(expected),
-                      got: toInt128(n.len - 1))),
-          posInfo = getCallLineInfo(n))
+                      expected: expected,
+                      got: n.len - 1)))
       else:
         explicitGenericSym(c, n, s)
     
@@ -621,7 +633,6 @@ proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
       result = result[0]
     elif result.len == 0:
       result = explicitGenericInstError(c, n)
-    # candidateCount != 1: return explicitGenericInstError(c, n)
   else:
     result = explicitGenericInstError(c, n)
 

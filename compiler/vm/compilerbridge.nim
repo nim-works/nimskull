@@ -53,6 +53,8 @@ import
 
 import std/options as std_options
 
+from compiler/vm/vmgen import vmGenDiagToAstDiagVmGenError
+
 # TODO: legacy report cruft remove from here
 from compiler/ast/reports import wrap, toReportLineInfo
 from compiler/ast/reports_vm import VMReport
@@ -61,11 +63,22 @@ from compiler/ast/reports_internal import InternalReport
 from compiler/ast/report_enums import ReportKind
 
 type
+  ExecErrorKind* = enum
+    execErrorVm
+    execErrorVmGen
+    execErrorQuit
+
   ExecErrorReport* = object
-    stackTrace*: VmStackTrace ## The VM stack-trace
-    location*: TLineInfo      ## Source location of the trace
+    stackTrace*: VmStackTrace   ## The VM stack-trace
+    location*: TLineInfo        ## Source location of the trace
     instLoc*: InstantiationInfo ## report instantiation location
-    report*: VMReport         ## The report detailing the error
+    case kind*: ExecErrorKind   ## kind of error execution of vm code gen
+      of execErrorVm:
+        vmErr*: VmEvent
+      of execErrorVmGen:
+        genErr*: VmGenDiag
+      of execErrorQuit:
+        exitCode*: int
 
   ExecutionResult* = Result[PNode, ExecErrorReport]
 
@@ -148,50 +161,76 @@ proc unpackResult(res: sink ExecutionResult; config: ConfigRef, node: PNode): PN
   else:
     let
       err = res.takeErr
-      errKind = err.report.kind
-      stId = config.addReport(wrap(
-        VMReport(
-          kind: rvmStackTrace,
-          currentExceptionA: err.stackTrace.currentExceptionA,
-          currentExceptionB: err.stackTrace.currentExceptionB,
-          traceReason: vmEventToLegacyReportKind(err.stackTrace.traceReason),
-          stacktrace: err.stackTrace.stacktrace,
-          skipped: err.stackTrace.skipped,
-          location: some err.location,
-          reportInst: toReportLineInfo(err.instLoc)
-          )))
-      rId = config.addReport(wrap(err.report))
+      errKind = err.kind
+      astDiagTrace = AstDiagVmTrace(
+        currentExceptionA: err.stackTrace.currentExceptionA,
+        currentExceptionB: err.stackTrace.currentExceptionB,
+        stacktrace: err.stackTrace.stacktrace,
+        skipped: err.stackTrace.skipped,
+        location: err.location,
+        instLoc: err.instLoc)
+      astDiag =
+        case errKind
+        of execErrorVm:
+          let location =
+            case err.vmErr.kind
+            of vmEvtUserError:         err.vmErr.errLoc
+            of vmEvtArgNodeNotASymbol: err.vmErr.argAst.info
+            else:                      err.location
 
-    result = config.newError(node, errKind, rId, instLoc(-1)):
-                             [newIntNode(nkIntLit, ord(stId))]
+          PAstDiag(
+            kind: adVmError,
+            location: location,
+            instLoc: err.vmErr.instLoc,
+            vmErr: vmEventToAstDiagVmError(err.vmErr),
+            vmTrace: astDiagTrace)
+        of execErrorVmGen:
+          PAstDiag(
+            kind: adVmGenError,
+            location: err.genErr.location,
+            instLoc: err.genErr.instLoc,
+            vmGenErr: vmGenDiagToAstDiagVmGenError(err.genErr),
+            duringJit: true,
+            vmGenTrace: astDiagTrace)
+        of execErrorQuit:
+          PAstDiag(
+            kind: adVmQuit,
+            location: err.location,
+            instLoc: err.instLoc,
+            vmExitCode: err.exitCode,
+            vmExitTrace: astDiagTrace)
 
-proc buildError(c: TCtx, thread: VmThread, event: sink VMReport): ExecErrorReport  =
-  ## Creates an `ExecErrorReport` with the `event` and a stack-trace for
-  ## `thread`
-  result.stackTrace = createStackTrace(c, thread)
-  result.location = source(c, thread)
-  result.instLoc = instLoc(-1)
-  result.report = event
-
-  if result.report.location.isNone():
-    # use the location info of the failing instruction if none is provided
-    result.report.location = some result.location
+    result = config.newError(node, astDiag, instLoc(-1))
 
 proc buildError(c: TCtx, thread: VmThread, event: sink VmEvent): ExecErrorReport  =
   ## Creates an `ExecErrorReport` with the `event` and a stack-trace for
   ## `thread`
-  result.stackTrace = createStackTrace(c, thread)
-  result.instLoc = instLoc(-1)
-  result.location = source(c, thread)
-  let location =
-    case event.kind
-    of vmEvtUserError:
-      event.errLoc
-    of vmEvtArgNodeNotASymbol:
-      event.argAst.info
-    else:
-      result.location
-  result.report = vmEventToLegacyVmReport(event, some location)
+  ExecErrorReport(
+    stackTrace: createStackTrace(c, thread),
+    instLoc: instLoc(-1),
+    location: source(c, thread),
+    kind: execErrorVm,
+    vmErr: event)
+
+proc buildError(c: TCtx, thread: VmThread, diag: sink VmGenDiag): ExecErrorReport  =
+  ## Creates an `ExecErrorReport` with the `diag` and a stack-trace for
+  ## `thread`
+  ExecErrorReport(
+    stackTrace: createStackTrace(c, thread),
+    instLoc: instLoc(-1),
+    location: source(c, thread),
+    kind: execErrorVmGen,
+    genErr: diag)
+
+proc buildQuit(c: TCtx, thread: VmThread, exitCode: int): ExecErrorReport =
+  ## Creates an `ExecErrorReport` with the `exitCode` and a stack-trace for
+  ## `thread`
+  ExecErrorReport(
+    stackTrace: createStackTrace(c, thread),
+    instLoc: instLoc(-1),
+    location: source(c, thread),
+    kind: execErrorQuit,
+    exitCode: exitCode)
 
 proc createLegacyStackTrace(
     c: TCtx, 
@@ -202,7 +241,6 @@ proc createLegacyStackTrace(
   result = VMReport(kind: rvmStackTrace,
                     currentExceptionA: st.currentExceptionA,
                     currentExceptionB: st.currentExceptionB,
-                    traceReason: vmEventToLegacyReportKind(st.traceReason),
                     stacktrace: st.stacktrace,
                     skipped: st.skipped,
                     location: some source(c, thread),
@@ -240,9 +278,7 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
         #        called with a value outside of int8 range!
         msgQuit(int8(r.exitCode))
       of emConst, emOptimize:
-        # XXX: the report is not really VM-related anymore
-        let evt = VmEvent(kind: vmEvtQuit, exitCode: r.exitCode)
-        result.initFailure buildError(c, thread, evt)
+        result.initFailure buildQuit(c, thread, r.exitCode)
         break
       of emStandalone:
         unreachable("not valid at compile-time")
@@ -253,7 +289,7 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
       if res.isErr:
         # code-generation failed
         result.initFailure:
-          buildError(c, thread, vmGenDiagToLegacyVmReport(res.takeErr))
+          buildError(c, thread, res.takeErr)
         break
 
       # success! ``compile`` updated the procedure's entry, so we can
@@ -275,11 +311,15 @@ template returnOnErr(res: VmGenResult, config: ConfigRef, node: PNode): CodeInfo
     r.take
   else:
     let
-      report = vmGenDiagToLegacyVmReport(r.takeErr)
-      kind = report.kind
-      rid = config.addReport(wrap(report))
+      vmGenDiag = r.takeErr
+      diag = PAstDiag(
+              kind: adVmGenError,
+              location: vmGenDiag.location,
+              instLoc: vmGenDiag.instLoc,
+              vmGenErr: vmGenDiagToAstDiagVmGenError(vmGenDiag),
+              duringJit: false)
 
-    return config.newError(node, kind, rid, instLoc())
+    return config.newError(node, diag, instLoc())
 
 proc reportIfError(config: ConfigRef, n: PNode) =
   ## If `n` is a `nkError`, reports the error via `handleReport`. This is
@@ -288,12 +328,24 @@ proc reportIfError(config: ConfigRef, n: PNode) =
   ## `nkError`
   if n.isError:
     # Errors from direct vmgen invocations don't have a stack-trace
-    if n.kids.len == 4 and n.kids[3].kind == nkIntLit:
-      # XXX: testing for the presence of a stack-trace report like this is
-      #      not a good idea. Error node layout might change, making the test
-      #      invalid. VM errors should get their own report object with the
-      #      stack-trace embedded as part of it.
-      config.handleReport(n.kids[3].intVal.ReportId, instLoc(-1)) # stack-trace
+    if n.diag.kind == adVmGenError and n.diag.duringJit or
+        n.diag.kind == adVmError:
+      let st =
+        case n.diag.kind
+        of adVmGenError: n.diag.vmGenTrace
+        of adVmError:    n.diag.vmTrace
+        else:            unreachable()
+
+      config.handleReport(
+                wrap(VMReport(kind: rvmStackTrace,
+                        currentExceptionA: st.currentExceptionA,
+                        currentExceptionB: st.currentExceptionB,
+                        stacktrace: st.stacktrace,
+                        skipped: st.skipped,
+                        location: some st.location,
+                        reportInst: toReportLineInfo(st.instLoc))),
+                instLoc(-1))
+
     config.localReport(n)
 
 
@@ -406,8 +458,8 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
       kind: rsemWrongNumberOfArguments,
       ast: n,
       countMismatch: (
-        expected: toInt128(sym.typ.len - 1),
-        got: toInt128(n.safeLen - 1))))
+        expected: sym.typ.len - 1,
+        got: n.safeLen - 1)))
 
   setupGlobalCtx(module, g, idgen)
   let c = PCtx g.vm
@@ -457,8 +509,8 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
       localReport(c.config, n.info, SemReport(
         kind: rsemWrongNumberOfGenericParams,
         countMismatch: (
-          expected: toInt128(gp.len),
-          got: toInt128(idx))))
+          expected: gp.len,
+          got: idx)))
 
   # temporary storage:
   #for i in L..<maxSlots: tos.slots[i] = newNode(nkEmpty)
@@ -491,8 +543,8 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
         kind: rsemWrongNumberOfArguments,
         sym: sym,
         countMismatch: (
-          expected: toInt128(sym.typ.len - 1),
-          got: toInt128(args.len))))
+          expected: sym.typ.len - 1,
+          got: args.len)))
 
     else:
       let (start, maxSlots) = block:

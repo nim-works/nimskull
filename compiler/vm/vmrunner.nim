@@ -23,7 +23,6 @@ import
     vm,
     vmdef,
     vmhooks,
-    vmlegacy,
     vmmemory,
     vmobjects,
     vmops,
@@ -230,6 +229,8 @@ proc registerCallbacks(c: var TCtx): bool =
       echo "expected '$#' callback but got '$#'" % [p.string, other[i].string]
       result = false
 
+# TODO: remove legacy VMReport and these conversion procs
+
 proc createLegacyStackTrace(
     c: TCtx, 
     thread: VmThread, 
@@ -241,11 +242,104 @@ proc createLegacyStackTrace(
   result = VMReport(kind: rvmStackTrace,
                     currentExceptionA: st.currentExceptionA,
                     currentExceptionB: st.currentExceptionB,
-                    traceReason: vmEventToLegacyReportKind(st.traceReason),
                     stacktrace: st.stacktrace,
                     skipped: st.skipped,
                     location: some source(c, thread),
                     reportInst: toReportLineInfo(instLoc))
+
+func vmEventToLegacyReportKind(evt: VmEventKind): ReportKind {.inline.} =
+  case evt
+  of vmEvtOpcParseExpectedExpression: rvmOpcParseExpectedExpression
+  of vmEvtUserError: rvmUserError
+  of vmEvtUnhandledException: rvmUnhandledException
+  of vmEvtCannotCast: rvmCannotCast
+  of vmEvtCallingNonRoutine: rvmCallingNonRoutine
+  of vmEvtCannotModifyTypechecked: rvmCannotModifyTypechecked
+  of vmEvtNilAccess: rvmNilAccess
+  of vmEvtAccessOutOfBounds: rvmAccessOutOfBounds
+  of vmEvtAccessTypeMismatch: rvmAccessTypeMismatch
+  of vmEvtAccessNoLocation: rvmAccessNoLocation
+  of vmEvtErrInternal: rvmErrInternal
+  of vmEvtIndexError: rvmIndexError
+  of vmEvtOutOfRange: rvmOutOfRange
+  of vmEvtOverOrUnderflow: rvmOverOrUnderflow
+  of vmEvtDivisionByConstZero: rvmDivisionByConstZero
+  of vmEvtArgNodeNotASymbol: rvmNodeNotASymbol
+  of vmEvtNodeNotASymbol: rvmNodeNotASymbol
+  of vmEvtNodeNotAProcSymbol: rvmNodeNotAProcSymbol
+  of vmEvtIllegalConv: rvmIllegalConv
+  of vmEvtMissingCacheKey: rvmMissingCacheKey
+  of vmEvtCacheKeyAlreadyExists: rvmCacheKeyAlreadyExists
+  of vmEvtFieldNotFound: rvmFieldNotFound
+  of vmEvtNotAField: rvmNotAField
+  of vmEvtFieldUnavailable: rvmFieldInavailable
+  of vmEvtCannotSetChild: rvmCannotSetChild
+  of vmEvtCannotAddChild: rvmCannotAddChild
+  of vmEvtCannotGetChild: rvmCannotGetChild
+  of vmEvtNoType: rvmNoType
+  of vmEvtTooManyIterations: rvmTooManyIterations
+
+func vmEventToLegacyVmReport(
+    evt: VmEvent,
+    location: Option[TLineInfo] = std_options.none[TLineInfo]()
+  ): VMReport {.inline.} =
+  let kind = evt.kind.vmEventToLegacyReportKind()
+  result =
+    case kind
+    of rvmCannotCast:
+      VMReport(
+        kind: kind,
+        location: location,
+        reportInst: evt.instLoc.toReportLineInfo,
+        typeMismatch:
+          @[SemTypeMismatch(actualType: evt.typeMismatch.actualType,
+                            formalType: evt.typeMismatch.formalType)])
+    of rvmIndexError:
+      VMReport(
+        location: location,
+        reportInst: evt.instLoc.toReportLineInfo,
+        kind: kind,
+        indexSpec: evt.indexSpec)
+    of rvmCannotSetChild, rvmCannotAddChild, rvmCannotGetChild,
+        rvmUnhandledException, rvmNoType, rvmNodeNotASymbol:
+      case evt.kind
+      of vmEvtArgNodeNotASymbol:
+        VMReport(
+          location: some evt.argAst.info,
+          reportInst: evt.instLoc.toReportLineInfo,
+          kind: kind,
+          str: evt.callName & "()",
+          ast: evt.argAst)
+      else:
+        VMReport(
+          location: location,
+          reportInst: evt.instLoc.toReportLineInfo,
+          kind: kind,
+          ast: evt.ast)
+    of rvmUserError:
+      VMReport(
+        kind: kind,
+        str: evt.errMsg,
+        location: location,
+        reportInst: evt.instLoc.toReportLineInfo)
+    of rvmErrInternal, rvmNilAccess, rvmIllegalConv, rvmFieldInavailable,
+        rvmFieldNotFound, rvmCacheKeyAlreadyExists, rvmMissingCacheKey:
+      VMReport(
+        kind: kind,
+        str: evt.msg,
+        location: location,
+        reportInst: evt.instLoc.toReportLineInfo)
+    of rvmNotAField:
+      VMReport(
+        kind: kind,
+        sym: evt.sym,
+        location: location,
+        reportInst: evt.instLoc.toReportLineInfo)
+    else:
+      VMReport(
+        kind: kind,
+        location: location,
+        reportInst: evt.instLoc.toReportLineInfo)
 
 proc main*(args: seq[string]): int =
   let config = newConfigRef(cli_reporter.reportHook)

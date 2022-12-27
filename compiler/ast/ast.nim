@@ -37,15 +37,15 @@ export ast_types, ast_idgen, ast_query, int128, ast_parsed_types
 var ggDebug* {.deprecated.}: bool ## convenience switch for trying out things
 
 when defined(useNodeIds):
-  const nodeIdToDebug* = -1 # 2322968
+  const nodeIdToDebug* = NodeId -1 # 2322968
 
 proc addAllowNil*(father, son: Indexable) {.inline.} =
   father.sons.add(son)
 
-var gNodeId: int
+var gNodeId: int32
 template setNodeId() =
   inc gNodeId
-  result.id = gNodeId
+  result.id = NodeId gNodeId
   when defined(useNodeIds):
     if result.id == nodeIdToDebug:
       echo "KIND ", result.kind
@@ -62,11 +62,7 @@ proc newNodeAux(
     setNodeId()
   
     if children > 0:
-      case kind
-      of nkError:
-        newSeq(result.kids, children)
-      else:
-        newSeq(result.sons, children)
+      newSeq(result.sons, children)
   
   when false:
     # this would add overhead, so we skip it; it results in a small amount of leaked entries
@@ -103,12 +99,7 @@ proc newTreeAux(
   ## procedures below act as the interfaces, also capturing intention for
   ## tracing/debugging
   result = newNodeAux(kind, info, typ, 0)
-
-  case kind
-  of nkError:
-    result.kids = @children
-  else:
-    result.sons = @children
+  result.sons = @children
 
 proc newTree*(kind: TNodeKind; children: varargs[PNode]): PNode =
   let info =
@@ -484,8 +475,7 @@ template copyNodeImpl(dst, src, processSonsStmt) =
   of nkStrLit..nkTripleStrLit: dst.strVal = src.strVal
   of nkEmpty, nkNone: discard # no children, nothing to do
   of nkError:
-    dst.kids = src.kids
-    dst.reportId = src.reportId
+    dst.diag = src.diag       # do cheap copies
   else: processSonsStmt
 
 proc copyNode*(src: PNode): PNode =
@@ -643,14 +633,12 @@ proc toHumanStr*(kind: TTypeKind): string =
   ## strips leading `tk`
   result = toHumanStrImpl(kind, 2)
 
-
 proc setBaseFlags(n: PNode, base: NumericalBase) =
   case base
   of base10: discard
   of base2: incl(n.flags, nfBase2)
   of base8: incl(n.flags, nfBase8)
   of base16: incl(n.flags, nfBase16)
-
 
 proc toPNode*(parsed: ParsedNode): PNode =
   result = newNodeI(parsed.kind, parsed.info)
@@ -676,7 +664,6 @@ proc toPNode*(parsed: ParsedNode): PNode =
     else:
       if parsed.isBlockArg:
         result.flags.incl nfBlockArg
-
 
       for sub in items(parsed):
         result.add sub.toPNode()

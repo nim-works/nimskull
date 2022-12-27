@@ -105,7 +105,7 @@ proc semBindStmt(c: PContext, n: PNode, toBind: var IntSet): PNode =
     let s = qualifiedLookUp(c, a, {checkUndeclared})
     
     if s.isNil:
-      result.add c.config.newError(a, illformedAstReport(a, ""))
+      result.add c.config.newError(a, PAstDiag(kind: adSemIllformedAst))
       hasError = true
     elif s.isError:
       result.add s.ast
@@ -162,8 +162,7 @@ proc replaceIdentBySym(c: PContext; n: var PNode, s: PNode) =
   of nkIdent, nkAccQuoted, nkSym: n = s
   else:
     n = newError(c.config, n):
-      illformedAstReport(n, "Expected postfix, pragma or indent, but found " &
-                            $n.kind)
+      PAstDiag(kind: adSemIllformedAstExpectedPragmaOrIdent)
 
 type
   TemplCtx = object
@@ -205,8 +204,10 @@ proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
     result = n
   else:
     result = newError(c.c.config, n,
-                      illformedAstReport(n, {nkPostfix, nkPragmaExpr, nkIdent,
-                                             nkAccQuoted}))
+                PAstDiag(
+                  kind: adSemIllformedAstExpectedOneOf,
+                  expectedKinds: {nkPostfix, nkPragmaExpr, nkIdent,
+                                  nkAccQuoted}))
 
 
 proc isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
@@ -287,8 +288,9 @@ proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
       of nkError: break
       else:
         x = newError(c.c.config, x,
-                     illformedAstReport(x, {nkPostfix, nkPragmaExpr, nkIdent,
-                                            nkAccQuoted}))
+                     PAstDiag(kind: adSemIllformedAstExpectedOneOf,
+                              expectedKinds: {nkPostfix, nkPragmaExpr, nkIdent,
+                                              nkAccQuoted}))
 
     let ident = getIdentNode(c, x)
 
@@ -534,8 +536,10 @@ proc semTemplSomeDecl(c: var TemplCtx, n: PNode, symKind: TSymKind,
         if a[j].isError:
           hasError = true
     else:
-      n[i] = newError(c.c.config, a, illformedAstReport(a, {
-              nkCommentStmt, nkIdentDefs, nkVarTuple, nkConstDef}))
+      n[i] = newError(c.c.config, a,
+                      PAstDiag(kind: adSemIllformedAstExpectedOneOf,
+                               expectedKinds: {nkCommentStmt, nkIdentDefs,
+                                               nkVarTuple, nkConstDef}))
 
   if hasError:
     result = c.c.config.wrapError(result)
@@ -1100,13 +1104,15 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
   of nkEmpty:
     if sfCustomPragma notin s.flags:
       result[bodyPos] = newError(c.config, result[bodyPos],
-                                 reportSym(rsemImplementationExpected, s),
-                                 posInfo = result.info)
+                                  PAstDiag(kind: adSemImplementationExpected,
+                                           routineSym: s,
+                                           routineDefStartPos: result.info))
       hasError = true
   else:
     if sfCustomPragma in s.flags:      
       result[bodyPos] = newError(c.config, result[bodyPos],
-                                 reportSym(rsemImplementationNotAllowed, s))
+                                  PAstDiag(kind: adSemImplementationNotAllowed,
+                                           symWithImpl: s))
       hasError = true
 
   let (proto, comesFromShadowScope) = searchForProc(c, c.currentScope, s)
@@ -1175,7 +1181,7 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
       else:
         result = n
 
-      result = c.c.config.newError(result, reportSem rsemInvalidExpression)
+      result = c.c.config.newError(result, PAstDiag(kind: adSemInvalidExpression))
 
   result = n
   case n.kind
@@ -1205,7 +1211,7 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
     # we support '(pattern){x}' to bind a subpattern to a parameter 'x';
     # '(pattern){|x}' does the same but the matches will be gathered in 'x'
     if n.len != 2:
-      result = c.c.config.newError(n, reportSem rsemInvalidExpression)
+      result = c.c.config.newError(n, PAstDiag(kind: adSemInvalidExpression))
     elif n[1].kind == nkIdent:
       n[0] = semPatternBody(c, n[0])
       n[1] = expectParam(c, n[1])
@@ -1222,9 +1228,9 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
         if nkError in {n[0].kind, n[1][1].kind}:
           hasError = true
       else:
-        result = c.c.config.newError(n, reportSem rsemInvalidExpression)
+        result = c.c.config.newError(n, PAstDiag(kind: adSemInvalidExpression))
     else:
-      result = c.c.config.newError(n, reportSem rsemInvalidExpression)
+      result = c.c.config.newError(n, PAstDiag(kind: adSemInvalidExpression))
   of nkStmtList, nkStmtListExpr:
     result =
       if stupidStmtListExpr(n):
@@ -1337,7 +1343,7 @@ proc semPattern(c: PContext, n: PNode; s: PSym): PNode =
         of 1:
           result[0] # unwrap
         of 0:
-          c.config.newError(n, reportSem rsemExpectedNonemptyPattern)
+          c.config.newError(n, PAstDiag(kind: adSemExpectedNonemptyPattern))
         else:
           result    # leave as is
     closeScope(c)

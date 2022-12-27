@@ -3,7 +3,7 @@ cmd: "nim check $file"
 action: reject
 nimout: '''
 tmisc.nim(25, 13) Error: object construction uses ':', not '='
-tmisc.nim(27, 5) Error: wrong number of arguments
+tmisc.nim(27, 5) Error: 'is' operator takes 2 arguments
 tmisc.nim(31, 9) Error: expression has no type: foo
 tmisc.nim(39, 5) Error: type mismatch: got <int, uint>
 but expected one of:

@@ -23,8 +23,7 @@ import
 from compiler/ast/reports_sem import TraceSemReport,
   DebugSemStep, 
   DebugSemStepKind, 
-  DebugSemStepDirection,
-  SemCallMismatch
+  DebugSemStepDirection
 
 from compiler/ast/report_enums import ReportKind
 

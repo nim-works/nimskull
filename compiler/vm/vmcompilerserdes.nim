@@ -28,7 +28,6 @@ import
     vmobjects,
     vmtypegen,
     vmtypes,
-    vmlegacy
   ],
   std/[
     options
@@ -48,9 +47,6 @@ from compiler/ast/trees import exprStructuralEquivalent, cyclicTree
 
 const SkipSet = abstractRange + {tyStatic} - {tyTypeDesc}
 
-template toReport(c: DerefFailureCode): SemReport =
-  SemReport(kind: FailureCodeToEvent[c].vmEventToLegacyReportKind())
-
 # Functions for VM to PNode conversion
 
 # XXX: the deserialize functions don't need the whole TCtx, just a few things
@@ -67,36 +63,40 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
 proc deserializeObject(c: TCtx, m: VmMemoryRegion, vt: PVmType, f, con: PType, info: TLineInfo): PNode
 
 proc deserializeRef*(c: TCtx, slot: HeapSlotHandle, vt: PVmType; f, con: PType, info: TLineInfo): PNode =
-  ## In case that `typ` is not none, deserialize the object as `typ` and not
+  ## In case that `con` is not none, deserialize the object as `con` and not
   ## as the type it was originally created with
   assert vt.kind == akRef
   assert con.kind == tyRef
 
   let r = c.heap.tryDeref(slot, vt.targetType)
-  if r.isOk:
-    let src = r.unsafeGet()
 
-    let base = con.elemType()
-    let conBase = base.skipTypes(abstractInst)
+  result =
+    if r.isOk:
+      let src = r.unsafeGet()
 
-    if conBase.kind == tyObject:
-      # Don't deserialize the target as the type it was created with, but
-      # rather with the type of the handle
+      let base = con.elemType()
+      let conBase = base.skipTypes(abstractInst)
 
-      # pass the unskipped base type
-      result = c.deserializeObject(src.byteView(), vt.targetType, f, conBase, info)
+      if conBase.kind == tyObject:
+        # Don't deserialize the target as the type it was created with, but
+        # rather with the type of the handle
+
+        # pass the unskipped base type
+        c.deserializeObject(src.byteView(), vt.targetType, f, conBase, info)
+      else:
+        c.config.newError(
+          wrongNode(base),
+          PAstDiag(kind: adVmUnsupportedNonNil, unsupported: con))
     else:
-      result = c.config.newError(
-        wrongNode(base),
-        SemReport(kind: rvmUnsupportedNonNil, typ: con))
-
-  else:
-    let e = r.takeErr()
-    result =
+      let e = r.takeErr()
       if e == dfcNil:
         newNodeIT(nkNilLit, info, f)
       else:
-        c.config.newError(wrongNode(f), e.toReport())
+        c.config.newError(wrongNode(f), PAstDiag(
+          kind: case e
+                of dfcNil:               adVmDerefNilAccess
+                of dfcInvalid, dfcFreed: adVmDerefAccessOutOfBounds
+                of dfcTypeMismatch:      adVmDerefAccessTypeMismatch))
 
 proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal: PType, info: TLineInfo): PNode {.inline.} =
   deserialize(c, m, vt, formal, formal.skipTypes(SkipSet), info)
@@ -296,7 +296,7 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
     else:
       result = c.config.newError(
         wrongNode(),
-        SemReport(kind: rvmUnsupportedNonNil, typ: t))
+        PAstDiag(kind: adVmUnsupportedNonNil, unsupported: t))
   of tyRef:
     if t.sym == nil or t.sym.magic != mPNimrodNode:
       # FIXME: cyclic references will lead to infinite recursion
@@ -307,7 +307,7 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
       if unlikely(cyclicTree(atom.nodeVal)):
         result = c.config.newError(
           wrongNode(),
-          reportAst(rsemCyclicTree, atom.nodeVal))
+          PAstDiag(kind: adCyclicTree, cyclic: atom.nodeVal))
       else:
         # XXX: not doing a full tree-copy here might lead to issues
         result = newTreeIT(nkNimNodeLit, info, formal): atom.nodeVal
@@ -386,8 +386,8 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
 
     let n = wrongNode()
     # values of this type can't cross the VM/compiler border
-    result = c.config.newError(n, SemReport(
-      kind: rsemTypeNotAllowed,
+    result = c.config.newError(n, PAstDiag(
+      kind: adSemTypeNotAllowed,
       allowedType: (
         allowed: formal,
         actual: formal,
