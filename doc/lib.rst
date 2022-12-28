@@ -585,3 +585,36 @@ Network Programming and Internet Protocols
 
 * `openssl <openssl.html>`_
   Wrapper for OpenSSL.
+
+Experimental
+------------
+
+* `shellrunner <shellrunner.html>`_
+  Typed wrapper for shell command execution
+
+* `diff <diff.html>`_
+  Text diff
+
+* `colordiff <colordiff.html>`_
+  Colored diff formatting
+
+* `colortext <colortext.html>`_
+  Colored text library for use in diagnostic messages
+
+* `dod_helpers <dod_helpers.html>`_
+  Templates and types for writing code with data-oriented design
+
+* `graph <graph.html>`_
+  Generic graph data structure implementation, oriented towards DOD code.
+
+* `results <results.html>`_
+  `Result[Ok, Err]` data type
+
+* `sexp <sexp.html>`_
+  S-expression parser
+
+* `sexp_diff <sexp_diff.html>`_
+  S-expression diff
+
+* `text_layouter <text_layouter.html>`_
+  Generic text block layout engine, for use in code formatting.
