@@ -110,6 +110,7 @@ const
   nkIntKinds* = {nkCharLit .. nkUInt64Lit}
 
   skLocalVars* = {skVar, skLet, skForVar, skParam, skResult}
+  skAllVars* =   {skVar, skLet, skForVar, skParam, skResult, skConst, skTemp}
   skProcKinds* = {skProc, skFunc, skTemplate, skMacro, skIterator,
                   skMethod, skConverter}
 

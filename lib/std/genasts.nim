@@ -10,6 +10,11 @@ type GenAstOpt* = enum
   kNoNewLit,
     # don't call call newLit automatically in `genAst` capture parameters
 
+template newLitMaybe(a): untyped =
+  when (a is type) or (typeof(a) is (proc | iterator | func | NimNode)):
+    a # `proc` actually also covers template, macro
+  else: newLit(a)
+
 macro genAstOpt*(options: static set[GenAstOpt], args: varargs[untyped]): untyped =
   ## Accepts a list of captured variables `a=b` or `a` and a block and returns the
   ## AST that represents it. Local `{.inject.}` symbols (e.g. procs) are captured
@@ -46,11 +51,6 @@ macro genAstOpt*(options: static set[GenAstOpt], args: varargs[untyped]): untype
       nnkPragma.newTree(ident"dirty")
     else:
       newEmptyNode()
-
-  template newLitMaybe(a): untyped =
-    when (a is type) or (typeof(a) is (proc | iterator | func | NimNode)):
-      a # `proc` actually also covers template, macro
-    else: newLit(a)
 
   # using `_` as workaround, see https://github.com/nim-lang/Nim/issues/2465#issuecomment-511076669
   let name = genSym(nskTemplate, "_fun")

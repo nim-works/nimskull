@@ -108,7 +108,7 @@ macro evalOnceAs(expAlias, exp: untyped,
     result.add(newLetStmt(val, exp))
 
   result.add(
-    newProc(name = genSym(nskTemplate, $expAlias), params = [getType(untyped)],
+    newProc(name = ident($expAlias), params = [getType(untyped)],
       body = val, procType = nnkTemplateDef))
 
 func concat*[T](seqs: varargs[seq[T]]): seq[T] =

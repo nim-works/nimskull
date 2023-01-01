@@ -15,7 +15,7 @@
 
 import ast, errorhandling, renderer, reports, std/tables
 from compiler/front/options import ConfigRef
-from compiler/front/msgs import TErrorHandling
+from compiler/front/msgs import TErrorHandling, handleReport
 
 export compilerInstInfo, walkErrors, errorKind
 # export because keeping the declaration in `errorhandling` acts as a reminder

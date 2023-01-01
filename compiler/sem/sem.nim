@@ -71,6 +71,7 @@ import
     parampatterns,
     evaltempl,
     lowerings,
+    sanitizer
   ],
   compiler/backend/[
     cgmeth
@@ -635,6 +636,9 @@ proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
 
   result = evalMacroCall(
     c.module, c.idgen, c.graph, c.templInstCounter, n, sym)
+
+  # turn the macro output into untyped AST
+  result = get(c, process(c, result))
 
   if efNoSemCheck notin flags:
     result = semAfterMacroCall(c, n, result, sym, flags)
