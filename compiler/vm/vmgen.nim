@@ -1526,17 +1526,6 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
       c.gABC(n, opcOf, dest, tmp, idx)
       c.freeTemp(tmp)
       c.freeTemp(idx)
-  of mIs:
-    # XXX: instead of performing the operation inside the VM, we're doing it
-    #      here now. The `is` operator should be handled in `semfold`, never
-    #      reaching the VM
-    if dest.isUnset: dest = c.getTemp(n.typ)
-
-    let t1 = n[1].typ.skipTypes({tyTypeDesc})
-    let t2 = n[2].typ
-    let match = if t2.kind == tyUserTypeClass: true
-                else: sameType(t1, t2)
-    c.gABx(n, opcLdImmInt, dest, ord(match))
   of mHigh:
     if dest.isUnset: dest = c.getTemp(n.typ)
     let tmp = c.genx(n[1])

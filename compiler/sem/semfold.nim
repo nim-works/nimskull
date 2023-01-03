@@ -654,8 +654,24 @@ proc getConstExpr(m: PSym, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
         result = foldConStrStr(m, n, idgen, g)
       of mIs:
         # The only kind of mIs node that comes here is one depending on some
-        # generic parameter and that's (hopefully) handled at instantiation time
-        discard
+        # generic parameter
+        let
+          t1 = n[1].typ.skipTypes({tyTypeDesc})
+          t2 = n[2].typ
+
+        # FIXME: this mirrors how ``vmgen`` previously folded the ``mIs``
+        #        operation, and before that, how the VM implemented it --
+        #        but it's incorrect. A ``mIs`` only reaches here because
+        #        expression ``T is B`` where ``T`` depends on a generic
+        #        parameter is assigned a ``bool`` type when it's first
+        #        encountered, leading to the expression not reaching ``semIs``
+        #        again (which would have otherwise folded it into a bool
+        #        literal correctly)
+
+        let match = if t2.kind == tyUserTypeClass: true
+                    else: sameType(t1, t2)
+
+        result = newIntNodeT(toInt128(ord(match)), n, idgen, g)
       else:
         result = magicCall(m, n, idgen, g)
     except OverflowDefect:
