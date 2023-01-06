@@ -526,42 +526,80 @@ type
     flags*: set[CodeGenFlag] ## input
   
   VmGenDiagKind* = enum
-    vmGenDiagMissingImportcCompleteStruct
+    # has no extra data
+    vmGenDiagBadExpandToAstArgRequired
+    vmGenDiagBadExpandToAstCallExprRequired
     vmGenDiagTooManyRegistersRequired
     vmGenDiagCannotFindBreakTarget
+    # has ast data
     vmGenDiagNotUnused
     vmGenDiagNotAFieldSymbol
-    vmGenDiagTooLargeOffset
     vmGenDiagCannotGenerateCode
-    vmGenDiagCannotCast
-    vmGenDiagBadExpandToAst
     vmGenDiagCannotEvaluateAtComptime
-    vmGenDiagCannotImportc
     vmGenDiagInvalidObjectConstructor
+    # has magic data
+    vmGenDiagMissingImportcCompleteStruct
+    vmGenDiagCodeGenUnhandledMagic
+    # has sym data
+    vmGenDiagCodeGenGenericInNonMacro
+    vmGenDiagCodeGenUnexpectedSym
+    vmGenDiagCannotImportc
+    vmGenDiagTooLargeOffset
     vmGenDiagNoClosureIterators
     vmGenDiagCannotCallMethod
-    vmGenDiagNotAField
+    # has type mismatch data
+    vmGenDiagCannotCast
   
+  VmGenDiagKindAstRelated* =
+    range[vmGenDiagNotUnused..vmGenDiagInvalidObjectConstructor]
+    # TODO: this is a somewhat silly type, the range allows creating type safe
+    #       diag construction functions -- see: `vmgen.fail`
+  
+  VmGenDiagKindSymRelated* =
+    range[vmGenDiagCodeGenGenericInNonMacro..vmGenDiagCannotCallMethod]
+    # TODO: this is a somewhat silly type, the range allows creating type safe
+    #       diag construction functions -- see: `vmgen.fail`
+  
+  VmGenDiagKindMagicRelated* =
+    range[vmGenDiagMissingImportcCompleteStruct..vmGenDiagCodeGenUnhandledMagic]
+    # TODO: this is a somewhat silly type, the range allows creating type safe
+    #       diag construction functions -- see: `vmgen.fail`
+
   VmTypeMismatch* = object
     actualType*, formalType*: PType
 
   VmGenDiag* = object
     ## `Diag`nostic data from VM Gen, mostly errors
-    # TODO: bloated type, move fields into specialized variants
-    ast*: PNode
-    typ*: PType
-    msg*: string
-    sym*: PSym
+    # TODO: rework fields and enum order so they form sensible categories,
+    #       introducing overlapping field types across variants is fine.
     location*: TLineInfo        ## diagnostic location
     instLoc*: InstantiationInfo ## instantiation in VM Gen's source
     case kind*: VmGenDiagKind
+      of vmGenDiagCodeGenGenericInNonMacro,
+          vmGenDiagCodeGenUnexpectedSym,
+          vmGenDiagCannotImportc,
+          vmGenDiagTooLargeOffset,
+          vmGenDiagNoClosureIterators,
+          vmGenDiagCannotCallMethod:
+        sym*: PSym
       of vmGenDiagCannotCast:
         typeMismatch*: VmTypeMismatch
-      else:
+      of vmGenDiagMissingImportcCompleteStruct,
+          vmGenDiagCodeGenUnhandledMagic:
+        magic*: TMagic
+      of vmGenDiagNotUnused,
+          vmGenDiagNotAFieldSymbol,
+          vmGenDiagCannotGenerateCode,
+          vmGenDiagCannotEvaluateAtComptime,
+          vmGenDiagInvalidObjectConstructor:
+        ast*: PNode
+      of vmGenDiagBadExpandToAstArgRequired,
+          vmGenDiagBadExpandToAstCallExprRequired,
+          vmGenDiagTooManyRegistersRequired,
+          vmGenDiagCannotFindBreakTarget:
         discard
 
   VmEventKind* = enum
-    # errors
     vmEvtOpcParseExpectedExpression
     vmEvtUserError
     vmEvtUnhandledException
@@ -590,9 +628,7 @@ type
     vmEvtCannotAddChild
     vmEvtCannotGetChild
     vmEvtNoType
-    vmEvtUnsupportedNonNil
     vmEvtTooManyIterations
-    vmEvtQuit
 
   VmEventKindAccessError* = range[vmEvtAccessOutOfBounds .. vmEvtAccessNoLocation]
 
@@ -611,8 +647,6 @@ type
         typeMismatch*: VmTypeMismatch
       of vmEvtIndexError:
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
-      of vmEvtQuit:
-        exitCode*: BiggestInt
       of vmEvtErrInternal, vmEvtNilAccess, vmEvtIllegalConv,
           vmEvtFieldUnavailable, vmEvtFieldNotFound,
           vmEvtCacheKeyAlreadyExists, vmEvtMissingCacheKey:
@@ -620,8 +654,6 @@ type
       of vmEvtCannotSetChild, vmEvtCannotAddChild, vmEvtCannotGetChild,
           vmEvtUnhandledException, vmEvtNoType, vmEvtNodeNotASymbol:
         ast*: PNode
-      of vmEvtUnsupportedNonNil:
-        typ*: PType
       of vmEvtNotAField:
         sym*: PSym
       else:
@@ -645,8 +677,6 @@ type
     # xxx: if possible remove `currentExceptionA` and `currentExceptionB` as
     #      they're not queried.
     currentExceptionA*, currentExceptionB*: PNode
-    # TODO: remove as the vm event isn't always the reason for the trace
-    traceReason*: VmEventKind
     stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
     skipped*: int
 

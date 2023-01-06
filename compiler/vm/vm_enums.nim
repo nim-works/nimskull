@@ -172,6 +172,7 @@ type
     avrNoLocation   ## Address points to valid VM memory. but not to the start
                     ## of a location
 
+
 const
   firstABxInstr* = opcTJmp
   largeInstrs* = { # instructions which use 2 int32s instead of 1:

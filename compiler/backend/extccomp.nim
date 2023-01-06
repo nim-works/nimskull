@@ -20,7 +20,6 @@ import
   ],
   compiler/ast/[
     lineinfos,
-    reports
   ],
   compiler/front/[
     options,
@@ -44,6 +43,7 @@ import
 #       types of "reports"? Unlikely, it's probably creating a bunch of false
 #       dependencies with other modules... yay!
 #       Also, diagnostic, telemetry, and event are better terms
+from compiler/ast/report_enums import ReportKind
 from compiler/ast/reports_external import ExternalReport
 from compiler/ast/reports_cmd import CmdReport
 from compiler/ast/reports_backend import BackendReport

@@ -555,8 +555,7 @@ proc transformConv(c: PTransf, n: PNode): PNode =
         # presently hints on `proc(thing)` where thing converts to non var base.
         localReport(c.graph.config, n[1], SemReport(
           kind: rsemImplicitObjConv,
-          typeMismatch: @[c.graph.config.typeMismatch(
-            formal = dest, actual = source)]))
+          typeMismatch: @[typeMismatch(formal = dest, actual = source)]))
 
     let diff = inheritanceDiff(dest, source)
     if diff == 0 or diff == high(int):

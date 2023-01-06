@@ -95,8 +95,13 @@ const
                    nkClosedSymChoice}
 
   nkPragmaCallKinds* = {nkExprColonExpr, nkCall, nkCallStrLit}
-  nkLiterals* = {nkCharLit..nkTripleStrLit}
+
+  nkIntLiterals*   = {nkCharLit..nkUInt64Lit}
   nkFloatLiterals* = {nkFloatLit..nkFloat128Lit}
+  nkStrLiterals*   = {nkStrLit..nkTripleStrLit}
+  # TODO: include `nkNilLit` as it's a literal, not the same as `nnkLiterals`
+  nkLiterals*      = nkIntLiterals + nkFloatLiterals + nkStrLiterals
+  
   nkLambdaKinds* = {nkLambda, nkDo}
   declarativeDefs* = {nkProcDef, nkFuncDef, nkMethodDef, nkIteratorDef, nkConverterDef}
   routineDefs* = declarativeDefs + {nkMacroDef, nkTemplateDef}
@@ -104,10 +109,11 @@ const
   callableDefs* = nkLambdaKinds + routineDefs
 
   nkSymChoices* = {nkClosedSymChoice, nkOpenSymChoice}
-  nkFloatKinds* = nkFloatLiterals # QUESTION remove float literals
-                                  # altogether?
-  nkStrKinds* = {nkStrLit..nkTripleStrLit}
-  nkIntKinds* = {nkCharLit .. nkUInt64Lit}
+
+  # TODO: replace with `nk*Literals`, see above
+  nkIntKinds*   = nkIntLiterals
+  nkFloatKinds* = nkFloatLiterals
+  nkStrKinds*   = nkStrLiterals
 
   skLocalVars* = {skVar, skLet, skForVar, skParam, skResult}
   skProcKinds* = {skProc, skFunc, skTemplate, skMacro, skIterator,
@@ -404,10 +410,7 @@ proc hasSubnodeWith*(n: PNode, kind: TNodeKind): bool =
   of nkEmpty..nkNilLit, nkFormalParams:
     result = n.kind == kind
   of nkError:
-    for i in 0..<n.kids.len:
-      if (n.kids[i].kind == kind) or hasSubnodeWith(n.kids[i], kind):
-        return true
-    result = false
+    result = hasSubnodeWith(n.diag.wrongNode, kind)
   else:
     for i in 0..<n.len:
       if (n[i].kind == kind) or hasSubnodeWith(n[i], kind):

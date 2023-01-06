@@ -153,7 +153,7 @@ proc evalTemplateArgs(n: PNode, s: PSym; conf: ConfigRef; fromHlo: bool): PNode 
     
     if default.isNil or default.kind == nkEmpty:
       result.add newNodeI(nkEmpty, n.info)
-      return newError(conf, result, reportSem rsemWrongNumberOfArguments)
+      return newError(conf, result, PAstDiag(kind: adSemWrongNumberOfArguments))
     else:
       result.add default.copyTree
 

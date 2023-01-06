@@ -247,29 +247,27 @@ proc importAllSymbols*(c: PContext, fromMod: PSym) =
 
 proc importModuleAs(c: PContext; n: PNode, realModule: PSym, importHidden: bool): PSym =
   result = realModule
-  
+
   template createModuleAliasImpl(ident): untyped =
     createModuleAlias(realModule, nextSymId c.idgen, ident, n.info, c.config.options)
-  
+
   if n.kind != nkImportAs:
     discard
   elif n.len != 2 or n[1].kind != nkIdent:
     result = errorSym(c, n,
-                      c.config.newError(n, reportAst(
-                        rsemExpectedIdentifier,
-                        n[1],
-                        str = "module alias must be an identifier")))
+                      c.config.newError(n,
+                        PAstDiag(kind: adSemModuleAliasMustBeIdentifier)))
   elif n[1].ident.id != realModule.name.id:
     # some misguided guy will write 'import abc.foo as foo' ...
     result = createModuleAliasImpl(n[1].ident)
-  
+
   if result == realModule:
     # avoids modifying `realModule`, see D20201209T194412 for `import {.all.}`
     result = createModuleAliasImpl(realModule.name)
-  
+
   if importHidden:
     result.options.incl optImportHidden
-  
+
   c.unusedImports.add((result, n.info))
   c.importModuleMap[result.id] = realModule.id
 
@@ -309,8 +307,8 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
     if recursion >= 0:
       for i in recursion ..< L:
         c.recursiveDep.add((
-          importer: toFullPath(c.config, c.graph.importStack[i]),
-          importee: toFullPath(c.config, c.graph.importStack[i + 1])
+          importer: c.graph.importStack[i],
+          importee: c.graph.importStack[i + 1]
         ))
 
     var realModule: PSym
@@ -325,9 +323,9 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
     # test: modules/import_in_config) # xxx is that still true?
     if not result.isError and realModule == c.module:
       result = errorSym(c, n,
-                        c.config.newError(n, reportSym(
-                          rsemCannotImportItself,
-                          realModule)))
+                        c.config.newError(n,
+                          PAstDiag(kind: adSemCannotImportItself,
+                                   selfModule: realModule)))
 
     if sfDeprecated in realModule.flags:
       # xxx: this is a hint, `localReport` doesn't communicate this well
@@ -343,7 +341,6 @@ proc myImportModule(c: PContext, n: var PNode, importStmtResult: PNode): PSym =
         result.ast
       else:
         newSymNode(result, n.info)
-    #newStrNode(toFullPath(c.config, f), n.info)
 
 proc afterImport(c: PContext, m: PSym) =
   # fixes bug #17510, for re-exported symbols

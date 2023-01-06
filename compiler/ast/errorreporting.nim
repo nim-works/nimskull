@@ -13,9 +13,19 @@
 ## * write an error reporting proc that handles string conversion and also
 ##   determines which error handling strategy to use doNothing, raise, etc.
 
-import ast, errorhandling, renderer, reports, std/tables
+import
+  compiler/ast/[
+    ast,
+    errorhandling,
+    renderer,
+    reports,
+  ]
+
+when defined(nimDebugUnreportedErrors):
+  import std/tables
+
 from compiler/front/options import ConfigRef
-from compiler/front/msgs import TErrorHandling
+from compiler/front/msgs import TErrorHandling, astDiagToLegacyReportKind
 
 export compilerInstInfo, walkErrors, errorKind
 # export because keeping the declaration in `errorhandling` acts as a reminder
@@ -26,7 +36,7 @@ proc errorHandling*(err: PNode): TErrorHandling =
   ## which error handling strategy should be used given the error, use with
   ## `msg.liMessage` when reporting errors.
   assert err.isError, "err can't be nil and must be an nkError"
-  case err.errorKind:
+  case err.diag.astDiagToLegacyReportKind:
     of rsemCustomGlobalError: doRaise
     of rsemFatalError: doAbort
     else: doNothing
@@ -36,10 +46,10 @@ template localReport*(conf: ConfigRef, node: PNode) =
   assert node.kind == nkError, $node.kind
 
   when defined(nimDebugUnreportedErrors):
-    conf.unreportedErrors.del node.reportId
+    conf.unreportedErrors.del node.id
     for err in walkErrors(conf, node):
-      conf.unreportedErrors.del err.reportId
+      conf.unreportedErrors.del err.id
 
   for err in walkErrors(conf, node):
     if true or canReport(conf, err):
-      handleReport(conf, err.reportId, instLoc(), node.errorHandling)
+      handleReport(conf, err.diag, instLoc(), node.errorHandling)

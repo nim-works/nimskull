@@ -9,6 +9,7 @@ import
     ast_types,
     lineinfos,
     reports_base,
+    report_enums,
   ],
   compiler/front/[
     in_options,

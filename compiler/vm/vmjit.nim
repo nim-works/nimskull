@@ -15,8 +15,8 @@
 
 import
   compiler/ast/[
+    ast_types,
     ast_query,
-    reports
   ],
   compiler/sem/[
     transf

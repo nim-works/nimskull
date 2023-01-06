@@ -83,7 +83,7 @@ when defined(nimDebugUnreportedErrors):
   proc echoAndResetUnreportedErrors(conf: ConfigRef) =
     if conf.unreportedErrors.len > 0:
       echo "Unreported errors:"
-      for reportId, node in conf.unreportedErrors:
+      for nodeId, node in conf.unreportedErrors:
         var reprConf = defaultTReprConf
         reprConf.flags.incl trfShowNodeErrors
         echo conf.treeRepr(node)

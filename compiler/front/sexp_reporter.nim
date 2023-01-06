@@ -43,6 +43,7 @@ proc sexp*[T](s: seq[T]): SexpNode = sexpItems(s)
 proc sexp*[R, T](s: array[R, T]): SexpNode = sexpItems(s)
 proc sexp*[I](s: set[I]): SexpNode = sexpItems(s)
 proc sexp*(s: cstring): SexpNode = sexp($s)
+proc sexp*(n: NodeId): SexpNode = sexp(n.int)
 
 proc sexp*(v: SomeInteger): SexpNode = newSInt(BiggestInt(v))
 proc sexp*(id: FileIndex): SexpNode =
@@ -121,9 +122,7 @@ proc sexp*(node: PNode): SexpNode =
     of nkStrLit..nkTripleStrLit:  result.add sexp(node.strVal)
     of nkSym:                     result.add newSSymbol(node.sym.name.s)
     of nkIdent:                   result.add newSSymbol(node.ident.s)
-    of nkError:
-      for node in node.kids:
-        result.add sexp(node)
+    of nkError:                   result.add sexp(node.diag.wrongNode)
     else:
       for node in node.sons:
         result.add sexp(node)
@@ -142,7 +141,6 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
 
   if wkind == writeDisabled:
     return
-
   else:
     var s = newSList()
     s.add newSSymbol(multiReplace($r.kind, {
@@ -178,6 +176,5 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
 
     if wkind == writeForceEnabled:
       echo s.toLine().toString(conf.useColor)
-
     else:
       conf.writeln(s.toLine().toString(conf.useColor))

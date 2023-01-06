@@ -4,9 +4,8 @@ import
   compiler/ast/[
     ast_types,
     reports_base,
+    report_enums,
   ]
-
-export reports_base.ReportKind
 
 type
   ParserReport* = object of ReportBase

@@ -2,8 +2,10 @@
 
 import
   compiler/ast/[
+    report_enums,
     ast_types,
     lineinfos,
+    reports_base,
     reports_base_sem,
   ],
   compiler/sem/[
@@ -14,7 +16,6 @@ import
   ],
   std/options
 
-export ReportContext, ReportContextKind, SemTypeMismatch
 
 type
   SemGcUnsafetyKind* = enum
@@ -29,35 +30,6 @@ type
     ssefCallsViaHiddenIndirection
     ssefCallsViaIndirection
     ssefParameterMutation
-
-  SemDiagnostics* = object
-    diagnosticsTarget*: PSym ## The concept sym that didn't match
-    reports*: seq[SemReport] ## The reports that explain why the concept didn't match
-
-  MismatchInfo* = object
-    kind*: MismatchKind ## reason for mismatch
-    pos*: int           ## position of provided argument that mismatches. This doesn't always correspond to
-                        ## the *expression* subnode index (e.g. `.=`) nor the *target parameter* index (varargs)
-    arg*: PNode         ## the node of the mismatching provided argument
-    formal*: PSym       ## parameter that mismatches against provided argument
-                        ## its position can differ from `arg` because of varargs
-
-  SemCallMismatch* = object
-    ## Description of the single candidate mismatch. This type is later
-    ## used to construct meaningful type mismatch message, and must contain
-    ## all the necessary information to provide meaningful sorting,
-    ## collapse and other operations.
-    target*: PSym ## Procedure that was tried for an overload resolution
-    firstMismatch*: MismatchInfo ## mismatch info for better error messages
-
-    diag*: SemDiagnostics
-    diagnosticsEnabled*: bool ## Set by sfExplain. efExplain or notFoundError ignore this
-
-  SemSpellCandidate* = object
-    dist*: int
-    depth*: int
-    sym*: PSym
-    isLocal*: bool
 
   SemNilHistory* = object
     ## keep history for each transition
@@ -103,9 +75,11 @@ type
         nilHistory*: seq[SemNilHistory]
 
       of rsemExpectedIdentifierInExpr,
+         rsemExpectedIdentifierWithExprContext,
          rsemExpectedOrdinal,
-         rsemIdentExpectedInExpr,
-         rsemFieldOkButAssignedValueInvalid:
+         rsemFieldOkButAssignedValueInvalid,
+         rsemUseOrDiscardExpr,
+         rsemOnlyDeclaredIdentifierFoundIsError:
         wrongNode*: PNode
 
       of rsemWarnGcUnsafeListing, rsemErrGcUnsafeListing:
@@ -129,7 +103,10 @@ type
 
       of rsemReportCountMismatch,
          rsemWrongNumberOfVariables:
-        countMismatch*: tuple[expected, got: Int128]
+        countMismatch*: tuple[expected, got: int]
+      
+      of rsemReportBigOrdsEnergy:
+        expectedCount*, got*: Int128
 
       of rsemInvalidExtern:
         externName*: string
@@ -144,12 +121,16 @@ type
         isUnsafeAddr*: bool
 
       of rsemUndeclaredIdentifier, rsemCallNotAProcOrField:
-        potentiallyRecursive*: bool
-        explicitCall*: bool ## Whether `rsemCallNotAProcOrField` error was
-        ## caused by expression with explicit dot call: `obj.cal()`
-        unexpectedCandidate*: seq[PSym] ## Symbols that are syntactically
-        ## valid in this context, but semantically are not allowed - for
-        ## example `object.iterator()` call outside of the `for` loop.
+        recursiveDeps*: seq[tuple[importer, importee: FileIndex]]
+        notProcOrField*: PNode          ## `rsemCallNotAProcOrField`, the field
+        explicitCall*: bool             ## Whether `rsemCallNotAProcOrField`
+                                        ##   error was due to an explicit dot
+                                        ##   call expression, eg: `obj.cal()`
+        unexpectedCandidate*: seq[PSym] ## Symbols that are syntactically valid
+                                        ##   in this context, but semantically
+                                        ##   are not allowed - for example
+                                        ##   `object.iterator()` call outside
+                                        ##   of a `for` loop.
 
       of rsemDisjointFields,
          rsemUnsafeRuntimeDiscriminantInit,
@@ -198,8 +179,8 @@ type
         ]
 
       of rsemCallTypeMismatch, rsemNonMatchingCandidates:
-        callMismatches*: seq[SemCallMismatch] ## Description of all the
-        ## failed candidates.
+        callMismatches*: seq[SemCallMismatch] ## Description of all the failed
+                                              ## candidates.
 
       of rsemStaticOutOfBounds:
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]

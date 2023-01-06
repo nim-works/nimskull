@@ -27,9 +27,6 @@ import
     semdata,
   ]
 
-from compiler/ast/reports_sem import SemReport
-from compiler/ast/report_enums import ReportKind
-
 export TTypeAllowedFlag, TTypeAllowedFlags
 
 proc typeAllowedAux(marker: var IntSet, typ: PType, kind: TSymKind;
@@ -210,8 +207,8 @@ proc typeAllowedOrError*(t: PType, kind: TSymKind, c: PContext,
   else:
     newTypeError(t, nextTypeId(c.idgen)):
               c.config.newError(def,
-                                SemReport(
-                                  kind: rsemTypeNotAllowed,
+                                PAstDiag(
+                                  kind: adSemTypeNotAllowed,
                                   allowedType: (
                                     allowed: temp,
                                     actual: t,

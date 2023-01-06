@@ -21,8 +21,6 @@ type
   ModuleId* = distinct int32
   NodePos* = distinct int
 
-  NodeId* = distinct int32
-
   PackedItemId* = object
     module*: LitId       # 0 if it's this module
     item*: int32         # same as the in-memory representation
@@ -106,7 +104,6 @@ proc hash*(a: SymId): Hash {.borrow.}
 
 proc `==`*(a, b: NodePos): bool {.borrow.}
 #proc `==`*(a, b: PackedItemId): bool {.borrow.}
-proc `==`*(a, b: NodeId): bool {.borrow.}
 
 proc newTreeFrom*(old: PackedTree): PackedTree =
   result.nodes = @[]

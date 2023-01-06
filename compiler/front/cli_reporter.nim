@@ -48,7 +48,8 @@ import
   compiler/utils/[
     platform,
     nversion,
-    astrepr
+    astrepr,
+    idioms
   ],
   compiler/front/[
     msgs
@@ -61,6 +62,7 @@ import
   ]
 
 import compiler/front/options as compiler_options
+from compiler/ast/reports_base_sem import ReportContext, ReportContextKind
 
 
 func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
@@ -101,6 +103,13 @@ func wrap*(
 
 func wrap(conf: ConfigRef, text: ColText): string =
   toString(text, conf.useColor())
+
+template tern(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
+  ## Shorthand for inline if/else. Allows use of conditions in strformat,
+  ## simplifies use in expressions. Less picky with formatting
+  {.line: instantiationInfo(fullPaths = true).}:
+    block:
+      if predicate: tBranch else: fBranch
 
 proc formatTrace*(conf: ConfigRef, trace: seq[StackTraceEntry]): string =
   ## Format stack trace entries for reporting
@@ -583,7 +592,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           r.symbols[0].name.s,
           " is deprecated"
         )
-
       else:
         result = r.str
         if not r.sym.isNil:
@@ -598,10 +606,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
               s.owner.name.s,
               s.name.s,
             )
-
           elif s.kind == skModule and not s.constraint.isNil():
             result.addf("$1; $2 is deprecated", s.constraint.strVal, s.name.s)
-
           else:
             result.add(s.name.s, " is deprecated")
 
@@ -616,7 +622,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       if len(r.expectedSymbolKind) == 1:
          for n in r.expectedSymbolKind:
            ask = n.toHumanStr
-
       else:
         ask = $r.expectedSymbolKind
 
@@ -666,28 +671,28 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       for sym in r.unexpectedCandidate:
         result.addf("\n  found $1", getSymRepr(conf, sym))
 
-      if r.explicitCall:
-        if result.len == 0:
-          result = "attempting to call undeclared routine: '$1'" % $r.str
+      result =
+        if r.explicitCall:
+          if result.len == 0:
+            "attempting to call undeclared routine: '$1'" % $r.notProcOrField
+          else:
+            "attempting to call routine: '$1'$2" %
+              [$r.notProcOrField, $result]
         else:
-          result = "attempting to call routine: '$1'$2" % [$r.str, $result]
+          let
+            sym = r.typ.typSym
+            suffix = if result.len > 0: " " & result else: ""
+            typeHint =
+              if sym == nil:
+                # Perhaps we're in a `compiles(foo.bar)` expression, or
+                # in a concept, e.g.:
+                #   ExplainedConcept {.explain.} = concept x
+                #     x.foo is int
+                ""
+              else:
+                " for type " & getProcHeader(conf, sym)
 
-      else:
-        let sym = r.typ.typSym
-        var typeHint = ""
-        if sym == nil:
-          # Perhaps we're in a `compiles(foo.bar)` expression, or
-          # in a concept, e.g.:
-          #   ExplainedConcept {.explain.} = concept x
-          #     x.foo is int
-          discard
-        else:
-
-          typeHint = " for type " & getProcHeader(conf, sym)
-
-        let suffix = if result.len > 0: " " & result else: ""
-
-        result = "undeclared field: '$1'" % r.str & typeHint & suffix
+          "undeclared field: '$1$2$3'" % [$r.notProcOrField, typeHint, suffix]
 
     of rsemUndeclaredField:
       result =  "undeclared field: '$1' for type $2" % [
@@ -698,6 +703,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemFieldAssignmentInvalid:
       result = "Invalid field assignment '$1'" % r.ast.render
+    
+    of rsemFieldAssignmentInvalidNeedSpace:
+      result = "Invalid field assignment '$1'; use a space after the colon" %
+                  r.ast.render
 
     of rsemAmbiguous:
       var args = "("
@@ -720,23 +729,24 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           "if possible, rearrange your program's control flow to prevent it") % [
           r.ast.render]
 
+    of rsemAmbiguousIdent, rsemAmbiguousIdentWithCandidates:
+      let (sym, candidates) =
+        case SemReportKind(r.kind)
+        of rsemAmbiguousIdent:
+          (r.ast[0].sym, r.ast.sons.map(proc(child: PNode): PSym = child.sym))
+        of rsemAmbiguousIdentWithCandidates:
+          (r.sym, r.symbols)
+        else:
+          unreachable()
 
-    of rsemAmbiguousIdent:
-      result = "ambiguous identifier: '" & r.symstr & "' -- use one of the following:\n"
-      var i = 0
-      for sym in r.symbols:
-        result.add(
-          tern(0 < i, "\n", ""),
-          "  ",
-          sym.owner.name.s,
-          ".",
-          sym.name.s,
-          ": ",
-          sym.typ.render()
-        )
+      result = "ambiguous identifier: '$1' -- use one of the following:\n" %
+                sym.name.s
 
-        inc i
-
+      for i, child in candidates.pairs:
+        result.add "$1  $2.$3: $4" % [if i > 0: "\n" else: "",
+                                      child.owner.name.s,
+                                      child.name.s,
+                                      child.typ.render()]
 
     of rsemStaticOutOfBounds:
       let (i, a, b) = r.indexSpec
@@ -825,9 +835,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "unknown trait: " & r.sym.name.s
 
     of rsemExpectedOrdinal:
-      if not r.ast.isNil and r.ast.kind == nkBracket:
+      if r.ast != nil and r.ast.kind == nkBracket:
         result.add "expected ordinal value for array index, got '$1'" % r.wrongNode.render
-
       else:
         result = "ordinal type expected"
 
@@ -842,6 +851,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemWrongNumberOfArguments:
       result = "wrong number of arguments"
+    
+    of rsemIsOperatorTakes2Args:
+      result = "'is' operator takes 2 arguments"
 
     of rsemCannotBeOfSubtype:
       result = "'$1' cannot be of this subtype" % typeToString(r.actualType())
@@ -914,8 +926,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemInvalidExtern:
       result = "invalid extern name: '" & r.externName & "'. (Forgot to escape '$'?)"
 
+    of rsemBadDeprecatedArg:
+      result = "key:value pair expected"
+
     of rsemBadDeprecatedArgs:
-      result = r.str
+      result = "list of key:value pairs expected"
 
     of rsemInvalidPragma:
       result = "invalid pragma: " & r.ast.render
@@ -940,9 +955,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemExtendedContext:
       assert false, "This is a configuration hint"
-
-    of rsemUserRaw:
-      assert false, "Appears to be unused"
 
     of rsemNonMatchingCandidates:
       let (_, candidates) = presentFailedCandidates(conf, r.ast, r.callMismatches)
@@ -1219,9 +1231,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "illegal discard"
 
     of rsemUseOrDiscardExpr:
-      var n = r.ast
-      while n.kind in skipForDiscardable:
-        n = n.lastSon
+      let n = r.wrongNode
 
       result.add(
         "expression '",
@@ -1339,7 +1349,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "Only one general except clause is allowed after more specific exceptions"
 
     of rsemCannotConvertToRange:
-      result = "cannot convert '$1' to '$2'" % [$r.ast.floatVal, typeToString(r.typ)]
+      result = "cannot convert '$1' to '$2'" % [$r.str, typeToString(r.typ)]
 
     of rsemProveInit:
       result = "Cannot prove that '$1' is initialized. This will become a compile time error in the future." %
@@ -1411,16 +1421,21 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       ]
 
     of rsemCannotBeConvertedTo:
-      let value = if r.ast.kind in {nkCharLit..nkUInt64Lit}: $r.ast.getInt else: $r.ast.getFloat
-      result = value & " can't be converted to " & r.typ.render
+      let value =
+        case r.ast.kind
+        of nkIntLiterals:   $r.ast.getInt
+        of nkFloatLiterals: $r.ast.getFloat
+        else:               unreachable()
+      result = "$1 can't be converted to $2" % [value, r.typ.render]
 
     of rsemCannotCastToNonConcrete:
       result = "cannot cast to a non concrete type: '$1'" % r.typ.render
 
     of rsemCannotCastTypes:
-      let tar = $r.formalType
-      let alt = typeToString(r.formalType, preferDesc)
-      let msg = if tar != alt: tar & "=" & alt else: tar
+      let
+        tar = $r.formalType
+        alt = typeToString(r.formalType, preferDesc)
+        msg = if tar != alt: tar & "=" & alt else: tar
       result = "expression cannot be cast to " & msg
 
     of rsemInvalidArgumentFor:
@@ -1492,8 +1507,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemExpectedValueForYield:
       result = "yield statement must yield a value"
 
-    of rsemExpectedIdentifier:
-      result = "identifier expected, but got: " & r.ast.render
+    of rsemModuleAliasMustBeIdentifier:
+      result = "module alias must be an identifier, got: " & r.ast.render
 
     of rsemExpectedMacroOrTemplate:
       result = "'$1' is not a macro or template" % (
@@ -1832,7 +1847,14 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       assert false, "REMOVE"
 
     of rsemUndeclaredIdentifier:
-      result = "undeclared identifier: '" & r.str & "'"
+      result = "undeclared identifier: '$1'" % r.str
+
+      if r.recursiveDeps.len > 0:
+        result.add "\nThis might be caused by recursive module dependencies:"
+        for i, dep in r.recursiveDeps.pairs:
+          result.add "\n(importer: $1, importee: $2)" %
+            [conf.toFullPath(dep.importer), conf.toFullPath(dep.importee)]
+
       if r.spellingCandidates.len > 0:
         result.add "\n"
         result.add presentSpellingCandidates(
@@ -1840,12 +1862,12 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemOnlyDeclaredIdentifierFoundIsError:
       result = "identifier '$1' found but it has errors, see: $2" %
-                [r.str, conf.toStr(r.ast.info)]
+                [r.str, conf.toStr(r.wrongNode.info)]
 
     of rsemXDeclaredButNotUsed:
       result = "'$1' is declared but not used" % r.symstr
 
-    of rsemCompilesReport, rsemCompilesError:
+    of rsemCompilesReport, rsemCompilesHasSideEffects:
       assert false, "Temporary report for `compiles()` speedup, cannot be printed"
 
     of rsemCannotMakeSink:
@@ -1949,12 +1971,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemTypeInvalid:
       result = "invalid type"
-
-    of rsemIdentExpectedInExpr:
-      if not r.wrongNode.isNil:
-        result = "in expression '$1': " % [r.wrongNode.render]
-
-      result.addf("identifier expected, but found '$1'", r.ast.render)
 
     of rsemInitHereNotAllowed:
       result = "initialization not allowed here"
@@ -2141,10 +2157,20 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         $r.symbols[0].typ.lockLevel
       ]
 
+    of rsemExpectedIdentifier:
+      result = "identifier expected, but found: " & r.ast.render
+
     of rsemExpectedIdentifierInExpr:
-      result = "in expression '$1': identifier expected, but found '$2'" % [
-        r.ast.render(), r.wrongNode.render()
-      ]
+      # `ast` the expression (where the error is), the identifier `wrongNode`
+      # clarifies the message.
+      result = "in expression '$1': identifier expected, but found '$2'" %
+                [r.ast.render(), r.wrongNode.render()]
+
+    of rsemExpectedIdentifierWithExprContext:
+      # `ast` the identifier, the expression `wrongNode` (where the error is)
+      # clarifies the message.
+      result = "identifier expected, but found: '$1'; within expression: '$2'" %
+                [r.ast.render(), r.wrongNode.render()]
 
     of rsemFieldNotAccessible:
       result = "the field '$1' is not accessible." % r.symstr
@@ -2157,14 +2183,14 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemStrictNotNilResult:
       case r.nilIssue:
-        of Nil:
-          result = "return value is nil"
-        of MaybeNil:
-          result = "return value might be nil"
-        of Unreachable:
-          result = "return value is unreachable"
-        of Safe, Parent:
-          discard
+      of Nil:
+        result = "return value is nil"
+      of MaybeNil:
+        result = "return value might be nil"
+      of Unreachable:
+        result = "return value is unreachable"
+      of Safe, Parent:
+        discard
 
     of rsemStrictNotNilExpr:
       result.add(
@@ -2181,7 +2207,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       if r.nilHistory.len > 0:
         result.add("\n")
 
-
       for step in r.nilHistory:
         result.addf("  $1 on line "):
           case step.kind:
@@ -2197,27 +2222,23 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
         result.addf("$1:$2", $step.info.line, $step.info.col)
 
-
     of rsemWarnGcUnsafeListing, rsemErrGcUnsafeListing:
-      let trace = r.gcUnsafeTrace
-      let (s, u) = (trace.isUnsafe.name.s, trace.unsafeVia.name.s)
+      let
+        trace = r.gcUnsafeTrace
+        (s, u) = (trace.isUnsafe.name.s, trace.unsafeVia.name.s)
       case trace.unsafeRelation:
-        of sgcuCallsUnsafe:
-          result.addf("'$#' is not GC-safe as it calls '$#'", s, u)
-
-        of sgcuAccessesGcGlobal:
-          result.addf(
-            "'$#' is not GC-safe as it accesses '$#' which is a global using GC'ed memory",
-            s, u)
-
-        of sgcuIndirectCallVia:
-
-          result.addf(
-            "'$#' is not GC-safe as it performs an indirect call via '$#'", s, u)
-
-        of sgcuIndirectCallHere:
-          result.addf(
-            "'$#' is not GC-safe as it performs an indirect call here", s)
+      of sgcuCallsUnsafe:
+        result.addf("'$#' is not GC-safe as it calls '$#'", s, u)
+      of sgcuAccessesGcGlobal:
+        result.addf(
+          "'$#' is not GC-safe as it accesses '$#' which is a global using GC'ed memory",
+          s, u)
+      of sgcuIndirectCallVia:
+        result.addf(
+          "'$#' is not GC-safe as it performs an indirect call via '$#'", s, u)
+      of sgcuIndirectCallHere:
+        result.addf(
+          "'$#' is not GC-safe as it performs an indirect call here", s)
 
     of rsemDiagnostics:
       result.add presentDiagnostics(conf, r.diag, startWithNewLine = false)
@@ -2256,10 +2277,7 @@ func suffixShort(conf: ConfigRef, r: ReportTypes): string {.inline.} =
   else:
     ""
 
-proc suffix(
-    conf: ConfigRef,
-    r: ReportTypes
-  ): string =
+proc suffix(conf: ConfigRef, r: ReportTypes): string =
   if r.kind in repWithSuffix or conf.hasHint(rintErrKind):
     result.add conf.wrap(suffixShort(conf, r), fgCyan)
 
@@ -2310,11 +2328,8 @@ proc reportBody*(conf: ConfigRef, r: ParserReport): string =
     of rparNestableRequiresIndentation:
        result = "nestable statement requires indentation"
 
-    of rparIdentExpected:
-      result = "identifier expected, but got '$1'" % r.found
-
-    of rparIdentOrKwdExpected:
-      result = "identifier expected, but got '$1'" % r.found
+    of rparIdentExpected, rparIdentOrKwdExpected:
+      result = "identifier expected, but found '$1'" % r.found
 
     of rparExprExpected:
       result = "expression expected, but found '$1'" % r.found
@@ -2384,29 +2399,45 @@ proc reportShort*(conf: ConfigRef, r: ParserReport): string =
   reportBody(conf, r) & suffixShort(conf, r)
 
 proc presentDiagnostics(conf: ConfigRef, d: SemDiagnostics, startWithNewLine: bool): string =
-  var newLine = startWithNewLine
-  for report in d.reports:
-    if newLine:
+  assert d.diags.len == 0, "empty until SemReport is removed, see sigmatch"
+  if d.tempDiagFailCount > 0:
+    if startWithNewLine:
       result.add '\n'
-    else:
-      newLine = true
-    result.add conf.getContext(report.context)
-    if report.location.isSome() and report.kind in repWithLocation:
-      # Optional report location
-      result.add conf.toStr(report.location.get()) & " "
+    result.add "number of diags failed: " & $d.tempDiagFailCount
+  
+  when false:
+    # TODO: restore a reworked version of this once Report/SemReport are gone
+    var newLine = startWithNewLine
+    for diag in d.diags:
+      let report =
+        block:
+          let r = astDiagToLegacyReport(diag)
+          case r.category
+          of repSem:
+            r.semReport
+          else:
+            continue
+      if newLine:
+        result.add '\n'
+      else:
+        newLine = true
+      result.add conf.getContext(report.context)
+      if report.location.isSome() and report.kind in repWithLocation:
+        # Optional report location
+        result.add conf.toStr(report.location.get()) & " "
 
-    if report.kind in repWithPrefix:
-      # Instead of "Error:", take the concept sym that the diagnostics concern
-      let sev = conf.severity(report)
-      result.add conf.wrap(
-        if sev == rsevError:
-          d.diagnosticsTarget.name.s & ": "
-        else:
-          prefixShort(conf, report)
-        , reportColors[sev])
+      if report.kind in repWithPrefix:
+        # Instead of "Error:", take the concept sym that the diagnostics concern
+        let sev = conf.severity(report)
+        result.add conf.wrap(
+          if sev == rsevError:
+            d.diagnosticsTarget.name.s & ": "
+          else:
+            prefixShort(conf, report)
+          , reportColors[sev])
 
-    result.add reportBody(conf, report)
-    result.add conf.suffix(report)
+      result.add reportBody(conf, report)
+      result.add conf.suffix(report)
 
 proc presentFailedCandidates(
     conf: ConfigRef,
@@ -2459,16 +2490,18 @@ proc presentFailedCandidates(
     if err.target.kind in routineKinds and err.target.ast != nil:
       candidates.add(renderTree(
         err.target.ast, {renderNoBody, renderNoComments, renderNoPragmas}))
-
     else:
       candidates.add(getProcHeader(conf, err.target, prefer))
 
     candidates.addDeclaredLocMaybe(conf, err.target)
     candidates.add("\n")
 
-    let nArg = err.firstMismatch.arg
-
-    let nameParam = if err.firstMismatch.formal != nil: err.firstMismatch.formal.name.s else: ""
+    let
+      nArg = err.firstMismatch.arg
+      nameParam =
+        if err.firstMismatch.formal != nil: err.firstMismatch.formal.name.s
+        else:                               ""
+    
     if n.len > 1:
       candidates.add("  first type mismatch at position: " & $err.firstMismatch.pos)
       # candidates.add "\n  reason: " & $err.firstMismatch.kind # for debugging
@@ -2503,7 +2536,6 @@ proc presentFailedCandidates(
           if err.firstMismatch.kind == kVarNeeded:
             candidates.add renderNotLValue(nArg)
             candidates.add "' is immutable, not 'var'"
-
           else:
             candidates.add renderTree(nArg)
             candidates.add "' is of type: "
@@ -3343,16 +3375,10 @@ proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
 
 proc reportFull*(conf: ConfigRef, r: BackendReport): string =
   assertKind r
-  case BackendReportKind(r.kind):
-  of rbackJsUnsupportedClosureIter,
-      rbackJsTooCaseTooLarge:
-    result.add(
-      conf.prefix(r),
-      conf.reportBody(r),
-      conf.suffix(r)
-    )
-  else:
-    result = reportBody(conf, r)
+  result.add(
+    conf.prefix(r),
+    conf.reportBody(r),
+    conf.suffix(r))
 
 proc reportShort*(conf: ConfigRef, r: BackendReport): string =
   # mostly created for nimsuggest
@@ -3361,7 +3387,6 @@ proc reportShort*(conf: ConfigRef, r: BackendReport): string =
   if BackendReportKind(r.kind) in {rbackJsUnsupportedClosureIter,
                                    rbackJsTooCaseTooLarge}:
     result.add conf.suffixShort(r)
-
 
 
 proc reportBody*(conf: ConfigRef, r: VMReport): string =
@@ -3708,8 +3733,9 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   elif wkind == writeForceEnabled:
     echo conf.reportFull(r)
   elif r.kind == rsemProcessing and conf.hintProcessingDots:
-    # REFACTOR 'processing with dots' - requires special hacks, pretty
-    # useless, need to be removed in the future.
+    # xxx: the report hook is handling processing dots output, why? this whole
+    #      infrastructure is overwrought. seriously, they're not hints, they're
+    #      progress indicators.
     conf.write(".")
     lastDot = true
   else:

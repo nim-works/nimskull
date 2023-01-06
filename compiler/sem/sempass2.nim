@@ -1576,10 +1576,9 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
         var report = reportSem(rsemHasSideEffects)
         listSideEffects(report, s, g.config, t.c)
         localReport(g.config, s.info, report)
-
       else:
         # simple error for `system.compiles` context
-        localReport(g.config, s.info, reportSem(rsemCompilesError))
+        localReport(g.config, s.info, reportSem rsemCompilesHasSideEffects)
 
   if not t.gcUnsafe:
     s.typ.flags.incl tfGcSafe

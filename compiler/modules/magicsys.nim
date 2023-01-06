@@ -161,15 +161,14 @@ proc registerNimScriptSymbol*(g: ModuleGraph; s: PSym) =
 
 proc registerNimScriptSymbol2*(g: ModuleGraph; s: PSym): PNode =
   # Nimscript symbols must be all unique:
-  result = g.emptyNode
   let conflict = strTableGet(g.exposed, s.name)
-  if conflict == nil:
+  if conflict.isNil:
     strTableAdd(g.exposed, s)
+    g.emptyNode
   else:
-    result = g.config.newError(
+    g.config.newError(
       newSymNode(s),
-      reportSymbols(rsemConflictingExportnims, @[s, conflict]),
-      posInfo = s.info)
+      PAstDiag(kind: adSemConflictingExportnims, conflict: conflict))
 
 proc getNimScriptSymbol*(g: ModuleGraph; name: string): PSym =
   strTableGet(g.exposed, getIdent(g.cache, name))

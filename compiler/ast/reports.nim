@@ -18,12 +18,13 @@
 ## `compilerDebugCompilerReportStatistics`: output stats of counts for various
 ##                                          report kinds
 
-import std/[options, packedsets]
+import std/[options]
 
 import
   compiler/ast/[
     ast_types, 
     lineinfos,
+    reports_base,
     report_enums,
     reports_lexer,
     reports_parser,
@@ -39,18 +40,15 @@ import
     idioms,
   ]
 
-from compiler/ast/reports_base import ReportLineInfo, ReportSeverity
-
 from compiler/utils/int128 import toInt128
+from compiler/ast/reports_base_sem import ReportContext
 
 export
-  ast_types,
   options.some,
   options.none,
   options.Option,
   int128.toInt128,
-  reports_base.ReportLineInfo,
-  reports_base.ReportSeverity
+  ReportLineInfo
 
 # from compiler/front/in_options import TOption, TOptions
 
@@ -58,20 +56,6 @@ export
 # needlessly cluttering the import lists of all modules that have to report
 # something (and that would be almost all modules)
 export report_enums
-
-template withIt*(expr: untyped, body: untyped): untyped =
-  block:
-    var it {.inject.} = expr
-    body
-    it
-
-template tern*(predicate: bool, tBranch: untyped, fBranch: untyped): untyped =
-  ## Shorthand for inline if/else. Allows use of conditions in strformat,
-  ## simplifies use in expressions. Less picky with formatting
-  {.line: instantiationInfo(fullPaths = true).}:
-    block:
-      if predicate: tBranch else: fBranch
-
 
 type
   ReportTypes* =
@@ -258,7 +242,7 @@ template calledFromInfo*(): ReportLineInfo =
     ReportLineInfo(file: $e.filename, line: e.line.uint16)
 
 func isValid*(point: ReportLineInfo): bool =
-  0 < point.file.len and point.file != "???"
+  point.file.len > 0 and point.file != "???"
 
 template reportHere*[R: ReportTypes](report: R): R =
   block:
@@ -332,32 +316,6 @@ template wrap*(rep: ReportTypes): Report =
 
 func `$`*(point: ReportLineInfo): string =
   point.file & "(" & $point.line & ", " & $point.col & ")"
-
-type
-  ReportList* = object
-    ## List of the accumulated reports. Used for various `sem*` reporting
-    ## mostly, and in other places where report might be *generated*, but
-    ## not guaranteed to be printed out.
-    list: seq[Report]
-
-  ReportSet* = object
-    ids: PackedSet[uint32]
-
-func incl*(s: var ReportSet, id: ReportId) = s.ids.incl uint32(id)
-func contains*(s: var ReportSet, id: ReportId): bool = s.ids.contains uint32(id)
-
-func addReport*(list: var ReportList, report: sink Report): ReportId =
-  ## Add report to the report list
-  list.list.add report
-  result = ReportId(uint32(list.list.high) + 1)
-
-func addReport*[R: ReportTypes](list: var ReportList, report: R): ReportId =
-  addReport(list, wrap(report))
-
-func getReport*(list: ReportList, id: ReportId): Report =
-  ## Get report from the report list using it's id
-  list.list[int(uint32(id)) - 1]
-
 
 func actualType*(r: SemReport | VMReport): PType = r.typeMismatch[0].actualType
 func formalType*(r: SemReport | VMReport): PType = r.typeMismatch[0].formalType

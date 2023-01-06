@@ -119,14 +119,13 @@ proc discardCheck(c: PContext, n: PNode, flags: TExprFlags): PNode =
   if n.typ != nil and n.typ.kind notin {tyTyped, tyVoid}:
     if implicitlyDiscardable(n):
       result = newTreeI(nkDiscardStmt, n.info, n)
-
     elif n.typ.kind != tyError and c.config.cmd != cmdInteractive:
       var m = n
       while m.kind in skipForDiscardable:
         m = m.lastSon
 
-      result = newError(c.config, m,
-        reportAst(rsemUseOrDiscardExpr, n))
+      result = newError(c.config, n,
+        PAstDiag(kind: adSemUseOrDiscardExpr, undiscarded: m))
 
 # end `discard` check related code
 
@@ -261,7 +260,6 @@ proc semTry(c: PContext, n: PNode; flags: TExprFlags): PNode =
     a[^1] = semExprBranchScope(c, a[^1])
     if a.kind != nkFinally:
       typ = commonType(c, typ, a[^1])
-
     else:
       dec last
 
@@ -304,8 +302,9 @@ proc fitRemoveHiddenConv(c: PContext, typ: PType, n: PNode): PNode =
 
       if not floatRangeCheck(result.floatVal, typ):
         result = newError(c.config, n,
-                          reportAst(rsemCannotConvertToRange, result,
-                                    typ = typ))
+                          PAstDiag(kind: adSemCannotConvertToRange,
+                                   floatVal: result.floatVal,
+                                   convTyp: typ))
     else:
       result = changeType(c, r1, typ, check=true)
   of nkError:
@@ -363,12 +362,12 @@ proc checkNilableOrError(c: PContext; def: PNode): PNode =
     let v = def.sym
     if {sfGlobal, sfImportc} * v.flags == {sfGlobal} and v.typ.requiresInit:
       if v.astdef.isNil:
-        result = c.config.newError(def, reportSym(rsemProveInit, v))
+        result = c.config.newError(def, PAstDiag(kind: adSemProveInit, unproven: v))
 
       elif tfNotNil in v.typ.flags and
           not v.astdef.typ.isNil and
           tfNotNil notin v.astdef.typ.flags:
-        result = c.config.newError(def, reportSym(rsemProveInit, v))
+        result = c.config.newError(def, PAstDiag(kind: adSemProveInit, unproven: v))
   else:
     # xxx: maybe assert instead
     discard
@@ -473,7 +472,7 @@ proc setVarType(c: PContext; v: PSym, typ: PType) =
       SemReport(
         kind: rsemDifferentTypeForReintroducedSymbol,
         sym: v,
-        typeMismatch: @[c.config.typeMismatch(
+        typeMismatch: @[typeMismatch(
           actual = typ, formal = v.typ)]))
 
   v.typ = typ
@@ -484,8 +483,11 @@ proc newSymChoiceUseQualifierReport(n: PNode): SemReport =
   for child in n:
     result.symbols.add child.sym
 
-proc errorSymChoiceUseQualifier(c: PContext; n: PNode) =
-  localReport(c.config, n.info, newSymChoiceUseQualifierReport(n))
+proc newSymChoiceUseQualifierDiag(n: PNode): PAstDiag =
+  assert n.kind in nkSymChoices
+  assert n.len > 1, "need at least two symbol for ambiguity, got: " & $n.len
+  result = PAstDiag(kind: adSemAmbiguousIdent, 
+                    wrongNode: n)
 
 proc copyExcept(n: PNode, i: int): PNode {.inline.} =
   result = copyNode(n)
@@ -646,7 +648,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
         of nkSymChoices:
           if temp[0].typ.skipTypes(abstractInst).kind == tyEnum:
             hasError = true
-            newError(c.config, temp, newSymChoiceUseQualifierReport(temp))
+            newError(c.config, temp, newSymChoiceUseQualifierDiag(temp))
           else:
             temp
         else:
@@ -710,13 +712,15 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
     if hasEmpty(typ):
       typ =
         newTypeError(typ, nextTypeId(c.idgen)):
-          c.config.newError(def, reportTyp(rsemCannotInferTypeOfLiteral, typ))
+          c.config.newError(def, PAstDiag(kind: adSemCannotInferTypeOfLiteral,
+                                          wrongType: typ))
     elif typ.kind == tyProc and
           def.kind == nkSym and
           isGenericRoutine(def.sym.ast):
       typ =
         newTypeError(typ, nextTypeId(c.idgen)):
-          c.config.newError(def, reportTyp(rsemProcHasNoConcreteType, typ))
+          c.config.newError(def, PAstDiag(kind: adSemProcHasNoConcreteType,
+                                          wrongType: typ))
   
   else:                               # eg: var foo <-- lol, no
     # xxx: should we error out here or report it later, might recover via
@@ -785,7 +789,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
       # unpacking assignment.
       hasError = true
       producedDecl[i] =
-        newError(c.config, r, reportSem rsemPragmaDisallowedForTupleUnpacking)
+        newError(c.config, r, PAstDiag(kind: adSemPragmaDisallowedForTupleUnpacking))
 
       continue
 
@@ -882,11 +886,10 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
 
         c.config.newError(
           r,
-          SemReport(
-            kind: rsemDifferentTypeForReintroducedSymbol,
-            sym: v,
-            typeMismatch: @[c.config.typeMismatch(
-              actual = vTyp, formal = v.typ)]))
+          PAstDiag(
+            kind: adSemDifferentTypeForReintroducedSymbol,
+            reintrod: v,
+            foundTyp: vTyp))
       else:
         v.typ = vTyp
 
@@ -907,7 +910,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
       if sfThread in v.flags:
         hasError = true
         producedDecl[^1] = c.config.newError(n[^1],
-                                             reportSem rsemThreadvarCannotInit)
+                                      PAstDiag(kind: adSemThreadvarCannotInit))
     
     if producedDecl[i].isError:
       hasError = true
@@ -931,16 +934,15 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
         newError(
               c.config,
               producedDecl,
-              c.config.semReportTypeMismatch(producedDecl, {tyTuple}, tupTyp))
+              semDiagTypeMismatch(producedDecl, {tyTuple}, tupTyp))
       elif not sameTupleTypeAndDefAirity:
         hasError = true
         newError(
               c.config,
               producedDecl,
-              semReportCountMismatch(
-                rsemWrongNumberOfVariables,
-                expected = defCount,
-                got = tupTyp.len, node = producedDecl))
+              PAstDiag(kind: adSemWrongNumberOfVariables,
+                       varsExpected: defCount,
+                       varsGiven: tupTyp.len))
       else:
         producedDecl
   of nkIdentDefs:
@@ -954,7 +956,7 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
         # allow let to not be initialised if imported from C:
         if s.kind == skLet and def.kind == nkEmpty and sfImportc notin s.flags:
           hasError = true
-          c.config.newError(producedDecl, reportSem rsemLetNeedsInit)
+          c.config.newError(producedDecl, PAstDiag(kind: adSemLetNeedsInit))
         else:
           producedDecl
     else:
@@ -1010,7 +1012,7 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
         case temp.kind
         of nkSymChoices:
           if temp[0].typ.skipTypes(abstractInst).kind == tyEnum:
-            newError(c.config, temp, newSymChoiceUseQualifierReport(temp))
+            newError(c.config, temp, newSymChoiceUseQualifierDiag(temp))
           else:
             temp
         else:
@@ -1054,7 +1056,7 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
     def = initExpr
     typ = def.typ
   elif hasGivenTyp and not haveInit: # eg: const foo: int # this is malformed
-    def = c.config.newError(defInitPart, reportSem rsemConstExpressionExpected)
+    def = c.config.newError(defInitPart, PAstDiag(kind: adSemConstExpressionExpected))
     hasError = true
     typ = def.typ
   else:                              # eg: const foo <-- lol, no
@@ -1128,7 +1130,7 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
       # unpacking assignment.
       hasError = true
       producedDecl[i] =
-        newError(c.config, r, reportSem rsemPragmaDisallowedForTupleUnpacking)
+        newError(c.config, r, PAstDiag(kind: adSemPragmaDisallowedForTupleUnpacking))
 
       continue
 
@@ -1194,11 +1196,10 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
 
         c.config.newError(
           r,
-          SemReport(
-            kind: rsemDifferentTypeForReintroducedSymbol,
-            sym: v,
-            typeMismatch: @[c.config.typeMismatch(
-              actual = vTyp, formal = v.typ)]))
+          PAstDiag(
+            kind: adSemDifferentTypeForReintroducedSymbol,
+            reintrod: v,
+            foundTyp: vTyp))
       else:
         v.typ = vTyp
 
@@ -1231,16 +1232,15 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
         newError(
               c.config,
               producedDecl,
-              c.config.semReportTypeMismatch(producedDecl, {tyTuple}, tupTyp))
+              semDiagTypeMismatch(producedDecl, {tyTuple}, tupTyp))
       elif not sameTupleTypeAndDefAirity:
         hasError = true
         newError(
               c.config,
               producedDecl,
-              semReportCountMismatch(
-                rsemWrongNumberOfVariables,
-                expected = defCount,
-                got = tupTyp.len, node = producedDecl))
+              PAstDiag(kind: adSemWrongNumberOfVariables,
+                       varsExpected: defCount,
+                       varsGiven: tupTyp.len))
       else:
         producedDecl
   of nkConstDef:
@@ -1390,7 +1390,8 @@ proc semConstLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
     else:
       # TODO ill formed ast
       result.add:
-        c.config.newError(a, illformedAstReport(a, allowedDefKinds))
+        c.config.newError(a, PAstDiag(kind: adSemIllformedAstExpectedOneOf,
+                                      expectedKinds: allowedDefKinds))
 
     if result[^1].kind == nkError:
       hasError = true
@@ -1479,15 +1480,15 @@ proc semForVarUnpacked(c: PContext, formal: PType, view: ViewTypeKind,
   assert n.kind in {nkVarTuple, nkForStmt}
 
   if formal.kind != tyTuple:
-    return newError(c.config, n, semReportCountMismatch(
-      rsemWrongNumberOfVariables,
-      expected = 3,
-      got = n.len))
+    return newError(c.config, n,
+                    PAstDiag(kind: adSemWrongNumberOfVariables,
+                             varsExpected: 3,
+                             varsGiven: n.len))
   elif len != formal.len:
-    return newError(c.config, n, semReportCountMismatch(
-      rsemWrongNumberOfVariables,
-      expected = formal.len,
-      got = len))
+    return newError(c.config, n,
+                    PAstDiag(kind: adSemWrongNumberOfVariables,
+                             varsExpected: formal.len,
+                             varsGiven: len))
 
   # analyse all elements:
   var hasError = false
@@ -1636,7 +1637,8 @@ proc semCase(c: PContext, n: PNode; flags: TExprFlags): PNode =
   else:
     popCaseContext(c)
     closeScope(c)
-    result[0] = c.config.newError(n[0], reportSem rsemSelectorMustBeOfCertainTypes)
+    result[0] = c.config.newError(n[0],
+                          PAstDiag(kind: adSemSelectorMustBeOfCertainTypes))
     return
   for i in 1..<n.len:
     setCaseContextIdx(c, i)
@@ -3035,7 +3037,7 @@ proc semPragmaBlock(c: PContext, n: PNode): PNode =
         inUncheckedAssignSection = 1
         # don't add it to the result as we've consumed it
       else:
-        let e = c.config.newError(p, reportAst(rsemInvalidPragmaBlock, p))
+        let e = c.config.newError(p, PAstDiag(kind: adSemInvalidPragmaBlock))
         pragmaList[i] = e
         result[0] = pragmaList # restore it for a nice error msg
         return wrapError(c.config, result)
@@ -3116,7 +3118,7 @@ proc inferConceptStaticParam(c: PContext, inferred, n: PNode) =
     localReport(c.config, n.info, SemReport(
       kind: rsemConceptInferenceFailed,
       ast: inferred,
-      typeMismatch: @[c.config.typeMismatch(
+      typeMismatch: @[typeMismatch(
         actual = res.typ, formal = typ.base)]))
 
   typ.n = res
@@ -3163,7 +3165,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
       
       if x.isError:
         result.add:
-          newError(c.config, n[i], reportSem rsemConceptPredicateFailed)
+          newError(c.config, n[i], PAstDiag(kind: adSemConceptPredicateFailed))
         hasError = true
 
       case x.typ.kind
@@ -3182,7 +3184,8 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
         
         if verdict == nil or verdict.kind != nkIntLit or verdict.intVal == 0:
           result.add:
-            newError(c.config, n[i], reportSem rsemConceptPredicateFailed)
+            newError(c.config, n[i],
+                     PAstDiag(kind: adSemConceptPredicateFailed))
           hasError = true
       of tyUnknown: continue
       else: discard

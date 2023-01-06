@@ -4,6 +4,8 @@ import std/[hashes]
 
 from compiler/front/in_options import TOption, TOptions # Stored in `PSym`
 
+from compiler/utils/int128 import Int128
+
 const maxInstantiation* = 100
   ## maximum number of nested generic instantiations or macro pragma expansions
 
@@ -19,6 +21,26 @@ type
     ccFastCall = "fastcall"         ## fastcall (pass parameters in registers)
     ccClosure  = "closure"          ## proc has a closure
     ccNoConvention = "noconv"       ## needed for generating proper C procs sometimes
+
+type
+  MismatchKind* = enum
+    ## Procedure call argument mismatch reason
+    kUnknown
+    kAlreadyGiven           ## Named argument already given
+    kUnknownNamedParam      ## No such named parameter
+    kTypeMismatch           ## Parameter type mismatch
+    kVarNeeded              ## Parameter should be mutable
+    kMissingParam           ## Missing procedure parameter
+    kExtraArg               ## Too many arguments for a procedure call
+    kPositionalAlreadyGiven ## Positional parameter has already been givend
+                            ## as a named parameter
+
+type
+  NodeId* = distinct int32
+
+proc `==`*(a, b: NodeId): bool {.borrow.}
+proc hash*(a: NodeId): Hash {.borrow.}
+proc `$`*(a: NodeId): string {.borrow.}
 
 type
   TNodeKind* = enum
@@ -739,6 +761,19 @@ proc hash*(x: ItemId): Hash =
 
 
 type
+  TTypeAllowedFlag* = enum
+    taField,
+    taHeap,
+    taConcept,
+    taIsOpenArray,
+    taNoUntyped
+    taIsTemplateOrMacro
+    taProcContextIsNotMacro
+
+  TTypeAllowedFlags* = set[TTypeAllowedFlag]
+
+
+type
   TIdObj* {.acyclic.} = object of RootObj
     itemId*: ItemId
   PIdObj* = ref TIdObj
@@ -747,21 +782,591 @@ type
   TNodeSeq* = seq[PNode]
   PType* = ref TType
   PSym* = ref TSym
-  ReportId* = distinct uint32 ## Id of the report in the report list.
-  ## Report itself is defined in the `reports.nim` which imports `ast.nim`,
-  ## so id type is 'forward'-declared here to avoid cyclic dependencies.
-  ## Main type definitions are in the `reports.nim`, storage of the reports
-  ## list (that report id indexes into)
 
   PIdent* = ref TIdent
   TIdent*{.acyclic.} = object
     id*: int ## unique id; use this for comparisons and not the pointers
     s*: string
     next*: PIdent ## for hash-table chaining
-    h*: Hash ## hash value of s
+    h*: Hash ## hash value of `s`
+
+  SemTypeMismatch* = object
+    formalTypeKind*: set[TTypeKind]
+    actualType*, formalType*: PType
+
+  SemSpellCandidate* = object
+    dist*: int
+    depth*: int
+    sym*: PSym
+    isLocal*: bool
+
+  MismatchInfo* = object
+    kind*: MismatchKind ## Reason for mismatch
+    pos*: int           ## Position of provided argument that mismatches. This
+                        ##   doesn't always correspond to the *expression*
+                        ##   subnode index (e.g. `.=`) nor the
+                        ##   *target parameter* index (varargs)
+    arg*: PNode         ## Node of the mismatching provided argument
+    formal*: PSym       ## Parameter that the provided argument did not match,
+                        ##   due to varargs its position may differ from `arg`
+
+  SemDiagnostics* = object
+    diagnosticsTarget*: PSym ## The concept sym that didn't match
+    tempDiagFailCount*: int  ## number of diagnostic failures, temporary until
+                             ##   `SemReport` is removed
+    diags*: seq[PAstDiag]    ## Diagnostics explaining why the concept didn't
+                             ## match
+  
+  SemCallMismatch* = object
+    ## Description of the single candidate mismatch. This type is later
+    ## used to construct meaningful type mismatch message, and must contain
+    ## all the necessary information to provide meaningful sorting,
+    ## collapse and other operations.
+    target*: PSym                ## Procedure tried for overload resolution
+    firstMismatch*: MismatchInfo ## mismatch info for better error messages
+    diag*: SemDiagnostics
+    diagnosticsEnabled*: bool    ## Set by `sfExplain`. ignored by `efExplain`
+                                 ## and `notFoundError`
+
+  AstDiagVmTrace* = object
+    ## Nearly identical to `vmdef.VmStackTrace`
+    ## TODO: refactor out once `vm` no longer depends upon compiler types such
+    ##       as `PNode`, `PSym`, etc, and the ast is more data oriented
+    currentExceptionA*, currentExceptionB*: PNode
+    stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
+    skipped*: int
+    location*: TLineInfo        ## Source location of the trace
+    instLoc*: InstantiationInfo ## report instantiation location
+
+  AstDiagVmKind* = enum
+    adVmOpcParseExpectedExpression
+    adVmUserError
+    adVmUnhandledException
+    adVmCannotCast
+    adVmCallingNonRoutine
+    adVmCannotModifyTypechecked
+    adVmNilAccess
+    adVmAccessOutOfBounds
+    adVmAccessTypeMismatch
+    adVmAccessNoLocation
+    adVmErrInternal
+    adVmIndexError
+    adVmOutOfRange
+    adVmOverOrUnderflow
+    adVmDivisionByConstZero
+    adVmArgNodeNotASymbol
+    adVmNodeNotASymbol
+    adVmNodeNotAProcSymbol
+    adVmIllegalConv
+    adVmMissingCacheKey
+    adVmCacheKeyAlreadyExists
+    adVmFieldNotFound
+    adVmNotAField
+    adVmFieldUnavailable
+    adVmCannotSetChild
+    adVmCannotAddChild
+    adVmCannotGetChild
+    adVmNoType
+    adVmTooManyIterations
+
+  AstDiagVmError* = object
+    case kind*: AstDiagVmKind
+      of adVmUserError:
+        errLoc*: TLineInfo
+        errMsg*: string
+      of adVmArgNodeNotASymbol:
+        callName*: string
+        argAst*: PNode
+        argPos*: int
+      of adVmCannotCast:
+        formalType*: PType
+        actualType*: PType
+      of adVmIndexError:
+        indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
+      of adVmErrInternal, adVmNilAccess, adVmIllegalConv,
+          adVmFieldUnavailable, adVmFieldNotFound,
+          adVmCacheKeyAlreadyExists, adVmMissingCacheKey:
+        msg*: string
+      of adVmCannotSetChild, adVmCannotAddChild, adVmCannotGetChild,
+          adVmUnhandledException, adVmNoType, adVmNodeNotASymbol:
+        ast*: PNode
+      of adVmNotAField:
+        sym*: PSym
+      of adVmOpcParseExpectedExpression,
+          adVmCallingNonRoutine,
+          adVmCannotModifyTypechecked,
+          adVmAccessOutOfBounds,
+          adVmAccessTypeMismatch,
+          adVmAccessNoLocation,
+          adVmOutOfRange,
+          adVmOverOrUnderflow,
+          adVmDivisionByConstZero,
+          adVmNodeNotAProcSymbol,
+          adVmTooManyIterations:
+        discard
+
+  AstDiagVmGenKind* = enum
+    ## Kinds for errors produced by `vmgen`
+    adVmGenBadExpandToAstArgRequired      # | TODO: these enum values duplicate
+    adVmGenBadExpandToAstCallExprRequired # |       `VmGenDiagKind` vmgen enum
+    adVmGenTooManyRegistersRequired       # |       defined in the `vmdef`
+    adVmGenCannotFindBreakTarget          # |       module. There should be a
+    adVmGenNotUnused                      # |       way to cross-reference data
+    adVmGenNotAFieldSymbol                # |       without introducing direct
+    adVmGenCannotGenerateCode             # |       import or type
+    adVmGenCannotEvaluateAtComptime       # |       dependencies. Likely this
+    adVmGenInvalidObjectConstructor       # |       involves data oriented
+    adVmGenMissingImportcCompleteStruct   # |       design, use of handles and
+    adVmGenCodeGenUnhandledMagic          # |       the like, along with
+    adVmGenCodeGenGenericInNonMacro       # |       breaking up the coupling
+    adVmGenCodeGenUnexpectedSym           # |       within the `compiler/vm`
+    adVmGenCannotImportc                  # |       package between pure VM and
+    adVmGenTooLargeOffset                 # |       the VM for the compiler.
+    adVmGenNoClosureIterators             # |
+    adVmGenCannotCallMethod               # |
+    adVmGenCannotCast                     # |       fin.
+
+  AstDiagVmGenError* = object
+    case kind*: AstDiagVmGenKind:
+      of adVmGenBadExpandToAstArgRequired,
+          adVmGenBadExpandToAstCallExprRequired,
+          adVmGenTooManyRegistersRequired,
+          adVmGenCannotFindBreakTarget:
+        discard
+      of adVmGenNotUnused,
+          adVmGenNotAFieldSymbol,
+          adVmGenCannotGenerateCode,
+          adVmGenCannotEvaluateAtComptime,
+          adVmGenInvalidObjectConstructor:
+        ast*: PNode
+      of adVmGenMissingImportcCompleteStruct,
+          adVmGenCodeGenUnhandledMagic:
+        magic*: TMagic
+      of adVmGenCodeGenGenericInNonMacro,
+          adVmGenCodeGenUnexpectedSym,
+          adVmGenCannotImportc,
+          adVmGenTooLargeOffset,
+          adVmGenNoClosureIterators,
+          adVmGenCannotCallMethod:
+        sym*: PSym
+      of adVmGenCannotCast:
+        actualType*: PType
+        formalType*: PType
+
+  AstDiagKind* = enum
+    # general
+    adWrappedError
+    adCyclicTree
+    # type
+    adSemTypeMismatch
+    adSemTypeNotAllowed
+    # lookup
+    adSemUndeclaredIdentifier
+    adSemConflictingExportnims
+    adSemAmbiguousIdentWithCandidates
+    adSemExpectedIdentifier
+    adSemExpectedIdentifierInExpr          ## Expr is the wrongNode itself
+    adSemExpectedIdentifierWithExprContext ## Expr part is informational
+    adSemModuleAliasMustBeIdentifier
+    adSemOnlyDeclaredIdentifierFoundIsError
+    # imports
+    adSemCannotImportItself
+    # pragmas
+    adSemInvalidPragma
+    adSemIllegalCustomPragma
+    adSemStringLiteralExpected
+    adSemIntLiteralExpected
+    adSemOnOrOffExpected
+    adSemCallconvExpected
+    adSemUnknownExperimental
+    adSemWrongIdent
+    adSemPragmaOptionExpected
+    adSemUnexpectedPushArgument
+    adSemMismatchedPopPush
+    adSemExcessiveCompilePragmaArgs
+    adSemEmptyAsm
+    adSemAsmEmitExpectsStringLiteral
+    adSemLinePragmaExpectsTuple
+    adSemRaisesPragmaExpectsObject
+    adSemLocksPragmaExpectsList
+    adSemLocksPragmaBadLevelRange
+    adSemLocksPragmaBadLevelString
+    adSemBorrowPragmaNonDot
+    adSemInvalidExtern
+    adSemBadDeprecatedArg
+    adSemBadDeprecatedArgs
+    adSemMisplacedEffectsOf
+    adSemMissingPragmaArg
+    adSemCannotPushCast
+    adSemCastRequiresStatement
+    adSemPragmaRecursiveDependency
+    adSemImportjsRequiresJs
+    adSemBitsizeRequires1248
+    adSemAlignRequiresPowerOfTwo
+    adSemNoReturnHasReturn
+    adSemMisplacedDeprecation
+    adSemCustomUserError
+    adSemFatalError
+    adSemNoUnionForJs
+    adSemBitsizeRequiresPositive
+    adSemExperimentalRequiresToplevel
+    adSemImplicitPragmaError
+    adSemPragmaDynlibRequiresExportc
+    # sigmatch
+    adSemIncompatibleDefaultExpr
+    # template evaluation (evaltempl)
+    adSemWrongNumberOfArguments
+    # vmserdes
+    adVmUnsupportedNonNil
+    adVmDerefNilAccess          # | TODO: need to decouple the core vm and
+    adVmDerefAccessOutOfBounds  # |       compiler further, then bridge into
+    adVmDerefAccessTypeMismatch # |       core vm events/types instead of these
+    # vmgen
+    adVmGenError
+    # vm
+    adVmError
+    adVmQuit
+    # semcall
+    adSemRawTypeMismatch
+    adSemExpressionCannotBeCalled
+    adSemCallTypeMismatch
+    adSemCallNotAProcOrField
+    adSemImplicitDotCallNotAProcOrField
+    adSemCallInCompilesContextNotAProcOrField ## no data, fast for `compiles()`
+    adSemUndeclaredField
+    adSemCannotInstantiate
+    adSemWrongNumberOfGenericParams
+    # sem
+    adSemExpressionHasNoType
+    # semtypes
+    adSemTypeExpected
+    # semtempl
+    adSemIllformedAst
+    adSemIllformedAstExpectedPragmaOrIdent
+    adSemIllformedAstExpectedOneOf
+    adSemImplementationExpected
+    adSemImplementationNotAllowed
+    adSemInvalidExpression
+    adSemExpectedNonemptyPattern
+    # semstmts
+    adSemUseOrDiscardExpr
+    adSemAmbiguousIdent
+    adSemCannotConvertToRange  # TODO: this should probably mention float?
+    adSemProveInit
+    adSemCannotInferTypeOfLiteral
+    adSemProcHasNoConcreteType
+    adSemPragmaDisallowedForTupleUnpacking
+    adSemDifferentTypeForReintroducedSymbol
+    adSemThreadvarCannotInit
+    adSemWrongNumberOfVariables
+    adSemLetNeedsInit
+    adSemConstExpressionExpected
+    adSemSelectorMustBeOfCertainTypes
+    adSemInvalidPragmaBlock
+    adSemConceptPredicateFailed
+    # types
+    adSemTypeKindMismatch
+    # semexprs
+    adSemConstantOfTypeHasNoValue
+    adSemTypeConversionArgumentMismatch
+    adSemUnexpectedEqInObjectConstructor
+    adSemIllegalConversion
+    adSemCannotBeConvertedTo
+    adSemCannotCastToNonConcrete
+    adSemCannotCastTypes
+    adSemMagicExpectTypeOrValue
+    adSemLowHighInvalidArgument
+    adSemIsOperatorTakes2Args
+    adSemUnknownIdentifier
+    adSemInvalidTupleConstructorKey
+    adSemNoTupleTypeForConstructor
+    adSemExpectedOrdinalArrayIdx
+    adSemIndexOutOfBounds
+    adSemInvalidOrderInArrayConstructor
+    adSemStackEscape
+    adSemVarForOutParamNeeded
+    adSemRecursiveDependencyIterator
+    adSemCallIndirectTypeMismatch
+    adSemSystemNeeds
+    adSemDisallowedNilDeref
+    adSemLocalEscapesStackFrame
+    adSemImplicitAddrIsNotFirstParam
+    adSemCannotAssignTo
+    adSemYieldExpectedTupleConstr
+    adSemCannotReturnTypeless
+    adSemExpectedValueForYield
+    adSemNamedExprExpected
+    adSemFieldInitTwice
+    adSemDisallowedTypedescForTupleField
+    adSemNamedExprNotAllowed
+    adSemCannotMixTypesAndValuesInTuple
+    # semmagics
+    adSemExprHasNoAddress
+    adSemExpectedOrdinal
+    adSemConstExprExpected
+    # semobjconstr
+    adSemFieldAssignmentInvalidNeedSpace
+    adSemFieldAssignmentInvalid
+    adSemFieldNotAccessible
+    adSemFieldOkButAssignedValueInvalid
+    adSemObjectConstructorIncorrect
+    adSemObjectRequiresFieldInitNoDefault
+    adSemExpectedObjectType
+    adSemExpectedObjectOfType
+    adSemDistinctDoesNotHaveDefaultValue
+
+  PAstDiag* = ref TAstDiag
+  TAstDiag* {.acyclic.} = object
+    # xxx: consider splitting storage type vs message
+    # xxx: consider breaking up diag into smaller types
+    # xxx: try to shrink the int/int128 etc types for counts/ordinals
+    diagId*: NodeId             ## set once based on first error node this diag
+                                ## was attached to
+    wrongNode*: PNode
+    instLoc*: InstantiationInfo
+    location*: TLineInfo        # TODO: `wrongNode` already has this, move to
+                                #       variant or handle in display/rendering
+    case kind*: AstDiagKind
+    of adWrappedError:
+      discard
+    of adSemTypeMismatch,
+        adSemIllegalConversion,
+        adSemCannotCastTypes:
+      typeMismatch*: seq[SemTypeMismatch]
+    of adSemConflictingExportnims:
+      conflict*: PSym
+    of adSemAmbiguousIdentWithCandidates:
+      candidateSyms*: seq[PSym]
+    of adSemTypeNotAllowed:
+      allowedType*: tuple[
+          allowed: PType,
+          actual: PType,
+          kind: TSymKind,
+          allowedFlags: TTypeAllowedFlags
+        ]
+    of adSemAmbiguousIdent,
+        adSemExpectedIdentifier,
+        adSemModuleAliasMustBeIdentifier,
+        adSemInvalidPragma,
+        adSemStringLiteralExpected,
+        adSemIntLiteralExpected,
+        adSemOnOrOffExpected,
+        adSemCallconvExpected,
+        adSemUnknownExperimental,
+        adSemPragmaOptionExpected,
+        adSemUnexpectedPushArgument,
+        adSemMismatchedPopPush,
+        adSemExcessiveCompilePragmaArgs,
+        adSemEmptyAsm,
+        adSemLinePragmaExpectsTuple,
+        adSemLocksPragmaExpectsList,
+        adSemLocksPragmaBadLevelRange,
+        adSemLocksPragmaBadLevelString,
+        adSemBorrowPragmaNonDot,
+        adSemBadDeprecatedArg,
+        adSemBadDeprecatedArgs,
+        adSemMisplacedEffectsOf,
+        adSemMissingPragmaArg,
+        adSemCannotPushCast,
+        adSemCastRequiresStatement,
+        adSemImportjsRequiresJs,
+        adSemBitsizeRequires1248,
+        adSemAlignRequiresPowerOfTwo,
+        adSemNoReturnHasReturn,
+        adSemMisplacedDeprecation,
+        adSemFatalError,
+        adSemNoUnionForJs,
+        adSemBitsizeRequiresPositive,
+        adSemExperimentalRequiresToplevel,
+        adSemPragmaDynlibRequiresExportc,
+        adSemWrongNumberOfArguments,
+        adVmDerefNilAccess,
+        adVmDerefAccessOutOfBounds,
+        adVmDerefAccessTypeMismatch,
+        adSemRawTypeMismatch,
+        adSemExpressionCannotBeCalled,
+        adSemCallInCompilesContextNotAProcOrField,
+        adSemExpressionHasNoType,
+        adSemTypeExpected,
+        adSemIllformedAst,
+        adSemIllformedAstExpectedPragmaOrIdent,
+        adSemInvalidExpression,
+        adSemExpectedNonemptyPattern,
+        adSemPragmaDisallowedForTupleUnpacking,
+        adSemThreadvarCannotInit,
+        adSemLetNeedsInit,
+        adSemConstExpressionExpected,
+        adSemSelectorMustBeOfCertainTypes,
+        adSemInvalidPragmaBlock,
+        adSemConceptPredicateFailed,
+        adSemIsOperatorTakes2Args,
+        adSemNoTupleTypeForConstructor,
+        adSemInvalidOrderInArrayConstructor,
+        adSemStackEscape,
+        adSemVarForOutParamNeeded,
+        adSemExprHasNoAddress,
+        adSemConstExprExpected,
+        adSemDisallowedNilDeref,
+        adSemCannotReturnTypeless,
+        adSemExpectedValueForYield,
+        adSemNamedExprExpected,
+        adSemDisallowedTypedescForTupleField,
+        adSemNamedExprNotAllowed,
+        adSemFieldAssignmentInvalidNeedSpace,
+        adSemFieldAssignmentInvalid,
+        adSemObjectConstructorIncorrect,
+        adSemExpectedObjectType:
+      discard
+    of adSemExpectedIdentifierInExpr:
+      notIdent*: PNode
+    of adSemUseOrDiscardExpr:
+      undiscarded*: PNode
+    of adSemExpectedIdentifierWithExprContext:
+      expr*: PNode
+    of adSemUndeclaredIdentifier:
+      name*: string
+      spellingCandidates*: seq[SemSpellCandidate]
+      recursiveDeps*: seq[tuple[importer, importee: FileIndex]]
+    of adSemOnlyDeclaredIdentifierFoundIsError:
+      identName*: string
+      err*: PNode
+    of adSemCannotImportItself:
+      selfModule*: PSym
+    of adSemIllegalCustomPragma:
+      customPragma*: PSym
+    of adSemWrongIdent:
+      allowedIdents*: seq[string]
+    of adSemAsmEmitExpectsStringLiteral:
+      unexpectedKind*: TNodeKind
+    of adSemRaisesPragmaExpectsObject,
+        adSemCannotInferTypeOfLiteral,
+        adSemProcHasNoConcreteType,
+        adSemCannotCastToNonConcrete,
+        adSemCannotAssignTo:
+      wrongType*: PType
+    of adSemInvalidExtern:
+      compProcToBe*: PSym
+      externName*: string
+    of adSemPragmaRecursiveDependency:
+      userPragma*: PSym
+    of adSemCustomUserError:
+      errmsg*: string
+    of adSemImplicitPragmaError:
+      implicitPragma*: PSym
+    of adSemIncompatibleDefaultExpr:
+      formal*: PSym
+    of adVmUnsupportedNonNil:
+      unsupported*: PType
+    of adSemCallTypeMismatch:
+      callSpellingCandidates*: seq[SemSpellCandidate]
+      callMismatches*: seq[SemCallMismatch]
+    of adCyclicTree:
+      cyclic*: PNode
+    of adVmGenError:
+      vmGenErr*: AstDiagVmGenError
+      case duringJit*: bool:
+        of true:
+          vmGenTrace*: AstDiagVmTrace
+        of false:
+          discard
+    of adVmError:
+      vmErr*: AstDiagVmError
+      vmTrace*: AstDiagVmTrace
+    of adVmQuit:
+      vmExitCode*: int
+      vmExitTrace*: AstDiagVmTrace
+    of adSemCallNotAProcOrField,
+        adSemImplicitDotCallNotAProcOrField:
+      notProcOrField*: PNode              ## `DotCall` variant uses `n[1].typ`
+      unexpectedCandidates*: seq[PSym]
+      spellingAlts*: seq[SemSpellCandidate]
+    of adSemUndeclaredField:
+      givenSym*: PSym
+      symTyp*: PType # xxx: we should be able to drop this
+    of adSemCannotInstantiate:
+      callLineInfo*: TLineInfo
+    of adSemWrongNumberOfGenericParams:
+      countMismatch*: tuple[expected, got: int]
+      gnrcCallLineInfo*: TLineInfo
+    of adSemIllformedAstExpectedOneOf:
+      expectedKinds*: TNodeKinds
+    of adSemImplementationExpected:
+      routineSym*: PSym
+      routineDefStartPos*: TLineInfo
+    of adSemImplementationNotAllowed:
+      symWithImpl*: PSym
+    of adSemCannotConvertToRange:
+      floatVal*: BiggestFloat
+      convTyp*: PType
+    of adSemProveInit:
+      unproven*: PSym
+    of adSemDifferentTypeForReintroducedSymbol:
+      reintrod*: PSym
+      foundTyp*: PType
+    of adSemTypeKindMismatch:
+      expectedTypKinds*: set[TTypeKind]
+      givenTyp*: PType
+    of adSemWrongNumberOfVariables:
+      varsExpected*: int
+      varsGiven*: int
+    of adSemConstantOfTypeHasNoValue:
+      constSym*: PSym
+    of adSemTypeConversionArgumentMismatch:
+      convArgsRecvd*: int
+    of adSemUnexpectedEqInObjectConstructor:
+      eqInfo*: TLineInfo
+    of adSemCannotBeConvertedTo:
+      inputVal*: PNode
+      targetTyp*: PType
+    of adSemMagicExpectTypeOrValue:
+      magic*: TMagic
+    of adSemLowHighInvalidArgument:
+      invalidTyp*: PType
+      highLow*: TMagic
+    of adSemUnknownIdentifier:
+      unknownSym*: PSym
+    of adSemInvalidTupleConstructorKey:
+      invalidKey*: PNode
+    of adSemExpectedOrdinalArrayIdx:
+      nonOrdInput*: PNode
+      indexExpr*: PNode
+    of adSemIndexOutOfBounds:
+      maxOrdIdx*: int
+      outOfBoundsIdx*: int
+      ordRange*: PType
+    of adSemExpectedOrdinal:
+      nonOrdTyp*: PType
+    of adSemRecursiveDependencyIterator:
+      recurrCallee*: PSym
+    of adSemCallIndirectTypeMismatch:
+      indirCallTyp*: PType
+    of adSemSystemNeeds:
+      sysIdent*: string
+    of adSemLocalEscapesStackFrame:
+      escCtx*: PSym
+    of adSemImplicitAddrIsNotFirstParam:
+      exprRoot*: PSym
+    of adSemYieldExpectedTupleConstr:
+      tupleTyp*: PType
+    of adSemFieldInitTwice:
+      dupFld*: PIdent
+    of adSemCannotMixTypesAndValuesInTuple:
+      wrongFldInfo*: TLineInfo
+    of adSemFieldNotAccessible:
+      inaccessible*: PSym
+    of adSemFieldOkButAssignedValueInvalid:
+      targetField*: PSym
+      initVal*: PNode
+    of adSemObjectRequiresFieldInitNoDefault:
+      missing*: seq[PSym]
+      objTyp*: PType
+    of adSemDistinctDoesNotHaveDefaultValue:
+      distinctTyp*: PType
+    of adSemExpectedObjectOfType:
+      expectedObjTyp*: PType
 
   TNode*{.final, acyclic.} = object # on a 32bit machine, this takes 32 bytes
-    id*: int
+    id*: NodeId
     typ*: PType
     info*: TLineInfo
     flags*: TNodeFlags
@@ -779,8 +1384,7 @@ type
     of nkEmpty, nkNone:
       discard
     of nkError:
-      reportId*: ReportId
-      kids*: TNodeSeq
+      diag*: PAstDiag
     else:
       sons*: TNodeSeq
 
@@ -1024,18 +1628,6 @@ type
     efLockLevelsDiffer
     efEffectsDelayed
 
-  MismatchKind* = enum
-    ## Procedure call argument mismatch reason
-    kUnknown
-    kAlreadyGiven           ## Named argument already given
-    kUnknownNamedParam      ## No such named parameter
-    kTypeMismatch           ## Parameter type mismatch
-    kVarNeeded              ## Parameter should be mutable
-    kMissingParam           ## Missing procedure parameter
-    kExtraArg               ## Too many arguments for a procedure call
-    kPositionalAlreadyGiven ## Positional parameter has already been givend
-    ## as a named parameter
-
   TTypeRelation* = enum      ## order is important!
     isNone
     isConvertible
@@ -1059,18 +1651,6 @@ type
     pcmLockDifference
     pcmNotIterator
     pcmDifferentCallConv
-
-type
-  TTypeAllowedFlag* = enum
-    taField,
-    taHeap,
-    taConcept,
-    taIsOpenArray,
-    taNoUntyped
-    taIsTemplateOrMacro
-    taProcContextIsNotMacro
-
-  TTypeAllowedFlags* = set[TTypeAllowedFlag]
 
 
 type
@@ -1113,31 +1693,18 @@ template `[]`*(n: Indexable, i: BackwardsIndex): Indexable =
 template `[]=`*(n: Indexable, i: BackwardsIndex; x: Indexable) =
   n[n.len - i.int] = x
 
-const emptyReportId* = ReportId(0)
-
-func `==`*(id1, id2: ReportId): bool = uint32(id1) == uint32(id2)
-func `<`*(id1, id2: ReportId): bool = uint32(id1) < uint32(id2)
-
-func isEmpty*(id: ReportId): bool = id == emptyReportId
-
-func `$`*(id: ReportId): string =
-  if id.isEmpty:
-    "<empty report id>"
-  else:
-    "<report-id-" & $uint32(id) & ">"
-
 import
   std/[
     tables # For comments table mapping
   ]
 
-const invalidNodeId* = 0
+const invalidNodeId* = NodeId 0
 
 type Gconfig = object
   ## we put comments in a side channel to avoid increasing `sizeof(TNode)`,
   ## which reduces memory usage given that `PNode` is the most allocated
   ## type by far.
-  comments: Table[int, string] # nodeId => comment
+  comments: Table[NodeId, string] # nodeId => comment
   useIc*: bool
 
 var gconfig {.threadvar.}: Gconfig

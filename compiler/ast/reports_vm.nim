@@ -4,6 +4,8 @@ import
   compiler/ast/[
     ast_types,
     reports_base_sem,
+    report_enums,
+    lineinfos,
   ],
   compiler/utils/[
     int128,
@@ -19,7 +21,6 @@ type
     case kind*: ReportKind
       of rvmStackTrace:
         currentExceptionA*, currentExceptionB*: PNode
-        traceReason*: ReportKind
         stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
         skipped*: int
 

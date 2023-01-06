@@ -44,13 +44,8 @@ import
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced, for example
-#      SemCallMismatch, SemDiagnostics, MismatchInfo, and
 #      DebugCallableCandidate
-from compiler/ast/reports_sem import SemReport,
-  MismatchInfo,
-  SemCallMismatch,
-  SemDiagnostics,
-  DebugCallableCandidate,
+from compiler/ast/reports_sem import SemReport, DebugCallableCandidate,
   reportAst,
   reportSym
 from compiler/ast/report_enums import ReportKind,
@@ -727,15 +722,11 @@ proc matchUserTypeClass*(m: var TCandidate; ff, a: PType): PType =
 
   c.config.setReportHook(tmpHook)
 
-  # This is disabled because semTryExpr also runs sempass2
-  # which will add the error via the report hook
-  # if checkedBody != nil:
-  #   for e in m.c.config.walkErrors(checkedBody):
-  #     diagnostics.add c.config.getReport(e).semReport
-
   m.error.diag = SemDiagnostics(
     diagnosticsTarget: typeClass.sym,
-    reports: diagnostics)
+    tempDiagFailCount: diagnostics.len
+    #diags: diagnostics  # TODO: restore once this Reports stuff is gone
+    )
 
   if checkedBody.isNil() or checkedBody.kind == nkError:
     # xxx: return nil on nkError doesn't seem quite right, but this is a type
@@ -2916,7 +2907,7 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
             localReport(c.config, n[a].info,
               SemReport(
                 kind: rsemCannotConvertTypes,
-                typeMismatch: @[c.config.typeMismatch(
+                typeMismatch: @[typeMismatch(
                   formal = formal.typ, actual = n[a].typ)]))
 
             noMatch()
@@ -3011,7 +3002,8 @@ proc matches*(c: PContext, n: PNode, m: var TCandidate) =
             # when the type of the default expression doesn't match the type
             # of the instantiated proc param:
             c.config.newError(m.callee.n[f],
-                              reportSym(rsemIncompatibleDefaultExpr, formal))
+                              PAstDiag(kind: adSemIncompatibleDefaultExpr,
+                                       formal: formal))
           of nkNilLit:
             implicitConv(nkHiddenStdConv, formal.typ, copyTree(formal.ast), m, c)
           else:

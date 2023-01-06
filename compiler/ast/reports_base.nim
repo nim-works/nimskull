@@ -3,12 +3,9 @@
 import
   compiler/ast/[
     lineinfos,
-    report_enums,
   ]
 
 import std/[options]
-
-export report_enums, lineinfos
 
 type
   ReportLineInfo* = object
@@ -16,17 +13,6 @@ type
     file*: string
     line*: uint16
     col*: int16
-
-  ReportSeverity* = enum
-    rsevDebug = "Debug" ## Internal compiler debug information
-
-    rsevHint = "Hint" ## User-targeted hint
-    rsevWarning = "Warning" ## User-targeted warnings
-    rsevError = "Error" ## User-targeted error
-
-    rsevFatal = "Fatal"
-    rsevTrace = "Trace" ## Additional information about compiler actions -
-    ## external commands mostly.
 
   # TODO: the need to inherit should be the first clue that things are wrong,
   #       thanks to that all the data type declaration dependencies are still

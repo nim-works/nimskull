@@ -36,7 +36,8 @@ import
     idents,
     ast,
     lineinfos,
-    reports_parser,
+    reports_parser, # legacy remove
+    report_enums,   # legacy remove
   ],
   std/[
     strutils,

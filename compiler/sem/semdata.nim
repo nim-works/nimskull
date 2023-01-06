@@ -483,7 +483,7 @@ type
       ## read:
       ##  - suggest: `markOwnerModuleAsUsed`, used beyond suggestions, query
       ##             export indirections to track usage info
-    recursiveDep*: seq[tuple[importer, importee: string]]
+    recursiveDep*: seq[tuple[importer, importee: FileIndex]]
       ## used to detect recursive `importer` issues populated by importer and
       ## used by `lookups`
       ## 

@@ -55,11 +55,11 @@ proc mergeInitStatus(existing: var InitStatus, newStatus: InitStatus) =
     discard
 
 proc invalidObjConstr(c: PContext, n: PNode): PNode =
-  if n.kind == nkInfix and n[0].kind == nkIdent and n[0].ident.s[0] == ':':
-    newError(c.config, n, reportSem rsemFieldAssignmentInvalid)
-
-  else:
-    newError(c.config, n, reportSem rsemFieldAssignmentInvalid)
+  newError(c.config, n):
+    if n.kind == nkInfix and n[0].kind == nkIdent and n[0].ident.s[0] == ':':
+      PAstDiag(kind: adSemFieldAssignmentInvalidNeedSpace)
+    else:
+      PAstDiag(kind: adSemFieldAssignmentInvalid)
 
 proc locateFieldInInitExpr(c: PContext, field: PSym, initExpr: PNode): PNode =
   ## Returns the assignment nkExprColonExpr node, nkError if malformed, or nil
@@ -69,7 +69,7 @@ proc locateFieldInInitExpr(c: PContext, field: PSym, initExpr: PNode): PNode =
       e = initExpr[i]
       valid = e.kind == nkExprColonExpr
       partiallyValid = e.kind == nkError and
-                       e.errorKind == rsemFieldOkButAssignedValueInvalid
+                       e.errorKind == adSemFieldOkButAssignedValueInvalid
       atLeastPartiallyValid = valid or partiallyValid
       assignment = if partiallyValid: e[wrongNodePos] else: e
       match =
@@ -100,11 +100,12 @@ proc semConstrField(c: PContext, flags: TExprFlags,
     if not fieldVisible(c, field):
       result = newError(
         c.config, initExpr,
-        reportSym(rsemFieldNotAccessible, field))
+        PAstDiag(kind: adSemFieldNotAccessible, inaccessible: field))
 
       result.typ = errorType(c)
       return
-    if result.kind == nkError and result.errorKind != rsemFieldOkButAssignedValueInvalid:
+    if result.kind == nkError and
+       result.errorKind != adSemFieldOkButAssignedValueInvalid:
       return # result is the assignment error
 
     var initValue = semExprFlagDispatched(c, result[1], flags)
@@ -117,13 +118,9 @@ proc semConstrField(c: PContext, flags: TExprFlags,
       result = newError(
         c.config,
         result,
-        block:
-          var r = reportSym(rsemFieldOkButAssignedValueInvalid,
-                            field,
-                            ast = initValue)
-          r.wrongNode = result
-          r
-      )
+        PAstDiag(kind: adSemFieldOkButAssignedValueInvalid,
+                        targetField: field,
+                        initVal: initValue))
 
 
 proc caseBranchMatchesExpr(branch, matched: PNode): bool =
@@ -199,7 +196,7 @@ proc collectMissingFields(c: PContext, fieldsRecList: PNode,
       let assignment = locateFieldInInitExpr(c, r.sym, constrCtx.initExpr)
       if assignment == nil or
          assignment.kind == nkError and
-         assignment.errorKind != rsemFieldOkButAssignedValueInvalid:
+         assignment.errorKind != adSemFieldOkButAssignedValueInvalid:
         constrCtx.missingFields.add r.sym
 
 proc semConstructFields(c: PContext, n: PNode,
@@ -426,7 +423,7 @@ proc semConstructTypeAux(c: PContext,
   if result == initError:
     constrCtx.initExpr = newError(
       c.config, constrCtx.initExpr,
-      reportAst(rsemObjectConstructorIncorrect, constrCtx.initExpr))
+      PAstDiag(kind: adSemObjectConstructorIncorrect))
 
 proc initConstrContext(t: PType, initExpr: PNode): ObjConstrContext =
   ObjConstrContext(
@@ -455,16 +452,18 @@ proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode =
     if constrCtx.missingFields.len > 0:
       result = c.config.newError(
                   n,
-                  reportSymbols(
-                    rsemObjectRequiresFieldInitNoDefault,
-                    constrCtx.missingFields, typ = t))
-  
+                  PAstDiag(
+                    kind: adSemObjectRequiresFieldInitNoDefault,
+                    missing: constrCtx.missingFields,
+                    objTyp: t))
+
   of tyDistinct:
-    result = c.config.newError(n, reportTyp(
-      rsemDistinctDoesNotHaveDefaultValue, t))
-  
+    result = c.config.newError(n,
+                PAstDiag(kind: adSemDistinctDoesNotHaveDefaultValue,
+                         distinctTyp: t))
+
   else:
-    assert false, "Must not enter here."
+    unreachable "Must not enter here."
 
 proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   var t = semTypeNode(c, n[0], nil)
@@ -472,14 +471,16 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   for child in n: result.add child
 
   if t == nil:
-    return newError(c.config, result, reportSem rsemExpectedObjectType)
+    return newError(c.config, result, PAstDiag(kind: adSemExpectedObjectType))
 
   t = skipTypes(t, {tyGenericInst, tyAlias, tySink})
   if t.kind == tyRef:
     t = skipTypes(t[0], {tyGenericInst, tyAlias, tySink})
 
   if t.kind != tyObject:
-    return newError(c.config, result, reportTyp(rsemExpectedObjectType, t))
+    return newError(c.config, result,
+                    PAstDiag(kind: adSemExpectedObjectOfType,
+                             expectedObjTyp: t))
 
   # Check if the object is fully initialized by recursively testing each
   # field (if this is a case object, initialized fields in two different
@@ -559,7 +560,7 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   # wrap in an error see #17437
   if hasError:
     result = newError(
-      c.config, result, reportAst(
-        rsemObjectConstructorIncorrect, result))
+      c.config, result,
+      PAstDiag(kind: adSemObjectConstructorIncorrect))
 
     result.typ = errorType(c)

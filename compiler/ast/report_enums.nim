@@ -1,4 +1,6 @@
 type
+  # xxx: these categories are likely all off, just like severities, see
+  #      `ReportSeverity` below for the bigger explaination.
   ReportCategory* = enum
     ## Kinds of the toplevel reports. Only dispatches on report topics,
     ## such as sem, parse, macro (for `echo` in compile-time code) and so
@@ -35,6 +37,29 @@ type
     ## external configuration, command-line flags, packages, modules.
 
 
+  # TODO: "severity" in such a general fashion barely makes sense. Since
+  #       "reports" over reach and cover all "compiler" output it's off. This
+  #       includes cli help messages and those could be supressed with these or
+  #       need convoluted conditional checks? Then there is the fact that there
+  #       are a ton of contexts that the "compiler" works in:
+  #       - suite of sub-commands via the CLI
+  #       - session based (ie: suggest)
+  #       - independent VM
+  #       - or while compiling/interpreting, there are comptime effects (echo)
+  ReportSeverity* = enum
+    rsevDebug = "Debug" ## Internal compiler debug information
+
+    rsevHint = "Hint" ## User-targeted hint
+    rsevWarning = "Warning" ## User-targeted warnings
+    rsevError = "Error" ## User-targeted error
+
+    rsevFatal = "Fatal"
+    rsevTrace = "Trace" ## Additional information about compiler actions -
+    ## external commands mostly.
+
+
+  # xxx: based on how categories and severity shake up, this super enum should
+  #      be broken up
   ReportKind* = enum
     ## Toplevel enum for different categories. Order of definitions is
     ## really important - elements are first separated into categories
@@ -306,7 +331,8 @@ type
     rsemUserError = "UserError" ## `{.error: }`
     rsemUsageIsError
 
-    rsemCompilesError
+    rsemCompilesHasSideEffects ## lightweight to avoid heavy diagnostic
+                               ## querying for compiles context
 
     rsemCustomError
     rsemCustomPrintMsgAndNodeError
@@ -314,6 +340,7 @@ type
     rsemTypeMismatch
     rsemTypeKindMismatch
     rsemAmbiguous
+    rsemAmbiguousIdentWithCandidates
     rsemAmbiguousIdent
 
     rsemCustomUserError
@@ -449,6 +476,7 @@ type
     ## `obj.call()`
     rsemExpressionCannotBeCalled
     rsemWrongNumberOfArguments
+    rsemIsOperatorTakes2Args
     rsemWrongNumberOfVariables
     rsemWrongNumberOfGenericParams
     rsemNoGenericParamsAllowed
@@ -608,6 +636,8 @@ type
     rsemUndeclaredIdentifier
     rsemExpectedIdentifier
     rsemExpectedIdentifierInExpr
+    rsemExpectedIdentifierWithExprContext
+    rsemModuleAliasMustBeIdentifier
     rsemOnlyDeclaredIdentifierFoundIsError
 
     # Object and Object Construction
@@ -615,6 +645,8 @@ type
       ## object field is not accessible
     rsemFieldAssignmentInvalid
       ## object field assignment invalid syntax
+    rsemFieldAssignmentInvalidNeedSpace
+      ## object field assignment invalid syntax, need space after colon
     rsemFieldOkButAssignedValueInvalid
       ## object field assignment, where the field name is ok, but value is not
     rsemObjectConstructorIncorrect
@@ -703,7 +735,6 @@ type
     rsemSymbolKindMismatch
     rsemIllformedAst
     rsemInitHereNotAllowed
-    rsemIdentExpectedInExpr
     rsemTypeExpected
     rsemGenericTypeExpected
     rsemTypeInvalid
@@ -743,6 +774,7 @@ type
     rsemBorrowPragmaNonDot
     rsemInvalidExtern
     rsemInvalidPragmaBlock
+    rsemBadDeprecatedArg
     rsemBadDeprecatedArgs
     rsemMisplacedEffectsOf
     rsemMissingPragmaArg
@@ -833,10 +865,6 @@ type
 
     rsemCompilesReport
     rsemNonMatchingCandidates
-    rsemUserRaw = "UserRaw" # REVIEW - Used in
-    # `semcall.semOverloadedCall()` and `extccomp.getCompileCFileCmd()`.
-    # Seems like this one should be removed, it spans multiple compiler
-    # subsystems. Can't understand what it is doing.
 
     rsemExtendedContext = "ExtendedContext" ## Extended contextual
     ## information. Used in `ccgstmts.genStmts()` and
@@ -966,7 +994,7 @@ const
   rparWarningKinds* = {
     rparInconsistentSpacing .. rparEnablePreviewDotOps}
 
-  #---------------------------------  sem  ---------------------------------#
+  #---------------------------------  vm  ---------------------------------#
   repVMKinds* = {low(VMReportKind) .. high(VMReportKind)}
   rvmHintKinds* = default(set[ReportKind])
   rvmTraceKinds* = {rvmStackTrace}
@@ -1125,7 +1153,7 @@ const
 
   rsemReportListSym* = {
     rsemAmbiguous,
-    rsemAmbiguousIdent,
+    rsemAmbiguousIdentWithCandidates,
     rsemObjectRequiresFieldInit,
     rsemObjectRequiresFieldInitNoDefault
   }
@@ -1133,17 +1161,20 @@ const
   rsemReportCountMismatch* = {
     rsemWrongNumberOfArguments,
     rsemWrongNumberOfGenericParams,
-    rsemInvalidOrderInEnum,
-    rsemSetTooBig,
-    rsemArrayExpectsPositiveRange,
-    rsemExpectedLow0Discriminant,
+    # rsemExpectedLow0Discriminant,     # xxx: we don't report the numbers
     rsemInvalidOrderInArrayConstructor,
     rsemTypeConversionArgumentMismatch,
     rsemInvalidTupleSubscript,
     rsemExpectedTemplateWithNArgs,
     rsemWrongNumberOfQuoteArguments,
     rsemIndexOutOfBounds,
-    rsemExpectedHighCappedDiscriminant
+    # rsemExpectedHighCappedDiscriminant
+  }
+
+  rsemReportBigOrdsEnergy* = { ## My Big Ords need some Big Ints
+    rsemSetTooBig,
+    rsemArrayExpectsPositiveRange,
+    rsemInvalidOrderInEnum
   }
 
   repPerformanceHints* = {

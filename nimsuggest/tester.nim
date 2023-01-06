@@ -354,7 +354,7 @@ proc main() =
   else:
     let files = toSeq(walkFiles(tpath / "t*.nim"))
     for i, x in files:
-      echo "$#/$# test: $#" % [$i, $files.len, x]
+      echo "$#/$# test: $#" % [$(i+1), $files.len, x]
       when defined(i386):
         if x == "nimsuggest/tests/tmacro_highlight.nim":
           echo "skipping" # workaround bug #17945

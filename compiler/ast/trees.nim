@@ -21,8 +21,7 @@ proc cyclicTreeAux(n: PNode, visited: var seq[PNode]): bool =
     discard
   of nkError:
     visited.add(n)
-    for kid in n.kids:
-      if cyclicTreeAux(kid, visited): return true
+    if cyclicTreeAux(n.diag.wrongNode, visited): return true
     discard visited.pop()
   else:
     visited.add(n)

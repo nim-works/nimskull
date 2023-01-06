@@ -2639,7 +2639,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       else: raiseVmError(VmEvent(kind: vmEvtFieldNotFound, msg: "floatVal"))
     of opcNodeId:
       decodeB(rkInt)
-      regs[ra].intVal = regs[rb].nimNode.id
+      regs[ra].intVal = regs[rb].nimNode.id.int32
     of opcNGetType:
       let rb = instr.regB
       let rc = instr.regC
@@ -3181,3 +3181,88 @@ template source*(c: TCtx, t: VmThread): TLineInfo =
   ## Gets the source-code information for the instruction the program counter
   ## of `t` currently points to
   c.debug[t.pc]
+
+
+func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
+  let kind =
+    case evt.kind
+    of vmEvtOpcParseExpectedExpression: adVmOpcParseExpectedExpression
+    of vmEvtUserError: adVmUserError
+    of vmEvtUnhandledException: adVmUnhandledException
+    of vmEvtCannotCast: adVmCannotCast
+    of vmEvtCallingNonRoutine: adVmCallingNonRoutine
+    of vmEvtCannotModifyTypechecked: adVmCannotModifyTypechecked
+    of vmEvtNilAccess: adVmNilAccess
+    of vmEvtAccessOutOfBounds: adVmAccessOutOfBounds
+    of vmEvtAccessTypeMismatch: adVmAccessTypeMismatch
+    of vmEvtAccessNoLocation: adVmAccessNoLocation
+    of vmEvtErrInternal: adVmErrInternal
+    of vmEvtIndexError: adVmIndexError
+    of vmEvtOutOfRange: adVmOutOfRange
+    of vmEvtOverOrUnderflow: adVmOverOrUnderflow
+    of vmEvtDivisionByConstZero: adVmDivisionByConstZero
+    of vmEvtArgNodeNotASymbol: adVmArgNodeNotASymbol
+    of vmEvtNodeNotASymbol: adVmNodeNotASymbol
+    of vmEvtNodeNotAProcSymbol: adVmNodeNotAProcSymbol
+    of vmEvtIllegalConv: adVmIllegalConv
+    of vmEvtMissingCacheKey: adVmMissingCacheKey
+    of vmEvtCacheKeyAlreadyExists: adVmCacheKeyAlreadyExists
+    of vmEvtFieldNotFound: adVmFieldNotFound
+    of vmEvtNotAField: adVmNotAField
+    of vmEvtFieldUnavailable: adVmFieldUnavailable
+    of vmEvtCannotSetChild: adVmCannotSetChild
+    of vmEvtCannotAddChild: adVmCannotAddChild
+    of vmEvtCannotGetChild: adVmCannotGetChild
+    of vmEvtNoType: adVmNoType
+    of vmEvtTooManyIterations: adVmTooManyIterations
+  
+  {.cast(uncheckedAssign).}: # discriminants on both sides lead to saddness
+    result =
+      case kind:
+      of adVmUserError:
+        AstDiagVmError(
+          kind: kind,
+          errLoc: evt.errLoc,
+          errMsg: evt.errMsg)
+      of adVmArgNodeNotASymbol:
+        AstDiagVmError(
+          kind: kind,
+          callName: evt.callName,
+          argAst: evt.argAst,
+          argPos: evt.argPos)
+      of adVmCannotCast:
+        AstDiagVmError(
+          kind: kind,
+          formalType: evt.typeMismatch.formalType,
+          actualType: evt.typeMismatch.actualType)
+      of adVmIndexError:
+        AstDiagVmError(
+          kind: kind,
+          indexSpec: evt.indexSpec)
+      of adVmErrInternal, adVmNilAccess, adVmIllegalConv,
+          adVmFieldUnavailable, adVmFieldNotFound,
+          adVmCacheKeyAlreadyExists, adVmMissingCacheKey:
+        AstDiagVmError(
+          kind: kind,
+          msg: evt.msg)
+      of adVmCannotSetChild, adVmCannotAddChild, adVmCannotGetChild,
+          adVmUnhandledException, adVmNoType, adVmNodeNotASymbol:
+        AstDiagVmError(
+          kind: kind,
+          ast: evt.ast)
+      of adVmNotAField:
+        AstDiagVmError(
+          kind: kind,
+          sym: evt.sym)
+      of adVmOpcParseExpectedExpression,
+          adVmCallingNonRoutine,
+          adVmCannotModifyTypechecked,
+          adVmAccessOutOfBounds,
+          adVmAccessTypeMismatch,
+          adVmAccessNoLocation,
+          adVmOutOfRange,
+          adVmOverOrUnderflow,
+          adVmDivisionByConstZero,
+          adVmNodeNotAProcSymbol,
+          adVmTooManyIterations:
+        AstDiagVmError(kind: kind)

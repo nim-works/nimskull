@@ -22,8 +22,15 @@ type VmError* = object of CatchableError
 
 func raiseVmError*(
   event: sink VmEvent;
-  inst:  InstantiationInfo = instLoc()
+  inst:  InstantiationInfo
   ) {.noinline, noreturn.} =
   ## Raises a `VmError`.
   event.instLoc = inst
   raise (ref VmError)(event: event)
+
+# templates below are required as InstantiationInfo isn't captured otherwise
+
+template raiseVmError*(event: VmEvent) =
+  ## Raises a `VmError`, using the source code position of the callsite as the
+  ## `inst` value.
+  raiseVmError(event, instLoc(-2))

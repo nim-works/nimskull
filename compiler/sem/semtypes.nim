@@ -99,9 +99,8 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
           localReport(c.config, n[i].info, SemReport(
             kind: rsemInvalidOrderInEnum,
             sym: e,
-            countMismatch: (
-              expected: toInt128(counter),
-              got: toInt128(x))))
+            expectedCount: toInt128 counter,
+            got: toInt128 x))
 
           x = counter
       e.ast = strVal # might be nil
@@ -183,13 +182,11 @@ proc semSet(c: PContext, n: PNode, prev: PType): PType =
       if not isOrdinalType(base, allowEnumWithHoles = true):
         localReport(c.config, n.info, reportAst(
           rsemExpectedOrdinal, n, typ = base))
-
       elif lengthOrd(c.config, base) > MaxSetElements:
         localReport(c.config, n.info, SemReport(
           kind: rsemSetTooBig,
-          countMismatch: (
-            expected: toInt128(MaxSetElements),
-            got: lengthOrd(c.config, base))))
+          expectedCount: toInt128 MaxSetElements,
+          got: lengthOrd(c.config, base)))
 
   else:
     c.config.semReportParamCountMismatch(n, result, 1, n.len - 1)
@@ -337,8 +334,11 @@ proc semArrayIndex(c: PContext, n: PNode): PType =
       result = makeRangeWithStaticExpr(c, e.typ.n)
     elif e.kind in {nkIntLit..nkUInt64Lit}:
       if e.intVal < 0:
-        localReport(c.config, n.info, semReportCountMismatch(
-          rsemArrayExpectsPositiveRange, 0, e.intVal))
+        localReport(c.config, n.info,
+          SemReport(
+            kind: rsemArrayExpectsPositiveRange,
+            expectedCount: toInt128 0,
+            got: toInt128 e.intVal))
 
       result = makeRangeType(c, 0, e.intVal-1, n.info, e.typ)
     elif e.kind == nkSym and e.typ.kind == tyStatic:
@@ -452,7 +452,7 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
           if bound != nil: return bound
           return result
         if result.typ.sym == nil:
-          let err = newError(c.config, n, reportSem rsemTypeExpected)
+          let err = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
           localReport(c.config, err)
 
           return errorSym(c, n, err)
@@ -468,7 +468,7 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
           result.typ.flags.excl tfWildcard
           return
         else:
-          let err = newError(c.config, n, reportSem rsemTypeExpected)
+          let err = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
           localReport(c.config, err)
 
           return errorSym(c, n, err)
@@ -483,7 +483,7 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
             amb = nextOverloadIter(ov, c, n)
         if amb != nil: result = amb
         else:
-          let err = newError(c.config, n, reportSem rsemTypeExpected)
+          let err = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
           if result.kind != skError:
             localReport(c.config, err)
 
@@ -499,7 +499,7 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
         n.info = oldInfo
         n.typ = result.typ
     else:
-      let err = newError(c.config, n, reportSem rsemIdentExpectedInExpr)
+      let err = newError(c.config, n, PAstDiag(kind: adSemExpectedIdentifier))
       localReport(c.config, err)
       result = errorSym(c, n, err)
 
@@ -796,20 +796,19 @@ proc semRecordCase(c: PContext, n: PNode, check: var IntSet, pos: var int,
   if firstOrd(c.config, typ) != 0:
     var rep = SemReport(
       kind: rsemExpectedLow0Discriminant,
-      countMismatch: (
-        expected: toInt128(0),
-        got: firstOrd(c.config, typ)),
+      # TODO: fix storage and actually report data, previously captured:
+      #       - expected: toInt128(0),
+      #       - got: firstOrd(c.config, typ)),
       typ: typ,
       sym: a[0].sym)
 
     localReport(c.config, n.info, rep)
-
   elif lengthOrd(c.config, typ) > 0x00007FFF:
     var rep = SemReport(
       kind: rsemExpectedHighCappedDiscriminant,
-      countMismatch: (
-        expected: toInt128(32768),
-        got: firstOrd(c.config, typ)),
+      # TODO: fix storage and actually report data, previously captured:
+      #       - expected: toInt128(32768),
+      #       - got: firstOrd(c.config, typ)),
       typ: typ,
       sym: a[0].sym)
 
@@ -1867,7 +1866,7 @@ proc symFromExpectedTypeNode(c: PContext, n: PNode): PSym =
   if n.kind == nkType:
     result = symFromType(c, n.typ, n.info)
   else:
-    let err = newError(c.config, n, reportSem rsemTypeExpected)
+    let err = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
     localReport(c.config, err)
     result = errorSym(c, n, err)
 
