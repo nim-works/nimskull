@@ -10,8 +10,6 @@
 ## this module does the semantic checking for expressions
 ## included from sem.nim
 
-when defined(nimCompilerStacktraceHints):
-  import std/stackframes
 
 proc semTemplateExpr(c: PContext, n: PNode, s: PSym,
                      flags: TExprFlags = {}): PNode =
@@ -3343,8 +3341,6 @@ proc enumFieldSymChoice(c: PContext, n: PNode, s: PSym): PNode =
       a = nextOverloadIter(o, c, n)
 
 proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
-  when defined(nimCompilerStacktraceHints):
-    setFrameMsg c.config$n.info & " " & $n.kind
   addInNimDebugUtils(c.config, "semExpr", n, result, flags)
 
   result = n

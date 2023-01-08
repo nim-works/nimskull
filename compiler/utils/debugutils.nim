@@ -20,6 +20,10 @@ import
     msgs
   ]
 
+when defined(nimCompilerStacktraceHints):
+  from std/stackframes import setFrameMsg
+  from strutils import `%`
+
 from compiler/ast/reports_sem import TraceSemReport,
   DebugSemStep, 
   DebugSemStepKind, 
@@ -233,6 +237,9 @@ template traceLeaveIt*(
   tmp.info = loc
   traceStepImpl(tmp, semstepLeave, body)
 
+template frameMsg(c: ConfigRef, n: PNode) =
+  {.line.}:
+    setFrameMsg "$1 $2 $3" % [$n.kind, $n.id, c$n.info]
 
 const locOffset = -2
 
@@ -240,6 +247,9 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode;
                             flags: TExprFlags) =
   ## add tracing to procs that are primarily `PNode -> PNode`, with expr flags
   ## and can determine the type
+  when defined(nimCompilerStacktraceHints):
+    {.line.}:
+      frameMsg(c, n)
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
@@ -259,6 +269,9 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode;
 template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode) =
   ## add tracing to procs that are primarily `PNode -> PNode`, and can
   ## determine the type
+  when defined(nimCompilerStacktraceHints):
+    {.line.}:
+      frameMsg(c, n)
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
@@ -275,6 +288,9 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode) =
 
 template addInNimDebugUtilsError*(c: ConfigRef; n, e: PNode) =
   ## add tracing error generation `PNode -> PNode`
+  when defined(nimCompilerStacktraceHints):
+    {.line.}:
+      frameMsg(c, n)
   when defined(nimDebugUtils):
     const action = "newError"
     const loc = instLoc(locOffset)
@@ -294,6 +310,9 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
                             prev, r: PType) =
   ## add tracing to procs that are primarily `PNode, PType|nil -> PType`,
   ## determining a type node, with a possible previous type.
+  when defined(nimCompilerStacktraceHints):
+    {.line.}:
+      frameMsg(c, n)
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
@@ -312,7 +331,10 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode;
 
 template addInNimDebugUtils*(
     c: ConfigRef; action: string; n: PNode; resSym: PSym) =
-  ## add tracing to procs that are primarily `PNode -> PSym`,
+  ## add tracing to procs that are primarily `PNode -> PSym`
+  when defined(nimCompilerStacktraceHints):
+    {.line.}:
+      frameMsg(c, n)
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
@@ -329,7 +351,7 @@ template addInNimDebugUtils*(
 
 template addInNimDebugUtils*(
     c: ConfigRef; action: string; id: PIdent; resSym: PSym) =
-  ## add tracing to procs that are primarily `PIdent -> PSym`,
+  ## add tracing to procs that are primarily `PIdent -> PSym`
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
@@ -348,6 +370,9 @@ template addInNimDebugUtils*(
     c: ConfigRef; action: string; s: PSym; n: PNode; res: PNode) =
   ## add tracing to procs that are primarily `PSym, PNode -> PNode`, such as
   ## applying pragmas to a symbol
+  when defined(nimCompilerStacktraceHints):
+    {.line.}:
+      frameMsg(c, n)
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
@@ -391,6 +416,9 @@ template addInNimDebugUtils*(c: ConfigRef;
   ## a candidate callable
   when res is not TCandidate:
     {.error: "parameter `res` must be a `sigmatch.TCandidate`".}
+  when defined(nimCompilerStacktraceHints):
+    {.line.}:
+      frameMsg(c, n)
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
@@ -415,6 +443,9 @@ template addInNimDebugUtils*(c: ConfigRef;
   ## a candidate callable
   when res is not TCandidate:
     {.error: "parameter `res` must be a `sigmatch.TCandidate`".}
+  when defined(nimCompilerStacktraceHints):
+    {.line.}:
+      frameMsg(c, n)
   when defined(nimDebugUtils):
     const loc = instLoc(locOffset)
     template enterMsg(indentLevel: int) =
