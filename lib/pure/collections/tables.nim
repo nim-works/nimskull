@@ -1206,18 +1206,17 @@ type
 
 # ------------------------------ helpers ---------------------------------
 
-proc rawGetKnownHC[A, B](t: OrderedTable[A, B], key: A, hc: Hash): int =
-  rawGetKnownHCImpl()
-
-proc rawGetDeep[A, B](t: OrderedTable[A, B], key: A, hc: var Hash): int {.inline.} =
-  rawGetDeepImpl()
-
-proc rawGet[A, B](t: OrderedTable[A, B], key: A, hc: var Hash): int =
-  rawGetImpl()
+template initImpl(t: OrderedTable, size: int) =
+  ## Initializes `t` to a valid empty state. Called internally by
+  ## ``checkIfInitialized`` to lazily set up the table before it is used
+  newSeq(t.data, slotsNeeded(size))
+  t.counter = 0
+  t.first = -1
+  t.last = -1
 
 proc rawInsert[A, B](t: var OrderedTable[A, B],
                      data: var OrderedKeyValuePairSeq[A, B],
-                     key: A, val: sink B, hc: Hash, h: Hash) =
+                     key: A, val: sink B, hc: Hash, h: int) =
   rawInsertImpl()
   data[h].next = -1
   if t.first < 0: t.first = h
@@ -1231,23 +1230,25 @@ proc enlarge[A, B](t: var OrderedTable[A, B]) =
   t.first = -1
   t.last = -1
   swap(t.data, n)
+  let mask = maxHash(t)
   while h >= 0:
-    var nxt = n[h].next
+    let nxt = n[h].next
     let eh = n[h].hcode
-    if isFilled(eh):
-      var j: Hash = eh and maxHash(t)
-      while isFilled(t.data[j].hcode):
-        j = nextTry(j, maxHash(t))
-      rawInsert(t, t.data, move n[h].key, move n[h].val, n[h].hcode, j)
+    # every item part of the linked list is filled, so we don't need an
+    # ``isFilled`` guard here
+    var j: Hash = eh and mask
+    # search for a free slot:
+    while isFilled(t.data[j].hcode):
+      j = nextTry(j, mask)
+    rawInsert(t, t.data, move n[h].key, move n[h].val, eh, j)
     h = nxt
 
 template forAllOrderedPairs(yieldStmt: untyped) {.dirty.} =
   if t.counter > 0:
     var h = t.first
     while h >= 0:
-      var nxt = t.data[h].next
-      if isFilled(t.data[h].hcode):
-        yieldStmt
+      let nxt = t.data[h].next
+      yieldStmt
       h = nxt
 
 # ----------------------------------------------------------------------
@@ -1267,8 +1268,6 @@ proc initOrderedTable*[A, B](initialSize = defaultInitialSize): OrderedTable[A, 
       a = initOrderedTable[int, string]()
       b = initOrderedTable[char, seq[int]]()
   initImpl(result, initialSize)
-  result.first = -1
-  result.last = -1
 
 proc `[]=`*[A, B](t: var OrderedTable[A, B], key: A, val: sink B) =
   ## Inserts a `(key, value)` pair into `t`.
@@ -1481,13 +1480,12 @@ proc del*[A, B](t: var OrderedTable[A, B], key: A) =
   swap(t.data, n)
   let hc = genHash(key)
   while h >= 0:
-    var nxt = n[h].next
-    if isFilled(n[h].hcode):
-      if n[h].hcode == hc and n[h].key == key:
-        dec t.counter
-      else:
-        var j = -1 - rawGetKnownHC(t, n[h].key, n[h].hcode)
-        rawInsert(t, t.data, move n[h].key, move n[h].val, n[h].hcode, j)
+    let nxt = n[h].next
+    if n[h].hcode == hc and n[h].key == key:
+      dec t.counter
+    else:
+      let j = -1 - rawGetKnownHC(t, n[h].key, n[h].hcode)
+      rawInsert(t, t.data, move n[h].key, move n[h].val, n[h].hcode, j)
     h = nxt
 
 proc pop*[A, B](t: var OrderedTable[A, B], key: A, val: var B): bool {.since: (1, 1).} =
@@ -1611,16 +1609,15 @@ proc `==`*[A, B](s, t: OrderedTable[A, B]): bool =
 
   if s.counter != t.counter:
     return false
-  if s.counter == 0 and t.counter == 0:
+  if s.counter == 0:
     return true
   var ht = t.first
   var hs = s.first
   while ht >= 0 and hs >= 0:
-    var nxtt = t.data[ht].next
-    var nxts = s.data[hs].next
-    if isFilled(t.data[ht].hcode) and isFilled(s.data[hs].hcode):
-      if (s.data[hs].key != t.data[ht].key) or (s.data[hs].val != t.data[ht].val):
-        return false
+    let nxtt = t.data[ht].next
+    let nxts = s.data[hs].next
+    if (s.data[hs].key != t.data[ht].key) or (s.data[hs].val != t.data[ht].val):
+      return false
     ht = nxtt
     hs = nxts
   return true
