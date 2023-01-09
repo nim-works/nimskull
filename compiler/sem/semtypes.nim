@@ -403,15 +403,6 @@ proc semArray(c: PContext, n: PNode, prev: PType): PType =
     semReportParamCountMismatch(c.config, n, prev, 2, n.len - 1, "array")
     result = newOrPrevType(tyError, prev, c)
 
-proc semIterableType(c: PContext, n: PNode, prev: PType): PType =
-  result = newOrPrevType(tyIterable, prev, c)
-  if n.len == 2:
-    let base = semTypeNode(c, n[1], nil)
-    addSonSkipIntLit(result, base, c.idgen)
-  else:
-    semReportParamCountMismatch(c.config, n, prev, 1, n.len - 1, "iterable")
-    result = newOrPrevType(tyError, prev, c)
-
 proc semOrdinal(c: PContext, n: PNode, prev: PType): PType =
   result = newOrPrevType(tyOrdinal, prev, c)
   if n.len == 2:
@@ -2074,7 +2065,6 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     of mRange: result = semRange(c, n, prev)
     of mSet: result = semSet(c, n, prev)
     of mOrdinal: result = semOrdinal(c, n, prev)
-    of mIterableType: result = semIterableType(c, n, prev)
     of mSeq:
       result = semContainer(c, n, tySequence, "seq", prev)
       if optSeqDestructors in c.config.globalOptions:
@@ -2305,9 +2295,6 @@ proc processMagicType(c: PContext, m: PSym) =
     c.graph.sysTypes[tySequence] = m.typ
   of mOrdinal:
     setMagicIntegral(c.config, m, tyOrdinal, szUncomputedSize)
-    rawAddSon(m.typ, newTypeS(tyNone, c))
-  of mIterableType:
-    setMagicIntegral(c.config, m, tyIterable, 0)
     rawAddSon(m.typ, newTypeS(tyNone, c))
   of mPNimrodNode:
     m.typ.flags.incl {tfTriggersCompileTime, tfCheckedForDestructor}

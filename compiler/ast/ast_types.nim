@@ -432,7 +432,6 @@ type
       ## be any type.
 
     tyVoid ## now different from tyEmpty, hurray!
-    tyIterable
 
 static:
   # remind us when TTypeKind stops to fit in a single 64-bit word
@@ -687,7 +686,7 @@ type
     mDefault, mFinished, mIsolate, mAccessEnv, mAccessTypeField, mReset,
     mArray, mOpenArray, mRange, mSet, mSeq, mVarargs,
     mRef, mPtr, mVar, mDistinct, mVoid, mTuple,
-    mOrdinal, mIterableType,
+    mOrdinal,
     mInt, mInt8, mInt16, mInt32, mInt64,
     mUInt, mUInt8, mUInt16, mUInt32, mUInt64,
     mFloat, mFloat32, mFloat64, mFloat128,
@@ -1655,7 +1654,7 @@ type
 
 type
   TExprFlag* = enum
-    efLValue, efWantIterator, efWantIterable, efInTypeof,
+    efLValue, efWantIterator, efInTypeof,
     efNeedStatic,
       # Use this in contexts where a static value is mandatory
     efPreferStatic,

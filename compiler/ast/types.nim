@@ -918,7 +918,7 @@ proc sameTypeAux(x, y: PType, c: var TSameTypeClosure): bool =
     result = sameTypeOrNilAux(a[0], b[0], c) and
         sameValue(a.n[0], b.n[0]) and
         sameValue(a.n[1], b.n[1])
-  of tyGenericInst, tyAlias, tyInferred, tyIterable:
+  of tyGenericInst, tyAlias, tyInferred:
     cycleCheck()
     result = sameTypeAux(a.lastSon, b.lastSon, c)
   of tyNone: result = false
