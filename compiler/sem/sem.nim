@@ -556,6 +556,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
   ## coherence, making sure that variables declared with 'let' aren't
   ## reassigned, and binding the unbound identifiers that the macro output
   ## contains.
+  c.config.addInNimDebugUtils("semAfterMacroCall", s, macroResult, result)
   inc(c.config.evalTemplateCounter)
   if c.config.evalTemplateCounter > evalTemplateLimit:
     globalReport(c.config, s.info, SemReport(kind: rsemTemplateInstantiationTooNested))
@@ -607,6 +608,7 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
 
 proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
                   flags: TExprFlags = {}): PNode =
+  c.config.addInNimDebugUtils("semMacroExpr", sym, n, result)
   rememberExpansion(c, n.info, sym)
   pushInfoContext(c.config, n.info, sym)
 
