@@ -172,7 +172,7 @@ const
     "BuiltInTypeClass", "UserTypeClass",
     "UserTypeClassInst", "CompositeTypeClass", "inferred",
     "and", "or", "not", "any", "static", "TypeFromExpr",
-    "void", "iterable"]
+    "void"]
 
 proc addTypeFlags(name: var string, typ: PType) {.inline.} =
   ## Adds " not nil" if tfNotNil is present
@@ -342,11 +342,6 @@ proc typeToString*(typ: PType, prefer: TPreferedDesc = preferName): string =
     of tyDistinct:
       result = "distinct " & typeToString(t[0],
         if prefer == preferModuleInfo: preferModuleInfo else: preferTypeName)
-    of tyIterable:
-      # xxx factor this pattern
-      result = "iterable"
-      if t.len > 0:
-        result &= "[" & typeToString(t[0]) & ']'
     of tyTuple:
       # we iterate over t.sons here, because t.n may be nil
       if t.n != nil:

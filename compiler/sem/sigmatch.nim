@@ -1072,9 +1072,6 @@ typeRel can be used to establish various relationships between types:
         return if x >= isGeneric: isGeneric else: x
     return isNone
 
-  of tyIterable:
-    if f.kind != tyIterable:
-      return isNone
   of tyNot:
     case f.kind
     of tyNot:
@@ -1429,16 +1426,6 @@ typeRel can be used to establish various relationships between types:
   of tyAlias, tySink:
     result = typeRel(c, lastSon(f), a, flags)
 
-  of tyIterable:
-    case a.kind
-    of tyIterable:
-      if f.len == 1:
-        result = typeRel(c, lastSon(f), lastSon(a), flags)
-      else:
-        # f.len = 3, for some reason
-        result = isGeneric
-    else:
-      result = isNone
   of tyGenericInst:
     var prev = PType(idTableGet(c.bindings, f))
     let origF = f
@@ -2487,17 +2474,13 @@ proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
   if formal.kind == tyUntyped and formal.len != 1:
     result = a
   elif a.typ.isNil:
-    let flags =
-      if formal.kind == tyIterable:
-        {efDetermineType, efAllowStmt, efWantIterator, efWantIterable}
-      else:
-        # XXX This is unsound! 'formal' can differ from overloaded routine to
-        # overloaded routine!
-        #if formal.kind == tyIterable: {efDetermineType, efWantIterator}
-        #else: {efDetermineType, efAllowStmt}
-        #elif formal.kind == tyTyped: {efDetermineType, efWantStmt}
-        #else: {efDetermineType}
-        {efDetermineType, efAllowStmt}
+    # XXX This is unsound! 'formal' can differ from overloaded routine to
+    # overloaded routine!
+    let flags = {efDetermineType, efAllowStmt}
+                #if formal.kind == tyIterable: {efDetermineType, efWantIterator}
+                #else: {efDetermineType, efAllowStmt}
+                #elif formal.kind == tyTyped: {efDetermineType, efWantStmt}
+                #else: {efDetermineType}
 
     # use `result` as a temporary to preserve non-persistent flags
     result = a.copyTree

@@ -61,8 +61,7 @@ proc pickBestCandidate(c: PContext,
                        initialBinding: PNode,
                        filter: TSymKinds,
                        best, alt: var TCandidate,
-                       errors: var seq[SemCallMismatch],
-                       flags: TExprFlags) =
+                       errors: var seq[SemCallMismatch]) =
   var
     o: TOverloadIter
     sym = initOverloadIter(o, c, headSymbol)
@@ -104,10 +103,7 @@ proc pickBestCandidate(c: PContext,
       if z.state == csMatch:
         # little hack so that iterators are preferred over everything else:
         if sym.kind == skIterator:
-          if not (efWantIterator notin flags and efWantIterable in flags):
-            inc(z.exactMatches, 200)
-          else:
-            dec(z.exactMatches, 200)
+          inc(z.exactMatches, 200)
         case best.state
         of csEmpty, csNoMatch: best = z
         of csMatch:
@@ -318,7 +314,7 @@ proc resolveOverloads(c: PContext, n: PNode,
 
   template pickBest(headSymbol) =
     pickBestCandidate(c, headSymbol, n, initialBinding,
-                      filter, result, alt, errors, flags)
+                      filter, result, alt, errors)
   pickBest(f)
 
   let overloadsState = result.state

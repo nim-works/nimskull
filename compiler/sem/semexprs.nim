@@ -1106,7 +1106,7 @@ proc semStaticExpr(c: PContext, n: PNode): PNode =
 proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
                                      flags: TExprFlags): PNode =
   addInNimDebugUtils(c.config, "semOverloadedCallAnalyseEffects", n, result)
-  if flags*{efInTypeof, efWantIterator, efWantIterable} != {}:
+  if flags*{efInTypeof, efWantIterator} != {}:
     # consider: 'for x in pReturningArray()' --> we don't want the restriction
     # to 'skIterator' anymore; skIterator is preferred in sigmatch already
     # for typeof support.
@@ -1136,11 +1136,6 @@ proc semOverloadedCallAnalyseEffects(c: PContext, n: PNode,
         # error correction, prevents endless for loop elimination in transf.
         # See bug #2051:
         result[0] = newSymNode(errorSym(c, n, err))
-      elif callee.kind == skIterator:
-        if efWantIterable in flags:
-          let typ = newTypeS(tyIterable, c)
-          rawAddSon(typ, result.typ)
-          result.typ = typ
 
 proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags): PNode
 
@@ -1629,7 +1624,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
     onUse(n[1].info, s)
     return
 
-  n[0] = semExprWithType(c, n[0], flags+{efDetermineType, efWantIterable})
+  n[0] = semExprWithType(c, n[0], flags+{efDetermineType})
   var
     i = legacyConsiderQuotedIdent(c, n[1], n)
     ty = n[0].typ

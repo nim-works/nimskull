@@ -149,10 +149,6 @@ proc defined*(x: untyped): bool {.magic: "Defined", noSideEffect, compileTime.}
   ##     # Do here programmer friendly expensive sanity checks.
   ##   # Put here the normal code
 
-when defined(nimHasIterable):
-  type
-    iterable*[T] {.magic: IterableType.}  ## Represents an expression that yields `T`
-
 when defined(nimHashOrdinalFixed):
   type
     Ordinal*[T] {.magic: Ordinal.} ## Generic ordinal type. Includes integer,
