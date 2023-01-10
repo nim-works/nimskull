@@ -7,7 +7,7 @@
     <img src="https://raw.githubusercontent.com/nim-lang/assets/master/Art/logo-crown.png" height="80px"/>
   </a>
 
-  <h3 align="center">Nimskull (eventually Cyo)</h3>
+  <h3 align="center">Nimskull</h3>
   <p align="center">
     The Nimskull compiler, stdlib, tools, and documentation repository.
     <br />
