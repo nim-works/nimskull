@@ -55,6 +55,47 @@ tests with remote networking (as in CI).
 """ % resultsFile
 
 type
+  # Sketch of future data model:
+  # - Keep in mind that currently `TTest` and `TSpec` are lies and misused
+  # - Tests, because of matrix and targets, are run many times via Test Runs
+  # - Test Run is carried out in a series of Test Steps
+  # - A Test Step is an action and associated Test Assertions
+  # - Test Assertions are a check to ensure something did or didn't happen
+  #
+  # Below are the different steps and assertions observed within the code base.
+  # Thanks to those who've been obfuscating them so well /s.
+
+  StepKind {.pure.} = enum
+    ## kinds of test steps to be performed in order to test something.
+    stepCompile   ## compile a program
+    stepRun       ## run a compiled program; handle extensions, nodejs, etc
+    stepCmd       ## run a command (ic, navigator, fixture steps, etc)
+    stepGenerate  ## run a code/resource generation
+    stepEdit      ## edit steps for navigator
+
+  AssertionKind {.pure.} = enum
+    ## kinds of assertions one might make about test step outputs, naming
+    ## conventions:
+    ## - `Compiler` means for compileStep; capture compiler-isms
+    ## - `Output` means stderr or stdout checks
+    ## - `Cli` means general CLI stuff
+    ## - `Test` applies to a whole test
+    assertCompilerOutput           ## nimout check
+    assertCompilerOutputFull       ## nimoutfull check
+    assertCompilerOutputSexp       ## sexp based check
+    assertCompilerOutputErrorMsg   ## TSpec.msg
+    assertCompilerOutputErrorFile  ## TSpec.file
+    assertCompilerOutputErrorLine  ## TSpec.line
+    assertCompilerOutputErrorCol   ## TSpec.col
+    assertCompilerReject           ## reject compilation
+    assertCompilerSuccess          ## compilation succeeded
+    assertCompilerSuccessCodeCheck ## check code output
+    assertRunValgrind              ## check valgrind output
+    assertCliExitCode              ## exit code for any CLI
+    assertCliOutput                ## general CLI output assertion
+    assertTestTimeout              ## test timeout for a test
+
+type
   Category = distinct string
 
   TResults = object
