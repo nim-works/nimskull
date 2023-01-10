@@ -43,6 +43,7 @@ import
 import std/options as std_options
 
 # TODO: legacy report cruft remove from here
+from compiler/ast/reports_internal import InternalReport
 from compiler/ast/reports_vm import VMReport
 from compiler/ast/reports import ReportKind, toReportLineInfo
 
@@ -379,8 +380,11 @@ proc main*(args: seq[string]): int =
 
   # the execution part. Set up a thread and run it until it either exits
   # normally or abnormally
-  var thread = initVmThread(c, entryPoint.start, frame)
-  block:
+  var
+    thread = initVmThread(c, entryPoint.start, frame)
+    continueExecution = true ## whether we continue to execute after yield
+  while continueExecution:
+    continueExecution = false # default to stop execution on any yield
     let r = execute(c, thread)
     case r.kind
     of yrkDone:
@@ -388,7 +392,6 @@ proc main*(args: seq[string]): int =
       # value of ``programResult``, which we use as the runner's exit code
       let reg = c.sframes[0].slots[r.reg.get]
       result = regToNode(c, reg, nil, TLineInfo()).intVal.int
-      break
     of yrkError:
       # an uncaught error occurred
       c.config.localReport(createLegacyStackTrace(c, thread))
@@ -412,6 +415,16 @@ proc main*(args: seq[string]): int =
       c.config.msgWrite("trying to call a procedure that is a stub: $1" %
                         [c.functions[r.entry.int].sym.name.s])
       result = 1
+    of yrkEcho:
+      # vm yielded with an echo
+      # xxx: `localReport` and report anything needs to be replaced, this is
+      #      just output and it's ridiculous that it all funnles through
+      #      `cli_reporter`. Using it here only because I'm sure there is some
+      #      spooky action at a distance breakage without. at least it's pushed
+      #      out to the edge.
+      c.config.localReport(InternalReport(msg: r.strs.join(""),
+                                          kind: rintEchoMessage))
+      continueExecution = true # after echoing, we then resume
 
   dispose(c, thread)
 

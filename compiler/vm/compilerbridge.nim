@@ -53,6 +53,8 @@ import
 
 import std/options as std_options
 
+from std/strutils import join
+
 from compiler/vm/vmgen import vmGenDiagToAstDiagVmGenError
 
 # TODO: legacy report cruft remove from here
@@ -291,9 +293,18 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
         result.initFailure:
           buildError(c, thread, res.takeErr)
         break
-
       # success! ``compile`` updated the procedure's entry, so we can
       # continue execution
+    of yrkEcho:
+      # vm yielded with an echo
+      # xxx: `localReport` and report anything needs to be replaced, this is
+      #      just output and it's ridiculous that it all funnles through
+      #      `cli_reporter`. Using it here only because I'm sure there is some
+      #      spooky action at a distance breakage without. at least it's pushed
+      #      out to the edge.
+      localReport(c.config, InternalReport(msg: r.strs.join(""),
+                                           kind: rintEchoMessage))
+      # after echo continue executing, hence no `break`
 
   dispose(c, thread)
 
