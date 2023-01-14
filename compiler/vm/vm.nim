@@ -25,7 +25,6 @@ import
   ],
   compiler/ast/[
     ast,
-    errorreporting,
     lineinfos,
     renderer, # toStrLit implementation
     trees,
@@ -110,6 +109,13 @@ type
     yrkMissingProcedure
       ## a procedure stub was called. The stub has to be resolved before
       ## continuing execution
+    yrkEcho
+      ## "syscall" of echo, the VM expects the code executing it to handle the
+      ## echo and then resume execution
+      # xxx: once there are more syscalls, consider having a few general
+      #      syscall variants and the data in embedded sub-objects. While on
+      #      the subject it's possible that quit could be considered a syscall,
+      #      one that doesn't expect resuming.
 
   YieldReason* = object
     ## The result of a single execution step (i.e. a call to ``execute``)
@@ -123,6 +129,8 @@ type
       exitCode*: int
     of yrkMissingProcedure:
       entry*: FunctionIndex   ## the entry of the procedure that is a stub
+    of yrkEcho:
+      strs*: seq[string]      ## strings to be echo'd, at least one item
 
 const
   traceCode = defined(nimVMDebugExecute)
@@ -1941,29 +1949,26 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         raiseVmError(VmEvent(kind: vmEvtNodeNotAProcSymbol))
 
     of opcEcho:
-      # TODO: ``echo`` is a "syscall" and the VM should not be responsible for
-      #       implementing it. How the syscall operates is up the context the
-      #       VM is used in.
-      #       Either use the already existing callback mechanism or (better)
-      #       implement it via a generalized syscall facility that makes use of
-      #       VM yields
-
       let rb = instr.regB
-      template fn(s: string) =
-        localReport(c.config, InternalReport(msg: s, kind: rintEchoMessage))
 
-      if rb == 1:
+      result = YieldReason(kind: yrkEcho,
+                           strs: newSeqOfCap[string](rb))
+
+      case rb
+      of 1:
         checkHandle(regs[ra])
-        fn($regs[ra].strVal)
-
+        result.strs.add $regs[ra].strVal
+      elif rb <= 0:
+        raiseVmError(VmEvent(kind: vmEvtErrInternal,
+                             msg: "echo with $1 args" % $rb))
       else:
-        var outp = ""
-        for i in ra..ra+rb-1:
+        for i in ra..(ra+rb-1):
           checkHandle(regs[i])
-          #if regs[i].kind != rkNode: debug regs[i]
-          outp.add(regs[i].strVal)
+          result.strs.add $regs[i].strVal
 
-        fn(outp)
+      inc pc # resume at the next instruction
+      return # yield control for the echo syscall
+
     of opcContainsSet:
       # a = c in b
       decodeBC(rkInt)
