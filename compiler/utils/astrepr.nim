@@ -51,12 +51,16 @@ import
     ast_types,
     ast_parsed_types,
     ast_query,
+    ast,
     reports,
     lineinfos
   ],
   compiler/front/[
     options,
     msgs
+  ],
+  compiler/utils/[
+    idioms
   ],
   experimental/colortext,
   std/[
@@ -197,7 +201,7 @@ let defaultTReprConf* = TReprConf(
     trfShowSymTypes,
     trfShowFullSymTypes,
     trfShowSymFlags,
-    
+
     trfShowTypeOwner,
     trfShowTypeId,
     trfShowTypeSym,
@@ -325,6 +329,7 @@ template genFields(res: ColText, indent: int, rconf: TReprConf): untyped =
 func formatKind[I](rconf: TReprConf, kind: I, sub: int = 2): string =
   if trfShowKindTypes in rconf:
     when kind is TNodeKind: result = "N:" & substr($kind, 2)
+    elif kind is ParsedNodeKind: result = "N:" & substr($kind, 3)
     elif kind is TSymKind: result = "S:" & substr($kind, 2)
     elif kind is TTypeKind: result = "T:" & substr($kind, 2)
     elif kind is ReportKind: result = "RK:" & substr($kind, 4)
@@ -642,12 +647,32 @@ proc treeRepr*(
 
   aux(typ, 0)
 
-# NOTE two types are similar enough for now, so I decided to save on
-# boilerplate copy-paste. In the future iteration and cyclic checking for
-# DOD-based ParsedNode will of course be different.
-type AstNode = PNode | ParsedNode
+proc cyclicTreeAux(n: ParsedNode, visited: var seq[ParsedNode], count: var int): bool =
+  if n.isNil(): return
+  for v in visited:
+    if v == n:
+      return true
 
-proc cyclicTreeAux(n: AstNode, visited: var seq[AstNode], count: var int): bool =
+  inc count
+  case n.kind
+  of {pnkEmpty..pnkCustomLit}:
+    discard
+  of pnkParsedKindsWithSons:
+    visited.add(n)
+
+    for nSon in n.sons:
+      if cyclicTreeAux(nSon, visited, count):
+        return true
+
+    discard visited.pop()
+  else:
+    discard
+
+proc cyclicTree(n: ParsedNode): tuple[cyclic: bool, count: int] =
+  var visited: seq[ParsedNode] = @[]
+  result.cyclic = cyclicTreeAux(n, visited, result.count)
+
+proc cyclicTreeAux(n: PNode, visited: var seq[PNode], count: var int): bool =
   if n.isNil(): return
   for v in visited:
     if v == n:
@@ -659,16 +684,13 @@ proc cyclicTreeAux(n: AstNode, visited: var seq[AstNode], count: var int): bool 
     discard
   else:
     visited.add(n)
-    
+
     let sons =
-      when n is PNode:
-        case n.kind
-        of nkError:
-          @[n.diag.wrongNode]
-        else:
-          n.sons
+      case n.kind
+      of nkError:
+        @[n.diag.wrongNode]
       else:
-        n.sons
+        @[]
 
     for nSon in sons:
       if cyclicTreeAux(nSon, visited, count):
@@ -676,8 +698,8 @@ proc cyclicTreeAux(n: AstNode, visited: var seq[AstNode], count: var int): bool 
 
     discard visited.pop()
 
-proc cyclicTree(n: AstNode): tuple[cyclic: bool, count: int] =
-  var visited: seq[AstNode] = @[]
+proc cyclicTree(n: PNode): tuple[cyclic: bool, count: int] =
+  var visited: seq[PNode] = @[]
   result.cyclic = cyclicTreeAux(n, visited, result.count)
 
 proc treeRepr*(
@@ -965,35 +987,34 @@ proc treeRepr*(
     genFields(res[], indent, rconf)
     addIndent(indentIncrease)
     indent += 2 + pad
-    if 0 < idx.len:
+    if idx.len > 0:
       var first = true
       for idxIdx, pos in idx:
         if idx.len - rconf.maxPath <= idxIdx:
           indent += tern(first, 0, 1)
 
-          case pos:
-            of 0 .. 9: indent += 1
-            of 10 .. 99: indent += 2
-            else: indent += 3
+          case pos
+          of 0 .. 9: indent += 1
+          of 10 .. 99: indent += 2
+          else: indent += 3
 
           if not first:
             add "." + style.dim
 
           first = false
           add $pos + style.dim
-
         else:
           indent += 2
           add "  "
 
-      if 0 < rconf.maxPath:
+      if rconf.maxPath > 0:
         add " "
         inc indent
 
     if isNil(n):
       add "<nil>" + style.nilIt
       return
-    elif not (n.kind == nkEmpty and n.safeLen == 0) and
+    elif not (n.kind == pnkEmpty and n.safeLen == 0) and
          # empty nodes can be reused. Only check for visitation if it is
          # not an empty (completely empty) node
          cast[int](n) in visited:
@@ -1014,103 +1035,103 @@ proc treeRepr*(
 
     visited[cast[int](n)] = nodecount
     add rconf.formatKind(n.kind) + style.kind
+    add "($#, $#)" % [$n.info.line + style.number, $n.info.col + style.number]
 
     let hasComment = trfShowNodeComments in rconf and n.comment.len > 0
 
-    proc addComment(sep: bool = true) =
+    proc addComment() =
       if hasComment:
         var nl = false
         for line in split(n.comment.strip(leading = false), '\n'):
           if nl: add "\n"
           nl = true
 
-          addi indent, "  # " + style.comment
+          addi indent, "# " + style.comment
           add line + style.comment
 
-        add "\n"
-      elif sep:
-        add " "
-
-    proc addFlags() =
-      if trfShowNodeLineInfo in rconf:
-        addi(
-          rconf.maybeIndent(indent), infoField(
-          conf, n.info, rconf, indent, "info", trfShowNodeLineInfo))
-
     proc postLiteral() =
-      addFlags()
       if hasComment: add "\n"
       addComment()
 
-    case n.kind:
-      of nkStrKinds:
-        add " "
-        add "\"" & n.token.literal + style.strLit & "\""
-        postLiteral()
+    case n.kind
+    of pnkStrLit .. pnkTripleStrLit:
+      add " "
+      add "\"" & n.lit.literal + style.strLit & "\""
+      postLiteral()
 
-      of nkCharLit .. nkUInt64Lit:
-        add " "
-        add $n.token.iNumber + style.number
-        postLiteral()
+    of pnkCharLit .. pnkUInt64Lit:
+      add " "
+      add $n.lit.iNumber + style.number
+      postLiteral()
 
-      of nkFloatLit .. nkFloat128Lit:
-        add " "
-        add $n.token.fNumber + style.floatLit
-        postLiteral()
+    of pnkFloatLit .. pnkFloat128Lit:
+      add " "
+      add $n.lit.fNumber + style.floatLit
+      postLiteral()
 
-      of nkIdent:
-        add " \""
-        add n.token.ident.s + style.identLit
-        add "\""
-        hfield("ident.id", trfShowNodeIds, $n.token.ident.id + style.number)
-        postLiteral()
+    of pnkIdent:
+      add " \""
+      add n.startToken.ident.s + style.identLit
+      add "\""
+      hfield("ident.id", trfShowNodeIds, $n.startToken.ident.id + style.number)
+      postLiteral()
 
-      of nkCommentStmt:
-        addFlags()
+    of pnkCustomLit:
+      if hasComment:
         add "\n"
-        if hasComment: add "\n"
         addComment()
 
-      of nkType:
-        postLiteral()
+      if idx.len < rconf.maxDepth:
+        let (num, ident) = splitCustomLit(n)
 
-      else:
-        discard
+        for newIdx, subn in [num, ident].pairs:
+          if newIdx + 1 > rconf.maxLen:
+            break
 
-    if n.kind notin {nkNone .. nkNilLit, nkCommentStmt}:
-      addFlags()
-      if n.len > 0:
-        add "\n"
+          visited.del(cast[int](subn)) # addresses get fixated between calls
 
+          add "\n"
+          aux(subn, idx & newIdx)
+
+    of pnkEmpty, pnkNilLit:
+      discard
+
+    of pnkError:
+      unreachable("IMPLEMENT ME")
+
+    of pnkCommentStmt:
+      if hasComment: add "\n"
+      addComment()
+
+    of pnkAccQuoted:
       if hasComment:
-        addComment(false)
-        if len(n) == 0:
+        add "\n"
+        addComment()
+
+      if idx.len < rconf.maxDepth:
+        for newIdx, identInfo in n.idents.pairs:
+          if newIdx + 1 > rconf.maxLen:
+            break
+
           add "\n"
+          addi indent, " \""
+          add identInfo.ident.s + style.identLit
+          add "\""
+          add "($#, $#)" % [$identInfo.line + style.number, $identInfo.col + style.number]
+          hfield("ident.id", trfShowNodeIds, $identInfo.ident.id + style.number)
 
-      let sons =
-        when n is PNode:
-          case n.kind
-          of nkError:
-            @[n.diag.wrongNode]
-          else:
-            n.sons
-        else:
-          n.sons
+    of pnkParsedKindsWithSons - {pnkCommentStmt}:
+      if hasComment:
+        add "\n"
+        addComment()
 
-      for newIdx, subn in sons.pairs:
-        if trfSkipAuxError in rconf and n.kind == nkError:
-          continue
+      if idx.len < rconf.maxDepth:
+        for newIdx, subn in n.sons.pairs:
+          if newIdx + 1 > rconf.maxLen:
+            break
 
-        aux(subn, idx & newIdx)
-
-        if idx.len + 1 > rconf.maxDepth:
-          break
-
-        if newIdx > rconf.maxLen:
-          break
-
-        if newIdx < n.len - 1:
           add "\n"
+          aux(subn, idx & newIdx)
 
   aux(pnode, @[])
 
@@ -1205,7 +1226,7 @@ template debug*(it: PSym) =
                 {
                   trfShowSymTypes, trfShowFullSymTypes, trfShowSymLineInfo,
                   trfShowSymFlags, trfShowSymMagic,
-                  
+
                   # trfShowNodeTypes,
                   trfShowNodeLineInfo, trfShowNodeFlags}
   debugAux(implicitDebugConfRef, it, conf, instLoc())

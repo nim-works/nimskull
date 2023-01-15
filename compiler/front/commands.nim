@@ -343,7 +343,6 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
         conf.incl(cnModifiedy, n)
 
         if state in {wWarningAsError, wHintAsError}:
-          # xxx rename warningAsErrors to noteAsErrors
           conf.flip(cnWarnAsError, n, isOn)
         else:
           conf.flip(cnCurrent, n, isOn)

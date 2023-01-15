@@ -9,11 +9,11 @@ done
 """
 ## line 10
 
+
+
 from std/macros import varargsLen
 
 template myecho*(a: varargs[untyped]) =
-  ## shows a useful debugging echo-like proc that is dependency-free (no dependency
-  ## on macros.nim) so can be used in more contexts
   const info = instantiationInfo(-1, false)
   const loc = info.filename & ":" & $info.line & ":" & $info.column & " "
   when varargsLen(a) > 0:

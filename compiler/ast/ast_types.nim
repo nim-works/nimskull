@@ -246,6 +246,96 @@ type
 
   TNodeKinds* = set[TNodeKind]
 
+const
+  nodeKindsProducedByParse* = {
+    nkError, nkEmpty,
+    nkIdent,
+
+    nkCharLit,
+    nkIntLit, nkInt8Lit, nkInt16Lit, nkInt32Lit, nkInt64Lit,
+    nkUIntLit, nkUInt8Lit, nkUInt16Lit, nkUInt32Lit, nkUInt64Lit,
+    nkFloatLit, nkFloat32Lit, nkFloat64Lit, nkFloat128Lit,
+    nkStrLit, nkRStrLit, nkTripleStrLit,
+    nkNilLit,
+
+    nkCall, nkCommand, nkCallStrLit, nkInfix, nkPrefix, nkPostfix,
+
+    nkExprEqExpr, nkExprColonExpr, nkIdentDefs, nkConstDef, nkVarTuple, nkPar,
+    nkBracket, nkCurly, nkTupleConstr, nkObjConstr, nkTableConstr,
+    nkBracketExpr, nkCurlyExpr,
+
+    nkPragmaExpr, nkPragma, nkPragmaBlock,
+
+    nkDotExpr, nkAccQuoted,
+
+    nkIfExpr, nkIfStmt, nkElifBranch, nkElifExpr, nkElse, nkElseExpr,
+    nkCaseStmt, nkOfBranch,
+    nkWhenStmt,
+
+    nkForStmt, nkWhileStmt,
+
+    nkBlockExpr, nkBlockStmt,
+
+    nkDiscardStmt, nkContinueStmt, nkBreakStmt, nkReturnStmt, nkRaiseStmt,
+    nkYieldStmt,
+
+    nkTryStmt, nkExceptBranch, nkFinally,
+
+    nkDefer,
+
+    nkLambda, nkDo,
+
+    nkBind, nkBindStmt, nkMixinStmt,
+
+    nkCast,
+    nkStaticStmt,
+
+    nkAsgn,
+
+    nkGenericParams,
+    nkFormalParams,
+
+    nkStmtList, nkStmtListExpr,
+
+    nkImportStmt, nkImportExceptStmt, nkImportAs, nkFromStmt,
+
+    nkIncludeStmt,
+
+    nkExportStmt, nkExportExceptStmt,
+
+    nkConstSection, nkLetSection, nkVarSection,
+
+    nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef, nkIteratorDef,
+    nkMacroDef, nkTemplateDef,
+
+    nkTypeSection, nkTypeDef,
+
+    nkEnumTy, nkEnumFieldDef,
+
+    nkObjectTy, nkTupleTy, nkProcTy, nkIteratorTy,
+
+    nkRecList, nkRecCase, nkRecWhen,
+
+    nkTypeOfExpr,
+
+    # nkConstTy,
+    nkRefTy, nkVarTy, nkPtrTy, nkStaticTy, nkDistinctTy,
+    nkMutableTy,
+
+    nkTupleClassTy, nkTypeClassTy,
+
+    nkOfInherit,
+
+    nkArgList,
+
+    nkWith, nkWithout,
+
+    nkAsmStmt,
+    nkCommentStmt,
+
+    nkUsingStmt,
+  }
+
 type
   TSymFlag* = enum    # 48 flags!
     sfUsed            ## read access of sym (for warnings) or simply used

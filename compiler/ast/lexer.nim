@@ -565,6 +565,7 @@ proc getNumber(L: var Lexer, result: var Token) =
       elif customLitPossible:
         # remember the position of the `'` so that the parser doesn't
         # have to reparse the custom literal:
+        result.ident = L.cache.getIdent("'" & suffix)
         result.iNumber = len(result.literal)
         result.literal.add '\''
         result.literal.add suffix

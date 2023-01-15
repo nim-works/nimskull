@@ -21,10 +21,13 @@ from times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath
 
 from compiler/ast/ast_types import
-  NodeId, # used as a reportId/diagId proxy
-  PNode,  # because of reports, more leakage
-  PSym    # Contextual details of the instantiation stack optionally refer to
-          # the used symbol
+  TNodeKind,  # used in conversion from `ParsedNode` to `PNode`
+  TNodeFlag,  # used in conversion from `ParsedNode` to `PNode`
+  `comment=`, # used in conversion from `ParsedNode` to `PNode`
+  NodeId,     # used as a reportId/diagId proxy
+  PNode,      # because of reports, more leakage
+  PSym        # Contextual details of the instantiation stack optionally refers
+              # to the used symbol
 
 # xxx: legacy Reports to be removed
 import compiler/ast/report_enums

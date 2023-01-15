@@ -1541,8 +1541,8 @@ proc commandRst2TeX*(cache: IdentCache, conf: ConfigRef) =
   commandRstAux(cache, conf, conf.projectFull, TexExt)
 
 proc commandTags*(cache: IdentCache, conf: ConfigRef) =
-  var ast = parseFile(conf.projectMainIdx, cache, conf)
-  if ast == nil: return
+  let ast = parseFile(conf.projectMainIdx, cache, conf).toPNode()
+  if ast.isNil: return
   var d = newDocumentor(conf.projectFull, cache, conf)
   d.onTestSnippet = proc (d: var RstGenerator; filename, cmd: string;
                           status: int; content: string) =

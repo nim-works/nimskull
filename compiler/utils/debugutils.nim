@@ -237,9 +237,14 @@ template traceLeaveIt*(
   tmp.info = loc
   traceStepImpl(tmp, semstepLeave, body)
 
-template frameMsg(c: ConfigRef, n: PNode) =
+template frameMsg*(c: ConfigRef, n: PNode) =
   {.line.}:
-    setFrameMsg "$1 $2 $3" % [$n.kind, $n.id, c$n.info]
+    setFrameMsg "$1 $2 $3($4, $5)" % [
+      $n.kind,
+      $n.id,
+      c.toFullPath(n.info.fileIndex),
+      $n.info.line,
+      $n.info.col]
 
 const locOffset = -2
 

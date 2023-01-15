@@ -47,7 +47,8 @@ import
   compiler/utils/[
     platform,    # Target platform data
     nversion,
-    pathutils    # Input file handling
+    pathutils,   # Input file handling
+    astrepr,     # Output parsed data, for compiler development
   ],
   compiler/vm/[
     compilerbridge, # Configuration file evaluation, `nim e`
@@ -445,7 +446,10 @@ proc mainCommand*(graph: ModuleGraph) =
 
   of cmdParse:
     wantMainModule(conf)
-    discard parseFile(conf.projectMainIdx, cache, conf)
+    var reprConf = defaultTReprConf
+    reprConf.flags.excl trfShowNodeIds
+    reprConf.flags.incl trfShowNodeLineInfo
+    echo conf.treeRepr(parseFile(conf.projectMainIdx, cache, conf), reprConf)
 
   of cmdRod:
     wantMainModule(conf)

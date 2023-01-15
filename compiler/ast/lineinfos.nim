@@ -26,6 +26,10 @@ type
     col*: int16
     fileIndex*: FileIndex
 
+  LineColPair* = tuple
+    line: typeof(TLineInfo.line)
+    col: typeof(TLineInfo.col)
+
 const
   InvalidFileIdx* = FileIndex(-1)
   unknownLineInfo* = TLineInfo(line: 0, col: -1, fileIndex: InvalidFileIdx)
@@ -33,8 +37,7 @@ const
   ## suggestions are produced within comments and string literals
   commandLineIdx* = FileIndex(-3)
 
-proc newLineInfo*(fileInfoIdx: FileIndex, line, col: int): TLineInfo =
-  result.fileIndex = fileInfoIdx
+func clampLineCol*(line, col: int): LineColPair {.inline.} =
   if line < int high(uint16):
     result.line = uint16(line)
   else:
@@ -43,6 +46,10 @@ proc newLineInfo*(fileInfoIdx: FileIndex, line, col: int): TLineInfo =
     result.col = int16(col)
   else:
     result.col = -1
+
+proc newLineInfo*(fileIndex: FileIndex, line, col: int): TLineInfo {.inline.} =
+  result.fileIndex = fileIndex
+  (result.line, result.col) = clampLineCol(line, col)
 
 proc `==`*(a, b: FileIndex): bool {.borrow.}
 

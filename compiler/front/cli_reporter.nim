@@ -2318,74 +2318,80 @@ proc reportShort*(conf: ConfigRef, r: SemReport): string =
 
 proc reportBody*(conf: ConfigRef, r: ParserReport): string =
   assertKind r
-  case ParserReportKind(r.kind):
-    of rparInvalidIndentation:
-       result = "invalid indentation"
-       result.add r.msg
+  case ParserReportKind(r.kind)
+  of rparInvalidIndentation:
+    result = "invalid indentation"
 
-    of rparNestableRequiresIndentation:
-       result = "nestable statement requires indentation"
+  of rparInvalidIndentationWithForgotEqualSignHint:
+    result = "invalid indentation, maybe missing '=' at $1?" % conf$r.eqInfo
 
-    of rparIdentExpected, rparIdentOrKwdExpected:
-      result = "identifier expected, but found '$1'" % r.found
+  of rparNestableRequiresIndentation:
+    result = "nestable statement requires indentation"
 
-    of rparExprExpected:
-      result = "expression expected, but found '$1'" % r.found
+  of rparIdentExpected:
+    result = "identifier expected, but found '$1'" % r.found
 
-    of rparMissingToken:
-      result = "expected " & r.expected[0]
+  of rparIdentExpectedEmptyAccQuote:
+    result = "identifier expected, but got empty accent quotes"
 
-    of rparUnexpectedToken:
-      result = "expected: '" & $r.expected[0] & "', but got: '" & r.found & "'"
+  of rparExprExpected:
+    result = "expression expected, but found '$1'" % r.found
 
-    of rparUnexpectedTokenKind:
-      result = r.msg
+  of rparMissingToken:
+    result =
+      case r.expected.len
+      of 1:
+        "expected " & r.expected[0]
+      of 2:
+        "expected $1 or $2" % [r.expected[0], r.expected[1]]
+      else:
+        unreachable("only 1-2 expected tokesn allowed, update message to fix")
 
-    of rparFuncNotAllowed:
-      result = "func keyword is not allowed in type descriptions, " &
-        "use proc with {.noSideEffect.} pragma instead"
+  of rparUnexpectedToken:
+    result = "expected: '$1', but got: '$2'" % [r.expectedKind, r.found]
 
-    of rparTupleTypeWithPar:
-      result = "the syntax for tuple types is 'tuple[...]', not 'tuple(...)'"
+  of rparAsmStmtExpectsStrLit:
+    result = "the 'asm' statement takes a string literal, got: '$1'" % r.found
 
-    of rparMisplacedParameterVar:
-      result = "the syntax is 'parameter: var T', not 'var parameter: T'"
+  of rparFuncNotAllowed:
+    result = "func keyword is not allowed in type descriptions, " &
+      "use proc with {.noSideEffect.} pragma instead"
 
-    of rparConceptNotinType:
-      result = "the 'concept' keyword is only valid in 'type' sections"
+  of rparTupleTypeWithPar:
+    result = "the syntax for tuple types is 'tuple[...]', not 'tuple(...)'"
 
-    of rparRotineExpected:
-      result = r.msg
+  of rparMisplacedParameterVar:
+    result = "the syntax is 'parameter: var T', not 'var parameter: T'"
 
-    of rparPragmaAlreadyPresent:
-      result = "pragma already present"
+  of rparConceptNotinType:
+    result = "the 'concept' keyword is only valid in 'type' sections"
 
-    of rparMisplacedExport:
-      result = "invalid indentation; an export marker '*' " &
-        "follows the declared identifier"
+  of rparMisplacedExport:
+    result = "invalid indentation; an export marker '*' " &
+      "follows the declared identifier"
 
-    of rparTemplMissingEndClose:
-      result = "'end' does not close a control flow construct"
+  of rparTemplMissingEndClose:
+    result = "'end' does not close a control flow construct"
 
-    of rparTemplInvalidExpression:
-      result = "invalid expression"
+  of rparTemplInvalidExpression:
+    result = "invalid expression"
 
-    of rparInconsistentSpacing:
-      result = "Number of spaces around '$#' is not consistent"
+  of rparInconsistentSpacing:
+    result = "Number of spaces around '$1' is not consistent" % r.found
 
-    of rparEnablePreviewDotOps:
-      result = "dot-like operators will be parsed differently " &
-        "with `-d:nimPreviewDotLikeOps`"
+  of rparEnablePreviewDotOps:
+    result = "dot-like operators will be parsed differently " &
+      "with `-d:nimPreviewDotLikeOps`"
 
-    of rparPragmaNotFollowingTypeName:
-      result = "type pragmas follow the type name; this form of " &
-        "writing pragmas is deprecated"
+  of rparPragmaNotFollowingTypeName:
+    result = "type pragmas follow the type name; this form of " &
+      "writing pragmas is deprecated"
 
-    of rparPragmaBeforeGenericParameters:
-      result = "pragma must come after any generic parameter list"
+  of rparPragmaBeforeGenericParameters:
+    result = "pragma must come after any generic parameter list"
 
-    of rparInvalidFilter:
-      result = "invalid filter: $1" % r.node.renderTree
+  of rparInvalidFilter:
+    result = "invalid filter: $1" % r.node.renderTree
 
 proc reportFull*(conf: ConfigRef, r: ParserReport): string =
   assertKind r
