@@ -131,9 +131,6 @@ type
     cacheCounters*: Table[string, BiggestInt] # IC: implemented
     cacheTables*: Table[string, BTree[string, PNode]] # IC: implemented
     passes*: seq[TPass]
-    onDefinition*: proc (graph: ModuleGraph; s: PSym; info: TLineInfo) {.nimcall.}
-    onDefinitionResolveForward*: proc (graph: ModuleGraph; s: PSym; info: TLineInfo) {.nimcall.}
-    onUsage*: proc (graph: ModuleGraph; s: PSym; info: TLineInfo) {.nimcall.}
     globalDestructors*: seq[PNode]
     strongSemCheck*: proc (graph: ModuleGraph; owner: PSym; body: PNode) {.nimcall.}
     compatibleProps*: proc (graph: ModuleGraph; formal, actual: PType): bool {.nimcall.}
@@ -407,29 +404,6 @@ proc hash*(u: SigHash): Hash =
     result = (result shl 8) or u.MD5Digest[x].int
 
 proc hash*(x: FileIndex): Hash {.borrow.}
-
-when defined(nimfind):
-  template getPContext(): untyped =
-    when c is PContext: c
-    else: c.c
-
-  template onUse*(info: TLineInfo; s: PSym) =
-    let c = getPContext()
-    if c.graph.onUsage != nil: c.graph.onUsage(c.graph, s, info)
-
-  template onDef*(info: TLineInfo; s: PSym) =
-    let c = getPContext()
-    if c.graph.onDefinition != nil: c.graph.onDefinition(c.graph, s, info)
-
-  template onDefResolveForward*(info: TLineInfo; s: PSym) =
-    let c = getPContext()
-    if c.graph.onDefinitionResolveForward != nil:
-      c.graph.onDefinitionResolveForward(c.graph, s, info)
-
-else:
-  template onUse*(info: TLineInfo; s: PSym) = discard
-  template onDef*(info: TLineInfo; s: PSym) = discard
-  template onDefResolveForward*(info: TLineInfo; s: PSym) = discard
 
 proc stopCompile*(g: ModuleGraph): bool {.inline.} =
   result = g.doStopCompile != nil and g.doStopCompile()

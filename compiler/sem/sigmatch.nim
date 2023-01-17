@@ -2444,7 +2444,6 @@ proc paramTypesMatch*(
     else:
       # only one valid interpretation found, executing argument match
       markUsed(candidate.c, arg.info, arg[bestArg].sym)
-      onUse(arg.info, arg[bestArg].sym)
       result = paramTypesMatchAux(
         candidate, formal, arg[bestArg].typ, arg[bestArg])
 

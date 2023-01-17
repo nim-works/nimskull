@@ -70,7 +70,6 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
     if not(isField and sfGenSym in s.flags):
       result = newSymNode(s, info)
       markUsed(c, info, s)
-      onUse(info, s)
     else:
       result = n
   else:
@@ -85,7 +84,6 @@ proc symChoice(c: PContext, n: PNode, s: PSym, r: TSymChoiceRule;
         incl(a.flags, sfUsed)
         markOwnerModuleAsUsed(c, a)
         result.add newSymNode(a, info)
-        onUse(info, a)
       elif a.isError:
         localReport(c.config, a.ast)
       a = nextOverloadIter(o, c, n)
@@ -244,7 +242,6 @@ proc onlyReplaceParams(c: var TemplCtx, n: PNode): PNode =
       if s.owner == c.owner and s.kind == skParam:
         incl(s.flags, sfUsed)
         result = newSymNode(s, n.info)
-        onUse(n.info, s)
   of nkError:
     result = n
   else:
@@ -340,7 +337,6 @@ proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
 
           addPrelimDecl(c.c, local)
           styleCheckDef(c.c.config, n.info, local)
-          onDef(n.info, local)
           replaceIdentBySym(c.c, n):
             if local.isError:
               hasError = true
@@ -366,8 +362,6 @@ proc semTemplSymbol(c: PContext, n: PNode, s: PSym; isField: bool): PNode =
   # the symbol as used properly, but the nfSem mechanism currently prevents
   # that from happening, so we mark the module as used here already:
   markOwnerModuleAsUsed(c, s)
-  # we do not call onUse here, as the identifier is not really
-  # resolved here. We will fixup the used identifiers later.
   case s.kind
   of skUnknown:
     result =
@@ -415,7 +409,6 @@ proc semRoutineInTemplName(c: var TemplCtx, n: PNode): PNode =
       if s.owner == c.owner and (s.kind == skParam or sfGenSym in s.flags):
         incl(s.flags, sfUsed)
         result = newSymNode(s, n.info)
-        onUse(n.info, s)
   of nkError:
     discard    # return the error
   else:
@@ -447,7 +440,6 @@ proc semRoutineInTemplBody(c: var TemplCtx, n: PNode, k: TSymKind): PNode =
       s.ast = n
       addPrelimDecl(c.c, s)
       styleCheckDef(c.c.config, n.info, s)
-      onDef(n.info, s)
       n[namePos] = newSymNode(s, n[namePos].info)
     else:
       n[namePos] = ident
@@ -586,7 +578,6 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
       if s.owner == c.owner and s.kind == skParam and sfTemplateParam in s.flags:
         incl(s.flags, sfUsed)
         result = newSymNode(s, n.info)
-        onUse(n.info, s)
       elif contains(c.toBind, s.id):
         result = symChoice(c.c, n, s, scClosed, c.noGenSym > 0)
       elif contains(c.toMixin, s.name.id):
@@ -596,7 +587,6 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
         # var yz: T
         incl(s.flags, sfUsed)
         result = newSymNode(s, n.info)
-        onUse(n.info, s)
       else:
         result = semTemplSymbol(c.c, n, s, c.noGenSym > 0)
   of nkBind:
@@ -697,7 +687,6 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
         let s = newGenSym(skLabel, n[0], c)
         addPrelimDecl(c.c, s)
         styleCheckDef(c.c.config, s)
-        onDef(n[0].info, s)
         n[0] = newSymNode(s, n[0].info)
     
     n[1] = semTemplBody(c, n[1])
@@ -871,7 +860,6 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
       if s.owner == c.owner and s.kind == skParam and
           n.kind == nkAccQuoted and n.len == 1:
         incl(s.flags, sfUsed)
-        onUse(n.info, s)
         return newSymNode(s, n.info)
       elif contains(c.toBind, s.id):
         return symChoice(c.c, n, s, scClosed, c.noGenSym > 0)
@@ -1016,7 +1004,6 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
       incl(s.flags, sfCallsite)
 
   styleCheckDef(c.config, s)
-  onDef(n[namePos].info, s)
 
   # check parameter list:
   pushOwner(c, s)
@@ -1165,7 +1152,6 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
     # semtypes.addParamOrResult). Within the pattern we have to ensure
     # to use the param with the proper type though:
     incl(s.flags, sfUsed)
-    onUse(n.info, s)
     let x = c.owner.typ.n[s.position+1].sym
     assert x.name == s.name
     result = newSymNode(x, n.info)

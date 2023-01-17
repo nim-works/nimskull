@@ -137,7 +137,6 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
 
     result.n.add symNode
     styleCheckDef(c.config, e)
-    onDef(e.info, e)
     if sfGenSym notin e.flags:
       if not isPure:
         if overloadableEnums in c.features:
@@ -426,13 +425,11 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
       result = qualifiedLookUp(c, n, {checkAmbiguity, checkUndeclared})
     if result.isError:
       markUsed(c, n.info, result)
-      onUse(n.info, result)
 
       # XXX: move to propagating nkError, skError, and tyError
       localReport(c.config, result.ast)
     elif result != nil:
       markUsed(c, n.info, result)
-      onUse(n.info, result)
 
       if result.kind == skParam and result.typ.kind == tyTypeDesc:
         # This is a typedesc param. is it already bound?
@@ -539,7 +536,6 @@ proc semTuple(c: PContext, n: PNode, prev: PType): PType =
         addSonSkipIntLit(result, typ, c.idgen)
 
       styleCheckDef(c.config, a[j].info, field)
-      onDef(field.info, field)
 
   if result.n.len == 0: result.n = nil
   if isTupleRecursive(result):
@@ -930,7 +926,6 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
         a.add newSymNode(f)
 
       styleCheckDef(c.config, f)
-      onDef(f.info, f)
     if a.kind != nkEmpty: father.add a
   of nkSym:
     # This branch only valid during generic object
@@ -1311,7 +1306,6 @@ proc liftParamType(c: PContext, procKind: TSymKind, genericParams: PNode,
 
   of tyGenericParam:
     markUsed(c, paramType.sym.info, paramType.sym)
-    onUse(paramType.sym.info, paramType.sym)
     if tfWildcard in paramType.flags:
       paramType.flags.excl tfWildcard
       paramType.sym.transitionGenericParamToType()
@@ -1474,7 +1468,6 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       rawAddSon(result, finalType)
       addParamOrResult(c, arg, kind)
       styleCheckDef(c.config, a[j].info, arg)
-      onDef(a[j].info, arg)
       if {optNimV1Emulation, optNimV12Emulation} * c.config.globalOptions == {}:
         a[j] = newSymNode(arg)
 
@@ -2162,7 +2155,6 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
         assignType(prev, t)
         result = prev
       markUsed(c, n.info, n.sym)
-      onUse(n.info, n.sym)
     else:
       if s.kind != skError:
         localReport(c.config, n.info, reportSym(rsemTypeExpected, s))

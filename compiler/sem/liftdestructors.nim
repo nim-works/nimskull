@@ -363,7 +363,6 @@ proc considerAsgnOrSink(c: var TLiftCtx; t: PType; body, x, y: PNode;
         incl c.fn.flags, sfError
       #else:
       #  markUsed(c.g.config, c.info, op, c.g.usageSym)
-      onUse(c.info, op)
       body.add newHookCall(c, op, x, y)
       result = true
     elif op == nil and destructorOverriden:
@@ -387,7 +386,6 @@ proc considerAsgnOrSink(c: var TLiftCtx; t: PType; body, x, y: PNode;
       incl c.fn.flags, sfError
     #else:
     #  markUsed(c.g.config, c.info, op, c.g.usageSym)
-    onUse(c.info, op)
     # We also now do generic instantiations in the destructor lifting pass:
     if op.ast.isGenericRoutine:
       op = instantiateGeneric(c, op, t, t.typeInst)
@@ -417,7 +415,6 @@ proc addDestructorCall(c: var TLiftCtx; orig: PType; body, x: PNode) =
 
   if op != nil:
     #markUsed(c.g.config, c.info, op, c.g.usageSym)
-    onUse(c.info, op)
     body.add destructorCall(c, op, x)
   elif useNoGc(c, t):
     internalError(
@@ -435,7 +432,6 @@ proc considerUserDefinedOp(c: var TLiftCtx; t: PType; body, x, y: PNode): bool =
         setAttachedOp(c.g, c.idgen.module, t, attachedDestructor, op)
 
       #markUsed(c.g.config, c.info, op, c.g.usageSym)
-      onUse(c.info, op)
       body.add destructorCall(c, op, x)
       result = true
     #result = addDestructorCall(c, t, body, x)
@@ -455,7 +451,6 @@ proc considerUserDefinedOp(c: var TLiftCtx; t: PType; body, x, y: PNode): bool =
     let op = getAttachedOp(c.g, t, attachedDeepCopy)
     if op != nil:
       #markUsed(c.g.config, c.info, op, c.g.usageSym)
-      onUse(c.info, op)
       body.add newDeepCopyCall(c, op, x, y)
       result = true
 
