@@ -806,7 +806,7 @@ func astDiagToLegacyReport*(diag: PAstDiag): Report {.inline.} =
         location: std_options.some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
         kind: rsemOnlyDeclaredIdentifierFoundIsError,
-        str: diag.name,
+        str: diag.identName,
         ast: diag.wrongNode,
         wrongNode: diag.err)
   of adSemCannotImportItself:

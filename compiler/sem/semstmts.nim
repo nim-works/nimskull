@@ -1177,17 +1177,26 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
       #      semantic analysis, also the fact that it likely implies bugs... :/
       case defPart.kind
       of nkVarTuple:
+        let def = producedDecl[^1]
+        # FIXME: the arity check happens too late, meaning that it's possible
+        #        for there to be an arity mismatch here, in which case the
+        #        `def` is accessed out-of-bounds (i.e. the compiler will crash)
         v.ast =
-          case def[i].kind
-          of nkExprColonExpr:
-            def[i][1]
-          else:
-            def[i]
+          case def.kind
+          of nkTupleConstr: skipColon(def[i])
+          of nkError:       def
+          else:             unreachable()
       of nkConstDef:
         # xxx: rework skConst to store the whole def like let/var
         v.ast = producedDecl[^1]
       else:
         internalError(c.config, "should never happen")
+
+    if v.ast.isError:
+      # XXX: although this mirrors the behaviour of ``semNormalizedLetOrVar``,
+      #      it seems wrong. For example, the type of the symbol is set to a
+      #      valid type instead of ``tyError``
+      v.transitionToError(v.ast)
 
     # set the symbol type and add the symbol to the production
     producedDecl[i] =
@@ -1205,20 +1214,6 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
 
         newSymNode(v)
 
-    case def.kind
-    of nkEmpty:
-      let actualType = v.typ.skipTypes({tyGenericInst, tyAlias,
-                                        tyUserTypeClassInst})
-
-      producedDecl[i] =
-        if actualType.kind in {tyObject, tyDistinct} and
-            actualType.requiresInit:
-          defaultConstructionError(c, v.typ, r)
-        else:
-          checkNilableOrError(c, producedDecl[i])
-    else:
-      discard # no action required
-    
     if producedDecl[i].isError:
       hasError = true
 
