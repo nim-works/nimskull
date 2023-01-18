@@ -42,7 +42,6 @@ proc semBreakOrContinue(c: PContext, n: PNode): PNode =
         incl(s.flags, sfUsed)
         n[0] = x
         suggestSym(c.graph, x.info, s, c.graph.usageSym)
-        onUse(x.info, s)
       else:
         localReport(c.config, n.info, reportSym(rsemInvalidControlFlow, s))
 
@@ -415,7 +414,6 @@ proc semUsing(c: PContext; n: PNode): PNode =
       for j in 0 ..< a.len - 2:
         let v = semIdentDef(c, a[j], skParam)
         styleCheckDef(c.config, v)
-        onDef(a[j].info, v)
         v.typ = typ
         strTableIncl(c.signatures, v)
     else:
@@ -814,7 +812,6 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
           typ
 
     styleCheckDef(c.config, v)
-    onDef(r.info, v)
 
     if sfGenSym notin v.flags:
       if not isDiscardUnderscore(v):
@@ -1149,7 +1146,6 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
           typ
 
     styleCheckDef(c.config, v)
-    onDef(r.info, v)
 
     if sfGenSym notin v.flags:
       if not isDiscardUnderscore(v):
@@ -1410,7 +1406,6 @@ proc symForVar(c: PContext, n: PNode): PSym =
 
   result = newSymG(skForVar, (if hasPragma: n[0] else: n), c)
   styleCheckDef(c.config, result)
-  onDef(n.info, result)
 
   if hasPragma:
     let pragma = pragma(c, result, n[1], forVarPragmas)
@@ -1758,7 +1753,6 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
       let typsym = c.graph.packageTypes.strTableGet(typName)
       if typsym.isNil:
         s = semIdentDef(c, name[1], skType)
-        onDef(name[1].info, s)
         s.typ = newTypeS(tyObject, c)
         s.typ.sym = s
         s.flags.incl sfForward
@@ -1767,7 +1761,6 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
       elif typsym.kind == skType and sfForward in typsym.flags:
         s = typsym
         addInterfaceDecl(c, s)
-        # PRTEMP no onDef here?
       else:
         localReport(c.config, name.info, reportSym(
           rsemTypeCannotBeForwarded, typsym))
@@ -1775,7 +1768,6 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
         s = typsym
   else:
     s = semIdentDef(c, name, skType)
-    onDef(name.info, s)
     s.typ = newTypeS(tyForward, c)
     s.typ.sym = s             # process pragmas:
     if name.kind == nkPragmaExpr:
@@ -2706,10 +2698,6 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       rsemUnexpectedPragmaInDefinitionOf, @[proto, s]))
 
   styleCheckDef(c.config, s)
-  if hasProto:
-    onDefResolveForward(n[namePos].info, proto)
-  else:
-    onDef(n[namePos].info, s)
 
   if hasProto:
     if sfForward notin proto.flags and proto.magic == mNone:

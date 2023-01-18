@@ -614,7 +614,6 @@ proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
 
   let info = getCallLineInfo(n)
   markUsed(c, info, sym)
-  onUse(info, sym)
   if sym == c.p.owner:
     globalReport(c.config, info, reportSym(rsemCyclicDependency, sym))
 
