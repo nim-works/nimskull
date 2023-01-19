@@ -3504,11 +3504,11 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
   of rvmUnsupportedNonNil:
     case r.typ.kind
     of tyRef:
-      result = "static expressions yielding non-nil 'ref' values that are" &
-              " not of 'object'-type are not supported"
+      result = "static expressions where the result contains non-nil 'ref'" &
+              " values are not supported"
     of tyPtr, tyPointer:
-      result = "static expressions yielding non-nil pointer values are " &
-              "not supported"
+      result = "static expressions where the result contains non-nil pointer" &
+              " values are not supported"
     else:
       assert false
 

@@ -458,10 +458,14 @@ proc fixupTypeAfterEval(c: PContext, evaluated, eOrig: PNode): PNode =
 
 proc tryConstExpr(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "tryConstExpr", n, result)
-  var e = semExprWithType(c, n)
-  if e == nil:
+  let e = semExprWithType(c, n)
+  if e.isError:
     return
 
+  # XXX: ``getConstExpr`` can and does report errors via ``localReport``. In
+  #      case it happens, ``tryConstExpr`` doesn't return nil but compilation
+  #      fails. This behaviour does make sense, but non-vmgen error should
+  #      also not be ignored here then
   result = getConstExpr(c.module, e, c.idgen, c.graph)
   if result != nil: return
 
@@ -473,52 +477,67 @@ proc tryConstExpr(c: PContext, n: PNode): PNode =
   c.config.errorMax = high(int) # `setErrorMaxHighMaybe` not appropriate here
 
   result = evalConstExpr(c.module, c.idgen, c.graph, e)
-  if result == nil or result.kind in {nkEmpty, nkError}:
+  case result.kind
+  of nkEmpty, nkError:
     result = nil
   else:
-    result = fixupTypeAfterEval(c, result, e)
+    discard
 
   c.config.errorCounter = oldErrorCount
   c.config.errorMax = oldErrorMax
   c.config.m.errorOutputs = oldErrorOutputs
 
-proc semConstExpr(c: PContext, n: PNode): PNode =
-  addInNimDebugUtils(c.config, "semConstExpr", n, result)
+proc evalConstExpr(c: PContext, n: PNode): PNode =
+  ## Tries to turn the expression `n` into AST that represents a concrete
+  ## value. If this fails, an `nkError` node is returned
+  addInNimDebugUtils(c.config, "evalConstExpr", n, result)
+  assert not n.isError
 
-  var e = semExprWithType(c, n)
-  if e == nil:
-    localReport(c.config, n.info, reportAst(rsemConstExprExpected, n))
-
+  # this happens when the overloadableEnums is enabled. We short-circuit
+  # evaluation in this case, as neither ``vmgen`` nor ``semfold`` know what to
+  # do with the sym-choice
+  # TODO: this should be handled at the callsite instead
+  if n.kind in nkSymChoices and n[0].typ.skipTypes(abstractInst).kind == tyEnum:
     return n
 
-  if e.kind in nkSymChoices and e[0].typ.skipTypes(abstractInst).kind == tyEnum:
-    return e
-  
-  result = getConstExpr(c.module, e, c.idgen, c.graph)
-  
-  if result == nil:
-    #if e.kind == nkEmpty: globalReport(n.info, errConstExprExpected)
-    result = evalConstExpr(c.module, c.idgen, c.graph, e)
-    
-    assert result != nil
+  result = getConstExpr(c.module, n, c.idgen, c.graph)
+  if result != nil:
+    # constant folding was successful
+    return
 
-    case result.kind
-    of {nkEmpty, nkError}:
-      let withContext = e.info != n.info
-      if withContext:
-        pushInfoContext(c.config, n.info)
+  # evaluate the expression with the VM:
+  let res = evalConstExpr(c.module, c.idgen, c.graph, n)
+  assert res != nil
 
-      if result.kind == nkEmpty:
-        localReport(c.config, e.info, SemReport(kind: rsemConstExprExpected))
-      else:
-        localReport(c.config, result)
-
-      if withContext:
-        popInfoContext(c.config)
-      # error correction:
-      result = e
+  result =
+    case res.kind
+    of nkEmpty:
+      c.config.newError(n, PAstDiag(kind: adSemConstExprExpected))
+    of nkError:
+      # pass the error on
+      res
     else:
-      result = fixupTypeAfterEval(c, result, e)
+      res
+
+proc semConstExpr(c: PContext, n: PNode): PNode =
+  ## Analyses the expression `n` and, on success, tries to evaluate it (i.e.
+  ## materialize it into AST that represents a concrete value). If the analysis
+  ## part fails, returns `n` -- if the evaluation fails returns the sem-checked
+  ## expression
+  addInNimDebugUtils(c.config, "semConstExpr", n, result)
+  # TODO: propagate the error upwards instead of reporting it here. Also
+  #       remove the error correction -- that should be done at the callsite,
+  #       if needed
+
+  let e = semExprWithType(c, n)
+  if e.isError:
+    localReport(c.config, e)
+    return n
+
+  result = evalConstExpr(c, e)
+  if result.isError:
+    localReport(c.config, result)
+    result = e # error correction
 
 proc semExprFlagDispatched(c: PContext, n: PNode, flags: TExprFlags): PNode =
   if efNeedStatic in flags:

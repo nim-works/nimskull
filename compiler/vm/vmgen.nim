@@ -993,10 +993,6 @@ proc genAsgnPatch(c: var TCtx; le: PNode, value: TRegister) =
       let dest = c.genx(le, {gfNodeAddr})
       c.gABC(le, opcWrDeref, dest, 0, value)
       c.freeTemp(dest)
-  of nkError:
-    # XXX: do a better job with error generation
-    fail(le.info, vmGenDiagCannotGenerateCode, le)
-
   else:
     discard
 
@@ -1770,7 +1766,6 @@ proc canElimAddr(n: PNode): PNode =
       # addr ( nkConv ( deref ( x ) ) ) --> nkConv(x)
       result = copyNode(n[0])
       result.add m[0]
-  of nkError: result = nil
   else:
     if n[0].kind in {nkDerefExpr, nkHiddenDeref}:
       # addr ( deref ( x )) --> x
@@ -1978,10 +1973,6 @@ proc genFieldAsgn(c: var TCtx, obj: TRegister; le, ri: PNode) =
 
 proc genAsgn(c: var TCtx; le, ri: PNode; requiresCopy: bool) =
   case le.kind
-  of nkError:
-    # XXX: do a better job with error generation
-    fail(le.info, vmGenDiagCannotGenerateCode, le)
-
   of nkBracketExpr:
     let typ = le[0].typ.skipTypes(abstractVarRange-{tyTypeDesc}).kind
     let dest = c.genx(le[0], {gfNode})
@@ -2480,10 +2471,6 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
   when defined(nimCompilerStacktraceHints):
     setFrameMsg c.config$n.info & " " & $n.kind & " " & $flags
   case n.kind
-  of nkError:
-    # XXX: do a better job with error generation
-    fail(n.info, vmGenDiagCannotGenerateCode, n)
-
   of nkSym:
     let s = n.sym
     checkCanEval(c, n)
