@@ -164,8 +164,13 @@ proc typeAllowedAux(marker: var IntSet, typ: PType, kind: TSymKind,
     elif kind in {skVar, skLet}:
       result = t[1]
   of tyRef:
-    if kind == skConst: result = t
-    else: result = typeAllowedAux(marker, t.lastSon, kind, c, flags+{taHeap})
+    if kind == skConst:
+      # allow ``ref`` types for ``skConst``, as whether they're allowed in that
+      # context depends on the *value* (i.e. nil is okay, but everything else
+      # is not)
+      result = nil
+    else:
+      result = typeAllowedAux(marker, t.lastSon, kind, c, flags+{taHeap})
   of tyPtr:
     result = typeAllowedAux(marker, t.lastSon, kind, c, flags+{taHeap})
   of tySet:

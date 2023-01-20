@@ -971,6 +971,48 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
     # wrap the result if there is an embedded error
     result = c.config.wrapError(result)
 
+func ensureNilOnlyAux(n: PNode): PNode =
+  ## Traverses the given literal constructor-expression `n` and searches for
+  ## something that represents a non-nil ``ref`` value. Either the first
+  ## occurrence of such is returned, or, if none is found, nil
+  case n.kind
+  of nkClosure:
+    # for compatibility with the previous behaviour, the 'env' part of a
+    # closure is *not* checked
+    # FIXME: depending on whether the closure is part of a compound value,
+    #        this leads to code-gen errors, as the code-generator don't
+    #        support this usage. Either reject non-nil environments here or
+    #        make the code-generators support them
+    nil
+  of nkObjConstr:
+    if n.typ.skipTypes(abstractInst).kind == tyRef:
+      n # illegal
+    else:
+      nil # ok
+  of nkWithSons - {nkClosure, nkObjConstr}:
+    var r: PNode = nil
+    for it in n.items:
+      r = ensureNilOnlyAux(it)
+      if r != nil:
+        break
+
+    r
+  of nkWithoutSons:
+    nil
+
+proc ensureNilOnly(c: PContext, n: PNode): PNode =
+  ## Produces an ``nkError`` node if the literal constructor-expression `n`
+  ## contains a non-nil ``ref`` value somewhere. If there is no non-nil
+  ## ``ref`` value, `n` is returned
+  if n.isError:
+    return n
+
+  let err = ensureNilOnlyAux(n)
+  if err == nil:
+    n
+  else:
+    c.config.newError(n):
+      PAstDiag(kind: adVmUnsupportedNonNil, unsupported: err.typ)
 
 proc semNormalizedConst(c: PContext, n: PNode): PNode =
   ## semantically analyse a const section that's been normalized to a single
@@ -1079,14 +1121,13 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
       c.p.owner.kind != skMacro:
     typFlags.incl taProcContextIsNotMacro
 
-  def = semConstExpr(c, def)
+  if c.matchedConcept != nil:
+    typFlags.incl taConcept
 
-  if def.kind != nkNilLit:
-    # xxx: this seems wrong, instead of guarding on nil, maybe it should be
-    #      inferred from `typ`? then we still do the rest of the checks?
-    if c.matchedConcept != nil:
-      typFlags.incl taConcept
-    typ = typeAllowedOrError(typ, skConst, c, def, typFlags)
+  typ = typeAllowedOrError(typ, skConst, c, def, typFlags)
+
+  if not typ.isError and not def.isError:
+    def = ensureNilOnly(c, evalConstExpr(c, def))
 
   # always construct a `producedDecl`, even on error, as we still need to
   # include all the preceding child nodes from `defPart`, without potentially

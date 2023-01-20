@@ -635,7 +635,7 @@ proc myOpen(graph: ModuleGraph; module: PSym; idgen: IdGenerator): PPassContext 
 proc myProcess(c: PPassContext, n: PNode): PNode =
   let c = PCtx(c)
   # don't eval errornous code:
-  if c.oldErrorCount == c.config.errorCounter:
+  if c.oldErrorCount == c.config.errorCounter and not n.isError:
     let r = evalStmt(c[], n)
     reportIfError(c.config, r)
     # TODO: use the node returned by evalStmt as the result and don't report

@@ -899,7 +899,7 @@ func astDiagToLegacyReport*(diag: PAstDiag): Report {.inline.} =
       sym: diag.formal,
       ast: diag.wrongNode)
   of adVmUnsupportedNonNil:
-    semRep = SemReport(
+    vmRep = VMReport(
       location: std_options.some diag.location,
       reportInst: diag.instLoc.toReportLineInfo,
       kind: rvmUnsupportedNonNil,
