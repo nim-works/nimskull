@@ -1,4 +1,5 @@
 discard """
+joinable: false
 targets: "c js"
 output: '''
 ok4

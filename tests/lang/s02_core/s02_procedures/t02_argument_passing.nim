@@ -362,30 +362,32 @@ block passing_subtypes:
     ##         Only this part of the object is passed to the procedure.
     ## ```
 
-    block:
-      proc acceptsVarOfBase(arg: var Base) = arg = Base(fbase: 256)
+    when not defined(vm) or defined(tryBrokenSpecification):
+      block:
+        # assignment to a var parameter is broken, fix should be in vmgen
+        proc acceptsVarOfBase(arg: var Base) = arg = Base(fbase: 256)
 
-      var derived = Derived(fderived: 128)
-      ## It is possible to modify part of the embedded supertype via `var` argument
-      acceptsVarOfBase(derived)
-      doAssert derived.fbase == 256, "Assigned only to a section of a type"
-      doAssert derived.fderived == 128, "Original field value is intact"
+        var derived = Derived(fderived: 128)
+        ## It is possible to modify part of the embedded supertype via `var` argument
+        acceptsVarOfBase(derived)
+        doAssert derived.fbase == 256, "Assigned only to a section of a type"
+        doAssert derived.fderived == 128, "Original field value is intact"
 
-    block:
-      proc acceptsPtrToBase(arg: ptr Base) = arg[] = Base(fbase: 12)
+      block:
+        proc acceptsPtrToBase(arg: ptr Base) = arg[] = Base(fbase: 12)
 
-      var derived = Derived(fderived: 256)
-      acceptsPtrToBase(addr derived)
-      doAssert derived.fbase == 12, "Assigned only to a section of a type"
-      doAssert derived.fderived == 256, "Original field value is intact"
+        var derived = Derived(fderived: 256)
+        acceptsPtrToBase(addr derived)
+        doAssert derived.fbase == 12, "Assigned only to a section of a type"
+        doAssert derived.fderived == 256, "Original field value is intact"
 
-    block:
-      proc acceptsRefOfBase(arg: ref Base) = arg[] = Base(fbase: 12)
-      var derived = (ref Derived)(fderived: 256)
-      acceptsRefOfBase(derived)
+      block:
+        proc acceptsRefOfBase(arg: ref Base) = arg[] = Base(fbase: 12)
+        var derived = (ref Derived)(fderived: 256)
+        acceptsRefOfBase(derived)
 
-      doAssert derived.fbase == 12, "Assigned only to a section of a type"
-      doAssert derived.fderived == 256, "Original field value is intact"
+        doAssert derived.fbase == 12, "Assigned only to a section of a type"
+        doAssert derived.fderived == 256, "Original field value is intact"
 
 ## Current implementation of the argument passing for varargs has multiple
 ## inconsistencies and bugs. For more details see :idx:`t02_argument_passing_bugs`

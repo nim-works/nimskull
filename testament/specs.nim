@@ -365,16 +365,13 @@ proc parseSpec*(filename: string,
         # result.description = e.value
         discard
       of "nimoutformat":
-        case e.value.normalize:
-          of "sexp":
-            result.nimoutSexp = true
-
-          of "text":
-            result.nimoutSexp = false
-
-          else:
-            result.parseErrors.addLine "unexpected nimout format: got ", e.value
-
+        case e.value.normalize
+        of "sexp":
+          result.nimoutSexp = true
+        of "text":
+          result.nimoutSexp = false
+        else:
+          result.parseErrors.addLine "unexpected nimout format: got ", e.value
       of "action":
         case e.value.normalize
         of "compile":
@@ -561,3 +558,6 @@ proc parseSpec*(filename: string,
   result.inCurrentBatch = isCurrentBatch(testamentData0, filename) or result.unbatchable
   if not result.inCurrentBatch:
     result.err = reDisabled
+  
+  if result.targets == {} and result.err != reInvalidSpec:
+    result.targets = catTargets

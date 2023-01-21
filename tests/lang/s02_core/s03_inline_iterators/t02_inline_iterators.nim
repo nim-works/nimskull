@@ -139,7 +139,6 @@ block iterator_and_break:
       values.add $item
       break
 
-    echo values
     doAssert values == @[
       "resource setup",
       "before 1",
