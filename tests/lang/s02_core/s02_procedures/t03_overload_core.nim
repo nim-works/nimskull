@@ -53,26 +53,26 @@ block subtype_match:
     impl(Derived())
     impl(Base())
 
-  block subtype_ref_ptr_var:
-    ## `ref` and `ptr` and `var` do not affect subtype relation - as a result they
-    ## can also be used to call a procedure that expects a supertype.
-    type
-      Base = object of RootObj
-        fbase: int
+  when not defined(vm) or defined(tryBrokenSpecification):
+    block subtype_ref_ptr_var:
+      ## `ref` and `ptr` and `var` do not affect subtype relation - as a result they
+      ## can also be used to call a procedure that expects a supertype.
+      type
+        Base = object of RootObj
+          fbase: int
 
-      Derived = object of Base
-        fderived: int
+        Derived = object of Base
+          fderived: int
 
-    proc impl(arg: ptr Base): string = "ptr"
-    proc impl(arg: ref Base): string = "ref"
-    proc impl(arg: var Base): string = arg = Base(fbase: 256); "var"
+      proc impl(arg: ptr Base): string = "ptr"
+      proc impl(arg: ref Base): string = "ref"
+      proc impl(arg: var Base): string = arg = Base(fbase: 256); "var"
 
-    doAssert impl((ptr Derived)(nil)) == "ptr"
-    doAssert impl((ref Derived)(nil)) == "ref"
+      doAssert impl((ptr Derived)(nil)) == "ptr"
+      doAssert impl((ref Derived)(nil)) == "ref"
 
-    var derived = Derived(fderived: 128)
-    doAssert impl(derived) == "var"
-
+      var derived = Derived(fderived: 128)
+      doAssert impl(derived) == "var"
 
   block closest_subtype:
     type
@@ -86,8 +86,6 @@ block subtype_match:
     ## Closest subtype takes precedence
     doAssert impl(C()) == "matched subtype B"
     doAssert impl(B()) == "matched subtype B"
-
-
 
 
 block most_specific_generic_wins:

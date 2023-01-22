@@ -718,7 +718,6 @@ proc cmpMsgs(r: var TResults, run: TestRun, given: TSpec) =
   # If structural comparison is requested - drop directly to it and handle
   # the success/failure modes in the branch
   if run.expected.nimoutSexp:
-    echo "executing structural comparison"
     let outCompare = run.test.sexpCheck(run.expected, given)
     # Full match of the output results.
     if outCompare.match:
@@ -732,7 +731,6 @@ proc cmpMsgs(r: var TResults, run: TestRun, given: TSpec) =
         givenSpec = unsafeAddr given,
         outCompare = outCompare
       )
-
   # Checking for inline errors.
   elif run.expected.inlineErrors.len > 0:
     # QUESTION - `checkForInlineErrors` does not perform any comparisons
@@ -1011,7 +1009,7 @@ proc targetHelper(r: var TResults, run: var TestRun) =
   else:
     testSpecHelper(r, run)
 
-func nativeTarget(): TTarget =
+func nativeTarget(): TTarget {.inline.} =
   targetC
 
 func defaultTargets(category: Category): set[TTarget] =
@@ -1162,7 +1160,8 @@ proc parseOpts(execState: var Execution, p: var OptParser): ParseCliResult =
         testamentData0.testamentBatch = s[0].parseInt
         testamentData0.testamentNumBatch = s[1].parseInt
         doAssert testamentData0.testamentNumBatch > 0
-        doAssert testamentData0.testamentBatch >= 0 and testamentData0.testamentBatch < testamentData0.testamentNumBatch
+        doAssert testamentData0.testamentBatch >= 0 and
+                  testamentData0.testamentBatch < testamentData0.testamentNumBatch
     of "simulate":
       execState.flags.incl dryRun
     of "megatest":
@@ -1210,11 +1209,9 @@ proc parseArgs(execState: var Execution, p: var OptParser): ParseCliResult =
   of "html":
     # generate html
     execState.filter = TestFilter(kind: tfkHtml)
-
   of "cache":
     # generate html
     execState.filter = TestFilter(kind: tfkCache)
-
   else:
     return parseQuitWithUsage
 
@@ -1269,8 +1266,9 @@ proc main() =
 
   case action
   of "all": # Run all tests
-    var cats: seq[string]
-    var cmds: seq[string]
+    var
+      cats: seq[string]
+      cmds: seq[string]
     ## def qol procedure
     proc progressStatus(idx: int) =
       msg Progress:
@@ -1304,7 +1302,7 @@ proc main() =
         cats.add cat
     cats.add AdditionalCategories
     # User may pass an option to skip the megatest category, default is useMegaTest
-    if useMegatest and targetC in gTargets:
+    if useMegatest:
       cats.add MegaTestCat
     # We now prepare the command line arguments for our child processes
 
@@ -1320,7 +1318,7 @@ proc main() =
       skips = loadSkipFrom(skipFrom)
       for i, cati in cats:
         progressStatus(i)
-        processCategory(r, Category(cati), options, testsDir, runJoinableTests = false)
+        processCategory(r, Category(cati), gTargets, options, testsDir, runJoinableTests = false)
     else:
       let processOpts =
         if optFailing and not optVerbose:
@@ -1331,15 +1329,13 @@ proc main() =
       if backendLogging:
         backend.cacheResults()
       quit qval
-
   of "cache":
     # Create cached result directory from stored files
     backend.cacheResults()
-
   of "c", "cat", "category": # Run all tests of a certain category
     skips = loadSkipFrom(skipFrom)
     var cat = Category(p.key)
-    processCategory(r, cat, options, testsDir, runJoinableTests = true)
+    processCategory(r, cat, gTargets, options, testsDir, runJoinableTests = true)
   of "pcat": # Run cat in parallel
     # Run all tests of a certain category in parallel; does not include joinable
     # tests which are covered in the 'megatest' category.
@@ -1347,7 +1343,7 @@ proc main() =
     isMainProcess = false
     var cat = Category(p.key)
     p.next
-    processCategory(r, cat, options, testsDir, runJoinableTests = false)
+    processCategory(r, cat, gTargets, options, testsDir, runJoinableTests = false)
   of "r", "run": # Run single test file
     let (cat, path) = splitTestFile(p.key)
     processSingleTest(r, cat.Category, options, path)

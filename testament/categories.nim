@@ -342,7 +342,7 @@ proc processSingleTest(r: var TResults, cat: Category, options, test: string) =
   doAssert fileExists(test), test & " test does not exist"
   testSpec r, makeTest(test, options, cat)
 
-proc isJoinableSpec(spec: TSpec): bool =
+proc isJoinableSpec(spec: TSpec, targets: set[TTarget]): bool =
   # xxx simplify implementation using an allow list of fields that are allowed
   # to be set to non-default values (use `fieldPairs`), to avoid issues like
   # bug #16576.
@@ -364,7 +364,7 @@ proc isJoinableSpec(spec: TSpec): bool =
     spec.matrix.len == 0 and
     spec.outputCheck != ocSubstr and
     spec.ccodeCheck.len == 0 and
-    (spec.targets == {} or spec.targets == {targetC})
+    (spec.targets * targets != {} or spec.targets == {})
   if result:
     if spec.file.readFile.contains "when isMainModule":
       result = false
@@ -373,13 +373,12 @@ proc quoted(a: string): string =
   # todo: consider moving to system.nim
   result.addQuoted(a)
 
-proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: string) =
-  ## returns a list of tests that have problems
-  #[
-  xxx create a reusable megatest API after abstracting out testament specific code,
-  refs https://github.com/timotheecour/Nim/issues/655
-  and https://github.com/nim-lang/gtk2/pull/28; it's useful in other contexts.
-  ]#
+proc runJoinedTest(r: var TResults, targets: set[TTarget], testsDir, options: string) =
+  # xxx: this proc is batch aware by way of `specs.testamentData0`... needless
+  #      to say the whole batching thing is just dumb. Test combining, aka
+  #      megatest, and batching should all be handled once in `testament`.
+  #      See: https://github.com/nim-works/nimskull/pull/135 for how to handle
+  #      the batching part at least.
   var specs: seq[TSpec] = @[]
   for kind, dir in walkDir(testsDir):
     assert dir.startsWith(testsDir)
@@ -387,16 +386,16 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
     if kind == pcDir and cat notin specialCategories:
       for file in walkDirRec(testsDir / cat):
         if isTestFile(file):
-          var spec: TSpec
           try:
-            spec = parseSpec(file, cat.Category.defaultTargets, nativeTarget())
+            let spec = parseSpec(file, cat.Category.defaultTargets, nativeTarget())
+            if isJoinableSpec(spec, targets):
+              specs.add spec
           except ValueError:
             # e.g. for `tests/navigator/tincludefile.nim` which have multiple
             # specs; this will be handled elsewhere
-            msg Undefined: "parseSpec raised ValueError for: '$1', assuming this will be handled outside of megatest" % file
+            msg Undefined:
+              "parseSpec raised ValueError for: '$1', assuming this will be handled outside of megatest" % file
             continue
-          if isJoinableSpec(spec):
-            specs.add spec
 
   proc cmp(a: TSpec, b: TSpec): auto = cmp(a.file, b.file)
   sort(specs, cmp = cmp) # reproducible order
@@ -404,26 +403,13 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
 
   if simulate:
     var s = "runJoinedTest: "
-    for a in specs: s.add a.file & " "
+    for a in specs:
+      s.add a.file & " "
     msg Undefined: s
     return
 
-  var megatest: string
-  # xxx (minor) put outputExceptedFile, outputGottenFile, megatestFile under here or `buildDir`
-  var outDir = nimcacheDir(testsDir / "megatest", "", targetC)
   template toMarker(file, i): string =
     "megatest:processing: [$1] $2" % [$i, file]
-  for i, runSpec in specs:
-    let file = runSpec.file
-    let file2 = outDir / ("megatest_a_$1.nim" % $i)
-    # `include` didn't work with `trecmod2.nim`, so using `import`
-    let code = "echo $1\nstatic: echo \"CT:\", $1\n" % [toMarker(file, i).quoted]
-    createDir(file2.parentDir)
-    writeFile(file2, code)
-    megatest.add "import $1\nimport $2 as megatest_b_$3\n" % [file2.quoted, file.quoted, $i]
-
-  let megatestFile = testsDir / "megatest.nim" # so it uses testsDir / "config.nims"
-  writeFile(megatestFile, megatest)
 
   template backendErrorLogger(res: TResultEnum, errorOutput: string) =
     ## Helper to log megatest failure output to test results
@@ -433,7 +419,7 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
       backend.writeTestResult(ReportParams(
         name: MegaTestCat,
         cat: MegaTestCat,
-        targetStr: "c",
+        targetStr: $target,
         action: actionRun,
         success: res,
         expected: "",
@@ -444,50 +430,126 @@ proc runJoinedTest(r: var TResults, cat: Category, testsDir: string, options: st
       # Flush all buffers
       backend.close()
 
-  let root = getCurrentDir()
+  var megatests: array[TTarget, string] = ["", "", ""] # c, js, vm
 
-  var args = @["c", "--nimCache:" & outDir, "-d:testing", "-d:nimMegatest", "--listCmd",
-               "--listFullPaths:on", "--path:" & root]
-  args.add options.parseCmdLine
-  args.add megatestFile
-  var (cmdLine, buf, exitCode) = execCmdEx2(command = compilerPrefix, args = args, input = "")
-  if exitCode != 0:
-    backendErrorLogger(reNimcCrash, buf)
-    msg Undefined: "$ " & cmdLine & "\n" & buf
-    quit(failString & "megatest compilation failed")
+  let
+    batch = testamentData0.testamentBatch
+    outDir = nimcacheDir(testsDir / "megatest_" & $batch, "", targetC)
+      ## a nimcacheDir abused to hold the sources of test files to import
 
-  (buf, exitCode) = execCmdEx(megatestFile.changeFileExt(ExeExt).dup normalizeExe)
-  if exitCode != 0:
-    backendErrorLogger(reOutputsDiffer, buf)
-    msg Undefined: buf
-    quit(failString & "megatest execution failed")
-
-  const outputExceptedFile = "outputExpected.txt"
-  const outputGottenFile = "outputGotten.txt"
-  writeFile(outputGottenFile, buf)
-  var outputExpected = ""
   for i, runSpec in specs:
-    outputExpected.add toMarker(runSpec.file, i) & "\n"
-    if runSpec.output.len > 0:
-      outputExpected.add runSpec.output
-      if not runSpec.output.endsWith "\n":
-        outputExpected.add '\n'
+    let
+      file = runSpec.file
+      file2 = outDir / ("megatest_a_$1.nim" % $i)
+      code = "echo $1\nstatic: echo \"CT:\", $1\n" % [toMarker(file, i).quoted]
+    createDir(file2.parentDir)
+    writeFile(file2, code)
 
-  if buf != outputExpected:
-    writeFile(outputExceptedFile, outputExpected)
-    let diff = diffFiles(outputGottenFile, outputExceptedFile).output
-    backendErrorLogger(reOutputsDiffer, diff)
-    msg Undefined: diff
-    msg Undefined: failString & "megatest output different, see $1 vs $2" % [outputGottenFile, outputExceptedFile]
-    # outputGottenFile, outputExceptedFile not removed on purpose for debugging.
-    quit 1
-  else:
-    msg Undefined: "megatest output OK"
+    let
+      testStr = "import $1\nimport $2 as megatest_b_$3\n" %
+                    [file2.quoted, file.quoted, $i]
+                # use `import`, as `include` didn't work with `trecmod2.nim`
+      targetsToRun = runSpec.targets * targets
+
+    if targetC in targetsToRun:
+      megatests[targetC].add testStr
+
+    if targetJs in targetsToRun:
+      megatests[targetJs].add testStr
+
+    if targetVM in targetsToRun:
+      megatests[targetVM].add testStr
+
+  const mtCacheDir = "megatest_$1_$2"
+  let
+    root = getCurrentDir()
+    cacheDirs: array[TTarget, string] = [
+      nimcacheDir(testsDir / mtCacheDir % [$batch, $targetC], "", targetC),
+      nimcacheDir(testsDir / mtCacheDir % [$batch, $targetJS], "", targetJS),
+      nimcacheDir(testsDir / mtCacheDir % [$batch, $targetVM], "", targetVM)
+    ]
+
+  for target, megatest in megatests.pairs:
+    if megatest == "":
+      continue
+
+    # so it uses testsDir / "config.nims"
+    let megatestFile = testsDir / "megatest_$1_$2.nim" %
+                        [$testamentData0.testamentBatch, $target]
+    writeFile(megatestFile, megatest)
+
+    var args = @[$target, "--nimCache:" & cacheDirs[target], "-d:testing", 
+                 "-d:nimMegatest", "--listCmd", "--listFullPaths:on",
+                 "--path:" & root]
+    if target == targetJS:
+      args.add "-d:nodejs"
+    args.add options.parseCmdLine
+    args.add megatestFile
+
+    var (cmdLine, buf, exitCode) = execCmdEx2(command = compilerPrefix,
+                                              args = args,
+                                              input = "")
+    if exitCode != 0:
+      backendErrorLogger(reNimcCrash, buf)
+      msg Undefined: "$ " & cmdLine & "\n" & buf
+      quit(failString & "megatest compilation failed")
+
+    case target
+    of targetC:
+      (buf, exitCode) =
+        execCmdEx(megatestFile.changeFileExt(ExeExt).dup normalizeExe)
+    of targetJS:
+      let nodejs = findNodeJS()
+      if nodejs == "":
+        quit("nodejs binary not in PATH")
+      let execCmd = "$1 $2 $3" % [nodeJs,
+                                  "--unhandled-rejections=strict",
+                                  megatestFile.changeFileExt("js").dup]
+
+      (buf, exitCode) = execCmdEx(execCmd)
+    of targetVM:
+      let
+        vm = changeFileExt(compilerPrefix.getFileDir() / "vmrunner", ExeExt)
+        execCmd = "$1 $2" % [vm, megatestFile.changeFileExt("nimbc").dup]
+      (buf, exitCode) = execCmdEx(execCmd)
+
+    if exitCode != 0:
+      backendErrorLogger(reOutputsDiffer, buf)
+      msg Undefined: buf
+      quit(failString & "megatest execution failed")
+
+    let
+      outputExceptedFile = "outputExpected_$1_$2.txt" % [$batch, $target]
+      outputGottenFile = "outputGotten_$1_$2.txt" % [$batch, $target]
+    writeFile(outputGottenFile, buf)
+    
+    var outputExpected = ""
+    for i, runSpec in specs:
+      if target notin runSpec.targets:
+        continue
+
+      outputExpected.add toMarker(runSpec.file, i) & "\n"
+      if runSpec.output.len > 0:
+        outputExpected.add runSpec.output
+        if not runSpec.output.endsWith "\n":
+          outputExpected.add '\n'
+
+    if buf != outputExpected:
+      writeFile(outputExceptedFile, outputExpected)
+      let diff = diffFiles(outputGottenFile, outputExceptedFile).output
+      backendErrorLogger(reOutputsDiffer, diff)
+      msg Undefined: diff
+      msg Undefined: "$1megatest output different, see $2 vs $3" %
+                      [failString, outputGottenFile, outputExceptedFile]
+      # outputGottenFile, outputExceptedFile not removed on purpose for debugging.
+      quit 1
+    else:
+      msg Undefined: "megatest $1 output OK" % $target
 
 
 # ---------------------------------------------------------------------------
 
-proc processCategory(r: var TResults, cat: Category,
+proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
                      options, testsDir: string,
                      runJoinableTests: bool) =
   let cat2 = cat.string.split("/")[0].normalize
@@ -520,7 +582,7 @@ proc processCategory(r: var TResults, cat: Category,
     # dependency; see `trunner_special` which runs some of those.
     discard
   of "megatest":
-    runJoinedTest(r, cat, testsDir, options)
+    runJoinedTest(r, targets, testsDir, options)
   else:
     var testsRun = 0
     var files: seq[string]
@@ -529,7 +591,9 @@ proc processCategory(r: var TResults, cat: Category,
     files.sort # give reproducible order
     for i, name in files:
       var test = makeTest(name, options, cat)
-      if runJoinableTests or not isJoinableSpec(test.spec) or cat.string in specialCategories:
+      if runJoinableTests or
+          not isJoinableSpec(test.spec, targets) or
+          cat.string in specialCategories:
         discard "run the test"
       else:
         test.spec.err = reJoined
