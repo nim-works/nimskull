@@ -32,6 +32,9 @@ import
     passes,
     transf
   ],
+  compiler/mir/[
+    mirbridge
+  ],
   compiler/modules/[
     magicsys,
     modulegraphs
@@ -144,6 +147,11 @@ func collectRoutineSyms(ast: PNode, syms: var seq[PSym]) =
   for i in 0..<ast.safeLen:
     collectRoutineSyms(ast[i], syms)
 
+proc genStmt(c: var TCtx, n: PNode): auto =
+  ## Wrapper around ``vmgen.genStmt`` that canonicalizes the input AST first
+  let n = canonicalizeSingle(c.graph, c.idgen, c.module, n, {goIsNimvm})
+  vmgen.genStmt(c, n)
+
 proc generateTopLevelStmts*(module: var Module, c: var TCtx,
                             config: ConfigRef) =
   ## Generates code for all collected top-level statements of `module` and
@@ -170,7 +178,8 @@ proc generateTopLevelStmts*(module: var Module, c: var TCtx,
   module.initProc = (start: start, regCount: c.prc.regInfo.len)
 
 proc generateCodeForProc(c: var TCtx, s: PSym): VmGenResult =
-  let body = transformBody(c.graph, c.idgen, s, cache = false)
+  var body = transformBody(c.graph, c.idgen, s, cache = false)
+  body = canonicalize(c.graph, c.idgen, s, body, {goIsNimvm})
   result = genProc(c, s, body)
 
 proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]) =

@@ -768,3 +768,21 @@ proc `[]`*(node: PNode, slice: NodeSliceName): seq[PNode] =
     of SliceAllIdents: node.sons[0..^3]
     of SliceAllArguments, SliceAllBranches: node.sons[1..^1]
     of SliceBranchExpressions: node.sons[0 .. ^2]
+
+iterator branches*(node: PNode): tuple[position: int, n: PNode] =
+  ## Returns all branches of the ``case`` statement or expression `node` in
+  ## order of occurrence. `position` is the 0-based position of the branch,
+  ## not the index of the sub-node
+  assert node.kind in {nkRecCase, nkCaseStmt}
+  for i in 1..<node.len:
+    yield (i-1, node[i])
+
+iterator branchLabels*(node: PNode): (int, PNode) =
+  ## Returns all labels of the branch-like constructs (i.e. ``of``, ``if``,
+  ## ``elif``) that `node` represents, together with their position. For
+  ## convenience, ``else`` branches are also allowed: they're treated as having
+  ## no labels
+  assert node.kind in {nkOfBranch, nkElifBranch, nkElse, nkElifExpr,
+                       nkElseExpr, nkExceptBranch}
+  for i in 0..<node.len-1:
+    yield (i, node[i])

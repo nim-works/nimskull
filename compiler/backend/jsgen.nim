@@ -46,6 +46,9 @@ import
     lineinfos,
     astmsgs,
   ],
+  compiler/mir/[
+    mirbridge
+  ],
   compiler/modules/[
     magicsys,
     modulegraphs
@@ -63,7 +66,6 @@ import
     lowerings,
     sighashes,
     rodutils,
-    injectdestructors,
     transf,
     sourcemap
   ],
@@ -2446,8 +2448,8 @@ proc genProc(oldProc: PProc, prc: PSym): Rope =
       returnStmt = "return $#;$n" % [a.res]
 
   var transformedBody = transformBody(p.module.graph, p.module.idgen, prc, cache = false)
-  if sfInjectDestructors in prc.flags:
-    transformedBody = injectDestructorCalls(p.module.graph, p.module.idgen, prc, transformedBody)
+  transformedBody = canonicalizeWithInject(p.module.graph, p.module.idgen, prc,
+                                           transformedBody, {})
 
   p.nested: genStmt(p, transformedBody)
 
@@ -2718,8 +2720,8 @@ proc genModule(p: PProc, n: PNode) =
         makeJSString("module " & p.module.module.name.s),
         makeJSString(toFilenameOption(p.config, p.module.module.info.fileIndex, foStacktrace))))
   var transformedN = transformStmt(p.module.graph, p.module.idgen, p.module.module, n)
-  if sfInjectDestructors in p.module.module.flags:
-    transformedN = injectDestructorCalls(p.module.graph, p.module.idgen, p.module.module, transformedN)
+  transformedN = canonicalizeWithInject(p.module.graph, p.module.idgen,
+                                        p.module.module, transformedN, {})
 
   genStmt(p, transformedN)
 

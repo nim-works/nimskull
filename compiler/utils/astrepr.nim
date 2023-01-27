@@ -433,6 +433,9 @@ proc symFields(
     hfield("sym.id", trfShowSymName, $sym.id + style.number)
     hfield("name.id", trfShowSymName, $sym.name.id + style.number)
 
+  if trfShowSymKind in rconf:
+    field("kind", trfShowSymName, rconf.formatKind(sym.kind) + style.kind)
+
   if sym.flags.len > 0 or rconf.defaulted():
     field("flags", trfShowSymFlags, format(sym.flags, 2) + style.setIt)
 

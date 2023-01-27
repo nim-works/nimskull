@@ -43,8 +43,7 @@ import
     parampatterns,
     sighashes,
     liftdestructors,
-    optimizer,
-    varpartitions
+    optimizer
   ]
 
 from std/options as std_options import some, none
@@ -1097,6 +1096,13 @@ proc injectDefaultCalls(n: PNode, c: var Con) =
     for i in 0..<n.safeLen:
       injectDefaultCalls(n[i], c)
 
+func shouldInjectDestructorCalls*(owner: PSym): bool =
+  # only inject destructor calls if the owner is not a generated OP (e.g. a
+  # generated ``=destroy``) and also not an ``.inline`` iterator
+  result =
+     {sfInjectDestructors, sfGeneratedOp} * owner.flags == {sfInjectDestructors} and
+     (owner.kind != skIterator or not isInlineIterator(owner.typ))
+
 proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; n: PNode): PNode =
   when toDebug.len > 0:
     shouldDebug = toDebug == owner.name.s or toDebug == "always"
@@ -1107,9 +1113,6 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; n: 
     echo "\n### ", owner.name.s, ":\nCFG:"
     echoCfg(c.g)
     echo n
-
-  if optCursorInference in g.config.options:
-    computeCursors(owner, n, g)
 
   computeLastReadsAndFirstWrites(c.g)
 
