@@ -894,7 +894,6 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
     if n[^2].kind == nkEmpty:
       localReport(c.config, n, reportSem rsemTypeExpected)
       typ = errorType(c)
-
     else:
       typ = semTypeNode(c, n[^2], nil)
       propagateToOwner(rectype, typ)
@@ -921,7 +920,6 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
 
       if a.kind == nkEmpty:
         father.add newSymNode(f)
-
       else:
         a.add newSymNode(f)
 
@@ -991,7 +989,6 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
     base = skipTypesOrNil(realBase, skipPtrs)
     if base.isNil:
       localReport(c.config, n, reportSem rsemExpectObjectForBase)
-
     else:
       var concreteBase = skipGenericInvocation(base)
       if concreteBase.kind in {tyObject, tyGenericParam,

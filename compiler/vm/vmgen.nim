@@ -2504,6 +2504,7 @@ proc genClosureConstr(c: var TCtx, n: PNode, dest: var TDest) =
 proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
   when defined(nimCompilerStacktraceHints):
     setFrameMsg c.config$n.info & " " & $n.kind & " " & $flags
+
   case n.kind
   of nkSym:
     let s = n.sym
@@ -2532,7 +2533,6 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
         let idx = c.registerConst(s)
         discard c.getOrCreate(s.typ)
         c.gABx(n, opcLdCmplxConst, dest, idx)
-
     of skEnumField:
       # we never reach this case - as of the time of this comment,
       # skEnumField is folded to an int in semfold.nim, but this code
@@ -2683,6 +2683,9 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       genCastIntFloat(c, n, dest)
   of nkType:
     genTypeLit(c, n.typ, dest)
+  of nkError:
+    c.config.internalError(n.info, $n.kind)
+    assert false
   else:
     echo "fail: ", n.kind
     fail(n.info, vmGenDiagCannotGenerateCode, n)

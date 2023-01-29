@@ -2599,6 +2599,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     s = n[namePos].sym
     s.owner = c.getCurrOwner
     existingSym = true
+    assert s.ast == nil or s.ast.kind != nkError
   else:
     s = semIdentDef(c, n[namePos], kind)
     n[namePos] = newSymNode(s)
@@ -2629,11 +2630,6 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       semParamList(c, n[paramsPos], n[genericParamsPos], s.kind)
     else:
       newProcType(c, n.info)
-
-  # if efDetermineType in flags and existingSym:
-  #   discard # do not assign, we're simply doing a type check
-  # else:
-  #   s.typ = symTyp
 
   if n[genericParamsPos].safeLen == 0:
     # if there exist no explicit or implicit generic parameters, then this is
@@ -2769,11 +2765,9 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       if s.name.s in [".", ".()", ".="] and {Feature.destructor, dotOperators} * c.features == {}:
         localReport(c.config, n.info, reportSym(
           rsemEnableDotOperatorsExperimental, s))
-
       elif s.name.s == "()" and callOperator notin c.features:
         localReport(c.config, n.info, reportSym(
           rsemEnableCallOperatorExperimental, s))
-
 
   if n[bodyPos].kind != nkEmpty and sfError notin s.flags:
     # for DLL generation we allow sfImportc to have a body, for use in VM
@@ -2802,7 +2796,8 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       if n[genericParamsPos].kind == nkEmpty or s.kind in {skMacro, skTemplate}:
         # Macros and Templates can have generic parameters, but they are only
         # used for overload resolution (there is no instantiation of the symbol)
-        if s.kind notin {skMacro, skTemplate} and s.magic == mNone: paramsTypeCheck(c, s.typ)
+        if s.kind notin {skMacro, skTemplate} and s.magic == mNone:
+          paramsTypeCheck(c, s.typ)
 
         maybeAddResult(c, s, n)
         # semantic checking also needed with importc in case used in VM
@@ -2847,6 +2842,8 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
   elif isTopLevel(c) and s.kind != skIterator and s.typ.callConv == ccClosure:
     localReport(c.config, s.info, reportSym(
       rsemUnexpectedClosureOnToplevelProc, s))
+  if s.ast[bodyPos].kind == nkError:
+    result = c.config.wrapError(n)
 
 proc determineType(c: PContext, s: PSym) =
   if s.typ != nil: return

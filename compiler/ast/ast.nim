@@ -485,6 +485,10 @@ proc copyNode*(src: PNode): PNode =
 
 template transitionNodeKindCommon(k: TNodeKind) =
   let obj {.inject.} = n[]
+  when defined(useNodeIds):
+    if obj.id == nodeIdToDebug:
+      echo "TRANSITIONED TO ", k
+      writeStackTrace()
   n[] = TNode(id: obj.id, kind: k, typ: obj.typ, info: obj.info,
               flags: obj.flags)
   # n.comment = obj.comment # shouldn't be needed, the address doesnt' change
