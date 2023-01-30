@@ -867,8 +867,6 @@ proc genProcLit(c: var TCtx, n: PNode, s: PSym; dest: var TDest) =
   c.gABx(n, opcLdNull, dest, c.genType(s.typ))
   c.gABx(n, opcWrProc, dest, idx)
 
-template isMetaAllowed(c: TCtx): bool = cgfAllowMeta in c.codegenInOut.flags
-
 proc genCall(c: var TCtx; n: PNode; dest: var TDest) =
   # it can happen that due to inlining we have a 'n' that should be
   # treated as a constant (see issue #537).
@@ -878,12 +876,19 @@ proc genCall(c: var TCtx; n: PNode; dest: var TDest) =
   # bug #10901: do not produce code for wrong call expressions:
   if n.len == 0 or n[0].typ.isNil: return
   if dest.isUnset and not isEmptyType(n.typ): dest = getTemp(c, n.typ)
-  let x = c.getTempRange(n.len, slotTempUnknown)
+
+  let
+    fntyp = skipTypes(n[0].typ, abstractInst)
+    x = c.getTempRange(n.len, slotTempUnknown)
+
+  # the procedure to call:
+  c.gen(n[0], x+0)
+
   # varargs need 'opcSetType' for the FFI support:
-  let fntyp = skipTypes(n[0].typ, abstractInst)
-  for i in 0..<n.len:
-    # don't codegen and pass meta-types if they're disallowed
-    if not c.isMetaAllowed and n[i].typ.isCompileTimeOnly:
+  for i in 1..<n.len:
+    # skip empty arguments (i.e. arguments to compile-time parameters that
+    # were omitted):
+    if n[i].kind == nkEmpty:
       continue
 
     var r: TRegister = x+i
@@ -1396,10 +1401,11 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mLengthOpenArray, mLengthArray, mLengthSeq:
     genUnaryABI(c, n, dest, opcLenSeq)
   of mLengthStr:
-    case n[1].typ.kind
-    of tyString: genUnaryABI(c, n, dest, opcLenStr)
+    let t = n[1].typ.skipTypes(abstractInst)
+    case t.kind
+    of tyString:  genUnaryABI(c, n, dest, opcLenStr)
     of tyCstring: genUnaryABI(c, n, dest, opcLenCstring)
-    else: doAssert false, $n[1].typ.kind
+    else:         unreachable(t.kind)
   of mIncl, mExcl:
     unused(c, n, dest)
     let
@@ -1634,18 +1640,20 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     let tmp = c.genx(n[1])
     if dest.isUnset: dest = c.getTemp(n.typ)
     let rc = case n[0].sym.name.s:
-      of "getType": 0
-      of "typeKind": 1
+      of "getType":     0
+      of "typeKind":    1
       of "getTypeInst": 2
-      else: 3  # "getTypeImpl"
+      of "getTypeImpl": 3
+      else: unreachable()
     c.gABC(n, opcNGetType, dest, tmp, rc)
     c.freeTemp(tmp)
     #genUnaryABC(c, n, dest, opcNGetType)
   of mNSizeOf:
     let imm = case n[0].sym.name.s:
-      of "getSize": 0
-      of "getAlign": 1
-      else: 2 # "getOffset"
+      of "getSize":   0
+      of "getAlign":  1
+      of "getOffset": 2
+      else: unreachable()
     c.genUnaryABI(n, dest, opcNGetSize, imm)
   of mNStrVal: genUnaryABC(c, n, dest, opcNStrVal)
   of mNSigHash: genUnaryABC(c, n , dest, opcNSigHash)
@@ -2509,19 +2517,15 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       else:
         var lit = genLiteral(c, newIntNode(nkIntLit, s.position))
         c.gABx(n, opcLdConst, dest, lit)
-    of skType:
-      internalAssert(c.config, c.isMetaAllowed, n.info):
-        "type expression forbidden"
-      genTypeLit(c, s.typ, dest)
     of skGenericParam:
-      if c.prc.sym != nil and c.prc.sym.kind == skMacro:
+      if c.getOwner().kind == skMacro:
         genRdVar(c, n, dest, flags)
       else:
-        fail(n.info,
-          vmGenDiagCodeGenGenericInNonMacro,
-          sym = s
-        )
-
+        # note: this can't be replaced with an assert. ``tryConstExpr`` is
+        # sometimes used to check whether an expression can be evaluated
+        # at compile-time, in which case we need to report an error when
+        # encountering an unresolved generic parameter
+        fail(n.info, vmGenDiagCannotGenerateCode, n)
     else:
       fail(n.info,
         vmGenDiagCodeGenUnexpectedSym,
@@ -2651,13 +2655,11 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       genConv(c, n, n[1], dest, opcCast)
     else:
       genCastIntFloat(c, n, dest)
-  of nkTypeOfExpr:
+  of nkType:
     genTypeLit(c, n.typ, dest)
   else:
-    if n.typ != nil and n.typ.isCompileTimeOnly:
-      genTypeLit(c, n.typ, dest)
-    else:
-      fail(n.info, vmGenDiagCannotGenerateCode, n)
+    echo "fail: ", n.kind
+    fail(n.info, vmGenDiagCannotGenerateCode, n)
 
 proc genStmt*(c: var TCtx; n: PNode): Result[void, VmGenDiag] =
   var d: TDest = -1

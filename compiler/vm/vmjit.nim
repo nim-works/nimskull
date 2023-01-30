@@ -18,6 +18,9 @@ import
     ast_types,
     ast_query,
   ],
+  compiler/mir/[
+    mirbridge
+  ],
   compiler/sem/[
     transf
   ],
@@ -47,6 +50,11 @@ iterator lpairs[T](x: seq[T]): tuple[key: int, value: lent T] =
   while i < L:
     yield (i, x[i])
     inc i
+
+func selectOptions(c: TCtx): set[GenOption] =
+  result = {goIsNimvm}
+  if cgfAllowMeta in c.codegenInOut.flags:
+    result.incl goGenTypeExpr
 
 func setupLinkState(c: var TCtx) =
   c.codegenInOut.newProcs.setLen(0)
@@ -108,6 +116,8 @@ proc genStmt*(c: var TCtx; n: PNode): VmGenResult =
   c.removeLastEof()
   c.setupLinkState()
 
+  let n = canonicalizeSingle(c.graph, c.idgen, c.module, n, selectOptions(c))
+
   let
     start = c.code.len
     r = vmgen.genStmt(c, n)
@@ -125,6 +135,8 @@ proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
   c.removeLastEof()
   c.setupLinkState()
 
+  let n = canonicalizeSingle(c.graph, c.idgen, c.module, n, selectOptions(c))
+
   result = vmgen.genExpr(c, n, requiresValue)
   if unlikely(result.isErr):
     return
@@ -141,8 +153,10 @@ proc genProc(c: var TCtx, s: PSym): VmGenResult =
     c.code.setLen(last)
     c.debug.setLen(last)
 
-  let
+  var
     body = transformBody(c.graph, c.idgen, s, cache = not isCompileTimeProc(s))
+
+  body = canonicalize(c.graph, c.idgen, s, body, selectOptions(c))
 
   c.setupLinkState()
 

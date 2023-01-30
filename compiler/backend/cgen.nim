@@ -33,6 +33,9 @@ import
     astmsgs,
     ndi
   ],
+  compiler/mir/[
+    mirbridge
+  ],
   compiler/modules/[
     magicsys,
   ],
@@ -52,8 +55,7 @@ import
     rodutils,
     aliases,
     lowerings,
-    transf,
-    injectdestructors
+    transf
   ],
   compiler/backend/[
     extccomp,
@@ -1027,8 +1029,7 @@ proc genProcAux(m: BModule, prc: PSym) =
   assert(prc.ast != nil)
 
   var procBody = transformBody(m.g.graph, m.idgen, prc, cache = false)
-  if sfInjectDestructors in prc.flags:
-    procBody = injectDestructorCalls(m.g.graph, m.idgen, prc, procBody)
+  procBody = canonicalizeWithInject(m.g.graph, m.idgen, prc, procBody, {})
 
   if sfPure notin prc.flags and prc.typ[0] != nil:
     m.config.internalAssert(resultPos < prc.ast.len, prc.info, "proc has no result symbol")
@@ -1732,8 +1733,8 @@ proc genTopLevelStmt*(m: BModule; n: PNode) =
   #softRnl = if optLineDir in m.config.options: noRnl else: rnl
   # XXX replicate this logic!
   var transformedN = transformStmt(m.g.graph, m.idgen, m.module, n)
-  if sfInjectDestructors in m.module.flags:
-    transformedN = injectDestructorCalls(m.g.graph, m.idgen, m.module, transformedN)
+  transformedN = canonicalizeWithInject(m.g.graph, m.idgen, m.module,
+                                        transformedN, {})
 
   genProcBody(m.initProc, transformedN)
 

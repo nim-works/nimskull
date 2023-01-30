@@ -202,6 +202,10 @@ const
   nkSkip = {nkEmpty..nkNilLit, nkTemplateDef, nkTypeSection, nkStaticStmt,
             nkCommentStmt, nkMixinStmt, nkBindStmt} + procDefs
 
+proc boolLit(ctx: Ctx, info: TLineInfo, val: bool): PNode =
+  result = newIntTypeNode(ord val, ctx.g.getSysType(info, tyBool))
+  result.info = info
+
 proc newStateAccess(ctx: var Ctx): PNode =
   if ctx.stateVarSym.isNil:
     result = rawIndirectAccess(newSymNode(getEnvParam(ctx.fn)),
@@ -640,6 +644,10 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
             branch[0] = ctx.convertExprBodyToAsgn(branch[0], tmp)
           else:
             internalError(ctx.g.config, "lowerStmtListExpr(nkCaseStmt): " & $branch.kind)
+
+        # the ``nkCaseStmt`` expression is a statement now, and the type needs
+        # to reflect that
+        n.typ = nil
         result.add(n)
         result.add(ctx.newEnvVarAccess(tmp))
       elif n[0].kind == nkStmtListExpr:
@@ -795,7 +803,7 @@ proc lowerStmtListExprs(ctx: var Ctx, n: PNode, needsSplit: var bool): PNode =
         let check = newTree(nkIfStmt, branch)
         let newBody = newTree(nkStmtList, st, check, n[1])
 
-        n[0] = newSymNode(ctx.g.getSysSym(n[0].info, "true"))
+        n[0] = boolLit(ctx, n[0].info, true)
         n[1] = newBody
 
   of nkDotExpr, nkCheckedFieldExpr:
@@ -1251,7 +1259,7 @@ proc wrapIntoStateLoop(ctx: var Ctx, n: PNode): PNode =
   #     local vars decl (if needed)
   #     body # Might get wrapped in try-except
   let loopBody = newNodeI(nkStmtList, n.info)
-  result = newTree(nkWhileStmt, newSymNode(ctx.g.getSysSym(n.info, "true")), loopBody)
+  result = newTree(nkWhileStmt, boolLit(ctx, n.info, true), loopBody)
   result.info = n.info
 
   let localVars = newNodeI(nkStmtList, n.info)

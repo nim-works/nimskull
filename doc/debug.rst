@@ -420,6 +420,29 @@ procedure.
      issues (god help you if you ever find yourself facing something like
      this) it might inhibit unexpected behavior.
 
+MIR Input and Output
+====================
+
+For debugging issues related to the MIR but also code-generator issues in
+general, one can print the input and output to the MIR canonicalization step
+plus the corresponding `PNode`-AST output.
+
+To print the `PNode`-AST that reaches `mirgen`, `--define:nimShowMirInput=name`
+is used. This will print out the `PNode`-AST of all procedures and modules of
+which the name is equal to the specified `name` in the console. Because of how
+dead-code-elimination works, only the AST of alive procedures (i.e. used ones)
+is printed. If a procedure is used at both compile- and run-time, it will be
+printed twice.
+
+To print the generated MIR code for a procedure, `--define:nimShowMir=name`
+can be used. The same limitation as for `nimShowMirInput` apply.
+
+`--define:nimShowMirOutput=name` prints the `PNode`-AST that is output by
+`astgen`. This is AST that the code-generators will operate on.
+
+While all of the defines listed above can be used simultaneously, only a single
+occurrence of each is considered. Each further occurrence will override the
+respective name.
 
 VM Codegen and Execution
 ========================

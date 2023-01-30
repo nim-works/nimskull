@@ -3204,7 +3204,13 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
             inferConceptStaticParam(c, x[2], x[1])
             continue
 
-        let verdict = semConstExpr(c, x)
+        let verdict = semConstExpr(c):
+          if x.kind in {nkStmtList, nkStmtListExpr}:
+            # only evaluate the last expression in a statement list resulting
+            # from a template expansion
+            x.lastSon
+          else:
+            x
         
         if verdict == nil or verdict.kind != nkIntLit or verdict.intVal == 0:
           result.add:
