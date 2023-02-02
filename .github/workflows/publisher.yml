@@ -76,8 +76,8 @@ jobs:
           ./release_manifest add *.json
 
           toUpload=$(./release_manifest files-to-upload --format:github-actions)
-          echo "::set-output name=result::$toUpload"
-          echo "::set-output name=version::$(./release_manifest version)"
+          echo "result=$toUpload" >> $GITHUB_OUTPUT
+          echo "version=$(./release_manifest version)" >> $GITHUB_OUTPUT
         working-directory: release-staging
 
       - name: Create pre-release
