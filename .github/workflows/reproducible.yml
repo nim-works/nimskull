@@ -96,7 +96,7 @@ jobs:
 
           if ! run_reprotest; then
             echo "::error::Reproducibility test failed, check the diffoscope output uploaded to artifacts for more details"
-            echo "::set-output name=result::$output_html"
+            echo "result=$output_html" >> $GITHUB_OUTPUT
             exit 1
           fi
 

@@ -53,12 +53,12 @@ jobs:
         name: Whether to skip checks
         run: |
           if [[ '${{ steps.run_cond.outputs.should_skip }}' == true ]]; then
-            echo "::set-output name=result::true"
+            echo "result=true" >> $GITHUB_OUTPUT
           elif [[ '${{ github.event.pull_request.draft }}' == true ]]; then
             echo "Pull request is in draft state, skipping"
-            echo "::set-output name=result::true"
+            echo "result=true" >> $GITHUB_OUTPUT
           else
-            echo "::set-output name=result::false"
+            echo "result=false" >> $GITHUB_OUTPUT
           fi
 
       - id: matrix
@@ -92,9 +92,9 @@ jobs:
           EOF
 
           # Use jq to compact the matrix into one line to be used as the result
-          echo "::set-output name=result::$(jq -c . matrix.json)"
+          echo "result=$(jq -c . matrix.json)" >> $GITHUB_OUTPUT
           # Isolate the shared builder into its own thing as well
-          echo "::set-output name=shared::$(jq -c '.[] | select(.shared_builder)' matrix.json)"
+          echo "shared=$(jq -c '.[] | select(.shared_builder)' matrix.json)" >> $GITHUB_OUTPUT
 
   binaries:
     needs: [pre_run]
@@ -269,8 +269,8 @@ jobs:
           # other archives
           mv build/archive.json build/source.json
 
-          echo "::set-output name=archive::$archive"
-          echo "::set-output name=metadata::build/source.json"
+          echo "archive=$archive" >> $GITHUB_OUTPUT
+          echo "metadata=build/source.json" >> $GITHUB_OUTPUT
 
       - name: Publish source archive to artifacts
         uses: actions/upload-artifact@v3
@@ -333,8 +333,8 @@ jobs:
           mv build/archive.json "$metadata"
 
           # Let the uploader know what to upload
-          echo "::set-output name=archive::$archive"
-          echo "::set-output name=metadata::$metadata"
+          echo "archive=$archive" >> $GITHUB_OUTPUT
+          echo "metadata=$metadata" >> $GITHUB_OUTPUT
 
       - name: Upload release package to artifacts
         uses: actions/upload-artifact@v3
@@ -391,8 +391,8 @@ jobs:
           mv build/archive.json "$metadata"
 
           # Let the uploader know what to upload
-          echo "::set-output name=archive::$archive"
-          echo "::set-output name=metadata::$metadata"
+          echo "archive=$archive" >> $GITHUB_OUTPUT
+          echo "metadata=$metadata" >> $GITHUB_OUTPUT
 
       - name: Upload docs to artifacts
         if: matrix.target.shared_builder
@@ -464,7 +464,7 @@ jobs:
           }
           if ! run_diff; then
             echo "::error::There are differences when building from source archive compared to building from git, check the output uploaded to artifacts for more details"
-            echo "::set-output name=result::$output_html"
+            echo "result=$output_html" >> $GITHUB_OUTPUT
             exit 1
           else
             echo "Success! Binaries built from git and source archive are the same"
