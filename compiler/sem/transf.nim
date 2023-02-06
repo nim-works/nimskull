@@ -48,11 +48,6 @@ import
     idioms
   ]
 
-# xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_sem import SemReport,
-  reportAst
-from compiler/ast/report_enums import ReportKind
-
 proc transformBody*(g: ModuleGraph; idgen: IdGenerator, prc: PSym, cache: bool): PNode
 
 import closureiters, lambdalifting
@@ -549,20 +544,11 @@ proc transformConv(c: PTransf, n: PNode): PNode =
     else:
       result = transformSons(c, n)
   of tyObject:
-    template convHint() =
-      if n.kind == nkHiddenSubConv and n.typ.kind notin abstractVarRange:
-        # Creates hint on converstion to parent type where information is lost,
-        # presently hints on `proc(thing)` where thing converts to non var base.
-        localReport(c.graph.config, n[1], SemReport(
-          kind: rsemImplicitObjConv,
-          typeMismatch: @[typeMismatch(formal = dest, actual = source)]))
-
     let diff = inheritanceDiff(dest, source)
     if diff == 0 or diff == high(int):
       result = transform(c, n[1])
       result.typ = n.typ
     else:
-      convHint()
       result = newTreeIT(
         if diff < 0: nkObjUpConv else: nkObjDownConv,
         n.info, n.typ): transform(c, n[1])
