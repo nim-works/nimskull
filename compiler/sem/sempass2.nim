@@ -1290,13 +1290,21 @@ proc track(tracked: PEffects, n: PNode) =
       if tracked.owner.kind != skMacro:
         createTypeBoundOps(tracked, n.typ, n.info)
   of nkHiddenStdConv, nkHiddenSubConv, nkConv:
+    let t = n.typ.skipTypes(abstractInst)
     if n.kind in {nkHiddenStdConv, nkHiddenSubConv} and
-        n.typ.skipTypes(abstractInst).kind == tyCstring and
+        t.kind == tyCstring and
         not allowCStringConv(n[1]):
       localReport(tracked.config, n.info, reportAst(
         rsemImplicitCstringConvert, n[1]))
+    elif n.kind == nkHiddenSubConv and
+         n.typ.skipTypes(abstractVar).kind == tyObject and
+         t.kind != tyVar:
+      # an implicit conversion to a base (i.e. parent) type where the result is
+      # immutable. Since information is lost in this case, a warning is reported
+      localReport(tracked.config, n[1], SemReport(
+        kind: rsemImplicitObjConv,
+        typeMismatch: @[typeMismatch(formal = n.typ, actual = n[1].typ)]))
 
-    let t = n.typ.skipTypes(abstractInst)
     if t.kind == tyEnum:
       if tfEnumHasHoles in t.flags:
         localReport(tracked.config, n, reportSem rsemHoleEnumConvert)
