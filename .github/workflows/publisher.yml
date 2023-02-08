@@ -75,8 +75,13 @@ jobs:
           # Create a new release manifest
           ./release_manifest add *.json
 
-          toUpload=$(./release_manifest files-to-upload --format:github-actions)
-          echo "result=$toUpload" >> $GITHUB_OUTPUT
+          toUpload=$(./release_manifest files-to-upload)
+          delimiter=EOF-$(uuidgen)
+          cat <<EOF >> $GITHUB_OUTPUT
+          result<<$delimiter
+          $toUpload
+          $delimiter
+          EOF
           echo "version=$(./release_manifest version)" >> $GITHUB_OUTPUT
         working-directory: release-staging
 
