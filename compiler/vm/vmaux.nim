@@ -96,7 +96,7 @@ func findMatchingBranch*(recCase: PNode, lit: PNode): int =
 func getEnvParam*(prc: PSym): PSym =
   ## Return the symbol the hidden environment parameter, or `nil` if there's
   ## none
-  if tfCapturesEnv in prc.typ.flags:
+  if prc.typ.callConv == ccClosure:
     lastSon(prc.ast[paramsPos]).sym
   else: nil
 

@@ -458,12 +458,15 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "duplicate case label"
 
     of rsemIllegalMemoryCapture:
-      let s = r.symbols[0]
+      let s = r.sym
       result = (
         "'$1' is of type <$2> which cannot be captured as it would violate memory" &
           " safety, declared here: $3; using '-d:nimNoLentIterators' helps in some cases"
       ) % [s.name.s, typeToString(s.typ), conf $ s.info]
-
+    of rsemIllegalCompTimeCapture:
+      result = "'$1' is inaccesible because run-time values cannot be" &
+               " captured in a compile-time context"
+      result = result % [r.sym.name.s]
     of rsemUnavailableTypeBound:
       result.add(
         "'",
@@ -1414,7 +1417,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemConvFromXtoItselfNotNeeded:
       result = "conversion from $1 to itself is pointless" % r.typ.render
-
+    of rsemClosureWithoutEnv:
+      result = "procedure explicitly uses the 'closure' calling convention," &
+               " but it doesn't capture anything"
     of rsemIllegalConversion:
       result = "illegal conversion from '$1' to '$2'" % [
         r.actualType.render, r.formalType.render

@@ -2874,9 +2874,7 @@ proc semIterator(c: PContext, n: PNode): PNode =
   # iterators are either 'inline' or 'closure'; for backwards compatibility,
   # we require first class iterators to be marked with 'closure' explicitly
   # -- at least for 0.9.2.
-  if s.typ.callConv == ccClosure:
-    incl(s.typ.flags, tfCapturesEnv)
-  else:
+  if s.typ.callConv != ccClosure:
     s.typ.callConv = ccInline
   if n[bodyPos].kind == nkEmpty and s.magic == mNone and c.inConceptDecl == 0:
     localReport(c.config, n.info, reportSym(

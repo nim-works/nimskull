@@ -31,7 +31,6 @@ import
     msgs
   ],
   compiler/sem/[
-    typeallowed,
     liftdestructors,
     transf,
     lowerings
@@ -39,8 +38,7 @@ import
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_sem import SemReport,
-  reportSem,
-  reportSymbols
+  reportSem
 from compiler/ast/report_enums import ReportKind
 
 discard """
@@ -192,7 +190,6 @@ proc addHiddenParam(routine: PSym, param: PSym) =
   # some nkEffect node:
   param.position = routine.typ.n.len-1
   params.add newSymNode(param)
-  #incl(routine.typ.flags, tfCapturesEnv)
   assert sfFromGeneric in param.flags
   #echo "produced environment: ", param.id, " for ", routine.id
 
@@ -218,9 +215,6 @@ proc interestingVar(s: PSym): bool {.inline.} =
   result = s.kind in {skVar, skLet, skTemp, skForVar, skParam, skResult} and
     sfGlobal notin s.flags and
     s.typ.kind notin {tyStatic, tyTypeDesc}
-
-proc illegalCapture(s: PSym): bool {.inline.} =
-  result = classifyViewType(s.typ) != noView or s.kind == skResult
 
 proc isInnerProc(s: PSym): bool =
   if s.kind in {skProc, skFunc, skMethod, skConverter, skIterator} and s.magic == mNone:
@@ -309,23 +303,6 @@ proc freshVarForClosureIter*(g: ModuleGraph; s: PSym; idgen: IdGenerator; owner:
   result = rawIndirectAccess(access, field, s.info)
 
 # ------------------ new stuff -------------------------------------------
-
-proc markAsClosure(g: ModuleGraph; owner: PSym; n: PNode) =
-  let s = n.sym
-  if illegalCapture(s):
-    localReport(g.config, n.info, reportSymbols(
-      rsemIllegalMemoryCapture, @[s, owner]))
-
-  elif not (
-    owner.typ.callConv == ccClosure or
-    owner.typ.callConv == ccNimCall and
-    tfExplicitCallConv notin owner.typ.flags
-  ):
-    localReport(g.config, n.info, reportSymbols(
-      rsemIllegalCallconvCapture, @[s, owner]))
-
-  incl(owner.typ.flags, tfCapturesEnv)
-  owner.typ.callConv = ccClosure
 
 type
   DetectionPass = object
@@ -428,6 +405,7 @@ Consider:
 """
 
 proc addClosureParam(c: var DetectionPass; fn: PSym; info: TLineInfo) =
+  assert fn.typ.callConv == ccClosure
   var cp = getEnvParam(fn)
   let owner = if fn.kind == skIterator: fn else: fn.skipGenericOwner
   let t = c.getEnvTypeForOwner(owner, info)
@@ -443,20 +421,24 @@ proc addClosureParam(c: var DetectionPass; fn: PSym; info: TLineInfo) =
 proc detectCapturedVars(n: PNode; owner: PSym; c: var DetectionPass) =
   case n.kind
   of nkSym:
-    let s = n.sym
-    if s.kind in {skProc, skFunc, skMethod, skConverter, skIterator} and
-        s.typ != nil and s.typ.callConv == ccClosure:
-      # this handles the case that the inner proc was declared as
-      # .closure but does not actually capture anything:
-      addClosureParam(c, s, n.info)
+    let
+      s = n.sym
+      innerProc = isInnerProc(s)
+
+    if innerProc and s.typ.callConv == ccClosure:
+      # something that uses an environment parameter (even if it doesn't
+      # capture anything) is used that takes a closure is used -> the
+      # transformation pass is required
       c.somethingToDo = true
 
-    let innerProc = isInnerProc(s)
-    if innerProc:
-      if s.isIterator: c.somethingToDo = true
       if not c.processed.containsOrIncl(s.id):
+        # add the hidden parameter to it and process the inner procedure
+        addClosureParam(c, s, n.info)
+        # note that during ``transformBody``, the lambda lifting pass is run
+        # for the procedure
         let body = transformBody(c.graph, c.idgen, s, cache = true)
         detectCapturedVars(body, s, c)
+
     let ow = s.skipGenericOwner
     if ow == owner:
       if owner.isIterator:
@@ -473,26 +455,17 @@ proc detectCapturedVars(n: PNode; owner: PSym; c: var DetectionPass) =
               addField(obj, s, c.graph.cache, c.idgen)
     # direct or indirect dependency:
     elif (innerProc and s.typ.callConv == ccClosure) or interestingVar(s):
-      discard """
-        proc outer() =
-          var x: int
-          proc inner() =
-            proc innerInner() =
-              echo x
-            innerInner()
-          inner()
-        # inner() takes a closure too!
-      """
-      # mark 'owner' as taking a closure:
+      # an interesting entity that's not owned by the current `owner` (and
+      # thus needs to be captured in some form)
       c.somethingToDo = true
-      markAsClosure(c.graph, owner, n)
       addClosureParam(c, owner, n.info)
-      #echo "capturing ", n.info
-      # variable 's' is actually captured:
+
       if interestingVar(s) and not c.capturedVars.containsOrIncl(s.id):
+        # we haven't seen the entity yet. Remember it and add a field for it
+        # into the environment object
         let obj = c.getEnvTypeForOwner(ow, n.info).skipTypes({tyRef, tyPtr})
-        #getHiddenParam(owner).typ.skipTypes({tyRef, tyPtr})
         addField(obj, s, c.graph.cache, c.idgen)
+
       # create required upFields:
       var w = owner.skipGenericOwner
       if isInnerProc(w) or owner.isIterator:
@@ -510,7 +483,6 @@ proc detectCapturedVars(n: PNode; owner: PSym; c: var DetectionPass) =
           """
           let up = w.skipGenericOwner
           #echo "up for ", w.name.s, " up ", up.name.s
-          markAsClosure(c.graph, w, n)
           addClosureParam(c, w, n.info) # , ow
           createUpField(c, w, up, n.info)
           w = up
@@ -532,7 +504,6 @@ type
   LiftingPass = object
     processed: IntSet
     envVars: Table[int, PNode]
-    inContainer: int
 
 proc initLiftingPass(fn: PSym): LiftingPass =
   result.processed = initIntSet()
@@ -708,18 +679,15 @@ proc liftCapturedVars(n: PNode; owner: PSym; d: var DetectionPass;
   of nkSym:
     let s = n.sym
     if isInnerProc(s):
-      if not c.processed.containsOrIncl(s.id):
+      if s.typ.callConv == ccClosure and not c.processed.containsOrIncl(s.id):
         #if s.name.s == "temp":
         #  echo renderTree(s.getBody, {renderIds})
-        let oldInContainer = c.inContainer
-        c.inContainer = 0
         var body = transformBody(d.graph, d.idgen, s, cache = false)
         body = liftCapturedVars(body, s, d, c)
         if c.envVars.getOrDefault(s.id).isNil:
           s.transformedBody = body
         else:
           s.transformedBody = newTree(nkStmtList, rawClosureCreation(s, d, c, n.info), body)
-        c.inContainer = oldInContainer
 
       if s.typ.callConv == ccClosure:
         result = symToClosure(n, owner, d, c)
@@ -746,12 +714,9 @@ proc liftCapturedVars(n: PNode; owner: PSym; d: var DetectionPass;
         n[1] = x[1]
   of nkLambdaKinds, nkIteratorDef:
     if n.typ != nil and n[namePos].kind == nkSym:
-      let oldInContainer = c.inContainer
-      c.inContainer = 0
       let m = newSymNode(n[namePos].sym)
       m.typ = n.typ
       result = liftCapturedVars(m, owner, d, c)
-      c.inContainer = oldInContainer
   of nkHiddenStdConv:
     if n.len == 2:
       n[1] = liftCapturedVars(n[1], owner, d, c)
@@ -773,50 +738,10 @@ proc liftCapturedVars(n: PNode; owner: PSym; d: var DetectionPass;
         n[1] = liftCapturedVars(n[1], owner, d, c)
         return
 
-    let inContainer = n.kind in {nkObjConstr, nkBracket}
-    if inContainer: inc c.inContainer
     for i in 0..<n.len:
       n[i] = liftCapturedVars(n[i], owner, d, c)
-    if inContainer: dec c.inContainer
 
 # ------------------ old stuff -------------------------------------------
-
-proc semCaptureSym*(s, owner: PSym) =
-  discard """
-    proc outer() =
-      var x: int
-      proc inner() =
-        proc innerInner() =
-          echo x
-        innerInner()
-      inner()
-    # inner() takes a closure too!
-  """
-  proc propagateClosure(start, last: PSym) =
-    var o = start
-    while o != nil and o.kind != skModule:
-      if o == last: break
-      o.typ.callConv = ccClosure
-      o = o.skipGenericOwner
-
-  if interestingVar(s) and s.kind != skResult:
-    if owner.typ != nil and not isGenericRoutine(owner):
-      # XXX: is this really safe?
-      # if we capture a var from another generic routine,
-      # it won't be consider captured.
-      var o = owner.skipGenericOwner
-      while o != nil and o.kind != skModule:
-        if s.owner == o:
-          if owner.typ.callConv == ccClosure or owner.kind == skIterator or
-             owner.typ.callConv == ccNimCall and tfExplicitCallConv notin owner.typ.flags:
-            owner.typ.callConv = ccClosure
-            propagateClosure(owner.skipGenericOwner, s.owner)
-          else:
-            discard "do not produce an error here, but later"
-          #echo "computing .closure for ", owner.name.s, " because of ", s.name.s
-        o = o.skipGenericOwner
-    # since the analysis is not entirely correct, we don't set 'tfCapturesEnv'
-    # here
 
 proc liftIterToProc*(g: ModuleGraph; fn: PSym; body: PNode; ptrType: PType;
                      idgen: IdGenerator): PNode =
@@ -833,6 +758,23 @@ proc liftIterToProc*(g: ModuleGraph; fn: PSym; body: PNode; ptrType: PType;
   fn.transitionRoutineSymKind(oldKind)
   fn.typ.callConv = oldCC
 
+func dontLift(prc: PSym): bool {.inline.} =
+  ## Returns whether the lifting pass should not run for the given procedure
+  ## `prc`. The pass needs to only be run for routines that don't capture
+  ## anything
+  if prc.typ != nil:
+    prc.typ.callConv == ccClosure and
+      # don't run the pass for closure routines (they might capture
+      # something) ...
+    (prc.kind != skIterator or prc.skipGenericOwner.kind != skModule)
+      # ... except if it's a top-level closure iterator (they can't capture
+      # anything)
+  else:
+    # some compiler-inserted magic with no type information -> don't run the
+    # pass
+    true
+
+
 proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode; tooEarly: var bool;
                   idgen: IdGenerator): PNode =
   # XXX backend == backendJs does not suffice! The compiletime stuff needs
@@ -841,19 +783,38 @@ proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode; tooEarly: var bool;
   # However we can do lifting for the stuff which is *only* compiletime.
   let isCompileTime = sfCompileTime in fn.flags or fn.kind == skMacro
 
-  if body.kind == nkEmpty or (
-      g.config.backend == backendJs and not isCompileTime) or
-      fn.skipGenericOwner.kind != skModule:
+  if body.kind == nkEmpty or # forward declaration
+     (g.config.backend == backendJs and not isCompileTime) or
+     dontLift(fn):
+    # HACK: anonymous procedures defined outside of procedures (i.e. owned by
+    #       a module), need a hidden environment parameter too, even though
+    #       `nil` will always be passed. We add the parameter here, but
+    #       non-nested anonymous closure procedures should just be disallowed
+    #       instead
+    if fn.skipGenericOwner.kind == skModule and
+       fn.typ != nil and fn.typ.callConv == ccClosure:
+      # duplicates the code of ``addClosureParam``, but that's okay
+      let cp = newSym(skParam, getIdent(g.cache, paramName), nextSymId(idgen), fn, fn.info)
+      incl(cp.flags, sfFromGeneric)
 
-    # ignore forward declaration:
+      # setup the type:
+      cp.typ = newType(tyRef, nextTypeId(idgen), fn)
+      rawAddSon(cp.typ, createEnvObj(g, idgen, fn, fn.info))
+
+      addHiddenParam(fn, cp)
+
     result = body
     tooEarly = true
   else:
     var d = initDetectionPass(g, fn, idgen)
     detectCapturedVars(body, fn, d)
     if not d.somethingToDo and fn.isIterator:
+      # the "lift captures" pass needs to always run either directly or
+      # indirectly for closure iterators, as it's also responsible for
+      # lifting locals inside a closure iterator into its environment
       addClosureParam(d, fn, body.info)
       d.somethingToDo = true
+
     if d.somethingToDo:
       var c = initLiftingPass(fn)
       result = liftCapturedVars(body, fn, d, c)

@@ -66,7 +66,6 @@ import
     sigmatch,
     transf,
     aliases,
-    lambdalifting,
     sempass2,
     patterns,
     parampatterns,

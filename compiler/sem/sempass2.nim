@@ -63,12 +63,14 @@ import liftdestructors
 include sinkparameter_inference
 
 ##[
-
-Second semantic checking pass over the AST. Necessary because the old
-way had some inherent problems. Performs:
+This module contains the second semantic checking pass over the AST. Necessary
+because the old way had some inherent problems. Performs:
 
 - effect+exception tracking
 - "usage before definition" checking
+- checking of captured entities
+- detection of whether a procedure captures something and, if necessary,
+  adjusting the calling convention
 - also now calls the "lift destructor logic" at strategic positions, this
   is about to be put into the spec:
 
@@ -82,6 +84,15 @@ For every sink parameter of type `T T` is marked.
 
 For every call `f()` the return type of `f()` is marked.
 
+Captured entities
+=================
+
+If a local is used inside procedure X but the local does not belong to X, the
+local needs to be captured. Turning the procedure into a top-level procedure
+with a hidden environment parameter is later performed by the `lambdalifting`
+transformation, but semantic analysis already needs to know which procedures
+require the `closure` calling convention, as this information is part of the
+procedure's type.
 
 ]##
 
@@ -379,6 +390,9 @@ proc listSideEffects(result: var SemReport; s: PSym; conf: ConfigRef; context: P
   result.sym = s
   listSideEffects(result, s, cycleCheck, conf, context, 1)
 
+proc illegalCapture(s: PSym): bool {.inline.} =
+  result = classifyViewType(s.typ) != noView or s.kind == skResult
+
 proc useVarNoInitCheck(a: PEffects; n: PNode; s: PSym) =
   if {sfGlobal, sfThread} * s.flags != {} and s.kind in {skVar, skLet} and
       s.magic != mNimvm:
@@ -407,6 +421,18 @@ proc useVar(a: PEffects, n: PNode) =
         localReport(a.config, n.info, reportSym(rsemUninit, s))
       # prevent superfluous warnings about the same variable:
       a.init.add s.id
+
+  if s.kind in skLocalVars and
+     sfGlobal notin s.flags and       # must not be a global
+     a.owner.kind in routineKinds and # only perform the check inside procedures
+     s.owner != a.owner and
+     illegalCapture(s):
+    # XXX: it'd be better if this error would be detected during the first
+    #      semantic pass already, but detecting an access to an outer entity
+    #      is not easily doable because of typed template/macro parameters
+    localReport(a.config, n.info, reportSym(
+      rsemIllegalMemoryCapture, s))
+
   useVarNoInitCheck(a, n, s)
 
 
@@ -1486,6 +1512,119 @@ proc hasRealBody(s: PSym): bool =
   ## which is not a real implementation, refs #14314
   result = {sfForward, sfImportc} * s.flags == {}
 
+# ------------- routines for capture analysis ------------
+
+proc detectCapture(owner, top: PSym, n: PNode, marker: var IntSet): PNode =
+  ## Traverses the imperative code in `n` and searches for entities (such as
+  ## locals) that need to be directly or indirectly captured. This is detected
+  ## by checking whether an entity is defined (i.e. owned) by a procedure that
+  ## is itself the owner of `top`. `owner` is the procedure the currently
+  ## processed AST belongs to. The node of the first encountered entity that
+  ## needs to be captured is returned.
+  ##
+  ## In the following case, ``inner`` indirectly captures something:
+  ##
+  ## .. code-block:: nim
+  ##
+  ##   proc outer() =
+  ##     var x = 0
+  ##     proc inner() =
+  ##       proc innerInner() =
+  ##         x = 1
+  ##       innerInner()
+  ##     inner()
+  ##
+  ## On encountering the *usage* of a procedure that uses the ``.closure``
+  ## calling convention (e.g. indirect call or assignment), ``detectCapture``
+  ## recurses into the body of said procedure and checks if any captured entity
+  ## is defined outside of `top`. If that's the case, it means that something
+  ## that `top` captures was found.
+  template detect(s: PSym): PNode =
+    ## Checks if `s` is something that would need to be directly or indirectly
+    ## captured by `top`, and evaluates to `n` if yes
+    if top.isOwnedBy(s.owner): n
+    else: nil
+
+  case n.kind
+  of nkTypeSection, nkTypeOfExpr, nkCommentStmt, nkIncludeStmt, nkImportStmt,
+     nkImportExceptStmt, nkExportStmt, nkExportExceptStmt, nkFromStmt,
+     nkStaticStmt, nkMixinStmt, nkBindStmt:
+    # XXX: this set of node kinds is commonly used. It would make sense to make
+    #      a `const` out of it
+    discard "ignore declarative contexts"
+  of routineDefs:
+    discard "also ignore routine defs; we're only looking for alive code"
+  of nkSym:
+    let s = n.sym
+    case s.kind
+    of skLocalVars:
+      # make sure to not check globals, as those don't need to be captured
+      if sfGlobal notin s.flags and s.owner.id != owner.id:
+        # the local doesn't belong to the procedure we're analysing
+        result = detect(s)
+    of skProc, skFunc, skIterator:
+      # NOTE: a routine using the closure calling convention means that it
+      # *may* captures something (it might not). A routine not using the
+      # closure calling convention means that it *can't* capture anything,
+      # so we don't need to analyse the latter
+      if s.typ != nil and s.typ.callConv == ccClosure and
+         s.owner.kind != skModule: # don't analyse top-level closure iterators
+        if s.owner.id == owner.id:
+          # a procedure that's defined directly inside the currently analysed
+          # procedure is used as a value. Recurse into it to see if it captures
+          # an entity outside of `top`
+          result = detectCapture(s, top, s.ast[bodyPos], marker)
+        else:
+          # procedure A that uses the closure calling convention is used in
+          # procedure B, but A is not an inner procedure of B. Because of a
+          # limitation of the lambda-lifting implementation, B needs to be
+          # treated as capturing something
+          # XXX: fixing this requires two things: 1) tracking which routine
+          #      really captures something, and 2) fixing ``lambdalifting``
+          result = detect(s)
+    else:
+      discard "not relevant"
+  of nkWithoutSons - {nkSym}:
+    discard "not relevant"
+  of nkConv, nkHiddenStdConv, nkHiddenSubConv:
+    # only analyse the imperative part:
+    result = detectCapture(owner, top, n[1], marker)
+  of nkLambdaKinds:
+    result = detectCapture(owner, top, n[namePos], marker)
+  else:
+    for it in n.items:
+      result = detectCapture(owner, top, it, marker)
+      if result != nil:
+        # we've found something that requires capturing, don't continue and
+        # unwind
+        return
+
+proc isCompileTimeProc2*(s: PSym): bool =
+  ## Tests if `s` is a compile-time procedure, but compared to
+  ## ``isCompileTimeProc``, also considers where `s` is defined. In the
+  ## following example:
+  ##
+  ## .. code-block:: nim
+  ##
+  ##   proc a() {.compileTime.} =
+  ##     proc b() =
+  ##       discard
+  ##
+  ## ``b`` is also a procedure that can only be run at compile-time, but it
+  ## doesn't have the ``sfCompileTime`` flag set
+  # TODO: propagate the ``sfCompileTime`` flag downwards instead (likely in
+  #       sempass2) and use ``isCompileTimeProc`` directly
+  # FIXME: procedures defined inside ``static`` blocks are not detected
+  var s = s
+  while s.kind != skModule:
+    if isCompileTimeProc(s):
+      return true
+    s = s.skipGenericOwner
+
+  result = false
+
+# ------------- public interface ----------------
+
 proc trackProc*(c: PContext; s: PSym, body: PNode) =
   addInNimDebugUtils(c.config, "trackProc")
   let g = c.graph
@@ -1515,6 +1654,35 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
       when false:
         if typ.kind == tyOut and param.id notin t.init:
           message(g.config, param.info, warnProveInit, param.name.s)
+
+  let cap = block:
+    var marker: IntSet
+    detectCapture(s, s, body, marker)
+
+  if cap != nil:
+    # the procedure captures something and thus requires a hidden environment
+    # parameter
+    if s.kind == skMacro or
+       (isCompileTimeProc2(s) and not isCompileTimeProc2(cap.sym.owner)):
+      # attempting to capture an entity that only exists at run-time in a
+      # compile-time context
+      localReport(g.config, cap.info, reportSym(
+        rsemIllegalCompTimeCapture, cap.sym))
+    elif s.typ.callConv != ccClosure and tfExplicitCallConv in s.typ.flags:
+      # the analysed procedure is explicitly *not* using the ``.closure``
+      # calling convention
+      localReport(g.config, cap.info, reportSymbols(
+        rsemIllegalCallconvCapture, @[cap.sym, s]))
+    else:
+      # set the calling convention and mark it as really capturing something:
+      s.typ.callConv = ccClosure
+
+  elif s.kind != skIterator and s.typ.callConv == ccClosure:
+    # nothing is captured (so no hidden environment parameter is needed), but
+    # the procedure was explicitly annotated to use the ``.closure`` calling
+    # convention
+    assert tfExplicitCallConv in s.typ.flags
+    localReport(g.config, s.info, reportSym(rsemClosureWithoutEnv, s))
 
   if not isEmptyType(s.typ[0]) and
      (s.typ[0].requiresInit or s.typ[0].skipTypes(abstractInst).kind == tyVar) and

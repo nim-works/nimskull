@@ -859,7 +859,7 @@ proc closeNamespaceNim(): Rope =
   result.add("}\L")
 
 proc closureSetup(p: BProc, prc: PSym) =
-  if tfCapturesEnv notin prc.typ.flags: return
+  if prc.typ.callConv != ccClosure: return
   # prc.ast[paramsPos].last contains the type we're after:
   var ls = lastSon(prc.ast[paramsPos])
   p.config.internalAssert(ls.kind == nkSym, prc.info, "closure generation failed")
