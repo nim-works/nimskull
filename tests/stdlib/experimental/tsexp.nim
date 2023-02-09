@@ -55,6 +55,14 @@ suite "parse s-expressions - string atoms":
     let parsed = parseSexp("\"look at me \\\"escaping\\\"\"")
     check parsed == newSString("look at me \"escaping\"")
 
+  test "a '\\x' escape sequence encodes an ASCII character as a hexeadecimal number":
+    let parsed = parseSexp("\"the character 'a': \\x61\"")
+    check parsed == newSString("the character 'a': a")
+
+  test "a '\\u' escape sequence encodes a unicode character":
+    let parsed = parseSexp("\"the character 'a': \\u0061\"")
+    check parsed == newSString("the character 'a': a")
+
 suite "parse s-expressions - numeric atoms":
   test "integers are parsed into an integer cell":
     # xxx: not sure if BiggestInt should be part of the spec

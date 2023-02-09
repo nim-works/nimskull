@@ -222,6 +222,16 @@ block:
     eq d1.expected.getSymbol(), "R"
     eq d1.found.getSymbol(), "E"
 
+block string_roundtrip:
+  # a string containing control character must roundtrip through
+  # stringification
+  var str = newString(128) # only test characters in the ASCII range
+  for i, c in str.mpairs:
+    c = char(i)
+
+  let asText = toLine(newSString(str)).toString(false)
+  doAssert str == parseSexp(asText).getStr()
+
 if false:
   # Don't delete this section, it is used for print-debugging expected
   # formatting. And yes, 'if' is intentional as well - code needs to

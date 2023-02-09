@@ -125,6 +125,12 @@ proc parseString(parser: var SexpParser): TTokKind =
         if handleHexChar(parser.buf[pos], r): inc(pos)
         if handleHexChar(parser.buf[pos], r): inc(pos)
         add(parser.str, toUTF8(Rune(r)))
+      of 'x':
+        inc(pos, 2)
+        var r: int
+        if handleHexChar(parser.buf[pos], r): inc(pos)
+        if handleHexChar(parser.buf[pos], r): inc(pos)
+        add(parser.str, char(r))
       else:
         # don't bother with the error
         add(parser.str, parser.buf[pos])

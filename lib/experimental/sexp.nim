@@ -485,9 +485,8 @@ proc treeRepr*(node: SexpNode): string =
       res.add " "
       res.add $node.getFNum()
     of SString:
-      res.add " \""
-      res.add node.getStr()
-      res.add "\""
+      res.add " "
+      res.add escapeJson(node.getStr())
     of SList:
       for item in node:
         res.add "\n"
