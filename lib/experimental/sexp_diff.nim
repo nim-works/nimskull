@@ -331,7 +331,7 @@ proc toLine*(s: SexpNode, sortfield: bool = false): ColText =
     if s.isNil: return
     case s.kind:
       of SInt:    add $s.getNum() + fgCyan
-      of SString: add ("\"" & s.getStr() & "\"") + fgYellow
+      of SString: add escapeJson(s.getStr()) + fgYellow
       of SFloat:  add $s.getFNum() + fgMagenta
       of SNil:    add "nil"
       of SSymbol: add s.getSymbol() + fgCyan
