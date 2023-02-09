@@ -491,3 +491,9 @@ block tnoclosure:
       row = zip(row & @[0], @[0] & row).mapIt(it[0] + it[1])
     echo row
   pascal(10)
+
+block non_nested_closure:
+  # make sure that a top-level anonymous closure procedure that works (for now)
+  var cl = proc (): int {.closure.} = 1
+  doAssert cl is "closure"
+  doAssert cl() == 1

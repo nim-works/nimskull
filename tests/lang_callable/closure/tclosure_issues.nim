@@ -80,3 +80,38 @@ block tissue7104:
           sp do:
               inc i
               echo "ok ", i
+
+block:
+  # a regression test against closure inference happening too early (i.e.
+  # during early overload resolution)
+  proc val(x: int): int = result
+
+  proc test() =
+    var val = 1 # it's important that the name matches that of the procedure
+    proc inner(i: int) =
+      # because `val` is ambiguous, the ``val(i)`` expression is analysed by
+      # ``semIndirectOp``, which resolved `val` to the starting symbol to use
+      # for overload resolution via ``semExpr``. The closest symbol named
+      # `val` (that of the local in this case) is chosen, and due to capture
+      # analysis previously being run when an identifier was turned into a
+      # symbol, this meant that `inner` was erroneously inferred as capturing
+      # something
+      discard val(i)
+
+    doAssert typeof(inner) isnot "closure"
+    inner(1)
+
+  test()
+
+block:
+  # a regression test against closure inference modifying symbol state when
+  # being run inside a ``compiles`` context
+  proc test() =
+    var val = 0
+    proc inner() =
+      doAssert compiles(val)
+
+    doAssert typeof(inner) isnot "closure"
+    inner()
+
+  test()

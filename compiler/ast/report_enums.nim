@@ -492,6 +492,7 @@ type
     rsemNotABaseMethod
     rsemIllegalCallconvCapture
     rsemIllegalMemoryCapture
+    rsemIllegalCompTimeCapture
     rsemIgnoreInvalidForLoop
     rsemMissingGenericParamsForTemplate
     rsemMisplacedMagicType
@@ -842,6 +843,7 @@ type
     rsemXCannotRaiseY = "XCannotRaiseY"
     rsemConvToBaseNotNeeded = "ConvToBaseNotNeeded"
     rsemConvFromXtoItselfNotNeeded = "ConvFromXtoItselfNotNeeded"
+    rsemClosureWithoutEnv          = "ClosureWithoutEnv"
 
     rsemProcessing = "Processing" ## Processing module
     rsemProcessingStmt = "ProcessingStmt" ## Processing toplevel statement
@@ -1146,7 +1148,6 @@ const
     rsemUnexpectedPragmaInDefinitionOf,
     rsemDoubleCompletionOf,
 
-    rsemIllegalMemoryCapture,
     rsemOverrideSafetyMismatch,
     rsemOverrideLockMismatch
   }

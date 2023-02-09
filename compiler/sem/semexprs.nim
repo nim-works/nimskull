@@ -3363,11 +3363,6 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
       result.typ = s.typ
     else:
       result = semSym(c, n, s, flags)
-
-    if c.matchedConcept == nil:
-      # XXX: concepts has a "pre-pass", so we need to guard the symbol capture
-      #      for lambda lifting probably because it would mess something up?
-      semCaptureSym(s, c.p.owner)
   of nkSym:
     # because of the changed symbol binding, this does not mean that we
     # don't have to check the symbol for semantics here again!

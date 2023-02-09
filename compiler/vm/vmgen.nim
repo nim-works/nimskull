@@ -1783,11 +1783,6 @@ func setSlot(c: var TCtx; v: PSym): TRegister {.discardable.} =
 func cannotEval(c: TCtx; n: PNode) {.noinline, noreturn.} =
   raiseVmGenError(vmGenDiagCannotEvaluateAtComptime, n)
 
-func isOwnedBy(a, b: PSym): bool =
-  var a = a.owner
-  while a != nil and a.kind != skModule:
-    if a == b: return true
-    a = a.owner
 
 func getOwner(c: TCtx): PSym =
   result = c.prc.sym
@@ -2817,9 +2812,8 @@ proc genProcBody(c: var TCtx; s: PSym, body: PNode): int =
     if s.kind == skMacro and s.isGenericRoutineStrict:
       genGenericParams(c, s.ast[genericParamsPos])
 
-    if tfCapturesEnv in s.typ.flags:
-      #let env = s.ast[paramsPos].lastSon.sym
-      #assert env.position == 2
+    if s.typ.callConv == ccClosure:
+      # reserve a slot for the hidden environment parameter
       c.prc.regInfo.add RegInfo(refCount: 1, kind: slotFixedLet)
 
     gen(c, body)

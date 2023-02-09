@@ -548,6 +548,14 @@ proc skipGenericOwner*(s: PSym): PSym =
            else:
              s.owner
 
+func isOwnedBy*(a, b: PSym): bool =
+  ## Tests if `b` is the transitive owner of `a`, returns true if `a` got
+  ## owned! :)
+  var a = a.owner
+  while a != nil and a.kind != skModule:
+    if a == b: return true
+    a = a.owner
+
 proc originatingModule*(s: PSym): PSym =
   result = s.owner
   while result.kind != skModule: result = result.owner
