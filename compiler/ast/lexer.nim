@@ -308,6 +308,10 @@ proc closeLexer*(lex: var Lexer) =
   lex.diags.setLen(0)
   closeBaseLexer(lex)
 
+template getColNumber(L: Lexer, pos: int): int =
+  # supresses the hint on the CLI
+  getColNumber(TBaseLexer L, pos)
+
 proc getLineInfo*(L: Lexer): TLineInfo =
   result = newLineInfo(L.fileIdx, L.lineNumber, getColNumber(L, L.bufpos))
 

@@ -79,7 +79,7 @@ proc kind*(parser: SexpParser): SexpEventKind {.inline.} =
 
 proc getColumn*(parser: SexpParser): int {.inline.} =
   ## get the current column the parser has arrived at.
-  result = getColNumber(parser, parser.bufpos)
+  result = getColNumber(BaseLexer parser, parser.bufpos)
 
 proc getLine*(parser: SexpParser): int {.inline.} =
   ## get the current line the parser has arrived at.

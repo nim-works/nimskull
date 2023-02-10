@@ -140,7 +140,7 @@ proc kind*(my: JsonParser): JsonEventKind {.inline.} =
 
 proc getColumn*(my: JsonParser): int {.inline.} =
   ## get the current column the parser has arrived at.
-  result = getColNumber(my, my.bufpos)
+  result = getColNumber(BaseLexer my, my.bufpos)
 
 proc getLine*(my: JsonParser): int {.inline.} =
   ## get the current line the parser has arrived at.

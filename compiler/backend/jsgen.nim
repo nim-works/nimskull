@@ -64,7 +64,6 @@ import
   compiler/sem/[
     passes,
     lowerings,
-    sighashes,
     rodutils,
     transf,
     sourcemap

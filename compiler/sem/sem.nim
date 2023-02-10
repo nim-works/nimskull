@@ -81,7 +81,6 @@ import
   compiler/vm/[
     compilerbridge,
     vmdef,
-    vmhooks
   ]
 
 from std/options as std_options import some, none
