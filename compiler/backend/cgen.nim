@@ -73,7 +73,6 @@ from compiler/ast/reports_sem import SemReport,
   reportStr,
   reportSym,
   reportTyp
-from compiler/ast/reports_backend import BackendReport
 from compiler/ast/report_enums import ReportKind
 
 import std/strutils except `%` # collides with ropes.`%`
