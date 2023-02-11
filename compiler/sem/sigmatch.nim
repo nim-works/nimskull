@@ -2475,17 +2475,14 @@ proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
   elif a.typ.isNil:
     # XXX This is unsound! 'formal' can differ from overloaded routine to
     # overloaded routine!
-    let flags = {efDetermineType, efAllowStmt}
+    let
+      flags = {efDetermineType, efAllowStmt}
                 #if formal.kind == tyIterable: {efDetermineType, efWantIterator}
                 #else: {efDetermineType, efAllowStmt}
                 #elif formal.kind == tyTyped: {efDetermineType, efWantStmt}
                 #else: {efDetermineType}
 
-    # use `result` as a temporary to preserve non-persistent flags
-    result = a.copyTree
-    result.flags = a.flags
-
-    result = c.semOperand(c, result, flags)
+    result = c.semOperand(c, a, flags)
   else:
     result = a
     considerGenSyms(c, result)
@@ -2744,13 +2741,16 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
     else:                                  # unnamed param `foo("baz")`
       if f >= formalLen:
         # too many arguments?
-        if tfVarargs in m.callee.flags:
+        if tfVarargs in m.callee.flags:    # this is varargs pragma handling
+          
+          # TODO: redo from first principles; varargs pragma is a bad 'feature'
+
           # is ok... but don't increment any counters...
           # we have no formal here to snoop at:
           case n[a].kind
           of nkError:
-            # QUESTION: are we passing an nkError around as untyped/typed?
-            m.call.add copyTree(n[a])
+            # xxx: maybe this should be an internal error?
+            noMatch()
           else:
             let operand = prepareOperand(c, n[a])
 

@@ -2174,7 +2174,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
 
           else:
             assert envPType == noneType # A programming error that should have
-                                        # already been caught by `opWrClosure`
+                                        # already been caught by `opcWrClosure`
 
         pushFrame(newFrame)
         # -1 for the following 'inc pc'

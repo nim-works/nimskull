@@ -2175,6 +2175,11 @@ proc semReturn(c: PContext, n: PNode): PNode =
 proc semProcBody(c: PContext, n: PNode): PNode =
   openScope(c)
   result = semExpr(c, n)
+
+  if result.isError:
+    closeScope(c)
+    return
+
   if c.p.resultSym != nil and not isEmptyType(result.typ):
     if result.kind == nkNilLit:
       # or ImplicitlyDiscardable(result):
@@ -3060,7 +3065,7 @@ proc semBlock(c: PContext, n: PNode; flags: TExprFlags): PNode =
     result.add lablRes
     result.add bodyRes
     result.typ = bodyRes.typ
-    
+
     # xxx: always transitions because nkError always(?) has an error type
     if isEmptyType(result.typ):
       result.transitionSonsKind(nkBlockStmt)

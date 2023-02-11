@@ -73,7 +73,7 @@ export colortext
 type
   TReprFlag* = enum
     ## Configuration options for treeRepr debugging
-    trfReportInfo ## Show information about embedded semantic report errors
+    trfReportInfo ## Show information about embedded errors
     trfPackedFields ## Put fields horizontally instead of arranging them
                     ## out veritcally. Should be used only when a small
                     ## number of total fields is enabled, otherwise output
@@ -93,6 +93,8 @@ type
     ## source code - useful if you have multiple debugging places and need
     ## to diferentiate between them.
 
+    trfShowFullSymTypes ## Full render of the symbol type on one level.
+    ## Multiple levels are not printed
     trfShowSymFlags ## Show symbol `.flags` field
     trfShowSymLineInfo ## Line information
     trfShowSymName
@@ -108,8 +110,6 @@ type
     trfShowFullSymChoice ## Show all alternative symbols for the
     ## `nkOpenSymChoice` and `nkClosedSymChoice` node kinds
     trfShowSymAst ## `.ast` from the symbol
-    trfShowFullSymTypes ## Full render of the symbol type on one level.
-    ## Multiple levels are not printed
     trfShowSymId ## `module` and `item` from `itemId` field
 
     trfShowTypeCallConv ## Calling convention
@@ -123,7 +123,7 @@ type
 
     trfShowNodeLineInfo ## Node location information
     trfShowNodeFlags ## `.flags`
-    trfShowNodeIds ## `.id` field, available when compiler is built with `-d:nodeIds`
+    trfShowNodeIds ## `.id` field
     trfShowNodeComments ## `.comment` field
     trfShowNodeErrors ## Embedded `nkError` reports
     trfShowNodeTypes
@@ -179,22 +179,29 @@ let defaultTReprConf* = TReprConf(
   maxPath: 1,
   flags: {
     trfReportInfo,
-    trfSkipAuxError,
+    # trfSkipAuxError,
     trfShowKindTypes,
   } + treeReprAllFields - {
     trfPackedFields,
+
     trfShowNodeLineInfo,
+    # trfShowNodeTypes,
+
     trfShowSymLineInfo,
     trfShowSymOptions,
     trfShowSymPosition,
     trfShowSymOwner,
-    trfShowTypeOwner,
-    trfShowTypeId,
-    trfShowTypeAlloc,
     trfShowFullSymChoice,
-    trfShowSymAst,
     trfShowSymId,
     trfShowSymAst,
+    trfShowSymTypes,
+    trfShowFullSymTypes,
+    trfShowSymFlags,
+    
+    trfShowTypeOwner,
+    trfShowTypeId,
+    trfShowTypeSym,
+    trfShowTypeAlloc,
     trfShowTypeAst
   }
 ) ## Default based configuration for the tree repr printing functions
@@ -290,28 +297,30 @@ proc nameField(res: var ColText, cond: TReprFlag, rconf: TReprConf) =
 
 
 template genFields(res: ColText, indent: int, rconf: TReprConf): untyped =
-  proc hfield(name: string, cond: TReprFlag, text: ColText = default ColText) =
-    if cond in rconf:
+  proc hfield(name: string, cond: TReprFlag, text = default ColText,
+              rc = rconf) =
+    if cond in rc:
       res.add " "
       res.add name
       res.add ":"
-      nameField(res, cond, rconf)
+      nameField(res, cond, rc)
       res.add text
 
-
-  proc vfield(name: string, cond: TReprFlag, text: ColText = default ColText) =
-    if cond in rconf:
+  proc vfield(name: string, cond: TReprFlag, text = default ColText,
+              rc = rconf) =
+    if cond in rc:
       res.newline()
       res.addIndent(indent, 1)
       res.add alignLeft(name & ":", 9)
-      nameField(res, cond, rconf)
+      nameField(res, cond, rc)
       res.add text
 
-  proc field(name: string, cond: TReprFlag, text: ColText = default ColText) =
-    if rconf.packed():
-      hfield(name, cond, text)
+  proc field(name: string, cond: TReprFlag, text = default ColText,
+             rc = rconf) =
+    if rc.packed():
+      hfield(name, cond, text, rc)
     else:
-      vfield(name, cond, text)
+      vfield(name, cond, text, rc)
 
 func formatKind[I](rconf: TReprConf, kind: I, sub: int = 2): string =
   if trfShowKindTypes in rconf:
@@ -349,7 +358,6 @@ proc ownerChain(rconf: TReprConf, sym: PSym): string =
     let s = chain[idx]
     if s.isNil():
       result.add "<nil>"
-
     else:
       result.add "'"
       result.add s.name.s
@@ -430,8 +438,13 @@ proc symFields(
 
   if trfShowSymName in rconf:
     field("name.s", trfShowSymName, sym.name.s + style.ident)
-    hfield("sym.id", trfShowSymName, $sym.id + style.number)
-    hfield("name.id", trfShowSymName, $sym.name.id + style.number)
+    if trfShowSymAst notin rconf:
+      if sym.ast != nil:
+        hfield("sym.ast.id", trfShowSymName, $sym.ast.id + style.number)
+      elif trfShowNilFields in rconf:
+        hfield("sym.ast.id", trfShowSymName, "<nil>" + style.nilIt)
+      else:
+        discard
 
   if trfShowSymKind in rconf:
     field("kind", trfShowSymName, rconf.formatKind(sym.kind) + style.kind)
@@ -440,18 +453,18 @@ proc symFields(
     field("flags", trfShowSymFlags, format(sym.flags, 2) + style.setIt)
 
   if sym.magic != mNone or rconf.defaulted():
-    field("magic", trfShowSymMagic,
-          rconf.formatKind(sym.magic, 1) + style.setIt)
+    hfield("magic", trfShowSymMagic,
+           rconf.formatKind(sym.magic, 1) + style.setIt)
 
   if trfShowSymId in rconf:
     field("itemId", trfShowSymId)
     hfield("module", trfShowSymId, sym.itemId.module.format())
     hfield("item", trfShowSymId, sym.itemId.item.format())
 
-  if 0 < sym.options.len or rconf.defaulted():
+  if sym.options.len > 0 or rconf.defaulted():
     field("opts", trfShowSymOptions, format(sym.options, 3) + style.setIt)
 
-  if 0 <= sym.offset or rconf.defaulted():
+  if sym.offset >= 0 or rconf.defaulted():
     field("offset", trfShowSymOffset, $sym.offset + style.number)
 
   if sym.position != 0 or rconf.defaulted():
@@ -472,20 +485,31 @@ proc symFields(
     if sym.alignment != 0 or rconf.defaulted():
       field("alignment", trfShowSymAlignment, sym.bitsize.format())
 
-  if trfShowFullSymTypes in rconf:
-    var tmp = rconf
-    # Exclude one level of the symbol types in order to avoid infinte
-    # recursion
-    tmp.excl trfShowFullSymTypes
-    field("typ", trfShowFullSymTypes)
-    add "\n"
-    add conf.treeRepr(sym.typ, tmp, indent = indent + 2)
-
-  elif not sym.typ.isNil() or trfShowNilFields in rconf:
-    field("typ", trfShowSymTypes, conf.textRepr(sym.typ))
+  let fieldCondition =
+    if trfShowFullSymTypes in rconf:
+      trfShowFullSymTypes
+    elif inNode:
+      trfShowNodeTypes
+    else:
+      trfShowSymTypes
+  if sym.typ.isNil:
+    if trfShowNilFields in rconf:
+      field("typ", fieldCondition, conf.textRepr(sym.typ))
+  else:
+    if fieldCondition == trfShowFullSymTypes or
+        (inNode and trfShowNodeTypes in rconf):
+      var tmp = rconf
+      # Exclude one level of the symbol types in order to avoid infinite
+      # recursion
+      tmp.excl trfShowFullSymTypes
+      field("typ", fieldCondition, rc = tmp)
+      add "\n"
+      add conf.treeRepr(sym.typ, tmp, indent = indent + 2)
+    elif not inNode:
+      field("typ", fieldCondition, conf.textRepr(sym.typ))
 
   if trfShowSymAst in rconf:
-    var rconf = compactTReprConf
+    var rconf = rconf
     rconf.excl trfShowSymAst
     field("ast", trfShowSymAst)
     result.add "\n"
@@ -505,7 +529,6 @@ proc treeRepr*(
   genFields(res[], indent, rconf)
   if id.isNil():
     addi indent, "<nil>" + style.nilIt
-
   else:
     addi indent, ""
     if trfShowSymName in rconf:
@@ -527,7 +550,6 @@ proc treeRepr*(
   coloredResult(1)
   if sym.isNil():
     addi indent, "<nil>" + style.nilIt
-
   else:
     addi indent, rconf.formatKind(sym.kind) + style.kind
     if trfShowSymName notin rconf:
@@ -549,23 +571,21 @@ proc typFields(
   let res = addr result
   genFields(res[], indent, rconf)
 
-  if not rconf.extraTypInfo.isNil():
+  if rconf.extraTypInfo != nil:
     let text = rconf.extraTypInfo(typ)
     if 0 < len(text):
       result.add text.indent(indent)
 
+  if typ.flags.len > 0 or trfShowDefaultedFields in rconf:
+    hfield("flags", trfShowTypeFlags, format(typ.flags, 2) + style.ident)
 
   if typ.kind == tyProc:
     field("callConv", trfShowTypeCallConv, $typ.callConv + style.ident)
-
-  if typ.flags.len > 0 or trfShowDefaultedFields in rconf:
-    field("flags", trfShowTypeFlags, format(typ.flags, 2) + style.ident)
 
   if trfShowTypeAlloc in rconf:
     field("size", trfShowTypeAlloc, typ.size.format())
     if typ.size == -1:
       res[].add " (unknown)" + style.number
-
     hfield("align", trfShowTypeAlloc, $typ.align + style.number)
 
   if typ.owner != nil:
@@ -591,15 +611,19 @@ proc treeRepr*(
       addi indent, "<nil>" + style.nilIt
     else:
       addi indent, rconf.formatKind(typ.kind) + style.kind
+      if trfShowTypeSym notin rconf and typ.sym != nil:
+        # If the name is not show in verbose manner as a field, print it
+        # beforehand as a regular string.
+        add " \""
+        add typ.sym.name.s + style.identLit
+        add "\""
       field("itemId", trfShowTypeId)
       hfield("module", trfShowTypeId, typ.itemId.module.format())
       hfield("item", trfShowTypeId, typ.itemId.item.format())
 
       add typFields(conf, typ, rconf, indent + 2)
 
-      if 0 < len(typ.sons):
-        add "\n"
-        addi indent + 2, "sons:"
+      if len(typ.sons) > 0:
         for sub in typ.sons:
           add "\n"
           aux(sub, level + 2)
@@ -640,11 +664,7 @@ proc cyclicTreeAux(n: AstNode, visited: var seq[AstNode], count: var int): bool 
       when n is PNode:
         case n.kind
         of nkError:
-          case n.diag.wrongNode.kind
-          of nkWithSons:
-            n.diag.wrongNode.sons
-          else:
-            @[]
+          @[n.diag.wrongNode]
         else:
           n.sons
       else:
@@ -669,7 +689,6 @@ proc treeRepr*(
   ## .. include:: tree_repr_doc.rst
 
   coloredResult(1)
-
 
   let indentIncrease = indent
   var
@@ -711,7 +730,6 @@ proc treeRepr*(
 
           first = false
           add $pos + style.dim
-
         else:
           indent += 2
           add "  "
@@ -723,7 +741,6 @@ proc treeRepr*(
     if isNil(n):
       add "<nil>" + style.nilIt
       return
-
     elif not (n.kind == nkEmpty and n.safeLen == 0) and
          # empty nodes can be reused. Only check for visitation if it is
          # not an empty (completely empty) node
@@ -735,12 +752,10 @@ proc treeRepr*(
         add " at "
         add $visited[cast[int](n)] + style.dim
         add ">"
-
       else:
         add "<visited>"
 
       return
-
     elif idx.len > rconf.maxDepth:
       add " ..."
       return
@@ -765,12 +780,11 @@ proc treeRepr*(
           add line + style.comment
 
         add "\n"
-
       elif sep:
         add " "
 
     proc addFlags() =
-      if not rconf.extraNodeInfo.isNil():
+      if rconf.extraNodeInfo != nil:
         let text = rconf.extraNodeInfo(n)
         if 0 < len(text):
           add text.indent(indent)
@@ -781,27 +795,30 @@ proc treeRepr*(
           conf, n.info, rconf, indent, "info", trfShowNodeLineInfo))
 
       if n.flags.len > 0:
-        field("nflags", trfShowNodeFlags, format(n.flags, 2) + style.setIt)
+        hfield("nflags", trfShowNodeFlags, format(n.flags, 2) + style.setIt)
 
       if trfShowNodeTypes in rconf and not n.typ.isNil():
         if (
           n.typ.kind notin CompressedBuiltinTypes or
           (n.kind in nkIntKinds and n.typ.kind notin IntTypes)
         ):
-          if n.kind == nkSym and not isNil(n.sym):
+          var tmp = rconf
+          # Exclude one level of the symbol types in order to avoid infinite
+          # recursion
+          tmp.excl trfShowFullSymTypes
+          tmp.excl trfShowTypeSym
+          if n.kind == nkSym and n.sym != nil:
             if n.sym.typ == n.typ:
               # Type will be printed in `symFlags`
               discard
-
             else:
-              field("typ", trfShowNodeTypes, " != sym.typ" + style.err)
+              field("typ", trfShowNodeTypes, " != sym.typ" + style.err, tmp)
               add "\n"
-              add conf.treeRepr(n.typ, rconf, indent = indent + 2)
-
+              add conf.treeRepr(n.typ, tmp, indent = indent + 2)
           else:
-            field("typ", trfShowNodeTypes)
+            field("typ", trfShowNodeTypes, rc = tmp)
             add "\n"
-            add conf.treeRepr(n.typ, rconf, indent = indent + 2)
+            add conf.treeRepr(n.typ, tmp, indent = indent + 2)
 
     proc postLiteral() =
       addFlags()
@@ -828,15 +845,17 @@ proc treeRepr*(
         add " \""
         add n.ident.s + style.identLit
         add "\""
-        hfield("ident.id", trfDescFlag, $n.ident.id + style.number)
+        hfield("ident.id", trfShowNodeIds, $n.ident.id + style.number)
         postLiteral()
 
       of nkSym:
         add " \""
         add n.sym.name.s + style.identLit
         add "\""
-        hfield("sk", trfDescFlag, rconf.formatKind(n.sym.kind) + style.kind)
+        hfield("sk", trfShowSymKind, $n.sym.kind + style.kind)
 
+        var rconf = rconf
+        rconf.excl trfShowSymName
         add symFields(conf, n.sym, rconf, indent, inNode = true)
         addFlags()
         addComment()
@@ -853,14 +872,12 @@ proc treeRepr*(
           reportKind = diag.astDiagToLegacyReportKind
           i = diag.instLoc
           file = i.filename
-          line = i.line.int
-          column = i.column.int
 
-        field("err", trfDescFlag, rconf.formatKind(reportKind) + style.errKind)
-        hfield("diagId", trfDescFlag, $diag.diagId.int + style.err)
-        field("info", trfDescFlag, formatPath(conf, file) + style.ident)
-        add "(", $line + style.number
-        add ",", $column + style.number
+        field("err", trfReportInfo, rconf.formatKind(reportKind) + style.errKind)
+        hfield("diagId", trfReportInfo, $diag.diagId.int + style.err)
+        field("info", trfReportInfo, formatPath(conf, file) + style.ident)
+        add "(", $i.line.int + style.number
+        add ",", $i.column.int + style.number
         add ")"
 
       of nkType:
@@ -869,11 +886,9 @@ proc treeRepr*(
       else:
         discard
 
-
     if n.kind notin {nkNone .. nkNilLit, nkCommentStmt}:
       addFlags()
-      if (n.kind == nkError and
-          n.diag.wrongNode.kind notin {nkNone .. nkNilLit, nkCommentStmt}) or
+      if (n.kind == nkError and trfSkipAuxError notin rconf) or
           (n.kind != nkError and n.len > 0):
         add "\n"
 
@@ -887,20 +902,14 @@ proc treeRepr*(
           when n is PNode:
             case n.kind
             of nkError:
-              # TODO: rework diag rendering
-              if n.diag.wrongNode.kind notin {nkNone..nkNilLit, nkCommentStmt}:
-                n.diag.wrongNode.sons
-              else:
-                @[]
+              @[n.diag.wrongNode]
             else:
               n.sons
           else:
             n.sons
 
       for newIdx, subn in sons:
-        if trfSkipAuxError in rconf and
-           n.kind == nkError and
-           newIdx in {1, 2}:
+        if trfSkipAuxError in rconf and n.kind == nkError:
           continue
 
         if trfShowFullSymChoice notin rconf and
@@ -984,7 +993,6 @@ proc treeRepr*(
     if isNil(n):
       add "<nil>" + style.nilIt
       return
-
     elif not (n.kind == nkEmpty and n.safeLen == 0) and
          # empty nodes can be reused. Only check for visitation if it is
          # not an empty (completely empty) node
@@ -996,12 +1004,10 @@ proc treeRepr*(
         add " at "
         add $visited[cast[int](n)] + style.dim
         add ">"
-
       else:
         add "<visited>"
 
       return
-
     elif idx.len > rconf.maxDepth:
       add " ..."
       return
@@ -1022,7 +1028,6 @@ proc treeRepr*(
           add line + style.comment
 
         add "\n"
-
       elif sep:
         add " "
 
@@ -1057,7 +1062,7 @@ proc treeRepr*(
         add " \""
         add n.token.ident.s + style.identLit
         add "\""
-        hfield("ident.id", trfDescFlag, $n.token.ident.id + style.number)
+        hfield("ident.id", trfShowNodeIds, $n.token.ident.id + style.number)
         postLiteral()
 
       of nkCommentStmt:
@@ -1072,7 +1077,6 @@ proc treeRepr*(
       else:
         discard
 
-
     if n.kind notin {nkNone .. nkNilLit, nkCommentStmt}:
       addFlags()
       if n.len > 0:
@@ -1085,15 +1089,16 @@ proc treeRepr*(
 
       let sons =
         when n is PNode:
-          if n.kind == nkError:
-            n.kids
+          case n.kind
+          of nkError:
+            @[n.diag.wrongNode]
           else:
             n.sons
         else:
           n.sons
 
       for newIdx, subn in sons.pairs:
-        if trfSkipAuxError in rconf and n.kind == nkError and newIdx in {1, 2}:
+        if trfSkipAuxError in rconf and n.kind == nkError:
           continue
 
         aux(subn, idx & newIdx)
@@ -1117,18 +1122,18 @@ proc treeRepr*(
 
 var implicitDebugConfRef: ConfigRef
 
-template hack(body: untyped): untyped =
+template ignoreSideEffectTracking(body: untyped): untyped =
   {.cast(noSideEffect).}:
     body
 
 proc setImplicitDebugConfRef*(conf: ConfigRef) {.dbg.} =
   ## Set implicit debug config reference.
-  hack:
+  ignoreSideEffectTracking:
     implicitDebugConfRef = conf
 
 proc debugParsedAst*(it: ParsedNode) {.exportc, dbg.} =
   ## Print out tree representation of the parsed AST node
-  hack:
+  ignoreSideEffectTracking:
     echo treeRepr(implicitDebugConfRef, it, implicitTReprConf)
 
 proc debugAst*(it: PNode) {.exportc, dbg.} =
@@ -1141,57 +1146,91 @@ proc debugAst*(it: PNode) {.exportc, dbg.} =
   ## .. tip:: This proc is annotated with `{.exportc.}` which means it's
   ##     mangled name exactly the same - `debugAst` and you can call it
   ##     from the `gdb` debugging session.
-  hack:
+  ignoreSideEffectTracking:
     echo treeRepr(implicitDebugConfRef, it, implicitTReprConf)
 
 proc debugType*(it: PType) {.exportc, dbg.} =
   ## Print out tree represntation of the type. Can also be used in gdb
   ## debugging session due to `.exportc.` annotation
-  hack:
+  ignoreSideEffectTracking:
     echo treeRepr(implicitDebugConfRef, it, implicitTReprConf)
 
 proc debugSym*(it: PSym) {.exportc, dbg.} =
   ## Print out tree represntation of the symbol. Can also be used in gdb
   ## debugging session due to `.exportc.` annotation
-  hack:
-    echo treeRepr(implicitDebugConfRef, it, implicitTReprConf)
+  ignoreSideEffectTracking:
+    var conf = implicitTReprConf
+    conf.flags = conf.flags + {trfShowSymAst, trfShowSymFlags, trfShowSymTypes}
+    echo treeRepr(implicitDebugConfRef, it, conf)
 
 type
-  DebugAble = PNode | PSym | PNode | PIdent | ParsedNode ## Types
-  ## that can be debugged using `treeRepr`
+  Debugable = PNode | PSym | PType | PIdent | ParsedNode ## Types that can
+    ## be debugged using `treeRepr`
 
-proc debugAux*(
+proc debugAux(
     conf: ConfigRef,
-    it: DebugAble,
+    it: Debugable,
     tconf: TReprConf,
     location: InstantiationInfo
   ) {.dbg.} =
-
-  hack:
+  ignoreSideEffectTracking:
     if trfShowDebugLocation in tconf:
       echo "debug at ", location
 
     echo treeRepr(conf, it, tconf)
 
-template debug*(it: DebugAble, tconf: TReprConf) =
+template debug*(it: Debugable, tconf: TReprConf) =
   ## Convenience overload of `debugAst`
   debugAux(implicitDebugConfRef, it, tconf, instLoc())
 
-template debug*(conf: ConfigRef, it: DebugAble, tconf: TReprConf) =
+template debug*(conf: ConfigRef, it: Debugable, tconf: TReprConf) =
   ## Print tree representation of the AST using provided configuration.
   debugAux(conf, it, tconf, instLoc())
 
-template debug*(it: DebugAble) =
-  ## Convenience overload of `debugAst` that makes use of the implicit
-  ## debug config ref
+template debug*(it: PNode) =
+  ## Print tree representation of a PNode for compiler debugging
+  # TODO: customize the TReprConf here
   debugAux(implicitDebugConfRef, it, implicitTReprConf, instLoc())
 
-template debug*(conf: ConfigRef, it: DebugAble) =
+template debug*(it: PSym) =
+  ## Print tree representation of a PSym for compiler debugging
+  # TODO: create a PSym specific implicitTReprConf
+  var conf = implicitTReprConf
+  conf.flags = conf.flags +
+                {
+                  trfShowSymAst, trfShowSymId,
+
+                  trfShowTypeFlags
+                } -
+                {
+                  trfShowSymTypes, trfShowFullSymTypes, trfShowSymLineInfo,
+                  trfShowSymFlags, trfShowSymMagic,
+                  
+                  # trfShowNodeTypes,
+                  trfShowNodeLineInfo, trfShowNodeFlags}
+  debugAux(implicitDebugConfRef, it, conf, instLoc())
+
+template debug*(it: PType) =
+  ## Print tree representation of a PType for compiler debugging
+  # TODO: customize the TReprConf here
+  debugAux(implicitDebugConfRef, it, implicitTReprConf, instLoc())
+
+template debug*(it: PIdent) =
+  ## Print tree representation of a PIdent for compiler debugging
+  # TODO: customize the TReprConf here
+  debugAux(implicitDebugConfRef, it, implicitTReprConf, instLoc())
+
+template debug*(it: ParsedNode) =
+  ## Print tree representation of a ParsedNode for compiler debugging
+  # TODO: customize the TReprConf here
+  debugAux(implicitDebugConfRef, it, implicitTReprConf, instLoc())
+
+template debug*(conf: ConfigRef, it: Debugable) =
   ## Print tree representation of the AST
   debugAux(conf, it, implicitTReprConf, instLoc())
 
 proc inLines*(node: PNode, lrange: Slice[int]): bool {.dbg.} =
-  hack:
+  ignoreSideEffectTracking:
     lrange.a <= node.info.line.int and node.info.line.int <= lrange.b
 
 proc inFile*(
@@ -1203,7 +1242,7 @@ proc inFile*(
   ## Check if file name of the `info` has `filename` in it, and that node
   ## is located in the specified line range. For debugging purposes as it
   ## is pretty slow.
-  hack:
+  ignoreSideEffectTracking:
     return file in toFilename(conf, node.info) and
            node.info.line.int in lrange
 
@@ -1228,7 +1267,7 @@ proc inFile*(
   ## .. note:: It checks whether `file` is a substring of the full path, so
   ##           you can only write the a part of the name, like `"osproc"` or
   ##           `"strutils"`
-  hack:
+  ignoreSideEffectTracking:
     return file in toFilename(implicitDebugConfRef, node.info) and
            node.info.line.int in lrange
 
