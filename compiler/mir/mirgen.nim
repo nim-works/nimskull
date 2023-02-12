@@ -1353,28 +1353,19 @@ proc genLocInit(c: var TCtx, symNode: PNode, initExpr: PNode) =
     hasInitExpr = initExpr.kind != nkEmpty
     wantsOwnership = sfCursor notin sym.flags and
                      hasDestructor(sym.typ)
-    isProcGlobal = sfGlobal in sym.flags and
-                   c.context in routineKinds
 
   assert sym.kind in {skVar, skLet, skTemp, skForVar}
 
   # if there's an initial value and the destination is non-owning, we pass the
   # value directly to the def
-  # HACK: we rely on an implementation detail of ``astgen`` (namely that a
-  #       'def' with an initializer is translated to a single ``nkVarSection``
-  #       node) for globals defined at procedure scope. This is not the way
-  #       to go. It makes sense for these globals to be part of a procedure's
-  #       AST during the sem phase, but past this point, it's actually harmful.
-  #       They should be lifted into a separate list that is stored with the
-  #       module the procedure is attached to, which the back-end then queries
-  if hasInitExpr and (not wantsOwnership or isProcGlobal):
+  if hasInitExpr and not wantsOwnership:
     # TODO: add a test for using a constructor expression for initializing a
     #       cursor
-    forward: genx(c, initExpr, consume = isProcGlobal)
+    forward: genx(c, initExpr, consume = false)
 
   genLocDef(c, symNode)
 
-  if hasInitExpr and wantsOwnership and not isProcGlobal:
+  if hasInitExpr and wantsOwnership:
     # a copy or sink can't be expressed via a pass-to-def -- we need to use
     # the assignment operator
     genAsgn(c, true, symNode, initExpr)

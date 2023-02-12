@@ -493,8 +493,6 @@ type
     cgfAllowMeta ## If not present, type or other meta expressions are
                  ## disallowed in imperative contexts and code-gen for meta
                  ## function arguments (e.g. `typedesc`) is suppressed
-    cgfCollectGlobals ## If present, the ident defs of `{.global.}` variables
-                      ## are collected instead of code-gen'ed
 
   LinkIndex* = uint32 ## Depending on the context: `FunctionIndex`; index
     ## into `TCtx.globals`; index into `TCtx.complexConsts`
@@ -518,10 +516,6 @@ type
     nextProc*: LinkIndex
     nextGlobal*: LinkIndex
     nextConst*: LinkIndex
-
-    globalDefs*: seq[PNode] ## output; collected `{.global.}` definitions.
-                            ## They're only collected if `cgfCollectGlobals`
-                            ## is active
 
     flags*: set[CodeGenFlag] ## input
   

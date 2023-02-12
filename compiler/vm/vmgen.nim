@@ -2327,22 +2327,19 @@ proc genVarSection(c: var TCtx; n: PNode) =
           discard c.registerGlobal(s)
           discard c.getOrCreate(s.typ)
 
-          # no need to generate or collect if the global has no initializer
+          # no need to generate an assignment if the global has no initializer
           if a[2].kind == nkEmpty:
             continue
 
-          if cgfCollectGlobals in c.codegenInOut.flags and
-            s.owner != nil and
-            s.owner.kind in routineKinds:
-            # we encountered a function-level global and code generation for
-            # them is defered
-            c.codegenInOut.globalDefs.add a
-          else:
-            let tmp = genSymAddr(c, a[0])
-            let val = c.genx(a[2])
-            c.gABC(a, opcWrDeref, tmp, 0, val)
-            c.freeTemp(val)
-            c.freeTemp(tmp)
+          # for globals, ``vmgen`` trusts the callsite (i.e. the place where
+          # ``genProcBody`` is invoked) to make sure that globals defined
+          # inside procedures are extracted / otherwise taken care of. Thus, we
+          # emit the initialization logic here without further checks
+          let tmp = genSymAddr(c, a[0])
+          let val = c.genx(a[2])
+          c.gABC(a, opcWrDeref, tmp, 0, val)
+          c.freeTemp(val)
+          c.freeTemp(tmp)
         else:
           let reg = setSlot(c, s)
           if a[2].kind == nkEmpty:

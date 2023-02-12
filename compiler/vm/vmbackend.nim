@@ -177,8 +177,13 @@ proc generateTopLevelStmts*(module: var Module, c: var TCtx,
 
   module.initProc = (start: start, regCount: c.prc.regInfo.len)
 
-proc generateCodeForProc(c: var TCtx, s: PSym): VmGenResult =
+proc generateCodeForProc(c: var TCtx, s: PSym,
+                         globals: var seq[PNode]): VmGenResult =
+  ## Generates and emits the bytecode for the procedure `s`. The globals
+  ## defined in it are extracted from the body and their identdefs appended
+  ## to `globals`.
   var body = transformBody(c.graph, c.idgen, s, cache = false)
+  extractGlobals(body, globals, isNimVm = true)
   body = canonicalize(c.graph, c.idgen, s, body, {goIsNimvm})
   result = genProc(c, s, body)
 
@@ -197,6 +202,10 @@ proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]
   for def in defs.items:
     assert def.kind == nkIdentDefs
     for i in 0..<def.len-2:
+      if def[^1].kind == nkEmpty:
+        # do nothing for globals without initializer expressions
+        continue
+
       # note: don't transform the expressions here; they already were, during
       # transformation of their owning procs
       let
@@ -225,6 +234,10 @@ proc generateAliveProcs(c: var TCtx, mlist: var ModuleList) =
   # multiple times, `setLen` has to be used instead of `newSeq`
   c.functions.setLen(c.codegenInOut.nextProc)
 
+  var globals: seq[PNode]
+    ## the identdefs of global defined inside procedures. Reused across loop
+    ## iterations for efficiency
+
   # `newProcs` can grow during iteration, so `citems` has to be used
   for ri, sym in c.codegenInOut.newProcs.cpairs:
     c.config.internalAssert(sym.kind notin {skMacro, skTemplate}):
@@ -239,25 +252,27 @@ proc generateAliveProcs(c: var TCtx, mlist: var ModuleList) =
     if c.functions[i].kind == ckCallback:
       continue
 
-    assert c.codegenInOut.globalDefs.len == 0
-
+    # FIXME: using the module where the procedure is defined (i.e.
+    #        ``getModule``) is wrong. It needs to be the module to which the
+    #        symbol is *attached*, i.e. ``sym.itemId.module``
     c.module = sym.getModule()
     # code-gen' the routine. This might add new entries to the `newProcs` list
-    let r = generateCodeForProc(c, sym)
+    let r = generateCodeForProc(c, sym, globals)
     if r.isOk:
       fillProcEntry(c.functions[i], r.unsafeGet)
     else:
       c.config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
-    # `{.global.}` initialization is done here, since the initializer
-    # expression might contain references to other functions (which can
-    # also contain further globals...)
-    if c.codegenInOut.globalDefs.len > 0:
+    # generate and emit the code for `{.global.}` initialization here, as the
+    # initializer expression might depend on otherwise unused procedures (which
+    # might define further globals...)
+    if globals.len > 0:
       let mI = mlist.moduleMap[c.module.id]
       generateGlobalInit(c, mlist.modules[mI].initGlobalsCode,
-                         c.codegenInOut.globalDefs)
+                         globals)
 
-      c.codegenInOut.globalDefs.setLen(0)
+      # prepare for reuse:
+      globals.setLen(0)
 
     # code-gen might've found new functions, so adjust the function table:
     c.functions.setLen(c.codegenInOut.nextProc)
@@ -387,7 +402,6 @@ proc generateCode*(g: ModuleGraph) =
                mode: emStandalone)
 
   c.typeInfoCache.init()
-  c.codegenInOut.flags = {cgfCollectGlobals}
 
   # register the extra ops so that code generation isn't performed for the
   # corresponding procs:
