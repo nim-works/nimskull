@@ -1013,23 +1013,34 @@ proc genAsgnPatch(c: var TCtx; le: PNode, value: TRegister) =
     discard
 
 proc genNew(c: var TCtx; n: PNode) =
-  let dest = if needsAsgnPatch(n[1]): c.getTemp(n[1].typ)
-             else: c.genx(n[1])
-  c.gABx(n, opcNew, dest,
+  # FIXME: ``opcNew`` stores the allocated ``ref`` in a newly created
+  #        ``ref`` location, so we currently have to assign it to the actual
+  #        destination after. This is inefficent; instead, ``opcNew``
+  #        should treat the destination register as a handle to a ``ref``
+  #        location
+  let
+    dest = c.genx(n[1])
+    tmp = c.getTemp(n[1].typ)
+  c.gABx(n, opcNew, tmp,
          c.genType(n[1].typ.skipTypes(abstractVar-{tyTypeDesc})))
-  c.genAsgnPatch(n[1], dest)
+  c.gABC(n, opcWrLoc, dest, tmp)
+  c.freeTemp(tmp)
   c.freeTemp(dest)
 
 proc genNewSeq(c: var TCtx; n: PNode) =
+  # FIXME: ``opcNewSeq`` has the same problem as ``opcNew``. The instruction
+  #        should also reuse the location
   let t = n[1].typ.skipTypes(abstractVar-{tyTypeDesc})
   assert t.kind == tySequence
-  let dest = if needsAsgnPatch(n[1]): c.getTemp(n[1].typ)
-             else: c.genx(n[1])
-  let tmp = c.genx(n[2])
-  c.gABx(n, opcNewSeq, dest, c.genType(t))
-  c.gABx(n, opcNewSeq, tmp, 0)
+  let
+    dest = c.genx(n[1]) # ``seq`` argument
+    len = c.genx(n[2])  # length argument
+    tmp = c.getTemp(n[1].typ)
+  c.gABx(n, opcNewSeq, tmp, c.genType(t))
+  c.gABx(n, opcNewSeq, len, 0)
+  c.gABC(n, opcWrLoc, dest, tmp)
   c.freeTemp(tmp)
-  c.genAsgnPatch(n[1], dest)
+  c.freeTemp(len)
   c.freeTemp(dest)
 
 proc genNewSeqOfCap(c: var TCtx; n: PNode; dest: var TDest) =
@@ -1521,7 +1532,6 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     var d = c.genx(n[1])
     var tmp = c.genx(n[2])
     c.gABC(n, if m == mSetLengthStr: opcSetLenStr else: opcSetLenSeq, d, tmp)
-    c.genAsgnPatch(n[1], d)
     c.freeTemp(tmp)
     c.freeTemp(d)
   of mSwap:

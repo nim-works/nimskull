@@ -41,6 +41,9 @@ type
     opcLdObj,  # a = b.c
     opcLdObjAddr, # a = addr(b.c)
     opcWrObj,  # a.b = c
+    opcWrLoc,  ## ``a = b``; writes the value represented by register `b`
+               ## (either directly or indirectly) to the location identified
+               ## by register `a`. A full copy is performed.
 
     opcAddrReg,
     opcAddrNode,

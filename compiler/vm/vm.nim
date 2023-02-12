@@ -1254,6 +1254,12 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       checkHandle(regs[rc])
       writeLoc(h, regs[rc], c.memory)
 
+    of opcWrLoc:
+      # a = b
+      let rb = instr.regB
+      checkHandle(regs[ra])
+      checkHandle(regs[rb])
+      writeLoc(regs[ra].handle, regs[rb], c.memory)
     of opcWrStrIdx:
       # a[b] = c
       let rb = instr.regB
