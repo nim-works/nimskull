@@ -1896,26 +1896,6 @@ proc genDiscrVal(c: var TCtx, discr, n: PNode, oty: PType): TRegister =
     c.freeTemp(tmp2)
     c.freeTemp(bIReg)
 
-template needsAdditionalCopy(n): untyped =
-  not c.isTemp(dest) and not fitsRegister(n.typ)
-
-proc genAdditionalCopy(c: var TCtx; n: PNode; opc: TOpcode;
-                       dest, idx, value: TRegister) =
-  var cc = c.getTemp(n.typ)
-  c.gABC(n, whichAsgnOpc(n), cc, value)
-  c.gABC(n, opc, dest, idx, cc)
-  c.freeTemp(cc)
-
-proc preventFalseAlias(c: var TCtx; n: PNode; opc: TOpcode;
-                       dest, idx, value: TRegister) =
-  # opcLdObj et al really means "load address". We sometimes have to create a
-  # copy in order to not introduce false aliasing:
-  # mylocal = a.b  # needs a copy of the data!
-  assert n.typ != nil
-  if needsAdditionalCopy(n):
-    genAdditionalCopy(c, n, opc, dest, idx, value)
-  else:
-    c.gABC(n, opc, dest, idx, value)
 
 proc genFieldAsgn(c: var TCtx, obj: TRegister; le, ri: PNode) =
   c.config.internalAssert(le.kind == nkDotExpr)
@@ -1927,7 +1907,7 @@ proc genFieldAsgn(c: var TCtx, obj: TRegister; le, ri: PNode) =
 
   if sfDiscriminant notin s.flags:
     tmp = c.genx(ri)
-    c.preventFalseAlias(le, opcWrObj, obj, idx, tmp)
+    c.gABC(le, opcWrObj, obj, idx, tmp)
   else:
     # Can't use `s.owner.typ` since it may be a `tyGenericBody`
     tmp = c.genDiscrVal(le[1], ri, le[0].typ)
@@ -1947,7 +1927,7 @@ proc genAsgn(c: var TCtx; le, ri: PNode; requiresCopy: bool) =
               elif typ == tyTuple: opcWrObj
               else: opcWrArr
 
-    c.preventFalseAlias(le, opc, dest, idx, tmp)
+    c.gABC(le, opc, dest, idx, tmp)
     c.freeTemp(tmp)
     if typ != tyTuple:
       c.freeTemp(idx)
@@ -1965,7 +1945,7 @@ proc genAsgn(c: var TCtx; le, ri: PNode; requiresCopy: bool) =
   of nkDerefExpr, nkHiddenDeref:
     let dest = c.genx(le[0], #[{gfNode}]#)
     let tmp = c.genx(ri)
-    c.preventFalseAlias(le, opcWrDeref, dest, 0, tmp)
+    c.gABC(le, opcWrDeref, dest, 0, tmp)
     c.freeTemp(dest)
     c.freeTemp(tmp)
   of nkSym:
@@ -1975,7 +1955,7 @@ proc genAsgn(c: var TCtx; le, ri: PNode; requiresCopy: bool) =
         let
           tmp = genSymAddr(c, le)
           val = c.genx(ri)
-        c.preventFalseAlias(le, opcWrDeref, tmp, 0, val)
+        c.gABC(le, opcWrDeref, tmp, 0, val)
         c.freeTemp(val)
         c.freeTemp(tmp)
     else:
@@ -2360,7 +2340,7 @@ proc genVarSection(c: var TCtx; n: PNode) =
           else:
             let tmp = genSymAddr(c, a[0])
             let val = c.genx(a[2])
-            c.genAdditionalCopy(a[2], opcWrDeref, tmp, 0, val)
+            c.gABC(a, opcWrDeref, tmp, 0, val)
             c.freeTemp(val)
             c.freeTemp(tmp)
         else:
@@ -2408,7 +2388,7 @@ proc genArrayConstr(c: var TCtx, n: PNode, dest: var TDest) =
     c.gABx(n, opcLdNullReg, tmp, c.genType(intType))
     for x in n:
       let a = c.genx(x)
-      c.preventFalseAlias(n, opcWrArr, dest, tmp, a)
+      c.gABC(n, opcWrArr, dest, tmp, a)
       c.gABI(n, opcAddImmInt, tmp, tmp, 1)
       c.freeTemp(a)
     c.freeTemp(tmp)
@@ -2468,8 +2448,7 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
       else:
         tmp = c.genDiscrVal(it[0], it[1], n.typ)
         opcode = opcInitDisc
-      c.preventFalseAlias(it[1], opcode,
-                          dest, idx, tmp)
+      c.gABC(it[1], opcode, dest, idx, tmp)
       c.freeTemp(tmp)
     else:
       fail(n.info, vmGenDiagInvalidObjectConstructor, it)
@@ -2488,12 +2467,11 @@ proc genTupleConstr(c: var TCtx, n: PNode, dest: var TDest) =
       if it.kind == nkExprColonExpr:
         let idx = genField(c, it[0])
         let tmp = c.genx(it[1])
-        c.preventFalseAlias(it[1], opcWrObj,
-                            dest, idx, tmp)
+        c.gABC(it[1], opcWrObj, dest, idx, tmp)
         c.freeTemp(tmp)
       else:
         let tmp = c.genx(it)
-        c.preventFalseAlias(it, opcWrObj, dest, i.TRegister, tmp)
+        c.gABC(it, opcWrObj, dest, i.TRegister, tmp)
         c.freeTemp(tmp)
 
 proc genClosureConstr(c: var TCtx, n: PNode, dest: var TDest) =
