@@ -1103,6 +1103,14 @@ func shouldInjectDestructorCalls*(owner: PSym): bool =
      {sfInjectDestructors, sfGeneratedOp} * owner.flags == {sfInjectDestructors} and
      (owner.kind != skIterator or not isInlineIterator(owner.typ))
 
+proc deferGlobalDestructor*(g: ModuleGraph, idgen: IdGenerator, owner: PSym,
+                            global: PNode) =
+  ## If the global has a destructor, emits a call to it at the end of the
+  ## section of global destructors.
+  if sfThread notin global.sym.flags and hasDestructor(global.typ):
+    var c = Con(owner: owner, graph: g, idgen: idgen)
+    g.globalDestructors.add genDestroy(c, global)
+
 proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym; n: PNode): PNode =
   when toDebug.len > 0:
     shouldDebug = toDebug == owner.name.s or toDebug == "always"
