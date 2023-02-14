@@ -166,6 +166,62 @@ StmtList
       StmtList
         DiscardStmt
           Empty
+  Call
+    Ident "foo181"
+    StmtList
+      DiscardStmt
+        Empty
+    OfBranch
+      StmtList
+        DiscardStmt
+          Empty
+  Call
+    Ident "foo182"
+    StmtList
+      DiscardStmt
+        Empty
+    ElifBranch
+      Ident "bar"
+      StmtList
+        DiscardStmt
+          Empty
+  Call
+    Ident "foo183"
+    StmtList
+      DiscardStmt
+        Empty
+    Else
+      StmtList
+        DiscardStmt
+          Empty
+  Call
+    Ident "foo184"
+    StmtList
+      DiscardStmt
+        Empty
+    ExceptBranch
+      StmtList
+        DiscardStmt
+          Empty
+  Call
+    Ident "foo185"
+    StmtList
+      DiscardStmt
+        Empty
+    ExceptBranch
+      Ident "bar"
+      StmtList
+        DiscardStmt
+          Empty
+  Call
+    Ident "foo186"
+    StmtList
+      DiscardStmt
+        Empty
+    Finally
+      StmtList
+        DiscardStmt
+          Empty
   Command
     Ident "foo190"
     Call
@@ -498,6 +554,12 @@ StmtList
         StmtList
           DiscardStmt
             Empty
+  Call
+    Ident "foo400"
+    Finally
+      StmtList
+        DiscardStmt
+          Empty
 '''
 """
 
@@ -561,6 +623,36 @@ dumpTree:
   do:
     discard
   else:
+    discard
+
+  foo181 do:
+    discard
+  of:
+    discard
+
+  foo182 do:
+    discard
+  elif bar:
+    discard
+
+  foo183 do:
+    discard
+  else:
+    discard
+
+  foo184 do:
+    discard
+  except:
+    discard
+
+  foo185 do:
+    discard
+  except bar:
+    discard
+
+  foo186 do:
+    discard
+  finally:
     discard
 
   foo190 x do (y):
@@ -653,5 +745,9 @@ dumpTree:
     discard
   except (a, b):
     discard
+  finally:
+    discard
+
+  foo400:
   finally:
     discard

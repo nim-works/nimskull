@@ -1263,7 +1263,7 @@ proc postExprBlocks(p: var Parser, x: ParsedNode): ParsedNode =
     result = makeCall(result)
     p.getTok
     p.skipComment(result)
-    if p.tok.tokType notin {tkOf, tkElif, tkElse, tkExcept}:
+    if p.tok.tokType notin {tkOf, tkElif, tkElse, tkExcept, tkFinally}:
       var stmtList = p.newNode(nkStmtList, @[parseStmt(p)])
       # to keep backwards compatibility (see tests/vm/tstringnil)
       if stmtList[0].kind == nkStmtList: stmtList = stmtList[0]
