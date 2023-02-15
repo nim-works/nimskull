@@ -185,9 +185,9 @@ type
   TableNonCopyable = object
     x: seq[(string, MySeqNonCopyable)]
 
-proc toTable(pairs: sink openArray[(string, MySeqNonCopyable)]): TableNonCopyable =
-  discard
+# XXX: ``sink openArray[T]`` is currently disallowed
+when false:
+  proc toTable(pairs: sink openArray[(string, MySeqNonCopyable)]): TableNonCopyable =
+    discard
 
-
-let mytable = {"a": newMySeq(2, 5.0)}.toTable
-
+  let mytable = {"a": newMySeq(2, 5.0)}.toTable

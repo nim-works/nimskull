@@ -486,10 +486,6 @@ proc passCopyToSink(n: PNode; c: var Con; s: var Scope): PNode =
     if c.graph.config.selectedGC in {gcArc, gcOrc}:
       assert(not containsManagedMemory(n.typ))
 
-    if n.typ.skipTypes(abstractInst).kind in {tyOpenArray, tyVarargs}:
-      localReport(c.graph.config, n.info, reportAst(
-        rsemCannotCreateImplicitOpenarray, n))
-
     result.add newTree(nkAsgn, tmp, p(n, c, s, normal))
   # Since we know somebody will take over the produced copy, there is
   # no need to destroy it.

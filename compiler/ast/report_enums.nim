@@ -629,7 +629,6 @@ type
     rsemCannotMixTypesAndValuesInTuple
     rsemExpectedTypelessDeferBody
     rsemInvalidBindContext
-    rsemCannotCreateImplicitOpenarray
     rsemCannotAssignToDiscriminantWithCustomDestructor
     rsemUnavailableTypeBound
 
