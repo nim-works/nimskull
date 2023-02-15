@@ -2056,9 +2056,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         "destructor.\nIt is best to factor out piece of object that needs " &
         "custom destructor into separate object or not use discriminator assignment"
 
-    of rsemCannotCreateImplicitOpenarray:
-      result = "cannot create an implicit openArray copy to be passed to a sink parameter"
-
     of rsemWrongNumberOfQuoteArguments:
       assert false, "UNUSED"
 

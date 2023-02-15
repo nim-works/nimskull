@@ -142,7 +142,8 @@ proc typeAllowedAux(marker: var IntSet, typ: PType, kind: TSymKind,
       result = typeAllowedAux(marker, t[0], kind, c, flags+{taIsOpenArray})
   of tySink:
     # you cannot nest openArrays/sinks/etc.
-    if kind != skParam or taIsOpenArray in flags or t[0].kind in {tySink, tyLent, tyVar}:
+    if kind != skParam or taIsOpenArray in flags or
+       t[0].kind in {tySink, tyLent, tyVar, tyOpenArray}:
       result = t
     else:
       result = typeAllowedAux(marker, t[0], kind, c, flags)
