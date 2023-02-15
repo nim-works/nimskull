@@ -36,6 +36,7 @@ import
   compiler/utils/[
     debugutils,
     astrepr,
+    idioms
   ],
   compiler/sem/[
     varpartitions,
@@ -703,6 +704,27 @@ proc notNilCheck(tracked: PEffects, n: PNode, paramType: PType) =
       of impYes:
         discard
 
+proc discriminantAsgnCheck(tracked: PEffects, n: PNode) =
+  ## Checks whether the assignment `n` is the assignment of a discriminant and,
+  ## if it is, whether it's legal. If it's not, an error is reported
+  let dest = n[0]
+  if not isDiscriminantField(dest):
+    return
+
+  let objType =
+    case dest.kind
+    of nkCheckedFieldExpr: dest[0][0].typ
+    of nkDotExpr:          dest[0].typ
+    else:                  unreachable(dest.kind)
+
+  if hasDestructor(objType):
+    let destructor = getAttachedOp(tracked.graph, objType, attachedDestructor)
+    if destructor != nil and sfOverriden in destructor.flags:
+      # the destructor is user-provided, which disallows lifting one for the
+      # discriminant assignment -- the code is ill-formed
+      localReport(tracked.config, n):
+        reportSem rsemCannotAssignToDiscriminantWithCustomDestructor
+
 proc assumeTheWorst(tracked: PEffects; n: PNode; op: PType) =
   addRaiseEffect(tracked, createRaise(tracked.graph, n), nil)
   addTag(tracked, createTag(tracked.graph, n), nil)
@@ -1149,6 +1171,7 @@ proc track(tracked: PEffects, n: PNode) =
     dec tracked.leftPartOfAsgn
     addAsgnFact(tracked.guards, n[0], n[1])
     notNilCheck(tracked, n[1], n[0].typ)
+    discriminantAsgnCheck(tracked, n)
     when false: cstringCheck(tracked, n)
     if tracked.owner.kind != skMacro:
       createTypeBoundOps(tracked, n[0].typ, n.info)
