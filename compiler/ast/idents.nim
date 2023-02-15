@@ -17,13 +17,17 @@ import
     hashes
   ],
   compiler/ast/[
-    ast_types,
     wordrecg
   ]
 
-export PIdent
-
 type
+  PIdent* = ref TIdent
+  TIdent*{.acyclic.} = object
+    id*: int ## unique id; use this for comparisons and not the pointers
+    s*: string
+    next*: PIdent ## for hash-table chaining
+    h*: Hash ## hash value of `s`
+
   IdentCache* = ref object
     buckets: array[0..4096 * 2 - 1, PIdent]
     wordCounter: int
