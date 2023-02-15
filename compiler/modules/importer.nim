@@ -405,6 +405,8 @@ proc evalImport*(c: PContext, n: PNode): PNode =
     result = c.config.wrapError(result)
 
 proc evalFrom*(c: PContext, n: PNode): PNode =
+  # TODO: this proc, `myImportModule`, and friends are all very convoluted in
+  #       how they work, far too much mutation
   checkMinSonsLen(n, 2, c.config)
   result = newNodeI(nkImportStmt, n.info)
   let m = myImportModule(c, n[0], result)
@@ -427,9 +429,9 @@ proc evalFrom*(c: PContext, n: PNode): PNode =
         case imported.kind
         of skError:
           hasError = true
-          result[i] = imported.ast
+          result.add imported.ast
         else:
-          discard
+          result.add newSymNode(imported)
     
     c.addImport im
     afterImport(c, m)
