@@ -2,9 +2,14 @@ import compiler/ast/lineinfos
 import compiler/utils/ropes
 import std/[hashes]
 
+from compiler/ast/idents import PIdent, TIdent
+
 from compiler/front/in_options import TOption, TOptions # Stored in `PSym`
 
 from compiler/utils/int128 import Int128
+
+# xxx: is there a way to/worth eliminate the exports?
+export PIdent, TIdent
 
 const maxInstantiation* = 100
   ## maximum number of nested generic instantiations or macro pragma expansions
@@ -780,13 +785,6 @@ type
   TNodeSeq* = seq[PNode]
   PType* = ref TType
   PSym* = ref TSym
-
-  PIdent* = ref TIdent
-  TIdent*{.acyclic.} = object
-    id*: int ## unique id; use this for comparisons and not the pointers
-    s*: string
-    next*: PIdent ## for hash-table chaining
-    h*: Hash ## hash value of `s`
 
   SemTypeMismatch* = object
     formalTypeKind*: set[TTypeKind]
