@@ -421,12 +421,6 @@ proc genDiscriminantAsgn(c: var Con; s: var Scope; n: PNode): PNode =
   let objType = leDotExpr[0].typ
 
   if hasDestructor(c, objType):
-    if getAttachedOp(c.graph, objType, attachedDestructor) != nil and
-        sfOverriden in getAttachedOp(c.graph, objType, attachedDestructor).flags:
-      localReport(c.graph.config, n, reportSem rsemCannotAssignToDiscriminantWithCustomDestructor)
-      result.add newTree(nkFastAsgn, le, tmp)
-      return
-
     # generate: if le != tmp: `=destroy`(le)
     let branchDestructor = produceDestructorForDiscriminator(c.graph, objType, leDotExpr[1].sym, n.info, c.idgen)
     let cond = newTreeIT(nkInfix, n.info, getSysType(c.graph, unknownLineInfo, tyBool)):
