@@ -11,6 +11,7 @@
 
 import
   compiler/utils/[
+    idioms,
     platform,
   ],
   compiler/ast/[
@@ -175,24 +176,22 @@ proc getNimScriptSymbol*(g: ModuleGraph; name: string): PSym =
 
 proc resetNimScriptSymbols*(g: ModuleGraph) = initStrTable(g.exposed)
 
-proc getMagicEqSymForType*(g: ModuleGraph; t: PType; info: TLineInfo): PSym =
+func getMagicEqForType*(t: PType): TMagic =
+  ## Returns the ``mEqX`` magic for the given type `t`.
   case t.kind
   of tyInt,  tyInt8, tyInt16, tyInt32, tyInt64,
      tyUInt, tyUInt8, tyUInt16, tyUInt32, tyUInt64:
-    result = getSysMagic(g, info, "==", mEqI)
-  of tyEnum:
-    result = getSysMagic(g, info, "==", mEqEnum)
-  of tyBool:
-    result = getSysMagic(g, info, "==", mEqB)
-  of tyRef, tyPtr, tyPointer:
-    result = getSysMagic(g, info, "==", mEqRef)
-  of tyString:
-    result = getSysMagic(g, info, "==", mEqStr)
-  of tyChar:
-    result = getSysMagic(g, info, "==", mEqCh)
-  of tySet:
-    result = getSysMagic(g, info, "==", mEqSet)
-  of tyProc:
-    result = getSysMagic(g, info, "==", mEqProc)
+    mEqI
+  of tyEnum:   mEqEnum
+  of tyBool:   mEqB
+  of tyRef, tyPtr, tyPointer: mEqRef
+  of tyString: mEqStr
+  of tyChar:   mEqCh
+  of tySet:    mEqSet
+  of tyProc:   mEqProc
   else:
-    g.config.globalReport(info, reportTyp(rsemNoMagicEqualsForType, t))
+    unreachable(t.kind)
+
+proc getMagicEqSymForType*(g: ModuleGraph; t: PType; info: TLineInfo): PSym =
+  let magic = getMagicEqForType(t)
+  result = getSysMagic(g, info, "==", magic)

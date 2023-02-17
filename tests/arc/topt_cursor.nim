@@ -3,33 +3,36 @@ discard """
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:sio --hint:Performance:off $file'''
   nimout: '''--expandArc: main
 
-var
-  x_cursor
-  :tmpD
+var :tmp
 try:
-  x_cursor = ("hi", 5)
-  if cond:
-    x_cursor = ("different", 54) else:
-    x_cursor = ("string here", 80)
-  echo [
-    :tmpD = `$`(x_cursor)
-    :tmpD]
+  var x_cursor = ("hi", 5)
+  block label:
+    if cond:
+      x_cursor = [type node](("different", 54))
+      break label
+    x_cursor = [type node](("string here", 80))
+  echo([
+    var :tmp_1 = `$`(x_cursor)
+    :tmp = :tmp_1
+    :tmp])
 finally:
-  `=destroy`(:tmpD)
+  `=destroy`(:tmp)
 -- end of expandArc ------------------------
 --expandArc: sio
 
-block :tmp:
+block label:
   var x_cursor
   var f = open("debug.txt", fmRead, 8000)
   try:
     var res
     try:
       res = newStringOfCap(80)
-      block :tmp_1:
-        while readLine(f, res):
+      block label_1:
+        while true:
+          if op(readLine(f, res)):
+            break
           x_cursor = res
-          echo [x_cursor]
+          echo([x_cursor])
     finally:
       `=destroy`(res)
   finally:

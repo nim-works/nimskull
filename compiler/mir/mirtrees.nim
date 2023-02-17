@@ -326,8 +326,11 @@ const
     ## Convenience set containing all existing node kinds
 
   DefNodes* = {mnkDef, mnkDefCursor, mnkDefUnpack}
+    ## Node kinds that represent definition statements (i.e. something that
+    ## introduces a named entity)
 
-  SubTreeNodes* = {mnkArgBlock..mnkBranch, mnkObjConstr} + DefNodes
+  SubTreeNodes* = {mnkObjConstr, mnkArgBlock, mnkRegion, mnkStmtList, mnkScope,
+                   mnkIf..mnkBlock, mnkBranch } + DefNodes
     ## Nodes that mark the start of a sub-tree. They're always matched with a
     ## corrsponding ``mnkEnd`` node
 
@@ -335,10 +338,10 @@ const
     ## Nodes that aren't sub-trees
 
   InputNodes* = {mnkProc..mnkNone, mnkArgBlock}
-    ## Expression roots
+    ## Nodes that can appear in the position of inputs/operands but that
+    ## themselves don't have any operands
   InOutNodes* = {mnkMagic, mnkCall, mnkPathNamed..mnkPathVariant, mnkConstr,
-                 mnkObjConstr, mnkView,
-                 mnkTag, mnkCast, mnkDeref, mnkAddr,
+                 mnkObjConstr, mnkView, mnkTag, mnkCast, mnkDeref, mnkAddr,
                  mnkDerefView, mnkStdConv, mnkConv}
     ## Operations that act as both input and output
   SourceNodes* = InputNodes + InOutNodes
@@ -358,14 +361,12 @@ const
                       ArgumentNodes
     ## Operators and statements that must not have argument-blocks as input
 
-  Operators* = {mnkFastAsgn..mnkMagic, mnkTag, mnkRaise..mnkDerefView,
-                mnkStdConv..mnkCast}
-
   StmtNodes* = {mnkScope, mnkRepeat, mnkTry, mnkBlock, mnkBreak, mnkReturn,
                 mnkPNode} + DefNodes
     ## Nodes that act as statements syntax-wise
 
   SymbolLike* = {mnkProc, mnkConst, mnkGlobal, mnkParam, mnkLocal}
+    ## Nodes for which the `sym` field is available
 
   NoLabel* = LabelId(0)
 
@@ -383,7 +384,7 @@ template `[]`*(x: LabelId): uint32 =
   uint32(x) - 1
 
 # make ``NodeInstance`` available to be used with ``OptIndex``:
-template indexLike(_: typedesc[NodeInstance]) = discard
+template indexLike*(_: typedesc[NodeInstance]) = discard
 
 # XXX: ideally, the arithmetic operations on ``NodePosition`` should not be
 #      exported. How the nodes are stored should be an implementation detail
@@ -432,7 +433,9 @@ func parentEnd*(tree: MirTree, n: NodePosition): NodePosition =
   # enclosing `n`
   result = n
 
-  var depth = 1
+  # start at depth '2' if `n` starts a sub-tree itself. The terminator of said
+  # sub-tree would be treated as the parent's end otherwise
+  var depth = 1 + ord(tree[n].kind in SubTreeNodes)
   while depth > 0:
     inc result
 

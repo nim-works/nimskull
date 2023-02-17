@@ -14,6 +14,11 @@ type
     ## integer-like ID. The container is append-only
     data: seq[T]
 
+  OrdinalSeq*[I: Ordinal, T] = distinct seq[T]
+    ## Similar to a ``seq``, but can only be accessed by values of the
+    ## specified type. This is useful in situations where the type of the
+    ## index value is a ``distinct`` integer-like type
+
 # ---------- SeqMap API ------------
 
 func contains*[K, V](m: SeqMap[K, V], key: K): bool {.inline.} =
@@ -49,3 +54,21 @@ func add*[I; T](x: var Store[I, T], it: sink T): I {.inline.} =
   rangeCheck x.data.len.BiggestUInt < high(I).BiggestUInt
   x.data.add it
   result = I(x.data.high)
+
+# ---------- OrdinalSeq API ------------
+
+template len*[I; T](x: OrdinalSeq[I, T]): int =
+  (seq[T])(x).len
+
+template `[]`*[I; T](x: OrdinalSeq[I, T], i: I): untyped =
+  (seq[T])(x)[ord i]
+
+template `[]=`*[I; T](x: OrdinalSeq[I, T], i: I, item: T): untyped =
+  (seq[T])(x)[ord i] = item
+
+func add*[I; T](x: OrdinalSeq[I, T], item: sink T): I {.inline.} =
+  (seq[T])(x).add item
+  result = I(x.high)
+
+func newSeq*[I; T](x: var OrdinalSeq[I, T], len: int) {.inline.} =
+  newSeq((seq[T])(x), len)

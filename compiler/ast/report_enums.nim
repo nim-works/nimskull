@@ -826,7 +826,6 @@ type
     rsemUnsafeSetLen           = "UnsafeSetLen"
     rsemUnsafeDefault          = "UnsafeDefault"
     rsemBindDeprecated
-    rsemUncollectableRefCycle  = "CycleCreated"
     rsemObservableStores       = "ObservableStores"
     rsemCaseTransition         = "CaseTransition"
     rsemUseOfGc                = "GcMem" # last !
