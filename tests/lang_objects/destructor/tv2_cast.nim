@@ -6,77 +6,71 @@ destroying O1'''
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:main1 --expandArc:main2 --expandArc:main3 --hints:off --assertions:off $file'''
   nimout: '''--expandArc: main
 
-var
-  data
-  :tmpD
-  :tmpD_1
-  :tmpD_2
-data =
-  wasMoved(:tmpD)
-  `=copy`(:tmpD, cast[string](
-    :tmpD_2 = encode(cast[seq[byte]](
-      :tmpD_1 = newString(100)
-      :tmpD_1))
-    :tmpD_2))
-  :tmpD
-`=destroy`(:tmpD_2)
-`=destroy_1`(:tmpD_1)
-`=destroy_1`(data)
+var :tmp
+var data
+var :tmp_1
+try:
+  var :tmp_2 = encode do:
+    var :tmp_3 = newString(100)
+    :tmp = :tmp_3
+    cast[[type node]](:tmp)
+  :tmp_1 = :tmp_2
+  var :tmp_4 = cast[string](:tmp_1)
+  `=copy`(data, :tmp_4)
+finally:
+  `=destroy`(:tmp_1)
+  `=destroy_1`(:tmp)
+  `=destroy_1`(data)
 -- end of expandArc ------------------------
 --expandArc: main1
 
-var
-  s
-  data
-  :tmpD
-  :tmpD_1
-s = newString(100)
-data =
-  wasMoved(:tmpD)
-  `=copy`(:tmpD, cast[string](
-    :tmpD_1 = encode(toOpenArrayByte(s, 0, len(s) - 1))
-    :tmpD_1))
-  :tmpD
-`=destroy`(:tmpD_1)
-`=destroy_1`(data)
-`=destroy_1`(s)
+var s
+var :tmp
+var data
+try:
+  s = newString(100)
+  var :tmp_1 = encode(toOpenArrayByte(s, 0, `-`(len(s), 1)))
+  :tmp = :tmp_1
+  var :tmp_2 = cast[string](:tmp)
+  `=copy`(data, :tmp_2)
+finally:
+  `=destroy`(:tmp)
+  `=destroy_1`(data)
+  `=destroy_1`(s)
 -- end of expandArc ------------------------
 --expandArc: main2
 
-var
-  s
-  data
-  :tmpD
-  :tmpD_1
-s = newSeq(100)
-data =
-  wasMoved(:tmpD)
-  `=copy`(:tmpD, cast[string](
-    :tmpD_1 = encode(s)
-    :tmpD_1))
-  :tmpD
-`=destroy`(:tmpD_1)
-`=destroy_1`(data)
-`=destroy`(s)
+var s
+var :tmp
+var data
+try:
+  s = newSeq(100)
+  var :tmp_1 = encode(s)
+  :tmp = :tmp_1
+  var :tmp_2 = cast[string](:tmp)
+  `=copy`(data, :tmp_2)
+finally:
+  `=destroy`(:tmp)
+  `=destroy_1`(data)
+  `=destroy`(s)
 -- end of expandArc ------------------------
 --expandArc: main3
 
-var
-  data
-  :tmpD
-  :tmpD_1
-  :tmpD_2
-data =
-  wasMoved(:tmpD)
-  `=copy`(:tmpD, cast[string](
-    :tmpD_2 = encode do:
-      :tmpD_1 = newSeq(100)
-      :tmpD_1
-    :tmpD_2))
-  :tmpD
-`=destroy`(:tmpD_2)
-`=destroy`(:tmpD_1)
-`=destroy_1`(data)
+var :tmp
+var data
+var :tmp_1
+try:
+  var :tmp_2 = encode do:
+    var :tmp_3 = newSeq(100)
+    :tmp = :tmp_3
+    :tmp
+  :tmp_1 = :tmp_2
+  var :tmp_4 = cast[string](:tmp_1)
+  `=copy`(data, :tmp_4)
+finally:
+  `=destroy`(:tmp_1)
+  `=destroy`(:tmp)
+  `=destroy_1`(data)
 -- end of expandArc ------------------------'''
 """
 

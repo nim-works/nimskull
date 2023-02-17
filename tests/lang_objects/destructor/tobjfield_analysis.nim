@@ -49,3 +49,23 @@ proc main =
 
 main()
 
+import mhelper
+
+test constructed_object_field_access:
+  type Wrapper = object
+    a: Value[int]
+    b: Value[int]
+
+  proc prc() =
+    # a literal constructor expression (which ``initValue`` also expands to)
+    # not used *directly* in a consume context only produces a non-owning
+    # container
+    # TODO: this doesn't match the behaviour the specification describes (i.e.
+    #       constructor expression having the same semantics as procedure calls
+    #       in the context of lifetime hook injection). The behaviour here
+    #       should either be explicitly added to the spec or changed
+    var x = Wrapper(a: initValue(1), b: initValue(2)).a # use a copy
+
+  prc()
+
+  doAssert numCopies == 1

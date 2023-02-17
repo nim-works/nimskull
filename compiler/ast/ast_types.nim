@@ -306,7 +306,6 @@ type
     sfNeverRaises     ## proc can never raise an exception, not even
                       ## OverflowDefect or out-of-memory
     sfUsedInFinallyOrExcept  ## symbol is used inside an 'except' or 'finally'
-    sfSingleUsedTemp  ## For temporaries that we know will only be used once
     sfNoalias         ## 'noalias' annotation, means C's 'restrict'
     sfEffectsDelayed  ## an 'effectsDelayed' parameter
 
@@ -500,8 +499,6 @@ type
     nfDefaultParam ## an automatically inserter default parameter
     nfDefaultRefsParam ## a default param value references another parameter
                        ## the flag is applied to proc default values and to calls
-    nfLastRead  ## this node is a last read
-    nfFirstWrite## this node is a first write
     nfHasComment ## node has a comment
     nfImplicitPragma ## node is a "singlePragma" this is a transition flag
                   ## created as part of nkError refactoring for the pragmas

@@ -67,9 +67,6 @@ type
       of rsemXCannotRaiseY:
         raisesList*: PNode
 
-      of rsemUncollectableRefCycle:
-        cycleField*: PNode
-
       of rsemStrictNotNilExpr, rsemStrictNotNilResult:
         nilIssue*: Nilability
         nilHistory*: seq[SemNilHistory]

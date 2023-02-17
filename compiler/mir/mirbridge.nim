@@ -55,6 +55,31 @@ let reprConfig = block:
   rc.flags.incl trfShowSymKind
   rc
 
+# NOTE: the ``echoX`` are used as a temporary solution for inspecting inputs
+# and outputs in the context of compiler debugging until a more
+# structured/integrated solution is implemented
+
+proc echoInput(config: ConfigRef, owner: PSym, body: PNode) =
+  ## If requested via the define, renders the input AST `body` and writes the
+  ## result out through ``config.writeLine``.
+  if config.getStrDefine("nimShowMirInput") == owner.name.s:
+    writeBody(config, "-- input AST: " & owner.name.s):
+      config.writeln(treeRepr(config, body, reprConfig))
+
+proc echoMir(config: ConfigRef, owner: PSym, tree: MirTree) =
+  ## If requested via the define, renders the `tree` and writes the result out
+  ## through ``config.writeln``.
+  if config.getStrDefine("nimShowMir") == owner.name.s:
+    writeBody(config, "-- MIR: " & owner.name.s):
+      config.writeln(print(tree))
+
+proc echoOutput(config: ConfigRef, owner: PSym, body: PNode) =
+  ## If requested via the define, renders the output AST `body` and writes the
+  ## result out through ``config.writeLine``.
+  if config.getStrDefine("nimShowMirOutput") == owner.name.s:
+    writeBody(config, "-- output AST: " & owner.name.s):
+      config.writeln(treeRepr(config, body, reprConfig))
+
 proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
                    body: PNode, options: set[GenOption]): PNode =
   ## No MIR passes exist yet, so the to-and-from translation is treated as a
@@ -85,25 +110,35 @@ proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
 proc canonicalizeWithInject*(graph: ModuleGraph, idgen: IdGenerator,
                              owner: PSym, body: PNode,
                              options: set[GenOption]): PNode =
-  ## Performs either the canonicalization *or*  cursor inference plus
-  ## destructor injection
+  ## Transforms `body` through the following steps:
+  ## 1. cursor inference
+  ## 2. translation to MIR code
+  ## 3. application of the ``injectdestructors`` pass
+  ## 4. translation back to AST
+  ##
+  ## Cursor inference and destructor injection are only performed if `owner`
+  ## is eligible according to ``injectdestructors.shouldInjectDestructorCalls``
+  let config = graph.config
 
-  # the output of ``canonicalize`` confuses either ``computeCursors``,
-  # ``injectDestructorCalls``, or both enough for them to produce code
-  # where expected destructor calls are missing. As a temporary solution, the
-  # canonicalization step is skipped for bodies that require destructor
-  # injection
-  # FIXME: this is a severe problem, as it means that ``canonicalize`` is, in
-  #        fact, **not** run for all code that is reaching the code-generators.
-  #        The issue needs to be fixed before transformations and lowerings can
-  #        be turned into MIR passes
-  if shouldInjectDestructorCalls(owner):
-    if optCursorInference in graph.config.options:
-      computeCursors(owner, body, graph)
+  # cursor inference is not a MIR pass yet, so it has to be applied before
+  # the MIR translation/processing
+  let inject = shouldInjectDestructorCalls(owner)
+  if inject and optCursorInference in config.options:
+    computeCursors(owner, body, graph)
 
-    injectDestructorCalls(graph, idgen, owner, body)
-  else:
-    canonicalize(graph, idgen, owner, body, {})
+  echoInput(config, owner, body)
+
+  # step 1: generate a ``MirTree`` from the input AST
+  var (tree, sourceMap) = generateCode(graph, owner, options, body)
+  echoMir(config, owner, tree)
+
+  # step 2: run the ``injectdestructors`` pass
+  if inject:
+    injectDestructorCalls(graph, idgen, owner, tree, sourceMap)
+
+  # step 3: translate the MIR code back to an AST
+  result = generateAST(graph, idgen, owner, tree, sourceMap)
+  echoOutput(config, owner, result)
 
 proc canonicalizeSingle*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
                          n: PNode, options: set[GenOption]): PNode =

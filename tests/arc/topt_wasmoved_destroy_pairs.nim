@@ -3,54 +3,54 @@ discard """
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:tfor --hint:Performance:off $file'''
   nimout: '''--expandArc: main
 
-var
-  a
-  b
-  x
+var a
+var b
+var x
 x = f()
-if cond:
-  add(a):
-    let blitTmp = x
-    blitTmp
-else:
-  add(b):
-    let blitTmp_1 = x
-    blitTmp_1
+block label:
+  if cond:
+    add(a, x)
+    break label
+  add(b, x)
 `=destroy`(b)
 `=destroy`(a)
 -- end of expandArc ------------------------
 --expandArc: tfor
 
-var
-  a
-  b
-  x
+var a
+var b
+var x
 try:
   x = f()
-  block :tmp:
+  block label:
     var i_cursor
     var i_1 = 0
-    block :tmp_1:
-      while i_1 < 4:
-        var :tmpD
+    block label_1:
+      while true:
+        if op(`<`(i_1, 4)):
+          break
+        var :tmp
         i_cursor = i_1
-        if i_cursor == 2:
+        if `==`(i_cursor, 2):
           return
         add(a):
-          wasMoved(:tmpD)
-          `=copy`(:tmpD, x)
-          :tmpD
-        inc i_1, 1
-  if cond:
-    add(a):
-      let blitTmp = x
-      wasMoved(x)
-      blitTmp
-  else:
+          :tmp = op()
+          `=copy`(:tmp, x)
+          :tmp
+        inc(i_1, 1)
+  block label_2:
+    if cond:
+      var :tmp_1
+      add(a):
+        :tmp_1 = x
+        op(x)
+        :tmp_1
+      break label_2
+    var :tmp_2
     add(b):
-      let blitTmp_1 = x
-      wasMoved(x)
-      blitTmp_1
+      :tmp_2 = x
+      op(x)
+      :tmp_2
 finally:
   `=destroy`(x)
   `=destroy_1`(b)

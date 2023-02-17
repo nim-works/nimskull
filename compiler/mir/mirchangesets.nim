@@ -97,14 +97,14 @@ func span[T](a, b: T): HOslice[T] {.inline.} =
 func empty[T](x: typedesc[HOslice[T]]): HOslice[T] {.inline.} =
   HOslice[T](a: default(T), b: default(T))
 
-func row(start, fin: NodePosition, src: HOSlice[NodeIndex];
+func row(start, fin: NodePosition, src: HOslice[NodeIndex];
          source = NodePosition(0)): Row {.inline.} =
   ## Convenience constructor for ``Row``
   Row(orig: span(NodeIndex(start), NodeIndex(fin)),
       src: src,
       source: source.uint32)
 
-func addSingle(s: var MirNodeSeq, n: sink MirNode): HOSlice[NodeIndex] =
+func addSingle(s: var MirNodeSeq, n: sink MirNode): HOslice[NodeIndex] =
   s.add n
   result = single(s.high.NodeIndex)
 
@@ -179,7 +179,7 @@ template replaceMulti*(c: var Changeset, name, body: untyped) =
     body
     swap(c.nodes, name)
 
-    let next = sibling(tree(c), c.pos)
+    let next = sibling(c.tree, c.pos)
     c.rows.add row(c.pos, next, span(start, c.nodes.len.NodeIndex), c.pos)
     c.pos = next
 
@@ -187,7 +187,7 @@ func remove*(c: var Changeset) =
   ## Records the removal of the currently pointed to sub-tree
   let next = sibling(c.tree, c.pos)
   # use an empty source slice
-  c.rows.add row(c.pos, next, empty(HOSlice[NodeIndex]))
+  c.rows.add row(c.pos, next, empty(HOslice[NodeIndex]))
   c.pos = next
 
 func skip*(c: var Changeset, num: Natural) =

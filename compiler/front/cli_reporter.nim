@@ -1909,13 +1909,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemObservableStores:
       result = "observable stores to '$1'" % r.ast.render
 
-    of rsemUncollectableRefCycle:
-      if r.cycleField == nil:
-        result = "'$#' creates an uncollectable ref cycle" % [r.ast.render]
-      else:
-        result = "'$#' creates an uncollectable ref cycle; annotate '$#' with .cursor" % [
-          r.ast.render, r.cycleField.render]
-
     of rsemResultUsed:
       result = "used 'result' variable"
 
