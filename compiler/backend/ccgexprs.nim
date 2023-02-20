@@ -2756,16 +2756,15 @@ proc exprComplexConst(p: BProc, n: PNode, d: var TLoc) =
     if t.kind notin {tySequence, tyString}:
       d.storage = OnStatic
 
-proc genConstSetup(p: BProc; sym: PSym): bool =
-  let m = p.module
+proc genConstSetup(m: BModule; sym: PSym): bool =
   useHeader(m, sym)
   if sym.loc.k == locNone:
-    fillLoc(sym.loc, locData, sym.ast, mangleName(p.module, sym), OnStatic)
+    fillLoc(sym.loc, locData, sym.ast, mangleName(m, sym), OnStatic)
 
   result = lfNoDecl notin sym.loc.flags
 
-proc genConstHeader(m, q: BModule; p: BProc, sym: PSym) =
-  if sym.loc.r == nil and not genConstSetup(p, sym):
+proc genConstHeader*(m, q: BModule; sym: PSym) =
+  if sym.loc.r == nil and not genConstSetup(m, sym):
     return
 
   assert(sym.loc.r != nil, $sym.name.s & $sym.itemId)
@@ -2773,8 +2772,8 @@ proc genConstHeader(m, q: BModule; p: BProc, sym: PSym) =
     let headerDecl = "extern NIM_CONST $1 $2;$n" %
         [getTypeDesc(m, sym.loc.t, skVar), sym.loc.r]
     m.s[cfsData].add(headerDecl)
-    if sfExportc in sym.flags and p.module.g.generatedHeader != nil:
-      p.module.g.generatedHeader.s[cfsData].add(headerDecl)
+    if sfExportc in sym.flags and m.g.generatedHeader != nil:
+      m.g.generatedHeader.s[cfsData].add(headerDecl)
 
 proc genConstDefinition(q: BModule; p: BProc; sym: PSym) =
   q.s[cfsData].addf("N_LIB_PRIVATE NIM_CONST $1 $2 = $3;$n",
@@ -2788,7 +2787,7 @@ proc genConstStmt(p: BProc, n: PNode) =
   for it in n:
     if it[0].kind == nkSym:
       let sym = it[0].sym
-      if not isSimpleConst(sym.typ) and sym.itemId.item in m.alive and genConstSetup(p, sym):
+      if not isSimpleConst(sym.typ) and sym.itemId.item in m.alive and genConstSetup(m, sym):
         genConstDefinition(m, p, sym)
 
 proc expr(p: BProc, n: PNode, d: var TLoc) =
@@ -2801,37 +2800,42 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
     var sym = n.sym
     case sym.kind
     of skMethod:
-      if useAliveDataFromDce in p.module.flags or {sfDispatcher, sfForward} * sym.flags != {}:
-        # we cannot produce code for the dispatcher yet:
-        fillProcLoc(p.module, n)
-        genProcPrototype(p.module, sym)
-      else:
-        genProc(p.module, sym)
+      fillProcLoc(p.module, n)
+      genProcPrototype(p.module, sym)
       putLocIntoDest(p, d, sym.loc)
     of skProc, skConverter, skIterator, skFunc:
-      #if sym.kind == skIterator:
-      #  echo renderTree(sym.getBody, {renderIds})
       if sfCompileTime in sym.flags:
         localReport(p.config, n.info, reportSym(
           rsemCannotCodegenCompiletimeProc, sym))
 
-      if useAliveDataFromDce in p.module.flags and sym.typ.callConv != ccInline:
-        fillProcLoc(p.module, n)
-        genProcPrototype(p.module, sym)
+      if useAliveDataFromDce in p.module.flags:
+        if sym.typ.callConv == ccInline:
+          # the IC backend doesn't have dedicated handling for inline procedures
+          genProc(p.module, sym)
+        else:
+          fillProcLoc(p.module, n)
+          genProcPrototype(p.module, sym)
       else:
-        genProc(p.module, sym)
+        if lfDynamicLib in sym.loc.flags:
+          # code generation for dynlib procedures is still managed here
+          genProc(p.module, sym)
+        else:
+          genProcPrototype(p.module, sym)
+          # the orchestrator is responsible for emitting the header and/or
+          # procedure itself
+
       if sym.loc.r == nil or sym.loc.lode == nil:
         internalError(p.config, n.info, "expr: proc not init " & sym.name.s)
       putLocIntoDest(p, d, sym.loc)
     of skConst:
       if isSimpleConst(sym.typ):
         putIntoDest(p, d, n, genLiteral(p, sym.ast, sym.typ), OnStatic)
-      elif useAliveDataFromDce in p.module.flags:
-        genConstHeader(p.module, p.module, p, sym)
-        assert((sym.loc.r != nil) and (sym.loc.t != nil))
-        putLocIntoDest(p, d, sym.loc)
       else:
         genComplexConst(p, sym, d)
+        # useAliveDataFromDce in p.module.flags:
+        # genConstHeader(p.module, p.module, sym)
+        # assert((sym.loc.r != nil) and (sym.loc.t != nil))
+        # putLocIntoDest(p, d, sym.loc)
     of skEnumField:
       # we never reach this case - as of the time of this comment,
       # skEnumField is folded to an int in semfold.nim, but this code
@@ -3013,7 +3017,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
           # are not transformed correctly. We work around this issue (#411) here
           # by ensuring it's no inner proc (owner is a module).
           # Generate proc even if empty body, bugfix #11651.
-          genProc(p.module, prc)
+          discard #genProc(p.module, prc)
   of nkState: genState(p, n)
   of nkGotoState:
     genGotoState(p, n)

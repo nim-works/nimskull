@@ -46,9 +46,6 @@ import
     lineinfos,
     astmsgs,
   ],
-  compiler/mir/[
-    mirbridge
-  ],
   compiler/modules/[
     magicsys,
     modulegraphs
@@ -65,12 +62,11 @@ import
     passes,
     lowerings,
     rodutils,
-    transf,
     sourcemap
   ],
   compiler/backend/[
+    backends,
     ccgutils,
-    cgmeth,
   ],
   compiler/plugins/[
   ],
@@ -92,7 +88,7 @@ type
     config: ConfigRef
     sigConflicts: CountTable[SigHash]
 
-  BModule = ref TJSGen
+  BModule* = ref TJSGen
   TJSTypeKind = enum       # necessary JS "types"
     etyNone,                  # no type
     etyNull,                  # null type
@@ -127,19 +123,23 @@ type
                              # has been used (i.e. the label should be emitted)
     isLoop: bool             # whether it's a 'block' or 'while'
 
-  PGlobals = ref object of RootObj
-    typeInfo, constants, code: Rope
+  PGlobals* = ref object of RootObj
+    typeInfo, constants*, code*: Rope
     forwarded: seq[PSym]
     generatedSyms: IntSet
     typeInfoGenerated: IntSet
     unique: int    # for temp identifier generation
     inSystem: bool
 
-  PProc = ref TProc
-  TProc = object
+    extra*: seq[PSym]
+    innerProcs*: Table[int, PNode] ## all not-yet-generated closure procedures.
+      ## Stored here instead of for each ``TProc`` in order to reuse memory
+
+  PProc* = ref TProc
+  TProc* = object
     procDef: PNode
     prc: PSym
-    globals, locals, body: Rope
+    globals, locals*, body*: Rope
     options: TOptions
     module: BModule
     g: PGlobals
@@ -177,7 +177,7 @@ template nested(p, body) =
   body
   dec p.extraIndent
 
-proc newGlobals(): PGlobals =
+proc newGlobals*(): PGlobals =
   new(result)
   result.forwarded = @[]
   result.generatedSyms = initIntSet()
@@ -209,10 +209,15 @@ proc newProc(globals: PGlobals, module: BModule, procDef: PNode,
 
 proc initProcOptions(module: BModule): TOptions =
   result = module.config.options
-  if PGlobals(module.graph.backend).inSystem:
+  # NOTE: not exactly the same (modules imported from ``system.nim`` are not
+  #       treated as part of system), but it mirrors what ``cgen`` does
+  if sfSystemModule in module.module.flags:
     result.excl(optStackTrace)
 
-proc newInitProc(globals: PGlobals, module: BModule): PProc =
+  # if PGlobals(module.graph.backend).inSystem:
+  #   result.excl(optStackTrace)
+
+proc newInitProc*(globals: PGlobals, module: BModule): PProc =
   result = newProc(globals, module, nil, initProcOptions(module))
 
 proc declareGlobal(p: PProc; id: int; r: Rope) =
@@ -342,10 +347,11 @@ proc useMagic(p: PProc, name: string) =
   if name.len == 0: return
   var s = magicsys.getCompilerProc(p.module.graph, name)
   if s != nil:
-    internalAssert p.config, s.kind in {skProc, skFunc, skMethod, skConverter}
-    if not p.g.generatedSyms.containsOrIncl(s.id):
-      let code = genProc(p, s)
-      p.g.constants.add(code)
+    p.g.extra.add s
+    # internalAssert p.config, s.kind in {skProc, skFunc, skMethod, skConverter}
+    # if not p.g.generatedSyms.containsOrIncl(s.id):
+    #   let code = genProc(p, s)
+    #   p.g.constants.add(code)
   else:
     if p.prc != nil:
       globalReport(p.config, p.prc.info, reportStr(rsemSystemNeeds, name))
@@ -1419,14 +1425,14 @@ proc attachProc(p: PProc; s: PSym) =
   let newp = genProc(p, s)
   attachProc(p, newp, s)
 
-proc genProcForSymIfNeeded(p: PProc, s: PSym) =
-  if not p.g.generatedSyms.containsOrIncl(s.id):
-    let newp = genProc(p, s)
-    var owner = p
-    while owner != nil and owner.prc != s.owner:
-      owner = owner.up
-    if owner != nil: owner.locals.add(newp)
-    else: attachProc(p, newp, s)
+# proc genProcForSymIfNeeded(p: PProc, s: PSym) =
+#   if not p.g.generatedSyms.containsOrIncl(s.id):
+#     let newp = genProc(p, s)
+#     var owner = p
+#     while owner != nil and owner.prc != s.owner:
+#       owner = owner.up
+#     if owner != nil: owner.locals.add(newp)
+#     else: attachProc(p, newp, s)
 
 proc genCopyForParamIfNeeded(p: PProc, n: PNode) =
   let s = n.sym
@@ -1479,18 +1485,18 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
       localReport(p.config, n.info, reportSym(
         rsemCannotCodegenCompiletimeProc, s))
 
-    discard mangleName(p.module, s)
+    # discard mangleName(p.module, s)
     r.res = s.loc.r
-    if lfNoDecl in s.loc.flags or s.magic notin {mNone, mIsolate} or
-       {sfImportc, sfInfixCall} * s.flags != {}:
-      discard
-    elif s.kind == skMethod and getBody(p.module.graph, s).kind == nkEmpty:
-      # we cannot produce code for the dispatcher yet:
-      discard
-    elif sfForward in s.flags:
-      p.g.forwarded.add(s)
-    else:
-      genProcForSymIfNeeded(p, s)
+    # if lfNoDecl in s.loc.flags or s.magic notin {mNone, mIsolate} or
+    #    {sfImportc, sfInfixCall} * s.flags != {}:
+    #   discard
+    # elif s.kind == skMethod and getBody(p.module.graph, s).kind == nkEmpty:
+    #   # we cannot produce code for the dispatcher yet:
+    #   discard
+    # elif sfForward in s.flags:
+    #   p.g.forwarded.add(s)
+    # else:
+    #   genProcForSymIfNeeded(p, s)
   else:
     p.config.internalAssert(s.loc.r != nil, n.info, "symbol has no generated name: " & s.name.s)
     if mapType(p, s.typ) == etyBaseIndex:
@@ -2194,7 +2200,7 @@ proc genMagic(p: PProc, n: PNode, r: var TCompRes) =
   of mNewStringOfCap:
     unaryExpr(p, n, r, "mnewString", "mnewString(0)")
   of mDotDot:
-    genProcForSymIfNeeded(p, n[0].sym)
+    #genProcForSymIfNeeded(p, n[0].sym)
     genCall(p, n, r)
   of mParseBiggestFloat:
     useMagic(p, "nimParseBiggestFloat")
@@ -2416,7 +2422,7 @@ proc optionalLine(p: Rope): Rope =
   else:
     return p & "\L"
 
-proc genProc(oldProc: PProc, prc: PSym): Rope =
+proc genProc*(oldProc: PProc, prc: PSym, transformedBody: PNode): Rope =
   var
     resultSym: PSym
     a: TCompRes
@@ -2445,10 +2451,6 @@ proc genProc(oldProc: PProc, prc: PSym): Rope =
       returnStmt = "return [$#, $#];$n" % [a.address, a.res]
     else:
       returnStmt = "return $#;$n" % [a.res]
-
-  var transformedBody = transformBody(p.module.graph, p.module.idgen, prc, cache = false)
-  transformedBody = canonicalizeWithInject(p.module.graph, p.module.idgen, prc,
-                                           transformedBody, {})
 
   p.nested: genStmt(p, transformedBody)
 
@@ -2486,6 +2488,17 @@ proc genProc(oldProc: PProc, prc: PSym): Rope =
 
   #if gVerbosity >= 3:
   #  echo "END   generated code for: " & prc.name.s
+
+proc genProc(oldProc: PProc, prc: PSym): Rope =
+  let body = oldProc.g.innerProcs.getOrDefault(prc.id, nil)
+  if body != nil:
+    # it's a closure procedure
+    result = genProc(oldProc, prc, body)
+    oldProc.g.innerProcs.del(prc.id)
+  else:
+    # it's a non-closure procedure; the orchestrator is responsbile for
+    # generating the body
+    result = nil
 
 proc genStmt(p: PProc, n: PNode) =
   var r: TCompRes
@@ -2685,9 +2698,13 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkPragma: genPragma(p, n)
   of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:
     var s = n[namePos].sym
-    if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
-      genSym(p, n[namePos], r)
-      r.res = nil
+    # if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
+    #   genSym(p, n[namePos], r)
+    #   r.res = nil
+    let r = genProc(p, s)
+    if r != nil:
+      # it's an inner closure procedure, emit it were it's defined
+      p.locals.add(r)
   of nkGotoState, nkState:
     globalReport(p.config, n.info, BackendReport(
       kind: rbackJsUnsupportedClosureIter))
@@ -2695,97 +2712,101 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkPragmaBlock: gen(p, n.lastSon, r)
   else: internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 
-proc newModule(g: ModuleGraph; module: PSym): BModule =
+proc newModule*(g: ModuleGraph; module: PSym): BModule =
   new(result)
   result.module = module
   result.sigConflicts = initCountTable[SigHash]()
-  if g.backend == nil:
-    g.backend = newGlobals()
+  # if g.backend == nil:
+  #   g.backend = newGlobals()
   result.graph = g
   result.config = g.config
-  if sfSystemModule in module.flags:
-    PGlobals(g.backend).inSystem = true
+  # if sfSystemModule in module.flags:
+  #   PGlobals(g.backend).inSystem = true
 
-proc genHeader(): Rope =
+proc genHeader*(): Rope =
   result = rope("""/* Generated by the Nim Compiler v$1 */
     var framePtr = null;
     var excHandler = 0;
     var lastJSError = null;
   """.unindent.format(VersionAsString))
 
-proc genModule(p: PProc, n: PNode) =
+proc genModule*(p: PProc, n: PNode) =
   if optStackTrace in p.options:
     p.body.add(frameCreate(p,
         makeJSString("module " & p.module.module.name.s),
         makeJSString(toFilenameOption(p.config, p.module.module.info.fileIndex, foStacktrace))))
-  var transformedN = transformStmt(p.module.graph, p.module.idgen, p.module.module, n)
-  transformedN = canonicalizeWithInject(p.module.graph, p.module.idgen,
-                                        p.module.module, transformedN, {})
 
-  genStmt(p, transformedN)
+  genStmt(p, n)
 
   if optStackTrace in p.options:
     p.body.add(frameDestroy(p))
 
-proc myProcess(b: PPassContext, n: PNode): PNode =
-  result = n
-  let m = BModule(b)
-  if passes.skipCodegen(m.config, n): return n
-  m.config.internalAssert(m.module != nil, n.info, "myProcess")
-  let globals = PGlobals(m.graph.backend)
-  var p = newInitProc(globals, m)
-  p.unique = globals.unique
-  genModule(p, n)
-  p.g.code.add(p.locals)
-  p.g.code.add(p.body)
+proc setupInitProc*(g: PGlobals, m: BModule): PProc =
+  result = newInitProc(g, m)
+  result.unique = g.unique
 
-proc wholeCode(graph: ModuleGraph; m: BModule): Rope =
-  let globals = PGlobals(graph.backend)
-  for prc in globals.forwarded:
-    if not globals.generatedSyms.containsOrIncl(prc.id):
-      var p = newInitProc(globals, m)
-      attachProc(p, prc)
+# proc myProcess(b: PPassContext, n: PNode): PNode =
+#   result = n
+#   let m = BModule(b)
+#   if passes.skipCodegen(m.config, n): return n
+#   m.config.internalAssert(m.module != nil, n.info, "myProcess")
+#   let globals = PGlobals(m.graph.backend)
+#   var p = newInitProc(globals, m)
+#   p.unique = globals.unique
+#   genModule(p, n)
+#   p.g.code.add(p.locals)
+#   p.g.code.add(p.body)
 
-  var disp = generateMethodDispatchers(graph)
-  for i in 0..<disp.len:
-    let prc = disp[i].sym
-    if not globals.generatedSyms.containsOrIncl(prc.id):
-      var p = newInitProc(globals, m)
-      attachProc(p, prc)
+# proc wholeCode*(graph: ModuleGraph; m: BModule): Rope =
+#   let globals = PGlobals(graph.backend)
+#   for prc in globals.forwarded:
+#     if not globals.generatedSyms.containsOrIncl(prc.id):
+#       var p = newInitProc(globals, m)
+#       attachProc(p, prc)
+#
+#   var disp = generateMethodDispatchers(graph)
+#   for i in 0..<disp.len:
+#     let prc = disp[i].sym
+#     if not globals.generatedSyms.containsOrIncl(prc.id):
+#       var p = newInitProc(globals, m)
+#       attachProc(p, prc)
+#
+#   result = globals.typeInfo & globals.constants & globals.code
 
+proc wholeCode*(globals: PGlobals): Rope =
   result = globals.typeInfo & globals.constants & globals.code
 
-proc getClassName(t: PType): Rope =
-  var s = t.sym
-  if s.isNil or sfAnon in s.flags:
-    s = skipTypes(t, abstractPtrs).sym
-  if s.isNil or sfAnon in s.flags:
-    doAssert(false, "cannot retrieve class name")
-  if s.loc.r != nil: result = s.loc.r
-  else: result = rope(s.name.s)
+# proc getClassName(t: PType): Rope =
+#   var s = t.sym
+#   if s.isNil or sfAnon in s.flags:
+#     s = skipTypes(t, abstractPtrs).sym
+#   if s.isNil or sfAnon in s.flags:
+#     doAssert(false, "cannot retrieve class name")
+#   if s.loc.r != nil: result = s.loc.r
+#   else: result = rope(s.name.s)
 
-proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
-  result = myProcess(b, n)
-  var m = BModule(b)
-  if sfMainModule in m.module.flags:
-    for destructorCall in graph.globalDestructors:
-      n.add destructorCall
-  if sfSystemModule in m.module.flags:
-    PGlobals(graph.backend).inSystem = false
-  if passes.skipCodegen(m.config, n): return n
-  if sfMainModule in m.module.flags:
-    var code = genHeader() & wholeCode(graph, m)
-    let outFile = m.config.prepareToWriteOutput()
+# proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
+#   result = myProcess(b, n)
+#   var m = BModule(b)
+#   if sfMainModule in m.module.flags:
+#     for destructorCall in graph.globalDestructors:
+#       n.add destructorCall
+#   if sfSystemModule in m.module.flags:
+#     PGlobals(graph.backend).inSystem = false
+#   if passes.skipCodegen(m.config, n): return n
+#   if sfMainModule in m.module.flags:
+#     var code = genHeader() & wholeCode(graph, m)
+#     let outFile = m.config.prepareToWriteOutput()
+#
+#     if optSourcemap in m.config.globalOptions:
+#       var map: SourceMap
+#       (code, map) = genSourceMap($(code), outFile.string)
+#       writeFile(outFile.string & ".map", $(%map))
+#     discard writeRopeIfNotEqual(code, outFile)
 
-    if optSourcemap in m.config.globalOptions:
-      var map: SourceMap
-      (code, map) = genSourceMap($(code), outFile.string)
-      writeFile(outFile.string & ".map", $(%map))
-    discard writeRopeIfNotEqual(code, outFile)
 
+# proc myOpen(graph: ModuleGraph; s: PSym; idgen: IdGenerator): PPassContext =
+#   result = newModule(graph, s)
+#   result.idgen = idgen
 
-proc myOpen(graph: ModuleGraph; s: PSym; idgen: IdGenerator): PPassContext =
-  result = newModule(graph, s)
-  result.idgen = idgen
-
-const JSgenPass* = makePass(myOpen, myProcess, myClose)
+#const JSgenPass* = makePass(myOpen, myProcess, myClose)

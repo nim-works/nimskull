@@ -29,6 +29,9 @@ func contains*[K, V](m: SeqMap[K, V], key: K): bool {.inline.} =
 func `[]`*[K, V](m: SeqMap[K, V], key: K): lent V {.inline.} =
   result = m.data[ord(key)]
 
+func `[]`*[K, V](m: var SeqMap[K, V], key: K): var V {.inline.} =
+  result = m.data[ord(key)]
+
 func `[]=`*[K, V](m: var SeqMap[K, V], key: K, val: sink V) =
   let i = ord(key)
   if m.data.len <= i:
@@ -36,6 +39,27 @@ func `[]=`*[K, V](m: var SeqMap[K, V], key: K, val: sink V) =
 
   m.data[i] = val
 
+func reserve*[K, V, T](m: var SeqMap[K, V], other: Store[K, T]) =
+  ## Reserves enough space in `m` so that all items in ``other` can be added
+  ## to the map without requring resizing the internal sequence. This is an
+  ## optimization.
+  if other.data.len > m.data.len:
+    m.data.setLen(other.data.len)
+
+iterator values*[K, V](m: SeqMap[K, V]): lent V =
+  mixin isFilled
+  for it in m.data.items:
+    if isFilled(it):
+      yield it
+
+iterator pairs*[K, V](m: SeqMap[K, V]): (K, lent V) =
+  mixin isFilled
+  var i = 0
+  let L = m.data.len
+  while i < L:
+    if isFilled(m.data[i]):
+      yield (K(i), m.data[i])
+    inc i
 
 # ---------- Store API ------------
 
@@ -47,6 +71,26 @@ template `[]=`*[I; T](x: var Store[I, T], i: I, it: T): untyped =
   ## Overwrites the item corresponding to `i` with `it`
   # TODO: convert to ``distinctBase`` instead
   x.data[int(i)] = it
+
+iterator items*[I, T](x: Store[I, T]): lent T =
+  ## Iterates over and returns all items in `x`
+  var i = 0
+  let L = x.data.len
+  while i < L:
+    yield x.data[i]
+    inc i
+
+iterator pairs*[I, T](x: Store[I, T]): (I, lent T) =
+  ## Iterates over and returns all items in `x` together with their
+  ## corresponding IDs
+  var i = 0
+  let L = x.data.len
+  while i < L:
+    # there's no need to perform a range check here: ``add`` already errors
+    # when trying to add items for which the index can't be represented with
+    # ``I``
+    yield (I(i), x.data[i])
+    inc i
 
 func add*[I; T](x: var Store[I, T], it: sink T): I {.inline.} =
   ## Appends a new item to the Store and returns the ID assigned to

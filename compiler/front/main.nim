@@ -42,6 +42,7 @@ import
   ],
   compiler/backend/[
     extccomp,    # Calling C compiler
+    backend2,
     cgen,        # C code generation
   ],
   compiler/utils/[
@@ -73,7 +74,7 @@ from compiler/ast/report_enums import ReportKind,
 
 when not defined(leanCompiler):
   import
-    compiler/backend/jsgen,
+    compiler/backend/jsbackend,
     compiler/tools/[docgen, docgen2]
 
 when defined(nimDebugUnreportedErrors):
@@ -156,7 +157,7 @@ proc commandCompileToC(graph: ModuleGraph) =
   extccomp.initVars(conf)
   semanticPasses(graph)
   if conf.symbolFiles == disabledSf:
-    registerPass(graph, cgenPass)
+    registerPass(graph, collectPass)
 
     if {optRun, optForceFullMake} * conf.globalOptions == {optRun} or isDefined(conf, "nimBetterRun"):
       if not changeDetectedViaJsonBuildInstructions(conf, conf.jsonBuildInstructionsFile):
@@ -171,7 +172,7 @@ proc commandCompileToC(graph: ModuleGraph) =
   if graph.config.errorCounter > 0:
     return # issue #9933
   if conf.symbolFiles == disabledSf:
-    cgenWriteModules(graph.backend, conf)
+    generateCodeC(graph)
   else:
     if isDefined(conf, "nimIcIntegrityChecks"):
       checkIntegrity(graph)
@@ -206,8 +207,11 @@ proc commandCompileToJS(graph: ModuleGraph) =
 
     defineSymbol(conf, "ecmascript") # For backward compatibility
     semanticPasses(graph)
-    registerPass(graph, JSgenPass)
+    registerPass(graph, collectPass)
+    #registerPass(graph, JSgenPass)
     compileProject(graph)
+
+    jsbackend.generateCode(graph)
     if conf.depfile.string.len != 0:
       writeGccDepfile(conf)
     if optGenScript in conf.globalOptions:

@@ -906,6 +906,8 @@ proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
           genTypeInfo2Name(p.module, t[i][j].typ)
         else:
           genTypeInfoV1(p.module, t[i][j].typ, t[i][j].info)
+
+        discard cgsym(p.module, "Exception")
         let memberName = "Sup.m_type"
         appcg(p.module, orExpr, "#isObj(#nimBorrowCurrentException()->$1, $2)", [memberName, checkFor])
 

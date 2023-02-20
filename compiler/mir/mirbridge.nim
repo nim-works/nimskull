@@ -59,21 +59,21 @@ let reprConfig = block:
 # and outputs in the context of compiler debugging until a more
 # structured/integrated solution is implemented
 
-proc echoInput(config: ConfigRef, owner: PSym, body: PNode) =
+proc echoInput*(config: ConfigRef, owner: PSym, body: PNode) =
   ## If requested via the define, renders the input AST `body` and writes the
   ## result out through ``config.writeLine``.
   if config.getStrDefine("nimShowMirInput") == owner.name.s:
     writeBody(config, "-- input AST: " & owner.name.s):
       config.writeln(treeRepr(config, body, reprConfig))
 
-proc echoMir(config: ConfigRef, owner: PSym, tree: MirTree) =
+proc echoMir*(config: ConfigRef, owner: PSym, tree: MirTree) =
   ## If requested via the define, renders the `tree` and writes the result out
   ## through ``config.writeln``.
   if config.getStrDefine("nimShowMir") == owner.name.s:
     writeBody(config, "-- MIR: " & owner.name.s):
       config.writeln(print(tree))
 
-proc echoOutput(config: ConfigRef, owner: PSym, body: PNode) =
+proc echoOutput*(config: ConfigRef, owner: PSym, body: PNode) =
   ## If requested via the define, renders the output AST `body` and writes the
   ## result out through ``config.writeLine``.
   if config.getStrDefine("nimShowMirOutput") == owner.name.s:

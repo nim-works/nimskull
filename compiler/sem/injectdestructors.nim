@@ -683,7 +683,7 @@ template genWasMoved(buf: var MirNodeSeq, graph: ModuleGraph, body: untyped) =
                   magic: mWasMoved)
   buf.add MirNode(kind: mnkVoid)
 
-proc genDestroy(buf: var MirNodeSeq, graph: ModuleGraph, t: PType,
+proc genDestroy*(buf: var MirNodeSeq, graph: ModuleGraph, t: PType,
                 target: sink MirNode) =
   let destr = getOp(graph, t, attachedDestructor)
 

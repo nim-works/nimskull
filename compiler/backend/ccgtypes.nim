@@ -764,6 +764,7 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKin
   excl(check, t.id)
 
 proc getTypeDesc(m: BModule, typ: PType; kind = skParam): Rope =
+  m.usedTypes.add typ
   var check = initIntSet()
   result = getTypeDescAux(m, typ, check, kind)
 
@@ -832,7 +833,7 @@ proc genProcHeader(m: BModule, prc: PSym): Rope =
 
 # ------------------ type info generation -------------------------------------
 
-proc genTypeInfoV1(m: BModule, t: PType; info: TLineInfo): Rope
+proc genTypeInfoV1*(m: BModule, t: PType; info: TLineInfo): Rope
 proc getNimNode(m: BModule): Rope =
   result = "$1[$2]" % [m.typeNodesName, rope(m.typeNodes)]
   inc(m.typeNodes)
@@ -1111,6 +1112,8 @@ proc genTypeInfo2Name(m: BModule; t: PType): Rope =
 
 proc isTrivialProc(g: ModuleGraph; s: PSym): bool {.inline.} = getBody(g, s).len == 0
 
+proc fillProcLoc*(m: BModule, n: PNode)
+
 proc genHook(m: BModule; t: PType; info: TLineInfo; op: TTypeAttachedOp): Rope =
   let theProc = getAttachedOp(m.g.graph, t, op)
   if theProc != nil and not isTrivialProc(m.g.graph, theProc):
@@ -1121,7 +1124,14 @@ proc genHook(m: BModule; t: PType; info: TLineInfo; op: TTypeAttachedOp): Rope =
       localReport(m.config, info, reportSym(
         rsemExpectedNimcallProc, theProc))
 
-    genProc(m, theProc)
+    if useAliveDataFromDce in m.flags:
+      genProc(m, theProc)
+    else:
+      genProcPrototype(m, theProc)
+      # already fill the loc; we need the name
+      fillProcLoc(m, theProc.ast[namePos])
+      m.extra.add theProc
+
     result = theProc.loc.r
 
     when false:
@@ -1162,7 +1172,10 @@ proc genTypeInfoV2Impl(m: BModule, t, origType: PType, name: Rope; info: TLineIn
   if t.kind == tyObject and t.len > 0 and t[0] != nil and optEnableDeepCopy in m.config.globalOptions:
     discard genTypeInfoV1(m, t, info)
 
-proc genTypeInfoV2(m: BModule, t: PType; info: TLineInfo): Rope =
+proc genTypeInfoV2*(m: BModule, t: PType; info: TLineInfo): Rope =
+  # track the dependency:
+  m.usedTypes.add t
+
   let origType = t
   # distinct types can have their own destructors
   var t = skipTypes(origType, irrelevantForBackend + tyUserTypeClasses - {tyDistinct})
@@ -1235,6 +1248,9 @@ proc typeToC(t: PType): string =
       result.addInt ord(c)
 
 proc genTypeInfoV1(m: BModule, t: PType; info: TLineInfo): Rope =
+  # track the dependency:
+  m.usedTypes.add t
+
   let origType = t
   var t = skipTypes(origType, irrelevantForBackend + tyUserTypeClasses)
 
