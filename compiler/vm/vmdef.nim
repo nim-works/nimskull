@@ -73,7 +73,8 @@ type
 
 
   TBlock* = object
-    label*: PSym
+    label*: uint32  ## a ``LabelId``, but stored as a ``uint32`` in order to not
+                ## having to import ``mirtrees.nim``
     fixups*: seq[TPosition]
 
   TEvalMode* = enum           ## reason for evaluation
