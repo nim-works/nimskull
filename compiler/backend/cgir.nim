@@ -112,14 +112,19 @@ type
     #       Instead, they need to be lowered via a MIR pass
 
 
-  CgNode* = object
+
+  CgNode* = ref object
     ## Code-generator node. Each node
-    info*: TLineInfo
+    origin*: PNode
     typ*: PType
     case kind*: CgNodeKind
     of cgnkInvalid, cgnkEmpty, cgnkType, cgnkNilLit: discard
+    of cgnkField, cgnkProc:
+      sym*: PSym
+    of cgnkTemp:
+      temp*: TempId
     of cgnkLiteralData:
-      data*: NimNode
+      data*: PNode
     of cgnkIntLit:
       intVal*: BiggestInt
     of cgnkNimNodeLit:
@@ -127,9 +132,12 @@ type
     of cgnkMagic:
       magic*: TMagic
     of cgnkLabel:
-      lbl: LabelId
+      lbl*: LabelId
     else:
-      childs: seq[CgNode]
+      childs*: seq[CgNode]
+
+# TODO: use ``distinct`` types to reduce the amount of dynamic typing with
+#       ``CgNode``. ``CgNode`` is only the data representation.
 
 func condition*(n: CgNode): CgNode =
   assert n.kind in {cgnkIf, cgnkCase}
@@ -138,6 +146,37 @@ func condition*(n: CgNode): CgNode =
 func body*(n: CgNode): CgNode =
   assert n.kind in {cgnkIf, cgnkBlock, cgnkRepeat}
   n.childs[^1]
+
+func handler*(n: CgNode): CgNode =
+  assert n.kind == cgnkTryStmt
+  if n.childs.len > 1 and n.childs[1].kind == cgnkExcept:
+    result = n.childs[1]
+
+func finalizer*(n: CgNode): CgNode =
+  assert n.kind == cgnkTryStmt
+  if n.childs[^1].kind == cgnkFinally:
+    result = n.childs[^1]
+
+func value*(n: CgNode): CgNode =
+  assert n.kind == cgnkRaise
+  n.childs[0]
+
+
+func lhs*(n: CgNode): CgNode =
+  assert n.kind == cgnkRaise
+  n.childs[0]
+
+func rhs*(n: CgNode): CgNode =
+  assert n.kind == cgnkRaise
+  n.childs[0]
+
+func index*(n: CgNode): CgNode =
+  assert n.kind == cgnkArrayAccess
+  n.childs[1]
+
+func entity*(n: CgNode): CgNode =
+  assert n.kind == cgnkDef
+  n.childs[0]
 
 func callee*(n: CgNode): CgNode =
   assert n.kind == cgnkCall
@@ -149,3 +188,68 @@ func label*(n: CgNode): LabelId =
 
 func arg*(n: CgNode, i: Natural): CgNode =
   n.childs[i + 1]
+
+func numArgs*(n: CgNode): int =
+  assert n.kind == cgnkCall
+  n.childs.len - 1
+
+func labelAt*(n: CgNode, i: Natural): CgNode =
+  n.childs[i]
+
+iterator arguments*(n: CgNode): (int, CgNode) =
+  for i in 1..<n.childs.len:
+    yield (i-1, n.childs[i])
+
+iterator labels*(n: CgNode): (int, CgNode) =
+  for i in 0..<n.childs.len - 1:
+    yield (i, n.childs[i])
+
+iterator stmts*(n: CgNode): CgNode =
+  for it in n.childs.items:
+    yield it
+
+iterator branches*(n: CgNode): (int, CgNode) =
+  let start = ord(n.kind == cgnkCase)
+  for i in start..<n.childs.len:
+    yield (i-start, n.childs[i])
+
+func numLabels*(n: CgNode): int =
+  assert n.kind == cgnkBranch
+  n.childs.len - 1
+
+func numBranches*(n: CgNode): int =
+  assert n.kind in {cgnkExcept, cgnkCase}
+  n.childs.len - ord(n.kind == cgnkCase)
+
+func source*(n: CgNode): CgNode =
+  assert n.kind in {cgnkArrayAccess, cgnkObjAccess, cgnkTupleAccess}
+  n.childs[0]
+
+func fieldIndex*(n: CgNode): int =
+  assert n.kind == cgnkTupleAccess
+  n.childs[1].intVal.int
+
+func valid*(n: CgNode): CgNode =
+  assert n.kind in {cgnkArrayAccess, cgnkObjAccess, cgnkTupleAccess}
+  n.childs[1]
+
+func discriminant*(n: CgNode): PSym =
+  n.childs[2].sym
+
+func checkExpr*(n: CgNode): CgNode =
+  n.childs[3]
+
+func field*(n: CgNode): PSym =
+  n.childs[1].sym
+
+func a*(n: CgNode): CgNode =
+  n.childs[0]
+
+func b*(n: CgNode): CgNode =
+  n.childs[1]
+
+func info*(n: CgNode): TLineInfo {.inline.} =
+  if n.origin != nil:
+    n.origin.info
+  else:
+    unknownLineInfo

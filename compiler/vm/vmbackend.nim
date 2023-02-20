@@ -149,7 +149,7 @@ func collectRoutineSyms(ast: PNode, syms: var seq[PSym]) =
 
 proc genStmt(c: var TCtx, n: PNode): auto =
   ## Wrapper around ``vmgen.genStmt`` that canonicalizes the input AST first
-  let n = canonicalizeSingle(c.graph, c.idgen, c.module, n, {goIsNimvm})
+  let n = canonicalizeSingle2(c.graph, c.idgen, c.module, n, {goIsNimvm})
   vmgen.genStmt(c, n)
 
 proc generateTopLevelStmts*(module: var Module, c: var TCtx,
@@ -157,8 +157,6 @@ proc generateTopLevelStmts*(module: var Module, c: var TCtx,
   ## Generates code for all collected top-level statements of `module` and
   ## compiles the fragments into a single function. The resulting code is
   ## stored in `module.initProc`
-  let n = newNodeI(nkEmpty, module.sym.info) # for line information
-
   c.prc = PProc(sym: module.sym)
   c.prc.regInfo.newSeq(1) # the first register is always the (potentially
                           # non-existant) result
@@ -173,7 +171,7 @@ proc generateTopLevelStmts*(module: var Module, c: var TCtx,
     if unlikely(r.isErr):
       config.localReport(vmGenDiagToLegacyReport(r.takeErr))
 
-  c.gABC(n, opcRet)
+  c.gABC(module.sym.info, opcRet)
 
   module.initProc = (start: start, regCount: c.prc.regInfo.len)
 
@@ -184,8 +182,8 @@ proc generateCodeForProc(c: var TCtx, s: PSym,
   ## to `globals`.
   var body = transformBody(c.graph, c.idgen, s, cache = false)
   extractGlobals(body, globals, isNimVm = true)
-  body = canonicalize(c.graph, c.idgen, s, body, {goIsNimvm})
-  result = genProc(c, s, body)
+  let n = canonicalize2(c.graph, c.idgen, s, body, {goIsNimvm})
+  result = genProc(c, s, n)
 
 proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]) =
   ## Generates and emits code for the given `{.global.}` initialization
@@ -284,7 +282,7 @@ proc generateEntryProc(c: var TCtx, info: TLineInfo, initProcs: Slice[int],
   ## to high by their function table index) and then returns the value of the
   ## ``programResult`` global
   let
-    n = newNodeI(nkEmpty, info)
+    n = info
     start = c.code.len
 
   # setup code-gen state. One register for the return value and one as a
@@ -448,7 +446,7 @@ proc generateCode*(g: ModuleGraph) =
         rc = frag.prc.regInfo.len
 
       c.appendCode(frag)
-      c.gABC(g.emptyNode, opcRet)
+      c.gABC(m.sym.info, opcRet)
 
       # The code fragment isn't used anymore beyond this point, so it can be
       # freed already
@@ -461,7 +459,7 @@ proc generateCode*(g: ModuleGraph) =
   let entryPoint =
     generateMain(c, g.getModule(conf.projectMainIdx), mlist[])
 
-  c.gABC(g.emptyNode, opcEof)
+  c.gABC(unknownLineInfo, opcEof)
 
   # code generation is finished
 

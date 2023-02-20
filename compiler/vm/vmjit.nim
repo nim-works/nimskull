@@ -116,7 +116,7 @@ proc genStmt*(c: var TCtx; n: PNode): VmGenResult =
   c.removeLastEof()
   c.setupLinkState()
 
-  let n = canonicalizeSingle(c.graph, c.idgen, c.module, n, selectOptions(c))
+  let n = canonicalizeSingle2(c.graph, c.idgen, c.module, n, selectOptions(c))
 
   let
     start = c.code.len
@@ -135,7 +135,7 @@ proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
   c.removeLastEof()
   c.setupLinkState()
 
-  let n = canonicalizeSingle(c.graph, c.idgen, c.module, n, selectOptions(c))
+  let n = canonicalizeSingle2(c.graph, c.idgen, c.module, n, selectOptions(c))
 
   result = vmgen.genExpr(c, n, requiresValue)
   if unlikely(result.isErr):
@@ -156,11 +156,11 @@ proc genProc(c: var TCtx, s: PSym): VmGenResult =
   var
     body = transformBody(c.graph, c.idgen, s, cache = not isCompileTimeProc(s))
 
-  body = canonicalize(c.graph, c.idgen, s, body, selectOptions(c))
+  let body2 = canonicalize2(c.graph, c.idgen, s, body, selectOptions(c))
 
   c.setupLinkState()
 
-  result = genProc(c, s, body)
+  result = genProc(c, s, body2)
   if unlikely(result.isErr):
     return
 

@@ -33,6 +33,10 @@ import
     astrepr
   ]
 
+import compiler/backend/cgir
+
+from compiler/backend/astgen2 import nil
+
 export GenOption
 
 proc getStrDefine(config: ConfigRef, name: string): string =
@@ -107,6 +111,33 @@ proc canonicalize*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
     writeBody(config, "-- output AST: " & owner.name.s):
       config.writeln(treeRepr(config, result, reprConfig))
 
+proc canonicalize2*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
+                   body: PNode, options: set[GenOption]): CgNode =
+  ## No MIR passes exist yet, so the to-and-from translation is treated as a
+  ## canonicalization step. To be able to step-by-step rewrite
+  ## transformations done in ``transf`` and in the back-ends as MIR passes, it
+  ## is important that ``canonicalize`` is applied to *all* code reaching
+  ## the code-generators, so that they can depend on the shape of the
+  ## resulting AST
+  let config = graph.config
+  if config.getStrDefine("nimShowMirInput") == owner.name.s:
+    writeBody(config, "-- input AST: " & owner.name.s):
+      config.writeln(treeRepr(config, body, reprConfig))
+
+  # step 1: generate a ``MirTree`` from the input AST
+  let (tree, sourceMap) = generateCode(graph, owner, options, body)
+
+  if graph.config.getStrDefine("nimShowMir") == owner.name.s:
+    writeBody(config, "-- MIR: " & owner.name.s):
+      config.writeln(print(tree))
+
+  # step 2: translate it back
+  result = astgen2.generateAST(graph, idgen, owner, tree, sourceMap)
+
+  if config.getStrDefine("nimShowMirOutput") == owner.name.s:
+    writeBody(config, "-- output AST: " & owner.name.s):
+      config.writeln(treeRepr(config, generateAST(graph, idgen, owner, tree, sourceMap), reprConfig))
+
 proc canonicalizeWithInject*(graph: ModuleGraph, idgen: IdGenerator,
                              owner: PSym, body: PNode,
                              options: set[GenOption]): PNode =
@@ -155,3 +186,19 @@ proc canonicalizeSingle*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
   result =
     if tree.len > 0: generateAST(graph, idgen, owner, tree, sourceMap)
     else:            newNode(nkEmpty)
+
+proc canonicalizeSingle2*(graph: ModuleGraph, idgen: IdGenerator, owner: PSym,
+                         n: PNode, options: set[GenOption]): CgNode =
+  ## Similar to ``canonicalize``, but accepts a freestanding expression or
+  ## statement. The `owner` is used as the owner when generating the necessary
+  ## new symbols or types
+  var
+    tree: MirTree
+    sourceMap: SourceMap
+
+  # step 1: generate a ``MirTree`` from the input AST
+  generateCode(graph, options, n, tree, sourceMap)
+  # step 2: translate it back, but only if there is something to translate
+  result =
+    if tree.len > 0: astgen2.generateAST(graph, idgen, owner, tree, sourceMap)
+    else:            CgNode(kind: cgnkEmpty)
