@@ -1906,34 +1906,33 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       else:
         raiseVmError(VmEvent(kind: vmEvtNodeNotASymbol))
 
+    of opcDataToAst:
+      decodeBC(rkNimNode)
+      regs[ra].nimNode = c.regToNode(regs[rb], regs[rc].nimNode.typ, c.debug[pc])
+      regs[ra].nimNode.info = c.debug[pc]
     of opcExpandToAst:
       decodeBC(rkNimNode)
 
       let
-        callExprAst = regs[rb].nimNode
-        prc =         callExprAst[0].sym
-        prevFrame =   c.sframes[tos].next
+        templ =     regs[rb+0].nimNode.sym
+        prevFrame = c.sframes[tos].next
 
-      assert callExprAst.kind in nkCallKinds
-      assert prc.kind == skTemplate
+      assert templ.kind == skTemplate
 
       let genSymOwner = if prevFrame > 0 and c.sframes[prevFrame].prc != nil:
                           c.sframes[prevFrame].prc
                         else:
                           c.module
-      var templCall = newNodeI(nkCall, c.debug[pc])
-      templCall.add(newSymNode(prc))
-      for i in 1..rc-1:
-        let node = c.regToNode(regs[rb+i], callExprAst[i].typ, c.debug[pc])
-        node.info = c.debug[pc]
-        templCall.add(node)
+      var templCall = newNodeI(nkCall, c.debug[pc], rc)
+      templCall[0] = newSymNode(templ)
+      for i in 1..<rc:
+        templCall[i] = regs[rb + i].nimNode
 
-      var a = evalTemplate(templCall, prc, genSymOwner, c.config, c.cache, c.templInstCounter, c.idgen)
+      var a = evalTemplate(templCall, templ, genSymOwner, c.config, c.cache, c.templInstCounter, c.idgen)
       if a.kind == nkStmtList and a.len == 1: # flatten if a single statement
         a = a[0]
 
       regs[ra].nimNode = a
-
     of opcSymOwner:
       decodeB(rkNimNode)
       let a = regs[rb].nimNode
