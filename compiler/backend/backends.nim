@@ -49,9 +49,6 @@ type
     sym*: PSym ## module symbol
     idgen*: IdGenerator
 
-    preInitFragment: CodeFragment
-      ## the in-flight code fragment of the module's pre-initialization procedure
-
   ModuleDataExtra = object
     ## Extra data associated with a module
     # XXX: since this is data that's somewhat relevant to all targets, it
@@ -90,6 +87,10 @@ type
     of false:
       tree*: MirTree # TODO: rename to `body`
       source*: SourceMap
+
+      extra*: CodeFragment ## the transformed code responsible for
+        ## initializing all globals *defined* inside the procedure
+        # TODO: rename
     of true:
       discard
 
@@ -115,9 +116,6 @@ type
     generatedDispatchers: bool
 
     noMagics: set[TMagic] # warning: very large
-
-    # TODO: restructure
-    globalDestructors: Changeset
 
     # configuration state:
     options: set[GenOption]
@@ -235,7 +233,7 @@ type InnerProc = PSym
 ## iteratively collect all transitive relevant inner procedures. Once done, we
 ## run the lambda-lifting pass
 
-proc extractGlobals(iter: var ProcedureIter, m: var Module, graph: ModuleGraph, body: PNode) =
+proc extractGlobals(iter: ProcedureIter, graph: ModuleGraph, body: PNode, dest: var CodeFragment) =
     ## Extract globals defined in `body` into the pre-init procedure of `m`.
     ## Also registers destructor calls for them, if necessary. `body` is
     ## mutated.
@@ -245,39 +243,21 @@ proc extractGlobals(iter: var ProcedureIter, m: var Module, graph: ModuleGraph, 
     # meaning that globals defiend inside ``inline`` procedures are also only
     # extracted once
 
-    # first pass: register the destructors
-    for it in globals.items:
-      let sym = it[0].sym
-      # NOTE: thread-local variables are currently never destroyed
-      if sfThread notin sym.flags and hasDestructor(sym.typ):
-        iter.globalDestructors.insert(NodeInstance 0, buf):
-          genDestroy(buf, graph, sym.typ, MirNode(kind: mnkGlobal, sym: sym, typ: sym.typ))
-
     # second pass: generate the initialization code. This is done here already,
     # as it might depend on other procedures. Deferring this to ``genInitCode``
     # is not possible, because then it's too late to raise further dependencies.
-    # Also, generate the code in the pre-init procedure of the module where the
-    # procedure is *defined*, not where it's first *used* (this is only relevant
-    # for ``inline`` procedures, as they're generated multiple times)
     for it in globals.items:
-      # since the identdefs are extracted from the transformed AST, the
-      # initializer expression isn't canonicalized yet
       if it[2].kind != nkEmpty:
+        # TODO: using a ``FastAsgn`` is wrong: an ``Asgn`` has to be used, but
+        #       we need to make sure that it's translated into a ``mnkInit``
+        #       assignment
         let n = newTreeI(nkFastAsgn, it.info, it[0], it[2])
 
         # generate the MIR code for the assignment and append it to the
-        # pre-init fragment
-        generateCode(graph, iter.options, n, m.preInitFragment.tree, m.preInitFragment.sourceMap)
+        # `dest` fragment
+        generateCode(graph, iter.options, n, dest.tree, dest.sourceMap)
 
-        # TODO: run the destructor injection pass for the pre-init fragment
-
-        # the expression of the initial value might reference procedures
-        # TODO: don't scan the whole fragment each time
-        for dep in deps(m.preInitFragment.tree, iter.noMagics):
-          if dep.kind in routineKinds:
-            queue(iter, dep)
-
-proc preprocess(iter: var ProcedureIter, prc: PSym, graph: ModuleGraph, m: var Module): Procedure =
+proc preprocess(iter: var ProcedureIter, prc: PSym, graph: ModuleGraph, m: Module): Procedure =
   ## Transforms the body of the given procedure and translates it to MIR code.
   ## No MIR passes are applied yet
   var body = transformBody(graph, m.idgen, prc, cache = false)
@@ -286,10 +266,12 @@ proc preprocess(iter: var ProcedureIter, prc: PSym, graph: ModuleGraph, m: var M
     # the procedure is imported
     result = Procedure(sym: prc, isImported: true)
   else:
+    result = Procedure(sym: prc, isImported: false)
+
     # before doing anything else, extract the globals:
     if poLiftGlobals in iter.processOptions:
       # warning: this modifies the cached transformed body
-      extractGlobals(iter, m, graph, body)
+      extractGlobals(iter, graph, body, result)
 
     if optCursorInference in graph.config.options and
        shouldInjectDestructorCalls(prc):
@@ -298,7 +280,6 @@ proc preprocess(iter: var ProcedureIter, prc: PSym, graph: ModuleGraph, m: var M
 
     echoInput(graph.config, prc, body)
 
-    result = Procedure(sym: prc, isImported: false)
     (result.tree, result.source) = generateCode(graph, prc, iter.options, body)
 
     echoMir(graph.config, prc, result.tree)
@@ -337,6 +318,8 @@ proc processInner(iter: var ProcedureIter, prc: Procedure, graph: ModuleGraph, m
 proc process(iter: var ProcedureIter, prc: var Procedure, graph: ModuleGraph, m: Module) =
   # apply all applicable MIR passes:
   if shouldInjectDestructorCalls(prc.sym):
+    injectDestructorCalls(graph, m.idgen, prc.sym, prc.extra.tree, prc.extra.sourceMap)
+
     injectDestructorCalls(graph, m.idgen, prc.sym, prc.tree, prc.source)
 
 proc processTopLevel*(module: Module, tree: var MirTree, source: var SourceMap, graph: ModuleGraph) =
