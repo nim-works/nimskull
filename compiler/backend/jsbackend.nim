@@ -55,30 +55,9 @@ proc queueAll(ctx: var CodegenCtx, iter: var ProcedureIter, tree: MirTree) =
     else:
       discard "a global; ignore"
 
-proc generateCode*(graph: ModuleGraph) =
-  echo "codegen"
-
-  var ctx = CodegenCtx(list: ModuleListRef(graph.backend))
-  var g = newGlobals()
-
-  reserve(ctx.modules, ctx.list.modules)
-
-  var main: BModule
-  var iter: ProcedureIter
-
-  # first create a ``BModule`` instance for all modules that we know about:
-  for i, m in ctx.list.modules.pairs:
-    var local = newModule(graph, m.sym)
-    local.idgen = m.idgen
-    ctx.modules[i] = LocalModuleData(bmod: local)
-
-    if sfMainModule in m.sym.flags:
-      main = local
-
-  # process the top-level statements. Since dependency processing potentially
-  # requires access to modules other than the one for which the top-level
-  # statements are code-gen'ed, it can't happen as part of the above loop
-  for i, m in ctx.list.modules.pairs:
+proc processModule(ctx: var CodegenCtx, m: Module, graph: ModuleGraph,
+                   g: PGlobals, data: var LocalModuleData,
+                   iter: var ProcedureIter) =
     let top = transformStmt(graph, m.idgen, m.sym, m.stmts)
     var (tree, source) = generateCode(graph, m.sym, {}, top)
 
@@ -96,16 +75,40 @@ proc generateCode*(graph: ModuleGraph) =
     queueAll(ctx, iter, tree)
 
     let stmts = generateAST(graph, m.idgen, m.sym, tree, source)
-
-    var p = setupInitProc(g, ctx.modules[i].bmod)
-    genModule(p, stmts) # might raise late dependencies
-    ctx.modules[i].init = p
+    genModule(data.init, stmts) # might raise late dependencies
 
     for it in g.extra.items:
       queue(iter, it)
 
     # we processed/consumed all elements
     g.extra.setLen(0)
+
+proc generateCode*(graph: ModuleGraph) =
+  echo "codegen"
+
+  var ctx = CodegenCtx(list: ModuleListRef(graph.backend))
+  var g = newGlobals()
+
+  reserve(ctx.modules, ctx.list.modules)
+
+  var main: BModule
+  var iter: ProcedureIter
+
+  # first create a ``BModule`` instance for all modules that we know about:
+  for i, m in ctx.list.modules.pairs:
+    var local = newModule(graph, m.sym)
+    local.idgen = m.idgen
+    ctx.modules[i] = LocalModuleData(bmod: local, init: setupInitProc(g, local))
+
+    if sfMainModule in m.sym.flags:
+      main = local
+
+  # process the modules (i.e. generated code for their top-level statements).
+  # Since dependency processing potentially requires access to modules other
+  # than the one for which the top-level statements are code-gen'ed, it can't
+  # happen as part of the above loop
+  for i, m in ctx.list.modules.pairs:
+    processModule(ctx, ctx.list.modules[id], graph, g, ctx.modules[id], iter)
 
   while hasNext(iter):
     let prc = next(iter, graph, ctx.list[])
