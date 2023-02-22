@@ -299,6 +299,10 @@ proc generateCodeC*(graph: ModuleGraph) =
         if emulatedThreadVars(graph.config):
           dependOnCompilerProc(ctx, iter, gstate, ctx.modules[i], i, graph, "initThreadVarsEmulation")
 
+    if optStackTrace in ctx.modules[i].bmod.initProc.options and preventStackTrace notin ctx.modules[i].bmod.flags:
+      dependOnCompilerProc(ctx, iter, gstate, ctx.modules[i], i, graph, "nimFrame")
+      dependOnCompilerProc(ctx, iter, gstate, ctx.modules[i], i, graph, "popFrame")
+
   # discover and generate code for all alive procedures
   while hasNext(iter):
     let prc = next(iter, graph, ctx.list[])
