@@ -764,7 +764,6 @@ proc getTypeDescAux(m: BModule, origTyp: PType, check: var IntSet; kind: TSymKin
   excl(check, t.id)
 
 proc getTypeDesc(m: BModule, typ: PType; kind = skParam): Rope =
-  m.usedTypes.add typ
   var check = initIntSet()
   result = getTypeDescAux(m, typ, check, kind)
 
@@ -1173,9 +1172,6 @@ proc genTypeInfoV2Impl(m: BModule, t, origType: PType, name: Rope; info: TLineIn
     discard genTypeInfoV1(m, t, info)
 
 proc genTypeInfoV2*(m: BModule, t: PType; info: TLineInfo): Rope =
-  # track the dependency:
-  m.usedTypes.add t
-
   let origType = t
   # distinct types can have their own destructors
   var t = skipTypes(origType, irrelevantForBackend + tyUserTypeClasses - {tyDistinct})
@@ -1248,9 +1244,6 @@ proc typeToC(t: PType): string =
       result.addInt ord(c)
 
 proc genTypeInfoV1(m: BModule, t: PType; info: TLineInfo): Rope =
-  # track the dependency:
-  m.usedTypes.add t
-
   let origType = t
   var t = skipTypes(origType, irrelevantForBackend + tyUserTypeClasses)
 
