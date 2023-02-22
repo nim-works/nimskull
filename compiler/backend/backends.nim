@@ -40,9 +40,9 @@ import
   ]
 
 type
-  CodeFragment = object
-    tree: MirTree
-    sourceMap: SourceMap
+  CodeFragment* = object
+    tree*: MirTree
+    sourceMap*: SourceMap
 
   Module* = object
     stmts*: PNode ## the top level statements in the order they were parsed

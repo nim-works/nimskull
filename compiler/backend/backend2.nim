@@ -274,6 +274,17 @@ proc generateCodeC*(graph: ModuleGraph) =
             let other = registerInline(gstate, dep)
             gstate.inlineProcs[iid].deps.incl other.int
 
+      block:
+        # queue all procedures used by the initialization logic for the
+        # procedure-level globals. They need to be queued from the module to
+        # which the procedure is *attached*, not from the one it's *first used*
+        # from
+        let mId = ctx.list[].lookupModule(prc.sym)
+        queueAll(ctx, iter, gstate, ctx.modules[mId], mId, prc.extra.tree)
+
+        for it in prc.globals.items:
+          ctx.modules[mId].struct.privateFields.add it
+
       # FIXME: argument aliasing rule violation
       queueAll(ctx, iter, gstate, ctx.modules[id], id, prc.tree)
 
