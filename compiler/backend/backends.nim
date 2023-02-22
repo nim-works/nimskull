@@ -282,19 +282,20 @@ proc preprocess(iter: var ProcedureIter, prc: PSym, graph: ModuleGraph, m: var M
   ## No MIR passes are applied yet
   var body = transformBody(graph, m.idgen, prc, cache = false)
 
-  if poLiftGlobals in iter.processOptions:
-    extractGlobals(iter, m, graph, body)
-
-  # TODO: turn cursor inference into a MIR pass and remove the logic below
-  if optCursorInference in graph.config.options and
-     shouldInjectDestructorCalls(prc):
-    computeCursors(prc, body, graph)
-
-  #echo prc, " at ", graph.config.toFileLineCol(prc.info)
   if sfImportc in prc.flags and not (iter.noImported and getBody(graph, prc).kind == nkEmpty):
     # the procedure is imported
     result = Procedure(sym: prc, isImported: true)
   else:
+    # before doing anything else, extract the globals:
+    if poLiftGlobals in iter.processOptions:
+      # warning: this modifies the cached transformed body
+      extractGlobals(iter, m, graph, body)
+
+    if optCursorInference in graph.config.options and
+       shouldInjectDestructorCalls(prc):
+      # TODO: turn cursor inference into a MIR pass and remove this part
+      computeCursors(prc, body, graph)
+
     echoInput(graph.config, prc, body)
 
     result = Procedure(sym: prc, isImported: false)
