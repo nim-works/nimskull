@@ -200,8 +200,6 @@ import
 from compiler/ast/reports_sem import SemReport
 from compiler/ast/report_enums import ReportKind
 
-from compiler/sem/semdata import makeVarType
-
 type
   AnalyseCtx = object
     cfg: ControlFlowGraph
@@ -1300,21 +1298,17 @@ proc lowerBranchSwitch(buf: var MirNodeSeq, body: MirTree, graph: ModuleGraph,
 
   buf.add endNode(mnkRegion)
 
-proc genOp(idgen: IdGenerator, owner, op: PSym, dest: PNode): PNode =
-  let
-    typ = makeVarType(owner, dest.typ, idgen, tyVar)
-    addrExp = newTreeIT(nkHiddenAddr, dest.info, typ): dest
-
-  result = newTreeI(nkCall, dest.info, newSymNode(op), addrExp)
-
-proc genDestroy(graph: ModuleGraph, idgen: IdGenerator, owner: PSym, dest: PNode): PNode =
+proc genDestroy*(graph: ModuleGraph, dest: PNode): PNode =
+  # TODO: once ``graph.globalDestructors`` is removed, move this procedure
+  #       somewhere else (likely to ``backends.nim``)
   let
     t = dest.typ.skipTypes(skipAliases)
     op = getOp(graph, t, attachedDestructor)
+    addrExp = newTreeIT(nkHiddenAddr, dest.info, op.typ[1]): dest
 
-  result = genOp(idgen, owner, op, dest)
+  result = newTreeI(nkCall, dest.info, newSymNode(op), addrExp)
 
-proc deferGlobalDestructors(tree: MirTree, g: ModuleGraph, idgen: IdGenerator,
+proc deferGlobalDestructors(tree: MirTree, g: ModuleGraph,
                             owner: PSym) =
   ## Adds a destructor call for each global in `tree` for which the scope-based
   ## destruction doesn't apply to the global destructor section
@@ -1341,7 +1335,7 @@ proc deferGlobalDestructors(tree: MirTree, g: ModuleGraph, idgen: IdGenerator,
         #       longer reach here (because of ``jsgen``, they still do)
         if ((depth == 1 or owner.kind != skModule) and sfThread notin s.flags) and
             hasDestructor(s.typ):
-          g.globalDestructors.add genDestroy(g, idgen, owner, newSymNode(s))
+          g.globalDestructors.add genDestroy(g, newSymNode(s))
 
     else:
       discard
@@ -1423,7 +1417,8 @@ proc injectDestructorCalls*(g: ModuleGraph; idgen: IdGenerator; owner: PSym;
   # for them. There is less MIR code before applying all sub-passes than
   # there is after, so we perform the scanning first in order to reduce the
   # amount of nodes we have to scan
-  deferGlobalDestructors(tree, g, idgen, owner)
+  # TODO: this must not be the responsibility of the pass; remove it
+  deferGlobalDestructors(tree, g, owner)
 
   template apply(c: Changeset) =
     ## Applies the changeset to both the
