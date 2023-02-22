@@ -91,6 +91,7 @@ type
       extra*: CodeFragment ## the transformed code responsible for
         ## initializing all globals *defined* inside the procedure
         # TODO: rename
+      globals*: seq[PSym] ## globals defined as part of the procedure's body
     of true:
       discard
 
@@ -233,7 +234,7 @@ type InnerProc = PSym
 ## iteratively collect all transitive relevant inner procedures. Once done, we
 ## run the lambda-lifting pass
 
-proc extractGlobals(iter: ProcedureIter, graph: ModuleGraph, body: PNode, dest: var CodeFragment) =
+proc extractGlobals(iter: ProcedureIter, graph: ModuleGraph, body: PNode, dest: var Procedure) =
     ## Extract globals defined in `body` into the pre-init procedure of `m`.
     ## Also registers destructor calls for them, if necessary. `body` is
     ## mutated.
@@ -247,6 +248,8 @@ proc extractGlobals(iter: ProcedureIter, graph: ModuleGraph, body: PNode, dest: 
     # as it might depend on other procedures. Deferring this to ``genInitCode``
     # is not possible, because then it's too late to raise further dependencies.
     for it in globals.items:
+      dest.globals.add it[0].sym
+
       if it[2].kind != nkEmpty:
         # TODO: using a ``FastAsgn`` is wrong: an ``Asgn`` has to be used, but
         #       we need to make sure that it's translated into a ``mnkInit``
@@ -255,7 +258,7 @@ proc extractGlobals(iter: ProcedureIter, graph: ModuleGraph, body: PNode, dest: 
 
         # generate the MIR code for the assignment and append it to the
         # `dest` fragment
-        generateCode(graph, iter.options, n, dest.tree, dest.sourceMap)
+        generateCode(graph, iter.options, n, dest.extra.tree, dest.extra.sourceMap)
 
 proc preprocess(iter: var ProcedureIter, prc: PSym, graph: ModuleGraph, m: Module): Procedure =
   ## Transforms the body of the given procedure and translates it to MIR code.
