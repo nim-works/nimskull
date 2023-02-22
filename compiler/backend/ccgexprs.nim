@@ -2390,6 +2390,10 @@ proc genSlice(p: BProc; e: PNode; d: var TLoc) =
 proc genEnumToStr(p: BProc, e: PNode, d: var TLoc) =
   let t = e[1].typ.skipTypes(abstractInst+{tyRange})
   let toStrProc = getToStringProc(p.module.g.graph, t)
+
+  # it's a late dependency and we thus need to notify the orchestrator:
+  p.module.extra.add(toStrProc)
+
   # XXX need to modify this logic for IC.
   var n = copyTree(e)
   n[0] = newSymNode(toStrProc)
