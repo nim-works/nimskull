@@ -339,7 +339,7 @@ proc makeJSString(s: string, escapeNonAscii = true): Rope =
 include jstypes
 
 proc gen(p: PProc, n: PNode, r: var TCompRes)
-proc genStmt(p: PProc, n: PNode)
+proc genStmt*(p: PProc, n: PNode)
 proc genProc(oldProc: PProc, prc: PSym): Rope
 proc genConstant(p: PProc, c: PSym)
 

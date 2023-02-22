@@ -39,6 +39,8 @@ type
     bmod: BModule
     init: PProc
 
+    struct: ModuleStruct
+
   CodegenCtx = GCodegenCtx[LocalModuleData]
 
 proc queueAll(ctx: var CodegenCtx, iter: var ProcedureIter, tree: MirTree) =
@@ -69,6 +71,16 @@ proc processModule(ctx: var CodegenCtx, m: Module, graph: ModuleGraph,
       if {sfExportc, sfCompilerProc} * def.flags == {sfExportc}:
         queue(iter, def)
 
+    # add the defined globals and threadvars to the module's struct:
+    for def in globalDefs(tree):
+      if sfThread in def.flags:
+        data.struct.threadvars.add def
+      else:
+        data.struct.globals.add def
+        # if the global has a destructor, we need to queue the procedure
+        # already
+        queueDestructor(iter, graph, def)
+
     processTopLevel(m, tree, source, graph)
 
     # process and queue the dependencies:
@@ -91,6 +103,12 @@ proc processProc(ctx: var CodegenCtx, prc: Procedure, graph: ModuleGraph,
   # from
   queueAll(ctx, iter, prc.extra.tree)
 
+  for it in prc.globals.items:
+    m.struct.privateFields.add it
+    # also queue the used destructors here -- doing so when generating the
+    # calls would be too late
+    queueDestructor(iter, graph, it)
+
 proc generateCode*(graph: ModuleGraph) =
   echo "codegen"
 
@@ -99,7 +117,7 @@ proc generateCode*(graph: ModuleGraph) =
 
   reserve(ctx.modules, ctx.list.modules)
 
-  var main: BModule
+  var main: ModuleId
   var iter: ProcedureIter
 
   iter.processOptions.incl poLiftGlobals
@@ -111,7 +129,7 @@ proc generateCode*(graph: ModuleGraph) =
     ctx.modules[i] = LocalModuleData(bmod: local, init: setupInitProc(g, local))
 
     if sfMainModule in m.sym.flags:
-      main = local
+      main = i
 
   # process the modules (i.e. generated code for their top-level statements).
   # Since dependency processing potentially requires access to modules other
@@ -161,6 +179,10 @@ proc generateCode*(graph: ModuleGraph) =
 
     # we processed/consumed all elements
     g.extra.setLen(0)
+
+  # generate the clean up logic for the program, and append it to the end
+  # of the main module's init procedure:
+  genStmt(ctx.modules[main].init, generateProgramDestructor(ctx, graph))
 
   # all procedures are generated. Emit the top-level code for all modules in
   # the order they were closed:
