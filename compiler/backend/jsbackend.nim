@@ -107,7 +107,9 @@ proc generateCode*(graph: ModuleGraph) =
   # Since dependency processing potentially requires access to modules other
   # than the one for which the top-level statements are code-gen'ed, it can't
   # happen as part of the above loop
-  for i, m in ctx.list.modules.pairs:
+  # TODO: don't use the module-closed order here. Either setup the name for
+  #       globals in ``jsgen`` or, better yet, use a different appraoch
+  for id in ctx.list.modulesClosed:
     processModule(ctx, ctx.list.modules[id], graph, g, ctx.modules[id], iter)
 
   while hasNext(iter):
