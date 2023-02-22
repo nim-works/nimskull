@@ -653,7 +653,6 @@ func asRegionPtr(x: VmMemoryRegion): MemRegionPtr {.inline.} =
 
 func resetLocation*(mm: var VmMemoryManager, loc: var VmMemoryRegion, typ: PVmType) =
   assert typ.sizeInBytes <= uint(loc.len)
-  let size = typ.sizeInBytes
   let a = cast[ptr Atom](addr loc[0])
 
   case typ.kind

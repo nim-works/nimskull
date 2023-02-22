@@ -26,15 +26,6 @@ import
 # XXX: proper error handling is missing here. Since these functions are exposed
 # via the compilerapi, `doAssert` is used for pre-condition checking
 
-template kind(x: ptr TFullReg): untyped = x[].kind
-template atomVal(x: ptr TFullReg): untyped = x[].atomVal
-
-func setIntReg(x: var TFullReg, v: BiggestInt) {.inline.} =
-  x = TFullReg(kind: rkInt, intVal: v)
-
-func setFloatReg(x: var TFullReg, v: BiggestFloat) {.inline.} =
-  x = TFullReg(kind: rkFloat, floatVal: v)
-
 template setX(k, f) {.dirty.} =
   doAssert a.slots[a.ra].kind == k
   a.slots[a.ra].f = v

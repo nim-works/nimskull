@@ -2362,23 +2362,6 @@ proc genDestroy(p: BProc; n: PNode) =
       internalError(p.config, n.info, "destructor turned out to be not trivial")
     discard "ignore calls to the default destructor"
 
-proc genDispose(p: BProc; n: PNode) =
-  when false:
-    let elemType = n[1].typ.skipTypes(abstractVar).lastSon
-
-    var a: TLoc
-    initLocExpr(p, n[1].skipAddr, a)
-
-    if isFinal(elemType):
-      if elemType.destructor != nil:
-        var destroyCall = newNodeI(nkCall, n.info)
-        genStmts(p, destroyCall)
-      lineFmt(p, cpsStmts, "#nimRawDispose($1, NIM_ALIGNOF($2))", [rdLoc(a), getTypeDesc(p.module, elemType)])
-    else:
-      # ``nimRawDisposeVirtual`` calls the ``finalizer`` which is the same as the
-      # destructor, but it uses the runtime type. Afterwards the memory is freed:
-      lineCg(p, cpsStmts, ["#nimDestroyAndDispose($#)", rdLoc(a)])
-
 proc genSlice(p: BProc; e: PNode; d: var TLoc) =
   let (x, y) = genOpenArraySlice(p, e, e.typ, e.typ.lastSon)
   if d.k == locNone: getTemp(p, e.typ, d)
@@ -3020,10 +3003,6 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
   of nkMixinStmt, nkBindStmt: discard
   else:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")
-
-proc genNamedConstExpr(p: BProc, n: PNode; isConst: bool): Rope =
-  if n.kind == nkExprColonExpr: result = genBracedInit(p, n[1], isConst, n[0].typ)
-  else: result = genBracedInit(p, n, isConst, n.typ)
 
 proc getDefaultValue(p: BProc; typ: PType; info: TLineInfo): Rope =
   var t = skipTypes(typ, abstractRange-{tyTypeDesc})

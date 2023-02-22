@@ -135,16 +135,6 @@ template wrap2svoid(op, modop) {.dirty.} =
     op(getString(a, 0), getString(a, 1))
   modop op
 
-template wrapDangerous(op, modop) {.dirty.} =
-  if vmopsDanger notin c.config.features and (defined(nimsuggest) or c.config.cmd == cmdCheck):
-    proc `op Wrapper`(a: VmArgs) {.nimcall.} =
-      discard
-    modop op
-  else:
-    proc `op Wrapper`(a: VmArgs) {.nimcall.} =
-      op(getString(a, 0), getString(a, 1))
-    modop op
-
 proc getCurrentExceptionMsgWrapper(a: VmArgs) {.nimcall.} =
   if a.currentException.isNil:
     setResult(a, "")
@@ -379,9 +369,6 @@ proc registerOs2Ops*(c: var TCtx) =
   ## OS operations that are able to modify the host's environment or run
   ## external programs
 
-  # captured vars:
-  let config = c.config
-
   wrap2svoid(putEnv, osop)
   wrap1svoid(delEnv, osop)
 
@@ -481,12 +468,6 @@ proc registerMacroOps*(c: var TCtx) =
     let fn = getNode(a, 0)
     setResult(a, fn.kind == nkClosure or (fn.typ != nil and fn.typ.callConv == ccClosure))
 
-  template userStrMsg(a: VmArgs): string =
-    let r = a.slots[a.ra]
-    {.line.}:
-      assert r.handle.typ.kind == akString
-    $deref(r.handle).strVal
-  
   template getInfo(a: VmArgs): TLineInfo =
     let b = getNode(a, 1)
     if b.kind == nkNilLit: a.currentLineInfo else: b.info

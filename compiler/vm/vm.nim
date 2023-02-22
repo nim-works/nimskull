@@ -386,9 +386,6 @@ template decodeBx(k: AtomKind) {.dirty.} =
 template decodeBx() {.dirty.} =
   let rbx = instr.regBx - wordExcess
 
-template move(a, b: untyped) {.dirty.} = system.shallowCopy(a, b)
-# XXX fix minor 'shallowCopy' overloading bug in compiler
-
 
 template rawPointer(x: LocHandle): untyped =
   x.h.rawPointer
@@ -401,7 +398,6 @@ proc asgnValue(mm: var VmMemoryManager, dest: var TFullReg, src: TFullReg) =
   # Since vmgen doesn't take care of register/location lifetime management, it
   # has to be done here
 
-  var tmp: TFullReg
   case src.kind
   of rkNone, rkInt, rkFloat, rkAddress, rkNimNode, rkRegAddr:
     cleanUpReg(dest, mm)
@@ -754,7 +750,6 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
       of tyArray, tyString:
         dest.initLocReg(dt[1], c.memory)
         let
-          stride = dt[1].seqElemStride
           t = dt[1].seqElemType
           L = arrayLen(src.handle)
 
@@ -861,12 +856,6 @@ template checkHandle(a: VmAllocator, handle: LocHandle) =
 
 when not defined(nimHasSinkInference):
   {.pragma: nosinks.}
-
-
-template source(c: TCtx, pc: PrgCtr): TLineInfo =
-  ## Gets the source-code information for the instruction the provided program
-  ## counter `pc` currently points to
-  c.debug[pc]
 
 proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason =
   ## Runs the execution loop, starting in frame `tos` at program counter `pc`.

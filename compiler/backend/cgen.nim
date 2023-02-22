@@ -525,15 +525,6 @@ proc getTemp(p: BProc, t: PType, result: var TLoc; needsInit=false) =
         echo "ENORMOUS TEMPORARY! ", p.config $ p.lastLineInfo
       writeStackTrace()
 
-proc getTempCpp(p: BProc, t: PType, result: var TLoc; value: Rope) =
-  inc(p.labels)
-  result.r = "T" & rope(p.labels) & "_"
-  linefmt(p, cpsStmts, "$1 $2 = $3;$n", [getTypeDesc(p.module, t, skVar), result.r, value])
-  result.k = locTemp
-  result.lode = lodeTyp t
-  result.storage = OnStack
-  result.flags = {}
-
 proc getIntTemp(p: BProc, result: var TLoc) =
   inc(p.labels)
   result.r = "T" & rope(p.labels) & "_"
@@ -682,16 +673,6 @@ proc initFrame(p: BProc, procname, filename: Rope): Rope =
 
   discard cgsym(p.module, "nimFrame")
   result = ropecg(p.module, "\tnimfr_($1, $2);$n", [procname, filename])
-
-proc initFrameNoDebug(p: BProc; frame, procname, filename: Rope; line: int): Rope =
-  discard cgsym(p.module, "nimFrame")
-  p.blocks[0].sections[cpsLocals].addf("TFrame $1;$n", [frame])
-  result = ropecg(p.module, "\t$1.procname = $2; $1.filename = $3; " &
-                      " $1.line = $4; $1.len = -1; nimFrame(&$1);$n",
-                      [frame, procname, filename, line])
-
-proc deinitFrameNoDebug(p: BProc; frame: Rope): Rope =
-  result = ropecg(p.module, "\t#popFrameOfAddr(&$1);$n", [frame])
 
 proc deinitFrame(p: BProc): Rope =
   result = ropecg(p.module, "\t#popFrame();$n", [])
@@ -852,14 +833,6 @@ proc generateHeaders(m: BModule) =
 #undef powerpc
 #undef unix
 """)
-
-proc openNamespaceNim(namespace: string): Rope =
-  result.add("namespace ")
-  result.add(namespace)
-  result.add(" {\L")
-
-proc closeNamespaceNim(): Rope =
-  result.add("}\L")
 
 proc closureSetup(p: BProc, prc: PSym) =
   if prc.typ.callConv != ccClosure: return
@@ -1750,7 +1723,6 @@ proc writeHeader(m: BModule) =
     localReport(m.config, reportStr(rsemCannotOpenFile, m.filename.string))
 
 proc getCFile(m: BModule): AbsoluteFile =
-  let ext = ".nim.c"
   result = changeFileExt(completeCfilePath(m.config, withPackageName(m.config, m.cfilename)), ".nim.c")
 
 when false:
@@ -1837,15 +1809,6 @@ proc writeModule(m: BModule, pending: bool) =
 
     addFileToCompile(m.config, cf)
   onExit()
-
-proc updateCachedModule(m: BModule) =
-  let cfile = getCFile(m)
-  var cf = Cfile(nimname: m.module.name.s, cname: cfile,
-                 obj: completeCfilePath(m.config, toObjFile(m.config, cfile)), flags: {})
-  if sfMainModule notin m.module.flags:
-    genMainProc(m)
-  cf.flags = {CfileFlag.Cached}
-  addFileToCompile(m.config, cf)
 
 proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
   ## Also called from IC.

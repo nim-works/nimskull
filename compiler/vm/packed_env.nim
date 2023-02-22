@@ -222,10 +222,8 @@ func hash(x: PVmType): int {.inline.} =
   # the 4 or 8 byte alignment of `VmType`)
   hash(cast[int](x))
 
-func hash(x: TypeId): Hash {.borrow.}
 func `==`(a, b: TypeId): bool {.borrow.}
 
-func hash(x: SymId): Hash {.borrow.}
 func `==`(a, b: SymId): bool {.borrow.}
 
 template genAccessors(t: type, f: untyped, idTyp: type) {.dirty.} =
