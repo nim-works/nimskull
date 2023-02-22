@@ -67,9 +67,10 @@ type
     # XXX: ``modulesClosed`` and ``moduleMap`` should be split off into a
     #      separate object. They're relevant until the end of ``generateCode``,
     #      while ``modules`` gets processed at the start and is then discarded
-    modulesClosed: seq[ModuleId] ## the modules in the order they were closed.
+    modulesClosed*: seq[ModuleId] ## the modules in the order they were closed.
                                  ## The first closed module comes first, then
                                  ## the next, etc.
+      # TODO: try to not export ```modulesClosed``
     moduleMap: Table[int32, ModuleId] ## maps the module IDs used by semantic
                                       ## analysis to the ones used in the
                                       ## back-end

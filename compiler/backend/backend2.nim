@@ -38,6 +38,8 @@ import
     platform
   ]
 
+from compiler/sem/injectdestructors import genDestroy
+
 export collectPass # TODO: remove
 
 type
@@ -92,6 +94,13 @@ type
     seen*: IntSet
 
   CodegenCtx = GCodegenCtx[LocalModuleData]
+
+iterator ritems[T](x: openArray[T]): lent T =
+  # TODO: move this routine somewhere common
+  var i = x.high
+  while i >= 0:
+    yield x[i]
+    dec i
 
 func isFilled(x: LocalModuleData): bool =
   x.bmod != nil
@@ -181,6 +190,37 @@ proc dependOnCompilerProc(ctx: var CodegenCtx, iter: var ProcedureIter,
     # ``queueSingle`` and not just ``queue``
     queueSingle(ctx, iter, g, m, mId, sym)
 
+proc generateModuleDestructor(m: ModuleStruct, graph: ModuleGraph, dest: PNode) =
+  ## Generates the code for cleaning up a module's data, and appends it to
+  ## `dest`.
+
+  # as their destruction might access the non-private module fields, first
+  # destroy the private fields in the reverse order they were defined
+  for it in m.privateFields.ritems:
+    if hasDestructor(it.typ):
+      dest.add genDestroy(graph, newSymNode(it))
+
+  # then destroy the non-private fields (also in the reverse order)
+  for it in m.globals.ritems:
+    if hasDestructor(it.typ):
+      dest.add genDestroy(graph, newSymNode(it))
+
+proc generateProgramDestructor*[T](ctx: GCodegenCtx[T], graph: ModuleGraph): PNode =
+  ## Generates the code for cleaning up all data owned by the modules the
+  ## program is made up of.
+  result = newNode(nkStmtList)
+  # the modules are destroyed in reverse order. That is, the module that was
+  # closed last is cleaned up first, then the second last, etc.
+  for id in ctx.list.modulesClosed.ritems:
+    generateModuleDestructor(ctx.modules[id].struct, graph, result)
+
+proc queueDestructor*(iter: var ProcedureIter, graph: ModuleGraph, global: PSym) =
+  ## If it requires destruction and has a destructor, queue the destructor for
+  ## `global` with `iter`
+  if sfThread notin global.flags and hasDestructor(global.typ):
+    # assume that destructors can't be inline
+    queue(iter, getAttachedOp(graph, global.typ, attachedDestructor))
+
 proc generateCodeC*(graph: ModuleGraph) =
   echo "codegen"
 
@@ -222,6 +262,9 @@ proc generateCodeC*(graph: ModuleGraph) =
         ctx.modules[i].struct.threadvars.add def
       else:
         ctx.modules[i].struct.globals.add def
+        # if the global has a destructor, we need to queue the procedure
+        # already
+        queueDestructor(iter, graph, def)
 
     processTopLevel(m, tree, source, graph)
 
@@ -284,6 +327,9 @@ proc generateCodeC*(graph: ModuleGraph) =
 
         for it in prc.globals.items:
           ctx.modules[mId].struct.privateFields.add it
+          # also queue the used destructors here -- doing so when generating the
+          # calls would be too late
+          queueDestructor(iter, graph, it)
 
       # FIXME: argument aliasing rule violation
       queueAll(ctx, iter, gstate, ctx.modules[id], id, prc.tree)
@@ -350,10 +396,24 @@ proc generateCodeC*(graph: ModuleGraph) =
 
   echo "pass 2 done"
 
+  # the main part of code generation is done. We now know about the content of
+  # all module structs, so we can generate the cleanup logic
+  let programFinalizer =
+    if {optGenStaticLib, optGenDynLib, optNoMain} * graph.config.globalOptions == {}:
+      generateProgramDestructor(ctx, graph)
+    else:
+      newNode(nkStmtList)
+
   # generate the code for the init procedures and close the modules. This has
   # to happen in the order the modules were closed:
   for m in ctx.list[].modulesClosed:
-    finalCodegenActions(graph, ctx.modules[m].bmod, newNode(nkStmtList))
+    let extra =
+      if sfMainModule in ctx.list.modules[m].sym.flags:
+        programFinalizer
+      else:
+        newNode(nkStmtList)
+
+    finalCodegenActions(graph, ctx.modules[m].bmod, extra)
 
     #echo "flags: ", whichInitProcs(it.bmod), " in ", it.bmod.module.name.s
     #registerInitProcs(clist, it.bmod.module, whichInitProcs(it.bmod))
