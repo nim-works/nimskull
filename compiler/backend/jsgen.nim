@@ -1819,10 +1819,11 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
     s: Rope
     varCode: string
     varName = mangleName(p.module, v)
-    useGlobalPragmas = sfGlobal in v.flags and ({sfPure, sfThread} * v.flags != {})
+    isThreadVar = sfGlobal in v.flags and sfThread in v.flags
 
   if v.constraint.isNil:
-    if useGlobalPragmas:
+    # TODO: move threadvar handling out of the code generator
+    if isThreadVar:
       lineF(p, "if (globalThis.$1 === undefined) {$n", varName)
       varCode = "globalThis." & $varName
       inc p.extraIndent
@@ -1878,7 +1879,7 @@ proc genVarInit(p: PProc, v: PSym, n: PNode) =
     else:
       line(p, runtimeFormat(varCode & " = $3;$n", [returnType, v.loc.r, s]))
 
-  if useGlobalPragmas:
+  if isThreadVar:
     dec p.extraIndent
     lineF(p, "}$n")
 

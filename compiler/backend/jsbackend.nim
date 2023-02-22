@@ -83,6 +83,14 @@ proc processModule(ctx: var CodegenCtx, m: Module, graph: ModuleGraph,
     # we processed/consumed all elements
     g.extra.setLen(0)
 
+proc processProc(ctx: var CodegenCtx, prc: Procedure, graph: ModuleGraph,
+                 m: var LocalModuleData, iter: var ProcedureIter) =
+  # queue all procedures used by the initialization logic for the
+  # procedure-level globals. They need to be queued from the module to
+  # which the procedure is *attached*, not from the one it's *first used*
+  # from
+  queueAll(ctx, iter, prc.extra.tree)
+
 proc generateCode*(graph: ModuleGraph) =
   echo "codegen"
 
@@ -93,6 +101,8 @@ proc generateCode*(graph: ModuleGraph) =
 
   var main: BModule
   var iter: ProcedureIter
+
+  iter.processOptions.incl poLiftGlobals
 
   # first create a ``BModule`` instance for all modules that we know about:
   for i, m in ctx.list.modules.pairs:
@@ -120,6 +130,7 @@ proc generateCode*(graph: ModuleGraph) =
 
     case prc.isImported
     of false:
+      processProc(ctx, prc, graph, ctx.modules[id], iter)
       queueAll(ctx, iter, prc.tree)
 
       # lambda-lifting is disabled for the JS backend, which means that we
@@ -127,6 +138,7 @@ proc generateCode*(graph: ModuleGraph) =
       let inner = iter.takeInner()
 
       for it in inner.items:
+        processProc(ctx, it, graph, ctx.modules[id], iter)
         g.innerProcs[it.sym.id] =
           generateAST(graph, m.idgen, it.sym, it.tree, it.source)
 

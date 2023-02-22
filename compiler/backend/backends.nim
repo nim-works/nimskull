@@ -121,7 +121,7 @@ type
 
     # configuration state:
     options: set[GenOption]
-    processOptions: set[ProcessOption]
+    processOptions*: set[ProcessOption]
     noImported*: bool
       ## if ``true``, indicates that a procedure with a body should not be
       ## treated as imported, even if it's marked as such
