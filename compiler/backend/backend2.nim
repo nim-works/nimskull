@@ -61,11 +61,24 @@ type
     inlineMap: Table[int, uint32]
       ## maps a procedure ID to the associated InlineProc ID
 
+  ModuleStruct* = object
+    ## Stores information about a module struct. A module struct is the
+    ## aggregate type that stores all module-level data, which, for now, are
+    ## only globals and threadvars. A global can be viewed as a field of the
+    ## module struct corresponding to the module it belongs
+    globals*: seq[PSym]
+    privateFields*: seq[PSym] ## procedure-level globals of procedures attached
+      ## to the module
+
+    threadvars*: seq[PSym] ## thread-local variables of the module
+
   LocalModuleData = object
     bmod: BModule
 
     inlined: OrderedSet[uint32]
       ## all procedures that need to be inlined into the module
+
+    struct: ModuleStruct
 
   GCodegenCtx*[T] = object
     # TODO: move it to a module that is shared between all backends
@@ -202,6 +215,13 @@ proc generateCodeC*(graph: ModuleGraph) =
       # generation if they're used
       if {sfExportc, sfCompilerProc} * def.flags == {sfExportc}:
         queueSingle(ctx, iter, gstate, ctx.modules[i], i, def)
+
+    # add the defined globals and threadvars to the module's struct:
+    for def in globalDefs(tree):
+      if sfThread in def.flags:
+        ctx.modules[i].struct.threadvars.add def
+      else:
+        ctx.modules[i].struct.globals.add def
 
     processTopLevel(m, tree, source, graph)
 

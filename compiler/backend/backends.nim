@@ -218,6 +218,36 @@ iterator procDefs*(tree: MirTree): PSym =
 
     inc i
 
+iterator globalDefs*(stmts: MirTree): PSym =
+  ## Returns the symbols of all globals defined in `stmts` to in the order of
+  ## their appearance. Only globals defined in the outermost scope are
+  ## included
+  var
+    i = NodePosition 0
+    depth = 0
+  while i < NodePosition(stmts.len):
+    let n {.cursor.} = stmts[i]
+    case n.kind
+    of mnkDef:
+      let ent = stmts[i+1]
+      if ent.kind == mnkGlobal:
+        yield ent.sym
+
+      i = findEnd(stmts, i)
+    of mnkScope:
+      # only enter the outermost scope:
+      if depth == 0:
+        inc depth # okay; enter
+      else:
+        i = findEnd(stmts, i) # skip the body
+    of mnkEnd:
+      if n.start == mnkScope:
+        dec depth
+    else:
+      discard "not relevant"
+
+    inc i
+
 func takeInner*(iter: var ProcedureIter): seq[Procedure] =
   ## Removes all queued closure procedures from `iter` and returns them
   result = move iter.queuedInner
