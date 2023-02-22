@@ -248,6 +248,10 @@ proc generateCodeC*(graph: ModuleGraph) =
     let top = transformStmt(graph, m.idgen, m.sym, m.stmts)
     var (tree, source) = generateCode(graph, m.sym, {}, top)
 
+    # we no longer need the original module body, so as a memory usage
+    # optimization, we free it already:
+    ctx.list.modules[i].stmts = nil
+
     # exported procedures always need to be code-gen'ed, irrespective of
     # whether they're actually used
     for def in procDefs(tree):
