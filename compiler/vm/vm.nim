@@ -989,13 +989,13 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
 
         assert c.code[pc].opcode in {opcIndCall, opcIndCallAsgn}
         if c.code[pc].opcode == opcIndCallAsgn:
-          # Move the return value to the destination register on the
+          # move the return register's content (that stores either the simple
+          # value or the destination handle) to the destination register on the
           # caller's frame
-          let p = c.sframes[tos].next
-          let i = c.code[pc].regA
-          let slot = addr c.sframes[p].slots[i]
-          slot[].cleanUpReg(c.memory)
-          slot[] = move regs[0]
+          let
+            p = c.sframes[tos].next
+            i = c.code[pc].regA
+          c.sframes[p].slots[i] = move regs[0]
 
         popFrame()
       else:
@@ -2107,13 +2107,17 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       of ckCallback:
         # it's a callback:
         if instr.opcode == opcIndCallAsgn:
-          # XXX: instead of doing this manually here, vmgen will emit
-          #      `opcLdNull(Reg)` in the future instead
+          # XXX: the callback should be responsible for initializing the
+          #      result register (we wouldn't need the setup logic here then),
+          #      but in order to be able to do that, owning handles need (i.e.
+          #      ``rkLocation``) to be removed first
           # setup register that will store the result
           if not loadEmptyReg(regs[ra], retType, c.debug[pc], c.memory):
-            regs[ra].initLocReg(retType, c.memory)
+            # allocating the destination location is the responsibility of
+            # ``vmgen``
+            discard
 
-        # We have to assume that the callback makes use of it's parameters and
+        # We have to assume that the callback makes use of its parameters and
         # thus need to validate them here
         for i in (rb+1)..<(rb+rc):
           checkHandle(regs[i])
@@ -2142,11 +2146,16 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         #echo "new pc ", newPc, " calling: ", prc.name.s
         var newFrame = TStackFrame(prc: prc, comesFrom: pc, next: tos)
         newFrame.slots.newSeq(regCount+ord(isClosure))
-        if retType.isValid:
-          # TODO: instead of initializing the result register here, it should
-          #       be done by vmgen via `opcLdNull`
-          if not loadEmptyReg(newFrame.slots[0], retType, c.debug[pc], c.memory):
-            newFrame.slots[0].initLocReg(retType, c.memory)
+        if instr.opcode == opcIndCallAsgn:
+          checkHandle(regs[ra])
+          # the destination might be a temporary complex location (`ra` is an
+          # ``rkLocation`` register then). While we could use
+          # ``fastAsgnComplex`` like we do with the arguments, it would mean
+          # that each result access is subjected to access checks. That's
+          # inefficient, so we *move* (destructive) the register's content for
+          # the duration of the call and move it back when the call returns
+          newFrame.slots[0] = move regs[ra]
+
         for i in 1..rc-1:
           newFrame.slots[i].fastAsgnComplex(regs[rb+i])
 
