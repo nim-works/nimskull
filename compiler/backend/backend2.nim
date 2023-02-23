@@ -308,7 +308,7 @@ proc generateCodeC*(graph: ModuleGraph) =
       dependOnCompilerProc(ctx, iter, gstate, ctx.modules[i], i, graph, "popFrame")
 
   # discover and generate code for all alive procedures
-  while hasNext(iter):
+  while hasNext(iter, graph):
     let prc = next(iter, graph, ctx.list[])
     let id = selectedModule(ctx, gstate, prc)
     let m {.cursor.} = ctx.list.modules[id]

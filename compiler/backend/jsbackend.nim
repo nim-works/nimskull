@@ -140,7 +140,7 @@ proc generateCode*(graph: ModuleGraph) =
   for id in ctx.list.modulesClosed:
     processModule(ctx, ctx.list.modules[id], graph, g, ctx.modules[id], iter)
 
-  while hasNext(iter):
+  while hasNext(iter, graph):
     let prc = next(iter, graph, ctx.list[])
     let id = ctx.list[].lookupModule(prc.sym)
     let m {.cursor.} = ctx.list.modules[id]

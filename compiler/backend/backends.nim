@@ -253,8 +253,11 @@ func takeInner*(iter: var ProcedureIter): seq[Procedure] =
   ## Removes all queued closure procedures from `iter` and returns them
   result = move iter.queuedInner
 
-proc hasNext*(iter: ProcedureIter): bool =
-  result = iter.queued.len > 0 or iter.nextInner < iter.queuedInner.len
+proc hasNext*(iter: ProcedureIter, graph: ModuleGraph): bool =
+  ## Returns whether calling ``next`` is allowed (because there are more
+  ## unprocessed procedures available)
+  result = iter.queued.len > 0 or iter.nextInner < iter.queuedInner.len or
+           (graph.methods.len > 0 and not iter.generatedDispatchers)
 
 
 type InnerProc = PSym
@@ -364,7 +367,7 @@ proc processTopLevel*(module: Module, tree: var MirTree, source: var SourceMap, 
 proc next*(iter: var ProcedureIter, graph: ModuleGraph, mlist: var ModuleList): Procedure =
   # TODO: don't require the whole `mlist` to be mutable, we only to modify the
   #       data of the module the next procedure belongs to
-  assert hasNext(iter)
+  assert hasNext(iter, graph)
   if iter.nextInner < iter.queuedInner.len:
     # there are some pre-processed routines
     result = move iter.queuedInner[iter.nextInner]
