@@ -158,6 +158,8 @@ type
 
 # forward declarations
 proc genLit(c: var TCtx; n: PNode; lit: int; dest: var TDest)
+proc genType(c: var TCtx, typ: PType): int
+proc fitsRegister(t: PType): bool
 
 template isUnset(x: TDest): bool = x < 0
 
@@ -405,6 +407,21 @@ proc freeTempRange(c: var TCtx; start: TRegister, n: int) =
   for i in start .. start + n - 1:
     c.freeTemp(TRegister(i))
 
+proc getFullTemp(c: var TCtx, n: PNode, t: PType): TRegister =
+  ## Allocates a register for a value of type `t`, and, if the value doesn't
+  ## fit into a register, emits the bytecode for allocating and setting up a
+  ## temporary location.
+  ##
+  ## The difference compared to ``getTemp`` is that ``getFullTemp`` also
+  ## allocates a location. While ``getFullTemp`` should ideally replace
+  ## ``getTemp``, doing so is currently not possible because ``getTemp`` gets
+  ## often passed an incorrect type
+  let kind = getSlotKind(t.skipTypes(abstractInst + {tyStatic} - {tyTypeDesc}))
+  result = getFreeRegister(c, kind, start = 0)
+
+  if not fitsRegister(t):
+    c.gABx(n, opcLdNull, result, c.genType(t))
+
 func prepare(c: var TCtx, dest: var TDest, typ: PType) =
   ## Initializes `dest` to a temporary register if it's not already set. `typ`
   ## is passed to register allocation logic to improve allocation behaviour.
@@ -412,6 +429,18 @@ func prepare(c: var TCtx, dest: var TDest, typ: PType) =
   ## `typ` doesn't matches what's stored in the register.
   if dest.isUnset:
     dest = c.getTemp(typ)
+
+proc prepare(c: var TCtx, dest: var TDest, n: PNode, typ: PType) =
+  ## If `dest` is not already set or refers to an argument slot, allocates a
+  ## location of `typ` and assigns the register holding the resulting handle or
+  ## value to it. `n` only provides the line information to use for emitted
+  ## instructions
+  if dest.isUnset:
+    dest = c.getFullTemp(n, typ)
+  elif c.prc.regInfo[dest].kind == slotTempUnknown and not fitsRegister(typ):
+    # the destination is a register slot used for argument passing, and the
+    # value doesn't fit into a register -> setup a temporary location
+    c.gABx(n, opcLdNull, dest, c.genType(typ))
 
 template withTemp(tmp, typ, body: untyped) {.dirty.} =
   var tmp = getTemp(c, typ)
@@ -880,7 +909,9 @@ proc genCall(c: var TCtx; n: PNode; dest: var TDest) =
   #  return
   # bug #10901: do not produce code for wrong call expressions:
   if n.len == 0 or n[0].typ.isNil: return
-  if dest.isUnset and not isEmptyType(n.typ): dest = getTemp(c, n.typ)
+
+  if not isEmptyType(n.typ):
+    prepare(c, dest, n, n.typ)
 
   let
     fntyp = skipTypes(n[0].typ, abstractInst)
@@ -1160,7 +1191,7 @@ proc genParseOp(c: var TCtx; n: PNode; dest: var TDest,
 
 proc genVarargsABC(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode) =
   if dest.isUnset: dest = getTemp(c, n.typ)
-  var x = c.getTempRange(n.len-1, slotTempStr)
+  var x = c.getTempRange(n.len-1, slotTempUnknown)
   for i in 1..<n.len:
     var r: TRegister = x+i-1
     c.gen(n[i], r)
@@ -1212,8 +1243,6 @@ proc genCard(c: var TCtx; n: PNode; dest: var TDest) =
   if dest.isUnset: dest = c.getTemp(n.typ)
   c.gABC(n, opcCard, dest, tmp)
   c.freeTemp(tmp)
-
-proc fitsRegister*(t: PType): bool
 
 template needsRegLoad(): untyped =
   gfNode notin flags and
@@ -1333,7 +1362,7 @@ proc genSetElem(c: var TCtx, n: PNode, typ: PType): TRegister {.inline.} =
   let first = toInt(c.config.firstOrd(t))
   genSetElem(c, n, first)
 
-proc fitsRegister*(t: PType): bool =
+proc fitsRegister(t: PType): bool =
   assert t != nil
   let st = t.skipTypes(abstractInst + {tyStatic} - {tyTypeDesc})
   st.kind in { tyRange, tyEnum, tyBool, tyInt..tyUInt64, tyChar, tyPtr, tyPointer} or
@@ -2799,6 +2828,14 @@ proc genProcBody(c: var TCtx; s: PSym, body: PNode): int =
     if s.typ.callConv == ccClosure:
       # reserve a slot for the hidden environment parameter
       c.prc.regInfo.add RegInfo(refCount: 1, kind: slotFixedLet)
+
+    # setup the result register, if necessary. Watch out for macros! They
+    # always return a ``NimNode``, and the result register is setup at the
+    # start of macro evaluation
+    let rt = getReturnType(s)
+    if s.kind != skMacro and not isEmptyType(rt) and fitsRegister(rt):
+      # setup the result register if it's a simple value
+      c.gABx(body, opcLdNullReg, 0, c.genType(rt))
 
     gen(c, body)
 
