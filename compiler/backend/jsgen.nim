@@ -183,13 +183,6 @@ proc newGlobals(): PGlobals =
   result.generatedSyms = initIntSet()
   result.typeInfoGenerated = initIntSet()
 
-proc initCompRes(r: var TCompRes) =
-  r.address = nil
-  r.res = nil
-  r.tmpLoc = nil
-  r.typ = etyNone
-  r.kind = resNone
-
 proc rdLoc(a: TCompRes): Rope {.inline.} =
   if a.typ != etyBaseIndex:
     result = a.res
@@ -214,10 +207,6 @@ proc initProcOptions(module: BModule): TOptions =
 
 proc newInitProc(globals: PGlobals, module: BModule): PProc =
   result = newProc(globals, module, nil, initProcOptions(module))
-
-proc declareGlobal(p: PProc; id: int; r: Rope) =
-  if p.prc != nil and not p.declaredGlobals.containsOrIncl(id):
-    p.locals.addf("global $1;$n", [r])
 
 const
   MappedToObject = {tyObject, tyArray, tyTuple, tyOpenArray,
@@ -593,15 +582,6 @@ proc binaryUintExpr(p: PProc, n: PNode, r: var TCompRes, op: string,
     r.res = "$1 = (($5 $2 $3) $4)" % [a, rope op, y.rdLoc, trimmer, tmp]
   else:
     r.res = "(($1 $2 $3) $4)" % [x.rdLoc, rope op, y.rdLoc, trimmer]
-  r.kind = resExpr
-
-template ternaryExpr(p: PProc, n: PNode, r: var TCompRes, magic, frmt: string) =
-  var x, y, z: TCompRes
-  useMagic(p, magic)
-  gen(p, n[1], x)
-  gen(p, n[2], y)
-  gen(p, n[3], z)
-  r.res = frmt % [x.rdLoc, y.rdLoc, z.rdLoc]
   r.kind = resExpr
 
 template unaryExpr(p: PProc, n: PNode, r: var TCompRes, magic, frmt: string) =
@@ -999,7 +979,6 @@ proc genAsmOrEmitStmt(p: PProc, n: PNode) =
     of nkStrLit..nkTripleStrLit:
       p.body.add(it.strVal)
     of nkSym:
-      let v = it.sym
       # for backwards compatibility we don't deref syms here :-(
       if false:
         discard
@@ -1061,16 +1040,6 @@ proc generateHeader(p: PProc, typ: PType): Rope =
       result.add(", ")
       result.add(name)
       result.add("_Idx")
-
-proc countJsParams(typ: PType): int =
-  for i in 1..<typ.n.len:
-    assert(typ.n[i].kind == nkSym)
-    var param = typ.n[i].sym
-    if isCompileTimeOnly(param.typ): continue
-    if mapType(param.typ) == etyBaseIndex:
-      inc result, 2
-    else:
-      inc result
 
 const
   nodeKindsNeedNoCopy = {nkCharLit..nkInt64Lit, nkStrLit..nkTripleStrLit,
@@ -1577,12 +1546,6 @@ proc genArgs(p: PProc, n: PNode, r: var TCompRes; start=1) =
     inc emitted
     hasArgs = true
   r.res.add(")")
-  when false:
-    # XXX look into this:
-    let jsp = countJsParams(typ)
-    if emitted != jsp and tfVarargs notin typ.flags:
-      localReport(p.config, n.info, "wrong number of parameters emitted; expected: " & $jsp &
-        " but got: " & $emitted)
   r.kind = resExpr
 
 proc genOtherArg(p: PProc; n: PNode; i: int; typ: PType;
@@ -2055,10 +2018,7 @@ proc genJSArrayConstr(p: PProc, n: PNode, r: var TCompRes) =
   r.res.add("]")
 
 proc genMagic(p: PProc, n: PNode, r: var TCompRes) =
-  var
-    a: TCompRes
-    line, filen: Rope
-  var op = n[0].sym.magic
+  let op = n[0].sym.magic
   case op
   of mOr: genOr(p, n[1], n[2], r)
   of mAnd: genAnd(p, n[1], n[2], r)
@@ -2754,15 +2714,6 @@ proc wholeCode(graph: ModuleGraph; m: BModule): Rope =
       attachProc(p, prc)
 
   result = globals.typeInfo & globals.constants & globals.code
-
-proc getClassName(t: PType): Rope =
-  var s = t.sym
-  if s.isNil or sfAnon in s.flags:
-    s = skipTypes(t, abstractPtrs).sym
-  if s.isNil or sfAnon in s.flags:
-    doAssert(false, "cannot retrieve class name")
-  if s.loc.r != nil: result = s.loc.r
-  else: result = rope(s.name.s)
 
 proc myClose(graph: ModuleGraph; b: PPassContext, n: PNode): PNode =
   result = myProcess(b, n)

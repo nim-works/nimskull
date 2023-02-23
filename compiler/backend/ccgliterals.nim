@@ -27,9 +27,6 @@ template detectVersion(field, corename) =
 proc detectStrVersion(m: BModule): int =
   detectVersion(strVersion, "nimStrVersion")
 
-proc detectSeqVersion(m: BModule): int =
-  detectVersion(seqVersion, "nimSeqVersion")
-
 # ----- Version 1: GC'ed strings and seqs --------------------------------
 
 proc genStringLiteralDataOnlyV1(m: BModule, s: string): Rope =
@@ -91,17 +88,6 @@ proc genStringLiteralV2Const(m: BModule; n: PNode; isConst: bool): Rope =
   result = "{$1, (NimStrPayload*)&$2}" % [rope(n.strVal.len), pureLit]
 
 # ------ Version selector ---------------------------------------------------
-
-proc genStringLiteralDataOnly(m: BModule; s: string; info: TLineInfo;
-                              isConst: bool): Rope =
-  case detectStrVersion(m)
-  of 0, 1: result = genStringLiteralDataOnlyV1(m, s)
-  of 2:
-    result = getTempName(m)
-    genStringLiteralDataOnlyV2(m, s, result, isConst)
-  else:
-    internalError(
-      m.config, info, "cannot determine how to produce code for string literal")
 
 proc genNilStringLiteral(m: BModule; info: TLineInfo): Rope =
   result = ropecg(m, "((#NimStringDesc*) NIM_NIL)", [])

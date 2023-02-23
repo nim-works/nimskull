@@ -161,9 +161,6 @@ proc genLit(c: var TCtx; n: PNode; lit: int; dest: var TDest)
 
 template isUnset(x: TDest): bool = x < 0
 
-proc debugInfo(c: TCtx; info: TLineInfo): string =
-  result = toFileLineCol(c.config, info)
-
 func registerLinkItem(tbl: var Table[int, LinkIndex], list: var seq[PSym],
                       sym: PSym, next: var LinkIndex): int =
   let linkIdx = tbl.mgetOrPut(sym.id, next)
@@ -925,7 +922,6 @@ proc genCall(c: var TCtx; n: PNode; dest: var TDest) =
   c.freeTempRange(x, n.len)
 
 template isGlobal(s: PSym): bool = sfGlobal in s.flags and s.kind != skForVar
-proc isGlobal(n: PNode): bool = n.kind == nkSym and isGlobal(n.sym)
 
 func local(prc: PProc, sym: PSym): TDest {.inline.} =
   ## Returns the register associated with the local variable `sym` (or -1 if

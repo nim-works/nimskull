@@ -97,7 +97,6 @@ func checkValid*(al: VmAllocator, a: MemRegionPtr, typ: PVmType): AccessViolatio
 
   result = avrOutOfBounds
 
-  var found = false
   for x in al.regions.items:
     if rp in x.start..<(x.start+x.len):
       let rtyp = x.typ

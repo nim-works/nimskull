@@ -44,7 +44,6 @@ proc dump*(conf: ConfigRef, pd: ProfileData): string =
   var data = pd.data
   echo "\nprof:     µs    #instr  location"
   for i in 0..<32:
-    var tMax: float
     var infoMax: ProfileInfo
     var flMax: TLineInfo
     for fl, info in data:

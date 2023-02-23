@@ -402,14 +402,6 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
 proc deserialize*(c: TCtx, handle: LocHandle, asType: PType, info: TLineInfo): PNode =
   deserialize(c, handle.byteView(), handle.typ, asType, info)
 
-func findInConstr(n: PNode, pos: FieldPosition): PNode =
-  assert n.kind == nkObjConstr
-  for i in 1..<n.len:
-    if n[i][0].sym.position == pos.int:
-      return n[i]
-
-  return nil
-
 proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil)
 
 proc marshalFields*(c: var TCtx, nodes: openArray[PNode], dest: LocHandle) =
