@@ -227,6 +227,14 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
       arg = arg.base.skipTypes(skippedTypes + {tyGenericInst})
       if not rec: break
     result = getTypeDescNode(c, arg, operand.owner, traitCall.info)
+  of "isCyclical":
+    let r =
+      if operand.skipTypes(abstractInst).kind in ConcreteTypes:
+        isCyclePossible(operand, c.graph)
+      else:
+        false
+
+    result = newIntNodeT(toInt128(ord(r)), traitCall, c.idgen, c.graph)
   else:
     localReport(c.config, traitCall.info, reportSym(
       rsemUnknownTrait, trait.sym))

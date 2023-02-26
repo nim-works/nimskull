@@ -1153,7 +1153,7 @@ proc genTypeInfoV2Impl(m: BModule, t, origType: PType, name: Rope; info: TLineIn
   let traceImpl = genHook(m, t, info, attachedTrace)
 
   var flags = 0
-  if not canFormAcycle(t): flags = flags or 1
+  if not isCyclePossible(t, m.g.graph): flags = flags or 1 # acyclic
 
   addf(m.s[cfsTypeInit3], "$1.destructor = (void*)$2; $1.size = sizeof($3); $1.align = NIM_ALIGNOF($3); $1.name = $4;$n; $1.traceImpl = (void*)$5; $1.flags = $6;", [
     name, destroyImpl, getTypeDesc(m, t), typeName,

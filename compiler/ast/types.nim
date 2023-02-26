@@ -28,6 +28,7 @@ import
   ],
   compiler/utils/[
     platform,
+    idioms,
     int128,
   ],
   compiler/modules/[
@@ -351,6 +352,8 @@ proc canFormAcycleAux(marker: var IntSet, typ: PType, startId: int): bool =
   case t.kind
   of tyTuple, tyObject, tyRef, tySequence, tyArray, tyOpenArray, tyVarargs:
     if t.id == startId:
+      # XXX: this check leads to all types not being explicitly marked as
+      #      acyclic to be treated as cyclic!
       result = true
     elif not containsOrIncl(marker, t.id):
       for i in 0..<t.len:
@@ -929,6 +932,14 @@ proc sameBackendType*(x, y: PType): bool =
   c.cmp = dcEqIgnoreDistinct
   result = sameTypeAux(x, y, c)
 
+proc sameLocationType*(x, y: PType): bool =
+  ## Tests and returns whether `x` and `y` are the same when used as the type
+  ## for locations
+  var c = initSameTypeClosure()
+  c.flags.incl IgnoreTupleFields
+  c.cmp = dcEqIgnoreDistinct
+  result = sameTypeAux(x, y, c)
+
 proc compareTypes*(x, y: PType,
                    cmp: TDistinctCompare = dcEq,
                    flags: TTypeCmpFlags = {}): bool =
@@ -1409,3 +1420,140 @@ proc isImportedException*(t: PType; conf: ConfigRef): bool =
 
   if base.sym != nil and sfImportc in base.sym.flags:
     result = true
+
+proc productReachable(marker: var IntSet, g: ModuleGraph, t: PType,
+                      search: PType, isInd: bool): bool
+
+proc check(marker: var IntSet, g: ModuleGraph, t: PType, search: PType,
+           isInd: bool): bool =
+  ## Returns whether the type `search` either matches `t` or is *potentially*
+  ## reachable through a ``ref`` type part of `t`. `isInd` indicates whether
+  ## the analysed `t` was reached through following a ``ref`` type
+  if t == nil or tfAcyclic in t.flags:
+    return false
+
+  # if the type is marked as acyclic, it is asserted to never being part of a
+  # reference cycle at run-time, meaning that we don't need to follow it
+  # further
+  let t = t.skipTypes(abstractInst - {tyTypeDesc})
+  if tfAcyclic in t.flags:
+    return false
+  # we're not interested in the difference between named and unnamed tuples nor
+  # distinct types, so use ``sameLocationType`` instead of ``sameType``
+  if isInd and sameLocationType(t, search):
+    # the searched for type is reachable from itself through a ref indirection
+    return true
+
+  let trace = getAttachedOp(g, t, attachedTrace)
+  if trace != nil and sfOverriden in trace.flags:
+    # the type has a custom trace hook. We take it as implying that reasoning
+    # about the type is not possible, and have to assume that a cycle through
+    # the type is possible
+    return true
+
+  case t.kind
+  of tyRef:
+    let base = t.base.skipTypes(abstractInst - {tyTypeDesc})
+    if base.kind == tyObject and not isFinal(base):
+      # a polymorphic ``ref``. We have to assume that the dynamic type contains
+      # the `search` type somewhere
+      result = tfAcyclic notin base.flags
+    else:
+      # a static ``ref``. Check the elements' types as we're analysing
+      # for type reachability through a ref indirection
+      result = check(marker, g, base, search, isInd=true)
+
+  of tyProc:
+    # since the env type is dynamic (only known at run-time), we don't know if
+    # a cycle to the type we're searching for is possible (or not possible) --
+    # we have to assume that it's possible
+    result = t.callConv == ccClosure
+  else:
+    result = productReachable(marker, g, t, search, isInd)
+
+proc productReachable(marker: var IntSet, g: ModuleGraph, n: PNode,
+                      search: PType, isInd: bool): bool =
+  ## Traverses the fields of the given record `n` and checks if the type
+  ## identified by `search` is reachable through one of them. Returns the
+  ## result.
+  result = false
+  case n.kind
+  of nkSym:
+    # cursor fields are non-owning -- they can't keep references alive and
+    # thus can't cause a reference cycle
+    if sfCursor notin n.sym.flags:
+      result = check(marker, g, n.typ, search, isInd)
+  of nkWithSons:
+    for it in n.items:
+      result = productReachable(marker, g, it, search, isInd)
+      if result:
+        break
+
+  of nkWithoutSons - {nkSym}:
+    discard "not relevant"
+
+proc productReachable(marker: var IntSet, g: ModuleGraph, t: PType, search: PType,
+          isInd: bool): bool =
+  ## Computes and returns whether `search` is *potentially* reachable from `t`
+  case t.kind
+  of tyTuple, tySequence, tyArray:
+    # value types that can keep something alive
+    for i in 0..<t.len:
+      result = check(marker, g, t[i], search, isInd)
+      if result:
+        break
+
+  of tyObject:
+    # special handling for objects
+    if containsOrIncl(marker, t.id): # prevent recursion
+      return false
+
+    # analyse the base type (if one exists):
+    if t.base != nil and
+       productReachable(marker, g, t.base.skipTypes(abstractPtrs), search, isInd):
+      return true
+
+    # analyse the body:
+    result = productReachable(marker, g, t.n, search, isInd)
+  of tyProc:
+    assert t.callConv != ccClosure
+    result = false
+  of tyVar, tyLent, tyOpenArray, tyVarargs, tyPtr, tyPointer:
+    # these are views; they don't own their items and thus can't keep them
+    # alive
+    result = false
+  of tyUncheckedArray:
+    # the items of an ``UncheckedArray`` are not considered by the cycle
+    # collector, so we don't follow them
+    result = false
+  of IntegralTypes, tyTypeDesc, tyEmpty, tyNil, tyOrdinal, tySet, tyRange,
+     tyString, tyCstring, tyVoid:
+    result = false
+  of tyDistinct, tyGenericInst, tyAlias, tyUserTypeClassInst, tyInferred:
+    result = productReachable(marker, g, t.lastSon, search, isInd)
+  of tyRef:
+    unreachable("handled by check")
+  of tyNone, tyUntyped, tyTyped, tyGenericInvocation, tyGenericBody,
+     tyGenericParam, tyForward, tySink, tyProxy, tyBuiltInTypeClass,
+     tyCompositeTypeClass, tyUserTypeClass, tyAnd, tyOr, tyNot, tyAnything,
+     tyStatic, tyFromExpr:
+    unreachable("not a concrete type")
+
+proc isCyclePossible*(typ: PType, g: ModuleGraph): bool =
+  ## Analyses and returns whether `typ` can possibly be the root of a reference
+  ## cycle, or in other words, whether a heap cell of type `typ` can keep
+  ## itself alive.
+  ##
+  ## The analysis is conservative: if a location of `typ` can have shared
+  ## ownership (``ref`` or closure) of a heap location with a dynamic type that
+  ## might not match the static one (i.e. a polymorphic ref or closure, the
+  ## latter uses type erasure), `typ` is treated as possibly cyclic.
+  let t = typ.skipTypes(abstractInst - {tyTypeDesc})
+  if not isFinal(t):
+    # we don't know where `typ` is used, so we have to treat it as possibly
+    # cyclic (if not explictly marked to not be)
+    return tfAcyclic notin typ.flags and tfAcyclic notin t.flags
+
+  var marker = initIntSet() # keeps track of which object types we've already
+                            # analysed
+  result = check(marker, g, typ, typ, isInd=false)
