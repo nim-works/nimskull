@@ -51,7 +51,8 @@ import
     lowerings
   ],
   compiler/utils/[
-    idioms
+    idioms,
+    debugutils
   ],
   compiler/vm/[
     vmaux,
@@ -2513,7 +2514,7 @@ proc genClosureConstr(c: var TCtx, n: PNode, dest: var TDest) =
 
 proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
   when defined(nimCompilerStacktraceHints):
-    setFrameMsg c.config$n.info & " " & $n.kind & " " & $flags
+    frameMsg c.config, n
 
   case n.kind
   of nkSym:

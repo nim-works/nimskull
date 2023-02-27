@@ -27,7 +27,7 @@ type
     repDebug = "Debug" ## Side channel for the compiler debug report. Helper
     ## messages designed specifically to aid development of the compiler
 
-    repInternal = "Internal" ## Reports constructed during hanling of the
+    repInternal = "Internal" ## Reports constructed during handling of
     ## internal compilation errors. Separate from debugging reports since
     ## they always exist - ICE, internal fatal errors etc.
 
@@ -233,29 +233,29 @@ type
     # errors begin
     # regular nim parser
     rparInvalidIndentation
+    rparInvalidIndentationWithForgotEqualSignHint
     rparNestableRequiresIndentation
 
     rparIdentExpected
-    rparIdentOrKwdExpected
+    rparIdentExpectedEmptyAccQuote
     rparExprExpected
-    rparMissingToken
+    rparMissingToken         # also used in filter_tmpl
     rparUnexpectedToken
-    rparUnexpectedTokenKind
+    rparAsmStmtExpectsStrLit
 
     rparFuncNotAllowed
     rparTupleTypeWithPar
     rparMisplacedParameterVar
     rparConceptNotinType
-    rparRotineExpected
-    rparPragmaAlreadyPresent
     rparMisplacedExport
 
     rparPragmaBeforeGenericParameters
 
-    # template parser `filter_tmpl.nim`
+    # source filter template parser `filter_tmpl.nim`
     rparTemplMissingEndClose
     rparTemplInvalidExpression
 
+    # source filter `syntaxes.nim`
     rparInvalidFilter
 
     # erorrs END !! add reports BEFORE the last enum !!

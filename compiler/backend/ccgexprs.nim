@@ -9,9 +9,6 @@
 
 # included from cgen.nim
 
-when defined(nimCompilerStacktraceHints):
-  import std/stackframes
-
 proc getNullValueAuxT(p: BProc; orig, t: PType; obj, constOrNil: PNode,
                       result: var Rope; count: var int;
                       isConst: bool, info: TLineInfo)
@@ -2776,7 +2773,7 @@ proc genConstStmt(p: BProc, n: PNode) =
 
 proc expr(p: BProc, n: PNode, d: var TLoc) =
   when defined(nimCompilerStacktraceHints):
-    setFrameMsg p.config$n.info & " " & $n.kind
+    frameMsg(p.config, n)
   p.currLineInfo = n.info
 
   case n.kind

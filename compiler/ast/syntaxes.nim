@@ -14,6 +14,7 @@ import
   compiler/ast/[
     llstream,
     ast,
+    ast_parsed_types,
     idents,
     lexer,
     parser,
@@ -40,6 +41,7 @@ from compiler/ast/reports_parser import ParserReport
 from compiler/ast/reports_internal import InternalReport
 from compiler/ast/report_enums import ReportKind
 
+# TODO: see about getting rid of all these parser exports
 export Parser, parseAll, parseTopLevelStmt, closeParser
 
 type
@@ -79,7 +81,7 @@ proc parsePipe(filename: AbsoluteFile, inputStream: PLLStream; cache: IdentCache
       while i < line.len and line[i] in Whitespace: inc(i)
       var p: Parser
       openParser(p, filename, llStreamOpen(substr(line, i)), cache, config)
-      result = parseAll(p).toPNode()
+      result = toPNode(parseAll(p))
       closeParser(p)
     llStreamClose(s)
 
@@ -151,8 +153,8 @@ proc setupParser*(p: var Parser; fileIdx: FileIndex; cache: IdentCache;
   openParser(p, fileIdx, llStreamOpen(f), cache, config)
   result = true
 
-proc parseFile*(fileIdx: FileIndex; cache: IdentCache; config: ConfigRef): PNode =
+proc parseFile*(fileIdx: FileIndex, cache: IdentCache, config: ConfigRef): ParsedNode =
   var p: Parser
   if setupParser(p, fileIdx, cache, config):
-    result = parseAll(p).toPNode()
+    result = parseAll(p)
     closeParser(p)

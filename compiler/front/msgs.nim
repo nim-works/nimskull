@@ -1437,11 +1437,64 @@ template localReport*(conf: ConfigRef, report: ReportTypes) =
 template localReport*(conf: ConfigRef, report: Report) =
   handleReport(conf, report, instLoc(), doNothing)
 
+template internalError*(
+    conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
+  conf.handleReport(
+    wrap(InternalReport(
+      kind: repKind,
+      msg: fail),
+         instLoc()),
+    instLoc(),
+    doAbort
+  )
+
+template internalError*(
+    conf: ConfigRef, info: TLineInfo,
+    repKind: InternalReportKind, fail: string): untyped =
+  ## Causes an internal error
+  conf.handleReport(wrap(
+    InternalReport(
+      kind: repKind, msg: fail), instLoc(), info),
+                    instLoc(), doAbort)
+
+template internalError*(
+    conf: ConfigRef,
+    info: TLineInfo,
+    fail: string,
+  ): untyped =
+  ## Causes an internal error
+  conf.handleReport(wrap(
+    InternalReport(kind: rintUnreachable, msg: fail),
+    instLoc(), info), instLoc(), doAbort)
+
+template internalError*(
+    conf: ConfigRef,
+    fail: string
+  ): untyped =
+  ## Causes an internal error
+  conf.handleReport(wrap(InternalReport(
+    kind: rintUnreachable, msg: fail), instLoc()), instLoc(), doAbort)
+
+template internalAssert*(
+    conf: ConfigRef, condition: bool, info: TLineInfo, failMsg: string = "") =
+  ## Causes an internal error if the provided condition evaluates to false
+  if not condition:
+    conf.handleReport(wrap(
+      InternalReport(kind: rintAssert, msg: failMsg),
+      instLoc(), info), instLoc(), doAbort)
+
+template internalAssert*(
+    conf: ConfigRef, condition: bool, failMsg: string = "") =
+  ## Causes an internal error if the provided condition evaluates to false
+  if not condition:
+    conf.handleReport(wrap(InternalReport(
+      kind: rintAssert, msg: failMsg), instLoc()), instLoc(), doAbort)
+
 # xxx: All the LexerReport stuff needs to go, it should just be the lexer
 #      defined/provided diagnostics/etc that we shouldn't muck with. The
 #      code below is a temporary bridge to work around this until fixed.
 
-from compiler/ast/lexer import LexerDiag, LexerDiagKind
+from compiler/ast/lexer import LexerDiag, LexerDiagKind, prettyTok
 from compiler/ast/reports_lexer import LexerReport
 
 func lexDiagToLegacyReportKind*(diag: LexerDiagKind): ReportKind {.inline.} =
@@ -1498,6 +1551,92 @@ proc handleReport*(
   let rep = diag.lexerDiagToLegacyReport()
   handleReport(conf, rep, reportFrom, eh)
 
+# xxx: All the ParserReport stuff needs to go, it should just be the parser
+#      defined/provided diagnostics/etc that we shouldn't muck with. The
+#      code below is a temporary bridge to work around this until fixed.
+from compiler/ast/reports_parser import ParserReport
+from compiler/ast/ast_parsed_types import ParseDiag, ParseDiagKind
+
+func parseDiagToLegacyReportKind(d: ParseDiagKind): ReportKind {.inline.} =
+  case d
+  of pdkInvalidIndentation: rparInvalidIndentation
+  of pdkInvalidIndentationWithForgotEqualSignHint: rparInvalidIndentation
+  of pdkNestableRequiresIndentation: rparNestableRequiresIndentation
+  of pdkIdentExpected: rparIdentExpected
+  of pdkIdentExpectedEmptyAccQuote: rparIdentExpectedEmptyAccQuote
+  of pdkExprExpected: rparExprExpected
+  of pdkMissingToken: rparMissingToken
+  of pdkUnexpectedToken: rparUnexpectedToken
+  of pdkAsmStmtExpectsStrLit: rparAsmStmtExpectsStrLit
+  of pdkFuncNotAllowed: rparFuncNotAllowed
+  of pdkTupleTypeWithPar: rparTupleTypeWithPar
+  of pdkMisplacedParameterVar: rparMisplacedParameterVar
+  of pdkConceptNotInType: rparConceptNotinType
+  of pdkMisplacedExport: rparMisplacedExport
+  of pdkPragmaBeforeGenericParameters: rparPragmaBeforeGenericParameters
+  of pdkInconsistentSpacing: rparInconsistentSpacing
+  of pdkPragmaDoesNotFollowTypeName: rparPragmaNotFollowingTypeName
+  of pdkEnablePreviewDotOps: rparEnablePreviewDotOps
+
+proc parseDiagToLegacyReport(d: ParseDiag): Report =
+  let
+    kind = d.kind.parseDiagToLegacyReportKind
+    rep =
+      case d.kind
+      of pdkInvalidIndentation,
+          pdkNestableRequiresIndentation,
+          pdkIdentExpectedEmptyAccQuote,
+          pdkFuncNotAllowed,
+          pdkTupleTypeWithPar,
+          pdkMisplacedParameterVar,
+          pdkConceptNotInType,
+          pdkMisplacedExport,
+          pdkPragmaBeforeGenericParameters,
+          pdkPragmaDoesNotFollowTypeName,
+          pdkEnablePreviewDotOps:
+        ParserReport(kind: kind,
+                     location: std_options.some d.location,
+                     reportInst: d.instLoc.toReportLineInfo)
+      of pdkInvalidIndentationWithForgotEqualSignHint:
+        ParserReport(kind: rparInvalidIndentationWithForgotEqualSignHint,
+                     location: std_options.some d.location,
+                     reportInst: d.instLoc.toReportLineInfo,
+                     eqInfo: d.eqLineInfo)
+      of pdkMissingToken:
+        var ex: seq[string]
+        for t in d.missedToks:
+          ex.add $t
+        ParserReport(kind: rparMissingToken,
+                     location: std_options.some d.location,
+                     reportInst: d.instLoc.toReportLineInfo,
+                     expected: ex)
+      of pdkUnexpectedToken:
+        ParserReport(kind: rparUnexpectedToken,
+                     location: std_options.some d.location,
+                     reportInst: d.instLoc.toReportLineInfo,
+                     expectedKind: $d.expected,
+                     found: prettyTok(d.actual))
+      of pdkIdentExpected,
+          pdkAsmStmtExpectsStrLit,
+          pdkExprExpected,
+          pdkInconsistentSpacing:
+        ParserReport(kind: kind,
+                     location: std_options.some d.location,
+                     reportInst: d.instLoc.toReportLineInfo,
+                     found: prettyTok(d.found))
+  
+  result = Report(category: repParser, parserReport: rep)
+
+proc handleParserDiag*(
+    conf: ConfigRef,
+    diag: ParseDiag,
+    reportFrom: InstantiationInfo,
+    eh: TErrorHandling = doNothing
+  ) {.inline.} =
+  # REFACTOR: this is a temporary bridge into existing reporting
+  let rep = parseDiagToLegacyReport(diag)
+  handleReport(conf, rep, reportFrom, eh)
+
 proc handleReport*(
     conf: ConfigRef,
     diag: PAstDiag,
@@ -1541,59 +1680,6 @@ template semReportIllformedAst*(
 
 template localReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
   handleReport(conf, wrap(report, instLoc(), info), instLoc(), doNothing)
-
-template internalError*(
-    conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
-  conf.handleReport(
-    wrap(InternalReport(
-      kind: repKind,
-      msg: fail),
-         instLoc()),
-    instLoc(),
-    doAbort
-  )
-
-template internalError*(
-    conf: ConfigRef, info: TLineInfo,
-    repKind: InternalReportKind, fail: string): untyped =
-  ## Causes an internal error
-  conf.handleReport(wrap(
-    InternalReport(
-      kind: repKind, msg: fail), instLoc(), info),
-                    instLoc(), doAbort)
-
-template internalError*(
-    conf: ConfigRef,
-    info: TLineInfo,
-    fail: string,
-  ): untyped =
-  ## Causes an internal error
-  conf.handleReport(wrap(
-    InternalReport(kind: rintUnreachable, msg: fail),
-    instLoc(), info), instLoc(), doAbort)
-
-template internalError*(
-    conf: ConfigRef,
-    fail: string
-  ): untyped =
-  ## Causes an internal error
-  conf.handleReport(wrap(InternalReport(
-    kind: rintUnreachable, msg: fail), instLoc()), instLoc(), doAbort)
-
-template internalAssert*(
-    conf: ConfigRef, condition: bool, info: TLineInfo, failMsg: string = "") =
-  ## Causes an internal error if the provided condition evaluates to false
-  if not condition:
-    conf.handleReport(wrap(
-      InternalReport(kind: rintAssert, msg: failMsg),
-      instLoc(), info), instLoc(), doAbort)
-
-template internalAssert*(
-    conf: ConfigRef, condition: bool, failMsg: string = "") =
-  ## Causes an internal error if the provided condition evaluates to false
-  if not condition:
-    conf.handleReport(wrap(InternalReport(
-      kind: rintAssert, msg: failMsg), instLoc()), instLoc(), doAbort)
 
 proc quotedFilename*(conf: ConfigRef; i: TLineInfo): Rope =
   if i.fileIndex.int32 < 0:

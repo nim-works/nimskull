@@ -48,7 +48,8 @@ import
     nversion,
     bitsets,
     ropes,
-    pathutils
+    pathutils,
+    debugutils
   ],
   compiler/sem/[
     passes,

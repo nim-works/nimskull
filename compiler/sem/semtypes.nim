@@ -60,7 +60,6 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
         # check if we got any errors and if so report them
         for e in ifErrorWalkErrors(c.config, n[i][0][1]):
           localReport(c.config, e)
-
       else:
         e = newSymS(skEnumField, n[i][0], c)
         identToReplace = addr n[i][0]
@@ -82,7 +81,6 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
             localReport(c.config, strVal, reportSem(rsemStringLiteralExpected))
         else:
           localReport(c.config, v, reportSem(rsemWrongNumberOfVariables))
-
       of tyString, tyCstring:
         strVal = v
         x = counter
@@ -96,7 +94,7 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
       if i != 1:
         if x != counter: incl(result.flags, tfEnumHasHoles)
         if x < counter:
-          localReport(c.config, n[i].info, SemReport(
+          localReport(c.config, v.info, SemReport(
             kind: rsemInvalidOrderInEnum,
             sym: e,
             expectedCount: toInt128 counter,

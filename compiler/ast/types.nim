@@ -1398,3 +1398,14 @@ proc isObjLackingTypeField*(typ: PType): bool {.inline.} =
   ## is not marked as ``.pure`` (the ``sfPure`` flags is not present on it)
   result = (typ.kind == tyObject) and ((tfFinal in typ.flags) and
       (typ[0] == nil) or isPureObject(typ))
+
+proc isImportedException*(t: PType; conf: ConfigRef): bool =
+  ## true of the `Exception` described by type `t` was imported
+  assert t != nil
+  if conf.exc != excNative:
+    return false
+
+  let base = t.skipTypes({tyAlias, tyPtr, tyDistinct, tyGenericInst})
+
+  if base.sym != nil and sfImportc in base.sym.flags:
+    result = true

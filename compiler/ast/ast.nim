@@ -20,11 +20,11 @@ import
     numericbase       # NumericalBase
   ],
   compiler/front/[
-    options
+    in_options
   ],
   compiler/utils/[
     ropes,
-    astrepr,
+    idioms,
     int128 # Values for integer nodes
   ],
   std/[
@@ -32,7 +32,7 @@ import
     tables # For symbol table mapping
   ]
 
-export ast_types, ast_idgen, ast_query, int128, ast_parsed_types
+export ast_types, ast_idgen, ast_query, int128
 
 var ggDebug* {.deprecated.}: bool ## convenience switch for trying out things
 
@@ -637,38 +637,206 @@ proc toHumanStr*(kind: TTypeKind): string =
   ## strips leading `tk`
   result = toHumanStrImpl(kind, 2)
 
-proc setBaseFlags(n: PNode, base: NumericalBase) =
+proc setBaseFlags*(n: PNode, base: NumericalBase) =
   case base
   of base10: discard
   of base2: incl(n.flags, nfBase2)
   of base8: incl(n.flags, nfBase8)
   of base16: incl(n.flags, nfBase16)
 
+func toTNodeKind*(kind: ParsedNodeKind): TNodeKind {.inline.} =
+  case kind
+  of pnkError: nkError
+  of pnkEmpty: nkEmpty
+  of pnkIdent: nkIdent
+  of pnkCharLit: nkCharLit
+  of pnkIntLit: nkIntLit
+  of pnkInt8Lit: nkInt8Lit
+  of pnkInt16Lit: nkInt16Lit
+  of pnkInt32Lit: nkInt32Lit
+  of pnkInt64Lit: nkInt64Lit
+  of pnkUIntLit: nkUIntLit
+  of pnkUInt8Lit: nkUInt8Lit
+  of pnkUInt16Lit: nkUInt16Lit
+  of pnkUInt32Lit: nkUInt32Lit
+  of pnkUInt64Lit: nkUInt64Lit
+  of pnkFloatLit: nkFloatLit
+  of pnkFloat32Lit: nkFloat32Lit
+  of pnkFloat64Lit: nkFloat64Lit
+  of pnkFloat128Lit: nkFloat128Lit
+  of pnkStrLit: nkStrLit
+  of pnkRStrLit: nkRStrLit
+  of pnkTripleStrLit: nkTripleStrLit
+  of pnkNilLit: nkNilLit
+  of pnkCustomLit: nkDotExpr
+  of pnkCall: nkCall
+  of pnkCommand: nkCommand
+  of pnkCallStrLit: nkCallStrLit
+  of pnkInfix: nkInfix
+  of pnkPrefix: nkPrefix
+  of pnkPostfix: nkPostfix
+  of pnkExprEqExpr: nkExprEqExpr
+  of pnkExprColonExpr: nkExprColonExpr
+  of pnkIdentDefs: nkIdentDefs
+  of pnkConstDef: nkConstDef
+  of pnkVarTuple: nkVarTuple
+  of pnkPar: nkPar
+  of pnkSqrBracket: nkBracket
+  of pnkCurly: nkCurly
+  of pnkTupleConstr: nkTupleConstr
+  of pnkObjConstr: nkObjConstr
+  of pnkTableConstr: nkTableConstr
+  of pnkSqrBracketExpr: nkBracketExpr
+  of pnkCurlyExpr: nkCurlyExpr
+  of pnkPragmaExpr: nkPragmaExpr
+  of pnkPragma: nkPragma
+  of pnkPragmaBlock: nkPragmaBlock
+  of pnkDotExpr: nkDotExpr
+  of pnkAccQuoted: nkAccQuoted
+  of pnkIfExpr: nkIfExpr
+  of pnkIfStmt: nkIfStmt
+  of pnkElifBranch: nkElifBranch
+  of pnkElifExpr: nkElifExpr
+  of pnkElse: nkElse
+  of pnkElseExpr: nkElseExpr
+  of pnkCaseStmt: nkCaseStmt
+  of pnkOfBranch: nkOfBranch
+  of pnkWhenStmt, pnkWhenExpr: nkWhenStmt
+  of pnkForStmt: nkForStmt
+  of pnkWhileStmt: nkWhileStmt
+  of pnkBlockExpr: nkBlockExpr
+  of pnkBlockStmt: nkBlockStmt
+  of pnkDiscardStmt: nkDiscardStmt
+  of pnkContinueStmt: nkContinueStmt
+  of pnkBreakStmt: nkBreakStmt
+  of pnkReturnStmt: nkReturnStmt
+  of pnkRaiseStmt: nkRaiseStmt
+  of pnkYieldStmt: nkYieldStmt
+  of pnkTryStmt: nkTryStmt
+  of pnkExceptBranch: nkExceptBranch
+  of pnkFinally: nkFinally
+  of pnkDefer: nkDefer
+  of pnkLambda: nkLambda
+  of pnkDo: nkDo
+  of pnkBind: nkBind
+  of pnkBindStmt: nkBindStmt
+  of pnkMixinStmt: nkMixinStmt
+  of pnkCast: nkCast
+  of pnkStaticStmt: nkStaticStmt
+  of pnkAsgn: nkAsgn
+  of pnkGenericParams: nkGenericParams
+  of pnkFormalParams: nkFormalParams
+  of pnkStmtList: nkStmtList
+  of pnkStmtListExpr: nkStmtListExpr
+  of pnkImportStmt: nkImportStmt
+  of pnkImportExceptStmt: nkImportExceptStmt
+  of pnkImportAs: nkImportAs
+  of pnkFromStmt: nkFromStmt
+  of pnkIncludeStmt: nkIncludeStmt
+  of pnkExportStmt: nkExportStmt
+  of pnkExportExceptStmt: nkExportExceptStmt
+  of pnkConstSection: nkConstSection
+  of pnkLetSection: nkLetSection
+  of pnkVarSection: nkVarSection
+  of pnkProcDef: nkProcDef
+  of pnkFuncDef: nkFuncDef
+  of pnkMethodDef: nkMethodDef
+  of pnkConverterDef: nkConverterDef
+  of pnkIteratorDef: nkIteratorDef
+  of pnkMacroDef: nkMacroDef
+  of pnkTemplateDef: nkTemplateDef
+  of pnkTypeSection: nkTypeSection
+  of pnkTypeDef: nkTypeDef
+  of pnkEnumTy: nkEnumTy
+  of pnkEnumFieldDef: nkEnumFieldDef
+  of pnkObjectTy: nkObjectTy
+  of pnkTupleTy: nkTupleTy
+  of pnkProcTy: nkProcTy
+  of pnkIteratorTy: nkIteratorTy
+  of pnkRecList: nkRecList
+  of pnkRecCase: nkRecCase
+  of pnkRecWhen: nkRecWhen
+  of pnkTypeOfExpr: nkTypeOfExpr
+  of pnkRefTy: nkRefTy
+  of pnkVarTy: nkVarTy
+  of pnkPtrTy: nkPtrTy
+  of pnkStaticTy: nkStaticTy
+  of pnkDistinctTy: nkDistinctTy
+  of pnkMutableTy: nkMutableTy
+  of pnkTupleClassTy: nkTupleClassTy
+  of pnkTypeClassTy: nkTypeClassTy
+  of pnkOfInherit: nkOfInherit
+  of pnkArgList: nkArgList
+  of pnkWith: nkWith
+  of pnkWithout: nkWithout
+  of pnkAsmStmt: nkAsmStmt
+  of pnkCommentStmt: nkCommentStmt
+  of pnkUsingStmt: nkUsingStmt
+
+proc splitCustomLit*(n: ParsedNode): tuple[num, ident: ParsedNode] {.inline.} =
+  assert n != nil
+  assert n.kind == pnkCustomLit
+  var strLitTok = n.lit
+  strLitTok.literal = n.lit.literal.substr(0, n.lit.iNumber.int - 1)
+  var suffixTok = n.lit
+  suffixTok.literal = n.lit.ident.s
+  result =
+    (ParsedNode(kind: pnkRStrLit, fileIndex: n.fileIndex, lit: strLitTok),
+     ParsedNode(kind: pnkIdent, fileIndex: n.fileIndex, startToken: suffixTok))
+
 proc toPNode*(parsed: ParsedNode): PNode =
-  result = newNodeI(parsed.kind, parsed.info)
-  result.comment = parsed.comment
-  case parsed.kind:
-    of nkFloatKinds:
-      result.floatVal = parsed.token.fNumber
-      result.setBaseFlags(parsed.token.base)
-
-    of nkIntKinds - { nkCharLit }:
-      result.intVal = parsed.token.iNumber
-      result.setBaseFlags(parsed.token.base)
-
-    of nkCharLit:
-      result.intVal = ord(parsed.token.literal[0])
-
-    of nkStrKinds:
-      result.strVal = parsed.token.literal
-
-    of nkIdent:
-      result.ident = parsed.token.ident
-
+  if parsed.isNil: return
+  let kind = parsed.kind.toTNodeKind
+  result =
+    case parsed.kind
+    of pnkCustomLit:
+      # xxx: between reworking the `lexer` and `PNode`, this awkward handling
+      #      should go away
+      let split = splitCustomLit(parsed)
+      newTreeI(nkDotExpr, parsed.info): # TODO: confirm info is correct
+              [toPNode(split.num), toPNode(split.ident)]
     else:
-      if parsed.isBlockArg:
-        result.flags.incl nfBlockArg
+      newNodeI(kind, parsed.info)
 
-      for sub in items(parsed):
-        result.add sub.toPNode()
+  result.comment = parsed.comment
 
+  case kind
+  of nkEmpty:
+    discard
+
+  of nkFloatKinds:
+    result.floatVal = parsed.lit.fNumber
+    result.setBaseFlags(parsed.lit.base)
+
+  of nkIntKinds - { nkCharLit }:
+    result.intVal = parsed.lit.iNumber
+    result.setBaseFlags(parsed.lit.base)
+
+  of nkCharLit:
+    result.intVal = ord(parsed.lit.literal[0])
+
+  of nkStrKinds:
+    result.strVal = parsed.lit.literal
+
+  of nkNilLit:
+    discard
+
+  of nkIdent:
+    assert parsed.startToken.ident != nil,
+          "tkIn, tkOut, etc need to be translated, probably in the parser for now"
+    result.ident = parsed.startToken.ident
+
+  of nkAccQuoted:
+    for (ident, line, col) in parsed.idents.items:
+      let info = TLineInfo(fileIndex: parsed.fileIndex, line: line, col: col)
+      result.add newIdentNode(ident, info)
+
+  of nkError:
+    unreachable("IMPLEMENT ME")
+
+  else:
+    if parsed.isBlockArg:
+      result.flags.incl nfBlockArg
+
+    for sub in parsed.sons.items:
+      result.add toPNode(sub)

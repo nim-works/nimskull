@@ -173,7 +173,7 @@ proc importModule*(graph: ModuleGraph; s: PSym, fileIdx: FileIndex): PSym =
 
 
 proc includeModule*(graph: ModuleGraph; s: PSym, fileIdx: FileIndex): PNode =
-  result = syntaxes.parseFile(fileIdx, graph.cache, graph.config)
+  result = syntaxes.parseFile(fileIdx, graph.cache, graph.config).toPNode()
   graph.addDep(s, fileIdx)
   graph.addIncludeDep(s.position.FileIndex, fileIdx)
 
