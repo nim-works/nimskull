@@ -3501,6 +3501,10 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
   of rvmIllegalConv:
     result = r.str
 
+  of rvmIllegalConvFromXToY:
+    result = "illegal conversion from '$1' to '$2'" %
+             [$r.actualType, $r.formalType]
+
   of rvmFieldNotFound:
     result = "node lacks field: " & r.str
 

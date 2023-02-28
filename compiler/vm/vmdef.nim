@@ -664,6 +664,7 @@ type
     vmEvtNodeNotASymbol
     vmEvtNodeNotAProcSymbol
     vmEvtIllegalConv
+    vmEvtIllegalConvFromXToY
     vmEvtMissingCacheKey
     vmEvtCacheKeyAlreadyExists
     vmEvtFieldNotFound
@@ -688,7 +689,7 @@ type
         callName*: string
         argAst*: PNode
         argPos*: int
-      of vmEvtCannotCast:
+      of vmEvtCannotCast, vmEvtIllegalConvFromXToY:
         typeMismatch*: VmTypeMismatch
       of vmEvtIndexError:
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]
@@ -981,7 +982,8 @@ template regBx*(x: TInstr): int = (x.TInstrType shr regBxShift and regBxMask).in
 template jmpDiff*(x: TInstr): int = regBx(x) - wordExcess
 
 template isNil*(p: VmMemPointer | CellPtr): bool = p.rawPointer == nil
-template isNil*(h: HeapSlotHandle): bool = int(h) == 0
+template isNil*(h: HeapSlotHandle): bool = ord(h) == 0
+template isNotNil*(h: HeapSlotHandle): bool = ord(h) != 0
 
 const noneType*: PVmType = nil
 

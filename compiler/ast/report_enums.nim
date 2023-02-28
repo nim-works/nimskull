@@ -309,6 +309,7 @@ type
     rvmNodeNotASymbol
     rvmNodeNotAProcSymbol
     rvmIllegalConv
+    rvmIllegalConvFromXToY
     rvmMissingCacheKey
     rvmCacheKeyAlreadyExists
     rvmFieldNotFound

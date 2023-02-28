@@ -317,7 +317,7 @@ template wrap*(rep: ReportTypes): Report =
 func `$`*(point: ReportLineInfo): string =
   point.file & "(" & $point.line & ", " & $point.col & ")"
 
-func actualType*(r: SemReport | VMReport): PType = r.typeMismatch[0].actualType
-func formalType*(r: SemReport | VMReport): PType = r.typeMismatch[0].formalType
+func actualType*(r: SemReport): PType = r.typeMismatch[0].actualType
+func formalType*(r: SemReport): PType = r.typeMismatch[0].formalType
 func formalTypeKind*(r: SemReport): set[TTypeKind] = r.typeMismatch[0].formalTypeKind
 func symstr*(r: SemReport | VMReport): string = r.sym.name.s

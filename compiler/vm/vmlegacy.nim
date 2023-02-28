@@ -54,9 +54,8 @@ func vmGenDiagToLegacyVmReport*(diag: VmGenDiag): VMReport {.inline.} =
         location: std_options.some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
         kind: rvmCannotCast,
-        typeMismatch:
-          @[SemTypeMismatch(actualType: diag.typeMismatch.actualType,
-                            formalType: diag.typeMismatch.formalType)])
+        actualType: diag.typeMismatch.actualType,
+        formalType: diag.typeMismatch.formalType)
     of vmGenDiagCodeGenUnhandledMagic,
         vmGenDiagMissingImportcCompleteStruct:
       VMReport(

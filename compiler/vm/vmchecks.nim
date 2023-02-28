@@ -14,11 +14,11 @@ import
     idioms
   ],
   compiler/vm/[
-    vmdef
+    vmdef,
+    vmtypes
   ]
 
 from compiler/vm/vmobjects import variantFieldIndices
-from compiler/vm/vmtypes import alignedSize
 
 iterator fields(p: VmMemoryRegion, t: PVmType): FieldIndex =
   ## Iterates and yields the indices of all active fields in the object at the
@@ -82,6 +82,14 @@ func testLocationType(locType: PVmType, t: PVmType): AccessViolationReason =
     of akArray:
       if it.elementCount > 0:
         it = it.elementType
+      else:
+        return avrTypeMismatch
+    of akRef, akPtr:
+      # special rule: a location of type ``ref|ptr T`` can be accessed via a
+      # handle with type ``ref|ptr X``, where `X` is either a super- or sub-type
+      # of `T`
+      if getTypeRel(t, it) != vtrUnrelated:
+        break
       else:
         return avrTypeMismatch
     else:
