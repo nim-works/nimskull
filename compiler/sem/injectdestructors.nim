@@ -311,7 +311,8 @@ proc getOp(g: ModuleGraph, t: PType, kind: TTypeAttachedOp): PSym =
 proc needsMarkCyclic(graph: ModuleGraph, typ: PType): bool =
   # skip distinct types too so that a ``distinct ref`` also gets marked as
   # cyclic at runtime
-  graph.config.selectedGC == gcOrc and cyclicType(typ.skipTypes(skipAliases + {tyDistinct}))
+  graph.config.selectedGC == gcOrc and
+  cyclicType(typ.skipTypes(skipAliases + {tyDistinct}), graph)
 
 func isNamed(tree: MirTree, v: Values, val: OpValue): bool =
   ## Returns whether `val` is an lvalue that names a location derived from
@@ -774,7 +775,7 @@ proc genCopy(buf: var MirTree, graph: ModuleGraph, t: PType,
     buf.add MirNode(kind: mnkArg)
 
     if graph.config.selectedGC == gcOrc and
-        cyclicType(t.skipTypes(skipAliases + {tyDistinct})):
+        cyclicType(t.skipTypes(skipAliases + {tyDistinct}), graph):
       # pass whether the copy can potentially introduce cycles as the third
       # parameter:
       buf.add MirNode(kind: mnkLiteral,
@@ -791,7 +792,7 @@ proc genMarkCyclic(buf: var MirTree, graph: ModuleGraph, typ: PType,
     # also skip distinct types so that a ``distinct ref`` gets marked as
     # cyclic too
     let t = typ.skipTypes(skipAliases + {tyDistinct})
-    if cyclicType(t):
+    if cyclicType(t, graph):
       argBlock(buf):
         buf.add compilerProc(graph, "nimMarkCyclic")
         buf.add MirNode(kind: mnkArg)

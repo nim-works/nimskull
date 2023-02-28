@@ -184,6 +184,22 @@ since (1, 3, 5):
 
     typeof(block: (for ai in a: ai))
 
+proc isCyclical*(t: typedesc): bool {.magic: "TypeTrait".} =
+  ## Returns whether the type `t` is *potentially* able to be part of a
+  ## reference cycle when used as the type of a managed heap location.
+  runnableExamples:
+    type
+      NoCycle = object
+        x: seq[NoCycle]
+      NoCycle2 {.acyclic.} = ref object
+        x: NoCycle2
+      Cycle = ref object
+        x: Cycle
+
+    doAssert not isCyclical(NoCycle)
+    doAssert not isCyclical(NoCycle2)
+    doAssert isCyclical(Cycle)
+
 import std/macros
 
 macro enumLen*(T: typedesc[enum]): int =
