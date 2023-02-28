@@ -51,8 +51,7 @@ import
     lowerings
   ],
   compiler/utils/[
-    idioms,
-    debugutils
+    idioms
   ],
   compiler/vm/[
     vmaux,
@@ -71,6 +70,7 @@ from std/bitops import bitor
 
 when defined(nimCompilerStacktraceHints):
   import std/stackframes
+  import compiler/utils/debugutils
 
 
 type

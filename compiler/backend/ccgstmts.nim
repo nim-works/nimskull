@@ -77,10 +77,10 @@ proc genVarTuple(p: BProc, n: PNode) =
     if sfCompileTime in v.flags: continue
     var traverseProc: Rope
     if sfGlobal in v.flags:
-      assignGlobalVar(p, vn, nil)
+      assignGlobalVar(p, vn, "")
       genObjectInit(p, cpsInit, v.typ, v.loc, constructObj)
       traverseProc = getTraverseProc(p, v)
-      if traverseProc != nil:
+      if traverseProc != "":
         registerTraverseProc(p, v, traverseProc)
     else:
       assignLocalVar(p, vn)
@@ -134,7 +134,7 @@ proc endBlock(p: BProc) =
   var blockEnd: Rope
   if frameLen > 0:
     blockEnd.addf("FR_.len-=$1;$n", [frameLen.rope])
-  if p.blocks[topBlock].label != nil:
+  if p.blocks[topBlock].label != "":
     blockEnd.addf("} $1: ;$n", [p.blocks[topBlock].label])
   else:
     blockEnd.addf("}$n", [])
@@ -251,13 +251,13 @@ proc genBracedInit(p: BProc, n: PNode; isConst: bool; optionalType: PType): Rope
 
 proc potentialValueInit(p: BProc; v: PSym; value: PNode): Rope =
   if lfDynamicLib in v.loc.flags or sfThread in v.flags:
-    result = nil
+    result = ""
   elif sfGlobal in v.flags and value != nil and isDeepConstExpr(value) and
       p.withinLoop == 0 and not containsGarbageCollectedRef(v.typ):
     #echo "New code produced for ", v.name.s, " ", p.config $ value.info
     result = genBracedInit(p, value, isConst = false, v.typ)
   else:
-    result = nil
+    result = ""
 
 proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
   if sfGoto in v.flags:
@@ -282,7 +282,7 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
     # That's why we are doing the construction inside the preInitProc.
     # genObjectInit relies on the C runtime's guarantees that
     # global variables will be initialized to zero.
-    if valueAsRope == nil:
+    if valueAsRope == "":
       var loc = v.loc
 
       # When the native TLS is unavailable, a global thread-local variable needs
@@ -297,17 +297,17 @@ proc genSingleVar(p: BProc, v: PSym; vn, value: PNode) =
     if sfExportc in v.flags and p.module.g.generatedHeader != nil:
       genVarPrototype(p.module.g.generatedHeader, vn)
     traverseProc = getTraverseProc(p, v)
-    if traverseProc != nil:
+    if traverseProc != "":
       registerTraverseProc(p, v, traverseProc)
   else:
     let imm = isAssignedImmediately(p.config, value)
     assignLocalVar(p, vn)
     initLocalVar(p, v, imm)
 
-  if traverseProc == nil:
+  if traverseProc == "":
     traverseProc = ~"NULL"
 
-  if value.kind != nkEmpty and valueAsRope == nil:
+  if value.kind != nkEmpty and valueAsRope == "":
     genLineDir(targetProc, vn)
     loadInto(targetProc, vn, value, v.loc)
 
@@ -620,7 +620,7 @@ proc raiseInstr(p: BProc): Rope =
         [p.nestedTryStmts[L-1].label])
       # + ord(p.nestedTryStmts[L-1].inExcept)])
   else:
-    result = nil
+    result = ""
 
 proc genRaiseStmt(p: BProc, t: PNode) =
   if t[0].kind != nkEmpty:
@@ -645,7 +645,7 @@ proc genRaiseStmt(p: BProc, t: PNode) =
     # reraise the last exception:
     linefmt(p, cpsStmts, "#reraiseException();$n", [])
   let gotoInstr = raiseInstr(p)
-  if gotoInstr != nil:
+  if gotoInstr != "":
     line(p, cpsStmts, gotoInstr)
 
 template genCaseGenericBranch(p: BProc, b: PNode, e: TLoc,
@@ -740,7 +740,7 @@ proc genStringCase(p: BProc, t: PNode, d: var TLoc) =
     linefmt(p, cpsStmts, "switch (#hashString($1) & $2) {$n",
             [rdLoc(a), bitMask])
     for j in 0..high(branches):
-      if branches[j] != nil:
+      if branches[j] != "":
         lineF(p, cpsStmts, "case $1: $n$2break;$n",
              [intLiteral(j), branches[j]])
     lineF(p, cpsStmts, "}$n", []) # else statement:
@@ -794,7 +794,7 @@ proc genOrdinalCase(p: BProc, n: PNode, d: var TLoc) =
   var lend = if splitPoint > 0: genIfForCaseUntil(p, n, d,
                     rangeFormat = "if ($1 >= $2 && $1 <= $3) goto $4;$n",
                     eqFormat = "if ($1 == $2) goto $3;$n",
-                    splitPoint, a) else: nil
+                    splitPoint, a) else: ""
 
   # generate switch part (might be empty):
   if splitPoint+1 < n.len:
@@ -815,7 +815,7 @@ proc genOrdinalCase(p: BProc, n: PNode, d: var TLoc) =
     if (hasAssume in CC[p.config.cCompiler].props) and not hasDefault:
       lineF(p, cpsStmts, "default: __assume(0);$n", [])
     lineF(p, cpsStmts, "}$n", [])
-  if lend != nil: fixLabel(p, lend)
+  if lend != "": fixLabel(p, lend)
 
 proc genCase(p: BProc, t: PNode, d: var TLoc) =
   genLineDir(p, t)
@@ -898,10 +898,10 @@ proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
       linefmt(p, cpsStmts, "*nimErr_ = NIM_FALSE;$n", [])
       expr(p, t[i][0], d)
     else:
-      var orExpr: Rope = nil
+      var orExpr = ""
       for j in 0..<t[i].len - 1:
         assert(t[i][j].kind == nkType)
-        if orExpr != nil: orExpr.add("||")
+        if orExpr != "": orExpr.add("||")
         let checkFor = if optTinyRtti in p.config.globalOptions:
           genTypeInfo2Name(p.module, t[i][j].typ)
         else:
@@ -1037,10 +1037,10 @@ proc genTrySetjmp(p: BProc, t: PNode, d: var TLoc) =
       linefmt(p, cpsStmts, "#popCurrentException();$n", [])
       endBlock(p)
     else:
-      var orExpr: Rope = nil
+      var orExpr = ""
       for j in 0..<t[i].len - 1:
         assert(t[i][j].kind == nkType)
-        if orExpr != nil: orExpr.add("||")
+        if orExpr != "": orExpr.add("||")
         let checkFor = if optTinyRtti in p.config.globalOptions:
           genTypeInfo2Name(p.module, t[i][j].typ)
         else:
@@ -1089,7 +1089,7 @@ proc genAsmOrEmitStmt(p: BProc, t: PNode, isAsmStmt=false): Rope =
       else:
         discard getTypeDesc(p.module, skipTypes(sym.typ, abstractPtrs))
         var r = sym.loc.r
-        if r == nil:
+        if r == "":
           # if no name has already been given,
           # it doesn't matter much:
           r = mangleName(p.module, sym)
