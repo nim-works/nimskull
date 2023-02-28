@@ -22,7 +22,7 @@ jobs:
 
       # Download the latest instance of artifacts from a build done previously
       - name: Download generated docs
-        uses: dawidd6/action-download-artifact@v2.25.0
+        uses: dawidd6/action-download-artifact@v2.26.0
         with:
           workflow: ci.yml
           workflow_conclusion: success
@@ -32,7 +32,7 @@ jobs:
           path: doc/html
 
       - name: Download generated source archive
-        uses: dawidd6/action-download-artifact@v2.25.0
+        uses: dawidd6/action-download-artifact@v2.26.0
         with:
           workflow: ci.yml
           workflow_conclusion: success
@@ -42,7 +42,7 @@ jobs:
           path: release-staging
 
       - name: Download generated release binaries
-        uses: dawidd6/action-download-artifact@v2.25.0
+        uses: dawidd6/action-download-artifact@v2.26.0
         with:
           workflow: ci.yml
           workflow_conclusion: success
@@ -52,7 +52,7 @@ jobs:
           path: release-staging
 
       - name: Download release manifest tool
-        uses: dawidd6/action-download-artifact@v2.25.0
+        uses: dawidd6/action-download-artifact@v2.26.0
         with:
           workflow: ci.yml
           workflow_conclusion: success
