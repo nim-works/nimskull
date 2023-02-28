@@ -106,10 +106,11 @@ type
     lexDiagMalformedUnderscores
     lexDiagMalformedTrailingUnderscre
     lexDiagInvalidToken
+    lexDiagInvalidTokenSpaceBetweenNumAndIdent
     lexDiagNoTabs
 
     # numbers
-    lexDiagInvalidIntegerPrefix
+    lexDiagInvalidIntegerLiteralOctalPrefix
     lexDiagInvalidIntegerSuffix
     lexDiagNumberNotInRange
     lexDiagExpectedHex
@@ -117,8 +118,12 @@ type
 
     # char
     lexDiagInvalidCharLiteral
+    lexDiagInvalidCharLiteralConstant
+    lexDiagInvalidCharLiteralPlatformNewline
+    lexDiagInvalidCharLiteralUnicodeCodepoint
     lexDiagMissingClosingApostrophe
-    lexDiagInvalidUnicodeCodepoint
+    lexDiagInvalidUnicodeCodepointEmpty
+    lexDiagInvalidUnicodeCodepointGreaterThan0x10FFFF
     # xxx: differentiate between invalid codepoint empty vs out of range, but
     #      still be treated within the invalidUnicodeCodepoint "family"
 
@@ -451,7 +456,7 @@ proc getNumber(L: var Lexer, result: var Token) =
       inc(pos)
     L.bufpos = pos
 
-  proc lexMessageLitNum(L: var Lexer, msg: string, startpos: int, msgKind: LexerDiagKind) =
+  proc lexMessageLitNum(L: var Lexer, startpos: int, msgKind: LexerDiagKind) =
     # Used to get slightly human friendlier err messages.
     const literalishChars = {'A'..'Z', 'a'..'z', '0'..'9', '_', '.', '\''}
     # preserve the old pos so we can restore it later
@@ -472,7 +477,7 @@ proc getNumber(L: var Lexer, result: var Token) =
       matchChars(L, t, {'0'..'9'})
     # restore the old pos
     L.bufpos = msgPos
-    L.handleDiag(msgKind, msg % t.literal)
+    L.handleDiag(msgKind, t.literal)
 
   var
     xi: BiggestInt
@@ -503,8 +508,7 @@ proc getNumber(L: var Lexer, result: var Token) =
     eatChar(L, result, '0')
     case L.buf[L.bufpos]
     of 'O':
-      lexMessageLitNum(L, "$1 is an invalid int literal; For octal literals " &
-                          "use the '0o' prefix.", startpos, lexDiagInvalidIntegerPrefix)
+      lexMessageLitNum(L, startpos, lexDiagInvalidIntegerLiteralOctalPrefix)
     of 'x', 'X':
       eatChar(L, result, 'x')
       numDigits = matchUnderscoreChars(L, result, {'0'..'9', 'a'..'f', 'A'..'F'})
@@ -517,7 +521,7 @@ proc getNumber(L: var Lexer, result: var Token) =
     else:
       L.internalError("getNumber")
     if numDigits == 0:
-      lexMessageLitNum(L, "invalid number: '$1'", startpos, lexDiagInvalidIntegerLiteral)
+      lexMessageLitNum(L, startpos, lexDiagInvalidIntegerLiteral)
   else:
     discard matchUnderscoreChars(L, result, {'0'..'9'})
     if (L.buf[L.bufpos] == '.') and (L.buf[L.bufpos + 1] in {'0'..'9'}):
@@ -571,14 +575,14 @@ proc getNumber(L: var Lexer, result: var Token) =
         result.literal.add suffix
         result.tokType = tkCustomLit
       else:
-        lexMessageLitNum(L, "invalid number suffix: '$1'", errPos, lexDiagInvalidIntegerSuffix)
+        lexMessageLitNum(L, errPos, lexDiagInvalidIntegerSuffix)
     else:
-      lexMessageLitNum(L, "invalid number suffix: '$1'", errPos, lexDiagInvalidIntegerSuffix)
+      lexMessageLitNum(L, errPos, lexDiagInvalidIntegerSuffix)
 
   # Is there still a literalish char awaiting? Then it's an error!
   if  L.buf[postPos] in literalishChars or
      (L.buf[postPos] == '.' and L.buf[postPos + 1] in {'0'..'9'}):
-    lexMessageLitNum(L, "invalid number: '$1'", startpos, lexDiagInvalidIntegerLiteral)
+    lexMessageLitNum(L, startpos, lexDiagInvalidIntegerLiteral)
 
   if result.tokType != tkCustomLit:
     # Third stage, extract actual number
@@ -655,8 +659,7 @@ proc getNumber(L: var Lexer, result: var Token) =
 
           if outOfRange:
             #echo "out of range num: ", result.iNumber, " vs ", xi
-            lexMessageLitNum(
-              L, "number out of range: '$1'", startpos, lexDiagNumberNotInRange)
+            lexMessageLitNum(L, startpos, lexDiagNumberNotInRange)
 
       else:
         case result.tokType
@@ -668,9 +671,9 @@ proc getNumber(L: var Lexer, result: var Token) =
           try:
             len = parseBiggestUInt(result.literal, iNumber)
           except ValueError:
-            raise newException(OverflowDefect, "number out of range: " & result.literal)
+            raise newException(OverflowDefect, result.literal)
           if len != result.literal.len:
-            raise newException(ValueError, "invalid integer: " & result.literal)
+            raise newException(ValueError, result.literal)
           result.iNumber = cast[int64](iNumber)
         else:
           var iNumber: int64
@@ -678,9 +681,9 @@ proc getNumber(L: var Lexer, result: var Token) =
           try:
             len = parseBiggestInt(result.literal, iNumber)
           except ValueError:
-            raise newException(OverflowDefect, "number out of range: " & result.literal)
+            raise newException(OverflowDefect, result.literal)
           if len != result.literal.len:
-            raise newException(ValueError, "invalid integer: " & result.literal)
+            raise newException(ValueError, result.literal)
           result.iNumber = iNumber
 
         # Explicit bounds checks.
@@ -695,7 +698,7 @@ proc getNumber(L: var Lexer, result: var Token) =
           else: false
 
         if outOfRange:
-          lexMessageLitNum(L, "number out of range: '$1'", startpos, lexDiagNumberNotInRange)
+          lexMessageLitNum(L, startpos, lexDiagNumberNotInRange)
 
       # Promote int literal to int64? Not always necessary, but more consistent
       if result.tokType == tkIntLit:
@@ -703,17 +706,15 @@ proc getNumber(L: var Lexer, result: var Token) =
           result.tokType = tkInt64Lit
 
     except ValueError:
-      lexMessageLitNum(L, "invalid number: '$1'", startpos, lexDiagInvalidIntegerLiteral)
+      lexMessageLitNum(L, startpos, lexDiagInvalidIntegerLiteral)
     except OverflowDefect, RangeDefect:
-      lexMessageLitNum(L, "number out of range: '$1'", startpos, lexDiagNumberNotInRange)
+      lexMessageLitNum(L, startpos, lexDiagNumberNotInRange)
   tokenEnd(result, postPos-1)
   L.bufpos = postPos
 
 proc handleHexChar(L: var Lexer, xi: var int; position: range[0..4]) =
   template invalid() =
-    L.handleDiag(lexDiagExpectedHex,
-                 "expected a hex digit, but found: " & L.buf[L.bufpos] &
-                 "; maybe prepend with 0")
+    L.handleDiag(lexDiagExpectedHex, $L.buf[L.bufpos])
 
   case L.buf[L.bufpos]
   of '0'..'9':
@@ -785,8 +786,7 @@ proc getEscapedChar(L: var Lexer, tok: var Token) =
     inc(L.bufpos)
   of 'p', 'P':
     if tok.tokType == tkCharLit:
-      L.handleDiag(lexDiagInvalidCharLiteral,
-                   "\\p not allowed in character literal")
+      L.handleDiag(lexDiagInvalidCharLiteralPlatformNewline)
     tok.literal.add(L.config.target.tnl)
     inc(L.bufpos)
   of 'r', 'R', 'c', 'C':
@@ -827,7 +827,7 @@ proc getEscapedChar(L: var Lexer, tok: var Token) =
     tok.literal.add(chr(xi))
   of 'u', 'U':
     if tok.tokType == tkCharLit:
-      L.handleDiag(lexDiagInvalidCharLiteral, "\\u not allowed in character literal")
+      L.handleDiag(lexDiagInvalidCharLiteralUnicodeCodepoint)
     inc(L.bufpos)
     var xi = 0
     if L.buf[L.bufpos] == '{':
@@ -836,11 +836,11 @@ proc getEscapedChar(L: var Lexer, tok: var Token) =
       while L.buf[L.bufpos] != '}':
         handleHexChar(L, xi, 0)
       if start == L.bufpos:
-        L.handleDiag(lexDiagInvalidUnicodeCodepoint, "Unicode codepoint cannot be empty")
+        L.handleDiag(lexDiagInvalidUnicodeCodepointEmpty)
       inc(L.bufpos)
       if xi > 0x10FFFF:
         let hex = ($L.buf)[start..L.bufpos-1]
-        L.handleDiag(lexDiagInvalidUnicodeCodepoint, "Unicode codepoint must be lower than 0x10FFFF, but was: " & hex)
+        L.handleDiag(lexDiagInvalidUnicodeCodepointGreaterThan0x10FFFF, hex)
     else:
       handleHexChar(L, xi, 1)
       handleHexChar(L, xi, 2)
@@ -855,9 +855,9 @@ proc getEscapedChar(L: var Lexer, tok: var Token) =
     if (xi <= 255):
       tok.literal.add(chr(xi))
     else:
-      L.handleDiag(lexDiagInvalidCharLiteral)
+      L.handleDiag(lexDiagInvalidCharLiteralConstant)
   else:
-      L.handleDiag(lexDiagInvalidCharLiteral)
+      L.handleDiag(lexDiagInvalidCharLiteralConstant)
 
 proc handleCRLF(L: var Lexer, pos: int): int =
   template registerLine =
@@ -1435,9 +1435,7 @@ proc rawGetTokInner(L: var Lexer, tok: var Token) =
       else:
         tok.literal = $c
         tok.tokType = tkInvalid
-        L.handleDiag(
-          lexDiagInvalidToken,
-          "invalid token: " & c & " (\\" & $(ord(c)) & ')')
+        L.handleDiag(lexDiagInvalidToken, $c)
     of '\"':
       # check for generalized raw string literal:
       let mode = if L.bufpos > 0 and L.buf[L.bufpos-1] in SymChars: generalized else: normal
@@ -1458,9 +1456,7 @@ proc rawGetTokInner(L: var Lexer, tok: var Token) =
             unicodeOprLen(L.buf, L.bufpos)[0] != 0:
           discard
         else:
-          L.handleDiag(
-            lexDiagInvalidToken,
-            "invalid token: no whitespace between number and identifier")
+          L.handleDiag(lexDiagInvalidTokenSpaceBetweenNumAndIdent)
     of '-':
       if L.buf[L.bufpos+1] in {'0'..'9'} and
           (L.bufpos-1 == 0 or L.buf[L.bufpos-1] in UnaryMinusWhitelist):
@@ -1475,9 +1471,7 @@ proc rawGetTokInner(L: var Lexer, tok: var Token) =
               unicodeOprLen(L.buf, L.bufpos)[0] != 0:
             discard
           else:
-            L.handleDiag(
-              lexDiagInvalidToken,
-              "invalid token: no whitespace between number and identifier")
+            L.handleDiag(lexDiagInvalidTokenSpaceBetweenNumAndIdent)
       else:
         getOperator(L, tok)
     else:
@@ -1489,9 +1483,7 @@ proc rawGetTokInner(L: var Lexer, tok: var Token) =
       else:
         tok.literal = $c
         tok.tokType = tkInvalid
-        L.handleDiag(
-          lexDiagInvalidToken,
-          "invalid token: " & c & " (\\" & $(ord(c)) & ')')
+        L.handleDiag(lexDiagInvalidToken, $c)
         inc(L.bufpos)
   atTokenEnd()
 
