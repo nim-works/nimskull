@@ -197,6 +197,7 @@ type
     rlexNumberNotInRange
     rlexExpectedHex
     rlexInvalidIntegerLiteral
+    rlexInvalidNumericLiteral
 
     # char
     rlexInvalidCharLiteral

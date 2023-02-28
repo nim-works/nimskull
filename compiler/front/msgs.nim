@@ -1499,7 +1499,6 @@ from compiler/ast/reports_lexer import LexerReport
 
 func lexDiagToLegacyReportKind*(diag: LexerDiagKind): ReportKind {.inline.} =
   case diag
-  of lexDiagInternalError: rintIce
   of lexDiagMalformedUnderscores: rlexMalformedUnderscores
   of lexDiagMalformedTrailingUnderscre: rlexMalformedTrailingUnderscre
   of lexDiagInvalidToken: rlexInvalidToken
@@ -1510,6 +1509,7 @@ func lexDiagToLegacyReportKind*(diag: LexerDiagKind): ReportKind {.inline.} =
   of lexDiagNumberNotInRange: rlexNumberNotInRange
   of lexDiagExpectedHex: rlexExpectedHex
   of lexDiagInvalidIntegerLiteral: rlexInvalidIntegerLiteral
+  of lexDiagInvalidNumericLiteral: rlexInvalidNumericLiteral
   of lexDiagInvalidCharLiteral: rlexInvalidCharLiteral
   of lexDiagInvalidCharLiteralConstant: rlexInvalidCharLiteralConstant
   of lexDiagInvalidCharLiteralPlatformNewline: rlexInvalidCharLiteralPlatformNewline
@@ -1533,9 +1533,8 @@ func lexerDiagToLegacyReport*(diag: LexerDiag): Report {.inline.} =
         LexerReport(
             location: std_options.some diag.location,
             reportInst: diag.instLoc.toReportLineInfo,
-            msg: diag.msg,
             kind: kind,
-            wanted: diag.wanted,
+            wanted: diag.msg,
             got: diag.got)
       else:
         LexerReport(

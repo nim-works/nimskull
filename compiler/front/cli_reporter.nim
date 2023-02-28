@@ -2843,7 +2843,7 @@ proc reportBody*(conf: ConfigRef, r: LexerReport): string =
       result.addf("expected a hex digit, but found: '$1'; maybe prefix with 0",
                   r.msg)
 
-    of rlexInvalidIntegerLiteral:
+    of rlexInvalidNumericLiteral, rlexInvalidIntegerLiteral:
       result.addf("invalid number: '$1'", r.msg)
 
     of rlexInvalidCharLiteral:
