@@ -9,7 +9,7 @@
 
 import
   std/[os, strutils, strtabs, sets, tables, packedsets],
-  compiler/utils/[prefixmatches, pathutils, platform, strutils2, ropes],
+  compiler/utils/[prefixmatches, pathutils, platform, strutils2],
   compiler/ast/[lineinfos],
   compiler/modules/nimpaths
 
@@ -1165,19 +1165,17 @@ proc toCChar*(c: char; result: var string) {.inline.} =
   else:
     result.add c
 
-proc makeCString*(s: string): Rope =
-  result = nil
-  var res = newStringOfCap(int(s.len.toFloat * 1.1) + 1)
-  res.add("\"")
+proc makeCString*(s: string): string =
+  result = newStringOfCap(int(s.len.toFloat * 1.1) + 1)
+  result.add("\"")
   for i in 0..<s.len:
     # line wrapping of string litterals in cgen'd code was a bad idea, e.g. causes: bug #16265
     # It also makes reading c sources or grepping harder, for zero benefit.
     # const MaxLineLength = 64
     # if (i + 1) mod MaxLineLength == 0:
     #   res.add("\"\L\"")
-    toCChar(s[i], res)
-  res.add('\"')
-  result.add(rope(res))
+    toCChar(s[i], result)
+  result.add('\"')
 
 proc newFileInfo(fullPath: AbsoluteFile, projPath: RelativeFile): TFileInfo =
   result.fullPath = fullPath

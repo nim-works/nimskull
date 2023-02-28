@@ -41,11 +41,11 @@ proc declareThreadVar(m: BModule, s: PSym, isExtern: bool) =
     m.s[cfsVars].addf(" $1;$n", [s.loc.r])
 
 proc generateThreadLocalStorage(m: BModule) =
-  if m.g.nimtv != nil and (usesThreadVars in m.flags or sfMainModule in m.module.flags):
+  if m.g.nimtv != "" and (usesThreadVars in m.flags or sfMainModule in m.module.flags):
     for t in items(m.g.nimtvDeps): discard getTypeDesc(m, t)
     finishTypeDescriptions(m)
     m.s[cfsSeqTypes].addf("typedef struct {$1} NimThreadVars;$n", [m.g.nimtv])
 
 proc generateThreadVarsSize(m: BModule) =
-  if m.g.nimtv != nil:
+  if m.g.nimtv != "":
     m.s[cfsProcs].addf("NI NimThreadVarsSize(){return (NI)sizeof(NimThreadVars);}$n", [])

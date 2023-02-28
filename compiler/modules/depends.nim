@@ -75,7 +75,7 @@ proc myOpen(graph: ModuleGraph; module: PSym; idgen: IdGenerator): PPassContext 
   g.config = graph.config
   g.graph = graph
   if graph.backend == nil:
-    graph.backend = Backend(dotGraph: nil)
+    graph.backend = Backend(dotGraph: "")
   result = g
 
 const gendependPass* = makePass(open = myOpen, process = addDotDependency)

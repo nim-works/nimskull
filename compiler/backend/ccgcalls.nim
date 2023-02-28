@@ -78,7 +78,7 @@ proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
   var typ = skipTypes(ri[0].typ, abstractInst)
   if typ[0] != nil:
     if isInvalidReturnType(p.config, typ[0]):
-      if params != nil: pl.add(~", ")
+      if params != "": pl.add(~", ")
       # beware of 'result = p(result)'. We may need to allocate a temporary:
       if d.k in {locTemp, locNone} or not preventNrvo(p, le, ri):
         # Great, we can use 'd':
@@ -356,10 +356,10 @@ proc genParams(p: BProc, ri: PNode, typ: PType): Rope =
       assert(typ.n[i].kind == nkSym)
       let paramType = typ.n[i]
       if not paramType.typ.isCompileTimeOnly:
-        if result != nil: result.add(~", ")
+        if result != "": result.add(", ")
         result.add(genArg(p, ri[i], paramType.sym, ri, needTmp[i-1]))
     else:
-      if result != nil: result.add(~", ")
+      if result != "": result.add(", ")
       result.add(genArgNoParam(p, ri[i], needTmp[i-1]))
 
 proc genPrefixCall(p: BProc, le, ri: PNode, d: var TLoc) =
@@ -380,7 +380,7 @@ proc genPrefixCall(p: BProc, le, ri: PNode, d: var TLoc) =
 proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
 
   proc addComma(r: Rope): Rope =
-    if r == nil: r else: r & ~", "
+    if r == "": r else: r & ", "
 
   const PatProc = "$1.ClE_0? $1.ClP_0($3$1.ClE_0):(($4)($1.ClP_0))($2)"
   const PatIter = "$1.ClP_0($3$1.ClE_0)" # we know the env exists

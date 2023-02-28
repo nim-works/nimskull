@@ -1331,7 +1331,7 @@ proc prepareSinglePragma(
         sym.flags.incl sfImportc
         sym.loc.flags.incl {lfHeader, lfNoDecl}
         # implies nodecl, because otherwise header would not make sense
-        if sym.loc.r == nil: sym.loc.r = rope(sym.name.s)
+        if sym.loc.r == "": sym.loc.r = sym.name.s
       of wNoSideEffect:
         result = noVal(c, it)
         if sym != nil:
@@ -1802,7 +1802,7 @@ proc implicitPragmas*(c: PContext, sym: PSym, info: TLineInfo,
         sfImportc in sym.flags and lib != nil:
       incl(sym.loc.flags, lfDynamicLib)
       addToLib(lib, sym)
-      if sym.loc.r == nil: sym.loc.r = rope(sym.name.s)
+      if sym.loc.r == "": sym.loc.r = sym.name.s
 
 proc pragma*(c: PContext, sym: PSym, n: PNode, validPragmas: TSpecialWords;
             isStatement: bool): PNode {.discardable.} =

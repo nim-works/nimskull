@@ -101,7 +101,7 @@ proc genLiteral(p: BProc, n: PNode, ty: PType): Rope =
     result = rope(n.floatVal.float32.toStrMaxPrecision)
   else:
     internalError(p.config, n.info, "genLiteral(" & $n.kind & ')')
-    result = nil
+    result = ""
 
 proc genLiteral(p: BProc, n: PNode): Rope =
   result = genLiteral(p, n, n.typ)
@@ -211,7 +211,7 @@ proc asgnComplexity(n: PNode): int =
     else: discard
 
 proc optAsgnLoc(a: TLoc, t: PType, field: Rope): TLoc =
-  assert field != nil
+  assert field != ""
   result.k = locField
   result.storage = a.storage
   result.lode = lodeTyp t
@@ -245,7 +245,7 @@ proc genOptAsgnObject(p: BProc, dest, src: TLoc, flags: TAssignmentFlags,
   case t.kind
   of nkSym:
     let field = t.sym
-    if field.loc.r == nil: fillObjectFields(p.module, typ)
+    if field.loc.r == "": fillObjectFields(p.module, typ)
     genAssignment(p, optAsgnLoc(dest, field.typ, field.loc.r),
                      optAsgnLoc(src, field.typ, field.loc.r), newflags)
   of nkRecList:
@@ -808,7 +808,7 @@ proc genTupleElem(p: BProc, e: PNode, d: var TLoc) =
 proc lookupFieldAgain(p: BProc, ty: PType; field: PSym; r: var Rope;
                       resTyp: ptr PType = nil): PSym =
   var ty = ty
-  assert r != nil
+  assert r != ""
   while ty != nil:
     ty = ty.skipTypes(skipPtrs)
     assert(ty.kind in {tyTuple, tyObject})
@@ -834,8 +834,8 @@ proc genRecordField(p: BProc, e: PNode, d: var TLoc) =
   else:
     var rtyp: PType
     let field = lookupFieldAgain(p, ty, f, r, addr rtyp)
-    if field.loc.r == nil and rtyp != nil: fillObjectFields(p.module, rtyp)
-    if field.loc.r == nil: internalError(p.config, e.info, "genRecordField 3 " & typeToString(ty))
+    if field.loc.r == "" and rtyp != nil: fillObjectFields(p.module, rtyp)
+    if field.loc.r == "": internalError(p.config, e.info, "genRecordField 3 " & typeToString(ty))
     r.addf(".$1", [field.loc.r])
     putIntoDest(p, d, e, r, a.storage)
 
@@ -904,8 +904,8 @@ proc genCheckedRecordField(p: BProc, e: PNode, d: var TLoc) =
     var r = rdLoc(a)
     let f = e[0][1].sym
     let field = lookupFieldAgain(p, ty, f, r)
-    if field.loc.r == nil: fillObjectFields(p.module, ty)
-    if field.loc.r == nil:
+    if field.loc.r == "": fillObjectFields(p.module, ty)
+    if field.loc.r == "":
       internalError(p.config, e.info, "genCheckedRecordField") # generate the checks:
     genFieldCheck(p, e, r, field)
     r.add(ropecg(p.module, ".$1", [field.loc.r]))
@@ -1123,7 +1123,7 @@ proc genEcho(p: BProc, n: PNode) =
   internalAssert p.config, n.kind == nkBracket
   if p.config.target.targetOS == osGenode:
     # echo directly to the Genode LOG session
-    var args: Rope = nil
+    var args = ""
     var a: TLoc
     for i, it in n.sons:
       if it.skipConv.kind == nkNilLit:
@@ -1183,8 +1183,8 @@ proc genStrConcat(p: BProc, e: PNode, d: var TLoc) =
   var a, tmp: TLoc
   getTemp(p, e.typ, tmp)
   var L = 0
-  var appends: Rope = nil
-  var lens: Rope = nil
+  var appends = ""
+  var lens = ""
   for i in 0..<e.len - 1:
     # compute the length expression:
     initLocExpr(p, e[i + 1], a)
@@ -1295,7 +1295,7 @@ proc rawGenNew(p: BProc, a: var TLoc, sizeExpr: Rope; needsInit: bool; doInitObj
   let refType = typ.skipTypes(abstractInst)
   assert refType.kind == tyRef
   let bt = refType.lastSon
-  if sizeExpr.isNil:
+  if sizeExpr == "":
     sizeExpr = "sizeof($1)" % [getTypeDesc(p.module, bt)]
 
   if optTinyRtti in p.config.globalOptions:
@@ -1351,7 +1351,7 @@ proc genNew(p: BProc, e: PNode) =
     initLocExpr(p, e[2], se)
     rawGenNew(p, a, se.rdLoc, needsInit = true)
   else:
-    rawGenNew(p, a, nil, needsInit = true)
+    rawGenNew(p, a, "", needsInit = true)
   gcUsage(p.config, e)
 
 proc genNewSeqAux(p: BProc, dest: TLoc, length: Rope; lenIsZero: bool) =
@@ -1456,7 +1456,7 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
     p.config.internalAssert(n[0].kind == nkSym, n.info,
                             "specializeInitObjectN")
     let disc = n[0].sym
-    if disc.loc.r == nil: fillObjectFields(p.module, typ)
+    if disc.loc.r == "": fillObjectFields(p.module, typ)
     p.config.internalAssert(disc.loc.t != nil, n.info,
                             "specializeInitObjectN()")
     lineF(p, cpsStmts, "switch ($1.$2) {$n", [accessor, disc.loc.r])
@@ -1473,7 +1473,7 @@ proc specializeInitObjectN(p: BProc, accessor: Rope, n: PNode, typ: PType) =
   of nkSym:
     let field = n.sym
     if field.typ.kind == tyVoid: return
-    if field.loc.r == nil: fillObjectFields(p.module, typ)
+    if field.loc.r == "": fillObjectFields(p.module, typ)
     p.config.internalAssert(field.loc.t != nil, n.info,
                             "specializeInitObjectN()")
     specializeInitObjectL(p, accessor, field.loc)
@@ -1585,7 +1585,7 @@ proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
     getTemp(p, t, tmp)
     r = rdLoc(tmp)
     if isRef:
-      rawGenNew(p, tmp, nil,
+      rawGenNew(p, tmp, "",
                 needsInit = nfAllFieldsSet notin e.flags,
                 doInitObj = not hasCase)
       t = t.lastSon.skipTypes(abstractInst)
@@ -1603,8 +1603,8 @@ proc genObjConstr(p: BProc, e: PNode, d: var TLoc) =
     var tmp2: TLoc
     tmp2.r = r
     let field = lookupFieldAgain(p, ty, it[0].sym, tmp2.r)
-    if field.loc.r == nil: fillObjectFields(p.module, ty)
-    if field.loc.r == nil: internalError(p.config, e.info, "genObjConstr")
+    if field.loc.r == "": fillObjectFields(p.module, ty)
+    if field.loc.r == "": internalError(p.config, e.info, "genObjConstr")
     if it.len == 3 and optFieldCheck in p.options:
       genFieldCheck(p, it[2], r, field)
     tmp2.r.add(".")
@@ -1756,7 +1756,7 @@ proc genOf(p: BProc, x: PNode, typ: PType, d: var TLoc) =
   initLocExpr(p, x, a)
   var dest = skipTypes(typ, typedescPtrs)
   var r = rdLoc(a)
-  var nilCheck: Rope = nil
+  var nilCheck = ""
   var t = skipTypes(a.t, abstractInst)
   while t.kind in {tyVar, tyLent, tyPtr, tyRef}:
     if t.kind notin {tyVar, tyLent}:
@@ -1771,7 +1771,7 @@ proc genOf(p: BProc, x: PNode, typ: PType, d: var TLoc) =
   if isObjLackingTypeField(t):
     localReport(p.config, x, reportSem rsemDisallowedOfForPureObjects)
 
-  if nilCheck != nil:
+  if nilCheck != "":
     r = ropecg(p.module, "(($1) && ($2))", [nilCheck, genOfHelper(p, dest, r, x.info)])
   else:
     r = ropecg(p.module, "($1)", [genOfHelper(p, dest, r, x.info)])
@@ -1862,14 +1862,14 @@ proc genGetTypeInfoV2(p: BProc, e: PNode, d: var TLoc) =
   else:
     var a: TLoc
     initLocExpr(p, e[1], a)
-    var nilCheck = Rope(nil)
+    var nilCheck = ""
     # use the dynamic type stored at offset 0:
     putIntoDest(p, d, e, rdMType(p, a, nilCheck))
 
 proc genAccessTypeField(p: BProc; e: PNode; d: var TLoc) =
   var a: TLoc
   initLocExpr(p, e[1], a)
-  var nilCheck = Rope(nil)
+  var nilCheck = ""
   # use the dynamic type stored at offset 0:
   putIntoDest(p, d, e, rdMType(p, a, nilCheck))
 
@@ -2455,7 +2455,7 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
     if optTinyRtti in p.config.globalOptions:
       var a: TLoc
       initLocExpr(p, e[1], a)
-      rawGenNew(p, a, nil, needsInit = true)
+      rawGenNew(p, a, "", needsInit = true)
       gcUsage(p.config, e)
     else:
       genNewFinalize(p, e)
@@ -2642,7 +2642,7 @@ proc genArrayConstr(p: BProc, n: PNode, d: var TLoc) =
 
 proc genComplexConst(p: BProc, sym: PSym, d: var TLoc) =
   requestConstImpl(p, sym)
-  assert((sym.loc.r != nil) and (sym.loc.t != nil))
+  assert((sym.loc.r != "") and (sym.loc.t != nil))
   putLocIntoDest(p, d, sym.loc)
 
 template genStmtListExprImpl(exprOrStmt) {.dirty.} =
@@ -2666,13 +2666,13 @@ proc upConv(p: BProc, n: PNode, d: var TLoc) =
   initLocExpr(p, n[0], a)
   let dest = skipTypes(n.typ, abstractPtrs)
   if optObjCheck in p.options and not isObjLackingTypeField(dest):
-    var nilCheck = Rope(nil)
+    var nilCheck = ""
     let r = rdMType(p, a, nilCheck)
     let checkFor = if optTinyRtti in p.config.globalOptions:
                      genTypeInfo2Name(p.module, dest)
                    else:
                      genTypeInfoV1(p.module, dest, n.info)
-    if nilCheck != nil:
+    if nilCheck != "":
       # We only need to do a conversion check if it's a ref object.
       # Since with non refs either a copy is done or a ptr to the element is passed,
       # there is nothing dynamic with them and the compiler knows the error happens at semantic analysis.
@@ -2745,10 +2745,10 @@ proc genConstSetup(p: BProc; sym: PSym): bool =
   result = lfNoDecl notin sym.loc.flags
 
 proc genConstHeader(m, q: BModule; p: BProc, sym: PSym) =
-  if sym.loc.r == nil and not genConstSetup(p, sym):
+  if sym.loc.r == "" and not genConstSetup(p, sym):
     return
 
-  assert(sym.loc.r != nil, $sym.name.s & $sym.itemId)
+  assert(sym.loc.r != "", $sym.name.s & $sym.itemId)
   block:
     let headerDecl = "extern NIM_CONST $1 $2;$n" %
         [getTypeDesc(m, sym.loc.t, skVar), sym.loc.r]
@@ -2800,7 +2800,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
         genProcPrototype(p.module, sym)
       else:
         genProc(p.module, sym)
-      if sym.loc.r == nil or sym.loc.lode == nil:
+      if sym.loc.r == "" or sym.loc.lode == nil:
         internalError(p.config, n.info, "expr: proc not init " & sym.name.s)
       putLocIntoDest(p, d, sym.loc)
     of skConst:
@@ -2808,7 +2808,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
         putIntoDest(p, d, n, genLiteral(p, sym.ast, sym.typ), OnStatic)
       elif useAliveDataFromDce in p.module.flags:
         genConstHeader(p.module, p.module, p, sym)
-        assert((sym.loc.r != nil) and (sym.loc.t != nil))
+        assert((sym.loc.r != "") and (sym.loc.t != nil))
         putLocIntoDest(p, d, sym.loc)
       else:
         genComplexConst(p, sym, d)
@@ -2823,7 +2823,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
         if sfCompileTime in sym.flags:
           genSingleVar(p, sym, n, astdef(sym))
 
-      if sym.loc.r == nil or sym.loc.t == nil:
+      if sym.loc.r == "" or sym.loc.t == nil:
         #echo "FAILED FOR PRCO ", p.prc.name.s
         #echo renderTree(p.prc.ast, {renderIds})
         internalError p.config, n.info, "expr: var not init " & sym.name.s & "_" & $sym.id
@@ -2838,17 +2838,17 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
     of skTemp:
       when false:
         # this is more harmful than helpful.
-        if sym.loc.r == nil:
+        if sym.loc.r == "":
           # we now support undeclared 'skTemp' variables for easier
           # transformations in other parts of the compiler:
           assignLocalVar(p, n)
-      if sym.loc.r == nil or sym.loc.t == nil:
+      if sym.loc.r == "" or sym.loc.t == nil:
         #echo "FAILED FOR PRCO ", p.prc.name.s
         #echo renderTree(p.prc.ast, {renderIds})
         internalError(p.config, n.info, "expr: temp not init " & sym.name.s & "_" & $sym.id)
       putLocIntoDest(p, d, sym.loc)
     of skParam:
-      if sym.loc.r == nil or sym.loc.t == nil:
+      if sym.loc.r == "" or sym.loc.t == nil:
         # echo "FAILED FOR PRCO ", p.prc.name.s
         # debug p.prc.typ.n
         # echo renderTree(p.prc.ast, {renderIds})
@@ -2928,7 +2928,7 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
   of nkLambdaKinds:
     var sym = n[namePos].sym
     genProc(p.module, sym)
-    if sym.loc.r == nil or sym.loc.lode == nil:
+    if sym.loc.r == "" or sym.loc.lode == nil:
       internalError(p.config, n.info, "expr: proc not init " & sym.name.s)
     putLocIntoDest(p, d, sym.loc)
   of nkClosure: genClosure(p, n, d)
@@ -3139,7 +3139,7 @@ proc getNullValueAuxT(p: BProc; orig, t: PType; obj, constOrNil: PNode,
   if oldcount == count: result = oldRes
 
 proc genConstObjConstr(p: BProc; n: PNode; isConst: bool): Rope =
-  result = nil
+  result = ""
   let t = n.typ.skipTypes(abstractInst)
   var count = 0
   if t.kind == tyObject:

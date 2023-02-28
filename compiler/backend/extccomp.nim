@@ -635,7 +635,7 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
           usedCompiler: CC[conf.cCompiler].name)
 
   result.add(' ')
-  result.addf(CC[c].compileTmpl, [
+  strutils.addf(result, CC[c].compileTmpl, [
     "dfile", dfile,
     "file", cfsh, "objfile", quoteShell(objfile),
     "options", options, "include", includeCmd,
@@ -726,7 +726,7 @@ proc getLinkCmd(conf: ConfigRef; output: AbsoluteFile,
         "buildgui", buildgui, "options", linkOptions, "objfiles", objfiles,
         "exefile", exefile, "nim", getPrefixDir(conf).string, "lib", conf.libpath.string])
     result.add ' '
-    result.addf(linkTmpl, ["builddll", builddll,
+    strutils.addf(result, linkTmpl, ["builddll", builddll,
         "mapfile", mapfile,
         "buildgui", buildgui, "options", linkOptions,
         "objfiles", objfiles, "exefile", exefile,
@@ -838,7 +838,7 @@ proc callCCompiler*(conf: ConfigRef) =
     return # speed up that call if only compiling and no script shall be
            # generated
   #var c = cCompiler
-  var script: Rope = nil
+  var script = ""
   var cmds: TStringSeq
   var prettyCmds: TStringSeq
   let prettyCb = proc (idx: int) = writePrettyCmdsStderr(prettyCmds[idx])
@@ -995,7 +995,7 @@ proc runJsonBuildInstructions*(conf: ConfigRef; jsonFile: AbsoluteFile) =
 
 proc genMappingFiles(conf: ConfigRef; list: CfileList): Rope =
   for it in list:
-    result.addf("--file:r\"$1\"$N", [rope(it.cname.string)])
+    ropes.addf(result, "--file:r\"$1\"$N", [rope(it.cname.string)])
 
 proc writeMapping*(conf: ConfigRef; symbolMapping: Rope) =
   if optGenMapping notin conf.globalOptions: return
@@ -1011,7 +1011,7 @@ proc writeMapping*(conf: ConfigRef; symbolMapping: Rope) =
   code.add("\n[Environment]\nlibpath=")
   code.add(strutils.escape(conf.libpath.string))
 
-  code.addf("\n[Symbols]$n$1", [symbolMapping])
+  ropes.addf(code, "\n[Symbols]$n$1", [symbolMapping])
   let filename = getNimcacheDir(conf) / RelativeFile"mapping.txt"
   if not writeRope(code, filename):
     conf.localReport BackendReport(

@@ -23,7 +23,6 @@ import
     in_options
   ],
   compiler/utils/[
-    ropes,
     idioms,
     int128 # Values for integer nodes
   ],
@@ -316,7 +315,7 @@ proc mergeLoc(a: var TLoc, b: TLoc) =
   if a.storage == low(typeof(a.storage)): a.storage = b.storage
   a.flags.incl b.flags
   if a.lode == nil: a.lode = b.lode
-  if a.r == nil: a.r = b.r
+  if a.r.len == 0: a.r = b.r
 
 proc newSons*(father: Indexable, length: int) =
   setLen(father.sons, length)
