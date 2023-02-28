@@ -1503,15 +1503,20 @@ func lexDiagToLegacyReportKind*(diag: LexerDiagKind): ReportKind {.inline.} =
   of lexDiagMalformedUnderscores: rlexMalformedUnderscores
   of lexDiagMalformedTrailingUnderscre: rlexMalformedTrailingUnderscre
   of lexDiagInvalidToken: rlexInvalidToken
+  of lexDiagInvalidTokenSpaceBetweenNumAndIdent: rlexInvalidTokenSpaceBetweenNumAndIdent
   of lexDiagNoTabs: rlexNoTabs
-  of lexDiagInvalidIntegerPrefix: rlexInvalidIntegerPrefix
+  of lexDiagInvalidIntegerLiteralOctalPrefix: rlexInvalidIntegerLiteralOctalPrefix
   of lexDiagInvalidIntegerSuffix: rlexInvalidIntegerSuffix
   of lexDiagNumberNotInRange: rlexNumberNotInRange
   of lexDiagExpectedHex: rlexExpectedHex
   of lexDiagInvalidIntegerLiteral: rlexInvalidIntegerLiteral
   of lexDiagInvalidCharLiteral: rlexInvalidCharLiteral
+  of lexDiagInvalidCharLiteralConstant: rlexInvalidCharLiteralConstant
+  of lexDiagInvalidCharLiteralPlatformNewline: rlexInvalidCharLiteralPlatformNewline
+  of lexDiagInvalidCharLiteralUnicodeCodepoint: rlexInvalidCharLiteralUnicodeCodepoint
   of lexDiagMissingClosingApostrophe: rlexMissingClosingApostrophe
-  of lexDiagInvalidUnicodeCodepoint: rlexInvalidUnicodeCodepoint
+  of lexDiagInvalidUnicodeCodepointEmpty: rlexInvalidUnicodeCodepointEmpty
+  of lexDiagInvalidUnicodeCodepointGreaterThan0x10FFFF: rlexInvalidUnicodeCodepointGreaterThan0x10FFFF
   of lexDiagUnclosedTripleString: rlexUnclosedTripleString
   of lexDiagUnclosedSingleString: rlexUnclosedSingleString
   of lexDiagUnclosedComment: rlexUnclosedComment

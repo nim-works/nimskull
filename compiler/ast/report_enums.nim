@@ -188,10 +188,11 @@ type
     rlexMalformedUnderscores
     rlexMalformedTrailingUnderscre
     rlexInvalidToken
+    rlexInvalidTokenSpaceBetweenNumAndIdent
     rlexNoTabs
 
     # numbers
-    rlexInvalidIntegerPrefix
+    rlexInvalidIntegerLiteralOctalPrefix
     rlexInvalidIntegerSuffix
     rlexNumberNotInRange
     rlexExpectedHex
@@ -199,8 +200,12 @@ type
 
     # char
     rlexInvalidCharLiteral
+    rlexInvalidCharLiteralConstant
+    rlexInvalidCharLiteralPlatformNewline
+    rlexInvalidCharLiteralUnicodeCodepoint
     rlexMissingClosingApostrophe
-    rlexInvalidUnicodeCodepoint
+    rlexInvalidUnicodeCodepointEmpty
+    rlexInvalidUnicodeCodepointGreaterThan0x10FFFF
 
     # string
     rlexUnclosedTripleString

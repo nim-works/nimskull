@@ -2762,7 +2762,6 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
         for (a, state) in s.hints:
           hints[$a] = %(state)
 
-
         var warnings = newJObject()
         for (a, state) in s.warnings:
           warnings[$a] = %(state)
@@ -2797,11 +2796,10 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
 proc reportFull*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
   case r.kind:
-    of rintCannotOpenFile, rintWarnCannotOpenFile:
-      result.add(conf.prefix(r), conf.reportBody(r), conf.suffix(r))
-
-    else:
-      result = reportBody(conf, r)
+  of rintCannotOpenFile, rintWarnCannotOpenFile:
+    result.add(conf.prefix(r), conf.reportBody(r), conf.suffix(r))
+  else:
+    result = reportBody(conf, r)
 
 proc reportShort*(conf: ConfigRef, r: InternalReport): string =
   # mostly created for nimsuggest
@@ -2822,34 +2820,53 @@ proc reportBody*(conf: ConfigRef, r: LexerReport): string =
         "end with an underscore: e.g. '1__1' and '1_' are invalid"
 
     of rlexInvalidToken:
-      result.add r.msg
+      result.add "invalid token: $1 (\\$2)" % [r.msg, $ord(r.msg[0])]
+
+    of rlexInvalidTokenSpaceBetweenNumAndIdent:
+      result.add "invalid token: no whitespace between number and identifier"
 
     of rlexNoTabs:
       result.add "tabs are not allowed, use spaces instead"
 
-    of rlexInvalidIntegerPrefix:
-      result.add r.msg
+    of rlexInvalidIntegerLiteralOctalPrefix:
+      result.addf(
+        "$1 is an invalid int literal; For octal literals use the '0o' prefix",
+        r.msg)
 
     of rlexInvalidIntegerSuffix:
-      result.add r.msg
+      result.addf("invalid number suffix: '$1'", r.msg)
 
     of rlexNumberNotInRange:
-      result.add r.msg
+      result.addf("number out of range: '$1'", r.msg)
 
     of rlexExpectedHex:
-      result.add r.msg
+      result.addf("expected a hex digit, but found: '$1'; maybe prefix with 0",
+                  r.msg)
 
     of rlexInvalidIntegerLiteral:
-      result.add r.msg
+      result.addf("invalid number: '$1'", r.msg)
 
     of rlexInvalidCharLiteral:
-      result.add r.msg
+      result.add "invalid character literal"
+
+    of rlexInvalidCharLiteralConstant:
+      result.add "invalid character constant"
+
+    of rlexInvalidCharLiteralPlatformNewline:
+      result.add "\\p not allowed in character literal"
+
+    of rlexInvalidCharLiteralUnicodeCodepoint:
+      result.add "\\u not allowed in character literal"
 
     of rlexMissingClosingApostrophe:
       result.add "missing closing ' for character literal"
 
-    of rlexInvalidUnicodeCodepoint:
-      result.add r.msg
+    of rlexInvalidUnicodeCodepointEmpty:
+      result.add "Unicode codepoint cannot be empty"
+
+    of rlexInvalidUnicodeCodepointGreaterThan0x10FFFF:
+      result.addf("Unicode codepoint must be 0x10FFFF or lower, but was: $1",
+                  r.msg)
 
     of rlexUnclosedTripleString:
       result.add "closing \"\"\" expected, but end of file reached"
@@ -2867,7 +2884,7 @@ proc reportBody*(conf: ConfigRef, r: LexerReport): string =
       result.add "end of multiline comment expected"
 
     of rlexDeprecatedOctalPrefix:
-      result.add r.msg
+      result.add "octal escape sequences do not exist; leading zero is ignored"
 
     of rlexLinterReport:
       result.addf("'$1' should be: '$2'", r.got, r.wanted)
