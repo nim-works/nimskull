@@ -305,8 +305,9 @@ proc setOutFile*(conf: ConfigRef) =
 
 proc mainCommand*(graph: ModuleGraph) =
   ## Execute main compiler command
-  let conf = graph.config
-  let cache = graph.cache
+  let
+    conf = graph.config
+    cache = graph.cache
 
   # In "nim serve" scenario, each command must reset the registered passes
   clearPasses(graph)
@@ -450,6 +451,10 @@ proc mainCommand*(graph: ModuleGraph) =
     reprConf.flags.excl trfShowNodeIds
     reprConf.flags.incl trfShowNodeLineInfo
     echo conf.treeRepr(parseFile(conf.projectMainIdx, cache, conf), reprConf)
+
+  of cmdScan:
+    wantMainModule(conf)
+    commandScan(cache, conf)
 
   of cmdRod:
     wantMainModule(conf)
