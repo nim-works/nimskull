@@ -20,6 +20,7 @@ import
   compiler/utils/[
     platform,
     pathutils,
+    idioms
   ],
   compiler/ast/[
     numericbase,
@@ -96,10 +97,6 @@ type
   TokTypes* = set[TokType]
 
   LexerDiagKind* = enum
-    # internal errors begin
-    lexDiagInternalError ## lexer programming error
-    # internal errors end
-    
     # users errors begin
 
     # spacing
@@ -115,6 +112,7 @@ type
     lexDiagNumberNotInRange
     lexDiagExpectedHex
     lexDiagInvalidIntegerLiteral
+    lexDiagInvalidNumericLiteral
 
     # char
     lexDiagInvalidCharLiteral
@@ -151,14 +149,13 @@ type
     location*: TLineInfo        ## diagnostic location
     instLoc*: InstantiationInfo ## instantiation in lexer's source
     case kind*: LexerDiagKind:
-    of lexDiagNameXShouldBeY:
-      wanted*: string
-      got*: string
-    else:
-      discard
+      of lexDiagNameXShouldBeY:
+        # use `msg` for `wanted`
+        got*: string
+      else:
+        discard
 
 const
-  LexDiagsFatal*   = {lexDiagInternalError}
   LexDiagsError*   = {lexDiagMalformedUnderscores..lexDiagUnclosedComment}
   LexDiagsWarning* = {lexDiagDeprecatedOctalPrefix}
   LexDiagsHint*    = {lexDiagLineTooLong..lexDiagNameXShouldBeY}
@@ -191,12 +188,6 @@ type
     line*, col*: int
     error*: LexerDiag         ## error diagnostic if `tokType` is `tkError`
 
-  LexerError = object of ValueError
-    ## internal error used to signal the lexer can no longer proceed given the
-    ## input and has aborted
-    diagId: int      ## index into `Lexer.diags`, used to fetch the diag and
-                     ## insert into the error token
-
   Lexer* = object of TBaseLexer
     fileIdx*: FileIndex
     indentAhead*: int         ## if > 0 an indentation has already been read
@@ -216,14 +207,10 @@ func diagOffset*(L: Lexer): int {.inline.} =
   L.diags.len
 
 iterator errorsHintsAndWarnings*(L: Lexer, diagOffset = 0): LexerDiag =
-  ## iterate over all diagnostics (excluding fatal) from the beginning, or from
-  ## the point in time specificed via `diagOffset`
+  ## iterate over all diagnostics from the beginning, or from the point in time
+  ## specificed via `diagOffset`
   for d in L.diags.toOpenArray(diagOffset, L.diags.high):
-    case d.kind
-    of LexDiagsFatal:
-      continue         # fatals are reported via tkError
-    else:
-      yield d
+    yield d
 
 proc getLineInfo*(L: Lexer, tok: Token): TLineInfo {.inline.} =
   result = newLineInfo(L.fileIdx, tok.line, tok.col)
@@ -366,9 +353,9 @@ template eatChar(L: var Lexer, t: var Token) =
 
 
 func handleDiag(L: var Lexer, diag: LexerDiagKind, instLoc = instLoc(-1)) =
-  doAssert diag notin {lexDiagNameXShouldBeY}
+  assert diag notin {lexDiagNameXShouldBeY}
   L.diags.add LexerDiag(
-                location: L.getLineInfo, 
+                location: L.getLineInfo,
                 instLoc: instLoc,
                 kind: diag
               )
@@ -377,11 +364,11 @@ func handleDiag(L: var Lexer,
                 diag: LexerDiagKind, 
                 message: string, 
                 instLoc = instLoc(-1)) =
-  doAssert diag notin {lexDiagNameXShouldBeY}
+  assert diag notin {lexDiagNameXShouldBeY}
   L.diags.add LexerDiag(
-                msg: message, 
-                location: L.getLineInfo, 
-                instLoc: instLoc, 
+                msg: message,
+                location: L.getLineInfo,
+                instLoc: instLoc,
                 kind: diag
               )
 
@@ -389,8 +376,8 @@ func handleDiagPos(L: var Lexer,
                    diag: LexerDiagKind,
                    pos: int,
                    instLoc = instLoc(-1)) =
+  assert diag notin {lexDiagNameXShouldBeY}
   L.diags.add LexerDiag(
-                msg: "",
                 location: newLineInfo(L.fileIdx,
                                       L.lineNumber,
                                       pos - L.lineStart),
@@ -400,7 +387,6 @@ func handleDiagPos(L: var Lexer,
 
 func diagLineTooLong(L: var Lexer, pos: int, instLoc = instLoc(-1)) =
   L.diags.add LexerDiag(
-                msg: "",
                 location: newLineInfo(L.fileIdx,
                                       L.lineNumber,
                                       pos - L.lineStart),
@@ -412,23 +398,12 @@ func diagLintName(L: var Lexer,
                   wantedName, gotName: string,
                   instLoc = instLoc(-1)) =
   L.diags.add LexerDiag(
-                location: L.getLineInfo, 
-                instLoc: instLoc, 
-                kind: lexDiagNameXShouldBeY, 
-                wanted: wantedName,
-                got: gotName
-              )
-
-func internalError(L: var Lexer, message: string, instLoc = instLoc(-1)) =
-  ## Causes an internal error
-  L.diags.add LexerDiag(
-                msg: message,
                 location: L.getLineInfo,
                 instLoc: instLoc,
-                kind: lexDiagInternalError
+                kind: lexDiagNameXShouldBeY,
+                msg: wantedName,
+                got: gotName
               )
-  raise (ref LexerError)(diagId: L.diags.high)
-
 
 proc getNumber(L: var Lexer, result: var Token) =
   proc matchUnderscoreChars(L: var Lexer, tok: var Token, chars: set[char]): Natural =
@@ -479,10 +454,8 @@ proc getNumber(L: var Lexer, result: var Token) =
     L.bufpos = msgPos
     L.handleDiag(msgKind, t.literal)
 
-  var
-    xi: BiggestInt
-    isBase10 = true
-    numDigits = 0
+  var xi: BiggestInt
+
   const
     baseCodeChars = {'X', 'x', 'o', 'b', 'B'}
     literalishChars = baseCodeChars + {'A'..'F', 'a'..'f', '0'..'9', '_', '\''}
@@ -499,13 +472,10 @@ proc getNumber(L: var Lexer, result: var Token) =
 
   let startpos = L.bufpos
 
-  template setNumber(field, value) =
-    field = (if isPositive: value else: -value)
-
   # First stage: find out base, make verifications, build token literal string
   if L.buf[L.bufpos] == '0' and L.buf[L.bufpos + 1] in baseCodeChars + {'O'}:
-    isBase10 = false
     eatChar(L, result, '0')
+    var numDigits = 0
     case L.buf[L.bufpos]
     of 'O':
       lexMessageLitNum(L, startpos, lexDiagInvalidIntegerLiteralOctalPrefix)
@@ -519,7 +489,8 @@ proc getNumber(L: var Lexer, result: var Token) =
       eatChar(L, result, 'b')
       numDigits = matchUnderscoreChars(L, result, {'0'..'1'})
     else:
-      L.internalError("getNumber")
+      unreachable("if guard precludes this from happening")
+
     if numDigits == 0:
       lexMessageLitNum(L, startpos, lexDiagInvalidIntegerLiteral)
   else:
@@ -540,18 +511,20 @@ proc getNumber(L: var Lexer, result: var Token) =
   var postPos = endpos
 
   if L.buf[postPos] in {'\'', 'f', 'F', 'd', 'D', 'i', 'I', 'u', 'U'}:
-    let errPos = postPos
-    var customLitPossible = false
-    if L.buf[postPos] == '\'':
-      inc(postPos)
-      customLitPossible = true
+    let
+      errPos = postPos
+      customLitPossible =
+        if L.buf[postPos] == '\'':
+          inc(postPos) # move past the apostrophe
+          true
+        else:
+          false
 
     if L.buf[postPos] in SymChars:
       var suffix = newStringOfCap(10)
-      while true:
+      while L.buf[postPos] in SymChars+{'_'}:
         suffix.add L.buf[postPos]
         inc postPos
-        if L.buf[postPos] notin SymChars+{'_'}: break
       let suffixAsLower = suffix.toLowerAscii
       case suffixAsLower
       of "f", "f32": result.tokType = tkFloat32Lit
@@ -582,7 +555,10 @@ proc getNumber(L: var Lexer, result: var Token) =
   # Is there still a literalish char awaiting? Then it's an error!
   if  L.buf[postPos] in literalishChars or
      (L.buf[postPos] == '.' and L.buf[postPos + 1] in {'0'..'9'}):
-    lexMessageLitNum(L, startpos, lexDiagInvalidIntegerLiteral)
+    lexMessageLitNum(L, startpos, lexDiagInvalidNumericLiteral)
+
+  template setNumber(field, value) =
+    field = (if isPositive: value else: -value)
 
   if result.tokType != tkCustomLit:
     # Third stage, extract actual number
@@ -624,7 +600,7 @@ proc getNumber(L: var Lexer, result: var Token) =
             else:
               break
         else:
-          L.internalError("getNumber")
+          unreachable("if guard precludes this from happening, again")
 
         case result.tokType
         of tkIntLit, tkInt64Lit: setNumber result.iNumber, xi
@@ -642,7 +618,7 @@ proc getNumber(L: var Lexer, result: var Token) =
         of tkFloat64Lit, tkFloatLit:
           setNumber result.fNumber, (cast[PFloat64](addr(xi)))[]
         else:
-          L.internalError("getNumber")
+          unreachable("tokType is at least tkIntLit and if guards tkCustomLit")
 
         # Bounds checks. Non decimal literals are allowed to overflow the range of
         # the datatype as long as their pattern don't overflow _bitwise_, hence
@@ -706,7 +682,7 @@ proc getNumber(L: var Lexer, result: var Token) =
           result.tokType = tkInt64Lit
 
     except ValueError:
-      lexMessageLitNum(L, startpos, lexDiagInvalidIntegerLiteral)
+      lexMessageLitNum(L, startpos, lexDiagInvalidNumericLiteral)
     except OverflowDefect, RangeDefect:
       lexMessageLitNum(L, startpos, lexDiagNumberNotInRange)
   tokenEnd(result, postPos-1)
@@ -760,14 +736,14 @@ proc addUnicodeCodePoint(s: var string, i: int) =
     s.setLen(pos+4)
     s[pos+0] = chr(i shr 18 or 0b1111_0000)
     s[pos+1] = chr(i shr 12 and ones(6) or 0b10_0000_00)
-    s[pos+2] = chr(i shr 6 and ones(6) or 0b10_0000_00)
+    s[pos+2] = chr(i shr 6  and ones(6) or 0b10_0000_00)
     s[pos+3] = chr(i and ones(6) or 0b10_0000_00)
   elif i <= 0x03FFFFFF:
     s.setLen(pos+5)
     s[pos+0] = chr(i shr 24 or 0b111110_00)
     s[pos+1] = chr(i shr 18 and ones(6) or 0b10_0000_00)
     s[pos+2] = chr(i shr 12 and ones(6) or 0b10_0000_00)
-    s[pos+3] = chr(i shr 6 and ones(6) or 0b10_0000_00)
+    s[pos+3] = chr(i shr 6  and ones(6) or 0b10_0000_00)
     s[pos+4] = chr(i and ones(6) or 0b10_0000_00)
   elif i <= 0x7FFFFFFF:
     s.setLen(pos+6)
@@ -775,7 +751,7 @@ proc addUnicodeCodePoint(s: var string, i: int) =
     s[pos+1] = chr(i shr 24 and ones(6) or 0b10_0000_00)
     s[pos+2] = chr(i shr 18 and ones(6) or 0b10_0000_00)
     s[pos+3] = chr(i shr 12 and ones(6) or 0b10_0000_00)
-    s[pos+4] = chr(i shr 6 and ones(6) or 0b10_0000_00)
+    s[pos+4] = chr(i shr 6  and ones(6) or 0b10_0000_00)
     s[pos+5] = chr(i and ones(6) or 0b10_0000_00)
 
 proc getEscapedChar(L: var Lexer, tok: var Token) =
@@ -984,27 +960,35 @@ proc unicodeOprLen(buf: cstring; pos: int): (int8, UnicodeOprPred) =
   result = 0.m
   case buf[pos]
   of '\226':
-    if buf[pos+1] == '\136':
-      if buf[pos+2] == '\152': result = 3.m # ∘
-      elif buf[pos+2] == '\153': result = 3.m # ∙
-      elif buf[pos+2] == '\167': result = 3.m # ∧
-      elif buf[pos+2] == '\168': result = 3.a # ∨
-      elif buf[pos+2] == '\169': result = 3.m # ∩
-      elif buf[pos+2] == '\170': result = 3.a # ∪
-    elif buf[pos+1] == '\138':
-      if buf[pos+2] == '\147': result = 3.m # ⊓
-      elif buf[pos+2] == '\148': result = 3.a # ⊔
-      elif buf[pos+2] == '\149': result = 3.a # ⊕
-      elif buf[pos+2] == '\150': result = 3.a # ⊖
-      elif buf[pos+2] == '\151': result = 3.m # ⊗
-      elif buf[pos+2] == '\152': result = 3.m # ⊘
-      elif buf[pos+2] == '\153': result = 3.m # ⊙
-      elif buf[pos+2] == '\155': result = 3.m # ⊛
-      elif buf[pos+2] == '\158': result = 3.a # ⊞
-      elif buf[pos+2] == '\159': result = 3.a # ⊟
-      elif buf[pos+2] == '\160': result = 3.m # ⊠
-      elif buf[pos+2] == '\161': result = 3.m # ⊡
-    elif buf[pos+1] == '\152' and buf[pos+2] == '\133': result = 3.m # ★
+    case buf[pos+1]
+    of '\136':
+      case buf[pos+2]
+      of '\152': result = 3.m # ∘
+      of '\153': result = 3.m # ∙
+      of '\167': result = 3.m # ∧
+      of '\168': result = 3.a # ∨
+      of '\169': result = 3.m # ∩
+      of '\170': result = 3.a # ∪
+      else:      discard
+    of '\138':
+      case buf[pos+2]
+      of '\147': result = 3.m # ⊓
+      of '\148': result = 3.a # ⊔
+      of '\149': result = 3.a # ⊕
+      of '\150': result = 3.a # ⊖
+      of '\151': result = 3.m # ⊗
+      of '\152': result = 3.m # ⊘
+      of '\153': result = 3.m # ⊙
+      of '\155': result = 3.m # ⊛
+      of '\158': result = 3.a # ⊞
+      of '\159': result = 3.a # ⊟
+      of '\160': result = 3.m # ⊠
+      of '\161': result = 3.m # ⊡
+      else:      discard
+    of '\152':
+      if buf[pos+2] == '\133': result = 3.m # ★
+    else:
+      discard
   of '\194':
     if buf[pos+1] == '\177': result = 2.a # ±
   of '\195':
@@ -1317,7 +1301,7 @@ proc skip(L: var Lexer, tok: var Token) =
   tokenEndPrevious(tok, pos-1)
   L.bufpos = pos
 
-proc rawGetTokInner(L: var Lexer, tok: var Token) =
+proc rawGetTok*(L: var Lexer, tok: var Token) =
   template atTokenEnd() {.dirty.} =
     when defined(nimsuggest):
       # we attach the cursor to the last *strong* token
@@ -1400,13 +1384,14 @@ proc rawGetTokInner(L: var Lexer, tok: var Token) =
           inc(L.bufpos)
           atTokenEnd()
           return
-      if L.buf[L.bufpos+1] == ']':
+      case L.buf[L.bufpos+1]
+      of ']':
         tok.tokType = tkBracketDotRi
         inc(L.bufpos, 2)
-      elif L.buf[L.bufpos+1] == '}':
+      of '}':
         tok.tokType = tkCurlyDotRi
         inc(L.bufpos, 2)
-      elif L.buf[L.bufpos+1] == ')':
+      of ')':
         tok.tokType = tkParDotRi
         inc(L.bufpos, 2)
       else:
@@ -1486,12 +1471,6 @@ proc rawGetTokInner(L: var Lexer, tok: var Token) =
         L.handleDiag(lexDiagInvalidToken, $c)
         inc(L.bufpos)
   atTokenEnd()
-
-proc rawGetTok*(L: var Lexer, tok: var Token) =
-  try:
-    rawGetTokInner(L, tok)
-  except LexerError as e:
-    tok = Token(tokType: tkError, error: L.diags[e.diagId])
 
 proc getIndentWidth*(fileIdx: FileIndex, inputstream: PLLStream;
                      cache: IdentCache; config: ConfigRef): int =

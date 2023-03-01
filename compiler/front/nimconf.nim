@@ -30,7 +30,6 @@ import
   ],
   compiler/utils/[
     pathutils,
-    idioms,
   ]
 
 type
@@ -165,7 +164,6 @@ proc ppGetTok(N: var NimConfParser, tok: var Token) =
                                       of LexDiagsError:   cekLexerErrorDiag
                                       of LexDiagsWarning: cekLexerWarningDiag
                                       of LexDiagsHint:    cekLexerHintDiag
-                                      of LexDiagsFatal:   unreachable()
                                       ),
                                 lexerDiag: d,
                                 instLoc: d.instLoc)
