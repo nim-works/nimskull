@@ -1012,7 +1012,8 @@ proc genProcAux(m: BModule, prc: PSym) =
     # meaning that globals defiend inside ``inline`` procedures are also only
     # extracted once
 
-    let m2 = findPendingModule(m, prc)
+    let m2 = if m.config.symbolFiles != disabledSf: m
+             else: findPendingModule(m, prc)
 
     # first pass: register the destructors
     for it in globals.items:
