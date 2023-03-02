@@ -525,36 +525,29 @@ proc fixSpelling*(c: PContext, ident: PIdent): seq[SemSpellCandidate] =
     inc count
 
 
-proc errorUseQualifier(
-    c: PContext; info: TLineInfo; s: PSym; amb: var bool): PSym =
+proc errorUseQualifier*(c: PContext, n: PNode; s: PSym): PSym =
   var
     i = 0
     ignoredModules = 0
-    rep = SemReport(kind: rsemAmbiguousIdentWithCandidates, sym: s)
+    diag = PAstDiag(kind: adSemAmbiguousIdentWithCandidates,
+                    candidateSyms: @[s])
 
   for candidate in importedItems(c, s.name):
-    rep.symbols.add candidate
-    if candidate.kind == skModule:
+    diag.candidateSyms.add candidate
+    case candidate.kind
+    of skModule:
       inc ignoredModules
     else:
       result = candidate
     inc i
 
-  if ignoredModules != i - 1:
-    c.config.localReport(info, rep)
-    result = nil
+  if ignoredModules == i - 1: # we ignored all but one, not ambiguous
+    discard "return result as is"
   else:
-    amb = false
-
-proc errorUseQualifier*(c: PContext; info: TLineInfo; s: PSym) =
-  var amb: bool
-  discard errorUseQualifier(c, info, s, amb)
-
-proc errorUseQualifier(c: PContext; info: TLineInfo; candidates: seq[PSym]) =
-  var rep = reportSym(rsemAmbiguousIdentWithCandidates, candidates[0])
-  rep.symbols = candidates
-
-  c.config.localReport(info, rep)
+    result = newSym(skError, s.name, c.idgen.nextSymId, c.getCurrOwner, n.info)
+    result.typ = c.errorType
+    result.flags.incl(sfDiscardable)
+    result.ast = c.config.newError(n, diag)
 
 proc clearRecursiveDeps(c: PContext) =
   ## clears the recursive dependency stack being tracked, this was done to make
@@ -650,7 +643,7 @@ proc lookUp*(c: PContext, n: PNode): PSym =
     c.config.internalError("lookUp")
     return
   if amb:
-    result = errorUseQualifier(c, n.info, result, amb)
+    result = errorUseQualifier(c, n, result)
   when false:
     if result.kind == skStub: loadStub(result)
 
@@ -779,7 +772,6 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         candidates = fixSpelling(c, ident)
 
       result = errorUndeclaredIdentifierWithHint(c, n, ident.s, candidates)
-
     elif checkAmbiguity in flags and result != nil and amb:
       var
         i = 0
@@ -825,14 +817,14 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         (ident, errNode) = considerQuotedIdent(c, n[1])
 
       if ident != nil and errNode.isNil:
-        if m == c.module:
-          result = strTableGet(c.topLevelScope.symbols, ident).skipAlias(n, c.config)
-        else:
-          result = someSym(c.graph, m, ident).skipAlias(n, c.config)
+        result =
+          if m == c.module:
+            strTableGet(c.topLevelScope.symbols, ident).skipAlias(n, c.config)
+          else:
+            someSym(c.graph, m, ident).skipAlias(n, c.config)
 
         if result == nil and checkUndeclared in flags:
           result = errorUndeclaredIdentifierWithHint(c, n[1], ident.s, @[])
-
       elif n[1].kind == nkSym:
         result = n[1].sym
       elif checkUndeclared in flags and

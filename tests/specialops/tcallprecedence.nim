@@ -23,17 +23,17 @@ macro `()`(args: varargs[typed]): untyped =
 macro `.`(args: varargs[typed]): untyped =
   result = newLit(". " & args.treeRepr)
 
-block:
+block dot_operators_precede_call_operator:
   let a = 1
   let b = 2
-  doAssert a.b == `()`(b, a)
+  doAssert a.b == `.`(a, b)
 
-block:
+block not_confused_by_overloads:
   let a = 1
   proc b(): int {.used.} = 2
   doAssert a.b == `.`(a, b)
 
-block:
+block existing_proc_vs_special_ops_fallback:
   let a = 1
   proc b(x: int): int = x + 1
   let c = 3

@@ -346,6 +346,10 @@ proc semGenericStmt(c: PContext, n: PNode,
     result = semGenericStmt(c, result, flags, ctx)
     if result.isError: return
   of nkBracketExpr:
+    # xxx: screwing up `nkBracketExpr` nodes like this does no one any favours.
+    #      instead, just pass them on and figure out what to do _later_ when
+    #      there is more context to make a decision. Instead, `semExpr` now has
+    #      to crudely recreate this information.
     result = newNodeI(nkCall, n.info)
     result.add newIdentNode(getIdent(c.cache, "[]"), n.info)
     for i in 0..<n.len: result.add(n[i])
