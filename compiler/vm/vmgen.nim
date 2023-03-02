@@ -443,8 +443,8 @@ proc prepare(c: var TCtx, dest: var TDest, n: PNode, typ: PType) =
     # value doesn't fit into a register -> setup a temporary location
     c.gABx(n, opcLdNull, dest, c.genType(typ))
 
-template withTemp(tmp, typ, body: untyped) {.dirty.} =
-  var tmp = getTemp(c, typ)
+template withTemp(tmp, n, typ, body: untyped) {.dirty.} =
+  var tmp = getFullTemp(c, n, typ)
   body
   c.freeTemp(tmp)
 
@@ -569,7 +569,7 @@ proc genIf(c: var TCtx, n: PNode; dest: var TDest) =
   for i in 0..<n.len:
     var it = n[i]
     if it.len == 2:
-      withTemp(tmp, it[0].typ):
+      withTemp(tmp, it[0], it[0].typ):
         var elsePos: TPosition
         if isNotOpr(it[0]):
           c.gen(it[0][1], tmp)
@@ -764,7 +764,7 @@ proc genCase(c: var TCtx; n: PNode; dest: var TDest) =
     unused(c, n, dest)
   let selType = n[0].typ.skipTypes(abstractVarRange)
   var endings: seq[TPosition] = @[]
-  withTemp(tmp, n[0].typ):
+  withTemp(tmp, n[0], n[0].typ):
     c.gen(n[0], tmp)
     # branch tmp, codeIdx
     # fjmp   elseLabel
@@ -1041,75 +1041,59 @@ proc genAsgnPatch(c: var TCtx; le: PNode, value: TRegister) =
     discard
 
 proc genNew(c: var TCtx; n: PNode) =
-  # FIXME: ``opcNew`` stores the allocated ``ref`` in a newly created
-  #        ``ref`` location, so we currently have to assign it to the actual
-  #        destination after. This is inefficent; instead, ``opcNew``
-  #        should treat the destination register as a handle to a ``ref``
-  #        location
-  let
-    dest = c.genx(n[1])
-    tmp = c.getTemp(n[1].typ)
-  c.gABx(n, opcNew, tmp,
+  let dest = c.genx(n[1])
+  c.gABx(n, opcNew, dest,
          c.genType(n[1].typ.skipTypes(abstractVar-{tyTypeDesc})))
-  c.gABC(n, opcWrLoc, dest, tmp)
-  c.freeTemp(tmp)
   c.freeTemp(dest)
 
 proc genNewSeq(c: var TCtx; n: PNode) =
-  # FIXME: ``opcNewSeq`` has the same problem as ``opcNew``. The instruction
-  #        should also reuse the location
-  let t = n[1].typ.skipTypes(abstractVar-{tyTypeDesc})
+  let t = n[1].typ.skipTypes(abstractVar)
   assert t.kind == tySequence
   let
     dest = c.genx(n[1]) # ``seq`` argument
     len = c.genx(n[2])  # length argument
-    tmp = c.getTemp(n[1].typ)
-  c.gABx(n, opcNewSeq, tmp, c.genType(t))
+  c.gABx(n, opcNewSeq, dest, c.genType(t))
   c.gABx(n, opcNewSeq, len, 0)
-  c.gABC(n, opcWrLoc, dest, tmp)
-  c.freeTemp(tmp)
   c.freeTemp(len)
   c.freeTemp(dest)
 
 proc genNewSeqOfCap(c: var TCtx; n: PNode; dest: var TDest) =
-  let t = n.typ
-  if dest.isUnset:
-    dest = c.getTemp(n.typ)
+  prepare(c, dest, n, n.typ)
+
   let tmp = c.getTemp(n[1].typ)
-  c.gABx(n, opcLdNull, dest, c.genType(t))
   c.gABx(n, opcLdImmInt, tmp, 0)
-  c.gABx(n, opcNewSeq, dest, c.genType(t.skipTypes(abstractVar-{tyTypeDesc})))
+  c.gABx(n, opcNewSeq, dest, c.genType(n.typ))
   c.gABx(n, opcNewSeq, tmp, 0)
   c.freeTemp(tmp)
 
 proc genUnaryABC(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode) =
+  prepare(c, dest, n, n.typ)
   let tmp = c.genx(n[1])
-  if dest.isUnset: dest = c.getTemp(n.typ)
   c.gABC(n, opc, dest, tmp)
   c.freeTemp(tmp)
 
 proc genUnaryABI(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode; imm: BiggestInt=0) =
+  prepare(c, dest, n, n.typ)
   let tmp = c.genx(n[1])
-  if dest.isUnset: dest = c.getTemp(n.typ)
   c.gABI(n, opc, dest, tmp, imm)
   c.freeTemp(tmp)
 
 
 proc genBinaryABC(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode) =
+  prepare(c, dest, n, n.typ)
   let
     tmp = c.genx(n[1])
     tmp2 = c.genx(n[2])
-  if dest.isUnset: dest = c.getTemp(n.typ)
   c.gABC(n, opc, dest, tmp, tmp2)
   c.freeTemp(tmp)
   c.freeTemp(tmp2)
 
 proc genBinaryABCD(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode) =
+  prepare(c, dest, n, n.typ)
   let
     tmp = c.genx(n[1])
     tmp2 = c.genx(n[2])
     tmp3 = c.genx(n[3])
-  if dest.isUnset: dest = c.getTemp(n.typ)
   c.gABC(n, opc, dest, tmp, tmp2)
   c.gABC(n, opc, tmp3)
   c.freeTemp(tmp)
@@ -1142,10 +1126,10 @@ proc genBinaryABCnarrowU(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode) =
   genNarrowU(c, n, dest)
 
 proc genBinarySet(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode) =
+  prepare(c, dest, n, n.typ)
   let
     tmp = c.genx(n[1])
     tmp2 = c.genx(n[2])
-  if dest.isUnset: dest = c.getTemp(n.typ)
   c.gABC(n, opc, dest, tmp, tmp2)
   c.freeTemp(tmp)
   c.freeTemp(tmp2)
@@ -1190,8 +1174,7 @@ proc genParseOp(c: var TCtx; n: PNode; dest: var TDest,
   c.freeTemp(in1)
   c.freeTemp(in2)
 
-proc genVarargsABC(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode) =
-  if dest.isUnset: dest = getTemp(c, n.typ)
+proc genVarargsABC(c: var TCtx; n: PNode; dest: TRegister; opc: TOpcode) =
   var x = c.getTempRange(n.len-1, slotTempUnknown)
   for i in 1..<n.len:
     var r: TRegister = x+i-1
@@ -1335,6 +1318,16 @@ proc genVoidABC(c: var TCtx, n: PNode, dest: TDest, opcode: TOpcode) =
   c.freeTemp(tmp2)
   c.freeTemp(tmp3)
 
+proc genVoidBC(c: var TCtx, n: PNode, dest: TDest, opcode: TOpcode) =
+  ## Special convention used by some macrocache-related ops
+  unused(c, n, dest)
+  var
+    tmp1 = c.genx(n[1])
+    tmp2 = c.genx(n[2])
+  c.gABC(n, opcode, 0, tmp1, tmp2)
+  c.freeTemp(tmp1)
+  c.freeTemp(tmp2)
+
 proc genSetElem(c: var TCtx, n: PNode, first: int): TRegister =
   result = c.getTemp(n.typ)
 
@@ -1411,14 +1404,12 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.freeTemp(d)
   of mOrd, mChr: c.gen(n[1], dest)
   of mArrToSeq:
+    prepare(c, dest, n, n.typ)
+
     let temp = c.genx(n[1])
     let L = c.getTemp(c.graph.getSysType(n.info, tyInt))
     c.gABC(n, opcLenSeq, L, temp)
-    let t = n.typ.skipTypes(abstractVar-{tyTypeDesc})
-    if dest.isUnset:
-      dest = c.getTemp(n.typ)
 
-    c.gABx(n, opcLdNull, dest, c.genType(t))
     c.gABC(n, opcSetLenSeq, dest, L)
     c.gABC(n, opcArrCopy, dest, temp, L)
     c.freeTemp(temp)
@@ -1438,10 +1429,10 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mNewStringOfCap:
     # we ignore the 'cap' argument and translate it as 'newString(0)'.
     # eval n[1] for possible side effects:
+    prepare(c, dest, n, n.typ)
     c.freeTemp(c.genx(n[1]))
     var tmp = c.getTemp(n[1].typ)
     c.gABx(n, opcLdImmInt, tmp, 0)
-    if dest.isUnset: dest = c.getTemp(n.typ)
     c.gABC(n, opcNewStr, dest, tmp)
     c.freeTemp(tmp)
     # XXX buggy
@@ -1533,7 +1524,21 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mMulSet: genBinarySet(c, n, dest, opcMulSet)
   of mPlusSet: genBinarySet(c, n, dest, opcPlusSet)
   of mMinusSet: genBinarySet(c, n, dest, opcMinusSet)
-  of mConStrStr: genVarargsABC(c, n, dest, opcConcatStr)
+  of mConStrStr:
+    # we need to assign to a temporary first, as the operands might alias
+    # with the destination
+    # TODO: the "use temporary if result aliases with arguments" transformation
+    #       needs to happen as a MIR pass instead
+    let tmp = c.getFullTemp(n, n.typ)
+    genVarargsABC(c, n, tmp, opcConcatStr)
+    if dest.isUnset:
+      dest = tmp
+    else:
+      assert c.prc.regInfo[dest].kind == slotTempUnknown
+      # XXX: this is shaky, and depends on the destination only being already
+      #      set in argument contexts
+      c.gABC(n, opcAsgnComplex, dest, tmp)
+      c.freeTemp(tmp)
   of mInSet:
     let
       tmp = c.genx(n[1])
@@ -1543,8 +1548,8 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.freeTemp(tmp)
     c.freeTemp(tmp2)
   of mRepr:
+    prepare(c, dest, n, n.typ)
     let tmp = c.genx(n[1])
-    if dest.isUnset: dest = c.getTemp(n.typ)
     c.gABx(n, opcRepr, dest, c.genTypeInfo(n[1].typ))
     c.gABC(n, opcRepr, dest, tmp)
     c.freeTemp(tmp)
@@ -1643,8 +1648,8 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mParseStmtToAst:
     genParseOp(c, n, dest, opcParseStmtToAst)
   of mTypeTrait:
+    prepare(c, dest, n, n.typ)
     let tmp = c.genx(n[1])
-    if dest.isUnset: dest = c.getTemp(n.typ)
     c.gABx(n, opcNSetType, tmp, c.genTypeInfo(n[1].typ))
     c.gABC(n, opcTypeTrait, dest, tmp)
     c.freeTemp(tmp)
@@ -1664,22 +1669,16 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mNSymKind: genUnaryABC(c, n, dest, opcNSymKind)
 
   of mNccValue: genUnaryABC(c, n, dest, opcNccValue)
-  of mNccInc: genBinaryABC(c, n, dest, opcNccInc)
-  of mNcsAdd: genBinaryABC(c, n, dest, opcNcsAdd)
-  of mNcsIncl: genBinaryABC(c, n, dest, opcNcsIncl)
+  of mNccInc: genVoidBC(c, n, dest, opcNccInc)
+  of mNcsAdd: genVoidBC(c, n, dest, opcNcsAdd)
+  of mNcsIncl: genVoidBC(c, n, dest, opcNcsIncl)
   of mNcsLen: genUnaryABC(c, n, dest, opcNcsLen)
   of mNcsAt: genBinaryABC(c, n, dest, opcNcsAt)
   of mNctPut: genVoidABC(c, n, dest, opcNctPut)
   of mNctLen: genUnaryABC(c, n, dest, opcNctLen)
   of mNctGet: genBinaryABC(c, n, dest, opcNctGet)
   of mNctHasNext: genBinaryABC(c, n, dest, opcNctHasNext)
-  of mNctNext:
-    # Load the dest register with a null value of correct type, so that the
-    # instruction can write into dest directly without run-time type lookup
-    if dest.isUnset: dest = c.getTemp(n.typ)
-    c.gABx(n, opcLdNull, dest, c.genType(n.typ))
-    genBinaryABC(c, n, dest, opcNctNext)
-
+  of mNctNext: genBinaryABC(c, n, dest, opcNctNext)
   of mNIntVal: genUnaryABC(c, n, dest, opcNIntVal)
   of mNFloatVal: genUnaryABC(c, n, dest, opcNFloatVal)
   of mNGetType:
@@ -2195,7 +2194,7 @@ proc genCheckedObjAccessAux(c: var TCtx; n: PNode): TRegister =
   c.freeTemp(rs)
   let strType = getSysType(c.graph, n.info, tyString)
   var msgReg: TDest = c.getTemp(strType)
-  var discrStrReg: TDest = c.getTemp(strType)
+  var discrStrReg = c.getFullTemp(n, strType)
   let fieldName = $accessExpr[1]
   let msg = genFieldDefect(c.config, fieldName, disc.sym)
   let strLit = newStrNode(msg, accessExpr[1].info)
@@ -2435,7 +2434,7 @@ proc genSetConstr(c: var TCtx, n: PNode, dest: var TDest) =
       c.freeTemp(a)
 
 proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
-  if dest.isUnset: dest = c.getTemp(n.typ)
+  prepare(c, dest, n, n.typ)
   let t = n.typ.skipTypes(abstractRange-{tyTypeDesc})
   var refTemp: TDest
   if t.kind == tyRef:
@@ -2444,8 +2443,7 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
     c.gABx(n, opcNew, dest, c.genType(t))
     c.gABC(n, opcLdDeref, refTemp, dest)
     swap(refTemp, dest)
-  else:
-    c.gABx(n, opcLdNull, dest, c.genType(n.typ))
+
   for i in 1..<n.len:
     let it = n[i]
     if it.kind == nkExprColonExpr and it[0].kind == nkSym:

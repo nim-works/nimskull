@@ -324,19 +324,12 @@ func initLocReg*(r: var TFullReg, typ: PVmType, mm: var VmMemoryManager) =
 func initIntReg(r: var TFullReg, i: BiggestInt) =
   r = TFullReg(kind: rkInt, intVal: i)
 
-func ensureAtomKind(n: var TFullReg, typ: PVmType, mm: var VmMemoryManager) {.inline.} =
-  ## If necessary, transitions register to a location register of type `typ`
-
-  assert typ.kind in (realAtomKinds-RegisterAtomKinds)
-
-  if n.kind != rkLocation or n.handle.typ.kind != typ.kind:
-    n.initLocReg(typ, mm)
-
 template ensureKind(k: untyped) {.dirty.} =
   ensureKind(regs[ra], k, c.memory)
 
 template ensureAtomKind(k: AtomKind) {.dirty.} =
-  ensureAtomKind(regs[ra], kindToTypeLut[k], c.memory)
+  assert regs[ra].kind in {rkLocation, rkHandle}
+  assert regs[ra].handle.typ.kind == k
 
 template decodeB(k: TRegisterKind) {.dirty.} =
   let rb = instr.regB
@@ -938,16 +931,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         usedIdx: toInt128(usedIdx),
         minIdx: toInt128(0),
         maxIdx: toInt128(maxIdx)))
-
-
-  let kindToTypeLut = [
-    akInt: c.typeInfoCache.intTypes[tyInt],
-    akFloat: c.typeInfoCache.floatTypes[tyFloat],
-    akPtr: nil,
-    akSet: nil,
-    akString: c.typeInfoCache.stringType,
-    akSeq: nil
-  ]
 
   #echo "NEW RUN ------------------------"
   while true:
@@ -1787,8 +1770,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       checkHandle(regs[rb])
       checkHandle(regs[rc])
 
-      regs[ra].initLocReg(regs[rb].handle.typ, c.memory)
-
       safeCopyMemSrc(mbitSet(regs[ra].handle), bitSet(regs[rb].handle))
       bitSetIntersect(mbitSet(regs[ra].handle), bitSet(regs[rc].handle))
 
@@ -1800,8 +1781,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       checkHandle(regs[rb])
       checkHandle(regs[rc])
 
-      regs[ra].initLocReg(regs[rb].handle.typ, c.memory)
-
       safeCopyMemSrc(mbitSet(regs[ra].handle), bitSet(regs[rb].handle))
       bitSetUnion(mbitSet(regs[ra].handle), bitSet(regs[rc].handle))
 
@@ -1812,8 +1791,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
 
       checkHandle(regs[rb])
       checkHandle(regs[rc])
-
-      regs[ra].initLocReg(regs[rb].handle.typ, c.memory)
 
       safeCopyMemSrc(mbitSet(regs[ra].handle), bitSet(regs[rb].handle))
       bitSetDiff(mbitSet(regs[ra].handle), bitSet(regs[rc].handle))
@@ -1837,8 +1814,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
 
       # TODO: first resize the string to the computed new length, then do the
       #       concatenation in place
-      regs[ra].initLocReg(c.typeInfoCache.stringType, c.memory)
-
       for i in rb..rb+rc-1:
         regs[ra].strVal.appendstr(regs[i], c.allocator)
     of opcAddStrCh:
@@ -2349,8 +2324,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
 
       # typ is the ref type, not the target type
       let slot = c.heap.heapNew(c.allocator, typ.targetType)
-      regs[ra].initLocReg(typ, c.memory)
-      regs[ra].atomVal.refVal = slot
+      # XXX: making sure that the previous ref value was destroyed will become
+      #      the responsibility of the code generator, in the future
+      asgnRef(regs[ra].atomVal.refVal, slot, c.memory, reset=true)
     of opcNewSeq:
       let typ = c.types[instr.regBx - wordExcess]
       inc pc
@@ -2358,11 +2334,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       let count = regs[instr2.regA].intVal.int
 
       assert typ.kind == akSeq
-      regs[ra].initLocReg(typ, c.memory)
       newVmSeq(regs[ra].atomVal.seqVal, typ, count, c.memory)
     of opcNewStr:
       let rb = instr.regB
-      regs[ra].initLocReg(c.typeInfoCache.stringType, c.memory)
       newVmString(regs[ra].atomVal.strVal, regs[rb].intVal.int, c.allocator)
     of opcLdImmInt:
       # dest = immediate value
@@ -2456,7 +2430,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       let str = renderTree(c.regToNode(regs[rb], typ.nimType, c.debug[pc]),
                            {renderNoComments, renderDocComments})
 
-      regs[ra].initLocReg(c.typeInfoCache.stringType, c.memory)
       regs[ra].strVal.newVmString(str, c.allocator)
     of opcQuit:
       return YieldReason(kind: yrkQuit, exitCode: regs[ra].intVal.int)
@@ -2814,7 +2787,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       let n = regs[rb].nimNode
       case imm
       of 0: # getFile
-        regs[ra].initLocReg(c.typeInfoCache.stringType, c.memory)
         regs[ra].strVal.newVmString(toFullPath(c.config, n.info), c.allocator)
       of 1: # getLine
         regs[ra].initIntReg(n.info.line.int)
