@@ -91,4 +91,6 @@ proc getVar*(a: VmArgs; i: Natural): LocHandle =
   assert a.slots[si].kind == rkAddress
 
   # The address was validate by the VM prior the invoking the callback
-  makeLocHandle(a.slots[si].addrVal, a.slots[si].addrTyp)
+  # TODO: while currently always the case, an address register is not required
+  #       to store an address into guest memory, so casting is unsafe here
+  makeLocHandle(a.mem.allocator, a.slots[si].addrVal, a.slots[si].addrTyp)

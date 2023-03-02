@@ -189,7 +189,7 @@ func setNodeValue(dest: LocHandle, node: PNode) =
 
 proc copyToLocation(dest, src: LocHandle, mm: var VmMemoryManager, reset: static[bool] = true) =
   assert dest.typ == src.typ
-  copyToLocation(mm, dest.byteView(), src.h, src.typ, reset)
+  copyToLocation(mm, dest.byteView(), src.byteView(), src.typ, reset)
 
 # XXX: in the future all atoms should be stored in registers
 const RegisterAtomKinds =
@@ -210,8 +210,8 @@ func loadFromLoc(reg: var TFullReg, h: LocHandle) =
   of akFloat:
     reg = TFullReg(kind: rkFloat, floatVal: readFloat(h.byteView()))
   of akPtr:
-    let a = makeMemPtr(atom.ptrVal, 0)
-    reg = TFullReg(kind: rkAddress, addrVal: a, addrTyp: h.typ.targetType)
+    reg = TFullReg(kind: rkAddress,
+                   addrVal: atom.ptrVal, addrTyp: h.typ.targetType)
   of akDiscriminator:
     reg = TFullReg(kind: rkInt, intVal: readDiscriminant(h))
   of akPNode:
@@ -293,9 +293,9 @@ func cleanUpPending(mm: var VmMemoryManager) =
   while i < mm.heap.pending.len:
     let idx = mm.heap.pending[i]
     let slot {.cursor.} = mm.heap.slots[idx] # A deep-copy is not necessary
-                # here, since the underlying `HeapSlot` is only moved around
+                # here, as the underlying `HeapSlot` is only moved around
 
-    assert not slot.handle.h.isNil
+    assert not slot.handle.p.isNil
 
     resetLocation(mm, slot.handle.byteView(), slot.handle.typ)
     mm.allocator.dealloc(slot.handle)
@@ -379,10 +379,6 @@ template decodeBx(k: AtomKind) {.dirty.} =
 template decodeBx() {.dirty.} =
   let rbx = instr.regBx - wordExcess
 
-
-template rawPointer(x: LocHandle): untyped =
-  x.h.rawPointer
-
 proc asgnValue(mm: var VmMemoryManager, dest: var TFullReg, src: TFullReg) =
   ## Assigns the value in `src` to `dest`, performing a register transition if
   ## necessary. An assignment in user code (`a = b`) maps directly to this
@@ -450,7 +446,7 @@ proc writeLoc(h: LocHandle, x: TFullReg, mm: var VmMemoryManager) =
     writeFloat(h, x.floatVal)
   of rkAddress:
     assert h.typ.kind == akPtr # but not akRef
-    deref(h).ptrVal = x.addrVal.rawPointer
+    deref(h).ptrVal = x.addrVal
   of rkHandle, rkLocation:
     assert x.handle.typ == h.typ
     # Prevent writing to self (this can happen via opcWrDeref)
@@ -486,7 +482,7 @@ proc regToNode*(c: TCtx, x: TFullReg; typ: PType, info: TLineInfo): PNode =
       result.typ = typ
     else:
       # TODO: validate the address
-      result = c.deserialize(makeLocHandle(x.addrVal, x.addrTyp), typ, info)
+      result = c.deserialize(c.allocator.makeLocHandle(x.addrVal, x.addrTyp), typ, info)
   of rkHandle, rkLocation: result = c.deserialize(x.handle, typ, info)
   of rkNimNode: result = x.nimNode
 
@@ -749,13 +745,13 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
         deref(dest.handle).seqVal.newVmSeq(dt[1], L, c.memory)
 
         let sd =
-          if srckind == tyArray: src.handle.h
-          else: src.strVal.data
+          if srckind == tyArray: src.handle.rawPointer
+          else:                  src.strVal.data.rawPointer
         let dd = deref(dest.handle).seqVal.data
 
         # XXX: does the same thing as `asgnComplex` above and is thus
         #      equally wrong
-        arrayCopy(c.memory, dd, sd, L, t, false)
+        arrayCopy(c.memory, byteView(dd, t, L), byteView(sd, t, L), L, t, false)
       else:
         unreachable() # vmgen issue
 
@@ -773,19 +769,19 @@ template handleJmpBack() {.dirty.} =
   dec(c.loopIterations)
 
 
-func setAddress(r: var TFullReg, p: MemRegionPtr, typ: PVmType) =
+func setAddress(r: var TFullReg, p: VmMemPointer, typ: PVmType) =
   assert r.kind == rkAddress
-  r.addrVal = p
+  r.addrVal = p.rawPointer
   r.addrTyp = typ
 
 func setAddress(r: var TFullReg, handle: LocHandle) =
   assert r.kind == rkAddress
-  r.addrVal = handle.h
+  r.addrVal = handle.rawPointer
   r.addrTyp = handle.typ
 
 func setHandle(r: var TFullReg, handle: LocHandle) =
   assert r.kind == rkHandle # Not rkLocation
-  assert not handle.h.isNil
+  assert not handle.p.isNil
   assert handle.typ.isValid
   r.handle = handle
 
@@ -806,7 +802,7 @@ func loadEmptyReg*(r: var TFullReg, typ: PVmType, info: TLineInfo, mm: var VmMem
     r.intVal = 0
   of akPtr:
     ensureKind(r, rkAddress, mm)
-    r.setAddress(makeMemPtr(nil, 0), typ)
+    r.setAddress(nil, typ)
   of akPNode:
     ensureKind(r, rkNimNode, mm)
     r.nimNode = newNodeI(nkNilLit, info)
@@ -833,7 +829,7 @@ template checkHandle(a: VmAllocator, re: TFullReg) =
   ## if it's not valid
   let reg = addr re
   if reg.kind == rkHandle:
-    let r = checkValid(a, reg.handle.h, reg.handle.typ)
+    let r = checkValid(a, reg.handle)
     if unlikely(r != avrNoError):
       const L = instLoc()
       {.line: L.}: raiseAccessViolation(r, L)
@@ -841,7 +837,7 @@ template checkHandle(a: VmAllocator, re: TFullReg) =
 template checkHandle(a: VmAllocator, handle: LocHandle) =
   ## Tests if `handle` is valid and raises an access violation error if it's
   ## not valid
-  let r = checkValid(a, handle.h, handle.typ)
+  let r = checkValid(a, handle)
   if unlikely(r != avrNoError):
     const L = instLoc()
     {.line: L.}: raiseAccessViolation(r, L)
@@ -1018,7 +1014,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       of 1: # PtrLikeKinds
         case regs[rb].kind
         of rkAddress:
-          intVal = cast[int](regs[rb].addrVal.rawPointer)
+          intVal = cast[int](regs[rb].addrVal)
         else:
           raiseVmError(VmEvent(
             kind: vmEvtErrInternal,
@@ -1047,13 +1043,13 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         ptrVal = cast[pointer](regs[rb].intVal)
       of rkAddress:
         # vmgen abuses this opcode for ptr-to-ptr casting
-        ptrVal = regs[rb].addrVal.rawPointer
+        ptrVal = regs[rb].addrVal
       else:
         raiseVmError(VmEvent(
           kind: vmEvtErrInternal,
           msg: "opcCastIntToPtr: regs[rb].kind: " & $regs[rb].kind))
 
-      regs[ra].setAddress(makeMemPtr(ptrVal, 0), nil)
+      regs[ra].setAddress(cast[VmMemPointer](ptrVal), nil)
     of opcAsgnComplex:
       checkHandle(regs[instr.regB])
       asgnValue(c.memory, regs[ra], regs[instr.regB])
@@ -1095,12 +1091,10 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         #       directly passed into openArray parameters, we have to handle
         #       akString here too
         # TODO: Remove this case once openArray handling is reworked
-        let
-          t = c.typeInfoCache.charType
-          h = regs[rb].strVal.data.getSubHandle(idx * t.sizeInBytes.int)
-        regs[ra].setHandle(makeLocHandle(h, t))
+        regs[ra].setHandle:
+          getItemHandle(regs[rb].strVal.VmSeq, srcTyp, idx, c.allocator)
       of akSeq, akArray:
-        regs[ra].setHandle(getItemHandle(regs[rb].handle, idx))
+        regs[ra].setHandle(getItemHandle(regs[rb].handle, idx, c.allocator))
       else:
         unreachable(srcTyp.kind)
 
@@ -1117,15 +1111,15 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
 
       case src.typ.kind
       of akString:
-        # XXX: see todo and comment in `opcLdArr` for the reasons why this
-        #      case is needed
+        # XXX: see todo and comment in `opcLdArr` for the reasons why
+        #      `akString` has to be handled here
         let t = c.typeInfoCache.charType
         regs[ra].setAddress(
-          regs[rb].strVal.data.getSubHandle(idx * t.sizeInBytes.int),
+          regs[rb].strVal.data.applyOffset(idx.uint * t.sizeInBytes),
           t)
       of akSeq, akArray:
-        let h = getItemHandle(src, idx)
-        regs[ra].setAddress(h.h, h.typ)
+        let h = getItemHandle(src, idx, c.allocator)
+        regs[ra].setAddress(h.p, h.typ)
       else:
         unreachable(src.typ.kind) # vmgen issue
 
@@ -1147,11 +1141,11 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       checkHandle(regs[rb])
 
       let idx = regs[rc].intVal.int
-      let s = regs[rb].atomVal.strVal.addr # or `byaddr`
-      if idx <% s[].len:
-        regs[ra].setAddress(s[].data.getSubHandle(idx), c.typeInfoCache.charType)
+      let s = regs[rb].atomVal.strVal
+      if idx <% s.len:
+        regs[ra].setAddress(s.data.applyOffset(uint idx), c.typeInfoCache.charType)
       else:
-        raiseVmError(reportVmIdx(idx, s[].len-1))
+        raiseVmError(reportVmIdx(idx, s.len-1))
 
     of opcWrArr:
       # a[b] = c
@@ -1166,30 +1160,24 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         idx = regs[rb].intVal.int
         dTyp = dest.typ
 
-      let (mHandle, maxLen, stride, eTyp) =
+      let slice =
         case dest.typ.kind
         of akString:
-          # XXX: see todo and comment in `opcLdArr` for the reasons why we need
-          #      this case
-          (deref(dest).strVal.data,
-           deref(dest).strVal.len,
-           1, c.typeInfoCache.charType)
+          # XXX: see todo and comment in `opcLdArr` for the reasons why
+          #      `akString` is also allowed here
+          toSlice(deref(dest).strVal.VmSeq, dTyp.seqElemType, c.allocator)
         of akSeq:
-          (deref(dest).seqVal.data,
-           deref(dest).seqVal.length,
-           dTyp.seqElemStride, dTyp.seqElemType)
+          toSlice(deref(dest).seqVal, dTyp.seqElemType, c.allocator)
         of akArray:
-          (dest.h,
-           dTyp.elementCount,
-           dTyp.elementStride, dTyp.elementType)
+          toSlice(dest)
         of akInt, akFloat, akSet, akPtr, akRef, akObject, akPNode, akCallable, akClosure, akDiscriminator:
           unreachable(dTyp.kind)
 
-      if idx <% maxLen:
+      if idx <% slice.len:
         checkHandle(regs[rc])
-        writeLoc(makeLocHandle(mHandle.getSubHandle(stride * idx), eTyp), regs[rc], c.memory)
+        writeLoc(slice[idx], regs[rc], c.memory)
       else:
-        raiseVmError(reportVmIdx(idx, maxLen))
+        raiseVmError(reportVmIdx(idx, slice.len))
 
     of opcLdObj:
       # a = b.c
@@ -1255,7 +1243,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
 
       let
         (t, idx) = getFieldAndOwner(regs[ra].handle.typ, FieldPosition(rb))
-        discr = regs[ra].handle.getSubHandle(0, t).getFieldHandle(idx)
+        discr = regs[ra].handle.subLocation(0, t).getFieldHandle(idx)
         combined = regs[rc].intVal
 
       assert discr.typ.kind == akDiscriminator
@@ -1264,7 +1252,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       if instr.opcode == opcSetDisc:
         let oldBranch = readDiscrBranch(discr, t, idx)
         if oldBranch != branch:
-          let h = regs[ra].handle.getSubHandle(0, t)
+          let h = regs[ra].handle.subLocation(0, t)
           resetBranch(c.memory, h, idx, oldBranch)
 
       writeDiscrField(discr, t, idx, v, branch)
@@ -1338,7 +1326,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         # XXX: due to various vmgen issues, this case has to be allowed for now
         #unreachable() # vmgen issue
         ensureKind(rkAddress)
-        regs[ra].setAddress(regs[rb].handle.h, regs[rb].handle.typ)
+        regs[ra].setAddress(regs[rb].handle.p, regs[rb].handle.typ)
       else:
         ensureKind(rkRegAddr)
         regs[ra].regAddr = addr regs[rb]
@@ -1349,7 +1337,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       decodeB(rkAddress)
       case regs[rb].kind
       of rkHandle:
-        regs[ra].setAddress(regs[rb].handle.h, regs[rb].handle.typ)
+        regs[ra].setAddress(regs[rb].handle.p, regs[rb].handle.typ)
       else:
         raiseVmError(VmEvent(
           kind: vmEvtErrInternal,
@@ -1364,10 +1352,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         let r = addr regs[rb]
         assert r.addrTyp != nil, "Deref of untyped pointer"
         if not r.addrVal.isNil:
-          # it's not an error to create an invalid handle from a pointer,
+          # it's not an error to create an invalid handle from a pointer;
           # using the resulting handle is
-          let p = makeMemPtr(r.addrVal.rawPointer, r.addrTyp.sizeInBytes)
-          regs[ra].setHandle(makeLocHandle(p, r.addrTyp))
+          regs[ra].setHandle(c.allocator.makeLocHandle(r.addrVal, r.addrTyp))
         else:
           raiseVmError(VmEvent(kind: vmEvtNilAccess))
 
@@ -1405,10 +1392,12 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       of rkAddress:
         assert r.addrTyp != nil, "Deref of untyped pointer" # vmgen issue
         if not r.addrVal.isNil:
-          let cr = c.allocator.checkValid(r.addrVal, r.addrTyp)
+          let
+            loc = c.allocator.makeLocHandle(r.addrVal, r.addrTyp)
+            cr = c.allocator.checkValid(loc)
+
           if cr == avrNoError:
-            let p = makeMemPtr(r.addrVal.rawPointer, r.addrTyp.sizeInBytes)
-            writeLoc(makeLocHandle(p, r.addrTyp), regs[rc], c.memory)
+            writeLoc(loc, regs[rc], c.memory)
           else:
             raiseAccessViolation(cr, instLoc(0))
 
@@ -1642,7 +1631,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         case a.kind
         of rkAddress:
           assert b.kind == rkAddress
-          a.addrVal.rawPointer == b.addrVal.rawPointer
+          a.addrVal == b.addrVal
         of rkLocation, rkHandle:
           assert b.kind in {rkHandle, rkLocation}
           assert a.handle.typ.kind == b.handle.typ.kind
@@ -1843,7 +1832,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
 
       let s = addr regs[ra].atomVal.seqVal
       growBy(s[], typ, 1, c.memory)
-      getItemHandle(s[], typ, s.length - 1).writeLoc(regs[rb], c.memory)
+      getItemHandle(s[], typ, s.length - 1, c.allocator).writeLoc(regs[rb], c.memory)
     of opcGetImpl:
       decodeB(rkNimNode)
       var a = regs[rb].nimNode
@@ -2015,45 +2004,37 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       let rb = instr.regB
       let rc = instr.regC
 
-      proc collectInfo(h: LocHandle): tuple[size: int, data: MemRegionPtr, eT: PVmType] =
+      proc toSlice(h: LocHandle, a: VmAllocator): VmSlice =
         let typ = h.typ
         case typ.kind
-        of akSeq:
-          result = (
-            deref(h).seqVal.length,
-            deref(h).seqVal.data,
-            typ.seqElemType
-          )
-        of akArray:
-          result = (
-            typ.elementCount,
-            h.h,
-            typ.elementType
-          )
-        else:
-          assert false
+        of akString: toSlice(deref(h).strVal.VmSeq, typ.seqElemType, a)
+        of akSeq:    toSlice(deref(h).seqVal,       typ.seqElemType, a)
+        of akArray:  toSlice(h)
+        else:        unreachable(typ.kind)
 
       checkHandle(regs[ra])
       checkHandle(regs[rb])
 
-      let dest = collectInfo(regs[ra].handle)
-      let src = collectInfo(regs[rb].handle)
+      let
+        dest = toSlice(regs[ra].handle, c.allocator)
+        src = toSlice(regs[rb].handle, c.allocator)
+        L = regs[rc].intVal.int
 
-      assert dest.eT == src.eT
+      # TODO: validate that both slices reference valid memory and are
+      #       correctly typed
 
-      let L = regs[rc].intVal
+      assert dest.typ == src.typ
 
-      if L > dest.size:
+      if L > dest.len:
         # XXX: since opcArrCopy is only used internally be vmgen, this should
         #      probably be an assert
-        raiseVmError(reportVmIdx(L, dest.size - 1))
+        raiseVmError(reportVmIdx(L, dest.len - 1))
 
-      if L > src.size:
+      if L > src.len:
         # XXX: same comment as aboves
-        raiseVmError(reportVmIdx(L, src.size - 1))
+        raiseVmError(reportVmIdx(L, src.len - 1))
 
-      c.memory.arrayCopy(dest.data, src.data, L, src.eT, true)
-
+      c.memory.arrayCopy(byteView(dest), byteView(src), L, src.typ, true)
     of opcIndCall, opcIndCallAsgn:
       # dest = call regStart, n; where regStart = fn, arg1, ...
       let rb = instr.regB
@@ -2404,7 +2385,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
 
       let handle = c.heap.slots[c.globals[rb]].handle
       ensureKind(rkAddress)
-      regs[ra].setAddress(handle.h, handle.typ)
+      regs[ra].setAddress(handle.p, handle.typ)
     of opcLdCmplxConst:
       decodeBx(rkHandle)
 
@@ -2587,7 +2568,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       else:
         let L = arrayLen(x)
         for i in 0..<L:
-          u.add(deref(getItemHandle(x, i)).nodeVal)
+          u.add(deref(getItemHandle(x, i, c.allocator)).nodeVal)
       regs[ra].nimNode = u
 
     of opcNKind:
@@ -3196,7 +3177,7 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
     of vmEvtCannotGetChild: adVmCannotGetChild
     of vmEvtNoType: adVmNoType
     of vmEvtTooManyIterations: adVmTooManyIterations
-  
+
   {.cast(uncheckedAssign).}: # discriminants on both sides lead to saddness
     result =
       case kind:

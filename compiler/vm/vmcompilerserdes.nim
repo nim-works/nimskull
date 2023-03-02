@@ -366,7 +366,7 @@ proc deserialize(c: TCtx, m: VmMemoryRegion, vt: PVmType, formal, t: PType, info
     of akString, akSeq:
       assert t.kind in {tySequence, tyOpenArray}
       result = deserializeArray(c,
-        atom.seqVal.data.byteView(),
+        byteView(toSlice(atom.seqVal, vt.seqElemType, c.allocator)),
         atom.seqVal.length,
         vt.seqElemStride,
         vt.seqElemType,
@@ -552,21 +552,18 @@ proc serialize*(c: var TCtx, n: PNode, dest: LocHandle, t: PType = nil) =
 
   of tyArray, tySequence, tyOpenArray:
     assert n.kind == nkBracket
-    var off = 0
-    let typ = dest.typ
-    let (data, stride, eTyp) =
+    let slice =
       if t.kind == tyArray:
-        assert typ.kind == akArray
-        (dest.h, typ.elementStride, typ.elementType)
+        assert dest.typ.kind == akArray
+        toSlice(dest)
       else:
         # `openArray` is currently the same as `seq` inside the VM
-        assert typ.kind == akSeq
-        newVmSeq(deref(dest).seqVal, typ, n.len, c.memory)
-        (deref(dest).seqVal.data, typ.seqElemStride, typ.seqElemType)
+        assert dest.typ.kind == akSeq
+        newVmSeq(deref(dest).seqVal, dest.typ, n.len, c.memory)
+        loadFullSlice(c.allocator, deref(dest).seqVal.data, dest.typ.seqElemType)
 
     for (i, x) in n.pairs:
-      c.serialize(x, makeLocHandle(data.getSubHandle(off), eTyp))
-      off += stride
+      c.serialize(x, slice[i])
 
   of tyTuple:
     assert n.kind == nkTupleConstr
