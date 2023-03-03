@@ -201,12 +201,12 @@ proc buildTools(args: string = "") =
   bundleNimsuggest(args)
   nimCompileFold("Compile nimgrep", "tools/nimgrep.nim",
                  options = "-d:release " & defineSourceMetadata() & " " & args)
-  when defined(windows): buildVccTool(args)
+  when defined(windows): buildVccTool("--gc:orc " & args)
 
   # the VM runs into `setjmp`-related stack-corruption issues when using the
   # MinGW runtime. ``exceptions:goto`` is used as a workaround
   nimCompileFold("Compile vmrunner", "compiler/vm/vmrunner.nim",
-                options = "-d:release --exceptions:goto $# $#" % [defineSourceMetadata(), args])
+                options = "-d:release --gc:orc $# $#" % [defineSourceMetadata(), args])
 
   # pre-packages a debug version of nim which can help in many cases investigate issuses
   # withouth having to rebuild compiler.
@@ -214,7 +214,7 @@ proc buildTools(args: string = "") =
   # `-d:debug` should be changed to a flag that doesn't require re-compiling nim
   # `--opt:speed` is a sensible default even for a debug build, it doesn't affect nim stacktraces
   nimCompileFold("Compile nim_dbg", "compiler/nim.nim", options =
-      "--opt:speed --stacktrace -d:debug --stacktraceMsgs -d:nimCompilerStacktraceHints --excessiveStackTrace:off " & defineSourceMetadata() & " " & args,
+      "--opt:speed --stacktrace -d:debug --stacktraceMsgs -d:nimCompilerStacktraceHints --excessiveStackTrace:off --gc:orc " & defineSourceMetadata() & " " & args,
       outputName = "nim_dbg")
 
 
@@ -333,6 +333,13 @@ proc boot(args: string) =
       let version = ret.output.splitLines[0]
       if version.startsWith "Nim Compiler Version 0.20.0":
         extraOption.add " --lib:lib" # see https://github.com/nim-lang/Nim/pull/14291
+
+      # the csource compiler is not able to build the compiler with ORC
+      # enabled yet, so refc is explicitly used
+      extraOption.add " --gc:refc"
+    else:
+      # use ORC for all furhter iterations
+      extraOption.add " --gc:orc"
 
     # in order to use less memory, we split the build into two steps:
     # --compileOnly produces a $project.json file and does not run GCC/Clang.
