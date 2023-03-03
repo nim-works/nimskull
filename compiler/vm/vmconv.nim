@@ -53,7 +53,7 @@ proc tryWriteTo*[T: seq](v: T, dest: LocHandle, mm: var VmMemoryManager): bool =
 
     let s = deref(dest).seqVal # shallow copy
     for i in 0..<v.len:
-      if tryWriteTo(v[i], s.getItemHandle(dest.typ, i), mm): discard
+      if tryWriteTo(v[i], s.getItemHandle(dest.typ, i, mm.allocator), mm): discard
       else: return false
 
     result = true

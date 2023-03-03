@@ -158,7 +158,7 @@ template wrapIteratorInner(a: VmArgs, iter: untyped) =
   var i = 0
   for x in iter:
     s[].growBy(rh.typ, 1, a.mem[])
-    writeTo(x, getItemHandle(s[], rh.typ, i), a.mem[])
+    writeTo(x, getItemHandle(s[], rh.typ, i, a.mem.allocator), a.mem[])
     inc i
 
 template wrapIterator(fqname: string, iter: untyped) =
@@ -334,7 +334,7 @@ proc registerBasicOps*(c: var TCtx) =
     let n = writeFloatToBufferSprintf(temp, x)
     let oldLen = deref(p).strVal.len
     deref(p).strVal.setLen(oldLen + n, a.mem.allocator)
-    safeCopyMem(deref(p).strVal.data.subView(oldLen, n), temp, n)
+    safeCopyMem(deref(p).strVal.data.slice(oldLen, n), temp, n)
 
 proc registerIoReadOps*(c: var TCtx) =
   ## Registers callbacks for read operations from the ``io`` module

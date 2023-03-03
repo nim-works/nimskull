@@ -28,9 +28,10 @@ func resetLocation*(mm: var VmMemoryManager, loc: var VmMemoryRegion, typ: PVmTy
   ## If the given location is a managed atomic location, cleans up and frees
   ## any auxiliary memory. If the location is a compound location, recursively
   ## cleans up all managed sub-locations
-proc copyToLocation*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: MemRegionPtr, typ: PVmType, reset: static[bool] = true)
+proc copyToLocation*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: VmMemoryRegion,
+                     typ: PVmType, reset: static[bool] = true)
   ## Copies the data at `src` to `dest`. This is equivalent to an assignment
-  ## in user-code. `reset` indicates whether is dest is in an initial zero
+  ## in user-code. `reset` indicates whether dest is in an initial zero
   ## state (`false`) or already contains valid data (`true`).
 
 func reinterpretWrite[T](p: pointer, v: T) {.inline.} =
@@ -54,7 +55,7 @@ func writeUInt*(r: var VmMemoryRegion, val: BiggestInt) {.inline.} =
 
 func writeUInt*(h: LocHandle, val: BiggestInt) {.inline.} =
   assert h.isValid()
-  copyMem(h.h.rawPointer, unsafeAddr val, h.typ.sizeInBytes)
+  copyMem(h.rawPointer, unsafeAddr val, h.typ.sizeInBytes)
 
 # TODO: rename to writeIntBits
 func writeInt*(r: var VmMemoryRegion, val: BiggestInt) {.inline.} =
@@ -89,25 +90,24 @@ func readFloat*(m: VmMemoryRegion): BiggestFloat {.inline.} =
   else:
     unreachable("Float must be 4 or 8 byte in size")
 
-func writeFloat64*(h: MemRegionPtr, f: float64) {.inline.} =
-  assert h.isValid(8)
+func writeFloat64*(h: VmMemPointer, f: float64) {.inline.} =
+  assert h.rawPointer != nil
   reinterpretWrite(h.rawPointer, f)
 
 func writeFloat64*(h: LocHandle, f: float64) {.inline.} =
   assert h.isValid()
   assert h.typ.kind == akFloat
   assert h.typ.sizeInBytes == 8
-  reinterpretWrite(h.h.rawPointer, f)
+  reinterpretWrite(h.rawPointer, f)
 
-func writeFloat32*(h: MemRegionPtr, f: float32) {.inline.} =
-  assert h.isValid(4)
+func writeFloat32*(h: VmMemPointer, f: float32) {.inline.} =
+  assert h.rawPointer != nil
   reinterpretWrite(h.rawPointer, f)
 
 func writeFloat32*(h: LocHandle, f: float32) {.inline.} =
-  assert h.h.isValid(4)
   assert h.typ.kind == akFloat
   assert h.typ.sizeInBytes == 4
-  reinterpretWrite(h.h.rawPointer, f)
+  reinterpretWrite(h.rawPointer, f)
 
 
 func writeFloat*(h: LocHandle, f: BiggestFloat) {.inline.} =
@@ -117,9 +117,9 @@ func writeFloat*(h: LocHandle, f: BiggestFloat) {.inline.} =
   assert h.typ.kind == akFloat
   case h.typ.sizeInBytes
   of 4:
-    writeFloat32(h.h, float32(f))
+    writeFloat32(h.p, float32(f))
   of 8:
-    writeFloat64(h.h, float64(f))
+    writeFloat64(h.p, float64(f))
   else:
     unreachable("Float must be 4 or 8 byte in size")
 
@@ -185,7 +185,7 @@ template bitSet*(handle: LocHandle): untyped =
   let h = handle
   assert h.isValid()
   assert h.typ.kind == akSet
-  toOpenArray(h.h.rawPointer, 0, int(h.typ.sizeInBytes - 1))
+  byteView(handle)
 
 
 template mbitSet*(handle: LocHandle): untyped =
@@ -193,7 +193,7 @@ template mbitSet*(handle: LocHandle): untyped =
   let h = handle
   assert h.isValid()
   assert h.typ.kind == akSet
-  var p = h.h.rawPointer
+  var p = h.rawPointer
   toOpenArray(p, 0, int(h.typ.sizeInBytes - 1))
 
 
@@ -332,7 +332,7 @@ func next*(ctx: var VariantFieldIterCtx, src: VmMemoryRegion, typ: PVmType) =
     ctx.bI = bI
 
 
-iterator variantFieldIndices*(src: MemRegionPtr, typ: PVmType, branch: uint32 = 0'u32): FieldIndex =
+iterator variantFieldIndices*(src: VmMemoryRegion, typ: PVmType, branch: uint32 = 0'u32): FieldIndex =
   ## Iterates over the active fields (excluding base type fields) of the
   ## object at location `src`. The iterator supports changing active branches
   ## via discriminator updates on-the-fly, but only the one at the currently
@@ -344,11 +344,11 @@ iterator variantFieldIndices*(src: MemRegionPtr, typ: PVmType, branch: uint32 = 
     let r = ctx.get()
     if r[0]:
       yield r[1]
-      ctx.next(byteView(src), typ)
+      ctx.next(src, typ)
     else:
       break
 
-iterator variantFields*(src: MemRegionPtr, typ: PVmType, branch: uint32 = 0'u32): (int, PVmType) =
+iterator variantFields*(src: VmMemoryRegion, typ: PVmType, branch: uint32 = 0'u32): (int, PVmType) =
   ## Similar to `variantFieldIndices`, but yields the `(offset, type)` pair
   ## instead of the index
   for x in variantFieldIndices(src, typ, branch):
@@ -369,7 +369,6 @@ func arrayLen*(loc: LocHandle): int =
 
 
 template toOpenArray(a: VmString): untyped =
-  assert a.len == 0 or a.data.isValid(uint a.len)
   toOpenArray(cast[ptr UncheckedArray[char]](a.data.rawPointer), 0, a.len - 1)
 
 func `==`*(a, b: VmString): bool =
@@ -396,7 +395,7 @@ func `$`*(s: VmString): string =
   result = newString(s.len)
 
   if s.len > 0:
-    safeCopyMem(result.toOpenArrayByte(0, result.high), s.data.subView(s.len), s.len)
+    safeCopyMem(result.toOpenArrayByte(0, result.high), s.data.slice(s.len), s.len)
 
 func asCString*(s: VmString): cstring =
   ## Returns a `cstring` that is a direct view into the vm string's backing memory
@@ -410,7 +409,7 @@ func asCString*(s: VmString): cstring =
   else:
     nil
 
-func allocVmString(a: var VmAllocator, len: Natural): MemRegionPtr {.inline.} =
+func allocVmString(a: var VmAllocator, len: Natural): CellPtr {.inline.} =
   # +1 for the terminating '\0'
   let len = len + 1
   a.allocTypedLocations(a.byteType, len, len)
@@ -421,9 +420,9 @@ func asgnVmString*(dest: var VmString, src: VmString, a: var VmAllocator) =
   if src.len > 0:
     assert not src.data.isNil
     dest = newVmString(a.allocVmString(src.len), src.len)
-    safeCopyMem(dest.data.subView(src.len), src.data.subView(src.len), src.len)
+    safeCopyMem(dest.data.slice(src.len), src.data.slice(src.len), src.len)
   else:
-    dest = newVmString(nilMemPtr, 0)
+    dest = newVmString(CellPtr(nil), 0)
 
 func cmp*(a, b: VmString): int =
   let minLen = min(a.len, b.len)
@@ -448,8 +447,8 @@ func `==`*(a: VmString, b: openArray[char]): bool =
   toOpenArray(a) == b
 
 func `[]`*(s: VmString, i: Natural): char =
-  ## Return the char at index `i`. Doesn't do any validation or index checking.
-  ## The caller is expected to take care of that
+  ## Return the char at index `i`. Doesn't perform any validation or index
+  ## checking -- the caller is expected to take care of that.
 
   assert not s.data.isNil
   assert i < s.len
@@ -469,15 +468,14 @@ func `[]=`*(s: var VmString, i: Natural, c: char) =
 func setLen*(s: var VmString, newLen: Natural, a: var VmAllocator) =
   ## Truncates or extends the length of `s` to `newLen`
   # TODO: improve
-  var newData: MemRegionPtr
+  var newData: CellPtr
   if newLen > 0:
     newData = a.allocVmString(newLen)
     let numBytes = min(newLen, s.len)
 
-    safeCopyMem(newData.subView(newLen), s.data.subView(s.len), numBytes)
-
+    safeCopyMem(newData.slice(newLen), s.data.slice(s.len), numBytes)
   else:
-    newData = nilMemPtr
+    newData = nil
 
   a.dealloc(s.data)
   s = newVmString(newData, newLen)
@@ -495,7 +493,7 @@ func add*(s: var VmString, chars: openArray[char], mm: var VmAllocator) =
 
   let i = s.len
   s.setLen(i + chars.len, mm)
-  safeCopyMem(s.data.subView(i, chars.len), chars, chars.len)
+  safeCopyMem(s.data.slice(i, chars.len), chars, chars.len)
 
 # TODO: rename to `append`?
 func add*(s: var VmString, str: VmString, mm: var VmAllocator) =
@@ -506,23 +504,41 @@ func add*(s: var string, str: VmString) =
   #s.add toOpenArray(str)
   let i = s.len
   s.setLen(i + str.len)
-  safeCopyMem(s.toOpenArray(i, s.high), str.data.subView(str.len), str.len)
+  safeCopyMem(s.toOpenArray(i, s.high), str.data.slice(str.len), str.len)
 
 
-func getItemHandle*(loc: LocHandle, index: Natural): LocHandle =
+func getItemHandle*(loc: LocHandle, index: Natural, a: VmAllocator): LocHandle =
   ## Creates a handle to the item at `index` for the array-like at `loc`
   let typ = loc.typ
   case typ.kind
   of akSeq:
-    makeLocHandle(getSubHandle(deref(loc).seqVal.data, typ.seqElemStride * index), typ.seqElemType)
+    makeLocHandle(a, deref(loc).seqVal.data, typ.seqElemStride * index, typ.seqElemType)
   of akArray:
-    makeLocHandle(getSubHandle(loc.h, typ.elementStride * index), typ.elementType)
+    subLocation(loc, typ.elementStride * index, typ.elementType)
   else:
     # Not an array like type
     unreachable(typ.kind)
 
+func `[]`*(s: VmSlice, i: Natural): LocHandle =
+  ## Creates a ``LocHandle`` to the `i`-th element of the slice `s`
+  LocHandle(cell: s.cell, p: applyOffset(s.start, uint(i) * s.typ.alignedSize),
+            typ: s.typ)
 
-proc arrayCopy*(mm: var VmMemoryManager, dest, src: MemRegionPtr, count: Natural, elemTyp: PVmType, reset: static[bool]) =
+func toSlice*(loc: LocHandle): VmSlice =
+  ## Creates a ``VmSlice`` view for the array location `loc`
+  assert loc.typ.kind == akArray
+  VmSlice(cell: loc.cell, start: loc.p, len: loc.typ.elementCount.int,
+          typ: loc.typ.elementType)
+
+func toSlice*(s: VmSeq, elemTyp: PVmType, a: VmAllocator): VmSlice =
+  ## Creates a ``VmSlice`` view for all elements in the seq `s`
+  let id = a.mapPointerToCell(s.data)
+  # set the `start` and `len` even if data pointer doesn't point to a
+  # cell
+  VmSlice(cell: id, start: cast[VmMemPointer](s.data), len: s.length,
+          typ: elemTyp)
+
+proc arrayCopy*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: VmMemoryRegion, count: Natural, elemTyp: PVmType, reset: static[bool]) =
   ## Copies (via assignment) all items from `src[0..count-1]` to
   ## `dest[0..count-1]`
   let stride = elemTyp.alignedSize.int
@@ -531,7 +547,7 @@ proc arrayCopy*(mm: var VmMemoryManager, dest, src: MemRegionPtr, count: Natural
 
   # TODO: trivial copy optimization
   for i in 0..<count:
-    mm.copyToLocation(dest.subView(off, elemTyp.sizeInBytes), src.getSubHandle(off), elemTyp, reset)
+    mm.copyToLocation(dest.subView(off, elemTyp.sizeInBytes), src.subView(off), elemTyp, reset)
     off += stride
 
 func destroyVmSeq(s: var VmSeq, typ: PVmType, mm: var VmMemoryManager) =
@@ -540,7 +556,7 @@ func destroyVmSeq(s: var VmSeq, typ: PVmType, mm: var VmMemoryManager) =
   # TODO: do nothing if the items are is trivially destructible
   for i in 0..<s.length:
     let offset = i * typ.seqElemStride
-    mm.resetLocation(s.data.subView(offset, elemTyp.sizeInBytes), elemTyp)
+    mm.resetLocation(s.data.slice(offset, elemTyp.sizeInBytes), elemTyp)
 
   mm.allocator.dealloc(s.data)
 
@@ -554,13 +570,13 @@ func shrink(s: var VmSeq, typ: PVmType, newLen: Natural, mm: var VmMemoryManager
 
   if newLen > 0:
     s.data = mm.allocator.allocTypedLocations(typ.seqElemType, newLen, newSize)
-    safeCopyMemSrc(s.data.subView(newSize), oldData.subView(newSize))
+    safeCopyMemSrc(s.data.slice(newSize), oldData.slice(newSize))
   else:
-    s.data = nilMemPtr
+    s.data = nil
 
   for i in newLen..<s.length:
     # Reset locations of remaining elements
-    mm.resetLocation(oldData.subView(i * typ.seqElemStride, typ.seqElemType.sizeInBytes), typ.seqElemType)
+    mm.resetLocation(oldData.slice(i * typ.seqElemStride, typ.seqElemType.sizeInBytes), typ.seqElemType)
 
   mm.allocator.dealloc(oldData)
   s.length = newLen
@@ -574,7 +590,7 @@ func grow(s: var VmSeq, typ: PVmType, newLen: Natural, mm: var VmMemoryManager) 
   let newData = mm.allocator.allocTypedLocations(typ.seqElemType, newLen, newSize)
   if s.length > 0:
     # Move data
-    safeCopyMemSrc(newData.subView(newSize), s.data.subView(s.length * typ.seqElemStride))
+    safeCopyMemSrc(newData.slice(newSize), s.data.slice(s.length * typ.seqElemStride))
     mm.allocator.dealloc(s.data)
   else:
     assert s.data.isNil
@@ -594,9 +610,9 @@ func setLenSeq*(s: var VmSeq, typ: PVmType, len: int, mm: var VmMemoryManager) =
 func growBy*(s: var VmSeq, typ: PVmType, num: Natural, mm: var VmMemoryManager) {.inline.} =
   s.grow(typ, s.length + num, mm)
 
-func getItemHandle*(s: VmSeq, typ: PVmType, index: Natural): LocHandle {.inline.} =
+func getItemHandle*(s: VmSeq, typ: PVmType, index: Natural, a: VmAllocator): LocHandle {.inline.} =
   ## Creates a handle to the seq item at `index`
-  makeLocHandle(getSubHandle(s.data, typ.seqElemStride * index), typ.seqElemType)
+  makeLocHandle(a, s.data, typ.seqElemStride * index, typ.seqElemType)
 
 func newVmSeq*(s: var VmSeq, typ: PVmType, numItems: Natural, mm: var VmMemoryManager) =
   # Initializes `s` with new empty memory that is large enough for `numItems`.
@@ -608,9 +624,12 @@ func newVmSeq*(s: var VmSeq, typ: PVmType, numItems: Natural, mm: var VmMemoryMa
     if numItems > 0:
       mm.allocator.allocTypedLocations(typ.seqElemType, numItems, numItems * typ.seqElemStride)
     else:
-      nilMemPtr
+      nil
 
   s = VmSeq(data: newData, length: numItems)
+
+template fullCell(p: CellPtr, a: VmAllocator): untyped =
+  byteView(mapToCell(a, p))
 
 proc copyVmSeq*(dest: var VmSeq, src: VmSeq, typ: PVmType, mm: var VmMemoryManager) =
   if dest.length > 0:
@@ -619,18 +638,18 @@ proc copyVmSeq*(dest: var VmSeq, src: VmSeq, typ: PVmType, mm: var VmMemoryManag
   if src.length > 0:
     let lenInBytes = src.length * typ.seqElemStride
     dest = VmSeq(length: src.length, data: mm.allocator.allocTypedLocations(typ.seqElemType, src.length, lenInBytes))
-    arrayCopy(mm, dest.data, src.data, src.length, typ.seqElemType, reset = false)
+    arrayCopy(mm, dest.data.slice(lenInBytes), slice(src.data, lenInBytes), src.length, typ.seqElemType, reset = false)
   else:
     dest = VmSeq()
 
 
 func newVmString*(s: var VmString, numElements: Natural, a: var VmAllocator) =
-  var newData: MemRegionPtr
+  var newData: CellPtr
   if numElements > 0:
     # +1 for the terminating '\0'
     newData = a.allocVmString(numElements)
   else:
-    newData = nilMemPtr
+    newData = nil
 
   a.dealloc(s.data)
   s = newVmString(newData, numElements)
@@ -639,17 +658,12 @@ func newVmString*(s: var VmString, src: openArray[char], a: var VmAllocator) =
   a.dealloc(s.data)
   if src.len > 0:
     s = newVmString(a.allocVmString(src.len), src.len)
-    safeCopyMem(s.data.subView(src.len), src, src.len)
+    safeCopyMem(s.data.slice(src.len), src, src.len)
   else:
-    s = newVmString(nilMemPtr, 0)
+    s = newVmString(CellPtr(nil), 0)
 
 
 template isVariant(x: PVmType): bool = x.branches.len > 0
-
-func asRegionPtr(x: VmMemoryRegion): MemRegionPtr {.inline.} =
-  let p = if x.len > 0: unsafeAddr x[0] else: nil
-  makeMemPtr(p, uint(x.len))
-
 
 func resetLocation*(mm: var VmMemoryManager, loc: var VmMemoryRegion, typ: PVmType) =
   assert typ.sizeInBytes <= uint(loc.len)
@@ -684,7 +698,7 @@ func resetLocation*(mm: var VmMemoryManager, loc: var VmMemoryRegion, typ: PVmTy
         let (off, ty) = f
         resetLocation(mm, loc.toOpenArray(off, loc.high), ty)
     else:
-      for f in variantFields(asRegionPtr(loc), typ):
+      for f in variantFields(loc, typ):
         let (off, ty) = f
         resetLocation(mm, loc.toOpenArray(off, loc.high), ty)
   of akArray:
@@ -707,12 +721,12 @@ func asgnClosure*(dst: var VmClosure, src: VmClosure, mm: var VmMemoryManager, r
   dst.fnc = src.fnc
 
 
-proc copyToLocation*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: MemRegionPtr, typ: PVmType, reset: static[bool] = true) =
+proc copyToLocation*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: VmMemoryRegion, typ: PVmType, reset: static[bool] = true) =
   ## Deep-copy the value with type `typ` at location `src` to `dest`. The
   ## source and destination location must not overlap in memory
   assert typ.sizeInBytes <= uint(dest.len)
   let size = typ.sizeInBytes
-  let srcAtom = cast[ptr Atom](addr src.rawPointer[0])
+  let srcAtom = cast[ptr Atom](unsafeAddr src[0])
   let dstAtom = cast[ptr Atom](addr dest[0])
   assert dstAtom != srcAtom
 
@@ -724,7 +738,7 @@ proc copyToLocation*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: Mem
 
   case typ.kind
   of akInt, akFloat, akPtr, akSet:
-    safeCopyMem(dest, src.subView(size), size)
+    safeCopyMem(dest, src.subView(0, size), size)
   of akString:
     asgnVmString(dstAtom.strVal, srcAtom.strVal, mm.allocator)
   of akSeq:
@@ -736,7 +750,7 @@ proc copyToLocation*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: Mem
   of akClosure:
     asgnClosure(dstAtom.closureVal, srcAtom.closureVal, mm, reset)
   of akDiscriminator:
-    safeCopyMem(dest, src.subView(size), size)
+    safeCopyMem(dest, src.subView(0, size), size)
   of akPNode:
     dstAtom.nodeVal = srcAtom.nodeVal
   of akObject:
@@ -745,7 +759,7 @@ proc copyToLocation*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: Mem
     if not typ.isVariant:
       for f in typ.objFields.items:
         let (off, ty) = f
-        copyToLocation(mm, dest.toOpenArray(off, dest.high), src.getSubHandle(off), ty, reset)
+        copyToLocation(mm, dest.toOpenArray(off, dest.high), src.subView(off), ty, reset)
     else:
       when reset:
         # TODO: only reset locations that lie in mismatching branches
@@ -754,13 +768,13 @@ proc copyToLocation*(mm: var VmMemoryManager, dest: var VmMemoryRegion, src: Mem
 
       for f in variantFields(src, typ):
         let (off, ty) = f
-        copyToLocation(mm, dest.toOpenArray(off, dest.high), src.getSubHandle(off), ty, reset)
+        copyToLocation(mm, dest.toOpenArray(off, dest.high), src.subView(off), ty, reset)
 
   of akArray:
     # TODO: same as for akObject
     var off = 0
     for i in 0..<typ.elementCount:
-      copyToLocation(mm, dest.toOpenArray(off, dest.high), src.getSubHandle(off), typ.elementType, reset)
+      copyToLocation(mm, dest.toOpenArray(off, dest.high), src.subView(off), typ.elementType, reset)
       off += typ.elementStride
 
 
@@ -772,9 +786,9 @@ proc resetBranch*(mm: var VmMemoryManager, h: LocHandle, idx: FieldIndex, branch
   inc bI
   seekToBranch(bI, branch, h.typ)
 
-  for f in variantFields(h.h, h.typ, uint32(bI)):
+  for f in variantFields(byteView(h), h.typ, uint32(bI)):
     let (off, ty) = f
-    resetLocation(mm, h.h.subView(off, ty.sizeInBytes), ty)
+    resetLocation(mm, byteView(h).subView(off, ty.sizeInBytes), ty)
 
   # Zero old branch's memory region
   let branchRange = h.typ.branches[bI].fieldRange

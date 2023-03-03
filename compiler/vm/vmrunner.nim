@@ -91,7 +91,7 @@ proc loadConst(s: PackedEnv, idx: int, dst: LocHandle,
 
     var i = 0
     while i < L:
-      result += loadConst(s, idx+1+result, getItemHandle(dst, i), mem)
+      result += loadConst(s, idx+1+result, getItemHandle(dst, i, mem.allocator), mem)
       inc i
 
   of akString:

@@ -269,22 +269,40 @@ type
     fnc*: VmFunctionPtr
     env*: HeapSlotHandle
 
-  # XXX: once first class openArray support is available during bootstrapping,
-  #      `MemRegionPtr` could be turned into `openArray[byte]`
-  MemRegionPtr* = object
-    ## A pointer to a region of memory
-    p: ptr UncheckedArray[byte]
-    l: int
+  VmMemPointer* = distinct ptr UncheckedArray[byte]
+    ## A pointer into a memory region managed by the VM (i.e. guest memory)
   VmMemoryRegion* = openArray[byte]
 
+  CellId* = int
+  CellPtr* = distinct ptr UncheckedArray[byte]
+    ## A pointer that either is nil or points to the start of a VM memory cell
+
   LocHandle* = object
-    ## A handle to a ``location``
-    h*: MemRegionPtr
-    typ* {.cursor.}: PVmType # ownership of `typ` is not needed
+    ## A handle to a VM memory location. Since looking up the cell a location
+    ## is part of is a very common operation (due to access checks), the cell's
+    ## ID is also stored here.
+    cell*: CellId
+      ## the ID of the cell that owns the location
+    p*: VmMemPointer
+      ## the memory address of the reference location, in host address space
+    typ* {.cursor.}: PVmType
+      ## the type that the handles views the location as
+
+  VmSlice* = object
+    ## A loaded slice. Stores all information that the VM needs to efficiently
+    ## access the referenced guest memory. A `VmSlice` is not meant to be
+    ## stored in guest memory, but rather for internal use by the VM.
+    cell*:  CellId           ## the cell of which the locations are part of
+    start*: VmMemPointer     ## start of the slice (or ``nil``)
+    len*:   int              ## the number of items
+    typ* {.cursor.}: PVmType ## the item type
 
   VmSeq* = object
+    # XXX: consider storing the cell's ID instead of the pointer. Doing so
+    #      would significantly speed up seq/string access, as no costly
+    #      pointer-to-id mapping operation has to take place then
     length*: int
-    data*: MemRegionPtr
+    data*: CellPtr
 
   VmString* = distinct VmSeq
 
@@ -308,7 +326,7 @@ type
     of rkInt: intVal*: BiggestInt
     of rkFloat: floatVal*: BiggestFloat
     of rkAddress:
-      addrVal*: MemRegionPtr
+      addrVal*: pointer
       addrTyp*: PVmType
     of rkLocation, rkHandle:
       handle*: LocHandle
@@ -410,13 +428,46 @@ type
                                   ## symbol identifier
   VmCallback* = proc (args: VmArgs) {.closure.}
 
+  VmCell* = object
+    ## Stores information about a memory cell allocated by the VM's allocator
+    count*: int
+      ## stores the number of locations for cells that are in-use; for free
+      ## cells this is the next pointer
+      # TODO: once ``VmCell`` is part of the ``vmmemory`` module, don't export
+      #       `count` nor access it directly -- use accessors instead
+    sizeInBytes*: int
+      ## the total number of *guest-accesible* bytes the cell occupies
+
+    p*: ptr UncheckedArray[byte]
+    typ* {.cursor.}: PVmType
+
+  # ---------- Future work --------------
+  #
+  # 1) use a separate cell type and list for stack cells. They don't require
+  #    the `count` field and have a different usage pattern, i.e. push/pop
+  #    (not yet but eventually).
+  #
+  # 2) merge ``VmHeap`` into ``VmAllocator``. Neither a separate cell type
+  #    (i.e. ``HeapSlot``) nor the separate list is required for refcounted
+  #    cell anymore. Merging them will simplify the allocator and speed up
+  #    ``ref``s.
+  #    The ``count`` field of ``VmCell`` should be used for storing the
+  #    refcounter for refcounted cells.
+  #
+  # 3) don't use a linear search for mapping an address to a cell. In addition,
+  #    don't consider free cells during the search.
+
   VmAllocator* = object
-    # XXX: the current implementation of the allocator is overly simple and
-    #      only temporary
     # XXX: support for memory regions going past the 0..2^63 (or 0..2^31)
     #      region is very fuzzy at the moment due to the mixing of int
     #      and uint
-    regions*: seq[tuple[typ: PVmType, count: int, start: int, len: int]]
+    cells*: seq[VmCell]
+      ## the underlying storage for the cell slots. Both stack and
+      ## (non-refcounted) heap slots are included here
+
+    # the intrusive linked list storing all free cells:
+    freeHead*, freeTail*: int
+
     byteType*: PVmType ## The VM type for `byte`
 
   VmMemoryManager* = object
@@ -518,7 +569,7 @@ type
     nextConst*: LinkIndex
 
     flags*: set[CodeGenFlag] ## input
-  
+
   VmGenDiagKind* = enum
     # has no extra data
     vmGenDiagBadExpandToAstArgRequired
@@ -543,17 +594,17 @@ type
     vmGenDiagCannotCallMethod
     # has type mismatch data
     vmGenDiagCannotCast
-  
+
   VmGenDiagKindAstRelated* =
     range[vmGenDiagNotUnused..vmGenDiagInvalidObjectConstructor]
     # TODO: this is a somewhat silly type, the range allows creating type safe
     #       diag construction functions -- see: `vmgen.fail`
-  
+
   VmGenDiagKindSymRelated* =
     range[vmGenDiagCodeGenGenericInNonMacro..vmGenDiagCannotCallMethod]
     # TODO: this is a somewhat silly type, the range allows creating type safe
     #       diag construction functions -- see: `vmgen.fail`
-  
+
   VmGenDiagKindMagicRelated* =
     range[vmGenDiagMissingImportcCompleteStruct..vmGenDiagCodeGenUnhandledMagic]
     # TODO: this is a somewhat silly type, the range allows creating type safe
@@ -738,6 +789,7 @@ type
     slots*: seq[TFullReg]      # parameters passed to the proc + locals;
                               # parameters come first
     next*: StackFrameIndex         # for stacking
+
     comesFrom*: int
     safePoints*: seq[int]      # used for exception handling
                               # XXX 'break' should perform cleanup actions
@@ -928,51 +980,49 @@ template regBx*(x: TInstr): int = (x.TInstrType shr regBxShift and regBxMask).in
 
 template jmpDiff*(x: TInstr): int = regBx(x) - wordExcess
 
-func makeMemPtr*(p: pointer, sizeInBytes: uint): MemRegionPtr {.inline.} =
-  MemRegionPtr(p: cast[ptr UncheckedArray[byte]](p), l: sizeInBytes.int)
-
-func makeLocHandle*(p: MemRegionPtr, typ: PVmType): LocHandle {.inline.} =
-  assert typ != nil
-  assert typ.sizeInBytes <= uint(p.l)
-  LocHandle(h: MemRegionPtr(p: p.p, l: int(typ.sizeInBytes)), typ: typ)
-
-func makeLocHandle*(h: pointer, typ: PVmType): LocHandle {.inline.} =
-  LocHandle(h: makeMemPtr(h, typ.sizeInBytes), typ: typ)
-
-template isNil*(h: MemRegionPtr): bool = h.p == nil
+template isNil*(p: VmMemPointer | CellPtr): bool = p.rawPointer == nil
 template isNil*(h: HeapSlotHandle): bool = int(h) == 0
 
 const noneType*: PVmType = nil
 
-template nilMemPtr*: untyped = MemRegionPtr(p: nil, l: 0)
-template invalidLocHandle*: untyped = (h: nilMemPtr, typ: nil)
-
 template isValid*(t: PVmType): bool = t != nil
 
-template rawPointer*(h: MemRegionPtr): untyped =
-  h.p
+template rawPointer*(p: VmMemPointer | CellPtr): untyped =
+  (ptr UncheckedArray[byte])(p)
 
-template len*(h: MemRegionPtr): untyped = h.l
-
-template byteView*(h: MemRegionPtr): untyped =
-  toOpenArray(h.p, 0, h.l-1)
+template rawPointer*(h: LocHandle): untyped =
+  h.p.rawPointer
 
 template subView*[T](x: openArray[T], off, len): untyped =
   x.toOpenArray(off, int(uint(off) + uint(len) - 1))
 
+template subView*[T](x: openArray[T], off): untyped =
+  x.toOpenArray(int off, x.high)
 
-func newVmString*(data: MemRegionPtr, len: Natural): VmString {.inline.} =
+template byteView*(x: ptr UncheckedArray[byte], t: PVmType; num: int): untyped =
+  x.toOpenArray(0, (t.alignedSize.int * num) - 1)
+
+template byteView*(x: VmMemPointer | CellPtr, t: PVmType; num: int): untyped =
+  var p = x.rawPointer
+  byteView(p, t, num)
+
+func applyOffset*(p: VmMemPointer | CellPtr, offset: uint): VmMemPointer {.inline.} =
+  cast[VmMemPointer](unsafeAddr p.rawPointer[offset])
+
+func newVmString*(data: CellPtr, len: Natural): VmString {.inline.} =
   VmString(VmSeq(data: data, length: len))
 
 func len*(s: VmString): int {.inline.} = VmSeq(s).length
 
-func data*(s: VmString): MemRegionPtr {.inline.} = VmSeq(s).data
+func data*(s: VmString): CellPtr {.inline.} = VmSeq(s).data
 
-
-template isValid*(h: MemRegionPtr, len: uint): bool = h.p != nil and int(len) <=% h.l
 template isValid*(handle: LocHandle): bool =
+  ## Checks if `handle` is a valid handle, that is, whether it stores non-nil
+  ## pointer and type information. **NOTE**: this is only meant for debugging
+  ## and assertions -- the procedure does **not** check whether accessing the
+  ## referenced memory location is legal
   let x = handle
-  isValid(x.h, x.typ.sizeInBytes)
+  x.p.rawPointer != nil and x.typ != nil
 
 # TODO: move `overlap` and it's tests somewhere else
 func overlap*(a, b: int, aLen, bLen: Natural): bool =
@@ -1004,13 +1054,18 @@ static:
   test(0, 5, 5, 5, true) # disjoint
   test(0, 10, 2, 6) # a contains b
 
+func `$`*(x: ptr UncheckedArray[byte]): string =
+  $cast[int](x)
+
+func `$`*(x: PVmType): string =
+  result = "PVmType(" & $x.kind & ")"
 
 # TODO: move `safeCopyMem` and `safeZeroMem` somewhere else
 
 func safeCopyMem*(dest: var openArray[byte|char], src: openArray[byte|char], numBytes: Natural) {.inline.} =
   # TODO: Turn the asserts into range checks instead
   assert numBytes <= dest.len
-  assert numBytes <= src.len
+  assert numBytes <= src.len, $numBytes & ", " & $src.len
   if numBytes > 0:
     # Calling `safeCopyMem` with empty src/dest would erroneously raise without the > 0 check
     assert not overlap(addr dest[0], unsafeAddr src[0], dest.len, src.len)
