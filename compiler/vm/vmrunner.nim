@@ -269,6 +269,7 @@ func vmEventToLegacyReportKind(evt: VmEventKind): ReportKind {.inline.} =
   of vmEvtNodeNotASymbol: rvmNodeNotASymbol
   of vmEvtNodeNotAProcSymbol: rvmNodeNotAProcSymbol
   of vmEvtIllegalConv: rvmIllegalConv
+  of vmEvtIllegalConvFromXToY: rvmIllegalConvFromXToY
   of vmEvtMissingCacheKey: rvmMissingCacheKey
   of vmEvtCacheKeyAlreadyExists: rvmCacheKeyAlreadyExists
   of vmEvtFieldNotFound: rvmFieldNotFound
@@ -287,14 +288,13 @@ func vmEventToLegacyVmReport(
   let kind = evt.kind.vmEventToLegacyReportKind()
   result =
     case kind
-    of rvmCannotCast:
+    of rvmCannotCast, rvmIllegalConvFromXToY:
       VMReport(
         kind: kind,
         location: location,
         reportInst: evt.instLoc.toReportLineInfo,
-        typeMismatch:
-          @[SemTypeMismatch(actualType: evt.typeMismatch.actualType,
-                            formalType: evt.typeMismatch.formalType)])
+        actualType: evt.typeMismatch.actualType,
+        formalType: evt.typeMismatch.formalType)
     of rvmIndexError:
       VMReport(
         location: location,

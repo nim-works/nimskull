@@ -24,8 +24,8 @@ type
         stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
         skipped*: int
 
-      of rvmCannotCast:
-        typeMismatch*: seq[SemTypeMismatch]
+      of rvmCannotCast, rvmIllegalConvFromXToY:
+        actualType*, formalType*: PType
 
       of rvmIndexError:
         indexSpec*: tuple[usedIdx, minIdx, maxIdx: Int128]

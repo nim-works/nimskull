@@ -941,6 +941,7 @@ type
     adVmNodeNotASymbol
     adVmNodeNotAProcSymbol
     adVmIllegalConv
+    adVmIllegalConvFromXToY
     adVmMissingCacheKey
     adVmCacheKeyAlreadyExists
     adVmFieldNotFound
@@ -961,7 +962,7 @@ type
         callName*: string
         argAst*: PNode
         argPos*: int
-      of adVmCannotCast:
+      of adVmCannotCast, adVmIllegalConvFromXToY:
         formalType*: PType
         actualType*: PType
       of adVmIndexError:

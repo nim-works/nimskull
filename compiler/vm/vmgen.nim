@@ -79,6 +79,11 @@ type
   VmGenError = object of CatchableError
     diag: VmGenDiag
 
+const
+  IrrelevantTypes = abstractInst + {tyStatic} - {tyTypeDesc}
+    ## the set of types that are not relevant to the VM. ``tyTypeDesc``, while
+    ## not relevant right now, is likely going to be in the future.
+
 func raiseVmGenError(diag: sink VmGenDiag) {.noinline, noreturn.} =
   raise (ref VmGenError)(diag: diag)
 
@@ -1201,25 +1206,49 @@ proc genAddSubInt(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode) =
   c.genNarrow(n, dest)
 
 proc genConv(c: var TCtx; n, arg: PNode; dest: var TDest; opc=opcConv) =
-  let t2 = n.typ.skipTypes({tyDistinct})
-  let targ2 = arg.typ.skipTypes({tyDistinct})
+  let
+    a = skipTypes(n.typ, IrrelevantTypes)
+    b = skipTypes(arg.typ, IrrelevantTypes)
 
-  proc implicitConv(): bool =
-    if sameType(t2, targ2): return true
-    # xxx consider whether to use t2 and targ2 here
-    if n.typ.kind == arg.typ.kind and arg.typ.kind == tyProc:
-      # don't do anything for lambda lifting conversions:
-      return true
-
-  if implicitConv():
+  if sameLocationType(a, b) or {a.kind, b.kind} == {tyProc}:
+    # don't do anything for conversions that don't change the run-time type
+    # and lambda-lifting conversions
     gen(c, arg, dest)
-    return
+  else:
+    # a normal conversion that produces a new value of different type
+    prepare(c, dest, n, n.typ)
+    let tmp = c.genx(arg)
+    c.gABC(n, opc, dest, tmp)
+    c.gABx(n, opc, 0, c.genTypeInfo(a))
+    c.gABx(n, opc, 0, c.genTypeInfo(b))
+    c.freeTemp(tmp)
 
+proc genToStr(c: var TCtx, n, arg: PNode, dest: var TDest) =
+  # TODO: don't use ``opcConv`` for to-string conversions
+  prepare(c, dest, n, n.typ)
   let tmp = c.genx(arg)
-  if dest.isUnset: dest = c.getTemp(n.typ)
-  c.gABC(n, opc, dest, tmp)
-  c.gABx(n, opc, 0, c.genTypeInfo(n.typ.skipTypes({tyStatic})))
-  c.gABx(n, opc, 0, c.genTypeInfo(arg.typ.skipTypes({tyStatic})))
+  c.gABC(n, opcConv, dest, tmp)
+  c.gABx(n, opcConv, 0, c.genTypeInfo(n.typ.skipTypes(IrrelevantTypes)))
+  c.gABx(n, opcConv, 0, c.genTypeInfo(arg.typ.skipTypes(IrrelevantTypes)))
+  c.freeTemp(tmp)
+
+proc genObjConv(c: var TCtx, n: PNode, dest: var TDest) =
+  prepare(c, dest, n.typ)
+  let
+    tmp = genx(c, n[0])
+    desttyp = n.typ.skipTypes(IrrelevantTypes)
+
+  case desttyp.kind
+  of tyRef, tyObject:
+    c.gABC(n, opcObjConv, dest, tmp)
+    c.gABx(n, opcObjConv, 0, c.genType(desttyp))
+    c.makeHandleReg(dest, tmp)
+  of tyPtr:
+    c.gABC(n, opcFastAsgnComplex, dest, tmp) # register copy
+    c.gABx(n, opcSetType, dest, c.genType(desttyp)) # set the new type
+  else:
+    unreachable()
+
   c.freeTemp(tmp)
 
 proc genCard(c: var TCtx; n: PNode; dest: var TDest) =
@@ -1514,7 +1543,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     if t.kind in {tyUInt8..tyUInt32} or (t.kind == tyUInt and t.size < 8):
       c.gABC(n, opcNarrowU, dest, TRegister(t.size*8))
   of mCharToStr, mBoolToStr, mIntToStr, mInt64ToStr, mFloatToStr, mCStrToStr, mStrToStr, mEnumToStr:
-    genConv(c, n, n[1], dest)
+    genToStr(c, n, n[1], dest)
   of mEqStr, mEqCString: genBinaryABC(c, n, dest, opcEqStr)
   of mLeStr: genBinaryABC(c, n, dest, opcLeStr)
   of mLtStr: genBinaryABC(c, n, dest, opcLtStr)
@@ -1973,6 +2002,26 @@ proc genAsgn(c: var TCtx; le, ri: PNode; requiresCopy: bool) =
     c.gABC(le, opcWrDeref, dest, 0, tmp)
     c.freeTemp(dest)
     c.freeTemp(tmp)
+  of nkObjDownConv, nkObjUpConv:
+    # assignment to an lvalue-converted object, ref, or ptr
+    case le.typ.skipTypes(IrrelevantTypes).kind
+    of tyPtr:
+      # not supported yet. ``vmgen`` first needs some architectural changes
+      cannotEval(c, le)
+    of tyRef, tyObject:
+      var dest = TDest(-1)
+      genObjConv(c, le, dest)
+      let tmp = c.genx(ri)
+
+      c.gABC(le, opcWrLoc, dest, tmp)
+      c.freeTemp(tmp)
+      c.freeTemp(dest)
+    else:
+      unreachable()
+  of nkConv, nkHiddenStdConv:
+    # these conversion don't result in a lvalue of different run-time type, so
+    # they're skipped
+    genAsgn(c, le[0], ri, requiresCopy)
   of nkSym:
     let s = le.sym
     checkCanEval(c, le)
@@ -1998,6 +2047,7 @@ proc genAsgn(c: var TCtx; le, ri: PNode; requiresCopy: bool) =
         c.gABC(le, opcAsgnComplex, dest, cc)
         c.freeTemp(cc)
   else:
+    # TODO: use ``unreachable`` here instead
     let dest = c.genx(le, {gfNode})
     # XXX: always copy, move doesn't work yet
     genAsgn(c, dest, ri, true)#requiresCopy)
@@ -2460,7 +2510,7 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
           # XXX: this is a hack to make `tests/vm/tconst_views` work for now.
           #      `transf` removes `nkHiddenStdConv` for array/seq to openArray
           #      conversions, which we could have otherwise relied on
-          let tmp2 = c.getTemp(le)
+          let tmp2 = c.getFullTemp(it[0], le)
           c.gABC(n, opcConv, tmp2, tmp)
           c.gABx(n, opcConv, 0, c.genTypeInfo(le))
           c.gABx(n, opcConv, 0, c.genTypeInfo(ri))
@@ -2647,10 +2697,8 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     gen(c, n[0])
   of nkHiddenStdConv, nkHiddenSubConv, nkConv:
     genConv(c, n, n[1], dest)
-  of nkObjDownConv:
-    genConv(c, n, n[0], dest)
-  of nkObjUpConv:
-    genConv(c, n, n[0], dest)
+  of nkObjDownConv, nkObjUpConv:
+    genObjConv(c, n, dest)
   of nkLetSection, nkVarSection:
     unused(c, n, dest)
     genVarSection(c, n)

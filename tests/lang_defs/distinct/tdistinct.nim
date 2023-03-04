@@ -1,5 +1,5 @@
 discard """
-  targets: "c js"
+  targets: "c js vm"
   output: '''
 tdistinct
 25

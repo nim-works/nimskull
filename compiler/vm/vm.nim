@@ -615,11 +615,11 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
   # TODO: conversions are rather fuzzy right now. `opConv` needs to be revisited
   if desttyp.kind == tyString:
     # TODO: this part needs some refactoring...
-    initLocReg(dest, c.typeInfoCache.stringType, c.memory)
-
     let styp = srctyp.skipTypes(abstractRange)
     case styp.kind
     of tyEnum:
+      # TODO: don't use ``opcConv`` for string conversions -- make ``vmgen``
+      #       insert calls to the enum-to-string procedures instead
       let n = styp.n
       let x = src.intVal.int
       if x <% n.len and (let f = n[x].sym; f.position == x):
@@ -648,7 +648,7 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
     of tyChar:
       dest.strVal = $chr(src.intVal)
     else:
-      internalError(c.config, "cannot convert to string " & desttyp.typeToString)
+      unreachable(styp.kind)
   else:
     let desttyp = skipTypes(desttyp, abstractVarRange)
     case desttyp.kind
@@ -661,7 +661,7 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
         dest.intVal = src.intVal
       if toInt128(dest.intVal) < firstOrd(c.config, desttyp) or toInt128(dest.intVal) > lastOrd(c.config, desttyp):
         return true
-    of tyUInt..tyUInt64:
+    of tyUInt..tyUInt64, tyChar: # char is also an unsigned type
       dest = TFullReg(kind: rkInt)
       let styp = srctyp.skipTypes(abstractRange) # skip distinct types(dest type could do this too if needed)
       case styp.kind
@@ -697,34 +697,6 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
         dest.floatVal = src.floatVal.float32.BiggestFloat
       else:
         dest.floatVal = src.floatVal
-    of tyObject:
-      c.config.internalAssert(srctyp.skipTypes(abstractVarRange).kind == tyObject, "invalid object-to-object conversion")
-      # XXX: fastAsgnComplex is wrong. A handle conversion should be performed
-      #      instead
-      fastAsgnComplex(dest, src)
-    of tyRef:
-      assert getTypeRel(st[1], dt[1]) != vtrUnrelated, "invalid ref-to-ref conversion" # vmgen issue
-      assert src.handle.typ.kind == akRef # vmgen issue
-
-      let refVal = deref(src.handle).refVal
-
-      if refVal.isNil:
-        discard "always allow conversion for nil ref"
-      else:
-        let loc = c.heap.tryDeref(refVal, noneType).value()
-        if getTypeRel(loc.typ, dt[1].targetType) notin {vtrSame, vtrSub}:
-          return true
-
-      block:
-        # src might be dependent on dest so copy first before cleaning up
-        var tmp: TFullReg
-        swap(tmp, dest)
-
-        initLocReg(dest, dt[1], c.memory)
-        asgnRef(deref(dest.handle).refVal, refVal, c.memory, reset=false)
-
-        cleanUpReg(tmp, c.memory)
-
     of tyOpenArray:
       assert dt[1].kind == akSeq
 
@@ -737,7 +709,6 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
         #      it's okay for now.
         asgnValue(c.memory, dest, src)
       of tyArray, tyString:
-        dest.initLocReg(dt[1], c.memory)
         let
           t = dt[1].seqElemType
           L = arrayLen(src.handle)
@@ -756,7 +727,7 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
         unreachable() # vmgen issue
 
     else:
-      asgnValue(c.memory, dest, src)
+      unreachable(desttyp.kind)
 
 
 template handleJmpBack() {.dirty.} =
@@ -2852,7 +2823,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       inc pc
       let srctyp = c.rtti[c.code[pc].regBx - wordExcess]
 
-      # No need to check the handle of regs[ra] since it's not accessed
+      checkHandle(regs[ra])
       checkHandle(regs[rb])
 
       # TODO: `opConv` needs to accept `VmTypeInfo` directly
@@ -2860,11 +2831,43 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       let st = (srctyp.nimType, srctyp.internal)
       if opConv(c, regs[ra], regs[rb], dt, st):
         raiseVmError(VmEvent(
-          kind: vmEvtIllegalConv,
-          msg: errIllegalConvFromXtoY % [
-            typeToString(srctyp.nimType),
-            typeToString(desttyp.nimType)
-          ]))
+          kind: vmEvtIllegalConvFromXToY,
+          typeMismatch: VmTypeMismatch(
+            actualType: srctyp.nimType,
+            formalType: desttyp.nimType)))
+    of opcObjConv:
+      # a = conv(b)
+      ensureKind(rkHandle)
+      let src = regs[instr.regB].handle
+      inc pc
+      let desttyp = c.types[c.code[pc].regBx - wordExcess]
+
+      assert src.typ.kind == desttyp.kind
+      # perform a conversion check, if necessary
+      case desttyp.kind
+      of akRef:
+        # a ref up- or down conversion
+        assert src.typ.kind == akRef # vmgen issue
+        checkHandle(regs[instr.regB])
+
+        let refVal = deref(src).refVal
+
+        if isNotNil(refVal):
+          let loc = c.heap.tryDeref(refVal, noneType).value()
+          if getTypeRel(loc.typ, desttyp.targetType) notin {vtrSame, vtrSub}:
+            # an illegal up-conversion (assuming both types are related)
+            raiseVmError(VmEvent(
+              kind: vmEvtIllegalConv,
+              msg: "illegal up-conversion"))
+
+      of akObject:
+        # an object-to-object lvalue conversion
+        discard "no check necessary"
+      else:
+        unreachable(desttyp.kind)
+
+      regs[ra].handle = src
+      regs[ra].handle.typ = desttyp
     of opcCast:
       let rb = instr.regB
       inc pc
@@ -3167,6 +3170,7 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
     of vmEvtNodeNotASymbol: adVmNodeNotASymbol
     of vmEvtNodeNotAProcSymbol: adVmNodeNotAProcSymbol
     of vmEvtIllegalConv: adVmIllegalConv
+    of vmEvtIllegalConvFromXToY: adVmIllegalConvFromXToY
     of vmEvtMissingCacheKey: adVmMissingCacheKey
     of vmEvtCacheKeyAlreadyExists: adVmCacheKeyAlreadyExists
     of vmEvtFieldNotFound: adVmFieldNotFound
@@ -3192,7 +3196,7 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
           callName: evt.callName,
           argAst: evt.argAst,
           argPos: evt.argPos)
-      of adVmCannotCast:
+      of adVmCannotCast, adVmIllegalConvFromXToY:
         AstDiagVmError(
           kind: kind,
           formalType: evt.typeMismatch.formalType,

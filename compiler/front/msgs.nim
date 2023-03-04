@@ -431,6 +431,7 @@ func astDiagVmToLegacyReportKind*(
   of adVmNodeNotASymbol: rvmNodeNotASymbol
   of adVmNodeNotAProcSymbol: rvmNodeNotAProcSymbol
   of adVmIllegalConv: rvmIllegalConv
+  of adVmIllegalConvFromXToY: rvmIllegalConvFromXToY
   of adVmMissingCacheKey: rvmMissingCacheKey
   of adVmCacheKeyAlreadyExists: rvmCacheKeyAlreadyExists
   of adVmFieldNotFound: rvmFieldNotFound
@@ -1212,14 +1213,13 @@ func astDiagToLegacyReport*(diag: PAstDiag): Report {.inline.} =
       location = diag.location
 
     case kind
-    of rvmCannotCast:
+    of rvmCannotCast, rvmIllegalConvFromXToY:
       vmRep = VMReport(
         kind: kind,
         location: std_options.some location,
         reportInst: diag.instLoc.toReportLineInfo,
-        typeMismatch:
-          @[SemTypeMismatch(actualType: diag.vmErr.actualType,
-                            formalType: diag.vmErr.formalType)])
+        actualType: diag.vmErr.actualType,
+        formalType: diag.vmErr.formalType)
     of rvmIndexError:
       vmRep = VMReport(
         location: std_options.some location,
@@ -1285,9 +1285,8 @@ func astDiagToLegacyReport*(diag: PAstDiag): Report {.inline.} =
         location: std_options.some location,
         reportInst: diag.instLoc.toReportLineInfo,
         kind: rvmCannotCast,
-        typeMismatch:
-          @[SemTypeMismatch(actualType: diag.vmGenErr.actualType,
-                            formalType: diag.vmGenErr.formalType)])
+        actualType: diag.vmGenErr.actualType,
+        formalType: diag.vmGenErr.formalType)
     of adVmGenCodeGenUnhandledMagic,
         adVmGenMissingImportcCompleteStruct:
       vmRep = VMReport(
