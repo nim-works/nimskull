@@ -466,6 +466,9 @@ template copyNodeImpl(dst, src, processSonsStmt) =
   when defined(useNodeIds):
     if dst.id == nodeIdToDebug:
       echo "COMES FROM ", src.id
+    elif src.id == nodeIdToDebug:
+      echo "GOES TO ", dst.id
+      writeStackTrace()
   case src.kind
   of nkCharLit..nkUInt64Lit: dst.intVal = src.intVal
   of nkFloatLiterals: dst.floatVal = src.floatVal
