@@ -129,6 +129,7 @@ type
     opcGetImpl,
     opcGetImplTransf,
 
+    opcDataToAst,   ## deserialize data to NimNode AST
     opcExpandToAst,
 
     opcEcho,
