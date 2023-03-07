@@ -438,7 +438,7 @@ proc symFields(
 
   if not rconf.extraSymInfo.isNil():
     let text = rconf.extraSymInfo(sym)
-    if 0 < len(text):
+    if len(text) > 0:
       result.add text.indent(indent)
 
   if trfShowSymName in rconf:
@@ -578,7 +578,7 @@ proc typFields(
 
   if rconf.extraTypInfo != nil:
     let text = rconf.extraTypInfo(typ)
-    if 0 < len(text):
+    if len(text) > 0:
       result.add text.indent(indent)
 
   if typ.flags.len > 0 or trfShowDefaultedFields in rconf:
@@ -736,7 +736,7 @@ proc treeRepr*(
     genFields(res[], indent, rconf)
     addIndent(indentIncrease)
     indent += 2 + pad
-    if 0 < idx.len:
+    if idx.len > 0:
       var first = true
       for idxIdx, pos in idx:
         if idx.len - rconf.maxPath <= idxIdx:
@@ -756,7 +756,7 @@ proc treeRepr*(
           indent += 2
           add "  "
 
-      if 0 < rconf.maxPath:
+      if rconf.maxPath > 0:
         add " "
         inc indent
 
@@ -808,7 +808,7 @@ proc treeRepr*(
     proc addFlags() =
       if rconf.extraNodeInfo != nil:
         let text = rconf.extraNodeInfo(n)
-        if 0 < len(text):
+        if len(text) > 0:
           add text.indent(indent)
 
       if trfShowNodeLineInfo in rconf:
@@ -919,16 +919,12 @@ proc treeRepr*(
         if n.len == 0:
           add "\n"
 
-      let
-        sons =
-          when n is PNode:
+      let sons =
             case n.kind
             of nkError:
               @[n.diag.wrongNode]
             else:
               n.sons
-          else:
-            n.sons
 
       for newIdx, subn in sons:
         if trfSkipAuxError in rconf and n.kind == nkError:
@@ -936,10 +932,10 @@ proc treeRepr*(
 
         if trfShowFullSymChoice notin rconf and
            n.kind in {nkClosedSymChoice, nkOpenSymChoice} and
-           0 < newIdx:
+           newIdx > 0:
           break
 
-        if n.kind in {nkOpenSymChoice} and 0 < newIdx:
+        if n.kind in {nkOpenSymChoice} and newIdx > 0:
           assert false, $rconf.flags
 
         aux(subn, idx & newIdx)
@@ -1210,8 +1206,13 @@ template debug*(conf: ConfigRef, it: Debugable, tconf: TReprConf) =
 
 template debug*(it: PNode) =
   ## Print tree representation of a PNode for compiler debugging
-  # TODO: customize the TReprConf here
-  debugAux(implicitDebugConfRef, it, implicitTReprConf, instLoc())
+  var conf = implicitTReprConf
+  conf.flags = conf.flags +
+                {
+                  trfShowNodeFlags
+                } -
+                {}
+  debugAux(implicitDebugConfRef, it, conf, instLoc())
 
 template debug*(it: PSym) =
   ## Print tree representation of a PSym for compiler debugging
