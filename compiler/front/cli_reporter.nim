@@ -930,10 +930,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "invalid extern name: '" & r.externName & "'. (Forgot to escape '$'?)"
 
     of rsemBadDeprecatedArg:
-      result = "key:value pair expected"
-
-    of rsemBadDeprecatedArgs:
-      result = "list of key:value pairs expected"
+      result = "string literal expected"
 
     of rsemInvalidPragma:
       result = "invalid pragma: " & r.ast.render

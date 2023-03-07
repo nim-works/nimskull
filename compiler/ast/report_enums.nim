@@ -783,7 +783,6 @@ type
     rsemInvalidExtern
     rsemInvalidPragmaBlock
     rsemBadDeprecatedArg
-    rsemBadDeprecatedArgs
     rsemMisplacedEffectsOf
     rsemMissingPragmaArg
     rsemErrGcUnsafe

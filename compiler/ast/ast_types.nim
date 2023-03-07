@@ -700,7 +700,6 @@ type
                           ## file (it is loaded on demand, which may
                           ## mean: never)
     skPackage             ## symbol is a package (used for canonicalization)
-    skAlias               ## an alias (needs to be resolved immediately)
 
   TSymKinds* = set[TSymKind]
 
@@ -708,7 +707,7 @@ type
 const
   routineKinds* = {skProc, skFunc, skMethod, skIterator,
                    skConverter, skMacro, skTemplate}
-  ExportableSymKinds* = {skVar, skLet, skConst, skType, skEnumField, skStub, skAlias} + routineKinds
+  ExportableSymKinds* = {skVar, skLet, skConst, skType, skEnumField, skStub} + routineKinds
 
   tfUnion* = tfNoSideEffect
   tfGcSafe* = tfThread
@@ -1078,7 +1077,6 @@ type
     adSemBorrowPragmaNonDot
     adSemInvalidExtern
     adSemBadDeprecatedArg
-    adSemBadDeprecatedArgs
     adSemMisplacedEffectsOf
     adSemMissingPragmaArg
     adSemCannotPushCast
@@ -1248,7 +1246,6 @@ type
         adSemLocksPragmaBadLevelString,
         adSemBorrowPragmaNonDot,
         adSemBadDeprecatedArg,
-        adSemBadDeprecatedArgs,
         adSemMisplacedEffectsOf,
         adSemMissingPragmaArg,
         adSemCannotPushCast,
