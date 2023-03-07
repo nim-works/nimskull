@@ -811,6 +811,10 @@ proc semTemplBody(c: var TemplCtx, n: PNode): PNode =
       else:
         discard
   of nkBracketExpr:
+    # xxx: screwing up `nkBracketExpr` nodes like this does no one any favours.
+    #      instead, just pass them on and figure out what to do _later_ when
+    #      there is more context to make a decision. Instead, `semExpr` now has
+    #      to crudely recreate this information.
     result = newNodeI(nkCall, n.info)
     result.add newIdentNode(getIdent(c.c.cache, "[]"), n.info)
     for i in 0..<n.len: result.add(n[i])

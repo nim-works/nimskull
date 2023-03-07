@@ -135,25 +135,23 @@ proc pickBestCandidate(c: PContext,
 
 proc maybeResemArgs*(c: PContext, n: PNode, startIdx: int = 1): seq[PNode] =
   # HACK original implementation of the `describeArgs` used `semOperand`
-  # here, but until there is a clear understanding /why/ is it necessary to
-  # additionall call sem on the arguments I will leave this as it is now.
+  # here and it's unclear /why/ it's necessary, leaving it as is for now.
   # This was introduced in commit 5b0d8246f79730a473a869792f12938089ecced6
   # that "made some tests green" (+98/-77)
   for i in startIdx ..< n.len:
     var arg = n[i]
     case n[i].kind
     of nkExprEqExpr:
-      if arg.typ.isNil and arg.kind notin {nkStmtList, nkDo}:
+      if arg.typ.isNil: # and arg.kind notin {nkStmtList, nkDo}:
         # XXX we really need to 'tryExpr' here!
         arg = c.semOperand(c, n[i][1])
         arg = n[i][1]
         n[i].typ = arg.typ
         n[i][1] = arg
+    of nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch:
+      discard "`semOperand` is not required... for some reason?"
     else:
-      if arg.typ.isNil and arg.kind notin {
-           nkStmtList, nkDo, nkElse, nkOfBranch, nkElifBranch, nkExceptBranch
-         }:
-
+      if arg.typ.isNil:
         arg = c.semOperand(c, n[i])
         n[i] = arg
 
