@@ -115,18 +115,18 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
         # `The parameter is incorrect`
       execExternalProgram(
         conf, cmdPrefix & output.quoteShell & ' ' & conf.arguments, rcmdExecuting)
-
     of cmdDocLike, cmdRst2html, cmdRst2tex: # bugfix(cmdRst2tex was missing)
       if conf.arguments.len > 0:
         # reserved for future use
         localReport(conf, ExternalReport(
-          kind: rextExpectedNoCmdArgument, cmdlineSwitch: $conf.cmd))
-
+          kind: rextCmdDisallowsAdditionalArguments,
+          cmdlineSwitch: $conf.command,
+          cmdlineProvided: conf.arguments))
       openDefaultBrowser($output)
     else:
       # support as needed
       localReport(conf, ExternalReport(
-        kind: rextUnexpectedRunOpt, cmdlineSwitch: $conf.cmd))
+        kind: rextUnexpectedRunOpt, cmdlineSwitch: $conf.command))
 
 when declared(GC_setMaxPause):
   GC_setMaxPause 2_000
