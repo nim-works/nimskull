@@ -471,14 +471,14 @@ proc regToNode*(c: TCtx, x: TFullReg; typ: PType, info: TLineInfo): PNode =
   case x.kind
   of rkNone: unreachable()
   of rkInt:
-    result = newNodeIT(nkIntLit, TLineInfo(), typ)
+    result = newNodeIT(nkIntLit, info, typ)
     result.intVal = x.intVal
   of rkFloat:
-    result = newNodeIT(nkFloatLit, TLineInfo(), typ)
+    result = newNodeIT(nkFloatLit, info, typ)
     result.floatVal = x.floatVal
   of rkAddress:
     if x.addrVal.isNil:
-      result = newNode(nkNilLit)
+      result = newNodeI(nkNilLit, info)
       result.typ = typ
     else:
       # TODO: validate the address
@@ -1830,34 +1830,43 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       else:
         raiseVmError(VmEvent(kind: vmEvtNodeNotASymbol))
 
+    of opcDataToAst:
+      decodeBC(rkNimNode)
+      # the data to be deserialized is passed via register 'b' (either as a
+      # value directly or as a handle), and the ``PType`` to use is provided
+      # by the ``NimNode`` in register 'c'
+      checkHandle(regs[rb])
+      regs[ra].nimNode = c.regToNode(regs[rb], regs[rc].nimNode.typ, c.debug[pc])
     of opcExpandToAst:
       decodeBC(rkNimNode)
-
+      # evaluate (i.e. expand) the template and store the resulting AST in
+      # register 'a'
       let
-        callExprAst = regs[rb].nimNode
-        prc =         callExprAst[0].sym
-        prevFrame =   c.sframes[tos].next
+        templ =     regs[rb+0].nimNode.sym
+        prevFrame = c.sframes[tos].next
 
-      assert callExprAst.kind in nkCallKinds
-      assert prc.kind == skTemplate
+      assert templ.kind == skTemplate
 
       let genSymOwner = if prevFrame > 0 and c.sframes[prevFrame].prc != nil:
                           c.sframes[prevFrame].prc
                         else:
                           c.module
-      var templCall = newNodeI(nkCall, c.debug[pc])
-      templCall.add(newSymNode(prc))
-      for i in 1..rc-1:
-        let node = c.regToNode(regs[rb+i], callExprAst[i].typ, c.debug[pc])
-        node.info = c.debug[pc]
-        templCall.add(node)
+      var templCall = newNodeI(nkCall, c.debug[pc], rc)
+      templCall[0] = newSymNode(templ)
+      for i in 1..<rc:
+        # the code generator is responsible for making sure that we're getting
+        # ``NimNode``s as the arguments
+        let arg = regs[rb + i].nimNode
+        # XXX: we're modifying the line information of a possibly user-created
+        #      ``NimNode`` here!
+        arg.info = c.debug[pc]
+        templCall[i] = arg
 
-      var a = evalTemplate(templCall, prc, genSymOwner, c.config, c.cache, c.templInstCounter, c.idgen)
+      var a = evalTemplate(templCall, templ, genSymOwner, c.config, c.cache, c.templInstCounter, c.idgen)
       if a.kind == nkStmtList and a.len == 1: # flatten if a single statement
         a = a[0]
 
       regs[ra].nimNode = a
-
     of opcSymOwner:
       decodeB(rkNimNode)
       let a = regs[rb].nimNode

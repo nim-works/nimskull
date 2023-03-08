@@ -164,6 +164,7 @@ type
 
 # forward declarations
 proc genLit(c: var TCtx; n: PNode; lit: int; dest: var TDest)
+proc genTypeLit(c: var TCtx; t: PType; dest: var TDest)
 proc genType(c: var TCtx, typ: PType): int
 proc fitsRegister(t: PType): bool
 
@@ -192,6 +193,10 @@ func registerConst(c: var TCtx, sym: PSym): int {.inline.} =
   registerLinkItem(c.symToIndexTbl, c.codegenInOut.newConsts, sym,
                    c.codegenInOut.nextConst)
 
+func isNimNode(t: PType): bool =
+  ## Returns whether `t` is the ``NimNode`` magic type
+  let t = skipTypes(t, IrrelevantTypes)
+  t.sym != nil and t.sym.magic == mPNimrodNode
 
 func gABC*(ctx: var TCtx; n: PNode; opc: TOpcode; a, b, c: TRegister = 0) =
   ## Takes the registers `b` and `c`, applies the operation `opc` to them, and
@@ -1336,6 +1341,16 @@ proc genCastIntFloat(c: var TCtx; n: PNode; dest: var TDest) =
         instLoc: instLoc(),
         typeMismatch: VmTypeMismatch(actualType: dst, formalType: src))
 
+proc genDataToAst(c: var TCtx, n: PNode, dest: TRegister) =
+  ## Generates and emits the bytecode for evaluating the expression `n` and
+  ## deserializing the result to ``NimNode`` AST
+  let tmp = c.genx(n)
+  var typLit = TDest(-1)
+  c.genTypeLit(n.typ, typLit)
+  c.gABC(n, opcDataToAst, dest, tmp, typLit)
+  c.freeTemp(typLit)
+  c.freeTemp(tmp)
+
 proc genVoidABC(c: var TCtx, n: PNode, dest: TDest, opcode: TOpcode) =
   unused(c, n, dest)
   var
@@ -1772,32 +1787,38 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     if n.len != 2:
       fail(n.info, vmGenDiagBadExpandToAstArgRequired)
 
-    let arg = n[1]
-    if arg.kind in nkCallKinds:
-      #if arg[0].kind != nkSym or arg[0].sym.kind notin {skTemplate, skMacro}:
-      #      "ExpandToAst: expanded symbol is no macro or template"
+    let call = n[1]
+    if call.kind in nkCallKinds:
       if dest.isUnset: dest = c.getTemp(n.typ)
 
-      if arg[0].sym.kind == skTemplate:
-        let x = c.getTempRange(arg.len, slotTempUnknown)
+      case call[0].sym.kind
+      of skTemplate:
+        let x = c.getTempRange(call.len, slotTempUnknown)
 
-        # Pass the call expression as the first value
-        var tmp = TDest(x)
-        c.genLit(n, c.toNodeCnst(arg), tmp)
+        # pass the template symbol as the first argument
+        var callee = TDest(x)
+        c.genLit(call[0], c.toNodeCnst(call[0]), callee)
 
-        # Call arguments
-        for i in 1..<arg.len:
+        # the arguments to the template are used as arguments to the
+        # `ExpandToAst` operation
+        for i in 1..<call.len:
           var d = TDest(x+i)
-          c.gen(arg[i], d)
+          # small optimization: don't use ``DataToAst` if the argument is
+          # already a NimNode
+          if call[i].typ.isNimNode():
+            c.gen(call[i], d)
+          else:
+            # evaluate the argument and deserialize the result to ``NimNode``
+            # AST
+            c.genDataToAst(call[i], d)
 
-        c.gABC(arg, opcExpandToAst, dest, x, arg.len)
-        c.freeTempRange(x, arg.len)
-      else:
+        c.gABC(n, opcExpandToAst, dest, x, call.len)
+        c.freeTempRange(x, call.len)
+      of skMacro:
         # macros are still invoked via the opcIndCall mechanism
-        c.genCall(arg, dest)
-
-      # do not call clearDest(n, dest) here as getAst has a meta-type as such
-      # produces a value
+        c.genCall(call, dest)
+      else:
+        unreachable()
     else:
       fail(n.info, vmGenDiagBadExpandToAstCallExprRequired)
 
