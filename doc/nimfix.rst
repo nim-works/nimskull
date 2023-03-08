@@ -12,12 +12,10 @@
 Nimfix is a tool to help you upgrade from Nimrod (<= version 0.9.6) to
 Nim (=> version 0.10.0).
 
-It performs 3 different actions:
+It performs 2 different actions:
 
 1. It makes your code case consistent.
-2. It renames every symbol that has a deprecation rule. So if a module has a
-   rule `{.deprecated: [TFoo: Foo].}` then `TFoo` is replaced by `Foo`.
-3. It can also check that your identifiers adhere to the official style guide
+2. It can also check that your identifiers adhere to the official style guide
    and optionally modify them to do so (via `--styleCheck:auto`).
 
 Note that `nimfix` defaults to **overwrite** your code unless you

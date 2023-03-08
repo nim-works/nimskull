@@ -507,7 +507,6 @@ func astDiagToLegacyReportKind*(
   of adSemBorrowPragmaNonDot: rsemBorrowPragmaNonDot
   of adSemInvalidExtern: rsemInvalidExtern
   of adSemBadDeprecatedArg: rsemBadDeprecatedArg
-  of adSemBadDeprecatedArgs: rsemBadDeprecatedArgs
   of adSemMisplacedEffectsOf: rsemMisplacedEffectsOf
   of adSemMissingPragmaArg: rsemMissingPragmaArg
   of adSemCannotPushCast: rsemCannotPushCast
@@ -710,7 +709,6 @@ func astDiagToLegacyReport*(diag: PAstDiag): Report {.inline.} =
       adSemLocksPragmaExpectsList,
       adSemBorrowPragmaNonDot,
       adSemBadDeprecatedArg,
-      adSemBadDeprecatedArgs,
       adSemMisplacedEffectsOf,
       adSemMissingPragmaArg,
       adSemCannotPushCast,

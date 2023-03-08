@@ -960,44 +960,8 @@ proc deprecatedStmt(c: PContext; outerPragma: PNode): PNode =
     if c.module.constraint.kind == nkError:
       result = wrapError(c.config, outerPragma)
 
-    return
-  elif pragma.kind != nkBracket:
-    result = c.config.newError(pragma, PAstDiag(kind: adSemBadDeprecatedArgs))
-  
-    return
-
-  for n in pragma:
-    if n.kind in nkPragmaCallKinds and n.len == 2:
-      let dest = qualifiedLookUp(c, n[1], {checkUndeclared})
-  
-      if dest == nil or dest.kind in routineKinds or dest.kind == skError:
-        # xxx: warnings need to be figured out, also this is just silly, why
-        #      are they unreliable?
-        localReport(c.config, n.info, SemReport(kind: rsemUserWarning))
-  
-      let (src, err) = considerQuotedIdent(c, n[0])
-
-      if err.isNil:
-        let alias = newSym(skAlias, src, nextSymId(c.idgen), dest, n[0].info, c.config.options)
-        incl(alias.flags, sfExported)
-  
-        if sfCompilerProc in dest.flags:
-          let e = markCompilerProc(c, alias)
-  
-          if e != nil:
-            result = e
-            return
-  
-        addInterfaceDecl(c, alias)
-        n[1] = newSymNode(dest)
-      else:
-        result = err
-
-        return
-    else:
-      result = c.config.newError(n, PAstDiag(kind: adSemBadDeprecatedArgs))
-
-      return
+  else:
+    result = c.config.newError(pragma, PAstDiag(kind: adSemBadDeprecatedArg))
 
 proc pragmaGuard(c: PContext; it: PNode; kind: TSymKind): PSym =
   if it.kind notin nkPragmaCallKinds or it.len != 2:

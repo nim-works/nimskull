@@ -36,9 +36,6 @@ import
   ],
   compiler/sem/[
     semdata
-  ],
-  compiler/nimfix/[
-    prettybase
   ]
 
 
@@ -177,17 +174,6 @@ iterator localScopesFrom*(c: PContext; scope: PScope): PScope =
   for s in allScopes(scope):
     if s == c.topLevelScope: break
     yield s
-
-proc skipAlias*(s: PSym; n: PNode; conf: ConfigRef): PSym =
-  if s == nil or s.kind != skAlias:
-    result = s
-  else:
-    result = s.owner
-    if conf.cmd == cmdNimfix:
-      prettybase.replaceDeprecated(conf, n.info, s, result)
-    else:
-      conf.localReport(
-        n.info, reportSymbols(rsemDeprecated, @[s, result]))
 
 proc isShadowScope*(s: PScope): bool {.inline.} =
   s.parent != nil and s.parent.depthLevel == s.depthLevel
@@ -624,7 +610,7 @@ proc lookUp*(c: PContext, n: PNode): PSym =
   var amb = false
   case n.kind
   of nkIdent:
-    result = searchInScopes(c, n.ident, amb).skipAlias(n, c.config)
+    result = searchInScopes(c, n.ident, amb)
     if result == nil:
       result = errorUndeclaredIdentifierHint(c, n, n.ident)
       localReport(c.config, result.ast)
@@ -633,7 +619,7 @@ proc lookUp*(c: PContext, n: PNode): PSym =
   of nkAccQuoted:
     var (ident, err) = considerQuotedIdent(c, n)
     if err.isNil:
-      result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
+      result = searchInScopes(c, ident, amb)
       if result == nil:
         result = errorUndeclaredIdentifierHint(c, n, ident)
         localReport(c.config, result.ast)
@@ -746,7 +732,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
         
       result = errorExpectedIdentifier(c, ident, wrongNode, errExprCtx)
     elif checkModule in flags:
-      result = searchInScopes(c, ident, amb).skipAlias(n, c.config)
+      result = searchInScopes(c, ident, amb)
       # xxx: search in scopes can return an skError -- this happens because
       # skError is a const referring to skUnknown, which gets used in resolving
       # `result`, which starts off as undeclared/unknown.
@@ -756,7 +742,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
                             err:       result.ast)
         result.ast = c.config.newError(n, diag)
     else:
-      let candidates = searchInScopesFilterBy(c, ident, allExceptModule) #.skipAlias(n, c.config)
+      let candidates = searchInScopesFilterBy(c, ident, allExceptModule)
       result = symFromCandidates(c, candidates, ident, n, flags, amb)
 
     if result.isNil:
@@ -819,9 +805,9 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
       if ident != nil and errNode.isNil:
         result =
           if m == c.module:
-            strTableGet(c.topLevelScope.symbols, ident).skipAlias(n, c.config)
+            strTableGet(c.topLevelScope.symbols, ident)
           else:
-            someSym(c.graph, m, ident).skipAlias(n, c.config)
+            someSym(c.graph, m, ident)
 
         if result == nil and checkUndeclared in flags:
           result = errorUndeclaredIdentifierWithHint(c, n[1], ident.s, @[])
@@ -852,7 +838,7 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
       var scope = c.currentScope
       o.mode = oimNoQualifier
       while true:
-        result = initIdentIter(o.it, scope.symbols, ident).skipAlias(n, c.config)
+        result = initIdentIter(o.it, scope.symbols, ident)
         if result != nil:
           o.currentScope = scope
           break
@@ -860,7 +846,7 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
           scope = scope.parent
           if scope == nil:
             for i in 0..c.imports.high:
-              result = initIdentIter(o.mit, o.marked, c.imports[i], ident, c.graph).skipAlias(n, c.config)
+              result = initIdentIter(o.mit, o.marked, c.imports[i], ident, c.graph)
               if result != nil:
                 o.currentScope = nil
                 o.importIdx = i
@@ -890,10 +876,10 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
           if o.m == c.module:
             # a module may access its private members:
             result = initIdentIter(o.it, c.topLevelScope.symbols,
-                                  ident).skipAlias(n, c.config)
+                                  ident)
             o.mode = oimSelfModule
           else:
-            result = initModuleIter(o.mit, c.graph, o.m, ident).skipAlias(n, c.config)
+            result = initModuleIter(o.mit, c.graph, o.m, ident)
       else:
         let errDotExpr = copyNode n
         errDotExpr.add o.m.ast
@@ -935,7 +921,7 @@ proc nextOverloadIterImports(o: var TOverloadIter, c: PContext, n: PNode): PSym 
   var idx = o.importIdx+1
   o.importIdx = c.imports.len # assume the other imported modules lack this symbol too
   while idx < c.imports.len:
-    result = initIdentIter(o.mit, o.marked, c.imports[idx], o.it.name, c.graph).skipAlias(n, c.config)
+    result = initIdentIter(o.mit, o.marked, c.imports[idx], o.it.name, c.graph)
     if result != nil:
       # oh, we were wrong, some other module had the symbol, so remember that:
       o.importIdx = idx
@@ -945,7 +931,7 @@ proc nextOverloadIterImports(o: var TOverloadIter, c: PContext, n: PNode): PSym 
 proc symChoiceExtension(o: var TOverloadIter; c: PContext; n: PNode): PSym =
   assert o.currentScope == nil
   while o.importIdx < c.imports.len:
-    result = initIdentIter(o.mit, o.marked, c.imports[o.importIdx], o.it.name, c.graph).skipAlias(n, c.config)
+    result = initIdentIter(o.mit, o.marked, c.imports[o.importIdx], o.it.name, c.graph)
     #while result != nil and result.id in o.marked:
     #  result = nextIdentIter(o.it, o.marked, c.imports[o.importIdx])
     if result != nil:
@@ -960,29 +946,29 @@ proc nextOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
   of oimNoQualifier:
     if o.currentScope != nil:
       assert o.importIdx < 0
-      result = nextIdentIter(o.it, o.currentScope.symbols).skipAlias(n, c.config)
+      result = nextIdentIter(o.it, o.currentScope.symbols)
       while result == nil:
         o.currentScope = o.currentScope.parent
         if o.currentScope != nil:
-          result = initIdentIter(o.it, o.currentScope.symbols, o.it.name).skipAlias(n, c.config)
+          result = initIdentIter(o.it, o.currentScope.symbols, o.it.name)
           # BUGFIX: o.it.name <-> n.ident
         else:
           o.importIdx = 0
           if c.imports.len > 0:
-            result = initIdentIter(o.mit, o.marked, c.imports[o.importIdx], o.it.name, c.graph).skipAlias(n, c.config)
+            result = initIdentIter(o.mit, o.marked, c.imports[o.importIdx], o.it.name, c.graph)
             if result == nil:
               result = nextOverloadIterImports(o, c, n)
           break
     elif o.importIdx < c.imports.len:
-      result = nextIdentIter(o.mit, o.marked, c.imports[o.importIdx], c.graph).skipAlias(n, c.config)
+      result = nextIdentIter(o.mit, o.marked, c.imports[o.importIdx], c.graph)
       if result == nil:
         result = nextOverloadIterImports(o, c, n)
     else:
       result = nil
   of oimSelfModule:
-    result = nextIdentIter(o.it, c.topLevelScope.symbols).skipAlias(n, c.config)
+    result = nextIdentIter(o.it, c.topLevelScope.symbols)
   of oimOtherModule:
-    result = nextModuleIter(o.mit, c.graph).skipAlias(n, c.config)
+    result = nextModuleIter(o.mit, c.graph)
   of oimSymChoice:
     if o.symChoiceIndex < n.len:
       result = n[o.symChoiceIndex].sym
@@ -993,12 +979,12 @@ proc nextOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
       o.mode = oimSymChoiceLocalLookup
       o.currentScope = c.currentScope
       result = firstIdentExcluding(o.it, o.currentScope.symbols,
-                                   n[0].sym.name, o.marked).skipAlias(n, c.config)
+                                   n[0].sym.name, o.marked)
       while result == nil:
         o.currentScope = o.currentScope.parent
         if o.currentScope != nil:
           result = firstIdentExcluding(o.it, o.currentScope.symbols,
-                                      n[0].sym.name, o.marked).skipAlias(n, c.config)
+                                      n[0].sym.name, o.marked)
         else:
           o.importIdx = 0
           result = symChoiceExtension(o, c, n)
@@ -1007,12 +993,12 @@ proc nextOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
         incl o.marked, result.id
   of oimSymChoiceLocalLookup:
     if o.currentScope != nil:
-      result = nextIdentExcluding(o.it, o.currentScope.symbols, o.marked).skipAlias(n, c.config)
+      result = nextIdentExcluding(o.it, o.currentScope.symbols, o.marked)
       while result == nil:
         o.currentScope = o.currentScope.parent
         if o.currentScope != nil:
           result = firstIdentExcluding(o.it, o.currentScope.symbols,
-                                      n[0].sym.name, o.marked).skipAlias(n, c.config)
+                                      n[0].sym.name, o.marked)
         else:
           o.importIdx = 0
           result = symChoiceExtension(o, c, n)
@@ -1021,10 +1007,10 @@ proc nextOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
         incl o.marked, result.id
 
     elif o.importIdx < c.imports.len:
-      result = nextIdentIter(o.mit, o.marked, c.imports[o.importIdx], c.graph).skipAlias(n, c.config)
+      result = nextIdentIter(o.mit, o.marked, c.imports[o.importIdx], c.graph)
       #assert result.id notin o.marked
       #while result != nil and result.id in o.marked:
-      #  result = nextIdentIter(o.it, c.imports[o.importIdx]).skipAlias(n, c.config)
+      #  result = nextIdentIter(o.it, c.imports[o.importIdx])
       if result == nil:
         inc o.importIdx
         result = symChoiceExtension(o, c, n)

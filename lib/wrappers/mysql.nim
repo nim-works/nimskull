@@ -60,7 +60,6 @@ type
     COM_CONNECT_OUT, COM_REGISTER_SLAVE, COM_STMT_PREPARE, COM_STMT_EXECUTE,
     COM_STMT_SEND_LONG_DATA, COM_STMT_CLOSE, COM_STMT_RESET, COM_SET_OPTION,
     COM_STMT_FETCH, COM_END
-{.deprecated: [Tenum_server_command: Enum_server_command].}
 
 const
   SCRAMBLE_LENGTH* = 20 # Length of random string sent by server on handshake;
@@ -195,7 +194,6 @@ type
 
   NET* = St_net
   PNET* = ptr NET
-{.deprecated: [Tst_net: St_net, TNET: NET].}
 
 const
   packet_error* = - 1
@@ -209,7 +207,6 @@ type
     TYPE_TINY_BLOB = 249, TYPE_MEDIUM_BLOB = 250, TYPE_LONG_BLOB = 251,
     TYPE_BLOB = 252, TYPE_VAR_STRING = 253, TYPE_STRING = 254,
     TYPE_GEOMETRY = 255
-{.deprecated: [Tenum_field_types: Enum_field_types].}
 
 const
   CLIENT_MULTI_QUERIES* = CLIENT_MULTI_STATEMENTS
@@ -258,9 +255,6 @@ type
     CURSOR_TYPE_FOR_UPDATE = 2, CURSOR_TYPE_SCROLLABLE = 4
   Enum_mysql_set_option* = enum
     OPTION_MULTI_STATEMENTS_ON, OPTION_MULTI_STATEMENTS_OFF
-{.deprecated: [Tenum_shutdown_level: Enum_shutdown_level,
-              Tenum_cursor_type: Enum_cursor_type,
-              Tenum_mysql_set_option: Enum_mysql_set_option].}
 
 proc my_net_init*(net: PNET, vio: PVIO): my_bool{.cdecl, dynlib: lib,
     importc: "my_net_init".}
@@ -284,7 +278,6 @@ proc my_net_read*(net: PNET): int{.cdecl, dynlib: lib, importc: "my_net_read".}
 type
   Psockaddr* = ptr Sockaddr
   Sockaddr*{.final.} = object  # undefined structure
-{.deprecated: [Tsockaddr: Sockaddr].}
 
 proc my_connect*(s: my_socket, name: Psockaddr, namelen: cuint, timeout: cuint): cint{.
     cdecl, dynlib: lib, importc: "my_connect".}
@@ -321,9 +314,6 @@ type
 
   UDF_INIT* = St_udf_init
   PUDF_INIT* = ptr UDF_INIT   # Constants when using compression
-{.deprecated: [Trand_stuct: Rand_struct, TItem_result: Item_result,
-              Tst_udf_args: St_udf_args, TUDF_ARGS: UDF_ARGS,
-              Tst_udf_init: St_udf_init, TUDF_INIT: UDF_INIT].}
 
 const
   NET_HEADER_SIZE* = 4        # standard header size
@@ -427,8 +417,6 @@ type
   ROW* = cstringArray
   PFIELD_OFFSET* = ptr FIELD_OFFSET # offset to current field
   FIELD_OFFSET* = cuint
-{.deprecated: [Tst_mysql_field: St_mysql_field, TFIELD: FIELD, TROW: ROW,
-              TFIELD_OFFSET: FIELD_OFFSET].}
 
 proc IS_PRI_KEY*(n: int32): bool
 proc IS_NOT_NULL*(n: int32): bool
@@ -454,8 +442,6 @@ type
   PROWS* = ptr ROWS
   PROW_OFFSET* = ptr ROW_OFFSET # offset to current row
   ROW_OFFSET* = ROWS
-{.deprecated: [Tst_mysql_rows: St_mysql_rows, TROWS: ROWS,
-              TROW_OFFSET: ROW_OFFSET].}
 
 const
   ALLOC_MAX_BLOCK_TO_DROP* = 4096
@@ -485,8 +471,6 @@ type
 
   MEM_ROOT* = St_mem_root
   PMEM_ROOT* = ptr MEM_ROOT   #  ------------ Stop of declaration in "my_alloc.h"    ----------------------
-{.deprecated: [Tst_used_mem: St_used_mem, TUSED_MEM: USED_MEM,
-              Tst_mem_root: St_mem_root, TMEM_ROOT: MEM_ROOT].}
 
 type
   Pst_mysql_data* = ptr St_mysql_data
@@ -506,7 +490,6 @@ type
     OPT_WRITE_TIMEOUT, OPT_USE_RESULT, OPT_USE_REMOTE_CONNECTION,
     OPT_USE_EMBEDDED_CONNECTION, OPT_GUESS_CONNECTION, SET_CLIENT_IP,
     SECURE_AUTH, REPORT_DATA_TRUNCATION, OPT_RECONNECT
-{.deprecated: [Tst_mysql_data: St_mysql_data, TDATA: DATA, Toption: Option].}
 
 const
   MAX_MYSQL_MANAGER_ERR* = 256
@@ -803,19 +786,6 @@ type
 
   Enum_stmt_attr_type* = enum
     STMT_ATTR_UPDATE_MAX_LENGTH, STMT_ATTR_CURSOR_TYPE, STMT_ATTR_PREFETCH_ROWS
-{.deprecated: [Tst_dynamic_array: St_dynamic_array, Tst_mysql_options: St_mysql_options,
-              TDYNAMIC_ARRAY: DYNAMIC_ARRAY, Tprotocol_type: Protocol_type,
-              Trpl_type: Rpl_type, Tcharset_info_st: Charset_info_st,
-              TCHARSET_INFO: CHARSET_INFO, Tcharacter_set: Character_set,
-              TMY_CHARSET_INFO: MY_CHARSET_INFO, Tst_mysql: St_mysql,
-              Tst_mysql_methods: St_mysql_methods, TMySql: MySql,
-              Tst_mysql_res: St_mysql_res, TMETHODS: METHODS, TRES: RES,
-              Tst_mysql_manager: St_mysql_manager, TMANAGER: MANAGER,
-              Tst_mysql_parameters: St_mysql_parameters, TPARAMETERS: PARAMETERS,
-              Tenum_mysql_stmt_state: Enum_mysql_stmt_state,
-              Tst_mysql_bind: St_mysql_bind, TBIND: BIND, Tst_mysql_stmt: St_mysql_stmt,
-              TSTMT: STMT, Tenum_stmt_attr_type: Enum_stmt_attr_type,
-              Tstatus: Status].}
 
 proc server_init*(argc: cint, argv: cstringArray, groups: cstringArray): cint{.
     cdecl, dynlib: lib, importc: "mysql_server_init".}
