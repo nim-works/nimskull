@@ -20,6 +20,7 @@ import
   compiler/ast/[
     ast,
     idents,
+    lineinfos,
     wordrecg,
     llstream,
   ],
@@ -52,6 +53,7 @@ from compiler/vm/vmlegacy import legacyReportsVmTracer
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_debug import DebugReport
+from compiler/ast/reports_external import ExternalReport
 from compiler/ast/report_enums import ReportKind
 
 # we support 'cmpIgnoreStyle' natively for efficiency:
@@ -64,6 +66,38 @@ proc listDirs(a: VmArgs, filter: set[PathComponent]) =
     if kind in filter: result.add path
 
   writeTo(result, a.getResultHandle(), a.mem[])
+
+proc processSingleNote(arg: string, state: TSpecialWord, pass: TCmdLinePass,
+                      info: TLineInfo, orig: string; conf: ConfigRef) =
+  let r = processSpecificNote(arg, state, pass, orig, conf)
+  case r.kind
+  of procNoteInvalidOption:
+    conf.localReport(info, ExternalReport(
+      kind: rextInvalidCommandLineOption,
+      cmdlineProvided: r.switch))
+  of procNoteInvalidHint:
+    conf.localReport(info, ExternalReport(
+      kind: rextInvalidHint,
+      cmdlineProvided: r.invalidHintOrWarning))
+  of procNoteInvalidWarning:
+    conf.localReport(info, ExternalReport(
+      kind: rextInvalidWarning,
+      cmdlineProvided: r.invalidHintOrWarning))
+  of procNoteExpectedOnOrOff:
+    conf.localReport(info, ExternalReport(kind: rextExpectedOnOrOff,
+                                          cmdlineSwitch: r.switch,
+                                          cmdlineProvided: r.argVal))
+  of procNoteOnlyAllOffSupported:
+    conf.localReport(info, ExternalReport(kind: rextOnlyAllOffSupported,
+                                          cmdlineSwitch: r.switch,
+                                          cmdlineProvided: r.argVal))
+  of procNoteSuccess:
+    discard
+
+  if r.deprecatedGcStatsHintPresent:
+    conf.localReport(info, ExternalReport(
+        kind: rextDeprecated,
+        msg: "GCStats hint is deprecated use `--cmdexitgcstats` CLI flag"))
 
 proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
               graph: ModuleGraph; idgen: IdGenerator): PEvalContext =
@@ -96,6 +130,12 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
 
   template cbos(name, body) {.dirty.} =
     cbexc(name, OSError, body)
+
+  template wrapInCmdLineSrcIdxSwap(body) =
+    let oldIdx = conf.commandLineSrcIdx
+    conf.commandLineSrcIdx = module.info.fileIndex
+    body
+    conf.commandLineSrcIdx = oldIdx
 
   # Idea: Treat link to file as a file, but ignore link to directory to prevent
   # endless recursions out of the box.
@@ -199,13 +239,16 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
   cbconf getCommand:
     setResult(a, conf.command)
   cbconf switch:
-    processSwitch(a.getString 0, a.getString 1, passPP, module.info, conf)
+    wrapInCmdLineSrcIdxSwap:
+      processSwitch(a.getString 0, a.getString 1, passPP, conf)
   cbconf hintImpl:
-    processSpecificNote(a.getString 0, wHint, passPP, module.info,
-      a.getString 1, conf)
+    wrapInCmdLineSrcIdxSwap:
+      processSingleNote(a.getString 0, wHint, passPP, module.info,
+                        a.getString 1, conf)
   cbconf warningImpl:
-    processSpecificNote(a.getString 0, wWarning, passPP, module.info,
-      a.getString 1, conf)
+    wrapInCmdLineSrcIdxSwap:
+      processSingleNote(a.getString 0, wWarning, passPP, module.info,
+                        a.getString 1, conf)
   cbconf patchFile:
     let key = a.getString(0) & "_" & a.getString(1)
     var val = a.getString(2).addFileExt(NimExt)

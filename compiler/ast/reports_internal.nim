@@ -13,9 +13,6 @@ import
   compiler/ast/[
     report_enums,
     reports_base,
-  ],
-  compiler/utils/[
-    platform,
   ]
 
 
@@ -53,16 +50,6 @@ type
     nimcache*: string
     hints*, warnings*: seq[tuple[name: string, enabled: bool]]
 
-  InternalCliData* = object
-    ## Information used to construct messages for CLI reports - `--help`,
-    ## `--fullhelp`
-    version*: string ## Language version
-    sourceHash*: string ## Compiler source code git hash
-    sourceDate*: string ## Compiler source code date
-    boot*: seq[string] ## nim compiler boot flags
-    cpu*: TSystemCPU ## Target CPU
-    os*: TSystemOS ## Target OS
-
   InternalReport* = object of ReportBase
     ## Report generated for the internal compiler workings
     msg*: string
@@ -84,9 +71,6 @@ type
 
       of rintListWarnings, rintListHints:
         enabledOptions*: set[ReportKind]
-
-      of rintCliKinds:
-        cliData*: InternalCliData
 
       else:
         discard

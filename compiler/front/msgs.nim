@@ -590,6 +590,10 @@ func astDiagToLegacyReportKind*(
   of adSemInvalidRangeConversion: rsemSemfoldInvalidConversion
   of adSemFoldCannotComputeOffset: rsemCantComputeOffsetof
   of adSemDefNameSym: rsemExpectedIdentifier
+  of adSemCompilerOptionInvalid: rsemCompilerOptionInvalid
+  of adSemDeprecatedCompilerOpt: rsemDeprecatedCompilerOpt
+  of adSemCompilerOptionArgInvalid: rsemCompilerOptionArgInvalid
+  of adSemDeprecatedCompilerOptArg: rsemDeprecatedCompilerOptArg
 
 func astDiagToLegacyReportKind*(diag: PAstDiag): ReportKind {.inline.} =
   case diag.kind

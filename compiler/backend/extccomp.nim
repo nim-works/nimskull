@@ -44,7 +44,6 @@ import
 #       dependencies with other modules... yay!
 #       Also, diagnostic, telemetry, and event are better terms
 from compiler/ast/report_enums import ReportKind
-from compiler/ast/reports_external import ExternalReport
 from compiler/ast/reports_cmd import CmdReport
 from compiler/ast/reports_backend import BackendReport
 
@@ -309,7 +308,7 @@ proc nameToCC*(name: string): TSystemCC =
       return i
   result = ccNone
 
-proc listCCnames(): seq[string] =
+proc listCCnames*(): seq[string] =
   for i in succ(ccNone)..high(TSystemCC):
     result.add CC[i].name
 
@@ -342,13 +341,16 @@ proc getConfigVar(conf: ConfigRef; c: TSystemCC, suffix: string): string =
   else:
     result = getConfigVar(conf, CC[c].name & fullSuffix)
 
-proc setCC*(conf: ConfigRef; ccname: string; info: TLineInfo) =
-  conf.cCompiler = nameToCC(ccname)
+proc setCC*(conf: ConfigRef; ccname: string): TSystemCC =
+  ## returns the compiler that was set, or `ccNone` in case there was an error
+  result = nameToCC(ccname)
+  conf.cCompiler = result
   if conf.cCompiler == ccNone:
-    conf.localReport(ExternalReport(
-      kind: rextUnknownCCompiler,
-      knownCompilers: listCCnames(),
-      passedCompiler: ccname))
+    # conf.localReport(ExternalReport(
+    # kind: rextUnknownCCompiler,
+    # knownCompilers: listCCnames(),
+    # passedCompiler: ccname))
+    return
 
   conf.compileOptions = getConfigVar(conf, conf.cCompiler, ".options.always")
   conf.linkOptions = ""
@@ -421,7 +423,7 @@ proc execWithEcho(conf: ConfigRef; cmd: string, execKind: ReportKind): int =
   conf.localReport(CmdReport(kind: execKind, cmd: cmd))
   result = execCmd(cmd)
 
-proc execExternalProgram*(conf: ConfigRef; cmd: string, kind: ReportKind) =
+proc execExternalProgram(conf: ConfigRef; cmd: string, kind: ReportKind) =
   let code = execWithEcho(conf, cmd, kind)
   if code != 0:
     conf.localReport CmdReport(kind: rcmdFailedExecution, cmd: cmd, code: code)

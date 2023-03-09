@@ -92,7 +92,7 @@ Each hint can be activated individually with `--hint:NAME:on|off`:option: or in 
 Name                             Description
 ==========================       ============================================
 CC                               Shows when the C compiler is called.
-SourceCodeFilterOutput           Shows the output of an source code filters
+SourceCodeFilterOutput           Shows the output of a source code filters.
 CodeEnd
 CondTrue
 Conf                             A config file was loaded.
@@ -102,7 +102,7 @@ Dependency
 Exec                             Program is executed.
 ExprAlwaysX
 ExtendedContext
-GCStats                          Dumps statistics about the Garbage Collector.
+GCStats                          Deprecated, see the `--cmdExitGcStats`:option.
 GlobalVar                        Shows global variables declarations.
 LineTooLong                      Line exceeds the maximum length.
 Link                             Linking phase.

@@ -46,7 +46,6 @@ import
     reports_external,
   ],
   compiler/utils/[
-    platform,
     nversion,
     astrepr,
     idioms
@@ -63,7 +62,7 @@ import
 
 import compiler/front/options as compiler_options
 from compiler/ast/reports_base_sem import ReportContext, ReportContextKind
-
+from compiler/ast/ast_query import getStr
 
 func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
 
@@ -94,7 +93,7 @@ func wrap*(
     color: ForegroundColor,
     style: set[Style] = {}
   ): string =
-  ## Optionally wrap text in ansi color formatting, of `conf` has coloring
+  ## Optionally wrap text in ansi color formatting, if `conf` has coloring
   ## enabled
   if conf.useColor:
     wrap(str, color, style)
@@ -523,7 +522,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
          r.typ.kind == tyProc:
         result.add(" = ", typeToString(r.typ, preferDesc))
 
-
     of rsemExpandArc:
       result.add(
         "--expandArc: ",
@@ -613,8 +611,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
             result.addf("$1; $2 is deprecated", s.constraint.strVal, s.name.s)
           else:
             result.add(s.name.s, " is deprecated")
-
-
 
     of rsemThisPragmaRequires01Args:
       # FIXME remove this report kind, reuse "wrong number of arguments"
@@ -719,7 +715,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         args.add(typeToString(r.ast[i].typ))
       args.add(")")
 
-
       result = "ambiguous call; both $1 and $2 match for: $3" % [
         getProcHeader(conf, r.symbols[0]),
         getProcHeader(conf, r.symbols[1]),
@@ -777,10 +772,8 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemTypeExpected:
       if r.sym.isNil:
         result = "type expected, but expression has no type"
-
       elif r.sym.typ.isNil:
         result = "type expected, but symbol '$1' has no type." % r.symstr
-
       else:
         result = "type expected, but got symbol '$1' of kind '$2'" %
           [r.sym.name.s, r.sym.kind.toHumanStr]
@@ -792,16 +785,13 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       if r.typ.isNil:
         if r.sym.isNil:
           result = "cannot instantiate: '$1'" % r.ast.render
-
         else:
           result = "cannot instantiate: '$1'" % r.symstr
-
       elif r.ownerSym.isNil:
         result.addf(
           "cannot instantiate: '$1'; Maybe generic arguments are missing?",
           typeToString(r.typ, preferDesc)
         )
-
       else:
         result.addf(
           "cannot instantiate '$1' inside of type definition: '$2'; " &
@@ -1080,7 +1070,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
       if conf.isDefined("nimLegacyTypeMismatch"):
         result.add  " got <$1>" % actualStr
-
       else:
         result.add  " got '$1' for '$2'" % [actualStr, r.ast.renderTree]
 
@@ -1819,7 +1808,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
           r.symbols[0].name.s,
           conf.toStr(r.symbols[1].info)
         )
-
       else:
         result = "attempt to redefine: '" & r.symstr & "'"
 
@@ -2128,13 +2116,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemHoleEnumConvert:
       result = "conversion to enum with holes is unsafe: $1" % r.ast.render
 
-
     of rsemAnyEnumConvert:
       result = "enum conversion: $1" % r.ast.render
 
     of rsemUseOfGc:
       result = "'$1' uses GC'ed memory" % r.ast.render
-
 
     of rsemPattern:
       result = r.ast.render
@@ -2244,6 +2230,20 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
 
     of rsemDiagnostics:
       result.add presentDiagnostics(conf, r.diag, startWithNewLine = false)
+
+    of rsemCompilerOptionInvalid:
+      result = "Invalid compiler option - " % r.str
+
+    of rsemDeprecatedCompilerOpt:
+      result = "'$#' is deprecated, now a noop" % r.str
+
+    of rsemCompilerOptionArgInvalid:
+      result = "Unexpected value for option '$#'. Expected one of $#, but got '$#'" %
+                [r.str, r.allowedOptArgs.join(", "), r.badCompilerOptArg]
+
+    of rsemDeprecatedCompilerOptArg:
+      result = "'$#' is deprecated for option '$#', now a noop" %
+                [r.str, r.compilerOptArg]
 
 
 const standalone = {
@@ -2588,50 +2588,9 @@ proc presentFailedCandidates(
 
   result = (prefer, candidates)
 
-proc genFeatureDesc[T: enum](t: typedesc[T]): string {.compileTime.} =
-  result = ""
-  for f in T:
-    if result.len > 0: result.add "|"
-    result.add $f
-
-const
-  HelpMessage = "Nim Compiler Version $1 [$2: $3]\n" &
-      "Copyright (c) 2006-" & copyrightYear & " by Andreas Rumpf\n"
-  CommitMessage = "Source hash: $1\n" &
-    "Source date: $2\n"
-
-  Usage = slurp"../doc/basicopt.txt".replace(" //", "   ")
-  AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") %
-    genFeatureDesc(Feature)
-
-
 proc reportBody*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
   case InternalReportKind(r.kind):
-    of rintCliKinds:
-      let d = r.cliData
-      result = HelpMessage % [
-        VersionAsString,
-        platform.OS[d.os].name,
-        CPU[d.cpu].name
-      ]
-
-      if r.kind == rintCliVersion:
-        if d.sourceHash != "":
-          result.add "\n"
-          result.add CommitMessage % [d.sourceHash, d.sourceDate
-          ]
-
-        result.add "\n"
-        result.add "active boot switches:" & d.boot.join(" ")
-
-      else:
-        if r.kind in {rintCliHelp, rintCliFullHelp}:
-          result.add Usage
-
-        if r.kind in {rintCliFullHelp, rintCliAdvancedUsage}:
-          result.add AdvancedUsage
-
     of rintStackTrace:
       result = conf.formatTrace(r.trace)
 
@@ -2937,16 +2896,15 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
       result.add("Invalid command line option - ", r.cmdlineProvided)
 
     of rextUnknownCCompiler:
-      result = "unknown C compiler: '$1'. Available options are: $2" % [
-        r.passedCompiler,
-        r.knownCompilers.join(", ")
-      ]
+      result = "unknown C compiler: '$1'. Available options are: $2" %
+                [r.passedCompiler, r.knownCompilers.join(", ")]
 
     of rextOnlyAllOffSupported:
       result = "only 'all:off' is supported"
 
     of rextExpectedOnOrOff:
-      result = "'on' or 'off' expected, but '$1' found" % r.cmdlineProvided
+      result = "option '$1' expected 'on' or 'off', but '$2' found" %
+                [r.cmdlineSwitch, r.cmdlineProvided]
 
     of rextExpectedOnOrOffOrList:
       result = "'on', 'off' or 'list' expected, but '$1' found" % r.cmdlineProvided
@@ -2974,9 +2932,8 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
       ]
 
     of rextUnexpectedValue:
-      result = "Unexpected value for $1. Expected one of $2" % [
-        r.cmdlineSwitch, r.cmdlineAllowed.join(", ")
-      ]
+      result = "Unexpected value for $1. Expected one of $2" %
+                [r.cmdlineSwitch, r.cmdlineAllowed.join(", ")]
 
     of rextExpectedTinyCForRun:
       result = "'run' command not available; rebuild with -d:tinyc"
@@ -4390,6 +4347,31 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       return astDiagToLegacyReport(conf, diag.defNameSymData.identGenErr.diag)
     of adSemDefNameSymExistingError:
       return astDiagToLegacyReport(conf, diag.wrongNode.diag)
+  of adSemCompilerOptionInvalid,
+      adSemDeprecatedCompilerOpt:
+    semRep = SemReport(
+      location: std_options.some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      str: diag.badCompilerOpt.getStr)
+  of adSemCompilerOptionArgInvalid:
+    semRep = SemReport(
+      location: std_options.some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCompilerOptionArgInvalid,
+      ast: diag.wrongNode,
+      str: diag.forCompilerOpt.getStr,
+      badCompilerOptArg: diag.badCompilerOptArg.getStr,
+      allowedOptArgs: diag.possibleValidArgs)
+  of adSemDeprecatedCompilerOptArg:
+    semRep = SemReport(
+      location: std_options.some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemDeprecatedCompilerOptArg,
+      ast: diag.wrongNode,
+      str: diag.compilerOpt.getStr,
+      compilerOptArg: diag.compilerOptArg.getStr)
   of adVmError:
     let
       kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()

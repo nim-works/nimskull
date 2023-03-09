@@ -8,6 +8,7 @@
 #
 
 import std/[os]
+from osproc import execCmd
 when defined(windows) and not defined(nimKochBootstrap):
   # remove workaround pending bootstrap >= 1.5.1
   # refs https://github.com/nim-lang/Nim/issues/18334#issuecomment-867114536
@@ -24,11 +25,8 @@ when defined(windows) and not defined(nimKochBootstrap):
     {.link: "../icons/nim-i386-windows-vcc.res".}
 
 import
-  compiler/backend/[
-    extccomp
-  ],
   compiler/front/[
-    msgs, main, cmdlinehelper, options, commands, cli_reporter
+    msgs, main, cmdlinehelper, options, commands
   ],
   compiler/modules/[
     modulegraphs
@@ -39,12 +37,6 @@ import
   compiler/ast/[
     idents
   ]
-
-# xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_internal import InternalReport
-from compiler/ast/reports_external import ExternalReport
-from compiler/ast/report_enums import ReportKind
-
 
 from std/browsers import openDefaultBrowser
 from compiler/utils/nodejs import findNodeJs
@@ -64,7 +56,14 @@ proc getNimRunExe(conf: ConfigRef): string =
     if conf.isDefined("i386"): result = "wine"
     elif conf.isDefined("amd64"): result = "wine64"
 
-proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
+type
+  CmdLineHandlingResult = enum
+    cliFinished             # might still have errors, check `conf.errorCount`
+    cliErrNoParamsProvided
+    cliErrConfigProcessing
+    cliErrCommandProcessing
+
+proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
   ## Main entry point to the compiler - dispatches command-line commands
   ## into different subsystems, sets up configuration options for the
   ## `conf`:arg: and so on.
@@ -74,8 +73,8 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
   )
   self.initDefinesProg(conf, "nim_compiler")
   if paramCount() == 0:
-    writeCommandLineUsage(conf)
-    return
+    # conf.writeCommandLineUsage()
+    return cliErrNoParamsProvided
 
   self.processCmdLineAndProjectPath(conf)
   var graph = newModuleGraph(cache, conf)
@@ -84,9 +83,8 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
     return
 
   mainCommand(graph)
-  if conf.hasHint(rintGCStats):
-    conf.localReport(InternalReport(
-      kind: rintGCStats, msg: GC_getStatistics()))
+  if optCmdExitGcStats in conf.globalOptions:
+    conf.logGcStats(GC_getStatistics())
 
   if conf.errorCounter != 0: return
   when hasTinyCBackend:
@@ -113,20 +111,27 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
       if cmdPrefix.len > 0: cmdPrefix.add " "
         # without the `cmdPrefix.len > 0` check, on windows you'd get a cryptic:
         # `The parameter is incorrect`
-      execExternalProgram(
-        conf, cmdPrefix & output.quoteShell & ' ' & conf.arguments, rcmdExecuting)
+      let cmd = cmdPrefix & output.quoteShell & ' ' & conf.arguments
+      conf.logExecStart(cmd)
+      let code = execCmd(cmd)
+      if code != 0:
+        conf.logError(CliLogMsg(kind: cliLogErrRunCmdFailed,
+                                shellCmd: cmd,
+                                exitCode: code))
     of cmdDocLike, cmdRst2html, cmdRst2tex: # bugfix(cmdRst2tex was missing)
       if conf.arguments.len > 0:
         # reserved for future use
-        localReport(conf, ExternalReport(
-          kind: rextCmdDisallowsAdditionalArguments,
-          cmdlineSwitch: $conf.command,
-          cmdlineProvided: conf.arguments))
+        conf.logError(CliLogMsg(
+          kind: cliLogErrExpectedNoCmdArguments,
+          cmd: conf.command,
+          unexpectedArgs: conf.arguments))
       openDefaultBrowser($output)
     else:
       # support as needed
-      localReport(conf, ExternalReport(
-        kind: rextUnexpectedRunOpt, cmdlineSwitch: $conf.command))
+      conf.logError(CliLogMsg(
+        kind: cliLogErrUnexpectedRunOpt,
+        cmd: conf.command
+      ))
 
 when declared(GC_setMaxPause):
   GC_setMaxPause 2_000
@@ -136,6 +141,7 @@ when compileOption("gc", "refc"):
   GC_disableMarkAndSweep()
 
 when not defined(selftest):
+  import compiler/front/cli_reporter # xxx: last bit of legacy reports to remove
   var conf = newConfigRef(cli_reporter.reportHook)
   conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   conf.writeHook =
@@ -146,7 +152,14 @@ when not defined(selftest):
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       conf.writeHook(conf, msg & "\n", flags)
 
-  handleCmdLine(newIdentCache(), conf)
+  case handleCmdLine(newIdentCache(), conf)
+  of cliErrNoParamsProvided:
+    conf.logError(CliLogMsg(kind: cliLogErrNoCmdLineParamsProvided))
+    conf.showMsg(helpOnErrorMsg(conf))
+  of cliErrConfigProcessing, cliErrCommandProcessing, cliFinished:
+    # TODO: more specific handling here
+    discard "error messages reported internally"
+
   when declared(GC_setMaxPause):
     echo GC_getStatistics()
 

@@ -254,6 +254,10 @@ type
     lastMsgWasDot*: set[StdOrrKind] ## the last compiler message was a single '.'
     projectMainIdx*: FileIndex      ## the canonical path id of the main module
     projectMainIdx2*: FileIndex     ## consider merging with projectMainIdx
+    commandLineSrcIdx*: FileIndex   ## used by `commands` to base paths off for
+                                    ## path, lib, and other additions; default
+                                    ## to `lineinfos.commandLineIdx` and
+                                    ## altered by `nimconf` as needed
     command*: string                ## the main command (e.g. cc, check, scan, etc)
     commandArgs*: seq[string]       ## any arguments after the main command
     commandLine*: string
@@ -285,8 +289,8 @@ type
       conf: ConfigRef,
       output: string,
       flags: MsgFlags
-    ) {.closure.} ## All
-    ## textual output from the compiler goes through this callback.
+    ) {.closure.} ## All textual output from the compiler goes through this
+                  ## callback.
     writeHook*: proc(conf: ConfigRef, output: string, flags: MsgFlags) {.closure.}
     structuredReportHook*: ReportHook
     astDiagToLegacyReport*: proc(conf: ConfigRef, d: PAstDiag): Report
@@ -517,7 +521,7 @@ proc writelnHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
   conf.writelnHook(conf, msg, flags)
 
 proc writeHook*(conf: ConfigRef, msg: string, flags: MsgFlags = {}) =
-  ## Write string usign write hook
+  ## Write string using write hook
   conf.writeHook(conf, msg, flags)
 
 proc writeln*(conf: ConfigRef, args: varargs[string, `$`]) =
@@ -629,7 +633,6 @@ proc setNote*(conf: ConfigRef, note: ReportKind, enabled = true) =
   if note notin conf.cmdlineNotes:
     if enabled:
       incl(conf, cnCurrent, note)
-
     else:
       excl(conf, cnCurrent, note)
 
@@ -702,10 +705,11 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
     {rsemExpandArc} + # Not considered a hint for now
     repDbgTraceKinds  # Unconditionally write debug tracing information
 
-  let tryhack = conf.m.errorOutputs == {}
-  # REFACTOR this check is an absolute hack, `errorOutputs` need to be
-  # removed. For more details see `lineinfos.MsgConfig.errorOutputs`
-  # comment
+  let compTimeCtx = conf.m.errorOutputs == {}
+    ## indicates whether we're in a `compiles` or `constant expression
+    ## evaluation` context. `sem` and `semexprs` in particular will clear
+    ## `conf.m.errorOutputs` as a signal for this. For more details see the
+    ## comment for `MsgConfig.errorOutputs`.
 
   if (r.kind == rdbgVmCodeListing) and (
     (
@@ -728,12 +732,9 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
     return writeDisabled
 
   elif (
-     (conf.isEnabled(r) and r.category == repDebug and tryhack) or
-     # Force write of the report messages using regular stdout if tryhack is
-     # enabled
-     r.kind in rintCliKinds
-     # or if we are writing command-line help/usage information - it must
-     # always be printed
+     (conf.isEnabled(r) and r.category == repDebug and compTimeCtx)
+     # Force write of the report messages using regular stdout if compTimeCtx
+     # is enabled
   ):
     return writeForceEnabled
 
@@ -744,7 +745,7 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
     r.kind notin forceWrite
   ) or (
     # Or we are in the special hack mode for `compiles()` processing
-    tryhack
+    compTimeCtx
   ):
 
     # Return without writing
@@ -945,6 +946,7 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
     command: "", # the main command (e.g. cc, check, scan, etc)
     commandArgs: @[], # any arguments after the main command
     commandLine: "",
+    commandLineSrcIdx: commandLineIdx, # set the command line as the source
     keepComments: true, # whether the parser needs to keep comments
     docSeeSrcUrl: "",
     active: CurrentConf(

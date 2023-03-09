@@ -120,11 +120,6 @@ type
     rintListWarnings
     rintListHints
 
-    rintCliHelp # cli report first!
-    rintCliFullHelp
-    rintCliVersion
-    rintCliAdvancedUsage # cli report last!
-
     rintDumpState
     rintEchoMessage # last !
 
@@ -768,6 +763,9 @@ type
     rsemLinePragmaExpectsTuple
     rsemRaisesPragmaExpectsObject
 
+    rsemCompilerOptionInvalid
+    rsemCompilerOptionArgInvalid
+
     # -- locking
     rsemLocksPragmaExpectsList
     rsemLocksPragmaBadLevel
@@ -791,12 +789,14 @@ type
     # END !! add reports BEFORE the last enum !!
 
     # Semantic warnings begin
-    rsemUserWarning            = "User" ## `{.warning: }`
-    rsemUnknownMagic           = "UnknownMagic"
-    rsemUnusedImport           = "UnusedImport"
-    rsemDeprecated             = "Deprecated"
-    rsemLockLevelMismatch      = "LockLevel"
-    rsemTypelessParam          = "TypelessParam"
+    rsemUserWarning              = "User" ## `{.warning: }`
+    rsemUnknownMagic             = "UnknownMagic"
+    rsemUnusedImport             = "UnusedImport"
+    rsemDeprecated               = "Deprecated"
+    rsemDeprecatedCompilerOpt    = "Deprecated"
+    rsemDeprecatedCompilerOptArg = "Deprecated"
+    rsemLockLevelMismatch        = "LockLevel"
+    rsemTypelessParam            = "TypelessParam"
     rsemOwnedTypeDeprecated
 
     rsemWarnUnlistedRaises = "Effect" ## `sempass2.checkRaisesSpec` had
@@ -843,7 +843,7 @@ type
     rsemUserHint = "User" ## `{.hint: .}` pragma encountereed
     rsemLinterReport  = "Name"
     rsemLinterReportUse = "Name"
-    rsemHintLibDependency
+    rsemHintLibDependency = "Dependency"
     rsemXDeclaredButNotUsed = "XDeclaredButNotUsed"
     rsemDuplicateModuleImport = "DuplicateModuleImport"
     rsemXCannotRaiseY = "XCannotRaiseY"
@@ -891,7 +891,7 @@ type
     rcmdCompiling = "CC"
     rcmdLinking = "Link"
     rcmdExecuting = "Exec"
-    rcmdRunnableExamplesSuccess
+    rcmdRunnableExamplesSuccess = "Success"
     # hints END !! add reports BEFORE the last enum !!
 
     #----------------------------  Trace reports  ----------------------------#
@@ -1056,7 +1056,6 @@ const
   rintWarningKinds* = {rintWarnCannotOpenFile .. rintWarnFileChanged}
   rintHintKinds* = {rintSource .. rintSuccessX}
   rintDataPassKinds* = {rintStackTrace .. rintEchoMessage}
-  rintCliKinds* = {rintCliHelp .. rintCliAdvancedUsage}
 
 
 const

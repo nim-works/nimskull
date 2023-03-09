@@ -373,11 +373,10 @@ proc parseAssignment(N: var NimConfParser, tok: var Token) =
       val.add($tok)
       confTok(N, tok)
   if percent:
-    processSwitch(s, strtabs.`%`(val, N.config.configVars,
-                                {useEnvironment, useEmpty}), passPP, info,
-                                N.config)
+    let v = strtabs.`%`(val, N.config.configVars, {useEnvironment, useEmpty})
+    processSwitch(s, v, passPP, N.config)
   else:
-    processSwitch(s, val, passPP, info, N.config)
+    processSwitch(s, val, passPP, N.config)
 
 proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
                     cache: IdentCache): bool =
@@ -392,11 +391,19 @@ proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
 
     initToken(tok)
     openLexer(N.lexer, filename, stream, cache, N.config)
+
+    # save the existing source of command parameters and use the config file
+    let oldCmdLineSrcIdx = N.config.commandLineSrcIdx
+    N.config.commandLineSrcIdx = N.lexer.fileIdx
+
     tok.tokType = tkEof       # to avoid a pointless warning
     confTok(N, tok)           # read in the first token
 
     while tok.tokType != tkEof:
       parseAssignment(N, tok)
+
+    # restore to the previous source of command parameters
+    N.config.commandLineSrcIdx = oldCmdLineSrcIdx
 
     if N.condStack.len > 0:
       handleError(N, cekParseExpectedX, "@end")

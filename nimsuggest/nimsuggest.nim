@@ -263,7 +263,6 @@ proc execute(cmd: IdeCmd, file, dirtyfile: AbsoluteFile, line, col: int;
   if cmd == ideChk:
     graph.config.structuredReportHook = nimsuggest.reportHook
     graph.config.writeHook = myLog
-
   else:
     graph.config.structuredReportHook =
       proc(conf: ConfigRef, report: Report): TErrorHandling = doNothing

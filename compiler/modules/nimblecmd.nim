@@ -34,7 +34,7 @@ import
 from compiler/ast/reports_external import ExternalReport
 from compiler/ast/report_enums import ReportKind
 
-proc addPath*(conf: ConfigRef; path: AbsoluteDir, info: TLineInfo) =
+proc addPath*(conf: ConfigRef; path: AbsoluteDir) =
   if not conf.searchPaths.contains(path):
     conf.active.searchPaths.insert(path, 0)
 
@@ -180,3 +180,6 @@ proc nimblePath*(conf: ConfigRef; path: AbsoluteDir, info: TLineInfo) =
   if i != -1:
     conf.active.nimblePaths.delete(i)
   conf.active.nimblePaths.insert(path, 0)
+
+proc nimblePath*(conf: ConfigRef, path: AbsoluteDir, fileIdx: FileIndex) =
+  nimblePath(conf, path, newLineInfo(fileIdx, 0, -1))

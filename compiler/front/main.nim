@@ -27,6 +27,7 @@ import
     condsyms,
     msgs,
     cmdlinehelper,
+    commands,
     nimconf,     # Configuration file reading
     depfiles
   ],
@@ -61,6 +62,8 @@ import compiler/ic/[
     integrity
   ]
 from compiler/ic/ic import rodViewer
+
+from osproc import execCmd
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_internal import InternalReport,
@@ -108,22 +111,22 @@ proc writeGccDepfile(conf: ConfigRef) =
   depfile.close()
 
 proc commandGenDepend(graph: ModuleGraph) =
+  let conf = graph.config
   semanticPasses(graph)
   registerPass(graph, gendependPass)
   compileProject(graph)
-  let project = graph.config.projectFull
+  let project = conf.projectFull
   writeDepsFile(graph)
   generateDot(graph, project)
-  execExternalProgram(
-    graph.config,
-    (
-      "dot -Tpng -o" &
-        changeFileExt(project, "png").string &
-        ' ' &
-        changeFileExt(project, "dot").string
-    ),
-    rcmdExecuting
-  )
+  let cmd = "dot -Tpng -o$1 $2" %
+              [project.changeFileExt("png").string,
+               project.changeFileExt("dot").string]
+  conf.logExecStart(cmd)
+  let code = execCmd(cmd)
+  if code != 0:
+    conf.logError(CliLogMsg(kind: cliLogErrGenDependFailed,
+                            shellCmd: cmd,
+                            exitCode: code))
 
 proc commandCheck(graph: ModuleGraph) =
   let conf = graph.config
@@ -361,15 +364,14 @@ proc mainCommand*(graph: ModuleGraph) =
   of cmdBackends: compileToBackend()
   of cmdTcc:
     when hasTinyCBackend:
-      extccomp.setCC(conf, "tcc", unknownLineInfo)
+      let cc = extccomp.setCC(conf, "tcc")
+      doAssert cc == ccTcc, "what happened to tcc?"
       if conf.backend != backendC:
-        globalReport(conf, ExternalReport(
-          kind: rextExpectedCbackednForRun, usedCompiler: $conf.backend))
-
+        globalReport(conf, ExternalReport(kind: rextExpectedCbackednForRun,
+                                          usedCompiler: $conf.backend))
       compileToBackend()
     else:
-      globalReport(conf, ExternalReport(
-        kind: rextExpectedTinyCForRun))
+      globalReport(conf, ExternalReport(kind: rextExpectedTinyCForRun))
   of cmdDoc:
     docLikeCmd():
       conf.setNoteDefaults(rsemLockLevelMismatch, false) # issue #13218

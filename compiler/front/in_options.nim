@@ -62,6 +62,7 @@ type
     optSourcemap
     optProfileVM              ## enable VM profiler
     optEnableDeepCopy         ## ORC specific: enable 'deepcopy' for all types
+    optCmdExitGcStats         ## print gc stats as part of command exit
 
   TGlobalOptions* = set[TGlobalOption]
 

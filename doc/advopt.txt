@@ -154,3 +154,7 @@ Advanced options:
   --sinkInference:on|off    turn sink parameter inference on|off (default: on)
   --panics:on|off           turn panics into process terminations (default: off)
   --deepcopy:on|off         enable 'system.deepCopy' for ``--gc:arc|orc``
+
+Command Debug Options:
+  --cmdExitGcStats          output GC statistics at the end of compilation and
+                            before any binary is run

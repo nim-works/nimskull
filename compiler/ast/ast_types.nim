@@ -1204,6 +1204,10 @@ type
     adSemFoldDivByZero      # xxx: remove 'Fold' from name?
     adSemInvalidRangeConversion
     adSemFoldCannotComputeOffset
+    adSemCompilerOptionInvalid
+    adSemCompilerOptionArgInvalid
+    adSemDeprecatedCompilerOpt      # warning promoted to error
+    adSemDeprecatedCompilerOptArg   # warning promoted to error
 
   PAstDiag* = ref TAstDiag
   TAstDiag* {.acyclic.} = object
@@ -1474,6 +1478,20 @@ type
     of adSemInvalidIntDefine,
         adSemInvalidBoolDefine:
       invalidDef*: string
+    of adSemCompilerOptionInvalid,
+        adSemDeprecatedCompilerOpt:
+      badCompilerOpt*: PNode
+    of adSemDeprecatedCompilerOptArg:
+      compilerOpt*: PNode
+      compilerOptArg*: PNode
+    of adSemCompilerOptionArgInvalid:
+      # xxx: this branch only exists because of legacy reports creating
+      #      ridiculous cycles everywhere, `possibleValidArgs` is only required
+      #      because we can't query it from `commands` within `cli_reporter`
+      #      without creating a cycle... sigh.
+      forCompilerOpt*: PNode
+      badCompilerOptArg*: PNode
+      possibleValidArgs*: seq[string]
     of adSemDefNameSym:
       defNameSym*: PSym
       defNameSymData*: AdSemDefNameSym
