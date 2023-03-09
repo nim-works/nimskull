@@ -297,20 +297,17 @@ proc errorActions(
   if conf.isCompilerFatal(report):
     # Fatal message such as ICE (internal compiler), errFatal,
     result = (doAbort, true)
-
   elif conf.isCodeError(report):
     # Regular code error
     inc(conf.errorCounter)
     conf.exitcode = 1'i8
 
-    if conf.errorMax <= conf.errorCounter:
+    if conf.errorCounter >= conf.errorMax:
       # only really quit when we're not in the new 'nim check --def' mode:
       if conf.ideCmd == ideNone:
         result = (doAbort, false)
-
     elif eh == doAbort and conf.cmd != cmdIdeTools:
       result = (doAbort, false)
-
     elif eh == doRaise:
       result = (doRaise, false)
 

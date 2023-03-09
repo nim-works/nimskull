@@ -2948,7 +2948,12 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
       result = "argument for command line option expected: '$1'" % r.cmdlineSwitch
 
     of rextExpectedNoCmdArgument:
-      result = "invalid argument for command line option: '$1'" % r.cmdlineSwitch
+      result = "invalid argument ('$1') for command line option: '$2'" %
+                  [r.cmdlineProvided, r.cmdlineSwitch]
+
+    of rextCmdDisallowsAdditionalArguments:
+      result = "$1 command does not support additional arguments: '$2'" %
+                  [r.cmdlineSwitch, r.cmdlineProvided]
 
     of rextInvalidNumber:
       result = "$1 is not a valid number" % r.cmdlineProvided
@@ -3750,44 +3755,48 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   # be written.
   if wkind == writeDisabled:
     return
-  elif r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
-    rotatedTrace(conf, r)
-  elif wkind == writeForceEnabled:
-    echo conf.reportFull(r)
-  elif r.kind == rsemProcessing and conf.hintProcessingDots:
-    # xxx: the report hook is handling processing dots output, why? this whole
-    #      infrastructure is overwrought. seriously, they're not hints, they're
-    #      progress indicators.
-    conf.write(".")
-    lastDot = true
   else:
-    var msg: seq[string]
-    if lastDot:
-      msg.add("")
-      lastDot = false
+    if r.kind in rdbgTracerKinds and conf.isDefined(traceDir):
+      rotatedTrace(conf, r)
+    elif wkind == writeForceEnabled:
+      echo conf.reportFull(r)
+    elif r.kind == rsemProcessing and conf.hintProcessingDots:
+      # xxx: the report hook is handling processing dots output, why? this whole
+      #      infrastructure is overwrought. seriously, they're not hints, they're
+      #      progress indicators.
+      conf.write(".")
+      lastDot = true
+    else:
+      var msg: seq[string]
+      if lastDot:
+        msg.add("")
+        lastDot = false
 
-    if conf.hack.reportInTrace:
-      var indent {.global.}: int
-      if r.kind == rdbgTraceStep:
-        indent = r.dbgTraceReport.semstep.level
+      if conf.hack.reportInTrace:
+        var indent {.global.}: int
 
-      case r.kind:
+        case r.kind:
         of rdbgTracerKinds:
+          if r.kind == rdbgTraceStep:
+            indent = r.dbgTraceReport.semstep.level
           msg.add(conf.reportFull(r))
         of repSemKinds:
-          if 0 < indent:
+          if indent > 0:
             for line in conf.reportFull(r).splitLines():
               msg.add("  ]" & repeat("  ", indent) & " ! " & line)
           else:
             msg.add(conf.reportFull(r))
         else:
           msg.add(conf.reportFull(r))
-    else:
-      msg.add(conf.reportFull(r))
+      else:
+        msg.add(conf.reportFull(r))
 
-    if conf.hack.bypassWriteHookForTrace:
-      for item in msg:
-        echo item
-    else:
-      for item in msg:
-        conf.writeln(item)
+      if conf.hack.bypassWriteHookForTrace:
+        for item in msg:
+          echo item
+      else:
+        for item in msg:
+          conf.writeln(item)
+  if r.category in {repInternal, repExternal, repBackend} and
+      conf.severity(r) in {rsevFatal, rsevError}:
+    result = doAbort

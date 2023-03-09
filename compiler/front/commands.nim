@@ -257,12 +257,12 @@ proc processOnOffSwitchG(conf: ConfigRef; op: TGlobalOptions, arg: string, pass:
 proc expectArg(conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, info: TLineInfo) =
   if arg == "":
     conf.localReport ExternalReport(
-      kind: rextExpectedCmdArgument, cmdlineProvided: switch, cmdlineSwitch: switch)
+      kind: rextExpectedCmdArgument, cmdlineSwitch: switch)
 
 proc expectNoArg(conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, info: TLineInfo) =
   if arg != "":
     conf.localReport ExternalReport(
-      kind: rextExpectedNoCmdArgument, cmdlineProvided: switch, cmdlineSwitch: switch)
+      kind: rextExpectedNoCmdArgument, cmdlineProvided: arg, cmdlineSwitch: switch)
 
 proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
                          info: TLineInfo; orig: string; conf: ConfigRef) =

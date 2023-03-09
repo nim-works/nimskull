@@ -148,6 +148,7 @@ type
     ## or 'list' value.
     rextExpectedCmdArgument ## Command-line option expected argument
     rextExpectedNoCmdArgument ## Command-line option expected no arguments
+    rextCmdDisallowsAdditionalArguments ## command disallows additional args
     rextInvalidNumber ## Command-line switch expected a number
     rextInvalidValue
     rextUnexpectedValue ## Command-line argument had value, but it did not
@@ -917,7 +918,7 @@ type
     #---------------------------  Backend reports  ---------------------------#
     # errors start
     rbackCannotWriteScript ## Cannot write build script to a cache file
-    rbackCannotWriteMappingFile ## Canot write module compilation mapping
+    rbackCannotWriteMappingFile ## Cannot write module compilation mapping
     ## file to cache directory
     rbackTargetNotSupported ## C compiler does not support requested target
     rbackJsTooCaseTooLarge
