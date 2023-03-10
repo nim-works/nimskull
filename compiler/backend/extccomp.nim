@@ -903,7 +903,7 @@ proc jsonBuildInstructionsFile*(conf: ConfigRef): AbsoluteFile =
   # works out of the box with `hashMainCompilationParams`.
   result = getNimcacheDir(conf) / conf.outFile.changeFileExt("json")
 
-const cacheVersion = "D20210525T193831" # update when `BuildCache` spec changes
+const cacheVersion = "D20230310T000000" # update when `BuildCache` spec changes
 type BuildCache = object
   cacheVersion: string
   outputFile: string
@@ -912,9 +912,7 @@ type BuildCache = object
   linkcmd: string
   extraCmds: seq[string]
   configFiles: seq[string] # the hash shouldn't be needed
-  stdinInput: bool
-  projectIsCmd: bool
-  cmdInput: string
+  inputMode: ProjectInputMode
   currentDir: string
   cmdline: string
   depfiles: seq[(string, string)]
@@ -934,9 +932,7 @@ proc writeJsonBuildInstructions*(conf: ConfigRef) =
     link: linkFiles,
     linkcmd: getLinkCmd(conf, conf.absOutFile, linkFiles.quoteShellCommand),
     extraCmds: getExtraCmds(conf, conf.absOutFile),
-    stdinInput: conf.projectIsStdin,
-    projectIsCmd: conf.projectIsCmd,
-    cmdInput: conf.cmdInput,
+    inputMode: conf.inputMode,
     configFiles: conf.configFiles.mapIt(it.string),
     currentDir: getCurrentDir())
   if optRun in conf.globalOptions or isDefined(conf, "nimBetterRun"):
@@ -954,14 +950,15 @@ proc changeDetectedViaJsonBuildInstructions*(conf: ConfigRef; jsonFile: Absolute
   var bcache: BuildCache
   try: bcache.fromJson(jsonFile.string.parseFile)
   except IOError, OSError, ValueError:
+    echo getCurrentException().msg
     stderr.write "Warning: JSON processing failed for: $#\n" % jsonFile.string
     return true
   if bcache.currentDir != getCurrentDir() or # fixes bug #16271
      bcache.configFiles != conf.configFiles.mapIt(it.string) or
      bcache.cacheVersion != cacheVersion or bcache.outputFile != conf.absOutFile.string or
      bcache.cmdline != conf.commandLine or bcache.nimexe != hashNimExe() or
-     bcache.projectIsCmd != conf.projectIsCmd or conf.cmdInput != bcache.cmdInput: return true
-  if bcache.stdinInput or conf.projectIsStdin: return true
+     bcache.inputMode != conf.inputMode: return true
+  if bcache.inputMode != pimFile: return true
     # xxx optimize by returning false if stdin input was the same
   for (file, hash) in bcache.depfiles:
     if $secureHashFile(file) != hash: return true

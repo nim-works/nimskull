@@ -15,7 +15,6 @@ import
   ],
   std/options as std_options,
   compiler/ast/[
-    ast_idgen,
     idents,
   ],
   compiler/modules/[
@@ -157,20 +156,25 @@ proc initDefinesProg*(self: NimProg, conf: ConfigRef, name: string) =
 
 proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef, cmd: string = "") =
   self.processCmdLine(passCmd1, cmd, conf)
-  if conf.projectIsCmd and conf.projectName in ["-", ""]:
+  if conf.inputMode == pimFile and self.supportsStdinFile and conf.projectName == "-":
+    conf.inputMode = pimStdin
+
+  case conf.inputMode
+  of pimCmd:
     handleCmdInput(conf)
-  elif self.supportsStdinFile and conf.projectName == "-":
+  of pimStdin:
     handleStdinInput(conf)
-  elif conf.projectName != "":
-    setFromProjectName(conf, conf.projectName)
-  else:
-    conf.projectPath = AbsoluteDir canonicalizePath(conf, AbsoluteFile getCurrentDir())
+  of pimFile:
+    if conf.projectName != "":
+      setFromProjectName(conf, conf.projectName)
+    else:
+      conf.projectPath = AbsoluteDir canonicalizePath(conf, AbsoluteFile getCurrentDir())
 
 proc loadConfigs*(
   cfg: RelativeFile, cache: IdentCache,
-  conf: ConfigRef, idgen: IdGenerator) {.inline.} =
+  conf: ConfigRef) {.inline.} =
   ## wrapper around `nimconf.loadConfigs` to connect to legacy reporting
-  loadConfigs(cfg, cache, conf, idgen, handleConfigEvent)
+  loadConfigs(cfg, cache, conf, handleConfigEvent)
 
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph): bool =
@@ -182,7 +186,7 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
     incl(conf, optWasNimscript)
 
   # load all config files
-  loadConfigs(DefaultConfig, cache, conf, graph.idgen)
+  loadConfigs(DefaultConfig, cache, conf)
 
   if not self.suggestMode:
     let scriptFile = conf.projectFull.changeFileExt("nims")
