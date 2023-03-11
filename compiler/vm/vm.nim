@@ -2503,7 +2503,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       let src = regs[rb].nimNode
       # TODO: This if-else block should be reordered so as to match the
       #       expectation of occurence
-      if src.kind in {nkEmpty..nkNilLit}:
+      if src.kind in {nkEmpty..nkNilLit, nkError}:
         raiseVmError(VmEvent(kind: vmEvtCannotGetChild, ast: src))
       elif idx >=% src.len:
         raiseVmError(reportVmIdx(idx, src.len - 1))
@@ -2513,9 +2513,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       decodeBC(rkNimNode)
       let idx = regs[rb].intVal.int
       var dest = regs[ra].nimNode
-      if nfSem in dest.flags and allowSemcheckedAstModification notin c.config.legacyFeatures:
+      if nfSem in dest.flags:
         raiseVmError(VmEvent(kind: vmEvtCannotModifyTypechecked))
-      elif dest.kind in {nkEmpty..nkNilLit}:
+      elif dest.kind in {nkEmpty..nkNilLit, nkError}:
         raiseVmError(VmEvent(kind: vmEvtCannotSetChild, ast: dest))
       elif idx >=% dest.len:
         raiseVmError(reportVmIdx(idx, dest.len - 1))
@@ -2524,10 +2524,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
     of opcNAdd:
       decodeBC(rkNimNode)
       var u = regs[rb].nimNode
-      if nfSem in u.flags and allowSemcheckedAstModification notin c.config.legacyFeatures:
+      if nfSem in u.flags:
         raiseVmError(VmEvent(kind: vmEvtCannotModifyTypechecked))
-      elif u.kind in {nkEmpty..nkNilLit}:
-        echo c.config $ c.debug[pc]
+      elif u.kind in {nkEmpty..nkNilLit, nkError}:
         raiseVmError(VmEvent(kind: vmEvtCannotAddChild, ast: u))
       else:
         u.add(regs[rc].nimNode)
@@ -2541,9 +2540,9 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       assert typ.elemType().kind == akPNode
       let x = regs[rc].handle
       var u = regs[rb].nimNode
-      if nfSem in u.flags and allowSemcheckedAstModification notin c.config.legacyFeatures:
+      if nfSem in u.flags:
         raiseVmError(VmEvent(kind: vmEvtCannotModifyTypechecked))
-      elif u.kind in {nkEmpty..nkNilLit}:
+      elif u.kind in {nkEmpty..nkNilLit, nkError}:
         raiseVmError(VmEvent(kind: vmEvtCannotAddChild, ast: u))
       else:
         let L = arrayLen(x)

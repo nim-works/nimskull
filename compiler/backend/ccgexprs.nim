@@ -2212,9 +2212,10 @@ proc genRangeChck(p: BProc, n: PNode, d: var TLoc) =
   var a: TLoc
   var dest = skipTypes(n.typ, abstractVar)
   initLocExpr(p, n[0], a)
-  if optRangeCheck notin p.options or (dest.kind in {tyUInt..tyUInt64} and
-      checkUnsignedConversions notin p.config.legacyFeatures):
+  if optRangeCheck notin p.options:
     discard "no need to generate a check because it was disabled"
+  elif dest.kind in {tyUInt..tyUInt64}:
+    discard "should range check, see: https://github.com/nim-works/nimskull/issues/574"
   else:
     let n0t = n[0].typ
 

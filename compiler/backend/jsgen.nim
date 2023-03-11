@@ -2298,8 +2298,10 @@ proc upConv(p: PProc, n: PNode, r: var TCompRes) =
 proc genRangeChck(p: PProc, n: PNode, r: var TCompRes, magic: string) =
   var a, b: TCompRes
   gen(p, n[0], r)
-  if optRangeCheck notin p.options or (skipTypes(n.typ, abstractVar).kind in {tyUInt..tyUInt64} and
-      checkUnsignedConversions notin p.config.legacyFeatures):
+  if optRangeCheck notin p.options:
+    discard "no need to generate a check because it was disabled"
+  elif skipTypes(n.typ, abstractVar).kind in {tyUInt..tyUInt64}:
+    discard "should range check, see: https://github.com/nim-works/nimskull/issues/574"
     discard "XXX maybe emit masking instructions here"
   else:
     gen(p, n[1], a)

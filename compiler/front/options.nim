@@ -370,7 +370,6 @@ passSeqField lazyPaths,         AbsoluteDir
 passSetField localOptions,   TOptions,           TOption
 passSetField globalOptions,  TGlobalOptions,     TGlobalOption
 passSetField features,       set[Feature],       Feature
-passSetField legacyFeatures, set[LegacyFeature], LegacyFeature
 
 passStrTableField dllOverrides
 passStrTableField configVars
@@ -951,7 +950,6 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
       backend:        backendInvalid,
       cppDefines:     initHashSet[string](),
       features:       {},
-      legacyFeatures: {},
       cCompiler:      ccGcc,
       macrosToExpand: newStringTable(modeStyleInsensitive),
       arcToExpand:    newStringTable(modeStyleInsensitive),

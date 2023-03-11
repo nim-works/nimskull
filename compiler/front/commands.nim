@@ -180,7 +180,7 @@ const optNames = @[
   "lib", "putenv", "cc", "track", "trackdirty", "suggest", "def",
   "context", "usages", "defusages", "stdout", "filenames", "processing",
   "unitsep", "listfullpaths", "spellsuggest", "declaredlocs",
-  "dynliboverride", "dynliboverrideall", "experimental", "legacy",
+  "dynliboverride", "dynliboverrideall", "experimental",
   "exceptions", "cppdefine", "seqsv2", "stylecheck", "showallmismatches",
   "docinternal", "multimethods", "expandmacro", "expandarc", "useversion",
   "benchmarkvm", "profilevm", "sinkinference", "cursorinference", "panics",
@@ -1192,14 +1192,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
           info, invalidSwitchValue(
             getEnumNames({low(Feature) .. high(Feature)}),
             "unknown experimental feature"))
-  of "legacy":
-    try:
-      conf.incl parseEnum[LegacyFeature](arg)
-    except ValueError:
-      conf.localReport(
-        info, invalidSwitchValue(
-          getEnumNames({low(LegacyFeature) .. high(LegacyFeature)}),
-          "unknown obsolete feature"))
   of "exceptions":
     case arg.normalize
     of "native": conf.exc = excNative

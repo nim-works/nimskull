@@ -2592,10 +2592,8 @@ const
     "Source date: $2\n"
 
   Usage = slurp"../doc/basicopt.txt".replace(" //", "   ")
-  AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") % [
-    genFeatureDesc(Feature),
-    genFeatureDesc(LegacyFeature)
-  ]
+  AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") %
+    genFeatureDesc(Feature)
 
 
 proc reportBody*(conf: ConfigRef, r: InternalReport): string =

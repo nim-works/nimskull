@@ -188,17 +188,6 @@ type
     strictEffects,
     unicodeOperators
 
-
-  LegacyFeature* = enum
-    allowSemcheckedAstModification,
-      ## Allows to modify a NimNode where the type has already been
-      ## flagged with nfSem. If you actually do this, it will cause
-      ## bugs.
-    checkUnsignedConversions
-      ## Historically and especially in version 1.0.0 of the language
-      ## conversions to unsigned numbers were checked. In 1.0.4 they
-      ## are not anymore.
-
   TSystemCC* = enum
     ccNone, ccGcc, ccNintendoSwitch, ccLLVM_Gcc, ccCLang, ccBcc, ccVcc,
     ccTcc, ccEnv, ccIcl, ccIcc, ccClangCl
@@ -241,7 +230,6 @@ type
     ## only be supplied from the command line or the configuration files.
     cppDefines*: HashSet[string] #[ (*) ]# ## C pre-processor defines
     features*: set[Feature]
-    legacyFeatures*: set[LegacyFeature]
 
     symbolFiles*: SymbolFilesOption
     symbols*: StringTableRef ## We need to use a StringTableRef here as
