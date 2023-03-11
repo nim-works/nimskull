@@ -170,7 +170,6 @@ type
     foAbs           ## absolute path, e.g.: /pathto/bar/foo.nim
     foRelProject    ## relative to project path, e.g.: ../foo.nim
     foCanonical     ## canonical module name
-    foLegacyRelProj ## legacy, shortest of (foAbs, foRelProject)
     foName          ## lastPathPart, e.g.: foo.nim
     foStacktrace    ## if optExcessiveStackTrace: foAbs else: foName
 

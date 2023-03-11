@@ -1137,24 +1137,19 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "stdout":
     processOnOffSwitchG(conf, {optStdout}, arg, pass, info, switch)
   of "filenames":
+    # xxx: this and `listfullpaths` needs to be reconsidered, this isn't quite
+    #      a global thing that past approaches have attempted.
     case arg.normalize
     of "abs": conf.filenameOption = foAbs
     of "canonical": conf.filenameOption = foCanonical
-    of "legacyrelproj": conf.filenameOption = foLegacyRelProj
-    else:
-      conf.localReport(info, invalidSwitchValue @["abs", "canonical", "legacyRelProj"])
-
+    else: conf.localReport(info, invalidSwitchValue @["abs", "canonical"])
+  of "listfullpaths":
+    conf.filenameOption = if switchOn(arg): foAbs else: foCanonical
   of "msgformat":
-    case arg.normalize:
-      of "text":
-        conf.setReportHook cli_reporter.reportHook
-
-      of "sexp":
-        conf.setReportHook sexp_reporter.reportHook
-
-      else:
-        conf.localReport(info, invalidSwitchValue @["text", "sexp"])
-
+    case arg.normalize
+    of "text": conf.setReportHook cli_reporter.reportHook
+    of "sexp": conf.setReportHook sexp_reporter.reportHook
+    else:      conf.localReport(info, invalidSwitchValue @["text", "sexp"])
   of "processing":
     incl(conf, cnCurrent, rsemProcessing)
     incl(conf, cnMainPackage, rsemProcessing)
@@ -1168,9 +1163,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       conf.localReport(info, invalidSwitchValue @["dots", "filenames", "off"])
   of "unitsep":
     conf.unitSep = if switchOn(arg): "\31" else: ""
-  of "listfullpaths":
-    # xxx in future work, use `warningDeprecated`
-    conf.filenameOption = if switchOn(arg): foAbs else: foCanonical
   of "spellsuggest":
     if arg.len == 0: conf.spellSuggestMax = spellSuggestSecretSauce
     elif arg == "auto": conf.spellSuggestMax = spellSuggestSecretSauce
