@@ -60,7 +60,6 @@ import
   compiler/backend/[
     extccomp,
     ccgutils,
-    cgmeth,
     cgendata
   ],
   compiler/plugins/[
@@ -1860,8 +1859,8 @@ proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
 
       if m.g.forwardedProcs.len == 0:
         incl m.flags, objHasKidsValid
-      let disp = generateMethodDispatchers(graph)
-      for x in disp: genProcAux2(m, x.sym)
+      # let disp = generateMethodDispatchers(graph)
+      # for x in disp: genProcAux2(m, x.sym)
 
   let mm = m
   m.g.modulesClosed.add mm
