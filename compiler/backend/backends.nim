@@ -8,18 +8,15 @@ import
     ast,
     ast_types,
     astalgo, # for `getModule`,
-    idents,
     lineinfos
   ],
   compiler/backend/[
     cgmeth
   ],
   compiler/front/[
-    msgs,
     options
   ],
   compiler/mir/[
-    mirchangesets,
     mirgen,
     mirtrees,
     sourcemaps,

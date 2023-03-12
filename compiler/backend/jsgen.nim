@@ -59,7 +59,6 @@ import
     ropes
   ],
   compiler/sem/[
-    passes,
     lowerings,
     rodutils,
     sourcemap
@@ -67,10 +66,6 @@ import
   compiler/backend/[
     backends,
     ccgutils,
-  ],
-  compiler/plugins/[
-  ],
-  compiler/vm/[
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
