@@ -1277,7 +1277,7 @@ typeRel can be used to establish various relationships between types:
     else:
       discard
   of tyOrdinal:
-    if isOrdinalType(a, allowEnumWithHoles = optNimV1Emulation in c.c.config.globalOptions):
+    if isOrdinalType(a, allowEnumWithHoles = false):
       var x =
         if a.kind == tyOrdinal:
           a[0]

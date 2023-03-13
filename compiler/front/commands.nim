@@ -57,7 +57,7 @@ import
   ]
 
 
-from compiler/ast/ast import setUseIc, eqTypeFlags, tfGcSafe, tfNoSideEffect
+from compiler/ast/ast import setUseIc
 
 # TODO: all this to output help/error messages and internal state... smh. Also,
 #       why doesn't this module or a real module own the data format?! At least
@@ -181,7 +181,7 @@ const optNames = @[
   "unitsep", "listfullpaths", "spellsuggest", "declaredlocs",
   "dynliboverride", "dynliboverrideall", "experimental",
   "exceptions", "cppdefine", "seqsv2", "stylecheck", "showallmismatches",
-  "docinternal", "multimethods", "expandmacro", "expandarc", "useversion",
+  "docinternal", "multimethods", "expandmacro", "expandarc",
   "benchmarkvm", "profilevm", "sinkinference", "cursorinference", "panics",
   "sourcemap", "deepcopy", "nilseqs",
 ]
@@ -1149,27 +1149,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "expandarc":
     expectArg(conf, switch, arg, pass, info)
     conf.arcToExpand[arg] = "T"
-  of "useversion":
-    expectArg(conf, switch, arg, pass, info)
-    case arg
-    of "1.0":
-      defineSymbol(conf, "NimMajor", "1")
-      defineSymbol(conf, "NimMinor", "0")
-      # old behaviors go here:
-      defineSymbol(conf, "nimOldRelativePathBehavior")
-      undefSymbol(conf, "nimDoesntTrackDefects")
-      ast.eqTypeFlags.excl {tfGcSafe, tfNoSideEffect}
-      conf.incl optNimV1Emulation
-    of "1.2":
-      defineSymbol(conf, "NimMajor", "1")
-      defineSymbol(conf, "NimMinor", "2")
-      conf.incl optNimV12Emulation
-    else:
-      conf.localReport(info, invalidSwitchValue(
-        @["1.0", "1.2"],
-        "unknown Nim version; currently supported values are: `1.0`, `1.2`"))
-    # always be compatible with 1.x.100:
-    defineSymbol(conf, "NimPatch", "100")
   of "benchmarkvm":
     processOnOffSwitchG(conf, {optBenchmarkVM}, arg, pass, info, switch)
   of "profilevm":

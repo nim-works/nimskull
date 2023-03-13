@@ -248,10 +248,7 @@ proc splitPath*(path: string): tuple[head, tail: string] {.
     assert splitPath("usr/local/bin") == ("usr/local", "bin")
     assert splitPath("usr/local/bin/") == ("usr/local/bin", "")
     assert splitPath("/bin/") == ("/bin", "")
-    when (NimMajor, NimMinor) <= (1, 0):
-      assert splitPath("/bin") == ("", "bin")
-    else:
-      assert splitPath("/bin") == ("/", "bin")
+    assert splitPath("/bin") == ("/", "bin")
     assert splitPath("bin") == ("", "bin")
     assert splitPath("") == ("", "")
 
@@ -262,10 +259,7 @@ proc splitPath*(path: string): tuple[head, tail: string] {.
       break
   if sepPos >= 0:
     result.head = substr(path, 0,
-      when (NimMajor, NimMinor) <= (1, 0):
-        sepPos-1
-      else:
-        if likely(sepPos >= 1): sepPos-1 else: 0
+      if likely(sepPos >= 1): sepPos-1 else: 0
     )
     result.tail = substr(path, sepPos+1)
   else:
@@ -448,8 +442,7 @@ proc relativePath*(path, base: string, sep = DirSep): string {.
     if not f.hasNext(path): break
     ff = f.next(path)
 
-  when not defined(nimOldRelativePathBehavior):
-    if result.len == 0: result.add "."
+  if result.len == 0: result.add "."
 
 proc isRelativeTo*(path: string, base: string): bool {.since: (1, 1).} =
   ## Returns true if `path` is relative to `base`.

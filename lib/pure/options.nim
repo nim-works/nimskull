@@ -48,14 +48,9 @@ Instead, rely on checking if the option contains a value with the
 
 import std/typetraits
 
-when (NimMajor, NimMinor) >= (1, 1):
-  type
-    SomePointer = ref | ptr | pointer | proc
-else:
-  type
-    SomePointer = ref | ptr | pointer
-
 type
+  SomePointer = ref | ptr | pointer | proc
+
   Option*[T] = object
     ## An optional type that may or may not contain a value of type `T`.
     ## When `T` is a a pointer type (`ptr`, `pointer`, `ref` or `proc`),

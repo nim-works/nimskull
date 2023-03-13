@@ -1,15 +1,5 @@
 ##[
-`since` is used to emulate older versions of nim stdlib with `--useVersion`,
-see `tuse_version.nim`.
-
-If a symbol `foo` is added in version `(1,3,5)`, use `{.since: (1.3.5).}`, not
-`{.since: (1.4).}`, so that it works in devel in between releases.
-
-The emulation cannot be 100% faithful and to avoid adding too much complexity,
-`since` is not needed in these cases:
-* if a new module is added
-* if an overload is added
-* if an extra parameter to an existing routine is added
+`since` is used to track when things were added to the standard library.
 ]##
 
 template since*(version: (int, int), body: untyped) {.dirty.} =
