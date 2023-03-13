@@ -63,7 +63,7 @@ type
     wFloatChecks = "floatChecks", wNanChecks = "nanChecks", wInfChecks = "infChecks",
     wStyleChecks = "styleChecks", wStaticBoundchecks = "staticBoundChecks"
 
-    wAssertions = "assertions", wPatterns = "patterns", wTrMacros = "trmacros",
+    wAssertions = "assertions", wTrMacros = "trmacros",
     wSinkInference = "sinkInference", wWarnings = "warnings",
     wHints = "hints", wOptimization = "optimization", wRaises = "raises",
     wWrites = "writes", wReads = "reads", wSize = "size", wEffects = "effects", wTags = "tags",

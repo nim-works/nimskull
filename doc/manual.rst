@@ -6660,7 +6660,7 @@ hints            on|off           Turns the hint messages of the compiler
                                   on or off.
 optimization     none|speed|size  Optimize the code for speed or size, or
                                   disable optimization.
-patterns         on|off           Turns the term rewriting templates/macros
+trmacros         on|off           Turns the term rewriting templates/macros
                                   on or off.
 callconv         cdecl|...        Specifies the default calling convention for
                                   all procedures (and procedure types) that
