@@ -1,4 +1,5 @@
 discard """
+  targets: "c !js !vm"
   description: '''
   . From https://github.com/nim-lang/Nim/issues/8550
     Iterating closure iterator in nested function is empty
@@ -11,6 +12,8 @@ discard """
     in this case. Sadly I don't get what that flag is for.
 '''
 """
+
+# knownIssue: the VM and JS target don't support closure iterators yet
 
 proc chk_fail(): seq[string] =
   iterator x(): int {.closure.} = yield 42

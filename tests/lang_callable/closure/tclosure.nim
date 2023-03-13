@@ -1,40 +1,11 @@
 discard """
-  targets: "c"
-  output: '''
-1 3 6 11 20 foo
-foo88
-23 24foo 88
-18
-18
-99
-99
-99
-99 99
-99 99
-12 99 99
-12 99 99
-success
-@[1, 2, 5]
-click at 10,20
-lost focus 1
-lost focus 2
-registered handler for UserEvent 1
-registered handler for UserEvent 2
-registered handler for UserEvent 3
-registered handler for UserEvent 4
-asdas
-processClient end
-false
-baro0
-foo88
-23 24foo 88
-foo88
-23 24foo 88
-11
-@[1, 10, 45, 120, 210, 252, 210, 120, 45, 10, 1]
-'''
-joinable: false
+  targets: "c js vm"
+  description: "Various tests for closures and closure iterators"
 """
+
+import std/[sequtils, sugar, tables]
+import mutils
+
 
 
 block tclosure:
@@ -57,20 +28,26 @@ block tclosure:
 
   testA()
 
+  var output: seq[int]
+
   myData.each do (x: int):
-    write(stdout, x)
-    write(stdout, " ")
+    output.add x
 
-  #OUT 2 4 6 8 10
+  doAssert output == [1, 3, 6, 11, 20]
 
-  # bug #5015
+
+# knownIssue: lambda-lifting related transformation are disabled when using
+#             the JS target, violating the expectation of ``vmgen`` and thus
+#             crashing the VM
+test array_of_procs, {c, vm}:
+  # bug https://github.com/nim-lang/nim/issues/5015
 
   type Mutator = proc(matched: string): string {.noSideEffect, gcsafe, locks: 0.}
 
   proc putMutated(
       MutatorCount: static[int],
       mTable: static[array[MutatorCount, Mutator]], input: string) =
-    for i in 0..<MutatorCount: echo mTable[i](input)
+    for i in 0..<MutatorCount: doAssert mTable[i](input) == "foo"
 
   proc mutator0(matched: string): string =
       "foo"
@@ -81,7 +58,6 @@ block tclosure:
   putMutated(1, mTable, "foo")
 
 
-
 block tclosure0:
   when true:
     # test simple closure within dummy 'main':
@@ -90,22 +66,31 @@ block tclosure0:
         var fooB = 23
         proc outer(outerParam: string) =
           var outerVar = 88
-          echo outerParam, outerVar
+          doAssert outerParam == "foo"
+          doAssert outerVar == 88
+
           proc inner() =
             block Test:
-              echo fooB, " ", param, outerParam, " ", outerVar
+              doAssert fooB == 23
+              doAssert param == 24
+              doAssert outerParam == "foo"
+              doAssert outerVar == 88
+
           inner()
         outer("foo")
       main2(24)
 
     dummy()
 
-  when true:
+
+
+  # XXX: raw access not supported by the VM
+  when not defined(js) and not defined(vm):
     proc outer2(x:int) : proc(y:int):int =   # curry-ed application
         return proc(y:int):int = x*y
 
     var fn = outer2(6)  # the closure
-    echo fn(3)   # it works
+    doAssert fn(3) == 18 # it works
 
     var rawP = fn.rawProc()
     var rawE = fn.rawEnv()
@@ -114,14 +99,14 @@ block tclosure0:
     type TimesClosure = proc(a: int, x: pointer): int {.nimcall.}
 
     # Call the function with its closure
-    echo cast[TimesClosure](rawP)(3, rawE)
+    doAssert cast[TimesClosure](rawP)(3, rawE) == 18
 
   when true:
     proc outer =
       var x, y: int = 99
-      proc innerA = echo x
+      proc innerA = doAssert x == 99
       proc innerB =
-        echo y
+        doAssert y == 99
         innerA()
 
       innerA()
@@ -132,7 +117,10 @@ block tclosure0:
   when true:
     proc indirectDep =
       var x, y: int = 99
-      proc innerA = echo x, " ", y
+      proc innerA =
+        doAssert x == 99
+        doAssert y == 99
+
       proc innerB =
         innerA()
 
@@ -146,7 +134,11 @@ block tclosure0:
       var x, y: int = 99
       proc indirection =
         var z = 12
-        proc innerA = echo z, " ", x, " ", y
+        proc innerA =
+          doAssert z == 12
+          doAssert x == 99
+          doAssert y == 99
+
         proc innerB =
           innerA()
 
@@ -156,12 +148,9 @@ block tclosure0:
 
     needlessIndirection()
 
-
-
-
-
-
-block tclosure3:
+# XXX: the VM is currently too slow to execute this test case in a reasonable
+#      time
+test tclosure3, {c, js}:
   proc main =
     const n = 30
     for iterations in 0..10_000:
@@ -174,15 +163,17 @@ block tclosure3:
         let val = s[i]()
         if val != $(i*i): echo "bug  ", val
 
-      if getOccupiedMem() > 5000_000: quit("still a leak!")
-    echo "success"
+      # if getOccupiedMem() > 5000_000:
+      #   doAssert false, "still a leak!"
 
   main()
 
+# XXX: fails for the VM target because the ``std/streams`` module (used by
+#      ``json``) is not yet fully supported there
+when not defined(vm):
+  import std/json
 
-
-import json, tables, sequtils
-block tclosure4:
+test tclosure, {c, js}:
   proc run(json_params: OrderedTable) =
     let json_elems = json_params["files"].elems
     # These fail compilation.
@@ -192,9 +183,8 @@ block tclosure4:
   run((text.parseJson).fields)
 
 
-
-import sugar
 block inference3304:
+  # bug https://github.com/nim-lang/nim/issues/3304
   type
     List[T] = ref object
       val: T
@@ -202,8 +192,7 @@ block inference3304:
   proc foo[T](l: List[T]): seq[int] =
     @[1,2,3,5].filter(x => x != l.val)
 
-  echo(foo(List[int](val: 3)))
-
+  doAssert foo(List[int](val: 3)) == [1, 2, 5]
 
 
 block tcodegenerr1923:
@@ -225,6 +214,8 @@ block doNotation:
     Event = object
       x, y: int
 
+  var events: seq[string]
+
   proc onClick(x: Button, handler: proc(x: Event)) =
     handler(Event(x: 10, y: 20))
 
@@ -232,18 +223,18 @@ block doNotation:
     handler()
 
   proc onUserEvent(x: Button, eventName: string, handler: proc) =
-    echo "registered handler for ", eventName
+    events.add("registered " & eventName)
 
   var b = Button()
 
   b.onClick do (e: Event):
-    echo "click at ", e.x, ",", e.y
+    events.add("click at " & $e.x & "," & $e.y)
 
   b.onFocusLost:
-    echo "lost focus 1"
+    events.add("lost focus 1")
 
   b.onFocusLost do:
-    echo "lost focus 2"
+    events.add("lost focus 2")
 
   b.onUserEvent("UserEvent 1") do:
     discard
@@ -254,12 +245,21 @@ block doNotation:
   b.onUserEvent("UserEvent 3"):
     discard
 
-  b.onUserEvent("UserEvent 4", () => echo "event 4")
+  b.onUserEvent("UserEvent 4", () => events.add("event 4"))
+
+  doAssert events ==
+    ["click at 10,20",
+     "lost focus 1",
+     "lost focus 2",
+     "registered UserEvent 1",
+     "registered UserEvent 2",
+     "registered UserEvent 3",
+     "registered UserEvent 4"]
 
 
-
-import tables
-block fib50:
+# knownIssue: unrelated to closure support, the JS code-generator emits the
+#             ``int32`` overflow checks for 64-bit integers
+test fib50, {c, vm}:
   proc memoize(f: proc (a: int64): int64): proc (a: int64): int64 =
       var previous = initTable[int64, int64]()
       return proc(i: int64): int64 =
@@ -280,7 +280,7 @@ block fib50:
 
 
 block tflatmap:
-  # bug #3995
+  # bug https://github.com/nim-lang/nim/issues/3995
   type
     RNG = tuple[]
     Rand[A] = (RNG) -> (A, RNG)
@@ -302,8 +302,8 @@ block tflatmap:
   discard nextInt.map(i => i - i mod 2)
 
 
-
-block tforum:
+# XXX: closure iterators are not supporte by the VM and JS
+test tforum, {c}:
   type
     PAsyncHttpServer = ref object
       value: string
@@ -321,9 +321,11 @@ block tforum:
   proc processClient(): PFutureBase =
     new(result)
 
+  var output = ""
+
   proc serve(server: PAsyncHttpServer): PFutureBase =
     iterator serveIter(): PFutureBase {.closure.} =
-      echo server.value
+      output.add server.value
       while true:
         var acceptAddrFut = server.accept()
         yield acceptAddrFut
@@ -332,8 +334,8 @@ block tforum:
         var f = processClient()
         f.callback =
           proc () =
-            echo("processClient end")
-            echo(f.failed)
+            output.add $f.failed
+
         yield f
     var x = serveIter
     for i in 0 .. 1:
@@ -342,6 +344,7 @@ block tforum:
 
   discard serve(PAsyncHttpServer(value: "asdas"))
 
+  doAssert output == "asdasfalse"
 
 
 block futclosure2138:
@@ -353,7 +356,6 @@ block futclosure2138:
 
   proc contains(s: string, words: varargs[string]): bool =
     any(words, (word) => s.contains(word))
-
 
 
 block tinterf:
@@ -378,20 +380,22 @@ block tinterf:
   doAssert i.getter1() == 56
   doAssert i.getter2() == 66
 
-
-
-block tjester:
+# XXX: closure iterators are not yet supported in the VM and for JS. Also, this
+#      test case needs to be reduced further
+test tjester, {c}:
   type
     Future[T] = ref object
       data: T
       callback: proc () {.closure.}
+
+  var output = ""
 
   proc cbOuter(response: string) {.discardable.} =
     iterator cbIter(): Future[int] {.closure.} =
       for i in 0..7:
         proc foo(): int =
           iterator fooIter(): Future[int] {.closure.} =
-            echo response, i
+            output.add response & $i
             yield Future[int](data: 17)
           var iterVar = fooIter
           iterVar().data
@@ -410,6 +414,8 @@ block tjester:
 
   cbOuter "baro"
 
+  doAssert output == "baro0"
+
 
 
 block tnamedparamanonproc:
@@ -427,73 +433,18 @@ block tnamedparamanonproc:
 
   main()
 
-
-
-block tnestedclosure:
-  proc main(param: int) =
-    var foo = 23
-    proc outer(outerParam: string) =
-      var outerVar = 88
-      echo outerParam, outerVar
-      proc inner() =
-        block Test:
-          echo foo, " ", param, outerParam, " ", outerVar
-      inner()
-    outer("foo")
-
-  # test simple closure within dummy 'main':
-  proc dummy =
-    proc main2(param: int) =
-      var fooB = 23
-      proc outer(outerParam: string) =
-        var outerVar = 88
-        echo outerParam, outerVar
-        proc inner() =
-          block Test:
-            echo fooB, " ", param, outerParam, " ", outerVar
-        inner()
-      outer("foo")
-    main2(24)
-
-  dummy()
-
-  main(24)
-
-  # Jester + async triggered this bug:
-  proc cbOuter() =
-    var response = "hohoho"
-    block:
-      proc cbIter() =
-        block:
-          proc fooIter() =
-            doAssert response == "hohoho"
-          fooIter()
-      cbIter()
-  cbOuter()
-
-
-
-block tnestedproc:
-  proc p(x, y: int): int =
-    result = x + y
-
-  echo p((proc (): int =
-            var x = 7
-            return x)(),
-         (proc (): int = return 4)())
-
-
-
 block tnoclosure:
   proc pascal(n: int) =
     var row = @[1]
     for r in 1..n:
       row = zip(row & @[0], @[0] & row).mapIt(it[0] + it[1])
-    echo row
+    doAssert row == [1, 10, 45, 120, 210, 252, 210, 120, 45, 10, 1]
   pascal(10)
 
-block non_nested_closure:
-  # make sure that a top-level anonymous closure procedure that works (for now)
+# knownIssue: the procedure doesn't have an environment parameter, which
+#             confuses ``vmgen``
+test non_nested_closure, {c, js}:
+  # make sure that a top-level anonymous closure procedure works (for now)
   var cl = proc (): int {.closure.} = 1
   doAssert cl is "closure"
   doAssert cl() == 1

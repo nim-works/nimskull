@@ -1,12 +1,10 @@
 discard """
-  output: '''true
-(999, 0)
-ok 0
-ok 1
-ok 2
-'''
+  targets: "c js vm"
+  output: ""
 """
 
+import std/sequtils
+import mutils
 
 block tissue600:
   for i in 1..1:
@@ -15,8 +13,6 @@ block tissue600:
       reported = true
 
 
-
-import sequtils
 block tissue1502def:
   let xs: seq[tuple[key: string, val: seq[string]]] = @[("foo", @["bar"])]
 
@@ -45,7 +41,7 @@ block tissue1846:
     result.cmp = cmp
 
   var h = initHeap[int](less[int])
-  echo h.cmp(2,3)
+  doAssert h.cmp(2,3) == true
 
 
 
@@ -58,28 +54,33 @@ block tissue1911:
 
     return (bar, baz)
 
-# bug #11523
+# bug https://github.com/nim-lang/nim/issues/11523
 proc foo(): proc =
   let a = 999
   return proc(): (int, int) =
     return (a, 0)
 
-echo foo()()
+doAssert foo()() == (999, 0)
 
+# knownIssue: the JS code generator emits doesn't detect the inner procedures
+#             created by the lambda expressions as such
+test tissue7104, {c, vm}:
+  var output: seq[int]
 
-block tissue7104:
   proc sp(cb: proc())=
       cb()
 
   sp:
       var i = 0
-      echo "ok ", i
+      output.add(i)
       sp():
           inc i
-          echo "ok ", i
+          output.add(i)
           sp do:
               inc i
-              echo "ok ", i
+              output.add(i)
+
+  doAssert output == [0, 1, 2]
 
 block:
   # a regression test against closure inference happening too early (i.e.
