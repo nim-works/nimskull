@@ -273,23 +273,15 @@ proc testStdlib(r: var TResults, pattern, options: string, cat: Category) =
 
 # ---------------- IC tests ---------------------------------------------
 
-proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
-             isNavigatorTest: bool) =
+proc icTests(r: var TResults; testsDir: string, cat: Category, options: string) =
   const
     tooltests = ["compiler/nim.nim"]
     incrementalOn = " --incremental:on -d:nimIcIntegrityChecks "
-    navTestConfig = " --ic:on -d:nimIcNavigatorTests --hint:Conf:off --warnings:off "
   
-  let targets =
-    if isNavigatorTest:
-      {nativeTarget()}
-    else:
-      cat.defaultTargets()
+  let targets = cat.defaultTargets()
 
   template editedTest(x: untyped) =
     var test = makeTest(file, x & options, cat)
-    if isNavigatorTest:
-      test.spec.action = actionCompile
     test.spec.targets = targets
     testSpecWithNimcache(r, test, nimcache)
 
@@ -298,19 +290,18 @@ proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
     test.spec.cmd = compilerPrefix & " check --hint:Conf:off --warnings:off --ic:on $options " & file
     testSpecWithNimcache(r, test, nimcache)
 
-  if not isNavigatorTest:
-    for file in tooltests:
-      for target in targets:
-        let nimcache = nimcacheDir(file, options, target)
-        removeDir(nimcache)
+  for file in tooltests:
+    for target in targets:
+      let nimcache = nimcacheDir(file, options, target)
+      removeDir(nimcache)
 
-        let oldPassed = r.passed
+      let oldPassed = r.passed
+      checkTest()
+
+      if r.passed == oldPassed+1:
         checkTest()
-
-        if r.passed == oldPassed+1:
+        if r.passed == oldPassed+2:
           checkTest()
-          if r.passed == oldPassed+2:
-            checkTest()
 
   const tempExt = "_temp.nim"
   for it in walkDirRec(testsDir):
@@ -325,12 +316,12 @@ proc icTests(r: var TResults; testsDir: string, cat: Category, options: string;
           let file = it.replace(".nim", tempExt)
           writeFile(file, fragment)
           let oldPassed = r.passed
-          editedTest(if isNavigatorTest: navTestConfig else: incrementalOn)
+          editedTest(incrementalOn)
           if r.passed != oldPassed+1: break
 
 # ----------------------------------------------------------------------------
 
-# const AdditionalCategories = ["debugger", "lib", "ic", "navigator"]
+# const AdditionalCategories = ["debugger", "lib", "ic"]
 const AdditionalCategories = ["debugger", "lib"]
 const MegaTestCat = "megatest"
 
@@ -391,8 +382,6 @@ proc runJoinedTest(r: var TResults, targets: set[TTarget], testsDir, options: st
             if isJoinableSpec(spec, targets):
               specs.add spec
           except ValueError:
-            # e.g. for `tests/navigator/tincludefile.nim` which have multiple
-            # specs; this will be handled elsewhere
             msg Undefined:
               "parseSpec raised ValueError for: '$1', assuming this will be handled outside of megatest" % file
             continue
@@ -574,9 +563,7 @@ proc processCategory(r: var TResults, cat: Category, targets: set[TTarget],
   of "lib":
     testStdlib(r, "lib/pure/", options, cat)
   of "ic":
-    icTests(r, testsDir / cat2, cat, options, isNavigatorTest=false)
-  of "navigator":
-    icTests(r, testsDir / cat2, cat, options, isNavigatorTest=true)
+    icTests(r, testsDir / cat2, cat, options)
   of "untestable":
     # These require special treatment e.g. because they depend on a third party
     # dependency; see `trunner_special` which runs some of those.
