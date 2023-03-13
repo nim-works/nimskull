@@ -154,9 +154,6 @@ type
     rextUnexpectedValue ## Command-line argument had value, but it did not
     ## match with any expected.
 
-    rextIcUnknownFileName
-    rextIcNoSymbolAtPosition
-
     rextExpectedCbackendForRun
     rextExpectedTinyCForRun
     rextInvalidCommand

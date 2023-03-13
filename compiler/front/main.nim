@@ -58,8 +58,7 @@ import
 
 import compiler/ic/[
     cbackend,
-    integrity,
-    navigator
+    integrity
   ]
 from compiler/ic/ic import rodViewer
 
@@ -130,14 +129,6 @@ proc commandCheck(graph: ModuleGraph) =
   defineSymbol(conf, "nimcheck")
   semanticPasses(graph)  # use an empty backend for semantic checking only
   compileProject(graph)
-
-  if conf.symbolFiles != disabledSf:
-    case conf.ideCmd
-    of ideDef: navDefinition(graph)
-    of ideUse: navUsages(graph)
-    of ideDus: navDefusages(graph)
-    else: discard
-    writeRodFiles(graph)
 
 when not defined(leanCompiler):
   proc commandDoc2(graph: ModuleGraph; ext: string) =

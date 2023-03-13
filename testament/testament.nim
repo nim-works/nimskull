@@ -1020,7 +1020,7 @@ func defaultTargets(category: Category): set[TTarget] =
   of "arc", "avr", "destructor", "distros", "dll", "gc", "osproc", "parallel",
      "realtimeGC", "threads", "views", "valgrind":
     standardTargets - {targetJs}
-  of "compilerapi", "compilerunits", "ic", "navigator", "lexer", "testament":
+  of "compilerapi", "compilerunits", "ic", "lexer", "testament":
     {nativeTarget()}
   of "js":
     {targetJs}

@@ -2969,12 +2969,6 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
         r.cmdlineSwitch, r.cmdlineAllowed.join(", ")
       ]
 
-    of rextIcUnknownFileName:
-      result = "unknown file name: " & r.msg
-
-    of rextIcNoSymbolAtPosition:
-      result = "no symbol at this position"
-
     of rextExpectedTinyCForRun:
       result = "'run' command not available; rebuild with -d:tinyc"
 

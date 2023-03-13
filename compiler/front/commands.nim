@@ -177,8 +177,7 @@ const optNames = @[
   "maxloopiterationsvm", "errormax", "verbosity", "parallelbuild",
   "version", "advanced", "fullhelp", "help", "symbolfiles", "skipcfg",
   "skipprojcfg", "skipusercfg", "skipparentcfg", "genscript", "colors",
-  "lib", "putenv", "cc", "track", "trackdirty", "suggest", "def",
-  "context", "usages", "defusages", "stdout", "filenames", "processing",
+  "lib", "putenv", "cc", "stdout", "filenames", "processing",
   "unitsep", "listfullpaths", "spellsuggest", "declaredlocs",
   "dynliboverride", "dynliboverrideall", "experimental",
   "exceptions", "cppdefine", "seqsv2", "stylecheck", "showallmismatches",
@@ -524,62 +523,6 @@ proc processCfgPath(conf: ConfigRef; path: string, info: TLineInfo, switch: stri
     conf.localReport(info, ExternalReport(
       kind: rextInvalidPath, cmdlineProvided: p, cmdlineSwitch: switch))
     result = AbsoluteDir p
-
-proc makeAbsolute(s: string): AbsoluteFile =
-  if isAbsolute(s):
-    AbsoluteFile pathnorm.normalizePath(s)
-  else:
-    AbsoluteFile pathnorm.normalizePath(os.getCurrentDir() / s)
-
-proc setTrackingInfo(conf: ConfigRef; dirty, file, line, column: string,
-                     info: TLineInfo) =
-  ## set tracking info, common code for track, trackDirty, & ideTrack
-  var ln, col: int
-  if parseUtils.parseInt(line, ln) <= 0:
-    conf.localReport(info, ExternalReport(
-      kind: rextInvalidNumber, cmdlineProvided: line))
-  if parseUtils.parseInt(column, col) <= 0:
-    conf.localReport(info, ExternalReport(
-      kind: rextInvalidNumber, cmdlineProvided: column))
-
-  let a = makeAbsolute(file)
-  if dirty == "":
-    conf.m.trackPos = newLineInfo(conf, a, ln, col)
-  else:
-    let dirtyOriginalIdx = fileInfoIdx(conf, a)
-    if dirtyOriginalIdx.int32 >= 0:
-      msgs.setDirtyFile(conf, dirtyOriginalIdx, makeAbsolute(dirty))
-    conf.m.trackPos = newLineInfo(dirtyOriginalIdx, ln, col)
-
-proc trackDirty(conf: ConfigRef; arg: string, info: TLineInfo) =
-  var a = arg.split(',')
-  if a.len != 4:
-    conf.localReport(info, ExternalReport(
-      kind: rextInvalidValue,
-      cmdlineProvided: arg, cmdlineError: "DIRTY_BUFFER,ORIGINAL_FILE,LINE,COLUMN expected"))
-  setTrackingInfo(conf, a[0], a[1], a[2], a[3], info)
-
-proc track(conf: ConfigRef; arg: string, info: TLineInfo) =
-  var a = arg.split(',')
-  if a.len != 3:
-    conf.localReport(info, ExternalReport(
-      kind: rextInvalidValue,
-      cmdlineProvided: arg, cmdlineError: "FILE,LINE,COLUMN expected"))
-  setTrackingInfo(conf, "", a[0], a[1], a[2], info)
-
-proc trackIde(conf: ConfigRef; cmd: IdeCmd, arg: string, info: TLineInfo) =
-  ## set the tracking info related to an ide cmd, supports optional dirty file
-  var a = arg.split(',')
-  case a.len
-  of 4:
-    setTrackingInfo(conf, a[0], a[1], a[2], a[3], info)
-  of 3:
-    setTrackingInfo(conf, "", a[0], a[1], a[2], info)
-  else:
-    conf.localReport(info, ExternalReport(
-      kind: rextInvalidValue,
-      cmdlineProvided: arg, cmdlineError: "[DIRTY_BUFFER,]ORIGINAL_FILE,LINE,COLUMN expected"))
-  conf.ideCmd = cmd
 
 proc dynlibOverride(conf: ConfigRef; switch, arg: string, pass: TCmdLinePass, info: TLineInfo) =
   if pass in {passCmd2, passPP}:
@@ -1113,27 +1056,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "cc":
     expectArg(conf, switch, arg, pass, info)
     setCC(conf, arg, info)
-  of "track":
-    expectArg(conf, switch, arg, pass, info)
-    track(conf, arg, info)
-  of "trackdirty":
-    expectArg(conf, switch, arg, pass, info)
-    trackDirty(conf, arg, info)
-  of "suggest":
-    expectNoArg(conf, switch, arg, pass, info)
-    conf.ideCmd = ideSug
-  of "def":
-    expectArg(conf, switch, arg, pass, info)
-    trackIde(conf, ideDef, arg, info)
-  of "context":
-    expectNoArg(conf, switch, arg, pass, info)
-    conf.ideCmd = ideCon
-  of "usages":
-    expectArg(conf, switch, arg, pass, info)
-    trackIde(conf, ideUse, arg, info)
-  of "defusages":
-    expectArg(conf, switch, arg, pass, info)
-    trackIde(conf, ideDus, arg, info)
   of "stdout":
     processOnOffSwitchG(conf, {optStdout}, arg, pass, info, switch)
   of "filenames":
