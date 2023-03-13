@@ -67,7 +67,7 @@ proc cfgPass*(file: string, args: seq[string]): ConfigRef =
 
   var cache = newIdentCache()
   var graph = newModuleGraph(cache, result)
-  loadConfigs(DefaultConfig, cache, result, graph.idgen)
+  loadConfigs(DefaultConfig, cache, result)
 
 proc assertInter[T](inters: set[T], want: set[T] = {}) =
   doAssert inters == want, $want

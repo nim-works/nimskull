@@ -232,7 +232,6 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
       setResult(a, stdin.readAll())
 
 proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
-                   idgen: IdGenerator;
                    freshDefines=true; conf: ConfigRef, stream: PLLStream) =
 
   conf.localReport DebugReport(
@@ -263,7 +262,7 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
 
   var m = graph.makeModule(scriptName)
   incl(m.flags, sfMainModule)
-  var vm = setupVM(m, cache, scriptName.string, graph, idgen)
+  var vm = setupVM(m, cache, scriptName.string, graph, graph.idgen)
   let disallowDanger =
     defined(nimsuggest) or graph.config.cmd == cmdCheck or
     vmopsDanger notin graph.config.features

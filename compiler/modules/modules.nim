@@ -127,8 +127,11 @@ proc compileModule*(graph: ModuleGraph; fileIdx: FileIndex; flags: TSymFlags, fr
     onProcessing(graph, fileIdx, moduleStatus, fromModule = fromModule)
     var s: PLLStream
     if sfMainModule in flags:
-      if graph.config.projectIsStdin: s = stdin.llStreamOpen
-      elif graph.config.projectIsCmd: s = llStreamOpen(graph.config.cmdInput)
+      s =
+        case graph.config.inputMode
+        of pimStdin: llStreamOpen(stdin)
+        of pimCmd:   llStreamOpen(graph.config.commandArgs[0])
+        of pimFile:  nil # handled by ``processModule``
     discard processModule(graph, result, idGeneratorFromModule(result), s)
 
   if result == nil:

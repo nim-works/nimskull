@@ -28,8 +28,12 @@ const
     # instead of `querySetting(nimcacheDir)`, avoids stomping on other parallel tests
 
 proc runNimCmd(file, options = "", rtarg = ""): auto =
-  let fileabs = testsDir / file.unixToNativePath
-  # doAssert fileabs.fileExists, fileabs # disabled because this allows passing `nim r --eval:code fakefile`
+  var fileabs = testsDir / file.unixToNativePath
+  if not fileabs.fileExists:
+    # `file` might refer to the input code used with ``--fromCmd`` in this
+    # case
+    fileabs = file
+
   let cmd = fmt"{nim} {mode} --hint:all:off {options} {fileabs} {rtarg}"
   result = execCmdEx(cmd)
   when false: # for debugging
@@ -209,18 +213,17 @@ tests/newconfig/bar/mfoo.nims""".splitLines
     let cmd = fmt"{nim} e --skipUserCfg --hints=on --hint=all:off --hint:conf {filename}"
     let (outp, exitCode) = execCmdEx(cmd, options = {poStdErrToStdOut})
     doAssert exitCode == 0
-    var expected = &"Hint: used config file '{filename}' [Conf]\n"
-    doAssert outp.endsWith "123" & "\n" & expected
+    doAssert outp.endsWith "123" & "\n"
 
 
-  block: # nim --eval
+  block: # nim --fromcmd
     let opt = "--hints:off"
-    check fmt"""{nim} {opt} --eval:"echo defined(nimscript)"""".execCmdEx == ("true\n", 0)
-    check fmt"""{nim} r {opt} --eval:"echo defined(c)"""".execCmdEx == ("true\n", 0)
-    check fmt"""{nim} r -b:js {opt} --eval:"echo defined(js)"""".execCmdEx == ("true\n", 0)
+    check fmt"""{nim} e {opt} --fromcmd "echo defined(nimscript)"""".execCmdEx == ("true\n", 0)
+    check fmt"""{nim} r {opt} --fromcmd "echo defined(c)"""".execCmdEx == ("true\n", 0)
+    check fmt"""{nim} r -b:js {opt} --fromcmd "echo defined(js)"""".execCmdEx == ("true\n", 0)
 
   block: # `hintProcessing` dots should not interfere with `static: echo` + friends
-    let cmd = fmt"""{nim} r --skipUserCfg --hints=on --hint:all:off --hint:processing -f --eval:"static: echo 1+1""""
+    let cmd = fmt"""{nim} r --skipUserCfg --hints=on --hint:all:off --hint:processing -f --fromcmd "static: echo 1+1""""
     let (outp, exitCode) = execCmdEx(cmd, options = {poStdErrToStdOut})
     template check3(cond) = doAssert cond, $(outp,)
     doAssert exitCode == 0
@@ -269,20 +272,23 @@ running: v2
   block: # genscript
     const nimcache2 = buildDir / "D20210524T212851"
     removeDir(nimcache2)
-    let input = "tgenscript_fakefile" # no need for a real file, --eval is good enough
+    let
+      input = "\"echo(12345)\""
+      inputFile = "cmdfile"
+
     let output = runNimCmdChk(
-      input, fmt"""--genscript --nimcache:{nimcache2.quoteShell} --eval:"echo(12345)" """)
+      input, fmt"--genscript --nimcache:{nimcache2.quoteShell} --fromCmd")
 
     doAssert output.len == 0, output
     let ext = when defined(windows): ".bat" else: ".sh"
-    let filename = fmt"compile_{input}{ext}" # synchronize with `generateScript`
+    let filename = fmt"compile_{inputFile}{ext}" # synchronize with `generateScript`
     doAssert fileExists(nimcache2/filename), nimcache2/filename
     let cmd = genShellCmd(filename)
     let (outp, status) = execCmdEx(
       cmd, options = {poStdErrToStdOut}, workingDir = nimcache2)
 
     doAssert status == 0, outp
-    let (outp2, status2) = execCmdEx(nimcache2 / input, options = {poStdErrToStdOut})
+    let (outp2, status2) = execCmdEx(nimcache2 / inputFile, options = {poStdErrToStdOut})
     doAssert outp2 == "12345\n", outp2
     doAssert status2 == 0
 

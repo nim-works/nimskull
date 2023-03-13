@@ -159,7 +159,7 @@ proc addPrefix(switch: string): string =
 # being it is easier to manually keep this list up-to-date.
 const optNames = @[
   # processSwitch
-  "eval", "path", "p", "nimblepath", "babelpath", "nonimblepath",
+  "fromcmd", "path", "p", "nimblepath", "babelpath", "nonimblepath",
   "nobabelpath", "clearnimblepath", "excludepath", "nimcache", "out", "o",
   "outdir", "depfile", "usenimcache", "docseesrcurl", "docroot", "backend", "b",
   "doccmd", "define", "d", "undef", "u", "compile", "link", "debuginfo",
@@ -594,7 +594,6 @@ proc handleStdinOrCmdInput(conf: ConfigRef) =
 
 proc handleStdinInput*(conf: ConfigRef) =
   conf.projectName = "stdinfile"
-  conf.projectIsStdin = true
   handleStdinOrCmdInput(conf)
 
 proc handleCmdInput*(conf: ConfigRef) =
@@ -679,14 +678,9 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       cmdlineSwitch: switch)
 
   case switch.normalize
-  of "eval":
-    expectArg(conf, switch, arg, pass, info)
-    conf.projectIsCmd = true
-    conf.cmdInput = arg # can be empty (a nim file with empty content is valid too)
-    if conf.cmd == cmdNone:
-      conf.command = "e"
-      conf.setCmd cmdNimscript # better than `cmdCrun` as a default
-      conf.implicitCmd = true
+  of "fromcmd":
+    expectNoArg(conf, switch, arg, pass, info)
+    conf.inputMode = pimCmd
   of "path", "p":
     expectArg(conf, switch, arg, pass, info)
     for path in nimbleSubs(conf, arg):
@@ -1273,7 +1267,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "deepcopy":
     processOnOffSwitchG(conf, {optEnableDeepCopy}, arg, pass, info, switch)
   of "": # comes from "-" in for example: `nim c -r -` (gets stripped from -)
-    handleStdinInput(conf)
+    conf.inputMode = pimStdin
   of "nilseqs", "nilchecks", "mainmodule", "m", "symbol", "taintmode",
      "cs", "deadcodeelim":
     warningOptionNoop(switch)
@@ -1300,8 +1294,6 @@ proc processSwitch*(pass: TCmdLinePass; p: OptParser; config: ConfigRef) =
 
 proc processArgument*(pass: TCmdLinePass; p: OptParser;
                       argsCount: var int; config: ConfigRef): bool =
-  if argsCount == 0 and config.implicitCmd:
-    argsCount.inc
   if argsCount == 0:
     # nim filename.nims  is the same as "nim e filename.nims":
     if p.key.endsWith(".nims"):
@@ -1315,7 +1307,7 @@ proc processArgument*(pass: TCmdLinePass; p: OptParser;
     if pass == passCmd1: config.commandArgs.add p.key
     if argsCount == 1:
       # support UNIX style filenames everywhere for portable build scripts:
-      if config.projectName.len == 0:
+      if config.projectName.len == 0 and config.inputMode == pimFile:
         config.projectName = unixToNativePath(p.key)
       config.arguments = cmdLineRest(p)
       result = true

@@ -173,6 +173,12 @@ type
     doAbort   ## Immediately abort compilation
     doRaise   ## Raise recoverable error
 
+  ProjectInputMode* = enum
+    pimStdin ## the contents of the main module are provided by stdin
+    pimCmd   ## the contents of the main module are provided by a command-line
+             ## argument
+    pimFile  ## the main module is a file
+
   ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
 
   HackController* = object
@@ -221,11 +227,6 @@ type
     ## against infinite macro expansion recursion
     exitcode*: int8
 
-    # `--eval` flag handling
-    cmdInput*: string    ## Code to evaluate from `--eval` switch
-    projectIsCmd*: bool  ## whether we're compiling from a command input (`--eval` switch)
-    implicitCmd*: bool   ## whether some flag triggered an implicit `command` (`--eval`)
-
     hintProcessingDots*: bool ## true for dots, false for filenames
 
     lastCmdTime*: float       ## Start of the last compiler commmand - set
@@ -250,7 +251,7 @@ type
     moduleOverrides*: StringTableRef
     cfileSpecificOptions*: StringTableRef ## File specific compilation options for C backend.
     ## Modified by `{.localPassc.}`
-    projectIsStdin*: bool           ## whether we're compiling from stdin
+    inputMode*: ProjectInputMode    ## how the main module is sourced
     lastMsgWasDot*: set[StdOrrKind] ## the last compiler message was a single '.'
     projectMainIdx*: FileIndex      ## the canonical path id of the main module
     projectMainIdx2*: FileIndex     ## consider merging with projectMainIdx
@@ -939,7 +940,7 @@ proc newConfigRef*(hook: ReportHook): ConfigRef =
     packageCache: newPackageCache(),
     moduleOverrides: newStringTable(modeStyleInsensitive),
     cfileSpecificOptions: newStringTable(modeCaseSensitive),
-    projectIsStdin: false, # whether we're compiling from stdin
+    inputMode: pimFile,
     projectMainIdx: FileIndex(0'i32), # the canonical path id of the main module
     command: "", # the main command (e.g. cc, check, scan, etc)
     commandArgs: @[], # any arguments after the main command

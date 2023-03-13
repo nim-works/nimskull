@@ -25,8 +25,7 @@ import
     idents,
     wordrecg,
     llstream,
-    lineinfos,
-    ast
+    lineinfos
   ],
   compiler/utils/[
     pathutils,
@@ -428,8 +427,7 @@ proc getSystemConfigPath*(conf: ConfigRef; filename: RelativeFile): AbsoluteFile
     if not fileExists(result): result = AbsoluteDir"/etc/nim" / filename
 
 proc loadConfigs(
-    N: var NimConfParser, cfg: RelativeFile, cache: IdentCache,
-    idgen: IdGenerator
+    N: var NimConfParser, cfg: RelativeFile, cache: IdentCache
   ) =
   setDefaultLibpath(N.config)
 
@@ -438,22 +436,11 @@ proc loadConfigs(
     if readConfigFile(N, configPath, cache):
       N.config.configFiles.add(configPath)
 
-  proc runNimScriptIfExists(N: var NimConfParser, path: AbsoluteFile,
-                            isMain = false) =
-    let p = path # eval once
-    var s: PLLStream
-    if isMain and optWasNimscript in N.config.globalOptions:
-      if N.config.projectIsStdin:
-        s = stdin.llStreamOpen
-      elif N.config.projectIsCmd:
-        s = llStreamOpen(N.config.cmdInput)
-
-    if s == nil and fileExists(p):
-      s = llStreamOpen(p, fmRead)
-
-    if s != nil:
-      N.config.configFiles.add(p)
-      runNimScript(cache, p, idgen, freshDefines = false, N.config, s)
+  proc runNimScriptIfExists(N: var NimConfParser, path: AbsoluteFile) =
+    if fileExists(path):
+      var s = llStreamOpen(path, fmRead)
+      N.config.configFiles.add(path)
+      runNimScript(cache, path, freshDefines = false, N.config, s)
 
   if optSkipSystemConfigFile notin N.config.globalOptions:
     N.readConfigFile(getSystemConfigPath(N.config, cfg))
@@ -493,36 +480,21 @@ proc loadConfigs(
   let
     scriptFile = N.config.projectFull.changeFileExt("nims")
     scriptIsProj = scriptFile == N.config.projectFull
-  
-  template showHintConf =
-    for filename in N.config.configFiles:
-      # delayed to here so that `hintConf` is honored
-      N.handleRead(cekProgressConfStart, filename.string)
 
-  if N.config.cmd == cmdNimscript:
-    showHintConf()
-    N.config.configFiles.setLen 0
-  
-  if N.config.cmd != cmdIdeTools:
-    if N.config.cmd == cmdNimscript:
-      N.runNimScriptIfExists(N.config.projectFull, isMain = true)
-    else:
-      N.runNimScriptIfExists(scriptFile, isMain = true)
-  else:
-    if not scriptIsProj:
-      N.runNimScriptIfExists(scriptFile, isMain = true)
-    else:
-      # 'nimsuggest foo.nims' means to just auto-complete the NimScript file
-      discard
-  
-  showHintConf()
+  if N.config.cmd != cmdNimscript and
+     (N.config.cmd != cmdIdeTools or not scriptIsProj):
+    # 'nimsuggest foo.nims' means to just auto-complete the NimScript file
+    N.runNimScriptIfExists(scriptFile)
+
+  for filename in N.config.configFiles:
+    # delayed to here so that `hintConf` is honored
+    N.handleRead(cekProgressConfStart, filename.string)
 
 proc loadConfigs*(
     cfg: RelativeFile; cache: IdentCache;
-    conf: ConfigRef; idgen: IdGenerator;
-    evtHandler: NimConfEvtHandler
+    conf: ConfigRef, evtHandler: NimConfEvtHandler
   ) {.inline.} =
   var parser = NimConfParser(config: conf, cfgEvtHandler: evtHandler)
-  parser.loadConfigs(cfg, cache, idgen)
+  parser.loadConfigs(cfg, cache)
 
   

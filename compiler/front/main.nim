@@ -72,6 +72,8 @@ from compiler/ast/report_enums import ReportKind,
   repWarningKinds,
   rstWarnings
 
+from compiler/front/scriptconfig import runNimScript
+
 when not defined(leanCompiler):
   import
     compiler/backend/jsgen,
@@ -344,7 +346,7 @@ proc mainCommand*(graph: ModuleGraph) =
     else:
       wantMainModule(conf)
       let docConf = if conf.cmd == cmdDoc2tex: DocTexConfig else: DocConfig
-      loadConfigs(docConf, cache, conf, graph.idgen)
+      loadConfigs(docConf, cache, conf)
       defineSymbol(conf, "nimdoc")
       body
 
@@ -396,7 +398,7 @@ proc mainCommand*(graph: ModuleGraph) =
     when defined(leanCompiler):
       conf.quitOrRaise "compiler wasn't built with documentation generator"
     else:
-      loadConfigs(DocConfig, cache, conf, graph.idgen)
+      loadConfigs(DocConfig, cache, conf)
       commandRst2Html(cache, conf)
   of cmdRst2tex, cmdDoc2tex:
     for warn in rstWarnings:
@@ -405,7 +407,7 @@ proc mainCommand*(graph: ModuleGraph) =
       conf.quitOrRaise "compiler wasn't built with documentation generator"
     else:
       if conf.cmd == cmdRst2tex:
-        loadConfigs(DocTexConfig, cache, conf, graph.idgen)
+        loadConfigs(DocTexConfig, cache, conf)
         commandRst2TeX(cache, conf)
       else:
         docLikeCmd commandDoc2(graph, TexExt)
@@ -462,12 +464,20 @@ proc mainCommand*(graph: ModuleGraph) =
     #msgWriteln(conf, "Beware: Indentation tokens depend on the parser's state!")
   of cmdInteractive: commandInteractive(graph)
   of cmdNimscript:
-    if conf.projectIsCmd or conf.projectIsStdin: discard
-    elif not fileExists(conf.projectFull):
+    if conf.inputMode == pimFile and not fileExists(conf.projectFull):
       localReport(conf, InternalReport(
         kind: rintCannotOpenFile, msg: conf.projectFull.string))
 
-    # main NimScript logic handled in `loadConfigs`.
+    let s =
+      case conf.inputMode
+      of pimStdin: llStreamOpenStdIn()
+      of pimCmd:   llStreamOpen(conf.commandArgs[0])
+      of pimFile:  llStreamOpen(conf.projectFull, fmRead)
+
+    # XXX: the ``runNimScript`` from ``scriptconfig`` is used, but the script
+    #      is not meant for configuration. While this has no practical
+    #      consequences right now, it's still a domain violation
+    runNimScript(cache, conf.projectFull, freshDefines = false, conf, s)
   of cmdNop: discard
   of cmdJsonscript:
     setOutFile(graph.config)
