@@ -116,23 +116,15 @@ block: # zip test
   doAssert zip1[2][1] == 4
   doAssert zip2[2][1] == "three"
   doAssert zip3[2][1] == 4
-  when (NimMajor, NimMinor) <= (1, 0):
-    let
-      # In Nim 1.0.x and older, zip returned a seq of tuple strictly
-      # with fields named "a" and "b".
-      zipAb = zip(ashort, awords)
-    doAssert zipAb == @[(a: 1, b: "one"), (2, "two"), (3, "three")]
-    doAssert zipAb[2].b == "three"
-  else:
-    let
-      # As zip returns seq of anonymous tuples, they can be assigned
-      # to any variable that's a sequence of named tuples too.
-      zipXy: seq[tuple[x: int, y: string]] = zip(ashort, awords)
-      zipMn: seq[tuple[m: int, n: string]] = zip(ashort, words)
-    doAssert zipXy == @[(x: 1, y: "one"), (2, "two"), (3, "three")]
-    doAssert zipMn == @[(m: 1, n: "one"), (2, "two"), (3, "three")]
-    doAssert zipXy[2].y == "three"
-    doAssert zipMn[2].n == "three"
+  let
+    # As zip returns seq of anonymous tuples, they can be assigned
+    # to any variable that's a sequence of named tuples too.
+    zipXy: seq[tuple[x: int, y: string]] = zip(ashort, awords)
+    zipMn: seq[tuple[m: int, n: string]] = zip(ashort, words)
+  doAssert zipXy == @[(x: 1, y: "one"), (2, "two"), (3, "three")]
+  doAssert zipMn == @[(m: 1, n: "one"), (2, "two"), (3, "three")]
+  doAssert zipXy[2].y == "three"
+  doAssert zipMn[2].n == "three"
 
 block: # distribute tests
   let numbers = @[1, 2, 3, 4, 5, 6, 7]

@@ -59,12 +59,9 @@ type
     optProduceAsm             ## produce assembler code
     optPanics                 ## turn panics (sysFatal) into a process
                               ## termination
-    optNimV1Emulation         ## emulate Nim v1.0
-    optNimV12Emulation        ## emulate Nim v1.2
     optSourcemap
     optProfileVM              ## enable VM profiler
-    optEnableDeepCopy         ## ORC specific: enable 'deepcopy' for all
-                              ## types.
+    optEnableDeepCopy         ## ORC specific: enable 'deepcopy' for all types
 
   TGlobalOptions* = set[TGlobalOption]
 

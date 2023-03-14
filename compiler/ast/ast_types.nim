@@ -715,16 +715,12 @@ const
   tfReturnsNew* = tfInheritable
   skError* = skUnknown
 
-var
   eqTypeFlags* = {
     tfIterator,
     tfNotNil,
     tfGcSafe,
     tfNoSideEffect
-  }
-    ## type flags that are essential for type equality.
-    ## This is now a variable because for emulation of version:1.0 we
-    ## might exclude {tfGcSafe, tfNoSideEffect}.
+  } ## type flags that are essential for type equality.
 
 type
   TMagic* = enum ## symbols that require compiler magic:
