@@ -1038,7 +1038,7 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
 
   let defPart = n[0]
   
-  inc c.inStaticContext
+  inc c.p.inStaticContext
 
   # expansion of the init part
   let
@@ -1293,7 +1293,7 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
     # wrap the result if there is an embedded error
     result = c.config.wrapError(result)
 
-  dec c.inStaticContext
+  dec c.p.inStaticContext
 
 
 proc semConstLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
@@ -2648,7 +2648,8 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     n[genericParamsPos] = n[miscPos][1]
     n[miscPos] = c.graph.emptyNode
 
-  if tfTriggersCompileTime in s.typ.flags: incl(s.flags, sfCompileTime)
+  if tfTriggersCompileTime in s.typ.flags or s.kind == skMacro:
+    incl(s.flags, sfCompileTime)
   
   if n[patternPos].kind != nkEmpty:
     n[patternPos] = semPattern(c, n[patternPos], s)
@@ -3104,11 +3105,11 @@ proc semPragmaBlock(c: PContext, n: PNode): PNode =
 proc semStaticStmt(c: PContext, n: PNode): PNode =
   #echo "semStaticStmt"
   #writeStackTrace()
-  inc c.inStaticContext
+  inc c.p.inStaticContext
   openScope(c)
   let a = semStmt(c, n[0], {})
   closeScope(c)
-  dec c.inStaticContext
+  dec c.p.inStaticContext
   n[0] = a
   evalStaticStmt(c.module, c.idgen, c.graph, a, c.p.owner)
   when false:

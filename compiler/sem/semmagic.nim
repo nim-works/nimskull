@@ -289,7 +289,7 @@ proc semBindSym(c: PContext, n: PNode): PNode =
     return createUndeclaredIdentifierError(c, n[1], sl.strVal)
 
   let sc = symChoice(c, id, s, TSymChoiceRule(rule.intVal))
-  if not (c.inStaticContext > 0 or getCurrOwner(c).isCompileTimeProc):
+  if not inCompileTimeOnlyContext(c):
     # outside of static evaluation and macros, ``bindSym`` resolves to the
     # sym-choice nodes
     result = sc

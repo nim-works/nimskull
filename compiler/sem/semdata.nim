@@ -78,6 +78,17 @@ type
     caseContext*: seq[tuple[n: PNode, idx: int]]
     localBindStmts*: seq[PNode]
 
+    inStaticContext*: int
+      ## > 0 if we are inside a ``static`` block/expression or initializer
+      ## expression of a ``const``
+      ##
+      ## written:
+      ##  - semexprs: save/restore in ``tryExpr``, inc/dec in ``semStaticExpr``
+      ##  - semstmts: inc/dec around ``semConst`` and ``semStaticStmt``
+      ## read:
+      ##  - semBindSym: whether to resolve the binding or not
+      ##  - inCompileTimeOnlyContext
+
   TMatchedConcept* = object
     candidateType*: PType
     prev*: ptr TMatchedConcept
@@ -264,19 +275,6 @@ type
                               ##    seems to be the only thing that might need
                               ##    this and it's likely a leak -- growing over
                               ##    time.
-
-    # static contexts
-    inStaticContext*: int
-      ## > 0 if we are inside a static: block
-      ##
-      ## written:
-      ##  - semStaticExpr: inc/dec around semExprWithType call likely for the
-      ##                   evalAtCompileTime, see below
-      ##  - semexprs: save/restore in `tryExpr`
-      ##  - semstmts: inc/dec around semConst and semStaticStmt
-      ## read:
-      ##  - evalAtCompileTime: guard compile time eval
-      ##  - semBindSym: whether to resolve the binding or not
 
     # hlo??
     inUnrolledContext*: int    ## > 0 if we are unrolling a loop
@@ -1086,6 +1084,11 @@ proc isTopLevel*(c: PContext): bool {.inline.} =
 proc isTopLevelInsideDeclaration*(c: PContext, sym: PSym): bool {.inline.} =
   # for routeKinds the scope isn't closed yet:
   c.currentScope.depthLevel <= 2 + ord(sym.kind in routineKinds)
+
+proc inCompileTimeOnlyContext*(c: PContext): bool =
+  ## Returns whether the current analysis happens for code that can only run
+  ## at compile-time
+  c.p.inStaticContext > 0 or sfCompileTime in c.p.owner.flags
 
 proc pushCaseContext*(c: PContext, caseNode: PNode) =
   c.p.caseContext.add((caseNode, 0))
