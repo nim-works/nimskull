@@ -1,26 +1,22 @@
 discard """
-  description: "Various tests for closures"
-  action: compile
+  targets: "c js vm"
+  description: "Additional small tests for closures"
 """
 
-
-# XXX: not specific to the VM
 block nimcall_closure_conversion:
 
   proc a() =
     proc p() {.nimcall.} = discard
     # assign a proc of nimcall convention to a closure
     var x: proc() {.closure.} = p
+    x()
 
-  static:
-    a()
+  a()
 
 block nil_closure:
-  static:
-    var a: proc() {.closure.} = nil
-    doAssert a.isNil
+  var a: proc() {.closure.} = nil
+  doAssert a.isNil
 
-# XXX: not specific to the VM
 block env_mutation1:
   proc a() =
     var val = 0
@@ -30,10 +26,8 @@ block env_mutation1:
     mutate()
     doAssert val == 1
 
-  static:
-    a()
+  a()
 
-# XXX: not specific to the VM
 block env_mutation2:
   proc a(): proc(): int =
     var e = 0
@@ -41,16 +35,14 @@ block env_mutation2:
       e += 1
       result = e
 
-  static:
-    let c = a()
-    let c2 = c
+  let c = a()
+  let c2 = c
 
-    doAssert c() == 1
-    doAssert c2() == 2
-    doAssert c() == 3
+  doAssert c() == 1
+  doAssert c2() == 2
+  doAssert c() == 3
 
 
-# XXX: not specific to the VM
 block closure_assign:
   type
     Obj = object
@@ -88,13 +80,12 @@ block closure_assign:
     cl = mkClosure2()
     cl()
 
-  static:
-    p()
+  p()
 
-    # Top-level test (cl is a global)
-    var cl = mkClosure1()
-    cl()
+  # Top-level test (cl is a global)
+  var cl = mkClosure1()
+  cl()
 
-    # Assign a closure with a different environment type
-    cl = mkClosure2()
-    cl()
+  # Assign a closure with a different environment type
+  cl = mkClosure2()
+  cl()
