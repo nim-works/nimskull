@@ -1074,8 +1074,9 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
       if a == nil: return n
       call.add(a)
 
-    #echo "NOW evaluating at compile time: ", call.renderTree
-    if c.inStaticContext == 0 or sfNoSideEffect in callee.flags:
+    # only attempt to fold the expression if doing so doesn't affect
+    # compile-time state
+    if c.p.inStaticContext == 0 or sfNoSideEffect in callee.flags:
       if sfCompileTime in callee.flags:
         result = evalStaticExpr(c.module, c.idgen, c.graph, call, c.p.owner)
         if result.isNil:
@@ -1097,11 +1098,11 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
     #  echo "SUCCESS evaluated at compile time: ", call.renderTree
 
 proc semStaticExpr(c: PContext, n: PNode): PNode =
-  inc c.inStaticContext
+  inc c.p.inStaticContext
   openScope(c)
   let a = semExprWithType(c, n)
   closeScope(c)
-  dec c.inStaticContext
+  dec c.p.inStaticContext
   if a.findUnresolvedStatic != nil: return a
   result = evalStaticExpr(c.module, c.idgen, c.graph, a, c.p.owner)
   if result.isNil:
@@ -2624,7 +2625,7 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   let oldInGenericContext = c.inGenericContext
   let oldInUnrolledContext = c.inUnrolledContext
   let oldInGenericInst = c.inGenericInst
-  let oldInStaticContext = c.inStaticContext
+  let oldInStaticContext = c.p.inStaticContext
   let oldProcCon = c.p
   c.generics = @[]
   var err: string
@@ -2643,8 +2644,8 @@ proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   c.inGenericContext = oldInGenericContext
   c.inUnrolledContext = oldInUnrolledContext
   c.inGenericInst = oldInGenericInst
-  c.inStaticContext = oldInStaticContext
   c.p = oldProcCon
+  c.p.inStaticContext = oldInStaticContext
   msgs.setInfoContextLen(c.config, oldContextLen)
   setLen(c.graph.owners, oldOwnerLen)
   c.currentScope = oldScope
