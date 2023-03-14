@@ -100,7 +100,7 @@ proc doCommand(session: var NimSession, command: string) =
     # For symbol runs we prepend the necessary parameters to avoid clobbering
     # the normal nimcache.
     if session.mode == SymbolProcRun:
-      command = "--symbolFiles:on --nimcache:" & session.nimcache &
+      command = "--incremental:on --nimcache:" & session.nimcache &
                 " " & command
     session.lastOutput = doProcCommand(session,
                                        command & " " & session.filename)

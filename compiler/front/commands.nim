@@ -159,8 +159,8 @@ proc addPrefix(switch: string): string =
 # being it is easier to manually keep this list up-to-date.
 const optNames = @[
   # processSwitch
-  "fromcmd", "path", "p", "nimblepath", "babelpath", "nonimblepath",
-  "nobabelpath", "clearnimblepath", "excludepath", "nimcache", "out", "o",
+  "fromcmd", "path", "p", "nimblepath", "nonimblepath",
+  "clearnimblepath", "excludepath", "nimcache", "out", "o",
   "outdir", "depfile", "usenimcache", "docseesrcurl", "docroot", "backend", "b",
   "doccmd", "define", "d", "undef", "u", "compile", "link", "debuginfo",
   "embedsrc", "compileonly", "c", "nolinking", "nomain", "forcebuild", "f",
@@ -171,11 +171,11 @@ const optNames = @[
   "floatchecks", "infchecks", "nanchecks", "objchecks", "fieldchecks",
   "rangechecks", "boundchecks", "overflowchecks",
   "staticboundchecks", "stylechecks", "linedir", "assertions", "threads",
-  "tlsemulation", "implicitstatic", "patterns", "opt", "app", "passc",
+  "tlsemulation", "implicitstatic", "trmacros", "opt", "app", "passc",
   "passl", "cincludes", "clibdir", "clib", "header", "index", "import",
   "include", "listcmd", "asm", "genmapping", "os", "cpu", "run",
   "maxloopiterationsvm", "errormax", "verbosity", "parallelbuild",
-  "version", "advanced", "fullhelp", "help", "symbolfiles", "skipcfg",
+  "version", "advanced", "fullhelp", "help", "skipcfg",
   "skipprojcfg", "skipusercfg", "skipparentcfg", "genscript", "colors",
   "lib", "putenv", "cc", "stdout", "filenames", "processing",
   "unitsep", "listfullpaths", "spellsuggest", "declaredlocs",
@@ -482,14 +482,12 @@ proc testCompileOption*(conf: ConfigRef; switch: string, info: TLineInfo): bool 
   of "linedir": result = contains(conf.options, optLineDir)
   of "assertions", "a": result = contains(conf.options, optAssert)
   of "run", "r": result = contains(conf.globalOptions, optRun)
-  of "symbolfiles": result = conf.symbolFiles != disabledSf
+  of "incremental": result = conf.symbolFiles != disabledSf
   of "genscript": result = contains(conf.globalOptions, optGenScript)
   of "threads": result = contains(conf.globalOptions, optThreads)
   of "tlsemulation": result = contains(conf.globalOptions, optTlsEmulation)
   of "implicitstatic": result = contains(conf.options, optImplicitStatic)
-  of "patterns", "trmacros":
-    if switch.normalize == "patterns": deprecatedAlias(switch, "trmacros")
-    result = contains(conf.options, optTrMacros)
+  of "trmacros": result = contains(conf.options, optTrMacros)
   of "excessivestacktrace": result = contains(conf.globalOptions, optExcessiveStackTrace)
   of "nilseqs", "nilchecks", "taintmode": warningOptionNoop(switch)
   else: invalidCmdLineOption(conf, passCmd1, switch, info)
@@ -629,8 +627,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     for path in nimbleSubs(conf, arg):
       addPath(conf, if pass == passPP: processCfgPath(conf, path, info, switch)
                     else: processPath(conf, path, info, switch), info)
-  of "nimblepath", "babelpath":
-    if switch.normalize == "babelpath": deprecatedAlias(switch, "nimblepath")
+  of "nimblepath":
     if pass in {passCmd2, passPP} and optNoNimblePath notin conf.globalOptions:
       expectArg(conf, switch, arg, pass, info)
       var path = processPath(conf, arg, info, switch, notRelativeToProj=true)
@@ -638,8 +635,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       if not nimbleDir.isEmpty and pass == passPP:
         path = nimbleDir / RelativeDir"pkgs"
       nimblePath(conf, path, info)
-  of "nonimblepath", "nobabelpath":
-    if switch.normalize == "nobabelpath": deprecatedAlias(switch, "nonimblepath")
+  of "nonimblepath":
     expectNoArg(conf, switch, arg, pass, info)
     disableNimblePath(conf)
   of "clearnimblepath":
@@ -678,9 +674,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "backend", "b":
     let backend = parseEnum(arg.normalize, TBackend.default)
     if backend == TBackend.default:
-      conf.localReport(
-        info, invalidSwitchValue @["c", "js", "vm"])
-
+      conf.localReport(info, invalidSwitchValue @["c", "js", "vm"])
     conf.backend = backend
   of "doccmd": conf.docCmd = arg
   of "define", "d":
@@ -863,9 +857,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     processOnOffSwitchG(conf, {optTlsEmulation}, arg, pass, info, switch)
   of "implicitstatic":
     processOnOffSwitch(conf, {optImplicitStatic}, arg, pass, info, switch)
-  of "patterns", "trmacros":
-    if switch.normalize == "patterns":
-      deprecatedAlias(switch, "trmacros")
+  of "trmacros":
     processOnOffSwitch(conf, {optTrMacros}, arg, pass, info, switch)
   of "opt":
     expectArg(conf, switch, arg, pass, info)
@@ -1012,9 +1004,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "help", "h":
     expectNoArg(conf, switch, arg, pass, info)
     helpOnError(conf, pass)
-  of "symbolfiles", "incremental", "ic":
-    if switch.normalize == "symbolfiles": deprecatedAlias(switch, "incremental")
-      # xxx maybe also ic, since not in help?
+  of "incremental", "ic":
     if pass in {passCmd2, passPP}:
       case arg.normalize
       of "on": conf.symbolFiles = v2Sf
@@ -1035,8 +1025,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     processOnOffSwitchG(conf, {optSkipUserConfigFile}, arg, pass, info, switch)
   of "skipparentcfg":
     processOnOffSwitchG(conf, {optSkipParentConfigFiles}, arg, pass, info, switch)
-  of "genscript", "gendeps":
-    if switch.normalize == "gendeps": deprecatedAlias(switch, "genscript")
+  of "genscript":
     processOnOffSwitchG(conf, {optGenScript}, arg, pass, info, switch)
     processOnOffSwitchG(conf, {optCompileOnly}, arg, pass, info, switch)
   of "colors": processOnOffSwitchG(conf, {optUseColors}, arg, pass, info, switch)

@@ -1266,8 +1266,8 @@ constant folding, so the following does not work:
 
 The reason is that the compiler already transformed the 1 into "1" for
 the `echo` statement. However, a term rewriting macro should not change the
-semantics anyway. In fact, they can be deactivated with the `--patterns:off`:option:
-command line option or temporarily with the `patterns` pragma.
+semantics anyway. In fact, they can be deactivated with the `--trmacros:off`:option:
+command line option or temporarily with the `trmacros` pragma.
 
 
 The `{}` operator

@@ -99,7 +99,7 @@ const
     wDeadCodeElimUnused,  # deprecated, always on
     wDeprecated,
     wFloatChecks, wInfChecks, wNanChecks, wPragma, wEmit,
-    wLinearScanEnd, wPatterns, wTrMacros, wEffects, wComputedGoto,
+    wLinearScanEnd, wTrMacros, wEffects, wComputedGoto,
     wExperimental, wUsed, wAssert}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
     wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
@@ -477,7 +477,7 @@ proc pragmaToOptions(w: TSpecialWord): TOptions {.inline.} =
   of wMemTracker: {optMemTracker}
   of wByRef: {optByRef}
   of wImplicitStatic: {optImplicitStatic}
-  of wPatterns, wTrMacros: {optTrMacros}
+  of wTrMacros: {optTrMacros}
   of wSinkInference: {optSinkInference}
   else: {}
 
@@ -1514,7 +1514,7 @@ proc prepareSinglePragma(
          wOverflowChecks, wNilChecks, wAssertions, wWarnings, wHints,
          wLineDir, wOptimization, wStaticBoundchecks, wStyleChecks,
          wCallconv, wDebugger, wProfiler,
-         wFloatChecks, wNanChecks, wInfChecks, wPatterns, wTrMacros:
+         wFloatChecks, wNanChecks, wInfChecks, wTrMacros:
         var tmp = c.config.options
         result = processOption(c, it, tmp)
         c.config.options = tmp

@@ -601,7 +601,7 @@ proc srcdist(c: var ConfigData) =
     # Remove the cache if it exist so we get fresh files and avoid any bugs in
     # the caching system
     removeDir(cacheDir)
-    var cmd = ("$# compile -f --symbolfiles:off --compileonly " &
+    var cmd = ("$# compile -f --incremental:off --compileonly " &
                "--gen_mapping --cc:gcc --skipUserCfg" &
                # Silence the compiler to the best of our abilities, or it would
                # be a mess since we are running in parallel
