@@ -651,7 +651,7 @@ proc process*(c: PContext, n: PNode): UntypedAst =
   of nkType:
     # try to turn it into an identifier
     if n.typ != nil and n.typ.sym != nil:
-      result = desym(c, n.sym, n.info)
+      result = desym(c, n.typ.sym, n.info)
     else:
       invalid()
   of nkCharLit..nkUInt64Lit:
