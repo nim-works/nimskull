@@ -674,6 +674,16 @@ proc parseGenericParams(c: PContext, n: PNode): UntypedAst =
   else:
     result = invalidAst(c, n)
 
+proc processTypeDef(c: PContext, n: PNode): UntypedAst =
+  assert n.kind == nkTypeDef
+  if n.len == 3:
+    result = prepareFrom(n)
+    result[0] = identWithPragma(c, n[0])
+    result[1] = parseGenericParams(c, n[1])
+    result[2] = emptyOr(c, n[2], parseTypeNode)
+  else:
+    result = invalidAst(c, n)
+
 proc processConstDef(c: PContext, n: PNode): UntypedAst =
   if n.len == 3:
     result = prepareFrom(n)
@@ -1000,7 +1010,14 @@ proc process*(c: PContext, n: PNode): UntypedAst =
             newTreeI(it.kind, it.info): expr(c, it[0])
         else: invalidAst(c, it)
   of nkTypeSection:
-    unreachable("missing")
+    checkMinSonsLen(n, 1)
+    result = prepareFrom(n)
+    for i, it in n.pairs:
+      result[i] =
+        case it.kind
+        of nkCommentStmt: commentStmt(c, it)
+        of nkTypeDef: processTypeDef(c, it)
+        else: invalidAst(c, it)
   of nkVarSection, nkLetSection:
     checkMinSonsLen(n, 1)
     result = prepareFrom(n)
