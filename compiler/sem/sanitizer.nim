@@ -408,8 +408,26 @@ proc parseTry(c: PContext, n: PNode): UntypedAst =
 proc parseIdentVis(c: PContext, n: PNode): UntypedAst =
   unreachable("missing")
 
+proc parsePragmaList(c: PContext, n: PNode): UntypedAst =
+  # note: a pragma list is allowed to be empty
+  result = prepareFrom(n)
+  for i, it in n.pairs:
+    result[i] =
+      case it.kind
+      of nkExprColonExpr: parseColonExpr(c, it)
+      else:               expr(c, it)
+
 proc parsePragmaExpr(c: PContext, n: PNode): UntypedAst =
-  unreachable("missing")
+  if n.len == 2:
+    result = prepareFrom(n)
+    {.warning: "implementation missing".}
+    result[0] = n[0] # TODO: missing
+    result[1] =
+      case n[1].kind
+      of nkPragma: parsePragmaList(c, n[1])
+      else:        invalidAst(c, n[1])
+  else:
+    result = invalidAst(c, n)
 
 proc requireEmpty(c: PContext, n: PNode): UntypedAst =
   if n.kind == nkEmpty:
