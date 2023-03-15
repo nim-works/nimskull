@@ -215,8 +215,7 @@ proc deserializeObject(c: TCtx, m: VmMemoryRegion, vt: PVmType; f, con: PType; i
   #      `newSymNode(ty.sym)` won't work however, as `ref` types and
   #      generic instances need special handling. Not using `nkEmpty`
   #      also changes what `opcRepr` prints with `mm:refc`
-  result.sons[0] = newNode(nkEmpty)
-  result.sons[0].typ = f
+  result[0] = newNodeIT(nkType, info, f)
 
   let (len, hasError) = deserializeObjectPart(c, m, vt, con, info, result[])
   result.sons.setLen(len) # XXX: this should ideally also shrink the capacity
