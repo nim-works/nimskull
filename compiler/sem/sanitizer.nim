@@ -244,8 +244,69 @@ proc parseTypeNode(c: PContext, n: PNode): UntypedAst =
 proc parseProcExpr(c: PContext, isExpr: bool, n: PNode): UntypedAst =
   unreachable("missing")
 
+proc quotedIdent(c: PContext, n: PNode): UntypedAst =
+  case n.kind
+  of nkSym:
+    if n.sym != nil:
+      newIdentNode(n.sym.name, n.info)
+    else:
+      invalidAst(c, n)
+  of nkIdent:
+    safeIdent(c, n)
+  of nkOpenSymChoice, nkClosedSymChoice:
+    if n[0].kind == nkSym and n[0].sym != nil:
+      newIdentNode(n[0].sym.name, n[0].info)
+    else:
+      invalidAst(c, n)
+  else:
+    invalidAst(c, n)
+
 proc parseAccQuoted(c: PContext, n: PNode): UntypedAst =
-  unreachable("missing")
+  # we're doing a bit more than sanitizing here: to make processing for
+  # semantic analysis easier, we evaluate identifier construction
+  # expressions
+  case n.len
+  of 0: result = invalidAst(c, n)
+  of 1:
+    result = newTreeI(nkAccQuoted, n.info, quotedIdent(c, n[0]))
+  else:
+    result = newNodeI(nkAccQuoted, n.info)
+
+    proc appendError(n: var UntypedAst, i: int, orig: PNode, e: UntypedAst) =
+      # append all original nodes that we've processed since last adding an
+      # error:
+      for j in n.n.len..<i:
+        n.n.add orig[j]
+
+      n.add e
+
+    var str = ""
+    for i, it in n.pairs:
+      var part = ""
+      case it.kind
+      of nkIdent:
+        if it.ident != nil:
+          part = it.ident.s
+      of nkSym:
+        if it.sym != nil:
+          part = it.sym.name.s
+      of nkIntKinds:
+        part = $n.intVal
+      else:
+        part = ""
+
+      if part.len == 0:
+        # TODO: use the "identifier expected" error
+        appendError(result, i, n, invalidAst(c, it))
+      else:
+        str.add part
+
+    if result.hasError:
+      # add the valid nodes coming after the last error
+      for i in result.n.len..<n.len:
+        result.n.add n[i]
+    else:
+      result.add newIdentNode(c.cache.getIdent(str), n.info)
 
 proc parseIdent(c: PContext, n: PNode): UntypedAst =
   ## Tries to parse the node `n` as an unqualified identifier. Returns an
