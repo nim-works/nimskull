@@ -1260,7 +1260,9 @@ proc process*(c: PContext, n: PNode): UntypedAst =
     # context dependent
     invalid()
   of nkDefer:
-    unreachable("missing")
+    checkSonsLen(n, 1)
+    result = prepareFrom(n)
+    result[0] = stmt(c, n[0])
   of nkYieldStmt, nkRaiseStmt, nkReturnStmt, nkBreakStmt, nkContinueStmt, nkDiscardStmt:
     checkSonsLen(n, 1)
     result = prepareFrom(n)
