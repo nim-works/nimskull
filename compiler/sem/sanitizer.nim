@@ -238,9 +238,6 @@ proc safeSymToIdent(c: PContext, n: PNode): UntypedAst =
   else:
     result = invalidAst(c, n)
 
-proc parseTypeNode(c: PContext, n: PNode): UntypedAst =
-  unreachable("missing")
-
 proc parseProcExpr(c: PContext, isExpr: bool, n: PNode): UntypedAst =
   unreachable("missing")
 
@@ -329,6 +326,7 @@ proc parseDef(c: PContext, n: PNode): UntypedAst =
   else:           invalidAst(c, n)
 
 proc process*(c: PContext, n: PNode): UntypedAst
+proc parseTypeNode(c: PContext, n: PNode): UntypedAst
 
 proc parseTypeExpr(c: PContext, n: PNode): UntypedAst =
   process(c, n)
@@ -646,6 +644,221 @@ proc parseFormalParams(c: PContext, n: PNode): UntypedAst =
         else: invalidAst(c, it)
   else:
     result = invalidAstLen(c, n, 1)
+
+proc enumFieldDef(c: PContext, n: PNode): UntypedAst =
+  if n.len == 2:
+    newTreeI(nkEnumFieldDef, n.info, identWithPragma(c, n[0]), expr(c, n[1]))
+  else:
+    invalidAst(c, n)
+
+proc parseEnum(c: PContext, n: PNode): UntypedAst =
+  if n.len >= 2:
+    result = prepareFrom(n)
+    result[0] = requireEmpty(c, n[0])
+    for i, it in sliceIt(n, 1..^1):
+      result[i] =
+        case it.kind
+        of IdentLike: parseIdent(c, it)
+        of nkEnumFieldDef: enumFieldDef(c, it)
+        else: invalidAst(c, it)
+  else:
+    result = invalidAstLen(c, n, 2)
+
+proc parseRecordPart(c: PContext, n: PNode): UntypedAst
+
+proc parseRecList(c: PContext, n: PNode): UntypedAst =
+  assert n.kind == nkRecList
+  result = prepareFrom(n)
+  for i, it in n.pairs:
+    result[i] = parseRecordPart(c, it)
+
+proc parseRecOfBranch(c: PContext, n: PNode): UntypedAst =
+  if n.len >= 2:
+    result = prepareFrom(n)
+    for i, it in sliceIt(n, 0..^2):
+      result[i] = expr(c, it)
+    result[^1] = parseRecordPart(c, n[^1])
+  else:
+    result = invalidAstLen(c, n, 2)
+
+proc parseRecCase(c: PContext, n: PNode): UntypedAst =
+  assert n.kind == nkRecCase
+  if n.len >= 2:
+    result = prepareFrom(n)
+    result[0] = identDefs(c, n[0]) # TODO: disallow initializer
+    for i, it in sliceIt(n, 1..^1):
+      result[i] =
+        case it.kind
+        of nkOfBranch:
+          parseRecOfBranch(c, it)
+        of nkElse:
+          guardLen(it, 1): newTreeI(nkElse, it.info, parseRecordPart(c, it[0]))
+        else: invalidAst(c, n)
+
+  else:
+    result = invalidAstLen(c, n, 2)
+
+proc parseRecWhen(c: PContext, n: PNode): UntypedAst =
+  assert n.kind == nkRecWhen
+  if n.len >= 1:
+    result = prepareFrom(n)
+
+    proc branch(c: PContext, n: PNode): UntypedAst =
+      case n.kind
+      of nkElifBranch:
+        guardLen(n, 2):
+          newTreeI(nkElifBranch, n.info, expr(c, n[0]), parseRecordPart(c, n[1]))
+      of nkElse:
+        guardLen(n, 1):
+          newTreeI(nkElse, n.info, parseRecordPart(c, n[0]))
+      else:
+        invalidAst(c, n)
+
+    for i, it in n.pairs:
+      result[i] = branch(c, it)
+  else:
+    result = invalidAstLen(c, n, 1)
+
+proc parseRecordPart(c: PContext, n: PNode): UntypedAst =
+  case n.kind
+  of nkRecList:
+    parseRecList(c, n)
+  of nkRecCase:
+    parseRecCase(c, n)
+  of nkRecWhen:
+    parseRecWhen(c, n)
+  of nkDiscardStmt, nkNilLit:
+    guardLen(n, 0): newNodeI(n.kind, n.info)
+  of nkIdentDefs:
+    identDefs(c, n)
+  else:
+    invalidAst(c, n)
+
+
+proc parseObject(c: PContext, n: PNode): UntypedAst =
+  if n.len == 3:
+    result = prepareFrom(n)
+    result[0] = requireEmpty(c, n[0]) # disallow a non-empty pragma slot
+    result[1] =
+      case n[1].kind
+      of nkEmpty: empty(n[1].info)
+      of nkOfInherit:
+        guardLen(n[1], 1): newTreeI(nkOfInherit, n[1].info, typeExpr(c, n[1][0]))
+      else: invalidAst(c, n[1])
+    result[2] =
+      case n[2].kind
+      of nkEmpty: empty(n[2].info)
+      of nkRecList: parseRecList(c, n[2])
+      else: invalidAst(c, n[1])
+  else:
+    result = invalidAstLen(c, n, 2)
+
+proc parseTypeClass(c: PContext, n: PNode): UntypedAst =
+  if n.len == 4:
+    result = prepareFrom(n)
+    result[0] =
+      case n[0].kind
+      of nkArgList:
+        var r = prepareFrom(n[0])
+        for i, it in n[0].pairs:
+          r[i] = parseDef(c, it)
+        r
+      else:
+        invalidAst(c, n[0])
+
+    result[1] = emptyOr(c, n[1], parsePragmaList) # TODO: make sure it's really a pragma list
+    result[2] =
+      case n[2].kind
+      of nkOfInherit:
+        var r = prepareFrom(n[2])
+        for i, it in n[2].pairs:
+          r[i] = typeExpr(c, it)
+        r
+      of nkEmpty: empty(n[2].info)
+      else: invalidAst(c, n[2])
+    result[3] = stmt(c, n[3])
+  else:
+    result = invalidAstLen(c, n, 4)
+
+proc parseTypeNode(c: PContext, n: PNode): UntypedAst =
+  case n.kind
+  of nkVarTy:
+    result =
+      case n.len
+      of 1: newTreeI(nkVarTy, n.info, parseTypeNode(c, n[0]))
+      else: invalidAst(c, n)
+  of nkPtrTy, nkRefTy:
+    result =
+      case n.len
+      of 0: newNodeI(n.kind, n.info)
+      of 1: newTreeI(n.kind, n.info, parseTypeNode(c, n[0]))
+      else: invalidAst(c, n)
+  of nkDistinctTy:
+    result =
+      case n.len
+      of 0: newNodeI(nkDistinctTy, n.info) # okay; a type class
+      of 1: newTreeI(nkDistinctTy, n.info, parseTypeNode(c, n[0]))
+      of 2:
+        # distinct T with/without
+        unreachable("missing")
+      else:
+        invalidAst(c, n)
+  of nkProcTy:
+    case n.len
+    of 0:
+      result = newNodeI(nkProcTy, n.info)
+    of 2:
+      result = prepareFrom(n)
+      result[0] =
+        if n[0].kind == nkFormalParams:
+          parseFormalParams(c, n[0])
+        else:
+          invalidAst(c, n[0])
+
+      result[1] =
+        case n[1].kind
+        of nkEmpty:  empty(n[1].info)
+        of nkPragma: parsePragmaList(c, n[1])
+        else:        invalidAst(c, n[1])
+    else:
+      result = invalidAst(c, n)
+  of nkEnumTy:
+    result =
+      case n.len
+      of 0: newNodeI(nkEnumTy, n.info)
+      else:
+        # TODO: only allow enum definitions in type definition contexts
+        parseEnum(c, n)
+  of nkTupleTy:
+    # note: an empty tuple type is valid
+    result = prepareFrom(n)
+    for i, it in n.pairs:
+      result[i] =
+        case it.kind
+        of nkIdentDefs: strictIdentDefs(c, it)
+        else:           invalidAst(c, it)
+  of nkObjectTy:
+    result =
+      case n.len
+      of 0: newNodeI(nkObjectTy, n.info)
+      else:
+        # TODO: only allow object definitions in type definition contexts
+        parseObject(c, n)
+  of nkTupleClassTy:
+    result = guardLen(n, 0): newNodeI(nkTupleClassTy, n.info)
+  of nkTypeClassTy:
+    result = parseTypeClass(c, n)
+  of nkIdent:
+    result = safeIdent(c, n)
+  of nkAccQuoted:
+    result = parseAccQuoted(c, n)
+  of nkSym:
+    result = safeDesym(c, n)
+  # TODO: what about the sym-choices?
+  of nkType, nkTypeOfExpr, nkTupleConstr, nkCallKinds, nkDotExpr, nkBracketExpr, nkCurlyExpr, nkPar:
+    result = expr(c, n)
+  else:
+    result = invalidAst(c, n)
 
 proc parseGenericParams(c: PContext, n: PNode): UntypedAst =
   case n.kind
