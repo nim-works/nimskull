@@ -617,6 +617,62 @@ proc parseBranch(c: PContext, n: PNode, isExpr: bool): UntypedAst =
   else:
     result = invalidAst(c, n)
 
+proc parseParamDef(c: PContext, n: PNode, allowType: bool): UntypedAst =
+  assert n.kind == nkIdentDefs
+  if n.len >= 3:
+    result = prepareFrom(n)
+    for i, it in sliceIt(n, 0..^3):
+      result[i] =
+        case it.kind
+        of nkIdentKinds: parseDef(c, it)
+        of nkPragmaExpr: parsePragmaExpr(c, it)
+        else:            invalidAst(c, it)
+
+    result[^2] =
+      if allowType: emptyOr(c, n[^2], typeExpr)
+      else:         requireEmpty(c, n[^2])
+    result[^1] = emptyOr(c, n[^1], expr)
+  else:
+    result = invalidAstLen(c, n, 3)
+
+proc parseFormalParams(c: PContext, n: PNode): UntypedAst =
+  if n.len >= 1:
+    result = prepareFrom(n)
+    result[0] = emptyOr(c, n[0], typeExpr) # return slot
+    for i, it in sliceIt(n, 1..^1):
+      result[i] =
+        case it.kind
+        of nkIdentDefs: parseParamDef(c, it, allowType=true)
+        else: invalidAst(c, it)
+  else:
+    result = invalidAstLen(c, n, 1)
+
+proc parseGenericParams(c: PContext, n: PNode): UntypedAst =
+  case n.kind
+  of nkEmpty:
+    result = newNodeI(nkEmpty, n.info)
+  of nkGenericParams:
+    result = prepareFrom(n)
+    for i, it in n.pairs:
+      case it.kind
+      of nkSym:
+        let x = safeSymToIdent(c, it)
+        result[i] =
+          if x.n.kind == nkSym:
+            # it stays as a symbol node
+            x
+          else:
+            # standalone identifiers are not allowed here -- they need to be
+            # wrapped in an ``nkIdentDefs``
+            newTreeI(nkIdentDefs, it.info, x, empty(it.info), empty(it.info))
+
+      of nkIdentDefs:
+        result[i] = parseParamDef(c, it, allowType=true)
+      else:
+        result[i] = invalidAst(c, it)
+
+  else:
+    result = invalidAst(c, n)
 
 proc processConstDef(c: PContext, n: PNode): UntypedAst =
   if n.len == 3:
@@ -631,6 +687,32 @@ proc processConstDef(c: PContext, n: PNode): UntypedAst =
     result[2] = emptyOr(c, n[2], expr)
   else:
     result = invalidAst(c, n)
+
+proc processCallableDef(c: PContext, n: PNode, allowName: bool): UntypedAst =
+  # TODO: revisit the translation here
+  if n.len-1 notin bodyPos..resultPos:
+    return invalidAstLen(c, n, bodyPos)
+
+  result = prepareFrom(n)
+  result[namePos] =
+    if allowName: emptyOr(c, n[namePos], identVis)
+    else:         requireEmpty(c, n[namePos])
+  result[patternPos] = emptyOr(c, n[patternPos], stmt)
+  result[genericParamsPos] = parseGenericParams(c, n[genericParamsPos])
+
+  result[paramsPos] =
+    case n[paramsPos].kind
+    of nkEmpty:        empty(n[paramsPos].info)
+    of nkFormalParams: parseFormalParams(c, n[paramsPos])
+    else:              invalidAst(c, n[paramsPos])
+
+  result[pragmasPos] = emptyOr(c, n[pragmasPos], parsePragmaList)
+
+  # ignore the contents of the 'misc' slot
+  result[miscPos] = empty(n.info)
+  result[bodyPos] = stmt(c, n[bodyPos])
+  if n.len > resultPos:
+    result[resultPos] = empty(n.info)
 
 proc process*(c: PContext, n: PNode): UntypedAst =
   template checkMinSonsLen(n: PNode, length: int) =
@@ -793,7 +875,7 @@ proc process*(c: PContext, n: PNode): UntypedAst =
           invalidAst(c, n[i])
 
   of nkLambda, nkDo:
-    result = parseProcExpr(c, true, n)
+    result = processCallableDef(c, n, allowName=false)
   of nkAccQuoted:
     checkMinSonsLen(n, 1)
     result = prepareFrom(n)
@@ -867,43 +949,7 @@ proc process*(c: PContext, n: PNode): UntypedAst =
     checkSonsLen(n, 2)
     result = newTreeI(nkInfix, n.info): [ident(c, "as"), expr(c, n[0]), expr(c, n[1])]
   of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef, nkMacroDef, nkTemplateDef, nkIteratorDef:
-    # TODO: revisit the translation here
-    if n.len-1 notin bodyPos..resultPos:
-      return invalidAstLen(c, n, bodyPos)
-
-    result = prepareFrom(n)
-    result[namePos] = emptyOr(c, n[namePos], parseDef)
-    result[patternPos] = requireEmpty(c, n[patternPos]) # TODO: missing
-    result[genericParamsPos] = requireEmpty(c, n[genericParamsPos]) # TODO: missing
-
-    case n[paramsPos].kind
-    of nkEmpty:
-      result[paramsPos] = empty(n[paramsPos].info)
-    of nkFormalParams:
-      result[paramsPos] = guardMinLen(n[paramsPos], 1):
-        var r = prepareFrom(n[paramsPos])
-        r[0] =
-          case n[paramsPos][0].kind
-          of nkEmpty: empty(n[paramsPos][0].info)
-          else: typeExpr(c, n[paramsPos][0])
-        for i, it in sliceIt(n[paramsPos], 1..^1):
-          r[i] = identDefs(c, it)
-        r
-    else:
-      result[paramsPos] = invalidAst(c, n[paramsPos])
-
-    result[pragmasPos] =
-      case n[pragmasPos].kind
-      of nkEmpty:  empty(n[pragmasPos].info)
-      of nkPragma: parsePragma(c, n[pragmasPos])
-      else:        invalidAst(c, n[pragmasPos])
-
-    # ignore the contents of the 'misc' slot
-    result[miscPos] = empty(n.info)
-    result[bodyPos] = stmt(c, n[bodyPos])
-    if n.len > resultPos:
-      result[resultPos] = empty(n.info)
-
+    result = processCallableDef(c, n, allowName=true)
   of nkOfBranch, nkElifBranch, nkExceptBranch, nkElse, nkElifExpr, nkElseExpr:
     invalid()
   of nkAsmStmt:
