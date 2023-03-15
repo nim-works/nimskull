@@ -1339,11 +1339,11 @@ proc process*(c: PContext, n: PNode): UntypedAst =
     result = prepareFrom(n)
     result[0] = expr(c, n[0])
   of nkObjectTy,
-    nkTupleTy    ,
+    nkTupleTy,
     nkTupleClassTy,
-    nkTypeClassTy  ,
+    nkTypeClassTy,
     nkStaticTy:
-    unreachable("missing")
+    result = typeExpr(c, n)
   of nkRecList,
     nkRecCase,
     nkRecWhen:
@@ -1358,8 +1358,9 @@ proc process*(c: PContext, n: PNode): UntypedAst =
     nkProcTy,
     nkIteratorTy,
     nkSharedTy,
-    nkEnumTy,
-    nkEnumFieldDef:
+    nkEnumTy:
+    result = typeExpr(c, n)
+  of nkEnumFieldDef:
     invalid()
   of nkArgList:
     unreachable("missing")
