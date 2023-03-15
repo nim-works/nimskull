@@ -460,13 +460,28 @@ proc strictIdentDefs(c: PContext, n: PNode): UntypedAst =
   else:
     result = invalidAst(c, n)
 
+const IdentLike = {nkIdent, nkSym, nkAccQuoted}
+
+proc identWithPragma(c: PContext, n: PNode): UntypedAst =
+  case n.kind
+  of IdentLike:    parseDef(c, n)
+  of nkPostfix:    parseIdentVis(c, n)
+  of nkPragmaExpr: parsePragmaExpr(c, n)
+  else:            invalidAst(c, n)
+
+proc identVis(c: PContext, n: PNode): UntypedAst =
+  case n.kind
+  of IdentLike:    parseDef(c, n)
+  of nkPostfix:    parseIdentVis(c, n)
+  else:            invalidAst(c, n)
+
 proc identDefs(c: PContext, n: PNode): UntypedAst =
   if n.len >= 3:
     result = prepareFrom(n)
     for i in 0..<n.len-2:
-      result[i] = parseDef(c, n[i])
+      result[i] = identWithPragma(c, n[i])
 
-    result[^2] = parseTypeExpr(c, n[^2])
+    result[^2] = emptyOr(c, n[^2], parseTypeExpr)
     result[^1] = emptyOr(c, n[^1], expr)
   else:
     result = invalidAst(c, n)
