@@ -36,10 +36,7 @@ block tclosure:
   doAssert output == [1, 3, 6, 11, 20]
 
 
-# knownIssue: lambda-lifting related transformation are disabled when using
-#             the JS target, violating the expectation of ``vmgen`` and thus
-#             crashing the VM
-test array_of_procs, {c, vm}:
+block array_of_procs:
   # bug https://github.com/nim-lang/nim/issues/5015
 
   type Mutator = proc(matched: string): string {.noSideEffect, gcsafe, locks: 0.}

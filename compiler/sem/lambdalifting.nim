@@ -252,11 +252,6 @@ proc interestingIterVar(s: PSym): bool {.inline.} =
 template isIterator*(owner: PSym): bool =
   owner.kind == skIterator and owner.typ.callConv == ccClosure
 
-proc liftingHarmful(conf: ConfigRef; owner: PSym): bool {.inline.} =
-  ## lambda lifting can be harmful for JS-like code generators.
-  let isCompileTime = sfCompileTime in owner.flags or owner.kind == skMacro
-  result = conf.backend == backendJs and not isCompileTime
-
 proc createTypeBoundOpsLL(g: ModuleGraph; refType: PType; info: TLineInfo; idgen: IdGenerator; owner: PSym) =
   if owner.kind != skMacro:
     createTypeBoundOps(g, nil, refType.lastSon, info, idgen)
@@ -266,7 +261,6 @@ proc createTypeBoundOpsLL(g: ModuleGraph; refType: PType; info: TLineInfo; idgen
 
 proc liftIterSym*(g: ModuleGraph; n: PNode; idgen: IdGenerator; owner: PSym): PNode =
   # transforms  (iter)  to  (let env = newClosure[iter](); (iter, env))
-  if liftingHarmful(g.config, owner): return n
   let iter = n.sym
   assert iter.isIterator
 
@@ -777,14 +771,7 @@ func dontLift(prc: PSym): bool {.inline.} =
 
 proc liftLambdas*(g: ModuleGraph; fn: PSym, body: PNode; tooEarly: var bool;
                   idgen: IdGenerator): PNode =
-  # XXX backend == backendJs does not suffice! The compiletime stuff needs
-  # the transformation even when compiling to JS ...
-
-  # However we can do lifting for the stuff which is *only* compiletime.
-  let isCompileTime = sfCompileTime in fn.flags or fn.kind == skMacro
-
   if body.kind == nkEmpty or # forward declaration
-     (g.config.backend == backendJs and not isCompileTime) or
      dontLift(fn):
     # HACK: anonymous procedures defined outside of procedures (i.e. owned by
     #       a module), need a hidden environment parameter too, even though
@@ -863,7 +850,6 @@ proc liftForLoop*(g: ModuleGraph; body: PNode; idgen: IdGenerator; owner: PSym):
           break
         ...
     """
-  if liftingHarmful(g.config, owner): return body
   if not (body.kind == nkForStmt and body[^2].kind in nkCallKinds):
     localReport(g.config, body, reportSem rsemIgnoreInvalidForLoop)
     return body

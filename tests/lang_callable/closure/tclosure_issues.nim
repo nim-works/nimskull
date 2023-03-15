@@ -62,8 +62,8 @@ proc foo(): proc =
 
 doAssert foo()() == (999, 0)
 
-# knownIssue: the JS code generator emits doesn't detect the inner procedures
-#             created by the lambda expressions as such
+# knownIssue: `i` is treated as a global defined at the procedure level, which
+#             are not properly supported by the JS backend yet
 test tissue7104, {c, vm}:
   var output: seq[int]
 
