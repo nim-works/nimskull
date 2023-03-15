@@ -386,11 +386,9 @@ proc processArg2(c: PContext, call: var UntypedAst, n: PNode) =
 
 proc parseColonExpr(c: PContext, n: PNode): UntypedAst =
   if n.len == 2:
-    result = prepareFrom(n)
-    result[0] = parseIdent(c, n[0])
-    result[1] = expr(c, n[1])
+    newTreeI(nkExprColonExpr, n.info, expr(c, n[0]), expr(c, n[1]))
   else:
-    result = invalidAst(c, n)
+    invalidAst(c, n)
 
 proc empty(info: TLineInfo): UntypedAst =
   toUntyped ast.newNodeI(nkEmpty, info)
