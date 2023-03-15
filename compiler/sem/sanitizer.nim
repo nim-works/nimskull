@@ -713,15 +713,15 @@ proc process*(c: PContext, n: PNode): UntypedAst =
   of nkPar:
     # an ``nkPar`` as an expression must only have a single child
     checkSonsLen(n, 1)
-    result = newTreeI(nkPar, n.info): expr(c, n[1])
+    result = newTreeI(nkPar, n.info): expr(c, n[0])
   of nkObjConstr:
     checkMinSonsLen(n, 1)
     result = newNodeI(nkObjConstr, n.info, n.len)
-    result[0] = parseTypeNode(c, n[0])
+    result[0] = typeExpr(c, n[0])
     for i in 1..<n.len:
       let it = n[i]
       if it.kind == nkExprColonExpr:
-        result[i] = newTreeI(nkExprEqExpr, it.info): [parseIdent(c, it[0]), expr(c, it[1])]
+        result[i] = newTreeI(nkExprColonExpr, it.info): [parseIdent(c, it[0]), expr(c, it[1])]
       else:
         result[i] = invalidAst(c, it)
 
