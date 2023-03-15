@@ -1188,8 +1188,8 @@ proc process*(c: PContext, n: PNode): UntypedAst =
     invalid()
   of nkAsmStmt:
     checkSonsLen(n, 2)
-    result = newTreeI(nkAsmStmt, n.info)
-    result[0] = emptyOr(c, n, parsePragma)
+    result = prepareFrom(n)
+    result[0] = emptyOr(c, n[0], parsePragmaList)
     result[1] = parseStrLit(c, n[1])
   of nkPragma:
     result = parsePragmaList(c, n)
