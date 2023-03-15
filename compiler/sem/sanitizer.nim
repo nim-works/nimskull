@@ -1279,7 +1279,8 @@ proc process*(c: PContext, n: PNode): UntypedAst =
     result[1] = stmt(c, n[1])
   of nkStaticStmt:
     checkSonsLen(n, 1)
-    result = stmt(c, n[0])
+    result = prepareFrom(n)
+    result[0] = stmt(c, n[0])
   of nkStmtList:
     result = stmts(c, n)
   of nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt, nkFromStmt, nkIncludeStmt:
