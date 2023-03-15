@@ -403,7 +403,22 @@ proc parseStrLit(c: PContext, n: PNode): UntypedAst =
     invalidAst(c, n)
 
 proc parseTry(c: PContext, n: PNode): UntypedAst =
-  unreachable("missing")
+  if n.len >= 2:
+    result = prepareFrom(n)
+    result[0] = expr(c, n[0])
+
+    # don't check whether the finally clause comes last -- that's the
+    # responsibility of semantic analysis
+    for i, it in sliceIt(n, 1..^1):
+      result[i] =
+        case it.kind
+        of nkExceptBranch:
+          guardMinLen(it, 1): exprs(c, it)
+        of nkFinally:
+          guardLen(it, 1): newTreeI(nkFinally, it.info, expr(c, it[0]))
+        else: invalidAst(c, it)
+  else:
+    result = invalidAstLen(c, n, 2)
 
 proc parseIdentVis(c: PContext, n: PNode): UntypedAst =
   unreachable("missing")
