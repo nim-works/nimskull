@@ -328,8 +328,8 @@ proc parseDef(c: PContext, n: PNode): UntypedAst =
 proc process*(c: PContext, n: PNode): UntypedAst
 proc parseTypeNode(c: PContext, n: PNode): UntypedAst
 
-proc parseTypeExpr(c: PContext, n: PNode): UntypedAst =
-  process(c, n)
+proc parseTypeExpr(c: PContext, n: PNode): UntypedAst {.deprecated.} =
+  parseTypeNode(c, n)
 
 proc expr(c: PContext, n: PNode): UntypedAst =
   process(c, n)
@@ -456,7 +456,7 @@ template emptyOr(c: PContext, n: PNode, prc: untyped): UntypedAst =
     prc(c, n)
 
 proc typeExpr(c: PContext, n: PNode): UntypedAst =
-  expr(c, n)
+  parseTypeNode(c, n)
 
 proc commentStmt(c: PContext, n: PNode): UntypedAst =
   let node = ast.newNodeI(nkCommentStmt, n.info)
