@@ -897,11 +897,17 @@ proc process*(c: PContext, n: PNode): UntypedAst =
     result[0] = emptyOr(c, n, parsePragma)
     result[1] = parseStrLit(c, n[1])
   of nkPragma:
-    checkMinSonsLen(n, 1)
-    for i in 0..<n.len:
-      result[i] = parseColonEqExpr(c, n[i])
+    result = parsePragmaList(c, n)
   of nkPragmaBlock:
-    unreachable("missing")
+    checkSonsLen(n, 2)
+    result = prepareFrom(n)
+    result[0] =
+      if n[0].kind == nkPragma:
+        parsePragmaList(c, n[0])
+      else:
+        invalidAst(c, n[0])
+
+    result[1] = expr(c, n[1])
   of nkForStmt:
     checkMinSonsLen(n, 3)
     result = prepareFrom(n)
