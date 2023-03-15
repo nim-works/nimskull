@@ -617,6 +617,21 @@ proc parseBranch(c: PContext, n: PNode, isExpr: bool): UntypedAst =
   else:
     result = invalidAst(c, n)
 
+
+proc processConstDef(c: PContext, n: PNode): UntypedAst =
+  if n.len == 3:
+    result = prepareFrom(n)
+    result[0] =
+      case n[0].kind
+      of nkIdentKinds, nkPragmaExpr, nkPostfix: identWithPragma(c, n[0])
+      of nkVarTuple: parseVarTuple(c, n[0])
+      else: invalidAst(c, n[0])
+
+    result[1] = emptyOr(c, n[1], parseTypeNode)
+    result[2] = emptyOr(c, n[2], expr)
+  else:
+    result = invalidAst(c, n)
+
 proc process*(c: PContext, n: PNode): UntypedAst =
   template checkMinSonsLen(n: PNode, length: int) =
     if n.len < length:
@@ -946,7 +961,14 @@ proc process*(c: PContext, n: PNode): UntypedAst =
     for i in 0..<n.len:
       result[i] = parseVariable(c, n[i])
   of nkConstSection:
-    unreachable("missing")
+    checkMinSonsLen(n, 1)
+    result = prepareFrom(n)
+    for i, it in n.pairs:
+      result[i] =
+        case it.kind
+        of nkCommentStmt: commentStmt(c, it)
+        of nkConstDef: processConstDef(c, it)
+        else: invalidAst(c, it)
   of nkConstDef, nkTypeDef:
     # context dependent
     invalid()
