@@ -143,25 +143,18 @@ type
     options: TOptions
     module: BModule
     g: PGlobals
-    generatedParamCopies: IntSet
     beforeRetNeeded: bool
     unique: int    # for temp identifier generation
     blocks: seq[TBlock]
     extraIndent: int
-    up: PProc     # up the call chain; required for closure support
     declaredGlobals: IntSet
 
 template config*(p: PProc): ConfigRef = p.module.config
 
 proc indentLine(p: PProc, r: Rope): Rope =
   result = r
-  var p = p
-  while true:
-    for i in 0..<p.blocks.len + p.extraIndent:
-      prepend(result, rope"  ")
-    if p.up == nil or p.up.prc != p.prc.owner:
-      break
-    p = p.up
+  for i in 0..<p.blocks.len + p.extraIndent:
+    prepend(result, rope"  ")
 
 template line(p: PProc, added: string) =
   p.body.add(indentLine(p, rope(added)))
@@ -714,6 +707,13 @@ proc arith(p: PProc, n: PNode, r: var TCompRes, op: TMagic) =
       gen(p, n[1], x)
       gen(p, n[2], y)
       r.res = "($# == $# && $# == $#)" % [x.address, y.address, x.res, y.res]
+  of mEqProc:
+    if skipTypes(n[1].typ, abstractInst).callConv == ccClosure:
+      # a closure itself is a value type, so a dedicated comparision is
+      # required
+      binaryExpr(p, n, r, "cmpClosures", "cmpClosures($1, $2)")
+    else:
+      arithAux(p, n, r, op)
   else:
     arithAux(p, n, r, op)
   r.kind = resExpr
@@ -1027,8 +1027,11 @@ proc genIf(p: PProc, n: PNode, r: var TCompRes) =
     lineF(p, "}$n", [])
   line(p, repeat('}', toClose) & "\L")
 
-proc generateHeader(p: PProc, typ: PType): Rope =
+proc generateHeader(p: PProc, prc: PSym): Rope =
   result = ""
+
+  let typ = prc.typ
+
   for i in 1..<typ.n.len:
     assert(typ.n[i].kind == nkSym)
     var param = typ.n[i].sym
@@ -1041,6 +1044,14 @@ proc generateHeader(p: PProc, typ: PType): Rope =
       result.add(name)
       result.add("_Idx")
 
+  if typ.callConv == ccClosure:
+    # generate the name for the hidden environment parameter. When creating a
+    # closure object, the environment is bound to the ``this`` argument of the
+    # function, hence using ``this`` for the name
+    let hidden = prc.ast[paramsPos].lastSon
+    assert hidden.kind == nkSym, "the hidden parameter is missing"
+    hidden.sym.loc.r = "this"
+
 const
   nodeKindsNeedNoCopy = {nkCharLit..nkInt64Lit, nkStrLit..nkTripleStrLit,
     nkFloatLit..nkFloat64Lit, nkPar, nkStringToCString,
@@ -1050,7 +1061,7 @@ const
 
 proc needsNoCopy(p: PProc; y: PNode): bool =
   return y.kind in nodeKindsNeedNoCopy or
-        ((mapType(y.typ) != etyBaseIndex or (y.kind == nkSym and y.sym.kind == skParam)) and
+        ((mapType(y.typ) != etyBaseIndex) and
           (skipTypes(y.typ, abstractInst).kind in
             {tyRef, tyPtr, tyLent, tyVar, tyCstring, tyProc} + IntegralTypes))
 
@@ -1390,26 +1401,7 @@ proc attachProc(p: PProc; s: PSym) =
 
 proc genProcForSymIfNeeded(p: PProc, s: PSym) =
   if not p.g.generatedSyms.containsOrIncl(s.id):
-    let newp = genProc(p, s)
-    var owner = p
-    while owner != nil and owner.prc != s.owner:
-      owner = owner.up
-    if owner != nil: owner.locals.add(newp)
-    else: attachProc(p, newp, s)
-
-proc genCopyForParamIfNeeded(p: PProc, n: PNode) =
-  let s = n.sym
-  if p.prc == s.owner or needsNoCopy(p, n):
-    return
-  var owner = p.up
-  while true:
-    p.config.internalAssert(owner != nil, n.info, "couldn't find the owner proc of the closed over param: " & s.name.s)
-    if owner.prc == s.owner:
-      if not owner.generatedParamCopies.containsOrIncl(s.id):
-        let copy = "$1 = nimCopy(null, $1, $2);$n" % [s.loc.r, genTypeInfo(p, s.typ)]
-        owner.locals.add(owner.indentLine(copy))
-      return
-    owner = owner.up
+    attachProc(p, s)
 
 proc genVarInit(p: PProc, v: PSym, n: PNode)
 
@@ -1420,8 +1412,6 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
     p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
     if sfCompileTime in s.flags:
       genVarInit(p, s, if s.ast != nil: s.ast else: newNodeI(nkEmpty, s.info))
-    if s.kind == skParam:
-      genCopyForParamIfNeeded(p, n)
     let k = mapType(p, s.typ)
     if k == etyBaseIndex:
       r.typ = etyBaseIndex
@@ -2169,6 +2159,8 @@ proc genMagic(p: PProc, n: PNode, r: var TCompRes) =
     r.kind = resExpr
   of mMove:
     genMove(p, n, r)
+  of mAccessEnv:
+    unaryExpr(p, n, r, "accessEnv", "accessEnv($1)")
   else:
     genCall(p, n, r)
     #else internalError(p.config, e.info, 'genMagic: ' + magicToStr[op]);
@@ -2385,11 +2377,10 @@ proc genProc(oldProc: PProc, prc: PSym): Rope =
   #if gVerbosity >= 3:
   #  echo "BEGIN generating code for: " & prc.name.s
   var p = newProc(oldProc.g, oldProc.module, prc.ast, prc.options)
-  p.up = oldProc
   var returnStmt = ""
   var resultAsgn = ""
   var name = mangleName(p.module, prc)
-  let header = generateHeader(p, prc.typ)
+  let header = generateHeader(p, prc)
   if prc.typ[0] != nil and sfPure notin prc.flags:
     resultSym = prc.ast[resultPos].sym
     let mname = mangleName(p.module, resultSym)
@@ -2562,7 +2553,13 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
       genInfixCall(p, n, r)
     else:
       genCall(p, n, r)
-  of nkClosure: gen(p, n[0], r)
+  of nkClosure:
+    useMagic(p, "makeClosure")
+    var tmp1, tmp2: TCompRes
+    gen(p, n[0], tmp1)
+    gen(p, n[1], tmp2)
+    r.res = "makeClosure($1, $2)" % [tmp1.rdLoc, tmp2.rdLoc]
+    r.kind = resExpr
   of nkCurly: genSetConstr(p, n, r)
   of nkBracket: genArrayConstr(p, n, r)
   of nkPar, nkTupleConstr: genTupleConstr(p, n, r)
@@ -2595,13 +2592,6 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkStringToCString: convStrToCStr(p, n, r)
   of nkCStringToString: convCStrToStr(p, n, r)
   of nkEmpty: discard
-  of nkLambdaKinds:
-    let s = n[namePos].sym
-    discard mangleName(p.module, s)
-    r.res = s.loc.r
-    if lfNoDecl in s.loc.flags or s.magic notin {mNone, mIsolate}: discard
-    elif not p.g.generatedSyms.containsOrIncl(s.id):
-      p.locals.add(genProc(p, s))
   of nkType: r.res = genTypeInfo(p, n.typ)
   of nkStmtList, nkStmtListExpr:
     # this shows the distinction is nice for backends and should be kept

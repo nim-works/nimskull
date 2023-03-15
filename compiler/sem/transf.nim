@@ -472,7 +472,6 @@ proc generateThunk(c: PTransf; prc: PNode, dest: PType): PNode =
 
   # we cannot generate a proper thunk here for GC-safety reasons
   # (see internal documentation):
-  if c.graph.config.backend == backendJs: return prc
   c.graph.config.internalAssert(prc.kind != nkClosure, prc.info, "closure to closure created")
 
   let conv = newTreeIT(nkHiddenSubConv, prc.info, dest):

@@ -800,3 +800,40 @@ if (!Math.trunc) {
 }
 """
 when not defined(nodejs): {.emit: jsMathTrunc .}
+
+proc makeClosure(f: JSRef, env: JSRef) {.compilerproc, asmNoStackFrame.} =
+  ## Used by the code generator to create a |NimSkull| closure object. A
+  ## JavaScript function is used as the base object, so that passing
+  ## |NimSkull| closures through the FFI where the other side expects a
+  ## functions object works.
+  asm """
+    var cl = `f`.bind(`env`);
+    cl.prc = `f`;
+    cl.env = `env`;
+    return cl;
+  """
+
+proc accessEnv(cl: JSRef): JSRef {.compilerproc, asmNoStackFrame.} =
+  ## Used by the code generator to access the environment of a closure object
+  ## (`cl`).
+  ##
+  ## The closure object might not be a proper one if it's provided from the
+  ## JavaScript side via the FFI. In order to also support such usage for
+  ## now, `null` is returned in that case.
+  asm """
+    (`cl`== null || `cl`.env == undefined ? null : `cl`.env)
+  """
+
+proc cmpClosures(a, b: JSRef): bool {.compilerproc, asmNoStackFrame.} =
+  ## Compares two closure for value equality. If at least one of them is not a
+  ## real closure (because an JavaScript object passed through the FFI
+  ## incorrectly uses the ``.closure`` calling convention), the default
+  ## equality operator is used.
+  asm """
+    if (`a` != null && `a`.env != undefined &&
+        `b` != null && `b`.env != undefined) {
+      return `a`.prc == `b`.prc && `a`.env == `b`.env;
+    } else {
+      return `a` == `b`;
+    }
+  """
