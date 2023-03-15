@@ -899,6 +899,10 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
         "this is a know design issue; as a work around split pragmas and " &
         "unpacking into two steps."
 
+    of rsemIllegalCompileTime:
+      result = "the '.compileTime' pragma must only be used with locals inside" &
+               " compile-time-only procedures or with globals."
+
     of rsemPragmaOptionExpected:
       result = "option expected"
 

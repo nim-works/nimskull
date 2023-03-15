@@ -373,7 +373,8 @@ type
     sfShadowed        ## a symbol that was shadowed in some inner scope
     sfThread          ## proc will run as a thread
                       ## variable is a thread variable
-    sfCompileTime     ## proc can be evaluated at compile time
+    sfCompileTime     ## proc can only be used in compile time contexts;
+                      ## global is accessible in compile time contexts
     sfDispatcher      ## copied method symbol is the dispatcher
                       ## deprecated and unused, except for the con
     sfBorrow          ## proc is borrowed
@@ -1134,6 +1135,7 @@ type
     adSemCannotInferTypeOfLiteral
     adSemProcHasNoConcreteType
     adSemPragmaDisallowedForTupleUnpacking
+    adSemIllegalCompileTime
     adSemDifferentTypeForReintroducedSymbol
     adSemThreadvarCannotInit
     adSemWrongNumberOfVariables
@@ -1270,6 +1272,7 @@ type
         adSemInvalidExpression,
         adSemExpectedNonemptyPattern,
         adSemPragmaDisallowedForTupleUnpacking,
+        adSemIllegalCompileTime,
         adSemThreadvarCannotInit,
         adSemLetNeedsInit,
         adSemConstExpressionExpected,

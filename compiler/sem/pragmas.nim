@@ -1277,11 +1277,7 @@ proc prepareSinglePragma(
         result = processMagic(c, it, sym)
       of wCompileTime:
         result = noVal(c, it)
-        if comesFromPush:
-          if sym.kind in {skProc, skFunc}:
-            incl(sym.flags, sfCompileTime)
-        else:
-          incl(sym.flags, sfCompileTime)
+        incl(sym.flags, sfCompileTime)
       of wGlobal:
         result = noVal(c, it)
         sym.flags.incl {sfGlobal, sfPure}

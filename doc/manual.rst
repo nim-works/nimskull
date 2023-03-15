@@ -6385,7 +6385,7 @@ Is the same as:
   proc astHelper(n: NimNode): NimNode {.compileTime.} =
     result = n
 
-`compileTime` variables are available at runtime too. This simplifies certain
+`compileTime` globals are available at runtime too. This simplifies certain
 idioms where variables are filled at compile-time (for example, lookup tables)
 but accessed at runtime:
 
@@ -6410,6 +6410,9 @@ but accessed at runtime:
 
   doAssert nameToProc[2][1]() == "baz"
 
+For locals defined inside compile-time-only routines, the `compileTime`
+pragma is ignored -- for all other locals, using the pragma is a semantic
+error.
 
 noreturn pragma
 ---------------
