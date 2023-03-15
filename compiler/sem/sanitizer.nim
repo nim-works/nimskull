@@ -419,7 +419,18 @@ proc parseTry(c: PContext, n: PNode): UntypedAst =
     result = invalidAstLen(c, n, 2)
 
 proc parseIdentVis(c: PContext, n: PNode): UntypedAst =
-  unreachable("missing")
+  assert n.kind == nkPostfix
+  if n.len == 2:
+    result = prepareFrom(n)
+    result[0] =
+      if n[0].kind == nkIdent and n[0].ident != nil and n[0].ident.s == "*":
+        newIdentNode(n[0].ident, n[0].info)
+      else:
+        invalidAst(c, n[0])
+
+    result[1] = parseDef(c, n[1])
+  else:
+    result = invalidAst(c, n)
 
 proc parsePragmaList(c: PContext, n: PNode): UntypedAst =
   # note: a pragma list is allowed to be empty
