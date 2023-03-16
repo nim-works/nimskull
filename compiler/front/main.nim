@@ -124,7 +124,7 @@ proc commandGenDepend(graph: ModuleGraph) =
   conf.logExecStart(cmd)
   let code = execCmd(cmd)
   if code != 0:
-    conf.logError(CliLogMsg(kind: cliLogErrGenDependFailed,
+    conf.logError(CliEvent(kind: cliEvtErrGenDependFailed,
                             shellCmd: cmd,
                             exitCode: code))
 
@@ -476,7 +476,7 @@ proc mainCommand*(graph: ModuleGraph) =
     setOutFile(graph.config)
     commandJsonScript(graph)
   of cmdUnknown, cmdNone, cmdIdeTools, cmdNimfix:
-    conf.logError(CliLogMsg(kind: cliLogErrInvalidCommand, cmd: conf.command))
+    conf.logError(CliEvent(kind: cliEvtErrInvalidCommand, cmd: conf.command))
 
   if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
     if optProfileVM in conf.globalOptions:

@@ -73,10 +73,10 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
   )
   self.initDefinesProg(conf, "nim_compiler")
   if paramCount() == 0:
-    # conf.writeCommandLineUsage()
     return cliErrNoParamsProvided
 
   self.processCmdLineAndProjectPath(conf)
+  if conf.errorCounter != 0: return
   var graph = newModuleGraph(cache, conf)
 
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
@@ -115,21 +115,21 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
       conf.logExecStart(cmd)
       let code = execCmd(cmd)
       if code != 0:
-        conf.logError(CliLogMsg(kind: cliLogErrRunCmdFailed,
+        conf.logError(CliEvent(kind: cliEvtErrRunCmdFailed,
                                 shellCmd: cmd,
                                 exitCode: code))
     of cmdDocLike, cmdRst2html, cmdRst2tex: # bugfix(cmdRst2tex was missing)
       if conf.arguments.len > 0:
         # reserved for future use
-        conf.logError(CliLogMsg(
-          kind: cliLogErrExpectedNoCmdArguments,
+        conf.logError(CliEvent(
+          kind: cliEvtErrCmdExpectedNoAdditionalArgs,
           cmd: conf.command,
           unexpectedArgs: conf.arguments))
       openDefaultBrowser($output)
     else:
       # support as needed
-      conf.logError(CliLogMsg(
-        kind: cliLogErrUnexpectedRunOpt,
+      conf.logError(CliEvent(
+        kind: cliEvtErrUnexpectedRunOpt,
         cmd: conf.command
       ))
 
@@ -154,7 +154,7 @@ when not defined(selftest):
 
   case handleCmdLine(newIdentCache(), conf)
   of cliErrNoParamsProvided:
-    conf.logError(CliLogMsg(kind: cliLogErrNoCmdLineParamsProvided))
+    conf.logError(CliEvent(kind: cliEvtErrNoCmdLineParamsProvided))
     conf.showMsg(helpOnErrorMsg(conf))
   of cliErrConfigProcessing, cliErrCommandProcessing, cliFinished:
     # TODO: more specific handling here

@@ -87,81 +87,79 @@ type
     passCmd2,                 # second pass over the command line
     passPP                    # preprocessor called processCommand()
 
-  CliLogKind* = enum
+  CliEventKind* = enum
     # errors - cli command
-    cliLogErrInvalidCommand
-    cliLogErrExpectedNoCmdArguments ## command disallows additional args
-                                    # TODO: rename `cliLogCmdUnsupportedAdditionalArgs`
-    cliLogErrRunCmdFailed
-    cliLogErrGenDependFailed
+    cliEvtErrInvalidCommand
+    cliEvtErrCmdExpectedNoAdditionalArgs ## command disallows additional args
+    cliEvtErrRunCmdFailed
+    cliEvtErrGenDependFailed
     # errors - general flag/option/switches (TODO: standardize on "flag")
-    cliLogErrUnexpectedRunOpt
-    cliLogErrInvalidCommandLineOption
-    cliLogErrSwitchExpectedOnOrOff
-    cliLogErrSwitchExpectedOnOffOrList
-    cliLogErrSwitchExpectedAllOrOff    ## flag expected 'on', 'off', or 'list'
+    cliEvtErrUnexpectedRunOpt
+    cliEvtErrInvalidCommandLineOption
+    cliEvtErrSwitchExpectedOnOrOff
+    cliEvtErrSwitchExpectedOnOffOrList
+    cliEvtErrSwitchExpectedAllOrOff    ## flag expected 'on', 'off', or 'list'
                                        ## of values
-    cliLogErrSwitchExpectedArg         ## flag expected argument
-    cliLogErrSwitchExpectedNoArg       ## flag expected no arguments
-    cliLogErrSwitchInvalidValue ## `--flag:v` where `v` is not an allowed value
+    cliEvtErrSwitchExpectedArg         ## flag expected argument
+    cliEvtErrSwitchExpectedNoArg       ## flag expected no arguments
+    cliEvtErrSwitchInvalidValue ## `--flag:v` where `v` is not an allowed value
     # errors - specific flag/option/switch
-    cliLogErrUnknownCCompiler
-    cliLogErrUnknownExperimentalFeature
-    cliLogErrInvalidPath
-    cliLogErrNoCmdLineParamsProvided
-    cliLogErrInvalidHint
-    cliLogErrInvalidWarning
+    cliEvtErrUnknownCCompiler
+    cliEvtErrUnknownExperimentalFeature
+    cliEvtErrInvalidPath
+    cliEvtErrNoCmdLineParamsProvided
+    cliEvtErrInvalidHint
+    cliEvtErrInvalidWarning
     # warnings - general flags/options/switches
-    cliLogWarnDeprecatedAlias
-    cliLogWarnSwitchValDeprecatedNoop
-    cliLogWarnSwitchDeprecatedNoop
+    cliEvtWarnDeprecatedAlias
+    cliEvtWarnSwitchValDeprecatedNoop
+    cliEvtWarnSwitchDeprecatedNoop
 
-  CliLogMsg* = object
+  CliEvent* = object
     # TODO: add support for instantiation location
-    # TODO: rename to something with "event"/"evt" instead of "msg"
     srcCodeOrigin*: InstantiationInfo
-    case kind*: CliLogKind
-      of cliLogErrInvalidCommand,
-          cliLogErrExpectedNoCmdArguments,
-          cliLogErrUnexpectedRunOpt:
+    case kind*: CliEventKind
+      of cliEvtErrInvalidCommand,
+          cliEvtErrCmdExpectedNoAdditionalArgs,
+          cliEvtErrUnexpectedRunOpt:
         cmd*: string
         unexpectedArgs*: string
-      of cliLogErrRunCmdFailed,
-          cliLogErrGenDependFailed:
+      of cliEvtErrRunCmdFailed,
+          cliEvtErrGenDependFailed:
         shellCmd*: string
         exitCode*: int
-      of cliLogErrInvalidCommandLineOption:
+      of cliEvtErrInvalidCommandLineOption:
         wrongOpt*: string
-      of cliLogErrSwitchExpectedOnOrOff,
-          cliLogErrSwitchExpectedOnOffOrList,
-          cliLogErrSwitchExpectedNoArg,
-          cliLogErrSwitchExpectedAllOrOff,
-          cliLogWarnSwitchDeprecatedNoop,
-          cliLogWarnSwitchValDeprecatedNoop,
-          cliLogErrInvalidPath:
+      of cliEvtErrSwitchExpectedOnOrOff,
+          cliEvtErrSwitchExpectedOnOffOrList,
+          cliEvtErrSwitchExpectedNoArg,
+          cliEvtErrSwitchExpectedAllOrOff,
+          cliEvtWarnSwitchDeprecatedNoop,
+          cliEvtWarnSwitchValDeprecatedNoop,
+          cliEvtErrInvalidPath:
         switch*: string
         argVal*: string
-      of cliLogErrSwitchExpectedArg:
+      of cliEvtErrSwitchExpectedArg:
         switchMissingArg*: string
-      of cliLogErrSwitchInvalidValue,
-          cliLogErrUnknownCCompiler,
-          cliLogErrUnknownExperimentalFeature:
+      of cliEvtErrSwitchInvalidValue,
+          cliEvtErrUnknownCCompiler,
+          cliEvtErrUnknownExperimentalFeature:
         forSwitch*: string
         givenVal*: string
         allowed*: seq[string]
-      of cliLogErrInvalidHint,
-          cliLogErrInvalidWarning:
+      of cliEvtErrInvalidHint,
+          cliEvtErrInvalidWarning:
         invalidErrHintWarn*: string
-      of cliLogErrNoCmdLineParamsProvided:
+      of cliEvtErrNoCmdLineParamsProvided:
         discard
-      of cliLogWarnDeprecatedAlias:
+      of cliEvtWarnDeprecatedAlias:
         oldName*: string
         newName*: string
 
 const
-  cliLogAllKinds = {low(CliLogKind) .. high(CliLogKind)}
-  cliLogErrors   = {cliLogErrInvalidCommand .. cliLogErrInvalidWarning}
-  cliLogWarnings = cliLogAllKinds - cliLogErrors
+  cliLogAllKinds = {low(CliEventKind) .. high(CliEventKind)}
+  cliEvtErrors   = {cliEvtErrInvalidCommand .. cliEvtErrInvalidWarning}
+  cliEvtWarnings = cliLogAllKinds - cliEvtErrors
 
   pathFmtStr = "$#($#, $#)" ## filename(line, column)
 
@@ -200,7 +198,7 @@ proc writeLog(conf: ConfigRef, msg: string, srcLoc: InstantiationInfo) =
                  conf.stylize("[MsgOrigin]", fgCyan)]
   conf.msgWrite(result & "\n")
 
-proc writeLog(conf: ConfigRef, msg: string, evt: CliLogMsg) {.inline.} =
+proc writeLog(conf: ConfigRef, msg: string, evt: CliEvent) {.inline.} =
   conf.writeLog(msg, evt.srcCodeOrigin)
 
 proc getNimSourceData(): tuple[hash, date: string] {.compileTime.} =
@@ -355,77 +353,77 @@ proc logExecStart*(conf: ConfigRef, cmd: string, srcLoc = instLoc()) =
   if conf.verbosity > compVerbosityDefault:
     conf.writeLog(cmd, srcLoc)
 
-proc logError*(conf: ConfigRef, evt: CliLogMsg) =
+proc logError*(conf: ConfigRef, evt: CliEvent) =
   # TODO: consolidate log event rendering, between this and "reports", but with
   #       less of the reports baggage
   let msg =
     case evt.kind
-    of cliLogErrInvalidCommand:
+    of cliEvtErrInvalidCommand:
       "Invalid command - $1" % evt.cmd
-    of cliLogErrUnexpectedRunOpt:
+    of cliEvtErrUnexpectedRunOpt:
       "'$1 cannot handle --run" % evt.cmd
-    of cliLogErrExpectedNoCmdArguments:
+    of cliEvtErrCmdExpectedNoAdditionalArgs:
       "$1 command does not support additional arguments: '$2'" %
         [evt.cmd, evt.unexpectedArgs]
-    of cliLogErrRunCmdFailed,
-        cliLogErrGenDependFailed: # make a better message for gen depend
+    of cliEvtErrRunCmdFailed,
+        cliEvtErrGenDependFailed: # make a better message for gen depend
       "execution of an external program '$1' failed with exit code '$2'" %
         [evt.shellCmd, $evt.exitCode]
-    of cliLogErrSwitchExpectedOnOrOff:
+    of cliEvtErrSwitchExpectedOnOrOff:
       "'on' or 'off' expected for $1, but '$2' found" %
         [evt.switch, evt.argVal]
-    of cliLogErrSwitchExpectedOnOffOrList:
+    of cliEvtErrSwitchExpectedOnOffOrList:
       "'on', 'off', or 'list' expected for $1, but '$2' found" %
         [evt.switch, evt.argVal]
-    of cliLogErrSwitchExpectedNoArg:
+    of cliEvtErrSwitchExpectedNoArg:
       "$1 expects no arguments, but '$2' found" % [evt.switch, evt.argVal]
-    of cliLogErrSwitchExpectedAllOrOff:
+    of cliEvtErrSwitchExpectedAllOrOff:
       "only 'all:off' is supported for $1, found $2" % [evt.switch, evt.argVal]
-    of cliLogErrSwitchExpectedArg:
+    of cliEvtErrSwitchExpectedArg:
       "argument for command line option expected: '$1'" % evt.switch
-    of cliLogErrSwitchInvalidValue:
+    of cliEvtErrSwitchInvalidValue:
       "Unexpected value for switch '$1'. Expected one of $2, but got '$3'" %
         [evt.forSwitch, evt.allowed.mapIt("'$1'" % it).join(", "), evt.givenVal]
-    of cliLogErrUnknownCCompiler:
+    of cliEvtErrUnknownCCompiler:
       "unknown C compiler: '$1'. Available options are: $2" %
         [evt.givenVal, evt.allowed.join(", ")]
-    of cliLogErrUnknownExperimentalFeature:
+    of cliEvtErrUnknownExperimentalFeature:
       "unknown experiemental feature: '$1'. Available options are: $2" %
         [evt.givenVal, evt.allowed.join(", ")]
-    of cliLogErrInvalidCommandLineOption:
+    of cliEvtErrInvalidCommandLineOption:
       "Invalid command line option - " & evt.wrongOpt
-    of cliLogErrInvalidPath:
+    of cliEvtErrInvalidPath:
       "invalid path (option '$#'): $#" % [evt.switch, evt.argVal]
-    of cliLogErrInvalidHint:
+    of cliEvtErrInvalidHint:
       "Invalid hint - " & evt.invalidErrHintWarn
-    of cliLogErrInvalidWarning:
+    of cliEvtErrInvalidWarning:
       "Invalid warning - " & evt.invalidErrHintWarn
-    of cliLogErrNoCmdLineParamsProvided:
+    of cliEvtErrNoCmdLineParamsProvided:
       "no command-line parameters provided"
-    of cliLogWarnings:
+    of cliEvtWarnings:
       unreachable($evt.kind)
 
   inc conf.errorCounter
   conf.writeLog(msg, evt)
 
-proc logWarn(conf: ConfigRef, evt: CliLogMsg) =
+proc logWarn(conf: ConfigRef, evt: CliEvent) =
   # TODO: see items under `logError`
   let msg =
     case evt.kind
-    of cliLogWarnDeprecatedAlias:
+    of cliEvtWarnDeprecatedAlias:
       "'$#' is a deprecated alias for '$#'" % [evt.oldName, evt.newName]
-    of cliLogWarnSwitchValDeprecatedNoop:
+    of cliEvtWarnSwitchValDeprecatedNoop:
       "'$#' is deprecated for flag '$#', now a noop" % [evt.argVal, evt.switch]
-    of cliLogWarnSwitchDeprecatedNoop:
+    of cliEvtWarnSwitchDeprecatedNoop:
       "'$#' is deprecated, now a noop" % evt.switch
-    of cliLogErrors:
+    of cliEvtErrors:
       unreachable($evt.kind)
     
   inc conf.warnCounter
   conf.writeLog(msg, evt)
 
 proc invalidCmdLineOption(conf: ConfigRef, switch: string) =
-  conf.logError(CliLogMsg(kind: cliLogErrInvalidCommandLineOption, wrongOpt: switch))
+  conf.logError(CliEvent(kind: cliEvtErrInvalidCommandLineOption, wrongOpt: switch))
 
 proc splitSwitch(conf: ConfigRef; switch: string, cmd, arg: var string) =
   cmd = ""
@@ -451,7 +449,7 @@ template switchOn(conf: ConfigRef, s, arg: string): bool =
   of "off": false
   else:
     # TODO: capture the switch this is for so we have a better message
-    conf.logError(CliLogMsg(kind: cliLogErrSwitchExpectedOnOrOff,
+    conf.logError(CliEvent(kind: cliEvtErrSwitchExpectedOnOrOff,
                             switch: s,
                             argVal: arg))
     false
@@ -461,7 +459,7 @@ proc processOnOffSwitch(conf: ConfigRef; op: TOptions, arg, switch: string) =
   of "", "on": conf.incl op
   of "off": conf.excl op
   else:
-    conf.logError(CliLogMsg(kind: cliLogErrSwitchExpectedOnOrOff,
+    conf.logError(CliEvent(kind: cliEvtErrSwitchExpectedOnOrOff,
                             switch: switch,
                             argVal: arg))
 
@@ -472,7 +470,7 @@ proc processOnOffSwitchOrList(conf: ConfigRef; op: TOptions, arg, switch: string
   of "off": conf.excl op
   of "list": result = true
   else:
-    conf.logError(CliLogMsg(kind: cliLogErrSwitchExpectedOnOffOrList,
+    conf.logError(CliEvent(kind: cliEvtErrSwitchExpectedOnOffOrList,
                             switch: switch,
                             argVal: arg))
 
@@ -481,18 +479,18 @@ proc processOnOffSwitchG(conf: ConfigRef; op: TGlobalOptions, arg, switch: strin
   of "", "on": conf.incl op
   of "off": conf.excl op
   else:
-    conf.logError(CliLogMsg(kind: cliLogErrSwitchExpectedOnOrOff,
+    conf.logError(CliEvent(kind: cliEvtErrSwitchExpectedOnOrOff,
                             switch: switch,
                             argVal: arg))
 
 proc expectArg(conf: ConfigRef; switch, arg: string) =
   if arg == "":
-    conf.logError(CliLogMsg(kind: cliLogErrSwitchExpectedArg,
+    conf.logError(CliEvent(kind: cliEvtErrSwitchExpectedArg,
                             switchMissingArg: switch))
 
 proc expectNoArg(conf: ConfigRef; switch, arg: string) =
   if arg != "":
-    conf.logError(CliLogMsg(kind: cliLogErrSwitchExpectedNoArg,
+    conf.logError(CliEvent(kind: cliEvtErrSwitchExpectedNoArg,
                             switch: switch,
                             argVal: arg))
 
@@ -535,7 +533,6 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
   if isBracket:
     if i < arg.len and arg[i] == ']': inc(i)
     else: return ProcessNoteResult(kind: procNoteInvalidOption, switch: orig)
-    # else: invalidCmdLineOption(conf, pass, orig, info)
 
   if i == arg.len: discard
   elif i < arg.len and (arg[i] in {':', '='}): inc(i)
@@ -616,21 +613,19 @@ proc processSpecificNoteAndLog(arg: string, state: TSpecialWord, pass: TCmdLineP
                                orig: string; conf: ConfigRef) =
   let r = processSpecificNote(arg, state, pass, orig, conf)
   case r.kind
-  of procNoteInvalidOption:
-    conf.logError(CliLogMsg(kind: cliLogErrInvalidCommandLineOption,
-                            wrongOpt: r.switch))
+  of procNoteInvalidOption:conf.invalidCmdLineOption(r.switch)
   of procNoteInvalidHint:
-    conf.logError(CliLogMsg(kind: cliLogErrInvalidHint,
+    conf.logError(CliEvent(kind: cliEvtErrInvalidHint,
                             invalidErrHintWarn: r.invalidHintOrWarning))
   of procNoteInvalidWarning:
-    conf.logError(CliLogMsg(kind: cliLogErrInvalidWarning,
+    conf.logError(CliEvent(kind: cliEvtErrInvalidWarning,
                             invalidErrHintWarn: r.invalidHintOrWarning))
   of procNoteExpectedOnOrOff:
-    conf.logError(CliLogMsg(kind: cliLogErrSwitchExpectedOnOrOff,
+    conf.logError(CliEvent(kind: cliEvtErrSwitchExpectedOnOrOff,
                             switch: r.switch,
                             argVal: r.argVal))
   of procNoteOnlyAllOffSupported:
-    conf.logError(CliLogMsg(kind: cliLogErrSwitchExpectedAllOrOff,
+    conf.logError(CliEvent(kind: cliEvtErrSwitchExpectedAllOrOff,
                             switch: r.switch,
                             argVal: r.argVal))
   of procNoteSuccess:
@@ -904,7 +899,7 @@ proc processPathAndLog(conf: ConfigRef; path: string, switch: string,
   case p.success
   of true: p.path
   of false:
-    conf.logError(CliLogMsg(kind: cliLogErrInvalidPath,
+    conf.logError(CliEvent(kind: cliEvtErrInvalidPath,
                             switch: switch,
                             argVal: p.badPath))
     AbsoluteDir p.badPath # allows continuation of processing
@@ -916,7 +911,7 @@ proc processCfgPathAndLog(conf: ConfigRef; path: string,
   case p.success
   of true: p.path
   of false:
-    conf.logError(CliLogMsg(kind: cliLogErrInvalidPath,
+    conf.logError(CliEvent(kind: cliEvtErrInvalidPath,
                             switch: switch,
                             argVal: p.badPath))
     AbsoluteDir p.badPath # allows continuation of processing
@@ -924,8 +919,8 @@ proc processCfgPathAndLog(conf: ConfigRef; path: string,
 proc processSwitch*(switch, arg: string, pass: TCmdLinePass, conf: ConfigRef) =
   # TODO: rework from logging to returning a result
   var key, val: string
-  func invalidSwitchValue(allowed: seq[string]): CliLogMsg =
-    CliLogMsg(kind: cliLogErrSwitchInvalidValue, forSwitch: switch,
+  func invalidSwitchValue(allowed: seq[string]): CliEvent =
+    CliEvent(kind: cliEvtErrSwitchInvalidValue, forSwitch: switch,
               givenVal: arg, allowed: allowed)
 
   case switch.normalize
@@ -1350,7 +1345,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, conf: ConfigRef) =
     expectArg(conf, switch, arg)
     case setCC(conf, arg)
     of ccNone:
-      conf.logError(CliLogMsg(kind: cliLogErrUnknownCCompiler,
+      conf.logError(CliEvent(kind: cliEvtErrUnknownCCompiler,
                               givenVal: arg,
                               allowed: listCCnames()))
     else:
@@ -1408,7 +1403,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, conf: ConfigRef) =
         conf.incl parseEnum[Feature](arg)
       except ValueError:
         conf.logError:
-          CliLogMsg(kind: cliLogErrUnknownExperimentalFeature,
+          CliEvent(kind: cliEvtErrUnknownExperimentalFeature,
                     givenVal: arg,
                     allowed: getEnumNames({low(Feature) .. high(Feature)}))
   of "exceptions":
@@ -1553,7 +1548,6 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
           # `commands.processSwitch` processes input switches a second time
           # and puts them in necessary configuration fields.
           processSwitch(pass, p, config)
-
       of cmdArgument:
         config.commandLine.add " "
         config.commandLine.add p.key.quoteShell
@@ -1564,5 +1558,5 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
     if {optRun, optWasNimscript} * config.globalOptions == {} and
         config.arguments.len > 0 and config.cmd notin {
           cmdTcc, cmdNimscript, cmdCrun}:
-      config.logError(CliLogMsg(kind: cliLogErrUnexpectedRunOpt,
+      config.logError(CliEvent(kind: cliEvtErrUnexpectedRunOpt,
                                 cmd: config.command))
