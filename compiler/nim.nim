@@ -67,6 +67,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
   ## Main entry point to the compiler - dispatches command-line commands
   ## into different subsystems, sets up configuration options for the
   ## `conf`:arg: and so on.
+  # TODO: remove the need for all the `conf.errorCounter` checks.
   let self = NimProg(
     supportsStdinFile: true,
     processCmdLine: processCmdLine
@@ -79,7 +80,8 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
   if conf.errorCounter != 0: return
   var graph = newModuleGraph(cache, conf)
 
-  if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
+  if not self.loadConfigsAndProcessCmdLine(cache, conf, graph) or
+      conf.errorCounter != 0:
     return
 
   mainCommand(graph)
