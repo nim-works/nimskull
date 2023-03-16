@@ -88,6 +88,7 @@ type
     passPP                    # preprocessor called processCommand()
 
   CliLogKind* = enum
+    cliLogErrInvalidCommand
     cliLogErrExpectedNoCmdArguments
     cliLogErrUnexpectedRunOpt
     cliLogErrRunCmdFailed
@@ -101,8 +102,6 @@ type
     cliLogErrSwitchInvalidValue
     cliLogErrUnknownCCompiler
     cliLogErrUnknownExperimentalFeature
-    cliLogErrUnknownLegacyFeature
-    cliLogErrUnknownLanguageVersion
     cliLogErrInvalidPath
     cliLogErrNoCmdLineParamsProvided
     cliLogErrInvalidHint
@@ -117,7 +116,8 @@ type
     # TODO: rename to something with "event"/"evt" instead of "msg"
     srcCodeOrigin*: InstantiationInfo
     case kind*: CliLogKind
-      of cliLogErrExpectedNoCmdArguments,
+      of cliLogErrInvalidCommand,
+          cliLogErrExpectedNoCmdArguments,
           cliLogErrUnexpectedRunOpt:
         cmd*: string
         unexpectedArgs*: string
@@ -140,9 +140,7 @@ type
         switchMissingArg*: string
       of cliLogErrSwitchInvalidValue,
           cliLogErrUnknownCCompiler,
-          cliLogErrUnknownExperimentalFeature,
-          cliLogErrUnknownLegacyFeature,
-          cliLogErrUnknownLanguageVersion:
+          cliLogErrUnknownExperimentalFeature:
         forSwitch*: string
         givenVal*: string
         allowed*: seq[string]
@@ -159,7 +157,7 @@ type
 
 const
   cliLogAllKinds = {low(CliLogKind) .. high(CliLogKind)}
-  cliLogErrors   = {cliLogErrExpectedNoCmdArguments .. cliLogErrInvalidWarning}
+  cliLogErrors   = {cliLogErrInvalidCommand .. cliLogErrInvalidWarning}
   cliLogWarnings = cliLogAllKinds - cliLogErrors
 
   pathFmtStr = "$#($#, $#)" ## filename(line, column)
@@ -359,6 +357,8 @@ proc logError*(conf: ConfigRef, evt: CliLogMsg) =
   #       less of the reports baggage
   let msg =
     case evt.kind
+    of cliLogErrInvalidCommand:
+      "Invalid command - $1" % evt.cmd
     of cliLogErrUnexpectedRunOpt:
       "'$1 cannot handle --run" % evt.cmd
     of cliLogErrExpectedNoCmdArguments:
@@ -389,11 +389,6 @@ proc logError*(conf: ConfigRef, evt: CliLogMsg) =
     of cliLogErrUnknownExperimentalFeature:
       "unknown experiemental feature: '$1'. Available options are: $2" %
         [evt.givenVal, evt.allowed.join(", ")]
-    of cliLogErrUnknownLegacyFeature: # TODO: remove, no longer required
-      "unknown legacy feature: '$1'. Available options are: $2" %
-        [evt.givenVal, evt.allowed.join(", ")]
-    of cliLogErrUnknownLanguageVersion: # TODO: remove, no longer required
-      "unknown language version; currently supported values are: `1.0`, `1.2`"
     of cliLogErrInvalidCommandLineOption:
       "Invalid command line option - " & evt.wrongOpt
     of cliLogErrInvalidPath:

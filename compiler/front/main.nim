@@ -367,7 +367,7 @@ proc mainCommand*(graph: ModuleGraph) =
       let cc = extccomp.setCC(conf, "tcc")
       doAssert cc == ccTcc, "what happened to tcc?"
       if conf.backend != backendC:
-        globalReport(conf, ExternalReport(kind: rextExpectedCbackednForRun,
+        globalReport(conf, ExternalReport(kind: rextExpectedCbackendForRun,
                                           usedCompiler: $conf.backend))
       compileToBackend()
     else:
@@ -476,8 +476,7 @@ proc mainCommand*(graph: ModuleGraph) =
     setOutFile(graph.config)
     commandJsonScript(graph)
   of cmdUnknown, cmdNone, cmdIdeTools, cmdNimfix:
-    localReport(conf, ExternalReport(
-      msg: conf.command, kind: rextInvalidCommand))
+    conf.logError(CliLogMsg(kind: cliLogErrInvalidCommand, cmd: conf.command))
 
   if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
     if optProfileVM in conf.globalOptions:

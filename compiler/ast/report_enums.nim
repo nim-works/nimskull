@@ -151,7 +151,6 @@ type
 
     rextExpectedCbackendForRun
     rextExpectedTinyCForRun
-    rextInvalidCommand
     rextCommandMissing
     rextExpectedRunOptForArgs
     rextUnexpectedRunOpt

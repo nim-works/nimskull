@@ -2889,9 +2889,6 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
     of rextInvalidWarning:
       result.add("Invalid warning - ", r.cmdlineProvided)
 
-    of rextInvalidCommand:
-       result.add("Invalid command - ", r.cmdlineProvided)
-
     of rextInvalidCommandLineOption:
       result.add("Invalid command line option - ", r.cmdlineProvided)
 
