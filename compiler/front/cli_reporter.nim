@@ -2694,9 +2694,6 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
     of rintSource:
       assert false, "is a configuration hint, should not be reported manually"
 
-    of rintGCStats:
-      result = r.msg
-
     of rintQuitCalled:
       result = "quit() called"
 
@@ -2903,46 +2900,11 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
       result = "option '$1' expected 'on' or 'off', but '$2' found" %
                 [r.cmdlineSwitch, r.cmdlineProvided]
 
-    of rextExpectedOnOrOffOrList:
-      result = "'on', 'off' or 'list' expected, but '$1' found" % r.cmdlineProvided
-
-    of rextExpectedCmdArgument:
-      result = "argument for command line option expected: '$1'" % r.cmdlineSwitch
-
-    of rextExpectedNoCmdArgument:
-      result = "invalid argument ('$1') for command line option: '$2'" %
-                  [r.cmdlineProvided, r.cmdlineSwitch]
-
-    of rextCmdDisallowsAdditionalArguments:
-      result = "$1 command does not support additional arguments: '$2'" %
-                  [r.cmdlineSwitch, r.cmdlineProvided]
-
-    of rextInvalidNumber:
-      result = "$1 is not a valid number" % r.cmdlineProvided
-
-    of rextInvalidValue:
-      result = ("Unexpected value for " &
-        "the $1. Expected one of $2, but got '$3'") % [
-          r.cmdlineSwitch,
-          r.cmdlineAllowed.mapIt("'" & it & "'").join(", "),
-          r.cmdlineProvided
-      ]
-
-    of rextUnexpectedValue:
-      result = "Unexpected value for $1. Expected one of $2" %
-                [r.cmdlineSwitch, r.cmdlineAllowed.join(", ")]
-
     of rextExpectedTinyCForRun:
       result = "'run' command not available; rebuild with -d:tinyc"
 
     of rextExpectedCbackendForRun:
       result = "'run' requires c backend, got: '$1'" % $conf.backend
-
-    of rextExpectedRunOptForArgs:
-      result = "arguments can only be given if the '--run' option is selected"
-
-    of rextUnexpectedRunOpt:
-      result = "'$1 cannot handle --run" % r.cmdlineProvided
 
     of rextInvalidPath:
       result = "invalid path: " & r.cmdlineProvided

@@ -106,7 +106,6 @@ type
     rintErrKind = "ErrKind" ## Show report kind in error messages
                             # REFACTOR this is a global option not a hint
 
-    rintGCStats = "GCStats" ## Print GC statistics for the compiler run
     rintQuitCalled = "QuitCalled" ## `quit()` called by the macro code
     ## compilation error handling and similar
     rintMissingStackTrace ## Stack trace would've been generated in the
@@ -139,21 +138,10 @@ type
     ## hint/warning modification. Separate diagnostics must be enabled on
     ## one-by-one basis.
     rextExpectedOnOrOff ## Command-line option expected 'on' or 'off' value
-    rextExpectedOnOrOffOrList ## Command-line option expected 'on', 'off'
-    ## or 'list' value.
-    rextExpectedCmdArgument ## Command-line option expected argument
-    rextExpectedNoCmdArgument ## Command-line option expected no arguments
-    rextCmdDisallowsAdditionalArguments ## command disallows additional args
-    rextInvalidNumber ## Command-line switch expected a number
-    rextInvalidValue
-    rextUnexpectedValue ## Command-line argument had value, but it did not
-    ## match with any expected.
 
     rextExpectedCbackendForRun
     rextExpectedTinyCForRun
     rextCommandMissing
-    rextExpectedRunOptForArgs
-    rextUnexpectedRunOpt
     rextInvalidPath ## Invalid path for a command-line argument
 
     rextInvalidPackageName ## When adding packages from the `--nimbleDir`

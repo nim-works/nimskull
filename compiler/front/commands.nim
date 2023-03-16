@@ -88,25 +88,30 @@ type
     passPP                    # preprocessor called processCommand()
 
   CliLogKind* = enum
+    # errors - cli command
     cliLogErrInvalidCommand
-    cliLogErrExpectedNoCmdArguments
-    cliLogErrUnexpectedRunOpt
+    cliLogErrExpectedNoCmdArguments ## command disallows additional args
+                                    # TODO: rename `cliLogCmdUnsupportedAdditionalArgs`
     cliLogErrRunCmdFailed
     cliLogErrGenDependFailed
+    # errors - general flag/option/switches (TODO: standardize on "flag")
+    cliLogErrUnexpectedRunOpt
     cliLogErrInvalidCommandLineOption
     cliLogErrSwitchExpectedOnOrOff
     cliLogErrSwitchExpectedOnOffOrList
-    cliLogErrSwitchExpectedAllOrOff
-    cliLogErrSwitchExpectedArg
-    cliLogErrSwitchExpectedNoArg
-    cliLogErrSwitchInvalidValue
+    cliLogErrSwitchExpectedAllOrOff    ## flag expected 'on', 'off', or 'list'
+                                       ## of values
+    cliLogErrSwitchExpectedArg         ## flag expected argument
+    cliLogErrSwitchExpectedNoArg       ## flag expected no arguments
+    cliLogErrSwitchInvalidValue ## `--flag:v` where `v` is not an allowed value
+    # errors - specific flag/option/switch
     cliLogErrUnknownCCompiler
     cliLogErrUnknownExperimentalFeature
     cliLogErrInvalidPath
     cliLogErrNoCmdLineParamsProvided
     cliLogErrInvalidHint
     cliLogErrInvalidWarning
-    cliLogWarnDeprecatedGcStatsHintPresent
+    # warnings - general flags/options/switches
     cliLogWarnDeprecatedAlias
     cliLogWarnSwitchValDeprecatedNoop
     cliLogWarnSwitchDeprecatedNoop
@@ -148,8 +153,6 @@ type
           cliLogErrInvalidWarning:
         invalidErrHintWarn*: string
       of cliLogErrNoCmdLineParamsProvided:
-        discard
-      of cliLogWarnDeprecatedGcStatsHintPresent:
         discard
       of cliLogWarnDeprecatedAlias:
         oldName*: string
@@ -341,7 +344,7 @@ proc logGcStats*(conf: ConfigRef, stats: string, srcLoc = instLoc()) =
   ## log a 'debug' level message with the GC `stats`
   # TODO: document log levels, eventual introduction of `channels`,
   #       suppression, formatting, etc
-  if optCmdExitGcStats in conf.globalOptions or conf.hasHint(rintGCStats):
+  if optCmdExitGcStats in conf.globalOptions:
     conf.writeLog(stats, srcLoc)
 
 proc logExecStart*(conf: ConfigRef, cmd: string, srcLoc = instLoc()) =
@@ -409,8 +412,6 @@ proc logWarn(conf: ConfigRef, evt: CliLogMsg) =
   # TODO: see items under `logError`
   let msg =
     case evt.kind
-    of cliLogWarnDeprecatedGcStatsHintPresent:
-      "GCStats hint is deprecated use `--cmdexitgcstats` CLI flag"
     of cliLogWarnDeprecatedAlias:
       "'$#' is a deprecated alias for '$#'" % [evt.oldName, evt.newName]
     of cliLogWarnSwitchValDeprecatedNoop:
@@ -504,7 +505,6 @@ type
     procNoteExpectedOnOrOff
     procNoteOnlyAllOffSupported
   ProcessNoteResult* = object
-    deprecatedGcStatsHintPresent*: bool
     case kind*: ProcessNoteResultKind
       of procNoteSuccess:
         discard
@@ -540,11 +540,6 @@ proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
   if i == arg.len: discard
   elif i < arg.len and (arg[i] in {':', '='}): inc(i)
   else: return ProcessNoteResult(kind: procNoteInvalidOption, switch: orig)
-
-  defer:
-    if notes == {rintGCStats}:
-      # only check the singular case to avoid `--hints[all]` triggering it
-      result.deprecatedGcStatsHintPresent = true
 
   # TODO: `ReportKinds` being used for notes/groups/etc is just wrong, it
   #        defines far more elements than one can actually control. A purpose
@@ -640,9 +635,6 @@ proc processSpecificNoteAndLog(arg: string, state: TSpecialWord, pass: TCmdLineP
                             argVal: r.argVal))
   of procNoteSuccess:
     discard "TODO: log a trace for success?"
-
-  if r.deprecatedGcStatsHintPresent:
-    conf.logWarn(CliLogMsg(kind: cliLogWarnDeprecatedGcStatsHintPresent))
 
 proc processCompile(conf: ConfigRef; filename: string) =
   var found = findFile(conf, filename)
@@ -1480,10 +1472,8 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, conf: ConfigRef) =
   of "": # comes from "-" in for example: `nim c -r -` (gets stripped from -)
     conf.inputMode = pimStdin
   of "cmdexitgcstats":
+    # Print GC statistics for the compiler run
     conf.incl optCmdExitGcStats
-    # for legacy
-    conf.incl(cnCmdline, rintGCStats)
-    conf.incl(cnModifiedy, rintGCStats)
   else:
     if strutils.find(switch, '.') >= 0: options.setConfigVar(conf, switch, arg)
     else: invalidCmdLineOption(conf, switch)

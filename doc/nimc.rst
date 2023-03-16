@@ -102,7 +102,6 @@ Dependency
 Exec                             Program is executed.
 ExprAlwaysX
 ExtendedContext
-GCStats                          Deprecated, see the `--cmdExitGcStats`:option.
 GlobalVar                        Shows global variables declarations.
 LineTooLong                      Line exceeds the maximum length.
 Link                             Linking phase.

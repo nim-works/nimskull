@@ -94,11 +94,6 @@ proc processSingleNote(arg: string, state: TSpecialWord, pass: TCmdLinePass,
   of procNoteSuccess:
     discard
 
-  if r.deprecatedGcStatsHintPresent:
-    conf.localReport(info, ExternalReport(
-        kind: rextDeprecated,
-        msg: "GCStats hint is deprecated use `--cmdexitgcstats` CLI flag"))
-
 proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
               graph: ModuleGraph; idgen: IdGenerator): PEvalContext =
   # For Nimble we need to export 'setupVM'.
