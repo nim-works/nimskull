@@ -306,9 +306,8 @@ proc addPrefix(switch: string): string =
 
 # Full list of all the command line options. Necessary to provide "invalid
 # command line options - did you mean ...?". In theory generation of this
-# list could be automated by maintaining a `{.compiletime.}` variable that
-# is populated by macro which scans every `case` used, but for the time
-# being it is easier to manually keep this list up-to-date.
+# list could be automated by maintaining a `{.compiletime.}` variable, but for
+# the time being it is easier to manually keep this list up-to-date.
 const optNames = @[
   # processSwitch
   "fromcmd", "path", "p", "nimblepath", "nonimblepath",
@@ -919,6 +918,7 @@ proc processCfgPathAndLog(conf: ConfigRef; path: string,
 proc processSwitch*(switch, arg: string, pass: TCmdLinePass, conf: ConfigRef) =
   # TODO: rework from logging to returning a result
   var key, val: string
+  result = CliEvent(kind: cliEvtInfoSuccess)
   func invalidSwitchValue(allowed: seq[string]): CliEvent =
     CliEvent(kind: cliEvtErrSwitchInvalidValue, forSwitch: switch,
               givenVal: arg, allowed: allowed)

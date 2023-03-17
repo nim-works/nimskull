@@ -67,9 +67,9 @@ proc listDirs(a: VmArgs, filter: set[PathComponent]) =
 
   writeTo(result, a.getResultHandle(), a.mem[])
 
-proc processSingleNote(arg: string, state: TSpecialWord, pass: TCmdLinePass,
-                      info: TLineInfo, orig: string; conf: ConfigRef) =
-  let r = processSpecificNote(arg, state, pass, orig, conf)
+proc processSingleNote(arg: string, state: TSpecialWord, info: TLineInfo,
+                       orig: string; conf: ConfigRef) =
+  let r = processSpecificNote(arg, state, passPP, orig, conf)
   case r.kind
   of procNoteInvalidOption:
     conf.localReport(info, ExternalReport(
@@ -96,7 +96,6 @@ proc processSingleNote(arg: string, state: TSpecialWord, pass: TCmdLinePass,
 
 proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
               graph: ModuleGraph; idgen: IdGenerator): PEvalContext =
-  # For Nimble we need to export 'setupVM'.
   result = newCtx(module, cache, graph, idgen, legacyReportsVmTracer)
   # for backwards compatibility, allow meta expressions in nimscript (this
   # matches the previous behaviour)
@@ -238,12 +237,11 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
       processSwitch(a.getString 0, a.getString 1, passPP, conf)
   cbconf hintImpl:
     wrapInCmdLineSrcIdxSwap:
-      processSingleNote(a.getString 0, wHint, passPP, module.info,
-                        a.getString 1, conf)
+      processSingleNote(a.getString 0, wHint, module.info, a.getString 1, conf)
   cbconf warningImpl:
     wrapInCmdLineSrcIdxSwap:
-      processSingleNote(a.getString 0, wWarning, passPP, module.info,
-                        a.getString 1, conf)
+      processSingleNote(a.getString 0, wWarning, module.info, a.getString 1,
+                        conf)
   cbconf patchFile:
     let key = a.getString(0) & "_" & a.getString(1)
     var val = a.getString(2).addFileExt(NimExt)
