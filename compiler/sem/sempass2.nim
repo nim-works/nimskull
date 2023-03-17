@@ -1621,29 +1621,27 @@ proc detectCapture(owner, top: PSym, n: PNode, marker: var IntSet): PNode =
         # unwind
         return
 
-proc isCompileTimeProc2*(s: PSym): bool =
-  ## Tests if `s` is a compile-time procedure, but compared to
-  ## ``isCompileTimeProc``, also considers where `s` is defined. In the
-  ## following example:
-  ##
-  ## .. code-block:: nim
-  ##
-  ##   proc a() {.compileTime.} =
-  ##     proc b() =
-  ##       discard
-  ##
-  ## ``b`` is also a procedure that can only be run at compile-time, but it
-  ## doesn't have the ``sfCompileTime`` flag set
-  # TODO: propagate the ``sfCompileTime`` flag downwards instead (likely in
-  #       sempass2) and use ``isCompileTimeProc`` directly
-  # FIXME: procedures defined inside ``static`` blocks are not detected
-  var s = s
-  while s.kind != skModule:
-    if isCompileTimeProc(s):
-      return true
-    s = s.skipGenericOwner
+proc canCaptureFrom*(captor, target: PSym): bool =
+  ## Tests if the `captor` routine is allowed to capture a local from `target`,
+  ## taking the compile-time/run-time boundary into account:
+  ## 1) attempting to capture a local defined outside an inner macro from
+  ##   inside the macro is illegal
+  ## 2) closing over a local defined inside a compile-time-only routine from a
+  ##   routine than can also be used at run-time is only valid if the chain of
+  ##   enclosing routines leading up to `target` are all compile-time-only
+  ## 3) a compile-time-only routine closing over a run-time location is illegal
+  template isCompTimeOnly(s: PSym): bool =
+    sfCompileTime in s.flags
 
-  result = false
+  result = not captor.isCompTimeOnly or target.isCompTimeOnly    # rule #3
+  # check `captor` and all enclosing routines up to, but not including,
+  # `target` for rule violations
+  var s = captor
+  while result and s != target:
+    result =
+      s.kind != skMacro and                                      # rule #1
+      (s == captor or s.isCompTimeOnly == target.isCompTimeOnly) # rule #2
+    s = s.skipGenericOwner
 
 # ------------- public interface ----------------
 
@@ -1684,8 +1682,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
   if cap != nil:
     # the procedure captures something and thus requires a hidden environment
     # parameter
-    if s.kind == skMacro or
-       (isCompileTimeProc2(s) and not isCompileTimeProc2(cap.sym.owner)):
+    if not canCaptureFrom(s, cap.sym.owner):
       # attempting to capture an entity that only exists at run-time in a
       # compile-time context
       localReport(g.config, cap.info, reportSym(

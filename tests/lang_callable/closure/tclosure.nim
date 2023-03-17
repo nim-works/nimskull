@@ -445,3 +445,16 @@ test non_nested_closure, {c, js}:
   var cl = proc (): int {.closure.} = 1
   doAssert cl is "closure"
   doAssert cl() == 1
+
+block close_over_compile_time_loc:
+  proc p() {.compileTime.} =
+    var x = 0
+    proc inner(cmp: int) = # `inner` is explicitly not compile-time-only
+      inc x
+      doAssert x == cmp
+
+    inner(1)
+    inner(2)
+
+  static:
+    p()

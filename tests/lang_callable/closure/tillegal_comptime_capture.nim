@@ -21,10 +21,35 @@ block:
         discard x #[tt.Error
                ^ (SemIllegalCompTimeCapture)]#
 
-block:
+block close_over_runtime_location:
   proc outer() {.compileTime.} =
-    proc innerInner() = # a compile-time procedure that's not explicitly
-                        # marked as such
+    proc inner() =
       var y = 0
-      proc innerInnerInner() {.compileTime.} =
-        discard y # legal; `innerInner` is also a compile-time procedure
+      proc innerInner() {.compileTime.} =
+        discard y #[tt.Error
+               ^ (SemIllegalCompTimeCapture)]#
+
+block capture_across_non_compile_time_proc:
+  proc outer() {.compileTime.} =
+    var x = 0
+    proc inner() =
+      proc innerInner() {.compileTime.} =
+        # closing over `x` would be legal if `inner` is also a compile-time-
+        # only procedure
+        discard x #[tt.Error
+               ^ (SemIllegalCompTimeCapture)]#
+
+block inner_macro:
+  proc outer() =
+    var x = 0
+    macro m() =
+      discard x #[tt.Error
+             ^ (SemIllegalCompTimeCapture)]#
+
+      proc inner() =
+        discard x #[tt.Error
+               ^ (SemIllegalCompTimeCapture)]#
+
+      proc inner2() {.compileTime.} =
+        discard x #[tt.Error
+               ^ (SemIllegalCompTimeCapture)]#
