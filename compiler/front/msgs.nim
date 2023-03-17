@@ -559,6 +559,7 @@ func astDiagToLegacyReportKind*(
   of adSemCannotInferTypeOfLiteral: rsemCannotInferTypeOfLiteral
   of adSemProcHasNoConcreteType: rsemProcHasNoConcreteType
   of adSemPragmaDisallowedForTupleUnpacking: rsemPragmaDisallowedForTupleUnpacking
+  of adSemIllegalCompileTime: rsemIllegalCompileTime
   of adSemDifferentTypeForReintroducedSymbol: rsemDifferentTypeForReintroducedSymbol
   of adSemThreadvarCannotInit: rsemThreadvarCannotInit
   of adSemTypeKindMismatch: rsemTypeKindMismatch
@@ -733,6 +734,7 @@ func astDiagToLegacyReport*(diag: PAstDiag): Report {.inline.} =
       adSemInvalidExpression,
       adSemExpectedNonemptyPattern,
       adSemPragmaDisallowedForTupleUnpacking,
+      adSemIllegalCompileTime,
       adSemThreadvarCannotInit,
       adSemLetNeedsInit,
       adSemConstExpressionExpected,

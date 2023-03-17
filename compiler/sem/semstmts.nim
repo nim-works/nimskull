@@ -830,6 +830,15 @@ proc semNormalizedLetOrVar(c: PContext, n: PNode, symkind: TSymKind): PNode =
           # xxx: helpful hints like this should call a proc with a better name
           localReport(c.config, defPart.info, reportSem(rsemResultShadowed))
 
+    if not v.isError and sfCompileTime in v.flags:
+      if c.inCompileTimeOnlyContext:
+        # ignore ``.compileTime`` when the definition is already located in
+        # a compile-time-only context
+        excl(v.flags, sfCompileTime)
+      elif sfGlobal notin v.flags:
+        v.transitionToError:
+          c.config.newError(r, PAstDiag(kind: adSemIllegalCompileTime))
+
     if v.isError:
       producedDecl[i] = newSymNode2(v)
       hasError = true

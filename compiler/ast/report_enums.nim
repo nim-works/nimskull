@@ -738,6 +738,10 @@ type
       ## underspecified. This is not a matter of reenabling it as a rethinking
       ## the approach from a first principles perspective is required.
 
+    rsemIllegalCompileTime
+      ## when used on variables, the ``.compileTime`` pragma must only be
+      ## applied to locals inside compile-time procedures or to globals
+
     rsemSymbolKindMismatch
     rsemIllformedAst
     rsemInitHereNotAllowed
