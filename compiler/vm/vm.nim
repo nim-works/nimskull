@@ -155,14 +155,11 @@ proc createStackTrace*(
   result.currentExceptionB = nil
 
   block:
-    var i = thread.frame
     var count = 0
     var pc = thread.pc
-    # Traverse the stack formed via the `next` field
-    while i >= 0:
-      # XXX: unsafeAddr is used due to nocopy-let-in-loop issue
-      let f = unsafeAddr c.sframes[i]
-      i = f.next
+    # create the stacktrace entries:
+    for i in countdown(c.sframes.high, 0):
+      let f {.cursor.} = c.sframes[i]
 
       if count < recursionLimit - 1 or i == 0:
         # The `i == 0` is to make sure that we're always including the
@@ -239,7 +236,7 @@ template toException(x: DerefFailureCode): untyped =
   ## `Result` -> exception translation
   toVmError(x, instLoc())
 
-proc reportException(c: TCtx; sframe: StackFrameIndex, raised: LocHandle) =
+proc reportException(c: TCtx; trace: VmRawStackTrace, raised: LocHandle) =
   ## Reports the exception represented by `raised` by raising a `VmError`
 
   let name = $raised.getFieldHandle(1.fpos).deref().strVal
@@ -257,7 +254,7 @@ proc reportException(c: TCtx; sframe: StackFrameIndex, raised: LocHandle) =
                     empty, # unused
                     newStrNode(nkStrLit, name),
                     newStrNode(nkStrLit, msg))
-  raiseVmError(VmEvent(kind: vmEvtUnhandledException, ast: ast))
+  raiseVmError(VmEvent(kind: vmEvtUnhandledException, exc: ast, trace: trace))
 
 when not defined(nimComputedGoto):
   {.pragma: computedGoto.}
@@ -570,6 +567,43 @@ proc findExceptionHandler(c: TCtx, f: var TStackFrame, raisedType: PVmType):
 
   return (ExceptionGotoUnhandled, 0)
 
+proc resumeRaise(c: var TCtx): PrgCtr =
+  ## Resume raising the active exception and returns the program counter
+  ## (adjusted by -1) of the instruction to execute next. The stack is unwound
+  ## until either an exception handler matching the active exception's type or
+  ## a finalizer is found.
+  let
+    raised = c.heap.tryDeref(c.activeException, noneType).value()
+    excType = raised.typ
+
+  var
+    frame = c.sframes.len
+    jumpTo = (why: ExceptionGotoUnhandled, where: 0)
+
+  # search for the first enclosing matching handler or finalizer:
+  while jumpTo.why == ExceptionGotoUnhandled and frame > 0:
+    dec frame
+    jumpTo = findExceptionHandler(c, c.sframes[frame], excType)
+
+  case jumpTo.why:
+  of ExceptionGotoHandler, ExceptionGotoFinally:
+    # unwind till the frame of the handler or finalizer
+    for i in (frame+1)..<c.sframes.len:
+      cleanUpLocations(c.memory, c.sframes[i])
+
+    c.sframes.setLen(frame + 1)
+
+    if jumpTo.why == ExceptionGotoHandler:
+      # jumping to the handler means that the exception was handled. Clear
+      # out the *active* exception (but not the *current* exception)
+      c.activeException.reset()
+      c.activeExceptionTrace.setLen(0)
+
+    result = jumpTo.where - 1 # -1 because of the increment at the end
+  of ExceptionGotoUnhandled:
+    # nobody handled this exception, error out.
+    reportException(c, c.activeExceptionTrace, raised)
+
 proc cleanUpOnReturn(c: TCtx; f: var TStackFrame): int =
   # Walk up the chain of safepoints and return the PC of the first `finally`
   # block we find or -1 if no such block is found.
@@ -817,7 +851,7 @@ template checkHandle(a: VmAllocator, handle: LocHandle) =
 when not defined(nimHasSinkInference):
   {.pragma: nosinks.}
 
-proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason =
+proc rawExecute(c: var TCtx, pc: var int): YieldReason =
   ## Runs the execution loop, starting in frame `tos` at program counter `pc`.
   ## In the case of an error, raises an exception of type `VmError`. If no
   ## fatal error occurred, the reason for why the loop was left plus extra
@@ -828,57 +862,35 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
   ##
   ## If the loop exits without errors, `pc` points to the last executed
   ## instruction and `tos` refers to the stack-frame it executed on
-  ##
-  ## "tos" is the abbreviation for "top of stack"
 
-  # Used to keep track of where the execution is resumed.
-  var savedPC = -1
-  var savedFrame: StackFrameIndex
   when defined(gcArc) or defined(gcOrc):
     # Use {.cursor.} as a way to get a shallow copy of the seq. This is safe,
     # since `slots` is never changed in length (no add/delete)
     var regs {.cursor.}: seq[TFullReg]
     template updateRegsAlias =
-      regs = c.sframes[tos].slots
+      regs = c.sframes[^1].slots
     updateRegsAlias
   else:
     var regs: seq[TFullReg] # alias to tos.slots for performance
     template updateRegsAlias =
-      shallowCopy(regs, c.sframes[tos].slots)
+      shallowCopy(regs, c.sframes[^1].slots)
     updateRegsAlias
+
+  # alias templates to shorten common expressions:
+  template currFrame: untyped = c.sframes[^1]
+  template tos: untyped =
+    # tos = top-of-stack
+    c.sframes.high
 
   template pushFrame(p: TStackFrame) =
     c.sframes.add(p)
-    tos = c.sframes.high
-    updateRegsAlias
+    updateRegsAlias()
 
   template popFrame() =
-    assert tos == c.sframes.high
     cleanUpLocations(c.memory, c.sframes[tos])
-
-    # if `popFrame` is called during exception handling (e.g. on returning
-    # from a function call in a `finally` block), `next` is not neccessarily
-    # `tos - 1`
-    tos = c.sframes[tos].next
-
     c.sframes.setLen(c.sframes.len - 1)
-    updateRegsAlias
 
-  template gotoFrame(f: int) =
-    tos = f
-    assert tos in 0..c.sframes.high
-    updateRegsAlias
-
-  template unwindToFrame(f: int) =
-    ## Destroys all frames above `f` (the stack top is the most recent frame)
-    ## and sets the frame pointer to `f`
-    let nf = f
-    assert nf in 0..c.sframes.high
-    for i in (nf+1)..<c.sframes.len:
-      cleanUpLocations(c.memory, c.sframes[i])
-    c.sframes.setLen(nf + 1)
-    tos = nf
-    updateRegsAlias
+    updateRegsAlias()
 
   template guestValidate(cond: bool, strMsg: string) =
     ## Ensures that a guest-input related condition holds true and raises
@@ -942,15 +954,12 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
           # move the return register's content (that stores either the simple
           # value or the destination handle) to the destination register on the
           # caller's frame
-          let
-            p = c.sframes[tos].next
-            i = c.code[pc].regA
-          c.sframes[p].slots[i] = move regs[0]
+          let i = c.code[pc].regA
+          c.sframes[tos - 1].slots[i] = move regs[0]
 
         popFrame()
       else:
-        savedPC = pc
-        savedFrame = tos
+        currFrame.savedPC = pc
         # The -1 is needed because at the end of the loop we increment `pc`
         pc = newPc - 1
     of opcYldYoid: assert false
@@ -1843,7 +1852,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       # register 'a'
       let
         templ =     regs[rb+0].nimNode.sym
-        prevFrame = c.sframes[tos].next
+        prevFrame = tos - 1
 
       assert templ.kind == skTemplate
 
@@ -2080,7 +2089,7 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         # logic as for loops:
         if newPc < pc: handleJmpBack()
         #echo "new pc ", newPc, " calling: ", prc.name.s
-        var newFrame = TStackFrame(prc: prc, comesFrom: pc, next: tos)
+        var newFrame = TStackFrame(prc: prc, comesFrom: pc, savedPC: -1)
         newFrame.slots.newSeq(regCount+ord(isClosure))
         if instr.opcode == opcIndCallAsgn:
           checkHandle(regs[ra])
@@ -2204,16 +2213,25 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
       # Pop the last safepoint introduced by a opcTry. This opcode is only
       # executed _iff_ no exception was raised in the body of the `try`
       # statement hence the need to pop the safepoint here.
-      doAssert(savedPC < 0)
+      doAssert(currFrame.savedPC < 0)
       c.sframes[tos].popSafePoint()
     of opcFinallyEnd:
       # The control flow may not resume at the next instruction since we may be
       # raising an exception or performing a cleanup.
-      if savedPC >= 0:
-        pc = savedPC - 1
-        savedPC = -1
-        if tos != savedFrame:
-          gotoFrame(savedFrame)
+      # XXX: the handling here is wrong in many scenarios, but it works okay
+      #      enough until ``finally`` handling is reworked
+      if currFrame.savedPC >= 0:
+        # resume clean-up
+        pc = currFrame.savedPC - 1
+        currFrame.savedPC = -1
+      elif c.activeException.isNotNil:
+        # the finally was entered through a raise -> resume. A return can abort
+        # unwinding, thus an active exception is only considered when there's
+        # no cleanup action in progress
+        pc = resumeRaise(c)
+        updateRegsAlias()
+      else:
+        discard "fall through"
     of opcRaise:
       decodeBImm()
       checkHandle(regs[ra])
@@ -2230,7 +2248,6 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
           regs[ra].atomVal.refVal
 
       let raised = c.heap.tryDeref(raisedRef, noneType).value()
-      let excType = raised.typ
 
       # XXX: the exception is never freed right now
 
@@ -2240,7 +2257,21 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         c.heap.heapDecRef(c.allocator, c.currentExceptionA)
 
       c.currentExceptionA = raisedRef
-      c.exceptionInstr = pc
+      c.activeException = raisedRef
+
+      # gather the stack-tace for the exception:
+      block:
+        var pc = pc
+        c.activeExceptionTrace.setLen(c.sframes.len)
+
+        for i, it in c.sframes.pairs:
+          let p =
+            if i + 1 < c.sframes.len:
+              c.sframes[i+1].comesFrom
+            else:
+              pc
+
+          c.activeExceptionTrace[i] = (it.prc, p)
 
       let name = deref(raised.getFieldHandle(1.fpos))
       if not isReraise and name.strVal.len == 0:
@@ -2252,33 +2283,8 @@ proc rawExecute(c: var TCtx, pc: var int, tos: var StackFrameIndex): YieldReason
         # raise
         name.strVal.asgnVmString(regs[rb].strVal, c.allocator)
 
-      var frame = tos
-      var jumpTo = findExceptionHandler(c, c.sframes[frame], excType)
-      while jumpTo.why == ExceptionGotoUnhandled and frame > 0:
-        dec frame
-        jumpTo = findExceptionHandler(c, c.sframes[frame], excType)
-
-      case jumpTo.why:
-      of ExceptionGotoHandler:
-        # Jump to the handler, do nothing when the `finally` block ends.
-        savedPC = -1
-        pc = jumpTo.where - 1
-        # Unwind even if `tos == frame`, since there might be (now stale)
-        # frames above `tos`. This can happen when raising inside a `finally`
-        # while an exception is already active
-        unwindToFrame(frame)
-      of ExceptionGotoFinally:
-        # Jump to the `finally` block first then re-jump here to continue the
-        # traversal of the exception chain
-        savedPC = pc
-        savedFrame = tos
-        pc = jumpTo.where - 1
-        if tos != frame:
-          gotoFrame(frame)
-      of ExceptionGotoUnhandled:
-        # Nobody handled this exception, error out.
-        reportException(c, tos, raised)
-
+      pc = resumeRaise(c)
+      updateRegsAlias()
     of opcNew:
       let typ = c.types[instr.regBx - wordExcess]
       assert typ.kind == akRef
@@ -3117,6 +3123,7 @@ proc initVmThread*(c: var TCtx, pc: int, frame: sink TStackFrame): VmThread =
   ## .. note:: due to an implementation limitation, there can currently only
   ##           exist a single ``VmThread`` instance for a ``TCtx``
   assert c.sframes.len == 0
+  frame.savedPC = -1 # initialize the field here
   c.sframes.add frame
 
   result = VmThread(pc: pc, frame: 0)
@@ -3139,16 +3146,15 @@ proc execute*(c: var TCtx, thread: var VmThread): YieldReason {.inline.} =
   # `thread` instance could be located in a far away memory location)
   var
     pc = thread.pc
-    sframe = thread.frame
 
   try:
-    result = rawExecute(c, pc, sframe)
+    result = rawExecute(c, pc)
   except VmError as e:
     # an error occurred during execution
     result = YieldReason(kind: yrkError, error: move e.event)
   finally:
     thread.pc = pc
-    thread.frame = sframe
+    thread.frame = c.sframes.high
 
 template source*(c: TCtx, t: VmThread): TLineInfo =
   ## Gets the source-code information for the instruction the program counter
@@ -3220,10 +3226,14 @@ func vmEventToAstDiagVmError*(evt: VmEvent): AstDiagVmError {.inline.} =
           kind: kind,
           msg: evt.msg)
       of adVmCannotSetChild, adVmCannotAddChild, adVmCannotGetChild,
-          adVmUnhandledException, adVmNoType, adVmNodeNotASymbol:
+          adVmNoType, adVmNodeNotASymbol:
         AstDiagVmError(
           kind: kind,
           ast: evt.ast)
+      of adVmUnhandledException:
+        AstDiagVmError(
+          kind: kind,
+          ast: evt.exc)
       of adVmNotAField:
         AstDiagVmError(
           kind: kind,

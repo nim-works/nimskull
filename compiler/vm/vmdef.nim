@@ -698,8 +698,11 @@ type
           vmEvtCacheKeyAlreadyExists, vmEvtMissingCacheKey:
         msg*: string
       of vmEvtCannotSetChild, vmEvtCannotAddChild, vmEvtCannotGetChild,
-          vmEvtUnhandledException, vmEvtNoType, vmEvtNodeNotASymbol:
+         vmEvtNoType, vmEvtNodeNotASymbol:
         ast*: PNode
+      of vmEvtUnhandledException:
+        exc*: PNode
+        trace*: VmRawStackTrace
       of vmEvtNotAField:
         sym*: PSym
       else:
@@ -725,6 +728,8 @@ type
     currentExceptionA*, currentExceptionB*: PNode
     stacktrace*: seq[tuple[sym: PSym, location: TLineInfo]]
     skipped*: int
+
+  VmRawStackTrace* = seq[tuple[sym: PSym, pc: PrgCtr]]
 
   PCtx* = ref TCtx
   TCtx* = object of TPassContext
@@ -760,8 +765,16 @@ type
     # TODO: `codegenInOut` shouldn't be part of `TCtx` but rather a `var`
     #       parameter for the various codegen functions
 
+    # exception state:
+    # XXX: this is thread-local state and should thus not be part of the
+    #      global context
     currentExceptionA*, currentExceptionB*: HeapSlotHandle
-    exceptionInstr*: int # index of instruction that raised the exception
+    activeException*: HeapSlotHandle ## the exception that is currently
+      ## in-flight (i.e. being raised), or nil, if none is in-flight. Note that
+      ## `activeException` is different from `currentException`.
+    activeExceptionTrace*: VmRawStackTrace ##
+      ## the stack-trace of where the exception was raised from
+
     prc*: PProc
     module*: PSym
     callsite*: PNode
@@ -789,12 +802,16 @@ type
     prc*: PSym                 # current prc; proc that is evaluated
     slots*: seq[TFullReg]      # parameters passed to the proc + locals;
                               # parameters come first
-    next*: StackFrameIndex         # for stacking
 
     comesFrom*: int
     safePoints*: seq[int]      # used for exception handling
                               # XXX 'break' should perform cleanup actions
                               # What does the C backend do for it?
+
+    savedPC*: PrgCtr         ## remembers the program counter of the ``Ret``
+                             ## instruction during cleanup. -1 indicates that
+                             ## no clean-up is happening
+
   Profiler* = object
     tEnter*: float
     sframe*: StackFrameIndex   ## The current stack frame

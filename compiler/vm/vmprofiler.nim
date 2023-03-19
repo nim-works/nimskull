@@ -34,7 +34,7 @@ proc leaveImpl(prof: var Profiler, c: TCtx) {.noinline.} =
       data[li].time += tLeave - prof.tEnter
       if frameIdx == prof.sframe:
         inc data[li].count
-    frameIdx = frame.next
+    dec frameIdx
 
 proc leave*(prof: var Profiler, c: TCtx) {.inline.} =
   if optProfileVM in c.config.globalOptions:
