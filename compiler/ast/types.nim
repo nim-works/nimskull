@@ -94,13 +94,17 @@ proc isPureObject*(typ: PType): bool =
     t = t[0].skipTypes(skipPtrs)
   result = t.sym != nil and sfPure in t.sym.flags
 
-proc isUnsigned*(t: PType): bool =
+func isUnsigned*(t: PType): bool {.inline.} =
   t.skipTypes(abstractInst).kind in {tyChar, tyUInt..tyUInt64}
 
 proc getOrdValue*(n: PNode; onError = high(Int128)): Int128 =
-  var k = n.kind
-  if n.typ != nil and n.typ.skipTypes(abstractInst).kind in {tyChar, tyUInt..tyUInt64}:
-    k = nkUIntLit
+  let k =
+    if n.typ.isNil:
+      n.kind
+    elif n.typ.isUnsigned:
+      nkUIntLit
+    else:
+      n.kind
 
   case k
   of nkCharLit, nkUIntLit..nkUInt64Lit:
@@ -423,6 +427,14 @@ template isResolvedUserTypeClass*(t: PType): bool =
   tfResolved in t.flags
 
 proc firstOrd*(conf: ConfigRef; t: PType): Int128 =
+  ## computes the first ordinal value of a concrete `t`ype, taking into account:
+  ## - `int` bit-width via the `conf` param (a `nil` `conf` assumes 64 bits)
+  ## - the ordinal value set of the first enum element
+  # xxx: consider how/whether to handle inband reporting for `tyError` (aka
+  #      `tyProxy`), and potentially empty vector types like `tyCstring` and
+  #      `tyUncheckedArray`
+  # Note: `tyInt` and `tyUint`'s platform specifics, and therefore the `conf`
+  #       param, are here because of things like `sizeof` evaluation during sem
   case t.kind
   of tyBool, tyChar, tySequence, tyOpenArray, tyString, tyVarargs, tyProxy:
     result = Zero
@@ -443,49 +455,31 @@ proc firstOrd*(conf: ConfigRef; t: PType): Int128 =
   of tyInt64: result = toInt128(0x8000000000000000'i64)
   of tyUInt..tyUInt64: result = Zero
   of tyEnum:
-    # if basetype <> nil then return firstOrd of basetype
-    if t.len > 0 and t[0] != nil:
-      result = firstOrd(conf, t[0])
-    else:
+    result =
       if t.n.len > 0:
         assert(t.n[0].kind == nkSym)
-        result = toInt128(t.n[0].sym.position)
+        toInt128(t.n[0].sym.position)
+      else:
+        # currently empty enums aren't supported as a type, but they should be
+        Zero
   of tyGenericInst, tyDistinct, tyTypeDesc, tyAlias, tySink,
      tyStatic, tyInferred, tyUserTypeClasses, tyLent:
     result = firstOrd(conf, lastSon(t))
   of tyOrdinal:
-    if t.len > 0: result = firstOrd(conf, lastSon(t))
+    if t.len > 0:
+      result = firstOrd(conf, lastSon(t))
     else:
-      conf.localReport InternalReport(
-        kind: rintUnreachable,
-        msg: "invalid kind for firstOrd(" & $t.kind & ')')
-
+      unreachable("firstOrd - abstract ordinal type given")
   of tyUncheckedArray, tyCstring:
     result = Zero
   else:
-    conf.localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for firstOrd(" & $t.kind & ')')
-    result = Zero
-
-proc firstFloat*(t: PType): BiggestFloat =
-  case t.kind
-  of tyFloat..tyFloat128: -Inf
-  of tyRange:
-    assert(t.n != nil)        # range directly given:
-    assert(t.n.kind == nkRange)
-    getFloatValue(t.n[0])
-  of tyVar: firstFloat(t[0])
-  of tyGenericInst, tyDistinct, tyTypeDesc, tyAlias, tySink,
-     tyStatic, tyInferred, tyUserTypeClasses:
-    firstFloat(lastSon(t))
-  else:
-    newPartialConfigRef().localReport InternalReport(
-      kind: rintUnreachable,
-      msg: "invalid kind for firstFloat(" & $t.kind & ')')
-    NaN
+    unreachable("firstOrd - non-ordinal type given: " & $t.kind)
 
 proc lastOrd*(conf: ConfigRef; t: PType): Int128 =
+  ## computes the last ordinal value of a concrete `t`ype, taking into account:
+  ## - `int` bit-width via the `conf` param (a `nil` `conf` assumes 64 bits)
+  ## - the ordinal value set of the last enum element
+  # xxx: same issues as described under `firstOrd`, see that proc
   case t.kind
   of tyBool: result = toInt128(1'u)
   of tyChar: result = toInt128(255'u)
@@ -513,26 +507,61 @@ proc lastOrd*(conf: ConfigRef; t: PType): Int128 =
   of tyUInt64:
     result = toInt128(0xFFFFFFFFFFFFFFFF'u64)
   of tyEnum:
-    if t.n.len > 0:
-      assert(t.n[^1].kind == nkSym)
-      result = toInt128(t.n[^1].sym.position)
+    result =
+      if t.n.len > 0:
+        assert(t.n[^1].kind == nkSym)
+        toInt128(t.n[^1].sym.position)
+      else:
+        # currently empty enums aren't supported as a type, but they should be
+        Zero
   of tyGenericInst, tyDistinct, tyTypeDesc, tyAlias, tySink,
      tyStatic, tyInferred, tyUserTypeClasses, tyLent:
     result = lastOrd(conf, lastSon(t))
-  of tyProxy: result = Zero
+  of tyProxy:
+     # xxx: this seems off; also not in `firstOrd`. I'm guessing this is to
+     #      allow `check` or `suggest` to continue to make progress.
+    result = Zero
   of tyOrdinal:
-    if t.len > 0: result = lastOrd(conf, lastSon(t))
+    if t.len > 0:
+      result = lastOrd(conf, lastSon(t))
     else:
-      conf.localReport InternalReport(
-        kind: rintUnreachable,
-        msg: "invalid kind for firstOrd(" & $t.kind & ')')
+      unreachable("lastOrd - abstract ordinal type given")
   of tyUncheckedArray:
+    # xxx: what about `tyCstring`; see `firstOrd`? Also, this analysis isn't
+    #      quite right, `tyUncheckedArray`, and `tyCstring`, both could be
+    #      empty, and the range is pessimistically akin to `-1..-1`.
     result = Zero
   else:
-    conf.localReport InternalReport(
+    unreachable("lastOrd - non-ordinal type given: " & $t.kind)
+
+proc lengthOrd*(conf: ConfigRef; t: PType): Int128 =
+  ## Computes the length, or rather cardinality, of concrete ordinal type
+  ## (including distincts with ordinal type bases). The cardinality of a type
+  ## is the total number of possible values that may represent by it.
+  # xxx: Seriously, Int128... wouldn't failing fast when it matters be smarter?
+  if t.skipTypes(tyUserTypeClasses).kind == tyDistinct:
+    result = lengthOrd(conf, t[0])
+  else:
+    let last = lastOrd(conf, t)
+    let first = firstOrd(conf, t)
+    result = last - first + One
+
+proc firstFloat*(t: PType): BiggestFloat =
+  case t.kind
+  of tyFloat..tyFloat128: -Inf
+  of tyRange:
+    assert(t.n != nil)        # range directly given:
+    assert(t.n.kind == nkRange)
+    getFloatValue(t.n[0])
+  of tyVar: firstFloat(t[0])
+  of tyGenericInst, tyDistinct, tyTypeDesc, tyAlias, tySink,
+     tyStatic, tyInferred, tyUserTypeClasses:
+    firstFloat(lastSon(t))
+  else:
+    newPartialConfigRef().localReport InternalReport(
       kind: rintUnreachable,
-      msg: "invalid kind for firstOrd(" & $t.kind & ')')
-    result = Zero
+      msg: "invalid kind for firstFloat(" & $t.kind & ')')
+    NaN
 
 proc lastFloat*(t: PType): BiggestFloat =
   case t.kind
@@ -569,15 +598,6 @@ proc floatRangeCheck*(x: BiggestFloat, t: PType): bool =
       kind: rintUnreachable,
       msg: "invalid kind for floatRangeCheck(" & $t.kind & ')')
     false
-
-proc lengthOrd*(conf: ConfigRef; t: PType): Int128 =
-  # xxx: Seriously, Int128... wouldn't failing fast when it matters be smarter?
-  if t.skipTypes(tyUserTypeClasses).kind == tyDistinct:
-    result = lengthOrd(conf, t[0])
-  else:
-    let last = lastOrd(conf, t)
-    let first = firstOrd(conf, t)
-    result = last - first + One
 
 # -------------- type equality -----------------------------------------------
 
