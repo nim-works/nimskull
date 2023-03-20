@@ -174,6 +174,10 @@ proc checkConvertible(c: PContext, targetTyp: PType, src: PNode): TConvStatus =
       elif src.kind in nkCharLit..nkUInt64Lit and
           not floatRangeCheck(src.intVal.float, targetTyp):
         result = convNotInRange
+    elif targetBaseTyp.enumHasHoles:
+      if src.kind in nkIntLiterals and
+          toInt64(src.getInt).int notin getIntSetOfType(c, targetBaseTyp):
+          result = convNotInRange
   else:
     # we use d, s here to speed up that operation a bit:
     case cmpTypes(c, d, s)
