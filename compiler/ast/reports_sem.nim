@@ -76,7 +76,8 @@ type
          rsemExpectedOrdinal,
          rsemFieldOkButAssignedValueInvalid,
          rsemUseOrDiscardExpr,
-         rsemOnlyDeclaredIdentifierFoundIsError:
+         rsemOnlyDeclaredIdentifierFoundIsError,
+         rsemCantConvertLiteralToRange:
         wrongNode*: PNode
 
       of rsemWarnGcUnsafeListing, rsemErrGcUnsafeListing:

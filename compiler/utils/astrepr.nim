@@ -1293,10 +1293,6 @@ proc inFile*(
     return file in toFilename(implicitDebugConfRef, node.info) and
            node.info.line.int in lrange
 
-func inDebug*(conf: ConfigRef): bool =
-  ## Check whether 'nim compiler debug' is defined right now.
-  return conf.isDefined("nimCompilerDebug")
-
 func inDebug*(): bool =
   ## Check whether current implicit compiler configuration is in the
   ## 'debug' range.

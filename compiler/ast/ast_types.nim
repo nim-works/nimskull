@@ -1196,6 +1196,16 @@ type
     adSemExpectedObjectType
     adSemExpectedObjectOfType
     adSemDistinctDoesNotHaveDefaultValue
+    # semfold
+    adSemFoldRangeCheckForLiteralConversionFailed
+    adSemIndexOutOfBoundsStatic
+    adSemStaticFieldNotFound
+    adSemInvalidIntDefine
+    adSemInvalidBoolDefine
+    adSemFoldOverflow       # xxx: remove 'Fold' from name?
+    adSemFoldDivByZero      # xxx: remove 'Fold' from name?
+    adSemInvalidRangeConversion
+    adSemFoldCannotComputeOffset
 
   PAstDiag* = ref TAstDiag
   TAstDiag* {.acyclic.} = object
@@ -1299,7 +1309,11 @@ type
         adSemFieldAssignmentInvalidNeedSpace,
         adSemFieldAssignmentInvalid,
         adSemObjectConstructorIncorrect,
-        adSemExpectedObjectType:
+        adSemExpectedObjectType,
+        adSemFoldOverflow,
+        adSemFoldDivByZero,
+        adSemInvalidRangeConversion,
+        adSemFoldCannotComputeOffset:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode
@@ -1407,7 +1421,8 @@ type
     of adSemLowHighInvalidArgument:
       invalidTyp*: PType
       highLow*: TMagic
-    of adSemUnknownIdentifier:
+    of adSemUnknownIdentifier,
+        adSemStaticFieldNotFound:
       unknownSym*: PSym
     of adSemInvalidTupleConstructorKey:
       invalidKey*: PNode
@@ -1448,6 +1463,14 @@ type
       distinctTyp*: PType
     of adSemExpectedObjectOfType:
       expectedObjTyp*: PType
+    of adSemFoldRangeCheckForLiteralConversionFailed:
+      inputLit*: PNode
+    of adSemIndexOutOfBoundsStatic:
+      staticCollection*: PNode
+      staticIndex*: PNode
+    of adSemInvalidIntDefine,
+        adSemInvalidBoolDefine:
+      invalidDef*: string
 
   TNode*{.final, acyclic.} = object # on a 32bit machine, this takes 32 bytes
     id*: NodeId

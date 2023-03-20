@@ -1538,9 +1538,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemExpectedObjectForOf:
       result = "'of' takes object types"
 
-    of rsemSemfoldDivByZero:
-      result = "over- or underflow"
-
     of rsemRuntimeDiscriminantRequiresElif:
       result = "branch initialization with a runtime discriminator " &
         "is not supported inside of an `elif` branch."
@@ -1722,6 +1719,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemSemfoldOverflow:
       result = "over- or underflow"
 
+    of rsemSemfoldDivByZero:
+      result = "division by zero"
+
     of rsemCaseInUnion:
       result = "Illegal use of ``case`` in union type."
 
@@ -1764,7 +1764,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "len($1) must be less than 32768" % r.symstr
 
     of rsemCantConvertLiteralToRange:
-      result = "cannot convert " & $r.str & " to " & r.typ.render
+      result = "cannot convert $# to $#" % [r.wrongNode.render, $r.ast.typ.render]
 
     of rsemCantComputeOffsetof:
       result = "can't compute offsetof on this ast"
@@ -3739,7 +3739,7 @@ proc rotatedTrace(conf: ConfigRef, r: Report) =
     conf.incl optUseColors
 
 
-func astDiagToLegacyReport(diag: PAstDiag): Report {.inline.} =
+func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
   ## legacy because it converts a diag to a Sem/VM report wrapped in a Report.
   ## Why, you might ask? Well that's because reports are a mess and it'll take
   ## many messy intermediate steps to get out of this quagmire. So at present
@@ -3874,12 +3874,23 @@ func astDiagToLegacyReport(diag: PAstDiag): Report {.inline.} =
       adSemFieldAssignmentInvalidNeedSpace,
       adSemFieldAssignmentInvalid,
       adSemObjectConstructorIncorrect,
-      adSemExpectedObjectType:
+      adSemExpectedObjectType,
+      adSemFoldOverflow,
+      adSemFoldDivByZero,
+      adSemFoldCannotComputeOffset:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind,
         ast: diag.wrongNode)
+  of adSemInvalidRangeConversion:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemSemfoldInvalidConversion,
+        ast: diag.wrongNode,
+        typeMismatch: @[typeMismatch(diag.wrongNode[0].typ,
+                                     diag.wrongNode.typ)])
   of adSemUseOrDiscardExpr:
     semRep = SemReport(
         location: some diag.undiscarded.info, # xxx: location override
@@ -4179,6 +4190,25 @@ func astDiagToLegacyReport(diag: PAstDiag): Report {.inline.} =
       kind: rsemCannotCastToNonConcrete,
       ast: diag.wrongNode,
       typ: diag.wrongType)
+  of adSemFoldRangeCheckForLiteralConversionFailed:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCantConvertLiteralToRange,
+      ast: diag.wrongNode,              # xxx: ignores `diag.wrongNode`
+      wrongNode: diag.inputLit)
+  of adSemIndexOutOfBoundsStatic:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemStaticOutOfBounds,
+      ast: diag.wrongNode,
+      indexSpec: (usedIdx: getInt(diag.staticIndex),
+                  minIdx: if diag.staticCollection.kind == nkBracket:
+                            firstOrd(conf, diag.staticCollection.typ)
+                          else:
+                            toInt128(0),
+                  maxIdx: toInt128(diag.staticCollection.len - 1)))
   of adSemMagicExpectTypeOrValue:
     semRep = SemReport(
       location: some diag.location,
@@ -4194,7 +4224,8 @@ func astDiagToLegacyReport(diag: PAstDiag): Report {.inline.} =
       ast: diag.wrongNode,
       typ: diag.invalidTyp,
       str: magicToStr(diag.highLow))
-  of adSemUnknownIdentifier:
+  of adSemUnknownIdentifier,
+      adSemStaticFieldNotFound:
     semRep = SemReport(
       location: some diag.location,
       reportInst: diag.instLoc.toReportLineInfo,
@@ -4321,6 +4352,14 @@ func astDiagToLegacyReport(diag: PAstDiag): Report {.inline.} =
       kind: kind,
       ast: diag.wrongNode,
       typ: diag.expectedObjTyp)
+  of adSemInvalidIntDefine,
+      adSemInvalidBoolDefine:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      str: diag.invalidDef)
   of adVmError:
     let
       kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()
@@ -4475,7 +4514,7 @@ proc legacyReportBridge*(conf: ConfigRef, diag: PAstDiag): Report =
   # Not the ideal place for this proc, but I'd rather keep the reports mess in
   # as few files as possible
   # TODO: will use conf soon
-  astDiagToLegacyReport(diag)
+  astDiagToLegacyReport(conf, diag)
 
 proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## Default implementation of the report hook. Dispatches into

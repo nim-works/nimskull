@@ -1563,3 +1563,33 @@ proc floatInt64Align*(conf: ConfigRef): int16 =
       # to 4bytes (except with -malign-double)
       return 4
   return 8
+
+const
+  commandLineDesc* = "command line"
+
+template toFilename*(conf: ConfigRef; fileIdx: FileIndex): string =
+  if fileIdx.int32 < 0 or conf == nil:
+    (if fileIdx == commandLineIdx: commandLineDesc else: "???")
+  else:
+    conf[fileIdx].shortName
+
+template toFilename*(conf: ConfigRef; info: TLineInfo): string =
+  toFilename(conf, info.fileIndex)
+
+proc inFile*(
+    conf: ConfigRef,
+    info: TLineInfo,
+    file: string,
+    lrange: Slice[int] = low(int) .. high(int)
+  ): bool {.deprecated: "DEBUG proc, do not use in the final build!",
+            noSideEffect.} =
+  ## `true` if `info` has `file`name and is within the specified line range
+  ## (`lrange`), else `false`. Meant for debugging -- it's slow.
+  {.cast(noSideEffect).}: # ignore side-effect tracking
+    return file in toFilename(conf, info) and info.line.int in lrange
+
+func inDebug*(conf: ConfigRef): bool {.
+  deprecated: "DEBUG proc, do not use in the final build!",
+  noSideEffect.} =
+  ## Check whether 'nim compiler debug' is defined right now.
+  return conf.isDefined("nimCompilerDebug")

@@ -69,7 +69,6 @@ const
   # but column numbers start with 0, however most editors expect
   # first column to be 1, so we need to +1 here
   ColOffset*   = 1
-  commandLineDesc* = "command line"
 
 proc getInfoContextLen*(conf: ConfigRef): int = return conf.m.msgContext.len
 proc setInfoContextLen*(conf: ConfigRef; L: int) = setLen(conf.m.msgContext, L)
@@ -97,12 +96,6 @@ proc getInfoContext*(conf: ConfigRef; index: int): TLineInfo =
     result = unknownLineInfo
   else:
     result = conf.m.msgContext[i].info
-
-template toFilename*(conf: ConfigRef; fileIdx: FileIndex): string =
-  if fileIdx.int32 < 0 or conf == nil:
-    (if fileIdx == commandLineIdx: commandLineDesc else: "???")
-  else:
-    conf[fileIdx].shortName
 
 proc toProjPath*(conf: ConfigRef; fileIdx: FileIndex): string =
   if fileIdx.int32 < 0 or conf == nil:
@@ -144,9 +137,6 @@ proc toFullPathConsiderDirty*(conf: ConfigRef; fileIdx: FileIndex): AbsoluteFile
     result = conf[fileIdx].dirtyFile
   else:
     result = conf[fileIdx].fullPath
-
-template toFilename*(conf: ConfigRef; info: TLineInfo): string =
-  toFilename(conf, info.fileIndex)
 
 template toProjPath*(conf: ConfigRef; info: TLineInfo): string =
   toProjPath(conf, info.fileIndex)
@@ -373,9 +363,6 @@ proc getSurroundingSrc*(conf: ConfigRef; info: TLineInfo): string =
 # xxx: All the SemReport stuff needs to go, it should just be the sem layer
 #      defined/provided diagnostics/etc that we shouldn't muck with. The
 #      code below is a temporary bridge to work around this until fixed.
-from compiler/ast/reports_vm import VMReport
-from compiler/ast/ast_query import MaxLockLevel
-
 func astDiagVmToLegacyReportKind*(
   evt: AstDiagVmKind
   ): ReportKind {.inline.} =
@@ -587,6 +574,15 @@ func astDiagToLegacyReportKind*(
   of adSemExpectedObjectType: rsemExpectedObjectType
   of adSemExpectedObjectOfType: rsemExpectedObjectType
   of adSemDistinctDoesNotHaveDefaultValue: rsemDistinctDoesNotHaveDefaultValue
+  of adSemFoldRangeCheckForLiteralConversionFailed: rsemCantConvertLiteralToRange
+  of adSemIndexOutOfBoundsStatic: rsemStaticOutOfBounds
+  of adSemStaticFieldNotFound: rsemStaticFieldNotFound
+  of adSemInvalidIntDefine: rsemInvalidIntdefine
+  of adSemInvalidBoolDefine: rsemInvalidBooldefine
+  of adSemFoldOverflow: rsemSemfoldOverflow
+  of adSemFoldDivByZero: rsemSemfoldDivByZero
+  of adSemInvalidRangeConversion: rsemSemfoldInvalidConversion
+  of adSemFoldCannotComputeOffset: rsemCantComputeOffsetof
 
 func astDiagToLegacyReportKind*(diag: PAstDiag): ReportKind {.inline.} =
   case diag.kind
@@ -672,58 +668,86 @@ template localReport*(conf: ConfigRef, report: ReportTypes) =
 template localReport*(conf: ConfigRef, report: Report) =
   handleReport(conf, report, instLoc(), doNothing)
 
+# xxx: `internalError` and `internalAssert` in conjunction with `handleReport`,
+#      and the whole concept of "reports" indicating error handling action at a
+#      callsite, is *terrible*. Since neither will necessarily raise/end
+#      execution of the current routine, which may lead to NPEs and the like.
+
 template internalError*(
     conf: ConfigRef, repKind: InternalReportKind, fail: string): untyped =
+  ## Causes an internal error; but does not necessarily raise/end the currently
+  ## executing routine.
   conf.handleReport(
-    wrap(InternalReport(
-      kind: repKind,
-      msg: fail),
-         instLoc()),
+    wrap(InternalReport(kind: repKind, msg: fail), instLoc()),
     instLoc(),
-    doAbort
-  )
+    doAbort)
 
 template internalError*(
     conf: ConfigRef, info: TLineInfo,
     repKind: InternalReportKind, fail: string): untyped =
-  ## Causes an internal error
-  conf.handleReport(wrap(
-    InternalReport(
-      kind: repKind, msg: fail), instLoc(), info),
-                    instLoc(), doAbort)
+  ## Causes an internal error; but does not necessarily raise/end the currently
+  ## executing routine.
+  conf.handleReport(
+    wrap(InternalReport(kind: repKind, msg: fail), instLoc(), info),
+    instLoc(),
+    doAbort)
+
+proc doInternalUnreachable*(conf: ConfigRef, info: TLineInfo, msg: string,
+                            instLoc: InstantiationInfo) {.noreturn, inline.} =
+  ## this proc firewalls other code from legacy reports, used in conjunction
+  ## with the `internalError` templates
+  let
+    intRep = InternalReport(kind: rintUnreachable, msg: msg)
+    rep =
+      if info == unknownLineInfo:
+        wrap(intRep, instLoc)
+      else:
+        wrap(intRep, instLoc, info)
+
+  conf.handleReport(rep, instLoc, doAbort)
 
 template internalError*(
     conf: ConfigRef,
     info: TLineInfo,
     fail: string,
   ): untyped =
-  ## Causes an internal error
-  conf.handleReport(wrap(
-    InternalReport(kind: rintUnreachable, msg: fail),
-    instLoc(), info), instLoc(), doAbort)
+  ## Causes an internal error; but does not necessarily raise/end the currently
+  ## executing routine.
+  doInternalUnreachable(conf, info, fail, instLoc())
 
-template internalError*(
-    conf: ConfigRef,
-    fail: string
-  ): untyped =
-  ## Causes an internal error
-  conf.handleReport(wrap(InternalReport(
-    kind: rintUnreachable, msg: fail), instLoc()), instLoc(), doAbort)
+template internalError*(conf: ConfigRef, fail: string): untyped =
+  ## Causes an internal error; but does not necessarily raise/end the currently
+  ## executing routine.
+  doInternalUnreachable(conf, unknownLineInfo, fail, instLoc())
+
+proc doInternalAssert*(conf: ConfigRef,
+                       instLoc: InstantiationInfo,
+                       msg: string,
+                       info = unknownLineInfo) {.noreturn, inline.} =
+  ## this proc firewalls other code from legacy reports, used in conjunction
+  ## with the `internalAssert` templates
+  let
+    intRep = InternalReport(kind: rintAssert, msg: msg)
+    rep =
+      if info == unknownLineInfo:
+        wrap(intRep, instLoc)
+      else:
+        wrap(intRep, instLoc, info)
+
+  conf.handleReport(rep, instLoc, doAbort)
 
 template internalAssert*(
     conf: ConfigRef, condition: bool, info: TLineInfo, failMsg: string = "") =
-  ## Causes an internal error if the provided condition evaluates to false
+  ## Causes an internal error if the provided condition evaluates to false; but
+  ## does not necessarily raise/end the currently executing routine.
   if not condition:
-    conf.handleReport(wrap(
-      InternalReport(kind: rintAssert, msg: failMsg),
-      instLoc(), info), instLoc(), doAbort)
+    doInternalAssert(conf, instLoc(), failMsg, info)
 
-template internalAssert*(
-    conf: ConfigRef, condition: bool, failMsg: string = "") =
-  ## Causes an internal error if the provided condition evaluates to false
+template internalAssert*(conf: ConfigRef, condition: bool, failMsg = "") =
+  ## Causes an internal error if the provided condition evaluates to false; but
+  ## does not necessarily raise/end the currently executing routine.
   if not condition:
-    conf.handleReport(wrap(InternalReport(
-      kind: rintAssert, msg: failMsg), instLoc()), instLoc(), doAbort)
+    doInternalAssert(conf, instLoc(), failMsg)
 
 # xxx: All the LexerReport stuff needs to go, it should just be the lexer
 #      defined/provided diagnostics/etc that we shouldn't muck with. The
