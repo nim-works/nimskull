@@ -35,6 +35,7 @@ import
   ],
   compiler/utils/[
     platform,
+    idioms,
   ]
 
 from compiler/ast/reports_sem import SemReport,
@@ -109,29 +110,35 @@ proc foldMul(a, b: Int128, n: PNode; idgen: IdGenerator; g: ModuleGraph): PNode 
   if checkInRange(g.config, n, res):
     return newIntNodeT(res, n, idgen, g)
 
-proc ordinalValToString*(a: PNode; g: ModuleGraph): string =
+proc ordinalValToString(a: PNode; g: ModuleGraph): string =
   # because $ has the param ordinal[T], `a` is not necessarily an enum, but an
   # ordinal
-  var x = getInt(a)
-
-  var t = skipTypes(a.typ, abstractRange)
-  case t.kind
-  of tyChar:
-    result = $chr(toInt64(x) and 0xff)
-  of tyEnum:
-    var n = t.n
-    for i in 0..<n.len:
-      g.config.internalAssert(n[i].kind == nkSym, "ordinalValToString")
-      var field = n[i].sym
-      if field.position == x:
-        if field.ast == nil:
-          return field.name.s
-        else:
-          return field.ast.strVal
-
-    g.config.localReport(a.info, reportTyp(rsemCantConvertLiteralToType, t))
+  case a.kind
+  of nkIntLiterals:
+    let
+      x = getInt(a)
+      t = skipTypes(a.typ, abstractRange)
+    case t.kind
+    of tyChar:
+      result = $chr(toInt64(x) and 0xff)
+    of tyEnum:
+      let n = t.n
+      for i in 0..<n.len:
+        g.config.internalAssert(n[i].kind == nkSym, "ordinalValToString")
+        let field = n[i].sym
+        if field.position == x:
+          if field.ast == nil:
+            return field.name.s
+          else:
+            return field.ast.strVal
+      if n.len > 0:
+        unreachable("range checking `semConv` eliminates this case")
+    else:
+      result = $x
+  of nkError:
+    unreachable("an error cannot make it here")
   else:
-    result = $x
+    unreachable("non-ordinals never make it here")
 
 proc isFloatRange(t: PType): bool {.inline.} =
   result = t.kind == tyRange and t[0].kind in {tyFloat..tyFloat128}
