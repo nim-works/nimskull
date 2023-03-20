@@ -9,7 +9,8 @@ import
   ],
   compiler/front/[
     options,
-    commands
+    commands,
+    cli_reporter
   ],
   std/[
     unittest,
@@ -34,6 +35,7 @@ proc getReports(): seq[Report] =
 
 proc parse(cmd: string, pass: TCmdLinePass = passCmd1): tuple[reports: seq[Report], conf: CurrentConf] =
   var tmp = newConfigRef(hook)
+  tmp.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   processCmdLine(pass, cmd, tmp)
   result.reports = getReports()
   result.conf = tmp.active

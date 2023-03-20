@@ -137,6 +137,7 @@ when compileOption("gc", "refc"):
 
 when not defined(selftest):
   var conf = newConfigRef(cli_reporter.reportHook)
+  conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   conf.writeHook =
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       msgs.msgWrite(conf, msg, flags)

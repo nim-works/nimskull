@@ -726,7 +726,9 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
     mainCommand(graph)
 
 when isMainModule:
-  handleCmdLine(newIdentCache(), newConfigRef(cli_reporter.reportHook))
+  let conf = newConfigRef(cli_reporter.reportHook)
+  conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
+  handleCmdLine(newIdentCache(), conf)
 else:
   export Suggest
   export IdeCmd
@@ -779,6 +781,7 @@ else:
         suggestMode: true,
         processCmdLine: mockCmdLine
       )
+    conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
     self.initDefinesProg(conf, "nimsuggest")
 
     self.processCmdLineAndProjectPath(conf)

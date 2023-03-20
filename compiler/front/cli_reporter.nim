@@ -3738,6 +3738,743 @@ proc rotatedTrace(conf: ConfigRef, r: Report) =
     # exit by the compiler.
     conf.incl optUseColors
 
+
+func astDiagToLegacyReport(diag: PAstDiag): Report {.inline.} =
+  ## legacy because it converts a diag to a Sem/VM report wrapped in a Report.
+  ## Why, you might ask? Well that's because reports are a mess and it'll take
+  ## many messy intermediate steps to get out of this quagmire. So at present
+  ## we do this conversion such that we can make use of `cli_reporter`...
+  ## another things that needs to be broken down.
+
+  template magicToStr(m: TMagic): string =
+    # TODO: figure out what consistent approach to take for creating human
+    #       readable strings out of magics
+    case m
+    of mLow: "low"
+    of mHigh: "high"
+    of mSizeOf: "sizeof"
+    else: unreachable()
+
+  let kind = astDiagToLegacyReportKind(diag)
+      
+  var
+    semRep: SemReport
+    vmRep: VMReport
+
+  case diag.kind
+  of adWrappedError:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemWrappedError,
+        ast: diag.wrongNode)
+  of adSemTypeMismatch:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemTypeMismatch,
+        typeMismatch: diag.typeMismatch,
+        ast: diag.wrongNode)
+  of adSemIllegalConversion:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemIllegalConversion,
+        typeMismatch: diag.typeMismatch,
+        ast: diag.wrongNode)
+  of adSemConflictingExportnims:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemConflictingExportnims,
+        symbols: @[diag.wrongNode.sym, diag.conflict],
+        ast: diag.wrongNode)
+  of adSemAmbiguousIdentWithCandidates:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemAmbiguousIdentWithCandidates,
+        sym: diag.candidateSyms[0],
+        symbols: diag.candidateSyms,
+        ast: diag.wrongNode)
+  of adSemTypeNotAllowed:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemTypeNotAllowed,
+        allowedType: diag.allowedType,
+        ast: diag.wrongNode)
+  of adSemAmbiguousIdent,
+      adSemExpectedIdentifier,
+      adSemModuleAliasMustBeIdentifier,
+      adSemInvalidPragma,
+      adSemStringLiteralExpected,
+      adSemIntLiteralExpected,
+      adSemOnOrOffExpected,
+      adSemCallconvExpected,
+      adSemUnknownExperimental,
+      adSemPragmaOptionExpected,
+      adSemUnexpectedPushArgument,
+      adSemMismatchedPopPush,
+      adSemExcessiveCompilePragmaArgs,
+      adSemEmptyAsm,
+      adSemLinePragmaExpectsTuple,
+      adSemLocksPragmaExpectsList,
+      adSemBorrowPragmaNonDot,
+      adSemBadDeprecatedArg,
+      adSemMisplacedEffectsOf,
+      adSemMissingPragmaArg,
+      adSemCannotPushCast,
+      adSemCastRequiresStatement,
+      adSemImportjsRequiresJs,
+      adSemBitsizeRequires1248,
+      adSemAlignRequiresPowerOfTwo,
+      adSemNoReturnHasReturn,
+      adSemMisplacedDeprecation,
+      adSemFatalError,
+      adSemNoUnionForJs,
+      adSemBitsizeRequiresPositive,
+      adSemExperimentalRequiresToplevel,
+      adSemPragmaDynlibRequiresExportc,
+      adSemWrongNumberOfArguments,
+      adVmDerefNilAccess,
+      adVmDerefAccessOutOfBounds,
+      adVmDerefAccessTypeMismatch,
+      adSemRawTypeMismatch,
+      adSemExpressionCannotBeCalled,
+      adSemCallInCompilesContextNotAProcOrField,
+      adSemExpressionHasNoType,
+      adSemTypeExpected,
+      adSemIllformedAst,
+      adSemInvalidExpression,
+      adSemExpectedNonemptyPattern,
+      adSemPragmaDisallowedForTupleUnpacking,
+      adSemIllegalCompileTime,
+      adSemThreadvarCannotInit,
+      adSemLetNeedsInit,
+      adSemConstExpressionExpected,
+      adSemSelectorMustBeOfCertainTypes,
+      adSemInvalidPragmaBlock,
+      adSemConceptPredicateFailed,
+      adSemIsOperatorTakes2Args,
+      adSemNoTupleTypeForConstructor,
+      adSemInvalidOrderInArrayConstructor, # xxx: used to capture, but not report, count mismatch
+      adSemStackEscape,
+      adSemVarForOutParamNeeded,
+      adSemExprHasNoAddress,
+      adSemConstExprExpected,
+      adSemDisallowedNilDeref,
+      adSemCannotReturnTypeless,
+      adSemExpectedValueForYield,
+      adSemNamedExprExpected,
+      adSemDisallowedTypedescForTupleField,
+      adSemNamedExprNotAllowed,
+      adSemFieldAssignmentInvalidNeedSpace,
+      adSemFieldAssignmentInvalid,
+      adSemObjectConstructorIncorrect,
+      adSemExpectedObjectType:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind,
+        ast: diag.wrongNode)
+  of adSemUseOrDiscardExpr:
+    semRep = SemReport(
+        location: some diag.undiscarded.info, # xxx: location override
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemUseOrDiscardExpr,
+        ast: diag.wrongNode,
+        wrongNode: diag.undiscarded)
+  of adSemUnexpectedEqInObjectConstructor:
+    semRep = SemReport(
+        location: some diag.eqInfo,   # xxx: location override
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind,
+        ast: diag.wrongNode)
+  of adSemExpectedIdentifierInExpr:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemExpectedIdentifierInExpr,
+        wrongNode: diag.notIdent,
+        ast: diag.wrongNode)
+  of adSemExpectedIdentifierWithExprContext:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemExpectedIdentifierWithExprContext,
+        wrongNode: diag.expr,
+        ast: diag.wrongNode)
+  of adSemUndeclaredIdentifier:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemUndeclaredIdentifier,
+        str: diag.name,
+        spellingCandidates: diag.spellingCandidates,
+        recursiveDeps: diag.recursiveDeps,
+        ast: diag.wrongNode)
+  of adSemOnlyDeclaredIdentifierFoundIsError:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemOnlyDeclaredIdentifierFoundIsError,
+        str: diag.identName,
+        ast: diag.wrongNode,
+        wrongNode: diag.err)
+  of adSemCannotImportItself:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemCannotImportItself,
+        sym: diag.selfModule,
+        ast: diag.wrongNode)
+  of adSemIllegalCustomPragma:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemIllegalCustomPragma,
+        sym: diag.customPragma,
+        ast: diag.wrongNode)
+  of adSemWrongIdent:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemWrongIdent,
+        expectedIdents: diag.allowedIdents,
+        ast: diag.wrongNode)
+  of adSemAsmEmitExpectsStringLiteral:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemIllformedAst,
+        str: "Expected string literal for asm/emit statement [1] but AST" &
+              "contains '$1'" % $diag.unexpectedKind,
+        ast: diag.wrongNode)
+  of adSemRaisesPragmaExpectsObject,
+      adSemCannotInferTypeOfLiteral,
+      adSemProcHasNoConcreteType,
+      adSemCannotAssignTo:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind,
+        typ: diag.wrongType,
+        ast: diag.wrongNode)
+  of adSemLocksPragmaBadLevelRange:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemLocksPragmaBadLevel,
+        str: "integer must be within 0.." & $MaxLockLevel,
+        ast: diag.wrongNode)
+  of adSemLocksPragmaBadLevelString:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemLocksPragmaBadLevel,
+        str: "invalid string literal for locks pragma (only allowed string is \"unknown\")",
+        ast: diag.wrongNode)
+  of adSemInvalidExtern:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemInvalidExtern,
+        sym: diag.compProcToBe,
+        externName: diag.externName,
+        ast: diag.wrongNode)
+  of adSemPragmaRecursiveDependency:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemPragmaRecursiveDependency,
+        sym: diag.userPragma,
+        ast: diag.wrongNode)
+  of adSemCustomUserError:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemCustomUserError,
+        str: diag.errmsg,
+        ast: diag.wrongNode)
+  of adSemImplicitPragmaError:
+    semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemImplicitPragmaError,
+        sym: diag.implicitPragma,
+        ast: diag.wrongNode)
+  of adSemIncompatibleDefaultExpr:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemIncompatibleDefaultExpr,
+      sym: diag.formal,
+      ast: diag.wrongNode)
+  of adVmUnsupportedNonNil:
+    vmRep = VMReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rvmUnsupportedNonNil,
+      typ: diag.unsupported,
+      ast: diag.wrongNode)
+  of adCyclicTree:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rvmUnsupportedNonNil,
+      ast: diag.cyclic)
+  of adSemCallTypeMismatch:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCallTypeMismatch,
+      ast: diag.wrongNode,
+      spellingCandidates: diag.callSpellingCandidates,
+      callMismatches: diag.callMismatches)
+  of adSemCallNotAProcOrField:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCallNotAProcOrField,
+      ast: diag.wrongNode,
+      explicitCall: true,
+      notProcOrField: diag.notProcOrField,
+      unexpectedCandidate: diag.unexpectedCandidates,
+      spellingCandidates: diag.spellingAlts)
+  of adSemImplicitDotCallNotAProcOrField:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCallNotAProcOrField,
+      ast: diag.wrongNode,
+      explicitCall: false,
+      notProcOrField: diag.notProcOrField,
+      typ: diag.wrongNode[1].typ,
+      unexpectedCandidate: diag.unexpectedCandidates,
+      spellingCandidates: diag.spellingAlts)
+  of adSemUndeclaredField:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemUndeclaredField,
+      ast: diag.wrongNode,
+      sym: diag.givenSym,
+      typ: diag.symTyp)
+  of adSemCannotInstantiate:
+    semRep = SemReport(
+      location: some diag.callLineInfo,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCannotInstantiate,
+      ast: diag.wrongNode)
+  of adSemWrongNumberOfGenericParams:
+    semRep = SemReport(
+      location: some diag.gnrcCallLineInfo,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemWrongNumberOfGenericParams,
+      ast: diag.wrongNode,
+      countMismatch: diag.countMismatch)
+  of adSemIllformedAstExpectedPragmaOrIdent:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemIllformedAst,
+      ast: diag.wrongNode,
+      str: "Expected postfix, pragma or indent, but found " &
+              $diag.wrongNode.kind)
+  of adSemIllformedAstExpectedOneOf:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemIllformedAst,
+      ast: diag.wrongNode,
+      str: createSemIllformedAstMsg(diag.wrongNode, diag.expectedKinds))
+  of adSemImplementationExpected:
+    semRep = SemReport(
+      location: some diag.routineDefStartPos,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.routineSym)
+  of adSemImplementationNotAllowed:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.symWithImpl)
+  of adSemCannotConvertToRange:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.convTyp,
+      str: $diag.floatVal)
+  of adSemProveInit:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.unproven)
+  of adSemDifferentTypeForReintroducedSymbol:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemDifferentTypeForReintroducedSymbol,
+      ast: diag.wrongNode,
+      sym: diag.reintrod,
+      typeMismatch: @[SemTypeMismatch(actualType: diag.foundTyp,
+                                      formalType: diag.reintrod.typ)])
+  of adSemTypeKindMismatch:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemTypeKindMismatch,
+      ast: diag.wrongNode,
+      typeMismatch: @[SemTypeMismatch(actualType: diag.givenTyp,
+                                      formalTypeKind: diag.expectedTypKinds)])
+  of adSemCannotCastTypes:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCannotCastTypes,
+      ast: diag.wrongNode,
+      typeMismatch: diag.typeMismatch)
+  of adSemWrongNumberOfVariables:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemWrongNumberOfVariables,
+      ast: diag.wrongNode,
+      countMismatch: (diag.varsExpected, diag.varsGiven))
+  of adSemConstantOfTypeHasNoValue:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.constSym)
+  of adSemTypeConversionArgumentMismatch:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemTypeConversionArgumentMismatch,
+      ast: diag.wrongNode,
+      countMismatch: (1, diag.convArgsRecvd))
+  of adSemCannotBeConvertedTo:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCannotBeConvertedTo,
+      ast: diag.inputVal,              # xxx: ignores `diag.wrongNode`
+      typ: diag.targetTyp)
+  of adSemCannotCastToNonConcrete:
+    semRep = SemReport(
+      location: some diag.wrongNode[0].info, # xxx: location override
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemCannotCastToNonConcrete,
+      ast: diag.wrongNode,
+      typ: diag.wrongType)
+  of adSemMagicExpectTypeOrValue:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      str: magicToStr(diag.magic))
+  of adSemLowHighInvalidArgument:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.invalidTyp,
+      str: magicToStr(diag.highLow))
+  of adSemUnknownIdentifier:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.unknownSym)
+  of adSemInvalidTupleConstructorKey:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.invalidKey) # xxx: wrongNode/ast override
+  of adSemExpectedOrdinalArrayIdx:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemExpectedOrdinal,
+      ast: diag.indexExpr,
+      wrongNode: diag.nonOrdInput, # xxx: wrongNode/ast override
+      typ: diag.nonOrdInput.typ)
+  of adSemIndexOutOfBounds:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemIndexOutOfBounds,
+      ast: diag.wrongNode,
+      typ: diag.ordRange,
+      countMismatch: (diag.maxOrdIdx, diag.outOfBoundsIdx))
+  of adSemExpectedOrdinal:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemExpectedOrdinal,
+      ast: diag.wrongNode,
+      typ: diag.nonOrdTyp)
+  of adSemRecursiveDependencyIterator:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.recurrCallee)
+  of adSemCallIndirectTypeMismatch:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.indirCallTyp)
+  of adSemSystemNeeds:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      str: diag.sysIdent)
+  of adSemLocalEscapesStackFrame:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.escCtx)
+  of adSemImplicitAddrIsNotFirstParam:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.exprRoot)
+  of adSemYieldExpectedTupleConstr:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.tupleTyp)
+  of adSemFieldInitTwice:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      str: diag.dupFld.s)
+  of adSemCannotMixTypesAndValuesInTuple:
+    semRep = SemReport(
+      location: some diag.wrongFldInfo, # xxx: location override
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode)
+  of adSemFieldNotAccessible:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      sym: diag.inaccessible)
+  of adSemFieldOkButAssignedValueInvalid:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.initVal,
+      sym: diag.targetField)
+  of adSemObjectRequiresFieldInitNoDefault:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: rsemObjectRequiresFieldInitNoDefault,
+      ast: diag.wrongNode,
+      symbols: diag.missing,
+      typ: diag.objTyp)
+  of adSemDistinctDoesNotHaveDefaultValue:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.distinctTyp)
+  of adSemExpectedObjectOfType:
+    semRep = SemReport(
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo,
+      kind: kind,
+      ast: diag.wrongNode,
+      typ: diag.expectedObjTyp)
+  of adVmError:
+    let
+      kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()
+      location = diag.location
+
+    case kind
+    of rvmCannotCast, rvmIllegalConvFromXToY:
+      vmRep = VMReport(
+        kind: kind,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        actualType: diag.vmErr.actualType,
+        formalType: diag.vmErr.formalType)
+    of rvmIndexError:
+      vmRep = VMReport(
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind,
+        indexSpec: diag.vmErr.indexSpec)
+    of rvmCannotSetChild, rvmCannotAddChild, rvmCannotGetChild,
+        rvmUnhandledException, rvmNoType, rvmNodeNotASymbol:
+      case diag.vmErr.kind
+      of adVmArgNodeNotASymbol:
+        vmRep = VMReport(
+          location: some diag.vmErr.argAst.info,
+          reportInst: diag.instLoc.toReportLineInfo,
+          kind: kind,
+          str: diag.vmErr.callName & "()",
+          ast: diag.vmErr.argAst)
+      else:
+        vmRep = VMReport(
+          location: some location,
+          reportInst: diag.instLoc.toReportLineInfo,
+          kind: kind,
+          ast: diag.vmErr.ast)
+    of rvmUserError:
+      vmRep = VMReport(
+        kind: kind,
+        str: diag.vmErr.errMsg,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    of rvmErrInternal, rvmNilAccess, rvmIllegalConv, rvmFieldInavailable,
+        rvmFieldNotFound, rvmCacheKeyAlreadyExists, rvmMissingCacheKey:
+      vmRep = VMReport(
+        kind: kind,
+        str: diag.vmErr.msg,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    of rvmNotAField:
+      vmRep = VMReport(
+        kind: kind,
+        sym: diag.vmErr.sym,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    else:
+      vmRep = VMReport(
+        kind: kind,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+  of adVmGenError:
+    template magicToString(m: TMagic): string =
+      # TODO: duplicated above, consolidate
+      case m
+      of mSizeOf:   "sizeOf"
+      of mAlignOf:  "align"
+      of mOffsetOf: "offset"
+      else:         $m
+
+    let
+      kind = diag.vmGenErr.kind.astDiagVmGenToLegacyReportKind()
+      location = diag.location
+
+    case diag.vmGenErr.kind
+    of adVmGenCannotCast:
+      vmRep = VMReport(
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rvmCannotCast,
+        actualType: diag.vmGenErr.actualType,
+        formalType: diag.vmGenErr.formalType)
+    of adVmGenCodeGenUnhandledMagic,
+        adVmGenMissingImportcCompleteStruct:
+      vmRep = VMReport(
+        str: magicToString(diag.vmGenErr.magic),
+        kind: kind,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    of adVmGenCodeGenGenericInNonMacro,
+        adVmGenCodeGenUnexpectedSym,
+        adVmGenNoClosureIterators,
+        adVmGenCannotImportc,
+        adVmGenCannotCallMethod,
+        adVmGenTooLargeOffset:
+      vmRep = VMReport(
+        str: case diag.vmGenErr.kind
+              of adVmGenCodeGenGenericInNonMacro:
+                "Attempt to generate VM code for generic parameter in non-macro proc"
+              of adVmGenCodeGenUnexpectedSym:
+                "Unexpected symbol for VM code - " & $diag.vmGenErr.sym.kind
+              else:
+                "",
+        sym: diag.vmGenErr.sym,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: kind)
+    of adVmGenBadExpandToAstArgRequired:
+      vmRep = VMReport(
+        str: "expandToAst requires 1 argument",
+        kind: kind,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    of adVmGenBadExpandToAstCallExprRequired:
+      vmRep = VMReport(
+        str: "expandToAst requires a call expression",
+        kind: kind,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    of adVmGenNotUnused,
+        adVmGenNotAFieldSymbol,
+        adVmGenCannotGenerateCode,
+        adVmGenCannotEvaluateAtComptime,
+        adVmGenInvalidObjectConstructor:
+      vmRep = VMReport(
+        ast: diag.vmGenErr.ast,
+        kind: kind,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+    else:
+      vmRep = VMReport(
+        kind: kind,
+        location: some location,
+        reportInst: diag.instLoc.toReportLineInfo)
+  of adVmQuit:
+    vmRep = VMReport(
+      kind: rvmQuit,
+      exitCode: diag.vmExitCode,
+      location: some diag.location,
+      reportInst: diag.instLoc.toReportLineInfo)
+
+  result =
+    case kind
+    of repVMKinds:
+      Report(category: repVM, vmReport: vmRep)
+    of repSemKinds:
+      Report(category: repSem, semReport: semRep)
+    else:
+      unreachable()
+
+proc legacyReportBridge*(conf: ConfigRef, diag: PAstDiag): Report =
+  ## Converts AST Diagnostics to legacy reports; meant to be assigned to a
+  ## `ConfigRef` as a procedural value and act as a callback.
+  # Not the ideal place for this proc, but I'd rather keep the reports mess in
+  # as few files as possible
+  # TODO: will use conf soon
+  astDiagToLegacyReport(diag)
+
 proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
   ## Default implementation of the report hook. Dispatches into
   ## `reportBody` for report, which then calls respective (for each report

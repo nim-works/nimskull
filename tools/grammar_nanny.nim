@@ -54,4 +54,6 @@ proc checkGrammarFileImpl(cache: IdentCache, config: ConfigRef) =
     config.localReport InternalReport(kind: rintCannotOpenFile, file: f.string)
 
 proc checkGrammarFile*() =
-  checkGrammarFileImpl(newIdentCache(), newConfigRef(reportHook))
+  let conf = newConfigRef(reportHook)
+  conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
+  checkGrammarFileImpl(newIdentCache(), conf)

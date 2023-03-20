@@ -27,7 +27,8 @@ import
   compiler/front/[
     condsyms,
     options,
-    scriptconfig
+    scriptconfig,
+    cli_reporter
   ],
   compiler/utils/[
     pathutils
@@ -147,6 +148,7 @@ proc createInterpreter*(
   ): Interpreter =
 
   var conf = newConfigRef(hook)
+  conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   var cache = newIdentCache()
   var graph = newModuleGraph(cache, conf)
   connectCallbacks(graph)
@@ -192,6 +194,7 @@ proc runRepl*(
   ) =
   ## deadcode but please don't remove... might be revived
   var conf = newConfigRef(reportHook)
+  conf.astDiagToLegacyReport = cli_reporter.legacyReportBridge
 
   var cache = newIdentCache()
   var graph = newModuleGraph(cache, conf)

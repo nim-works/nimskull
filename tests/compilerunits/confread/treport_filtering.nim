@@ -51,6 +51,7 @@ proc getReports(): seq[Report] =
 proc firstPass*(args: seq[string]): ConfigRef =
   ## Create config ref object and run fist CLI pass of on the configuration
   result = newConfigRef(hook)
+  result.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   processCmdLine(passCmd1, args.join(" "), result)
 
 proc cfgPass*(file: string, args: seq[string]): ConfigRef =
@@ -62,6 +63,7 @@ proc cfgPass*(file: string, args: seq[string]): ConfigRef =
   )
 
   result = newConfigRef(hook)
+  result.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   prog.processCmdLineAndProjectPath(
     result, join(args & @[file], " "))
 
