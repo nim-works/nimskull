@@ -1180,6 +1180,8 @@ type
     adSemDisallowedTypedescForTupleField
     adSemNamedExprNotAllowed
     adSemCannotMixTypesAndValuesInTuple
+    adSemNoReturnTypeDeclared
+    adSemReturnNotAllowed
     # semmagics
     adSemExprHasNoAddress
     adSemExpectedOrdinal
@@ -1292,6 +1294,8 @@ type
         adSemNamedExprExpected,
         adSemDisallowedTypedescForTupleField,
         adSemNamedExprNotAllowed,
+        adSemNoReturnTypeDeclared,
+        adSemReturnNotAllowed,
         adSemFieldAssignmentInvalidNeedSpace,
         adSemFieldAssignmentInvalid,
         adSemObjectConstructorIncorrect,

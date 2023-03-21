@@ -576,6 +576,8 @@ func astDiagToLegacyReportKind*(
   of adSemDisallowedTypedescForTupleField: rsemDisallowedTypedescForTupleField
   of adSemNamedExprNotAllowed: rsemNamedExprNotAllowed
   of adSemCannotMixTypesAndValuesInTuple: rsemCannotMixTypesAndValuesInTuple
+  of adSemNoReturnTypeDeclared: rsemNoReturnTypeDeclared
+  of adSemReturnNotAllowed: rsemReturnNotAllowed
   of adSemFieldAssignmentInvalidNeedSpace: rsemFieldAssignmentInvalidNeedSpace
   of adSemFieldAssignmentInvalid: rsemFieldAssignmentInvalid
   of adSemFieldNotAccessible: rsemFieldNotAccessible
