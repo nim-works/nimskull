@@ -3869,6 +3869,8 @@ func astDiagToLegacyReport(diag: PAstDiag): Report {.inline.} =
       adSemNamedExprExpected,
       adSemDisallowedTypedescForTupleField,
       adSemNamedExprNotAllowed,
+      adSemNoReturnTypeDeclared,
+      adSemReturnNotAllowed,
       adSemFieldAssignmentInvalidNeedSpace,
       adSemFieldAssignmentInvalid,
       adSemObjectConstructorIncorrect,

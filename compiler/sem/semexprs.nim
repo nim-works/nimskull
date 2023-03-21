@@ -2215,28 +2215,54 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
   result = n
 
 proc semReturn(c: PContext, n: PNode): PNode =
-  result = n
+  addInNimDebugUtils(c.config, "semReturn", n, result)
   checkSonsLen(n, 1, c.config)
-  if c.p.owner.kind in {skConverter, skMethod, skProc, skFunc, skMacro} or
-      (not c.p.owner.typ.isNil and isClosureIterator(c.p.owner.typ)):
-    if n[0].kind != nkEmpty:
-      if n[0].kind == nkAsgn and n[0][0].kind == nkSym and c.p.resultSym == n[0][0].sym:
-        discard "return is already transformed"
-      elif c.p.resultSym != nil:
-        # transform ``return expr`` to ``result = expr; return``
-        var a = newNodeI(nkAsgn, n[0].info)
-        a.add newSymNode(c.p.resultSym)
-        a.add n[0]
-        n[0] = a
+
+  proc setAsgn(c: PContext, orig: PNode, asgn: PNode): PNode =
+    result = shallowCopy(orig)
+    result.flags = n.flags
+    result[0] =
+      if asgn.kind == nkError:
+        asgn
+      elif asgn[1].kind == nkSym and asgn[1].sym == c.p.resultSym:
+        # optimize away ``result = result``:
+        c.graph.emptyNode
       else:
-        localReport(c.config, n, reportSem rsemNoReturnTypeDeclared)
-        return
-      result[0] = semAsgn(c, n[0])
-      # optimize away ``result = result``:
-      if result[0][1].kind == nkSym and result[0][1].sym == c.p.resultSym:
-        result[0] = c.graph.emptyNode
+        asgn
+
+    if asgn.kind == nkError:
+      result = c.config.wrapError(result)
+
+  let e = n[0]
+
+  if c.p.resultSym != nil:
+    case e.kind
+    of nkAsgn:
+      # the return was already analysed (and transformed)
+      if e[0].kind == nkSym and e[0].sym.id == c.p.resultSym.id:
+        # it seems to be valid, we can keep it
+        n
+      else:
+        setAsgn(c, n):
+          c.config.newError(e, PAstDiag(kind: adSemInvalidExpression))
+    of nkEmpty:
+      # the return doesn't set the result
+      n
+    else:
+      # transform ``return expr`` to ``result = expr; return``
+      var a = newTreeI(nkAsgn, e.info): [newSymNode(c.p.resultSym), e]
+      a = semAsgn(c, a)
+
+      setAsgn(c, n, a)
+  elif c.p.owner.kind in {skConverter, skMethod, skProc, skFunc, skMacro} or
+       (c.p.owner.typ != nil and isClosureIterator(c.p.owner.typ)):
+    if e.kind == nkEmpty:
+      # the return is only used for control-flow
+      n
+    else:
+      c.config.newError(n, PAstDiag(kind: adSemNoReturnTypeDeclared))
   else:
-    localReport(c.config, n, reportSem rsemReturnNotAllowed)
+    c.config.newError(n, PAstDiag(kind: adSemReturnNotAllowed))
 
 proc semProcBody(c: PContext, n: PNode): PNode =
   openScope(c)
