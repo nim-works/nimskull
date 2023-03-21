@@ -204,11 +204,44 @@ proc unpackResult(res: sink ExecutionResult; config: ConfigRef, node: PNode): PN
 
     result = config.newError(node, astDiag, instLoc(-1))
 
+proc createStackTrace(c: TCtx, raw: VmRawStackTrace;
+                      recursionLimit: int = 100): VmStackTrace =
+  ## Creates a compiler-facing stacktrace from the internal stacktrace `raw`.
+  result = VmStackTrace(currentExceptionA: nil, currentExceptionB: nil)
+
+  var count = 0
+  # create the stacktrace entries:
+  for i in countdown(raw.high, 0):
+    let f {.cursor.} = raw[i]
+
+    if count < recursionLimit - 1 or i == 0:
+      # The `i == 0` is to make sure that we're always including the bottom of
+      # the stack (the entry procedure) in the trace
+
+      # Since we're walking the stack from top to bottom, the elements are
+      # added to the trace in reverse order (the most recent procedure is
+      # first in the list, not last). This needs to be accounted for by the
+      # actual reporting logic
+      result.stacktrace.add((sym: f.sym, location: c.debug[f.pc]))
+
+    inc count
+
+  if count > recursionLimit:
+    result.skipped = count - recursionLimit
+
+  assert result.stacktrace.len() <= recursionLimit # post condition check
+
 proc buildError(c: TCtx, thread: VmThread, event: sink VmEvent): ExecErrorReport  =
   ## Creates an `ExecErrorReport` with the `event` and a stack-trace for
   ## `thread`
+  let stackTrace =
+    if event.kind == vmEvtUnhandledException:
+      createStackTrace(c, event.trace)
+    else:
+      createStackTrace(c, thread)
+
   ExecErrorReport(
-    stackTrace: createStackTrace(c, thread),
+    stackTrace: stackTrace,
     instLoc: instLoc(-1),
     location: source(c, thread),
     kind: execErrorVm,
@@ -309,7 +342,7 @@ proc execute(c: var TCtx, start: int, frame: sink TStackFrame;
   dispose(c, thread)
 
 proc execute(c: var TCtx, info: CodeInfo): ExecutionResult =
-  var tos = TStackFrame(prc: nil, comesFrom: 0, next: -1)
+  var tos = TStackFrame(prc: nil, comesFrom: 0)
   tos.slots.newSeq(info.regCount)
   execute(c, info.start, tos,
           proc(c: TCtx, r: TFullReg): PNode = c.graph.emptyNode)
@@ -414,7 +447,7 @@ proc evalConstExprAux(module: PSym; idgen: IdGenerator;
     c.config.localReport():
       initVmCodeListingReport(c[], prc, n)
 
-  var tos = TStackFrame(prc: prc, comesFrom: 0, next: -1)
+  var tos = TStackFrame(prc: prc, comesFrom: 0)
   tos.slots.newSeq(regCount)
   #for i in 0..<regCount: tos.slots[i] = newNode(nkEmpty)
   let cb =
@@ -491,7 +524,7 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
 
   let (start, regCount) = loadProc(c[], sym).returnOnErr(c.config, n)
 
-  var tos = TStackFrame(prc: sym, comesFrom: 0, next: -1)
+  var tos = TStackFrame(prc: sym, comesFrom: 0)
   tos.slots.newSeq(regCount)
   # setup arguments:
   var L = n.safeLen
@@ -567,7 +600,7 @@ proc execProc*(c: var TCtx; sym: PSym; args: openArray[PNode]): PNode =
           return nil
         r.unsafeGet
 
-      var tos = TStackFrame(prc: sym, comesFrom: 0, next: -1)
+      var tos = TStackFrame(prc: sym, comesFrom: 0)
       tos.slots.newSeq(maxSlots)
 
       # setup parameters:
