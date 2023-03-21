@@ -393,6 +393,13 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
       n[bodyPos] = copyTree(getBody(c.graph, fn))
     if c.inGenericContext == 0:
       instantiateBody(c, n, fn.typ.n, result, fn)
+      if result.ast[bodyPos].kind == nkError:
+        # XXX: we also need to report the error here for now. Without the
+        #      ``localReport``, the error would never get reported
+        localReport(c.config, result.ast[bodyPos])
+        # compilation might continue after the report
+        result.ast = c.config.wrapError(result.ast)
+
     sideEffectsCheck(c, result)
     if result.magic notin {mSlice, mTypeOf}:
       # 'toOpenArray' is special and it is allowed to return 'openArray':

@@ -142,6 +142,13 @@ proc isArrayConstr(n: PNode): bool {.inline.} =
   result = n.kind == nkBracket and
     n.typ.skipTypes(abstractInst).kind == tyArray
 
+proc wrapErrorAndUpdate(c: ConfigRef, n: PNode, s: PSym): PNode =
+  ## Wraps the erroneous AST `n` in an error node, sets it as the AST of `s`,
+  ## and returns the wrapped node. Note that `s` itself is not transitioned to
+  ## an ``skError``.
+  result = c.wrapError(n)
+  s.ast = result
+
 proc deltaTrace(stopProc, indent: string, entries: seq[StackTraceEntry])
   {.inline.} =
   # find the actual StackTraceEntry index based on the name
