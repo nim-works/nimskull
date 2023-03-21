@@ -344,6 +344,7 @@ func vmEventToLegacyVmReport(
 
 proc main*(args: seq[string]): int =
   let config = newConfigRef(cli_reporter.reportHook)
+  config.astDiagToLegacyReport = cli_reporter.legacyReportBridge
   config.writeHook =
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       msgs.msgWrite(conf, msg, flags)

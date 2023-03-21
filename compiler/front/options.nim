@@ -26,8 +26,9 @@ from compiler/ast/ast_types import
   `comment=`, # used in conversion from `ParsedNode` to `PNode`
   NodeId,     # used as a reportId/diagId proxy
   PNode,      # because of reports, more leakage
-  PSym        # Contextual details of the instantiation stack optionally refers
+  PSym,       # Contextual details of the instantiation stack optionally refers
               # to the used symbol
+  PAstDiag    # used to bridge ast diags to legacy reports
 
 # xxx: legacy Reports to be removed
 import compiler/ast/report_enums
@@ -290,6 +291,7 @@ type
     ## textual output from the compiler goes through this callback.
     writeHook*: proc(conf: ConfigRef, output: string, flags: MsgFlags) {.closure.}
     structuredReportHook*: ReportHook
+    astDiagToLegacyReport*: proc(conf: ConfigRef, d: PAstDiag): Report
     vmProfileData*: ProfileData
 
     hack*: HackController ## Configuration values for debug printing
