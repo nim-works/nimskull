@@ -150,3 +150,9 @@ proc registerProc*(c: var TCtx, prc: PSym): FunctionIndex =
   if result == next.FunctionIndex:
     # a new entry:
     c.functions.add(initProcEntry(c, prc))
+
+proc lookupProc*(c: var TCtx, prc: PSym): FunctionIndex {.inline.} =
+  ## Returns the function-table index corresponding to the provided `prc`
+  ## symbol. Behaviour is undefined if `prc` has no corresponding function-
+  ## table entry.
+  c.symToIndexTbl[prc.id].FunctionIndex

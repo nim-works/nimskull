@@ -84,6 +84,12 @@ const
     ## the set of types that are not relevant to the VM. ``tyTypeDesc``, while
     ## not relevant right now, is likely going to be in the future.
 
+  MagicsToKeep = {mNone, mIsolate, mNHint, mNWarning, mNError, mMinI, mMaxI,
+                  mAbsI, mDotDot}
+    ## the set of magics that are kept as normal procedure calls and thus need
+    ## an entry in the function table. For convenience, the ``mNone`` magic is
+    ## also included
+
 func raiseVmGenError(diag: sink VmGenDiag) {.noinline, noreturn.} =
   raise (ref VmGenError)(diag: diag)
 
@@ -171,27 +177,65 @@ proc fitsRegister(t: PType): bool
 template isUnset(x: TDest): bool = x < 0
 
 func registerLinkItem(tbl: var Table[int, LinkIndex], list: var seq[PSym],
-                      sym: PSym, next: var LinkIndex): int =
+                      sym: PSym, next: var LinkIndex) =
   let linkIdx = tbl.mgetOrPut(sym.id, next)
   if linkIdx == next:
     # a not seen before symbol:
     list.add(sym)
     inc next
 
-  result = linkIdx.int
+proc gatherDependencies*(c: var TCtx, n: PNode; withGlobals = false) =
+  ## Gathers all relevant dependencies of `n` into the ``TCtx.linkState``
+  ## field while also registering them in the link table.
+  ##
+  ## Globals are only considered when `withGlobals` is true.
+  # XXX: previously, the dependencies were collected as part of code
+  #      generation. While this had the benefit of only looking up the
+  #      referenced symbols in the link table once (instead of twice), it's
+  #      not compatbile with the future backend architecture, and also
+  #      conflates linking with code generation. Once dependency collection
+  #      is unified across the backend, ``gatherDependencies`` becomes
+  #      obsolete
+  template register(name, next: untyped, s: PSym) =
+    registerLinkItem(c.symToIndexTbl, c.linkState.name, s, c.linkState.next)
 
+  case n.kind
+  of nkSym:
+    let s = n.sym
+    case s.kind
+    of skProcKinds:
+      if s.magic in MagicsToKeep:
+        register(newProcs, nextProc, s)
+    of skConst:
+      register(newConsts, nextConst, s)
+      # scan the constant for referenced routines:
+      gatherDependencies(c, s.astdef)
+    of skVar, skLet, skForVar:
+      # importc'ed globals can't be used in the VM, so we don't register them
+      if withGlobals and {sfGlobal, sfImportc} * s.flags == {sfGlobal}:
+        register(newGlobals, nextGlobal, s)
+    else:
+      discard "not relevant"
+  of nkNone, nkEmpty, nkIdent, nkLiterals, nkNimNodeLit, routineDefs,
+     nkConstSection:
+    discard "not relevant"
+  of nkIdentDefs:
+    # always register globals that appear as definitions
+    gatherDependencies(c, n[0], true)
+    gatherDependencies(c, n[2], withGlobals)
+  of nkCast, nkConv, nkHiddenStdConv:
+    gatherDependencies(c, n[1], withGlobals)
+  of nkError:
+    unreachable("errors can't reach here")
+  else:
+    for it in n.items:
+      gatherDependencies(c, it, withGlobals)
 
-func registerProc(c: var TCtx, sym: PSym): int {.inline.} =
-  registerLinkItem(c.symToIndexTbl, c.codegenInOut.newProcs, sym,
-                   c.codegenInOut.nextProc)
+func lookupGlobal(c: TCtx, sym: PSym): int {.inline.} =
+  c.symToIndexTbl[sym.id].int
 
-func registerGlobal(c: var TCtx, sym: PSym): int {.inline.} =
-  registerLinkItem(c.symToIndexTbl, c.codegenInOut.newGlobals, sym,
-                   c.codegenInOut.nextGlobal)
-
-func registerConst(c: var TCtx, sym: PSym): int {.inline.} =
-  registerLinkItem(c.symToIndexTbl, c.codegenInOut.newConsts, sym,
-                   c.codegenInOut.nextConst)
+func lookupConst(c: TCtx, sym: PSym): int {.inline.} =
+  c.symToIndexTbl[sym.id].int
 
 func isNimNode(t: PType): bool =
   ## Returns whether `t` is the ``NimNode`` magic type
@@ -907,7 +951,7 @@ proc genProcLit(c: var TCtx, n: PNode, s: PSym; dest: var TDest) =
   if dest.isUnset:
     dest = c.getTemp(s.typ)
 
-  let idx = c.registerProc(s)
+  let idx = c.lookupProc(s).int
 
   c.gABx(n, opcLdNull, dest, c.genType(s.typ))
   c.gABx(n, opcWrProc, dest, idx)
@@ -2124,7 +2168,7 @@ proc useGlobal(c: var TCtx, n: PNode): int =
         # the VM back-end (standalone mode), the modules aren't necessarily
         # processed in a meaningfull order, so the global's var section might
         # have been not visited yet
-        result = c.registerGlobal(s)
+        result = c.lookupGlobal(s)
       else:
         # a global that is not accessible in the current context
         cannotEval(c, n)
@@ -2384,26 +2428,6 @@ proc genAddr(c: var TCtx, src, n: PNode, dest: var TDest) =
 proc genVarSection(c: var TCtx; n: PNode) =
   for a in n:
     case a.kind
-    of nkCommentStmt:
-      continue
-    of nkVarTuple:
-      for i in 0..<a.len-2:
-        case a[i].kind
-        of nkSym:
-          checkCanEval(c, a[i])
-          let s = a[i].sym
-
-          if s.isGlobal:
-            # No need to check for function-level globals here, as var
-            # tuples with the `{.global.}` pragma are currently forbidden
-            discard c.registerGlobal(s)
-            discard c.getOrCreate(s.typ)
-          else:
-            setSlot(c, s)
-        else:
-          discard # xxx: seems weird we don't know what to expect here
-
-      c.gen(lowerTupleUnpacking(c.graph, a, c.idgen, c.getOwner))
     of nkIdentDefs:
       if a[0].kind == nkSym:
         let s = a[0].sym
@@ -2420,7 +2444,7 @@ proc genVarSection(c: var TCtx; n: PNode) =
           #      table. For the VM back-end, the symbol is also already present
           #      if the global was used somewhere in another module
           #c.config.internalAssert(s.id notin c.symToIndexTbl, a[0].info)
-          discard c.registerGlobal(s)
+          discard c.lookupGlobal(s)
           discard c.getOrCreate(s.typ)
 
           # no need to generate an assignment if the global has no initializer
@@ -2460,8 +2484,7 @@ proc genVarSection(c: var TCtx; n: PNode) =
         # assign to a[0]; happens for closures
         genAsgn(c, a[0], a[2], true)
     else:
-      # xxx: error out
-      discard
+      unreachable(a.kind)
 
 proc genArrayConstr(c: var TCtx, n: PNode, dest: var TDest) =
   if dest.isUnset: dest = c.getTemp(n.typ)
@@ -2610,7 +2633,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
         let lit = genLiteral(c, s.ast)
         c.genLit(n, lit, dest)
       else:
-        let idx = c.registerConst(s)
+        let idx = c.lookupConst(s)
         discard c.getOrCreate(s.typ)
         c.gABx(n, opcLdCmplxConst, dest, idx)
     of skEnumField:

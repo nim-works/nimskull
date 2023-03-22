@@ -71,7 +71,7 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
   result = newCtx(module, cache, graph, idgen, legacyReportsVmTracer)
   # for backwards compatibility, allow meta expressions in nimscript (this
   # matches the previous behaviour)
-  result.codegenInOut.flags = {cgfAllowMeta}
+  result.flags = {cgfAllowMeta}
   result.mode = emRepl
   registerBasicOps(result[])
   let conf = graph.config

@@ -39,6 +39,7 @@ import
     idioms
   ],
   compiler/vm/[
+    vmaux,
     vmcompilerserdes,
     vmdef,
     vmjit,
@@ -100,6 +101,23 @@ proc putIntoReg(dest: var TFullReg; c: var TCtx, n: PNode, formal: PType) =
   #      then invokes the macro. The thunk would be executed in the VM, making
   #      the code here obsolete while also eliminating unnecessary
   #      deserialize/serialize round-trips
+
+  proc registerProcs(c: var TCtx, n: PNode) =
+    # note: this kind of scanning only works for AST representing concrete
+    # values
+    case n.kind
+    of nkSym:
+      if n.sym.kind in routineKinds:
+        discard registerProc(c, n.sym)
+    of nkWithoutSons - {nkSym}:
+      discard "not relevant"
+    of nkWithSons:
+      for it in n.items:
+        registerProcs(c, it)
+
+  # create a function table entry for each procedure referenced by `n` --
+  # ``serialize`` depends on it
+  registerProcs(c, n)
 
   case t.kind
   of tyBool, tyChar, tyEnum, tyInt..tyInt64, tyUInt..tyUInt64:
@@ -417,7 +435,7 @@ proc setupGlobalCtx*(module: PSym; graph: ModuleGraph; idgen: IdGenerator) =
         defined(nimsuggest) or graph.config.cmd == cmdCheck or
         vmopsDanger notin ctx.config.features
 
-    ctx.codegenInOut.flags = {cgfAllowMeta}
+    ctx.flags = {cgfAllowMeta}
     registerAdditionalOps(ctx[], disallowDangerous)
 
     graph.vm = ctx
