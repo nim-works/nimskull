@@ -950,7 +950,11 @@ proc trackCall(tracked: PEffects; n: PNode) =
   if n.typ != nil:
     if tracked.owner.kind != skMacro and n.typ.skipTypes(abstractVar).kind != tyOpenArray:
       createTypeBoundOps(tracked, n.typ, n.info)
-  if getConstExpr(tracked.ownerModule, n, tracked.c.idgen, tracked.graph) == nil:
+  let asConstExpr = getConstExpr(tracked.ownerModule, n, tracked.c.idgen, tracked.graph)
+  if asConstExpr.isError:
+    track(tracked, asConstExpr)     # will emit errors
+    return
+  elif asConstExpr == nil:
     if a.kind == nkCast and a[1].typ.kind == tyProc:
       a = a[1]
     # XXX: in rare situations, templates and macros will reach here after
@@ -1221,8 +1225,6 @@ proc track(tracked: PEffects, n: PNode) =
       let oldState = tracked.init.len
       let oldFacts = tracked.guards.s.len
       addFact(tracked.guards, n[0])
-      if n[0].kind == nkError:
-        echo n.id
       track(tracked, n[0])
       track(tracked, n[1])
       setLen(tracked.init, oldState)

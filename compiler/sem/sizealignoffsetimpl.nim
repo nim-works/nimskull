@@ -89,8 +89,7 @@ proc computeSubObjectAlign(conf: ConfigRef; n: PNode): BiggestInt =
           return align
         result = max(result, align)
       else:
-        conf.internalError("computeSubObjectAlign")
-
+        unreachable("computeSubObjectAlign")
   of nkRecList:
     result = 1
     for i, child in n.sons:
@@ -132,8 +131,7 @@ proc computeObjectOffsetsFoldFunction(conf: ConfigRef; n: PNode, packed: bool, a
           let align = int(computeSubObjectAlign(conf, n[i].lastSon))
           maxChildAlign = alignmentMax(maxChildAlign, align)
         else:
-          conf.internalError(
-            "computeObjectOffsetsFoldFunction(record case branch)")
+          unreachable("computeObjectOffsetsFoldFunction(record case branch)")
 
     if maxChildAlign == szUnknownSize:
       setOffsetsToUnknown(n)
@@ -477,16 +475,16 @@ template foldAlignOf*(conf: ConfigRef; n: PNode; fallback: PNode): PNode =
 template foldOffsetOf*(conf: ConfigRef; n: PNode; fallback: PNode): PNode =
   ## Returns an int literal node of the given offsetof expression in `n`.
   ## Falls back to `fallback`, if the `offsetof` expression can't be processed.
-  let config = conf
-  let node : PNode = n
-  var dotExpr: PNode
-  block findDotExpr:
-    if node[1].kind == nkDotExpr:
-      dotExpr = node[1]
-    elif node[1].kind == nkCheckedFieldExpr:
-      dotExpr = node[1][0]
-    else:
-      config.localReport(node.info, reportAst(rsemCantComputeOffsetof, n))
+  let
+    config = conf
+    node : PNode = n
+    dotExpr =
+      if node[1].kind == nkDotExpr:
+        node[1]
+      elif node[1].kind == nkCheckedFieldExpr:
+        node[1][0]
+      else:
+        config.newError(n, PAstDiag(kind: adSemFoldCannotComputeOffset))
 
   assert dotExpr != nil
   let value = dotExpr[0]
