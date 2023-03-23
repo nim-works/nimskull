@@ -18,6 +18,8 @@ type
     typ*: PType
     str*: string
     sym*: PSym
+    trace*: ref VMReport  ## for storing an `rvmStackTrace`, not ideal but
+                          ## reports are legacy and to be removed
     case kind*: ReportKind
       of rvmStackTrace:
         currentExceptionA*, currentExceptionB*: PNode

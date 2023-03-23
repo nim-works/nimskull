@@ -4502,6 +4502,24 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
   result =
     case kind
     of repVMKinds:
+      if diag.kind == adVmGenError and diag.duringJit or
+          diag.kind == adVmError:
+        let st =
+          case diag.kind
+          of adVmGenError: diag.vmGenTrace
+          of adVmError:    diag.vmTrace
+          else:            unreachable()
+
+        {.cast(noSideEffect).}: # side-effect analysis fails
+          vmRep.trace =
+            (ref VMReport)(kind: rvmStackTrace,
+                      currentExceptionA: st.currentExceptionA,
+                      currentExceptionB: st.currentExceptionB,
+                      stacktrace: st.stacktrace,
+                      skipped: st.skipped,
+                      location: some st.location,
+                      reportInst: toReportLineInfo(st.instLoc))
+
       Report(category: repVM, vmReport: vmRep)
     of repSemKinds:
       Report(category: repSem, semReport: semRep)
