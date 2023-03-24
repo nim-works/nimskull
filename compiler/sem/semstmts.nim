@@ -1073,7 +1073,7 @@ proc semNormalizedConst(c: PContext, n: PNode): PNode =
         defInitPart.typ
       else:
         initExpr.typ
-    haveInit = not initType.isError
+    haveInit = defInitPart.kind != nkEmpty
   
   # expansion of the given type
   let

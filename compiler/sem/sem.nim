@@ -537,6 +537,17 @@ proc semConstExpr(c: PContext, n: PNode): PNode =
     localReport(c.config, result)
     result = e # error correction
 
+proc semRealConstExpr(c: PContext, n: PNode): PNode =
+  ## Semantically analyses the expression `n` and evaluates it. An error is
+  ## returned if the expression either contains an error or is not a constant
+  ## expression.
+  addInNimDebugUtils(c.config, "semRealConstExpr", n, result)
+  assert not n.isError
+
+  result = semExprWithType(c, n)
+  if result.kind != nkError:
+    result = evalConstExpr(c, result)
+
 proc semExprFlagDispatched(c: PContext, n: PNode, flags: TExprFlags): PNode =
   if efNeedStatic in flags:
     if efPreferNilResult in flags:
