@@ -549,9 +549,8 @@ type
     ## into `TCtx.globals`; index into `TCtx.complexConsts`
 
   # XXX: design of `CodeGenInOut` is not yet final
-  CodeGenInOut* = object
-    ## Mutable global state for the code-generator (`vmgen`) that is not
-    ## directly related to the code being generated.
+  LinkState* = object
+    ## Temporary state used when gathering new dependencies.
     ##
     ## The `newX` seqs accumulate the symbols added to `symToIndexTbl` during
     ## code-gen, with a seq for each link-item kind. They're never reset by
@@ -567,8 +566,6 @@ type
     nextProc*: LinkIndex
     nextGlobal*: LinkIndex
     nextConst*: LinkIndex
-
-    flags*: set[CodeGenFlag] ## input
 
   VmGenDiagKind* = enum
     # has no extra data
@@ -761,9 +758,15 @@ type
       ## dependencies. Expanded during code-generation and used for looking
       ## up the link-index (e.g. `FunctionIndex`) of a symbol
 
-    codegenInOut*: CodeGenInOut ## Input and outputs to vmgen
-    # TODO: `codegenInOut` shouldn't be part of `TCtx` but rather a `var`
-    #       parameter for the various codegen functions
+    linkState*: LinkState ## temporary state used by dependency collection.
+      ## Stored as part of ``TCtx`` for convenience, and to allow for memory
+      ## reuse
+    # XXX: `linkState` is eventually going to be removed
+
+    flags*: set[CodeGenFlag] ## flags that alter the behaviour of the code
+      ## generator. Initialized by the VM's callsite and queried by the JIT.
+    # XXX: `flags` is code generator / JIT state, and needs to be moved out of
+    #      ``TCtx``
 
     # exception state:
     # XXX: this is thread-local state and should thus not be part of the

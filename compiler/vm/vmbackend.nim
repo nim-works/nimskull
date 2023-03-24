@@ -150,6 +150,7 @@ func collectRoutineSyms(ast: PNode, syms: var seq[PSym]) =
 proc genStmt(c: var TCtx, n: PNode): auto =
   ## Wrapper around ``vmgen.genStmt`` that canonicalizes the input AST first
   let n = canonicalizeSingle(c.graph, c.idgen, c.module, n, {goIsNimvm})
+  c.gatherDependencies(n, withGlobals=true)
   vmgen.genStmt(c, n)
 
 proc generateTopLevelStmts*(module: var Module, c: var TCtx,
@@ -185,6 +186,7 @@ proc generateCodeForProc(c: var TCtx, s: PSym,
   var body = transformBody(c.graph, c.idgen, s, cache = false)
   extractGlobals(body, globals, isNimVm = true)
   body = canonicalize(c.graph, c.idgen, s, body, {goIsNimvm})
+  c.gatherDependencies(body, withGlobals=true)
   result = genProc(c, s, body)
 
 proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]) =
@@ -220,10 +222,10 @@ proc generateGlobalInit(c: var TCtx, f: var CodeFragment, defs: openArray[PNode]
 
 proc generateAliveProcs(c: var TCtx, mlist: var ModuleList) =
   ## Runs code generation for all routines (except methods) directly used
-  ## by the routines in `c.codegenInOut.newProcs`, including the routines in
+  ## by the routines in `c.linkState.newProcs`, including the routines in
   ## the list itself.
   ##
-  ## This function can be called multiple times, but `c.codegenInOut.newProcs`
+  ## This function can be called multiple times, but `c.linkState.newProcs`
   ## must only contain not-yet-code-gen'ed routines each time.
   ##
   ## An alive routine is a routine who's symbol is used in: a top-level
@@ -232,14 +234,14 @@ proc generateAliveProcs(c: var TCtx, mlist: var ModuleList) =
   let start = c.functions.len
   # adjust the function table size. Since `generateAllProcs` may be called
   # multiple times, `setLen` has to be used instead of `newSeq`
-  c.functions.setLen(c.codegenInOut.nextProc)
+  c.functions.setLen(c.linkState.nextProc)
 
   var globals: seq[PNode]
     ## the identdefs of global defined inside procedures. Reused across loop
     ## iterations for efficiency
 
   # `newProcs` can grow during iteration, so `citems` has to be used
-  for ri, sym in c.codegenInOut.newProcs.cpairs:
+  for ri, sym in c.linkState.newProcs.cpairs:
     c.config.internalAssert(sym.kind notin {skMacro, skTemplate}):
       "unexpanded macro or template"
     c.config.internalAssert(sym.kind != skIterator):
@@ -275,7 +277,7 @@ proc generateAliveProcs(c: var TCtx, mlist: var ModuleList) =
       globals.setLen(0)
 
     # code-gen might've found new functions, so adjust the function table:
-    c.functions.setLen(c.codegenInOut.nextProc)
+    c.functions.setLen(c.linkState.nextProc)
 
 proc generateEntryProc(c: var TCtx, info: TLineInfo, initProcs: Slice[int],
                        initProcTyp: VmTypeId): CodeInfo =
@@ -415,25 +417,10 @@ proc generateCode*(g: ModuleGraph) =
     # combine module list iteration with initialiazing `initGlobalsCode`:
     m.initGlobalsCode.prc = PProc()
 
-  var startConst = LinkIndex(0)
-  # iteratively generate code for all alive procedures
-  while c.codegenInOut.nextProc.int > c.functions.len:
-    # generate code for the set of active alive routines
-    # (`c.codegenInOut.newProcs`). This can uncover new ``const`` symbols
-    generateAliveProcs(c, mlist[])
-    c.codegenInOut.newProcs.setLen(0)
-
-    # collect routine symbols from new `const`s, if any
-    for i in startConst..<c.codegenInOut.nextConst:
-      collectRoutineSyms(c.codegenInOut.newConsts[i].ast,
-                         c.codegenInOut.newProcs)
-
-    startConst = c.codegenInOut.nextConst
-
-    # create link table entries for the collected routine symbols
-    for sym in c.codegenInOut.newProcs.items:
-      c.symToIndexTbl[sym.id] = c.codegenInOut.nextProc
-      inc c.codegenInOut.nextProc
+  # generate code for the set of active alive routines
+  # (`c.linkState.newProcs`). This can uncover new ``const`` symbols
+  generateAliveProcs(c, mlist[])
+  reset(c.linkState.newProcs) # free the occupied memory already
 
   # XXX: generation of method dispatchers would go here. Note that `method`
   #      support will require adjustments to DCE handling
@@ -470,14 +457,14 @@ proc generateCode*(g: ModuleGraph) =
   #      Pros: no need for the `globals` and `consts` seqs
   #      Cons: (probably) higher I-cache pressure, slightly more complex logic
 
-  var globals = newSeq[PVmType](c.codegenInOut.newGlobals.len)
-  for i, sym in c.codegenInOut.newGlobals.pairs:
+  var globals = newSeq[PVmType](c.linkState.newGlobals.len)
+  for i, sym in c.linkState.newGlobals.pairs:
     let typ = c.typeInfoCache.lookup(conf, sym.typ)
     # the type was already created during vmgen
     globals[i] = typ.unsafeGet
 
-  var consts = newSeq[(PVmType, PNode)](c.codegenInOut.newConsts.len)
-  for i, sym in c.codegenInOut.newConsts.pairs:
+  var consts = newSeq[(PVmType, PNode)](c.linkState.newConsts.len)
+  for i, sym in c.linkState.newConsts.pairs:
     let typ = c.typeInfoCache.lookup(conf, sym.typ)
     consts[i] = (typ.unsafeGet, sym.ast)
 

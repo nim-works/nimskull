@@ -53,24 +53,24 @@ iterator lpairs[T](x: seq[T]): tuple[key: int, value: lent T] =
 
 func selectOptions(c: TCtx): set[GenOption] =
   result = {goIsNimvm}
-  if cgfAllowMeta in c.codegenInOut.flags:
+  if cgfAllowMeta in c.flags:
     result.incl goGenTypeExpr
 
 func setupLinkState(c: var TCtx) =
-  c.codegenInOut.newProcs.setLen(0)
-  c.codegenInOut.newGlobals.setLen(0)
-  c.codegenInOut.newConsts.setLen(0)
-  c.codegenInOut.nextGlobal = c.globals.len.uint32
-  c.codegenInOut.nextConst = c.complexConsts.len.uint32
-  c.codegenInOut.nextProc = c.functions.len.uint32
+  c.linkState.newProcs.setLen(0)
+  c.linkState.newGlobals.setLen(0)
+  c.linkState.newConsts.setLen(0)
+  c.linkState.nextGlobal = c.globals.len.uint32
+  c.linkState.nextConst = c.complexConsts.len.uint32
+  c.linkState.nextProc = c.functions.len.uint32
 
 proc updateEnvironment(c: var TCtx) =
   ## Needs to be called after a `vmgen` invocation and prior to resuming
   ## execution. Allocates and sets up the execution resources required for the
   ## newly gathered dependencies
   template grow(list, nextName) =
-    assert c.list.len <= c.codegenInOut.nextName.int
-    c.list.setLen(c.codegenInOut.nextName)
+    assert c.list.len <= c.linkState.nextName.int
+    c.list.setLen(c.linkState.nextName)
 
   let
     ps = c.functions.len
@@ -82,14 +82,14 @@ proc updateEnvironment(c: var TCtx) =
   grow(complexConsts, nextConst)
   grow(functions, nextProc)
 
-  for i, sym in c.codegenInOut.newProcs.lpairs:
+  for i, sym in c.linkState.newProcs.lpairs:
     c.functions[ps + i] = initProcEntry(c, sym)
 
-  for i, sym in c.codegenInOut.newGlobals.lpairs:
+  for i, sym in c.linkState.newGlobals.lpairs:
     let typ = c.getOrCreate(sym.typ)
     c.globals[gs + i] = c.heap.heapNew(c.allocator, typ)
 
-  for i, sym in c.codegenInOut.newConsts.lpairs:
+  for i, sym in c.linkState.newConsts.lpairs:
     assert sym.ast.kind notin nkLiterals
 
     let
@@ -117,6 +117,7 @@ proc genStmt*(c: var TCtx; n: PNode): VmGenResult =
   c.setupLinkState()
 
   let n = canonicalizeSingle(c.graph, c.idgen, c.module, n, selectOptions(c))
+  gatherDependencies(c, n)
 
   let
     start = c.code.len
@@ -136,6 +137,7 @@ proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
   c.setupLinkState()
 
   let n = canonicalizeSingle(c.graph, c.idgen, c.module, n, selectOptions(c))
+  gatherDependencies(c, n)
 
   result = vmgen.genExpr(c, n, requiresValue)
   if unlikely(result.isErr):
@@ -159,6 +161,7 @@ proc genProc(c: var TCtx, s: PSym): VmGenResult =
   body = canonicalize(c.graph, c.idgen, s, body, selectOptions(c))
 
   c.setupLinkState()
+  c.gatherDependencies(body)
 
   result = genProc(c, s, body)
   if unlikely(result.isErr):
