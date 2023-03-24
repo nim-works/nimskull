@@ -609,6 +609,9 @@ proc handleReport*(
   if rep.category in { repSem, repVM } and rep.location.isSome():
     rep.context = conf.getContext(rep.location.get())
 
+  if rep.category == repVM and rep.vmReport.trace != nil:
+    handleReport(conf, wrap(rep.vmReport.trace[]), reportFrom)
+
   let
     userAction = conf.report(rep)
     (action, trace) =

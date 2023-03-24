@@ -3119,14 +3119,22 @@ proc semStaticStmt(c: PContext, n: PNode): PNode =
   let a = semStmt(c, n[0], {})
   closeScope(c)
   dec c.p.inStaticContext
-  n[0] = a
-  evalStaticStmt(c.module, c.idgen, c.graph, a, c.p.owner)
-  when false:
-    # for incremental replays, keep the AST as required for replays:
-    result = n
+  result = shallowCopy(n)
+  result[0] = a
+
+  case a.kind
+  of nkError:
+    result = c.config.wrapError(result)
   else:
-    result = newNodeI(nkDiscardStmt, n.info, 1)
-    result[0] = c.graph.emptyNode
+    result.transitionSonsKind(nkDiscardStmt)
+    result[0] = evalStaticStmt(c.module, c.idgen, c.graph, a, c.p.owner)
+    case result[0].kind
+    of nkError:
+      result = c.config.wrapError(result)
+    of nkEmpty:
+      result[0] = c.graph.emptyNode # we presently ignore non-error output
+    else:
+      unreachable()
 
 proc usesResult(n: PNode): bool =
   # nkStmtList(expr) properly propagates the void context,

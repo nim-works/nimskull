@@ -464,10 +464,8 @@ proc evalConstExpr*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode):
 proc evalStaticExpr*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode, prc: PSym): PNode {.inline.} =
   result = evalConstExprAux(module, idgen, g, prc, e, emStaticExpr)
 
-proc evalStaticStmt*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode, prc: PSym) {.inline.} =
-  let r = evalConstExprAux(module, idgen, g, prc, e, emStaticStmt)
-  # TODO: the node needs to be returned to the caller instead
-  reportIfError(g.config, r)
+proc evalStaticStmt*(module: PSym; idgen: IdGenerator; g: ModuleGraph; e: PNode, prc: PSym): PNode {.inline.} =
+  result = evalConstExprAux(module, idgen, g, prc, e, emStaticStmt)
 
 proc setupCompileTimeVar*(module: PSym; idgen: IdGenerator; g: ModuleGraph; n: PNode) {.inline.} =
   let r = evalConstExprAux(module, idgen, g, nil, n, emStaticStmt)
