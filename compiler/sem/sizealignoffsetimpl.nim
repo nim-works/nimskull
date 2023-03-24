@@ -166,7 +166,7 @@ proc computeObjectOffsetsFoldFunction(conf: ConfigRef; n: PNode, packed: bool, a
     accum.offset = szUnknownSize
 
 proc computeUnionObjectOffsetsFoldFunction(conf: ConfigRef; n: PNode; packed: bool; accum: var OffsetAccum) =
-  ## ``accum.offset`` will the offset from the larget member of the union.
+  ## ``accum.offset`` will be the offset from the largest member of the union.
   case n.kind
   of nkRecCase:
     accum.offset = szUnknownSize
