@@ -461,7 +461,6 @@ func astDiagToLegacyReportKind*(
   of adSemLocksPragmaBadLevelString: rsemLocksPragmaBadLevel
   of adSemBorrowPragmaNonDot: rsemBorrowPragmaNonDot
   of adSemInvalidExtern: rsemInvalidExtern
-  of adSemBadDeprecatedArg: rsemBadDeprecatedArg
   of adSemMisplacedEffectsOf: rsemMisplacedEffectsOf
   of adSemMissingPragmaArg: rsemMissingPragmaArg
   of adSemCannotPushCast: rsemCannotPushCast

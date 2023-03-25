@@ -67,7 +67,6 @@ type
     wSinkInference = "sinkInference", wWarnings = "warnings",
     wHints = "hints", wOptimization = "optimization", wRaises = "raises",
     wWrites = "writes", wReads = "reads", wSize = "size", wEffects = "effects", wTags = "tags",
-    wAssert = "assert",
     wDeadCodeElimUnused = "deadCodeElim",  # deprecated, dead code elim always happens
     wSafecode = "safecode", wPackage = "package",
     wNoRewrite = "norewrite", wNoDestroy = "nodestroy", wPragma = "pragma",

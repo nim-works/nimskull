@@ -1016,18 +1016,14 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
   result[namePos] = newSymNode(s)
   result[pragmasPos] = n[pragmasPos]
 
-  discard pragmaCallable(c, s, result, templatePragmas) # just check pragmasPos
+  if n[pragmasPos].kind != nkEmpty:
+    result[pragmasPos] = pragmaDeclNoImplicit(c, s, n[pragmasPos], templatePragmas)
+
+  result[pragmasPos] = implicitPragmas(c, s, result[pragmasPos], templatePragmas)
 
   if result[pragmasPos].kind == nkError:
     hasError = true
-  
-  # this should return the same `s` if there were no errors
-  s = implicitPragmas(c, s, n.info, templatePragmas)
 
-  if s.isError:
-    result[namePos] = s.ast
-    hasError = true
-  
   result[genericParamsPos] = n[genericParamsPos]
   result[miscPos] = n[miscPos]
 

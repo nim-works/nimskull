@@ -56,7 +56,7 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
       if n[i][0].kind == nkPragmaExpr:
         e = newSymS(skEnumField, n[i][0][0], c)
         identToReplace = addr n[i][0][0]
-        n[i][0][1] = pragma(c, e, n[i][0][1], enumFieldPragmas)
+        n[i][0][1] = pragmaDecl(c, e, n[i][0][1], enumFieldPragmas)
         # check if we got any errors and if so report them
         for e in ifErrorWalkErrors(c.config, n[i][0][1]):
           localReport(c.config, e)
@@ -110,7 +110,7 @@ proc semEnum(c: PContext, n: PNode, prev: PType): PType =
       identToReplace = addr n[i]
     of nkPragmaExpr:
       e = newSymS(skEnumField, n[i][0], c)
-      n[i][1] = pragma(c, e, n[i][1], enumFieldPragmas)
+      n[i][1] = pragmaDecl(c, e, n[i][1], enumFieldPragmas)
       # check if we got any errors and if so report them
       for e in ifErrorWalkErrors(c.config, n[i][1]):
         localReport(c.config, e)
@@ -575,10 +575,10 @@ proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
     of skType:
       # process pragmas later, because result.typ has not been set yet
       discard
-    of skField: n[1] = pragma(c, result, n[1], fieldPragmas)
-    of skVar:   n[1] = pragma(c, result, n[1], varPragmas)
-    of skLet:   n[1] = pragma(c, result, n[1], letPragmas)
-    of skConst: n[1] = pragma(c, result, n[1], constPragmas)
+    of skField: n[1] = pragmaDecl(c, result, n[1], fieldPragmas)
+    of skVar:   n[1] = pragmaDecl(c, result, n[1], varPragmas)
+    of skLet:   n[1] = pragmaDecl(c, result, n[1], letPragmas)
+    of skConst: n[1] = pragmaDecl(c, result, n[1], constPragmas)
     else: discard
     # check if we got any errors and if so report them
     for e in ifErrorWalkErrors(c.config, n[1]):
@@ -1024,7 +1024,7 @@ proc semObjectNode(c: PContext, n: PNode, prev: PType; flags: TTypeFlags): PType
     # dummy symbol for `pragma`:
     var s = newSymS(skType, newIdentNode(getIdent(c.cache, "dummy"), n.info), c)
     s.typ = result
-    n[0] = pragma(c, s, n[0], typePragmas)
+    n[0] = pragmaDecl(c, s, n[0], typePragmas)
     # check if we got any errors and if so report them
     for e in ifErrorWalkErrors(c.config, n[0]):
       localReport(c.config, e)
@@ -1431,7 +1431,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
     for j in 0..<a.len-2:
       var arg = newSymG(skParam, if a[j].kind == nkPragmaExpr: a[j][0] else: a[j], c)
       if a[j].kind == nkPragmaExpr:
-        a[j][1] = pragma(c, arg, a[j][1], paramPragmas)
+        a[j][1] = pragmaDecl(c, arg, a[j][1], paramPragmas)
         # check if we got any errors and if so report them
         for e in ifErrorWalkErrors(c.config, a[j][1]):
           localReport(c.config, e)
@@ -1824,20 +1824,16 @@ proc semProcTypeWithScope(c: PContext, n: PNode,
   var s = newSymS(kind, newIdentNode(getIdent(c.cache, "dummy"), n.info), c)
   s.typ = result
   if n[1].kind != nkEmpty and n[1].len > 0:
-    n[1] = pragma(c, s, n[1], procTypePragmas)
+    n[1] = pragmaDecl(c, s, n[1], procTypePragmas)
+  elif c.optionStack.len > 0:
+    # we're still interested in implicit tags and raises pragmas
+    n[1] = implicitPragmas(c, s, n[1], {wTags, wRaises})
+
+  when true:
     # check if we got any errors and if so report them
     for e in ifErrorWalkErrors(c.config, n[1]):
       localReport(c.config, e)
     when useEffectSystem: setEffectsForProcType(c.graph, result, n[1])
-  elif c.optionStack.len > 0:
-    # we construct a fake 'nkProcDef' for the 'mergePragmas' inside 'implicitPragmas'...
-    s.ast = newTree(nkProcDef, newNodeI(nkEmpty, n.info), newNodeI(nkEmpty, n.info),
-        newNodeI(nkEmpty, n.info), newNodeI(nkEmpty, n.info), newNodeI(nkEmpty, n.info))
-    s = implicitPragmas(c, s, n.info, {wTags, wRaises})
-    # check if we got any errors and if so report them
-    for e in ifErrorWalkErrors(c.config, s.ast):
-      localReport(c.config, e)
-    when useEffectSystem: setEffectsForProcType(c.graph, result, s.ast[pragmasPos])
   closeScope(c)
 
 proc symFromExpectedTypeNode(c: PContext, n: PNode): PSym =

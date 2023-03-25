@@ -933,9 +933,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemInvalidExtern:
       result = "invalid extern name: '" & r.externName & "'. (Forgot to escape '$'?)"
 
-    of rsemBadDeprecatedArg:
-      result = "string literal expected"
-
     of rsemInvalidPragma:
       result = "invalid pragma: " & r.ast.render
 
@@ -1640,7 +1637,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = r.str
 
     of rsemImplicitPragmaError:
-      result = "???"
+      result = "application of implicit pragma failed"
 
     of rsemInvalidModulePath:
       result = "invalid path: " & r.str
@@ -3821,7 +3818,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemLinePragmaExpectsTuple,
       adSemLocksPragmaExpectsList,
       adSemBorrowPragmaNonDot,
-      adSemBadDeprecatedArg,
       adSemMisplacedEffectsOf,
       adSemMissingPragmaArg,
       adSemCannotPushCast,

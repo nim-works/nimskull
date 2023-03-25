@@ -558,9 +558,7 @@ proc semConstLetOrVarAnnotation(c: PContext, n: PNode): PNode =
     # Drop the pragma from the list, this prevents getting caught in endless
     # recursion when the nkCall is semanticized
     n[0][0][1] = copyExcept(pragmas, i)
-    if n[0][0][1].kind != nkEmpty and n[0][0][1].len == 0:
-      # if all pragma are gone replace them with an empty node
-      n[0][0][1] = c.graph.emptyNode
+    # leave the pragma list as is, even if empty
 
     x.add(n)
 
@@ -1454,7 +1452,7 @@ proc symForVar(c: PContext, n: PNode): PSym =
   styleCheckDef(c.config, result)
 
   if hasPragma:
-    let pragma = pragma(c, result, n[1], forVarPragmas)
+    let pragma = pragmaDecl(c, result, n[1], forVarPragmas)
     if pragma.kind == nkError:
       n[1] = pragma
 
@@ -1822,7 +1820,7 @@ proc typeDefLeftSidePass(c: PContext, typeSection: PNode, i: int) =
         typeSection[i] = rewritten
         typeDefLeftSidePass(c, typeSection, i)
         return
-      name[1] = pragma(c, s, name[1], typePragmas)
+      name[1] = pragmaDecl(c, s, name[1], typePragmas)
       # check if we got any errors and if so report them
       for e in ifErrorWalkErrors(c.config, name[1]):
         localReport(c.config, e)
@@ -2710,14 +2708,17 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     else:
       addInterfaceDeclAt(c, declarationScope, s)
 
-  result = pragmaCallable(c, s, n, validPragmas)
-  if not result.isErrorLike and not hasProto:
-    s = implicitPragmas(c, s, n.info, validPragmas)
+  if n[pragmasPos].kind != nkEmpty:
+    n[pragmasPos] = pragmaDeclNoImplicit(c, s, n[pragmasPos], validPragmas)
+
+  if not hasProto:
+    n[pragmasPos] = implicitPragmas(c, s, n[pragmasPos], validPragmas)
+    inheritDynlib(c, s)
+
+  result = n
 
   # check if we got any errors and if so report them
-  if s != nil and s.kind == skError:
-    result = s.ast
-  if result.isErrorLike:
+  if result[pragmasPos].isError:
     closeScope(c)
     popOwner(c)
     return wrapError(c.config, result)
@@ -3028,8 +3029,8 @@ proc semPragmaBlock(c: PContext, n: PNode): PNode =
   assert n.kind == nkPragmaBlock, "expected nkPragmaBlock, got: " & $n.kind
 
   checkSonsLen(n, 2, c.config)
-  
-  let pragmaList = pragma(c, nil, n[0], exprPragmas, isStatement = true)
+
+  let pragmaList = pragmaExpr(c, n[0])
 
   if pragmaList.isError:
     n[0] = pragmaList

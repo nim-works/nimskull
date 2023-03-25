@@ -384,7 +384,7 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
     addToGenericProcCache(c, fn, entry)
     c.generics.add(makeInstPair(fn, entry))
     if n[pragmasPos].kind != nkEmpty:
-      result.ast[pragmasPos] = pragma(c, result, n[pragmasPos], allRoutinePragmas)
+      result.ast[pragmasPos] = pragmaDecl(c, result, n[pragmasPos], allRoutinePragmas)
       # check if we got any errors and if so report them
       for e in ifErrorWalkErrors(c.config, result.ast[pragmasPos]):
         localReport(c.config, e)
