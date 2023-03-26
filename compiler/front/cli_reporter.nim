@@ -1464,9 +1464,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemStackEscape:
       result = "address of '$1' may not escape its stack frame" % r.ast.render
 
-    of rsemCannotInterpretNode:
-      result = "cannot evaluate '$1'" % r.ast.render
-
     of rsemRecursiveDependencyIterator:
       result = "recursion is not supported in iterators: '$1'" % r.symstr
 
