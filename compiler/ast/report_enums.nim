@@ -784,7 +784,6 @@ type
     rsemBorrowPragmaNonDot
     rsemInvalidExtern
     rsemInvalidPragmaBlock
-    rsemBadDeprecatedArg
     rsemMisplacedEffectsOf
     rsemMissingPragmaArg
     rsemErrGcUnsafe

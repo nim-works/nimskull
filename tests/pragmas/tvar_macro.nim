@@ -6,7 +6,7 @@ import macros
 block: # test usage
   macro modify(sec) =
     result = copy sec
-    result[0][0] = ident(repr(result[0][0]) & "Modified")
+    result[0][0][0] = ident(repr(result[0][0][0]) & "Modified")
 
   block:
     let foo {.modify.} = 3
@@ -22,7 +22,7 @@ block: # test usage
 block: # with single argument
   macro appendToName(name: static string, sec) =
     result = sec
-    result[0][0] = ident(repr(result[0][0]) & name)
+    result[0][0][0] = ident(repr(result[0][0][0]) & name)
 
   block:
     let foo {.appendToName: "Bar".} = 3
@@ -37,7 +37,7 @@ block: # with single argument
 
 macro appendToNameAndAdd(name: static string, incr: static int, sec) =
   result = sec
-  result[0][0] = ident(repr(result[0][0]) & name)
+  result[0][0][0] = ident(repr(result[0][0][0]) & name)
   result[0][2] = infix(result[0][2], "+", newLit(incr))
 
 block: # with multiple arguments

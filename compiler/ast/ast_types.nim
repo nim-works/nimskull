@@ -591,13 +591,6 @@ type
     nfDefaultRefsParam ## a default param value references another parameter
                        ## the flag is applied to proc default values and to calls
     nfHasComment ## node has a comment
-    nfImplicitPragma ## node is a "singlePragma" this is a transition flag
-                  ## created as part of nkError refactoring for the pragmas
-                  ## module. an old proc, `singlePragma` did a lot of side-
-                  ## effects and returned a bool signal to callers typically to
-                  ## either break a loop and raise an error in
-                  ## `pragmas.implicitPragmas` or simply break a loop in
-                  ## `pragmas.pragmaRec`.
 
   TNodeFlags* = set[TNodeFlag]
   TTypeFlag* = enum   ## keep below 32 for efficiency reasons (now: 43)
@@ -1073,7 +1066,6 @@ type
     adSemLocksPragmaBadLevelString
     adSemBorrowPragmaNonDot
     adSemInvalidExtern
-    adSemBadDeprecatedArg
     adSemMisplacedEffectsOf
     adSemMissingPragmaArg
     adSemCannotPushCast
@@ -1255,7 +1247,6 @@ type
         adSemLocksPragmaBadLevelRange,
         adSemLocksPragmaBadLevelString,
         adSemBorrowPragmaNonDot,
-        adSemBadDeprecatedArg,
         adSemMisplacedEffectsOf,
         adSemMissingPragmaArg,
         adSemCannotPushCast,
