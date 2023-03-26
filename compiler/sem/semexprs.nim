@@ -696,85 +696,146 @@ proc arrayConstrType(c: PContext, n: PNode): PType =
   typ[0] = makeRangeType(c, 0, n.len - 1, n.info)
   result = typ
 
+proc semArrayElementIndex(c: PContext, n: PNode, formalIdx: PType
+                         ): tuple[n: PNode, val: Int128] =
+  ## Analyses the array element expression `n`, producing either the
+  ## semantically analysed index expression plus its value, an error, or an
+  ## ``nkEmpty`` if no index is specified.
+  ##
+  ## `formalIdx` specifies the type that the index value must fit. If
+  ## `formalIdx` is nil, the index specified by `n` is always allowed as long
+  ## as it's of a valid ordinal-like type.
+  addInNimDebugUtils(c.config, "semArrayElementIndex", n, result.n)
+
+  case n.kind
+  of nkExprColonExpr:
+    checkSonsLen(n, 2, c.config)
+    let idx = semRealConstExpr(c, n[0])
+
+    if idx.kind == nkError:
+      (idx, Zero)
+    elif formalIdx != nil:
+      # we already have a formal type, make sure the provided index fits
+      let r = fitNode(c, formalIdx, idx, idx.info)
+      if r.kind == nkError:  (r, Zero)
+      else:                  (r, getOrdValue(r))
+    elif isOrdinalType(idx.typ):
+      # no formal type is set yet and we got a valid ordinal
+      (idx, getOrdValue(idx))
+    else:
+      # a constant expression, but not a value usable as an ordinal
+      (c.config.newError(idx, PAstDiag(kind: adSemExpectedOrdinalArrayIdx,
+                                       nonOrdInput: idx,
+                                       indexExpr: n)),
+       Zero)
+  else:
+    (c.graph.emptyNode, Zero)
+
 proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   result = newNodeI(nkBracket, n.info)
   result.typ = newTypeS(tyArray, c)
-  rawAddSon(result.typ, nil)     # index type
-  
-  var
-    firstIndex, lastIndex: Int128
-    indexType = getSysType(c.graph, n.info, tyInt)
-    lastValidIndex = lastOrd(c.config, indexType)
-  
+
+  template createRange(first, last: Int128, typ: PType): PType =
+    makeRangeType(c, toInt64(first), toInt64(last), n.info, typ)
+
   if n.len == 0:
+    # an empty array constructor
+    let indexType = getSysType(c.graph, n.info, tyInt)
+    rawAddSon(result.typ, createRange(Zero, toInt128(-1), indexType))
     rawAddSon(result.typ, newTypeS(tyEmpty, c)) # needs an empty basetype!
-    lastIndex = toInt128(-1)
   else:
-    var x = n[0]
-    if x.kind == nkExprColonExpr and x.len == 2:
-      var idx = semConstExpr(c, x[0])
-      if not isOrdinalType(idx.typ):
-        result = n
-        result[0][0] = c.config.newError(x[0],
-                          PAstDiag(kind: adSemExpectedOrdinalArrayIdx,
-                                   nonOrdInput: idx,
-                                   indexExpr: result))
-        # TODO: the error message references the index expression (`result`)
-        #       and we're wrapping the error anyway, maybe expand the nkError
-        #       to cover the whole result in one go
-        result = c.config.wrapError(result)
-        return
-      else:
-        firstIndex = getOrdValue(idx)
-        lastIndex = firstIndex
-        indexType = idx.typ
-        lastValidIndex = lastOrd(c.config, indexType)
-        x = x[1]
+    # analyse the first element separately -- the other elements depend on its
+    # type
+    let
+      (first, firstIndex) = semArrayElementIndex(c, n[0], nil)
+      indexType =
+        # if no type is provided or an error occurred, default to ``int`` for
+        # the index type
+        case first.kind
+        of nkError, nkEmpty: getSysType(c.graph, n.info, tyInt)
+        else:                first.typ
 
-    let yy = semExprWithType(c, x)
-    var typ = yy.typ
-    result.add yy
-    for i in 1..<n.len:
-      if lastIndex == lastValidIndex:
-        let validIndex = makeRangeType(
-          c, toInt64(firstIndex),
-          toInt64(lastValidIndex), n.info, indexType)
-
+    # before doing anything else, check if the size of the array doesn't exceed
+    # the maximum value representable by the index type
+    let limit = lastOrd(c.config, indexType)
+    if firstIndex + toInt128(n.len - 1) > limit:
         result = c.config.newError(n,
                             PAstDiag(
                               kind: adSemIndexOutOfBounds,
-                              ordRange: validIndex,
-                              maxOrdIdx: i,
-                              outOfBoundsIdx: n.len))
+                              ordRange: createRange(firstIndex, limit, indexType),
+                              outOfBoundsIdx: toInt(firstIndex) + n.len - 1))
         return
 
-      x = n[i]
-      if x.kind == nkExprColonExpr and x.len == 2:
-        var idx = semConstExpr(c, x[0])
-        idx = fitNode(c, indexType, idx, x.info)
-        if lastIndex + 1 != getOrdValue(idx):
-          result = n
-          result[i] = c.config.newError(x, 
+    var
+      typ = PType(nil)           ## the common type of all elements
+      lastIndex = firstIndex - 1 ## tracks the index of the previous element
+
+    result.sons.setLen(n.len)
+    for i, it in n.pairs:
+      # first, analyse the index expression (if one exist)
+      let (idx, val) =
+        if i == 0: (first, firstIndex)
+        else:      semArrayElementIndex(c, it, indexType)
+
+      # figure out the node that holds the element expression, and validate
+      # the index if one is provided
+      var e =
+        case idx.kind
+        of nkError:
+          let r = shallowCopy(it)
+          r[0] = idx
+          r[1] = it[1]
+          c.config.wrapError(r)
+        of nkEmpty:
+          it
+        else:
+          if val == lastIndex + 1:
+            it[1]
+          else:
+            # the specified index value doesn't match with the expected one
+            c.config.newError(it,
                           PAstDiag(kind: adSemInvalidOrderInArrayConstructor))
-          result = c.config.wrapError(result)
-          return
 
-        x = x[1]
+      if e.kind != nkError:
+        e = semExprWithType(c, e, {})
 
-      let xx = semExprWithType(c, x, {})
-      result.add xx
-      if {xx.typ.kind, typ.kind} == {tyObject} and typ != xx.typ:
-        # Check if both are objects before getting common type,
-        # this prevents `[Derived(), Parent(), Derived()]` from working for non ref objects.
-        result[i] = typeMismatch(c.config, x.info, typ, xx.typ, x)
+      if typ.isNil:
+        # must be the first item; initialize the common type:
+        typ = e.typ
+      elif {e.typ.kind, typ.kind} == {tyObject} and typ != e.typ:
+        # XXX: the check is meant to disallow implicit up- or down-conversion
+        #      of object types in an array constructor, but it is incorrect:
+        #      ``sink``, aliases, and generic instance types are not skipped
+        #      and the comparision doesn't use ``sameType``.
+        #      The ``lang_types/array/tarray.nim`` test depends on this
+        #      behaviour, and whether the semantics are really what is wanted
+        #      is also not clear, so the incorrect behaviour is kept for now
+        e = typeMismatch(c.config, e.info, typ, e.typ, e)
       else:
-        typ = commonType(c, typ, xx.typ)
-      inc(lastIndex)
+        # in the case that the types are not compatible, no error is produced
+        # yet
+        typ = commonType(c, typ, e.typ)
+
+      result[i] = e
+      inc lastIndex
+
+    # watch out for ``sink T``!
+    # XXX: things would be easier if ``sink T`` only exists for the operands
+    #      of a ``tyProc``
+    typ = typ.skipTypes({tySink})
+
+    # finish the array type:
+    rawAddSon(result.typ, createRange(firstIndex, lastIndex, indexType))
     addSonSkipIntLit(result.typ, typ, c.idgen)
-    for i in 0..<result.len:
-      result[i] = fitNode(c, typ, result[i], result[i].info)
-  result.typ[0] = makeRangeType(c, toInt64(firstIndex), toInt64(lastIndex), n.info,
-                                     indexType)
+
+    var hasError = false
+    # fit all elements to be of the derived common type
+    for it in result.sons.mitems:
+      it = fitNode(c, typ, it, it.info)
+      hasError = hasError or it.kind == nkError
+
+    if hasError:
+      result = c.config.wrapError(result)
 
 proc fixAbstractType(c: PContext, n: PNode): PNode =
   assert n != nil

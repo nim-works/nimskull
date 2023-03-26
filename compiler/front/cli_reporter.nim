@@ -838,7 +838,7 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "unknown trait: " & r.sym.name.s
 
     of rsemExpectedOrdinal:
-      if r.ast != nil and r.ast.kind == nkBracket:
+      if r.ast != nil and r.ast.kind == nkExprColonExpr:
         result.add "expected ordinal value for array index, got '$1'" % r.wrongNode.render
       else:
         result = "ordinal type expected"
@@ -4253,7 +4253,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       kind: rsemIndexOutOfBounds,
       ast: diag.wrongNode,
       typ: diag.ordRange,
-      countMismatch: (diag.maxOrdIdx, diag.outOfBoundsIdx))
+      countMismatch: (toInt(lastOrd(conf, diag.ordRange)),
+                      diag.outOfBoundsIdx))
   of adSemExpectedOrdinal:
     semRep = SemReport(
       location: some diag.location,

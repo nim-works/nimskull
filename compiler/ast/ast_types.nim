@@ -1430,7 +1430,6 @@ type
       nonOrdInput*: PNode
       indexExpr*: PNode
     of adSemIndexOutOfBounds:
-      maxOrdIdx*: int
       outOfBoundsIdx*: int
       ordRange*: PType
     of adSemExpectedOrdinal:
