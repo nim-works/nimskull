@@ -593,7 +593,6 @@ type
     rsemCannotFindPlugin
     rsemExpectedProcReferenceForFinalizer
     rsemCannotIsolate
-    rsemCannotInterpretNode
     rsemRecursiveDependencyIterator
     rsemIllegalNimvmContext
     rsemDisallowedNilDeref

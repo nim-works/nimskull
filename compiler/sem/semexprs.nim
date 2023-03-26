@@ -1136,7 +1136,8 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
     call.add(n[0])
     for i in 1..<n.len:
       let a = getConstExpr(c.module, n[i], c.idgen, c.graph)
-      if a == nil: return n
+      if a == nil or a.kind == nkError:
+        return n
       call.add(a)
 
     # only attempt to fold the expression if doing so doesn't affect
@@ -1144,35 +1145,37 @@ proc evalAtCompileTime(c: PContext, n: PNode): PNode =
     if c.p.inStaticContext == 0 or sfNoSideEffect in callee.flags:
       if sfCompileTime in callee.flags:
         result = evalStaticExpr(c.module, c.idgen, c.graph, call, c.p.owner)
-        if result.isNil:
-          localReport(c.config, n.info, reportAst(
-            rsemCannotInterpretNode, call))
-
-        else:
-          result = fixupTypeAfterEval(c, result, n)
+        result =
+          case result.kind
+          of nkError: result
+          else:       fixupTypeAfterEval(c, result, n)
       else:
         result = evalConstExpr(c.module, c.idgen, c.graph, call)
-        if result.isNil:
-          result = n
-
-        else:
-          result = fixupTypeAfterEval(c, result, n)
+        result =
+          case result.kind
+          of nkError: n # not a constant expression
+          else:       fixupTypeAfterEval(c, result, n)
     else:
       result = n
     #if result != n:
     #  echo "SUCCESS evaluated at compile time: ", call.renderTree
 
 proc semStaticExpr(c: PContext, n: PNode): PNode =
+  ## Semantically analyzes an expression explicitly requested to be evaluated
+  ## at compile-time, producing either the AST representation of the resulting
+  ## value or an error.
   inc c.p.inStaticContext
   openScope(c)
   let a = semExprWithType(c, n)
   closeScope(c)
   dec c.p.inStaticContext
-  if a.findUnresolvedStatic != nil: return a
+  if a.kind == nkError or a.findUnresolvedStatic != nil:
+    return a
+
   result = evalStaticExpr(c.module, c.idgen, c.graph, a, c.p.owner)
-  if result.isNil:
-    localReport(c.config, n, reportSem rsemCannotInterpretNode)
-    result = c.graph.emptyNode
+  case result.kind
+  of nkError:
+    discard # result is already set
   else:
     result = fixupTypeAfterEval(c, result, a)
 
