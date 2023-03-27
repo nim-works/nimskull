@@ -268,20 +268,6 @@ const ThisIsSystem = true
 proc internalNew*[T](a: var ref T) {.magic: "New", noSideEffect.}
   ## Leaked implementation detail. Do not use.
 
-when true:
-  proc new*[T](a: var ref T, finalizer: proc (x: ref T) {.nimcall.}) {.
-    magic: "NewFinalize", noSideEffect.}
-    ## Creates a new object of type `T` and returns a safe (traced)
-    ## reference to it in `a`.
-    ##
-    ## When the garbage collector frees the object, `finalizer` is called.
-    ## The `finalizer` may not keep a reference to the
-    ## object pointed to by `x`. The `finalizer` cannot prevent the GC from
-    ## freeing the object.
-    ##
-    ## **Note**: The `finalizer` refers to the type `T`, not to the object!
-    ## This means that for each object of type `T` the finalizer will be called!
-
 proc wasMoved*[T](obj: var T) {.magic: "WasMoved", noSideEffect.} =
   ## Resets an object `obj` to its initial (binary zero) value to signify
   ## it was "moved" and to signify its destructor should do nothing and

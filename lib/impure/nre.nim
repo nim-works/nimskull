@@ -211,7 +211,9 @@ type
     ## for whatever reason. The message contains the error
     ## code.
 
-proc destroyRegex(pattern: Regex) =
+template objectOf[T](x: typedesc[ref T]): typedesc = T
+
+proc `=destroy`(pattern: var objectOf(Regex)) =
   pcre.free_substring(cast[cstring](pattern.pcreObj))
   if pattern.pcreExtra != nil:
     pcre.free_study(pattern.pcreExtra)
@@ -244,7 +246,7 @@ proc getNameToNumberTable(pattern: Regex): Table[string, int] =
     result[name] = num
 
 proc initRegex(pattern: string, flags: int, study = true): Regex =
-  new(result, destroyRegex)
+  new(result)
   result.pattern = pattern
 
   var errorMsg: cstring

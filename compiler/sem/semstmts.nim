@@ -2405,15 +2405,6 @@ proc prevDestructor(c: PContext; prevOp: PSym; obj: PType; info: TLineInfo) =
     localReport(c.config, info, reportSym(
       rsemRebidingDestructor, prevOp, typ = obj))
 
-proc whereToBindTypeHook(c: PContext; t: PType): PType =
-  result = t
-  while true:
-    if result.kind in {tyGenericBody, tyGenericInst}: result = result.lastSon
-    elif result.kind == tyGenericInvocation: result = result[0]
-    else: break
-  if result.kind in {tyObject, tyDistinct, tySequence, tyString}:
-    result = canonType(c, result)
-
 proc bindTypeHook(c: PContext; s: PSym; n: PNode; op: TTypeAttachedOp) =
   let t = s.typ
   var noError = false

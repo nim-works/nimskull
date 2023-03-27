@@ -873,9 +873,6 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
     of rsemCannotFindPlugin:
       result = "cannot find plugin " & r.symstr
 
-    of rsemExpectedProcReferenceForFinalizer:
-      result = "finalizer must be a direct reference to a proc"
-
     of rsemUnsafeSetLen:
       result = "setLen can potentially expand the sequence, " &
         "but the element type '$1' doesn't have a valid default value" %

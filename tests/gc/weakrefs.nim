@@ -16,18 +16,11 @@ var
   gid: int # for id generation
   valid = initIntSet()
 
-proc finalizer(x: StrongObject) =
+proc `=destroy`(x: var TMyObject) =
   valid.excl(x.id)
 
-when defined(gcDestructors):
-  proc `=destroy`(x: var TMyObject) =
-    valid.excl(x.id)
-
 proc create: StrongObject =
-  when defined(gcDestructors):
-    new(result)
-  else:
-    new(result, finalizer)
+  new(result)
   result.id = gid
   valid.incl(gid)
   inc gid

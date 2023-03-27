@@ -58,8 +58,8 @@ proc caseTree(lvl: int = 0): PCaseNode =
   if lvl == 3: result = newCaseNode("data item")
   else: result = newCaseNode(caseTree(lvl+1), caseTree(lvl+1))
 
-proc finalizeNode(n: PNode) =
-  assert(n != nil)
+proc `=destroy`(n: var TNode) =
+  assert(addr(n) != nil)
   write(stdout, "finalizing: ")
   writeLine(stdout, "not nil")
 
@@ -68,7 +68,7 @@ var
 
 proc buildTree(depth = 1): PNode =
   if depth == 7: return nil
-  new(result, finalizeNode)
+  new(result)
   result.le = buildTree(depth+1)
   result.ri = buildTree(depth+1)
   result.data = $id
@@ -76,18 +76,18 @@ proc buildTree(depth = 1): PNode =
 
 proc returnTree(): PNode =
   writeLine(stdout, "creating id: " & $id)
-  new(result, finalizeNode)
+  new(result)
   result.data = $id
-  new(result.le, finalizeNode)
+  new(result.le)
   result.le.data = $id & ".1"
-  new(result.ri, finalizeNode)
+  new(result.ri)
   result.ri.data = $id & ".2"
   inc(id)
 
   # now create a cycle:
   writeLine(stdout, "creating id (cyclic): " & $id)
   var cycle: PNode
-  new(cycle, finalizeNode)
+  new(cycle)
   cycle.data = $id
   cycle.le = cycle
   cycle.ri = cycle
@@ -105,11 +105,11 @@ proc printTree(t: PNode) =
 
 proc unsureNew(result: var PNode) =
   writeLine(stdout, "creating unsure id: " & $id)
-  new(result, finalizeNode)
+  new(result)
   result.data = $id
-  new(result.le, finalizeNode)
+  new(result.le)
   result.le.data = $id & ".a"
-  new(result.ri, finalizeNode)
+  new(result.ri)
   result.ri.data = $id & ".b"
   inc(id)
 

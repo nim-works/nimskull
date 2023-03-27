@@ -2064,7 +2064,7 @@ proc genMagic(p: PProc, n: PNode, r: var TCompRes) =
       gen(p, n[1], x)
       r.res = "($# == null && $# === 0)" % [x.address, x.res]
   of mEnumToStr: genRepr(p, n, r)
-  of mNew, mNewFinalize: genNew(p, n)
+  of mNew: genNew(p, n)
   of mChr: gen(p, n[1], r)
   of mArrToSeq:
     # only array literals doesn't need copy

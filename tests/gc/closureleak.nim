@@ -10,22 +10,12 @@ type
 var foo_counter = 0
 var alive_foos = newseq[int](0)
 
-when defined(gcDestructors):
-  proc `=destroy`(some: var TFoo) =
-    alive_foos.del alive_foos.find(some.id)
-    `=destroy`(some.fn)
-
-else:
-  proc free*(some: ref TFoo) =
-    #echo "Tfoo #", some.id, " freed"
-    alive_foos.del alive_foos.find(some.id)
+proc `=destroy`(some: var TFoo) =
+  alive_foos.del alive_foos.find(some.id)
+  `=destroy`(some.fn)
 
 proc newFoo*(): ref TFoo =
-  when defined(gcDestructors):
-    new result
-  else:
-    new result, free
-
+  new result
   result.id = foo_counter
   alive_foos.add result.id
   inc foo_counter
