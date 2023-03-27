@@ -5364,9 +5364,9 @@ symbols by a `bind` statement inside `genericB`.
 Templates
 =========
 
-A template is a simple form of a macro: It is a simple substitution
-mechanism that operates on Nim's abstract syntax trees. It is processed in
-the semantic pass of the compiler.
+A template is a form of metaprogramming: a template call evaluates to a
+|Nimskull| abstract syntax tree that is substituted in place of the call. The
+evaluation and substitution is done during semantic pass of the compiler.
 
 The syntax to *invoke* a template is the same as calling a procedure.
 
@@ -5386,10 +5386,32 @@ templates:
 | `a in b` is transformed into `contains(b, a)`.
 | `notin` and `isnot` have the obvious meanings.
 
-The "types" of templates can be the symbols `untyped`,
-`typed` or `typedesc`. These are "meta types", they can only be used in certain
-contexts. Regular types can be used too; this implies that `typed` expressions
-are expected.
+The "types" of templates can be the symbols `untyped`, `typed` or `typedesc`.
+These are "meta types", they can only be used in certain contexts. Regular
+types can be used too; this implies that `typed` expressions are expected.
+
+**Future directions**: the output type of a template is the output type of the
+template body, which itself can be thought of as an out parameter. Templates
+will be classified into two major categories AST output (`untyped` and `typed`)
+and expression based (other types). Along with substitution positions (see
+below) template evaluation will be revised as follows:
+- `untyped` template: allow `typed` and `untyped` params in defining or
+  using positions; and all other params only in using positions
+- `typed` template: allow `typed` and `untyped` params in defining or using
+  positions; and all other params only in using positions
+- non-ast template: only allow substitution in the using positions
+The above direction describes the nuance that will be incorporated into a
+broader redesign of how templates work in |Nimskull|.
+
+Defining vs Using Positions
+---------------------------
+
+Substitution positions are places in the template body where template parameter
+substitution can take place. There are two substitution positions definition
+and usage, also referred to as definitional/defining/define or using/use,
+respectively. Definitional positions is any syntactic position intended to
+define new names (e.g.: routine, variable, parameter, type, field names), while
+usage positions are all other positions where an identifier is to be looked up.
 
 
 Typed vs untyped parameters
@@ -5417,6 +5439,10 @@ performed before the expression is passed to the template. This means that
     var x: int
 
   declareInt(x) # invalid, because x has not been declared and so it has no type
+
+`typed` and `untyped` parameters may appear in defining or using symbol
+positions, while all other parameters are only substituted for using symbol
+positions.
 
 A template where every parameter is `untyped` is called an `immediate`:idx:
 template. For historical reasons, templates can be explicitly annotated with
