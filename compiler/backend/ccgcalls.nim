@@ -308,7 +308,7 @@ proc getPotentialWrites(n: PNode; mutate: bool; result: var seq[PNode]) =
   of nkCallKinds:
     case n.getMagic:
     of mIncl, mExcl, mInc, mDec, mAppendStrCh, mAppendStrStr, mAppendSeqElem,
-        mAddr, mNew, mNewFinalize, mWasMoved, mDestroy, mReset:
+        mAddr, mNew, mWasMoved, mDestroy, mReset:
       getPotentialWrites(n[1], true, result)
       for i in 2..<n.len:
         getPotentialWrites(n[i], mutate, result)

@@ -985,7 +985,7 @@ proc trackCall(tracked: PEffects; n: PNode) =
     if a.kind != nkSym or a.sym.magic notin {mFinished}:
       for i in 1..<n.len:
         trackOperandForIndirectCall(tracked, n[i], op, i, a)
-    if a.kind == nkSym and a.sym.magic in {mNew, mNewFinalize, mNewSeq}:
+    if a.kind == nkSym and a.sym.magic in {mNew, mNewSeq}:
       # may not look like an assignment, but it is:
       let arg = n[1]
       initVarViaNew(tracked, arg)
@@ -1001,7 +1001,6 @@ proc trackCall(tracked: PEffects; n: PNode) =
       if n[1].typ.len > 0:
         createTypeBoundOps(tracked, n[1].typ.lastSon, n.info)
         createTypeBoundOps(tracked, n[1].typ, n.info)
-        # new(x, finalizer): Problem: how to move finalizer into 'createTypeBoundOps'?
 
     elif a.kind == nkSym and a.sym.magic in {mArrGet, mArrPut} and
         optStaticBoundsCheck in tracked.currOptions:

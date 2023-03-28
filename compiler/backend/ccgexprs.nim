@@ -1709,26 +1709,6 @@ proc genArrToSeq(p: BProc, n: PNode, d: var TLoc) =
     genAssignment(p, elem, arr, {needToCopy})
     lineF(p, cpsStmts, "}$n", [])
 
-
-proc genNewFinalize(p: BProc, e: PNode) =
-  var
-    a, b, f: TLoc
-    refType, bt: PType
-    ti: Rope
-  refType = skipTypes(e[1].typ, abstractVarRange)
-  initLocExpr(p, e[1], a)
-  initLocExpr(p, e[2], f)
-  initLoc(b, locExpr, a.lode, OnHeap)
-  ti = genTypeInfo(p.config, p.module, refType, e.info)
-  p.module.s[cfsTypeInit3].addf("$1->finalizer = (void*)$2;$n", [ti, rdLoc(f)])
-  b.r = ropecg(p.module, "($1) #newObj($2, sizeof($3))", [
-      getTypeDesc(p.module, refType),
-      ti, getTypeDesc(p.module, skipTypes(refType.lastSon, abstractRange))])
-  genAssignment(p, a, b, {})  # set the object type:
-  bt = skipTypes(refType.lastSon, abstractRange)
-  genObjectInit(p, cpsStmts, bt, a, constructRefObj)
-  gcUsage(p.config, e)
-
 proc genOfHelper(p: BProc; dest: PType; a: Rope; info: TLineInfo): Rope =
   if optTinyRtti in p.config.globalOptions:
     result = ropecg(p.module, "#isObj($1.m_type, $2)",
@@ -2452,14 +2432,6 @@ proc genMagicExpr(p: BProc, e: PNode, d: var TLoc, op: TMagic) =
       genRepr(p, e, d)
   of mOf: genOf(p, e, d)
   of mNew: genNew(p, e)
-  of mNewFinalize:
-    if optTinyRtti in p.config.globalOptions:
-      var a: TLoc
-      initLocExpr(p, e[1], a)
-      rawGenNew(p, a, "", needsInit = true)
-      gcUsage(p.config, e)
-    else:
-      genNewFinalize(p, e)
   of mNewSeq:
     if optSeqDestructors in p.config.globalOptions:
       e[1] = makeAddr(e[1], p.module.idgen)

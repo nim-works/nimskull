@@ -592,7 +592,6 @@ type
     rsemOldTakesParameterName
     rsemOldDoesNotBelongTo
     rsemCannotFindPlugin
-    rsemExpectedProcReferenceForFinalizer
     rsemCannotIsolate
     rsemRecursiveDependencyIterator
     rsemIllegalNimvmContext

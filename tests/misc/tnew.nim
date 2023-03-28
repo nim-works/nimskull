@@ -19,12 +19,12 @@ type
 
   TStressTest = ref array[0..45, array[1..45, TNode]]
 
-proc finalizer(n: PNode) =
+proc `=destroy`(n: var TNode) =
   write(stdout, n.data)
   write(stdout, " is now freed\n")
 
 proc newNode(data: int, le, ri: PNode): PNode =
-  new(result, finalizer)
+  new(result)
   result.le = le
   result.ri = ri
   result.data = data

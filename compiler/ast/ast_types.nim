@@ -725,7 +725,7 @@ type
     mPlugin, mEcho, mShallowCopy, mSlurp, mStaticExec, mStatic,
     mParseExprToAst, mParseStmtToAst, mExpandToAst, mQuoteAst,
     mInc, mDec, mOrd,
-    mNew, mNewFinalize, mNewSeq, mNewSeqOfCap,
+    mNew, mNewSeq, mNewSeqOfCap,
     mLengthOpenArray, mLengthStr, mLengthArray, mLengthSeq,
     mIncl, mExcl, mCard, mChr,
     mGCref, mGCunref,

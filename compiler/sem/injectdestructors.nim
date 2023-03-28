@@ -1350,7 +1350,7 @@ proc deferGlobalDestructors(tree: MirTree, g: ModuleGraph, idgen: IdGenerator,
 proc lowerNew(tree: MirTree, g: ModuleGraph, c: var Changeset) =
   ## Lower calls to the ``new(x)`` into a ``=destroy(x); new(x)``
   for i, n in tree.pairs:
-    if n.kind == mnkMagic and n.magic in {mNew, mNewFinalize}:
+    if n.kind == mnkMagic and n.magic == mNew:
       c.seek(i)
       c.replaceMulti(buf):
         buf.subTree MirNode(kind: mnkRegion):

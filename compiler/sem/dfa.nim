@@ -764,7 +764,7 @@ proc genCall(c: var Con; n: PNode) =
 proc genMagic(c: var Con; n: PNode; m: TMagic) =
   case m
   of mAnd, mOr: c.genAndOr(n)
-  of mNew, mNewFinalize:
+  of mNew:
     genDef(c, n[1])
     for i in 2..<n.len: gen(c, n[i])
   else:

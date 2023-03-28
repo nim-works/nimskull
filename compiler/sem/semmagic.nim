@@ -346,41 +346,6 @@ proc semOf(c: PContext, n: PNode): PNode =
   n.typ = getSysType(c.graph, n.info, tyBool)
   result = n
 
-proc turnFinalizerIntoDestructor(c: PContext; orig: PSym; info: TLineInfo): PSym =
-  # We need to do 2 things: Replace n.typ which is a 'ref T' by a 'var T' type.
-  # Replace nkDerefExpr by nkHiddenDeref
-  # nkDeref is for 'ref T':  x[].field
-  # nkHiddenDeref is for 'var T': x<hidden deref [] here>.field
-  proc transform(c: PContext; procSym: PSym; n: PNode; old, fresh: PType; oldParam, newParam: PSym): PNode =
-    result = shallowCopy(n)
-    if sameTypeOrNil(n.typ, old):
-      result.typ = fresh
-    if n.kind == nkSym:
-      if n.sym == oldParam:
-        result.sym = newParam
-      elif n.sym.owner == orig:
-        result.sym = copySym(n.sym, nextSymId c.idgen)
-        result.sym.owner = procSym
-    for i in 0 ..< safeLen(n):
-      result[i] = transform(c, procSym, n[i], old, fresh, oldParam, newParam)
-    #if n.kind == nkDerefExpr and sameType(n[0].typ, old):
-    #  result =
-
-  result = copySym(orig, nextSymId c.idgen)
-  result.info = info
-  result.flags.incl sfFromGeneric
-  result.owner = orig
-  let origParamType = orig.typ[1]
-  let newParamType = makeVarType(result, origParamType.skipTypes(abstractPtrs), c.idgen)
-  let oldParam = orig.typ.n[1].sym
-  let newParam = newSym(skParam, oldParam.name, nextSymId c.idgen, result, result.info)
-  newParam.typ = newParamType
-  # proc body:
-  result.ast = transform(c, result, orig.ast, origParamType, newParamType, oldParam, newParam)
-  # proc signature:
-  result.typ = newProcType(result.info, nextTypeId c.idgen, result)
-  result.typ.addParam newParam
-
 proc semPrivateAccess(c: PContext, n: PNode): PNode =
   let t = n[1].typ[0].toObjectFromRefPtrGeneric
   c.currentScope.allowPrivateAccess.add t.sym
@@ -448,31 +413,6 @@ proc magicsAfterOverloadResolution(c: PContext, n: PNode,
       result = n
     else:
       result = plugin(c, n)
-  of mNewFinalize:
-    # Make sure the finalizer procedure refers to a procedure
-    if n[^1].kind == nkSym and n[^1].sym.kind notin {skProc, skFunc}:
-      localReport(c.config, n, reportSem rsemExpectedProcReferenceForFinalizer)
-    elif optTinyRtti in c.config.globalOptions:
-      let nfin = skipConvCastAndClosure(n[^1])
-      let fin = case nfin.kind
-        of nkSym: nfin.sym
-        of nkLambda, nkDo: nfin[namePos].sym
-        else:
-          localReport(c.config, n, reportSem rsemExpectedProcReferenceForFinalizer)
-          nil
-      if fin != nil:
-        if fin.kind notin {skProc, skFunc}:
-          # calling convention is checked in codegen
-          localReport(c.config, n, reportSem rsemExpectedProcReferenceForFinalizer)
-
-        # check if we converted this finalizer into a destructor already:
-        let t = whereToBindTypeHook(c, fin.typ[1].skipTypes(abstractInst+{tyRef}))
-        if t != nil and getAttachedOp(c.graph, t, attachedDestructor) != nil and
-            getAttachedOp(c.graph, t, attachedDestructor).owner == fin:
-          discard "already turned this one into a finalizer"
-        else:
-          bindTypeHook(c, turnFinalizerIntoDestructor(c, fin, n.info), n, attachedDestructor)
-    result = n
   of mDestroy:
     result = n
     let t = n[1].typ.skipTypes(abstractVar)

@@ -987,17 +987,16 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
   of mDefault:
     # use the canonical form:
     genDefault(c, n.typ)
-  of mNew, mNewFinalize:
-    # ``new`` has 3 variants. The standard one with a single argument, the
-    # unsafe version that also takes a ``size`` argument, and the finalizer
-    # version
+  of mNew:
+    # ``new`` has 2 variants. The standard one with a single argument, and the
+    # unsafe version that also takes an extra ``size`` argument
     assert n.len == 3 or n.len == 2
     argBlock(c.stmts):
       # the first argument is the location storing the ``ref``. A new value is
       # assigned to it by ``new``, so the 'out' tag is used
       chain: genArgExpression(c, n[0].typ[1], n[1]) => outOp(c) => name(c)
       if n.len == 3:
-        # the finalizer or size argument
+        # the size argument
         chain: genArgExpression(c, n[0].typ[2], n[2]) => arg(c)
 
     magicCall(c, m, typeOrVoid(c, n.typ))

@@ -6,18 +6,20 @@ finalized
 '''
 """
 
-proc finish(o: RootRef) =
+type Obj = object
+
+proc `=destroy`(o: var Obj) =
   echo "finalized"
 
 withScratchRegion:
-  var test: RootRef
-  new(test, finish)
+  var test: ref Obj
+  new(test)
 
 var
   mr: MemRegion
-  test: RootRef
+  test: ref Obj
 
 withRegion(mr):
-  new(test, finish)
+  new(test)
 
 deallocAll(mr)

@@ -1504,7 +1504,7 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.freeTemp(L)
   of mIsolate:
     genCall(c, n, dest)
-  of mNew, mNewFinalize:
+  of mNew:
     unused(c, n, dest)
     c.genNew(n)
   of mNewSeq:
