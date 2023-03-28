@@ -9,6 +9,51 @@
 
 # included from sem.nim
 
+## The current implementation of templates might not yet conform to the
+## description that follows.
+## 
+## Template Basics
+## ===============
+##
+## Given a basic template as follows:
+## ..code::
+##   template identity(arg: untyped): untyped =
+##     arg
+##
+## The template's output type is `untyped`, meaning the body (`arg`) is treated
+## as an `untyped` AST fragment, that substitution of parameters will evaluate
+## per the rules of `untyped` templates, and finally evaluation and insertion
+## of the template at the callsite will be hygeinic. The template parameter
+## `arg` will be captured as `untyped`, meaning no attempt will be made to
+## semantically analyse the parameter prior to substitution.
+## 
+## Template Taxonomy
+## =================
+## 
+## There are at least four types of templates across two categories:
+## - AST templates:
+##   - `untyped`
+##     - `dirty` a non-hygienic sub-variant
+##   - `typed`
+## - expression templates (all types that are not `untyped` or `typed`)
+## 
+## Substitution Positions
+## ----------------------
+## Templates are ultimately AST level constructs regardless of output type,
+## even they follow the grammar. There are two types of positions in a template
+## body, one is `definition` and the other is `usage`. A `definition` are any
+## position where the grammar construct is intended to introduce a new symbol,
+## i.e.: the name of a routine, including its parameters; names of variables
+## (`const`, `let`, `var`), and so on. All other sites are `usage` sites, where
+## a symbol of "chunk" of AST might be used.
+## 
+## This is a draft of subsitution rules:
+## - `untyped` template bodies accept `typed` and `untyped` params in
+##   definition or usage positions; and all other params are usage only
+## - `typed` template bodies accept `typed` and `untyped` params in definition
+##    or usage positions; and all other params are usage only
+## - non-ast template bodies only allow subsitutions within usage positions
+
 discard """
   hygienic templates:
 
@@ -164,6 +209,7 @@ proc replaceIdentBySym(c: PContext; n: var PNode, s: PNode) =
 
 type
   TemplCtx = object
+    ## Context used during template definition evaluation
     c: PContext
     toBind, toMixin, toInject: IntSet
     owner: PSym
@@ -175,7 +221,6 @@ type
 proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
   ## gets the ident node, will mutate `n` if it's an `nkPostfix` or
   ## `nkPragmaExpr` and there is an error (return an nkError).
-
   case n.kind
   of nkPostfix:
     result = getIdentNode(c, n[1])
@@ -189,7 +234,6 @@ proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
       result = c.c.config.wrapError(n)
   of nkIdent:
     let s = qualifiedLookUp(c.c, n, {})
-
     if s.isNil:
       result = n
     elif s.isError:
@@ -207,11 +251,15 @@ proc getIdentNode(c: var TemplCtx, n: PNode): PNode =
                   expectedKinds: {nkPostfix, nkPragmaExpr, nkIdent,
                                   nkAccQuoted}))
 
-
-proc isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
+func isTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
   ## True if `n` is a parameter symbol of the current template.
-  result = n.kind == nkSym and n.sym.kind == skParam and
-           n.sym.owner == c.owner and sfTemplateParam in n.sym.flags
+  n.kind == nkSym and n.sym.kind == skParam and n.sym.owner == c.owner and
+    sfTemplateParam in n.sym.flags
+
+func definitionTemplParam(c: TemplCtx, n: PNode): bool {.inline.} =
+  ## True if `n` is an AST typed (`typed`/`untyped`) parameter symbol of the
+  ## current template
+  isTemplParam(c, n) and n.sym.typ.kind in {tyUntyped, tyTyped}
 
 proc semTemplBody(c: var TemplCtx, n: PNode): PNode
 
@@ -295,10 +343,10 @@ proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
     of nkError:
       n = ident
     else:
-      if not isTemplParam(c, ident):
-        c.toInject.incl(x.ident.id)
-      else:
+      if definitionTemplParam(c, ident):
         replaceIdentBySym(c.c, n, ident)
+      else:
+        c.toInject.incl(x.ident.id)
 
   else:
     var hasError = false
@@ -331,7 +379,9 @@ proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
     of nkError:
       n = ident
     else:
-      if not isTemplParam(c, ident):
+      if definitionTemplParam(c, ident):
+        replaceIdentBySym(c.c, n, ident)
+      else:
         if n.kind != nkSym:
           let local = newGenSym(k, ident, c)
 
@@ -346,8 +396,6 @@ proc addLocalDecl(c: var TemplCtx, n: var PNode, k: TSymKind) =
 
           if k == skParam and c.inTemplateHeader > 0:
             local.flags.incl sfTemplateParam
-      else:
-        replaceIdentBySym(c.c, n, ident)
 
     if hasError and n.kind != nkError:
       n = c.c.config.wrapError(n)
@@ -435,14 +483,14 @@ proc semRoutineInTemplBody(c: var TemplCtx, n: PNode, k: TSymKind): PNode =
 
     if ident.isError:
       n[namePos] = ident
-    elif not isTemplParam(c, ident):
+    elif definitionTemplParam(c, ident):
+      n[namePos] = ident
+    else:
       var s = newGenSym(k, ident, c)
       s.ast = n
       addPrelimDecl(c.c, s)
       styleCheckDef(c.c.config, n.info, s)
       n[namePos] = newSymNode(s, n[namePos].info)
-    else:
-      n[namePos] = ident
   else:
     n[namePos] = semRoutineInTemplName(c, n[namePos])
 
@@ -457,6 +505,9 @@ proc semRoutineInTemplBody(c: var TemplCtx, n: PNode, k: TSymKind): PNode =
     if n[i].isError:
       hasError = true
 
+  # xxx: special handling for templates within `untyped` output templates
+  #      doesn't make sense, it's just untyped AST. For `typed` or `expression`
+  #      templates they should be analysed.
   if k == skTemplate: inc(c.inTemplateHeader)
   n[paramsPos] = semTemplBody(c, n[paramsPos])
   if k == skTemplate: dec(c.inTemplateHeader)

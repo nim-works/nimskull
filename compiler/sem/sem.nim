@@ -358,17 +358,15 @@ proc newSymG*(kind: TSymKind, n: PNode, c: PContext): PSym =
     # and sfGenSym in n.sym.flags:
     result = n.sym
     if result.kind notin {kind, skTemp}:
+      # xxx: this happens because a macro, or possibly template, produces a
+      #      mismatched symbol, if it's the compiler that's an outright bug.
+      #      instead of logging it here, we need to ensure that macros API
+      #      doesn't allow this to happen in the first place and/or detect this
+      #      much earlier.
       localReport(c.config, n.info, SemReport(
         kind: rsemSymbolKindMismatch,
         sym: result,
         expectedSymbolKind: {kind}))
-
-    when false:
-      if sfGenSym in result.flags and result.kind notin {skTemplate, skMacro, skParam}:
-        # declarative context, so produce a fresh gensym:
-        result = copySym(result)
-        result.ast = n.sym.ast
-        put(c.p, n.sym, result)
 
     # when there is a nested proc inside a template, semtmpl
     # will assign a wrong owner during the first pass over the
