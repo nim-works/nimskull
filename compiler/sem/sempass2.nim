@@ -1649,6 +1649,10 @@ proc canCaptureFrom*(captor, target: PSym): bool =
 
 proc trackProc*(c: PContext; s: PSym, body: PNode) =
   addInNimDebugUtils(c.config, "trackProc")
+  if body.kind == nkError:
+    # the body has an error, don't attempt to analyse it further
+    return
+
   let g = c.graph
   var effects = s.typ.n[0]
   if effects.kind != nkEffectList: return

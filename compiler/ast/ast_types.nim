@@ -1107,6 +1107,7 @@ type
     adSemUndeclaredField
     adSemCannotInstantiate
     adSemWrongNumberOfGenericParams
+    adSemCalleeHasAnError
     # sem
     adSemExpressionHasNoType
     # semtypes
@@ -1377,6 +1378,8 @@ type
     of adSemWrongNumberOfGenericParams:
       countMismatch*: tuple[expected, got: int]
       gnrcCallLineInfo*: TLineInfo
+    of adSemCalleeHasAnError:
+      callee*: PSym
     of adSemIllformedAstExpectedOneOf:
       expectedKinds*: TNodeKinds
     of adSemImplementationExpected:

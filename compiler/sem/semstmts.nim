@@ -2721,7 +2721,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
   if result[pragmasPos].isError:
     closeScope(c)
     popOwner(c)
-    return wrapError(c.config, result)
+    return wrapErrorAndUpdate(c.config, result, s)
 
   if n[pragmasPos].kind != nkEmpty and sfBorrow notin s.flags:
     setEffectsForProcType(c.graph, s.typ, n[pragmasPos], s)
@@ -2855,7 +2855,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     localReport(c.config, s.info, reportSym(
       rsemUnexpectedClosureOnToplevelProc, s))
   if s.ast[bodyPos].kind == nkError:
-    result = c.config.wrapError(n)
+    result = c.config.wrapErrorAndUpdate(n, s)
 
 proc determineType(c: PContext, s: PSym) =
   if s.typ != nil: return

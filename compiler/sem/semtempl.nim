@@ -1116,7 +1116,7 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
     c.patterns.add(s)
 
   if hasError:
-    result = c.config.wrapError(result)
+    result = c.config.wrapErrorAndUpdate(result, s)
 
 proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
   ## Analyse `n` a term rewriting pattern body producing an instantiable

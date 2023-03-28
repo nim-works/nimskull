@@ -26,8 +26,7 @@ import
     idents,
     renderer,
     types,
-    lineinfos,
-    errorreporting
+    lineinfos
   ],
   compiler/modules/[
     magicsys,
@@ -907,10 +906,7 @@ proc transform(c: PTransf, n: PNode): PNode =
       c.deferAnchor = n
   case n.kind
   of nkError:
-    # XXX: yet another place to report on nkError
-    result = n
-    c.graph.config.localReport(n)
-    return
+    unreachable("errors can't reach here")
   of nkSym:
     result = transformSym(c, n)
   of nkEmpty..pred(nkSym), succ(nkSym)..nkNilLit:
@@ -1122,11 +1118,6 @@ proc transformBody*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; cache: bool):
     result = prc.transformedBody
   elif nfTransf in getBody(g, prc).flags or prc.kind in {skTemplate}:
     result = getBody(g, prc)
-  elif prc.kind == skError:
-      # xxx: wrap this in an nkError for the whole body
-      result = prc.ast
-      assert result != nil and result.kind == nkError,
-        "assume we've populated the nkError here"
   else:
     var c = PTransf(graph: g, module: prc.getModule, idgen: idgen)
     prc.transformedBody = newNode(nkEmpty) # protects from recursion

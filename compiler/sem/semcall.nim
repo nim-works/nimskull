@@ -532,7 +532,14 @@ proc semOverloadedCall(c: PContext, n: PNode,
           callMismatches: errorsToReport
         ))
 
-    result = semResolvedCall(c, r, n, flags)
+    result =
+      case r.calleeSym.ast.kind
+      of nkError:
+        # the symbol refers to an erroneous entity
+        c.config.newError(r.call):
+          PAstDiag(kind: adSemCalleeHasAnError, callee: r.calleeSym)
+      else:
+        semResolvedCall(c, r, n, flags)
 
   elif r.call.isError:
     result = r.call
