@@ -788,7 +788,6 @@ proc splitCustomLit*(n: ParsedNode): tuple[num, ident: ParsedNode] {.inline.} =
 
 proc toPNode*(parsed: ParsedNode): PNode =
   if parsed.isNil: return
-  let kind = parsed.kind.toTNodeKind
   result =
     case parsed.kind
     of pnkCustomLit:
@@ -798,42 +797,45 @@ proc toPNode*(parsed: ParsedNode): PNode =
       newTreeI(nkDotExpr, parsed.info): # TODO: confirm info is correct
               [toPNode(split.num), toPNode(split.ident)]
     else:
-      newNodeI(kind, parsed.info)
+      newNodeI(parsed.kind.toTNodeKind, parsed.info)
 
   result.comment = parsed.comment
 
-  case kind
-  of nkEmpty:
+  case parsed.kind
+  of pnkEmpty:
     discard
 
-  of nkFloatKinds:
+  of pnkFloatKinds:
     result.floatVal = parsed.lit.fNumber
     result.setBaseFlags(parsed.lit.base)
 
-  of nkIntKinds - { nkCharLit }:
+  of pnkIntKinds - { pnkCharLit }:
     result.intVal = parsed.lit.iNumber
     result.setBaseFlags(parsed.lit.base)
 
-  of nkCharLit:
+  of pnkCharLit:
     result.intVal = ord(parsed.lit.literal[0])
 
-  of nkStrKinds:
+  of pnkStrKinds:
     result.strVal = parsed.lit.literal
 
-  of nkNilLit:
+  of pnkNilLit:
     discard
 
-  of nkIdent:
+  of pnkIdent:
     assert parsed.startToken.ident != nil,
           "tkIn, tkOut, etc need to be translated, probably in the parser for now"
     result.ident = parsed.startToken.ident
 
-  of nkAccQuoted:
+  of pnkAccQuoted:
     for (ident, line, col) in parsed.idents.items:
       let info = TLineInfo(fileIndex: parsed.fileIndex, line: line, col: col)
       result.add newIdentNode(ident, info)
 
-  of nkError:
+  of pnkCustomLit:
+    discard "handled earlier"
+
+  of pnkError:
     unreachable("IMPLEMENT ME")
 
   else:
