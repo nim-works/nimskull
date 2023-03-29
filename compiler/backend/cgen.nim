@@ -960,9 +960,6 @@ proc allPathsAsgnResult(n: PNode): InitResultEnum =
       if result == InitSkippable: result = Unknown
   of harmless:
     result = Unknown
-  of nkGotoState:
-    # give up for now.
-    result = InitRequired
   of nkSym:
     # some path reads from 'result' before it was written to!
     if n.sym.kind == skResult: result = InitRequired

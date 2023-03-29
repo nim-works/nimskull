@@ -1988,7 +1988,7 @@ proc gen(c: var TCtx, n: PNode) =
     if hasInteresting:
       c.stmts.add MirNode(kind: mnkPNode, node: n)
 
-  of nkGotoState, nkState, nkAsmStmt:
+  of nkAsmStmt:
     # these don't have a direct MIR counterpart
     c.stmts.add MirNode(kind: mnkPNode, node: n)
   of nkWhenStmt:

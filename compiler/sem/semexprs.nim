@@ -3823,12 +3823,6 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     n[0] = semExpr(c, n[0])
     if not n[0].typ.isEmptyType and not implicitlyDiscardable(n[0]):
       localReport(c.config, n, reportSem rsemExpectedTypelessDeferBody)
-  of nkGotoState, nkState:
-    if n.len != 1 and n.len != 2:
-      semReportIllformedAst(c.config, n, "")
-
-    for i in 0..<n.len:
-      n[i] = semExpr(c, n[i])
   of nkMixinStmt: discard
   of nkBindStmt:
     if c.p != nil:
