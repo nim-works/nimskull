@@ -1416,6 +1416,16 @@ proc genVoidBC(c: var TCtx, n: PNode, dest: TDest, opcode: TOpcode) =
   c.freeTemp(tmp1)
   c.freeTemp(tmp2)
 
+proc loadInt(c: var TCtx, n: PNode, dest: TRegister, val: BiggestInt) =
+  ## Loads the integer `val` into `dest`, choosing the most efficient way to
+  ## do so.
+  if val in regBxMin-1..regBxMax:
+    # can be loaded as an immediate
+    c.gABx(n, opcLdImmInt, dest, val.int)
+  else:
+    # requires a constant
+    c.gABx(n, opcLdConst, dest, c.toIntCnst(val))
+
 proc genSetElem(c: var TCtx, n: PNode, first: int): TRegister =
   result = c.getTemp(n.typ)
 
@@ -1425,7 +1435,13 @@ proc genSetElem(c: var TCtx, n: PNode, first: int): TRegister =
       c.gABx(n, opcLdImmInt, result, int(n.intVal - first))
     else:
       gen(c, n, result)
-      if first > 0:
+      if first notin -127..127:
+        # too large for the ABI encoding; we need to load a constant
+        let tmp = c.getTemp(n.typ)
+        c.loadInt(n, tmp, first)
+        c.gABC(n, opcSubInt, result, result, tmp)
+        c.freeTemp(tmp)
+      elif first > 0:
         c.gABI(n, opcSubImmInt, result, result, first)
       else:
         c.gABI(n, opcAddImmInt, result, result, -first)
