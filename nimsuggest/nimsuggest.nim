@@ -566,7 +566,9 @@ proc mainThread(graph: ModuleGraph) =
       cachedMsgs.setLen 0
       conf.structuredReportHook =
           proc (conf: ConfigRef, report: Report): TErrorHandling =
-            cachedMsgs.add(report)
+            if report.kind notin {rsemProcessing, rsemProcessingStmt}:
+              # pre-filter to save memory
+              cachedMsgs.add(report)
 
       conf.suggestionResultHook = proc (s: Suggest) = discard
       recompileFullProject(graph)
