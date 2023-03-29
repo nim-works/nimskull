@@ -28,6 +28,7 @@ import
     modulegraphs
   ],
   compiler/utils/[
+    idioms,
     debugutils
   ],
   compiler/front/[
@@ -56,64 +57,85 @@ type
     errNode: PNode     ## if ident is notFoundIdent, node where error occurred
                        ## use with original PNode for better error reporting
 
-proc noidentError(conf: ConfigRef; n, origin: PNode): PNode =
-  ## generate an error node when no ident was found in `n`, with `origin` being
-  ## the the expression within which `n` resides, if `origin` is the same then
-  ## a simplified error is generated.
-  assert n != nil, "`n` must be provided"
-  result =
-    if origin.isNil:
-      conf.newError(n, PAstDiag(kind: adSemExpectedIdentifier))
-    else:
-      conf.newError(origin, PAstDiag(kind: adSemExpectedIdentifierInExpr,
-                                    notIdent: n))
-
 proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
   ## Retrieve a PIdent from a PNode, taking into account accent nodes.
   ##
   ## If none found, returns a `idents.IdentCache.identNotFound`
-  let ic = c.cache
+  let
+    ic = c.cache
+    notFoundIdent = ic.getNotFoundIdent()
 
-  result =
-    case n.kind
-    of nkIdent: (ident: n.ident, errNode: nil)
-    of nkSym: (ident: n.sym.name, errNode: nil)
-    of nkAccQuoted:
-      case n.len
-      of 0: (ident: ic.getNotFoundIdent(), errNode: n)
-      of 1: considerQuotedIdent(c, n[0])
-      else:
-        var
-          id = ""
-          error = false
-        for i in 0..<n.len:
-          let x = n[i]
-          case x.kind
-          of nkIdent: id.add(x.ident.s)
-          of nkSym: id.add(x.sym.name.s)
-          of nkLiterals - nkFloatLiterals: id.add(x.renderTree)
-          else:
-            error = true
-            break
-        if error:
-          (ident: ic.getNotFoundIdent(), errNode: n)
-        else:
-          (ident: getIdent(c.cache, id), errNode: nil)
-    of nkOpenSymChoice, nkClosedSymChoice:
-      if n[0].kind == nkSym:
-        (ident: n[0].sym.name, errNode: nil)
-      else:
-        (ident: ic.getNotFoundIdent(), errNode: n)
-    else:
-      (ident: ic.getNotFoundIdent(), errNode: n)
+  const
+    atomicIdentKinds = {nkIdent, nkSym}
+    allNodeKinds = {low(TNodeKind)..high(TNodeKind)}
 
-  # this handles the case where in an `nkAccQuoted` node we "dig"
-  if result[1] != nil:
-    case result[1].kind
-    of nkError:
-      discard    # nothing to do, it's already an error
+  template extractAtomicIdent(atom: PNode): PIdent =
+    ## extracts the ident from `atom` which must be an `atomicIdentKinds`
+    case atom.kind
+    of nkIdent:                         atom.ident
+    of nkSym:                           atom.sym.name
+    of allNodeKinds - atomicIdentKinds: unreachable()
+
+  template makeAccQuotedTemplateIdent(ic: IdentCache, quote: PNode): PIdent =
+    ## makes an ident from an `nkAccQuoted` node `quote`
+    assert quote.kind == nkAccQuoted and quote.len >= 2
+    const
+      renderableLiterals = nkLiterals - nkFloatLiterals
+      renderableKinds = atomicIdentKinds + renderableLiterals
+    var
+      id = ""
+      error = false
+    for q in quote.items:
+      case q.kind
+      of nkIdent, nkSym: id.add(extractAtomicIdent(q).s)
+      of nkIntLiterals:  id.addInt(q.intVal)
+      of nkStrLiterals:  id.add(q.strVal)
+      of allNodeKinds - renderableKinds:
+        error = true
+        break
+    if error: notFoundIdent
+    else:     getIdent(c.cache, id)
+
+  var
+    currN {.cursor.} = n
+    ident: PIdent
+  case currN.kind
+  of nkIdent, nkSym:
+    ident = extractAtomicIdent(currN)
+  of nkOpenSymChoice, nkClosedSymChoice:
+    assert currN.len > 0 and currN[0].kind == nkSym
+    currN = currN[0]
+  of nkAccQuoted:
+    case currN.len
+    of 0: ident = notFoundIdent
+    of 1: currN = currN[0]
+    else: ident = makeAccQuotedTemplateIdent(ic, currN)
+  of allNodeKinds - nkIdentKinds:
+    # the case condition is awkward, but it ensures exhaustiveness
+    ident = notFoundIdent
+
+  if ident.isNil: # we didn't find one, so check the innner part via `currN`
+    assert currN != n, "need a different node for different results"
+    ident =
+      case currN.kind
+      of nkIdent, nkSym:
+        assert (currN.kind == nkIdent and n.kind == nkAccQuoted) or
+                (currN.kind == nkSym and n.kind in nkSymChoices+{nkAccQuoted})
+        extractAtomicIdent(currN)
+      of allNodeKinds - atomicIdentKinds:
+        notFoundIdent
+
+  assert ident != nil, "ident not set to fournd or `notFoundIdent` sentinel"
+
+  result.ident = ident
+  result.errNode =
+    if ident == notFoundIdent:
+      c.config.newError(n):
+        if currN == n: PAstDiag(kind: adSemExpectedIdentifier)
+        else:          PAstDiag(kind: adSemExpectedIdentifierInExpr,
+                                notIdent: currN)
     else:
-      result[1] = noidentError(c.config, result[1], n)
+      nil
 
 proc legacyConsiderQuotedIdent*(c: PContext; n, origin: PNode): PIdent =
   ## Legacy/Transition Code: avoid using this
