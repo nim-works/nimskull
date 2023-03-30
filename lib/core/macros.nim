@@ -22,7 +22,7 @@ import std/private/since
 # If you look for the implementation of the magic symbol
 # ``{.magic: "Foo".}``, search for `mFoo` and `opcFoo`.
 
-template skipEnumValue(define: untyped, predecessor: untyped): untyped =
+template skipEnumValue(define: untyped, predecessor: untyped; gap = 1): untyped =
   ## This template is used to keep the ordinal values of the ``TNodeKind``
   ## enum in sync with the ``NimNodeKind`` enum.
   ##
@@ -36,12 +36,14 @@ template skipEnumValue(define: untyped, predecessor: untyped): untyped =
   ## ``NimNodeKind`` are removed, the successor of the removed enum entry uses
   ## ``skipEnumValue`` to leave a gap in the case that `define`, which is used
   ## to indicate that the enum entry is not present in the compiler, is not
-  ## defined
+  ## defined.
+  ##
+  ## `gap` specifies the amount of enum fields to skip.
   when defined(define):
     ord(predecessor) + 1
   else:
-    # leave a gap where the removed node kind is located
-    ord(predecessor) + 2
+    # leave a gap where the removed node kinds are located
+    ord(predecessor) + gap + 1
 
 type
   NimNodeKind* = enum
@@ -106,8 +108,7 @@ type
     nnkHiddenTryStmt,
     nnkClosure,
     nnkGotoState,
-    nnkState,
-    nnkFuncDef = skipEnumValue(nimHasNkBreakStateNodeRemoved, nnkState)
+    nnkFuncDef = skipEnumValue(nimHasNkBreakStateNodeRemoved, nnkGotoState, 2),
     nnkTupleConstr,
     nnkError,  ## erroneous AST node
     nnkNimNodeLit

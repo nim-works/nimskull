@@ -155,15 +155,6 @@ template preserveBreakIdx(body: untyped): untyped =
   body
   p.breakIdx = oldBreakIdx
 
-proc genState(p: BProc, n: PNode) =
-  internalAssert p.config, n.len == 1
-  let n0 = n[0]
-  if n0.kind == nkIntLit:
-    let idx = n[0].intVal
-    linefmt(p, cpsStmts, "STATE$1: ;$n", [idx])
-  elif n0.kind == nkStrLit:
-    linefmt(p, cpsStmts, "$1: ;$n", [n0.strVal])
-
 proc blockLeaveActions(p: BProc, howManyTrys, howManyExcepts: int) =
   # Called by return and break stmts.
   # Deals with issues faced when jumping out of try/except/finally stmts.
@@ -199,30 +190,6 @@ proc blockLeaveActions(p: BProc, howManyTrys, howManyExcepts: int) =
   if noSafePoints notin p.flags:
     for i in countdown(howManyExcepts-1, 0):
       linefmt(p, cpsStmts, "#popCurrentException();$n", [])
-
-proc genGotoState(p: BProc, n: PNode) =
-  # we resist the temptation to translate it into duff's device as it later
-  # will be translated into computed gotos anyway for GCC at least:
-  # switch (x.state) {
-  #   case 0: goto STATE0;
-  # ...
-  var a: TLoc
-  initLocExpr(p, n[0], a)
-  lineF(p, cpsStmts, "switch ($1) {$n", [rdLoc(a)])
-  p.flags.incl beforeRetNeeded
-  lineF(p, cpsStmts, "case -1:$n", [])
-  blockLeaveActions(p,
-    howManyTrys    = p.nestedTryStmts.len,
-    howManyExcepts = p.inExceptBlockLen)
-  lineF(p, cpsStmts, " goto BeforeRet_;$n", [])
-  var statesCounter = lastOrd(p.config, n[0].typ)
-  if n.len >= 2 and n[1].kind == nkIntLit:
-    statesCounter = getInt(n[1])
-  let prefix = if n.len == 3 and n[2].kind == nkStrLit: n[2].strVal.rope
-               else: rope"STATE"
-  for i in 0i64..toInt64(statesCounter):
-    lineF(p, cpsStmts, "case $2: goto $1$2;$n", [prefix, rope(i)])
-  lineF(p, cpsStmts, "}$n", [])
 
 proc genBreakState(p: BProc, n: PNode, d: var TLoc) =
   ## Generates the code for the ``mFinished`` magic, which tests if a

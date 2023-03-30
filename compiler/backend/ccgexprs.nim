@@ -2967,9 +2967,6 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
           # by ensuring it's no inner proc (owner is a module).
           # Generate proc even if empty body, bugfix #11651.
           genProc(p.module, prc)
-  of nkState: genState(p, n)
-  of nkGotoState:
-    genGotoState(p, n)
   of nkMixinStmt, nkBindStmt: discard
   else:
     internalError(p.config, n.info, "expr(" & $n.kind & "); unknown node kind")

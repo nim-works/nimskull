@@ -233,8 +233,8 @@ type
     nkPattern             ## a special pattern; used for matching
     nkHiddenTryStmt       ## a hidden try statement
     nkClosure             ## (prc, env)-pair (internally used for code gen)
-    nkGotoState           ## used for the state machine (for iterators)
-    nkState               ## give a label to a code section (for iterators)
+    nkGotoState           ## used only temporarily during closure iterator
+                          ## transformation
     nkFuncDef             ## a func
     nkTupleConstr         ## a tuple constructor
     nkError               ## erroneous AST node see `errorhandling`

@@ -3272,7 +3272,7 @@ proc semStmtList(c: PContext, n: PNode, flags: TExprFlags): PNode =
        sfNoReturn in x[0].sym.flags:
       for j in i + 1..<n.len:
         case n[j].kind
-        of nkPragma, nkCommentStmt, nkNilLit, nkEmpty, nkState:
+        of nkPragma, nkCommentStmt, nkNilLit, nkEmpty:
           discard
         else:
           localReport(c.config, n[j].info,

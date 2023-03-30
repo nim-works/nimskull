@@ -2640,10 +2640,6 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
     if {sfExportc, sfCompilerProc} * s.flags == {sfExportc}:
       genSym(p, n[namePos], r)
       r.res = ""
-  of nkGotoState, nkState:
-    globalReport(p.config, n.info, BackendReport(
-      kind: rbackJsUnsupportedClosureIter))
-
   of nkPragmaBlock: gen(p, n.lastSon, r)
   else: internalError(p.config, n.info, "gen: unknown node type: " & $n.kind)
 

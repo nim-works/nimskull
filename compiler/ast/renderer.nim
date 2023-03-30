@@ -1627,15 +1627,6 @@ proc gsub(g: var TSrcGen, n: PNode, c: TContext, fromStmtList = false) =
     initContext c
     putWithSpace g, tkSymbol, "goto"
     gsons(g, n, c)
-  of nkState:
-    var c: TContext
-    initContext c
-    putWithSpace g, tkSymbol, "state"
-    gsub(g, n[0], c)
-    putWithSpace(g, tkColon, ":")
-    indentNL(g)
-    gsons(g, n, c, 1)
-    dedent(g)
   of nkTypeClassTy:
     gTypeClassTy(g, n)
   of nkError:
