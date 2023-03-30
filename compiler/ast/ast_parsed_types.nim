@@ -265,6 +265,9 @@ const
   pnkParsedKindsWithSons* = {pnkCall..pnkUsingStmt}
   pnkCallKinds* = {pnkCall, pnkInfix, pnkPrefix, pnkPostfix,
                   pnkCommand, pnkCallStrLit}
+  pnkFloatKinds* = {pnkFloatLit..pnkFloat128Lit}
+  pnkIntKinds* = {pnkCharLit..pnkUInt64Lit}
+  pnkStrKinds* = {pnkStrLit..pnkTripleStrLit}
 
 func len*(node: ParsedNode): int =
   ## Number of sons of the parsed node

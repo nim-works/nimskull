@@ -181,5 +181,7 @@ template main =
         doAssert a1 == "{-128}"
         doAssert a2 == "{-128}"
 
-static: main()
 main()
+static: main()  # run the vm version second, because semfold/VM supress errors
+                # or ignore errors and simultaneously modify the AST, meaning
+                # that runtime never sees the issue.
