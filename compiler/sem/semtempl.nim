@@ -587,7 +587,7 @@ proc semTemplSomeDecl(c: var TemplCtx, n: PNode, symKind: TSymKind,
   if hasError:
     result = c.c.config.wrapError(result)
 
-proc semPattern(c: PContext, n: PNode; s: PSym): PNode
+proc semPattern(c: PContext, n: PNode): PNode
 
 proc semTemplBodySons(c: var TemplCtx, n: PNode): PNode =
   ## Analyses child nodes of `n` with the production being `n` updated in-place
@@ -1025,8 +1025,7 @@ proc semTemplBodyDirty(c: var TemplCtx, n: PNode): PNode =
   else:
     result = semTemplBodyDirtyKids(c, n)
 
-
-proc semProcAnnotation(c: PContext, prc: PNode; validPragmas: TSpecialWords): PNode
+proc semRoutineParams(c: PContext, routine, formal, generic: PNode, kind: TSymKind): PType
 # from semstmts
 
 proc semTemplateDef(c: PContext, n: PNode): PNode =
@@ -1035,20 +1034,15 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
 
   assert n.kind == nkTemplateDef, "template def expected, got: " & $n.kind
 
-  result = semProcAnnotation(c, n, templatePragmas)
-  if result != nil:
-    return result
-
   # setup node for production
   result = copyNode(n)      # not all flags copied, let's see how that works
   result.sons.newSeq(n.len) # make space for the kids
 
-  var hasError = false
+  result[namePos] = n[namePos]
 
-  var s = semIdentVis(c, skTemplate, n[namePos],
-                      allowed = (if c.isTopLevel: {sfExported} else: {}))
-  if c.isTopLevel:
-    incl(s.flags, sfGlobal)
+  var
+    hasError = false
+    s = n[namePos].sym
 
   assert s.kind == skTemplate
 
@@ -1057,8 +1051,6 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
     if sfSystemModule in s.owner.flags and s.name.s in names or
        s.owner.name.s == "vm" and s.name.s == "stackTrace":
       incl(s.flags, sfCallsite)
-
-  styleCheckDef(c.config, s)
 
   # check parameter list:
   pushOwner(c, s)
@@ -1075,18 +1067,11 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
   if result[pragmasPos].kind == nkError:
     hasError = true
 
-  result[genericParamsPos] = n[genericParamsPos]
-  result[miscPos] = n[miscPos]
-
-  setGenericParamsMisc(c, result)
-
-  result[paramsPos] = n[paramsPos]
+  s.typ = semRoutineParams(c, result, n[paramsPos], n[genericParamsPos], skTemplate)
 
   # process parameters:
   var allUntyped = true
-  case n[paramsPos].kind
-  of nkFormalParams:
-    s.typ = semParamList(c, result[paramsPos], result[genericParamsPos], s.kind)
+  if s.typ != nil:
     # a template's parameters are not gensym'ed even if that was originally the
     # case as we determine whether it's a template parameter in the template
     # body by the absence of the sfGenSym flag:
@@ -1096,25 +1081,18 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
       param.flags.excl sfGenSym
       if param.typ.kind != tyUntyped:
         allUntyped = false
-  of nkEmpty:
+  else:
+    # an empty parameter list was provided, default to returning ``typed``
     s.typ = newTypeS(tyProc, c)
     # XXX why do we need tyTyped as a return type again?
     s.typ.n = newNodeI(nkFormalParams, n.info)
     rawAddSon(s.typ, newTypeS(tyTyped, c))
     s.typ.n.add newNodeIT(nkType, n.info, s.typ[0])
-  else:
-    discard # error out?
-  
-  if result[genericParamsPos].safeLen == 0:
-    # restore original generic type params as no explicit or implicit params
-    # were found
-    result[genericParamsPos] = result[miscPos][1]
-    result[miscPos] = c.graph.emptyNode
-  
+
   if allUntyped:
     incl(s.flags, sfAllUntyped)
   
-  result[patternPos] = semPattern(c, n[patternPos], s)
+  result[patternPos] = semPattern(c, n[patternPos])
   if result[patternPos].isError:
     hasError = true
 
@@ -1164,7 +1142,7 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
   of nkEmpty:
     discard # no pattern, nothing to do
   else:
-    c.patterns.add(s)
+    addPattern(c, LazySym(sym: s))
 
   if hasError:
     result = c.config.wrapErrorAndUpdate(result, s)
@@ -1351,7 +1329,7 @@ proc semPatternBody(c: var TemplCtx, n: PNode): PNode =
   if hasError and result.kind != nkError:
     result = c.c.config.wrapError(result)
 
-proc semPattern(c: PContext, n: PNode; s: PSym): PNode =
+proc semPattern(c: PContext, n: PNode): PNode =
   ## Analyses `n` and produces an analysed pattern or `nkError` upon failure.
   ##
   ## `n` should be the AST from a `patternPos` of a template definition. The
@@ -1384,5 +1362,3 @@ proc semPattern(c: PContext, n: PNode; s: PSym): PNode =
         else:
           result    # leave as is
     closeScope(c)
-    
-    addPattern(c, LazySym(sym: s))

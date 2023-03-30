@@ -388,6 +388,8 @@ proc semIdentVis(c: PContext, kind: TSymKind, n: PNode,
 proc semIdentWithPragma(c: PContext, kind: TSymKind, n: PNode,
                         allowed: TSymFlags): PSym
 
+proc getIdentLineInfo(n: PNode): TLineInfo
+
 proc typeAllowedCheck(c: PContext; info: TLineInfo; typ: PType; kind: TSymKind;
                       flags: TTypeAllowedFlags = {}) =
   let t = typeAllowed(typ, kind, c, flags)
@@ -692,28 +694,7 @@ proc semConstBoolExpr(c: PContext, n: PNode): PNode =
 proc semGenericStmt(c: PContext, n: PNode): PNode
 proc semConceptBody(c: PContext, n: PNode): PNode
 
-include semtypes
-
-proc setGenericParamsMisc(c: PContext; n: PNode) =
-  ## used by call defs (procs, templates, macros, ...) to analyse their generic
-  ## params, and store the originals in miscPos for better error reporting.
-  let orig = n[genericParamsPos]
-
-  doAssert orig.kind in {nkEmpty, nkGenericParams}
-
-  if n[genericParamsPos].kind == nkEmpty:
-    n[genericParamsPos] = newNodeI(nkGenericParams, n.info)
-  else:
-    # we keep the original params around for better error messages, see
-    # issue https://github.com/nim-lang/Nim/issues/1713
-    n[genericParamsPos] = semGenericParamList(c, orig)
-
-  if n[miscPos].kind == nkEmpty:
-    n[miscPos] = newTree(nkBracket, c.graph.emptyNode, orig)
-  else:
-    n[miscPos][1] = orig
-
-include semtempl, semgnrc, semstmts, semexprs
+include semtypes, semtempl, semgnrc, semstmts, semexprs
 
 proc isImportSystemStmt(g: ModuleGraph; n: PNode): bool =
   ## true if `n` is an import statement referring to the system module

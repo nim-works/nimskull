@@ -3726,7 +3726,12 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkCurly: result = semSetConstr(c, n)
   of nkBracket: result = semArrayConstr(c, n, flags)
   of nkObjConstr: result = semObjConstr(c, n, flags)
-  of nkLambdaKinds: result = semProcAux(c, n, skProc, lambdaPragmas, flags)
+  of nkLambdaKinds:
+    result = semProcAnnotation(c, n)
+    if result == nil:
+      result = n
+      result[namePos] = semRoutineName(c, n[namePos], skProc)
+      result = semProcAux(c, result, lambdaPragmas, flags)
   of nkDerefExpr: result = semDeref(c, n)
   of nkAddr:
     result = n
@@ -3776,13 +3781,9 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkAsmStmt: result = semAsm(c, n)
   of nkYieldStmt: result = semYield(c, n)
   of nkPragma: result = pragmaStmt(c, n, c.p.owner)
-  of nkIteratorDef: result = semIterator(c, n)
-  of nkProcDef: result = semProc(c, n)
-  of nkFuncDef: result = semFunc(c, n)
-  of nkMethodDef: result = semMethod(c, n)
-  of nkConverterDef: result = semConverterDef(c, n)
-  of nkMacroDef: result = semMacroDef(c, n)
-  of nkTemplateDef: result = semTemplateDef(c, n)
+  of nkProcDef, nkFuncDef, nkIteratorDef, nkConverterDef, nkMethodDef,
+     nkMacroDef, nkTemplateDef:
+    result = semRoutineDef(c, n)
   of nkImportStmt:
     # this particular way allows 'import' in a 'compiles' context so that
     # template canImport(x): bool =

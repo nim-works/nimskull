@@ -33,8 +33,6 @@ proc sameMethodDispatcher(a, b: PSym): bool =
       # be disambiguated by the programmer; this way the right generic is
       # instantiated.
 
-proc determineType(c: PContext, s: PSym)
-
 proc initCandidateSymbols(c: PContext, headSymbol: PNode,
                           initialBinding: PNode,
                           filter: TSymKinds,
@@ -96,7 +94,8 @@ proc pickBestCandidate(c: PContext,
       sym = nextOverloadIter(o, c, headSymbol)
       scope = o.lastOverloadScope
       continue
-    determineType(c, sym)
+    c.config.internalAssert(sym.typ != nil or sym.magic != mNone,
+                            "missing type information")
     initCandidate(c, z, sym, initialBinding, scope)
     if c.currentScope.symbols.counter == counterInitial or syms.len != 0:
       matches(c, n, z)

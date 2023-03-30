@@ -324,6 +324,23 @@ proc identWithin(n: PNode, s: PIdent): bool =
     if identWithin(n[i], s): return true
   result = n.kind == nkSym and n.sym.name.id == s.id
 
+proc getIdentLineInfo(n: PNode): TLineInfo =
+  ## Returns the line information of the identifier-like node in the
+  ## (semantically valid) AST `n` appearing in a name slot.
+  var n {.cursor.} = n
+  # unpack the node until we reach the identifier or symbol
+  if n.kind == nkPragmaExpr:
+    n = n[0]
+  if n.kind == nkPostfix:
+    n = n[1]
+  if n.kind == nkAccQuoted:
+    n = n[0]
+
+  result =
+    case n.kind
+    of nkIdent, nkSym: n.info
+    else:              unreachable(n.kind)
+
 proc semIdentDef(c: PContext, n: PNode, kind: TSymKind): PSym =
   addInNimDebugUtils(c.config, "semIdentDef", n, result)
   if isTopLevel(c):
@@ -337,19 +354,7 @@ proc semIdentDef(c: PContext, n: PNode, kind: TSymKind): PSym =
       incl(result.flags, sfGlobal)
   result.options = c.config.options
 
-  proc getLineInfo(n: PNode): TLineInfo =
-    case n.kind
-    of nkPostfix:
-      if len(n) > 1:
-        return getLineInfo(n[1])
-    of nkAccQuoted, nkPragmaExpr:
-      if len(n) > 0:
-        return getLineInfo(n[0])
-    else:
-      discard
-    result = n.info
-
-  let info = getLineInfo(n)
+  let info = getIdentLineInfo(n)
   suggestSym(c.graph, info, result, c.graph.usageSym)
 
 proc checkNilableOrError(c: PContext; def: PNode): PNode =
@@ -2258,8 +2263,7 @@ proc addResult(c: PContext, n: PNode, t: PType, owner: TSymKind) =
     addParamOrResult(c, c.p.resultSym, owner)
 
 
-proc semProcAnnotation(c: PContext, prc: PNode;
-                       validPragmas: TSpecialWords): PNode =
+proc semProcAnnotation(c: PContext, prc: PNode): PNode =
   var n = prc[pragmasPos]
   if n == nil or n.kind == nkEmpty: return
   for i in 0..<n.len:
@@ -2576,44 +2580,45 @@ proc semMethodPrototype(c: PContext; s: PSym; n: PNode) =
       localReport(c.config, n.info, reportSym(
         rsemExpectedObjectForMethod, s))
 
-proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
-                validPragmas: TSpecialWords, flags: TExprFlags = {}): PNode =
-  result = semProcAnnotation(c, n, validPragmas)
-  if result != nil: return result
-  result = n
-  checkMinSonsLen(n, bodyPos + 1, c.config)
+proc semRoutineName(c: PContext, n: PNode, kind: TSymKind; allowAnon = true): PNode =
+  ## Semantically analyse the AST `n` appearing in the name slot of the
+  ## definition of a callable
+  var s: PSym
 
-  let isAnon = n[namePos].kind == nkEmpty
-
-  var
-    s: PSym
-    existingSym = false
-
-  case n[namePos].kind
+  case n.kind
   of nkEmpty:
-    s = newSym(kind, c.cache.idAnon, nextSymId c.idgen, c.getCurrOwner, n.info)
-    s.flags.incl sfUsed
-    n[namePos] = newSymNode(s)
+    if allowAnon:
+      s = newSym(kind, c.cache.idAnon, nextSymId c.idgen, c.getCurrOwner, n.info)
+      s.flags.incl sfUsed
+    else:
+      return c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifier))
   of nkSym:
-    s = n[namePos].sym
-    s.owner = c.getCurrOwner
-    existingSym = true
-    assert s.ast == nil or s.ast.kind != nkError
+    s = newSymG(kind, n, c)
+  of nkPostfix, nkIdent, nkAccQuoted:
+    # do *not* use ``semIdentDef``. It marks the procedure as global even if
+    # not at top-level scope. In addition, using it would also allow pragma
+    # expressions on the identifier, which is disallowed for the definition of
+    # callables
+    s = semIdentVis(c, kind, n,
+                    allowed = (if c.isTopLevel: {sfExported} else: {}))
+
+    if c.isTopLevel:
+      incl(s.flags, sfGlobal)
+
+    suggestSym(c.graph, getIdentLineInfo(n), s, c.graph.usageSym)
+    styleCheckDef(c.config, s)
   else:
-    s = semIdentDef(c, n[namePos], kind)
-    n[namePos] = newSymNode(s)
+    # XXX: this should be the resonsibility of the macro sanitizer instead
+    return c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifier))
 
-  assert s.kind in skProcKinds
+  result = newSymNode(s)
 
-  s.ast = n
-  s.options = c.config.options
-  #s.scope = c.currentScope
-
-  # before compiling the proc params & body, set as current the scope
-  # where the proc was declared
-  let declarationScope = c.currentScope
-  pushOwner(c, s)
-  openScope(c)
+proc semRoutineParams(c: PContext, routine: PNode, formal, generic: PNode, kind: TSymKind): PType =
+  ## Semantically analyses the `formal` and `generic` parameter lists, and
+  ## initializes the `routine`'s misc slot. If `formal` is a parameter list,
+  ## returns the type of the routine as derived from the parameter list --
+  ## otherwise, returns `nil`.
+  assert routine.kind in callableDefs
 
   # process parameters:
   # generic parameters, parameters, and also the implicit generic parameters
@@ -2622,15 +2627,30 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
   # way of pragmas, default params, and so on invalidate this parsing.
   # Nonetheless, we need to carry out this analysis to perform the search for a
   # potential forward declaration.
-  setGenericParamsMisc(c, n)
 
-  s.typ =
-    if n[paramsPos].kind != nkEmpty:
-      semParamList(c, n[paramsPos], n[genericParamsPos], s.kind)
+  case generic.kind
+  of nkEmpty:
+    routine[genericParamsPos] = newNodeI(nkGenericParams, routine.info)
+  of nkGenericParams:
+    # we keep the original params around for better error messages, see
+    # issue https://github.com/nim-lang/Nim/issues/1713
+    routine[genericParamsPos] = semGenericParamList(c, generic)
+  else:
+    unreachable(generic.kind)
+
+  # TODO: refactor ``semParamList`` to not modify the input parameter list
+  routine[paramsPos] = formal
+
+  result =
+    case formal.kind
+    of nkFormalParams:
+      semParamList(c, routine[paramsPos], routine[genericParamsPos], kind)
+    of nkEmpty:
+      nil # let the caller handle empty parameter lists
     else:
-      newProcType(c, n.info)
+      unreachable(formal.kind)
 
-  if n[genericParamsPos].safeLen == 0:
+  if routine[genericParamsPos].safeLen == 0:
     # if there exist no explicit or implicit generic parameters, then this is
     # at most a nullary generic (generic with no type params). Regardless of
     # whether it's a nullary generic or non-generic, we restore the original.
@@ -2643,18 +2663,71 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     # Due to instantiation that generic procs go through, a static echo in the
     # body of a nullary  generic will not be executed immediately, as it's
     # instantiated and not immediately evaluated.
-    n[genericParamsPos] = n[miscPos][1]
-    n[miscPos] = c.graph.emptyNode
+    routine[genericParamsPos] = generic
+    routine[miscPos] = c.graph.emptyNode
+  else:
+    # remember the original generic-parameter list in the misc slot
+    routine[miscPos] = newTree(nkBracket, c.graph.emptyNode, generic)
 
-  if tfTriggersCompileTime in s.typ.flags or s.kind == skMacro:
+proc checkSpecialOperators(c: PContext, name: PNode): PNode =
+  ## Checks whether `name` is that of a special operator, and if yes, whether
+  ## the respective special operator is enabled. If not, an error is produced.
+  ## If there was no error, `name` is returned.
+  assert name.kind == nkSym
+  let s = name.sym
+  if s.name.s[0] notin {'.', '('}:
+    name
+  elif s.name.s in [".", ".()", ".="] and dotOperators notin c.features:
+    c.config.newError(name, PAstDiag(kind: adSemDotOperatorsNotEnabled))
+  elif s.name.s == "()" and callOperator notin c.features:
+    c.config.newError(name, PAstDiag(kind: adSemCallOperatorsNotEnabled))
+  else:
+    name
+
+func isAnon(cache: IdentCache, s: PSym): bool =
+  s.name.id == cache.idAnon.id
+
+proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
+                flags: TExprFlags = {}): PNode =
+  var
+    hasError = false # XXX: hasError is not fully integrated into
+                     #      ``semProcAux``, yet
+    s = n[namePos].sym
+  let isAnon = c.cache.isAnon(s)
+
+  result = shallowCopy(n)
+  # copy over the original nodes at the start already. This makes returning
+  # early in case of an error easier
+  for i in 0..<n.len:
+    result[i] = n[i]
+
+  s.ast = result
+  s.options = c.config.options
+  #s.scope = c.currentScope
+
+  # before compiling the proc params & body, set as current the scope
+  # where the proc was declared
+  let declarationScope = c.currentScope
+  pushOwner(c, s)
+  openScope(c)
+
+  # make sure the pattern slot is empty; routines outside of macros and
+  # templates can't be used as patterns
+  result[patternPos] =
+    case n[patternPos].kind
+    of nkEmpty:
+      newNodeI(nkEmpty, n.info)
+    else:
+      hasError = true
+      c.config.newError(n[patternPos], PAstDiag(kind: adSemUnexpectedPattern))
+
+  s.typ = semRoutineParams(c, result, n[paramsPos], n[genericParamsPos], s.kind)
+  if s.typ == nil:
+    s.typ = newProcType(c, n.info)
+
+  if tfTriggersCompileTime in s.typ.flags:
     incl(s.flags, sfCompileTime)
-  
-  if n[patternPos].kind != nkEmpty:
-    n[patternPos] = semPattern(c, n[patternPos], s)
-    if n[patternPos].kind == nkError:
-      # xxx: convert to nkError propagation
-      c.config.localReport(n[patternPos])
-  
+
   if s.kind == skIterator:
     s.typ.flags.incl(tfIterator)
   elif s.kind == skFunc:
@@ -2683,8 +2756,7 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     if s.typ.callConv != ccClosure:
       s.typ.callConv = if isAnon: ccClosure else: ccInline
   of skMacro, skTemplate:
-    # we don't bother setting calling conventions for macros and templates
-    discard
+    unreachable()
   else:
     # NB: procs with a forward decl have theirs determined by the forward decl
     if not hasProto:
@@ -2700,13 +2772,11 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       addInterfaceDeclAt(c, declarationScope, s)
 
   if n[pragmasPos].kind != nkEmpty:
-    n[pragmasPos] = pragmaDeclNoImplicit(c, s, n[pragmasPos], validPragmas)
+    result[pragmasPos] = pragmaDeclNoImplicit(c, s, n[pragmasPos], validPragmas)
 
   if not hasProto:
-    n[pragmasPos] = implicitPragmas(c, s, n[pragmasPos], validPragmas)
+    result[pragmasPos] = implicitPragmas(c, s, result[pragmasPos], validPragmas)
     inheritDynlib(c, s)
-
-  result = n
 
   # check if we got any errors and if so report them
   if result[pragmasPos].isError:
@@ -2714,8 +2784,8 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     popOwner(c)
     return wrapErrorAndUpdate(c.config, result, s)
 
-  if n[pragmasPos].kind != nkEmpty and sfBorrow notin s.flags:
-    setEffectsForProcType(c.graph, s.typ, n[pragmasPos], s)
+  if result[pragmasPos].kind != nkEmpty and sfBorrow notin s.flags:
+    setEffectsForProcType(c.graph, s.typ, result[pragmasPos], s)
   s.typ.flags.incl tfEffectSystemWorkaround
 
   # To ease macro generation that produce forwarded .async procs we now
@@ -2731,8 +2801,6 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       proto.typ.flags < s.typ.flags):
     localReport(c.config, n[pragmasPos].info, reportSymbols(
       rsemUnexpectedPragmaInDefinitionOf, @[proto, s]))
-
-  styleCheckDef(c.config, s)
 
   if hasProto:
     if sfForward notin proto.flags and proto.magic == mNone:
@@ -2750,27 +2818,26 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
     proto.info = s.info       # more accurate line information
     proto.options = s.options
     s = proto
-    n[genericParamsPos] = proto.ast[genericParamsPos]
-    n[paramsPos] = proto.ast[paramsPos]
-    n[pragmasPos] = proto.ast[pragmasPos]
-    c.config.internalAssert(n[namePos].kind == nkSym, n.info, "semProcAux")
+    result[genericParamsPos] = proto.ast[genericParamsPos]
+    result[paramsPos] = proto.ast[paramsPos]
+    result[pragmasPos] = proto.ast[pragmasPos]
+    c.config.internalAssert(result[namePos].kind == nkSym, n.info, "semProcAux")
 
-    n[namePos].sym = proto
+    result[namePos].sym = proto
     if importantComments(c.config) and proto.ast.comment.len > 0:
-      n.comment = proto.ast.comment
-    proto.ast = n             # needed for code generation
+      result.comment = proto.ast.comment
+    proto.ast = result             # needed for code generation
     popOwner(c)
     pushOwner(c, s)
 
   if not isAnon:
-    if sfOverriden in s.flags or s.name.s[0] == '=': semOverride(c, s, n)
-    elif s.name.s[0] in {'.', '('}:
-      if s.name.s in [".", ".()", ".="] and {Feature.destructor, dotOperators} * c.features == {}:
-        localReport(c.config, n.info, reportSym(
-          rsemEnableDotOperatorsExperimental, s))
-      elif s.name.s == "()" and callOperator notin c.features:
-        localReport(c.config, n.info, reportSym(
-          rsemEnableCallOperatorExperimental, s))
+    if sfOverriden in s.flags or s.name.s[0] == '=':
+      semOverride(c, s, result)
+    else:
+      result[namePos] = checkSpecialOperators(c, result[namePos])
+      # XXX: the error needs to be propagated
+      if result[namePos].kind == nkError:
+        localReport(c.config, result[namePos])
 
   if n[bodyPos].kind != nkEmpty and sfError notin s.flags:
     # for DLL generation we allow sfImportc to have a body, for use in VM
@@ -2778,31 +2845,29 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       localReport(c.config, n[bodyPos].info, reportSym(
         rsemImplementationNotAllowed, s))
 
-    if c.config.ideCmd in {ideSug, ideCon} and s.kind notin {skMacro, skTemplate} and not
-        cursorInProc(c.config, n[bodyPos]):
+    if c.config.ideCmd in {ideSug, ideCon} and
+        not cursorInProc(c.config, n[bodyPos]):
       # speed up nimsuggest
-      if s.kind == skMethod: semMethodPrototype(c, s, n)
+      if s.kind == skMethod: semMethodPrototype(c, s, result)
     elif isAnon:
-      let gp = n[genericParamsPos]
+      let gp = result[genericParamsPos]
       if gp.kind == nkEmpty or (gp.len == 1 and tfRetType in gp[0].typ.flags):
         # absolutely no generics (empty) or a single generic return type are
         # allowed, everything else, including a nullary generic is an error.
         pushProcCon(c, s)
-        addResult(c, n, s.typ[0], skProc)
+        addResult(c, result, s.typ[0], skProc)
         s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
         trackProc(c, s, s.ast[bodyPos])
         popProcCon(c)
       elif efOperand notin flags:
-        localReport(c.config, n, reportSem rsemGenericLambdaNowAllowed)
+        localReport(c.config, result, reportSem rsemGenericLambdaNowAllowed)
     else:
       pushProcCon(c, s)
-      if n[genericParamsPos].kind == nkEmpty or s.kind in {skMacro, skTemplate}:
-        # Macros and Templates can have generic parameters, but they are only
-        # used for overload resolution (there is no instantiation of the symbol)
-        if s.kind notin {skMacro, skTemplate} and s.magic == mNone:
+      if result[genericParamsPos].kind == nkEmpty:
+        if s.magic == mNone:
           paramsTypeCheck(c, s.typ)
 
-        maybeAddResult(c, s, n)
+        maybeAddResult(c, s, result)
         # semantic checking also needed with importc in case used in VM
         s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
         # unfortunately we cannot skip this step when in 'system.compiles'
@@ -2813,14 +2878,14 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
           addDecl(c, newSym(skUnknown, getIdent(c.cache, "result"), nextSymId c.idgen, nil, n.info))
 
         openScope(c)
-        n[bodyPos] = semGenericStmt(c, n[bodyPos])
+        result[bodyPos] = semGenericStmt(c, n[bodyPos])
         closeScope(c)
         if s.magic == mNone:
           fixupInstantiatedSymbols(c, s)
-      if s.kind == skMethod: semMethodPrototype(c, s, n)
+      if s.kind == skMethod: semMethodPrototype(c, s, result)
       popProcCon(c)
   else:
-    if s.kind == skMethod: semMethodPrototype(c, s, n)
+    if s.kind == skMethod: semMethodPrototype(c, s, result)
     if hasProto:
       localReport(c.config, n.info, reportSym(
         rsemImplementationExpected, proto))
@@ -2829,42 +2894,28 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
       # this is a forward declaration and we're building the prototype
       if s.kind in {skProc, skFunc} and s.typ[0] != nil and s.typ[0].kind == tyUntyped:
         # `auto` is represented as `tyUntyped` at this point in compilation.
-        localReport(c.config, n[paramsPos][0], reportSem rsemUnexpectedAutoInForwardDeclaration)
+        localReport(c.config, result[paramsPos][0], reportSem rsemUnexpectedAutoInForwardDeclaration)
 
       s.flags.incl {sfForward, sfWasForwarded}
-    elif sfBorrow in s.flags: semBorrow(c, n, s)
+    elif sfBorrow in s.flags: semBorrow(c, result, s)
   sideEffectsCheck(c, s)
   closeScope(c)           # close scope for parameters
   # c.currentScope = oldScope
   popOwner(c)
-  if n[patternPos].kind != nkEmpty:
-    c.patterns.add(s)
   if isAnon:
-    n.transitionSonsKind(nkLambda)
+    result.transitionSonsKind(nkLambda)
     result.typ = s.typ
   elif isTopLevel(c) and s.kind != skIterator and s.typ.callConv == ccClosure:
     localReport(c.config, s.info, reportSym(
       rsemUnexpectedClosureOnToplevelProc, s))
-  if s.ast[bodyPos].kind == nkError:
-    result = c.config.wrapErrorAndUpdate(n, s)
-
-proc determineType(c: PContext, s: PSym) =
-  if s.typ != nil: return
-  #if s.magic != mNone: return
-  #if s.ast.isNil: return
-  discard semProcAux(c, s.ast, s.kind, {})
+  if hasError or s.ast[bodyPos].kind == nkError:
+    result = c.config.wrapErrorAndUpdate(result, s)
 
 proc semIterator(c: PContext, n: PNode): PNode =
-  # gensym'ed iterator?
-  if n[namePos].kind == nkSym:
-    # gensym'ed iterators might need to become closure iterators:
-    n[namePos].sym.owner = getCurrOwner(c)
-    n[namePos].sym.transitionRoutineSymKind(skIterator)
-  result = semProcAux(c, n, skIterator, iteratorPragmas)
-  # bug #7093: if after a macro transformation we don't have an
-  # nkIteratorDef aynmore, return. The iterator then might have been
-  # sem'checked already. (Or not, if the macro skips it.)
-  if result.kind != n.kind: return
+  result = semProcAux(c, n, iteratorPragmas)
+  if result.kind == nkError:
+    return
+
   var s = result[namePos].sym
   var t = s.typ
   if t[0] == nil and s.typ.callConv != ccClosure:
@@ -2881,24 +2932,24 @@ proc semIterator(c: PContext, n: PNode): PNode =
       rsemImplementationExpected, s))
 
 proc semProc(c: PContext, n: PNode): PNode =
-  result = semProcAux(c, n, skProc, procPragmas)
+  result = semProcAux(c, n, procPragmas)
 
 proc semFunc(c: PContext, n: PNode): PNode =
-  let validPragmas = if n[namePos].kind != nkEmpty: procPragmas
-                     else: lambdaPragmas
-  result = semProcAux(c, n, skFunc, validPragmas)
+  let validPragmas =
+    if c.cache.isAnon(n[namePos].sym):
+      lambdaPragmas
+    else:
+      procPragmas
+  result = semProcAux(c, n, validPragmas)
 
 proc semMethod(c: PContext, n: PNode): PNode =
   if not isTopLevel(c):
     localReport(c.config, n, reportSem rsemMethodRequiresToplevel)
 
-  result = semProcAux(c, n, skMethod, methodPragmas)
-  # macros can transform converters to nothing:
-  if namePos >= result.safeLen: return result
-  # bug #7093: if after a macro transformation we don't have an
-  # nkIteratorDef aynmore, return. The iterator then might have been
-  # sem'checked already. (Or not, if the macro skips it.)
-  if result.kind != nkMethodDef: return
+  result = semProcAux(c, n, methodPragmas)
+  if result.kind == nkError:
+    return
+
   var s = result[namePos].sym
   # we need to fix the 'auto' return type for the dispatcher here (see tautonotgeneric
   # test case):
@@ -2916,13 +2967,10 @@ proc semConverterDef(c: PContext, n: PNode): PNode =
     localReport(c.config, n, reportSem rsemConverterRequiresToplevel)
 
   checkSonsLen(n, bodyPos + 1, c.config)
-  result = semProcAux(c, n, skConverter, converterPragmas)
-  # macros can transform converters to nothing:
-  if namePos >= result.safeLen: return result
-  # bug #7093: if after a macro transformation we don't have an
-  # nkIteratorDef aynmore, return. The iterator then might have been
-  # sem'checked already. (Or not, if the macro skips it.)
-  if result.kind != nkConverterDef: return
+  result = semProcAux(c, n, converterPragmas)
+  if result.kind == nkError:
+    return
+
   var s = result[namePos].sym
   var t = s.typ
   if t[0] == nil:
@@ -2936,24 +2984,150 @@ proc semConverterDef(c: PContext, n: PNode): PNode =
   addConverterDef(c, LazySym(sym: s))
 
 proc semMacroDef(c: PContext, n: PNode): PNode =
+  addInNimDebugUtils(c.config, "semMacroDef", n, result)
   checkSonsLen(n, bodyPos + 1, c.config)
-  result = semProcAux(c, n, skMacro, macroPragmas)
-  # macros can transform macros to nothing:
-  if namePos >= result.safeLen: return result
-  # bug #7093: if after a macro transformation we don't have an
-  # nkIteratorDef aynmore, return. The iterator then might have been
-  # sem'checked already. (Or not, if the macro skips it.)
-  if result.kind != nkMacroDef: return
-  var s = result[namePos].sym
-  var t = s.typ
-  var allUntyped = true
-  for i in 1..<t.n.len:
-    let param = t.n[i].sym
-    if param.typ.kind != tyUntyped: allUntyped = false
-  if allUntyped: incl(s.flags, sfAllUntyped)
-  if n[bodyPos].kind == nkEmpty:
-    localReport(c.config, n, reportSym(
-      rsemImplementationExpected, s))
+
+  result = shallowCopy(n)
+  # copy over the original nodes at the start already. This makes returning
+  # early in case of an error easier
+  for i in 0..<n.len:
+    result[i] = n[i]
+
+  var
+    s = n[namePos].sym
+    hasError = false
+
+  s.ast = result
+  s.options = c.config.options # captue the current options
+
+  let declarationScope = c.currentScope
+  # the scope and owner need to apply to the parameters too, so push and open
+  # them already
+  pushOwner(c, s)
+  openScope(c)
+
+  s.typ = semRoutineParams(c, result, n[paramsPos], n[genericParamsPos], skMacro)
+  if s.typ == nil:
+    s.typ = newProcType(c, n.info)
+
+  # ----- compute symbol flags -------
+
+  # are all parameters untyped?
+  incl(s.flags, sfAllUntyped) # assume they are
+  for i in 1..<s.typ.n.len:
+    if s.typ.n[i].sym.typ.kind != tyUntyped:
+      excl(s.flags, sfAllUntyped) # they weren't
+      break
+
+  # macros are always compile-time-only routines
+  incl(s.flags, sfCompileTime)
+
+  # now analyse the pattern slot. This has to happen *after* the parameters
+  # were analysed, as the pattern might reference them
+  result[patternPos] = semPattern(c, n[patternPos])
+
+  if result[patternPos].isError:
+    hasError = true
+
+  # register the macro in the symbol table and owning module's interface (if
+  # the owner is a module)
+  if sfGenSym notin s.flags:
+    addInterfaceOverloadableSymAt(c, declarationScope, s)
+
+  # apply the normal pragmas:
+  if n[pragmasPos].kind != nkEmpty:
+    result[pragmasPos] = pragmaDecl(c, s, n[pragmasPos], macroPragmas)
+
+  result[pragmasPos] = implicitPragmas(c, s, result[pragmasPos], macroPragmas)
+
+  if result[pragmasPos].kind == nkError: # did application fail?
+    hasError = true
+  else:
+    result[namePos] = checkSpecialOperators(c, result[namePos])
+    hasError = hasError or result[namePos].kind == nkError
+
+  if hasError:
+    # don't analyse the body if the header has errors:
+    closeScope(c)
+    popOwner(c)
+    return wrapErrorAndUpdate(c.config, result, s)
+
+  if result[pragmasPos].kind != nkEmpty:
+    setEffectsForProcType(c.graph, s.typ, result[pragmasPos], s)
+  s.typ.flags.incl tfEffectSystemWorkaround
+
+  # analyse the body:
+  if n[bodyPos].kind != nkEmpty and sfError notin s.flags:
+    pushProcCon(c, s)
+    maybeAddResult(c, s, result)
+    result[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
+    trackProc(c, s, result[bodyPos])
+    popProcCon(c)
+
+    hasError = result[bodyPos].isError
+  elif n[bodyPos].kind == nkEmpty:
+    result[bodyPos] =
+      newError(c.config, n[bodyPos],
+               PAstDiag(kind: adSemImplementationExpected,
+                        routineSym: s,
+                        routineDefStartPos: n.info))
+
+    hasError = true
+
+  closeScope(c)
+  popOwner(c)
+
+  if hasError:
+    # shortcut pattern registration
+    return c.config.wrapErrorAndUpdate(result, s)
+
+  if result[patternPos].kind != nkEmpty:
+    # register the pattern
+    addPattern(c, LazySym(sym: s))
+
+proc semRoutineDef(c: PContext, n: PNode): PNode =
+  addInNimDebugUtils(c.config, "semRoutineDef", n, result)
+
+  # before doing anything else, attempt to apply macro or template pragmas:
+  result = semProcAnnotation(c, n)
+  if result != nil:
+    # the definition was rewritten (or an error occured) and the result is
+    # already sem-checked
+    return
+
+  let kind =
+    case n.kind
+    of nkProcDef:      skProc
+    of nkFuncDef:      skFunc
+    of nkIteratorDef:  skIterator
+    of nkConverterDef: skConverter
+    of nkMethodDef:    skMethod
+    of nkTemplateDef:  skTemplate
+    of nkMacroDef:     skMacro
+    else:              unreachable(n.kind)
+
+  const AllowAnon = {skProc, skFunc, skIterator}
+
+  checkMinSonsLen(n, bodyPos + 1, c.config)
+  # TODO: don't mutate the original
+  result = n
+  result[namePos] =
+    semRoutineName(c, n[namePos], kind, allowAnon = kind in AllowAnon)
+
+  if result[namePos].isError:
+    return c.config.wrapError(result) # early out
+
+  result =
+    case kind
+    of skProc:      semProc(c, result)
+    of skFunc:      semFunc(c, result)
+    of skIterator:  semIterator(c, result)
+    of skConverter: semConverterDef(c, result)
+    of skMethod:    semMethod(c, result)
+    of skTemplate:  semTemplateDef(c, result)
+    of skMacro:     semMacroDef(c, result)
+    else:           unreachable(kind)
+
 
 proc incMod(c: PContext, n: PNode, it: PNode, includeStmtResult: PNode) =
   var f = checkModuleName(c.config, it)
