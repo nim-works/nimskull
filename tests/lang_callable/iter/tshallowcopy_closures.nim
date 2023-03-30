@@ -1,4 +1,5 @@
 discard """
+  target: "!js !vm"
   ccodecheck: "!@('{' \\s* 'NI HEX3Astate;' \\s* '}')"
   output: '''
 a1 10
@@ -6,7 +7,10 @@ a1 9
 '''
 """
 
+# disabled on js and vm until closure iterator support lands (knownIssue)
+
 # bug #1803
+
 type TaskFn = iterator (): float
 
 iterator a1(): float {.closure.} =

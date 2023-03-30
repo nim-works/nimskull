@@ -1,4 +1,5 @@
 discard """
+  target: "!js !vm"
   output: '''1
 2
 3
@@ -8,6 +9,8 @@ discard """
 22
 23'''
 """
+
+# JS and VM targets disabled until they support closure iterators (knownIssue)
 
 proc toIter*[T](s: Slice[T]): iterator: T =
   iterator it: T {.closure.} =

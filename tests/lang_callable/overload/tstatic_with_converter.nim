@@ -1,4 +1,5 @@
 discard """
+target: c
 output: '''
 9.0
 

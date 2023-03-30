@@ -1,13 +1,16 @@
 discard """
-  output: "abcxyz"
+  output: ""
 """
 # Test method call syntax for iterators:
 import strutils
 
 const lines = """abc  xyz"""
 
+var output = ""
 for x in lines.split():
-  stdout.write(x)
+  output.add(x)
 
 #OUT abcxyz
-stdout.write "\n"
+output.add "\n"
+
+doAssert output == "abcxyz\n"

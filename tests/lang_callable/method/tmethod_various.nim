@@ -1,9 +1,12 @@
 discard """
+  target: "!vm"
   output: '''
 do nothing
 HELLO WORLD!
 '''
 """
+
+# disabled on VM until we support methods (knownIssue)
 
 
 # tmethods1

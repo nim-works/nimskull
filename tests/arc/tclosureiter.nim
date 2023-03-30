@@ -1,7 +1,11 @@
 discard """
-  cmd: '''nim c -d:nimAllocStats --gc:arc $file'''
+  target: "!js !vm"
+  matrix: '''-d:nimAllocStats --gc:arc'''
   output: '''(allocCount: 102, deallocCount: 102)'''
 """
+
+# JS and VM targets disabled until they support closure iterators (knownIssue)
+# Also, GC stats is a C target thing mostly
 
 type
   FutureBase = ref object

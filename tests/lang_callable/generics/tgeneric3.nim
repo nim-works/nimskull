@@ -1,4 +1,5 @@
 discard """
+target: "!vm"
 output: '''
 312
 1000000
@@ -8,7 +9,9 @@ output: '''
 '''
 """
 
-import strutils
+# disabled on VM: it seems to get stuck; needs a deeper dive (knownIssue)
+
+import std/strutils
 
 type
   PNode[T,D] = ref TNode[T,D]
@@ -180,7 +183,15 @@ proc internalFind[T,D] (n: PNode[T,D], key: T): ref TItem[T,D] {.inline.} =
       return wn.slots[x - 1]
   return nil
 
+proc write(fakeStdout: var string, stuff: varargs[string]) =
+  for s in stuff:
+    fakeStdout.add s
+proc writeLine(fakeStdout: var string, stuff: varargs[string]) =
+  write(fakeStdout, stuff)
+  write(fakeStdout, "\n")
+
 proc traceTree[T,D](root: PNode[T,D]) =
+  var stdout = "" 
   proc traceX(x: int) =
     write stdout, "("
     write stdout, x
@@ -232,6 +243,7 @@ proc traceTree[T,D](root: PNode[T,D]) =
     writeLine stdout,""
 
   doTrace(root, 0)
+  echo stdout
 
 proc InsertItem[T,D](APath: RPath[T,D], ANode:PNode[T,D], Akey: T, Avalue: D) =
   var x = - APath.Xi

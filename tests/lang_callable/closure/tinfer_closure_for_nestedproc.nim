@@ -1,9 +1,12 @@
 discard """
   action: compile
+  target: "!vm"
 """
 
+# disabled on VM because it crashes (knownIssue)
+
 # bug #9441
-import strtabs
+import std/strtabs
 
 type
   Request = object

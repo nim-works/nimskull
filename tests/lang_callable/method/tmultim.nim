@@ -1,4 +1,6 @@
 discard """
+  target: "!vm"
+  joinable: false
   output: '''
 collide: unit, thing
 collide: unit, thing
@@ -9,9 +11,9 @@ collide: unit, thing |
 collide: thing, unit |
 do nothing
 '''
-  joinable: false
-
 """
+
+# disabled on VM until we support methods (knownIssue)
 
 
 # tmultim2

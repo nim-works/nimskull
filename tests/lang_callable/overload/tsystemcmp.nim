@@ -1,9 +1,9 @@
 discard """
-  cmd: r"nim c --hints:on $options --threads:on $file"
+  matrix: "--threads:on"
   output: '''@["", "a", "ha", "hi", "ho", "huu"]'''
 """
 
-import algorithm
+import std/algorithm
 
 # bug #1657
 var modules = @["hi", "ho", "", "a", "ha", "huu"]

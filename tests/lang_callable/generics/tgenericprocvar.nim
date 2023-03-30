@@ -1,8 +1,12 @@
 discard """
-  output: "0false12"
+  output: ""
 """
 
 # Test multiple generic instantiation of generic proc vars:
+var stdout = ""
+proc write(fakeStdout: var string, stuff: varargs[string, `$`]) =
+  for s in stuff:
+    fakeStdout.add s
 
 proc threadProcWrapper[TMsg]() =
   var x: TMsg
@@ -35,3 +39,5 @@ for x in items(test(@[1,2,3], 2)):
   stdout.write(x)
 
 stdout.write "\n"
+
+doAssert stdout == "0false12\n"

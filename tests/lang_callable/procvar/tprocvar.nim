@@ -1,7 +1,5 @@
 discard """
-  output: '''
-papbpcpdpe7
-'''
+  output: ''''''
 """
 
 block genericprocvar:
@@ -11,24 +9,26 @@ block genericprocvar:
 
 
 block tprocvar2:
-  proc pa() {.cdecl.} = write(stdout, "pa")
-  proc pb() {.cdecl.} = write(stdout, "pb")
-  proc pc() {.cdecl.} = write(stdout, "pc")
-  proc pd() {.cdecl.} = write(stdout, "pd")
-  proc pe() {.cdecl.} = write(stdout, "pe")
+  var output = ""
+  proc pa() {.cdecl.} = output.add "pa"
+  proc pb() {.cdecl.} = output.add "pb"
+  proc pc() {.cdecl.} = output.add "pc"
+  proc pd() {.cdecl.} = output.add "pd"
+  proc pe() {.cdecl.} = output.add "pe"
 
   const algos = [pa, pb, pc, pd, pe]
   var x: proc (a, b: int): int {.cdecl.}
 
   proc ha(c, d: int): int {.cdecl.} =
-    echo(c + d)
     result = c + d
 
   for a in items(algos):
     a()
 
   x = ha
-  discard x(3, 4)
+  output.add $x(3, 4)
+
+  doAssert output == "papbpcpdpe7"
 
 
 block tprocvars:

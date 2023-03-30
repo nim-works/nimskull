@@ -1,6 +1,5 @@
 discard """
-  output: "123"
-  targets: "c"
+  output: ""
 """
 # Try to break the transformation pass:
 iterator iterAndZero(a: var openArray[int]): int =
@@ -8,8 +7,8 @@ iterator iterAndZero(a: var openArray[int]): int =
     yield a[i]
     a[i] = 0
 
+var output = ""
 var x = [[1, 2, 3], [4, 5, 6]]
-for y in iterAndZero(x[0]): write(stdout, $y)
-#OUT 123
+for y in iterAndZero(x[0]): output.add $y
 
-write stdout, "\n"
+doAssert output == "123"

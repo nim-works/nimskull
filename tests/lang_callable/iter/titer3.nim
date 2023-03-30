@@ -1,4 +1,5 @@
 discard """
+  target: "!js !vm"
   output: '''1231
 4
 6
@@ -10,21 +11,25 @@ discard """
 '''
 """
 
+# JS and VM targets disabled until they support closure iterators (knownIssue)
+
 iterator count1_3: int =
   yield 1
   yield 2
   yield 3
 
+var output = ""
 for x in count1_3():
-  write(stdout, $x)
+  output.add $x
 
 # yield inside an iterator, but not in a loop:
 iterator iter1(a: openArray[int]): int =
   yield a[0]
 
 var x = [[1, 2, 3], [4, 5, 6]]
-for y in iter1(x[0]): write(stdout, $y)
-writeLine(stdout, "")
+for y in iter1(x[0]): output.add $y
+
+echo output
 
 # ensure closure and inline iterators have the same behaviour regarding
 # parameter passing

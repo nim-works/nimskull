@@ -1,9 +1,9 @@
 discard """
-  output: "000"
+  output: ""
 """
 # Test iterator with more than 1 yield statement
 
-import strutils
+import std/strutils
 
 iterator tokenize2(s: string, seps: set[char] = Whitespace): tuple[
   token: string, isSep: bool] =
@@ -20,9 +20,10 @@ iterator tokenize2(s: string, seps: set[char] = Whitespace): tuple[
         yield (substr(s, i, j-1), false)
     i = j
 
+var output = ""
 for word, isSep in tokenize2("ta da", WhiteSpace):
   var titer2TestVar = 0
-  stdout.write(titer2TestVar)
+  output.add($titer2TestVar)
 
 proc wordWrap2(s: string, maxLineWidth = 80,
                splitLongWords = true,
@@ -32,4 +33,6 @@ proc wordWrap2(s: string, maxLineWidth = 80,
   for word, isSep in tokenize2(s, seps):
     var w = 0
 
-stdout.write "\n"
+output.add "\n"
+
+doAssert output == "000\n"

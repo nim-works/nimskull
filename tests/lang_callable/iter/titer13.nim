@@ -1,4 +1,5 @@
 discard """
+  target: "!js !vm"
   output: '''b yields
 c yields
 a returns
@@ -13,6 +14,8 @@ c yields
 4
 '''
 """
+
+# JS and VM targets disabled until they support closure iterators (knownIssue)
 
 block:
   template tloop(iter: untyped) =

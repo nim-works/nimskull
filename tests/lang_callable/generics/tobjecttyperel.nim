@@ -1,4 +1,5 @@
 discard """
+  target: "!vm"
   output: '''(peel: 0, color: 15)
 (color: 15)
 17
@@ -7,6 +8,8 @@ discard """
 cool
 test'''
 """
+
+# disabled on VM until it supports methods (knownIssue)
 
 # bug #5241
 type

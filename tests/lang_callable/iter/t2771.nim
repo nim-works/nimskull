@@ -1,3 +1,9 @@
+discard """
+  target: "!js !vm"
+"""
+
+# JS and VM targets disabled until they support closure iterators (knownIssue)
+
 template t1(i: int): int=
   i+1
 template t2(i: int): int=

@@ -797,10 +797,12 @@ proc generatedFile(test: TTest, target: TTarget): string =
     let ext = target.ext
     nimcacheDir(test.name, test.options, target) / "@m" & name.changeFileExt(ext)
 
-proc needsCodegenCheck(spec: TSpec): bool =
+proc needsCodegenCheck(run: TestRun): bool =
   ## If there is any checks that need to be performed for a generated code
   ## file
-  spec.maxCodeSize > 0 or spec.ccodeCheck.len > 0
+  run.target == targetC and
+    (run.expected.maxCodeSize > 0 or
+     run.expected.ccodeCheck.len > 0)
 
 proc codegenCheck(
     test: TTest,
@@ -841,7 +843,7 @@ proc compilerOutputTests(run: var TestRun, given: var TSpec; r: var TResults) =
   if given.err == reSuccess:
     # Check size??? of the generated C code. If fails then add error
     # message.
-    if run.expected.needsCodegenCheck:
+    if run.needsCodegenCheck:
       codegenCheck(run.test, run.target, run.expected, expectedmsg, given)
       givenmsg = given.msg
 
@@ -1026,7 +1028,7 @@ func nativeTarget(): TTarget {.inline.} =
 func defaultTargets(category: Category): set[TTarget] =
   const standardTargets = {nativeTarget()}
   case category.string
-  of "lang":
+  of "lang", "lang_callable":
     {targetC, targetJs, targetVM}
   of "arc", "avr", "destructor", "distros", "dll", "gc", "osproc", "parallel",
      "realtimeGC", "threads", "views", "valgrind":
