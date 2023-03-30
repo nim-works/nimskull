@@ -164,7 +164,6 @@ proc diffStrings*(a, b: string): tuple[output: string, same: bool] =
   let diff = myersDiff(a, b)
   if len(diff) == 0:
     result.same = true
-
   else:
     result.same = false
     result.output = diff.shiftDiffed(a, b).
@@ -181,11 +180,10 @@ proc format(tcmp: TOutCompare): ColText =
   proc addl() =
     if not first:
       add "\n"
-
     first = false
 
   for (pair, weight) in tcmp.sortedMapping:
-    if 0 < weight:
+    if weight > 0:
       addl()
       addl()
       let exp = tcmp.expectedReports[pair[0]]
@@ -198,14 +196,11 @@ proc format(tcmp: TOutCompare): ColText =
           $inline.line + fgCyan,
           $inline.col + fgCyan
         )
-
       addf(":\n\n- $#\n\nGiven:\n\n+ $#\n\n",
         exp.node.toLine(sortfield = true),
         tcmp.givenReports[pair[1]].node.toLine(sortfield = true)
       )
-
       add tcmp.diffMap[pair].describeDiff(conf).indent(2)
-
 
   for exp in tcmp.ignoredExpected:
     addl()
@@ -672,12 +667,21 @@ proc sexpCheck(test: TTest, expected, given: TSpec): TOutCompare =
     r.expectedReports.add TOutReport(inline: some exp, node: parsed, file: expected.file)
 
   for line in splitLines(expected.nimout):
-    if 0 < line.len:
+    if line.len > 0:
       r.expectedReports.add TOutReport(node: parseSexp(line))
 
+  var outputParseFailed = false
   for line in splitLines(given.nimout):
-    if 0 < line.len:
-      r.givenReports.add TOutReport(node: parseSexp(line))
+    if line.len > 0:
+      let parsedSexp = parseSexp(line)
+      if parsedSexp.kind != SList:
+        outputParseFailed = true
+      r.givenReports.add TOutReport(node: parsedSexp)
+
+  if outputParseFailed:
+    r.match = false
+    r.failed = true
+    return r
 
   proc reportCmp(a, b: int): int =
     # Best place for further optimization and configuration - if more
@@ -698,9 +702,9 @@ proc sexpCheck(test: TTest, expected, given: TSpec): TOutCompare =
     Descending
   )
 
-  if 0 < r.sortedMapping[0].cost:
+  if r.sortedMapping[0].cost > 0:
     r.match = false
-  elif 0 < r.ignoredGiven.len and expected.nimoutFull:
+  elif r.ignoredGiven.len > 0 and expected.nimoutFull:
     r.match = false
   else:
     r.match = true
@@ -723,6 +727,10 @@ proc cmpMsgs(r: var TResults, run: TestRun, given: TSpec) =
     if outCompare.match:
       r.addResult(run, run.expected.msg, given.msg, reSuccess)
       inc(r.passed)
+    elif outCompare.failed:
+      # little janky, but that's just sexp reporting
+      r.addResult(run, run.expected.nimout, given.nimout.strip, reMsgsDiffer,
+        givenSpec = unsafeAddr given)
     else:
       # Write out error message.
       r.addResult(
@@ -843,7 +851,11 @@ proc compilerOutputTests(run: var TestRun, given: var TSpec; r: var TResults) =
       outCompare = run.test.sexpCheck(run.expected, given)
       if not outCompare.match:
         given.err = reMsgsDiffer
-
+      if outCompare.failed:
+        given.err = reMsgsDiffer
+        expectedmsg = run.expected.nimout
+        givenmsg = given.nimout.strip
+        outCompare = nil # drop this noise
     else:
       # Use unstructured data comparison for the expected and given outputs
       if not nimoutCheck(run.expected, given):
@@ -855,7 +867,6 @@ proc compilerOutputTests(run: var TestRun, given: var TSpec; r: var TResults) =
         # reporting.
         expectedmsg = run.expected.nimout
         givenmsg = given.nimout.strip
-
   else:
     givenmsg = "$ " & given.cmd & '\n' & given.nimout
   
