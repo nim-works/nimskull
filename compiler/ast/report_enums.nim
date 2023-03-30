@@ -452,6 +452,7 @@ type
     rsemEnableNotNilExperimental
     rsemEnableDotOperatorsExperimental
     rsemEnableCallOperatorExperimental
+    rsemUnexpectedPattern
     rsemExpectedObjectType
     rsemExpectedImportedType
     rsemUnexpectedExportcInAlias

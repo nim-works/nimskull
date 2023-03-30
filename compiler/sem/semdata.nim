@@ -552,8 +552,6 @@ type
       ## written:
       ##  - semdata: init and updated via addPattern, which isn't used by hlo??
       ##  - hlo: `applyPatterns` add patterns for optimizations
-      ##  - semstmts: semProcAux adds term rewriting definitions
-      ##  - semtempl: semTemplateDef adds term rewriting definitions
       ## read:
       ##  - hlo: check len to see if there are patterns to apply
     

@@ -29,19 +29,12 @@ proc evalPattern(c: PContext, n: PNode): PNode =
     original = n
 
   let s = n[0].sym
-  case s.kind
-  of skMacro:
-    result = semMacroExpr(c, n, s)
+  result =
+    case s.kind
+    of skMacro:    semMacroExpr(c, n, s)
+    of skTemplate: semTemplateExpr(c, n, s, {efFromHlo})
+    else:          unreachable("not a macro/template: " & $s.kind)
 
-  of skTemplate:
-    result = semTemplateExpr(c, n, s, {efFromHlo})
-
-  else:
-    if s.isError:
-      result = s.ast
-    else:
-      result = semDirectOp(c, n, {})
-    
   if c.config.hasHint(rsemPattern):
     c.config.localReport(n.info, SemReport(
       kind: rsemPattern,

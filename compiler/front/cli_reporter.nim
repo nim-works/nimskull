@@ -1803,6 +1803,9 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "the overloaded " & r.symstr &
         " operator has to be enabled with {.experimental: \"callOperator\".}"
 
+    of rsemUnexpectedPattern:
+      result = "patterns can only be specified on macros and templates"
+
     of rsemExpectedImportedType:
       result = "the '$1' modifier can be used only with imported types" % r.ast.render
 
@@ -3850,6 +3853,9 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemSelectorMustBeOfCertainTypes,
       adSemInvalidPragmaBlock,
       adSemConceptPredicateFailed,
+      adSemDotOperatorsNotEnabled,
+      adSemCallOperatorsNotEnabled,
+      adSemUnexpectedPattern,
       adSemIsOperatorTakes2Args,
       adSemNoTupleTypeForConstructor,
       adSemInvalidOrderInArrayConstructor, # xxx: used to capture, but not report, count mismatch

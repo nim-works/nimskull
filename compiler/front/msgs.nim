@@ -527,6 +527,9 @@ func astDiagToLegacyReportKind*(
   of adSemSelectorMustBeOfCertainTypes: rsemSelectorMustBeOfCertainTypes
   of adSemInvalidPragmaBlock: rsemInvalidPragmaBlock
   of adSemConceptPredicateFailed: rsemConceptPredicateFailed
+  of adSemDotOperatorsNotEnabled: rsemEnableDotOperatorsExperimental
+  of adSemCallOperatorsNotEnabled: rsemEnableCallOperatorExperimental
+  of adSemUnexpectedPattern: rsemUnexpectedPattern
   of adSemConstantOfTypeHasNoValue: rsemConstantOfTypeHasNoValue
   of adSemTypeConversionArgumentMismatch: rsemTypeConversionArgumentMismatch
   of adSemUnexpectedEqInObjectConstructor: rsemUnexpectedEqInObjectConstructor

@@ -1137,6 +1137,9 @@ type
     adSemSelectorMustBeOfCertainTypes
     adSemInvalidPragmaBlock
     adSemConceptPredicateFailed
+    adSemDotOperatorsNotEnabled
+    adSemCallOperatorsNotEnabled
+    adSemUnexpectedPattern
     # types
     adSemTypeKindMismatch
     # semexprs
@@ -1283,6 +1286,9 @@ type
         adSemSelectorMustBeOfCertainTypes,
         adSemInvalidPragmaBlock,
         adSemConceptPredicateFailed,
+        adSemDotOperatorsNotEnabled,
+        adSemCallOperatorsNotEnabled,
+        adSemUnexpectedPattern,
         adSemIsOperatorTakes2Args,
         adSemNoTupleTypeForConstructor,
         adSemInvalidOrderInArrayConstructor,
