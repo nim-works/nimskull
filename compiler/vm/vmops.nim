@@ -150,6 +150,11 @@ proc getCurrentExceptionWrapper(a: VmArgs) {.nimcall.} =
   if not a.currentException.isNil:
     a.heap[].heapIncRef(a.currentException)
 
+proc setCurrentExceptionWrapper(a: VmArgs) {.nimcall.} =
+  # set the current exception to the one provided as the first argument
+  asgnRef(a.currentException, deref(a.getHandle(0)).refVal,
+          a.mem[], reset=true)
+
 template wrapIteratorInner(a: VmArgs, iter: untyped) =
   let rh = a.getResultHandle()
   assert rh.typ.kind == akSeq
@@ -231,6 +236,8 @@ proc registerBasicOps*(c: var TCtx) =
   # system operations
   systemop(getCurrentExceptionMsg)
   systemop(getCurrentException)
+  registerCallback(c, "stdlib.system.closureIterSetupExc",
+                   setCurrentExceptionWrapper)
 
   # math operations
   wrap1f_math(sqrt)

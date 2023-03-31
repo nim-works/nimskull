@@ -1,5 +1,4 @@
 discard """
-  target: "!js !vm"
   output: '''1231
 4
 6
@@ -10,8 +9,6 @@ discard """
 8
 '''
 """
-
-# JS and VM targets disabled until they support closure iterators (knownIssue)
 
 iterator count1_3: int =
   yield 1

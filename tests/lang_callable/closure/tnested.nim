@@ -3,8 +3,6 @@ discard """
   description: "Tests for nested closures and closure iterators"
 """
 
-import mutils
-
 block tnestedclosure:
   proc main(param: int) =
     var foo = 23
@@ -44,8 +42,7 @@ block tnestedproc:
             return x)(),
         (proc (): int = return 4)()) == 11
 
-# knownIssue: closure iterators are not supported with the VM and JS target yet
-test deeplynested, {c}:
+block deeplynested:
   # bug https://github.com/nim-lang/nim/issues/4070
   var output: seq[int]
 

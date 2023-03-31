@@ -70,9 +70,7 @@ block t5417:
 
 
 
-when not defined(js) and not defined(vm):
-  # disabled until JS and VM backends support closure iterators (knownIssue)
-  block t909:
+block t909:
     template baz() =
       proc bar() =
         var x = 5
@@ -252,16 +250,15 @@ proc foo(): auto =
 discard foo()
 
 
-# bug #4722
-when not defined(js) and not defined(vm):
-  # disabled until JS and VM backends support closure iterators (knownIssue)
+# bug https://github.com/nim-lang/nim/issues/4722
+block t4722:
   type
-    IteratorF*[In] = iterator() : In {.closure.}
+    IteratorF[In] = iterator() : In {.closure.}
 
   var output = ""
 
   template foof(In: untyped) : untyped =
-    proc ggg*(arg: IteratorF[In]) =
+    proc ggg(arg: IteratorF[In]) =
       for i in arg():
         output.add "foo"
 

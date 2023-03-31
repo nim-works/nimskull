@@ -2371,6 +2371,11 @@ when notJSnotNims and hostOS != "standalone":
 elif isNimVmTarget:
   proc getCurrentException*(): ref Exception {.compilerRtl.} = discard
 
+  proc closureIterSetupExc(e: ref Exception) {.compilerproc, inline.} =
+    ## Used by the closure transformation pass for preparing for exception
+    ## handling. Implemented as a callback.
+    discard
+
 when notJSnotNims:
   {.push stackTrace: off, profiler: off.}
   when (defined(profiler) or defined(memProfiler)):
@@ -2401,6 +2406,7 @@ when notJSnotNims:
     else:
       {.error: "Only closure function and iterator are allowed!".}
 
+when true:
   proc finished*[T: proc](x: T): bool {.noSideEffect, magic: "Finished".} =
     ## Tests if the given closure iterator `x` has finished iterating.
 

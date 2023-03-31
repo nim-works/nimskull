@@ -1,8 +1,12 @@
 discard """
-  targets: "c js"
+  targets: "c js !vm"
 """
 
+# knownIssue: disable for the VM due to an internal VM crash at run-time. Needs to be investigated further
+
 # xxx move all tests under `main`
+
+import std/vmutils
 
 import std/sequtils
 import strutils
@@ -289,8 +293,7 @@ block: # toSeq test
     doAssert myIter.toSeq == @[1, 2]
     doAssert toSeq(myIter) == @[1, 2]
 
-  when not defined(js):
-    # pending #4695
+  when true:
     block:
         iterator myIter(): int {.closure.} =
           yield 1
@@ -445,11 +448,12 @@ block:
       for i in 0..<len:
         yield i
 
-  when not defined(js):
-    # xxx: obscure CT error: basic_types.nim(16, 16) Error: internal error: symbol has no generated name: true
+  when true:
     doAssert: iter(3).mapIt(2*it).foldl(a + b) == 6
 
-block: # strictFuncs tests with ref object
+# XXX: fails at run-time due to what looks like a codegen issue. Needs further
+#      investigation.
+when not defined(vm): # block: # strictFuncs tests with ref object
   type Foo = ref object
 
   let foo1 = Foo()

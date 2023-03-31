@@ -1,5 +1,5 @@
 discard """
-  errormsg: "Closure iterators are not supported by VM!"
+  target: native
 """
 
 iterator iter*(): int {.closure.} =
@@ -7,3 +7,6 @@ iterator iter*(): int {.closure.} =
 
 static:
   var x = iter
+  doAssert x() == 3
+  discard x()
+  doAssert finished(x)

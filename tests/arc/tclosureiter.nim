@@ -4,8 +4,8 @@ discard """
   output: '''(allocCount: 102, deallocCount: 102)'''
 """
 
-# JS and VM targets disabled until they support closure iterators (knownIssue)
-# Also, GC stats is a C target thing mostly
+# TODO: adjust the test so that it doesn't depend on allocator-stats and
+#       enable it for the VM/JS
 
 type
   FutureBase = ref object

@@ -415,7 +415,9 @@ type
   VmArgs* = object
     ra*, rb*, rc*: Natural
     slots*: ptr UncheckedArray[TFullReg]
-    currentException*: HeapSlotHandle
+    # TODO: rework either the callback or exception handling (or both) so that
+    #       no pointer is required here
+    currentExceptionPtr*: ptr HeapSlotHandle
     currentLineInfo*: TLineInfo
 
     # XXX: These are only here as a temporary measure until callback handling
@@ -587,7 +589,6 @@ type
     vmGenDiagCodeGenUnexpectedSym
     vmGenDiagCannotImportc
     vmGenDiagTooLargeOffset
-    vmGenDiagNoClosureIterators
     vmGenDiagCannotCallMethod
     # has type mismatch data
     vmGenDiagCannotCast
@@ -621,7 +622,6 @@ type
           vmGenDiagCodeGenUnexpectedSym,
           vmGenDiagCannotImportc,
           vmGenDiagTooLargeOffset,
-          vmGenDiagNoClosureIterators,
           vmGenDiagCannotCallMethod:
         sym*: PSym
       of vmGenDiagCannotCast:
@@ -1045,6 +1045,14 @@ template isValid*(handle: LocHandle): bool =
   ## referenced memory location is legal
   let x = handle
   x.p.rawPointer != nil and x.typ != nil
+
+template currentException*(a: VmArgs): HeapSlotHandle =
+  ## A temporary workaround for the exception handle being stored as a pointer
+  a.currentExceptionPtr[]
+
+template `currentException=`*(a: VmArgs, h: HeapSlotHandle) =
+  ## A temporary workaround for the exception handle being stored as a pointer
+  a.currentExceptionPtr[] = h
 
 # TODO: move `overlap` and it's tests somewhere else
 func overlap*(a, b: int, aLen, bLen: Natural): bool =

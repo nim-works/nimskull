@@ -3303,9 +3303,6 @@ proc reportShort*(conf: ConfigRef, r: DebugReport): string =
 proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
   assertKind r
   case BackendReportKind(r.kind):
-  of rbackJsUnsupportedClosureIter:
-    "Closure iterators are not supported by JS backend!"
-
   of rbackJsTooCaseTooLarge:
     "Your case statement contains too many branches, consider using if/else instead!"
 
@@ -3401,8 +3398,7 @@ proc reportShort*(conf: ConfigRef, r: BackendReport): string =
   # mostly created for nimsuggest
   assertKind r
   result = reportBody(conf, r)
-  if BackendReportKind(r.kind) in {rbackJsUnsupportedClosureIter,
-                                   rbackJsTooCaseTooLarge}:
+  if BackendReportKind(r.kind) == rbackJsTooCaseTooLarge:
     result.add conf.suffixShort(r)
 
 
@@ -3428,9 +3424,6 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
 
   of rvmInvalidObjectConstructor:
     result = "invalid object constructor"
-
-  of rvmNoClosureIterators:
-    result = "Closure iterators are not supported by VM!"
 
   of rvmStackTrace:
     result = "stack trace: (most recent call last)\n"
@@ -4457,7 +4450,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo)
     of adVmGenCodeGenGenericInNonMacro,
         adVmGenCodeGenUnexpectedSym,
-        adVmGenNoClosureIterators,
         adVmGenCannotImportc,
         adVmGenCannotCallMethod,
         adVmGenTooLargeOffset:

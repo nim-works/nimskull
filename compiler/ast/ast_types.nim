@@ -995,7 +995,6 @@ type
     adVmGenCodeGenUnexpectedSym           # |       within the `compiler/vm`
     adVmGenCannotImportc                  # |       package between pure VM and
     adVmGenTooLargeOffset                 # |       the VM for the compiler.
-    adVmGenNoClosureIterators             # |
     adVmGenCannotCallMethod               # |
     adVmGenCannotCast                     # |       fin.
 
@@ -1019,7 +1018,6 @@ type
           adVmGenCodeGenUnexpectedSym,
           adVmGenCannotImportc,
           adVmGenTooLargeOffset,
-          adVmGenNoClosureIterators,
           adVmGenCannotCallMethod:
         sym*: PSym
       of adVmGenCannotCast:

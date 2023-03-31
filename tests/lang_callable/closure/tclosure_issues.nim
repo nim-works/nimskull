@@ -82,6 +82,32 @@ test tissue7104, {c, vm}:
 
   doAssert output == [0, 1, 2]
 
+block lifted_var_in_loop_body:
+  # bug https://github.com/nim-lang/nim/issues/5519
+
+  iterator iter(): int =
+    # it's important that the iterator has at least two yield statements,
+    # so that new variables are introduced for each inlined loop body
+    yield 1
+    yield 1
+
+  proc tup(): (int, int) {.noinline.} =
+    ## used to prevent the optimizer from interfering with the test
+    result = (1, 2)
+
+  proc outer() =
+    for _ in iter():
+      # a var tuple where at least one symbol was lifted into the environment
+      # casued the compiler to crash, due to ``transf`` not considering the
+      # possibility of a ``nkVarTuple`` containing lifted locals
+      var (a, b) = tup()
+
+      proc cap() {.closure.} =
+        # capture `a`
+        doAssert a == 1
+
+      cap()
+
 block:
   # a regression test against closure inference happening too early (i.e.
   # during early overload resolution)

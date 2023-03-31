@@ -1901,6 +1901,32 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     c.freeTemp(a)
   of mNodeId:
     c.genUnaryABC(n, dest, opcNodeId)
+  of mFinished:
+    # XXX: the implementation is a hack -- it makes a lot of implicit
+    #      assumptions and is thus very brittle. However, don't attempt to
+    #      fix it here; implement the lowering of the ``mFinished`` magic as a
+    #      MIR pass that is used for all backends
+    prepare(c, dest, n.typ)
+    let
+      tmp = c.genx(n[1]) # the operand
+      env = c.getTemp(n[1].typ) # XXX: wrong type
+      state = c.getTemp(n.typ)  # XXX: also wrong
+      imm = c.getTemp(n.typ)    # XXX: this one too
+
+    c.gABC(n, opcAccessEnv, env, tmp)
+
+    # load the state value into a register. The :state field is always
+    # located at position 0
+    c.gABC(n, opcLdObj, state, env, 0)
+    c.gABC(n, opcNodeToReg, state, state)
+
+    c.gABx(n, opcLdImmInt, imm, 0)        # load 0
+    c.gABC(n, opcLtInt, dest, state, imm) # compare
+
+    c.freeTemp(imm)
+    c.freeTemp(state)
+    c.freeTemp(env)
+    c.freeTemp(tmp)
   else:
     # mGCref, mGCunref, mFinished, etc.
     fail(n.info, vmGenDiagCodeGenUnhandledMagic, m)
@@ -2633,8 +2659,6 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
       genSym(c, n, dest, flags)
 
     of skProc, skFunc, skConverter, skMacro, skMethod, skIterator:
-      if s.kind == skIterator and s.typ.callConv == TCallingConvention.ccClosure:
-        fail(n.info, vmGenDiagNoClosureIterators, sym = s)
       if importcCond(c, s) and lookup(c.callbackKeys, s) == -1:
         fail(n.info, vmGenDiagCannotImportc, sym = s)
 
@@ -2986,7 +3010,6 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
     of vmGenDiagCodeGenUnexpectedSym: adVmGenCodeGenUnexpectedSym
     of vmGenDiagCannotImportc: adVmGenCannotImportc
     of vmGenDiagTooLargeOffset: adVmGenTooLargeOffset
-    of vmGenDiagNoClosureIterators: adVmGenNoClosureIterators
     of vmGenDiagCannotCallMethod: adVmGenCannotCallMethod
     of vmGenDiagCannotCast: adVmGenCannotCast
   
@@ -2997,7 +3020,6 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
           vmGenDiagCodeGenUnexpectedSym,
           vmGenDiagCannotImportc,
           vmGenDiagTooLargeOffset,
-          vmGenDiagNoClosureIterators,
           vmGenDiagCannotCallMethod:
         AstDiagVmGenError(
           kind: kind,

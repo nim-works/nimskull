@@ -291,7 +291,6 @@ type
     rvmCannotEvaluateAtComptime
     rvmCannotImportc
     rvmInvalidObjectConstructor
-    rvmNoClosureIterators
     rvmCannotCallMethod
     rvmCallingNonRoutine
     rvmCannotModifyTypechecked
@@ -922,7 +921,6 @@ type
     ## file to cache directory
     rbackTargetNotSupported ## C compiler does not support requested target
     rbackJsTooCaseTooLarge
-    rbackJsUnsupportedClosureIter
     rbackJsonScriptMismatch # ??? used in `extccomp.nim`, TODO figure out
     # what the original mesage was responsible for exactly
 

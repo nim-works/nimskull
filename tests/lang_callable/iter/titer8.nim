@@ -1,5 +1,4 @@
 discard """
-  target: "!js !vm"
   output: '''tada
 1
 2
@@ -26,8 +25,6 @@ a2: C
 a1: D'''
 """
 # Test first class iterator:
-
-# JS and VM targets disabled until they support closure iterators (knownIssue)
 
 import std/strutils
 

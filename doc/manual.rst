@@ -957,9 +957,7 @@ Nim code that will be executed at compile time cannot use the following
 language features:
 
 * methods
-* closure iterators
 * the `cast` operator
-* reference (pointer) types
 * FFI
 
 The use of wrappers that use FFI and/or `cast` is also disallowed. Note that
@@ -4290,12 +4288,10 @@ In contrast to that, a `closure iterator`:idx: can be passed around more freely:
 
 Closure iterators and inline iterators have some restrictions:
 
-1. For now, a closure iterator cannot be executed at compile time.
-2. `return` is allowed in a closure iterator but not in an inline iterator
+1. `return` is allowed in a closure iterator but not in an inline iterator
    (but rarely useful) and ends the iteration.
-3. Neither inline nor closure iterators can be (directly)* recursive.
-4. Neither inline nor closure iterators have the special `result` variable.
-5. Closure iterators are not supported by the JS backend.
+2. Neither inline nor closure iterators can be (directly)* recursive.
+3. Neither inline nor closure iterators have the special `result` variable.
 
 (*) Closure iterators can be co-recursive with a factory proc which results
 in similar syntax to a recursive iterator. More details follow.

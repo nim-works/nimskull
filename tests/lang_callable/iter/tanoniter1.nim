@@ -1,5 +1,4 @@
 discard """
-  target: "!js !vm"
   output: '''1
 2
 3
@@ -7,8 +6,6 @@ discard """
 1
 2'''
 """
-
-# JS and VM targets disabled until they support closure iterators (knownIssue)
 
 proc factory(a, b: int): iterator (): int =
   iterator foo(): int {.closure.} =

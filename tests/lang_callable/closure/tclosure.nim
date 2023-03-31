@@ -299,8 +299,7 @@ block tflatmap:
   discard nextInt.map(i => i - i mod 2)
 
 
-# XXX: closure iterators are not supporte by the VM and JS
-test tforum, {c}:
+block tforum:
   type
     PAsyncHttpServer = ref object
       value: string
@@ -377,9 +376,8 @@ block tinterf:
   doAssert i.getter1() == 56
   doAssert i.getter2() == 66
 
-# XXX: closure iterators are not yet supported in the VM and for JS. Also, this
-#      test case needs to be reduced further
-test tjester, {c}:
+# TODO: reduce the case further
+block tjester:
   type
     Future[T] = ref object
       data: T

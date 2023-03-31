@@ -62,6 +62,8 @@ type
     #       word that are currently unused as a boolean
     opcWrClosure # a = (b, c)
     # If a == c, treat the env as nil
+    opcAccessEnv ## a = b.env[]; loads a handle to the cell holding the
+                 ## environment
 
     opcAddInt,
     opcAddImmInt,
