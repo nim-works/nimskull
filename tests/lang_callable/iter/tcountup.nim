@@ -6,11 +6,12 @@ discard """
 """
 
 # Test new countup
+var output = ""
 
 for i in 0 ..< 10'i64:
-  stdout.write(i)
+  output.add($i)
 
-echo()
+echo output
 
 # 11099
 

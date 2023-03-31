@@ -1,9 +1,12 @@
 discard """
+  target: "!vm"
   output: '''[0.0, 0.0, 0.0]
 [0.0, 0.0, 0.0, 0.0]
 5050
 123'''
 """
+
+# disabled on VM: "same" output but formatting is off (knownIssue)
 
 template mathPerComponent(op: untyped): untyped =
   proc op*[N,T](v,u: array[N,T]): array[N,T] {.inline.} =

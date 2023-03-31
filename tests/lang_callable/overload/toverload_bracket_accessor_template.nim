@@ -1,4 +1,5 @@
 discard """
+  target: "!js !vm"
   description: '''
    . From https://github.com/nim-lang/Nim/issues/8829
      template that overloads [] accessor does not compile

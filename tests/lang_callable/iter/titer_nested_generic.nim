@@ -1,4 +1,5 @@
 discard """
+  target: "!js !vm"
   description: '''
   . From https://github.com/nim-lang/Nim/issues/1550
     Passing a generic iterator to another iterator doesn't seem to work
@@ -7,6 +8,8 @@ discard """
     works since Nim v1.2.6
   '''
 """
+
+# JS and VM targets disabled until they support closure iterators (knownIssue)
 type
   A[T] = iterator(x: T): T {.gcsafe, closure.}
 

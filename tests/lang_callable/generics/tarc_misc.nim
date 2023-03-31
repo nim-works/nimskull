@@ -1,9 +1,10 @@
 discard """
+  matrix: "--gc:arc"
   output: ''''''
-  cmd: "nim c --gc:arc $file"
 """
 
 # bug #13519
+# Not necessarily just arc, we can just more strict about proc type conversions
 
 var unrelated: seq[proc() {.closure, gcsafe.}]
 

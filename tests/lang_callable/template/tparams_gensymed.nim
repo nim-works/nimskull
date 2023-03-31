@@ -20,7 +20,7 @@ S1
 """
 # bug #1915
 
-import macros
+import std/macros
 
 # Test that parameters are properly gensym'ed finally:
 
@@ -82,42 +82,43 @@ genericProc(7)  # This doesn't compile
 import tables
 
 # bug #9476
-proc getTypeInfo*(T: typedesc): pointer =
-  var dummy: T
-  getTypeInfo(dummy)
+when not defined(js) and not defined(vm):
+  proc getTypeInfo*(T: typedesc): pointer =
+    var dummy: T
+    getTypeInfo(dummy)
 
 
-macro implementUnary(op: untyped): untyped =
-  result = newStmtList()
+  macro implementUnary(op: untyped): untyped =
+    result = newStmtList()
 
-  template defineTable(tableSymbol) =
-    var tableSymbol = initTable[pointer, pointer]()
-  let tableSymbol = genSym(nskVar, "registeredProcs")
-  result.add(getAst(defineTable(tableSymbol)))
+    template defineTable(tableSymbol) =
+      var tableSymbol = initTable[pointer, pointer]()
+    let tableSymbol = genSym(nskVar, "registeredProcs")
+    result.add(getAst(defineTable(tableSymbol)))
 
-  template defineRegisterInstantiation(tableSym, regTemplSym, instSym, op) =
-    template regTemplSym*(T: typedesc) =
-      let ti = getTypeInfo(T)
+    template defineRegisterInstantiation(tableSym, regTemplSym, instSym, op) =
+      template regTemplSym*(T: typedesc) =
+        let ti = getTypeInfo(T)
 
-      proc instSym(xOrig: int): int {.gensym, cdecl.} =
-        let x {.inject.} = xOrig
-        op
+        proc instSym(xOrig: int): int {.gensym, cdecl.} =
+          let x {.inject.} = xOrig
+          op
 
-      tableSym[ti] = cast[pointer](instSym)
+        tableSym[ti] = cast[pointer](instSym)
 
-  let regTemplSymbol = ident("registerInstantiation")
-  let instSymbol = ident("instantiation")
-  result.add(getAst(defineRegisterInstantiation(
-    tableSymbol, regTemplSymbol, instSymbol, op
-  )))
+    let regTemplSymbol = ident("registerInstantiation")
+    let instSymbol = ident("instantiation")
+    result.add(getAst(defineRegisterInstantiation(
+      tableSymbol, regTemplSymbol, instSymbol, op
+    )))
 
-  echo result.repr
+    echo result.repr
 
 
-implementUnary(): x*x
+  implementUnary(): x*x
 
-registerInstantiation(int)
-registerInstantiation(float)
+  registerInstantiation(int)
+  registerInstantiation(float)
 
 # bug #10192
 template nest(body) {.dirty.} =

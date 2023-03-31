@@ -1,12 +1,14 @@
 discard """
+  target: "js"
   output: '''
 7
 Hi derived!
 hello
 '''
-
 """
 
+# JS specific, but can likely be collapsed into general method coverage when we
+# get to doing that.
 
 # tmultim1
 type

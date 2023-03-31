@@ -1,4 +1,5 @@
 discard """
+  target: "!js !vm"
   output: '''0
 1
 2
@@ -23,6 +24,8 @@ discard """
 0
 '''
 """
+
+# JS and VM targets disabled until they support closure iterators (knownIssue)
 
 when true:
   proc main() =

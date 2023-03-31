@@ -1,4 +1,5 @@
 discard """
+target: "!js !vm"
 output: '''
 [
 1
@@ -7,6 +8,8 @@ output: '''
 ]
 '''
 """
+
+# JS and VM targets disabled until they support closure iterators (knownIssue)
 
 proc represent(i: int): iterator(): string =
   result = iterator(): string =

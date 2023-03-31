@@ -1,8 +1,12 @@
 discard """
+  target: !vm
   output: '''wow2
 X 1
 X 3'''
 """
+
+# disabled on VM until we support methods (knownIssue)
+
 type
   First[T] = ref object of RootObj
     value: T

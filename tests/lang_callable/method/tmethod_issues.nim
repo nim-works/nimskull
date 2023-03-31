@@ -1,11 +1,12 @@
 discard """
+  target: "!vm"
   output: '''
 wof!
 wof!
-type A
-type B
 '''
 """
+
+# disabled on VM until we support methods (knownIssue)
 
 
 # bug #1659
@@ -29,15 +30,16 @@ ech a
 
 
 # bug #2401
-type MyClass = ref object of RootObj
+when not defined(js): # knownIssue with JS codegen
+  type MyClass = ref object of RootObj
 
-method HelloWorld*(obj: MyClass) {.base.} =
-  when defined(myPragma):
-    echo("Hello World")
-  # discard # with this line enabled it works
+  method HelloWorld*(obj: MyClass) {.base.} =
+    when defined(myPragma):
+      echo("Hello World")
+    # discard # with this line enabled it works
 
-var obj = MyClass()
-obj.HelloWorld()
+  var obj = MyClass()
+  obj.HelloWorld()
 
 
 
@@ -139,12 +141,12 @@ type
 
   B = ref object of A
 
-method foo(v: sink A, lst: var seq[A]) {.base,locks:0.} =
-  echo "type A"
+method foo(v: sink A, lst: var seq[A]): string {.base,locks:0.} =
+  result = "type A"
   lst.add v
 
-method foo(v: sink B, lst: var seq[A]) =
-  echo "type B"
+method foo(v: sink B, lst: var seq[A]): string =
+  result = "type B"
   lst.add v
 
 proc main() =
@@ -154,8 +156,9 @@ proc main() =
 
   var lst: seq[A]
 
-  foo(a, lst)
-  foo(b, lst)
+  doAssert foo(a, lst) == "type A"
+  doAssert foo(b, lst) == "type B"
 
-main()
+when not defined(js): # knownIssue for JS, causes exception, needs deep dive
+  main()
 

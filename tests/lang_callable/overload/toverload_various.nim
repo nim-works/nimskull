@@ -1,11 +1,10 @@
 discard """
   output: '''
-true012innertrue
 m1
 tup1
 another number: 123
 yay
-helloa 1 b 2 x @[3, 4, 5] y 6 z 7
+a 1 b 2 x @[3, 4, 5] y 6 z 7
 yay
 12
 ref ref T ptr S
@@ -37,6 +36,11 @@ block overl2:
 
   var
     pp: proc (x: bool): string {.nimcall.} = toverl2
+    stdout = ""
+
+  proc write(fakeStdout: var string, stuff: varargs[string, `$`]) =
+    for s in stuff:
+      fakeStdout.add s
 
   stdout.write(pp(true))
 
@@ -48,8 +52,7 @@ block overl2:
     stdout.write(toverl2(5))
     stdout.write(true)
 
-  stdout.write("\n")
-  #OUT true012innertrue
+  doAssert stdout == "true012innertrue"
 
 
 
@@ -92,8 +95,9 @@ block toverprc:
     result = x("123")
 
   if false:
+    let someInputLine = "69\nnice\nlol"
     echo "Give a list of numbers (separated by spaces): "
-    var x = stdin.readline.split.map(parseInt).max
+    var x = someInputLine.split.map(parseInt).max
     echo x, " is the maximum!"
   echo "another number: ", takeParseInt(parseInt)
 
@@ -112,10 +116,9 @@ block toverprc:
 
 block toverwr:
   # Test the overloading resolution in connection with a qualifier
-  proc write(t: File, s: string) =
-    discard # a nop
-  system.write(stdout, "hello")
-  #OUT hello
+  func len(s: string): int =
+    0
+  doAssert system.len("hello") == 5
 
 
 

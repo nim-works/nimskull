@@ -1,16 +1,19 @@
 discard """
+  target: "!js !vm"
+  joinable: false
   output: '''Match failed: spam
 Match failed: ham'''
-joinable: false
 """
 
 # bug #6220
 
-import nre
-import options
-import strutils except isAlpha, isLower, isUpper, isSpace
-from unicode import isAlpha, isLower, isUpper, isTitle, isWhiteSpace
-import os
+# fix `std/nre` to work across platforms to enable for js and vm
+
+import std/nre
+import std/options
+import std/strutils except isAlpha, isLower, isUpper, isSpace
+from std/unicode import isAlpha, isLower, isUpper, isTitle, isWhiteSpace
+import std/os
 
 const debugLex = false
 

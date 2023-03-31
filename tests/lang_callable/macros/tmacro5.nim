@@ -1,4 +1,10 @@
-import macros,json
+discard """
+target: "!vm"
+"""
+
+# disabled on VM, compiler crash needs a deeper dive (knownIssue)
+
+import std/[macros,json]
 
 var decls{.compileTime.}: seq[NimNode] = @[]
 var impls{.compileTime.}: seq[NimNode] = @[]

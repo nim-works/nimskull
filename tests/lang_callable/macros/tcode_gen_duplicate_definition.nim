@@ -1,5 +1,6 @@
 discard """
   action: "compile"
+  target: "!vm"
   description: '''
   . Originally from https://github.com/nim-lang/Nim/issues/6986 as a duplicate
     cpp codegen issue, but this is more testing the invariant for all backends
@@ -7,7 +8,9 @@ discard """
   '''
 """
 
-import sequtils, strutils
+# broken on VM, requires deeper dive (knownIssue)
+
+import std/[sequtils, strutils]
 
 
 let rules = toSeq(lines("input"))

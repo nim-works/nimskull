@@ -109,9 +109,7 @@ block tdebugstmt:
   macro debug(n: varargs[untyped]): untyped =
     result = newNimNode(nnkStmtList, n)
     for i in 0..n.len-1:
-      add(result, newCall("write", newIdentNode("stdout"), toStrLit(n[i])))
-      add(result, newCall("write", newIdentNode("stdout"), newStrLitNode(": ")))
-      add(result, newCall("writeLine", newIdentNode("stdout"), n[i]))
+      add(result, newCall("echo", toStrLit(n[i]), newStrLitNode(": "), n[i]))
 
   var
     a: array[0..10, int]

@@ -1,4 +1,5 @@
 discard """
+  target: "!vm"
   output: '''@[1, 2, 3]
 @[4.0, 5.0, 6.0]
 @[1, 2, 3]
@@ -6,6 +7,8 @@ discard """
 @[1, 2, 3]
 @[4, 5, 6]'''
 """
+
+# disabled on VM: SIGSEGVs; needs a deeper dive (knownIssue)
 
 # bug #3476
 
