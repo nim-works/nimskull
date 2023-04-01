@@ -380,7 +380,6 @@ block t2304:
 
 
 block t2752:
-  when defined(jsVmClosureIteratorSupported):
     proc myFilter[T](it: (iterator(): T), f: (proc(anything: T):bool)): (iterator(): T) =
       iterator aNameWhichWillConflict(): T {.closure.}=
         for x in it():

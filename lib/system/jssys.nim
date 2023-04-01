@@ -72,6 +72,11 @@ proc getCurrentExceptionMsg*(): string =
 proc setCurrentException*(exc: ref Exception) =
   lastJSError = cast[PJSError](exc)
 
+proc closureIterSetupExc(e: ref Exception) {.compilerproc, inline.} =
+  ## Used by the closure transformation pass for preparing for exception
+  ## handling
+  setCurrentException(e)
+
 proc auxWriteStackTrace(f: PCallFrame): string =
   type
     TempFrame = tuple[procname: cstring, line: int, filename: cstring]

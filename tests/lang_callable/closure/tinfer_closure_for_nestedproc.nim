@@ -3,7 +3,8 @@ discard """
   target: "!vm"
 """
 
-# disabled on VM because it crashes (knownIssue)
+# knownIssue: the `strtabs` module imports the ``std/os`` module, which isn't
+#             yet supported for the VM target
 
 # bug #9441
 import std/strtabs

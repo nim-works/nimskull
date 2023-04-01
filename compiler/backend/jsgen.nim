@@ -244,6 +244,18 @@ proc mapType(typ: PType): TJSTypeKind =
 proc mapType(p: PProc; typ: PType): TJSTypeKind =
   result = mapType(typ)
 
+func mangleJs(name: string): string =
+  ## Mangles the given `name` and returns the result. The mangling is required
+  ## in order to ensure that NimSkull identifiers map to valid JavaScript
+  ## identifiers
+  result = newStringOfCap(name.len)
+  for c in name.items:
+    case c
+    of 'A'..'Z', 'a'..'z', '_', '0'..'9':
+      result.add c
+    else:
+      result.add("HEX" & toHex(ord(c), 2))
+
 proc mangleName(m: BModule, s: PSym): Rope =
   proc validJsName(name: string): bool =
     result = true
@@ -272,17 +284,7 @@ proc mangleName(m: BModule, s: PSym): Rope =
     elif s.kind == skTemp:
       result = rope(mangle(s.name.s))
     else:
-      var x = newStringOfCap(s.name.s.len)
-      var i = 0
-      while i < s.name.s.len:
-        let c = s.name.s[i]
-        case c
-        of 'A'..'Z', 'a'..'z', '_', '0'..'9':
-          x.add c
-        else:
-          x.add("HEX" & toHex(ord(c), 2))
-        inc i
-      result = rope(x)
+      result = mangleJs(s.name.s)
     # From ES5 on reserved words can be used as object field names
     if s.kind != skField:
       result.add("_")
@@ -1433,7 +1435,7 @@ proc genSym(p: PProc, n: PNode, r: var TCompRes) =
     genConstant(p, s)
     p.config.internalAssert(s.loc.r != "", n.info, "symbol has no generated name: " & s.name.s)
     r.res = s.loc.r
-  of skProc, skFunc, skConverter, skMethod:
+  of skProc, skFunc, skConverter, skMethod, skIterator:
     if sfCompileTime in s.flags:
       localReport(p.config, n.info, reportSym(
         rsemCannotCodegenCompiletimeProc, s))
@@ -2161,6 +2163,17 @@ proc genMagic(p: PProc, n: PNode, r: var TCompRes) =
     genMove(p, n, r)
   of mAccessEnv:
     unaryExpr(p, n, r, "accessEnv", "accessEnv($1)")
+  of mFinished:
+    # access the ``:state`` field of the environment and check if its value is
+    # less than zero
+    var x: TCompRes
+    gen(p, n[1], x)
+    # XXX: the implementation is a hack -- it makes a lot of implicit
+    #      assumptions and is thus very brittle. However, don't attempt to
+    #      fix it here; implement the lowering of the ``mFinished`` magic as a
+    #      MIR pass that is used for all backends
+    r.res = "($1.env.$2 < 0)" % [x.rdLoc, mangleJs(":state")]
+    r.kind = resExpr
   else:
     genCall(p, n, r)
     #else internalError(p.config, e.info, 'genMagic: ' + magicToStr[op]);
@@ -2627,13 +2640,7 @@ proc gen(p: PProc, n: PNode, r: var TCompRes) =
   of nkTypeSection, nkCommentStmt, nkIncludeStmt,
      nkImportStmt, nkImportExceptStmt, nkExportStmt, nkExportExceptStmt,
      nkFromStmt, nkTemplateDef, nkMacroDef, nkStaticStmt,
-     nkMixinStmt, nkBindStmt: discard
-  of nkIteratorDef:
-    if n[0].sym.typ.callConv == TCallingConvention.ccClosure:
-      globalReport(p.config, n.info, BackendReport(
-        kind: rbackJsUnsupportedClosureIter))
-      assert false, "asdfasdf"
-
+     nkMixinStmt, nkBindStmt, nkIteratorDef: discard
   of nkPragma: genPragma(p, n)
   of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:
     var s = n[namePos].sym

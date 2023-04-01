@@ -1295,7 +1295,20 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         VmClosure(fnc: fPtr, env: env),
         c.memory,
         reset=true)
+    of opcAccessEnv:
+      # a = b.env[]
+      decodeB(rkHandle)
+      checkHandle(regs[rb])
 
+      # XXX: the implementation works for now, but is going to run into issues
+      #      once the ``mAccessEnv`` magic reaches ``vmgen``. The
+      #      ``opcAccessEnv`` needs to only load the ``ref`` value, not
+      #      dereference it already
+      let env = regs[instr.regB].atomVal.closureVal.env
+      if env.isNil:
+        raiseVmError(VmEvent(kind: vmEvtNilAccess))
+      else:
+        regs[ra].setHandle(c.heap.tryDeref(env, noneType).value())
     of opcAddrReg:
       let rb = instr.regB
       case regs[rb].kind
@@ -2069,7 +2082,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
 
         c.callbacks[entry.cbOffset](
           VmArgs(ra: ra, rb: rb, rc: rc, slots: cast[ptr UncheckedArray[TFullReg]](addr regs[0]),
-                 currentException: c.currentExceptionA,
+                 currentExceptionPtr: addr c.currentExceptionA,
                  currentLineInfo: c.debug[pc],
                  typeCache: addr c.typeInfoCache,
                  mem: addr c.memory,

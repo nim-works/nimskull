@@ -1,11 +1,8 @@
 discard """
-  target: "!js !vm"
   output: '''5
 14
 0'''
 """
-
-# JS and VM targets disabled until they support closure iterators (knownIssue)
 
 iterator count[T](x: T, skip: bool): int {.closure.} =
   if skip: return x+10

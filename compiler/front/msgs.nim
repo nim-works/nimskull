@@ -418,7 +418,6 @@ func astDiagVmGenToLegacyReportKind*(
   of adVmGenCannotEvaluateAtComptime: rvmCannotEvaluateAtComptime
   of adVmGenCannotImportc: rvmCannotImportc
   of adVmGenInvalidObjectConstructor: rvmInvalidObjectConstructor
-  of adVmGenNoClosureIterators: rvmNoClosureIterators
   of adVmGenCannotCallMethod: rvmCannotCallMethod
 
 func astDiagToLegacyReportKind*(

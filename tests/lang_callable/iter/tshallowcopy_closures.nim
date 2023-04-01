@@ -7,7 +7,8 @@ a1 9
 '''
 """
 
-# disabled on js and vm until closure iterator support lands (knownIssue)
+# TODO: ccodecheck only works for the C target. Adjust the test to not depend
+#       on inspecting the generated C code and enable it for the VM/JS target
 
 # bug #1803
 

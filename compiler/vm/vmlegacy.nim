@@ -35,7 +35,6 @@ func vmGenDiagToLegacyReportKind(diag: VmGenDiagKind): ReportKind {.inline.} =
   of vmGenDiagCannotEvaluateAtComptime: rvmCannotEvaluateAtComptime
   of vmGenDiagCannotImportc: rvmCannotImportc
   of vmGenDiagInvalidObjectConstructor: rvmInvalidObjectConstructor
-  of vmGenDiagNoClosureIterators: rvmNoClosureIterators
   of vmGenDiagCannotCallMethod: rvmCannotCallMethod
 
 template magicToString(m: TMagic): string =
@@ -65,7 +64,6 @@ func vmGenDiagToLegacyVmReport*(diag: VmGenDiag): VMReport {.inline.} =
         reportInst: diag.instLoc.toReportLineInfo)
     of vmGenDiagCodeGenGenericInNonMacro,
         vmGenDiagCodeGenUnexpectedSym,
-        vmGenDiagNoClosureIterators,
         vmGenDiagCannotImportc,
         vmGenDiagCannotCallMethod,
         vmGenDiagTooLargeOffset:

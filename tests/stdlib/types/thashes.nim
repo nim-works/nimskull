@@ -1,17 +1,12 @@
 discard """
-  targets: "c js"
+  targets: "c js !vm"
 """
+
+# knowIssue: testutils imports ``std/os``, which is not yet supported by the
+#            VM
 
 import std/hashes
 from stdtest/testutils import disableVm, whenVMorJs
-
-when not defined(js):
-  block:
-    var x = 12
-    iterator hello(): int {.closure.} =
-      yield x
-
-    discard hash(hello)
 
 block hashes:
   block hashing:

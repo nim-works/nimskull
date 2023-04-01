@@ -1,5 +1,4 @@
 discard """
-  target: "!js !vm"
   output: '''
 0
 1
@@ -32,9 +31,6 @@ end
 @[1, 2, 3]
 '''
 """
-
-# JS and VM targets disabled until they support closure iterators (knownIssue)
-
 
 import std/[sequtils, strutils]
 

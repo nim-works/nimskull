@@ -244,8 +244,6 @@ proc generateAliveProcs(c: var TCtx, mlist: var ModuleList) =
   for ri, sym in c.linkState.newProcs.cpairs:
     c.config.internalAssert(sym.kind notin {skMacro, skTemplate}):
       "unexpanded macro or template"
-    c.config.internalAssert(sym.kind != skIterator):
-      "closure iterator wasn't rejected by vmgen"
 
     let i = start + ri
     c.functions[i] = c.initProcEntry(sym)
