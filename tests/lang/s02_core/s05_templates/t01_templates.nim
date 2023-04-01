@@ -89,19 +89,23 @@ block identifier_join:
     doAssert getvar(2'i32) == 50
     doAssert getvar(2'i64) == 50
 
-    when false:
-      # These are gaps in the spec, what sort of error should result?
-      # the spec feels really half-baked at this point... we should probably
-      # create an identifier type and constructor and only accept those
-      getVar(-2)   # produces "varName-2"
-      getVar('\n') # produces "varName10" ... wtf
-      getVar("\n") # produces "varName<newLine>"
+  block works_with_stropping:
+    ## Stropping works with identifier join in templates
+    var `varName??` = 50
+    doAssert getVar(`??`) == 50
 
-  when defined(tryBrokenSpecification):
-    block works_with_stropping:
-      ## Stropping does not work with identifier join in templates
-      var `varName??` = 50
-      doAssert getVar(`??`) == 50
+  block silly_things_like_this_are_probably_going_to_go:
+    ## don't expect this to last, likely to be dropped from the spec
+    var foo = 10
+    doAssert foo == `r"foo"`
+
+  when false:
+    # These are gaps in the spec, what sort of error should result?
+    # the spec feels really half-baked at this point... we should probably
+    # create an identifier type and constructor and only accept those
+    getVar(-2)   # produces "varName-2"
+    getVar('\n') # produces "varName10" ... wtf
+    getVar("\n") # produces "varName<newLine>"
 
   # TODO: these aren't really identifier construction tests, move them out
   block substitution_is_ast_based:

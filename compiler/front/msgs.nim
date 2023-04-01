@@ -437,6 +437,7 @@ func astDiagToLegacyReportKind*(
   of adSemExpectedIdentifier: rsemExpectedIdentifier
   of adSemExpectedIdentifierInExpr: rsemExpectedIdentifierInExpr
   of adSemExpectedIdentifierWithExprContext: rsemExpectedIdentifierWithExprContext
+  of adSemExpectedIdentifierQuoteLimit: rsemExpectedIdentifierQuoteLimit
   of adSemOnlyDeclaredIdentifierFoundIsError: rsemOnlyDeclaredIdentifierFoundIsError
   of adSemModuleAliasMustBeIdentifier: rsemModuleAliasMustBeIdentifier
   of adSemCannotImportItself: rsemCannotImportItself

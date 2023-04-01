@@ -641,6 +641,7 @@ type
     # Identifier Lookup
     rsemUndeclaredIdentifier
     rsemExpectedIdentifier
+    rsemExpectedIdentifierQuoteLimit
     rsemExpectedIdentifierInExpr
     rsemExpectedIdentifierWithExprContext
     rsemModuleAliasMustBeIdentifier

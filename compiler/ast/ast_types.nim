@@ -1040,6 +1040,7 @@ type
     adSemExpectedIdentifier
     adSemExpectedIdentifierInExpr          ## Expr is the wrongNode itself
     adSemExpectedIdentifierWithExprContext ## Expr part is informational
+    adSemExpectedIdentifierQuoteLimit      ## backtick ident construction limit
     adSemModuleAliasMustBeIdentifier
     adSemOnlyDeclaredIdentifierFoundIsError
     # imports
@@ -1311,7 +1312,8 @@ type
         adSemFoldOverflow,
         adSemFoldDivByZero,
         adSemInvalidRangeConversion,
-        adSemFoldCannotComputeOffset:
+        adSemFoldCannotComputeOffset,
+        adSemExpectedIdentifierQuoteLimit:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode

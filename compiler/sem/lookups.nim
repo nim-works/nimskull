@@ -54,20 +54,148 @@ proc ensureNoMissingOrUnusedSymbols(c: PContext; scope: PScope)
 type
   PIdentResult* = tuple
     ident: PIdent      ## found ident, otherwise `IdentCache.notFoundIdent`
-    errNode: PNode     ## if ident is notFoundIdent, node where error occurred
-                       ## use with original PNode for better error reporting
+    errNode: PNode     ## if ident is notFoundIdent, node with the error, use
+                       ## with original PNode for better error reporting
 
 proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
-  ## Retrieve a PIdent from a PNode, taking into account accent nodes.
+  ## Retrieve a PIdent from a PNode, taking into account accent nodes for
+  ## keyword escaping (stropping) and identifier construction. If none found,
+  ## returns a `idents.IdentCache.identNotFound` and an error node (`nkError`).
   ##
-  ## If none found, returns a `idents.IdentCache.identNotFound`
+  ## Idents are derived as follows:
+  ## - nkIdent -> ident
+  ## - nkSym -> ident
+  ## - nkSymChoices -> ident of first child; assert if malformed
+  ## - nkAccQuoted:
+  ##    - if empty -> an error
+  ##    - if singleton with nkIdent|Sym|SymChoices -> handled as above
+  ##    - else -> construct identifier, see next
+  ## - anything else -> not found (see note )
+  ##
+  ## Ident Construction, creates an ident by concatenating child string values:
+  ## - nkIdent|Sym|SymChoices -> ident.s for string value
+  ## - nkAccQuoted:
+  ##   - if empty -> empty string
+  ##   - else -> recursively evaluate
+  ## - string literals -> string
+  ## - chararacter literal -> character as string
+  ## - integer literal -> int to string
+  ## - anything else -> error
+  ## To ensure we don't have a run away evaluation, identifier construction has
+  ## a hard limit on number of items.
+  # xxx: `considerQuotedIdent` raises an interesting question around what is a
+  #      syntactically valid identifier vs a core language valid identifier.
+  #      That is to say what can a human provide as source that'll pass lexing
+  #      and parsing, and is generally known as Nimskull vs what our "lisp-y"
+  #      core language allows. Further to that, what do we afford
+  #      end-programmers via templates vs macros? Presently, `nkAccQuote` we
+  #      don't _really_ enforce identifier well-formed-ness in many places and
+  #      `nkAccQuoted` identifier construction let's us get away with a lot
+  #      more than keyword escaping.
   let
     ic = c.cache
     notFoundIdent = ic.getNotFoundIdent()
 
   const
     atomicIdentKinds = {nkIdent, nkSym}
+    renderableLiterals = nkLiterals - nkFloatLiterals
+    renderableKinds = atomicIdentKinds + renderableLiterals
     allNodeKinds = {low(TNodeKind)..high(TNodeKind)}
+
+  proc accQuotedConstrIdentNode(c: PContext, n: PNode): PNode =
+    ## construct an identifier from the `nkAccQuoted` node `n`, returning an
+    ## `nkIdent` node, or `nkError` upon failure.
+    const limit = 20 ## limit how much evaluation we do here
+    assert n.kind == nkAccQuoted
+    var
+      stack: seq[(int, PNode)] = @[(0, n)]
+        ## tracks the depth first node traversal (child index and node) of
+        ## `nkAccQuoted` nodes, the index is mutated to track which quoted
+        ## child needs to be processed next
+      wellFormedAst = true
+        ## tracks if `n` is well formed AST even if there are no `nkError`
+      hasError = false
+        ## `n` already has errors (`nkError` nodes)
+      counter = 0
+        ## how many iterations we've done, used to avoid lengthy/endless eval
+      flattened: seq[PNode]
+        ## collection point for a flat `nkAccQuote` tree, for ident string gen
+
+    while stack.len > 0 and counter < limit:
+      let
+        stackPos = stack.len - 1
+        quote = stack[stackPos][1]
+      var idx = stack[stackPos][0]
+
+      # process until the next `nkAccQuoted` that requires descent
+      while idx < quote.len and
+            (quote[idx].kind != nkAccQuoted or quote[idx].len == 0):
+        inc counter
+        let q = quote[idx]
+        case q.kind
+        of atomicIdentKinds, nkIntLiterals, nkStrLiterals:
+          flattened.add q
+        of nkSymChoices:
+          flattened.add:
+            if q.len > 0 and q[0].kind == nkSym:
+              q[0]
+            else:
+              q   # treat `nkSymChoices` as an error signal below
+        of nkAccQuoted:
+          assert q.len == 0
+          flattened.add q
+        of nkError:
+          hasError = true
+          flattened.add q
+        of allNodeKinds - nkIdentKinds - renderableKinds - {nkError}:
+          wellFormedAst = false
+          flattened.add q
+        inc idx
+
+      if idx < quote.len:
+        assert quote[idx].kind == nkAccQuoted and quote[idx].len > 0
+        stack.add (0, quote[idx])
+        inc counter
+        inc idx
+        stack[stackPos][0] = idx # update to latest index
+      else:
+        discard stack.pop() # we're done processing pop and move on
+
+    # now we have a very flattened/normalized `nkAccQuoted` ast expression,
+    # time to try constructing an identifier.
+    result =
+      if hasError:
+        c.config.wrapError(n)
+      elif counter >= limit:
+        c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifierQuoteLimit))
+      elif wellFormedAst:
+        var
+          id = ""
+          badNode: PNode = nil
+        for s in flattened.items:
+          case s.kind
+          of nkIdent:                     id.add(s.ident.s)
+          of nkSym:                       id.add(s.sym.name.s)
+          of nkStrLiterals:               id.add(s.strVal)
+          of nkCharLit:                   id.add(char(s.intVal))
+          of nkIntLiterals - {nkCharLit}: id.addInt(s.intVal)
+          of nkAccQuoted:                 discard "empty string"
+          of nkSymChoices:
+            badNode = s
+            break
+          of allNodeKinds - nkIdentKinds - renderableKinds:
+            unreachable("was eliminated in normalization")
+        if badNode != nil:
+          c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifierInExpr,
+                                        notIdent: badNode))
+        elif id == "":
+          c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifier))
+        else:
+          newIdentNode(ic.getIdent(id), n.info)
+      else:
+        # not well formed, but no errors
+        c.config.newError(n,
+          PAstDiag(kind: adSemExpectedIdentifier))
 
   template extractAtomicIdent(atom: PNode): PIdent =
     ## extracts the ident from `atom` which must be an `atomicIdentKinds`
@@ -76,28 +204,8 @@ proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
     of nkSym:                           atom.sym.name
     of allNodeKinds - atomicIdentKinds: unreachable()
 
-  template makeAccQuotedTemplateIdent(ic: IdentCache, quote: PNode): PIdent =
-    ## makes an ident from an `nkAccQuoted` node `quote`
-    assert quote.kind == nkAccQuoted and quote.len >= 2
-    const
-      renderableLiterals = nkLiterals - nkFloatLiterals
-      renderableKinds = atomicIdentKinds + renderableLiterals
-    var
-      id = ""
-      error = false
-    for q in quote.items:
-      case q.kind
-      of nkIdent, nkSym: id.add(extractAtomicIdent(q).s)
-      of nkIntLiterals:  id.addInt(q.intVal)
-      of nkStrLiterals:  id.add(q.strVal)
-      of allNodeKinds - renderableKinds:
-        error = true
-        break
-    if error: notFoundIdent
-    else:     getIdent(c.cache, id)
-
   var
-    currN {.cursor.} = n
+    currN = n
     ident: PIdent
   case currN.kind
   of nkIdent, nkSym:
@@ -108,8 +216,22 @@ proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
   of nkAccQuoted:
     case currN.len
     of 0: ident = notFoundIdent
-    of 1: currN = currN[0]
-    else: ident = makeAccQuotedTemplateIdent(ic, currN)
+    of 1:
+      let inner = currN[0]
+      case inner.kind
+      of atomicIdentKinds:
+        currN = inner
+      of nkSymChoices:
+        assert inner.len > 0 and inner[0].kind == nkSym
+        currN = inner[0]
+      of nkAccQuoted, renderableLiterals:
+        currN = accQuotedConstrIdentNode(c, currN)
+      of nkError:
+        currN = c.config.wrapError(n)
+      else:
+        ident = notFoundIdent
+    else:
+      currN = accQuotedConstrIdentNode(c, currN)
   of allNodeKinds - nkIdentKinds:
     # the case condition is awkward, but it ensures exhaustiveness
     ident = notFoundIdent
@@ -129,13 +251,18 @@ proc considerQuotedIdent*(c: PContext; n: PNode): PIdentResult =
 
   result.ident = ident
   result.errNode =
-    if ident == notFoundIdent:
+    if currN.kind == nkError:
+      currN
+    elif ident == notFoundIdent:
       c.config.newError(n):
         if currN == n: PAstDiag(kind: adSemExpectedIdentifier)
         else:          PAstDiag(kind: adSemExpectedIdentifierInExpr,
                                 notIdent: currN)
     else:
       nil
+  
+  assert result.ident != notFoundIdent or result.errNode != nil,
+    "we either found and ident or it must be an error"
 
 proc legacyConsiderQuotedIdent*(c: PContext; n, origin: PNode): PIdent =
   ## Legacy/Transition Code: avoid using this
