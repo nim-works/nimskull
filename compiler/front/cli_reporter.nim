@@ -2163,6 +2163,11 @@ proc reportBody*(conf: ConfigRef, r: SemReport): string =
       result = "in expression '$1': identifier expected, but found '$2'" %
                 [r.ast.render(), r.wrongNode.render()]
 
+    of rsemExpectedIdentifierQuoteLimit:
+      result =
+        "identifier expected, found too large identifier construction '$1'" %
+          [r.ast.render()]
+
     of rsemExpectedIdentifierWithExprContext:
       # `ast` the identifier, the expression `wrongNode` (where the error is)
       # clarifies the message.
@@ -3870,7 +3875,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemExpectedObjectType,
       adSemFoldOverflow,
       adSemFoldDivByZero,
-      adSemFoldCannotComputeOffset:
+      adSemFoldCannotComputeOffset,
+      adSemExpectedIdentifierQuoteLimit:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,

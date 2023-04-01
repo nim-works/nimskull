@@ -303,7 +303,7 @@ proc semShallowCopy(c: PContext, n: PNode, flags: TExprFlags): PNode
 proc semOf(c: PContext, n: PNode): PNode =
   if n.len == 3:
     n[1] = semExprWithType(c, n[1])
-    n[2] = semExprWithType(c, n[2], {efDetermineType})
+    n[2] = semExprWithType(c, n[2])
     #restoreOldStyleType(n[1])
     #restoreOldStyleType(n[2])
     let a = skipTypes(n[1].typ, abstractPtrs)
