@@ -224,8 +224,6 @@ type
     unitSep*: string ## Unit separator between compiler messages
     evalTemplateCounter*: int ## Template instantiation depth used to guard
     ## against infinite expansion recursion
-    evalMacroCounter*: int ## Macro instantiation depth, used to guard
-    ## against infinite macro expansion recursion
     exitcode*: int8
 
     hintProcessingDots*: bool ## true for dots, false for filenames

@@ -502,31 +502,18 @@ proc setupMacroParam(reg: var TFullReg, c: var TCtx, x: PNode, typ: PType) =
     reg = TFullReg(kind: rkNimNode, nimNode: n)
 
 proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstCounter: ref int;
-                    n: PNode, sym: PSym): PNode =
-  #if g.config.errorCounter > 0: return errorNode(idgen, module, n)
-
-  # XXX globalReport() is ugly here, but I don't know a better solution for now
-  inc(g.config.evalMacroCounter)
-  if g.config.evalMacroCounter > evalMacroLimit:
-    globalReport(g.config, n.info, VMReport(
-      kind: rsemMacroInstantiationTooNested, ast: n))
-
-  # immediate macros can bypass any type and arity checking so we check the
-  # arity here too:
-  if sym.typ.len > n.safeLen and sym.typ.len > 1:
-    globalReport(g.config, n.info, SemReport(
-      kind: rsemWrongNumberOfArguments,
-      ast: n,
-      countMismatch: (
-        expected: sym.typ.len - 1,
-        got: n.safeLen - 1)))
-
+                    call, args: PNode, sym: PSym): PNode =
+  ## Evaluates a call to the macro `sym` with arguments `arg` with the VM.
+  ##
+  ## `call` is the original call expression, which is used as the ``wrongNode``
+  ## in case of an error, as the node returned by the ``callsite`` macro API
+  ## procedure, and for providing line information.
   setupGlobalCtx(module, g, idgen)
   let c = PCtx g.vm
   let oldMode = c.mode
   c.mode = emStaticStmt
   c.comesFromHeuristic.line = 0'u16
-  c.callsite = n
+  c.callsite = call
   c.templInstCounter = templInstCounter
 
   defer:
@@ -538,54 +525,29 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
     c.mode = oldMode
     c.callsite = nil
 
-  let (start, regCount) = loadProc(c[], sym).returnOnErr(c.config, n)
+  let (start, regCount) = loadProc(c[], sym).returnOnErr(c.config, call)
 
   var tos = TStackFrame(prc: sym, comesFrom: 0)
   tos.slots.newSeq(regCount)
-  # setup arguments:
-  var L = n.safeLen
-  if L == 0: L = 1
-  # This is wrong for tests/reject/tind1.nim where the passed 'else' part
-  # doesn't end up in the parameter:
-  #InternalAssert tos.slots.len >= L
 
   # return value:
-  tos.slots[0] = TFullReg(kind: rkNimNode, nimNode: newNodeI(nkEmpty, n.info))
+  tos.slots[0] = TFullReg(kind: rkNimNode, nimNode: newNodeI(nkEmpty, call.info))
 
-  # put macro call arguments into registers
+  # put the normal arguments into registers
   for i in 1..<sym.typ.len:
-    setupMacroParam(tos.slots[i], c[], n[i], sym.typ[i])
+    setupMacroParam(tos.slots[i], c[], args[i - 1], sym.typ[i])
 
-  # put macro generic parameters into registers
+  # put the generic arguments into registers
   let gp = sym.ast[genericParamsPos]
   for i in 0..<gp.safeLen:
     let idx = sym.typ.len + i
-    if idx < n.len:
-      setupMacroParam(tos.slots[idx], c[], n[idx], gp[i].sym.typ)
-    else:
-      # TODO: the decrement here is wrong, but the else branch is likely
-      #       currently not reached anyway
-      dec(g.config.evalMacroCounter)
-      localReport(c.config, n.info, SemReport(
-        kind: rsemWrongNumberOfGenericParams,
-        countMismatch: (
-          expected: gp.len,
-          got: idx)))
+    setupMacroParam(tos.slots[idx], c[], args[idx - 1], gp[i].sym.typ)
 
-  # temporary storage:
-  #for i in L..<maxSlots: tos.slots[i] = newNode(nkEmpty)
-
-  # n.typ == nil is valid and means that resulting NimNode represents
-  # a statement
   let cb = mkCallback(c, r): r.nimNode
-  result = execute(c[], start, tos, cb).unpackResult(c.config, n)
+  result = execute(c[], start, tos, cb).unpackResult(c.config, call)
 
   if result.kind != nkError and cyclicTree(result):
-    globalReport(c.config, n.info, VMReport(
-      kind: rsemCyclicTree, ast: n, sym: sym))
-
-  dec(g.config.evalMacroCounter)
-
+    result = c.config.newError(call, PAstDiag(kind: adCyclicTree))
 
 # ----------- the VM-related compilerapi -----------
 
