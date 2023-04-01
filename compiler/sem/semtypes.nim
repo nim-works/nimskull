@@ -251,8 +251,8 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
     localReport(c.config, n, reportSem rsemRangeIsEmpty)
 
   var range: array[2, PNode]
-  range[0] = semExprWithType(c, n[1], {efDetermineType})
-  range[1] = semExprWithType(c, n[2], {efDetermineType})
+  range[0] = semExprWithType(c, n[1])
+  range[1] = semExprWithType(c, n[2])
 
   var rangeT: array[2, PType]
   for i in 0..1:
@@ -326,7 +326,7 @@ proc semArrayIndex(c: PContext, n: PNode): PType =
   if isRange(n):
     result = semRangeAux(c, n, nil)
   else:
-    let e = semExprWithType(c, n, {efDetermineType})
+    let e = semExprWithType(c, n)
     if e.typ.kind == tyFromExpr:
       result = makeRangeWithStaticExpr(c, e.typ.n)
     elif e.kind in {nkIntLit..nkUInt64Lit}:
@@ -1382,7 +1382,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
             def.typ = makeTypeFromExpr(c, def.copyTree)
             break determineType
 
-        def = semExprWithType(c, def, {efDetermineType})
+        def = semExprWithType(c, def)
         if def.referencesAnotherParam(getCurrOwner(c)):
           def.flags.incl nfDefaultRefsParam
 
@@ -1671,7 +1671,7 @@ proc fixupTypeOf(c: PContext, prev: PType, typExpr: PNode) =
     assignType(prev, result)
 
 proc semTypeExpr(c: PContext, n: PNode; prev: PType): PType =
-  var n = semExprWithType(c, n, {efDetermineType})
+  var n = semExprWithType(c, n)
   if n.typ.kind == tyTypeDesc:
     result = n.typ.base
     # fix types constructed by macros/template:

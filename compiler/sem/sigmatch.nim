@@ -2475,14 +2475,7 @@ proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
   elif a.typ.isNil:
     # XXX This is unsound! 'formal' can differ from overloaded routine to
     # overloaded routine!
-    let
-      flags = {efDetermineType, efAllowStmt}
-                #if formal.kind == tyIterable: {efDetermineType, efWantIterator}
-                #else: {efDetermineType, efAllowStmt}
-                #elif formal.kind == tyTyped: {efDetermineType, efWantStmt}
-                #else: {efDetermineType}
-
-    result = c.semOperand(c, a, flags)
+    result = c.semOperand(c, a, {efAllowStmt})
   else:
     result = a
     considerGenSyms(c, result)
@@ -2494,7 +2487,7 @@ proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
 
 proc prepareOperand(c: PContext; a: PNode): PNode =
   if a.typ.isNil:
-    result = c.semOperand(c, a, {efDetermineType})
+    result = c.semOperand(c, a)
   else:
     result = a
     considerGenSyms(c, result)

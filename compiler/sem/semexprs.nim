@@ -415,7 +415,7 @@ proc semLowHigh(c: PContext, n: PNode, m: TMagic): PNode =
       else:
         unreachable()
   else:
-    n[1] = semExprWithType(c, n[1], {efDetermineType})
+    n[1] = semExprWithType(c, n[1])
     var typ = skipTypes(n[1].typ, abstractVarRange + {tyTypeDesc, tyUserTypeClassInst})
     case typ.kind
     of tySequence, tyString, tyCstring, tyOpenArray, tyVarargs:
@@ -527,7 +527,7 @@ proc semIs(c: PContext, n: PNode, flags: TExprFlags): PNode =
   n.typ = boolType
   var liftLhs = true
 
-  n[1] = semExprWithType(c, n[1], flags + {efDetermineType, efWantIterator})
+  n[1] = semExprWithType(c, n[1], flags + {efWantIterator})
 
   case n[2].kind
   of nkStrLit..nkTripleStrLit:
@@ -569,7 +569,6 @@ proc semOpAux(c: PContext, n: PNode): bool =
   ## Returns whether n contains errors
   ## This does not not wrap child errors in n
   ## the caller has to handle that
-  const flags = {efDetermineType}
   for i in 1..<n.len:
     var a = n[i]
     if a.kind == nkExprEqExpr and a.len == 2:
@@ -577,12 +576,12 @@ proc semOpAux(c: PContext, n: PNode): bool =
         info = a[0].info
         ident = legacyConsiderQuotedIdent(c, a[0], a)
       a[0] = newIdentNode(ident, info)
-      a[1] = semExprWithType(c, a[1], flags)
+      a[1] = semExprWithType(c, a[1])
       if a[1].isError:
         result = true
       a.typ = a[1].typ
     else:
-      n[i] = semExprWithType(c, a, flags)
+      n[i] = semExprWithType(c, a)
       if n[i].isError:
         result = true
 
@@ -1742,7 +1741,7 @@ proc builtinFieldAccess(c: PContext, n: PNode, flags: TExprFlags): PNode =
       result = semSym(c, n, s, flags)
     return
 
-  n[0] = semExprWithType(c, n[0], flags+{efDetermineType})
+  n[0] = semExprWithType(c, n[0], flags)
   var
     i = legacyConsiderQuotedIdent(c, n[1], n)
     ty = n[0].typ
@@ -1992,7 +1991,7 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
     if n.len != 2: return nil
     n[0] = makeDeref(n[0])
     for i in 1..<n.len:
-      n[i] = semExprWithType(c, n[i], flags*{efInTypeof, efDetermineType})
+      n[i] = semExprWithType(c, n[i], flags*{efInTypeof})
     # Arrays index type is dictated by the range's type
     if arr.kind == tyArray:
       var indexType = arr[0]
@@ -2789,7 +2788,7 @@ proc semSizeof(c: PContext, n: PNode): PNode =
   case n.len
   of 2:
     #restoreOldStyleType(n[1])
-    n[1] = semExprWithType(c, n[1], {efDetermineType})
+    n[1] = semExprWithType(c, n[1])
     n.typ = getSysType(c.graph, n.info, tyInt)
     result = foldSizeOf(c.config, n, n)
   else:
