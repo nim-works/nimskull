@@ -239,17 +239,12 @@ proc extractSpec(filename: string; spec: var TSpec): string =
   var line = 1
   var col = 1
   while i < s.len:
-    if (i == 0 or s[i-1] != ' ') and s.continuesWith(specStart, i):
+    if a == -1 and (i == 0 or s[i-1] != ' ') and s.continuesWith(specStart, i):
       # `s[i-1] == '\n'` would not work because of
       # `tests/stdlib/tbase64.nim` which contains BOM
       # (https://en.wikipedia.org/wiki/Byte_order_mark)
       const lineMax = 10
-      if a != -1:
-        raise newException(
-          ValueError,
-          "testament spec violation: duplicate `specStart` found: " &
-            $(filename, a, b, line))
-      elif line > lineMax:
+      if line > lineMax:
         # not overly restrictive, but prevents mistaking some `specStart`
         # as spec if deep inside a test file
         raise newException(

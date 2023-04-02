@@ -1,0 +1,3 @@
+## discard is a no op
+discard # it ignores anything appearing after on the "same" line...
+# but that's getting ahead of ourselves; besides comments are ignored
