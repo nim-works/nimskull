@@ -3753,7 +3753,15 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
     result = semProcAnnotation(c, n)
     if result == nil:
       result = n
-      result[namePos] = semRoutineName(c, n[namePos], skProc)
+      # heuristic to figure out if the lambda original started as a function,
+      # iterator, or procedure, and in turn set the expected symbol kind.
+      let kind =
+        if n[namePos].kind == nkSym and
+            n[namePos].sym.kind in {skProc, skFunc, skIterator}:
+          n[namePos].sym.kind
+        else:
+          skProc
+      result[namePos] = semRoutineName(c, n[namePos], kind, allowAnon = true)
       result = semProcAux(c, result, lambdaPragmas, flags)
   of nkDerefExpr: result = semDeref(c, n)
   of nkAddr:

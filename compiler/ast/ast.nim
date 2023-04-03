@@ -520,8 +520,9 @@ proc transitionGenericParamToType*(s: PSym) =
 
 proc transitionRoutineSymKind*(s: PSym, kind: range[skProc..skTemplate]) =
   transitionSymKindCommon(kind)
-  s.gcUnsafetyReason = obj.gcUnsafetyReason
-  s.transformedBody = obj.transformedBody
+  if obj.kind in routineKinds:
+    s.gcUnsafetyReason = obj.gcUnsafetyReason
+    s.transformedBody = obj.transformedBody
 
 proc transitionToLet*(s: PSym) =
   transitionSymKindCommon(skLet)

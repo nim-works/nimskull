@@ -2230,19 +2230,24 @@ proc semBorrow(c: PContext, n: PNode, s: PSym) =
   else:
     localReport(c.config, n, reportSem rsemBorrowTargetNotFound)
 
-proc swapResult(n: PNode, sRes: PSym, dNode: PNode) =
-  ## Swap nodes that are (skResult) symbols to d(estination)Node.
-  for i in 0..<n.safeLen:
-    if n[i].kind == nkSym and n[i].sym == sRes:
-        n[i] = dNode
-    swapResult(n[i], sRes, dNode)
-
 proc addResult(c: PContext, n: PNode, t: PType, owner: TSymKind) =
   template genResSym(s) =
     var s = newSym(skResult, getIdent(c.cache, "result"), nextSymId c.idgen,
                    getCurrOwner(c), n.info)
     s.typ = t
     incl(s.flags, sfUsed)
+
+  proc replaceResultNode(n: PNode, sRes: PSym, rNode: PNode) =
+    ## Replace nodes that are (skResult) symbols to r(eplacement)Node.
+    for i in 0..<n.safeLen:
+      case n[i].kind
+      of nkSym:
+        if n[i].sym == sRes:
+          n[i] = rNode
+      of nkWithSons:
+        replaceResultNode(n[i], sRes, rNode)
+      of nkWithoutSons - {nkSym}:
+        discard
 
   if owner == skMacro or t != nil:
     if n.len > resultPos and n[resultPos] != nil:
@@ -2254,7 +2259,7 @@ proc addResult(c: PContext, n: PNode, t: PType, owner: TSymKind) =
         let sResSym = n[resultPos].sym
         genResSym(s)
         n[resultPos] = newSymNode(s)
-        swapResult(n, sResSym, n[resultPos])
+        replaceResultNode(n, sResSym, n[resultPos])
       c.p.resultSym = n[resultPos].sym
     else:
       genResSym(s)
@@ -2400,58 +2405,59 @@ proc canonType(c: PContext, t: PType): PType =
   else:
     result = t
 
-proc prevDestructor(c: PContext; prevOp: PSym; obj: PType; info: TLineInfo) =
-  if sfOverriden notin prevOp.flags:
-    localReport(c.config, info, reportSym(
-      rsemRebidingImplicitDestructor, prevOp, typ = obj))
+proc semOverride(c: PContext, s: PSym, info: TLineInfo) =
+  ## processes the type operation override defined by `s`ymbol, and either
+  ## binds the procedure to the appropriate type or reports legacy errors.
+  # TODO: change to returning a type that can be traversed for errors,
+  #       warnings, etc
 
-  else:
-    localReport(c.config, info, reportSym(
-      rsemRebidingDestructor, prevOp, typ = obj))
+  proc prevDestructor(c: PContext; prevOp: PSym; obj: PType; info: TLineInfo) =
+    # TODO: fix the typo in these report kinds
+    let rk = if sfOverriden in prevOp.flags: rsemRebidingDestructor
+             else:                           rsemRebidingImplicitDestructor
+    localReport(c.config, info, reportSym(rk, prevOp, typ = obj))
 
-proc bindTypeHook(c: PContext; s: PSym; n: PNode; op: TTypeAttachedOp) =
-  let t = s.typ
-  var noError = false
-  let cond = case op
-             of attachedDestructor:
-               t.len == 2 and t[0] == nil and t[1].kind == tyVar
-             of attachedTrace:
-               t.len == 3 and t[0] == nil and t[1].kind == tyVar and t[2].kind == tyPointer
-             else:
-               t.len >= 2 and t[0] == nil
+  proc bindTypeHook(c: PContext; s: PSym; info: TLineInfo;
+                    op: TTypeAttachedOp) =
+    let t = s.typ
+    var noError = false
+    let cond = case op
+               of attachedDestructor:
+                 t.len == 2 and t[0].isNil and t[1].kind == tyVar
+               of attachedTrace:
+                 t.len == 3 and t[0].isNil and t[1].kind == tyVar and
+                     t[2].kind == tyPointer
+               else:
+                 t.len >= 2 and t[0].isNil
+    if cond:
+      var obj = t[1].skipTypes({tyVar})
+      while true:
+        incl(obj.flags, tfHasAsgn)
+        if obj.kind in {tyGenericBody, tyGenericInst}: obj = obj.lastSon
+        elif obj.kind == tyGenericInvocation: obj = obj[0]
+        else: break
+      if obj.kind in {tyObject, tyDistinct, tySequence, tyString}:
+        obj = canonType(c, obj)
+        let ao = getAttachedOp(c.graph, obj, op)
+        if ao == s:
+          discard "forward declared destructor"
+        elif ao.isNil and tfCheckedForDestructor notin obj.flags:
+          setAttachedOp(c.graph, c.module.position, obj, op, s)
+        else:
+          prevDestructor(c, ao, obj, info)
+        noError = true
+        if obj.owner.getModule != s.getModule:
+          localReport(c.config, info, reportTyp(
+            rsemInseparableTypeBoundOp, obj, sym = s))
+    if not noError and sfSystemModule notin s.owner.flags:
+      localReport(c.config, info, reportSym(
+        rsemUnexpectedTypeBoundOpSignature, s))
+    s.flags.incl {sfUsed, sfOverriden}
 
-  if cond:
-    var obj = t[1].skipTypes({tyVar})
-    while true:
-      incl(obj.flags, tfHasAsgn)
-      if obj.kind in {tyGenericBody, tyGenericInst}: obj = obj.lastSon
-      elif obj.kind == tyGenericInvocation: obj = obj[0]
-      else: break
-    if obj.kind in {tyObject, tyDistinct, tySequence, tyString}:
-      obj = canonType(c, obj)
-      let ao = getAttachedOp(c.graph, obj, op)
-      if ao == s:
-        discard "forward declared destructor"
-      elif ao.isNil and tfCheckedForDestructor notin obj.flags:
-        setAttachedOp(c.graph, c.module.position, obj, op, s)
-      else:
-        prevDestructor(c, ao, obj, n.info)
-      noError = true
-      if obj.owner.getModule != s.getModule:
-        localReport(c.config, n.info, reportTyp(
-          rsemInseparableTypeBoundOp, obj, sym = s))
-
-  if not noError and sfSystemModule notin s.owner.flags:
-    localReport(c.config, n.info, reportSym(
-      rsemUnexpectedTypeBoundOpSignature, s))
-
-  s.flags.incl {sfUsed, sfOverriden}
-
-proc semOverride(c: PContext, s: PSym, n: PNode) =
   let name = s.name.s.normalize
   case name
   of "=destroy":
-    bindTypeHook(c, s, n, attachedDestructor)
+    bindTypeHook(c, s, info, attachedDestructor)
   of "deepcopy", "=deepcopy":
     if s.typ.len == 2 and
         s.typ[1].skipTypes(abstractInst).kind in {tyRef, tyPtr} and
@@ -2467,19 +2473,15 @@ proc semOverride(c: PContext, s: PSym, n: PNode) =
         if getAttachedOp(c.graph, t, attachedDeepCopy).isNil:
           setAttachedOp(c.graph, c.module.position, t, attachedDeepCopy, s)
         else:
-          localReport(c.config, n.info, reportTyp(rsemRebidingDeepCopy, t))
-
+          localReport(c.config, info, reportTyp(rsemRebidingDeepCopy, t))
       else:
-          localReport(c.config, n.info, reportTyp(rsemRebidingDeepCopy, t))
-
+          localReport(c.config, info, reportTyp(rsemRebidingDeepCopy, t))
       if t.owner.getModule != s.getModule:
-        localReport(c.config, n.info, reportTyp(
+        localReport(c.config, info, reportTyp(
           rsemInseparableTypeBoundOp, t, sym = s))
-
     else:
-      localReport(c.config, n.info, reportSym(
+      localReport(c.config, info, reportSym(
         rsemUnexpectedTypeBoundOpSignature, s))
-
     s.flags.incl {sfUsed, sfOverriden}
   of "=", "=copy", "=sink":
     if s.magic == mAsgn: return
@@ -2491,10 +2493,8 @@ proc semOverride(c: PContext, s: PSym, n: PNode) =
         incl(obj.flags, tfHasAsgn)
         if obj.kind == tyGenericBody:
           obj = obj.lastSon
-
         elif obj.kind == tyGenericInvocation:
           obj = obj[0]
-
         else:
           break
       var objB = t[2]
@@ -2514,22 +2514,20 @@ proc semOverride(c: PContext, s: PSym, n: PNode) =
         elif ao.isNil and tfCheckedForDestructor notin obj.flags:
           setAttachedOp(c.graph, c.module.position, obj, k, s)
         else:
-          prevDestructor(c, ao, obj, n.info)
+          prevDestructor(c, ao, obj, info)
         if obj.owner.getModule != s.getModule:
-          localReport(c.config, n.info, reportTyp(
+          localReport(c.config, info, reportTyp(
             rsemInseparableTypeBoundOp, obj, sym = s))
-
         return
     if sfSystemModule notin s.owner.flags:
-      localReport(c.config, n.info, reportSym(
+      localReport(c.config, info, reportSym(
         rsemUnexpectedTypeBoundOpSignature, s))
-
   of "=trace":
     if s.magic != mTrace:
-      bindTypeHook(c, s, n, attachedTrace)
+      bindTypeHook(c, s, info, attachedTrace)
   else:
     if sfOverriden in s.flags:
-      localReport(c.config, n.info, reportSym(
+      localReport(c.config, info, reportSym(
         rsemExpectedDestroyOrDeepCopyForOverride, s))
 
 proc cursorInProcAux(conf: ConfigRef; n: PNode): bool =
@@ -2593,7 +2591,7 @@ proc semRoutineName(c: PContext, n: PNode, kind: TSymKind; allowAnon = true): PN
     else:
       return c.config.newError(n, PAstDiag(kind: adSemExpectedIdentifier))
   of nkSym:
-    s = newSymG(kind, n, c)
+    return newSymGNode(kind, n, c)
   of nkPostfix, nkIdent, nkAccQuoted:
     # do *not* use ``semIdentDef``. It marks the procedure as global even if
     # not at top-level scope. In addition, using it would also allow pragma
@@ -2673,8 +2671,8 @@ proc checkSpecialOperators(c: PContext, name: PNode): PNode =
   ## Checks whether `name` is that of a special operator, and if yes, whether
   ## the respective special operator is enabled. If not, an error is produced.
   ## If there was no error, `name` is returned.
-  assert name.kind == nkSym
-  let s = name.sym
+  assert name.kind == nkSym or defNameErrorNodeAllowsSymUpdate(name)
+  let s = name.getDefNameSymOrRecover()
   if s.name.s[0] notin {'.', '('}:
     name
   elif s.name.s in [".", ".()", ".="] and dotOperators notin c.features:
@@ -2684,15 +2682,15 @@ proc checkSpecialOperators(c: PContext, name: PNode): PNode =
   else:
     name
 
-func isAnon(cache: IdentCache, s: PSym): bool =
+func isAnon(cache: IdentCache, s: PSym): bool {.inline.} =
   s.name.id == cache.idAnon.id
 
 proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
                 flags: TExprFlags = {}): PNode =
   var
-    hasError = false # XXX: hasError is not fully integrated into
-                     #      ``semProcAux``, yet
-    s = n[namePos].sym
+    hasError = n[namePos].kind == nkError # XXX: hasError is not yet fully
+                                          #      integrated into ``semProcAux``
+    s = n[namePos].getDefNameSymOrRecover()
   let isAnon = c.cache.isAnon(s)
 
   result = shallowCopy(n)
@@ -2821,9 +2819,20 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     result[genericParamsPos] = proto.ast[genericParamsPos]
     result[paramsPos] = proto.ast[paramsPos]
     result[pragmasPos] = proto.ast[pragmasPos]
-    c.config.internalAssert(result[namePos].kind == nkSym, n.info, "semProcAux")
 
-    result[namePos].sym = proto
+    case result[namePos].kind
+    of nkSym:
+      result[namePos].sym = proto
+    of nkError:
+      if result[namePos].defNameErrorNodeAllowsSymUpdate:
+        # this is the only error we can recover from and do so only for more
+        # thorough semantic analysis for `check`, `suggest`, etc
+        result[namePos].diag.defNameSym = proto
+      else:
+        c.config.internalAssert(false, "semProcAux - unexpected error")
+    else:
+      c.config.internalAssert(false, "semProcAux")
+
     if importantComments(c.config) and proto.ast.comment.len > 0:
       result.comment = proto.ast.comment
     proto.ast = result             # needed for code generation
@@ -2832,12 +2841,10 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
 
   if not isAnon:
     if sfOverriden in s.flags or s.name.s[0] == '=':
-      semOverride(c, s, result)
+      semOverride(c, s, result.info)
     else:
       result[namePos] = checkSpecialOperators(c, result[namePos])
-      # XXX: the error needs to be propagated
-      if result[namePos].kind == nkError:
-        localReport(c.config, result[namePos])
+      hasError = hasError or result[namePos].kind == nkError
 
   if n[bodyPos].kind != nkEmpty and sfError notin s.flags:
     # for DLL generation we allow sfImportc to have a body, for use in VM
@@ -2936,7 +2943,7 @@ proc semProc(c: PContext, n: PNode): PNode =
 
 proc semFunc(c: PContext, n: PNode): PNode =
   let validPragmas =
-    if c.cache.isAnon(n[namePos].sym):
+    if c.cache.isAnon(n[namePos].getDefNameSymOrRecover()):
       lambdaPragmas
     else:
       procPragmas
@@ -2950,7 +2957,7 @@ proc semMethod(c: PContext, n: PNode): PNode =
   if result.kind == nkError:
     return
 
-  var s = result[namePos].sym
+  let s = result[namePos].getDefNameSymOrRecover()
   # we need to fix the 'auto' return type for the dispatcher here (see tautonotgeneric
   # test case):
   let disp = getDispatcher(s)
@@ -2971,7 +2978,7 @@ proc semConverterDef(c: PContext, n: PNode): PNode =
   if result.kind == nkError:
     return
 
-  var s = result[namePos].sym
+  var s = result[namePos].getDefNameSymOrRecover()
   var t = s.typ
   if t[0] == nil:
     localReport(c.config, n.info, reportSym(
@@ -2994,8 +3001,8 @@ proc semMacroDef(c: PContext, n: PNode): PNode =
     result[i] = n[i]
 
   var
-    s = n[namePos].sym
-    hasError = false
+    s = n[namePos].getDefNameSymOrRecover()
+    hasError = n[namePos].kind == nkError
 
   s.ast = result
   s.options = c.config.options # captue the current options
@@ -3064,7 +3071,9 @@ proc semMacroDef(c: PContext, n: PNode): PNode =
     trackProc(c, s, result[bodyPos])
     popProcCon(c)
 
-    hasError = result[bodyPos].isError
+    # technically `hasError` will always be `false` because of the early exit
+    # above, but defensively do the `hasError or ...` in case of future edits
+    hasError = hasError or result[bodyPos].isError
   elif n[bodyPos].kind == nkEmpty:
     result[bodyPos] =
       newError(c.config, n[bodyPos],
@@ -3114,8 +3123,11 @@ proc semRoutineDef(c: PContext, n: PNode): PNode =
   result[namePos] =
     semRoutineName(c, n[namePos], kind, allowAnon = kind in AllowAnon)
 
-  if result[namePos].isError:
-    return c.config.wrapError(result) # early out
+  if result[namePos].kind == nkError:
+    if result[namePos].diag.kind == adSemDefNameSym:
+      discard "don't leave early, we can still make progress"
+    else:
+      return c.config.wrapError(result) # early out
 
   result =
     case kind
