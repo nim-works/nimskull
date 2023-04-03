@@ -847,13 +847,28 @@ proc reportUnusedModules(c: PContext) =
       localReport(c.config, c.unusedImports[i][1], reportSym(
         rsemUnusedImport, c.unusedImports[i][0]))
 
-proc addCodeForGenerics(c: PContext, n: PNode) =
+proc appendInstancedGenericRuntimeRoutines(c: PContext, n: PNode) =
+  ## appends to the `n`ode all run-time generic routines instantiated due to
+  ## the semantic analysis for the current module in `PContext.generics`
+  ## starting from `PContext.lastGenericIdx`. This will append all non-magic
+  ## procedure, function, method, and converter symbols, and errors. Updates
+  ## `lastGenericIdx` to allow for the next module's generic instantiations.
   for i in c.lastGenericIdx..<c.generics.len:
     var prc = c.generics[i].inst.sym
     if prc.kind in {skProc, skFunc, skMethod, skConverter} and prc.magic == mNone:
-      c.config.internalAssert(prc.ast != nil and prc.ast[bodyPos] != nil, prc.info, "no code for " & prc.name.s)
-
-      n.add prc.ast
+      c.config.internalAssert(
+        prc.ast != nil and (prc.ast.kind == nkError or prc.ast[bodyPos] != nil),
+        prc.info,
+        "no code for " & prc.name.s)
+      case prc.ast.kind
+      of nkError:
+        # xxx: should error reporting happen here or in `myClose`? Might be
+        #      even better than sempass2.
+        n.add prc.ast
+      of nkProcDef, nkFuncDef, nkMethodDef, nkConverterDef:
+        n.add prc.ast
+      else:
+        unreachable()
   c.lastGenericIdx = c.generics.len
 
 proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
@@ -865,7 +880,7 @@ proc myClose(graph: ModuleGraph; context: PPassContext, n: PNode): PNode =
   reportUnusedModules(c)
   result = newNode(nkStmtList)
   c.config.internalAssert(n == nil, n.info, "n is not nil") #result := n;
-  addCodeForGenerics(c, result)
+  appendInstancedGenericRuntimeRoutines(c, result)
   if c.module.ast != nil:
     result.add(c.module.ast)
   popOwner(c)
