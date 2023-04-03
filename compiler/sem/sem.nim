@@ -652,14 +652,13 @@ proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
   if sym == c.p.owner:
     globalReport(c.config, info, reportSym(rsemCyclicDependency, sym))
 
-  let
-    genericParams = sym.ast[genericParamsPos].safeLen
-    suppliedParams = max(n.safeLen - 1, 0)
-
-  if suppliedParams < genericParams:
-    globalReport(
-      c.config, info, reportAst(
-        rsemMissingGenericParamsForTemplate, n, sym = sym))
+  # XXX: also check for ``efFromHlo`` like ``semTemplateExpr`` does?
+  # XXX: using ``evalTemplateArgs`` (for both macros and templates) should not
+  #      be needed. If the routine doesn't match the provided arguments (both
+  #      generic and normal), invoking it should simply not be attempted.
+  let args = evalTemplateArgs(n, sym, c.config, fromHlo=false)
+  if args.kind == nkError:
+    return args
 
   let reportTraceExpand = c.config.macrosToExpand.hasKey(sym.name.s)
   var original: PNode
@@ -667,7 +666,7 @@ proc semMacroExpr(c: PContext, n: PNode, sym: PSym,
     original = n
 
   result = evalMacroCall(
-    c.module, c.idgen, c.graph, c.templInstCounter, n, sym)
+    c.module, c.idgen, c.graph, c.templInstCounter, n, args, sym)
 
   if efNoSemCheck notin flags:
     result = semAfterMacroCall(c, n, result, sym, flags)

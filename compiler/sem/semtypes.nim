@@ -1382,6 +1382,8 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
             def.typ = makeTypeFromExpr(c, def.copyTree)
             break determineType
 
+        # FIXME: don't analyse the `def` expression if the type was
+        #        explicitly specified to be ``untyped``
         def = semExprWithType(c, def)
         if def.referencesAnotherParam(getCurrOwner(c)):
           def.flags.incl nfDefaultRefsParam
