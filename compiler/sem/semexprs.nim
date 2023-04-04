@@ -2140,12 +2140,18 @@ proc takeImplicitAddr(c: PContext, formal: PType, n: PNode): PNode =
   else:
     result = newTreeIT(nkHiddenAddr, n.info, formal): n
 
-proc asgnToResultVar(c: PContext, n, le, ri: PNode) {.inline.} =
-  # refactor: to return a PNode instead and handle nkError
-  
-  if n.isError:
+proc asgnToResultVar(c: PContext, n: PNode): PNode {.inline.} =
+  ## If the assignment statement `n` is that of an assignmnet to a ``var``
+  ## result, rewrites it to be a view assignment. If an error occurs, an
+  ## ``nkError`` node is returned -- the rewritten `n` otherwise.
+  result = n
+  if result.kind == nkError:
     return
-  
+
+  let
+    le = n[0]
+    ri = n[1]
+
   case le.kind
   of nkHiddenDeref:
     let x = le[0]
@@ -2154,9 +2160,12 @@ proc asgnToResultVar(c: PContext, n, le, ri: PNode) {.inline.} =
       case x.sym.kind
       of skResult:
         if classifyViewType(x.typ) != noView:
-          n[0] = x # 'result[]' --> 'result'
-          n[1] = takeImplicitAddr(c, x.typ, ri)
-          #echo x.info, " setting it for this type ", typeToString(x.typ), " ", n.info
+          let r = takeImplicitAddr(c, x.typ, ri)
+          result[0] = x # 'result[]' --> 'result'
+          result[1] = r
+
+          if r.kind == nkError:
+            result = c.config.wrapError(result)
       else:
         discard
     else:
@@ -2203,54 +2212,63 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
         result = buildOverloadedSubscripts(n[0], getIdent(c.cache, "[]="))
         result.add(n[1])
         result = semExprNoType(c, result)
-      return
   of nkCurlyExpr:
     # a{i} = x -->  `{}=`(a, i, x)
     result = buildOverloadedSubscripts(n[0], getIdent(c.cache, "{}="))
     result.add(n[1])
-    return semExprNoType(c, result)
+    result = semExprNoType(c, result)
   of nkPar, nkTupleConstr:
     if a.len >= 2:
       # unfortunately we need to rewrite ``(x, y) = foo()`` already here so
       # that overloading of the assignment operator still works. Usually we
       # prefer to do these rewritings in transf.nim:
-      return semStmt(c, lowerTupleUnpackingForAsgn(c.graph, n, c.idgen, c.p.owner), {})
+      result = semStmt(c, lowerTupleUnpackingForAsgn(c.graph, n, c.idgen, c.p.owner), {})
     else:
       a = semExprWithType(c, a, {efLValue})
   else:
     a = semExprWithType(c, a, {efLValue})
-  n[0] = a
+
+  if result != nil:
+    # the assignment was already transformed into a specialized statement or
+    # call
+    return
+
+  var hasError = false
+
+  result = shallowCopy(n)
+  result.flags = n.flags
+  result[0] = a
+  result[1] = n[1]
 
   case a.kind
   of nkError:
-    result = c.config.wrapError(n)
-    return # refactor: return is "needed" because of final `result = n` below
+    hasError = true
   else:
     # a = b # both are vars, means: a[] = b[]
     # a = b # b no 'var T' means: a = addr(b)
     let le = a.typ
 
     if le.isNil:
-      n[0] = c.config.newError(a, PAstDiag(kind: adSemExpressionHasNoType))
-      result = c.config.wrapError(n)
-      return # refactor: return is "needed" because of final `result = n` below
-
+      result[0] = c.config.newError(a, PAstDiag(kind: adSemExpressionHasNoType))
+      hasError = true
     elif (skipTypes(le, {tyGenericInst, tyAlias, tySink}).kind notin {tyVar} and
           isAssignable(c, a) in {arNone, arLentValue}) or
          (skipTypes(le, abstractVar).kind in {tyOpenArray, tyVarargs} and
           views notin c.features):
       # Direct assignment to a discriminant is allowed!
-      n[0] = c.config.newError(a, PAstDiag(kind: adSemCannotAssignTo,
-                                           wrongType: le))
-      result = c.config.wrapError(n)
-      return
-
+      result[0] = c.config.newError(a, PAstDiag(kind: adSemCannotAssignTo,
+                                                wrongType: le))
+      hasError = true
     else:
       let
-        lhs = n[0]
+        lhs = a
         rhs = semExprWithType(c, n[1], {})
-      if lhs.kind == nkSym and lhs.sym.kind == skResult:
-        n.typ = c.enforceVoidContext
+
+      # set the rhs slot already -- it might be changed into an error later
+      result[1] = rhs
+
+      if lhs.kind == nkSym and lhs.sym.kind == skResult and rhs.kind != nkError:
+        result.typ = c.enforceVoidContext
         if c.p.owner.kind != skMacro and resultTypeIsInferrable(lhs.sym.typ):
           let rhsTyp =
             if rhs.typ.kind in tyUserTypeClasses and
@@ -2262,26 +2280,26 @@ proc semAsgn(c: PContext, n: PNode; mode=asgnNormal): PNode =
           if cmpTypes(c, lhs.typ, rhsTyp) in {isGeneric, isEqual}:
             c.config.internalAssert c.p.resultSym != nil
             # Make sure the type is valid for the result variable
-            typeAllowedCheck(c, n.info, rhsTyp, skResult)
-            lhs.typ = rhsTyp
+            let typ = typeAllowedOrError(rhsTyp, skResult, c, rhs, {})
+            if typ.isError:
+              result[1] = typ.n
+              hasError = true
+
             c.p.resultSym.typ = rhsTyp
             c.p.owner.typ[0] = rhsTyp
           else:
-            # XXX: if this is an nkError, should we modify the rhs and the
-            #      overall assignment and return that, cascading upward?
-            let r = typeMismatch(c.config, n.info, lhs.typ, rhsTyp, rhs)
-            if r.kind == nkError:
-              result = n
-              result[1] = r # rhs error
-              result = c.config.wrapError(result)
-              return
+            result[1] = typeMismatch(c.config, n.info, lhs.typ, rhsTyp, rhs)
+            hasError = true
 
-      n[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))
-      when false: liftTypeBoundOps(c, lhs.typ, lhs.info)
+      if not hasError:
+        result[1] = fitNode(c, le, rhs, goodLineInfo(n[1]))
+        hasError = result[1].isError
 
-      result = fixAbstractType(c, n)
-      asgnToResultVar(c, result, n[0], n[1])
-  result = n
+  if hasError:
+    result = c.config.wrapError(result)
+  else:
+    result = fixAbstractType(c, result)
+    result = asgnToResultVar(c, result)
 
 proc semReturn(c: PContext, n: PNode): PNode =
   addInNimDebugUtils(c.config, "semReturn", n, result)
