@@ -42,8 +42,6 @@ import
   compiler/front/[
     options,
     msgs,
-    cli_reporter,
-    sexp_reporter
   ],
   compiler/backend/[
     extccomp
@@ -72,6 +70,264 @@ from compiler/ast/report_enums import ReportKind,
 bootSwitch(usedTinyC, hasTinyCBackend, "-d:tinyc")
 
 type
+  TCmdLinePass* = enum
+    passCmd1,                 # first pass over the command line
+    passCmd2,                 # second pass over the command line
+    passPP                    # preprocessor called processSwitch()
+
+  # TODO: separate flags/switches and commands
+  CmdSwitchKind* = enum
+    cmdSwitchFromcmd
+    cmdSwitchPath
+    cmdSwitchNimblepath
+    cmdSwitchNonimblepath
+    cmdSwitchClearnimblepath
+    cmdSwitchExcludepath
+    cmdSwitchNimcache
+    cmdSwitchOut
+    cmdSwitchOutdir
+    cmdSwitchDepfile
+    cmdSwitchUsenimcache
+    cmdSwitchDocseesrcurl
+    cmdSwitchDocroot
+    cmdSwitchBackend
+    cmdSwitchDoccmd
+    cmdSwitchDefine
+    cmdSwitchUndef
+    cmdSwitchCompile
+    cmdSwitchLink
+    cmdSwitchDebuginfo
+    cmdSwitchEmbedsrc
+    cmdSwitchCompileonly
+    cmdSwitchNolinking
+    cmdSwitchNomain
+    cmdSwitchForcebuild
+    cmdSwitchProject
+    cmdSwitchGc
+    cmdSwitchWarnings
+    cmdSwitchWarning
+    cmdSwitchHint
+    cmdSwitchWarningaserror
+    cmdSwitchHintaserror
+    cmdSwitchHints
+    cmdSwitchThreadanalysis
+    cmdSwitchStacktrace
+    cmdSwitchStacktracemsgs
+    cmdSwitchExcessivestacktrace
+    cmdSwitchLinetrace
+    cmdSwitchDebugger
+    cmdSwitchProfiler
+    cmdSwitchMemtracker
+    cmdSwitchChecks
+    cmdSwitchFloatchecks
+    cmdSwitchInfchecks
+    cmdSwitchNanchecks
+    cmdSwitchObjchecks
+    cmdSwitchFieldchecks
+    cmdSwitchRangechecks
+    cmdSwitchBoundchecks
+    cmdSwitchOverflowchecks
+    cmdSwitchStaticboundchecks
+    cmdSwitchStylechecks
+    cmdSwitchLinedir
+    cmdSwitchAssertions
+    cmdSwitchThreads
+    cmdSwitchTlsemulation
+    cmdSwitchImplicitstatic
+    cmdSwitchTrmacros
+    cmdSwitchOpt
+    cmdSwitchApp
+    cmdSwitchPassc
+    cmdSwitchPassl
+    cmdSwitchCincludes
+    cmdSwitchClibdir
+    cmdSwitchClib
+    cmdSwitchHeader
+    cmdSwitchIndex
+    cmdSwitchImport
+    cmdSwitchInclude
+    cmdSwitchListcmd
+    cmdSwitchAsm
+    cmdSwitchGenmapping
+    cmdSwitchOs
+    cmdSwitchCpu
+    cmdSwitchRun
+    cmdSwitchMaxloopiterationsvm
+    cmdSwitchErrormax
+    cmdSwitchVerbosity
+    cmdSwitchParallelbuild
+    cmdSwitchVersion
+    cmdSwitchAdvanced
+    cmdSwitchFullhelp
+    cmdSwitchHelp
+    cmdSwitchIncremental
+    cmdSwitchSkipcfg
+    cmdSwitchSkipprojcfg
+    cmdSwitchSkipusercfg
+    cmdSwitchSkipparentcfg
+    cmdSwitchGenscript
+    cmdSwitchColors
+    cmdSwitchLib
+    cmdSwitchPutenv
+    cmdSwitchCc
+    cmdSwitchStdout
+    cmdSwitchFilenames
+    cmdSwitchMsgformat
+    cmdSwitchProcessing
+    cmdSwitchUnitsep
+    cmdSwitchListfullpaths
+    cmdSwitchSpellsuggest
+    cmdSwitchDeclaredlocs
+    cmdSwitchDynliboverride
+    cmdSwitchDynliboverrideall
+    cmdSwitchExperimental
+    cmdSwitchExceptions
+    cmdSwitchCppdefine
+    cmdSwitchSeqsv2
+    cmdSwitchStylecheck
+    cmdSwitchShowallmismatches
+    cmdSwitchDocinternal
+    cmdSwitchMultimethods
+    cmdSwitchExpandmacro
+    cmdSwitchExpandarc
+    cmdSwitchBenchmarkvm
+    cmdSwitchProfilevm
+    cmdSwitchSinkinference
+    cmdSwitchCursorinference
+    cmdSwitchPanics
+    cmdSwitchSourcemap
+    cmdSwitchDeepcopy
+    cmdSwitchProjStdin
+    cmdSwitchCmdexitgcstats
+    cmdSwitchConfigVar
+
+  CmdSwitchTextKind* = enum
+    fullSwitchTxtFromcmd             = "fromcmd"
+    fullSwitchTxtPath                = "path",        smolSwitchTxtPath        = "p",
+    fullSwitchTxtNimblepath          = "nimblepath"
+    fullSwitchTxtNonimblepath        = "nonimblepath"
+    fullSwitchTxtClearnimblepath     = "clearnimblepath"
+    fullSwitchTxtExcludepath         = "excludepath"
+    fullSwitchTxtNimcache            = "nimcache"
+    fullSwitchTxtOut                 = "out",         smolSwitchTxtOut         = "o",
+    fullSwitchTxtOutdir              = "outdir"
+    fullSwitchTxtDepfile             = "depfile"
+    fullSwitchTxtUsenimcache         = "usenimcache"
+    fullSwitchTxtDocseesrcurl        = "docseesrcurl"
+    fullSwitchTxtDocroot             = "docroot"
+    fullSwitchTxtBackend             = "backend",     smolSwitchTxtBackend     = "b",
+    fullSwitchTxtDoccmd              = "doccmd"
+    fullSwitchTxtDefine              = "define",      smolSwitchTxtDefine      = "d",
+    fullSwitchTxtUndef               = "undef",       smolSwitchTxtUndef       = "u",
+    fullSwitchTxtCompile             = "compile"
+    fullSwitchTxtLink                = "link"
+    fullSwitchTxtDebuginfo           = "debuginfo"
+    fullSwitchTxtEmbedsrc            = "embedsrc"
+    fullSwitchTxtCompileonly         = "compileonly", smolSwitchTxtCompileonly = "c",
+    fullSwitchTxtNolinking           = "nolinking"
+    fullSwitchTxtNomain              = "nomain"
+    fullSwitchTxtForcebuild          = "forcebuild",  smolSwitchTxtForcebuild  = "f",
+    fullSwitchTxtGc                  = "gc",
+    fullSwitchTxtProject             = "project"
+    fullSwitchTxtWarnings            = "warnings",    smolSwitchTxtWarnings    = "w",
+    fullSwitchTxtWarning             = "warning"
+    fullSwitchTxtHint                = "hint"
+    fullSwitchTxtWarningaserror      = "warningaserror"
+    fullSwitchTxtHintaserror         = "hintaserror"
+    fullSwitchTxtHints               = "hints"
+    fullSwitchTxtThreadanalysis      = "threadanalysis"
+    fullSwitchTxtStacktrace          = "stacktrace"
+    fullSwitchTxtStacktracemsgs      = "stacktracemsgs"
+    fullSwitchTxtExcessivestacktrace = "excessivestacktrace"
+    fullSwitchTxtLinetrace           = "linetrace"
+    fullSwitchTxtDebugger            = "debugger",    smolSwitchTxtDebugger    = "g",
+    fullSwitchTxtProfiler            = "profiler"
+    fullSwitchTxtMemtracker          = "memtracker"
+    fullSwitchTxtChecks              = "checks"
+    fullSwitchTxtFloatchecks         = "floatchecks"
+    fullSwitchTxtInfchecks           = "infchecks"
+    fullSwitchTxtNanchecks           = "nanchecks"
+    fullSwitchTxtObjchecks           = "objchecks"
+    fullSwitchTxtFieldchecks         = "fieldchecks"
+    fullSwitchTxtRangechecks         = "rangechecks"
+    fullSwitchTxtBoundchecks         = "boundchecks"
+    fullSwitchTxtOverflowchecks      = "overflowchecks"
+    fullSwitchTxtStaticboundchecks   = "staticboundchecks"
+    fullSwitchTxtStylechecks         = "stylechecks"
+    fullSwitchTxtLinedir             = "linedir"
+    fullSwitchTxtAssertions          = "assertions"
+    fullSwitchTxtThreads             = "threads"
+    fullSwitchTxtTlsemulation        = "tlsemulation"
+    fullSwitchTxtImplicitstatic      = "implicitstatic"
+    fullSwitchTxtTrmacros            = "trmacros"
+    fullSwitchTxtOpt                 = "opt"
+    fullSwitchTxtApp                 = "app"
+    fullSwitchTxtPassc               = "passc"
+    fullSwitchTxtPassl               = "passl"
+    fullSwitchTxtCincludes           = "cincludes"
+    fullSwitchTxtClibdir             = "clibdir"
+    fullSwitchTxtClib                = "clib"
+    fullSwitchTxtHeader              = "header"
+    fullSwitchTxtIndex               = "index"
+    fullSwitchTxtImport              = "import"
+    fullSwitchTxtInclude             = "include"
+    fullSwitchTxtListcmd             = "listcmd"
+    fullSwitchTxtAsm                 = "asm"
+    fullSwitchTxtGenmapping          = "genmapping"
+    fullSwitchTxtOs                  = "os"
+    fullSwitchTxtCpu                 = "cpu"
+    fullSwitchTxtRun                 = "run"
+    fullSwitchTxtMaxloopiterationsvm = "maxloopiterationsvm"
+    fullSwitchTxtErrormax            = "errormax"
+    fullSwitchTxtVerbosity           = "verbosity"
+    fullSwitchTxtParallelbuild       = "parallelbuild"
+    fullSwitchTxtVersion             = "version"
+    fullSwitchTxtAdvanced            = "advanced"
+    fullSwitchTxtFullhelp            = "fullhelp"
+    fullSwitchTxtHelp                = "help"
+    fullSwitchTxtIncremental         = "incremental"
+    aliasSwitchTxtIncremental        = "ic'"
+    fullSwitchTxtSkipcfg             = "skipcfg"
+    fullSwitchTxtSkipprojcfg         = "skipprojcfg"
+    fullSwitchTxtSkipusercfg         = "skipusercfg"
+    fullSwitchTxtSkipparentcfg       = "skipparentcfg"
+    fullSwitchTxtGenscript           = "genscript"
+    fullSwitchTxtColors              = "colors"
+    fullSwitchTxtLib                 = "lib"
+    fullSwitchTxtPutenv              = "putenv"
+    fullSwitchTxtCc                  = "cc"
+    fullSwitchTxtStdout              = "stdout"
+    fullSwitchTxtFilenames           = "filenames"
+    fullSwitchTxtMsgformat           = "msgformat"
+    fullSwitchTxtProcessing          = "processing"
+    fullSwitchTxtUnitsep             = "unitsep"
+    fullSwitchTxtListfullpaths       = "listfullpaths"
+    fullSwitchTxtSpellsuggest        = "spellsuggest"
+    fullSwitchTxtDeclaredlocs        = "declaredlocs"
+    fullSwitchTxtDynliboverride      = "dynliboverride"
+    fullSwitchTxtDynliboverrideall   = "dynliboverrideall"
+    fullSwitchTxtExperimental        = "experimental"
+    fullSwitchTxtExceptions          = "exceptions"
+    fullSwitchTxtCppdefine           = "cppdefine"
+    fullSwitchTxtSeqsv2              = "seqsv2"
+    fullSwitchTxtStylecheck          = "stylecheck"
+    fullSwitchTxtShowallmismatches   = "showallmismatches"
+    fullSwitchTxtDocinternal         = "docinternal"
+    fullSwitchTxtMultimethods        = "multimethods"
+    fullSwitchTxtExpandmacro         = "expandmacro"
+    fullSwitchTxtExpandarc           = "expandarc"
+    fullSwitchTxtBenchmarkvm         = "benchmarkvm"
+    fullSwitchTxtProfilevm           = "profilevm"
+    fullSwitchTxtSinkinference       = "sinkinference"
+    fullSwitchTxtCursorinference     = "cursorinference"
+    fullSwitchTxtPanics              = "panics"
+    fullSwitchTxtSourcemap           = "sourcemap"
+    fullSwitchTxtDeepcopy            = "deepcopy"
+    fullSwitchTxtCmdexitgcstats      = "cmdexitgcstats"
+    smolSwitchTxtProjStdin           = ""               # `nim c -r -`, the `-` gets stripped
+    fullSwitchTxtConfigVar           = "*.*"            # cfg var dummy entry
+    fullSwitchTxtInvalid             = "!ERROR!"
+
   CliData = object
     ## Information used to construct messages for CLI reports - `--help`,
     ## `--fullhelp`
@@ -82,87 +338,7 @@ type
     cpu*: TSystemCPU ## Target CPU
     os*: TSystemOS ## Target OS
 
-  TCmdLinePass* = enum
-    passCmd1,                 # first pass over the command line
-    passCmd2,                 # second pass over the command line
-    passPP                    # preprocessor called processSwitch()
-
-  CliEventKind* = enum
-    # errors - cli command
-    cliEvtErrInvalidCommand
-    cliEvtErrCmdExpectedNoAdditionalArgs ## command disallows additional args
-    cliEvtErrRunCmdFailed
-    cliEvtErrGenDependFailed
-    # errors - general flag/option/switches (TODO: standardize on "flag")
-    cliEvtErrUnexpectedRunOpt
-    cliEvtErrInvalidCommandLineOption
-    cliEvtErrSwitchExpectedOnOrOff
-    cliEvtErrSwitchExpectedOnOffOrList
-    cliEvtErrSwitchExpectedAllOrOff    ## flag expected 'on', 'off', or 'list'
-                                       ## of values
-    cliEvtErrSwitchExpectedArg         ## flag expected argument
-    cliEvtErrSwitchExpectedNoArg       ## flag expected no arguments
-    cliEvtErrSwitchInvalidValue ## `--flag:v` where `v` is not an allowed value
-    cliEvtErrSwitchArgMalformedKeyVal  ## `--define:abc=def` where `abc=def` is
-                                       ## malformed syntax
-    # errors - specific flag/option/switch
-    cliEvtErrUnknownCCompiler
-    cliEvtErrUnknownExperimentalFeature
-    cliEvtErrInvalidPath
-    cliEvtErrNoCmdLineParamsProvided
-    cliEvtErrInvalidHint
-    cliEvtErrInvalidWarning
-    # warnings - general flags/options/switches
-    cliEvtWarnDeprecatedAlias
-    cliEvtWarnSwitchValDeprecatedNoop
-    cliEvtWarnSwitchDeprecatedNoop
-
-  CliEvent* = object
-    srcCodeOrigin*: InstantiationInfo
-    case kind*: CliEventKind
-      of cliEvtErrInvalidCommand,
-          cliEvtErrCmdExpectedNoAdditionalArgs,
-          cliEvtErrUnexpectedRunOpt:
-        cmd*: string
-        unexpectedArgs*: string
-      of cliEvtErrRunCmdFailed,
-          cliEvtErrGenDependFailed:
-        shellCmd*: string
-        exitCode*: int
-      of cliEvtErrInvalidCommandLineOption:
-        wrongOpt*: string
-      of cliEvtErrSwitchExpectedOnOrOff,
-          cliEvtErrSwitchExpectedOnOffOrList,
-          cliEvtErrSwitchExpectedNoArg,
-          cliEvtErrSwitchExpectedAllOrOff,
-          cliEvtWarnSwitchDeprecatedNoop,
-          cliEvtWarnSwitchValDeprecatedNoop,
-          cliEvtErrInvalidPath,
-          cliEvtErrSwitchArgMalformedKeyVal:
-        switch*: string
-        argVal*: string
-      of cliEvtErrSwitchExpectedArg:
-        switchMissingArg*: string
-      of cliEvtErrSwitchInvalidValue,
-          cliEvtErrUnknownCCompiler,
-          cliEvtErrUnknownExperimentalFeature:
-        forSwitch*: string
-        givenVal*: string
-        allowed*: seq[string]
-      of cliEvtErrInvalidHint,
-          cliEvtErrInvalidWarning:
-        invalidErrHintWarn*: string
-      of cliEvtErrNoCmdLineParamsProvided:
-        discard
-      of cliEvtWarnDeprecatedAlias:
-        oldName*: string
-        newName*: string
-
 const
-  cliLogAllKinds = {low(CliEventKind) .. high(CliEventKind)}
-  cliEvtErrors   = {cliEvtErrInvalidCommand .. cliEvtErrInvalidWarning}
-  cliEvtWarnings = cliLogAllKinds - cliEvtErrors
-
   pathFmtStr = "$#($#, $#)" ## filename(line, column)
 
 func stylize(
@@ -199,9 +375,6 @@ proc writeLog(conf: ConfigRef, msg: string, srcLoc: InstantiationInfo) =
                 [conf.stylize(path, fgDefault, styleBright),
                  conf.stylize("[MsgOrigin]", fgCyan)]
   conf.msgWrite(result & "\n")
-
-proc writeLog(conf: ConfigRef, msg: string, evt: CliEvent) {.inline.} =
-  conf.writeLog(msg, evt.srcCodeOrigin)
 
 proc getNimSourceData(): tuple[hash, date: string] {.compileTime.} =
   ## Retrieve metadata about the compiler source code.
@@ -354,85 +527,6 @@ proc logExecStart*(conf: ConfigRef, cmd: string, srcLoc = instLoc()) =
   if conf.verbosity > compVerbosityDefault:
     conf.writeLog(cmd, srcLoc)
 
-proc logError*(conf: ConfigRef, evt: CliEvent) =
-  # TODO: consolidate log event rendering, between this and "reports", but with
-  #       less of the reports baggage
-  let msg =
-    case evt.kind
-    of cliEvtErrInvalidCommand:
-      "Invalid command - $1" % evt.cmd
-    of cliEvtErrUnexpectedRunOpt:
-      "'$1' cannot handle --run" % evt.cmd
-    of cliEvtErrCmdExpectedNoAdditionalArgs:
-      "$1 command does not support additional arguments: '$2'" %
-        [evt.cmd, evt.unexpectedArgs]
-    of cliEvtErrRunCmdFailed,
-        cliEvtErrGenDependFailed: # make a better message for gen depend
-      "execution of an external program '$1' failed with exit code '$2'" %
-        [evt.shellCmd, $evt.exitCode]
-    of cliEvtErrSwitchExpectedOnOrOff:
-      "'on' or 'off' expected for $1, but '$2' found" %
-        [evt.switch, evt.argVal]
-    of cliEvtErrSwitchExpectedOnOffOrList:
-      "'on', 'off', or 'list' expected for $1, but '$2' found" %
-        [evt.switch, evt.argVal]
-    of cliEvtErrSwitchExpectedNoArg:
-      "$1 expects no arguments, but '$2' found" % [evt.switch, evt.argVal]
-    of cliEvtErrSwitchExpectedAllOrOff:
-      "only 'all:off' is supported for $1, found $2" % [evt.switch, evt.argVal]
-    of cliEvtErrSwitchExpectedArg:
-      "argument for command line option expected: '$1'" % evt.switch
-    of cliEvtErrSwitchInvalidValue:
-      "Unexpected value for switch '$1'. Expected one of $2, but got '$3'" %
-        [evt.forSwitch, evt.allowed.mapIt("'$1'" % it).join(", "), evt.givenVal]
-    of cliEvtErrUnknownCCompiler:
-      "unknown C compiler: '$1'. Available options are: $2" %
-        [evt.givenVal, evt.allowed.join(", ")]
-    of cliEvtErrSwitchArgMalformedKeyVal:
-      "option '$#' has malformed `key:value` argument: '$#" %
-        [evt.switch, evt.argVal]
-    of cliEvtErrUnknownExperimentalFeature:
-      "unknown experiemental feature: '$1'. Available options are: $2" %
-        [evt.givenVal, evt.allowed.join(", ")]
-    of cliEvtErrInvalidCommandLineOption:
-      "Invalid command line option - " & evt.wrongOpt
-    of cliEvtErrInvalidPath:
-      "invalid path (option '$#'): $#" % [evt.switch, evt.argVal]
-    of cliEvtErrInvalidHint:
-      "Invalid hint - " & evt.invalidErrHintWarn
-    of cliEvtErrInvalidWarning:
-      "Invalid warning - " & evt.invalidErrHintWarn
-    of cliEvtErrNoCmdLineParamsProvided:
-      "no command-line parameters provided"
-    of cliEvtWarnings:
-      unreachable($evt.kind)
-
-  inc conf.errorCounter
-  conf.writeLog(msg, evt)
-
-proc logWarn(conf: ConfigRef, evt: CliEvent) =
-  # TODO: see items under `logError`
-  let msg =
-    case evt.kind
-    of cliEvtWarnDeprecatedAlias:
-      "'$#' is a deprecated alias for '$#'" % [evt.oldName, evt.newName]
-    of cliEvtWarnSwitchValDeprecatedNoop:
-      "'$#' is deprecated for flag '$#', now a noop" % [evt.argVal, evt.switch]
-    of cliEvtWarnSwitchDeprecatedNoop:
-      "'$#' is deprecated, now a noop" % evt.switch
-    of cliEvtErrors:
-      unreachable($evt.kind)
-
-  inc conf.warnCounter
-  conf.writeLog(msg, evt)
-
-proc cliEventLogger*(self: NimProg, conf: ConfigRef, evt: CliEvent) =
-  ## a basic event logger that will write to standard err/out as apporpriate
-  ## and follow `conf` settings.
-  case evt.kind
-  of cliEvtErrors: conf.logError(evt)
-  of cliEvtWarnings: conf.logWarn(evt)
-
 proc splitSwitch(switch: string, cmd, arg: var string): bool =
   ## splits a `switch` string into constituent parts populated into the out
   ## params `cmd` and `arg`; `false` is returned if errors are encountered with
@@ -476,6 +570,7 @@ type
 
 proc processSpecificNote*(arg: string, state: TSpecialWord, pass: TCmdLinePass,
                           orig: string; conf: ConfigRef): ProcessNoteResult =
+  # TODO: updated to specify hint vs warn, etc in the return value
   var
     id = ""  # arg = key or [key] or key:val or [key]:val;  with val=on|off
     i = 0
@@ -596,13 +691,34 @@ type
     compileOptArgCheckFailedWithInvalidOption
     compileOptArgCheckFailedWithUnexpectedValue
 
+func allowedCompileOptionsArgs*(switch: CmdSwitchKind): seq[string] =
+  # xxx: make this exhaustive somehow
+  case switch
+  of cmdSwitchBackend     : validBackends.toSeq.mapIt($it)
+  of cmdSwitchGc          : gcNames
+  of cmdSwitchDebugger    : @["native", "gdb", "on", "off"]
+  of cmdSwitchOpt         : @["speed", "size", "none"]
+  of cmdSwitchApp         : @["gui", "console", "lib", "staticlib"]
+  of cmdSwitchOs          : platform.listOSnames()
+  of cmdSwitchCpu         : platform.listCPUnames()
+  of cmdSwitchVerbosity   : @["0", "1", "2", "3"]
+  of cmdSwitchIncremental : @["on", "off", "writeonly", "readonly", "v2", "stress"]
+  of cmdSwitchCc          : listCCnames()
+  of cmdSwitchFilenames   : @["abs", "canonical", "legacyRelProj"]
+  of cmdSwitchMsgformat   : @["text", "sexp"]
+  of cmdSwitchProcessing  : @["dots", "filenames", "off"]
+  of cmdSwitchExperimental: experimentalFeatures.toSeq.mapIt($it)
+  of cmdSwitchExceptions  : @["native", "setjmp", "quirky", "goto"]
+  of cmdSwitchStylecheck  : @["off", "hint", "error", "usages"]
+  else: unreachable("this is a compiler bug")
+
 func allowedCompileOptionArgs*(switch: string): seq[string] =
-  case switch.normalize
-  of "gc": gcNames
-  of "opt": @["speed", "size", "none"]
-  of "app": @["gui", "console", "lib", "staticlib"]
-  of "exceptions": @["native", "setjmp", "quirky", "goto"]
-  else: unreachable("not really, this is a compiler bug")
+  let s =
+    try:
+      parseEnum[CmdSwitchKind](switch.normalize)
+    except ValueError:
+      unreachable("not really, this is a compiler bug")
+  allowedCompileOptionsArgs(s)
 
 func testCompileOptionArg*(conf: ConfigRef; switch, arg: string): CompileOptArgCheckResult =
   template asResult(exp: bool): CompileOptArgCheckResult =
@@ -716,7 +832,7 @@ proc handleCmdInput*(conf: ConfigRef) =
   conf.projectName = "cmdfile"
   handleStdinOrCmdInput(conf)
 
-proc parseCommand*(command: string): Command =
+proc parseCommand(command: string): Command =
   # NOTE: when adding elements to this list, sync with `cmdNames` const
   # TODO: rework this plus `cmdNames` etc... to be more like `extccomp.TInfoCC`
   case command.normalize
@@ -781,61 +897,106 @@ proc specialDefine(conf: ConfigRef, key: string; pass: TCmdLinePass) =
       conf.excl {optCDebug}
 
 type
+  # TODO: standardize on "flag"
   ProcSwitchResultKind* = enum
     procSwitchSuccess
-    procSwitchWarnDeprecatedNoop
-    procSwitchWarnArgValDeprecatedNoop
     procSwitchErrInvalid
-    procSwitchErrArgExpected
-    procSwitchErrArgForbidden
-    procSwitchErrArgNotInValidList
+    procSwitchErrArgExpected             ## flag expected argument
+    procSwitchErrArgForbidden            ## flag expected no arguments
+    procSwitchErrArgExpectedFromList     ## no arg given, expect form list
+    procSwitchErrArgNotInValidList       ## `--flag:v` where `v` is not an
+                                         ## allowed value
     procSwitchErrArgPathInvalid
-    procSwitchErrArgMalformedKeyValPair
+    procSwitchErrArgMalformedKeyValPair  ## `--define:abc=def` where `abc=def`
+                                         ## is malformed syntax
     procSwitchErrArgExpectedOnOrOff
     procSwitchErrArgExpectedOnOffOrList
-    procSwitchErrArgExpectedAllOrOff
-    procSwitchErrArgInvalidHint
-    procSwitchErrArgInvalidWarn
-  
+    procSwitchErrArgExpectedAllOrOff     ## flag expected 'on'/'off', or 'list'
+                                         ## of values
+    procSwitchErrArgUnknownCCompiler
+    procSwitchErrArgUnknownExperimentalFeature
+    procSwitchErrArgInvalidHintOrWarning ## rest is under `ProcNoteResult`
+
   ProcSwitchResult* = object
-    kind*: ProcSwitchResultKind
+    srcCodeOrigin*: InstantiationInfo
+    givenSwitch*, givenArg*: string  # xxx: shouldn't be needed
+    switch*: CmdSwitchKind           ## the switch being processed, ignored if
+                                     ## `kind` is `procSwitchErrInvalid`
+    # deprecatedNoopSwitch*: bool
     deprecatedNoopSwitchArg*: bool
-    deprecatedNoopSwitch
+    case kind*: ProcSwitchResultKind:
+      of procSwitchSuccess:
+        # Note: if expanding with more info, then multi-level variant might be
+        #       better, first for switch validity and then for arg validity
+        discard # maybe expand with info about what happened
+      of procSwitchErrInvalid:
+        discard # couldn't match it to any switch
+      of procSwitchErrArgExpected,
+          procSwitchErrArgForbidden,
+          procSwitchErrArgMalformedKeyValPair,
+          procSwitchErrArgExpectedOnOrOff,
+          procSwitchErrArgExpectedOnOffOrList,
+          procSwitchErrArgExpectedAllOrOff,
+          procSwitchErrArgExpectedFromList,
+          procSwitchErrArgNotInValidList,
+          procSwitchErrArgUnknownCCompiler,
+          procSwitchErrArgUnknownExperimentalFeature:
+        discard # givenArg covers this
+      of procSwitchErrArgPathInvalid:
+        pathAttempted*: string
+      of procSwitchErrArgInvalidHintOrWarning:
+        processNoteResult*: ProcessNoteResult
 
-proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
-                    conf: ConfigRef) =
+proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
+                    conf: ConfigRef): ProcSwitchResult =
   var key, val: string
-  template expectArg(switch, arg: string) =
+  # xxx: shouldn't need these by further specifying cases where these differ
+  #      from the params provided by the caller
+  result.givenSwitch = switch
+  result.givenArg = arg
+
+  template setSwitchAndSrc(s: CmdSwitchKind) =
+    result.switch = s
+    result.srcCodeOrigin = instLoc()
+
+  template expectArg(s, arg: string) =
     if arg == "":
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrSwitchExpectedArg,
-                 switchMissingArg: switch,
-                 srcCodeOrigin: instLoc())
+      result = ProcSwitchResult(kind: procSwitchErrArgExpected,
+                                switch: result.switch,
+                                givenSwitch: s,
+                                givenArg: arg,
+                                srcCodeOrigin: instLoc())
       return
 
-  template expectNoArg(switch, arg: string) =
+  template expectNoArg(s, arg: string) =
     if arg != "":
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrSwitchExpectedNoArg,
-                 switch: switch,
-                 argVal: arg,
-                 srcCodeOrigin: instLoc())
+      result = ProcSwitchResult(kind: procSwitchErrArgForbidden,
+                                switch: result.switch,
+                                givenSwitch: s,
+                                givenArg: arg,
+                                srcCodeOrigin: instLoc())
       return
 
-  template expectArgValue(cond: bool, arg, switch: string, list: seq[string]) =
+  template expectArgValue(cond: bool, arg, s: string, list: seq[string]) =
     if not cond:
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrSwitchInvalidValue, forSwitch: switch,
-                 givenVal: arg, allowed: list, srcCodeOrigin: instLoc())
+      # TODO: deal with list
+      result = ProcSwitchResult(kind: procSwitchErrArgExpectedFromList,
+                                switch: result.switch,
+                                givenSwitch: s,
+                                givenArg: arg,
+                                srcCodeOrigin: instLoc())
       return
 
-  template invalidArgValue(arg, switch: string, list: seq[string]) =
-    self.eventReceiver(self, conf):
-      CliEvent(kind: cliEvtErrSwitchInvalidValue, forSwitch: switch,
-               givenVal: arg, allowed: list, srcCodeOrigin: instLoc())
+  template invalidArgValue(arg, s: string, list: seq[string]) =
+    # TODO: deal with list
+    result = ProcSwitchResult(kind: procSwitchErrArgNotInValidList,
+                              switch: result.switch,
+                              givenSwitch: s,
+                              givenArg: arg,
+                              srcCodeOrigin: instLoc())
     return
 
-  template argProcessPath(conf: ConfigRef, path, s: string,
+  template argProcessPath(conf: ConfigRef; path, s: string,
                           notRelativeToProj = false): AbsoluteDir =
     let
       p = if os.isAbsolute(path) or '$' in path:
@@ -851,15 +1012,18 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     try:
       AbsoluteDir conf.pathSubs(p, conf.toFullPath(info).splitFile().dir)
     except ValueError:
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrInvalidPath, switch: s, argVal: p,
-                 srcCodeOrigin: instLoc())
+      result = ProcSwitchResult(kind: procSwitchErrArgPathInvalid,
+                                switch: result.switch,
+                                givenSwitch: s,
+                                givenArg: arg,
+                                pathAttempted: p,
+                                srcCodeOrigin: instLoc())
       return
 
-  template argProcessCfgPath(conf: ConfigRef; arg, s: string): AbsoluteDir =
+  template argProcessCfgPath(conf: ConfigRef, arg, s: string): AbsoluteDir =
     let
       path = if arg.len > 0 and arg[0] == '"': strutils.unescape(arg)
-            else: arg
+             else: arg
       info = newLineInfo(conf.commandLineSrcIdx, 0, -1)
       # xxx: we hack commandLineSrcIdx at callers like `nimconf` to get different
       #      info here; rework so it's all handled via returns and remove the
@@ -872,18 +1036,21 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     try:
       AbsoluteDir pathSubs(conf, p, basedir)
     except ValueError:
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrInvalidPath, switch: s, argVal: p,
-                 srcCodeOrigin: instLoc())
+      result = ProcSwitchResult(kind: procSwitchErrArgPathInvalid,
+                                switch: result.switch,
+                                givenSwitch: s,
+                                givenArg: arg,
+                                pathAttempted: p,
+                                srcCodeOrigin: instLoc())
       return
 
   template argSplit(s, arg: string; key, val: var string) =
     if not splitSwitch(arg, key, val):
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrSwitchArgMalformedKeyVal,
-                 switch: s,
-                 argVal: arg,
-                 srcCodeOrigin: instLoc())
+      result = ProcSwitchResult(kind: procSwitchErrArgMalformedKeyValPair,
+                                switch: result.switch,
+                                givenSwitch: s,
+                                givenArg: arg,
+                                srcCodeOrigin: instLoc())
       return
 
   template switchOn(s, arg: string): bool =
@@ -891,11 +1058,11 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     of "", "on": true
     of "off": false
     else:
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrSwitchExpectedOnOrOff,
-                 switch: s,
-                 argVal: arg,
-                 srcCodeOrigin: instLoc())
+      result = ProcSwitchResult(kind: procSwitchErrArgExpectedOnOrOff,
+                                switch: result.switch,
+                                givenSwitch: s,
+                                givenArg: arg,
+                                srcCodeOrigin: instLoc())
       return
 
   template processOnOffSwitch(conf: ConfigRef, op: TOptions, arg, s: string) =
@@ -903,11 +1070,11 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     of "", "on": conf.incl op
     of "off": conf.excl op
     else:
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrSwitchExpectedOnOrOff,
-                 switch: s,
-                 argVal: arg,
-                 srcCodeOrigin: instLoc())
+      result = ProcSwitchResult(kind: procSwitchErrArgExpectedOnOrOff,
+                                switch: result.switch,
+                                givenSwitch: s,
+                                givenArg: arg,
+                                srcCodeOrigin: instLoc())
       return
 
   template processOnOffSwitchOrList(conf: ConfigRef, op: TOptions,
@@ -918,11 +1085,11 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     of "off": conf.excl op
     of "list": res = true
     else:
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrSwitchExpectedOnOffOrList,
-                 switch: s,
-                 argVal: arg,
-                 srcCodeOrigin: instLoc())
+      result = ProcSwitchResult(kind: procSwitchErrArgExpectedOnOffOrList,
+                                switch: result.switch,
+                                givenSwitch: s,
+                                givenArg: arg,
+                                srcCodeOrigin: instLoc())
       return
     res
 
@@ -932,18 +1099,18 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     of "", "on": conf.incl op
     of "off": conf.excl op
     else:
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrSwitchExpectedOnOrOff,
-                 switch: s,
-                 argVal: arg,
-                 srcCodeOrigin: instLoc())
+      result = ProcSwitchResult(kind: procSwitchErrArgExpectedOnOrOff,
+                                switch: result.switch,
+                                givenSwitch: s,
+                                givenArg: arg,
+                                srcCodeOrigin: instLoc())
       return
 
-  template invalidCmdLineOption(conf: ConfigRef, switch: string) =
-    self.eventReceiver(self, conf):
-      CliEvent(kind: cliEvtErrInvalidCommandLineOption,
-               wrongOpt: switch,
-               srcCodeOrigin: instLoc())
+  template invalidCmdLineOption(conf: ConfigRef, s: string) =
+    result = ProcSwitchResult(kind: procSwitchErrInvalid,
+                              switch: result.switch,
+                              givenSwitch: s,
+                              srcCodeOrigin: instLoc())
     return
 
   template processSpecificNoteAndLog(arg: string, state: TSpecialWord,
@@ -951,41 +1118,28 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
                                      conf: ConfigRef) =
     let r = processSpecificNote(arg, state, pass, orig, conf)
     case r.kind
-    of procNoteInvalidOption:conf.invalidCmdLineOption(r.switch)
-    of procNoteInvalidHint:
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrInvalidHint,
-                  invalidErrHintWarn: r.invalidHintOrWarning,
-                  srcCodeOrigin: instLoc())
-      return
-    of procNoteInvalidWarning:
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrInvalidWarning,
-                  invalidErrHintWarn: r.invalidHintOrWarning,
-                  srcCodeOrigin: instLoc())
-      return
-    of procNoteExpectedOnOrOff:
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrSwitchExpectedOnOrOff,
-                  switch: r.switch,
-                  argVal: r.argVal,
-                  srcCodeOrigin: instLoc())
-      return
-    of procNoteOnlyAllOffSupported:
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrSwitchExpectedAllOrOff,
-                  switch: r.switch,
-                  argVal: r.argVal,
-                  srcCodeOrigin: instLoc())
+    of procNoteInvalidOption,
+        procNoteInvalidHint,
+        procNoteInvalidWarning,
+        procNoteExpectedOnOrOff,
+        procNoteOnlyAllOffSupported:
+      result = ProcSwitchResult(kind: procSwitchErrArgInvalidHintOrWarning,
+                                switch: result.switch,
+                                givenSwitch: orig,
+                                givenArg: arg,
+                                processNoteResult: r,
+                                srcCodeOrigin: instLoc())
       return
     of procNoteSuccess:
       discard "TODO: log a trace for success?"
 
   case switch.normalize
   of "fromcmd":
+    setSwitchAndSrc cmdSwitchFromcmd
     expectNoArg(switch, arg)
     conf.inputMode = pimCmd
   of "path", "p":
+    setSwitchAndSrc cmdSwitchPath
     expectArg(switch, arg)
     for path in nimbleSubs(conf, arg):
       let p =
@@ -994,6 +1148,7 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
         else:      argProcessPath(conf, path, switch)
       conf.addPath p
   of "nimblepath":
+    setSwitchAndSrc cmdSwitchNimblepath
     if pass in {passCmd2, passPP} and optNoNimblePath notin conf.globalOptions:
       expectArg(switch, arg)
       var path = argProcessPath(conf, arg, switch, notRelativeToProj=true)
@@ -1003,50 +1158,65 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
         path = nimbleDir / RelativeDir"pkgs"
       nimblePath(conf, path, conf.commandLineSrcIdx)
   of "nonimblepath":
+    setSwitchAndSrc cmdSwitchNonimblepath
     expectNoArg(switch, arg)
     disableNimblePath(conf)
   of "clearnimblepath":
+    setSwitchAndSrc cmdSwitchClearnimblepath
     expectNoArg(switch, arg)
     clearNimblePath(conf)
   of "excludepath":
+    setSwitchAndSrc cmdSwitchExcludepath
     expectArg(switch, arg)
     let path = argProcessPath(conf, arg, switch)
     conf.searchPaths = conf.searchPaths.filterIt(it != path)
     conf.lazyPaths = conf.lazyPaths.filterIt(it != path)
   of "nimcache":
+    setSwitchAndSrc cmdSwitchNimcache
     expectArg(switch, arg)
     var arg = arg
     # refs bug #18674, otherwise `--os:windows` messes up with `--nimcache` set
     # in config nims files, e.g. via: `import os; switch("nimcache", "/tmp/somedir")`
-    if conf.target.targetOS == osWindows and DirSep == '/': arg = arg.replace('\\', '/')
+    if conf.target.targetOS == osWindows and DirSep == '/':
+      arg = arg.replace('\\', '/')
     conf.nimcacheDir = argProcessPath(conf, arg, switch,
                                       notRelativeToProj=true)
   of "out", "o":
+    setSwitchAndSrc cmdSwitchOut
     expectArg(switch, arg)
     let f = splitFile(string argProcessPath(conf, arg, switch,
                                             notRelativeToProj=true))
     conf.outFile = RelativeFile f.name & f.ext
     conf.outDir = toAbsoluteDir f.dir
   of "outdir":
+    setSwitchAndSrc cmdSwitchOutdir
     expectArg(switch, arg)
     conf.outDir = argProcessPath(conf, arg, switch, notRelativeToProj=true)
   of "depfile":
+    setSwitchAndSrc cmdSwitchDepfile
     expectArg(switch, arg)
     conf.depfile =
       AbsoluteFile argProcessPath(conf, arg, switch, notRelativeToProj=true)
   of "usenimcache":
+    setSwitchAndSrc cmdSwitchUsenimcache
     processOnOffSwitchG(conf, {optUseNimcache}, arg, switch)
   of "docseesrcurl":
+    setSwitchAndSrc cmdSwitchDocseesrcurl
     expectArg(switch, arg)
     conf.docSeeSrcUrl = arg
   of "docroot":
+    setSwitchAndSrc cmdSwitchDocroot
     conf.docRoot = if arg.len == 0: docRootDefault else: arg
   of "backend", "b":
+    setSwitchAndSrc cmdSwitchBackend
     let backend = parseEnum(arg.normalize, backendInvalid)
     expectArgValue(backend == backendInvalid, arg, switch, @["c", "js", "vm"])
     conf.backend = backend
-  of "doccmd": conf.docCmd = arg
+  of "doccmd":
+    setSwitchAndSrc cmdSwitchDoccmd # xxx: not a flag... sigh
+    conf.docCmd = arg
   of "define", "d":
+    setSwitchAndSrc cmdSwitchDefine
     expectArg(switch, arg)
     if {':', '='} in arg:
       argSplit(switch, arg, key, val)
@@ -1056,30 +1226,41 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
       specialDefine(conf, arg, pass)
       defineSymbol(conf, arg)
   of "undef", "u":
+    setSwitchAndSrc cmdSwitchUndef
     expectArg(switch, arg)
     undefSymbol(conf, arg)
   of "compile":
+    setSwitchAndSrc cmdSwitchCompile
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}: processCompile(conf, arg)
   of "link":
+    setSwitchAndSrc cmdSwitchLink
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
       addExternalFileToLink(conf, AbsoluteFile arg)
   of "debuginfo":
+    setSwitchAndSrc cmdSwitchDebuginfo
     processOnOffSwitchG(conf, {optCDebug}, arg, switch)
   of "embedsrc":
+    setSwitchAndSrc cmdSwitchEmbedsrc
     processOnOffSwitchG(conf, {optEmbedOrigSrc}, arg, switch)
   of "compileonly", "c":
+    setSwitchAndSrc cmdSwitchCompileonly
     processOnOffSwitchG(conf, {optCompileOnly}, arg, switch)
   of "nolinking":
+    setSwitchAndSrc cmdSwitchNolinking
     processOnOffSwitchG(conf, {optNoLinking}, arg, switch)
   of "nomain":
+    setSwitchAndSrc cmdSwitchNomain
     processOnOffSwitchG(conf, {optNoMain}, arg, switch)
   of "forcebuild", "f":
+    setSwitchAndSrc cmdSwitchForcebuild
     processOnOffSwitchG(conf, {optForceFullMake}, arg, switch)
   of "project":
+    setSwitchAndSrc cmdSwitchProject
     processOnOffSwitchG(conf, {optWholeProject, optGenIndex}, arg, switch)
   of "gc":
+    setSwitchAndSrc cmdSwitchGc
     if conf.backend in {backendJs, backendNimVm}: return # for: bug #16033
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
@@ -1134,32 +1315,44 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
       else:
         invalidArgValue(arg, switch, gcNames)
   of "warnings", "w":
+    setSwitchAndSrc cmdSwitchWarnings
     if processOnOffSwitchOrList(conf, {optWarns}, arg, switch):
       listWarnings(conf) # TODO: replace
   of "warning":
+    setSwitchAndSrc cmdSwitchWarning
     processSpecificNoteAndLog(arg, wWarning, pass, switch, conf)
   of "hint":
+    setSwitchAndSrc cmdSwitchHint
     processSpecificNoteAndLog(arg, wHint, pass, switch, conf)
   of "warningaserror":
+    setSwitchAndSrc cmdSwitchWarningaserror
     processSpecificNoteAndLog(arg, wWarningAsError, pass, switch, conf)
   of "hintaserror":
+    setSwitchAndSrc cmdSwitchHintaserror
     processSpecificNoteAndLog(arg, wHintAsError, pass, switch, conf)
   of "hints":
+    setSwitchAndSrc cmdSwitchHints
     if processOnOffSwitchOrList(conf, {optHints}, arg, switch):
       listHints(conf) # TODO: replace
   of "threadanalysis":
+    setSwitchAndSrc cmdSwitchThreadanalysis
     if conf.backend == backendJs: discard
     else:
       processOnOffSwitchG(conf, {optThreadAnalysis}, arg, switch)
   of "stacktrace":
+    setSwitchAndSrc cmdSwitchStacktrace
     processOnOffSwitch(conf, {optStackTrace}, arg, switch)
   of "stacktracemsgs":
+    setSwitchAndSrc cmdSwitchStacktracemsgs
     processOnOffSwitch(conf, {optStackTraceMsgs}, arg, switch)
   of "excessivestacktrace":
+    setSwitchAndSrc cmdSwitchExcessivestacktrace
     processOnOffSwitchG(conf, {optExcessiveStackTrace}, arg, switch)
   of "linetrace":
+    setSwitchAndSrc cmdSwitchLinetrace
     processOnOffSwitch(conf, {optLineTrace}, arg, switch)
   of "debugger":
+    setSwitchAndSrc cmdSwitchDebugger
     case arg.normalize
     of "on", "native", "gdb":
       conf.incl optCDebug
@@ -1172,56 +1365,76 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
       # conf.localReport(
       #   info, invalidSwitchValue @["native", "gdb", "on", "off"])
   of "profiler":
+    setSwitchAndSrc cmdSwitchProfiler
     processOnOffSwitch(conf, {optProfiler}, arg, switch)
     if optProfiler in conf.options:
       defineSymbol(conf, "profiler")
     else:
       undefSymbol(conf, "profiler")
   of "memtracker":
+    setSwitchAndSrc cmdSwitchMemtracker
     processOnOffSwitch(conf, {optMemTracker}, arg, switch)
     if optMemTracker in conf.options:
       defineSymbol(conf, "memtracker")
     else:
       undefSymbol(conf, "memtracker")
   of "checks", "x":
+    setSwitchAndSrc cmdSwitchChecks
     processOnOffSwitch(conf, ChecksOptions, arg, switch)
   of "floatchecks":
+    setSwitchAndSrc cmdSwitchFloatchecks
     processOnOffSwitch(conf, {optNaNCheck, optInfCheck}, arg, switch)
   of "infchecks":
+    setSwitchAndSrc cmdSwitchInfchecks
     processOnOffSwitch(conf, {optInfCheck}, arg, switch)
   of "nanchecks":
+    setSwitchAndSrc cmdSwitchNanchecks
     processOnOffSwitch(conf, {optNaNCheck}, arg, switch)
   of "objchecks":
+    setSwitchAndSrc cmdSwitchObjchecks
     processOnOffSwitch(conf, {optObjCheck}, arg, switch)
   of "fieldchecks":
+    setSwitchAndSrc cmdSwitchFieldchecks
     processOnOffSwitch(conf, {optFieldCheck}, arg, switch)
   of "rangechecks":
+    setSwitchAndSrc cmdSwitchRangechecks
     processOnOffSwitch(conf, {optRangeCheck}, arg, switch)
   of "boundchecks":
+    setSwitchAndSrc cmdSwitchBoundchecks
     processOnOffSwitch(conf, {optBoundsCheck}, arg, switch)
   of "overflowchecks":
+    setSwitchAndSrc cmdSwitchOverflowchecks
     processOnOffSwitch(conf, {optOverflowCheck}, arg, switch)
   of "staticboundchecks":
+    setSwitchAndSrc cmdSwitchStaticboundchecks
     processOnOffSwitch(conf, {optStaticBoundsCheck}, arg, switch)
   of "stylechecks":
+    setSwitchAndSrc cmdSwitchStylechecks
     processOnOffSwitch(conf, {optStyleCheck}, arg, switch)
   of "linedir":
+    setSwitchAndSrc cmdSwitchLinedir
     processOnOffSwitch(conf, {optLineDir}, arg, switch)
   of "assertions", "a":
+    setSwitchAndSrc cmdSwitchAssertions
     processOnOffSwitch(conf, {optAssert}, arg, switch)
   of "threads":
+    setSwitchAndSrc cmdSwitchThreads
     if conf.backend == backendJs:
       discard
     else:
       processOnOffSwitchG(conf, {optThreads}, arg, switch)
     #if optThreads in conf.globalOptions: conf.setNote(warnGcUnsafe)
   of "tlsemulation":
+    setSwitchAndSrc cmdSwitchTlsemulation
     processOnOffSwitchG(conf, {optTlsEmulation}, arg, switch)
   of "implicitstatic":
+    setSwitchAndSrc cmdSwitchImplicitstatic
     processOnOffSwitch(conf, {optImplicitStatic}, arg, switch)
   of "trmacros":
+    setSwitchAndSrc cmdSwitchTrmacros
     processOnOffSwitch(conf, {optTrMacros}, arg, switch)
   of "opt":
+    setSwitchAndSrc cmdSwitchOpt
     expectArg(switch, arg)
     case arg.normalize
     of "speed":
@@ -1236,6 +1449,7 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     else:
       invalidArgValue(arg, switch, @["speed", "size", "none"])
   of "app":
+    setSwitchAndSrc cmdSwitchApp
     expectArg(switch, arg)
     case arg.normalize
     of "gui":
@@ -1259,35 +1473,44 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     else:
       invalidArgValue(arg, switch, @["gui", "console", "lib", "staticlib"])
   of "passc", "t":
+    setSwitchAndSrc cmdSwitchPassc
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}: extccomp.addCompileOptionCmd(conf, arg)
   of "passl", "l":
+    setSwitchAndSrc cmdSwitchPassl
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}: extccomp.addLinkOptionCmd(conf, arg)
   of "cincludes":
+    setSwitchAndSrc cmdSwitchCincludes
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
       conf.cIncludesAdd argProcessPath(conf, arg, switch)
   of "clibdir":
+    setSwitchAndSrc cmdSwitchClibdir
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
       conf.cLibsAdd argProcessPath(conf, arg, switch)
   of "clib":
+    setSwitchAndSrc cmdSwitchClib
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
       conf.cLinkedLibsAdd argProcessPath(conf, arg, switch).string
   of "header":
+    setSwitchAndSrc cmdSwitchHeader
     if conf != nil: conf.headerFile = arg
     incl(conf, optGenIndex)
   of "index":
+    setSwitchAndSrc cmdSwitchIndex
     processOnOffSwitchG(conf, {optGenIndex}, arg, switch)
   of "import":
+    setSwitchAndSrc cmdSwitchImport
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
       let info = newLineInfo(conf.commandLineSrcIdx, 0, -1)
       conf.implicitImportsAdd findModule(
         conf, arg, toFullPath(conf, info)).string
   of "include":
+    setSwitchAndSrc cmdSwitchInclude
     expectArg(switch, arg)
     if pass in {passCmd2, passPP}:
       # xxx: pretty sure this should do path validation
@@ -1295,12 +1518,16 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
       conf.implicitIncludesAdd findModule(
         conf, arg, toFullPath(conf, info)).string
   of "listcmd":
+    setSwitchAndSrc cmdSwitchListcmd
     processOnOffSwitchG(conf, {optListCmd}, arg, switch)
   of "asm":
+    setSwitchAndSrc cmdSwitchAsm
     processOnOffSwitchG(conf, {optProduceAsm}, arg, switch)
   of "genmapping":
+    setSwitchAndSrc cmdSwitchGenmapping
     processOnOffSwitchG(conf, {optGenMapping}, arg, switch)
   of "os":
+    setSwitchAndSrc cmdSwitchOs
     expectArg(switch, arg)
     let theOS = platform.nameToOS(arg)
     if theOS == osNone:
@@ -1312,6 +1539,7 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
           setTarget(t, theOS, conf.target.targetCPU)
           t
   of "cpu":
+    setSwitchAndSrc cmdSwitchCpu
     expectArg(switch, arg)
     let cpu = platform.nameToCPU(arg)
     if cpu == cpuNone:
@@ -1323,11 +1551,14 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
           setTarget(t, conf.target.targetOS, cpu)
           t
   of "run", "r":
+    setSwitchAndSrc cmdSwitchRun
     processOnOffSwitchG(conf, {optRun}, arg, switch)
   of "maxloopiterationsvm":
+    setSwitchAndSrc cmdSwitchMaxloopiterationsvm
     expectArg(switch, arg)
     conf.maxLoopIterationsVM = parseInt(arg)
   of "errormax":
+    setSwitchAndSrc cmdSwitchErrormax
     expectArg(switch, arg)
     # Note: `nim check` (etc) can overwrite this.
     # `0` is meaningless, give it a useful meaning as in clang's -ferror-limit
@@ -1336,6 +1567,7 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     let ret = parseInt(arg)
     conf.errorMax = if ret == 0: high(int) else: ret
   of "verbosity":
+    setSwitchAndSrc cmdSwitchVerbosity
     expectArg(switch, arg)
     let verbosity = parseInt(arg)
     case verbosity
@@ -1351,21 +1583,27 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
       (conf.modifiedyNotes * verb - conf.notes)
     conf.mainPackageNotes = conf.notes
   of "parallelbuild":
+    setSwitchAndSrc cmdSwitchParallelbuild
     expectArg(switch, arg)
     conf.numberOfProcessors = parseInt(arg)
   of "version", "v":
+    setSwitchAndSrc cmdSwitchVersion
     expectNoArg(switch, arg)
     writeVersionInfo(conf, pass)
   of "advanced":
+    setSwitchAndSrc cmdSwitchAdvanced
     expectNoArg(switch, arg)
     writeAdvancedUsage(conf, pass)
   of "fullhelp":
+    setSwitchAndSrc cmdSwitchFullhelp
     expectNoArg(switch, arg)
     writeFullhelp(conf, pass)
   of "help", "h":
+    setSwitchAndSrc cmdSwitchHelp
     expectNoArg(switch, arg)
     writeHelp(conf, pass)
   of "incremental", "ic":
+    setSwitchAndSrc cmdSwitchIncremental
     if pass in {passCmd2, passPP}:
       case arg.normalize
       of "on": conf.symbolFiles = v2Sf
@@ -1379,39 +1617,51 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
             @["on", "off", "writeonly", "readonly", "v2", "stress"])
     setUseIc(conf.symbolFiles != disabledSf)
   of "skipcfg":
+    setSwitchAndSrc cmdSwitchSkipcfg
     processOnOffSwitchG(conf, {optSkipSystemConfigFile}, arg, switch)
   of "skipprojcfg":
+    setSwitchAndSrc cmdSwitchSkipprojcfg
     processOnOffSwitchG(conf, {optSkipProjConfigFile}, arg, switch)
   of "skipusercfg":
+    setSwitchAndSrc cmdSwitchSkipusercfg
     processOnOffSwitchG(conf, {optSkipUserConfigFile}, arg, switch)
   of "skipparentcfg":
+    setSwitchAndSrc cmdSwitchSkipparentcfg
     processOnOffSwitchG(conf, {optSkipParentConfigFiles}, arg, switch)
   of "genscript":
+    setSwitchAndSrc cmdSwitchGenscript
     processOnOffSwitchG(conf, {optGenScript}, arg, switch)
     processOnOffSwitchG(conf, {optCompileOnly}, arg, switch)
-  of "colors": processOnOffSwitchG(conf, {optUseColors}, arg, switch)
+  of "colors":
+    setSwitchAndSrc cmdSwitchColors
+    processOnOffSwitchG(conf, {optUseColors}, arg, switch)
   of "lib":
+    setSwitchAndSrc cmdSwitchLib
     expectArg(switch, arg)
     conf.libpath = argProcessPath(conf, arg, switch, notRelativeToProj=true)
   of "putenv":
+    setSwitchAndSrc cmdSwitchPutenv
     expectArg(switch, arg)
     argSplit(switch, arg, key, val)
     os.putEnv(key, val)
   of "cc":
+    setSwitchAndSrc cmdSwitchCc
     expectArg(switch, arg)
     case setCC(conf, arg)
     of ccNone:
-      self.eventReceiver(self, conf):
-        CliEvent(kind: cliEvtErrUnknownCCompiler,
-                  givenVal: arg,
-                  allowed: listCCnames(),
-                  srcCodeOrigin: instLoc())
+      result = ProcSwitchResult(kind: procSwitchErrArgUnknownCCompiler,
+                                switch: result.switch,
+                                givenSwitch: switch,
+                                givenArg: arg,
+                                srcCodeOrigin: instLoc())
       return
     else:
       discard "valid compiler set"
   of "stdout":
+    setSwitchAndSrc cmdSwitchStdout
     processOnOffSwitchG(conf, {optStdout}, arg, switch)
   of "filenames":
+    setSwitchAndSrc cmdSwitchFilenames
     case arg.normalize
     of "abs": conf.filenameOption = foAbs
     of "canonical": conf.filenameOption = foCanonical
@@ -1419,14 +1669,13 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     else:
       invalidArgValue(arg, switch, @["abs", "canonical", "legacyRelProj"])
   of "msgformat":
-    case arg.normalize:
-      of "text":
-        conf.setReportHook cli_reporter.reportHook  # TODO: remove reports cruft
-      of "sexp":
-        conf.setReportHook sexp_reporter.reportHook # TODO: remove reports cruft
-      else:
-        invalidArgValue(arg, switch, @["text", "sexp"])
+    setSwitchAndSrc cmdSwitchMsgformat # legacy reports cruft
+    case arg.normalize
+    of "text": conf.setMsgFormat(conf, msgFormatText)
+    of "sexp": conf.setMsgFormat(conf, msgFormatSexp)
+    else:      invalidArgValue(arg, switch, @["text", "sexp"])
   of "processing":
+    setSwitchAndSrc cmdSwitchProcessing
     incl(conf, cnCurrent, rsemProcessing)
     incl(conf, cnMainPackage, rsemProcessing)
     case arg.normalize
@@ -1438,19 +1687,24 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     else:
       invalidArgValue(arg, switch, @["dots", "filenames", "off"])
   of "unitsep":
+    setSwitchAndSrc cmdSwitchUnitsep
     conf.unitSep = if switchOn(switch.normalize, arg): "\31" else: ""
   of "listfullpaths":
     # xxx: this should probably get subsubed with filenames
+    setSwitchAndSrc cmdSwitchListfullpaths
     conf.filenameOption =
       if switchOn(switch.normalize, arg): foAbs
       else:                               foCanonical
   of "spellsuggest":
+    setSwitchAndSrc cmdSwitchSpellsuggest
     if arg.len == 0: conf.spellSuggestMax = spellSuggestSecretSauce
     elif arg == "auto": conf.spellSuggestMax = spellSuggestSecretSauce
     else: conf.spellSuggestMax = parseInt(arg)
   of "declaredlocs":
+    setSwitchAndSrc cmdSwitchDeclaredlocs
     processOnOffSwitchG(conf, {optDeclaredLocs}, arg, switch)
   of "dynliboverride":
+    setSwitchAndSrc cmdSwitchDynliboverride
     case pass
     of passCmd2, passPP:
       expectArg(switch, arg)
@@ -1458,20 +1712,25 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     else:
       discard
   of "dynliboverrideall":
+    setSwitchAndSrc cmdSwitchDynliboverrideall
     processOnOffSwitchG(conf, {optDynlibOverrideAll}, arg, switch)
   of "experimental":
+    setSwitchAndSrc cmdSwitchExperimental
     if arg.len == 0:
       conf.incl oldExperimentalFeatures
     else:
       try:
         conf.incl parseEnum[Feature](arg)
       except ValueError:
-        self.eventReceiver(self, conf):
-          CliEvent(kind: cliEvtErrUnknownExperimentalFeature,
-                    givenVal: arg,
-                    allowed: getEnumNames({low(Feature) .. high(Feature)}),
+        result = ProcSwitchResult(
+                    kind: procSwitchErrArgUnknownExperimentalFeature,
+                    switch: result.switch,
+                    givenSwitch: switch,
+                    givenArg: arg,
                     srcCodeOrigin: instLoc())
+        return
   of "exceptions":
+    setSwitchAndSrc cmdSwitchExceptions
     case arg.normalize
     of "native": conf.exc = excNative
     of "setjmp": conf.exc = excSetjmp
@@ -1480,14 +1739,17 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     else:
       invalidArgValue(arg, switch, @["native", "setjmp", "quirky", "goto"])
   of "cppdefine":
+    setSwitchAndSrc cmdSwitchCppdefine
     expectArg(switch, arg)
     if conf != nil:
       conf.cppDefine(arg)
   of "seqsv2":
+    setSwitchAndSrc cmdSwitchSeqsv2
     processOnOffSwitchG(conf, {optSeqDestructors}, arg, switch)
     if pass in {passCmd2, passPP}:
       defineSymbol(conf, "nimSeqsV2")
   of "stylecheck":
+    setSwitchAndSrc cmdSwitchStylecheck
     case arg.normalize
     of "off":
       conf.globalOptions = conf.globalOptions - {optStyleHint, optStyleError}
@@ -1500,46 +1762,64 @@ proc processSwitch*(self: NimProg, switch, arg: string, pass: TCmdLinePass,
     else:
       invalidArgValue(arg, switch, @["off", "hint", "error", "usages"])
   of "showallmismatches":
+    setSwitchAndSrc cmdSwitchShowallmismatches
     processOnOffSwitchG(conf, {optShowAllMismatches}, arg, switch)
   of "docinternal":
+    setSwitchAndSrc cmdSwitchDocinternal
     processOnOffSwitchG(conf, {optDocInternal}, arg, switch)
   of "multimethods":
+    setSwitchAndSrc cmdSwitchMultimethods
     processOnOffSwitchG(conf, {optMultiMethods}, arg, switch)
   of "expandmacro":
+    setSwitchAndSrc cmdSwitchExpandmacro
     expectArg(switch, arg)
     conf.macrosToExpand[arg] = "T"
   of "expandarc":
+    setSwitchAndSrc cmdSwitchExpandarc
     expectArg(switch, arg)
     conf.arcToExpand[arg] = "T"
   of "benchmarkvm":
+    setSwitchAndSrc cmdSwitchBenchmarkvm
     processOnOffSwitchG(conf, {optBenchmarkVM}, arg, switch)
   of "profilevm":
+    setSwitchAndSrc cmdSwitchProfilevm
     processOnOffSwitchG(conf, {optProfileVM}, arg, switch)
   of "sinkinference":
+    setSwitchAndSrc cmdSwitchSinkinference
     processOnOffSwitch(conf, {optSinkInference}, arg, switch)
   of "cursorinference":
+    setSwitchAndSrc cmdSwitchCursorinference
     # undocumented, for debugging purposes only:
     processOnOffSwitch(conf, {optCursorInference}, arg, switch)
   of "panics":
+    setSwitchAndSrc cmdSwitchPanics
     processOnOffSwitchG(conf, {optPanics}, arg, switch)
     if optPanics in conf.globalOptions:
       defineSymbol(conf, "nimPanics")
   of "sourcemap": # xxx document in --fullhelp
+    setSwitchAndSrc cmdSwitchSourcemap
     conf.incl optSourcemap
     conf.incl optLineDir
   of "deepcopy":
+    setSwitchAndSrc cmdSwitchDeepcopy
     processOnOffSwitchG(conf, {optEnableDeepCopy}, arg, switch)
   of "": # comes from "-" in for example: `nim c -r -` (gets stripped from -)
+    setSwitchAndSrc cmdSwitchProjStdin
     conf.inputMode = pimStdin
   of "cmdexitgcstats":
+    setSwitchAndSrc cmdSwitchCmdexitgcstats
     # Print GC statistics for the compiler run
     conf.incl optCmdExitGcStats
   else:
-    if strutils.find(switch, '.') >= 0: options.setConfigVar(conf, switch, arg)
+    if strutils.find(switch, '.') >= 0:
+      setSwitchAndSrc cmdSwitchConfigVar
+      # xxx: this should change: eats up way too much namespace and user typos
+      #      are trivially silienced, perhaps `-s`?
+      options.setConfigVar(conf, switch, arg)
     else: invalidCmdLineOption(conf, switch)
 
-proc processSwitch*(self: NimProg, pass: TCmdLinePass, p: OptParser,
-                    config: ConfigRef) =
+proc processSwitch*(pass: TCmdLinePass, p: OptParser,
+                    config: ConfigRef): ProcSwitchResult =
   # hint[X]:off is parsed as (p.key = "hint[X]", p.val = "off")
   # we transform it to (key = hint, val = [X]:off)
   let bracketLe = strutils.find(p.key, '[')
@@ -1547,9 +1827,9 @@ proc processSwitch*(self: NimProg, pass: TCmdLinePass, p: OptParser,
     let
       key = substr(p.key, 0, bracketLe - 1)
       val = substr(p.key, bracketLe) & ':' & p.val
-    self.processSwitch(key, val, pass, config)
+    processSwitch(key, val, pass, config)
   else:
-    self.processSwitch(p.key, p.val, pass, config)
+    processSwitch(p.key, p.val, pass, config)
 
 proc processArgument*(pass: TCmdLinePass; p: OptParser;
                       argsCount: var int; config: ConfigRef): bool =
@@ -1579,11 +1859,174 @@ proc addCmdPrefix*(result: var string, kind: CmdLineKind) =
   of cmdShortOption: result.add "-"
   of cmdArgument, cmdEnd: discard
 
-proc processCmdLine*(self: NimProg, pass: TCmdLinePass, cmd: string,
+type
+  CliEventKind* = enum
+    # errors - cli command
+    cliEvtErrInvalidCommand # main.nim
+    cliEvtErrCmdExpectedNoAdditionalArgs # nim.nim
+      ## command disallows additional args
+    cliEvtErrRunCmdFailed  # commands.nim and nim.nim
+    cliEvtErrGenDependFailed # main.nim
+    # errors - general flag/option/switches (TODO: standardize on "flag")
+    cliEvtErrUnexpectedRunOpt # commands.nim and nim.nim
+    cliEvtErrFlagProcessing # commands.nim
+    # errors - specific flag/option/switch
+    cliEvtErrNoCliParamsProvided # commands.nim and nim.nim
+    # warnings - general flags/options/switches
+    cliEvtWarnSwitchValDeprecatedNoop
+
+  CliEvent* = object
+    srcCodeOrigin*: InstantiationInfo
+    pass*: TCmdLinePass
+    case kind*: CliEventKind
+      of cliEvtErrInvalidCommand,
+          cliEvtErrCmdExpectedNoAdditionalArgs,
+          cliEvtErrUnexpectedRunOpt:
+        cmd*: string
+        unexpectedArgs*: string
+      of cliEvtErrRunCmdFailed,
+          cliEvtErrGenDependFailed:
+        shellCmd*: string
+        exitCode*: int
+      of cliEvtErrFlagProcessing,
+          cliEvtWarnSwitchValDeprecatedNoop:
+        origParseOptKey*, origParseOptVal*: string
+        procResult*: ProcSwitchResult
+      of cliEvtErrNoCliParamsProvided:
+        discard
+
+const
+  cliLogAllKinds = {low(CliEventKind) .. high(CliEventKind)}
+  cliEvtErrors   = {cliEvtErrInvalidCommand .. cliEvtErrNoCliParamsProvided}
+  cliEvtWarnings = cliLogAllKinds - cliEvtErrors
+
+proc writeLog(conf: ConfigRef, msg: string, evt: CliEvent) {.inline.} =
+  conf.writeLog(msg, evt.srcCodeOrigin)
+
+proc logError*(conf: ConfigRef, evt: CliEvent) =
+  # TODO: consolidate log event rendering, between this and "reports", but with
+  #       less of the reports baggage
+  let msg =
+    case evt.kind
+    of cliEvtErrInvalidCommand:
+      "Invalid command - $1" % evt.cmd
+    of cliEvtErrUnexpectedRunOpt:
+      "'$1' cannot handle --run" % evt.cmd
+    of cliEvtErrCmdExpectedNoAdditionalArgs:
+      "$1 command does not support additional arguments: '$2'" %
+        [evt.cmd, evt.unexpectedArgs]
+    of cliEvtErrRunCmdFailed,
+        cliEvtErrGenDependFailed: # make a better message for gen depend
+      "execution of an external program '$1' failed with exit code '$2'" %
+        [evt.shellCmd, $evt.exitCode]
+    of cliEvtErrNoCliParamsProvided:
+      "no command-line parameters provided"
+    of cliEvtErrFlagProcessing:
+      let procResult = evt.procResult
+      case procResult.kind
+      of procSwitchSuccess: discard
+      of procSwitchErrInvalid:
+        "Invalid command line option - " & procResult.givenArg
+      of procSwitchErrArgExpected:
+        "argument for command line option expected: '$1'" %
+          procResult.givenSwitch
+      of procSwitchErrArgForbidden:
+        "$1 expects no arguments, but '$2' found" %
+          [procResult.givenSwitch, procResult.givenArg]
+      of procSwitchErrArgMalformedKeyValPair:
+        "option '$#' has malformed `key:value` argument: '$#" %
+          [procResult.givenSwitch, procResult.givenArg]
+      of procSwitchErrArgExpectedOnOrOff:
+        "'on' or 'off' expected for $1, but '$2' found" %
+          [procResult.givenSwitch, procResult.givenArg]
+      of procSwitchErrArgExpectedOnOffOrList:
+        "'on', 'off', or 'list' expected for $1, but '$2' found" %
+          [procResult.givenSwitch, procResult.givenArg]
+      of procSwitchErrArgExpectedAllOrOff:
+        "only 'all:off' is supported for $1, found $2" %
+          [procResult.givenSwitch, procResult.givenArg]
+      of procSwitchErrArgExpectedFromList:
+        "expected value for switch '$1'. Expected one of $2, but got nothing" %
+          [procResult.givenSwitch,
+           allowedCompileOptionsArgs(procResult.switch).join(", ")]
+      of procSwitchErrArgNotInValidList:
+        "Unexpected value for switch '$1'. Expected one of $2, but got '$3'" %
+          [procResult.givenSwitch,
+           allowedCompileOptionsArgs(procResult.switch).join(", "),
+           procResult.givenArg]
+      of procSwitchErrArgUnknownCCompiler:
+        "unknown C compiler: '$1'. Available options are: $2" %
+          [procResult.givenArg, listCCnames().join(", ")]
+      of procSwitchErrArgUnknownExperimentalFeature:
+        "unknown experiemental feature: '$1'. Available options are: $2" %
+          [procResult.givenArg,
+           allowedCompileOptionsArgs(procResult.switch).join(", ")]
+      of procSwitchErrArgPathInvalid:
+        "invalid path (option '$#'): $#" %
+          [procResult.givenSwitch, procResult.pathAttempted]
+      of procSwitchErrArgInvalidHintOrWarning:
+        let processNoteResult = procResult.processNoteResult
+        # xxx: clean-up these messages so they're more hint/warning specific,
+        #      we have more information available than we're using. eg: it's
+        #      not an invalid option, but error/warning/hint/etc switch
+        let temp =
+          case processNoteResult.kind
+          of procNoteSuccess: discard
+          of procNoteInvalidOption:
+            "Invalid command line option - " & processNoteResult.switch
+          of procNoteInvalidHint:
+            "Invalid hint - " & processNoteResult.invalidHintOrWarning
+          of procNoteInvalidWarning:
+            "Invalid warning - " & processNoteResult.invalidHintOrWarning
+          of procNoteExpectedOnOrOff:
+            "'on' or 'off' expected for $1, but '$2' found" %
+              [processNoteResult.switch, processNoteResult.argVal]
+          of procNoteOnlyAllOffSupported:
+            "only 'all:off' is supported for $1, found $2" %
+              [processNoteResult.switch, processNoteResult.argVal]
+        temp
+    of cliEvtWarnings:
+      unreachable($evt.kind)
+  inc conf.errorCounter
+  conf.writeLog(msg, evt)
+
+proc logWarn(conf: ConfigRef, evt: CliEvent) =
+  # TODO: see items under `logError`
+  let msg =
+    case evt.kind
+    of cliEvtWarnSwitchValDeprecatedNoop:
+      "'$#' is deprecated for flag '$#', now a noop" %
+        [evt.procResult.givenArg, evt.procResult.givenSwitch]
+    of cliEvtErrors:
+      unreachable($evt.kind)
+
+  inc conf.warnCounter
+  conf.writeLog(msg, evt)
+
+proc cliEventLogger*(conf: ConfigRef, evt: CliEvent) =
+  ## a basic event logger that will write to standard err/out as apporpriate
+  ## and follow `conf` settings.
+  case evt.kind
+  of cliEvtErrors: conf.logError(evt)
+  of cliEvtWarnings: conf.logWarn(evt)
+
+type
+  NimProg* = ref object
+    suggestMode*: bool
+    supportsStdinFile*: bool
+    processCmdLine*: proc(pass: TCmdLinePass, cmd: string; config: ConfigRef)
+    eventReceiver*: proc(self: NimProg, conf: ConfigRef, evt: CliEvent)
+
+proc processCmdLine*(self: NimProg, pass: TCmdLinePass, cmd: seq[string],
                      config: ConfigRef) =
   ## Process input command-line parameters into `config` settings. Input is
   ## a joined list of command-line arguments with multiple options and/or
   ## configurations.
+  # xxx: the `self.eventReceiver` shenanigans are required until this proc can
+  #      be rewritten to return data instead; it should probably be turned into
+  #      an iterator. One that produces a stream of processing data and stops
+  #      upon completion or error. Then consumers can monitor progress; issue
+  #      hints/warnings/errors; and determine if it succeeded overall.
   var p = parseopt.initOptParser(cmd)
   var argsCount = 0
   let startingErrCount = config.errorCounter
@@ -1611,7 +2054,29 @@ proc processCmdLine*(self: NimProg, pass: TCmdLinePass, cmd: string,
           # Main part of the configuration processing -
           # `commands.processSwitch` processes input switches a second time
           # and puts them in necessary configuration fields.
-          processSwitch(self, pass, p, config)
+          let res = processSwitch(pass, p, config)
+          
+          if res.deprecatedNoopSwitchArg:
+            self.eventReceiver(self, config):
+              CliEvent(kind: cliEvtWarnSwitchValDeprecatedNoop,
+                       pass: pass,
+                       origParseOptKey: p.key,
+                       origParseOptVal: p.val,
+                       procResult: res,
+                       srcCodeOrigin: instLoc())
+          
+          case res.kind
+          of procSwitchSuccess:
+            discard "eventually should handle success events for tracing"
+          else:
+            self.eventReceiver(self, config):
+              CliEvent(kind: cliEvtErrFlagProcessing,
+                       pass: pass,
+                       origParseOptKey: p.key,
+                       origParseOptVal: p.val,
+                       procResult: res,
+                       srcCodeOrigin: instLoc())
+            break # always bail on error for CLI parsing
       of cmdArgument:
         config.commandLine.add " "
         config.commandLine.add p.key.quoteShell
@@ -1627,4 +2092,138 @@ proc processCmdLine*(self: NimProg, pass: TCmdLinePass, cmd: string,
       self.eventReceiver(self, config):
         CliEvent(kind: cliEvtErrUnexpectedRunOpt,
                   cmd: config.command,
+                  pass: pass,
                   srcCodeOrigin: instLoc())
+
+when false:
+  # started on creating a flag/switch description
+
+  const
+    # TODO: rework to contain full description of the switch with an object,
+    #       whether it's an on/off; no arg, has on/off/list; off/list, path,
+    #       global opt/config, has valid range/what is it, etc
+    switchTxtToCmd* = [ 
+      cmdSwitchFromcmd            : {fullSwitchTxtFromcmd},
+      cmdSwitchPath               : {fullSwitchTxtPath, smolSwitchTxtPath},
+      cmdSwitchNimblepath         : {fullSwitchTxtNimblepath},
+      cmdSwitchNonimblepath       : {fullSwitchTxtNonimblepath},
+      cmdSwitchClearnimblepath    : {fullSwitchTxtClearnimblepath},
+      cmdSwitchExcludepath        : {fullSwitchTxtExcludepath},
+      cmdSwitchNimcache           : {fullSwitchTxtNimcache},
+      cmdSwitchOut                : {fullSwitchTxtOut, smolSwitchTxtOut},
+      cmdSwitchOutdir             : {fullSwitchTxtOutdir},
+      cmdSwitchDepfile            : {fullSwitchTxtDepfile},
+      cmdSwitchUsenimcache        : {fullSwitchTxtUsenimcache},
+      cmdSwitchDocseesrcurl       : {fullSwitchTxtDocseesrcurl},
+      cmdSwitchDocroot            : {fullSwitchTxtDocroot},
+      cmdSwitchBackend            : {fullSwitchTxtBackend, smolSwitchTxtBackend},
+      cmdSwitchDoccmd             : {fullSwitchTxtDoccmd},
+      cmdSwitchDefine             : {fullSwitchTxtDefine, smolSwitchTxtDefine},
+      cmdSwitchUndef              : {fullSwitchTxtUndef, smolSwitchTxtUndef},
+      cmdSwitchCompile            : {fullSwitchTxtCompile},
+      cmdSwitchLink               : {fullSwitchTxtLink},
+      cmdSwitchDebuginfo          : {fullSwitchTxtDebuginfo},
+      cmdSwitchEmbedsrc           : {fullSwitchTxtEmbedsrc},
+      cmdSwitchCompileonly        : {fullSwitchTxtCompileonly, smolSwitchTxtCompileonly},
+      cmdSwitchNolinking          : {fullSwitchTxtNolinking},
+      cmdSwitchNomain             : {fullSwitchTxtNomain},
+      cmdSwitchForcebuild         : {fullSwitchTxtForcebuild, smolSwitchTxtForcebuild},
+      cmdSwitchProject            : {fullSwitchTxtProject},
+      cmdSwitchGc                 : {fullSwitchTxtGc},
+      cmdSwitchWarnings           : {fullSwitchTxtWarnings, smolSwitchTxtWarnings},
+      cmdSwitchWarning            : {fullSwitchTxtWarning},
+      cmdSwitchHint               : {fullSwitchTxtHint},
+      cmdSwitchWarningaserror     : {fullSwitchTxtWarningaserror},
+      cmdSwitchHintaserror        : {fullSwitchTxtHintaserror},
+      cmdSwitchHints              : {fullSwitchTxtHints},
+      cmdSwitchThreadanalysis     : {fullSwitchTxtThreadanalysis},
+      cmdSwitchStacktrace         : {fullSwitchTxtStacktrace},
+      cmdSwitchStacktracemsgs     : {fullSwitchTxtStacktracemsgs},
+      cmdSwitchExcessivestacktrace: {fullSwitchTxtExcessivestacktrace},
+      cmdSwitchLinetrace          : {fullSwitchTxtLinetrace},
+      cmdSwitchDebugger           : {fullSwitchTxtDebugger, smolSwitchTxtDebugger},
+      cmdSwitchProfiler           : {fullSwitchTxtProfiler},
+      cmdSwitchMemtracker         : {fullSwitchTxtMemtracker},
+      cmdSwitchChecks             : {fullSwitchTxtChecks},
+      cmdSwitchFloatchecks        : {fullSwitchTxtFloatchecks},
+      cmdSwitchInfchecks          : {fullSwitchTxtInfchecks},
+      cmdSwitchNanchecks          : {fullSwitchTxtNanchecks},
+      cmdSwitchObjchecks          : {fullSwitchTxtObjchecks},
+      cmdSwitchFieldchecks        : {fullSwitchTxtFieldchecks},
+      cmdSwitchRangechecks        : {fullSwitchTxtRangechecks},
+      cmdSwitchBoundchecks        : {fullSwitchTxtBoundchecks},
+      cmdSwitchOverflowchecks     : {fullSwitchTxtOverflowchecks},
+      cmdSwitchStaticboundchecks  : {fullSwitchTxtStaticboundchecks},
+      cmdSwitchStylechecks        : {fullSwitchTxtStylechecks},
+      cmdSwitchLinedir            : {fullSwitchTxtLinedir},
+      cmdSwitchAssertions         : {fullSwitchTxtAssertions},
+      cmdSwitchThreads            : {fullSwitchTxtThreads},
+      cmdSwitchTlsemulation       : {fullSwitchTxtTlsemulation},
+      cmdSwitchImplicitstatic     : {fullSwitchTxtImplicitstatic},
+      cmdSwitchTrmacros           : {fullSwitchTxtTrmacros},
+      cmdSwitchOpt                : {fullSwitchTxtOpt},
+      cmdSwitchApp                : {fullSwitchTxtApp},
+      cmdSwitchPassc              : {fullSwitchTxtPassc},
+      cmdSwitchPassl              : {fullSwitchTxtPassl},
+      cmdSwitchCincludes          : {fullSwitchTxtCincludes},
+      cmdSwitchClibdir            : {fullSwitchTxtClibdir},
+      cmdSwitchClib               : {fullSwitchTxtClib},
+      cmdSwitchHeader             : {fullSwitchTxtHeader},
+      cmdSwitchIndex              : {fullSwitchTxtIndex},
+      cmdSwitchImport             : {fullSwitchTxtImport},
+      cmdSwitchInclude            : {fullSwitchTxtInclude},
+      cmdSwitchListcmd            : {fullSwitchTxtListcmd},
+      cmdSwitchAsm                : {fullSwitchTxtAsm},
+      cmdSwitchGenmapping         : {fullSwitchTxtGenmapping},
+      cmdSwitchOs                 : {fullSwitchTxtOs},
+      cmdSwitchCpu                : {fullSwitchTxtCpu},
+      cmdSwitchRun                : {fullSwitchTxtRun},
+      cmdSwitchMaxloopiterationsvm: {fullSwitchTxtMaxloopiterationsvm},
+      cmdSwitchErrormax           : {fullSwitchTxtErrormax},
+      cmdSwitchVerbosity          : {fullSwitchTxtVerbosity},
+      cmdSwitchParallelbuild      : {fullSwitchTxtParallelbuild},
+      cmdSwitchVersion            : {fullSwitchTxtVersion},
+      cmdSwitchAdvanced           : {fullSwitchTxtAdvanced},
+      cmdSwitchFullhelp           : {fullSwitchTxtFullhelp},
+      cmdSwitchHelp               : {fullSwitchTxtHelp},
+      cmdSwitchIncremental        : {fullSwitchTxtIncremental, aliasSwitchTxtIncremental},
+      cmdSwitchSkipcfg            : {fullSwitchTxtSkipcfg},
+      cmdSwitchSkipprojcfg        : {fullSwitchTxtSkipprojcfg},
+      cmdSwitchSkipusercfg        : {fullSwitchTxtSkipusercfg},
+      cmdSwitchSkipparentcfg      : {fullSwitchTxtSkipparentcfg},
+      cmdSwitchGenscript          : {fullSwitchTxtGenscript},
+      cmdSwitchColors             : {fullSwitchTxtColors},
+      cmdSwitchLib                : {fullSwitchTxtLib},
+      cmdSwitchPutenv             : {fullSwitchTxtPutenv},
+      cmdSwitchCc                 : {fullSwitchTxtCc},
+      cmdSwitchStdout             : {fullSwitchTxtStdout},
+      cmdSwitchFilenames          : {fullSwitchTxtFilenames},
+      cmdSwitchMsgformat          : {fullSwitchTxtMsgformat},
+      cmdSwitchProcessing         : {fullSwitchTxtProcessing},
+      cmdSwitchUnitsep            : {fullSwitchTxtUnitsep},
+      cmdSwitchListfullpaths      : {fullSwitchTxtListfullpaths},
+      cmdSwitchSpellsuggest       : {fullSwitchTxtSpellsuggest},
+      cmdSwitchDeclaredlocs       : {fullSwitchTxtDeclaredlocs},
+      cmdSwitchDynliboverride     : {fullSwitchTxtDynliboverride},
+      cmdSwitchDynliboverrideall  : {fullSwitchTxtDynliboverrideall},
+      cmdSwitchExperimental       : {fullSwitchTxtExperimental},
+      cmdSwitchExceptions         : {fullSwitchTxtExceptions},
+      cmdSwitchCppdefine          : {fullSwitchTxtCppdefine},
+      cmdSwitchSeqsv2             : {fullSwitchTxtSeqsv2},
+      cmdSwitchStylecheck         : {fullSwitchTxtStylecheck},
+      cmdSwitchShowallmismatches  : {fullSwitchTxtShowallmismatches},
+      cmdSwitchDocinternal        : {fullSwitchTxtDocinternal},
+      cmdSwitchMultimethods       : {fullSwitchTxtMultimethods},
+      cmdSwitchExpandmacro        : {fullSwitchTxtExpandmacro},
+      cmdSwitchExpandarc          : {fullSwitchTxtExpandarc},
+      cmdSwitchBenchmarkvm        : {fullSwitchTxtBenchmarkvm},
+      cmdSwitchProfilevm          : {fullSwitchTxtProfilevm},
+      cmdSwitchSinkinference      : {fullSwitchTxtSinkinference},
+      cmdSwitchCursorinference    : {fullSwitchTxtCursorinference},
+      cmdSwitchPanics             : {fullSwitchTxtPanics},
+      cmdSwitchSourcemap          : {fullSwitchTxtSourcemap},
+      cmdSwitchDeepcopy           : {fullSwitchTxtDeepcopy},
+      cmdSwitchProjStdin          : {smolSwitchTxtProjStdin},
+      cmdSwitchCmdexitgcstats     : {fullSwitchTxtCmdexitgcstats},
+      cmdSwitchConfigVar          : {fullSwitchTxtConfigVar},
+    ]

@@ -124,15 +124,6 @@ type
 
   TOptions* = set[TOption]
 
-  TBackend* = enum
-    ## Target compilation backend
-    backendInvalid = "" # for parseEnum
-    backendC = "c"
-    backendJs = "js"
-    backendNimVm = "vm"
-    # backendNimscript = "nimscript" # this could actually work
-    # backendLlvm = "llvm" # probably not well supported; was cmdCompileToLLVM
-
   Command* = enum
     ## Compiler execution command
     cmdNone        ## not yet processed command
@@ -172,20 +163,6 @@ type
     foName          ## lastPathPart, e.g.: foo.nim
     foStacktrace    ## if optExcessiveStackTrace: foAbs else: foName
 
-  Feature* = enum  ## experimental features; DO NOT RENAME THESE!
-    implicitDeref,
-    dotOperators,
-    callOperator,
-    destructor,
-    notnil,
-    vmopsDanger,
-    strictFuncs,
-    views,
-    strictNotNil,
-    overloadableEnums,
-    strictEffects,
-    unicodeOperators
-
   TSystemCC* = enum
     ccNone, ccGcc, ccNintendoSwitch, ccLLVM_Gcc, ccCLang, ccBcc, ccVcc,
     ccTcc, ccEnv, ccIcl, ccIcc, ccClangCl
@@ -203,6 +180,43 @@ type
     readOnlySf   ## we only read from rod files
     v2Sf         ## who knows, probably a bad idea
     stressTest   ## likely more bad ideas
+
+type
+  # "reports" strikes again, this bit of silliness is to stop reports from
+  # infecting the `commands` module among others.
+  MsgFormatKind* = enum
+    msgFormatText  ## text legacy reports message formatting
+    msgFormatSexp  ## sexp legacy reports message formatting
+
+type
+  Feature* = enum  ## experimental features; DO NOT RENAME THESE!
+    implicitDeref,
+    dotOperators,
+    callOperator,
+    destructor,
+    notnil,
+    vmopsDanger,
+    strictFuncs,
+    views,
+    strictNotNil,
+    overloadableEnums,
+    strictEffects,
+    unicodeOperators
+
+const experimentalFeatures*: set[Feature] = {implicitDeref..unicodeOperators}
+
+type
+  TBackend* = enum
+    ## Target compilation backend
+    backendInvalid = "" # for parseEnum
+    backendC = "c"
+    backendJs = "js"
+    backendNimVm = "vm"
+    # backendNimscript = "nimscript" # this could actually work
+    # backendLlvm = "llvm" # probably not well supported; was cmdCompileToLLVM
+  TValidBackend* = range[backendC .. backendJs]
+
+const validBackends*: set[TValidBackend] = {backendC .. backendJs}
 
 type
   ConfNoteSet* = enum

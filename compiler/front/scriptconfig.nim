@@ -94,6 +94,77 @@ proc processSingleNote(arg: string, state: TSpecialWord, info: TLineInfo,
   of procNoteSuccess:
     discard
 
+proc processSingleSwitch(switch, arg: string; info: TLineInfo, conf: ConfigRef) =
+  let r = processSwitch(switch, arg, passPP, conf)
+  case r.kind
+  case procResult.kind
+  of procSwitchSuccess: discard
+  of procSwitchErrInvalid:
+    conf.localReport(info):
+      ExternaleReport(kind: rextInvalidCommandLineOption,
+                      cmdlineProvided: r.givenArg)
+  of procSwitchErrArgExpected:
+    
+    "argument for command line option expected: '$1'" %
+      procResult.givenSwitch
+  of procSwitchErrArgForbidden:
+    "$1 expects no arguments, but '$2' found" %
+      [procResult.givenSwitch, procResult.givenArg]
+  of procSwitchErrArgMalformedKeyValPair:
+    "option '$#' has malformed `key:value` argument: '$#" %
+      [procResult.givenSwitch, procResult.givenArg]
+  of procSwitchErrArgExpectedOnOrOff:
+    "'on' or 'off' expected for $1, but '$2' found" %
+      [procResult.givenSwitch, procResult.givenArg]
+  of procSwitchErrArgExpectedOnOffOrList:
+    "'on', 'off', or 'list' expected for $1, but '$2' found" %
+      [procResult.givenSwitch, procResult.givenArg]
+  of procSwitchErrArgExpectedAllOrOff:
+    "only 'all:off' is supported for $1, found $2" %
+      [procResult.givenSwitch, procResult.givenArg]
+  of procSwitchErrArgExpectedFromList:
+    "expected value for switch '$1'. Expected one of $2, but got nothing" %
+      [procResult.givenSwitch,
+        allowedCompileOptionsArgs(procResult.switch).join(", ")]
+  of procSwitchErrArgNotInValidList:
+    "Unexpected value for switch '$1'. Expected one of $2, but got '$3'" %
+      [procResult.givenSwitch,
+        allowedCompileOptionsArgs(procResult.switch).join(", "),
+        procResult.givenArg]
+  of procSwitchErrArgUnknownCCompiler:
+    "unknown C compiler: '$1'. Available options are: $2" %
+      [procResult.givenArg, listCCnames().join(", ")]
+  of procSwitchErrArgUnknownExperimentalFeature:
+    "unknown experiemental feature: '$1'. Available options are: $2" %
+      [procResult.givenArg,
+        allowedCompileOptionsArgs(procResult.switch).join(", ")]
+  of procSwitchErrArgPathInvalid:
+    "invalid path (option '$#'): $#" %
+      [procResult.givenSwitch, procResult.pathAttempted]
+  of procSwitchErrArgInvalidHintOrWarning:
+    let processNoteResult = procResult.processNoteResult
+    # xxx: clean-up these messages so they're more hint/warning specific,
+    #      we have more information available than we're using. eg: it's
+    #      not an invalid option, but error/warning/hint/etc switch
+    let temp =
+      case processNoteResult.kind
+      of procNoteSuccess: discard
+      of procNoteInvalidOption:
+        "Invalid command line option - " & processNoteResult.switch
+      of procNoteInvalidHint:
+        "Invalid hint - " & processNoteResult.invalidHintOrWarning
+      of procNoteInvalidWarning:
+        "Invalid warning - " & processNoteResult.invalidHintOrWarning
+      of procNoteExpectedOnOrOff:
+        "'on' or 'off' expected for $1, but '$2' found" %
+          [processNoteResult.switch, processNoteResult.argVal]
+      of procNoteOnlyAllOffSupported:
+        "only 'all:off' is supported for $1, found $2" %
+          [processNoteResult.switch, processNoteResult.argVal]
+    temp
+  else:
+    discard
+
 proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
               graph: ModuleGraph; idgen: IdGenerator): PEvalContext =
   result = newCtx(module, cache, graph, idgen, legacyReportsVmTracer)
@@ -234,7 +305,7 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
     setResult(a, conf.command)
   cbconf switch:
     wrapInCmdLineSrcIdxSwap:
-      processSwitch(a.getString 0, a.getString 1, passPP, conf)
+      processSingleSwitch(a.getString 0, a.getString 1, module.info, conf)
   cbconf hintImpl:
     wrapInCmdLineSrcIdxSwap:
       processSingleNote(a.getString 0, wHint, module.info, a.getString 1, conf)

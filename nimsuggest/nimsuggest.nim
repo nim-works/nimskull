@@ -684,9 +684,13 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
       # if processArgument(pass, p, argsCount): break
 
 proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
+  proc eventLogger(self: NimProg, conf: ConfigRef, evt: CliEvent) =
+    commands.cliEventLogger(conf, evt)
+
   let self = NimProg(
     suggestMode: true,
-    processCmdLine: nimsuggest.processCmdLine
+    processCmdLine: nimsuggest.processCmdLine,
+    eventReceiver: eventLogger
   )
   self.initDefinesProg(conf, "nimsuggest")
 

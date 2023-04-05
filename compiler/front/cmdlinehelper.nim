@@ -25,7 +25,7 @@ import
     commands,
     msgs,
     options,
-    condsyms
+    condsyms,
   ],
   compiler/utils/[
     pathutils,
@@ -45,6 +45,9 @@ from compiler/ast/report_enums import ReportKind
 from compiler/ast/reports import Report,
   ReportCategory,
   toReportLineInfo
+from compiler/front/cli_reporter import reportHook
+from compiler/front/sexp_reporter import reportHook
+
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
   when defined(unix):
@@ -52,12 +55,6 @@ proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
     else: result = AbsoluteFile("./" & f.string)
   else:
     result = f
-
-type
-  NimProg* = ref object
-    suggestMode*: bool
-    supportsStdinFile*: bool
-    processCmdLine*: proc(pass: TCmdLinePass, cmd: string; config: ConfigRef)
 
 proc handleConfigEvent(
     conf: ConfigRef,
@@ -150,9 +147,20 @@ proc handleConfigEvent(
   
   handleReport(conf, rep, reportFrom, eh)
 
+proc legacyReportsMsgFmtSetter(conf: ConfigRef, fmt: MsgFormatKind) =
+  ## this actually sets the report hook, but the intention is formatter only,
+  ## but the "reports" doesn't allow for that.
+  case fmt
+  of msgFormatText: conf.setReportHook cli_reporter.reportHook
+  of msgFormatSexp: conf.setReportHook sexp_reporter.reportHook
+
 proc initDefinesProg*(self: NimProg, conf: ConfigRef, name: string) =
   condsyms.initDefines(conf.symbols)
   defineSymbol conf, name
+  # "reports" strikes again, this bit of silliness is to stop reports from
+  # infecting the `commands` module among others. Only really needed for CLI
+  # parsing; don't need to care about the rest
+  conf.setMsgFormat = legacyReportsMsgFmtSetter()
 
 proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef, cmd: string = "") =
   self.processCmdLine(passCmd1, cmd, conf)

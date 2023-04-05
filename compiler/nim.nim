@@ -68,15 +68,20 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
   ## into different subsystems, sets up configuration options for the
   ## `conf`:arg: and so on.
   # TODO: remove the need for all the `conf.errorCounter` checks.
-  let self = NimProg(
-    supportsStdinFile: true,
-    processCmdLine: processCmdLine
-  )
+  proc eventLogger(self: NimProg, conf: ConfigRef, evt: CliEvent) =
+    commands.cliEventLogger(conf, evt)
+
+  let
+    cliParams = commandLineParams()
+    self = NimProg(supportsStdinFile: true,
+                   processCmdLine: processCmdLine,
+                   eventReceiver: eventLogger)
+
   self.initDefinesProg(conf, "nim_compiler")
   if paramCount() == 0:
     return cliErrNoParamsProvided
 
-  self.processCmdLineAndProjectPath(conf)
+  self.processCmdLineAndProjectPath(conf, cliParams)
   if conf.errorCounter != 0: return
   var graph = newModuleGraph(cache, conf)
 
@@ -156,7 +161,7 @@ when not defined(selftest):
 
   case handleCmdLine(newIdentCache(), conf)
   of cliErrNoParamsProvided:
-    conf.logError(CliEvent(kind: cliEvtErrNoCmdLineParamsProvided))
+    conf.logError(CliEvent(kind: cliEvtErrNoCliParamsProvided))
     conf.showMsg(helpOnErrorMsg(conf))
   of cliErrConfigProcessing, cliErrCommandProcessing, cliFinished:
     # TODO: more specific handling here
