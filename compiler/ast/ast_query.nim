@@ -111,6 +111,8 @@ const
   nkFloatKinds* = nkFloatLiterals
   nkStrKinds*   = nkStrLiterals
 
+  nkAllNodeKinds* = {low(TNodeKind) .. high(TNodeKind)}
+
   skLocalVars* = {skVar, skLet, skForVar, skParam, skResult}
   skProcKinds* = {skProc, skFunc, skTemplate, skMacro, skIterator,
                   skMethod, skConverter}

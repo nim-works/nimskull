@@ -425,6 +425,9 @@ func astDiagToLegacyReportKind*(
   vmGenDiag: Option[AstDiagVmGenKind] = none(AstDiagVmGenKind),
   vmEvent: Option[AstDiagVmKind] = none(AstDiagVmKind)
   ): ReportKind {.inline.} =
+  ## with the introduction of `adSemDefNameSym` style diagnostics, this
+  ## function is no longer all that sensible. `AstDiagKind` will move towards
+  ## very broad categories and they'll no longer map to "reports".
   case diag
   of adWrappedError: rsemWrappedError
   of adSemTypeMismatch: rsemTypeMismatch
@@ -586,6 +589,7 @@ func astDiagToLegacyReportKind*(
   of adSemFoldDivByZero: rsemSemfoldDivByZero
   of adSemInvalidRangeConversion: rsemSemfoldInvalidConversion
   of adSemFoldCannotComputeOffset: rsemCantComputeOffsetof
+  of adSemDefNameSym: rsemExpectedIdentifier
 
 func astDiagToLegacyReportKind*(diag: PAstDiag): ReportKind {.inline.} =
   case diag.kind

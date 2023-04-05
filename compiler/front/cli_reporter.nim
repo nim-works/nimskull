@@ -4367,6 +4367,26 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       kind: kind,
       ast: diag.wrongNode,
       str: diag.invalidDef)
+  of adSemDefNameSym:
+    case diag.defNameSymData.kind
+    of adSemDefNameSymExpectedKindMismatch:
+      semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemSymbolKindMismatch,
+        sym: diag.wrongNode.sym,
+        expectedSymbolKind: {diag.defNameSymData.expectedKind},
+        ast: diag.wrongNode)
+    of adSemDefNameSymIllformedAst:
+      semRep = SemReport(
+        location: some diag.location,
+        reportInst: diag.instLoc.toReportLineInfo,
+        kind: rsemExpectedIdentifier,
+        ast: diag.wrongNode)
+    of adSemDefNameSymIdentGenFailed:
+      return astDiagToLegacyReport(conf, diag.defNameSymData.identGenErr.diag)
+    of adSemDefNameSymExistingError:
+      return astDiagToLegacyReport(conf, diag.wrongNode.diag)
   of adVmError:
     let
       kind = diag.vmErr.kind.astDiagVmToLegacyReportKind()

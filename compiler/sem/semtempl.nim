@@ -1039,10 +1039,9 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
   result.sons.newSeq(n.len) # make space for the kids
 
   result[namePos] = n[namePos]
+  var hasError = result[namePos].kind == nkError
 
-  var
-    hasError = false
-    s = n[namePos].sym
+  let s = result[namePos].getDefNameSymOrRecover()
 
   assert s.kind == skTemplate
 
@@ -1056,7 +1055,6 @@ proc semTemplateDef(c: PContext, n: PNode): PNode =
   pushOwner(c, s)
   openScope(c)
 
-  result[namePos] = newSymNode(s)
   result[pragmasPos] = n[pragmasPos]
 
   if n[pragmasPos].kind != nkEmpty:

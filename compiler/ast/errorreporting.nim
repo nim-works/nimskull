@@ -43,13 +43,14 @@ proc errorHandling*(err: PNode): TErrorHandling =
 
 template localReport*(conf: ConfigRef, node: PNode) =
   ## Write out existing sem report that is stored in the nkError node
-  assert node.kind == nkError, $node.kind
+  {.line.}:
+    assert node.kind == nkError, $node.kind
 
-  when defined(nimDebugUnreportedErrors):
-    conf.unreportedErrors.del node.id
+    when defined(nimDebugUnreportedErrors):
+      conf.unreportedErrors.del node.id
+      for err in walkErrors(conf, node):
+        conf.unreportedErrors.del err.id
+
     for err in walkErrors(conf, node):
-      conf.unreportedErrors.del err.id
-
-  for err in walkErrors(conf, node):
-    if true or canReport(conf, err):
-      handleReport(conf, err.diag, instLoc(), node.errorHandling)
+      if true or canReport(conf, err):
+        handleReport(conf, err.diag, instLoc(), node.errorHandling)
