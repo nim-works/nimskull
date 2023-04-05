@@ -4309,14 +4309,14 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
   of adSemCompilerOptionInvalid,
       adSemDeprecatedCompilerOpt:
     semRep = SemReport(
-      location: std_options.some diag.location,
+      location: some diag.location,
       reportInst: diag.instLoc.toReportLineInfo,
       kind: kind,
       ast: diag.wrongNode,
       str: diag.badCompilerOpt.getStr)
   of adSemCompilerOptionArgInvalid:
     semRep = SemReport(
-      location: std_options.some diag.location,
+      location: some diag.location,
       reportInst: diag.instLoc.toReportLineInfo,
       kind: rsemCompilerOptionArgInvalid,
       ast: diag.wrongNode,
@@ -4325,7 +4325,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       allowedOptArgs: diag.possibleValidArgs)
   of adSemDeprecatedCompilerOptArg:
     semRep = SemReport(
-      location: std_options.some diag.location,
+      location: some diag.location,
       reportInst: diag.instLoc.toReportLineInfo,
       kind: rsemDeprecatedCompilerOptArg,
       ast: diag.wrongNode,
