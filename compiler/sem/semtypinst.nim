@@ -148,19 +148,73 @@ proc replaceTypeVarsT*(cl: var TReplTypeVars, t: PType): PType =
   result = replaceTypeVarsTAux(cl, t)
   checkMetaInvariants(cl, result)
 
-proc prepareNode(cl: var TReplTypeVars, n: PNode): PNode =
-  let t = replaceTypeVarsT(cl, n.typ)
-  if t != nil and t.kind == tyStatic and t.n != nil:
-    return if tfUnresolved in t.flags: prepareNode(cl, t.n)
-           else: t.n
-  result = copyNode(n)
-  result.typ = t
-  if result.kind == nkSym: result.sym = replaceTypeVarsS(cl, n.sym)
-  let isCall = result.kind in nkCallKinds
-  for i in 0..<n.safeLen:
-    # XXX HACK: ``f(a, b)``, avoid to instantiate `f`
-    if isCall and i == 0: result.add(n[i])
-    else: result.add(prepareNode(cl, n[i]))
+proc isTypeParameterAccess(cl: TReplTypeVars, s: PSym): bool =
+  # XXX: this is a workaround used for detecting whether the ``skType``
+  #      symbols represents a generic type parameter access
+  s.kind == skType and s.typ.kind == tyTypeDesc and
+    cl.typeMap.lookup(s.typ[0]) != nil
+
+proc prepareNode*(cl: var TReplTypeVars, n: PNode): PNode =
+  ## Replaces unresolved types referenced by the nodes of expression/statement
+  ## `n` with the corresponding bound ones.
+  ##
+  ## Because of how late-bound static parameters are currently implemented,
+  ## ``prepareNode`` is also responsible for replacing sub-expression of type
+  ## ``tyStatic`` with the computed value.
+  template resolveStatic() =
+    ## Redirects to the evaluated (or unevaluated) value of the static type, if
+    ## `n` resolves to a ``tyStatic``
+    let t {.inject.} = replaceTypeVarsT(cl, n.typ)
+    # XXX: this logic has to be here because of the ``tyStatic``-related logic
+    #      in ``evalAtCompileTime``. Try to find a way to handle late-bound
+    #      static parameters differently
+    if t != nil and t.kind == tyStatic and t.n != nil:
+      # a ``tyStatic`` having a non-nil AST value doesn't mean that it's a
+      # resolved ``tyStatic``, see ``sigmatch.paramTypeMatchesAux``
+      # XXX: this is dangerous. A lot of places in the compiler depend on
+      #      ``TTNode.n != nil`` meaning resolved
+      return if tfUnresolved in t.flags: prepareNode(cl, t.n)
+              else: t.n
+
+  case n.kind
+  of nkSym:
+    # only replace type variables for symbols if the symbol belongs to a generic
+    # parameter, non-generic parameters, or where it represents an access of
+    # generic types parameters. An example of the latter:
+    #
+    #   type Typ[Param] = object
+    #   proc p(x: Typ): seq[Typ.Param]
+    #
+    # XXX: handle the type parameter access differently; the workaround used
+    #      here is shaky
+    let s = n.sym
+    if s.kind == skParam or
+       (s.kind in {skGenericParam, skType} and
+        {tfGenericTypeParam, tfImplicitTypeParam} * s.typ.flags != {}) or
+       isTypeParameterAccess(cl, s):
+      resolveStatic()
+      result = copyNode(n)
+      result.typ = t
+      result.sym = replaceTypeVarsS(cl, s)
+    else:
+      # important: don't use ``resolveStatic`` here, as the ``replaceTypeVarsT``
+      # call would traverse into types not depending on any of the type
+      # variables we're replacing here
+      result = n
+  of nkWithoutSons - {nkSym}:
+    resolveStatic()
+    result = copyNode(n)
+    result.typ = t
+  of nkSymChoices:
+    # a symbol choice is itself similiar to a symbol
+    result = n
+  of nkWithSons - nkSymChoices:
+    resolveStatic()
+
+    result = shallowCopy(n)
+    result.typ = t
+    for i, it in n.pairs:
+      result[i] = prepareNode(cl, it)
 
 proc isTypeParam(n: PNode): bool =
   # XXX: generic params should use skGenericParam instead of skType
@@ -230,11 +284,15 @@ proc replaceObjBranches(cl: TReplTypeVars, n: PNode): PNode =
       n[i] = replaceObjBranches(cl, n[i])
 
 proc replaceTypeVarsN(cl: var TReplTypeVars, n: PNode; start=0): PNode =
+  ## Replaces references to unresolved types in AST associated with types (i.e.:
+  ## the AST that is stored in the ``TType.n`` field).
+  ##
+  ## **See also:**
+  ## * `prepareNode <#prepareNode,TReplTypeVars,PNode>`_
   if n == nil: return
   result = copyNode(n)
   if n.typ != nil:
     result.typ = replaceTypeVarsT(cl, n.typ)
-    checkMetaInvariants(cl, result.typ)
   case n.kind
   of nkNone..pred(nkSym), succ(nkSym)..nkNilLit:
     discard
