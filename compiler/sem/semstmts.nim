@@ -2207,10 +2207,10 @@ proc semTypeSection(c: PContext, n: PNode): PNode =
 proc semParamList(c: PContext, n, genericParams: PNode, kind: TSymKind): PType =
   semProcTypeNode(c, n, genericParams, nil, kind)
 
-proc addParams(c: PContext, n: PNode, kind: TSymKind) =
+proc addParams(c: PContext, n: PNode) =
   for i in 1..<n.len:
     if n[i].kind == nkSym:
-      addParamOrResult(c, n[i].sym, kind)
+      addParamOrResult(c, n[i].sym)
 
     else:
       semReportIllformedAst(c.config, n[i], {nkSym})
@@ -2230,7 +2230,7 @@ proc semBorrow(c: PContext, n: PNode, s: PSym) =
   else:
     localReport(c.config, n, reportSem rsemBorrowTargetNotFound)
 
-proc addResult(c: PContext, n: PNode, t: PType, owner: TSymKind) =
+proc addResult(c: PContext, n: PNode, t: PType) =
   template genResSym(s) =
     var s = newSym(skResult, getIdent(c.cache, "result"), nextSymId c.idgen,
                    getCurrOwner(c), n.info)
@@ -2249,7 +2249,7 @@ proc addResult(c: PContext, n: PNode, t: PType, owner: TSymKind) =
       of nkWithoutSons - {nkSym}:
         discard
 
-  if owner == skMacro or t != nil:
+  if t != nil:
     if n.len > resultPos and n[resultPos] != nil:
       if n[resultPos].sym.kind != skResult:
         localReport(c.config, n, reportSem rsemIncorrectResultProcSymbol)
@@ -2265,7 +2265,7 @@ proc addResult(c: PContext, n: PNode, t: PType, owner: TSymKind) =
       genResSym(s)
       c.p.resultSym = s
       n.add newSymNode(c.p.resultSym)
-    addParamOrResult(c, c.p.resultSym, owner)
+    addParamOrResult(c, c.p.resultSym)
 
 
 proc semProcAnnotation(c: PContext, prc: PNode): PNode =
@@ -2365,9 +2365,9 @@ proc semInferredLambda(c: PContext, pt: TIdTable, n: PNode): PNode {.nosinks.} =
     #params[i].sym.owner = s
   openScope(c)
   pushOwner(c, s)
-  addParams(c, params, skProc)
+  addParams(c, params)
   pushProcCon(c, s)
-  addResult(c, n, n.typ[0], skProc)
+  addResult(c, n, n.typ[0])
   s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
   trackProc(c, s, s.ast[bodyPos])
   popProcCon(c)
@@ -2393,11 +2393,8 @@ proc activate(c: PContext, n: PNode) =
       discard
 
 proc maybeAddResult(c: PContext, s: PSym, n: PNode) =
-  if s.kind == skMacro:
-    let resultType = sysTypeFromName(c.graph, n.info, "NimNode")
-    addResult(c, n, resultType, s.kind)
-  elif s.typ[0] != nil and not isInlineIterator(s.typ):
-    addResult(c, n, s.typ[0], s.kind)
+  if s.typ[0] != nil and not isInlineIterator(s.typ):
+    addResult(c, n, s.typ[0])
 
 proc canonType(c: PContext, t: PType): PType =
   if t.kind == tySequence:
@@ -2812,7 +2809,7 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
     openScope(c)          # open scope for old (correct) parameter symbols
     if proto.ast[genericParamsPos].isGenericParams:
       addGenericParamListToScope(c, proto.ast[genericParamsPos])
-    addParams(c, proto.typ.n, proto.kind)
+    addParams(c, proto.typ.n)
     proto.info = s.info       # more accurate line information
     proto.options = s.options
     s = proto
@@ -2862,7 +2859,7 @@ proc semProcAux(c: PContext, n: PNode, validPragmas: TSpecialWords,
         # absolutely no generics (empty) or a single generic return type are
         # allowed, everything else, including a nullary generic is an error.
         pushProcCon(c, s)
-        addResult(c, result, s.typ[0], skProc)
+        addResult(c, result, s.typ[0])
         s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
         trackProc(c, s, s.ast[bodyPos])
         popProcCon(c)
@@ -3065,8 +3062,65 @@ proc semMacroDef(c: PContext, n: PNode): PNode =
 
   # analyse the body:
   if n[bodyPos].kind != nkEmpty and sfError notin s.flags:
+    # close the scope containing the original parameter symbols
+    closeScope(c)
+
+    # for macros, the actual types of the parameters doesn't match the ones
+    # specified in the header. In order to be able to query the symbols
+    # used for accessing the parameters in the body, we record them to an
+    # internal ``tyProc`` type stored with the macro symbol. Note that the
+    # internal signature is the one that is used during compile-time also
+    # how the VM treats and invokes the macro
+
+    let
+      nimNodeType = sysTypeFromName(c.graph, n.info, "NimNode")
+      typ = newProcType(c, n.info) # the internal type
+
+    typ[0] = nimNodeType # a macro always returns a ``NimNode``
+    typ.callConv = ccNimCall
+
+    # open a new scope for the internal symbols plus the body
+    openScope(c)
+
+    proc addAndRegisterParam(c: PContext, sig, nimNodeType: PType, param: PSym) =
+      ## Updates the type for `param` and adds it to both `sig` and the symbol
+      ## table
+      let staticType = findEnforcedStaticType(param.typ)
+      param.typ =
+        if staticType == nil:
+          # non-``static`` macro parameters are ``NimNode``s internally
+          nimNodeType
+        else:
+          # static parameters are treated like normal parameters
+          staticType.base
+
+      addParam(sig, param)
+      addDecl(c, param)
+
+    # add the normal parameters:
+    for i in 1..<s.typ.n.len:
+      let p = copySym(s.typ.n[i].sym, nextSymId(c.idgen))
+      addAndRegisterParam(c, typ, nimNodeType, p)
+
+    # add the generic parameters as normal parameters:
+    let start = typ.len - 1
+    for i, it in result[genericParamsPos].pairs:
+      if tfImplicitTypeParam in it.sym.typ.flags:
+        # since there's no way for the body to access implicit generic
+        # parameters, we add them to neither the internal signature nor the
+        # symbol table
+        continue
+
+      let p = newSym(skParam, it.sym.name, nextSymId(c.idgen), s, it.info, it.sym.options)
+      p.position = i + start
+      p.typ = it.sym.typ
+
+      addAndRegisterParam(c, typ, nimNodeType, p)
+
+    s.internal = typ
+
     pushProcCon(c, s)
-    maybeAddResult(c, s, result)
+    addResult(c, s.ast, nimNodeType)
     result[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos]))
     trackProc(c, s, result[bodyPos])
     popProcCon(c)

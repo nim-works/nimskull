@@ -589,7 +589,7 @@ proc genEmpty(c: var TCtx, n: PNode): EValue =
 func nameNode(s: PSym, n: PNode): MirNode =
   if sfGlobal in s.flags:
     MirNode(kind: mnkGlobal, typ: s.typ, sym: s)
-  elif s.kind in {skParam, skGenericParam}:
+  elif s.kind == skParam:
     MirNode(kind: mnkParam, typ: s.typ, sym: s)
   elif s.kind == skConst:
     MirNode(kind: mnkConst, typ: s.typ, sym: s)
@@ -896,28 +896,6 @@ proc genMacroCall(c: var TCtx, n: PNode): EValue =
   #      a magic procedure that does the same thing as ``vm.regToNode`` (i.e.
   #      turn a run-time value into its ``NimNode`` representation)
 
-  # XXX: if each macro had a corresponding internal procedure symbol that
-  #      represents the macro during compile-time execution, then
-  #      ``getAst(macroCall(x)`` could be translated to
-  #      ``macroCall(toNimNode(x))`` during semantic analysis. That would
-  #      simplify both ``mirgen`` and ``vmgen``. For example, the macro:
-  #
-  #      .. code-block:: nim
-  #
-  #        macro m[A, B](x: int, y: untyped, z: static string) = ...
-  #
-  #      would have an internal represetation that is equivalent to:
-  #
-  #      .. code-block:: nim
-  #
-  #        proc m(x: NimNode, y: NimNode, A: typeDesc, B: typeDesc,
-  #               z: string) {.compileTime.}
-  #
-  #      This matches with how macro calls are already invoked by the
-  #      VM/``compilerbridge``. The ``skMacro`` symbol would be the one
-  #      used during overload resolution, while the ``skProc`` symbol would
-  #      be used when executing the macro in the VM.
-
   c.stmts.add MirNode(kind: mnkArgBlock)
   chain: genCallee(c, n[0]) => arg(c)
 
@@ -937,7 +915,7 @@ proc genMacroCall(c: var TCtx, n: PNode): EValue =
       chain: genArgExpression(c, t, n[i]) => arg(c)
     elif argTyp.kind == tyTypeDesc:
       # the expression is a type expression, explicitly handle it there so that
-      # ``genx`` doesn't has to it here
+      # ``genx`` doesn't have to
       chain: genTypeExpr(c, n[i]) => arg(c)
     elif n[i].kind == nkSym and n[i].sym.kind in {skMacro, skTemplate}:
       # special case them here so that ``genx`` doesn't have to
@@ -1130,11 +1108,22 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
           #        the call should also use a complete symbol.
           chain: genx(c, n[i]) => arg(c)
 
+      magicCall(c, m, n.typ)
     else:
-      argBlock(c.stmts):
-        chain: genMacroCall(c, n[1]) => arg(c)
+      case n[1][0].sym.kind
+      of skTemplate:
+        # a ``getAst`` call taking a template call expression -> leave the
+        # ``mExpandToAst`` magic call as is
+        argBlock(c.stmts):
+          chain: genMacroCall(c, n[1]) => arg(c)
 
-    magicCall(c, m, n.typ)
+        magicCall(c, m, n.typ)
+      of skMacro:
+        # rewrite ``getAst(macro(a, b, c))`` -> ``macro(a, b, c)``
+        genMacroCall(c, n[1])
+      else:
+        unreachable()
+
   else:
     # no special transformation for the other magics:
     genCall(c, n)
@@ -1712,8 +1701,6 @@ proc genx(c: var TCtx, n: PNode, consume: bool): EValue =
       procLit(c, s)
     of skGenericParam:
       case c.context
-      of skMacro:
-        genLocation(c, n)
       of skUnknown:
         # HACK: during parameter type matching, sigmatch (``paramTypesMatchAux``)
         #       uses ``tryConstExpr`` in order to find out whether the argument

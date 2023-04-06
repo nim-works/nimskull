@@ -414,7 +414,6 @@ func astDiagVmGenToLegacyReportKind*(
   of adVmGenCodeGenUnexpectedSym: rvmCannotGenerateCode
   of adVmGenCannotCast: rvmCannotCast
   of adVmGenBadExpandToAstArgRequired: rvmBadExpandToAst
-  of adVmGenBadExpandToAstCallExprRequired: rvmBadExpandToAst
   of adVmGenCannotEvaluateAtComptime: rvmCannotEvaluateAtComptime
   of adVmGenCannotImportc: rvmCannotImportc
   of adVmGenInvalidObjectConstructor: rvmInvalidObjectConstructor

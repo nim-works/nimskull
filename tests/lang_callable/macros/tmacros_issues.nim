@@ -519,3 +519,23 @@ block double_sem_for_procs:
     result = 10.0
 
   discard exp(5.0)
+
+block orginal_parameter_types:
+  # inspecting a parameter type in the macro's header yields the
+  # original type, not ``NimNode``
+
+  template assertTypeOfInt(s): typedesc =
+    static:
+      # make sure that the type really is ``int``
+      doAssert typeof(s) is int
+    typeof(s)
+
+  macro m(x: int, y: assertTypeOfInt(x)) =
+    static:
+      doAssert typeof(x) is NimNode
+      doAssert typeof(y) is NimNode
+
+    doAssert x.intVal == 1
+    doAssert y.intVal == 2
+
+  m(1, 2)

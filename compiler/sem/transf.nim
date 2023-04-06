@@ -1111,24 +1111,30 @@ template liftDefer(c, root) =
   if c.deferDetected:
     liftDeferAux(root)
 
+proc transformBody*(g: ModuleGraph, idgen: IdGenerator, prc: PSym, body: PNode): PNode =
+  ## Applies the various transformations to `body` and returns the result.
+  ## This step is not indempotent, and since no caching is performed, it
+  ## must not be performed more than once for a procedure and its body.
+  var c = PTransf(graph: g, module: prc.getModule, idgen: idgen)
+  result = liftLambdas(g, prc, body, c.tooEarly, c.idgen)
+  result = processTransf(c, result, prc)
+  liftDefer(c, result)
+
+  if prc.isIterator:
+    result = g.transformClosureIterator(c.idgen, prc, result)
+
+  incl(result.flags, nfTransf)
+
 proc transformBody*(g: ModuleGraph; idgen: IdGenerator; prc: PSym; cache: bool): PNode =
-  assert prc.kind in routineKinds
+  assert prc.kind in routineKinds - {skMacro}
 
   if prc.transformedBody != nil:
     result = prc.transformedBody
   elif nfTransf in getBody(g, prc).flags or prc.kind in {skTemplate}:
     result = getBody(g, prc)
   else:
-    var c = PTransf(graph: g, module: prc.getModule, idgen: idgen)
     prc.transformedBody = newNode(nkEmpty) # protects from recursion
-    result = liftLambdas(g, prc, getBody(g, prc), c.tooEarly, c.idgen)
-    result = processTransf(c, result, prc)
-    liftDefer(c, result)
-
-    if prc.isIterator:
-      result = g.transformClosureIterator(c.idgen, prc, result)
-
-    incl(result.flags, nfTransf)
+    result = transformBody(g, idgen, prc, getBody(g, prc))
 
     if cache or prc.typ.callConv == ccInline:
       # genProc for inline procs will be called multiple times from different modules,

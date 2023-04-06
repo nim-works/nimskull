@@ -981,7 +981,7 @@ type
   AstDiagVmGenKind* = enum
     ## Kinds for errors produced by `vmgen`
     adVmGenBadExpandToAstArgRequired      # | TODO: these enum values duplicate
-    adVmGenBadExpandToAstCallExprRequired # |       `VmGenDiagKind` vmgen enum
+                                          # |       `VmGenDiagKind` vmgen enum
     adVmGenTooManyRegistersRequired       # |       defined in the `vmdef`
     adVmGenCannotFindBreakTarget          # |       module. There should be a
     adVmGenNotUnused                      # |       way to cross-reference data
@@ -1001,7 +1001,6 @@ type
   AstDiagVmGenError* = object
     case kind*: AstDiagVmGenKind:
       of adVmGenBadExpandToAstArgRequired,
-          adVmGenBadExpandToAstCallExprRequired,
           adVmGenTooManyRegistersRequired,
           adVmGenCannotFindBreakTarget:
         discard
@@ -1595,10 +1594,15 @@ type
   TSym* {.acyclic.} = object of TIdObj # Keep in sync with PackedSym
     ## proc and type instantiations are cached in the generic symbol
     case kind*: TSymKind
-    of routineKinds:
+    of routineKinds - {skMacro}:
       #procInstCache*: seq[PInstantiation]
       gcUnsafetyReason*: PSym  ## for better error messages regarding gcsafe
       transformedBody*: PNode  ## cached body after transf pass
+    of skMacro:
+      internal*: PType ## the internal signature that the macro has in a
+                       ## compile-time evaluation context. Can be used to
+                       ## query the symbols the parameters use in the macro's
+                       ## body
     of skLet, skVar, skField, skForVar:
       guard*: PSym
       bitsize*: int
