@@ -872,3 +872,46 @@ block: # Ensure no segfault from constraint
     a = Regex[int]()
     b = Regex[bool]()
     c = MyOtherType[seq[int]]()
+
+block uninstantiated_symbol_in_default_value_ast:
+  # `prc` must have a parameter with a non-builtin container type where the
+  # relevant type parameter is not phantom type information
+  proc prc[T](x: Slice[T]) =
+    discard
+
+  template imm() =
+    # `imm` must be an immediate template, so that it is instantiated  when
+    # analysing the default value expression
+    bind prc # <-- this is the imporant part. The symbol of an uninstantiated
+             # generic routine exists in a non-callee AST slot
+
+  # `param` must have a type that depends on a generic parameter
+  proc p[T](param = (imm(); default(T))) =
+    doAssert param == 0
+
+  # this used to fail with a "cannot instantiate; Maybe generic arguments are
+  # missing" error
+  p[int]()
+
+block unrelated_type_in_body:
+  # a variation of the "uninstantiated_symbol_in_default_value_ast" test, but
+  # with the symbol of an unrelated type
+  type Type[U] = object
+    x: U
+
+  template get(x: typed) =
+    discard
+
+  proc p[T](param = (get(Type); default(T))) =
+    doAssert param == 0
+
+  p[int]()
+
+block non_call_generic_default_value_expression:
+  # because the `x.len` expression is a generic statement (it depends on a
+  # type variable), it is kept as a dot-expression until instantiation. The
+  # issues was that non-call expression didn't have their type vars replaced
+  proc p(x: static[string]; L = x.len) =
+    doAssert x.len == 1
+
+  p("a")

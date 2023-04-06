@@ -256,10 +256,20 @@ proc instantiateProcType(c: PContext, pt: TIdTable,
     # call head symbol, because this leads to infinite recursion.
     if oldParam.ast != nil:
       var def = oldParam.ast.copyTree
-      if def.kind == nkCall:
-        for i in 1..<def.len:
-          def[i] = replaceTypeVarsN(cl, def[i])
+      # XXX: patching the ``tyFromExpr`` away is a hack, and only hides the
+      #      issues. The problem is that ``replaceTypeVarsT`` (called from
+      #      ``prepareNode``) always attempts to evaluate the from-expression
+      #      as a constant, leading to a "cannot evaluate at compile-time"
+      #      error if this fails. Multiple things need to be done here:
+      #      1. don't try to always evaluate the from-expression at
+      #         compile-time. If the consumer of the type requires a
+      #         ``tyStatic``, the from-expression should be wrapped in a
+      #         ``nkStaticExpr``
+      #      2. make ``prepareNode`` obsolete and remove it
+      if def.typ.kind == tyFromExpr:
+        def.typ = nil
 
+      def = prepareNode(cl, def)
       def = semExprWithType(c, def)
       if def.referencesAnotherParam(getCurrOwner(c)):
         def.flags.incl nfDefaultRefsParam
