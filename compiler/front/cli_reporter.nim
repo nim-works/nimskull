@@ -2871,11 +2871,7 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
   assertKind r
   case ExternalReportKind(r.kind):
     of rextConf:
-      result.add(
-        conf.prefix(r),
-        "used config file '$1'" % r.msg,
-        conf.suffix(r)
-      )
+      result.add("used config file '$1'" % r.msg, conf.suffix(r))
 
     of rextCommandMissing:
       result.add("Command missing")
