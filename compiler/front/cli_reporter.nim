@@ -4497,12 +4497,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         kind: kind,
         location: some location,
         reportInst: diag.instLoc.toReportLineInfo)
-    of adVmGenBadExpandToAstCallExprRequired:
-      vmRep = VMReport(
-        str: "expandToAst requires a call expression",
-        kind: kind,
-        location: some location,
-        reportInst: diag.instLoc.toReportLineInfo)
     of adVmGenNotUnused,
         adVmGenNotAFieldSymbol,
         adVmGenCannotGenerateCode,

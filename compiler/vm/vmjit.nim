@@ -155,8 +155,14 @@ proc genProc(c: var TCtx, s: PSym): VmGenResult =
     c.code.setLen(last)
     c.debug.setLen(last)
 
-  var
-    body = transformBody(c.graph, c.idgen, s, cache = not isCompileTimeProc(s))
+  var body =
+    if s.kind == skMacro:
+      transformBody(c.graph, c.idgen, s, s.ast[bodyPos])
+    else:
+      # what out! While compile-time only procedures don't need to be cached
+      # here, we still need to retrieve their already cached body (if one
+      # exists). Lifted inner procedures would otherwise not work.
+      transformBody(c.graph, c.idgen, s, cache = not isCompileTimeProc(s))
 
   body = canonicalize(c.graph, c.idgen, s, body, selectOptions(c))
 

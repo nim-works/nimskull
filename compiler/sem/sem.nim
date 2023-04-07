@@ -124,7 +124,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode
 proc semOpAux(c: PContext, n: PNode): bool
 proc semParamList(c: PContext, n, genericParams: PNode, kind: TSymKind): PType
-proc addParams(c: PContext, n: PNode, kind: TSymKind)
+proc addParams(c: PContext, n: PNode)
 proc maybeAddResult(c: PContext, s: PSym, n: PNode)
 proc tryExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode
 proc activate(c: PContext, n: PNode)

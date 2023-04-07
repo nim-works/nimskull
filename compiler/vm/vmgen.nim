@@ -1012,17 +1012,7 @@ template isGlobal(s: PSym): bool = sfGlobal in s.flags and s.kind != skForVar
 func local(prc: PProc, sym: PSym): TDest {.inline.} =
   ## Returns the register associated with the local variable `sym` (or -1 if
   ## `sym` is not a local)
-  let
-    s = sym
-    r = prc.locals.getOrDefault(s.id, -1)
-  # Problem: in macro bodies, copies of the parameters' symbols with differnt
-  # IDs are used (see `addParamOrResult`), meaning that these symbols have no
-  # mapping in the table after `genParams`. Which register a parameter with
-  # position X maps to is deteministic, so a simple fallback can be used.
-  if r >= 0: r
-  else:
-    if s.kind in {skResult, skParam}: s.position + ord(s.kind == skParam)
-    else: -1
+  prc.locals.getOrDefault(sym.id, -1)
 
 proc needsAsgnPatch(n: PNode): bool =
   n.kind in {nkBracketExpr, nkDotExpr, nkCheckedFieldExpr,
@@ -1847,41 +1837,31 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
     if n.len != 2:
       fail(n.info, vmGenDiagBadExpandToAstArgRequired)
 
-    let call = n[1]
-    if call.kind in nkCallKinds:
-      if dest.isUnset: dest = c.getTemp(n.typ)
+    prepare(c, dest, n.typ)
 
-      case call[0].sym.kind
-      of skTemplate:
-        let x = c.getTempRange(call.len, slotTempUnknown)
+    let
+      call = n[1]
+      x = c.getTempRange(call.len, slotTempUnknown)
 
-        # pass the template symbol as the first argument
-        var callee = TDest(x)
-        c.genLit(call[0], c.toNodeCnst(call[0]), callee)
+    # pass the template symbol as the first argument
+    var callee = TDest(x)
+    c.genLit(call[0], c.toNodeCnst(call[0]), callee)
 
-        # the arguments to the template are used as arguments to the
-        # `ExpandToAst` operation
-        for i in 1..<call.len:
-          var d = TDest(x+i)
-          # small optimization: don't use ``DataToAst` if the argument is
-          # already a NimNode
-          if call[i].typ.isNimNode():
-            c.gen(call[i], d)
-          else:
-            # evaluate the argument and deserialize the result to ``NimNode``
-            # AST
-            c.genDataToAst(call[i], d)
-
-        c.gABC(n, opcExpandToAst, dest, x, call.len)
-        c.freeTempRange(x, call.len)
-      of skMacro:
-        # macros are still invoked via the opcIndCall mechanism
-        c.genCall(call, dest)
+    # the arguments to the template are used as arguments to the
+    # `ExpandToAst` operation
+    for i in 1..<call.len:
+      var d = TDest(x+i)
+      # small optimization: don't use ``DataToAst` if the argument is
+      # already a NimNode
+      if call[i].typ.isNimNode():
+        c.gen(call[i], d)
       else:
-        unreachable()
-    else:
-      fail(n.info, vmGenDiagBadExpandToAstCallExprRequired)
+        # evaluate the argument and deserialize the result to ``NimNode``
+        # AST
+        c.genDataToAst(call[i], d)
 
+    c.gABC(n, opcExpandToAst, dest, x, call.len)
+    c.freeTempRange(x, call.len)
   of mSizeOf, mAlignOf, mOffsetOf:
     fail(n.info, vmGenDiagMissingImportcCompleteStruct, m)
 
@@ -2663,9 +2643,6 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
         fail(n.info, vmGenDiagCannotImportc, sym = s)
 
       genProcLit(c, n, s, dest)
-    of skTemplate:
-      # template symbols can be passed to macro calls
-      genLit(c, n, c.toNodeCnst(n), dest)
     of skConst:
       if dest.isUnset: dest = c.getTemp(s.typ)
 
@@ -2687,9 +2664,6 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
         var lit = genLiteral(c, newIntNode(nkIntLit, s.position))
         c.gABx(n, opcLdConst, dest, lit)
     of skGenericParam:
-      if c.getOwner().kind == skMacro:
-        genSym(c, n, dest, flags)
-      else:
         # note: this can't be replaced with an assert. ``tryConstExpr`` is
         # sometimes used to check whether an expression can be evaluated
         # at compile-time, in which case we need to report an error when
@@ -2866,9 +2840,14 @@ proc genExpr*(c: var TCtx; n: PNode, requiresValue = true): VmGenResult =
   result = VmGenResult.ok:
     (start: start, regCount: c.prc.regInfo.len)
 
+proc realType(s: PSym): PType {.inline.} =
+  ## Returns the signature type of the routine `s`
+  if s.kind == skMacro: s.internal
+  else:                 s.typ
+
 proc genParams(prc: PProc; s: PSym) =
   let
-    params = s.typ.n
+    params = s.realType.n
     res = if resultPos < s.ast.len: s.ast[resultPos] else: nil
 
   setLen(prc.regInfo, max(params.len, 1))
@@ -2946,24 +2925,25 @@ proc optimizeJumps(c: var TCtx; start: int) =
     else: discard
 
 proc genProcBody(c: var TCtx; s: PSym, body: PNode): int =
+    assert s.kind in routineKinds - {skTemplate}
+
     var p = PProc(blocks: @[], sym: s)
     let oldPrc = c.prc
     c.prc = p
     # iterate over the parameters and allocate space for them:
     genParams(c.prc, s)
 
-    # allocate additional space for any generically bound parameters
-    if s.kind == skMacro and s.isGenericRoutineStrict:
-      genGenericParams(c, s.ast[genericParamsPos])
-
-    if s.typ.callConv == ccClosure:
-      # reserve a slot for the hidden environment parameter
+    if s.realType.callConv == ccClosure:
+      # reserve a slot for the hidden environment parameter and register the
+      # mapping
       c.prc.regInfo.add RegInfo(refCount: 1, kind: slotFixedLet)
+      c.prc.locals[s.ast[paramsPos][^1].sym.id] = c.prc.regInfo.high
 
-    # setup the result register, if necessary. Watch out for macros! They
-    # always return a ``NimNode``, and the result register is setup at the
-    # start of macro evaluation
-    let rt = getReturnType(s)
+    # setup the result register, if necessary. Watch out for macros! Their
+    # result register is setup at the start of macro evaluation
+    # XXX: initializing the ``result`` of a macro should be handled through
+    #      inserting the necessary code either in ``sem` or here
+    let rt = s.realType[0]
     if s.kind != skMacro and not isEmptyType(rt) and fitsRegister(rt):
       # setup the result register if it's a simple value
       c.gABx(body, opcLdNullReg, 0, c.genType(rt))
@@ -2996,7 +2976,6 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
   let kind =
     case diag.kind
     of vmGenDiagBadExpandToAstArgRequired: adVmGenBadExpandToAstArgRequired
-    of vmGenDiagBadExpandToAstCallExprRequired: adVmGenBadExpandToAstCallExprRequired
     of vmGenDiagTooManyRegistersRequired: adVmGenTooManyRegistersRequired
     of vmGenDiagCannotFindBreakTarget: adVmGenCannotFindBreakTarget
     of vmGenDiagNotUnused: adVmGenNotUnused
@@ -3043,7 +3022,6 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
           kind: kind,
           ast: diag.ast)
       of vmGenDiagBadExpandToAstArgRequired,
-          vmGenDiagBadExpandToAstCallExprRequired,
           vmGenDiagTooManyRegistersRequired,
           vmGenDiagCannotFindBreakTarget:
         AstDiagVmGenError(kind: kind)

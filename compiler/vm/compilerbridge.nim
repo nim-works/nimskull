@@ -540,8 +540,11 @@ proc evalMacroCall*(module: PSym; idgen: IdGenerator; g: ModuleGraph; templInstC
   # put the generic arguments into registers
   let gp = sym.ast[genericParamsPos]
   for i in 0..<gp.safeLen:
-    let idx = sym.typ.len + i
-    setupMacroParam(tos.slots[idx], c[], args[idx - 1], gp[i].sym.typ)
+    # skip implicit type parameters -- they're not part of the internal
+    # signature
+    if tfImplicitTypeParam notin gp[i].sym.typ.flags:
+      let idx = sym.typ.len + i
+      setupMacroParam(tos.slots[idx], c[], args[idx - 1], gp[i].sym.typ)
 
   let cb = mkCallback(c, r): r.nimNode
   result = execute(c[], start, tos, cb).unpackResult(c.config, call)

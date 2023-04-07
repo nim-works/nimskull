@@ -89,7 +89,7 @@ proc freshGenSyms(c: PContext; n: PNode, owner, orig: PSym, symMap: var TIdTable
   else:
     for i in 0..<n.safeLen: freshGenSyms(c, n[i], owner, orig, symMap)
 
-proc addParamOrResult(c: PContext, param: PSym, kind: TSymKind)
+proc addParamOrResult(c: PContext, param: PSym)
 
 proc instantiateBody(c: PContext, n, params: PNode, result, orig: PSym) =
   if n[bodyPos].kind != nkEmpty:

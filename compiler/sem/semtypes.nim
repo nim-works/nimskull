@@ -1096,27 +1096,12 @@ proc findEnforcedStaticType(t: PType): PType =
       let t = findEnforcedStaticType(s)
       if t != nil: return t
 
-proc addParamOrResult(c: PContext, param: PSym, kind: TSymKind) =
-  if kind == skMacro:
-    let staticType = findEnforcedStaticType(param.typ)
-    if staticType != nil:
-      var a = copySym(param, nextSymId c.idgen)
-      a.typ = staticType.base
-      addDecl(c, a)
-      #elif param.typ != nil and param.typ.kind == tyTypeDesc:
-      #  addDecl(c, param)
-    else:
-      # within a macro, every param has the type NimNode!
-      let nn = getSysSym(c.graph, param.info, "NimNode")
-      var a = copySym(param, nextSymId c.idgen)
-      a.typ = nn.typ
-      addDecl(c, a)
-  else:
-    if sfGenSym in param.flags:
-      # bug #XXX, fix the gensym'ed parameters owner:
-      if param.owner == nil:
-        param.owner = getCurrOwner(c)
-    else: addDecl(c, param)
+proc addParamOrResult(c: PContext, param: PSym) =
+  if sfGenSym in param.flags:
+    # bug #XXX, fix the gensym'ed parameters owner:
+    if param.owner == nil:
+      param.owner = getCurrOwner(c)
+  else: addDecl(c, param)
 
 template shouldHaveMeta(t) =
   c.config.internalAssert tfHasMeta in t.flags
@@ -1460,7 +1445,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
 
       result.n.add newSymNode(arg)
       rawAddSon(result, finalType)
-      addParamOrResult(c, arg, kind)
+      addParamOrResult(c, arg)
       styleCheckDef(c.config, a[j].info, arg)
       a[j] = newSymNode(arg)
 

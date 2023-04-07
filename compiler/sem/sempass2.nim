@@ -273,12 +273,13 @@ proc warnAboutGcUnsafe(n: PNode; conf: ConfigRef) =
 proc markGcUnsafe(a: PEffects; reason: PSym) =
   if not a.inEnforcedGcSafe:
     a.gcUnsafe = true
-    if a.owner.kind in routineKinds: a.owner.gcUnsafetyReason = reason
+    if a.owner.kind in routineKinds - {skMacro}:
+      a.owner.gcUnsafetyReason = reason
 
 proc markGcUnsafe(a: PEffects; reason: PNode) =
   if not a.inEnforcedGcSafe:
     a.gcUnsafe = true
-    if a.owner.kind in routineKinds:
+    if a.owner.kind in routineKinds - {skMacro}:
       if reason.kind == nkSym:
         a.owner.gcUnsafetyReason = reason.sym
       else:
@@ -1746,7 +1747,7 @@ proc trackProc*(c: PContext; s: PSym, body: PNode) =
     if views in c.features:
       checkBorrowedLocations(partitions, body, g.config)
 
-  if sfThread in s.flags and t.gcUnsafe:
+  if s.kind != skMacro and sfThread in s.flags and t.gcUnsafe:
     if optThreads in g.config.globalOptions and optThreadAnalysis in g.config.globalOptions:
       #localReport(s.info, "'$1' is not GC-safe" % s.name.s)
       listGcUnsafety(s, onlyWarning=false, g.config)
