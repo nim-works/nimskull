@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-import std/[os]
+import std/[os, parseopt]
 from osproc import execCmd
 when defined(windows) and not defined(nimKochBootstrap):
   # remove workaround pending bootstrap >= 1.5.1
@@ -41,6 +41,8 @@ import
 from std/browsers import openDefaultBrowser
 from compiler/utils/nodejs import findNodeJs
 
+from compiler/ast/lineinfos import instLoc
+
 when hasTinyCBackend:
   import compiler/backend/tccgen
 
@@ -63,25 +65,95 @@ type
     cliErrConfigProcessing
     cliErrCommandProcessing
 
+proc processCmdLine(pass: TCmdLinePass, cmd: string, config: ConfigRef) =
+  ## Process input command-line parameters into `config` settings. Input is
+  ## a joined list of command-line arguments with multiple options and/or
+  ## configurations.
+  var
+    p = parseopt.initOptParser(cmd) # xxx: `cmd` is always empty, this relies
+                                    #      on `parseOpt` using `os` to get the
+                                    #      cli params
+    argsCount = 0
+
+  let startingErrCount = config.errorCounter
+
+  config.commandLine.setLen 0
+    # bugfix: otherwise, config.commandLine ends up duplicated
+
+  while true:
+    parseopt.next(p)
+    case p.kind:
+      of cmdEnd: break
+      of cmdLongOption, cmdShortOption:
+        config.commandLine.add " "
+        config.commandLine.addCmdPrefix p.kind
+        config.commandLine.add p.key.quoteShell # quoteShell to be future proof
+        if p.val.len > 0:
+          config.commandLine.add ':'
+          config.commandLine.add p.val.quoteShell
+
+        if p.key == "": # `-` was passed to indicate main project is stdin
+          p.key = "-"
+          if processArgument(pass, p, argsCount, config):
+            break
+        else:
+          # Main part of the configuration processing -
+          # `commands.processSwitch` processes input switches a second time
+          # and puts them in necessary configuration fields.
+          let res = processSwitch(pass, p, config)
+          
+          if res.deprecatedNoopSwitchArg:
+            config.cliEventLogger:
+              CliEvent(kind: cliEvtWarnSwitchValDeprecatedNoop,
+                       pass: pass,
+                       origParseOptKey: p.key,
+                       origParseOptVal: p.val,
+                       procResult: res,
+                       srcCodeOrigin: instLoc())
+
+          case res.kind
+          of procSwitchSuccess:
+            discard "eventually should handle success events for tracing"
+          else:
+            config.cliEventLogger:
+              CliEvent(kind: cliEvtErrFlagProcessing,
+                       pass: pass,
+                       origParseOptKey: p.key,
+                       origParseOptVal: p.val,
+                       procResult: res,
+                       srcCodeOrigin: instLoc())
+            break # always bail on error for CLI parsing
+      of cmdArgument:
+        config.commandLine.add " "
+        config.commandLine.add p.key.quoteShell
+        if processArgument(pass, p, argsCount, config):
+          break
+    if config.errorCounter > startingErrCount:
+      break
+
+  if pass == passCmd2:
+    if {optRun, optWasNimscript} * config.globalOptions == {} and
+        config.arguments.len > 0 and config.cmd notin {
+          cmdTcc, cmdNimscript, cmdCrun}:
+      config.cliEventLogger:
+        CliEvent(kind: cliEvtErrUnexpectedRunOpt,
+                  cmd: config.command,
+                  pass: pass,
+                  srcCodeOrigin: instLoc())
+
 proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
   ## Main entry point to the compiler - dispatches command-line commands
   ## into different subsystems, sets up configuration options for the
   ## `conf`:arg: and so on.
   # TODO: remove the need for all the `conf.errorCounter` checks.
-  proc eventLogger(self: NimProg, conf: ConfigRef, evt: CliEvent) =
-    commands.cliEventLogger(conf, evt)
-
-  let
-    cliParams = commandLineParams()
-    self = NimProg(supportsStdinFile: true,
-                   processCmdLine: processCmdLine,
-                   eventReceiver: eventLogger)
+  var self = NimProg(supportsStdinFile: true,
+                     processCmdLine: processCmdLine)
 
   self.initDefinesProg(conf, "nim_compiler")
   if paramCount() == 0:
     return cliErrNoParamsProvided
 
-  self.processCmdLineAndProjectPath(conf, cliParams)
+  self.processCmdLineAndProjectPath(conf)
   if conf.errorCounter != 0: return
   var graph = newModuleGraph(cache, conf)
 

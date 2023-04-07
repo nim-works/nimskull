@@ -33,8 +33,8 @@ type
 
     repBackend = "Backend" ## Backend-specific reports.
 
-    repExternal = "External" ## Report constructed during handling of the
-    ## external configuration, command-line flags, packages, modules.
+    repExternal = "External" ## Report constructed during handling of
+                             ## configuration, packages, modules.
 
 
   # TODO: "severity" in such a general fashion barely makes sense. Since
@@ -129,20 +129,28 @@ type
     # errors begin
     rextUnknownCCompiler
 
-    # malformed cmdline parameters begin
+    # malformed script config parameters begin
     rextInvalidHint
     rextInvalidWarning
-    rextInvalidCommandLineOption ## Invalid command-line option passed to
+    rextInvalidCommandLineOption ## Invalid config option passed to
                                  ## the compiler
     rextOnlyAllOffSupported ## Only `all:off` is supported for mass
     ## hint/warning modification. Separate diagnostics must be enabled on
     ## one-by-one basis.
-    rextExpectedOnOrOff ## Command-line option expected 'on' or 'off' value
+    rextExpectedOnOrOff ## config option expected 'on' or 'off' value
+    rextCfgExpectedOnOffOrList ## config option expected 'on', 'off'
+    ## or 'list' value.
+    rextCfgExpectedArgument ## config option expected argument
+    rextCfgExpectedNoArgument ## config option expected no arguments
+    rextCfgArgMalformedKeyValPair
+    rextCfgArgExpectedValueFromList
+    rextCfgArgUnexpectedValue
+    rextCfgArgUnknownExperimentalFeature
 
     rextExpectedCbackendForRun
     rextExpectedTinyCForRun
     rextCommandMissing
-    rextInvalidPath ## Invalid path for a command-line argument
+    rextInvalidPath ## Invalid path for a config option
 
     rextInvalidPackageName ## When adding packages from the `--nimbleDir`
     ## (or it's default value), names are validated. This error is
@@ -150,9 +158,7 @@ type
     # errors END !! add reports BEFORE the last enum !!
 
     # warnings begin
-    rextDeprecated ## Report about use of the deprecated feature that is
-    ## not in the semantic pass. Things like deprecated flags, compiler
-    ## commands and so on.
+    rextCfgArgDeprecatedNoop ## deprecated 
     # warnings end
 
     # hints start
@@ -1029,7 +1035,7 @@ const
   #------------------------------  external  -------------------------------#
   repExternalKinds* = {low(ExternalReportKind) .. high(ExternalReportKind)}
   rextErrorKinds* = {rextUnknownCCompiler .. rextInvalidPackageName}
-  rextWarningKinds* = {rextDeprecated}
+  rextWarningKinds* = {rextCfgArgDeprecatedNoop}
   rextHintKinds* = {rextConf .. rextPath}
 
 

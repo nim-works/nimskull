@@ -48,6 +48,11 @@ from compiler/ast/reports import Report,
 from compiler/front/cli_reporter import reportHook
 from compiler/front/sexp_reporter import reportHook
 
+type
+  NimProg* = ref object
+    suggestMode*: bool
+    supportsStdinFile*: bool
+    processCmdLine*: proc(pass: TCmdLinePass, cmd: string; config: ConfigRef)
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
   when defined(unix):
@@ -160,7 +165,7 @@ proc initDefinesProg*(self: NimProg, conf: ConfigRef, name: string) =
   # "reports" strikes again, this bit of silliness is to stop reports from
   # infecting the `commands` module among others. Only really needed for CLI
   # parsing; don't need to care about the rest
-  conf.setMsgFormat = legacyReportsMsgFmtSetter()
+  conf.setMsgFormat = legacyReportsMsgFmtSetter
 
 proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef, cmd: string = "") =
   self.processCmdLine(passCmd1, cmd, conf)

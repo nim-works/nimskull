@@ -667,7 +667,26 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
         conf.suggestMaxResults = parseInt(p.val)
       of "find":
         findProject = true
-      else: processSwitch(pass, p, conf)
+      else:
+        let r = processSwitch(pass, p, conf)
+        if r.deprecatedNoopSwitchArg:
+          conf.cliEventLogger:
+            CliEvent(kind: cliEvtWarnSwitchValDeprecatedNoop,
+                      pass: pass,
+                      origParseOptKey: p.key,
+                      origParseOptVal: p.val,
+                      procResult: r,
+                      srcCodeOrigin: instLoc())
+        case r.kind
+        of procSwitchSuccess: discard
+        else:
+          conf.cliEventLogger:
+            CliEvent(kind: cliEvtErrFlagProcessing,
+                      pass: pass,
+                      origParseOptKey: p.key,
+                      origParseOptVal: p.val,
+                      procResult: r,
+                      srcCodeOrigin: instLoc())
     of cmdArgument:
       let a = unixToNativePath(p.key)
       if dirExists(a) and not fileExists(a.addFileExt("nim")):
@@ -684,13 +703,9 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
       # if processArgument(pass, p, argsCount): break
 
 proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
-  proc eventLogger(self: NimProg, conf: ConfigRef, evt: CliEvent) =
-    commands.cliEventLogger(conf, evt)
-
   let self = NimProg(
     suggestMode: true,
-    processCmdLine: nimsuggest.processCmdLine,
-    eventReceiver: eventLogger
+    processCmdLine: nimsuggest.processCmdLine
   )
   self.initDefinesProg(conf, "nimsuggest")
 

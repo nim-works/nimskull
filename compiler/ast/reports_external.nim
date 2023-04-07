@@ -16,7 +16,7 @@ type
     msg*: string
 
     case kind*: ReportKind
-      of rextInvalidHint .. rextInvalidPath:
+      of rextInvalidHint .. rextInvalidPath, rextCfgArgDeprecatedNoop:
         cmdlineSwitch*: string ## Switch in processing
         cmdlineProvided*: string ## Value passed to the command-line
         cmdlineAllowed*: seq[string] ## Allowed command-line values

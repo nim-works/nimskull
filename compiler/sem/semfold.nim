@@ -38,8 +38,10 @@ import
     idioms,
   ]
 
-from compiler/front/msgs import internalError # xxx: legacy reports cruft is
-                                              #      hiding in here
+# xxx: legacy reports cruft
+from compiler/ast/report_enums import ReportKind
+from compiler/ast/reports_sem import SemReport
+from compiler/front/msgs import internalError, localReport
 
 from system/memory import nimCStrLen
 

@@ -201,6 +201,7 @@ type
     cmdSwitchCmdexitgcstats
     cmdSwitchConfigVar
 
+  # Full list of all the command line options.
   CmdSwitchTextKind* = enum
     fullSwitchTxtFromcmd             = "fromcmd"
     fullSwitchTxtPath                = "path",        smolSwitchTxtPath        = "p",
@@ -240,7 +241,7 @@ type
     fullSwitchTxtStacktracemsgs      = "stacktracemsgs"
     fullSwitchTxtExcessivestacktrace = "excessivestacktrace"
     fullSwitchTxtLinetrace           = "linetrace"
-    fullSwitchTxtDebugger            = "debugger",    smolSwitchTxtDebugger    = "g",
+    fullSwitchTxtDebugger            = "debugger",
     fullSwitchTxtProfiler            = "profiler"
     fullSwitchTxtMemtracker          = "memtracker"
     fullSwitchTxtChecks              = "checks"
@@ -478,39 +479,6 @@ proc writeVersionInfo(conf: ConfigRef; pass: TCmdLinePass) =
 proc addPrefix(switch: string): string =
   if switch.len <= 1: result = "-" & switch
   else: result = "--" & switch
-
-# Full list of all the command line options. Necessary to provide "invalid
-# command line options - did you mean ...?". In theory generation of this
-# list could be automated by maintaining a `{.compiletime.}` variable, but for
-# the time being it is easier to manually keep this list up-to-date.
-const optNames = @[
-  # processSwitch
-  "fromcmd", "path", "p", "nimblepath", "nonimblepath",
-  "clearnimblepath", "excludepath", "nimcache", "out", "o",
-  "outdir", "depfile", "usenimcache", "docseesrcurl", "docroot", "backend", "b",
-  "doccmd", "define", "d", "undef", "u", "compile", "link", "debuginfo",
-  "embedsrc", "compileonly", "c", "nolinking", "nomain", "forcebuild", "f",
-  "project", "warnings", "w", "warning", "hint", "warningaserror",
-  "hintaserror", "hints", "threadanalysis", "stacktrace",
-  "stacktracemsgs", "excessivestacktrace", "linetrace",
-  "debugger", "profiler", "memtracker", "checks",
-  "floatchecks", "infchecks", "nanchecks", "objchecks", "fieldchecks",
-  "rangechecks", "boundchecks", "overflowchecks",
-  "staticboundchecks", "stylechecks", "linedir", "assertions", "threads",
-  "tlsemulation", "implicitstatic", "trmacros", "opt", "app", "passc",
-  "passl", "cincludes", "clibdir", "clib", "header", "index", "import",
-  "include", "listcmd", "asm", "genmapping", "os", "cpu", "run",
-  "maxloopiterationsvm", "errormax", "verbosity", "parallelbuild",
-  "version", "advanced", "fullhelp", "help", "skipcfg",
-  "skipprojcfg", "skipusercfg", "skipparentcfg", "genscript", "colors",
-  "lib", "putenv", "cc", "stdout", "filenames", "processing",
-  "unitsep", "listfullpaths", "spellsuggest", "declaredlocs",
-  "dynliboverride", "dynliboverrideall", "experimental",
-  "exceptions", "cppdefine", "seqsv2", "stylecheck", "showallmismatches",
-  "docinternal", "multimethods", "expandmacro", "expandarc",
-  "benchmarkvm", "profilevm", "sinkinference", "cursorinference", "panics",
-  "sourcemap", "deepcopy", "cmdexitgcstats"
-]
 
 proc logGcStats*(conf: ConfigRef, stats: string, srcLoc = instLoc()) =
   ## log a 'debug' level message with the GC `stats`
@@ -1924,7 +1892,7 @@ proc logError*(conf: ConfigRef, evt: CliEvent) =
     of cliEvtErrFlagProcessing:
       let procResult = evt.procResult
       case procResult.kind
-      of procSwitchSuccess: discard
+      of procSwitchSuccess: unreachable()
       of procSwitchErrInvalid:
         "Invalid command line option - " & procResult.givenArg
       of procSwitchErrArgExpected:
@@ -1966,12 +1934,12 @@ proc logError*(conf: ConfigRef, evt: CliEvent) =
           [procResult.givenSwitch, procResult.pathAttempted]
       of procSwitchErrArgInvalidHintOrWarning:
         let processNoteResult = procResult.processNoteResult
-        # xxx: clean-up these messages so they're more hint/warning specific,
-        #      we have more information available than we're using. eg: it's
-        #      not an invalid option, but error/warning/hint/etc switch
+        # TODO: improve these messages so they're more hint/warning specific,
+        #       we have more information available than we're using. eg: it's
+        #       not an invalid option, but error/warning/hint/etc switch
         let temp =
           case processNoteResult.kind
-          of procNoteSuccess: discard
+          of procNoteSuccess: unreachable()
           of procNoteInvalidOption:
             "Invalid command line option - " & processNoteResult.switch
           of procNoteInvalidHint:
@@ -2009,91 +1977,6 @@ proc cliEventLogger*(conf: ConfigRef, evt: CliEvent) =
   case evt.kind
   of cliEvtErrors: conf.logError(evt)
   of cliEvtWarnings: conf.logWarn(evt)
-
-type
-  NimProg* = ref object
-    suggestMode*: bool
-    supportsStdinFile*: bool
-    processCmdLine*: proc(pass: TCmdLinePass, cmd: string; config: ConfigRef)
-    eventReceiver*: proc(self: NimProg, conf: ConfigRef, evt: CliEvent)
-
-proc processCmdLine*(self: NimProg, pass: TCmdLinePass, cmd: seq[string],
-                     config: ConfigRef) =
-  ## Process input command-line parameters into `config` settings. Input is
-  ## a joined list of command-line arguments with multiple options and/or
-  ## configurations.
-  # xxx: the `self.eventReceiver` shenanigans are required until this proc can
-  #      be rewritten to return data instead; it should probably be turned into
-  #      an iterator. One that produces a stream of processing data and stops
-  #      upon completion or error. Then consumers can monitor progress; issue
-  #      hints/warnings/errors; and determine if it succeeded overall.
-  var p = parseopt.initOptParser(cmd)
-  var argsCount = 0
-  let startingErrCount = config.errorCounter
-
-  config.commandLine.setLen 0
-    # bugfix: otherwise, config.commandLine ends up duplicated
-
-  while true:
-    parseopt.next(p)
-    case p.kind:
-      of cmdEnd: break
-      of cmdLongOption, cmdShortOption:
-        config.commandLine.add " "
-        config.commandLine.addCmdPrefix p.kind
-        config.commandLine.add p.key.quoteShell # quoteShell to be future proof
-        if p.val.len > 0:
-          config.commandLine.add ':'
-          config.commandLine.add p.val.quoteShell
-
-        if p.key == "": # `-` was passed to indicate main project is stdin
-          p.key = "-"
-          if processArgument(pass, p, argsCount, config):
-            break
-        else:
-          # Main part of the configuration processing -
-          # `commands.processSwitch` processes input switches a second time
-          # and puts them in necessary configuration fields.
-          let res = processSwitch(pass, p, config)
-          
-          if res.deprecatedNoopSwitchArg:
-            self.eventReceiver(self, config):
-              CliEvent(kind: cliEvtWarnSwitchValDeprecatedNoop,
-                       pass: pass,
-                       origParseOptKey: p.key,
-                       origParseOptVal: p.val,
-                       procResult: res,
-                       srcCodeOrigin: instLoc())
-          
-          case res.kind
-          of procSwitchSuccess:
-            discard "eventually should handle success events for tracing"
-          else:
-            self.eventReceiver(self, config):
-              CliEvent(kind: cliEvtErrFlagProcessing,
-                       pass: pass,
-                       origParseOptKey: p.key,
-                       origParseOptVal: p.val,
-                       procResult: res,
-                       srcCodeOrigin: instLoc())
-            break # always bail on error for CLI parsing
-      of cmdArgument:
-        config.commandLine.add " "
-        config.commandLine.add p.key.quoteShell
-        if processArgument(pass, p, argsCount, config):
-          break
-    if config.errorCounter > startingErrCount:
-      break
-
-  if pass == passCmd2:
-    if {optRun, optWasNimscript} * config.globalOptions == {} and
-        config.arguments.len > 0 and config.cmd notin {
-          cmdTcc, cmdNimscript, cmdCrun}:
-      self.eventReceiver(self, config):
-        CliEvent(kind: cliEvtErrUnexpectedRunOpt,
-                  cmd: config.command,
-                  pass: pass,
-                  srcCodeOrigin: instLoc())
 
 when false:
   # started on creating a flag/switch description
@@ -2141,7 +2024,7 @@ when false:
       cmdSwitchStacktracemsgs     : {fullSwitchTxtStacktracemsgs},
       cmdSwitchExcessivestacktrace: {fullSwitchTxtExcessivestacktrace},
       cmdSwitchLinetrace          : {fullSwitchTxtLinetrace},
-      cmdSwitchDebugger           : {fullSwitchTxtDebugger, smolSwitchTxtDebugger},
+      cmdSwitchDebugger           : {fullSwitchTxtDebugger},
       cmdSwitchProfiler           : {fullSwitchTxtProfiler},
       cmdSwitchMemtracker         : {fullSwitchTxtMemtracker},
       cmdSwitchChecks             : {fullSwitchTxtChecks},

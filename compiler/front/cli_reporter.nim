@@ -2900,6 +2900,34 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
       result = "option '$1' expected 'on' or 'off', but '$2' found" %
                 [r.cmdlineSwitch, r.cmdlineProvided]
 
+    of rextCfgExpectedOnOffOrList:
+      result = "'on', 'off', or 'list' expected for $1, but '$2' found" %
+                [r.cmdlineSwitch, r.cmdlineProvided]
+
+    of rextCfgExpectedArgument:
+      result = "argument for command line option expected: '$1'" %
+                r.cmdlineSwitch
+
+    of rextCfgExpectedNoArgument:
+      result = "$1 expects no arguments, but '$2' found" %
+                [r.cmdlineSwitch, r.cmdlineProvided]
+
+    of rextCfgArgMalformedKeyValPair:
+      result = "option '$#' has malformed `key:value` argument: '$#" %
+                [r.cmdlineSwitch, r.cmdlineProvided]
+
+    of rextCfgArgUnexpectedValue:
+      result = "Unexpected value for switch '$1'. Expected one of $2, but got '$3'" %
+                [r.cmdlineSwitch, r.cmdlineProvided, r.cmdlineAllowed.join(", ")]
+
+    of rextCfgArgExpectedValueFromList:
+      result = "expected value for switch '$1'. Expected one of $2, but got nothing" %
+                [r.cmdlineSwitch, r.cmdlineAllowed.join(", ")]
+
+    of rextCfgArgUnknownExperimentalFeature:
+      result = "unknown experiemental feature: '$1'. Available options are: $2" %
+                [r.cmdlineProvided, r.cmdlineAllowed.join(", ")]
+
     of rextExpectedTinyCForRun:
       result = "'run' command not available; rebuild with -d:tinyc"
 
@@ -2912,8 +2940,9 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
     of rextInvalidPackageName:
       result = "invalid package name: " & r.packageName
 
-    of rextDeprecated:
-      result = r.msg
+    of rextCfgArgDeprecatedNoop:
+      result = "'$#' is deprecated for flag '$#', now a noop" %
+                [r.cmdlineProvided, r.cmdlineSwitch]
 
     of rextPath:
       result = "added path: '$1'" % r.packagePath

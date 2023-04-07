@@ -49,6 +49,8 @@ import
     pathutils
   ]
 
+from compiler/backend/extccomp import listCCnames
+
 from compiler/vm/vmlegacy import legacyReportsVmTracer
 
 # xxx: reports are a code smell meaning data types are misplaced
@@ -59,6 +61,8 @@ from compiler/ast/report_enums import ReportKind
 # we support 'cmpIgnoreStyle' natively for efficiency:
 from std/strutils import cmpIgnoreStyle, contains
 
+import std/options as std_options
+
 proc listDirs(a: VmArgs, filter: set[PathComponent]) =
   let dir = getString(a, 0)
   var result: seq[string] = @[]
@@ -67,103 +71,109 @@ proc listDirs(a: VmArgs, filter: set[PathComponent]) =
 
   writeTo(result, a.getResultHandle(), a.mem[])
 
-proc processSingleNote(arg: string, state: TSpecialWord, info: TLineInfo,
-                       orig: string; conf: ConfigRef) =
-  let r = processSpecificNote(arg, state, passPP, orig, conf)
+proc legacyReportBridge(r: ProcessNoteResult): Option[ExternalReport] =
   case r.kind
   of procNoteInvalidOption:
-    conf.localReport(info, ExternalReport(
+    some ExternalReport(
       kind: rextInvalidCommandLineOption,
-      cmdlineProvided: r.switch))
+      cmdlineProvided: r.switch)
   of procNoteInvalidHint:
-    conf.localReport(info, ExternalReport(
+    some ExternalReport(
       kind: rextInvalidHint,
-      cmdlineProvided: r.invalidHintOrWarning))
+      cmdlineProvided: r.invalidHintOrWarning)
   of procNoteInvalidWarning:
-    conf.localReport(info, ExternalReport(
+    some ExternalReport(
       kind: rextInvalidWarning,
-      cmdlineProvided: r.invalidHintOrWarning))
+      cmdlineProvided: r.invalidHintOrWarning)
   of procNoteExpectedOnOrOff:
-    conf.localReport(info, ExternalReport(kind: rextExpectedOnOrOff,
-                                          cmdlineSwitch: r.switch,
-                                          cmdlineProvided: r.argVal))
+    some ExternalReport(kind: rextExpectedOnOrOff,
+                    cmdlineSwitch: r.switch,
+                    cmdlineProvided: r.argVal)
   of procNoteOnlyAllOffSupported:
-    conf.localReport(info, ExternalReport(kind: rextOnlyAllOffSupported,
-                                          cmdlineSwitch: r.switch,
-                                          cmdlineProvided: r.argVal))
+    some ExternalReport(kind: rextOnlyAllOffSupported,
+                    cmdlineSwitch: r.switch,
+                    cmdlineProvided: r.argVal)
   of procNoteSuccess:
-    discard
+    none[ExternalReport]()
 
-proc processSingleSwitch(switch, arg: string; info: TLineInfo, conf: ConfigRef) =
+proc processSingleNote(arg: string, state: TSpecialWord, info: TLineInfo,
+                       orig: string; conf: ConfigRef) =
+  ## processes a hint/warn/error config switch, then bridges into legacy
+  ## reports to keep the rest of the codebase isolated from them.
+  let
+    r = processSpecificNote(arg, state, passPP, orig, conf)
+    legacy = legacyReportBridge(r)
+  if legacy.isSome:
+    conf.localReport(info, legacy.unsafeGet())
+
+proc processSingleSwitch*(switch, arg: string; info: TLineInfo, conf: ConfigRef) =
+  ## processes a config switch, then bridges into legacy reports to keep the
+  ## rest of the codebase isolated from them.
   let r = processSwitch(switch, arg, passPP, conf)
+  if r.deprecatedNoopSwitchArg:
+    conf.localReport(info):
+      ExternalReport(kind: rextCfgArgDeprecatedNoop,
+                     cmdlineSwitch: r.givenSwitch,
+                     cmdlineProvided: r.givenArg)
   case r.kind
-  case procResult.kind
   of procSwitchSuccess: discard
   of procSwitchErrInvalid:
     conf.localReport(info):
-      ExternaleReport(kind: rextInvalidCommandLineOption,
-                      cmdlineProvided: r.givenArg)
+      ExternalReport(kind: rextInvalidCommandLineOption,
+                     cmdlineProvided: r.givenArg)
   of procSwitchErrArgExpected:
-    
-    "argument for command line option expected: '$1'" %
-      procResult.givenSwitch
+    conf.localReport(info, ExternalReport(kind: rextCfgExpectedArgument,
+                                          cmdlineSwitch: r.givenSwitch))
   of procSwitchErrArgForbidden:
-    "$1 expects no arguments, but '$2' found" %
-      [procResult.givenSwitch, procResult.givenArg]
+    conf.localReport(info, ExternalReport(kind: rextCfgExpectedNoArgument,
+                                          cmdlineSwitch: r.givenSwitch,
+                                          cmdlineProvided: r.givenArg))
   of procSwitchErrArgMalformedKeyValPair:
-    "option '$#' has malformed `key:value` argument: '$#" %
-      [procResult.givenSwitch, procResult.givenArg]
+    conf.localReport(info, ExternalReport(kind: rextCfgArgMalformedKeyValPair,
+                                          cmdlineSwitch: r.givenSwitch,
+                                          cmdlineProvided: r.givenArg))
   of procSwitchErrArgExpectedOnOrOff:
-    "'on' or 'off' expected for $1, but '$2' found" %
-      [procResult.givenSwitch, procResult.givenArg]
+    conf.localReport(info, ExternalReport(kind: rextExpectedOnOrOff,
+                                          cmdlineSwitch: r.givenSwitch,
+                                          cmdlineProvided: r.givenArg))
   of procSwitchErrArgExpectedOnOffOrList:
-    "'on', 'off', or 'list' expected for $1, but '$2' found" %
-      [procResult.givenSwitch, procResult.givenArg]
+    conf.localReport(info, ExternalReport(kind: rextCfgExpectedOnOffOrList,
+                                          cmdlineSwitch: r.givenSwitch,
+                                          cmdlineProvided: r.givenArg))
   of procSwitchErrArgExpectedAllOrOff:
-    "only 'all:off' is supported for $1, found $2" %
-      [procResult.givenSwitch, procResult.givenArg]
+    conf.localReport(info, ExternalReport(kind: rextOnlyAllOffSupported,
+                                          cmdlineSwitch: r.givenSwitch,
+                                          cmdlineProvided: r.givenArg))
   of procSwitchErrArgExpectedFromList:
-    "expected value for switch '$1'. Expected one of $2, but got nothing" %
-      [procResult.givenSwitch,
-        allowedCompileOptionsArgs(procResult.switch).join(", ")]
+    conf.localReport(info):
+      ExternalReport(kind: rextCfgArgExpectedValueFromList,
+                     cmdlineSwitch: r.givenSwitch,
+                     cmdlineAllowed: allowedCompileOptionsArgs(r.switch))
   of procSwitchErrArgNotInValidList:
-    "Unexpected value for switch '$1'. Expected one of $2, but got '$3'" %
-      [procResult.givenSwitch,
-        allowedCompileOptionsArgs(procResult.switch).join(", "),
-        procResult.givenArg]
+    conf.localReport(info):
+      ExternalReport(kind: rextCfgArgExpectedValueFromList,
+                     cmdlineSwitch: r.givenSwitch,
+                     cmdlineProvided: r.givenArg,
+                     cmdlineAllowed: allowedCompileOptionsArgs(r.switch))
   of procSwitchErrArgUnknownCCompiler:
-    "unknown C compiler: '$1'. Available options are: $2" %
-      [procResult.givenArg, listCCnames().join(", ")]
+    conf.localReport(info):
+      ExternalReport(kind: rextUnknownCCompiler,
+                     passedCompiler: r.givenArg,
+                     knownCompilers: listCCnames())
   of procSwitchErrArgUnknownExperimentalFeature:
-    "unknown experiemental feature: '$1'. Available options are: $2" %
-      [procResult.givenArg,
-        allowedCompileOptionsArgs(procResult.switch).join(", ")]
+    conf.localReport(info):
+      ExternalReport(kind: rextCfgArgUnknownExperimentalFeature,
+                     cmdlineProvided: r.givenArg,
+                     cmdlineAllowed: allowedCompileOptionsArgs(r.switch))
   of procSwitchErrArgPathInvalid:
-    "invalid path (option '$#'): $#" %
-      [procResult.givenSwitch, procResult.pathAttempted]
+    conf.localReport(info):
+      ExternalReport(kind: rextInvalidPath,
+                     cmdlineSwitch: r.givenSwitch,
+                     cmdlineProvided: r.pathAttempted)
   of procSwitchErrArgInvalidHintOrWarning:
-    let processNoteResult = procResult.processNoteResult
-    # xxx: clean-up these messages so they're more hint/warning specific,
-    #      we have more information available than we're using. eg: it's
-    #      not an invalid option, but error/warning/hint/etc switch
-    let temp =
-      case processNoteResult.kind
-      of procNoteSuccess: discard
-      of procNoteInvalidOption:
-        "Invalid command line option - " & processNoteResult.switch
-      of procNoteInvalidHint:
-        "Invalid hint - " & processNoteResult.invalidHintOrWarning
-      of procNoteInvalidWarning:
-        "Invalid warning - " & processNoteResult.invalidHintOrWarning
-      of procNoteExpectedOnOrOff:
-        "'on' or 'off' expected for $1, but '$2' found" %
-          [processNoteResult.switch, processNoteResult.argVal]
-      of procNoteOnlyAllOffSupported:
-        "only 'all:off' is supported for $1, found $2" %
-          [processNoteResult.switch, processNoteResult.argVal]
-    temp
-  else:
-    discard
+    let legacy = legacyReportBridge(r.processNoteResult)
+    if legacy.isSome:
+      conf.localReport(info, legacy.unsafeGet())
 
 proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
               graph: ModuleGraph; idgen: IdGenerator): PEvalContext =

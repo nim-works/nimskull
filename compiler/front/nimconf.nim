@@ -16,7 +16,6 @@ import
     strtabs,
   ],
   compiler/front/[
-    commands,
     options,
     scriptconfig
   ],
@@ -374,9 +373,9 @@ proc parseAssignment(N: var NimConfParser, tok: var Token) =
       confTok(N, tok)
   if percent:
     let v = strtabs.`%`(val, N.config.configVars, {useEnvironment, useEmpty})
-    processSwitch(s, v, passPP, N.config)
+    processSingleSwitch(s, v, info, N.config)
   else:
-    processSwitch(s, val, passPP, N.config)
+    processSingleSwitch(s, val, info, N.config)
 
 proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
                     cache: IdentCache): bool =
