@@ -100,29 +100,11 @@ proc processCmdLine(pass: TCmdLinePass, cmd: string, config: ConfigRef) =
           # Main part of the configuration processing -
           # `commands.processSwitch` processes input switches a second time
           # and puts them in necessary configuration fields.
-          let res = processSwitch(pass, p, config)
-          
-          if res.deprecatedNoopSwitchArg:
-            config.cliEventLogger:
-              CliEvent(kind: cliEvtWarnSwitchValDeprecatedNoop,
-                       pass: pass,
-                       origParseOptKey: p.key,
-                       origParseOptVal: p.val,
-                       procResult: res,
-                       srcCodeOrigin: instLoc())
-
-          case res.kind
-          of procSwitchSuccess:
-            discard "eventually should handle success events for tracing"
-          else:
-            config.cliEventLogger:
-              CliEvent(kind: cliEvtErrFlagProcessing,
-                       pass: pass,
-                       origParseOptKey: p.key,
-                       origParseOptVal: p.val,
-                       procResult: res,
-                       srcCodeOrigin: instLoc())
-            break # always bail on error for CLI parsing
+          let
+            res = processSwitch(pass, p, config)
+            evts = procSwitchResultToEvents(pass, p, res)
+          for e in evts.items:
+            config.cliEventLogger(e)
       of cmdArgument:
         config.commandLine.add " "
         config.commandLine.add p.key.quoteShell

@@ -620,6 +620,7 @@ proc mainCommand(graph: ModuleGraph) =
 proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
   var p = parseopt.initOptParser(cmd)
   var findProject = false
+  let startingErrCount = conf.errorCounter
   while true:
     parseopt.next(p)
     case p.kind
@@ -668,25 +669,11 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
       of "find":
         findProject = true
       else:
-        let r = processSwitch(pass, p, conf)
-        if r.deprecatedNoopSwitchArg:
-          conf.cliEventLogger:
-            CliEvent(kind: cliEvtWarnSwitchValDeprecatedNoop,
-                      pass: pass,
-                      origParseOptKey: p.key,
-                      origParseOptVal: p.val,
-                      procResult: r,
-                      srcCodeOrigin: instLoc())
-        case r.kind
-        of procSwitchSuccess: discard
-        else:
-          conf.cliEventLogger:
-            CliEvent(kind: cliEvtErrFlagProcessing,
-                      pass: pass,
-                      origParseOptKey: p.key,
-                      origParseOptVal: p.val,
-                      procResult: r,
-                      srcCodeOrigin: instLoc())
+        let
+          res = processSwitch(pass, p, conf)
+          evts = procSwitchResultToEvents(pass, p, res)
+        for e in evts.items:
+          conf.cliEventLogger(e)
     of cmdArgument:
       let a = unixToNativePath(p.key)
       if dirExists(a) and not fileExists(a.addFileExt("nim")):
@@ -701,6 +688,8 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
         else:
           conf.projectName = a
       # if processArgument(pass, p, argsCount): break
+    if conf.errorCounter > startingErrCount:
+      break
 
 proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
   let self = NimProg(
@@ -714,6 +703,8 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
     return
 
   self.processCmdLineAndProjectPath(conf)
+  if conf.errorCounter > 0:
+    msgQuit(int8(conf.errorCounter > 0))
 
   if gMode != mstdin:
     conf.writelnHook =

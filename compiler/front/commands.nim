@@ -1868,6 +1868,27 @@ const
   cliEvtErrors   = {cliEvtErrInvalidCommand .. cliEvtErrNoCliParamsProvided}
   cliEvtWarnings = cliLogAllKinds - cliEvtErrors
 
+proc procSwitchResultToEvents*(pass: TCmdLinePass, p: OptParser,
+                               r: ProcSwitchResult): seq[CliEvent] =
+  if r.deprecatedNoopSwitchArg:
+    result.add:
+      CliEvent(kind: cliEvtWarnSwitchValDeprecatedNoop,
+                pass: pass,
+                origParseOptKey: p.key,
+                origParseOptVal: p.val,
+                procResult: r,
+                srcCodeOrigin: instLoc())
+  case r.kind
+  of procSwitchSuccess: discard
+  else:
+    result.add:
+      CliEvent(kind: cliEvtErrFlagProcessing,
+                pass: pass,
+                origParseOptKey: p.key,
+                origParseOptVal: p.val,
+                procResult: r,
+                srcCodeOrigin: instLoc())
+
 proc writeLog(conf: ConfigRef, msg: string, evt: CliEvent) {.inline.} =
   conf.writeLog(msg, evt.srcCodeOrigin)
 
