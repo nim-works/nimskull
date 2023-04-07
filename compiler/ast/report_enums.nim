@@ -132,7 +132,7 @@ type
     # malformed script config parameters begin
     rextInvalidHint
     rextInvalidWarning
-    rextInvalidCommandLineOption ## Invalid config option passed to
+    rextCfgInvalidOption ## Invalid config option passed to
                                  ## the compiler
     rextOnlyAllOffSupported ## Only `all:off` is supported for mass
     ## hint/warning modification. Separate diagnostics must be enabled on

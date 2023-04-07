@@ -75,7 +75,7 @@ proc legacyReportBridge(r: ProcessNoteResult): Option[ExternalReport] =
   case r.kind
   of procNoteInvalidOption:
     some ExternalReport(
-      kind: rextInvalidCommandLineOption,
+      kind: rextCfgInvalidOption,
       cmdlineProvided: r.switch)
   of procNoteInvalidHint:
     some ExternalReport(
@@ -119,8 +119,8 @@ proc processSingleSwitch*(switch, arg: string; info: TLineInfo, conf: ConfigRef)
   of procSwitchSuccess: discard
   of procSwitchErrInvalid:
     conf.localReport(info):
-      ExternalReport(kind: rextInvalidCommandLineOption,
-                     cmdlineProvided: r.givenArg)
+      ExternalReport(kind: rextCfgInvalidOption,
+                     cmdlineSwitch: r.givenSwitch)
   of procSwitchErrArgExpected:
     conf.localReport(info, ExternalReport(kind: rextCfgExpectedArgument,
                                           cmdlineSwitch: r.givenSwitch))

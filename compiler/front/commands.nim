@@ -946,7 +946,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
       return
 
   template expectArgValue(cond: bool, arg, s: string, list: seq[string]) =
-    if not cond:
+    if cond:
       # TODO: deal with list
       result = ProcSwitchResult(kind: procSwitchErrArgExpectedFromList,
                                 switch: result.switch,

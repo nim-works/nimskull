@@ -2886,8 +2886,8 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
     of rextInvalidWarning:
       result.add("Invalid warning - ", r.cmdlineProvided)
 
-    of rextInvalidCommandLineOption:
-      result.add("Invalid command line option - ", r.cmdlineProvided)
+    of rextCfgInvalidOption:
+      result.add("Invalid config option - ", r.cmdlineSwitch)
 
     of rextUnknownCCompiler:
       result = "unknown C compiler: '$1'. Available options are: $2" %
@@ -2905,7 +2905,7 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
                 [r.cmdlineSwitch, r.cmdlineProvided]
 
     of rextCfgExpectedArgument:
-      result = "argument for command line option expected: '$1'" %
+      result = "argument for config option expected: '$1'" %
                 r.cmdlineSwitch
 
     of rextCfgExpectedNoArgument:
@@ -2949,11 +2949,11 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
 
 proc reportFull*(conf: ConfigRef, r: ExternalReport): string =
   assertKind r
-  reportBody(conf, r)
+  result.add(prefix(conf, r), reportBody(conf, r))
 
 proc reportShort*(conf: ConfigRef, r: ExternalReport): string {.inline.} =
   # mostly created for nimsuggest
-  reportBody(conf, r)
+  result.add(prefixShort(conf, r), reportBody(conf, r))
 
 const
   dropTraceExt = off
