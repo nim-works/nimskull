@@ -346,10 +346,6 @@ proc setCC*(conf: ConfigRef; ccname: string): TSystemCC =
   result = nameToCC(ccname)
   conf.cCompiler = result
   if conf.cCompiler == ccNone:
-    # conf.localReport(ExternalReport(
-    # kind: rextUnknownCCompiler,
-    # knownCompilers: listCCnames(),
-    # passedCompiler: ccname))
     return
 
   conf.compileOptions = getConfigVar(conf, conf.cCompiler, ".options.always")
@@ -629,7 +625,6 @@ proc getCompileCFileCmd*(conf: ConfigRef; cfile: Cfile,
       addOpt(result, CC[conf.cCompiler].produceAsm % ["asmfile", asmfile])
       if produceOutput:
         conf.localReport BackendReport(kind: rbackProducedAssembly, filename: asmfile)
-
     else:
       if produceOutput:
         conf.localReport BackendReport(

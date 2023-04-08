@@ -1281,7 +1281,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
   of "warnings", "w":
     setSwitchAndSrc cmdSwitchWarnings
     if processOnOffSwitchOrList(conf, {optWarns}, arg, switch):
-      listWarnings(conf) # TODO: replace
+      listWarnings(conf) # TODO: replace reports, must work in cli/cfg/fold
   of "warning":
     setSwitchAndSrc cmdSwitchWarning
     processSpecificNoteAndLog(arg, wWarning, pass, switch, conf)
@@ -1297,7 +1297,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
   of "hints":
     setSwitchAndSrc cmdSwitchHints
     if processOnOffSwitchOrList(conf, {optHints}, arg, switch):
-      listHints(conf) # TODO: replace
+      listHints(conf) # TODO: replace reports, must work in cli/cfg/fold
   of "threadanalysis":
     setSwitchAndSrc cmdSwitchThreadanalysis
     if conf.backend == backendJs: discard

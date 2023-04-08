@@ -861,7 +861,6 @@ proc computeNotesVerbosity(): tuple[
     rsemExtendedContext,
     rsemProcessingStmt,
     rsemWarnGcUnsafe,
-    rextConf,
   }
 
   result.main[compVerbosityDefault] = result.main[compVerbosityHigh] -
@@ -871,6 +870,8 @@ proc computeNotesVerbosity(): tuple[
       rsemErrGcUnsafe,
       rsemHintLibDependency,
       rsemGlobalVar,
+
+      rextConf,
 
       rintMsgOrigin,
 
