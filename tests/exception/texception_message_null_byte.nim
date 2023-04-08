@@ -16,31 +16,34 @@ when defined nim_t13115:
     static: fn()
   fn()
 else:
-  import std/[osproc,strformat,os,strutils]
+  import std/[osproc, os]
+  from std/strformat import fmt
+  from std/strutils import contains
+
+  type TBackend = enum
+    backendC = "c"
+    backendJs = "js"
+
+  const
+    nim = getCurrentCompilerExe()
+    file = currentSourcePath
+    opts = [
+      backendC:  @["", "-d:nim_t13115_static", "-d:danger", "-d:debug"],
+      backendJs: @["", "-d:nim_t13115_static"]
+    ] ## save CI time by avoiding mostly redundant combinations as far as
+      ## this bug is concerned
+
   proc main =
-    const nim = getCurrentCompilerExe()
-    const file = currentSourcePath
-    for b in "c js".split:
-      when defined(openbsd):
-        if b == "js":
-          # xxx bug: pending #13115
-          # remove special case once nodejs updated >= 12.16.2
-          # refs https://github.com/nim-lang/Nim/pull/16167#issuecomment-738270751
-          continue
-
-      # save CI time by avoiding mostly redundant combinations as far as this bug is concerned
-      var opts = case b
-        of "c": @["", "-d:nim_t13115_static", "-d:danger", "-d:debug"]
-        of "js": @["", "-d:nim_t13115_static"]
-        else: @[""]
-
-      for opt in opts:
-        let cmd = fmt"{nim} r -b:{b} -d:nim_t13115 {opt} --hints:off {file}"
-        let (outp, exitCode) = execCmdEx(cmd)
+    for b in backendC..backendJs:
+      for opt in opts[b]:
+        let
+          cmd = fmt"{nim} r -b:{b} -d:nim_t13115 {opt} --hints:off {file}"
+          (outp, exitCode) = execCmdEx(cmd)
         when defined windows:
           # `\0` not preserved on windows
           doAssert "` and works fine!" in outp, cmd & "\n" & msg
         else:
           doAssert msg in outp, cmd & "\n" & msg
         doAssert exitCode == 1
+
   main()
