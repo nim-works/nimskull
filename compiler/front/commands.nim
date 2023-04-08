@@ -879,13 +879,18 @@ type
                                          ## of values
     procSwitchErrArgUnknownCCompiler
     procSwitchErrArgUnknownExperimentalFeature
+    procSwitchErrArgNimblePath
     procSwitchErrArgInvalidHintOrWarning ## rest is under `ProcNoteResult`
 
   ProcSwitchResult* = object
     srcCodeOrigin*: InstantiationInfo
     givenSwitch*, givenArg*: string  # xxx: shouldn't be needed
-    switch*: CmdSwitchKind           ## the switch being processed, ignored if
+    case switch*: CmdSwitchKind:     ## the switch being processed, ignored if
                                      ## `kind` is `procSwitchErrInvalid`
+      of cmdSwitchNimblepath:
+        processedNimblePath*: ProcSwitchNimblePathResult
+      else:
+        discard
     # deprecatedNoopSwitch*: bool
     deprecatedNoopSwitchArg*: bool
     case kind*: ProcSwitchResultKind:
@@ -904,24 +909,42 @@ type
           procSwitchErrArgExpectedFromList,
           procSwitchErrArgNotInValidList,
           procSwitchErrArgUnknownCCompiler,
-          procSwitchErrArgUnknownExperimentalFeature:
+          procSwitchErrArgUnknownExperimentalFeature,
+          procSwitchErrArgNimblePath:
         discard # givenArg covers this
       of procSwitchErrArgPathInvalid:
         pathAttempted*: string
       of procSwitchErrArgInvalidHintOrWarning:
         processNoteResult*: ProcessNoteResult
 
+  ProcSwitchNimblePathResult* = object
+    case didProcess*: bool:
+      of true:
+        nimblePathAttempted*: AbsoluteDir
+        nimblePathResult*: NimblePathResult
+      of false:
+        discard
+
 proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
                     conf: ConfigRef): ProcSwitchResult =
-  var key, val: string
+  var
+    key, val: string
+    switchSet = false
   # xxx: shouldn't need these by further specifying cases where these differ
   #      from the params provided by the caller
-  result.givenSwitch = switch
-  result.givenArg = arg
+
+  defer:
+    assert switchSet, "must be set prior to finish processing"
 
   template setSwitchAndSrc(s: CmdSwitchKind) =
-    result.switch = s
-    result.srcCodeOrigin = instLoc()
+    assert not switchSet, "this should only be called once per switch"
+    result = ProcSwitchResult(
+      switch: s,
+      givenSwitch: switch,
+      givenArg: arg,
+      srcCodeOrigin: instLoc(),
+    )
+    switchSet = true
 
   template expectArg(s, arg: string) =
     if arg == "":
@@ -1071,6 +1094,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
       return
 
   template invalidCmdLineOption(conf: ConfigRef, s: string) =
+    switchSet = true
     result = ProcSwitchResult(kind: procSwitchErrInvalid,
                               switch: result.switch,
                               givenSwitch: s,
@@ -1120,7 +1144,19 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
       let nimbleDir = AbsoluteDir getEnv("NIMBLE_DIR")
       if not nimbleDir.isEmpty and pass == passPP:
         path = nimbleDir / RelativeDir"pkgs"
-      nimblePath(conf, path, conf.commandLineSrcIdx)
+      let res = nimblePath(conf, path)
+      result.processedNimblePath =
+        ProcSwitchNimblePathResult(didProcess: true,
+                                   nimblePathAttempted: path,
+                                   nimblePathResult: res)
+      if res.pkgs.anyIt(it.status == nimblePkgInvalid):
+        result = ProcSwitchResult(
+          kind: procSwitchErrArgNimblePath,
+          switch: cmdSwitchNimblepath,
+          processedNimblePath: result.processedNimblePath,
+          givenSwitch: result.givenSwitch,
+          givenArg: result.givenArg,
+          srcCodeOrigin: instLoc())
   of "nonimblepath":
     setSwitchAndSrc cmdSwitchNonimblepath
     expectNoArg(switch, arg)
@@ -1838,8 +1874,14 @@ type
     cliEvtErrNoCliParamsProvided # commands.nim and nim.nim
     # warnings - general flags/options/switches
     cliEvtWarnSwitchValDeprecatedNoop
+    # hints - general flag/options/switches and/or processing
+    cliEvtHintPathAdded
+      ## currently only triggered if nimble adds a path
+      # xxx: this doesn't feel like a hint, more like "info" or "trace"
 
   CliEvent* = object
+    # xxx: should these be 'flat' log events? put another way is the 
+    #      `procResult` field a design smell?
     srcCodeOrigin*: InstantiationInfo
     pass*: TCmdLinePass
     case kind*: CliEventKind
@@ -1856,16 +1898,27 @@ type
           cliEvtWarnSwitchValDeprecatedNoop:
         origParseOptKey*, origParseOptVal*: string
         procResult*: ProcSwitchResult
+      of cliEvtHintPathAdded:
+        pathAdded*: string
       of cliEvtErrNoCliParamsProvided:
         discard
 
 const
   cliLogAllKinds = {low(CliEventKind) .. high(CliEventKind)}
   cliEvtErrors   = {cliEvtErrInvalidCommand .. cliEvtErrNoCliParamsProvided}
-  cliEvtWarnings = cliLogAllKinds - cliEvtErrors
+  cliEvtWarnings = {cliEvtWarnSwitchValDeprecatedNoop}
+  cliEvtHints    = {cliEvtHintPathAdded}
+
+static:
+  const unaccountedForEvtKinds =
+    cliLogAllKinds - cliEvtErrors - cliEvtWarnings - cliEvtHints
+  doAssert unaccountedForEvtKinds == {}, "Uncategorized event kinds: " &
+                                            $unaccountedForEvtKinds
 
 proc procSwitchResultToEvents*(pass: TCmdLinePass, p: OptParser,
                                r: ProcSwitchResult): seq[CliEvent] =
+  # Note: the order in which this generates events is the order in which
+  #       they're output, rearrange code carefully.
   if r.deprecatedNoopSwitchArg:
     result.add:
       CliEvent(kind: cliEvtWarnSwitchValDeprecatedNoop,
@@ -1884,6 +1937,14 @@ proc procSwitchResultToEvents*(pass: TCmdLinePass, p: OptParser,
                 origParseOptVal: p.val,
                 procResult: r,
                 srcCodeOrigin: instLoc())
+  case r.switch
+  of cmdSwitchNimblepath:
+    if r.processedNimblePath.didProcess:
+      for res in r.processedNimblePath.nimblePathResult.addedPaths:
+        result.add:
+          CliEvent(kind: cliEvtHintPathAdded, pathAdded: res.string)
+  else:
+    discard
 
 proc writeLog(conf: ConfigRef, msg: string, evt: CliEvent) {.inline.} =
   conf.writeLog(msg, evt.srcCodeOrigin)
@@ -1946,6 +2007,19 @@ proc logError*(conf: ConfigRef, evt: CliEvent) =
         "unknown experiemental feature: '$1'. Available options are: $2" %
           [procResult.givenArg,
            allowedCompileOptionsArgs(procResult.switch).join(", ")]
+      of procSwitchErrArgNimblePath:
+        let
+          nimbleResult = procResult.processedNimblePath
+          msgPrefix = "in nimblepath ('$#') invalid package " %
+                                nimbleResult.nimblePathAttempted.string
+          invalidPaths = nimbleResult.nimblePathResult.pkgs
+                            .filterIt(it.status == nimblePkgInvalid)
+                            .mapIt(it.path)
+        case invalidPaths.len
+        of 0: unreachable("compiler bug")
+        of 1: msgPrefix & "name: '$#'" % invalidPaths[0]
+        else: (msgPrefix & "names:" & repeat("\n  '$#'", invalidPaths.len)) %
+                invalidPaths
       of procSwitchErrArgPathInvalid:
         "invalid path (option '$#'): $#" %
           [procResult.givenSwitch, procResult.pathAttempted]
@@ -1970,7 +2044,7 @@ proc logError*(conf: ConfigRef, evt: CliEvent) =
             "only 'all:off' is supported for $1, found $2" %
               [processNoteResult.switch, processNoteResult.argVal]
         temp
-    of cliEvtWarnings:
+    of cliEvtWarnings, cliEvtHints:
       unreachable($evt.kind)
   inc conf.errorCounter
   conf.writeLog(msg, evt)
@@ -1982,18 +2056,32 @@ proc logWarn(conf: ConfigRef, evt: CliEvent) =
     of cliEvtWarnSwitchValDeprecatedNoop:
       "'$#' is deprecated for flag '$#', now a noop" %
         [evt.procResult.givenArg, evt.procResult.givenSwitch]
-    of cliEvtErrors:
+    of cliEvtErrors, cliEvtHints:
       unreachable($evt.kind)
 
   inc conf.warnCounter
   conf.writeLog(msg, evt)
 
+proc logHint(conf: ConfigRef, evt: CliEvent) =
+  # TODO: see items under `logError`
+  let msg =
+    case evt.kind
+    of cliEvtHintPathAdded:
+      "added path: '$1'" % evt.pathAdded
+    of cliEvtErrors, cliEvtWarnings:
+      unreachable($evt.kind)
+
+  inc conf.hintCounter
+  if conf.verbosity > compVerbosityDefault:
+    conf.writeLog(msg, evt)
+
 proc cliEventLogger*(conf: ConfigRef, evt: CliEvent) =
   ## a basic event logger that will write to standard err/out as apporpriate
   ## and follow `conf` settings.
   case evt.kind
-  of cliEvtErrors: conf.logError(evt)
+  of cliEvtErrors:   conf.logError(evt)
   of cliEvtWarnings: conf.logWarn(evt)
+  of cliEvtHints:    conf.logHint(evt)
 
 proc processCmdLine*(pass: TCmdLinePass, cmd: string, config: ConfigRef) =
   ## Process input command-line parameters into `config` settings. Input is

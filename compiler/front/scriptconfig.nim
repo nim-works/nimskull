@@ -58,6 +58,8 @@ from compiler/ast/reports_debug import DebugReport
 from compiler/ast/reports_external import ExternalReport
 from compiler/ast/report_enums import ReportKind
 
+from compiler/modules/nimblecmd import NimblePkgAddResult
+
 # we support 'cmpIgnoreStyle' natively for efficiency:
 from std/strutils import cmpIgnoreStyle, contains
 
@@ -170,10 +172,26 @@ proc processSingleSwitch*(switch, arg: string; info: TLineInfo, conf: ConfigRef)
       ExternalReport(kind: rextInvalidPath,
                      cmdlineSwitch: r.givenSwitch,
                      cmdlineProvided: r.pathAttempted)
+  of procSwitchErrArgNimblePath:
+    for res in r.processedNimblePath.nimblePathResult.pkgs:
+      case res.status
+      of nimblePkgInvalid:    
+        conf.localReport(info):
+          ExternalReport(kind: rextInvalidPackageName, packageName: res.path)
+      else:
+        discard "ignore successes for now"
   of procSwitchErrArgInvalidHintOrWarning:
     let legacy = legacyReportBridge(r.processNoteResult)
     if legacy.isSome:
       conf.localReport(info, legacy.unsafeGet())
+  case r.switch
+  of cmdSwitchNimblepath:
+    if r.processedNimblePath.didProcess:
+      for np in r.processedNimblePath.nimblePathResult.addedPaths:
+        conf.localReport(info):
+          ExternalReport(kind: rextPath, packagePath: np.string)
+  else:
+    discard
 
 proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
               graph: ModuleGraph; idgen: IdGenerator): PEvalContext =
