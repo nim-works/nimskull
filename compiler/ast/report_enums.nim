@@ -129,6 +129,8 @@ type
     # errors begin
     rextUnknownCCompiler
 
+    rextCmdRequiresFile ## fatal error, user failed to provide a file
+
     # malformed script config parameters begin
     rextInvalidHint
     rextInvalidWarning

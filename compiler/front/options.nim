@@ -578,7 +578,8 @@ from compiler/ast/reports_internal import severity
 func isCompilerFatal*(conf: ConfigRef, report: Report): bool =
   ## Check if report stores fatal compilation error
   report.category == repInternal and
-  report.internalReport.severity() == rsevFatal
+  report.internalReport.severity() == rsevFatal or
+  report.kind == rextCmdRequiresFile
 
 func severity*(conf: ConfigRef, report: ReportTypes | Report): ReportSeverity =
   # style checking is a hint by default, but can be globally overriden to

@@ -25,7 +25,7 @@ import
     commands,
     msgs,
     options,
-    condsyms,
+    condsyms
   ],
   compiler/utils/[
     pathutils,
@@ -48,18 +48,18 @@ from compiler/ast/reports import Report,
 from compiler/front/cli_reporter import reportHook
 from compiler/front/sexp_reporter import reportHook
 
-type
-  NimProg* = ref object
-    suggestMode*: bool
-    supportsStdinFile*: bool
-    processCmdLine*: proc(pass: TCmdLinePass, cmd: string; config: ConfigRef)
-
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
   when defined(unix):
     if os.isAbsolute(f.string): result = f
     else: result = AbsoluteFile("./" & f.string)
   else:
     result = f
+
+type
+  NimProg* = ref object
+    suggestMode*: bool
+    supportsStdinFile*: bool
+    processCmdLine*: proc(pass: TCmdLinePass, cmd: string; config: ConfigRef)
 
 proc handleConfigEvent(
     conf: ConfigRef,

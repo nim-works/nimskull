@@ -2874,6 +2874,9 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
     of rextConf:
       result.add("used config file '$1'" % r.msg, conf.suffix(r))
 
+    of rextCmdRequiresFile:
+      result = "command requires a filename"
+
     of rextCommandMissing:
       result.add("Command missing")
 
