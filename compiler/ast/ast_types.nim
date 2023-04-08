@@ -1485,13 +1485,8 @@ type
       compilerOpt*: PNode
       compilerOptArg*: PNode
     of adSemCompilerOptionArgInvalid:
-      # xxx: this branch only exists because of legacy reports creating
-      #      ridiculous cycles everywhere, `possibleValidArgs` is only required
-      #      because we can't query it from `commands` within `cli_reporter`
-      #      without creating a cycle... sigh.
       forCompilerOpt*: PNode
       badCompilerOptArg*: PNode
-      possibleValidArgs*: seq[string]
     of adSemDefNameSym:
       defNameSym*: PSym
       defNameSymData*: AdSemDefNameSym

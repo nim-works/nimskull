@@ -63,6 +63,7 @@ import
 import compiler/front/options as compiler_options
 from compiler/ast/reports_base_sem import ReportContext, ReportContextKind
 from compiler/ast/ast_query import getStr
+from compiler/front/commands import allowedCompileOptionArgs
 
 func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
 
@@ -4347,7 +4348,7 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       ast: diag.wrongNode,
       str: diag.forCompilerOpt.getStr,
       badCompilerOptArg: diag.badCompilerOptArg.getStr,
-      allowedOptArgs: diag.possibleValidArgs)
+      allowedOptArgs: allowedCompileOptionArgs(diag.forCompilerOpt.getStr))
   of adSemDeprecatedCompilerOptArg:
     semRep = SemReport(
       location: some diag.location,

@@ -378,11 +378,9 @@ proc evalOp(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): P
                       compilerOptArg: b.getStr))
           newIntNodeT(toInt128(ord(false)), n, idgen, g)
       of compileOptArgCheckFailedWithUnexpectedValue:
-        let allowed = commands.allowedCompileOptionArgs(a.getStr)
         g.config.newError(n, PAstDiag(kind: adSemCompilerOptionArgInvalid,
                                       forCompilerOpt: a,
-                                      badCompilerOptArg: b,
-                                      possibleValidArgs: allowed))
+                                      badCompilerOptArg: b))
       of compileOptArgCheckFailedWithInvalidOption:
         g.config.newError(n, PAstDiag(kind: adSemCompilerOptionInvalid,
                                       badCompilerOpt: a))
