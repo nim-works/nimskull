@@ -97,12 +97,20 @@ func testLocationType(locType: PVmType, t: PVmType): AccessViolationReason =
 
 
 func checkValid(p: VmMemPointer, typ: PVmType, cell: VmCell): AccessViolationReason =
-  assert p.rawPointer >= cell.p, "memory not part of `cell`"
-
-  let off = cast[int](p) - cast[int](cell.p)
-  if off > 0:
+  ## Tests whether `p` points to a valid memory location inside `cell` that is
+  ## accesible as type `typ`, and returns either a success or the reason for
+  ## why an access through `p` would be illegal.
+  if p.rawPointer == cell.p:
+    # `p` points to the start of the cell -- the most simple case. We only
+    # need to perform a type comparison
+    result = testLocationType(cell.typ, typ)
+  elif p.rawPointer > cell.p:
     # `p` is an interior pointer
-    if typ != nil:
+    let off = cast[int](p) - cast[int](cell.p)
+    if off >= cell.sizeInBytes:
+      # `p` doesn't point inside the cell
+      result = avrOutOfBounds
+    elif typ != nil:
       # the cell stores either a single- or a contiguous sequence of locations
       let stride = cell.typ.alignedSize.int
       result = searchInArray(toOpenArray(cell.p, 0, int(cell.sizeInBytes-1)), cell.typ, typ, cell.count, stride, off)
@@ -110,9 +118,8 @@ func checkValid(p: VmMemPointer, typ: PVmType, cell: VmCell): AccessViolationRea
       # untyped memory; not yet supported
       unreachable()
   else:
-    # `p` points to the start of the cell -- the most simple case. We only
-    # need to perform a type comparision
-    result = testLocationType(cell.typ, typ)
+    # `p` points to before the cell -- this is likely a use-after-free issue
+    result = avrOutOfBounds
 
 func checkValid*(al: VmAllocator, h: LocHandle): AccessViolationReason =
   ## Tests and returns whether the handle `h` is valid. That is, whether it
