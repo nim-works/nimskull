@@ -80,9 +80,10 @@ func codeListing*(c: TCtx; start = 0; last = -1): seq[DebugVmCodeEntry] =
 
     case opc:
     of opcConv, opcCast:
-      code.types = (c.rtti[c.code[i + 1].regBx-wordExcess].nimType,
-                    c.rtti[c.code[i + 2].regBx-wordExcess].nimType)
-      inc i, 2
+      code.rb = c.code[i + 1].regA
+      code.types = (c.rtti[c.code[i + 0].regBx-wordExcess].nimType,
+                    c.rtti[c.code[i + 1].regBx-wordExcess].nimType)
+      inc i, 1
     of opcLdConst, opcAsgnConst:
       let cnst = c.constants[code.idx]
       code.ast =
