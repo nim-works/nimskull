@@ -103,7 +103,6 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string, config: ConfigRef) =
         processSwitch(pass, p, config)
     of cmdArgument:
       options.gProjectName = unixToNativePath(p.key)
-      # if processArgument(pass, p, argsCount): break
 
 proc handleCmdLine(config: ConfigRef) =
   if paramCount() == 0:

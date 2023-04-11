@@ -7,6 +7,25 @@
 #    distribution, for details about the copyright.
 #
 
+## This module _should_ be the compiler's way of emitting messages, instead
+## it's a bit of a mess right now. Most things in here are ill-concieved and
+## require revisiting.
+## 
+## What should happen is something like the following:
+## - have output sinks and targets
+## - output sinks: *very* thin layers over stdout/stderr/files
+## - output targets: abstract named output targets that the rest of code write
+##                   to without worrying about where that actually might be
+## - this module:
+##   - works with `options/ConfigRef` to figure out the target > sink mapping
+##   - does any "traffic control" for a given sinks, like inserting new lines
+##   - like "traffic control" highlevel layout such as indenting for context
+## - consumsers of this module then use appropriate write procs for their
+##   target without worrying about where that should go
+## 
+## This module shouldn't determine control flow like program termination, or
+## the myriad of many other things it does.
+
 import
   std/[strutils, os, tables, macros, times],
   std/private/miscdollars
@@ -46,6 +65,7 @@ template toStdOrrKind(stdOrr): untyped =
 
 proc flushDot*(conf: ConfigRef) =
   ## safe to call multiple times
+  # xxx: this proc is a bad idea, no need to have all sorts of callers to it
   let stdOrr = if optStdout in conf.globalOptions: stdout else: stderr
   let stdOrrKind = toStdOrrKind(stdOrr)
   if stdOrrKind in conf.lastMsgWasDot:
@@ -242,15 +262,28 @@ proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
   ##
   ## This procedure is used as a default implementation of the
   ## `ConfigRef.writeHook`.
-  let sep = if msgNoUnitSep notin flags: conf.unitSep else: ""
+  let
+    sep = if msgNoUnitSep notin flags: conf.unitSep else: ""
+    isDot = s == "."
+
+  template newLineIfRequired(stdOrr: untyped) =
+    let stdOrrKind = toStdOrrKind(stdOrr)
+    if stdOrrKind in conf.lastMsgWasDot and not isDot:
+      write(stdOrr, "\n")
+    if isDot:
+      conf.lastMsgWasDot.incl stdOrrKind
+    else:
+      conf.lastMsgWasDot.excl stdOrrKind
 
   if optStdout in conf.globalOptions or msgStdout in flags:
     if eStdOut in conf.m.errorOutputs:
+      newLineIfRequired(stdout)
       write(stdout, s)
       write(stdout, sep)
       flushFile(stdout)
   else:
     if eStdErr in conf.m.errorOutputs:
+      newLineIfRequired(stderr)
       write(stderr, s)
       write(stderr, sep)
 
@@ -1031,52 +1064,3 @@ proc uniqueModuleName*(conf: ConfigRef; fid: FileIndex): string =
       # We mangle upper letters and digits too so that there cannot
       # be clashes with our special meanings of 'Z' and 'O'
       result.addInt ord(c)
-
-proc genSuccessX*(conf: ConfigRef) =
-  ## Generate and write report for the successful compilation parameters
-  var params = UsedBuildParams(linesCompiled: conf.linesCompiled)
-  if conf.cmd in cmdBackends:
-    params = UsedBuildParams(
-      isCompilation: true,
-      gc: $conf.selectedGC,
-      threads: optThreads in conf.globalOptions,
-      optimize:
-        if optOptimizeSpeed in conf.options: "speed"
-        elif optOptimizeSize in conf.options: "size"
-        else: "debug",
-      buildMode:
-        if isDefined(conf, "danger"): "danger"
-        elif isDefined(conf, "release"): "release"
-        else: "debug"
-    )
-
-  params.sec = epochTime() - conf.lastCmdTime
-
-  params.project =
-    case conf.filenameOption
-    of foAbs:
-      $conf.projectFull
-    else:
-      $conf.projectName
-
-  params.output =
-    if optCompileOnly in conf.globalOptions and conf.cmd != cmdJsonscript:
-      $conf.jsonBuildFile
-    elif conf.outFile.isEmpty and
-         conf.cmd notin {cmdJsonscript} + cmdDocLike + cmdBackends:
-      # for some cmd we expect a valid absOutFile
-      "unknownOutput"
-    else:
-      $conf.absOutFile
-
-  when declared(system.getMaxMem):
-    params.mem = getMaxMem()
-    params.isMaxMem = true
-  else:
-    params.mem = getTotalMem()
-
-  if conf.filenameOption != foAbs:
-    params.output = params.output.AbsoluteFile.extractFilename
-
-  discard conf.report(InternalReport(
-    kind: rintSuccessX, buildParams: params))

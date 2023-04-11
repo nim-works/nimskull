@@ -7,7 +7,7 @@
 #    distribution, for details about the copyright.
 #
 
-import std/[os]
+import std/[os, strutils]
 from osproc import execCmd
 when defined(windows) and not defined(nimKochBootstrap):
   # remove workaround pending bootstrap >= 1.5.1
@@ -32,7 +32,8 @@ import
     modulegraphs
   ],
   compiler/utils/[
-    pathutils
+    pathutils,
+    idioms
   ],
   compiler/ast/[
     idents
@@ -47,7 +48,6 @@ when hasTinyCBackend:
 when defined(profiler) or defined(memProfiler):
   {.hint: "Profiling support is turned on!".}
   import sdt/nimprof
-
 
 proc getNimRunExe(conf: ConfigRef): string =
   # xxx consider defining `conf.getConfigVar("nimrun.exe")` to allow users to
@@ -77,13 +77,34 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
 
   self.processCmdLineAndProjectPath(conf)
   if conf.errorCounter != 0: return
-  var graph = newModuleGraph(cache, conf)
+  let graph = newModuleGraph(cache, conf)
 
   if not self.loadConfigsAndProcessCmdLine(cache, conf, graph) or
       conf.errorCounter != 0:
     return
 
-  mainCommand(graph)
+  proc mainCmdEvtHandler(evt: MainCmdEvt) =
+    # TODO: finish implementing me
+    case evt.kind
+    of mainEvtCmdOutput:
+      echo "kind: ", evt.kind, " subkind: ", evt.output.kind
+    of mainEvtCmdProgress: echo "kind: ", evt.kind, " subkind: ", evt.progress.kind
+    of mainEvtUserProf: echo "kind: ", evt.kind, " subkind: ", evt.userProf.kind
+    of mainEvtInternalDbg: echo "kind: ", evt.kind, " subkind: ", evt.internalDbg.kind
+
+  let res = mainCommand(graph, mainCmdEvtHandler)
+  case res.kind
+  of mainResultSuccess: discard
+  of mainResultFailRunNeedsTcc:
+    conf.cmdFail "'run' requires c backend, got: '$1'" % $conf.backend
+  of mainResultFailRunNeedsCBknd:
+    conf.cmdFail("'run' command not available; rebuild with -d:tinyc")
+  of mainResultFailInvalidCmd,
+      mainResultFailCannotOpenFile,
+      mainResultFailLeanCompiler,
+      mainResultFailGenDepend:
+    unreachable()
+
   if optCmdExitGcStats in conf.globalOptions:
     conf.logGcStats(GC_getStatistics())
 
@@ -108,7 +129,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
       of backendNimVm:
         if cmdPrefix.len == 0:
           cmdPrefix = changeFileExt(getAppDir() / "vmrunner", ExeExt)
-      else: doAssert false, $conf.backend
+      of backendInvalid: doAssert false, $conf.backend
       if cmdPrefix.len > 0: cmdPrefix.add " "
         # without the `cmdPrefix.len > 0` check, on windows you'd get a cryptic:
         # `The parameter is incorrect`

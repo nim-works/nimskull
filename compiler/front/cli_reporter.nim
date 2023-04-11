@@ -63,7 +63,7 @@ import
 import compiler/front/options as compiler_options
 from compiler/ast/reports_base_sem import ReportContext, ReportContextKind
 from compiler/ast/ast_query import getStr
-from compiler/front/commands import allowedCompileOptionArgs
+from compiler/front/optionprocessor import allowedCompileOptionArgs
 
 func assertKind(r: ReportTypes | Report) = assert r.kind != repNone
 
@@ -2608,35 +2608,7 @@ proc reportBody*(conf: ConfigRef, r: InternalReport): string =
           kind in r.enabledOptions, "X", " "), $kind)
 
     of rintSuccessX:
-      var build = ""
-      let par = r.buildParams
-      if conf.cmd in cmdBackends:
-        build.add "gc: $#; " % par.gc
-
-        if par.threads:
-          build.add "threads: on; "
-
-        build.add "opt: "
-        if par.optimize == "debug":
-          build.add "none (DEBUG BUILD, `-d:release` generates faster code)"
-
-        else:
-          build.add par.optimize
-          build.add "; "
-          build.add par.buildMode
-          build.add " "
-
-      let mem =
-        if par.isMaxMem:
-          formatSize(par.mem) & " peakmem"
-
-        else:
-          formatSize(par.mem) & " totmem"
-
-      result = &"{conf.prefix(r)}{build}{par.linesCompiled} lines; {par.sec:.3f}s; {mem}; proj: {par.project}; out: {par.output}{conf.suffix(r)}"
-
-    of rintUsingLeanCompiler:
-      result = r.msg
+      unreachable("this should never use reports")
 
     of rintMissingStackTrace:
       result = """
@@ -2703,56 +2675,6 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
 
     of rintNimconfWrite:
       result = ""
-
-    of rintDumpState:
-      if getConfigVar(conf, "dump.format") == "json":
-        let s = r.stateDump
-        var definedSymbols = newJArray()
-        for s in s.definedSymbols:
-          definedSymbols.elems.add(%s)
-
-        var libpaths = newJArray()
-        var lazyPaths = newJArray()
-        for dir in conf.searchPaths:
-          libpaths.elems.add(%dir.string)
-
-        for dir in conf.lazyPaths:
-          lazyPaths.elems.add(%dir.string)
-
-        var hints = newJObject()
-        for (a, state) in s.hints:
-          hints[$a] = %(state)
-
-        var warnings = newJObject()
-        for (a, state) in s.warnings:
-          warnings[$a] = %(state)
-
-        result = $(%[
-          (key: "version",         val: %s.version),
-          (key: "nimExe",          val: %s.nimExe),
-          (key: "prefixdir",       val: %s.prefixdir),
-          (key: "libpath",         val: %s.libpath),
-          (key: "project_path",    val: %s.projectPath),
-          (key: "defined_symbols", val: definedSymbols),
-          (key: "lib_paths",       val: libpaths),
-          (key: "lazyPaths",       val: lazyPaths),
-          (key: "outdir",          val: %s.outdir),
-          (key: "out",             val: %s.out),
-          (key: "nimcache",        val: %s.nimcache),
-          (key: "hints",           val: hints),
-          (key: "warnings",        val: warnings),
-        ])
-
-      else:
-        result.add "-- list of currently defined symbols --\n"
-        let s = r.stateDump
-        for s in s.definedSymbols:
-          result.add(s, "\n")
-
-        result.add "-- end of list --\n"
-
-        for it in s.libPaths:
-          result.add it, "\n"
 
 proc reportFull*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
@@ -2927,12 +2849,6 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
     of rextCfgArgUnknownExperimentalFeature:
       result = "unknown experiemental feature: '$1'. Available options are: $2" %
                 [r.cmdlineProvided, r.cmdlineAllowed.join(", ")]
-
-    of rextExpectedTinyCForRun:
-      result = "'run' command not available; rebuild with -d:tinyc"
-
-    of rextExpectedCbackendForRun:
-      result = "'run' requires c backend, got: '$1'" % $conf.backend
 
     of rextInvalidPath:
       result = "invalid path: " & r.cmdlineProvided
@@ -3630,7 +3546,6 @@ const
   traceDir = "nimCompilerDebugTraceDir"
 
 var
-  lastDot: bool = false
   traceFile: File
   fileIndex: int = 0
 
@@ -4550,16 +4465,10 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       #      infrastructure is overwrought. seriously, they're not hints, they're
       #      progress indicators.
       conf.write(".")
-      lastDot = true
     else:
       var msg: seq[string]
-      if lastDot:
-        msg.add("")
-        lastDot = false
-
       if conf.hack.reportInTrace:
         var indent {.global.}: int
-
         case r.kind:
         of rdbgTracerKinds:
           if r.kind == rdbgTraceStep:
@@ -4576,7 +4485,11 @@ proc reportHook*(conf: ConfigRef, r: Report): TErrorHandling =
       else:
         msg.add(conf.reportFull(r))
 
-      if conf.hack.bypassWriteHookForTrace:
+      if conf.hack.reportInTrace and conf.hack.bypassWriteHookForTrace:
+        # leverage `msgs` output once it's free of legacy reports
+        if stdOrrStdout in conf.lastMsgWasDot:
+          conf.lastMsgWasDot.excl stdOrrStdout
+          echo ""
         for item in msg:
           echo item
       else:

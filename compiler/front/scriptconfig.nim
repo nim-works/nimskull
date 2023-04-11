@@ -43,6 +43,7 @@ import
     msgs,
     condsyms,
     options,
+    optionprocessor,
     commands,
   ],
   compiler/utils/[

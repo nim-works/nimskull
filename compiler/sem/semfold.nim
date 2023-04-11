@@ -30,7 +30,7 @@ import
     modulegraphs,
   ],
   compiler/front/[
-    commands,
+    optionprocessor,
     options,
   ],
   compiler/utils/[
@@ -340,7 +340,7 @@ proc evalOp(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): P
     result.typ = n.typ
   of mCompileOption:
     result =
-      case commands.testCompileOption(g.config, a.getStr)
+      case optionprocessor.testCompileOption(g.config, a.getStr)
       of compileOptCheckSuccessTrue:
         newIntNodeT(toInt128(ord(true)), n, idgen, g)
       of compileOptCheckSuccessFalse:
@@ -361,7 +361,7 @@ proc evalOp(m: TMagic, n, a, b, c: PNode; idgen: IdGenerator; g: ModuleGraph): P
                                       badCompilerOpt: a))
   of mCompileOptionArg:
     result =
-      case commands.testCompileOptionArg(g.config, a.getStr, b.getStr)
+      case optionprocessor.testCompileOptionArg(g.config, a.getStr, b.getStr)
       of compileOptArgCheckSuccessTrue:
         newIntNodeT(toInt128(ord(true)), n, idgen, g)
       of compileOptArgCheckSuccessFalse:

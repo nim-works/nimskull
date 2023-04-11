@@ -87,7 +87,6 @@ type
 
     # errors being
     rintCannotOpenFile
-    rintUsingLeanCompiler
     rintNotUsingNimcore
     rintNotImplemented
     # errors END. !! add reports BEFORE the last enum !!
@@ -111,7 +110,8 @@ type
     rintMissingStackTrace ## Stack trace would've been generated in the
     ## debug compiler build
 
-    rintSuccessX = "SuccessX" ## Succesfull compilation
+    rintSuccessX = "SuccessX" ## Successful compilation, only used as a "note",
+                              ## it's not a hint either
     # hints END !! add reports BEFORE the last enum !!
 
     rintStackTrace = "StackTrace" ## Stack trace during internal
@@ -119,7 +119,6 @@ type
     rintListWarnings
     rintListHints
 
-    rintDumpState
     rintEchoMessage # last !
 
     # internal reports END !! add reports BEFORE the last enum !!
@@ -149,8 +148,6 @@ type
     rextCfgArgUnexpectedValue
     rextCfgArgUnknownExperimentalFeature
 
-    rextExpectedCbackendForRun
-    rextExpectedTinyCForRun
     rextCommandMissing
     rextInvalidPath ## Invalid path for a config option
 

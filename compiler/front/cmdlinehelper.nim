@@ -25,6 +25,7 @@ import
     commands,
     msgs,
     options,
+    optionprocessor,
     condsyms
   ],
   compiler/utils/[
@@ -216,9 +217,3 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
 
   graph.suggestMode = self.suggestMode
   return true
-
-proc loadConfigsAndRunMainCommand*(
-    self: NimProg, cache: IdentCache; conf: ConfigRef; graph: ModuleGraph): bool =
-
-  ## Alias for loadConfigsAndProcessCmdLine, here for backwards compatibility
-  loadConfigsAndProcessCmdLine(self, cache, conf, graph)

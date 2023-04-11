@@ -182,7 +182,7 @@ type
 
   ReportHook* = proc(conf: ConfigRef, report: Report): TErrorHandling {.closure.}
 
-  HackController* = object
+  HackController* = object # TODO: rename to `InternalConfig`, or something
     ## additional configuration switches to control the behavior of the
     ## debug printer. Most of them are for compiler debugging, and for now
     ## they can't be set up from the cli/defines - in the future this will
@@ -198,6 +198,11 @@ type
     ## the `echo` instead of going through the `ConfigRef.writeln` hook.
     ## This is useful for environments such as nimsuggest, which discard
     ## the output.
+
+  TCmdLinePass* = enum
+    passCmd1,                 # first pass over the command line
+    passCmd2,                 # second pass over the command line
+    passPP                    # preprocessor called processSwitch()
 
   ConfigRef* {.acyclic.} = ref object
     ## every global configuration fields marked with '*' are subject to the

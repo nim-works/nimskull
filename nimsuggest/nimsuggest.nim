@@ -687,7 +687,6 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
             conf.projectName = a
         else:
           conf.projectName = a
-      # if processArgument(pass, p, argsCount): break
     if conf.errorCounter > startingErrCount:
       break
 
@@ -784,7 +783,6 @@ else:
         if conf.projectName.len == 0: conf.projectName = a
       else:
         conf.projectName = a
-          # if processArgument(pass, p, argsCount): break
     let
       cache = newIdentCache()
       conf = newConfigRef(cli_reporter.reportHook)

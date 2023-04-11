@@ -66,7 +66,6 @@ type
 
   TGlobalOptions* = set[TGlobalOption]
 
-
   TGCMode* = enum             # the selected GC
     gcUnselected = "unselected"
     gcNone = "none"
@@ -83,8 +82,6 @@ type
     # usesWriteBarrier() is concerned
 
   TOption* = enum
-    ##
-
     # please make sure we have under 32 options (improves code efficiency
     # a lot!) **keep binary compatible**.
     optNone
