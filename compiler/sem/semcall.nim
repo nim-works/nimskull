@@ -33,41 +33,17 @@ proc sameMethodDispatcher(a, b: PSym): bool =
       # be disambiguated by the programmer; this way the right generic is
       # instantiated.
 
-proc initCandidateSymbols(c: PContext, headSymbol: PNode,
-                          filter: TSymKinds,
-                          best, alt: var TCandidate,
-                          o: var TOverloadIter): seq[tuple[s: PSym, scope: int]] =
-  result = @[]
-  var symx = initOverloadIter(o, c, headSymbol)
-  while symx != nil:
-    if symx.kind in filter:
-      result.add((symx, o.lastOverloadScope))
-    elif symx.isError:
-      localReport(c.config, symx.ast)
-    symx = nextOverloadIter(o, c, headSymbol)
-  if result.len > 0:
-    initCallCandidate(c, best, result[0].s, result[0].scope)
-    initCallCandidate(c, alt, result[0].s, result[0].scope)
-    best.state = csNoMatch
-
 proc pickBestCandidate(c: PContext,
                        headSymbol: PNode,
                        n: PNode,
+                       startScope: PScope,
                        filter: TSymKinds,
                        best, alt: var TCandidate,
                        errors: var seq[SemCallMismatch]) =
   var
     o: TOverloadIter
-    sym = initOverloadIter(o, c, headSymbol)
+    sym = initOverloadIter(o, c, startScope, headSymbol)
     scope = o.lastOverloadScope
-  # Thanks to the lazy semchecking for operands, we need to check whether
-  # 'initCandidate' modifies the symbol table (via semExpr).
-  # This can occur in cases like 'init(a, 1, (var b = new(Type2); b))'
-  let counterInitial = c.currentScope.symbols.counter
-  var
-    syms: seq[tuple[s: PSym, scope: int]]
-    noSyms = true
-    nextSymIndex = 0
   
   if sym.isError:
     # xxx: this should be in the loop below but it's not that simple as we'll
@@ -93,7 +69,7 @@ proc pickBestCandidate(c: PContext,
     c.config.internalAssert(sym.typ != nil or sym.magic != mNone,
                             "missing type information")
     initCallCandidate(c, z, sym, scope)
-    if c.currentScope.symbols.counter == counterInitial or syms.len != 0:
+    block:
       matches(c, n, z)
       if z.state == csMatch:
         # little hack so that iterators are preferred over everything else:
@@ -111,21 +87,8 @@ proc pickBestCandidate(c: PContext,
         err.target = sym
         errors.add err
 
-    else:
-      # Symbol table has been modified. Restart and pre-calculate all syms
-      # before any further candidate init and compare. SLOW, but rare case.
-      syms = initCandidateSymbols(c, headSymbol, filter, best, alt, o)
-      noSyms = false
-    if noSyms:
-      sym = nextOverloadIter(o, c, headSymbol)
-      scope = o.lastOverloadScope
-    elif nextSymIndex < syms.len:
-      # rare case: retrieve the next pre-calculated symbol
-      sym = syms[nextSymIndex].s
-      scope = syms[nextSymIndex].scope
-      nextSymIndex += 1
-    else:
-      break
+    sym = nextOverloadIter(o, c, headSymbol)
+    scope = o.lastOverloadScope
 
 proc maybeResemArgs*(c: PContext, n: PNode, startIdx: int = 1): seq[PNode] =
   # HACK original implementation of the `describeArgs` used `semOperand`
@@ -352,8 +315,14 @@ proc resolveOverloads(c: PContext, n: PNode,
     result.call = c.config.wrapError(n)
     return
 
+  let scope = c.currentScope
+  # all symbols created during lazy semchecking of operands first get
+  # committed into a shadow scope, and iff there was a match are merged into
+  # the original scope
+  c.openShadowScope()
+
   template pickBest(headSymbol) =
-    pickBestCandidate(c, headSymbol, n, filter, result, alt, errors)
+    pickBestCandidate(c, headSymbol, n, scope, filter, result, alt, errors)
   pickBest(f)
 
   let overloadsState = result.state
@@ -399,13 +368,22 @@ proc resolveOverloads(c: PContext, n: PNode,
           let msg = getMsgDiagnostic(c, flags, n, f)
           result.call = c.config.newError(n, msg)
 
+      c.closeShadowScope()
       return
     elif result.state != csMatch:
       if {nfDotField, nfDotSetter} * n.flags != {}:
         # clean up the inserted ops
         n.sons.delete(2)
         n[0] = f
+      c.closeShadowScope()
       return
+
+  # a match was found; commit the created symbols to the symbol table. Note
+  # that for the sake of error correction, we still do so even if the call is
+  # ambiguous
+  assert result.state == csMatch
+  c.mergeShadowScope()
+
   if alt.state == csMatch and cmpCandidates(result, alt) == 0 and
       not sameMethodDispatcher(result.calleeSym, alt.calleeSym):
     c.config.internalAssert result.state == csMatch
