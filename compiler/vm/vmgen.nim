@@ -1244,10 +1244,72 @@ proc genAddSubInt(c: var TCtx; n: PNode; dest: var TDest; opc: TOpcode) =
     genBinaryABC(c, n, dest, opc)
   c.genNarrow(n, dest)
 
-proc genConv(c: var TCtx; n, arg: PNode; dest: var TDest; opc=opcConv) =
+proc genNumberConv(c: var TCtx, info: PNode, dest, src: TRegister,
+                   desttype, srctype: PType) =
+  ## Generates and emits the code for an *unchecked* conversion between two
+  ## numeric types.
+  const
+    Floats = {tyFloat..tyFloat64}
+    Signed = {tyInt..tyInt64, tyEnum}
+    Unsigned = {tyUInt..tyUInt64, tyChar, tyBool}
+
+  template payload(op: NumericConvKind): uint16 =
+    packedConvDesc(op, desttype.size.int, srctype.size.int)
+
+  # things to keep in mind:
+  # - registers storing integer values have no notion of signed vs. unsigned
+  # - registers only store full-width integers and floats
+  case desttype.kind
+  of Signed:
+    case srctype.kind
+    of Floats:
+      c.gABC(info, opcNumConv, dest, src, payload(nckFToI))
+    of Signed, Unsigned:
+      c.gABC(info, opcFastAsgnComplex, dest, src)
+      if desttype.size < srctype.size:
+        c.gABC(info, opcSignExtend, dest, TRegister(desttype.size * 8))
+    else:
+      unreachable()
+  of Unsigned - {tyBool}:
+    case srctype.kind
+    of Floats:
+      c.gABC(info, opcNumConv, dest, src, payload(nckFToU))
+    of Unsigned:
+      c.gABC(info, opcFastAsgnComplex, dest, src)
+      if desttype.size < srctype.size:
+        # truncate to the new size:
+        c.gABC(info, opcNarrowU, dest, TRegister(desttype.size * 8))
+    of Signed:
+      # similar to the unsigned-to-unsigned case, but a narrow is also required
+      # to "drop" the bits not part of the destination's bit range
+      # XXX: this behaviour matches that of the C target, but truncating to the
+      #      *source size* would make more sense
+      c.gABC(info, opcFastAsgnComplex, dest, src)
+      if desttype.size < 8:
+        # drop the bits past the destination's size
+        c.gABC(info, opcNarrowU, dest, TRegister(desttype.size * 8))
+    else:
+      unreachable()
+  of Floats:
+    let op =
+      case srctype.kind
+      of Floats:   nckFToF
+      of Signed:   nckIToF
+      of Unsigned: nckUToF
+      else:        unreachable()
+
+    c.gABC(info, opcNumConv, dest, src, payload(op))
+  of tyBool:
+    c.gABC(info, opcNumConv, dest, src, payload(nckToB))
+  else:
+    unreachable()
+
+proc genConv(c: var TCtx; n, arg: PNode; dest: var TDest) =
   let
-    a = skipTypes(n.typ, IrrelevantTypes)
-    b = skipTypes(arg.typ, IrrelevantTypes)
+    a = skipTypes(n.typ, IrrelevantTypes + {tyRange})
+    b = skipTypes(arg.typ, IrrelevantTypes + {tyRange})
+  # we're not interested in range types here -- range checks are already
+  # handled via ``opcRangeChck``
 
   if sameLocationType(a, b) or {a.kind, b.kind} == {tyProc}:
     # don't do anything for conversions that don't change the run-time type
@@ -1257,18 +1319,24 @@ proc genConv(c: var TCtx; n, arg: PNode; dest: var TDest; opc=opcConv) =
     # a normal conversion that produces a new value of different type
     prepare(c, dest, n, n.typ)
     let tmp = c.genx(arg)
-    c.gABC(n, opc, dest, tmp)
-    c.gABx(n, opc, 0, c.genTypeInfo(a))
-    c.gABx(n, opc, 0, c.genTypeInfo(b))
+    case a.kind
+    of IntegralTypes:
+      # numeric type conversions don't use ``opcConv````
+      genNumberConv(c, n, dest, tmp, a, b)
+    of ConcreteTypes - IntegralTypes:
+      c.gABx(n, opcConv, dest, c.genTypeInfo(a))
+      c.gABx(n, opcConv, tmp, c.genTypeInfo(b))
+    else:
+      unreachable()
+
     c.freeTemp(tmp)
 
 proc genToStr(c: var TCtx, n, arg: PNode, dest: var TDest) =
   # TODO: don't use ``opcConv`` for to-string conversions
   prepare(c, dest, n, n.typ)
   let tmp = c.genx(arg)
-  c.gABC(n, opcConv, dest, tmp)
-  c.gABx(n, opcConv, 0, c.genTypeInfo(n.typ.skipTypes(IrrelevantTypes)))
-  c.gABx(n, opcConv, 0, c.genTypeInfo(arg.typ.skipTypes(IrrelevantTypes)))
+  c.gABx(n, opcConv, dest, c.genTypeInfo(n.typ.skipTypes(IrrelevantTypes)))
+  c.gABx(n, opcConv, tmp, c.genTypeInfo(arg.typ.skipTypes(IrrelevantTypes)))
   c.freeTemp(tmp)
 
 proc genObjConv(c: var TCtx, n: PNode, dest: var TDest) =
@@ -1299,6 +1367,23 @@ proc genCard(c: var TCtx; n: PNode; dest: var TDest) =
 template needsRegLoad(): untyped =
   gfNode notin flags and
     fitsRegister(n.typ.skipTypes({tyVar, tyLent, tyStatic}))
+
+proc genCast(c: var TCtx, n, arg: PNode, dest: var TDest) =
+  let
+    a = skipTypes(n.typ, IrrelevantTypes + {tyRange})
+    b = skipTypes(arg.typ, IrrelevantTypes + {tyRange})
+
+  if sameLocationType(a, b):
+    # treat the cast as a no-op if there's no change in run-time type
+    gen(c, arg, dest)
+  else:
+    # not supported yet
+    raiseVmGenError:
+      VmGenDiag(
+        kind: vmGenDiagCannotCast,
+        location: n.info,
+        instLoc: instLoc(-1),
+        typeMismatch: VmTypeMismatch(actualType: arg.typ, formalType: n.typ))
 
 proc genCastIntFloat(c: var TCtx; n: PNode; dest: var TDest) =
   const allowedIntegers = {tyInt..tyInt64, tyUInt..tyUInt64, tyChar}
@@ -2577,9 +2662,8 @@ proc genObjConstr(c: var TCtx, n: PNode, dest: var TDest) =
           #      `transf` removes `nkHiddenStdConv` for array/seq to openArray
           #      conversions, which we could have otherwise relied on
           let tmp2 = c.getFullTemp(it[0], le)
-          c.gABC(n, opcConv, tmp2, tmp)
-          c.gABx(n, opcConv, 0, c.genTypeInfo(le))
-          c.gABx(n, opcConv, 0, c.genTypeInfo(ri))
+          c.gABx(n, opcConv, tmp2, c.genTypeInfo(le))
+          c.gABx(n, opcConv, tmp, c.genTypeInfo(ri))
           c.freeTemp(tmp)
           tmp = tmp2
       else:
@@ -2768,18 +2852,32 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
     let s = n[namePos].sym
     genProcLit(c, n, s, dest)
   of nkChckRangeF, nkChckRange64, nkChckRange:
-    let
-      tmp0 = c.genx(n[0])
-      tmp1 = c.genx(n[1])
-      tmp2 = c.genx(n[2])
-    c.gABC(n, opcRangeChck, tmp0, tmp1, tmp2)
-    c.freeTemp(tmp1)
-    c.freeTemp(tmp2)
-    if dest >= 0:
-      gABC(c, n, whichAsgnOpc(n), dest, tmp0)
+    let tmp0 = c.genx(n[0])
+    # XXX: range checks currently always happen, even if disabled by the user.
+    #      Once the range check injection logic is an MIR pass, this should be
+    #      reconsidered, at least for code not running at compile-time
+    # note: don't skip ``tyRange``
+    case n.typ.skipTypes(IrrelevantTypes + {tyVar, tyLent}).kind
+    of tyUInt..tyUInt64:
+      # use a normal conversion instead of a range check for unsigned integers
+      let
+        a = n.typ.skipTypes(IrrelevantTypes + {tyVar, tyLent, tyRange})
+        b = n[0].typ.skipTypes(IrrelevantTypes + {tyVar, tyLent, tyRange})
+      prepare(c, dest, n.typ)
+      genNumberConv(c, n, dest, tmp0, a, b)
       c.freeTemp(tmp0)
     else:
-      dest = tmp0
+      let
+        tmp1 = c.genx(n[1])
+        tmp2 = c.genx(n[2])
+      c.gABC(n, opcRangeChck, tmp0, tmp1, tmp2)
+      c.freeTemp(tmp1)
+      c.freeTemp(tmp2)
+      if dest >= 0:
+        gABC(c, n, whichAsgnOpc(n), dest, tmp0)
+        c.freeTemp(tmp0)
+      else:
+        dest = tmp0
   of nkEmpty, nkCommentStmt, nkTypeSection, nkConstSection, nkPragma,
      nkTemplateDef, nkIncludeStmt, nkImportStmt, nkFromStmt, nkExportStmt,
      nkMixinStmt, nkBindStmt:
@@ -2793,7 +2891,7 @@ proc gen(c: var TCtx; n: PNode; dest: var TDest; flags: TGenFlags = {}) =
   of nkClosure: genClosureConstr(c, n, dest)
   of nkCast:
     if allowCast in c.features:
-      genConv(c, n, n[1], dest, opcCast)
+      genCast(c, n, n[1], dest)
     else:
       genCastIntFloat(c, n, dest)
   of nkType:

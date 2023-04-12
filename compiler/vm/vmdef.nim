@@ -71,6 +71,13 @@ type
   TDest* = range[-1..regAMask.int]
   TInstr* = distinct TInstrType
 
+  NumericConvKind* = enum
+    ## Identifies the numeric conversion kind.
+    ## I = signed; U = unsigned; F = float;
+    nckFToI, nckFToU
+    nckIToF, nckUToF
+    nckFToF ## float-to-float
+    nckToB  ## float or int to bool
 
   TBlock* = object
     label*: PSym
@@ -1052,7 +1059,22 @@ template `currentException=`*(a: VmArgs, h: HeapSlotHandle) =
   ## A temporary workaround for the exception handle being stored as a pointer
   a.currentExceptionPtr[] = h
 
-# TODO: move `overlap` and it's tests somewhere else
+func unpackedConvDesc*(info: uint16
+                      ): tuple[op: NumericConvKind, dstbytes, srcbytes: int] =
+  ## Unpacks the numeric conversion description from `info`.
+  result.op = NumericConvKind(info and 0x7)
+  # note: add 1 to undo the shifting done during packing
+  result.dstbytes = 1 + int((info shr 3) and 0x7)
+  result.srcbytes = 1 + int((info shr 6) and 0x7)
+
+func packedConvDesc*(op: NumericConvKind, dstbytes, srcbytes: range[1..8]): uint16 =
+  ## Packs the numeric conversion description into a single ``uint16``.
+  template pack(s: int): uint16 =
+    # substract one from the size values so that they fit into 3 bit
+    uint16(s - 1)
+  result = uint16(op) or (pack(dstbytes) shl 3) or (pack(srcbytes) shl 6)
+
+# TODO: move `overlap` and its tests somewhere else
 func overlap*(a, b: int, aLen, bLen: Natural): bool =
   ## Tests if the ranges `[a, a+aLen)` and `[b, b+bLen)` have elements
   ## in common

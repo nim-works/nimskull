@@ -84,7 +84,7 @@ when defined(nimVMDebugGenerate):
 #      executed instruction
 
 import std/options as stdoptions
-from std/math import round
+from std/math import round, copySign
 
 type
   VmThread* = object
@@ -686,51 +686,6 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
   else:
     let desttyp = skipTypes(desttyp, abstractVarRange)
     case desttyp.kind
-    of tyInt..tyInt64:
-      dest = TFullReg(kind: rkInt)
-      case skipTypes(srctyp, abstractRange).kind
-      of tyFloat..tyFloat64:
-        dest.intVal = int(src.floatVal)
-      else:
-        dest.intVal = src.intVal
-      if toInt128(dest.intVal) < firstOrd(c.config, desttyp) or toInt128(dest.intVal) > lastOrd(c.config, desttyp):
-        return true
-    of tyUInt..tyUInt64, tyChar: # char is also an unsigned type
-      dest = TFullReg(kind: rkInt)
-      let styp = srctyp.skipTypes(abstractRange) # skip distinct types(dest type could do this too if needed)
-      case styp.kind
-      of tyFloat..tyFloat64:
-        dest.intVal = int(src.floatVal)
-      else:
-        let srcDist = (sizeof(src.intVal) - styp.size) * 8
-        let destDist = (sizeof(dest.intVal) - desttyp.size) * 8
-        var value = cast[BiggestUInt](src.intVal)
-        value = (value shl srcDist) shr srcDist
-        value = (value shl destDist) shr destDist
-        dest.intVal = cast[BiggestInt](value)
-    of tyBool:
-      dest = TFullReg(kind: rkInt)
-      dest.intVal =
-        case skipTypes(srctyp, abstractRange).kind
-          of tyFloat..tyFloat64: int(src.floatVal != 0.0)
-          else: int(src.intVal != 0)
-    of tyFloat, tyFloat64:
-      dest = TFullReg(kind: rkFloat)
-      case skipTypes(srctyp, abstractRange).kind
-      of tyInt..tyInt64, tyUInt..tyUInt64, tyEnum, tyBool, tyChar:
-        dest.floatVal = toBiggestFloat(src.intVal)
-      else:
-        dest.floatVal = src.floatVal
-    of tyFloat32:
-      # convert to `float32` first and then to `BiggestFloat`
-      dest = TFullReg(kind: rkFloat)
-      case skipTypes(srctyp, abstractRange).kind
-      of tyInt..tyInt64, tyUInt..tyUInt64, tyEnum, tyBool, tyChar:
-        dest.floatVal = src.intVal.float32.BiggestFloat
-      of tyFloat, tyFloat64:
-        dest.floatVal = src.floatVal.float32.BiggestFloat
-      else:
-        dest.floatVal = src.floatVal
     of tyOpenArray:
       assert dt[1].kind == akSeq
 
@@ -763,6 +718,45 @@ proc opConv(c: var TCtx; dest: var TFullReg, src: TFullReg, dt, st: (PType, PVmT
     else:
       unreachable(desttyp.kind)
 
+proc opNumConv(dest: var TFullReg, src: TFullReg, info: uint16) =
+  ## Perform a conversion between two numeric values. The source value is
+  ## provided by `src`, and the result written to `dest` (note that the
+  ## register is overwritten). `info` is the compressed operation
+  ## description.
+
+  template toFloat(val: typed, size: int): BiggestFloat =
+    case size
+    of 8: BiggestFloat(val)
+    of 4: BiggestFloat(val.float32)
+    else: unreachable()
+
+  let (op, destbytes, srcbytes) = unpackedConvDesc(info)
+  case op
+  of nckFToI: # float-to-signed
+    dest = TFullReg(kind: rkInt, intVal: int(src.floatVal))
+  of nckFToU: # float-to-unsigned
+    dest = TFullReg(kind: rkInt, intVal: int(src.floatVal))
+    # truncate, if the source value is not wider than the destination:
+    if destbytes <= srcbytes and destbytes.int < sizeof(dest.intVal):
+      dest.intVal = dest.intVal and ((1'i64 shl (destbytes * 8)) - 1)
+  of nckIToF: # signed-to-float
+    dest = TFullReg(kind: rkFloat,
+                    floatVal: toFloat(src.intVal, destbytes))
+  of nckUToF: # unsigned-to-float
+    dest = TFullReg(kind: rkFloat,
+                    floatVal: toFloat(cast[BiggestUInt](src.intVal), destbytes))
+  of nckFToF: # float-to-float
+    dest = TFullReg(kind: rkFloat,
+                    floatVal: toFloat(src.floatVal, destbytes))
+  of nckToB:  # float or int to bool
+    # note: for floats, only a *positive* zero converts to `false`
+    dest = TFullReg(kind: rkInt)
+    dest.intVal =
+      case src.kind
+      of rkInt:   ord(src.intVal   != 0)
+      of rkFloat: ord(src.floatVal != 0 and src.floatVal != -0.0)
+      else:       raiseVmError(VmEvent(kind: vmEvtErrInternal,
+                                        msg: "illegal operand"))
 
 template handleJmpBack() {.dirty.} =
   if c.loopIterations <= 0:
@@ -2844,16 +2838,18 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       regs[ra].nimNode.typ = typ.nimType
 
     of opcConv:
-      let rb = instr.regB
+      # a = conv(b); a complex conversion where the destination is a memory
+      # location. Takes up two instruction words
+      let
+        desttyp = c.rtti[instr.regBx - wordExcess]
+        next    = c.code[pc+1]
+        rb      = next.regA
+        srctyp  = c.rtti[next.regBx - wordExcess]
       inc pc
-      let desttyp = c.rtti[c.code[pc].regBx - wordExcess]
-      inc pc
-      let srctyp = c.rtti[c.code[pc].regBx - wordExcess]
 
       checkHandle(regs[ra])
       checkHandle(regs[rb])
 
-      # TODO: `opConv` needs to accept `VmTypeInfo` directly
       let dt = (desttyp.nimType, desttyp.internal)
       let st = (srctyp.nimType, srctyp.internal)
       if opConv(c, regs[ra], regs[rb], dt, st):
@@ -2862,6 +2858,16 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
           typeMismatch: VmTypeMismatch(
             actualType: srctyp.nimType,
             formalType: desttyp.nimType)))
+
+    of opcNumConv:
+      # a = conv(b); a conversion between two numeric values
+      let
+        rb = instr.regB
+        rc = instr.regC
+      # the register is overwritten, so make sure to first clean it up
+      cleanUpReg(regs[ra], c.memory)
+      opNumConv(regs[ra], regs[rb], rc.uint16)
+
     of opcObjConv:
       # a = conv(b)
       ensureKind(rkHandle)
@@ -2896,12 +2902,6 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       regs[ra].handle = src
       regs[ra].handle.typ = desttyp
     of opcCast:
-      let rb = instr.regB
-      inc pc
-      let desttyp = c.types[c.code[pc].regBx - wordExcess]
-      inc pc
-      let srctyp = c.types[c.code[pc].regBx - wordExcess]
-
       # XXX: `fficast`, which is now removed, was used for here previously.
       # Since we're soon storing objects in a flat representation, doing the
       # cast in a safe manner becomes possible, but I'm unsure if this feature
