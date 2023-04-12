@@ -38,8 +38,8 @@ proc produce() {.thread.} =
   chan.send(m)
 
 open(chan)
-createThread[void](consumer, consume)
-createThread[void](producer, produce)
+(createThread[void])(consumer, consume)
+(createThread[void])(producer, produce)
 joinThread(consumer)
 joinThread(producer)
 

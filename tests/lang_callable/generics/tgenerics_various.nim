@@ -253,3 +253,16 @@ block:
 
   var x: Que[int]
   doAssert(x.x == 0)
+
+block tlate_instantiation:
+  # generic routines not matching because of their formal parameters are *not*
+  # instantiated early, even if all generic parameters are explicitly bound a
+  # type
+
+  proc p[T]() =
+    {.error: "must not be instantiated".}
+
+  proc p[T](x: T): T =
+    result = x
+
+  doAssert p[int](1) == 1

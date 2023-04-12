@@ -6,8 +6,8 @@ destroying O1'''
   cmd: '''nim c --gc:arc --expandArc:main --expandArc:main1 --expandArc:main2 --expandArc:main3 --hints:off --assertions:off $file'''
   nimout: '''--expandArc: main
 
-var :tmp
 var data
+var :tmp
 var :tmp_1
 try:
   var :tmp_2 = encode do:
@@ -25,8 +25,8 @@ finally:
 --expandArc: main1
 
 var s
-var :tmp
 var data
+var :tmp
 try:
   s = newString(100)
   var :tmp_1 = encode(toOpenArrayByte(s, 0, `-`(len(s), 1)))
@@ -40,9 +40,9 @@ finally:
 -- end of expandArc ------------------------
 --expandArc: main2
 
-var s
-var :tmp
 var data
+var :tmp
+var s
 try:
   s = newSeq(100)
   var :tmp_1 = encode(s)
@@ -56,8 +56,8 @@ finally:
 -- end of expandArc ------------------------
 --expandArc: main3
 
-var :tmp
 var data
+var :tmp
 var :tmp_1
 try:
   var :tmp_2 = encode do:

@@ -31,6 +31,8 @@ type
   MismatchKind* = enum
     ## Procedure call argument mismatch reason
     kUnknown
+    kGenericTypeMismatch    ## Generic parameter type mismatch
+    kNotGeneric             ## Generic routine expected
     kAlreadyGiven           ## Named argument already given
     kUnknownNamedParam      ## No such named parameter
     kTypeMismatch           ## Parameter type mismatch

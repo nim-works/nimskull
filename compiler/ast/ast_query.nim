@@ -490,6 +490,20 @@ proc requiredParams*(s: PSym): int =
       return i - 1
   return s.typ.len - 1
 
+proc requiredGenericParams*(s: PSym): int =
+  # Returns the number of required generic parameters (without default
+  # values).
+  let params = s.ast[genericParamsPos]
+  if params.kind == nkEmpty:
+    # doesn't have generic parameters
+    return
+
+  for i in 0..<params.len:
+    if params[i].sym.ast != nil:
+      return i
+
+  result = params.len
+
 proc hasPattern*(s: PSym): bool {.inline.} =
   result = isRoutine(s) and s.ast[patternPos].kind != nkEmpty
 

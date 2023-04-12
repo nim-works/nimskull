@@ -2514,6 +2514,8 @@ proc presentFailedCandidates(
       candidates.add("  first type mismatch at position: " & $err.firstMismatch.pos)
       # candidates.add "\n  reason: " & $err.firstMismatch.kind # for debugging
       case err.firstMismatch.kind:
+        of kNotGeneric:
+          candidates.add("\n  routine is not generic")
         of kUnknownNamedParam:
           if nArg == nil:
             candidates.add("\n  unknown named parameter")
@@ -2532,7 +2534,7 @@ proc presentFailedCandidates(
         of kMissingParam:
           candidates.add("\n  missing parameter: " & nameParam)
 
-        of kTypeMismatch, kVarNeeded:
+        of kTypeMismatch, kVarNeeded, kGenericTypeMismatch:
           doAssert nArg != nil
           doAssert err.firstMismatch.formal != nil
           let wanted = err.firstMismatch.formal.typ

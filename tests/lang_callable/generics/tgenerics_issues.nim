@@ -915,3 +915,83 @@ block non_call_generic_default_value_expression:
     doAssert x.len == 1
 
   p("a")
+
+block no_alias_like_template:
+  # same as with normal call expressions, when type arguments are supplied,
+  # alias-like templates are not considered in the callee position.
+  template overload: untyped = 1
+
+  proc overload[T](x: int): int =
+    x
+
+  doAssert overload[int](2) == 2
+
+block no_alias_like_macro:
+  # the same goes for alias-like macros -- they too are not considered
+  macro overload: untyped =
+    result = nil
+
+  proc overload[T](x: int): int =
+    x
+
+  doAssert overload[int](2) == 2
+
+block overload_resolution_with_macro_and_proc:
+  proc test[T: int]() =
+    {.error.}
+
+  macro test[T: string]() =
+    discard
+
+  # if the lookup lands on the proc (which is the case here), then the macro
+  # was ignored. Since there's then only a single eligible element in the
+  # overload set and it doesn't match, a `cannot instantiate` error was
+  # produced. Swapping the definitions made it work as expected
+  test[string]()
+
+block no_early_instantiation:
+  # a regression test for the situation were the automatic use of early
+  # instantiation prevented valid code from working
+  proc test[A; B: string]() =
+    discard
+
+  proc test[A; B: int](x: static int) =
+    discard
+
+  # whether this compiled did depend on the order in which the procedures
+  # are placed in the symbol table. Using the definition order from above,
+  # the call used to fail with a `cannot instantiate: 'p[int, int]'` error
+  test[int, int](1)
+
+block single_macro_with_explicit_static:
+  # if there's only a single macro (or template) in the overload set,
+  # passing the argument for the ``static[T]`` generic parameter was not
+  # possible, as it always lead to a ``type expected, but expression has
+  # no type`` error
+  macro m[I: static[int]](): untyped =
+    result = quote: `I`
+
+  doAssert m[2]() == 2
+
+block static_argument_in_generic_or_template:
+  # passing arguments to ``static[T]`` type parameters needs to work inside
+  # template and generics
+  proc p[I: static[int]](): int =
+    result = I
+
+  proc p(x: int) =
+    # the presence of this overload used to prevent non-typedesc
+    # type arguments from working
+    discard
+
+  # check that `p` can be invoked from inside a generic routine:
+  proc generic[T]() =
+    doAssert p[1]() == 1
+
+  generic[int]()
+
+  # check the same is true for templates:
+  template templ() =
+    doAssert p[2]() == 2
+
+  templ()
