@@ -408,12 +408,8 @@ func initEntityDict(tree: MirTree, owner: PSym): EntityDict =
 
       if t != nil and hasDestructor(t):
         let re = toName(entity)
-        # XXX: because of an issue with semantic analysis (see
-        #      ``tests/arc/tstrformat.nim``) it can happen that the same entity
-        #      is defined multiple times. In order to not silently generate
-        #      incorrect code, ``doAssert`` is misused to report an internal
-        #      compiler error here. Using the proper facility would require
-        #      access to a ``ConfigRef`` (which we neither do nor should have)
+        # XXX: a ``doAssert`` is only used here in order to always catch
+        #      duplicate symbols incorrectly getting past ``transf``
         doAssert re notin result, "entity appears in a 'def' multiple times"
         result[re] = EntityInfo(def: i, scope: scope)
 

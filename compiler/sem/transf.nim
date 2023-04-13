@@ -19,6 +19,9 @@
 ## * transforms 'defer' into a 'try finally' statement
 
 import
+  std/[
+    intsets
+  ],
   compiler/ast/[
     ast,
     astalgo,
@@ -61,6 +64,17 @@ type
                               # because we need to introduce new variables
                               # if we encounter the 2nd yield statement
     next: PTransCon           # for stacking
+
+    definedSyms: IntSet
+      ## tracks which symbols appeared in a definition context already. This
+      ## is used for what is fundamentally a work-around / fix-up: if typed
+      ## AST arguments that contain definitions are used as substitutions
+      ## multiple times, the exact same symbol *instance* appears in a definition
+      ## position multiple times, which violates the expectations of the mid-
+      ## and back-end. Until semantic analysis properly sanitizes the AST, we
+      ## workaround the issue here by introducing new symbols for duplicates.
+      ## We only do so for ``var``, ``let``, and ``const`` symbols, however --
+      ## the others will still cause issues.
 
   PTransf = ref object
     module: PSym
@@ -173,6 +187,31 @@ proc freshVar(c: PTransf; v: PSym): PNode =
     incl(newVar.flags, sfFromGeneric)
     newVar.owner = owner
     result = newSymNode(newVar)
+
+proc transformDefSym(c: PTransf, n: PNode): PNode {.deprecated: "workaround for sem not sanitizing AST".} =
+  ## Transforms a node that appears in a definition position. If the same
+  ## symbol already appeared in a definition position, a copy is created, and
+  ## a mapping registered so that all further usages of the symbol use the
+  ## copy.
+  # XXX: this is only intended to fix the most simple cases of duplicate symbols
+  #      caused by substitution with typed AST (or by macros generating
+  #      semantically invalid AST). Remove ``transformDefSym`` once semantic
+  #      analysis properly sanitizes the AST from template/macro expansions.
+  if n.kind in {nkDotExpr, nkIdent}:
+    # * nkDotExpr: a variable lifted into a closure environment
+    # * nkIdent: an erroneously visited node in a declarative context
+    return transform(c, n)
+
+  assert n.kind == nkSym
+  let s = n.sym
+
+  if containsOrIncl(c.transCon.definedSyms, s.id):
+    # the symbol already appeared in a definition position; create a copy and
+    # add a mapping
+    result = freshVar(c, s)
+    idNodeTablePut(c.transCon.mapping, s, result)
+  else:
+    result = transformSym(c, n)
 
 proc transformVarSection(c: PTransf, v: PNode): PNode =
   c.graph.config.internalAssert(v.kind in nkVariableSections,
@@ -1017,7 +1056,7 @@ proc transform(c: PTransf, n: PNode): PNode =
     result = transformAsgn(c, n)
   of nkIdentDefs, nkConstDef:
     result = shallowCopy(n)
-    result[0] = transform(c, n[0])
+    result[0] = transformDefSym(c, n[0])
     # Skip the second son since it only contains an unsemanticized copy of the
     # variable type used by docgen
     let last = n.len-1
@@ -1026,6 +1065,13 @@ proc transform(c: PTransf, n: PNode): PNode =
     # XXX comment handling really sucks:
     if importantComments(c.graph.config):
       result.comment = n.comment
+  of nkVarTuple:
+    result = shallowCopy(n)
+    for i in 0..<n.len-2:
+      result[i] = transformDefSym(c, n[i])
+
+    result[^2] = transform(c, n[^2])
+    result[^1] = transform(c, n[^1])
   of nkClosure:
     # it can happen that for-loop-inlining produced a fresh
     # set of variables, including some computed environment
