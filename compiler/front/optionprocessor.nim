@@ -27,7 +27,6 @@ import
     extccomp,
   ],
   compiler/utils/[
-    nversion,
     pathutils,
     platform,
     idioms,

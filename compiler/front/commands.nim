@@ -409,45 +409,28 @@ type
     cpu*: TSystemCPU ## Target CPU
     os*: TSystemOS ## Target OS
 
-proc getCliData(conf: ConfigRef): CliData =
-  ## Get CLI data from current configuration and nim compiler configuration
-  ## (source code/date defines, boot switches)
-  const
-    # These are defined by koch
-    sourceHash {.strdefine.} = ""
-    sourceDate {.strdefine.} = ""
-
-  CliData(
-    version: VersionAsString,
-    sourceHash: sourceHash,
-    sourceDate: sourceDate,
-    boot: @[
-      usedRelease,
-      usedDanger,
-      usedTinyC,
-      useLinenoise,
-      usedBoehm,
-      usedMarkAndSweep,
-      usedGoGC,
-      usedNoGC
-    ],
-    cpu: conf.target.hostCPU,
-    os: conf.target.hostOS
-  )
-
-proc genFeatureDesc[T: enum](t: typedesc[T]): string {.compileTime.} =
-  result = ""
-  for f in T:
-    if result.len > 0: result.add "|"
-    result.add $f
-
 const
+  sourceHash {.strdefine.} = "" # defined by koch
+  sourceDate {.strdefine.} = "" # defined by koch
+  cliData = CliData(version: VersionAsString,
+                    sourceHash: sourceHash,
+                    sourceDate: sourceDate,
+                    boot: @[usedRelease,
+                            usedDanger,
+                            usedTinyC,
+                            useLinenoise,
+                            usedBoehm,
+                            usedMarkAndSweep,
+                            usedGoGC,
+                            usedNoGC],
+                    os: nameToOS(system.hostOS),
+                    cpu: nameToCPU(system.hostCPU))
   HelpMessage = "Nimskull Compiler Version $1 [$2: $3]\n"
   CommitMessage = "Source hash: $1\n" &
                   "Source date: $2\n"
   Usage = slurp"../doc/basicopt.txt".replace(" //", "   ")
   AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") %
-    genFeatureDesc(Feature)
+    typeof(Feature).toSeq.mapIt($it).join("|") # '|' separated features
 
 proc showMsg*(conf: ConfigRef, msg: string) =
   ## show a message to the user, meant for informational/status cirucmstances.
@@ -466,37 +449,33 @@ func cliMsgLede(data: CliData): string {.inline.} =
   ]
 
 func helpOnErrorMsg*(conf: ConfigRef): string =
-  let data = conf.getCliData()
-  cliMsgLede(data) & Usage
+  cliMsgLede(cliData) & Usage
 
 proc writeHelp(conf: ConfigRef) =
   conf.showMsg helpOnErrorMsg(conf)
   msgQuit(0)
 
 proc writeAdvancedUsage(conf: ConfigRef) =
-  let data = conf.getCliData()
   conf.showMsg:
-    cliMsgLede(data) & AdvancedUsage
+    cliMsgLede(cliData) & AdvancedUsage
   msgQuit(0)
 
 proc writeFullhelp(conf: ConfigRef) =
-  let data = conf.getCliData()
   conf.showMsg:
-    cliMsgLede(data) & Usage & AdvancedUsage
+    cliMsgLede(cliData) & Usage & AdvancedUsage
   msgQuit(0)
 
 proc writeVersionInfo(conf: ConfigRef) =
   let
-    data = conf.getCliData()
     commitMsg =
-      if data.sourceHash != "":
-        "\n" & CommitMessage % [data.sourceHash, data.sourceDate]
+      if sourceHash != "":
+        "\n" & CommitMessage % [sourceHash, sourceDate]
       else:
         ""
   conf.showMsg:
-    cliMsgLede(data) &
+    cliMsgLede(cliData) &
     commitMsg &
-    "\nactive boot switches: " & data.boot.join(" ")
+    "\nactive boot switches: " & cliData.boot.join(" ")
   msgQuit(0)
 
 proc processCmdLine*(pass: TCmdLinePass, cmd: string, config: ConfigRef) =
