@@ -34,7 +34,7 @@ block: #15622
   proc test1[T](a: T, b: static[string] = "") = discard
   test1[int64](123)
   proc test2[T](a: T, b: static[string] = "") = discard
-  test2[int64, static[string]](123)
+  test2[int64, ""](123)
 
 block: #4688
   proc convertTo[T](v: int or float): T = (T)(v)

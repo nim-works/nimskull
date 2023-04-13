@@ -28,10 +28,12 @@ proc emptyProc() =
   echo "empty"
 
 callProc[int](intProc, 12)
-callProc[void](emptyProc)
+# for ``void`` parameter erasure to work, the generic needs to be instantiated
+# early, hence the parenthesis
+(callProc[void])(emptyProc)
 
 
-ReturnT[void]()
+(ReturnT[void])()
 echo ReturnT[string]("abc")
 nothing()
 

@@ -34,7 +34,6 @@ proc sameMethodDispatcher(a, b: PSym): bool =
       # instantiated.
 
 proc initCandidateSymbols(c: PContext, headSymbol: PNode,
-                          initialBinding: PNode,
                           filter: TSymKinds,
                           best, alt: var TCandidate,
                           o: var TOverloadIter): seq[tuple[s: PSym, scope: int]] =
@@ -47,16 +46,13 @@ proc initCandidateSymbols(c: PContext, headSymbol: PNode,
       localReport(c.config, symx.ast)
     symx = nextOverloadIter(o, c, headSymbol)
   if result.len > 0:
-    initCandidate(c, best, result[0].s, initialBinding,
-                  result[0].scope)
-    initCandidate(c, alt, result[0].s, initialBinding,
-                  result[0].scope)
+    initCallCandidate(c, best, result[0].s, result[0].scope)
+    initCallCandidate(c, alt, result[0].s, result[0].scope)
     best.state = csNoMatch
 
 proc pickBestCandidate(c: PContext,
                        headSymbol: PNode,
                        n: PNode,
-                       initialBinding: PNode,
                        filter: TSymKinds,
                        best, alt: var TCandidate,
                        errors: var seq[SemCallMismatch]) =
@@ -81,8 +77,8 @@ proc pickBestCandidate(c: PContext,
   while sym != nil:
     if sym.kind in filter:
       # Initialise 'best' and 'alt' with the first available symbol
-      initCandidate(c, best, sym, initialBinding, scope)
-      initCandidate(c, alt, sym, initialBinding, scope)
+      initCallCandidate(c, best, sym, scope)
+      initCallCandidate(c, alt, sym, scope)
       best.state = csNoMatch
       break
     else:
@@ -96,7 +92,7 @@ proc pickBestCandidate(c: PContext,
       continue
     c.config.internalAssert(sym.typ != nil or sym.magic != mNone,
                             "missing type information")
-    initCandidate(c, z, sym, initialBinding, scope)
+    initCallCandidate(c, z, sym, scope)
     if c.currentScope.symbols.counter == counterInitial or syms.len != 0:
       matches(c, n, z)
       if z.state == csMatch:
@@ -118,8 +114,7 @@ proc pickBestCandidate(c: PContext,
     else:
       # Symbol table has been modified. Restart and pre-calculate all syms
       # before any further candidate init and compare. SLOW, but rare case.
-      syms = initCandidateSymbols(c, headSymbol, initialBinding, filter,
-                                  best, alt, o)
+      syms = initCandidateSymbols(c, headSymbol, filter, best, alt, o)
       noSyms = false
     if noSyms:
       sym = nextOverloadIter(o, c, headSymbol)
@@ -283,26 +278,74 @@ proc getMsgDiagnostic(
       # +2`, so command is not always an identifier.
       result.spellingAlts = fixSpelling(c, f.ident)
 
+proc semGenericArgs(c: PContext, n: PNode): PNode =
+  ## Semantically analyses the generic arguments passed to a routine invocation
+  ## (i.e.: the bracket part in ``routine[A, B](a, b, c)``), producing the
+  ## ``nkBracketExpr`` with the typed arguments, or an error.
+  ##
+  ## Since generic argument expressions must evaluate to either a type or a
+  ## static value (both which can be disambiguated between without access to
+  ## formal parameters), we fully analyse them here instead of deferring
+  ## that to sigmatch. This has the benefit that we only need to analyse/
+  ## evaluate each argument once, instead of for each matched against overload.
+  assert n.kind == nkBracketExpr
+  result = shallowCopy(n)
+  result[0] = n[0]
+
+  var hasError = false
+  for i in 1..<n.len:
+    # a generic argument must either evaluate to a type (``tyTypedesc``) or
+    # static value
+    # XXX: ``semOperand`` is the procedure that best matches what we want, but
+    #      it's still not entirely correct. A dedicated ``semTypeExpr`` (that
+    #      also handles ``tyStatic``) is likely needed here
+    let opr = c.semOperand(c, n[i], {})
+    case opr.typ.kind
+    of tyError:
+      hasError = true
+      result[i] = opr
+    of tyTypeDesc:
+      # the operand is a type
+      result[i] = opr
+    else:
+      let evaluated = evalConstExpr(c, opr)
+      case evaluated.kind
+      of nkError:
+        # not a constant expression
+        hasError = true
+        result[i] = evaluated
+      of nkType:
+        result[i] = evaluated
+      else:
+        # sigmatch expects the non-type generic arugments to use ``tyStatic``
+        opr.typ = newTypeS(tyStatic, c)
+        opr.typ.sons = @[evaluated.typ]
+        opr.typ.n = evaluated
+
+        result[i] = opr
+
+  if hasError:
+    result = c.config.wrapError(result)
+
 proc resolveOverloads(c: PContext, n: PNode,
                       filter: TSymKinds, flags: TExprFlags,
                       errors: var seq[SemCallMismatch]): TCandidate =
   addInNimDebugUtils(c.config, "resolveOverloads", n, filter, errors, result)
   var
-    initialBinding: PNode
     alt: TCandidate
     f = n[0]
   
   case f.kind
   of nkBracketExpr:
-    # fill in the bindings:
-    let hasError = semOpAux(c, f)
-    initialBinding = f
-    if hasError:
-      f = c.config.wrapError(f)
+    # the call has explicit generic arguments specified
+    let args = semGenericArgs(c, f)
+    if args.kind == nkError:
+      f = args
     else:
-      f = f[0]
+      n[0] = args
+      f = args[0]
   else:
-    initialBinding = nil
+    discard
 
   if f.isError:
     n[0] = f
@@ -310,8 +353,7 @@ proc resolveOverloads(c: PContext, n: PNode,
     return
 
   template pickBest(headSymbol) =
-    pickBestCandidate(c, headSymbol, n, initialBinding,
-                      filter, result, alt, errors)
+    pickBestCandidate(c, headSymbol, n, filter, result, alt, errors)
   pickBest(f)
 
   let overloadsState = result.state
@@ -429,7 +471,7 @@ proc inferWithMetatype(c: PContext, formal: PType,
       result = copyTree(arg)
       result.typ = formal
 
-proc updateDefaultParams(call: PNode) =
+proc updateDefaultParams(conf: ConfigRef, call: PNode): PNode =
   # In generic procs, the default parameter may be unique for each
   # instantiation (see tlateboundgenericparams).
   # After a call is resolved, we need to re-assign any default value
@@ -437,11 +479,26 @@ proc updateDefaultParams(call: PNode) =
   # the default params with `nfDefaultParam` and `instantiateProcType`
   # computes correctly the default values for each instantiation.
   let calleeParams = call[0].sym.typ.n
+  var hasError = false
   for i in 1..<call.len:
     if nfDefaultParam in call[i].flags:
       let def = calleeParams[i].sym.ast
       if nfDefaultRefsParam in def.flags: call.flags.incl nfDefaultRefsParam
-      call[i] = def
+      call[i] =
+        case def.kind
+        of nkEmpty:
+          # ``instantiateProcType`` uses ``nkEmpty`` to signal an incompatible
+          # default expression
+          hasError = true
+          conf.newError(calleeParams[i],
+                        PAstDiag(kind: adSemIncompatibleDefaultExpr,
+                                 formal: calleeParams[i].sym))
+        else:
+          def
+
+  result =
+    if hasError: conf.wrapError(call)
+    else:        call
 
 proc getCallLineInfo(n: PNode): TLineInfo =
   case n.kind
@@ -498,7 +555,7 @@ proc semResolvedCall(c: PContext, x: TCandidate,
   instGenericConvertersSons(c, result, x)
   result[0] = newSymNode(finalCallee, getCallLineInfo(result[0]))
   result.typ = finalCallee.typ[0]
-  updateDefaultParams(result)
+  result = updateDefaultParams(c.config, result)
 
 proc canDeref(n: PNode): bool {.inline.} =
   result = n.len >= 2 and (let t = n[1].typ;
@@ -554,78 +611,77 @@ proc explicitGenericInstError(c: PContext; n: PNode): PNode =
                                 callLineInfo: getCallLineInfo(n)))
 
 proc explicitGenericSym(c: PContext, n: PNode, s: PSym): PNode =
-  # binding has to stay 'nil' for this to work!
-  var m = newCandidate(c, s, nil)
+  ## Tries to create an instance of the generic routine `s`. If `s` is not a
+  ## generic routine, or the provided arguments `n` don't fit the parameters,
+  ## ``nil`` is returned. Otherwise, a node with the symbol of the instance is
+  ## returned
+  let params = s.ast[genericParamsPos]
+  if params.kind == nkEmpty:
+    # not a generic routine
+    return nil
 
-  for i in 1..<n.len:
-    let formal = s.ast[genericParamsPos][i-1].typ
-    var arg = n[i].typ
-    # try transforming the argument into a static one before feeding it into
-    # typeRel
-    if formal.kind == tyStatic and arg.kind != tyStatic:
-      let evaluated = c.semTryConstExpr(c, n[i])
-      if evaluated != nil:
-        arg = newTypeS(tyStatic, c)
-        arg.sons = @[evaluated.typ]
-        arg.n = evaluated
-    let tm = typeRel(m, formal, arg)
-    if tm in {isNone, isConvertible}: return nil
+  var m = newCallCandidate(c, s)
+  matchesGenericParams(c, n, m)
+  if m.state != csMatch:
+    return nil
+
+  # a match doesn't mean that the routine can be instantiated. We still need
+  # to check for missing arguments
+
+  for i in (n.len-1)..<params.len:
+    if params[i].sym.ast == nil:
+      # a parameter has no binding -> cannot instantiate
+      return nil
+
+  # generate an instance with the bindings as filled in by
+  # ``matchesGenericParams``
   var newInst = generateInstance(c, s, m.bindings, n.info)
-  newInst.typ.flags.excl tfUnresolved
   let info = getCallLineInfo(n)
   markUsed(c, info, s)
-  result = newSymNode(newInst, info)
+  newInst.typ.flags.excl tfUnresolved
+  newSymNode(newInst, info)
 
-proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
+proc explicitGenericInstantiation(c: PContext, n: PNode): PNode =
   assert n.kind == nkBracketExpr
-  for i in 1..<n.len:
-    let e = semExpr(c, n[i])
-    if e.isError:
-      n[i] = e
-      result = c.config.wrapError(n)
-      return
-    elif e.typ == nil:
-      n[i].typ = errorType(c)
-    else:
-      n[i].typ = e.typ.skipTypes({tyTypeDesc})
-  var s = s
-  var a = n[0]
+  # analyse the operands first
+  let args = semGenericArgs(c, n)
+  if args.kind == nkError:
+    return args
+
+  let a = n[0]
   case a.kind
   of nkSym:
     # common case; check the only candidate has the right
     # number of generic type parameters:
-    result =
-      if s.ast[genericParamsPos].safeLen != n.len-1:
-        let expected = s.ast[genericParamsPos].safeLen
-        c.config.newError(
-          n,
-          PAstDiag(kind: adSemWrongNumberOfGenericParams,
-                    gnrcCallLineInfo: getCallLineInfo(n),
-                    countMismatch: (
-                      expected: expected,
-                      got: n.len - 1)))
-      else:
-        explicitGenericSym(c, n, s)
-    
+    let s = a.sym
+    result = explicitGenericSym(c, args, s)
     if result.isNil:
-      result = explicitGenericInstError(c, n)
+      # TODO: provide the diagnostic taken from the ``TCandidate`` instead
+      result =
+        if n.len-1 < s.requiredGenericParams:
+          # provide a better diagnostic for argument mismatch
+          c.config.newError(
+            args,
+            PAstDiag(kind: adSemWrongNumberOfGenericParams,
+                      gnrcCallLineInfo: getCallLineInfo(n),
+                      countMismatch: (
+                        expected: s.requiredGenericParams,
+                        got: n.len - 1)))
+        else:
+          explicitGenericInstError(c, args)
   of nkClosedSymChoice, nkOpenSymChoice:
-    # choose the generic proc with the proper number of type parameters.
-    # XXX I think this could be improved by reusing sigmatch.paramTypesMatch.
-    # It's good enough for now.
+    # collect all matching generic routines into a symbol choice
     result = newNodeI(a.kind, getCallLineInfo(n))
+    result.typ = newTypeS(tyNone, c)
+
     for i in 0..<a.len:
-      var candidate = a[i].sym
-      
+      let candidate = a[i].sym
       if candidate.kind in {skProc, skMethod, skConverter,
                             skFunc, skIterator}:
-        # it suffices that the candidate has the proper number of generic
-        # type parameters:
-        if candidate.ast[genericParamsPos].safeLen == n.len-1:
-          let x = explicitGenericSym(c, n, candidate)
-          if x != nil:
-            result.add(x)
-    
+        let x = explicitGenericSym(c, args, candidate)
+        if x != nil:
+          result.add(x)
+
     # get rid of nkClosedSymChoice if not ambiguous:
     if result.len == 1 and a.kind == nkClosedSymChoice:
       result = result[0]

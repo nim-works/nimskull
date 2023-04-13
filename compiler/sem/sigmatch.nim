@@ -145,8 +145,8 @@ proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PType) =
   c.error = SemCallMismatch()
   initIdTable(c.bindings)
 
-proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
-                    binding: PNode, calleeScope = -1) =
+proc initCallCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
+                        calleeScope = -1) =
   initCandidate(ctx, c, callee.typ)
   c.calleeSym = callee
   if callee.kind in skProcKinds and calleeScope == -1:
@@ -162,22 +162,10 @@ proc initCandidate*(ctx: PContext, c: var TCandidate, callee: PSym,
   else:
     c.calleeScope = calleeScope
   c.magic = c.calleeSym.magic
-  if binding != nil and callee.kind in routineKinds:
-    var typeParams = callee.ast[genericParamsPos]
-    for i in 1..min(typeParams.safeLen, binding.safeLen-1):
-      var formalTypeParam = typeParams[i-1].typ
-      var bound = binding[i].typ
-      if bound != nil:
-        if formalTypeParam.kind == tyTypeDesc:
-          if bound.kind != tyTypeDesc:
-            bound = makeTypeDesc(ctx, bound)
-        else:
-          bound = bound.skipTypes({tyTypeDesc})
-        put(c, formalTypeParam, bound)
 
-proc newCandidate*(ctx: PContext, callee: PSym,
-                   binding: PNode, calleeScope = -1): TCandidate =
-  initCandidate(ctx, result, callee, binding, calleeScope)
+proc newCallCandidate*(ctx: PContext, callee: PSym,
+                       calleeScope = -1): TCandidate =
+  initCallCandidate(ctx, result, callee, calleeScope)
 
 proc newCandidate*(ctx: PContext, callee: PType): TCandidate =
   initCandidate(ctx, result, callee)
@@ -2550,6 +2538,79 @@ proc findFirstArgBlock(m: var TCandidate, n: PNode): int =
     else:
       break
 
+proc matchesGenericParams*(c: PContext, args: PNode, m: var TCandidate) =
+  ## Matches the provided generic arguments `args` (stored as a
+  ## ``nkBracketExpr``) against the candidate's generic parameters. Updates
+  ## `m` with whether or not there was a match.
+  ##
+  ## The arguments must strictly match the parameters -- them not being exactly
+  ## equal means no match.
+  ##
+  ## XXX: this strictness might be subject to change
+  assert args.kind == nkBracketExpr
+  assert m.calleeSym.isGenericRoutineStrict
+
+  m.state = csNoMatch
+  let params = m.calleeSym.ast[genericParamsPos]
+
+  # quick check: are more arguments provided than there are parameters?
+  if args.len - 1 > params.len:
+    m.error.firstMismatch.kind = kExtraArg
+    return
+
+  proc matchesSingle(c: PContext, formal: PType, a: PNode, m: var TCandidate): bool =
+    # prepare the arguments type for being passed to ``typeRel``
+    let passed =
+      case formal.kind
+      of tyTypeDesc:
+        if a.typ.kind == tyTypeDesc: a.typ
+        else:                        nil
+      of tyStatic:
+        if a.typ.kind == tyStatic:
+          assert a.typ.n != nil, "unresolved static"
+          a.typ
+        else:
+          nil
+      else:
+        # ``typeRel`` wants the underlying type and not the typedesc
+        a.typ.skipTypes({tyTypeDesc})
+
+    result =
+      if passed != nil:
+        typeRel(m, formal, passed) in {isEqual, isGeneric}
+      else:
+        false
+
+  # match all the provided arguments:
+  for i in 1..<args.len:
+    if not matchesSingle(c, params[i-1].typ, args[i], m):
+      # no match; bail out
+      m.error.firstMismatch.kind = kGenericTypeMismatch
+      m.error.firstMismatch.pos = i-1
+      m.error.firstMismatch.formal = params[i-1].sym
+      m.error.firstMismatch.arg = args[i]
+      return
+
+  # match the defaults for all parameters with explicit arguments
+  for i in (args.len-1)..<params.len:
+    if params[i].sym.ast != nil: # has default?
+      # matching the default value against the formal type is required, as
+      # the type parameter might have a generic constraint. For example:
+      # ``proc[A; B: static[A] = 1]()``
+      if not matchesSingle(c, params[i].typ, params[i].sym.ast, m):
+        m.error.firstMismatch.kind = kGenericTypeMismatch
+        m.error.firstMismatch.pos = i
+        m.error.firstMismatch.formal = params[i].sym
+        m.error.firstMismatch.arg = params[i].sym.ast
+        return
+    else:
+      # this does not mean no match. The remaining parameters might still be
+      # inferrable from normal routine arguments
+      break
+
+  # there might still be implicit parameters, but inferring them (or not) is
+  # the responsibility of the callsite
+  m.state = csMatch
 
 proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
   ## used to match a call `n` with a candidate `m`, noting matched formal
@@ -2597,6 +2658,23 @@ proc matchesAux(c: PContext, n: PNode, m: var TCandidate, marker: var IntSet) =
   m.error.firstMismatch = MismatchInfo()
   m.call = newNodeIT(n.kind, n.info, m.callee.base)
   m.call.add n[0]
+
+  if n[0].kind == nkBracketExpr and n[0].typ == nil:
+    # the ``nkBracketExpr`` doesn't necessarily imply explicit generic
+    # arguments, call expressions where the callee is an array access also
+    # end up here, hence the ``typ == nil`` check
+    if m.calleeSym.isGenericRoutineStrict:
+      matchesGenericParams(c, n[0], m)
+    else:
+      # the call has explicit generic arguments, but the callee is not
+      # generic -> no match is possible
+      m.state = csNoMatch
+      m.error.firstMismatch.kind = kNotGeneric
+
+    if m.state == csNoMatch:
+      # don't use ``noMatch``. The error is already set and there also
+      # doesn't exist a shadow scope yet
+      return
 
   let firstArgBlock = findFirstArgBlock(m, n)
 
@@ -2982,6 +3060,9 @@ proc matches*(c: PContext, n: PNode, m: var TCandidate) =
           of nkNilLit:
             implicitConv(nkHiddenStdConv, formal.typ, copyTree(formal.ast), m, c)
           else:
+            # don't attempt to match the default value with the formal type
+            # here. For generic routines, incompatible default expression are
+            # detected after instantiation
             copyTree(formal.ast)
 
         if defaultValue.isError:
@@ -3000,7 +3081,24 @@ proc matches*(c: PContext, n: PNode, m: var TCandidate) =
         
         defaultValue.flags.incl nfDefaultParam
         setSon(m.call, formal.position + 1, defaultValue)
-  
+
+  if m.calleeSym != nil and m.calleeSym.isGenericRoutineStrict:
+    # check that every formal generic parameter got a value or type. Note that
+    # this has to happen *after* default values for formal paramters were
+    # processed, as the default parameter handling can still insert missing
+    # bindings
+    let params = m.calleeSym.ast[genericParamsPos]
+    for f in 0..<params.len:
+      let id = idTableGet(m.bindings, params[f].typ)
+      if id.isNil and tfRetType notin params[f].typ.flags:
+        # a generic parameter has no type bound -> no match. Note that a
+        # generic parameter used for the return type can still be bound past
+        # sigmatch.
+        m.state = csNoMatch
+        m.error.firstMismatch.kind = kMissingParam
+        m.error.firstMismatch.formal = params[f].sym
+        break
+
   # forget all inferred types if the overload matching failed
   if m.state == csNoMatch:
     for t in m.inferredTypes:

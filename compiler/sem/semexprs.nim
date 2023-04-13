@@ -88,9 +88,6 @@ proc semExprNoDeref(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   if result.typ == nil:
     result = c.config.newError(n, PAstDiag(kind: adSemExpressionHasNoType))
 
-proc semSymGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
-  result = symChoice(c, n, s, scClosed)
-
 proc inlineConst(c: PContext, n: PNode, s: PSym): PNode {.inline.} =
   if s.ast.isNil:
     result = c.config.newError(n, PAstDiag(kind: adSemConstantOfTypeHasNoValue,
@@ -1219,10 +1216,6 @@ proc resolveIndirectCall(c: PContext; n: PNode;
   initCandidate(c, result, t)
   matches(c, n, result)
 
-proc setGenericParams(c: PContext, n: PNode) =
-  for i in 1..<n.len:
-    n[i].typ = semTypeNode(c, n[i], nil)
-
 proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
   if n.kind == nkError:
     return n
@@ -1250,6 +1243,8 @@ proc afterCallActions(c: PContext; n: PNode, flags: TExprFlags): PNode =
   if c.matchedConcept == nil:
     result = evalAtCompileTime(c, result)
 
+proc semArrayAccess(c: PContext, n: PNode, flags: TExprFlags): PNode
+
 proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ## analyses `n` as an "indirect operation", meaning any of:
   ## 1. calling a function pointer stored in a runtime field, this is then used
@@ -1259,6 +1254,13 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ##    then treating them as a direct operation
   ## 4. recovering from optimistic ident to symbol resolution binding to the
   ##    wrong param and retrying with overload resolution
+  ## 5. calling a generic routine with initial bindings, e.g.:
+  ##    ``routine[int]()``
+  ## 6. a direct call where the callee node failed qualified lookup (e.g.:
+  ##    because the node itself is erroneous, the identifier is undeclared,
+  ##    etc.)
+  ## 7. calling a static (as in static dispatch) routine where the callee is
+  ##    parenthesized
   ## warning: the above list is likely incomplete
   addInNimDebugUtils(c.config, "semIndirectOp", n, result, flags)
   result = nil
@@ -1294,22 +1296,44 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
       return wrapError(c.config, result)
     else:
       n[0] = n0
+  of nkBracketExpr:
+    # this might be a call of a generic routine with explicit generic
+    # arguments
+    let n0 = n[0][0]
+    let isGenericCall =
+      case n0.kind
+      of nkIdent, nkAccQuoted, nkDotExpr:
+        # we just want to know whether the this could be the symbol of a
+        # routine here, hence no ``checkUndeclared``
+        let s = qualifiedLookUp(c, n0, {})
+        # XXX: we need to ignore/skip ``skEnumField``s here...
+        # ignore errors and undeclared identifiers; handling them is the
+        # responsibility of the following ``semExpr`` call
+        s != nil and s.kind in routineKinds
+      of nkSym:
+        # the node seems to have been analysed already
+        n0.sym.kind in routineKinds
+      of nkSymChoices:
+        # the node seems to have been analysed already
+        n0[0].sym.kind in routineKinds
+      else:
+        false
+
+    if isGenericCall:
+      return semDirectOp(c, n, flags)
+    else:
+      # it must be some subscript-like operation
+      n[0] = semExpr(c, n[0], {efInCall})
   else:
-    # the callee position is an ident/accQuoted, bracketExpr, symChoice, or a
-    # more complex expression
+    # the callee position is an ident/accQuoted or a more complex expression
     n[0] = semExpr(c, n[0], {efInCall})
     if n[0] != nil and n[0].isErrorLike:
       result = wrapError(c.config, n)
       return
-    let t = n[0].typ
-    if t != nil and t.kind in {tyVar, tyLent}:
-      n[0] = newDeref(n[0])
-    elif n[0].kind == nkBracketExpr: # `someMacroOrTemplate[bar]()`
-      if n[0].len >= 1:
-        if n[0][0].kind == nkSym:
-          if n[0][0].sym.kind in {skMacro, skTemplate}:
-            setGenericParams(c, n[0])
-            return semDirectOp(c, n, flags)
+
+  if n[0].typ != nil and n[0].typ.kind in {tyVar, tyLent}:
+    # the callee is a view; dereference it first
+    n[0] = newDeref(n[0])
 
   # Code beyond this point handles:
   # - callable field (dotExpr) or symbol
@@ -1324,6 +1348,11 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags): PNode =
       return
 
     case t.kind
+    of tyNone:
+      # the callee is symbol choice -- switch to direct op processing. A symbol
+      # choice reaching here means that the callee expression was wrapped in an
+      # ``nkPar``
+      return semDirectOp(c, n, flags)
     of tyProc:
       # This is a proc variable, apply normal overload resolution
       let m = resolveIndirectCall(c, n, t)
@@ -1936,30 +1965,6 @@ proc semDeref(c: PContext, n: PNode): PNode =
 
   #GlobalError(n[0].info, errCircumNeedsPointer)
 
-proc maybeInstantiateGeneric(c: PContext, n: PNode, s: PSym): PNode =
-  ## Instantiates generic if not lacking implicit generics,
-  ## otherwise returns n.
-  let
-    neededGenParams = s.ast[genericParamsPos].safeLen # might be an nkEmpty
-    heldGenParams = n.len - 1
-  var implicitParams = 0
-  for x in s.ast[genericParamsPos]:
-    if tfImplicitTypeParam in x.typ.flags:
-      inc implicitParams
-  if heldGenParams != neededGenParams and 
-     implicitParams + heldGenParams == neededGenParams:
-    # This is an implicit + explicit generic procedure without all args passed,
-    # kicking back the sem'd symbol fixes #17212
-    # Uncertain the hackiness of this solution.
-    result = n
-  else:
-    result = explicitGenericInstantiation(c, n, s)
-    if result.isError:
-      discard
-    elif result == n:
-      n[0] = copyTree(result[0])
-    else:
-      n[0] = result
 
 proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
   ## returns nil if not a built-in subscript operator; also called for the
@@ -2043,18 +2048,14 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
             elif n[0].kind in nkSymChoices: n[0][0].sym
             else: nil
     if s != nil:
+      # XXX: how overloadable symbols are handled here is problematic, as what
+      #      an expression like ``x[int]`` does depends on what kind of
+      #      symbol comes first in the symbol choice
       case s.kind
       of skProc, skFunc, skMethod, skConverter, skIterator:
-        # type parameters: partial generic specialization
-        n[0] = semSymGenericInstantiation(c, n[0], s)
-        result = maybeInstantiateGeneric(c, n, s)
+        # this is an explicit generic instantiation, like ``prc[int, float]``
+        result = explicitGenericInstantiation(c, n)
       of skMacro, skTemplate:
-        if efInCall in flags:
-          # We are processing macroOrTmpl[] in macroOrTmpl[](...) call.
-          # Return as is, so it can be transformed into complete macro or
-          # template call in semIndirectOp caller.
-          result = n
-        else:
           # We are processing macroOrTmpl[] not in call. Transform it to the
           # macro or template call with generic arguments here.
           n.transitionSonsKind(nkCall)
@@ -3397,10 +3398,17 @@ proc shouldBeBracketExpr(n: PNode): bool =
     if b.kind in nkSymChoices:
       for i in 0..<b.len:
         if b[i].kind == nkSym and b[i].sym.magic == mArrGet:
-          let be = newNodeI(nkBracketExpr, n.info)
-          for i in 1..<a.len: be.add(a[i])
-          n[0] = be
-          return true
+          result = true
+          break
+    elif b.kind == nkSym and b.sym.magic == mArrGet:
+      # can happen in rare cases
+      result = true
+
+    if result:
+      let be = newNodeI(nkBracketExpr, n.info)
+      for i in 1..<a.len:
+        be.add(a[i])
+      n[0] = be
 
 proc asBracketExpr(c: PContext; n: PNode): PNode =
   proc isGeneric(c: PContext; n: PNode): bool =
@@ -3684,7 +3692,6 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
 
       # indirectOp can deal with explicit instantiations; this fixes
       # the 'newSeq[T](x)' bug
-      setGenericParams(c, n[0])
       result = semDirectOp(c, n, flags)
     elif nfDotField in n.flags:
       result = semDirectOp(c, n, flags)
@@ -3699,6 +3706,8 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
                 PAstDiag(kind: adSemExpectedIdentifierInExpr,
                          notIdent: n[0]))
     else:
+      # calls with explicit generic arguments are also handled by
+      # ``semIndirectOp``
       result = semIndirectOp(c, n, flags)
 
     if nfDefaultRefsParam in result.flags:

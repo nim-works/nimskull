@@ -5,9 +5,9 @@ description: '''
 
 nimout: '''
 t04_warning.nim(17, 10) Warning: User-provided warning message [User]
-t04_warning.nim(22, 5) template/generic instantiation of `gen1` from here
+t04_warning.nim(22, 10) template/generic instantiation of `gen1` from here
 t04_warning.nim(20, 12) Warning: gen1 name of the argument is int [User]
-t04_warning.nim(23, 5) template/generic instantiation of `gen1` from here
+t04_warning.nim(23, 12) template/generic instantiation of `gen1` from here
 t04_warning.nim(20, 12) Warning: gen1 name of the argument is float [User]
 '''
 

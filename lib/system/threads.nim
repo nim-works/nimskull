@@ -303,7 +303,7 @@ else:
       setAffinity(t.sys, csize_t(sizeof(s)), s)
 
 proc createThread*(t: var Thread[void], tp: proc () {.thread, nimcall.}) =
-  createThread[void](t, tp)
+  (createThread[void])(t, tp)
 
 when not defined(gcOrc):
   include threadids

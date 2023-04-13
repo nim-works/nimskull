@@ -18,7 +18,7 @@ proc foo() {.thread.} =
 
 proc main =
   var t: Thread[void]
-  createThread[void](t, foo)
+  (createThread[void])(t, foo)
   t.joinThread()
 
 main()

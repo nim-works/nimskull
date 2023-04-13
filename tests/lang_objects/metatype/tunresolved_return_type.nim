@@ -1,6 +1,6 @@
 discard """
-  errormsg: "cannot instantiate: 'T'"
-  line: 12
+  errormsg: "type mismatch: got <int literal(23)>"
+  line: 20
 """
 
 # bug #2594
