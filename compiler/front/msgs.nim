@@ -282,7 +282,7 @@ proc msgWrite*(conf: ConfigRef; s: string, flags: MsgFlags = {}) =
       write(stdout, sep)
       flushFile(stdout)
   else:
-    if eStdErr in conf.m.errorOutputs:
+    if eStdErr in conf.m.errorOutputs or msgStderr in flags:
       newLineIfRequired(stderr)
       write(stderr, s)
       write(stderr, sep)

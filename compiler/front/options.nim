@@ -162,8 +162,9 @@ type
     stdOrrStderr
 
   MsgFlag* = enum  ## flags altering msgWriteln behavior
-    msgStdout,     ## force writing to stdout, even stderr is default
-    msgNoUnitSep   ## the message is a complete "paragraph".
+    msgStdout      ## force writing to stdout, even stderr is default
+    msgStderr      ## force writing to stderr, unless `msgStdout` is present
+    msgNoUnitSep   ## the message is a complete "paragraph"
   MsgFlags* = set[MsgFlag]
 
   TErrorHandling* = enum
