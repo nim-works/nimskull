@@ -65,6 +65,15 @@ from compiler/ic/ic import rodViewer
 
 from osproc import execCmd
 
+from compiler/front/scriptconfig import ScriptEvt,
+  runNimScript,
+  scriptEvtDbgStart,
+  scriptEvtDbgEnd,
+  scriptEvtRun,
+  scriptEvtRunProcessSwitch,
+  scriptEvtRunProcessSingleNoteWarn,
+  scriptEvtRunProcessSingleNoteHint
+
 # TODO: once `msgs` is free of more of legacy reports junk, create output procs
 #       that take "output channels" for different needs, eg:
 #       - explicit output the user asked for, such as a `dump` command
@@ -84,9 +93,10 @@ from compiler/ast/report_enums import repHintKinds,
   rstWarnings,
   rbackRstRedefinitionOfLabel,
   rsemLockLevelMismatch,
-  rintSuccessX
-
-from compiler/front/scriptconfig import runNimScript
+  rintSuccessX,
+  rdbgStartingConfRead,
+  rdbgFinishedConfRead
+from compiler/ast/reports_debug import DebugReport
 
 when not defined(leanCompiler):
   import
@@ -542,7 +552,8 @@ proc `$`(params: UsedBuildParams): string =
       #[9]# suffix
     ]
 
-proc mainCommand*(graph: ModuleGraph, evtHandler: MainEvtHandler): MainResult =
+# proc mainCommand*(graph: ModuleGraph, evtHandler: MainEvtHandler): MainResult =
+proc mainCommand*(graph: ModuleGraph): MainResult =
   ## Execute main compiler command
   let
     conf = graph.config
@@ -667,12 +678,12 @@ proc mainCommand*(graph: ModuleGraph, evtHandler: MainEvtHandler): MainResult =
     let cmd = "dot -Tpng -o$1 $2" %
                 [project.changeFileExt("png").string,
                 project.changeFileExt("dot").string]
-    evtHandler(MainCmdEvt(srcCodeOrigin: instLoc(),
-                          kind: mainEvtCmdProgress,
-                          progress: MainEvtCmdProgress(
-                                      kind: mainEvtCmdProgressExecStart,
-                                      execCmd: cmd)))
-    # conf.logExecStart(cmd)
+    # evtHandler(MainCmdEvt(srcCodeOrigin: instLoc(),
+    #                       kind: mainEvtCmdProgress,
+    #                       progress: MainEvtCmdProgress(
+    #                                   kind: mainEvtCmdProgressExecStart,
+    #                                   execCmd: cmd)))
+    conf.logExecStart(cmd)
     let code = execCmd(cmd)
     if code != 0:
       result = MainResult(cmd: cmdGendepend,
@@ -777,11 +788,35 @@ proc mainCommand*(graph: ModuleGraph, evtHandler: MainEvtHandler): MainResult =
     #msgWriteln(conf, "Beware: Indentation tokens depend on the parser's state!")
   of cmdInteractive: commandInteractive(graph)
   of cmdNimscript:
-    let s =
-      case conf.inputMode
-      of pimStdin: llStreamOpenStdIn()
-      of pimCmd:   llStreamOpen(conf.commandArgs[0])
-      of pimFile:  llStreamOpen(conf.projectFull, fmRead)
+    let
+      s =
+        case conf.inputMode
+        of pimStdin: llStreamOpenStdIn()
+        of pimCmd:   llStreamOpen(conf.commandArgs[0])
+        of pimFile:  llStreamOpen(conf.projectFull, fmRead)
+      name =
+        case conf.inputMode
+        of pimStdin: "stdin"
+        of pimCmd:   conf.commandArgs[0]
+        of pimFile:  conf.projectFull.string
+    proc r(evt: ScriptEvt) =
+      case evt.kind
+      of scriptEvtDbgStart:
+        conf.localReport DebugReport(
+          kind: rdbgStartingConfRead,
+          filename: name)
+      of scriptEvtDbgEnd:
+        conf.localReport DebugReport(
+          kind: rdbgFinishedConfRead,
+          filename: name)
+      of scriptEvtRun:
+        let runData = evt.scriptEvtRunData
+        case runData.kind
+        of scriptEvtRunProcessSwitch:
+          conf.legacyReportProcSwitch(runData.switchResult, runData.info)
+        of scriptEvtRunProcessSingleNoteWarn,
+            scriptEvtRunProcessSingleNoteHint:
+          conf.legacyReportProcNote(runData.noteResult, runData.info)
 
     if s.isNil:
       assert conf.inputMode == pimFile, "can't get nil with other input modes"
@@ -790,7 +825,7 @@ proc mainCommand*(graph: ModuleGraph, evtHandler: MainEvtHandler): MainResult =
     # XXX: the ``runNimScript`` from ``scriptconfig`` is used, but the script
     #      is not meant for configuration. While this has no practical
     #      consequences right now, it's still a domain violation
-    runNimScript(cache, conf.projectFull, freshDefines = false, conf, s)
+    runNimScript(cache, conf.projectFull, freshDefines = false, conf, s, r)
   of cmdNop: discard
   of cmdJsonscript:
     setOutFile(graph.config)

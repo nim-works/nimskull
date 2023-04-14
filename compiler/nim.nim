@@ -92,7 +92,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
     of mainEvtUserProf: echo "kind: ", evt.kind, " subkind: ", evt.userProf.kind
     of mainEvtInternalDbg: echo "kind: ", evt.kind, " subkind: ", evt.internalDbg.kind
 
-  let res = mainCommand(graph, mainCmdEvtHandler)
+  let res = mainCommand(graph)
   case res.kind
   of mainResultSuccess: discard
   of mainResultFailRunNeedsTcc:

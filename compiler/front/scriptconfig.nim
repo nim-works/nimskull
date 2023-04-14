@@ -7,8 +7,23 @@
 #    distribution, for details about the copyright.
 #
 
-## Implements the new configuration system for Nim. Uses Nim as a scripting
-## language.
+## This module implements using Nim as a scripting language, and then allows
+## using it in two distinct contexts, one is for configuration and the other is
+## for standalone scripting.
+##
+## The usage for configuration is a bad idea, this will be auto-run in various
+## circumstances presenting an unimaginably large attack surface for any
+## package manager that's attempting to determine package configuration impact.
+## It's not just package managers, it's any tooling. It's a terrible idea.
+## 
+## Future direction for configuration:
+## - near-term: remove nimscript for configuration; stick with `cfg`
+## - near/middle-term: fix/improve existing configuration system
+## - long-term: secure multi-stage config/build implemented entirely differently
+## 
+## Future direction for scripting: likely to stay somewhat similar to what we
+## have today, but it will undoubtedly evolve given the parallel VM bytecode
+## effort.
 
 import
   std/[
@@ -66,136 +81,41 @@ from std/strutils import cmpIgnoreStyle, contains
 
 import std/options as std_options
 
-proc listDirs(a: VmArgs, filter: set[PathComponent]) =
-  let dir = getString(a, 0)
-  var result: seq[string] = @[]
-  for kind, path in walkDir(dir):
-    if kind in filter: result.add path
+type
+  ScriptEvtKind* = enum
+    ## script event kinds when handling the file, if 'Run' is in the name then
+    ## they're while the script is being executed
+    scriptEvtDbgStart
+    scriptEvtDbgEnd
+    # TODO: before merge rewrite this to emit individual events, that are categorized
+    scriptEvtRun
 
-  writeTo(result, a.getResultHandle(), a.mem[])
+  ScriptEvtRunKind* = enum
+    ## script event kinds issues during script evaluation
+    scriptEvtRunProcessSwitch
+    scriptEvtRunProcessSingleNoteWarn
+    scriptEvtRunProcessSingleNoteHint
 
-proc legacyReportBridge(r: ProcessNoteResult): Option[ExternalReport] =
-  case r.kind
-  of procNoteInvalidOption:
-    some ExternalReport(
-      kind: rextCfgInvalidOption,
-      cmdlineProvided: r.switch)
-  of procNoteInvalidHint:
-    some ExternalReport(
-      kind: rextInvalidHint,
-      cmdlineProvided: r.invalidHintOrWarning)
-  of procNoteInvalidWarning:
-    some ExternalReport(
-      kind: rextInvalidWarning,
-      cmdlineProvided: r.invalidHintOrWarning)
-  of procNoteExpectedOnOrOff:
-    some ExternalReport(kind: rextExpectedOnOrOff,
-                    cmdlineSwitch: r.switch,
-                    cmdlineProvided: r.argVal)
-  of procNoteOnlyAllOffSupported:
-    some ExternalReport(kind: rextOnlyAllOffSupported,
-                    cmdlineSwitch: r.switch,
-                    cmdlineProvided: r.argVal)
-  of procNoteSuccess:
-    none[ExternalReport]()
+  ScriptEvt* = object
+    srcCodeOrigin*: InstantiationInfo
+    case kind*: ScriptEvtKind:
+      of scriptEvtDbgStart, scriptEvtDbgEnd: discard
+      of scriptEvtRun: scriptEvtRunData*: ScriptEvtRun
 
-proc processSingleNote(arg: string, state: TSpecialWord, info: TLineInfo,
-                       orig: string; conf: ConfigRef) =
-  ## processes a hint/warn/error config switch, then bridges into legacy
-  ## reports to keep the rest of the codebase isolated from them.
-  let
-    r = processSpecificNote(arg, state, passPP, orig, conf)
-    legacy = legacyReportBridge(r)
-  if legacy.isSome:
-    conf.localReport(info, legacy.unsafeGet())
+  ScriptEvtRun* = object
+    info*: TLineInfo
+    case kind*: ScriptEvtRunKind:
+      of scriptEvtRunProcessSwitch:
+        switchResult*: ProcSwitchResult
+      of scriptEvtRunProcessSingleNoteWarn,
+          scriptEvtRunProcessSingleNoteHint:
+        noteResult*: ProcessNoteResult
 
-proc processSingleSwitch*(switch, arg: string; info: TLineInfo, conf: ConfigRef) =
-  ## processes a config switch, then bridges into legacy reports to keep the
-  ## rest of the codebase isolated from them.
-  let r = processSwitch(switch, arg, passPP, conf)
-  if r.deprecatedNoopSwitchArg:
-    conf.localReport(info):
-      ExternalReport(kind: rextCfgArgDeprecatedNoop,
-                     cmdlineSwitch: r.givenSwitch,
-                     cmdlineProvided: r.givenArg)
-  case r.kind
-  of procSwitchSuccess: discard
-  of procSwitchErrInvalid:
-    conf.localReport(info):
-      ExternalReport(kind: rextCfgInvalidOption,
-                     cmdlineSwitch: r.givenSwitch)
-  of procSwitchErrArgExpected:
-    conf.localReport(info, ExternalReport(kind: rextCfgExpectedArgument,
-                                          cmdlineSwitch: r.givenSwitch))
-  of procSwitchErrArgForbidden:
-    conf.localReport(info, ExternalReport(kind: rextCfgExpectedNoArgument,
-                                          cmdlineSwitch: r.givenSwitch,
-                                          cmdlineProvided: r.givenArg))
-  of procSwitchErrArgMalformedKeyValPair:
-    conf.localReport(info, ExternalReport(kind: rextCfgArgMalformedKeyValPair,
-                                          cmdlineSwitch: r.givenSwitch,
-                                          cmdlineProvided: r.givenArg))
-  of procSwitchErrArgExpectedOnOrOff:
-    conf.localReport(info, ExternalReport(kind: rextExpectedOnOrOff,
-                                          cmdlineSwitch: r.givenSwitch,
-                                          cmdlineProvided: r.givenArg))
-  of procSwitchErrArgExpectedOnOffOrList:
-    conf.localReport(info, ExternalReport(kind: rextCfgExpectedOnOffOrList,
-                                          cmdlineSwitch: r.givenSwitch,
-                                          cmdlineProvided: r.givenArg))
-  of procSwitchErrArgExpectedAllOrOff:
-    conf.localReport(info, ExternalReport(kind: rextOnlyAllOffSupported,
-                                          cmdlineSwitch: r.givenSwitch,
-                                          cmdlineProvided: r.givenArg))
-  of procSwitchErrArgExpectedFromList:
-    conf.localReport(info):
-      ExternalReport(kind: rextCfgArgExpectedValueFromList,
-                     cmdlineSwitch: r.givenSwitch,
-                     cmdlineAllowed: allowedCompileOptionsArgs(r.switch))
-  of procSwitchErrArgNotInValidList:
-    conf.localReport(info):
-      ExternalReport(kind: rextCfgArgExpectedValueFromList,
-                     cmdlineSwitch: r.givenSwitch,
-                     cmdlineProvided: r.givenArg,
-                     cmdlineAllowed: allowedCompileOptionsArgs(r.switch))
-  of procSwitchErrArgUnknownCCompiler:
-    conf.localReport(info):
-      ExternalReport(kind: rextUnknownCCompiler,
-                     passedCompiler: r.givenArg,
-                     knownCompilers: listCCnames())
-  of procSwitchErrArgUnknownExperimentalFeature:
-    conf.localReport(info):
-      ExternalReport(kind: rextCfgArgUnknownExperimentalFeature,
-                     cmdlineProvided: r.givenArg,
-                     cmdlineAllowed: allowedCompileOptionsArgs(r.switch))
-  of procSwitchErrArgPathInvalid:
-    conf.localReport(info):
-      ExternalReport(kind: rextInvalidPath,
-                     cmdlineSwitch: r.givenSwitch,
-                     cmdlineProvided: r.pathAttempted)
-  of procSwitchErrArgNimblePath:
-    for res in r.processedNimblePath.nimblePathResult.pkgs:
-      case res.status
-      of nimblePkgInvalid:    
-        conf.localReport(info):
-          ExternalReport(kind: rextInvalidPackageName, packageName: res.path)
-      else:
-        discard "ignore successes for now"
-  of procSwitchErrArgInvalidHintOrWarning:
-    let legacy = legacyReportBridge(r.processNoteResult)
-    if legacy.isSome:
-      conf.localReport(info, legacy.unsafeGet())
-  case r.switch
-  of cmdSwitchNimblepath:
-    if r.processedNimblePath.didProcess:
-      for np in r.processedNimblePath.nimblePathResult.addedPaths:
-        conf.localReport(info):
-          ExternalReport(kind: rextPath, packagePath: np.string)
-  else:
-    discard
+  ScriptEvtReceiver* = proc (evt: ScriptEvt): void
 
 proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
-              graph: ModuleGraph; idgen: IdGenerator): PEvalContext =
+              graph: ModuleGraph; idgen: IdGenerator,
+              receiver: ScriptEvtReceiver): PEvalContext =
   result = newCtx(module, cache, graph, idgen, legacyReportsVmTracer)
   # for backwards compatibility, allow meta expressions in nimscript (this
   # matches the previous behaviour)
@@ -230,6 +150,13 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
     conf.commandLineSrcIdx = module.info.fileIndex
     body
     conf.commandLineSrcIdx = oldIdx
+
+  proc listDirs(a: VmArgs, filter: set[PathComponent]) =
+    let dir = getString(a, 0)
+    var result: seq[string] = @[]
+    for kind, path in walkDir(dir):
+      if kind in filter: result.add path
+    writeTo(result, a.getResultHandle(), a.mem[])
 
   # Idea: Treat link to file as a file, but ignore link to directory to prevent
   # endless recursions out of the box.
@@ -334,14 +261,42 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
     setResult(a, conf.command)
   cbconf switch:
     wrapInCmdLineSrcIdxSwap:
-      processSingleSwitch(a.getString 0, a.getString 1, module.info, conf)
+      receiver:
+        ScriptEvt(
+          kind: scriptEvtRun,
+          scriptEvtRunData:
+            ScriptEvtRun(
+              kind: scriptEvtRunProcessSwitch,
+              info: module.info,
+              switchResult: processSwitch(a.getString 0, a.getString 1, passPP,
+                                          conf)))
+
+  template procNote(state: range[wWarning..wHint]): ProcessNoteResult =
+    processSpecificNote(a.getString 0, state, passPP, a.getString 1, conf)
+
   cbconf hintImpl:
     wrapInCmdLineSrcIdxSwap:
-      processSingleNote(a.getString 0, wHint, module.info, a.getString 1, conf)
+      receiver:
+        ScriptEvt(
+          kind: scriptEvtRun,
+          scriptEvtRunData:
+            ScriptEvtRun(
+              kind: scriptEvtRunProcessSingleNoteHint,
+              info: module.info,
+              noteResult: procNote(wHint)))
+      # processSingleNote(a.getString 0, wHint, module.info, a.getString 1, conf)
   cbconf warningImpl:
     wrapInCmdLineSrcIdxSwap:
-      processSingleNote(a.getString 0, wWarning, module.info, a.getString 1,
-                        conf)
+      receiver:
+        ScriptEvt(
+          kind: scriptEvtRun,
+          scriptEvtRunData:
+            ScriptEvtRun(
+              kind: scriptEvtRunProcessSingleNoteWarn,
+              info: module.info,
+              noteResult: procNote(wWarning)))
+      # processSingleNote(a.getString 0, wWarning, module.info, a.getString 1,
+      #                   conf)
   cbconf patchFile:
     let key = a.getString(0) & "_" & a.getString(1)
     var val = a.getString(2).addFileExt(NimExt)
@@ -368,12 +323,14 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
       setResult(a, stdin.readAll())
 
 proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
-                   freshDefines=true; conf: ConfigRef, stream: PLLStream) =
+                   freshDefines=true; conf: ConfigRef, stream: PLLStream,
+                   receiver: ScriptEvtReceiver) =
 
-  conf.localReport DebugReport(
-    kind: rdbgStartingConfRead,
-    filename: scriptName.string
-  )
+  receiver(ScriptEvt(kind: scriptEvtDbgStart, srcCodeOrigin: instLoc()))
+  # conf.localReport DebugReport(
+  #   kind: rdbgStartingConfRead,
+  #   filename: scriptName.string
+  # )
 
   let oldSymbolFiles = conf.symbolFiles
   conf.symbolFiles = disabledSf
@@ -398,7 +355,7 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
 
   var m = graph.makeModule(scriptName)
   incl(m.flags, sfMainModule)
-  var vm = setupVM(m, cache, scriptName.string, graph, graph.idgen)
+  var vm = setupVM(m, cache, scriptName.string, graph, graph.idgen, receiver)
   let disallowDanger =
     defined(nimsuggest) or graph.config.cmd == cmdCheck or
     vmopsDanger notin graph.config.features
@@ -416,7 +373,7 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
   graph.vm = vm
 
   graph.compileSystemModule()
-  discard graph.processModule(m, vm.idgen, stream)
+  discard graph.processModule(m, vm.idgen, stream) # xxx: sigh... discard?
 
   # watch out, "newruntime" can be set within NimScript itself and then we need
   # to remember this:
@@ -437,7 +394,8 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
   undefSymbol(conf, "nimconfig")
   conf.symbolFiles = oldSymbolFiles
 
-  conf.localReport DebugReport(
-    kind: rdbgFinishedConfRead,
-    filename: scriptName.string
-  )
+  receiver(ScriptEvt(kind: scriptEvtDbgEnd, srcCodeOrigin: instLoc()))
+  # conf.localReport DebugReport(
+  #   kind: rdbgFinishedConfRead,
+  #   filename: scriptName.string
+  # )

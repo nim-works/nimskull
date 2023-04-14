@@ -47,8 +47,9 @@ type
     wNoSideEffect = "noSideEffect", wGcSafe = "gcsafe", wNoreturn = "noreturn",
     wNosinks = "nosinks", wMerge = "merge", wLib = "lib", wDynlib = "dynlib",
     wCompilerProc = "compilerproc", wCore = "core", wProcVar = "procvar",
-    wBase = "base", wUsed = "used", wFatal = "fatal", wError = "error", wWarning = "warning",
-    wHint = "hint",
+    wBase = "base", wUsed = "used",
+    # keep fatal, error, warning, and hint in consecutive order
+    wFatal = "fatal", wError = "error", wWarning = "warning", wHint = "hint", 
     wWarningAsError = "warningAsError",
     wHintAsError = "hintAsError",
     wLine = "line", wPush = "push",

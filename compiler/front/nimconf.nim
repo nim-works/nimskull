@@ -7,7 +7,19 @@
 #    distribution, for details about the copyright.
 #
 
-# This module handles the reading of the config file.
+## This module handles the reading of the config file.
+## 
+## Future Direction:
+## Rewrite this module to work in a more continuation/iterator style where,
+## upon an error return data and control immediately to the caller which can
+## then decide to act upon it, and if desired resume execution. This will
+## likely require setting up a context upon calling loadConfig. Then running
+## until an error is encountered or completion. If an error is encountered, the
+## routine where the error was encountered must leave the context in a
+## resumable state, which means no closing the lexer, etc and returning to the
+## caller a description of what happened. The caller can then do something, and
+## if it chooses to, resume execution by calling something like
+## `continueLoadingConfig`.
 
 import
   std/[
@@ -17,6 +29,7 @@ import
   ],
   compiler/front/[
     options,
+    optionprocessor,
     scriptconfig
   ],
   compiler/ast/[
@@ -31,12 +44,17 @@ import
   ]
 
 type
-  ConfigEventKind* = enum
+  ConfigFileEventKind* = enum
     ## events/errors arising from parsing and processing a compiler config file
+    # TODO: this is modelled too closely after legacy reports
 
     # fatal errors begin
     cekInternalError
     # fatal errors end
+
+    # unclassified event begin
+    cekFlagAssignment
+    # unclassified event end
 
     # users errors begin
 
@@ -75,28 +93,40 @@ type
     # progress end
 
   ConfigFileEvent* = object
-    case kind*: ConfigEventKind:
+    case kind*: ConfigFileEventKind:
       of cekParseExpectedX, cekParseExpectedCloseX, cekParseExpectedIdent,
          cekInvalidDirective, cekWriteConfig, cekDebugTrace:
         location*: TLineInfo         ## diagnostic location
       of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag,
          cekLexerHintDiag:
         lexerDiag*: LexerDiag
+      of cekFlagAssignment:
+        flagResult*: ProcSwitchResult
+        flagInfo*: TLineInfo
       of cekDebugReadStart, cekDebugReadStop, cekProgressConfStart:
         discard
     instLoc*: InstantiationInfo ## instantiation in lexer's source
     msg*: string
-  
+
+  CfgScriptEvt* = object
+    scriptEvt*: ScriptEvt
+    scriptPath*: AbsoluteFile
+
   NimConfEvtHandler* = proc(config: ConfigRef,
                             evt: ConfigFileEvent,
-                            reportFrom: InstantiationInfo,
-                            eh: TErrorHandling = doNothing): void
+                            reportFrom: InstantiationInfo): void
+
+  ConfScriptEvtReceiver* = proc(evt: CfgScriptEvt)
+
   NimConfParser = object
+    ## Used for both parsing a config file (*.cfg) and processing a script file
+    ## (*.nims)
+    # xxx: rename to match dual purpose
     lexer: Lexer
     condStack: seq[bool]
     config: ConfigRef
     cfgEvtHandler: NimConfEvtHandler
-
+    scriptEvtReceiver*: ConfScriptEvtReceiver
 
 # ---------------- configuration file parser -----------------------------
 # we use Nim's lexer here to save space and work
@@ -154,8 +184,8 @@ proc ppGetTok(N: var NimConfParser, tok: var Token) =
       let e = ConfigFileEvent(kind: cekInternalError,
                               lexerDiag: tok.error,
                               instLoc: tok.error.instLoc)
-      N.cfgEvtHandler(N.lexer.config, e, instLoc(-1), doAbort)
-    
+      N.cfgEvtHandler(N.lexer.config, e, instLoc(-1))
+
     for d in N.lexer.errorsHintsAndWarnings():
       {.cast(uncheckedAssign).}:
         let e = ConfigFileEvent(kind: (case d.kind
@@ -165,7 +195,7 @@ proc ppGetTok(N: var NimConfParser, tok: var Token) =
                                       ),
                                 lexerDiag: d,
                                 instLoc: d.instLoc)
-      N.cfgEvtHandler(N.lexer.config, e, instLoc(-1), doNothing)
+      N.cfgEvtHandler(N.lexer.config, e, instLoc(-1))
 
 proc parseExpr(N: var NimConfParser, tok: var Token): bool
 proc parseAtom(N: var NimConfParser, tok: var Token): bool =
@@ -346,12 +376,10 @@ proc parseAssignment(N: var NimConfParser, tok: var Token) =
     val.add('[')
     val.add($tok)
     confTok(N, tok)
-
     if tok.tokType == tkBracketRi:
       confTok(N, tok)
     else:
       handleError(N, cekParseExpectedCloseX, "]")
-
     val.add(']')
   let percent = tok.ident != nil and tok.ident.s == "%="
   if tok.tokType in {tkColon, tkEquals} or percent:
@@ -371,11 +399,16 @@ proc parseAssignment(N: var NimConfParser, tok: var Token) =
       checkSymbol(N, tok)
       val.add($tok)
       confTok(N, tok)
-  if percent:
-    let v = strtabs.`%`(val, N.config.configVars, {useEnvironment, useEmpty})
-    processSingleSwitch(s, v, info, N.config)
-  else:
-    processSingleSwitch(s, val, info, N.config)
+  let
+    v =
+      if percent:
+        strtabs.`%`(val, N.config.configVars, {useEnvironment, useEmpty})
+      else:
+        val
+    r = processSwitch(s, v, passPP, N.config)
+    evt = ConfigFileEvent(kind: cekFlagAssignment, flagResult: r,
+                          flagInfo: info)
+  N.cfgEvtHandler(N.config, evt, instLoc())
 
 proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
                     cache: IdentCache): bool =
@@ -413,13 +446,6 @@ proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
 
     return true
 
-proc readConfigFile*(filename: AbsoluteFile, cache: IdentCache,
-                     config: ConfigRef, evtHandler: NimConfEvtHandler
-): bool {.inline.} =
-  # set the event handler so we can report
-  var parser = NimConfParser(config: config, cfgEvtHandler: evtHandler)
-  readConfigFile(parser, filename, cache)
-
 proc getUserConfigPath*(filename: RelativeFile): AbsoluteFile =
   result = getConfigDir().AbsoluteDir / RelativeDir"nim" / filename
 
@@ -443,10 +469,18 @@ proc loadConfigs(
       N.config.configFiles.add(configPath)
 
   proc runNimScriptIfExists(N: var NimConfParser, path: AbsoluteFile) =
+    let receiver = N.scriptEvtReceiver
+    proc evtReciver(evt: ScriptEvt) =
+      # TODO: wrap the events up into unified config events
+      receiver(CfgScriptEvt(scriptEvt: evt, scriptPath: path))
+
     if fileExists(path):
-      var s = llStreamOpen(path, fmRead)
+      # TODO: fix the race condition, the file could be deleted, need to still
+      #       handle the stream being `nil` and producing a cannot open file in
+      #       those cases.
+      let s = llStreamOpen(path, fmRead)
       N.config.configFiles.add(path)
-      runNimScript(cache, path, freshDefines = false, N.config, s)
+      runNimScript(cache, path, freshDefines = false, N.config, s, evtReciver)
 
   if optSkipSystemConfigFile notin N.config.globalOptions:
     N.readConfigFile(getSystemConfigPath(N.config, cfg))
@@ -498,9 +532,11 @@ proc loadConfigs(
 
 proc loadConfigs*(
     cfg: RelativeFile; cache: IdentCache;
-    conf: ConfigRef, evtHandler: NimConfEvtHandler
+    conf: ConfigRef, cfgEvtHandler: NimConfEvtHandler,
+    cfgScriptEvtReceiver: ConfScriptEvtReceiver
   ) {.inline.} =
-  var parser = NimConfParser(config: conf, cfgEvtHandler: evtHandler)
+  var parser = NimConfParser(config: conf, cfgEvtHandler: cfgEvtHandler,
+                             scriptEvtReceiver: cfgScriptEvtReceiver)
   parser.loadConfigs(cfg, cache)
 
   
