@@ -195,3 +195,18 @@ doAssert foo(@[1,2,3]) == "foo: seq[int]"
 doAssert foo(@["WER"]) == "foo: seq[T]"
 doAssert foo(MySeq[int]()) == "foo: MySeq[int]"
 doAssert foo(MySeq[string]()) == "foo: MySeq[T]"
+
+block dont_consider_symbols_from_operands:
+  # overloads introduced by sem-checking the operand(s) must not be
+  # considered during overload resolution of the original call
+  proc test(x: float64): int =
+    result = 1
+
+  template define() {.dirty.} =
+    proc test(x: float32): int =
+      result = 2
+
+  # previously, overload resolution also considered the ``test`` overload
+  # introduced by the template expansion. Since `1` matches ``float32`` and
+  # ``float64`` equally well, this lead to an "ambiguous call" error
+  doAssert test((define(); 1)) == 1

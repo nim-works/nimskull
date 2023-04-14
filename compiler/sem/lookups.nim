@@ -1042,6 +1042,7 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
       o.mode = oimSymChoice
       result = n[0].sym
 
+      o.currentScope = c.currentScope # already remember the start scope
       o.symChoiceIndex = 1
       o.marked = initIntSet()
       incl(o.marked, result.id)
@@ -1054,6 +1055,15 @@ proc initOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
 
   when false:
     if result != nil and result.kind == skStub: loadStub(result)
+
+proc initOverloadIter*(o: var TOverloadIter, c: PContext, scope: PScope,
+                       n: PNode): PSym =
+  ## Similiar to the normal ``initOverloadIter`` procedure, but allows for
+  ## specifying the scope to start in.
+  let prev = c.currentScope
+  c.currentScope = scope
+  result = initOverloadIter(o, c, n)
+  c.currentScope = prev # restore the current scope
 
 proc lastOverloadScope*(o: TOverloadIter): int =
   case o.mode
@@ -1126,7 +1136,7 @@ proc nextOverloadIter*(o: var TOverloadIter, c: PContext, n: PNode): PSym =
     elif n.kind == nkOpenSymChoice:
       # try 'local' symbols too for Koenig's lookup:
       o.mode = oimSymChoiceLocalLookup
-      o.currentScope = c.currentScope
+      # the `currentScope` was already initialized by ``initOverloadIter``
       result = firstIdentExcluding(o.it, o.currentScope.symbols,
                                    n[0].sym.name, o.marked)
       while result == nil:
