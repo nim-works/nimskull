@@ -7,10 +7,16 @@
 #    distribution, for details about the copyright.
 #
 
-## To learn about scripting in Nim see `NimScript<nims.html>`_
+## Legacy `nimscript` module, this conflates build, configuration, and
+## scripting. Future direction:
+## - scripting will have a module dedicated to it
+## - configuration will be a different declarative format
+## - build, which may use a combination of the above, is TBD given the above
+##
+## For scripting aspects some old docs are here `NimScript<nims.html>`_
 
-# Nim's configuration system now uses Nim for scripting. This module provides
-# a few things that are required for this to work.
+# Legacy configuration system uses scripting. This module provides an API while
+# pretending like this is a good idea.
 
 const
   buildOS* {.magic: "BuildOS".}: string = ""
@@ -385,7 +391,7 @@ proc readAllFromStdin*(): string {.raises: [IOError].} =
     result = stdinReadAll()
     checkError(EOFError)
 
-when not defined(nimble):
+when not defined(nimble): # TODO: toss out nimble junk
   template `==?`(a, b: string): bool = cmpIgnoreStyle(a, b) == 0
   template task*(name: untyped; description: string; body: untyped): untyped =
     ## Defines a task. Hidden tasks are supported via an empty description.

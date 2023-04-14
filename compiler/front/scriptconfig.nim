@@ -65,21 +65,12 @@ import
     pathutils
   ]
 
-from compiler/backend/extccomp import listCCnames
-
 from compiler/vm/vmlegacy import legacyReportsVmTracer
-
-# xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_debug import DebugReport
-from compiler/ast/reports_external import ExternalReport
-from compiler/ast/report_enums import ReportKind
 
 from compiler/modules/nimblecmd import NimblePkgAddResult
 
 # we support 'cmpIgnoreStyle' natively for efficiency:
 from std/strutils import cmpIgnoreStyle, contains
-
-import std/options as std_options
 
 type
   ScriptEvtKind* = enum
@@ -153,10 +144,10 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
 
   proc listDirs(a: VmArgs, filter: set[PathComponent]) =
     let dir = getString(a, 0)
-    var result: seq[string] = @[]
+    var res: seq[string] = @[]
     for kind, path in walkDir(dir):
-      if kind in filter: result.add path
-    writeTo(result, a.getResultHandle(), a.mem[])
+      if kind in filter: res.add path
+    writeTo(res, a.getResultHandle(), a.mem[])
 
   # Idea: Treat link to file as a file, but ignore link to directory to prevent
   # endless recursions out of the box.
@@ -325,7 +316,12 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
 proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
                    freshDefines=true; conf: ConfigRef, stream: PLLStream,
                    receiver: ScriptEvtReceiver) =
-
+  ## executes a nimscript for the purposes of configuration (a bad idea), and
+  ## is also used for executing it as standalone. The former is the primary use
+  ## case and parts of this module, as relating to handling configuration
+  ## assume as much. Scripting for config itself should be dropped, but it's
+  ## still used in a few corners in the compiler, once removed this can become
+  ## script focused.
   receiver(ScriptEvt(kind: scriptEvtDbgStart, srcCodeOrigin: instLoc()))
   # conf.localReport DebugReport(
   #   kind: rdbgStartingConfRead,

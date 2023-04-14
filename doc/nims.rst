@@ -5,9 +5,11 @@
 .. default-role:: code
 .. include:: rstcommon.rst
 
-Strictly speaking, `NimScript` is the subset of Nim that can be evaluated
-by Nim's builtin virtual machine (VM). This VM is used for Nim's compiletime
-function evaluation features.
+Strictly speaking, `NimScript` is the subset of |Nimskull| that can be 
+evaluated by |Nimskull|'s builtin virtual machine (VM). This VM is used for
+|Nimskull|'s compiletime function evaluation features.
+
+**Note**: nims for configuration is going to be removed.
 
 The `nim`:cmd: executable processes the ``.nims`` configuration files in
 the following directories (in this order; later files overwrite
@@ -110,6 +112,8 @@ See also:
 
 NimScript as a configuration file
 =================================
+
+**Note**: nims for configuration is going to be removed.
 
 A command-line switch `--FOO`:option: is written as `switch("FOO")` in
 NimScript. Similarly, command-line `--FOO:VAL`:option: translates to
