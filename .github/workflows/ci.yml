@@ -5,6 +5,8 @@ on:
     branches-ignore:
       # Everything would have passed bors before going into devel
       - devel
+      # Merge group event already runs test on this branch
+      - gh-readonly-queue/**
 
   pull_request:
     # Only take PRs to devel
@@ -25,6 +27,11 @@ defaults:
   run:
     shell: bash
 
+# Run only one instance for a given branch and only for the latest commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pre_run:
     name: Provide additional context for the workflow
@@ -38,14 +45,10 @@ jobs:
       - id: run_cond
         uses: fkirc/skip-duplicate-actions@v5.3.0
         with:
-          # Cancel CI on outdated commits
-          cancel_others: true
-          # Don't skip when a duplicated run (ie. from a PR) is done.
+          # Rebuild whenever the commit changes
           #
-          # Only CI in upstream has docs publishing rights.
-          skip_after_successful_duplicate: false
-          # Do not skip on push, dispatched or cron
-          do_not_skip: '["push", "workflow_dispatch", "schedule"]'
+          # Concurrent runs are already handled by concurrency setting above
+          skip_after_successful_duplicate: "false"
 
       - id: skip_result
         name: Whether to skip checks
@@ -506,12 +509,12 @@ jobs:
       - package
       - test_package
       - orc
-    if: always()
+    if: "!cancelled()"
     runs-on: ubuntu-latest
 
     steps:
       - name: Raise failure
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        if: contains(needs.*.result, 'failure')
         run: |
           echo "::error::There are failing required jobs"
           exit 1

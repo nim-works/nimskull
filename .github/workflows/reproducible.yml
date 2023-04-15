@@ -23,7 +23,7 @@ jobs:
     #               varies based on outside environment.
 
     # Only run this task on merge group events
-    if: github.event == 'merge_group'
+    if: github.event_name == 'merge_group'
     strategy:
       fail-fast: false
 
@@ -118,3 +118,11 @@ jobs:
         run: |
           echo "::error::There are failing required jobs"
           exit 1
+
+      - name: Note skipped
+        if: contains(needs.*.result, 'skipped')
+        run: |
+          cat << "EOF" >> $GITHUB_STEP_SUMMARY
+          # Reproducibility test
+          This check was skipped
+          EOF
