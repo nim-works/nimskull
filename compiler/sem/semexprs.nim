@@ -319,6 +319,8 @@ proc semConv(c: PContext, n: PNode): PNode =
   var op = semExprWithType(c, n[1])
   if targetType.kind != tyGenericParam and targetType.isMetaType:
     let final = inferWithMetatype(c, targetType, op, true)
+    # XXX: this makes little sense -- the source and target type of the
+    #      resulting conversion are the same
     result.add final
     result.typ = final.typ
     return handleError(c, result, hasError)

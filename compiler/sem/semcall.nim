@@ -424,6 +424,8 @@ proc indexTypesMatch(c: PContext, f, a: PType, arg: PNode): PNode =
 
 proc inferWithMetatype(c: PContext, formal: PType,
                        arg: PNode, coerceDistincts = false): PNode =
+  addInNimDebugUtils(c.config, "inferWithMetatype", arg, result)
+
   var m = newCandidate(c, formal)
   m.coerceDistincts = coerceDistincts
   
@@ -440,8 +442,30 @@ proc inferWithMetatype(c: PContext, formal: PType,
     # This almost exactly replicates the steps taken by the compiler during
     # param matching. It performs an embarrassing amount of back-and-forth
     # type jugling, but it's the price to pay for consistency and correctness
-    result.typ = generateTypeInstance(c, m.bindings, arg.info,
-                                      formal.skipTypes({tyCompositeTypeClass}))
+    # XXX: overwriting the type of `result` like it's done here is not correct.
+    #      At least for the ``coerceDistincts == true`` case (currently only
+    #      used by ``semConv``), it makes more sense to return both the fitted
+    #      node *and* the inferred formal type, and let the callsite handle it
+    #      from there
+    if formal.kind == tyCompositeTypeClass:
+      # passing the composite type-class to ``generateTypeInstance`` would
+      # get us the matched source type, which is not what we want here
+      # (especially in the presense of ``distinct``s). We want the instantiated
+      # base type.
+      doAssert formal[0].kind == tyGenericBody
+      let inst = formal[1] ## the fully instantiated meta type
+      assert inst.kind == tyGenericInst
+
+      var invocation = newTypeS(tyGenericInvocation, c)
+      invocation.sons = @[formal[0]] # don't propagte the flags
+      # add the instance arguments as the invocation parameters:
+      for i in 1..<inst.len-1:
+        invocation.rawAddSon(inst[i])
+
+      # evaluate the invocation:
+      result.typ = generateTypeInstance(c, m.bindings, arg.info, invocation)
+    else:
+      result.typ = generateTypeInstance(c, m.bindings, arg.info, formal)
   else:
     result = typeMismatch(c.config, arg.info, formal, arg.typ, arg)
     if result.kind != nkError:
