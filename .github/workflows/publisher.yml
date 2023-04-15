@@ -16,6 +16,14 @@ jobs:
   publisher:
     runs-on: ubuntu-latest
 
+    permissions:
+      actions: read
+      contents: write
+
+    environment:
+      name: deploy-artifacts
+      url: ${{ steps.release.outputs.url }}
+
     steps:
       # Publish action needs a checkout
       - uses: actions/checkout@v3
@@ -85,7 +93,8 @@ jobs:
           echo "version=$(./release_manifest version)" >> $GITHUB_OUTPUT
         working-directory: release-staging
 
-      - name: Create pre-release
+      - id: release
+        name: Create pre-release
         uses: softprops/action-gh-release@v0.1.15
         with:
           prerelease: true

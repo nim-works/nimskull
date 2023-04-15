@@ -1,11 +1,8 @@
 name: Test compiler build reproducibility
 
 on:
-  push:
-    # Only run on bors branches
-    branches:
-      - staging
-      - trying
+  pull_request:
+  merge_group:
 
 jobs:
   reprotest:
@@ -25,27 +22,29 @@ jobs:
     #               figure out what of their changes caused the build to
     #               varies based on outside environment.
 
+    # Only run this task on merge group events
+    if: github.event == 'merge_group'
     strategy:
       fail-fast: false
 
       matrix:
         test:
           - name: Source archive
-            command: './koch.py boot -d:danger && ./koch.py csource -d:danger && ./koch.py archive'
-            pattern: 'build/*.tar.zst'
+            command: "./koch.py boot -d:danger && ./koch.py csource -d:danger && ./koch.py archive"
+            pattern: "build/*.tar.zst"
 
           - name: Unix binary archive
-            command: './koch.py boot -d:danger && ./koch.py docs --docCmd:skip && ./koch.py unixrelease'
-            pattern: 'build/*.tar.zst'
+            command: "./koch.py boot -d:danger && ./koch.py docs --docCmd:skip && ./koch.py unixrelease"
+            pattern: "build/*.tar.zst"
 
           # Note: this tests the zip generation and not exe generation determinism.
           #
           # Testing exe generation will be done when cross-bootstrap is possible.
           - name: Windows binary archive
-            command: './koch.py boot -d:danger && ./koch.py docs --docCmd:skip && ./koch.py winrelease'
-            pattern: 'build/*.zip'
+            command: "./koch.py boot -d:danger && ./koch.py docs --docCmd:skip && ./koch.py winrelease"
+            pattern: "build/*.zip"
 
-    name: '${{ matrix.test.name }} reproducibility tests'
+    name: "${{ matrix.test.name }} reproducibility tests"
     runs-on: ubuntu-latest
 
     steps:
