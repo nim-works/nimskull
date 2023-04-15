@@ -1,4 +1,5 @@
 discard """
+  matrix: "--gc:refc; --gc:orc"
   input: "Arne"
   output: '''
 Hello! What is your name?
@@ -60,6 +61,15 @@ doAssert a.readDataStr(buffer, 1..3) == 3
 
 echo buffer
 
+block new_write_stream_with_literal:
+  # using a stream created with a string literal as the source must support
+  # overwriting
+  var output = newStringStream("abcd")
+  output.setPosition(0)
+  output.write("12") # overwrite the first two characters
+
+  output.setPosition(0)
+  doAssert output.readStr(4) == "12cd"
 
 block:
   var ss = newStringStream("The quick brown fox jumped over the lazy dog.\nThe lazy dog ran")
