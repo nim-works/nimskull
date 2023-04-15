@@ -1183,6 +1183,7 @@ type
     adSemExprHasNoAddress
     adSemExpectedOrdinal
     adSemConstExprExpected
+    adSemExpectedRangeType
     # semobjconstr
     adSemFieldAssignmentInvalidNeedSpace
     adSemFieldAssignmentInvalid
@@ -1313,7 +1314,8 @@ type
         adSemFoldDivByZero,
         adSemInvalidRangeConversion,
         adSemFoldCannotComputeOffset,
-        adSemExpectedIdentifierQuoteLimit:
+        adSemExpectedIdentifierQuoteLimit,
+        adSemExpectedRangeType:
       discard
     of adSemExpectedIdentifierInExpr:
       notIdent*: PNode

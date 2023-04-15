@@ -3878,7 +3878,8 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
       adSemFoldOverflow,
       adSemFoldDivByZero,
       adSemFoldCannotComputeOffset,
-      adSemExpectedIdentifierQuoteLimit:
+      adSemExpectedIdentifierQuoteLimit,
+      adSemExpectedRangeType:
     semRep = SemReport(
         location: some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
