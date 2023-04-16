@@ -31,19 +31,19 @@ This repository contains the Nimskull compiler, stdlib, tools, and documentation
 
 ## About the Project
 
-Nimskull (temporary name) is a *statically typed* *structured* programming
+Nimskull (temporary name) is a _statically typed_ _structured_ programming
 language to create software (including itself) that is sustainable.
 
-The goal is to have a *statically typed* *structured* programming language to
+The goal is to have a _statically typed_ _structured_ programming language to
 create software (including itself) that is sustainable, it aims to be:
 
-- *Safe:* statically typed, nil safe, with structured approach to resources and
+- _Safe:_ statically typed, nil safe, with structured approach to resources and
   concurrency
-- *Scalable:* target a variety of hardware architectures, with zero or low cost
+- _Scalable:_ target a variety of hardware architectures, with zero or low cost
   abstractions to run in constrained environments.
-- *Adaptable:* producing native executables, running via the built-in VM, or
+- _Adaptable:_ producing native executables, running via the built-in VM, or
   using a JS runtime.
-- *Evolving:* developed and maintained by its community of users, with a self-
+- _Evolving:_ developed and maintained by its community of users, with a self-
   hosted compiler, support for metaprogramming to safely attempt language
   extension outside of the core, and support code migration to avoid legacy.
 
@@ -55,6 +55,7 @@ We are currently working on the first phase of this, by slimming down the
 language and compiler to a workable core and increasing compiler development
 productivity. The following phase will starting with one of the following
 possible features:
+
 - Introduce Continuation Passing Style transform and Structured Concurrency
   into the language, this will undoubtedly lead to dramatic changes in memory
   management and FFI
@@ -81,9 +82,9 @@ There are more, the above have been carefully chosen based on the direction of
 the language; moreover, their impact goes beyond what's been described and
 intends to create a virtuous cycle. Examples:
 
-* clarifying the language specification will identify bugs and design flaws that
+- clarifying the language specification will identify bugs and design flaws that
   in turn will be fixed.
-* changes introduced via nkError result in more pure code (`func`) as control-
+- changes introduced via nkError result in more pure code (`func`) as control-
   flow and effects are no longer intertwined; lead to bug and language
   design fixes due to a broad audit, ease compiler as a library usage for tools
 
@@ -106,9 +107,9 @@ documentation! We look forward to seeing introductions and pull requests!
 The compiler currently aims to support the following platform and
 architecture combinations:
 
-  * Linux (most, if not all, distributions) - x86, x86_64, ppc64 and armv6l
-  * Mac OS X (10.04 or greater) - x86, x86_64, ppc64 and Apple Silicon (based on the ARM64 architecture)
-  * Windows (Windows XP or later) - x86 and x86_64
+- Linux (most, if not all, distributions) - x86, x86_64, ppc64 and armv6l
+- Mac OS X (10.04 or greater) - x86, x86_64, ppc64 and Apple Silicon (based on the ARM64 architecture)
+- Windows (Windows XP or later) - x86 and x86_64
 
 Other platforms may work but aren't regularly tested.
 
@@ -120,21 +121,21 @@ Compiling the compiler is quite straightforward if you follow these steps:
 
 To build from source you will need:
 
-  * A C compiler such as ``gcc`` 3.x/later or an alternative such as ``clang``,
-    ``Visual C++`` or ``Intel C++``. It is recommended to use ``gcc`` 3.x or
-    later.
-  * Either ``git`` or ``wget`` to download the needed source repositories.
-  * The ``build-essential`` package when using ``gcc`` on Ubuntu (and likely
-    other distros as well).
-  * On Windows MinGW 4.3.0 (GCC 8.10) is the minimum recommended compiler.
-  * Nim hosts a known working MinGW distribution:
-    * [MinGW32.7z](https://nim-lang.org/download/mingw32.7z)
-    * [MinGW64.7z](https://nim-lang.org/download/mingw64.7z)
+- A C compiler such as `gcc` 3.x/later or an alternative such as `clang`,
+  `Visual C++` or `Intel C++`. It is recommended to use `gcc` 3.x or
+  later.
+- Either `git` or `wget` to download the needed source repositories.
+- The `build-essential` package when using `gcc` on Ubuntu (and likely
+  other distros as well).
+- On Windows MinGW 4.3.0 (GCC 8.10) is the minimum recommended compiler.
+- Nim hosts a known working MinGW distribution:
+  - [MinGW32.7z](https://nim-lang.org/download/mingw32.7z)
+  - [MinGW64.7z](https://nim-lang.org/download/mingw64.7z)
 
 **Windows Note: Cygwin and similar POSIX runtime environments are not supported.**
 
 Then, if you are on a \*nix system or Windows, the following steps should compile
-Nimskull from source using ``gcc``, ``git``, and the ``koch`` build tool.
+Nimskull from source using `gcc`, `git`, and the `koch` build tool.
 
 ```bash
 git clone https://github.com/nim-works/nimskull.git
@@ -144,7 +145,7 @@ cd nimskull
 ```
 
 Finally, once you have finished the build steps (on Windows, Mac, or Linux) you
-should add the ``bin`` directory to your PATH.
+should add the `bin` directory to your PATH.
 
 </details>
 
@@ -158,18 +159,18 @@ Right now, the easiest and most important contribution is test suite improvement
 
 ## Koch
 
-``koch`` is the build tool used to build various parts of Nim and to generate
-documentation, among other things. The ``koch`` tool can also
+`koch` is the build tool used to build various parts of Nim and to generate
+documentation, among other things. The `koch` tool can also
 be used to run the Nim test suite.
 
 <details>
 <summary>Show</summary>
 
-You may execute the tests using ``./koch.py tests``. The tests take a while to
+You may execute the tests using `./koch.py tests`. The tests take a while to
 run, but you can run a subset of tests by specifying a category (for example
-``./koch.py tests cat lang``).
+`./koch.py tests cat lang`).
 
-For more information on the ``koch`` build tool please see the documentation
+For more information on the `koch` build tool please see the documentation
 within the [doc/koch.rst](doc/koch.rst) file.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
@@ -178,32 +179,33 @@ within the [doc/koch.rst](doc/koch.rst) file.
 
 ## Direction
 
-A language (community, compiler, etc) that is *sustained* through the
-*collective* efforts of its practitioners and their *diverse* backgrounds.
+A language (community, compiler, etc) that is _sustained_ through the
+_collective_ efforts of its practitioners and their _diverse_ backgrounds.
 
 Attracting practitioners with diversity of experience and perspectives
-requires a language with broad applicability, from *Web* to *Systems*
-*Programming* all the while remaining *efficient*.
+requires a language with broad applicability, from _Web_ to _Systems_
+_Programming_ all the while remaining _efficient_.
 
 Onboarding practitioners requires a language that is familiar enough to get
-started in terms of syntax and initial concepts such as *structured and*
-*modular programming*.
+started in terms of syntax and initial concepts such as _structured and_
+_modular programming_.
 
 Supporting practitioner-driven innovation requires a language that allows for
 experimentation without necessarily being an expert in all aspects of language
 development. Compile time facilities integrated into the language, such as
-*compile time evaluation* and a *macro system* provide an extension sandbox.
+_compile time evaluation_ and a _macro system_ provide an extension sandbox.
 
 Practitioner collaborating and combining their software is assisted by a
-*static type system* that supports local inference, tuples, sum, and generic types,
+_static type system_ that supports local inference, tuples, sum, and generic types,
 along with effect analysis.
 
 A language that develops in such a manner is going to encounter what some might
 term as 'instability' via numerous backwards incompatible changes.
 We consider this a feature, instead we:
-* favour designs (language or API) that are resilient in the face of change
-* employ tools that automatically migrate legacy code or assist in migration
-* not cement poor choices and be honest that we can't make such guarantees
+
+- favour designs (language or API) that are resilient in the face of change
+- employ tools that automatically migrate legacy code or assist in migration
+- not cement poor choices and be honest that we can't make such guarantees
 
 Popular languages are maintained through incredible amounts of funding from
 various entities; we do not see, nor seek, this happening for us.
@@ -214,8 +216,8 @@ and community.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 
-
 ## FAQ
+
 <details>
 <summary class"blue">Why start with Nim?</summary>
 </br>
@@ -262,6 +264,7 @@ Yes! Feel free to join us on our [nim-works channel][nim-works-matrix]! Please h
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 ## License
+
 MIT
 
 [nim-site]: https://nim-lang.org
