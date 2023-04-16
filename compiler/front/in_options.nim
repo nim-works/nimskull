@@ -149,7 +149,15 @@ type
     cmdNop
     cmdJsonscript  ## compile a .json build file
     cmdNimfix
-    # old unused: cmdInterpret, cmdDef: def feature (find definition for IDEs)
+
+  CanonicalDiagnostic* = enum
+    ## canonical list of diagnostic kinds, these serve as a sort of "base type"
+    ## for very specific diagnostic kinds that various parts of the compiler
+    ## may generate. This way subsystems can issue very specific kinds for fine
+    ## grain control, while allowing humans to reason about them broadly. A
+    ## specific diagnostic must be associated with one and only one canonical
+    ## diagnostic.
+    diagDeprecated = "deprecated"
 
   FilenameOption* = enum
     ## Filename formatting option
