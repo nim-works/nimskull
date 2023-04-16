@@ -167,7 +167,7 @@ const optNames = @[
   "project", "warnings", "w", "warning", "hint", "warningaserror",
   "hintaserror", "hints", "threadanalysis", "stacktrace",
   "stacktracemsgs", "excessivestacktrace", "linetrace",
-  "debugger", "g", "profiler", "memtracker", "checks",
+  "debugger", "profiler", "memtracker", "checks",
   "floatchecks", "infchecks", "nanchecks", "objchecks", "fieldchecks",
   "rangechecks", "boundchecks", "overflowchecks",
   "staticboundchecks", "stylechecks", "linedir", "assertions", "threads",
@@ -183,7 +183,7 @@ const optNames = @[
   "exceptions", "cppdefine", "seqsv2", "stylecheck", "showallmismatches",
   "docinternal", "multimethods", "expandmacro", "expandarc",
   "benchmarkvm", "profilevm", "sinkinference", "cursorinference", "panics",
-  "sourcemap", "deepcopy", "nilseqs",
+  "sourcemap", "deepcopy",
 ]
 
 proc invalidCmdLineOption(conf: ConfigRef; pass: TCmdLinePass, switch: string, info: TLineInfo) =
@@ -355,25 +355,12 @@ proc processCompile(conf: ConfigRef; filename: string) =
   if found.isEmpty: found = AbsoluteFile filename
   extccomp.addExternalFileToCompile(conf, found)
 
-template warningOptionNoop(switch: string) =
-  conf.localReport(info,
-    ExternalReport(
-      kind: rextDeprecated,
-      msg: "'$#' is deprecated, now a noop" % switch))
-
-template deprecatedAlias(oldName, newName: string) =
-  conf.localReport(
-    info,
-    ExternalReport(
-      kind: rextDeprecated,
-      msg: "'$#' is a deprecated alias for '$#'" % [oldName, newName]))
-
 # List of GC names for the error generation. It cannot be created
 # from enum set using `getEnumNames` because nim cmdline has
 # multiple names for the same garbage collector.
 const gcNames = @[
   "boehm", "refc", "markandsweep", "destructors", "arc", "orc",
-  "hooks", "go", "none", "stack", "regision", "v2", "generational"]
+  "hooks", "go", "none", "stack", "regions"]
 
 
 const cmdNames = @[
@@ -398,7 +385,6 @@ proc testCompileOptionArg*(conf: ConfigRef; switch, arg: string, info: TLineInfo
     of "go": result = conf.selectedGC == gcGo
     of "none": result = conf.selectedGC == gcNone
     of "stack", "regions": result = conf.selectedGC == gcRegions
-    of "v2", "generational": warningOptionNoop(arg)
     else:
       conf.localReport(info, ExternalReport(
         kind: rextUnexpectedValue,
@@ -489,7 +475,6 @@ proc testCompileOption*(conf: ConfigRef; switch: string, info: TLineInfo): bool 
   of "implicitstatic": result = contains(conf.options, optImplicitStatic)
   of "trmacros": result = contains(conf.options, optTrMacros)
   of "excessivestacktrace": result = contains(conf.globalOptions, optExcessiveStackTrace)
-  of "nilseqs", "nilchecks", "taintmode": warningOptionNoop(switch)
   else: invalidCmdLineOption(conf, passCmd1, switch, info)
 
 proc processPath(conf: ConfigRef; path: string, info: TLineInfo, switch: string,
@@ -763,11 +748,9 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
       of "stack", "regions":
         conf.selectedGC = gcRegions
         defineSymbol(conf, "gcregions")
-      of "v2": warningOptionNoop(arg)
       else:
         conf.localReport(
           info, invalidSwitchValue gcNames)
-
   of "warnings", "w":
     if processOnOffSwitchOrList(conf, {optWarns}, arg, pass, info, switch):
       listWarnings(conf)
@@ -803,11 +786,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     else:
       conf.localReport(
         info, invalidSwitchValue @["native", "gdb", "on", "off"])
-
-  of "g": # alias for --debugger:native
-    conf.incl optCDebug
-    conf.incl optLineDir
-    #defineSymbol(conf.symbols, "nimTypeNames") # type names are used in gdb pretty printing
   of "profiler":
     processOnOffSwitch(conf, {optProfiler}, arg, pass, info, switch)
     if optProfiler in conf.options:
@@ -1048,18 +1026,14 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     of "legacyrelproj": conf.filenameOption = foLegacyRelProj
     else:
       conf.localReport(info, invalidSwitchValue @["abs", "canonical", "legacyRelProj"])
-
   of "msgformat":
     case arg.normalize:
       of "text":
         conf.setReportHook cli_reporter.reportHook
-
       of "sexp":
         conf.setReportHook sexp_reporter.reportHook
-
       else:
         conf.localReport(info, invalidSwitchValue @["text", "sexp"])
-
   of "processing":
     incl(conf, cnCurrent, rsemProcessing)
     incl(conf, cnMainPackage, rsemProcessing)
@@ -1074,7 +1048,7 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "unitsep":
     conf.unitSep = if switchOn(arg): "\31" else: ""
   of "listfullpaths":
-    # xxx in future work, use `warningDeprecated`
+    # xxx: this should probably get subsubed with filenames
     conf.filenameOption = if switchOn(arg): foAbs else: foCanonical
   of "spellsuggest":
     if arg.len == 0: conf.spellSuggestMax = spellSuggestSecretSauce
@@ -1158,10 +1132,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     processOnOffSwitchG(conf, {optEnableDeepCopy}, arg, pass, info, switch)
   of "": # comes from "-" in for example: `nim c -r -` (gets stripped from -)
     conf.inputMode = pimStdin
-  of "nilseqs", "nilchecks", "mainmodule", "m", "symbol", "taintmode",
-     "cs", "deadcodeelim":
-    warningOptionNoop(switch)
-
   else:
     if strutils.find(switch, '.') >= 0: options.setConfigVar(conf, switch, arg)
     else: invalidCmdLineOption(conf, pass, switch, info)
