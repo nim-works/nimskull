@@ -73,7 +73,76 @@ from compiler/modules/nimblecmd import NimblePkgAddResult
 from std/strutils import cmpIgnoreStyle, contains
 
 type
+  ## TODO: the below is close, but can be simplified with a defaulted config
+  ##       objects for events (diags, metrics, etc).
+
+  ## General Definitions/Remarks (TODO: revise these)
+  ## ---------------------------
+  ## 
+  ## sender vs receiver - a bit conceptual, but the sender is the current
+  ##                      module or context object, and the receiver is the
+  ##                      calling module or context object.
+  ## 
+  ## diag - diagnostics are either known errors, where the final result of the
+  ##        callee is wrong (error), suspect (warn), or with comment (hint)
+  ## 
+  ## ctx - context is just some contextual piece of information from the sender
+  ## 
+  ## The key difference here is about:
+  ## - does the sender even generate them
+  ## - should any immediate output be genrated
+  ## - does the sender send them to the receiver
+  ## - does it impact the sender's control flow, and how
+  ## - groups of kinds, outside of severity
+  ## 
+  ## diag:
+  ## - send:
+  ##   - error -> always
+  ##   - hint | warn -> 
+  ##      - supressed? -> discard
+  ##      - prompted?  -> send with promoted severity
+  ##      - else       -> send
+  ## - control:
+  ##   - error -> receiver response: recover | cancel | abort
+  ScriptDiagKind* = enum
+    ## diagnostic kinds that this module can issue
+    scriptDiagErrProcSwitch
+    scriptDiagErrProcNote
+    scriptDiagWarnProcSwitch
+  ScriptDiag* = object
+    case kind*: ScriptDiagKind:
+      of scriptDiagErrProcSwitch, scriptDiagWarnProcSwitch:
+        procSwitchResult*: ProcSwitchResult
+      of scriptDiagErrProcNote:
+        procNoteResult*: ProcessNoteResult
+  ScriptDiagControl* = enum
+    scriptDiagCtrlIgnore
+    scriptDiagCtrlYield
+
   ScriptEvtKind* = enum
+    ## fire-and-forget events raised by this module, if `Ctx` is in the name
+    ## then these are not singular events, but have a start/stop and are
+    ## contextual for all intervening events
+    scriptEvtCtxNims            ## processing a `nims` file
+    scriptEvtPathAdded          ## added a path
+
+  ScriptContext* = object
+    ## Context for processing a `nims` file
+    cache*: IdentCache
+    config*: ConfigRef
+    scriptName: AbsoluteFile
+    stream: PLLStream
+    freshDefines: bool
+
+  ScriptRunDiagHandler* = proc(c: ScriptRunContext, d: ScriptDiag): ScriptDiagControl
+  ScriptRunContext* = object
+    ## Context for a running `nims` file, as part of processing
+    vm*: PEvalContext
+    module*: PSym
+    scriptCtx*: ScriptContext
+    diagHandler: ScriptRunDiagHandler
+
+  ScriptEvtKindOld* = enum
     ## script event kinds when handling the file, if 'Run' is in the name then
     ## they're while the script is being executed
     scriptEvtDbgStart
@@ -89,7 +158,7 @@ type
 
   ScriptEvt* = object
     srcCodeOrigin*: InstantiationInfo
-    case kind*: ScriptEvtKind:
+    case kind*: ScriptEvtKindOld:
       of scriptEvtDbgStart, scriptEvtDbgEnd: discard
       of scriptEvtRun: scriptEvtRunData*: ScriptEvtRun
 
@@ -104,9 +173,9 @@ type
 
   ScriptEvtReceiver* = proc (evt: ScriptEvt): void
 
-proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
-              graph: ModuleGraph; idgen: IdGenerator,
-              receiver: ScriptEvtReceiver): PEvalContext =
+proc setupVM(module: PSym; cache: IdentCache; scriptName: string;
+             graph: ModuleGraph; idgen: IdGenerator,
+             receiver: ScriptEvtReceiver): PEvalContext =
   result = newCtx(module, cache, graph, idgen, legacyReportsVmTracer)
   # for backwards compatibility, allow meta expressions in nimscript (this
   # matches the previous behaviour)
