@@ -5,15 +5,12 @@ type
     rkFloat
     rkAddress ## Register stores an address and optional type. The address is
               ## not required to point to a valid location
-    rkLocation ## Register stores a location
+    rkLocation ## Register stores an owning handle to a location. Once the
+               ## register transitions to a different kind, the location is
+               ## cleaned up and the memory freed
     rkHandle ## Register stores a handle to a location
 
     rkNimNode
-
-    # XXX: a temporary hack (that's also a safety issue) required by the
-    #      current vmgen. Remove this once vmgen is rewritten
-    rkRegAddr
-
 
   # TODO: reorder the enum fields so that they're either grouped by topic or
   #       usage (or both)
@@ -45,8 +42,7 @@ type
                ## (either directly or indirectly) to the location identified
                ## by register `a`. A full copy is performed.
 
-    opcAddrReg,
-    opcAddrNode,
+    opcAddr,    ## a = addr b
     opcLdDeref,
     opcWrDeref,
     opcWrStrIdx,
@@ -160,7 +156,6 @@ type
     opcLdConst,   # dest = constants[Bx]
     opcAsgnConst, # dest = copy(constants[Bx])
     opcLdGlobal,  # dest = globals[Bx]
-    opcLdGlobalAddr, # dest = addr(globals[Bx])
 
     opcLdCmplxConst, # dest = complexConsts[Bx]
 

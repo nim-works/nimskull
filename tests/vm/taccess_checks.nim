@@ -6,6 +6,7 @@ discard """
   action: reject
 """
 
+import std/macros
 import maccess_checks
 
 type
@@ -130,3 +131,43 @@ static:
 static:
   var s = newSeq[string](1)
   testSource(s, addr s[0], 2)
+
+# ------------------------------------------------------------------
+# Tests for accessing simple locals once they went out of scope
+# ------------------------------------------------------------------
+
+template testLocal(t, code) =
+  static:
+    # p is a pointer to a local from a destroyed stack frame
+    let p {.inject.} = localPtr(t)
+    code
+
+testLocal(int): discard p[] #[tt.Error
+                        ^ (VMAccessOutOfBounds)]#
+
+testLocal(int): p[] = 1 #[tt.Error
+                ^ (VMAccessOutOfBounds)]#
+
+testLocal(float): discard p[] #[tt.Error
+                          ^ (VMAccessOutOfBounds)]#
+
+testLocal(float): p[] = 1.0 #[tt.Error
+                  ^ (VMAccessOutOfBounds)]#
+
+testLocal(ptr int): discard p[] #[tt.Error
+                            ^ (VMAccessOutOfBounds)]#
+
+testLocal(ptr int): p[] = nil #[tt.Error
+                    ^ (VMAccessOutOfBounds)]#
+
+testLocal(pointer): discard p[] #[tt.Error
+                            ^ (VMAccessOutOfBounds)]#
+
+testLocal(pointer): p[] = nil #[tt.Error
+                    ^ (VMAccessOutOfBounds)]#
+
+testLocal(NimNode): discard p[] #[tt.Error
+                            ^ (VMAccessOutOfBounds)]#
+
+testLocal(NimNode): p[] = newNimNode(nnkEmpty) #[tt.Error
+                    ^ (VMAccessOutOfBounds)]#

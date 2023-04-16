@@ -1,7 +1,16 @@
 discard """
-  targets: "c js"
+  targets: "c js vm"
   matrix: "; -d:release"
 """
+
+template disableVm(code: untyped) =
+  ## Only executes `code` if not running in the VM
+  when nimvm:
+    discard
+  else:
+    when not defined(vm):
+      block:
+        code
 
 type T = object
   x: int
@@ -90,7 +99,9 @@ block:
     let (x,y) = byLent(a)
     doAssert (x,y) == a
 
-  block: # (with -d:release) bug #14578
+  # knownIssue: borrowing from parameters that are of primitive type doesn't
+  #             work yet
+  disableVm: # (with -d:release) bug #14578
     let a = 10
     doAssert byLent(a) == 10
     let a2 = byLent(a)
@@ -143,7 +154,9 @@ proc test14420() = # bug #14420
     discard fn(a)
     discard fn2(a)
 
-  block:
+  # knownIssue: both the JS and VM target don't support borrowing from the
+  #             first parameter when it's of primitive type
+  when not defined(js) and not defined(vm):
     proc byLent2[T](a: T): lent T =
       runnableExamples: discard
       a
@@ -311,8 +324,6 @@ block immutable_for_var_addr:
   prc()
 
 template main =
-  # xxx wrap all other tests here like that so they're also tested in VM
-  test14420()
   test14339()
   test15464()
   test15939()

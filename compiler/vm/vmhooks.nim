@@ -82,15 +82,9 @@ func getHandle*(a: VmArgs; i: Natural): LocHandle =
   doAssert p.kind in {rkHandle, rkLocation}
   p.handle
 
-
 proc getVar*(a: VmArgs; i: Natural): LocHandle =
-  # XXX: vmops don't have access to mutable int,float,ptr,NimNode paramenters right now.
-  # Once rkRegAddr is gone and vmgen properly handles the aforementioned types, the issue
-  # is no more
   let si = i+a.rb+1
-  assert a.slots[si].kind == rkAddress
+  assert a.slots[si].kind == rkHandle
 
-  # The address was validate by the VM prior the invoking the callback
-  # TODO: while currently always the case, an address register is not required
-  #       to store an address into guest memory, so casting is unsafe here
-  makeLocHandle(a.mem.allocator, a.slots[si].addrVal, a.slots[si].addrTyp)
+  # The handle was validate by the VM prior to invoking the callback
+  a.slots[si].handle
