@@ -227,6 +227,16 @@ proc evalTypeTrait(c: PContext; traitCall: PNode, operand: PType, context: PSym)
       arg = arg.base.skipTypes(skippedTypes + {tyGenericInst})
       if not rec: break
     result = getTypeDescNode(c, arg, operand.owner, traitCall.info)
+  of "rangeBase":
+    # return the range's base type
+    let arg = operand.skipTypes({tyGenericInst})
+    if arg.kind == tyRange:
+      result = getTypeDescNode(c, arg.base, operand.owner, traitCall.info)
+    else:
+      result = traitCall
+      result[1] = c.config.newError(traitCall[1],
+                                    PAstDiag(kind: adSemExpectedRangeType))
+      result = c.config.wrapError(result)
   of "isCyclical":
     let r =
       if operand.skipTypes(abstractInst).kind in ConcreteTypes:
