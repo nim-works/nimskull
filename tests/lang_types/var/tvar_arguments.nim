@@ -1,5 +1,5 @@
 discard """
-  target: "c js !vm"
+  target: "c js vm"
   labels: "var_arg"
   description: '''
     Tests to make sure arguments are properly passed to var parameter and that
@@ -161,10 +161,9 @@ proc test[T](a, b: T) =
   testStmtListExpr(a, b)
 
   # more complex test cases:
-  disableIf defined(vm) and (T is Ordinal or T is float or T is ref):
-    testNestedElement(a, b)
-    testVarParamLvalueConv(a, b)
-    testDistinctArray[DType, T](a, b)
+  testNestedElement(a, b)
+  testVarParamLvalueConv(a, b)
+  testDistinctArray[DType, T](a, b)
 
 type
   Object = object

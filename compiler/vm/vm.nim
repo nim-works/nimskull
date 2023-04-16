@@ -385,7 +385,7 @@ proc asgnValue(mm: var VmMemoryManager, dest: var TFullReg, src: TFullReg) =
   # has to be done here
 
   case src.kind
-  of rkNone, rkInt, rkFloat, rkAddress, rkNimNode, rkRegAddr:
+  of rkNone, rkInt, rkFloat, rkAddress, rkNimNode:
     cleanUpReg(dest, mm)
     dest = src
   of rkHandle, rkLocation:
@@ -419,7 +419,7 @@ func fastAsgnComplex(x: var TFullReg, y: TFullReg) =
   #      Resolved once location lifetime management gets moved to `vmgen`.
   case y.kind
   of rkNone: x.reset()
-  of rkInt, rkFloat, rkAddress, rkNimNode, rkRegAddr: x = y
+  of rkInt, rkFloat, rkAddress, rkNimNode: x = y
   of rkHandle, rkLocation:
     {.cast(noSideEffect).}: # erroneous side-effect
       x = TFullReg(kind: rkHandle, handle: y.handle)
@@ -454,14 +454,6 @@ proc writeLoc(h: LocHandle, x: TFullReg, mm: var VmMemoryManager) =
     assert h.typ.kind == akPNode
     setNodeValue(h, x.nimNode)
 
-  of rkRegAddr:
-    # The following code won't work in the vm (until rkRegAddr replaced)
-    # .. code-block:: nim
-    #   var x: int
-    #   var o: ...
-    #   o.p = addr x
-    doAssert false, "Trying to write register address to location"
-
 
 proc regToNode*(c: TCtx, x: TFullReg; typ: PType, info: TLineInfo): PNode =
   ## Deserializes the value stored by `x` to a `PNode` of type `typ`
@@ -482,8 +474,6 @@ proc regToNode*(c: TCtx, x: TFullReg; typ: PType, info: TLineInfo): PNode =
       result = c.deserialize(c.allocator.makeLocHandle(x.addrVal, x.addrTyp), typ, info)
   of rkHandle, rkLocation: result = c.deserialize(x.handle, typ, info)
   of rkNimNode: result = x.nimNode
-
-  of rkRegAddr: result = c.regToNode(x.regAddr[], typ, info)
 
 proc pushSafePoint(f: var TStackFrame; pc: int) =
   f.safePoints.add(pc)
@@ -784,11 +774,6 @@ func setHandle(r: var TFullReg, handle: LocHandle) =
   assert handle.typ.isValid
   r.handle = handle
 
-func copyRegister(r: var TFullReg, other: TFullReg, mm: var VmMemoryManager) =
-  # TODO: remove `copyRegister` once rkRegAddr is gone
-  cleanUpReg(r, mm)
-  fastAsgnComplex(r, other)
-
 func loadEmptyReg*(r: var TFullReg, typ: PVmType, info: TLineInfo, mm: var VmMemoryManager): bool =
   ## If a value of `typ` fits into a register, transitions `r` to the correct
   ## state, loads the default value and returns true. Returns false otherwise
@@ -1039,12 +1024,9 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         if regs[rb].handle.typ.kind in RegisterAtomKinds:
           loadFromLoc(regs[ra], regs[rb].handle)
         else:
-          assert false # vmgen issue
+          unreachable() # vmgen issue
       else:
-        # This case has to be temporarily treated as valid, as a side-effect
-        # of rkRegAddr. `LdDeref` should always produce a handle, but due
-        # to `rkRegAddr` it can't.
-        discard
+        unreachable(regs[rb].kind)
 
     of opcLdArr:
       # a = b[c]
@@ -1303,32 +1285,11 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         raiseVmError(VmEvent(kind: vmEvtNilAccess))
       else:
         regs[ra].setHandle(c.heap.tryDeref(env, noneType).value())
-    of opcAddrReg:
-      let rb = instr.regB
-      case regs[rb].kind
-      of rkLocation:
-        ensureKind(rkAddress)
-        regs[ra].setAddress(regs[rb].handle)
-      of rkHandle:
-        # XXX: due to various vmgen issues, this case has to be allowed for now
-        #unreachable() # vmgen issue
-        ensureKind(rkAddress)
-        regs[ra].setAddress(regs[rb].handle.p, regs[rb].handle.typ)
-      else:
-        ensureKind(rkRegAddr)
-        regs[ra].regAddr = addr regs[rb]
 
-    of opcAddrNode:
-      # XXX: once vmgen is improved, this instruction will be merged into
-      #      `opcAddrReg`
+    of opcAddr:
+      # the operation expects a handle as input and turns it into an address
       decodeB(rkAddress)
-      case regs[rb].kind
-      of rkHandle:
-        regs[ra].setAddress(regs[rb].handle.p, regs[rb].handle.typ)
-      else:
-        raiseVmError(VmEvent(
-          kind: vmEvtErrInternal,
-          msg: "limited VM support for 'addr', got kind: " & $regs[rb].kind))
+      regs[ra].setAddress(regs[rb].handle)
 
     of opcLdDeref:
       # a = b[]
@@ -1345,10 +1306,6 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         else:
           raiseVmError(VmEvent(kind: vmEvtNilAccess))
 
-      of rkRegAddr:
-        # HACK: rkRegAddr is a hack
-        assert regs[rb].regAddr.kind notin { rkLocation, rkHandle }
-        copyRegister(regs[ra], regs[rb].regAddr[], c.memory)
       of rkHandle, rkLocation:
         checkHandle(regs[rb])
         assert regs[rb].handle.typ.kind == akRef
@@ -1358,17 +1315,15 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
 
         regs[ra].setHandle(h)
       else:
-        raiseVmError(VmEvent(
-          kind: vmEvtNilAccess,
-          msg:  " kind: " & $regs[rb].kind))
+        unreachable(regs[rb].kind)
 
     of opcWrDeref:
       # a[] = c; b unused
       let rc = instr.regC
 
       # XXX: vmgen could use `opcLdDeref` and then mutate the target through
-      #      the resulting handle (requires a new opcode: opcWrLoc).
-      #      This would make `opcWrDeref` obsolete
+      #      the resulting handle (via opcWrLoc). This would make `opcWrDeref`
+      #      obsolete
 
       # Copies c into the location pointed to by a
 
@@ -1390,12 +1345,6 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
 
         elif r.addrVal.isNil:
           raiseVmError(VmEvent(kind: vmEvtNilAccess))
-
-      of rkRegAddr:
-        # HACK: remove this once vmgen is adjusted
-        assert regs[rc].kind notin { rkLocation, rkHandle }
-
-        copyRegister(regs[ra].regAddr[], regs[rc], c.memory)
 
       of rkHandle, rkLocation:
         checkHandle(regs[ra])
@@ -1636,9 +1585,6 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
           of akCallable: cmpF(callableVal)
           of akClosure:  cmpF(closureVal)
           else: unreachable() # vmgen issue
-        of rkRegAddr:
-          assert b.kind == rkRegAddr
-          a.regAddr == b.regAddr
         of rkNimNode:
           assert b.kind == rkNimNode
           a.nimNode == b.nimNode
@@ -1936,21 +1882,27 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       # TODO: this op has really unusual semantics. Turn it into a callback?
 
       # a = number of chars read
-      # rc[] = parseFloat(rb, rd)
+      # c[] = parseFloat(rb, rd)
       decodeBC(rkInt)
       inc pc
       assert c.code[pc].opcode == opcParseFloat
       let rd = c.code[pc].regA
 
-      var rcAddr = addr(regs[rc])
-      if rcAddr.kind == rkRegAddr: rcAddr = rcAddr.regAddr
-      else:
-        ensureKind(regs[rc], rkFloat, c.memory)
-
       checkHandle(regs[rb])
+      checkHandle(regs[rc])
+      assert regs[rc].handle.typ.kind == akFloat
+
+      # because the ``number`` parameter of ``parseBiggestFloat`` is an out
+      # parameter, no valid input value needs to be provided
+      var number: BiggestFloat
       # TODO: don't do a string copy here
-      regs[ra].intVal = parseBiggestFloat($regs[rb].strVal,
-                                          rcAddr[].floatVal, regs[rd].intVal.int)
+      let r = parseBiggestFloat($regs[rb].strVal, number, regs[rd].intVal.int)
+      if r != 0:
+        # only write back the number if parsing succeeded (matching the
+        # behaviour of ``parseBiggestFloat``)
+        writeFloat(regs[rc].handle, number)
+
+      regs[ra].intVal = r
     of opcRangeChck:
       # Checks if a is in range [b, c], aborts execution otherwise
       let rb = instr.regB
@@ -2372,13 +2324,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
       let slot = c.globals[rb]
       ensureKind(rkHandle)
       regs[ra].setHandle(c.heap.slots[slot].handle)
-    of opcLdGlobalAddr:
-      # a = addr to globals[b]
-      let rb = instr.regBx - wordExcess
 
-      let handle = c.heap.slots[c.globals[rb]].handle
-      ensureKind(rkAddress)
-      regs[ra].setAddress(handle.p, handle.typ)
     of opcLdCmplxConst:
       decodeBx(rkHandle)
 
@@ -2502,12 +2448,8 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         res = regs[rb].nimNode.kind == nkNilLit
       of rkAddress:
         res = regs[rb].addrVal.isNil
-      of rkRegAddr:
-        # A reg address can never be nil
-        res = true
       of rkNone, rkInt, rkFloat:
-        assert false # vmgen issue
-
+        unreachable()
 
       regs[ra].intVal = ord(res)
     of opcNChild:

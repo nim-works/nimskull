@@ -10,9 +10,11 @@
 ## This module contains the type definitions for the new evaluation engine.
 ## An instruction is 1-3 int32s in memory, it is a register based VM.
 
-import std/tables
-
 import
+  std/[
+    intsets,
+    tables
+  ],
   compiler/ast/[
     ast,
     idents,
@@ -340,10 +342,6 @@ type
     of rkNimNode:
       nimNode*: PNode
 
-    of rkRegAddr:
-      regAddr*: ptr TFullReg
-
-
   # XXX should probably be a distinct int
   HeapSlotHandle* = int
 
@@ -412,6 +410,12 @@ type
     blocks*: seq[TBlock]    # blocks; temp data structure
     sym*: PSym
     regInfo*: seq[RegInfo]
+
+    addressTaken*: IntSet
+      ## the set of locations (identified by their symbol id) that have their
+      ## address taken or a view of them created. This information is used to
+      ## decide whether a full VM memory location is required, or if the
+      ## value can be stored in a register directly
 
     # XXX: the value's type should be `TRegister`, but we need a sentinel
     #      value (-1) for `getOrDefault`, so it has to be `int`
