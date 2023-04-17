@@ -2050,20 +2050,55 @@ template unlikely*(val: bool): bool =
       unlikelyProc(val)
 
 const
+  ## TODO: in the next csources release:
+  ## - create a tuple for the compiler and stdlib version
+  ## - create a string for the both of these versions
+  ## - compiler version must be a magic, hardcoded by the compiler
+  ## - standard library version must be hardcoded in the stdlib source
+  ## - implement comparison operators and such niceities for versions
+  ## - toss NimVersion and all that
+  CompilerVersionMajor* {.intdefine.}: int = 1
+    ## major version number for the current compiler.
+    ## TODO: change to `0` in next csources
+    ## 
+    ## .. code-block:: Nim
+    ##   when CompilerVersionMajor > 0: echo "stability cargo culting"
+  CompilerVersionMinor* {.intdefine.}: int = 6
+    ## minor version number for the current compiler.
+    ## TODO: change to `1` in next csources
+  CompilerVersionPatch* {.intdefine.}: int = 0
+    ## patch version number for the current compiler.
+    ## TODO: change to `0` in next csources
+
+  StdlibMajor*: int = 1
+    ## standard library major version
+    ## TODO: change to `0` in next csources
+    ## 
+    ## Example:
+    ## 
+    ## .. code-block:: Nim
+    ##   when (StdlibMajor, StdlibMinor, StdlibPatch) >= (1, 3, 1): discard
+  StdlibMinor*: int = 6
+    ## standard library minor version
+    ## TODO: change to `1` in next csources
+  StdlibPatch*: int = 0
+    ## standard library patch version
+    ## TODO: change to `0` in next csources
+
+  # xxx: there is a difference between compiler version and standard library
+  #      version, these should be the _compiler_ version.
   NimMajor* {.intdefine.}: int = 1
     ## is the major number of Nim's version. Example:
-    ##
+    ## TODO: remove in next csources
     ## .. code-block:: Nim
     ##   when (NimMajor, NimMinor, NimPatch) >= (1, 3, 1): discard
     # see also std/private/since
-
   NimMinor* {.intdefine.}: int = 6
     ## is the minor number of Nim's version.
-    ## Odd for devel, even for releases.
-
+    ## TODO: remove in next csources
   NimPatch* {.intdefine.}: int = 0
     ## is the patch number of Nim's version.
-    ## Odd for devel, even for releases.
+    ## TODO: remove in next csources
 
 import system/dollars
 export dollars
@@ -2111,8 +2146,10 @@ proc delete*[T](x: var seq[T], i: Natural) {.noSideEffect, auditDelete.} =
 
 const
   NimVersion*: string = $NimMajor & "." & $NimMinor & "." & $NimPatch
-    ## is the version of Nim as a string.
-
+    ## the compiler version as a string.
+    # xxx: this is being conflated as the standard library version, it is not
+  StdlibVersion*: string = $StdlibMajor & "." & $StdlibMinor & "." & $StdlibPatch
+    ## the standard library version
 
 type
   FileSeekPos* = enum ## Position relative to which seek should happen.
@@ -3017,7 +3054,7 @@ proc substr*(s: string, first, last: int): string =
 proc substr*(s: string, first = 0): string =
   result = substr(s, first, high(s))
 
-when defined(nimconfig):
+when defined(nimscript):
   include "system/nimscript"
 
 when not defined(js):

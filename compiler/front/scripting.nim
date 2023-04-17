@@ -7,20 +7,17 @@
 #    distribution, for details about the copyright.
 #
 
-## Implements the new configuration system for Nim. Uses Nim as a scripting
-## language.
+## Use Nimskull as a scripting language.
 
 import
   std/[
     os,
     times,
     osproc,
-    strtabs,
   ],
   compiler/ast/[
     ast,
     idents,
-    wordrecg,
     llstream,
   ],
   compiler/modules/[
@@ -42,7 +39,6 @@ import
     msgs,
     condsyms,
     options,
-    commands,
   ],
   compiler/utils/[
     pathutils
@@ -57,14 +53,6 @@ from compiler/ast/report_enums import ReportKind
 # we support 'cmpIgnoreStyle' natively for efficiency:
 from std/strutils import cmpIgnoreStyle, contains
 
-proc listDirs(a: VmArgs, filter: set[PathComponent]) =
-  let dir = getString(a, 0)
-  var result: seq[string] = @[]
-  for kind, path in walkDir(dir):
-    if kind in filter: result.add path
-
-  writeTo(result, a.getResultHandle(), a.mem[])
-
 proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
               graph: ModuleGraph; idgen: IdGenerator): PEvalContext =
   # For Nimble we need to export 'setupVM'.
@@ -74,19 +62,26 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
   result.flags = {cgfAllowMeta}
   result.mode = emRepl
   registerBasicOps(result[])
-  let conf = graph.config
+
+  proc listDirs(a: VmArgs, filter: set[PathComponent]) =
+    let dir = getString(a, 0)
+    var result: seq[string] = @[]
+    for kind, path in walkDir(dir):
+      if kind in filter: result.add path
+    writeTo(result, a.getResultHandle(), a.mem[])
 
   # captured vars:
-  var errorMsg: string
-  var vthisDir = scriptName.splitFile.dir
+  var
+    errorMsg: string
+    vthisDir = scriptName.splitFile.dir
 
   template cbconf(name, body) {.dirty.} =
     result.registerCallback "stdlib.system." & astToStr(name),
       proc (a: VmArgs) =
         body
 
-  template cbexc(name, exc, body) {.dirty.} =
-    result.registerCallback "stdlib.system." & astToStr(name),
+  template cbeff(name, exc, m, body) {.dirty.} =
+    result.registerCallback "stdlib." & m & "." & astToStr(name),
       proc (a: VmArgs) =
         errorMsg = ""
         try:
@@ -94,8 +89,24 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
         except exc:
           errorMsg = getCurrentExceptionMsg()
 
+  template cbexc(name, exc, body) {.dirty.} =
+    cbeff(name, exc, "system", body)
+
+  template cbio(name, body) {.dirty.} =
+    cbeff(name, IOError, "io", body)
+
   template cbos(name, body) {.dirty.} =
     cbexc(name, OSError, body)
+
+  template guardEffect(body) {.dirty.} =
+    # might not be needed once this is no longer allowed for configs
+    if defined(nimsuggest) or graph.config.cmd == cmdCheck:
+      discard
+    else:
+      body
+
+  result.registerCallback "stdlib.system.getError",
+    proc (a: VmArgs) = setResult(a, errorMsg)
 
   # Idea: Treat link to file as a file, but ignore link to directory to prevent
   # endless recursions out of the box.
@@ -104,56 +115,39 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
   cbos listDirsImpl:
     listDirs(a, {pcDir})
   cbos removeDir:
-    if defined(nimsuggest) or graph.config.cmd == cmdCheck:
-      discard
-    else:
+    guardEffect:
       os.removeDir(getString(a, 0), getBool(a, 1))
   cbos removeFile:
-    if defined(nimsuggest) or graph.config.cmd == cmdCheck:
-      discard
-    else:
+    guardEffect:
       os.removeFile getString(a, 0)
   cbos createDir:
     os.createDir getString(a, 0)
-
-  result.registerCallback "stdlib.system.getError",
-    proc (a: VmArgs) = setResult(a, errorMsg)
-
   cbos setCurrentDir:
     os.setCurrentDir getString(a, 0)
   cbos getCurrentDir:
     setResult(a, os.getCurrentDir())
   cbos moveFile:
-    if defined(nimsuggest) or graph.config.cmd == cmdCheck:
-      discard
-    else:
+    guardEffect:
       os.moveFile(getString(a, 0), getString(a, 1))
   cbos moveDir:
-    if defined(nimsuggest) or graph.config.cmd == cmdCheck:
-      discard
-    else:
+    guardEffect:
       os.moveDir(getString(a, 0), getString(a, 1))
   cbos copyFile:
-    if defined(nimsuggest) or graph.config.cmd == cmdCheck:
-      discard
-    else:
+    guardEffect:
       os.copyFile(getString(a, 0), getString(a, 1))
   cbos copyDir:
-    if defined(nimsuggest) or graph.config.cmd == cmdCheck:
-      discard
-    else:
+    guardEffect:
       os.copyDir(getString(a, 0), getString(a, 1))
   cbos getLastModificationTime:
     setResult(a, getLastModificationTime(getString(a, 0)).toUnix)
   cbos findExe:
     setResult(a, os.findExe(getString(a, 0)))
-
   cbos rawExec:
-    if defined(nimsuggest) or graph.config.cmd == cmdCheck:
-      discard
-    else:
+    guardEffect:
       setResult(a, osproc.execCmd getString(a, 0))
-
+  cbio writeFile:
+    guardEffect:
+      system.writeFile(getString(a, 0), getString(a, 1))
   cbconf getEnv:
     setResult(a, os.getEnv(a.getString 0, a.getString 1))
   cbconf existsEnv:
@@ -166,23 +160,14 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
     setResult(a, os.dirExists(a.getString 0))
   cbconf fileExists:
     setResult(a, os.fileExists(a.getString 0))
-
-  cbconf projectName:
-    setResult(a, conf.projectName)
-  cbconf projectDir:
-    setResult(a, conf.projectPath.string)
-  cbconf projectPath:
-    setResult(a, conf.projectFull.string)
   cbconf thisDir:
     setResult(a, vthisDir)
-  cbconf put:
-    options.setConfigVar(conf, getString(a, 0), getString(a, 1))
   cbconf get:
-    setResult(a, options.getConfigVar(conf, a.getString 0))
+    setResult(a, options.getConfigVar(graph.config, a.getString 0))
   cbconf exists:
-    setResult(a, options.existsConfigVar(conf, a.getString 0))
+    setResult(a, options.existsConfigVar(graph.config, a.getString 0))
   cbconf nimcacheDir:
-    setResult(a, options.getNimcacheDir(conf).string)
+    setResult(a, options.getNimcacheDir(graph.config).string)
   cbconf paramStr:
     setResult(a, os.paramStr(int a.getInt 0))
   cbconf paramCount:
@@ -191,55 +176,23 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
     setResult(a, strutils.cmpIgnoreStyle(a.getString 0, a.getString 1))
   cbconf cmpIgnoreCase:
     setResult(a, strutils.cmpIgnoreCase(a.getString 0, a.getString 1))
-  cbconf setCommand:
-    conf.setCommandEarly(a.getString 0)
-    let arg = a.getString 1
-    incl(conf, optWasNimscript)
-    if arg.len > 0: setFromProjectName(conf, arg)
-  cbconf getCommand:
-    setResult(a, conf.command)
-  cbconf switch:
-    processSwitch(a.getString 0, a.getString 1, passPP, module.info, conf)
-  cbconf hintImpl:
-    processSpecificNote(a.getString 0, wHint, passPP, module.info,
-      a.getString 1, conf)
-  cbconf warningImpl:
-    processSpecificNote(a.getString 0, wWarning, passPP, module.info,
-      a.getString 1, conf)
-  cbconf patchFile:
-    let key = a.getString(0) & "_" & a.getString(1)
-    var val = a.getString(2).addFileExt(NimExt)
-    if {'$', '~'} in val:
-      val = pathSubs(conf, val, vthisDir)
-    elif not isAbsolute(val):
-      val = vthisDir / val
-    conf.moduleOverrides[key] = val
   cbconf selfExe:
     setResult(a, os.getAppFilename())
-  cbconf cppDefine:
-    options.cppDefine(conf, a.getString(0))
   cbexc stdinReadLine, EOFError:
-    if defined(nimsuggest) or graph.config.cmd == cmdCheck:
-      discard
-    else:
+    guardEffect:
       setResult(a, "")
       setResult(a, stdin.readLine())
   cbexc stdinReadAll, EOFError:
-    if defined(nimsuggest) or graph.config.cmd == cmdCheck:
-      discard
-    else:
+    guardEffect:
       setResult(a, "")
       setResult(a, stdin.readAll())
 
 proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
                    freshDefines=true; conf: ConfigRef, stream: PLLStream) =
-
   conf.localReport DebugReport(
     kind: rdbgStartingConfRead,
-    filename: scriptName.string
-  )
+    filename: scriptName.string)
 
-  let oldSymbolFiles = conf.symbolFiles
   conf.symbolFiles = disabledSf
 
   let graph = newModuleGraph(cache, conf)
@@ -248,17 +201,10 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
     initDefines(conf.symbols)
 
   defineSymbol(conf, "nimscript")
-  defineSymbol(conf, "nimconfig")
   registerPass(graph, semPass)
   registerPass(graph, evalPass)
 
   conf.searchPathsAdd(conf.libpath)
-
-  let oldGlobalOptions = conf.globalOptions
-  let oldSelectedGC = conf.selectedGC
-  undefSymbol(conf, "nimv2")
-  conf.excl {optTinyRtti, optSeqDestructors}
-  conf.selectedGC = gcUnselected
 
   var m = graph.makeModule(scriptName)
   incl(m.flags, sfMainModule)
@@ -282,26 +228,8 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
   graph.compileSystemModule()
   discard graph.processModule(m, vm.idgen, stream)
 
-  # watch out, "newruntime" can be set within NimScript itself and then we need
-  # to remember this:
-  case conf.selectedGC
-  of gcUnselected:
-    conf.selectedGC = oldSelectedGC
-  of gcArc, gcOrc:
-    conf.incl {optTinyRtti, optSeqDestructors}
-    defineSymbol(conf, "nimv2")
-  else:
-    discard
-
-  # ensure we load 'system.nim' again for the real non-config stuff!
-  resetSystemArtifacts(graph)
-  # do not remove the defined symbols
-  #initDefines()
   undefSymbol(conf, "nimscript")
-  undefSymbol(conf, "nimconfig")
-  conf.symbolFiles = oldSymbolFiles
 
   conf.localReport DebugReport(
     kind: rdbgFinishedConfRead,
-    filename: scriptName.string
-  )
+    filename: scriptName.string)

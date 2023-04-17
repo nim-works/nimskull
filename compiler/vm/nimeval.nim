@@ -27,7 +27,7 @@ import
   compiler/front/[
     condsyms,
     options,
-    scriptconfig,
+    scripting,
     cli_reporter
   ],
   compiler/utils/[
@@ -206,9 +206,8 @@ proc runRepl*(
   conf.cmd = cmdInteractive # see also `setCmd`
   conf.setErrorMaxHighMaybe
   initDefines(conf.symbols)
-  defineSymbol(conf, "nimscript")
   if supportNimscript:
-    defineSymbol(conf, "nimconfig")
+    defineSymbol(conf, "nimscript")
 
   registerPass(graph, verbosePass)
   registerPass(graph, semPass)

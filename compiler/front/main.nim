@@ -71,7 +71,7 @@ from compiler/ast/report_enums import ReportKind,
   repWarningKinds,
   rstWarnings
 
-from compiler/front/scriptconfig import runNimScript
+from compiler/front/scripting import runNimScript
 
 when not defined(leanCompiler):
   import
@@ -465,7 +465,7 @@ proc mainCommand*(graph: ModuleGraph) =
       of pimCmd:   llStreamOpen(conf.commandArgs[0])
       of pimFile:  llStreamOpen(conf.projectFull, fmRead)
 
-    # XXX: the ``runNimScript`` from ``scriptconfig`` is used, but the script
+    # XXX: the ``runNimScript`` from ``scripting`` is used, but the script
     #      is not meant for configuration. While this has no practical
     #      consequences right now, it's still a domain violation
     runNimScript(cache, conf.projectFull, freshDefines = false, conf, s)

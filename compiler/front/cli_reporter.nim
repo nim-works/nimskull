@@ -2702,11 +2702,8 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
       )
 
     of rintEchoMessage:
-      if conf.cmd == cmdInteractive:
-        result = ">>> " & r.msg
-
-      else:
-        result = r.msg
+      result = if conf.cmd == cmdInteractive: ">>> " & r.msg
+               else:                          r.msg
 
     of rintCannotOpenFile, rintWarnCannotOpenFile:
       result = "cannot open file: $1" % r.file
@@ -2745,7 +2742,7 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
       assert false, "is a configuration hint, should not be reported manually"
 
     of rintNimconfWrite:
-      result = ""
+      result = r.msg
 
     of rintDumpState:
       if getConfigVar(conf, "dump.format") == "json":

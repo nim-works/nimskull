@@ -18,7 +18,6 @@ import
   compiler/front/[
     commands,
     options,
-    scriptconfig
   ],
   compiler/ast/[
     lexer,
@@ -209,7 +208,6 @@ proc evalppIf(N: var NimConfParser, tok: var Token): bool =
 proc doEnd(N: var NimConfParser, tok: var Token) =
   if high(N.condStack) < 0:
     handleExpectedX(N, "@if")
-
   ppGetTok(N, tok)            # skip 'end'
   setLen(N.condStack, high(N.condStack))
 
@@ -347,12 +345,10 @@ proc parseAssignment(N: var NimConfParser, tok: var Token) =
     val.add('[')
     val.add($tok)
     confTok(N, tok)
-
     if tok.tokType == tkBracketRi:
       confTok(N, tok)
     else:
       handleError(N, cekParseExpectedCloseX, "]")
-
     val.add(']')
   let percent = tok.ident != nil and tok.ident.s == "%="
   if tok.tokType in {tkColon, tkEquals} or percent:
@@ -436,23 +432,11 @@ proc loadConfigs(
     if readConfigFile(N, configPath, cache):
       N.config.configFiles.add(configPath)
 
-  proc runNimScriptIfExists(N: var NimConfParser, path: AbsoluteFile) =
-    if fileExists(path):
-      var s = llStreamOpen(path, fmRead)
-      N.config.configFiles.add(path)
-      runNimScript(cache, path, freshDefines = false, N.config, s)
-
   if optSkipSystemConfigFile notin N.config.globalOptions:
     N.readConfigFile(getSystemConfigPath(N.config, cfg))
 
-    if cfg == DefaultConfig:
-      N.runNimScriptIfExists(getSystemConfigPath(N.config, DefaultConfigNims))
-
   if optSkipUserConfigFile notin N.config.globalOptions:
     N.readConfigFile(getUserConfigPath(cfg))
-
-    if cfg == DefaultConfig:
-      N.runNimScriptIfExists(getUserConfigPath(DefaultConfigNims))
 
   let pd = if not N.config.projectPath.isEmpty:
              N.config.projectPath
@@ -462,13 +446,9 @@ proc loadConfigs(
   if optSkipParentConfigFiles notin N.config.globalOptions:
     for dir in parentDirs(pd.string, fromRoot=true, inclusive=false):
       N.readConfigFile(AbsoluteDir(dir) / cfg)
-      if cfg == DefaultConfig:
-        N.runNimScriptIfExists(AbsoluteDir(dir) / DefaultConfigNims)
 
   if optSkipProjConfigFile notin N.config.globalOptions:
     N.readConfigFile(pd / cfg)
-    if cfg == DefaultConfig:
-      N.runNimScriptIfExists(pd / DefaultConfigNims)
 
     if N.config.projectName.len != 0:
       # new project wide config file:
@@ -480,11 +460,6 @@ proc loadConfigs(
   let
     scriptFile = N.config.projectFull.changeFileExt("nims")
     scriptIsProj = scriptFile == N.config.projectFull
-
-  if N.config.cmd != cmdNimscript and
-     (N.config.cmd != cmdIdeTools or not scriptIsProj):
-    # 'nimsuggest foo.nims' means to just auto-complete the NimScript file
-    N.runNimScriptIfExists(scriptFile)
 
   for filename in N.config.configFiles:
     # delayed to here so that `hintConf` is honored

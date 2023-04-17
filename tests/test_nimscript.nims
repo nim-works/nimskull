@@ -1,5 +1,6 @@
 # This nimscript is used to test if the following modules can be imported
-# http://nim-lang.org/docs/nims.html
+# https://nim-works.github.io/nimskull/nims.html
+# tested via `koch.testTools` (temporary home)
 
 {.warning[UnusedImport]: off.}
 
@@ -75,15 +76,15 @@ import std/[
   # jsfetch, jsformdata, jsheaders
 
   # Unlisted in lib.html:
-  decls, compilesettings, wrapnils, effecttraits, genasts,
+  compilesettings, wrapnils, effecttraits, genasts,
   importutils, isolation
 ]
 
 # non-std imports
 import stdtest/testutils
 # tests (increase coverage via code reuse)
-import stdlib/trandom
-import stdlib/tosenv
+import stdlib/algorithm/trandom
+import stdlib/os/tosenv
 
 echo "Nimscript imports are successful."
 

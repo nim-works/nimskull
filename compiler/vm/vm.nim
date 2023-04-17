@@ -1133,7 +1133,7 @@ proc rawExecute(c: var TCtx, pc: var int): YieldReason =
         checkHandle(regs[rc])
         writeLoc(slice[idx], regs[rc], c.memory)
       else:
-        raiseVmError(reportVmIdx(idx, slice.len))
+        raiseVmError(reportVmIdx(idx, slice.len - 1))
 
     of opcLdObj:
       # a = b.c
