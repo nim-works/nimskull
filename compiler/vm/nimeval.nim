@@ -27,7 +27,7 @@ import
   compiler/front/[
     condsyms,
     options,
-    scriptconfig,
+    scripting,
     cli_reporter
   ],
   compiler/utils/[
@@ -189,6 +189,7 @@ proc registerErrorHook*(
 proc runRepl*(
     r: TLLRepl;
     searchPaths: openArray[string];
+    supportNimscript: bool,
     reportHook: ReportHook
   ) =
   ## deadcode but please don't remove... might be revived
@@ -205,7 +206,8 @@ proc runRepl*(
   conf.cmd = cmdInteractive # see also `setCmd`
   conf.setErrorMaxHighMaybe
   initDefines(conf.symbols)
-  defineSymbol(conf, "nimscript")
+  if supportNimscript:
+    defineSymbol(conf, "nimscript")
 
   registerPass(graph, verbosePass)
   registerPass(graph, semPass)

@@ -65,38 +65,7 @@ from compiler/ic/ic import rodViewer
 
 from osproc import execCmd
 
-from compiler/front/scriptconfig import ScriptEvt,
-  runNimScript,
-  scriptEvtDbgStart,
-  scriptEvtDbgEnd,
-  scriptEvtRun,
-  scriptEvtRunProcessSwitch,
-  scriptEvtRunProcessSingleNoteWarn,
-  scriptEvtRunProcessSingleNoteHint
-
-# TODO: once `msgs` is free of more of legacy reports junk, create output procs
-#       that take "output channels" for different needs, eg:
-#       - explicit output the user asked for, such as a `dump` command
-#       - diagnostics/progress/telemetry
-#       - compile time output
-#       - compiler dev tracing
-#       - user tracing
-#       - etc
-#       Then handle the output appopriately based on the particular interface:
-#       compiler command on CLI, compiler as a service, whatever.
-
-# xxx: reports are a code smell meaning data types are misplaced.
-#      these last bits of reports are "required" until the `config.notes` stuff
-#      stops using `ReportKinds`.
-from compiler/ast/report_enums import repHintKinds,
-  repWarningKinds,
-  rstWarnings,
-  rbackRstRedefinitionOfLabel,
-  rsemLockLevelMismatch,
-  rintSuccessX,
-  rdbgStartingConfRead,
-  rdbgFinishedConfRead
-from compiler/ast/reports_debug import DebugReport
+from compiler/front/scripting import runNimScript
 
 when not defined(leanCompiler):
   import
@@ -788,44 +757,20 @@ proc mainCommand*(graph: ModuleGraph): MainResult =
     #msgWriteln(conf, "Beware: Indentation tokens depend on the parser's state!")
   of cmdInteractive: commandInteractive(graph)
   of cmdNimscript:
-    let
-      s =
-        case conf.inputMode
-        of pimStdin: llStreamOpenStdIn()
-        of pimCmd:   llStreamOpen(conf.commandArgs[0])
-        of pimFile:  llStreamOpen(conf.projectFull, fmRead)
-      name =
-        case conf.inputMode
-        of pimStdin: "stdin"
-        of pimCmd:   conf.commandArgs[0]
-        of pimFile:  conf.projectFull.string
-    proc r(evt: ScriptEvt) =
-      case evt.kind
-      of scriptEvtDbgStart:
-        conf.localReport DebugReport(
-          kind: rdbgStartingConfRead,
-          filename: name)
-      of scriptEvtDbgEnd:
-        conf.localReport DebugReport(
-          kind: rdbgFinishedConfRead,
-          filename: name)
-      of scriptEvtRun:
-        let runData = evt.scriptEvtRunData
-        case runData.kind
-        of scriptEvtRunProcessSwitch:
-          conf.legacyReportProcSwitch(runData.switchResult, runData.info)
-        of scriptEvtRunProcessSingleNoteWarn,
-            scriptEvtRunProcessSingleNoteHint:
-          conf.legacyReportProcNote(runData.noteResult, runData.info)
+    let s =
+      case conf.inputMode
+      of pimStdin: llStreamOpenStdIn()
+      of pimCmd:   llStreamOpen(conf.commandArgs[0])
+      of pimFile:  llStreamOpen(conf.projectFull, fmRead)
 
     if s.isNil:
       assert conf.inputMode == pimFile, "can't get nil with other input modes"
       conf.cmdFail("cannot open file: " & conf.projectFull.string)
 
-    # XXX: the ``runNimScript`` from ``scriptconfig`` is used, but the script
+    # XXX: the ``runNimScript`` from ``scripting`` is used, but the script
     #      is not meant for configuration. While this has no practical
     #      consequences right now, it's still a domain violation
-    runNimScript(cache, conf.projectFull, freshDefines = false, conf, s, r)
+    runNimScript(cache, conf.projectFull, freshDefines = false, conf, s)
   of cmdNop: discard
   of cmdJsonscript:
     setOutFile(graph.config)

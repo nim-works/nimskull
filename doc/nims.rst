@@ -11,31 +11,60 @@ evaluated by |Nimskull|'s builtin virtual machine (VM). This VM is used for
 
 **Note**: nims for configuration is going to be removed.
 
-The `nim`:cmd: executable processes the ``.nims`` configuration files in
-the following directories (in this order; later files overwrite
-previous settings):
 
-1) If environment variable `XDG_CONFIG_HOME` is defined,
-   ``$XDG_CONFIG_HOME/nim/config.nims`` or
-   ``~/.config/nim/config.nims`` (POSIX) or
-   ``%APPDATA%/nim/config.nims`` (Windows). This file can be skipped
-   with the `--skipUserCfg`:option: command line option.
-2) ``$parentDir/config.nims`` where ``$parentDir`` stands for any
-   parent directory of the project file's path. These files can be
-   skipped with the `--skipParentCfg`:option: command line option.
-3) ``$projectDir/config.nims`` where ``$projectDir`` stands for the
-   project's path. This file can be skipped with the `--skipProjCfg`:option:
-   command line option.
-4) A project can also have a project specific configuration file named
-   ``$project.nims`` that resides in the same directory as
-   ``$project.nim``. This file can be skipped with the same
-   `--skipProjCfg`:option: command line option.
+Intro to Scripting
+==================
 
-For available procs and implementation details see `nimscript <nimscript.html>`_.
+NimScript can be used directly as a portable replacement for Bash and
+Batch files. Use `nim myscript.nims`:cmd: to run ``myscript.nims``. For example,
+installation of a program could be accomplished with this simple script:
+
+.. code-block:: nim
+
+  mode = ScriptMode.Verbose
+
+  var id = 0
+  while dirExists("foo" & $id):
+    inc id
+
+  exec "git clone https://github.com/bar/foo.git" & $id
+
+  withDir "foo" & $id & "/src":
+    exec "nim c foo"
+
+  mvFile "foo" & $id & "/src/foo".toExe, "bin/foo".toExe
+
+On Unix, you can also use the shebang `#!/usr/bin/env nim`, as long as your filename
+ends with ``.nims``:
+
+.. code-block:: nim
+
+  #!/usr/bin/env nim
+  mode = ScriptMode.Silent
+
+  echo "hello world"
+
+Use `#!/usr/bin/env -S nim --hints:off` to disable hints.
 
 
-Limitations
-===========
+Dry-Run and Debugging
+=====================
+
+Defining `scriptmode` on the command-line like so:
+`nim -d:scriptmode foo.nims`:cmd: ensures that it's run in `WhatIf` mode, where
+effects such as shell execution, file IO, and so on are logged to the console
+and never ran. There are additional options, see `nimscript <nimscript.html>`_
+for details.
+
+
+
+Extensions & Limitations
+========================
+
+Since the VM is limited in what it can do for security reasons, a set of procs
+allowing for file IO, shell execution, and so on are availabe in the
+`nimscript <nimscript.html>`_ module. There is also support for some OS native
+package managers in the `distros <distros.html>`_ module.
 
 NimScript is subject to some limitations caused by the implementation of the VM
 (virtual machine):
@@ -55,7 +84,8 @@ NimScript is subject to some limitations caused by the implementation of the VM
 
 * Multimethods are not available.
 
-* `random.randomize()` requires an `int64` explicitly passed as argument, you *must* pass a Seed integer.
+* `random.randomize()` requires an `int64` explicitly passed as argument, you
+  *must* pass a Seed integer.
 
 
 Standard library modules
@@ -107,112 +137,7 @@ NimScripts support the procs and templates defined in the
 `nimscript <nimscript.html>`_ module too.
 
 See also:
-* `Check the tests for more information about modules compatible with NimScript. <https://github.com/nim-lang/Nim/blob/devel/tests/test_nimscript.nims>`_
-
-
-NimScript as a configuration file
-=================================
-
-**Note**: nims for configuration is going to be removed.
-
-A command-line switch `--FOO`:option: is written as `switch("FOO")` in
-NimScript. Similarly, command-line `--FOO:VAL`:option: translates to
-`switch("FOO", "VAL")`.
-
-Here are few examples of using the `switch` proc:
-
-.. code-block:: nim
-  # command-line: --opt:size
-  switch("opt", "size")
-  # command-line: --define:release or -d:release
-  switch("define", "release")
-  # command-line: --forceBuild
-  switch("forceBuild")
-
-NimScripts also support `--`:option: templates for convenience, which look
-like command-line switches written as-is in the NimScript file. So the
-above example can be rewritten as:
-
-.. code-block:: nim
-  --opt:size
-  --define:release
-  --forceBuild
-
-**Note**: In general, the *define* switches can also be set in
-NimScripts using `switch` or `--`, as shown in above examples. Few
-`define` switches such as `-d:strip`:option:, `-d:lto`:option: and
-`-d:lto_incremental`:option: cannot be set in NimScripts.
-
-
-NimScript as a build tool
-=========================
-
-The `task` template that the `system` module defines allows a NimScript
-file to be used as a build tool. The following example defines a
-task `build` that is an alias for the `c`:option: command:
-
-.. code-block:: nim
-  task build, "builds an example":
-    setCommand "c"
-
-
-In fact, as a convention the following tasks should be available:
-
-=========     ===================================================
-Task          Description
-=========     ===================================================
-`help`        List all the available NimScript tasks along with their docstrings.
-`build`       Build the project with the required
-              backend (`c`:option:, `js`:option: or `vm`:option:).
-`tests`       Runs the tests belonging to the project.
-`bench`       Runs benchmarks belonging to the project.
-=========     ===================================================
-
-
-Look at the module `distros <distros.html>`_ for some support of the
-OS's native package managers.
-
-
-Nimble integration
-==================
-
-See the `Nimble readme <https://github.com/nim-lang/nimble#readme>`_
-for more information.
-
-
-Standalone NimScript
-====================
-
-NimScript can also be used directly as a portable replacement for Bash and
-Batch files. Use `nim myscript.nims`:cmd: to run ``myscript.nims``. For example,
-installation of Nimble could be accomplished with this simple script:
-
-.. code-block:: nim
-
-  mode = ScriptMode.Verbose
-
-  var id = 0
-  while dirExists("nimble" & $id):
-    inc id
-
-  exec "git clone https://github.com/nim-lang/nimble.git nimble" & $id
-
-  withDir "nimble" & $id & "/src":
-    exec "nim c nimble"
-
-  mvFile "nimble" & $id & "/src/nimble".toExe, "bin/nimble".toExe
-
-On Unix, you can also use the shebang `#!/usr/bin/env nim`, as long as your filename
-ends with ``.nims``:
-
-.. code-block:: nim
-
-  #!/usr/bin/env nim
-  mode = ScriptMode.Silent
-
-  echo "hello world"
-
-Use `#!/usr/bin/env -S nim --hints:off` to disable hints.
+* `Check the tests for more information about modules compatible with NimScript. <https://github.com/nim-works/nimskull/blob/devel/tests/test_nimscript.nims>`_
 
 
 Benefits
@@ -221,8 +146,8 @@ Benefits
 Cross-Platform
 --------------
 
-It is a cross-platform scripting language that can run where Nim can run,
-e.g. you can not run Batch or PowerShell on Linux or Mac,
+It is a cross-platform scripting language that can run where |Nimskull| can
+run, e.g. you can not run Batch or PowerShell on Linux or Mac,
 the Bash for Linux might not run on Mac,
 there are no unit tests tools for Batch, etc.
 
@@ -271,8 +196,9 @@ that means there is nothing new to learn, no context switch for developers.
 Powerful Metaprogramming
 ------------------------
 
-NimScript can use Nim's templates, macros, types, concepts, effect tracking system, and more,
-you can create modules that work on compiled Nim and also on interpreted NimScript.
+NimScript can use Nim's templates, macros, types, concepts, effect tracking
+system, and more, you can create modules that work in both a compiled or
+scripting context.
 
 `func` will still check for side effects, `debugEcho` also works as expected,
 making it ideal for functional scripting metaprogramming.
@@ -297,13 +223,10 @@ translations.cfg
   FR = chat
 
 
-* `Nimterlingua <https://nimble.directory/pkg/nimterlingua>`_
-
-
 Graceful Fallback
 -----------------
 
-Some features of compiled Nim may not work on NimScript,
+Some features of compiled |Nimskull| may not work on NimScript,
 but often a graceful and seamless fallback degradation is used.
 
 See the following NimScript:
@@ -328,21 +251,13 @@ but still no error nor warning is produced and the code just works.
 Evolving Scripting language
 ---------------------------
 
-NimScript evolves together with Nim,
+NimScript evolves together with |Nimskull|,
 `occasionally new features might become available on NimScript <https://github.com/nim-lang/Nim/pulls?utf8=%E2%9C%93&q=nimscript>`_ ,
-adapted from compiled Nim or added as new features on both.
+adapted from compiled |Nimskull| or added as new features on both.
 
-Scripting Language with a Package Manager
------------------------------------------
-
-You can create your own modules to be compatible with NimScript,
-and check `Nimble <https://nimble.directory>`_
-to search for third party modules that may work on NimScript.
 
 DevOps Scripting
 ----------------
 
 You can use NimScript to deploy to production, run tests, build projects, do benchmarks,
 generate documentation, and all kinds of DevOps/SysAdmin specific tasks.
-
-* `An example of a third party NimScript that can be used as a project-agnostic tool. <https://github.com/kaushalmodi/nim_config#list-available-tasks>`_

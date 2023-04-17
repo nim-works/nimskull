@@ -18,7 +18,6 @@ import
   compiler/ast/[
     ast,
     idents,
-    lineinfos,
     llstream,
   ],
   compiler/modules/[
@@ -67,8 +66,9 @@ proc setupVM(module: PSym; cache: IdentCache; scriptName: string;
     writeTo(res, a.getResultHandle(), a.mem[])
 
   # captured vars:
-  var errorMsg: string
-  var vthisDir = scriptName.splitFile.dir
+  var
+    errorMsg: string
+    vthisDir = scriptName.splitFile.dir
 
   template cbconf(name, body) {.dirty.} =
     result.registerCallback "stdlib.system." & astToStr(name),

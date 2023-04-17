@@ -7,25 +7,10 @@
 #    distribution, for details about the copyright.
 #
 
-## Legacy `nimscript` module, this conflates build, configuration, and
-## scripting. Future direction:
-## - scripting will have a module dedicated to it
-## - configuration will be a different declarative format
-## - build, which may use a combination of the above, is TBD given the above
-##
-## For scripting aspects some old docs are here `NimScript<nims.html>`_
+## To learn about scripting in Nimskull see `NimScript<nims.html>`_
 
-# Legacy configuration system uses scripting. This module provides an API while
-# pretending like this is a good idea.
-
-const
-  buildOS* {.magic: "BuildOS".}: string = ""
-    ## The OS this build is running on. Can be different from `system.hostOS`
-    ## for cross compilations.
-
-  buildCPU* {.magic: "BuildCPU".}: string = ""
-    ## The CPU this build is running on. Can be different from `system.hostCPU`
-    ## for cross compilations.
+# Nimskull script. This module provides a few extras available when in a
+# scripting environment.
 
 template builtin = discard
 
@@ -59,55 +44,12 @@ proc getCurrentDir*(): string =
 proc rawExec(cmd: string): int {.tags: [ExecIOEffect], raises: [OSError].} =
   builtin
 
-proc warningImpl(arg, orig: string) = discard
-proc hintImpl(arg, orig: string) = discard
-
 proc paramStr*(i: int): string =
   ## Retrieves the `i`'th command line parameter.
   builtin
 
 proc paramCount*(): int =
   ## Retrieves the number of command line parameters.
-  builtin
-
-proc switch*(key: string, val="") =
-  ## Sets a Nim compiler command line switch, for
-  ## example `switch("checks", "on")`.
-  builtin
-
-proc warning*(name: string; val: bool) =
-  ## Disables or enables a specific warning.
-  let v = if val: "on" else: "off"
-  warningImpl(name & ":" & v, "warning:" & name & ":" & v)
-
-proc hint*(name: string; val: bool) =
-  ## Disables or enables a specific hint.
-  let v = if val: "on" else: "off"
-  hintImpl(name & ":" & v, "hint:" & name & ":" & v)
-
-proc patchFile*(package, filename, replacement: string) =
-  ## Overrides the location of a given file belonging to the
-  ## passed package.
-  ## If the `replacement` is not an absolute path, the path
-  ## is interpreted to be local to the Nimscript file that contains
-  ## the call to `patchFile`, Nim's `--path` is not used at all
-  ## to resolve the filename!
-  ##
-  ## Example:
-  ##
-  ## .. code-block:: nim
-  ##
-  ##   patchFile("stdlib", "asyncdispatch", "patches/replacement")
-  discard
-
-proc getCommand*(): string =
-  ## Gets the Nim command that the compiler has been invoked with, for example
-  ## "c", "js", "build", "help".
-  builtin
-
-proc setCommand*(cmd: string; project="") =
-  ## Sets the Nim command that should be continued with after this Nimscript
-  ## has finished.
   builtin
 
 proc cmpIgnoreStyle(a, b: string): int = builtin
@@ -143,8 +85,7 @@ proc dirExists*(dir: string): bool {.
   builtin
 
 proc selfExe*(): string =
-  ## Returns the currently running nim or nimble executable.
-  # TODO: consider making this as deprecated alias of `getCurrentCompilerExe`
+  ## Returns the name of the compiler executable running this script file.
   builtin
 
 proc toExe*(filename: string): string =
@@ -162,25 +103,6 @@ proc strip(s: string): string =
   if result[0] == '"' and result[^1] == '"':
     result = result[1..^2]
 
-template `--`*(key, val: untyped) =
-  ## A shortcut for `switch <#switch,string,string>`_
-  ## Example:
-  ##
-  ## .. code-block:: nim
-  ##
-  ##   --path:somePath # same as switch("path", "somePath")
-  ##   --path:"someOtherPath" # same as switch("path", "someOtherPath")
-  switch(strip(astToStr(key)), strip(astToStr(val)))
-
-template `--`*(key: untyped) =
-  ## A shortcut for `switch <#switch,string,string>`_
-  ## Example:
-  ##
-  ## .. code-block:: nim
-  ##
-  ##   --listCmd # same as switch("listCmd")
-  switch(strip(astToStr(key)))
-
 type
   ScriptMode* {.pure.} = enum ## Controls the behaviour of the script.
     Silent,                   ## Be silent.
@@ -188,9 +110,33 @@ type
     Whatif                    ## Do not run commands, instead just echo what
                               ## would have been done.
 
-var
-  mode*: ScriptMode ## Set this to influence how mkDir, rmDir, rmFile etc.
-                    ## behave
+var mode*: ScriptMode ## set to influence mkDir, rmDir, rmFile, etc behaviour
+
+const scriptMode {.strdefine.} = ""
+  ## allow overriding scriptmode for safety via the CLI
+
+when defined(scriptMode) or scriptMode != "":
+  # include cases where the user defined it, but failed to set a value
+  let actualMode =
+    case scriptMode.normalize:
+    of "silent":  Silent
+    of "verbose": Verbose
+    of "whatif" : WhatIf
+    else:         WhatIf # safe default; doesn't matter what they wrote
+    # TODO: add a nice message for fallthrough cases
+
+  template log(msg: string, body: untyped) =
+    if actualMode in {ScriptMode.Verbose, ScriptMode.Whatif}:
+      echo "[NimScript] ", msg
+    if actualMode != ScriptMode.Whatif:
+      body
+else:
+  template log(msg: string, body: untyped) =
+    if mode in {ScriptMode.Verbose, ScriptMode.Whatif}:
+      echo "[NimScript] ", msg
+    if mode != ScriptMode.Whatif:
+      body
+  
 
 template checkError(exc: untyped): untyped =
   let err = getError()
@@ -198,12 +144,6 @@ template checkError(exc: untyped): untyped =
 
 template checkOsError =
   checkError(OSError)
-
-template log(msg: string, body: untyped) =
-  if mode in {ScriptMode.Verbose, ScriptMode.Whatif}:
-    echo "[NimScript] ", msg
-  if mode != ScriptMode.Whatif:
-    body
 
 proc listDirs*(dir: string): seq[string] =
   ## Lists all the subdirectories (non-recursively) in the directory `dir`.
@@ -262,16 +202,12 @@ proc exec*(command: string) {.
   raises: [OSError], tags: [ExecIOEffect, WriteIOEffect].} =
   ## Executes an external process. If the external process terminates with
   ## a non-zero exit code, an OSError exception is raised.
-  ##
-  ## **Note:** If you need a version of `exec` that returns the exit code
-  ## and text output of the command, you can use `system.gorgeEx
-  ## <system.html#gorgeEx,string,string,string>`_.
   log "exec: " & command:
     if rawExec(command) != 0:
       raise newException(OSError, "FAILED: " & command)
     checkOsError()
 
-proc exec*(command: string, input: string, cache = "") {.
+proc exec*(command: string, input: string, cache = ""): string {.
   raises: [OSError], tags: [ExecIOEffect, WriteIOEffect].} =
   ## Executes an external process. If the external process terminates with
   ## a non-zero exit code, an OSError exception is raised.
@@ -279,21 +215,17 @@ proc exec*(command: string, input: string, cache = "") {.
     let (output, exitCode) = gorgeEx(command, input, cache)
     if exitCode != 0:
       raise newException(OSError, "FAILED: " & command)
-    echo output
+    result = output
 
 proc selfExec*(command: string) {.
   raises: [OSError], tags: [ExecIOEffect, WriteIOEffect].} =
-  ## Executes an external command with the current nim/nimble executable.
+  ## Executes an external command with the current script executable.
   ## `Command` must not contain the "nim " part.
   let c = selfExe() & " " & command
   log "exec: " & c:
     if rawExec(c) != 0:
       raise newException(OSError, "FAILED: " & c)
     checkOsError()
-
-proc put*(key, value: string) =
-  ## Sets a configuration 'key' like 'gcc.options.always' to its value.
-  builtin
 
 proc get*(key: string): string =
   ## Retrieves a configuration 'key' like 'gcc.options.always'.
@@ -306,18 +238,6 @@ proc exists*(key: string): bool =
 
 proc nimcacheDir*(): string =
   ## Retrieves the location of 'nimcache'.
-  builtin
-
-proc projectName*(): string =
-  ## Retrieves the name of the current project
-  builtin
-
-proc projectDir*(): string =
-  ## Retrieves the absolute directory of the current project
-  builtin
-
-proc projectPath*(): string =
-  ## Retrieves the absolute path of the current project
   builtin
 
 proc thisDir*(): string =
@@ -359,18 +279,6 @@ template withDir*(dir: string; body: untyped): untyped =
   finally:
     cd(curDir)
 
-
-proc writeTask(name, desc: string) =
-  if desc.len > 0:
-    var spaces = " "
-    for i in 0 ..< 20 - name.len: spaces.add ' '
-    echo name, spaces, desc
-
-proc cppDefine*(define: string) =
-  ## tell Nim that `define` is a C preprocessor `#define` and so always
-  ## needs to be mangled.
-  builtin
-
 proc stdinReadLine(): string {.
   tags: [ReadIOEffect], raises: [IOError].} =
   builtin
@@ -391,62 +299,6 @@ proc readAllFromStdin*(): string {.raises: [IOError].} =
     result = stdinReadAll()
     checkError(EOFError)
 
-when not defined(nimble): # TODO: toss out nimble junk
-  template `==?`(a, b: string): bool = cmpIgnoreStyle(a, b) == 0
-  template task*(name: untyped; description: string; body: untyped): untyped =
-    ## Defines a task. Hidden tasks are supported via an empty description.
-    ##
-    ## Example:
-    ##
-    ## .. code-block:: nim
-    ##  task build, "default build is via the C backend":
-    ##    setCommand "c"
-    ##
-    ## For a task named `foo`, this template generates a `proc` named
-    ## `fooTask`.  This is useful if you need to call one task in
-    ## another in your Nimscript.
-    ##
-    ## Example:
-    ##
-    ## .. code-block:: nim
-    ##  task foo, "foo":        # > nim foo
-    ##    echo "Running foo"    # Running foo
-    ##
-    ##  task bar, "bar":        # > nim bar
-    ##    echo "Running bar"    # Running bar
-    ##    fooTask()             # Running foo
-    proc `name Task`*() =
-      setCommand "nop"
-      body
-
-    let cmd = getCommand()
-    if cmd.len == 0 or cmd ==? "help":
-      setCommand "help"
-      writeTask(astToStr(name), description)
-    elif cmd ==? astToStr(name):
-      `name Task`()
-
-  # nimble has its own implementation for these things.
-  var
-    packageName* = ""    ## Nimble support: Set this to the package name. It
-                         ## is usually not required to do that, nims' filename is
-                         ## the default.
-    version*: string     ## Nimble support: The package's version.
-    author*: string      ## Nimble support: The package's author.
-    description*: string ## Nimble support: The package's description.
-    license*: string     ## Nimble support: The package's license.
-    srcDir*: string      ## Nimble support: The package's source directory.
-    binDir*: string      ## Nimble support: The package's binary directory.
-    backend*: string     ## Nimble support: The package's backend.
-
-    skipDirs*, skipFiles*, skipExt*, installDirs*, installFiles*,
-      installExt*, bin*: seq[string] = @[] ## Nimble metadata.
-    requiresData*: seq[string] = @[] ## Exposes the list of requirements for read
-                                     ## and write accesses.
-
-  proc requires*(deps: varargs[string]) =
-    ## Nimble support: Call this to set the list of requirements of your Nimble
-    ## package.
-    for d in deps: requiresData.add(d)
+template `==?`(a, b: string): bool = cmpIgnoreStyle(a, b) == 0
 
 {.pop.}

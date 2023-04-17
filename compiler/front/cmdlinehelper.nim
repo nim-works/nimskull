@@ -38,6 +38,8 @@ import
     extccomp
   ]
 
+from std/strutils import endsWith
+
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_lexer import LexerReport
 from compiler/ast/reports_parser import ParserReport
@@ -349,12 +351,11 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
   # load all config files
   loadConfigs(DefaultConfig, cache, conf)
 
-  if not self.suggestMode:
-    let scriptFile = conf.projectFull.changeFileExt("nims")
-    # 'nim foo.nims' means to just run the NimScript file and do nothing more:
-    if fileExists(scriptFile) and scriptFile == conf.projectFull:
-      if conf.cmd == cmdNone: conf.setCmd cmdNimscript
-      if conf.cmd == cmdNimscript: return false
+  # `nim foo.nims` means execute the nimscript
+  if not self.suggestMode and conf.cmd == cmdNone and
+      conf.projectFull.string.endsWith ".nims":
+    conf.setCmd cmdNimscript
+
   # now process command line arguments again, because some options in the
   # command line can overwrite the config file's settings
   extccomp.initVars(conf)

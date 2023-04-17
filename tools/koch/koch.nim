@@ -529,6 +529,8 @@ proc installDeps(dep: string, commit = "") =
   # xxx: also add linenoise, niminst etc, refs https://github.com/nim-lang/RFCs/issues/206
 
 proc testTools(cmd: string) =
+  # xxx: temporarily placing nimscript testing to ensure it's at least running
+  nimexecFold("Test nimscript", "e tests/test_nimscript.nims")
   nimexecFold("Run nimdoc tests", "r nimdoc/tester")
   nimexecFold("Run rst2html tests", "r nimdoc/rsttester")
   # refs #18385, build with -d:release instead of -d:danger for testing
