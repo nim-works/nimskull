@@ -481,11 +481,7 @@ proc handleGenericInvocation(cl: var TReplTypeVars, t: PType): PType =
   cl.typeMap = newTypeMapLayer(cl)
 
   for i in 1..<t.len:
-    var x = replaceTypeVarsT(cl):
-      if header[i].kind == tyGenericInst:
-        t[i]
-      else:
-        header[i]
+    let x = replaceTypeVarsT(cl, header[i])
     assert x.kind != tyGenericInvocation
     header[i] = x
     propagateToOwner(header, x)
@@ -624,7 +620,7 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
     if result.lastSon.kind == tyUserTypeClass:
       result.kind = tyUserTypeClassInst
 
-  of tyGenericBody:
+  of tyGenericBody, tyCompositeTypeClass:
     cl.c.config.localReport(cl.info, reportTyp(rsemCannotInstantiate,t))
 
     result = errorType(cl.c)
@@ -675,13 +671,19 @@ proc replaceTypeVarsTAux(cl: var TReplTypeVars, t: PType): PType =
   of tyUserTypeClass, tyStatic:
     result = t
 
-  of tyGenericInst, tyUserTypeClassInst:
+  of tyUserTypeClassInst:
     bailout()
     result = instCopyType(cl, t)
     idTablePut(cl.localCache, t, result)
     for i in 1..<result.len:
       result[i] = replaceTypeVarsT(cl, result[i])
     propagateToOwner(result, result.lastSon)
+
+  of tyGenericInst:
+    # do nothing for ``tyGenericInst`` instances. Concrete ones don't need any
+    # replacing, and meta ones are handled at the callsite
+    doAssert(cl.allowMetaTypes or not containsGenericType(t))
+    result = t
 
   else:
     if containsGenericType(t):
