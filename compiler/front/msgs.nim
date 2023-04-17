@@ -155,14 +155,6 @@ proc toFilenameOption*(conf: ConfigRef, fileIdx: FileIndex, opt: FilenameOption)
     let absPath = toFullPath(conf, fileIdx)
     result = canonicalImportAux(conf, absPath.AbsoluteFile)
   of foName: result = toProjPath(conf, fileIdx).lastPathPart
-  of foLegacyRelProj:
-    let
-      absPath = toFullPath(conf, fileIdx)
-      relPath = toProjPath(conf, fileIdx)
-    result = if (relPath.len > absPath.len) or (relPath.count("..") > 2):
-               absPath
-             else:
-               relPath
   of foStacktrace:
     if optExcessiveStackTrace in conf.globalOptions:
       result = toFilenameOption(conf, fileIdx, foAbs)

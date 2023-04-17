@@ -35,7 +35,7 @@ Advanced options:
   --stdout:on|off           output to stdout
   --colors:on|off           turn compiler messages coloring on|off
   --msgFormat:text|sexp     Select compiler message format - text or S-expressions
-  --filenames:abs|canonical|legacyRelProj
+  --filenames:abs|canonical
                             customize how filenames are rendered in compiler messages,
                             defaults to `abs` (absolute)
   --processing:dots|filenames|off
