@@ -1,7 +1,7 @@
 when defined(nimHasLentIterators) and not defined(nimNoLentIterators):
-  template lent2(T): untyped = lent T
+  template lent2(T): typedesc = lent T
 else:
-  template lent2(T): untyped = T
+  template lent2(T): typedesc = T
 
 iterator items*[T: not char](a: openArray[T]): lent2 T {.inline.} =
   ## Iterates over each item of `a`.

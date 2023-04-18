@@ -2010,6 +2010,12 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
         # skip 'owned' in type expressions and produce a warning
         localReport(c.config, n, reportSem rsemOwnedTypeDeprecated)
         result = semTypeExpr(c, n[1], prev)
+      elif (op.s == "sink" or op.s == "lent") and n.len == 2:
+        # it's a 'sink T' or 'lent T' expression
+        # XXX: consider introducing special words for both (i.e., ``wLent``,
+        #      ``wSink``)
+        result = newOrPrevType((if op.s == "sink": tySink else: tyLent), nil, c)
+        result.rawAddSonNoPropagationOfTypeFlags semTypeNode(c, n[1], nil)
       else:
         if c.inGenericContext > 0 and n.kind == nkCall:
           result = makeTypeFromExpr(c, n.copyTree)

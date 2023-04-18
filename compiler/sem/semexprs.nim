@@ -281,20 +281,7 @@ proc semConv(c: PContext, n: PNode): PNode =
 
   var hasError = false
 
-  template handleLentOrSunkType(c: PContext, op: PNode, info: TLineInfo, targetType: PType): PNode =
-    let
-      baseType = semTypeNode(c, op, nil).skipTypes({tyTypeDesc})
-      t = newTypeS(targetType.kind, c)
-      res = newNodeI(nkType, info)
-    
-    t.rawAddSonNoPropagationOfTypeFlags baseType
-    
-    res.typ = makeTypeDesc(c, t)
-    res
-
-  if targetType.kind in {tySink, tyLent}:
-    return handleLentOrSunkType(c, n[1], n.info, targetType)
-  else:
+  block:
     let s = qualifiedLookUp(c, n[0], {})
     if s.isError:
       result.add s.ast
