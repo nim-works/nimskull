@@ -21,6 +21,7 @@ import
   compiler/ast/[
     ast,
     astalgo,
+    checked_ast,
     trees,
     wordrecg,
     renderer,
