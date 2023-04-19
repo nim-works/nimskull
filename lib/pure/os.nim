@@ -68,7 +68,7 @@ else:
   {.pragma: noWeirdTarget.}
 
 when defined(nimscript):
-  # for procs already defined in scriptconfig.nim
+  # for procs already defined in scripting.nim
   template noNimJs(body): untyped = discard
 elif defined(js):
   {.pragma: noNimJs, error: "this proc is not available on the js target".}

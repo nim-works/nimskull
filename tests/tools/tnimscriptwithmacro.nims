@@ -1,17 +1,11 @@
-discard """
-cmd: "nim e $file"
-output: '''
-foobar
-nothing
-hallo
-"""
+# run by tnimscriptwithmacro_runner.nim until testament support script testing
 
-# this test ensures that the mode is resetted correctly to repr
+# this test ensures that the mode is reset correctly to repr
 
-import macros
+import std/macros
 
-macro foobar(): void =
-  result = newCall(bindSym"echo", newLit("nothing"))
+macro foobar() =
+  result = newCall(ident"echo", newLit("nothing"))
 
 echo "foobar"
 

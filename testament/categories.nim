@@ -340,9 +340,8 @@ proc isJoinableSpec(spec: TSpec, targets: set[TTarget]): bool =
   result = useMegatest and not spec.sortoutput and
     spec.action == actionRun and
     not fileExists(spec.file.changeFileExt("cfg")) and
-    not fileExists(spec.file.changeFileExt("nims")) and
+    not fileExists(spec.file.changeFileExt("nim.cfg")) and
     not fileExists(parentDir(spec.file) / "nim.cfg") and
-    not fileExists(parentDir(spec.file) / "config.nims") and
     spec.cmd.len == 0 and
     spec.err notin {reDisabled, reKnownIssue} and
     not spec.unjoinable and

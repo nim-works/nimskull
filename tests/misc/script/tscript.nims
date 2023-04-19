@@ -1,44 +1,8 @@
+# executed via tests/misc/trunner.nim (TODO: make testament support scripting)
 
 mode = ScriptMode.Whatif
 
 exec "gcc -v"
-
---define:release
-
---forceBuild
---path: "../lang_objects/friends"
-
-warning("uninit", off)
-
-block: # supported syntaxes for hint,warning,switch
-  --hint:processing
-  hint("processing", on)
-  hint("processing", off)
-  switch("hint", "processing")
-  switch("hint", "processing:on")
-  switch("hint", "processing:off")
-  switch("hint", "[processing]")
-  switch("hint", "[processing]:on")
-  switch("hint", "[processing]:off") # leave it off
-
-  --warning:UnusedImport
-  switch("warning", "UnusedImport:off")
-  switch("warning", "UnusedImport:on")
-  switch("warning", "[UnusedImport]:off")
-  switch("warning", "[UnusedImport]:on")
-  switch("warning", "[UnusedImport]")
-  switch("warning", "UnusedImport") # leave it on
-
-#--verbosity:2
-patchFile("stdlib", "math", "mymath")
-
-task listDirs, "lists every subdirectory":
-  for x in listDirs("."):
-    echo "DIR ", x
-
-task default, "default target":
-  --define: definedefine
-  setCommand "c"
 
 # bug #6327
 doAssert(existsEnv("dummy") == false)
@@ -64,17 +28,12 @@ when false:
 # general tests
 mode = ScriptMode.Verbose
 
-doAssert getCommand() == "c"
-setCommand("js")
-doAssert getCommand() == "js"
-setCommand("c")
-
 doAssert cmpic("HeLLO", "hello") == 0
 
-doAssert fileExists("tests/newconfig/tfoo.nims") == true
+doAssert fileExists("tests/misc/script/tscript.nims") == true
 doAssert dirExists("tests") == true
 
-doAssert fileExists("tests/newconfig/tfoo.nims") == true
+doAssert fileExists("tests/misc/script/tscript.nims") == true
 doAssert dirExists("tests") == true
 
 discard selfExe()
@@ -106,3 +65,14 @@ when false:
 
 rmDir("tempXYZ")
 doAssert dirExists("tempXYZ") == false
+
+import std/strtabs
+block ensure_strtab_interpolation_works_in_scripting_env:
+  # the strtab module relied on `os.getEnv` explicitly, now it's no longer
+  # fully qualified, so it'll pick-up `getEnv` the script VM instrinsic
+  # xxx: make an `os` module _for_ scripting so things just work?
+  static:
+    let t = {"name": "John", "city": "Monaco"}.newStringTable
+    doAssert "${name} lives in ${city}" % t == "John lives in Monaco"
+  let t = {"name": "John", "city": "Monaco"}.newStringTable
+  doAssert "${name} lives in ${city}" % t == "John lives in Monaco"

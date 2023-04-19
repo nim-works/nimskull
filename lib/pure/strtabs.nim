@@ -78,6 +78,7 @@ type
     useEnvironment,  ## Use environment variable if the ``$key``
                      ## is not found in the table.
                      ## Does nothing when using `js` target.
+                     ## Note: this "functionality" will be removed
     useEmpty,        ## Use the empty string as a default, thus it
                      ## won't throw an exception if ``$key`` is not
                      ## in the table.
@@ -302,6 +303,9 @@ proc getValue(t: StringTableRef, flags: set[FormatFlag], key: string): string =
   when defined(js) or defined(nimscript) or defined(Standalone):
     result = ""
   else:
+    # TODO: remove this functionality entirely from this module, at most
+    #       allow for a callback; but incurring a dependency on `std/os` with
+    #       messy conditional logic is daft.
     if useEnvironment in flags: result = getEnv(key)
     else: result = ""
   if result.len == 0:

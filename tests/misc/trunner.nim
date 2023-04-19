@@ -191,30 +191,31 @@ sub/mmain.idx""", context
       let cmd = fmt"{nim} r --backend:{mode} --hints:off --nimcache:{nimcache} {file}"
       check execCmdEx(cmd) == ("ok3\n", 0)
 
-  block: # config.nims, nim.cfg, hintConf, bug #16557
-    let cmd = fmt"{nim} r --skipUserCfg --hints=on --hint=all:off --hint=conf:on tests/newconfig/bar/mfoo.nim"
-    let (outp, exitCode) = execCmdEx(cmd, options = {poStdErrToStdOut})
+  block: # order of package config then project config
+    let
+      cmd = fmt"{nim} r --skipUserCfg --hints=on --hint=all:off --hint=conf:on tests/misc/config/bar/mfoo.nim"
+      (outp, exitCode) = execCmdEx(cmd, options = {poStdErrToStdOut})
     doAssert exitCode == 0
-    let dir = getCurrentDir()
-    let files = """
-tests/config.nims
-tests/newconfig/bar/nim.cfg
-tests/newconfig/bar/config.nims
-tests/newconfig/bar/mfoo.nim.cfg
-tests/newconfig/bar/mfoo.nims""".splitLines
-    var expected = ""
-    for a in files:
-      let b = dir / a
-      expected.add &"Hint: used config file '{b}' [Conf]\n"
+    let
+      dir = getCurrentDir()
+      files = ["tests/misc/config/bar/nim.cfg", "tests/misc/config/bar/mfoo.nim.cfg"]
+      expected = files.mapIt("Hint: used config file '$1' [Conf]\n" % (dir / it)).join("")
     doAssert outp.endsWith expected, outp & "\n" & expected
 
-  block: # mfoo2.customext
-    let filename = testsDir / "newconfig/foo2/mfoo2.customext"
+  block: # scripting allows custom extensions mfoo2.customext
+    let filename = testsDir / "misc/config/foo2/mfoo2.customext"
     let cmd = fmt"{nim} e --skipUserCfg --hints=on --hint=all:off --hint:conf {filename}"
     let (outp, exitCode) = execCmdEx(cmd, options = {poStdErrToStdOut})
     doAssert exitCode == 0
     doAssert outp.endsWith "123" & "\n"
 
+  block: # test scripting apis
+    let
+      filename = testsDir / "misc/script/tscript.nims"
+      cmd = fmt"{nim} e --skipUserCfg --hints=on --hint=all:off --hint:conf {filename}"
+      (outp, exitCode) = execCmdEx(cmd, options = {poStdErrToStdOut})
+    doAssert exitCode == 0, outp
+    doAssert outp != "", outp
 
   block: # nim --fromcmd
     let opt = "--hints:off"
