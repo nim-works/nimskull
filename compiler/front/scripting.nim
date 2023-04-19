@@ -93,13 +93,6 @@ proc setupVM(module: PSym; cache: IdentCache; scriptName: string;
   template cbos(name, body) {.dirty.} =
     cbexc(name, OSError, body)
 
-  template guardEffect(body) {.dirty.} =
-    # might not be needed once this is no longer allowed for configs
-    if defined(nimsuggest) or graph.config.cmd == cmdCheck:
-      discard
-    else:
-      body
-
   result.registerCallback "stdlib.system.getError",
     proc (a: VmArgs) = setResult(a, errorMsg)
 
@@ -110,11 +103,9 @@ proc setupVM(module: PSym; cache: IdentCache; scriptName: string;
   cbos listDirsImpl:
     listDirs(a, {pcDir})
   cbos removeDir:
-    guardEffect:
-      os.removeDir(getString(a, 0), getBool(a, 1))
+    os.removeDir(getString(a, 0), getBool(a, 1))
   cbos removeFile:
-    guardEffect:
-      os.removeFile getString(a, 0)
+    os.removeFile getString(a, 0)
   cbos createDir:
     os.createDir getString(a, 0)
   cbos setCurrentDir:
@@ -122,27 +113,21 @@ proc setupVM(module: PSym; cache: IdentCache; scriptName: string;
   cbos getCurrentDir:
     setResult(a, os.getCurrentDir())
   cbos moveFile:
-    guardEffect:
-      os.moveFile(getString(a, 0), getString(a, 1))
+    os.moveFile(getString(a, 0), getString(a, 1))
   cbos moveDir:
-    guardEffect:
-      os.moveDir(getString(a, 0), getString(a, 1))
+    os.moveDir(getString(a, 0), getString(a, 1))
   cbos copyFile:
-    guardEffect:
-      os.copyFile(getString(a, 0), getString(a, 1))
+    os.copyFile(getString(a, 0), getString(a, 1))
   cbos copyDir:
-    guardEffect:
-      os.copyDir(getString(a, 0), getString(a, 1))
+    os.copyDir(getString(a, 0), getString(a, 1))
   cbos getLastModificationTime:
     setResult(a, getLastModificationTime(getString(a, 0)).toUnix)
   cbos findExe:
     setResult(a, os.findExe(getString(a, 0)))
   cbos rawExec:
-    guardEffect:
-      setResult(a, osproc.execCmd getString(a, 0))
+    setResult(a, osproc.execCmd getString(a, 0))
   cbio writeFile:
-    guardEffect:
-      system.writeFile(getString(a, 0), getString(a, 1))
+    system.writeFile(getString(a, 0), getString(a, 1))
   cbconf getEnv:
     setResult(a, os.getEnv(a.getString 0, a.getString 1))
   cbconf existsEnv:
@@ -174,13 +159,11 @@ proc setupVM(module: PSym; cache: IdentCache; scriptName: string;
   cbconf selfExe:
     setResult(a, os.getAppFilename())
   cbexc stdinReadLine, EOFError:
-    guardEffect:
-      setResult(a, "")
-      setResult(a, stdin.readLine())
+    setResult(a, "")
+    setResult(a, stdin.readLine())
   cbexc stdinReadAll, EOFError:
-    guardEffect:
-      setResult(a, "")
-      setResult(a, stdin.readAll())
+    setResult(a, "")
+    setResult(a, stdin.readAll())
 
 proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
                    freshDefines=true; conf: ConfigRef, stream: PLLStream) =

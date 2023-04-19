@@ -460,11 +460,8 @@ proc execCmd(cmd: string; graph: ModuleGraph; cachedMsgs: CachedMsgs) =
     results.send(Suggest(section: ideNone))
 
   template toggle(sw) =
-    if sw in conf.globalOptions:
-      excl(conf, sw)
-    else:
-      incl(conf, sw)
-
+    if sw in conf.globalOptions: excl(conf, sw)
+    else:                        incl(conf, sw)
     sentinel()
     return
 

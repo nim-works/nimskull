@@ -460,8 +460,7 @@ proc loadConfigs(
   ) =
   setDefaultLibpath(N.config)
 
-  proc readConfigFile(N: var NimConfParser, path: AbsoluteFile) =
-    let configPath = path
+  proc readConfigFile(N: var NimConfParser, configPath: AbsoluteFile) =
     if readConfigFile(N, configPath, cache):
       N.config.configFiles.add(configPath)
 
@@ -471,10 +470,10 @@ proc loadConfigs(
   if optSkipUserConfigFile notin N.config.globalOptions:
     N.readConfigFile(getUserConfigPath(cfg))
 
-  let pd = if not N.config.projectPath.isEmpty:
-             N.config.projectPath
-           else:
+  let pd = if N.config.projectPath.isEmpty:
              AbsoluteDir(getCurrentDir())
+           else:
+             N.config.projectPath
 
   if optSkipParentConfigFiles notin N.config.globalOptions:
     for dir in parentDirs(pd.string, fromRoot=true, inclusive=false):
@@ -489,10 +488,6 @@ proc loadConfigs(
       if not fileExists(projectConfig):
         projectConfig = changeFileExt(N.config.projectFull, "nim.cfg")
       N.readConfigFile(projectConfig)
-
-  let
-    scriptFile = N.config.projectFull.changeFileExt("nims")
-    scriptIsProj = scriptFile == N.config.projectFull
 
   for filename in N.config.configFiles:
     # delayed to here so that `hintConf` is honored
