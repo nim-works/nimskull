@@ -75,8 +75,7 @@ const
     wBorrow, wImportCompilerProc, wThread,
     wAsmNoStackFrame, wDiscardable, wNoInit, wCodegenDecl,
     wGensym, wInject, wRaises, wEffectsOf, wTags, wLocks, wDelegator, wGcSafe,
-    wStackTrace, wLineTrace, wNoDestroy,
-    wEnforceNoRaises}
+    wStackTrace, wLineTrace, wNoDestroy}
   converterPragmas* = procPragmas
   methodPragmas* = procPragmas+{wBase}-{wOverride}
   templatePragmas* = {wDeprecated, wError, wGensym, wInject, wDirty,
@@ -1414,9 +1413,6 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
       of wUsed:
         result = noVal(c, it)
         sym.flags.incl sfUsed
-      of wEnforceNoRaises:
-        result = noVal(c, it)
-        sym.flags.incl sfNeverRaises
       of wCast:
         result = c.config.newError(it, PAstDiag(kind: adSemCastRequiresStatement))
       of wInvalid:

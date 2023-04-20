@@ -93,6 +93,9 @@ proc setFrameState*(state: FrameState) {.compilerRtl, inl.} =
 proc getFrame*(): PFrame {.compilerRtl, inl.} = framePtr
 
 proc popFrame {.compilerRtl, inl.} =
+  # note: this procedure is potentially called while unwinding is happening,
+  # and thus must not, under any circumstances, perfom any action that might
+  # test or alter the error flag
   framePtr = framePtr.prev
 
 when false:

@@ -836,10 +836,18 @@ proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
 
   p.flags.incl nimErrorFlagAccessed
 
+  var errorFlagSet = false ## tracks whether the error flag is set to 'true'
+    ## on a control-flow path connected to the finally section
+
+  template checkSetsErrorFlag(n: PNode) =
+    if fin != nil and not errorFlagSet:
+      errorFlagSet = bodyCanRaise(p, n)
+
   if not isEmptyType(t.typ) and d.k == locNone:
     getTemp(p, t.typ, d)
 
   expr(p, t[0], d)
+  checkSetsErrorFlag(t[0])
 
   if 1 < t.len and t[1].kind == nkExceptBranch:
     startBlock(p, "if (NIM_UNLIKELY(*nimErr_)) {$n")
@@ -864,6 +872,7 @@ proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
       # we handled the exception, remember this:
       linefmt(p, cpsStmts, "*nimErr_ = NIM_FALSE;$n", [])
       expr(p, t[i][0], d)
+      checkSetsErrorFlag(t[i][0])
     else:
       var orExpr = ""
       for j in 0..<t[i].len - 1:
@@ -881,6 +890,7 @@ proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
       # we handled the exception, remember this:
       linefmt(p, cpsStmts, "*nimErr_ = NIM_FALSE;$n", [])
       expr(p, t[i][^1], d)
+      checkSetsErrorFlag(t[i][^1])
 
     linefmt(p, cpsStmts, "#popCurrentException();$n", [])
     linefmt(p, cpsStmts, "LA$1_:;$n", [nextExcept])
@@ -892,9 +902,14 @@ proc genTryGoto(p: BProc; t: PNode; d: var TLoc) =
 
   if i < t.len and t[i].kind == nkFinally:
     startBlock(p)
-    if not bodyCanRaise(p, t[i][0]):
-      # this is an important optimization; most destroy blocks are detected not to raise an
-      # exception and so we help the C optimizer by not mutating nimErr_ pointlessly:
+    # future direction: the code generator should track for each procedure
+    # whether it observes the error flag. If the finally clause's body
+    # doesn't observes it itself, and also doesn't call any procedure that
+    # does, we can also omit the save/restore pair
+    if not errorFlagSet:
+      # this is an optimization; if the error flag is proven to never be
+      # 'true' when the finally section is reached, we don't need to erase
+      # nor restore it:
       genStmts(p, t[i][0])
     else:
       # pretend we did handle the error for the safe execution of the 'finally' section:
