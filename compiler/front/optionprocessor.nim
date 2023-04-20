@@ -656,8 +656,6 @@ type
         processedNimblePath*: ProcSwitchNimblePathResult
       else:
         discard
-    # deprecatedNoopSwitch*: bool
-    deprecatedNoopSwitchArg*: bool    # TODO: only applicable to success now
     case kind*: ProcSwitchResultKind:
       of procSwitchSuccess:
         # Note: if expanding with more info, then multi-level variant might be
@@ -689,6 +687,12 @@ type
         nimblePathResult*: NimblePathResult
       of false:
         discard
+  
+  ProcSwitchResultErrorKind* =
+    range[procSwitchErrInvalid..procSwitchErrArgInvalidHintOrWarning]
+
+const procSwitchResultErrorKinds* =
+  {procSwitchErrInvalid..procSwitchErrArgInvalidHintOrWarning}
 
 proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
                     conf: ConfigRef): ProcSwitchResult =

@@ -92,23 +92,18 @@ proc legacyReportBridge(r: ProcessNoteResult): Option[ExternalReport] =
   of procNoteSuccess:
     none[ExternalReport]()
 
-proc legacyReportProcNote*(conf: ConfigRef, r: ProcessNoteResult, info: TLineInfo) =
+proc legacyReportProcNote(conf: ConfigRef, r: ProcessNoteResult, info: TLineInfo) =
   ## processes a hint/warn/error config switch, then bridges into legacy
   ## reports to keep the rest of the codebase isolated from them.
   let legacy = legacyReportBridge(r)
   if legacy.isSome:
     conf.localReport(info, legacy.unsafeGet())
 
-proc legacyReportProcSwitch*(conf: ConfigRef, r: ProcSwitchResult,
+proc legacyReportProcSwitch(conf: ConfigRef, r: ProcSwitchResult,
                              info: TLineInfo) =
   ## processes a config switch, then bridges into legacy reports to keep the
   ## rest of the codebase isolated from them.
   # TODO: before merge push out reports and move to CLI events/output
-  if r.deprecatedNoopSwitchArg:
-    conf.localReport(info):
-      ExternalReport(kind: rextCfgArgDeprecatedNoop,
-                     cmdlineSwitch: r.givenSwitch,
-                     cmdlineProvided: r.givenArg)
   case r.kind
   of procSwitchSuccess: discard
   of procSwitchErrInvalid:
@@ -178,7 +173,7 @@ proc legacyReportProcSwitch*(conf: ConfigRef, r: ProcSwitchResult,
       conf.localReport(info, legacy.unsafeGet())
   case r.switch
   of cmdSwitchNimblepath:
-    if r.processedNimblePath.didProcess:
+    if conf.hasHint(rextPath) and r.processedNimblePath.didProcess:
       for np in r.processedNimblePath.nimblePathResult.addedPaths:
         conf.localReport(info):
           ExternalReport(kind: rextPath, packagePath: np.string)
@@ -216,7 +211,7 @@ proc handleConfigEvent(
       rdbgFinishedConfRead
     of cekProgressConfStart:
       rextConf
-    of cekFlagAssignment:
+    of cekFlagError:
       legacyReportProcSwitch(conf, evt.flagResult, evt.flagInfo)
       return
 

@@ -227,36 +227,33 @@ static:
   doAssert unaccountedForEvtKinds == {}, "Uncategorized event kinds: " &
                                             $unaccountedForEvtKinds
 
-proc procSwitchResultToEvents*(pass: TCmdLinePass, p: OptParser,
+proc procSwitchResultToEvents*(conf: ConfigRef, pass: TCmdLinePass,
+                               origParseOptKey, origParseOptVal: string,
                                r: ProcSwitchResult): seq[CliEvent] =
   # Note: the order in which this generates events is the order in which
   #       they're output, rearrange code carefully.
-  if r.deprecatedNoopSwitchArg:
-    result.add:
-      CliEvent(kind: cliEvtWarnSwitchValDeprecatedNoop,
-                pass: pass,
-                origParseOptKey: p.key,
-                origParseOptVal: p.val,
-                procResult: r,
-                srcCodeOrigin: instLoc())
   case r.kind
   of procSwitchSuccess: discard
   else:
     result.add:
       CliEvent(kind: cliEvtErrFlagProcessing,
                 pass: pass,
-                origParseOptKey: p.key,
-                origParseOptVal: p.val,
+                origParseOptKey: origParseOptKey,
+                origParseOptVal: origParseOptVal,
                 procResult: r,
                 srcCodeOrigin: instLoc())
   case r.switch
   of cmdSwitchNimblepath:
-    if r.processedNimblePath.didProcess:
+    if conf.hasHint(rextPath) and r.processedNimblePath.didProcess:
       for res in r.processedNimblePath.nimblePathResult.addedPaths:
         result.add:
           CliEvent(kind: cliEvtHintPathAdded, pathAdded: res.string)
   else:
     discard
+
+proc cfgEvtsToCliEvents*(conf: ConfigRef, evt: ConfigFileEvent,
+                         reportFrom: InstantiationInfo): seq[CliEvent] =
+  discard "TODO: implement me"
 
 proc writeLog(conf: ConfigRef, msg: string, evt: CliEvent) {.inline.} =
   conf.writeLog(msg, evt.srcCodeOrigin)
@@ -552,7 +549,7 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string, config: ConfigRef) =
         # and puts them in necessary configuration fields.
         let
           res = processSwitch(pass, p, config)
-          evts = procSwitchResultToEvents(pass, p, res)
+          evts = procSwitchResultToEvents(config, pass, p.key, p.val, res)
         for e in evts.items:
           config.cliEventLogger(e)
     of cmdArgument:

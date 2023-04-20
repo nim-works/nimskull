@@ -668,7 +668,7 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
       else:
         let
           res = processSwitch(pass, p, conf)
-          evts = procSwitchResultToEvents(pass, p, res)
+          evts = procSwitchResultToEvents(conf, pass, p.key, p.val, res)
         for e in evts.items:
           conf.cliEventLogger(e)
     of cmdArgument:

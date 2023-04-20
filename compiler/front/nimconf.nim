@@ -50,11 +50,10 @@ type
     cekInternalError
     # fatal errors end
 
-    # unclassified event begin
-    cekFlagAssignment
-    # unclassified event end
-
     # users errors begin
+
+    # flag parsing/processing error
+    cekFlagError             ## error from flag processing
 
     # lexer generated
     cekLexerErrorDiag        ## lexer error being forwarded
@@ -76,6 +75,10 @@ type
     cekLexerHintDiag         ## hint from the lexer
     # hint end
 
+    # progress begin
+    cekProgressConfStart
+    # progress end
+
     # user output start
     cekWriteConfig           ## write out the config
     # user output end
@@ -86,10 +89,6 @@ type
     cekDebugReadStop         ## stop config file read
     # debug end
 
-    # progress begin
-    cekProgressConfStart
-    # progress end
-
   ConfigFileEvent* = object
     case kind*: ConfigFileEventKind:
       of cekParseExpectedX, cekParseExpectedCloseX, cekParseExpectedIdent,
@@ -98,7 +97,7 @@ type
       of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag,
          cekLexerHintDiag:
         lexerDiag*: LexerDiag
-      of cekFlagAssignment:
+      of cekFlagError:
         flagResult*: ProcSwitchResult
         flagInfo*: TLineInfo
       of cekDebugReadStart, cekDebugReadStop, cekProgressConfStart:
@@ -160,9 +159,10 @@ proc handleTrace(N: NimConfParser, trace: string, instLoc = instLoc(-1)) =
     N.cfgEvtHandler(N.lexer.config, e, instLoc)
 
 proc handleRead(N: NimConfParser,
-                evt: range[cekDebugReadStart..cekProgressConfStart],
+                evt: ConfigFileEventKind,
                 filename: string,
                 instLoc = instLoc(-1)) =
+    doAssert evt in {cekDebugReadStart, cekDebugReadStop, cekProgressConfStart}
     let e = ConfigFileEvent(kind: evt,
                             instLoc: instLoc,
                             msg: filename)
@@ -403,9 +403,12 @@ proc parseAssignment(N: var NimConfParser, tok: var Token) =
       else:
         val
     r = processSwitch(s, v, passPP, N.config)
-    evt = ConfigFileEvent(kind: cekFlagAssignment, flagResult: r,
-                          flagInfo: info)
-  N.cfgEvtHandler(N.config, evt, instLoc())
+  case r.kind
+  of procSwitchSuccess: discard # ignore
+  of procSwitchResultErrorKinds:
+    let evt = ConfigFileEvent(kind: cekFlagError, flagResult: r,
+                              flagInfo: info)
+    N.cfgEvtHandler(N.config, evt, instLoc())
 
 proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
                     cache: IdentCache): bool =
