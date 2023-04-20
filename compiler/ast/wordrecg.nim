@@ -80,7 +80,6 @@ type
     wAsmNoStackFrame = "asmNoStackFrame", wImplicitStatic = "implicitStatic",
     wGlobal = "global", wCodegenDecl = "codegenDecl", wUnchecked = "unchecked",
     wGuard = "guard", wLocks = "locks", wExplain = "explain",
-    wEnforceNoRaises = "enforceNoRaises",
 
     wAuto = "auto", wBool = "bool", wCatch = "catch", wChar = "char",
     wClass = "class", wCompl = "compl", wConst_cast = "const_cast", wDefault = "default",
