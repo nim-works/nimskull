@@ -420,7 +420,12 @@ when gotoBasedExceptions:
     ## This proc must be called before `currException` is destroyed.
     ## It also must be called at the end of every thread to ensure no
     ## error is swallowed.
-    if nimInErrorMode and currException != nil:
+    # clear the error flag before doing anything else. Otherwise the first
+    # non-magic call would cause this procedure to exit
+    var wasInErrorMode = false
+    swap(nimInErrorMode, wasInErrorMode)
+
+    if wasInErrorMode and currException != nil:
       reportUnhandledError(currException)
       currException = nil
       quit(1)

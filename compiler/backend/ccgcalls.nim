@@ -11,11 +11,13 @@
 ## included from cgen.nim
 
 proc canRaiseDisp(p: BProc; n: PNode): bool =
-  # we assume things like sysFatal cannot raise themselves
+  ## 'true' if calling the callee expression `n` can exit via exceptional
+  ## control-flow, otherwise 'false'. If panics are disabled, this also
+  ## includes all routines that are not certain magics, compiler procs, or
+  ## imported.
   if n.kind == nkSym and {sfNeverRaises, sfImportc, sfCompilerProc} * n.sym.flags != {}:
     result = false
-  elif optPanics in p.config.globalOptions or
-      (n.kind == nkSym and sfSystemModule in getModule(n.sym).flags):
+  elif optPanics in p.config.globalOptions:
     # we know we can be strict:
     result = canRaise(n)
   else:
