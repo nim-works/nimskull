@@ -556,7 +556,17 @@ proc semResolvedCall(c: PContext, x: TCandidate,
   result = x.call
   instGenericConvertersSons(c, result, x)
   result[0] = newSymNode(finalCallee, getCallLineInfo(result[0]))
-  result.typ = finalCallee.typ[0]
+
+  let retType = finalCallee.typ[0]
+  # macros/templates are not instantiated themselves, so instantiating a
+  # generic return type has to happen here, while we still have access to
+  # the type bindings
+  if finalCallee.kind in {skMacro, skTemplate} and gp.isGenericParams and
+     isMetaReturnTypeForMacro(retType):
+    result.typ = generateTypeInstance(c, x.bindings, n.info, retType)
+  else:
+    result.typ = retType
+
   result = updateDefaultParams(c.config, result)
 
 proc canDeref(n: PNode): bool {.inline.} =

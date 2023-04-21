@@ -1577,3 +1577,9 @@ proc isCyclePossible*(typ: PType, g: ModuleGraph): bool =
   var marker = initIntSet() # keeps track of which object types we've already
                             # analysed
   result = check(marker, g, typ, typ, isInd=false)
+
+proc isMetaReturnTypeForMacro*(t: PType): bool =
+  ## Returns whether `t` is considered a meta-type when used as the return
+  ## type of macro/template
+  # note: make sure this matches the logic in ``semAfterMacroCall``
+  t != nil and t.kind notin {tyUntyped, tyTyped, tyTypeDesc} and t.isMetaType

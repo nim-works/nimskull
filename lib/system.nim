@@ -297,6 +297,8 @@ type
 type sink*[T]{.magic: "BuiltinType".}
 type lent*[T]{.magic: "BuiltinType".}
 
+include "system/arithmetics"
+
 proc high*[T: Ordinal|enum|range](x: T): T {.magic: "High", noSideEffect,
   deprecated: "Deprecated since v1.4; there should not be `high(value)`. Use `high(type)`.".}
   ## Returns the highest possible value of an ordinal value `x`.
@@ -517,7 +519,6 @@ let nimvm* {.magic: "Nimvm", compileTime.}: bool = false
   ## It is true in Nim VM context and false otherwise.
 {.pop.}
 
-include "system/arithmetics"
 include "system/comparisons"
 
 const

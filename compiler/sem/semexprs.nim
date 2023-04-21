@@ -318,6 +318,8 @@ proc semConv(c: PContext, n: PNode): PNode =
   result.add op
 
   if targetType.kind == tyGenericParam:
+    # this case is reached for a ``expr.T`` expression located in a template
+    # or generic routine where ``T`` is a ``tyGenericParam``
     result.typ = makeTypeFromExpr(c, copyTree(result))
     return handleError(c, result, hasError)
 
@@ -1645,6 +1647,8 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
     markUsed(c, n.info, s)
     if s.typ != nil and s.typ.kind == tyStatic and s.typ.n != nil:
       # XXX see the hack in sigmatch.nim ...
+      # TODO: see if all usages of ``static`` params can be redirected to its
+      #       lifted ``skGenericParam``
       return s.typ.n
     elif sfGenSym in s.flags:
       # the owner should have been set by now by addParamOrResult
@@ -1663,17 +1667,12 @@ proc semSym(c: PContext, n: PNode, sym: PSym, flags: TExprFlags): PNode =
     if hasWarn(c.config, rsemResultUsed):
       localReport(c.config, n, reportSem rsemResultUsed)
   of skGenericParam:
-    if s.typ.kind == tyStatic:
-      result = newSymNode(s, n.info)
-      result.typ = s.typ
-    elif s.ast != nil:
-      result = semExpr(c, s.ast)
-    else:
-      n.typ = s.typ
-      return n
+    markUsed(c, n.info, s)
+    result = newSymNode(s, n.info)
   of skType:
     markUsed(c, n.info, s)
     if s.typ.kind == tyStatic and s.typ.base.kind != tyNone and s.typ.n != nil:
+      doAssert false
       return s.typ.n
     result = newSymNode(s, n.info)
     result.typ = makeTypeDesc(c, s.typ)

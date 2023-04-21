@@ -239,6 +239,7 @@ proc semDistinct(c: PContext, n: PNode, prev: PType): PType =
   if n.len > 1: result.n = n[1]
 
 proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
+  addInNimDebugUtils(c.config, "semRangeAux", n.typ, prev, result)
   assert isRange(n)
   checkSonsLen(n, 3, c.config)
   result = newOrPrevType(tyRange, prev, c)
@@ -250,19 +251,42 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
   if (n[1].kind == nkEmpty) or (n[2].kind == nkEmpty):
     localReport(c.config, n, reportSem rsemRangeIsEmpty)
 
+  # TODO: clean up and document; rewrite to return a ``PNode`` while at it
   var range: array[2, PNode]
-  range[0] = semExprWithType(c, n[1])
-  range[1] = semExprWithType(c, n[2])
+  if c.inGenericContext > 0:
+    range[0] = semGenericStmt(c, n[1], bindParams=true)
+    range[1] = semGenericStmt(c, n[2], bindParams=true)
+  else:
+    range[0] = semExprWithType(c, n[1])
+    range[1] = semExprWithType(c, n[2])
 
   var rangeT: array[2, PType]
-  for i in 0..1:
-    rangeT[i] = range[i].typ.skipTypes({tyStatic}).skipIntLit(c.idgen)
+  var hasUnknownTypes = false
 
-  let hasUnknownTypes = c.inGenericContext > 0 and
-    rangeT[0].kind == tyFromExpr or rangeT[1].kind == tyFromExpr
+  if c.inGenericContext > 0:
+    for i in 0..1:
+      if hasUnresolvedArgs(c, range[i]):
+        let unknown = range[i].typ.isNil or range[i].typ.kind == tyGenericParam or (range[i].typ.kind == tyStatic and range[i].typ.len == 0 or containsGenericType(range[i].typ.base))
+        hasUnknownTypes = hasUnknownTypes or unknown
+        # note: we have to create a static expression even if the expression is
+        # the symbol of a static generic parameter. This is to signal to
+        # ``replaceTypeVarsN`` that it needs to replace the node with the value
+        range[i] = makeStaticExpr(c, range[i])
+        if unknown:
+          # we don't know the type yet -> ``tyFromExpr``
+          rangeT[i] = makeTypeFromExpr(c, copyTree(range[i]))
+        else:
+          rangeT[i] = range[i].typ
+      else:
+        range[i] = semExprWithType(c, range[i])
+        rangeT[i] = range[i].typ.skipTypes({tyStatic}).skipIntLit(c.idgen)
+  else:
+    for i in 0..1:
+      rangeT[i] = range[i].typ.skipTypes({tyStatic}).skipIntLit(c.idgen)
 
   if not hasUnknownTypes:
-    if not sameType(rangeT[0].skipTypes({tyRange}), rangeT[1].skipTypes({tyRange})):
+    const Skip = {tyRange, tyStatic}
+    if not sameType(rangeT[0].skipTypes(Skip), rangeT[1].skipTypes(Skip)):
       # XXX: should this cascade and what about the follow-on statements like
       #      the for loop, etc below?
       let r = typeMismatch(c.config, n.info, rangeT[0], rangeT[1], n)
@@ -280,10 +304,11 @@ proc semRangeAux(c: PContext, n: PNode, prev: PType): PType =
 
   for i in 0..1:
     if hasUnresolvedArgs(c, range[i]):
-      result.n.add makeStaticExpr(c, range[i])
+      result.n.add range[i]
       result.flags.incl tfUnresolved
     else:
-      result.n.add semConstExpr(c, range[i])
+      # the expression must be constant
+      result.n.add evalConstExpr(c, range[i])
 
   if (result.n[0].kind in {nkFloatLit..nkFloat64Lit} and result.n[0].floatVal.isNaN) or
       (result.n[1].kind in {nkFloatLit..nkFloat64Lit} and result.n[1].floatVal.isNaN):
@@ -326,42 +351,19 @@ proc semArrayIndex(c: PContext, n: PNode): PType =
   if isRange(n):
     result = semRangeAux(c, n, nil)
   else:
-    let e = semExprWithType(c, n)
-    if e.typ.kind == tyFromExpr:
-      result = makeRangeWithStaticExpr(c, e.typ.n)
-    elif e.kind in {nkIntLit..nkUInt64Lit}:
-      if e.intVal < 0:
-        localReport(c.config, n.info,
-          SemReport(
-            kind: rsemArrayExpectsPositiveRange,
-            expectedCount: toInt128 0,
-            got: toInt128 e.intVal))
-
-      result = makeRangeType(c, 0, e.intVal-1, n.info, e.typ)
-    elif e.kind == nkSym and e.typ.kind == tyStatic:
-      if e.sym.ast != nil:
-        return semArrayIndex(c, e.sym.ast)
-      if not isOrdinalType(e.typ.lastSon):
-        let info = if n.safeLen > 1: n[1].info else: n.info
-        localReport(c.config, info, reportTyp(
-          rsemExpectedOrdinal, e.typ.lastSon))
-
-      result = makeRangeWithStaticExpr(c, e)
-      if c.inGenericContext > 0:
-        result.flags.incl tfUnresolved
-
-    elif e.kind in (nkCallKinds + {nkBracketExpr}) and hasUnresolvedArgs(c, e):
-      if not isOrdinalType(e.typ.skipTypes({tyStatic, tyAlias, tyGenericInst, tySink})):
-        localReport(c.config, n[1].info, reportTyp(
-          rsemExpectedOrdinal, e.typ))
-      # This is an int returning call, depending on an
-      # yet unknown generic param (see tgenericshardcases).
-      # We are going to construct a range type that will be
-      # properly filled-out in semtypinst (see how tyStaticExpr
-      # is handled there).
-      result = makeRangeWithStaticExpr(c, e)
-    elif e.kind == nkIdent:
-      result = e.typ.skipTypes({tyTypeDesc})
+    let e = semGenericStmt(c, n, bindParams = true)
+    if hasUnresolvedArgs(c, e):
+      # TODO: revisit the logic here and make sure it's correct
+      if e.typ == nil:
+        # must be some complex expression
+        result = makeRangeWithStaticExpr(c, e)
+      elif e.kind == nkSym and e.typ.kind == tyStatic:
+        assert e.typ.n == nil
+        result = makeRangeWithStaticExpr(c, e)
+      elif e.typ.kind == tyGenericParam:
+        result = e.typ
+      else:
+        unreachable()
     else:
       let x = semConstExpr(c, e)
       if x.kind in {nkIntLit..nkUInt64Lit}:
@@ -848,7 +850,7 @@ proc semRecordNodeAux(c: PContext, n: PNode, check: var IntSet, pos: var int,
           if e.kind != nkIntLit: discard "don't report followup error"
           elif e.intVal != 0 and branch == nil: branch = it[1]
         else:
-          it[0] = forceBool(c, semExprWithType(c, it[0]))
+          it[0] = semGenericStmt(c, it[0], bindParams = true)
       of nkElse:
         checkSonsLen(it, 1, c.config)
         if branch == nil: branch = it[0]
@@ -1360,7 +1362,7 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
       def = a[^1]
       block determineType:
         if genericParams.isGenericParams:
-          def = semGenericStmt(c, def)
+          def = semGenericStmt(c, def, bindParams = true)
           if def.isError:
             localReport(c.config, def)
           if hasUnresolvedArgs(c, def):
@@ -1451,7 +1453,10 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
 
   var r: PType
   if n[0].kind != nkEmpty:
+    let v = ord(genericParams.isGenericParams and genericParams.len > 0)
+    inc c.inGenericContext, v
     r = semTypeNode(c, n[0], nil)
+    dec c.inGenericContext, v
 
   if r != nil and kind in {skMacro, skTemplate} and r.kind == tyTyped:
     # XXX: To implement the proposed change in the warning, just
@@ -1474,6 +1479,10 @@ proc semProcTypeNode(c: PContext, n, genericParams: PNode,
         r = newTypeS(tyUntyped, c)
       elif r.kind == tyStatic:
         # type allowed should forbid this type
+        discard
+      elif r.kind == tyTypeDesc and kind in {skMacro, skTemplate}:
+        # a typedesc return type is never a meta-type for macros and
+        # templates; don't attempt to lift it
         discard
       else:
         if r.sym == nil or sfAnon notin r.sym.flags:
@@ -1682,6 +1691,35 @@ proc semTypeExpr(c: PContext, n: PNode; prev: PType): PType =
     localReport(c.config, n, reportSem rsemTypeExpected)
     result = errorType(c)
 
+proc semGenericTypeExpr(c: PContext, n: PNode, prev: PType): PType =
+  ## Only analyses the type expression `n` if not in a generic context. If in
+  ## a generic context, a ``tyFromExpr`` is returned.
+  if c.inGenericContext > 0:
+    let wasCall = n.kind in nkCallKinds
+    var e = semGenericStmt(c, n, bindParams = true)
+    if e.kind == nkError:
+      # XXX: propagate the error
+      c.config.localReport(e)
+      return newOrPrevType(tyError, prev, c)
+
+    if e.kind != n.kind and wasCall:
+      # an immediate macro/template must have been expanded. In order to
+      # ensure that once resolved it is treated like one that can appear in a
+      # type position, we wrap the node in type statement list
+      if e.kind in {nkStmtList, nkStmtListExpr, nkStmtListType}:
+        e.transitionSonsKind(nkStmtListType) # re-use
+      else:
+        e = newTreeI(nkStmtListType, n.info, e)
+
+    if e == n:
+      # copy the tree in order to prevent from self recursion (the callsite
+      # could assign the type to `n`, in which case ``n.typ.n == n``!)
+      e = copyTree(n)
+
+    result = makeTypeFromExpr(c, e)
+  else:
+    result = semTypeExpr(c, n, prev)
+
 proc freshType(c: PContext; res, prev: PType): PType {.inline.} =
   if prev.isNil:
     result = copyType(res, nextTypeId c.idgen, res.owner)
@@ -1844,6 +1882,7 @@ proc semTypeOf(c: PContext; n: PNode; prev: PType): PType =
       result.n = n
     closeScope(c)
   else:
+    # TODO: make this work with ``semGenericTypeExpr``
     let t = semExprWithType(c, n, {efInTypeof})
     closeScope(c)
     
@@ -1877,6 +1916,7 @@ proc semTypeOf2(c: PContext; n: PNode; prev: PType): PType =
       result.n = n[1] # at time of writing: error in TType.n is a new thing
     closeScope(c)
   else:
+    # TODO: make this work with ``semGenericTypeExpr``
     let t = semExprWithType(c, n[1], if m == 1: {efInTypeof} else: {})
     closeScope(c)
 
@@ -1932,7 +1972,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
         localReport(c.config, n, reportSem rsemTypeInvalid)
 
     elif n[0].kind notin nkIdentKinds:
-      result = semTypeExpr(c, n, prev)
+      result = semGenericTypeExpr(c, n, prev)
     else:
       let (op, err) = considerQuotedIdent(c, n[0])
       if err != nil:
@@ -1986,7 +2026,9 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
             # I suggest revisiting this once the language decides on whether
             # `not nil` should be the default. We can then map nilable refs
             # to other types such as `Option[T]`.
-            result = makeTypeFromExpr(c, newTree(nkStmtListType, n.copyTree))
+            let x = newTreeI(n.kind, n.info,
+              [n[0], semGenericStmt(c, n[1], bindParams = true), n[2]])
+            result = makeTypeFromExpr(c, newTree(nkStmtListType, x))
           of NilableTypes + {tyGenericInvocation, tyForward}:
             result = freshType(c, result, prev)
             result.flags.incl(tfNotNil)
@@ -2009,7 +2051,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
       elif op.s == "owned" and n.len == 2:
         # skip 'owned' in type expressions and produce a warning
         localReport(c.config, n, reportSem rsemOwnedTypeDeprecated)
-        result = semTypeExpr(c, n[1], prev)
+        result = semGenericTypeExpr(c, n[1], prev)
       elif (op.s == "sink" or op.s == "lent") and n.len == 2:
         # it's a 'sink T' or 'lent T' expression
         # XXX: consider introducing special words for both (i.e., ``wLent``,
@@ -2017,10 +2059,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
         result = newOrPrevType((if op.s == "sink": tySink else: tyLent), nil, c)
         result.rawAddSonNoPropagationOfTypeFlags semTypeNode(c, n[1], nil)
       else:
-        if c.inGenericContext > 0 and n.kind == nkCall:
-          result = makeTypeFromExpr(c, n.copyTree)
-        else:
-          result = semTypeExpr(c, n, prev)
+        result = semGenericTypeExpr(c, n, prev)
   of nkWhenStmt:
     var whenResult = semWhen(c, n, false)
     if whenResult.kind == nkStmtList:
@@ -2087,7 +2126,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
          result.kind != tyUserTypeClass:
            # the dot expression may refer to a concept type in
            # a different module. allow a normal alias then.
-        let preprocessed = semGenericStmt(c, n)
+        let preprocessed = semGenericStmt(c, n, bindParams = true)
         if preprocessed.isError:
           localReport(c.config, preprocessed)
         result = makeTypeFromExpr(c, preprocessed.copyTree)

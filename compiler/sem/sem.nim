@@ -744,14 +744,20 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       if s.ast[genericParamsPos] != nil and retType.isMetaType:
         # The return type may depend on the Macro arguments
         # e.g. template foo(T: typedesc): seq[T]
-        # We will instantiate the return type here, because
-        # we now know the supplied arguments
-        var paramTypes = newIdTable()
-        for param, value in genericParamsInMacroCall(s, call):
-          idTablePut(paramTypes, param.typ, value.typ)
+        # After overload resolution, the instantiated type is assigned to the
+        # call expression, and we retrieve it here
+        if call.typ == nil:
+          # XXX: this is really more of an internal error. Not all callsites
+          #      of ``sem(Macro|Template)Expr`` use overload resolution yet,
+          #      but they should. These are (non-exhaustive):
+          #      - explicit instantiation syntax (semSubscript)
+          #      - immediate macros and templates in generics
+          #      - pattern matching
+          return c.config.newError(call,
+            PAstDiag(kind: adSemCannotInstantiate,
+                     callLineInfo: getCallLineInfo(call)))
 
-        retType = generateTypeInstance(c, paramTypes,
-                                       macroResult.info, retType)
+        retType = call.typ
 
       result = semExpr(c, result, flags)
       result = fitNode(c, retType, result, result.info)
@@ -807,7 +813,7 @@ proc semConstBoolExpr(c: PContext, n: PNode): PNode =
   if result.kind != nkIntLit:
     localReport(c.config, n, reportSem rsemConstExprExpected)
 
-proc semGenericStmt(c: PContext, n: PNode): PNode
+proc semGenericStmt(c: PContext, n: PNode; bindParams = false): PNode
 proc semConceptBody(c: PContext, n: PNode): PNode
 
 include semtypes, semtempl, semgnrc, semstmts, semexprs
