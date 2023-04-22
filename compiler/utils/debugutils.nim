@@ -291,6 +291,27 @@ template addInNimDebugUtils*(c: ConfigRef; action: string; n, r: PNode) =
 
     addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
 
+template addInNimDebugUtils*(c: ConfigRef; action: string; n: PNode, r: PNode, output: PType) =
+  ## add tracing to procs that are primarily `PNode -> PNode`, where the result
+  ## also carries a type
+  when defined(nimCompilerStacktraceHints):
+    {.line.}:
+      frameMsg(c, n)
+  when defined(nimDebugUtils):
+    const loc = instLoc(locOffset)
+    template enterMsg(indentLevel: int) =
+      traceEnterIt(
+        loc, stepParams(c, stepNodeToNode, indentLevel, action)):
+        it.node = n
+
+    template leaveMsg(indentLevel: int) =
+      traceLeaveIt(
+        loc, stepParams(c, stepNodeToNodeType, indentLevel, action)):
+        it.node = r
+        it.typ = output
+
+    addInNimDebugUtilsAux(c, action, enterMsg, leaveMsg)
+
 template addInNimDebugUtilsError*(c: ConfigRef; n, e: PNode) =
   ## add tracing error generation `PNode -> PNode`
   when defined(nimCompilerStacktraceHints):

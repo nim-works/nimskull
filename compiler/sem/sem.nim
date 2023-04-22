@@ -121,7 +121,9 @@ proc semProcBody(c: PContext, n: PNode): PNode
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode
 proc changeType(c: PContext; n: PNode, newType: PType, check: bool): PNode
 
+proc semTypeNodeAux(c: PContext, n: PNode, prev: PType): PNode
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType
+proc semTypeNode2(c: PContext, n: PNode, prev: PType): PNode
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode
 proc semOpAux(c: PContext, n: PNode): bool
 proc semParamList(c: PContext, n, genericParams: PNode, kind: TSymKind): PType
@@ -134,7 +136,7 @@ proc finishMethod(c: PContext, s: PSym)
 proc evalAtCompileTime(c: PContext, n: PNode): PNode
 proc indexTypesMatch(c: PContext, f, a: PType, arg: PNode): PNode
 proc semStaticExpr(c: PContext, n: PNode): PNode
-proc semStaticType(c: PContext, childNode: PNode, prev: PType): PType
+proc semStaticType(c: PContext, childNode: PNode, prev: PType): PNode
 proc semTypeOf(c: PContext; n: PNode): PNode
 proc computeRequiresInit(c: PContext, t: PType): bool
 proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode
@@ -733,13 +735,15 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       result = semExprWithType(c, result, flags)
     of tyTypeDesc:
       if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListType)
-      var typ = semTypeNode(c, result, nil)
-      if typ == nil:
-        let err = newError(c.config, result, PAstDiag(kind: adSemExpressionHasNoType))
-        localReport(c.config, err)
-        result = newSymNode(errorSym(c, result, err))
+      let typExpr = semTypeNodeAux(c, result, nil)
+      # TODO: revisit this part
+      if typExpr == nil:
+        result = newError(c.config, result, PAstDiag(kind: adSemExpressionHasNoType))
+      elif typExpr.kind == nkError:
+        result = typExpr
       else:
-        result.typ = makeTypeDesc(c, typ)
+        result = typExpr
+        result.typ = makeTypeDesc(c, result.typ)
     else:
       if s.ast[genericParamsPos] != nil and retType.isMetaType:
         # The return type may depend on the Macro arguments
