@@ -2182,6 +2182,23 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
   n.typ = result
   dec c.inTypeContext
 
+proc semTypeNode2(c: PContext, n: PNode, prev: PType): PNode =
+  ## Semantically analyzes the type AST `n`, and returns either the analyzed
+  ## AST or an error.
+  ##
+  ## XXX: this procedure is meant to eventually replace the current
+  ##      ``semTypeNode``, which mutates the input AST and returns a type
+  let typ = semTypeNode(c, n, prev)
+  if typ.isNil:
+    result = newError(c.config, n, PAstDiag(kind: adSemTypeExpected))
+  elif typ.kind == tyError and typ.n.kind == nkError:
+    result = typ.n
+  else:
+    # the type is either valid or an error type that doesn't store a
+    # diagnostic. For the latter, ``localReport`` was already used to report
+    # the error, so no extra error node is created here
+    result = copyTree(n)
+
 proc setMagicType(conf: ConfigRef; m: PSym, kind: TTypeKind, size: int) =
   # source : https://en.wikipedia.org/wiki/Data_structure_alignment#x86
   m.typ.kind = kind

@@ -9,6 +9,10 @@
 ## The idea is to use ``CheckedAst`` as the return type of all semantic
 ## analysis procedures, eventually removing the need for wrapper errors
 ## (``adWrappedError``).
+##
+## A second experiment, ``ElaborateAst``, is also implemented here. Rather
+## than being a wrapper around ``PNode``, it acts as sort of "builder"
+## during piece-by-piece production of an AST node.
 
 import
   compiler/ast/[
@@ -25,9 +29,70 @@ type
   CheckedAst* = object
     ## Represents either in-progress or fully semanticized AST. It is meant
     ## as a wrapper for semantically *checked* AST, hence the name.
-    n: PNode       ## stores the AST. Never nil
+    n: PNode       ## stores the AST. Never nil nor an error
     hasError: bool ## tracks whether `n` contains an ``nkError`` node
                    ## somewhere
+
+  ElaborateAst* = object
+    ## *Note*: the name is not final and going to change.
+    ## Represents an in-progress or finished production of either an AST of the
+    ## same kind and number of children as the source, or an error.
+    orig: PNode ## the source node
+
+    diag*: PAstDiag       ## the error diagnostic, or nil. If the production
+                          ## finishes and the diagnostic is non-nil, an error
+                          ## is produced instead
+    hasError: bool        ## whether one of the produced children contains an
+                          ## error somewhere
+
+    children: seq[PNode]  ## the produced child nodes; has the number of
+                          ## elements as `n` has children
+    typ*: PType           ## the type of the produced expression
+
+# --------------- ElaborateAst API ------------------
+
+proc initWith*(x: var ElaborateAst, n: PNode) =
+  ## Setup the production of a new AST of the kind and with the number of
+  ## children that `n` has.
+  assert x.orig == nil, "already initialized"
+  assert n.kind in nkWithSons
+  assert n.len > 0
+  x.orig = n
+  x.children.setLen(n.len)
+
+template `[]`*(x: var ElaborateAst, i: int|BackwardsIndex): PNode =
+  x.children[i]
+
+func `[]=`*(x: var ElaborateAst, i: int|BackwardsIndex, n: PNode) {.inline.} =
+  ## Sets the child node at `i`
+  x.hasError = x.hasError or n.kind == nkError
+  x.children[i] = n
+
+func `[]=`*(x: var ElaborateAst, i: int|BackwardsIndex,
+            n: sink CheckedAst) {.inline.} =
+  ## Sets the child node at `i`
+  x.hasError = x.hasError or n.hasError
+  x.children[i] = n.n
+
+proc extract*(c: ConfigRef, n: sink ElaborateAst): PNode =
+  ## Finishes the production and returns the result as a ``PNode``.
+  result = newNodeI(n.orig.kind, n.orig.info)
+  result.flags = n.orig.flags * PersistentNodeFlags
+  result.typ   = n.typ # may be nil
+  result.sons  = move n.children
+
+  # XXX: the original node could be re-used when the children are the same as
+  #      the original ones
+  if n.diag != nil:
+    result = c.newError(result, n.diag)
+  elif n.hasError:
+    # at least one of the child nodes contains an error somewhere; use the
+    # generic wrapper error
+    result = c.wrapError(result)
+  else:
+    discard "leave as is"
+
+# -------------- CheckedAst API ------------------
 
 proc initForMappingChildren*(x: var CheckedAst, n: PNode) =
   ## Initialize `x` as a node of kind ``n.kind``. Space for all children of
@@ -45,10 +110,12 @@ func initWith*(x: var CheckedAst, n: sink PNode) =
   assert n.kind != nkError
   x.n = n
 
-proc newError*(c: ConfigRef, n: sink CheckedAst, diag: PAstDiag): CheckedAst =
-  ## Creates an ``CheckedAst`` error node.
-  result.n = c.newError(n.n, diag)
-  result.hasError = true
+func assign(x: var CheckedAst, n: sink PNode) {.inline.} =
+  ## Assigns the tree `n` to `x`. The behaviour is undefined if `n` is either
+  ## an error error or contains one.
+  assert n != nil
+  assert n.kind != nkError
+  x = CheckedAst(n: n, hasError: false)
 
 # speed up debug builds by not generating stack-trace information for the
 # accessors procedures
@@ -62,6 +129,12 @@ func len*(x: CheckedAst): int {.inline.} =
 
 func info*(x: CheckedAst): TLineInfo {.inline.} =
   x.n.info
+
+func typ*(x: CheckedAst): PType {.inline.} =
+  x.n.typ
+
+func `typ=`*(x: var CheckedAst, typ: PType) {.inline.} =
+  x.n.typ = typ
 
 proc add*(x: var CheckedAst, n: sink PNode) {.inline.} =
   x.hasError = x.hasError or n.kind == nkError
@@ -96,7 +169,7 @@ proc extract*(c: ConfigRef, n: sink CheckedAst): PNode =
   ##
   ## This procedure is only meant to be used at the edge to ``CheckedAst``-
   ## unaware code.
-  if n.hasError and n.n.kind != nkError:
+  if n.hasError:
     result = c.wrapError(n.n)
   else:
     result = n.n

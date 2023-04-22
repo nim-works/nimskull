@@ -1,15 +1,12 @@
 discard """
   targets: "c js !vm"
+  matrix: "--gc:refc; --gc:orc"
 """
 
 # knownIssue: disable for the VM due to an internal VM crash at run-time. Needs to be investigated further
 
 # xxx move all tests under `main`
-
-import std/vmutils
-
-import std/sequtils
-import strutils
+import std/[sequtils, strutils]
 from algorithm import sorted
 
 {.experimental: "strictEffects".}
