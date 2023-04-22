@@ -735,13 +735,15 @@ proc semAfterMacroCall(c: PContext, call, macroResult: PNode,
       result = semExprWithType(c, result, flags)
     of tyTypeDesc:
       if result.kind == nkStmtList: result.transitionSonsKind(nkStmtListType)
-      var typ = semTypeNode(c, result, nil)
-      if typ == nil:
-        let err = newError(c.config, result, PAstDiag(kind: adSemExpressionHasNoType))
-        localReport(c.config, err)
-        result = newSymNode(errorSym(c, result, err))
+      let typExpr = semTypeNodeAux(c, result, nil)
+      # TODO: revisit this part
+      if typExpr == nil:
+        result = newError(c.config, result, PAstDiag(kind: adSemExpressionHasNoType))
+      elif typExpr.kind == nkError:
+        result = typExpr
       else:
-        result.typ = makeTypeDesc(c, typ)
+        result = typExpr
+        result.typ = makeTypeDesc(c, result.typ)
     else:
       if s.ast[genericParamsPos] != nil and retType.isMetaType:
         # The return type may depend on the Macro arguments

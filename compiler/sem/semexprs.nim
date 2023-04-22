@@ -256,7 +256,8 @@ proc semConv(c: PContext, n: PNode): PNode =
 
   result = newNodeI(nkConv, n.info)
 
-  var targetType = semTypeNode(c, n[0], nil)
+  let typExpr = semTypeNode2(c, n[0], nil)
+  var targetType = typExpr.typ
   case targetType.kind
   of tyTypeDesc:
     c.config.internalAssert targetType.len > 0
@@ -268,8 +269,10 @@ proc semConv(c: PContext, n: PNode): PNode =
   of tyStatic:
     var evaluated = semStaticExpr(c, n[1])
     if evaluated.kind == nkType or evaluated.typ.kind == tyTypeDesc:
-      result = n
-      result.typ = c.makeTypeDesc semStaticType(c, evaluated, nil)
+      # an expression like ``static(x)`` where ``x`` evaluates to a literal
+      # type
+      result = semStaticType(c, evaluated, nil)
+      result.typ = c.makeTypeDesc result.typ
       return
     elif targetType.base.kind == tyNone:
       return evaluated
@@ -278,16 +281,11 @@ proc semConv(c: PContext, n: PNode): PNode =
   else: discard
 
   maybeLiftType(targetType, c, n[0].info)
+  # update the the expression's type:
+  typExpr.typ = targetType
 
-  var hasError = false
-
-  block:
-    let s = qualifiedLookUp(c, n[0], {})
-    if s.isError:
-      result.add s.ast
-      hasError = true
-    else:
-      result.add copyTree(n[0])
+  var hasError = typExpr.isError
+  result.add typExpr
 
   # special case to make MyObject(x = 3) produce a nicer error message:
   if n[1].kind == nkExprEqExpr and
@@ -370,9 +368,10 @@ proc semCast(c: PContext, n: PNode): PNode =
   ## Semantically analyze a casting ("cast[type](param)")
   checkSonsLen(n, 2, c.config)
   let
-    targetType = semTypeNode(c, n[0], nil)
+    typExpr = semTypeNode2(c, n[0], nil)
+    targetType = typExpr.typ
     castedExpr = semExprWithType(c, n[1])
-  
+
   if tfHasMeta in targetType.flags:
     result = c.config.newError(n,
                         PAstDiag(kind: adSemCannotCastToNonConcrete,
@@ -388,7 +387,7 @@ proc semCast(c: PContext, n: PNode): PNode =
 
   result = newNodeI(nkCast, n.info)
   result.typ = targetType
-  result.add copyTree(n[0])
+  result.add typExpr
   result.add castedExpr
 
 proc semLowHigh(c: PContext, n: PNode, m: TMagic): PNode =
@@ -521,14 +520,20 @@ proc semIs(c: PContext, n: PNode, flags: TExprFlags): PNode =
   of nkError:
     discard # below we'll wrap the result in an error
   else:
-    let t2 = semTypeNode(c, n[2], nil)
-    n[2] = newNodeIT(nkType, n[2].info, t2)
+    n[2] = semTypeNode2(c, n[2], nil)
+    # collapse the expression into an type literal if there was no error
+    if n[2].kind != nkError:
+      n[2] = newNodeIT(nkType, n[2].info, n[2].typ)
+
+    let t2 = n[2].typ
     if t2.kind == tyStatic:
       let evaluated = tryConstExpr(c, n[1])
       if evaluated != nil:
         c.fixupStaticType(evaluated)
         n[1] = evaluated
       else:
+        # XXX: this doesn't seem right. If the left-hand side is generic,
+        #      then we cannot know whether it's static yet
         result = newIntNode(nkIntLit, 0)
         result.typ = boolType
         result.info = n.info
@@ -1977,8 +1982,7 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
                                  tyVar, tyLent, tyPtr, tyRef, tyAlias, tySink})
   if arr.kind == tyStatic:
     if arr.base.kind == tyNone:
-      result = n
-      result.typ = semStaticType(c, n[1], nil)
+      result = semStaticType(c, n[1], nil)
       return
     elif arr.n != nil:
       return semSubscript(c, arr.n, flags)
@@ -2009,8 +2013,8 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
     # The result so far is a tyTypeDesc bound
     # a tyGenericBody. The line below will substitute
     # it with the instantiated type.
-    result = n
-    result.typ = makeTypeDesc(c, semTypeNode(c, n, nil))
+    result = semTypeNode2(c, n, nil)
+    result.typ = makeTypeDesc(c, result.typ)
   of tyTuple:
     if n.len != 2: return nil
     n[0] = makeDeref(n[0])
@@ -3161,8 +3165,8 @@ proc semTuplePositionsConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
   if hasError:
     result = c.config.wrapError(tupExp)
   elif isTupleType: # reinterpret `(int, string)` as type expressions
-    result = n
-    result.typ = makeTypeDesc(c, semTypeNode(c, n, nil).skipTypes({tyTypeDesc}))
+    result = semTypeNode2(c, n, nil)
+    result.typ = makeTypeDesc(c, result.typ)
   else:
     result = tupExp
 
@@ -3599,11 +3603,13 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
         var baseType = semExpr(c, n[0]).typ.skipTypes({tyTypeDesc})
         result.typ = c.makeTypeDesc(c.newTypeWithSons(modifier, @[baseType]))
         return
-    let typ = semTypeNode(c, n, nil).skipTypes({tyTypeDesc})
-    result.typ = makeTypeDesc(c, typ)
+    result = semTypeNode2(c, n, nil)
+    result.typ = makeTypeDesc(c, result.typ.skipTypes({tyTypeDesc}))
   of nkStmtListType:
-    let typ = semTypeNode(c, n, nil)
-    result.typ = makeTypeDesc(c, typ)
+    result = semTypeNode2(c, n, nil)
+    # QUESTION: why don't skip explicit typedescs here, as is done for other
+    #           type expressions?
+    result.typ = makeTypeDesc(c, result.typ)
   of nkCall, nkInfix, nkPrefix, nkPostfix, nkCommand, nkCallStrLit:
     # check if it is an expression macro:
     checkMinSonsLen(n, 1, c.config)
