@@ -618,6 +618,8 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; conf: ConfigRef) =
   var p = parseopt.initOptParser(cmd)
   var findProject = false
   let startingErrCount = conf.errorCounter
+    ## do this because if we're in the second pass, we don't want to quit due
+    ## to prior config file errors.
   while true:
     parseopt.next(p)
     case p.kind
@@ -841,7 +843,6 @@ else:
           retval.add(Suggest(section: ideChk, filePath: toFullPath(conf, info),
             line: toLinenumber(info), column: toColumn(info), doc: msg,
             forth: $sev))
-
       else:
         conf.structuredErrorHook = nil
       executeNoHooks(conf.ideCmd, file, dirtyfile, line, col, nimsuggest.graph)

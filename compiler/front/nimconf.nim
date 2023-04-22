@@ -7,7 +7,13 @@
 #    distribution, for details about the copyright.
 #
 
-## This module handles the reading of the config file.
+## This module handles the reading of config file(s).
+## 
+## ..note:: Even though this module is very effectful in its processing of a
+##          config file and updating a `ConfigRef`, it must not assume that
+##          it's handling a 'canonical' `ConfigRef` for the current program and
+##          is not at liberty to output error messages and the like. That must
+##          be handled by the caller.
 ## 
 ## Future Direction:
 ## Rewrite this module to work in a more continuation/iterator style where,
@@ -498,11 +504,10 @@ proc loadConfigs(
 
 proc loadConfigs*(
     cfg: RelativeFile; cache: IdentCache;
-    conf: ConfigRef, cfgEvtHandler: NimConfEvtHandler,
-    cfgScriptEvtReceiver: ConfScriptEvtReceiver
+    conf: ConfigRef, cfgEvtHandler: NimConfEvtHandler
   ) {.inline.} =
-  var parser = NimConfParser(config: conf, cfgEvtHandler: cfgEvtHandler,
-                             scriptEvtReceiver: cfgScriptEvtReceiver)
+  ## load configs based on the relative path `cfg` and update the state in
+  ## `conf`. This will, if allowed per `conf` and cfg processing handle system,
+  ## user, parent, and project cfgs.
+  var parser = NimConfParser(config: conf, cfgEvtHandler: cfgEvtHandler)
   parser.loadConfigs(cfg, cache)
-
-  
