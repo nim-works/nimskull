@@ -251,10 +251,6 @@ proc procSwitchResultToEvents*(conf: ConfigRef, pass: TCmdLinePass,
   else:
     discard
 
-proc cfgEvtsToCliEvents*(conf: ConfigRef, evt: ConfigFileEvent,
-                         reportFrom: InstantiationInfo): seq[CliEvent] =
-  discard "TODO: implement me"
-
 proc writeLog(conf: ConfigRef, msg: string, evt: CliEvent) {.inline.} =
   conf.writeLog(msg, evt.srcCodeOrigin)
 

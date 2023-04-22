@@ -334,6 +334,119 @@ proc loadConfigs*(
 
   loadConfigs(cfg, cache, conf, handleConfigEvent, handleScriptEvent)
 
+#[
+
+`nimconf` is used by `cmdlinehelper` which in turn is used by each of `nim` and
+`nimsuggest` modules/programs. To understand error handling and output needs,
+I'll start by focusing on `nimconf`.
+
+Highlevel Input/Outputs of `nimconf`
+```
+                                                    ┌─
+                                                    │1. (hidden, ConfigRef mutation)
+                                                    │
+                                                    │2. write directive output
+                                                    │
+                                                    │3. trace directive output
+                        ┌───────────────────┐       │
+                        │ nimconf           │       │4. compiler dbg context read start / stop
+                        │                   │       │
+ConfigRef, *.cfg ──────►│                   ├──────►│5. config file progress ("hint")
+                        │                   │       │
+                        │  suppress:        │       │6. wrapped lexer fatal
+                        │  -lexer hint/warn │       │
+                        └───────────────────┘       │7. wrapped lexer error diag
+                                                    │
+                                                    │8. flag processing errors
+                                                    │
+                                                    │9. flag processing hint/warn
+                                                    └─
+```
+
+Some observations about output:
+- we can ignore 1 for this discussion
+- 2 the user is directing us to output
+- 3 is something hax added, but it's compiler dev debug output
+- 4 is compiler dev debug output, but also a "bracketing" context
+- 5 is progress indication, not really a "hint", more like "info"
+- 6, 7, & 8 are things to output to the user, 6 is "less ignorable"
+- 9 could get escalated, but honestly feels weird for config; otherwise need to output
+
+Some observations about control flow:
+- 1 to 5 have no implication on control flow
+- 6 is fatal for both lexer/nimconf, but cmdlinehelper could recover/stop
+- 7 and 7 are an error for nimconf, and it could recover/stop
+- 9, if escalation is allowed, could be an error and have control flow implications
+- finally, the question of whether to recover or not is dependent upon which app
+
+Taking the apps into account:
+- nimsuggest wants to recover as much as possible
+- nim doesn't, even in if a `check`, work with an invalid config is dangerous
+- nimsuggest might want to redirect this output to its log, sometimes stdout
+
+Some concepts given the above:
+  - event: just data produced by a module, might represent an error, but context could change that
+  - diagnostics: errors/warnings/hints these are about some user input or its processing
+  - severity: diagnositics can have severity bumped
+  - generation/sending: error diagnostics must be generated (data/logic) and sent upstream, hint/warn can be stopped
+  - suppression/write: diagnostics can be ignored (generated but never written)
+  - fatal: these aren't diags, but another kind of event, signals inability to recover
+  - error diags/fatal: must be generated
+  - error recovery: origin can send/not send diag and then recover, or give up control
+  - fatal recovery: origin refuses to keep control, can wrap/recover upstream
+  - output format: can vary, even if 'CLI-only' colour, short/long/etc, stderr/out, logfile, etc
+  - output destination: stderr/out, log file, blackhole, etc
+
+
+big questions:
+  - where is the most
+  - where is the last responsible place to try and output something to the user, regardless of output destination/format?
+
+event generated/seen for first time by nimconf
+  any: (also see section questions below)
+    - nimconf: add context/wrap in an object
+    - cmdlinehelper: add context/wrap in an object
+
+  lexer internal error:
+    nim.nim:
+      - nimconf: can't continue
+      - cmdlinehelper: output error and finish
+    nimsuggest.nim:
+      - nimconf: can't continue
+      - cmdlinehelper: output
+
+  Questions:
+    - should we add context? if so: by passing events 'up', or already available in a 'context stack'?
+
+output:
+  lexer internal error (for lexer and config fatal; cmdline recoverable):
+    - ??: suppress fatal (verbosity) or write to receiver
+    - receiver: figure out destination and format
+    - receiver: write to destination in format
+
+  lexer/flag error:
+    - ??: suppress diag (verbosity) or write to receiver
+    - receiver: figure out destination and format
+    - receiver: write to destination
+
+  trace:
+    - <suppression isn't allowed because the user is debugging?>
+    - ??: write to receiver
+    - receiver: figure out destination and format
+    - receiver: write to destination in format
+
+  write:
+    - ??: <supression disallowed, it's a user directive>
+    - ??: write to receiver
+    - receiver: figure out destination and format
+    - receiver: ??destination based suppression?? ()
+    - receiver: write to destination in format
+
+  Questions:
+    - allow further/any opportunities to intercept?
+    - is the receiver the caller/parent or something else (e.g. msgs + ConfigRef)?
+]#
+
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
                                    graph: ModuleGraph): bool =
   ## Load all the necessary configuration files and command-line options.
