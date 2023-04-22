@@ -217,6 +217,7 @@ type
     stepSymNodeToNode
     stepNodeFlagsToNode
     stepNodeTypeToNode
+    stepNodeToNodeType
     stepTypeTypeToType
     stepResolveOverload
     stepNodeSigMatch
@@ -245,7 +246,7 @@ type
       of stepIdentToSym:
         ident*: PIdent
 
-      of stepNodeTypeToNode, stepTypeTypeToType:
+      of stepNodeTypeToNode, stepTypeTypeToType, stepNodeToNodeType:
         typ*: PType
         typ1*: PType
 

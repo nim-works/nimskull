@@ -121,7 +121,9 @@ proc semProcBody(c: PContext, n: PNode): PNode
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode
 proc changeType(c: PContext; n: PNode, newType: PType, check: bool): PNode
 
+proc semTypeNodeAux(c: PContext, n: PNode, prev: PType): PNode
 proc semTypeNode(c: PContext, n: PNode, prev: PType): PType
+proc semTypeNode2(c: PContext, n: PNode, prev: PType): PNode
 proc semStmt(c: PContext, n: PNode; flags: TExprFlags): PNode
 proc semOpAux(c: PContext, n: PNode): bool
 proc semParamList(c: PContext, n, genericParams: PNode, kind: TSymKind): PType
@@ -134,7 +136,7 @@ proc finishMethod(c: PContext, s: PSym)
 proc evalAtCompileTime(c: PContext, n: PNode): PNode
 proc indexTypesMatch(c: PContext, f, a: PType, arg: PNode): PNode
 proc semStaticExpr(c: PContext, n: PNode): PNode
-proc semStaticType(c: PContext, childNode: PNode, prev: PType): PType
+proc semStaticType(c: PContext, childNode: PNode, prev: PType): PNode
 proc semTypeOf(c: PContext; n: PNode): PNode
 proc computeRequiresInit(c: PContext, t: PType): bool
 proc defaultConstructionError(c: PContext, t: PType, n: PNode): PNode

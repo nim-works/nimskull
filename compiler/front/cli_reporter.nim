@@ -3096,7 +3096,15 @@ proc reportBody*(conf: ConfigRef, r: TraceSemReport): string =
           else:
             field("to node")
             result.add render(s.node)
-
+        of stepNodeToNodeType:
+          if enter:
+            field("from node")
+            result.add render(s.node)
+          else:
+            field("to node")
+            result.add render(s.node)
+            field("to type")
+            result.add render(s.typ)
         of stepNodeFlagsToNode:
           if enter:
             field("from flags",  " " & conf.wrap($s.flags + fgCyan))
