@@ -1930,6 +1930,7 @@ proc semDeref(c: PContext, n: PNode): PNode =
 
     case derefTarget.kind
     of nkError:
+      result[0] = derefTarget
       result = c.config.wrapError(result)
     else:
       result[0] = semmedTarget
