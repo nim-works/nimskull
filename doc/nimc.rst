@@ -140,20 +140,6 @@ Level  Description
        for compiler developers.
 =====  ============================================
 
-Compiler message formats
-------------------------
-
-The compiler can output messages in both unstructured (plaintext) and
-structured (S-expressions) forms. S-expressions were chosen mostly for
-integration with testament, in the future json support will be added as
-well.
-
-You can select message format using `--msgFormat=text|sexp`:option: switch
-in the compiler. Unstructured compiler reports are formatted for higher
-readability and used by default. Structured reports are formatted as
-S-expressions, one per line. Every single compiler report is wrapped in
-structured data, including ``echo`` messages at compile-time.
-
 
 Compile-time symbols
 --------------------

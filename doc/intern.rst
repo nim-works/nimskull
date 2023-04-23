@@ -186,7 +186,9 @@ legacy method.
 Reports
 -------
 
-All output generates during compiler runtime is handled using `Report`
+..note:: Reports are legacy and will be entirely removed/reworked
+
+All output generated during compiler runtime is handled using `Report`
 type, defined in `reports.nim` module. Every single compilation warning,
 hint, error, and lots of other reports are wrapped into several categories
 (lexer, parser, sem, internal, external, debug and backend) and passed

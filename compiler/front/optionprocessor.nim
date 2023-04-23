@@ -143,7 +143,7 @@ type
     cmdSwitchCc
     cmdSwitchStdout
     cmdSwitchFilenames
-    cmdSwitchMsgformat
+    # cmdSwitchMsgformat    # CLI only
     cmdSwitchProcessing
     cmdSwitchUnitsep
     cmdSwitchListfullpaths
@@ -272,7 +272,7 @@ type
     fullSwitchTxtCc                  = "cc"
     fullSwitchTxtStdout              = "stdout"
     fullSwitchTxtFilenames           = "filenames"
-    fullSwitchTxtMsgformat           = "msgformat"
+    # fullSwitchTxtMsgformat           = "msgformat"
     fullSwitchTxtProcessing          = "processing"
     fullSwitchTxtUnitsep             = "unitsep"
     fullSwitchTxtListfullpaths       = "listfullpaths"
@@ -483,7 +483,6 @@ func allowedCompileOptionsArgs*(switch: CmdSwitchKind): seq[string] =
   of cmdSwitchIncremental : @["on", "off", "writeonly", "readonly", "v2", "stress"]
   of cmdSwitchCc          : listCCnames()
   of cmdSwitchFilenames   : @["abs", "canonical", "legacyRelProj"]
-  of cmdSwitchMsgformat   : @["text", "sexp"]
   of cmdSwitchProcessing  : @["dots", "filenames", "off"]
   of cmdSwitchExperimental: experimentalFeatures.toSeq.mapIt($it)
   of cmdSwitchExceptions  : @["native", "setjmp", "quirky", "goto"]
@@ -1419,12 +1418,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass,
     of "legacyrelproj": conf.filenameOption = foLegacyRelProj
     else:
       invalidArgValue(arg, switch, @["abs", "canonical", "legacyRelProj"])
-  of "msgformat":
-    setSwitchAndSrc cmdSwitchMsgformat # legacy reports cruft
-    case arg.normalize
-    of "text": conf.setMsgFormat(conf, msgFormatText)
-    of "sexp": conf.setMsgFormat(conf, msgFormatSexp)
-    else:      invalidArgValue(arg, switch, @["text", "sexp"])
   of "processing":
     setSwitchAndSrc cmdSwitchProcessing
     incl(conf, cnCurrent, rsemProcessing)

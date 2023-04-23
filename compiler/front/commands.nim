@@ -57,6 +57,8 @@ import
     idioms
   ]
 
+from compiler/front/in_options import MsgFormatKind
+
 # TODO: remove remaining legacy reports stuff.
 from compiler/ast/report_enums import ReportKind,
   ReportKinds,
@@ -168,11 +170,24 @@ proc processArgument(pass: TCmdLinePass; p: OptParser;
   inc argsCount
 
 type
+  CliFlagKind* = enum
+    ## list of cli only flags
+    cliFlagVersion
+    cliFlagHelp
+    cliFlagHelpFull
+    cliFlagHelpAdvanced
+    cliFlagMsgFormat
+
+type
   CliEventKind* = enum
     # errors - cli command
     cliEvtErrInvalidCommand # main.nim
     cliEvtErrCmdExpectedNoAdditionalArgs # nim.nim
-      ## command disallows additional args
+      ## flag disallows additional args
+    cliEvtErrFlagArgExpectedFromList # commands.nim
+      ## flag expected arg from an allow/valid list, but got none
+    cliEvtErrFlagArgNotFromValidList # commands.nim
+      ## flag expects arg from an allow/valid list
     cliEvtErrRunCmdFailed  # commands.nim and nim.nim
     cliEvtErrGenDependFailed # main.nim
     # errors - general flag/option/switches (TODO: standardize on "flag")
@@ -199,7 +214,10 @@ type
           cliEvtErrUnexpectedRunOpt:
         cmd*: string
         unexpectedArgs*: string
-      of cliEvtErrFlagArgForbidden:
+      of cliEvtErrFlagArgForbidden,
+          cliEvtErrFlagArgExpectedFromList,
+          cliEvtErrFlagArgNotFromValidList:
+        flag*: CliFlagKind
         givenFlg*: string
         givenArg*: string
       of cliEvtErrRunCmdFailed,
@@ -257,6 +275,11 @@ proc writeLog(conf: ConfigRef, msg: string, evt: CliEvent) {.inline.} =
 proc logError*(conf: ConfigRef, evt: CliEvent) =
   # TODO: consolidate log event rendering, between this and "reports", but with
   #       less of the reports baggage
+  func allowedCliOptionsArgs(flg: range[cliFlagMsgFormat..cliFlagMsgFormat]
+        ): seq[string] =
+    case flg
+    of cliFlagMsgFormat: @["text", "sexp"]
+
   let msg =
     case evt.kind
     of cliEvtErrInvalidCommand:
@@ -275,6 +298,12 @@ proc logError*(conf: ConfigRef, evt: CliEvent) =
     of cliEvtErrFlagArgForbidden:
       "$1 expects no arguments, but '$2' found" %
         [evt.givenFlg, evt.givenArg]
+    of cliEvtErrFlagArgExpectedFromList:
+      "expected value for switch '$1'. Expected one of $2, but got nothing" %
+        [evt.givenFlg, allowedCliOptionsArgs(evt.flag).join(", ")]
+    of cliEvtErrFlagArgNotFromValidList:
+      "expected value for switch '$1'. Expected one of $2, but got nothing" %
+        [evt.givenFlg, allowedCliOptionsArgs(evt.flag).join(", ")]
     of cliEvtErrFlagProcessing:
       let procResult = evt.procResult
       case procResult.kind
@@ -486,13 +515,14 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string, config: ConfigRef) =
   config.commandLine.setLen 0
     # bugfix: otherwise, config.commandLine ends up duplicated
 
-  template expectNoArg(flg, arg: string) =
+  template expectNoArg(f: CliFlagKind, flg, arg: string) =
     if arg != "":
       config.cliEventLogger:
         CliEvent(kind: cliEvtErrFlagArgForbidden,
+                flag: f,
                 givenFlg: flg,
                 givenArg: arg,
-                pass: passCmd1,
+                pass: pass,
                 srcCodeOrigin: instLoc())
 
   while true:
@@ -518,36 +548,56 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string, config: ConfigRef) =
       case p.key.normalize
       of "version", "v":
         # only kept because of user expectations
-        expectNoArg(p.key, p.val)
+        expectNoArg(cliFlagVersion, p.key, p.val)
         writeVersionInfo(config)
       of "help", "h":
         # only kept because of user expectations
-        expectNoArg(p.key, p.val)
+        expectNoArg(cliFlagHelp, p.key, p.val)
         writeHelp(config)
       of "advanced":
         # deprecate/make it a switch for the help sub-command
-        expectNoArg(p.key, p.val)
+        expectNoArg(cliFlagHelpAdvanced, p.key, p.val)
         writeAdvancedUsage(config)
       of "fullhelp":
         # deprecate/make it a switch for the help sub-command
-        expectNoArg(p.key, p.val)
+        expectNoArg(cliFlagHelpFull, p.key, p.val)
         writeFullhelp(config)
+      of "msgformat":
+        # legacy report hack; kept for testing
+        # xxx: rework this flag, cli executables, and config handling to get
+        #      structured output working correctly:
+        #      - can't be in configs because they can flap between config files
+        #      - end up with mixed output in nimsuggest log
+        #      - tangled up in reports cruft, e.g. swapping hooks swaps format
+        case p.val.normalize
+        of "text": config.setMsgFormat(config, msgFormatText)
+        of "sexp": config.setMsgFormat(config, msgFormatSexp)
+        of "":
+          config.cliEventLogger:
+            CliEvent(kind: cliEvtErrFlagArgExpectedFromList,
+                    flag: cliFlagMsgFormat, givenFlg: p.key,
+                    givenArg: p.val, pass: pass,
+                    srcCodeOrigin: instLoc())
+        else:
+          config.cliEventLogger:
+            CliEvent(kind: cliEvtErrFlagArgNotFromValidList,
+                    flag: cliFlagMsgFormat, givenFlg: p.key,
+                    givenArg: p.val, pass: pass,
+                    srcCodeOrigin: instLoc())
       else:
-        discard "continue processing as below"
-
-      if p.key == "": # `-` was passed to indicate main project is stdin
-        p.key = "-"
-        if processArgument(pass, p, argsCount, config):
-          break
-      else:
-        # Main part of the configuration processing -
-        # `commands.processSwitch` processes input switches a second time
-        # and puts them in necessary configuration fields.
-        let
-          res = processSwitch(pass, p, config)
-          evts = procSwitchResultToEvents(config, pass, p.key, p.val, res)
-        for e in evts.items:
-          config.cliEventLogger(e)
+        if p.key == "": # `-` was passed to indicate main project is stdin
+          p.key = "-"
+          if processArgument(pass, p, argsCount, config):
+            break
+        else:
+          # Main part of the configuration processing -
+          # `commands.processSwitch` processes input switches a second time
+          # and puts them in necessary configuration fields.
+          let
+            res = processSwitch(pass, p, config)
+            evts = procSwitchResultToEvents(config, pass, p.key, p.val, res)
+          for e in evts.items:
+            config.cliEventLogger(e)
     of cmdArgument:
       config.commandLine.add " "
       config.commandLine.add p.key.quoteShell
