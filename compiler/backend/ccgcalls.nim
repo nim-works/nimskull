@@ -71,6 +71,21 @@ proc isHarmlessStore(p: BProc; canRaise: bool; d: TLoc): bool =
   else:
     result = false
 
+proc exitCall(p: BProc, callee: PNode, canRaise: bool) =
+  ## Emits the exceptional control-flow related post-call logic.
+  if p.config.exc == excGoto:
+    if nimErrorFlagDisabled in p.flags:
+      if callee.kind == nkSym and sfNoReturn in callee.sym.flags and
+         canRaiseConservative(callee):
+        # when using goto-exceptions, noreturn doesn't map to "doesn't return"
+        # at the C-level. In order to still support dispatching to wrapper
+        # procedures around ``raise`` from inside ``.compilerprocs``, we emit
+        # an exit after the call
+        p.flags.incl beforeRetNeeded
+        lineF(p, cpsStmts, "goto BeforeRet_;$n", [])
+    elif canRaise:
+      raiseExit(p)
+
 proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
                callee, params: Rope) =
   let canRaise = p.config.exc == excGoto and canRaiseDisp(p, ri[0])
@@ -91,14 +106,15 @@ proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
         pl.add(addrLoc(p.config, d))
         pl.add(~");$n")
         line(p, cpsStmts, pl)
+        exitCall(p, ri[0], canRaise)
       else:
         var tmp: TLoc
         getTemp(p, typ[0], tmp, needsInit=true)
         pl.add(addrLoc(p.config, tmp))
         pl.add(~");$n")
         line(p, cpsStmts, pl)
+        exitCall(p, ri[0], canRaise)
         genAssignment(p, d, tmp, {}) # no need for deep copying
-      if canRaise: raiseExit(p)
     else:
       pl.add(~")")
       if isHarmlessStore(p, canRaise, d):
@@ -108,7 +124,7 @@ proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
         initLoc(list, locCall, d.lode, OnUnknown)
         list.r = pl
         genAssignment(p, d, list, {}) # no need for deep copying
-        if canRaise: raiseExit(p)
+        exitCall(p, ri[0], canRaise)
       else:
         var tmp: TLoc
         getTemp(p, typ[0], tmp, needsInit=true)
@@ -116,12 +132,12 @@ proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
         initLoc(list, locCall, d.lode, OnUnknown)
         list.r = pl
         genAssignment(p, tmp, list, {}) # no need for deep copying
-        if canRaise: raiseExit(p)
+        exitCall(p, ri[0], canRaise)
         genAssignment(p, d, tmp, {})
   else:
     pl.add(~");$n")
     line(p, cpsStmts, pl)
-    if canRaise: raiseExit(p)
+    exitCall(p, ri[0], canRaise)
 
 proc genBoundsCheck(p: BProc; arr, a, b: TLoc)
 
@@ -418,12 +434,13 @@ proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
           discard "resetLoc(p, d)"
         pl.add(addrLoc(p.config, d))
         genCallPattern()
+        exitCall(p, ri[0], canRaise)
       else:
         var tmp: TLoc
         getTemp(p, typ[0], tmp, needsInit=true)
         pl.add(addrLoc(p.config, tmp))
         genCallPattern()
-        if canRaise: raiseExit(p)
+        exitCall(p, ri[0], canRaise)
         genAssignment(p, d, tmp, {}) # no need for deep copying
     elif isHarmlessStore(p, canRaise, d):
       if d.k == locNone: getTemp(p, typ[0], d)
@@ -435,7 +452,7 @@ proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
       else:
         list.r = PatProc % [rdLoc(op), pl, pl.addComma, rawProc]
       genAssignment(p, d, list, {}) # no need for deep copying
-      if canRaise: raiseExit(p)
+      exitCall(p, ri[0], canRaise)
     else:
       var tmp: TLoc
       getTemp(p, typ[0], tmp)
@@ -447,11 +464,11 @@ proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
       else:
         list.r = PatProc % [rdLoc(op), pl, pl.addComma, rawProc]
       genAssignment(p, tmp, list, {})
-      if canRaise: raiseExit(p)
+      exitCall(p, ri[0], canRaise)
       genAssignment(p, d, tmp, {})
   else:
     genCallPattern()
-    if canRaise: raiseExit(p)
+    exitCall(p, ri[0], canRaise)
 
 proc notYetAlive(n: PNode): bool {.inline.} =
   let r = getRoot(n)

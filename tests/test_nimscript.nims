@@ -67,7 +67,7 @@ import std/[
 
   # Miscellaneous:
   colors, sugar, varints, with,
-  # fails due to FFI: browsers, segfaults
+  # fails due to FFI: browsers
   # fails due to times import/methods: logging
   # fails due to methods: unittest
 

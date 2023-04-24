@@ -1063,6 +1063,18 @@ proc genProcAux(m: BModule, prc: PSym) =
         #incl(res.loc.flags, lfIndirect)
         res.loc.storage = OnUnknown
 
+  # for now, we treat all compilerprocs as being able to run in a boot
+  # environment where the error flag is not yet accessible. This is not quite
+  # correct, and a dedicated facility for designating runtime procedures as
+  # usable in a boot environment is eventually required
+  # The ``threadProcWrapper`` is special-cased to have the flag disabled too,
+  # as thread-local storage might not have been set up when the flag is first
+  # queried. Making it a compilerproc is not possible, due to it being a
+  # generic routine
+  if sfCompilerProc in prc.flags or (prc.name.s == "threadProcWrapper" and
+     sfSystemModule in getModule(prc).flags):
+    p.flags.incl nimErrorFlagDisabled
+
   for i in 1..<prc.typ.n.len:
     let param = prc.typ.n[i].sym
     if param.typ.isCompileTimeOnly: continue
