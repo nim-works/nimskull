@@ -197,6 +197,8 @@ proc isCastable(c: PContext; dst, src: PType): bool =
   #                       tySequence, tyPointer, tyNil, tyOpenArray,
   #                       tyProc, tySet, tyEnum, tyBool, tyChar}
   let src = src.skipTypes(tyUserTypeClasses)
+  if tyError in {src.kind, dst.kind}:
+    return true # error correction for suggest, check, etc.
   if skipTypes(dst, abstractInst-{tyOpenArray}).kind == tyOpenArray:
     return false
   if skipTypes(src, abstractInst-{tyTypeDesc}).kind == tyTypeDesc:
@@ -366,30 +368,27 @@ proc semConv(c: PContext, n: PNode): PNode =
                                              inputVal: op,
                                              targetTyp: result.typ))
 
-proc semCast(c: PContext, n: PNode): PNode =
+proc semCast(c: PContext, n: PNode): ElaborateAst =
   ## Semantically analyze a casting ("cast[type](param)")
   checkSonsLen(n, 2, c.config)
   let
-    targetType = semTypeNode(c, n[0], nil)
+    typeExpr   = semTypeNode2(c, n[0], nil)
+    targetType = typeExpr.typ
     castedExpr = semExprWithType(c, n[1])
-  
-  if tfHasMeta in targetType.flags:
-    result = c.config.newError(n,
-                        PAstDiag(kind: adSemCannotCastToNonConcrete,
-                                 wrongType: targetType))
-    return
 
-  if not isCastable(c, targetType, castedExpr.typ):
-    result = c.config.newError(n, PAstDiag(
+  result.initWith(n)
+  result.typ = targetType
+  result[0] = typeExpr
+  result[1] = castedExpr
+
+  if tfHasMeta in targetType.flags:
+    result.diag = PAstDiag(kind: adSemCannotCastToNonConcrete,
+                           wrongType: targetType)
+  elif not isCastable(c, targetType, castedExpr.typ):
+    result.diag = PAstDiag(
       kind: adSemCannotCastTypes,
       typeMismatch: @[typeMismatch(formal = targetType,
-                                   actual = castedExpr.typ)]))
-    return
-
-  result = newNodeI(nkCast, n.info)
-  result.typ = targetType
-  result.add copyTree(n[0])
-  result.add castedExpr
+                                   actual = castedExpr.typ)])
 
 proc semLowHigh(c: PContext, n: PNode, m: TMagic): PNode =
   if n.len != 2:
@@ -3770,7 +3769,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   of nkHiddenAddr, nkHiddenDeref:
     checkSonsLen(n, 1, c.config)
     n[0] = semExpr(c, n[0], flags)
-  of nkCast: result = semCast(c, n)
+  of nkCast: result = c.config.extract(semCast(c, n))
   of nkIfExpr, nkIfStmt: result = semIf(c, n, flags)
   of nkHiddenStdConv, nkHiddenSubConv, nkConv, nkHiddenCallConv:
     checkSonsLen(n, 2, c.config)

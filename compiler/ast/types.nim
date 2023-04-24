@@ -182,6 +182,9 @@ proc iterOverTypeAux(marker: var IntSet, t: PType, iter: TTypeIter,
     case t.kind
     of tyGenericInst, tyGenericBody, tyAlias, tySink, tyInferred:
       result = iterOverTypeAux(marker, lastSon(t), iter, closure)
+    of tyError:
+      # the error is reported elsewhere
+      discard
     else:
       for i in 0..<t.len:
         result = iterOverTypeAux(marker, t[i], iter, closure)
@@ -1551,10 +1554,15 @@ proc productReachable(marker: var IntSet, g: ModuleGraph, t: PType, search: PTyp
     result = false
   of tyDistinct, tyGenericInst, tyAlias, tyUserTypeClassInst, tyInferred:
     result = productReachable(marker, g, t.lastSon, search, isInd)
+  of tyError:
+    # ``productReachable`` returning true usually means more work for the
+    # compiler, so we treat the error type as not being able to introduce
+    # reference cycles -- the type doesn't reach the code generators anyway
+    result = false
   of tyRef:
     unreachable("handled by check")
   of tyNone, tyUntyped, tyTyped, tyGenericInvocation, tyGenericBody,
-     tyGenericParam, tyForward, tySink, tyProxy, tyBuiltInTypeClass,
+     tyGenericParam, tyForward, tySink, tyBuiltInTypeClass,
      tyCompositeTypeClass, tyUserTypeClass, tyAnd, tyOr, tyNot, tyAnything,
      tyStatic, tyFromExpr:
     unreachable("not a concrete type")
