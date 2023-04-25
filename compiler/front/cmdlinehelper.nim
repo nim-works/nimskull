@@ -232,6 +232,14 @@ proc handleConfigEvent(
             reportInst: evt.instLoc.toReportLineInfo,
             msg: evt.msg,
             kind: kind))
+      of rlexExpectedToken:
+        Report(
+          category: repLexer,
+          lexReport: LexerReport(
+            location: std_options.some evt.location,
+            reportInst: evt.instLoc.toReportLineInfo,
+            msg: evt.msg,
+            kind: kind))
       of rparIdentExpected:
         Report(
           category: repParser,
