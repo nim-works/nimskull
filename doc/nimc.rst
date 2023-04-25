@@ -182,17 +182,14 @@ implementation and should not be used elsewhere.
 ==========================       ============================================
 Name                             Description
 ==========================       ============================================
-nimStdSetjmp                     Use the standard `setjmp()/longjmp()` library
-                                 functions for setjmp-based exceptions. This is
-                                 the default on most platforms.
-nimSigSetjmp                     Use `sigsetjmp()/siglongjmp()` for setjmp-based exceptions.
-nimRawSetjmp                     Use `_setjmp()/_longjmp()` on POSIX and `_setjmp()/longjmp()`
-                                 on Windows, for setjmp-based exceptions. It's the default on
-                                 BSDs and BSD-like platforms, where it's significantly faster
-                                 than the standard functions.
-nimBuiltinSetjmp                 Use `__builtin_setjmp()/__builtin_longjmp()` for setjmp-based
-                                 exceptions. This will not work if an exception is being thrown
-                                 and caught inside the same procedure. Useful for benchmarking.
+nimStdSetjmp                     Use the standard `setjmp()` library function
+                                 for saving the register state during stack
+                                 scanning. Only relevant for stack-scanning GCs
+nimRawSetjmp                     Use `_setjmp()` on POSIX and `_setjmp()`
+                                 on Windows, for saving the register state.
+                                 It's the default on BSDs and BSD-like platforms,
+                                 where it's significantly faster than the
+                                 standard functions.
 ==========================       ============================================
 
 

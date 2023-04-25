@@ -425,15 +425,13 @@ proc testCompileOptionArg*(conf: ConfigRef; switch, arg: string, info: TLineInfo
   of "exceptions":
     case arg.normalize
     of "native": result = conf.exc == excNative
-    of "setjmp": result = conf.exc == excSetjmp
-    of "quirky": result = conf.exc == excQuirky
     of "goto": result = conf.exc == excGoto
     else:
       conf.localReport(info, ExternalReport(
         kind: rextUnexpectedValue,
         cmdlineSwitch: "exceptions",
         cmdlineProvided: arg,
-        cmdlineAllowed: @["native", "setjmp", "quirky", "goto"]))
+        cmdlineAllowed: @["native", "goto"]))
 
   else: invalidCmdLineOption(conf, passCmd1, switch, info)
 
@@ -576,9 +574,7 @@ proc setCommandEarly*(conf: ConfigRef, command: string) =
 
 proc specialDefine(conf: ConfigRef, key: string; pass: TCmdLinePass) =
   # Keep this syncronized with the default config/nim.cfg!
-  if cmpIgnoreStyle(key, "nimQuirky") == 0:
-    conf.exc = excQuirky
-  elif cmpIgnoreStyle(key, "release") == 0 or cmpIgnoreStyle(key, "danger") == 0:
+  if cmpIgnoreStyle(key, "release") == 0 or cmpIgnoreStyle(key, "danger") == 0:
     if pass in {passCmd1, passPP}:
       conf.excl {optStackTrace, optLineTrace, optLineDir, optOptimizeSize}
       conf.excl {optExcessiveStackTrace, optCDebug}
@@ -1074,11 +1070,9 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "exceptions":
     case arg.normalize
     of "native": conf.exc = excNative
-    of "setjmp": conf.exc = excSetjmp
-    of "quirky": conf.exc = excQuirky
     of "goto": conf.exc = excGoto
     else:
-      conf.localReport(info, invalidSwitchValue @["native", "setjmp", "quirky", "goto"])
+      conf.localReport(info, invalidSwitchValue @["native", "goto"])
   of "cppdefine":
     expectArg(conf, switch, arg, pass, info)
     if conf != nil:

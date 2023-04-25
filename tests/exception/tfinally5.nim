@@ -1,5 +1,5 @@
 discard """
-  matrix: "--exceptions:setjmp; --exceptions:goto --panics:on"
+  matrix: "--exceptions:goto --panics:on"
   targets: c
 """
 

@@ -9,11 +9,6 @@
 
 {.push profiler: off.}
 
-when defined(nimHasExceptionsQuery):
-  const gotoBasedExceptions = compileOption("exceptions", "goto")
-else:
-  const gotoBasedExceptions = false
-
 when hostOS == "standalone":
   include "$projectpath/panicoverride"
 
@@ -24,7 +19,7 @@ when hostOS == "standalone":
     rawoutput(message)
     panic(arg)
 
-elif (defined(nimQuirky) or defined(nimPanics)) and not defined(nimscript):
+elif defined(nimPanics) and not defined(nimscript) and not defined(vm):
   import ansi_c
 
   proc name(t: typedesc): string {.magic: "TypeTrait".}

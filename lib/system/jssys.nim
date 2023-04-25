@@ -13,11 +13,6 @@ import std/private/miscdollars
 proc log*(s: cstring) {.importc: "console.log", varargs, nodecl.}
 
 type
-  PSafePoint = ptr SafePoint
-  SafePoint {.compilerproc, final.} = object
-    prev: PSafePoint # points to next safe point
-    exc: ref Exception
-
   PCallFrame = ptr CallFrame
   CallFrame {.importc, nodecl, final.} = object
     prev: PCallFrame

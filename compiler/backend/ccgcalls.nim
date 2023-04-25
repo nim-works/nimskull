@@ -88,7 +88,7 @@ proc exitCall(p: BProc, callee: PNode, canRaise: bool) =
 
 proc fixupCall(p: BProc, le, ri: PNode, d: var TLoc,
                callee, params: Rope) =
-  let canRaise = p.config.exc == excGoto and canRaiseDisp(p, ri[0])
+  let canRaise = canRaiseDisp(p, ri[0])
   genLineDir(p, ri)
   var pl = callee & ~"(" & params
   # getUniqueType() is too expensive here:
@@ -420,7 +420,7 @@ proc genClosureCall(p: BProc, le, ri: PNode, d: var TLoc) =
       lineF(p, cpsStmts, PatProc & ";$n", [rdLoc(op), pl, pl.addComma, rawProc])
 
   let rawProc = getClosureType(p.module, typ, clHalf)
-  let canRaise = p.config.exc == excGoto and canRaiseDisp(p, ri[0])
+  let canRaise = canRaiseDisp(p, ri[0])
   if typ[0] != nil:
     if isInvalidReturnType(p.config, typ[0]):
       if ri.len > 1: pl.add(~", ")

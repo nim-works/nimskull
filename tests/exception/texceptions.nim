@@ -1,6 +1,5 @@
 discard """
-  disabled: "windows" # no sigsetjmp() there
-  matrix: "-d:nimStdSetjmp; -d:nimSigSetjmp; -d:nimRawSetjmp; -d:nimBuiltinSetjmp"
+  matrix: "--exceptions:goto"
   output: '''
 
 BEFORE
