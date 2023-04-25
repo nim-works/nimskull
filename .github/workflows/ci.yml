@@ -9,6 +9,8 @@ on:
       - staging.tmp
       - trying.tmp
       - staging-squash-merge.tmp
+      # Github Merge Queue temporary branches
+      - gh-readonly-queue/**
 
   pull_request:
     # Only take PRs to devel
@@ -21,6 +23,9 @@ on:
       - synchronize
       - reopened
       - ready_for_review
+
+  merge_group:
+    # Test all additions to merge queue
 
 # Run every script actions in bash
 defaults:
@@ -141,7 +146,7 @@ jobs:
         # an array due to how Github Actions process matrices.
         total_batch: [2]
 
-    name: 'Test the compiler and stdlib (${{ matrix.target.name }}, batch #${{ matrix.batch }})'
+    name: "Test the compiler and stdlib (${{ matrix.target.name }}, batch #${{ matrix.batch }})"
     runs-on: ${{ matrix.target.runner }}
 
     steps:
@@ -154,7 +159,7 @@ jobs:
       - name: Install NodeJS
         uses: actions/setup-node@v3
         with:
-          node-version: '16'
+          node-version: "16"
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
@@ -499,7 +504,15 @@ jobs:
 
   passed:
     name: All check passed
-    needs: [binaries, test, tooling, source, source_binaries, package, test_package, orc]
+    needs:
+      - binaries
+      - test
+      - tooling
+      - source
+      - source_binaries
+      - package
+      - test_package
+      - orc
     if: always()
     runs-on: ubuntu-latest
 
