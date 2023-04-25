@@ -182,6 +182,7 @@ type
   CliEventKind* = enum
     # errors - cli command
     cliEvtErrInvalidCommand # main.nim
+    cliEvtErrCmdMissing # cmdlinehelper.nim
     cliEvtErrCmdExpectedNoAdditionalArgs # nim.nim
       ## flag disallows additional args
     cliEvtErrFlagArgExpectedFromList # commands.nim
@@ -230,7 +231,8 @@ type
         procResult*: ProcSwitchResult
       of cliEvtHintPathAdded:
         pathAdded*: string
-      of cliEvtErrNoCliParamsProvided:
+      of cliEvtErrNoCliParamsProvided,
+          cliEvtErrCmdMissing:
         discard
 
 const
@@ -284,6 +286,8 @@ proc logError*(conf: ConfigRef, evt: CliEvent) =
     case evt.kind
     of cliEvtErrInvalidCommand:
       "Invalid command - $1" % evt.cmd
+    of cliEvtErrCmdMissing:
+      "Command missing"
     of cliEvtErrUnexpectedRunOpt:
       "'$1' cannot handle --run" % evt.cmd
     of cliEvtErrCmdExpectedNoAdditionalArgs:

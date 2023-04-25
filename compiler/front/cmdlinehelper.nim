@@ -38,6 +38,8 @@ import
     extccomp
   ]
 
+from compiler/front/commands import CliEvent, logError, cliEvtErrCmdMissing
+
 from std/strutils import endsWith
 
 # xxx: reports are a code smell meaning data types are misplaced
@@ -468,8 +470,15 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
   # command line can overwrite the config file's settings
   extccomp.initVars(conf)
   self.processCmdLine(passCmd2, "", conf)
-  if conf.cmd == cmdNone:
-    localReport(conf, ExternalReport(kind: rextCommandMissing))
+  if conf.cmd == cmdNone and not self.suggestMode:
+    # xxx: the suggestMode check is not required but reminds us that this code
+    #      is misplaced.
+    # we didn't set the result to false because this isn't config processing
+    # and the caller should check error counts... this is more convoluted than
+    # it needs to be, but incrementally refactoring.
+    commands.logError(conf, CliEvent(kind: cliEvtErrCmdMissing,
+                                    pass: passCmd2,
+                                    srcCodeOrigin: instLoc()))
 
   graph.suggestMode = self.suggestMode
   return true
