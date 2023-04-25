@@ -317,7 +317,9 @@ proc mainCommand*(graph: ModuleGraph) =
     defineSymbol(graph.config, $conf.backend)
     case conf.backend
     of backendC:
-      if conf.exc == excNone: conf.exc = excSetjmp
+      case conf.exc
+      of excNone, excNative:            conf.exc = excGoto
+      of excQuirky, excSetjmp, excGoto: discard
     of backendJs, backendNimVm:
       discard
     of backendInvalid: doAssert false

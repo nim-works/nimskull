@@ -46,9 +46,12 @@ proc runBasicDLLTest(c, r: var TResults, cat: Category, options: string) =
     else:
       ""
 
-  var test1 = makeTest("lib/nimrtl.nim", options & " --outdir:tests/dll", cat)
-  test1.spec.action = actionCompile
-  testSpec c, test1
+  # XXX: nimrtl is currently defunct and the tests making use of it are
+  #      disabled
+  when false:
+    var test1 = makeTest("lib/nimrtl.nim", options & " --outdir:tests/dll", cat)
+    test1.spec.action = actionCompile
+    testSpec c, test1
   var test2 = makeTest("tests/dll/server.nim", options & " --threads:on" & rpath, cat)
   test2.spec.action = actionCompile
   testSpec c, test2

@@ -181,6 +181,8 @@ template threadProcWrapperBody(closure: untyped): untyped =
   deallocShared(cast[pointer](core))
 
 {.push stack_trace:off.}
+# NOTE: the `threadProcWrapper` is currently special-cased by the compiler to
+# not access the error flag
 when defined(windows):
   proc threadProcWrapper[TArg](closure: pointer): int32 {.stdcall.} =
     threadProcWrapperBody(closure)

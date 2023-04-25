@@ -65,7 +65,6 @@ import std/[
   # Miscellaneous:
   colors, logging, sugar, unittest, varints, with,
   # fails due to FFI: browsers
-  # works but uses FFI: segfaults
 
   # Modules for JS backend:
   asyncjs, dom, jsconsole, jscore, jsffi, jsbigints,

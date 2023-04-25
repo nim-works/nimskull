@@ -1,5 +1,6 @@
 discard """
   cmd: "nim $target --debuginfo --hints:on --define:useNimRtl $options $file"
+  knownIssue: "nimrtl doesn't build with --exceptions:goto and/or --gc:arc|orc"
 """
 
 type

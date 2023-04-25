@@ -1,6 +1,6 @@
 discard """
   output: "1"
-  cmd: r"nim c --hints:on $options -d:release $file"
+  matrix: "--exceptions:setjmp -d:release"
   ccodecheck: "'NI volatile state;'"
   targets: "c"
 """
