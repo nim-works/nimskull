@@ -243,6 +243,23 @@ proc fitNodeConsiderViewType(c: PContext, formal: PType, arg: PNode; info: TLine
   else:
    result = a
 
+proc genericProcCheck(c: PContext, n: PNode): PNode =
+  ## Checks that the analysed expression `n` is of generic procedural type.
+  ## Returns either `n` or an error.
+  if n.typ != nil and n.typ.kind == tyError:
+    return n
+
+  # skip all statement list wrappers:
+  var it {.cursor.} = n
+  while it.kind == nkStmtListExpr:
+    it = it.lastSon
+
+  if (it.kind == nkSym and it.sym.isGenericRoutineStrict) or
+     it.isGenericRoutine:
+    c.config.newError(n, PAstDiag(kind: adSemProcHasNoConcreteType))
+  else:
+    n
+
 proc inferWithMetatype(c: PContext, formal: PType,
                        arg: PNode, coerceDistincts = false): PNode
 

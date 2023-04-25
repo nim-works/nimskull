@@ -782,6 +782,7 @@ proc semArrayConstr(c: PContext, n: PNode, flags: TExprFlags): PNode =
 
       if e.kind != nkError:
         e = semExprWithType(c, e, {})
+        e = genericProcCheck(c, e)
 
       if typ.isNil:
         # must be the first item; initialize the common type:
