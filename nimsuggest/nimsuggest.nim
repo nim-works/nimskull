@@ -706,7 +706,8 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
 
   if gMode != mstdin:
     conf.writelnHook =
-      proc (conf: ConfigRef, msg: string, flags: MsgFlags) = discard
+      proc (conf: ConfigRef, msg: string, flags: MsgFlags) =
+        myLog(conf, msg)
 
   # Find Nim's prefix dir.
   #
@@ -731,7 +732,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
   graph.onMarkUsed = proc (g: ModuleGraph; info: TLineInfo; s: PSym; usageSym: var PSym; isDecl: bool) =
     suggestSym(g, info, s, usageSym, isDecl)
   graph.onSymImport = graph.onMarkUsed # same callback
-  if self.loadConfigsAndProcessCmdLine(cache, conf, graph):
+  if self.loadConfigsAndProcessCmdLine(cache, conf, graph, stopOnError = false):
     mainCommand(graph)
 
 when isMainModule:

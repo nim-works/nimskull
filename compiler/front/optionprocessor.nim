@@ -1575,6 +1575,85 @@ proc processSwitch*(pass: TCmdLinePass, p: OptParser,
   else:
     processSwitch(p.key, p.val, pass, config)
 
+func procResultToHumanStr*(procResult: ProcSwitchResult): string =
+  ## creates a human readable string message for a switch result, does not
+  ## include any extra information such as line info, severity, and so on.
+  case procResult.kind
+  of procSwitchSuccess: ""
+  of procSwitchErrInvalid:
+    "Invalid command line option - " & procResult.givenSwitch
+  of procSwitchErrArgExpected:
+    "argument for command line option expected: '$1'" %
+      procResult.givenSwitch
+  of procSwitchErrArgForbidden:
+    "$1 expects no arguments, but '$2' found" %
+      [procResult.givenSwitch, procResult.givenArg]
+  of procSwitchErrArgMalformedKeyValPair:
+    "option '$#' has malformed `key:value` argument: '$#" %
+      [procResult.givenSwitch, procResult.givenArg]
+  of procSwitchErrArgExpectedOnOrOff:
+    "'on' or 'off' expected for $1, but '$2' found" %
+      [procResult.givenSwitch, procResult.givenArg]
+  of procSwitchErrArgExpectedOnOffOrList:
+    "'on', 'off', or 'list' expected for $1, but '$2' found" %
+      [procResult.givenSwitch, procResult.givenArg]
+  of procSwitchErrArgExpectedAllOrOff:
+    "only 'all:off' is supported for $1, found $2" %
+      [procResult.givenSwitch, procResult.givenArg]
+  of procSwitchErrArgExpectedFromList:
+    "expected value for switch '$1'. Expected one of $2, but got nothing" %
+      [procResult.givenSwitch,
+        allowedCompileOptionsArgs(procResult.switch).join(", ")]
+  of procSwitchErrArgNotInValidList:
+    "Unexpected value for switch '$1'. Expected one of $2, but got '$3'" %
+      [procResult.givenSwitch,
+        allowedCompileOptionsArgs(procResult.switch).join(", "),
+        procResult.givenArg]
+  of procSwitchErrArgUnknownCCompiler:
+    "unknown C compiler: '$1'. Available options are: $2" %
+      [procResult.givenArg, listCCnames().join(", ")]
+  of procSwitchErrArgUnknownExperimentalFeature:
+    "unknown experiemental feature: '$1'. Available options are: $2" %
+      [procResult.givenArg,
+        allowedCompileOptionsArgs(procResult.switch).join(", ")]
+  of procSwitchErrArgNimblePath:
+    let
+      nimbleResult = procResult.processedNimblePath
+      msgPrefix = "in nimblepath ('$#') invalid package " %
+                            nimbleResult.nimblePathAttempted.string
+      invalidPaths = nimbleResult.nimblePathResult.pkgs
+                        .filterIt(it.status == nimblePkgInvalid)
+                        .mapIt(it.path)
+    case invalidPaths.len
+    of 0: unreachable("compiler bug")
+    of 1: msgPrefix & "name: '$#'" % invalidPaths[0]
+    else: (msgPrefix & "names:" & repeat("\n  '$#'", invalidPaths.len)) %
+            invalidPaths
+  of procSwitchErrArgPathInvalid:
+    "invalid path (option '$#'): $#" %
+      [procResult.givenSwitch, procResult.pathAttempted]
+  of procSwitchErrArgInvalidHintOrWarning:
+    let processNoteResult = procResult.processNoteResult
+    # TODO: improve these messages so they're more hint/warning specific,
+    #       we have more information available than we're using. eg: it's
+    #       not an invalid option, but error/warning/hint/etc switch
+    let temp =
+      case processNoteResult.kind
+      of procNoteSuccess: ""
+      of procNoteInvalidOption:
+        "Invalid command line option - " & processNoteResult.switch
+      of procNoteInvalidHint:
+        "Invalid hint - " & processNoteResult.invalidHintOrWarning
+      of procNoteInvalidWarning:
+        "Invalid warning - " & processNoteResult.invalidHintOrWarning
+      of procNoteExpectedOnOrOff:
+        "'on' or 'off' expected for $1, but '$2' found" %
+          [processNoteResult.switch, processNoteResult.argVal]
+      of procNoteOnlyAllOffSupported:
+        "only 'all:off' is supported for $1, found $2" %
+          [processNoteResult.switch, processNoteResult.argVal]
+    temp
+
 proc setCmd*(conf: ConfigRef, cmd: Command) =
   ## sets cmd, backend so subsequent flags can query it (e.g. so --gc:arc can be ignored for backendJs)
   # Note that `--backend` can override the backend, so the logic here must remain reversible.

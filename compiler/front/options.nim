@@ -1457,6 +1457,7 @@ proc findModule*(conf: ConfigRef; modulename, currentModule: string): AbsoluteFi
 proc findProjectNimFile*(conf: ConfigRef; pkg: string): string =
   ## Find configuration file for a current project
   const extensions = [".nims", ".cfg", ".nimcfg", ".nimble"]
+    # xxx: remove '.nimcfg' and '.nimble' (and nimble files from compiler src)
   var
     candidates: seq[string] = @[]
     dir = pkg

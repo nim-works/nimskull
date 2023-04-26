@@ -17,6 +17,7 @@ import
   compiler/ast/[
     idents,
     lineinfos,
+    lexer
   ],
   compiler/modules/[
     modulegraphs
@@ -28,33 +29,27 @@ import
     msgs,
     options,
     optionprocessor,
-    condsyms
+    condsyms,
+    commands
   ],
   compiler/utils/[
     pathutils,
-    idioms
   ],
   compiler/backend/[
     extccomp
   ]
 
-from compiler/front/commands import CliEvent, logError, cliEvtErrCmdMissing
+from experimental/colortext import ForegroundColor, toString
 
-from std/strutils import endsWith
+from std/strutils import endsWith, `%`
 
 # xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_lexer import LexerReport
-from compiler/ast/reports_parser import ParserReport
-from compiler/ast/reports_internal import InternalReport
-from compiler/ast/reports_external import ExternalReport
-from compiler/ast/reports_debug import DebugReport
-from compiler/ast/report_enums import ReportKind
+from compiler/ast/report_enums import rintMsgOrigin, rextPath, rintErrKind
 from compiler/ast/reports import Report,
   ReportCategory,
   toReportLineInfo
 from compiler/front/cli_reporter import reportHook
 from compiler/front/sexp_reporter import reportHook
-from compiler/modules/nimblecmd import nimblePkgInvalid
 
 proc prependCurDir*(f: AbsoluteFile): AbsoluteFile =
   when defined(unix):
@@ -69,222 +64,128 @@ type
     supportsStdinFile*: bool
     processCmdLine*: proc(pass: TCmdLinePass, cmd: string; config: ConfigRef)
 
-proc legacyReportBridge(r: ProcessNoteResult): Option[ExternalReport] =
-  case r.kind
-  of procNoteInvalidOption:
-    some ExternalReport(
-      kind: rextCfgInvalidOption,
-      cmdlineProvided: r.switch)
-  of procNoteInvalidHint:
-    some ExternalReport(
-      kind: rextInvalidHint,
-      cmdlineProvided: r.invalidHintOrWarning)
-  of procNoteInvalidWarning:
-    some ExternalReport(
-      kind: rextInvalidWarning,
-      cmdlineProvided: r.invalidHintOrWarning)
-  of procNoteExpectedOnOrOff:
-    some ExternalReport(kind: rextExpectedOnOrOff,
-                    cmdlineSwitch: r.switch,
-                    cmdlineProvided: r.argVal)
-  of procNoteOnlyAllOffSupported:
-    some ExternalReport(kind: rextOnlyAllOffSupported,
-                    cmdlineSwitch: r.switch,
-                    cmdlineProvided: r.argVal)
-  of procNoteSuccess:
-    none[ExternalReport]()
+type
+  ConfDiagSeverity = enum
+    configDiagSevFatal = "Fatal:"
+    configDiagSevError = "Error:"
+    configDiagSevWarn  = "Warning:"
+    configDiagSevInfo  = "Hint:"
 
-proc legacyReportProcNote(conf: ConfigRef, r: ProcessNoteResult, info: TLineInfo) =
-  ## processes a hint/warn/error config switch, then bridges into legacy
-  ## reports to keep the rest of the codebase isolated from them.
-  let legacy = legacyReportBridge(r)
-  if legacy.isSome:
-    conf.localReport(info, legacy.unsafeGet())
-
-proc legacyReportProcSwitch(conf: ConfigRef, r: ProcSwitchResult,
-                             info: TLineInfo) =
-  ## processes a config switch, then bridges into legacy reports to keep the
-  ## rest of the codebase isolated from them.
-  # TODO: before merge push out reports and move to CLI events/output
-  case r.kind
-  of procSwitchSuccess: discard
-  of procSwitchErrInvalid:
-    conf.localReport(info):
-      ExternalReport(kind: rextCfgInvalidOption,
-                     cmdlineSwitch: r.givenSwitch)
-  of procSwitchErrArgExpected:
-    conf.localReport(info, ExternalReport(kind: rextCfgExpectedArgument,
-                                          cmdlineSwitch: r.givenSwitch))
-  of procSwitchErrArgForbidden:
-    conf.localReport(info, ExternalReport(kind: rextCfgExpectedNoArgument,
-                                          cmdlineSwitch: r.givenSwitch,
-                                          cmdlineProvided: r.givenArg))
-  of procSwitchErrArgMalformedKeyValPair:
-    conf.localReport(info, ExternalReport(kind: rextCfgArgMalformedKeyValPair,
-                                          cmdlineSwitch: r.givenSwitch,
-                                          cmdlineProvided: r.givenArg))
-  of procSwitchErrArgExpectedOnOrOff:
-    conf.localReport(info, ExternalReport(kind: rextExpectedOnOrOff,
-                                          cmdlineSwitch: r.givenSwitch,
-                                          cmdlineProvided: r.givenArg))
-  of procSwitchErrArgExpectedOnOffOrList:
-    conf.localReport(info, ExternalReport(kind: rextCfgExpectedOnOffOrList,
-                                          cmdlineSwitch: r.givenSwitch,
-                                          cmdlineProvided: r.givenArg))
-  of procSwitchErrArgExpectedAllOrOff:
-    conf.localReport(info, ExternalReport(kind: rextOnlyAllOffSupported,
-                                          cmdlineSwitch: r.givenSwitch,
-                                          cmdlineProvided: r.givenArg))
-  of procSwitchErrArgExpectedFromList:
-    conf.localReport(info):
-      ExternalReport(kind: rextCfgArgExpectedValueFromList,
-                     cmdlineSwitch: r.givenSwitch,
-                     cmdlineAllowed: allowedCompileOptionsArgs(r.switch))
-  of procSwitchErrArgNotInValidList:
-    conf.localReport(info):
-      ExternalReport(kind: rextCfgArgExpectedValueFromList,
-                     cmdlineSwitch: r.givenSwitch,
-                     cmdlineProvided: r.givenArg,
-                     cmdlineAllowed: allowedCompileOptionsArgs(r.switch))
-  of procSwitchErrArgUnknownCCompiler:
-    conf.localReport(info):
-      ExternalReport(kind: rextUnknownCCompiler,
-                     passedCompiler: r.givenArg,
-                     knownCompilers: listCCnames())
-  of procSwitchErrArgUnknownExperimentalFeature:
-    conf.localReport(info):
-      ExternalReport(kind: rextCfgArgUnknownExperimentalFeature,
-                     cmdlineProvided: r.givenArg,
-                     cmdlineAllowed: allowedCompileOptionsArgs(r.switch))
-  of procSwitchErrArgPathInvalid:
-    conf.localReport(info):
-      ExternalReport(kind: rextInvalidPath,
-                     cmdlineSwitch: r.givenSwitch,
-                     cmdlineProvided: r.pathAttempted)
-  of procSwitchErrArgNimblePath:
-    for res in r.processedNimblePath.nimblePathResult.pkgs:
-      case res.status
-      of nimblePkgInvalid:    
-        conf.localReport(info):
-          ExternalReport(kind: rextInvalidPackageName, packageName: res.path)
+proc writeConfigEvent(conf: ConfigRef,
+                       evt: ConfigFileEvent,
+                       writeFrom: InstantiationInfo) =
+  let
+    showKindSuffix = conf.hasHint(rintErrKind)
+    pathInfo =
+      case evt.kind
+      of cekParseExpectedX, cekParseExpectedCloseX, cekParseExpectedIdent,
+           cekInvalidDirective, cekWriteConfig, cekProgressPathAdded:
+        evt.location
+      of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag:
+        evt.lexerDiag.location
+      of cekFlagError:
+        evt.flagInfo
+      of cekProgressConfStart:
+        unknownLineInfo
+    useColor = if conf.cmd == cmdIdeTools: false else: conf.useColor()
+    msgKindTxt =
+      case evt.kind
+      of cekParseExpectedX, cekParseExpectedCloseX, cekParseExpectedIdent,
+          cekInvalidDirective, cekWriteConfig, cekInternalError,
+          cekLexerErrorDiag, cekFlagError:
+        ""
+      of cekLexerWarningDiag:
+        case evt.lexerDiag.kind
+        of lexDiagDeprecatedOctalPrefix: "[$1]" % $lexDiagDeprecatedOctalPrefix
+        else:                            ""
+      of cekProgressPathAdded:           "[$1]" % $cekProgressPathAdded
+      of cekProgressConfStart:           "[$1]" % $cekProgressConfStart
+    msgKindSuffix =
+      if msgKindTxt == "": ""
       else:
-        discard "ignore successes for now"
-  of procSwitchErrArgInvalidHintOrWarning:
-    let legacy = legacyReportBridge(r.processNoteResult)
-    if legacy.isSome:
-      conf.localReport(info, legacy.unsafeGet())
-  case r.switch
-  of cmdSwitchNimblepath:
-    if conf.hasHint(rextPath) and r.processedNimblePath.didProcess:
-      for np in r.processedNimblePath.nimblePathResult.addedPaths:
-        conf.localReport(info):
-          ExternalReport(kind: rextPath, packagePath: np.string)
-  else:
-    discard
+        if useColor: stylize(msgKindTxt, fgCyan)
+        else:        msgKindTxt
+    msgOrigin =
+      if conf.hasHint(rintMsgOrigin):
+        cliFmtMsgOrigin(evt.instLoc, showKindSuffix, useColor)
+      else:
+        ""
+    path =
+      case evt.kind
+      of cekParseExpectedX, cekParseExpectedCloseX, cekParseExpectedIdent,
+           cekInvalidDirective, cekWriteConfig, cekProgressPathAdded:
+        conf.cliFmt(evt.location, useColor)
+      of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag:
+        conf.cliFmt(evt.lexerDiag.location, useColor)
+      of cekFlagError:
+        conf.cliFmt(evt.flagInfo, useColor)
+      of cekProgressConfStart:
+        ""
+  const severityColors: array[ConfDiagSeverity, ForegroundColor] = [
+    fgRed, fgRed, fgYellow, fgGreen
+  ]
 
-proc handleConfigEvent(
-    conf: ConfigRef,
-    evt: ConfigFileEvent,
-    reportFrom: InstantiationInfo
-  ) =
-  # REFACTOR: this is a temporary bridge into existing reporting
-
-  let kind =
-    case evt.kind
-    of cekParseExpectedX, cekParseExpectedCloseX:
-      # xxx: rlexExpectedToken is not a "lexer" error, but a misguided
-      #      attempt at code reuse -- fix after reporting is untangled.
-      rlexExpectedToken
-    of cekParseExpectedIdent:
-      rparIdentExpected
-    of cekInvalidDirective:
-      rlexCfgInvalidDirective
-    of cekWriteConfig:
-      rintNimconfWrite
-    of cekDebugTrace:
-      rdbgCfgTrace
-    of cekInternalError:
-      rintIce
-    of cekLexerErrorDiag, cekLexerWarningDiag, cekLexerHintDiag:
-      evt.lexerDiag.kind.lexDiagToLegacyReportKind
-    of cekDebugReadStart:
-      rdbgStartingConfRead
-    of cekDebugReadStop:
-      rdbgFinishedConfRead
-    of cekProgressConfStart:
-      rextConf
-    of cekFlagError:
-      legacyReportProcSwitch(conf, evt.flagResult, evt.flagInfo)
-      return
-
-  let rep =
-    case evt.kind
-    of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag,
-        cekLexerHintDiag:
-      evt.lexerDiag.lexerDiagToLegacyReport
+  template styleSeverity(sev: ConfDiagSeverity): string =
+    if useColor:
+      stylize($sev, severityColors[sev])
     else:
-      case kind
-      of rlexCfgInvalidDirective:
-        Report(
-          category: repLexer,
-          lexReport: LexerReport(
-            location: std_options.some evt.location,
-            reportInst: evt.instLoc.toReportLineInfo,
-            msg: evt.msg,
-            kind: kind))
-      of rlexExpectedToken:
-        Report(
-          category: repLexer,
-          lexReport: LexerReport(
-            location: std_options.some evt.location,
-            reportInst: evt.instLoc.toReportLineInfo,
-            msg: evt.msg,
-            kind: kind))
-      of rparIdentExpected:
-        Report(
-          category: repParser,
-          parserReport: ParserReport(
-            location: std_options.some evt.location,
-            reportInst: evt.instLoc.toReportLineInfo,
-            msg: evt.msg,
-            kind: kind))
-      of rintNimconfWrite:
-        Report(
-          category: repInternal,
-          internalReport: InternalReport(
-            location: std_options.some evt.location,
-            reportInst: evt.instLoc.toReportLineInfo,
-            msg: evt.msg,
-            kind: kind))
-      of rdbgCfgTrace:
-        Report(
-          category: repDebug,
-          debugReport: DebugReport(
-            location: std_options.some evt.location,
-            reportInst: evt.instLoc.toReportLineInfo,
-            kind: kind,
-            str: evt.msg))
-      of rdbgStartingConfRead, rdbgFinishedConfRead:
-        Report(
-          category: repDebug,
-          debugReport: DebugReport(
-            reportInst: evt.instLoc.toReportLineInfo,
-            kind: kind,
-            filename: evt.msg))
-      of rextConf:
-        Report(
-          category: repExternal,
-          externalReport: ExternalReport(
-            reportInst: evt.instLoc.toReportLineInfo,
-            kind: kind,
-            msg: evt.msg))
-      else:
-        unreachable("handleConfigEvent unexpected kind: " & $kind)
+      $sev
 
-  let eh = case evt.kind
-           of cekInternalError: doAbort
-           else:                doNothing
-  handleReport(conf, rep, reportFrom, eh)
+  let
+    severity =
+      case evt.kind
+      of cekInternalError:
+        styleSeverity configDiagSevFatal
+      of cekLexerErrorDiag..cekFlagError:
+        styleSeverity configDiagSevError
+      of cekLexerWarningDiag:
+        styleSeverity configDiagSevWarn
+      of cekProgressConfStart, cekProgressPathAdded:
+        styleSeverity configDiagSevInfo # xxx: not really a hint
+      of cekWriteConfig:
+        "" # not a log/diagnostic like the rest; has none
+
+  conf.writeln:
+    case evt.kind
+    of cekParseExpectedX:
+      # path severity msg [kindsuffix] [msgOrigin]
+      let msg = "expected '$1'" % evt.msg
+      "$# $# $#$#" % [path, severity, msg, msgOrigin]
+    of cekParseExpectedCloseX:
+      let msg = "expected closing '$1'" % evt.msg
+      "$# $# $#$#" % [path, severity, msg, msgOrigin]
+    of cekParseExpectedIdent:
+      let msg = "identifier expected, but found '$1'" % evt.msg
+      "$# $# $#$#" % [path, severity, msg, msgOrigin]
+    of cekInvalidDirective:
+      let msg = "invalid directive: '$1'" % evt.msg
+      "$# $# $#$#" % [path, severity, msg, msgOrigin]
+    of cekInternalError, cekLexerErrorDiag:
+      let msg = diagToHumanStr(evt.lexerDiag)
+      "$# $# $#$#" % [path, severity, msg, msgOrigin]
+    of cekLexerWarningDiag:
+      let msg = diagToHumanStr(evt.lexerDiag)
+      "$# $# $#$#$#$#" % [path, severity, msg,
+                          if msgKindSuffix == "": "" else: " ", # spacing
+                          msgKindSuffix,
+                          msgOrigin]
+    of cekFlagError:
+      let msg = procResultToHumanStr(evt.flagResult)
+      "$# $# $#$#" % [path, severity, msg, msgOrigin]
+    of cekProgressPathAdded:
+      let msg = "added path: '$1'" % evt.msg
+      "$# $# $#$#$#$#" % [path, severity, msg,
+                          if msgKindSuffix == "": "" else: " ", # spacing
+                          msgKindSuffix,
+                          msgOrigin]
+    of cekProgressConfStart:
+      let msg = "used config file '$1'" % evt.msg
+      "$# $#$#$#$#" % [severity, msg,
+                       if msgKindSuffix == "": "" else: " ", # spacing
+                       msgKindSuffix,
+                       msgOrigin]
+    of cekWriteConfig:
+      evt.msg # TODO: use the lineinfo as msgorigin
 
 proc legacyReportsMsgFmtSetter(conf: ConfigRef, fmt: MsgFormatKind) =
   ## this actually sets the report hook, but the intention is formatter only,
@@ -319,30 +220,9 @@ proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef, cmd: string =
 
 proc loadConfigs*(
   cfg: RelativeFile, cache: IdentCache,
-  conf: ConfigRef) {.inline.} =
+  conf: ConfigRef, stopOnError: bool = true): bool {.inline.} =
   ## wrapper around `nimconf.loadConfigs` to connect to legacy reporting
-  proc handleScriptEvent(evt: CfgScriptEvt) =
-    # REFACTOR: this is a temporary bridge into existing reporting
-    let scriptEvt = evt.scriptEvt
-    case scriptEvt.kind
-    of scriptEvtDbgStart:
-      conf.localReport DebugReport(
-        kind: rdbgStartingConfRead,
-        filename: evt.scriptPath.string)
-    of scriptEvtDbgEnd:
-      conf.localReport DebugReport(
-        kind: rdbgFinishedConfRead,
-        filename: evt.scriptPath.string)
-    of scriptEvtRun:
-      let runData = scriptEvt.scriptEvtRunData
-      case runData.kind
-      of scriptEvtRunProcessSwitch:
-        conf.legacyReportProcSwitch(runData.switchResult, runData.info)
-      of scriptEvtRunProcessSingleNoteWarn,
-          scriptEvtRunProcessSingleNoteHint:
-        conf.legacyReportProcNote(runData.noteResult, runData.info)
-
-  loadConfigs(cfg, cache, conf, handleConfigEvent, handleScriptEvent)
+  loadConfigs(cfg, cache, conf, writeConfigEvent, stopOnError)
 
 #[
 
@@ -458,21 +338,23 @@ output:
 ]#
 
 proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: ConfigRef;
-                                   graph: ModuleGraph): bool =
+                                   graph: ModuleGraph, stopOnError: bool = true): bool =
   ## Load all the necessary configuration files and command-line options.
-  ## Main entry point for configuration processing.
+  ## Main entry point for configuration processing. `stopOnError` determines
+  ## whether processing continues after a non-fatal config processing error.
+  ## Returns true if no config processing errors occurred, otherwise false.
   if self.suggestMode:
     conf.setCmd cmdIdeTools
-  if conf.cmd == cmdNimscript:
+  if conf.cmd == cmdNimscript: # xxx: pretty sure this is deadcode, remove it
     incl(conf, optWasNimscript)
-
-  # load all config files
-  loadConfigs(DefaultConfig, cache, conf)
 
   # `nim foo.nims` means execute the nimscript
   if not self.suggestMode and conf.cmd == cmdNone and
       conf.projectFull.string.endsWith ".nims":
     conf.setCmd cmdNimscript
+
+  # load all config files
+  result = loadConfigs(DefaultConfig, cache, conf, not self.suggestMode)
 
   # now process command line arguments again, because some options in the
   # command line can overwrite the config file's settings
@@ -489,4 +371,3 @@ proc loadConfigsAndProcessCmdLine*(self: NimProg, cache: IdentCache; conf: Confi
                                     srcCodeOrigin: instLoc()))
 
   graph.suggestMode = self.suggestMode
-  return true
