@@ -24,3 +24,21 @@ block unobservable_rvo_assignment:
     doAssert x[0] == 0, "following statement observed changed value"
 
   test()
+
+block primitive_type_assignment:
+  # assignments to locations of primitive type have no effect when the right-
+  # hand is a call expression raising an exception
+  proc raiseEx(): int =
+    result = 0
+    raise CatchableError.newException("")
+
+  proc test() =
+    var x = 1
+    try:
+      x = raiseEx()
+    except CatchableError:
+      doAssert x == 1
+
+    doAssert x == 1
+
+  test()
