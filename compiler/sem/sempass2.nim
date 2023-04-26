@@ -244,15 +244,10 @@ proc guardDotAccess(a: PEffects; n: PNode) =
   else:
     guardGlobal(a, n, g)
 
-proc makeVolatile(a: PEffects; s: PSym) {.inline.} =
-  if a.inTryStmt > 0 and a.config.exc == excSetjmp:
-    incl(s.flags, sfVolatile)
-
-proc initVar(a: PEffects, n: PNode; volatileCheck: bool) =
+proc initVar(a: PEffects, n: PNode) =
   if n.kind != nkSym: return
   let s = n.sym
   if isLocalVar(a, s):
-    if volatileCheck: makeVolatile(a, s)
     for x in a.init:
       if x == s.id: return
     a.init.add s.id
@@ -263,9 +258,7 @@ proc initVarViaNew(a: PEffects, n: PNode) =
   if {tfRequiresInit, tfNotNil} * s.typ.flags <= {tfNotNil}:
     # 'x' is not nil, but that doesn't mean its "not nil" children
     # are initialized:
-    initVar(a, n, volatileCheck=true)
-  elif isLocalVar(a, s):
-    makeVolatile(a, s)
+    initVar(a, n)
 
 proc warnAboutGcUnsafe(n: PNode; conf: ConfigRef) =
   localReport(conf, n.info, reportAst(rsemWarnGcUnsafe, n))
@@ -795,9 +788,6 @@ proc trackOperandForIndirectCall(tracked: PEffects, n: PNode, formals: PType; ar
       elif tfNoSideEffect notin op.flags:
         markSideEffect(tracked, a, n.info)
   let paramType = if formals != nil and argIndex < formals.len: formals[argIndex] else: nil
-  if paramType != nil and paramType.kind in {tyVar}:
-    if n.kind == nkSym and isLocalVar(tracked, n.sym):
-      makeVolatile(tracked, n.sym)
   if paramType != nil and paramType.kind == tyProc and tfGcSafe in paramType.flags:
     let argtype = skipTypes(a.typ, abstractInst)
     # XXX figure out why this can be a non tyProc here. See httpclient.nim for an
@@ -1168,7 +1158,7 @@ proc track(tracked: PEffects, n: PNode) =
   of nkPragma: trackPragmaStmt(tracked, n)
   of nkAsgn, nkFastAsgn:
     track(tracked, n[1])
-    initVar(tracked, n[0], volatileCheck=true)
+    initVar(tracked, n[0])
     inc tracked.leftPartOfAsgn
     track(tracked, n[0])
     dec tracked.leftPartOfAsgn
@@ -1195,7 +1185,7 @@ proc track(tracked: PEffects, n: PNode) =
           createTypeBoundOps(tracked, child[0].typ, child.info)
       if child.kind == nkIdentDefs and last.kind != nkEmpty:
         for i in 0..<child.len-2:
-          initVar(tracked, child[i], volatileCheck=false)
+          initVar(tracked, child[i])
           addAsgnFact(tracked.guards, child[i], last)
           notNilCheck(tracked, last, child[i].typ)
       elif child.kind == nkVarTuple and last.kind != nkEmpty:
@@ -1203,7 +1193,7 @@ proc track(tracked: PEffects, n: PNode) =
           if child[i].kind == nkEmpty or
             child[i].kind == nkSym and child[i].sym.name.s == "_":
             continue
-          initVar(tracked, child[i], volatileCheck=false)
+          initVar(tracked, child[i])
           if last.kind in {nkPar, nkTupleConstr}:
             addAsgnFact(tracked.guards, child[i], last[i])
             notNilCheck(tracked, last[i], child[i].typ)

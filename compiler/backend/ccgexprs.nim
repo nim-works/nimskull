@@ -2936,11 +2936,8 @@ proc expr(p: BProc, n: PNode, d: var TLoc) =
       line(p, cpsStmts, "(void)(" & a.r & ");\L")
   of nkAsmStmt: genAsmStmt(p, n)
   of nkTryStmt, nkHiddenTryStmt:
-    case p.config.exc
-    of excGoto:
-      genTryGoto(p, n, d)
-    else:
-      genTrySetjmp(p, n, d)
+    assert p.config.exc == excGoto
+    genTryGoto(p, n, d)
   of nkRaiseStmt: genRaiseStmt(p, n)
   of nkTypeSection:
     # we have to emit the type information for object types here to support

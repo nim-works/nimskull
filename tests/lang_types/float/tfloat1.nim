@@ -1,5 +1,5 @@
 discard """
-  matrix: "--exceptions:setjmp;--exceptions:goto"
+  matrix: "--exceptions:goto"
   outputsub: "Error: unhandled exception: FPU operation caused an overflow [FloatOverflowDefect]"
   exitcode: "1"
 """

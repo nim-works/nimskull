@@ -1203,9 +1203,7 @@ proc applySymbolPragma(c: PContext, sym: PSym, it: PNode): PNode =
         incl(sym.flags, sfSideEffect)
       of wNoreturn:
         result = noVal(c, it)
-        # Disable the 'noreturn' annotation when in the "Quirky Exceptions" mode!
-        if c.config.exc != excQuirky:
-          incl(sym.flags, sfNoReturn)
+        incl(sym.flags, sfNoReturn)
         if sym.typ[0] != nil:
           # xxx: the info for this node used to be: sym.ast[paramsPos][0].info
           result = c.config.newError(it, PAstDiag(kind: adSemNoReturnHasReturn))

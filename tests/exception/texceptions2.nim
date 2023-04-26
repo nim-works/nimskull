@@ -1,6 +1,5 @@
 discard """
-  disabled: "posix" # already covered by texceptions.nim
-  matrix: "-d:nimStdSetjmp; -d:nimRawSetjmp; -d:nimBuiltinSetjmp"
+  matrix: "--exceptions:goto"
   output: '''
 
 BEFORE

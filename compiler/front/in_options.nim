@@ -191,10 +191,8 @@ type
 
   ExceptionSystem* = enum
     excNone,   ## no exception system selected yet
-    excSetjmp, ## setjmp based exception handling
     excNative, ## use backend native exception handling
-    excGoto,   ## exception handling based on goto (should become the new default for C)
-    excQuirky  ## quirky exception handling
+    excGoto,   ## exception handling based on goto
 
   SymbolFilesOption* = enum
     disabledSf   ## disables Rod files and maybe packed AST features

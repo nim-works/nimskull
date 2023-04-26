@@ -203,8 +203,6 @@ proc buildTools(args: string = "") =
                  options = "-d:release " & defineSourceMetadata() & " " & args)
   when defined(windows): buildVccTool("--gc:orc " & args)
 
-  # the VM runs into `setjmp`-related stack-corruption issues when using the
-  # MinGW runtime. ``exceptions:goto`` is used as a workaround
   nimCompileFold("Compile vmrunner", "compiler/vm/vmrunner.nim",
                 options = "-d:release --gc:orc $# $#" % [defineSourceMetadata(), args])
 
@@ -337,8 +335,11 @@ proc boot(args: string) =
       # the csource compiler is not able to build the compiler with ORC
       # enabled yet, so refc is explicitly used
       extraOption.add " --gc:refc"
+      # the csource compiler still uses setjmp-exceptions by default, but the
+      # runtime library doesn't support them anymore
+      extraOption.add " --exceptions:goto"
     else:
-      # use ORC for all furhter iterations
+      # use ORC for all further iterations
       extraOption.add " --gc:orc"
 
     # in order to use less memory, we split the build into two steps:

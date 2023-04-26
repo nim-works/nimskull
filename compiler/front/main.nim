@@ -209,9 +209,6 @@ proc commandCompileToJS(graph: ModuleGraph) =
 
 proc commandCompileToVM(graph: ModuleGraph) =
   let conf = graph.config
-  # XXX: there doesn't exist an exception mode for "external" (maybe excQuirky
-  #      would fit?) so excNative is used, since the same is done for the
-  #      JS backend
   conf.exc = excNative
 
   semanticPasses(graph)
@@ -318,8 +315,8 @@ proc mainCommand*(graph: ModuleGraph) =
     case conf.backend
     of backendC:
       case conf.exc
-      of excNone, excNative:            conf.exc = excGoto
-      of excQuirky, excSetjmp, excGoto: discard
+      of excNone, excNative: conf.exc = excGoto
+      of excGoto:            discard
     of backendJs, backendNimVm:
       discard
     of backendInvalid: doAssert false
