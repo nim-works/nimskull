@@ -1588,9 +1588,10 @@ proc genInitCode(m: BModule) =
     if beforeRetNeeded in m.initProc.flags:
       prc.add(~"\tBeforeRet_: ;$n")
 
-    if sfMainModule in m.module.flags and m.config.exc == excGoto:
-      if getCompilerProc(m.g.graph, "nimTestErrorFlag") != nil:
-        m.appcg(prc, "\t#nimTestErrorFlag();$n", [])
+    # each module's module-level code can potentially raise, so the error flag
+    # always needs to be tested
+    if getCompilerProc(m.g.graph, "nimTestErrorFlag") != nil:
+      m.appcg(prc, "\t#nimTestErrorFlag();$n", [])
 
     if optStackTrace in m.initProc.options and preventStackTrace notin m.flags:
       prc.add(deinitFrame(m.initProc))
@@ -1821,12 +1822,15 @@ proc writeModule(m: BModule, pending: bool) =
 
 proc finalCodegenActions*(graph: ModuleGraph; m: BModule; n: PNode) =
   ## Also called from IC.
-  if sfMainModule in m.module.flags:
-    # phase ordering problem here: We need to announce this
-    # dependency to 'nimTestErrorFlag' before system.c has been written to disk.
-    if m.config.exc == excGoto and getCompilerProc(graph, "nimTestErrorFlag") != nil:
-      discard cgsym(m, "nimTestErrorFlag")
+  # phase ordering problem here: We need to announce this
+  # dependency to 'nimTestErrorFlag' before system.c has been written to
+  # disk. We also have to announce the dependency *from* the system module, as
+  # only there it is certain that all the procedure's dependencies also exist
+  # already
+  if sfSystemModule in m.module.flags:
+    discard cgsym(m, "nimTestErrorFlag")
 
+  if sfMainModule in m.module.flags:
     if {optGenStaticLib, optGenDynLib, optNoMain} * m.config.globalOptions == {}:
       for i in countdown(high(graph.globalDestructors), 0):
         n.add graph.globalDestructors[i]

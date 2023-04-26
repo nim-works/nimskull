@@ -313,6 +313,12 @@ func vmEventToLegacyVmReport(
           kind: kind,
           str: evt.callName & "()",
           ast: evt.argAst)
+      of vmEvtUnhandledException:
+        VMReport(
+          location: location,
+          reportInst: evt.instLoc.toReportLineInfo,
+          kind: kind,
+          ast: evt.exc)
       else:
         VMReport(
           location: location,
