@@ -41,8 +41,11 @@ proc leave*(prof: var Profiler, c: TCtx) {.inline.} =
     leaveImpl(prof, c)
 
 proc dump*(conf: ConfigRef, pd: ProfileData): string =
+  ## constructs a string containing a report of vm exectuion based on the given
+  ## `ProfileData`. The report is formatted and ready to print to console or
+  ## similar interface.
   var data = pd.data
-  echo "\nprof:     µs    #instr  location"
+  result = "\nprof:     µs    #instr  location\n"
   for i in 0..<32:
     var infoMax: ProfileInfo
     var flMax: TLineInfo
