@@ -2884,10 +2884,8 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
       result.add("Invalid command line option - ", r.cmdlineProvided)
 
     of rextUnknownCCompiler:
-      result = "unknown C compiler: '$1'. Available options are: $2" % [
-        r.passedCompiler,
-        r.knownCompilers.join(", ")
-      ]
+      result = "unknown C compiler: '$1'. Available options are: $2" %
+                [r.passedCompiler, r.knownCompilers.join(", ")]
 
     of rextOnlyAllOffSupported:
       result = "only 'all:off' is supported"
