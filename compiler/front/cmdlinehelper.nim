@@ -35,7 +35,7 @@ import
     extccomp
   ]
 
-from std/strutils import endsWith
+from std/strutils import endsWith, `%`
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_lexer import LexerReport
@@ -101,6 +101,19 @@ proc handleConfigEvent(
       evt.lexerDiag.lexerDiagToLegacyReport
     else:
       case kind
+      of rlexExpectedToken:
+        let msgTempl =
+          case evt.kind
+          of cekParseExpectedCloseX: "closing '$1'"
+          of cekParseExpectedX:      "'$1'"
+          else: unreachable()
+        Report(
+          category: repLexer,
+          lexReport: LexerReport(
+            location: std_options.some evt.location,
+            reportInst: evt.instLoc.toReportLineInfo,
+            msg: msgTempl % evt.msg,
+            kind: kind))
       of rlexCfgInvalidDirective:
         Report(
           category: repLexer,
