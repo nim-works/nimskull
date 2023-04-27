@@ -64,7 +64,14 @@ proc getNimRunExe(conf: ConfigRef): string =
     if conf.isDefined("i386"): result = "wine"
     elif conf.isDefined("amd64"): result = "wine64"
 
-proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
+type
+  CmdLineHandlingResult = enum
+    cliFinished             # might still have errors, check `conf.errorCount`
+    cliErrNoParamsProvided
+    cliErrConfigProcessing
+    cliErrCommandProcessing
+
+proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
   ## Main entry point to the compiler - dispatches command-line commands
   ## into different subsystems, sets up configuration options for the
   ## `conf`:arg: and so on.
@@ -74,13 +81,14 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
   )
   self.initDefinesProg(conf, "nim_compiler")
   if paramCount() == 0:
-    writeCommandLineUsage(conf)
-    return
+    return cliErrNoParamsProvided
 
   self.processCmdLineAndProjectPath(conf)
-  var graph = newModuleGraph(cache, conf)
+  if conf.errorCounter != 0: return
+  let graph = newModuleGraph(cache, conf)
 
-  if not self.loadConfigsAndProcessCmdLine(cache, conf, graph):
+  if not self.loadConfigsAndProcessCmdLine(cache, conf, graph) or
+      conf.errorCounter != 0:
     return
 
   mainCommand(graph)
@@ -109,7 +117,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef) =
       of backendNimVm:
         if cmdPrefix.len == 0:
           cmdPrefix = changeFileExt(getAppDir() / "vmrunner", ExeExt)
-      else: doAssert false, $conf.backend
+      of backendInvalid: doAssert false, $conf.backend
       if cmdPrefix.len > 0: cmdPrefix.add " "
         # without the `cmdPrefix.len > 0` check, on windows you'd get a cryptic:
         # `The parameter is incorrect`
@@ -146,7 +154,15 @@ when not defined(selftest):
     proc(conf: ConfigRef, msg: string, flags: MsgFlags) =
       conf.writeHook(conf, msg & "\n", flags)
 
-  handleCmdLine(newIdentCache(), conf)
+  case handleCmdLine(newIdentCache(), conf)
+  of cliErrNoParamsProvided:
+    inc conf.errorCounter # causes a non-0 exit, will be replaced soon
+    conf.msgWrite("no command-line parameters provided\n", {msgNoUnitSep})
+    conf.showMsg(helpOnErrorMsg(conf))
+  of cliErrConfigProcessing, cliErrCommandProcessing, cliFinished:
+    # TODO: more specific handling here
+    discard "error messages reported internally"
+
   when declared(GC_setMaxPause):
     echo GC_getStatistics()
 

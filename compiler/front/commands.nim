@@ -60,8 +60,6 @@ from compiler/ast/ast import setUseIc
 # TODO: all this to output help/error messages and internal state... smh. Also,
 #       why doesn't this module or a real module own the data format?! At least
 #       the `reports_internal` module is small.
-from compiler/ast/reports_internal import InternalReport,
-  InternalCliData
 from compiler/ast/reports_external import ExternalReport
 from compiler/ast/report_enums import ReportKind,
   ReportKinds,
@@ -100,73 +98,6 @@ proc write*(conf: ConfigRef, dest: static[CmdOutputKind], msg: string) =
 proc writeln*(conf: ConfigRef, dest: static[CmdOutputKind], msg: string) =
   write(conf, dest, msg & "\n")
 
-proc getNimSourceData(): tuple[hash, date: string] {.compileTime.} =
-  ## Retrieve metadata about the compiler source code.
-  const
-    # These are defined by koch
-    nimSourceHash {.strdefine.} = ""
-    nimSourceDate {.strdefine.} = ""
-  result = (nimSourceHash, nimSourceDate)
-
-proc getCliData(conf: ConfigRef): InternalCliData =
-  ## Get CLI data from current configuration and nim compiler configuration
-  ## (source code/date defines, boot switches)
-  let (sourceHash, sourceDate) = getNimSourceData()
-
-  InternalCliData(
-    version: VersionAsString,
-    sourceHash: sourceHash,
-    sourceDate: sourceDate,
-    boot: @[
-      usedRelease,
-      usedDanger,
-      usedTinyC,
-      useLinenoise,
-      usedBoehm,
-      usedMarkAndSweep,
-      usedGoGC,
-      usedNoGC
-    ],
-    cpu: conf.target.hostCPU,
-    os: conf.target.hostOS
-  )
-
-
-proc helpOnError(conf: ConfigRef; pass: TCmdLinePass) =
-  if pass == passCmd1:
-    conf.localReport():
-      InternalReport(kind: rintCliHelp, cliData: conf.getCliData())
-
-    msgQuit(0)
-
-proc writeAdvancedUsage(conf: ConfigRef; pass: TCmdLinePass) =
-  if pass == passCmd1:
-    conf.localReport():
-      InternalReport(
-        kind: rintCliAdvancedUsage, cliData: conf.getCliData())
-
-    msgQuit(0)
-
-proc writeFullhelp(conf: ConfigRef; pass: TCmdLinePass) =
-  if pass == passCmd1:
-    conf.localReport():
-      InternalReport(
-        kind: rintCliFullHelp, cliData: conf.getCliData())
-
-    msgQuit(0)
-
-proc writeVersionInfo(conf: ConfigRef; pass: TCmdLinePass) =
-  if pass == passCmd1:
-    conf.localReport():
-      InternalReport(
-        kind: rintCliVersion, cliData: conf.getCliData())
-
-    msgQuit(0)
-
-proc writeCommandLineUsage*(conf: ConfigRef) =
-  conf.localReport(InternalReport(
-    kind: rintCliHelp, cliData: conf.getCliData()))
-
 proc addPrefix(switch: string): string =
   if switch.len <= 1: result = "-" & switch
   else: result = "--" & switch
@@ -193,8 +124,7 @@ const optNames = @[
   "tlsemulation", "implicitstatic", "trmacros", "opt", "app", "passc",
   "passl", "cincludes", "clibdir", "clib", "header", "index", "import",
   "include", "listcmd", "asm", "genmapping", "os", "cpu", "run",
-  "maxloopiterationsvm", "errormax", "verbosity", "parallelbuild",
-  "version", "advanced", "fullhelp", "help", "skipcfg",
+  "maxloopiterationsvm", "errormax", "verbosity", "parallelbuild", "skipcfg",
   "skipprojcfg", "skipusercfg", "skipparentcfg", "genscript", "colors",
   "lib", "putenv", "cc", "stdout", "filenames", "processing",
   "unitsep", "listfullpaths", "spellsuggest", "declaredlocs",
@@ -985,18 +915,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
   of "parallelbuild":
     expectArg(conf, switch, arg, pass, info)
     conf.numberOfProcessors = parseInt(arg)
-  of "version", "v":
-    expectNoArg(conf, switch, arg, pass, info)
-    writeVersionInfo(conf, pass)
-  of "advanced":
-    expectNoArg(conf, switch, arg, pass, info)
-    writeAdvancedUsage(conf, pass)
-  of "fullhelp":
-    expectNoArg(conf, switch, arg, pass, info)
-    writeFullhelp(conf, pass)
-  of "help", "h":
-    expectNoArg(conf, switch, arg, pass, info)
-    helpOnError(conf, pass)
   of "incremental", "ic":
     if pass in {passCmd2, passPP}:
       case arg.normalize
@@ -1193,44 +1111,144 @@ proc addCmdPrefix*(result: var string, kind: CmdLineKind) =
   of cmdShortOption: result.add "-"
   of cmdArgument, cmdEnd: discard
 
+type
+  CliData = object
+    ## Information used to construct messages for CLI reports - `--help`,
+    ## `--fullhelp`
+    version*: string ## Language version
+    sourceHash*: string ## Compiler source code git hash
+    sourceDate*: string ## Compiler source code date
+    boot*: seq[string] ## nim compiler boot flags
+    cpu*: TSystemCPU ## Target CPU
+    os*: TSystemOS ## Target OS
+
+const
+  sourceHash {.strdefine.} = "" # defined by koch
+  sourceDate {.strdefine.} = "" # defined by koch
+  cliData = CliData(version: VersionAsString,
+                    sourceHash: sourceHash,
+                    sourceDate: sourceDate,
+                    boot: @[usedRelease,
+                            usedDanger,
+                            usedTinyC,
+                            useLinenoise,
+                            usedBoehm,
+                            usedMarkAndSweep,
+                            usedGoGC,
+                            usedNoGC],
+                    os: nameToOS(system.hostOS),
+                    cpu: nameToCPU(system.hostCPU))
+  HelpMessage = "Nimskull Compiler Version $1 [$2: $3]\n"
+  CommitMessage = "Source hash: $1\n" &
+                  "Source date: $2\n"
+  Usage = slurp"../doc/basicopt.txt".replace(" //", "   ")
+  AdvancedUsage = slurp"../doc/advopt.txt".replace(" //", "   ") %
+    typeof(Feature).toSeq.mapIt($it).join("|") # '|' separated features
+
+proc showMsg*(conf: ConfigRef, msg: string) =
+  ## show a message to the user, meant for informational/status cirucmstances.
+  ## Depending upon settings the message might not necessarily be output.
+  ## 
+  ## For command output, eg: `dump`'s conditionals and search paths use a
+  ## different routine (not implemented at time or writing).
+  # TODO: implement procs for actual command output
+  conf.msgWrite(msg, {msgNoUnitSep})
+
+func cliMsgLede(data: CliData): string {.inline.} =
+  HelpMessage % [
+    VersionAsString,
+    platform.OS[data.os].name,
+    CPU[data.cpu].name
+  ]
+
+func helpOnErrorMsg*(conf: ConfigRef): string =
+  cliMsgLede(cliData) & Usage
+
+proc writeHelp(conf: ConfigRef) =
+  conf.showMsg helpOnErrorMsg(conf)
+  msgQuit(0)
+
+proc writeAdvancedUsage(conf: ConfigRef) =
+  conf.showMsg:
+    cliMsgLede(cliData) & AdvancedUsage
+  msgQuit(0)
+
+proc writeFullhelp(conf: ConfigRef) =
+  conf.showMsg:
+    cliMsgLede(cliData) & Usage & AdvancedUsage
+  msgQuit(0)
+
+proc writeVersionInfo(conf: ConfigRef) =
+  let
+    commitMsg =
+      if sourceHash != "":
+        "\n" & CommitMessage % [sourceHash, sourceDate]
+      else:
+        ""
+  conf.showMsg:
+    cliMsgLede(cliData) &
+    commitMsg &
+    "\nactive boot switches: " & cliData.boot.join(" ")
+  msgQuit(0)
+
 proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
   ## Process input command-line parameters into `config` settings. Input is
   ## a joined list of command-line arguments with multiple options and/or
   ## configurations.
-  var p = parseopt.initOptParser(cmd)
-  var argsCount = 0
+  var
+    p = parseopt.initOptParser(cmd) # xxx: `cmd` is always empty, this relies
+                                    #      on `parseOpt` using `os` to get the
+                                    #      cli params
+    argsCount = 0
 
   config.commandLine.setLen 0
     # bugfix: otherwise, config.commandLine ends up duplicated
 
   while true:
     parseopt.next(p)
-    case p.kind:
-      of cmdEnd: break
-      of cmdLongOption, cmdShortOption:
-        config.commandLine.add " "
-        config.commandLine.addCmdPrefix p.kind
-        config.commandLine.add p.key.quoteShell # quoteShell to be future proof
-        if p.val.len > 0:
-          config.commandLine.add ':'
-          config.commandLine.add p.val.quoteShell
+    case p.kind
+    of cmdEnd: break
+    of cmdLongOption, cmdShortOption:
+      config.commandLine.add " "
+      config.commandLine.addCmdPrefix p.kind
+      config.commandLine.add p.key.quoteShell # quoteShell to be future proof
+      if p.val.len > 0:
+        config.commandLine.add ':'
+        config.commandLine.add p.val.quoteShell
 
+      # this only happens in passCmd1 as each of these triggers a quit
+      case p.key.normalize
+      of "version", "v":
+        # only kept because of user expectations
+        expectNoArg(config, p.key, p.val, passCmd1, gCmdLineInfo)
+        writeVersionInfo(config)
+      of "help", "h":
+        # only kept because of user expectations
+        expectNoArg(config, p.key, p.val, passCmd1, gCmdLineInfo)
+        writeHelp(config)
+      of "advanced":
+        # deprecate/make it a switch for the help sub-command
+        expectNoArg(config, p.key, p.val, passCmd1, gCmdLineInfo)
+        writeAdvancedUsage(config)
+      of "fullhelp":
+        # deprecate/make it a switch for the help sub-command
+        expectNoArg(config, p.key, p.val, passCmd1, gCmdLineInfo)
+        writeFullhelp(config)
+      else:
         if p.key == "": # `-` was passed to indicate main project is stdin
           p.key = "-"
           if processArgument(pass, p, argsCount, config):
             break
-
         else:
           # Main part of the configuration processing -
           # `commands.processSwitch` processes input switches a second time
           # and puts them in necessary configuration fields.
           processSwitch(pass, p, config)
-
-      of cmdArgument:
-        config.commandLine.add " "
-        config.commandLine.add p.key.quoteShell
-        if processArgument(pass, p, argsCount, config):
-          break
+    of cmdArgument:
+      config.commandLine.add " "
+      config.commandLine.add p.key.quoteShell
+      if processArgument(pass, p, argsCount, config):
+        break
 
   if pass == passCmd2:
     if {optRun, optWasNimscript} * config.globalOptions == {} and

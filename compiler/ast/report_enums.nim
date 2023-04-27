@@ -121,11 +121,6 @@ type
     rintListWarnings
     rintListHints
 
-    rintCliHelp # cli report first!
-    rintCliFullHelp
-    rintCliVersion
-    rintCliAdvancedUsage # cli report last!
-
     rintEchoMessage # last !
 
     # internal reports END !! add reports BEFORE the last enum !!
@@ -1056,7 +1051,6 @@ const
   rintWarningKinds* = {rintWarnCannotOpenFile .. rintWarnFileChanged}
   rintHintKinds* = {rintSource .. rintSuccessX}
   rintDataPassKinds* = {rintStackTrace .. rintEchoMessage}
-  rintCliKinds* = {rintCliHelp .. rintCliAdvancedUsage}
 
 
 const

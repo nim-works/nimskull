@@ -46,7 +46,6 @@ import
     reports_external,
   ],
   compiler/utils/[
-    platform,
     nversion,
     astrepr,
     idioms
@@ -2608,30 +2607,6 @@ const
 proc reportBody*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
   case InternalReportKind(r.kind):
-    of rintCliKinds:
-      let d = r.cliData
-      result = HelpMessage % [
-        VersionAsString,
-        platform.OS[d.os].name,
-        CPU[d.cpu].name
-      ]
-
-      if r.kind == rintCliVersion:
-        if d.sourceHash != "":
-          result.add "\n"
-          result.add CommitMessage % [d.sourceHash, d.sourceDate
-          ]
-
-        result.add "\n"
-        result.add "active boot switches:" & d.boot.join(" ")
-
-      else:
-        if r.kind in {rintCliHelp, rintCliFullHelp}:
-          result.add Usage
-
-        if r.kind in {rintCliFullHelp, rintCliAdvancedUsage}:
-          result.add AdvancedUsage
-
     of rintStackTrace:
       result = conf.formatTrace(r.trace)
 
