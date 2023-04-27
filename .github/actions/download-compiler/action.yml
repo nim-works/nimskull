@@ -4,17 +4,17 @@ inputs:
   workspace:
     description: Where to extract the compiler
     required: false
-    default: '.'
+    default: "."
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
-    - uses: actions/download-artifact@v3.0.0
+    - uses: actions/download-artifact@v3.0.2
       with:
         name: compiler ${{ runner.os }}
-        path: '${{ runner.temp }}'
+        path: "${{ runner.temp }}"
 
     - name: Unpack the workspace
-      run: tar xf '${{ runner.temp }}/compiler.tar'
+      run: tar xf "$RUNNER_TEMP/compiler.tar"
       shell: bash
-      working-directory: '${{ inputs.workspace }}'
+      working-directory: "${{ inputs.workspace }}"
