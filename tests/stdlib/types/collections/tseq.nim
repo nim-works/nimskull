@@ -176,16 +176,6 @@ block tshallowemptyseq:
     var emptySeq: seq[int] = newSeq[int]()
     block:
       var t = @[1,2,3]
-      shallow(nilSeq)
-      t = nilSeq
-      doAssert t == @[]
-    block:
-      var t = @[1,2,3]
-      shallow(emptySeq)
-      t = emptySeq
-      doAssert t == @[]
-    block:
-      var t = @[1,2,3]
       shallowCopy(t, nilSeq)
       doAssert t == @[]
     block:

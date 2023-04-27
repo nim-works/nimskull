@@ -22,25 +22,6 @@ proc dataPointer*[T](a: T): pointer =
     cast[pointer](a)
   else: static: doAssert false, $T
 
-proc setLen*(result: var string, n: int, isInit: bool) =
-  ## when isInit = false, elements are left uninitialized, analog to `{.noinit.}`
-  ## else, there are 0-initialized.
-  # xxx placeholder until system.setLen supports this
-  # to distinguish between algorithms that need 0-initialization vs not; note
-  # that `setLen` for string is inconsistent with `setLen` for seq.
-  # likwise with `newString` vs `newSeq`. This should be fixed in `system`.
-  let n0 = result.len
-  result.setLen(n)
-  if isInit and n > n0:
-    zeroMem(result[n0].addr, n - n0)
-
-proc forceCopy*(result: var string, a: string) =
-  ## also forces a copy if `a` is shallow
-  # the naitve `result = a` would not work if `a` is shallow
-  let n = a.len
-  result.setLen n, isInit = false
-  copyMem(result.dataPointer, a.dataPointer, n)
-
 proc isUpperAscii(c: char): bool {.inline.} =
   # avoids import strutils.isUpperAscii
   c in {'A'..'Z'}

@@ -84,7 +84,6 @@ proc scopeMangledParam(p: BProc; param: PSym) =
   ## generate unique identifiers reliably (consider that ``var a = a`` is
   ## even an idiom in Nim).
   var key = param.name.s.mangle
-  shallow(key)
   p.sigConflicts.inc(key)
 
 const
