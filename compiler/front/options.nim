@@ -871,7 +871,6 @@ proc computeNotesVerbosity(): tuple[
       rsemHintLibDependency,
       rsemGlobalVar,
 
-      rintGCStats,
       rintMsgOrigin,
 
       rextPath,

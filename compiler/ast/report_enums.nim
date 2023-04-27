@@ -106,7 +106,6 @@ type
     rintErrKind = "ErrKind" ## Show report kind in error messages
                             # REFACTOR this is a global option not a hint
 
-    rintGCStats = "GCStats" ## Print GC statistics for the compiler run
     rintQuitCalled = "QuitCalled" ## `quit()` called by the macro code
     ## compilation error handling and similar
     rintMissingStackTrace ## Stack trace would've been generated in the
