@@ -1209,15 +1209,13 @@ proc fileInfoIdx*(conf: ConfigRef; filename: AbsoluteFile; isKnownFile: var bool
 
   try:
     canon = canonicalizePath(conf, filename)
-    shallow(canon.string)
   except OSError:
     canon = filename
     # The compiler uses "filenames" such as `command line` or `stdin`
     # This flag indicates that we are working with such a path here
     pseudoPath = true
 
-  var canon2: string
-  forceCopy(canon2, canon.string) # because `canon` may be shallow
+  var canon2 = canon.string
   canon2.canonicalCase
 
   if conf.m.filenameToIndexTbl.hasKey(canon2):

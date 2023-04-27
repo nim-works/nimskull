@@ -26,7 +26,6 @@ proc initBytesRange*(s: var Bytes, ibegin = 0, iend = -1): BytesRange =
           else: iend
   assert ibegin >= 0 and e <= s.len
 
-  shallow(s)
   result.bytes = s
   result.ibegin = ibegin
   result.iend = e
