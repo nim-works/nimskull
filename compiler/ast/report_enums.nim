@@ -125,7 +125,6 @@ type
     rintCliVersion
     rintCliAdvancedUsage # cli report last!
 
-    rintDumpState
     rintEchoMessage # last !
 
     # internal reports END !! add reports BEFORE the last enum !!

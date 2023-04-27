@@ -34,24 +34,8 @@ type
         buildMode*: string
         optimize*: string
         gc*: string
-
       of false:
         discard
-
-  InternalStateDump* = ref object
-    version*: string
-    nimExe*: string
-    prefixdir*: string
-    libpath*: string
-    projectPath*: string
-    definedSymbols*: seq[string]
-    libPaths*: seq[string]
-    lazyPaths*: seq[string]
-    nimbleDir*: string
-    outdir*: string
-    `out`*: string
-    nimcache*: string
-    hints*, warnings*: seq[tuple[name: string, enabled: bool]]
 
   InternalCliData* = object
     ## Information used to construct messages for CLI reports - `--help`,
@@ -69,9 +53,6 @@ type
     case kind*: ReportKind
       of rintStackTrace:
         trace*: seq[StackTraceEntry] ## Generated stack trace entries
-
-      of rintDumpState:
-        stateDump*: InternalStateDump
 
       of rintAssert:
         expression*: string

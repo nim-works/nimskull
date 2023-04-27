@@ -28,11 +28,9 @@ import
   std/[
     os,
     strutils,
-    parseutils,
     parseopt,
     sequtils,
     strtabs,
-    pathnorm
   ],
   compiler/modules/[
     nimblecmd,
@@ -80,6 +78,27 @@ type
     passCmd2,                 # second pass over the command line
     passPP                    # preprocessor called processCommand()
 
+# TODO: temporary, move into `msgs` or `commands`
+type
+  CmdOutputKind* = enum
+    cmdOutUser        ## a command's primary output, e.g. dump's data dump
+    cmdOutStatus      ## command's status, e.g. build success message
+    cmdOutUserProf    ## user requested profiling output
+    cmdOutInternalDbg ## explicitly secondary output for compiler tracing
+
+proc write*(conf: ConfigRef, dest: static[CmdOutputKind], msg: string) =
+  let flags =
+    case dest
+    of cmdOutUser:
+      {msgNoUnitSep, msgStdout}
+    of cmdOutInternalDbg:
+      {msgNoUnitSep, msgStdout}
+    of cmdOutUserProf, cmdOutStatus:
+      {msgNoUnitSep} # xxx: force stderr?
+  conf.msgWrite(msg, flags)
+
+proc writeln*(conf: ConfigRef, dest: static[CmdOutputKind], msg: string) =
+  write(conf, dest, msg & "\n")
 
 proc getNimSourceData(): tuple[hash, date: string] {.compileTime.} =
   ## Retrieve metadata about the compiler source code.

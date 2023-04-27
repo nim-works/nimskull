@@ -2744,56 +2744,6 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
     of rintNimconfWrite:
       result = r.msg
 
-    of rintDumpState:
-      if getConfigVar(conf, "dump.format") == "json":
-        let s = r.stateDump
-        var definedSymbols = newJArray()
-        for s in s.definedSymbols:
-          definedSymbols.elems.add(%s)
-
-        var libpaths = newJArray()
-        var lazyPaths = newJArray()
-        for dir in conf.searchPaths:
-          libpaths.elems.add(%dir.string)
-
-        for dir in conf.lazyPaths:
-          lazyPaths.elems.add(%dir.string)
-
-        var hints = newJObject()
-        for (a, state) in s.hints:
-          hints[$a] = %(state)
-
-        var warnings = newJObject()
-        for (a, state) in s.warnings:
-          warnings[$a] = %(state)
-
-        result = $(%[
-          (key: "version",         val: %s.version),
-          (key: "nimExe",          val: %s.nimExe),
-          (key: "prefixdir",       val: %s.prefixdir),
-          (key: "libpath",         val: %s.libpath),
-          (key: "project_path",    val: %s.projectPath),
-          (key: "defined_symbols", val: definedSymbols),
-          (key: "lib_paths",       val: libpaths),
-          (key: "lazyPaths",       val: lazyPaths),
-          (key: "outdir",          val: %s.outdir),
-          (key: "out",             val: %s.out),
-          (key: "nimcache",        val: %s.nimcache),
-          (key: "hints",           val: hints),
-          (key: "warnings",        val: warnings),
-        ])
-
-      else:
-        result.add "-- list of currently defined symbols --\n"
-        let s = r.stateDump
-        for s in s.definedSymbols:
-          result.add(s, "\n")
-
-        result.add "-- end of list --\n"
-
-        for it in s.libPaths:
-          result.add it, "\n"
-
 proc reportFull*(conf: ConfigRef, r: InternalReport): string =
   assertKind r
   case r.kind:

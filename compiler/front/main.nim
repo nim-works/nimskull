@@ -28,7 +28,8 @@ import
     msgs,
     cmdlinehelper,
     nimconf,     # Configuration file reading
-    depfiles
+    depfiles,
+    commands
   ],
   compiler/sem/[
     sem,         # Implementation of the semantic pass
@@ -63,8 +64,7 @@ import compiler/ic/[
 from compiler/ic/ic import rodViewer
 
 # xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_internal import InternalReport,
-  InternalStateDump
+from compiler/ast/reports_internal import InternalReport
 from compiler/ast/reports_external import ExternalReport
 from compiler/ast/report_enums import ReportKind,
   repHintKinds,
@@ -90,6 +90,22 @@ when defined(nimDebugUnreportedErrors):
         reprConf.flags.incl trfShowNodeErrors
         echo conf.treeRepr(node)
       conf.unreportedErrors.clear
+
+type
+  InternalStateDump = ref object
+    version*: string
+    nimExe*: string
+    prefixdir*: string
+    libpath*: string
+    projectPath*: string
+    definedSymbols*: seq[string]
+    libPaths*: seq[string]
+    lazyPaths*: seq[string]
+    nimbleDir*: string
+    outdir*: string
+    `out`*: string
+    nimcache*: string
+    hints*, warnings*: seq[tuple[name: string, enabled: bool]]
 
 proc semanticPasses(g: ModuleGraph) =
   registerPass g, verbosePass
@@ -432,7 +448,52 @@ proc mainCommand*(graph: ModuleGraph) =
     state.`out`       = conf.outFile.string
     state.nimcache    = getNimcacheDir(conf).string
 
-    conf.localReport(InternalReport(kind: rintDumpState, stateDump: state))
+    if conf.getConfigVar("dump.format") == "json":
+      var definedSymbols = newJArray()
+      for s in state.definedSymbols:
+        definedSymbols.elems.add(%s)
+
+      var libpaths = newJArray()
+      for dir in conf.searchPaths:
+        libpaths.elems.add(%dir.string)
+
+      var lazyPaths = newJArray()
+      for dir in conf.lazyPaths:
+        lazyPaths.elems.add(%dir.string)
+
+      var hints = newJObject()
+      for (a, s) in state.hints:
+        hints[$a] = %(s)
+
+      var warnings = newJObject()
+      for (a, s) in state.warnings:
+        warnings[$a] = %(s)
+
+      let dumpStr = $(%[
+          (key: "version",         val: %state.version),
+          (key: "nimExe",          val: %state.nimExe),
+          (key: "prefixdir",       val: %state.prefixdir),
+          (key: "libpath",         val: %state.libpath),
+          (key: "project_path",    val: %state.projectPath),
+          (key: "defined_symbols", val: definedSymbols),
+          (key: "lib_paths",       val: libpaths),
+          (key: "lazyPaths",       val: lazyPaths),
+          (key: "outdir",          val: %state.outdir),
+          (key: "out",             val: %state.out),
+          (key: "nimcache",        val: %state.nimcache),
+          (key: "hints",           val: hints),
+          (key: "warnings",        val: warnings),
+        ])
+      # skip past all the report hook stupidity
+      conf.writeln(cmdOutUser, dumpStr)
+    else:
+      # skip past all the report hook stupidity
+      conf.writeln(cmdOutUser, "-- list of currently defined symbols --")
+      for s in state.definedSymbols:
+        conf.writeln(cmdOutUser, s)
+      conf.writeln(cmdOutUser, "-- end of list --")
+      for it in state.libPaths:
+        conf.writeln(cmdOutUser, it)
 
   of cmdCheck:
     commandCheck(graph)
