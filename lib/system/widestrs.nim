@@ -16,52 +16,30 @@
 type
   Utf16Char* = distinct int16
 
-when defined(nimv2):
-
+when true:
   type
     WideCString* = ptr UncheckedArray[Utf16Char]
 
     WideCStringObj* = object
-      bytes: int
-      data: WideCString
-
-  proc `=destroy`(a: var WideCStringObj) =
-    if a.data != nil:
-      when compileOption("threads"):
-        deallocShared(a.data)
-      else:
-        dealloc(a.data)
+      data: seq[Utf16Char] ## the raw character buffer. The number of elements
+                           ## doesn't necessarily correspond to the length of
+                           ## the string
 
   proc `=copy`(a: var WideCStringObj; b: WideCStringObj) {.error.}
 
-  proc `=sink`(a: var WideCStringObj; b: WideCStringObj) =
-    a.bytes = b.bytes
-    a.data = b.data
-
-  proc createWide(a: var WideCStringObj; bytes: int) =
-    a.bytes = bytes
-    when compileOption("threads"):
-      a.data = cast[typeof(a.data)](allocShared0(bytes))
-    else:
-      a.data = cast[typeof(a.data)](alloc0(bytes))
+  proc createWide(a: var WideCStringObj; len: int) =
+    a.data.newSeq(len)
 
   template `[]`*(a: WideCStringObj; idx: int): Utf16Char = a.data[idx]
   template `[]=`*(a: WideCStringObj; idx: int; val: Utf16Char) = a.data[idx] = val
 
-  template nullWide(): untyped = WideCStringObj(bytes: 0, data: nil)
+  template nullWide(): untyped = WideCStringObj()
 
   converter toWideCString*(x: WideCStringObj): WideCString {.inline.} =
-    result = x.data
-
-else:
-  template nullWide(): untyped = nil
-
-  type
-    WideCString* = ref UncheckedArray[Utf16Char]
-    WideCStringObj* = WideCString
-
-  template createWide(a; L) =
-    unsafeNew(a, L)
+    if x.data.len > 0:
+      result = cast[WideCString](unsafeAddr x.data[0])
+    else:
+      result = nil
 
 proc ord(arg: Utf16Char): int = int(cast[uint16](arg))
 
@@ -143,10 +121,10 @@ iterator runes(s: cstring, L: int): int =
     yield result
 
 proc newWideCString*(size: int): WideCStringObj =
-  createWide(result, size * 2 + 2)
+  createWide(result, size + 1) # +1 for the zero terminator
 
 proc newWideCString*(source: cstring, L: int): WideCStringObj =
-  createWide(result, L * 2 + 2)
+  createWide(result, L + 1) # +1 for the zero terminator
   var d = 0
   for ch in runes(source, L):
 
@@ -218,9 +196,9 @@ proc `$`*(w: WideCString, estimate: int, replacement: int = 0xFFFD): string =
 proc `$`*(s: WideCString): string =
   result = s $ 80
 
-when defined(nimv2):
+when true:
   proc `$`*(s: WideCStringObj, estimate: int, replacement: int = 0xFFFD): string =
-    `$`(s.data, estimate, replacement)
+    `$`(toWideCString(s), estimate, replacement)
 
   proc `$`*(s: WideCStringObj): string =
-    $(s.data)
+    $(toWideCString(s))
