@@ -2876,7 +2876,7 @@ proc reportBody*(conf: ConfigRef, r: LexerReport): string =
       result.add "closing \" expected"
 
     of rlexExpectedToken:
-      assert false
+      result.add "expected $1" % r.msg
 
     of rlexCfgInvalidDirective:
       result.addf("invalid directive: '$1'", r.msg)
