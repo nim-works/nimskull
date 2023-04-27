@@ -2648,32 +2648,7 @@ proc reportBody*(conf: ConfigRef, r: InternalReport): string =
           kind in r.enabledOptions, "X", " "), $kind)
 
     of rintSuccessX:
-      var build = ""
-      let par = r.buildParams
-      if conf.cmd in cmdBackends:
-        build.add "gc: $#; " % par.gc
-
-        if par.threads:
-          build.add "threads: on; "
-
-        build.add "opt: "
-        if par.optimize == "debug":
-          build.add "none (DEBUG BUILD, `-d:release` generates faster code)"
-
-        else:
-          build.add par.optimize
-          build.add "; "
-          build.add par.buildMode
-          build.add " "
-
-      let mem =
-        if par.isMaxMem:
-          formatSize(par.mem) & " peakmem"
-
-        else:
-          formatSize(par.mem) & " totmem"
-
-      result = &"{conf.prefix(r)}{build}{par.linesCompiled} lines; {par.sec:.3f}s; {mem}; proj: {par.project}; out: {par.output}{conf.suffix(r)}"
+      unreachable("this should never use reports")
 
     of rintUsingLeanCompiler:
       result = r.msg

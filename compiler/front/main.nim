@@ -107,6 +107,24 @@ type
     nimcache*: string
     hints*, warnings*: seq[tuple[name: string, enabled: bool]]
 
+  UsedBuildParams* = object
+    cmd*: Command
+    project*: string
+    output*: string
+    linesCompiled*: int
+    mem*: int
+    isMaxMem*: bool
+    sec*: float
+    case isCompilation*: bool # TODO: redundant with `cmd in cmdBackends`
+      of true:
+        backend*: string
+        gc*: string
+        threads*: bool
+        buildMode*: string
+        optimize*: string
+      of false:
+        discard
+
 proc semanticPasses(g: ModuleGraph) =
   registerPass g, verbosePass
   registerPass g, semPass
@@ -292,7 +310,7 @@ proc hashMainCompilationParams*(conf: ConfigRef): string =
     update $conf.projectFull # so that running `nim r main` from 2 directories caches differently
   result = $SecureHash(state.finalize())
 
-proc setOutFile*(conf: ConfigRef) =
+proc setOutFile(conf: ConfigRef) =
   proc libNameTmpl(conf: ConfigRef): string {.inline.} =
     result = if conf.target.targetOS == osWindows: "$1.lib" else: "lib$1.a"
 
@@ -308,6 +326,105 @@ proc setOutFile*(conf: ConfigRef) =
       elif optGenStaticLib in conf.globalOptions: libNameTmpl(conf) % base
       else: base & platform.OS[conf.target.targetOS].exeExt
     conf.outFile = RelativeFile targetName
+
+proc genSuccessX(conf: ConfigRef): UsedBuildParams =
+  ## Generate and write report for the successful compilation parameters
+  let
+    cmd = conf.cmd
+    sec = epochTime() - conf.lastCmdTime
+    compilation = cmd in cmdBackends
+    project = 
+      case conf.filenameOption
+      of foAbs: $conf.projectFull
+      else: $conf.projectName
+    (mem, isMaxMem) =
+      when declared(system.getMaxMem): (getMaxMem(), true)
+      else:                            (getTotalMem(), false)
+    output =
+      block:
+        let temp =
+          if optCompileOnly in conf.globalOptions and cmd != cmdJsonscript:
+            $conf.jsonBuildFile
+          elif conf.outFile.isEmpty and
+              cmd notin {cmdJsonscript} + cmdDocLike + cmdBackends:
+            # for some cmd we expect a valid absOutFile
+            "unknownOutput"
+          else:
+            $conf.absOutFile
+        if conf.filenameOption == foAbs: temp
+        else:                            temp.AbsoluteFile.extractFilename
+    linesCompiled = conf.linesCompiled
+
+  if compilation:
+    let
+      backend = $conf.backend
+      gc = $conf.selectedGC
+      threads = optThreads in conf.globalOptions
+      optimize =
+        if optOptimizeSpeed in conf.options: "speed"
+        elif optOptimizeSize in conf.options: "size"
+        else: "debug"
+      buildMode =
+        if isDefined(conf, "danger"): "danger"
+        elif isDefined(conf, "release"): "release"
+        else: "debug"
+
+    UsedBuildParams(
+      cmd: cmd,
+      project: project,
+      output: output,
+      linesCompiled: linesCompiled,
+      mem: mem,
+      isMaxMem: isMaxMem,
+      sec: sec,
+      isCompilation: true,
+      backend: backend,
+      gc: gc,
+      threads: threads,
+      buildMode: buildMode,
+      optimize: optimize)
+  else:
+    UsedBuildParams(
+      cmd: cmd,
+      project: project,
+      output: output,
+      linesCompiled: linesCompiled,
+      mem: mem,
+      isMaxMem: isMaxMem,
+      sec: sec,
+      isCompilation: false)
+
+proc `$`(params: UsedBuildParams): string =
+  let
+    prefix = "Hint: " # TODO: add colour (fgGreen)
+    build =
+      if params.isCompilation:
+        "gc: $1; $2opt: $3; $4" % [
+            params.gc,
+            if params.threads: "threads: on; " else: "",
+            if params.optimize == "debug":
+              "none (DEBUG BUILD, `-d: release` generates faster code)"
+            else:
+              params.optimize,
+            if params.buildMode == "debug": "" else: "$1; " % params.buildMode
+          ]
+      else:
+        ""
+    mem = formatSize(params.mem)
+    memUnits = if params.isMaxMem: "peakmem" else: "totmem"
+    suffix = "[SuccessX]" # TODO: add colour (fgCyan) and add msg origin
+
+  "$1$2 $3 lines; $4s; $5 $6; proj: $7; out: $8 $9" % [
+      #[1]# prefix,
+      #[2]# build,
+      #[3]# $params.linesCompiled,
+      #[4]# params.sec.formatFloat(precision = 3),
+      #[5]# $mem,
+      #[6]# $memUnits,
+      #[7]# $params.project,
+      #[8]# params.output,
+      #[9]# suffix
+    ]
 
 proc mainCommand*(graph: ModuleGraph) =
   ## Execute main compiler command
@@ -537,10 +654,12 @@ proc mainCommand*(graph: ModuleGraph) =
     localReport(conf, ExternalReport(
       msg: conf.command, kind: rextInvalidCommand))
 
+  if optProfileVM in conf.globalOptions:
+    conf.writeln cmdOutUserProf, conf.dump(conf.vmProfileData)
+
   if conf.errorCounter == 0 and conf.cmd notin {cmdTcc, cmdDump, cmdNop}:
-    if optProfileVM in conf.globalOptions:
-      echo conf.dump(conf.vmProfileData)
-    genSuccessX(conf)
+    if conf.isEnabled(rintSuccessX):
+      conf.writeln(cmdOutStatus, $genSuccessX(conf))
 
   when defined(nimDebugUnreportedErrors):
     echoAndResetUnreportedErrors(conf)

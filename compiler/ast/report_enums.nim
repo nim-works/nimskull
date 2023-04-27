@@ -112,7 +112,8 @@ type
     rintMissingStackTrace ## Stack trace would've been generated in the
     ## debug compiler build
 
-    rintSuccessX = "SuccessX" ## Succesfull compilation
+    rintSuccessX = "SuccessX" ## Successful compilation, only used as a "note",
+                              ## it's not a hint either
     # hints END !! add reports BEFORE the last enum !!
 
     rintStackTrace = "StackTrace" ## Stack trace during internal
