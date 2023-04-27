@@ -16,11 +16,11 @@ static:
     const nim = getCurrentCompilerExe()
     let ret = gorgeEx(nim & " --version")
     doAssert ret.exitCode == 0
-    doAssert ret.output.contains "Nim Compiler"
+    doAssert ret.output.contains "Nimskull Compiler"
     let ret2 = gorgeEx(nim & " --nonxistent")
     doAssert ret2.exitCode != 0
     let output3 = gorge(nim & " --version")
-    doAssert output3.contains "Nim Compiler"
+    doAssert output3.contains "Nimskull Compiler"
 
   block:
     const key = "D20181210T175037"

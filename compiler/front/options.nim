@@ -702,10 +702,11 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
     {rsemExpandArc} + # Not considered a hint for now
     repDbgTraceKinds  # Unconditionally write debug tracing information
 
-  let tryhack = conf.m.errorOutputs == {}
-  # REFACTOR this check is an absolute hack, `errorOutputs` need to be
-  # removed. For more details see `lineinfos.MsgConfig.errorOutputs`
-  # comment
+  let compTimeCtx = conf.m.errorOutputs == {}
+    ## indicates whether we're in a `compiles` or `constant expression
+    ## evaluation` context. `sem` and `semexprs` in particular will clear
+    ## `conf.m.errorOutputs` as a signal for this. For more details see the
+    ## comment for `MsgConfig.errorOutputs`.
 
   if (r.kind == rdbgVmCodeListing) and (
     (
@@ -728,12 +729,9 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
     return writeDisabled
 
   elif (
-     (conf.isEnabled(r) and r.category == repDebug and tryhack) or
-     # Force write of the report messages using regular stdout if tryhack is
-     # enabled
-     r.kind in rintCliKinds
-     # or if we are writing command-line help/usage information - it must
-     # always be printed
+    (conf.isEnabled(r) and r.category == repDebug and compTimeCtx)
+    # Force write of the report messages using regular stdout if compTimeCtx
+    # is enabled
   ):
     return writeForceEnabled
 
@@ -744,7 +742,7 @@ func writabilityKind*(conf: ConfigRef, r: Report): ReportWritabilityKind =
     r.kind notin forceWrite
   ) or (
     # Or we are in the special hack mode for `compiles()` processing
-    tryhack
+    compTimeCtx
   ):
 
     # Return without writing
