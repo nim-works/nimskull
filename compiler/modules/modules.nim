@@ -193,7 +193,8 @@ proc compileSystemModule*(graph: ModuleGraph) =
 
 proc wantMainModule*(conf: ConfigRef) =
   if conf.projectFull.isEmpty:
-    localReport(conf, gCmdLineInfo, ExternalReport(kind: rextInvalidPath))
+    # user didn't specify a project file, time to pack it in
+    conf.fatalReport(gCmdLineInfo, ExternalReport(kind: rextCmdRequiresFile))
 
   conf.projectMainIdx = fileInfoIdx(conf, addFileExt(conf.projectFull, NimExt))
 

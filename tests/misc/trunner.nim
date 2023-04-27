@@ -198,9 +198,12 @@ sub/mmain.idx""", context
     doAssert exitCode == 0
     let
       dir = getCurrentDir()
-      files = ["tests/misc/config/bar/nim.cfg", "tests/misc/config/bar/mfoo.nim.cfg"]
+      files = ["config/nim.cfg",
+                "tests/nim.cfg",
+                "tests/misc/config/bar/nim.cfg",
+                "tests/misc/config/bar/mfoo.nim.cfg"]
       expected = files.mapIt("Hint: used config file '$1' [Conf]\n" % (dir / it)).join("")
-    doAssert outp.endsWith expected, outp & "\n" & expected
+    doAssert outp.endsWith expected, "\n" & expected & "\n" & outp
 
   block: # scripting allows custom extensions mfoo2.customext
     let filename = testsDir / "misc/config/foo2/mfoo2.customext"

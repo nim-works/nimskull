@@ -2264,7 +2264,8 @@ func prefixShort(conf: ConfigRef, r: ReportTypes): string {.inline.} =
 
 proc prefix(conf: ConfigRef, r: ReportTypes): string =
   let sev = conf.severity(r)
-  if r.location.isSome() and r.kind in repWithLocation:
+  if r.kind in repWithLocation and r.location.isSome() and
+      r.location.get() != gCmdLineInfo:
     # Optional report location
     result.add conf.toStr(r.location.get()) & " "
 
@@ -2809,11 +2810,10 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
   assertKind r
   case ExternalReportKind(r.kind):
     of rextConf:
-      result.add(
-        conf.prefix(r),
-        "used config file '$1'" % r.msg,
-        conf.suffix(r)
-      )
+      result.add("used config file '$1'" % r.msg, conf.suffix(r))
+
+    of rextCmdRequiresFile:
+      result = "command requires a filename"
 
     of rextCommandMissing:
       result.add("Command missing")
@@ -2896,11 +2896,11 @@ proc reportBody*(conf: ConfigRef, r: ExternalReport): string =
 
 proc reportFull*(conf: ConfigRef, r: ExternalReport): string =
   assertKind r
-  reportBody(conf, r)
+  result.add(prefix(conf, r), reportBody(conf, r))
 
 proc reportShort*(conf: ConfigRef, r: ExternalReport): string {.inline.} =
   # mostly created for nimsuggest
-  reportBody(conf, r)
+  result.add(prefixShort(conf, r), reportBody(conf, r))
 
 const
   dropTraceExt = off
