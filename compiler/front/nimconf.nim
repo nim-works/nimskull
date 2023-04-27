@@ -422,44 +422,36 @@ proc getSystemConfigPath*(conf: ConfigRef; filename: RelativeFile): AbsoluteFile
     if not fileExists(result): result = p / RelativeDir"etc/nim" / filename
     if not fileExists(result): result = AbsoluteDir"/etc/nim" / filename
 
+iterator configFiles(N: NimConfParser, cfg: RelativeFile): AbsoluteFile =
+  # xxx: maybe this should open lexers instead
+  if optSkipSystemConfigFile notin N.config.globalOptions:
+    yield getSystemConfigPath(N.config, cfg)
+
+  if optSkipUserConfigFile notin N.config.globalOptions:
+    yield getUserConfigPath(cfg)
+
+  let pd = if N.config.projectPath.isEmpty: AbsoluteDir(getCurrentDir())
+           else:                            N.config.projectPath
+
+  if optSkipParentConfigFiles notin N.config.globalOptions:
+    for dir in parentDirs(pd.string, fromRoot=true, inclusive=false):
+      yield AbsoluteDir(dir) / cfg
+
+  if optSkipProjConfigFile notin N.config.globalOptions:
+    yield pd / cfg
+
+    if N.config.projectName.len != 0:
+      # project wide config file:
+      yield changeFileExt(N.config.projectFull, "nim.cfg")
+
 proc loadConfigs(
     N: var NimConfParser, cfg: RelativeFile, cache: IdentCache
   ) =
   setDefaultLibpath(N.config)
 
-  proc readConfigFile(N: var NimConfParser, path: AbsoluteFile) =
-    let configPath = path
-    if readConfigFile(N, configPath, cache):
-      N.config.configFiles.add(configPath)
-
-  if optSkipSystemConfigFile notin N.config.globalOptions:
-    N.readConfigFile(getSystemConfigPath(N.config, cfg))
-
-  if optSkipUserConfigFile notin N.config.globalOptions:
-    N.readConfigFile(getUserConfigPath(cfg))
-
-  let pd = if not N.config.projectPath.isEmpty:
-             N.config.projectPath
-           else:
-             AbsoluteDir(getCurrentDir())
-
-  if optSkipParentConfigFiles notin N.config.globalOptions:
-    for dir in parentDirs(pd.string, fromRoot=true, inclusive=false):
-      N.readConfigFile(AbsoluteDir(dir) / cfg)
-
-  if optSkipProjConfigFile notin N.config.globalOptions:
-    N.readConfigFile(pd / cfg)
-
-    if N.config.projectName.len != 0:
-      # new project wide config file:
-      var projectConfig = changeFileExt(N.config.projectFull, "nimcfg")
-      if not fileExists(projectConfig):
-        projectConfig = changeFileExt(N.config.projectFull, "nim.cfg")
-      N.readConfigFile(projectConfig)
-
-  let
-    scriptFile = N.config.projectFull.changeFileExt("nims")
-    scriptIsProj = scriptFile == N.config.projectFull
+  for cfgFile in configFiles(N, cfg):
+    if readConfigFile(N, cfgFile, cache):
+      N.config.configFiles.add(cfgFile)
 
   for filename in N.config.configFiles:
     # delayed to here so that `hintConf` is honored
