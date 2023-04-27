@@ -30,7 +30,6 @@ func vmGenDiagToLegacyReportKind(diag: VmGenDiagKind): ReportKind {.inline.} =
   of vmGenDiagCodeGenGenericInNonMacro: rvmCannotGenerateCode
   of vmGenDiagCodeGenUnexpectedSym: rvmCannotGenerateCode
   of vmGenDiagCannotCast: rvmCannotCast
-  of vmGenDiagBadExpandToAstArgRequired: rvmBadExpandToAst
   of vmGenDiagCannotEvaluateAtComptime: rvmCannotEvaluateAtComptime
   of vmGenDiagCannotImportc: rvmCannotImportc
   of vmGenDiagInvalidObjectConstructor: rvmInvalidObjectConstructor
@@ -78,12 +77,6 @@ func vmGenDiagToLegacyVmReport*(diag: VmGenDiag): VMReport {.inline.} =
         location: std_options.some diag.location,
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind)
-    of vmGenDiagBadExpandToAstArgRequired:
-      VMReport(
-        str: "expandToAst requires 1 argument",
-        kind: kind,
-        location: std_options.some diag.location,
-        reportInst: diag.instLoc.toReportLineInfo)
     of vmGenDiagNotUnused,
         vmGenDiagNotAFieldSymbol,
         vmGenDiagCannotGenerateCode,

@@ -876,61 +876,31 @@ proc genCall(c: var TCtx, n: PNode): EValue =
 
   finishCall(c, n[0], fntyp)
 
-proc genMacroCall(c: var TCtx, n: PNode): EValue =
-  ## Generates the code for a macro/template call expression. These can only
-  ## occur in a ``getAst`` context.
-  ##
-  ## The argument expressions require special handling, so a dedicated
-  ## procedure is used in order to encapsulate the required workarounds in a
-  ## single place, making it easier to spot, document, and eventually fix them.
-  assert n[0].kind == nkSym and n[0].sym.kind in {skMacro, skTemplate}
+proc genMacroCallArgs(c: var TCtx, n: PNode, kind: TSymKind, fntyp: PType) =
+  ## Generates the arguments for a macro/template call expression. `n` is
+  ## expected to be a ``getAst`` expression that has been transformed to the
+  ## internal representation. `kind` is the meta-routine's kind, and `fntyp`
+  ## its signature.
+  assert kind in {skMacro, skTemplate}
+  chain: genCallee(c, n[1]) => arg(c)
 
-  # XXX: ``genAst(templ(x))`` (where `templ` is a template) should be turned
-  #      into:
-  #
-  #        mExpandToAst( NimNodeLit(Sym "templ"), Call( Sym "toNimNode", Sym "x") )
-  #
-  #      during semantic analysis. The above expression is semantically
-  #      equivalent to what currently happens, but it would move decision
-  #      making out of both ``mirgen``, ``vmgen``, and the VM. ``toNimNode`` is
-  #      a magic procedure that does the same thing as ``vm.regToNode`` (i.e.
-  #      turn a run-time value into its ``NimNode`` representation)
-
-  c.stmts.add MirNode(kind: mnkArgBlock)
-  chain: genCallee(c, n[0]) => arg(c)
-
-  let fntyp = n[0].typ
-  for i in 1..<n.len:
+  for i in 2..<n.len:
     let
-      t = fntyp[i]
-      argTyp = n[i].typ.skipTypes(abstractInst - {tyTypeDesc})
+      it = n[i]
+      argTyp = it.typ.skipTypes(abstractInst - {tyTypeDesc})
 
-    if t.kind == tyStatic:
-      # an argument to a static parameter. Treat as a normal argument
-      # expression
-      # QUESTION: what about ``static[var int]``? How should those work?
-      genArg(c, t, n[i])
-    elif argTyp.sym != nil and argTyp.sym.magic == mPNimrodNode:
-      # the argument is a ``NimNode`` value. Treat them as normal arguments
-      chain: genArgExpression(c, t, n[i]) => arg(c)
-    elif argTyp.kind == tyTypeDesc:
+    if argTyp.kind == tyTypeDesc:
       # the expression is a type expression, explicitly handle it there so that
       # ``genx`` doesn't have to
-      chain: genTypeExpr(c, n[i]) => arg(c)
-    elif n[i].kind == nkSym and n[i].sym.kind in {skMacro, skTemplate}:
-      # special case them here so that ``genx`` doesn't have to
-      # note: do not use ``genProcLit`` here. These are *not* procedural
-      #       values
-      let
-        typ = sysTypeFromName(c.graph, n.info, "NimNode")
-        lit = newTreeIT(nkNimNodeLit, n[i].info, typ): n[i]
-
-      chain: genLit(c, lit) => arg(c)
+      chain: genTypeExpr(c, it) => arg(c)
+    elif kind == skMacro:
+      # we can extract the formal types from the signature
+      genArg(c, fntyp[i - 1], it)
+    elif kind == skTemplate:
+      # we have to treat the arguments as normal expressions
+      chain: genx(c, it) => arg(c)
     else:
-      chain: genx(c, n[i]) => arg(c)
-
-  c.stmts.add endNode(mnkArgBlock)
-  finishCall(c, n[0], fntyp)
+      unreachable()
 
 proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
   ## Generates the MIR code for the magic call expression/statement `n`. `m` is
@@ -1094,35 +1064,30 @@ proc genMagic(c: var TCtx, n: PNode; m: TMagic): EValue =
 
   # special macro related magics:
   of mExpandToAst:
-    if n[0].typ == nil:
-      # has no type information -- we need to manually tranlate it
+    # the transformation pass already flattened the call expression for us and
+    # made it a bit easier to process
+    let callee = n[1] # the meta-routine to evaluate
+    case callee.sym.kind
+    of skTemplate:
+      # a ``getAst`` call taking a template call expression. The arguments
+      # need special handling, but the shape stays as is
       argBlock(c.stmts):
-        for i in 1..<n.len:
-          assert n[i].typ == nil
-          # even the argument expressions don't have types in this case, so we
-          # can't use ``argExpr``
-          # FIXME: this happens in the context of ``quote`` (i.e.
-          #        ``semQuoteAst``), because the quoted expressions are not
-          #        semantically analysed.
-          #        The arguments (quoted expressions) should be analysed and
-          #        the call should also use a complete symbol.
-          chain: genx(c, n[i]) => arg(c)
+        genMacroCallArgs(c, n, skTemplate, callee.sym.typ)
 
       magicCall(c, m, n.typ)
-    else:
-      case n[1][0].sym.kind
-      of skTemplate:
-        # a ``getAst`` call taking a template call expression -> leave the
-        # ``mExpandToAst`` magic call as is
-        argBlock(c.stmts):
-          chain: genMacroCall(c, n[1]) => arg(c)
+    of skMacro:
+      # rewrite ``getAst(macro(a, b, c))`` -> ``macro(a, b, c)``
+      argBlock(c.stmts):
+        # we can use the internal signature
+        genMacroCallArgs(c, n, skMacro, callee.sym.internal)
 
-        magicCall(c, m, n.typ)
-      of skMacro:
-        # rewrite ``getAst(macro(a, b, c))`` -> ``macro(a, b, c)``
-        genMacroCall(c, n[1])
-      else:
-        unreachable()
+      # treat a macro call as potentially raising and as modifying global
+      # data. While not wrong, it is pessimistic
+      c.stmts.add MirNode(kind: mnkCall, typ: n.typ,
+                          effects: {geMutateGlobal, geRaises})
+      EValue(typ: n.typ)
+    else:
+      unreachable()
 
   else:
     # no special transformation for the other magics:

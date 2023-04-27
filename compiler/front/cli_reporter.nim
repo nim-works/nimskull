@@ -3370,9 +3370,6 @@ proc reportBody*(conf: ConfigRef, r: VMReport): string =
   of rvmNotAFieldSymbol:
     result = "no field symbol"
 
-  of rvmBadExpandToAst:
-    result = "expandToAst requires 1 argument"
-
   of rvmCannotImportc:
     result = "cannot 'importc' variable/proc at compile time: " & r.symstr
 
@@ -4441,12 +4438,6 @@ func astDiagToLegacyReport(conf: ConfigRef, diag: PAstDiag): Report {.inline.} =
         location: some location,
         reportInst: diag.instLoc.toReportLineInfo,
         kind: kind)
-    of adVmGenBadExpandToAstArgRequired:
-      vmRep = VMReport(
-        str: "expandToAst requires 1 argument",
-        kind: kind,
-        location: some location,
-        reportInst: diag.instLoc.toReportLineInfo)
     of adVmGenNotUnused,
         adVmGenNotAFieldSymbol,
         adVmGenCannotGenerateCode,

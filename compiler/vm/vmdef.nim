@@ -582,7 +582,6 @@ type
 
   VmGenDiagKind* = enum
     # has no extra data
-    vmGenDiagBadExpandToAstArgRequired
     vmGenDiagTooManyRegistersRequired
     vmGenDiagCannotFindBreakTarget
     # has ast data
@@ -645,8 +644,7 @@ type
           vmGenDiagCannotEvaluateAtComptime,
           vmGenDiagInvalidObjectConstructor:
         ast*: PNode
-      of vmGenDiagBadExpandToAstArgRequired,
-          vmGenDiagTooManyRegistersRequired,
+      of vmGenDiagTooManyRegistersRequired,
           vmGenDiagCannotFindBreakTarget:
         discard
 

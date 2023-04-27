@@ -982,7 +982,7 @@ type
 
   AstDiagVmGenKind* = enum
     ## Kinds for errors produced by `vmgen`
-    adVmGenBadExpandToAstArgRequired      # | TODO: these enum values duplicate
+                                          # | TODO: these enum values duplicate
                                           # |       `VmGenDiagKind` vmgen enum
     adVmGenTooManyRegistersRequired       # |       defined in the `vmdef`
     adVmGenCannotFindBreakTarget          # |       module. There should be a
@@ -1002,8 +1002,7 @@ type
 
   AstDiagVmGenError* = object
     case kind*: AstDiagVmGenKind:
-      of adVmGenBadExpandToAstArgRequired,
-          adVmGenTooManyRegistersRequired,
+      of adVmGenTooManyRegistersRequired,
           adVmGenCannotFindBreakTarget:
         discard
       of adVmGenNotUnused,
