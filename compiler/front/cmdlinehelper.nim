@@ -25,7 +25,9 @@ import
     commands,
     msgs,
     options,
-    condsyms
+    condsyms,
+    cli_reporter,
+    sexp_reporter,
   ],
   compiler/utils/[
     pathutils,
@@ -165,9 +167,22 @@ proc handleConfigEvent(
   
   handleReport(conf, rep, reportFrom, eh)
 
+proc legacyReportsMsgFmtSetter(conf: ConfigRef, fmt: MsgFormatKind) =
+  ## this actually sets the report hook, but the intention is formatter only,
+  ## but the "reports" doesn't allow for that.
+  case fmt
+  of msgFormatText: conf.setReportHook cli_reporter.reportHook
+  of msgFormatSexp:
+    doAssert conf.cmd != cmdIdeTools, "don't screw up nimsuggest"
+    conf.setReportHook sexp_reporter.reportHook
+
 proc initDefinesProg*(self: NimProg, conf: ConfigRef, name: string) =
   condsyms.initDefines(conf.symbols)
   defineSymbol conf, name
+  # "reports" strikes again, this bit of silliness is to stop reports from
+  # infecting the `commands` module among others. Only really needed for CLI
+  # parsing; don't need to care about the rest
+  conf.setMsgFormat = legacyReportsMsgFmtSetter
 
 proc processCmdLineAndProjectPath*(self: NimProg, conf: ConfigRef, cmd: string = "") =
   self.processCmdLine(passCmd1, cmd, conf)

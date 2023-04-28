@@ -92,7 +92,7 @@ Each hint can be activated individually with `--hint:NAME:on|off`:option: or in 
 Name                             Description
 ==========================       ============================================
 CC                               Shows when the C compiler is called.
-SourceCodeFilterOutput           Shows the output of an source code filters
+SourceCodeFilterOutput           Shows the output of a source code filters
 CodeEnd
 CondTrue
 Conf                             A config file was loaded.
@@ -102,7 +102,6 @@ Dependency
 Exec                             Program is executed.
 ExprAlwaysX
 ExtendedContext
-GCStats                          Dumps statistics about the Garbage Collector.
 GlobalVar                        Shows global variables declarations.
 LineTooLong                      Line exceeds the maximum length.
 Link                             Linking phase.
@@ -140,20 +139,6 @@ Level  Description
 3      In addition to the previous levels dumps a debug stack trace
        for compiler developers.
 =====  ============================================
-
-Compiler message formats
-------------------------
-
-The compiler can output messages in both unstructured (plaintext) and
-structured (S-expressions) forms. S-expressions were chosen mostly for
-integration with testament, in the future json support will be added as
-well.
-
-You can select message format using `--msgFormat=text|sexp`:option: switch
-in the compiler. Unstructured compiler reports are formatted for higher
-readability and used by default. Structured reports are formatted as
-S-expressions, one per line. Every single compiler report is wrapped in
-structured data, including ``echo`` messages at compile-time.
 
 
 Compile-time symbols
