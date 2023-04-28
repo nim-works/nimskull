@@ -493,7 +493,8 @@ proc mainCommand*(graph: ModuleGraph) =
   of cmdBackends: compileToBackend()
   of cmdTcc:
     when hasTinyCBackend:
-      extccomp.setCC(conf, "tcc", unknownLineInfo)
+      let cc = extccomp.setCC(conf, "tcc")
+      doAssert cc == ccTcc, "what happened to tcc?"
       if conf.backend != backendC:
         globalReport(conf, ExternalReport(
           kind: rextExpectedCbackednForRun, usedCompiler: $conf.backend))

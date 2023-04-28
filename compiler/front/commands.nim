@@ -949,7 +949,15 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     os.putEnv(key, val)
   of "cc":
     expectArg(conf, switch, arg, pass, info)
-    setCC(conf, arg, info)
+    case setCC(conf, arg)
+    of ccNone:
+      # xxx: temporarily using legacy reports
+      conf.localReport(ExternalReport(
+                        kind: rextUnknownCCompiler,
+                        knownCompilers: listCCnames(),
+                        passedCompiler: arg))
+    else:
+      discard "valid compiler set"
   of "stdout":
     processOnOffSwitchG(conf, {optStdout}, arg, pass, info, switch)
   of "filenames":
