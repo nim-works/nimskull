@@ -2682,9 +2682,6 @@ To create a stacktrace, rerun compilation with './koch temp $1 <file>'
     of rintSource:
       assert false, "is a configuration hint, should not be reported manually"
 
-    of rintGCStats:
-      result = r.msg
-
     of rintQuitCalled:
       result = "quit() called"
 

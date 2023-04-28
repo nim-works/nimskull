@@ -48,6 +48,9 @@ import
   compiler/backend/[
     extccomp
   ],
+  experimental/[
+    colortext,    # required for pretty output; TODO: factor out
+  ],
   compiler/utils/[
     nversion,
     pathutils,
@@ -422,6 +425,7 @@ proc testCompileOption*(conf: ConfigRef; switch: string, info: TLineInfo): bool 
   of "implicitstatic": result = contains(conf.options, optImplicitStatic)
   of "trmacros": result = contains(conf.options, optTrMacros)
   of "excessivestacktrace": result = contains(conf.globalOptions, optExcessiveStackTrace)
+  of "cmdexitgcstats": result = contains(conf.globalOptions, optCmdExitGcStats)
   else: invalidCmdLineOption(conf, passCmd1, switch, info)
 
 proc processPath(conf: ConfigRef; path: string, info: TLineInfo, switch: string,
@@ -1071,6 +1075,9 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     processOnOffSwitchG(conf, {optEnableDeepCopy}, arg, pass, info, switch)
   of "": # comes from "-" in for example: `nim c -r -` (gets stripped from -)
     conf.inputMode = pimStdin
+  of "cmdexitgcstats":
+    expectNoArg(conf, switch, arg, pass, info)
+    processOnOffSwitchG(conf, {optCmdExitGcStats}, arg, pass, info, switch)
   else:
     if strutils.find(switch, '.') >= 0: options.setConfigVar(conf, switch, arg)
     else: invalidCmdLineOption(conf, pass, switch, info)
@@ -1090,6 +1097,69 @@ proc processSwitch*(pass: TCmdLinePass; p: OptParser; config: ConfigRef) =
     processSwitch(key, val, pass, gCmdLineInfo, config)
   else:
     processSwitch(p.key, p.val, pass, gCmdLineInfo, config)
+
+# temporary home for formatting output during early cli/config phase; this
+# should move to a better suited module.
+
+const
+  pathFmtStr = "$#($#, $#)" ## filename(line, column)
+
+func stylize*(str: string, color: ForegroundColor, styles: set[Style] = {}): string =
+  if str.len == 0:
+    result = str
+  else:
+    result = "\e[$#m" % $color.int
+    for s in styles:
+      result.addf "\e[$#m", s.int
+    result.add str
+    result.add "\e[0m"
+
+func stylize*(str: string, color: ForegroundColor,
+              style: Style): string {.inline.} =
+  stylize(str, color, {style})
+
+func cliFmtLineInfo*(filename: string, line, col: int, useColor: bool): string =
+  const pathFmtStr = "$#($#, $#)" ## filename(line, column)
+  let pathStr = pathFmtStr % [filename, $line, $col]
+  if useColor:
+    stylize(pathStr, fgDefault, {styleBright})
+  else:
+    pathStr
+
+func cliFmtSrcCodeOrigin*(origin: InstantiationInfo, useColor: bool): string =
+  cliFmtLineInfo(origin.filename, origin.line, origin.column, useColor)
+
+func cliFmt*(conf: ConfigRef, info: TLineInfo, useColor: bool): string =
+  cliFmtLineInfo(conf.toFullPath(info), info.line.int, info.col + 1, useColor)
+
+func cliFmtMsgOrigin*(origin: InstantiationInfo, showSuffix, useColor: bool): string =
+  const suffixText = "[MsgOrigin]"
+  let suffix =
+        if showSuffix:
+          if useColor:
+            stylize(suffixText, fgCyan)
+          else:
+            suffixText
+        else:
+          ""
+  result.addf "\n$# msg instantiated here$#$#",
+                [cliFmtSrcCodeOrigin(origin, useColor),
+                 if showSuffix: " " else: "",           # spacing
+                 suffix]
+
+proc writeLog(conf: ConfigRef, msg: string, srcLoc: InstantiationInfo) =
+  var result = msg
+  if conf.hasHint(rintMsgOrigin):
+    result.addf cliFmtMsgOrigin(srcLoc, showSuffix = conf.hasHint(rintErrKind),
+                                useColor = conf.useColor())
+  conf.msgWrite(result & "\n")
+
+proc logGcStats*(conf: ConfigRef, stats: string, srcLoc = instLoc()) =
+  ## log a 'debug' level message with the GC `stats`
+  # TODO: document log levels, eventual introduction of `channels`,
+  #       suppression, formatting, etc
+  if optCmdExitGcStats in conf.globalOptions:
+    conf.writeLog(stats, srcLoc)
 
 proc processArgument*(pass: TCmdLinePass; p: OptParser;
                       argsCount: var int; config: ConfigRef): bool =
