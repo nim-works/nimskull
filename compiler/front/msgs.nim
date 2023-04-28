@@ -644,6 +644,10 @@ template globalAssert*(
     if arg.len > 0: arg2.add "; " & astToStr(arg) & ": " & arg
     handleReport(conf, info, errGenerated, arg2, doRaise, instLoc())
 
+template fatalReport*(conf: ConfigRef, info: TLineInfo, report: ReportTypes) =
+  # this works around legacy reports stupidity
+  handleReport(conf, wrap(report, instLoc(), info), instLoc(), doAbort)
+
 template globalReport*(
   conf: ConfigRef; info: TLineInfo, report: ReportTypes) =
   ## `local` means compilation keeps going until errorMax is reached (via
