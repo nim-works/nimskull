@@ -83,18 +83,7 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
       conf.errorCounter != 0:
     return
 
-  let res = mainCommand(graph)
-  case res.kind
-  of mainResultSuccess: discard
-  of mainResultFailRunNeedsTcc:
-    conf.cmdFail "'run' requires c backend, got: '$1'" % $conf.backend
-  of mainResultFailRunNeedsCBknd:
-    conf.cmdFail("'run' command not available; rebuild with -d:tinyc")
-  of mainResultFailInvalidCmd,
-      mainResultFailCannotOpenFile,
-      mainResultFailLeanCompiler,
-      mainResultFailGenDepend:
-    unreachable()
+  mainCommand(graph)
 
   if optCmdExitGcStats in conf.globalOptions:
     conf.logGcStats(GC_getStatistics())

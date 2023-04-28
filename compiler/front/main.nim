@@ -118,35 +118,6 @@ type
 #       `ConfigRef` directly as much as it does. That'll motivate more correct
 #       placement of data (out of config and into the graph).
 
-type
-  # TODO: rename 'main' to `cmd'?
-  MainResultKind* = enum
-    ## kinds of results returned from `mainCommand`
-    mainResultSuccess
-    mainResultFailInvalidCmd
-    mainResultFailCannotOpenFile
-    mainResultFailLeanCompiler
-    mainResultFailRunNeedsCBknd
-    mainResultFailRunNeedsTcc
-    mainResultFailGenDepend
-
-  MainResult* = object
-    ## `mainCommand`'s result, the command (`cmd`) that was processed, whether
-    ## that was successful (`kind`), and any relevant data.
-    cmd*: Command
-    startTime, endTime*: float
-    case kind*: MainResultKind:
-      of mainResultSuccess,
-          mainResultFailInvalidCmd,
-          mainResultFailRunNeedsTcc,
-          mainResultFailLeanCompiler:
-        discard
-      of mainResultFailCannotOpenFile: badFile*: AbsoluteFile
-      of mainResultFailRunNeedsCBknd:  wrongBknd*: TBackend
-      of mainResultFailGenDepend:
-        genDepCmd*: string
-        genDepExitCode*: int
-
 when defined(nimDebugUnreportedErrors):
   proc writeAndResetUnreportedErrors(conf: ConfigRef) =
     if conf.unreportedErrors.len > 0:
@@ -244,7 +215,6 @@ proc commandCompileToJS(graph: ModuleGraph) =
         var t = conf.target
         setTarget(t, osJS, cpuJS)
         t
-
     defineSymbol(conf, "ecmascript") # For backward compatibility
     semanticPasses(graph)
     registerPass(graph, JSgenPass)
@@ -445,7 +415,11 @@ proc `$`(params: UsedBuildParams): string =
       #[9]# suffix
     ]
 
-proc mainCommand*(graph: ModuleGraph): MainResult =
+func execExternalProgramFailedMsg*(cmd: string, exitCode: int): string =
+  "execution of an external program '$1' failed with exit code '$2'" %
+    [cmd, $exitCode]
+
+proc mainCommand*(graph: ModuleGraph) =
   ## Execute main compiler command
   let
     conf = graph.config
@@ -453,8 +427,7 @@ proc mainCommand*(graph: ModuleGraph): MainResult =
 
   # In "nim serve" scenario, each command must reset the registered passes
   clearPasses(graph)
-  result.startTime = epochTime()
-  conf.lastCmdTime = result.startTime # TODO: remove this field from `ConfigRef`
+  conf.lastCmdTime = epochTime()
   conf.searchPathsAdd(conf.libpath)
 
   proc customizeForBackend(backend: TBackend) =
@@ -514,17 +487,11 @@ proc mainCommand*(graph: ModuleGraph): MainResult =
       let cc = extccomp.setCC(conf, "tcc")
       doAssert cc == ccTcc, "what happened to tcc?"
       if conf.backend != backendC:
-        result = MainResult(cmd: cmdTcc,
-                            startTime: result.startTime,
-                            endTime: epochTime(),
-                            kind: mainResultFailRunNeedsTcc)
+        conf.cmdFail "'run' requires c backend, got: '$1'" % $conf.backend
       else:
         compileToBackend()
     else:
-      result = MainResult(cmd: cmdTcc,
-                          startTime: result.startTime,
-                          endTime: epochTime(),
-                          kind: mainResultFailRunNeedsCBknd)
+      conf.cmdFail("'run' command not available; rebuild with -d:tinyc")
   of cmdDoc:
     docLikeCmd():
       conf.setNoteDefaults(rsemLockLevelMismatch, false) # issue #13218
@@ -573,12 +540,7 @@ proc mainCommand*(graph: ModuleGraph): MainResult =
     conf.logExecStart(cmd)
     let code = execCmd(cmd)
     if code != 0:
-      result = MainResult(cmd: cmdGendepend,
-                          startTime: result.startTime,
-                          endTime: epochTime(),
-                          kind: mainResultFailGenDepend,
-                          genDepCmd: cmd,
-                          genDepExitCode: code)
+      conf.cmdFail(execExternalProgramFailedMsg(cmd, code))
   of cmdDump:
     wantMainModule(conf)
     var state = InternalStateDump()
