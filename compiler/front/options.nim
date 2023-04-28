@@ -9,13 +9,14 @@
 
 import
   std/[os, strutils, strtabs, sets, tables, packedsets],
-  compiler/utils/[prefixmatches, pathutils, platform, strutils2],
+  compiler/utils/[prefixmatches, pathutils, platform],
   compiler/ast/[lineinfos],
   compiler/modules/nimpaths
 
 import compiler/front/in_options
 export in_options
 
+from compiler/utils/strutils2 import toLowerAscii
 from terminal import isatty
 from times import utc, fromUnix, local, getTime, format, DateTime
 from std/private/globs import nativeToUnixPath

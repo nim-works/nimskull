@@ -64,12 +64,6 @@ type
     cekWriteConfig           ## write out the config
     # user output end
 
-    # debug start
-    cekDebugTrace            ## config debug trace
-    cekDebugReadStart        ## start config file read
-    cekDebugReadStop         ## stop config file read
-    # debug end
-
     # progress begin
     cekProgressConfStart
     # progress end
@@ -77,12 +71,12 @@ type
   ConfigFileEvent* = object
     case kind*: ConfigEventKind:
       of cekParseExpectedX, cekParseExpectedCloseX, cekParseExpectedIdent,
-         cekInvalidDirective, cekWriteConfig, cekDebugTrace:
+         cekInvalidDirective, cekWriteConfig:
         location*: TLineInfo         ## diagnostic location
       of cekInternalError, cekLexerErrorDiag, cekLexerWarningDiag,
          cekLexerHintDiag:
         lexerDiag*: LexerDiag
-      of cekDebugReadStart, cekDebugReadStop, cekProgressConfStart:
+      of cekProgressConfStart:
         discard
     instLoc*: InstantiationInfo ## instantiation in lexer's source
     msg*: string
@@ -124,18 +118,10 @@ proc handleWriteConf(N: NimConfParser, cfg: string, instLoc = instLoc(-1)) =
                             msg: cfg)
     N.cfgEvtHandler(N.lexer.config, e, instLoc)
 
-proc handleTrace(N: NimConfParser, trace: string, instLoc = instLoc(-1)) =
-    let e = ConfigFileEvent(kind: cekDebugTrace,
-                            location: N.lexer.getLineInfo,
-                            instLoc: instLoc,
-                            msg: trace)
-    N.cfgEvtHandler(N.lexer.config, e, instLoc)
-
 proc handleRead(N: NimConfParser,
-                evt: range[cekDebugReadStart..cekProgressConfStart],
                 filename: string,
                 instLoc = instLoc(-1)) =
-    let e = ConfigFileEvent(kind: evt,
+    let e = ConfigFileEvent(kind: cekProgressConfStart,
                             instLoc: instLoc,
                             msg: filename)
     N.cfgEvtHandler(N.config, e, instLoc)
@@ -291,26 +277,18 @@ proc parseDirective(N: var NimConfParser, tok: var Token) =
       ppGetTok(N, tok)
       os.putEnv(key, $tok)
       ppGetTok(N, tok)
-
     of "prependenv":
       ppGetTok(N, tok)
       var key = $tok
       ppGetTok(N, tok)
       os.putEnv(key, $tok & os.getEnv(key))
       ppGetTok(N, tok)
-
     of "appendenv":
       ppGetTok(N, tok)
       var key = $tok
       ppGetTok(N, tok)
       os.putEnv(key, os.getEnv(key) & $tok)
       ppGetTok(N, tok)
-
-    of "trace":
-      ppGetTok(N, tok)
-      N.handleTrace($tok)
-      ppGetTok(N, tok)
-
     else:
       handleError(N, cekInvalidDirective, $tok)
 
@@ -384,8 +362,6 @@ proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
 
   stream = llStreamOpen(filename, fmRead)
   if stream != nil:
-    N.handleRead(cekDebugReadStart, filename.string)
-
     initToken(tok)
     openLexer(N.lexer, filename, stream, cache, N.config)
     tok.tokType = tkEof       # to avoid a pointless warning
@@ -398,8 +374,6 @@ proc readConfigFile(N: var NimConfParser, filename: AbsoluteFile,
       handleError(N, cekParseExpectedX, "@end")
 
     closeLexer(N.lexer)
-
-    N.handleRead(cekDebugReadStop, filename.string)
 
     return true
 
@@ -455,7 +429,7 @@ proc loadConfigs(
 
   for filename in N.config.configFiles:
     # delayed to here so that `hintConf` is honored
-    N.handleRead(cekProgressConfStart, filename.string)
+    N.handleRead(filename.string)
 
 proc loadConfigs*(
     cfg: RelativeFile; cache: IdentCache;
