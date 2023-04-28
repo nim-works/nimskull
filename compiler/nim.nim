@@ -24,9 +24,6 @@ when defined(windows) and not defined(nimKochBootstrap):
     {.link: "../icons/nim-i386-windows-vcc.res".}
 
 import
-  compiler/backend/[
-    extccomp
-  ],
   compiler/front/[
     msgs, main, cmdlinehelper, options, commands, cli_reporter
   ],
@@ -40,8 +37,9 @@ import
     idents
   ]
 
+from std/osproc import execCmd
+
 # xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_internal import InternalReport
 from compiler/ast/reports_external import ExternalReport
 from compiler/ast/report_enums import ReportKind
 
@@ -120,8 +118,11 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
       if cmdPrefix.len > 0: cmdPrefix.add " "
         # without the `cmdPrefix.len > 0` check, on windows you'd get a cryptic:
         # `The parameter is incorrect`
-      execExternalProgram(
-        conf, cmdPrefix & output.quoteShell & ' ' & conf.arguments, rcmdExecuting)
+      let cmd = cmdPrefix & output.quoteShell & ' ' & conf.arguments
+      conf.logExecStart(cmd)
+      let code = execCmd(cmd)
+      if code != 0:
+        conf.logError(execExternalProgramFailedMsg(cmd, code))
     of cmdDocLike, cmdRst2html, cmdRst2tex: # bugfix(cmdRst2tex was missing)
       if conf.arguments.len > 0:
         # reserved for future use

@@ -50,6 +50,7 @@ import
     nversion,
     pathutils,   # Input file handling
     astrepr,     # Output parsed data, for compiler development
+    idioms,
   ],
   compiler/vm/[
     compilerbridge, # Configuration file evaluation, `nim e`
@@ -62,6 +63,8 @@ import compiler/ic/[
     integrity
   ]
 from compiler/ic/ic import rodViewer
+
+from std/osproc import execCmd
 
 # xxx: reports are a code smell meaning data types are misplaced
 from compiler/ast/reports_internal import InternalReport
@@ -136,10 +139,12 @@ proc writeGccDepfile(conf: ConfigRef) =
     depfile = open(conf.depfile.string, fmWrite)
     target = conf.outFile.string
     paths = conf.m.fileInfos.mapIt(it.fullPath.string)
-
   depfile.writeGccDepfile(target, paths)
-
   depfile.close()
+
+func execExternalProgramFailedMsg*(cmd: string, exitCode: int): string =
+  "execution of an external program '$1' failed with exit code '$2'" %
+    [cmd, $exitCode]
 
 proc commandGenDepend(graph: ModuleGraph) =
   semanticPasses(graph)
@@ -148,16 +153,13 @@ proc commandGenDepend(graph: ModuleGraph) =
   let project = graph.config.projectFull
   writeDepsFile(graph)
   generateDot(graph, project)
-  execExternalProgram(
-    graph.config,
-    (
-      "dot -Tpng -o" &
-        changeFileExt(project, "png").string &
-        ' ' &
-        changeFileExt(project, "dot").string
-    ),
-    rcmdExecuting
-  )
+  let cmd = "dot -Tpng -o$1 $2" %
+                [project.changeFileExt("png").string,
+                project.changeFileExt("dot").string]
+  graph.config.logExecStart(cmd)
+  let code = execCmd(cmd)
+  if code != 0:
+    graph.config.logError(execExternalProgramFailedMsg(cmd, code))
 
 proc commandCheck(graph: ModuleGraph) =
   let conf = graph.config
@@ -175,7 +177,7 @@ when not defined(leanCompiler):
     of TexExt:  registerPass(graph, docgen2TexPass)
     of JsonExt: registerPass(graph, docgen2JsonPass)
     of HtmlExt: registerPass(graph, docgen2Pass)
-    else: doAssert false, $ext
+    else: unreachable($ext)
     compileProject(graph)
     finishDoc2Pass(graph.config.projectName)
 
@@ -452,7 +454,7 @@ proc mainCommand*(graph: ModuleGraph) =
       of excGoto:            discard
     of backendJs, backendNimVm:
       discard
-    of backendInvalid: doAssert false
+    of backendInvalid: unreachable()
 
   proc compileToBackend() =
     customizeForBackend(conf.backend)
@@ -461,11 +463,11 @@ proc mainCommand*(graph: ModuleGraph) =
     of backendC: commandCompileToC(graph)
     of backendJs: commandCompileToJS(graph)
     of backendNimVm: commandCompileToVM(graph)
-    of backendInvalid: doAssert false
+    of backendInvalid: unreachable()
 
   template docLikeCmd(body) =
     when defined(leanCompiler):
-      conf.quitOrRaise "compiler wasn't built with documentation generator"
+      conf.quitOrRaise "compiler built without documentation generator"
     else:
       wantMainModule(conf)
       let docConf = if conf.cmd == cmdDoc2tex: DocTexConfig else: DocConfig
@@ -496,13 +498,11 @@ proc mainCommand*(graph: ModuleGraph) =
       let cc = extccomp.setCC(conf, "tcc")
       doAssert cc == ccTcc, "what happened to tcc?"
       if conf.backend != backendC:
-        globalReport(conf, ExternalReport(
-          kind: rextExpectedCbackednForRun, usedCompiler: $conf.backend))
-
-      compileToBackend()
+        conf.logError("'run' requires c backend, got: '$1'" % $conf.backend)
+      else:
+        compileToBackend()
     else:
-      globalReport(conf, ExternalReport(
-        kind: rextExpectedTinyCForRun))
+      conf.logError("'run' command not available; rebuild with -d:tinyc")
   of cmdDoc:
     docLikeCmd():
       conf.setNoteDefaults(rsemLockLevelMismatch, false) # issue #13218
@@ -520,7 +520,7 @@ proc mainCommand*(graph: ModuleGraph) =
       conf.setNoteDefaults(warn, true)
     conf.setNoteDefaults(rbackRstRedefinitionOfLabel, false) # similar to issue #13218
     when defined(leanCompiler):
-      conf.quitOrRaise "compiler wasn't built with documentation generator"
+      conf.quitOrRaise "compiler built without documentation generator"
     else:
       loadConfigs(DocConfig, cache, conf)
       commandRst2Html(cache, conf)
@@ -528,7 +528,7 @@ proc mainCommand*(graph: ModuleGraph) =
     for warn in rstWarnings:
       conf.setNoteDefaults(warn, true)
     when defined(leanCompiler):
-      conf.quitOrRaise "compiler wasn't built with documentation generator"
+      conf.quitOrRaise "compiler built without documentation generator"
     else:
       if conf.cmd == cmdRst2tex:
         loadConfigs(DocTexConfig, cache, conf)
