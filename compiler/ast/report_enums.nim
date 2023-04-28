@@ -33,8 +33,8 @@ type
 
     repBackend = "Backend" ## Backend-specific reports.
 
-    repExternal = "External" ## Report constructed during handling of the
-    ## external configuration, command-line flags, packages, modules.
+    repExternal = "External" ## Report constructed during handling of
+                             ## configuration, packages, modules.
 
 
   # TODO: "severity" in such a general fashion barely makes sense. Since
@@ -838,7 +838,7 @@ type
     rsemUserHint = "User" ## `{.hint: .}` pragma encountereed
     rsemLinterReport  = "Name"
     rsemLinterReportUse = "Name"
-    rsemHintLibDependency
+    rsemHintLibDependency = "Dependency"
     rsemXDeclaredButNotUsed = "XDeclaredButNotUsed"
     rsemDuplicateModuleImport = "DuplicateModuleImport"
     rsemXCannotRaiseY = "XCannotRaiseY"
@@ -886,7 +886,7 @@ type
     rcmdCompiling = "CC"
     rcmdLinking = "Link"
     rcmdExecuting = "Exec"
-    rcmdRunnableExamplesSuccess
+    rcmdRunnableExamplesSuccess = "Success"
     # hints END !! add reports BEFORE the last enum !!
 
     #----------------------------  Trace reports  ----------------------------#
