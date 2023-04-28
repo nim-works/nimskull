@@ -291,9 +291,10 @@ type
     structuredReportHook*: ReportHook
     astDiagToLegacyReport*: proc(conf: ConfigRef, d: PAstDiag): Report
     vmProfileData*: ProfileData
-
+    setMsgFormat*: proc(config: ConfigRef, fmt: MsgFormatKind) {.closure.}
+      ## callback that sets the message format for legacy reporting, needs to
+      ## set before CLI handling, because reports are just that awful
     hack*: HackController ## Configuration values for debug printing
-
     when defined(nimDebugUtils):
       debugUtilsStack*: seq[string] ## which proc name to stop trace output
       ## len is also used for output indent level

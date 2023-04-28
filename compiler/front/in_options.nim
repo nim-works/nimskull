@@ -201,6 +201,12 @@ type
     v2Sf         ## who knows, probably a bad idea
     stressTest   ## likely more bad ideas
 
+  # "reports" strikes again, this bit of silliness is to stop reports from
+  # infecting the `commands` module among others.
+  MsgFormatKind* = enum
+    msgFormatText = "text" ## text legacy reports message formatting
+    msgFormatSexp = "sexp" ## sexp legacy reports message formatting
+
 type
   ConfNoteSet* = enum
     cnCurrent ## notes after resolving all logic(defaults,

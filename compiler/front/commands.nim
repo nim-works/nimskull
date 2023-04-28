@@ -42,8 +42,6 @@ import
   compiler/front/[
     options,
     msgs,
-    cli_reporter,
-    sexp_reporter
   ],
   compiler/backend/[
     extccomp
@@ -57,6 +55,7 @@ import
     platform
   ]
 
+from compiler/front/in_options import MsgFormatKind
 
 from compiler/ast/ast import setUseIc
 
@@ -971,14 +970,6 @@ proc processSwitch*(switch, arg: string, pass: TCmdLinePass, info: TLineInfo;
     of "legacyrelproj": conf.filenameOption = foLegacyRelProj
     else:
       conf.localReport(info, invalidSwitchValue @["abs", "canonical", "legacyRelProj"])
-  of "msgformat":
-    case arg.normalize:
-      of "text":
-        conf.setReportHook cli_reporter.reportHook
-      of "sexp":
-        conf.setReportHook sexp_reporter.reportHook
-      else:
-        conf.localReport(info, invalidSwitchValue @["text", "sexp"])
   of "processing":
     incl(conf, cnCurrent, rsemProcessing)
     incl(conf, cnMainPackage, rsemProcessing)
@@ -1312,6 +1303,17 @@ proc processCmdLine*(pass: TCmdLinePass, cmd: string; config: ConfigRef) =
         # deprecate/make it a switch for the help sub-command
         expectNoArg(config, p.key, p.val, passCmd1, gCmdLineInfo)
         writeFullhelp(config)
+      of "msgformat":
+        expectArg(config, p.key, p.val, passCmd1, gCmdLineInfo)
+        case p.val.normalize
+        of "text": config.setMsgFormat(config, msgFormatText)
+        of "sexp": config.setMsgFormat(config, msgFormatSexp)
+        else: config.localReport(gCmdLineInfo):
+                ExternalReport(
+                  kind: rextInvalidValue,
+                  cmdlineProvided: p.val,
+                  cmdlineAllowed: @["text", "sexp"],
+                  cmdlineSwitch: p.key)
       else:
         if p.key == "": # `-` was passed to indicate main project is stdin
           p.key = "-"
