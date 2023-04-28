@@ -2346,7 +2346,15 @@ proc genSymAsgn(c: var TCtx, le, ri: PNode) =
       # if the location is backed by a register (i.e., is not in stored
       # in a memory cell), we don't use a temporary register + assignment
       # but directly write to the destination register
-      gen(c, ri, local(c.prc, s))
+      # XXX: we can't. If the right-hand side is a call and it raises an
+      #      exception, the way the VM currently implements ``IndCallAsgn``
+      #      would result in the local's register becoming uninitialized. In
+      #      other words, we have to also use a temporary here, at least until
+      #      the VM no longer clears out the destination register
+      #gen(c, ri, local(c.prc, s))
+      let b = c.genx(ri)
+      c.gABC(le, whichAsgnOpc(le), dest, b)
+      c.freeTemp(b)
     else:
       # an assignment is required to the local. Views are always stored as
       # handles in this case, so a register move is used for assigning them
