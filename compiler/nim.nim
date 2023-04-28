@@ -83,15 +83,6 @@ proc handleCmdLine(cache: IdentCache; conf: ConfigRef): CmdLineHandlingResult =
       conf.errorCounter != 0:
     return
 
-  proc mainCmdEvtHandler(evt: MainCmdEvt) =
-    # TODO: finish implementing me
-    case evt.kind
-    of mainEvtCmdOutput:
-      echo "kind: ", evt.kind, " subkind: ", evt.output.kind
-    of mainEvtCmdProgress: echo "kind: ", evt.kind, " subkind: ", evt.progress.kind
-    of mainEvtUserProf: echo "kind: ", evt.kind, " subkind: ", evt.userProf.kind
-    of mainEvtInternalDbg: echo "kind: ", evt.kind, " subkind: ", evt.internalDbg.kind
-
   let res = mainCommand(graph)
   case res.kind
   of mainResultSuccess: discard

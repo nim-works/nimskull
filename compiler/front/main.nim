@@ -147,82 +147,6 @@ type
         genDepCmd*: string
         genDepExitCode*: int
 
-  MainEvtHandler* = proc (evt: MainCmdEvt)
-    ## `mainCommand` will send all events to this callback
-
-  # TODO: drop `mainEvtCmdOutput`, it's not an event, the command should just
-  #       emit through a thin API layer. The layers only job is to abstract
-  #       over CLI, compiler as a service, browser, and if we want to entertain
-  #       all output conversion to s-exp or the like, then we should wrap the
-  #       raw output in a light s-exp string and be done with it.
-
-  MainEvtKind* = enum
-    ## kinds of events that `mainCommand` may send
-    mainEvtCmdOutput   ## a command's primary output, e.g. dump's data dump
-    mainEvtCmdProgress ## a command's status, e.g. build success message
-    mainEvtUserProf    ## user requested profiling output
-    mainEvtInternalDbg ## compiler developer output, this *must* get to them
-
-  MainCmdEvt* = object
-    ## the data type representing the event sent by `mainCommand`
-    srcCodeOrigin*: InstantiationInfo 
-      ## where in the compiler source it was instantiated, cheaper than a trace
-    case kind*: MainEvtKind:
-      ## kind of event; to avoid name conflicts each variant embeds a type
-      of mainEvtCmdOutput:   output*: MainEvtCmdOutput
-      of mainEvtCmdProgress: progress*: MainEvtCmdProgress
-      of mainEvtUserProf:    userProf*: MainEvtUserProf
-      of mainEvtInternalDbg: internalDbg*: MainEvtInternalDbg
-
-  MainEvtCmdOutputKind* = enum
-    ## kinds of command output; not quite an event
-    mainEvtCmdOutputDump
-
-  MainEvtCmdProgressKind* = enum
-    ## kinds of command progress events
-    mainEvtCmdProgressExecStart
-    mainEvtCmdProgressSuccessX
-
-  MainEvtUserProfKind* = enum
-    ## kinds of user requested profiling data
-    mainEvtUserProfVm
-
-  MainEvtInternalDbgKind* = enum
-    ## kinds of compiler development debug data
-    mainEvtInternalDbgRopeStats
-    mainEvtInternalDbgUnreportedErrors
-
-  MainEvtCmdOutput* = object
-    ## command is outputing data
-    case kind*: MainEvtCmdOutputKind:
-      of mainEvtCmdOutputDump:
-        dumpFormatJson*: bool
-        dumpData*: InternalStateDump
-
-  MainEvtCmdProgress* = object
-    ## command indicating its progress/that of a sub-task
-    case kind*: MainEvtCmdProgressKind:
-      of mainEvtCmdProgressExecStart:
-        execCmd*: string
-      of mainEvtCmdProgressSuccessX:
-        successXUsedBuildParam*: UsedBuildParams
-
-  MainEvtUserProf* = object
-    ## command is producing user requested profiling data
-    case kind*: MainEvtUserProfKind:
-      of mainEvtUserProfVm:
-        discard # use `ConfigRef.vmProfileData`; xxx: should we query?
-
-  MainEvtInternalDbg* = object
-    ## command is pushing internal debug information that _must_ be shown
-    case kind*: MainEvtInternalDbgKind:
-      of mainEvtInternalDbgRopeStats:
-        ropeStatsCacheTries*: int
-        ropeStatsCacheMisses*: int
-        ropeStatsCacheIntTries*: int
-      of mainEvtInternalDbgUnreportedErrors:
-        unreportedErrors*: OrderedTable[NodeId, PNode]
-
 when defined(nimDebugUnreportedErrors):
   proc writeAndResetUnreportedErrors(conf: ConfigRef) =
     if conf.unreportedErrors.len > 0:
@@ -521,7 +445,6 @@ proc `$`(params: UsedBuildParams): string =
       #[9]# suffix
     ]
 
-# proc mainCommand*(graph: ModuleGraph, evtHandler: MainEvtHandler): MainResult =
 proc mainCommand*(graph: ModuleGraph): MainResult =
   ## Execute main compiler command
   let
@@ -647,11 +570,6 @@ proc mainCommand*(graph: ModuleGraph): MainResult =
     let cmd = "dot -Tpng -o$1 $2" %
                 [project.changeFileExt("png").string,
                 project.changeFileExt("dot").string]
-    # evtHandler(MainCmdEvt(srcCodeOrigin: instLoc(),
-    #                       kind: mainEvtCmdProgress,
-    #                       progress: MainEvtCmdProgress(
-    #                                   kind: mainEvtCmdProgressExecStart,
-    #                                   execCmd: cmd)))
     conf.logExecStart(cmd)
     let code = execCmd(cmd)
     if code != 0:
