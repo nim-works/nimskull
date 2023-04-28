@@ -1161,6 +1161,20 @@ proc logGcStats*(conf: ConfigRef, stats: string, srcLoc = instLoc()) =
   if optCmdExitGcStats in conf.globalOptions:
     conf.writeLog(stats, srcLoc)
 
+proc logExecStart*(conf: ConfigRef, cmd: string, srcLoc = instLoc()) =
+  ## use when a command invocation begins a shell exec as part of its
+  ## operations; not currently meant for shell execs initiated by input source
+  ## code or scripts.
+  # xxx: maybe allow configurable command action logging
+  if conf.verbosity > compVerbosityDefault:
+    conf.writeLog(cmd, srcLoc)
+
+proc logError*(conf: ConfigRef, msg: string, srcLoc = instLoc()) =
+  ## logs and error message, typically this means writing to console, and bumps
+  ## the error counter in `ConfigRef` to ensure a non-zero exit code.
+  inc conf.errorCounter
+  writeLog(conf, msg, srcLoc)
+
 proc processArgument*(pass: TCmdLinePass; p: OptParser;
                       argsCount: var int; config: ConfigRef): bool =
   if argsCount == 0:
@@ -1240,6 +1254,7 @@ func cliMsgLede(data: CliData): string {.inline.} =
   ]
 
 func helpOnErrorMsg*(conf: ConfigRef): string =
+  # TODO: rename this, it's just the usage.
   cliMsgLede(cliData) & Usage
 
 proc writeHelp(conf: ConfigRef) =

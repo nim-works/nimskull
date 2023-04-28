@@ -419,7 +419,7 @@ proc execWithEcho(conf: ConfigRef; cmd: string, execKind: ReportKind): int =
   conf.localReport(CmdReport(kind: execKind, cmd: cmd))
   result = execCmd(cmd)
 
-proc execExternalProgram*(conf: ConfigRef; cmd: string, kind: ReportKind) =
+proc execExternalProgram(conf: ConfigRef; cmd: string, kind: ReportKind) =
   let code = execWithEcho(conf, cmd, kind)
   if code != 0:
     conf.localReport CmdReport(kind: rcmdFailedExecution, cmd: cmd, code: code)
