@@ -2065,34 +2065,34 @@ proc genMagic(c: var TCtx; n: PNode; dest: var TDest; m: TMagic) =
   of mMinI, mMaxI, mAbsI, mDotDot:
     c.genCall(n, dest)
   of mExpandToAst:
-    if n.len != 2:
-      fail(n.info, vmGenDiagBadExpandToAstArgRequired)
-
+    # only transformed ``getAst`` calls that expand templates reach here
     prepare(c, dest, n.typ)
 
     let
-      call = n[1]
-      x = c.getTempRange(call.len, slotTempUnknown)
+      call = n
+      numArgs = call.len - 1
+      x = c.getTempRange(numArgs, slotTempUnknown)
 
     # pass the template symbol as the first argument
     var callee = TDest(x)
-    c.genLit(call[0], c.toNodeCnst(call[0]), callee)
+    c.genLit(call[1], c.toNodeCnst(call[1]), callee)
 
     # the arguments to the template are used as arguments to the
     # `ExpandToAst` operation
-    for i in 1..<call.len:
+    for i in 1..<numArgs:
+      let it = call[i + 1]
       var d = TDest(x+i)
       # small optimization: don't use ``DataToAst` if the argument is
       # already a NimNode
-      if call[i].typ.isNimNode():
-        c.gen(call[i], d)
+      if it.typ.isNimNode():
+        c.gen(it, d)
       else:
         # evaluate the argument and deserialize the result to ``NimNode``
         # AST
-        c.genDataToAst(call[i], d)
+        c.genDataToAst(it, d)
 
-    c.gABC(n, opcExpandToAst, dest, x, call.len)
-    c.freeTempRange(x, call.len)
+    c.gABC(n, opcExpandToAst, dest, x, numArgs)
+    c.freeTempRange(x, numArgs)
   of mSizeOf, mAlignOf, mOffsetOf:
     fail(n.info, vmGenDiagMissingImportcCompleteStruct, m)
 
@@ -3462,7 +3462,6 @@ proc genProc*(c: var TCtx; s: PSym, body: PNode): VmGenResult =
 func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.} =
   let kind =
     case diag.kind
-    of vmGenDiagBadExpandToAstArgRequired: adVmGenBadExpandToAstArgRequired
     of vmGenDiagTooManyRegistersRequired: adVmGenTooManyRegistersRequired
     of vmGenDiagCannotFindBreakTarget: adVmGenCannotFindBreakTarget
     of vmGenDiagNotUnused: adVmGenNotUnused
@@ -3508,8 +3507,7 @@ func vmGenDiagToAstDiagVmGenError*(diag: VmGenDiag): AstDiagVmGenError {.inline.
         AstDiagVmGenError(
           kind: kind,
           ast: diag.ast)
-      of vmGenDiagBadExpandToAstArgRequired,
-          vmGenDiagTooManyRegistersRequired,
+      of vmGenDiagTooManyRegistersRequired,
           vmGenDiagCannotFindBreakTarget:
         AstDiagVmGenError(kind: kind)
  

@@ -413,7 +413,6 @@ func astDiagVmGenToLegacyReportKind*(
   of adVmGenCodeGenGenericInNonMacro: rvmCannotGenerateCode
   of adVmGenCodeGenUnexpectedSym: rvmCannotGenerateCode
   of adVmGenCannotCast: rvmCannotCast
-  of adVmGenBadExpandToAstArgRequired: rvmBadExpandToAst
   of adVmGenCannotEvaluateAtComptime: rvmCannotEvaluateAtComptime
   of adVmGenCannotImportc: rvmCannotImportc
   of adVmGenInvalidObjectConstructor: rvmInvalidObjectConstructor

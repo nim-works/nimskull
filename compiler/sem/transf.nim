@@ -814,6 +814,56 @@ proc transformArrayAccess(c: PTransf, n: PNode): PNode =
     for i in 0..<n.len:
       result[i] = transform(c, skipConv(n[i]))
 
+proc transformExpandToAst(c: PTransf, n: PNode): PNode =
+  ## Transforms a ``getAst`` call expression to a representation that's easier
+  ## to process by ``mirgen``. The argument expression is expanded into the
+  ## argument list of ``getAst``, like so:
+  ##
+  ## .. code-block:: nim
+  ##
+  ##   getAst(templ(a, b))
+  ##   # gets transformed to:
+  ##   getAst(templ, a, b)
+  ##
+  assert n.kind in nkCallKinds
+  assert n.len == 2
+
+  # XXX: ``genAst(templ(x))`` (where `templ` is a template) could be
+  #      transformed into:
+  #
+  #        mExpandToAst( NimNodeLit(Sym "templ"), Call( Sym "toNimNode", Sym "x") )
+  #
+  #      during semantic analysis. The above expression is semantically
+  #      equivalent to what currently happens, but it would move decision
+  #      making out of both ``mirgen``, ``vmgen``, and the VM. In addition, the
+  #      semantics become encoded in the AST. ``toNimNode`` would be a magic
+  #      procedure that does the same thing as ``opcDataToAst`` (i.e. turn a
+  #      run-time value into its ``NimNode`` representation)
+
+  let
+    call = n[1]
+    fntyp = call[0].typ ## the signature of the macro/template
+    nimNodeTyp = sysTypeFromName(c.graph, n.info, "NimNode")
+
+  result = copyNode(n)
+  result.sons.setLen(1 + call.len)
+  result[0] = n[0]    # the ``getAst`` symbol
+  result[1] = call[0] # the callee symbol
+
+  for i in 1..<call.len:
+    let it = call[i]
+
+    if it.kind == nkSym and it.sym.kind in {skMacro, skTemplate}:
+      # special case them here so that the following processing doesn't have
+      # to -- these are AST values, *not* normal symbols
+      result[i + 1] = newTreeIT(nkNimNodeLit, it.info, nimNodeTyp): it
+    elif it.typ.skipTypes(abstractInst - {tyTypeDesc}).kind == tyTypeDesc:
+      # the expression is a type expression, don't attempt to transform it.
+      # ``mirgen`` will fold it into a type literal
+      result[i + 1] = it
+    else:
+      result[i + 1] = transform(c, it)
+
 proc getMergeOp(n: PNode): PSym =
   case n.kind
   of nkCall, nkHiddenCallConv, nkCommand, nkInfix, nkPrefix, nkPostfix,
@@ -868,6 +918,8 @@ proc transformCall(c: PTransf, n: PNode): PNode =
     result = transformSons(c, n[1])
   elif magic == mStrToStr:
     result = transform(c, n[1])
+  elif magic == mExpandToAst:
+    result = transformExpandToAst(c, n)
   else:
     let s = transformSons(c, n)
     # bugfix: check after 'transformSons' if it's still a method call:
