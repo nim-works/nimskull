@@ -901,10 +901,6 @@ type
     rdbgVmExecTraceMinimal
     rdbgVmCodeListing
 
-    rdbgStartingConfRead
-    rdbgFinishedConfRead
-    rdbgCfgTrace
-
     rdbgOptionsPush
     rdbgOptionsPop
 

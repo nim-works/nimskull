@@ -13,11 +13,7 @@ import
   compiler/ast/[
     report_enums,
     reports_base,
-  ],
-  compiler/utils/[
-    platform,
   ]
-
 
 type
   UsedBuildParams* = object

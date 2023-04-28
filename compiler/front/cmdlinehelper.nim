@@ -42,7 +42,6 @@ from compiler/ast/reports_lexer import LexerReport
 from compiler/ast/reports_parser import ParserReport
 from compiler/ast/reports_internal import InternalReport
 from compiler/ast/reports_external import ExternalReport
-from compiler/ast/reports_debug import DebugReport
 from compiler/ast/report_enums import ReportKind
 from compiler/ast/reports import Report,
   ReportCategory,
@@ -81,16 +80,10 @@ proc handleConfigEvent(
       rlexCfgInvalidDirective
     of cekWriteConfig:
       rintNimconfWrite
-    of cekDebugTrace:
-      rdbgCfgTrace
     of cekInternalError:
       rintIce
     of cekLexerErrorDiag, cekLexerWarningDiag, cekLexerHintDiag:
       evt.lexerDiag.kind.lexDiagToLegacyReportKind
-    of cekDebugReadStart:
-      rdbgStartingConfRead
-    of cekDebugReadStop:
-      rdbgFinishedConfRead
     of cekProgressConfStart:
       rextConf
 
@@ -138,21 +131,6 @@ proc handleConfigEvent(
             reportInst: evt.instLoc.toReportLineInfo,
             msg: evt.msg,
             kind: kind))
-      of rdbgCfgTrace:
-        Report(
-          category: repDebug,
-          debugReport: DebugReport(
-            location: std_options.some evt.location,
-            reportInst: evt.instLoc.toReportLineInfo,
-            kind: kind,
-            str: evt.msg))
-      of rdbgStartingConfRead, rdbgFinishedConfRead:
-        Report(
-          category: repDebug,
-          debugReport: DebugReport(
-            reportInst: evt.instLoc.toReportLineInfo,
-            kind: kind,
-            filename: evt.msg))
       of rextConf:
         Report(
           category: repExternal,

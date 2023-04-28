@@ -41,7 +41,6 @@ import
   ]
 
 # xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_internal import InternalReport
 from compiler/ast/reports_external import ExternalReport
 from compiler/ast/report_enums import ReportKind
 

@@ -46,10 +46,6 @@ import
 
 from compiler/vm/vmlegacy import legacyReportsVmTracer
 
-# xxx: reports are a code smell meaning data types are misplaced
-from compiler/ast/reports_debug import DebugReport
-from compiler/ast/report_enums import ReportKind
-
 # we support 'cmpIgnoreStyle' natively for efficiency:
 from std/strutils import cmpIgnoreStyle, contains
 
@@ -65,10 +61,10 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
 
   proc listDirs(a: VmArgs, filter: set[PathComponent]) =
     let dir = getString(a, 0)
-    var result: seq[string] = @[]
+    var res: seq[string] = @[]
     for kind, path in walkDir(dir):
-      if kind in filter: result.add path
-    writeTo(result, a.getResultHandle(), a.mem[])
+      if kind in filter: res.add path
+    writeTo(res, a.getResultHandle(), a.mem[])
 
   # captured vars:
   var
@@ -189,10 +185,6 @@ proc setupVM*(module: PSym; cache: IdentCache; scriptName: string;
 
 proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
                    freshDefines=true; conf: ConfigRef, stream: PLLStream) =
-  conf.localReport DebugReport(
-    kind: rdbgStartingConfRead,
-    filename: scriptName.string)
-
   conf.symbolFiles = disabledSf
 
   let graph = newModuleGraph(cache, conf)
@@ -229,7 +221,3 @@ proc runNimScript*(cache: IdentCache; scriptName: AbsoluteFile;
   discard graph.processModule(m, vm.idgen, stream)
 
   undefSymbol(conf, "nimscript")
-
-  conf.localReport DebugReport(
-    kind: rdbgFinishedConfRead,
-    filename: scriptName.string)

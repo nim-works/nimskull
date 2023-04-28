@@ -3,6 +3,7 @@ discard """
   joinable: false
 """
 
+## xxx: this test will likely be entirely dropped along with legacy reports
 ## Unit tests for command line and configuration file processing. Tests are
 ## separated into three stages, mirroring number of steps that are done by
 ## compiler to process the configuration.
@@ -92,59 +93,3 @@ block fist_pass_tests:
     ])
 
     assertInter(repHintKinds * conf.notes, {rintMsgOrigin})
-
-const dir = currentSourcePath().parentDir()
-
-template assertEq[T](a, b: T) =
-  doAssert a == b, $a & " != " & $b
-
-block first_and_cfg_pass:
-  const
-    parent = dir / "cfg_processing/parent_directory/project_directory"
-    file = parent / "project_file.nim"
-    confread = {rdbgFinishedConfRead, rdbgStartingConfRead}
-
-  proc getTraces(): tuple[reads, trace: seq[DebugReport]] =
-    for r in getReports():
-      case r.kind:
-        of rdbgStartingConfRead:
-          result.reads.add r.debugReport
-        of rdbgCfgTrace:
-          result.trace.add r.debugReport
-        else:
-          discard
-
-  block:
-    var conf = cfgPass(file, @["compile"])
-
-    assertEq(conf.projectName, "project_file")
-    assertEq(conf.projectFull.string, file)
-    assertEq(conf.projectPath.string, parent)
-
-    let (reads, trace) = getTraces()
-
-    conf.filenameOption = foCanonical
-
-    let cfgFiles = reads.mapIt(it.filename).filterIt(
-      # Parent configuration file read is not disabled, so filtering out
-      # any unwanted interference such as `nimskull/nim.cfg`,
-      # `tests/config.nims`
-      "cfg_processing" in it
-    )
-
-    assertEq(cfgFiles, @[
-      dir / "cfg_processing/nim.cfg",
-      dir / "cfg_processing/parent_directory/nim.cfg",
-      dir / "cfg_processing/parent_directory/project_directory/nim.cfg",
-      dir / "cfg_processing/parent_directory/project_directory/project_file.nim.cfg"
-    ])
-
-    assertEq(trace.mapIt(it.str), @[
-      "parent+2 config",
-      "parent+1 config",
-      "default project configuration file",
-      "project-specific configuration file"
-    ])
-
-  block:
-    var conf = cfgPass(file, @["compile"])

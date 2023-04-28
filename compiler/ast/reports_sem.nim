@@ -268,9 +268,6 @@ type
       of rdbgTraceLine, rdbgTraceStart:
         ctraceData*: tuple[level: int, entries: seq[StackTraceEntry]]
 
-      of rdbgStartingConfRead, rdbgFinishedConfRead:
-        filename*: string
-
       else:
         discard
 

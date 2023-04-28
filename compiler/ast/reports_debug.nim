@@ -59,12 +59,6 @@ type
           entries: seq[DebugVmCodeEntry]
         ]
 
-      of rdbgStartingConfRead, rdbgFinishedConfRead:
-        filename*: string
-
-      of rdbgCfgTrace:
-        str*: string
-
       else:
         discard
 

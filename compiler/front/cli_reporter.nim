@@ -3124,15 +3124,6 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
       tern(exec.rc == rkNone, "", $exec.rc)
     )
 
-  of rdbgFinishedConfRead:
-    result = "finished configuration file read $1" % r.filename
-
-  of rdbgStartingConfRead:
-    result = "starting configuration file read $1" % r.filename
-
-  of rdbgCfgTrace:
-    result = "cfg trace '" & r.str & "'"
-
   of rdbgVmCodeListing:
     result.add "Code listing"
     let l = r.vmgenListing
@@ -3186,18 +3177,12 @@ proc reportBody*(conf: ConfigRef, r: DebugReport): string =
 
 proc reportFull*(conf: ConfigRef, r: DebugReport): string =
   assertKind r
-  case r.kind
-  of rdbgCfgTrace:
-    result.add(prefix(conf, r), reportBody(conf, r), suffix(conf, r))
-  else:
-    result = reportBody(conf, r)
+  result = reportBody(conf, r)
 
 proc reportShort*(conf: ConfigRef, r: DebugReport): string =
   # mostly created for nimsuggest
   assertKind r
   result = reportBody(conf, r)
-  if r.kind == rdbgCfgTrace:
-    result.add suffixShort(conf, r)
 
 proc reportBody*(conf: ConfigRef, r: BackendReport): string  =
   assertKind r
