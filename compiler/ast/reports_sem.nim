@@ -87,6 +87,13 @@ type
           unsafeRelation: SemGcUnsafetyKind,
         ]
 
+      of rsemDeprecatedCompilerOptArg:
+        compilerOptArg*: string
+
+      of rsemCompilerOptionArgInvalid:
+        badCompilerOptArg*: string
+        allowedOptArgs*: seq[string]
+
       of rsemHasSideEffects:
         sideEffectTrace*: seq[tuple[isUnsafe: PSym,
                                     unsafeVia: PSym,
