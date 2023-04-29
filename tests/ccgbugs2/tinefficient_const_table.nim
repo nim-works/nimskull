@@ -4,7 +4,7 @@ long
 list
 of
 words'''
-  cmd: r"nim c --hints:on $options -d:release $file"
+  matrix: "-d:release --gc:refc"
   ccodecheck: "! @'genericSeqAssign'"
   targets: "c"
 """
